@@ -39,10 +39,12 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <PublicModuleDirectories>
     </PublicModuleDirectories>
+    <IncludePath>$(MSBuildProjectDirectory)\..;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <PublicModuleDirectories>
     </PublicModuleDirectories>
+    <IncludePath>$(MSBuildProjectDirectory)\..;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />

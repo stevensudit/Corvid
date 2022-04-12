@@ -1,5 +1,6 @@
 # corvid
-Corvid: C++ Utilities
+Corvid: A general-purpose C++ library extending std.
+
 Copyright 2022 Steven Sudit
 
 Licensed under the Apache License, Version 2.0(the "License");

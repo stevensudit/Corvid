@@ -1,3 +1,6 @@
+// Corvid: A general-purpose C++ library extending std.
+// https://github.com/stevensudit/Corvid
+//
 // Copyright 2022 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0(the "License");
@@ -12,10 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "pch.h"
+#include <LibCorvid/includes/Meta.h>
+
 #include <map>
 #include <optional>
-
-#include "Meta.h"
 
 using namespace std::literals;
 using namespace corvid;
