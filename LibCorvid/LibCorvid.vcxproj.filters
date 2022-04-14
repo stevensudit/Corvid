@@ -36,6 +36,9 @@
     <ClInclude Include="includes\Bitmask.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="includes\CStringView.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="LibCorvid.cpp">

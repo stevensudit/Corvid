@@ -52,6 +52,7 @@
   <ItemGroup>
     <ClCompile Include="BitmaskTest.cpp" />
     <ClCompile Include="ContainersTest.cpp" />
+    <ClCompile Include="CStringViewTest.cpp" />
     <ClCompile Include="MetaTest.cpp" />
     <ClCompile Include="OptionalPtrTest.cpp" />
     <ClCompile Include="StringUtilsTest.cpp" />
