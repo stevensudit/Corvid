@@ -20,36 +20,131 @@
 #include <string>
 #include <type_traits>
 #include <cstdint>
+#include <optional>
+#include <cctype>
+#include <algorithm>
+#include <iostream>
 
 #include "Meta.h"
 #include "Bitmask.h"
 
-// Recommendation: Import the `corvid` namespace, but not `corvid::strings`,
-// allowing you to make calls like `strings::concat()` while avoiding unwanted
-// symbols, such as `braces_opt`.
+// Recommendation: While you can import the entire `corvid::strings` namespace,
+// you may not want to bring in all of these symbols, or you may wish to do so
+// more selectively.
+//
+// The way to do that is to import just `corvid` and then reference symbols
+// through the `strings` namespace, such as `strings::trim("a ")`. You can also
+// choose to import the inline namespace for that group of symbols, such as
+// `corvid::trimming`.
 namespace corvid::strings {
+
 using namespace std::literals;
+constexpr size_t npos = -1;
+
+inline namespace cpp20 {
+
+//
+// C++20 emulators
+//
 
 // Emulates C++20's `std::string_view::starts_with`.
-constexpr [[nodiscard]] bool starts_with(std::string_view whole,
-    std::string_view part) noexcept {
+constexpr [[nodiscard]] bool
+starts_with(std::string_view whole, std::string_view part) noexcept {
   return whole.compare(0, part.size(), part) == 0;
 }
 
 // Emulates C++20's `std::string_view::ends_with`.
-constexpr [[nodiscard]] bool ends_with(std::string_view whole,
-    std::string_view part) noexcept {
+constexpr [[nodiscard]] bool
+ends_with(std::string_view whole, std::string_view part) noexcept {
   if (whole.size() < part.size()) return false;
   return whole.compare(whole.size() - part.size(), part.size(), part) == 0;
 }
 
+} // namespace cpp20
+inline namespace cases {
+
+//
+// Case change.
+//
+
+// Convert to uppercase.
+constexpr void to_upper(std::string& s) {
+  std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
+    return std::toupper(c);
+  });
+}
+
+// Return as uppercase.
+constexpr [[nodiscard]] std::string as_upper(std::string_view sv) {
+  std::string s{sv};
+  to_upper(s);
+  return s;
+}
+
+// Convert to lowercase.
+constexpr void to_lower(std::string& s) {
+  std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
+    return std::tolower(c);
+  });
+}
+
+// Return as lowercase.
+constexpr [[nodiscard]] std::string as_lower(std::string_view sv) {
+  std::string s{sv};
+  to_lower(s);
+  return s;
+}
+
+} // namespace cases
+inline namespace search_and {
+
+//
+// Search and Replace
+//
+
+// Return whether `value` was found in `s` at `ndx`, updating `ndx`.
+template<typename T>
+constexpr bool found_next(size_t& ndx, std::string_view s, const T& value) {
+  return (ndx = s.find(value, ndx)) != npos;
+}
+
+// Replace instances of old value with new value, returning count of
+// replacements.
+constexpr size_t
+replace(std::string& s, std::string_view from, std::string_view to) {
+  size_t cnt{};
+  for (size_t ndx = 0; found_next(ndx, s, from); ndx += to.size()) {
+    ++cnt;
+    s.replace(ndx, from.size(), to);
+  }
+  return cnt;
+}
+
+// Replace instances of old value with new value, returning count of
+// replacements.
+constexpr size_t replace(std::string& s, char old_value, char new_value) {
+  size_t cnt{};
+  for (size_t ndx = 0; found_next(ndx, s, old_value); ++ndx) {
+    ++cnt;
+    s[ndx] = new_value;
+  }
+  return cnt;
+}
+
+} // namespace search_and
+inline namespace delimiting {
+
+//
+// Delimiter
+//
+
 // Delimiter wrapper.
 //
 // This class is not intended for use outside of this header. While it provides
-// some utility, it is very limited, and the primary purpose is to document the
-// delimiter parameters with a type.
+// some utility, it is very limited and internal. The primary external purpose
+// is to document the delimiter parameters with a distinct type.
 //
-// The precise meaning varies depending upon context:
+// The precise usage varies depending upon context:
 // - When splitting, checks for any of the characters.
 // - When joining, appends the entire string.
 // - When manipulating braces, treated as open/close pair.
@@ -74,20 +169,287 @@ struct Delim: public std::string_view {
     return whole.find_last_not_of(*this);
   }
 
-  template<bool show = true>
-  constexpr auto& append_join_to(std::string& target) const {
-    if constexpr (show)
+  enum class emit { prevent, allow, force };
+
+  // Append when `allow` and the `target` isn't empty, or when `force`.
+  template<auto e = emit::allow>
+  constexpr auto& append_maybe(std::string& target) const {
+    if constexpr (e == emit::force)
+      target.append(*this);
+    else if constexpr (e == emit::allow) {
       if (!target.empty()) target.append(*this);
+    }
     return target;
   }
 };
+
+} // namespace delimiting
+inline namespace streaming {
+
+//
+// Streaming
+//
+
+// Lightweight streaming wrappers to avoid having to constantly type
+// `std::cout <<` and `<< std::endl`, providing a small amount of additional
+// utility.
+
+template<typename... Args>
+constexpr auto& stream_out(std::ostream& os, Args&&... args) {
+  return (os << ... << args);
+}
+
+template<typename Head, typename... Tail>
+constexpr auto& stream_out_with(std::ostream& os, const Delim& delim,
+    const Head& head, const Tail&... tail) {
+  os << head;
+  return ((os << delim << (tail)), ...);
+}
+
+template<typename... Ts>
+constexpr auto& print(const Ts&... parts) {
+  return stream_out(std::cout, parts...);
+}
+
+template<typename... Ts>
+constexpr auto& print_with(const Delim& delim, const Ts&... parts) {
+  return stream_out_with(std::cout, delim, parts...);
+}
+
+template<typename... Ts>
+constexpr auto& println(const Ts&... parts) {
+  return print(parts...) << '\n';
+}
+
+template<typename... Ts>
+constexpr auto& println_with(const Delim& delim, const Ts&... parts) {
+  return print_with(delim, parts...) << '\n';
+}
+
+template<typename... Ts>
+constexpr auto& log(const Ts&... parts) {
+  return stream_out(std::clog, parts...) << std::endl;
+}
+
+template<typename... Ts>
+constexpr auto& log_if(bool emit, const Ts&... parts) {
+  if (emit) log(parts...);
+  return std::clog;
+}
+
+template<typename... Ts>
+constexpr auto& log_with(const Delim& delim, const Ts&... parts) {
+  return stream_out_with(std::clog, delim, parts...) << std::endl;
+}
+
+// Redirect a standard ostream, `from`, to a different ostream, `to`, during
+// its lifespan.
+class ostream_redirector {
+public:
+  ostream_redirector(std::ostream& from, std::ostream& to)
+      : from_{&from}, rdbuf_{from.rdbuf()} {
+    from.rdbuf(to.rdbuf());
+  }
+
+  ~ostream_redirector() { from_->rdbuf(rdbuf_); }
+
+private:
+  std::ostream* from_;
+  std::streambuf* rdbuf_;
+};
+
+} // namespace streaming
+inline namespace trimming {
+
+//
+// Trim
+//
+
+// Trim whitespace on left, returning part.
+template<typename R = std::string_view>
+constexpr [[nodiscard]] auto
+trim_left(std::string_view whole, const Delim& ws = {}) {
+  auto pos = ws.find_not_in(whole);
+  std::string_view part;
+  if (pos != npos) part = whole.substr(pos);
+  return R{part};
+}
+
+// Trim whitespace on right, returning part.
+template<typename R = std::string_view>
+constexpr [[nodiscard]] auto
+trim_right(std::string_view whole, const Delim& ws = {}) {
+  auto pos = ws.find_last_not_in(whole);
+  auto part = whole.substr(0, pos + 1);
+  return R{part};
+}
+
+// Trim whitespace, returning part.
+template<typename R = std::string_view>
+constexpr [[nodiscard]] auto
+trim(std::string_view whole, const Delim& ws = {}) {
+  return trim_right<R>(trim_left(whole, ws), ws);
+}
+
+// Trim collection in place.
+template<typename T, std::enable_if_t<is_container_v<T>, bool> = true>
+constexpr void trim(T& wholes, const Delim ws = {}) {
+  for (auto& item : wholes) {
+    auto& part = container_element_v(&item);
+    part = trim<std::remove_reference_t<decltype(part)>>(part);
+  }
+}
+
+// Trim a temporary container, passing it through.
+//
+// Ideal for calling directly on the result of split.
+template<typename T, std::enable_if_t<is_container_v<T>, bool> = true>
+constexpr [[nodiscard]] auto&& trim(T&& wholes, const Delim& ws = {}) {
+  trim(wholes, ws);
+  return wholes;
+}
+
+} // namespace trimming
+inline namespace conversion {
+
+//
+// Numerical conversions
+//
+
+// To int.
+
+// Extract integer out of `std::string_view`, setting output parameter.
+//
+// Skips leading white space, accepts leading minus sign, and does not accept
+// "0x" or "0X", even when `base` is 16. (This is true for all of these related
+// functions.)
+//
+// On success, sets output value, removes parsed characters from the string,
+// and returns true.
+//
+// On failure, leaves output value alone, possibly removes some characters
+// from the string, and returns false.
+template<int base = 10, typename T,
+    std::enable_if_t<is_integral_number_v<T>, bool> = true>
+bool extract_num(T& t, std::string_view& sv) {
+  sv = trim_left(sv);
+  auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t, base);
+  sv.remove_prefix(ptr - sv.data());
+  return ec == std::errc{};
+}
+
+// Extract integer from `std::string_view`, returning it as `std::optional`.
+//
+// On success, returns optional with value, and removes parsed characters from
+// the string.
+//
+// On failure, returns optional without value, and possibly removes some
+// characters from the string.
+template<typename T = int64_t, int base = 10,
+    std::enable_if_t<is_integral_number_v<T>, bool> = true>
+std::optional<T> extract_num(std::string_view& sv) {
+  T t;
+  return extract_num<base>(t, sv) ? std::make_optional(t) : std::nullopt;
+}
+
+// Parse integer from copy of `std::string_view`, returning it as
+// `std::optional`.
+//
+// On success, returns optional with value.
+//
+// On failure, returns optional without value.
+template<typename T = int64_t, int base = 10,
+    std::enable_if_t<is_integral_number_v<T>, bool> = true>
+std::optional<T> parse_num(std::string_view sv) {
+  return extract_num<base>(sv);
+}
+
+// Parse integer from copy of `std::string_view` with default value.
+//
+// On success, returns parsed value.
+//
+// On failure, returns default value.
+template<typename T = int64_t, int base = 10,
+    std::enable_if_t<is_integral_number_v<T>, bool> = true>
+T parse_num(std::string_view sv, T default_value) {
+  T t;
+  return extract_num<base>(t, sv) ? t : default_value;
+}
+
+// To float.
+
+// Extract floating-point out of `std::string_view`, setting output parameter.
+//
+// Skips leading white space, accepts leading minus sign, and does not accept
+// "0x" or "0X", even when `fmt` is `hex`. (This is true for all of these
+// related functions.)
+//
+// On success, sets output value, removes parsed characters from the string,
+// and returns true.
+//
+// On failure, leaves output value alone, possibly removes some characters from
+// the string, and returns false.
+template<std::chars_format fmt = std::chars_format::general, typename T,
+    std::enable_if_t<is_floating_number_v<T>, bool> = true>
+bool extract_num(T& t, std::string_view& sv) {
+  sv = trim_left(sv);
+  auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t, fmt);
+  sv.remove_prefix(ptr - sv.data());
+  return ec == std::errc{};
+}
+
+// Extract floating-point from `std::string_view`, returning it as
+// `std::optional`.
+//
+// On success, returns optional with value, and removes parsed characters from
+// the string.
+//
+// On failure, returns optional without value, and possibly removes some
+// characters from the string.
+template<typename T, std::chars_format fmt = std::chars_format::general,
+    std::enable_if_t<is_floating_number_v<T>, bool> = true>
+std::optional<T> extract_num(std::string_view& sv) {
+  T t;
+  return extract_num<fmt>(t, sv) ? std::make_optional(t) : std::nullopt;
+}
+
+// Parse floating-point from copy of `std::string_view`, returning it as
+// `std::optional`.
+//
+// On success, returns optional with value.
+//
+// On failure, returns optional without value.
+template<typename T, std::chars_format fmt = std::chars_format::general,
+    std::enable_if_t<is_floating_number_v<T>, bool> = true>
+std::optional<T> parse_num(std::string_view sv) {
+  return extract_num<fmt>(sv);
+}
+
+// Parse floating-point from copy of `std::string_view` with default value.
+//
+// On success, returns parsed value.
+//
+// On failure, returns default value.
+template<typename T, std::chars_format fmt = std::chars_format::general,
+    std::enable_if_t<is_floating_number_v<T>, bool> = true>
+T parse_num(std::string_view sv, T default_value) {
+  T t;
+  return extract_num<fmt>(t, sv) ? t : default_value;
+}
+
+} // namespace conversion
+inline namespace splitting {
+
+//
+// Split
+//
 
 // Extract next delimited piece destructively from `whole`.
 //
 // Specify R as `std::string` to make a deep copy.
 template<typename R = std::string_view>
-constexpr [[nodiscard]] R extract_piece(std::string_view& whole,
-    const Delim& delim = {}) {
+constexpr [[nodiscard]] auto
+extract_piece(std::string_view& whole, const Delim& delim = {}) {
   auto pos = std::min(whole.size(), delim.find_in(whole));
   auto part = whole.substr(0, pos);
   whole.remove_prefix(std::min(whole.size(), pos + 1));
@@ -100,8 +462,8 @@ constexpr [[nodiscard]] R extract_piece(std::string_view& whole,
 //
 // Specify R as `std::string` to make a deep copy.
 template<typename R>
-constexpr [[nodiscard]] bool more_pieces(R& part, std::string_view& whole,
-    const Delim& delim = {}) {
+constexpr [[nodiscard]] bool
+more_pieces(R& part, std::string_view& whole, const Delim& delim = {}) {
   auto all = whole.size();
   part = extract_piece<R>(whole, delim);
   return part.size() != all;
@@ -109,10 +471,12 @@ constexpr [[nodiscard]] bool more_pieces(R& part, std::string_view& whole,
 
 // Split all pieces by delimiters and return parts in vector.
 //
+// Keeps any empty parts.
+//
 // Specify R as `std::string` to make a deep copy.
 template<typename R = std::string_view>
-constexpr [[nodiscard]] auto split(std::string_view whole,
-    const Delim& delim = {}) {
+constexpr [[nodiscard]] auto
+split(std::string_view whole, const Delim& delim = {}) {
   std::vector<R> parts;
   std::string_view part;
   for (bool more = !whole.empty(); more;) {
@@ -124,55 +488,18 @@ constexpr [[nodiscard]] auto split(std::string_view whole,
 }
 
 // Split a temporary string by delimiters, making deep copies of the parts.
-constexpr [[nodiscard]] auto split(std::string&& whole,
-    const Delim& delim = {}) {
+constexpr [[nodiscard]] auto
+split(std::string&& whole, const Delim& delim = {}) {
   return split<std::string>(std::string_view(whole), delim);
 }
 
-// Trim whitespace on left, returning part.
-template<typename R = std::string_view>
-constexpr [[nodiscard]] auto trim_left(std::string_view whole,
-    const Delim& ws = {}) {
-  auto pos = ws.find_not_in(whole);
-  std::string_view part;
-  if (pos != -1) part = whole.substr(pos);
-  return R{part};
-}
+} // namespace splitting
+inline namespace appending {
 
-// Trim whitespace on right, returning part.
-template<typename R = std::string_view>
-constexpr [[nodiscard]] auto trim_right(std::string_view whole,
-    const Delim& ws = {}) {
-  auto pos = ws.find_last_not_in(whole);
-  auto part = whole.substr(0, pos + 1);
-  return R{part};
-}
-
-// Trim whitespace, returning part.
-template<typename R = std::string_view>
-constexpr [[nodiscard]] auto trim(std::string_view whole,
-    const Delim& ws = {}) {
-  return trim_right<R>(trim_left(whole, ws), ws);
-}
-
-// Trim vector in place.
-template<typename S>
-constexpr void trim(std::vector<S>& wholes, const Delim& ws = {}) {
-  for (auto& whole : wholes) whole = trim<S>(whole, ws);
-}
-
-// Trim a temporary vector, passing it through.
 //
-// Ideal for calling directly on the result of split.
-template<typename S>
-constexpr [[nodiscard]] auto&& trim(std::vector<S>&& wholes,
-    const Delim& ws = {}) {
-  trim(wholes, ws);
-  return wholes;
-}
-
-// Append/Concat.
+// Append, Concat, and Join
 //
+
 // The `append`, `append_join`, and `append_join_with` functions take a
 // `target` string as the first parameter and append the rest to it.
 //
@@ -185,8 +512,9 @@ constexpr [[nodiscard]] auto&& trim(std::vector<S>&& wholes,
 // to a comma with a space.
 //
 // All of the joining function can have `braces_opt` specified to control
-// whether container elements are surrounded with appropriate braces; see below
-// for description.
+// whether container elements are surrounded with appropriate braces and
+// whether a delimiter should be emitted at the start; see enum definition
+// below for description.
 //
 // The supported types for the pieces include: `std::string`,
 // `std::string_view`, `char*`, `char`, `bool`, `int`, `double`, `enum`, and
@@ -199,7 +527,7 @@ constexpr [[nodiscard]] auto&& trim(std::vector<S>&& wholes,
 //
 // In addition to `int` and `double`, all other native numeric types are
 // supported, and pointers are shown in hex. Any other type can be supported by
-// adding your own overload of `append` (and, if it should support internal
+// adding your own overload of `append` (and, if it needs to support internal
 // delimiters, `append_join_with`).
 
 // Append one stringlike thing to `target`.
@@ -264,14 +592,16 @@ constexpr auto& append(std::string& target, const T& part) {
   return append(target, static_cast<std::underlying_type_t<T>>(part));
 }
 
-// Append one container, as its element values, to `target`.
+// Append one container, as its element values, to `target` without
+// delimiters. See `append_join_with` for delimiter support.
 template<typename T, std::enable_if_t<is_container_v<T>, bool> = true>
 constexpr auto& append(std::string& target, const T& parts) {
   for (auto& part : parts) append(target, container_element_v(&part));
   return target;
 }
 
-// Append pieces to `target`.
+// Append pieces to `target` without delimiters. See `append_join_with` for
+// delimiter support.
 template<typename Head, typename Middle, typename... Tail>
 constexpr auto& append(std::string& target, const Head& head,
     const Middle& middle, const Tail&... tail) {
@@ -280,7 +610,8 @@ constexpr auto& append(std::string& target, const Head& head,
   return target;
 }
 
-// Append one `std::tuple` or `std::pair`, as its elements, to `target`.
+// Append one `std::tuple` or `std::pair`, as its elements, to `target` without
+// delimiters. See `append_join_with` for delimiter support.
 template<template<typename...> typename T, typename... Ts,
     std::enable_if_t<is_tuple_equiv_v<T<Ts...>>, bool> = true>
 constexpr auto& append(std::string& target, const T<Ts...>& parts) {
@@ -292,7 +623,8 @@ constexpr auto& append(std::string& target, const T<Ts...>& parts) {
   return target;
 }
 
-// Concatenate pieces together into `std::string`.
+// Concatenate pieces together into `std::string` without delimiters. See
+// `join` and `join_with` for delimiter support.
 template<typename Head, typename... Tail>
 constexpr [[nodiscard]] auto concat(const Head& head, const Tail&... tail) {
   std::string target;
@@ -300,70 +632,99 @@ constexpr [[nodiscard]] auto concat(const Head& head, const Tail&... tail) {
   return target;
 }
 
+// Make integer into `std::string`.
+template<int base = 10, typename T,
+    std::enable_if_t<is_integral_number_v<T>, bool> = true>
+constexpr [[nodiscard]] auto from_num(const T& t) {
+  std::string target;
+  if constexpr (std::is_same_v<T, char>) {
+    append<base>(target, static_cast<int8_t>(t));
+  } else {
+    append<base>(target, t);
+  }
+  return target;
+}
+
+// Make floating point into `std::string`.
+template<std::chars_format fmt = std::chars_format::general,
+    int precision = -1, typename T,
+    std::enable_if_t<is_floating_number_v<T>, bool> = true>
+constexpr [[nodiscard]] auto from_num(const T& t) {
+  std::string target;
+  append<fmt, precision>(target, t);
+  return target;
+}
+
 namespace details {
 
 // Internal join state flags.
 enum class join_flags {
-  // inside - In nested scope, as opposed to top-level.
-  inside = 1,
-  // brace - Whether to surround containers with braces if inside.
-  brace = 2,
-  // delimit - Whether to prefix with delimiter. False after open brace.
-  delimit = 4
+  // prevent brace - Avoids surrounding containers with braces.
+  prevent_brace = 1,
+  // prevent delimit - Avoids prefixing with delimiter. True after
+  // open brace, but not propagated. Delimiting requires this to be false and
+  // and target to be non-empty (unless delimit_empty).
+  prevent_delimit = 2,
+  // delimit_empty - Avoids checking that target is empty before delimiting.
+  // Does not override `prevent_delimit`. This is primarily an optimization.
+  delimit_empty = 4
 };
 
 } // namespace details
+} // namespace appending
 } // namespace corvid::strings
 
+// Register join_flags as bitmask.
 template<>
-constexpr size_t
-    corvid::bitmask::bit_count_v<corvid::strings::details::join_flags> = 3;
+constexpr size_t corvid::bit_count_v<corvid::strings::details::join_flags> = 3;
 
 namespace corvid::strings {
+inline namespace appending {
 
 // Braces options for join methods.
 enum class braces_opt {
-  // nested - Add braces to nested containers.
-  nested = *(details::join_flags::brace | details::join_flags::delimit),
-  // forced - Force braces at top level, and for nested containers.
-  forced = *(details::join_flags::inside | details::join_flags::brace),
-  // flat - Suppress braces around containers.
-  flat = *(details::join_flags::delimit)
+  // Allow braces around containers.
+  braced,
+  // Prevent braces.
+  flat = *details::join_flags::prevent_brace,
+  // Merge with previous contents of target, skipping leading delimiter.
+  merged = *details::join_flags::prevent_delimit
 };
 
 namespace details {
 
 // Determine whether to add braces.
 template<braces_opt opt, char open, char close>
-constexpr bool braces_v = bitmask::contains(join_flags(opt),
-                              join_flags::brace | join_flags::inside) &&
-                          (open && close);
+constexpr bool braces_v =
+    missing(join_flags(opt), join_flags::prevent_brace) && (open && close);
+
+// Calculate next op for head. If adding braces, don't delimit.
+template<braces_opt opt, bool add_braces>
+constexpr braces_opt head_opt_v = braces_opt(
+    set_to(join_flags(opt), join_flags::prevent_delimit, add_braces));
+
 // Calculate next opt given the previous one.
 template<braces_opt opt>
 constexpr braces_opt next_opt_v = braces_opt(
-    join_flags(opt) | join_flags::inside | join_flags::delimit);
+    join_flags(opt) - join_flags::prevent_delimit + join_flags::delimit_empty);
 
-// Calculate next op for head.
-template<braces_opt next_opt, bool add_braces>
-constexpr braces_opt head_opt_v =
-    add_braces
-        ? braces_opt(bitmask::clear(join_flags(next_opt), join_flags::delimit))
-        : next_opt;
-
-// Determine whether to emit delimiter.
+// Calculate delimit value.
 template<braces_opt opt>
-constexpr bool delimit_v = bitmask::overlaps(join_flags(opt),
-    join_flags::delimit);
+constexpr Delim::emit delimit_v =
+    has(join_flags(opt), join_flags::prevent_delimit) ? Delim::emit::prevent
+    : has(join_flags(opt), join_flags::delimit_empty)
+        ? Delim::emit::force
+        : Delim::emit::allow;
 
 } // namespace details
 
 // Append one piece to `target`, joining with `delim`.
-template<auto opt = braces_opt::nested, char open = 0, char close = 0,
+template<auto opt = braces_opt::braced, char open = 0, char close = 0,
     typename T, std::enable_if_t<!is_container_v<T>, bool> = true>
-constexpr auto& append_join_with(std::string& target, const Delim& delim,
-    const T& part) {
+constexpr auto&
+append_join_with(std::string& target, const Delim& delim, const T& part) {
   constexpr bool add_braces = details::braces_v<opt, open, close>;
-  delim.append_join_to<details::delimit_v<opt>>(target);
+  delim.append_maybe<details::delimit_v<opt>>(target);
   if constexpr (add_braces) append(target, open);
   append(target, part);
   if constexpr (add_braces) append(target, close);
@@ -372,15 +733,15 @@ constexpr auto& append_join_with(std::string& target, const Delim& delim,
 
 // Append one container, as its element values, to `target`, joining with
 // `delim`.
-template<auto opt = braces_opt::nested, char open = '[', char close = ']',
+template<auto opt = braces_opt::braced, char open = '[', char close = ']',
     typename T, std::enable_if_t<is_container_v<T>, bool> = true>
-constexpr auto& append_join_with(std::string& target, const Delim& delim,
-    const T& parts) {
+constexpr auto&
+append_join_with(std::string& target, const Delim& delim, const T& parts) {
   constexpr bool add_braces = details::braces_v<opt, open, close>;
+  constexpr auto head_opt = details::head_opt_v<opt, add_braces>;
   constexpr auto next_opt = details::next_opt_v<opt>;
-  constexpr auto head_opt = details::head_opt_v<next_opt, add_braces>;
   if constexpr (add_braces)
-    append(delim.append_join_to<details::delimit_v<opt>>(target), open);
+    append(delim.append_maybe<details::delimit_v<opt>>(target), open);
 
   if (auto b = std::cbegin(parts), e = std::cend(parts); b != e) {
     append_join_with<head_opt>(target, delim, container_element_v(b));
@@ -395,7 +756,7 @@ constexpr auto& append_join_with(std::string& target, const Delim& delim,
 
 // Append one `std::tuple` or `std::pair`, as its elements, to `target`,
 // joining with `delim`.
-template<auto opt = braces_opt::nested, char open = 0, char close = 0,
+template<auto opt = braces_opt::braced, char open = 0, char close = 0,
     template<typename...> typename T, typename... Ts,
     std::enable_if_t<is_tuple_equiv_v<T<Ts...>>, bool> = true>
 constexpr auto& append_join_with(std::string& target, const Delim& delim,
@@ -427,15 +788,15 @@ constexpr auto& ajwh(std::string& target, const Delim& delim, const Head& head,
 } // namespace details
 
 // Append pieces to `target`, joining with `delim`.
-template<auto opt = braces_opt::nested, char open = '{', char close = '}',
+template<auto opt = braces_opt::braced, char open = 0, char close = 0,
     typename Head, typename... Tail>
 constexpr auto& append_join_with(std::string& target, const Delim& delim,
     const Head& head, const Tail&... tail) {
   constexpr bool add_braces = details::braces_v<opt, open, close>;
+  constexpr auto head_opt = details::head_opt_v<opt, add_braces>;
   constexpr auto next_opt = details::next_opt_v<opt>;
-  constexpr auto head_opt = details::head_opt_v<next_opt, add_braces>;
   if constexpr (add_braces)
-    append(delim.append_join_to<details::delimit_v<opt>>(target), open);
+    append(delim.append_maybe<details::delimit_v<opt>>(target), open);
 
   append_join_with<head_opt>(target, delim, head);
 
@@ -447,10 +808,10 @@ constexpr auto& append_join_with(std::string& target, const Delim& delim,
 }
 
 // Append pieces to `target`, joining with a comma and space delimiter.
-template<auto opt = braces_opt::nested, char open = 0, char close = 0,
+template<auto opt = braces_opt::braced, char open = 0, char close = 0,
     typename Head, typename... Tail>
-constexpr auto& append_join(std::string& target, const Head& head,
-    const Tail&... tail) {
+constexpr auto&
+append_join(std::string& target, const Head& head, const Tail&... tail) {
   if constexpr (details::braces_v<opt, open, close>)
     return append_join_with<opt, open, close>(target, ", "sv, head, tail...);
   else
@@ -458,10 +819,10 @@ constexpr auto& append_join(std::string& target, const Head& head,
 }
 
 // Join pieces together, with `delim`, into `std::string`.
-template<auto opt = braces_opt::nested, char open = 0, char close = 0,
+template<auto opt = braces_opt::merged, char open = 0, char close = 0,
     typename Head, typename... Tail>
-constexpr [[nodiscard]] auto join_with(const Delim& delim, const Head& head,
-    const Tail&... tail) {
+constexpr [[nodiscard]] auto
+join_with(const Delim& delim, const Head& head, const Tail&... tail) {
   std::string target;
   if constexpr (details::braces_v<opt, open, close>)
     append_join_with<opt, open, close>(target, delim, head, tail...);
@@ -471,7 +832,7 @@ constexpr [[nodiscard]] auto join_with(const Delim& delim, const Head& head,
 }
 
 // Join pieces together, comma-delimited, into `std::string`.
-template<auto opt = braces_opt::nested, char open = 0, char close = 0,
+template<auto opt = braces_opt::merged, char open = 0, char close = 0,
     typename Head, typename... Tail>
 constexpr [[nodiscard]] auto join(const Head& head, const Tail&... tail) {
   std::string target;
@@ -482,10 +843,17 @@ constexpr [[nodiscard]] auto join(const Head& head, const Tail&... tail) {
   return target;
 }
 
+} // namespace appending
+inline namespace bracing {
+
+//
+// Braces
+//
+
 // Trim off matching braces, returning part.
 template<typename R = std::string_view>
-constexpr [[nodiscard]] auto trim_braces(std::string_view whole,
-    const Delim& braces = {"[]"}) {
+constexpr [[nodiscard]] auto
+trim_braces(std::string_view whole, const Delim& braces = {"[]"}) {
   auto front = braces.front();
   auto back = braces.back();
   if (whole.size() && whole.front() == front && whole.back() == back) {
@@ -496,22 +864,38 @@ constexpr [[nodiscard]] auto trim_braces(std::string_view whole,
 }
 
 // Add braces.
-constexpr [[nodiscard]] auto add_braces(std::string_view whole,
-    const Delim& braces = {"[]"}) {
+constexpr [[nodiscard]] auto
+add_braces(std::string_view whole, const Delim& braces = {"[]"}) {
   return concat(braces.front(), whole, braces.back());
 }
+
+} // namespace bracing
+
+// TODO: Consider breaking out each region into its own header.
 
 // TODO: Add method that takes pieces and counts up their total (estimated)
 // size, for the purpose of reserving target capacity.
 
 // TODO: Consider supporting `std::optional` or even providing optional-like
 // support for pointers instead of emitting as hex. Basically, if it can be
-// dereferenced and coerced to bool, we can optionally dereference it.
-
-// TODO: Allow trimming an entire container, values only.
+// dereferenced and coerced to bool, we can optionally dereference it. We can
+// continue to support address dumping by overloading on `&ptr`.
 
 // TODO: Consider offering an overload that causes keys to be emitted alongside
 // values. Really only makes sense for join methods, so maybe add it to the
-// enum and handle it in the container overload.
+// enum and handle it in the container overload. Or maybe add it as an enum
+// flag along the lines of `show_key`?
+
+// TODO: Get extract_num to work with cstring_view cleanly. It's safe because
+// we only remove the prefix, never the suffix. The brute-force solution is to
+// add overloads for the extract methods.
+
+// TODO: Maybe add a replace_any that replaces any matching chars with the
+// destination value.
+
+// TODO: Maybe supplement replace with remove and remove_any.
+
+// TODO: Maybe make `log` and such thread-safe? It's not really intended to be
+// a full, production logging system, so this might be overkill.
 
 } // namespace corvid::strings

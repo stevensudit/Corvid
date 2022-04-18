@@ -21,7 +21,7 @@
 #include <map>
 #include <string>
 
-using namespace corvid::bitmask_ops;
+using namespace corvid;
 
 enum class rgb {
   black,      // ---
@@ -35,7 +35,7 @@ enum class rgb {
 };
 
 template<>
-constexpr size_t corvid::bitmask::bit_count_v<rgb> = 3;
+constexpr size_t corvid::bit_count_v<rgb> = 3;
 
 // This is not a bitmask class, so it shouldn't work as a bitmap.
 enum class tires { none, one, two, three, four, five, six };
@@ -45,7 +45,8 @@ TEST(BitMaskTest, Ops) {
   EXPECT_NE(c, rgb::green);
 
   // Does not compile.
-  // * auto bad = tires::none | tires::one;
+  // * auto bad = *tires::none;
+  // * auto worse = tires::none | tires::one;
 
   EXPECT_EQ(rgb::red | rgb::green, rgb::yellow);
   EXPECT_EQ(rgb::red | rgb::red, rgb::red);
@@ -64,24 +65,34 @@ TEST(BitMaskTest, Ops) {
   EXPECT_EQ(c, rgb::yellow);
   EXPECT_EQ(c ^= rgb::cyan, rgb::purple);
   EXPECT_EQ(c, rgb::purple);
+
+  c = rgb::red;
+  c += rgb::green;
+  EXPECT_EQ(c, rgb::yellow);
+  c -= rgb::red;
+  EXPECT_EQ(c, rgb::green);
 }
 
 TEST(BitMaskTest, NamedFunctions) {
-  EXPECT_EQ(corvid::bitmask::make<rgb>(1), rgb::blue);
-  EXPECT_NE(corvid::bitmask::make<rgb>(-1), rgb::white);
-  EXPECT_EQ(corvid::bitmask::make_safely<rgb>(-1), rgb::white);
+  EXPECT_EQ(make<rgb>(1), rgb::blue);
+  EXPECT_NE(make<rgb>(-1), rgb::white);
+  EXPECT_EQ(make_safely<rgb>(-1), rgb::white);
 
-  EXPECT_EQ(corvid::bitmask::set(rgb::red, rgb::blue), rgb::purple);
-  EXPECT_EQ(corvid::bitmask::clear(rgb::purple, rgb::blue), rgb::red);
-  EXPECT_EQ(corvid::bitmask::flip(rgb::white), rgb::black);
+  // Does not compile.
+  // * auto bad = make<tires, int>(0);
+  // * auto worse = set(tires::none, tires::one);
 
-  EXPECT_TRUE(corvid::bitmask::overlaps(rgb::purple, rgb::blue));
-  EXPECT_TRUE(corvid::bitmask::overlaps(rgb::purple, rgb::white));
-  EXPECT_FALSE(corvid::bitmask::overlaps(rgb::purple, rgb::green));
-  EXPECT_FALSE(corvid::bitmask::overlaps(rgb::purple, rgb::black));
+  EXPECT_EQ(set(rgb::red, rgb::blue), rgb::purple);
+  EXPECT_EQ(clear(rgb::purple, rgb::blue), rgb::red);
+  EXPECT_EQ(flip(rgb::white), rgb::black);
 
-  EXPECT_TRUE(corvid::bitmask::contains(rgb::purple, rgb::blue));
-  EXPECT_FALSE(corvid::bitmask::contains(rgb::purple, rgb::white));
-  EXPECT_FALSE(corvid::bitmask::contains(rgb::purple, rgb::green));
-  EXPECT_TRUE(corvid::bitmask::contains(rgb::purple, rgb::black));
+  EXPECT_TRUE(has(rgb::purple, rgb::blue));
+  EXPECT_TRUE(has(rgb::purple, rgb::white));
+  EXPECT_FALSE(has(rgb::purple, rgb::green));
+  EXPECT_FALSE(has(rgb::purple, rgb::black));
+
+  EXPECT_TRUE(has_all(rgb::purple, rgb::blue));
+  EXPECT_FALSE(has_all(rgb::purple, rgb::white));
+  EXPECT_FALSE(has_all(rgb::purple, rgb::green));
+  EXPECT_TRUE(has_all(rgb::purple, rgb::black));
 }

@@ -22,6 +22,11 @@
 #include <utility>
 
 namespace corvid {
+inline namespace specialized {
+
+//
+// Specialization
+//
 
 // Determine whether T is a specialization of C.
 //
@@ -48,6 +53,13 @@ auto pointer_element(...) -> void;
 template<typename P>
 using pointer_element_t = decltype(details::pointer_element<P>(0));
 
+} // namespace specialized
+inline namespace dereferencing {
+
+//
+// Dereferenceable
+//
+
 // Determine whether P can be dereferenced like a pointer, even if it's not a
 // raw pointer. This detects iterators, smart pointers, and even
 // `std::optional`.
@@ -57,24 +69,12 @@ using pointer_element_t = decltype(details::pointer_element<P>(0));
 template<typename P>
 constexpr bool is_dereferenceable_v = !std::is_void_v<pointer_element_t<P>>;
 
-// Determine whether T is a std::pair.
-template<typename T>
-constexpr bool is_pair_v = is_specialization_of_v<T, std::pair>;
+} // namespace dereferencing
+inline namespace finding {
 
-// Determine whether T is a std::array.
-template<typename... Ts>
-constexpr bool is_array_v = false;
-
-template<typename T, std::size_t N>
-constexpr bool is_array_v<std::array<T, N>> = true;
-
-// Extract value from container element.
-constexpr [[nodiscard]] auto& container_element_v(auto&& it) {
-  if constexpr (is_pair_v<std::decay_t<decltype(*it)>>)
-    return it->second;
-  else
-    return *it;
-}
+//
+// Find
+//
 
 // Determine whether C has a find method taking K.
 namespace details {
@@ -91,6 +91,13 @@ auto has_find(...) -> std::false_type;
 
 template<typename C, typename K>
 constexpr bool has_find_v = decltype(details::has_find<C, K>(0))::value;
+
+} // namespace finding
+inline namespace ranging {
+
+//
+// Ranged-for
+//
 
 // Determine whether C can be ranged-for over.
 namespace details {
@@ -110,6 +117,32 @@ auto can_ranged_for(...) -> std::false_type;
 template<typename C>
 constexpr bool can_ranged_for_v =
     decltype(details::can_ranged_for<C>(0))::value;
+
+} // namespace ranging
+inline namespace detection {
+
+//
+// Detection
+//
+
+// Determine whether T is a std::pair.
+template<typename T>
+constexpr bool is_pair_v = is_specialization_of_v<T, std::pair>;
+
+// Determine whether T is a std::array.
+template<typename... Ts>
+constexpr bool is_array_v = false;
+
+template<typename T, std::size_t N>
+constexpr bool is_array_v<std::array<T, N>> = true;
+
+// Extract value from container element.
+constexpr [[nodiscard]] auto& container_element_v(auto&& it) {
+  if constexpr (is_pair_v<std::decay_t<decltype(*it)>>)
+    return it->second;
+  else
+    return *it;
+}
 
 // Determine whether T is convertible to `std::string_view`, which includes
 // `std::string_view`, `std::string`, and `char*` (but not char).
@@ -134,8 +167,9 @@ constexpr bool is_number_v =
 
 // Determine whether T is an integral number (excluding `bool` and `enum`).
 template<typename T>
-constexpr bool is_integral_number_v = std::is_arithmetic_v<std::decay_t<T>> &&
-                                      !is_bool_v<T> && std::is_integral_v<T>;
+constexpr bool is_integral_number_v =
+    std::is_arithmetic_v<std::decay_t<T>> && !is_bool_v<T> &&
+    std::is_integral_v<T>;
 
 // Determine whether T is a floating-point number.
 template<typename T>
@@ -174,6 +208,13 @@ constexpr bool is_tuple_like_v =
 template<typename T>
 constexpr bool is_tuple_equiv_v = is_tuple_v<T> || is_pair_v<T>;
 
+} // namespace detection
+inline namespace naming {
+
+//
+// Typename
+//
+
 // Extract fully-qualified type name.
 //
 // This is a crude solution, but sufficient for debugging.
@@ -203,4 +244,8 @@ std::string type_name(T&&) {
   return type_name<T>();
 }
 
+} // namespace naming
 } // namespace corvid
+
+// TODO: Consider writing `enable_if_bool<P>` to encapsulate
+// `std::enable_if_t<P, bool>`.

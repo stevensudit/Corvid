@@ -20,10 +20,10 @@
 namespace corvid {
 
 // Extract pointer from the container and iterator. Handles case of iterator
-// instead being an index, such as with std::string.
+// instead being an index, such as with `std::string`.
 //
 // Returns pointer to the found value, so for keyed collections such as
-// std::map, it points to the pair.second, not the pair.
+// `std::map`, it points to the `pair.second`, not the `pair`.
 //
 // This is primarily a helper method for `find_opt`.
 [[nodiscard]] auto it_to_ptr(auto& c, auto&& it) {
@@ -34,9 +34,9 @@ namespace corvid {
     return it != -1 ? &container_element_v(&c[it]) : nullptr;
 }
 
-// Search container for key, returning `corvid::optional_ptr` to element. This
-// means that, when a search fails to find anything, the `has_value` of the
-// return is false.
+// Search container for key, returning `optional_ptr` to element. This means
+// that, when a search fails to find anything, the `has_value` of the return is
+// false.
 //
 // Uses `find` method if available, `std::find` otherwise.
 //
@@ -62,5 +62,36 @@ namespace corvid {
 [[nodiscard]] bool contains(auto& c, const auto& k) {
   return find_opt(c, k).has_value();
 }
+
+// The transparent comparator allows comparing any stringlike values without
+// constructing temporary strings from them.
+//
+// By specifying it as the `less<>` replacement in a container that supports
+// `is_transparent` (currently `std::map` and `std::set`, but also
+// `std::unordered_set` and `std::unordered_map` in C++20), methods such as
+// `find` take advantage of this copy-free comparison.
+//
+// The `string_map<V>` and `string_set` aliases do this for you. The comparator
+// should also work for collections keyed on anything else that can be cast to
+// `std::string_view`.
+//
+// http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0919r3.html
+struct transparent_less_stringlike {
+  using is_transparent = void;
+
+  template<typename T, typename U>
+  constexpr bool operator()(const T& l, const U& r) const {
+    return static_cast<std::string_view>(l) < static_cast<std::string_view>(r);
+  }
+};
+
+// Map keyed by `std::string` with transparent search.
+template<typename V = std::string,
+    typename A = std::allocator<std::pair<const std::string, V>>>
+using string_map = std::map<std::string, V, transparent_less_stringlike, A>;
+
+// Set of `std::string` with transparent search.
+template<typename A = std::allocator<std::string>>
+using string_set = std::map<std::string, transparent_less_stringlike, A>;
 
 } // namespace corvid

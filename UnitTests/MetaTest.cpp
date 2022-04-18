@@ -82,12 +82,14 @@ TEST(MetaTest, FindRet) {
   using M = std::map<int, Foo>;
   EXPECT_TRUE((has_find_v<M, int>));
   EXPECT_FALSE((has_find_v<M, Foo>));
-  EXPECT_TRUE((std::is_same_v<details::find_ret_t<M, int>, M::iterator>));
+  EXPECT_TRUE(
+      (std::is_same_v<finding::details::find_ret_t<M, int>, M::iterator>));
 
   using S = std::set<Foo>;
   EXPECT_TRUE((has_find_v<S, Foo>));
   EXPECT_FALSE((has_find_v<S, int>));
-  EXPECT_TRUE((std::is_same_v<details::find_ret_t<S, Foo>, S::iterator>));
+  EXPECT_TRUE(
+      (std::is_same_v<finding::details::find_ret_t<S, Foo>, S::iterator>));
 
   using V = std::vector<int>;
   EXPECT_FALSE((has_find_v<V, int>));

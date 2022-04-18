@@ -27,20 +27,20 @@ namespace corvid {
 //
 // The purpose of this class is provide a drop-in replacement for
 // std::string_view` that works seamlessly with functions that have a C string
-// interface, which works with `const char*`.
+// interface based on `const char*`.
 //
 // Unlike using `std::string` for everything, this avoids the overhead of
-// copying and maintains the distinction between `empty` and `null`. This makes
+// copying and preserves the distinction between `empty` and `null`. This makes
 // it suitable for holding the return value from a function like `getenv` or
 // passing in a value for a function like `setenv`.
 //
 // Like a `std::string`, the terminator is not included in the `size` but is
 // guaranteed to be there after the last character returned from `c_str` (which
-// is never `nullptr`).
+// never returns `nullptr`).
 //
 // Like a `std::string_view`, `data` could return `nullptr` when `size` is 0,
 // but doesn't always. When it's not `nullptr`, then (as in `std::string`) the
-// terminator is guaranteed.
+// terminator is guaranteed because it contains an empty string.
 //
 // Constructing from a `std::string` or a `char*` is safe and fast, as the
 // termination is guaranteed, but constructing from inputs that include the
@@ -54,7 +54,7 @@ namespace corvid {
 //
 // The solution in these cases is to always include the terminator in the
 // length passed in. The constructor can then inspect the last character to
-// ensure that it's the terminator, adjusting the length to account for it.
+// ensure that it's the terminator, adjusting the length to exclude it.
 //
 // The other use case is to provide a shallow interface into a `std::optional`
 // of a string type.
@@ -96,6 +96,10 @@ public:
   using difference_type = T::difference_type;
   static constexpr size_type npos = T::npos;
 
+  //
+  // Construction
+  //
+
   // Safe construction.
   //
   // Always works.
@@ -112,7 +116,7 @@ public:
   // that the last character is a terminator. Otherwise, this is a logic error
   // and we throw.
   constexpr explicit cstring_view(std::string_view sv) : sv_(from_sv(sv)) {}
-  constexpr cstring_view(const char* ps, size_type len)
+  constexpr explicit cstring_view(const char* ps, size_type len)
       : sv_(from_sv(std::string_view{ps, len})) {}
 
   // Optional as null.
@@ -120,7 +124,9 @@ public:
   constexpr cstring_view(const std::optional<T>& opt)
       : cstring_view(opt.has_value() ? cstring_view{*opt} : cstring_view{}) {}
 
-  // Passthrough.
+  //
+  // Passthrough
+  //
 
   constexpr cstring_view& operator=(const cstring_view& csv) noexcept {
     sv_ = csv.sv_;
@@ -189,16 +195,16 @@ public:
     return sv_.find_last_not_of(std::forward<Args>(args)...);
   }
 
-  friend auto constexpr operator<=>(const cstring_view&,
-      const cstring_view&) noexcept = default;
+  friend auto constexpr
+  operator<=>(const cstring_view&, const cstring_view&) noexcept = default;
 
-  friend auto constexpr operator<=>(const std::string_view& lv,
-      const cstring_view& r) noexcept {
+  friend auto constexpr
+  operator<=>(const std::string_view& lv, const cstring_view& r) noexcept {
     return lv <=> r.view();
   };
 
-  friend auto constexpr operator<=>(const cstring_view& l,
-      const std::string_view& rv) noexcept {
+  friend auto constexpr
+  operator<=>(const cstring_view& l, const std::string_view& rv) noexcept {
     return l.view() <=> rv;
   };
 
@@ -206,13 +212,17 @@ public:
     return os << csv.sv_;
   }
 
-  // Omitted:
   //
+  // Omitted
+  //
+
   // `remove_suffix` would break the termination invariant.
-  //
+
   // `substr` would likewise do so if `count` isn't `npos` or `size()`.
 
-  // New.
+  //
+  // New
+  //
 
   // Whether `data` is `nullptr`.
   constexpr bool null() const noexcept { return !sv_.data(); }
@@ -256,9 +266,14 @@ private:
 };
 
 namespace literals {
+
+//
+// UDL
+//
+
 // cstring_view literal.
-inline constexpr cstring_view operator""_csv(const char* ps,
-    std::size_t n) noexcept {
+inline constexpr cstring_view
+operator""_csv(const char* ps, std::size_t n) noexcept {
   return cstring_view{std::string_view{ps, n + 1}};
 }
 
@@ -277,3 +292,6 @@ struct std::hash<corvid::cstring_view> {
     return std::hash<std::string_view>()(csv.view());
   }
 };
+
+// TODO: Maybe add a getenv wrapper as a proof of concept, or even an `_env`
+// UDL?

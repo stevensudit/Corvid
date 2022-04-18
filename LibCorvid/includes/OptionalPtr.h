@@ -28,10 +28,10 @@ namespace corvid {
 // chain calls to methods such as `value_or`. So if you find yourself declaring
 // variables of this type, you're doing it wrong.
 //
-// Note that it can be used like a pointer, both in terms of evaluating to bool
-// in a predicate expression and being dereferenceable when has_value.
+// Note that it can be used like a pointer, both in terms of evaluating to
+// `bool` in a predicate expression and being dereferenceable when `has_value`.
 //
-// For safety, enforces nodiscard and deletes some unwanted raw pointer
+// For safety, enforces `[[nodiscard]]` and deletes some unwanted raw pointer
 // behavior.
 template<typename Ptr>
 class optional_ptr {
@@ -44,7 +44,9 @@ public:
   using raw_pointer = E*;
   using pointer = P;
 
-  // Construct/copy.
+  //
+  // Construct
+  //
 
   constexpr optional_ptr() noexcept {}
   constexpr optional_ptr(std::nullptr_t) noexcept {}
@@ -61,6 +63,10 @@ public:
     return *this;
   }
 
+  //
+  // Access
+  //
+
   // For raw pointers, the implicit conversion to pointer operator means it can
   // be evaluated as a bool in a predicate expression or dereferenced.
   constexpr [[nodiscard]] operator P() const noexcept { return ptr_; }
@@ -76,8 +82,6 @@ public:
   constexpr [[nodiscard]] explicit operator bool() const noexcept {
     return ptr_ ? true : false;
   }
-
-  // Access.
 
   constexpr [[nodiscard]] const P& get() const& noexcept { return ptr_; }
   constexpr [[nodiscard]] P&& get() && noexcept { return std::move(ptr_); }
@@ -101,8 +105,12 @@ public:
   constexpr [[nodiscard]] E value_or() const { return value_or(E{}); }
 
   // Get value, or if null, dereferences `default_ptr`. Returns by ref.
-  constexpr [[nodiscard]] auto& value_or_ptr(auto* default_ptr) const {
-    return deref(has_value() ? ptr_ : default_ptr);
+  //
+  // Note: The reason the return type is `auto&` is that it takes on the
+  // constness of the `default_ptr`.
+  template<typename P, std::enable_if_t<is_dereferenceable_v<P>, bool> = true>
+  constexpr [[nodiscard]] auto& value_or_ptr(P&& default_ptr) const {
+    return has_value() ? *ptr_ : deref(std::forward<P>(default_ptr));
   }
 
   // Get value, or if null, call `f` to get value. Returns by value.

@@ -59,7 +59,7 @@ TEST(optional_ptrTest, Construction) {
   if (true) {
     auto test{"test"s};
     optional_ptr o{std::make_unique<std::string>(test)};
-    //* optional_ptr qo{o};
+    // * optional_ptr qo{o};
     optional_ptr ro{std::move(o)};
     EXPECT_FALSE(o.has_value());
     EXPECT_TRUE(ro.has_value());
@@ -91,13 +91,13 @@ TEST(optional_ptrTest, Access) {
     auto const test{"test"s};
     optional_ptr o = &test;
     auto p = o.get();
-    //* o.get()->resize(test.size());
+    // * o.get()->resize(test.size());
     p++;
     p[6];
     p = p + 1;
-    //* o++;
-    //* o[6];
-    //* o + 1;
+    // * o++;
+    // * o[6];
+    // * o + 1;
   }
 }
 
@@ -147,7 +147,7 @@ TEST(optional_ptrTest, Smart) {
     EXPECT_TRUE(o.has_value());
     EXPECT_EQ(o->size(), test.size());
 
-    //* auto qo{o};
+    // * auto qo{o};
     auto qo{std::move(o)};
     EXPECT_FALSE(o.has_value());
     EXPECT_TRUE(qo.has_value());
@@ -157,7 +157,7 @@ TEST(optional_ptrTest, Smart) {
     q.resize(q.size());
     EXPECT_EQ(q, test);
 
-    //* auto p{qo.get()};
+    // * auto p{qo.get()};
     auto p{std::move(qo).get()};
 
     auto l = [&test]() {

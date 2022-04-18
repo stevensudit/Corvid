@@ -21,9 +21,8 @@
 #include <array>
 #include <utility>
 
-// Recommendation: Import the `corvid` namespace, but not `corvid::bitmask`,
-// allowing you to make calls like `bitmask::flip`. If you don't want to import
-// all of `corvid`, then import `corvid::bitmask_ops`, instead.
+// Recommendation: Import the `covid` namespace. If you don't, then at least
+// import `bitmask_ops`.
 namespace corvid {
 
 // Cast bitmask to underlying integer value.
@@ -40,10 +39,13 @@ constexpr auto to_underlying(E v) noexcept {
 using std::to_underlying;
 #endif
 
-// Do not import this.
-namespace bitmask {
+inline namespace bitmask {
 
+//
 // bitmask
+//
+
+// bit_count_v
 //
 // Allow a scoped `enum` (aka `enum class`) to satisfy the requirements of
 // BitmaskType, per https://en.cppreference.com/w/cpp/named_req/BitmaskType,
@@ -55,7 +57,6 @@ namespace bitmask {
 //
 // For example:
 //
-//    using namespace corvid::bitmask_ops;
 //    enum class rgb { /* ... */ };
 //
 //    template<>
@@ -66,11 +67,21 @@ namespace bitmask {
 // `operator~` safe by default without violating the BitmaskType requirements.
 // The other function that enforces the bit count is make_safely, which keeps
 // only the valid bits.
+//
+// Note: All functions are enable_if'd on this, which is why they can't pollute
+// the namespace.
 template<typename E>
 constexpr size_t bit_count_v = 0;
 
 } // namespace bitmask
 inline namespace bitmask_ops {
+
+template<typename T>
+using enable_if_bitmask_t = std::enable_if_t<bitmask::bit_count_v<T>, bool>;
+
+template<typename T, typename U>
+using enable_if_bitmask_int_t =
+    std::enable_if_t<bitmask::bit_count_v<T> && std::is_integral_v<U>, bool>;
 
 //
 // Operator overloads.
@@ -78,42 +89,42 @@ inline namespace bitmask_ops {
 
 // Dereference operator.
 //
-// This is quirky but convenient.
-template<typename E, std::enable_if_t<bitmask::bit_count_v<E>, bool> = true>
+// The precedent for this is `std::optional`.
+template<typename E, enable_if_bitmask_t<E> = true>
 constexpr auto operator*(E v) noexcept {
   return to_underlying<E>(v);
 }
 
 // Or operators.
-template<typename E, std::enable_if_t<bitmask::bit_count_v<E>, bool> = true>
+template<typename E, enable_if_bitmask_t<E> = true>
 constexpr E operator|(E l, E r) noexcept {
   return E(*l | *r);
 }
 
 template<typename E, typename U = std::underlying_type_t<E>,
-    std::enable_if_t<bitmask::bit_count_v<E>, bool> = true>
+    enable_if_bitmask_t<E> = true>
 constexpr const E& operator|=(E& l, E r) noexcept {
   return l = l | r;
 }
 
 // And operators.
-template<typename E, std::enable_if_t<bitmask::bit_count_v<E>, bool> = true>
+template<typename E, enable_if_bitmask_t<E> = true>
 constexpr E operator&(E l, E r) noexcept {
   return E(*l & *r);
 }
 
-template<typename E, std::enable_if_t<bitmask::bit_count_v<E>, bool> = true>
+template<typename E, enable_if_bitmask_t<E> = true>
 constexpr const E& operator&=(E& l, E r) noexcept {
   return l = l & r;
 }
 
 // Xor operators.
-template<typename E, std::enable_if_t<bitmask::bit_count_v<E>, bool> = true>
+template<typename E, enable_if_bitmask_t<E> = true>
 constexpr E operator^(E l, E r) noexcept {
   return E(*l ^ *r);
 }
 
-template<typename E, std::enable_if_t<bitmask::bit_count_v<E>, bool> = true>
+template<typename E, enable_if_bitmask_t<E> = true>
 constexpr const E& operator^=(E& l, E r) noexcept {
   return l = l ^ r;
 }
@@ -121,13 +132,37 @@ constexpr const E& operator^=(E& l, E r) noexcept {
 // Complement operator.
 //
 // Note that this may set invalid bits; see flip for a safe alternative.
-template<typename E, std::enable_if_t<bitmask::bit_count_v<E>, bool> = true>
+template<typename E, enable_if_bitmask_t<E> = true>
 constexpr E operator~(E v) noexcept {
   return E(~*v);
 }
 
+// Plus operators.
+template<typename E, enable_if_bitmask_t<E> = true>
+constexpr E operator+(E l, E r) noexcept {
+  return l | r;
+}
+
+template<typename E, typename U = std::underlying_type_t<E>,
+    enable_if_bitmask_t<E> = true>
+constexpr const E& operator+=(E& l, E r) noexcept {
+  return l = l + r;
+}
+
+// Minus operators.
+template<typename E, enable_if_bitmask_t<E> = true>
+constexpr E operator-(E l, E r) noexcept {
+  return l & ~r;
+}
+
+template<typename E, typename U = std::underlying_type_t<E>,
+    enable_if_bitmask_t<E> = true>
+constexpr const E& operator-=(E& l, E r) noexcept {
+  return l = l - r;
+}
+
 } // namespace bitmask_ops
-namespace bitmask {
+inline namespace bitmask {
 
 //
 // Named functions.
@@ -136,60 +171,76 @@ namespace bitmask {
 // Cast `enum` to specified integral type.
 //
 // Like `std::to_integer<std::byte>`.
-template<typename T, typename E,
-    std::enable_if_t<bitmask::bit_count_v<E> && std::is_integral_v<T>, bool> =
-        true>
+template<typename T, typename E, enable_if_bitmask_int_t<E, T> = true>
 constexpr T to_integer(E v) noexcept {
   return static_cast<T>(v);
 }
 
 // Cast integer value to bitmask.
-template<typename E, typename U>
+template<typename E, typename U, enable_if_bitmask_int_t<E, U> = true>
 constexpr E make(U v) noexcept {
-  static_assert(bit_count_v<E> != 0);
   return static_cast<E>(v);
 }
 
 // Maximum value, which is also a mask of valid bits.
-template<typename E, std::enable_if_t<bitmask::bit_count_v<E>, bool> = true>
+template<typename E, enable_if_bitmask_t<E> = true>
 constexpr E max_value() noexcept {
   return make<E>((std::underlying_type_t<E>(1) << (bit_count_v<E>)) - 1);
 }
 
 // Cast integer value to bitmask, keeping only the valid bits.
-template<typename E, typename U = std::underlying_type_t<E>>
+template<typename E, typename U = std::underlying_type_t<E>,
+    enable_if_bitmask_t<E> = true>
 constexpr E make_safely(U v) noexcept {
   return make<E>(v) & max_value<E>();
 }
 
-// Return `v` with the bits from `m` set. Union.
-template<typename E, std::enable_if_t<bitmask::bit_count_v<E>, bool> = true>
+// Return `v` with the bits from `m` set.
+template<typename E, enable_if_bitmask_t<E> = true>
 constexpr E set(E v, E m) noexcept {
-  return v | m;
+  return v + m;
 }
 
-// Return `v` with the bits set in `m` cleared. Difference.
-template<typename E, std::enable_if_t<bitmask::bit_count_v<E>, bool> = true>
+// Return `v` with the bits set in `m` cleared.
+template<typename E, enable_if_bitmask_t<E> = true>
 constexpr E clear(E v, E m) noexcept {
-  return v & ~m;
+  return v - m;
 }
 
-// Return `v` with only the valid bits flipped. Complement.
-template<typename E, std::enable_if_t<bitmask::bit_count_v<E>, bool> = true>
+// Return `v` with the bits set in `m` set to `value`.
+template<typename E, enable_if_bitmask_t<E> = true>
+constexpr E set_to(E v, E m, bool value) noexcept {
+  return value ? v + m : v - m;
+}
+
+// Return `v` with only the valid bits flipped.
+template<typename E, enable_if_bitmask_t<E> = true>
 constexpr E flip(E v) noexcept {
   return v ^ max_value<E>();
 }
 
-// Return whether `v` has any of the bits in `m` set. Has intersection.
-template<typename E, std::enable_if_t<bitmask::bit_count_v<E>, bool> = true>
-constexpr bool overlaps(E v, E m) noexcept {
+// Return whether `v` has any of the bits in `m` set.
+template<typename E, enable_if_bitmask_t<E> = true>
+constexpr bool has(E v, E m) noexcept {
   return (v & m) != E(0);
 }
 
-// Returns whether `v` has all the bits in `m` set. Is superset.
-template<typename E, std::enable_if_t<bitmask::bit_count_v<E>, bool> = true>
-constexpr bool contains(E v, E m) noexcept {
+// Returns whether `v` has all the bits in `m` set.
+template<typename E, enable_if_bitmask_t<E> = true>
+constexpr bool has_all(E v, E m) noexcept {
   return (v & m) == m;
+}
+
+// Returns whether `v` has is missing some of the bits set in `m`.
+template<typename E, enable_if_bitmask_t<E> = true>
+constexpr bool missing(E v, E m) noexcept {
+  return !has_all(v, m);
+}
+
+// Returns whether `v` has is missing all of the bits set in `m`.
+template<typename E, enable_if_bitmask_t<E> = true>
+constexpr bool missing_all(E v, E m) noexcept {
+  return !has(v, m);
 }
 
 } // namespace bitmask
@@ -199,11 +250,6 @@ constexpr bool contains(E v, E m) noexcept {
 // that define each bit. An extended version would instead support the full
 // list by taking an association while preferring multibit values. Essentially,
 // what C# does.
-
-// TODO: Consider exposing named functions as quirky operator overloads. Set is
-// +, clear is -, flip is !, but not sure about overlaps and contains (maybe
-// reverse their parameters and use / and %). To be frank, not sure about any
-// of these; they may be too quirky.
 
 // TODO: Write a similar system for scoped enums that are not bitmaps but are
 // instead ranges, enabling increment/decrement operators. Perhaps register the
