@@ -17,7 +17,6 @@
 #include "pch.h"
 #include <LibCorvid/includes/StringUtils.h>
 
-#include <iostream>
 #include <cstdint>
 
 using namespace std::literals;
@@ -239,10 +238,21 @@ TEST(StringUtilsTest, Append) {
   EXPECT_EQ(s, "42");
   s.clear();
   strings::append(s, &i);
+  EXPECT_EQ(s, "42");
+  s.clear();
+  strings::append(s, reinterpret_cast<intptr_t>(&i));
   EXPECT_NE(s, "42");
   s.clear();
-  strings::append(s, &i);
+  strings::append(s, reinterpret_cast<const void*>(&i));
   EXPECT_NE(s, "42");
+  auto oi = std::make_optional(i);
+  s.clear();
+  strings::append(s, oi);
+  EXPECT_EQ(s, "42");
+  oi.reset();
+  s.clear();
+  strings::append(s, oi);
+  EXPECT_EQ(s, "");
 
   // None of these char-like types are char so they're all treated as ints.
   EXPECT_FALSE((std::is_same_v<char, signed char>));
@@ -342,6 +352,17 @@ TEST(StringUtilsTest, Append) {
   strings::append(s, si);
   EXPECT_EQ(s, "12345");
 
+  std::variant<int, std::map<std::string, int>> va;
+  va = 52;
+  s.clear();
+  strings::append(s, va);
+  EXPECT_EQ(s, "52");
+  EXPECT_EQ(strings::concat(va), "52");
+  va = msi;
+  s.clear();
+  strings::append(s, va);
+  EXPECT_EQ(s, "12");
+
   std::map<std::string, std::set<int>> mssi{{"c", {5, 4}}, {"a", {3, 2, 1}}};
   s.clear();
   strings::append(s, mssi);
@@ -392,10 +413,52 @@ TEST(StringUtilsTest, Append) {
   strings::append_join_with<strings::braces_opt::flat>(s, ";", t); // tuple
   EXPECT_EQ(s, "1;2;3");
 
+  s.clear();
+  strings::append_join_with(s, ";", intptr_t(42));
+  EXPECT_NE(s, "42");
+  s.clear();
+  strings::append_join_with(s, ";", reinterpret_cast<const void*>(&i));
+  EXPECT_NE(s, "42");
+  s.clear();
+  strings::append_join_with(s, ";", reinterpret_cast<const void*>(NULL));
+  EXPECT_EQ(s, "0");
+  s.clear();
+  const char* psz{};
+  strings::append_join_with(s, ";", psz);
+  EXPECT_EQ(s, "");
+
+  va = 52;
+  s.clear();
+  strings::append_join_with(s, ";", va);
+  EXPECT_EQ(s, "52");
+  EXPECT_EQ(strings::concat(va), "52");
+  va = msi;
+  s.clear();
+  strings::append_join_with(s, ";", va);
+  EXPECT_EQ(s, "[1;2]");
+
+  s.clear();
+  strings::append_join_with(s, ";", mssi);
+  EXPECT_EQ(s, "[[1;2;3];[4;5]]");
+  auto om = std::make_optional(mssi);
+  s.clear();
+  strings::append_join_with(s, ";", om);
+  EXPECT_EQ(s, "[[1;2;3];[4;5]]");
+  s.clear();
+  strings::append_join<strings::braces_opt::keyed>(s, mssi);
+  EXPECT_EQ(s, "[(a, [1, 2, 3]), (c, [4, 5])]");
+
+  s.clear();
+  auto il = {3, 1, 4};
+  strings::append_join_with(s, ";", il); // Initializer list.
+  // Unbound initializer lists can't be deduced by templates.
+  // * strings::append_join_with(s, ";", {1, 2, 3});
+  EXPECT_EQ(s, "[3;1;4]");
+
   EXPECT_EQ(strings::join(1, 2, 3), "1, 2, 3");
   EXPECT_EQ(strings::join("1"s, "2"s, "3"s), "1, 2, 3");
   EXPECT_EQ(strings::join(t), "{1, 2, 3}");
-  EXPECT_EQ(strings::join(p), "{1, 2, 3}");
+  EXPECT_EQ(strings::join(p), "(1, 2, 3)");
   EXPECT_EQ(strings::join(a), "[1, 2, 3]");
 
   EXPECT_EQ(strings::join<strings::braces_opt::flat>(t), "1, 2, 3");

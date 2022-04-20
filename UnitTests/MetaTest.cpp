@@ -17,9 +17,6 @@
 #include "pch.h"
 #include <LibCorvid/includes/Meta.h>
 
-#include <map>
-#include <optional>
-
 using namespace std::literals;
 using namespace corvid;
 
@@ -114,6 +111,7 @@ TEST(MetaTest, StringViewConvertible) {
   EXPECT_TRUE(is_string_view_convertible_v<char*>);
   EXPECT_TRUE(is_string_view_convertible_v<char[]>);
   EXPECT_FALSE(is_string_view_convertible_v<int>);
+  EXPECT_FALSE(is_string_view_convertible_v<nullptr_t>);
   EXPECT_TRUE(is_string_view_convertible_v<std::string&>);
   EXPECT_TRUE(is_string_view_convertible_v<std::string&&>);
 
@@ -179,4 +177,56 @@ TEST(MetaTest, Tuple) {
   EXPECT_TRUE((is_tuple_v<T2>));
   EXPECT_FALSE((is_tuple_v<PI>));
   EXPECT_TRUE((is_tuple_like_v<PI>));
+}
+
+TEST(MetaTest, Detection) {
+  if (true) {
+    auto il = {1, 2, 3};
+    EXPECT_TRUE((is_initializer_list_v<decltype(il)>));
+  }
+  if (true) {
+    std::variant<int, float> va = 42;
+    EXPECT_TRUE((is_variant_v<decltype(va)>));
+  }
+  if (true) {
+    EXPECT_TRUE((is_optional_like_v<std::optional<int>>));
+    EXPECT_TRUE((is_optional_like_v<int*>));
+    EXPECT_FALSE((is_optional_like_v<void*>));
+    EXPECT_FALSE((is_optional_like_v<const char*>));
+  }
+  if (true) {
+    EXPECT_TRUE((is_void_ptr_v<void*>));
+    EXPECT_TRUE((is_void_ptr_v<const void*>));
+    EXPECT_FALSE((is_void_ptr_v<int>));
+    EXPECT_FALSE((is_void_ptr_v<int*>));
+  }
+  if (true) {
+    EXPECT_TRUE((is_char_ptr_v<char*>));
+    EXPECT_TRUE((is_char_ptr_v<const char*>));
+    EXPECT_TRUE((is_char_ptr_v<char[]>));
+    EXPECT_TRUE((is_char_ptr_v<const char[]>));
+    EXPECT_TRUE((is_char_ptr_v<char* const>));
+    EXPECT_TRUE((is_char_ptr_v<const char* const>));
+    EXPECT_FALSE((is_char_ptr_v<void*>));
+  }
+}
+
+TEST(MetaTest, Underlying) {
+  enum class X : size_t { x1 = 1, x2 };
+  enum class Y : int64_t { ylow = -1 };
+  enum Z { z1 = 1 };
+  auto x = as_underlying(X::x1);
+  EXPECT_EQ(x, 1);
+  EXPECT_TRUE((std::is_same_v<size_t, decltype(x)>));
+  auto y = as_underlying(Y::ylow);
+  EXPECT_EQ(y, -1);
+  EXPECT_TRUE((std::is_same_v<int64_t, decltype(y)>));
+
+  // No conversion needed for unscoped, although we can also used the scoped
+  // name.
+  auto z0 = Z::z1;
+  auto z = as_underlying(z1);
+  EXPECT_EQ(z0, 1);
+  EXPECT_EQ(z, 1);
+  EXPECT_TRUE((std::is_same_v<int, decltype(z)>));
 }

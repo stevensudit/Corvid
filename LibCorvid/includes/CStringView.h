@@ -22,42 +22,42 @@
 #include <optional>
 
 namespace corvid {
+inline namespace cstringview {
 
 // String view of a C-style, zero-terminated string.
 //
-// The purpose of this class is provide a drop-in replacement for
-// std::string_view` that works seamlessly with functions that have a C string
-// interface based on `const char*`.
+// The purpose of this class is to provide a drop-in replacement for
+// `std::string_view` that works seamlessly with functions that have a C string
+// interface based on `const char*`. (It also provides a shallow interface into
+// a `std::optional` of a `std::string` or `const char*`.)
 //
 // Unlike using `std::string` for everything, this avoids the overhead of
 // copying and preserves the distinction between `empty` and `null`. This makes
 // it suitable for holding the return value from a function like `getenv` or
-// passing in a value for a function like `setenv`.
+// passing in a value to a function like `setenv`.
 //
 // Like a `std::string`, the terminator is not included in the `size` but is
 // guaranteed to be there after the last character returned from `c_str` (which
 // never returns `nullptr`).
 //
-// Like a `std::string_view`, `data` could return `nullptr` when `size` is 0,
-// but doesn't always. When it's not `nullptr`, then (as in `std::string`) the
-// terminator is guaranteed because it contains an empty string.
+// Like a `std::string_view`, `data` sometimes returns `nullptr` when `size` is
+// 0. When it's not `nullptr`, then (as in `std::string`) the terminator is
+// guaranteed because it contains an empty string.
 //
-// Constructing from a `std::string` or a `char*` is safe and fast, as the
-// termination is guaranteed, but constructing from inputs that include the
-// length but don't guarantee termination, like `char*, size_t` or
-// `std::string_view` is trickier.
+// Constructing from a `std::string` or a `const char*` is safe and fast, as
+// the termination is guaranteed, but constructing from inputs that include the
+// length but don't guarantee termination, like `const char*, size_t` or
+// `std::string_view`, is trickier.
 //
 // The constructor has to be able to confirm that it's terminated, but it can't
-// look past the end of the buffer because this is outside the valid range.
+// look past the end of the buffer because that's outside the valid range.
 // There are no guarantees possible about what's in that byte or even that it
 // can be dereferenced.
 //
-// The solution in these cases is to always include the terminator in the
-// length passed in. The constructor can then inspect the last character to
-// ensure that it's the terminator, adjusting the length to exclude it.
-//
-// The other use case is to provide a shallow interface into a `std::optional`
-// of a string type.
+// The solution in these cases is to require the inclusion of the terminator in
+// the length passed in. The constructor can then inspect the last character to
+// ensure that it's the terminator, adjusting the length to exclude it. If the
+// terminator is not found, the constructor will throw.
 //
 // Notes:
 //
@@ -78,6 +78,10 @@ namespace corvid {
 // Both `c_str` and `data` return a pointer such that the range
 // `[foo; foo + size()]` is valid. The difference is that, when `null`, a call
 // to `c_str` returns an empty, terminated string but `data` returns `nullptr`.
+//
+// Based closely on Andrew Tomazos' rejected ANSI committee proposal.
+// http://open-std.org/JTC1/SC22/WG21/docs/papers/2019/p1402r0.pdf
+// https://github.com/cplusplus/papers/issues/189
 class cstring_view {
 public:
   using T = std::string_view;
@@ -227,7 +231,7 @@ public:
   // Whether `data` is `nullptr`.
   constexpr bool null() const noexcept { return !sv_.data(); }
 
-  // Conversion to std::string_view.
+  // Conversion to `std::string_view`.
   constexpr std::string_view view() const noexcept { return sv_; }
   constexpr operator std::string_view() const noexcept { return sv_; }
 
@@ -240,7 +244,7 @@ public:
   constexpr explicit operator bool() const noexcept { return size(); }
   constexpr bool operator!() const { return empty(); }
 
-  // Essentially operator===, distinguishing between empty and null.
+  // Essentially `operator===`, distinguishing between empty and null.
   constexpr bool same(cstring_view v) const noexcept {
     return ((*this == v) && (null() == v.null()));
   }
@@ -265,6 +269,7 @@ private:
   }
 };
 
+} // namespace cstringview
 namespace literals {
 
 //
@@ -272,13 +277,12 @@ namespace literals {
 //
 
 // cstring_view literal.
-inline constexpr cstring_view
-operator""_csv(const char* ps, std::size_t n) noexcept {
+constexpr cstring_view operator""_csv(const char* ps, std::size_t n) noexcept {
   return cstring_view{std::string_view{ps, n + 1}};
 }
 
 // Null literal; must pass 0.
-inline constexpr cstring_view operator""_csv(unsigned long long zero_only) {
+constexpr cstring_view operator""_csv(unsigned long long zero_only) {
   if (zero_only) throw std::out_of_range("c_string_view not zero");
   return cstring_view{};
 }

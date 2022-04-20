@@ -50,11 +50,13 @@
     <ClInclude Include="pch.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="BitmaskTest.cpp" />
+    <ClCompile Include="BitmaskEnumTest.cpp" />
     <ClCompile Include="ContainersTest.cpp" />
     <ClCompile Include="CStringViewTest.cpp" />
+    <ClCompile Include="IntervalTest.cpp" />
     <ClCompile Include="MetaTest.cpp" />
     <ClCompile Include="OptionalPtrTest.cpp" />
+    <ClCompile Include="SequentialEnumTest.cpp" />
     <ClCompile Include="StringUtilsTest.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>

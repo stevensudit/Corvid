@@ -33,10 +33,16 @@
     <ClInclude Include="includes\StringUtils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="includes\Bitmask.h">
+    <ClInclude Include="includes\BitmaskEnum.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="includes\CStringView.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\SequentialEnum.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\Interval.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

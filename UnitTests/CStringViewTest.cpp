@@ -17,7 +17,6 @@
 #include "pch.h"
 #include <LibCorvid/includes/CStringView.h>
 #include <LibCorvid/includes/Meta.h>
-#include <set>
 
 using namespace std::literals;
 using namespace corvid;

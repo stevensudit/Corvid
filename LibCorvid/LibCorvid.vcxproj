@@ -158,11 +158,13 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="framework.h" />
-    <ClInclude Include="includes\Bitmask.h" />
+    <ClInclude Include="includes\BitmaskEnum.h" />
     <ClInclude Include="includes\Containers.h" />
     <ClInclude Include="includes\CStringView.h" />
+    <ClInclude Include="includes\Interval.h" />
     <ClInclude Include="includes\Meta.h" />
     <ClInclude Include="includes\OptionalPtr.h" />
+    <ClInclude Include="includes\SequentialEnum.h" />
     <ClInclude Include="includes\StringUtils.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>

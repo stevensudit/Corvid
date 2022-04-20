@@ -18,6 +18,7 @@
 #include "OptionalPtr.h"
 
 namespace corvid {
+inline namespace containers {
 
 // Extract pointer from the container and iterator. Handles case of iterator
 // instead being an index, such as with `std::string`.
@@ -34,9 +35,8 @@ namespace corvid {
     return it != -1 ? &container_element_v(&c[it]) : nullptr;
 }
 
-// Search container for key, returning `optional_ptr` to element. This means
-// that, when a search fails to find anything, the `has_value` of the return is
-// false.
+// Search container for key, returning `optional_ptr` to element. When a search
+// fails to find anything, the `has_value` of the return is false.
 //
 // Uses `find` method if available, `std::find` otherwise.
 //
@@ -69,11 +69,11 @@ namespace corvid {
 // By specifying it as the `less<>` replacement in a container that supports
 // `is_transparent` (currently `std::map` and `std::set`, but also
 // `std::unordered_set` and `std::unordered_map` in C++20), methods such as
-// `find` take advantage of this copy-free comparison.
+// `find` take advantage of this copy-free comparison. The `string_map<V>` and
+// `string_set` aliases do this for you.
 //
-// The `string_map<V>` and `string_set` aliases do this for you. The comparator
-// should also work for collections keyed on anything else that can be cast to
-// `std::string_view`.
+// The comparator should also work for collections keyed on anything else that
+// can be cast to `std::string_view`.
 //
 // http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0919r3.html
 struct transparent_less_stringlike {
@@ -85,13 +85,17 @@ struct transparent_less_stringlike {
   }
 };
 
-// Map keyed by `std::string` with transparent search.
+// Map keyed by `std::string`, with transparent search.
 template<typename V = std::string,
     typename A = std::allocator<std::pair<const std::string, V>>>
 using string_map = std::map<std::string, V, transparent_less_stringlike, A>;
 
-// Set of `std::string` with transparent search.
+// Set of `std::string`, with transparent search.
 template<typename A = std::allocator<std::string>>
 using string_set = std::map<std::string, transparent_less_stringlike, A>;
 
+} // namespace containers
 } // namespace corvid
+
+// TODO: Consider setting up defaulted but overrideable `keyed` for
+// `container_element_v`.

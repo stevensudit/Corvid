@@ -16,9 +16,11 @@
 // limitations under the License.
 #pragma once
 #include <optional>
+
 #include "Meta.h"
 
 namespace corvid {
+inline namespace optionalptr {
 
 // Pointer adapter with `std::optional` semantics, specialized on a raw or
 // smart pointer.
@@ -108,7 +110,7 @@ public:
   //
   // Note: The reason the return type is `auto&` is that it takes on the
   // constness of the `default_ptr`.
-  template<typename P, std::enable_if_t<is_dereferenceable_v<P>, bool> = true>
+  template<typename P, enable_if_0<is_dereferenceable_v<P>> = 0>
   constexpr [[nodiscard]] auto& value_or_ptr(P&& default_ptr) const {
     return has_value() ? *ptr_ : deref(std::forward<P>(default_ptr));
   }
@@ -118,7 +120,9 @@ public:
     return has_value() ? *ptr_ : f();
   }
 
+  //
   // Disabled ops.
+  //
 
   void operator[](size_t) const = delete;
 
@@ -141,10 +145,11 @@ private:
     return p ? true : false;
   }
 
-  constexpr static [[nodiscard]] auto& deref(auto p) {
+  constexpr static [[nodiscard]] auto& deref(auto&& p) {
     if (has_value(p)) return *p;
     throw std::bad_optional_access{};
   }
 };
 
+} // namespace optionalptr
 } // namespace corvid

@@ -167,6 +167,7 @@ TEST(optional_ptrTest, Smart) {
     p = l().get();
     p.reset();
 
+    // This was moved from, so it's empty.
     bool f = o ? true : false;
     EXPECT_FALSE(f);
 
