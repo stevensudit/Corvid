@@ -53,9 +53,10 @@ inline namespace containers {
 [[nodiscard]] auto find_opt(auto& c, const auto& k) {
   using namespace std;
   if constexpr (has_find_v<decltype(c), decltype(k)>)
-    return optional_ptr{it_to_ptr(c, c.find(k))};
+    return internal::optional_ptr{it_to_ptr(c, c.find(k))};
   else
-    return optional_ptr{it_to_ptr(c, std::find(begin(c), end(c), k))};
+    return internal::optional_ptr{
+        it_to_ptr(c, std::find(begin(c), end(c), k))};
 }
 
 // Determine whether the container has the key.
@@ -64,13 +65,14 @@ inline namespace containers {
 }
 
 // The transparent comparator allows comparing any stringlike values without
-// constructing temporary strings from them.
+// constructing temporary `std::string` instances from them.
 //
 // By specifying it as the `less<>` replacement in a container that supports
 // `is_transparent` (currently `std::map` and `std::set`, but also
-// `std::unordered_set` and `std::unordered_map` in C++20), methods such as
-// `find` take advantage of this copy-free comparison. The `string_map<V>` and
-// `string_set` aliases do this for you.
+// `std::unordered_set` and `std::unordered_map`, starting in C++20), methods
+// such as `find` take advantage of this copy-free comparison.
+//
+// The `string_map<V>` and `string_set` aliases do this for you.
 //
 // The comparator should also work for collections keyed on anything else that
 // can be cast to `std::string_view`.
@@ -97,5 +99,10 @@ using string_set = std::map<std::string, transparent_less_stringlike, A>;
 } // namespace containers
 } // namespace corvid
 
+//
+// TODO
+//
+
 // TODO: Consider setting up defaulted but overrideable `keyed` for
-// `container_element_v`.
+// `container_element_v`. This might be useful in retrieving the actual key
+// which is equal to what was searched on but has a distinct address.

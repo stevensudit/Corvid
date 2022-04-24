@@ -79,7 +79,7 @@ inline namespace cstringview {
 // `[foo; foo + size()]` is valid. The difference is that, when `null`, a call
 // to `c_str` returns an empty, terminated string but `data` returns `nullptr`.
 //
-// Based closely on Andrew Tomazos' rejected ANSI committee proposal.
+// Based closely on Andrew Tomazos' wrongly-rejected ANSI committee proposal.
 // http://open-std.org/JTC1/SC22/WG21/docs/papers/2019/p1402r0.pdf
 // https://github.com/cplusplus/papers/issues/189
 class cstring_view {
@@ -242,7 +242,6 @@ public:
 
   // Quirky but convenient Boolean.
   constexpr explicit operator bool() const noexcept { return size(); }
-  constexpr bool operator!() const { return empty(); }
 
   // Essentially `operator===`, distinguishing between empty and null.
   constexpr bool same(cstring_view v) const noexcept {
@@ -296,6 +295,10 @@ struct std::hash<corvid::cstring_view> {
     return std::hash<std::string_view>()(csv.view());
   }
 };
+
+//
+// TODO
+//
 
 // TODO: Maybe add a getenv wrapper as a proof of concept, or even an `_env`
 // UDL?

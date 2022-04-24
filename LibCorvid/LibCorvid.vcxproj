@@ -164,7 +164,8 @@
     <ClInclude Include="includes\Interval.h" />
     <ClInclude Include="includes\Meta.h" />
     <ClInclude Include="includes\OptionalPtr.h" />
-    <ClInclude Include="includes\SequentialEnum.h" />
+    <ClInclude Include="includes\SequenceEnum.h" />
+    <ClInclude Include="includes\ConcatJoin.h" />
     <ClInclude Include="includes\StringUtils.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>

@@ -17,8 +17,7 @@
 #pragma once
 #include "Meta.h"
 
-namespace corvid {
-inline namespace intervals {
+namespace corvid::intervals {
 
 //
 // interval
@@ -101,10 +100,16 @@ private:
   T end_ = T{};
 };
 
-} // namespace intervals
-} // namespace corvid
+} // namespace corvid::intervals
+
+//
+// TODO
+//
 
 // TODO: There is a great deal that can be added here. This should probably
 // convert to a `std::pair`. It needs a `size`, some mutators, and perhaps some
 // set ops. There are assorted open issues, such as how to handle negative
 // intervals.
+
+// TODO: Consider fulfilling the requirements of
+// https://en.cppreference.com/w/cpp/named_req/Container.

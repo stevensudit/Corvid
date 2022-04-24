@@ -39,10 +39,13 @@
     <ClInclude Include="includes\CStringView.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="includes\SequentialEnum.h">
+    <ClInclude Include="includes\SequenceEnum.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="includes\Interval.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\ConcatJoin.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

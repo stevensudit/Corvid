@@ -16,6 +16,7 @@
 // limitations under the License.
 #include "pch.h"
 #include <LibCorvid/includes/StringUtils.h>
+#include <LibCorvid/includes/ConcatJoin.h>
 
 #include <cstdint>
 
@@ -190,6 +191,18 @@ TEST(StringUtilsTest, Trim) {
   }
 }
 
+TEST(StringUtilsTest, AppendNum) {
+  if (true) {
+    EXPECT_EQ(strings::num_as_string(1), "1");
+    EXPECT_EQ(strings::num_as_string(0), "0");
+    EXPECT_EQ((strings::num_as_string<10, 5>(0)), "    0");
+    EXPECT_EQ((strings::num_as_string<16>(uint8_t(0))), "0x00");
+    EXPECT_EQ((strings::num_as_string<16>(uint16_t(0))), "0x0000");
+    EXPECT_EQ((strings::num_as_string<16>(uint32_t(0))), "0x00000000");
+    EXPECT_EQ((strings::num_as_string<16>(uint64_t(0))), "0x0000000000000000");
+  }
+}
+
 TEST(StringUtilsTest, Append) {
   std::string s;
 
@@ -210,7 +223,7 @@ TEST(StringUtilsTest, Append) {
   EXPECT_EQ(s, "10101010");
   s.clear();
   strings::append<16>(s, 0xaa); // append hex
-  EXPECT_EQ(s, "aa");
+  EXPECT_EQ(s, "0x000000aa");
 
   s.clear();
   strings::append(s, true);           // append bool
@@ -369,11 +382,11 @@ TEST(StringUtilsTest, Append) {
   EXPECT_EQ(s, "12345");
 
   EXPECT_FALSE((std::is_same_v<int8_t, char>));
-  EXPECT_EQ(strings::from_num(42), "42");
-  EXPECT_EQ(strings::from_num<16>(10), "a");
-  EXPECT_EQ(strings::from_num('a'), "97");
-  EXPECT_EQ(strings::from_num(123.0l), "123");
-  EXPECT_EQ(strings::from_num(12.3l), "12.3");
+  EXPECT_EQ(strings::num_as_string(42), "42");
+  EXPECT_EQ(strings::num_as_string<16>(10), "0x0000000a");
+  EXPECT_EQ(strings::num_as_string('a'), "97");
+  EXPECT_EQ(strings::num_as_string(123.0l), "123");
+  EXPECT_EQ(strings::num_as_string(12.3l), "12.3");
 
   // TODO: Nested container torture test.
 
@@ -391,6 +404,9 @@ TEST(StringUtilsTest, Append) {
   EXPECT_EQ(strings::concat(t), "123");
   EXPECT_EQ(strings::concat(p), "12, 3");
   EXPECT_EQ(strings::concat(a), "123");
+
+  EXPECT_EQ((strings::join<strings::braces_opt::quoted>(l)),
+      R"(["1", "2", "3"])");
 
   s.clear();
   strings::append_join_with(s, ";", "123"); // single
@@ -415,13 +431,13 @@ TEST(StringUtilsTest, Append) {
 
   s.clear();
   strings::append_join_with(s, ";", intptr_t(42));
-  EXPECT_NE(s, "42");
+  EXPECT_EQ(s, "42");
   s.clear();
   strings::append_join_with(s, ";", reinterpret_cast<const void*>(&i));
   EXPECT_NE(s, "42");
   s.clear();
   strings::append_join_with(s, ";", reinterpret_cast<const void*>(NULL));
-  EXPECT_EQ(s, "0");
+  EXPECT_EQ(s, "0x0000000000000000");
   s.clear();
   const char* psz{};
   strings::append_join_with(s, ";", psz);
@@ -620,4 +636,29 @@ TEST(StringUtilsTest, Case) {
   EXPECT_EQ(s, "abcdefghij");
   EXPECT_EQ(strings::as_lower("ABCDEFGHIJ"), "abcdefghij");
   EXPECT_EQ(strings::as_upper("abcdefghij"), "ABCDEFGHIJ");
+}
+
+enum class rgb {
+  black,      // ---
+  red = 4,    // r--
+  green = 2,  // -g-
+  blue = 1,   // --b
+  yellow = 6, // rg-
+  purple = 5, // r-b
+  cyan = 3,   // -gb
+  white = 7   // rgb
+};
+
+template<>
+constexpr size_t corvid::bitmask::bit_count_v<rgb> = 3;
+
+template<>
+constexpr auto strings::enum_printer_v<rgb> =
+    corvid::bitmask::make_enum_printer<rgb>({"red", "green", "blue"});
+
+TEST(StringUtilsTest, AppendEnum) {
+  std::string s;
+  EXPECT_EQ((strings::concat(rgb::yellow)), "red + green");
+  EXPECT_EQ((strings::join(rgb::yellow, rgb::cyan)),
+      "red + green, green + blue");
 }

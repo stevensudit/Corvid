@@ -19,8 +19,9 @@
 
 using namespace std::literals;
 using namespace corvid;
+using namespace corvid::internal;
 
-TEST(optional_ptrTest, Construction) {
+TEST(OptionalPtrTest, Construction) {
   if (true) {
     optional_ptr<int*> o;
     EXPECT_FALSE(o.has_value());
@@ -66,7 +67,7 @@ TEST(optional_ptrTest, Construction) {
   }
 }
 
-TEST(optional_ptrTest, Access) {
+TEST(OptionalPtrTest, Access) {
   if (true) {
     auto test{"test"s};
     optional_ptr o = &test;
@@ -101,7 +102,7 @@ TEST(optional_ptrTest, Access) {
   }
 }
 
-TEST(optional_ptrTest, OrElse) {
+TEST(OptionalPtrTest, OrElse) {
   if (true) {
     optional_ptr<std::string*> o;
     EXPECT_FALSE(o.has_value());
@@ -115,7 +116,7 @@ TEST(optional_ptrTest, OrElse) {
   }
 }
 
-TEST(optional_ptrTest, ConstOrPtr) {
+TEST(OptionalPtrTest, ConstOrPtr) {
   if (true) {
     const auto test{"test"s};
     optional_ptr<const std::string*> o;
@@ -137,7 +138,7 @@ TEST(optional_ptrTest, ConstOrPtr) {
   }
 }
 
-TEST(optional_ptrTest, Smart) {
+TEST(OptionalPtrTest, Smart) {
   if (true) {
     EXPECT_TRUE(optional_ptr<int*>::is_raw);
     EXPECT_FALSE(optional_ptr<std::unique_ptr<int>>::is_raw);
@@ -203,5 +204,38 @@ TEST(optional_ptrTest, Smart) {
     // * f = o;
 
     EXPECT_EQ(o->size(), 4);
+  }
+}
+
+TEST(OptionalPtrTest, Dumb) {
+  using O = optional_ptr<int*>;
+  if (true) {
+    O o = nullptr;
+    EXPECT_FALSE(o);
+    O p(nullptr);
+    EXPECT_FALSE(p);
+    EXPECT_FALSE(O{nullptr});
+  }
+  if (true) {
+    int i;
+    O o(&i);
+    EXPECT_TRUE(o);
+    auto& p = (o = nullptr);
+    EXPECT_FALSE(o);
+    EXPECT_FALSE(p);
+  }
+  if (true) {
+    int i;
+    O a(&i), b;
+    EXPECT_TRUE(a != b);
+    EXPECT_TRUE(!(a == b));
+    EXPECT_FALSE(a == O());
+    EXPECT_TRUE(b == O());
+    EXPECT_FALSE(a == nullptr);
+    EXPECT_TRUE(b == nullptr);
+    EXPECT_TRUE(a != O());
+    EXPECT_FALSE(b != O());
+    EXPECT_TRUE(a != nullptr);
+    EXPECT_FALSE(b != nullptr);
   }
 }

@@ -19,16 +19,18 @@
 
 #include "Meta.h"
 
-namespace corvid {
-inline namespace optionalptr {
+// This is internal, like it says, so don't import it.
+namespace corvid::internal {
 
 // Pointer adapter with `std::optional` semantics, specialized on a raw or
-// smart pointer.
+// smart pointer. It satisfies the requirements of NullablePointer, per
+// https://en.cppreference.com/w/cpp/named_req/NullablePointer.
 //
-// The sole purpose of this class is to be used as a return value, not a
-// parameter or local. This makes it ideal for lookups, where you can then
-// chain calls to methods such as `value_or`. So if you find yourself declaring
-// variables of this type, you're doing it wrong.
+// The sole purpose of this class is to be used as a lightweight return value,
+// not a parameter or local. This makes it ideal for lookups, where you can
+// then chain calls to methods such as `value_or`. So if you find yourself
+// declaring variables of this type, you're doing it wrong. That's why it's
+// hidden behind the `internal` namespace.
 //
 // Note that it can be used like a pointer, both in terms of evaluating to
 // `bool` in a predicate expression and being dereferenceable when `has_value`.
@@ -151,5 +153,4 @@ private:
   }
 };
 
-} // namespace optionalptr
-} // namespace corvid
+} // namespace corvid::internal
