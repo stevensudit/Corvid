@@ -294,11 +294,15 @@ public:
   constexpr sequence_printer(std::array<std::string_view, N> name_list)
       : names(name_list) {}
 
-  std::string& append(std::string& target, E v) const {
+  template<typename A>
+  A& append(A& target, E v) const {
     auto n = as_underlying(v);
     auto ofs = n - *min_value<E>();
-    if (ofs < N && names[ofs].size()) return target.append(names[ofs]);
-    return strings::append_num(target, n);
+    if (ofs < N && names[ofs].size())
+      strings::make_appender(target).append(names[ofs]);
+    else
+      strings::append_num(target, n);
+    return target;
   }
 
   const std::array<std::string_view, N> names;
@@ -329,8 +333,7 @@ constexpr auto make_enum_printer(std::string_view(&&l)[N]) {
 // TODO
 //
 
-// TODO: Once `strings::Target` exists, switch to it for `append` and then
-// automatically offer an `operator<<` for any registered enum.
+// TODO: Offer a way to activate `operator<<` for any registered enum.
 
 // TODO: It might be nice if we could specialize `std::numeric_limits` for all
 // enums that are flagged as sequence, inheriting from the underlying class and

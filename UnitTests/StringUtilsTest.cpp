@@ -204,19 +204,6 @@ TEST(StringUtilsTest, AppendNum) {
   }
 }
 
-TEST(StringUtilsTest, Appender) {
-  if (true) {
-    std::string s;
-    strings::test_append(strings::test_append(s, "hel"), "lo");
-    EXPECT_EQ(s, "hello");
-  }
-  if (true) {
-    std::stringstream s;
-    strings::test_append(strings::test_append(s, "hel"), "lo");
-    EXPECT_EQ(s.str(), "hello");
-  }
-}
-
 TEST(StringUtilsTest, Append) {
   using strings::join_opt;
   std::string s;
@@ -519,6 +506,19 @@ TEST(StringUtilsTest, Edges) {
       (strings::join<join_opt::braced + join_opt::prefixed, '{', '}'>(a, b)),
       ", {[1, 2, 3], [4, 5, 6]}");
   EXPECT_EQ(strings::join<join_opt::prefixed>(a, b), ", [1, 2, 3], [4, 5, 6]");
+}
+
+TEST(StringUtilsTest, Streams) {
+  using strings::join_opt;
+
+  std::vector<int> a{1, 2, 3};
+  std::vector<int> b{4, 5, 6};
+
+  if (true) {
+    std::stringstream s;
+    strings::append_join(s, a, b);
+    EXPECT_EQ(s.str(), "[1, 2, 3], [4, 5, 6]");
+  }
 }
 
 TEST(StringUtilsTest, Print) {

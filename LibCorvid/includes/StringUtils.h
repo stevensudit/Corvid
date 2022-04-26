@@ -127,6 +127,108 @@ constexpr size_t replace(std::string& s, char from, char to) {
 }
 
 } // namespace search_and
+inline namespace targeting {
+
+//
+// Appender target
+//
+
+// The appender is a thin wrapper over a target stream or string. As its name
+// suggests, it's used in the various append functions to support either type
+// of target seamlessly.
+//
+// Note: Under clang and gcc, this is optimized away entirely. Under MSVC, not
+// quite. But this is consistent with MSVC's overall pattern of underwhelming
+// optimization.
+
+namespace details {
+
+// Generic ostream specialization.
+template<typename T>
+struct appender {
+  explicit appender(T& target) : target(target) {}
+
+  auto& append(std::string_view sv) {
+    target.write(sv.data(), sv.size());
+    return *this;
+  }
+
+  auto& append(const char* ps, size_t len) {
+    target.write(ps, len);
+    return *this;
+  }
+
+  auto& append(char ch) {
+    target.put(ch);
+    return *this;
+  }
+
+  auto& append(size_t len, char ch) {
+    while (len--) target.put(ch);
+    return *this;
+  }
+
+  auto& reserve(size_t len) { return *this; }
+
+  T& operator*() { return target; }
+
+  T& target;
+};
+
+// String partial specialization.
+template<>
+struct appender<std::string> {
+  explicit appender(std::string& target) : target(target) {}
+
+  auto& append(std::string_view sv) {
+    target.append(sv);
+    return *this;
+  }
+
+  auto& append(const char* ps, size_t len) {
+    target.append(ps, len);
+    return *this;
+  }
+
+  auto& append(char ch) {
+    target += ch;
+    return *this;
+  }
+
+  auto& append(size_t len, char ch) {
+    target.append(len, ch);
+    return *this;
+  }
+
+  auto& reserve(size_t len) {
+    target.reserve(target.size() + len);
+    return *this;
+  }
+
+  std::string& operator*() { return target; }
+
+  std::string& target;
+};
+
+} // namespace details
+
+// Determine whether `T` is appendable to.
+template<typename T>
+constexpr bool is_appendable_v =
+    std::is_same_v<std::remove_cvref_t<T>, std::string> ||
+    std::is_base_of_v<std::ostream, std::remove_cvref_t<T>>;
+
+// Make appendable target out of `t`.
+template<typename T>
+auto make_appender(T& t) {
+  using U = std::remove_cvref_t<T>;
+  if constexpr (is_string_view_convertible_v<U>)
+    return details::appender<std::string>(t);
+  else
+    return details::appender<U>(t);
+}
+
+} // namespace targeting
 inline namespace delimiting {
 
 //
@@ -143,11 +245,11 @@ inline namespace delimiting {
 // - When splitting, checks for any of the characters.
 // - When joining, appends the entire string.
 // - When manipulating braces, treated as an open/close pair.
-struct Delim: public std::string_view {
-  constexpr Delim() : Delim(" ") {}
+struct delim: public std::string_view {
+  constexpr delim() : delim(" ") {}
 
   template<typename T>
-  constexpr Delim(T&& list) : std::string_view(std::forward<T>(list)) {}
+  constexpr delim(T&& list) : std::string_view(std::forward<T>(list)) {}
 
   constexpr [[nodiscard]] auto find_in(std::string_view whole) const {
     if (size() == 1) return whole.find(front());
@@ -164,23 +266,31 @@ struct Delim: public std::string_view {
     return whole.find_last_not_of(*this);
   }
 
+  // Append.
+  template<typename A, enable_if_0<is_appendable_v<A>> = 0>
+  constexpr auto& append(A& target) const {
+    make_appender(target).append(*this);
+    return target;
+  }
+
   // Append after the first time.
   //
   // Set `skip` initially. Then, on the first call, `skip` will be cleared, but
-  // nothing will be appended. On subsequent calls `skip` will remainc cleared,
+  // nothing will be appended. On subsequent calls `skip` will remain cleared,
   // so the delimiter will be appended.
-  constexpr auto& append_skip_once(std::string& target, bool& skip) const {
+  template<typename A, enable_if_0<is_appendable_v<A>> = 0>
+  constexpr auto& append_skip_once(A& target, bool& skip) const {
     if (!skip)
-      target.append(*this);
+      append(target);
     else
       skip = false;
     return target;
   }
 
   // Append when `emit`.
-  template<bool emit = true>
-  constexpr auto& append_if(std::string& target) const {
-    if constexpr (emit) target.append(*this);
+  template<bool emit = true, typename A, enable_if_0<is_appendable_v<A>> = 0>
+  constexpr auto& append_if(A& target) const {
+    if constexpr (emit) append(target);
     return target;
   }
 };
@@ -202,10 +312,10 @@ constexpr auto& stream_out(std::ostream& os, Args&&... args) {
 }
 
 template<typename Head, typename... Tail>
-constexpr auto& stream_out_with(std::ostream& os, const Delim& delim,
-    const Head& head, const Tail&... tail) {
+constexpr auto& stream_out_with(std::ostream& os, delim d, const Head& head,
+    const Tail&... tail) {
   os << head;
-  return ((os << delim << (tail)), ...);
+  return ((os << d << (tail)), ...);
 }
 
 template<typename... Ts>
@@ -214,8 +324,8 @@ constexpr auto& print(const Ts&... parts) {
 }
 
 template<typename... Ts>
-constexpr auto& print_with(const Delim& delim, const Ts&... parts) {
-  return stream_out_with(std::cout, delim, parts...);
+constexpr auto& print_with(delim d, const Ts&... parts) {
+  return stream_out_with(std::cout, d, parts...);
 }
 
 template<typename... Ts>
@@ -224,8 +334,8 @@ constexpr auto& println(const Ts&... parts) {
 }
 
 template<typename... Ts>
-constexpr auto& println_with(const Delim& delim, const Ts&... parts) {
-  return print_with(delim, parts...) << '\n';
+constexpr auto& println_with(delim d, const Ts&... parts) {
+  return print_with(d, parts...) << '\n';
 }
 
 template<typename... Ts>
@@ -240,8 +350,8 @@ constexpr auto& log_if(bool emit, const Ts&... parts) {
 }
 
 template<typename... Ts>
-constexpr auto& log_with(const Delim& delim, const Ts&... parts) {
-  return stream_out_with(std::clog, delim, parts...) << std::endl;
+constexpr auto& log_with(delim d, const Ts&... parts) {
+  return stream_out_with(std::clog, d, parts...) << std::endl;
 }
 
 // Redirect a `std::ostream`, `from`, to a different one, `to`, during its
@@ -269,8 +379,7 @@ inline namespace trimming {
 
 // Trim whitespace on left, returning part.
 template<typename R = std::string_view>
-constexpr [[nodiscard]] auto
-trim_left(std::string_view whole, const Delim& ws = {}) {
+constexpr [[nodiscard]] auto trim_left(std::string_view whole, delim ws = {}) {
   auto pos = ws.find_not_in(whole);
   std::string_view part;
   if (pos != npos) part = whole.substr(pos);
@@ -280,7 +389,7 @@ trim_left(std::string_view whole, const Delim& ws = {}) {
 // Trim whitespace on right, returning part.
 template<typename R = std::string_view>
 constexpr [[nodiscard]] auto
-trim_right(std::string_view whole, const Delim& ws = {}) {
+trim_right(std::string_view whole, delim ws = {}) {
   auto pos = ws.find_last_not_in(whole);
   auto part = whole.substr(0, pos + 1);
   return R{part};
@@ -288,14 +397,13 @@ trim_right(std::string_view whole, const Delim& ws = {}) {
 
 // Trim whitespace, returning part.
 template<typename R = std::string_view>
-constexpr [[nodiscard]] auto
-trim(std::string_view whole, const Delim& ws = {}) {
+constexpr [[nodiscard]] auto trim(std::string_view whole, delim ws = {}) {
   return trim_right<R>(trim_left(whole, ws), ws);
 }
 
 // Trim container in place.
 template<typename T, enable_if_0<is_container_v<T>> = 0>
-constexpr void trim(T& wholes, const Delim ws = {}) {
+constexpr void trim(T& wholes, const delim ws = {}) {
   for (auto& item : wholes) {
     auto& part = container_element_v(&item);
     part = trim<std::remove_reference_t<decltype(part)>>(part);
@@ -306,7 +414,7 @@ constexpr void trim(T& wholes, const Delim ws = {}) {
 //
 // Ideal for calling directly on the result of split.
 template<typename T, enable_if_0<is_container_v<T>> = 0>
-constexpr [[nodiscard]] auto&& trim(T&& wholes, const Delim& ws = {}) {
+constexpr [[nodiscard]] auto&& trim(T&& wholes, delim ws = {}) {
   trim(wholes, ws);
   return wholes;
 }
@@ -326,8 +434,8 @@ inline namespace splitting {
 // Specify R as `std::string` to make a deep copy.
 template<typename R = std::string_view>
 constexpr [[nodiscard]] auto
-extract_piece(std::string_view& whole, const Delim& delim = {}) {
-  auto pos = std::min(whole.size(), delim.find_in(whole));
+extract_piece(std::string_view& whole, delim d = {}) {
+  auto pos = std::min(whole.size(), d.find_in(whole));
   auto part = whole.substr(0, pos);
   whole.remove_prefix(std::min(whole.size(), pos + 1));
   return R{part};
@@ -340,9 +448,9 @@ extract_piece(std::string_view& whole, const Delim& delim = {}) {
 // Specify R as `std::string` to make a deep copy.
 template<typename R>
 constexpr [[nodiscard]] bool
-more_pieces(R& part, std::string_view& whole, const Delim& delim = {}) {
+more_pieces(R& part, std::string_view& whole, delim d = {}) {
   auto all = whole.size();
-  part = extract_piece<R>(whole, delim);
+  part = extract_piece<R>(whole, d);
   return part.size() != all;
 }
 
@@ -352,97 +460,24 @@ more_pieces(R& part, std::string_view& whole, const Delim& delim = {}) {
 //
 // Specify R as `std::string` to make a deep copy.
 template<typename R = std::string_view>
-constexpr [[nodiscard]] auto
-split(std::string_view whole, const Delim& delim = {}) {
+constexpr [[nodiscard]] auto split(std::string_view whole, delim d = {}) {
   std::vector<R> parts;
   std::string_view part;
   for (bool more = !whole.empty(); more;) {
-    more = more_pieces(part, whole, delim);
+    more = more_pieces(part, whole, d);
     parts.push_back(R{part});
   }
   return parts;
 }
 
 // Split a temporary string by delimiters, making deep copies of the parts.
-constexpr [[nodiscard]] auto
-split(std::string&& whole, const Delim& delim = {}) {
-  return split<std::string>(std::string_view(whole), delim);
+constexpr [[nodiscard]] auto split(std::string&& whole, delim d = {}) {
+  return split<std::string>(std::string_view(whole), d);
 }
 
 } // namespace splitting
-inline namespace targeting {
-
-//
-// Appender
-//
-
-// Wrapper for appending arbitrary text. Generic ostream specialization.
-template<typename T>
-class appender {
-public:
-  explicit appender(T& target_ref) : target_ref_(target_ref) {}
-
-  auto& append(std::string_view sv) {
-    target_ref_.write(sv.data(), sv.size());
-    return *this;
-  }
-
-  auto& append(char ch) {
-    target_ref_.put(ch);
-    return *this;
-  }
-
-  T& operator*() { return target_ref_; }
-
-private:
-  T& target_ref_;
-};
-
-// String partial specialization.
-template<>
-class appender<std::string> {
-public:
-  explicit appender(std::string& target_ref) : target_ref_(target_ref) {}
-
-  auto& append(std::string_view sv) {
-    target_ref_.append(sv);
-    return *this;
-  }
-
-  auto& append(char ch) {
-    target_ref_ += ch;
-    return *this;
-  }
-
-  std::string& operator*() { return target_ref_; }
-
-private:
-  std::string& target_ref_;
-};
-
-template<typename T>
-constexpr bool is_appendable_v =
-    std::is_same_v<std::remove_cvref_t<T>, std::string> ||
-    std::is_base_of_v<std::ostream, std::remove_cvref_t<T>>;
-
-template<typename T>
-auto make_appender(T& t) {
-  using U = std::remove_cvref_t<T>;
-  if constexpr (is_string_view_convertible_v<U>)
-    return appender<std::string>(t);
-  else
-    return appender<U>(t);
-}
-
-template<typename A, enable_if_0<is_appendable_v<A>> = 0>
-auto& test_append(A& target, std::string_view part) {
-  auto a = make_appender(target);
-  a.append(part);
-  return *a;
-}
-
-} // namespace targeting
 inline namespace conversion {
+
 //
 // Numerical conversions
 //
@@ -461,7 +496,7 @@ inline namespace conversion {
 // On failure, leaves output value alone, possibly removes some characters
 // from the string view, and returns false.
 template<int base = 10, typename T, enable_if_0<is_integral_number_v<T>> = 0>
-bool extract_num(T& t, std::string_view& sv) {
+constexpr bool extract_num(T& t, std::string_view& sv) {
   sv = trim_left(sv);
   auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t, base);
   sv.remove_prefix(ptr - sv.data());
@@ -478,7 +513,7 @@ bool extract_num(T& t, std::string_view& sv) {
 // characters from the string view.
 template<typename T = int64_t, int base = 10,
     enable_if_0<is_integral_number_v<T>> = 0>
-std::optional<T> extract_num(std::string_view& sv) {
+constexpr std::optional<T> extract_num(std::string_view& sv) {
   T t;
   return extract_num<base>(t, sv) ? std::make_optional(t) : std::nullopt;
 }
@@ -491,7 +526,7 @@ std::optional<T> extract_num(std::string_view& sv) {
 // On failure, returns optional without value.
 template<typename T = int64_t, int base = 10,
     enable_if_0<is_integral_number_v<T>> = 0>
-std::optional<T> parse_num(std::string_view sv) {
+constexpr std::optional<T> parse_num(std::string_view sv) {
   return extract_num<base>(sv);
 }
 
@@ -502,7 +537,7 @@ std::optional<T> parse_num(std::string_view sv) {
 // On failure, returns `default_value`.
 template<typename T = int64_t, int base = 10,
     enable_if_0<is_integral_number_v<T>> = 0>
-T parse_num(std::string_view sv, T default_value) {
+constexpr T parse_num(std::string_view sv, T default_value) {
   T t;
   return extract_num<base>(t, sv) ? t : default_value;
 }
@@ -523,7 +558,7 @@ T parse_num(std::string_view sv, T default_value) {
 // from the string view, and returns false.
 template<std::chars_format fmt = std::chars_format::general, typename T,
     enable_if_0<is_floating_number_v<T>> = 0>
-bool extract_num(T& t, std::string_view& sv) {
+constexpr bool extract_num(T& t, std::string_view& sv) {
   sv = trim_left(sv);
   auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t, fmt);
   sv.remove_prefix(ptr - sv.data());
@@ -540,7 +575,7 @@ bool extract_num(T& t, std::string_view& sv) {
 // characters from the string view.
 template<typename T, std::chars_format fmt = std::chars_format::general,
     enable_if_0<is_floating_number_v<T>> = 0>
-std::optional<T> extract_num(std::string_view& sv) {
+constexpr std::optional<T> extract_num(std::string_view& sv) {
   T t;
   return extract_num<fmt>(t, sv) ? std::make_optional(t) : std::nullopt;
 }
@@ -553,7 +588,7 @@ std::optional<T> extract_num(std::string_view& sv) {
 // On failure, returns optional without value.
 template<typename T, std::chars_format fmt = std::chars_format::general,
     enable_if_0<is_floating_number_v<T>> = 0>
-std::optional<T> parse_num(std::string_view sv) {
+constexpr std::optional<T> parse_num(std::string_view sv) {
   return extract_num<fmt>(sv);
 }
 
@@ -565,7 +600,7 @@ std::optional<T> parse_num(std::string_view sv) {
 // On failure, returns `default_value`.
 template<typename T, std::chars_format fmt = std::chars_format::general,
     enable_if_0<is_floating_number_v<T>> = 0>
-T parse_num(std::string_view sv, T default_value) {
+constexpr T parse_num(std::string_view sv, T default_value) {
   T t;
   return extract_num<fmt>(t, sv) ? t : default_value;
 }
@@ -577,8 +612,9 @@ T parse_num(std::string_view sv, T default_value) {
 // Append integral number to `target`. Hex is prefixed with "0x" and
 // zero-padded to an appropriate size.
 template<int base = 10, size_t width = 0, char pad = ' ', typename T,
-    enable_if_0<is_integral_number_v<T>> = 0>
-std::string& append_num(std::string& target, T num) {
+    typename A, enable_if_0<is_appendable_v<A> && is_integral_number_v<T>> = 0>
+constexpr auto& append_num(A& target, T num) {
+  auto a = make_appender(target);
   std::array<char, 64> b;
   if (auto [ptr, ec] = std::to_chars(b.data(), b.data() + b.size(), num, base);
       ec == std::errc())
@@ -588,13 +624,13 @@ std::string& append_num(std::string& target, T num) {
       auto w = width;
       auto p = pad;
       if constexpr (base == 16 && !width) {
-        target.append("0x"sv);
+        a.append("0x"sv);
         p = '0';
         w = sizeof(T) * 2;
       }
-      if (len < w) target.append(w - len, p);
+      if (len < w) a.append(w - len, p);
     }
-    target.append(b.data(), len);
+    a.append(b.data(), len);
   }
   return target;
 }
@@ -602,17 +638,17 @@ std::string& append_num(std::string& target, T num) {
 // Return integral number as string.
 template<int base = 10, size_t width = 0, char pad = ' ', typename T,
     enable_if_0<is_integral_number_v<T>> = 0>
-std::string num_as_string(T num) {
+constexpr std::string num_as_string(T num) {
   std::string target;
   return append_num<base, width, pad>(target, num);
-  return target;
 }
 
 // Append floating-point number to `target`.
 template<std::chars_format fmt = std::chars_format::general,
     int precision = -1, size_t width = 0, char pad = ' ', typename T,
-    enable_if_0<is_floating_number_v<T>> = 0>
-auto& append_num(std::string& target, T num) {
+    typename A, enable_if_0<is_appendable_v<A> && is_floating_number_v<T>> = 0>
+constexpr auto& append_num(A& target, T num) {
+  auto a = make_appender(target);
   std::array<char, 64> b;
   std::to_chars_result res;
   if constexpr (precision != -1)
@@ -622,8 +658,8 @@ auto& append_num(std::string& target, T num) {
   if (auto [ptr, ec] = res; ec == std::errc()) {
     size_t len = ptr - b.data();
     if constexpr (width && pad)
-      if (len < width) target.append(width - len, pad);
-    target.append(b.data(), len);
+      if (len < width) a.append(width - len, pad);
+    a.append(b.data(), len);
   }
   return target;
 }
@@ -632,10 +668,9 @@ auto& append_num(std::string& target, T num) {
 template<std::chars_format fmt = std::chars_format::general,
     int precision = -1, size_t width = 0, char pad = ' ', typename T,
     enable_if_0<is_floating_number_v<T>> = 0>
-std::string num_as_string(T num) {
+constexpr std::string num_as_string(T num) {
   std::string target;
   return append_num<fmt, precision, width, pad>(target, num);
-  return target;
 }
 
 inline namespace enumprint {
@@ -649,7 +684,8 @@ namespace details {
 // default_enum_printer
 template<typename T>
 struct default_enum_printer {
-  std::string& append(std::string& target, T t) const {
+  template<typename A>
+  auto& append(A& target, T t) const {
     return append_num(target, as_underlying(t));
   }
 };
@@ -665,14 +701,15 @@ template<typename T, enable_if_0<is_enum_v<T>> = 0>
 constexpr auto enum_printer_v = details::default_enum_printer<T>();
 
 // Append enum to `target`.
-template<typename T, enable_if_0<is_enum_v<T>> = 0>
-std::string& append_enum(std::string& target, T t) {
+template<typename T, typename A,
+    enable_if_0<is_appendable_v<A> && is_enum_v<T>> = 0>
+constexpr A& append_enum(A& target, T t) {
   return enum_printer_v<T>.append(target, t);
 }
 
 // Return enum as string.
 template<typename T, enable_if_0<is_enum_v<T>> = 0>
-std::string enum_as_string(T t) {
+constexpr std::string enum_as_string(T t) {
   std::string target;
   return append_enum(target, t);
 }
@@ -693,25 +730,13 @@ std::string enum_as_string(T t) {
 // cstring, so as not to pollute this.
 
 // TODO: Maybe add a replace_any that replaces any matching chars with the
-// destination value.
-
-// TODO: Maybe supplement replace with remove and remove_any.
+// destination value. Maybe supplement replace with remove and remove_any.
 
 // TODO: Maybe make `log` and such thread-safe? It's not really intended to be
 // a full, production logging system, so this might be overkill.
 
-// TODO: Add a `strings::Target` class that binds to `std::ostream&` or to
-// `std::string_view` and allows `append` of a `std::string_view`. (Maybe
-// support `const char*, size_t` just to avoid the issue of `nullptr`.)
-// Anyhow, use the Target class instead of `std::string& target` everywhere.
-// Perhaps deal with the issue of determining whether it's empty. This is
-// trivial for `std::string` and perhaps possible for `std::stringstream`, but
-// maybe we're just doing it wrong. Maybe, for non-strings, we need to always
-// say we're not empty, requiring the top-level call to suppress the leading
-// delimiter explicitly. Or maybe add a bool that starts as false but is set
-// true after the first write. Think it through.
-
-// TODO: maybe an op<< for enum?
+// TODO: Maybe an `operator<<` for enum? (But likely opt-in and only for
+// registered).
 
 // TODO: Wacky idea: overload unary `operator+` for `std::string_view` to mean
 // non-empty.

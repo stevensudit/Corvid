@@ -339,8 +339,9 @@ struct bitmask_printer {
       : names(name_list) {}
 
   // Append when we have one name per bit.
-  std::string& append_bits(std::string& target, E v) const {
-    static constexpr strings::Delim plus(" + ");
+  template<typename A>
+  A& append_bits(A& target, E v) const {
+    static constexpr strings::delim plus(" + ");
     bool skip{true};
 
     for (size_t ndx = N; ndx != 0; --ndx) {
@@ -349,7 +350,8 @@ struct bitmask_printer {
 
       // If bit matched, print and remove.
       if (has(v, mask) && names[ofs].size()) {
-        plus.append_skip_once(target, skip).append(names[ofs]);
+        plus.append_skip_once(target, skip);
+        strings::make_appender(target).append(names[ofs]);
         v = E(*v & ~*mask);
       }
     }
@@ -359,8 +361,9 @@ struct bitmask_printer {
   }
 
   // Append when we have one name for each value in range.
-  std::string& append_range(std::string& target, E v) const {
-    static constexpr strings::Delim plus(" + ");
+  template<typename A>
+  A& append_range(A& target, E v) const {
+    static constexpr strings::delim plus(" + ");
     bool skip{true};
     int all_valid_bits = N - 1;
 
@@ -369,7 +372,8 @@ struct bitmask_printer {
 
       // If bits matched, print and remove.
       if (has_all(v, mask) && names[ndx].size()) {
-        plus.append_skip_once(target, skip).append(names[ndx]);
+        plus.append_skip_once(target, skip);
+        strings::make_appender(target).append(names[ndx]);
         v = E(*v & ~*mask);
 
         // If no valid bits left, drop to number.
@@ -381,7 +385,8 @@ struct bitmask_printer {
     return target;
   }
 
-  std::string& append(std::string& target, E v) const {
+  template<typename A>
+  A& append(A& target, E v) const {
     if constexpr (N == bit_count_v<E>)
       return append_bits(target, v);
     else if constexpr (N == range_length<E>())
