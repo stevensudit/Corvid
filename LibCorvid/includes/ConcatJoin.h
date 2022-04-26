@@ -44,7 +44,7 @@ inline namespace appending {
 // with. The `append_join` and `join` functions instead default the delimiter
 // to ", ".
 //
-// All of the joining functions can have `braces_opt` specified to control
+// All of the joining functions can have `join_opt` specified to control
 // such things as whether container elements are surrounded with appropriate
 // braces, whether strings should be quoted, andwhether a delimiter should be
 // emitted at the start; see enum definition below for description.
@@ -56,7 +56,7 @@ inline namespace appending {
 // Containers include `std::pair`, `std::tuple`, `std::initializer_list`, and
 // anything you can do a ranged-for over, such as `std::vector`. For keyed
 // containers, such as `std::map`, only the values are used, unless
-// `braces_opt` specifies otherwise. Containers may be nested arbitrarily.
+// `join_opt` specifies otherwise. Containers may be nested arbitrarily.
 //
 // In addition to `int` and `double`, all other native numeric types are
 // supported.
@@ -173,105 +173,68 @@ constexpr [[nodiscard]] auto concat(const Head& head, const Tail&... tail) {
   return target;
 }
 
-namespace details {
+} // namespace appending
+inline namespace joining {
 
 // Internal join state and option flags.
-enum class join_flags {
+enum class join_opt {
+  // braced - Default behavior.
+  braced = 0,
   // prevent brace - Avoid surrounding containers with braces.
-  prevent_brace = 1,
-  // prevent delimit - Avoid prefixing with delimiter. True after
-  // open brace, but not propagated. Delimiting requires this to be false and
-  // and target to be non-empty (unless delimit_empty).
-  prevent_delimit = 2,
-  // show_key - Show keys in collections, in addition to values.
-  show_key = 4,
-  // show_quotes - Show quotes around strings.
-  show_quotes = 8,
-  // delimit_empty - Avoid checking that target is empty before delimiting.
-  // Does not override `prevent_delimit`. This is primarily an optimization.
-  delimit_empty = 16,
+  flat = 1,
+  // keyed - Show keys in collections, in addition to values.
+  keyed = 4,
+  // quoted - Show quotes around strings.
+  quoted = 8,
+  // prefixed - Prefix with the delimiter.
+  prefixed = 16
 };
 
-} // namespace details
-} // namespace appending
+} // namespace joining
 } // namespace corvid::strings
 
 // Register join_flags as bitmask.
 template<>
-constexpr size_t
-    corvid::bitmask::bit_count_v<corvid::strings::details::join_flags> = 5;
+constexpr size_t corvid::bitmask::bit_count_v<corvid::strings::join_opt> = 4;
 
 namespace corvid::strings {
-inline namespace appending {
+inline namespace joining {
 
-namespace details {
-using namespace corvid::bitmask::ops;
-
-// Braces options for join methods.
-enum class braces_opt {
-  // Allow braces around containers.
-  braced,
-  // Prevent braces.
-  flat = *details::join_flags::prevent_brace,
-  // Merge with previous contents of target, skipping leading delimiter.
-  merged = *details::join_flags::prevent_delimit,
-  // Show key and values in braces, instead of just values.
-  keyed = *details::join_flags::show_key,
-  // Show quotes around strings.
-  quoted = *details::join_flags::show_quotes
-};
-} // namespace details
-
-// Publish.
-using braces_opt = details::braces_opt;
-
-} // namespace appending
-} // namespace corvid::strings
-
-// Register braces_opt as bitmask.
-template<>
-constexpr size_t corvid::bitmask::bit_count_v<corvid::strings::braces_opt> = 4;
-
-namespace corvid::strings {
-inline namespace appending {
 namespace details {
 using namespace corvid::bitmask;
 
 // Determine whether to add braces.
-template<braces_opt opt, char open, char close>
-constexpr bool braces_v =
-    missing(join_flags(opt), join_flags::prevent_brace) && (open && close);
+// Logic: Unless braces are suppressed, use braces when we have them.
+template<join_opt opt, char open, char close>
+constexpr bool braces_v = missing(opt, join_opt::flat) && (open && close);
 
-// Calculate next opt for head. If adding braces, don't delimit.
-template<braces_opt opt, bool add_braces>
-constexpr braces_opt head_opt_v = braces_opt(
-    set_to(join_flags(opt), join_flags::prevent_delimit, add_braces));
+// Calculate next opt for head part.
+// Logic: No need to emit leading delimiter for head, since we've already
+// emitted it if it was needed.
+template<join_opt opt>
+constexpr join_opt head_opt_v = clear(opt, join_opt::prefixed);
 
-// Calculate next opt given the previous one.
-template<braces_opt opt>
-constexpr braces_opt next_opt_v = braces_opt(
-    join_flags(opt) - join_flags::prevent_delimit + join_flags::delimit_empty);
-
-// Calculate delimiter option.
-template<braces_opt opt>
-constexpr Delim::emit delimit_v =
-    has(join_flags(opt), join_flags::prevent_delimit) ? Delim::emit::prevent
-    : has(join_flags(opt), join_flags::delimit_empty)
-        ? Delim::emit::force
-        : Delim::emit::allow;
+// Calculate next opt for next part of tail.
+// Logic: After the head, we need to emit leading delimiters before parts.
+template<join_opt opt>
+constexpr join_opt next_opt_v = set(opt, join_opt::prefixed);
 
 // Determine whether to show keys.
-template<braces_opt opt>
-constexpr bool keyed_v = has(join_flags(opt), join_flags::show_key);
+template<join_opt opt>
+constexpr bool keyed_v = has(opt, join_opt::keyed);
 
 // Determine whether to show quotes.
-template<braces_opt opt>
-constexpr bool quoted_v = has(join_flags(opt), join_flags::show_quotes);
+template<join_opt opt>
+constexpr bool quoted_v = has(opt, join_opt::quoted);
+
+// Determine whether to lead with a delimiter.
+template<join_opt opt>
+constexpr bool delimit_v = has(opt, join_opt::prefixed);
 
 } // namespace details
 
 // Append one piece to `target`, joining with `delim`.
-template<auto opt = braces_opt::braced, char open = 0, char close = 0,
+template<auto opt = join_opt::braced, char open = 0, char close = 0,
     typename T,
     enable_if_0<!is_container_v<T> && !is_variant_v<T> &&
                 !is_optional_like_v<T>> = 0>
@@ -279,8 +242,9 @@ constexpr auto&
 append_join_with(std::string& target, const Delim& delim, const T& part) {
   constexpr bool add_braces = details::braces_v<opt, open, close>;
   constexpr bool add_quotes =
-      details::quoted_v<opt> && is_string_view_convertible_v<T>;
-  delim.append_maybe<details::delimit_v<opt>>(target);
+      is_string_view_convertible_v<T> && details::quoted_v<opt>;
+
+  delim.append_if<details::delimit_v<opt>>(target);
   if constexpr (add_braces) append(target, open);
   if constexpr (add_quotes) append(target, "\"");
   append(target, part);
@@ -290,7 +254,7 @@ append_join_with(std::string& target, const Delim& delim, const T& part) {
 }
 
 // Append one pointer or optional value to `target`, joining with `delim`.
-template<auto opt = braces_opt::braced, char open = 0, char close = 0,
+template<auto opt = join_opt::braced, char open = 0, char close = 0,
     typename T, enable_if_0<is_optional_like_v<T>> = 0>
 constexpr auto&
 append_join_with(std::string& target, const Delim& delim, const T& part) {
@@ -299,7 +263,7 @@ append_join_with(std::string& target, const Delim& delim, const T& part) {
 }
 
 // Append one variant to `target`, as its current type, joining with `delim`.
-template<auto opt = braces_opt::braced, char open = 0, char close = 0,
+template<auto opt = join_opt::braced, char open = 0, char close = 0,
     typename T, enable_if_0<is_variant_v<T>> = 0>
 constexpr auto&
 append_join_with(std::string& target, const Delim& delim, const T& part) {
@@ -315,16 +279,16 @@ append_join_with(std::string& target, const Delim& delim, const T& part) {
 
 // Append one container, as its element values, to `target`, joining with
 // `delim`.
-template<auto opt = braces_opt::braced, char open = '[', char close = ']',
+template<auto opt = join_opt::braced, char open = '[', char close = ']',
     typename T, enable_if_0<is_container_v<T>> = 0>
 constexpr auto&
 append_join_with(std::string& target, const Delim& delim, const T& parts) {
   constexpr bool add_braces = details::braces_v<opt, open, close>;
-  constexpr auto head_opt = details::head_opt_v<opt, add_braces>;
+  constexpr auto head_opt = details::head_opt_v<opt>;
   constexpr auto next_opt = details::next_opt_v<opt>;
   constexpr bool keyed = details::keyed_v<opt>;
-  if constexpr (add_braces)
-    append(delim.append_maybe<details::delimit_v<opt>>(target), open);
+  delim.append_if<details::delimit_v<opt>>(target);
+  if constexpr (add_braces) append(target, open);
 
   if (auto b = std::cbegin(parts), e = std::cend(parts); b != e) {
     append_join_with<head_opt>(target, delim, container_element_v<keyed>(b));
@@ -339,7 +303,7 @@ append_join_with(std::string& target, const Delim& delim, const T& parts) {
 
 // Append one `std::tuple` or `std::pair`, as its elements, to `target`,
 // joining with `delim`.
-template<auto opt = braces_opt::braced, char open = 0, char close = 0,
+template<auto opt = join_opt::braced, char open = 0, char close = 0,
     template<typename...> typename T, typename... Ts,
     enable_if_0<is_tuple_equiv_v<T<Ts...>>> = 0>
 constexpr auto& append_join_with(std::string& target, const Delim& delim,
@@ -359,27 +323,27 @@ constexpr auto& append_join_with(std::string& target, const Delim& delim,
 }
 
 namespace details {
-template<braces_opt opt, char open = 0, char close = 0, typename Head,
+template<join_opt opt, char open = 0, char close = 0, typename Head,
     typename... Tail>
 constexpr auto& ajwh(std::string& target, const Delim& delim, const Head& head,
     const Tail&... tail) {
-  constexpr auto next_opt = details::next_opt_v<opt>;
   append_join_with<opt>(target, delim, head);
-  if constexpr (sizeof...(tail) != 0) ajwh<next_opt>(target, delim, tail...);
+  if constexpr (sizeof...(tail) != 0) ajwh<opt>(target, delim, tail...);
   return target;
 }
 } // namespace details
 
 // Append pieces to `target`, joining with `delim`.
-template<auto opt = braces_opt::braced, char open = 0, char close = 0,
+template<auto opt = join_opt::braced, char open = 0, char close = 0,
     typename Head, typename... Tail>
 constexpr auto& append_join_with(std::string& target, const Delim& delim,
     const Head& head, const Tail&... tail) {
   constexpr bool add_braces = details::braces_v<opt, open, close>;
-  constexpr auto head_opt = details::head_opt_v<opt, add_braces>;
+  constexpr auto head_opt = details::head_opt_v<opt>;
   constexpr auto next_opt = details::next_opt_v<opt>;
-  if constexpr (add_braces)
-    append(delim.append_maybe<details::delimit_v<opt>>(target), open);
+  delim.append_if<details::delimit_v<opt>>(target);
+
+  if constexpr (add_braces) append(target, open);
 
   append_join_with<head_opt>(target, delim, head);
 
@@ -391,7 +355,7 @@ constexpr auto& append_join_with(std::string& target, const Delim& delim,
 }
 
 // Append pieces to `target`, joining with a comma and space delimiter.
-template<auto opt = braces_opt::braced, char open = 0, char close = 0,
+template<auto opt = join_opt::braced, char open = 0, char close = 0,
     typename Head, typename... Tail>
 constexpr auto&
 append_join(std::string& target, const Head& head, const Tail&... tail) {
@@ -403,7 +367,7 @@ append_join(std::string& target, const Head& head, const Tail&... tail) {
 }
 
 // Join pieces together, with `delim`, into `std::string`.
-template<auto opt = braces_opt::merged, char open = 0, char close = 0,
+template<auto opt = join_opt::braced, char open = 0, char close = 0,
     typename Head, typename... Tail>
 constexpr [[nodiscard]] auto
 join_with(const Delim& delim, const Head& head, const Tail&... tail) {
@@ -416,7 +380,7 @@ join_with(const Delim& delim, const Head& head, const Tail&... tail) {
 }
 
 // Join pieces together, comma-delimited, into `std::string`.
-template<auto opt = braces_opt::merged, char open = 0, char close = 0,
+template<auto opt = join_opt::braced, char open = 0, char close = 0,
     typename Head, typename... Tail>
 constexpr [[nodiscard]] auto join(const Head& head, const Tail&... tail) {
   std::string target;
@@ -428,7 +392,7 @@ constexpr [[nodiscard]] auto join(const Head& head, const Tail&... tail) {
   return target;
 }
 
-} // namespace appending
+} // namespace joining
 inline namespace bracing {
 
 //
@@ -468,11 +432,9 @@ add_braces(std::string_view whole, const Delim& braces = {"[]"}) {
 // TODO: Benchmark Delim `find` single-char optimizations, to make sure they're
 // faster.
 
-// TODO: Maybe simplify things by emitting delimiter after appending the part,
-// and then only if we know there's another part coming. This means that the
-// delimiter should be emitted one level higher.
+// TODO: Universal target that's either `std::string` or `std::ostream`.
 
-// TODO: Rethink braces_opt. Should it be a bitmask and maybe even get rid of
-// the join_opts entirely?
+// TODO: Consider adding a universal catch-all for none-of-the-above that has
+// an `operator<<` defined for it. This way, we can print anything, in a pinch.
 
 } // namespace corvid::strings

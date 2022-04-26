@@ -177,16 +177,10 @@ struct Delim: public std::string_view {
     return target;
   }
 
-  enum class emit { prevent, allow, force };
-
-  // Append when `allow` and the `target` isn't empty, or when `force`.
-  template<auto e = emit::allow>
-  constexpr auto& append_maybe(std::string& target) const {
-    if constexpr (e == emit::force)
-      target.append(*this);
-    else if constexpr (e == emit::allow) {
-      if (!target.empty()) target.append(*this);
-    }
+  // Append when `emit`.
+  template<bool emit = true>
+  constexpr auto& append_if(std::string& target) const {
+    if constexpr (emit) target.append(*this);
     return target;
   }
 };
@@ -376,8 +370,79 @@ split(std::string&& whole, const Delim& delim = {}) {
 }
 
 } // namespace splitting
-inline namespace conversion {
+inline namespace targeting {
 
+//
+// Appender
+//
+
+// Wrapper for appending arbitrary text. Generic ostream specialization.
+template<typename T>
+class appender {
+public:
+  explicit appender(T& target_ref) : target_ref_(target_ref) {}
+
+  auto& append(std::string_view sv) {
+    target_ref_.write(sv.data(), sv.size());
+    return *this;
+  }
+
+  auto& append(char ch) {
+    target_ref_.put(ch);
+    return *this;
+  }
+
+  T& operator*() { return target_ref_; }
+
+private:
+  T& target_ref_;
+};
+
+// String partial specialization.
+template<>
+class appender<std::string> {
+public:
+  explicit appender(std::string& target_ref) : target_ref_(target_ref) {}
+
+  auto& append(std::string_view sv) {
+    target_ref_.append(sv);
+    return *this;
+  }
+
+  auto& append(char ch) {
+    target_ref_ += ch;
+    return *this;
+  }
+
+  std::string& operator*() { return target_ref_; }
+
+private:
+  std::string& target_ref_;
+};
+
+template<typename T>
+constexpr bool is_appendable_v =
+    std::is_same_v<std::remove_cvref_t<T>, std::string> ||
+    std::is_base_of_v<std::ostream, std::remove_cvref_t<T>>;
+
+template<typename T>
+auto make_appender(T& t) {
+  using U = std::remove_cvref_t<T>;
+  if constexpr (is_string_view_convertible_v<U>)
+    return appender<std::string>(t);
+  else
+    return appender<U>(t);
+}
+
+template<typename A, enable_if_0<is_appendable_v<A>> = 0>
+auto& test_append(A& target, std::string_view part) {
+  auto a = make_appender(target);
+  a.append(part);
+  return *a;
+}
+
+} // namespace targeting
+inline namespace conversion {
 //
 // Numerical conversions
 //
@@ -387,8 +452,8 @@ inline namespace conversion {
 // Extract integer out of a `std::string_view`, setting output parameter.
 //
 // Skips leading white space, accepts leading minus sign, and does not accept
-// "0x" or "0X", even when `base` is 16. (This is true for all of these related
-// functions.)
+// "0x" or "0X", even when `base` is 16. (This is true for all of these
+// related functions.)
 //
 // On success, sets output value, removes parsed characters from the string
 // view, and returns true.
@@ -403,10 +468,11 @@ bool extract_num(T& t, std::string_view& sv) {
   return ec == std::errc{};
 }
 
-// Extract integer from a `std::string_view`, returning it as `std::optional`.
+// Extract integer from a `std::string_view`, returning it as
+// `std::optional`.
 //
-// On success, returns optional with value, and removes parsed characters from
-// the string view.
+// On success, returns optional with value, and removes parsed characters
+// from the string view.
 //
 // On failure, returns optional without value, and possibly removes some
 // characters from the string view.
@@ -453,8 +519,8 @@ T parse_num(std::string_view sv, T default_value) {
 // On success, sets output value, removes parsed characters from the string
 // view, and returns true.
 //
-// On failure, leaves output value alone, possibly removes some characters from
-// the string view, and returns false.
+// On failure, leaves output value alone, possibly removes some characters
+// from the string view, and returns false.
 template<std::chars_format fmt = std::chars_format::general, typename T,
     enable_if_0<is_floating_number_v<T>> = 0>
 bool extract_num(T& t, std::string_view& sv) {
@@ -467,8 +533,8 @@ bool extract_num(T& t, std::string_view& sv) {
 // Extract floating-point from a `std::string_view`, returning it as
 // `std::optional`.
 //
-// On success, returns optional with value, and removes parsed characters from
-// the string view.
+// On success, returns optional with value, and removes parsed characters
+// from the string view.
 //
 // On failure, returns optional without value, and possibly removes some
 // characters from the string view.
@@ -491,7 +557,8 @@ std::optional<T> parse_num(std::string_view sv) {
   return extract_num<fmt>(sv);
 }
 
-// Parse floating-point from copy of `std::string_view` with a `default_value`.
+// Parse floating-point from copy of `std::string_view` with a
+// `default_value`.
 //
 // On success, returns parsed value.
 //
@@ -513,8 +580,9 @@ template<int base = 10, size_t width = 0, char pad = ' ', typename T,
     enable_if_0<is_integral_number_v<T>> = 0>
 std::string& append_num(std::string& target, T num) {
   std::array<char, 64> b;
-  auto [ptr, ec] = std::to_chars(b.data(), b.data() + b.size(), num, base);
-  if (ec == std::errc()) {
+  if (auto [ptr, ec] = std::to_chars(b.data(), b.data() + b.size(), num, base);
+      ec == std::errc())
+  {
     size_t len = ptr - b.data();
     if constexpr ((width && pad) || base == 16) {
       auto w = width;
@@ -576,6 +644,8 @@ inline namespace enumprint {
 // enumprint
 //
 
+namespace details {
+
 // default_enum_printer
 template<typename T>
 struct default_enum_printer {
@@ -583,6 +653,7 @@ struct default_enum_printer {
     return append_num(target, as_underlying(t));
   }
 };
+} // namespace details
 
 // enum_printer_v
 //
@@ -591,13 +662,15 @@ struct default_enum_printer {
 // The default enum printer just outputs the underlying integer, but other
 // versions handle bitmask and sequential enums.
 template<typename T, enable_if_0<is_enum_v<T>> = 0>
-constexpr auto enum_printer_v = default_enum_printer<T>();
+constexpr auto enum_printer_v = details::default_enum_printer<T>();
 
+// Append enum to `target`.
 template<typename T, enable_if_0<is_enum_v<T>> = 0>
 std::string& append_enum(std::string& target, T t) {
   return enum_printer_v<T>.append(target, t);
 }
 
+// Return enum as string.
 template<typename T, enable_if_0<is_enum_v<T>> = 0>
 std::string enum_as_string(T t) {
   std::string target;

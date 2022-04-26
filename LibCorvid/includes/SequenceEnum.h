@@ -340,4 +340,5 @@ constexpr auto make_enum_printer(std::string_view(&&l)[N]) {
 
 // TODO: On a related note, maybe we can provide `min_value_v`, `max_value_v`
 // and `range_length_v` in "Meta.h" for regular enums. This would necessarily
-// ignore any registered bitmask or sequence limits.
+// ignore any registered bitmask or sequence limits. This would need to
+// disambiguate itself from bitmasks and sequences, though.

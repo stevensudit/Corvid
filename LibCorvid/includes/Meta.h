@@ -32,7 +32,7 @@ inline namespace specialized {
 
 // Determine whether `T` is a specialization of `C`.
 //
-// Only works when `C` is a class that specialized on types, not values (so
+// Only works when `C` is a class that is specialized on types, not values (so
 // `std::pair` is good, `std::array` is not).
 template<typename T, template<typename...> typename C>
 constexpr bool is_specialization_of_v = false;
@@ -65,9 +65,6 @@ using pointer_element_t = decltype(details::pointer_element<P>(0));
 // Determine whether `P` can be dereferenced like a pointer, even if it's not a
 // raw pointer. This detects iterators, smart pointers, and even
 // `std::optional`.
-//
-// Note that this technique is subtly different, and better, than using
-// `std::is_member_function_pointer` for `operator*`.
 template<typename P>
 constexpr bool is_dereferenceable_v = !std::is_void_v<pointer_element_t<P>>;
 
@@ -127,14 +124,10 @@ inline namespace detection {
 // Detection
 //
 
-// Wrapper for `std::enable_if`, allowing this abbreivated usage:
+// Wrapper for `std::enable_if`, allowing this abbreviated usage:
 //   enable_if_0<is_thingy_v<T>> = 0
 template<bool B>
 using enable_if_0 = std::enable_if_t<B, bool>;
-
-// Determine whether `T` is a `std::pair`.
-template<typename T>
-constexpr bool is_pair_v = is_specialization_of_v<std::decay_t<T>, std::pair>;
 
 // Determine whether `T` is a `std::array`.
 template<typename... Ts>
@@ -143,10 +136,15 @@ constexpr bool is_array_v = false;
 template<typename T, std::size_t N>
 constexpr bool is_array_v<std::array<T, N>> = true;
 
+// Determine whether `T` is a `std::pair`.
+template<typename T>
+constexpr bool is_pair_v =
+    is_specialization_of_v<std::remove_cvref_t<T>, std::pair>;
+
 // Extract value from container element, including the key if `keyed`.
 template<bool keyed = false, typename T>
 constexpr [[nodiscard]] auto& container_element_v(T&& it) {
-  if constexpr (is_pair_v<std::decay_t<decltype(*it)>> && !keyed)
+  if constexpr (is_pair_v<decltype(*it)> && !keyed)
     return it->second;
   else
     return *it;
@@ -157,7 +155,7 @@ constexpr [[nodiscard]] auto& container_element_v(T&& it) {
 template<typename T>
 constexpr bool is_string_view_convertible_v =
     std::is_convertible_v<T, std::string_view> &&
-    !std::is_same_v<nullptr_t, std::decay_t<T>>;
+    !std::is_same_v<nullptr_t, std::remove_cvref_t<T>>;
 
 // Determine whether `C` is a container, including arrays but excluding
 // `char[]`, `std::string` and `std::string_view`.
@@ -167,28 +165,28 @@ constexpr bool is_container_v =
 
 // Determine whether `T` is bool.
 template<typename T>
-constexpr bool is_bool_v = std::is_same_v<bool, std::decay_t<T>>;
+constexpr bool is_bool_v = std::is_same_v<bool, std::remove_cvref_t<T>>;
 
 // Determine whether `T` is a number (excluding `bool` and `enum`).
 template<typename T>
 constexpr bool is_number_v =
-    std::is_arithmetic_v<std::decay_t<T>> && !is_bool_v<T>;
+    std::is_arithmetic_v<std::remove_cvref_t<T>> && !is_bool_v<T>;
 
 // Determine whether `T` is an integral number (excluding `bool` and `enum`).
 template<typename T>
 constexpr bool is_integral_number_v =
-    std::is_arithmetic_v<std::decay_t<T>> && !is_bool_v<T> &&
+    std::is_arithmetic_v<std::remove_cvref_t<T>> && !is_bool_v<T> &&
     std::is_integral_v<T>;
 
 // Determine whether `T` is a floating-point number.
 template<typename T>
 constexpr bool is_floating_number_v =
-    std::is_arithmetic_v<std::decay_t<T>> && !std::is_integral_v<T>;
+    std::is_arithmetic_v<std::remove_cvref_t<T>> && !std::is_integral_v<T>;
 
 // Determine whether `T` is an enum. Works for unscoped and scoped (class)
 // enum.
 template<typename T>
-constexpr bool is_enum_v = std::is_enum_v<std::decay_t<T>>;
+constexpr bool is_enum_v = std::is_enum_v<std::remove_cvref_t<T>>;
 
 // Determine whether `T` is a `std::tuple`.
 template<typename T>
@@ -212,14 +210,15 @@ constexpr bool is_variant_v = is_specialization_of_v<T, std::variant>;
 // Determine whether `T` is `void*`.
 template<typename T>
 constexpr bool is_void_ptr_v =
-    std::is_same_v<void*, typename std::remove_cv_t<T>> ||
-    std::is_same_v<const void*, typename std::remove_cv_t<T>>;
+    std::is_pointer_v<T> &&
+    (std::is_void_v<std::remove_pointer_t<std::remove_cvref_t<T>>>);
 
-// Determine whether `T` is a `char*`.
+// Determine whether `T` is a `char*` (including `char[]`).
 template<typename T>
 constexpr bool is_char_ptr_v =
-    std::is_same_v<char*, std::decay_t<T>> ||
-    std::is_same_v<const char*, std::decay_t<T>>;
+    std::is_pointer_v<std::decay_t<T>> &&
+    (std::is_same_v<
+        std::remove_cvref_t<std::remove_pointer_t<std::decay_t<T>>>, char>);
 
 // Determine whether `T` is like a `std::tuple`, which is to say that you can
 // `std::apply` to it. This includes `std::tuple`, `std::pair` and
@@ -241,7 +240,7 @@ constexpr bool is_tuple_like_v =
 //
 // This includes `std::tuple` and `std::pair` but excludes the otherwise
 // tuple-like `std::array`, because it's always homogenous in type and can be
-// iterated through with ranged for.
+// iterated through with ranged-for.
 template<typename T>
 constexpr bool is_tuple_equiv_v = is_tuple_v<T> || is_pair_v<T>;
 
@@ -319,3 +318,7 @@ constexpr auto from_underlying(const U& u) {
 
 } // namespace underlying
 } // namespace corvid
+
+//
+// TODO
+//

@@ -362,3 +362,10 @@ TEST(CStringViewTest, Equal) {
   std::set<cstring_view> ss;
   ss.insert("abc"_csv);
 }
+
+TEST(CStringViewTest, Env) {
+  auto path = "PATH"_env;
+  EXPECT_NE(path, "");
+  auto missing = "sdfk4r345dsLKLJldksfdlkl"_env;
+  EXPECT_TRUE(missing.null());
+}

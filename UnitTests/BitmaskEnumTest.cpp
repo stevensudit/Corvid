@@ -107,7 +107,13 @@ TEST(BitMaskTest, NamedFunctions) {
     EXPECT_EQ(make_safely<rgb>(-1), rgb::white);
 
     EXPECT_EQ(set(rgb::red, rgb::blue), rgb::purple);
+    EXPECT_EQ(set_if(rgb::red, rgb::blue, true), rgb::purple);
+    EXPECT_EQ(set_if(rgb::red, rgb::blue, false), rgb::red);
+
     EXPECT_EQ(clear(rgb::purple, rgb::blue), rgb::red);
+    EXPECT_EQ(clear_if(rgb::purple, rgb::blue, true), rgb::red);
+    EXPECT_EQ(clear_if(rgb::purple, rgb::blue, false), rgb::purple);
+
     EXPECT_EQ(flip(rgb::white), rgb::black);
 
     EXPECT_TRUE(has(rgb::purple, rgb::blue));

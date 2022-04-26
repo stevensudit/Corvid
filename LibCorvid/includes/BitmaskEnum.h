@@ -240,10 +240,22 @@ constexpr E set(E v, E m) noexcept {
   return v + m;
 }
 
+// Return `v` with the bits in `m` set only if `pred`.
+template<typename E, details::enable_if_bitmask_0<E> = 0>
+constexpr E set_if(E v, E m, bool pred) noexcept {
+  return pred ? v + m : v;
+}
+
 // Return `v` with the bits set in `m` cleared.
 template<typename E, details::enable_if_bitmask_0<E> = 0>
 constexpr E clear(E v, E m) noexcept {
   return v - m;
+}
+
+// Return `v` with the bits in `m` cleared only if `pred`.
+template<typename E, details::enable_if_bitmask_0<E> = 0>
+constexpr E clear_if(E v, E m, bool pred) noexcept {
+  return pred ? v - m : v;
 }
 
 // Return `v` with the bits set in `m` set to `value`.
@@ -450,3 +462,5 @@ constexpr auto make_enum_printer() {
 // value instead of the lowest. For ranges, reversing the output would mean
 // showing the lower values before the higher ones (which would require
 // buffering and prepending).
+
+// TODO: Do we need set_at_if and clear_at_if, for completion?

@@ -27,12 +27,13 @@ inline namespace containers {
 // `std::map`, it points to the `pair.second`, not the `pair`.
 //
 // This is primarily a helper method for `find_opt`.
+template<bool keyed = false>
 [[nodiscard]] auto it_to_ptr(auto& c, auto&& it) {
   using namespace std;
   if constexpr (is_dereferenceable_v<decltype(it)>)
-    return it != end(c) ? &container_element_v(it) : nullptr;
+    return it != end(c) ? &container_element_v<keyed>(it) : nullptr;
   else
-    return it != -1 ? &container_element_v(&c[it]) : nullptr;
+    return it != -1 ? &container_element_v<keyed>(&c[it]) : nullptr;
 }
 
 // Search container for key, returning `optional_ptr` to element. When a search
@@ -50,13 +51,14 @@ inline namespace containers {
 //
 // Even works for arrays, but not arrays decayed into pointers (because we
 // can't determine the size, then).
+template<bool keyed = false>
 [[nodiscard]] auto find_opt(auto& c, const auto& k) {
   using namespace std;
   if constexpr (has_find_v<decltype(c), decltype(k)>)
-    return internal::optional_ptr{it_to_ptr(c, c.find(k))};
+    return internal::optional_ptr{it_to_ptr<keyed>(c, c.find(k))};
   else
     return internal::optional_ptr{
-        it_to_ptr(c, std::find(begin(c), end(c), k))};
+        it_to_ptr<keyed>(c, std::find(begin(c), end(c), k))};
 }
 
 // Determine whether the container has the key.
@@ -98,11 +100,3 @@ using string_set = std::map<std::string, transparent_less_stringlike, A>;
 
 } // namespace containers
 } // namespace corvid
-
-//
-// TODO
-//
-
-// TODO: Consider setting up defaulted but overrideable `keyed` for
-// `container_element_v`. This might be useful in retrieving the actual key
-// which is equal to what was searched on but has a distinct address.

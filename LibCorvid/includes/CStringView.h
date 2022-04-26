@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cstdlib>
 #include <string>
 #include <string_view>
 #include <iostream>
@@ -286,6 +287,11 @@ constexpr cstring_view operator""_csv(unsigned long long zero_only) {
   return cstring_view{};
 }
 
+// Environment.
+cstring_view operator""_env(const char* ps, std::size_t) {
+  return std::getenv(ps);
+}
+
 } // namespace literals
 } // namespace corvid
 
@@ -295,10 +301,3 @@ struct std::hash<corvid::cstring_view> {
     return std::hash<std::string_view>()(csv.view());
   }
 };
-
-//
-// TODO
-//
-
-// TODO: Maybe add a getenv wrapper as a proof of concept, or even an `_env`
-// UDL?

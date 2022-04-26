@@ -22,6 +22,7 @@
 
 using namespace std::literals;
 using namespace corvid;
+using namespace corvid::bitmask::ops;
 
 TEST(StringUtilsTest, ExtractPiece) {
   std::string_view sv;
@@ -203,7 +204,21 @@ TEST(StringUtilsTest, AppendNum) {
   }
 }
 
+TEST(StringUtilsTest, Appender) {
+  if (true) {
+    std::string s;
+    strings::test_append(strings::test_append(s, "hel"), "lo");
+    EXPECT_EQ(s, "hello");
+  }
+  if (true) {
+    std::stringstream s;
+    strings::test_append(strings::test_append(s, "hel"), "lo");
+    EXPECT_EQ(s.str(), "hello");
+  }
+}
+
 TEST(StringUtilsTest, Append) {
+  using strings::join_opt;
   std::string s;
 
   s.clear();
@@ -352,10 +367,10 @@ TEST(StringUtilsTest, Append) {
   EXPECT_EQ(s, "2021");
   s.clear();
   // This just tests enum support.
-  strings::append(s, strings::braces_opt::flat);
+  strings::append(s, join_opt::flat);
   EXPECT_EQ(s, "1");
   s.clear();
-  strings::append(s, strings::braces_opt(32));
+  strings::append(s, join_opt(32));
   EXPECT_EQ(s, "32"); // not hex!
 
   std::map<std::string, int> msi{{"a", 1}, {"c", 2}};
@@ -405,28 +420,27 @@ TEST(StringUtilsTest, Append) {
   EXPECT_EQ(strings::concat(p), "12, 3");
   EXPECT_EQ(strings::concat(a), "123");
 
-  EXPECT_EQ((strings::join<strings::braces_opt::quoted>(l)),
-      R"(["1", "2", "3"])");
+  EXPECT_EQ((strings::join<join_opt::quoted>(l)), R"(["1", "2", "3"])");
 
   s.clear();
   strings::append_join_with(s, ";", "123"); // single
-  strings::append_join_with<strings::braces_opt::braced, '`', '\''>(s, ";",
-      "456");
+  strings::append_join_with<join_opt::braced + join_opt::prefixed, '`', '\''>(
+      s, ";", "456");
   EXPECT_EQ(s, "123;`456'");
   s.clear();
   strings::append_join_with(s, ";", v); // container
   EXPECT_EQ(s, "[1;2;3]");
   s = "a";
-  strings::append_join_with(s, ";", v);
+  strings::append_join_with<join_opt::prefixed>(s, ";", v);
   EXPECT_EQ(s, "a;[1;2;3]");
   s = "v=";
-  strings::append_join_with<strings::braces_opt::merged>(s, ";", v);
+  strings::append_join_with(s, ";", v);
   EXPECT_EQ(s, "v=[1;2;3]");
   s.clear();
   strings::append_join_with(s, ";", t); // tuple
   EXPECT_EQ(s, "{1;2;3}");
   s.clear();
-  strings::append_join_with<strings::braces_opt::flat>(s, ";", t); // tuple
+  strings::append_join_with<join_opt::flat>(s, ";", t); // tuple
   EXPECT_EQ(s, "1;2;3");
 
   s.clear();
@@ -461,7 +475,7 @@ TEST(StringUtilsTest, Append) {
   strings::append_join_with(s, ";", om);
   EXPECT_EQ(s, "[[1;2;3];[4;5]]");
   s.clear();
-  strings::append_join<strings::braces_opt::keyed>(s, mssi);
+  strings::append_join<join_opt::keyed>(s, mssi);
   EXPECT_EQ(s, "[(a, [1, 2, 3]), (c, [4, 5])]");
 
   s.clear();
@@ -477,19 +491,34 @@ TEST(StringUtilsTest, Append) {
   EXPECT_EQ(strings::join(p), "(1, 2, 3)");
   EXPECT_EQ(strings::join(a), "[1, 2, 3]");
 
-  EXPECT_EQ(strings::join<strings::braces_opt::flat>(t), "1, 2, 3");
-  EXPECT_EQ(strings::join<strings::braces_opt::flat>(p), "1, 2, 3");
-  EXPECT_EQ(strings::join<strings::braces_opt::flat>(a), "1, 2, 3");
+  EXPECT_EQ(strings::join<join_opt::flat>(t), "1, 2, 3");
+  EXPECT_EQ(strings::join<join_opt::flat>(p), "1, 2, 3");
+  EXPECT_EQ(strings::join<join_opt::flat>(a), "1, 2, 3");
 
   EXPECT_EQ(strings::concat('1', '2', '3'), "123");
 
   EXPECT_EQ(strings::join(mssi), "[[1, 2, 3], [4, 5]]");
-  EXPECT_EQ(strings::join<strings::braces_opt::flat>(mssi), "1, 2, 3, 4, 5");
+  EXPECT_EQ(strings::join<join_opt::flat>(mssi), "1, 2, 3, 4, 5");
 
   // TODO: test plain array, std::array, map, set, pair, tuple
 
-  // TODO: Test objects that aren't strings but do have implicit conversion to
-  // string or string_view.
+  // TODO: Test objects that aren't strings but do have implicit conversion
+  // to string or string_view.
+}
+
+TEST(StringUtilsTest, Edges) {
+  using strings::join_opt;
+
+  std::vector<int> a{1, 2, 3};
+  std::vector<int> b{4, 5, 6};
+  EXPECT_EQ(strings::join(a, b), "[1, 2, 3], [4, 5, 6]");
+  EXPECT_EQ(strings::join<join_opt::flat>(a, b), "1, 2, 3, 4, 5, 6");
+  EXPECT_EQ((strings::join<join_opt::braced, '{', '}'>(a, b)),
+      "{[1, 2, 3], [4, 5, 6]}");
+  EXPECT_EQ(
+      (strings::join<join_opt::braced + join_opt::prefixed, '{', '}'>(a, b)),
+      ", {[1, 2, 3], [4, 5, 6]}");
+  EXPECT_EQ(strings::join<join_opt::prefixed>(a, b), ", [1, 2, 3], [4, 5, 6]");
 }
 
 TEST(StringUtilsTest, Print) {

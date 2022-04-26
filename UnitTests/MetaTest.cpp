@@ -197,8 +197,11 @@ TEST(MetaTest, Detection) {
   if (true) {
     EXPECT_TRUE((is_void_ptr_v<void*>));
     EXPECT_TRUE((is_void_ptr_v<const void*>));
+    EXPECT_TRUE((is_void_ptr_v<void* const>));
+    EXPECT_TRUE((is_void_ptr_v<const void* const>));
     EXPECT_FALSE((is_void_ptr_v<int>));
     EXPECT_FALSE((is_void_ptr_v<int*>));
+    EXPECT_FALSE((is_void_ptr_v<int* const>));
   }
   if (true) {
     EXPECT_TRUE((is_char_ptr_v<char*>));
@@ -208,6 +211,10 @@ TEST(MetaTest, Detection) {
     EXPECT_TRUE((is_char_ptr_v<char* const>));
     EXPECT_TRUE((is_char_ptr_v<const char* const>));
     EXPECT_FALSE((is_char_ptr_v<void*>));
+    EXPECT_FALSE((is_char_ptr_v<int*>));
+    EXPECT_FALSE((is_char_ptr_v<char>));
+    const char* psz{};
+    EXPECT_TRUE((is_char_ptr_v<decltype(psz)>));
   }
 }
 
