@@ -34,7 +34,8 @@ inline namespace appending {
 //
 
 // The `append`, `append_join`, and `append_join_with` functions take a
-// `target` string as the first parameter and append the rest to it.
+// `target`, which can be a `std::string` or any `std::ostream`, as the first
+// parameter and append the rest to it.
 //
 // The `concat`, `join`, and `join_with` functions take the pieces and return
 // the whole as a string.
@@ -46,8 +47,9 @@ inline namespace appending {
 //
 // All of the joining functions can have `join_opt` specified to control
 // such things as whether container elements are surrounded with appropriate
-// braces, whether strings should be quoted, andwhether a delimiter should be
-// emitted at the start; see enum definition below for description.
+// braces, whether keys should be shown for collections, whether strings should
+// be quoted, and whether a delimiter should be emitted at the start; see enum
+// definition below for description.
 //
 // The supported types for the pieces include: `std::string_view`,
 // `std::string`, `const char*`, `char`, `bool`, `int`, `double`, `enum`, and
