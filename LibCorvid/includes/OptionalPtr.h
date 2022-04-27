@@ -43,6 +43,7 @@ public:
   using P = Ptr;
   using E = pointer_element_t<P>;
   constexpr static bool is_raw = std::is_pointer_v<P>;
+  static_assert(is_dereferenceable_v<P>);
 
   using element_type = E;
   using raw_pointer = E*;

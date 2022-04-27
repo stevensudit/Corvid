@@ -128,7 +128,13 @@ TEST(BitMaskTest, NamedFunctions) {
 
     EXPECT_EQ((set_at(rgb::black, 1)), rgb::blue);
     EXPECT_EQ((set_at(rgb::black, 2)), rgb::green);
-    EXPECT_EQ((set_at(rgb::black, 3)), rgb::red);
+    EXPECT_EQ((set_at_if(rgb::black, 3, true)), rgb::red);
+    EXPECT_EQ((set_at_if(rgb::black, 3, false)), rgb::black);
+    EXPECT_EQ((clear_at(rgb::white, 1)), rgb::yellow);
+    EXPECT_EQ((clear_at_if(rgb::white, 1, true)), rgb::yellow);
+    EXPECT_EQ((clear_at_if(rgb::white, 2, false)), rgb::white);
+    EXPECT_EQ((set_at_to(rgb::black, 1, true)), rgb::blue);
+    EXPECT_EQ((set_at_to(rgb::white, 2, false)), rgb::purple);
 
     size_t c{}, s{};
     for (auto e : make_interval<rgb>()) {
@@ -288,5 +294,20 @@ TEST(BitMaskTest, MoreNamingTests) {
     EXPECT_EQ(enum_as_string(patchy_rgb::white), "white");
     EXPECT_EQ(enum_as_string(patchy_rgb(0x40)), "0x00000040");
     EXPECT_EQ(enum_as_string(patchy_rgb(7 + 0x40)), "white + 0x00000040");
+  }
+}
+
+TEST(BitMaskTest, StreamingOut) {
+  // This is a false negative. See Meta.h for more.
+  EXPECT_FALSE(can_stream_out_v<rgb>);
+  if (true) {
+    std::stringstream ss;
+    ss << *rgb::red << std::flush;
+    EXPECT_EQ(ss.str(), "4");
+  }
+  if (true) {
+    std::stringstream ss;
+    ss << rgb::red << std::flush;
+    EXPECT_EQ(ss.str(), "red");
   }
 }

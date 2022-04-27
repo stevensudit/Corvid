@@ -462,3 +462,18 @@ TEST(SequentialEnumTest, SubtleBugRepro) {
   EXPECT_EQ(*e, 0);
   EXPECT_NE(*e, 36);
 }
+
+TEST(SequentialEnumTest, StreamingOut) {
+  // This is a false negative. See Meta.h for more.
+  EXPECT_FALSE(can_stream_out_v<tiger_pick>);
+  if (true) {
+    std::stringstream ss;
+    ss << *tiger_pick::moe << std::flush;
+    EXPECT_EQ(ss.str(), "3");
+  }
+  if (true) {
+    std::stringstream ss;
+    ss << tiger_pick::moe << std::flush;
+    EXPECT_EQ(ss.str(), "moe");
+  }
+}

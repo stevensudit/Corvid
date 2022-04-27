@@ -66,12 +66,16 @@ inline namespace appending {
 // Pointers and `std::optional` are dereferenced if a value is available. To
 // instead show the address of a pointer in hex, cast it to `void*`.
 //
-// Any other type can be supported by adding your own overload of `append`
-// (and, if it needs to support internal delimiters, `append_join_with`).
+// Any other class can be supported by adding your own overload of `append`
+// (and, if it needs to support internal delimiters, `append_join_with`, in
+// which case you'll also need to specialize `append_join_overriden_v`).
+//
+// If the class already supports streaming out through `std::ostream`, you can
+// support it for append just by enabling `stream_append_v`.
 
 // Append one stringlike thing to `target`.
 template<typename T, typename A,
-    enable_if_0<is_appendable_v<A> && is_string_view_convertible_v<T>> = 0>
+    enable_if_appendable_0<A, is_string_view_convertible_v<T>> = 0>
 constexpr auto& append(A& target, const T& part) {
   auto a = make_appender(target);
   if constexpr (is_char_ptr_v<T>)
@@ -84,11 +88,11 @@ constexpr auto& append(A& target, const T& part) {
 // Append one integral number (or `char`) to `target`. When called directly,
 // `base`, `width`, and `pad` may be specified.
 template<int base = 10, size_t width = 0, char pad = ' ', typename T,
-    typename A, enable_if_0<is_appendable_v<A> && is_integral_number_v<T>> = 0>
+    typename A, enable_if_appendable_0<A, is_integral_number_v<T>> = 0>
 constexpr auto& append(A& target, T part) {
   auto radix = base;
   if constexpr (std::is_same_v<T, char>)
-    make_appender(target).append(1U, part);
+    make_appender(target).append(part);
   else
     append_num<base, width, pad>(target, part);
   return target;
@@ -98,14 +102,14 @@ constexpr auto& append(A& target, T part) {
 // `precision`, `width`, and `pad` may be specified.
 template<std::chars_format fmt = std::chars_format::general,
     int precision = -1, size_t width = 0, char pad = ' ', typename T,
-    typename A, enable_if_0<is_appendable_v<A> && is_floating_number_v<T>> = 0>
+    typename A, enable_if_appendable_0<A, is_floating_number_v<T>> = 0>
 constexpr auto& append(A& target, T part) {
   return append_num<fmt, precision, width, pad>(target, part);
 }
 
 // Append one pointer or optional value to `target`.
 template<typename T, typename A,
-    enable_if_0<is_appendable_v<A> && is_optional_like_v<T>> = 0>
+    enable_if_appendable_0<A, is_optional_like_v<T>> = 0>
 constexpr auto& append(A& target, const T& part) {
   if (part) append(target, *part);
   return target;
@@ -113,21 +117,19 @@ constexpr auto& append(A& target, const T& part) {
 
 // Append one void pointer, as hex, to `target`.
 template<typename T, typename A,
-    enable_if_0<is_appendable_v<A> && is_void_ptr_v<T>> = 0>
+    enable_if_appendable_0<A, is_void_ptr_v<T>> = 0>
 constexpr auto& append(A& target, T part) {
   return append<16>(target, reinterpret_cast<uintptr_t>(part));
 }
 
 // Append one `bool`, as `int`, to `target`.
-template<typename T, typename A,
-    enable_if_0<is_appendable_v<A> && is_bool_v<T>> = 0>
+template<typename T, typename A, enable_if_appendable_0<A, is_bool_v<T>> = 0>
 constexpr auto& append(A& target, T part) {
   return append(target, static_cast<int>(part));
 }
 
 // Append one scoped or unscoped `enum`, as underlying integer, to `target`.
-template<typename T, typename A,
-    enable_if_0<is_appendable_v<A> && is_enum_v<T>> = 0>
+template<typename T, typename A, enable_if_appendable_0<A, is_enum_v<T>> = 0>
 constexpr auto& append(A& target, T part) {
   return append_enum(target, part);
 }
@@ -136,7 +138,7 @@ constexpr auto& append(A& target, T part) {
 // delimiters. See `append_join_with` for delimiter support. When called
 // directly, `keyed` may be specified.
 template<bool keyed = false, typename T, typename A,
-    enable_if_0<is_appendable_v<A> && is_container_v<T>> = 0>
+    enable_if_appendable_0<A, is_container_v<T>> = 0>
 constexpr auto& append(A& target, const T& parts) {
   for (auto& part : parts) append(target, container_element_v<keyed>(&part));
   return target;
@@ -145,7 +147,7 @@ constexpr auto& append(A& target, const T& parts) {
 // Append pieces to `target` without delimiters. See `append_join_with` for
 // delimiter support.
 template<typename Head, typename Middle, typename... Tail, typename A,
-    enable_if_0<is_appendable_v<A>> = 0>
+    enable_if_appendable_0<A> = 0>
 constexpr auto& append(A& target, const Head& head, const Middle& middle,
     const Tail&... tail) {
   append(append(target, head), middle);
@@ -156,7 +158,7 @@ constexpr auto& append(A& target, const Head& head, const Middle& middle,
 // Append one `std::tuple` or `std::pair`, as its elements, to `target`
 // without delimiters. See `append_join_with` for delimiter support.
 template<template<typename...> typename T, typename... Ts, typename A,
-    enable_if_0<is_appendable_v<A> && is_tuple_equiv_v<T<Ts...>>> = 0>
+    enable_if_appendable_0<A, is_tuple_equiv_v<T<Ts...>>> = 0>
 constexpr auto& append(A& target, const T<Ts...>& parts) {
   std::apply(
       [&target](const Ts&... parts) {
@@ -168,12 +170,19 @@ constexpr auto& append(A& target, const T<Ts...>& parts) {
 
 // Append one variant to `target`, as its current type.
 template<typename T, typename A,
-    enable_if_0<is_appendable_v<A> && is_variant_v<T>> = 0>
+    enable_if_appendable_0<A, is_variant_v<T>> = 0>
 constexpr auto& append(A& target, const T& part) {
   if (!part.valueless_by_exception()) {
     std::visit([&target](auto&& part) { append(target, part); }, part);
   }
   return target;
+}
+
+// Append one stremable object to `target`.
+template<typename T, typename A,
+    enable_if_appendable_0<A, stream_append_v<T>> = 0>
+constexpr auto& append(A& target, const T& part) {
+  return append_stream(target, part);
 }
 
 // Concatenate pieces together into `std::string` without delimiters. See
@@ -248,33 +257,49 @@ constexpr bool delimit_v = has(opt, join_opt::prefixed);
 // Append one piece to `target`, joining with `delim`.
 template<auto opt = join_opt::braced, char open = 0, char close = 0,
     typename T, typename A,
-    enable_if_0<is_appendable_v<A> && !is_container_v<T> && !is_variant_v<T> &&
-                !is_optional_like_v<T>> = 0>
+    enable_if_appendable_0<A,
+        !is_container_v<T> && !is_variant_v<T> && !is_optional_like_v<T> &&
+            !append_join_overriden_v<T>> = 0>
 constexpr auto& append_join_with(A& target, delim d, const T& part) {
   constexpr bool add_braces = details::braces_v<opt, open, close>;
   constexpr bool add_quotes =
       is_string_view_convertible_v<T> && details::quoted_v<opt>;
   d.append_if<details::delimit_v<opt>>(target);
+
   if constexpr (add_braces) append(target, open);
   if constexpr (add_quotes) append(target, "\"");
+
   append(target, part);
+
   if constexpr (add_quotes) append(target, "\"");
+  if constexpr (add_braces) append(target, close);
+  return target;
+}
+
+// Append one stremable object to `target`, joining with delim.
+template<auto opt = join_opt::braced, char open = '{', char close = '}',
+    typename T, typename A, enable_if_appendable_0<A, stream_append_v<T>> = 0>
+constexpr auto& append_join_with(A& target, delim d, const T& part) {
+  constexpr bool add_braces = details::braces_v<opt, open, close>;
+
+  if constexpr (add_braces) append(target, open);
+  append_stream(target, part);
   if constexpr (add_braces) append(target, close);
   return target;
 }
 
 // Append one pointer or optional value to `target`, joining with `delim`.
 template<auto opt = join_opt::braced, char open = 0, char close = 0,
-    typename T, enable_if_0<is_optional_like_v<T>> = 0>
-constexpr auto& append_join_with(std::string& target, delim d, const T& part) {
+    typename T, typename A,
+    enable_if_appendable_0<A, is_optional_like_v<T>> = 0>
+constexpr auto& append_join_with(A& target, delim d, const T& part) {
   if (part) append_join_with<opt>(target, d, *part);
   return target;
 }
 
 // Append one variant to `target`, as its current type, joining with `delim`.
 template<auto opt = join_opt::braced, char open = 0, char close = 0,
-    typename T, typename A,
-    enable_if_0<is_appendable_v<A> && is_variant_v<T>> = 0>
+    typename T, typename A, enable_if_appendable_0<A, is_variant_v<T>> = 0>
 constexpr auto& append_join_with(A& target, delim d, const T& part) {
   if (!part.valueless_by_exception()) {
     std::visit(
@@ -287,13 +312,13 @@ constexpr auto& append_join_with(A& target, delim d, const T& part) {
 // Append one container, as its element values, to `target`, joining with
 // `delim`.
 template<auto opt = join_opt::braced, char open = '[', char close = ']',
-    typename T, typename A,
-    enable_if_0<is_appendable_v<A> && is_container_v<T>> = 0>
+    typename T, typename A, enable_if_appendable_0<A, is_container_v<T>> = 0>
 constexpr auto& append_join_with(A& target, delim d, const T& parts) {
   constexpr bool add_braces = details::braces_v<opt, open, close>;
   constexpr auto head_opt = details::head_opt_v<opt>;
   constexpr auto next_opt = details::next_opt_v<opt>;
   constexpr bool keyed = details::keyed_v<opt>;
+
   d.append_if<details::delimit_v<opt>>(target);
   if constexpr (add_braces) append(target, open);
 
@@ -312,7 +337,7 @@ constexpr auto& append_join_with(A& target, delim d, const T& parts) {
 // joining with `delim`.
 template<auto opt = join_opt::braced, char open = 0, char close = 0,
     template<typename...> typename T, typename... Ts, typename A,
-    enable_if_0<is_appendable_v<A> && is_tuple_equiv_v<T<Ts...>>> = 0>
+    enable_if_appendable_0<A, is_tuple_equiv_v<T<Ts...>>> = 0>
 constexpr auto& append_join_with(A& target, delim d, const T<Ts...>& parts) {
   constexpr bool is_pair = is_pair_v<decltype(parts)>;
   constexpr auto next_open = open ? open : (is_pair ? '(' : '{');
@@ -328,6 +353,8 @@ constexpr auto& append_join_with(A& target, delim d, const T<Ts...>& parts) {
 }
 
 namespace details {
+
+// Helper for `append_join_with` parameter pack overload.
 template<join_opt opt, char open = 0, char close = 0, typename Head,
     typename... Tail, typename A>
 constexpr auto&
@@ -340,15 +367,14 @@ ajwh(A& target, delim d, const Head& head, const Tail&... tail) {
 
 // Append pieces to `target`, joining with `delim`.
 template<auto opt = join_opt::braced, char open = 0, char close = 0,
-    typename Head, typename... Tail, typename A,
-    enable_if_0<is_appendable_v<A>> = 0>
+    typename Head, typename... Tail, typename A, enable_if_appendable_0<A> = 0>
 constexpr auto&
 append_join_with(A& target, delim d, const Head& head, const Tail&... tail) {
   constexpr bool add_braces = details::braces_v<opt, open, close>;
   constexpr auto head_opt = details::head_opt_v<opt>;
   constexpr auto next_opt = details::next_opt_v<opt>;
-  d.append_if<details::delimit_v<opt>>(target);
 
+  d.append_if<details::delimit_v<opt>>(target);
   if constexpr (add_braces) append(target, open);
 
   append_join_with<head_opt>(target, d, head);
@@ -362,10 +388,9 @@ append_join_with(A& target, delim d, const Head& head, const Tail&... tail) {
 
 // Append pieces to `target`, joining with a comma and space delimiter.
 template<auto opt = join_opt::braced, char open = 0, char close = 0,
-    typename Head, typename... Tail, typename A,
-    enable_if_0<is_appendable_v<A>> = 0>
+    typename Head, typename... Tail, typename A, enable_if_appendable_0<A> = 0>
 constexpr auto& append_join(A& target, const Head& head, const Tail&... tail) {
-  constexpr delim d{", "sv};
+  constexpr delim d{", "};
   if constexpr (details::braces_v<opt, open, close>)
     return append_join_with<opt, open, close>(target, d, head, tail...);
   else
@@ -405,7 +430,7 @@ inline namespace bracing {
 // Braces
 //
 
-// For braces, the `Delim` is interpreted as a pair of characters.
+// For braces, the `delim` is interpreted as a pair of characters.
 
 // Trim off matching braces, returning part.
 template<typename R = std::string_view>
@@ -427,6 +452,7 @@ add_braces(std::string_view whole, delim braces = {"[]"}) {
 }
 
 } // namespace bracing
+} // namespace corvid::strings
 
 //
 // TODO
@@ -435,13 +461,5 @@ add_braces(std::string_view whole, delim braces = {"[]"}) {
 // TODO: Add method that takes pieces and counts up their total (estimated)
 // size, for the purpose of reserving target capacity.
 
-// TODO: Benchmark Delim `find` single-char optimizations, to make sure they're
+// TODO: Benchmark delim `find` single-char optimizations, to make sure they're
 // faster.
-
-// TODO: Consider adding a universal catch-all for none-of-the-above that has
-// an `operator<<` defined for it. This way, we can print anything, in a pinch.
-
-// TODO: Can we fold `enable_if_0<is_appendable_v<A>` into
-// `enable_if_appendable_0<A, bool>`?
-
-} // namespace corvid::strings

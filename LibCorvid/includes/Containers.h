@@ -36,15 +36,15 @@ template<bool keyed = false>
     return it != -1 ? &container_element_v<keyed>(&c[it]) : nullptr;
 }
 
-// Search container for key, returning `optional_ptr` to element. When a search
-// fails to find anything, the `has_value` of the return is false.
+// Search container for key `k`, returning `optional_ptr` to element. When a
+// search fails to find anything, the `has_value` of the return is false.
 //
 // Uses `find` method if available, `std::find` otherwise.
 //
 // Works for `std::vector`, `std::set`, `std::map`, `std::array`, and similar
 // classes. Returns pointer to found value, which means that, for keyed
 // collections such as `std::map`, it points to the `pair.second`, not the
-// `pair`.
+// `pair` (unless `keyed` is set).
 //
 // For `std::string` and `std::string_view`, whether you search for a single
 // character or a sub-string, the return value points to the found character.

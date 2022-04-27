@@ -237,3 +237,9 @@ TEST(MetaTest, Underlying) {
   EXPECT_EQ(z, 1);
   EXPECT_TRUE((std::is_same_v<int, decltype(z)>));
 }
+
+TEST(MetaTest, Streamable) {
+  //
+  EXPECT_TRUE(can_stream_out_v<int>);
+  EXPECT_FALSE(can_stream_out_v<Foo>);
+}

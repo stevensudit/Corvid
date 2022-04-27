@@ -70,8 +70,8 @@ constexpr bool bit_clip_v = false;
 namespace details {
 
 // Enable if registered as valid.
-template<typename T>
-using enable_if_bitmask_0 = enable_if_0<bitmask::bit_count_v<T>>;
+template<typename E>
+using enable_if_bitmask_0 = enable_if_0<bitmask::bit_count_v<E>>;
 
 } // namespace details
 inline namespace ops {
@@ -158,6 +158,12 @@ constexpr const E& operator-=(E& l, E r) noexcept {
   return l = l - r;
 }
 
+// Streaming.
+template<typename E, details::enable_if_bitmask_0<E> = 0>
+std::ostream& operator<<(std::ostream& os, E v) {
+  return strings::append_enum(os, v);
+}
+
 } // namespace ops
 
 //
@@ -228,7 +234,7 @@ constexpr E make(std::underlying_type_t<E> u) noexcept {
 
 // Return value with bit at `ndx` (counting from the lsb) set.
 template<typename E, details::enable_if_bitmask_0<E> = 0>
-constexpr E make_at(size_t ndx) {
+constexpr E make_at(size_t ndx) noexcept {
   return make<E>(1 << (ndx - 1));
 }
 
@@ -274,19 +280,31 @@ constexpr E flip(E v) noexcept {
 
 // Return `v` with the bit at `ndx` set.
 template<typename E, details::enable_if_bitmask_0<E> = 0>
-constexpr E set_at(E v, size_t ndx) {
+constexpr E set_at(E v, size_t ndx) noexcept {
   return v += make_at<E>(ndx);
+}
+
+// Return `v` with the bit at `ndx` set only if `pred`.
+template<typename E, details::enable_if_bitmask_0<E> = 0>
+constexpr E set_at_if(E v, size_t ndx, bool pred) noexcept {
+  return pred ? v += make_at<E>(ndx) : v;
 }
 
 // Return `v` with the bit at `ndx` clear.
 template<typename E, details::enable_if_bitmask_0<E> = 0>
-constexpr E clear_at(E v, size_t ndx) {
+constexpr E clear_at(E v, size_t ndx) noexcept {
   return v -= make_at<E>(ndx);
+}
+
+// Return `v` with the bit at `ndx` clear only if `pred`.
+template<typename E, details::enable_if_bitmask_0<E> = 0>
+constexpr E clear_at_if(E v, size_t ndx, bool pred) noexcept {
+  return pred ? v -= make_at<E>(ndx) : v;
 }
 
 // Return `v` with the bit at `ndx` set to `value`.
 template<typename E, details::enable_if_bitmask_0<E> = 0>
-constexpr E set_at_to(E v, size_t ndx, bool value) {
+constexpr E set_at_to(E v, size_t ndx, bool value) noexcept {
   return value ? set_at(v, ndx) : clear_at(v, ndx);
 }
 
@@ -467,5 +485,3 @@ constexpr auto make_enum_printer() {
 // value instead of the lowest. For ranges, reversing the output would mean
 // showing the lower values before the higher ones (which would require
 // buffering and prepending).
-
-// TODO: Do we need set_at_if and clear_at_if, for completion?

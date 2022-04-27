@@ -17,12 +17,15 @@
 #include "pch.h"
 #include <LibCorvid/includes/StringUtils.h>
 #include <LibCorvid/includes/ConcatJoin.h>
+#include <LibCorvid/includes/BitmaskEnum.h>
+#include <LibCorvid/includes/SequenceEnum.h>
 
 #include <cstdint>
 
 using namespace std::literals;
 using namespace corvid;
 using namespace corvid::bitmask::ops;
+using namespace corvid::sequence::ops;
 
 TEST(StringUtilsTest, ExtractPiece) {
   std::string_view sv;
@@ -690,4 +693,81 @@ TEST(StringUtilsTest, AppendEnum) {
   EXPECT_EQ((strings::concat(rgb::yellow)), "red + green");
   EXPECT_EQ((strings::join(rgb::yellow, rgb::cyan)),
       "red + green, green + blue");
+}
+
+enum class marine_rank {
+  Civilian,
+  Private,
+  PrivateFirstClass,
+  LanceCorporal,
+  Sergeant,
+  StaffSergeant,
+  GunnerySergeant,
+  MasterSergeant,
+  FirstSergeant,
+  MasterGunnerySergeant,
+  SergeantMajor,
+  SergeantMajorOfTheMarineCorps
+};
+
+template<>
+constexpr auto corvid::sequence::seq_max_v<marine_rank> =
+    marine_rank::SergeantMajorOfTheMarineCorps;
+
+template<>
+constexpr bool corvid::sequence::seq_wrap_v<marine_rank> = true;
+
+template<>
+constexpr auto strings::enum_printer_v<marine_rank> =
+    corvid::sequence::make_enum_printer<marine_rank>({"Civilian", "Private",
+        "PrivateFirstClass", "LanceCorporal", "Sergeant", "StaffSergeant",
+        "GunnerySergeant", "MasterSergeant", "FirstSergeant",
+        "MasterGunnerySergeant", "SergeantMajor",
+        "SergeantMajorOfTheMarineCorps"});
+
+struct soldier {
+  std::string name;
+  marine_rank rank;
+  int64_t serial_number;
+
+  friend std::ostream& operator<<(std::ostream& os, soldier& s) {
+    return os << s.name << ", " << s.rank << ", " << s.serial_number;
+  }
+};
+
+template<>
+constexpr bool strings::stream_append_v<soldier> = true;
+
+TEST(StringUtilsTest, AppendStream) {
+  soldier pyle{"Gomer", marine_rank::Private, 12345678};
+  soldier carter{"Vince", marine_rank::GunnerySergeant, 23456789};
+  if (true) {
+    std::stringstream os;
+    os << pyle;
+    EXPECT_EQ(os.str(), "Gomer, Private, 12345678");
+  }
+  if (true) {
+    std::stringstream os;
+    strings::append_stream(os, pyle);
+    EXPECT_EQ(os.str(), "Gomer, Private, 12345678");
+  }
+  if (true) {
+    std::string s;
+    strings::append_stream(s, pyle);
+    EXPECT_EQ(s, "Gomer, Private, 12345678");
+  }
+  if (true) {
+    std::string s;
+    strings::append(s, pyle);
+    EXPECT_EQ(s, "Gomer, Private, 12345678");
+  }
+  if (true) {
+    auto v = std::vector{std::make_pair(pyle, 30'000.15),
+        std::make_pair(carter, 40'000.21)};
+    std::string s;
+    strings::append_join<strings::join_opt::keyed>(s, v);
+    EXPECT_EQ(s,
+        "[({Gomer, Private, 12345678}, 30000.15), ({Vince, GunnerySergeant, "
+        "23456789}, 40000.21)]");
+  }
 }

@@ -288,7 +288,7 @@ constexpr cstring_view operator""_csv(unsigned long long zero_only) {
 }
 
 // Environment.
-cstring_view operator""_env(const char* ps, std::size_t) {
+cstring_view operator""_env(const char* ps, std::size_t) noexcept {
   return std::getenv(ps);
 }
 

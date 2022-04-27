@@ -98,8 +98,8 @@ template<typename E>
 constexpr bool seq_actually_wrap_v = (seq_size_v<E> != 0) && seq_wrap_v<E>;
 
 // Enable if registered as valid.
-template<typename T>
-using enable_if_sequence_0 = enable_if_0<seq_valid_v<T>>;
+template<typename E>
+using enable_if_sequence_0 = enable_if_0<seq_valid_v<E>>;
 
 // Clip, unless `noclip` set, by modding to size.
 template<typename E, bool noclip = false, details::enable_if_sequence_0<E> = 0>
@@ -237,6 +237,12 @@ constexpr E operator--(E& l, int) noexcept {
   return o;
 }
 
+// Streaming.
+template<typename E, details::enable_if_sequence_0<E> = 0>
+std::ostream& operator<<(std::ostream& os, E v) {
+  return strings::append_enum(os, v);
+}
+
 } // namespace ops
 
 //
@@ -332,8 +338,6 @@ constexpr auto make_enum_printer(std::string_view(&&l)[N]) {
 //
 // TODO
 //
-
-// TODO: Offer a way to activate `operator<<` for any registered enum.
 
 // TODO: It might be nice if we could specialize `std::numeric_limits` for all
 // enums that are flagged as sequence, inheriting from the underlying class and

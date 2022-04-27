@@ -23,6 +23,10 @@
 #include <utility>
 #include <variant>
 
+#ifndef _MSC_VER
+#include <cxxabi.h>
+#endif
+
 namespace corvid {
 inline namespace specialized {
 
@@ -51,22 +55,22 @@ inline namespace dereferencing {
 //
 // When not a pointer, returns void.
 namespace details {
-template<typename P>
+template<typename T>
 auto pointer_element(int)
-    -> std::remove_reference_t<decltype(*std::declval<P>())>;
+    -> std::remove_reference_t<decltype(*std::declval<T>())>;
 
-template<typename P>
+template<typename>
 auto pointer_element(...) -> void;
 } // namespace details
 
-template<typename P>
-using pointer_element_t = decltype(details::pointer_element<P>(0));
+template<typename T>
+using pointer_element_t = decltype(details::pointer_element<T>(0));
 
-// Determine whether `P` can be dereferenced like a pointer, even if it's not a
+// Determine whether `T` can be dereferenced like a pointer, even if it's not a
 // raw pointer. This detects iterators, smart pointers, and even
 // `std::optional`.
-template<typename P>
-constexpr bool is_dereferenceable_v = !std::is_void_v<pointer_element_t<P>>;
+template<typename T>
+constexpr bool is_dereferenceable_v = !std::is_void_v<pointer_element_t<T>>;
 
 } // namespace dereferencing
 inline namespace finding {
@@ -75,16 +79,16 @@ inline namespace finding {
 // Find
 //
 
-// Determine whether `C` has a `find` method taking `K`.
+// Determine whether `T` has a `find` method taking `K`.
 namespace details {
-template<typename C, typename K>
-using find_ret_t = decltype(std::declval<C>().find(std::declval<K>()));
+template<typename T, typename K>
+using find_ret_t = decltype(std::declval<T>().find(std::declval<K>()));
 
-template<typename C, typename K>
+template<typename T, typename K>
 auto has_find(int)
-    -> decltype(std::declval<find_ret_t<C, K>>(), std::true_type{});
+    -> decltype(std::declval<find_ret_t<T, K>>(), std::true_type{});
 
-template<typename C, typename K>
+template<typename, typename>
 auto has_find(...) -> std::false_type;
 } // namespace details
 
@@ -98,26 +102,53 @@ inline namespace ranging {
 // Ranged-for
 //
 
-// Determine whether `C` can be ranged-for over.
+// Determine whether `T` can be ranged-for over.
 namespace details {
 using namespace std;
 
-template<typename C>
-using find_container_it_t = decltype(cbegin(std::declval<C>()));
+template<typename T>
+using find_container_it_t = decltype(cbegin(std::declval<T>()));
 
-template<typename C>
+template<typename T>
 auto can_ranged_for(int)
-    -> decltype(std::declval<find_container_it_t<C>>(), std::true_type{});
+    -> decltype(std::declval<find_container_it_t<T>>(), std::true_type{});
 
-template<typename C>
+template<typename>
 auto can_ranged_for(...) -> std::false_type;
 } // namespace details
 
-template<typename C>
+template<typename T>
 constexpr bool can_ranged_for_v =
-    decltype(details::can_ranged_for<C>(0))::value;
+    decltype(details::can_ranged_for<T>(0))::value;
 
 } // namespace ranging
+inline namespace streamable {
+
+//
+// Streamable
+//
+
+// Determine whether `T` can be streamed out.
+//
+// Note: This exhibits false negatives, such as with the external overloads for
+// BitmaskEnum.
+namespace details {
+
+template<class T>
+auto can_stream_out(int)
+    -> decltype(std::declval<std::ostream>() << std::declval<T>());
+
+template<typename>
+static auto can_stream_out(...) -> void;
+
+} // namespace details
+
+template<typename T>
+constexpr bool can_stream_out_v =
+    !std::is_void_v<decltype(details::can_stream_out<T>(0))>;
+
+} // namespace streamable
+
 inline namespace detection {
 
 //
@@ -228,7 +259,7 @@ constexpr bool is_char_ptr_v =
 // detect any user-defined specializations (which are explicitly permitted).
 // Unfortunately, while this works under clang, it fails under gcc and MSVC due
 // to their implementation errors. Perhaps a future improvement would be to
-// #ifdef'd between the two solutions, depending on the compiler and version.
+// #ifdef between the two solutions, depending on the compiler and version.
 // For now, we can specialize this for any other tuple-like objects.
 template<typename T>
 constexpr bool is_tuple_like_v =
@@ -322,3 +353,5 @@ constexpr auto from_underlying(const U& u) {
 //
 // TODO
 //
+
+// TODO: Figure out how to fix the false negatives in `can_stream_out_v`.
