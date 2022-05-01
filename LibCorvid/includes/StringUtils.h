@@ -97,7 +97,7 @@ inline namespace search_and {
 // Search and Replace
 //
 
-// Return whether `value` was found in `s` at `ndx`, updating `ndx`.
+// Return whether `value` was found in `s`, starting at `ndx`, updating `ndx`.
 template<typename T>
 constexpr bool found_next(size_t& ndx, std::string_view s, const T& value) {
   return (ndx = s.find(value, ndx)) != npos;
@@ -133,9 +133,9 @@ inline namespace targeting {
 // Appender target
 //
 
-// The appender is a thin wrapper over a target stream or string. As its name
-// suggests, it's used in the various append functions to support either type
-// of target seamlessly.
+// An appender target is a thin wrapper over a target stream or string. As its
+// name suggests, it's used in the various append functions to support either
+// type of target seamlessly.
 //
 // Note: Under clang and gcc, this is optimized away entirely. Under MSVC, not
 // quite. But this is consistent with MSVC's overall pattern of underwhelming
@@ -143,7 +143,7 @@ inline namespace targeting {
 
 namespace details {
 
-// Generic ostream specialization.
+// General ostream specialization.
 template<typename T>
 struct appender {
   explicit appender(T& target) : target(target) {}
@@ -212,24 +212,25 @@ struct appender<std::string> {
 
 } // namespace details
 
-// Determine whether `T` is appendable to.
-template<typename T>
-constexpr bool is_appendable_v =
-    (std::is_same_v<T, std::string> || std::is_base_of_v<std::ostream, T>);
+// Determine whether `T` is appendable to as a target.
+template<typename A>
+constexpr bool is_append_target_v =
+    (std::is_same_v<A, std::string> || std::is_base_of_v<std::ostream, A>);
 
 // Wrapper for `std::enable_if`, allowing this abbreviated usage:
-//   enable_if_appendable_0<A, is_thingy_v<T>> = 0
+//    enable_if_append_target_0<A, is_thingy_v<T>> = 0
 template<typename A, bool B = true>
-using enable_if_appendable_0 = std::enable_if_t<is_appendable_v<A> && B, bool>;
+using enable_if_append_target_0 =
+    std::enable_if_t<is_append_target_v<A> && B, bool>;
 
 // Make appendable target out of `t`.
-template<typename T>
-auto make_appender(T& t) {
-  using U = std::remove_cvref_t<T>;
+template<typename A, enable_if_append_target_0<A> = 0>
+auto make_appender(A& a) {
+  using U = std::remove_cvref_t<A>;
   if constexpr (is_string_view_convertible_v<U>)
-    return details::appender<std::string>(t);
+    return details::appender<std::string>(a);
   else
-    return details::appender<U>(t);
+    return details::appender<U>(a);
 }
 
 } // namespace targeting
@@ -243,7 +244,7 @@ inline namespace delimiting {
 //
 // This class is not intended for standalone use. While it provides some
 // utility, it is very limited and internal. The only reason it's externally
-// visible at all is to document the delimiter parameters with a distinct type.
+// visible at all is to document delimiter parameters with a distinct type.
 //
 // The precise usage varies depending upon context:
 // - When splitting, checks for any of the characters.
@@ -271,7 +272,7 @@ struct delim: public std::string_view {
   }
 
   // Append.
-  template<typename A, enable_if_appendable_0<A> = 0>
+  template<typename A, enable_if_append_target_0<A> = 0>
   constexpr auto& append(A& target) const {
     make_appender(target).append(*this);
     return target;
@@ -282,7 +283,7 @@ struct delim: public std::string_view {
   // Set `skip` initially. Then, on the first call, `skip` will be cleared, but
   // nothing will be appended. On subsequent calls `skip` will remain cleared,
   // so the delimiter will be appended.
-  template<typename A, enable_if_appendable_0<A> = 0>
+  template<typename A, enable_if_append_target_0<A> = 0>
   constexpr auto& append_skip_once(A& target, bool& skip) const {
     if (!skip)
       append(target);
@@ -292,7 +293,7 @@ struct delim: public std::string_view {
   }
 
   // Append when `emit`.
-  template<bool emit = true, typename A, enable_if_appendable_0<A> = 0>
+  template<bool emit = true, typename A, enable_if_append_target_0<A> = 0>
   constexpr auto& append_if(A& target) const {
     if constexpr (emit) append(target);
     return target;
@@ -381,6 +382,9 @@ inline namespace trimming {
 // Trim
 //
 
+// For all split functions, `delim` defaults to " " and can be specified as any
+// set of characters.
+
 // Trim whitespace on left, returning part.
 template<typename R = std::string_view>
 constexpr [[nodiscard]] auto trim_left(std::string_view whole, delim ws = {}) {
@@ -416,7 +420,7 @@ constexpr void trim(T& wholes, const delim ws = {}) {
 
 // Trim a temporary container, passing it through.
 //
-// Ideal for calling directly on the result of split.
+// Ideal for calling directly on the result of `split`.
 template<typename T, enable_if_0<is_container_v<T>> = 0>
 constexpr [[nodiscard]] auto&& trim(T&& wholes, delim ws = {}) {
   trim(wholes, ws);
@@ -490,7 +494,7 @@ inline namespace conversion {
 
 // Extract integer out of a `std::string_view`, setting output parameter.
 //
-// Skips leading white space, accepts leading minus sign, and does not accept
+// Skips leading whitespace, accepts leading minus sign, and does not accept
 // "0x" or "0X", even when `base` is 16. (This is true for all of these
 // related functions.)
 //
@@ -551,7 +555,7 @@ constexpr T parse_num(std::string_view sv, T default_value) {
 // Extract floating-point out of a `std::string_view`, setting output
 // parameter.
 //
-// Skips leading white space, accepts leading minus sign, and does not accept
+// Skips leading whitespace, accepts leading minus sign, and does not accept
 // "0x" or "0X", even when `fmt` is `hex`. (This is true for all of these
 // related functions.)
 //
@@ -616,7 +620,7 @@ constexpr T parse_num(std::string_view sv, T default_value) {
 // Append integral number to `target`. Hex is prefixed with "0x" and
 // zero-padded to an appropriate size.
 template<int base = 10, size_t width = 0, char pad = ' ', typename T,
-    typename A, enable_if_appendable_0<A, is_integral_number_v<T>> = 0>
+    typename A, enable_if_append_target_0<A, is_integral_number_v<T>> = 0>
 constexpr auto& append_num(A& target, T num) {
   auto a = make_appender(target);
   std::array<char, 64> b;
@@ -624,6 +628,7 @@ constexpr auto& append_num(A& target, T num) {
       ec == std::errc())
   {
     size_t len = ptr - b.data();
+    // Apply padding and prefix.
     if constexpr ((width && pad) || base == 16) {
       auto w = width;
       auto p = pad;
@@ -634,6 +639,7 @@ constexpr auto& append_num(A& target, T num) {
       }
       if (len < w) a.append(w - len, p);
     }
+    // Append number.
     a.append(b.data(), len);
   }
   return target;
@@ -650,7 +656,7 @@ constexpr std::string num_as_string(T num) {
 // Append floating-point number to `target`.
 template<std::chars_format fmt = std::chars_format::general,
     int precision = -1, size_t width = 0, char pad = ' ', typename T,
-    typename A, enable_if_appendable_0<A, is_floating_number_v<T>> = 0>
+    typename A, enable_if_append_target_0<A, is_floating_number_v<T>> = 0>
 constexpr auto& append_num(A& target, T num) {
   auto a = make_appender(target);
   std::array<char, 64> b;
@@ -705,7 +711,8 @@ template<typename T, enable_if_0<is_enum_v<T>> = 0>
 constexpr auto enum_printer_v = details::default_enum_printer<T>();
 
 // Append enum to `target`.
-template<typename T, typename A, enable_if_appendable_0<A, is_enum_v<T>> = 0>
+template<typename T, typename A,
+    enable_if_append_target_0<A, is_enum_v<T>> = 0>
 constexpr A& append_enum(A& target, T t) {
   return enum_printer_v<T>.append(target, t);
 }
@@ -718,6 +725,7 @@ constexpr std::string enum_as_string(T t) {
 }
 
 } // namespace enumprint
+} // namespace conversion
 inline namespace streamappend {
 
 // Stream append flag.
@@ -728,18 +736,11 @@ inline namespace streamappend {
 //    template<>
 //    constexpr bool strings::stream_append_v<soldier> = true;
 //
-// The result of doing this is that the registered class can be used with the
-// `append` functions natively.
+// The result of doing this is that `append_stream` is enabled for the
+// registered lcass, and that class can be used with the `append` functions
+// natively.
 template<typename T>
 constexpr bool stream_append_v = false;
-
-// Overridden append_join flag.
-//
-// Automatically set based on stream append flag. When overriding `append_join`
-// with a new specialization for a class, you will need to explicitly
-// specialize this flag and set it.
-template<typename T>
-constexpr bool append_join_overriden_v = stream_append_v<T>;
 
 // Append streamable `t` to `target`.
 template<typename T, typename A>
@@ -755,7 +756,7 @@ constexpr A& append_stream(A& target, T t) {
 }
 
 } // namespace streamappend
-} // namespace conversion
+} // namespace corvid::strings
 
 //
 // TODO
@@ -769,10 +770,11 @@ constexpr A& append_stream(A& target, T t) {
 // TODO: Maybe add a replace_any that replaces any matching chars with the
 // destination value. Maybe supplement replace with remove and remove_any.
 
+// TODO: Consider offering a version of `replace` that returns a new value,
+// avoiding multiple resizes.
+
 // TODO: Maybe make `log` and such thread-safe? It's not really intended to be
 // a full, production logging system, so this might be overkill.
 
 // TODO: Wacky idea: overload unary `operator+` for `std::string_view` to mean
 // non-empty.
-
-} // namespace corvid::strings

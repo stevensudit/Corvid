@@ -77,7 +77,7 @@ public:
   constexpr [[nodiscard]] operator P() const noexcept { return ptr_; }
   constexpr [[nodiscard]] auto operator->() const noexcept { return &*ptr_; }
 
-  // For smart pointers, we need to forward these two calls.
+  // For smart pointers, we need to forward these two calls explicitly.
   template<typename = std::enable_if_t<!is_raw>>
   constexpr [[nodiscard]] auto& operator*() const {
     return *ptr_;
@@ -88,12 +88,15 @@ public:
     return ptr_ ? true : false;
   }
 
+  // Get underlying pointer.
   constexpr [[nodiscard]] const P& get() const& noexcept { return ptr_; }
   constexpr [[nodiscard]] P&& get() && noexcept { return std::move(ptr_); }
 
+  // Reset to new pointer value.
   constexpr void reset(const P& p = nullptr) noexcept { ptr_ = p; }
   constexpr void reset(P&& p) noexcept { ptr_ = std::move(p); }
 
+  // Whether there is a value.
   constexpr [[nodiscard]] bool has_value() const noexcept {
     return has_value(ptr_);
   }
@@ -109,10 +112,7 @@ public:
   // Get value, or if null, default value. Returns by value.
   constexpr [[nodiscard]] E value_or() const { return value_or(E{}); }
 
-  // Get value, or if null, dereferences `default_ptr`. Returns by ref.
-  //
-  // Note: The reason the return type is `auto&` is that it takes on the
-  // constness of the `default_ptr`.
+  // Get value, or if null, dereferences `default_ptr`. Returns by reference.
   template<typename P, enable_if_0<is_dereferenceable_v<P>> = 0>
   constexpr [[nodiscard]] auto& value_or_ptr(P&& default_ptr) const {
     return has_value() ? *ptr_ : deref(std::forward<P>(default_ptr));
@@ -129,17 +129,17 @@ public:
 
   void operator[](size_t) const = delete;
 
-  template<typename U>
-  friend void operator+(const optional_ptr&, const U&) = delete;
+  template<typename V>
+  friend void operator+(const optional_ptr&, const V&) = delete;
 
-  template<typename U>
-  friend void operator+(const U&, const optional_ptr&) = delete;
+  template<typename V>
+  friend void operator+(const V&, const optional_ptr&) = delete;
 
-  template<typename U>
-  friend void operator-(const optional_ptr&, const U&) = delete;
+  template<typename V>
+  friend void operator-(const optional_ptr&, const V&) = delete;
 
-  template<typename U>
-  friend void operator-(const U&, const optional_ptr&) = delete;
+  template<typename V>
+  friend void operator-(const V&, const optional_ptr&) = delete;
 
 private:
   P ptr_{};

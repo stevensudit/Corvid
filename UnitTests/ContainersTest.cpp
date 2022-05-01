@@ -100,3 +100,24 @@ TEST(FindPtrTest, Strings) {
     EXPECT_FALSE(contains(s, 'z'));
   }
 }
+
+TEST(FindPtrTest, Reversed) {
+  if (true) {
+    using C = std::vector<char>;
+    C s{'v', 'a', 'l', 'u', 'e'};
+    char c{};
+    for (auto e : s) {
+      c = e;
+    }
+    EXPECT_EQ(c, 'e');
+  }
+  if (true) {
+    using C = std::vector<char>;
+    C s{'v', 'a', 'l', 'u', 'e'};
+    char c{};
+    for (auto e : reversed_range(s)) {
+      c = e;
+    }
+    EXPECT_EQ(c, 'v');
+  }
+}

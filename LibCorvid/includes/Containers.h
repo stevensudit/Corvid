@@ -24,7 +24,8 @@ inline namespace containers {
 // instead being an index, such as with `std::string`.
 //
 // Returns pointer to the found value, so for keyed collections such as
-// `std::map`, it points to the `pair.second`, not the `pair`.
+// `std::map`, it points to the `pair.second`, not the `pair`, unless `keyed`
+// is set.
 //
 // This is primarily a helper method for `find_opt`.
 template<bool keyed = false>
@@ -47,7 +48,8 @@ template<bool keyed = false>
 // `pair` (unless `keyed` is set).
 //
 // For `std::string` and `std::string_view`, whether you search for a single
-// character or a sub-string, the return value points to the found character.
+// character or a sub-string, the return value points to the first found
+// character.
 //
 // Even works for arrays, but not arrays decayed into pointers (because we
 // can't determine the size, then).
@@ -83,8 +85,8 @@ template<bool keyed = false>
 struct transparent_less_stringlike {
   using is_transparent = void;
 
-  template<typename T, typename U>
-  constexpr bool operator()(const T& l, const U& r) const {
+  template<typename T, typename V>
+  constexpr bool operator()(const T& l, const V& r) const {
     return static_cast<std::string_view>(l) < static_cast<std::string_view>(r);
   }
 };
@@ -97,6 +99,22 @@ using string_map = std::map<std::string, V, transparent_less_stringlike, A>;
 // Set of `std::string`, with transparent search.
 template<typename A = std::allocator<std::string>>
 using string_set = std::map<std::string, transparent_less_stringlike, A>;
+
+// Reversing view over container.
+template<typename T>
+class reversed_range {
+public:
+  reversed_range(T& t) : t_(t) {}
+
+  auto begin() { return t_.rbegin(); }
+  auto end() { return t_.rend(); }
+
+  auto cbegin() const { return t_.crbegin(); }
+  auto cend() const { return t_.crend(); }
+
+private:
+  T& t_;
+};
 
 } // namespace containers
 } // namespace corvid

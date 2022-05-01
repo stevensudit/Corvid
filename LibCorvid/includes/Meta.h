@@ -23,6 +23,7 @@
 #include <utility>
 #include <variant>
 
+// For `type_name`.
 #ifndef _MSC_VER
 #include <cxxabi.h>
 #endif
@@ -34,15 +35,15 @@ inline namespace specialized {
 // Specialization
 //
 
-// Determine whether `T` is a specialization of `C`.
+// Determine whether `T` is a specialization of `B`.
 //
-// Only works when `C` is a class that is specialized on types, not values (so
+// Only works when `B` is a class that is specialized on types, not values (so
 // `std::pair` is good, `std::array` is not).
-template<typename T, template<typename...> typename C>
+template<typename T, template<typename...> typename B>
 constexpr bool is_specialization_of_v = false;
 
-template<template<typename...> typename C, typename... Args>
-constexpr bool is_specialization_of_v<C<Args...>, C> = true;
+template<template<typename...> typename B, typename... Args>
+constexpr bool is_specialization_of_v<B<Args...>, B> = true;
 
 } // namespace specialized
 inline namespace dereferencing {
@@ -133,14 +134,12 @@ inline namespace streamable {
 // Note: This exhibits false negatives, such as with the external overloads for
 // BitmaskEnum.
 namespace details {
-
 template<class T>
 auto can_stream_out(int)
     -> decltype(std::declval<std::ostream>() << std::declval<T>());
 
 template<typename>
 static auto can_stream_out(...) -> void;
-
 } // namespace details
 
 template<typename T>
@@ -148,7 +147,6 @@ constexpr bool can_stream_out_v =
     !std::is_void_v<decltype(details::can_stream_out<T>(0))>;
 
 } // namespace streamable
-
 inline namespace detection {
 
 //
@@ -156,7 +154,7 @@ inline namespace detection {
 //
 
 // Wrapper for `std::enable_if`, allowing this abbreviated usage:
-//   enable_if_0<is_thingy_v<T>> = 0
+//    enable_if_0<is_thingy_v<T>> = 0
 template<bool B>
 using enable_if_0 = std::enable_if_t<B, bool>;
 
@@ -171,6 +169,23 @@ constexpr bool is_array_v<std::array<T, N>> = true;
 template<typename T>
 constexpr bool is_pair_v =
     is_specialization_of_v<std::remove_cvref_t<T>, std::pair>;
+
+// Determine whether `T` is equivalent to a `std::pair`.
+//
+// Unlike using `is_specialization_of`, this also detects anything that
+// converts to a `std::pair`, including a child.
+namespace details {
+template<typename... Ts>
+constexpr bool is_pair_like_impl = false;
+
+template<template<typename...> typename C, typename F, typename S>
+constexpr bool is_pair_like_impl<C<F, S>> =
+    std::is_convertible_v<C<F, S>, std::pair<F, S>>;
+} // namespace details
+
+template<typename T>
+constexpr bool is_pair_like_v =
+    details::is_pair_like_impl<std::remove_cvref_t<T>>;
 
 // Extract value from container element, including the key if `keyed`.
 template<bool keyed = false, typename T>
@@ -188,11 +203,13 @@ constexpr bool is_string_view_convertible_v =
     std::is_convertible_v<T, std::string_view> &&
     !std::is_same_v<nullptr_t, std::remove_cvref_t<T>>;
 
-// Determine whether `C` is a container, including arrays but excluding
-// `char[]`, `std::string` and `std::string_view`.
-template<typename C>
+// Determine whether `T` is a container, including arrays but excluding
+// `char[]`, `std::string` and `std::string_view`, as well as excluding any
+// pair.
+template<typename T>
 constexpr bool is_container_v =
-    can_ranged_for_v<C> && !is_string_view_convertible_v<C>;
+    can_ranged_for_v<T> && !is_string_view_convertible_v<T> &&
+    !is_pair_like_v<T>;
 
 // Determine whether `T` is bool.
 template<typename T>
@@ -257,13 +274,13 @@ constexpr bool is_char_ptr_v =
 //
 // NOTE: In principle, we could sniff out `std::tuple_size<T>` so that we
 // detect any user-defined specializations (which are explicitly permitted).
-// Unfortunately, while this works under clang, it fails under gcc and MSVC due
-// to their implementation errors. Perhaps a future improvement would be to
-// #ifdef between the two solutions, depending on the compiler and version.
-// For now, we can specialize this for any other tuple-like objects.
+// Unfortunately, while this works under clang, it currently fails under gcc
+// and MSVC due to their implementation errors. Perhaps a future improvement
+// would be to #ifdef between the two solutions, depending on the compiler and
+// version. For now, we can specialize this for any other tuple-like objects.
 template<typename T>
 constexpr bool is_tuple_like_v =
-    is_tuple_v<T> || is_pair_v<T> || is_array_v<T>;
+    is_tuple_v<T> || is_pair_like_v<T> || is_array_v<T>;
 
 // Determine whether `T` is equivalent to a `std::tuple`, which is to say that
 // it contains potentially heterogenous types and cannot be iterated through in
@@ -273,7 +290,7 @@ constexpr bool is_tuple_like_v =
 // tuple-like `std::array`, because it's always homogenous in type and can be
 // iterated through with ranged-for.
 template<typename T>
-constexpr bool is_tuple_equiv_v = is_tuple_v<T> || is_pair_v<T>;
+constexpr bool is_tuple_equiv_v = is_tuple_v<T> || is_pair_like_v<T>;
 
 } // namespace detection
 inline namespace naming {
@@ -338,8 +355,8 @@ using as_underlying_t = decltype(as_underlying(std::declval<T>()));
 //
 // If this seems like a strange thing to want to do, you're not wrong, but it
 // turns out to be surprisingly useful.
-template<typename T, typename X = std::byte, typename U>
-constexpr auto from_underlying(const U& u) {
+template<typename T, typename X = std::byte, typename V>
+constexpr auto from_underlying(const V& u) {
   if constexpr (is_enum_v<T>) {
     return static_cast<T>(u);
   } else {
@@ -355,3 +372,6 @@ constexpr auto from_underlying(const U& u) {
 //
 
 // TODO: Figure out how to fix the false negatives in `can_stream_out_v`.
+
+// TODO: Consider reorganizing the `detection` namespace by breaking it down
+// further.

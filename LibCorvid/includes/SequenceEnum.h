@@ -16,7 +16,6 @@
 // limitations under the License.
 #pragma once
 #include "StringUtils.h"
-#include "Interval.h"
 
 // Importing the `corvid::sequence` namespace is optional, but you need to
 // import `corvid::sequence::ops` to get the operator overloads to work.
@@ -30,12 +29,13 @@ namespace corvid::sequence {
 //
 // Allow a scoped enum (aka `enum class`) to be used as a sequence of
 // contiguous values, supporting add and subtract, while providing some
-// additional functionality.
+// additional functionality. Conceptually, sequential values are mutually
+// exclusive options.
 //
 // Prerequisites: Your scoped enum must have a minimum and maximum valid value,
 // and all values between these, inclusive, must be valid. This range doesn't
-// have to start at 0, and if the underlying type is signed, then it can even
-// start negative. Valid values do not need to be named.
+// have to start at 0, and if the underlying type is signed, it can be
+// negative. Valid values do not need to be named.
 //
 // To enable sequence support for your scoped enum, specialize the `seq_max_v`
 // constant, setting it to the highest enum value that is valid. If the lowest
@@ -74,6 +74,10 @@ template<typename E>
 constexpr bool
     seq_valid_v = as_underlying(seq_max_v<E>) - as_underlying(seq_min_v<E>);
 
+// Enable if registered as valid.
+template<typename E>
+using enable_if_sequence_0 = enable_if_0<seq_valid_v<E>>;
+
 namespace details {
 
 //
@@ -93,16 +97,12 @@ template<typename E>
 constexpr auto seq_size_v = seq_max_num_v<E> - seq_min_num_v<E> + 1;
 
 // Whether wrapping is really enabled. We don't need to wrap when the range
-// exactly fits the underlying type because of modulo math.
+// exactly fits the underlying type, because of modulo math.
 template<typename E>
 constexpr bool seq_actually_wrap_v = (seq_size_v<E> != 0) && seq_wrap_v<E>;
 
-// Enable if registered as valid.
-template<typename E>
-using enable_if_sequence_0 = enable_if_0<seq_valid_v<E>>;
-
 // Clip, unless `noclip` set, by modding to size.
-template<typename E, bool noclip = false, details::enable_if_sequence_0<E> = 0>
+template<typename E, bool noclip = false, enable_if_sequence_0<E> = 0>
 constexpr auto clip(std::underlying_type_t<E> u) {
   if constexpr (!noclip && seq_size_v<E> != 0)
     return u % seq_size_v<E>;
@@ -111,7 +111,7 @@ constexpr auto clip(std::underlying_type_t<E> u) {
 }
 
 // Clip if wrapping enabled.
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 constexpr auto clip_if_wrap(std::underlying_type_t<E> u) {
   return clip<E, !seq_actually_wrap_v<E>>(u);
 }
@@ -124,7 +124,7 @@ constexpr auto clip_if_wrap(std::underlying_type_t<E> u) {
 
 // Cast integer value from underlying type to sequence, wrapping to keep it in
 // range.
-template<typename E, bool noclip = false, details::enable_if_sequence_0<E> = 0>
+template<typename E, bool noclip = false, enable_if_sequence_0<E> = 0>
 constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
   // Wrapping is only meaningful if the underlying type is not a perfect fit.
   if constexpr (details::seq_size_v<E> != 0) {
@@ -148,7 +148,7 @@ constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
 
 // Cast integer value from underlying type to sequence. When `seq_wrap_v` set,
 // wraps value to ensure safety.
-template<typename E, bool noclip = false, details::enable_if_sequence_0<E> = 0>
+template<typename E, bool noclip = false, enable_if_sequence_0<E> = 0>
 constexpr E make(std::underlying_type_t<E> u) noexcept {
   if constexpr (details::seq_actually_wrap_v<E>) {
     return make_safely<E, noclip>(u);
@@ -162,14 +162,14 @@ inline namespace ops {
 // Dereference operator.
 //
 // The precedent for this is `std::optional`.
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 constexpr auto operator*(E v) noexcept {
   return as_underlying<E>(v);
 }
 
 // Math
 //
-// Only heterogenous binary addition and subtraction operations are supported.
+// Only heterogenous, binary addition and subtraction operations are supported.
 //
 // When `seq_wrap_v` is set, all results are modulo the sequence size.
 // Otherwise, they are undefined when they exceed the range.
@@ -178,22 +178,22 @@ constexpr auto operator*(E v) noexcept {
 // Addition operators
 //
 
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 constexpr E operator+(E l, std::underlying_type_t<E> r) noexcept {
   return make<E, true>(*l + details::clip_if_wrap<E>(r));
 }
 
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 constexpr E operator+(std::underlying_type_t<E> l, E r) noexcept {
   return r + l;
 }
 
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 constexpr E& operator+=(E& l, std::underlying_type_t<E> r) noexcept {
   return l = l + r;
 }
 
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 constexpr E& operator++(E& l) noexcept {
   if constexpr (details::seq_actually_wrap_v<E>)
     if (l == seq_max_v<E>) return l = seq_min_v<E>;
@@ -201,7 +201,7 @@ constexpr E& operator++(E& l) noexcept {
   return l = E{*l + 1};
 }
 
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 constexpr E operator++(E& l, int) noexcept {
   auto o = l;
   ++l;
@@ -212,17 +212,17 @@ constexpr E operator++(E& l, int) noexcept {
 // Subtraction operators
 //
 
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 constexpr E operator-(E l, std::underlying_type_t<E> r) noexcept {
   return make<E, true>(*l - details::clip_if_wrap<E>(r));
 }
 
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 constexpr E& operator-=(E& l, std::underlying_type_t<E> r) noexcept {
   return l = l - r;
 }
 
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 constexpr E& operator--(E& l) noexcept {
   if constexpr (details::seq_actually_wrap_v<E>)
     if (*l == details::seq_min_num_v<E>) return l = seq_max_v<E>;
@@ -230,7 +230,7 @@ constexpr E& operator--(E& l) noexcept {
   return l = E{*l - 1};
 }
 
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 constexpr E operator--(E& l, int) noexcept {
   auto o = l;
   --l;
@@ -238,7 +238,7 @@ constexpr E operator--(E& l, int) noexcept {
 }
 
 // Streaming.
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 std::ostream& operator<<(std::ostream& os, E v) {
   return strings::append_enum(os, v);
 }
@@ -252,19 +252,19 @@ std::ostream& operator<<(std::ostream& os, E v) {
 // Traits
 
 // Maximum value.
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 constexpr E max_value() noexcept {
   return seq_max_v<E>;
 }
 
 // Minimum value.
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 constexpr E min_value() noexcept {
   return seq_min_v<E>;
 }
 
 // Length of range.
-template<typename E, details::enable_if_sequence_0<E> = 0>
+template<typename E, enable_if_sequence_0<E> = 0>
 constexpr auto range_length() noexcept {
   return to_integer<size_t>(seq_size_v<E>());
 }
@@ -278,18 +278,11 @@ constexpr T to_integer(E v) noexcept {
   return static_cast<T>(v);
 }
 
-// Make interval for full range of sequence, for use with ranged-for.
 //
-// Note: See comments in `interval` about the need to use a larger underlying
-// type in some cases, as indicated by the static_assert.
-template<typename E, typename U = as_underlying_t<E>,
-    details::enable_if_sequence_0<E> = 0>
-constexpr auto make_interval() noexcept {
-  static_assert(details::seq_max_num_v<E> != std::numeric_limits<U>::max(),
-      "Specify U as something larger than the underlying type");
-  return intervals::interval<U, E>{details::seq_min_num_v<E>,
-      U(details::seq_max_num_v<E> + 1)};
-}
+// Interval
+//
+
+// Note: See "Interval.h" for relevant `make_interval` function.
 
 namespace details {
 
@@ -304,6 +297,8 @@ public:
   A& append(A& target, E v) const {
     auto n = as_underlying(v);
     auto ofs = n - *min_value<E>();
+
+    // Print looked-up name or the numerical value.
     if (ofs < N && names[ofs].size())
       strings::make_appender(target).append(names[ofs]);
     else
@@ -326,8 +321,8 @@ public:
 //
 // The first name matches the `min_value()`. Must not have more names than
 // `range_length()`. Anything without a name, either because we have more
-// values than names or because the name is empty, gets output as a number.
-template<typename E, std::size_t N, details::enable_if_sequence_0<E> = 0>
+// values than names or because the name is empty, gets outputed as a number.
+template<typename E, std::size_t N, enable_if_sequence_0<E> = 0>
 constexpr auto make_enum_printer(std::string_view(&&l)[N]) {
   static_assert(N <= details::seq_size_v<E>, "Too many names");
   return details::sequence_printer<E, N>(std::to_array<std::string_view>(l));

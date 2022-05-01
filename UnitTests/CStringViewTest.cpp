@@ -366,6 +366,6 @@ TEST(CStringViewTest, Equal) {
 TEST(CStringViewTest, Env) {
   auto path = "PATH"_env;
   EXPECT_NE(path, "");
-  auto missing = "sdfk4r345dsLKLJldksfdlkl"_env;
+  auto missing = "sdfk4r345dLKLJldksfdlkl"_env;
   EXPECT_TRUE(missing.null());
 }

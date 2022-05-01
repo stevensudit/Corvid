@@ -16,7 +16,6 @@
 // limitations under the License.
 #pragma once
 #include "StringUtils.h"
-#include "Interval.h"
 
 // Importing the `corvid::bitmask` namespace is optional, but you need to
 // import `corvid::bitmask::ops` to get the operator overloads to work.
@@ -30,14 +29,17 @@ namespace corvid::bitmask {
 //
 // Allow a scoped enum (aka `enum class`) to satisfy the requirements of
 // BitmaskType, per https://en.cppreference.com/w/cpp/named_req/BitmaskType,
-// while providing some additional functionality.
+// while providing some additional functionality. Conceptually, bitmask values
+// are flags that can be combined.
 //
 // Prerequisites: Your scoped enum must have 1 or more contiguous bits,
 // starting from the lsb, such that the value of any combination of bits in
 // that set is valid. Valid values do not need to be named.
 //
-// (If the entire range of the underlying type is valid, you should probably
-// make it unsigned to avoid `max_value` being negative.)
+// It is generally a good idea to define the enum in terms of an unsigned type,
+// since this is a collection of bits and not a numerical value. Failing to do
+// so leads to strange side-effects, such as `max_value` being negative (when
+// all bits are valid).
 //
 // To enable bitmask support for your scoped `enum`, specialize the
 // `bit_count_v` constant, setting it to the number of bits (starting from the
@@ -54,11 +56,11 @@ namespace corvid::bitmask {
 // `operator~`, but `flip` offers a safe alternative. While `make` can set
 // invalid bits given an invalid input, `make_safely` does not.
 //
-// However, when `bit_clip_v` is enabled, `operator~` and `make` become
+// However, when `bit_clip_v` is enabled, then `operator~` and `make` become
 // equivalent to `flip` and `make_safely`, respectively. (This also affects the
 // functions that rely on these.)
 //
-// Note that, while this feature is inexpensive, it does count as a subtle
+// While this feature is relatively inexpensive, it does count as a subtle
 // violation of BitmaskType requirements.
 template<typename E>
 constexpr size_t bit_count_v = 0;
@@ -67,13 +69,10 @@ constexpr size_t bit_count_v = 0;
 template<typename E>
 constexpr bool bit_clip_v = false;
 
-namespace details {
-
 // Enable if registered as valid.
 template<typename E>
 using enable_if_bitmask_0 = enable_if_0<bitmask::bit_count_v<E>>;
 
-} // namespace details
 inline namespace ops {
 
 //
@@ -83,41 +82,41 @@ inline namespace ops {
 // Dereference operator.
 //
 // The precedent for this is `std::optional`.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr auto operator*(E v) noexcept {
   return as_underlying<E>(v);
 }
 
 // Or operators.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E operator|(E l, E r) noexcept {
   return E(*l | *r);
 }
 
-template<typename E, typename U = std::underlying_type_t<E>,
-    details::enable_if_bitmask_0<E> = 0>
+template<typename E, typename V = std::underlying_type_t<E>,
+    enable_if_bitmask_0<E> = 0>
 constexpr const E& operator|=(E& l, E r) noexcept {
   return l = l | r;
 }
 
 // And operators.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E operator&(E l, E r) noexcept {
   return E(*l & *r);
 }
 
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr const E& operator&=(E& l, E r) noexcept {
   return l = l & r;
 }
 
 // Xor operators.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E operator^(E l, E r) noexcept {
   return E(*l ^ *r);
 }
 
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr const E& operator^=(E& l, E r) noexcept {
   return l = l ^ r;
 }
@@ -126,7 +125,7 @@ constexpr const E& operator^=(E& l, E r) noexcept {
 //
 // Unless `bit_clip_v` is set, this may set invalid bits, whereas `flip` will
 // not. When `bit_clip_v` is set, does the same thing as `flip`.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E operator~(E v) noexcept {
   if constexpr (bit_clip_v<E>)
     return v ^ max_value<E>();
@@ -135,31 +134,31 @@ constexpr E operator~(E v) noexcept {
 }
 
 // Plus operators.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E operator+(E l, E r) noexcept {
   return l | r;
 }
 
-template<typename E, typename U = std::underlying_type_t<E>,
-    details::enable_if_bitmask_0<E> = 0>
+template<typename E, typename V = std::underlying_type_t<E>,
+    enable_if_bitmask_0<E> = 0>
 constexpr const E& operator+=(E& l, E r) noexcept {
   return l = l + r;
 }
 
 // Minus operators.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E operator-(E l, E r) noexcept {
   return l & ~r;
 }
 
-template<typename E, typename U = std::underlying_type_t<E>,
-    details::enable_if_bitmask_0<E> = 0>
+template<typename E, typename V = std::underlying_type_t<E>,
+    enable_if_bitmask_0<E> = 0>
 constexpr const E& operator-=(E& l, E r) noexcept {
   return l = l - r;
 }
 
 // Streaming.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 std::ostream& operator<<(std::ostream& os, E v) {
   return strings::append_enum(os, v);
 }
@@ -177,30 +176,32 @@ std::ostream& operator<<(std::ostream& os, E v) {
 // Note: If underlying type is signed and `bit_count_v` includes the high bit,
 // this value will be negative. It's technically correct, even then, but maybe
 // you should use an unsigned underlying type.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E max_value() noexcept {
   return static_cast<E>(
       (std::underlying_type_t<E>(1) << (bit_count_v<E>)) - 1);
 }
 
 // Minimum value, which is always 0.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E min_value() noexcept {
   return static_cast<E>(0);
 }
 
 // Length of bits.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr size_t bits_length() noexcept {
   return bit_count_v<E>;
 }
 
 // Length of range.
 //
+// This is the number of distinct values that are valid.
+//
 // Note: If `max_value_v` is the same as the maximum value of `size_t`, returns
 // 0, which is confusing but technically correct, which is the best kind of
 // correct.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr auto range_length() noexcept {
   return to_integer<size_t>(max_value<E>()) + 1;
 }
@@ -217,14 +218,14 @@ constexpr T to_integer(E v) noexcept {
 // Makers
 
 // Cast integer value to bitmask, keeping only the valid bits.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
   return static_cast<E>(u) & max_value<E>();
 }
 
 // Cast integer value to bitmask. When `bit_clip_v` set, clips value to ensure
 // safety.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E make(std::underlying_type_t<E> u) noexcept {
   if constexpr (bit_clip_v<E>)
     return make_safely<E>(u);
@@ -233,7 +234,7 @@ constexpr E make(std::underlying_type_t<E> u) noexcept {
 }
 
 // Return value with bit at `ndx` (counting from the lsb) set.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E make_at(size_t ndx) noexcept {
   return make<E>(1 << (ndx - 1));
 }
@@ -241,37 +242,37 @@ constexpr E make_at(size_t ndx) noexcept {
 // Set
 
 // Return `v` with the bits in `m` set.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E set(E v, E m) noexcept {
   return v + m;
 }
 
 // Return `v` with the bits in `m` set only if `pred`.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E set_if(E v, E m, bool pred) noexcept {
   return pred ? v + m : v;
 }
 
 // Return `v` with the bits set in `m` cleared.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E clear(E v, E m) noexcept {
   return v - m;
 }
 
 // Return `v` with the bits in `m` cleared only if `pred`.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E clear_if(E v, E m, bool pred) noexcept {
   return pred ? v - m : v;
 }
 
 // Return `v` with the bits set in `m` set to `value`.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E set_to(E v, E m, bool value) noexcept {
   return value ? v + m : v - m;
 }
 
 // Return `v` with only the valid bits flipped.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E flip(E v) noexcept {
   return v ^ max_value<E>();
 }
@@ -279,31 +280,31 @@ constexpr E flip(E v) noexcept {
 // Set at index
 
 // Return `v` with the bit at `ndx` set.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E set_at(E v, size_t ndx) noexcept {
-  return v += make_at<E>(ndx);
+  return v + make_at<E>(ndx);
 }
 
 // Return `v` with the bit at `ndx` set only if `pred`.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E set_at_if(E v, size_t ndx, bool pred) noexcept {
-  return pred ? v += make_at<E>(ndx) : v;
+  return pred ? v + make_at<E>(ndx) : v;
 }
 
 // Return `v` with the bit at `ndx` clear.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E clear_at(E v, size_t ndx) noexcept {
-  return v -= make_at<E>(ndx);
+  return v - make_at<E>(ndx);
 }
 
 // Return `v` with the bit at `ndx` clear only if `pred`.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E clear_at_if(E v, size_t ndx, bool pred) noexcept {
-  return pred ? v -= make_at<E>(ndx) : v;
+  return pred ? v - make_at<E>(ndx) : v;
 }
 
 // Return `v` with the bit at `ndx` set to `value`.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr E set_at_to(E v, size_t ndx, bool value) noexcept {
   return value ? set_at(v, ndx) : clear_at(v, ndx);
 }
@@ -311,42 +312,34 @@ constexpr E set_at_to(E v, size_t ndx, bool value) noexcept {
 // Has
 
 // Return whether `v` has any of the bits in `m` set.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr bool has(E v, E m) noexcept {
   return (v & m) != E(0);
 }
 
 // Return whether `v` has all the bits in `m` set.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr bool has_all(E v, E m) noexcept {
   return (v & m) == m;
 }
 
-// Returns whether `v` has is missing some of the bits set in `m`.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+// Returns whether `v` is missing some of the bits set in `m`.
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr bool missing(E v, E m) noexcept {
   return !has_all(v, m);
 }
 
-// Return whether `v` has is missing all of the bits set in `m`.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+// Return whether `v` is missing all of the bits set in `m`.
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr bool missing_all(E v, E m) noexcept {
   return !has(v, m);
 }
 
-// Interval
-
-// Make interval for full range of bitmask, for use with ranged-for.
 //
-// Note: See comments in `interval` about the need to use a larger underlying
-// type in some cases, as indicated by the static_assert.
-template<typename E, typename U = as_underlying_t<E>,
-    details::enable_if_bitmask_0<E> = 0>
-constexpr auto make_interval() noexcept {
-  static_assert(*max_value<E>() != std::numeric_limits<U>::max(),
-      "Specify U as something larger than the underlying type");
-  return intervals::interval<U, E>{0, U(*max_value<E>()) + 1};
-}
+// Interval
+//
+
+// Note: See "Interval.h" for relevant `make_interval` function.
 
 namespace details {
 
@@ -373,6 +366,7 @@ struct bitmask_printer {
         v = E(*v & ~*mask);
       }
     }
+    // Print residual in hex.
     if (*v || skip)
       strings::append_num<16>(plus.append_skip_once(target, skip), *v);
     return target;
@@ -398,6 +392,7 @@ struct bitmask_printer {
         if ((*v & all_valid_bits) == 0) break;
       }
     }
+    // Print residual in hex.
     if (*v || skip)
       strings::append_num<16>(plus.append_skip_once(target, skip), *v);
     return target;
@@ -436,13 +431,13 @@ struct bitmask_printer {
 // enum will be shown as the sum of bits, with any residual in hex.
 //
 // You can also list all of the possible values, from lowest to highest. You
-// must specify `range_length` values, but you can leave any of them blank, if
-// you wish. The value of an enum will be shown as the greedy minimal list
-// summing the named values. As before, any residual is shown in hex.
+// must specify exactly `range_length` values, but you can leave any of them
+// blank, if you wish. The value of an enum will be shown as the greedy minimal
+// list summing the named values. As before, any residual is shown in hex.
 //
-// The final alternative is to not specify an names at all, in which case
+// The final alternative is to not specify any names at all, in which case
 // you always get the hex.
-template<typename E, std::size_t N, details::enable_if_bitmask_0<E> = 0>
+template<typename E, std::size_t N, enable_if_bitmask_0<E> = 0>
 constexpr auto make_enum_printer(std::string_view(&&l)[N]) {
   static_assert(N == bits_length<E>() || N == range_length<E>(),
       "Must be bits_length or range_length.");
@@ -450,7 +445,7 @@ constexpr auto make_enum_printer(std::string_view(&&l)[N]) {
 }
 
 // No-names overload.
-template<typename E, details::enable_if_bitmask_0<E> = 0>
+template<typename E, enable_if_bitmask_0<E> = 0>
 constexpr auto make_enum_printer() {
   return details::bitmask_printer<E, 0>(std::array<std::string_view, 0>());
 }
@@ -461,8 +456,12 @@ constexpr auto make_enum_printer() {
 // TODO
 //
 
+// TODO: Consider whether we want to support bitmasks that are valid from the
+// msb down, not the lsb up, perhaps encoding the bit count as a negative
+// number.
+
 // TODO: Consider extending enum printer with a mode that takes an association
-// of values to names, so it can be sparse.
+// of values to names, so that it can be sparse.
 
 // TODO: Wacky idea:
 // `rgb_yellow == some(rgb::red, rgb::green)`
@@ -475,7 +474,8 @@ constexpr auto make_enum_printer() {
 // terrible. Make sure it doesn't interfere with direct == and !=.
 
 // TODO: Consider providing `operator[]` that returns bool for a given index.
-// Essentially, the op version of `get_at`.
+// Essentially, the op version of `get_at`. At that point, we could also
+// provide a proxy object to invoke `set_at`.
 
 // TODO: Consider allowing a value specialization for `make_enum_printer` that
 // defines the direction of the inputs and outputs. For bits, reversing the

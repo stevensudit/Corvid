@@ -16,6 +16,7 @@
 // limitations under the License.
 #include "pch.h"
 #include <LibCorvid/includes/SequenceEnum.h>
+#include <LibCorvid/includes/Interval.h>
 
 using namespace corvid;
 using namespace corvid::sequence;

@@ -209,6 +209,7 @@ TEST(OptionalPtrTest, Smart) {
 
 TEST(OptionalPtrTest, Dumb) {
   using O = optional_ptr<int*>;
+
   if (true) {
     O o = nullptr;
     EXPECT_FALSE(o);

@@ -16,6 +16,7 @@
 // limitations under the License.
 #include "pch.h"
 #include <LibCorvid/includes/Meta.h>
+#include <LibCorvid/includes/Interval.h>
 
 using namespace std::literals;
 using namespace corvid;
@@ -56,6 +57,20 @@ TEST(MetaTest, IsPair) {
   EXPECT_TRUE((is_pair_v<std::pair<int, int>>));
   EXPECT_FALSE((is_pair_v<std::tuple<int, int>>));
   EXPECT_FALSE((is_pair_v<int>));
+  EXPECT_FALSE((is_pair_v<intervals::interval<int>>));
+
+  EXPECT_TRUE((is_pair_like_v<std::pair<int, int>>));
+  EXPECT_FALSE((is_pair_like_v<std::tuple<int, int>>));
+  EXPECT_FALSE((is_pair_like_v<int>));
+  EXPECT_TRUE((is_pair_like_v<intervals::interval<int>>));
+  using T = intervals::interval<int>;
+  EXPECT_TRUE((is_pair_like_v<T>));
+  using U = const intervals::interval<int>&;
+  EXPECT_TRUE((is_pair_like_v<U>));
+  using V = intervals::interval<int>&;
+  EXPECT_TRUE((is_pair_like_v<V>));
+  using W = const intervals::interval<int>;
+  EXPECT_TRUE((is_pair_like_v<W>));
 }
 
 TEST(MetaTest, ContainerElement) {
@@ -239,7 +254,7 @@ TEST(MetaTest, Underlying) {
 }
 
 TEST(MetaTest, Streamable) {
-  //
+  // This sort of works a little.
   EXPECT_TRUE(can_stream_out_v<int>);
   EXPECT_FALSE(can_stream_out_v<Foo>);
 }

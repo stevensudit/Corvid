@@ -738,9 +738,39 @@ struct soldier {
 template<>
 constexpr bool strings::stream_append_v<soldier> = true;
 
+struct person {
+  std::string last;
+  std::string first;
+
+  template<typename A>
+  static A& append(A& target, const person& p) {
+    return corvid::strings::append(target, p.last, ", ", p.first);
+  }
+
+  template<auto opt = strings::join_opt::braced, char open = 0, char close = 0,
+      typename A>
+  static A& append_join(A& target, strings::delim d, const person& p) {
+    return corvid::strings::append_join_with<opt, '<', '>'>(target, d, p.last,
+        p.first);
+  }
+};
+
+// We could use `person::append<A>` here for the value, but the lambda is proof
+// of concept.
+template<typename A>
+constexpr auto corvid::strings::append_override_fn<A, person> =
+    [](auto& target, const person& p) -> decltype(target)& {
+  return corvid::strings::append(target, p.last, ", ", p.first);
+}; // person::append<A>;
+
+template<strings::join_opt opt, char open, char close, typename A>
+constexpr auto strings::append_join_override_fn<opt, open, close, A, person> =
+    person::append_join<opt, open, close, A>;
+
 TEST(StringUtilsTest, AppendStream) {
   soldier pyle{"Gomer", marine_rank::Private, 12345678};
   soldier carter{"Vince", marine_rank::GunnerySergeant, 23456789};
+  person doe{"Doe", "John"};
   if (true) {
     std::stringstream os;
     os << pyle;
@@ -769,5 +799,53 @@ TEST(StringUtilsTest, AppendStream) {
     EXPECT_EQ(s,
         "[({Gomer, Private, 12345678}, 30000.15), ({Vince, GunnerySergeant, "
         "23456789}, 40000.21)]");
+  }
+  if (true) {
+    std::string s;
+    EXPECT_TRUE((strings::has_append_override_fn<person>));
+    strings::append(s, doe);
+    EXPECT_EQ(s, "Doe, John");
+  }
+  if (true) {
+    std::string s;
+    strings::append_join_with<strings::join_opt::flat>(s, "; ", doe);
+    EXPECT_EQ(s, "Doe; John");
+  }
+  if (true) {
+    std::string s;
+    strings::append_join_with(s, "; ", doe);
+    EXPECT_EQ(s, "<Doe; John>");
+  }
+  if (true) {
+    std::string s;
+    strings::append_join_with<strings::join_opt::quoted>(s, "; ", doe);
+    EXPECT_EQ(s, "<\"Doe\"; \"John\">");
+  }
+  if (true) {
+    std::string s;
+    strings::append_join_with(s, "; ", doe, doe, doe);
+    EXPECT_EQ(s, "<Doe; John>; <Doe; John>; <Doe; John>");
+  }
+  if (true) {
+    EXPECT_EQ(strings::concat(double(42)), "42");
+    EXPECT_FALSE((strings::has_append_override_fn<double>));
+  }
+}
+
+// This does not work, so we're documenting this fact.
+
+template<typename A>
+constexpr auto corvid::strings::append_override_fn<A, double> =
+    [](auto& target, const double& d) -> decltype(target)& {
+  corvid::strings::append(target, "#");
+  corvid::strings::append_num(target, d);
+  corvid::strings::append(target, "#");
+  return target;
+};
+
+TEST(StringUtilsTest, WackyDelayedOverride) {
+  if (true) {
+    EXPECT_FALSE((strings::has_append_override_fn<double>));
+    EXPECT_EQ(strings::concat(double(42)), "42");
   }
 }
