@@ -558,7 +558,52 @@ void IntervalTest_Append() {
   }
 }
 
-// TODO: Test transparent, including unordered.
+void TransparentTest_General() {
+  const auto ks = "key"s;
+  const auto ksv = "key"sv;
+  if (true) {
+    std::map<std::string, int> m;
+    string_map<int> tm;
+    EXPECT_EQ(m.size(), 0);
+    EXPECT_EQ(tm.size(), 0);
+    m[ks] = 42;
+    tm[ks] = 42;
+    // * tm[ksv] = 42; // error: no match for ‘operator[]’
+    int* p;
+    p = find_opt(m, ks);
+    EXPECT_TRUE(p);
+    EXPECT_EQ(*p, 42);
+    // * p = find_opt(m, ksv); // error: no known conversion
+    p = find_opt(tm, ksv);
+    EXPECT_TRUE(p);
+    EXPECT_EQ(*p, 42);
+  }
+  if (true) {
+    string_set tss;
+    EXPECT_FALSE(tss.contains(ks));
+    EXPECT_FALSE(tss.contains(ksv));
+    tss.insert(ks);
+    EXPECT_TRUE(tss.contains(ks));
+    EXPECT_TRUE(tss.contains(ksv));
+  }
+  if (true) {
+    string_unordered_map<int> tm;
+    tm[ks] = 42;
+    // * tm[ksv] = 42; // no known conversion
+    int* p = find_opt(tm, ksv);
+    EXPECT_TRUE(p);
+    EXPECT_EQ(*p, 42);
+    d
+  }
+  if (true) {
+    string_unordered_set tss;
+    EXPECT_FALSE(tss.contains(ks));
+    EXPECT_FALSE(tss.contains(ksv));
+    tss.insert(ks);
+    EXPECT_TRUE(tss.contains(ks));
+    EXPECT_TRUE(tss.contains(ksv));
+  }
+}
 
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
@@ -566,4 +611,4 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     FindOptTest_Arrays, FindOptTest_Strings, FindOptTest_Reversed,
     Intervals_Ctors, IntervalTest_Insert, IntervalTest_ForEach,
     IntervalTest_Reverse, IntervalTest_MinMax, IntervalTest_CompareAndSwap,
-    IntervalTest_Append);
+    IntervalTest_Append, TransparentTest_General);
