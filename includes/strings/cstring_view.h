@@ -15,7 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "strings/strings_shared.h"
+#include "strings_shared.h"
 
 namespace corvid {
 inline namespace cstringview {
