@@ -1,0 +1,88 @@
+// Corvid20: A general-purpose C++ 20 library extending std.
+// https://github.com/stevensudit/Corvid20
+//
+// Copyright 2022-2023 Steven Sudit
+//
+// Licensed under the Apache License, Version 2.0(the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+#pragma once
+#include "strings_shared.h"
+
+namespace corvid::strings {
+inline namespace delimiting {
+
+//
+// Delimiter
+//
+
+// Delimiter wrapper.
+//
+// This class is not intended for standalone use. While it provides some
+// utility, it is very limited and internal. The only reason it's externally
+// visible at all is to document delimiter parameters with a distinct type.
+//
+// The precise semantics vary depending upon context:
+// - When splitting, checks for any of the characters.
+// - When joining, appends the entire string.
+// - When manipulating braces, treated as an open/close pair.
+struct delim: public std::string_view {
+  constexpr delim() : delim(" "sv) {}
+
+  template<typename T>
+  constexpr delim(T&& list) : std::string_view(std::forward<T>(list)) {}
+
+  [[nodiscard]] constexpr auto find_in(std::string_view whole) const {
+    if (size() == 1) return whole.find(front());
+    return whole.find_first_of(*this);
+  }
+
+  [[nodiscard]] constexpr auto find_not_in(std::string_view whole) const {
+    if (size() == 1) return whole.find_first_not_of(front());
+    return whole.find_first_not_of(*this);
+  }
+
+  [[nodiscard]] constexpr auto find_last_not_in(std::string_view whole) const {
+    if (size() == 1) return whole.find_last_not_of(front());
+    return whole.find_last_not_of(*this);
+  }
+
+  // Append.
+  template<AppendTarget A>
+  constexpr auto& append(A& target) const {
+    appender{target}.append(*this);
+    return target;
+  }
+
+  // Append after the first time.
+  //
+  // Set `skip` initially. Then, on the first call, `skip` will be cleared, but
+  // nothing will be appended. On subsequent calls `skip` will remain cleared,
+  // so the delimiter will be appended.
+  template<AppendTarget A>
+  constexpr auto& append_skip_once(A& target, bool& skip) const {
+    if (!skip)
+      append(target);
+    else
+      skip = false;
+    return target;
+  }
+
+  // Append when `emit`.
+  template<bool emit = true, AppendTarget A>
+  constexpr auto& append_if(A& target) const {
+    if constexpr (emit) append(target);
+    return target;
+  }
+};
+
+} // namespace delimiting
+} // namespace corvid::strings
