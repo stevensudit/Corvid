@@ -426,7 +426,7 @@ constexpr auto& append_join_with(AppendTarget auto& target, delim d,
     const T& part) {
   constexpr bool add_braces = decode::braces_v<opt, open, close>;
   constexpr bool add_quotes =
-      StringViewConvertible<T> && decode::quoted_v<opt>;
+      (StringViewConvertible<T> || StdEnum<T>)&&decode::quoted_v<opt>;
   d.append_if<decode::delimit_v<opt>>(target);
 
   // TODO: Short-circuit for null.
@@ -584,25 +584,28 @@ constexpr auto& ajwh(AppendTarget auto& target, delim d, const Head& head,
 } // namespace details
 
 // Append pieces to `target`, joining with `delim`.
+// Passing -1 for `open` or `close` will suppress braces at the top level.
 template<auto opt = join_opt::braced, char open = 0, char close = 0>
 constexpr auto& append_join_with(AppendTarget auto& target, delim d,
     const auto& head, const auto& middle, const auto&... tail) {
-  constexpr bool add_braces = decode::braces_v<opt, open, close>;
+  constexpr bool is_keyed = decode::keyed_v<opt> && StdPair<decltype(head)>;
+  constexpr bool is_obj = is_keyed && decode::json_v<opt>;
+  constexpr char next_open = open ? open : (is_obj ? '{' : '[');
+  constexpr char next_close = close ? close : (is_obj ? '}' : ']');
+  constexpr bool add_braces =
+      decode::braces_v<opt, next_open, next_close> && open >= 0 && close >= 0;
   constexpr auto head_opt = decode::head_opt_v<opt>;
   constexpr auto next_opt = decode::next_opt_v<opt>;
 
-  // TODO: Add code to use curly braces if keyed, like is_obj does.
-
   d.append_if<decode::delimit_v<opt>>(target);
-  if constexpr (add_braces) append(target, open);
+  if constexpr (add_braces) append(target, next_open);
 
   append_join_with<head_opt>(target, d, head);
   append_join_with<next_opt>(target, d, middle);
-
   if constexpr (sizeof...(tail) != 0)
     details::ajwh<next_opt>(target, d, tail...);
 
-  if constexpr (add_braces) append(target, close);
+  if constexpr (add_braces) append(target, next_close);
   return target;
 }
 
@@ -610,8 +613,8 @@ constexpr auto& append_join_with(AppendTarget auto& target, delim d,
 template<auto opt = join_opt::braced, char open = 0, char close = 0>
 constexpr auto&
 append_join(AppendTarget auto& target, const auto& head, const auto&... tail) {
-  constexpr delim d{", "};
-  return append_join_with<opt, open, close>(target, d, head, tail...);
+  return append_join_with<opt, open, close>(target, delim{", "sv}, head,
+      tail...);
 }
 
 // Join pieces together, with `delim`, into `std::string`.
@@ -626,12 +629,23 @@ join_with(delim d, const auto& head, const auto&... tail) {
 template<auto opt = join_opt::braced, char open = 0, char close = 0>
 [[nodiscard]] constexpr auto join(const auto& head, const auto&... tail) {
   std::string target;
-  constexpr delim d{", "sv};
-  return append_join_with<opt, open, close>(target, d, head, tail...);
+  return append_join_with<opt, open, close>(target, delim{", "sv}, head,
+      tail...);
 }
 
-// TODO: Consider adding aliases with JSON baked in. Maybe join_json,
-// append_json, etc.
+// Append pieces to target as JSON.
+[[nodiscard]] constexpr auto
+append_json(AppendTarget auto& target, const auto& head, const auto&... tail) {
+  return append_join_with<join_opt::json>(target, delim{", "sv}, head,
+      tail...);
+}
+
+// Join pieces together into `std::string` as JSON.
+[[nodiscard]] constexpr auto join_json(const auto& head, const auto&... tail) {
+  std::string target;
+  return append_join_with<join_opt::json>(target, delim{", "sv}, head,
+      tail...);
+}
 
 } // namespace joining
 } // namespace corvid::strings

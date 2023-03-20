@@ -749,8 +749,8 @@ void StringUtilsTest_Append() {
   // * strings::append_join_with(s, ";", {1, 2, 3});
   EXPECT_EQ(s, "[3;1;4]");
 
-  EXPECT_EQ(strings::join(1, 2, 3), "1, 2, 3");
-  EXPECT_EQ(strings::join("1"s, "2"s, "3"s), "1, 2, 3");
+  EXPECT_EQ(strings::join(1, 2, 3), "[1, 2, 3]");
+  EXPECT_EQ(strings::join("1"s, "2"s, "3"s), "[1, 2, 3]");
   EXPECT_EQ(strings::join(t), "{1, 2, 3}");
   EXPECT_EQ(strings::join<join_opt::keyed>(p), "{1, 2, 3}");
   s.clear();
@@ -780,18 +780,19 @@ void StringUtilsTest_Append() {
   strings::append_join_with(s, ", ", std::vector<int>{});
   EXPECT_EQ(s, "[]");
 
-  s.clear();
-  strings::append_join_with<join_opt::json>(s, ", ", std::vector<int>{});
+  s = strings::join_json(std::vector<int>{});
   EXPECT_EQ(s, "[]");
 
   s.clear();
   strings::append_join_with(s, ", ", std::vector{"a", "b", "c"});
   EXPECT_EQ(s, "[a, b, c]");
 
-  s.clear();
-  strings::append_join_with<join_opt::json>(s, ", ",
-      std::vector{"a", "b", "c"});
+  s = strings::join_json(std::vector{"a", "b", "c"});
   EXPECT_EQ(s, R"(["a", "b", "c"])");
+
+  s = strings::join_json(std::vector{"a", "b", "c"},
+      std::vector{"d", "e", "f"});
+  EXPECT_EQ(s, R"([["a", "b", "c"], ["d", "e", "f"]])");
 
   // TODO: test plain array, std::array, map, set, pair, tuple
 
@@ -804,13 +805,14 @@ void StringUtilsTest_Edges() {
 
   std::vector<int> a{1, 2, 3};
   std::vector<int> b{4, 5, 6};
-  EXPECT_EQ(strings::join(a, b), "[1, 2, 3], [4, 5, 6]");
+  EXPECT_EQ(strings::join(a, b), "[[1, 2, 3], [4, 5, 6]]");
   EXPECT_EQ(strings::join<join_opt::flat>(a, b), "1, 2, 3, 4, 5, 6");
-  EXPECT_EQ((strings::join<join_opt::braced, '{', '}'>(a, b)),
-      "{[1, 2, 3], [4, 5, 6]}");
+  EXPECT_EQ((strings::join<join_opt::braced, '(', ')'>(a, b)),
+      "([1, 2, 3], [4, 5, 6])");
   EXPECT_EQ((strings::join<join_opt::prefixed, '{', '}'>(a, b)),
       ", {[1, 2, 3], [4, 5, 6]}");
-  EXPECT_EQ(strings::join<join_opt::prefixed>(a, b), ", [1, 2, 3], [4, 5, 6]");
+  EXPECT_EQ(strings::join<join_opt::prefixed>(a, b),
+      ", [[1, 2, 3], [4, 5, 6]]");
 }
 
 void StringUtilsTest_Streams() {
@@ -822,7 +824,7 @@ void StringUtilsTest_Streams() {
   if (true) {
     std::stringstream s;
     strings::append_join(s, a, b);
-    EXPECT_EQ(s.str(), "[1, 2, 3], [4, 5, 6]");
+    EXPECT_EQ(s.str(), "[[1, 2, 3], [4, 5, 6]]");
   }
 }
 
@@ -848,7 +850,10 @@ void StringUtilsTest_AppendEnum() {
   std::string s;
   EXPECT_EQ((strings::concat(rgb::yellow)), "red + green");
   EXPECT_EQ((strings::join(rgb::yellow, rgb::cyan)),
-      "red + green, green + blue");
+      "[red + green, green + blue]");
+  s = (strings::join<strings::join_opt::braced, -1, -1>(rgb::yellow,
+      rgb::cyan));
+  EXPECT_EQ(s, "red + green, green + blue");
 }
 
 enum class marine_rank {
@@ -973,7 +978,7 @@ void StringUtilsTest_AppendStream() {
 
     s.clear();
     strings::append_join(s, doe);
-    EXPECT_EQ(s, "Doe, John");
+    EXPECT_EQ(s, "[Doe, John]");
   }
   if (true) {
     std::string s;
@@ -983,22 +988,21 @@ void StringUtilsTest_AppendStream() {
   if (true) {
     std::string s;
     strings::append_join_with<strings::join_opt::quoted>(s, "; ", doe);
-    EXPECT_EQ(s, "\"Doe\"; \"John\"");
+    EXPECT_EQ(s, R"(["Doe"; "John"])");
   }
   if (true) {
     std::string s;
     strings::append_join<strings::join_opt::json>(s, doe);
-    EXPECT_EQ(s, "[\"Doe\", \"John\"]");
+    EXPECT_EQ(s, R"(["Doe", "John"])");
   }
   if (true) {
     std::string s;
     strings::append_join<strings::join_opt::json>(s, doe, doe, doe);
-    EXPECT_EQ(s,
-        "[\"Doe\", \"John\"], [\"Doe\", \"John\"], [\"Doe\", \"John\"]");
+    EXPECT_EQ(s, R"([["Doe", "John"], ["Doe", "John"], ["Doe", "John"]])");
   }
   if (true) {
     std::string s;
-    strings::append_join(s, doe, doe, doe);
+    strings::append_join<strings::join_opt::flat>(s, doe, doe, doe);
     EXPECT_EQ(s, "Doe, John, Doe, John, Doe, John");
   }
 }

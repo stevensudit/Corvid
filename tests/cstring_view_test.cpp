@@ -19,8 +19,7 @@
 #include <map>
 #include <set>
 
-#include "../includes/cstring_view.h"
-#include "../includes/meta.h"
+#include "../includes/strings.h"
 #include "AccutestShim.h"
 
 using namespace std::literals;
