@@ -1,4 +1,13 @@
 0. Do all the TODO's scattered throughout the code.
+a. Interval needs a major rewrite.
+b. Enums need to register count based on strings.
+c. concat_join has lots to do. and conversion.h has a related change.
+d. trimming has a long shot.
+e. string.h has some TODO's.
+f. bitmask_enum_tests has some.
+g. meta_test has a whole section commented out.
+h. strings_test needs more tests.
+
 
 1. Make decision about op<< for enum.
 

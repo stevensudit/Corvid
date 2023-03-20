@@ -19,19 +19,9 @@
 #include <algorithm>
 #include <charconv>
 #include <concepts>
-#include <iostream>
 #include <limits>
 #include <ranges>
 #include <vector>
 
 // String headers that do not depend upon enums.
-// TODO: Trim to minimum required.
-#include "../strings/cases.h"
-#include "../strings/search_and.h"
-#include "../strings/targeting.h"
-#include "../strings/delimiting.h"
-#include "../strings/streaming.h"
-#include "../strings/delimiting.h"
-#include "../strings/trimming.h"
-#include "../strings/splitting.h"
-#include "../strings/conversion.h"
+#include "../strings/lite.h"

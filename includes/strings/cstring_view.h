@@ -289,10 +289,3 @@ cstring_view operator""_env(const char* ps, std::size_t) noexcept {
 
 } // namespace literals
 } // namespace corvid
-
-template<>
-struct std::hash<corvid::cstring_view> {
-  std::size_t operator()(const corvid::cstring_view& csv) const noexcept {
-    return std::hash<std::string_view>()(csv.view());
-  }
-};

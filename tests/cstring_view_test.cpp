@@ -368,6 +368,7 @@ void CStringViewTestEqual() {
   // Hash test.
   std::set<cstring_view> ss;
   ss.insert("abc"_csv);
+  EXPECT_TRUE(ss.contains("abc"_csv));
 }
 
 void CStringViewTest_Env() {

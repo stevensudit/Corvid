@@ -56,8 +56,7 @@ struct delim: public std::string_view {
   }
 
   // Append.
-  template<AppendTarget A>
-  constexpr auto& append(A& target) const {
+  constexpr auto& append(AppendTarget auto& target) const {
     appender{target}.append(*this);
     return target;
   }
@@ -67,8 +66,8 @@ struct delim: public std::string_view {
   // Set `skip` initially. Then, on the first call, `skip` will be cleared, but
   // nothing will be appended. On subsequent calls `skip` will remain cleared,
   // so the delimiter will be appended.
-  template<AppendTarget A>
-  constexpr auto& append_skip_once(A& target, bool& skip) const {
+  constexpr auto&
+  append_skip_once(AppendTarget auto& target, bool& skip) const {
     if (!skip)
       append(target);
     else
@@ -77,8 +76,8 @@ struct delim: public std::string_view {
   }
 
   // Append when `emit`.
-  template<bool emit = true, AppendTarget A>
-  constexpr auto& append_if(A& target) const {
+  template<bool emit = true>
+  constexpr auto& append_if(AppendTarget auto& target) const {
     if constexpr (emit) append(target);
     return target;
   }

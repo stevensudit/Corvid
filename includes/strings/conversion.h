@@ -21,8 +21,6 @@
 namespace corvid::strings {
 inline namespace conversion {
 
-// TODO: Consider breaking out the deep namespaces into separate files.
-
 //
 // Numerical conversions
 //

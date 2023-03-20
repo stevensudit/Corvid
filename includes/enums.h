@@ -19,5 +19,6 @@
 #include "enums/bitmask_enum.h"
 #include "enums/sequence_enum.h"
 
-// Importing the `corvid::enums` namespace is optional, but you need to
-// import `corvid::enums::ops` to get the operator overloads to work.
+// Importing the `corvid::enums::bitmask` and `corvid::enums::sequence`
+// namespaces is optional, but you need to import `corvid::enums::bitmask::ops`
+// and `corvid::enums::sequence::ops` to get the operator overloads to work.

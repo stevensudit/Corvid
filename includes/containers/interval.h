@@ -417,9 +417,7 @@ concept Interval = is_specialization_of_v<T, interval>;
 
 } // namespace intervals
 } // namespace corvid
-
 namespace corvid::strings {
-
 // Register appends.
 template<corvid::AppendTarget A, typename V, typename U>
 constexpr auto append_override_fn<A, interval<V, U>> =

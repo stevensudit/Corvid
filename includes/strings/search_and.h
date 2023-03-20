@@ -25,8 +25,7 @@ inline namespace search_and {
 //
 
 // Return whether `value` was found in `s`, starting at `ndx`, updating `ndx`.
-template<typename T>
-bool found_next(size_t& ndx, std::string_view s, const T& value) {
+bool found_next(size_t& ndx, std::string_view s, const auto& value) {
   return (ndx = s.find(value, ndx)) != npos;
 }
 
