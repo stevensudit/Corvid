@@ -58,9 +58,14 @@ concept Bool = is_bool_v<T>;
 template<typename T>
 concept Integral = std::integral<T> && (!Bool<T>);
 
+// `T` must be nullptr_t.
+template<typename T>
+concept NullPtr = std::same_as<std::remove_cvref_t<T>, nullptr_t>;
+
 // `T` must be convertible to `std::string_view`.
 template<typename T>
-concept StringViewConvertible = std::constructible_from<std::string_view, T>;
+concept StringViewConvertible =
+    std::constructible_from<std::string_view, T> && (!NullPtr<T>);
 
 // `T` must be a void pointer.
 template<typename T>
@@ -72,6 +77,7 @@ concept Dereferenceable = (
     requires(T t) { *t; } || requires(T t) { t.operator*(); });
 
 // `T` must be a bool-like type, which means it can be used in a predicate.
+// TODO: Figure out why testing for negation breaks things.
 template<typename T>
 concept BoolLike = requires(T t) { t ? 1 : 2; };
 

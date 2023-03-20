@@ -418,92 +418,15 @@ concept Interval = is_specialization_of_v<T, interval>;
 } // namespace intervals
 } // namespace corvid
 
-// TODO: Reduce explicit namespaces below. Maybe shove the whole thing in
-// corvid::strings?
-
-template<corvid::AppendTarget A, typename V, typename U>
-constexpr auto corvid::strings::append_override_fn<A, corvid::interval<V, U>> =
-    corvid::intervals::interval<V, U>::template append_fn<A>;
-
-template<corvid::strings::join_opt opt, char open, char close,
-    corvid::AppendTarget A, typename V, typename U>
-constexpr auto corvid::strings::append_join_override_fn<opt, open, close, A,
-    corvid::interval<V, U>> = corvid::intervals::interval<V,
-    U>::template append_join_with_fn<opt, open, close, A>;
-
-#if 0
-template<corvid::AppendTarget A>
-constexpr auto corvid::strings::append_override_fn<A, FakeFake> =
-    [](A& target, const FakeFake& f) -> A& {
-  return corvid::strings::append(target, "FakeFake");
-};
-
-
-template<corvid::AppendTarget A, typename V, typename U>
-constexpr auto
-    corvid::strings::append_override_fn<A, corvid::intervals::interval<V, U>> =
-        corvid::intervals::interval<V, U>::append<A>;
-#endif
-#if 0
-
-
-} // namespace intervals
-} // namespace corvid
-
 namespace corvid::strings {
-inline namespace appending {
 
-// Append one variant to `target`, as its current type, joining with `delim`.
-template<typename A, typename T, typename U, enable_if_append_target_0<A> = 0>
-constexpr auto& append(A& target, const corvid::interval<T, U>& part) {
-  if (!part.empty()) {
-    append(target, part.front());
-    append(target, ":");
-    append(target, part.back());
-    return target;
-  }
-}
+// Register appends.
+template<corvid::AppendTarget A, typename V, typename U>
+constexpr auto append_override_fn<A, interval<V, U>> =
+    interval<V, U>::template append_fn<A>;
 
-
-// Append one variant to `target`, as its current type, joining with `delim`.
-template<auto opt = strings::join_opt::braced, char open = '[',
-    char close = ']', typename T, typename A,
-    enable_if_appendable_0<A, is_interval_v<T>> = 0>
-constexpr auto& append_join_with(A& target, delim d, const T& part) {
-  return target;
-}
-
-} // namespace appending
+template<join_opt opt, char open, char close, corvid::AppendTarget A,
+    typename V, typename U>
+constexpr auto append_join_override_fn<opt, open, close, A, interval<V, U>> =
+    interval<V, U>::template append_join_with_fn<opt, open, close, A>;
 } // namespace corvid::strings
-
-// Tuple specializations.
-//
-// Note: Inheritance doesn't apply to partial specialization, so we have to
-// provide these manually.
-namespace std {
-
-template<std::size_t I, class T, class U>
-constexpr const U get(const corvid::interval<U, T>&& i) noexcept {
-  if constexpr (I == 0)
-    return i.front();
-  else
-    return i.back();
-}
-
-template<class T, class U>
-struct tuple_size<corvid::interval<T, U>>
-    : std::integral_constant<std::size_t, 2> {};
-
-} // namespace std
-
-//
-// TODO
-//
-
-// TODO: Write `append_join` but not `append`.
-
-// Consider replace `make_interval` here with a scheme similar to
-// `make_enum_printer`, so that these can be decentralized and the
-// specializations can return a pair instead of an interval. Of course, we'd
-// also have to pass V, not just T.
-#endif

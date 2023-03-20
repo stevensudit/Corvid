@@ -589,11 +589,10 @@ void TransparentTest_General() {
   if (true) {
     string_unordered_map<int> tm;
     tm[ks] = 42;
-    // * tm[ksv] = 42; // no known conversion
+    // * tm[ksv] = 42; // error: no known conversion
     int* p = find_opt(tm, ksv);
     EXPECT_TRUE(p);
     EXPECT_EQ(*p, 42);
-    d
   }
   if (true) {
     string_unordered_set tss;

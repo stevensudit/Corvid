@@ -49,6 +49,9 @@ inline namespace registration {
 // unrestricted. It can be a class static function, a free function, or even a
 // lambda.
 //
+// Note that there is a separate mechanism for enums, so don't use this for
+// them.
+//
 // For example:
 //
 //    template<AppendTarget A>
@@ -70,14 +73,16 @@ template<typename T>
 concept AppendableOverridden =
     (!std::is_null_pointer_v<decltype(append_override_fn<std::string, T>)>);
 
-// Concept for types that registered as a stream appendable.
+// Concept for types that registered as a stream appendable. This means that we
+// append them by using the `std::ostream::operator<<`.
 template<typename T>
 concept StreamAppendable = stream_append_v<T>;
 
 // Concept for types that are not registered for special handling.
 //
-// Note that, despite the name, types that fit this concept are only candidates
-// for native join appending, not guaranteed to be appendable.
+// Note that, despite the name, types that fit this concept are only
+// *candidates* for native appending, not guaranteed to be appendable. This is
+// always a partial, necessary requirement, not a sufficient one.
 template<typename T>
 concept Appendable = (!AppendableOverridden<T>) && (!StreamAppendable<T>);
 
@@ -111,10 +116,10 @@ inline namespace appending {
 // `std::string`, `const char*`, `char`, `bool`, `int`, `double`, `enum`, and
 // containers.
 //
-// Containers include `std::pair`, `std::tuple`, `std::initializer_list`, and
-// anything you can do a ranged-for over, such as `std::vector`. For keyed
-// containers, such as `std::map`, only the values are used, unless
-// `join_opt` specifies otherwise. Containers may be nested arbitrarily.
+// Containers include `std::pair`, `std::tuple` and anything you can do a
+// ranged-for over, such as `std::vector`. For keyed containers, such as
+// `std::map`, only the values are used, unless `join_opt` specifies otherwise.
+// Containers may be nested arbitrarily.
 //
 // In addition to `int` and `double`, all other native numeric types are
 // supported.
@@ -130,24 +135,32 @@ inline namespace appending {
 // for append just by enabling `stream_append_v`.
 
 // Append one stringlike thing to `target`.
-// If passed a `const char*` of `nullptr`, it is treated as an empty string.
+// If passed a `const char*` of `nullptr`, it is appended as "null".
 template<StringViewConvertible T>
 requires Appendable<T>
 constexpr auto& append(AppendTarget auto& target, const T& part) {
   auto a = appender{target};
-  if constexpr (is_char_ptr_v<decltype(part)>)
-    a.append(part ? std::string_view{part} : std::string_view{});
+  if constexpr (BoolLike<T>)
+    a.append(part ? std::string_view{part} : "null"sv);
   else
     a.append(part);
   return target;
 }
 
-// Append one integral number (or `char`) to `target`. When called directly for
-// non-char, `base`, `width`, and `pad` may be specified.
-template<int base = 10, size_t width = 0, char pad = ' '>
-constexpr auto& append(AppendTarget auto& target, std::integral auto part) {
-  if constexpr (Char<decltype(part)>)
+// Append `nullptr_t` to `target` as "null".
+constexpr auto& append(AppendTarget auto& target, NullPtr auto) {
+  return append(target, (char*){});
+}
+
+// Append one integral number to target, allowing `base`, `width`, and `pad` to
+// be specified. Also handles `char` and `bool`, appending "true" or "false"
+// for the latter.
+template<int base = 10, size_t width = 0, char pad = ' ', std::integral T>
+constexpr auto& append(AppendTarget auto& target, T part) {
+  if constexpr (Char<T>)
     appender{target}.append(part);
+  else if (Bool<T>)
+    appender{target}.append(part ? "true"sv : "false"sv);
   else
     append_num<base, width, pad>(target, part);
   return target;
@@ -163,17 +176,16 @@ append(AppendTarget auto& target, std::floating_point auto part) {
 }
 
 // Append one pointer or optional value to `target`. If not present, appends
-// empty string.
-// TODO: Consider offering a version that allows specifying something other
-// than empty string in the case of null.
+// `null`.
 template<OptionalLike T>
 requires Appendable<T>
 constexpr auto& append(AppendTarget auto& target, const T& part) {
-  if (part) append(target, *part);
-  return target;
+  if (part) return append(target, *part);
+  return append(target, nullptr);
 }
 
-// Append one void pointer, as hex, to `target`.
+// Append one void pointer, as hex, to `target`. Note that null is rendered as
+// zeroes.
 constexpr auto&
 append(AppendTarget auto& target, const VoidPointer auto& part) {
   return append<16>(target, reinterpret_cast<uintptr_t>(part));
@@ -181,17 +193,19 @@ append(AppendTarget auto& target, const VoidPointer auto& part) {
 
 // Append one scoped or unscoped `enum` to `target`.
 //
-// Unscoped `enum`s are converted to their underlying type and then appended.
-constexpr auto& append(AppendTarget auto& target, const StdEnum auto& part) {
-  if constexpr (ScopedEnum<decltype(part)>)
+// Unscoped `enum`s are appended as their underlying type.
+template<StdEnum T>
+constexpr auto& append(AppendTarget auto& target, const T& part) {
+  if constexpr (ScopedEnum<T>)
     return append_enum(target, part);
   else
     return append(target, as_underlying(part));
 }
 
 // Append one container, as its element values, to `target` without
-// delimiters.  See `append_join_with` for delimiter support.  When called
-// directly, `keyed` may be specified.
+// delimiters.  See `append_join_with` for delimiter support. When called
+// directly, `keyed` may be specified to extract the key/value pair instead of
+// just the value.
 template<bool keyed = false, Container T>
 requires Appendable<T>
 constexpr auto& append(AppendTarget auto& target, const T& parts) {
@@ -199,22 +213,20 @@ constexpr auto& append(AppendTarget auto& target, const T& parts) {
   return target;
 }
 
-// Apppend one monostate to `target`.
-// TODO: Consider offering a version that allows specifying something other
-// than empty when valueless.
+// Apppend one monostate to `target`, as "null".
 constexpr auto& append(AppendTarget auto& target, const MonoState auto& part) {
-  return target;
+  return append(target, nullptr);
 }
 
-// Append one variant to `target`, as its current type.
-// TODO: Consider offering a version that allows specifying something other
-// than empty when valueless.
+// Append one variant to `target`, as its current type. If the variant is
+// valueless, appends "null".
 template<Variant T>
 requires Appendable<T>
 constexpr auto& append(AppendTarget auto& target, const T& part) {
-  if (!part.valueless_by_exception()) {
+  if (!part.valueless_by_exception())
     std::visit([&target](auto&& inside) { append(target, inside); }, part);
-  }
+  else
+    append(target, nullptr);
   return target;
 }
 
@@ -239,6 +251,7 @@ constexpr auto& append(AppendTarget auto& target, const auto& head,
 template<TupleLike T>
 requires Appendable<T>
 constexpr auto& append(AppendTarget auto& target, const T& parts) {
+  // TODO: Special-case for size-0 tuple?
   std::apply(
       [&target](const auto&... parts) {
         if constexpr (sizeof...(parts) != 0) append(target, parts...);
@@ -280,7 +293,7 @@ enum class join_opt {
   flat = 1,
   // keyed - Show keys in containers, in addition to values.
   keyed = 2,
-  // quoted - Show quotes around strings.
+  // quoted - Show quotes around strings (using `open` and `close`).
   quoted = 4,
   // prefixed - Prefix with the delimiter.
   prefixed = 8,
@@ -288,11 +301,8 @@ enum class join_opt {
   // flat-keyed.
   flat_keyed = flat | keyed,
   // json - Show as JSON.
-  json = keyed | quoted,
+  json = braced | keyed | quoted,
 };
-
-// Consider adding a setting that maps to JSON. Perhaps it's just braced +
-// keyed + quoted + prefixed?
 
 } // namespace joinoptions
 } // namespace corvid::strings
@@ -321,7 +331,7 @@ inline namespace registration {
 //      static A& append_join_with(A& target, strings::delim d,
 //          const person& p) {
 //        return corvid::strings::append_join_with<opt, open, close>(
-//            target, d, p.last, p.first);
+//            target, d, p.last, ", ", p.first);
 //      }
 //
 //    template<strings::join_opt opt, char open, char close, AppendTarget A>
@@ -342,8 +352,9 @@ concept JoinAppendableOverridden =
 
 // Concept for types that do not have an overridden join appender registered.
 //
-// Note that, despite the name, types that fit this concept are only candidates
-// for native join appending, not guaranteed to be appendable.
+// Note that, despite the name, types that fit this concept are only
+// *candidates* for native join appending, not guaranteed to be appendable.
+// This is always a partial, necessary requirement, not a sufficient one.
 template<typename T>
 concept JoinAppendable = (!JoinAppendableOverridden<T>) || Appendable<T>;
 
@@ -418,8 +429,14 @@ constexpr auto& append_join_with(AppendTarget auto& target, delim d,
       StringViewConvertible<T> && decode::quoted_v<opt>;
   d.append_if<decode::delimit_v<opt>>(target);
 
+  // TODO: Short-circuit for null.
+
   if constexpr (add_braces) append(target, open);
   if constexpr (add_quotes) append(target, '"');
+
+  // TODO: Support escape_v, which is true when quoted_v is true but we have
+  // quotes for open/close. Also, add_braces can be true, so we need to make
+  // them exclusive.
 
   append(target, part);
 
@@ -428,26 +445,29 @@ constexpr auto& append_join_with(AppendTarget auto& target, delim d,
   return target;
 }
 
-// Append one pointer or optional value to `target`, joining with `delim`.
+// Append one pointer or optional value to `target`, joining with `delim`. If
+// not present, appends `null`.
 template<auto opt = join_opt::braced, char open = 0, char close = 0,
     OptionalLike T>
 requires JoinAppendable<T>
 constexpr auto&
 append_join_with(AppendTarget auto& target, delim d, const T& part) {
-  if (part) append_join_with<opt>(target, d, *part);
-  return target;
+  if (part) return append_join_with<opt>(target, d, *part);
+  return append(target, nullptr);
 }
 
 // Append one variant to `target`, as its current type, joining with `delim`.
+// If the variant is valueless, appends "null".
 template<auto opt = join_opt::braced, char open = 0, char close = 0, Variant T>
 requires JoinAppendable<T>
 constexpr auto&
 append_join_with(AppendTarget auto& target, delim d, const T& part) {
-  if (!part.valueless_by_exception()) {
+  if (!part.valueless_by_exception())
     std::visit(
         [&target, &d](auto&& part) { append_join_with<opt>(target, d, part); },
         part);
-  }
+  else
+    append(target, nullptr);
   return target;
 }
 
@@ -468,6 +488,7 @@ append_join_with(AppendTarget auto& target, delim d, const T& part) {
   constexpr bool add_quotes =
       is_json && !StringViewConvertible<decltype(part.first)>;
   // TODO: Should we add !Container and so on?
+  // TODO: What if the key is null?
 
   d.append_if<decode::delimit_v<opt>>(target);
 
@@ -476,11 +497,13 @@ append_join_with(AppendTarget auto& target, delim d, const T& part) {
 
   constexpr delim dq{"\""};
   dq.append_if<add_quotes>(target);
+  // TODO: Test quote-encoding when a non-string is wrapped in quotes. We may
+  // need to print to a string first, unless we know it's safe, such as a
+  // number.
   append_join_with<head_opt>(target, d, part.first);
   dq.append_if<add_quotes>(target);
   constexpr delim ds{": "};
   ds.append_if<is_json>(target);
-
   append_join_with<next_opt>(target, d, part.second);
 
   if constexpr (add_braces) append(target, next_close);
@@ -496,6 +519,7 @@ constexpr auto&
 append_join_with(AppendTarget auto& target, delim d, const T& part) {
   constexpr char next_open = open ? open : '{';
   constexpr char next_close = close ? close : '}';
+  // TODO: Special-case for size-0 tuple?
   std::apply(
       [&target, &d](const auto&... parts) {
         if constexpr (sizeof...(parts) != 0)
@@ -527,9 +551,9 @@ append_join_with(AppendTarget auto& target, delim d, const T& parts) {
   constexpr auto next_opt = decode::next_opt_v<opt>;
   constexpr bool is_keyed =
       decode::keyed_v<opt> && StdPair<decltype(*cbegin(parts))>;
-  constexpr bool is_json = is_keyed && decode::json_v<opt>;
-  constexpr char next_open = open ? open : (is_json ? '{' : '[');
-  constexpr char next_close = close ? close : (is_json ? '}' : ']');
+  constexpr bool is_obj = is_keyed && decode::json_v<opt>;
+  constexpr char next_open = open ? open : (is_obj ? '{' : '[');
+  constexpr char next_close = close ? close : (is_obj ? '}' : ']');
   constexpr bool add_braces = decode::braces_v<opt, next_open, next_close>;
 
   d.append_if<decode::delimit_v<opt>>(target);
@@ -567,7 +591,7 @@ constexpr auto& append_join_with(AppendTarget auto& target, delim d,
   constexpr auto head_opt = decode::head_opt_v<opt>;
   constexpr auto next_opt = decode::next_opt_v<opt>;
 
-  // TODO: Add code to use curly braces if keyed.
+  // TODO: Add code to use curly braces if keyed, like is_obj does.
 
   d.append_if<decode::delimit_v<opt>>(target);
   if constexpr (add_braces) append(target, open);
@@ -605,6 +629,9 @@ template<auto opt = join_opt::braced, char open = 0, char close = 0>
   constexpr delim d{", "sv};
   return append_join_with<opt, open, close>(target, d, head, tail...);
 }
+
+// TODO: Consider adding aliases with JSON baked in. Maybe join_json,
+// append_json, etc.
 
 } // namespace joining
 } // namespace corvid::strings

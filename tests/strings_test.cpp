@@ -423,11 +423,12 @@ void StringUtilsTest_Append() {
   strings::append(s, "3"sv);
   EXPECT_EQ(s, "123");
   s.clear();
-  strings::append(s, '1');       // char (number)
+  strings::append(s, '1');       // char (digit)
   strings::append(s, "2", "3");  // many
-  strings::append(s, (char*){}); // nullptr
+  strings::append(s, (char*){}); // char nullptr
   strings::append(s, (size_t)4); // append size_t
-  EXPECT_EQ(s, "1234");
+  strings::append(s, nullptr);   // nullptr
+  EXPECT_EQ(s, "123null4null");
 
   s.clear();
   strings::append<2>(s, 0xaa); // append binary
@@ -437,11 +438,12 @@ void StringUtilsTest_Append() {
   EXPECT_EQ(s, "0x000000aa");
 
   s.clear();
+  strings::append(s, false);          // append bool
   strings::append(s, true);           // append bool
   strings::append(s, (float)2);       // append float
   strings::append(s, (double)3);      // append float
   strings::append(s, (long double)4); // append float
-  EXPECT_EQ(s, "1234");
+  EXPECT_EQ(s, "falsetrue234");
 
   s.clear();
   strings::append(s, (double)123.456789012345);
@@ -468,6 +470,9 @@ void StringUtilsTest_Append() {
   EXPECT_NE(s, "42");
   EXPECT_FALSE(s.starts_with("0x"));
   s.clear();
+  strings::append(s, (void*){});
+  EXPECT_EQ(s, "0x0000000000000000");
+  s.clear();
   strings::append(s, reinterpret_cast<const void*>(&i));
   EXPECT_NE(s, "42");
   EXPECT_TRUE(s.starts_with("0x"));
@@ -478,7 +483,7 @@ void StringUtilsTest_Append() {
   oi.reset();
   s.clear();
   strings::append(s, oi);
-  EXPECT_EQ(s, "");
+  EXPECT_EQ(s, "null");
 
   // None of these char-like types are char so they're all treated as ints.
   EXPECT_FALSE((std::is_same_v<char, signed char>));
@@ -581,8 +586,9 @@ void StringUtilsTest_Append() {
   std::variant<std::monostate, int, std::map<std::string, int>> va;
   s.clear();
   strings::append(s, va);
-  EXPECT_EQ(s, "");
+  EXPECT_EQ(s, "null");
   va = 52;
+  s.clear();
   strings::append(s, va);
   EXPECT_EQ(s, "52");
 
@@ -607,7 +613,7 @@ void StringUtilsTest_Append() {
 
   EXPECT_EQ(strings::concat("1", "2"sv, "3"s), "123");
   EXPECT_EQ(strings::concat(1, 2.0, 3ull), "123");
-  EXPECT_EQ(strings::concat(true, std::byte{2}, 3), "123");
+  EXPECT_EQ(strings::concat(true, std::byte{2}, 3), "true23");
   EXPECT_EQ((strings::concat("1", "2")), "12");
 
   auto t = std::make_tuple("1"s, 2, 3.0);
@@ -629,9 +635,9 @@ void StringUtilsTest_Append() {
   EXPECT_EQ(s, "123");
   strings::append_join_with(s, ";", std::optional<std::string>{});
   strings::append_join_with(s, ";", "456");
-  EXPECT_EQ(s, "123456");
+  EXPECT_EQ(s, "123null456");
   strings::append_join_with<join_opt::prefixed, '`', '\''>(s, ";", "789");
-  EXPECT_EQ(s, "123456;`789'");
+  EXPECT_EQ(s, "123null456;`789'");
 
   s.clear();
   strings::append_join_with(s, ";", v); // container
@@ -667,7 +673,7 @@ void StringUtilsTest_Append() {
   s.clear();
   const char* psz{};
   strings::append_join_with(s, ";", psz);
-  EXPECT_EQ(s, "");
+  EXPECT_EQ(s, "null");
 
   va = 52;
   s.clear();
@@ -698,19 +704,19 @@ void StringUtilsTest_Append() {
 
   s.clear();
   strings::append_join_with<join_opt::json>(s, ",", std::pair{"a", 1});
-  EXPECT_EQ(s, "\"a\": 1");
+  EXPECT_EQ(s, R"("a": 1)");
 
   s.clear();
   strings::append_join_with<join_opt::json>(s, ",", std::pair{1, "a"});
-  EXPECT_EQ(s, "\"1\": \"a\"");
+  EXPECT_EQ(s, R"("1": "a")");
 
   s.clear();
   strings::append_join_with(s, ",", mssi);
   EXPECT_EQ(s, "[[1,2,3],[4,5]]");
 
   s.clear();
-  strings::append_join_with<join_opt::json>(s, ",", mssi);
-  EXPECT_EQ(s, "{\"a\": [1,2,3],\"c\": [4,5]}");
+  strings::append_join_with<join_opt::json>(s, ", ", mssi);
+  EXPECT_EQ(s, R"({"a": [1, 2, 3], "c": [4, 5]})");
 
   auto om = std::make_optional(mssi);
   s.clear();
@@ -719,22 +725,22 @@ void StringUtilsTest_Append() {
 
   s.clear();
   strings::append_join<join_opt::json>(s, mssi);
-  EXPECT_EQ(s, "{\"a\": [1, 2, 3], \"c\": [4, 5]}");
+  EXPECT_EQ(s, R"({"a": [1, 2, 3], "c": [4, 5]})");
 
   s.clear();
   strings::append_join<join_opt::json>(s,
       std::map<std::string, int>{{"b", 2}, {"a", 1}});
-  EXPECT_EQ(s, "{\"a\": 1, \"b\": 2}");
+  EXPECT_EQ(s, R"({"a": 1, "b": 2})");
 
   s.clear();
   strings::append_join<join_opt::json>(s,
       std::map<std::string, std::string>{{"b", "2"}, {"a", "1"}});
-  EXPECT_EQ(s, "{\"a\": \"1\", \"b\": \"2\"}");
+  EXPECT_EQ(s, R"({"a": "1", "b": "2"})");
 
   s.clear();
   strings::append_join<join_opt::json>(s,
       std::map<int, std::string>{{2, "2"}, {1, "1"}});
-  EXPECT_EQ(s, "{\"1\": \"1\", \"2\": \"2\"}");
+  EXPECT_EQ(s, R"({"1": "1", "2": "2"})");
 
   s.clear();
   auto il = {3, 1, 4};
@@ -760,6 +766,32 @@ void StringUtilsTest_Append() {
 
   EXPECT_EQ(strings::join(mssi), "[[1, 2, 3], [4, 5]]");
   EXPECT_EQ(strings::join<join_opt::flat>(mssi), "1, 2, 3, 4, 5");
+
+  // More JSON A/B tests.
+  s.clear();
+  strings::append_join_with(s, ", ", std::vector{1, 2, 3});
+  EXPECT_EQ(s, "[1, 2, 3]");
+
+  s.clear();
+  strings::append_join_with<join_opt::json>(s, ", ", std::vector{1, 2, 3});
+  EXPECT_EQ(s, "[1, 2, 3]");
+
+  s.clear();
+  strings::append_join_with(s, ", ", std::vector<int>{});
+  EXPECT_EQ(s, "[]");
+
+  s.clear();
+  strings::append_join_with<join_opt::json>(s, ", ", std::vector<int>{});
+  EXPECT_EQ(s, "[]");
+
+  s.clear();
+  strings::append_join_with(s, ", ", std::vector{"a", "b", "c"});
+  EXPECT_EQ(s, "[a, b, c]");
+
+  s.clear();
+  strings::append_join_with<join_opt::json>(s, ", ",
+      std::vector{"a", "b", "c"});
+  EXPECT_EQ(s, R"(["a", "b", "c"])");
 
   // TODO: test plain array, std::array, map, set, pair, tuple
 
@@ -970,6 +1002,8 @@ void StringUtilsTest_AppendStream() {
     EXPECT_EQ(s, "Doe, John, Doe, John, Doe, John");
   }
 }
+
+// TODO: Add a test for printing a null cstring_view.
 
 MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_Split, StringUtilsTest_ParseNum, StringUtilsTest_Case,
