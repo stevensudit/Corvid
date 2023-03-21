@@ -18,3 +18,6 @@ h. strings_test needs more tests.
 4. Maybe a quoted_string child of string_view that tells the appender to encode it. Maybe add a JSON mode, outright.
 
 5. We need a verson of split that understands quotes and escaping. Maybe just regex and be done with it?
+
+
+IT compiles with the scoped_enum.h contents inside enum_registry.h enabled, but if we move them over, it fails?

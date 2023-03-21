@@ -17,6 +17,7 @@
 #pragma once
 #include "strings_shared.h"
 #include "trimming.h"
+#include "../enums/enum_registry.h"
 
 namespace corvid::strings {
 inline namespace conversion {
@@ -226,6 +227,8 @@ inline namespace cvt_enum {
 
 // From enum.
 
+#if 1
+
 namespace details {
 
 // TODO: Get rid of this entirely and instead bring in the enum registry.
@@ -252,6 +255,12 @@ constexpr auto enum_printer_v = details::default_enum_printer<T>();
 constexpr auto& append_enum(AppendTarget auto& target, ScopedEnum auto t) {
   return enum_printer_v<decltype(t)>.append(target, t);
 }
+#else
+// Append enum to `target`.
+constexpr auto& append_enum(AppendTarget auto& target, ScopedEnum auto t) {
+  return enum_spec_v<decltype(t)>.append(target, t);
+}
+#endif
 
 // Return enum as string.
 constexpr std::string enum_as_string(ScopedEnum auto t) {

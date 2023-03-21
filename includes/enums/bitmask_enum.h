@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "enums_shared.h"
+#include "../strings/lite.h"
 
 namespace corvid::enums {
 namespace bitmask {

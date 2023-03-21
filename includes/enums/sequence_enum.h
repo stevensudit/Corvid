@@ -16,7 +16,11 @@
 // limitations under the License.
 #pragma once
 #include "enums_shared.h"
+#include "../strings/lite.h"
 #include "enum_registry.h"
+#include "scoped_enum.h"
+
+#define OBSOLETE 1
 
 namespace corvid::enums {
 namespace sequence {
@@ -345,20 +349,34 @@ struct sequence_enum_names_spec
   const std::array<std::string_view, N> names;
 };
 
-// Make a `sequence_enum_names_spec` from a list of names.
+// Make a `enum_spec_v` from a list of names, marking `E` as a sequence enum.
 //
 // Set `wrapseq` to true to enable wrapping.
 // The `maxseq` is automatically calculated from the number of names, but if
 // `E{}` is not the minimum value, you must set `minseq` to it.
-// If the enum value is not in the range of the names, or if the name for that
-// value is empty, the numerical value is printed.
+// Prints the matching name for the value. If it is not in the range of the
+// names, or if the name for that value is empty, the numerical value is
+// printed.
 template<ScopedEnum E, bool wrapseq = false, E minseq = E{}, std::size_t N>
 constexpr auto make_sequence_enum_spec(std::string_view (&&l)[N]) {
   constexpr auto maxseq = E{as_underlying(minseq) + N - 1};
-  return sequence_enum_names_spec<E, maxseq, minseq, wrapseq, N>(
-      std::to_array<std::string_view>(l));
+  return sequence_enum_names_spec<E, maxseq, minseq, wrapseq, N>{
+      std::to_array<std::string_view>(l)};
 }
 
+// TODO: Use constexpr std::min/max to allow swapping minseq/maxseq safely.
+
+// Make a `enum_spec_v` from a range of values, marking `E` as a sequence enum.
+//
+// The `maxseq` must be specified, and if `minseq` isn't `E{}`, it also does
+// Set `wrapseq` to true to enable wrapping.
+// The numerical value is printed.
+template<ScopedEnum E, E maxseq, E minseq = E{}, bool wrapseq = false>
+constexpr auto make_sequence_enum_spec() {
+  return sequence_enum_spec<E, maxseq, minseq, wrapseq>{};
+}
+
+#ifdef OBSOLETE
 namespace details {
 // sequence_printer
 template<SequentialEnum E, std::size_t N>
@@ -403,6 +421,7 @@ constexpr auto make_enum_printer(std::string_view (&&l)[N]) {
   static_assert(N <= details::seq_size_v<E>, "Too many names");
   return details::sequence_printer<E, N>(std::to_array<std::string_view>(l));
 }
+#endif
 
 //
 // TODO

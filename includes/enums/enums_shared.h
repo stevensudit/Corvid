@@ -22,6 +22,3 @@
 #include <limits>
 #include <ranges>
 #include <vector>
-
-// String headers that do not depend upon enums.
-#include "../strings/lite.h"

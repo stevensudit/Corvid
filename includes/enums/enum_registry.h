@@ -16,10 +16,19 @@
 // limitations under the License.
 #pragma once
 #include "enums_shared.h"
+#include "../strings/targeting.h"
+
+// Note: This does not need to be directly included by the user, because it's
+// in both "bitmask_enum.h" and "sequence_enum.h". It does get included by
+// "strings/conversion.h" for access to  `enum_spec_v`.
 
 namespace corvid::enums {
 namespace registry {
 
+// TODO: Replace wrap (and maybe validity) bools with custom two-value enums.
+
+// Base template for enum specifications. By default, this doees not enable
+// anything.
 template<ScopedEnum E, E minseq = E{}, E maxseq = E{}, bool validseq = false,
     bool wrapseq = false, as_underlying_t<E> bitcount = 0,
     bool bitclip = false>
@@ -33,50 +42,16 @@ struct base_spec {
   static constexpr bool bit_clip_v = bitclip;
 };
 
-// Default specification for a scoped enum. By default, opts out of both
-// sequential and bitmask while providing a simple append method that outputs
-// the underlying value as a number.
-template<ScopedEnum E, E minseq = E{}, E maxseq = E{}, bool validseq = false,
-    bool wrapseq = false, as_underlying_t<E> bitcount = 0,
-    bool bitclip = false>
-struct scoped_enum_spec
-    : base_spec<E, minseq, maxseq, validseq, wrapseq, bitcount, bitclip> {
-  auto& append(AppendTarget auto& target, E v) const {
-    return strings::append_num(target, as_underlying(v));
-  }
-};
-
 // Base template for enum specifications.
 //
 // This is only intended to match non-enums in order to satisfy the compiler.
-// Such a match does not enable the type as anything, and does not mean that
-// the `append` will be used.
+// Such a match does not enable the type as anything; further specialization is
+// needed for that.
+//
 // Note that `std::byte` is used as a placeholder for the type `T` because it
-// counts as a ScopedEnum.
+// counts as a ScopedEnum, and is not otherwise significant.
 template<typename T, typename... Ts>
 constexpr auto enum_spec_v = base_spec<std::byte>();
-
-// Generic support for all scoped enums. This allows outputting the value as
-// its underlying integer but fails to qualify as either a bitmask or
-// sequential enum. A further specialization is needed to mark a type as a
-// bitmask or sequence enum.
-template<ScopedEnum E>
-constexpr auto enum_spec_v<E> = scoped_enum_spec<E>();
-
-// Conversion.
-
-// TODO: Move this into strings/conversion.h, replacing the previous version.
-
-// Append enum to `target`.
-constexpr auto& append_enumXXX(AppendTarget auto& target, ScopedEnum auto t) {
-  return enum_spec_v<decltype(t)>.append(target, t);
-}
-
-// Return enum as string.
-constexpr std::string enum_as_stringXXX(ScopedEnum auto t) {
-  std::string target;
-  return append_enumXXX(target, t);
-}
 
 } // namespace registry
 } // namespace corvid::enums
