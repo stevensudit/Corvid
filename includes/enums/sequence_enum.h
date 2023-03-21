@@ -80,13 +80,6 @@ struct sequence_enum_spec
 template<typename E>
 constexpr auto seq_max_v = registry::enum_spec_v<E>.seq_max_v;
 
-// TODO: It would be better if we could choose between specifying a seq_max_v
-// or just specifying the complete list of values. Perhaps the way to do this
-// would be to check for the enum printer publishing N as seq_max_v, defaulting
-// to 0 if not found. (Or, alternately, publishing 0 if not a sequence.) We
-// still want to allow explicit overriding of seq_max_v, though, for enums that
-// aren't supposed to have named values, akin to `std::byte`.`.
-
 // Minimum value. Specialize this if range does not start at 0. Must be less
 // than `seq_max_v`.
 template<typename E>
@@ -97,11 +90,18 @@ constexpr auto seq_min_v = registry::enum_spec_v<E>.seq_min_v;
 template<typename E>
 constexpr bool seq_wrap_v = registry::enum_spec_v<E>.seq_wrap_v;
 
+#if 1
 // Whether sequence is enabled. Specialize if not automatically detected.
-// TODO: Just take this directly from the spec.
+// TODO: Disable this once it's obsolete.
 template<typename E>
 constexpr bool seq_valid_v =
     as_underlying(seq_max_v<E>) - as_underlying(seq_min_v<E>);
+#else
+// Whether sequence is enabled. Specialize if not automatically detected.
+// TODO: Move to the top.
+template<typename E>
+constexpr bool seq_valid_v = registry::enum_spec_v<E>.seq_valid_v;
+#endif
 
 // Concept for sequential enum.
 template<typename E>

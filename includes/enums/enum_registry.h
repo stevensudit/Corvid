@@ -42,10 +42,7 @@ template<ScopedEnum E, E minseq = E{}, E maxseq = E{}, bool validseq = false,
 struct scoped_enum_spec
     : base_spec<E, minseq, maxseq, validseq, wrapseq, bitcount, bitclip> {
   auto& append(AppendTarget auto& target, E v) const {
-    // TODO: Condense to one line.
-    auto n = as_underlying(v);
-    strings::append_num(target, n);
-    return target;
+    return strings::append_num(target, as_underlying(v));
   }
 };
 

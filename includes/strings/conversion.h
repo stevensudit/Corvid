@@ -228,6 +228,7 @@ inline namespace cvt_enum {
 
 namespace details {
 
+// TODO: Get rid of this entirely and instead bring in the enum registry.
 // default_enum_printer
 template<typename T>
 struct default_enum_printer {
@@ -237,6 +238,7 @@ struct default_enum_printer {
 };
 } // namespace details
 
+// TODO: Get rid of this entirely and instead bring in the enum registry.
 // enum_printer_v
 //
 // Enable printing an enum value as text.
