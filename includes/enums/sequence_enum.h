@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "enums_shared.h"
+#include "enum_registry.h"
 
 namespace corvid::enums {
 namespace sequence {
@@ -24,10 +25,8 @@ namespace sequence {
 // sequence enum
 //
 
-// seq_max_v
-//
-// Allow a scoped enum (aka `enum class`) to be used as a sequence of
-// contiguous values, supporting add and subtract, while providing some
+// A scoped enum (aka `enum class`) is a sequence of contiguous values. It
+// supports operations such as add and subtract, while providing some
 // additional functionality. Conceptually, sequential values are mutually
 // exclusive options.
 //
@@ -38,6 +37,26 @@ namespace sequence {
 // This range doesn't have to start at 0, and if the underlying type is signed,
 // it can even be negative. Valid values do not need to be named. So, for
 // example, `std::byte` has a range of [0,255], but no named values.
+
+// The way to register a scoped enum as a sequence is to specialize the
+// corvid::enums::registry::enum_spec_v for the enum type and assign an
+// instance of sequence_enum_spec to it. You must set maxseq to the highest
+// enum value that is valid. If the lowest value isn't 0, then also set minseq
+// to that. If you want to enable wrapping, which ensures that operations keep
+// values within valid range (at the cost of runtime range checks), set
+// wrapseq to true.
+
+template<ScopedEnum E, E maxseq = E{}, E minseq = E{}, bool wrapseq = false>
+struct sequence_enum_spec
+    : public registry::scoped_enum_spec<E, minseq, maxseq, true, wrapseq,
+          as_underlying_t<E>{}, false> {};
+
+// seq_max_v
+//
+// Allow a scoped enum (aka `enum class`) to be used as a sequence of
+// contiguous values, supporting add and subtract, while providing some
+// additional functionality. Conceptually, sequential values are mutually
+// exclusive options.
 //
 // To enable sequence support for your scoped enum, specialize the `seq_max_v`
 // constant, setting it to the highest enum value that is valid. If the lowest
@@ -59,7 +78,7 @@ namespace sequence {
 //
 // Note again that this max value is inclusive.
 template<typename E>
-constexpr auto seq_max_v = from_underlying<E>(0);
+constexpr auto seq_max_v = registry::enum_spec_v<E>.seq_max_v;
 
 // TODO: It would be better if we could choose between specifying a seq_max_v
 // or just specifying the complete list of values. Perhaps the way to do this
@@ -71,14 +90,15 @@ constexpr auto seq_max_v = from_underlying<E>(0);
 // Minimum value. Specialize this if range does not start at 0. Must be less
 // than `seq_max_v`.
 template<typename E>
-constexpr auto seq_min_v = from_underlying<E>(0);
+constexpr auto seq_min_v = registry::enum_spec_v<E>.seq_min_v;
 
 // Whether to wrap all calculations to keep them in range. Specialize this to
 // enable runtime range checks that wrap the value.
 template<typename E>
-constexpr bool seq_wrap_v = false;
+constexpr bool seq_wrap_v = registry::enum_spec_v<E>.seq_wrap_v;
 
 // Whether sequence is enabled. Specialize if not automatically detected.
+// TODO: Just take this directly from the spec.
 template<typename E>
 constexpr bool seq_valid_v =
     as_underlying(seq_max_v<E>) - as_underlying(seq_min_v<E>);
@@ -289,8 +309,57 @@ constexpr auto range_length() noexcept {
   return to_integer<size_t>(details::seq_size_v<E>());
 }
 
-namespace details {
+// Helper function to append a sequence enum value to a target by using a list
+// of value names. Behavior is documented in `make_sequence_enum_spec`.
+// TODO: Try to change ScopedEnum to SequenceEnum, unless that's too recursive.
+// TODO: Hide as details.
+template<ScopedEnum E, size_t N>
+auto& do_append(AppendTarget auto& target, E v,
+    const std::array<std::string_view, N>& names) {
+  auto n = as_underlying(v);
+  auto ofs = n - *min_value<E>();
 
+  // Print looked-up name or the numerical value.
+  if (ofs < names.size() && names[ofs].size())
+    strings::appender{target}.append(names[ofs]);
+  else
+    strings::append_num(target, n);
+
+  return target;
+}
+
+// Specialization of `sequence_enum_spec`, adding the a list of names for the
+// values. Use `make_sequence_enum_spec` to construct.
+// TODO: Hide as details.
+template<ScopedEnum E, E maxseq = E{}, E minseq = E{}, bool wrapseq = false,
+    size_t N = 0>
+struct sequence_enum_names_spec
+    : public sequence_enum_spec<E, maxseq, minseq, wrapseq> {
+  constexpr sequence_enum_names_spec(std::array<std::string_view, N> name_list)
+      : names(name_list) {}
+
+  auto& append(AppendTarget auto& target, E v) const {
+    return do_append(target, v, names);
+  }
+
+  const std::array<std::string_view, N> names;
+};
+
+// Make a `sequence_enum_names_spec` from a list of names.
+//
+// Set `wrapseq` to true to enable wrapping.
+// The `maxseq` is automatically calculated from the number of names, but if
+// `E{}` is not the minimum value, you must set `minseq` to it.
+// If the enum value is not in the range of the names, or if the name for that
+// value is empty, the numerical value is printed.
+template<ScopedEnum E, bool wrapseq = false, E minseq = E{}, std::size_t N>
+constexpr auto make_sequence_enum_spec(std::string_view (&&l)[N]) {
+  constexpr auto maxseq = E{as_underlying(minseq) + N - 1};
+  return sequence_enum_names_spec<E, maxseq, minseq, wrapseq, N>(
+      std::to_array<std::string_view>(l));
+}
+
+namespace details {
 // sequence_printer
 template<SequentialEnum E, std::size_t N>
 struct sequence_printer {

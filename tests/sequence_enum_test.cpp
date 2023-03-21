@@ -25,12 +25,14 @@
 #include "AccutestShim.h"
 
 using namespace corvid;
+using namespace corvid::enums;
 using namespace corvid::enums::sequence;
 
 enum class tiger_pick { eeny, meany, miny, moe };
 
 template<>
-constexpr auto enums::sequence::seq_max_v<tiger_pick> = tiger_pick::moe;
+constexpr auto registry::enum_spec_v<tiger_pick> =
+    make_sequence_enum_spec<tiger_pick>({"eeny", "meany", "miny", "moe"});
 
 template<>
 constexpr auto strings::enum_printer_v<tiger_pick> =
@@ -38,6 +40,13 @@ constexpr auto strings::enum_printer_v<tiger_pick> =
 
 enum old_enum { old_one, old_two, old_three };
 enum new_enum { new_one, new_two, new_three };
+
+void SequentialEnumTest_Registry() {
+  if (true) {
+    EXPECT_EQ((strings::enum_as_string(tiger_pick::eeny)), "eeny");
+    EXPECT_EQ((registry::enum_as_stringXXX(tiger_pick::eeny)), "eeny");
+  }
+}
 
 void SequentialEnumTest_Ops() {
   if (true) {
@@ -511,7 +520,7 @@ void SequentialEnumTest_Intervals() {
   }
 }
 
-MAKE_TEST_LIST(SequentialEnumTest_Ops, SequentialEnumTest_MakeSafely,
-    SequentialEnumTest_SafeOps, SequentialEnumTest_SubtleBugRepro,
-    SequentialEnumTest_StreamingOut, SequentialEnumTest_Missing,
-    SequentialEnumTest_Intervals);
+MAKE_TEST_LIST(SequentialEnumTest_Registry, SequentialEnumTest_Ops,
+    SequentialEnumTest_MakeSafely, SequentialEnumTest_SafeOps,
+    SequentialEnumTest_SubtleBugRepro, SequentialEnumTest_StreamingOut,
+    SequentialEnumTest_Missing, SequentialEnumTest_Intervals);

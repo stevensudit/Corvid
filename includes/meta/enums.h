@@ -24,32 +24,32 @@ inline namespace enums {
 
 // Cast enum to underlying integer value.
 //
-// Similar to `std::to_underlying_type` in C++23, but more forgiving. If `T` is
+// Similar to `std::to_underlying_type` in C++23, but more forgiving. If `E` is
 // not an enum, just passes the value through unchanged.
-template<typename T>
-constexpr auto as_underlying(T v) noexcept {
-  if constexpr (std::is_enum_v<T>) {
-    return static_cast<std::underlying_type_t<T>>(v);
+template<typename E>
+constexpr auto as_underlying(E v) noexcept {
+  if constexpr (std::is_enum_v<E>) {
+    return static_cast<std::underlying_type_t<E>>(v);
   } else {
     return v;
   }
 }
 
-// Determine underlying type of enum. If not enum, harmlessly returns `T`.
-template<typename T>
-using as_underlying_t = decltype(as_underlying(std::declval<T>()));
+// Determine underlying type of enum. If not enum, harmlessly returns `E`.
+template<typename E>
+using as_underlying_t = decltype(as_underlying(std::declval<E>()));
 
 // Cast underlying value to enum.
 //
-// Similar to `static_cast<T>(U)` except that, when `T` isn't an enum, instead
+// Similar to `static_cast<E>(U)` except that, when `E` isn't an enum, instead
 // returns a default-constructed `X`.
 //
 // If this seems like a strange thing to want to do, you're not wrong, but it
 // turns out to be surprisingly useful.
-template<typename T, typename X = std::byte, typename V>
+template<typename E, typename X = std::byte, typename V>
 constexpr auto from_underlying(const V& u) {
-  if constexpr (ScopedEnum<T>) {
-    return static_cast<T>(u);
+  if constexpr (ScopedEnum<E>) {
+    return static_cast<E>(u);
   } else {
     return X{};
   }
