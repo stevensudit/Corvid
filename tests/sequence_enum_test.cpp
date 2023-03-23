@@ -34,19 +34,12 @@ template<>
 constexpr auto registry::enum_spec_v<tiger_pick> =
     make_sequence_enum_spec<tiger_pick>({"eeny", "meany", "miny", "moe"});
 
-#ifdef OBSOLETE
-template<>
-constexpr auto strings::enum_printer_v<tiger_pick> =
-    make_enum_printer<tiger_pick>({"eeny", "meany", "miny", "moe"});
-#endif
-
 enum old_enum { old_one, old_two, old_three };
 enum new_enum { new_one, new_two, new_three };
 
 void SequentialEnumTest_Registry() {
   if (true) {
     EXPECT_EQ((strings::enum_as_string(tiger_pick::eeny)), "eeny");
-    EXPECT_EQ((registry::enum_as_stringXXX(tiger_pick::eeny)), "eeny");
   }
 }
 
@@ -112,19 +105,7 @@ enum class e0_3 : int8_t {};
 
 template<>
 constexpr auto registry::enum_spec_v<e0_3> =
-    make_sequence_enum_spec<e0_3, e0_3{3}, e0_3{}, true>();
-
-#ifdef OBSOLETE
-template<>
-constexpr auto enums::sequence::seq_max_v<e0_3> = e0_3(3);
-
-template<>
-constexpr bool enums::sequence::seq_wrap_v<e0_3> = true;
-
-template<>
-constexpr auto strings::enum_printer_v<e0_3> =
-    make_enum_printer<e0_3>({"a", "", "c"});
-#endif
+    make_sequence_enum_spec<e0_3, true>({"a", "", "c", ""});
 
 // Range of 10 to 13. Tests non-zero minimums.
 enum class e10_13 : int8_t {};
@@ -132,22 +113,7 @@ enum class e10_13 : int8_t {};
 template<>
 constexpr auto registry::enum_spec_v<e10_13> =
     make_sequence_enum_spec<e10_13, true, e10_13{10}>(
-        {"eeny", "meany", "miny", "moe"});
-
-#ifdef OBSOLETE
-template<>
-constexpr auto enums::sequence::seq_max_v<e10_13> = e10_13(13);
-
-template<>
-constexpr auto enums::sequence::seq_min_v<e10_13> = e10_13(10);
-
-template<>
-constexpr bool enums::sequence::seq_wrap_v<e10_13> = true;
-
-template<>
-constexpr auto strings::enum_printer_v<e10_13> =
-    make_enum_printer<e10_13>({"ten", "eleven", "twelve", "thirteen"});
-#endif
+        {"ten", "eleven", "twelve", "thirteen"});
 
 // Range of -3 to 3. Tests negative minimums.
 enum class eneg3_3 : int8_t {};
@@ -157,21 +123,6 @@ constexpr auto registry::enum_spec_v<eneg3_3> =
     make_sequence_enum_spec<eneg3_3, true, eneg3_3{-3}>(
         {"neg-three", "neg-two", "neg-one", "zero", "one", "two", "three"});
 
-#ifdef OBSOLETE
-template<>
-constexpr auto enums::sequence::seq_max_v<eneg3_3> = eneg3_3(3);
-
-template<>
-constexpr auto enums::sequence::seq_min_v<eneg3_3> = eneg3_3(-3);
-
-template<>
-constexpr bool enums::sequence::seq_wrap_v<eneg3_3> = true;
-
-template<>
-constexpr auto strings::enum_printer_v<eneg3_3> = make_enum_printer<eneg3_3>(
-    {"neg-three", "neg-two", "neg-one", "zero", "one", "two", "three"});
-#endif
-
 // Range of 0 to 255. Tests exact fit, unsigned. Enabling wrap has no effect.
 enum class e0_255 : uint8_t {};
 
@@ -179,29 +130,12 @@ template<>
 constexpr auto registry::enum_spec_v<e0_255> =
     make_sequence_enum_spec<e0_255, e0_255{255}>();
 
-#ifdef OBSOLETE
-template<>
-constexpr auto enums::sequence::seq_max_v<e0_255> = e0_255(255);
-
-// Changing this has no effect.
-template<>
-constexpr bool enums::sequence::seq_wrap_v<e0_255> = false;
-#endif
-
 // Range of -128 to 127. Tests exact fit, signed.
 enum class eneg128_127 : int8_t {};
 
 template<>
 constexpr auto registry::enum_spec_v<eneg128_127> = make_sequence_enum_spec<
     eneg128_127, eneg128_127{127}, eneg128_127{-128}>();
-
-#ifdef OBSOLETE
-template<>
-constexpr auto enums::sequence::seq_max_v<eneg128_127> = eneg128_127(127);
-
-template<>
-constexpr auto enums::sequence::seq_min_v<eneg128_127> = eneg128_127(-128);
-#endif
 
 void SequentialEnumTest_MakeSafely() {
   if (true) {
@@ -447,15 +381,6 @@ template<>
 constexpr auto registry::enum_spec_v<tiger_nochoice> =
     make_sequence_enum_spec<tiger_nochoice, tiger_nochoice{}>();
 
-#ifdef OBSOLETE
-template<>
-constexpr auto enums::sequence::seq_max_v<tiger_nochoice> = tiger_nochoice(0);
-
-// Without this, we don't detect this as a sequence enum.
-template<>
-constexpr bool enums::sequence::seq_valid_v<tiger_nochoice> = true;
-#endif
-
 void SequentialEnumTest_NoChoice() {
   if (true) {
     auto e = tiger_nochoice::tiger;
@@ -469,14 +394,6 @@ enum class e0_3unsafe : int8_t {};
 template<>
 constexpr auto registry::enum_spec_v<e0_3unsafe> =
     make_sequence_enum_spec<e0_3unsafe, e0_3unsafe{3}>();
-
-#ifdef OBSOLETE
-template<>
-constexpr auto enums::sequence::seq_max_v<e0_3unsafe> = e0_3unsafe(3);
-
-template<>
-constexpr bool enums::sequence::seq_wrap_v<e0_3unsafe> = false;
-#endif
 
 void SequentialEnumTest_SubtleBugRepro() {
   e0_3unsafe e;
@@ -507,15 +424,6 @@ enum class tiger_missing { eeny, miny = 2, moe };
 template<>
 constexpr auto registry::enum_spec_v<tiger_missing> =
     make_sequence_enum_spec<tiger_missing>({"eeny", "", "miny", "moe"});
-
-#ifdef OBSOLETE
-template<>
-constexpr auto enums::sequence::seq_max_v<tiger_missing> = tiger_missing::moe;
-
-template<>
-constexpr auto strings::enum_printer_v<tiger_missing> =
-    make_enum_printer<tiger_missing>({"eeny", "", "miny", "moe"});
-#endif
 
 void SequentialEnumTest_Missing() {
   if (true) {

@@ -17,6 +17,8 @@
 #pragma once
 #include "enums_shared.h"
 #include "../strings/lite.h"
+#include "enum_registry.h"
+#include "scoped_enum.h"
 
 namespace corvid::enums {
 namespace bitmask {
@@ -25,27 +27,41 @@ namespace bitmask {
 // bitmask enum
 //
 
-// bit_count_v
-//
-// Allow a scoped enum (aka `enum class`) to satisfy the requirements of
-// BitmaskType, per https://en.cppreference.com/w/cpp/named_req/BitmaskType,
-// while providing some additional functionality. Conceptually, bitmask values
-// are flags that can be combined.
+// A bitmask enum is a scoped enum (aka `enum class`) whose values are
+// made of bits that can be indepentently referenced. It satisfies the
+// BitmaskType named requirements, as defined by
+// https://en.cppreference.com/w/cpp/named_req/BitmaskType, while providing
+// some additional functionality.
 //
 // Prerequisites: Your scoped enum must have 1 or more contiguous bits,
-// starting from the lsb, such that the value of any combination of bits in
-// that set is valid. Valid values do not need to be named and neither do valid
-// bits. However, valid bits probably should be named, and  you will need to
-// include an empty string in the printer for each.
+// starting from the lsb, such that the value of any combination values for
+// those bits is valid. Valid values do not need to be named and neither do
+// valid bits.
 //
 // It is generally a good idea to define the enum in terms of an unsigned type,
 // since this is a collection of bits and not a numerical value. Failing to do
 // so leads to strange side-effects, such as `max_value` being negative (when
 // all bits are valid).
 //
+// The way to register a scoped enum as a bitmask is to specialize the
+// corvid::enums::registry::enum_spec_v for the enum type and assign an
+// instance of bitmask_enum_spec to it. You must set countbits to the number of
+// bits (starting from the lsb) that are valid.
+//
+// If you want to enable wrapping, which ensures that operations keep values
+// within valid range (at the cost of runtime range checks), set wrapbits to
+// true.
+
+// bit_count_v
+//
+// Allow a scoped enum (aka `enum class`) to
+//
+// Prerequisites: Your scoped enum must have 1 or more contiguous bits,
+// starting
+//
+//
 // To enable bitmask support for your scoped `enum`, specialize the
-// `bit_count_v` constant, setting it to the number of bits (starting from the
-// lsb) that are valid.
+// `bit_count_v` constant,
 //
 // For example:
 //
@@ -58,9 +74,9 @@ namespace bitmask {
 // `operator~`, but `flip` offers a safe alternative. While `make` can set
 // invalid bits given an invalid input, `make_safely` does not.
 //
-// However, when `bit_clip_v` is enabled, then `operator~` and `make` become
-// equivalent to `flip` and `make_safely`, respectively. (This also affects the
-// functions that rely on these.)
+// However, when `bit_clip_v` is enabled, then `operator~` and `make`
+// become equivalent to `flip` and `make_safely`, respectively. (This also
+// affects the functions that rely on these.)
 //
 // While this feature is relatively inexpensive, it does count as a subtle
 // violation of BitmaskType requirements.

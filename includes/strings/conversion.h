@@ -227,7 +227,7 @@ inline namespace cvt_enum {
 
 // From enum.
 
-#if 1
+#if 0
 
 namespace details {
 
@@ -257,8 +257,8 @@ constexpr auto& append_enum(AppendTarget auto& target, ScopedEnum auto t) {
 }
 #else
 // Append enum to `target`.
-constexpr auto& append_enum(AppendTarget auto& target, ScopedEnum auto t) {
-  return enum_spec_v<decltype(t)>.append(target, t);
+constexpr auto& append_enum(AppendTarget auto& target, ScopedEnum auto e) {
+  return registry::enum_spec_v<decltype(e)>.append(target, e);
 }
 #endif
 

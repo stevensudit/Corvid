@@ -20,8 +20,6 @@
 #include "enum_registry.h"
 #include "scoped_enum.h"
 
-#define OBSOLETE 1
-
 namespace corvid::enums {
 namespace sequence {
 
@@ -29,10 +27,10 @@ namespace sequence {
 // sequence enum
 //
 
-// A scoped enum (aka `enum class`) is a sequence of contiguous values. It
-// supports operations such as add and subtract, while providing some
-// additional functionality. Conceptually, sequential values are mutually
-// exclusive options.
+// A sequence enum is a scoped enum (aka `enum class`) that holds a sequence of
+// contiguous values. It supports operations such as add and subtract, while
+// providing some additional functionality. Conceptually, sequential values are
+// mutually exclusive options.
 //
 // Prerequisites: Your scoped enum must have a minimum and maximum valid value,
 // and all values between these, inclusive, must be valid. In other words, the
@@ -46,76 +44,42 @@ namespace sequence {
 // corvid::enums::registry::enum_spec_v for the enum type and assign an
 // instance of sequence_enum_spec to it. You must set maxseq to the highest
 // enum value that is valid. If the lowest value isn't 0, then also set minseq
-// to that. If you want to enable wrapping, which ensures that operations keep
-// values within valid range (at the cost of runtime range checks), set
-// wrapseq to true.
-
-template<ScopedEnum E, E maxseq = E{}, E minseq = E{}, bool wrapseq = false>
-struct sequence_enum_spec
-    : public registry::scoped_enum_spec<E, minseq, maxseq, true, wrapseq,
-          as_underlying_t<E>{}, false> {};
-
-// seq_max_v
+// to that.
 //
-// Allow a scoped enum (aka `enum class`) to be used as a sequence of
-// contiguous values, supporting add and subtract, while providing some
-// additional functionality. Conceptually, sequential values are mutually
-// exclusive options.
-//
-// To enable sequence support for your scoped enum, specialize the `seq_max_v`
-// constant, setting it to the highest enum value that is valid. If the lowest
-// value isn't 0, then also specialize `seq_min_v` to that.
-//
-// (In the degenerate case of having only one valid value, you'll need to
-// override `seq_valid_v`, setting it to `true`.)
-//
-// To enable wrapping, which ensures that operations keep values within valid
-// range (at the cost of runtime range checks), specialize `seq_wrap_v` to
-// `true`.
+// If you want to enable wrapping, which ensures that operations keep values
+// within valid range (at the cost of runtime range checks), set wrapseq to
+// true.
 //
 // For example:
 //
 //    enum class tiger_pick { eeny, meany, miny, moe };
 //
 //    template<>
-//    constexpr auto enums::sequence::seq_max_v<tiger_pick> = tiger_pick::moe;
-//
-// Note again that this max value is inclusive.
-template<typename E>
-constexpr auto seq_max_v = registry::enum_spec_v<E>.seq_max_v;
+//    constexpr auto registry::enum_spec_v<tiger_pick> =
+//      make_sequence_enum_spec<tiger_pick>({"eeny", "meany", "miny", "moe"});
 
-// Minimum value. Specialize this if range does not start at 0. Must be less
-// than `seq_max_v`.
-template<typename E>
-constexpr auto seq_min_v = registry::enum_spec_v<E>.seq_min_v;
-
-// Whether to wrap all calculations to keep them in range. Specialize this to
-// enable runtime range checks that wrap the value.
-template<typename E>
-constexpr bool seq_wrap_v = registry::enum_spec_v<E>.seq_wrap_v;
-
-#if 1
-// Whether sequence is enabled. Specialize if not automatically detected.
-// TODO: Disable this once it's obsolete.
-template<typename E>
-constexpr bool seq_valid_v =
-    as_underlying(seq_max_v<E>) - as_underlying(seq_min_v<E>);
-#else
-// Whether sequence is enabled. Specialize if not automatically detected.
-// TODO: Move to the top.
-template<typename E>
-constexpr bool seq_valid_v = registry::enum_spec_v<E>.seq_valid_v;
-#endif
+template<ScopedEnum E, E maxseq = E{}, E minseq = E{}, bool wrapseq = false>
+struct sequence_enum_spec
+    : public registry::scoped_enum_spec<E, minseq, maxseq, true, wrapseq,
+          as_underlying_t<E>{}, false> {};
 
 // Concept for sequential enum.
 template<typename E>
-concept SequentialEnum = seq_valid_v<E>;
+concept SequentialEnum = (registry::enum_spec_v<E>.seq_valid_v);
 
-namespace details {
+namespace inferred {
 
-//
-// Inferred
-//
+// Maximum value (inclusive).
+template<typename E>
+constexpr auto seq_max_v = registry::enum_spec_v<E>.seq_max_v;
+
+// Minimum value (inclusive). Must be less than `seq_max_v`.
+template<typename E>
+constexpr auto seq_min_v = registry::enum_spec_v<E>.seq_min_v;
+
+// Whether to wrap all calculations to keep them in range.
+template<typename E>
+constexpr bool seq_wrap_v = registry::enum_spec_v<E>.seq_wrap_v;
 
 // Maximum numerical value.
 template<typename E>
@@ -150,7 +114,7 @@ template<SequentialEnum E>
   return clip<E, !seq_actually_wrap_v<E>>(u);
 }
 
-} // namespace details
+} // namespace inferred
 
 //
 // Makers
@@ -161,20 +125,20 @@ template<SequentialEnum E>
 template<SequentialEnum E, bool noclip = false>
 constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
   // Wrapping is only meaningful if the underlying type is not a perfect fit.
-  if constexpr (details::seq_size_v<E> != 0) {
-    constexpr auto lo = details::seq_min_num_v<E>,
-                   hi = details::seq_max_num_v<E>;
+  if constexpr (inferred::seq_size_v<E> != 0) {
+    constexpr auto lo = inferred::seq_min_num_v<E>,
+                   hi = inferred::seq_max_num_v<E>;
     static_assert(lo <= hi);
     using U = std::underlying_type_t<E>;
 
     // Underflow is only possible if it starts above the underlying min.
     if constexpr (lo != std::numeric_limits<U>::min()) {
-      if (u < lo) return E(hi + details::clip<E, noclip>(u - lo + 1));
+      if (u < lo) return E(hi + inferred::clip<E, noclip>(u - lo + 1));
     }
 
     // Overflow is only possible if it ends below the underlying max.
     if constexpr (hi != std::numeric_limits<U>::max()) {
-      if (u > hi) return E(lo + details::clip<E, noclip>(u - hi - 1));
+      if (u > hi) return E(lo + inferred::clip<E, noclip>(u - hi - 1));
     }
   }
   return static_cast<E>(u);
@@ -184,7 +148,7 @@ constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
 // wraps value to ensure safety.
 template<SequentialEnum E, bool noclip = false>
 constexpr E make(std::underlying_type_t<E> u) noexcept {
-  if constexpr (details::seq_actually_wrap_v<E>)
+  if constexpr (inferred::seq_actually_wrap_v<E>)
     return make_safely<E, noclip>(u);
   else
     return static_cast<E>(u);
@@ -220,7 +184,7 @@ template<SequentialEnum E>
 template<SequentialEnum E>
 [[nodiscard]] constexpr E
 operator+(E l, std::underlying_type_t<E> r) noexcept {
-  return make<E, true>(*l + details::clip_if_wrap<E>(r));
+  return make<E, true>(*l + inferred::clip_if_wrap<E>(r));
 }
 
 template<SequentialEnum E>
@@ -236,8 +200,8 @@ constexpr E& operator+=(E& l, std::underlying_type_t<E> r) noexcept {
 
 template<SequentialEnum E>
 constexpr E& operator++(E& l) noexcept {
-  if constexpr (details::seq_actually_wrap_v<E>)
-    if (l == seq_max_v<E>) return l = seq_min_v<E>;
+  if constexpr (inferred::seq_actually_wrap_v<E>)
+    if (l == inferred::seq_max_v<E>) return l = inferred::seq_min_v<E>;
 
   return l = E(l + 1);
 }
@@ -256,7 +220,7 @@ template<SequentialEnum E>
 template<SequentialEnum E>
 [[nodiscard]] constexpr E
 operator-(E l, std::underlying_type_t<E> r) noexcept {
-  return make<E, true>(*l - details::clip_if_wrap<E>(r));
+  return make<E, true>(*l - inferred::clip_if_wrap<E>(r));
 }
 
 template<SequentialEnum E>
@@ -266,8 +230,8 @@ constexpr E& operator-=(E& l, std::underlying_type_t<E> r) noexcept {
 
 template<SequentialEnum E>
 constexpr E& operator--(E& l) noexcept {
-  if constexpr (details::seq_actually_wrap_v<E>)
-    if (*l == details::seq_min_num_v<E>) return l = seq_max_v<E>;
+  if constexpr (inferred::seq_actually_wrap_v<E>)
+    if (*l == inferred::seq_min_num_v<E>) return l = inferred::seq_max_v<E>;
 
   return l = E(*l - 1);
 }
@@ -290,13 +254,13 @@ template<SequentialEnum E>
 // Maximum value.
 template<SequentialEnum E>
 constexpr E max_value() noexcept {
-  return seq_max_v<E>;
+  return inferred::seq_max_v<E>;
 }
 
 // Minimum value.
 template<SequentialEnum E>
 constexpr E min_value() noexcept {
-  return seq_min_v<E>;
+  return inferred::seq_min_v<E>;
 }
 
 // Cast sequence to specified integral type.
@@ -310,13 +274,13 @@ constexpr T to_integer(SequentialEnum auto v) noexcept {
 // Length of range.
 template<SequentialEnum E>
 constexpr auto range_length() noexcept {
-  return to_integer<size_t>(details::seq_size_v<E>());
+  return to_integer<size_t>(inferred::seq_size_v<E>());
 }
 
 // Helper function to append a sequence enum value to a target by using a list
 // of value names. Behavior is documented in `make_sequence_enum_spec`.
 // TODO: Try to change ScopedEnum to SequenceEnum, unless that's too recursive.
-// TODO: Hide as details.
+// TODO: Hide as inferred.
 template<ScopedEnum E, size_t N>
 auto& do_append(AppendTarget auto& target, E v,
     const std::array<std::string_view, N>& names) {
@@ -334,7 +298,7 @@ auto& do_append(AppendTarget auto& target, E v,
 
 // Specialization of `sequence_enum_spec`, adding the a list of names for the
 // values. Use `make_sequence_enum_spec` to construct.
-// TODO: Hide as details.
+// TODO: Hide as inferred.
 template<ScopedEnum E, E maxseq = E{}, E minseq = E{}, bool wrapseq = false,
     size_t N = 0>
 struct sequence_enum_names_spec
@@ -375,53 +339,6 @@ template<ScopedEnum E, E maxseq, E minseq = E{}, bool wrapseq = false>
 constexpr auto make_sequence_enum_spec() {
   return sequence_enum_spec<E, maxseq, minseq, wrapseq>{};
 }
-
-#ifdef OBSOLETE
-namespace details {
-// sequence_printer
-template<SequentialEnum E, std::size_t N>
-struct sequence_printer {
-public:
-  constexpr sequence_printer(std::array<std::string_view, N> name_list)
-      : names(name_list) {}
-
-  auto& append(AppendTarget auto& target, E v) const {
-    auto n = as_underlying(v);
-    auto ofs = n - *min_value<E>();
-
-    // Print looked-up name or the numerical value.
-    if (ofs < N && names[ofs].size())
-      strings::appender{target}.append(names[ofs]);
-    else
-      strings::append_num(target, n);
-
-    return target;
-  }
-
-  const std::array<std::string_view, N> names;
-};
-
-} // namespace details
-
-// Make enum printer for E by taking a list of names for values.
-//
-// For example:
-//
-//    template<>
-//    constexpr auto strings::enum_printer_v<tiger_pick> =
-//        make_enum_printer<tiger_pick>({"eeny", "meany", "miny", "moe"});
-//
-// The first name matches the `min_value()`. Must not have more names than
-// `range_length()`. Anything without a name, either because we have more
-// values than names or because the name is empty, gets outputed as a number.
-//
-// Note that an empty string for a value results in the number being printed.
-template<SequentialEnum E, std::size_t N>
-constexpr auto make_enum_printer(std::string_view (&&l)[N]) {
-  static_assert(N <= details::seq_size_v<E>, "Too many names");
-  return details::sequence_printer<E, N>(std::to_array<std::string_view>(l));
-}
-#endif
 
 //
 // TODO

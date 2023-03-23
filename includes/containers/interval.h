@@ -394,9 +394,9 @@ private:
 template<sequence::SequentialEnum E, typename U = as_underlying_t<E>>
 constexpr auto make_interval() noexcept {
   using namespace corvid::enums::sequence;
-  static_assert(*seq_max_v<E> != std::numeric_limits<U>::max(),
+  static_assert(*inferred::seq_max_v<E> != std::numeric_limits<U>::max(),
       "Specify U as something larger than the underlying type");
-  return interval<E, U>{seq_min_v<E>, sequence::seq_max_v<E>};
+  return interval<E, U>{inferred::seq_min_v<E>, inferred::seq_max_v<E>};
 }
 
 // Make interval for full range of bitmask, for use with ranged-for.
