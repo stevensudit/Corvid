@@ -30,8 +30,7 @@ namespace registry {
 // Base template for enum specifications. By default, this doees not enable
 // anything.
 template<ScopedEnum E, E minseq = E{}, E maxseq = E{}, bool validseq = false,
-    bool wrapseq = false, as_underlying_t<E> bitcount = 0,
-    bool bitclip = false>
+    bool wrapseq = false, size_t bitcount = 0, bool bitclip = false>
 struct base_spec {
   using U = as_underlying_t<E>;
   static constexpr E seq_min_v = minseq;

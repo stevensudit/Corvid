@@ -60,8 +60,8 @@ namespace sequence {
 
 template<ScopedEnum E, E maxseq = E{}, E minseq = E{}, bool wrapseq = false>
 struct sequence_enum_spec
-    : public registry::scoped_enum_spec<E, minseq, maxseq, true, wrapseq,
-          as_underlying_t<E>{}, false> {};
+    : public registry::scoped_enum_spec<E, minseq, maxseq, true, wrapseq, 0,
+          false> {};
 
 // Concept for sequential enum.
 template<typename E>
@@ -282,7 +282,7 @@ constexpr auto range_length() noexcept {
 // TODO: Try to change ScopedEnum to SequenceEnum, unless that's too recursive.
 // TODO: Hide as inferred.
 template<ScopedEnum E, size_t N>
-auto& do_append(AppendTarget auto& target, E v,
+auto& do_seq_append(AppendTarget auto& target, E v,
     const std::array<std::string_view, N>& names) {
   auto n = as_underlying(v);
   auto ofs = n - *min_value<E>();
@@ -307,7 +307,7 @@ struct sequence_enum_names_spec
       : names(name_list) {}
 
   auto& append(AppendTarget auto& target, E v) const {
-    return do_append(target, v, names);
+    return do_seq_append(target, v, names);
   }
 
   const std::array<std::string_view, N> names;

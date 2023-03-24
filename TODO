@@ -21,3 +21,5 @@ h. strings_test needs more tests.
 
 
 IT compiles with the scoped_enum.h contents inside enum_registry.h enabled, but if we move them over, it fails?
+
+
