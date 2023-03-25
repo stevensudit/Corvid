@@ -63,15 +63,15 @@ struct delim: public std::string_view {
 
   // Append after the first time.
   //
-  // Set `skip` initially. Then, on the first call, `skip` will be cleared, but
-  // nothing will be appended. On subsequent calls `skip` will remain cleared,
-  // so the delimiter will be appended.
+  // Set `first` initially. Then, on the first call, `first` will be cleared,
+  // but nothing will be appended. On subsequent calls `first` will remain
+  // cleared, so the delimiter will be appended.
   constexpr auto&
-  append_skip_once(AppendTarget auto& target, bool& skip) const {
-    if (!skip)
+  append_skip_first(AppendTarget auto& target, bool& first) const {
+    if (!first)
       append(target);
     else
-      skip = false;
+      first = false;
     return target;
   }
 

@@ -80,6 +80,7 @@ struct bitmask_enum_spec
     : public registry::scoped_enum_spec<E, E{}, E{}, false, {}, bitcount,
           bitclip> {};
 
+inline namespace internal {
 // bit_count_v
 //
 // Count of valid bits, starting from lsb.
@@ -103,7 +104,7 @@ constexpr E do_max_value() noexcept {
       (std::underlying_type_t<E>(1) << (bit_count_v<E>)) - 1);
 }
 } // namespace details
-
+} // namespace internal
 inline namespace ops {
 
 //
@@ -153,8 +154,8 @@ constexpr const E& operator^=(E& l, E r) noexcept {
 
 // Complement operator.
 //
-// Unless `bit_clip_v` is set, this may set invalid bits, whereas `flip` will
-// not. When `bit_clip_v` is set, does the same thing as `flip`.
+// Unless `wrapclip::limit`, this may set invalid bits, whereas `flip` will
+// not. When `wrapclip::limit`, does the same thing as `flip`.
 template<BitmaskEnum E>
 constexpr E operator~(E v) noexcept {
   if constexpr (bit_clip_v<E>)
@@ -197,7 +198,8 @@ constexpr const E& operator-=(E& l, E r) noexcept {
 //
 // Note: If underlying type is signed and `bit_count_v` includes the high bit,
 // this value will be negative. It's technically correct, even then, but maybe
-// you should use an unsigned underlying type.
+// you should use an unsigned underlying type. The default underlying type is
+// `int`, which is signed.
 template<BitmaskEnum E>
 constexpr E max_value() noexcept {
   return details::do_max_value<E>();
@@ -218,8 +220,8 @@ constexpr size_t bits_length() noexcept {
 // Cast bitmask to specified integral type.
 //
 // Like `std::to_integer<IntegerType>(std::byte)`.
-template<std::integral T, BitmaskEnum E>
-constexpr T to_integer(E v) noexcept {
+template<std::integral T>
+constexpr T to_integer(BitmaskEnum auto v) noexcept {
   return static_cast<T>(v);
 }
 
@@ -243,7 +245,7 @@ constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
   return static_cast<E>(u) & max_value<E>();
 }
 
-// Cast integer value to bitmask. When `bit_clip_v` set, clips value to ensure
+// Cast integer value to bitmask. When `wrapclip::limit`, clips value to ensure
 // safety.
 template<BitmaskEnum E>
 constexpr E make(std::underlying_type_t<E> u) noexcept {
@@ -357,12 +359,12 @@ constexpr bool missing_all(E v, E m) noexcept {
 
 namespace details {
 
-// Append bitmask to target, using bit names.
+// Helper function to append bitmask to target, using bit names.
 template<ScopedEnum E, size_t N>
 auto& do_bit_append(AppendTarget auto& target, E v,
     const std::array<std::string_view, N>& names) {
   static constexpr strings::delim plus(" + ");
-  bool skip{true};
+  bool first{true};
 
   for (size_t ndx = N; ndx != 0; --ndx) {
     auto mask = make_at<E>(ndx);
@@ -370,45 +372,57 @@ auto& do_bit_append(AppendTarget auto& target, E v,
 
     // If bit matched, print and remove.
     if (has(v, mask) && names[ofs].size()) {
-      plus.append_skip_once(target, skip);
+      plus.append_skip_first(target, first);
       strings::appender{target}.append(names[ofs]);
       v = E(*v & ~*mask);
     }
   }
+
   // Print residual in hex.
-  if (*v || skip)
-    strings::append_num<16>(plus.append_skip_once(target, skip), *v);
+  if (*v || first)
+    strings::append_num<16>(plus.append_skip_first(target, first), *v);
   return target;
 }
 
-// Append bitmask to target, using value names.
+// Helper function to append bitmask to target, using value names.
 //
-// TODO: Optimize this to do a direct lookup based on the valid bits and only
-// resort to a linear search if that entry is empty. Even when it is, start the
-// search there and not at the first element.
+// TODO: Consider further optimization by replacing ndx decrement with using
+// the current value as the index. Make sure to handle cases like black rgb.
 template<ScopedEnum E, size_t N>
 auto& do_value_append(AppendTarget auto& target, E v,
     const std::array<std::string_view, N>& names) {
   static constexpr strings::delim plus(" + ");
-  bool skip{true};
-  size_t all_valid_bits = N - 1;
+  constexpr size_t all_valid_bits = N - 1;
+  bool first{true};
 
-  for (int ndx = all_valid_bits; ndx >= 0; --ndx) {
-    auto mask = E(ndx);
+  // First try to do a direct lookup.
+  auto valid_part = *v & all_valid_bits;
+  if (names[valid_part].size()) {
+    plus.append_skip_first(target, first);
+    strings::appender{target}.append(names[valid_part]);
+    v = E(*v & ~all_valid_bits);
+  }
 
-    // If bits matched, print and remove.
-    if (has_all(v, mask) && names[ndx].size()) {
-      plus.append_skip_once(target, skip);
-      strings::appender{target}.append(names[ndx]);
-      v = E(*v & ~*mask);
+  // Otherwise, do a linear search for the remaining named values.
+  if (first) {
+    for (int64_t ndx = valid_part; ndx >= 0; --ndx) {
+      auto mask = E(ndx);
 
-      // If no valid bits left, drop to number.
-      if ((*v & all_valid_bits) == 0) break;
+      // If bits matched, print and remove.
+      if (has_all(v, mask) && names[ndx].size()) {
+        plus.append_skip_first(target, first);
+        strings::appender{target}.append(names[ndx]);
+        v = E(*v & ~*mask);
+
+        // If no valid bits left, drop to number.
+        if ((*v & all_valid_bits) == 0) break;
+      }
     }
   }
+
   // Print residual in hex.
-  if (*v || skip)
-    strings::append_num<16>(plus.append_skip_once(target, skip), *v);
+  if (*v || first)
+    strings::append_num<16>(plus.append_skip_first(target, first), *v);
   return target;
 }
 
@@ -461,13 +475,6 @@ constexpr auto make_bitmask_enum_spec(std::string_view (&&l)[N]) {
       std::to_array<std::string_view>(l)};
 }
 
-// TODO: Move this to a more general place.
-consteval auto log2(size_t n) {
-  size_t r = 0;
-  while (n >>= 1) ++r;
-  return r;
-}
-
 // Make a `enum_spec_v` from a list of value names, marking `E` as a bitmask
 // enum. These are the names of all possible bit combinations, in sequence.
 // This means that the number of value names must be a power of 2.
@@ -480,8 +487,7 @@ consteval auto log2(size_t n) {
 template<ScopedEnum E, wrapclip bitclip = {}, std::size_t N>
 constexpr auto make_bitmask_enum_values_spec(std::string_view (&&l)[N]) {
   constexpr auto bitcount = log2(N);
-  // TODO: Add a static_assert to ensure that N was a power of 2.
-  // Or, rather, that 2^bitcount == N
+  static_assert(size_t(1) << bitcount == N);
   return details::bitmask_enum_names_spec<E, bitclip, bitcount, N>{
       std::to_array<std::string_view>(l)};
 }
@@ -493,6 +499,14 @@ constexpr auto make_bitmask_enum_values_spec(std::string_view (&&l)[N]) {
 // TODO
 //
 
+// TODO: Offer a printer that displays a specified character for each position.
+// When missing, put a dash, or maybe use lowercase. Essentially, it would be
+// initialized on a single string.
+
+// TODO: Consider providing `operator[]` that returns bool for a given index.
+// Essentially, the op version of `get_at`. At that point, we could also
+// provide a proxy object to invoke `set_at`.
+
 // TODO: Wacky idea:
 // `rgb_yellow == some(rgb::red, rgb::green)`
 //
@@ -502,19 +516,3 @@ constexpr auto make_bitmask_enum_values_spec(std::string_view (&&l)[N]) {
 // parameters and offers an appropriate op== and !=. So != some means has none
 // and != all means it doesn't have all, but might have some. This isn't
 // terrible. Make sure it doesn't interfere with direct == and !=.
-
-// TODO: Consider providing `operator[]` that returns bool for a given index.
-// Essentially, the op version of `get_at`. At that point, we could also
-// provide a proxy object to invoke `set_at`.
-
-// TODO: Consider allowing a value specialization for `make_enum_printer` that
-// defines the direction of the inputs and outputs. For bits, reversing the
-// input would mean treating the first name as the lsb instead of the lsb. For
-// bits, reversing the output would mean displaying the lsb before the msb. For
-// ranges, reversing the input would mean treating first name as the highest
-// value instead of the lowest. For ranges, reversing the output would mean
-// showing the lower values before the higher ones (which would require
-// buffering and prepending).
-//
-// TODO: Offer a printer that displays a specified character for each position.
-// When missing, put a dash, or maybe use lowercase.

@@ -227,40 +227,10 @@ inline namespace cvt_enum {
 
 // From enum.
 
-#if 0
-
-namespace details {
-
-// TODO: Get rid of this entirely and instead bring in the enum registry.
-// default_enum_printer
-template<typename T>
-struct default_enum_printer {
-  auto& append(AppendTarget auto& target, ScopedEnum auto t) const {
-    return append_num(target, as_underlying(t));
-  }
-};
-} // namespace details
-
-// TODO: Get rid of this entirely and instead bring in the enum registry.
-// enum_printer_v
-//
-// Enable printing an enum value as text.
-//
-// The default enum printer just outputs the underlying integer, but other
-// versions handle bitmask and sequential enums.
-template<ScopedEnum T>
-constexpr auto enum_printer_v = details::default_enum_printer<T>();
-
-// Append enum to `target`.
-constexpr auto& append_enum(AppendTarget auto& target, ScopedEnum auto t) {
-  return enum_printer_v<decltype(t)>.append(target, t);
-}
-#else
 // Append enum to `target`.
 constexpr auto& append_enum(AppendTarget auto& target, ScopedEnum auto e) {
   return registry::enum_spec_v<decltype(e)>.append(target, e);
 }
-#endif
 
 // Return enum as string.
 constexpr std::string enum_as_string(ScopedEnum auto t) {

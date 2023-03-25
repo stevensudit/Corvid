@@ -69,6 +69,8 @@ struct sequence_enum_spec
 template<typename E>
 concept SequentialEnum = (registry::enum_spec_v<E>.seq_valid_v);
 
+inline namespace internal {
+
 // Maximum value (inclusive).
 template<typename E>
 constexpr auto seq_max_v = registry::enum_spec_v<E>.seq_max_v;
@@ -115,6 +117,8 @@ template<SequentialEnum E>
   return clip<E, !seq_actually_wrap_v<E>>(u);
 }
 
+} // namespace internal
+
 //
 // Makers
 //
@@ -142,7 +146,7 @@ constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
   return static_cast<E>(u);
 }
 
-// Cast integer value from underlying type to sequence. When `seq_wrap_v` set,
+// Cast integer value from underlying type to sequence. When `wrapclip::limit`,
 // wraps value to ensure safety.
 template<SequentialEnum E, bool noclip = false>
 constexpr E make(std::underlying_type_t<E> u) noexcept {
@@ -166,14 +170,9 @@ template<SequentialEnum E>
 //
 // Only heterogenous addition and subtraction operations are supported.
 //
-// When `seq_wrap_v` is set, all results are modulo the sequence size.
-// Otherwise, they are undefined when they exceed the range.
+// When `wrapclip::limit`, all results are modulo the sequence size. Otherwise,
+// they are undefined when they exceed the range.
 //
-// TODO: Consider allowing opt in to homogenous operations, which makess sense
-// for `std::byte` and other strongly-typed integers. This would require an
-// additional concept, maybe `arithmetic_enum`. This would also support the
-// full set of ops. Unclear whether this is best done as an extension of
-// SequentialEnum or a separate concept.
 
 //
 // Addition operators
@@ -279,8 +278,6 @@ namespace details {
 
 // Helper function to append a sequence enum value to a target by using a list
 // of value names. Behavior is documented in `make_sequence_enum_spec`.
-// TODO: Try to change ScopedEnum to SequenceEnum, unless that's too recursive.
-
 template<ScopedEnum E, size_t N>
 auto& do_seq_append(AppendTarget auto& target, E v,
     const std::array<std::string_view, N>& names) {
@@ -296,7 +293,7 @@ auto& do_seq_append(AppendTarget auto& target, E v,
   return target;
 }
 
-// Specialization of `sequence_enum_spec`, adding the a list of names for the
+// Specialization of `sequence_enum_spec`, adding a list of names for the
 // values. Use `make_sequence_enum_spec` to construct.
 template<ScopedEnum E, E maxseq = E{}, E minseq = {}, wrapclip wrapseq = {},
     size_t N = 0>
@@ -355,10 +352,11 @@ constexpr auto make_sequence_enum_spec() {
 // though. Maybe we can't do it automatically but can make it easier. Maybe
 // inheriting with specialization might work.
 
-// TODO: On a related note, maybe we can provide `min_value_v`, `max_value_v`
-// and `range_length_v` in "Meta.h" for regular enums. This would necessarily
-// ignore any registered bitmask or sequence limits. This would need to
-// disambiguate itself from bitmasks and sequences, though.
+// TODO: Consider making a variation on sequence enums that allows homogenous
+// operations, which makess sense for `std::byte` and other strongly-typed
+// integers, like `arithmetic_enum`. It would also support the full set of ops.
+// Possibly, it would also qualify as a SequentialEnum, but it would not
+// benefit from anything more than numeric output.
 
 } // namespace sequence
 } // namespace corvid::enums

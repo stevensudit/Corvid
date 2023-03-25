@@ -65,5 +65,12 @@ template<ScopedEnum E>
 constexpr auto max_scoped_enum_v =
     static_cast<E>(std::numeric_limits<as_underlying_t<E>>::max());
 
+// Used to calculate the number of bits required to represent a bitmask enum.
+consteval auto log2(size_t n) {
+  size_t r = 0;
+  while (n >>= 1) ++r;
+  return r;
+}
+
 } // namespace enums
 } // namespace corvid::meta

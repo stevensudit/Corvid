@@ -20,18 +20,6 @@ auto inline stream_to_text(const auto& v) {
   return os.str();
 }
 
-#if 0
-auto inline stream_to_text(const std::vector<OStreamable> auto& v) {
-  std::ostringstream os;
-  bool first{true};
-  for (const auto& e : v) {
-    if (!first) os << ", ";
-    os << e;
-  }
-  return os.str();
-}
-#endif
-
 } // namespace accutest_shim
 
 #define VALUE_MSG(actual, expected)                                           \

@@ -1,6 +1,5 @@
-0. Do all the TODO's scattered throughout the code.
+1. Do all the TODO's scattered throughout the code.
 a. Interval needs a major rewrite.
-b. Enums need to register count based on strings.
 c. concat_join has lots to do. and conversion.h has a related change.
 d. trimming has a long shot.
 e. string.h has some TODO's.
@@ -8,8 +7,6 @@ f. bitmask_enum_tests has some.
 g. meta_test has a whole section commented out.
 h. strings_test needs more tests.
 
-
-1. Make decision about op<< for enum.
 
 2. Look at absl split and how it sniffs out return type automatically. Also, adding a filter.
 
@@ -20,6 +17,4 @@ h. strings_test needs more tests.
 5. We need a verson of split that understands quotes and escaping. Maybe just regex and be done with it?
 
 
-IT compiles with the scoped_enum.h contents inside enum_registry.h enabled, but if we move them over, it fails?
-
-
+Next target: JSON encoding of strings.

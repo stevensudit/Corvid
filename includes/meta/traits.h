@@ -115,6 +115,5 @@ template<typename T>
 constexpr bool has_find_v = details::has_find_method<T>::value;
 
 } // namespace finding
-
 } // namespace traits
 } // namespace corvid::meta
