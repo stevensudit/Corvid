@@ -55,5 +55,15 @@ constexpr auto from_underlying(const V& u) {
   }
 }
 
+// Minimum value of enum, based on its underlying type.
+template<ScopedEnum E>
+constexpr auto min_scoped_enum_v =
+    static_cast<E>(std::numeric_limits<as_underlying_t<E>>::min());
+
+// Maximum value of enum, based on its underlying type.
+template<ScopedEnum E>
+constexpr auto max_scoped_enum_v =
+    static_cast<E>(std::numeric_limits<as_underlying_t<E>>::max());
+
 } // namespace enums
 } // namespace corvid::meta

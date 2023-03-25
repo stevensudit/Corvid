@@ -37,18 +37,20 @@ namespace sequence {
 // range is [min,max].
 //
 // This range doesn't have to start at 0, and if the underlying type is signed,
-// it can even be negative. Valid values do not need to be named. So, for
-// example, `std::byte` has a range of [0,255], but no named values.
-
+// you can specify a negative value for `minseq`.
+//
+// Valid values do not need to be named. So, for example, `std::byte` has a
+// range of [0,255], but no named values.
+//
 // The way to register a scoped enum as a sequence is to specialize the
 // corvid::enums::registry::enum_spec_v for the enum type and assign an
-// instance of sequence_enum_spec to it. You must set maxseq to the highest
-// enum value that is valid. If the lowest value isn't 0, then also set minseq
-// to that.
+// instance of sequence_enum_spec to it. You must set `maxseq` to the highest
+// enum value that is valid. If the lowest value isn't 0, then also set
+// `minseq`.
 //
 // If you want to enable wrapping, which ensures that operations keep values
-// within valid range (at the cost of runtime range checks), set wrapseq to
-// true.
+// within valid range (at the cost of runtime range checks), set `wrapseq` to
+// `wrapclip::limit`.
 //
 // For example:
 //
@@ -58,16 +60,14 @@ namespace sequence {
 //    constexpr auto registry::enum_spec_v<tiger_pick> =
 //      make_sequence_enum_spec<tiger_pick>({"eeny", "meany", "miny", "moe"});
 
-template<ScopedEnum E, E maxseq = E{}, E minseq = E{}, bool wrapseq = false>
+template<ScopedEnum E, E maxseq = E{}, E minseq = E{}, wrapclip wrapseq = {}>
 struct sequence_enum_spec
     : public registry::scoped_enum_spec<E, minseq, maxseq, true, wrapseq, 0,
-          false> {};
+          {}> {};
 
 // Concept for sequential enum.
 template<typename E>
 concept SequentialEnum = (registry::enum_spec_v<E>.seq_valid_v);
-
-namespace inferred {
 
 // Maximum value (inclusive).
 template<typename E>
@@ -79,7 +79,8 @@ constexpr auto seq_min_v = registry::enum_spec_v<E>.seq_min_v;
 
 // Whether to wrap all calculations to keep them in range.
 template<typename E>
-constexpr bool seq_wrap_v = registry::enum_spec_v<E>.seq_wrap_v;
+constexpr bool seq_wrap_v =
+    (registry::enum_spec_v<E>.seq_wrap_v == wrapclip::limit);
 
 // Maximum numerical value.
 template<typename E>
@@ -114,8 +115,6 @@ template<SequentialEnum E>
   return clip<E, !seq_actually_wrap_v<E>>(u);
 }
 
-} // namespace inferred
-
 //
 // Makers
 //
@@ -125,20 +124,19 @@ template<SequentialEnum E>
 template<SequentialEnum E, bool noclip = false>
 constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
   // Wrapping is only meaningful if the underlying type is not a perfect fit.
-  if constexpr (inferred::seq_size_v<E> != 0) {
-    constexpr auto lo = inferred::seq_min_num_v<E>,
-                   hi = inferred::seq_max_num_v<E>;
+  if constexpr (seq_size_v<E> != 0) {
+    constexpr auto lo = seq_min_num_v<E>, hi = seq_max_num_v<E>;
     static_assert(lo <= hi);
     using U = std::underlying_type_t<E>;
 
     // Underflow is only possible if it starts above the underlying min.
     if constexpr (lo != std::numeric_limits<U>::min()) {
-      if (u < lo) return E(hi + inferred::clip<E, noclip>(u - lo + 1));
+      if (u < lo) return E(hi + clip<E, noclip>(u - lo + 1));
     }
 
     // Overflow is only possible if it ends below the underlying max.
     if constexpr (hi != std::numeric_limits<U>::max()) {
-      if (u > hi) return E(lo + inferred::clip<E, noclip>(u - hi - 1));
+      if (u > hi) return E(lo + clip<E, noclip>(u - hi - 1));
     }
   }
   return static_cast<E>(u);
@@ -148,7 +146,7 @@ constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
 // wraps value to ensure safety.
 template<SequentialEnum E, bool noclip = false>
 constexpr E make(std::underlying_type_t<E> u) noexcept {
-  if constexpr (inferred::seq_actually_wrap_v<E>)
+  if constexpr (seq_actually_wrap_v<E>)
     return make_safely<E, noclip>(u);
   else
     return static_cast<E>(u);
@@ -184,7 +182,7 @@ template<SequentialEnum E>
 template<SequentialEnum E>
 [[nodiscard]] constexpr E
 operator+(E l, std::underlying_type_t<E> r) noexcept {
-  return make<E, true>(*l + inferred::clip_if_wrap<E>(r));
+  return make<E, true>(*l + clip_if_wrap<E>(r));
 }
 
 template<SequentialEnum E>
@@ -200,8 +198,8 @@ constexpr E& operator+=(E& l, std::underlying_type_t<E> r) noexcept {
 
 template<SequentialEnum E>
 constexpr E& operator++(E& l) noexcept {
-  if constexpr (inferred::seq_actually_wrap_v<E>)
-    if (l == inferred::seq_max_v<E>) return l = inferred::seq_min_v<E>;
+  if constexpr (seq_actually_wrap_v<E>)
+    if (l == seq_max_v<E>) return l = seq_min_v<E>;
 
   return l = E(l + 1);
 }
@@ -220,7 +218,7 @@ template<SequentialEnum E>
 template<SequentialEnum E>
 [[nodiscard]] constexpr E
 operator-(E l, std::underlying_type_t<E> r) noexcept {
-  return make<E, true>(*l - inferred::clip_if_wrap<E>(r));
+  return make<E, true>(*l - clip_if_wrap<E>(r));
 }
 
 template<SequentialEnum E>
@@ -230,8 +228,8 @@ constexpr E& operator-=(E& l, std::underlying_type_t<E> r) noexcept {
 
 template<SequentialEnum E>
 constexpr E& operator--(E& l) noexcept {
-  if constexpr (inferred::seq_actually_wrap_v<E>)
-    if (*l == inferred::seq_min_num_v<E>) return l = inferred::seq_max_v<E>;
+  if constexpr (seq_actually_wrap_v<E>)
+    if (*l == seq_min_num_v<E>) return l = seq_max_v<E>;
 
   return l = E(*l - 1);
 }
@@ -254,13 +252,13 @@ template<SequentialEnum E>
 // Maximum value.
 template<SequentialEnum E>
 constexpr E max_value() noexcept {
-  return inferred::seq_max_v<E>;
+  return seq_max_v<E>;
 }
 
 // Minimum value.
 template<SequentialEnum E>
 constexpr E min_value() noexcept {
-  return inferred::seq_min_v<E>;
+  return seq_min_v<E>;
 }
 
 // Cast sequence to specified integral type.
@@ -274,13 +272,15 @@ constexpr T to_integer(SequentialEnum auto v) noexcept {
 // Length of range.
 template<SequentialEnum E>
 constexpr auto range_length() noexcept {
-  return to_integer<size_t>(inferred::seq_size_v<E>());
+  return to_integer<size_t>(seq_size_v<E>());
 }
+
+namespace details {
 
 // Helper function to append a sequence enum value to a target by using a list
 // of value names. Behavior is documented in `make_sequence_enum_spec`.
 // TODO: Try to change ScopedEnum to SequenceEnum, unless that's too recursive.
-// TODO: Hide as inferred.
+
 template<ScopedEnum E, size_t N>
 auto& do_seq_append(AppendTarget auto& target, E v,
     const std::array<std::string_view, N>& names) {
@@ -298,8 +298,7 @@ auto& do_seq_append(AppendTarget auto& target, E v,
 
 // Specialization of `sequence_enum_spec`, adding the a list of names for the
 // values. Use `make_sequence_enum_spec` to construct.
-// TODO: Hide as inferred.
-template<ScopedEnum E, E maxseq = E{}, E minseq = E{}, bool wrapseq = false,
+template<ScopedEnum E, E maxseq = E{}, E minseq = {}, wrapclip wrapseq = {},
     size_t N = 0>
 struct sequence_enum_names_spec
     : public sequence_enum_spec<E, maxseq, minseq, wrapseq> {
@@ -313,29 +312,35 @@ struct sequence_enum_names_spec
   const std::array<std::string_view, N> names;
 };
 
-// Make a `enum_spec_v` from a list of names, marking `E` as a sequence enum.
+} // namespace details
+
+// Make an `enum_spec_v` from a list of names, marking `E` as a sequence enum.
 //
-// Set `wrapseq` to true to enable wrapping.
+// Set `wrapseq` to `wrapclip::limit` to enable wrapping.
+//
 // The `maxseq` is automatically calculated from the number of names, but if
-// `E{}` is not the minimum value, you must set `minseq` to it.
+// the minimum value isn't 0, you must set `minseq` to it.
+//
 // Prints the matching name for the value. If it is not in the range of the
 // names, or if the name for that value is empty, the numerical value is
 // printed.
-template<ScopedEnum E, bool wrapseq = false, E minseq = E{}, std::size_t N>
+template<ScopedEnum E, wrapclip wrapseq = {}, E minseq = E{}, std::size_t N>
 constexpr auto make_sequence_enum_spec(std::string_view (&&l)[N]) {
   constexpr auto maxseq = E{as_underlying(minseq) + N - 1};
-  return sequence_enum_names_spec<E, maxseq, minseq, wrapseq, N>{
+  return details::sequence_enum_names_spec<E, maxseq, minseq, wrapseq, N>{
       std::to_array<std::string_view>(l)};
 }
 
-// TODO: Use constexpr std::min/max to allow swapping minseq/maxseq safely.
-
-// Make a `enum_spec_v` from a range of values, marking `E` as a sequence enum.
+// Make an `enum_spec_v` from a range of values, marking `E` as a sequence
+// enum.
 //
-// The `maxseq` must be specified, and if `minseq` isn't `E{}`, it also does
-// Set `wrapseq` to true to enable wrapping.
+// The `maxseq` must be specified, and if `minseq` isn't 0, it also does. It's
+// ok to swap the order of the two.
+//
+// Set `wrapseq` to `wrapclip::limit` to enable wrapping.
+//
 // The numerical value is printed.
-template<ScopedEnum E, E maxseq, E minseq = E{}, bool wrapseq = false>
+template<ScopedEnum E, E maxseq, E minseq = E{}, wrapclip wrapseq = {}>
 constexpr auto make_sequence_enum_spec() {
   return sequence_enum_spec<E, maxseq, minseq, wrapseq>{};
 }

@@ -24,7 +24,8 @@
 
 using namespace std::literals;
 using namespace corvid;
-using namespace corvid::enums::bitmask::ops;
+using namespace corvid::enums::sequence;
+using namespace corvid::enums::bitmask;
 
 void StringUtilsTest_ExtractPiece() {
   std::string_view sv;
@@ -836,11 +837,8 @@ enum class rgb {
 };
 
 template<>
-constexpr size_t corvid::enums::bitmask::bit_count_v<rgb> = 3;
-
-template<>
-constexpr auto strings::enum_printer_v<rgb> =
-    corvid::enums::bitmask::make_enum_printer<rgb>({"red", "green", "blue"});
+constexpr auto registry::enum_spec_v<rgb> =
+    make_bitmask_enum_spec<rgb>({"red", "green", "blue"});
 
 void StringUtilsTest_AppendEnum() {
   std::string s;
@@ -868,15 +866,8 @@ enum class marine_rank {
 };
 
 template<>
-constexpr auto corvid::enums::sequence::seq_max_v<marine_rank> =
-    marine_rank::SergeantMajorOfTheMarineCorps;
-
-template<>
-constexpr bool corvid::enums::sequence::seq_wrap_v<marine_rank> = true;
-
-template<>
-constexpr auto strings::enum_printer_v<marine_rank> =
-    corvid::enums::sequence::make_enum_printer<marine_rank>({"Civilian",
+constexpr auto registry::enum_spec_v<marine_rank> =
+    make_sequence_enum_spec<marine_rank, wrapclip::limit>({"Civilian",
         "Private", "PrivateFirstClass", "LanceCorporal", "Sergeant",
         "StaffSergeant", "GunnerySergeant", "MasterSergeant", "FirstSergeant",
         "MasterGunnerySergeant", "SergeantMajor",

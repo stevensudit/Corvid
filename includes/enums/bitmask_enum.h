@@ -28,7 +28,7 @@ namespace bitmask {
 //
 
 // A bitmask enum is a scoped enum (aka `enum class`) whose values are
-// made of bits that can be indepentently referenced. It satisfies the
+// made of bits that can be independently referenced. It satisfies the
 // BitmaskType named requirements, as defined by
 // https://en.cppreference.com/w/cpp/named_req/BitmaskType, while providing
 // some additional functionality.
@@ -40,25 +40,25 @@ namespace bitmask {
 //
 // It is generally a good idea to define the enum in terms of an unsigned type,
 // since this is a collection of bits and not a numerical value. Failing to do
-// so leads to strange side-effects, such as `max_value` being negative (when
-// all bits are valid).
+// so leads to strange side-effects, such as `max_value` being negative when
+// all bits are valid.
 //
 // The way to register a scoped enum as a bitmask is to specialize the
 // corvid::enums::registry::enum_spec_v for the enum type and assign an
-// instance of bitmask_enum_spec to it. You must set countbits to the number of
-// bits (starting from the lsb) that are valid.
+// instance of bitmask_enum_spec to it. If you are not passing a list of names,
+// you will need to specify `bitcount`.
 
 // Wrapping:
 //
 // If you want to enable wrapping, which ensures that operations keep values
-// within valid range (at the cost of runtime range checks), set bitclip to
-// true.
+// within valid range (at the cost of runtime range checks), set `bitclip` to
+// `wrapclip::limit`.
 //
 // The only operation that sets invalid bits when given valid inputs is
 // `operator~`, but `flip` offers a safe alternative. While `make` can set
 // invalid bits given an invalid input, `make_safely` does not.
 //
-// However, when `bit_clip_v` is enabled, then `operator~` and `make`
+// However, when `bitclip` is `wrapclip::limit`, then `operator~` and `make`
 // become equivalent to `flip` and `make_safely`, respectively. (This also
 // affects the functions that rely on these.)
 //
@@ -68,10 +68,16 @@ namespace bitmask {
 // Registration.
 //
 // Example:
-// TODO: Add example.
-template<ScopedEnum E, size_t bitcount = 0, bool bitclip = false>
+//
+//    enum class rgb { red = 4, green = 2, blue = 1 };
+//
+//    template<>
+//    constexpr auto registry::enum_spec_v<rgb> =
+//        make_bitmask_enum_spec<rgb>({"red", "green", "blue"});
+
+template<ScopedEnum E, size_t bitcount = 0, wrapclip bitclip = {}>
 struct bitmask_enum_spec
-    : public registry::scoped_enum_spec<E, E{}, E{}, false, false, bitcount,
+    : public registry::scoped_enum_spec<E, E{}, E{}, false, {}, bitcount,
           bitclip> {};
 
 // bit_count_v
@@ -82,7 +88,8 @@ constexpr size_t bit_count_v = registry::enum_spec_v<E>.bit_count_v;
 
 // Whether to clip operations to the valid bits.
 template<typename E>
-constexpr bool bit_clip_v = registry::enum_spec_v<E>.bit_clip_v;
+constexpr bool bit_clip_v =
+    (registry::enum_spec_v<E>.bit_clip_v == wrapclip::limit);
 
 // Concept for bitmask enum.
 template<typename E>
@@ -349,6 +356,8 @@ constexpr bool missing_all(E v, E m) noexcept {
 }
 
 namespace details {
+
+// Append bitmask to target, using bit names.
 template<ScopedEnum E, size_t N>
 auto& do_bit_append(AppendTarget auto& target, E v,
     const std::array<std::string_view, N>& names) {
@@ -372,6 +381,11 @@ auto& do_bit_append(AppendTarget auto& target, E v,
   return target;
 }
 
+// Append bitmask to target, using value names.
+//
+// TODO: Optimize this to do a direct lookup based on the valid bits and only
+// resort to a linear search if that entry is empty. Even when it is, start the
+// search there and not at the first element.
 template<ScopedEnum E, size_t N>
 auto& do_value_append(AppendTarget auto& target, E v,
     const std::array<std::string_view, N>& names) {
@@ -398,12 +412,11 @@ auto& do_value_append(AppendTarget auto& target, E v,
   return target;
 }
 
-} // namespace details
-
-// Specialization of `bitmask_enum_spec`, adding the a list of names, either
-// for the bits or the values.. Use `make_bitmask_enum_spec` or
+// Specialization of `bitmask_enum_spec`, adding a list of names, either for
+// the bits or the values. Use `make_bitmask_enum_spec` or
 // `make_bitmask_enum_names_spec`, respectively, to construct.
-template<ScopedEnum E, bool bitclip, size_t bitcount, std::size_t N>
+template<ScopedEnum E, wrapclip bitclip = {}, size_t bitcount = 0,
+    std::size_t N = 0>
 struct bitmask_enum_names_spec
     : public bitmask_enum_spec<E, bitcount, bitclip> {
   constexpr bitmask_enum_names_spec(std::array<std::string_view, N> name_list)
@@ -421,26 +434,30 @@ struct bitmask_enum_names_spec
   const std::array<std::string_view, N> names;
 };
 
-// Make a `enum_spec_v` from a bitcount, marking `E` as a bitmask enum.
+} // namespace details
+
+// Make an `enum_spec_v` from a bitcount, marking `E` as a bitmask enum.
 //
-// Set `bitclip` to true to enable wrapping.
+// Set `bitclip` to `wrapclip::limit` to enable clipping.
+//
 // The numerical value is printed in hex.
-template<ScopedEnum E, size_t bitcount, bool bitclip = false>
+template<ScopedEnum E, size_t bitcount, wrapclip bitclip = {}>
 constexpr auto make_bitmask_enum_spec() {
-  return bitmask_enum_names_spec<E, bitclip, bitcount, 0>{
+  return details::bitmask_enum_names_spec<E, bitclip, bitcount, 0>{
       std::array<std::string_view, 0>{}};
 }
 
-// Make a `enum_spec_v` from a list of bit names, marking `E` as a bitmask
+// Make an `enum_spec_v` from a list of bit names, marking `E` as a bitmask
 // enum.
 //
-// Set `bitclip` to true to enable clipping.
+// Set `bitclip` to `wrapclip::limit` to enable clipping. Infers bitcount
+// directly from the number of names.
 //
 // Prints the matching name for the value as a combination of bit names. Any
 // bits that are not named are printed in hex.
-template<ScopedEnum E, bool bitclip = false, std::size_t N>
+template<ScopedEnum E, wrapclip bitclip = {}, std::size_t N>
 constexpr auto make_bitmask_enum_spec(std::string_view (&&l)[N]) {
-  return bitmask_enum_names_spec<E, bitclip, N, N>{
+  return details::bitmask_enum_names_spec<E, bitclip, N, N>{
       std::to_array<std::string_view>(l)};
 }
 
@@ -455,20 +472,19 @@ consteval auto log2(size_t n) {
 // enum. These are the names of all possible bit combinations, in sequence.
 // This means that the number of value names must be a power of 2.
 //
-// Set `bitclip` to true to enable clipping.
+// Set `bitclip` to `wrapclip::limit` to enable clipping. Infers bitcount
+// indirectly from the number of names.
 //
 // Prints the matching name for the value. Any residual value is printed in
 // hex.
-template<ScopedEnum E, bool bitclip = false, std::size_t N>
+template<ScopedEnum E, wrapclip bitclip = {}, std::size_t N>
 constexpr auto make_bitmask_enum_values_spec(std::string_view (&&l)[N]) {
   constexpr auto bitcount = log2(N);
   // TODO: Add a static_assert to ensure that N was a power of 2.
   // Or, rather, that 2^bitcount == N
-  return bitmask_enum_names_spec<E, bitclip, bitcount, N>{
+  return details::bitmask_enum_names_spec<E, bitclip, bitcount, N>{
       std::to_array<std::string_view>(l)};
 }
-
-// TODO: Replace bitclip with two-value enum.
 
 } // namespace bitmask
 } // namespace corvid::enums

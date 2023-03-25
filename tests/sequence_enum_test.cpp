@@ -105,14 +105,14 @@ enum class e0_3 : int8_t {};
 
 template<>
 constexpr auto registry::enum_spec_v<e0_3> =
-    make_sequence_enum_spec<e0_3, true>({"a", "", "c", ""});
+    make_sequence_enum_spec<e0_3, wrapclip::limit>({"a", "", "c", ""});
 
 // Range of 10 to 13. Tests non-zero minimums.
 enum class e10_13 : int8_t {};
 
 template<>
 constexpr auto registry::enum_spec_v<e10_13> =
-    make_sequence_enum_spec<e10_13, true, e10_13{10}>(
+    make_sequence_enum_spec<e10_13, wrapclip::limit, e10_13{10}>(
         {"ten", "eleven", "twelve", "thirteen"});
 
 // Range of -3 to 3. Tests negative minimums.
@@ -120,7 +120,7 @@ enum class eneg3_3 : int8_t {};
 
 template<>
 constexpr auto registry::enum_spec_v<eneg3_3> =
-    make_sequence_enum_spec<eneg3_3, true, eneg3_3{-3}>(
+    make_sequence_enum_spec<eneg3_3, wrapclip::limit, eneg3_3{-3}>(
         {"neg-three", "neg-two", "neg-one", "zero", "one", "two", "three"});
 
 // Range of 0 to 255. Tests exact fit, unsigned. Enabling wrap has no effect.

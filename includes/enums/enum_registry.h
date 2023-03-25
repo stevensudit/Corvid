@@ -23,22 +23,26 @@
 // "strings/conversion.h" for access to  `enum_spec_v`.
 
 namespace corvid::enums {
-namespace registry {
 
-// TODO: Replace wrap (and maybe validity) bools with custom two-value enums.
+// Whether or not to limit the value, as by wrapping or clipping, when it
+// exceeds the range of the enum.
+enum class wrapclip { none, limit };
+
+namespace registry {
 
 // Base template for enum specifications. By default, this doees not enable
 // anything.
-template<ScopedEnum E, E minseq = E{}, E maxseq = E{}, bool validseq = false,
-    bool wrapseq = false, size_t bitcount = 0, bool bitclip = false>
-struct base_spec {
+template<ScopedEnum E, E minseq = min_scoped_enum_v<E>,
+    E maxseq = max_scoped_enum_v<E>, bool validseq = false,
+    wrapclip wrapseq = {}, size_t bitcount = 0, wrapclip bitclip = {}>
+struct base_enum_spec {
   using U = as_underlying_t<E>;
   static constexpr E seq_min_v = minseq;
   static constexpr E seq_max_v = maxseq;
-  static constexpr bool seq_wrap_v = wrapseq;
+  static constexpr wrapclip seq_wrap_v = wrapseq;
   static constexpr bool seq_valid_v = validseq;
   static constexpr U bit_count_v = bitcount;
-  static constexpr bool bit_clip_v = bitclip;
+  static constexpr wrapclip bit_clip_v = bitclip;
 };
 
 // Base template for enum specifications.
@@ -50,7 +54,7 @@ struct base_spec {
 // Note that `std::byte` is used as a placeholder for the type `T` because it
 // counts as a ScopedEnum, and is not otherwise significant.
 template<typename T, typename... Ts>
-constexpr auto enum_spec_v = base_spec<std::byte>();
+constexpr auto enum_spec_v = base_enum_spec<std::byte>();
 
 } // namespace registry
 } // namespace corvid::enums

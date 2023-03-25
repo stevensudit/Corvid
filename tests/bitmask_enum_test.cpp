@@ -56,8 +56,8 @@ enum class safe_rgb {
 
 template<>
 constexpr auto registry::enum_spec_v<safe_rgb> =
-    make_bitmask_enum_values_spec<safe_rgb, true>({"black", "blue", "green",
-        "cyan", "red", "purple", "yellow", "white"});
+    make_bitmask_enum_values_spec<safe_rgb, wrapclip::limit>({"black", "blue",
+        "green", "cyan", "red", "purple", "yellow", "white"});
 
 // This is not a bitmask class, so it shouldn't work as a bitmap.
 enum class tires { none, one, two, three, four, five, six };
@@ -245,7 +245,7 @@ enum class rgb_unnamed {
 
 template<>
 constexpr auto registry::enum_spec_v<rgb_unnamed> =
-    make_bitmask_enum_spec<rgb_unnamed, 3, true>();
+    make_bitmask_enum_spec<rgb_unnamed, 3, wrapclip::limit>();
 
 enum class patchy_rgb {
   black,      // ---
