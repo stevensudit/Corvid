@@ -71,7 +71,7 @@ namespace bitmask {
 // TODO: Add example.
 template<ScopedEnum E, size_t bitcount = 0, bool bitclip = false>
 struct bitmask_enum_spec
-    : public registry::scoped_enum_spec<E, E{}, E{}, false, bitcount,
+    : public registry::scoped_enum_spec<E, E{}, E{}, false, false, bitcount,
           bitclip> {};
 
 // bit_count_v
@@ -349,95 +349,60 @@ constexpr bool missing_all(E v, E m) noexcept {
 }
 
 namespace details {
-
-#if 0
-// bitmask_printer
-template<BitmaskEnum E, std::size_t N>
-struct bitmask_printer {
-  constexpr bitmask_printer(std::array<std::string_view, N> name_list)
-      : names(name_list) {}
-
-  // Append when we have one name per bit.
-  auto& append_bits(AppendTarget auto& target, E v) const {
-    static constexpr strings::delim plus(" + ");
-    bool skip{true};
-
-    for (size_t ndx = N; ndx != 0; --ndx) {
-      auto mask = make_at<E>(ndx);
-      auto ofs = N - ndx;
-
-      // If bit matched, print and remove.
-      if (has(v, mask) && names[ofs].size()) {
-        plus.append_skip_once(target, skip);
-        strings::appender{target}.append(names[ofs]);
-        v = E(*v & ~*mask);
-      }
-    }
-    // Print residual in hex.
-    if (*v || skip)
-      strings::append_num<16>(plus.append_skip_once(target, skip), *v);
-    return target;
-  }
-
-  // Append when we have one name for each value in range.
-  auto& append_range(AppendTarget auto& target, E v) const {
-    static constexpr strings::delim plus(" + ");
-    bool skip{true};
-    int all_valid_bits = N - 1;
-
-    for (int ndx = all_valid_bits; ndx >= 0; --ndx) {
-      auto mask = E(ndx);
-
-      // If bits matched, print and remove.
-      if (has_all(v, mask) && names[ndx].size()) {
-        plus.append_skip_once(target, skip);
-        strings::appender{target}.append(names[ndx]);
-        v = E(*v & ~*mask);
-
-        // If no valid bits left, drop to number.
-        if ((*v & all_valid_bits) == 0) break;
-      }
-    }
-    // Print residual in hex.
-    if (*v || skip)
-      strings::append_num<16>(plus.append_skip_once(target, skip), *v);
-    return target;
-  }
-
-  auto& append(AppendTarget auto& target, E v) const {
-    if constexpr (N == bit_count_v<E>)
-      return append_bits(target, v);
-    else if constexpr (N == range_length<E>())
-      return append_range(target, v);
-    else
-      return strings::append_num<16>(target, *v);
-  }
-
-  const std::array<std::string_view, N> names;
-};
-#endif
-} // namespace details
-
 template<ScopedEnum E, size_t N>
 auto& do_bit_append(AppendTarget auto& target, E v,
     const std::array<std::string_view, N>& names) {
-  auto n = as_underlying(v);
-  strings::append_num(target, n);
-#if 0
-  auto ofs = n - *min_value<E>();
+  static constexpr strings::delim plus(" + ");
+  bool skip{true};
 
-  // Print looked-up name or the numerical value.
-  if (ofs < names.size() && names[ofs].size())
-    strings::appender{target}.append(names[ofs]);
-  else
-    strings::append_num(target, n);
-#endif
+  for (size_t ndx = N; ndx != 0; --ndx) {
+    auto mask = make_at<E>(ndx);
+    auto ofs = N - ndx;
 
+    // If bit matched, print and remove.
+    if (has(v, mask) && names[ofs].size()) {
+      plus.append_skip_once(target, skip);
+      strings::appender{target}.append(names[ofs]);
+      v = E(*v & ~*mask);
+    }
+  }
+  // Print residual in hex.
+  if (*v || skip)
+    strings::append_num<16>(plus.append_skip_once(target, skip), *v);
   return target;
 }
 
-// Specialization of `bitmask_enum_spec`, adding the a list of names for the
-// values. Use `make_bitmask_enum_spec` to construct.
+template<ScopedEnum E, size_t N>
+auto& do_value_append(AppendTarget auto& target, E v,
+    const std::array<std::string_view, N>& names) {
+  static constexpr strings::delim plus(" + ");
+  bool skip{true};
+  size_t all_valid_bits = N - 1;
+
+  for (int ndx = all_valid_bits; ndx >= 0; --ndx) {
+    auto mask = E(ndx);
+
+    // If bits matched, print and remove.
+    if (has_all(v, mask) && names[ndx].size()) {
+      plus.append_skip_once(target, skip);
+      strings::appender{target}.append(names[ndx]);
+      v = E(*v & ~*mask);
+
+      // If no valid bits left, drop to number.
+      if ((*v & all_valid_bits) == 0) break;
+    }
+  }
+  // Print residual in hex.
+  if (*v || skip)
+    strings::append_num<16>(plus.append_skip_once(target, skip), *v);
+  return target;
+}
+
+} // namespace details
+
+// Specialization of `bitmask_enum_spec`, adding the a list of names, either
+// for the bits or the values.. Use `make_bitmask_enum_spec` or
+// `make_bitmask_enum_names_spec`, respectively, to construct.
 template<ScopedEnum E, bool bitclip, size_t bitcount, std::size_t N>
 struct bitmask_enum_names_spec
     : public bitmask_enum_spec<E, bitcount, bitclip> {
@@ -445,28 +410,16 @@ struct bitmask_enum_names_spec
       : names(name_list) {}
 
   auto& append(AppendTarget auto& target, E v) const {
-    return do_bit_append(target, v, names);
+    if constexpr (N == bitcount)
+      return details::do_bit_append(target, v, names);
+    else if constexpr (N)
+      return details::do_value_append(target, v, names);
+    else
+      return strings::append_num<16>(target, *v);
   }
 
   const std::array<std::string_view, N> names;
 };
-
-// Make a `enum_spec_v` from a list of names, marking `E` as a bitmask enum.
-// If you specify one name per bit, then bitcount will be inferred. If you
-// specify one name per value, then the bitcount must be explicit.
-// TODO: Calculate bitcount from names.
-//
-// Set `bitclip` to true to enable clipping.
-// The `bitcount` is automatically calculated from the number of names.
-// Prints the matching name for the value. If it is not in the range of the
-// names, or if the name for that value is empty, the numerical value is
-// printed in hex.
-template<ScopedEnum E, bool bitclip = false,
-    size_t bitcount = std::numeric_limits<size_t>::max(), std::size_t N>
-constexpr auto make_bitmask_enum_spec(std::string_view (&&l)[N]) {
-  return bitmask_enum_names_spec<E, bitclip, std::min(N, bitcount), N>{
-      std::to_array<std::string_view>(l)};
-}
 
 // Make a `enum_spec_v` from a bitcount, marking `E` as a bitmask enum.
 //
@@ -474,50 +427,48 @@ constexpr auto make_bitmask_enum_spec(std::string_view (&&l)[N]) {
 // The numerical value is printed in hex.
 template<ScopedEnum E, size_t bitcount, bool bitclip = false>
 constexpr auto make_bitmask_enum_spec() {
-  return bitmask_enum_spec<E, bitcount, bitclip>{};
+  return bitmask_enum_names_spec<E, bitclip, bitcount, 0>{
+      std::array<std::string_view, 0>{}};
+}
+
+// Make a `enum_spec_v` from a list of bit names, marking `E` as a bitmask
+// enum.
+//
+// Set `bitclip` to true to enable clipping.
+//
+// Prints the matching name for the value as a combination of bit names. Any
+// bits that are not named are printed in hex.
+template<ScopedEnum E, bool bitclip = false, std::size_t N>
+constexpr auto make_bitmask_enum_spec(std::string_view (&&l)[N]) {
+  return bitmask_enum_names_spec<E, bitclip, N, N>{
+      std::to_array<std::string_view>(l)};
+}
+
+// TODO: Move this to a more general place.
+consteval auto log2(size_t n) {
+  size_t r = 0;
+  while (n >>= 1) ++r;
+  return r;
+}
+
+// Make a `enum_spec_v` from a list of value names, marking `E` as a bitmask
+// enum. These are the names of all possible bit combinations, in sequence.
+// This means that the number of value names must be a power of 2.
+//
+// Set `bitclip` to true to enable clipping.
+//
+// Prints the matching name for the value. Any residual value is printed in
+// hex.
+template<ScopedEnum E, bool bitclip = false, std::size_t N>
+constexpr auto make_bitmask_enum_values_spec(std::string_view (&&l)[N]) {
+  constexpr auto bitcount = log2(N);
+  // TODO: Add a static_assert to ensure that N was a power of 2.
+  // Or, rather, that 2^bitcount == N
+  return bitmask_enum_names_spec<E, bitclip, bitcount, N>{
+      std::to_array<std::string_view>(l)};
 }
 
 // TODO: Replace bitclip with two-value enum.
-
-#if 0
-
-// Enum printer
-
-// Make enum printer for E by taking a list of names for values.
-//
-// For example:
-//
-//    template<>
-//    constexpr auto strings::enum_printer_v<rgb> =
-//        bitmask::make_enum_printer<rgb>({"red", "green", "blue"});
-//
-// There are two mutually-exclusive ways to specify the names.
-//
-// You can, as shown in the above example, list just the names of the valid
-// bits, from highest to lowest (lsb). You must specify exactly `bits_length`
-// values, but you can leave any of them blank, if you wish. The value of an
-// enum will be shown as the sum of bits, with any residual in hex.
-//
-// You can also list all of the possible values, from lowest to highest. You
-// must specify exactly `range_length` values, but you can leave any of them
-// blank, if you wish. The value of an enum will be shown as the greedy minimal
-// list summing the named values. As before, any residual is shown in hex.
-//
-// The final alternative is to not specify any names at all, in which case
-// you always get the hex.
-template<BitmaskEnum E, std::size_t N>
-constexpr auto make_enum_printer(std::string_view (&&l)[N]) {
-  static_assert(N == bits_length<E>() || N == range_length<E>(),
-      "Must be bits_length or range_length.");
-  return details::bitmask_printer<E, N>(std::to_array<std::string_view>(l));
-}
-
-// No-names overload.
-template<BitmaskEnum E>
-constexpr auto make_enum_printer() {
-  return details::bitmask_printer<E, 0>(std::array<std::string_view, 0>());
-}
-#endif
 
 } // namespace bitmask
 } // namespace corvid::enums

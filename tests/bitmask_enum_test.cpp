@@ -56,20 +56,8 @@ enum class safe_rgb {
 
 template<>
 constexpr auto registry::enum_spec_v<safe_rgb> =
-    make_bitmask_enum_spec<safe_rgb, true, 3>({"black", "blue", "green",
+    make_bitmask_enum_values_spec<safe_rgb, true>({"black", "blue", "green",
         "cyan", "red", "purple", "yellow", "white"});
-
-#if 0
-template<>
-constexpr size_t enums::bitmask::bit_count_v<safe_rgb> = 3;
-
-template<>
-constexpr bool enums::bitmask::bit_clip_v<safe_rgb> = true;
-
-template<>
-constexpr auto strings::enum_printer_v<safe_rgb> =
-    make_enum_printer<safe_rgb>();
-#endif
 
 // This is not a bitmask class, so it shouldn't work as a bitmap.
 enum class tires { none, one, two, three, four, five, six };
@@ -79,7 +67,6 @@ void BitMaskTest_Ops() {
   // * auto bad = *tires::none;
   // * auto worse = tires::none | tires::one;
 
-#if 0
   auto c = rgb::red;
   EXPECT_NE(c, rgb::green);
 
@@ -106,9 +93,8 @@ void BitMaskTest_Ops() {
   EXPECT_EQ(c, rgb::yellow);
   c -= rgb::red;
   EXPECT_EQ(c, rgb::green);
-#endif
 }
-#if 0
+
 void BitMaskTest_NamedFunctions() {
   if (true) {
     // Does not compile.
@@ -186,6 +172,7 @@ void BitMaskTest_SafeOps() {
   EXPECT_EQ(~safe_rgb::white, safe_rgb::black);
   EXPECT_EQ(~safe_rgb::white & safe_rgb::white, safe_rgb::black);
   EXPECT_EQ(~safe_rgb::black & safe_rgb::white, safe_rgb::white);
+  EXPECT_EQ(~safe_rgb::black, safe_rgb::white);
 
   c = safe_rgb::yellow;
   EXPECT_EQ(c &= safe_rgb::green, safe_rgb::green);
@@ -257,11 +244,8 @@ enum class rgb_unnamed {
 };
 
 template<>
-constexpr size_t enums::bitmask::bit_count_v<rgb_unnamed> = 3;
-
-template<>
-constexpr auto strings::enum_printer_v<rgb_unnamed> =
-    make_enum_printer<rgb_unnamed>();
+constexpr auto registry::enum_spec_v<rgb_unnamed> =
+    make_bitmask_enum_spec<rgb_unnamed, 3, true>();
 
 enum class patchy_rgb {
   black,      // ---
@@ -275,11 +259,8 @@ enum class patchy_rgb {
 };
 
 template<>
-constexpr size_t enums::bitmask::bit_count_v<patchy_rgb> = 3;
-
-template<>
-constexpr auto strings::enum_printer_v<patchy_rgb> =
-    make_enum_printer<patchy_rgb>(
+constexpr auto registry::enum_spec_v<patchy_rgb> =
+    make_bitmask_enum_values_spec<patchy_rgb>(
         {"", "blue", "green", "", "red", "purple", "", "white"});
 
 void BitMaskTest_MoreNamingTests() {
@@ -323,13 +304,10 @@ void BitMaskTest_StreamingOut() {
     EXPECT_EQ(ss.str(), "red");
   }
 }
-#endif
+
 // TODO: Add test with make_interval<byte> to show how to use it correctly.
 // It'll fail by default, so you have to specify a larger underlying type.
 
-MAKE_TEST_LIST(BitMaskTest_Ops);
-#if 0
-, BitMaskTest_NamedFunctions,
+MAKE_TEST_LIST(BitMaskTest_Ops, BitMaskTest_NamedFunctions,
     BitMaskTest_SafeOps, BitMaskTest_SafeNamedFunctions,
     BitMaskTest_MoreNamingTests, BitMaskTest_StreamingOut);
-#endif
