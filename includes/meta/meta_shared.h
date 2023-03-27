@@ -17,6 +17,7 @@
 
 #pragma once
 #include <array>
+#include <bit>
 #include <memory>
 #include <optional>
 #include <string>

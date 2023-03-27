@@ -96,6 +96,11 @@ constexpr bool bit_clip_v =
 template<typename E>
 concept BitmaskEnum = (bit_count_v<E> != 0);
 
+// 0. Calculate validbits from bitcount.
+// 1. Calculate validbits from bit name array.
+// 2. Calculate validbits from bit value array.
+// 3. Calculate bitcount from validbits.
+
 namespace details {
 template<BitmaskEnum E>
 // Guts of max_value, moved up to satisfy compiler.
@@ -486,8 +491,7 @@ constexpr auto make_bitmask_enum_spec(std::string_view (&&l)[N]) {
 // hex.
 template<ScopedEnum E, wrapclip bitclip = {}, std::size_t N>
 constexpr auto make_bitmask_enum_values_spec(std::string_view (&&l)[N]) {
-  constexpr auto bitcount = log2(N);
-  static_assert(size_t(1) << bitcount == N);
+  constexpr auto bitcount = std::bit_width(N - 1);
   return details::bitmask_enum_names_spec<E, bitclip, bitcount, N>{
       std::to_array<std::string_view>(l)};
 }
@@ -498,6 +502,16 @@ constexpr auto make_bitmask_enum_values_spec(std::string_view (&&l)[N]) {
 //
 // TODO
 //
+
+// TODO: The bitcount scheme is fine if we're making our own enums, but if
+// we're mapping onto something existing, we need to be more flexible. And we
+// could be, easily. Instead of using maxvalue as a validity mask, have a
+// validity mask. The easy way to specify it is with a list of bits. It still
+// starts from lsb, but skipping a value means it's not valid. Essentially, the
+// empty string becomes load-bearing. We might want to allow a different magic
+// value, like "-" or "?" mean that the bit is valid but unnamed. The key is
+// that validity is enforced by clipping, but lacking a name just means it
+// winds up in the residual and is printed as hex.
 
 // TODO: Offer a printer that displays a specified character for each position.
 // When missing, put a dash, or maybe use lowercase. Essentially, it would be

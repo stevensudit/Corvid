@@ -16,5 +16,8 @@ h. strings_test needs more tests.
 
 5. We need a verson of split that understands quotes and escaping. Maybe just regex and be done with it?
 
+6. Test enums with int64.
 
 Next target: JSON encoding of strings.
+
+Try turning make enum spec functions consteval.

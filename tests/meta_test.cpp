@@ -40,7 +40,334 @@ void MetaTest_OStreamdDerived() {
 #endif
 }
 
-MAKE_TEST_LIST(MetaTest_OStreamdDerived);
+void MetaTest_EnumBitWidth() {
+  EXPECT_EQ(std::bit_width(0ull), 0);
+  EXPECT_EQ(std::bit_width(1ull), 1);
+  EXPECT_EQ(std::bit_width(2ull), 2);
+  EXPECT_EQ(std::bit_width(3ull), 2);
+  EXPECT_EQ(std::bit_width(4ull), 3);
+  EXPECT_EQ(std::bit_width(7ull), 3);
+  EXPECT_EQ(std::bit_width(8ull), 4);
+  EXPECT_EQ(std::bit_width(15ull), 4);
+  EXPECT_EQ(std::bit_width(16ull), 5);
+  EXPECT_EQ(std::bit_width(31ull), 5);
+  EXPECT_EQ(std::bit_width(32ull), 6);
+  EXPECT_EQ(std::bit_width(63ull), 6);
+  EXPECT_EQ(std::bit_width(64ull), 7);
+  EXPECT_EQ(std::bit_width(127ull), 7);
+  EXPECT_EQ(std::bit_width(128ull), 8);
+  EXPECT_EQ(std::bit_width(255ull), 8);
+  EXPECT_EQ(std::bit_width(256ull), 9);
+  EXPECT_EQ(std::bit_width(511ull), 9);
+  EXPECT_EQ(std::bit_width(512ull), 10);
+  EXPECT_EQ(std::bit_width(1023ull), 10);
+  EXPECT_EQ(std::bit_width(1024ull), 11);
+  EXPECT_EQ(std::bit_width(2047ull), 11);
+  EXPECT_EQ(std::bit_width(2048ull), 12);
+  EXPECT_EQ(std::bit_width(4095ull), 12);
+  EXPECT_EQ(std::bit_width(4096ull), 13);
+  EXPECT_EQ(std::bit_width(8191ull), 13);
+  EXPECT_EQ(std::bit_width(8192ull), 14);
+  EXPECT_EQ(std::bit_width(16383ull), 14);
+  EXPECT_EQ(std::bit_width(16384ull), 15);
+  EXPECT_EQ(std::bit_width(32767ull), 15);
+  EXPECT_EQ(std::bit_width(32768ull), 16);
+  EXPECT_EQ(std::bit_width(65535ull), 16);
+  EXPECT_EQ(std::bit_width(65536ull), 17);
+  EXPECT_EQ(std::bit_width(131071ull), 17);
+  EXPECT_EQ(std::bit_width(131072ull), 18);
+  EXPECT_EQ(std::bit_width(262143ull), 18);
+  EXPECT_EQ(std::bit_width(262144ull), 19);
+  EXPECT_EQ(std::bit_width(524287ull), 19);
+  EXPECT_EQ(std::bit_width(524288ull), 20);
+  EXPECT_EQ(std::bit_width(1048575ull), 20);
+  EXPECT_EQ(std::bit_width(1048576ull), 21);
+  EXPECT_EQ(std::bit_width(2097151ull), 21);
+  EXPECT_EQ(std::bit_width(2097152ull), 22);
+  EXPECT_EQ(std::bit_width(4194303ull), 22);
+  EXPECT_EQ(std::bit_width(4194304ull), 23);
+  EXPECT_EQ(std::bit_width(8388607ull), 23);
+  EXPECT_EQ(std::bit_width(8388608ull), 24);
+  EXPECT_EQ(std::bit_width(16777215ull), 24);
+  EXPECT_EQ(std::bit_width(16777216ull), 25);
+  EXPECT_EQ(std::bit_width(33554431ull), 25);
+  EXPECT_EQ(std::bit_width(33554432ull), 26);
+  EXPECT_EQ(std::bit_width(67108863ull), 26);
+  EXPECT_EQ(std::bit_width(67108864ull), 27);
+  EXPECT_EQ(std::bit_width(134217727ull), 27);
+  EXPECT_EQ(std::bit_width(134217728ull), 28);
+  EXPECT_EQ(std::bit_width(268435455ull), 28);
+  EXPECT_EQ(std::bit_width(268435456ull), 29);
+  EXPECT_EQ(std::bit_width(536870911ull), 29);
+  EXPECT_EQ(std::bit_width(536870912ull), 30);
+  EXPECT_EQ(std::bit_width(1073741823ull), 30);
+  EXPECT_EQ(std::bit_width(1073741824ull), 31);
+  EXPECT_EQ(std::bit_width(2147483647ull), 31);
+  EXPECT_EQ(std::bit_width(2147483648ull), 32);
+  EXPECT_EQ(std::bit_width(4294967295ull), 32);
+  EXPECT_EQ(std::bit_width(4294967296ull), 33);
+  EXPECT_EQ(std::bit_width(8589934591ull), 33);
+  EXPECT_EQ(std::bit_width(8589934592ull), 34);
+  EXPECT_EQ(std::bit_width(17179869183ull), 34);
+  EXPECT_EQ(std::bit_width(17179869184ull), 35);
+  EXPECT_EQ(std::bit_width(34359738367ull), 35);
+  EXPECT_EQ(std::bit_width(34359738368ull), 36);
+  EXPECT_EQ(std::bit_width(68719476735ull), 36);
+  EXPECT_EQ(std::bit_width(68719476736ull), 37);
+  EXPECT_EQ(std::bit_width(137438953471ull), 37);
+  EXPECT_EQ(std::bit_width(137438953472ull), 38);
+  EXPECT_EQ(std::bit_width(274877906943ull), 38);
+  EXPECT_EQ(std::bit_width(274877906944ull), 39);
+  EXPECT_EQ(std::bit_width(549755813887ull), 39);
+  EXPECT_EQ(std::bit_width(549755813888ull), 40);
+  EXPECT_EQ(std::bit_width(1099511627775ull), 40);
+  EXPECT_EQ(std::bit_width(1099511627776ull), 41);
+  EXPECT_EQ(std::bit_width(2199023255551ull), 41);
+  EXPECT_EQ(std::bit_width(2199023255552ull), 42);
+  EXPECT_EQ(std::bit_width(4398046511103ull), 42);
+  EXPECT_EQ(std::bit_width(4398046511104ull), 43);
+  EXPECT_EQ(std::bit_width(8796093022207ull), 43);
+  EXPECT_EQ(std::bit_width(8796093022208ull), 44);
+  EXPECT_EQ(std::bit_width(17592186044415ull), 44);
+  EXPECT_EQ(std::bit_width(17592186044416ull), 45);
+  EXPECT_EQ(std::bit_width(35184372088831ull), 45);
+  EXPECT_EQ(std::bit_width(35184372088832ull), 46);
+  EXPECT_EQ(std::bit_width(70368744177663ull), 46);
+  EXPECT_EQ(std::bit_width(70368744177664ull), 47);
+  EXPECT_EQ(std::bit_width(140737488355327ull), 47);
+  EXPECT_EQ(std::bit_width(140737488355328ull), 48);
+  EXPECT_EQ(std::bit_width(281474976710655ull), 48);
+  EXPECT_EQ(std::bit_width(281474976710656ull), 49);
+  EXPECT_EQ(std::bit_width(562949953421311ull), 49);
+  EXPECT_EQ(std::bit_width(562949953421312ull), 50);
+  EXPECT_EQ(std::bit_width(1125899906842623ull), 50);
+  EXPECT_EQ(std::bit_width(1125899906842624ull), 51);
+  EXPECT_EQ(std::bit_width(2251799813685247ull), 51);
+  EXPECT_EQ(std::bit_width(2251799813685248ull), 52);
+  EXPECT_EQ(std::bit_width(4503599627370495ull), 52);
+  EXPECT_EQ(std::bit_width(4503599627370496ull), 53);
+  EXPECT_EQ(std::bit_width(9007199254740991ull), 53);
+  EXPECT_EQ(std::bit_width(9007199254740992ull), 54);
+  EXPECT_EQ(std::bit_width(18014398509481983ull), 54);
+  EXPECT_EQ(std::bit_width(18014398509481984ull), 55);
+  EXPECT_EQ(std::bit_width(36028797018963967ull), 55);
+  EXPECT_EQ(std::bit_width(36028797018963968ull), 56);
+  EXPECT_EQ(std::bit_width(72057594037927935ull), 56);
+  EXPECT_EQ(std::bit_width(72057594037927936ull), 57);
+  EXPECT_EQ(std::bit_width(144115188075855871ull), 57);
+  EXPECT_EQ(std::bit_width(144115188075855872ull), 58);
+  EXPECT_EQ(std::bit_width(288230376151711743ull), 58);
+  EXPECT_EQ(std::bit_width(288230376151711744ull), 59);
+  EXPECT_EQ(std::bit_width(576460752303423487ull), 59);
+  EXPECT_EQ(std::bit_width(576460752303423488ull), 60);
+  EXPECT_EQ(std::bit_width(1152921504606846975ull), 60);
+  EXPECT_EQ(std::bit_width(1152921504606846976ull), 61);
+  EXPECT_EQ(std::bit_width(2305843009213693951ull), 61);
+  EXPECT_EQ(std::bit_width(2305843009213693952ull), 62);
+  EXPECT_EQ(std::bit_width(4611686018427387903ull), 62);
+  EXPECT_EQ(std::bit_width(4611686018427387904ull), 63);
+  EXPECT_EQ(std::bit_width(9223372036854775807ull), 63);
+  EXPECT_EQ(std::bit_width(9223372036854775808ull), 64);
+  EXPECT_EQ(std::bit_width(18446744073709551615ull), 64);
+}
+
+void MetaTest_EnumHighestValueInNBits() {
+  EXPECT_EQ(meta::highest_value_in_n_bits(0ull), 0);
+  EXPECT_EQ(meta::highest_value_in_n_bits(1ull), 1);
+  EXPECT_EQ(meta::highest_value_in_n_bits(2ull), 3);
+  EXPECT_EQ(meta::highest_value_in_n_bits(3ull), 7);
+  EXPECT_EQ(meta::highest_value_in_n_bits(4ull), 15);
+  EXPECT_EQ(meta::highest_value_in_n_bits(5ull), 31);
+  EXPECT_EQ(meta::highest_value_in_n_bits(6ull), 63);
+  EXPECT_EQ(meta::highest_value_in_n_bits(7ull), 127);
+  EXPECT_EQ(meta::highest_value_in_n_bits(8ull), 255);
+  EXPECT_EQ(meta::highest_value_in_n_bits(9ull), 511);
+  EXPECT_EQ(meta::highest_value_in_n_bits(10ull), 1023);
+  EXPECT_EQ(meta::highest_value_in_n_bits(11ull), 2047);
+  EXPECT_EQ(meta::highest_value_in_n_bits(12ull), 4095);
+  EXPECT_EQ(meta::highest_value_in_n_bits(13ull), 8191);
+  EXPECT_EQ(meta::highest_value_in_n_bits(14ull), 16383);
+  EXPECT_EQ(meta::highest_value_in_n_bits(15ull), 32767);
+  EXPECT_EQ(meta::highest_value_in_n_bits(16ull), 65535);
+  EXPECT_EQ(meta::highest_value_in_n_bits(17ull), 131071);
+  EXPECT_EQ(meta::highest_value_in_n_bits(18ull), 262143);
+  EXPECT_EQ(meta::highest_value_in_n_bits(19ull), 524287);
+  EXPECT_EQ(meta::highest_value_in_n_bits(20ull), 1048575);
+  EXPECT_EQ(meta::highest_value_in_n_bits(21ull), 2097151);
+  EXPECT_EQ(meta::highest_value_in_n_bits(22ull), 4194303);
+  EXPECT_EQ(meta::highest_value_in_n_bits(23ull), 8388607);
+  EXPECT_EQ(meta::highest_value_in_n_bits(24ull), 16777215);
+  EXPECT_EQ(meta::highest_value_in_n_bits(25ull), 33554431);
+  EXPECT_EQ(meta::highest_value_in_n_bits(26ull), 67108863);
+  EXPECT_EQ(meta::highest_value_in_n_bits(27ull), 134217727);
+  EXPECT_EQ(meta::highest_value_in_n_bits(28ull), 268435455);
+  EXPECT_EQ(meta::highest_value_in_n_bits(29ull), 536870911);
+  EXPECT_EQ(meta::highest_value_in_n_bits(30ull), 1073741823);
+  EXPECT_EQ(meta::highest_value_in_n_bits(31ull), 2147483647);
+  EXPECT_EQ(meta::highest_value_in_n_bits(32ull), 4294967295);
+  EXPECT_EQ(meta::highest_value_in_n_bits(33ull), 8589934591);
+  EXPECT_EQ(meta::highest_value_in_n_bits(34ull), 17179869183);
+  EXPECT_EQ(meta::highest_value_in_n_bits(35ull), 34359738367);
+  EXPECT_EQ(meta::highest_value_in_n_bits(36ull), 68719476735);
+  EXPECT_EQ(meta::highest_value_in_n_bits(37ull), 137438953471);
+  EXPECT_EQ(meta::highest_value_in_n_bits(38ull), 274877906943);
+  EXPECT_EQ(meta::highest_value_in_n_bits(39ull), 549755813887);
+  EXPECT_EQ(meta::highest_value_in_n_bits(40ull), 1099511627775);
+  EXPECT_EQ(meta::highest_value_in_n_bits(41ull), 2199023255551);
+  EXPECT_EQ(meta::highest_value_in_n_bits(42ull), 4398046511103);
+  EXPECT_EQ(meta::highest_value_in_n_bits(43ull), 8796093022207);
+  EXPECT_EQ(meta::highest_value_in_n_bits(44ull), 17592186044415);
+  EXPECT_EQ(meta::highest_value_in_n_bits(45ull), 35184372088831);
+  EXPECT_EQ(meta::highest_value_in_n_bits(46ull), 70368744177663);
+  EXPECT_EQ(meta::highest_value_in_n_bits(47ull), 140737488355327);
+  EXPECT_EQ(meta::highest_value_in_n_bits(48ull), 281474976710655);
+  EXPECT_EQ(meta::highest_value_in_n_bits(49ull), 562949953421311);
+  EXPECT_EQ(meta::highest_value_in_n_bits(50ull), 1125899906842623);
+  EXPECT_EQ(meta::highest_value_in_n_bits(51ull), 2251799813685247);
+  EXPECT_EQ(meta::highest_value_in_n_bits(52ull), 4503599627370495);
+  EXPECT_EQ(meta::highest_value_in_n_bits(53ull), 9007199254740991);
+  EXPECT_EQ(meta::highest_value_in_n_bits(54ull), 18014398509481983);
+  EXPECT_EQ(meta::highest_value_in_n_bits(55ull), 36028797018963967);
+  EXPECT_EQ(meta::highest_value_in_n_bits(56ull), 72057594037927935);
+  EXPECT_EQ(meta::highest_value_in_n_bits(57ull), 144115188075855871);
+  EXPECT_EQ(meta::highest_value_in_n_bits(58ull), 288230376151711743);
+  EXPECT_EQ(meta::highest_value_in_n_bits(59ull), 576460752303423487);
+  EXPECT_EQ(meta::highest_value_in_n_bits(60ull), 1152921504606846975);
+  EXPECT_EQ(meta::highest_value_in_n_bits(61ull), 2305843009213693951);
+  EXPECT_EQ(meta::highest_value_in_n_bits(62ull), 4611686018427387903);
+  EXPECT_EQ(meta::highest_value_in_n_bits(63ull), 9223372036854775807);
+  EXPECT_EQ(meta::highest_value_in_n_bits(64ull), 18446744073709551615ull);
+}
+
+void MetaTest_EnumPow2() {
+  EXPECT_EQ(meta::pow2(0), 1ull);
+  EXPECT_EQ(meta::pow2(1), 2ull);
+  EXPECT_EQ(meta::pow2(2), 4ull);
+  EXPECT_EQ(meta::pow2(3), 8ull);
+  EXPECT_EQ(meta::pow2(4), 16ull);
+  EXPECT_EQ(meta::pow2(5), 32ull);
+  EXPECT_EQ(meta::pow2(6), 64ull);
+  EXPECT_EQ(meta::pow2(7), 128ull);
+  EXPECT_EQ(meta::pow2(8), 256ull);
+  EXPECT_EQ(meta::pow2(9), 512ull);
+  EXPECT_EQ(meta::pow2(10), 1024ull);
+  EXPECT_EQ(meta::pow2(11), 2048ull);
+  EXPECT_EQ(meta::pow2(12), 4096ull);
+  EXPECT_EQ(meta::pow2(13), 8192ull);
+  EXPECT_EQ(meta::pow2(14), 16384ull);
+  EXPECT_EQ(meta::pow2(15), 32768ull);
+  EXPECT_EQ(meta::pow2(16), 65536ull);
+  EXPECT_EQ(meta::pow2(17), 131072ull);
+  EXPECT_EQ(meta::pow2(18), 262144ull);
+  EXPECT_EQ(meta::pow2(19), 524288ull);
+  EXPECT_EQ(meta::pow2(20), 1048576ull);
+  EXPECT_EQ(meta::pow2(21), 2097152ull);
+  EXPECT_EQ(meta::pow2(22), 4194304ull);
+  EXPECT_EQ(meta::pow2(23), 8388608ull);
+  EXPECT_EQ(meta::pow2(24), 16777216ull);
+  EXPECT_EQ(meta::pow2(25), 33554432ull);
+  EXPECT_EQ(meta::pow2(26), 67108864ull);
+  EXPECT_EQ(meta::pow2(27), 134217728ull);
+  EXPECT_EQ(meta::pow2(28), 268435456ull);
+  EXPECT_EQ(meta::pow2(29), 536870912ull);
+  EXPECT_EQ(meta::pow2(30), 1073741824ull);
+  EXPECT_EQ(meta::pow2(31), 2147483648ull);
+  EXPECT_EQ(meta::pow2(32), 4294967296ull);
+  EXPECT_EQ(meta::pow2(33), 8589934592ull);
+  EXPECT_EQ(meta::pow2(34), 17179869184ull);
+  EXPECT_EQ(meta::pow2(35), 34359738368ull);
+  EXPECT_EQ(meta::pow2(36), 68719476736ull);
+  EXPECT_EQ(meta::pow2(37), 137438953472ull);
+  EXPECT_EQ(meta::pow2(38), 274877906944ull);
+  EXPECT_EQ(meta::pow2(39), 549755813888ull);
+  EXPECT_EQ(meta::pow2(40), 1099511627776ull);
+  EXPECT_EQ(meta::pow2(41), 2199023255552ull);
+  EXPECT_EQ(meta::pow2(42), 4398046511104ull);
+  EXPECT_EQ(meta::pow2(43), 8796093022208ull);
+  EXPECT_EQ(meta::pow2(44), 17592186044416ull);
+  EXPECT_EQ(meta::pow2(45), 35184372088832ull);
+  EXPECT_EQ(meta::pow2(46), 70368744177664ull);
+  EXPECT_EQ(meta::pow2(47), 140737488355328ull);
+  EXPECT_EQ(meta::pow2(48), 281474976710656ull);
+  EXPECT_EQ(meta::pow2(49), 562949953421312ull);
+  EXPECT_EQ(meta::pow2(50), 1125899906842624ull);
+  EXPECT_EQ(meta::pow2(51), 2251799813685248ull);
+  EXPECT_EQ(meta::pow2(52), 4503599627370496ull);
+  EXPECT_EQ(meta::pow2(53), 9007199254740992ull);
+  EXPECT_EQ(meta::pow2(54), 18014398509481984ull);
+  EXPECT_EQ(meta::pow2(55), 36028797018963968ull);
+  EXPECT_EQ(meta::pow2(56), 72057594037927936ull);
+  EXPECT_EQ(meta::pow2(57), 144115188075855872ull);
+  EXPECT_EQ(meta::pow2(58), 288230376151711744ull);
+  EXPECT_EQ(meta::pow2(59), 576460752303423488ull);
+  EXPECT_EQ(meta::pow2(60), 1152921504606846976ull);
+  EXPECT_EQ(meta::pow2(61), 2305843009213693952ull);
+  EXPECT_EQ(meta::pow2(62), 4611686018427387904ull);
+  EXPECT_EQ(meta::pow2(63), 9223372036854775808ull);
+  EXPECT_EQ(meta::pow2(64), 0ull);
+}
+
+template<size_t N>
+consteval auto cvbfbn(std::string_view (&&l)[N]) {
+  return meta::calc_valid_bits_from_bit_names(std::to_array(l));
+}
+
+void MetaTest_EnumCalcBitNames() {
+  EXPECT_EQ(cvbfbn({""sv}), 0);
+  EXPECT_EQ(cvbfbn({"r"sv}), 1);
+  EXPECT_EQ(cvbfbn({""sv, "g"sv}), 2);
+  EXPECT_EQ(cvbfbn({"r"sv, "g"sv}), 3);
+  EXPECT_EQ(cvbfbn({""sv, ""sv, "b"sv}), 4);
+  EXPECT_EQ(cvbfbn({"r"sv, ""sv, "b"sv}), 5);
+  EXPECT_EQ(cvbfbn({""sv, "g"sv, "b"sv}), 6);
+  EXPECT_EQ(cvbfbn({"r"sv, "g"sv, "b"sv}), 7);
+  EXPECT_EQ(
+      cvbfbn({"a"sv, "b"sv, "c"sv, "d"sv, "e"sv, "f"sv, "g"sv, "h"sv, "i"sv,
+          "j"sv, "k"sv, "l"sv, "m"sv, "n"sv, "o"sv, "p"sv, "q"sv, "r"sv, "s"sv,
+          "t"sv, "u"sv, "v"sv, "w"sv, "x"sv, "y"sv, "z"sv, "a"sv, "b"sv, "c"sv,
+          "d"sv, "e"sv, "f"sv, "g"sv, "h"sv, "i"sv, "j"sv, "k"sv, "l"sv, "m"sv,
+          "n"sv, "o"sv, "p"sv, "q"sv, "r"sv, "s"sv, "t"sv, "u"sv, "v"sv, "w"sv,
+          "x"sv, "y"sv, "z"sv, "a"sv, "b"sv, "c"sv, "d"sv, "e"sv, "f"sv, "g"sv,
+          "h"sv, "i"sv, "j"sv, "k"sv, "l"sv, "m"sv, "n"sv, "o"sv, "p"sv, "q"sv,
+          "r"sv, "s"sv, "t"sv, "u"sv, "v"sv, "w"sv, "x"sv, "y"sv, "z"sv, "a"sv,
+          "b"sv, "c"sv, "d"sv, "e"sv, "f"sv, "g"sv, "h"sv, "i"sv, "j"sv}),
+      18446744073709551615ull);
+}
+
+template<size_t N>
+constexpr auto cvbfvn(std::string_view (&&l)[N]) {
+  return meta::calc_valid_bits_from_value_names(std::to_array(l));
+}
+
+void MetaTest_EnumCalcValueNames() {
+  EXPECT_EQ(cvbfvn({""sv}), 0);
+  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv}), 1);
+  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv, "green"sv}), 3);
+  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv, "green"sv, "cyan"sv}), 3);
+  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv, "green"sv, "cyan"sv, "red"sv}), 7);
+  EXPECT_EQ(
+      cvbfvn({"black"sv, "blue"sv, "green"sv, "cyan"sv, "red"sv, "purple"sv}),
+      7);
+  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv, "green"sv, "cyan"sv, "red"sv,
+                "purple"sv, "yellow"sv}),
+      7);
+  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv, "green"sv, "cyan"sv, "red"sv,
+                "purple"sv, "yellow"sv, "white"sv}),
+      7);
+  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv, "green"sv, "cyan"sv, ""sv, ""sv, ""sv,
+                ""sv}),
+      3);
+  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv, ""sv, ""sv, "red"sv, "purple"sv, ""sv,
+                ""sv}),
+      5);
+  EXPECT_EQ(cvbfvn({"black"sv, ""sv, "green"sv, ""sv, "red"sv, ""sv,
+                "yellow"sv, ""sv}),
+      6);
+}
+
+MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
+    MetaTest_EnumHighestValueInNBits, MetaTest_EnumPow2,
+    MetaTest_EnumCalcBitNames, MetaTest_EnumCalcValueNames);
 
 // TODO: Port the tests below.
 

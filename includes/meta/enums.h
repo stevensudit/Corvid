@@ -65,11 +65,56 @@ template<ScopedEnum E>
 constexpr auto max_scoped_enum_v =
     static_cast<E>(std::numeric_limits<as_underlying_t<E>>::max());
 
-// Used to calculate the number of bits required to represent a bitmask enum.
-consteval auto log2(size_t n) {
-  size_t r = 0;
-  while (n >>= 1) ++r;
-  return r;
+// Note:
+// std::popcount() gives us how many bits are set.
+// std::bit_width() gives us how many bits are required to represent the value.
+
+// Compile-time pow2.
+constexpr uint64_t pow2(uint64_t n) { return n < 64 ? 1ull << n : 0ull; }
+
+// Compile-time reverse of std::bit_width. Returns the highest value that can
+// be encoded in `n` bits.
+constexpr uint64_t highest_value_in_n_bits(uint64_t n) { return pow2(n) - 1; }
+
+// Compile-time conversion of bit name array to valid bits. The names start
+// with the lsb. For each non-empty name, sets the corresponding bit as valid.
+//
+// Note that, while any non-empty string is enough to make the bit valid, not
+// all strings will necessarily be displayed.
+//
+// TODO: Consider writing a version that starts with msb, with a matching spec.
+// TODO: Consider writing a version that takes a string and uses empty
+// characters, with a matching spec. We may want to support 'R'/'r' or `r'/'-'.
+// Perhaps if we see an uppercase, we lowercase it, and if we don't, then we
+// substitute a dash. But missing letters should always be a space.
+template<size_t N>
+constexpr uint64_t
+calc_valid_bits_from_bit_names(std::array<std::string_view, N> bit_names) {
+  uint64_t valid_bits = 0;
+  uint64_t pow2 = 1;
+  for (size_t i = 0; i < N; ++i) {
+    if (!bit_names[i].empty()) valid_bits |= pow2;
+    pow2 <<= 1;
+  }
+  return valid_bits;
+}
+
+// Compile-time conversion of bit value array to valid bits. The values start
+// at 0 and are sequential. The union of the bits from each of the values
+// defines the valid bits.
+//
+/// Note that, while any non-empty string is enough to make the bit valid, not
+// all strings will necessarily be displayed.
+//
+// TODO: Consider writing a version that starts with msb, with a matching spec.
+template<size_t N>
+constexpr uint64_t calc_valid_bits_from_value_names(
+    const std::array<std::string_view, N>& bit_values) {
+  uint64_t valid_bits = 0;
+  for (size_t i = 1; i < N; ++i) {
+    if (!bit_values[i].empty()) valid_bits |= i;
+  }
+  return valid_bits;
 }
 
 } // namespace enums

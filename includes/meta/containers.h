@@ -61,5 +61,16 @@ template<bool keyed = false>
   return ndx != -1 ? &container_element_v<keyed>(&c[ndx]) : nullptr;
 }
 
+// Compile-time search and replace for std::string_view array.
+template<size_t N>
+consteval auto search_and_replace(std::array<std::string, N> values,
+    std::string from, std::string to) {
+  std::array<std::string, N> result;
+  for (size_t i = 0; i < N; ++i) {
+    result[i] = (values[i] == from) ? to : values[i];
+  }
+  return result;
+}
+
 } // namespace containers
 } // namespace corvid::meta
