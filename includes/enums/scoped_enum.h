@@ -27,10 +27,10 @@ namespace registry {
 // the underlying value as a number.
 template<ScopedEnum E, E minseq = min_scoped_enum_v<E>,
     E maxseq = max_scoped_enum_v<E>, bool validseq = false,
-    wrapclip wrapseq = {}, size_t bitcount = 0, wrapclip bitclip = {}>
+    wrapclip wrapseq = {}, uint64_t validbits = 0, wrapclip bitclip = {}>
 struct scoped_enum_spec
     : base_enum_spec<E, std::min(minseq, maxseq), std::max(minseq, maxseq),
-          validseq, wrapseq, bitcount, bitclip> {
+          validseq, wrapseq, validbits, bitclip> {
   auto& append(AppendTarget auto& target, E v) const {
     return strings::append_num(target, as_underlying(v));
   }

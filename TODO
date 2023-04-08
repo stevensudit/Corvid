@@ -19,5 +19,3 @@ h. strings_test needs more tests.
 6. Test enums with int64.
 
 Next target: JSON encoding of strings.
-
-Try turning make enum spec functions consteval.

@@ -308,8 +308,10 @@ enum class join_opt {
 } // namespace corvid::strings
 
 template<>
-constexpr size_t ::corvid::enums::bitmask::bit_count_v<
-    corvid::strings::joinoptions::join_opt> = 4;
+constexpr auto corvid::enums::registry::enum_spec_v<
+    corvid::strings::joinoptions::join_opt> =
+    corvid::enums::bitmask::make_bitmask_enum_spec<
+        corvid::strings::joinoptions::join_opt, 4>();
 
 namespace corvid::strings {
 inline namespace registration {

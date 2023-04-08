@@ -307,67 +307,8 @@ void MetaTest_EnumPow2() {
   EXPECT_EQ(meta::pow2(64), 0ull);
 }
 
-template<size_t N>
-consteval auto cvbfbn(std::string_view (&&l)[N]) {
-  return meta::calc_valid_bits_from_bit_names(std::to_array(l));
-}
-
-void MetaTest_EnumCalcBitNames() {
-  EXPECT_EQ(cvbfbn({""sv}), 0);
-  EXPECT_EQ(cvbfbn({"r"sv}), 1);
-  EXPECT_EQ(cvbfbn({""sv, "g"sv}), 2);
-  EXPECT_EQ(cvbfbn({"r"sv, "g"sv}), 3);
-  EXPECT_EQ(cvbfbn({""sv, ""sv, "b"sv}), 4);
-  EXPECT_EQ(cvbfbn({"r"sv, ""sv, "b"sv}), 5);
-  EXPECT_EQ(cvbfbn({""sv, "g"sv, "b"sv}), 6);
-  EXPECT_EQ(cvbfbn({"r"sv, "g"sv, "b"sv}), 7);
-  EXPECT_EQ(
-      cvbfbn({"a"sv, "b"sv, "c"sv, "d"sv, "e"sv, "f"sv, "g"sv, "h"sv, "i"sv,
-          "j"sv, "k"sv, "l"sv, "m"sv, "n"sv, "o"sv, "p"sv, "q"sv, "r"sv, "s"sv,
-          "t"sv, "u"sv, "v"sv, "w"sv, "x"sv, "y"sv, "z"sv, "a"sv, "b"sv, "c"sv,
-          "d"sv, "e"sv, "f"sv, "g"sv, "h"sv, "i"sv, "j"sv, "k"sv, "l"sv, "m"sv,
-          "n"sv, "o"sv, "p"sv, "q"sv, "r"sv, "s"sv, "t"sv, "u"sv, "v"sv, "w"sv,
-          "x"sv, "y"sv, "z"sv, "a"sv, "b"sv, "c"sv, "d"sv, "e"sv, "f"sv, "g"sv,
-          "h"sv, "i"sv, "j"sv, "k"sv, "l"sv, "m"sv, "n"sv, "o"sv, "p"sv, "q"sv,
-          "r"sv, "s"sv, "t"sv, "u"sv, "v"sv, "w"sv, "x"sv, "y"sv, "z"sv, "a"sv,
-          "b"sv, "c"sv, "d"sv, "e"sv, "f"sv, "g"sv, "h"sv, "i"sv, "j"sv}),
-      18446744073709551615ull);
-}
-
-template<size_t N>
-constexpr auto cvbfvn(std::string_view (&&l)[N]) {
-  return meta::calc_valid_bits_from_value_names(std::to_array(l));
-}
-
-void MetaTest_EnumCalcValueNames() {
-  EXPECT_EQ(cvbfvn({""sv}), 0);
-  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv}), 1);
-  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv, "green"sv}), 3);
-  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv, "green"sv, "cyan"sv}), 3);
-  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv, "green"sv, "cyan"sv, "red"sv}), 7);
-  EXPECT_EQ(
-      cvbfvn({"black"sv, "blue"sv, "green"sv, "cyan"sv, "red"sv, "purple"sv}),
-      7);
-  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv, "green"sv, "cyan"sv, "red"sv,
-                "purple"sv, "yellow"sv}),
-      7);
-  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv, "green"sv, "cyan"sv, "red"sv,
-                "purple"sv, "yellow"sv, "white"sv}),
-      7);
-  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv, "green"sv, "cyan"sv, ""sv, ""sv, ""sv,
-                ""sv}),
-      3);
-  EXPECT_EQ(cvbfvn({"black"sv, "blue"sv, ""sv, ""sv, "red"sv, "purple"sv, ""sv,
-                ""sv}),
-      5);
-  EXPECT_EQ(cvbfvn({"black"sv, ""sv, "green"sv, ""sv, "red"sv, ""sv,
-                "yellow"sv, ""sv}),
-      6);
-}
-
 MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
-    MetaTest_EnumHighestValueInNBits, MetaTest_EnumPow2,
-    MetaTest_EnumCalcBitNames, MetaTest_EnumCalcValueNames);
+    MetaTest_EnumHighestValueInNBits, MetaTest_EnumPow2);
 
 // TODO: Port the tests below.
 

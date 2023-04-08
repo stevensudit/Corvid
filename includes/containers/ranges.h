@@ -25,17 +25,19 @@ inline namespace ranges {
 template<typename T>
 class reversed_range {
 public:
-  reversed_range(T& t) : t_(t) {}
+  constexpr reversed_range(T& t) : t_(t) {}
 
-  auto begin() { return t_.rbegin(); }
-  auto end() { return t_.rend(); }
+  constexpr auto begin() { return t_.rbegin(); }
+  constexpr auto end() { return t_.rend(); }
 
-  auto cbegin() const { return t_.crbegin(); }
-  auto cend() const { return t_.crend(); }
+  constexpr auto cbegin() const { return t_.crbegin(); }
+  constexpr auto cend() const { return t_.crend(); }
 
 private:
   T& t_;
 };
+
+// TODO: We may need a deduction rule to infer T.
 
 } // namespace ranges
 } // namespace corvid

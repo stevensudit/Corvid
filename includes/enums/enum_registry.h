@@ -34,14 +34,14 @@ namespace registry {
 // anything.
 template<ScopedEnum E, E minseq = min_scoped_enum_v<E>,
     E maxseq = max_scoped_enum_v<E>, bool validseq = false,
-    wrapclip wrapseq = {}, size_t bitcount = 0, wrapclip bitclip = {}>
+    wrapclip wrapseq = {}, uint64_t validbits = 0, wrapclip bitclip = {}>
 struct base_enum_spec {
   using U = as_underlying_t<E>;
   static constexpr E seq_min_v = minseq;
   static constexpr E seq_max_v = maxseq;
   static constexpr wrapclip seq_wrap_v = wrapseq;
   static constexpr bool seq_valid_v = validseq;
-  static constexpr U bit_count_v = bitcount;
+  static constexpr uint64_t valid_bits_v = validbits;
   static constexpr wrapclip bit_clip_v = bitclip;
 };
 

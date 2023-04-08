@@ -838,7 +838,7 @@ enum class rgb {
 
 template<>
 constexpr auto registry::enum_spec_v<rgb> =
-    make_bitmask_enum_spec<rgb>({"red", "green", "blue"});
+    make_bitmask_enum_spec<rgb, "red,green,blue">();
 
 void StringUtilsTest_AppendEnum() {
   std::string s;
