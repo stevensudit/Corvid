@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "strings_shared.h"
+#include "trimming.h"
 
 namespace corvid::strings {
 inline namespace fixed {
@@ -26,12 +27,12 @@ struct fixed_string {
   // Construct from a string literal. Requires `N` to be specified by the
   // deduction guide.
   constexpr fixed_string(char const* s) {
-    for (size_t i = 0; i != N; ++i) buf[i] = s[i];
+    for (size_t i = 0; i != N; ++i) do_not_use[i] = s[i];
   }
 
   // Conversions.
-  constexpr const char* c_str() const { return buf; }
-  constexpr std::string_view view() const { return {buf, N}; }
+  constexpr const char* c_str() const { return do_not_use; }
+  constexpr std::string_view view() const { return {do_not_use, N}; }
   constexpr operator std::string_view() const { return view(); }
 
   // TODO: Consider being dependent upon cstring_view so that we can convert
@@ -40,28 +41,44 @@ struct fixed_string {
   // Some compilers might still need this.
   constexpr auto operator<=>(const fixed_string&) const = default;
 
-  char buf[N + 1]{};
+  // This can't be made private or const, but do not ever use it.
+  char do_not_use[N + 1]{};
 };
 
 // Deduction guide for fixed_string from string literal.
 template<unsigned N>
 fixed_string(char const (&)[N]) -> fixed_string<N - 1>;
 
-// Split fixed string by delimiter, returning array of string views.
-template<strings::fixed_string S, char delim = ','>
+// Split fixed string by delimiter, returning array of string views, optionally
+// trimming by whitespace.
+template<strings::fixed_string W, strings::fixed_string D = ",",
+    strings::fixed_string WS = "">
 consteval auto fixed_split() {
-  std::array<std::string_view,
-      std::count(S.view().begin(), S.view().end(), delim) + 1>
-      result;
+  constexpr auto whole = W.view();
+  constexpr auto delim = D.view();
+  constexpr auto n = std::count_if(whole.begin(), whole.end(), [&](char c) {
+    return delim.find(c) != std::string_view::npos;
+  });
+  std::array<std::string_view, n + 1> result;
 
-  auto s = S.view();
+  auto w = whole;
+  constexpr auto ws = WS.view();
   for (size_t i = 0; i != result.size(); ++i) {
-    auto pos = s.find(delim);
-    result[i] = s.substr(0, pos);
-    s = s.substr(pos + 1);
+    auto pos = w.find_first_of(delim);
+    result[i] = w.substr(0, pos);
+    if (ws.size()) result[i] = strings::trim(result[i], ws);
+    w = w.substr(pos + 1);
   }
 
   return result;
+}
+
+// Split fixed string by delimiter, returning array of string views, trimming
+// by specified whitespace.
+template<strings::fixed_string W, strings::fixed_string WS = " ",
+    strings::fixed_string D = ",">
+consteval auto fixed_split_trim() {
+  return fixed_split<W, D, WS>();
 }
 
 // TODO: Consider writing a version of split that also does a search/replace in

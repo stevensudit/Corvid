@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "strings_shared.h"
+#include "targeting.h"
 
 namespace corvid::strings {
 inline namespace delimiting {

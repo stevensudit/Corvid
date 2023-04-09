@@ -19,21 +19,20 @@
 #include <map>
 #include <set>
 
-#include "../includes/strings.h"
+#include "../includes/strings/fixed_string.h"
 #include "AccutestShim.h"
 
 using namespace std::literals;
 using namespace corvid;
-using namespace corvid::literals;
 
-template<strings::fixed_string S>
+template<strings::fixed_string W>
 constexpr std::string_view GetFixedString() {
-  return S;
+  return W;
 }
 
-template<strings::fixed_string S>
+template<strings::fixed_string W>
 constexpr std::string_view GetSecondString() {
-  return strings::fixed_split<S>()[1];
+  return strings::fixed_split<W>()[1];
 }
 
 consteval auto test_ceval() { return GetFixedString<"abc">(); }
@@ -48,6 +47,17 @@ void FixedStringTest_General() {
   EXPECT_EQ(ceval, "abc"sv);
   constinit static auto csplit = test_split();
   EXPECT_EQ(csplit, "def"sv);
+
+  EXPECT_EQ((std::array{"abc"sv, "def"sv}),
+      (strings::fixed_split<"abc,def">()));
+  EXPECT_EQ((std::array{"abc "sv, " def"sv}),
+      (strings::fixed_split<"abc , def">()));
+  EXPECT_EQ((std::array{"abc"sv, "def"sv}),
+      (strings::fixed_split_trim<"   abc   ,   def   ">()));
+  EXPECT_EQ((std::array{"abc"sv, ""sv, "def"sv}),
+      (strings::fixed_split_trim<"   abc   ,    ,  def   ">()));
+  EXPECT_EQ((std::array{"abc"sv, ""sv, "def"sv}),
+      (strings::fixed_split_trim<"- -- abc  - ,  --  ,  def  -- ", " -">()));
 }
 
 MAKE_TEST_LIST(FixedStringTest_General);
