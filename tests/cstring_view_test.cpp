@@ -339,13 +339,13 @@ void CStringViewTestEqual() {
   EXPECT_EQ(std::string_view{e.c_str()}, std::string_view{n.c_str()});
   EXPECT_NE(e.data(), n.data());
 
-  if (e) {
+  if (n) {
     EXPECT_TRUE(false);
   } else {
     EXPECT_TRUE(true);
   }
 
-  if (!e) {
+  if (!n) {
     EXPECT_TRUE(true);
   } else {
     EXPECT_TRUE(false);
@@ -358,9 +358,9 @@ void CStringViewTestEqual() {
   }
 
   int i{};
-  i = e ? 42 : 24;
+  i = n ? 42 : 24;
   EXPECT_EQ(i, 24);
-  i = !e ? 24 : 42;
+  i = !n ? 24 : 42;
   EXPECT_EQ(i, 24);
 
   EXPECT_EQ("abc"_csv, "abc"_csv);
