@@ -1,4 +1,4 @@
-// Corvid20: A general-purpose C++ 20 library extending std.
+// Corvid20: A general-purpose C++20 library extending std.
 // https://github.com/stevensudit/Corvid
 //
 // Copyright 2022-2023 Steven Sudit

@@ -1,4 +1,4 @@
-// Corvid20: A general-purpose C++ 20 library extending std.
+// Corvid20: A general-purpose C++20 library extending std.
 // https://github.com/stevensudit/Corvid20
 //
 // Copyright 2022-2023 Steven Sudit
@@ -463,16 +463,15 @@ struct bitmask_enum_names_spec
 // with the msb. For each non-empty name, sets the corresponding bit as valid.
 // Do not put a leading comma in the name list.
 //
-// Note that, while any non-empty string is enough to make the bit valid, not
-// all strings will necessarily be displayed.
+/// Whitespace is trimmed. An empty string or hyphen means invalid.
 //
 // TODO: Consider offering a version that is aligned to the msb instead of the
 // lsb. This would avoiding forcing the user to potentally pad with dozens of
 // commas.
 template<strings::fixed_string bit_names>
 consteval uint64_t calc_valid_bits_from_bit_names() {
-  static_assert(!bit_names.view().starts_with(","));
-  constexpr auto name_array = strings::fixed_split<bit_names>();
+  static_assert(!strings::trim(bit_names.view(), " -").starts_with(","));
+  constexpr auto name_array = strings::fixed_split_trim<bit_names, " -">();
   uint64_t valid_bits = 0;
   uint64_t pow2 = 1;
 
@@ -488,12 +487,11 @@ consteval uint64_t calc_valid_bits_from_bit_names() {
 // at 0 and are sequential. The union of the bits from each of the values
 // defines the valid bits.
 //
-/// Note that, while any non-empty string is enough to make the bit valid, not
-// all strings will necessarily be displayed.
+/// Whitespace is trimmed.
 template<strings::fixed_string bit_names>
 consteval uint64_t calc_valid_bits_from_value_names() {
   static_assert(bit_names.view().find(',') != strings::npos);
-  constexpr auto name_array = strings::fixed_split<bit_names>();
+  constexpr auto name_array = strings::fixed_split_trim<bit_names, " -">();
   uint64_t valid_bits = 0;
   for (size_t i = 1; i < name_array.size(); ++i) {
     if (!name_array[i].empty()) valid_bits |= i;
@@ -520,13 +518,15 @@ consteval auto make_bitmask_enum_spec() {
 // Make an `enum_spec_v` from a list of bit names, starting with msb, marking
 // `E` as a bitmask enum.
 //
-// The list must be a string literal, delimited by commas. Bits whose names are
-// empty are not valid. To mark a bit as valid but not assign a name to it, use
-// a space as a placeholder.
+// The list must be a string literal, delimited by commas. Whitespace is
+// trimmed.
 //
-// You may wish to choose to specify names with a built-in scope, as in
-// "rgb::red" as opposed to "red".
+//  An empty string or hyphen means that bit is invalid, while a question mark
+//  or asterisk is a wildcard placeholder which means nothing is shown for that
+//  bit, but the bit is valid.
 //
+// You may wish to choose to follow the convention of specifying names with a
+// built-in scope, as in "rgb::red" as opposed to "red".
 //
 // Set `bitclip` to `wrapclip::limit` to enable clipping.
 //
@@ -534,8 +534,9 @@ consteval auto make_bitmask_enum_spec() {
 // Any bits, valid or otherwise, that are not named are printed in hex.
 template<ScopedEnum E, strings::fixed_string bit_names, wrapclip bitclip = {}>
 consteval auto make_bitmask_enum_spec() {
-  constexpr auto name_array = strings::fixed_split<bit_names>();
-  constexpr auto trimmed_names = strings::fixed_split_trim<bit_names>();
+  constexpr auto name_array = strings::fixed_split_trim<bit_names, " -">();
+  constexpr auto trimmed_names =
+      strings::fixed_split_trim<bit_names, " -?*">();
   constexpr auto name_count = name_array.size();
   constexpr auto valid_bits =
       details::calc_valid_bits_from_bit_names<bit_names>();
@@ -546,15 +547,19 @@ consteval auto make_bitmask_enum_spec() {
 // Make a `enum_spec_v` from a list of value names, marking `E` as a bitmask
 // enum.
 //
-// The list is a string literal, delimited by commas. These are the names  of
-// all possible bit combinations, in sequence, starting from zero.
-
-// Only bits which are contained in the index of at least one of the specified
-// name are valid. An empty name does not make its index bits valid, but a
-// space used as a placeholder does, even though it's not displayed.
+// The list is a string literal, delimited by commas. Whitespace is
+// trimmed. These are the names of  all possible bit combinations, in sequence,
+// starting from zero.
 //
-// You may wish to choose to specify names with a built-in scope, as in
-// "rgb::yellow" as opposed to "yellow".
+//  An empty string or hyphen means that value is invalid, while a question
+//  mark or asterisk is a wildcard placeholder which means nothing is shown for
+//  that value, but it is valid.
+//
+//  Only bits which are contained in the index of at least one of the valid
+//  names are themselves valid.
+//
+// You may wish to choose to follow the convention of specifying names with a
+// built-in scope, as in "rgb::yellow" as opposed to "yellow".
 //
 // Set `bitclip` to `wrapclip::limit` to enable clipping.
 //
@@ -563,7 +568,8 @@ consteval auto make_bitmask_enum_spec() {
 template<ScopedEnum E, strings::fixed_string bit_names, wrapclip bitclip = {}>
 constexpr auto make_bitmask_enum_values_spec() {
   constexpr auto name_array = strings::fixed_split<bit_names>();
-  constexpr auto trimmed_names = strings::fixed_split_trim<bit_names>();
+  constexpr auto trimmed_names =
+      strings::fixed_split_trim<bit_names, " -?*">();
   constexpr auto name_count = name_array.size();
   constexpr auto valid_bits =
       details::calc_valid_bits_from_value_names<bit_names>();
@@ -582,18 +588,29 @@ constexpr auto make_bitmask_enum_values_spec() {
 // much like the rest, except that the names would just so happen to be
 // single-character, such as "r,g,b". Given this definition, we'd display "RGB"
 // for white, "RgB" for purple, and "rgb" for black. If the definition was
-// instead "R,G,B", then  we would display "RGB" for white, "R-B" for purplue,
+// instead "R,G,B", then  we would display "RGB" for white, "R-B" for purple,
 // and "---" for black.
-// As before, an empty name means the bit is invalid, unless a space is used as
-// the placeholder. The position of a nameless bit is always filled with a
-// hyphen, so if the defintion is "r,,b" or "r, ,b", we'd show purple or white
-// as "R-B". The difference is that, for white, we'd show the residual as
-// usual, as a hex number added to the end. In theory, we could just tream a
-// definition with single-character names as a binary output, but that would be
-// unwise. Instead, we need a separate make_bitmask_enum_binary_spec() that
-// calls a new compile-time parser to extract the valid bits and also sets a
-// new flag in bitmask_enum_names_spec so that its append multiplexer knows how
-// to handle it.
+// We follow the same rules about placeholders, where space or hyphen mean its
+// invalid and an asterisk or question mark mean its valid but unnamed. When
+// displaying a value, the position of a nameless bit is filled with a hyphen,
+// so if the defintion is "r,-,b" or "r,?,b", we'd show purple or white as
+// "R-B". For white, since we have a residual, we'd show it as usual, as a hex
+// number added to the end. In theory, we could just treat a definition with
+// single-character names as a binary output, but that would be unwise due to
+// possible ambiguities. Instead, we need a separate
+// make_bitmask_enum_binary_spec() that enforces single-character names and
+// also sets a new flag in bitmask_enum_names_spec so that its append
+// multiplexer knows how to handle it.
+
+// Consider offering a parser to convert string to enum, using the same
+// definition. In principle, it could split on "+", trim spaces, and then add
+// up the bit values. A working system would simply do a linear search through
+// the list of names, but maybe something like
+// https://blog.quarkslab.com/frozen-an-header-only-constexpr-alternative-to-gperf-for-c14-users.html
+// would work better. The idea would be to construct a map of names to values
+// at compile time and then query it at runtime. We really just need the part
+// where it sorts it at compile time, allowing us to do binary searches at
+// runtime.
 
 // Related: Maybe change our trimming to accept a list of characters to trim.
 // We could remove just spaces on the first pass, allowing spaces to be used

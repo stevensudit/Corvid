@@ -1,7 +1,7 @@
 # corvid20
 <img src="https://upload.wikimedia.org/wikipedia/commons/0/0a/Corvus-brachyrhynchos-001.jpg" height=768 width=768>
 
-Corvid20: A general-purpose C++ 20 library extending std.
+Corvid20: A general-purpose C++20 library extending std.
 
 https://github.com/stevensudit/Corvid20
 
@@ -21,7 +21,7 @@ limitations under the License.
 
 HISTORY
 
-This is a fork of the original Corvid library, which didn't take advantage of C++ 20 features.
+This is a fork of the original Corvid library, which didn't take advantage of C++20 features.
 
 Rather than try to update it in place, it made more sense to make a new project and move code over, bit by bit, cleaning and upgrading it as I went. This approach enabled me to switch from MSVC to gcc, which has resulted in more-compliant code, and to use GitHub Copilot to help with the more tedious parts of the process. I also got rid of Google Test, just to simplify things, switching to the header-only Accutest.
 
