@@ -272,7 +272,7 @@ enum class rgb_unnamed {
 
 template<>
 constexpr auto registry::enum_spec_v<rgb_unnamed> =
-    make_bitmask_enum_spec<rgb_unnamed, 7, wrapclip::limit>();
+    make_bitmask_enum_spec<rgb_unnamed, rgb_unnamed::white, wrapclip::limit>();
 
 enum class patchy_rgb {
   black,      // ---

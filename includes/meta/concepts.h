@@ -46,6 +46,10 @@ template<typename T>
 concept ScopedEnum =
     StdEnum<T> && (!std::constructible_from<std::remove_cvref_t<T>, int>);
 
+// `T` must be an enum or integral type.
+template<typename T>
+concept IntegerOrEnum = std::is_integral_v<T> || std::is_enum_v<T>;
+
 // `T` must be a char.
 template<typename T>
 concept Char = std::same_as<std::remove_cvref_t<T>, char>;

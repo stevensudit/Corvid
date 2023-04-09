@@ -44,13 +44,16 @@ namespace sequence {
 //
 // The way to register a scoped enum as a sequence is to specialize the
 // corvid::enums::registry::enum_spec_v for the enum type and assign an
-// instance of sequence_enum_spec to it. You must set `maxseq` to the highest
-// enum value that is valid. If the lowest value isn't 0, then also set
-// `minseq`.
+// instance of sequence_enum_spec to it by calling a make_sequence_enum_spec
+// overload.
 //
-// If you want to enable wrapping, which ensures that operations keep values
-// within valid range (at the cost of runtime range checks), set `wrapseq` to
-// `wrapclip::limit`.
+// You must set `maxseq` to the highest enum value that is valid, or allow it
+// to be inferred from the comma-delimited list of value names. If the lowest
+// value isn't 0, then also set `minseq`.
+//
+// If you want to enable wrapping, which ensures that operations keep
+// values within valid range (at the cost of runtime range checks), set
+// `wrapseq` to `wrapclip::limit`.
 //
 // For example:
 //
@@ -58,7 +61,7 @@ namespace sequence {
 //
 //    template<>
 //    constexpr auto registry::enum_spec_v<tiger_pick> =
-//      make_sequence_enum_spec<tiger_pick>({"eeny", "meany", "miny", "moe"});
+//        make_sequence_enum_spec<tiger_pick, "eeny, meany, miny, moe">();
 
 template<ScopedEnum E, E maxseq = E{}, E minseq = E{}, wrapclip wrapseq = {}>
 struct sequence_enum_spec
@@ -97,15 +100,21 @@ constexpr auto seq_min_num_v = as_underlying(seq_min_v<E>);
 template<typename E>
 constexpr auto seq_size_v = seq_max_num_v<E> - seq_min_num_v<E> + 1;
 
-// Whether wrapping is really enabled. We don't need to wrap when the range
+// Whether wrapping is really needed. We don't need to wrap when the range
 // exactly fits the underlying type, because of modulo math.
 template<typename E>
-constexpr bool seq_actually_wrap_v = (seq_size_v<E> != 0) && seq_wrap_v<E>;
+constexpr bool seq_actually_need_wrap_v = (seq_size_v<E> != 0);
+
+// Whether wrapping is really enabled. It's enabled only when we are asked to
+// wrap and actually need to.
+template<typename E>
+constexpr bool seq_actually_wrap_v =
+    seq_actually_need_wrap_v<E> && seq_wrap_v<E>;
 
 // Clip, unless `noclip` set, by modding to size.
 template<SequentialEnum E, bool noclip = false>
 [[nodiscard]] constexpr auto clip(std::underlying_type_t<E> u) {
-  if constexpr (!noclip && seq_size_v<E> != 0)
+  if constexpr (!noclip && seq_actually_need_wrap_v<E>)
     return u % seq_size_v<E>;
   else
     return u;
@@ -128,7 +137,7 @@ template<SequentialEnum E>
 template<SequentialEnum E, bool noclip = false>
 constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
   // Wrapping is only meaningful if the underlying type is not a perfect fit.
-  if constexpr (seq_size_v<E> != 0) {
+  if constexpr (seq_actually_need_wrap_v<E>) {
     constexpr auto lo = seq_min_num_v<E>, hi = seq_max_num_v<E>;
     static_assert(lo <= hi);
     using U = std::underlying_type_t<E>;
@@ -282,7 +291,7 @@ template<ScopedEnum E, size_t N>
 auto& do_seq_append(AppendTarget auto& target, E v,
     const std::array<std::string_view, N>& names) {
   auto n = as_underlying(v);
-  auto ofs = n - *min_value<E>();
+  size_t ofs = n - *min_value<E>();
 
   // Print looked-up name or the numerical value.
   if (ofs < names.size() && names[ofs].size())
@@ -313,6 +322,10 @@ struct sequence_enum_names_spec
 
 // Make an `enum_spec_v` from a list of names, marking `E` as a sequence enum.
 //
+// The list must be a string literal, delimited by commas. Whitespace is
+// trimmed. An element that is empty, a hyphen, or a question mark or asterisk
+// means that nothing is shown for that value, but it's still valid.
+//
 // Set `wrapseq` to `wrapclip::limit` to enable wrapping.
 //
 // The `maxseq` is automatically calculated from the number of names, but if
@@ -321,11 +334,14 @@ struct sequence_enum_names_spec
 // Prints the matching name for the value. If it is not in the range of the
 // names, or if the name for that value is empty, the numerical value is
 // printed.
-template<ScopedEnum E, wrapclip wrapseq = {}, E minseq = E{}, std::size_t N>
-constexpr auto make_sequence_enum_spec(std::string_view (&&l)[N]) {
-  constexpr auto maxseq = E{as_underlying(minseq) + N - 1};
-  return details::sequence_enum_names_spec<E, maxseq, minseq, wrapseq, N>{
-      std::to_array<std::string_view>(l)};
+template<ScopedEnum E, strings::fixed_string names, wrapclip wrapseq = {},
+    E minseq = E{}>
+constexpr auto make_sequence_enum_spec() {
+  constexpr auto name_array = strings::fixed_split_trim<names, " -?*">();
+  constexpr auto name_count = name_array.size();
+  constexpr auto maxseq = E{as_underlying(minseq) + name_count - 1};
+  return details::sequence_enum_names_spec<E, maxseq, minseq, wrapseq,
+      name_count>{name_array};
 }
 
 // Make an `enum_spec_v` from a range of values, marking `E` as a sequence

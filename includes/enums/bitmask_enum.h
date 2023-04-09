@@ -439,10 +439,10 @@ auto& do_value_append(AppendTarget auto& target, E v,
 // Specialization of `bitmask_enum_spec`, adding a list of names, either for
 // the bits or the values. Use `make_bitmask_enum_spec` or
 // `make_bitmask_enum_names_spec`, respectively, to construct.
-template<ScopedEnum E, wrapclip bitclip = {}, uint64_t validbits = 0,
+template<ScopedEnum E, wrapclip bitclip = {}, IntegerOrEnum auto validbits = 0,
     std::size_t N = 0>
 struct bitmask_enum_names_spec
-    : public bitmask_enum_spec<E, validbits, bitclip> {
+    : public bitmask_enum_spec<E, meta::as_underlying(validbits), bitclip> {
   constexpr bitmask_enum_names_spec(
       const std::array<std::string_view, N>& name_list)
       : names(name_list) {}
@@ -502,14 +502,13 @@ consteval uint64_t calc_valid_bits_from_value_names() {
 } // namespace details
 
 // Make an `enum_spec_v` from its valid bits, marking `E` as a bitmask enum.
+// If the enum has named value that is the maximum, pass that in for validbits.
+// Otherwise, specify the number explicitly.
 //
 // Set `bitclip` to `wrapclip::limit` to enable clipping.
 //
 // The numerical value is printed in hex.
-//
-// TODO: Modify to take any intlike thing as validbits, using the underlying
-// value if necessary.
-template<ScopedEnum E, uint64_t validbits = 0, wrapclip bitclip = {}>
+template<ScopedEnum E, IntegerOrEnum auto validbits = 0, wrapclip bitclip = {}>
 consteval auto make_bitmask_enum_spec() {
   return details::bitmask_enum_names_spec<E, bitclip, validbits, 0>{
       std::array<std::string_view, 0>{}};
@@ -521,9 +520,9 @@ consteval auto make_bitmask_enum_spec() {
 // The list must be a string literal, delimited by commas. Whitespace is
 // trimmed.
 //
-//  An empty string or hyphen means that bit is invalid, while a question mark
-//  or asterisk is a wildcard placeholder which means nothing is shown for that
-//  bit, but the bit is valid.
+//  An element that is empty or a hyphen means that bit is invalid, while a
+//  question mark or asterisk is a wildcard placeholder which means nothing is
+//  shown for that bit, but the bit is valid.
 //
 // You may wish to choose to follow the convention of specifying names with a
 // built-in scope, as in "rgb::red" as opposed to "red".
@@ -535,13 +534,13 @@ consteval auto make_bitmask_enum_spec() {
 template<ScopedEnum E, strings::fixed_string bit_names, wrapclip bitclip = {}>
 consteval auto make_bitmask_enum_spec() {
   constexpr auto name_array = strings::fixed_split_trim<bit_names, " -">();
-  constexpr auto trimmed_names =
+  constexpr auto filtered_names =
       strings::fixed_split_trim<bit_names, " -?*">();
   constexpr auto name_count = name_array.size();
   constexpr auto valid_bits =
       details::calc_valid_bits_from_bit_names<bit_names>();
   return details::bitmask_enum_names_spec<E, bitclip, valid_bits, name_count>{
-      trimmed_names};
+      filtered_names};
 }
 
 // Make a `enum_spec_v` from a list of value names, marking `E` as a bitmask

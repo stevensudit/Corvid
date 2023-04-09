@@ -32,7 +32,7 @@ enum class tiger_pick { eeny, meany, miny, moe };
 
 template<>
 constexpr auto registry::enum_spec_v<tiger_pick> =
-    make_sequence_enum_spec<tiger_pick>({"eeny", "meany", "miny", "moe"});
+    make_sequence_enum_spec<tiger_pick, "eeny, meany, miny, moe">();
 
 enum old_enum { old_one, old_two, old_three };
 enum new_enum { new_one, new_two, new_three };
@@ -105,23 +105,22 @@ enum class e0_3 : int8_t {};
 
 template<>
 constexpr auto registry::enum_spec_v<e0_3> =
-    make_sequence_enum_spec<e0_3, wrapclip::limit>({"a", "", "c", ""});
+    make_sequence_enum_spec<e0_3, "a, *, c, ?", wrapclip::limit>();
 
 // Range of 10 to 13. Tests non-zero minimums.
 enum class e10_13 : int8_t {};
 
 template<>
-constexpr auto registry::enum_spec_v<e10_13> =
-    make_sequence_enum_spec<e10_13, wrapclip::limit, e10_13{10}>(
-        {"ten", "eleven", "twelve", "thirteen"});
+constexpr auto registry::enum_spec_v<e10_13> = make_sequence_enum_spec<e10_13,
+    "ten, eleven, twelve, thirteen", wrapclip::limit, e10_13{10}>();
 
 // Range of -3 to 3. Tests negative minimums.
 enum class eneg3_3 : int8_t {};
 
 template<>
-constexpr auto registry::enum_spec_v<eneg3_3> =
-    make_sequence_enum_spec<eneg3_3, wrapclip::limit, eneg3_3{-3}>(
-        {"neg-three", "neg-two", "neg-one", "zero", "one", "two", "three"});
+constexpr auto registry::enum_spec_v<eneg3_3> = make_sequence_enum_spec<
+    eneg3_3, "neg-three, neg-two, neg-one, zero, one, two, three",
+    wrapclip::limit, eneg3_3{-3}>();
 
 // Range of 0 to 255. Tests exact fit, unsigned. Enabling wrap has no effect.
 enum class e0_255 : uint8_t {};
@@ -423,7 +422,7 @@ enum class tiger_missing { eeny, miny = 2, moe };
 
 template<>
 constexpr auto registry::enum_spec_v<tiger_missing> =
-    make_sequence_enum_spec<tiger_missing>({"eeny", "", "miny", "moe"});
+    make_sequence_enum_spec<tiger_missing, "eeny, - , miny   , moe">();
 
 void SequentialEnumTest_Missing() {
   if (true) {
