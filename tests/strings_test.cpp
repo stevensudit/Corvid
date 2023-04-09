@@ -995,6 +995,35 @@ void StringUtilsTest_AppendStream() {
   }
 }
 
+void StringUtilsTest_AppendJson() {
+  using strings::join_opt;
+
+  if (true) {
+    std::string s;
+    strings::append_json(s, marine_rank::Private);
+    EXPECT_EQ(s, R"("Private")");
+  }
+  if (true) {
+    std::string s;
+    strings::append_escaped(s, R"(he"l"lo)");
+    EXPECT_EQ(s, R"(he\"l\"lo)");
+  }
+  if (true) {
+    std::string s;
+    strings::append_escaped(s, R"(he"l"lo)");
+    EXPECT_EQ(s, R"(he\"l\"lo)");
+    s.clear();
+    strings::append_escaped(s, "a\tb\\c\"d\n\b\f\r\x1f");
+    EXPECT_EQ(s, R"(a\tb\\c\"d\n\b\f\r\u001f)");
+  }
+  if (true) {
+    std::string s;
+    const char* p{};
+    strings::append_json(s, p);
+    EXPECT_EQ(s, R"(null)");
+  }
+}
+
 // TODO: Add a test for printing a null cstring_view.
 
 MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
@@ -1002,4 +1031,4 @@ MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_Replace, StringUtilsTest_Target, StringUtilsTest_Print,
     StringUtilsTest_Trim, StringUtilsTest_AppendNum, StringUtilsTest_Append,
     StringUtilsTest_Edges, StringUtilsTest_Streams, StringUtilsTest_AppendEnum,
-    StringUtilsTest_AppendStream);
+    StringUtilsTest_AppendStream, StringUtilsTest_AppendJson);

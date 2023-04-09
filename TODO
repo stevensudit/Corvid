@@ -7,7 +7,6 @@ f. bitmask_enum_tests has some.
 g. meta_test has a whole section commented out.
 h. strings_test needs more tests.
 
-
 2. Look at absl split and how it sniffs out return type automatically. Also, adding a filter.
 
 3. Consider how ostream could be made optional.

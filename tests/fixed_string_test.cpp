@@ -53,16 +53,17 @@ void FixedStringTest_General() {
   constinit static auto csplit = test_split();
   EXPECT_EQ(csplit, "def"sv);
 
-  EXPECT_EQ((std::array{"abc"sv, "def"sv}),
-      (strings::fixed_split<"abc,def">()));
-  EXPECT_EQ((std::array{"abc "sv, " def"sv}),
-      (strings::fixed_split<"abc , def">()));
-  EXPECT_EQ((std::array{"abc"sv, "def"sv}),
-      (strings::fixed_split_trim<"   abc   ,   def   ">()));
-  EXPECT_EQ((std::array{"abc"sv, ""sv, "def"sv}),
-      (strings::fixed_split_trim<"   abc   ,    ,  def   ">()));
-  EXPECT_EQ((std::array{"abc"sv, ""sv, "def"sv}),
-      (strings::fixed_split_trim<"- -- abc  - ,  --  ,  def  -- ", " -">()));
+  EXPECT_EQ((strings::fixed_split<"abc,def">()),
+      (std::array{"abc"sv, "def"sv}));
+  EXPECT_EQ((strings::fixed_split<"abc , def">()),
+      (std::array{"abc "sv, " def"sv}));
+  EXPECT_EQ((strings::fixed_split_trim<"   abc   ,   def   ">()),
+      (std::array{"abc"sv, "def"sv}));
+  EXPECT_EQ((strings::fixed_split_trim<"   abc   ,    ,  def   ">()),
+      (std::array{"abc"sv, ""sv, "def"sv}));
+  EXPECT_EQ(
+      (strings::fixed_split_trim<"- -- abc  - ,  --  ,  def  -- ", " -">()),
+      (std::array{"abc"sv, ""sv, "def"sv}));
 
   auto cs = test_cstr();
   EXPECT_EQ(ceval, "abc"_csv);

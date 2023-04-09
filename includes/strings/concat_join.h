@@ -277,6 +277,48 @@ constexpr auto& append(A& target, const T& part) {
   return append(target, head, tail...);
 }
 
+// Determine if `c` needs to be escaped.
+inline bool needs_escaping(char c) {
+  return (c == '"' || c == '\\' || c == '/' || c < 32);
+}
+
+// Determine if `s` needs to be escaped.
+inline bool needs_escaping(std::string_view s) {
+  for (auto c : s)
+    if (needs_escaping(c)) return true;
+  return false;
+}
+
+// Append one string to `target`, escaping as needed.
+inline auto& append_escaped(AppendTarget auto& target, std::string_view part) {
+  if (!needs_escaping(part)) return append(target, part);
+
+  auto a = appender{target};
+  for (auto c : part) {
+    if (needs_escaping(c)) {
+      a.append('\\');
+      switch (c) {
+      case '"': [[fallthrough]];
+      case '\\': [[fallthrough]];
+      case '/': a.append(c); break;
+      case '\b': a.append('b'); break;
+      case '\f': a.append('f'); break;
+      case '\n': a.append('n'); break;
+      case '\r': a.append('r'); break;
+      case '\t': a.append('t'); break;
+      default:
+        a.append('u');
+        append<16, 4, '0'>(target, static_cast<uint16_t>(c));
+        break;
+      }
+    } else {
+      a.append(c);
+    }
+  }
+
+  return target;
+}
+
 } // namespace appending
 
 inline namespace joinoptions {
@@ -404,10 +446,6 @@ template<join_opt opt>
 constexpr bool json_v =
     has_all(opt, join_opt::json) && !has(opt, join_opt::flat);
 
-// Determine whether we need to escape string contents.
-template<join_opt opt, char open, char close>
-constexpr bool escape_v = quoted_v<opt> && open == '\"' && close == '\"';
-
 } // namespace decode
 inline namespace joining {
 
@@ -432,20 +470,28 @@ constexpr auto& append_join_with(AppendTarget auto& target, delim d,
   constexpr bool add_braces = decode::braces_v<opt, open, close>;
   constexpr bool add_quotes =
       (StringViewConvertible<T> || StdEnum<T>)&&decode::quoted_v<opt>;
+  bool not_null = true;
+  if constexpr (BoolLike<T>) not_null = (part) ? true : false;
+
   d.append_if<decode::delimit_v<opt>>(target);
 
-  // TODO: Short-circuit for null.
-
   if constexpr (add_braces) append(target, open);
-  if constexpr (add_quotes) append(target, '"');
 
-  // TODO: Support escape_v, which is true when quoted_v is true but we have
-  // quotes for open/close. Also, add_braces can be true, so we need to make
-  // them exclusive.
+  if constexpr (add_quotes) {
+    if (not_null) {
+      append(target, '"');
+      if constexpr (StdEnum<T>)
+        append(target, part);
+      else
+        append_escaped(target, std::string_view{part});
+      append(target, '"');
+    } else {
+      append(target, part);
+    }
+  } else {
+    append(target, part);
+  }
 
-  append(target, part);
-
-  if constexpr (add_quotes) append(target, '"');
   if constexpr (add_braces) append(target, close);
   return target;
 }
@@ -477,7 +523,7 @@ append_join_with(AppendTarget auto& target, delim d, const T& part) {
 }
 
 // Append one `std::pair`, as its elements, to `target`, joining with `delim`.
-// Supposes join_opt::json by emitting `"key": value`.
+// Supports join_opt::json by emitting `"key": value`.
 template<auto opt = join_opt::braced, char open = 0, char close = 0, StdPair T>
 requires JoinAppendable<T>
 constexpr auto&
@@ -638,7 +684,7 @@ template<auto opt = join_opt::braced, char open = 0, char close = 0>
 }
 
 // Append pieces to target as JSON.
-[[nodiscard]] constexpr auto
+constexpr auto
 append_json(AppendTarget auto& target, const auto& head, const auto&... tail) {
   return append_join_with<join_opt::json>(target, delim{", "sv}, head,
       tail...);
