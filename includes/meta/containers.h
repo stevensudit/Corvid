@@ -45,7 +45,7 @@ template<bool keyed = false>
 // `std::map`, it points to the `pair.second`, not the `pair`, unless `keyed`
 // is set.
 template<bool keyed = false>
-[[nodiscard]] auto it_to_ptr(auto& c, Dereferenceable auto&& it) {
+[[nodiscard]] constexpr auto it_to_ptr(auto& c, Dereferenceable auto&& it) {
   using namespace std;
   return it != end(c) ? &container_element_v<keyed>(it) : nullptr;
 }
@@ -57,11 +57,13 @@ template<bool keyed = false>
 // `std::map`, it points to the `pair.second`, not the `pair`, unless `keyed`
 // is set.
 template<bool keyed = false>
-[[nodiscard]] auto it_to_ptr(auto& c, Integral auto ndx) {
+[[nodiscard]] constexpr auto it_to_ptr(auto& c, Integer auto ndx) {
   return ndx != -1 ? &container_element_v<keyed>(&c[ndx]) : nullptr;
 }
 
 // Compile-time search and replace for std::string_view array.
+// TODO: Consider adding a version that takes parallel arrays for from and to,
+// replacing all of them.
 template<size_t N>
 consteval auto search_and_replace(std::array<std::string, N> values,
     std::string from, std::string to) {

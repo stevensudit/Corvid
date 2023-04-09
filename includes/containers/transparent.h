@@ -21,7 +21,7 @@
 namespace corvid {
 inline namespace containers {
 
-// Transparent comparators allowscomparing any stringlike values without
+// Transparent comparators allows comparing any stringlike values without
 // constructing temporary `std::string` instances from them. This works for
 // `find` but not `operator[]`.
 //
@@ -47,7 +47,7 @@ struct transparent_hash_stringlike {
   }
 };
 
-struct transaprent_equal_stringlike {
+struct transparent_equal_stringlike {
   using is_transparent = void;
 
   template<typename T, typename V>
@@ -69,12 +69,12 @@ using string_set = std::set<std::string, transparent_less_stringlike, A>;
 // Unordered map keyed by `std::string`, with transparent search.
 template<typename V = std::string>
 using string_unordered_map = std::unordered_map<std::string, V,
-    transparent_hash_stringlike, transaprent_equal_stringlike>;
+    transparent_hash_stringlike, transparent_equal_stringlike>;
 
 // Unordered set of `std::string`, with transparent search.
 template<typename A = std::allocator<std::string>>
 using string_unordered_set = std::unordered_set<std::string,
-    transparent_hash_stringlike, transaprent_equal_stringlike>;
+    transparent_hash_stringlike, transparent_equal_stringlike>;
 
 } // namespace containers
 } // namespace corvid

@@ -112,7 +112,8 @@ struct has_find_method<T, std::void_t<decltype(std::declval<T&>().find(
 } // namespace details
 
 template<typename T>
-constexpr bool has_find_v = details::has_find_method<T>::value;
+constexpr bool has_find_v =
+    details::has_find_method<std::remove_cvref_t<T>>::value;
 
 } // namespace finding
 } // namespace traits

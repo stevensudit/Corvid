@@ -88,7 +88,7 @@ constexpr T parse_num(std::string_view sv, std::integral auto default_value) {
 // Append integral number to `target`. Hex is prefixed with "0x" and
 // zero-padded to an appropriate size.
 template<int base = 10, size_t width = 0, char pad = ' '>
-constexpr auto& append_num(AppendTarget auto& target, Integral auto num) {
+constexpr auto& append_num(AppendTarget auto& target, Integer auto num) {
   auto a = appender{target};
   std::array<char, 64> b;
   if (auto [ptr, ec] = std::to_chars(b.data(), b.data() + b.size(), num, base);

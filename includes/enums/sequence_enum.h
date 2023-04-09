@@ -284,7 +284,6 @@ constexpr auto range_length() noexcept {
 }
 
 namespace details {
-
 // Helper function to append a sequence enum value to a target by using a list
 // of value names. Behavior is documented in `make_sequence_enum_spec`.
 template<ScopedEnum E, size_t N>
@@ -317,7 +316,6 @@ struct sequence_enum_names_spec
 
   const std::array<std::string_view, N> names;
 };
-
 } // namespace details
 
 // Make an `enum_spec_v` from a list of names, marking `E` as a sequence enum.

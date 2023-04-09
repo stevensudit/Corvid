@@ -26,6 +26,7 @@
 #include "splitting.h"
 #include "conversion.h"
 #include "fixed_string.h"
+#include "fixed_string_utils.h"
 
 // This header contains the includes for the "light" part of the strings
 // namespace, with minimal dependencies. In specific, it does not include

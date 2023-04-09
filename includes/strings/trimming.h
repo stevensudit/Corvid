@@ -93,5 +93,7 @@ add_braces(std::string_view whole, delim braces = {"[]"}) {
   return target;
 }
 
+// TODO: Consider writing versions that modify strings in place.
+
 } // namespace trimming
 } // namespace corvid::strings

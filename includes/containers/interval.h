@@ -65,7 +65,7 @@ inline namespace intervals {
 // to a larger size when possible. Ideally, it would only use a larger size if
 // necessary.
 template<typename V = int64_t, typename U = as_underlying_t<V>>
-requires Integral<V> || StdEnum<V>
+requires Integer<V> || StdEnum<V>
 class interval: public std::pair<U, U> {
 public:
   class interval_iterator {

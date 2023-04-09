@@ -850,6 +850,7 @@ void StringUtilsTest_AppendEnum() {
   EXPECT_EQ(s, "red + green, green + blue");
 }
 
+// Enlisted Marine Corps ranks.
 enum class marine_rank {
   Civilian,
   Private,
@@ -867,11 +868,11 @@ enum class marine_rank {
 
 template<>
 constexpr auto registry::enum_spec_v<marine_rank> =
-    make_sequence_enum_spec<marine_rank, wrapclip::limit>({"Civilian",
-        "Private", "PrivateFirstClass", "LanceCorporal", "Sergeant",
-        "StaffSergeant", "GunnerySergeant", "MasterSergeant", "FirstSergeant",
-        "MasterGunnerySergeant", "SergeantMajor",
-        "SergeantMajorOfTheMarineCorps"});
+    make_sequence_enum_spec<marine_rank,
+        "Civilian, Private, PrivateFirstClass, LanceCorporal, Sergeant, "
+        "StaffSergeant, GunnerySergeant, MasterSergeant, FirstSergeant, "
+        "MasterGunnerySergeant, SergeantMajor, SergeantMajorOfTheMarineCorps",
+        wrapclip::limit>();
 
 struct soldier {
   std::string name;

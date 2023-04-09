@@ -15,7 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "strings_shared.h"
+#include <iostream>
+#include <string>
+#include <string_view>
+#include <optional>
+#include <stdexcept>
 
 namespace corvid {
 inline namespace cstringview {
@@ -25,7 +29,7 @@ inline namespace cstringview {
 // The purpose of this class is to provide a drop-in replacement for
 // `std::string_view` that works seamlessly with functions that have a C string
 // interface based on `const char*`. (It also provides a shallow interface into
-// a `std::optional` of a `std::string` or `const char*`.)
+// `const char*` or a `std::optional` of a `std::string`.)
 //
 // Unlike using `std::string` for everything, this avoids the overhead of
 // copying and preserves the distinction between `empty` and `null`. This makes
@@ -50,15 +54,16 @@ inline namespace cstringview {
 // There are no guarantees possible about what's in that byte or even that it
 // can be dereferenced.
 //
-// The solution in these cases is to require the inclusion of the terminator in
-// the length passed in. The constructor can then inspect the last character to
-// ensure that it's the terminator, adjusting the length to exclude it. If the
-// terminator is not found, the constructor will throw.
+// The solution in these cases is to require the explicit inclusion of the
+// terminator in the length passed in. The constructor can then inspect the
+// last character to ensure that it's the terminator, adjusting the length to
+// exclude it. If the terminator is not found, the constructor will throw.
 //
 // Notes:
 //
-// Can be explicitly cast from `std::string_view` and implicitly cast to
-// `std::string_view` (or cast by calling `view`).
+// Can be explicitly cast from `std::string_view` (with the above proviso about
+// including the terminator) and implicitly cast to `std::string_view` (or cast
+// by calling `view`).
 //
 // The most convenient way to declare a `constexpr cstring_view` is with a
 // literal using the `_csv` UDL.
@@ -75,7 +80,8 @@ inline namespace cstringview {
 // `[foo; foo + size()]` is valid. The difference is that, when `null`, a call
 // to `c_str` returns an empty, terminated string but `data` returns `nullptr`.
 //
-// Based closely on Andrew Tomazos' wrongly-rejected ANSI committee proposal.
+// This revanchist implementation is based closely on Andrew Tomazos'
+// wrongly-rejected ANSI committee proposal.
 // http://open-std.org/JTC1/SC22/WG21/docs/papers/2019/p1402r0.pdf
 // https://github.com/cplusplus/papers/issues/189
 class cstring_view {

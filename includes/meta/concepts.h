@@ -46,25 +46,25 @@ template<typename T>
 concept ScopedEnum =
     StdEnum<T> && (!std::constructible_from<std::remove_cvref_t<T>, int>);
 
-// `T` must be an enum or integral type.
-template<typename T>
-concept IntegerOrEnum = std::is_integral_v<T> || std::is_enum_v<T>;
-
-// `T` must be a char.
-template<typename T>
-concept Char = std::same_as<std::remove_cvref_t<T>, char>;
-
 // `T` must be bool.
 template<typename T>
 concept Bool = is_bool_v<T>;
 
-// `T` must be integral but not bool.
+// `T` must be integral, excluding bool.
 template<typename T>
-concept Integral = std::integral<T> && (!Bool<T>);
+concept Integer = std::integral<T> && (!Bool<T>);
+
+// `T` must be an enum or integral type.
+template<typename T>
+concept IntegerOrEnum = Integer<T> || StdEnum<T>;
 
 // `T` must be nullptr_t.
 template<typename T>
 concept NullPtr = std::same_as<std::remove_cvref_t<T>, nullptr_t>;
+
+// `T` must be a char.
+template<typename T>
+concept Char = std::same_as<std::remove_cvref_t<T>, char>;
 
 // `T` must be convertible to `std::string_view`.
 template<typename T>
@@ -81,22 +81,21 @@ concept Dereferenceable = (
     requires(T t) { *t; } || requires(T t) { t.operator*(); });
 
 // `T` must be a bool-like type, which means it can be used in a predicate.
-// TODO: Figure out why testing for negation breaks things.
 template<typename T>
 concept BoolLike = requires(T t) { t ? 1 : 2; };
 
 // `T` must be a pointer-like type, which means it can be dereferenced and
 // used in a predicate.
 template<typename T>
-concept PointerLike = BoolLike<T> && Dereferenceable<T>;
+concept PointerLike = Dereferenceable<T> && BoolLike<T>;
 
 // `T` must be a raw pointer.
 template<typename T>
 concept RawPointer = std::is_pointer_v<std::remove_cvref_t<T>>;
 
-// `T` must be dereferenceable like a raw pointer but not be one.
+// `T` must be like a pointer but not be a raw one.
 template<typename T>
-concept SmartPointer = Dereferenceable<T> && (!RawPointer<T>);
+concept SmartPointer = PointerLike<T> && (!RawPointer<T>);
 
 // `T` must be a range.
 template<typename T>

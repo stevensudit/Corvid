@@ -17,6 +17,7 @@
 #pragma once
 #include "enums_shared.h"
 #include "../strings/lite.h"
+#include "../containers/finders.h"
 #include "enum_registry.h"
 #include "scoped_enum.h"
 
@@ -98,13 +99,11 @@ template<typename E>
 concept BitmaskEnum = (valid_bits_v<E> != 0);
 
 namespace details {
-
 template<BitmaskEnum E>
 // Guts of max_value, moved up to satisfy compiler.
 constexpr E do_max_value() noexcept {
   return E(valid_bits_v<E>);
 }
-
 } // namespace details
 
 } // namespace internal
@@ -237,7 +236,8 @@ constexpr T to_integer(BitmaskEnum auto v) noexcept {
 // 0, which is confusing but technically correct, which is the best kind of
 // correct.
 //
-// TODO: Consider making this correct even for validity masks with holes.
+// TODO: Consider making this correct even for validity masks with holes, or at
+// least failing cleanly if we can't do that.
 template<BitmaskEnum E>
 constexpr auto range_length() noexcept {
   return to_integer<size_t>(max_value<E>()) + 1;
@@ -364,7 +364,6 @@ constexpr bool missing_all(E v, E m) noexcept {
 }
 
 namespace details {
-
 // Helper function to append bitmask to target, using bit names.
 template<ScopedEnum E, size_t N>
 auto& do_bit_append(AppendTarget auto& target, E v,
@@ -439,7 +438,7 @@ auto& do_value_append(AppendTarget auto& target, E v,
 // Specialization of `bitmask_enum_spec`, adding a list of names, either for
 // the bits or the values. Use `make_bitmask_enum_spec` or
 // `make_bitmask_enum_names_spec`, respectively, to construct.
-template<ScopedEnum E, wrapclip bitclip = {}, IntegerOrEnum auto validbits = 0,
+template<ScopedEnum E, wrapclip bitclip = {}, E validbits = {},
     std::size_t N = 0>
 struct bitmask_enum_names_spec
     : public bitmask_enum_spec<E, meta::as_underlying(validbits), bitclip> {
@@ -490,7 +489,7 @@ consteval uint64_t calc_valid_bits_from_bit_names() {
 /// Whitespace is trimmed.
 template<strings::fixed_string bit_names>
 consteval uint64_t calc_valid_bits_from_value_names() {
-  static_assert(bit_names.view().find(',') != strings::npos);
+  static_assert(contains(bit_names.view(), ','));
   constexpr auto name_array = strings::fixed_split_trim<bit_names, " -">();
   uint64_t valid_bits = 0;
   for (size_t i = 1; i < name_array.size(); ++i) {
@@ -498,7 +497,6 @@ consteval uint64_t calc_valid_bits_from_value_names() {
   }
   return valid_bits;
 }
-
 } // namespace details
 
 // Make an `enum_spec_v` from its valid bits, marking `E` as a bitmask enum.
@@ -539,8 +537,8 @@ consteval auto make_bitmask_enum_spec() {
   constexpr auto name_count = name_array.size();
   constexpr auto valid_bits =
       details::calc_valid_bits_from_bit_names<bit_names>();
-  return details::bitmask_enum_names_spec<E, bitclip, valid_bits, name_count>{
-      filtered_names};
+  return details::bitmask_enum_names_spec<E, bitclip, E{valid_bits},
+      name_count>{filtered_names};
 }
 
 // Make a `enum_spec_v` from a list of value names, marking `E` as a bitmask
@@ -572,8 +570,8 @@ constexpr auto make_bitmask_enum_values_spec() {
   constexpr auto name_count = name_array.size();
   constexpr auto valid_bits =
       details::calc_valid_bits_from_value_names<bit_names>();
-  return details::bitmask_enum_names_spec<E, bitclip, valid_bits, name_count>{
-      trimmed_names};
+  return details::bitmask_enum_names_spec<E, bitclip, E{valid_bits},
+      name_count>{trimmed_names};
 }
 
 } // namespace bitmask

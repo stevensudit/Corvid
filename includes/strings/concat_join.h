@@ -302,6 +302,8 @@ enum class join_opt {
   flat_keyed = flat | keyed,
   // json - Show as JSON.
   json = braced | keyed | quoted,
+  // Max value
+  all = braced | flat | keyed | quoted | prefixed,
 };
 
 } // namespace joinoptions
@@ -311,7 +313,8 @@ template<>
 constexpr auto corvid::enums::registry::enum_spec_v<
     corvid::strings::joinoptions::join_opt> =
     corvid::enums::bitmask::make_bitmask_enum_spec<
-        corvid::strings::joinoptions::join_opt, 4>();
+        corvid::strings::joinoptions::join_opt,
+        corvid::strings::joinoptions::join_opt::all>();
 
 namespace corvid::strings {
 inline namespace registration {
@@ -573,7 +576,6 @@ append_join_with(AppendTarget auto& target, delim d, const T& parts) {
 }
 
 namespace details {
-
 // Helper for `append_join_with` parameter pack overload.
 template<join_opt opt, char open = 0, char close = 0, typename Head,
     typename... Tail>

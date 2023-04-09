@@ -17,6 +17,7 @@
 
 #pragma once
 #include "containers_shared.h"
+#include "optional_ptr.h"
 
 namespace corvid {
 inline namespace finders {
@@ -38,19 +39,20 @@ inline namespace finders {
 // Even works for arrays, but not arrays decayed into pointers (because we
 // can't determine the size, then).
 template<bool keyed = false>
-[[nodiscard]] auto find_opt(Findable auto& c, const auto& k) {
+[[nodiscard]] constexpr auto find_opt(Findable auto&& c, const auto& k) {
   return internal::optional_ptr{it_to_ptr<keyed>(c, c.find(k))};
 }
 
 template<bool keyed = false>
-[[nodiscard]] auto find_opt(RangeWithoutFind auto& c, const auto& k) {
+[[nodiscard]] constexpr auto
+find_opt(RangeWithoutFind auto&& c, const auto& k) {
   using namespace std;
   return internal::optional_ptr{
       it_to_ptr<keyed>(c, std::find(begin(c), end(c), k))};
 }
 
 // Determine whether the container has the key.
-[[nodiscard]] bool contains(auto& c, const auto& k) {
+[[nodiscard]] constexpr bool contains(auto&& c, const auto& k) {
   return find_opt(c, k).has_value();
 }
 

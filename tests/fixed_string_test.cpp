@@ -15,15 +15,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <cstdint>
-#include <map>
-#include <set>
-
 #include "../includes/strings/fixed_string.h"
+#include "../includes/strings/fixed_string_utils.h"
 #include "AccutestShim.h"
 
 using namespace std::literals;
 using namespace corvid;
+using namespace corvid::literals;
 
 template<strings::fixed_string W>
 constexpr std::string_view GetFixedString() {
@@ -35,9 +33,16 @@ constexpr std::string_view GetSecondString() {
   return strings::fixed_split<W>()[1];
 }
 
+template<strings::fixed_string W>
+constexpr cstring_view GetFixedCString() {
+  return W.cview();
+}
+
 consteval auto test_ceval() { return GetFixedString<"abc">(); }
 
 consteval auto test_split() { return GetSecondString<"abc,def">(); }
+
+consteval auto test_cstr() { return GetFixedCString<"abc">(); }
 
 void FixedStringTest_General() {
   std::string_view s;
@@ -58,6 +63,9 @@ void FixedStringTest_General() {
       (strings::fixed_split_trim<"   abc   ,    ,  def   ">()));
   EXPECT_EQ((std::array{"abc"sv, ""sv, "def"sv}),
       (strings::fixed_split_trim<"- -- abc  - ,  --  ,  def  -- ", " -">()));
+
+  auto cs = test_cstr();
+  EXPECT_EQ(ceval, "abc"_csv);
 }
 
 MAKE_TEST_LIST(FixedStringTest_General);
