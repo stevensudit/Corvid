@@ -242,8 +242,8 @@ public:
     return data() ? data() : "";
   }
 
-  // Quirky but convenient Boolean.
-  constexpr explicit operator bool() const noexcept { return size(); }
+  // The precedent for this is `std::optional`.
+  constexpr explicit operator bool() const noexcept { return !null(); }
 
   // Essentially `operator===`, distinguishing between empty and null.
   constexpr bool same(cstring_view v) const noexcept {

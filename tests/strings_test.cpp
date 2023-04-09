@@ -1021,10 +1021,14 @@ void StringUtilsTest_AppendJson() {
     const char* p{};
     strings::append_json(s, p);
     EXPECT_EQ(s, R"(null)");
+    s.clear();
+    strings::append_json(s, cstring_view{});
+    EXPECT_EQ(s, R"(null)");
+    s.clear();
+    strings::append_json(s, cstring_view{""});
+    EXPECT_EQ(s, R"("")");
   }
 }
-
-// TODO: Add a test for printing a null cstring_view.
 
 MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_Split, StringUtilsTest_ParseNum, StringUtilsTest_Case,
