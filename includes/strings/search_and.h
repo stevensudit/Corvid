@@ -26,7 +26,7 @@ inline namespace search_and {
 
 // Return whether `value` was found in `s`, starting at `ndx`, updating `ndx`.
 bool found_next(size_t& ndx, std::string_view s, const auto& value) {
-  return (ndx = s.find(value, ndx)) != npos;
+  return (ndx = s.find(value, ndx)) != s.npos;
 }
 
 // Replace instances of `from` in `s` with `to`, returning count of

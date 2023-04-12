@@ -33,7 +33,7 @@ template<typename R = std::string_view>
 [[nodiscard]] constexpr auto trim_left(std::string_view whole, delim ws = {}) {
   auto pos = ws.find_not_in(whole);
   std::string_view part;
-  if (pos != npos) part = whole.substr(pos);
+  if (pos != part.npos) part = whole.substr(pos);
   return R{part};
 }
 

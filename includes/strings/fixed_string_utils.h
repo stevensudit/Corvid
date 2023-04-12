@@ -30,7 +30,7 @@ consteval auto fixed_split() {
   constexpr auto whole = W.view();
   constexpr auto delim = D.view();
   constexpr auto n = std::count_if(whole.begin(), whole.end(), [&](char c) {
-    return delim.find(c) != std::string_view::npos;
+    return delim.find(c) != delim.npos;
   });
   std::array<std::string_view, n + 1> result;
 

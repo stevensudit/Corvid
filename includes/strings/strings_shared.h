@@ -34,6 +34,5 @@ namespace corvid::strings {
 
 // Import.
 using namespace std::literals;
-constexpr size_t npos = -1;
 
 } // namespace corvid::strings
