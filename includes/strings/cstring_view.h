@@ -110,7 +110,8 @@ public:
   //
   // Always works.
   constexpr cstring_view() noexcept {}
-  constexpr cstring_view(std::nullptr_t) {}
+  constexpr cstring_view(std::nullptr_t) noexcept {}
+  constexpr cstring_view(std::nullopt_t) noexcept {}
 
   constexpr cstring_view(const cstring_view&) = default;
   constexpr cstring_view(const std::string& s) noexcept : sv_(s) {}
@@ -124,6 +125,11 @@ public:
   constexpr explicit cstring_view(std::string_view sv) : sv_(from_sv(sv)) {}
   constexpr explicit cstring_view(const char* ps, size_type len)
       : sv_(from_sv(std::string_view{ps, len})) {}
+  template<std::contiguous_iterator It, std::sized_sentinel_for<It> End>
+  requires std::same_as<std::iter_value_t<It>, char> &&
+           (!std::convertible_to<End, size_type>)
+  constexpr cstring_view(It first, End last)
+      : cstring_view(std::to_address(first), last - first) {}
 
   // Optional as null.
   template<typename T>
