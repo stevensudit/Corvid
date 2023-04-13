@@ -20,7 +20,7 @@
 #include "strings/fixed_string.h"
 #include "strings/fixed_string_utils.h"
 #include "strings/cases.h"
-#include "strings/search_and.h"
+#include "strings/locating.h"
 #include "strings/targeting.h"
 #include "strings/delimiting.h"
 #include "strings/streaming.h"

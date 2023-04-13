@@ -17,7 +17,7 @@
 #pragma once
 #include "strings_shared.h"
 #include "cases.h"
-#include "search_and.h"
+#include "locating.h"
 #include "targeting.h"
 #include "delimiting.h"
 #include "streaming.h"
