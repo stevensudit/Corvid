@@ -134,17 +134,40 @@ void StringUtilsTest_Case() {
   EXPECT_EQ(a, "ABCDEFGHIJ"sv);
 }
 
-void StringUtilsTest_Find() {
+void StringUtilsTest_Locate() {
   using strings::location;
+  constexpr size_t npos = -1;
   if (true) {
     constexpr auto s = "abcdefghij"sv;
+    constexpr auto l = s.size();
     EXPECT_EQ(strings::locate(s, "def"), 3);
     EXPECT_EQ(strings::locate(s, 'd'), 3);
-    EXPECT_EQ(strings::locate(s, {'x', 'i', 'y'}), (location{8ull, 1ull}));
-    EXPECT_EQ(strings::locate(s, std::array{'x', 'i', 'y'}),
-        (location{8ull, 1ull}));
-    EXPECT_EQ(strings::locate(s, {"a0c"sv, "def"s, "g0i"}),
-        (location{3ull, 1ull}));
+    EXPECT_EQ(strings::locate(s, {'x', 'i', 'y'}), (location{8, 1}));
+    EXPECT_EQ(strings::locate(s, std::array{'x', 'i', 'y'}), (location{8, 1}));
+    EXPECT_EQ(strings::locate(s, {"a0c"sv, "def"s, "g0i"}), (location{3, 1}));
+    // Edge cases.
+    EXPECT_EQ(strings::locate(s, "def", l), npos);
+    EXPECT_EQ(strings::locate(s, "def", npos), npos);
+    //
+    EXPECT_EQ(strings::locate(s, 'd', l), npos);
+    EXPECT_EQ(strings::locate(s, 'd', npos), npos);
+    //
+    EXPECT_EQ(strings::locate(s, {'x', 'i', 'y'}, l), (location{npos, npos}));
+    EXPECT_EQ(strings::locate(s, {'x', 'i', 'y'}, npos),
+        (location{npos, npos}));
+    //
+    EXPECT_EQ(strings::locate(s, {"a0c"sv, "def"s, "g0i"}, l),
+        (location{npos, npos}));
+    EXPECT_EQ(strings::locate(s, {"a0c"sv, "def"s, "g0i"}, npos),
+        (location{npos, npos}));
+    //
+    EXPECT_EQ(strings::locate(s, ""), 0);
+    EXPECT_EQ(strings::locate(s, "", l), l);
+    EXPECT_EQ(strings::locate(s, "", l + 1), npos);
+    //
+    EXPECT_EQ(strings::locate(s, {"x", ""}), (location{0, 1}));
+    EXPECT_EQ(strings::locate(s, {"x", ""}, l), (location{l, 1}));
+    EXPECT_EQ(strings::locate(s, {"x", ""}, l + 1), (location{npos, npos}));
   }
   if (true) {
     constexpr auto t = "abcabcabc"sv;
@@ -160,7 +183,7 @@ void StringUtilsTest_Find() {
     EXPECT_EQ(pos, 6);
     ++pos;
     EXPECT_EQ(strings::located(pos, t, a), false);
-    EXPECT_EQ(pos, -1);
+    EXPECT_EQ(pos, npos);
   }
   if (true) {
     constexpr auto t = "abcabcabc"sv;
@@ -176,20 +199,77 @@ void StringUtilsTest_Find() {
     EXPECT_EQ(pos, 6);
     pos += abc.size();
     EXPECT_EQ(strings::located(pos, t, abc), false);
-    EXPECT_EQ(pos, -1);
+    EXPECT_EQ(pos, npos);
   }
-  // TODO: Test strings::located with multiple values, ensuring that we find
-  // different ones so that we can confirm the increment algo.
-  // Then expand the replace to handle multiple values.
-  // After that, move on to the splitter, working on adding a filter predicate
-  // and perhaps allowing assignment to arbitrarty containers.
+  if (true) {
+    constexpr auto s = "abxabcybc"sv;
+    location pos;
+    const auto xy = {'x', 'y'};
+    // TODO: Add call using span and array
+    EXPECT_EQ(strings::located(pos, s, xy), true);
+    EXPECT_EQ(pos.ndx, 2);
+    ++pos.ndx;
+    EXPECT_EQ(strings::located(pos, s, xy), true);
+    EXPECT_EQ(pos.ndx, 6);
+    ++pos.ndx;
+    EXPECT_EQ(strings::located(pos, s, xy), false);
+    EXPECT_EQ(pos.ndx, npos);
+    pos.ndx = 0;
+    const auto axy = std::array<const char, 2>{'x', 'y'};
+    const auto sxy = std::span<const char>{axy};
+    // TODO: Figure out why we can't pass axy directly.
+    EXPECT_EQ(strings::located(pos, s, sxy), true);
+  }
+  if (true) {
+    constexpr auto s = "abxabcbcab"sv;
+    location pos;
+    // If the next line used regular string literals, we'd get a compiler
+    // error.
+    // TODO: Fix the as_span to work with string literals.
+    const auto abcbc = {"ab"sv, "cbc"sv};
+    EXPECT_EQ(strings::located(pos, s, abcbc), true);
+    EXPECT_EQ(pos.ndx, 0);
+    EXPECT_EQ(pos.ndx_value, 0);
+    strings::point_past(pos, abcbc);
+    EXPECT_EQ(strings::located(pos, s, abcbc), true);
+    EXPECT_EQ(pos.ndx, 3);
+    EXPECT_EQ(pos.ndx_value, 0);
+    strings::point_past(pos, abcbc);
+    EXPECT_EQ(strings::located(pos, s, abcbc), true);
+    EXPECT_EQ(pos.ndx, 5);
+    EXPECT_EQ(pos.ndx_value, 1);
+    strings::point_past(pos, abcbc);
+    EXPECT_EQ(strings::located(pos, s, abcbc), true);
+    EXPECT_EQ(pos.ndx, 8);
+    EXPECT_EQ(pos.ndx_value, 0);
+    strings::point_past(pos, abcbc);
+    EXPECT_EQ(strings::located(pos, s, abcbc), false);
+    pos.ndx = 0;
+    const auto axy = std::array<const std::string_view, 2>{"x"sv, "y"sv};
+    const auto sxy = std::span<const std::string_view>{axy};
+    // TODO: Figure out why we can't pass axy directly.
+    EXPECT_EQ(strings::located(pos, s, sxy), true);
+  }
+  if (true) {
+    constexpr auto s = "abcdefghijabcdefghijaaa"sv;
+    EXPECT_EQ(strings::count_located(s, 'a'), 5);
+    EXPECT_EQ(strings::count_located(s, 'b'), 2);
+    EXPECT_EQ(strings::count_located(s, "def"), 2);
+    EXPECT_EQ(strings::count_located(s, "aa"), 1);
+    // Next line would, correctly, go into an infinite loop.
+    // * EXPECT_EQ(strings::count_located(s, ""), npos);
+  }
+
+  // TODO: Test count_located with multiple values. Then expand the replace to
+  // handle multiple values. After that, move on to the splitter, working on
+  // adding a filter predicate and perhaps allowing assignment to arbitrarty
+  // containers.
 }
 
 void StringUtilsTest_Replace() {
   std::string s;
 
   s = "abcdefghij";
-#if 0
   EXPECT_EQ(0, strings::replace(s, "bac", "yyy"));
   EXPECT_EQ(s, "abcdefghij");
   EXPECT_EQ(1, strings::replace(s, "abc", "yyy"));
@@ -199,7 +279,7 @@ void StringUtilsTest_Replace() {
   EXPECT_EQ(3, strings::replace(s, 'z', 'x'));
   EXPECT_EQ(s, "xxxdefghij");
   EXPECT_EQ(strings::replaced("abcdef", "abc", "yyy"), "yyydef");
-#endif
+  // TODO: Add tests for the multiple-value versions.
 }
 
 template<AppendTarget T>
@@ -1090,7 +1170,7 @@ void StringUtilsTest_AppendJson() {
 
 MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_Split, StringUtilsTest_ParseNum, StringUtilsTest_Case,
-    StringUtilsTest_Find, StringUtilsTest_Replace, StringUtilsTest_Target,
+    StringUtilsTest_Locate, StringUtilsTest_Replace, StringUtilsTest_Target,
     StringUtilsTest_Print, StringUtilsTest_Trim, StringUtilsTest_AppendNum,
     StringUtilsTest_Append, StringUtilsTest_Edges, StringUtilsTest_Streams,
     StringUtilsTest_AppendEnum, StringUtilsTest_AppendStream,

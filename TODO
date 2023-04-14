@@ -17,4 +17,6 @@ h. strings_test needs more tests.
 
 6. Test enums with int64.
 
+7. Add noexcept wherever it fits.
+
 Next target: JSON encoding of strings.
