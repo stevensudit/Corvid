@@ -63,8 +63,8 @@ template<typename V = std::string,
 using string_map = std::map<std::string, V, transparent_less_stringlike, A>;
 
 // Set of `std::string`, with transparent search.
-template<typename A = std::allocator<std::string>>
-using string_set = std::set<std::string, transparent_less_stringlike, A>;
+using string_set = std::set<std::string, transparent_less_stringlike,
+    std::allocator<std::string>>;
 
 // Unordered map keyed by `std::string`, with transparent search.
 template<typename V = std::string>
@@ -72,9 +72,9 @@ using string_unordered_map = std::unordered_map<std::string, V,
     transparent_hash_stringlike, transparent_equal_stringlike>;
 
 // Unordered set of `std::string`, with transparent search.
-template<typename A = std::allocator<std::string>>
-using string_unordered_set = std::unordered_set<std::string,
-    transparent_hash_stringlike, transparent_equal_stringlike>;
+using string_unordered_set =
+    std::unordered_set<std::string, transparent_hash_stringlike,
+        transparent_equal_stringlike, std::allocator<std::string>>;
 
 } // namespace containers
 } // namespace corvid

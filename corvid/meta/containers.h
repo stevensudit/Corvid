@@ -18,7 +18,8 @@
 #include "./meta_shared.h"
 #include "./concepts.h"
 
-namespace corvid::meta {
+namespace corvid {
+inline namespace meta {
 inline namespace containers {
 
 // Containers
@@ -75,4 +76,5 @@ consteval auto search_and_replace(std::array<std::string, N> values,
 }
 
 } // namespace containers
-} // namespace corvid::meta
+} // namespace meta
+} // namespace corvid

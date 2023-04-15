@@ -55,8 +55,9 @@ inline constexpr std::span<const std::string_view> as_span(
     std::initializer_list<std::string_view> values) noexcept {
   return {values.begin(), values.end()};
 }
-inline constexpr std::span<const std::string_view> as_span(
-    std::span<const StringViewConvertible auto> values) noexcept {
+template<StringViewConvertible T>
+inline constexpr std::span<const std::string_view>
+as_span(std::span<const T> values) noexcept {
   return values;
 }
 } // namespace details
@@ -84,16 +85,18 @@ constexpr size_t value_size(const SingleLocateValue auto& value) noexcept {
 // returning it as well. This can be used with `located` to loop over located
 // values. Note that you cannot safely use it before the first call to `locate`
 // or when `locate` fails because `ndx_value` must be valid.
+template<typename T>
 constexpr size_t
-point_past(location& indexes, std::span<const auto> values) noexcept {
+point_past(location& indexes, std::span<const T> values) noexcept {
   assert(indexes.ndx_value < values.size());
   indexes.ndx += value_size(values[indexes.ndx_value]);
   return indexes.ndx;
 }
 
 // Same as point_past above, but for an initializer list.
-constexpr size_t point_past(location& indexes,
-    std::initializer_list<SingleLocateValue auto> values) noexcept {
+template<SingleLocateValue T>
+constexpr size_t
+point_past(location& indexes, std::initializer_list<T> values) noexcept {
   return point_past(indexes, details::as_span(values));
 }
 
@@ -190,12 +193,14 @@ constexpr bool located(size_t& ndx, std::string_view s,
 //  `value`. For `char`, the size of the located value is just 1. For
 //  `std::string_view`, this is its `size`, which is most easily found by
 //  calling `point_past` on `indexes`
+template<SingleLocateValue T>
 constexpr bool located(location& indexes, std::string_view s,
-    std::span<const SingleLocateValue auto> values) noexcept {
+    std::span<const T> values) noexcept {
   return (indexes = locate(s, values, indexes.ndx)).ndx != s.npos;
 }
+template<typename T>
 constexpr bool located(location& indexes, std::string_view s,
-    std::initializer_list<auto> values) noexcept {
+    std::initializer_list<T> values) noexcept {
 #if 0
   return (indexes = locate(s, details::as_span(values), indexes.ndx)).ndx !=
          s.npos;

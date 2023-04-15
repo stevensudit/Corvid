@@ -20,7 +20,8 @@
 #include "enum_registry.h"
 #include "scoped_enum.h"
 
-namespace corvid::enums {
+namespace corvid {
+inline namespace enums {
 namespace sequence {
 
 //
@@ -63,10 +64,11 @@ namespace sequence {
 //    constexpr auto registry::enum_spec_v<tiger_pick> =
 //        make_sequence_enum_spec<tiger_pick, "eeny, meany, miny, moe">();
 
-template<ScopedEnum E, E maxseq = E{}, E minseq = E{}, wrapclip wrapseq = {}>
+template<ScopedEnum E, E maxseq = E{}, E minseq = E{},
+    wrapclip wrapseq = wrapclip{}>
 struct sequence_enum_spec
     : public registry::scoped_enum_spec<E, minseq, maxseq, true, wrapseq, 0,
-          {}> {};
+          wrapclip{}> {};
 
 // Concept for sequential enum.
 template<typename E>
@@ -303,8 +305,8 @@ auto& do_seq_append(AppendTarget auto& target, E v,
 
 // Specialization of `sequence_enum_spec`, adding a list of names for the
 // values. Use `make_sequence_enum_spec` to construct.
-template<ScopedEnum E, E maxseq = E{}, E minseq = {}, wrapclip wrapseq = {},
-    size_t N = 0>
+template<ScopedEnum E, E maxseq = E{}, E minseq = E{},
+    wrapclip wrapseq = wrapclip{}, size_t N = 0>
 struct sequence_enum_names_spec
     : public sequence_enum_spec<E, maxseq, minseq, wrapseq> {
   constexpr sequence_enum_names_spec(std::array<std::string_view, N> name_list)
@@ -332,8 +334,8 @@ struct sequence_enum_names_spec
 // Prints the matching name for the value. If it is not in the range of the
 // names, or if the name for that value is empty, the numerical value is
 // printed.
-template<ScopedEnum E, strings::fixed_string names, wrapclip wrapseq = {},
-    E minseq = E{}>
+template<ScopedEnum E, strings::fixed_string names,
+    wrapclip wrapseq = wrapclip{}, E minseq = E{}>
 constexpr auto make_sequence_enum_spec() {
   constexpr auto name_array = strings::fixed_split_trim<names, " -?*">();
   constexpr auto name_count = name_array.size();
@@ -351,7 +353,7 @@ constexpr auto make_sequence_enum_spec() {
 // Set `wrapseq` to `wrapclip::limit` to enable wrapping.
 //
 // The numerical value is printed.
-template<ScopedEnum E, E maxseq, E minseq = E{}, wrapclip wrapseq = {}>
+template<ScopedEnum E, E maxseq, E minseq = E{}, wrapclip wrapseq = wrapclip{}>
 constexpr auto make_sequence_enum_spec() {
   return sequence_enum_spec<E, maxseq, minseq, wrapseq>{};
 }
@@ -373,4 +375,5 @@ constexpr auto make_sequence_enum_spec() {
 // benefit from anything more than numeric output.
 
 } // namespace sequence
-} // namespace corvid::enums
+} // namespace enums
+} // namespace corvid

@@ -56,7 +56,7 @@ template<typename R = std::string_view>
 constexpr void trim(Container auto& wholes, const delim ws = {}) {
   for (auto& item : wholes) {
     auto& part = element_value(item);
-    part = trim<std::remove_reference_t<decltype(part)>>(part);
+    part = trim<std::remove_reference_t<decltype(part)>>(part, ws);
   }
 }
 

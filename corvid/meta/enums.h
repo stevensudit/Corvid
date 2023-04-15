@@ -17,7 +17,8 @@
 #pragma once
 #include "./meta_shared.h"
 
-namespace corvid::meta {
+namespace corvid {
+inline namespace meta {
 inline namespace enums {
 
 // Enums
@@ -61,13 +62,17 @@ constexpr auto min_scoped_enum_v =
     static_cast<E>(std::numeric_limits<as_underlying_t<E>>::min());
 
 // Maximum value of enum, based on its underlying type.
+PRAGMA_clang_push;
+PRAGMA_clang_enum_constexpr_conversion;
 template<ScopedEnum E>
 constexpr auto max_scoped_enum_v =
     static_cast<E>(std::numeric_limits<as_underlying_t<E>>::max());
+PRAGMA_clang_pop;
 
 // Note:
 // std::popcount() gives us how many bits are set.
-// std::bit_width() gives us how many bits are required to represent the value.
+// std::bit_width() gives us how many bits are required to represent the
+// value.
 
 // Compile-time pow2.
 constexpr uint64_t pow2(uint64_t n) { return n < 64 ? 1ull << n : 0ull; }
@@ -77,4 +82,5 @@ constexpr uint64_t pow2(uint64_t n) { return n < 64 ? 1ull << n : 0ull; }
 constexpr uint64_t highest_value_in_n_bits(uint64_t n) { return pow2(n) - 1; }
 
 } // namespace enums
-} // namespace corvid::meta
+} // namespace meta
+} // namespace corvid

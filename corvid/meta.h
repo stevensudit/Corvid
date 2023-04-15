@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "meta/meta_shared.h"
+#include "meta/pragmas.h"
 #include "meta/traits.h"
 #include "meta/concepts.h"
 #include "meta/enums.h"

@@ -340,7 +340,7 @@ public:
 
   constexpr U max() const noexcept { return e() - 1; }
   constexpr interval& max(U u) noexcept {
-    assert(u < max_size());
+    assert(static_cast<size_t>(u) < max_size());
     e() = u + 1;
     return *this;
   }

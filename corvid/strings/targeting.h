@@ -50,7 +50,7 @@ struct appender_crtp {
   auto& append(char ch) { return child().append_ch(1, ch); }
   auto& append(size_t len, char ch) { return child().append_ch(len, ch); }
 
-  auto& reserve(size_t len) { return *this; }
+  auto& reserve(size_t) { return *this; }
 
   T& operator*() { return target; }
   T* operator->() { return &target; }

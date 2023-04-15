@@ -114,7 +114,8 @@ public:
   operator std::optional<std::string_view>() const noexcept {
     return *this ? *this : std::nullopt;
   }
-  constexpr void swap(std::optional<auto>& other) noexcept {
+  template<typename T>
+  constexpr void swap(std::optional<T>& other) noexcept {
     opt_string_view tmp = *this;
     *this = other;
     other = tmp;

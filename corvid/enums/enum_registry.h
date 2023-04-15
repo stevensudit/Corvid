@@ -22,7 +22,8 @@
 // in both "bitmask_enum.h" and "sequence_enum.h". It does get included by
 // "strings/conversion.h" for access to  `enum_spec_v`.
 
-namespace corvid::enums {
+namespace corvid {
+inline namespace enums {
 
 // Whether or not to limit the value, as by wrapping or clipping, when it
 // exceeds the range of the enum.
@@ -34,7 +35,8 @@ namespace registry {
 // anything.
 template<ScopedEnum E, E minseq = min_scoped_enum_v<E>,
     E maxseq = max_scoped_enum_v<E>, bool validseq = false,
-    wrapclip wrapseq = {}, uint64_t validbits = 0, wrapclip bitclip = {}>
+    wrapclip wrapseq = wrapclip{}, uint64_t validbits = 0,
+    wrapclip bitclip = wrapclip{}>
 struct base_enum_spec {
   using U = as_underlying_t<E>;
   static constexpr E seq_min_v = minseq;
@@ -57,4 +59,5 @@ template<typename T, typename... Ts>
 constexpr auto enum_spec_v = base_enum_spec<std::byte>();
 
 } // namespace registry
-} // namespace corvid::enums
+} // namespace enums
+} // namespace corvid

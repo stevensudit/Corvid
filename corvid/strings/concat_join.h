@@ -84,10 +84,28 @@ concept StreamAppendable = stream_append_v<T>;
 // *candidates* for native appending, not guaranteed to be appendable. This is
 // always a partial, necessary requirement, not a sufficient one.
 template<typename T>
-concept Appendable = (!AppendableOverridden<T>) && (!StreamAppendable<T>);
+concept Appendable = (!AppendableOverridden<T>)&&(!StreamAppendable<T>);
 
 } // namespace registration
+inline namespace existing {
+// We want to be able to check if something exists by using it as a predicate,
+// whether it's a pointer or an optional or something similar, but this angers
+// gcc, so we isolate it.
+PRAGMA_gcc_push;
+PRAGMA_gcc_waddress;
+PRAGMA_gcc_non_nullcompare;
+inline constexpr bool is_present(const BoolLike auto& p) {
+  return (p) ? true : false;
+}
+PRAGMA_gcc_pop;
 
+// If it's not like a bool, then it's always present.
+template<typename T>
+requires(!BoolLike<T>)
+inline constexpr bool is_present(const T&) {
+  return true;
+}
+} // namespace existing
 inline namespace appending {
 
 //
@@ -134,16 +152,15 @@ inline namespace appending {
 // If the class can already stream out to `std::ostream`, you can support it
 // for append just by enabling `stream_append_v`.
 
-// Append one stringlike thing to `target`.
-// If passed a `const char*` of `nullptr`, it is appended as "null".
+// Append one stringlike thing to `target`. If it's not present, append "null".
 template<StringViewConvertible T>
 requires Appendable<T>
 constexpr auto& append(AppendTarget auto& target, const T& part) {
   auto a = appender{target};
-  if constexpr (BoolLike<T>)
-    a.append(part ? std::string_view{part} : "null"sv);
+  if (is_present(part))
+    a.append(std::string_view{part});
   else
-    a.append(part);
+    a.append("null"sv);
   return target;
 }
 
@@ -214,7 +231,7 @@ constexpr auto& append(AppendTarget auto& target, const T& parts) {
 }
 
 // Apppend one monostate to `target`, as "null".
-constexpr auto& append(AppendTarget auto& target, const MonoState auto& part) {
+constexpr auto& append(AppendTarget auto& target, const MonoState auto&) {
   return append(target, nullptr);
 }
 
@@ -470,8 +487,7 @@ constexpr auto& append_join_with(AppendTarget auto& target, delim d,
   constexpr bool add_braces = decode::braces_v<opt, open, close>;
   constexpr bool add_quotes =
       (StringViewConvertible<T> || StdEnum<T>)&&decode::quoted_v<opt>;
-  bool not_null = true;
-  if constexpr (BoolLike<T>) not_null = (part) ? true : false;
+  bool not_null = is_present(part);
 
   d.append_if<decode::delimit_v<opt>>(target);
 

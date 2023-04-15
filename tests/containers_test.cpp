@@ -92,7 +92,7 @@ void OptionalPtrTest_Access() {
     f = o;
 
     o.reset(&test);
-    EXPECT_EQ(o->size(), 4);
+    EXPECT_EQ(o->size(), 4u);
   }
   if (true) {
     auto const test{"test"s};
@@ -100,7 +100,7 @@ void OptionalPtrTest_Access() {
     auto p = o.get();
     // * o.get()->resize(test.size());
     p++;
-    p[6];
+    (void)p[6];
     p = p + 1;
     // * o++;
     // * o[6];
@@ -180,7 +180,7 @@ void OptionalPtrTest_Smart() {
     // * f = o;
 
     o.reset(std::make_unique<std::string>(test));
-    EXPECT_EQ(o->size(), 4);
+    EXPECT_EQ(o->size(), 4u);
   }
   if (true) {
     auto test{"test"s};
@@ -206,7 +206,7 @@ void OptionalPtrTest_Smart() {
     // not a predicate context.
     // * f = o;
 
-    EXPECT_EQ(o->size(), 4);
+    EXPECT_EQ(o->size(), 4u);
   }
 }
 
@@ -276,8 +276,6 @@ void FindOptTest_Vectors() {
 }
 
 void FindOptTest_Arrays() {
-  using E = int;
-  using K = int;
   int s[]{1, 2, 3, 4};
   using C = decltype(s);
   EXPECT_EQ(*find_opt(s, 3), 3);
@@ -297,7 +295,6 @@ void FindOptTest_Strings() {
   }
   if (true) {
     using C = std::string_view;
-    using K = char;
     C s{"value"};
     EXPECT_EQ(*find_opt(s, 'a'), 'a');
     EXPECT_FALSE(contains(s, 'z'));
@@ -345,7 +342,7 @@ void Intervals_Ctors() {
     interval i{42};
     EXPECT_FALSE(i.empty());
     EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1);
+    EXPECT_EQ(i.size(), 1u);
     EXPECT_EQ(i.front(), 42);
     EXPECT_EQ(i.back(), 42);
   }
@@ -353,7 +350,7 @@ void Intervals_Ctors() {
     interval i{40, 42};
     EXPECT_FALSE(i.empty());
     EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 3);
+    EXPECT_EQ(i.size(), 3u);
     EXPECT_EQ(i.front(), 40);
     EXPECT_EQ(i.back(), 42);
   }
@@ -375,21 +372,21 @@ void IntervalTest_Insert() {
     EXPECT_TRUE(i.insert(0));
     EXPECT_FALSE(i.empty());
     EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1);
+    EXPECT_EQ(i.size(), 1u);
     EXPECT_EQ(i.front(), 0);
     EXPECT_EQ(i.back(), 0);
 
     EXPECT_TRUE(i.insert(5));
     EXPECT_FALSE(i.empty());
     EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 6);
+    EXPECT_EQ(i.size(), 6u);
     EXPECT_EQ(i.front(), 0);
     EXPECT_EQ(i.back(), 5);
 
     EXPECT_TRUE(i.insert(-5));
     EXPECT_FALSE(i.empty());
     EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 11);
+    EXPECT_EQ(i.size(), 11u);
     EXPECT_EQ(i.front(), -5);
     EXPECT_EQ(i.back(), 5);
 
@@ -401,19 +398,19 @@ void IntervalTest_Insert() {
     interval i{5};
     EXPECT_FALSE(i.empty());
     EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1);
+    EXPECT_EQ(i.size(), 1u);
 
     EXPECT_FALSE(i.push_back(0));
     EXPECT_FALSE(i.push_back(5));
     EXPECT_TRUE(i.push_back(6));
     EXPECT_TRUE(i.push_back(7));
     EXPECT_FALSE(i.push_back(6));
-    EXPECT_EQ(i.size(), 3);
+    EXPECT_EQ(i.size(), 3u);
     EXPECT_EQ(i.front(), 5);
     EXPECT_EQ(i.back(), 7);
 
     i.pop_back();
-    EXPECT_EQ(i.size(), 2);
+    EXPECT_EQ(i.size(), 2u);
     EXPECT_EQ(i.front(), 5);
     EXPECT_EQ(i.back(), 6);
     i.pop_back(2);
@@ -423,7 +420,7 @@ void IntervalTest_Insert() {
     interval i{5};
     EXPECT_FALSE(i.empty());
     EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1);
+    EXPECT_EQ(i.size(), 1u);
 
     EXPECT_FALSE(i.push_front(7));
     EXPECT_FALSE(i.push_front(6));
@@ -431,12 +428,12 @@ void IntervalTest_Insert() {
     EXPECT_TRUE(i.push_front(4));
     EXPECT_TRUE(i.push_front(3));
     EXPECT_FALSE(i.push_front(6));
-    EXPECT_EQ(i.size(), 3);
+    EXPECT_EQ(i.size(), 3u);
     EXPECT_EQ(i.front(), 3);
     EXPECT_EQ(i.back(), 5);
 
     i.pop_front();
-    EXPECT_EQ(i.size(), 2);
+    EXPECT_EQ(i.size(), 2u);
     EXPECT_EQ(i.front(), 4);
     EXPECT_EQ(i.back(), 5);
     i.pop_front(2);
@@ -564,8 +561,8 @@ void TransparentTest_General() {
   if (true) {
     std::map<std::string, int> m;
     string_map<int> tm;
-    EXPECT_EQ(m.size(), 0);
-    EXPECT_EQ(tm.size(), 0);
+    EXPECT_EQ(m.size(), 0u);
+    EXPECT_EQ(tm.size(), 0u);
     m[ks] = 42;
     tm[ks] = 42;
     // * tm[ksv] = 42; // error: no match for ‘operator[]’

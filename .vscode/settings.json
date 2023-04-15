@@ -68,7 +68,18 @@
         "numeric": "cpp",
         "random": "cpp",
         "numbers": "cpp",
-        "unordered_set": "cpp"
+        "unordered_set": "cpp",
+        "list": "cpp",
+        "bitset": "cpp",
+        "chrono": "cpp",
+        "condition_variable": "cpp",
+        "ratio": "cpp",
+        "mutex": "cpp",
+        "semaphore": "cpp",
+        "shared_mutex": "cpp",
+        "stop_token": "cpp",
+        "thread": "cpp",
+        "cinttypes": "cpp"
     },
     "C_Cpp.errorSquiggles": "Disabled",
 }

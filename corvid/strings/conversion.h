@@ -260,8 +260,7 @@ constexpr bool stream_append_v = false;
 
 // Append streamable `t` to `target`.
 // TODO: Add support for escaping.
-constexpr auto&
-append_stream(AppendTarget auto& target, const OStreamable auto& t) {
+auto& append_stream(AppendTarget auto& target, const OStreamable auto& t) {
   if constexpr (StringViewConvertible<decltype(target)>) {
     std::stringstream s;
     s << t;

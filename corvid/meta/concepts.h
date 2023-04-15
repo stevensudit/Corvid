@@ -18,7 +18,8 @@
 #include "./meta_shared.h"
 #include "./traits.h"
 
-namespace corvid::meta {
+namespace corvid {
+inline namespace meta {
 inline namespace concepts {
 
 // `T` must be a type derived from `std::ostream`.
@@ -60,11 +61,15 @@ concept IntegerOrEnum = Integer<T> || StdEnum<T>;
 
 // `T` must be nullptr_t.
 template<typename T>
-concept NullPtr = std::same_as<std::remove_cvref_t<T>, nullptr_t>;
+concept NullPtr = std::same_as<std::remove_cvref_t<T>, std::nullptr_t>;
 
 // `T` must be a char.
 template<typename T>
 concept Char = std::same_as<std::remove_cvref_t<T>, char>;
+
+// `T` must be a char*.
+template<typename T>
+concept CharPtr = std::same_as<std::remove_cvref_t<T>, char*>;
 
 // `T` must be convertible to `std::string_view`.
 template<typename T>
@@ -104,8 +109,8 @@ concept Range = std::ranges::range<T>;
 // `T` must be `std::optional` or act like it.
 template<typename T>
 concept OptionalLike =
-    Dereferenceable<T> && (!ScopedEnum<T>) && (!StringViewConvertible<T>) &&
-    (!Range<T>);
+    Dereferenceable<T> &&
+    (!ScopedEnum<T>)&&(!StringViewConvertible<T>)&&(!Range<T>);
 
 // `T` must be a `std::pair`.
 template<typename T>
@@ -130,7 +135,7 @@ concept StdArray = is_array_v<std::remove_cvref_t<T>>;
 // `T` must be a container, which exludes strings and pairs.
 template<typename T>
 concept Container =
-    Range<T> && (!StringViewConvertible<T>) && (!PairConvertible<T>);
+    Range<T> && (!StringViewConvertible<T>)&&(!PairConvertible<T>);
 
 // `T` must be a `std::variant`.
 template<typename T>
@@ -153,4 +158,5 @@ template<typename T>
 concept RangeWithoutFind = Range<T> && (!Findable<T>);
 
 } // namespace concepts
-} // namespace corvid::meta
+} // namespace meta
+} // namespace corvid

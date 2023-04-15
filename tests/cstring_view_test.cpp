@@ -48,6 +48,7 @@ void CStringViewTest_Construction() {
   // Construct string_view on null pointer.
   if (true) {
     const char* p{};
+    (void)p;
     // This doesn't even throw, as such. It's undefined, so you (probably) get
     // an access violation. We could try to test for this with a try/catch
     // block and ellipses, but it's not guaranteed to behave on all platforms.
@@ -228,8 +229,8 @@ void CStringViewTest_Construction() {
     EXPECT_FALSE(v.empty());
     EXPECT_NE(v.data(), nullptr);
     EXPECT_NE(v.begin(), v.end());
-    EXPECT_EQ(r.size(), 4);
-    EXPECT_EQ(v.size(), 4);
+    EXPECT_EQ(r.size(), 4u);
+    EXPECT_EQ(v.size(), 4u);
   }
   // Construct cstring_view on it/end
   if (true) {
@@ -240,8 +241,8 @@ void CStringViewTest_Construction() {
     EXPECT_NE(v.data(), nullptr);
     EXPECT_NE(v.c_str(), nullptr);
     EXPECT_NE(v.begin(), v.end());
-    EXPECT_EQ(r.size(), 4);
-    EXPECT_EQ(v.size(), 3);
+    EXPECT_EQ(r.size(), 4u);
+    EXPECT_EQ(v.size(), 3u);
   }
   // Construct using UDL.
   if (true) {
@@ -249,12 +250,12 @@ void CStringViewTest_Construction() {
     EXPECT_TRUE(a.empty());
     EXPECT_FALSE(a.null());
     auto b = "abc"_csv;
-    EXPECT_EQ(b.size(), 3);
+    EXPECT_EQ(b.size(), 3u);
     // Embedded zeros are permitted.
     auto c = "abc\0def"_csv;
-    EXPECT_EQ(c.size(), 7);
+    EXPECT_EQ(c.size(), 7u);
     auto d = cstring_view(c.c_str());
-    EXPECT_EQ(d.size(), 3);
+    EXPECT_EQ(d.size(), 3u);
     auto e = 0_csv;
     EXPECT_TRUE(e.null());
     EXPECT_THROW((1_csv), std::out_of_range);
@@ -279,8 +280,8 @@ auto accept_cstring_view(cstring_view v) { return v; }
 void accept_string_view_ref(std::string_view& v) { v = "changed"; }
 void accept_string_view_rref(std::string_view&& v) { v = "changed"; }
 
-std::string_view accept_overloaded(std::string_view v) { return "sv"; }
-std::string_view accept_overloaded(cstring_view v) { return "csv"; }
+std::string_view accept_overloaded(std::string_view) { return "sv"; }
+std::string_view accept_overloaded(cstring_view) { return "csv"; }
 
 void CStringViewTest_Cast() {
   // Casts "up" implicitly.

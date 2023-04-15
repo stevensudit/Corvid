@@ -384,6 +384,7 @@ void SequentialEnumTest_NoChoice() {
   if (true) {
     auto e = tiger_nochoice::tiger;
     auto n = *e;
+    EXPECT_EQ(n, 0);
   }
 }
 

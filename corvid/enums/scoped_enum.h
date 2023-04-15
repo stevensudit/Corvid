@@ -19,15 +19,20 @@
 #include "enum_registry.h"
 #include "../strings/conversion.h"
 
-namespace corvid::enums {
+namespace corvid {
+inline namespace enums {
 namespace registry {
 
 // Default specification for a scoped enum. By default, opts out of both
 // sequential and bitmask while providing a simple append method that outputs
 // the underlying value as a number.
+PRAGMA_clang_push;
+PRAGMA_clang_enum_constexpr_conversion;
+
 template<ScopedEnum E, E minseq = min_scoped_enum_v<E>,
     E maxseq = max_scoped_enum_v<E>, bool validseq = false,
-    wrapclip wrapseq = {}, uint64_t validbits = 0, wrapclip bitclip = {}>
+    wrapclip wrapseq = wrapclip{}, uint64_t validbits = 0,
+    wrapclip bitclip = wrapclip{}>
 struct scoped_enum_spec
     : base_enum_spec<E, std::min(minseq, maxseq), std::max(minseq, maxseq),
           validseq, wrapseq, validbits, bitclip> {
@@ -35,13 +40,15 @@ struct scoped_enum_spec
     return strings::append_num(target, as_underlying(v));
   }
 };
+PRAGMA_clang_pop;
 
-// Registers generic support for all scoped enums. This allows outputting the
-// value as its underlying integer but fails to qualify as either a bitmask or
-// sequential enum. A further specialization is needed to mark a type as a
-// bitmask or sequence enum.
+// Registers generic support for all scoped enums. This allows outputting
+// the value as its underlying integer but fails to qualify as either a
+// bitmask or sequential enum. A further specialization is needed to mark a
+// type as a bitmask or sequence enum.
 template<ScopedEnum E>
 constexpr auto enum_spec_v<E> = scoped_enum_spec<E>();
 
 } // namespace registry
-} // namespace corvid::enums
+} // namespace enums
+} // namespace corvid

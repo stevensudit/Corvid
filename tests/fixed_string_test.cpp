@@ -66,6 +66,7 @@ void FixedStringTest_General() {
       (std::array{"abc"sv, ""sv, "def"sv}));
 
   auto cs = test_cstr();
+  EXPECT_EQ(cs, "abc"sv);
   EXPECT_EQ(ceval, "abc"_csv);
 }
 

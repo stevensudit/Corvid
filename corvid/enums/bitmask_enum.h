@@ -21,7 +21,8 @@
 #include "enum_registry.h"
 #include "scoped_enum.h"
 
-namespace corvid::enums {
+namespace corvid {
+inline namespace enums {
 namespace bitmask {
 
 //
@@ -76,10 +77,10 @@ namespace bitmask {
 //    constexpr auto registry::enum_spec_v<rgb> =
 //        make_bitmask_enum_spec<rgb, "red,green,blue">();
 
-template<ScopedEnum E, uint64_t validbits = 0, wrapclip bitclip = {}>
+template<ScopedEnum E, uint64_t validbits = 0, wrapclip bitclip = wrapclip{}>
 struct bitmask_enum_spec
-    : public registry::scoped_enum_spec<E, E{}, E{}, false, {}, validbits,
-          bitclip> {};
+    : public registry::scoped_enum_spec<E, E{}, E{}, false, wrapclip{},
+          validbits, bitclip> {};
 
 inline namespace internal {
 
@@ -438,7 +439,7 @@ auto& do_value_append(AppendTarget auto& target, E v,
 // Specialization of `bitmask_enum_spec`, adding a list of names, either for
 // the bits or the values. Use `make_bitmask_enum_spec` or
 // `make_bitmask_enum_names_spec`, respectively, to construct.
-template<ScopedEnum E, wrapclip bitclip = {}, E validbits = {},
+template<ScopedEnum E, wrapclip bitclip = wrapclip{}, E validbits = E{},
     std::size_t N = 0>
 struct bitmask_enum_names_spec
     : public bitmask_enum_spec<E, meta::as_underlying(validbits), bitclip> {
@@ -506,7 +507,8 @@ consteval uint64_t calc_valid_bits_from_value_names() {
 // Set `bitclip` to `wrapclip::limit` to enable clipping.
 //
 // The numerical value is printed in hex.
-template<ScopedEnum E, IntegerOrEnum auto validbits = 0, wrapclip bitclip = {}>
+template<ScopedEnum E, IntegerOrEnum auto validbits = 0,
+    wrapclip bitclip = wrapclip{}>
 consteval auto make_bitmask_enum_spec() {
   return details::bitmask_enum_names_spec<E, bitclip, validbits, 0>{
       std::array<std::string_view, 0>{}};
@@ -529,7 +531,8 @@ consteval auto make_bitmask_enum_spec() {
 //
 // Prints the matching name for the value as a combination of bit names.
 // Any bits, valid or otherwise, that are not named are printed in hex.
-template<ScopedEnum E, strings::fixed_string bit_names, wrapclip bitclip = {}>
+template<ScopedEnum E, strings::fixed_string bit_names,
+    wrapclip bitclip = wrapclip{}>
 consteval auto make_bitmask_enum_spec() {
   constexpr auto name_array = strings::fixed_split_trim<bit_names, " -">();
   constexpr auto filtered_names =
@@ -562,7 +565,8 @@ consteval auto make_bitmask_enum_spec() {
 //
 // Prints the matching name for the value. Any residual value is printed in
 // hex, in combination with the known part of the value, if any.
-template<ScopedEnum E, strings::fixed_string bit_names, wrapclip bitclip = {}>
+template<ScopedEnum E, strings::fixed_string bit_names,
+    wrapclip bitclip = wrapclip{}>
 constexpr auto make_bitmask_enum_values_spec() {
   constexpr auto name_array = strings::fixed_split<bit_names>();
   constexpr auto trimmed_names =
@@ -575,7 +579,8 @@ constexpr auto make_bitmask_enum_values_spec() {
 }
 
 } // namespace bitmask
-} // namespace corvid::enums
+} // namespace enums
+} // namespace corvid
 
 //
 // TODO

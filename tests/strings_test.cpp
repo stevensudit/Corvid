@@ -41,7 +41,7 @@ void StringUtilsTest_ExtractPiece() {
   EXPECT_EQ(strings::extract_piece(sv, ","), "2");
   EXPECT_EQ(strings::extract_piece(sv, ","), "");
   sv = ",";
-  EXPECT_EQ(sv.size(), 1);
+  EXPECT_EQ(sv.size(), 1u);
   EXPECT_EQ(strings::extract_piece(sv, ","), "");
   EXPECT_EQ(strings::extract_piece(sv, ","), "");
 
@@ -140,8 +140,8 @@ void StringUtilsTest_Locate() {
   if (true) {
     constexpr auto s = "abcdefghij"sv;
     constexpr auto l = s.size();
-    EXPECT_EQ(strings::locate(s, "def"), 3);
-    EXPECT_EQ(strings::locate(s, 'd'), 3);
+    EXPECT_EQ(strings::locate(s, "def"), 3u);
+    EXPECT_EQ(strings::locate(s, 'd'), 3u);
     EXPECT_EQ(strings::locate(s, {'x', 'i', 'y'}), (location{8, 1}));
     EXPECT_EQ(strings::locate(s, std::array{'x', 'i', 'y'}), (location{8, 1}));
     EXPECT_EQ(strings::locate(s, {"a0c"sv, "def"s, "g0i"}), (location{3, 1}));
@@ -161,7 +161,7 @@ void StringUtilsTest_Locate() {
     EXPECT_EQ(strings::locate(s, {"a0c"sv, "def"s, "g0i"}, npos),
         (location{npos, npos}));
     //
-    EXPECT_EQ(strings::locate(s, ""), 0);
+    EXPECT_EQ(strings::locate(s, ""), 0u);
     EXPECT_EQ(strings::locate(s, "", l), l);
     EXPECT_EQ(strings::locate(s, "", l + 1), npos);
     //
@@ -174,13 +174,13 @@ void StringUtilsTest_Locate() {
     size_t pos{};
     const auto a = 'a';
     EXPECT_EQ(strings::located(pos, t, a), true);
-    EXPECT_EQ(pos, 0);
+    EXPECT_EQ(pos, 0u);
     ++pos;
     EXPECT_EQ(strings::located(pos, t, a), true);
-    EXPECT_EQ(pos, 3);
+    EXPECT_EQ(pos, 3u);
     ++pos;
     EXPECT_EQ(strings::located(pos, t, a), true);
-    EXPECT_EQ(pos, 6);
+    EXPECT_EQ(pos, 6u);
     ++pos;
     EXPECT_EQ(strings::located(pos, t, a), false);
     EXPECT_EQ(pos, npos);
@@ -190,13 +190,13 @@ void StringUtilsTest_Locate() {
     size_t pos{};
     const auto abc = "abc"sv;
     EXPECT_EQ(strings::located(pos, t, abc), true);
-    EXPECT_EQ(pos, 0);
+    EXPECT_EQ(pos, 0u);
     pos += abc.size();
     EXPECT_EQ(strings::located(pos, t, abc), true);
-    EXPECT_EQ(pos, 3);
+    EXPECT_EQ(pos, 3u);
     pos += abc.size();
     EXPECT_EQ(strings::located(pos, t, abc), true);
-    EXPECT_EQ(pos, 6);
+    EXPECT_EQ(pos, 6u);
     pos += abc.size();
     EXPECT_EQ(strings::located(pos, t, abc), false);
     EXPECT_EQ(pos, npos);
@@ -207,10 +207,10 @@ void StringUtilsTest_Locate() {
     const auto xy = {'x', 'y'};
     // TODO: Add call using span and array
     EXPECT_EQ(strings::located(pos, s, xy), true);
-    EXPECT_EQ(pos.ndx, 2);
+    EXPECT_EQ(pos.ndx, 2u);
     ++pos.ndx;
     EXPECT_EQ(strings::located(pos, s, xy), true);
-    EXPECT_EQ(pos.ndx, 6);
+    EXPECT_EQ(pos.ndx, 6u);
     ++pos.ndx;
     EXPECT_EQ(strings::located(pos, s, xy), false);
     EXPECT_EQ(pos.ndx, npos);
@@ -228,20 +228,20 @@ void StringUtilsTest_Locate() {
     // TODO: Fix the as_span to work with string literals.
     const auto abcbc = {"ab"sv, "cbc"sv};
     EXPECT_EQ(strings::located(pos, s, abcbc), true);
-    EXPECT_EQ(pos.ndx, 0);
-    EXPECT_EQ(pos.ndx_value, 0);
+    EXPECT_EQ(pos.ndx, 0u);
+    EXPECT_EQ(pos.ndx_value, 0u);
     strings::point_past(pos, abcbc);
     EXPECT_EQ(strings::located(pos, s, abcbc), true);
-    EXPECT_EQ(pos.ndx, 3);
-    EXPECT_EQ(pos.ndx_value, 0);
+    EXPECT_EQ(pos.ndx, 3u);
+    EXPECT_EQ(pos.ndx_value, 0u);
     strings::point_past(pos, abcbc);
     EXPECT_EQ(strings::located(pos, s, abcbc), true);
-    EXPECT_EQ(pos.ndx, 5);
-    EXPECT_EQ(pos.ndx_value, 1);
+    EXPECT_EQ(pos.ndx, 5u);
+    EXPECT_EQ(pos.ndx_value, 1u);
     strings::point_past(pos, abcbc);
     EXPECT_EQ(strings::located(pos, s, abcbc), true);
-    EXPECT_EQ(pos.ndx, 8);
-    EXPECT_EQ(pos.ndx_value, 0);
+    EXPECT_EQ(pos.ndx, 8u);
+    EXPECT_EQ(pos.ndx_value, 0u);
     strings::point_past(pos, abcbc);
     EXPECT_EQ(strings::located(pos, s, abcbc), false);
     pos.ndx = 0;
@@ -252,10 +252,10 @@ void StringUtilsTest_Locate() {
   }
   if (true) {
     constexpr auto s = "abcdefghijabcdefghijaaa"sv;
-    EXPECT_EQ(strings::count_located(s, 'a'), 5);
-    EXPECT_EQ(strings::count_located(s, 'b'), 2);
-    EXPECT_EQ(strings::count_located(s, "def"), 2);
-    EXPECT_EQ(strings::count_located(s, "aa"), 1);
+    EXPECT_EQ(strings::count_located(s, 'a'), 5u);
+    EXPECT_EQ(strings::count_located(s, 'b'), 2u);
+    EXPECT_EQ(strings::count_located(s, "def"), 2u);
+    EXPECT_EQ(strings::count_located(s, "aa"), 1u);
     // Next line would, correctly, go into an infinite loop.
     // * EXPECT_EQ(strings::count_located(s, ""), npos);
   }
@@ -270,13 +270,13 @@ void StringUtilsTest_Replace() {
   std::string s;
 
   s = "abcdefghij";
-  EXPECT_EQ(0, strings::replace(s, "bac", "yyy"));
+  EXPECT_EQ(0u, strings::replace(s, "bac", "yyy"));
   EXPECT_EQ(s, "abcdefghij");
-  EXPECT_EQ(1, strings::replace(s, "abc", "yyy"));
+  EXPECT_EQ(1u, strings::replace(s, "abc", "yyy"));
   EXPECT_EQ(s, "yyydefghij");
-  EXPECT_EQ(3, strings::replace(s, "y", "z"));
+  EXPECT_EQ(3u, strings::replace(s, "y", "z"));
   EXPECT_EQ(s, "zzzdefghij");
-  EXPECT_EQ(3, strings::replace(s, 'z', 'x'));
+  EXPECT_EQ(3u, strings::replace(s, 'z', 'x'));
   EXPECT_EQ(s, "xxxdefghij");
   EXPECT_EQ(strings::replaced("abcdef", "abc", "yyy"), "yyydef");
   // TODO: Add tests for the multiple-value versions.
@@ -417,7 +417,7 @@ void StringUtilsTest_Trim() {
 
     vsv = strings::split(w, ",");
     std::map<int, std::string> mss;
-    for (int i = 0; i < vsv.size(); ++i) {
+    for (size_t i = 0; i < vsv.size(); ++i) {
       mss[i] = vsv[i];
     }
     EXPECT_EQ(mss[0], " 1");

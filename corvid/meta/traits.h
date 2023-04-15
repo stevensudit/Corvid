@@ -17,7 +17,8 @@
 #pragma once
 #include "./meta_shared.h"
 
-namespace corvid::meta {
+namespace corvid {
+inline namespace meta {
 inline namespace traits {
 
 //
@@ -26,8 +27,8 @@ inline namespace traits {
 
 // Determine whether `T` is a specialization of `B`.
 //
-// Only works when `B` is a class that is specialized on types, not values (so
-// `std::pair` is good, `std::array` is not).
+// Only works when `B` is a class that is specialized on types, not values
+// (so `std::pair` is good, `std::array` is not).
 template<typename T, template<typename...> typename B>
 constexpr bool is_specialization_of_v = false;
 
@@ -72,8 +73,8 @@ constexpr bool is_pair_convertible_v<C<F, S>> =
     std::is_convertible_v<C<F, S>, std::pair<F, S>>;
 
 // Determine whether `T` is a `std::array`.
-// Note: Can't use `is_specialization_of_v` because `std::array` specializes on
-// a number.
+// Note: Can't use `is_specialization_of_v` because `std::array` specializes
+// on a number.
 template<typename... Ts>
 constexpr bool is_array_v = false;
 
@@ -117,4 +118,5 @@ constexpr bool has_find_v =
 
 } // namespace finding
 } // namespace traits
-} // namespace corvid::meta
+} // namespace meta
+} // namespace corvid
