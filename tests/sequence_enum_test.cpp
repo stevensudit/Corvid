@@ -19,9 +19,9 @@
 #include <map>
 #include <set>
 
-#include "../includes/meta.h"
-#include "../includes/enums/sequence_enum.h"
-#include "../includes/containers.h"
+#include "../corvid/meta.h"
+#include "../corvid/enums/sequence_enum.h"
+#include "../corvid/containers.h"
 #include "AccutestShim.h"
 
 using namespace corvid;

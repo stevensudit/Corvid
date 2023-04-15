@@ -20,9 +20,9 @@
 #include <set>
 #include <string_view>
 
-#include "../includes/meta.h"
-#include "../includes/enums/bitmask_enum.h"
-#include "../includes/containers.h"
+#include "../corvid/meta.h"
+#include "../corvid/enums/bitmask_enum.h"
+#include "../corvid/containers.h"
 #include "AccutestShim.h"
 
 using namespace std::literals;

@@ -20,8 +20,8 @@
 #include <set>
 #include <span>
 
-#include "../includes/strings/cstring_view.h"
-#include "../includes/meta.h"
+#include "../corvid/strings/cstring_view.h"
+#include "../corvid/meta.h"
 #include "AccutestShim.h"
 
 using namespace std::literals;

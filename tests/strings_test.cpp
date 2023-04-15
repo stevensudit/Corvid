@@ -19,7 +19,7 @@
 #include <map>
 #include <set>
 
-#include "../includes/strings.h"
+#include "../corvid/strings.h"
 std::ostream&
 operator<<(std::ostream& os, const corvid::strings::location& l) {
   return os << "location{" << l.ndx << ", " << l.ndx_value << "}";

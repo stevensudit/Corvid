@@ -15,8 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "../includes/strings/fixed_string.h"
-#include "../includes/strings/fixed_string_utils.h"
+#include "../corvid/strings/fixed_string.h"
+#include "../corvid/strings/fixed_string_utils.h"
 #include "AccutestShim.h"
 
 using namespace std::literals;
