@@ -18,8 +18,7 @@
 #include "strings_shared.h"
 #include "delimiting.h"
 
-namespace corvid::strings {
-inline namespace trimming {
+namespace corvid::strings { inline namespace trimming {
 
 //
 // Trim
@@ -95,5 +94,4 @@ add_braces(std::string_view whole, delim braces = {"[]"}) {
 
 // TODO: Consider writing versions that modify strings in place.
 
-} // namespace trimming
-} // namespace corvid::strings
+}} // namespace corvid::strings::trimming

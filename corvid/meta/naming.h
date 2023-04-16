@@ -17,9 +17,7 @@
 #pragma once
 #include "./meta_shared.h"
 
-namespace corvid {
-inline namespace meta {
-inline namespace naming {
+namespace corvid { inline namespace meta { inline namespace naming {
 
 //
 // Typename
@@ -54,6 +52,4 @@ std::string type_name(T&&) {
   return type_name<T>();
 }
 
-} // namespace naming
-} // namespace meta
-} // namespace corvid
+}}} // namespace corvid::meta::naming

@@ -18,8 +18,7 @@
 #include "strings_shared.h"
 #include "targeting.h"
 
-namespace corvid::strings {
-inline namespace delimiting {
+namespace corvid::strings { inline namespace delimiting {
 
 //
 // Delimiter
@@ -84,5 +83,4 @@ struct delim: public std::string_view {
   }
 };
 
-} // namespace delimiting
-} // namespace corvid::strings
+}} // namespace corvid::strings::delimiting

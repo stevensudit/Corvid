@@ -20,9 +20,7 @@
 #include "enum_registry.h"
 #include "scoped_enum.h"
 
-namespace corvid {
-inline namespace enums {
-namespace sequence {
+namespace corvid { inline namespace enums { namespace sequence {
 
 //
 // sequence enum
@@ -374,6 +372,4 @@ constexpr auto make_sequence_enum_spec() {
 // Possibly, it would also qualify as a SequentialEnum, but it would not
 // benefit from anything more than numeric output.
 
-} // namespace sequence
-} // namespace enums
-} // namespace corvid
+}}} // namespace corvid::enums::sequence

@@ -18,8 +18,7 @@
 #pragma once
 #include "containers_shared.h"
 
-namespace corvid {
-inline namespace ranges {
+namespace corvid { inline namespace ranges {
 
 // Reversing view over container.
 template<typename T>
@@ -39,5 +38,4 @@ private:
 
 // TODO: We may need a deduction rule to infer T.
 
-} // namespace ranges
-} // namespace corvid
+}} // namespace corvid::ranges

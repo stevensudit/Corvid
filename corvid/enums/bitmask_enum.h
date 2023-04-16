@@ -21,9 +21,7 @@
 #include "enum_registry.h"
 #include "scoped_enum.h"
 
-namespace corvid {
-inline namespace enums {
-namespace bitmask {
+namespace corvid { inline namespace enums { namespace bitmask {
 
 //
 // bitmask enum
@@ -578,9 +576,7 @@ constexpr auto make_bitmask_enum_values_spec() {
       name_count>{trimmed_names};
 }
 
-} // namespace bitmask
-} // namespace enums
-} // namespace corvid
+}}} // namespace corvid::enums::bitmask
 
 //
 // TODO
@@ -613,12 +609,6 @@ constexpr auto make_bitmask_enum_values_spec() {
 // at compile time and then query it at runtime. We really just need the part
 // where it sorts it at compile time, allowing us to do binary searches at
 // runtime.
-
-// Related: Maybe change our trimming to accept a list of characters to trim.
-// We could remove just spaces on the first pass, allowing spaces to be used
-// after commas for clarity, and then remove spaces and hyphens on the second,
-// allowing a hyphen to serve as placeholder while space does not do so any
-// longer.
 
 // TODO: Consider providing `operator[]` that returns bool for a given
 // index. Essentially, the op version of `get_at`. At that point, we could

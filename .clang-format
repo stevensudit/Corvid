@@ -51,7 +51,7 @@ BreakInheritanceList: BeforeColon
 BreakStringLiterals: true
 ColumnLimit: 79
 CommentPragmas:  '^ IWYU pragma:'
-CompactNamespaces: false
+CompactNamespaces: true
 ConstructorInitializerIndentWidth: 4
 ContinuationIndentWidth: 4
 Cpp11BracedListStyle: true

@@ -19,8 +19,7 @@
 #include "trimming.h"
 #include "fixed_string.h"
 
-namespace corvid::strings {
-inline namespace fixed {
+namespace corvid::strings { inline namespace fixed {
 
 // Split fixed string by delimiter, returning array of string views, optionally
 // trimming by whitespace.
@@ -58,5 +57,4 @@ consteval auto fixed_split_trim() {
 // parallel, as by calling search_and_replace.  Might even take a list of froms
 // and to's.
 
-} // namespace fixed
-} // namespace corvid::strings
+}} // namespace corvid::strings::fixed

@@ -12,34 +12,20 @@
 #pragma once
 #include "./meta_shared.h"
 
-namespace corvid {
-inline namespace meta {
-inline namespace pragmas {
+namespace corvid { inline namespace meta { inline namespace pragmas {
 
 // Glue to silence overeager warnings.
+#define PRAGMA_DIAG_HELPER(action) _Pragma(#action)
 #if defined(__clang__)
-#define PRAGMA_clang_push _Pragma("clang diagnostic push")
-#define PRAGMA_clang_pop _Pragma("clang diagnostic pop")
-#define PRAGMA_clang_enum_constexpr_conversion                                \
-  _Pragma("clang diagnostic ignored \"-Wenum-constexpr-conversion\"")
-#define PRAGMA_gcc_push
-#define PRAGMA_gcc_pop
-#define PRAGMA_gcc_waddress
-#define PRAGMA_gcc_non_nullcompare
+#define PRAGMA_CLANG_DIAG(action) PRAGMA_DIAG_HELPER(clang diagnostic action)
+#define PRAGMA_CLANG_IGNORED(quoted) PRAGMA_CLANG_DIAG(ignored quoted)
+#define PRAGMA_GCC_DIAG(action)
+#define PRAGMA_GCC_IGNORED(quoted)
 #elif defined(__GNUC__) || defined(__GNUG__)
-#define PRAGMA_clang_push
-#define PRAGMA_clang_pop
-#define PRAGMA_clang_enum_constexpr_conversion
-#define PRAGMA_gcc_push _Pragma("GCC diagnostic push")
-#define PRAGMA_gcc_pop _Pragma("GCC diagnostic pop");
-#define PRAGMA_gcc_waddress _Pragma("GCC diagnostic ignored \"-Waddress\"")
-#define PRAGMA_gcc_non_nullcompare                                            \
-  _Pragma("GCC diagnostic ignored \"-Wnonnull-compare\"")
+#define PRAGMA_CLANG_DIAG(action)
+#define PRAGMA_CLANG_IGNORED(action)
+#define PRAGMA_GCC_DIAG(action) PRAGMA_DIAG_HELPER(GCC diagnostic action)
+#define PRAGMA_GCC_IGNORED(quoted) PRAGMA_GCC_DIAG(ignored quoted)
 #endif
 
-// TODO: Consider going meta by making a PRAGMA_clang that takes an arbitrary
-// string.
-
-} // namespace pragmas
-} // namespace meta
-} // namespace corvid
+}}} // namespace corvid::meta::pragmas

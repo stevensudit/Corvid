@@ -91,13 +91,13 @@ inline namespace existing {
 // We want to be able to check if something exists by using it as a predicate,
 // whether it's a pointer or an optional or something similar, but this angers
 // gcc, so we isolate it.
-PRAGMA_gcc_push;
-PRAGMA_gcc_waddress;
-PRAGMA_gcc_non_nullcompare;
+PRAGMA_GCC_DIAG(push);
+PRAGMA_GCC_IGNORED("-Waddress");
+PRAGMA_GCC_IGNORED("-Wnonnull-compare");
 inline constexpr bool is_present(const BoolLike auto& p) {
   return (p) ? true : false;
 }
-PRAGMA_gcc_pop;
+PRAGMA_GCC_DIAG(pop);
 
 // If it's not like a bool, then it's always present.
 template<typename T>

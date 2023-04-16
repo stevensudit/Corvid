@@ -30,8 +30,7 @@
 // compiler error. One solution is to replace the string literals with
 // `std::string_view` literals. You could also use a `std::span`.
 
-namespace corvid::strings {
-inline namespace locating {
+namespace corvid::strings { inline namespace locating {
 
 // A single value to locate, which can be a `char` or something that converts
 // to a `std::string_view`. Contrast with lists of these values.
@@ -269,5 +268,4 @@ replaced(std::string s, std::string_view from, std::string_view to) noexcept {
 // TODO: Benchmark whether it's faster to do replacements in-place or to
 // build a new string.
 
-} // namespace locating
-} // namespace corvid::strings
+}} // namespace corvid::strings::locating

@@ -18,8 +18,7 @@
 #pragma once
 #include "containers_shared.h"
 
-namespace corvid {
-inline namespace containers {
+namespace corvid { inline namespace containers {
 
 // Transparent comparators allows comparing any stringlike values without
 // constructing temporary `std::string` instances from them. This works for
@@ -76,5 +75,4 @@ using string_unordered_set =
     std::unordered_set<std::string, transparent_hash_stringlike,
         transparent_equal_stringlike, std::allocator<std::string>>;
 
-} // namespace containers
-} // namespace corvid
+}} // namespace corvid::containers

@@ -18,9 +18,7 @@
 #include "./meta_shared.h"
 #include "./traits.h"
 
-namespace corvid {
-inline namespace meta {
-inline namespace concepts {
+namespace corvid { inline namespace meta { inline namespace concepts {
 
 // `T` must be a type derived from `std::ostream`.
 template<typename T>
@@ -157,6 +155,4 @@ concept Findable = has_find_v<T>;
 template<typename T>
 concept RangeWithoutFind = Range<T> && (!Findable<T>);
 
-} // namespace concepts
-} // namespace meta
-} // namespace corvid
+}}} // namespace corvid::meta::concepts

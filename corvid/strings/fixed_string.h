@@ -22,8 +22,7 @@
 #include "cstring_view.h"
 #endif
 
-namespace corvid::strings {
-inline namespace fixed {
+namespace corvid::strings { inline namespace fixed {
 
 // Fixed string, suitable for use as a non-type template parameter.
 template<unsigned N>
@@ -57,5 +56,4 @@ struct fixed_string {
 template<unsigned N>
 fixed_string(char const (&)[N]) -> fixed_string<N - 1>;
 
-} // namespace fixed
-} // namespace corvid::strings
+}} // namespace corvid::strings::fixed

@@ -19,8 +19,7 @@
 #include "trimming.h"
 #include "../enums/enum_registry.h"
 
-namespace corvid::strings {
-inline namespace conversion {
+namespace corvid::strings { inline namespace conversion {
 
 //
 // Numerical conversions
@@ -272,8 +271,7 @@ auto& append_stream(AppendTarget auto& target, const OStreamable auto& t) {
 }
 } // namespace cvt_stream
 
-} // namespace conversion
-} // namespace corvid::strings
+}} // namespace corvid::strings::conversion
 
 // Append scoped enum to `os`.
 auto& operator<<(std::ostream& os, corvid::ScopedEnum auto t) {

@@ -18,8 +18,7 @@
 #include "strings_shared.h"
 #include "delimiting.h"
 
-namespace corvid::strings {
-inline namespace streaming {
+namespace corvid::strings { inline namespace streaming {
 
 //
 // Streaming
@@ -85,5 +84,4 @@ private:
   std::streambuf* rdbuf_;
 };
 
-} // namespace streaming
-} // namespace corvid::strings
+}} // namespace corvid::strings::streaming

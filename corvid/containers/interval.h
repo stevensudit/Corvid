@@ -20,8 +20,7 @@
 #include "../enums.h"
 #include <cassert>
 
-namespace corvid {
-inline namespace intervals {
+namespace corvid { inline namespace intervals {
 
 //
 // interval
@@ -415,8 +414,7 @@ constexpr auto make_interval() noexcept {
 template<typename T>
 concept Interval = is_specialization_of_v<T, interval>;
 
-} // namespace intervals
-} // namespace corvid
+}} // namespace corvid::intervals
 namespace corvid::strings {
 // Register appends.
 template<corvid::AppendTarget A, typename V, typename U>

@@ -17,9 +17,7 @@
 #pragma once
 #include "./meta_shared.h"
 
-namespace corvid {
-inline namespace meta {
-inline namespace traits {
+namespace corvid { inline namespace meta { inline namespace traits {
 
 //
 // Specialization
@@ -117,6 +115,4 @@ constexpr bool has_find_v =
     details::has_find_method<std::remove_cvref_t<T>>::value;
 
 } // namespace finding
-} // namespace traits
-} // namespace meta
-} // namespace corvid
+}}} // namespace corvid::meta::traits

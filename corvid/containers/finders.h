@@ -19,8 +19,7 @@
 #include "containers_shared.h"
 #include "optional_ptr.h"
 
-namespace corvid {
-inline namespace finders {
+namespace corvid { inline namespace finders {
 
 // Search container for key `k`, returning `optional_ptr` to element. When a
 // search fails to find anything, the `has_value` of the return is false.
@@ -56,5 +55,4 @@ find_opt(RangeWithoutFind auto&& c, const auto& k) {
   return find_opt(c, k).has_value();
 }
 
-} // namespace finders
-} // namespace corvid
+}} // namespace corvid::finders

@@ -32,6 +32,5 @@
 #include <cxxabi.h>
 #endif
 
-namespace corvid {
-inline namespace meta {}
-} // namespace corvid
+namespace corvid { inline namespace meta {
+}} // namespace corvid::meta

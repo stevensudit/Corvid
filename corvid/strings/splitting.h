@@ -18,8 +18,7 @@
 #include "strings_shared.h"
 #include "delimiting.h"
 
-namespace corvid::strings {
-inline namespace splitting {
+namespace corvid::strings { inline namespace splitting {
 
 //
 // Split
@@ -72,5 +71,4 @@ template<typename R = std::string_view>
   return split<std::string>(std::string_view(whole), d);
 }
 
-} // namespace splitting
-} // namespace corvid::strings
+}} // namespace corvid::strings::splitting

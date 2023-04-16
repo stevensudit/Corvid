@@ -17,8 +17,7 @@
 #pragma once
 #include "strings_shared.h"
 
-namespace corvid::strings {
-inline namespace cases {
+namespace corvid::strings { inline namespace cases {
 
 //
 // Case change.
@@ -54,5 +53,4 @@ inline void to_lower(Range auto& r) {
   return s;
 }
 
-} // namespace cases
-} // namespace corvid::strings
+}} // namespace corvid::strings::cases

@@ -17,8 +17,7 @@
 #pragma once
 #include "strings_shared.h"
 
-namespace corvid::strings {
-inline namespace targeting {
+namespace corvid::strings { inline namespace targeting {
 
 //
 // Appender target
@@ -104,5 +103,4 @@ private:
 template<AppendTarget T>
 appender(T) -> appender<T>;
 
-} // namespace targeting
-} // namespace corvid::strings
+}} // namespace corvid::strings::targeting
