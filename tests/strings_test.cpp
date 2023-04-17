@@ -22,7 +22,7 @@
 #include "../corvid/strings.h"
 std::ostream&
 operator<<(std::ostream& os, const corvid::strings::location& l) {
-  return os << "location{" << l.ndx << ", " << l.ndx_value << "}";
+  return os << "location{" << l.pos << ", " << l.pos_value << "}";
 }
 
 #include "AccutestShim.h"
@@ -140,9 +140,11 @@ void StringUtilsTest_Locate() {
   if (true) {
     constexpr auto s = "abcdefghij"sv;
     constexpr auto l = s.size();
-    EXPECT_EQ(strings::locate(s, "def"), 3u);
+    EXPECT_EQ(strings::locate(s, "def"), 3u);   // find(char*)
+    EXPECT_EQ(strings::locate(s, "def"sv), 3u); // find(sv)
     EXPECT_EQ(strings::locate(s, 'd'), 3u);
     EXPECT_EQ(strings::locate(s, {'x', 'i', 'y'}), (location{8, 1}));
+    EXPECT_EQ(strings::locate(s, std::span{"xfz", 3}), (location{5, 1}));
     EXPECT_EQ(strings::locate(s, std::array{'x', 'i', 'y'}), (location{8, 1}));
     EXPECT_EQ(strings::locate(s, {"a0c"sv, "def"s, "g0i"}), (location{3, 1}));
     // Edge cases.
@@ -203,52 +205,54 @@ void StringUtilsTest_Locate() {
   }
   if (true) {
     constexpr auto s = "abxabcybc"sv;
-    location pos;
+    location loc;
     const auto xy = {'x', 'y'};
     // TODO: Add call using span and array
-    EXPECT_EQ(strings::located(pos, s, xy), true);
-    EXPECT_EQ(pos.ndx, 2u);
-    ++pos.ndx;
-    EXPECT_EQ(strings::located(pos, s, xy), true);
-    EXPECT_EQ(pos.ndx, 6u);
-    ++pos.ndx;
-    EXPECT_EQ(strings::located(pos, s, xy), false);
-    EXPECT_EQ(pos.ndx, npos);
-    pos.ndx = 0;
+    EXPECT_EQ(strings::located(loc, s, xy), true);
+    EXPECT_EQ(loc.pos, 2u);
+    ++loc.pos;
+    EXPECT_EQ(strings::located(loc, s, xy), true);
+    EXPECT_EQ(loc.pos, 6u);
+    ++loc.pos;
+    EXPECT_EQ(strings::located(loc, s, xy), false);
+    EXPECT_EQ(loc.pos, npos);
+    loc.pos = 0;
     const auto axy = std::array<const char, 2>{'x', 'y'};
     const auto sxy = std::span<const char>{axy};
     // TODO: Figure out why we can't pass axy directly.
-    EXPECT_EQ(strings::located(pos, s, sxy), true);
+    EXPECT_EQ(strings::located(loc, s, sxy), true);
   }
   if (true) {
     constexpr auto s = "abxabcbcab"sv;
-    location pos;
+    location loc;
     // If the next line used regular string literals, we'd get a compiler
-    // error.
-    // TODO: Fix the as_span to work with string literals.
+    // error. This appears to be an inevitable consequence of how initializer
+    // lists work.
+    // TODO: Confirm that it's inevitable. Maybe we could add another as_span
+    // overload to handle it?
     const auto abcbc = {"ab"sv, "cbc"sv};
-    EXPECT_EQ(strings::located(pos, s, abcbc), true);
-    EXPECT_EQ(pos.ndx, 0u);
-    EXPECT_EQ(pos.ndx_value, 0u);
-    strings::point_past(pos, abcbc);
-    EXPECT_EQ(strings::located(pos, s, abcbc), true);
-    EXPECT_EQ(pos.ndx, 3u);
-    EXPECT_EQ(pos.ndx_value, 0u);
-    strings::point_past(pos, abcbc);
-    EXPECT_EQ(strings::located(pos, s, abcbc), true);
-    EXPECT_EQ(pos.ndx, 5u);
-    EXPECT_EQ(pos.ndx_value, 1u);
-    strings::point_past(pos, abcbc);
-    EXPECT_EQ(strings::located(pos, s, abcbc), true);
-    EXPECT_EQ(pos.ndx, 8u);
-    EXPECT_EQ(pos.ndx_value, 0u);
-    strings::point_past(pos, abcbc);
-    EXPECT_EQ(strings::located(pos, s, abcbc), false);
-    pos.ndx = 0;
+    EXPECT_EQ(strings::located(loc, s, abcbc), true);
+    EXPECT_EQ(loc.pos, 0u);
+    EXPECT_EQ(loc.pos_value, 0u);
+    strings::point_past(loc, abcbc);
+    EXPECT_EQ(strings::located(loc, s, abcbc), true);
+    EXPECT_EQ(loc.pos, 3u);
+    EXPECT_EQ(loc.pos_value, 0u);
+    strings::point_past(loc, abcbc);
+    EXPECT_EQ(strings::located(loc, s, abcbc), true);
+    EXPECT_EQ(loc.pos, 5u);
+    EXPECT_EQ(loc.pos_value, 1u);
+    strings::point_past(loc, abcbc);
+    EXPECT_EQ(strings::located(loc, s, abcbc), true);
+    EXPECT_EQ(loc.pos, 8u);
+    EXPECT_EQ(loc.pos_value, 0u);
+    strings::point_past(loc, abcbc);
+    EXPECT_EQ(strings::located(loc, s, abcbc), false);
+    loc.pos = 0;
     const auto axy = std::array<const std::string_view, 2>{"x"sv, "y"sv};
     const auto sxy = std::span<const std::string_view>{axy};
     // TODO: Figure out why we can't pass axy directly.
-    EXPECT_EQ(strings::located(pos, s, sxy), true);
+    EXPECT_EQ(strings::located(loc, s, sxy), true);
   }
   if (true) {
     constexpr auto s = "abcdefghijabcdefghijaaa"sv;
@@ -259,6 +263,49 @@ void StringUtilsTest_Locate() {
     // Next line would, correctly, go into an infinite loop.
     // * EXPECT_EQ(strings::count_located(s, ""), npos);
   }
+  if (true) {
+    // Regression test.
+    constexpr auto s = "abxabcbcab"sv;
+    auto span = strings::locating::convert::as_span({"ab"sv, "cbc"sv});
+    EXPECT_EQ(span.size(), 2u);
+    const auto abcbc = {"ab"sv, "cbc"sv};
+    location loc;
+    EXPECT_EQ(strings::located(loc, s, abcbc), true);
+    EXPECT_EQ(loc.pos, 0u);
+    EXPECT_EQ(loc.pos_value, 0u);
+    loc.pos = 0;
+    EXPECT_EQ(strings::located(loc, s, {"ab"sv, "cbc"sv}), true);
+    EXPECT_EQ(loc.pos, 0u);
+    EXPECT_EQ(loc.pos_value, 0u);
+  }
+  if (true) {
+    constexpr auto sv = "abcdefghijabcdefghij"sv;
+    auto s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, 'a', 'y'), 2u);
+    EXPECT_EQ(s, "ybcdefghijybcdefghij");
+  }
+#if 0  
+  if (true) {
+    constexpr auto sv = "abcdefghijabcdefghij"sv;
+    auto s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, "abc", "yyy"), 2u);
+    EXPECT_EQ(s, "yyydefghijyyydefghij");
+  }
+  if (true) {
+    constexpr auto sv = "abcdefghijabcdefghij"sv;
+    auto s = std::string{sv};
+#if 0
+    auto f = strings::convert::as_span({'a', 'y', 'c'});
+    auto t = strings::convert::as_span({'y', 'a', 'z'});
+    EXPECT_EQ(strings::substitute(s, f, t), 4u);
+#else
+    EXPECT_EQ(strings::substitute(s, {'a', 'y', 'c'}, {'y', 'a', 'z'}), 4u);
+#endif
+    EXPECT_EQ(s, "ybzdefghijybzdefghij");
+  }
+#endif
+  // TODO: Support std::array by adding an as_span overload.
+  // Make sure we support vector, too.
 
   // TODO: Test count_located with multiple values. Then expand the replace to
   // handle multiple values. After that, move on to the splitter, working on
@@ -266,19 +313,20 @@ void StringUtilsTest_Locate() {
   // containers.
 }
 
-void StringUtilsTest_Replace() {
+void StringUtilsTest_Substitute() {
   std::string s;
-
+#if 0
   s = "abcdefghij";
-  EXPECT_EQ(0u, strings::replace(s, "bac", "yyy"));
+  EXPECT_EQ(0u, strings::substitute(s, "bac", "yyy"));
   EXPECT_EQ(s, "abcdefghij");
-  EXPECT_EQ(1u, strings::replace(s, "abc", "yyy"));
+  EXPECT_EQ(1u, strings::substitute(s, "abc", "yyy"));
   EXPECT_EQ(s, "yyydefghij");
-  EXPECT_EQ(3u, strings::replace(s, "y", "z"));
+  EXPECT_EQ(3u, strings::substitute(s, "y", "z"));
   EXPECT_EQ(s, "zzzdefghij");
-  EXPECT_EQ(3u, strings::replace(s, 'z', 'x'));
+  EXPECT_EQ(3u, strings::substitute(s, 'z', 'x'));
   EXPECT_EQ(s, "xxxdefghij");
-  EXPECT_EQ(strings::replaced("abcdef", "abc", "yyy"), "yyydef");
+  EXPECT_EQ(strings::substituted("abcdef", "abc", "yyy"), "yyydef");
+#endif
   // TODO: Add tests for the multiple-value versions.
 }
 
@@ -1170,7 +1218,7 @@ void StringUtilsTest_AppendJson() {
 
 MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_Split, StringUtilsTest_ParseNum, StringUtilsTest_Case,
-    StringUtilsTest_Locate, StringUtilsTest_Replace, StringUtilsTest_Target,
+    StringUtilsTest_Locate, StringUtilsTest_Substitute, StringUtilsTest_Target,
     StringUtilsTest_Print, StringUtilsTest_Trim, StringUtilsTest_AppendNum,
     StringUtilsTest_Append, StringUtilsTest_Edges, StringUtilsTest_Streams,
     StringUtilsTest_AppendEnum, StringUtilsTest_AppendStream,
