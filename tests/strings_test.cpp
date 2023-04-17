@@ -190,6 +190,22 @@ void StringUtilsTest_Locate() {
   if (true) {
     constexpr auto t = "abcabcabc"sv;
     size_t pos{};
+    const auto abc = "abc";
+    EXPECT_EQ(strings::located(pos, t, abc), true);
+    EXPECT_EQ(pos, 0u);
+    pos += 3;
+    EXPECT_EQ(strings::located(pos, t, abc), true);
+    EXPECT_EQ(pos, 3u);
+    pos += 3;
+    EXPECT_EQ(strings::located(pos, t, abc), true);
+    EXPECT_EQ(pos, 6u);
+    pos += 3;
+    EXPECT_EQ(strings::located(pos, t, abc), false);
+    EXPECT_EQ(pos, npos);
+  }
+  if (true) {
+    constexpr auto t = "abcabcabc"sv;
+    size_t pos{};
     const auto abc = "abc"sv;
     EXPECT_EQ(strings::located(pos, t, abc), true);
     EXPECT_EQ(pos, 0u);
@@ -207,7 +223,6 @@ void StringUtilsTest_Locate() {
     constexpr auto s = "abxabcybc"sv;
     location loc;
     const auto xy = {'x', 'y'};
-    // TODO: Add call using span and array
     EXPECT_EQ(strings::located(loc, s, xy), true);
     EXPECT_EQ(loc.pos, 2u);
     ++loc.pos;
@@ -219,17 +234,18 @@ void StringUtilsTest_Locate() {
     loc.pos = 0;
     const auto axy = std::array<const char, 2>{'x', 'y'};
     const auto sxy = std::span<const char>{axy};
-    // TODO: Figure out why we can't pass axy directly.
+    EXPECT_EQ(strings::located(loc, s, axy), true);
     EXPECT_EQ(strings::located(loc, s, sxy), true);
   }
   if (true) {
     constexpr auto s = "abxabcbcab"sv;
     location loc;
     // If the next line used regular string literals, we'd get a compiler
-    // error. This appears to be an inevitable consequence of how initializer
-    // lists work.
-    // TODO: Confirm that it's inevitable. Maybe we could add another as_span
-    // overload to handle it?
+    // error. That's because, while we can promote a single `const char*` to a
+    // `std::string_view`, we can't do that for a whole bunch of them.
+    // We also need to ensure that the `std::span<const std::string_view>` does
+    // not use `StringViewConvertible`, because that would break conversion
+    // from `std::array`.
     const auto abcbc = {"ab"sv, "cbc"sv};
     EXPECT_EQ(strings::located(loc, s, abcbc), true);
     EXPECT_EQ(loc.pos, 0u);
@@ -251,15 +267,21 @@ void StringUtilsTest_Locate() {
     loc.pos = 0;
     const auto axy = std::array<const std::string_view, 2>{"x"sv, "y"sv};
     const auto sxy = std::span<const std::string_view>{axy};
-    // TODO: Figure out why we can't pass axy directly.
+    EXPECT_EQ(strings::located(loc, s, axy), true);
     EXPECT_EQ(strings::located(loc, s, sxy), true);
   }
   if (true) {
-    constexpr auto s = "abcdefghijabcdefghijaaa"sv;
+    constexpr auto s = "abcdefghijabxdefghijaaa"sv;
     EXPECT_EQ(strings::count_located(s, 'a'), 5u);
     EXPECT_EQ(strings::count_located(s, 'b'), 2u);
     EXPECT_EQ(strings::count_located(s, "def"), 2u);
     EXPECT_EQ(strings::count_located(s, "aa"), 1u);
+
+    EXPECT_EQ(strings::count_located(s, "def"sv), 2u);
+    const auto axy = std::array<const std::string_view, 2>{"x"sv, "y"sv};
+    const auto sxy = std::span<const std::string_view>{axy};
+    EXPECT_EQ(strings::count_located(s, axy), 1u);
+    EXPECT_EQ(strings::count_located(s, sxy), 1u);
     // Next line would, correctly, go into an infinite loop.
     // * EXPECT_EQ(strings::count_located(s, ""), npos);
   }
@@ -280,9 +302,17 @@ void StringUtilsTest_Locate() {
   }
   if (true) {
     constexpr auto sv = "abcdefghijabcdefghij"sv;
-    auto s = std::string{sv};
-    EXPECT_EQ(strings::substitute(s, 'a', 'y'), 2u);
-    EXPECT_EQ(s, "ybcdefghijybcdefghij");
+    std::string s;
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, 'a', 'b'), 2u);
+    EXPECT_EQ(s, "bbcdefghijbbcdefghij");
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, "def", "abc"), 2u);
+    EXPECT_EQ(s, "abcabcghijabcabcghij");
+    // TODO: The next line is buggy.
+    EXPECT_EQ(strings::substitute(s, {'a', 'b'}, {'b', 'a'}), 4u);
+    EXPECT_EQ(s, "bacdefghijbacdefghij");
+    // ...........bacbacghijbacbacghij
   }
 #if 0  
   if (true) {

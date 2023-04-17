@@ -65,9 +65,8 @@ inline constexpr std::span<const std::string_view> as_span(
     std::initializer_list<std::string_view> values) noexcept {
   return {values.begin(), values.end()};
 }
-template<StringViewConvertible T>
-inline constexpr std::span<const std::string_view>
-as_span(std::span<const T> values) noexcept {
+inline constexpr std::span<const std::string_view> as_span(
+    std::span<const std::string_view> values) noexcept {
   return values;
 }
 } // namespace convert
@@ -115,8 +114,6 @@ point_past(location& loc, std::span<const T> values) noexcept {
   loc.pos += value_size(values[loc.pos_value]);
   return loc.pos;
 }
-
-// Same as `point_past` above, but for an initializer list.
 template<SingleLocateValue T>
 constexpr size_t
 point_past(location& loc, std::initializer_list<T> values) noexcept {
@@ -124,8 +121,7 @@ point_past(location& loc, std::initializer_list<T> values) noexcept {
 }
 
 // Locate the first instance of a single `value` in `s`, starting at `pos`.
-// Returns the index of where the
-// value was located, or npos.
+// Returns the index of where the value was located, or npos.
 //
 // To locate the next instance, call again with the `pos` set to the returned
 // `pos` plus the size of the located value. For `char`, the size of the
@@ -133,7 +129,10 @@ point_past(location& loc, std::initializer_list<T> values) noexcept {
 // be convenient to use `point_past` for this.
 constexpr size_t locate(std::string_view s,
     const SingleLocateValue auto& value, size_t pos = 0) noexcept {
-  return s.find(value, pos);
+  if constexpr (Char<decltype(value)>)
+    return s.find(value, pos);
+  else
+    return s.find(std::string_view{value}, pos);
 }
 
 // Locate the first instance of any of the `char` `values` in `s`, starting at
@@ -146,6 +145,9 @@ constexpr size_t locate(std::string_view s,
 // To locate the next instance, call again with the `pos` set to the returned
 // `pos`, incremented past the found value. For `char` values, the size is
 // just 1.
+//
+// Usage:
+//   auto [pos, pos_value] = locate(s, {'a', 'b', 'c'});
 inline constexpr location locate(std::string_view s,
     std::span<const char> values, size_t pos = 0) noexcept {
   const auto value_sv = std::string_view{values.begin(), values.end()};
@@ -154,12 +156,6 @@ inline constexpr location locate(std::string_view s,
       if (s[pos] == value_sv[pos_value]) return {pos, pos_value};
   return {s.npos, s.npos};
 }
-
-// Locate the first instance of any of the `char` initializer list `values` in
-// `s`, starting at `pos`. See above for details about the return values.
-//
-// Usage:
-//   auto [pos, pos_value] = locate(s, {'a', 'b', 'c'});
 inline constexpr auto locate(std::string_view s,
     std::initializer_list<char> values, size_t pos = 0) noexcept {
   return locate(s, {values.begin(), values.end()}, pos);
@@ -176,6 +172,9 @@ inline constexpr auto locate(std::string_view s,
 // `pos`, incremented past the found value. For `std::string_view`, this is its
 // `size`, which is most easily found by passing the return value of
 // `point_past` as the new `pos`.
+//
+// Usage:
+//   auto [pos, pos_value] = locate(s, {"abc", "def", "ghi"});
 inline constexpr struct location locate(std::string_view s,
     std::span<const std::string_view> values, size_t pos = 0) noexcept {
   for (; pos <= s.size(); ++pos)
@@ -184,13 +183,6 @@ inline constexpr struct location locate(std::string_view s,
         return {pos, pos_value};
   return {s.npos, s.npos};
 }
-
-// Locate the first instance of any of the `std::string_view` initializer list
-// `values` in `s`, starting at `pos`. See above for details about the return
-// values.
-//
-// Usage:
-//   auto [pos, pos_value] = locate(s, {"abc", "def", "ghi"});
 inline constexpr auto locate(std::string_view s,
     std::initializer_list<std::string_view> values, size_t pos = 0) noexcept {
   return locate(s, std::span{values.begin(), values.end()}, pos);
@@ -221,13 +213,14 @@ constexpr bool located(size_t& pos, std::string_view s,
 //  `value`. For `char`, the size of the located value is just 1. For
 //  `std::string_view`, this is its `size`, which is most easily found by
 //  calling `point_past` on `loc`
-template<SingleLocateValue T>
 constexpr bool located(location& loc, std::string_view s,
-    std::span<const T> values) noexcept {
+    std::span<const char> values) noexcept {
   return (loc = locate(s, values, loc.pos)).pos != s.npos;
 }
-
-// Same as `located` above, but for an initializer list.
+inline constexpr bool located(location& loc, std::string_view s,
+    std::span<const std::string_view> values) noexcept {
+  return (loc = locate(s, values, loc.pos)).pos != s.npos;
+}
 template<typename T>
 constexpr bool located(location& loc, std::string_view s,
     std::initializer_list<T> values) noexcept {
@@ -250,16 +243,16 @@ size_t count_located(std::string_view s, const SingleLocateValue auto& value,
 }
 
 // Return count of instances of any of the `values` in `s`, starting at
-// `pos`. Note that an empty `std::string_view` value causes an infinite
-// loop.
+// `pos`. Note that empty values or an empty `std::string_view` value causes an
+// infinite loop.
 size_t count_located(std::string_view s, const auto& values,
     size_t pos = 0) noexcept {
-  size_t cnt{};
-  location loc{pos, 0};
   auto v = convert::as_span(values);
   assert(min_value_size(v) > 0 && "value is empty");
   assert(v.size() > 0 && "values are empty");
-  while (located(loc, s, v)) ++cnt, point_past(loc, v);
+  size_t cnt{};
+  for (location loc{pos, 0}; located(loc, s, v); ++cnt, point_past(loc, v)) {
+  }
   return cnt;
 }
 
@@ -271,24 +264,19 @@ size_t count_located(std::string_view s, const auto& values,
 // substitutions. Note that an empty `std::string_view` value causes an
 // infinite loop.
 inline size_t substitute(std::string& s, std::string_view from,
-    std::string_view to) noexcept {
+    std::string_view to, size_t pos = 0) noexcept {
   assert(!from.empty() && "from is empty");
   size_t cnt{};
-  for (size_t pos{}; located(pos, s, from); ++cnt, pos += to.size())
+  for (; located(pos, s, from); ++cnt, pos += to.size())
     s.replace(pos, from.size(), to);
   return cnt;
 }
-
-// Substitute instances of `from` in `s` with `to`, returning count of
-// substitutions.
-inline size_t substitute(std::string& s, char from, char to) noexcept {
+inline size_t
+substitute(std::string& s, char from, char to, size_t pos = 0) noexcept {
   size_t cnt{};
-  for (size_t pos{}; located(pos, s, from); ++cnt, ++pos) s[pos] = to;
+  for (; located(pos, s, from); ++cnt, ++pos) s[pos] = to;
   return cnt;
 }
-
-// S instances of any of the `from` in `s` with the corresponding `to`,
-// returning count of substitutions.
 inline size_t substitute(std::string& s, std::span<const char> from,
     std::span<const char> to, size_t pos = 0) {
   assert(from.size() == to.size());
@@ -299,7 +287,6 @@ inline size_t substitute(std::string& s, std::span<const char> from,
     s[loc.pos] = to[loc.pos_value];
   return cnt;
 }
-
 inline size_t substitute(std::string& s,
     std::span<const std::string_view>& from,
     std::span<const std::string_view>& to, size_t pos = 0) {
@@ -311,9 +298,13 @@ inline size_t substitute(std::string& s,
     s.replace(loc.pos, value_size(from[loc.pos_value]), to[loc.pos_value]);
   return cnt;
 }
-
-template<typename T>
-size_t substitute(std::string s, std::initializer_list<T> from,
+// Disambiguate from `std::span<const char>`.
+inline size_t
+substitute(std::string& s, const char* from, const char* to, size_t pos = 0) {
+  return substitute(s, std::string_view{from}, std::string_view{to}, pos);
+}
+template<SingleLocateValue T>
+size_t substitute(std::string& s, std::initializer_list<T> from,
     std::initializer_list<T> to, size_t pos = 0) {
   return substitute(s, convert::as_span(from), convert::as_span(to), pos);
 }
