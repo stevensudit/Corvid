@@ -258,7 +258,6 @@ template<OStreamable T>
 constexpr bool stream_append_v = false;
 
 // Append streamable `t` to `target`.
-// TODO: Add support for escaping.
 auto& append_stream(AppendTarget auto& target, const OStreamable auto& t) {
   if constexpr (StringViewConvertible<decltype(target)>) {
     std::stringstream s;

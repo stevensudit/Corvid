@@ -1,17 +1,12 @@
 1. Do all the TODO's scattered throughout the code.
 a. Interval needs a major rewrite.
 c. concat_join has lots to do. and conversion.h has a related change.
-d. trimming has a long shot.
 e. string.h has some TODO's.
 f. bitmask_enum_tests has some.
 g. meta_test has a whole section commented out.
 h. strings_test needs more tests.
 
-2. Look at absl split and how it sniffs out return type automatically. Also, adding a filter.
-
 3. Consider how ostream could be made optional.
-
-4. Maybe a quoted_string child of string_view that tells the appender to encode it. Maybe add a JSON mode, outright.
 
 5. We need a verson of split that understands quotes and escaping. Maybe just regex and be done with it?
 
@@ -19,4 +14,9 @@ h. strings_test needs more tests.
 
 7. Add noexcept wherever it fits.
 
+8. Reverse all locate methods.
+
 Next target: JSON encoding of strings.
+
+  // TODO: Fix splitter, working on adding a filter predicate and perhaps
+  // allowing assignment to arbitrary containers.

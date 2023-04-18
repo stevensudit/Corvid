@@ -47,12 +47,3 @@
 // we only remove the prefix, never the suffix. The brute-force solution is to
 // add overloads for the extract methods. Maybe add extract_num and such to
 // cstring, so as not to pollute this.
-
-// TODO: Maybe add a replace_any that replaces any matching chars with the
-// destination value. Maybe supplement replace with remove and remove_any.
-
-// TODO: Consider offering a version of `replace` that returns a new value,
-// avoiding multiple resizes.
-
-// TODO: Wacky idea: overload unary `operator+` for `std::string_view` to mean
-// non-empty. And `-` for empty.

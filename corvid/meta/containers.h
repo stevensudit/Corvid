@@ -62,7 +62,7 @@ template<bool keyed = false>
 
 // Compile-time search and replace for std::string_view array.
 // TODO: Consider adding a version that takes parallel arrays for from and to,
-// replacing all of them.
+// replacing all of them. This can't be emulated by nesting.
 template<size_t N>
 consteval auto search_and_replace(std::array<std::string, N> values,
     std::string from, std::string to) {

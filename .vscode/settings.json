@@ -82,4 +82,14 @@
         "cinttypes": "cpp"
     },
     "C_Cpp.errorSquiggles": "disabled",
+    "editor.tokenColorCustomizations": {
+        "textMateRules": [
+            {
+                "scope": "comment",
+                "settings": {
+                    "fontStyle": ""
+                }
+            }
+        ]
+    }
 }

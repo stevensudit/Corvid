@@ -60,7 +60,7 @@ constexpr void trim(Container auto& wholes, const delim ws = {}) {
 }
 
 // TODO: Determine if there's a safe, correct way to pass through a temporary
-// container.
+// container. Maybe try binding on a defaulted parameter.
 
 //
 // Braces
