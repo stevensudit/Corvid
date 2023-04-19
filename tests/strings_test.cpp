@@ -321,6 +321,66 @@ void StringUtilsTest_Locate() {
   }
 }
 
+void StringUtilsTest_RLocate() {
+  using location = corvid::strings::location;
+  // These tests are abbreviated because we only want to confirm algorithmic
+  // correctness, not test for all those tricky overloads.
+  if (true) {
+    constexpr auto s = "abcdefghijabcdefghij"sv;
+    EXPECT_EQ(strings::locate(s, "def"sv), 3u);
+    EXPECT_EQ(strings::rlocate(s, "def"sv), 13u);
+    EXPECT_EQ(strings::locate(s, 'd'), 3u);
+    EXPECT_EQ(strings::rlocate(s, 'd'), 13u);
+    EXPECT_EQ(s[13], 'd');
+    location loc;
+    EXPECT_EQ(loc.pos, 0u);
+  }
+  // Comprehensive test of rlocate with both char and string_view, covering all
+  // edge cases.
+  if (true) {
+    constexpr auto s = "abcdefghijabcdefghij"sv;
+    EXPECT_EQ(strings::rlocate(s, 'j', 0u), npos);
+    EXPECT_EQ(strings::rlocate(s, 'j', npos), 19u);
+    EXPECT_EQ(strings::rlocate(s, 'j', 25u), 19u);
+    EXPECT_EQ(strings::rlocate(s, 'j'), 19u);
+    EXPECT_EQ(strings::rlocate(s, 'j', 18u), 9u);
+    EXPECT_EQ(strings::rlocate(s, 'a'), 10u);
+    EXPECT_EQ(strings::rlocate(s, 'a', 1), 0u);
+    EXPECT_EQ(s.rfind('a', 0u), 0u);
+    EXPECT_EQ(strings::rlocate(s, 'a', 0), 0u);
+#if 0
+    EXPECT_EQ(strings::rlocate(s, 'b'), 1u);
+    EXPECT_EQ(strings::rlocate(s, 'c'), 2u);
+    EXPECT_EQ(strings::rlocate(s, 'd'), 3u);
+    EXPECT_EQ(strings::rlocate(s, 'e'), 4u);
+    EXPECT_EQ(strings::rlocate(s, 'f'), 5u);
+    EXPECT_EQ(strings::rlocate(s, 'g'), 6u);
+    EXPECT_EQ(strings::rlocate(s, 'h'), 7u);
+    EXPECT_EQ(strings::rlocate(s, 'i'), 8u);
+    EXPECT_EQ(strings::rlocate(s, 'j'), 9u);
+    EXPECT_EQ(strings::rlocate(s, 'k'), npos);
+    EXPECT_EQ(strings::rlocate(s, "ab"sv), 0u);
+    EXPECT_EQ(strings::rlocate(s, "bc"sv), 1u);
+    EXPECT_EQ(strings::rlocate(s, "cd"sv), 2u);
+    EXPECT_EQ(strings::rlocate(s, "de"sv), 3u);
+    EXPECT_EQ(strings::rlocate(s, "ef"sv), 4u);
+    EXPECT_EQ(strings::rlocate(s, "fg"sv), 5u);
+    EXPECT_EQ(strings::rlocate(s, "gh"sv), 6u);
+    EXPECT_EQ(strings::rlocate(s, "hi"sv), 7u);
+    EXPECT_EQ(strings::rlocate(s, "ij"sv), 8u);
+    EXPECT_EQ(strings::rlocate(s, "jk"sv), npos);
+    EXPECT_EQ(strings::rlocate(s, "abc"sv), npos);
+    EXPECT_EQ(strings::rlocate(s, "bcd"sv), npos);
+    EXPECT_EQ(strings::rlocate(s, "cde"sv), npos);
+    EXPECT_EQ(strings::rlocate(s, "def"sv), 13u);
+    EXPECT_EQ(strings::rlocate(s, "efg"sv), npos);
+    EXPECT_EQ(strings::rlocate(s, "fgh"sv), npos);
+    EXPECT_EQ(strings::rlocate(s, "ghi"sv), npos);
+    EXPECT_EQ
+#endif
+  }
+}
+
 void StringUtilsTest_Substitute() {
   if (true) {
     // substitute: ch, psz, s, sv.
@@ -374,7 +434,8 @@ void StringUtilsTest_Substitute() {
     // We can't support psz:
     // * strings::substitute(s, {"ab", "xz", "cd"}, {"cd", "za", "ab"});
     // We can't support s:
-    // * strings::substitute(s, {"ab"s, "xz"s, "cd"s}, {"cd"s, "za"s, "ab"s});
+    // * strings::substitute(s, {"ab"s, "xz"s, "cd"s}, {"cd"s, "za"s,
+    // "ab"s});
 
     // We can't support vector<s>:
     // strings::substitute(s, f, t),
@@ -398,11 +459,11 @@ void StringUtilsTest_Substitute() {
     EXPECT_EQ(strings::substitute(s, sabcd, scdab), 4u);
     EXPECT_EQ(s, "cdabefghijcdabefghij");
 
-    // Initializer lists of strings don't make a lot of sense, unless maybe the
-    // members aren't literals, and we can't support them anyhow.. But if we
-    // bend over backwards by using `as_views` explcitly specialized, it does
-    // work, albeit in much the same way that, with a big enough hammer, square
-    // pegs fit into round holes.
+    // Initializer lists of strings don't make a lot of sense, unless maybe
+    // the members aren't literals, and we can't support them anyhow.. But if
+    // we bend over backwards by using `as_views` explcitly specialized, it
+    // does work, albeit in much the same way that, with a big enough hammer,
+    // square pegs fit into round holes.
     s = std::string{sv};
     EXPECT_EQ(
         strings::substitute(s,
@@ -1317,8 +1378,8 @@ void StringUtilsTest_AppendJson() {
 
 MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_Split, StringUtilsTest_ParseNum, StringUtilsTest_Case,
-    StringUtilsTest_Locate, StringUtilsTest_Substitute, StringUtilsTest_Target,
-    StringUtilsTest_Print, StringUtilsTest_Trim, StringUtilsTest_AppendNum,
-    StringUtilsTest_Append, StringUtilsTest_Edges, StringUtilsTest_Streams,
-    StringUtilsTest_AppendEnum, StringUtilsTest_AppendStream,
-    StringUtilsTest_AppendJson);
+    StringUtilsTest_Locate, StringUtilsTest_RLocate,
+    StringUtilsTest_Substitute, StringUtilsTest_Target, StringUtilsTest_Print,
+    StringUtilsTest_Trim, StringUtilsTest_AppendNum, StringUtilsTest_Append,
+    StringUtilsTest_Edges, StringUtilsTest_Streams, StringUtilsTest_AppendEnum,
+    StringUtilsTest_AppendStream, StringUtilsTest_AppendJson);

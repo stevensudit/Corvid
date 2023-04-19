@@ -16,6 +16,8 @@ h. strings_test needs more tests.
 
 8. Reverse all locate methods.
 
+9. Not sure if it's possible, or desirable, but can we overload operators for bitmask and sequence enums to allow comparison with the underlying type? It's still type-safe, but now we don't need to "deref".
+
 Next target: JSON encoding of strings.
 
   // TODO: Fix splitter, working on adding a filter predicate and perhaps

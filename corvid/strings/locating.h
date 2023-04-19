@@ -150,11 +150,11 @@ inline constexpr size_t min_value_size(
 // values. Note that you cannot safely use it before the first call to
 // `locate` or when `locate` fails because `pos_value` must be in range (and
 // not npos).
-template<typename T>
+template<typename T, ptrdiff_t mult = 1>
 constexpr size_t
 point_past(location& loc, std::span<const T> values) noexcept {
   assert(loc.pos_value < values.size());
-  loc.pos += value_size(values[loc.pos_value]);
+  loc.pos += mult * value_size(values[loc.pos_value]);
   return loc.pos;
 }
 template<SingleLocateValue T>
@@ -168,14 +168,22 @@ point_past(location& loc, std::initializer_list<T> values) noexcept {
 //
 // To locate the next instance, call again with the `pos` set to the returned
 // `pos` plus the size of the located value. For `char`, the size of the
-// located value is just 1. For `std::string_view`, this is its `size`. It
-// can be convenient to use `point_past` for this.
+// located value is just 1. For `std::string_view`, this is its `size`.
 constexpr size_t locate(std::string_view s,
     const SingleLocateValue auto& value, size_t pos = 0) noexcept {
   if constexpr (Char<decltype(value)>)
     return s.find(value, pos);
   else
     return s.find(std::string_view{value}, pos);
+}
+// Same as above, but locate the last instance. To locate the next instance,
+// subtract the value size instead of adding.
+constexpr size_t rlocate(std::string_view s,
+    const SingleLocateValue auto& value, size_t pos = npos) noexcept {
+  if constexpr (Char<decltype(value)>)
+    return s.rfind(value, pos);
+  else
+    return s.rfind(std::string_view{value}, pos);
 }
 
 // Locate the first instance of any of the `char` `values` in `s`, starting
@@ -203,6 +211,22 @@ inline constexpr auto locate(std::string_view s,
     std::initializer_list<char> values, size_t pos = 0) noexcept {
   return locate(s, {values.begin(), values.end()}, pos);
 }
+// Same as above, but locate the last instance.
+inline constexpr location rlocate(std::string_view s,
+    std::span<const char> values, size_t pos = npos) noexcept {
+  auto l = s.size();
+  if (l == 0) return {npos, npos};
+  if (--l > pos) l = pos;
+  const auto value_sv = std::string_view{values.begin(), values.end()};
+  for (pos = l + 1; pos > 0; --pos)
+    for (size_t pos_value = 0; pos_value < value_sv.size(); ++pos_value)
+      if (s[pos] == value_sv[pos_value]) return {pos, pos_value};
+  return {npos, npos};
+}
+inline constexpr auto rlocate(std::string_view s,
+    std::initializer_list<char> values, size_t pos = npos) noexcept {
+  return rlocate(s, {values.begin(), values.end()}, pos);
+}
 
 // Locate the first instance of any of the `std::string_view` `values` in
 // `s`, starting at `pos`.
@@ -229,6 +253,23 @@ inline constexpr struct location locate(std::string_view s,
 inline constexpr auto locate(std::string_view s,
     std::initializer_list<std::string_view> values, size_t pos = 0) noexcept {
   return locate(s, std::span{values.begin(), values.end()}, pos);
+}
+// Same as above, but locate the last instance.
+inline constexpr struct location rlocate(std::string_view s,
+    std::span<const std::string_view> values, size_t pos = npos) noexcept {
+  auto l = s.size();
+  if (l == 0) return {npos, npos};
+  if (--l > pos) l = pos;
+  for (pos = l + 1; pos > 0; --pos)
+    for (size_t pos_value = 0; pos_value < values.size(); ++pos_value)
+      if (s.substr(pos, values[pos_value].size()) == values[pos_value])
+        return {pos, pos_value};
+  return {npos, npos};
+}
+inline constexpr auto rlocate(std::string_view s,
+    std::initializer_list<std::string_view> values,
+    size_t pos = npos) noexcept {
+  return rlocate(s, std::span{values.begin(), values.end()}, pos);
 }
 
 //
@@ -370,6 +411,16 @@ substituted(std::string s, const auto& from, const auto& to) noexcept {
 
 // TODO: Add reverse versions of all locate functions.
 // TODO: Maybe add an excise function to remove all instances of a value.
+// TODO: Consider a way to choose whether to get npos or the size. For example,
+// specialize on an enum, or just add a default parameter, `as_npos` that
+// defaults to `npos` but can be set to `s.size()`. Any pos  >= size is
+// equivalent to npos, anyhow.
+// TODO: Consider replacing free functions with something more object-oriented.
+// For example, a `locator` constructed over `s` and `loc` (and maybe
+// `as_npos`), which then has a `located` and `substituted` method. We could
+// also go the other way, making `from` and `to` into objects that have a
+// `locate` taking `s`, or even taking a `locator`. Point is, we're not stuck
+// repeating the C RTL endlessly.
 // TODO: Benchmark whether it's faster to do replacements in-place or to
 // build a new string. There's also the middle ground of in-place but in a
 // single pass, so long as we're not growing.

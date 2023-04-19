@@ -30,4 +30,4 @@
 
 // This header contains the includes for the "light" part of the strings
 // namespace, with minimal dependencies. In specific, it does not include
-// "concat_join.h".
+// "concat_join.h". This is necessary in order to manage dependencies.
