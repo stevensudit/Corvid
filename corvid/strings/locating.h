@@ -31,6 +31,7 @@
 //
 // There are many overloads, but few functions:
 // - locate: Locate occurrence of any of the values in the target.
+// - rlocate: Locate from the rear.
 // - located: Locate, returning `bool` for found and updating `pos` param.
 // - count_located: Count of any of the values.
 // - substitute: Substitute all `from` with matching `to`.
@@ -214,11 +215,10 @@ inline constexpr auto locate(std::string_view s,
 // Same as above, but locate the last instance.
 inline constexpr location rlocate(std::string_view s,
     std::span<const char> values, size_t pos = npos) noexcept {
-  auto l = s.size();
-  if (l == 0) return {npos, npos};
-  if (--l > pos) l = pos;
   const auto value_sv = std::string_view{values.begin(), values.end()};
-  for (pos = l + 1; pos > 0; --pos)
+  if (s.empty()) return {npos, npos};
+  if (pos >= s.size()) pos = s.size() - 1;
+  for (++pos; pos-- > 0;)
     for (size_t pos_value = 0; pos_value < value_sv.size(); ++pos_value)
       if (s[pos] == value_sv[pos_value]) return {pos, pos_value};
   return {npos, npos};
@@ -257,10 +257,9 @@ inline constexpr auto locate(std::string_view s,
 // Same as above, but locate the last instance.
 inline constexpr struct location rlocate(std::string_view s,
     std::span<const std::string_view> values, size_t pos = npos) noexcept {
-  auto l = s.size();
-  if (l == 0) return {npos, npos};
-  if (--l > pos) l = pos;
-  for (pos = l + 1; pos > 0; --pos)
+  if (s.empty()) return {npos, npos};
+  if (pos >= s.size()) pos = s.size() - 1;
+  for (++pos; pos-- > 0;)
     for (size_t pos_value = 0; pos_value < values.size(); ++pos_value)
       if (s.substr(pos, values[pos_value].size()) == values[pos_value])
         return {pos, pos_value};
@@ -409,8 +408,9 @@ substituted(std::string s, const auto& from, const auto& to) noexcept {
   return ss;
 }
 
-// TODO: Add reverse versions of all locate functions.
-// TODO: Maybe add an excise function to remove all instances of a value.
+// TODO: Maybe add an excise function to remove all instances of a value. Note
+// that this can always be optimized to do a single pass over the string, never
+// copying the tail more than once.
 // TODO: Consider a way to choose whether to get npos or the size. For example,
 // specialize on an enum, or just add a default parameter, `as_npos` that
 // defaults to `npos` but can be set to `s.size()`. Any pos  >= size is
@@ -424,6 +424,7 @@ substituted(std::string s, const auto& from, const auto& to) noexcept {
 // TODO: Benchmark whether it's faster to do replacements in-place or to
 // build a new string. There's also the middle ground of in-place but in a
 // single pass, so long as we're not growing.
+// TODO: If span size is 1, forward to regular, with pos_value hardcoded to 0?
 }} // namespace corvid::strings::locating
 
 // Publish these literals corvid-wide.

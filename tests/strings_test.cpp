@@ -147,16 +147,18 @@ void StringUtilsTest_Locate() {
     // Locate(ch).
     EXPECT_EQ(strings::locate(s, 'd'), 3u);
     // Locate(init<ch>).
-    EXPECT_EQ(strings::locate(s, {'x', 'i', 'y'}), (location{8, 1}));
+    EXPECT_EQ(strings::locate(s, {'x', 'i', 'y'}), (location{8u, 1u}));
     // Locate(span<ch>).
-    EXPECT_EQ(strings::locate(s, std::span{"xfz", 3}), (location{5, 1}));
+    EXPECT_EQ(strings::locate(s, std::span{"xfz", 3}), (location{5u, 1u}));
     // locate(array<ch>).
-    EXPECT_EQ(strings::locate(s, std::array{'x', 'i', 'y'}), (location{8, 1}));
+    EXPECT_EQ(strings::locate(s, std::array{'x', 'i', 'y'}),
+        (location{8u, 1u}));
     // Locate(init<sv>).
-    EXPECT_EQ(strings::locate(s, {"a0c"sv, "def"s, "g0i"}), (location{3, 1}));
+    EXPECT_EQ(strings::locate(s, {"a0c"sv, "def"s, "g0i"}),
+        (location{3u, 1u}));
     // Locate(vector<ch>).
     EXPECT_EQ(strings::locate(s, std::vector{'x', 'i', 'y'}),
-        (location{8, 1}));
+        (location{8u, 1u}));
 
     // Edge cases.
     EXPECT_EQ(strings::locate(s, "def", l), npos);
@@ -175,8 +177,8 @@ void StringUtilsTest_Locate() {
     EXPECT_EQ(strings::locate(s, "", l), l);
     EXPECT_EQ(strings::locate(s, "", l + 1), npos);
     //
-    EXPECT_EQ(strings::locate(s, {"x", ""}), (location{0, 1}));
-    EXPECT_EQ(strings::locate(s, {"x", ""}, l), (location{l, 1}));
+    EXPECT_EQ(strings::locate(s, {"x", ""}), (location{0u, 1u}));
+    EXPECT_EQ(strings::locate(s, {"x", ""}, l), (location{l, 1u}));
     EXPECT_EQ(strings::locate(s, {"x", ""}, l + 1), nloc);
   }
   if (true) {
@@ -335,50 +337,50 @@ void StringUtilsTest_RLocate() {
     location loc;
     EXPECT_EQ(loc.pos, 0u);
   }
-  // Comprehensive test of rlocate with both char and string_view, covering all
-  // edge cases.
   if (true) {
     constexpr auto s = "abcdefghijabcdefghij"sv;
-    EXPECT_EQ(strings::rlocate(s, 'j', 0u), npos);
-    EXPECT_EQ(strings::rlocate(s, 'j', npos), 19u);
-    EXPECT_EQ(strings::rlocate(s, 'j', 25u), 19u);
     EXPECT_EQ(strings::rlocate(s, 'j'), 19u);
+    EXPECT_EQ(strings::rlocate(s, 'j', npos), 19u);
+    EXPECT_EQ(strings::rlocate(s, 'j', 0u), npos);
+    EXPECT_EQ(strings::rlocate(s, 'j', 25u), 19u);
     EXPECT_EQ(strings::rlocate(s, 'j', 18u), 9u);
     EXPECT_EQ(strings::rlocate(s, 'a'), 10u);
-    EXPECT_EQ(strings::rlocate(s, 'a', 1), 0u);
+    EXPECT_EQ(strings::rlocate(s, 'a', 10u), 10u);
+    EXPECT_EQ(strings::rlocate(s, 'a', 1u), 0u);
     EXPECT_EQ(s.rfind('a', 0u), 0u);
-    EXPECT_EQ(strings::rlocate(s, 'a', 0), 0u);
-#if 0
-    EXPECT_EQ(strings::rlocate(s, 'b'), 1u);
-    EXPECT_EQ(strings::rlocate(s, 'c'), 2u);
-    EXPECT_EQ(strings::rlocate(s, 'd'), 3u);
-    EXPECT_EQ(strings::rlocate(s, 'e'), 4u);
-    EXPECT_EQ(strings::rlocate(s, 'f'), 5u);
-    EXPECT_EQ(strings::rlocate(s, 'g'), 6u);
-    EXPECT_EQ(strings::rlocate(s, 'h'), 7u);
-    EXPECT_EQ(strings::rlocate(s, 'i'), 8u);
-    EXPECT_EQ(strings::rlocate(s, 'j'), 9u);
-    EXPECT_EQ(strings::rlocate(s, 'k'), npos);
-    EXPECT_EQ(strings::rlocate(s, "ab"sv), 0u);
-    EXPECT_EQ(strings::rlocate(s, "bc"sv), 1u);
-    EXPECT_EQ(strings::rlocate(s, "cd"sv), 2u);
-    EXPECT_EQ(strings::rlocate(s, "de"sv), 3u);
-    EXPECT_EQ(strings::rlocate(s, "ef"sv), 4u);
-    EXPECT_EQ(strings::rlocate(s, "fg"sv), 5u);
-    EXPECT_EQ(strings::rlocate(s, "gh"sv), 6u);
-    EXPECT_EQ(strings::rlocate(s, "hi"sv), 7u);
-    EXPECT_EQ(strings::rlocate(s, "ij"sv), 8u);
-    EXPECT_EQ(strings::rlocate(s, "jk"sv), npos);
-    EXPECT_EQ(strings::rlocate(s, "abc"sv), npos);
-    EXPECT_EQ(strings::rlocate(s, "bcd"sv), npos);
-    EXPECT_EQ(strings::rlocate(s, "cde"sv), npos);
-    EXPECT_EQ(strings::rlocate(s, "def"sv), 13u);
-    EXPECT_EQ(strings::rlocate(s, "efg"sv), npos);
-    EXPECT_EQ(strings::rlocate(s, "fgh"sv), npos);
-    EXPECT_EQ(strings::rlocate(s, "ghi"sv), npos);
-    EXPECT_EQ
-#endif
+    EXPECT_EQ(strings::rlocate(s, 'a', 0u), 0u);
+    EXPECT_EQ(strings::rlocate(s, "j"), 19u);
+    EXPECT_EQ(strings::rlocate(s, "j", npos), 19u);
+    EXPECT_EQ(strings::rlocate(s, "j", 0u), npos);
+    EXPECT_EQ(strings::rlocate(s, "j", 25u), 19u);
+    EXPECT_EQ(strings::rlocate(s, "j", 18u), 9u);
+    EXPECT_EQ(strings::rlocate(s, "a"), 10u);
+    EXPECT_EQ(strings::rlocate(s, "a", 10u), 10u);
+    EXPECT_EQ(strings::rlocate(s, "a", 1u), 0u);
+    EXPECT_EQ(s.rfind("a", 0u), 0u);
+    EXPECT_EQ(strings::rlocate(s, "a", 0u), 0u);
+    EXPECT_EQ(strings::rlocate(s, {'i', 'j'}), (location{19u, 1u}));
+    EXPECT_EQ(strings::rlocate(s, {'i', 'j'}, npos), (location{19u, 1u}));
+    EXPECT_EQ(strings::rlocate(s, {'i', 'j'}, 0u), (location{npos, npos}));
+    EXPECT_EQ(strings::rlocate(s, {'i', 'j'}, 25u), (location{19u, 1u}));
+    EXPECT_EQ(s.rfind('i', 18u), 18u);
+    EXPECT_EQ(s.rfind('j', 18u), 9u);
+    EXPECT_EQ(strings::rlocate(s, {'i', 'j'}, 18u), (location{18u, 0u}));
+    EXPECT_EQ(strings::rlocate(s, {'a', 'b'}), (location{11u, 1u}));
+    EXPECT_EQ(strings::rlocate(s, {'a', 'b'}, 13), (location{11u, 1u}));
+    EXPECT_EQ(strings::rlocate(s, {'a', 'b'}, 12), (location{11u, 1u}));
+    EXPECT_EQ(s.rfind('b', 12u), 11u);
+    EXPECT_EQ(s.rfind('b', 11u), 11u);
+    EXPECT_EQ(s.rfind('b', 10u), 1u);
+    EXPECT_EQ(s.rfind('b', 9u), 1u);
+    EXPECT_EQ(s.rfind('a', 0u), 0u);
+    EXPECT_EQ(s.rfind('b', 0u), npos);
+    EXPECT_EQ(strings::rlocate(s, {'a', 'b'}, 11u), (location{11u, 1u}));
+    EXPECT_EQ(strings::rlocate(s, {'a', 'b'}, 10u), (location{10u, 0u}));
+    EXPECT_EQ(strings::rlocate(s, {'a', 'b'}, 1u), (location{1u, 1u}));
+    EXPECT_EQ(strings::rlocate(s, {'a', 'b'}, 0u), (location{0u, 0u}));
   }
+  // TODO: Maybe add rlocate multi-string tests.
 }
 
 void StringUtilsTest_Substitute() {
