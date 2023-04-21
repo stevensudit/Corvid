@@ -303,23 +303,15 @@ void StringUtilsTest_Locate() {
     EXPECT_EQ(strings::count_located(s, axy), 1u);
     const auto sxy = std::span<const std::string_view>{axy};
     EXPECT_EQ(strings::count_located(s, sxy), 1u);
-    // Next line would, correctly, go into an infinite loop.
-    // * EXPECT_EQ(strings::count_located(s, ""), npos);
-  }
-  if (true) {
-    // Regression test. Probably unnecessary, but better to keep than not.
-    constexpr auto s = "abxabcbcab"sv;
-    auto span = strings::locating::convert::as_span({"ab"sv, "cbc"sv});
-    EXPECT_EQ(span.size(), 2u);
-    const auto abcbc = {"ab"sv, "cbc"sv};
-    location loc;
-    EXPECT_EQ(strings::located(loc, s, abcbc), true);
-    EXPECT_EQ(loc.pos, 0u);
-    EXPECT_EQ(loc.pos_value, 0u);
-    loc.pos = 0;
-    EXPECT_EQ(strings::located(loc, s, {"ab"sv, "cbc"sv}), true);
-    EXPECT_EQ(loc.pos, 0u);
-    EXPECT_EQ(loc.pos_value, 0u);
+    EXPECT_EQ(strings::count_located(s, ""), 24u);
+    EXPECT_EQ(strings::count_located("aaaaaaaa"sv, "a"sv), 8u);
+    EXPECT_EQ(strings::count_located("aaaaaaaa"sv, "aa"sv), 4u);
+    const auto a0 = std::array<const std::string_view, 0>{};
+    EXPECT_EQ(strings::count_located(s, a0), 0u);
+    const auto s0 = std::span<const std::string_view>{a0};
+    EXPECT_EQ(strings::count_located(s, s0), 0u);
+    EXPECT_EQ(strings::count_located(s, {""sv}), 24u);
+    EXPECT_EQ(strings::count_located(s, {""}), 24u);
   }
 }
 
@@ -394,30 +386,40 @@ void StringUtilsTest_LocateEdges() {
     EXPECT_EQ(strings::locate(s, 'a', s.size()), npos);
     // We can choose to use the size as npos for returns.
     EXPECT_EQ(strings::locate(s, 'z'), npos);
-    EXPECT_EQ(strings::locate<npos_value::size>(s, 'z'), s.size());
+    EXPECT_EQ(strings::locate<npos_choice::size>(s, 'z'), s.size());
     EXPECT_EQ(strings::rlocate(s, 'z'), npos);
-    EXPECT_EQ(strings::rlocate<npos_value::size>(s, 'z'), s.size());
+    EXPECT_EQ(strings::rlocate<npos_choice::size>(s, 'z'), s.size());
     EXPECT_EQ(strings::locate(s, "xyz"sv), npos);
-    EXPECT_EQ(strings::locate<npos_value::size>(s, "xyz"sv), s.size());
+    EXPECT_EQ(strings::locate<npos_choice::size>(s, "xyz"sv), s.size());
     EXPECT_EQ(strings::rlocate(s, "xyz"sv), npos);
-    EXPECT_EQ(strings::rlocate<npos_value::size>(s, "xyz"sv), s.size());
+    EXPECT_EQ(strings::rlocate<npos_choice::size>(s, "xyz"sv), s.size());
     //
     EXPECT_EQ(strings::locate(s, {'y', 'z'}), (location{npos, npos}));
-    EXPECT_EQ(strings::locate<npos_value::size>(s, {'y', 'z'}),
+    EXPECT_EQ(strings::locate<npos_choice::size>(s, {'y', 'z'}),
         (location{s.size(), 2}));
     EXPECT_EQ(strings::rlocate(s, {'y', 'z'}), (location{npos, npos}));
-    EXPECT_EQ(strings::rlocate<npos_value::size>(s, {'y', 'z'}),
+    EXPECT_EQ(strings::rlocate<npos_choice::size>(s, {'y', 'z'}),
         (location{s.size(), 2}));
     EXPECT_EQ(strings::locate(s, {"uvw"sv, "xyz"sv}), (location{npos, npos}));
-    EXPECT_EQ(strings::locate<npos_value::size>(s, {"uvw"sv, "xyz"sv}),
+    EXPECT_EQ(strings::locate<npos_choice::size>(s, {"uvw"sv, "xyz"sv}),
         (location{s.size(), 2}));
     EXPECT_EQ(strings::rlocate(s, {"uvw"sv, "xyz"sv}), (location{npos, npos}));
-    EXPECT_EQ(strings::rlocate<npos_value::size>(s, {"uvw"sv, "xyz"sv}),
+    EXPECT_EQ(strings::rlocate<npos_choice::size>(s, {"uvw"sv, "xyz"sv}),
         (location{s.size(), 2}));
   }
   // Test for catching the subtle error of passing an initializer list of
   // string literals.
   if (true) {
+  }
+  // Confirm the correctness of infinite loops.
+  if (true) {
+    constexpr auto s = "abcdefghijabcdefghij"sv;
+    EXPECT_EQ(s.find("a"), 0u);
+    EXPECT_EQ(strings::locate(s, "a"), 0u);
+    EXPECT_EQ(s.find(""), 0u);
+    EXPECT_EQ(strings::locate(s, ""), 0u);
+    EXPECT_EQ(strings::locate(s, {""sv, ""sv}), (location{0u, 0u}));
+    EXPECT_EQ(strings::locate(s, std::array<std::string_view, 0>{}), nloc);
   }
 }
 
@@ -483,8 +485,8 @@ void StringUtilsTest_Substitute() {
     const auto f = std::vector{"ab"s, "xz"s, "cd"s};
     const auto t = std::vector{"cd"s, "za"s, "ab"s};
     // But we can allow explicit conversion to vector<sv>.
-    EXPECT_EQ(strings::substitute(s, strings::convert::as_views(f),
-                  strings::convert::as_views(t)),
+    EXPECT_EQ(
+        strings::substitute(s, strings::as_views(f), strings::as_views(t)),
         4u);
     EXPECT_EQ(s, "cdabefghijcdabefghij");
 
@@ -507,9 +509,9 @@ void StringUtilsTest_Substitute() {
     s = std::string{sv};
     EXPECT_EQ(
         strings::substitute(s,
-            strings::convert::as_views<std::initializer_list<std::string>>(
+            strings::as_views<std::initializer_list<std::string>>(
                 {"ab"s, "xz"s, "cd"s}),
-            strings::convert::as_views<std::initializer_list<std::string>>(
+            strings::as_views<std::initializer_list<std::string>>(
                 {"cd"s, "za"s, "ab"s})),
         4u);
     EXPECT_EQ(s, "cdabefghijcdabefghij");
@@ -526,6 +528,63 @@ void StringUtilsTest_Substitute() {
     EXPECT_EQ(3u, strings::substitute(s, 'z', 'x'));
     EXPECT_EQ(s, "xxxdefghij");
     EXPECT_EQ(strings::substituted("abcdef", "abc", "yyy"), "yyydef");
+  }
+  if (true) {
+    constexpr auto sv = "aaaaaaaaaa"sv;
+    auto s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, "a"sv, "b"sv), 10u);
+    EXPECT_EQ(s, "bbbbbbbbbb");
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, "a"sv, ""sv), 10u);
+    EXPECT_EQ(s, "");
+  }
+  if (true) {
+    constexpr auto sv = "abcdefghijabcdefghij"sv;
+    auto s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, "def"sv, "ab"sv), 2u);
+    EXPECT_EQ(s, "abcabghijabcabghij");
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, "def"sv, "a"sv), 2u);
+    EXPECT_EQ(s, "abcaghijabcaghij");
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, "def"sv, ""sv), 2u);
+    EXPECT_EQ(s, "abcghijabcghij");
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, "def"sv, "abcd"sv), 2u);
+    EXPECT_EQ(s, "abcabcdghijabcabcdghij");
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, "de"sv, "abcd"sv), 2u);
+    EXPECT_EQ(s, "abcabcdfghijabcabcdfghij");
+  }
+  if (true) {
+    // Test of Pythonic behavior.
+    constexpr auto sv = "abcdef"sv;
+    auto s = std::string{sv};
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, ""sv, "x"sv), 7u);
+    EXPECT_EQ(s, "xaxbxcxdxexfx");
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, ""sv, "xy"sv), 7u);
+    EXPECT_EQ(s, "xyaxybxycxydxyexyfxy");
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, "c"sv, ""sv), 1u);
+    EXPECT_EQ(s, "abdef");
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, ""sv, ""sv), 7u);
+    EXPECT_EQ(s, "abcdef");
+    //
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, {""sv}, {"x"sv}), 7u);
+    EXPECT_EQ(s, "xaxbxcxdxexfx");
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, {""sv}, {"xy"sv}), 7u);
+    EXPECT_EQ(s, "xyaxybxycxydxyexyfxy");
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, {"c"sv}, {""sv}), 1u);
+    EXPECT_EQ(s, "abdef");
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, {""sv}, {""sv}), 7u);
+    EXPECT_EQ(s, "abcdef");
   }
 }
 
