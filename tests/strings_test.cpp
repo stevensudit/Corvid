@@ -383,6 +383,44 @@ void StringUtilsTest_RLocate() {
   // TODO: Maybe add rlocate multi-string tests.
 }
 
+void StringUtilsTest_LocateEdges() {
+  using location = corvid::strings::location;
+  // Test for using size as npos.
+  if (true) {
+    constexpr auto s = "abcdefghijabcdefghij"sv;
+    EXPECT_EQ(strings::locate(s, 'a'), 0u);
+    // npos, as pos, is just a placeholder for size.
+    EXPECT_EQ(strings::locate(s, 'a', npos), npos);
+    EXPECT_EQ(strings::locate(s, 'a', s.size()), npos);
+    // We can choose to use the size as npos for returns.
+    EXPECT_EQ(strings::locate(s, 'z'), npos);
+    EXPECT_EQ(strings::locate<npos_value::size>(s, 'z'), s.size());
+    EXPECT_EQ(strings::rlocate(s, 'z'), npos);
+    EXPECT_EQ(strings::rlocate<npos_value::size>(s, 'z'), s.size());
+    EXPECT_EQ(strings::locate(s, "xyz"sv), npos);
+    EXPECT_EQ(strings::locate<npos_value::size>(s, "xyz"sv), s.size());
+    EXPECT_EQ(strings::rlocate(s, "xyz"sv), npos);
+    EXPECT_EQ(strings::rlocate<npos_value::size>(s, "xyz"sv), s.size());
+    //
+    EXPECT_EQ(strings::locate(s, {'y', 'z'}), (location{npos, npos}));
+    EXPECT_EQ(strings::locate<npos_value::size>(s, {'y', 'z'}),
+        (location{s.size(), 2}));
+    EXPECT_EQ(strings::rlocate(s, {'y', 'z'}), (location{npos, npos}));
+    EXPECT_EQ(strings::rlocate<npos_value::size>(s, {'y', 'z'}),
+        (location{s.size(), 2}));
+    EXPECT_EQ(strings::locate(s, {"uvw"sv, "xyz"sv}), (location{npos, npos}));
+    EXPECT_EQ(strings::locate<npos_value::size>(s, {"uvw"sv, "xyz"sv}),
+        (location{s.size(), 2}));
+    EXPECT_EQ(strings::rlocate(s, {"uvw"sv, "xyz"sv}), (location{npos, npos}));
+    EXPECT_EQ(strings::rlocate<npos_value::size>(s, {"uvw"sv, "xyz"sv}),
+        (location{s.size(), 2}));
+  }
+  // Test for catching the subtle error of passing an initializer list of
+  // string literals.
+  if (true) {
+  }
+}
+
 void StringUtilsTest_Substitute() {
   if (true) {
     // substitute: ch, psz, s, sv.
@@ -1381,7 +1419,8 @@ void StringUtilsTest_AppendJson() {
 MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_Split, StringUtilsTest_ParseNum, StringUtilsTest_Case,
     StringUtilsTest_Locate, StringUtilsTest_RLocate,
-    StringUtilsTest_Substitute, StringUtilsTest_Target, StringUtilsTest_Print,
-    StringUtilsTest_Trim, StringUtilsTest_AppendNum, StringUtilsTest_Append,
-    StringUtilsTest_Edges, StringUtilsTest_Streams, StringUtilsTest_AppendEnum,
+    StringUtilsTest_LocateEdges, StringUtilsTest_Substitute,
+    StringUtilsTest_Target, StringUtilsTest_Print, StringUtilsTest_Trim,
+    StringUtilsTest_AppendNum, StringUtilsTest_Append, StringUtilsTest_Edges,
+    StringUtilsTest_Streams, StringUtilsTest_AppendEnum,
     StringUtilsTest_AppendStream, StringUtilsTest_AppendJson);
