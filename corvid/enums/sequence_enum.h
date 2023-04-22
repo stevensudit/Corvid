@@ -135,7 +135,7 @@ template<SequentialEnum E>
 // Cast integer value from underlying type to sequence, wrapping to keep it in
 // range.
 template<SequentialEnum E, bool noclip = false>
-constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
+[[nodiscard]] constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
   // Wrapping is only meaningful if the underlying type is not a perfect fit.
   if constexpr (seq_actually_need_wrap_v<E>) {
     constexpr auto lo = seq_min_num_v<E>, hi = seq_max_num_v<E>;
@@ -158,7 +158,7 @@ constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
 // Cast integer value from underlying type to sequence. When `wrapclip::limit`,
 // wraps value to ensure safety.
 template<SequentialEnum E, bool noclip = false>
-constexpr E make(std::underlying_type_t<E> u) noexcept {
+[[nodiscard]] constexpr E make(std::underlying_type_t<E> u) noexcept {
   if constexpr (seq_actually_wrap_v<E>)
     return make_safely<E, noclip>(u);
   else
@@ -259,13 +259,13 @@ template<SequentialEnum E>
 
 // Maximum value.
 template<SequentialEnum E>
-constexpr E max_value() noexcept {
+[[nodiscard]] constexpr E max_value() noexcept {
   return seq_max_v<E>;
 }
 
 // Minimum value.
 template<SequentialEnum E>
-constexpr E min_value() noexcept {
+[[nodiscard]] constexpr E min_value() noexcept {
   return seq_min_v<E>;
 }
 
@@ -273,13 +273,13 @@ constexpr E min_value() noexcept {
 //
 // Like `std::to_integer<IntegerType>(std::byte)`.
 template<std::integral T>
-constexpr T to_integer(SequentialEnum auto v) noexcept {
+[[nodiscard]] constexpr T to_integer(SequentialEnum auto v) noexcept {
   return static_cast<T>(v);
 }
 
 // Length of range.
 template<SequentialEnum E>
-constexpr auto range_length() noexcept {
+[[nodiscard]] constexpr auto range_length() noexcept {
   return to_integer<size_t>(seq_size_v<E>());
 }
 
@@ -334,7 +334,7 @@ struct sequence_enum_names_spec
 // printed.
 template<ScopedEnum E, strings::fixed_string names,
     wrapclip wrapseq = wrapclip{}, E minseq = E{}>
-constexpr auto make_sequence_enum_spec() {
+[[nodiscard]] constexpr auto make_sequence_enum_spec() {
   constexpr auto name_array = strings::fixed_split_trim<names, " -?*">();
   constexpr auto name_count = name_array.size();
   constexpr auto maxseq = E{as_underlying(minseq) + name_count - 1};
@@ -352,7 +352,7 @@ constexpr auto make_sequence_enum_spec() {
 //
 // The numerical value is printed.
 template<ScopedEnum E, E maxseq, E minseq = E{}, wrapclip wrapseq = wrapclip{}>
-constexpr auto make_sequence_enum_spec() {
+[[nodiscard]] constexpr auto make_sequence_enum_spec() {
   return sequence_enum_spec<E, maxseq, minseq, wrapseq>{};
 }
 

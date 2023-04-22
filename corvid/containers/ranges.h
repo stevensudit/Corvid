@@ -24,13 +24,13 @@ namespace corvid { inline namespace ranges {
 template<typename T>
 class reversed_range {
 public:
-  constexpr reversed_range(T& t) : t_(t) {}
+  constexpr reversed_range(T& t) noexcept : t_(t) {}
 
-  constexpr auto begin() { return t_.rbegin(); }
-  constexpr auto end() { return t_.rend(); }
+  constexpr auto begin() noexcept { return t_.rbegin(); }
+  constexpr auto end() noexcept { return t_.rend(); }
 
-  constexpr auto cbegin() const { return t_.crbegin(); }
-  constexpr auto cend() const { return t_.crend(); }
+  constexpr auto cbegin() const noexcept { return t_.crbegin(); }
+  constexpr auto cend() const noexcept { return t_.crend(); }
 
 private:
   T& t_;

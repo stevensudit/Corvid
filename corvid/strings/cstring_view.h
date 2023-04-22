@@ -31,9 +31,9 @@ inline namespace cstringview {
 // interface based on `const char*`. (It also provides a shallow interface into
 // `const char*` or a `std::optional` of a `std::string`.)
 //
-// Unlike using `std::string` for everything, this avoids the overhead of
-// copying and preserves the distinction between `empty` and `null`. This makes
-// it suitable for holding the return value from a function like `getenv` or
+// Unlike using `std::string` for everything, it avoids the overhead of copying
+// and preserves the distinction between `empty` and `null`. This makes it
+// suitable for holding the return value from a function like `getenv` or
 // passing in a value to a function like `setenv`.
 //
 // Like a `std::string`, the terminator is not included in the `size` but is
@@ -113,9 +113,9 @@ public:
   constexpr cstring_view(std::nullptr_t) noexcept {}
   constexpr cstring_view(std::nullopt_t) noexcept {}
 
-  constexpr cstring_view(const cstring_view&) = default;
+  constexpr cstring_view(const cstring_view&) noexcept = default;
   constexpr cstring_view(const std::string& s) noexcept : sv_(s) {}
-  constexpr cstring_view(const char* psz) noexcept : sv_(from_ptr(psz)) {}
+  constexpr cstring_view(const char* psz) : sv_(from_ptr(psz)) {}
 
   // Risky construction.
   //
@@ -128,7 +128,7 @@ public:
   template<std::contiguous_iterator It, std::sized_sentinel_for<It> End>
   requires std::same_as<std::iter_value_t<It>, char> &&
            (!std::convertible_to<End, size_type>)
-  constexpr cstring_view(It first, End last)
+  constexpr explicit cstring_view(It first, End last)
       : cstring_view(std::to_address(first), last - first) {}
 
   // Optional as null.
@@ -265,12 +265,12 @@ private:
     // Empty is allowed, but only when null. A non-null empty must include the
     // terminator in its length.
     if (sv.empty()) {
-      if (sv.data()) throw std::length_error("c_string_view len");
+      if (sv.data()) throw std::length_error("cstring_view len");
       return sv;
     }
 
     // Ensure terminator is there, and then exclude it from length.
-    if (sv.back()) throw std::invalid_argument("c_string_view arg");
+    if (sv.back()) throw std::invalid_argument("cstring_view arg");
     sv.remove_suffix(1);
     return sv;
   }
@@ -290,7 +290,7 @@ constexpr cstring_view operator""_csv(const char* ps, std::size_t n) noexcept {
 
 // Null literal; must pass 0.
 constexpr cstring_view operator""_csv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range("c_string_view not zero");
+  if (zero_only) throw std::out_of_range("cstring_view not zero");
   return cstring_view{};
 }
 

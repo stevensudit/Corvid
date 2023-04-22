@@ -36,7 +36,7 @@ concept StdString = std::same_as<std::remove_cvref_t<T>, std::string>;
 template<typename T>
 concept AppendTarget = OStreamDerived<T> || StdString<T>;
 
-// `T` must be an enum.
+// `T` must be an enum, which could be scoped or not.
 template<typename T>
 concept StdEnum = std::is_enum_v<std::remove_cvref_t<T>>;
 

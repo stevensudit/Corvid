@@ -19,11 +19,18 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
+
 HISTORY
 
 This is a fork of the original Corvid library, which didn't take advantage of C++20 features.
 
-Rather than try to update it in place, it made more sense to make a new project and move code over, bit by bit, cleaning and upgrading it as I went. This approach enabled me to switch from MSVC to gcc, which has resulted in more-compliant code, and to use GitHub Copilot to help with the more tedious parts of the process. I also got rid of Google Test, just to simplify things, switching to the header-only Accutest.
+Rather than try to update it in place, it made more sense to make a new project and move code over, bit by bit, cleaning and upgrading it as I went. This approach enabled me to switch from MSVC to clang and gcc, which has resulted in more-compliant code, and to use GitHub Copilot and ChatGPT to help with the more tedious parts of the process. I also got rid of Google Test, just to simplify things, switching to the header-only Accutest, which is referenced but not bundled.
+
+
+CONTENTS
+
+The entirety of the Corvid library is in the `corvid` subdirectory, as headers you include into your own project. Everything else here, such as unit tests and various configuration settings, is just for my convenience in developing the library and is not properly a part of it. You're free to use it under the same license, though.
+
 
 NOTICE
 

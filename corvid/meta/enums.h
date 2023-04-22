@@ -26,7 +26,7 @@ namespace corvid { inline namespace meta { inline namespace enums {
 // Similar to `std::to_underlying_type` in C++23, but more forgiving. If `E` is
 // not an enum, just passes the value through unchanged.
 template<typename E>
-constexpr auto as_underlying(E v) noexcept {
+[[nodiscard]] constexpr auto as_underlying(E v) noexcept {
   if constexpr (std::is_enum_v<E>) {
     return static_cast<std::underlying_type_t<E>>(v);
   } else {
@@ -46,7 +46,7 @@ using as_underlying_t = decltype(as_underlying(std::declval<E>()));
 // If this seems like a strange thing to want to do, you're not wrong, but it
 // turns out to be surprisingly useful.
 template<typename E, typename X = std::byte, typename V>
-constexpr auto from_underlying(const V& u) {
+[[nodiscard]] constexpr auto from_underlying(const V& u) {
   if constexpr (ScopedEnum<E>) {
     return static_cast<E>(u);
   } else {
@@ -73,10 +73,15 @@ PRAGMA_CLANG_DIAG(pop);
 // value.
 
 // Compile-time pow2.
-constexpr uint64_t pow2(uint64_t n) { return n < 64 ? 1ull << n : 0ull; }
+[[nodiscard]] inline constexpr uint64_t pow2(uint64_t n) noexcept {
+  return n < 64 ? 1ull << n : 0ull;
+}
 
 // Compile-time reverse of std::bit_width. Returns the highest value that can
 // be encoded in `n` bits.
-constexpr uint64_t highest_value_in_n_bits(uint64_t n) { return pow2(n) - 1; }
+[[nodiscard]] inline constexpr uint64_t highest_value_in_n_bits(
+    uint64_t n) noexcept {
+  return pow2(n) - 1;
+}
 
 }}} // namespace corvid::meta::enums

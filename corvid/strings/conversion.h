@@ -38,14 +38,16 @@ inline namespace cvt_int {
 // On success, sets output value, removes parsed characters from the string
 // view, and returns true.
 //
-// On failure, leaves output value alone, possibly removes some characters
-// from the string view, and returns false.
+// On failure, leaves the parameters unchanged and returns false.
 template<int base = 10>
 constexpr bool extract_num(std::integral auto& t, std::string_view& sv) {
+  const auto save_sv = sv;
   sv = trim_left(sv);
   auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t, base);
   sv.remove_prefix(ptr - sv.data());
-  return ec == std::errc{};
+  if (ec == std::errc{}) return true;
+  sv = save_sv;
+  return false;
 }
 
 // Extract integer from a `std::string_view`, returning it as
@@ -54,8 +56,7 @@ constexpr bool extract_num(std::integral auto& t, std::string_view& sv) {
 // On success, returns optional with value, and removes parsed characters
 // from the string view.
 //
-// On failure, returns optional without value, and possibly removes some
-// characters from the string view.
+// On failure, returns optional without value and leaves string view unchanged.
 template<std::integral T = int64_t, int base = 10>
 constexpr std::optional<T> extract_num(std::string_view& sv) {
   T t;
@@ -141,14 +142,16 @@ inline namespace cvt_float {
 // On success, sets output value, removes parsed characters from the string
 // view, and returns true.
 //
-// On failure, leaves output value alone, possibly removes some characters
-// from the string view, and returns false.
+// On failure, leaves parameters unchanged and returns false.
 template<std::chars_format fmt = std::chars_format::general>
 constexpr bool extract_num(std::floating_point auto& t, std::string_view& sv) {
+  const auto save_sv = sv;
   sv = trim_left(sv);
   auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t, fmt);
   sv.remove_prefix(ptr - sv.data());
-  return ec == std::errc{};
+  if (ec == std::errc{}) return true;
+  sv = save_sv;
+  return false;
 }
 
 // Extract floating-point from a `std::string_view`, returning it as
@@ -157,8 +160,7 @@ constexpr bool extract_num(std::floating_point auto& t, std::string_view& sv) {
 // On success, returns optional with value, and removes parsed characters
 // from the string view.
 //
-// On failure, returns optional without value, and possibly removes some
-// characters from the string view.
+// On failure, returns optional without value and leaves string view unchanged.
 template<std::floating_point T,
     std::chars_format fmt = std::chars_format::general>
 constexpr std::optional<T> extract_num(std::string_view& sv) {
@@ -273,6 +275,9 @@ auto& append_stream(AppendTarget auto& target, const OStreamable auto& t) {
 }} // namespace corvid::strings::conversion
 
 // Append scoped enum to `os`.
+//
+// No need to define this for old-style enums because they're treated as
+// aliases for their underlying type, which is already supported.
 auto& operator<<(std::ostream& os, corvid::ScopedEnum auto t) {
   return corvid::strings::append_enum(os, t);
 }

@@ -60,12 +60,15 @@ template<bool keyed = false>
   return ndx != -1 ? &container_element_v<keyed>(&c[ndx]) : nullptr;
 }
 
-// Compile-time search and replace for std::string_view array.
-// TODO: Consider adding a version that takes parallel arrays for from and to,
-// replacing all of them. This can't be emulated by nesting.
+// Compile-time search and replace for `std::string_view` array. It operates
+// on whole `std::string_value` elements, not substrings.
+// This function is most useful with `fixed_string`.
+//
+// TODO: Consider adding a version that takes parallel arrays for `from` and
+// `to`, replacing all of them. This can't be emulated by nesting.
 template<size_t N>
-consteval auto search_and_replace(std::array<std::string, N> values,
-    std::string from, std::string to) {
+[[nodiscard]] consteval auto search_and_replace(
+    std::array<std::string, N> values, std::string from, std::string to) {
   std::array<std::string, N> result;
   for (size_t i = 0; i < N; ++i) {
     result[i] = (values[i] == from) ? to : values[i];

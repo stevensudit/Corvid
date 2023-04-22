@@ -32,6 +32,7 @@
             "args": [
                 "-std=c++20",
                 "-Wall",
+                "-Wextra",
                 "-fdiagnostics-color=always",
                 "-g",
                 "${file}",

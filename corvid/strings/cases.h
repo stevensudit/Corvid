@@ -24,10 +24,16 @@ namespace corvid::strings { inline namespace cases {
 //
 
 // Convert to uppercase.
+// Avoids `std::toupper` because it's locale-dependent and slow.
+[[nodiscard]] inline char to_upper(char c) {
+  return (c >= 'a' && c <= 'z') ? c - ('a' - 'A') : c;
+}
+
+// Convert to uppercase.
 inline void to_upper(Range auto& r) {
   std::span s{r};
   std::ranges::transform(s, s.begin(), [](unsigned char c) {
-    return std::toupper(c);
+    return toupper(c);
   });
 }
 
@@ -39,10 +45,16 @@ inline void to_upper(Range auto& r) {
 }
 
 // Convert to lowercase.
+// Avoids `std::tolower` because it's locale-dependent and slow.
+[[nodiscard]] inline char to_lower(char c) {
+  return (c >= 'A' && c <= 'Z') ? c + ('a' - 'A') : c;
+}
+
+// Convert to lowercase.
 inline void to_lower(Range auto& r) {
   std::span s{r};
   std::ranges::transform(s, s.begin(), [](unsigned char c) {
-    return std::tolower(c);
+    return tolower(c);
   });
 }
 

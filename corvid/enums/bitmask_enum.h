@@ -98,8 +98,8 @@ template<typename E>
 concept BitmaskEnum = (valid_bits_v<E> != 0);
 
 namespace details {
-template<BitmaskEnum E>
 // Guts of max_value, moved up to satisfy compiler.
+template<BitmaskEnum E>
 constexpr E do_max_value() noexcept {
   return E(valid_bits_v<E>);
 }
@@ -116,13 +116,13 @@ inline namespace ops {
 //
 // The precedent for this is `std::optional`.
 template<BitmaskEnum E>
-constexpr auto operator*(E v) noexcept {
+[[nodiscard]] constexpr auto operator*(E v) noexcept {
   return as_underlying<E>(v);
 }
 
 // Or operators.
 template<BitmaskEnum E>
-constexpr E operator|(E l, E r) noexcept {
+[[nodiscard]] constexpr E operator|(E l, E r) noexcept {
   return E(*l | *r);
 }
 
@@ -133,7 +133,7 @@ constexpr const E& operator|=(E& l, E r) noexcept {
 
 // And operators.
 template<BitmaskEnum E>
-constexpr E operator&(E l, E r) noexcept {
+[[nodiscard]] constexpr E operator&(E l, E r) noexcept {
   return E(*l & *r);
 }
 
@@ -144,7 +144,7 @@ constexpr const E& operator&=(E& l, E r) noexcept {
 
 // Xor operators.
 template<BitmaskEnum E>
-constexpr E operator^(E l, E r) noexcept {
+[[nodiscard]] constexpr E operator^(E l, E r) noexcept {
   return E(*l ^ *r);
 }
 
@@ -158,7 +158,7 @@ constexpr const E& operator^=(E& l, E r) noexcept {
 // Unless `wrapclip::limit`, this may set invalid bits, whereas `flip` will
 // not. When `wrapclip::limit`, does the same thing as `flip`.
 template<BitmaskEnum E>
-constexpr E operator~(E v) noexcept {
+[[nodiscard]] constexpr E operator~(E v) noexcept {
   if constexpr (bit_clip_v<E>)
     return v ^ details::do_max_value<E>();
   else
@@ -167,7 +167,7 @@ constexpr E operator~(E v) noexcept {
 
 // Plus operators.
 template<BitmaskEnum E>
-constexpr E operator+(E l, E r) noexcept {
+[[nodiscard]] constexpr E operator+(E l, E r) noexcept {
   return l | r;
 }
 
@@ -178,7 +178,7 @@ constexpr const E& operator+=(E& l, E r) noexcept {
 
 // Minus operators.
 template<BitmaskEnum E>
-constexpr E operator-(E l, E r) noexcept {
+[[nodiscard]] constexpr E operator-(E l, E r) noexcept {
   return l & ~r;
 }
 
@@ -202,19 +202,19 @@ constexpr const E& operator-=(E& l, E r) noexcept {
 // use an unsigned underlying type. However, the default underlying type is
 // `int`, which is signed.
 template<BitmaskEnum E>
-constexpr E max_value() noexcept {
+[[nodiscard]] constexpr E max_value() noexcept {
   return details::do_max_value<E>();
 }
 
 // Minimum value, inclusive, which is always 0.
 template<BitmaskEnum E>
-constexpr E min_value() noexcept {
+[[nodiscard]] constexpr E min_value() noexcept {
   return E{};
 }
 
 // Length of bits.
 template<BitmaskEnum E>
-constexpr size_t bits_length() noexcept {
+[[nodiscard]] constexpr size_t bits_length() noexcept {
   return std::bit_width(valid_bits_v<E>);
 }
 
@@ -222,7 +222,7 @@ constexpr size_t bits_length() noexcept {
 //
 // Like `std::to_integer<IntegerType>(std::byte)`.
 template<std::integral T>
-constexpr T to_integer(BitmaskEnum auto v) noexcept {
+[[nodiscard]] constexpr T to_integer(BitmaskEnum auto v) noexcept {
   return static_cast<T>(v);
 }
 
@@ -238,7 +238,7 @@ constexpr T to_integer(BitmaskEnum auto v) noexcept {
 // TODO: Consider making this correct even for validity masks with holes, or at
 // least failing cleanly if we can't do that.
 template<BitmaskEnum E>
-constexpr auto range_length() noexcept {
+[[nodiscard]] constexpr auto range_length() noexcept {
   return to_integer<size_t>(max_value<E>()) + 1;
 }
 
@@ -246,14 +246,14 @@ constexpr auto range_length() noexcept {
 
 // Cast integer value to bitmask, keeping only the valid bits.
 template<BitmaskEnum E>
-constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
+[[nodiscard]] constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
   return static_cast<E>(u) & max_value<E>();
 }
 
 // Cast integer value to bitmask. When `wrapclip::limit`, clips value to ensure
 // safety.
 template<BitmaskEnum E>
-constexpr E make(std::underlying_type_t<E> u) noexcept {
+[[nodiscard]] constexpr E make(std::underlying_type_t<E> u) noexcept {
   if constexpr (bit_clip_v<E>)
     return make_safely<E>(u);
   else
@@ -262,7 +262,7 @@ constexpr E make(std::underlying_type_t<E> u) noexcept {
 
 // Return value with bit at `ndx` (counting from the lsb) set.
 template<BitmaskEnum E>
-constexpr E make_at(size_t ndx) noexcept {
+[[nodiscard]] constexpr E make_at(size_t ndx) noexcept {
   return make<E>(1 << (ndx - 1));
 }
 
@@ -270,37 +270,37 @@ constexpr E make_at(size_t ndx) noexcept {
 
 // Return `v` with the bits in `m` set.
 template<BitmaskEnum E>
-constexpr E set(E v, E m) noexcept {
+[[nodiscard]] constexpr E set(E v, E m) noexcept {
   return v + m;
 }
 
 // Return `v` with the bits in `m` set only if `pred`.
 template<BitmaskEnum E>
-constexpr E set_if(E v, E m, bool pred) noexcept {
+[[nodiscard]] constexpr E set_if(E v, E m, bool pred) noexcept {
   return pred ? v + m : v;
 }
 
 // Return `v` with the bits set in `m` cleared.
 template<BitmaskEnum E>
-constexpr E clear(E v, E m) noexcept {
+[[nodiscard]] constexpr E clear(E v, E m) noexcept {
   return v - m;
 }
 
 // Return `v` with the bits in `m` cleared only if `pred`.
 template<BitmaskEnum E>
-constexpr E clear_if(E v, E m, bool pred) noexcept {
+[[nodiscard]] constexpr E clear_if(E v, E m, bool pred) noexcept {
   return pred ? v - m : v;
 }
 
 // Return `v` with the bits set in `m` set to `value`.
 template<BitmaskEnum E>
-constexpr E set_to(E v, E m, bool value) noexcept {
+[[nodiscard]] constexpr E set_to(E v, E m, bool value) noexcept {
   return value ? v + m : v - m;
 }
 
 // Return `v` with only the valid bits flipped.
 template<BitmaskEnum E>
-constexpr E flip(E v) noexcept {
+[[nodiscard]] constexpr E flip(E v) noexcept {
   return v ^ max_value<E>();
 }
 
@@ -308,31 +308,31 @@ constexpr E flip(E v) noexcept {
 
 // Return `v` with the bit at `ndx` set.
 template<BitmaskEnum E>
-constexpr E set_at(E v, size_t ndx) noexcept {
+[[nodiscard]] constexpr E set_at(E v, size_t ndx) noexcept {
   return v + make_at<E>(ndx);
 }
 
 // Return `v` with the bit at `ndx` set only if `pred`.
 template<BitmaskEnum E>
-constexpr E set_at_if(E v, size_t ndx, bool pred) noexcept {
+[[nodiscard]] constexpr E set_at_if(E v, size_t ndx, bool pred) noexcept {
   return pred ? v + make_at<E>(ndx) : v;
 }
 
 // Return `v` with the bit at `ndx` clear.
 template<BitmaskEnum E>
-constexpr E clear_at(E v, size_t ndx) noexcept {
+[[nodiscard]] constexpr E clear_at(E v, size_t ndx) noexcept {
   return v - make_at<E>(ndx);
 }
 
 // Return `v` with the bit at `ndx` clear only if `pred`.
 template<BitmaskEnum E>
-constexpr E clear_at_if(E v, size_t ndx, bool pred) noexcept {
+[[nodiscard]] constexpr E clear_at_if(E v, size_t ndx, bool pred) noexcept {
   return pred ? v - make_at<E>(ndx) : v;
 }
 
 // Return `v` with the bit at `ndx` set to `value`.
 template<BitmaskEnum E>
-constexpr E set_at_to(E v, size_t ndx, bool value) noexcept {
+[[nodiscard]] constexpr E set_at_to(E v, size_t ndx, bool value) noexcept {
   return value ? set_at(v, ndx) : clear_at(v, ndx);
 }
 
@@ -340,25 +340,25 @@ constexpr E set_at_to(E v, size_t ndx, bool value) noexcept {
 
 // Return whether `v` has any of the bits in `m` set.
 template<BitmaskEnum E>
-constexpr bool has(E v, E m) noexcept {
+[[nodiscard]] constexpr bool has(E v, E m) noexcept {
   return (v & m) != E(0);
 }
 
 // Return whether `v` has all the bits in `m` set.
 template<BitmaskEnum E>
-constexpr bool has_all(E v, E m) noexcept {
+[[nodiscard]] constexpr bool has_all(E v, E m) noexcept {
   return (v & m) == m;
 }
 
 // Returns whether `v` is missing some of the bits set in `m`.
 template<BitmaskEnum E>
-constexpr bool missing(E v, E m) noexcept {
+[[nodiscard]] constexpr bool missing(E v, E m) noexcept {
   return !has_all(v, m);
 }
 
 // Return whether `v` is missing all of the bits set in `m`.
 template<BitmaskEnum E>
-constexpr bool missing_all(E v, E m) noexcept {
+[[nodiscard]] constexpr bool missing_all(E v, E m) noexcept {
   return !has(v, m);
 }
 
@@ -565,7 +565,7 @@ consteval auto make_bitmask_enum_spec() {
 // hex, in combination with the known part of the value, if any.
 template<ScopedEnum E, strings::fixed_string bit_names,
     wrapclip bitclip = wrapclip{}>
-constexpr auto make_bitmask_enum_values_spec() {
+[[nodiscard]] constexpr auto make_bitmask_enum_values_spec() {
   constexpr auto name_array = strings::fixed_split<bit_names>();
   constexpr auto trimmed_names =
       strings::fixed_split_trim<bit_names, " -?*">();

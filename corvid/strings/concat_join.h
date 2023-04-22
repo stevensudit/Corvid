@@ -25,7 +25,7 @@
 // The way to do that is to import just `corvid` and then reference symbols
 // through the `strings` namespace, such as `strings::trim_braces`. You can
 // also choose to import the inline namespace for that group of symbols, such
-// as `corvid::bracing`.
+// as `corvid::strings::appending`.
 namespace corvid::strings {
 inline namespace registration {
 
@@ -94,7 +94,7 @@ inline namespace existing {
 PRAGMA_GCC_DIAG(push);
 PRAGMA_GCC_IGNORED("-Waddress");
 PRAGMA_GCC_IGNORED("-Wnonnull-compare");
-inline constexpr bool is_present(const BoolLike auto& p) {
+[[nodiscard]] inline constexpr bool is_present(const BoolLike auto& p) {
   return (p) ? true : false;
 }
 PRAGMA_GCC_DIAG(pop);
@@ -102,7 +102,7 @@ PRAGMA_GCC_DIAG(pop);
 // If it's not like a bool, then it's always present.
 template<typename T>
 requires(!BoolLike<T>)
-inline constexpr bool is_present(const T&) {
+[[nodiscard]] inline constexpr bool is_present(const T&) {
   return true;
 }
 } // namespace existing
@@ -230,7 +230,7 @@ constexpr auto& append(AppendTarget auto& target, const T& parts) {
   return target;
 }
 
-// Apppend one monostate to `target`, as "null".
+// Append one monostate to `target`, as "null".
 constexpr auto& append(AppendTarget auto& target, const MonoState auto&) {
   return append(target, nullptr);
 }
@@ -247,7 +247,7 @@ constexpr auto& append(AppendTarget auto& target, const T& part) {
   return target;
 }
 
-// Apppend a `StreamAppendable` to `target`.
+// Append a `StreamAppendable` to `target`.
 constexpr auto&
 append(AppendTarget auto& target, const StreamAppendable auto& part) {
   append_stream(target, part);
@@ -268,7 +268,6 @@ constexpr auto& append(AppendTarget auto& target, const auto& head,
 template<TupleLike T>
 requires Appendable<T>
 constexpr auto& append(AppendTarget auto& target, const T& parts) {
-  // TODO: Special-case for size-0 tuple?
   std::apply(
       [&target](const auto&... parts) {
         if constexpr (sizeof...(parts) != 0) append(target, parts...);
@@ -295,18 +294,18 @@ constexpr auto& append(A& target, const T& part) {
 }
 
 // Determine if `c` needs to be escaped.
-inline bool needs_escaping(char c) {
+[[nodiscard]] inline bool needs_escaping(char c) noexcept {
   return (c == '"' || c == '\\' || c == '/' || c < 32);
 }
 
 // Determine if `s` needs to be escaped.
-inline bool needs_escaping(std::string_view s) {
+[[nodiscard]] inline bool needs_escaping(std::string_view s) noexcept {
   for (auto c : s)
     if (needs_escaping(c)) return true;
   return false;
 }
 
-// Append one string to `target`, escaping as needed.
+// Append one string to `target`, escaping as needed for JSON.
 inline auto& append_escaped(AppendTarget auto& target, std::string_view part) {
   if (!needs_escaping(part)) return append(target, part);
 
@@ -337,7 +336,6 @@ inline auto& append_escaped(AppendTarget auto& target, std::string_view part) {
 }
 
 } // namespace appending
-
 inline namespace joinoptions {
 
 //
