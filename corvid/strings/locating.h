@@ -167,25 +167,23 @@ as_nloc(const std::string_view& s, const auto& values, position pos = npos,
 
 // Updates the `pos` or `location` to point past the value that was just
 // located, returning it as well. This can be used with `located` to loop over
-// located values. Specializing on -1 allows it to work with `rlocated`.
+// located values.
 //
 // Note that you cannot safely use it before the first call to
 // `locate` or when `locate` fails, because `pos_value` must be in range
 // (and not npos).
-template<ptrdiff_t mult = 1>
-constexpr position point_past(position& pos, const char) noexcept {
-  return pos += mult * 1;
+inline constexpr position point_past(position& pos, const char) noexcept {
+  return ++pos;
 }
-template<ptrdiff_t mult = 1>
-constexpr position
+inline constexpr position
 point_past(position& pos, const std::string_view& value) noexcept {
-  return pos += mult * std::max(value_size(value), 1ull);
+  return pos += std::max(value_size(value), 1ull);
 }
-template<typename T, ptrdiff_t mult = 1>
+template<typename T>
 constexpr position
 point_past(location& loc, std::span<const T> values) noexcept {
   assert(loc.pos_value < values.size());
-  loc.pos += mult * std::max(value_size(values[loc.pos_value]), 1ull);
+  loc.pos += std::max(value_size(values[loc.pos_value]), 1ull);
   return loc.pos;
 }
 inline constexpr position
@@ -223,7 +221,7 @@ template<npos_choice v = npos_choice::npos>
     return as_npos<v>(s, s.find(std::string_view{value}, pos));
 }
 // Same as above, but locate the last instance. To locate the previous
-// instance, subtract the value size instead of adding.
+// instance, subtract 1, not the value size, from the returned `pos`.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr position rlocate(std::string_view s,
     const SingleLocateValue auto& value, position pos = npos) noexcept {
@@ -261,7 +259,8 @@ template<npos_choice npv = npos_choice::npos>
   return locate<npv>(s, std::span<const char>{values.begin(), values.end()},
       pos);
 }
-// Same as above, but locate the last instance.
+// Same as above, but locate the last instance. To locate the previous
+// instance, subtract 1, not the value size.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location rlocate(std::string_view s,
     std::span<const char> values, position pos = npos) noexcept {
@@ -308,7 +307,8 @@ locate(std::string_view s, std::initializer_list<std::string_view> values,
     position pos = 0) noexcept {
   return locate<npv>(s, {values.begin(), values.end()}, pos);
 }
-// Same as above, but locate the last instance.
+// Same as above, but locate the last instance. Subtract 1, not the value size,
+// from the returned pos to locate the previous instance.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr struct location rlocate(std::string_view s,
     std::span<const std::string_view> values, position pos = npos) noexcept {
@@ -337,11 +337,27 @@ rlocate(std::string_view s, std::initializer_list<std::string_view> values,
 //
 //  To locate the next instance, you must increment `pos` past the located
 //  `value`. For `char`, the size is just 1. For `std::string_view`, this is
-//  its `size`.
+//  its `size`. The easiest way to do this is to pass the return value of
+//  `point_past` as the new `pos`.
 template<npos_choice npv = npos_choice::npos>
 constexpr bool located(position& pos, std::string_view s,
     const SingleLocateValue auto& value) noexcept {
   return (pos = locate<npv>(s, value, pos)) != as_npos<npv>(s);
+}
+// Same as above, but from the rear. To locate the previous instance,
+// subtract 1.
+//
+// Note that `pos` must be initialized to `size`, not `npos`, because we need
+// to reserve the latter (or any other value above `size`) for the stop
+// condition. These odd semantics are required to avoid an infinite loop.
+template<npos_choice npv = npos_choice::npos>
+constexpr bool rlocated(position& pos, std::string_view s,
+    const SingleLocateValue auto& value) noexcept {
+  if (pos > s.size()) {
+    pos = as_npos<npv>(s);
+    return false;
+  }
+  return (pos = rlocate<npv>(s, value, pos)) != as_npos<npv>(s);
 }
 
 // Return whether any of the `values` were located in `s`, starting at the
@@ -352,7 +368,7 @@ constexpr bool located(position& pos, std::string_view s,
 //  To locate the next instance, you must increment `pos` past the located
 //  `value`. For `char`, the size of the located value is just 1. For
 //  `std::string_view`, this is its `size`, which is most easily found by
-//  calling `point_past` on `loc`
+//  calling `point_past` on `loc`.
 template<npos_choice npv = npos_choice::npos>
 constexpr bool located(location& loc, std::string_view s,
     std::span<const char> values) noexcept {
@@ -372,6 +388,36 @@ template<npos_choice npv = npos_choice::npos>
 constexpr bool located(location& loc, std::string_view s,
     std::initializer_list<std::string_view> values) noexcept {
   return located<npv>(loc, s, {values.begin(), values.end()});
+}
+// Same as above, but from the rear. Read the notes above for single-value
+// `rlocated` for more about `pos`.
+template<npos_choice npv = npos_choice::npos>
+constexpr bool rlocated(location& loc, std::string_view s,
+    std::span<const char> values) noexcept {
+  if (loc.pos > s.size()) {
+    loc.pos = as_npos<npv>(s);
+    return false;
+  }
+  return (loc = rlocate<npv>(s, values, loc.pos)).pos != as_npos<npv>(s);
+}
+template<npos_choice npv = npos_choice::npos>
+constexpr bool rlocated(location& loc, std::string_view s,
+    std::initializer_list<char> values) noexcept {
+  return rlocated<npv>(loc, s, std::span{values.begin(), values.end()});
+}
+template<npos_choice npv = npos_choice::npos>
+constexpr bool rlocated(location& loc, std::string_view s,
+    std::span<const std::string_view> values) noexcept {
+  if (loc.pos > s.size()) {
+    loc.pos = as_npos<npv>(s);
+    return false;
+  }
+  return (loc = rlocate<npv>(s, values, loc.pos)).pos != as_npos<npv>(s);
+}
+template<npos_choice npv = npos_choice::npos>
+constexpr bool rlocated(location& loc, std::string_view s,
+    std::initializer_list<std::string_view> values) noexcept {
+  return rlocated<npv>(loc, s, {values.begin(), values.end()});
 }
 
 //

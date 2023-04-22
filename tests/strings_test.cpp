@@ -199,20 +199,54 @@ void StringUtilsTest_Locate() {
     EXPECT_EQ(pos, npos);
   }
   if (true) {
+    // rlocated(ch).
+    constexpr auto t = "abcabcabc"sv;
+    size_t pos = t.size();
+    const auto a = 'a';
+    EXPECT_EQ(strings::rlocated(pos, t, a), true);
+    EXPECT_EQ(pos, 6u);
+    --pos;
+    EXPECT_EQ(strings::rlocated(pos, t, a), true);
+    EXPECT_EQ(pos, 3u);
+    --pos;
+    EXPECT_EQ(strings::rlocated(pos, t, a), true);
+    EXPECT_EQ(pos, 0u);
+    --pos;
+    EXPECT_EQ(strings::rlocated(pos, t, a), false);
+    EXPECT_EQ(pos, npos);
+  }
+  if (true) {
     // located(psz).
     constexpr auto t = "abcabcabc"sv;
     size_t pos{};
     const auto abc = "abc";
     EXPECT_EQ(strings::located(pos, t, abc), true);
     EXPECT_EQ(pos, 0u);
-    pos += 3;
+    strings::point_past(pos, abc);
     EXPECT_EQ(strings::located(pos, t, abc), true);
     EXPECT_EQ(pos, 3u);
-    pos += 3;
+    strings::point_past(pos, abc);
     EXPECT_EQ(strings::located(pos, t, abc), true);
     EXPECT_EQ(pos, 6u);
-    pos += 3;
+    strings::point_past(pos, abc);
     EXPECT_EQ(strings::located(pos, t, abc), false);
+    EXPECT_EQ(pos, npos);
+  }
+  if (true) {
+    // rlocated(psz).
+    constexpr auto t = "abcabcabc"sv;
+    size_t pos = t.size();
+    const auto abc = "abc";
+    EXPECT_EQ(strings::rlocated(pos, t, abc), true);
+    EXPECT_EQ(pos, 6u);
+    --pos;
+    EXPECT_EQ(strings::rlocated(pos, t, abc), true);
+    EXPECT_EQ(pos, 3u);
+    --pos;
+    EXPECT_EQ(strings::rlocated(pos, t, abc), true);
+    EXPECT_EQ(pos, 0u);
+    --pos;
+    EXPECT_EQ(strings::rlocated(pos, t, abc), false);
     EXPECT_EQ(pos, npos);
   }
   if (true) {
@@ -222,14 +256,31 @@ void StringUtilsTest_Locate() {
     const auto abc = "abc"sv;
     EXPECT_EQ(strings::located(pos, t, abc), true);
     EXPECT_EQ(pos, 0u);
-    pos += abc.size();
+    strings::point_past(pos, abc);
     EXPECT_EQ(strings::located(pos, t, abc), true);
     EXPECT_EQ(pos, 3u);
-    pos += abc.size();
+    strings::point_past(pos, abc);
     EXPECT_EQ(strings::located(pos, t, abc), true);
     EXPECT_EQ(pos, 6u);
-    pos += abc.size();
+    strings::point_past(pos, abc);
     EXPECT_EQ(strings::located(pos, t, abc), false);
+    EXPECT_EQ(pos, npos);
+  }
+  if (true) {
+    // rlocated(sv).
+    constexpr auto t = "abcabcabc"sv;
+    size_t pos = t.size();
+    const auto abc = "abc"sv;
+    EXPECT_EQ(strings::rlocated(pos, t, abc), true);
+    EXPECT_EQ(pos, 6u);
+    --pos;
+    EXPECT_EQ(strings::rlocated(pos, t, abc), true);
+    EXPECT_EQ(pos, 3u);
+    --pos;
+    EXPECT_EQ(strings::rlocated(pos, t, abc), true);
+    EXPECT_EQ(pos, 0u);
+    --pos;
+    EXPECT_EQ(strings::rlocated(pos, t, abc), false);
     EXPECT_EQ(pos, npos);
   }
   if (true) {
@@ -252,6 +303,27 @@ void StringUtilsTest_Locate() {
     // located(span<ch>).
     const auto sxy = std::span<const char>{axy};
     EXPECT_EQ(strings::located(loc, s, sxy), true);
+  }
+  if (true) {
+    // rlocated(init<ch>).
+    constexpr auto s = "abxabcybc"sv;
+    location loc = {s.size(), npos};
+    const auto xy = {'x', 'y'};
+    EXPECT_EQ(strings::rlocated(loc, s, xy), true);
+    EXPECT_EQ(loc.pos, 6u);
+    --loc.pos;
+    EXPECT_EQ(strings::rlocated(loc, s, xy), true);
+    EXPECT_EQ(loc.pos, 2u);
+    --loc.pos;
+    EXPECT_EQ(strings::rlocated(loc, s, xy), false);
+    EXPECT_EQ(loc.pos, npos);
+    loc.pos = s.size();
+    // located(array<ch>).
+    const auto axy = std::array<const char, 2>{'x', 'y'};
+    EXPECT_EQ(strings::rlocated(loc, s, axy), true);
+    // located(span<ch>).
+    const auto sxy = std::span<const char>{axy};
+    EXPECT_EQ(strings::rlocated(loc, s, sxy), true);
   }
   if (true) {
     // located(init<sv>).
@@ -288,6 +360,37 @@ void StringUtilsTest_Locate() {
     // located(span<sv>).
     const auto sxy = std::span<const std::string_view>{axy};
     EXPECT_EQ(strings::located(loc, s, sxy), true);
+  }
+
+  if (true) {
+    // rlocated(init<sv>).
+    constexpr auto s = "abxabcbcab"sv;
+    location loc{s.size(), npos};
+    const auto abcbc = {"ab"sv, "cbc"sv};
+    EXPECT_EQ(strings::rlocated(loc, s, abcbc), true);
+    EXPECT_EQ(loc.pos, 8u);
+    EXPECT_EQ(loc.pos_value, 0u);
+    --loc.pos;
+    EXPECT_EQ(strings::rlocated(loc, s, abcbc), true);
+    EXPECT_EQ(loc.pos, 5u);
+    EXPECT_EQ(loc.pos_value, 1u);
+    --loc.pos;
+    EXPECT_EQ(strings::rlocated(loc, s, abcbc), true);
+    EXPECT_EQ(loc.pos, 3u);
+    EXPECT_EQ(loc.pos_value, 0u);
+    --loc.pos;
+    EXPECT_EQ(strings::rlocated(loc, s, abcbc), true);
+    EXPECT_EQ(loc.pos, 0u);
+    EXPECT_EQ(loc.pos_value, 0u);
+    --loc.pos;
+    EXPECT_EQ(strings::rlocated(loc, s, abcbc), false);
+    loc.pos = s.size();
+    // located(array<sv>).
+    const auto axy = std::array<const std::string_view, 2>{"x"sv, "y"sv};
+    EXPECT_EQ(strings::rlocated(loc, s, axy), true);
+    // located(span<sv>).
+    const auto sxy = std::span<const std::string_view>{axy};
+    EXPECT_EQ(strings::rlocated(loc, s, sxy), true);
   }
   if (true) {
     // count_located: ch, psz, sv, s, array<sv>, span<sv>.
