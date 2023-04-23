@@ -6,19 +6,13 @@ f. bitmask_enum_tests has some.
 g. meta_test has a whole section commented out.
 h. strings_test needs more tests.
 
-3. Consider how ostream could be made optional.
+2. Consider how ostream could be made optional.
 
-5. We need a verson of split that understands quotes and escaping. Maybe just regex and be done with it?
+3. We need a verson of split that understands quotes and escaping. Maybe just regex and be done with it?
 
-6. Test enums with int64.
+4. Test enums with int64.
 
-7. Add noexcept wherever it fits.
-
-8. Reverse all locate methods.
-
-9. Not sure if it's possible, or desirable, but can we overload operators for bitmask and sequence enums to allow comparison with the underlying type? It's still type-safe, but now we don't need to "deref".
-
-Next target: JSON encoding of strings.
+5. Not sure if it's possible, or desirable, but can we overload operators for bitmask and sequence enums to allow comparison with the underlying type? It's still type-safe, but now we don't need to "deref".
 
   // TODO: Fix splitter, working on adding a filter predicate and perhaps
   // allowing assignment to arbitrary containers.
