@@ -361,7 +361,6 @@ void StringUtilsTest_Locate() {
     const auto sxy = std::span<const std::string_view>{axy};
     EXPECT_EQ(strings::located(loc, s, sxy), true);
   }
-
   if (true) {
     // rlocated(init<sv>).
     constexpr auto s = "abxabcbcab"sv;
@@ -569,21 +568,25 @@ void StringUtilsTest_Substitute() {
     EXPECT_EQ(s, "abcdefghijabydefghijaaa");
   }
   if (true) {
-    // substitute: init<sv>, array<sv>, span<sv>.
+    // substitute: init<sv>, array<psz>, array<s>, array<sv>, span<sv>.
     constexpr auto sv = "abcdefghijabcdefghij"sv;
     auto s = std::string{sv};
     EXPECT_EQ(strings::substitute(s, {"ab"sv, "xz"sv, "cd"sv},
                   {"cd"sv, "za"sv, "ab"sv}),
         4u);
     EXPECT_EQ(s, "cdabefghijcdabefghij");
-    // We can't support psz:
-    // * strings::substitute(s, {"ab", "xz", "cd"}, {"cd", "za", "ab"});
-    // We can't support s:
-    // * strings::substitute(s, {"ab"s, "xz"s, "cd"s}, {"cd"s, "za"s,
-    // "ab"s});
+    s = std::string{sv};
+    EXPECT_EQ(strings::substitute(s, {"ab", "xz", "cd"}, {"cd", "za", "ab"}),
+        4u);
+    EXPECT_EQ(s, "cdabefghijcdabefghij");
+    s = std::string{sv};
+    EXPECT_EQ(
+        strings::substitute(s, {"ab"s, "xz"s, "cd"s}, {"cd"s, "za"s, "ab"s}),
+        4u);
+    EXPECT_EQ(s, "cdabefghijcdabefghij");
 
     // We can't support vector<s>:
-    // strings::substitute(s, f, t),
+    // * strings::substitute(s, f, t),
     s = std::string{sv};
     const auto f = std::vector{"ab"s, "xz"s, "cd"s};
     const auto t = std::vector{"cd"s, "za"s, "ab"s};
@@ -602,21 +605,6 @@ void StringUtilsTest_Substitute() {
     const auto sabcd = std::span<const std::string_view>{aabcd};
     const auto scdab = std::span<const std::string_view>{acdab};
     EXPECT_EQ(strings::substitute(s, sabcd, scdab), 4u);
-    EXPECT_EQ(s, "cdabefghijcdabefghij");
-
-    // Initializer lists of strings don't make a lot of sense, unless maybe
-    // the members aren't literals, and we can't support them anyhow.. But if
-    // we bend over backwards by using `as_views` explcitly specialized, it
-    // does work, albeit in much the same way that, with a big enough hammer,
-    // square pegs fit into round holes.
-    s = std::string{sv};
-    EXPECT_EQ(
-        strings::substitute(s,
-            strings::as_views<std::initializer_list<std::string>>(
-                {"ab"s, "xz"s, "cd"s}),
-            strings::as_views<std::initializer_list<std::string>>(
-                {"cd"s, "za"s, "ab"s})),
-        4u);
     EXPECT_EQ(s, "cdabefghijcdabefghij");
   }
   if (true) {
@@ -688,6 +676,118 @@ void StringUtilsTest_Substitute() {
     s = std::string{sv};
     EXPECT_EQ(strings::substitute(s, {""sv}, {""sv}), 7u);
     EXPECT_EQ(s, "abcdef");
+  }
+}
+
+void StringUtilsTest_Excise() {
+  if (true) {
+    // excise: ch, psz, s, sv.
+    constexpr auto sv = "abcdefghijabcdefghij"sv;
+    std::string s;
+    s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, 'a'), 2u);
+    EXPECT_EQ(s, "bcdefghijbcdefghij");
+    s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, "def"), 2u);
+    EXPECT_EQ(s, "abcghijabcghij");
+    s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, "def"s), 2u);
+    EXPECT_EQ(s, "abcghijabcghij");
+    s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, "def"sv), 2u);
+    EXPECT_EQ(s, "abcghijabcghij");
+  }
+  if (true) {
+    // excise: init<ch>, array<ch>, span<ch>.
+    constexpr auto sv = "abcdefghijabcdefghij"sv;
+    std::string s;
+    s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, {'a'}), 2u);
+    EXPECT_EQ(s, "bcdefghijbcdefghij");
+    s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, {'a', 'b'}), 4u);
+    EXPECT_EQ(s, "cdefghijcdefghij");
+    s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, {'a', 'y', 'c'}), 4u);
+    EXPECT_EQ(s, "bdefghijbdefghij");
+    const auto axy = std::array<const char, 2>{'x', 'y'};
+    s = "abcdefghijabxdefghijaaa";
+    EXPECT_EQ(strings::excise(s, axy), 1u);
+    EXPECT_EQ(s, "abcdefghijabdefghijaaa");
+    s = "abcdefghijabxdefghijaaa";
+    const auto sxy = std::span<const char>{axy};
+    EXPECT_EQ(strings::excise(s, sxy), 1u);
+    EXPECT_EQ(s, "abcdefghijabdefghijaaa");
+    EXPECT_EQ(strings::excised(s, 'x'), "abcdefghijabdefghijaaa");
+  }
+  if (true) {
+    // excise: init<sv>, array<sv>, span<sv>.
+    constexpr auto sv = "abcdefghijabcdefghij"sv;
+    auto s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, {"ab"sv, "xz"sv, "cd"sv}), 4u);
+    EXPECT_EQ(s, "efghijefghij");
+    s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, {"ab", "xz", "cd"}), 4u);
+    EXPECT_EQ(s, "efghijefghij");
+    s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, {"ab"s, "xz"s, "cd"s}), 4u);
+    EXPECT_EQ(s, "efghijefghij");
+
+    // We can't support vector<s>:
+    // strings::excise(s, f, t),
+    s = std::string{sv};
+    const auto f = std::vector{"ab"s, "xz"s, "cd"s};
+    // But we can allow explicit conversion to vector<sv>.
+    EXPECT_EQ(strings::excise(s, strings::as_views(f)), 4u);
+    EXPECT_EQ(s, "efghijefghij");
+    s = std::string{sv};
+    const auto aabcd = std::array<const std::string_view, 2>{"ab"sv, "cd"sv};
+    EXPECT_EQ(strings::excise(s, aabcd), 4u);
+    EXPECT_EQ(s, "efghijefghij");
+    s = std::string{sv};
+    const auto sabcd = std::span<const std::string_view>{aabcd};
+    EXPECT_EQ(strings::excise(s, sabcd), 4u);
+    EXPECT_EQ(s, "efghijefghij");
+  }
+  if (true) {
+    std::string s;
+    s = "abcdefghij";
+    EXPECT_EQ(strings::excise(s, "bac"), 0u);
+    EXPECT_EQ(s, "abcdefghij");
+    EXPECT_EQ(strings::excise(s, "abc"), 1u);
+    EXPECT_EQ(s, "defghij");
+    EXPECT_EQ(strings::excise(s, 'e'), 1u);
+    EXPECT_EQ(s, "dfghij");
+    EXPECT_EQ(strings::substituted("abcdef", "abc", "yyy"), "yyydef");
+  }
+  if (true) {
+    constexpr auto sv = "aaaaaaaaaa"sv;
+    auto s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, "a"sv), 10u);
+    EXPECT_EQ(s, "");
+    s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, ""sv), 10u);
+    EXPECT_EQ(s, "");
+  }
+  if (true) {
+    constexpr auto sv = "abcdefghijabcdefghij"sv;
+    auto s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, "def"sv), 2u);
+    EXPECT_EQ(s, "abcghijabcghij");
+    s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, "de"sv), 2u);
+    EXPECT_EQ(s, "abcfghijabcfghij");
+  }
+  if (true) {
+    // Test of Pythonic behavior.
+    constexpr auto sv = "abcdef"sv;
+    auto s = std::string{sv};
+    s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, ""sv), 6u);
+    EXPECT_EQ(s, "");
+    s = std::string{sv};
+    EXPECT_EQ(strings::excise(s, {""sv, "c"sv}), 6u);
+    EXPECT_EQ(s, "");
   }
 }
 
@@ -1582,7 +1682,7 @@ MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_Split, StringUtilsTest_ParseNum, StringUtilsTest_Case,
     StringUtilsTest_Locate, StringUtilsTest_RLocate,
     StringUtilsTest_LocateEdges, StringUtilsTest_Substitute,
-    StringUtilsTest_Target, StringUtilsTest_Print, StringUtilsTest_Trim,
-    StringUtilsTest_AppendNum, StringUtilsTest_Append, StringUtilsTest_Edges,
-    StringUtilsTest_Streams, StringUtilsTest_AppendEnum,
+    StringUtilsTest_Excise, StringUtilsTest_Target, StringUtilsTest_Print,
+    StringUtilsTest_Trim, StringUtilsTest_AppendNum, StringUtilsTest_Append,
+    StringUtilsTest_Edges, StringUtilsTest_Streams, StringUtilsTest_AppendEnum,
     StringUtilsTest_AppendStream, StringUtilsTest_AppendJson);

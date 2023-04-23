@@ -525,9 +525,71 @@ substituted(std::string s, const auto& from, const auto& to) noexcept {
   return ss;
 }
 
-// TODO: Add excise, excised, rlocated, as the docs promise.
-// Note that excise can always be optimized to do a single pass over the
-// string, never copying the tail more than once.
+//
+// Excise
+//
+
+// Excise all instances of `from` in `s`, returning count of
+// excisions. An empty `from` clears the string.
+size_t excise(std::string& s, SingleLocateValue auto from,
+    position pos = 0) noexcept {
+  size_t cnt{};
+  if constexpr (Char<decltype(from)>) {
+    for (; located(pos, s, from); ++cnt) s.erase(pos, 1);
+  } else {
+    auto from_sv = std::string_view{from};
+    if (from_sv.empty()) {
+      cnt = s.size();
+      s.clear();
+      return cnt;
+    }
+    for (; located(pos, s, from_sv); ++cnt) s.erase(pos, from_sv.size());
+  }
+  return cnt;
+}
+inline size_t
+excise(std::string& s, std::span<const char> from, position pos = 0) {
+  size_t cnt{};
+  for (location loc{pos, 0}; located(loc, s, from); ++cnt) s.erase(loc.pos, 1);
+  return cnt;
+}
+inline size_t
+excise(std::string& s, std::initializer_list<char> from, position pos = 0) {
+  return excise(s, std::span<const char>{from}, pos);
+}
+inline size_t excise(std::string& s, std::span<const std::string_view> from,
+    position pos = 0) {
+  size_t cnt{};
+  for (location loc{pos, 0}; located(loc, s, from) && !s.empty(); ++cnt) {
+    size_t from_size = from[loc.pos_value].size();
+    if (!from_size) {
+      cnt = s.size();
+      s.clear();
+      return cnt;
+    }
+    s.erase(loc.pos, from_size);
+  }
+  return cnt;
+}
+inline size_t excise(std::string& s,
+    std::initializer_list<std::string_view> from, position pos = 0) {
+  return excise(s, std::span<const std::string_view>{from}, pos);
+}
+
+//
+// Excised.
+//
+
+// Return new string that contains `s` with `from` excised.
+[[nodiscard]] std::string excised(std::string s, const auto& from) noexcept {
+  auto ss = std::string{std::move(s)};
+  excise(ss, from);
+  return ss;
+}
+
+// TODO: Substituted and excised don't work for initializer lists. Wrap them.
+// TODO: Excise can always be optimized to do a single pass over the string,
+// never copying the tail more than once.
 // TODO: Consider replacing free functions with something more
 // object-oriented. For example, a `locator` constructed over `s` and `loc`
 // (and maybe `as_npos`), which then has a `located` and `substituted`
