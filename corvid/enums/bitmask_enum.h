@@ -72,7 +72,7 @@ namespace corvid { inline namespace enums { namespace bitmask {
 //    enum class rgb { red = 4, green = 2, blue = 1 };
 //
 //    template<>
-//    constexpr auto registry::enum_spec_v<rgb> =
+//    constexpr inline auto registry::enum_spec_v<rgb> =
 //        make_bitmask_enum_spec<rgb, "red,green,blue">();
 
 template<ScopedEnum E, uint64_t validbits = 0, wrapclip bitclip = wrapclip{}>

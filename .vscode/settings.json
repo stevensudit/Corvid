@@ -91,5 +91,6 @@
                 }
             }
         ]
-    }
+    },
+    "python.formatting.provider": "black"
 }

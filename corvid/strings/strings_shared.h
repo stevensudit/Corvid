@@ -20,6 +20,7 @@
 #include <charconv>
 #include <cstdlib>
 #include <concepts>
+#include <functional>
 #include <iostream>
 #include <sstream>
 #include <string>

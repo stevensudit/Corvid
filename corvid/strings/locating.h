@@ -46,9 +46,9 @@
 // and `pos_value` members.
 //
 // There are many overloads, but few function names:
-// - locate: Locate occurrence of any of the values in the target.
+// - locate, locate_not: Locate occurrence of any of the values in the target.
 // - located: Whether any values were located, updating `pos`.
-// - rlocate, rlocated: Same, but fromt the rear.
+// - rlocate, rlocate_not, rlocated: Same, but from the rear.
 // - count_located: Count of the values.
 // - substitute: Substitute all `from` with matching `to`.
 // - excise: Excise all occurrences of the values.
@@ -101,7 +101,7 @@ concept SingleLocateValue = StringViewConvertible<T> || is_char_v<T>;
 [[nodiscard]] constexpr auto as_views(const auto& values) {
   std::vector<std::string_view> result;
   result.reserve(values.size());
-  for (auto& value : values) result.push_back(std::string_view{value});
+  for (auto& value : values) result.emplace_back(std::string_view{value});
   return result;
 }
 
@@ -116,11 +116,21 @@ struct location {
   constexpr auto operator<=>(const location&) const noexcept = default;
 };
 
+// A pos_range is a pair of positions, used to indicate the range of the found
+// item. When nothing is found, both positions are `npos`. Otherwise, `begin`
+// points to the found item and `end` points to the character after it. This is
+// probably most useful for locating delimiters.
+struct pos_range {
+  position begin{};
+  position end{};
+};
+
 // To get `npos`, `nloc`, `npos_choice`, and `nloc_value`, use:
 //  using namespace corvid::literals;
 inline namespace literals {
 constexpr position npos = std::string_view::npos;
 constexpr location nloc{npos, npos};
+constexpr pos_range npos_range{npos, npos};
 
 // Whether to return `npos` or `size` when nothing is found.
 enum class npos_choice { npos, size };
@@ -145,6 +155,19 @@ as_nloc(const std::string_view& s, const auto& values, position pos = npos,
       pos_value = values.size();
     }
   return {pos, pos_value};
+}
+
+// Utility to return `pos_range`.
+[[nodiscard]] constexpr pos_range
+as_pos_range(const std::string_view& s, position pos) noexcept {
+  if (pos >= s.size()) return npos_range;
+  return {pos, pos + 1};
+}
+// Same, but for location.
+[[nodiscard]] constexpr pos_range as_pos_range(const std::string_view& s,
+    const auto& values, location loc) noexcept {
+  if (loc.pos >= s.size()) return npos_range;
+  return {loc.pos, loc.pos + value_size(values[loc.pos_value])};
 }
 
 // Size of a single value, regardless of type.

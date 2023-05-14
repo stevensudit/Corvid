@@ -90,19 +90,20 @@ void StringUtilsTest_Split() {
   }
   if (true) {
     using V = std::vector<std::string>;
+    using R = std::string;
 
-    EXPECT_EQ(strings::split("", ","), (V{}));
-    EXPECT_EQ(strings::split("1", ","), (V{"1"}));
-    EXPECT_EQ(strings::split("1,", ","), (V{"1", ""}));
-    EXPECT_EQ(strings::split(",1", ","), (V{"", "1"}));
-    EXPECT_EQ(strings::split(",,", ","), (V{"", "", ""}));
-    EXPECT_EQ(strings::split("1,2", ","), (V{"1", "2"}));
-    EXPECT_EQ(strings::split("1,2,3", ","), (V{"1", "2", "3"}));
-    EXPECT_EQ(strings::split("11", ","), (V{"11"}));
-    EXPECT_EQ(strings::split("11,", ","), (V{"11", ""}));
-    EXPECT_EQ(strings::split(",11", ","), (V{"", "11"}));
-    EXPECT_EQ(strings::split("11,22", ","), (V{"11", "22"}));
-    EXPECT_EQ(strings::split("11,22,33", ","), (V{"11", "22", "33"}));
+    EXPECT_EQ(strings::split<R>("", ","), (V{}));
+    EXPECT_EQ(strings::split<R>("1", ","), (V{"1"}));
+    EXPECT_EQ(strings::split<R>("1,", ","), (V{"1", ""}));
+    EXPECT_EQ(strings::split<R>(",1", ","), (V{"", "1"}));
+    EXPECT_EQ(strings::split<R>(",,", ","), (V{"", "", ""}));
+    EXPECT_EQ(strings::split<R>("1,2", ","), (V{"1", "2"}));
+    EXPECT_EQ(strings::split<R>("1,2,3", ","), (V{"1", "2", "3"}));
+    EXPECT_EQ(strings::split<R>("11", ","), (V{"11"}));
+    EXPECT_EQ(strings::split<R>("11,", ","), (V{"11", ""}));
+    EXPECT_EQ(strings::split<R>(",11", ","), (V{"", "11"}));
+    EXPECT_EQ(strings::split<R>("11,22", ","), (V{"11", "22"}));
+    EXPECT_EQ(strings::split<R>("11,22,33", ","), (V{"11", "22", "33"}));
   }
   if (true) {
     using V = std::vector<std::string_view>;
@@ -119,6 +120,65 @@ void StringUtilsTest_Split() {
 
     EXPECT_EQ(strings::split<R>("11,22,33", ","), (V{"11", "22", "33"}));
     EXPECT_EQ(strings::split<R>(R{"11,22,33"}, ","), (V{"11", "22", "33"}));
+  }
+}
+
+void StringUtilsTest_SplitPg() {
+  using PG = strings::piece_generator;
+  if (true) {
+    using V = std::vector<std::string_view>;
+
+    EXPECT_EQ(strings::split_gen(std::string_view{}), (V{}));
+    EXPECT_EQ(strings::split_gen(opt_string_view{std::nullopt}), (V{}));
+    EXPECT_EQ(strings::split_gen(0_osv), (V{}));
+    EXPECT_EQ(strings::split_gen(""sv), (V{""}));
+    EXPECT_EQ(strings::split_gen(""_osv), (V{""}));
+    EXPECT_EQ(strings::split_gen("1"sv), (V{"1"}));
+    EXPECT_EQ(strings::split_gen("1 "sv), (V{"1", ""}));
+    EXPECT_EQ(strings::split_gen(" 1"sv), (V{"", "1"}));
+    EXPECT_EQ(strings::split_gen("  1"sv), (V{"", "", "1"}));
+    EXPECT_EQ(strings::split_gen("1 2"sv), (V{"1", "2"}));
+    EXPECT_EQ(strings::split_gen("1 2 3"sv), (V{"1", "2", "3"}));
+    EXPECT_EQ(strings::split_gen("11"sv), (V{"11"}));
+    EXPECT_EQ(strings::split_gen("11 "sv), (V{"11", ""}));
+    EXPECT_EQ(strings::split_gen(" 11"sv), (V{"", "11"}));
+    EXPECT_EQ(strings::split_gen("11 22"sv), (V{"11", "22"}));
+    EXPECT_EQ(strings::split_gen("11 22 33"sv), (V{"11", "22", "33"}));
+  }
+  if (true) {
+    using V = std::vector<std::string>;
+    using R = std::string;
+    using namespace strings;
+
+    EXPECT_EQ((split_gen<PG, R>(std::string_view{})), (V{}));
+    EXPECT_EQ((split_gen<PG, R>((opt_string_view{std::nullopt}))), (V{}));
+    EXPECT_EQ((split_gen<PG, R>((opt_string_view{std::nullopt}))), (V{}));
+    EXPECT_EQ((split_gen<PG, R>((0_osv))), (V{}));
+    EXPECT_EQ((split_gen<PG, R>((""sv))), (V{""}));
+    EXPECT_EQ((split_gen<PG, R>((""_osv))), (V{""}));
+    EXPECT_EQ((split_gen<PG, R>(("1"sv))), (V{"1"}));
+    EXPECT_EQ((split_gen<PG, R>(("1 "sv))), (V{"1", ""}));
+    EXPECT_EQ((split_gen<PG, R>((" 1"sv))), (V{"", "1"}));
+    EXPECT_EQ((split_gen<PG, R>(("  1"sv))), (V{"", "", "1"}));
+    EXPECT_EQ((split_gen<PG, R>(("1 2"sv))), (V{"1", "2"}));
+    EXPECT_EQ((split_gen<PG, R>(("1 2 3"sv))), (V{"1", "2", "3"}));
+    EXPECT_EQ((split_gen<PG, R>(("11"sv))), (V{"11"}));
+    EXPECT_EQ((split_gen<PG, R>(("11 "sv))), (V{"11", ""}));
+    EXPECT_EQ((split_gen<PG, R>((" 11"sv))), (V{"", "11"}));
+    EXPECT_EQ((split_gen<PG, R>(("11 22"sv))), (V{"11", "22"}));
+    EXPECT_EQ((split_gen<PG, R>(("11 22 33"sv))), (V{"11", "22", "33"}));
+  }
+  if (true) {
+// using V = std::vector<std::string_view>;
+// using namespace strings;
+#if 1
+    strings::piece_generator pg{""sv,
+        [](std::string_view s) {
+          auto loc = strings::locate(s, {' ', '\t', '\n', '\r'});
+          return std::pair{loc.pos, loc.pos + 1};
+        },
+        [](std::string_view s) { return s; }};
+#endif
   }
 }
 
@@ -330,9 +390,9 @@ void StringUtilsTest_Locate() {
     constexpr auto s = "abxabcbcab"sv;
     location loc;
     // If the next line used regular string literals, we'd get a compiler
-    // error. That's because, while we can promote a single `const char*` to a
-    // `std::string_view`, we can't do that for a whole bunch of them.
-    // We also need to ensure that the `std::span<const std::string_view>` does
+    // error. That's because, while we can promote a single `const char*` to
+    // a `std::string_view`, we can't do that for a whole bunch of them. We
+    // also need to ensure that the `std::span<const std::string_view>` does
     // not use `StringViewConvertible`, because that would break conversion
     // from `std::array`.
     const auto abcbc = {"ab"sv, "cbc"sv};
@@ -1679,8 +1739,8 @@ void StringUtilsTest_AppendJson() {
 }
 
 MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
-    StringUtilsTest_Split, StringUtilsTest_ParseNum, StringUtilsTest_Case,
-    StringUtilsTest_Locate, StringUtilsTest_RLocate,
+    StringUtilsTest_Split, StringUtilsTest_SplitPg, StringUtilsTest_ParseNum,
+    StringUtilsTest_Case, StringUtilsTest_Locate, StringUtilsTest_RLocate,
     StringUtilsTest_LocateEdges, StringUtilsTest_Substitute,
     StringUtilsTest_Excise, StringUtilsTest_Target, StringUtilsTest_Print,
     StringUtilsTest_Trim, StringUtilsTest_AppendNum, StringUtilsTest_Append,

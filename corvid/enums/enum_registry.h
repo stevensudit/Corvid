@@ -55,7 +55,7 @@ struct base_enum_spec {
 // Note that `std::byte` is used as a placeholder for the type `T` because it
 // counts as a ScopedEnum, and is not otherwise significant.
 template<typename T, typename... Ts>
-constexpr auto enum_spec_v = base_enum_spec<std::byte>();
+constexpr inline auto enum_spec_v = base_enum_spec<std::byte>();
 
 } // namespace registry
 }} // namespace corvid::enums

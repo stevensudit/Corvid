@@ -44,6 +44,6 @@ PRAGMA_CLANG_DIAG(pop);
 // bitmask or sequential enum. A further specialization is needed to mark a
 // type as a bitmask or sequence enum.
 template<ScopedEnum E>
-constexpr auto enum_spec_v<E> = scoped_enum_spec<E>();
+constexpr inline auto enum_spec_v<E> = scoped_enum_spec<E>();
 
 }}} // namespace corvid::enums::registry

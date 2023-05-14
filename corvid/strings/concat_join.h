@@ -367,7 +367,7 @@ enum class join_opt {
 } // namespace corvid::strings
 
 template<>
-constexpr auto corvid::enums::registry::enum_spec_v<
+constexpr inline auto corvid::enums::registry::enum_spec_v<
     corvid::strings::joinoptions::join_opt> =
     corvid::enums::bitmask::make_bitmask_enum_spec<
         corvid::strings::joinoptions::join_opt,

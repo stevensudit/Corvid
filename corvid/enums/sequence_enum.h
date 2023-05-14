@@ -59,7 +59,7 @@ namespace corvid { inline namespace enums { namespace sequence {
 //    enum class tiger_pick { eeny, meany, miny, moe };
 //
 //    template<>
-//    constexpr auto registry::enum_spec_v<tiger_pick> =
+//    constexpr inline auto registry::enum_spec_v<tiger_pick> =
 //        make_sequence_enum_spec<tiger_pick, "eeny, meany, miny, moe">();
 
 template<ScopedEnum E, E maxseq = E{}, E minseq = E{},
