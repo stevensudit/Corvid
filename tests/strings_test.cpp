@@ -242,6 +242,47 @@ void StringUtilsTest_Locate() {
     EXPECT_EQ(strings::locate(s, {"x", ""}, l + 1), nloc);
   }
   if (true) {
+    //                  01234567
+    constexpr auto s = "aaaabaaa"sv;
+    EXPECT_EQ(strings::locate_not(s, 'a'), 4u);
+    EXPECT_EQ(strings::locate_not(s, 'b'), 0u);
+    EXPECT_EQ(strings::locate_not("aaaaaa"sv, 'a'), npos);
+
+    EXPECT_EQ(strings::locate_not(s, "a"), 4u);
+    EXPECT_EQ(strings::locate_not(s, "aaaa"), 4u);
+    EXPECT_EQ(strings::locate_not(s, "aaaab"), 5u);
+    EXPECT_EQ(strings::locate_not(s, "b"), 0u);
+    EXPECT_EQ(strings::locate_not("aaaaaa"sv, "a"), npos);
+    EXPECT_EQ(strings::locate_not("aaaaaa"sv, "aa"), npos);
+
+    size_t pos{};
+    EXPECT_EQ(strings::located_not(pos, s, 'a'), true);
+    EXPECT_EQ(pos, 4u);
+    ++pos;
+    EXPECT_EQ(strings::located_not(pos, s, 'a'), false);
+    EXPECT_EQ(pos, npos);
+
+    EXPECT_EQ(strings::rlocate_not(s, 'a'), 4u);
+    EXPECT_EQ(strings::rlocate_not(s, 'b'), 7u);
+    EXPECT_EQ(strings::rlocate_not("aaaaaa"sv, 'a'), npos);
+
+    EXPECT_EQ(strings::rlocate_not(s, "a"), 4u);
+    EXPECT_EQ(strings::rlocate_not(s, "aaaa"), 4u);
+    EXPECT_EQ(strings::rlocate_not(s, "baaa"), 0u);
+    EXPECT_EQ(strings::rlocate_not(s, "aabaaa"), 0u);
+    EXPECT_EQ(strings::rlocate_not(s, "b"), 7u);
+    EXPECT_EQ(strings::rlocate_not("aaaaaa"sv, "a"), npos);
+    EXPECT_EQ(strings::rlocate_not("aaaaaa"sv, "aa"), npos);
+    EXPECT_EQ(strings::rlocate_not("abcde"sv, "de"), 1);
+
+    pos = s.size();
+    EXPECT_EQ(strings::rlocated_not(pos, s, 'a'), true);
+    EXPECT_EQ(pos, 4u);
+    --pos;
+    EXPECT_EQ(strings::rlocated_not(pos, s, 'a'), false);
+    EXPECT_EQ(pos, npos);
+  }
+  if (true) {
     // located(ch).
     constexpr auto t = "abcabcabc"sv;
     size_t pos{};
