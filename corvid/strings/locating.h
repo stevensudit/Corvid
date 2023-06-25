@@ -258,12 +258,12 @@ inline constexpr position point_past(location& loc,
 // 'd', not the 'b'. Likewise, if you reverse-search for not "de" in "abcde",
 // it points to the 'b', not the 'c'.
 //
-// Implementation note: The templating and `if constexpr` trick here isn't
-// a too-clever attempt at combining what ought to be separate functions,
-// it's necessary to avoid ambiguity when `value` is `char[]`. In that
-// case, it could convert just as easily to `std::span<const char>` as
-// `std::string_view`, so we avoid requiring a conversion in the call,
-// instead delaying it until inside the function.
+// Implementation note: The templating and `if constexpr` trick here isn't a
+// too-clever attempt at combining what ought to be separate functions, it's
+// necessary to avoid ambiguity when `value` is `char[]`. In that case, it
+// could convert just as easily to `std::span<const char>` as
+// `std::string_view`, so we avoid requiring a conversion in the call, instead
+// delaying it until inside the function.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr position locate(std::string_view s,
     const SingleLocateValue auto& value, position pos = 0) noexcept {
@@ -574,9 +574,8 @@ constexpr bool rlocated(location& loc, std::string_view s,
 //
 
 // Substitute all instances of `from` in `s` with `to`, returning count of
-// substitutions. Note that an empty `from` follows the same behavior as
-// Python `string.replace`, in that it will insert `to` around each character
-// in `s`.
+// substitutions. Note that an empty `from` follows the same behavior as Python
+// `string.replace`, in that it will insert `to` around each character in `s`.
 size_t substitute(std::string& s, SingleLocateValue auto from,
     SingleLocateValue auto to, position pos = 0) noexcept {
   size_t cnt{};
@@ -703,12 +702,12 @@ inline size_t excise(std::string& s,
 // TODO: Substituted and excised don't work for initializer lists. Wrap them.
 // TODO: Excise can always be optimized to do a single pass over the string,
 // never copying the tail more than once.
-// TODO: Consider replacing free functions with something more
-// object-oriented. For example, a `locator` constructed over `s` and `loc`
-// (and maybe `as_npos`), which then has a `located` and `substituted`
-// method. We could also go the other way, making `from` and `to` into
-// objects that have a `locate` taking `s`, or even taking a `locator`. Point
-// is, we're not stuck repeating the C RTL endlessly.
+// TODO: Consider replacing free functions with something more object-oriented.
+// For example, a `locator` constructed over `s` and `loc` (and maybe
+// `as_npos`), which then has a `located` and `substituted` method. We could
+// also go the other way, making `from` and `to` into objects that have a
+// `locate` taking `s`, or even taking a `locator`. Point is, we're not stuck
+// repeating the C RTL endlessly.
 // TODO: Benchmark whether it's faster to do replacements in-place or to
 // build a new string. There's also the middle ground of in-place but in a
 // single pass, so long as we're not growing.
@@ -721,8 +720,8 @@ inline size_t excise(std::string& s,
 // (location{npos, npos}));
 // this should not match on span<char> here.
 //
-// Add tests for mismatched types in substitute/d. Add more tests for
-// multiple values that are of a type convertible to `std::string_view`.
+// Add tests for mismatched types in substitute/d. Add more tests for multiple
+// values that are of a type convertible to `std::string_view`.
 }} // namespace corvid::strings::locating
 
 // Publish these literals corvid-wide.

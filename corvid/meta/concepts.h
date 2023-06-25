@@ -20,6 +20,10 @@
 
 namespace corvid { inline namespace meta { inline namespace concepts {
 
+// `T` must be the same as `U`, ignoring cvref.
+template<typename T, typename U>
+concept SameAs = std::same_as<T, std::remove_cvref_t<U>>;
+
 // `T` must be a type derived from `std::ostream`.
 template<typename T>
 concept OStreamDerived = std::derived_from<T, std::ostream>;
@@ -30,7 +34,7 @@ concept OStreamable = requires(T t, std::ostream& os) { os << t; };
 
 // `T` must be a `std::string`.
 template<typename T>
-concept StdString = std::same_as<std::remove_cvref_t<T>, std::string>;
+concept StdString = SameAs<std::string, T>;
 
 // `T` must be a target to append to.
 template<typename T>
@@ -59,15 +63,15 @@ concept IntegerOrEnum = Integer<T> || StdEnum<T>;
 
 // `T` must be nullptr_t.
 template<typename T>
-concept NullPtr = std::same_as<std::remove_cvref_t<T>, std::nullptr_t>;
+concept NullPtr = SameAs<T, std::nullptr_t>;
 
 // `T` must be a char.
 template<typename T>
-concept Char = std::same_as<std::remove_cvref_t<T>, char>;
+concept Char = SameAs<char, T>;
 
 // `T` must be a char*.
 template<typename T>
-concept CharPtr = std::same_as<std::remove_cvref_t<T>, char*>;
+concept CharPtr = SameAs<char*, T>;
 
 // `T` must be convertible to `std::string_view`.
 template<typename T>
@@ -141,7 +145,7 @@ concept Variant = is_variant_v<T>;
 
 // `T` must be a `std::monostate`.
 template<typename T>
-concept MonoState = std::same_as<std::remove_cvref_t<T>, std::monostate>;
+concept MonoState = SameAs<std::monostate, T>;
 
 // `T` must be `std::pair` or convertible to it.
 template<typename T>
@@ -154,5 +158,17 @@ concept Findable = has_find_v<T>;
 // `T` must be a container that lacks a `find` method for K.
 template<typename T>
 concept RangeWithoutFind = Range<T> && (!Findable<T>);
+
+// `U` must be usable for constructing a `T`.
+template<typename T, typename U>
+concept Makeable = std::constructible_from<T, U>;
+
+// `U` must be comparable with a `T`
+template<typename T, typename U>
+concept Comparable = std::totally_ordered_with<T, U>;
+
+// `U` must act as a view for `T`.
+template<typename T, typename U>
+concept Viewable = Makeable<T, U> && Comparable<T, U>;
 
 }}} // namespace corvid::meta::concepts

@@ -273,7 +273,7 @@ void StringUtilsTest_Locate() {
     EXPECT_EQ(strings::rlocate_not(s, "b"), 7u);
     EXPECT_EQ(strings::rlocate_not("aaaaaa"sv, "a"), npos);
     EXPECT_EQ(strings::rlocate_not("aaaaaa"sv, "aa"), npos);
-    EXPECT_EQ(strings::rlocate_not("abcde"sv, "de"), 1);
+    EXPECT_EQ(strings::rlocate_not("abcde"sv, "de"), 1u);
 
     pos = s.size();
     EXPECT_EQ(strings::rlocated_not(pos, s, 'a'), true);

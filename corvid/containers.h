@@ -21,3 +21,6 @@
 #include "containers/ranges.h"
 #include "containers/transparent.h"
 #include "containers/interval.h"
+#include "containers/indirect_key.h"
+#include "containers/sync_lock.h"
+#include "containers/intern.h"

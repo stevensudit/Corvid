@@ -26,6 +26,7 @@
 using namespace std::literals;
 using namespace corvid;
 using namespace corvid::internal;
+using namespace corvid::sequence;
 
 void OptionalPtrTest_Construction() {
   if (true) {
@@ -601,10 +602,163 @@ void TransparentTest_General() {
   }
 }
 
+void IndirectKey_Basic() {
+  using IHK = indirect_hash_key<std::string>;
+  std::unordered_map<IHK, int> um;
+  um[IHK{"abc"}] = 42;
+  EXPECT_EQ(um[IHK{"abc"}], 42);
+
+  using IMK = indirect_map_key<std::string>;
+  std::map<IMK, int> m;
+  m[IMK{"abc"}] = 42;
+  EXPECT_EQ(m[IMK{"abc"}], 42);
+}
+
+namespace corvid { inline namespace container { inline namespace intern {
+
+template<typename T, SequentialEnum ID>
+struct intern_test {
+  using interned_value_t = interned_value<T, ID>;
+  using allow = restrict_intern_construction::allow;
+  static interned_value_t make(const T& t, ID id = {}) {
+    return interned_value_t{allow::ctor, t, id};
+  }
+};
+}}} // namespace corvid::container::intern
+
+enum class string_id {};
+
+template<>
+constexpr inline auto registry::enum_spec_v<string_id> =
+    sequence::make_sequence_enum_spec<string_id, "missing">();
+
+using interned_string = interned_value<std::string, string_id>;
+using string_intern_test = intern_test<std::string, string_id>;
+using string_intern_table = intern_table<std::string, string_id>;
+
+void InternTableTest_Basic() {
+  if (true) {
+    auto abc = string_intern_test::make("abc");
+    auto bcd = string_intern_test::make("bcd");
+    EXPECT_EQ(abc, abc);
+    EXPECT_NE(abc, bcd);
+    EXPECT_EQ(abc.value(), "abc");
+    EXPECT_LT(abc, bcd);
+  }
+  if (true) {
+    auto sit_ptr = string_intern_table::make(string_id{0}, string_id{3});
+    auto& sit = *sit_ptr;
+    using SIT = std::remove_reference_t<decltype(sit)>;
+
+    auto iv = sit("abc");
+    EXPECT_FALSE(iv);
+    iv = sit.intern("abc");
+    EXPECT_TRUE(iv);
+    EXPECT_EQ(iv.id(), string_id{1});
+    EXPECT_EQ(iv.value(), "abc");
+    iv = SIT::interned_value_t{};
+    EXPECT_FALSE(iv);
+    iv = sit("abc");
+    EXPECT_TRUE(iv);
+    EXPECT_EQ(iv.id(), string_id{1});
+    EXPECT_EQ(iv.value(), "abc");
+
+    iv = sit("def"sv);
+    EXPECT_FALSE(iv);
+    iv = sit.intern("def"sv);
+    EXPECT_TRUE(iv);
+    EXPECT_EQ(iv.id(), string_id{2});
+    EXPECT_EQ(iv.value(), "def"sv);
+
+    iv = sit("ghi"s);
+    EXPECT_FALSE(iv);
+    iv = sit.intern("ghi"s);
+    EXPECT_TRUE(iv);
+    EXPECT_EQ(iv.id(), string_id{3});
+    EXPECT_EQ(iv.value(), "ghi"s);
+
+    iv = sit("jkl");
+    EXPECT_FALSE(iv);
+    iv = sit.intern("jkl");
+    EXPECT_FALSE(iv);
+  }
+  // TODO: When the traits wrap the key in an unnecessary indirect_hash_key, it
+  // breaks terribly. We need to test an arbitrary type that has no natural
+  // view as a key, or maybe just use `bad_key`.
+}
+
+struct bad_key: std::string {
+  bad_key() = default;
+  explicit bad_key(const std::string& s) : std::string(s) {}
+  bad_key(bad_key&&) = default;
+  bad_key& operator=(bad_key&&) = default;
+  bad_key(const bad_key&) = delete;
+  bad_key& operator=(const bad_key&) = delete;
+};
+
+template<>
+struct std::hash<bad_key>: std::hash<std::string> {};
+
+template<>
+struct std::equal_to<bad_key>: std::equal_to<std::string> {};
+
+using interned_badkey = interned_value<bad_key, string_id>;
+using badkey_intern_test = intern_test<bad_key, string_id>;
+using badkey_intern_table = intern_table<bad_key, string_id>;
+
+void InternTableTest_Badkey() {
+  if (true) {
+    auto abc = badkey_intern_test::make(bad_key{"abc"});
+    auto bcd = badkey_intern_test::make(bad_key{"bcd"});
+    EXPECT_EQ(abc, abc);
+    EXPECT_NE(abc, bcd);
+    EXPECT_EQ(abc.value(), bad_key{"abc"});
+    EXPECT_LT(abc, bcd);
+  }
+  if (true) {
+    auto sit_ptr = badkey_intern_table::make(string_id{0}, string_id{3});
+    auto& sit = *sit_ptr;
+    using SIT = std::remove_reference_t<decltype(sit)>;
+    auto iv = sit(bad_key{"abc"});
+
+    EXPECT_FALSE(iv);
+    iv = sit.intern(bad_key{"abc"});
+    EXPECT_TRUE(iv);
+    EXPECT_EQ(iv.id(), string_id{1});
+    EXPECT_EQ(iv.value(), bad_key{"abc"});
+    iv = SIT::interned_value_t{};
+    EXPECT_FALSE(iv);
+    iv = sit(bad_key{"abc"});
+    EXPECT_TRUE(iv);
+    EXPECT_EQ(iv.id(), string_id{1});
+    EXPECT_EQ(iv.value(), bad_key{"abc"});
+
+    iv = sit(bad_key{"def"});
+    EXPECT_FALSE(iv);
+    iv = sit.intern(bad_key{"def"});
+    EXPECT_TRUE(iv);
+    EXPECT_EQ(iv.id(), string_id{2});
+    EXPECT_EQ(iv.value(), bad_key{"def"});
+
+    iv = sit(bad_key{"ghi"s});
+    EXPECT_FALSE(iv);
+    iv = sit.intern(bad_key{"ghi"s});
+    EXPECT_TRUE(iv);
+    EXPECT_EQ(iv.id(), string_id{3});
+    EXPECT_EQ(iv.value(), bad_key{"ghi"s});
+
+    iv = sit(bad_key{"jkl"});
+    EXPECT_FALSE(iv);
+    iv = sit.intern(bad_key{"jkl"});
+    EXPECT_FALSE(iv);
+  }
+}
+
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
     FindOptTest_Maps, FindOptTest_Sets, FindOptTest_Vectors,
     FindOptTest_Arrays, FindOptTest_Strings, FindOptTest_Reversed,
     Intervals_Ctors, IntervalTest_Insert, IntervalTest_ForEach,
     IntervalTest_Reverse, IntervalTest_MinMax, IntervalTest_CompareAndSwap,
-    IntervalTest_Append, TransparentTest_General);
+    IntervalTest_Append, TransparentTest_General, IndirectKey_Basic,
+    InternTableTest_Basic, InternTableTest_Badkey);

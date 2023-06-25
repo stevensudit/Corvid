@@ -79,7 +79,8 @@
         "shared_mutex": "cpp",
         "stop_token": "cpp",
         "thread": "cpp",
-        "cinttypes": "cpp"
+        "cinttypes": "cpp",
+        "forward_list": "cpp"
     },
     "C_Cpp.errorSquiggles": "disabled",
     "editor.tokenColorCustomizations": {
