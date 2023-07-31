@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "containers_shared.h"
+#include "arena_allocator.h"
 #include "../enums.h"
 #include "../strings/cstring_view.h"
 
@@ -42,10 +43,20 @@ class restrict_intern_construction {
   friend struct intern_test;
 };
 
+// Fwd.
+template<typename T, SequentialEnum ID>
+class interned_value;
+
+template<typename T, SequentialEnum ID, typename X = void>
+struct intern_traits {};
+
+template<typename T, SequentialEnum ID, typename TR>
+class intern_table;
+
 // Intern requirements:
 // - Unique values are stored in a single location and never moved.
 // - Lookup by ID, returning the unique value.
-// - Looked up by copy of value, returning the ID and unique value.
+// - Lookup by copy of value, returning the ID and unique value.
 // - Matching by value can be transparent. This means looking up by a view and
 // potentially converting that view into the value type.
 
@@ -53,7 +64,7 @@ class restrict_intern_construction {
 // ID. Cannot be constructed directly, only by an `intern_table`.
 //
 // Does not reference the `intern_table` that defines it, so the ID can in
-// principle be non-unique.
+// principle be non-unique across tables.
 template<typename T, SequentialEnum ID>
 class interned_value {
   using allow = restrict_intern_construction::allow;
@@ -75,8 +86,22 @@ public:
       const interned_value&) noexcept = default;
   constexpr interned_value& operator=(interned_value&&) noexcept = default;
 
-  // TODO: Add constructors that take an `intern_table` and a value or ID.
-  // These have to be forward-declared here and implemented later in the file.
+  // Look up by ID.
+  template<typename TR>
+  interned_value(const intern_table<T, ID, TR>& table, ID id,
+      const lock& attestation = {});
+
+  // Look up by value (or view into it).
+  template<typename U, typename TR>
+  requires Viewable<T, U>
+  interned_value(const intern_table<T, ID, TR>& table, U&& value,
+      const lock& attestation = {});
+
+  // Create by interning.
+  template<typename U, typename TR>
+  requires Viewable<T, U>
+  interned_value(intern_table<T, ID, TR>& table, U&& value,
+      const lock& attestation = {});
 
   // Accessors.
   [[nodiscard]] constexpr id_t id() const noexcept { return id_; }
@@ -144,7 +169,6 @@ private:
   id_t id_ = {};
 };
 
-//
 // Implementation options:
 // - An indexed container named `lookup_by_id_` is used to get the value from
 // its ID. Something like a `std::vector` would work, but is generally ruled
@@ -172,7 +196,7 @@ private:
 // - Given all of these choices, we need a traits class.
 
 template<typename T, SequentialEnum ID>
-struct intern_traits {
+struct intern_traits<T, ID> {
   using value_t = T;
   using id_t = ID;
   using interned_value_t = interned_value<T, ID>;
@@ -181,6 +205,10 @@ struct intern_traits {
   using lookup_by_value_t = std::unordered_map<key_t, id_t>;
   using additional_storage = void;
 };
+
+// TODO: Add aliases for extensible_arena_allocator and extensible_arena_scope,
+// defaulting to fakes. In arena-enabled traits, specialize allocators
+// appropriately. Then, in the intern_table, use the scope as needed.
 
 // TODO: See if specializations can inherit from the primary template and just
 // replace the types that changed.
@@ -266,7 +294,7 @@ public:
     if (id >= min_id_ && id <= max_id_)
       found_value = find_by_id(id);
     else if (next_)
-      found_value = next_->find_value(id, attestation);
+      return next_->get(id);
     return {allow::ctor, found_value, id};
   }
 
@@ -358,13 +386,42 @@ private:
   lookup_by_value_t lookup_by_value_;
   const_pointer next_;
 
-  // TODO: Support cstring_view.
+  // TODO: Add real or fake arena allocator, depending on traits. Then create
+  // real or fake scopes in the methods that can allocate.
+
+  // TODO: When using an arena, allocate the two lookups in the arena and
+  // "leak" them. Otherwise, allocate them dynamically and delete them in the
+  // destructor. This means replacing the two members with raw pointers.
 
   // Find value by ID, return address or `nullptr`.
-  [[nodiscard]] const value_t& find_by_id(id_t id) const {
+  [[nodiscard]] const value_t* find_by_id(id_t id) const {
     const size_t index = *id - *min_id_;
     if (index < lookup_by_id_.size()) return &lookup_by_id_[index];
     return nullptr;
   }
 };
+
+template<typename T, SequentialEnum ID>
+template<typename TR>
+interned_value<T, ID>::interned_value(const intern_table<T, ID, TR>& table,
+    ID id, const lock& attestation) {
+  *this = table.get(id, attestation);
+}
+
+template<typename T, SequentialEnum ID>
+template<typename U, typename TR>
+requires Viewable<T, U>
+interned_value<T, ID>::interned_value(const intern_table<T, ID, TR>& table,
+    U&& value, const lock& attestation) {
+  *this = table.get(std::forward<U>(value), attestation);
+}
+
+template<typename T, SequentialEnum ID>
+template<typename U, typename TR>
+requires Viewable<T, U>
+interned_value<T, ID>::interned_value(intern_table<T, ID, TR>& table,
+    U&& value, const lock& attestation) {
+  *this = table.intern(std::forward<U>(value), attestation);
+}
+
 }}} // namespace corvid::container::intern

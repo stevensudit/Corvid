@@ -616,6 +616,7 @@ void IndirectKey_Basic() {
 
 namespace corvid { inline namespace container { inline namespace intern {
 
+// Test fixture to allow access to internals.
 template<typename T, SequentialEnum ID>
 struct intern_test {
   using interned_value_t = interned_value<T, ID>;
@@ -635,6 +636,7 @@ constexpr inline auto registry::enum_spec_v<string_id> =
 using interned_string = interned_value<std::string, string_id>;
 using string_intern_test = intern_test<std::string, string_id>;
 using string_intern_table = intern_table<std::string, string_id>;
+using string_intern_table_value = string_intern_table::interned_value_t;
 
 void InternTableTest_Basic() {
   if (true) {
@@ -648,6 +650,7 @@ void InternTableTest_Basic() {
   if (true) {
     auto sit_ptr = string_intern_table::make(string_id{0}, string_id{3});
     auto& sit = *sit_ptr;
+    const auto& csit = sit;
     using SIT = std::remove_reference_t<decltype(sit)>;
 
     auto iv = sit("abc");
@@ -670,9 +673,9 @@ void InternTableTest_Basic() {
     EXPECT_EQ(iv.id(), string_id{2});
     EXPECT_EQ(iv.value(), "def"sv);
 
-    iv = sit("ghi"s);
+    iv = string_intern_table_value{csit, "ghi"s};
     EXPECT_FALSE(iv);
-    iv = sit.intern("ghi"s);
+    iv = string_intern_table_value{sit, "ghi"s};
     EXPECT_TRUE(iv);
     EXPECT_EQ(iv.id(), string_id{3});
     EXPECT_EQ(iv.value(), "ghi"s);
@@ -681,6 +684,14 @@ void InternTableTest_Basic() {
     EXPECT_FALSE(iv);
     iv = sit.intern("jkl");
     EXPECT_FALSE(iv);
+
+    iv = string_intern_table_value{csit, string_id{3}};
+    EXPECT_EQ(iv.id(), string_id{3});
+    EXPECT_EQ(iv.value(), "ghi"s);
+
+    iv = string_intern_table_value{csit, "abc"};
+    EXPECT_EQ(iv.id(), string_id{1});
+    EXPECT_EQ(iv.value(), "abc");
   }
   // TODO: When the traits wrap the key in an unnecessary indirect_hash_key, it
   // breaks terribly. We need to test an arbitrary type that has no natural
