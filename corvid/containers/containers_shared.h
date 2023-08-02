@@ -19,7 +19,11 @@
 #include "../meta.h"
 
 #include <algorithm>
+#include <deque>
+#include <list>
 #include <map>
+#include <new>
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>

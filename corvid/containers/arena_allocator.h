@@ -22,15 +22,36 @@ namespace corvid { inline namespace container { namespace arena {
 // Arena implemented as a singly-linked list of blocks.
 //
 // To use:
-// 1. Create an `extensible_arena` with a given capacity and place it in your
-// class.
-// 2. Specialize containers with `arena_allocator` as the allocator.
-// 3. Ensure that an `extensible_arena::scope` is created in each function that
+// 1. Create an `extensible_arena` with the desired capacity as a member of
+// your container class.
+// 2. Specialize its members with `arena_allocator` as the allocator, as by
+// using aliases such as `arena_string`.
+// 3. Ensure that an `extensible_arena::scope` is created in each method that
 // needs to allocate.
+//
+// The reason for this odd scheme is to allow the `arena_allocator` to take up
+// no more space than a `std::allocator`, which lets us recast arena-allocating
+// containers (such as `arena_string`) as their standard counterparts (such as
+// `std::string`).
 //
 // Allocates new blocks as needed, chaining them together. Block size is
 // constant, except when it must be enlarged to satisfy an allocation. Only
-// frees when the entire arena is destroyed, and does not call destructors.
+// frees when the entire arena is destroyed.
+//
+// If you make a container that uses an `arena_allocator`, it will still try to
+// destruct and free all of its elements. The free is a no-op, but pointless.
+// Both the free and the destructs can be avoided allocating the container with
+// `arena_new` and then "leaking" it. This also has the benefit of ensuring
+// proximity.
+//
+// TODO: Consider adding the ability to limit per-block sizes or total size.
+// Consider making the next block size constant, even when we had to blow past
+// the limit to accomodate an oversize allocation. Sufficiently filled should
+// be defined as having less than 1/4 of the capacity free, although it could
+// also be configured.
+//
+// TODO: Consider changing algorithm so that we keep the current block as the
+// head until it's sufficiently filled, overflowing as needed down the chain.
 class extensible_arena {
   struct list_node;
   struct list_node_deleter {
@@ -41,9 +62,9 @@ class extensible_arena {
   };
   using pointer = std::unique_ptr<list_node, list_node_deleter>;
 
-  // Points to head owned by container. Use `extensible_arena_scope` to
+  // Points to head owned by active container. Use `extensible_arena::scope` to
   // install.
-  thread_local static pointer* tls_head;
+  thread_local static inline pointer* tls_head;
 
   struct list_node {
     size_t capacity{};
@@ -64,7 +85,7 @@ class extensible_arena {
     void* allocate(size_t n, size_t align) noexcept {
       auto start = (size + align - 1) & ~(align - 1);
       auto past = start + n;
-      if (past > capacity) return nullptr;
+      if (past >= capacity) return nullptr;
       size = past;
       return data + start;
     }
@@ -88,8 +109,15 @@ public:
 
   // Uses tls_head, per scope.
   static void* allocate(size_t n, size_t align) {
-    assert(tls_head);
+    if (!tls_head) throw std::bad_alloc{};
     return allocate(*tls_head, n, align);
+  }
+
+  static bool contains(const void* pv) {
+    for (auto next = tls_head->get(); next; next = next->next.get())
+      if (pv >= next->data && pv < next->data + next->size) return true;
+
+    return false;
   }
 
   class scope {
@@ -102,11 +130,6 @@ public:
 
   private:
     pointer* old_head;
-  };
-
-  // Replaces both `exensible_arena` and `scope` with a fake.
-  struct fake {
-    explicit fake(const auto&) noexcept {}
   };
 };
 
@@ -135,9 +158,35 @@ public:
   }
 
   // TODO: Maybe assert here because we don't want the destructor to run.
-  constexpr void deallocate(T*, std::size_t) {}
+  constexpr void deallocate(T*, std::size_t) {
+    if (true)
+      if (false) {
+      }
+  }
 };
 
-// TODO: Consider std::scoped_allocator_adaptor
+// Helpers:
+// TODO: Move these into arena header.
+
+using arena_string =
+    std::basic_string<char, std::char_traits<char>, arena_allocator<char>>;
+
+template<typename K, typename V>
+using arena_map = std::unordered_map<K, V, std::hash<K>, std::equal_to<K>,
+    arena_allocator<std::pair<const K, V>>>;
+
+template<typename T>
+using arena_deque = std::deque<T, arena_allocator<T>>;
+
+template<typename T>
+using arena_allocator_traits = std::allocator_traits<arena_allocator<T>>;
+
+template<typename T, class... Args>
+T* arena_new(Args&&... args) {
+  arena_allocator<T> a{};
+  auto p = arena_allocator_traits<T>::allocate(a, 1);
+  arena_allocator_traits<T>::construct(a, p, std::forward<Args>(args)...);
+  return p;
+}
 
 }}} // namespace corvid::container::arena

@@ -20,14 +20,10 @@
 #include "../enums.h"
 #include "../strings/cstring_view.h"
 
-#include <deque>
-#include <list>
-#include <vector>
-#include <unordered_map>
-
 namespace corvid { inline namespace container { inline namespace intern {
 
 using namespace sequence;
+using namespace arena;
 
 // Provide restricted access to `allow` to control construction.
 class restrict_intern_construction {
@@ -53,6 +49,10 @@ struct intern_traits {};
 template<typename T, SequentialEnum ID, typename TR>
 class intern_table;
 
+// Interned value.
+//
+// Contains a pointer to a value of `T` and an ID of type `ID`.
+//
 // Intern requirements:
 // - Unique values are stored in a single location and never moved.
 // - Lookup by ID, returning the unique value.
@@ -169,32 +169,10 @@ private:
   id_t id_ = {};
 };
 
-// Implementation options:
-// - An indexed container named `lookup_by_id_` is used to get the value from
-// its ID. Something like a `std::vector` would work, but is generally ruled
-// out by another consideration. A `std::map<ID,T>` would also work, but would
-// not be optimal.
-// - The obvious place to put the unique value is in `lookup_by_id_`, but that
-// constrains us to a type that guarantees never moving elements around, which
-// rules out `std::vector`. A `std::deque` works, but requires two lookups and
-// has more overhead, so if we can get away with `std::vector`, we should.
-// - If the value is a `std::string_view` then we could store the actual
-// characters in a linked list of buffers of concatenated characters. The
-// `lookup_by_id_` elements would point into that list.
-// - An associative container named `lookup_by_value_` maps from a view of the
-// value to the corresponding ID. While `std::unordered_map` works, the choice
-// of key is a bit tricky.
-// - We generally do not want to use the whole value as the key for
-// `lookup_by_value_`, but instead a view into it. So if the value is a
-// `std::string`, then `std::string_view` would work. More generally, we can
-// use `indirect_hash_key_wrapper` over a reference to the `lookup_by_id_`
-// element.
-// - In the case of the value itself being something like `std::string_view`,
-// we can point directly to the separately-stored characters, avoiding the need
-// to touch `lookup_by_id_` when doing a value lookup; which would allow us to
-// use a `std::vector` for `lookup_by_id_`.
-// - Given all of these choices, we need a traits class.
-
+// TODO: Make this work again.
+// TODO: Is it feasible to convert from a nested type with default allocators
+// to the parallel one with arena allocators? If not, then it's the caller's
+// job to manually configure this.
 template<typename T, SequentialEnum ID>
 struct intern_traits<T, ID> {
   using value_t = T;
@@ -203,12 +181,7 @@ struct intern_traits<T, ID> {
   using key_t = indirect_hash_key<value_t>;
   using lookup_by_id_t = std::deque<value_t>;
   using lookup_by_value_t = std::unordered_map<key_t, id_t>;
-  using additional_storage = void;
 };
-
-// TODO: Add aliases for extensible_arena_allocator and extensible_arena_scope,
-// defaulting to fakes. In arena-enabled traits, specialize allocators
-// appropriately. Then, in the intern_table, use the scope as needed.
 
 // TODO: See if specializations can inherit from the primary template and just
 // replace the types that changed.
@@ -216,23 +189,13 @@ struct intern_traits<T, ID> {
 template<SequentialEnum ID>
 struct intern_traits<std::string, ID> {
   using value_t = std::string;
+  using arena_value_t = arena_string;
   using id_t = ID;
-  using interned_value_t = interned_value<std::string, ID>;
+  using interned_value_t = interned_value<std::string, id_t>;
+  using interned_arena_value_t = interned_value<arena_string, id_t>;
   using key_t = std::string_view;
-  using lookup_by_id_t = std::deque<value_t>;
-  using lookup_by_value_t = std::unordered_map<key_t, id_t>;
-  using additional_storage = void;
-};
-
-template<SequentialEnum ID>
-struct intern_traits<cstring_view, ID> {
-  using value_t = cstring_view;
-  using id_t = ID;
-  using interned_value_t = interned_value<cstring_view, ID>;
-  using key_t = value_t;
-  using lookup_by_id_t = std::vector<value_t>;
-  using lookup_by_value_t = std::unordered_map<key_t, id_t>;
-  using additional_storage = std::list<std::vector<char>>;
+  using lookup_by_id_t = arena_deque<arena_value_t>;
+  using lookup_by_value_t = arena_map<key_t, id_t>;
 };
 
 // Intern table of `T` values, indexed by `ID`, using the traits `TR`.
@@ -249,16 +212,21 @@ public:
   using pointer = std::shared_ptr<intern_table>;
   using const_pointer = std::shared_ptr<const intern_table>;
   using value_t = typename TR::value_t;
+  using arena_value_t = typename TR::arena_value_t;
   using id_t = typename TR::id_t;
   using interned_value_t = typename TR::interned_value_t;
+  using interned_arena_value_t = typename TR::interned_arena_value_t;
   using key_t = typename TR::key_t;
   using lookup_by_id_t = typename TR::lookup_by_id_t;
   using lookup_by_value_t = typename TR::lookup_by_value_t;
-  using additional_storage = typename TR::additional_storage;
+  static_assert(sizeof(arena_value_t) == sizeof(value_t));
 
   explicit intern_table(allow, id_t min_id, id_t max_id,
       const const_pointer& next = {})
       : min_id_(min_id), max_id_(max_id), next_(next) {
+    extensible_arena::scope s{arena_};
+    lookup_by_id_ = arena_new<lookup_by_id_t>();
+    lookup_by_value_ = arena_new<lookup_by_value_t>();
     assert(min_id_ < max_id_);
   }
 
@@ -271,6 +239,7 @@ public:
       min_id = next->max_id_ + 1;
     else if (min_id == id_t{})
       ++min_id;
+
     if (max_id == id_t{})
       max_id = static_cast<id_t>(
           std::numeric_limits<as_underlying_t<id_t>>::max() - 1);
@@ -308,13 +277,12 @@ public:
     attestation(sync);
     id_t id{};
     const value_t* found_value{};
-    if (auto it = lookup_by_value_.find(key_t{value});
-        it != lookup_by_value_.end())
+    if (auto it = lookup_by_value_->find(key_t{value});
+        it != lookup_by_value_->end())
     {
-      // TODO: Optimize for case where `value_t` is `key_t` so we can just use
-      // what's in `first` directly.
       id = it->second;
-      found_value = &lookup_by_id_[*id - *min_id_];
+      found_value =
+          reinterpret_cast<const value_t*>(&(*lookup_by_id_)[*id - *min_id_]);
     } else if (next_) {
       return next_->get(value, attestation);
     }
@@ -332,13 +300,14 @@ public:
     auto iv = get(std::forward<U>(value), attestation);
     // If we found it, or if we have no more room, return what we have.
     if (iv || sync.is_disabled()) return iv;
-    auto id = static_cast<id_t>(*min_id_ + lookup_by_id_.size());
-    lookup_by_id_.emplace_back(std::forward<U>(value));
-    auto& found_value = lookup_by_id_.back();
-    lookup_by_value_.emplace(key_t{found_value}, id);
+    extensible_arena::scope s{arena_};
+    auto id = static_cast<id_t>(*min_id_ + lookup_by_id_->size());
+    lookup_by_id_->emplace_back(std::forward<U>(value));
+    auto& found_value = lookup_by_id_->back();
+    lookup_by_value_->emplace(key_t{found_value}, id);
     // After the last entry, we don't need to sync anymore.
     if (id == max_id_) sync.disable();
-    return {allow::ctor, found_value, id};
+    return {allow::ctor, reinterpret_cast<const value_t*>(&found_value), id};
   }
 
   // Get by ID.
@@ -380,10 +349,11 @@ public:
   const breakable_synchronizer sync;
 
 private:
+  extensible_arena arena_{4096};
   const id_t min_id_;
   const id_t max_id_;
-  lookup_by_id_t lookup_by_id_;
-  lookup_by_value_t lookup_by_value_;
+  lookup_by_id_t* lookup_by_id_;
+  lookup_by_value_t* lookup_by_value_;
   const_pointer next_;
 
   // TODO: Add real or fake arena allocator, depending on traits. Then create
@@ -396,8 +366,8 @@ private:
   // Find value by ID, return address or `nullptr`.
   [[nodiscard]] const value_t* find_by_id(id_t id) const {
     const size_t index = *id - *min_id_;
-    if (index < lookup_by_id_.size()) return &lookup_by_id_[index];
-    return nullptr;
+    if (index >= lookup_by_id_->size()) return nullptr;
+    return reinterpret_cast<const value_t*>(&(*lookup_by_id_)[index]);
   }
 };
 
