@@ -1078,6 +1078,10 @@ void StringUtilsTest_ParseNum() {
     EXPECT_EQ(t, -1);
     t = strings::parse_num<int64_t, 16>(sv, -1);
     EXPECT_EQ(t, 0xabc);
+
+    sv = "123 ";
+    t = strings::parse_num(sv, -1);
+    EXPECT_EQ(t, -1);
   }
   if (true) {
     std::string_view sv;
@@ -1125,6 +1129,10 @@ void StringUtilsTest_ParseNum() {
     t = strings::parse_num<double>(sv, -1.2);
     EXPECT_EQ(t, 12.3);
     sv = "xyz";
+    t = strings::parse_num<double>(sv, -1.2);
+    EXPECT_EQ(t, -1.2);
+
+    sv = "12.3 ";
     t = strings::parse_num<double>(sv, -1.2);
     EXPECT_EQ(t, -1.2);
   }

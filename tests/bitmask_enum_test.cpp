@@ -728,6 +728,56 @@ void BitMaskTest_EnumCalcValueNames() {
   static_assert(cvbfvn<"black,,green,,red,,yellow,">() == 6);
 }
 
+void BitMaskTest_ExtractEnum() {
+  using namespace corvid::strings;
+  if (true) {
+    rgb e{};
+    std::string_view sv;
+
+    sv = "0";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, rgb::black);
+
+    sv = "red";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, rgb::red);
+
+    sv = "green";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, rgb::green);
+
+    sv = "blue";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, rgb::blue);
+
+    sv = "  blue  ";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, rgb::blue);
+
+    sv = "  blue ;xyz";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_EQ(sv, "xyz");
+    EXPECT_EQ(e, rgb::blue);
+
+    sv = " red   +  blue  ";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, rgb::red + rgb::blue);
+    sv = enum_as_string(e);
+    EXPECT_EQ(sv, "red + blue");
+
+    sv = " 2 + red";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, rgb::red + rgb::green);
+  }
+}
+
 // TODO: Add test with make_interval<byte> to show how to use it correctly.
 // It'll fail by default, so you have to specify a larger underlying type.
 
@@ -739,4 +789,5 @@ MAKE_TEST_LIST(BitMaskTest_Ops, BitMaskTest_NamedFunctions,
     BitMaskTest_NoBlue, BitMaskTest_NoRed, BitMaskTest_SafeNoGreen,
     BitMaskTest_SafeNoBlue, BitMaskTest_SafeNoRed, BitMaskTest_SkipBlue,
     BitMaskTest_SafeBlackWhite, BitMaskTest_EnumCalcBitNames,
-    BitMaskTest_EnumCalcValueNames, BitMaskTest_SafeWhite);
+    BitMaskTest_EnumCalcValueNames, BitMaskTest_SafeWhite,
+    BitMaskTest_ExtractEnum);

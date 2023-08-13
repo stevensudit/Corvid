@@ -480,7 +480,98 @@ void SequentialEnumTest_Intervals() {
   }
 }
 
+void SequentialEnumTest_ExtractEnum() {
+  using namespace corvid::strings;
+  if (true) {
+    tiger_pick e{};
+    std::string_view sv;
+
+    sv = "0";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, tiger_pick::eeny);
+
+    sv = "eeny";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, tiger_pick::eeny);
+
+    sv = "meany";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, tiger_pick::meany);
+  }
+  if (true) {
+    e10_13 e{};
+    std::string_view sv;
+
+    sv = "10";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, e10_13{10});
+
+    sv = "13";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, e10_13{13});
+
+    sv = "ten";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, e10_13{10});
+
+    sv = "thirteen";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, e10_13{13});
+  }
+  if (true) {
+    eneg3_3 e{};
+    std::string_view sv;
+
+    sv = "-3";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, eneg3_3{-3});
+
+    sv = "neg-three";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, eneg3_3{-3});
+
+    sv = "0";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, eneg3_3{0});
+
+    sv = "zero";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, eneg3_3{0});
+
+    sv = "3";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, eneg3_3{3});
+
+    sv = "three";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, eneg3_3{3});
+
+    sv = "4";
+    EXPECT_FALSE(extract_enum(e, sv));
+
+    sv = "four";
+    EXPECT_FALSE(extract_enum(e, sv));
+  }
+}
+
 MAKE_TEST_LIST(SequentialEnumTest_Registry, SequentialEnumTest_Ops,
     SequentialEnumTest_MakeSafely, SequentialEnumTest_SafeOps,
     SequentialEnumTest_SubtleBugRepro, SequentialEnumTest_StreamingOut,
-    SequentialEnumTest_Missing, SequentialEnumTest_Intervals);
+    SequentialEnumTest_Missing, SequentialEnumTest_Intervals,
+    SequentialEnumTest_ExtractEnum);
+
+// TODO: Check if enum_as_string works with unscoped enums. Should it? Or
+// should it just count as an int?

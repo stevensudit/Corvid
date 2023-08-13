@@ -64,17 +64,21 @@ constexpr std::optional<T> extract_num(std::string_view& sv) {
 }
 
 // Parse integer from copy of a `std::string_view`, returning it as
-// `std::optional`.
+// `std::optional`. Fails if there are any unparsed characters.
 //
 // On success, returns optional with value.
 //
 // On failure, returns optional without value.
 template<std::integral T = int64_t, int base = 10>
 constexpr std::optional<T> parse_num(std::string_view sv) {
-  return extract_num<T, base>(sv);
+  T t;
+  return extract_num<T, base>(t, sv) && sv.empty()
+             ? std::make_optional(t)
+             : std::nullopt;
 }
 
 // Parse integer from copy of a `std::string_view` with a `default_value`.
+// Fails if there are any unparsed characters.
 //
 // On success, returns parsed value.
 //
@@ -82,7 +86,7 @@ constexpr std::optional<T> parse_num(std::string_view sv) {
 template<std::integral T = int64_t, int base = 10>
 constexpr T parse_num(std::string_view sv, std::integral auto default_value) {
   T t;
-  return extract_num<base>(t, sv) ? t : default_value;
+  return (extract_num<base>(t, sv) && sv.empty()) ? t : default_value;
 }
 
 // Append integral number to `target`. Hex is prefixed with "0x" and
@@ -169,7 +173,7 @@ constexpr std::optional<T> extract_num(std::string_view& sv) {
 }
 
 // Parse floating-point from copy of a `std::string_view`, returning it as
-// `std::optional`.
+// `std::optional`. Fails if there are any unparsed characters.
 //
 // On success, returns optional with value.
 //
@@ -177,11 +181,14 @@ constexpr std::optional<T> extract_num(std::string_view& sv) {
 template<std::floating_point T,
     std::chars_format fmt = std::chars_format::general>
 constexpr std::optional<T> parse_num(std::string_view sv) {
-  return extract_num<T, fmt>(sv);
+  T t;
+  return extract_num<fmt>(t, sv) && sv.empty()
+             ? std::make_optional(t)
+             : std::nullopt;
 }
 
 // Parse floating-point from copy of `std::string_view` with a
-// `default_value`.
+// `default_value`. Fails if there are any unparsed characters.
 //
 // On success, returns parsed value.
 //
@@ -190,7 +197,7 @@ template<std::floating_point T,
     std::chars_format fmt = std::chars_format::general>
 constexpr T parse_num(std::string_view sv, T default_value) {
   T t;
-  return extract_num<fmt>(t, sv) ? t : default_value;
+  return extract_num<fmt>(t, sv) && sv.empty() ? t : default_value;
 }
 
 // Append floating-point number to `target`.
@@ -238,6 +245,9 @@ constexpr std::string enum_as_string(ScopedEnum auto t) {
   std::string target;
   return append_enum(target, t);
 }
+
+// Note: See "enum_conversion.h" for `extract_enum` and `parse_enum`.
+// These had to be separated out so as to manage dependencies.
 
 } // namespace cvt_enum
 

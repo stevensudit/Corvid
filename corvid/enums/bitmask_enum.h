@@ -454,6 +454,22 @@ struct bitmask_enum_names_spec
       return strings::append_num<16>(target, *v);
   }
 
+  bool lookup(E& v, std::string_view sv) const {
+    if (sv.empty()) return false;
+    if (registry::details::lookup_helper(v, sv)) {
+      if constexpr (bit_clip_v<E>)
+        if (v != make<E>(*v)) return false;
+      return true;
+    }
+    auto found = std::find(names.begin(), names.end(), sv);
+    if (found == names.end()) return false;
+    auto ofs = std::distance(names.begin(), found);
+    constexpr auto bits = bits_length<E>();
+    if constexpr (N == bits) ofs = 1 << (bits - ofs - 1);
+    v = static_cast<E>(ofs);
+    return true;
+  }
+
   const std::array<std::string_view, N> names;
 };
 

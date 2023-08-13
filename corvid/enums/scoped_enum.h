@@ -31,10 +31,16 @@ template<ScopedEnum E, E minseq = min_scoped_enum_v<E>,
     wrapclip wrapseq = wrapclip{}, uint64_t validbits = 0,
     wrapclip bitclip = wrapclip{}>
 struct scoped_enum_spec
-    : base_enum_spec<E, std::min(minseq, maxseq), std::max(minseq, maxseq),
-          validseq, wrapseq, validbits, bitclip> {
+    : public base_enum_spec<E, std::min(minseq, maxseq),
+          std::max(minseq, maxseq), validseq, wrapseq, validbits, bitclip> {
   auto& append(AppendTarget auto& target, E v) const {
     return strings::append_num(target, as_underlying(v));
+  }
+
+  bool lookup(E& v, std::string_view sv) const {
+    if (sv.empty()) return false;
+    if (details::lookup_helper(v, sv)) return true;
+    return false;
   }
 };
 PRAGMA_CLANG_DIAG(pop);

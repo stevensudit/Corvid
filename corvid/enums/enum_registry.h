@@ -30,7 +30,7 @@ enum class wrapclip { none, limit };
 
 namespace registry {
 
-// Base template for enum specifications. By default, this doees not enable
+// Base template for enum specifications. By default, this does not enable
 // anything.
 template<ScopedEnum E, E minseq = min_scoped_enum_v<E>,
     E maxseq = max_scoped_enum_v<E>, bool validseq = false,
@@ -52,10 +52,29 @@ struct base_enum_spec {
 // Such a match does not enable the type as anything; further specialization is
 // needed for that.
 //
-// Note that `std::byte` is used as a placeholder for the type `T` because it
-// counts as a ScopedEnum, and is not otherwise significant.
+// Note that `std::byte` is used as a placeholder for the type `T` to satsify
+// the compiler (because it counts as a ScopedEnum) and is not otherwise
+// significant.
 template<typename T, typename... Ts>
 constexpr inline auto enum_spec_v = base_enum_spec<std::byte>();
+
+namespace details {
+
+// Enum lookup helper to handle the case of numeric values.
+template<ScopedEnum E>
+bool lookup_helper(E& v, std::string_view sv) {
+  // Caller is responsible for ensuring `sv` is not empty.
+  assert(!sv.empty());
+  char first = sv.front();
+  if ((first < '0' || first > '9') && first != '-') return false;
+  std::underlying_type_t<E> t;
+  auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t);
+  if (ec != std::errc{} || ptr != sv.end()) return false;
+  v = static_cast<E>(t);
+  return true;
+}
+
+} // namespace details
 
 } // namespace registry
 }} // namespace corvid::enums

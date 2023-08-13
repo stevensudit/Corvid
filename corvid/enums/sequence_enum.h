@@ -314,6 +314,19 @@ struct sequence_enum_names_spec
     return do_seq_append(target, v, names);
   }
 
+  bool lookup(E& v, std::string_view sv) const {
+    if (sv.empty()) return false;
+    if (registry::details::lookup_helper(v, sv)) {
+      if constexpr (seq_actually_wrap_v<E>)
+        if (v != make<E>(*v)) return false;
+      return true;
+    }
+    auto found = std::find(names.begin(), names.end(), sv);
+    if (found == names.end()) return false;
+    v = make<E>(std::distance(names.begin(), found) + *min_value<E>());
+    return true;
+  }
+
   const std::array<std::string_view, N> names;
 };
 } // namespace details
