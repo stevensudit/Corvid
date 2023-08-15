@@ -113,6 +113,4 @@ constexpr E parse_enum(std::string_view sv, E default_value) {
   return (extract_enum(e, sv) && sv.empty()) ? e : default_value;
 }
 
-// TODO: Flesh this out with all the other variants, including parse.
-
 }}} // namespace corvid::strings::conversion::cvt_enum
