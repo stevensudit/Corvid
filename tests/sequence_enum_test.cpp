@@ -34,8 +34,8 @@ template<>
 constexpr auto registry::enum_spec_v<tiger_pick> =
     make_sequence_enum_spec<tiger_pick, "eeny, meany, miny, moe">();
 
-enum old_enum { old_one, old_two, old_three };
-enum new_enum { new_one, new_two, new_three };
+enum old_enum { old_zero, old_one, old_two, old_three };
+enum class new_enum { new_zero, new_one, new_two, new_three };
 
 void SequentialEnumTest_Registry() {
   if (true) {
@@ -500,6 +500,36 @@ void SequentialEnumTest_ExtractEnum() {
     EXPECT_TRUE(extract_enum(e, sv));
     EXPECT_TRUE(sv.empty());
     EXPECT_EQ(e, tiger_pick::meany);
+
+    sv = "miny";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, tiger_pick::miny);
+
+    sv = "miny";
+    e = extract_enum<tiger_pick>(sv).value();
+    EXPECT_EQ(e, tiger_pick::miny);
+    EXPECT_TRUE(sv.empty());
+
+    sv = "miny";
+    auto opte = parse_enum<tiger_pick>(sv);
+    EXPECT_EQ(opte.value(), tiger_pick::miny);
+
+    sv = "miny  ";
+    opte = parse_enum<tiger_pick>(sv);
+    EXPECT_EQ(opte.value(), tiger_pick::miny);
+
+    sv = "miny ; ";
+    opte = parse_enum<tiger_pick>(sv);
+    EXPECT_FALSE(opte.has_value());
+
+    sv = "miny";
+    e = parse_enum(sv, tiger_pick::moe);
+    EXPECT_EQ(e, tiger_pick::miny);
+
+    sv = "miny ; ";
+    e = parse_enum(sv, tiger_pick::moe);
+    EXPECT_EQ(e, tiger_pick::moe);
   }
   if (true) {
     e10_13 e{};
@@ -564,6 +594,24 @@ void SequentialEnumTest_ExtractEnum() {
 
     sv = "four";
     EXPECT_FALSE(extract_enum(e, sv));
+  }
+  if (true) {
+    old_enum e{};
+    std::string_view sv;
+
+    sv = "1";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, old_one);
+  }
+  if (true) {
+    new_enum e{};
+    std::string_view sv;
+
+    sv = "1";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(e, new_enum::new_one);
   }
 }
 

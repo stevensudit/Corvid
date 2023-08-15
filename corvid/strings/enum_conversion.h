@@ -42,6 +42,14 @@ help_extract_enum(bitmask::BitmaskEnum auto& e, std::string_view& sv) {
 
 // Extract enum out of a `std::string_view`, setting output parameter.
 //
+// Works for unscoped and scoped enums, including bitmask and sequential.
+// Correctly round-trips with `enum_as_string`.
+//
+// In general, expects a single value, which may be numeric or named. This may
+// be padded with spaces and/or terminated with  a comma, period, or semicolon.
+// For BitMaskEnum, instead of a single value, it expects one or more values
+// separated by plus signs.
+//
 // When clipping is enabled, if the value is out of range, then it fails.
 //
 // On success, sets output value, removes parsed characters from the string
@@ -52,7 +60,7 @@ constexpr bool extract_enum(StdEnum auto& e, std::string_view& sv) {
   using E = std::remove_cvref_t<decltype(e)>;
   e = E{};
   auto save_sv = sv;
-  auto whole = trim(extract_piece(sv, ",;"));
+  auto whole = trim(extract_piece(sv, ",.;"));
   bool succeeded;
   if constexpr (bitmask::BitmaskEnum<E>)
     succeeded = details::help_extract_enum(e, whole);
@@ -65,6 +73,44 @@ constexpr bool extract_enum(StdEnum auto& e, std::string_view& sv) {
   }
 
   return true;
+}
+
+// Extract enum from a `std::string_view`, returning it as `std::optional`.
+//
+// On success, returns optional with value, and removes parsed characters
+// from the string view.
+//
+// On failure, returns optional without value and leaves string view unchanged.
+template<StdEnum E>
+constexpr std::optional<E> extract_enum(std::string_view& sv) {
+  E e;
+  return extract_enum(e, sv) ? std::make_optional(e) : std::nullopt;
+}
+
+// Parse enum from copy of a `std::string_view`, returning it as
+// `std::optional`. Fails if there are any unparsed characters.
+//
+// On success, returns optional with value.
+//
+// On failure, returns optional without value.
+template<StdEnum E>
+constexpr std::optional<E> parse_enum(std::string_view sv) {
+  E e;
+  return extract_enum(e, sv) && sv.empty()
+             ? std::make_optional(e)
+             : std::nullopt;
+}
+
+// Parse enum from copy of a `std::string_view` with a `default_value`.
+// Fails if there are any unparsed characters.
+//
+// On success, returns parsed value.
+//
+// On failure, returns `default_value`.
+template<StdEnum E>
+constexpr E parse_enum(std::string_view sv, E default_value) {
+  E e;
+  return (extract_enum(e, sv) && sv.empty()) ? e : default_value;
 }
 
 // TODO: Flesh this out with all the other variants, including parse.
