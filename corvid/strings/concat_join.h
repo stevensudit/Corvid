@@ -38,8 +38,8 @@ inline namespace registration {
 // This is the moral equivalent of writing an overload for the `append`
 // functions, but has the advantage of actually working. The reason you can't
 // just write overloads (of a function that appends a single part) is that the
-// various multi-part functions forward to single-part ones, but they can
-// only do this to functions that were previously defined. So if you define a
+// various multi-part functions forward to single-part ones, but they can only
+// do this to functions that were previously defined. So if you define a
 // function later, it does not participate in overload resolution.
 //
 // The rules for partial specialization of templated values are different and
@@ -343,6 +343,20 @@ inline namespace joinoptions {
 //
 
 // Join option bitmask flags.
+//
+// The default behavior shows braces around containers and displays only values
+// in them, not keys. The braces can be suppressed with `flat`, and the keys
+// can be shown with `keyed`. The `quoted` option will show quotes around
+// strings, and `prefixed` will prefix the delimiter to the start of each part.
+//
+// The `flat_keyed` option is a convenience for `flat | keyed`, which provides
+// a no-frills dump of everything. The `json` option is a convenience for
+// `braced | keyed | quoted`, which selects something very close to JSON.
+//
+// Note that, since we can't know what was streamed out before, we can't tell
+// that we need to delimit unless we're writing multiple parts ourselves. The
+// caller would have to specify this delimiting with the `prefix` option, if
+// that's what they want.
 enum class join_opt {
   // braced - Show braces around containers; the default behavior.
   braced = 0,
@@ -469,12 +483,6 @@ inline namespace joining {
 //
 //
 
-// TODO: Write a general comment block explaining what join_opt does and
-// doesn't do. In specific, point out that, since we can't know what was
-// streamed out before, we can't tell that we need to delimit unless we're
-// writing multiple parts ourselves. The caller would have to specify
-// delimiting if that's what they want.
-
 // Append one piece to `target`, joining with `delim`.
 template<auto opt = join_opt::braced, char open = 0, char close = 0,
     JoinAppendable T>
@@ -584,7 +592,6 @@ constexpr auto&
 append_join_with(AppendTarget auto& target, delim d, const T& part) {
   constexpr char next_open = open ? open : '{';
   constexpr char next_close = close ? close : '}';
-  // TODO: Special-case for size-0 tuple?
   std::apply(
       [&target, &d](const auto&... parts) {
         if constexpr (sizeof...(parts) != 0)

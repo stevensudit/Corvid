@@ -1676,6 +1676,9 @@ void StringUtilsTest_AppendStream() {
   soldier pyle{"Gomer", marine_rank::Private, 12345678};
   soldier carter{"Vince", marine_rank::GunnerySergeant, 23456789};
   person doe{"Doe", "John"};
+  using tuple0 = std::tuple<>;
+  using tuple1 = std::tuple<int>;
+  using tuple2 = std::tuple<int, std::string>;
   if (true) {
     std::stringstream os;
     os << pyle;
@@ -1749,6 +1752,54 @@ void StringUtilsTest_AppendStream() {
     std::string s;
     strings::append_join<strings::join_opt::flat>(s, doe, doe, doe);
     EXPECT_EQ(s, "Doe, John, Doe, John, Doe, John");
+  }
+  if (true) {
+    tuple0 t0{};
+    tuple1 t1{1};
+    tuple2 t2{1, "2"};
+    std::string s;
+
+    strings::append_join(s, t0);
+    EXPECT_EQ(s, "");
+    s.clear();
+    strings::append_join<strings::join_opt::flat>(s, t0);
+    EXPECT_EQ(s, "");
+    s.clear();
+    strings::append_join<strings::join_opt::quoted>(s, t0);
+    EXPECT_EQ(s, "");
+    s.clear();
+    strings::append_join<strings::join_opt::json>(s, t0);
+    EXPECT_EQ(s, "");
+    // Test whether we need a special case.
+    s.clear();
+    strings::append_join_with(s, ";", t0, t1, t2);
+    EXPECT_EQ(s, "[;{1};{1;2}]")
+    s.clear();
+    strings::append_join_with(s, ";", t0);
+    EXPECT_EQ(s, "");
+
+    s.clear();
+    strings::append_join(s, t1);
+    EXPECT_EQ(s, "{1}");
+    s.clear();
+    strings::append_join<strings::join_opt::flat>(s, t1);
+    EXPECT_EQ(s, "1");
+    s.clear();
+    strings::append_join<strings::join_opt::quoted>(s, t1);
+    EXPECT_EQ(s, "{1}");
+    s.clear();
+    strings::append_join<strings::join_opt::json>(s, t1);
+    EXPECT_EQ(s, "{1}");
+
+    s.clear();
+    strings::append_join(s, t2);
+    EXPECT_EQ(s, "{1, 2}");
+    s.clear();
+    strings::append_join<strings::join_opt::flat>(s, t2);
+    EXPECT_EQ(s, "1, 2");
+    s.clear();
+    strings::append_join<strings::join_opt::json>(s, t2);
+    EXPECT_EQ(s, "{1, \"2\"}");
   }
 }
 
