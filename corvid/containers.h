@@ -24,3 +24,4 @@
 #include "containers/indirect_key.h"
 #include "containers/sync_lock.h"
 #include "containers/intern.h"
+#include "containers/circular_buffer.h"
