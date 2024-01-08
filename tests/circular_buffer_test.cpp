@@ -26,9 +26,9 @@ using namespace corvid;
 
 void CircularBufferTest_Deduct() {
   std::vector<int> v;
-  v.resize(4);
+  v.resize(3);
   circular_buffer cbv{v};
-  std::array<int, 4> a;
+  std::array<int, 3> a;
   circular_buffer cba{a};
   auto sv = std::span{v};
   circular_buffer cbsv{sv};
@@ -39,7 +39,7 @@ void CircularBufferTest_Deduct() {
 
 void CircularBufferTest_Ops() {
   std::vector<int> v;
-  v.resize(4);
+  v.resize(3);
   circular_buffer cb{v};
 
   EXPECT_EQ(cb.capacity(), 3u);
@@ -113,7 +113,7 @@ void CircularBufferTest_Ops() {
 
 void CircularBufferTest_WrapIndex() {
   std::vector<int> v;
-  v.resize(4);
+  v.resize(3);
   circular_buffer cb{v};
   cb.push_back(1);
   cb.push_back(2);
@@ -125,6 +125,11 @@ void CircularBufferTest_WrapIndex() {
   EXPECT_EQ(cb[4], 2);
   EXPECT_EQ(cb[5], 3);
 }
+
+// TODO: Add tests for pop_front and pop_back.
+
+// TODO: Write tests for push_front, and for mixes of front and back and push
+// and pop.
 
 MAKE_TEST_LIST(CircularBufferTest_Deduct, CircularBufferTest_WrapIndex,
     CircularBufferTest_Ops);

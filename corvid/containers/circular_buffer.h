@@ -33,89 +33,82 @@ public:
   // Push the value to the front of the buffer, overwriting the back-most if
   // full.
   auto& push_front(T&& value) {
-    if (full()) pop_back();
-    return range_.begin()[--wrap_front()] = std::move(value);
+    adjust_size_for_front();
+    return add_front() = std::move(value);
   }
   template<class... Args>
   auto& emplace_front(Args&&... args) {
-    if (full()) pop_back();
-    return range_.begin()[--wrap_front()] = T(std::forward<Args>(args)...);
+    adjust_size_for_front();
+    return add_front() = T(std::forward<Args>(args)...);
   }
 
   // Try to push the value to the front of the buffer, returning nullptr if
   // full.
   auto* try_push_front(T&& value) {
     if (full()) return nullptr;
-    return &range_.begin()[--wrap_front()] = std::move(value);
+    ++size_;
+    return &(add_front() = std::move(value));
   }
   template<class... Args>
   auto& try_emplace_front(Args&&... args) {
     if (full()) return nullptr;
-    return &range_.begin()[--wrap_front()] = T(std::forward<Args>(args)...);
+    ++size_;
+    return &(add_front() = T(std::forward<Args>(args)...));
   }
 
   // Push the value to the back of the buffer, overwriting the front-most if
   // full.
   auto& push_back(T&& value) {
-    if (full()) pop_front();
-    return range_.begin()[wrap_back()++] = std::move(value);
+    adjust_size_for_back();
+    return add_back() = std::move(value);
   }
   template<class... Args>
   auto& emplace_back(Args&&... args) {
-    if (full()) pop_front();
-    return range_.begin()[wrap_back()++] = T(std::forward<Args>(args)...);
+    adjust_size_for_back();
+    return add_back() = T(std::forward<Args>(args)...);
   }
 
   // Try to push the value to the back of the buffer, returning nullptr if
   // full.
   auto* try_push_back(const T& value) {
     if (full()) return nullptr;
-    return &range_.begin()[wrap_back()++] = value;
+    return &(add_back() = value);
   }
   template<class... Args>
   auto* try_emplace_back(Args&&... args) {
     if (full()) return nullptr;
-    return &range_.begin()[wrap_back()++] = T(std::forward<Args>(args)...);
+    return &(add_back() = T(std::forward<Args>(args)...));
   }
 
   // Remove front or back element.
   auto&& pop_front() {
     assert(!empty());
     auto&& result = range_.begin()[front_];
-    if (++front_ == range_.size()) front_ = 0;
+    eat_front();
     return result;
   }
   auto&& pop_back() {
     assert(!empty());
     auto&& result = range_.begin()[last_index()];
-    if (back_ == 0) back_ = range_.size();
-    --back_;
+    eat_back();
     return result;
   }
 
-  // Capacity is always one less than the original range in order to
-  // distinguish between empty and full.
-  size_t capacity() const { return range_.size() - 1; }
-
-  // Size is how many elements are inserted, up to capacity.
-  size_t size() const {
-    if (back_ >= front_) return back_ - front_;
-    return back_ + range_.size() - front_;
-  }
-
-  bool empty() const { return front_ == back_; }
-  // TODO: Make this more efficient by comparing front with adjusted back.
+  // Size accessors. Note that capacity is full size of the underlying range.
+  size_t capacity() const { return range_.size(); }
+  size_t size() const { return size_; }
+  bool empty() const { return !size_; }
   bool full() const { return size() == capacity(); }
 
+  // Front and back accessors, undefined if empty.
   auto& front() const { return range_.data()[front_]; }
   auto& front() { return range_.data()[front_]; }
-
   auto& back() const { return range_.data()[last_index()]; }
   auto& back() { return range_.data()[last_index()]; }
 
+  // Array operators allow circular access, while `at` throws on out-of-range.
   auto& operator[](size_t index) const { return range_[index_at(index)]; }
   auto& operator[](size_t index) { return range_[index_at(index)]; }
-
   auto& at(size_t index) const { return range_[index_at_checked(index)]; }
   auto& at(size_t index) { return range_[index_at_checked(index)]; }
 
@@ -126,15 +119,16 @@ private:
   std::span<T> range_;
   size_t front_{};
   size_t back_{};
+  size_t size_{};
 
   size_t last_index() const {
-    if (back_ == 0) return range_.size() - 1;
+    if (back_ == 0) return capacity();
     return back_ - 1;
   }
 
   size_t index_at(size_t offset) const {
-    // if (offset >= range_.size()) offset %= range_.size();
-    return (front_ + offset) % range_.size();
+    offset %= capacity();
+    return (front_ + offset) % capacity();
   }
 
   size_t index_at_checked(size_t offset) const {
@@ -150,6 +144,33 @@ private:
   auto& wrap_back() {
     if (back_ == range_.size()) back_ = 0;
     return back_;
+  }
+
+  auto& add_front() { return range_.begin()[--wrap_front()]; }
+
+  auto& add_back() { return range_.begin()[wrap_back()++]; }
+
+  void eat_front() {
+    if (++front_ == range_.size()) front_ = 0;
+  }
+
+  void eat_back() {
+    if (back_ == 0) back_ = range_.size();
+    --back_;
+  }
+
+  void adjust_size_for_front() {
+    if (full())
+      eat_back();
+    else
+      ++size_;
+  }
+
+  void adjust_size_for_back() {
+    if (full())
+      eat_front();
+    else
+      ++size_;
   }
 };
 
