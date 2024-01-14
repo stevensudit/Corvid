@@ -80,7 +80,8 @@
         "stop_token": "cpp",
         "thread": "cpp",
         "cinttypes": "cpp",
-        "forward_list": "cpp"
+        "forward_list": "cpp",
+        "*.inc": "cpp"
     },
     "C_Cpp.errorSquiggles": "disabled",
     "editor.tokenColorCustomizations": {

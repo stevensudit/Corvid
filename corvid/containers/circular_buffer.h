@@ -21,154 +21,304 @@
 
 namespace corvid { inline namespace adapters {
 
-// Circular buffer adapter over any container that supports std::span. Allows
-// pushing to back and front, popping from back and front, and random access.
-template<typename T>
+// Circular buffer adapter over any container that supports `std::span`. Allows
+// access to the full range, with pushing to back and front, popping from back
+// and front, and random access. Does not own the underlying container.
+//
+// As an optimization, you may specialize on a SZ smaller than size_t, such as
+// uint32_t, if you know that your buffer will never be larger than that.
+template<typename T, typename SZ = size_t>
 class circular_buffer {
 public:
+  using value_type = T;
+  using reference = T&;
+  using const_reference = const T&;
+  using pointer = T*;
+  using const_pointer = const T*;
+  using size_type = SZ;
+  static_assert(std::is_unsigned_v<size_type>);
+
+  // Default.
+  circular_buffer() noexcept = default;
+
+  // Copy.
+  circular_buffer(const circular_buffer&) noexcept = default;
+  circular_buffer& operator=(const circular_buffer&) noexcept = default;
+
   // Construct from any container that converts to std::span.
   template<typename U>
-  explicit circular_buffer(U&& u) : range_(std::forward<U>(u)) {}
+  explicit circular_buffer(U&& u) noexcept
+  requires(!std::is_same_v<std::decay_t<U>, circular_buffer>)
+      : range_(std::forward<U>(u)), back_(last_index()) {}
 
-  // Push the value to the front of the buffer, overwriting the back-most if
-  // full.
-  auto& push_front(T&& value) {
+  // Construct with an initial size, from container.
+  template<typename U>
+  explicit circular_buffer(U&& u, size_type size) noexcept
+      : range_(std::forward<U>(u)), back_(size ? size - 1 : last_index()),
+        size_(size) {
+    assert(size <= capacity());
+  }
+
+  // Clear the buffer. Does not affect underlying container.
+  void clear() noexcept {
+    front_ = size_ = 0u;
+    back_ = last_index();
+  }
+
+  // Push the value to the front of the buffer, overwriting the backmost
+  // value if full.
+  auto& push_front(const value_type& value) noexcept(
+      noexcept(*data() = value)) {
     adjust_size_for_front();
-    return add_front() = std::move(value);
+    return (add_front() = value);
+  }
+  auto& push_front(value_type&& value) noexcept(
+      noexcept(*data() = std::move(value))) {
+    adjust_size_for_front();
+    return (add_front() = std::move(value));
   }
   template<class... Args>
-  auto& emplace_front(Args&&... args) {
+  auto& emplace_front(Args&&... args) noexcept(
+      noexcept(*data() = value_type{std::forward<Args>(args)...})) {
     adjust_size_for_front();
-    return add_front() = T(std::forward<Args>(args)...);
+    return (add_front() = value_type{std::forward<Args>(args)...});
   }
 
   // Try to push the value to the front of the buffer, returning nullptr if
   // full.
-  auto* try_push_front(T&& value) {
-    if (full()) return nullptr;
+  auto* try_push_front(const value_type& value) noexcept(
+      noexcept(*data() = value)) {
+    if (full()) return pointer{};
+    ++size_;
+    return &(add_front() = value);
+  }
+  auto* try_push_front(value_type&& value) noexcept(
+      noexcept(*data() = std::move(value))) {
+    if (full()) return pointer{};
     ++size_;
     return &(add_front() = std::move(value));
   }
   template<class... Args>
-  auto& try_emplace_front(Args&&... args) {
-    if (full()) return nullptr;
+  auto* try_emplace_front(Args&&... args) noexcept(
+      noexcept(*data() = value_type{std::forward<Args>(args)...})) {
+    if (full()) return pointer{};
     ++size_;
-    return &(add_front() = T(std::forward<Args>(args)...));
+    return &(add_front() = value_type{std::forward<Args>(args)...});
   }
 
-  // Push the value to the back of the buffer, overwriting the front-most if
-  // full.
-  auto& push_back(T&& value) {
+  // Push the value to the back of the buffer, overwriting the frontmost
+  // value if full.
+  auto& push_back(const value_type& value) noexcept(
+      noexcept(*data() = value)) {
     adjust_size_for_back();
-    return add_back() = std::move(value);
+    return (add_back() = value);
+  }
+  auto& push_back(value_type&& value) noexcept(
+      noexcept(*data() = std::move(value))) {
+    adjust_size_for_back();
+    return (add_back() = std::move(value));
   }
   template<class... Args>
-  auto& emplace_back(Args&&... args) {
+  auto& emplace_back(Args&&... args) noexcept(
+      noexcept(*data() = value_type{std::forward<Args>(args)...})) {
     adjust_size_for_back();
-    return add_back() = T(std::forward<Args>(args)...);
+    return (add_back() = value_type{std::forward<Args>(args)...});
   }
 
   // Try to push the value to the back of the buffer, returning nullptr if
   // full.
-  auto* try_push_back(const T& value) {
-    if (full()) return nullptr;
+  auto* try_push_back(const value_type& value) noexcept(
+      noexcept(*data() = value)) {
+    if (full()) return pointer{};
+    ++size_;
     return &(add_back() = value);
   }
+  auto* try_push_back(value_type&& value) noexcept(
+      noexcept(*data() = std::move(value))) {
+    if (full()) return pointer{};
+    ++size_;
+    return &(add_back() = std::move(value));
+  }
   template<class... Args>
-  auto* try_emplace_back(Args&&... args) {
-    if (full()) return nullptr;
-    return &(add_back() = T(std::forward<Args>(args)...));
+  auto* try_emplace_back(Args&&... args) noexcept(
+      noexcept(*data() = value_type{std::forward<Args>(args)...})) {
+    if (full()) return pointer{};
+    ++size_;
+    return &(add_back() = value_type{std::forward<Args>(args)...});
   }
 
-  // Remove front or back element.
-  auto&& pop_front() {
-    assert(!empty());
-    auto&& result = range_.begin()[front_];
-    eat_front();
+  // Remove front or back element. Must not be empty.
+  auto& pop_front() noexcept {
+    auto& result = front();
+    drop_front();
+    --size_;
     return result;
   }
-  auto&& pop_back() {
-    assert(!empty());
-    auto&& result = range_.begin()[last_index()];
-    eat_back();
+  auto& pop_back() noexcept {
+    auto& result = back();
+    drop_back();
+    --size_;
     return result;
   }
 
-  // Size accessors. Note that capacity is full size of the underlying range.
-  size_t capacity() const { return range_.size(); }
-  size_t size() const { return size_; }
-  bool empty() const { return !size_; }
-  bool full() const { return size() == capacity(); }
+  // Size accessors. Note that capacity is full size of the underlying
+  // range.
+  [[nodiscard]] size_type capacity() const noexcept { return range_.size(); }
+  [[nodiscard]] size_type size() const noexcept { return size_; }
+  [[nodiscard]] bool empty() const noexcept { return !size_; }
+  [[nodiscard]] bool full() const noexcept { return size() == capacity(); }
 
-  // Front and back accessors, undefined if empty.
-  auto& front() const { return range_.data()[front_]; }
-  auto& front() { return range_.data()[front_]; }
-  auto& back() const { return range_.data()[last_index()]; }
-  auto& back() { return range_.data()[last_index()]; }
+  // Front and back accessors. Must not be empty.
+  [[nodiscard]] const auto& front() const noexcept { return data(front_); }
+  [[nodiscard]] auto& front() noexcept { return data(front_); }
+  [[nodiscard]] const auto& back() const noexcept { return data(back_); }
+  [[nodiscard]] auto& back() noexcept { return data(back_); }
 
-  // Array operators allow circular access, while `at` throws on out-of-range.
-  auto& operator[](size_t index) const { return range_[index_at(index)]; }
-  auto& operator[](size_t index) { return range_[index_at(index)]; }
-  auto& at(size_t index) const { return range_[index_at_checked(index)]; }
-  auto& at(size_t index) { return range_[index_at_checked(index)]; }
+  // Array operators allow circular access, while `at` throws on
+  // out-of-range.
+  [[nodiscard]] const auto& operator[](size_type index) const noexcept {
+    return data(index_at(index));
+  }
+  [[nodiscard]] auto& operator[](size_type index) noexcept {
+    return data(index_at(index));
+  }
+  [[nodiscard]] const auto& at(size_type index) const {
+    return data(index_at_checked(index));
+  }
+  [[nodiscard]] auto& at(size_type index) {
+    return data(index_at_checked(index));
+  }
 
-  // TODO: Begin/end iterators. This will be tricky because they need a pointer
-  // and an index.
+  [[nodiscard]] auto begin() const noexcept { return iterator_t(*this, 0); }
+  [[nodiscard]] auto begin() noexcept { return iterator_t(*this, 0); }
+  [[nodiscard]] auto cbegin() const noexcept { return iterator_t(*this, 0); }
+
+  [[nodiscard]] auto end() const noexcept { return iterator_t(*this, size()); }
+  [[nodiscard]] auto end() noexcept { return iterator_t(*this, size()); }
+  [[nodiscard]] auto cend() const noexcept {
+    return iterator_t(*this, size());
+  }
 
 private:
+  // Templated so that it can const or mutable.
+  template<typename CB>
+  class iterator_t {
+  public:
+    using iterator_category = std::forward_iterator_tag;
+    using raw_value_type = circular_buffer::value_type;
+    using value_type = std::conditional_t<std::is_const_v<CB>,
+        const raw_value_type, raw_value_type>;
+    using const_type = std::conditional_t<std::is_const_v<CB>,
+        const circular_buffer, circular_buffer>;
+
+    using difference_type = std::ptrdiff_t;
+    using pointer = value_type*;
+    using reference = value_type&;
+
+    iterator_t(CB& buf, size_type index) noexcept
+        : buf_(&buf), index_(index) {}
+
+    [[nodiscard]] reference operator*() { return (*buf_)[index_]; }
+    [[nodiscard]] pointer operator->() { return &(*buf_)[index_]; }
+
+    // Prefix increment.
+    auto& operator++() noexcept {
+      ++index_;
+      return *this;
+    }
+
+    // Postfix increment.
+    auto operator++(int) noexcept {
+      auto tmp = *this;
+      ++(*this);
+      return tmp;
+    }
+
+    [[nodiscard]] friend bool
+    operator==(const iterator_t& a, const iterator_t& b) noexcept {
+      return a.index_ == b.index_ && a.buf_ == b.buf_;
+    }
+    [[nodiscard]] friend bool
+    operator!=(const iterator_t& a, const iterator_t& b) noexcept {
+      return !(a == b);
+    }
+
+  private:
+    CB* buf_;
+    size_type index_;
+  };
+
+  template<typename CB>
+  iterator_t(CB&, size_type) -> iterator_t<CB>;
+
+public:
+  using iterator = iterator_t<circular_buffer>;
+  using const_iterator = iterator_t<const circular_buffer>;
+
+private:
+  // Implementation details:
+  // For any non-empty buffer, the `front_` and `back_` indexes point
+  // directly to the front() and back() elements. An empty buffer looks
+  // like a full buffer, with `back_` pointing to the element before
+  // `front_` (modulo capacity). What distinguishes the two is the value of
+  // `size_`. Storing this explicitly allows us to use all the elements and
+  // avoid doing modulo arithmetic just to calculate the size.
   std::span<T> range_;
-  size_t front_{};
-  size_t back_{};
-  size_t size_{};
+  size_type front_{};
+  size_type back_{};
+  size_type size_{};
 
-  size_t last_index() const {
-    if (back_ == 0) return capacity();
-    return back_ - 1;
+  // Note: Size must be adjusted before calling these, due to assert.
+  auto* data() noexcept {
+    assert(!empty());
+    return &*range_.begin();
   }
+  const auto* data() const noexcept {
+    assert(!empty());
+    return &*range_.begin();
+  }
+  auto& data(size_type index) noexcept { return data()[index]; }
+  auto& data(size_type index) const noexcept { return data()[index]; }
 
-  size_t index_at(size_t offset) const {
-    offset %= capacity();
+  size_type last_index() const noexcept { return capacity() - 1; }
+
+  // Note: Size must be adjusted before calling these, due to offset modulo.
+  size_type index_at(size_type offset) const noexcept {
+    offset %= size();
+    return (front_ + offset) % capacity();
+  }
+  size_type index_at_checked(size_type offset) const {
+    if (offset >= size_) throw std::out_of_range("index out of range");
     return (front_ + offset) % capacity();
   }
 
-  size_t index_at_checked(size_t offset) const {
-    if (offset >= size()) throw std::out_of_range("index out of range");
-    return index_at(offset);
+  // Note: Size must be adjusted before calling these, due to data().
+  auto& add_front() noexcept {
+    if (front_ == 0) front_ = capacity();
+    return data(--front_);
+  }
+  auto& add_back() noexcept {
+    if (++back_ == capacity()) back_ = 0;
+    return data(back_);
   }
 
-  auto& wrap_front() {
-    if (front_ == 0) front_ = back_;
-    return front_;
+  void drop_front() noexcept {
+    if (++front_ == capacity()) front_ = 0;
   }
-
-  auto& wrap_back() {
-    if (back_ == range_.size()) back_ = 0;
-    return back_;
-  }
-
-  auto& add_front() { return range_.begin()[--wrap_front()]; }
-
-  auto& add_back() { return range_.begin()[wrap_back()++]; }
-
-  void eat_front() {
-    if (++front_ == range_.size()) front_ = 0;
-  }
-
-  void eat_back() {
-    if (back_ == 0) back_ = range_.size();
+  void drop_back() noexcept {
+    if (back_ == 0) back_ = capacity();
     --back_;
   }
 
-  void adjust_size_for_front() {
+  void adjust_size_for_front() noexcept {
     if (full())
-      eat_back();
+      drop_back();
     else
       ++size_;
   }
-
-  void adjust_size_for_back() {
+  void adjust_size_for_back() noexcept {
     if (full())
-      eat_front();
+      drop_front();
     else
       ++size_;
   }
@@ -177,10 +327,18 @@ private:
 template<typename T>
 circular_buffer(std::span<T>&) -> circular_buffer<T>;
 
+template<typename T, typename SZ>
+circular_buffer(std::span<T>&, SZ) -> circular_buffer<T>;
+
 template<typename T>
 circular_buffer(std::vector<T>&) -> circular_buffer<T>;
+
+template<typename T, typename SZ>
+circular_buffer(std::vector<T>&, SZ) -> circular_buffer<T>;
 
 template<typename T, std::size_t N>
 circular_buffer(std::array<T, N>&) -> circular_buffer<T>;
 
+template<typename T, std::size_t N, typename SZ>
+circular_buffer(std::array<T, N>&, SZ) -> circular_buffer<T>;
 }} // namespace corvid::adapters
