@@ -182,10 +182,10 @@ public:
   [[nodiscard]] auto& operator[](size_type index) noexcept {
     return data(index_at(index));
   }
-  [[nodiscard]] const auto& at(size_type index) const {
+  [[nodiscard]] const auto& at(size_type index) const noexcept {
     return data(index_at_checked(index));
   }
-  [[nodiscard]] auto& at(size_type index) {
+  [[nodiscard]] auto& at(size_type index) noexcept {
     return data(index_at_checked(index));
   }
 
@@ -218,8 +218,8 @@ private:
     iterator_t(CB& buf, size_type index) noexcept
         : buf_(&buf), index_(index) {}
 
-    [[nodiscard]] reference operator*() { return (*buf_)[index_]; }
-    [[nodiscard]] pointer operator->() { return &(*buf_)[index_]; }
+    [[nodiscard]] reference operator*() { return buf_->at(index_); }
+    [[nodiscard]] pointer operator->() { return &(buf_->at(index_)); }
 
     // Prefix increment.
     auto& operator++() noexcept {
