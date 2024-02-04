@@ -49,7 +49,7 @@ struct intern_traits {};
 template<typename T, SequentialEnum ID, typename TR>
 class intern_table;
 
-// Interned value.
+// Lightweight view of interned value.
 //
 // Contains a pointer to a value of `T` and an ID of type `ID`.
 //
@@ -73,7 +73,7 @@ public:
   using value_t = T;
   using id_t = ID;
 
-  // Effectively-private constructor.
+  // Effectively-private constructors.
   constexpr interned_value(allow, const value_t& value, id_t id)
       : value_(&value), id_(id) {}
   constexpr interned_value(allow, const value_t* value, id_t id)
@@ -165,8 +165,8 @@ public:
   }
 
 private:
-  const value_t* value_ = {};
-  id_t id_ = {};
+  const value_t* value_{};
+  id_t id_{};
 };
 
 // TODO: Make this work again.
@@ -186,6 +186,10 @@ struct intern_traits<T, ID> {
 // TODO: See if specializations can inherit from the primary template and just
 // replace the types that changed.
 
+// For strings, the default traits use an arena to hold the strings and the
+// containers that index them. Strings are stored as `arena_string` but are
+// returned as `std::string`, and are transparently looked up by
+// `std::string_view`.
 template<SequentialEnum ID>
 struct intern_traits<std::string, ID> {
   using value_t = std::string;
@@ -221,12 +225,13 @@ public:
   using lookup_by_value_t = typename TR::lookup_by_value_t;
   static_assert(sizeof(arena_value_t) == sizeof(value_t));
 
+  // Effectively-private constructors.
   explicit intern_table(allow, id_t min_id, id_t max_id,
       const const_pointer& next = {})
-      : min_id_(min_id), max_id_(max_id), next_(next) {
-    extensible_arena::scope s{arena_};
-    lookup_by_id_ = arena_new<lookup_by_id_t>();
-    lookup_by_value_ = arena_new<lookup_by_value_t>();
+      : min_id_(min_id), max_id_(max_id),
+        lookup_by_id_(arena_construct<lookup_by_id_t>(arena_)),
+        lookup_by_value_(arena_construct<lookup_by_value_t>(arena_)),
+        next_(next) {
     assert(min_id_ < max_id_);
   }
 
@@ -277,12 +282,12 @@ public:
     attestation(sync);
     id_t id{};
     const value_t* found_value{};
-    if (auto it = lookup_by_value_->find(key_t{value});
-        it != lookup_by_value_->end())
+    if (auto it = lookup_by_value_.find(key_t{value});
+        it != lookup_by_value_.end())
     {
       id = it->second;
       found_value =
-          reinterpret_cast<const value_t*>(&(*lookup_by_id_)[*id - *min_id_]);
+          reinterpret_cast<const value_t*>(&lookup_by_id_[*id - *min_id_]);
     } else if (next_) {
       return next_->get(value, attestation);
     }
@@ -301,10 +306,10 @@ public:
     // If we found it, or if we have no more room, return what we have.
     if (iv || sync.is_disabled()) return iv;
     extensible_arena::scope s{arena_};
-    auto id = static_cast<id_t>(*min_id_ + lookup_by_id_->size());
-    lookup_by_id_->emplace_back(std::forward<U>(value));
-    auto& found_value = lookup_by_id_->back();
-    lookup_by_value_->emplace(key_t{found_value}, id);
+    auto id = static_cast<id_t>(*min_id_ + lookup_by_id_.size());
+    lookup_by_id_.emplace_back(std::forward<U>(value));
+    auto& found_value = lookup_by_id_.back();
+    lookup_by_value_.emplace(key_t{found_value}, id);
     // After the last entry, we don't need to sync anymore.
     if (id == max_id_) sync.disable();
     return {allow::ctor, reinterpret_cast<const value_t*>(&found_value), id};
@@ -352,22 +357,18 @@ private:
   extensible_arena arena_{4096};
   const id_t min_id_;
   const id_t max_id_;
-  lookup_by_id_t* lookup_by_id_;
-  lookup_by_value_t* lookup_by_value_;
+  lookup_by_id_t& lookup_by_id_;
+  lookup_by_value_t& lookup_by_value_;
   const_pointer next_;
 
   // TODO: Add real or fake arena allocator, depending on traits. Then create
   // real or fake scopes in the methods that can allocate.
 
-  // TODO: When using an arena, allocate the two lookups in the arena and
-  // "leak" them. Otherwise, allocate them dynamically and delete them in the
-  // destructor. This means replacing the two members with raw pointers.
-
   // Find value by ID, return address or `nullptr`.
   [[nodiscard]] const value_t* find_by_id(id_t id) const {
     const size_t index = *id - *min_id_;
-    if (index >= lookup_by_id_->size()) return nullptr;
-    return reinterpret_cast<const value_t*>(&(*lookup_by_id_)[index]);
+    if (index >= lookup_by_id_.size()) return nullptr;
+    return reinterpret_cast<const value_t*>(&lookup_by_id_[index]);
   }
 };
 

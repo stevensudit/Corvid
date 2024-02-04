@@ -22,7 +22,7 @@ namespace corvid { inline namespace container { namespace arena {
 // Arena implemented as a singly-linked list of blocks.
 //
 // To use:
-// 1. Create an `extensible_arena` with the desired capacity as a member of
+// 1. Create an `extensible_arena`, with the desired capacity, as a member of
 // your container class.
 // 2. Specialize its members with `arena_allocator` as the allocator, as by
 // using aliases such as `arena_string`.
@@ -56,38 +56,49 @@ class extensible_arena {
   struct list_node;
   struct list_node_deleter {
     void operator()(list_node* node) const noexcept {
+      // Destructs `next_` recursively.
       node->~list_node();
       delete[] reinterpret_cast<char*>(node);
     }
   };
   using pointer = std::unique_ptr<list_node, list_node_deleter>;
 
-  // Points to head owned by active container. Use `extensible_arena::scope` to
-  // install.
-  thread_local static inline pointer* tls_head;
+  // Points to the head owned by the active container. Use
+  // `extensible_arena::scope` to install.
+  thread_local static inline pointer* tls_head_;
 
   struct list_node {
-    size_t capacity{};
-    size_t size{};
-    pointer next{};
-    std::byte data[1];
+    size_t capacity_{};
+    size_t size_{};
+    pointer next_{};
+    std::byte data_[1];
+
+    // Helper function to calculate the total size needed for a list_node with
+    // a given capacity. The minus 1 is because the list_node struct already
+    // includes storage for one element.
+    static constexpr size_t calculate_total_size(size_t capacity) {
+      return sizeof(list_node) + capacity - 1;
+    }
 
     // Make a new node of `capacity`.
     static pointer make(size_t capacity) {
-      auto node = pointer{
-          new (new char[sizeof(list_node) + capacity - 1]) list_node{}};
-      node->capacity = capacity;
+      // The new operator is used to allocate raw memory, and then placement
+      // new is used to construct a new list_node object in that memory.
+      auto buffer_for_placement = new char[calculate_total_size(capacity)];
+      auto node = pointer{new (buffer_for_placement) list_node{}};
+      node->capacity_ = capacity;
       return node;
     }
 
-    // Allocate a block of size `n` with `align` alignment. If no room, returns
-    // `nullptr`.
+    // Allocate a block of size `n` with `align` alignment from the current
+    // node. If no room, returns `nullptr`.
     void* allocate(size_t n, size_t align) noexcept {
-      auto start = (size + align - 1) & ~(align - 1);
-      auto past = start + n;
-      if (past >= capacity) return nullptr;
-      size = past;
-      return data + start;
+      // Ensure alignment by rounding up to the nearest multiple of 'align'.
+      auto start_index = (size_ + align - 1) & ~(align - 1);
+      auto past_index = start_index + n;
+      if (past_index >= capacity_) return nullptr;
+      size_ = past_index;
+      return data_ + start_index;
     }
   };
 
@@ -95,8 +106,8 @@ class extensible_arena {
   // replaces with new block, chaining the rest.
   static void* allocate(pointer& head, size_t n, size_t align) {
     if (auto start = head->allocate(n, align)) return start;
-    auto new_head = list_node::make(std::min(head->capacity, n));
-    new_head->next = std::move(head);
+    auto new_head = list_node::make(std::min(head->capacity_, n));
+    new_head->next_ = std::move(head);
     head = std::move(new_head);
     return head->allocate(n, align);
   }
@@ -107,32 +118,35 @@ public:
   explicit extensible_arena(size_t capacity) noexcept
       : head_{list_node::make(capacity)} {}
 
-  // Uses tls_head, per scope.
+  // Uses `tls_head_`, per scope.
   static void* allocate(size_t n, size_t align) {
-    if (!tls_head) throw std::bad_alloc{};
-    return allocate(*tls_head, n, align);
+    if (!tls_head_) throw std::bad_alloc{};
+    return allocate(*tls_head_, n, align);
   }
 
   static bool contains(const void* pv) {
-    for (auto next = tls_head->get(); next; next = next->next.get())
-      if (pv >= next->data && pv < next->data + next->size) return true;
+    if (!tls_head_) throw std::bad_alloc{};
+    for (auto next = tls_head_->get(); next; next = next->next_.get())
+      if (next->data_ <= pv && pv < next->data_ + next->size_) return true;
 
     return false;
   }
 
+  // Sets thread-local scope for arena.
   class scope {
   public:
     explicit scope(extensible_arena& arena) noexcept : old_head(&arena.head_) {
-      tls_head = &arena.head_;
+      tls_head_ = &arena.head_;
     }
 
-    ~scope() noexcept { tls_head = old_head; }
+    ~scope() noexcept { tls_head_ = old_head; }
 
   private:
     pointer* old_head;
   };
 };
 
+// Allocator that uses the `extensible_arena` that is currently in scope.
 template<typename T>
 class arena_allocator {
   static_assert(std::is_same_v<T, std::remove_cv_t<T>>);
@@ -157,12 +171,7 @@ public:
         extensible_arena::allocate(n * sizeof(T), alignof(T)));
   }
 
-  // TODO: Maybe assert here because we don't want the destructor to run.
-  constexpr void deallocate(T*, std::size_t) {
-    if (true)
-      if (false) {
-      }
-  }
+  constexpr void deallocate(T*, std::size_t) {}
 };
 
 // Helpers:
@@ -181,12 +190,23 @@ using arena_deque = std::deque<T, arena_allocator<T>>;
 template<typename T>
 using arena_allocator_traits = std::allocator_traits<arena_allocator<T>>;
 
+// Allocates a new object of type `T` using the scoped `extensible_arena`.
+// Typically used to allocate a container whose contents use the same
+// allocator. To avoid unnecessary destructors and frees, the caller should
+// "leak" the object.
 template<typename T, class... Args>
 T* arena_new(Args&&... args) {
   arena_allocator<T> a{};
   auto p = arena_allocator_traits<T>::allocate(a, 1);
   arena_allocator_traits<T>::construct(a, p, std::forward<Args>(args)...);
   return p;
+}
+
+// Constructs a new object of type `T` using the `arena` parameter.
+template<typename T, class... Args>
+T& arena_construct(extensible_arena& arena, Args&&... args) {
+  extensible_arena::scope s{arena};
+  return *arena_new<T>(std::forward<Args>(args)...);
 }
 
 }}} // namespace corvid::container::arena
