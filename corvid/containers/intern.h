@@ -169,15 +169,13 @@ private:
   id_t id_{};
 };
 
-// TODO: Make this work again.
-// TODO: Is it feasible to convert from a nested type with default allocators
-// to the parallel one with arena allocators? If not, then it's the caller's
-// job to manually configure this.
 template<typename T, SequentialEnum ID>
 struct intern_traits<T, ID> {
   using value_t = T;
+  using arena_value_t = T;
   using id_t = ID;
   using interned_value_t = interned_value<T, ID>;
+  using interned_arena_value_t = interned_value<T, ID>;
   using key_t = indirect_hash_key<value_t>;
   using lookup_by_id_t = std::deque<value_t>;
   using lookup_by_value_t = std::unordered_map<key_t, id_t>;
@@ -225,7 +223,7 @@ public:
   using lookup_by_value_t = typename TR::lookup_by_value_t;
   static_assert(sizeof(arena_value_t) == sizeof(value_t));
 
-  // Effectively-private constructors.
+  // Effectively-private constructor.
   explicit intern_table(allow, id_t min_id, id_t max_id,
       const const_pointer& next = {})
       : min_id_(min_id), max_id_(max_id),
@@ -238,6 +236,7 @@ public:
   intern_table(const intern_table&) = delete;
   intern_table& operator=(const intern_table&) = delete;
 
+  // Make intern table for a range of IDs.
   [[nodiscard]] static auto
   make(id_t min_id = id_t{}, id_t max_id = id_t{}, const_pointer next = {}) {
     if (next)
@@ -252,6 +251,7 @@ public:
     return std::make_shared<intern_table>(allow::ctor, min_id, max_id, next);
   }
 
+  // Make next block of IDs.
   [[nodiscard]] auto make_next(id_t max_id = id_t{}) const {
     return make(max_id_ + 1, max_id, this->shared_from_this());
   }
@@ -315,13 +315,13 @@ public:
     return {allow::ctor, reinterpret_cast<const value_t*>(&found_value), id};
   }
 
-  // Get by ID.
+  // Get by ID. If not found, returns empty value.
   [[nodiscard]] interned_value_t
   operator()(id_t id, const lock& attestation = {}) const {
     return get(id, attestation);
   }
 
-  // Get by value.
+  // Get by value. Does not intern. If not found, returns empty value.
   template<typename U>
   requires Viewable<T, U>
   [[nodiscard]] interned_value_t
@@ -329,9 +329,9 @@ public:
     return get(std::forward<U>(value), attestation);
   }
 
-  // Get unique value by value. In other words, pass in a (possibly
-  // transparent) value and get the unique value back. Throws if not
-  // found.
+  // Get unique value by value, interning if necessary. In other words, pass in
+  // a (possibly transparent) value and get the unique value back. Throws if
+  // not found.
   template<typename U>
   requires Viewable<T, U>
   [[nodiscard]] const value_t& operator[](U&& value) const {
@@ -341,8 +341,8 @@ public:
   }
 
   // Get unique value by value, interning if necessary. In other words, pass in
-  // a value (which can be a view) and get the unique value back. If
-  // it was not found, it is interned now. Throws if table is full.
+  // a (possibly transparent) value and get the unique value back. If it was
+  // not found, it is interned now. Throws if table is full.
   template<typename U>
   requires Viewable<T, U>
   [[nodiscard]] const value_t& operator[](U&& value) {
@@ -372,6 +372,7 @@ private:
   }
 };
 
+// Inline constructors.
 template<typename T, SequentialEnum ID>
 template<typename TR>
 interned_value<T, ID>::interned_value(const intern_table<T, ID, TR>& table,
@@ -396,3 +397,5 @@ interned_value<T, ID>::interned_value(intern_table<T, ID, TR>& table,
 }
 
 }}} // namespace corvid::container::intern
+
+// TODO: Replace find with opt_find.

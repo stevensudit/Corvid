@@ -174,8 +174,8 @@ public:
   constexpr void deallocate(T*, std::size_t) {}
 };
 
-// Helpers:
-// TODO: Move these into arena header.
+// Arena-specialized collections. Can be reinterpreted as their standard forms
+// because they are designed to be the same size and memory layout.
 
 using arena_string =
     std::basic_string<char, std::char_traits<char>, arena_allocator<char>>;
@@ -190,9 +190,11 @@ using arena_deque = std::deque<T, arena_allocator<T>>;
 template<typename T>
 using arena_allocator_traits = std::allocator_traits<arena_allocator<T>>;
 
+// Helpers:
+
 // Allocates a new object of type `T` using the scoped `extensible_arena`.
-// Typically used to allocate a container whose contents use the same
-// allocator. To avoid unnecessary destructors and frees, the caller should
+// Designed to allocate an arena-specialized container whose contents use the
+// same arena. To avoid unnecessary destructors and frees, the caller should
 // "leak" the object.
 template<typename T, class... Args>
 T* arena_new(Args&&... args) {

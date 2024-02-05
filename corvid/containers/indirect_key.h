@@ -10,7 +10,8 @@ namespace corvid { inline namespace container { inline namespace indirect_key {
 // guarantees that the value will not be moved, but we want an associative
 // container to act as an additional index.
 
-// Indirect key for use in hash containers.
+// Indirect key for use in hash containers. Contains a reference to the key and
+// acts more or less like the key, but is lightweight.
 template<typename T, typename H = std::hash<T>, typename E = std::equal_to<T>>
 struct indirect_hash_key {
   explicit indirect_hash_key(const T& key) : key(key) {}
@@ -44,7 +45,8 @@ struct indirect_hash_key {
   };
 };
 
-// Indirect key for use in map containers.
+// Indirect key for use in map containers. Contains a reference to the key and
+// acts more or less like the key, but is lightweight.
 template<typename T, class C = std::less<T>>
 struct indirect_map_key {
   explicit indirect_map_key(const T& key) : key(key) {}

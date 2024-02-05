@@ -628,7 +628,7 @@ struct intern_test {
 };
 }}} // namespace corvid::container::intern
 
-enum class string_id {};
+enum class string_id { missing };
 
 template<>
 constexpr inline auto registry::enum_spec_v<string_id> =
@@ -642,12 +642,16 @@ using string_intern_table_value = string_intern_table::interned_value_t;
 
 void InternTableTest_Basic() {
   if (true) {
+    // Show that, when we're not using arena-specialized types, we can create
+    // interned values that aren't actually in an arena.
     extensible_arena arena{4096};
     extensible_arena::scope s{arena};
     std::string abc_str{"abc"};
     std::string bcd_str{"bcdefghijklmnopqrstuvwxyz"};
-    auto abc = string_intern_test::make(&abc_str);
-    auto bcd = string_intern_test::make(&bcd_str);
+    // These are `interned_value` objects but the value pointed at is not
+    // interned or in the arena.
+    auto abc = string_intern_test::make(abc_str);
+    auto bcd = string_intern_test::make(bcd_str);
     EXPECT_FALSE(extensible_arena::contains(&abc.value()));
     EXPECT_FALSE(extensible_arena::contains(abc.value().data()));
     EXPECT_FALSE(extensible_arena::contains(&bcd.value()));
@@ -660,15 +664,23 @@ void InternTableTest_Basic() {
     EXPECT_EQ(bcd.value(), bcd_str);
   }
   if (true) {
+    // Show that, when we do use arena-specialized types, the values we create
+    // are not in the arena, but what's contained within them is.
     extensible_arena arena{4096};
     extensible_arena::scope s{arena};
+    // Does not use arena despite being an arena_string because it's short.
     arena_string abc_str{"abc"};
+    // Does use arena.
     arena_string bcd_str{"bcdefghijklmnopqrstuvwxyz"};
-    auto abc = arena_string_intern_test::make(&abc_str);
-    auto bcd = arena_string_intern_test::make(&bcd_str);
+    // These are `interned_value` objects but the value pointed at is not
+    // interned. The contents of `bcd` are in the arena, however.
+    auto abc = arena_string_intern_test::make(abc_str);
+    auto bcd = arena_string_intern_test::make(bcd_str);
     EXPECT_FALSE(extensible_arena::contains(&abc.value()));
     EXPECT_FALSE(extensible_arena::contains(abc.value().data()));
     EXPECT_FALSE(extensible_arena::contains(&bcd.value()));
+    // Short-string optimization is why "abc" isn't in the arena.
+    EXPECT_FALSE(extensible_arena::contains(abc.value().data()));
     EXPECT_TRUE(extensible_arena::contains(bcd.value().data()));
     EXPECT_EQ(abc, abc);
     EXPECT_NE(abc, bcd);
@@ -678,6 +690,7 @@ void InternTableTest_Basic() {
     EXPECT_EQ(bcd.value(), bcd_str);
   }
   if (true) {
+    // Show that we can intern strings.
     extensible_arena arena{4096};
     extensible_arena::scope s{arena};
     auto sit_ptr = string_intern_table::make(string_id{0}, string_id{3});
@@ -691,6 +704,7 @@ void InternTableTest_Basic() {
     EXPECT_TRUE(iv);
     EXPECT_EQ(iv.id(), string_id{1});
     EXPECT_EQ(iv.value(), "abc");
+    // Both the string and its contents are in the arena.
     EXPECT_TRUE(extensible_arena::contains(&iv.value()));
     EXPECT_TRUE(extensible_arena::contains(iv.value().data()));
     iv = SIT::interned_value_t{};
@@ -702,12 +716,15 @@ void InternTableTest_Basic() {
     EXPECT_TRUE(extensible_arena::contains(&iv.value()));
     EXPECT_TRUE(extensible_arena::contains(iv.value().data()));
 
-    iv = sit("def"sv);
+    iv = sit("defghijklmnopqrstuvwxyz"sv);
     EXPECT_FALSE(iv);
-    iv = sit.intern("def"sv);
+    iv = sit.intern("defghijklmnopqrstuvwxyz"sv);
     EXPECT_TRUE(iv);
     EXPECT_EQ(iv.id(), string_id{2});
-    EXPECT_EQ(iv.value(), "def"sv);
+    EXPECT_EQ(iv.value(), "defghijklmnopqrstuvwxyz"sv);
+    // Non-short strings are in the arena.
+    EXPECT_TRUE(extensible_arena::contains(&iv.value()));
+    EXPECT_TRUE(extensible_arena::contains(iv.value().data()));
 
     iv = string_intern_table_value{csit, "ghi"s};
     EXPECT_FALSE(iv);
@@ -741,6 +758,8 @@ void InternTableTest_Basic() {
 #endif
 }
 
+// This is not technically a `std::string`, so it uses the general traits,
+// including the indirect wrappers.
 struct bad_key: std::string {
   bad_key() = default;
   explicit bad_key(const std::string& s) : std::string(s) {}
@@ -755,14 +774,12 @@ struct std::hash<bad_key>: std::hash<std::string> {};
 
 template<>
 struct std::equal_to<bad_key>: std::equal_to<std::string> {};
-#if 0
+
 using interned_badkey = interned_value<bad_key, string_id>;
 using badkey_intern_test = intern_test<bad_key, string_id>;
 using badkey_intern_table = intern_table<bad_key, string_id>;
-#endif
 
 void InternTableTest_Badkey() {
-#if 0
   if (true) {
     auto abc = badkey_intern_test::make(bad_key{"abc"});
     auto bcd = badkey_intern_test::make(bad_key{"bcd"});
@@ -808,7 +825,6 @@ void InternTableTest_Badkey() {
     iv = sit.intern(bad_key{"jkl"});
     EXPECT_FALSE(iv);
   }
-#endif
 }
 
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
