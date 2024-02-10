@@ -17,6 +17,7 @@
 #pragma once
 #include "containers_shared.h"
 #include "arena_allocator.h"
+#include "opt_find.h"
 #include "../enums.h"
 #include "../strings/cstring_view.h"
 
@@ -49,9 +50,21 @@ struct intern_traits {};
 template<typename T, SequentialEnum ID, typename TR>
 class intern_table;
 
+// Overview:
+// An intern table stores unique values of type `T` and allows them to be
+// looked up by ID or by value. The address of the value is its identity, so
+// the ID is effectively a pointer. This table is implemented as a chain,
+// allowing lower ID ranges to be shared.
+//
+// For efficiency, the table uses an arena allocator to store the values and
+// the containers that index them, which requires some trickery to allow the
+// arena-based internal types to appear as the external types.
+
+//
+
 // Lightweight view of interned value.
 //
-// Contains a pointer to a value of `T` and an ID of type `ID`.
+// Contains a nullable pointer to a value of `T` and an ID of type `ID`.
 //
 // Intern requirements:
 // - Unique values are stored in a single location and never moved.
@@ -169,20 +182,57 @@ private:
   id_t id_{};
 };
 
+// Intern traits define the data structures used for the specified type.
+//
+// The general scheme is that the values are all in lookup_by_id_, while
+// lookup_by_value_ indexes them by key. These containers and the internal
+// version of the value all use arena_allocator so that they can be stored in
+// an arena chain. The trick is that the internal version can be cast to the
+// external version by reinterpretation.
+//
+// - value_t is the type of the value that is interned, as seen from outside.
+// - arena_value_t is the internal, arena-based version of value_t, which uses
+// arena_allocator so that it can be reinterpreted as a value_t.
+// - id_t is the type of the ID used to look up the value. It should be a
+// scoped enum, and its underlying type should be no bigger than needed.
+// - interned_value_t is the value/ID pair.
+// - key_t is the type used to look up the value by value. Since the actual
+// interned value is stored in lookup_by_id_ but is looked up by
+// lookup_by_value_, the key type has to work with the latter container but can
+// reference the value in the former.
+// - lookup_by_id_t is the container that stores the interned values, indexed
+// by ID. Elements must never be moved, since address is identity.
+// - lookup_by_value_t is the container that indexes the interned values. In
+// principle, the key could be a value_t, but we use a key_t to avoid
+// duplicating the value in the lookup_by_id_ container.
+//
+// TODO: Add arena size as a parameter.
 template<typename T, SequentialEnum ID>
 struct intern_traits<T, ID> {
   using value_t = T;
   using arena_value_t = T;
   using id_t = ID;
   using interned_value_t = interned_value<T, ID>;
-  using interned_arena_value_t = interned_value<T, ID>;
   using key_t = indirect_hash_key<value_t>;
   using lookup_by_id_t = std::deque<value_t>;
   using lookup_by_value_t = std::unordered_map<key_t, id_t>;
 };
 
-// TODO: See if specializations can inherit from the primary template and just
-// replace the types that changed.
+// TODO: A deque is only being used because we want to be able to enlarge
+// without moving, so we need something that amounts to a linked list. As an
+// entirely optional optimization, write a class with a signature similar to
+// vector or deque that is streamlined to only support appending, and to use
+// one level of indirection for indexes.
+
+// TODO: An entirely different scheme would be to store the values in a stable
+// associative container, such as a map, and then use a deque to store pointers
+// into the map, thus reversing the pattern. It would add an extra level of
+// indirection to looking up by ID but possibly speed up the by-value lookups.
+// It's unclear whether it's worth experimenting with this, and whether
+// template magic could be used to allow both schemes in the same class.
+
+// TODO: See if specializations can inherit from the primary template and
+// just replace the types that changed.
 
 // For strings, the default traits use an arena to hold the strings and the
 // containers that index them. Strings are stored as `arena_string` but are
@@ -194,7 +244,6 @@ struct intern_traits<std::string, ID> {
   using arena_value_t = arena_string;
   using id_t = ID;
   using interned_value_t = interned_value<std::string, id_t>;
-  using interned_arena_value_t = interned_value<arena_string, id_t>;
   using key_t = std::string_view;
   using lookup_by_id_t = arena_deque<arena_value_t>;
   using lookup_by_value_t = arena_map<key_t, id_t>;
@@ -217,7 +266,6 @@ public:
   using arena_value_t = typename TR::arena_value_t;
   using id_t = typename TR::id_t;
   using interned_value_t = typename TR::interned_value_t;
-  using interned_arena_value_t = typename TR::interned_arena_value_t;
   using key_t = typename TR::key_t;
   using lookup_by_id_t = typename TR::lookup_by_id_t;
   using lookup_by_value_t = typename TR::lookup_by_value_t;
@@ -282,15 +330,13 @@ public:
     attestation(sync);
     id_t id{};
     const value_t* found_value{};
-    if (auto it = lookup_by_value_.find(key_t{value});
-        it != lookup_by_value_.end())
-    {
-      id = it->second;
-      found_value =
-          reinterpret_cast<const value_t*>(&lookup_by_id_[*id - *min_id_]);
-    } else if (next_) {
+    if (auto id_ptr = find_opt(lookup_by_value_, key_t{value})) {
+      id = *id_ptr;
+      const auto index = *id - *min_id_;
+      found_value = reinterpret_cast<const value_t*>(&lookup_by_id_[index]);
+    } else if (next_)
       return next_->get(value, attestation);
-    }
+
     return {allow::ctor, found_value, id};
   }
 
@@ -306,7 +352,7 @@ public:
     // If we found it, or if we have no more room, return what we have.
     if (iv || sync.is_disabled()) return iv;
     extensible_arena::scope s{arena_};
-    auto id = static_cast<id_t>(*min_id_ + lookup_by_id_.size());
+    const auto id = static_cast<id_t>(*min_id_ + lookup_by_id_.size());
     lookup_by_id_.emplace_back(std::forward<U>(value));
     auto& found_value = lookup_by_id_.back();
     lookup_by_value_.emplace(key_t{found_value}, id);

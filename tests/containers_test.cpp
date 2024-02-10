@@ -246,14 +246,38 @@ void OptionalPtrTest_Dumb() {
 }
 
 void FindOptTest_Maps() {
-  const auto key = "key"s;
-  const auto value = "value"s;
-  using C = std::map<std::string, std::string>;
-  C m{{key, value}};
-  EXPECT_EQ(*find_opt(m, key), value);
-  EXPECT_EQ(find_opt(m, value).value_or_ptr(&key), key);
-  EXPECT_TRUE(Findable<C>);
-  EXPECT_FALSE(RangeWithoutFind<C>);
+  if (true) {
+    const auto key = "key"s;
+    const auto value = "value"s;
+    using C = std::map<std::string, std::string>;
+    C m{{key, value}};
+    EXPECT_EQ(*find_opt(m, key), value);
+    EXPECT_EQ(find_opt(m, value).value_or_ptr(&key), key);
+    EXPECT_TRUE(Findable<C>);
+    EXPECT_FALSE(RangeWithoutFind<C>);
+  }
+  if (true) {
+    using C = std::map<std::string_view, int>;
+    const auto key = "key"sv;
+    const auto value = 42;
+    C m{{key, value}};
+    EXPECT_EQ(*find_opt(m, key), value);
+    EXPECT_EQ(find_opt(m, "missing"sv).value_or(0), 0);
+    EXPECT_TRUE(Findable<C>);
+    EXPECT_FALSE(RangeWithoutFind<C>);
+  }
+  if (true) {
+    extensible_arena arena{4096};
+    extensible_arena::scope s{arena};
+    using C = arena_map<std::string_view, int>;
+    const auto key = "key"sv;
+    const auto value = 42;
+    C m{{key, value}};
+    EXPECT_EQ(*find_opt(m, key), value);
+    EXPECT_EQ(find_opt(m, "missing"sv).value_or(0), 0);
+    EXPECT_TRUE(Findable<C>);
+    EXPECT_FALSE(RangeWithoutFind<C>);
+  }
 }
 
 void FindOptTest_Sets() {
@@ -709,6 +733,9 @@ void InternTableTest_Basic() {
     EXPECT_TRUE(extensible_arena::contains(iv.value().data()));
     iv = SIT::interned_value_t{};
     EXPECT_FALSE(iv);
+    using C = SIT::lookup_by_value_t;
+    EXPECT_TRUE(Findable<C>);
+    EXPECT_FALSE(RangeWithoutFind<C>);
     iv = sit("abc");
     EXPECT_TRUE(iv);
     EXPECT_EQ(iv.id(), string_id{1});
