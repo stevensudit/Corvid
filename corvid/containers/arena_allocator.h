@@ -1,7 +1,7 @@
 // Corvid20: A general-purpose C++20 library extending std.
 // https://github.com/stevensudit/Corvid20
 //
-// Copyright 2022-2023 Steven Sudit
+// Copyright 2022-2024 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0(the "License");
 // you may not use this file except in compliance with the License.
@@ -70,9 +70,7 @@ class extensible_arena {
   thread_local static inline pointer* tls_head_;
 
   static auto& get_head() {
-#ifdef DEBUG
-    if (!tls_head_) throw std::logic_error{"No arena scope set"};
-#endif
+    assert(tls_head_);
     return *tls_head_;
   }
 

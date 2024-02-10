@@ -1,7 +1,7 @@
 // Corvid20: A general-purpose C++20 library extending std.
 // https://github.com/stevensudit/Corvid20
 //
-// Copyright 2022-2023 Steven Sudit
+// Copyright 2022-2024 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0(the "License");
 // you may not use this file except in compliance with the License.
@@ -248,6 +248,7 @@ private:
     size_type index_;
   };
 
+  // Deduction guide.
   template<typename CB>
   iterator_t(CB&, size_type) -> iterator_t<CB>;
 
@@ -324,6 +325,7 @@ private:
   }
 };
 
+// Deduction guides.
 template<typename T>
 circular_buffer(std::span<T>&) -> circular_buffer<T>;
 

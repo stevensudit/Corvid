@@ -1,7 +1,7 @@
 // Corvid20: A general-purpose C++20 library extending std.
 // https://github.com/stevensudit/Corvid20
 //
-// Copyright 2022-2023 Steven Sudit
+// Copyright 2022-2024 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0(the "License");
 // you may not use this file except in compliance with the License.
@@ -254,24 +254,21 @@ public:
   // Note that, if the interval was `invalid`, the insertion will fail and it
   // will stay `invalid`.
   constexpr bool insert(V v) noexcept {
-    bool inserted{};
     auto u = as_u(v);
-    if (!invalid()) {
-      if (empty()) {
-        min(u).max(u);
-        inserted = true;
-      } else {
-        if (u < min()) {
-          min(u);
-          inserted = true;
-        }
-        if (u > max()) {
-          max(u);
-          inserted = true;
-        }
-      }
+    if (invalid()) return false;
+    if (empty()) {
+      min(u).max(u);
+      return true;
     }
-    return inserted;
+    if (u < min()) {
+      min(u);
+      return true;
+    }
+    if (u > max()) {
+      max(u);
+      return true;
+    }
+    return false;
   }
 
   // Push value to the back.
