@@ -41,17 +41,19 @@ namespace corvid { inline namespace container { namespace arena {
 // If you make a container that uses an `arena_allocator`, it will still try to
 // destruct and free all of its elements. The free is a no-op, but pointless.
 // Both the free and the destructs can be avoided allocating the container with
-// `arena_new` and then "leaking" it. This also has the benefit of ensuring
-// proximity.
+// `arena_new` or `arena_construct` and then "leaking" it. This also has the
+// benefit of ensuring proximity.
+//
+// The expectation is that the arena is much larger than any single value, so
+// the waste from the last unfilled bit is minimal.
 //
 // TODO: Consider adding the ability to limit per-block sizes or total size.
 // Consider making the next block size constant, even when we had to blow past
 // the limit to accomodate an oversize allocation. Sufficiently filled should
 // be defined as having less than 1/4 of the capacity free, although it could
-// also be configured.
-//
-// TODO: Consider changing algorithm so that we keep the current block as the
-// head until it's sufficiently filled, overflowing as needed down the chain.
+// also be configured. Consider changing algorithm so that we keep the current
+// block as the head until it's sufficiently filled, overflowing as needed down
+// the chain.
 class extensible_arena {
   struct list_node;
   struct list_node_deleter {
@@ -64,8 +66,15 @@ class extensible_arena {
   using pointer = std::unique_ptr<list_node, list_node_deleter>;
 
   // Points to the head owned by the active container. Use
-  // `extensible_arena::scope` to install.
+  // `extensible_arena::scope` to install whenever an allocation is needed.
   thread_local static inline pointer* tls_head_;
+
+  static auto& get_head() {
+#ifdef DEBUG
+    if (!tls_head_) throw std::logic_error{"No arena scope set"};
+#endif
+    return *tls_head_;
+  }
 
   struct list_node {
     size_t capacity_{};
@@ -118,15 +127,12 @@ public:
   explicit extensible_arena(size_t capacity) noexcept
       : head_{list_node::make(capacity)} {}
 
-  // Uses `tls_head_`, per scope.
   static void* allocate(size_t n, size_t align) {
-    if (!tls_head_) throw std::bad_alloc{};
-    return allocate(*tls_head_, n, align);
+    return allocate(get_head(), n, align);
   }
 
   static bool contains(const void* pv) {
-    if (!tls_head_) throw std::bad_alloc{};
-    for (auto next = tls_head_->get(); next; next = next->next_.get())
+    for (auto next = get_head().get(); next; next = next->next_.get())
       if (next->data_ <= pv && pv < next->data_ + next->size_) return true;
 
     return false;
