@@ -90,14 +90,13 @@ constexpr T parse_num(std::string_view sv, std::integral auto default_value) {
 }
 
 // Append integral number to `target`. Hex is prefixed with "0x" and
-// zero-padded to an appropriate size.
+// zero-padded to an appropriate size. Returns `target`.
 template<int base = 10, size_t width = 0, char pad = ' '>
 constexpr auto& append_num(AppendTarget auto& target, Integer auto num) {
   auto a = appender{target};
   std::array<char, 64> b;
   auto [ptr, ec] = std::to_chars(b.data(), b.data() + b.size(), num, base);
   if (ec != std::errc{}) return target;
-
   size_t len = ptr - b.data();
   // Apply padding and prefix.
   if constexpr ((width && pad) || base == 16) {
@@ -111,14 +110,13 @@ constexpr auto& append_num(AppendTarget auto& target, Integer auto num) {
     if (len < w) a.append(w - len, p);
   }
   // Append number.
-  a.append(b.data(), len);
-  return target;
+  return *a.append(b.data(), len);
 }
 
-// Append bool as number.
-// Cast is needed because `std::to_chars` doesn't accept bool.
+// Append bool, as number, to `target`.  Returns `target`.
 template<int base = 10, size_t width = 0, char pad = ' '>
 constexpr auto& append_num(AppendTarget auto& target, Bool auto num) {
+  // Cast is needed because `std::to_chars` intentionally doesn't accept bool.
   return append_num<base, width, pad>(target, static_cast<int>(num));
 }
 
@@ -211,13 +209,12 @@ append_num(AppendTarget auto& target, std::floating_point auto num) {
     res = std::to_chars(b.data(), b.data() + b.size(), num, fmt, precision);
   else
     res = std::to_chars(b.data(), b.data() + b.size(), num, fmt);
-  if (auto [ptr, ec] = res; ec == std::errc{}) {
-    size_t len = ptr - b.data();
-    if constexpr (width && pad)
-      if (len < width) a.append(width - len, pad);
-    a.append(b.data(), len);
-  }
-  return target;
+  auto [ptr, ec] = res;
+  if (ec != std::errc{}) return target;
+  const size_t len = ptr - b.data();
+  if constexpr (width && pad)
+    if (len < width) a.append(width - len, pad);
+  return *a.append(b.data(), len);
 }
 
 // Return floating-point number as string.

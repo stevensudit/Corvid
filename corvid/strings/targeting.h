@@ -33,15 +33,16 @@ namespace corvid::strings { inline namespace targeting {
 
 // Base template.
 template<typename T>
-struct appender {};
+class appender {};
 
 // CRTP base.
 template<typename T>
-struct appender_crtp {
+class appender_crtp {
   using Base = appender_crtp<T>;
   using Child = appender<T>;
 
-  explicit appender_crtp(T& target) : target(target) {}
+public:
+  explicit appender_crtp(T& target) : target_(target) {}
   auto& child() { return *static_cast<Child*>(this); }
 
   auto& append(std::string_view sv) { return child().append_sv(sv); }
@@ -51,50 +52,53 @@ struct appender_crtp {
 
   auto& reserve(size_t) { return *this; }
 
-  T& operator*() { return target; }
-  T* operator->() { return &target; }
+  T& operator*() { return target_; }
+  T* operator->() { return &target_; }
 
-  T& target;
+protected:
+  T& target_;
 };
 
 // std::ostream specialization.
 template<OStreamDerived T>
-struct appender<T>: public appender_crtp<T> {
+class appender<T>: public appender_crtp<T> {
+public:
   explicit appender(T& target) : appender_crtp<T>(target) {}
 
 private:
   friend appender_crtp<T>;
   auto& append_sv(std::string_view sv) {
-    appender_crtp<T>::target.write(sv.data(), sv.size());
+    appender_crtp<T>::target_.write(sv.data(), sv.size());
     return *this;
   }
   auto& append_ch(size_t len, char ch) {
-    while (len--) appender_crtp<T>::target.put(ch);
+    while (len--) appender_crtp<T>::target_.put(ch);
     return *this;
   }
 };
 
 // String specialization.
 template<StdString T>
-struct appender<T>: public appender_crtp<T> {
+class appender<T>: public appender_crtp<T> {
+public:
   explicit appender(T& target) : appender_crtp<T>(target) {}
 
   auto& reserve(size_t len) {
-    appender_crtp<T>::target.reserve(appender_crtp<T>::target.size() + len);
+    appender_crtp<T>::target_.reserve(appender_crtp<T>::target_.size() + len);
     return *this;
   }
 
 private:
   friend appender_crtp<T>;
   auto& append_sv(std::string_view sv) {
-    appender_crtp<T>::target.append(sv);
+    appender_crtp<T>::target_.append(sv);
     return *this;
   }
   auto& append_ch(size_t len, char ch) {
     if (len == 1)
-      appender_crtp<T>::target.push_back(ch);
+      appender_crtp<T>::target_.push_back(ch);
     else
-      appender_crtp<T>::target.append(len, ch);
+      appender_crtp<T>::target_.append(len, ch);
     return *this;
   }
 };
