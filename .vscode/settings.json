@@ -81,7 +81,13 @@
         "thread": "cpp",
         "cinttypes": "cpp",
         "forward_list": "cpp",
-        "*.inc": "cpp"
+        "*.inc": "cpp",
+        "cassert": "cpp",
+        "cerrno": "cpp",
+        "climits": "cpp",
+        "queue": "cpp",
+        "stack": "cpp",
+        "*.def": "cpp"
     },
     "C_Cpp.errorSquiggles": "disabled",
     "editor.tokenColorCustomizations": {

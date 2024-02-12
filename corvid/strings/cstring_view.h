@@ -52,8 +52,8 @@ inline namespace cstringview {
 // The constructor has to be able to confirm that it's terminated, but it can't
 // look past the end of the buffer because that's outside the valid range.
 // There are no guarantees possible about what's in that byte or even that it
-// can be dereferenced. It also amounts to an implicit requirement, which is a
-// questionable design choice here.
+// can be dereferenced. It also amounts to an implicit requirement, which would
+// be a questionable design choice here.
 //
 // The solution in these cases is to require the explicit inclusion of the
 // terminator in the length passed in. The constructor can then inspect the
@@ -63,15 +63,15 @@ inline namespace cstringview {
 // Notes:
 //
 // Can be explicitly cast from `std::string_view` (with the above proviso about
-// including the terminator) and implicitly cast to `std::string_view` (or cast
-// by calling `view`).
+// including the terminator) and implicitly cast to `std::string_view` (or
+// explicitly cast by calling `view`).
 //
 // The most convenient way to declare a `constexpr cstring_view` is with a
 // literal using the `_csv` UDL.
 //
 // The `substr` and `remove_suffix` functions cannot be supported because they
-// would violate the termination invariant. The workaround is to cast to
-// `std::string_view` and modify that copy, instead.
+// would violate the termination invariant. The workaround is to copy to
+// `std::string_view` and modify that, instead.
 //
 // For comparison purposes, `empty` and `null` values are always equivalent. If
 // you want to check for an exact match that distinguishes between these two

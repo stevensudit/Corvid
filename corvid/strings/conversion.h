@@ -197,7 +197,7 @@ constexpr T parse_num(std::string_view sv, T default_value) {
   return extract_num<fmt>(t, sv) && sv.empty() ? t : default_value;
 }
 
-// Append floating-point number to `target`.
+// Append floating-point number to `target`. Returns `target`.
 template<std::chars_format fmt = std::chars_format::general,
     int precision = -1, size_t width = 0, char pad = ' '>
 constexpr auto&
@@ -231,7 +231,7 @@ inline namespace cvt_enum {
 
 // From enum.
 
-// Append enum to `target`.
+// Append enum to `target`. Returns `target`.
 constexpr auto& append_enum(AppendTarget auto& target, ScopedEnum auto e) {
   return registry::enum_spec_v<decltype(e)>.append(target, e);
 }
@@ -265,7 +265,7 @@ inline namespace cvt_stream {
 template<OStreamable T>
 constexpr bool stream_append_v = false;
 
-// Append streamable `t` to `target`.
+// Append streamable `t` to `target`. Returns `target`.
 auto& append_stream(AppendTarget auto& target, const OStreamable auto& t) {
   if constexpr (StringViewConvertible<decltype(target)>) {
     std::stringstream s;

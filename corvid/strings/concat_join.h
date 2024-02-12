@@ -74,7 +74,7 @@ concept AppendableOverridden =
     (!std::is_null_pointer_v<decltype(append_override_fn<std::string, T>)>);
 
 // Concept for types that registered as a stream appendable. This means that we
-// append them by using the `std::ostream::operator<<`.
+// append them by using their `std::ostream::operator<<`.
 template<typename T>
 concept StreamAppendable = stream_append_v<T>;
 
@@ -156,12 +156,8 @@ inline namespace appending {
 template<StringViewConvertible T>
 requires Appendable<T>
 constexpr auto& append(AppendTarget auto& target, const T& part) {
-  auto a = appender{target};
-  if (is_present(part))
-    a.append(std::string_view{part});
-  else
-    a.append("null"sv);
-  return target;
+  return *appender{target}.append(
+      is_present(part) ? std::string_view{part} : "null"sv);
 }
 
 // Append `nullptr_t` to `target` as "null".
@@ -240,18 +236,15 @@ constexpr auto& append(AppendTarget auto& target, const MonoState auto&) {
 template<Variant T>
 requires Appendable<T>
 constexpr auto& append(AppendTarget auto& target, const T& part) {
-  if (!part.valueless_by_exception())
-    std::visit([&target](auto&& inside) { append(target, inside); }, part);
-  else
-    append(target, nullptr);
+  if (part.valueless_by_exception()) return append(target, nullptr);
+  std::visit([&target](auto&& inside) { append(target, inside); }, part);
   return target;
 }
 
 // Append a `StreamAppendable` to `target`.
 constexpr auto&
 append(AppendTarget auto& target, const StreamAppendable auto& part) {
-  append_stream(target, part);
-  return target;
+  return append_stream(target, part);
 }
 
 // Append pieces to `target` without delimiters. See `append_join_with` for
@@ -293,12 +286,12 @@ constexpr auto& append(A& target, const T& part) {
   return append(target, head, tail...);
 }
 
-// Determine if `c` needs to be escaped.
+// Determine if `c` needs to be escaped for JSON.
 [[nodiscard]] inline bool needs_escaping(char c) noexcept {
   return (c == '"' || c == '\\' || c == '/' || c < 32);
 }
 
-// Determine if `s` needs to be escaped.
+// Determine if `s` needs to be escaped for JSON.
 [[nodiscard]] inline bool needs_escaping(std::string_view s) noexcept {
   for (auto c : s)
     if (needs_escaping(c)) return true;
@@ -311,7 +304,9 @@ inline auto& append_escaped(AppendTarget auto& target, std::string_view part) {
 
   auto a = appender{target};
   for (auto c : part) {
-    if (needs_escaping(c)) {
+    if (!needs_escaping(c))
+      a.append(c);
+    else {
       a.append('\\');
       switch (c) {
       case '"': [[fallthrough]];
@@ -327,8 +322,6 @@ inline auto& append_escaped(AppendTarget auto& target, std::string_view part) {
         append<16, 4, '0'>(target, static_cast<uint16_t>(c));
         break;
       }
-    } else {
-      a.append(c);
     }
   }
 
@@ -355,7 +348,7 @@ inline namespace joinoptions {
 //
 // Note that, since we can't know what was streamed out before, we can't tell
 // that we need to delimit unless we're writing multiple parts ourselves. The
-// caller would have to specify this delimiting with the `prefix` option, if
+// caller would have to specify this delimiting with the `prefixed` option, if
 // that's what they want.
 enum class join_opt {
   // braced - Show braces around containers; the default behavior.
@@ -371,10 +364,8 @@ enum class join_opt {
   // Convenience aliases:
   // flat-keyed.
   flat_keyed = flat | keyed,
-  // json - Show as JSON.
-  json = braced | keyed | quoted,
-  // Max value
-  all = braced | flat | keyed | quoted | prefixed,
+  // json.
+  json = braced | keyed | quoted
 };
 
 } // namespace joinoptions
@@ -385,7 +376,7 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
     corvid::strings::joinoptions::join_opt> =
     corvid::enums::bitmask::make_bitmask_enum_spec<
         corvid::strings::joinoptions::join_opt,
-        corvid::strings::joinoptions::join_opt::all>();
+        "prefixed, quoted, keyed, flat">();
 
 namespace corvid::strings {
 inline namespace registration {
@@ -407,7 +398,7 @@ inline namespace registration {
 //      static A& append_join_with(A& target, strings::delim d,
 //          const person& p) {
 //        return corvid::strings::append_join_with<opt, open, close>(
-//            target, d, p.last, ", ", p.first);
+//            target, d, p.last, p.first);
 //      }
 //
 //    template<strings::join_opt opt, char open, char close, AppendTarget A>
@@ -493,7 +484,7 @@ constexpr auto& append_join_with(AppendTarget auto& target, delim d,
   constexpr bool add_braces = decode::braces_v<opt, open, close>;
   constexpr bool add_quotes =
       (StringViewConvertible<T> || StdEnum<T>)&&decode::quoted_v<opt>;
-  bool not_null = is_present(part);
+  const bool not_null = is_present(part);
 
   d.append_if<decode::delimit_v<opt>>(target);
 
@@ -535,12 +526,10 @@ template<auto opt = join_opt::braced, char open = 0, char close = 0, Variant T>
 requires JoinAppendable<T>
 constexpr auto&
 append_join_with(AppendTarget auto& target, delim d, const T& part) {
-  if (!part.valueless_by_exception())
-    std::visit(
-        [&target, &d](auto&& part) { append_join_with<opt>(target, d, part); },
-        part);
-  else
-    append(target, nullptr);
+  if (part.valueless_by_exception()) return append(target, nullptr);
+  std::visit(
+      [&target, &d](auto&& part) { append_join_with<opt>(target, d, part); },
+      part);
   return target;
 }
 
@@ -633,7 +622,6 @@ append_join_with(AppendTarget auto& target, delim d, const T& parts) {
 
   if (auto b = std::cbegin(parts), e = std::cend(parts); b != e) {
     append_join_with<head_opt>(target, d, container_element_v<is_keyed>(b));
-
     for (++b; b != e; ++b)
       append_join_with<next_opt>(target, d, container_element_v<is_keyed>(b));
   }
