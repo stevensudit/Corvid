@@ -20,6 +20,9 @@
 
 namespace corvid { inline namespace meta { inline namespace concepts {
 
+// Note: Some of these definitions are universal concepts that apply anywhere,
+// while others enforce distinctions that are specific to this library.
+
 // `T` must be the same as `U`, ignoring cvref.
 template<typename T, typename U>
 concept SameAs = std::same_as<T, std::remove_cvref_t<U>>;
@@ -155,7 +158,7 @@ concept PairLike = StdPair<T> || PairConvertible<T>;
 template<typename T>
 concept Findable = has_find_v<T>;
 
-// `T` must be a container that lacks a `find` method for K.
+// `T` must be a container that lacks a `find` method.
 template<typename T>
 concept RangeWithoutFind = Range<T> && (!Findable<T>);
 

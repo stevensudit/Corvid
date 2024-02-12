@@ -1082,6 +1082,17 @@ void StringUtilsTest_ParseNum() {
     sv = "123 ";
     t = strings::parse_num(sv, -1);
     EXPECT_EQ(t, -1);
+
+    std::optional<int64_t> ot;
+
+    sv = "123 ";
+    ot = strings::parse_num(sv);
+    EXPECT_FALSE(ot.has_value());
+
+    sv = "123";
+    ot = strings::parse_num(sv);
+    EXPECT_TRUE(ot.has_value());
+    EXPECT_EQ(ot.value(), 123);
   }
   if (true) {
     std::string_view sv;
@@ -1135,6 +1146,17 @@ void StringUtilsTest_ParseNum() {
     sv = "12.3 ";
     t = strings::parse_num<double>(sv, -1.2);
     EXPECT_EQ(t, -1.2);
+
+    std::optional<double> ot;
+
+    sv = "12.3 ";
+    ot = strings::parse_num<double>(sv);
+    EXPECT_FALSE(ot.has_value());
+
+    sv = "12.3";
+    ot = strings::parse_num<double>(sv);
+    EXPECT_TRUE(ot.has_value());
+    EXPECT_EQ(ot.value(), 12.3);
   }
 }
 

@@ -19,6 +19,9 @@
 
 namespace corvid { inline namespace meta { inline namespace traits {
 
+// Note: Some of these definitions are universal traits that apply anywhere,
+// while others enforce distinctions that are specific to this library.
+
 //
 // Specialization
 //

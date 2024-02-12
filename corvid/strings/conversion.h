@@ -72,12 +72,12 @@ constexpr std::optional<T> extract_num(std::string_view& sv) {
 template<std::integral T = int64_t, int base = 10>
 constexpr std::optional<T> parse_num(std::string_view sv) {
   T t;
-  return extract_num<T, base>(t, sv) && sv.empty()
+  return extract_num<base>(t, sv) && sv.empty()
              ? std::make_optional(t)
              : std::nullopt;
 }
 
-// Parse integer from copy of a `std::string_view` with a `default_value`.
+// Parse integer from copy of a `std::string_view`, with a `default_value`.
 // Fails if there are any unparsed characters.
 //
 // On success, returns parsed value.
@@ -95,24 +95,23 @@ template<int base = 10, size_t width = 0, char pad = ' '>
 constexpr auto& append_num(AppendTarget auto& target, Integer auto num) {
   auto a = appender{target};
   std::array<char, 64> b;
-  if (auto [ptr, ec] = std::to_chars(b.data(), b.data() + b.size(), num, base);
-      ec == std::errc())
-  {
-    size_t len = ptr - b.data();
-    // Apply padding and prefix.
-    if constexpr ((width && pad) || base == 16) {
-      auto w = width;
-      auto p = pad;
-      if constexpr (base == 16 && !width) {
-        a.append("0x"sv);
-        p = '0';
-        w = sizeof(num) * 2;
-      }
-      if (len < w) a.append(w - len, p);
+  auto [ptr, ec] = std::to_chars(b.data(), b.data() + b.size(), num, base);
+  if (ec != std::errc{}) return target;
+
+  size_t len = ptr - b.data();
+  // Apply padding and prefix.
+  if constexpr ((width && pad) || base == 16) {
+    auto w = width;
+    auto p = pad;
+    if constexpr (base == 16 && !width) {
+      a.append("0x"sv);
+      p = '0';
+      w = sizeof(num) * 2;
     }
-    // Append number.
-    a.append(b.data(), len);
+    if (len < w) a.append(w - len, p);
   }
+  // Append number.
+  a.append(b.data(), len);
   return target;
 }
 
@@ -187,7 +186,7 @@ constexpr std::optional<T> parse_num(std::string_view sv) {
              : std::nullopt;
 }
 
-// Parse floating-point from copy of `std::string_view` with a
+// Parse floating-point from copy of `std::string_view`, with a
 // `default_value`. Fails if there are any unparsed characters.
 //
 // On success, returns parsed value.
@@ -212,7 +211,7 @@ append_num(AppendTarget auto& target, std::floating_point auto num) {
     res = std::to_chars(b.data(), b.data() + b.size(), num, fmt, precision);
   else
     res = std::to_chars(b.data(), b.data() + b.size(), num, fmt);
-  if (auto [ptr, ec] = res; ec == std::errc()) {
+  if (auto [ptr, ec] = res; ec == std::errc{}) {
     size_t len = ptr - b.data();
     if constexpr (width && pad)
       if (len < width) a.append(width - len, pad);
