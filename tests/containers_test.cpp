@@ -854,6 +854,175 @@ void InternTableTest_Badkey() {
   }
 }
 
+class SpecialIntDeleter {
+public:
+  SpecialIntDeleter() = delete;
+  SpecialIntDeleter(int x) : x_(x) {}
+
+  void operator()(int* p) const { delete p; }
+  int x_;
+};
+
+class DefaultIntDeleter {
+public:
+  void operator()(int* p) const { delete p; }
+};
+
+struct D // deleter
+{
+  static inline std::string_view action;
+
+  D() { action = "ctor"sv; }
+  D(const D&) { action = "copy"sv; }
+  D(D&) { action = "non-const copy"sv; }
+  D(D&&) { action = "move"sv; }
+  void operator()(int* p) const {
+    action = "delete"sv;
+    delete p;
+  };
+};
+
+void OwnPtrTest_Ctor() {
+  own_ptr<int> p;
+  own_ptr<int, DefaultIntDeleter> q;
+
+  // If there's no deleter, it points to the object itself.
+  EXPECT_EQ(((const void*)&p.get_deleter()), ((const void*)&p));
+
+  // Requires defaultable constructor.
+  //* own_ptr<int, SpecialIntDeleter> r;
+
+  own_ptr<int, SpecialIntDeleter> r{nullptr, SpecialIntDeleter{42}};
+  EXPECT_GT(sizeof(r), sizeof(int*));
+
+  EXPECT_EQ(sizeof(p), sizeof(int*));
+  EXPECT_EQ(sizeof(q), sizeof(int*));
+  auto p2 = std::move(p);
+
+  EXPECT_EQ(r.get_deleter().x_, 42);
+  auto r2 = std::move(r);
+  EXPECT_EQ(r2.get_deleter().x_, 42);
+
+  {
+    using P0 = own_ptr<int>;
+    EXPECT_TRUE(P0::is_deleter_non_reference_v);
+    EXPECT_FALSE(P0::is_deleter_lvalue_reference_v);
+    EXPECT_FALSE(P0::is_deleter_const_lvalue_reference_v);
+    using P1 = own_ptr<int, D>;
+    EXPECT_TRUE(P1::is_deleter_non_reference_v);
+    EXPECT_FALSE(P1::is_deleter_lvalue_reference_v);
+    EXPECT_FALSE(P1::is_deleter_const_lvalue_reference_v);
+    using P2 = own_ptr<int, D&>;
+    EXPECT_FALSE(P2::is_deleter_non_reference_v);
+    EXPECT_TRUE(P2::is_deleter_lvalue_reference_v);
+    EXPECT_FALSE(P2::is_deleter_const_lvalue_reference_v);
+    using P3 = own_ptr<int, const D&>;
+    EXPECT_FALSE(P3::is_deleter_non_reference_v);
+    EXPECT_FALSE(P3::is_deleter_lvalue_reference_v);
+    EXPECT_TRUE(P3::is_deleter_const_lvalue_reference_v);
+  }
+
+  // Cases from https://en.cppreference.com/w/cpp/memory/unique_ptr.
+  {
+    // Example constructor(1).
+    using P = own_ptr<int>;
+    P p;
+    P q{nullptr};
+    EXPECT_EQ(p.get(), nullptr);
+    EXPECT_EQ(q.get(), nullptr);
+  }
+  {
+    // Example constructor(2)
+    using P = own_ptr<int>;
+    P{new int};
+  }
+  D d;
+  EXPECT_EQ(D::action, "ctor"sv);
+  {
+    // Example constructor(3a)
+    // Non-reference is copied when lvalue.
+    using P = own_ptr<int, D>;
+    P p{new int, d}; // Copy of d
+    EXPECT_EQ(D::action, "copy"sv);
+  }
+  EXPECT_EQ(D::action, "delete"sv);
+  {
+    // Example constructor(3b)
+    // Reference is held when lvalue.
+    using P = own_ptr<int, D&>;
+    D::action = "referenced"sv;
+    P p{new int, d}; // Reference to d
+    EXPECT_EQ(D::action, "referenced"sv);
+  }
+  EXPECT_EQ(D::action, "delete"sv);
+  {
+    // Example constructor(4)
+    // Non-reference is moved when rvalue.
+    using P = own_ptr<int, D>;
+    P p{new int, D{}}; // Move of D
+    EXPECT_EQ(D::action, "move"sv);
+  }
+  EXPECT_EQ(D::action, "delete"sv);
+  {
+    // Example constructor(5)
+    // Ownership transfer.
+    using P = own_ptr<int>;
+    P p{new int};
+    P q{std::move(p)};
+  }
+  EXPECT_EQ(D::action, "delete"sv);
+  {
+    // Example constructor(6ab)
+    // Non-reference is copied when lvalue.
+    using P = own_ptr<int, D>;
+    P p{new int, d}; // Copy of d
+    EXPECT_EQ(D::action, "copy"sv);
+    P q{std::move(p)}; // Move of d
+    EXPECT_EQ(D::action, "move"sv);
+  }
+  EXPECT_EQ(D::action, "delete"sv);
+  {
+    // Example constructor(6cd)
+    // Non-reference is copied when lvalue.
+    using P = own_ptr<int, D&>;
+    using Q = own_ptr<int, D>;
+    D::action = "referenced"sv;
+    // It cannot be moved. Implicitly deleted.
+    //* P q(new int, D{});
+    P p{new int, d}; // Copy of d
+    EXPECT_EQ(D::action, "referenced"sv);
+    Q q{std::move(p)}; // Move of d
+    EXPECT_EQ(D::action, "non-const copy"sv);
+    // This correctly fails.
+    //* P r{new int, D{}};
+  }
+  EXPECT_EQ(D::action, "delete"sv);
+  {
+    using P = own_ptr<int, const D&>;
+    D::action = "referenced"sv;
+    P p{new int, d}; // Reference to d
+    EXPECT_EQ(D::action, "referenced"sv);
+    // It cannot be moved. Deleted.
+    //* P q(new int, D{});
+  }
+  {
+    // Regression test.
+    // using P = own_ptr<int, D&>;
+    // using Q = own_ptr<int, const D&>;
+    // This fails correctly because the only available constructor requires an
+    // lvalue, not an rvalue. It takes a `D&`.
+    //* P p{new int, D{}};
+    // This now fails correctly but didn't before. It needed an explicit
+    // deletion, but also a fix to is_deleter.
+    //* Q q {new int, D{}};
+  }
+
+  //  EXPECT_FALSE(p);
+  //  std::unique_ptr<int> up;
+
+  // TODO: Test with a move-only pointer type.
+}
+
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
     FindOptTest_Maps, FindOptTest_Sets, FindOptTest_Vectors,
@@ -861,4 +1030,4 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     Intervals_Ctors, IntervalTest_Insert, IntervalTest_ForEach,
     IntervalTest_Reverse, IntervalTest_MinMax, IntervalTest_CompareAndSwap,
     IntervalTest_Append, TransparentTest_General, IndirectKey_Basic,
-    InternTableTest_Basic, InternTableTest_Badkey);
+    InternTableTest_Basic, InternTableTest_Badkey, OwnPtrTest_Ctor);

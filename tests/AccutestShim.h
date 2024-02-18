@@ -84,6 +84,60 @@ auto inline stream_to_text(const auto& v) {
     VALUE_MSG(actual_, expected_);                                            \
   } while (false);
 
+#define EXPECT_LE(actual, expected)                                           \
+  do {                                                                        \
+    const auto& actual_ = (actual);                                           \
+    const auto& expected_ = (expected);                                       \
+    TEST_CHECK_((actual_ <= expected_), "%s",                                 \
+        ("(" #actual " <= " #expected ")"));                                  \
+    VALUE_MSG(actual_, expected_);                                            \
+  } while (false);
+
+#define ASSERT_LE(actual, expected)                                           \
+  do {                                                                        \
+    const auto& actual_ = (actual);                                           \
+    const auto& expected_ = (expected);                                       \
+    TEST_ASSERT_((actual_ <= expected_), "%s",                                \
+        ("(" #actual " <= " #expected ")"));                                  \
+    VALUE_MSG(actual_, expected_);                                            \
+  } while (false);
+
+#define EXPECT_GT(actual, expected)                                           \
+  do {                                                                        \
+    const auto& actual_ = (actual);                                           \
+    const auto& expected_ = (expected);                                       \
+    TEST_CHECK_((actual_ > expected_), "%s",                                  \
+        ("(" #actual " > " #expected ")"));                                   \
+    VALUE_MSG(actual_, expected_);                                            \
+  } while (false);
+
+#define ASSERT_GT(actual, expected)                                           \
+  do {                                                                        \
+    const auto& actual_ = (actual);                                           \
+    const auto& expected_ = (expected);                                       \
+    TEST_ASSERT_((actual_ > expected_), "%s",                                 \
+        ("(" #actual " > " #expected ")"));                                   \
+    VALUE_MSG(actual_, expected_);                                            \
+  } while (false);
+
+#define EXPECT_GE(actual, expected)                                           \
+  do {                                                                        \
+    const auto& actual_ = (actual);                                           \
+    const auto& expected_ = (expected);                                       \
+    TEST_CHECK_((actual_ >= expected_), "%s",                                 \
+        ("(" #actual " >= " #expected ")"));                                  \
+    VALUE_MSG(actual_, expected_);                                            \
+  } while (false);
+
+#define ASSERT_GE(actual, expected)                                           \
+  do {                                                                        \
+    const auto& actual_ = (actual);                                           \
+    const auto& expected_ = (expected);                                       \
+    TEST_ASSERT_((actual_ >= expected_), "%s",                                \
+        ("(" #actual " >= " #expected ")"));                                  \
+    VALUE_MSG(actual_, expected_);                                            \
+  } while (false);
+
 #define EXPECT_TRUE(actual)                                                   \
   do {                                                                        \
     const bool actual_ = (actual) ? true : false;                             \
