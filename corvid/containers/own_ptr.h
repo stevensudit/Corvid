@@ -113,7 +113,7 @@ public:
   constexpr explicit own_ptr(pointer&& ptr) noexcept
   requires is_default_constructible_deleter_v
       : ptr_(ptr) {
-    ptr = nullptr;
+    ptr = pointer{};
   }
 
   // TODO: For construction from pointer and deleter, ensure that these are not
@@ -168,12 +168,12 @@ public:
   constexpr own_ptr(own_ptr&& other) noexcept
   requires is_move_constructible_deleter_v
       : ptr_(other.ptr_), del_(std::move(other.del_)) {
-    other.ptr_ = nullptr;
+    other.ptr_ = pointer{};
   }
 
   own_ptr(own_ptr&) = delete;
 
-  ~own_ptr() { do_delete(); }
+  ~own_ptr() { do_delete() = pointer{}; }
 
   own_ptr(const own_ptr&) = delete;
   own_ptr& operator=(const own_ptr&) = delete;
@@ -181,25 +181,25 @@ public:
   // TODO: Support passing in deleter as parameter.
 
   own_ptr(own_ptr&& other) noexcept : ptr_(other.ptr_) {
-    other.ptr_ = nullptr;
+    other.ptr_ = pointer{};
   }
 
   own_ptr& operator=(own_ptr&& other) noexcept {
-    if (this != &other) do_delete(ptr_) = std::exchange(other.ptr_, nullptr);
+    if (this != &other) do_delete(ptr_) = std::exchange(other.ptr_, pointer{});
     return *this;
   }
 
   // Added nodiscard.
-  [[nodiscard]] constexpr T* operator->() const { return ptr_; }
-  [[nodiscard]] constexpr T& operator*() const { return *ptr_; }
+  [[nodiscard]] constexpr pointer operator->() const { return ptr_; }
+  [[nodiscard]] constexpr element_type& operator*() const { return *ptr_; }
 
-  [[nodiscard]] constexpr T* get() const { return ptr_; }
-  [[nodiscard]] explicit operator bool() const { return ptr_ != nullptr; }
+  [[nodiscard]] constexpr pointer get() const { return ptr_; }
+  [[nodiscard]] explicit operator bool() const { return ptr_ != pointer{}; }
 
-  void reset(T* ptr = nullptr) { do_delete(ptr_) = ptr; }
+  void reset(pointer ptr = pointer{}) { do_delete(ptr_) = ptr; }
 
   [[nodiscard]] constexpr T* release() noexcept {
-    return std::exchange(ptr_, nullptr);
+    return std::exchange(ptr_, pointer{});
   }
 
   constexpr deleter_type& get_deleter() noexcept { return del_; }
@@ -212,8 +212,20 @@ private:
   [[no_unique_address]] Deleter del_;
 
   auto& do_delete() {
-    del_(ptr_);
+    del_(std::move(ptr_));
     return ptr_;
   }
 };
+
+#if 1
+// Specify all desired deduction guides to suppress unwanted ones for
+// constructors that take a deleter parameter.
+template<typename T, typename Deleter>
+own_ptr(own_ptr<T, Deleter>&&) -> own_ptr<T, Deleter>;
+#if 0
+template<typename T>
+own_ptr(T*) -> own_ptr<T>;
+#endif
+#endif
+
 }} // namespace corvid::ownptr

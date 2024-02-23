@@ -1016,11 +1016,123 @@ void OwnPtrTest_Ctor() {
     // deletion, but also a fix to is_deleter.
     //* Q q {new int, D{}};
   }
+  {
+#if 0
+    // CTAD.
+    // * auto p = own_ptr{new int};
+    auto p = own_ptr<int>{new int};
+    // * auto q = own_ptr{new int};
+    auto up = std::unique_ptr<int>{new int};
+    auto q = own_ptr{new int, D{}};
+    auto q{std::move(p)};
+    auto uq{std::move(up)};
+    auto r = own_ptr{new int, std::default_delete<int>{}};
+#endif
+    // sabotage with deduction guides to void
+
+    // std::unique_ptr up{new int};
+    // (void)up;
+  }
 
   //  EXPECT_FALSE(p);
   //  std::unique_ptr<int> up;
 
   // TODO: Test with a move-only pointer type.
+}
+
+template<typename T, typename D = std::default_delete<T>>
+class Holder {
+public:
+  template<typename U = void>
+  requires std::is_same_v<U, void>
+  Holder(T* t) : t_(t) {}
+
+  const T& get() const { return *t_; }
+
+private:
+  T* t_;
+};
+
+// deduction guide for holder
+template<typename T>
+Holder(T*) -> Holder<float>;
+
+void DeductionTest_Experimental() {
+  int i = 42;
+  Holder<int> h0{&i};
+  //  Holder h1{&i};
+  //  Holder h2{42.0};
+}
+
+struct fd_deleter {
+  using pointer = custom_handle<fd_deleter, int, int, -1>;
+
+  void operator()(pointer p) {
+    if (*p != -1) ++close_count;
+  }
+  static inline size_t close_count{};
+};
+
+using unique_fd = std::unique_ptr<int, fd_deleter>;
+
+void CustomHandleTest_Basic() {
+  // Baseline unique_ptr.
+  if (true) {
+    using P = std::unique_ptr<int>;
+    P p;
+    P q{new int};
+    p.reset(q.release());
+    q = std::move(p);
+  }
+  // Custom deleter for unique_ptr.
+  if (true) {
+    using P = unique_fd;
+    EXPECT_EQ(fd_deleter::close_count, 0u);
+    P p;
+    EXPECT_EQ(sizeof(p), sizeof(int));
+    P q{42};
+    p.reset(q.release());
+    q = std::move(p);
+    p = unique_fd{43};
+    EXPECT_EQ(fd_deleter::close_count, 0u);
+    int i = 42;
+    p = unique_fd{i};
+    EXPECT_EQ(fd_deleter::close_count, 1u);
+    EXPECT_EQ(i, 42);
+    p = unique_fd{std::move(i)};
+    EXPECT_EQ(fd_deleter::close_count, 2u);
+    EXPECT_EQ(i, -1);
+    const int j = 42;
+    p = unique_fd{j};
+    EXPECT_EQ(fd_deleter::close_count, 3u);
+    EXPECT_EQ(j, 42);
+    // * p = unique_fd{std::move(j)};
+    p.reset();
+    EXPECT_EQ(fd_deleter::close_count, 4u);
+    i = 46;
+    p.reset(i);
+    EXPECT_EQ(*p, 46);
+    EXPECT_EQ(i, 46);
+    ++i;
+    p.reset(std::move(i));
+    EXPECT_EQ(*p, 47);
+    EXPECT_EQ(i, -1);
+
+    unique_fd::pointer k{44};
+    EXPECT_EQ(*k, 44);
+    i = 46;
+    k = i;
+    EXPECT_EQ(*k, 46);
+    EXPECT_EQ(i, 46);
+    ++i;
+    k = std::move(i);
+    EXPECT_EQ(*k, 47);
+    EXPECT_EQ(i, -1);
+  }
+  EXPECT_EQ(fd_deleter::close_count, 7u);
+
+  // TODO: Add more tests for more test cases. An enum and its underlying. A
+  // void pointer as the internal rep. A pointer with a sentinel.
 }
 
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
@@ -1030,4 +1142,12 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     Intervals_Ctors, IntervalTest_Insert, IntervalTest_ForEach,
     IntervalTest_Reverse, IntervalTest_MinMax, IntervalTest_CompareAndSwap,
     IntervalTest_Append, TransparentTest_General, IndirectKey_Basic,
-    InternTableTest_Basic, InternTableTest_Badkey, OwnPtrTest_Ctor);
+    InternTableTest_Basic, InternTableTest_Badkey, OwnPtrTest_Ctor,
+    DeductionTest_Experimental, CustomHandleTest_Basic);
+
+// Ok, so the plan is to make all of the Ptr/Del ctors take the same three
+// templated arguments. The third is just a named thing that's defaulted to
+// void and then the requires clause requires it to be void. Then we add a
+// bunch of deduction guides that set the must-be-void to something else.
+#if 0
+#endif
