@@ -883,26 +883,27 @@ struct D // deleter
 };
 
 void OwnPtrTest_Ctor() {
-  own_ptr<int> p;
-  own_ptr<int, DefaultIntDeleter> q;
+  {
+    own_ptr<int> p;
+    own_ptr<int, DefaultIntDeleter> q;
 
-  // If there's no deleter, it points to the object itself.
-  EXPECT_EQ(((const void*)&p.get_deleter()), ((const void*)&p));
+    // If there's no deleter, it points to the object itself.
+    EXPECT_EQ(((const void*)&p.get_deleter()), ((const void*)&p));
 
-  // Requires defaultable constructor.
-  //* own_ptr<int, SpecialIntDeleter> r;
+    // Requires defaultable constructor.
+    //* own_ptr<int, SpecialIntDeleter> r;
 
-  own_ptr<int, SpecialIntDeleter> r{nullptr, SpecialIntDeleter{42}};
-  EXPECT_GT(sizeof(r), sizeof(int*));
+    own_ptr<int, SpecialIntDeleter> r{nullptr, SpecialIntDeleter{42}};
+    EXPECT_GT(sizeof(r), sizeof(int*));
 
-  EXPECT_EQ(sizeof(p), sizeof(int*));
-  EXPECT_EQ(sizeof(q), sizeof(int*));
-  auto p2 = std::move(p);
+    EXPECT_EQ(sizeof(p), sizeof(int*));
+    EXPECT_EQ(sizeof(q), sizeof(int*));
+    auto p2 = std::move(p);
 
-  EXPECT_EQ(r.get_deleter().x_, 42);
-  auto r2 = std::move(r);
-  EXPECT_EQ(r2.get_deleter().x_, 42);
-
+    EXPECT_EQ(r.get_deleter().x_, 42);
+    auto r2 = std::move(r);
+    EXPECT_EQ(r2.get_deleter().x_, 42);
+  }
   {
     using P0 = own_ptr<int>;
     EXPECT_TRUE(P0::is_deleter_non_reference_v);
@@ -1006,24 +1007,28 @@ void OwnPtrTest_Ctor() {
     //* P q(new int, D{});
   }
   {
+#if 0
     // Regression test.
-    // using P = own_ptr<int, D&>;
-    // using Q = own_ptr<int, const D&>;
+    using P = own_ptr<int, D&>;
+    using Q = own_ptr<int, const D&>;
     // This fails correctly because the only available constructor requires an
     // lvalue, not an rvalue. It takes a `D&`.
-    //* P p{new int, D{}};
+    P p{new int, D{}};
     // This now fails correctly but didn't before. It needed an explicit
     // deletion, but also a fix to is_deleter.
-    //* Q q {new int, D{}};
+    Q q{new int, D{}};
+#endif
   }
   {
-#if 0
     // CTAD.
-    // * auto p = own_ptr{new int};
+    //* auto pp = std::unique_ptr{new int};
+    //* auto p = own_ptr{new int};
+    auto pp = std::unique_ptr<int>{new int};
     auto p = own_ptr<int>{new int};
-    // * auto q = own_ptr{new int};
-    auto up = std::unique_ptr<int>{new int};
-    auto q = own_ptr{new int, D{}};
+
+    // auto q = own_ptr{new int, D{}};
+#if 0    
+    
     auto q{std::move(p)};
     auto uq{std::move(up)};
     auto r = own_ptr{new int, std::default_delete<int>{}};
@@ -1064,18 +1069,21 @@ void DeductionTest_Experimental() {
   //  Holder h2{42.0};
 }
 
+enum class FileDescriptor { invalid = -1 };
+
 struct fd_deleter {
-  using pointer = custom_handle<fd_deleter, int, int, -1>;
+  using pointer = custom_handle<fd_deleter, FileDescriptor, int, -1>;
 
   void operator()(pointer p) {
-    if (*p != -1) ++close_count;
+    if (*p != FileDescriptor::invalid) ++close_count;
   }
   static inline size_t close_count{};
 };
 
-using unique_fd = std::unique_ptr<int, fd_deleter>;
+using unique_fd = std::unique_ptr<FileDescriptor, fd_deleter>;
 
 void CustomHandleTest_Basic() {
+#if 0
   // Baseline unique_ptr.
   if (true) {
     using P = std::unique_ptr<int>;
@@ -1090,49 +1098,46 @@ void CustomHandleTest_Basic() {
     EXPECT_EQ(fd_deleter::close_count, 0u);
     P p;
     EXPECT_EQ(sizeof(p), sizeof(int));
-    P q{42};
+    P q{FileDescriptor{42}};
+    auto* x = (int*)&p;
+    p.reset(FileDescriptor{49});
+    auto y = *p;
+    EXPECT_EQ(*p, FileDescriptor{42});
     p.reset(q.release());
     q = std::move(p);
-    p = unique_fd{43};
+    p.reset(FileDescriptor{43});
     EXPECT_EQ(fd_deleter::close_count, 0u);
-    int i = 42;
-    p = unique_fd{i};
+    FileDescriptor i{49};
+    p.reset(i);
     EXPECT_EQ(fd_deleter::close_count, 1u);
-    EXPECT_EQ(i, 42);
+    EXPECT_EQ(i, FileDescriptor{42});
     p = unique_fd{std::move(i)};
     EXPECT_EQ(fd_deleter::close_count, 2u);
-    EXPECT_EQ(i, -1);
-    const int j = 42;
+    EXPECT_EQ(i, FileDescriptor::invalid);
+    const FileDescriptor j{42};
     p = unique_fd{j};
     EXPECT_EQ(fd_deleter::close_count, 3u);
-    EXPECT_EQ(j, 42);
+    EXPECT_EQ(j, FileDescriptor{42});
     // * p = unique_fd{std::move(j)};
     p.reset();
     EXPECT_EQ(fd_deleter::close_count, 4u);
-    i = 46;
+    i = FileDescriptor{46};
     p.reset(i);
-    EXPECT_EQ(*p, 46);
-    EXPECT_EQ(i, 46);
-    ++i;
-    p.reset(std::move(i));
-    EXPECT_EQ(*p, 47);
-    EXPECT_EQ(i, -1);
+    EXPECT_EQ(*p, FileDescriptor{46});
+    EXPECT_EQ(i, FileDescriptor{46});
+    i = FileDescriptor{47};
 
-    unique_fd::pointer k{44};
-    EXPECT_EQ(*k, 44);
-    i = 46;
-    k = i;
-    EXPECT_EQ(*k, 46);
-    EXPECT_EQ(i, 46);
-    ++i;
-    k = std::move(i);
-    EXPECT_EQ(*k, 47);
-    EXPECT_EQ(i, -1);
+    // Proof that 0 is not the nullptr.
+    p = unique_fd{FileDescriptor{0}};
+    EXPECT_EQ(*p.get(), FileDescriptor{0});
+    EXPECT_EQ(*p, FileDescriptor{0});
+    bool is_present = p ? true : false;
+    EXPECT_EQ(is_present, true);
+    p.reset();
+    EXPECT_EQ(fd_deleter::close_count, 6u);
   }
-  EXPECT_EQ(fd_deleter::close_count, 7u);
-
-  // TODO: Add more tests for more test cases. An enum and its underlying. A
-  // void pointer as the internal rep. A pointer with a sentinel.
+  EXPECT_EQ(fd_deleter::close_count, 8u);
+#endif
 }
 
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,

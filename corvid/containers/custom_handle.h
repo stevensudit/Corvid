@@ -19,6 +19,13 @@
 
 #include "containers_shared.h"
 
+// NOTE:
+//
+// This can't work with std::unique_ptr because it's not designed to work with
+// non-pointers, no matter what. Instead, it winds up with a dangling
+// reference. So this code is DOA for its original purpose but still quite
+// viable for use with `own_ptr`.
+
 namespace corvid { inline namespace custhandle {
 
 // A `custom_handle` is a wrapper for a raw pointer, or for a resource ID that
@@ -59,9 +66,8 @@ namespace corvid { inline namespace custhandle {
 // with this.
 //
 // Note that, even if you leave the default value as `nullptr`, you can
-// still benefit from the move semantics and the ability to coerce the
-// `resource_id_type` to a pointer to `element_type`, even when the former is
-// `void*`.
+// still benefit from the ability to coerce the `resource_id_type` to a pointer
+// to `element_type`, even when the former is `void*`.
 //
 // Usage:
 // ```
@@ -88,23 +94,21 @@ public:
   custom_handle(std::nullptr_t) {}
   custom_handle(const custom_handle&) = default;
 
-  template<typename RT>
-  requires std::convertible_to<RT, resource_id_type>
-  custom_handle(RT&& resource) : resource_(resource) {
-    if constexpr (std::is_rvalue_reference_v<RT&&>) resource = null_v;
-  }
+  custom_handle(element_type element)
+      : resource_(static_cast<resource_id_type>(element)) {}
+  custom_handle(resource_id_type resource) : resource_(resource) {}
 
   custom_handle& operator=(std::nullptr_t) {
     resource_ = null_v;
     return *this;
   }
   custom_handle& operator=(const custom_handle&) = default;
-
-  template<typename RT>
-  requires std::convertible_to<RT, resource_id_type>
-  custom_handle& operator=(RT&& resource) {
+  custom_handle& operator=(resource_id_type resource) {
     resource_ = resource;
-    if constexpr (std::is_rvalue_reference_v<RT&&>) resource = null_v;
+    return *this;
+  }
+  custom_handle& operator=(element_type element) {
+    resource_ = static_cast<resource_id_type>(element);
     return *this;
   }
 
@@ -112,7 +116,7 @@ public:
     if constexpr (std::is_pointer_v<resource_id_type>)
       return *reinterpret_cast<element_type*>(resource_);
     else
-      return static_cast<reference_type>(resource_);
+      return reinterpret_cast<reference_type>(resource_);
   }
 
   friend bool operator==(const custom_handle& p, std::nullptr_t) {
@@ -133,3 +137,6 @@ public:
 };
 
 }} // namespace corvid::custhandle
+
+// TODO: Since move semantics don't work, attempt to allow assignment from a
+// pointer.

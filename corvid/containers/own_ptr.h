@@ -21,7 +21,7 @@
 namespace corvid { inline namespace ownptr {
 namespace details {
 
-// Per spec, the pointer type is std::remove_reference_t<Deleter>::pointer if
+// Per spec, the pointer type is `std::remove_reference_t<Deleter>::pointer` if
 // present, T* otherwise.
 template<typename T, class Deleter, typename = void>
 struct get_pointer_type {
@@ -52,7 +52,10 @@ concept AllowDefaultConstruction =
 // Changes:
 // - Getters are marked `[[nodiscard]]`.
 // - The rhs is always an rvalue reference, even for a raw ptr.
+// - Works with a deleter that supports a custom_handle that is not a pointer.
 // - Does not support arrays at this time.
+//
+// TODO: Consider offering a choice between copy and move from T.
 template<typename T, class Deleter = std::default_delete<T>>
 class own_ptr {
 public:
@@ -60,12 +63,23 @@ public:
   using element_type = T;
   using deleter_type = Deleter;
 
+  // `participate in overload resolution only if
+  // std::is_default_constructible<Deleter>::value is true and Deleter is not a
+  // pointer type.`
   static constexpr bool is_default_constructible_deleter_v =
       std::is_default_constructible_v<deleter_type> &&
+      std::is_nothrow_default_constructible_v<deleter_type> &&
       (!std::is_pointer_v<deleter_type>);
 
+  // `only participates in overload resolution if
+  // std::is_move_constructible<Deleter>::value is true. If Deleter is not a
+  // reference type, requires that it is nothrow-MoveConstructible (if Deleter
+  // is a reference, get_deleter() and u.get_deleter() after move construction
+  // reference the same value)`
   static constexpr bool is_move_constructible_deleter_v =
-      std::is_move_constructible_v<deleter_type>;
+      std::is_move_constructible_v<deleter_type> &&
+      (!std::is_reference_v<deleter_type> ||
+          std::is_nothrow_move_constructible_v<deleter_type>);
 
   static constexpr bool is_deleter_non_reference_v =
       !std::is_reference_v<deleter_type>;
@@ -79,8 +93,8 @@ public:
       std::is_const_v<std::remove_reference_t<deleter_type>>;
 
   template<typename D>
-  static constexpr bool is_deleter =
-      std::is_same_v<std::remove_reference_t<D>, std::remove_cvref_t<Deleter>>;
+  static constexpr bool is_deleter = std::is_same_v<std::remove_reference_t<D>,
+      std::remove_cvref_t<deleter_type>>;
 
   template<typename U, typename E>
   static constexpr bool is_convertible_pointer =
@@ -110,21 +124,14 @@ public:
   {}
 
   // Construct by moving pointer. This is novel.
+  // `There is no class template argument deduction from pointer type because
+  // it is impossible to distinguish a pointer obtained from array and
+  // non-array forms of new.`
   constexpr explicit own_ptr(pointer&& ptr) noexcept
   requires is_default_constructible_deleter_v
       : ptr_(ptr) {
     ptr = pointer{};
   }
-
-  // TODO: For construction from pointer and deleter, ensure that these are not
-  // selected for CTAD. This means that there should not be any automatic
-  // deduction guides for these. The way to do this is to write deduction
-  // guides for all the other constructors but omit this one. Those explicit
-  // guides suppress the creation of implicit ones. The way to test for CTAD is
-  // to construct an instance using `auto u = own_ptr{new int,
-  // std::default_delete<int>{}};` and see if it compiles. It shouldn't. It
-  // should instead require`auto u = own_ptr<int, std::default_delete<int>>{new
-  // int, std::default_delete<int>{}};`.
 
   // Construct with pointer and deleter, when specialized on non-reference
   // deleter.
@@ -171,21 +178,36 @@ public:
     other.ptr_ = pointer{};
   }
 
-  own_ptr(own_ptr&) = delete;
-
   ~own_ptr() { do_delete() = pointer{}; }
 
+  own_ptr(own_ptr&) = delete;
   own_ptr(const own_ptr&) = delete;
   own_ptr& operator=(const own_ptr&) = delete;
 
-  // TODO: Support passing in deleter as parameter.
-
-  own_ptr(own_ptr&& other) noexcept : ptr_(other.ptr_) {
-    other.ptr_ = pointer{};
+  constexpr own_ptr& operator=(std::nullptr_t) noexcept {
+    reset();
+    return *this;
   }
 
-  own_ptr& operator=(own_ptr&& other) noexcept {
-    if (this != &other) do_delete(ptr_) = std::exchange(other.ptr_, pointer{});
+  constexpr own_ptr& operator=(own_ptr&& other) noexcept
+  requires is_move_constructible_deleter_v
+  {
+    if (this != &other) {
+      do_delete(ptr_) = std::exchange(other.ptr_, pointer{});
+      del_ = std::move(other.del_);
+    }
+    return *this;
+  }
+
+  template<class U, class E>
+  constexpr own_ptr& operator=(own_ptr<U, E>&& other) noexcept
+  requires is_convertible_own_ptr<U, E> &&
+           std::is_assignable_v<deleter_type&, E&&>
+  {
+    if (this != &other) {
+      do_delete(ptr_) = std::exchange(other.ptr_, pointer{});
+      del_ = std::move(other.del_);
+    }
     return *this;
   }
 
@@ -194,11 +216,15 @@ public:
   [[nodiscard]] constexpr element_type& operator*() const { return *ptr_; }
 
   [[nodiscard]] constexpr pointer get() const { return ptr_; }
-  [[nodiscard]] explicit operator bool() const { return ptr_ != pointer{}; }
+  [[nodiscard]] constexpr explicit operator bool() const {
+    return ptr_ != pointer{};
+  }
 
-  void reset(pointer ptr = pointer{}) { do_delete(ptr_) = ptr; }
+  constexpr void reset(pointer&& ptr = pointer{}) {
+    do_delete(ptr_) = std::exchange(ptr, pointer{});
+  }
 
-  [[nodiscard]] constexpr T* release() noexcept {
+  [[nodiscard]] constexpr pointer release() noexcept {
     return std::exchange(ptr_, pointer{});
   }
 
@@ -208,24 +234,13 @@ public:
   // TODO: Add a static make().
 
 private:
-  T* ptr_{};
-  [[no_unique_address]] Deleter del_;
+  pointer ptr_{};
+  [[no_unique_address]] deleter_type del_;
 
   auto& do_delete() {
     del_(std::move(ptr_));
     return ptr_;
   }
 };
-
-#if 1
-// Specify all desired deduction guides to suppress unwanted ones for
-// constructors that take a deleter parameter.
-template<typename T, typename Deleter>
-own_ptr(own_ptr<T, Deleter>&&) -> own_ptr<T, Deleter>;
-#if 0
-template<typename T>
-own_ptr(T*) -> own_ptr<T>;
-#endif
-#endif
 
 }} // namespace corvid::ownptr
