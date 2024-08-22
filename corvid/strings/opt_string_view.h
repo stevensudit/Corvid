@@ -66,11 +66,11 @@ public:
   constexpr opt_string_view(std::nullptr_t) noexcept {}
   constexpr opt_string_view(std::nullopt_t) noexcept {}
 
-  constexpr opt_string_view(const base& sv) noexcept : base(sv){};
+  constexpr opt_string_view(const base& sv) noexcept : base(sv) {};
   constexpr opt_string_view(const std::string& s) noexcept : base(s) {}
   constexpr opt_string_view(const char* ps, size_t l)
-      : base(from_ptr(ps, l)){};
-  constexpr opt_string_view(const char* psz) : base(from_ptr(psz)){};
+      : base(from_ptr(ps, l)) {};
+  constexpr opt_string_view(const char* psz) : base(from_ptr(psz)) {};
   template<std::contiguous_iterator It, std::sized_sentinel_for<It> End>
   requires std::same_as<std::iter_value_t<It>, char> &&
            (!std::convertible_to<End, size_type>)

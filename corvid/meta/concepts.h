@@ -87,8 +87,8 @@ concept VoidPointer = std::is_void_v<std::remove_pointer_t<T>>;
 
 // `T` must be dereferenceable, like a pointer or iterator.
 template<typename T>
-concept Dereferenceable = (
-    requires(T t) { *t; } || requires(T t) { t.operator*(); });
+concept Dereferenceable =
+    (requires(T t) { *t; } || requires(T t) { t.operator*(); });
 
 // `T` must be a bool-like type, which means it can be used in a predicate.
 template<typename T>
@@ -114,8 +114,8 @@ concept Range = std::ranges::range<T>;
 // `T` must be `std::optional` or act like it.
 template<typename T>
 concept OptionalLike =
-    Dereferenceable<T> &&
-    (!ScopedEnum<T>)&&(!StringViewConvertible<T>)&&(!Range<T>);
+    Dereferenceable<T> && (!ScopedEnum<T>) && (!StringViewConvertible<T>) &&
+    (!Range<T>);
 
 // `T` must be a `std::pair`.
 template<typename T>
@@ -140,7 +140,7 @@ concept StdArray = is_array_v<std::remove_cvref_t<T>>;
 // `T` must be a container, which exludes strings and pairs.
 template<typename T>
 concept Container =
-    Range<T> && (!StringViewConvertible<T>)&&(!PairConvertible<T>);
+    Range<T> && (!StringViewConvertible<T>) && (!PairConvertible<T>);
 
 // `T` must be a `std::variant`.
 template<typename T>

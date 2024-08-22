@@ -547,8 +547,7 @@ constexpr bool rlocated(location& loc, std::string_view s,
 [[nodiscard]] inline constexpr size_t count_located(std::string_view s,
     std::span<const char> values, position pos = 0) noexcept {
   size_t cnt{};
-  for (location loc{pos, 0}; located(loc, s, values); ++cnt, ++loc.pos)
-    ;
+  for (location loc{pos, 0}; located(loc, s, values); ++cnt, ++loc.pos);
   return cnt;
 }
 [[nodiscard]] inline constexpr size_t count_located(std::string_view s,
@@ -559,8 +558,7 @@ constexpr bool rlocated(location& loc, std::string_view s,
     std::span<const std::string_view> values, position pos = 0) noexcept {
   size_t cnt{};
   for (location loc{pos, 0}; located(loc, s, values);
-       ++cnt, point_past(loc, values))
-    ;
+       ++cnt, point_past(loc, values));
   return cnt;
 }
 [[nodiscard]] inline constexpr size_t count_located(std::string_view s,

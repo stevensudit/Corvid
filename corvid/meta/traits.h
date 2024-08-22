@@ -89,8 +89,8 @@ inline namespace pointers {
 // When not a pointer, returns void.
 namespace details {
 template<typename T>
-auto pointer_element(int)
-    -> std::remove_reference_t<decltype(*std::declval<T>())>;
+auto pointer_element(
+    int) -> std::remove_reference_t<decltype(*std::declval<T>())>;
 
 template<typename>
 auto pointer_element(...) -> void;
