@@ -29,7 +29,7 @@ namespace corvid { inline namespace opt_find {
 // Works for `std::vector`, `std::set`, `std::map`, `std::array`, and similar
 // classes. Returns pointer to found value, which means that, for keyed
 // collections such as `std::map`, it points to the `pair.second`, not the
-// `pair` (unless `keyed` is set).
+// `pair` (unless `field` is `key_value`).
 //
 // For `std::string` and `std::string_view`, whether you search for a single
 // character or a sub-string, the return value points to the first found
@@ -37,17 +37,17 @@ namespace corvid { inline namespace opt_find {
 //
 // Even works for arrays, but not arrays decayed into pointers (because we
 // can't determine the size, then).
-template<bool keyed = false>
+template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto find_opt(Findable auto&& c, const auto& k) {
-  return internal::optional_ptr{it_to_ptr<keyed>(c, c.find(k))};
+  return internal::optional_ptr{it_to_ptr<field>(c, c.find(k))};
 }
 
-template<bool keyed = false>
+template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto
 find_opt(RangeWithoutFind auto&& c, const auto& k) {
   using namespace std;
   return internal::optional_ptr{
-      it_to_ptr<keyed>(c, std::find(begin(c), end(c), k))};
+      it_to_ptr<field>(c, std::find(begin(c), end(c), k))};
 }
 
 // Determine whether the container has the key.

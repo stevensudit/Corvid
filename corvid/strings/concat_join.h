@@ -84,7 +84,7 @@ concept StreamAppendable = stream_append_v<T>;
 // *candidates* for native appending, not guaranteed to be appendable. This is
 // always a partial, necessary requirement, not a sufficient one.
 template<typename T>
-concept Appendable = (!AppendableOverridden<T>)&&(!StreamAppendable<T>);
+concept Appendable = (!AppendableOverridden<T>) && (!StreamAppendable<T>);
 
 } // namespace registration
 inline namespace existing {
@@ -217,12 +217,12 @@ constexpr auto& append(AppendTarget auto& target, const T& part) {
 
 // Append one container, as its element values, to `target` without
 // delimiters.  See `append_join_with` for delimiter support. When called
-// directly, `keyed` may be specified to extract the key/value pair instead of
-// just the value.
-template<bool keyed = false, Container T>
+// directly, `extract_field::key_value` may be specified to extract the
+// key/value pair instead of just the value.
+template<auto field = extract_field::value, Container T>
 requires Appendable<T>
 constexpr auto& append(AppendTarget auto& target, const T& parts) {
-  for (auto& part : parts) append(target, element_value<keyed>(part));
+  for (auto& part : parts) append(target, element_value<field>(part));
   return target;
 }
 
@@ -378,6 +378,12 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
         corvid::strings::joinoptions::join_opt,
         "prefixed, quoted, keyed, flat">();
 
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::meta::containers::extract_field> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::meta::containers::extract_field, "value, key_value">();
+
 namespace corvid::strings {
 inline namespace registration {
 
@@ -483,7 +489,7 @@ constexpr auto& append_join_with(AppendTarget auto& target, delim d,
     const T& part) {
   constexpr bool add_braces = decode::braces_v<opt, open, close>;
   constexpr bool add_quotes =
-      (StringViewConvertible<T> || StdEnum<T>)&&decode::quoted_v<opt>;
+      (StringViewConvertible<T> || StdEnum<T>) && decode::quoted_v<opt>;
   const bool not_null = is_present(part);
 
   d.append_if<decode::delimit_v<opt>>(target);
@@ -612,6 +618,8 @@ append_join_with(AppendTarget auto& target, delim d, const T& parts) {
   constexpr auto next_opt = decode::next_opt_v<opt>;
   constexpr bool is_keyed =
       decode::keyed_v<opt> && StdPair<decltype(*cbegin(parts))>;
+  constexpr auto field =
+      is_keyed ? extract_field::key_value : extract_field::value;
   constexpr bool is_obj = is_keyed && decode::json_v<opt>;
   constexpr char next_open = open ? open : (is_obj ? '{' : '[');
   constexpr char next_close = close ? close : (is_obj ? '}' : ']');
@@ -621,9 +629,9 @@ append_join_with(AppendTarget auto& target, delim d, const T& parts) {
   if constexpr (add_braces) append(target, next_open);
 
   if (auto b = std::cbegin(parts), e = std::cend(parts); b != e) {
-    append_join_with<head_opt>(target, d, container_element_v<is_keyed>(b));
+    append_join_with<head_opt>(target, d, container_element_v<field>(b));
     for (++b; b != e; ++b)
-      append_join_with<next_opt>(target, d, container_element_v<is_keyed>(b));
+      append_join_with<next_opt>(target, d, container_element_v<field>(b));
   }
 
   if constexpr (add_braces) append(target, next_close);

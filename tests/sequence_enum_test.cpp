@@ -419,6 +419,13 @@ void SequentialEnumTest_StreamingOut() {
     ss << tiger_pick::moe << std::flush;
     EXPECT_EQ(ss.str(), "moe");
   }
+
+  if (true) {
+    std::stringstream ss;
+    ss << extract_field::value << ", " << extract_field::key_value
+       << std::flush;
+    EXPECT_EQ(ss.str(), "value, key_value");
+  }
 }
 
 enum class tiger_missing { eeny, miny = 2, moe };
