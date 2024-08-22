@@ -184,6 +184,15 @@ template<SequentialEnum E>
 //
 
 //
+// Logical operators
+//
+
+template<SequentialEnum E>
+[[nodiscard]] constexpr bool operator!(E v) noexcept {
+  return !as_underlying<E>(v);
+}
+
+//
 // Addition operators
 //
 

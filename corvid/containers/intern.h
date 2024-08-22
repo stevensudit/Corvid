@@ -88,9 +88,9 @@ public:
 
   // Effectively-private constructors.
   constexpr interned_value(allow, const value_t& value, id_t id)
-      : value_(&value), id_(id) {}
+      : value_{&value}, id_{id} {}
   constexpr interned_value(allow, const value_t* value, id_t id)
-      : value_(value), id_(id) {}
+      : value_{value}, id_{id} {}
 
   constexpr interned_value() noexcept = default;
   constexpr interned_value(const interned_value&) noexcept = default;
@@ -184,25 +184,25 @@ private:
 
 // Intern traits define the data structures used for the specified type.
 //
-// The general scheme is that the values are all in lookup_by_id_, while
-// lookup_by_value_ indexes them by key. These containers and the internal
-// version of the value all use arena_allocator so that they can be stored in
-// an arena chain. The trick is that the internal version can be cast to the
-// external version by reinterpretation.
+// The general scheme is that the values are all in `lookup_by_id_`, while
+// `lookup_by_value_` indexes them by key. These containers and the internal
+// version of the value all use `arena_allocator` so that they can be stored in
+// an arena chain. The clever trick is that the internal version can be cast to
+// the external version by reinterpretation.
 //
-// - value_t is the type of the value that is interned, as seen from outside.
-// - arena_value_t is the internal, arena-based version of value_t, which uses
-// arena_allocator so that it can be reinterpreted as a value_t.
-// - id_t is the type of the ID used to look up the value. It should be a
+// - `value_t` is the type of the value that is interned, as seen from outside.
+// - `arena_value_t` is the internal, arena-based version of `value_t`, which
+// uses `arena_allocator` so that it can be reinterpreted as a `value_t`.
+// - `id_t` is the type of the ID used to look up the value. It should be a
 // scoped enum, and its underlying type should be no bigger than needed.
-// - interned_value_t is the value/ID pair.
-// - key_t is the type used to look up the value by value. Since the actual
-// interned value is stored in lookup_by_id_ but is looked up by
-// lookup_by_value_, the key type has to work with the latter container but can
-// reference the value in the former.
-// - lookup_by_id_t is the container that stores the interned values, indexed
+// - `interned_value_t` is the value/ID pair.
+// - `key_t` is the type used to look up the value by value. Since the actual
+// interned value is stored in `lookup_by_id_` but is looked up by
+// `lookup_by_value_`, the key type has to work with the latter container but
+// can reference the value in the former.
+// - `lookup_by_id_t` is the container that stores the interned values, indexed
 // by ID. Elements must never be moved, since address is identity.
-// - lookup_by_value_t is the container that indexes the interned values. In
+// - `lookup_by_value_t` is the container that indexes the interned values. In
 // principle, the key could be a value_t, but we use a key_t to avoid
 // duplicating the value in the lookup_by_id_ container.
 //
@@ -272,34 +272,40 @@ public:
   static_assert(sizeof(arena_value_t) == sizeof(value_t));
 
   // Effectively-private constructor.
-  explicit intern_table(allow, id_t min_id, id_t max_id,
-      const const_pointer& next = {})
-      : min_id_(min_id), max_id_(max_id),
-        lookup_by_id_(arena_construct<lookup_by_id_t>(arena_)),
-        lookup_by_value_(arena_construct<lookup_by_value_t>(arena_)),
-        next_(next) {
+  intern_table(allow, id_t min_id, id_t max_id, const const_pointer& next = {})
+      : min_id_{min_id}, max_id_{max_id},
+        lookup_by_id_{arena_construct<lookup_by_id_t>(arena_)},
+        lookup_by_value_{arena_construct<lookup_by_value_t>(arena_)},
+        next_{next} {
+    assert(min_id);
     assert(min_id_ < max_id_);
+    // TODO: Consider whether we should disable `next` if it's specified.
   }
 
   intern_table(const intern_table&) = delete;
   intern_table& operator=(const intern_table&) = delete;
 
-  // Make intern table for a range of IDs.
+  // Make intern table for a range of IDs. If `next` is specified, the new
+  // table will chain to that one and will default its `min_id` to 1 past that
+  // table's `max_id`. Otherwise, if unspecified, then it defaults to 1. If
+  // `max_id` is unspecified, it defaults to the max of the underlying type.
   [[nodiscard]] static auto
   make(id_t min_id = id_t{}, id_t max_id = id_t{}, const_pointer next = {}) {
     if (next)
       min_id = next->max_id_ + 1;
-    else if (min_id == id_t{})
+    else if (!min_id)
       ++min_id;
 
-    if (max_id == id_t{})
+    if (!max_id)
       max_id = static_cast<id_t>(
           std::numeric_limits<as_underlying_t<id_t>>::max() - 1);
 
     return std::make_shared<intern_table>(allow::ctor, min_id, max_id, next);
   }
 
-  // Make next block of IDs.
+  // Make next block of IDs, chaining to this table. The `min_id` is one past
+  // this table's `max_id`. The `max_id`, if unspecified, defaults to the max
+  // of the underlying type.
   [[nodiscard]] auto make_next(id_t max_id = id_t{}) const {
     return make(max_id_ + 1, max_id, this->shared_from_this());
   }
@@ -341,33 +347,37 @@ public:
   }
 
   // Interns a value. If the value is already interned, returns the existing
-  // one. Can only fail if the table is full. The value can be a view that
-  // converts to `value_t`, perhaps explicitly. See also: `operator[]`.
+  // one. Can only fail if the table is full, in which case it returns an empty
+  // instance. The value can be a view that converts to `value_t`, perhaps
+  // explicitly. See also: `operator[]`.
   template<typename U>
   requires Viewable<T, U>
   [[nodiscard]] interned_value_t
   intern(U&& value, const lock& attestation = {}) {
     attestation(sync);
-    auto iv = get(std::forward<U>(value), attestation);
+
     // If we found it, or if we have no more room, return what we have.
+    auto iv = get(std::forward<U>(value), attestation);
     if (iv || sync.is_disabled()) return iv;
+
     extensible_arena::scope s{arena_};
     const auto id = static_cast<id_t>(*min_id_ + lookup_by_id_.size());
-    lookup_by_id_.emplace_back(std::forward<U>(value));
-    auto& found_value = lookup_by_id_.back();
+    auto& found_value = lookup_by_id_.emplace_back(std::forward<U>(value));
     lookup_by_value_.emplace(key_t{found_value}, id);
+
     // After the last entry, we don't need to sync anymore.
     if (id == max_id_) sync.disable();
+
     return {allow::ctor, reinterpret_cast<const value_t*>(&found_value), id};
   }
 
-  // Get by ID. If not found, returns empty value.
+  // Get by ID. If not found, returns empty ID and value.
   [[nodiscard]] interned_value_t
   operator()(id_t id, const lock& attestation = {}) const {
     return get(id, attestation);
   }
 
-  // Get by value. Does not intern. If not found, returns empty value.
+  // Get by value. Does not intern. If not found, returns empty ID and value.
   template<typename U>
   requires Viewable<T, U>
   [[nodiscard]] interned_value_t
@@ -410,7 +420,7 @@ private:
   // TODO: Add real or fake arena allocator, depending on traits. Then create
   // real or fake scopes in the methods that can allocate.
 
-  // Find value by ID, return address or `nullptr`.
+  // Find value by ID, returning address or `nullptr`.
   [[nodiscard]] const value_t* find_by_id(id_t id) const {
     const size_t index = *id - *min_id_;
     if (index >= lookup_by_id_.size()) return nullptr;

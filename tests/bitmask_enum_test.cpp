@@ -67,6 +67,7 @@ enum class tires { none, one, two, three, four, five, six };
 
 void BitMaskTest_Ops() {
   if (true) {
+    EXPECT_TRUE(!rgb{});
     EXPECT_EQ(valid_bits_v<rgb>, 7);
     EXPECT_EQ(max_value<rgb>(), rgb::white);
     EXPECT_FALSE(bit_clip_v<rgb>);

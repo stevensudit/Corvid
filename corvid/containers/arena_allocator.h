@@ -77,7 +77,7 @@ class extensible_arena {
   struct list_node {
     size_t capacity_{};
     size_t size_{};
-    pointer next_{};
+    pointer next_;
     std::byte data_[1];
 
     // Helper function to calculate the total size needed for a list_node with
@@ -139,7 +139,7 @@ public:
   // Sets thread-local scope for arena.
   class scope {
   public:
-    explicit scope(extensible_arena& arena) noexcept : old_head(&arena.head_) {
+    explicit scope(extensible_arena& arena) noexcept : old_head{&arena.head_} {
       tls_head_ = &arena.head_;
     }
 
@@ -184,19 +184,30 @@ public:
 using arena_string =
     std::basic_string<char, std::char_traits<char>, arena_allocator<char>>;
 
+static_assert(sizeof(arena_string) == sizeof(std::string));
+
 template<typename K, typename V>
 using arena_map = std::unordered_map<K, V, std::hash<K>, std::equal_to<K>,
     arena_allocator<std::pair<const K, V>>>;
 
+static_assert(
+    sizeof(arena_map<int, int>) == sizeof(std::unordered_map<int, int>));
+
 template<typename T>
 using arena_deque = std::deque<T, arena_allocator<T>>;
+
+static_assert(sizeof(arena_deque<int>) == sizeof(std::deque<int>));
 
 template<typename T>
 using arena_allocator_traits = std::allocator_traits<arena_allocator<T>>;
 
+static_assert(
+    sizeof(arena_allocator_traits<int>) ==
+    sizeof(std::allocator_traits<std::allocator<int>>));
+
 // Helpers:
 
-// Allocates a new object of type `T` using the scoped `extensible_arena`.
+// Allocate a new object of type `T` using the scoped `extensible_arena`.
 // Designed to allocate an arena-specialized container whose contents use the
 // same arena. To avoid unnecessary destructors and frees, the caller should
 // "leak" the object.
@@ -208,11 +219,18 @@ T* arena_new(Args&&... args) {
   return p;
 }
 
-// Constructs a new object of type `T` using the `arena` parameter.
+// Construct a new object of type `T` using the `arena` parameter.
 template<typename T, class... Args>
 T& arena_construct(extensible_arena& arena, Args&&... args) {
   extensible_arena::scope s{arena};
   return *arena_new<T>(std::forward<Args>(args)...);
+}
+
+// Invoke callback within scope of `arena`.
+template<typename F>
+decltype(auto) arena_scope(extensible_arena& arena, F&& f) {
+  extensible_arena::scope s{arena};
+  return std::forward<F>(f)();
 }
 
 }}} // namespace corvid::container::arena

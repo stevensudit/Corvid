@@ -1042,6 +1042,10 @@ void OwnPtrTest_Ctor() {
   //  EXPECT_FALSE(p);
   //  std::unique_ptr<int> up;
 
+  {
+    auto p = own_ptr<int>::make(42);
+    EXPECT_EQ(*p, 42);
+  }
   // TODO: Test with a move-only pointer type.
 }
 

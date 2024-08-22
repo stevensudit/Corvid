@@ -45,6 +45,8 @@ void SequentialEnumTest_Registry() {
 
 void SequentialEnumTest_Ops() {
   if (true) {
+    EXPECT_TRUE(!tiger_pick{});
+
     auto e = tiger_pick::eeny;
     int i = *e;
     EXPECT_EQ(i, 0);

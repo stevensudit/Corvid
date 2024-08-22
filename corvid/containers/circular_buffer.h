@@ -41,21 +41,29 @@ public:
   // Default.
   circular_buffer() noexcept = default;
 
-  // Copy.
-  circular_buffer(const circular_buffer&) noexcept = default;
-  circular_buffer& operator=(const circular_buffer&) noexcept = default;
+  // Move-only.
+  circular_buffer(circular_buffer&& other) noexcept {
+    steal(std::move(other));
+  }
+  circular_buffer& operator=(circular_buffer&& other) noexcept {
+    if (this != &other) steal(std::move(other));
+    return *this;
+  }
 
-  // Construct from any container that converts to std::span.
+  // Construct from any container that converts to std::span. Starts off empty.
   template<typename U>
   explicit circular_buffer(U&& u) noexcept
-  requires(!std::is_same_v<std::decay_t<U>, circular_buffer>)
-      : range_(std::forward<U>(u)), back_(last_index()) {}
+  requires std::convertible_to<U, std::span<T>>
+      : range_(std::forward<U>(u)), back_(last_index()) {
+    assert(range_.size() <= std::numeric_limits<size_type>::max());
+  }
 
   // Construct with an initial size, from container.
   template<typename U>
   explicit circular_buffer(U&& u, size_type size) noexcept
       : range_(std::forward<U>(u)), back_(size ? size - 1 : last_index()),
         size_(size) {
+    assert(range_.size() <= std::numeric_limits<size_type>::max());
     assert(size <= capacity());
   }
 
@@ -66,7 +74,7 @@ public:
   }
 
   // Push the value to the front of the buffer, overwriting the backmost
-  // value if full.
+  // value if full. Returns reference to the new element.
   auto& push_front(const value_type& value) noexcept(
       noexcept(*data() = value)) {
     adjust_size_for_front();
@@ -84,8 +92,8 @@ public:
     return (add_front() = value_type{std::forward<Args>(args)...});
   }
 
-  // Try to push the value to the front of the buffer, returning nullptr if
-  // full.
+  // Try to push the value to the front of the buffer. Returns pointer to the
+  // new element or nullptr if full.
   auto* try_push_front(const value_type& value) noexcept(
       noexcept(*data() = value)) {
     if (full()) return pointer{};
@@ -107,7 +115,7 @@ public:
   }
 
   // Push the value to the back of the buffer, overwriting the frontmost
-  // value if full.
+  // value if full. Returns reference to the new element.
   auto& push_back(const value_type& value) noexcept(
       noexcept(*data() = value)) {
     adjust_size_for_back();
@@ -125,8 +133,8 @@ public:
     return (add_back() = value_type{std::forward<Args>(args)...});
   }
 
-  // Try to push the value to the back of the buffer, returning nullptr if
-  // full.
+  // Try to push the value to the back of the buffer. Returns pointer to the
+  // new element or nullptr if full.
   auto* try_push_back(const value_type& value) noexcept(
       noexcept(*data() = value)) {
     if (full()) return pointer{};
@@ -147,7 +155,8 @@ public:
     return &(add_back() = value_type{std::forward<Args>(args)...});
   }
 
-  // Remove front or back element. Must not be empty.
+  // Remove front or back element, returning a reference to it. Must not be
+  // empty.
   auto& pop_front() noexcept {
     auto& result = front();
     drop_front();
@@ -322,6 +331,13 @@ private:
       drop_front();
     else
       ++size_;
+  }
+
+  void steal(circular_buffer&& other) {
+    range_ = std::exchange(other.range_, {});
+    front_ = std::exchange(other.front_, {});
+    back_ = std::exchange(other.back_, {});
+    size_ = std::exchange(other.size_, {});
   }
 };
 

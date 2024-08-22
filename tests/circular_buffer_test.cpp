@@ -48,23 +48,19 @@ void CircularBufferTest_Construction() {
     std::array<int, 3> a;
     CB cb0;
     CB cb{a};
+    EXPECT_EQ(cb.capacity(), 3u);
+    EXPECT_EQ(cb.size(), 0u);
     cb.push_back(1);
-    CB cb2{cb};
+    CB cb2{std::move(cb)};
+    EXPECT_TRUE(cb.empty());
     EXPECT_EQ(cb0.capacity(), 0u);
     EXPECT_EQ(cb0.size(), 0u);
-    EXPECT_EQ(cb.capacity(), 3u);
-    EXPECT_EQ(cb.size(), 1u);
     EXPECT_EQ(cb2.capacity(), 3u);
     EXPECT_EQ(cb2.size(), 1u);
     cb2.clear();
     EXPECT_EQ(cb2.capacity(), 3u);
     EXPECT_EQ(cb2.size(), 0u);
     cb2.push_back(2);
-    EXPECT_EQ(cb.front(), 2);
-    cb.pop_back();
-    EXPECT_TRUE(cb.empty());
-    cb = cb2;
-    EXPECT_FALSE(cb.empty());
   }
 }
 

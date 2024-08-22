@@ -41,7 +41,7 @@ namespace corvid { inline namespace intervals {
 // As a result, all iterators are const.
 //
 // The class is implemented as a child of `std::pair(begin, end)`, where this
-// is a half-open interval, [begin, end), but it's exposed as a closed
+// holds a half-open interval, [begin, end), but is exposed as a closed
 // interval, [min, max], in keeping with the vector fiction.
 //
 // Note: Iterating over an interval that ends at the maximum value for the
@@ -113,7 +113,7 @@ public:
     using value_type = V;
     using difference_type = std::ptrdiff_t;
 
-    constexpr interval_iterator(U u) : u_(u) {}
+    constexpr interval_iterator(U u) : u_{u} {}
 
     constexpr const V operator*() const noexcept { return as_v(u_); }
 
@@ -167,11 +167,11 @@ public:
   // Construction
   //
 
-  constexpr interval() noexcept : parent(U{}, U{}){};
+  constexpr interval() noexcept : parent{U{}, U{}} {};
   constexpr interval(const interval&) noexcept = default;
-  explicit constexpr interval(V val) noexcept : interval(val, val) {}
+  explicit constexpr interval(V val) noexcept : interval{val, val} {}
   constexpr interval(V min_val, V max_val) noexcept
-      : parent(as_u(min_val), as_u(max_val) + 1) {
+      : parent{as_u(min_val), as_u(max_val) + 1} {
     assert(!invalid());
   }
 

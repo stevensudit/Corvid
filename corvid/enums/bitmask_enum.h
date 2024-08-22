@@ -112,6 +112,15 @@ inline namespace ops {
 // Operator overloads.
 //
 
+//
+// Logical operators
+//
+
+template<BitmaskEnum E>
+[[nodiscard]] constexpr bool operator!(E v) noexcept {
+  return !as_underlying<E>(v);
+}
+
 // Dereference operator.
 //
 // The precedent for this is `std::optional`.

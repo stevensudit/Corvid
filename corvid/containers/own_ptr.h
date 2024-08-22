@@ -55,7 +55,8 @@ concept AllowDefaultConstruction =
 // - Works with a deleter that supports a custom_handle that is not a pointer.
 // - Does not support arrays at this time.
 //
-// TODO: Consider offering a choice between copy and move from T.
+// TODO: Consider supporting arrays.
+// TODO: Consider supporting interop with `std::shared_ptr`.
 template<typename T, class Deleter = std::default_delete<T>>
 class own_ptr {
 public:
@@ -100,8 +101,8 @@ public:
   static constexpr bool is_convertible_pointer =
       std::is_convertible_v<typename own_ptr<U, E>::pointer, pointer>;
 
-  // c) either Deleter is a reference type and E is the same type as D, or
-  // Deleter is not a reference type and E is implicitly convertible to D.
+  // `c) either Deleter is a reference type and E is the same type as D, or
+  // Deleter is not a reference type and E is implicitly convertible to D.`
   template<typename U, typename E>
   static constexpr bool is_convertible_deleter =
       (std::is_reference_v<deleter_type> && std::is_same_v<deleter_type, E>) ||
@@ -231,7 +232,12 @@ public:
   constexpr deleter_type& get_deleter() noexcept { return del_; }
   constexpr const deleter_type& get_deleter() const noexcept { return del_; }
 
-  // TODO: Add a static make().
+  // Make an owned instance from parameters. Moral equivalent of
+  // `std::make_unique`.
+  template<typename... Args>
+  static constexpr own_ptr<T, Deleter> make(Args&&... args) {
+    return own_ptr{new T{std::forward<Args>(args)...}};
+  }
 
 private:
   pointer ptr_{};

@@ -20,11 +20,10 @@
 #include "containers_shared.h"
 
 // NOTE:
-//
-// This can't work with std::unique_ptr because it's not designed to work with
-// non-pointers, no matter what. Instead, it winds up with a dangling
-// reference. So this code is DOA for its original purpose but still quite
-// viable for use with `own_ptr`.
+// This was originally intended to work with `std::unique_ptr` but that's not
+// possible because that class isn't designed to work with non-pointers, no
+// matter what, so it winds up with a dangling reference. However, this code
+// works fine with `own_ptr`, which is a replacement class.
 
 namespace corvid { inline namespace custhandle {
 
@@ -34,9 +33,9 @@ namespace corvid { inline namespace custhandle {
 //
 // It is not intended for general use and is not, in itself, a smart pointer,
 // in that it does not free the object in its destructor. Instead, it's made to
-// be used as the `pointer` alias in a custom deleter for `std::unique_ptr`,
-// replacing the raw pointer that it normally stores and manages. In this
-// context, it's considered a "custom handle type".
+// be used as the `pointer` alias in a custom deleter for `own_ptr`, replacing
+// the raw pointer that it normally stores and manages. In this context, it's
+// considered a "custom handle type".
 //
 // To use it, you define your own deleter that exposes an appropriate
 // `custom_handle` as `pointer` and then offers an `operator()` that closes it.
@@ -44,17 +43,17 @@ namespace corvid { inline namespace custhandle {
 // `tag_type`; the custom deleter itself makes for a good choice.
 //
 // Likewise, in all cases, you can use an rvalue when constructing or assigning
-// to the `std::unique_ptr`, and this will cause the parameter to be set to
-// `null_v`. Finally, whatever you choose as `null_v` will be used to evaluate
-// `std::unique_ptr::operator bool`.
+// to the `own_ptr`, and this will cause the parameter to be set to `null_v`.
+// Finally, whatever you choose as `null_v` will be used to evaluate
+// `own_ptr::operator bool`.
 //
 // 1. For wrapping something like a file descriptor, specialize `element_type`
 // and `resource_id_type` to the same type and set `null_v` to the desired
 // default value, which is something like -1 or INVALID_HANDLE_VALUE. The
-// `std::unique_ptr` will then store the value as a `resource_id_type` but
-// expose it as an `element_type` when you dereference it.
+// `own_ptr` will then store the value as a `resource_id_type` but expose it as
+// an `element_type` when you dereference it.
 //
-// Note that, unlike `std::unique_ptr<int, fd_deleter>`, it does not involve
+// Note that, unlike `own_ptr<int, fd_deleter>`, it does not involve
 // dynamically allocating an `int`. Also note that you can use same-sized class
 // enums and underlying integral types for the `element_type` and
 // `resource_id_type` and they'll be converted.
@@ -76,7 +75,7 @@ namespace corvid { inline namespace custhandle {
 //   void operator()(pointer p) const { if (p) ::close(*p); }
 // };
 //
-// using unique_fd = std::unique_ptr<int, fd_deleter>;
+// using unique_fd = own_ptr<int, fd_deleter>;
 //
 // unique_fd make_fd(const char* filename, int oflag) {
 //    return ::open(filename, oflag); }
@@ -95,7 +94,7 @@ public:
   custom_handle(const custom_handle&) = default;
 
   custom_handle(element_type element)
-      : resource_(static_cast<resource_id_type>(element)) {}
+      : resource_{static_cast<resource_id_type>(element)} {}
   custom_handle(resource_id_type resource) : resource_(resource) {}
 
   custom_handle& operator=(std::nullptr_t) {

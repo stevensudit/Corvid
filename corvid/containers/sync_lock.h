@@ -36,8 +36,8 @@ private:
 };
 
 // Breakable synchronization object. Once the guarded resource is frozen, you
-// call `disable` and `sync` returns `nullptr`, so that no actual locking is
-// done anymore.
+// call `disable` and the conversion to `synchronizer` returns `nullptr`, so
+// that no actual locking is done anymore.
 //
 // If you don't want to allow someone outside the class to call `disable`, make
 // this object private and expose it through a function that returns a `const
@@ -65,13 +65,14 @@ private:
 // The way it works is that you add `const lock& attestation = {}` to the end
 // of the method, and then call `attestation(sync)` at the top. The `sync` is
 // the `synchronizer` member for that instance (which should be directly or
-// indirectly public).
+// indirectly public). A caller can reuse an attestation across multiple calls,
+// maintaining a single lock across them all.
 //
-// When calling other methods of the same instance, pass along `attestation`
-// instead of allowing it to be defaulted. Note that if allow it to be
-// defaulted, you'll deadlock. If your method doesn't access any data, it can
-// skip the attestation sync call at top, just passing along the `attestation`
-// without calling it.
+// Within a method that takes `attestation`, when calling other methods of the
+// same instance, pass that `attestation` instead of allowing it to be
+// defaulted. Note that if allow it to be defaulted, you'll deadlock. If your
+// method doesn't access any data, it can skip the attestation sync call at
+// top, just passing along the `attestation` without calling it.
 //
 // You can use a `breakable_synchronizer` if you want the ability to disable
 // locking once the object is frozen.
@@ -88,15 +89,15 @@ private:
 //     do_something_else(x + 2, y - 2, attestation);
 //     [...]
 //
-// In the above case, the caller could make their own `lock` object on the
-// instance's public `sync` and reuse it across multiple calls, maintaining
-// a lock.
+// Note again how, in the above case, the caller could make their own `lock`
+// object and reuse it across multiple calls, maintaining a lock. They could
+// even construct it on the instance's `sync` member.
 class lock {
 public:
   lock() = default;
 
-  lock(const synchronizer& sync) : sync_(&sync) { sync_->lock(); }
-  lock(const synchronizer* sync) : sync_(sync) {
+  explicit lock(const synchronizer& sync) : sync_{&sync} { sync_->lock(); }
+  explicit lock(const synchronizer* sync) : sync_{sync} {
     if (sync_) sync_->lock();
   }
 
