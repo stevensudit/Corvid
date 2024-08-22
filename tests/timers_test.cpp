@@ -120,3 +120,5 @@ void TimersTest_Edge() {
 }
 
 MAKE_TEST_LIST(TimersTest_General, TimersTest_Edge);
+
+// TODO: Expose next_timer_id_ for testing, and prove that the scheme works.

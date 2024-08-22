@@ -28,24 +28,41 @@ namespace corvid { inline namespace container {
 namespace timers_ns {
 
 enum class timer_id_t : uint64_t { invalid };
+
+// Time point and duration using steady clock.
 using time_point_t = std::chrono::steady_clock::time_point;
 using duration_t = std::chrono::milliseconds;
+
+// Forward declarations.
 struct timer_event;
 struct scheduled_event;
+
+// Callback invoked when a timer fires.
 using timer_callback_t = std::function<void(timer_event&)>;
+
+// Callback invoked to delete a timer entry.
 using timer_entry_deleter_t = std::function<void(timer_event&)>;
+
+// Callback to get the current time.
 using clock_callback_t = std::function<time_point_t()>;
+
+// Map of timers by ID.
 using timer_map_t = std::map<timer_id_t, timer_event>;
+
+// Priority queue of scheduled events.
 using scheduled_queue_t = std::priority_queue<scheduled_event>;
 
 // Timer event.
+//
+// Contains full state of the event.
 struct timer_event {
   timer_event(timer_id_t timer_id, time_point_t start, duration_t next,
       time_point_t stop, timer_callback_t callback)
-      : timer_id(timer_id), start(start), next(next), stop(stop),
-        callback(std::move(callback)) {}
+      : timer_id{timer_id}, start{start}, next{next}, stop{stop},
+        callback{std::move(callback)} {}
 
   timer_event(timer_event&&) = default;
+
   timer_event(const timer_event&) = delete;
   timer_event& operator=(const timer_event&) = delete;
 
@@ -81,6 +98,7 @@ struct timer_event {
   bool no_auto_remove{};
 };
 
+// Lightweight class to reference an upcoming event.
 struct scheduled_event {
   time_point_t next;
   timer_id_t timer_id;
@@ -89,26 +107,40 @@ struct scheduled_event {
   auto operator<=>(const scheduled_event& rhs) const {
     return rhs.next <=> next;
   }
-  auto operator==(const scheduled_event& rhs) const {
-    return rhs.next == next;
-  }
 };
 
 // Priority queue of timers.
 //
 // Events may be one-shot or recurring. Callbacks are executed only when `tick`
 // is called. During the execution of the callback, the `event` object is
-// available
+// available.
 class timers {
 public:
-  // Set timer for a new event.
+  // Set timer for a new event. Returns the event, so that mutable fields may
+  // be set.
   timer_event& set(time_point_t start_at, timer_callback_t callback,
       duration_t next = {}, time_point_t stop_at = {}) {
-    const timer_id_t timer_id{++next_timer_id_};
-    auto [it, _] = events_by_id_.emplace(timer_id,
-        timer_event{timer_id, start_at, next, stop_at, std::move(callback)});
+    // If all slots were filled, we'd loop forever, so just fail.
+    if (events_by_id_.size() == std::numeric_limits<uint64_t>::max() - 1)
+      throw std::overflow_error("Timer ID overflow");
+
+    // After overflowing the ID, we wrap around, so we need to skip over any
+    // that are still in use.
+    timer_id_t timer_id{};
+    timer_event* new_event{};
+    for (;;) {
+      timer_id = timer_id_t{++next_timer_id_};
+      if (timer_id == timer_id_t::invalid) continue;
+      auto [inserted_at, was_inserted] = events_by_id_.emplace(timer_id,
+          timer_event{timer_id, start_at, next, stop_at, std::move(callback)});
+      if (was_inserted) {
+        new_event = &inserted_at->second;
+        break;
+      }
+      // TODO: Consider skipping to next open slot using binary search.
+    }
     scheduled_events_.emplace(start_at, timer_id);
-    return it->second;
+    return *new_event;
   }
 
   auto& set(duration_t start_in, timer_callback_t callback,
@@ -123,10 +155,18 @@ public:
   // TODO: Consider offering overloads that take when/expire_in and
   // in/expiration.
 
+  // Cancel a timer,
   bool cancel(timer_id_t timer_id) {
     auto it = events_by_id_.find(timer_id);
     if (it == events_by_id_.end()) return false;
     events_by_id_.erase(it);
+    // TODO: Consider belt-and-suspenders approach of removing from queue. This
+    // would prevent the event from firing if it was scheduled for the far
+    // future, canceled, and then the ID was reassigned. However, to do this,
+    // we'd need a priority queue of our own, on top of a heap. The alternative
+    // might be to have a "next_fire" timestamp in the event, so that if it
+    // doesn't match the scheduled one, we know it's an error. We'd have to
+    // hide it in a subclass.
     return true;
   }
 
@@ -150,14 +190,14 @@ public:
         continue;
       }
 
-      // Call back with the event. Note that, while the event is remains valid
+      // Call back with the event. Note that, while the event remains valid
       // during the callback, it might be removed immediately afterwards, and
       // its deleter callback will be invoked. If you retain the `event_id`,
       // you can attempt to find it in the `events()` later.
       event.callback(event);
       ++callbacks;
 
-      // Reschedule if needed. Note that if we were very late, it's possible
+      // Reschedule if needed. Note that, if we were very late, it's possible
       // that we'll fire twice in this call. But if the next time would be
       // after expiration, we don't reschedule.
       if (event.next != duration_t{}) {

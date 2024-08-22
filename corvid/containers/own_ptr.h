@@ -130,7 +130,7 @@ public:
   // non-array forms of new.`
   constexpr explicit own_ptr(pointer&& ptr) noexcept
   requires is_default_constructible_deleter_v
-      : ptr_(ptr) {
+      : ptr_{ptr} {
     ptr = pointer{};
   }
 
@@ -138,24 +138,24 @@ public:
   // deleter.
   constexpr own_ptr(pointer p, const deleter_type& d) noexcept
   requires is_deleter_non_reference_v
-      : ptr_(p), del_(d) {}
+      : ptr_{p}, del_{d} {}
 
   constexpr own_ptr(pointer p, auto&& d) noexcept
   requires is_deleter_non_reference_v && is_deleter<decltype(d)> &&
                std::is_rvalue_reference_v<decltype(d)>
-      : ptr_(p), del_(std::move(d)) {}
+      : ptr_{p}, del_{std::move(d)} {}
 
   // Construct with pointer and deleter, when specialized on mutable lvalue
   // deleter reference.
   constexpr own_ptr(pointer p, deleter_type& d) noexcept
   requires is_deleter_lvalue_reference_v
-      : ptr_(p), del_(d) {}
+      : ptr_{p}, del_{d} {}
 
   // Construct with pointer and deleter, when specialized on const lvalue
   // deleter reference.
   constexpr own_ptr(pointer p, const deleter_type& d) noexcept
   requires is_deleter_const_lvalue_reference_v
-      : ptr_(p), del_(d) {}
+      : ptr_{p}, del_{d} {}
 
   constexpr own_ptr(pointer p, auto&& d) noexcept
   requires is_deleter_const_lvalue_reference_v && is_deleter<decltype(d)> &&
@@ -166,16 +166,16 @@ public:
   template<class U, class E>
   constexpr own_ptr(own_ptr<U, E>&& u) noexcept
   requires is_convertible_own_ptr<U, E> && std::is_reference_v<E>
-      : ptr_(u.release()), del_(u.get_deleter()) {}
+      : ptr_{u.release()}, del_{u.get_deleter()} {}
 
   template<class U, class E>
   constexpr own_ptr(own_ptr<U, E>&& u) noexcept
   requires is_convertible_own_ptr<U, E> && (!std::is_reference_v<E>)
-      : ptr_(u.release()), del_(std::move(u.get_deleter())) {}
+      : ptr_{u.release()}, del_{std::move(u.get_deleter())} {}
 
   constexpr own_ptr(own_ptr&& other) noexcept
   requires is_move_constructible_deleter_v
-      : ptr_(other.ptr_), del_(std::move(other.del_)) {
+      : ptr_(other.ptr_), del_{std::move(other.del_)} {
     other.ptr_ = pointer{};
   }
 

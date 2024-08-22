@@ -56,8 +56,8 @@ public:
   constexpr optional_ptr(std::nullptr_t) noexcept {}
   constexpr optional_ptr(std::nullopt_t) noexcept {}
 
-  constexpr optional_ptr(const P& p) noexcept : ptr_(p) {}
-  constexpr optional_ptr(P&& p) noexcept : ptr_(std::move(p)) {}
+  constexpr optional_ptr(const pointer& p) noexcept : ptr_{p} {}
+  constexpr optional_ptr(pointer&& p) noexcept : ptr_{std::move(p)} {}
 
   constexpr optional_ptr(const optional_ptr&) noexcept = default;
   constexpr optional_ptr(optional_ptr&&) noexcept = default;
@@ -73,7 +73,7 @@ public:
 
   // For raw pointers, the implicit conversion to pointer operator means it can
   // be evaluated as a bool in a predicate expression or dereferenced.
-  [[nodiscard]] constexpr operator P() const noexcept { return ptr_; }
+  [[nodiscard]] constexpr operator pointer() const noexcept { return ptr_; }
   [[nodiscard]] constexpr auto operator->() const noexcept { return &*ptr_; }
 
   // For smart pointers, we need to forward these two calls explicitly.
@@ -88,22 +88,24 @@ public:
   }
 
   // Get underlying pointer.
-  [[nodiscard]] constexpr const P& get() const& noexcept { return ptr_; }
-  [[nodiscard]] constexpr P&& get() && noexcept { return std::move(ptr_); }
+  [[nodiscard]] constexpr const pointer& get() const& noexcept { return ptr_; }
+  [[nodiscard]] constexpr pointer&& get() && noexcept {
+    return std::move(ptr_);
+  }
 
   // Get raw pointer.
   template<SmartPointer U = P>
-  [[nodiscard]] constexpr const E& get_ptr() const& noexcept {
+  [[nodiscard]] constexpr const element_type& get_ptr() const& noexcept {
     return *ptr_;
   }
   template<SmartPointer U = P>
-  [[nodiscard]] constexpr E&& get_ptr() && noexcept {
+  [[nodiscard]] constexpr element_type&& get_ptr() && noexcept {
     return std::move(*ptr_);
   }
 
   // Reset to new pointer value.
-  constexpr void reset(const P& p = nullptr) noexcept { ptr_ = p; }
-  constexpr void reset(P&& p) noexcept { ptr_ = std::move(p); }
+  constexpr void reset(const pointer& p = nullptr) noexcept { ptr_ = p; }
+  constexpr void reset(pointer&& p) noexcept { ptr_ = std::move(p); }
 
   // Whether there is a value.
   [[nodiscard]] constexpr bool has_value() const noexcept {
@@ -111,15 +113,17 @@ public:
   }
 
   // Get value, throwing if null. Returns by reference.
-  [[nodiscard]] constexpr E& value() const { return deref(ptr_); }
+  [[nodiscard]] constexpr element_type& value() const { return deref(ptr_); }
 
   // Get value, or if null, `default_val`. Returns by value.
-  [[nodiscard]] constexpr E value_or(auto&& default_val) const {
+  [[nodiscard]] constexpr element_type value_or(auto&& default_val) const {
     return ptr_ ? *ptr_ : default_val;
   }
 
   // Get value, or if null, default value. Returns by value.
-  [[nodiscard]] constexpr E value_or() const { return value_or(E{}); }
+  [[nodiscard]] constexpr element_type value_or() const {
+    return value_or(E{});
+  }
 
   // Get value, or if null, dereferences `default_ptr`. Returns by reference,
   // so default_ptr must not be null.
@@ -129,7 +133,7 @@ public:
   }
 
   // Get value, or if null, call `f` to get value. Returns by value.
-  [[nodiscard]] constexpr E value_or_fn(auto&& f) const {
+  [[nodiscard]] constexpr element_type value_or_fn(auto&& f) const {
     return ptr_ ? *ptr_ : f();
   }
 
@@ -152,7 +156,7 @@ public:
   friend void operator-(const V&, const optional_ptr&) = delete;
 
 private:
-  P ptr_{};
+  pointer ptr_{};
 
   [[nodiscard]] constexpr static auto& deref(auto&& p) {
     if (p) return *p;
