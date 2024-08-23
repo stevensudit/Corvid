@@ -57,7 +57,7 @@ void TimersTest_General() {
   auto& t1b = t.event(id1);
   EXPECT_EQ(t1b.timer_id, id1);
   t1b.name = "t1";
-  auto t1_start = t1b.start;
+  auto t1_start = t1b.start_at;
   EXPECT_EQ(t1_start, now + 30s);
 
   auto& t2 = t.set(60s, cb);
@@ -67,7 +67,7 @@ void TimersTest_General() {
   auto& t2b = t.event(id2);
   EXPECT_EQ(t2b.timer_id, id2);
   t2b.name = "t2";
-  auto t2_start = t2b.start;
+  auto t2_start = t2b.start_at;
   EXPECT_EQ(t2_start, now + 60s);
 
   size_t count = 0;
@@ -120,5 +120,3 @@ void TimersTest_Edge() {
 }
 
 MAKE_TEST_LIST(TimersTest_General, TimersTest_Edge);
-
-// TODO: Expose next_timer_id_ for testing, and prove that the scheme works.
