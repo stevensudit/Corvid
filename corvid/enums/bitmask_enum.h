@@ -43,8 +43,8 @@ namespace corvid { inline namespace enums { namespace bitmask {
 // all bits are valid.
 //
 // The way to register a scoped enum as a bitmask is to specialize the
-// corvid::meta::enums::registry::enum_spec_v for the enum type and assign an
-// instance of bitmask_enum_spec to it. There are various
+// `corvid::meta::enums::registry::enum_spec_v` for the enum type and assign an
+// instance of `bitmask_enum_spec` to it. There are various
 // `make_bitmask_enum*_spec` helper functions that let you specify the valid
 // bits, and optionally, their names.
 

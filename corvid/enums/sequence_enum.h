@@ -42,9 +42,9 @@ namespace corvid { inline namespace enums { namespace sequence {
 // range of [0,255], but no named values.
 //
 // The way to register a scoped enum as a sequence is to specialize the
-// corvid::enums::registry::enum_spec_v for the enum type and assign an
-// instance of sequence_enum_spec to it by calling a make_sequence_enum_spec
-// overload.
+// `corvid::enums::registry::enum_spec_v` for the enum type and assign an
+// instance of `sequence_enum_spec` to it by calling a
+// `make_sequence_enum_spec` overload.
 //
 // You must set `maxseq` to the highest enum value that is valid, or allow it
 // to be inferred from the comma-delimited list of value names. If the lowest
@@ -389,7 +389,7 @@ template<ScopedEnum E, E maxseq, E minseq = E{}, wrapclip wrapseq = wrapclip{}>
 // inheriting with specialization might work.
 
 // TODO: Consider making a variation on sequence enums that allows homogenous
-// operations, which makess sense for `std::byte` and other strongly-typed
+// operations, which makes sense for `std::byte` and other strongly-typed
 // integers, like `arithmetic_enum`. It would also support the full set of ops.
 // Possibly, it would also qualify as a SequentialEnum, but it would not
 // benefit from anything more than numeric output.

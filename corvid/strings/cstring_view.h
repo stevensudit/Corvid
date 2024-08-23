@@ -116,29 +116,29 @@ public:
   constexpr basic_cstring_view(std::nullopt_t) noexcept {}
 
   constexpr basic_cstring_view(const basic_cstring_view&) noexcept = default;
-  constexpr basic_cstring_view(const std::string& s) noexcept : sv_(s) {}
-  constexpr basic_cstring_view(const char* psz) : sv_(from_ptr(psz)) {}
+  constexpr basic_cstring_view(const std::string& s) noexcept : sv_{s} {}
+  constexpr basic_cstring_view(const char* psz) : sv_{from_ptr(psz)} {}
 
   // Risky construction.
   //
   // To demonstrate that it's actually terminated, the input must extend so
   // that the last character is a terminator. Otherwise, this is a logic error
   // and we throw.
-  constexpr explicit basic_cstring_view(SV sv) : sv_(from_sv(sv)) {}
+  constexpr explicit basic_cstring_view(SV sv) : sv_{from_sv(sv)} {}
   constexpr explicit basic_cstring_view(const CharT* ps, size_type len)
-      : sv_(from_sv(std::string_view{ps, len})) {}
+      : sv_{from_sv(std::string_view{ps, len})} {}
   template<std::contiguous_iterator It, std::sized_sentinel_for<It> End>
   requires std::same_as<std::iter_value_t<It>, char> &&
            (!std::convertible_to<End, size_type>)
   constexpr explicit basic_cstring_view(It first, End last)
-      : basic_cstring_view(std::to_address(first), last - first) {}
+      : basic_cstring_view{std::to_address(first), size_type(last - first)} {}
 
   // Optional as null.
   template<typename U>
   requires std::is_constructible_v<SV, U>
   constexpr basic_cstring_view(const std::optional<U>& opt)
-      : basic_cstring_view(opt.has_value() ? basic_cstring_view{*opt}
-                                           : basic_cstring_view{}) {}
+      : basic_cstring_view{opt.has_value() ? basic_cstring_view{*opt}
+                                           : basic_cstring_view{}} {}
 
   //
   // Passthrough

@@ -42,7 +42,7 @@ class appender_crtp {
   using Child = appender<T>;
 
 public:
-  explicit appender_crtp(T& target) : target_(target) {}
+  explicit appender_crtp(T& target) : target_{target} {}
   auto& child() { return *static_cast<Child*>(this); }
 
   auto& append(std::string_view sv) { return child().append_sv(sv); }
@@ -63,7 +63,7 @@ protected:
 template<OStreamDerived T>
 class appender<T>: public appender_crtp<T> {
 public:
-  explicit appender(T& target) : appender_crtp<T>(target) {}
+  explicit appender(T& target) : appender_crtp<T>{target} {}
 
 private:
   friend appender_crtp<T>;
@@ -81,7 +81,7 @@ private:
 template<StdString T>
 class appender<T>: public appender_crtp<T> {
 public:
-  explicit appender(T& target) : appender_crtp<T>(target) {}
+  explicit appender(T& target) : appender_crtp<T>{target} {}
 
   auto& reserve(size_t len) {
     appender_crtp<T>::target_.reserve(appender_crtp<T>::target_.size() + len);

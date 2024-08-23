@@ -33,21 +33,17 @@ struct transparent_less_stringlike {
 
   template<typename T, typename V>
   constexpr bool operator()(const T& l, const V& r) const {
-    return static_cast<std::string_view>(l) < static_cast<std::string_view>(r);
+    return std::string_view{l} < std::string_view{r};
   }
 };
 
-struct transparent_hash_stringlike {
+struct transparent_hash_equal_stringlike {
   using is_transparent = void;
 
   template<typename T>
   constexpr size_t operator()(const T& t) const {
-    return std::hash<std::string_view>{}(static_cast<std::string_view>(t));
+    return std::hash<std::string_view>{}(std::string_view{t});
   }
-};
-
-struct transparent_equal_stringlike {
-  using is_transparent = void;
 
   template<typename T, typename V>
   constexpr bool operator()(const T& l, const V& r) const {
@@ -62,17 +58,25 @@ template<typename V = std::string,
 using string_map = std::map<std::string, V, transparent_less_stringlike, A>;
 
 // Set of `std::string`, with transparent search.
-using string_set = std::set<std::string, transparent_less_stringlike,
-    std::allocator<std::string>>;
+template<typename A = std::allocator<std::string>>
+using string_set_alloc = std::set<std::string, transparent_less_stringlike>;
+
+using string_set = string_set_alloc<>;
 
 // Unordered map keyed by `std::string`, with transparent search.
-template<typename V = std::string>
+template<typename V = std::string,
+    typename A = std::allocator<std::pair<const std::string, V>>>
 using string_unordered_map = std::unordered_map<std::string, V,
-    transparent_hash_stringlike, transparent_equal_stringlike>;
+    transparent_hash_equal_stringlike, transparent_hash_equal_stringlike, A>;
 
 // Unordered set of `std::string`, with transparent search.
-using string_unordered_set =
-    std::unordered_set<std::string, transparent_hash_stringlike,
-        transparent_equal_stringlike, std::allocator<std::string>>;
+template<typename A = std::allocator<std::string>>
+using string_unordered_set_alloc = std::unordered_set<std::string,
+    transparent_hash_equal_stringlike, transparent_hash_equal_stringlike, A>;
+
+using string_unordered_set = string_unordered_set_alloc<>;
+
+using string_unordered_set = std::unordered_set<std::string,
+    transparent_hash_equal_stringlike, transparent_hash_equal_stringlike>;
 
 }} // namespace corvid::containers
