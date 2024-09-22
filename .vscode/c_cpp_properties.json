@@ -4,17 +4,11 @@
             "name": "Win32",
             "cStandard": "c11",
             "cppStandard": "c++20",
-            "compilerPath": "C:/msys64/mingw64/bin/clang.exe",
+            "compilerPath": "C:/Program Files/llvm/bin/clang++.exe",
             "includePath": [
                 "${workspaceFolder}/corvid/**"
             ],
             "intelliSenseMode": "windows-clang-x64"
-        },
-        {
-            "name": "Win32gcc",
-            "cStandard": "c11",
-            "cppStandard": "c++20",
-            "compilerPath": "C:/msys64/mingw64/bin/g++.exe"
         }
     ],
     "version": 4

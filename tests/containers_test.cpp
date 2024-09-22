@@ -629,13 +629,15 @@ void TransparentTest_General() {
 void IndirectKey_Basic() {
   using IHK = indirect_hash_key<std::string>;
   std::unordered_map<IHK, int> um;
-  um[IHK{"abc"}] = 42;
-  EXPECT_EQ(um[IHK{"abc"}], 42);
+  const auto key{"abc"s};
+  // TODO: Follow up on why key can't be a temporary.
+  um[key] = 42;
+  EXPECT_EQ(um[key], 42);
 
   using IMK = indirect_map_key<std::string>;
   std::map<IMK, int> m;
-  m[IMK{"abc"}] = 42;
-  EXPECT_EQ(m[IMK{"abc"}], 42);
+  m[key] = 42;
+  EXPECT_EQ(m[key], 42);
 }
 
 namespace corvid { inline namespace container { inline namespace intern {
@@ -790,10 +792,15 @@ void InternTableTest_Basic() {
 struct bad_key: std::string {
   bad_key() = default;
   explicit bad_key(const std::string& s) : std::string(s) {}
+  bad_key(const bad_key&) = default;
   bad_key(bad_key&&) = default;
   bad_key& operator=(bad_key&&) = default;
-  bad_key(const bad_key&) = delete;
   bad_key& operator=(const bad_key&) = delete;
+
+  friend auto operator<=>(const bad_key& a, const bad_key& b) {
+    return static_cast<const std::string&>(a) <=>
+           static_cast<const std::string&>(b);
+  }
 };
 
 template<>
@@ -808,48 +815,56 @@ using badkey_intern_table = intern_table<bad_key, string_id>;
 
 void InternTableTest_Badkey() {
   if (true) {
-    auto abc = badkey_intern_test::make(bad_key{"abc"});
-    auto bcd = badkey_intern_test::make(bad_key{"bcd"});
+    const auto bk_abc = bad_key{"abc"};
+    const auto bk_bcd = bad_key{"bcd"};
+    auto abc = badkey_intern_test::make(bk_abc);
+    auto bcd = badkey_intern_test::make(bk_bcd);
     EXPECT_EQ(abc, abc);
     EXPECT_NE(abc, bcd);
-    EXPECT_EQ(abc.value(), bad_key{"abc"});
+    EXPECT_EQ(abc.value(), bk_abc);
     EXPECT_LT(abc, bcd);
   }
   if (true) {
     auto sit_ptr = badkey_intern_table::make(string_id{0}, string_id{3});
     auto& sit = *sit_ptr;
     using SIT = std::remove_reference_t<decltype(sit)>;
-    auto iv = sit(bad_key{"abc"});
+    const auto bk_abc = bad_key{"abc"};
+    const auto bk_bcd = bad_key{"bcd"};
+
+    auto iv = sit(bk_abc);
 
     EXPECT_FALSE(iv);
-    iv = sit.intern(bad_key{"abc"});
+    iv = sit.intern(bk_abc);
     EXPECT_TRUE(iv);
     EXPECT_EQ(iv.id(), string_id{1});
-    EXPECT_EQ(iv.value(), bad_key{"abc"});
+    EXPECT_EQ(iv.value(), bk_abc);
     iv = SIT::interned_value_t{};
     EXPECT_FALSE(iv);
-    iv = sit(bad_key{"abc"});
+    iv = sit(bk_abc);
     EXPECT_TRUE(iv);
     EXPECT_EQ(iv.id(), string_id{1});
-    EXPECT_EQ(iv.value(), bad_key{"abc"});
+    EXPECT_EQ(iv.value(), bk_abc);
 
-    iv = sit(bad_key{"def"});
+    const auto bk_def = bad_key{"def"};
+    iv = sit(bk_def);
     EXPECT_FALSE(iv);
-    iv = sit.intern(bad_key{"def"});
+    iv = sit.intern(bk_def);
     EXPECT_TRUE(iv);
     EXPECT_EQ(iv.id(), string_id{2});
-    EXPECT_EQ(iv.value(), bad_key{"def"});
+    EXPECT_EQ(iv.value(), bk_def);
 
-    iv = sit(bad_key{"ghi"s});
+    const auto bk_ghi = bad_key{"ghi"};
+    iv = sit(bk_ghi);
     EXPECT_FALSE(iv);
-    iv = sit.intern(bad_key{"ghi"s});
+    iv = sit.intern(bk_ghi);
     EXPECT_TRUE(iv);
     EXPECT_EQ(iv.id(), string_id{3});
-    EXPECT_EQ(iv.value(), bad_key{"ghi"s});
+    EXPECT_EQ(iv.value(), bk_ghi);
 
-    iv = sit(bad_key{"jkl"});
+    const auto bk_jkl = bad_key{"jkl"};
+    iv = sit(bk_jkl);
     EXPECT_FALSE(iv);
-    iv = sit.intern(bad_key{"jkl"});
+    iv = sit.intern(bk_jkl);
     EXPECT_FALSE(iv);
   }
 }
@@ -1144,6 +1159,13 @@ void CustomHandleTest_Basic() {
 #endif
 }
 
+void NoInitResize_Basic() {
+  std::vector<int> v;
+  v.resize(2);
+  std::string s;
+  // s.resize_and_overwrite(2);
+}
+
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
     FindOptTest_Maps, FindOptTest_Sets, FindOptTest_Vectors,
@@ -1152,7 +1174,7 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     IntervalTest_Reverse, IntervalTest_MinMax, IntervalTest_CompareAndSwap,
     IntervalTest_Append, TransparentTest_General, IndirectKey_Basic,
     InternTableTest_Basic, InternTableTest_Badkey, OwnPtrTest_Ctor,
-    DeductionTest_Experimental, CustomHandleTest_Basic);
+    DeductionTest_Experimental, CustomHandleTest_Basic, NoInitResize_Basic);
 
 // Ok, so the plan is to make all of the Ptr/Del ctors take the same three
 // templated arguments. The third is just a named thing that's defaulted to

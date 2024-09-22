@@ -87,7 +87,15 @@
         "climits": "cpp",
         "queue": "cpp",
         "stack": "cpp",
-        "*.def": "cpp"
+        "*.def": "cpp",
+        "format": "cpp",
+        "iomanip": "cpp",
+        "locale": "cpp",
+        "xhash": "cpp",
+        "xlocbuf": "cpp",
+        "xlocmes": "cpp",
+        "xlocmon": "cpp",
+        "xloctime": "cpp"
     },
     "C_Cpp.errorSquiggles": "disabled",
     "editor.tokenColorCustomizations": {

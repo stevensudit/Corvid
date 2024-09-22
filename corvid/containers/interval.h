@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#define NOMINMAX
+
 #include "containers_shared.h"
 #include "../strings.h"
 #include "../enums.h"

@@ -34,7 +34,7 @@ void CStringViewTest_Construction() {
     std::string_view v;
     EXPECT_TRUE(v.empty());
     EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Default-constucted cstring_view.
   if (true) {
@@ -43,7 +43,7 @@ void CStringViewTest_Construction() {
     EXPECT_TRUE(v.null());
     EXPECT_EQ(v.data(), nullptr);
     EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct string_view on null pointer.
   if (true) {
@@ -63,7 +63,7 @@ void CStringViewTest_Construction() {
     EXPECT_TRUE(v.null());
     EXPECT_EQ(v.data(), nullptr);
     EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct cstring_view on nullptr.
   if (true) {
@@ -73,7 +73,7 @@ void CStringViewTest_Construction() {
     EXPECT_TRUE(v.null());
     EXPECT_EQ(v.data(), nullptr);
     EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct cstring_view on nullopt.
   if (true) {
@@ -83,7 +83,7 @@ void CStringViewTest_Construction() {
     EXPECT_TRUE(v.null());
     EXPECT_EQ(v.data(), nullptr);
     EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct string_view on null and 0.
   if (true) {
@@ -92,7 +92,7 @@ void CStringViewTest_Construction() {
     std::string_view v{p, 0};
     EXPECT_TRUE(v.empty());
     EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct cstring_view on null and 0.
   if (true) {
@@ -103,7 +103,7 @@ void CStringViewTest_Construction() {
     EXPECT_TRUE(v.null());
     EXPECT_EQ(v.data(), nullptr);
     EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct string_view on empty.
   if (true) {
@@ -111,7 +111,7 @@ void CStringViewTest_Construction() {
     std::string_view v{p};
     EXPECT_TRUE(v.empty());
     EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct cstring_view on empty.
   if (true) {
@@ -121,7 +121,7 @@ void CStringViewTest_Construction() {
     EXPECT_FALSE(v.null());
     EXPECT_NE(v.data(), nullptr);
     EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct string_view on empty and 0.
   if (true) {
@@ -129,7 +129,7 @@ void CStringViewTest_Construction() {
     std::string_view v{p, 0};
     EXPECT_TRUE(v.empty());
     EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct cstring_view on empty and 0.
   if (true) {
@@ -140,7 +140,7 @@ void CStringViewTest_Construction() {
     EXPECT_FALSE(v.null());
     EXPECT_NE(v.data(), nullptr);
     EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct string_view on empty string.
   if (true) {
@@ -148,7 +148,7 @@ void CStringViewTest_Construction() {
     std::string_view v{s};
     EXPECT_TRUE(v.empty());
     EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct cstring_view on empty string.
   if (true) {
@@ -158,7 +158,7 @@ void CStringViewTest_Construction() {
     EXPECT_FALSE(v.null());
     EXPECT_NE(v.data(), nullptr);
     EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct string_view on null string_view.
   if (true) {
@@ -167,7 +167,7 @@ void CStringViewTest_Construction() {
     std::string_view v{sv};
     EXPECT_TRUE(v.empty());
     EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct cstring_view on null string_view.
   if (true) {
@@ -178,7 +178,7 @@ void CStringViewTest_Construction() {
     EXPECT_TRUE(v.null());
     EXPECT_EQ(v.data(), nullptr);
     EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct string_view on empty string_view.
   if (true) {
@@ -187,7 +187,7 @@ void CStringViewTest_Construction() {
     std::string_view v{sv};
     EXPECT_TRUE(v.empty());
     EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct cstring_view on empty string_view.
   if (true) {
@@ -200,7 +200,7 @@ void CStringViewTest_Construction() {
     EXPECT_FALSE(v.null());
     EXPECT_NE(v.data(), nullptr);
     EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    EXPECT_EQ(&*v.begin(), &*v.end());
   }
   // Construct string_view on arbitrary string_view.
   if (true) {
@@ -208,7 +208,7 @@ void CStringViewTest_Construction() {
     std::string_view v{sv};
     EXPECT_FALSE(v.empty());
     EXPECT_NE(v.data(), nullptr);
-    EXPECT_NE(v.begin(), v.end());
+    EXPECT_NE(&*v.begin(), &*v.end());
   }
   // Construct cstring_view on arbitrary string_view.
   if (true) {
@@ -220,7 +220,7 @@ void CStringViewTest_Construction() {
     EXPECT_FALSE(v.null());
     EXPECT_NE(v.data(), nullptr);
     EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_NE(v.begin(), v.end());
+    EXPECT_NE(&*v.begin(), &*v.end());
   }
   // Construct string_view on it/end.
   if (true) {
@@ -228,7 +228,7 @@ void CStringViewTest_Construction() {
     std::string_view v{r.begin(), r.end()};
     EXPECT_FALSE(v.empty());
     EXPECT_NE(v.data(), nullptr);
-    EXPECT_NE(v.begin(), v.end());
+    EXPECT_NE(&*v.begin(), &*v.end());
     EXPECT_EQ(r.size(), 4u);
     EXPECT_EQ(v.size(), 4u);
   }
@@ -240,7 +240,7 @@ void CStringViewTest_Construction() {
     EXPECT_FALSE(v.null());
     EXPECT_NE(v.data(), nullptr);
     EXPECT_NE(v.c_str(), nullptr);
-    EXPECT_NE(v.begin(), v.end());
+    EXPECT_NE(&*v.begin(), &*v.end());
     EXPECT_EQ(r.size(), 4u);
     EXPECT_EQ(v.size(), 3u);
   }

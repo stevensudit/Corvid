@@ -15,6 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+// For std::getenv, which is deprecated.
+#define _CRT_SECURE_NO_WARNINGS 1
+#include <cstdlib>
+
 #include <iostream>
 #include <string>
 #include <string_view>

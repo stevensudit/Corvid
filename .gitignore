@@ -30,3 +30,11 @@
 *.exe
 *.out
 *.app
+
+# Clang stuff
+*.ilk
+*.pdb
+
+# CMake
+CMakeFiles
+CMakeCache.txt

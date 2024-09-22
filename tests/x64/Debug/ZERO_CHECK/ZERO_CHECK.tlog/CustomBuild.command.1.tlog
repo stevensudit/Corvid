@@ -1,0 +1,10 @@
+^C:\CODE\CORVID20\TESTS\CMAKEFILES\C5ACB4885CC49BD535BD06734F6084BC\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/code/Corvid20/tests -BC:/code/Corvid20/tests --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/code/Corvid20/tests/MyProject.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

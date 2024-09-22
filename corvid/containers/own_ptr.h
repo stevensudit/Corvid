@@ -18,6 +18,12 @@
 #pragma once
 #include "containers_shared.h"
 
+#ifdef _WIN32
+#define NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
+#else
+#define NO_UNIQUE_ADDRESS [[no_unique_address]]
+#endif
+
 namespace corvid { inline namespace ownptr {
 namespace details {
 
@@ -241,7 +247,7 @@ public:
 
 private:
   pointer ptr_{};
-  [[no_unique_address]] deleter_type del_;
+  NO_UNIQUE_ADDRESS deleter_type del_;
 
   auto& do_delete() {
     del_(std::move(ptr_));

@@ -172,6 +172,8 @@ concept Comparable = std::totally_ordered_with<T, U>;
 
 // `U` must act as a view for `T`.
 template<typename T, typename U>
-concept Viewable = Makeable<T, U> && Comparable<T, U>;
+concept Viewable =
+    Makeable<std::remove_cvref_t<T>, std::remove_cvref_t<U>> &&
+    Comparable<std::remove_cvref_t<T>, std::remove_cvref_t<U>>;
 
 }}} // namespace corvid::meta::concepts

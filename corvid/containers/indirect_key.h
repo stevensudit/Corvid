@@ -14,8 +14,11 @@ namespace corvid { inline namespace container { inline namespace indirect_key {
 // acts more or less like the key, but is lightweight.
 template<typename T, typename H = std::hash<T>, typename E = std::equal_to<T>>
 struct indirect_hash_key {
-  indirect_hash_key(const T& key) : key{key} {}
   const T& key;
+  indirect_hash_key(const T& key) : key{key} {}
+
+  // We don't want to bind to a temporary.
+  indirect_hash_key(const T&&) = delete;
 
   [[nodiscard]] operator const T&() const noexcept { return key; }
 
@@ -49,8 +52,11 @@ struct indirect_hash_key {
 // acts more or less like the key, but is lightweight.
 template<typename T, class C = std::less<T>>
 struct indirect_map_key {
-  indirect_map_key(const T& key) : key(key) {}
   const T& key;
+  indirect_map_key(const T& key) : key{key} {}
+
+  // We don't want to bind to a temporary.
+  indirect_map_key(const T&&) = delete;
 
   [[nodiscard]] operator const T&() const noexcept { return key; }
 

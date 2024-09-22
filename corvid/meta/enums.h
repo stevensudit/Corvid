@@ -54,17 +54,19 @@ template<typename E, typename X = std::byte, typename V>
   }
 }
 
+PRAGMA_CLANG_DIAG(push);
+PRAGMA_CLANG_IGNORED("-Wenum-constexpr-conversion");
+
 // Minimum value of enum, based on its underlying type.
 template<ScopedEnum E>
 constexpr auto min_scoped_enum_v =
     static_cast<E>(std::numeric_limits<as_underlying_t<E>>::min());
 
 // Maximum value of enum, based on its underlying type.
-PRAGMA_CLANG_DIAG(push);
-PRAGMA_CLANG_IGNORED("-Wenum-constexpr-conversion");
 template<ScopedEnum E>
 constexpr auto max_scoped_enum_v =
     static_cast<E>(std::numeric_limits<as_underlying_t<E>>::max());
+
 PRAGMA_CLANG_DIAG(pop);
 
 // Note:

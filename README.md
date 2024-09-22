@@ -1,9 +1,9 @@
-# corvid20
+# Corvid
 <img src="https://upload.wikimedia.org/wikipedia/commons/0/0a/Corvus-brachyrhynchos-001.jpg" height=768 width=768>
 
-Corvid20: A general-purpose C++20 library extending std.
+Corvid: A general-purpose C++ library extending std.
 
-https://github.com/stevensudit/Corvid20
+https://github.com/stevensudit/Corvid
 
 Copyright 2022-2024 Steven Sudit
 
@@ -22,9 +22,9 @@ limitations under the License.
 
 HISTORY
 
-This is a fork of the original Corvid library, which didn't take advantage of C++20 features.
+This is a fork of the original Corvid library, which was written for C++17. It was initially called Corvid20, but now that since it's move past that, the version number has been removed.
 
-Rather than try to update it in place, it made more sense to make a new project and move code over, bit by bit, cleaning and upgrading it as I went. This approach enabled me to switch from MSVC to clang and gcc, which has resulted in more-compliant code, and to use GitHub Copilot and ChatGPT to help with the more tedious parts of the process. I also got rid of Google Test, just to simplify things, switching to the header-only Accutest, which is referenced but not bundled.
+With the C++17 version, rather than try to update it in place, it made more sense to make a new project and move code over, bit by bit, cleaning and upgrading it as I went. This approach enabled me to switch from MSVC to clang, which has resulted in more-compliant code, and to use GitHub Copilot and ChatGPT to help with the more tedious parts of the process. I also got rid of Google Test, just to simplify things, switching to the header-only Accutest, which is referenced but not bundled.
 
 
 CONTENTS
@@ -32,6 +32,13 @@ CONTENTS
 The entirety of the Corvid library is in the `corvid` subdirectory, as headers you include into your own project. Everything else here, such as unit tests and various configuration settings, is just for my convenience in developing the library and is not properly a part of it. You're free to use it under the same license, though.
 
 
+EXTERNAL DEPENDENCIES
+
+LLVM suite: For clang, clang-format, and lldb. https://releases.llvm.org/download.html
+CMake: For batch build files. https://cmake.org/download/
+Accutest: For unit tests. https://github.com/mity/acutest
+
+
 NOTICE
 
-None of this code comes from my current or former employers. All work was done on my own time and equipment, either between jobs or with the knowledge and consent of my employer at the time.
+None of this code comes from any current or former employer. All work was done on my own time and equipment, either between jobs or with the knowledge and written consent of my employer at the time.
