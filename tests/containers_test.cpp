@@ -544,9 +544,9 @@ void IntervalTest_MinMax() {
 void IntervalTest_CompareAndSwap() {
   auto i = interval{1, 4};
   auto j = interval{2, 3};
-  EXPECT_EQ(i, i);
-  EXPECT_EQ(j, j);
-  EXPECT_NE(i, j);
+  EXPECT_TRUE(i == i);
+  EXPECT_TRUE(j == j);
+  EXPECT_TRUE(i != j);
   EXPECT_EQ(i.back(), 4);
   using std::swap;
   swap(i, j);
@@ -666,7 +666,22 @@ using arena_string_intern_test = intern_test<arena_string, string_id>;
 using string_intern_table = intern_table<std::string, string_id>;
 using string_intern_table_value = string_intern_table::interned_value_t;
 
+template class std::deque<std::string>;
+
 void InternTableTest_Basic() {
+  if (true) {
+    extensible_arena arena{4096};
+    extensible_arena::scope s{arena};
+    //  using arena_value_t = SIT::arena_value_t;
+    //  using key_t = SIT::key_t;
+    // using lookup_by_id_t = SIT::lookup_by_id_t;
+
+    // lookup_by_id_t
+    std::string key{"abc"};
+    std::deque<std::string> dq{42};
+    arena_deque<arena_string> adq{42};
+    auto z = key + key;
+  }
   if (true) {
     // Show that, when we're not using arena-specialized types, we can create
     // interned values that aren't actually in an arena.
@@ -724,9 +739,10 @@ void InternTableTest_Basic() {
     const auto& csit = sit;
     using SIT = std::remove_reference_t<decltype(sit)>;
 
-    auto iv = sit("abc");
+    auto iv = sit("abc"s);
     EXPECT_FALSE(iv);
-    iv = sit.intern("abc");
+    // TODO: Why does this throw when `const char*`?
+    iv = sit.intern("abc"s);
     EXPECT_TRUE(iv);
     EXPECT_EQ(iv.id(), string_id{1});
     EXPECT_EQ(iv.value(), "abc");

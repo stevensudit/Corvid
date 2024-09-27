@@ -114,12 +114,15 @@ public:
   public:
     using value_type = V;
     using difference_type = std::ptrdiff_t;
+    using iterator_category = std::bidirectional_iterator_tag;
+    using pointer = V*;
+    using reference = V&;
 
     constexpr interval_iterator(U u) : u_{u} {}
 
     constexpr const V operator*() const noexcept { return as_v(u_); }
 
-    constexpr bool operator<=>(
+    constexpr auto operator<=>(
         const interval_iterator& r) const noexcept = default;
 
     constexpr auto& operator++() noexcept {
@@ -206,10 +209,10 @@ public:
   constexpr iterator end() const noexcept { return cend(); }
 
   constexpr auto crbegin() const noexcept {
-    return const_reverse_iterator(cend());
+    return std::make_reverse_iterator(cend());
   }
   constexpr auto crend() const noexcept {
-    return const_reverse_iterator(cbegin());
+    return std::make_reverse_iterator(cbegin());
   }
   constexpr auto rbegin() const noexcept { return crbegin(); }
   constexpr auto rend() const noexcept { return crend(); }

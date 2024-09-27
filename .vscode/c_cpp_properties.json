@@ -1,14 +1,32 @@
 {
     "configurations": [
         {
-            "name": "Win32",
+            "name": "Linux",
+            "intelliSenseMode": "clang-x64",
+            "compilerPath": "/usr/bin/clang-19",
             "cStandard": "c11",
-            "cppStandard": "c++20",
-            "compilerPath": "C:/Program Files/llvm/bin/clang++.exe",
+            "cppStandard": "c++23",
             "includePath": [
-                "${workspaceFolder}/corvid/**"
+                "${workspaceFolder}/**",
+                "/usr/lib/llvm-19/include",
+                "/usr/include"
             ],
-            "intelliSenseMode": "windows-clang-x64"
+            "defines": [],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}",
+                    "/usr/lib/llvm-19/include",
+                    "/usr/include"
+                ],
+                "limitSymbolsToIncludedHeaders": true,
+                "databaseFilename": ""
+            },
+            "compilerArgs": [
+                "-stdlib=libc++",
+                "-Wall",
+                "-Wextra",
+                "-Werror"
+            ]
         }
     ],
     "version": 4

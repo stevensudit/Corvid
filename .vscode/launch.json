@@ -1,14 +1,14 @@
 {
-    "configurations": [
-        {
-          "name": "Type lldb (using CodeLLDB)",
-          "type": "lldb",
-          "request": "launch",
-          "program": "${fileDirname}/${fileBasenameNoExtension}.exe",
-          "args": [],
-          "stopOnEntry": false,
-          "cwd": "${workspaceFolder}",
-          "preLaunchTask": "build"
-      }
-    ]
+  "configurations": [
+    {
+      "name": "Type lldb (using CodeLLDB)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${fileDirname}/debug_bin/${fileBasenameNoExtension}",
+      "args": [],
+      "stopOnEntry": false,
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "clang-build"
+    }
+  ]
 }

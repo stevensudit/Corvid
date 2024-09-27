@@ -38,3 +38,6 @@
 # CMake
 CMakeFiles
 CMakeCache.txt
+
+# Test
+debug_bin

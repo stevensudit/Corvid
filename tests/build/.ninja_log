@@ -1,7 +1,0 @@
-# ninja log v6
-38	1002	7487361252614458	CMakeFiles/Corvid.dir/meta_test.cpp.obj	9a8d8a9180f4939b
-32	1133	7487361252544480	CMakeFiles/Corvid.dir/fixed_string_test.cpp.obj	da60da8050c32fbf
-71	1472	7487361252939605	CMakeFiles/Corvid.dir/timers_test.cpp.obj	ce0e819a763fb215
-13	1759	7487361252354406	CMakeFiles/Corvid.dir/circular_buffer_test.cpp.obj	1bea275601e73ead
-19	2534	7487361252414405	CMakeFiles/Corvid.dir/containers_test.cpp.obj	fab9d9401436a13
-62	2740	7487361252859599	CMakeFiles/Corvid.dir/strings_test.cpp.obj	5984fde44941e29d

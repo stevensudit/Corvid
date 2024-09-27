@@ -219,13 +219,13 @@ inline constexpr position point_past(position& pos, const char) noexcept {
 }
 inline constexpr position
 point_past(position& pos, const std::string_view& value) noexcept {
-  return pos += std::max(value_size(value), 1ull);
+  return pos += std::max(value_size(value), size_t{1});
 }
 template<typename T>
 constexpr position
 point_past(location& loc, std::span<const T> values) noexcept {
   assert(loc.pos_value < values.size());
-  loc.pos += std::max(value_size(values[loc.pos_value]), 1ull);
+  loc.pos += std::max(value_size(values[loc.pos_value]), size_t{1});
   return loc.pos;
 }
 inline constexpr position
@@ -612,7 +612,7 @@ inline size_t substitute(std::string& s,
     size_t from_size = from[loc.pos_value].size();
     s.replace(loc.pos, from_size, to[loc.pos_value]);
     size_t to_size = to[loc.pos_value].size() + (from_size ? 0 : 1);
-    loc.pos += std::max(to_size, 1ull);
+    loc.pos += std::max(to_size, size_t{1});
   }
   return cnt;
 }
