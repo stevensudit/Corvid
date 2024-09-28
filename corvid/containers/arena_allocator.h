@@ -103,7 +103,7 @@ class extensible_arena {
       // Ensure alignment by rounding up to the nearest multiple of 'align'.
       auto start_index = (size_ + align - 1) & ~(align - 1);
       auto past_index = start_index + n;
-      if (past_index >= capacity_) return nullptr;
+      if (past_index > capacity_) return nullptr;
       size_ = past_index;
       return data_ + start_index;
     }
@@ -113,7 +113,7 @@ class extensible_arena {
   // replaces with new block, chaining the rest.
   static void* allocate(pointer& head, size_t n, size_t align) {
     if (auto start = head->allocate(n, align)) return start;
-    auto new_head = list_node::make(std::min(head->capacity_, n));
+    auto new_head = list_node::make(std::max(head->capacity_, n));
     new_head->next_ = std::move(head);
     head = std::move(new_head);
     return head->allocate(n, align);

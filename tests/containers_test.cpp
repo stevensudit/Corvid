@@ -670,6 +670,22 @@ template class std::deque<std::string>;
 
 void InternTableTest_Basic() {
   if (true) {
+    // Test arena in isolation to reproduce corrected bugs.
+    extensible_arena arena{128};
+    extensible_arena::scope s{arena};
+
+    arena_string as_abc{"abc"};
+    arena_string as;
+
+    // This causes a new node to be allocated, which triggered a fencepost bug.
+    // That was compounded by a second bug, in which the new buffer was too
+    // small.
+    // TODO: We need proper isolated unit tests just for the arena header.
+    as.resize(256);
+    bool used_to_crash = as_abc > as;
+    EXPECT_TRUE(used_to_crash);
+  }
+  if (true) {
     extensible_arena arena{4096};
     extensible_arena::scope s{arena};
     //  using arena_value_t = SIT::arena_value_t;
@@ -741,8 +757,7 @@ void InternTableTest_Basic() {
 
     auto iv = sit("abc"s);
     EXPECT_FALSE(iv);
-    // TODO: Why does this throw when `const char*`?
-    iv = sit.intern("abc"s);
+    iv = sit.intern("abc");
     EXPECT_TRUE(iv);
     EXPECT_EQ(iv.id(), string_id{1});
     EXPECT_EQ(iv.value(), "abc");
@@ -1196,5 +1211,3 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
 // templated arguments. The third is just a named thing that's defaulted to
 // void and then the requires clause requires it to be void. Then we add a
 // bunch of deduction guides that set the must-be-void to something else.
-#if 0
-#endif
