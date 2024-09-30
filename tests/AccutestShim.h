@@ -11,11 +11,19 @@ concept OStreamable = requires(T t, std::ostream& os) { os << t; };
 
 auto inline stream_to_text(const auto& v) {
   std::ostringstream os;
+  using V = std::remove_cvref_t<decltype(v)>;
   if constexpr (!OStreamable<decltype(v)>) {
     for (const auto& e : v) {
       if (!os.str().empty()) os << ", ";
       os << e;
     }
+  } else if constexpr (std::is_void_v<V> || std::is_same_v<V, const void*>) {
+    os << "{}";
+  } else if constexpr (std::is_pointer_v<V>) {
+    if (v)
+      os << *v;
+    else
+      os << "{}";
   } else {
     os << v;
   }

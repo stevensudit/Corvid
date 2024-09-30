@@ -18,6 +18,7 @@
 #pragma once
 #include <array>
 #include <bit>
+#include <cstdlib>
 #include <memory>
 #include <optional>
 #include <string>

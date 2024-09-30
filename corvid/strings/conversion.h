@@ -21,6 +21,62 @@
 
 namespace corvid::strings { inline namespace conversion {
 
+inline namespace cvt_fix_from_chars {
+
+#ifdef _LIBCPP_VERSION
+
+// Ugly workaround for the fact that std::from_chars is not available in
+// libstdc++. Does not honor `fmt`.
+template<typename T>
+std::from_chars_result std_from_chars(const char* first, const char* last,
+    T& value, std::chars_format fmt = std::chars_format::general) {
+  std::string str(first, last);
+  (void)fmt;
+  try {
+    size_t idx;
+
+    // Use if constexpr to select the correct parsing function based on the
+    // type T
+    if constexpr (std::is_same_v<T, float>) {
+      value = std::stof(str, &idx);
+    } else if constexpr (std::is_same_v<T, double>) {
+      value = std::stod(str, &idx);
+    } else {
+      static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>,
+          "Unsupported type. Only float and double are supported.");
+    }
+
+    std::from_chars_result result;
+    result.ptr = first + idx;
+
+    // Check if the entire input was processed
+    if (result.ptr == last) {
+      result.ec = std::errc(); // No error
+    } else {
+      result.ec = std::errc::invalid_argument; // Extra unprocessed characters
+    }
+    return result;
+  }
+  catch (const std::invalid_argument&) {
+    return {first, std::errc::invalid_argument}; // Invalid conversion
+  }
+  catch (const std::out_of_range&) {
+    return {first, std::errc::result_out_of_range}; // Value out of range
+  }
+}
+#else
+
+// Passthrough for gcc.
+template<typename T>
+std::from_chars_result std_from_chars(const char* first, const char* last,
+    T& value, std::chars_format fmt = std::chars_format::general) {
+  return std::from_chars(first, last, value, fmt);
+}
+
+#endif
+
+} // namespace cvt_fix_from_chars
+
 //
 // Numerical conversions
 //
@@ -148,7 +204,7 @@ template<std::chars_format fmt = std::chars_format::general>
 constexpr bool extract_num(std::floating_point auto& t, std::string_view& sv) {
   const auto save_sv = sv;
   sv = trim_left(sv);
-  auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t, fmt);
+  auto [ptr, ec] = std_from_chars(sv.data(), sv.data() + sv.size(), t, fmt);
   sv.remove_prefix(ptr - sv.data());
   if (ec == std::errc{}) return true;
   sv = save_sv;
@@ -277,7 +333,6 @@ auto& append_stream(AppendTarget auto& target, const OStreamable auto& t) {
   return target;
 }
 } // namespace cvt_stream
-
 }} // namespace corvid::strings::conversion
 
 // Append scoped enum to `os`.

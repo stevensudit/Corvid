@@ -35,7 +35,7 @@ std::string type_name() {
 #else
       nullptr,
 #endif
-      std::free);
+      [](void* ptr) { free(ptr); });
   std::string r = own ? own.get() : typeid(TR).name();
   if (std::is_const_v<TR>) r += " const";
   if (std::is_volatile_v<TR>) r += " volatile";

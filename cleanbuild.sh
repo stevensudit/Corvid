@@ -37,5 +37,15 @@ cmake -G "Ninja" ..
 # Run the build (this will compile everything from scratch)
 cmake --build .. --config Release
 
+# Loop through each file in the current directory
+for file in *; do
+  # Check if the file is an executable and a regular file (not a directory or symlink)
+  if [[ -x "$file" && -f "$file" ]]; then
+    echo "Executing $file..."
+    ./"$file"
+    echo "$file finished execution."
+  fi
+done
+
 # Navigate back to the original directory after building
 cd ..

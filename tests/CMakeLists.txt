@@ -21,7 +21,15 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/release_bin")
 
 # Source files
 file(GLOB_RECURSE SOURCES "*.cpp")
-add_executable(Corvid ${SOURCES})
 
-# Link libc++ and libc++abi explicitly
-target_link_libraries(Corvid PRIVATE c++ c++abi)
+# Loop through each source file and create a separate executable
+foreach(SOURCE_FILE ${SOURCES})
+    # Get the base name (e.g., test1 from test1.cpp)
+    get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
+
+    # Add executable for each source file
+    add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
+
+    # Link libc++ and libc++abi explicitly
+    target_link_libraries(${EXECUTABLE_NAME} PRIVATE c++ c++abi)
+endforeach()

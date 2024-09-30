@@ -16,3 +16,5 @@ h. strings_test needs more tests.
 
   // TODO: Fix splitter, working on adding a filter predicate and perhaps
   // allowing assignment to arbitrary containers.
+
+Add clang-tidy!
