@@ -38,6 +38,10 @@
 # CMake
 CMakeFiles
 CMakeCache.txt
+.ninja_deps
+.ninja_log
+build.ninja
+cmake_install.cmake
 
 # Test
 debug_bin
