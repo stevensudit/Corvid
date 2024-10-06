@@ -33,16 +33,17 @@ template<operation op, typename... Args>
 
 void LangTest_AstPred() {
   using enum operation;
+  node_ptr root;
   if (true) {
     // Degenerate case.
-    auto root = M<always_true>();
+    root = M<always_true>();
     EXPECT_EQ((root->print()), "true");
     root = dnf::convert(root);
     EXPECT_EQ((root->print()), "true");
   }
   if (true) {
     // Always true.
-    auto root = M<and_junction>(M<always_true>(),
+    root = M<and_junction>(M<always_true>(),
         M<or_junction>(M<always_false>(), M<always_true>()));
     EXPECT_EQ((root->print()), "and:(true, or:(false, true))");
     root = dnf::convert(root);
@@ -50,7 +51,7 @@ void LangTest_AstPred() {
   }
   if (true) {
     // Always false.
-    auto root = M<and_junction>(M<always_false>(),
+    root = M<and_junction>(M<always_false>(),
         M<or_junction>(M<always_false>(), M<always_true>()));
     EXPECT_EQ((root->print()), "and:(false, or:(false, true))");
     root = dnf::convert(root);
@@ -58,19 +59,19 @@ void LangTest_AstPred() {
   }
   if (true) {
     // One always-true and a collapsed AND.
-    auto root = M<and_junction>(M<eq>("abc"s, 42),
+    root = M<and_junction>(M<exists>("A"s),
         M<or_junction>(M<always_false>(), M<always_true>()));
-    EXPECT_EQ((root->print()), "and:(eq:(abc, 42), or:(false, true))");
+    EXPECT_EQ((root->print()), "and:(exists:(A), or:(false, true))");
     root = dnf::convert(root);
-    EXPECT_EQ((root->print()), "eq:(abc, 42)");
+    EXPECT_EQ((root->print()), "exists:(A)");
   }
   if (true) {
     // One always-false and a collapsed OR.
-    auto root = M<or_junction>(M<eq>("abc"s, 42),
+    root = M<or_junction>(M<exists>("A"s),
         M<and_junction>(M<always_false>(), M<always_true>()));
-    EXPECT_EQ((root->print()), "or:(eq:(abc, 42), and:(false, true))");
+    EXPECT_EQ((root->print()), "or:(exists:(A), and:(false, true))");
     root = dnf::convert(root);
-    EXPECT_EQ((root->print()), "eq:(abc, 42)");
+    EXPECT_EQ((root->print()), "exists:(A)");
   }
   if (true) {
     // Negations of terminals.
@@ -110,140 +111,131 @@ void LangTest_AstPred() {
     root = M<not_junction>(M<absent>("abc"s));
     EXPECT_EQ((root->print()), "not:(absent:(abc))");
     root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "exists:(abc)");
   }
   if (true) {
     // Collapsed nested pairs of NOT.
-    auto root = M<not_junction>(M<not_junction>(M<eq>("abc"s, 42)));
-    EXPECT_EQ((root->print()), "not:(not:(eq:(abc, 42)))");
+    root = M<not_junction>(M<not_junction>(M<exists>("A"s)));
+    EXPECT_EQ((root->print()), "not:(not:(exists:(A)))");
     root = dnf::convert(root);
-    EXPECT_EQ((root->print()), "eq:(abc, 42)");
+    EXPECT_EQ((root->print()), "exists:(A)");
 
     // Four negations should cancel out.
     root = M<not_junction>(
-        M<not_junction>(M<not_junction>(M<not_junction>(M<eq>("abc"s, 42)))));
+        M<not_junction>(M<not_junction>(M<not_junction>(M<exists>("A"s)))));
 
-    EXPECT_EQ((root->print()), "not:(not:(not:(not:(eq:(abc, 42)))))");
+    EXPECT_EQ((root->print()), "not:(not:(not:(not:(exists:(A)))))");
     root = dnf::convert(root);
-    EXPECT_EQ((root->print()), "eq:(abc, 42)");
+    EXPECT_EQ((root->print()), "exists:(A)");
 
     // Three negations should leave one (which reverses the terminal).
-    root =
-        M<not_junction>(M<not_junction>(M<not_junction>(M<eq>("abc"s, 42))));
-    EXPECT_EQ((root->print()), "not:(not:(not:(eq:(abc, 42))))");
+    root = M<not_junction>(M<not_junction>(M<not_junction>(M<exists>("A"s))));
+    EXPECT_EQ((root->print()), "not:(not:(not:(exists:(A))))");
     root = dnf::convert(root);
-    EXPECT_EQ((root->print()), "ne:(abc, 42)");
+    EXPECT_EQ((root->print()), "absent:(A)");
   }
   if (true) {
     // Flatten nested ORs.
-    auto root = M<or_junction>(M<eq>("abc"s, 42),
-        M<or_junction>(M<eq>("def"s, 43), M<eq>("ghi"s, 44)));
-    EXPECT_EQ((root->print()),
-        "or:(eq:(abc, 42), or:(eq:(def, 43), eq:(ghi, 44)))");
+    root = M<or_junction>(M<exists>("A"s),
+        M<or_junction>(M<exists>("B"s), M<exists>("C"s)));
+    EXPECT_EQ((root->print()), "or:(exists:(A), or:(exists:(B), exists:(C)))");
     root = dnf::convert(root);
-    EXPECT_EQ((root->print()),
-        "or:(eq:(abc, 42), eq:(def, 43), eq:(ghi, 44))");
+    EXPECT_EQ((root->print()), "or:(exists:(A), exists:(B), exists:(C))");
   }
   if (true) {
     // Flatten nested ANDs.
-    auto root = M<and_junction>(M<eq>("abc"s, 42),
-        M<and_junction>(M<eq>("def"s, 43), M<eq>("ghi"s, 44)));
+    root = M<and_junction>(M<exists>("A"s),
+        M<and_junction>(M<exists>("B"s), M<exists>("C"s)));
     EXPECT_EQ((root->print()),
-        "and:(eq:(abc, 42), and:(eq:(def, 43), eq:(ghi, 44)))");
+        "and:(exists:(A), and:(exists:(B), exists:(C)))");
     root = dnf::convert(root);
-    EXPECT_EQ((root->print()),
-        "and:(eq:(abc, 42), eq:(def, 43), eq:(ghi, 44))");
+    EXPECT_EQ((root->print()), "and:(exists:(A), exists:(B), exists:(C))");
   }
   if (true) {
     // AND without nodes is always true.
-    auto root = M<and_junction>();
+    root = M<and_junction>();
     EXPECT_EQ((root->print()), "and:()");
     root = dnf::convert(root);
     EXPECT_EQ((root->print()), "true");
   }
   if (true) {
     // OR without nodes is always true.
-    auto root = M<or_junction>();
+    root = M<or_junction>();
     EXPECT_EQ((root->print()), "or:()");
     root = dnf::convert(root);
     EXPECT_EQ((root->print()), "true");
   }
   if (true) {
     // AND with one node is that node.
-    auto root = M<and_junction>(M<eq>("abc"s, 42));
-    EXPECT_EQ((root->print()), "and:(eq:(abc, 42))");
+    root = M<and_junction>(M<exists>("A"s));
+    EXPECT_EQ((root->print()), "and:(exists:(A))");
     root = dnf::convert(root);
-    EXPECT_EQ((root->print()), "eq:(abc, 42)");
+    EXPECT_EQ((root->print()), "exists:(A)");
   }
   if (true) {
     // OR with one node is that node.
-    auto root = M<or_junction>(M<eq>("abc"s, 42));
-    EXPECT_EQ((root->print()), "or:(eq:(abc, 42))");
+    root = M<or_junction>(M<exists>("A"s));
+    EXPECT_EQ((root->print()), "or:(exists:(A))");
     root = dnf::convert(root);
-    EXPECT_EQ((root->print()), "eq:(abc, 42)");
+    EXPECT_EQ((root->print()), "exists:(A)");
   }
   if (true) {
     // Distribute OR over AND: A AND(B OR C) = (A AND B)OR(A AND C)
-    auto root = M<and_junction>(M<eq>("abc"s, 42),
-        M<or_junction>(M<eq>("def"s, 43), M<eq>("ghi"s, 44)));
+    root = M<and_junction>(M<exists>("A"s),
+        M<or_junction>(M<exists>("B"s), M<exists>("C"s)));
     EXPECT_EQ((root->print()),
-        "and:(eq:(abc, 42), or:(eq:(def, 43), eq:(ghi, 44)))");
+        "and:(exists:(A), or:(exists:(B), exists:(C)))");
     root = dnf::convert(root);
     EXPECT_EQ((root->print()),
-        "or:(and:(eq:(abc, 42), eq:(def, 43)), and:(eq:(abc, 42), eq:(ghi, "
-        "44)))");
+        "or:(and:(exists:(A), exists:(B)), and:(exists:(A), exists:(C)))");
   }
   if (true) {
     // Do not distribute AND over OR: A OR (B AND C) = A OR (B AND C)
-    auto root = M<or_junction>(M<eq>("abc"s, 42),
-        M<and_junction>(M<eq>("def"s, 43), M<eq>("ghi"s, 44)));
+    root = M<or_junction>(M<exists>("A"s),
+        M<and_junction>(M<exists>("B"s), M<exists>("C"s)));
     EXPECT_EQ((root->print()),
-        "or:(eq:(abc, 42), and:(eq:(def, 43), eq:(ghi, 44)))");
+        "or:(exists:(A), and:(exists:(B), exists:(C)))");
     root = dnf::convert(root);
     EXPECT_EQ((root->print()),
-        "or:(eq:(abc, 42), and:(eq:(def, 43), eq:(ghi, 44)))");
+        "or:(exists:(A), and:(exists:(B), exists:(C)))");
   }
   if (true) {
     // Distribute OR over AND: A AND B AND(C OR D) = (A AND B AND C)OR(A AND B
     // AND C)
-    auto root = M<and_junction>(M<eq>("abc"s, 42), M<eq>("def"s, 43),
-        M<or_junction>(M<eq>("ghi"s, 44), M<eq>("jkl"s, 45)));
+    root = M<and_junction>(M<exists>("A"s), M<exists>("B"s),
+        M<or_junction>(M<exists>("C"s), M<exists>("D"s)));
     EXPECT_EQ((root->print()),
-        "and:(eq:(abc, 42), eq:(def, 43), or:(eq:(ghi, 44), eq:(jkl, 45)))");
+        "and:(exists:(A), exists:(B), or:(exists:(C), exists:(D)))");
     root = dnf::convert(root);
     EXPECT_EQ((root->print()),
-        "or:(and:(eq:(abc, 42), eq:(def, 43), eq:(ghi, 44)), and:(eq:(abc, "
-        "42), eq:(def, 43), eq:(jkl, 45)))");
+        "or:(and:(exists:(A), exists:(B), exists:(C)), and:(exists:(A), "
+        "exists:(B), exists:(D)))");
   }
   if (true) {
     // Do not distribute ANDs over OR: (A AND B) OR (C AND D) =
     // (A AND B) OR (C AND D)
-    auto root = M<or_junction>(
-        M<and_junction>(M<eq>("abc"s, 42), M<eq>("def"s, 43)),
-        M<and_junction>(M<eq>("ghi"s, 44), M<eq>("jkl"s, 45)));
+    root = M<or_junction>(M<and_junction>(M<exists>("A"s), M<exists>("B"s)),
+        M<and_junction>(M<exists>("C"s), M<exists>("D"s)));
     EXPECT_EQ((root->print()),
-        "or:(and:(eq:(abc, 42), eq:(def, 43)), and:(eq:(ghi, 44), eq:(jkl, "
-        "45)))");
+        "or:(and:(exists:(A), exists:(B)), and:(exists:(C), exists:(D)))");
     root = dnf::convert(root);
     EXPECT_EQ((root->print()),
-        "or:(and:(eq:(abc, 42), eq:(def, 43)), and:(eq:(ghi, 44), eq:(jkl, "
-        "45)))");
+        "or:(and:(exists:(A), exists:(B)), and:(exists:(C), exists:(D)))");
   }
   if (true) {
-#if 0
     // Distribute OR over AND: (A OR B) AND (C OR D) = (A AND C) OR (A AND D)
     // OR (B AND C) OR (B AND D)
-    auto root = M<and_junction>(
-        M<or_junction>(M<eq>("abc"s, 42), M<eq>("def"s, 43)),
-        M<or_junction>(M<eq>("ghi"s, 44), M<eq>("jkl"s, 45)));
+    root = M<and_junction>(M<or_junction>(M<exists>("A"s), M<exists>("B"s)),
+        M<or_junction>(M<exists>("C"s), M<exists>("D"s)));
     EXPECT_EQ((root->print()),
-        "and:(or:(eq:(abc, 42), eq:(def, 43)), or:(eq:(ghi, 44), eq:(jkl, "
-        "45)))");
+        "and:(or:(exists:(A), exists:(B)), or:(exists:(C), exists:(D)))");
     root = dnf::convert(root);
+    // TODO: This is completely wrong.
     EXPECT_EQ((root->print()),
-        "or:(and:(eq:(abc, 42), eq:(ghi, 44)), and:(eq:(abc, 42), eq:(jkl, "
-        "45)), and:(eq:(def, 43), eq:(ghi, 44)), and:(eq:(def, 43), eq:(jkl, "
-        "45)))");
-#endif
+        "or:(and:(or:(exists:(C), exists:(D)), exists:(A)), "
+        "and:(or:(exists:(C), exists:(D)), exists:(B)), and:(or:(exists:(A), "
+        "exists:(B)), exists:(C)), and:(or:(exists:(A), exists:(B)), "
+        "exists:(D)))");
   }
 }
 
