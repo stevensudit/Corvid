@@ -90,6 +90,9 @@ struct map_lookup: public lookup {
   string_map<any_value> m;
 };
 
+// TODO: See if forward declaration allows us to move the convenient usings up
+// here.
+
 // AST predicate node.
 struct node: public std::enable_shared_from_this<node> {
 protected:
@@ -156,6 +159,18 @@ public:
     }
     return true;
   }
+
+  static bool
+  print(std::string& out, const std::vector<std::shared_ptr<node>>& nodes) {
+    strings::append(out, ":(");
+    for (const auto& n : nodes) {
+      n->append(out);
+      strings::append(out, ", ");
+    }
+    if (!nodes.empty()) out.resize(out.size() - 2);
+    strings::append(out, ')');
+    return true;
+  }
 };
 
 // Shared pointer to AST predicate root, internal, or leaf node.
@@ -183,14 +198,7 @@ struct junction: public node {
 
   bool append(std::string& out) const override {
     node::append(out);
-    strings::append(out, ":(");
-    for (const auto& n : nodes) {
-      n->append(out);
-      strings::append(out, ", ");
-    }
-    if (!nodes.empty()) out.resize(out.size() - 2);
-    strings::append(out, ')');
-    return true;
+    return print(out, nodes);
   }
 
   node_list nodes;
@@ -322,11 +330,14 @@ template<operation op, typename... Args>
 }
 
 // Disjunctive Normal Form (DNF) conversion.
+//
+// Performs some optimizations and simplifications.
 class dnf {
 public:
   static node_ptr convert(const node_ptr& root) { return handle(root); }
 
 private:
+  // Recursively rebuild subtree from this root down.
   static node_ptr handle(const node_ptr& root) {
     switch (root->op) {
     case operation::and_junction:
@@ -394,61 +405,94 @@ private:
     };
   }
 
+  // Accumulate distributions.
+  //
+  // On input, `distribution` is a list of AND nodes (that will ultimately be
+  // ORed together). Distributes `source` against these, returning a new list
+  // of AND nodes, multiplied by the size of `source`.
+  static node_list distribute_or_values(const node_list& distribution,
+      const std::shared_ptr<or_node>& source) {
+    node_list accumulated;
+
+    // Distribute each `or_child` across the `distribution`.
+    for (const auto& or_child : source->nodes) {
+      for (const auto& dist_child : distribution) {
+        // Otherwise, just add the two nodes.
+        // TODO: Try to do this with initializers or something.
+        node_list new_nodes;
+        auto inner_and = std::dynamic_pointer_cast<and_node>(dist_child);
+        for (const auto& node : inner_and->nodes) {
+          // Flatten nested ANDs.
+          if (node->op == operation::and_junction) {
+            auto inner_inner_and = std::dynamic_pointer_cast<and_node>(node);
+            new_nodes.insert(new_nodes.end(), inner_inner_and->nodes.begin(),
+                inner_inner_and->nodes.end());
+          } else
+            new_nodes.push_back(node);
+        }
+        new_nodes.push_back(or_child);
+        accumulated.push_back(
+            make<operation::and_junction>(std::move(new_nodes)));
+      }
+    }
+    return accumulated;
+  }
+
   // Handle the children of an AND.
   static node_ptr handle_conjunction(const node_list& nodes) {
-    // Build converted list, scanning for the types created.
-    node_list converted_nodes;
-    bool has_or{};
+    // Convert each node, splitting into a list of OR's and the rest.
+    node_list converted_nodes, converted_or_nodes;
     for (const auto& n : nodes) {
       auto converted = convert(n);
-      // An always-true true node cannot contribute to the result.
+      // An always-true node cannot contribute to the result.
       if (converted->op == operation::always_true) continue;
       // An always-false node will always result in false.
       if (converted->op == operation::always_false)
         return make<operation::always_false>();
       // Target for special handling if an OR is found.
-      if (converted->op == operation::or_junction) has_or = true;
+      if (converted->op == operation::or_junction) {
+        converted_or_nodes.push_back(std::move(converted));
+        continue;
+      }
       // Flatten nested ANDs.
       if (converted->op == operation::and_junction) {
         auto inner_and = std::dynamic_pointer_cast<and_node>(converted);
-        // TODO: Perhaps used append directly.
-        for (const auto& child : inner_and->nodes)
-          converted_nodes.push_back(child);
-      } else
+        converted_nodes.insert(converted_nodes.end(), inner_and->nodes.begin(),
+            inner_and->nodes.end());
+      } else {
         converted_nodes.push_back(std::move(converted));
+      }
     }
 
     // If no nodes, then the result is always true.
-    if (converted_nodes.empty()) return make<operation::always_true>();
-    // If just one, then use that.
-    if (converted_nodes.size() == 1) return converted_nodes.front();
+    if (converted_nodes.empty() && converted_or_nodes.empty())
+      return make<operation::always_true>();
 
-    // If no special handling, then just recreate the AND node with the
+    // If just one, then use that.
+    if (converted_nodes.size() == 1 && converted_or_nodes.size() == 0)
+      return converted_nodes.front();
+    if (converted_nodes.size() == 0 && converted_or_nodes.size() == 1)
+      return converted_or_nodes.front();
+
+    // If no OR nodes to distribute, just recreate the AND node with the
     // converted children.
-    // TODO: Can we also bail if there are only OR nodes?
-    if (!has_or)
+    if (converted_or_nodes.empty())
       return make<operation::and_junction>(std::move(converted_nodes));
 
-    // Distribute OR over AND: A AND(B OR C) = (A AND B)OR(A AND C)
-    node_list new_nodes;
-    for (const auto& converted : converted_nodes) {
-      // Children that aren't OR nodes are distributed over the rest.
-      if (converted->op != operation::or_junction) continue;
+    // Distribute OR over AND
+    // Start with a single AND node with all of the non-OR nodes. This will be
+    // multiplied by the children of the OR nodes.
+    node_list accumulated;
+    accumulated.push_back(
+        make<operation::and_junction>(std::move(converted_nodes)));
 
-      // Children that are OR nodes are distributed over the other children.
-      auto inner_or = std::dynamic_pointer_cast<or_node>(converted);
-      // Iterate over children and create new AND nodes.
-      for (const auto& child : inner_or->nodes) {
-        node_list and_nodes{};
-        for (const auto& other_child : converted_nodes) {
-          if (other_child != converted) and_nodes.push_back(other_child);
-        }
-        and_nodes.push_back(child);
-        new_nodes.push_back(
-            make<operation::and_junction>(std::move(and_nodes)));
-      }
+    // Distribute the OR nodes over the other nodes, iteratively.
+    for (const auto& converted_or_node : converted_or_nodes) {
+      auto inner_or = std::dynamic_pointer_cast<or_node>(converted_or_node);
+      accumulated = distribute_or_values(accumulated, inner_or);
     }
-    return make<operation::or_junction>(std::move(new_nodes));
+
+    return make<operation::or_junction>(std::move(accumulated));
   }
 
   // Handle the children of an OR.
@@ -471,12 +515,13 @@ private:
         converted_nodes.push_back(std::move(converted));
     }
 
-    // If no nodes, then the result is always true.
-    if (converted_nodes.empty()) return make<operation::always_true>();
+    // If no nodes, then the result is always false.
+    if (converted_nodes.empty()) return make<operation::always_false>();
     // If just one, then use that.
     if (converted_nodes.size() == 1) return converted_nodes.front();
 
-    // Don't distribute terms because that would move us towards CNF, not DNF.
+    // Don't distribute these terms because that would move us towards CNF, not
+    // DNF.
     return make<operation::or_junction>(std::move(converted_nodes));
   }
 };
@@ -484,11 +529,6 @@ private:
 
 // TODO: Properly register the variants so that they can be printed as JSON
 // without all of these helper functions.
-// TODO: Consider implementing negated operations as two layers. In other
-// words, GE is just NOT LT.
-// TODO: Change ctors to take an enum to allow construction, then expose a
-// factor function that takes the type and forwards all. This way, you can't
-// accidentally construct an instance.
-// TODO: Consider applying NOT to comparisons by negating them.
-// TODO: Combine nested ANDs and ORs.
-// TODO: Turn tautologies into always-true or always-false nodes.
+// TODO: Turn tautologies into always-true or always-false nodes. This is easy
+// for always_true and always_false, but we need to be able to determine if an
+// equality is mutually exclusive.

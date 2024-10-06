@@ -35,6 +35,8 @@ void LangTest_AstPred() {
   using enum operation;
   node_ptr root;
   if (true) {
+  }
+  if (true) {
     // Degenerate case.
     root = M<always_true>();
     EXPECT_EQ((root->print()), "true");
@@ -159,11 +161,11 @@ void LangTest_AstPred() {
     EXPECT_EQ((root->print()), "true");
   }
   if (true) {
-    // OR without nodes is always true.
+    // OR without nodes is always false.
     root = M<or_junction>();
     EXPECT_EQ((root->print()), "or:()");
     root = dnf::convert(root);
-    EXPECT_EQ((root->print()), "true");
+    EXPECT_EQ((root->print()), "false");
   }
   if (true) {
     // AND with one node is that node.
@@ -223,19 +225,166 @@ void LangTest_AstPred() {
         "or:(and:(exists:(A), exists:(B)), and:(exists:(C), exists:(D)))");
   }
   if (true) {
-    // Distribute OR over AND: (A OR B) AND (C OR D) = (A AND C) OR (A AND D)
-    // OR (B AND C) OR (B AND D)
+    // Distribute OR over AND: (A OR B) AND (C OR D) =
+    // (A AND C) OR (A AND D) OR (B AND C) OR (B AND D)
     root = M<and_junction>(M<or_junction>(M<exists>("A"s), M<exists>("B"s)),
         M<or_junction>(M<exists>("C"s), M<exists>("D"s)));
     EXPECT_EQ((root->print()),
         "and:(or:(exists:(A), exists:(B)), or:(exists:(C), exists:(D)))");
     root = dnf::convert(root);
-    // TODO: This is completely wrong.
     EXPECT_EQ((root->print()),
-        "or:(and:(or:(exists:(C), exists:(D)), exists:(A)), "
-        "and:(or:(exists:(C), exists:(D)), exists:(B)), and:(or:(exists:(A), "
-        "exists:(B)), exists:(C)), and:(or:(exists:(A), exists:(B)), "
-        "exists:(D)))");
+        "or:(and:(exists:(A), exists:(C)), and:(exists:(B), exists:(C)), "
+        "and:(exists:(A), exists:(D)), and:(exists:(B), exists:(D)))");
+  }
+  if (true) {
+    // Test Case 1: Simple AND of two literals
+    root = M<and_junction>(M<exists>("A"s), M<exists>("B"s));
+    EXPECT_EQ((root->print()), "and:(exists:(A), exists:(B))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "and:(exists:(A), exists:(B))");
+
+    // Test Case 2: Simple OR of two literals
+    root = M<or_junction>(M<exists>("A"s), M<exists>("B"s));
+    EXPECT_EQ((root->print()), "or:(exists:(A), exists:(B))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "or:(exists:(A), exists:(B))");
+
+    // Test Case 3: AND of an OR and a literal
+    root = M<and_junction>(M<or_junction>(M<exists>("A"s), M<exists>("B"s)),
+        M<exists>("C"s));
+    EXPECT_EQ((root->print()),
+        "and:(or:(exists:(A), exists:(B)), exists:(C))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()),
+        "or:(and:(exists:(C), exists:(A)), and:(exists:(C), exists:(B)))");
+
+    // Test Case 4: OR of two ANDs
+    auto root = M<or_junction>(
+        M<and_junction>(M<exists>("A"s), M<exists>("B"s)),
+        M<and_junction>(M<exists>("C"s), M<exists>("D"s)));
+    EXPECT_EQ((root->print()),
+        "or:(and:(exists:(A), exists:(B)), and:(exists:(C), exists:(D)))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()),
+        "or:(and:(exists:(A), exists:(B)), and:(exists:(C), exists:(D)))");
+
+    // Test Case 5: Nested ANDs and ORs (complex distribution)
+    root = M<and_junction>(M<or_junction>(M<exists>("A"s), M<exists>("B"s)),
+        M<or_junction>(M<exists>("C"s), M<exists>("D"s)));
+    EXPECT_EQ((root->print()),
+        "and:(or:(exists:(A), exists:(B)), or:(exists:(C), exists:(D)))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()),
+        "or:(and:(exists:(A), exists:(C)), and:(exists:(B), exists:(C)), "
+        "and:(exists:(A), exists:(D)), and:(exists:(B), exists:(D)))");
+
+    // Test Case 6: AND of three literals
+    root = M<and_junction>(M<exists>("A"s), M<exists>("B"s), M<exists>("C"s));
+    EXPECT_EQ((root->print()), "and:(exists:(A), exists:(B), exists:(C))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "and:(exists:(A), exists:(B), exists:(C))");
+
+    // Test Case 7: OR of three literals
+    root = M<or_junction>(M<exists>("A"s), M<exists>("B"s), M<exists>("C"s));
+    EXPECT_EQ((root->print()), "or:(exists:(A), exists:(B), exists:(C))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "or:(exists:(A), exists:(B), exists:(C))");
+
+    // Test Case 8: AND of two ORs
+    root = M<and_junction>(M<or_junction>(M<exists>("A"s), M<exists>("B"s)),
+        M<or_junction>(M<exists>("X"s), M<exists>("Y"s)));
+    EXPECT_EQ((root->print()),
+        "and:(or:(exists:(A), exists:(B)), or:(exists:(X), exists:(Y)))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()),
+        "or:(and:(exists:(A), exists:(X)), and:(exists:(B), exists:(X)), "
+        "and:(exists:(A), exists:(Y)), and:(exists:(B), exists:(Y)))");
+
+    // Test Case 9: Single literal
+    root = M<exists>("A"s);
+    EXPECT_EQ((root->print()), "exists:(A)");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "exists:(A)");
+
+    // Test Case 10: OR of nested ANDs
+    root = M<or_junction>(M<and_junction>(M<exists>("A"s), M<exists>("B"s)),
+        M<or_junction>(M<exists>("C"s), M<exists>("D"s)));
+    EXPECT_EQ((root->print()),
+        "or:(and:(exists:(A), exists:(B)), or:(exists:(C), exists:(D)))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()),
+        "or:(and:(exists:(A), exists:(B)), exists:(C), exists:(D))");
+
+    // New Test Case 11: Flatten nested ANDs
+    root = M<and_junction>(M<and_junction>(M<exists>("A"s), M<exists>("B"s)),
+        M<exists>("C"s));
+    EXPECT_EQ((root->print()),
+        "and:(and:(exists:(A), exists:(B)), exists:(C))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "and:(exists:(A), exists:(B), exists:(C))");
+
+    // New Test Case 12: Removing always_true nodes
+    root = M<and_junction>(M<exists>("A"s), M<always_true>());
+    EXPECT_EQ((root->print()), "and:(exists:(A), true)");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "exists:(A)");
+
+    // New Test Case 13: Removing always_false nodes
+    root = M<or_junction>(M<exists>("A"s), M<always_false>());
+    EXPECT_EQ((root->print()), "or:(exists:(A), false)");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "exists:(A)");
+
+    // mini-14 for reduction:
+    root = M<and_junction>(M<or_junction>(M<exists>("D"s),
+        M<or_junction>(M<exists>("E"s), M<exists>("F"s))));
+    EXPECT_EQ((root->print()),
+        "and:(or:(exists:(D), or:(exists:(E), exists:(F))))");
+    root = dnf::convert(root);
+    // Note that it gave the wrong answer.
+    EXPECT_EQ((root->print()), "or:(exists:(D), exists:(E), exists:(F))");
+
+    // New Test Case 14: Deep tree (torture test)
+    root = M<and_junction>(
+        M<or_junction>(M<exists>("A"s),
+            M<and_junction>(M<exists>("B"s), M<exists>("C"s))),
+        M<or_junction>(M<exists>("D"s),
+            M<or_junction>(M<exists>("E"s), M<exists>("F"s))));
+    EXPECT_EQ((root->print()),
+        "and:(or:(exists:(A), and:(exists:(B), exists:(C))), or:(exists:(D), "
+        "or:(exists:(E), exists:(F))))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()),
+        "or:(and:(exists:(A), exists:(D)), and:(exists:(B), exists:(C), "
+        "exists:(D)), and:(exists:(A), exists:(E)), and:(exists:(B), "
+        "exists:(C), exists:(E)), and:(exists:(A), exists:(F)), "
+        "and:(exists:(B), exists:(C), exists:(F)))");
+
+    // New Test Case 15: AND with zero predicates
+    root = M<and_junction>();
+    EXPECT_EQ((root->print()), "and:()");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "true");
+
+    // New Test Case 16: OR with zero predicates
+    root = M<or_junction>();
+    EXPECT_EQ((root->print()), "or:()");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "false");
+
+    // New Test Case 17: Regression failure scenario 1
+    root = M<and_junction>(M<exists>("A"s),
+        M<or_junction>(M<always_false>(), M<exists>("B"s)));
+    EXPECT_EQ((root->print()), "and:(exists:(A), or:(false, exists:(B)))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "and:(exists:(A), exists:(B))");
+
+    // New Test Case 18: Regression failure scenario 2
+    root = M<or_junction>(M<and_junction>(M<exists>("A"s), M<always_false>()),
+        M<exists>("B"s));
+    EXPECT_EQ((root->print()), "or:(and:(exists:(A), false), exists:(B))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "exists:(B)");
   }
 }
 
