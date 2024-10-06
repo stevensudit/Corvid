@@ -166,15 +166,14 @@ void LangTest_AstPred() {
         "44)))");
   }
   if (true) {
-    // Distribute AND over OR: A OR (B AND C) = (A OR B) AND (A OR C)
+    // Do not distribute AND over OR: A OR (B AND C) = A OR (B AND C)
     auto root = M<or_junction>(M<eq>("abc"s, 42),
         M<and_junction>(M<eq>("def"s, 43), M<eq>("ghi"s, 44)));
     EXPECT_EQ((root->print()),
         "or:(eq:(abc, 42), and:(eq:(def, 43), eq:(ghi, 44)))");
     root = dnf::convert(root);
     EXPECT_EQ((root->print()),
-        "and:(or:(eq:(abc, 42), eq:(def, 43)), or:(eq:(abc, 42), eq:(ghi, "
-        "44)))");
+        "or:(eq:(abc, 42), and:(eq:(def, 43), eq:(ghi, 44)))");
   }
   if (true) {
     // Distribute OR over AND: A AND B AND(C OR D) = (A AND B AND C)OR(A AND B
@@ -187,6 +186,20 @@ void LangTest_AstPred() {
     EXPECT_EQ((root->print()),
         "or:(and:(eq:(abc, 42), eq:(def, 43), eq:(ghi, 44)), and:(eq:(abc, "
         "42), eq:(def, 43), eq:(jkl, 45)))");
+  }
+  if (true) {
+    // Do not distribute ANDs over OR: (A AND B) OR (C AND D) =
+    // (A AND B) OR (C AND D)
+    auto root = M<or_junction>(
+        M<and_junction>(M<eq>("abc"s, 42), M<eq>("def"s, 43)),
+        M<and_junction>(M<eq>("ghi"s, 44), M<eq>("jkl"s, 45)));
+    EXPECT_EQ((root->print()),
+        "or:(and:(eq:(abc, 42), eq:(def, 43)), and:(eq:(ghi, 44), eq:(jkl, "
+        "45)))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()),
+        "or:(and:(eq:(abc, 42), eq:(def, 43)), and:(eq:(ghi, 44), eq:(jkl, "
+        "45)))");
   }
 }
 

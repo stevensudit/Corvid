@@ -387,7 +387,6 @@ private:
   static node_ptr handle_disjunction(const node_list& nodes) {
     // Build converted list, scanning for the types created.
     node_list converted_nodes;
-    bool has_and{};
     for (const auto& n : nodes) {
       auto converted = convert(n);
       // An always-false node cannot contribute to the result.
@@ -395,8 +394,6 @@ private:
       // An always-true node will always result in true.
       if (converted->op == operation::always_true)
         return make<operation::always_true>();
-      // Target for special handling if an AND is found.
-      if (converted->op == operation::and_junction) has_and = true;
       // Flatten nested ORs.
       if (converted->op == operation::or_junction) {
         auto inner_or = std::dynamic_pointer_cast<or_node>(converted);
@@ -411,31 +408,8 @@ private:
     // If just one, then use that.
     if (converted_nodes.size() == 1) return converted_nodes.front();
 
-    // If no special handling, then just recreate the OR node with the
-    // converted children.
-    if (!has_and)
-      return make<operation::or_junction>(std::move(converted_nodes));
-
-    // Distribute AND over OR: A OR (B AND C) = (A OR B) AND (A OR C)
-    node_list new_nodes;
-    for (const auto& converted : converted_nodes) {
-      // Children that aren't AND nodes are distributed over the rest.
-      if (converted->op != operation::and_junction) continue;
-
-      // Children that are AND nodes are distributed over the other children.
-      auto inner_and = std::dynamic_pointer_cast<and_node>(converted);
-      // Iterate over children and create new OR nodes.
-      for (const auto& child : inner_and->nodes) {
-        node_list and_nodes;
-        for (const auto& other_child : converted_nodes) {
-          if (other_child != converted) and_nodes.push_back(other_child);
-        }
-        and_nodes.push_back(child);
-        new_nodes.push_back(
-            make<operation::or_junction>(std::move(and_nodes)));
-      }
-    }
-    return make<operation::and_junction>(std::move(new_nodes));
+    // Don't distribute terms because that would move us towards CNF, not DNF.
+    return make<operation::or_junction>(std::move(converted_nodes));
   }
 
   static node_ptr handle_negation(const node_ptr& root) {
