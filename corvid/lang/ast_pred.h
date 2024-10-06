@@ -25,7 +25,7 @@
 
 namespace corvid { inline namespace lang { namespace ast_pred {
 
-// Predicate Abstract Syntax Tree (AST) and transforms.
+// Predicate Abstract Syntax Tree (AST) and DNF transform.
 
 // Any single value for a key.
 using any_single_value = std::variant<std::monostate, std::string, int64_t>;
@@ -90,88 +90,8 @@ struct map_lookup: public lookup {
   string_map<any_value> m;
 };
 
-// TODO: See if forward declaration allows us to move the convenient usings up
-// here.
-
-// AST predicate node.
-struct node: public std::enable_shared_from_this<node> {
-protected:
-  enum class allow { ctor };
-
-public:
-  explicit node(allow, operation op) : op{op} {}
-  virtual ~node() = default;
-  virtual bool eval(const lookup& lk) const {
-    (void)lk;
-    return false;
-  };
-  virtual bool append(std::string& out) const {
-    strings::append_enum(out, op);
-    return true;
-  }
-  std::string print() const {
-    std::string out;
-    append(out);
-    return out;
-  }
-
-  const operation op;
-
-  template<operation op, typename... Args>
-  [[nodiscard]] static std::shared_ptr<node> make(Args&&... args);
-
-  static bool print(std::string& out, const any_single_value& value) {
-    if (std::holds_alternative<std::string>(value)) {
-      strings::append(out, '"', std::get<std::string>(value), '"');
-    } else if (std::holds_alternative<int64_t>(value)) {
-      strings::append_num(out, std::get<int64_t>(value));
-    } else {
-      strings::append(out, "null");
-    }
-    return true;
-  }
-
-  static bool print(std::string& out, const any_value& value) {
-    if (std::holds_alternative<any_single_value>(value)) {
-      return print(out, std::get<any_single_value>(value));
-    } else if (std::holds_alternative<std::vector<any_single_value>>(value)) {
-      const auto& values = std::get<std::vector<any_single_value>>(value);
-      strings::append(out, '[');
-      for (const auto& v : values) {
-        if (!print(out, v)) return false;
-        strings::append(out, ", ");
-      }
-      if (!values.empty()) out.resize(out.size() - 2);
-      strings::append(out, ']');
-    } else {
-      strings::append(out, "null");
-    }
-    return true;
-  }
-
-  static bool print(std::string& out, const key_or_value& value) {
-    if (std::holds_alternative<std::string>(value)) {
-      strings::append(out, std::get<std::string>(value));
-    } else if (std::holds_alternative<any_value>(value)) {
-      return print(out, std::get<any_value>(value));
-    } else {
-      strings::append(out, "null");
-    }
-    return true;
-  }
-
-  static bool
-  print(std::string& out, const std::vector<std::shared_ptr<node>>& nodes) {
-    strings::append(out, ":(");
-    for (const auto& n : nodes) {
-      n->append(out);
-      strings::append(out, ", ");
-    }
-    if (!nodes.empty()) out.resize(out.size() - 2);
-    strings::append(out, ')');
-    return true;
-  }
-};
+// Forward declaration of node.
+struct node;
 
 // Shared pointer to AST predicate root, internal, or leaf node.
 using node_ptr = std::shared_ptr<node>;
@@ -189,16 +109,108 @@ concept node_ptr_type =
     std::is_same_v<std::shared_ptr<typename T::element_type>, T> &&
     node_type<typename T::element_type>;
 
+// AST predicate node.
+//
+// Construct using `make` factory function.
+struct node: public std::enable_shared_from_this<node> {
+protected:
+  enum class allow { ctor };
+
+public:
+  explicit node(allow, operation op) : op{op} {}
+  virtual ~node() = default;
+  virtual bool eval(const lookup& lk) const {
+    (void)lk;
+    return false;
+  }
+  virtual bool append(std::string& out) const {
+    strings::append_enum(out, op);
+    return true;
+  }
+  std::string print() const {
+    std::string out;
+    append(out);
+    return out;
+  }
+
+  const operation op;
+
+  template<operation op, typename... Args>
+  [[nodiscard]] static std::shared_ptr<node> make(Args&&... args);
+
+  static bool dump(std::string& out, const any_single_value& value) {
+    if (std::holds_alternative<std::string>(value))
+      strings::append(out, '"', std::get<std::string>(value), '"');
+    else if (std::holds_alternative<int64_t>(value))
+      strings::append_num(out, std::get<int64_t>(value));
+    else
+      strings::append(out, "null");
+    return true;
+  }
+
+  static bool dump(std::string& out, const any_value& value) {
+    if (std::holds_alternative<any_single_value>(value))
+      return dump(out, std::get<any_single_value>(value));
+    if (std::holds_alternative<std::vector<any_single_value>>(value)) {
+      const auto& values = std::get<std::vector<any_single_value>>(value);
+      strings::append(out, '[');
+      for (const auto& v : values) {
+        if (!dump(out, v)) return false;
+        strings::append(out, ", ");
+      }
+      if (!values.empty()) out.resize(out.size() - 2);
+      strings::append(out, ']');
+      return true;
+    }
+    strings::append(out, "null");
+    return true;
+  }
+
+  static bool dump(std::string& out, const key_or_value& value) {
+    if (std::holds_alternative<std::string>(value))
+      strings::append(out, std::get<std::string>(value));
+    else if (std::holds_alternative<any_value>(value))
+      return dump(out, std::get<any_value>(value));
+    else
+      strings::append(out, "null");
+
+    return true;
+  }
+
+  static bool dump(std::string& out, const node_list& nodes) {
+    strings::append(out, ":(");
+    for (const auto& n : nodes) {
+      n->append(out);
+      strings::append(out, ", ");
+    }
+    if (!nodes.empty()) out.resize(out.size() - 2);
+    strings::append(out, ')');
+    return true;
+  }
+};
+
 // AST predicate junction.
 //
-// Stores junctions or leaf nodes. Op may be `and`, `or`, or `not`.
+// Junction for child nodes, which may be junctions or leaf nodes. Op is either
+// `and_junction`, `or_junction`, or `not_junction`.
 struct junction: public node {
   explicit junction(allow, operation op, node_list&& nodes = {})
       : node{allow::ctor, op}, nodes{std::move(nodes)} {}
 
   bool append(std::string& out) const override {
     node::append(out);
-    return print(out, nodes);
+    return dump(out, nodes);
+  }
+
+  // Get the node list from a node pointer, downcasting it. Check `op` first.
+  static const auto& list(const node_ptr& np) {
+    return static_cast<const junction*>(np.get())->nodes;
+  }
+
+  // Reference the node list from a node pointer, downcasting it. Check `op`
+  // first.
+  static auto& list(node_ptr& np) {
+    return static_cast<junction*>(np.get())->nodes;
   }
 
   node_list nodes;
@@ -248,7 +260,7 @@ struct unary_leaf: public node {
   bool append(std::string& out) const override {
     node::append(out);
     strings::append(out, ":(");
-    node::print(out, value);
+    node::dump(out, value);
     strings::append(out, ')');
     return true;
   }
@@ -263,9 +275,9 @@ struct binary_leaf: public node {
   bool append(std::string& out) const override {
     node::append(out);
     strings::append(out, ":(");
-    node::print(out, lhs);
+    node::dump(out, lhs);
     strings::append(out, ", ");
-    node::print(out, rhs);
+    node::dump(out, rhs);
     strings::append(out, ')');
     return true;
   }
@@ -298,29 +310,28 @@ struct absent_node final: public unary_leaf {
 
 template<operation op, typename... Args>
 std::shared_ptr<node> node::make(Args&&... args) {
-  if constexpr (op == operation::and_junction) {
+  if constexpr (op == operation::and_junction)
     return std::make_shared<and_node>(allow::ctor,
         std::forward<Args>(args)...);
-  } else if constexpr (op == operation::or_junction) {
+  else if constexpr (op == operation::or_junction)
     return std::make_shared<or_node>(allow::ctor, std::forward<Args>(args)...);
-  } else if constexpr (op == operation::not_junction) {
+  else if constexpr (op == operation::not_junction)
     return std::make_shared<not_node>(allow::ctor,
         std::forward<Args>(args)...);
-  } else if constexpr (op == operation::always_false) {
+  else if constexpr (op == operation::always_false)
     return std::make_shared<false_node>(allow::ctor);
-  } else if constexpr (op == operation::always_true) {
+  else if constexpr (op == operation::always_true)
     return std::make_shared<true_node>(allow::ctor);
-  } else if constexpr (op == operation::eq) {
+  else if constexpr (op == operation::eq)
     return std::make_shared<eq_node>(allow::ctor, std::forward<Args>(args)...);
-  } else if constexpr (op == operation::ne) {
+  else if constexpr (op == operation::ne)
     return std::make_shared<ne_node>(allow::ctor, std::forward<Args>(args)...);
-  } else if constexpr (op == operation::exists) {
+  else if constexpr (op == operation::exists)
     return std::make_shared<exists_node>(allow::ctor,
         std::forward<Args>(args)...);
-  } else if constexpr (op == operation::absent) {
+  else if constexpr (op == operation::absent)
     return std::make_shared<absent_node>(allow::ctor,
         std::forward<Args>(args)...);
-  }
 }
 
 // Non-member wrapper; still type-safe because it takes `operation`.
@@ -341,14 +352,11 @@ private:
   static node_ptr handle(const node_ptr& root) {
     switch (root->op) {
     case operation::and_junction:
-      return handle_conjunction(
-          std::dynamic_pointer_cast<and_node>(root)->nodes);
+      return handle_conjunction(junction::list(root));
     case operation::or_junction:
-      return handle_disjunction(
-          std::dynamic_pointer_cast<or_node>(root)->nodes);
+      return handle_disjunction(junction::list(root));
     case operation::not_junction:
-      return handle_negation(
-          std::dynamic_pointer_cast<not_node>(root)->nodes[0]);
+      return handle_negation(junction::list(root)[0]);
     default: return root;
     }
   }
@@ -357,46 +365,42 @@ private:
     switch (root->op) {
     case operation::always_false: return make<operation::always_true>();
     case operation::always_true: return make<operation::always_false>();
-    case operation::not_junction: {
-      // Nested NOTs cancel out.
-      auto r = std::dynamic_pointer_cast<not_node>(root);
-      return handle(r->nodes.front());
-    }
-    case operation::and_junction: {
+    // Nested NOTs cancel out.
+    case operation::not_junction:
+      return handle(junction::list(root).front());
       // De Morgan's Law: NOT(A AND B) = NOT(A) OR NOT(B)
-      auto inner_and = std::dynamic_pointer_cast<and_node>(root);
+    case operation::and_junction: {
       node_list new_nodes;
-      for (const auto& n : inner_and->nodes)
+      for (const auto& n : junction::list(root))
         new_nodes.push_back(handle_negation(n));
       return make<operation::or_junction>(std::move(new_nodes));
     }
-    case operation::or_junction: {
       // De Morgan's Law: NOT(A OR B) = NOT(A) AND NOT(B)
-      auto inner_or = std::dynamic_pointer_cast<or_node>(root);
+    case operation::or_junction: {
       node_list new_nodes;
-      for (const auto& n : inner_or->nodes) {
+      for (const auto& n : junction::list(root)) {
         new_nodes.push_back(handle_negation(n));
       }
       return make<operation::and_junction>(std::move(new_nodes));
     }
-    case operation::eq: {
       // NOT(A = B) = A != B
-      auto r = std::dynamic_pointer_cast<eq_node>(root);
+    case operation::eq: {
+      auto r = static_cast<const eq_node*>(root.get());
       return make<operation::ne>(key_or_value{r->lhs}, key_or_value{r->rhs});
     }
-    case operation::ne: {
       // NOT(A != B) = A = B
-      auto r = std::dynamic_pointer_cast<ne_node>(root);
+    case operation::ne: {
+      auto r = static_cast<const ne_node*>(root.get());
       return make<operation::eq>(key_or_value{r->lhs}, key_or_value{r->rhs});
     }
+    // NOT(EXISTS A) = ABSENT A
     case operation::exists: {
-      // NOT(EXISTS A) = ABSENT A
-      auto r = std::dynamic_pointer_cast<exists_node>(root);
+      auto r = static_cast<const exists_node*>(root.get());
       return make<operation::absent>(key_or_value{r->value});
     }
+    // NOT(ABSENT A) = EXISTS A
     case operation::absent: {
-      // NOT(ABSENT A) = EXISTS A
-      auto r = std::dynamic_pointer_cast<absent_node>(root);
+      auto r = static_cast<const absent_node*>(root.get());
       return make<operation::exists>(key_or_value{r->value});
     }
     default: {
@@ -408,25 +412,21 @@ private:
   // Accumulate distributions.
   //
   // On input, `distribution` is a list of AND nodes (that will ultimately be
-  // ORed together). Distributes `source` against these, returning a new list
-  // of AND nodes, multiplied by the size of `source`.
+  // ORed together). Distributes `source_nodes` against these, returning a new
+  // list of AND nodes, multiplied by the size of `source`.
   static node_list distribute_or_values(const node_list& distribution,
-      const std::shared_ptr<or_node>& source) {
+      const node_list& source_nodes) {
     node_list accumulated;
 
     // Distribute each `or_child` across the `distribution`.
-    for (const auto& or_child : source->nodes) {
+    for (const auto& or_child : source_nodes) {
       for (const auto& dist_child : distribution) {
-        // Otherwise, just add the two nodes.
-        // TODO: Try to do this with initializers or something.
         node_list new_nodes;
-        auto inner_and = std::dynamic_pointer_cast<and_node>(dist_child);
-        for (const auto& node : inner_and->nodes) {
+        for (const auto& node : junction::list(dist_child)) {
           // Flatten nested ANDs.
           if (node->op == operation::and_junction) {
-            auto inner_inner_and = std::dynamic_pointer_cast<and_node>(node);
-            new_nodes.insert(new_nodes.end(), inner_inner_and->nodes.begin(),
-                inner_inner_and->nodes.end());
+            for (const auto& inner_and_node : junction::list(node))
+              new_nodes.push_back(inner_and_node);
           } else
             new_nodes.push_back(node);
         }
@@ -446,7 +446,7 @@ private:
       auto converted = convert(n);
       // An always-true node cannot contribute to the result.
       if (converted->op == operation::always_true) continue;
-      // An always-false node will always result in false.
+      // An always-false node will make the whole thing false.
       if (converted->op == operation::always_false)
         return make<operation::always_false>();
       // Target for special handling if an OR is found.
@@ -456,12 +456,11 @@ private:
       }
       // Flatten nested ANDs.
       if (converted->op == operation::and_junction) {
-        auto inner_and = std::dynamic_pointer_cast<and_node>(converted);
-        converted_nodes.insert(converted_nodes.end(), inner_and->nodes.begin(),
-            inner_and->nodes.end());
-      } else {
-        converted_nodes.push_back(std::move(converted));
+        for (const auto& inner_and_node : junction::list(converted))
+          converted_nodes.push_back(inner_and_node);
+        continue;
       }
+      converted_nodes.push_back(std::move(converted));
     }
 
     // If no nodes, then the result is always true.
@@ -488,8 +487,8 @@ private:
 
     // Distribute the OR nodes over the other nodes, iteratively.
     for (const auto& converted_or_node : converted_or_nodes) {
-      auto inner_or = std::dynamic_pointer_cast<or_node>(converted_or_node);
-      accumulated = distribute_or_values(accumulated, inner_or);
+      accumulated =
+          distribute_or_values(accumulated, junction::list(converted_or_node));
     }
 
     return make<operation::or_junction>(std::move(accumulated));
@@ -503,13 +502,12 @@ private:
       auto converted = convert(n);
       // An always-false node cannot contribute to the result.
       if (converted->op == operation::always_false) continue;
-      // An always-true node will always result in true.
+      // An always-true node will make the whole thing true.
       if (converted->op == operation::always_true)
         return make<operation::always_true>();
       // Flatten nested ORs.
       if (converted->op == operation::or_junction) {
-        auto inner_or = std::dynamic_pointer_cast<or_node>(converted);
-        for (const auto& child : inner_or->nodes)
+        for (const auto& child : junction::list(converted))
           converted_nodes.push_back(child);
       } else
         converted_nodes.push_back(std::move(converted));
@@ -529,6 +527,6 @@ private:
 
 // TODO: Properly register the variants so that they can be printed as JSON
 // without all of these helper functions.
-// TODO: Turn tautologies into always-true or always-false nodes. This is easy
+// TODO: Turn tautologies into always_true or always_false nodes. This is easy
 // for always_true and always_false, but we need to be able to determine if an
-// equality is mutually exclusive.
+// equality is mutually exclusive. It's even trickier for inequalities.

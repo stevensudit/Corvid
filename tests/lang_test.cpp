@@ -237,6 +237,36 @@ void LangTest_AstPred() {
         "and:(exists:(A), exists:(D)), and:(exists:(B), exists:(D)))");
   }
   if (true) {
+    // Wikipedia DNF counter-examples.
+    // https://en.wikipedia.org/wiki/Disjunctive_normal_form#Definition
+
+    // Remove OR nested within a NOT.
+    root = M<not_junction>(M<or_junction>(M<exists>("A"s), M<exists>("B"s)));
+    EXPECT_EQ((root->print()), "not:(or:(exists:(A), exists:(B)))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "and:(absent:(A), absent:(B))");
+
+    // Remove AND nested within a NOT.
+    root = M<or_junction>(
+        M<not_junction>(M<and_junction>(M<exists>("A"s), M<exists>("B"s))),
+        M<exists>("C"s));
+    EXPECT_EQ((root->print()),
+        "or:(not:(and:(exists:(A), exists:(B))), exists:(C))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "or:(absent:(A), absent:(B), exists:(C))");
+
+    // Remove OR nested within an AND.
+    root = M<or_junction>(M<exists>("A"s),
+        M<and_junction>(M<exists>("B"s),
+            M<or_junction>(M<exists>("C"s), M<exists>("D"s))));
+    EXPECT_EQ((root->print()),
+        "or:(exists:(A), and:(exists:(B), or:(exists:(C), exists:(D))))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()),
+        "or:(exists:(A), and:(exists:(B), exists:(C)), and:(exists:(B), "
+        "exists:(D)))");
+  }
+  if (true) {
     // Test Case 1: Simple AND of two literals
     root = M<and_junction>(M<exists>("A"s), M<exists>("B"s));
     EXPECT_EQ((root->print()), "and:(exists:(A), exists:(B))");
