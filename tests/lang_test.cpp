@@ -73,6 +73,45 @@ void LangTest_AstPred() {
     EXPECT_EQ((root->print()), "eq:(abc, 42)");
   }
   if (true) {
+    // Negations of terminals.
+    node_ptr root;
+
+    // Negating a true should yield a false.
+    root = M<not_junction>(M<always_true>());
+    EXPECT_EQ((root->print()), "not:(true)");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "false");
+
+    // Negating a false should yield a true.
+    root = M<not_junction>(M<always_false>());
+    EXPECT_EQ((root->print()), "not:(false)");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "true");
+
+    // Negating an EQ should yield an NE.
+    root = M<not_junction>(M<eq>("abc"s, 42));
+    EXPECT_EQ((root->print()), "not:(eq:(abc, 42))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "ne:(abc, 42)");
+
+    // Negating an NE should yield an EQ.
+    root = M<not_junction>(M<ne>("abc"s, 42));
+    EXPECT_EQ((root->print()), "not:(ne:(abc, 42))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "eq:(abc, 42)");
+
+    // Negating an EXISTS should yield an ABSENT.
+    root = M<not_junction>(M<exists>("abc"s));
+    EXPECT_EQ((root->print()), "not:(exists:(abc))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()), "absent:(abc)");
+
+    // Negating an ABSENT should yield an EXISTS.
+    root = M<not_junction>(M<absent>("abc"s));
+    EXPECT_EQ((root->print()), "not:(absent:(abc))");
+    root = dnf::convert(root);
+  }
+  if (true) {
     // Collapsed nested pairs of NOT.
     auto root = M<not_junction>(M<not_junction>(M<eq>("abc"s, 42)));
     EXPECT_EQ((root->print()), "not:(not:(eq:(abc, 42)))");
@@ -87,24 +126,12 @@ void LangTest_AstPred() {
     root = dnf::convert(root);
     EXPECT_EQ((root->print()), "eq:(abc, 42)");
 
-    // Three negations should leave one.
+    // Three negations should leave one (which reverses the terminal).
     root =
         M<not_junction>(M<not_junction>(M<not_junction>(M<eq>("abc"s, 42))));
     EXPECT_EQ((root->print()), "not:(not:(not:(eq:(abc, 42))))");
     root = dnf::convert(root);
-    EXPECT_EQ((root->print()), "not:(eq:(abc, 42))");
-
-    // Negating a true should yield a false.
-    root = M<not_junction>(M<always_true>());
-    EXPECT_EQ((root->print()), "not:(true)");
-    root = dnf::convert(root);
-    EXPECT_EQ((root->print()), "false");
-
-    // Negating a false should yield a true.
-    root = M<not_junction>(M<always_false>());
-    EXPECT_EQ((root->print()), "not:(false)");
-    root = dnf::convert(root);
-    EXPECT_EQ((root->print()), "true");
+    EXPECT_EQ((root->print()), "ne:(abc, 42)");
   }
   if (true) {
     // Flatten nested ORs.
@@ -200,6 +227,23 @@ void LangTest_AstPred() {
     EXPECT_EQ((root->print()),
         "or:(and:(eq:(abc, 42), eq:(def, 43)), and:(eq:(ghi, 44), eq:(jkl, "
         "45)))");
+  }
+  if (true) {
+#if 0
+    // Distribute OR over AND: (A OR B) AND (C OR D) = (A AND C) OR (A AND D)
+    // OR (B AND C) OR (B AND D)
+    auto root = M<and_junction>(
+        M<or_junction>(M<eq>("abc"s, 42), M<eq>("def"s, 43)),
+        M<or_junction>(M<eq>("ghi"s, 44), M<eq>("jkl"s, 45)));
+    EXPECT_EQ((root->print()),
+        "and:(or:(eq:(abc, 42), eq:(def, 43)), or:(eq:(ghi, 44), eq:(jkl, "
+        "45)))");
+    root = dnf::convert(root);
+    EXPECT_EQ((root->print()),
+        "or:(and:(eq:(abc, 42), eq:(ghi, 44)), and:(eq:(abc, 42), eq:(jkl, "
+        "45)), and:(eq:(def, 43), eq:(ghi, 44)), and:(eq:(def, 43), eq:(jkl, "
+        "45)))");
+#endif
   }
 }
 

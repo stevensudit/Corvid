@@ -278,6 +278,16 @@ struct ne_node final: public binary_leaf {
             std::move(rhs)} {}
 };
 
+struct exists_node final: public unary_leaf {
+  exists_node(allow, key_or_value&& value)
+      : unary_leaf{allow::ctor, operation::exists, std::move(value)} {}
+};
+
+struct absent_node final: public unary_leaf {
+  absent_node(allow, key_or_value&& value)
+      : unary_leaf{allow::ctor, operation::absent, std::move(value)} {}
+};
+
 template<operation op, typename... Args>
 std::shared_ptr<node> node::make(Args&&... args) {
   if constexpr (op == operation::and_junction) {
@@ -296,6 +306,12 @@ std::shared_ptr<node> node::make(Args&&... args) {
     return std::make_shared<eq_node>(allow::ctor, std::forward<Args>(args)...);
   } else if constexpr (op == operation::ne) {
     return std::make_shared<ne_node>(allow::ctor, std::forward<Args>(args)...);
+  } else if constexpr (op == operation::exists) {
+    return std::make_shared<exists_node>(allow::ctor,
+        std::forward<Args>(args)...);
+  } else if constexpr (op == operation::absent) {
+    return std::make_shared<absent_node>(allow::ctor,
+        std::forward<Args>(args)...);
   }
 }
 
@@ -437,6 +453,26 @@ private:
         new_nodes.push_back(handle_negation(n));
       }
       return make<operation::and_junction>(std::move(new_nodes));
+    }
+    case operation::eq: {
+      // NOT(A = B) = A != B
+      auto r = std::dynamic_pointer_cast<eq_node>(root);
+      return make<operation::ne>(key_or_value{r->lhs}, key_or_value{r->rhs});
+    }
+    case operation::ne: {
+      // NOT(A != B) = A = B
+      auto r = std::dynamic_pointer_cast<ne_node>(root);
+      return make<operation::eq>(key_or_value{r->lhs}, key_or_value{r->rhs});
+    }
+    case operation::exists: {
+      // NOT(EXISTS A) = ABSENT A
+      auto r = std::dynamic_pointer_cast<exists_node>(root);
+      return make<operation::absent>(key_or_value{r->value});
+    }
+    case operation::absent: {
+      // NOT(ABSENT A) = EXISTS A
+      auto r = std::dynamic_pointer_cast<absent_node>(root);
+      return make<operation::exists>(key_or_value{r->value});
     }
     default: {
       return make<operation::not_junction>(handle(root));
