@@ -342,6 +342,58 @@ private:
     }
   }
 
+  static node_ptr handle_negation(const node_ptr& root) {
+    switch (root->op) {
+    case operation::always_false: return make<operation::always_true>();
+    case operation::always_true: return make<operation::always_false>();
+    case operation::not_junction: {
+      // Nested NOTs cancel out.
+      auto r = std::dynamic_pointer_cast<not_node>(root);
+      return handle(r->nodes.front());
+    }
+    case operation::and_junction: {
+      // De Morgan's Law: NOT(A AND B) = NOT(A) OR NOT(B)
+      auto inner_and = std::dynamic_pointer_cast<and_node>(root);
+      node_list new_nodes;
+      for (const auto& n : inner_and->nodes)
+        new_nodes.push_back(handle_negation(n));
+      return make<operation::or_junction>(std::move(new_nodes));
+    }
+    case operation::or_junction: {
+      // De Morgan's Law: NOT(A OR B) = NOT(A) AND NOT(B)
+      auto inner_or = std::dynamic_pointer_cast<or_node>(root);
+      node_list new_nodes;
+      for (const auto& n : inner_or->nodes) {
+        new_nodes.push_back(handle_negation(n));
+      }
+      return make<operation::and_junction>(std::move(new_nodes));
+    }
+    case operation::eq: {
+      // NOT(A = B) = A != B
+      auto r = std::dynamic_pointer_cast<eq_node>(root);
+      return make<operation::ne>(key_or_value{r->lhs}, key_or_value{r->rhs});
+    }
+    case operation::ne: {
+      // NOT(A != B) = A = B
+      auto r = std::dynamic_pointer_cast<ne_node>(root);
+      return make<operation::eq>(key_or_value{r->lhs}, key_or_value{r->rhs});
+    }
+    case operation::exists: {
+      // NOT(EXISTS A) = ABSENT A
+      auto r = std::dynamic_pointer_cast<exists_node>(root);
+      return make<operation::absent>(key_or_value{r->value});
+    }
+    case operation::absent: {
+      // NOT(ABSENT A) = EXISTS A
+      auto r = std::dynamic_pointer_cast<absent_node>(root);
+      return make<operation::exists>(key_or_value{r->value});
+    }
+    default: {
+      return make<operation::not_junction>(handle(root));
+    }
+    };
+  }
+
   // Handle the children of an AND.
   static node_ptr handle_conjunction(const node_list& nodes) {
     // Build converted list, scanning for the types created.
@@ -426,58 +478,6 @@ private:
 
     // Don't distribute terms because that would move us towards CNF, not DNF.
     return make<operation::or_junction>(std::move(converted_nodes));
-  }
-
-  static node_ptr handle_negation(const node_ptr& root) {
-    switch (root->op) {
-    case operation::always_false: return make<operation::always_true>();
-    case operation::always_true: return make<operation::always_false>();
-    case operation::not_junction: {
-      // Nested NOTs cancel out.
-      auto r = std::dynamic_pointer_cast<not_node>(root);
-      return handle(r->nodes.front());
-    }
-    case operation::and_junction: {
-      // De Morgan's Law: NOT(A AND B) = NOT(A) OR NOT(B)
-      auto inner_and = std::dynamic_pointer_cast<and_node>(root);
-      node_list new_nodes;
-      for (const auto& n : inner_and->nodes)
-        new_nodes.push_back(handle_negation(n));
-      return make<operation::or_junction>(std::move(new_nodes));
-    }
-    case operation::or_junction: {
-      // De Morgan's Law: NOT(A OR B) = NOT(A) AND NOT(B)
-      auto inner_or = std::dynamic_pointer_cast<or_node>(root);
-      node_list new_nodes;
-      for (const auto& n : inner_or->nodes) {
-        new_nodes.push_back(handle_negation(n));
-      }
-      return make<operation::and_junction>(std::move(new_nodes));
-    }
-    case operation::eq: {
-      // NOT(A = B) = A != B
-      auto r = std::dynamic_pointer_cast<eq_node>(root);
-      return make<operation::ne>(key_or_value{r->lhs}, key_or_value{r->rhs});
-    }
-    case operation::ne: {
-      // NOT(A != B) = A = B
-      auto r = std::dynamic_pointer_cast<ne_node>(root);
-      return make<operation::eq>(key_or_value{r->lhs}, key_or_value{r->rhs});
-    }
-    case operation::exists: {
-      // NOT(EXISTS A) = ABSENT A
-      auto r = std::dynamic_pointer_cast<exists_node>(root);
-      return make<operation::absent>(key_or_value{r->value});
-    }
-    case operation::absent: {
-      // NOT(ABSENT A) = EXISTS A
-      auto r = std::dynamic_pointer_cast<absent_node>(root);
-      return make<operation::exists>(key_or_value{r->value});
-    }
-    default: {
-      return make<operation::not_junction>(handle(root));
-    }
-    };
   }
 };
 }}} // namespace corvid::lang::ast_pred
