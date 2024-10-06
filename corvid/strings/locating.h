@@ -83,9 +83,12 @@ namespace corvid::strings { inline namespace locating {
 using position = size_t;
 
 // A single value to `locate`, which can be a `char` or something that converts
-// to a `std::string_view`. Contrast with lists of these values.
+// to a `std::string_view`. Contrast with lists of these values. Note that, in
+// C++20, range-based construction was added for `std::string_view`, so we have
+// to manually exclude it.
 template<typename T>
-concept SingleLocateValue = StringViewConvertible<T> || is_char_v<T>;
+concept SingleLocateValue =
+    (StringViewConvertible<T> || is_char_v<T>) && !std::is_array_v<T>;
 
 // Convert any container shaped like a `std::span` whose elements are
 // convertible to `std::string_view` into a `std::vector<std::string_view>`
@@ -354,7 +357,7 @@ template<npos_choice npv = npos_choice::npos>
       if (s[pos] == values[pos_value]) break;
     if (pos_value == values.size()) return {pos, pos_value};
   }
-  return as_npov<npv>(s, values);
+  return as_nloc<npv>(s, values);
 }
 
 // Same as above, but locate the last instance. To locate the previous

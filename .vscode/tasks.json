@@ -14,6 +14,7 @@
                 "-Wall",
                 "-Wextra",
                 "-Werror",
+                "-Wno-unused-variable",
                 "${file}",
                 "-o",
                 "${fileDirname}/debug_bin/${fileBasenameNoExtension}"

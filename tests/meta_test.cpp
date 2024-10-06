@@ -33,7 +33,7 @@ void MetaTest_OStreamdDerived() {
   std::ostringstream oss;
   stream_out(oss, 1);
   EXPECT_EQ(oss.str(), "1");
-#ifdef WILL_NOT_COMPILE
+#ifdef NOT_SUPPOSED_TO_COMPILE
   std::string s{"Hello"};
   foo(s, 42);
   stream_out(oss, oss);
