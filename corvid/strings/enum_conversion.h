@@ -1,7 +1,7 @@
 // Corvid20: A general-purpose C++20 library extending std.
 // https://github.com/stevensudit/Corvid20
 //
-// Copyright 2022-2024 Steven Sudit
+// Copyright 2022-2025 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0(the "License");
 // you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ help_extract_enum(bitmask::BitmaskEnum auto& e, std::string_view& sv) {
   using E = std::remove_cvref_t<decltype(e)>;
   E ev{};
   for (auto piece = trim(extract_piece(sv, "+")); !piece.empty();
-       piece = trim(extract_piece(sv, "+")))
+      piece = trim(extract_piece(sv, "+")))
   {
     if (!registry::enum_spec_v<E>.lookup(ev, piece)) return false;
     // TODO: Why does `e |= ev` not work except when it does?
