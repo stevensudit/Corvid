@@ -74,7 +74,13 @@ concept Char = SameAs<char, T>;
 
 // `T` must be a char*.
 template<typename T>
-concept CharPtr = SameAs<char*, T>;
+concept CharPtr = SameAs<char*, std::remove_cvref_t<T>>;
+
+// `T` must be a char[].
+template<typename T>
+concept CharArray =
+    std::is_array_v<std::remove_cvref_t<T>> &&
+    SameAs<char, std::remove_extent_t<T>>;
 
 // `T` must be convertible to `std::string_view`.
 template<typename T>

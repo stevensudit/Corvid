@@ -33,6 +33,7 @@ using namespace corvid::literals;
 using namespace corvid::enums::sequence;
 using namespace corvid::enums::bitmask;
 
+// Test extract_piece.
 void StringUtilsTest_ExtractPiece() {
   std::string_view sv;
   EXPECT_EQ(strings::extract_piece(sv, ","), "");
@@ -50,6 +51,7 @@ void StringUtilsTest_ExtractPiece() {
   EXPECT_EQ(strings::extract_piece<std::string>(sv, ","), "1");
 }
 
+// Test more_pieces.
 void StringUtilsTest_MorePieces() {
   std::string_view w, part;
   w = "1,2";
@@ -71,6 +73,7 @@ void StringUtilsTest_MorePieces() {
   EXPECT_EQ(part, "");
 }
 
+// Test split.
 void StringUtilsTest_Split() {
   if (true) {
     using V = std::vector<std::string_view>;
@@ -123,6 +126,7 @@ void StringUtilsTest_Split() {
   }
 }
 
+// Test split_gen.
 void StringUtilsTest_SplitPg() {
   using PG = strings::piece_generator;
   if (true) {
@@ -169,19 +173,16 @@ void StringUtilsTest_SplitPg() {
     EXPECT_EQ((split_gen<PG, R>(("11 22 33"sv))), (V{"11", "22", "33"}));
   }
   if (true) {
-// using V = std::vector<std::string_view>;
-// using namespace strings;
-#if 1
     strings::piece_generator pg{""sv,
         [](std::string_view s) {
           auto loc = strings::locate(s, {' ', '\t', '\n', '\r'});
           return std::pair{loc.pos, loc.pos + 1};
         },
         [](std::string_view s) { return s; }};
-#endif
   }
 }
 
+// Test as_lower, as_upper.
 void StringUtilsTest_Case() {
   auto s = "abcdefghij"s;
   strings::to_upper(s);
@@ -199,6 +200,7 @@ template<typename T>
 concept SingleLocateValue =
     (StringViewConvertible<T> || is_char_v<T>) && !std::is_array_v<T>;
 
+// Test locate.
 void StringUtilsTest_Locate() {
   using location = corvid::strings::location;
   if (true) {
@@ -209,10 +211,9 @@ void StringUtilsTest_Locate() {
     auto f = SingleLocateValue<T>;
     EXPECT_TRUE(f);
     auto x = strings::locate(s, "def");
-
-    // TODO: Thanks to range-based constructors, a string literal converts to
-    // all sorts of things at once, including spans. Change the span overloads
-    // to use concepts.
+    //  TODO: Thanks to range-based constructors, a string literal converts to
+    //  all sorts of things at once, including spans. Change the span overloads
+    //  to use concepts.
 
     //!!!!!! EXPECT_EQ(strings::locate(s, "def"), 3u);
     //  Locate(sv).
