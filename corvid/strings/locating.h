@@ -1,7 +1,7 @@
 // Corvid20: A general-purpose C++20 library extending std.
 // https://github.com/stevensudit/Corvid20
 //
-// Copyright 2022-2024 Steven Sudit
+// Copyright 2022-2025 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0(the "License");
 // you may not use this file except in compliance with the License.
@@ -561,7 +561,7 @@ constexpr bool rlocated(location& loc, std::string_view s,
     std::span<const std::string_view> values, position pos = 0) noexcept {
   size_t cnt{};
   for (location loc{pos, 0}; located(loc, s, values);
-       ++cnt, point_past(loc, values));
+      ++cnt, point_past(loc, values));
   return cnt;
 }
 [[nodiscard]] inline constexpr size_t count_located(std::string_view s,
@@ -598,7 +598,7 @@ inline size_t substitute(std::string& s, std::span<const char> from,
     std::span<const char> to, position pos = 0) {
   size_t cnt{};
   for (location loc{pos, 0}; located(loc, std::string_view{s}, from);
-       ++cnt, ++loc.pos)
+      ++cnt, ++loc.pos)
     s[loc.pos] = to[loc.pos_value];
   return cnt;
 }

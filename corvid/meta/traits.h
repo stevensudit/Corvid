@@ -1,7 +1,7 @@
 // Corvid20: A general-purpose C++20 library extending std.
 // https://github.com/stevensudit/Corvid20
 //
-// Copyright 2022-2024 Steven Sudit
+// Copyright 2022-2025 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0(the "License");
 // you may not use this file except in compliance with the License.
@@ -89,8 +89,8 @@ inline namespace pointers {
 // When not a pointer, returns void.
 namespace details {
 template<typename T>
-auto pointer_element(
-    int) -> std::remove_reference_t<decltype(*std::declval<T>())>;
+auto pointer_element(int)
+    -> std::remove_reference_t<decltype(*std::declval<T>())>;
 
 template<typename>
 auto pointer_element(...) -> void;

@@ -1,7 +1,7 @@
 // Corvid20: A general-purpose C++20 library extending std.
 // https://github.com/stevensudit/Corvid20
 //
-// Copyright 2022-2024 Steven Sudit
+// Copyright 2022-2025 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0(the "License");
 // you may not use this file except in compliance with the License.
@@ -419,9 +419,8 @@ constexpr auto append_join_override_fn = nullptr;
 
 // Concept for types that have an overridden join appender registered.
 template<typename T>
-concept JoinAppendableOverridden =
-    (!std::is_null_pointer_v<decltype(append_join_override_fn<join_opt{}, ' ',
-            ' ', std::string, T>)>);
+concept JoinAppendableOverridden = (!std::is_null_pointer_v<
+    decltype(append_join_override_fn<join_opt{}, ' ', ' ', std::string, T>)>);
 
 // Concept for types that do not have an overridden join appender registered.
 //
