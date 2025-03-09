@@ -82,10 +82,10 @@ concept CharArray =
     std::is_array_v<std::remove_cvref_t<T>> &&
     SameAs<char, std::remove_extent_t<T>>;
 
-// `T` must be convertible to `std::string_view`.
+// `T` must be implicitly convertible to `std::string_view`.
 template<typename T>
 concept StringViewConvertible =
-    std::constructible_from<std::string_view, T> && (!NullPtr<T>);
+    std::is_convertible_v<T, std::string_view> && (!NullPtr<T>);
 
 // `T` must be a void pointer.
 template<typename T>
@@ -141,7 +141,41 @@ concept TupleLike = StdTuple<T> || PairConvertible<T>;
 
 // `T` must be a `std::array`.
 template<typename T>
-concept StdArray = is_array_v<std::remove_cvref_t<T>>;
+concept StdArray = is_std_array_v<std::remove_cvref_t<T>>;
+
+// `T` must be a `std::span` compatible with `V`. When `V` isn't const, then
+// the element type can be but doesn't have to be. Otherwise, for non-const
+// `V`, the element type must not be `const`. In other words, it's const-safe.
+//
+// TODO: Move implementation into traits.
+template<typename T, typename V>
+concept Span =
+    is_span_v<T> &&
+    std::same_as<std::remove_cv_t<V>,
+        std::remove_cv_t<typename T::element_type>> &&
+    (!std::is_same_v<V, std::remove_const_t<V>> ||
+        !std::is_const_v<typename T::element_type>);
+
+// `T` must be a `std::span` of `char` or `const char`.
+template<typename T>
+concept ConstCharSpan = Span<T, const char>;
+
+// `T` must be convertible to a `std::span` of some sort.
+template<typename T>
+concept SpanConvertible = requires(T t) { std::span{t}; };
+
+// `T` must be a `std::span` of `std::string_view` or `const std::string_view`.
+template<typename T>
+concept ConstStringViewSpan = Span<T, const std::string_view>;
+
+// `T` must be a `std::initializer_list`.
+template<typename T>
+concept InitializerList = is_initializer_list_v<T>;
+
+// `T` must be a `std::span` of something StringViewConvertible.
+template<typename T>
+concept StringViewConvertibleSpan =
+    is_span_v<T> && StringViewConvertible<typename T::element_type>;
 
 // `T` must be a container, which exludes strings and pairs.
 template<typename T>

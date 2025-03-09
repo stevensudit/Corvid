@@ -307,8 +307,16 @@ void MetaTest_EnumPow2() {
   EXPECT_EQ(meta::pow2(64), 0ull);
 }
 
+void MetaTest_SpanConstness() {
+  EXPECT_TRUE((Span<std::span<char>, char>));
+  EXPECT_TRUE((Span<std::span<char>, const char>));
+  EXPECT_FALSE((Span<std::span<const char>, char>));
+  EXPECT_TRUE((Span<std::span<const char>, const char>));
+}
+
 MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
-    MetaTest_EnumHighestValueInNBits, MetaTest_EnumPow2);
+    MetaTest_EnumHighestValueInNBits, MetaTest_EnumPow2,
+    MetaTest_SpanConstness);
 
 // TODO: Port the tests below.
 
@@ -475,8 +483,8 @@ TEST(MetaTest, Tuple) {
   EXPECT_EQ(std::tuple_size_v<PI>, 2);
   EXPECT_EQ(std::tuple_size_v<I2>, 2);
 
-  EXPECT_TRUE(is_array_v<I2>);
-  EXPECT_FALSE(is_array_v<T2>);
+  EXPECT_TRUE(is_std_array_v<I2>);
+  EXPECT_FALSE(is_std_array_v<T2>);
   EXPECT_TRUE((is_tuple_like_v<I2>));
   EXPECT_FALSE((is_tuple_like_v<std::string>));
 

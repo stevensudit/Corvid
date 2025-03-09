@@ -77,10 +77,24 @@ constexpr bool is_pair_convertible_v<C<F, S>> =
 // Note: Can't use `is_specialization_of_v` because `std::array` specializes
 // on a number.
 template<typename... Ts>
-constexpr bool is_array_v = false;
+constexpr bool is_std_array_v = false;
 
 template<typename T, std::size_t N>
-constexpr bool is_array_v<std::array<T, N>> = true;
+constexpr bool is_std_array_v<std::array<T, N>> = true;
+
+// Determine whether `T` is `std::span`.
+// Note: We likewise can't use `is_specialization_of_v` because `std::span`
+// specializes on a number.
+template<typename... Ts>
+constexpr bool is_span_v = false;
+
+template<typename T, std::size_t N>
+constexpr bool is_span_v<std::span<T, N>> = true;
+
+// Determine whether `T` is a `std::initializer_list`.
+template<typename T>
+constexpr bool is_initializer_list_v =
+    is_specialization_of_v<T, std::initializer_list>;
 
 inline namespace pointers {
 

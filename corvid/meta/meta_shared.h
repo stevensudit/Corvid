@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <tuple>
 #include <type_traits>
