@@ -23,46 +23,54 @@ namespace corvid::strings { inline namespace conversion {
 
 inline namespace cvt_fix_from_chars {
 
-#ifdef _LIBCPP_VERSION
+#if __cpp_lib_to_chars < 202306L
 
-// Ugly workaround for the fact that std::from_chars is not available in
+// Ugly workaround for the fact that `std::from_chars` is not available in
 // libstdc++. Does not honor `fmt`.
+//
+// TODO: Add thorough testing, or just replace with a stable third-party
+// dependency.
 template<typename T>
 std::from_chars_result std_from_chars(const char* first, const char* last,
     T& value, std::chars_format fmt = std::chars_format::general) {
-  std::string str(first, last);
+  // Format isn't supported.
   (void)fmt;
-  try {
-    size_t idx;
 
-    // Use if constexpr to select the correct parsing function based on the
-    // type T
-    if constexpr (std::is_same_v<T, float>) {
-      value = std::stof(str, &idx);
-    } else if constexpr (std::is_same_v<T, double>) {
-      value = std::stod(str, &idx);
-    } else {
-      static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>,
-          "Unsupported type. Only float and double are supported.");
-    }
+  // Default to failure.
+  std::from_chars_result result{.ptr = first,
+      .ec = std::errc::invalid_argument};
 
-    std::from_chars_result result;
-    result.ptr = first + idx;
+  // Sanity check.
+  static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>,
+      "Unsupported type. Only float and double are supported.");
+  if (!first || !last || first >= last) return result;
 
-    // Check if the entire input was processed
-    if (result.ptr == last) {
-      result.ec = std::errc(); // No error
-    } else {
-      result.ec = std::errc::invalid_argument; // Extra unprocessed characters
-    }
-    return result;
+  // Copy into buffer and use that.
+  char buffer[128];
+  const std::string_view view(first, last);
+  const auto copied = std::min(view.size(), sizeof(buffer) - 1);
+  view.copy(buffer, copied);
+  buffer[copied] = '\0';
+
+  // Assume failure.
+  result.ec = std::errc::result_out_of_range;
+  char* endptr = buffer;
+  T parsed_value{};
+  errno = 0;
+
+  // Select the correct parsing function based on the type `T`.
+  if constexpr (std::is_same_v<T, float>) {
+    parsed_value = std::strtof(buffer, &endptr);
+  } else if constexpr (std::is_same_v<T, double>) {
+    parsed_value = std::strtod(buffer, &endptr);
   }
-  catch (const std::invalid_argument&) {
-    return {first, std::errc::invalid_argument}; // Invalid conversion
-  }
-  catch (const std::out_of_range&) {
-    return {first, std::errc::result_out_of_range}; // Value out of range
-  }
+  if (errno == ERANGE) return result;
+
+  result.ptr = first + (endptr - buffer);
+  result.ec = {};
+  value = parsed_value;
+
+  return result;
 }
 #else
 

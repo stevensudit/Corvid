@@ -107,7 +107,8 @@
         "print": "cpp",
         "__config": "cpp",
         "__assert": "cpp",
-        "any": "cpp"
+        "any": "cpp",
+        "version": "cpp"
     },
     "C_Cpp.errorSquiggles": "disabled",
     "editor.tokenColorCustomizations": {

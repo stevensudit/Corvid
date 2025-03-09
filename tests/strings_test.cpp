@@ -33,6 +33,7 @@ using namespace corvid::literals;
 using namespace corvid::enums::sequence;
 using namespace corvid::enums::bitmask;
 
+// Test extract_piece.
 void StringUtilsTest_ExtractPiece() {
   std::string_view sv;
   EXPECT_EQ(strings::extract_piece(sv, ","), "");
@@ -50,6 +51,7 @@ void StringUtilsTest_ExtractPiece() {
   EXPECT_EQ(strings::extract_piece<std::string>(sv, ","), "1");
 }
 
+// Test more_pieces.
 void StringUtilsTest_MorePieces() {
   std::string_view w, part;
   w = "1,2";
@@ -71,6 +73,7 @@ void StringUtilsTest_MorePieces() {
   EXPECT_EQ(part, "");
 }
 
+// Test split.
 void StringUtilsTest_Split() {
   if (true) {
     using V = std::vector<std::string_view>;
@@ -123,6 +126,7 @@ void StringUtilsTest_Split() {
   }
 }
 
+// Test split_gen.
 void StringUtilsTest_SplitPg() {
   using PG = strings::piece_generator;
   if (true) {
@@ -169,19 +173,16 @@ void StringUtilsTest_SplitPg() {
     EXPECT_EQ((split_gen<PG, R>(("11 22 33"sv))), (V{"11", "22", "33"}));
   }
   if (true) {
-// using V = std::vector<std::string_view>;
-// using namespace strings;
-#if 1
     strings::piece_generator pg{""sv,
         [](std::string_view s) {
           auto loc = strings::locate(s, {' ', '\t', '\n', '\r'});
           return std::pair{loc.pos, loc.pos + 1};
         },
         [](std::string_view s) { return s; }};
-#endif
   }
 }
 
+// Test as_lower, as_upper.
 void StringUtilsTest_Case() {
   auto s = "abcdefghij"s;
   strings::to_upper(s);
@@ -195,26 +196,14 @@ void StringUtilsTest_Case() {
   EXPECT_EQ(a, "ABCDEFGHIJ"sv);
 }
 
-template<typename T>
-concept SingleLocateValue =
-    (StringViewConvertible<T> || is_char_v<T>) && !std::is_array_v<T>;
-
+// Test locate.
 void StringUtilsTest_Locate() {
   using location = corvid::strings::location;
   if (true) {
     constexpr auto s = "abcdefghij"sv;
     constexpr auto l = s.size();
     // locate(psz).
-    using T = decltype("def");
-    auto f = SingleLocateValue<T>;
-    EXPECT_TRUE(f);
-    auto x = strings::locate(s, "def");
-
-    // TODO: Thanks to range-based constructors, a string literal converts to
-    // all sorts of things at once, including spans. Change the span overloads
-    // to use concepts.
-
-    //!!!!!! EXPECT_EQ(strings::locate(s, "def"), 3u);
+    EXPECT_EQ(strings::locate(s, "def"), 3u);
     //  Locate(sv).
     EXPECT_EQ(strings::locate(s, "def"sv), 3u);
     // Locate(ch).
@@ -224,7 +213,6 @@ void StringUtilsTest_Locate() {
     // Locate(span<ch>).
     EXPECT_EQ(strings::locate(s, std::span{"xfz", 3}), (location{5u, 1u}));
 
-#ifdef I_FIXED_THIS_BUG
     // locate(array<ch>).
     // So this is supposed to return the location, which is a pos of 8 and a
     // value of 1, meaning 'i'. Instead, it's treating the array as a string.
@@ -238,13 +226,10 @@ void StringUtilsTest_Locate() {
     // Locate(vector<ch>).
     EXPECT_EQ(strings::locate(s, std::vector{'x', 'i', 'y'}),
         (location{8u, 1u}));
-#endif
 
-// Edge cases.
-#ifdef I_FIXED_THIS_BUG
+    // Edge cases.
     EXPECT_EQ(strings::locate(s, "def", l), npos);
     EXPECT_EQ(strings::locate(s, "def", npos), npos);
-#endif
     //
     EXPECT_EQ(strings::locate(s, 'd', l), npos);
     EXPECT_EQ(strings::locate(s, 'd', npos), npos);
@@ -254,12 +239,10 @@ void StringUtilsTest_Locate() {
     //
     EXPECT_EQ(strings::locate(s, {"a0c"sv, "def"s, "g0i"}, l), nloc);
     EXPECT_EQ(strings::locate(s, {"a0c"sv, "def"s, "g0i"}, npos), nloc);
-//
-#ifdef I_FIXED_THIS_BUG
+    //
     EXPECT_EQ(strings::locate(s, ""), 0u);
     EXPECT_EQ(strings::locate(s, "", l), l);
     EXPECT_EQ(strings::locate(s, "", l + 1), npos);
-#endif
     //
     EXPECT_EQ(strings::locate(s, {"x", ""}), (location{0u, 1u}));
     EXPECT_EQ(strings::locate(s, {"x", ""}, l), (location{l, 1u}));
@@ -271,14 +254,12 @@ void StringUtilsTest_Locate() {
     EXPECT_EQ(strings::locate_not(s, 'a'), 4u);
     EXPECT_EQ(strings::locate_not(s, 'b'), 0u);
     EXPECT_EQ(strings::locate_not("aaaaaa"sv, 'a'), npos);
-#ifdef I_FIXED_THIS_BUG
     EXPECT_EQ(strings::locate_not(s, "a"), 4u);
     EXPECT_EQ(strings::locate_not(s, "aaaa"), 4u);
     EXPECT_EQ(strings::locate_not(s, "aaaab"), 5u);
     EXPECT_EQ(strings::locate_not(s, "b"), 0u);
     EXPECT_EQ(strings::locate_not("aaaaaa"sv, "a"), npos);
     EXPECT_EQ(strings::locate_not("aaaaaa"sv, "aa"), npos);
-#endif
     size_t pos{};
     EXPECT_EQ(strings::located_not(pos, s, 'a'), true);
     EXPECT_EQ(pos, 4u);
@@ -289,7 +270,6 @@ void StringUtilsTest_Locate() {
     EXPECT_EQ(strings::rlocate_not(s, 'a'), 4u);
     EXPECT_EQ(strings::rlocate_not(s, 'b'), 7u);
     EXPECT_EQ(strings::rlocate_not("aaaaaa"sv, 'a'), npos);
-#ifdef I_FIXED_THIS_BUG
     EXPECT_EQ(strings::rlocate_not(s, "a"), 4u);
     EXPECT_EQ(strings::rlocate_not(s, "aaaa"), 4u);
     EXPECT_EQ(strings::rlocate_not(s, "baaa"), 0u);
@@ -298,7 +278,6 @@ void StringUtilsTest_Locate() {
     EXPECT_EQ(strings::rlocate_not("aaaaaa"sv, "a"), npos);
     EXPECT_EQ(strings::rlocate_not("aaaaaa"sv, "aa"), npos);
     EXPECT_EQ(strings::rlocate_not("abcde"sv, "de"), 1u);
-#endif
     pos = s.size();
     EXPECT_EQ(strings::rlocated_not(pos, s, 'a'), true);
     EXPECT_EQ(pos, 4u);
@@ -568,7 +547,6 @@ void StringUtilsTest_RLocate() {
     EXPECT_EQ(strings::rlocate(s, 'a', 1u), 0u);
     EXPECT_EQ(s.rfind('a', 0u), 0u);
     EXPECT_EQ(strings::rlocate(s, 'a', 0u), 0u);
-#ifdef I_FIXED_THIS_BUG
     EXPECT_EQ(strings::rlocate(s, "j"), 19u);
     EXPECT_EQ(strings::rlocate(s, "j", npos), 19u);
     EXPECT_EQ(strings::rlocate(s, "j", 0u), npos);
@@ -579,7 +557,6 @@ void StringUtilsTest_RLocate() {
     EXPECT_EQ(strings::rlocate(s, "a", 1u), 0u);
     EXPECT_EQ(s.rfind("a", 0u), 0u);
     EXPECT_EQ(strings::rlocate(s, "a", 0u), 0u);
-#endif
     EXPECT_EQ(strings::rlocate(s, {'i', 'j'}), (location{19u, 1u}));
     EXPECT_EQ(strings::rlocate(s, {'i', 'j'}, npos), (location{19u, 1u}));
     EXPECT_EQ(strings::rlocate(s, {'i', 'j'}, 0u), (location{npos, npos}));
@@ -642,7 +619,6 @@ void StringUtilsTest_LocateEdges() {
   }
   // Confirm the correctness of infinite loops.
   if (true) {
-#ifdef I_FIXED_THIS_BUG
     constexpr auto s = "abcdefghijabcdefghij"sv;
     EXPECT_EQ(s.find("a"), 0u);
     EXPECT_EQ(strings::locate(s, "a"), 0u);
@@ -650,7 +626,6 @@ void StringUtilsTest_LocateEdges() {
     EXPECT_EQ(strings::locate(s, ""), 0u);
     EXPECT_EQ(strings::locate(s, {""sv, ""sv}), (location{0u, 0u}));
     EXPECT_EQ(strings::locate(s, std::array<std::string_view, 0>{}), nloc);
-#endif
   }
 }
 
@@ -687,7 +662,6 @@ void StringUtilsTest_Substitute() {
     EXPECT_EQ(s, "ybzdefghijybzdefghij");
     const auto axy = std::array<const char, 2>{'x', 'y'};
     const auto ayz = std::array<const char, 2>{'y', 'z'};
-#ifdef I_FIXED_THIS_BUG
     s = "abcdefghijabxdefghijaaa";
     EXPECT_EQ(strings::substitute(s, axy, ayz), 1u);
     EXPECT_EQ(s, "abcdefghijabydefghijaaa");
@@ -696,10 +670,6 @@ void StringUtilsTest_Substitute() {
     const auto syz = std::span<const char>{ayz};
     EXPECT_EQ(strings::substitute(s, sxy, syz), 1u);
     EXPECT_EQ(s, "abcdefghijabydefghijaaa");
-#else
-    (void)axy;
-    (void)ayz;
-#endif
   }
   if (true) {
     // substitute: init<sv>, array<psz>, array<s>, array<sv>, span<sv>.
@@ -845,7 +815,6 @@ void StringUtilsTest_Excise() {
     EXPECT_EQ(strings::excise(s, {'a', 'y', 'c'}), 4u);
     EXPECT_EQ(s, "bdefghijbdefghij");
     const auto axy = std::array<const char, 2>{'x', 'y'};
-#ifdef I_FIXED_THIS_BUG
     s = "abcdefghijabxdefghijaaa";
     EXPECT_EQ(strings::excise(s, axy), 1u);
     EXPECT_EQ(s, "abcdefghijabdefghijaaa");
@@ -854,9 +823,6 @@ void StringUtilsTest_Excise() {
     EXPECT_EQ(strings::excise(s, sxy), 1u);
     EXPECT_EQ(s, "abcdefghijabdefghijaaa");
     EXPECT_EQ(strings::excised(s, 'x'), "abcdefghijabdefghijaaa");
-#else
-    (void)axy;
-#endif
   }
   if (true) {
     // excise: init<sv>, array<sv>, span<sv>.
@@ -1134,7 +1100,6 @@ void StringUtilsTest_ParseNum() {
   if (true) {
     std::string_view sv;
     double t;
-#ifdef I_FIXED_THIS_BUG
     sv = "12.3";
 
     EXPECT_TRUE(strings::extract_num(t, sv));
@@ -1149,7 +1114,7 @@ void StringUtilsTest_ParseNum() {
     EXPECT_TRUE(strings::extract_num(t, sv));
     EXPECT_EQ(t, 45.6);
     EXPECT_TRUE(sv.empty());
-#endif
+
 #ifdef ONLY_WORKED_ON_MSVC
     std::string s;
     // strings::append<std::chars_format::hex>(s, 12.3l);

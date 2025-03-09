@@ -18,3 +18,5 @@ h. strings_test needs more tests.
   // allowing assignment to arbitrary containers.
 
 Add clang-tidy!
+
+6. Remove CRTP using "deducing this".
