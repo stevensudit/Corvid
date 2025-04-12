@@ -1197,6 +1197,24 @@ void NoInitResize_Basic() {
   // s.resize_and_overwrite(2);
 }
 
+using FirstName = strong_type<std::string, struct FirstNameTag>;
+using LastName = strong_type<std::string, struct LastNameTag>;
+
+void StrongType_Basic() {
+  FirstName fn{"John"};
+  LastName ln{"Smith"};
+  EXPECT_EQ(fn.get(), "John");
+  EXPECT_EQ(ln.get(), "Smith");
+  EXPECT_EQ(fn, "John"s);
+  EXPECT_EQ(fn, fn);
+  EXPECT_EQ(fn, FirstName{"John"});
+  EXPECT_EQ(fn, FirstName{"John"});
+  EXPECT_NE(fn, FirstName{"Jane"});
+  EXPECT_NE(fn, FirstName{"Jane"});
+  EXPECT_NE(fn, ln);
+  EXPECT_EQ(fn, FirstName{"John"});
+}
+
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
     FindOptTest_Maps, FindOptTest_Sets, FindOptTest_Vectors,
@@ -1205,7 +1223,8 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     IntervalTest_Reverse, IntervalTest_MinMax, IntervalTest_CompareAndSwap,
     IntervalTest_Append, TransparentTest_General, IndirectKey_Basic,
     InternTableTest_Basic, InternTableTest_Badkey, OwnPtrTest_Ctor,
-    DeductionTest_Experimental, CustomHandleTest_Basic, NoInitResize_Basic);
+    DeductionTest_Experimental, CustomHandleTest_Basic, NoInitResize_Basic,
+    StrongType_Basic);
 
 // Ok, so the plan is to make all of the Ptr/Del ctors take the same three
 // templated arguments. The third is just a named thing that's defaulted to
