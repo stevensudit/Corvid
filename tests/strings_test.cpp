@@ -1864,6 +1864,19 @@ void StringUtilsTest_AppendJson() {
   }
 }
 
+void raw_resize(std::string& s, size_t n) {
+  s.clear();
+  s.resize_and_overwrite(n, [&](char*, size_t n) { return n; });
+  s.resize(n);
+}
+
+void StringUtilsTest_RawBuffer() {
+  std::string buffer;
+  raw_resize(buffer, 4096u);
+  EXPECT_EQ(buffer.size(), 4096u);
+  EXPECT_GE(buffer.capacity(), 4096u);
+}
+
 MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_Split, StringUtilsTest_SplitPg, StringUtilsTest_ParseNum,
     StringUtilsTest_Case, StringUtilsTest_Locate, StringUtilsTest_RLocate,
@@ -1871,4 +1884,5 @@ MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_Excise, StringUtilsTest_Target, StringUtilsTest_Print,
     StringUtilsTest_Trim, StringUtilsTest_AppendNum, StringUtilsTest_Append,
     StringUtilsTest_Edges, StringUtilsTest_Streams, StringUtilsTest_AppendEnum,
-    StringUtilsTest_AppendStream, StringUtilsTest_AppendJson);
+    StringUtilsTest_AppendStream, StringUtilsTest_AppendJson,
+    StringUtilsTest_RawBuffer);
