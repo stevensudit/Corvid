@@ -1199,6 +1199,7 @@ void NoInitResize_Basic() {
 
 using FirstName = strong_type<std::string, struct FirstNameTag>;
 using LastName = strong_type<std::string, struct LastNameTag>;
+using PersonAge = strong_type<long, struct PersonAgeTag>;
 
 void StrongType_Basic() {
   FirstName fn{"John"};
@@ -1211,8 +1212,29 @@ void StrongType_Basic() {
   EXPECT_EQ(fn, FirstName{"John"});
   EXPECT_NE(fn, FirstName{"Jane"});
   EXPECT_NE(fn, FirstName{"Jane"});
-  EXPECT_NE(fn, ln);
+  // Does not compile, giving clean error message.
+  //* EXPECT_NE(fn, ln);
+  //++fn;
+  //* fn = fn * fn;
+  //* fn = fn * 2;
   EXPECT_EQ(fn, FirstName{"John"});
+  std::map<FirstName, LastName> m;
+  m[fn] = ln;
+  std::unordered_map<FirstName, LastName> um;
+  um[fn] = ln;
+  PersonAge age{42};
+  EXPECT_EQ(age.get(), 42);
+  EXPECT_EQ(age, 42);
+  EXPECT_EQ(age, PersonAge{42});
+  EXPECT_NE(age, PersonAge{43});
+  ++age;
+  EXPECT_EQ(age, 43);
+  age = age + 1l;
+  EXPECT_EQ(age, 44);
+  age = age - 1;
+  EXPECT_EQ(age, 43);
+  age = age << 1;
+  std::cout << age << std::endl;
 }
 
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
