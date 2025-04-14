@@ -1201,11 +1201,16 @@ using FirstName = strong_type<std::string, struct FirstNameTag>;
 using LastName = strong_type<std::string, struct LastNameTag>;
 using PersonAge = strong_type<long, struct PersonAgeTag>;
 
+using WeakPersonFn = std::function<PersonAge(FirstName, LastName)>;
+using PersonFn = strong_type<WeakPersonFn, struct PersonFnTag>;
+using WeakPointlessFn = std::function<void(FirstName, LastName)>;
+using PointlessFn = strong_type<WeakPointlessFn, struct PointlessFnTag>;
+
 void StrongType_Basic() {
   FirstName fn{"John"};
   LastName ln{"Smith"};
-  EXPECT_EQ(fn.get(), "John");
-  EXPECT_EQ(ln.get(), "Smith");
+  EXPECT_EQ(fn.value(), "John");
+  EXPECT_EQ(ln.value(), "Smith");
   EXPECT_EQ(fn, "John"s);
   EXPECT_EQ(fn, fn);
   EXPECT_EQ(fn, FirstName{"John"});
@@ -1223,7 +1228,7 @@ void StrongType_Basic() {
   std::unordered_map<FirstName, LastName> um;
   um[fn] = ln;
   PersonAge age{42};
-  EXPECT_EQ(age.get(), 42);
+  EXPECT_EQ(age.value(), 42);
   EXPECT_EQ(age, 42);
   EXPECT_EQ(age, PersonAge{42});
   EXPECT_NE(age, PersonAge{43});
@@ -1234,7 +1239,347 @@ void StrongType_Basic() {
   age = age - 1;
   EXPECT_EQ(age, 43);
   age = age << 1;
-  std::cout << age << std::endl;
+}
+
+void StrongType_Extended() {
+  // Comprehensive test of all methods and operators for FirstName.
+
+  if (true) {
+    // Default ctor.
+    FirstName fn;
+    EXPECT_EQ(fn, "");
+    fn = "John";
+    EXPECT_EQ(fn, "John");
+    // Copy ctor.
+    FirstName fn_copy{fn};
+    EXPECT_EQ(fn_copy, "John");
+    // Move ctor.
+    FirstName fn_moved{std::move(fn_copy)};
+    EXPECT_EQ(fn_moved, "John");
+    EXPECT_EQ(fn_copy, "");
+    // Copy conversion from string.
+    std::string name{"Jane"};
+    FirstName fn_copy_from_string{name};
+    EXPECT_EQ(fn_copy_from_string, "Jane");
+    // Move conversion from string.
+    FirstName fn_move_from_string{std::move(name)};
+    EXPECT_EQ(fn_move_from_string, "Jane");
+    EXPECT_EQ(name, "");
+    // Conversion from char[].
+    char name2[]{"Jim"};
+    FirstName fn_from_char_array{name2};
+    EXPECT_EQ(fn_from_char_array, "Jim");
+  }
+
+  if (true) {
+    FirstName fn{"Jane"};
+    EXPECT_EQ(fn, "Jane");
+    // Homogeneous copy assignment.
+    FirstName fn_copy;
+    fn_copy = fn;
+    EXPECT_EQ(fn_copy, "Jane");
+    // Homogeneous move assignment.
+    FirstName fn_move;
+    fn_move = std::move(fn_copy);
+    EXPECT_EQ(fn_move, "Jane");
+    EXPECT_EQ(fn_copy, "");
+    // Copy from char[].
+    char namearray[]{"John"};
+    fn = namearray;
+    EXPECT_EQ(fn, "John");
+    // Copy from string.
+    auto name = "Jane"s;
+    fn = name;
+    EXPECT_EQ(fn, "Jane");
+    // Move from string.
+    fn->clear();
+    fn = std::move(name);
+    EXPECT_EQ(fn, "Jane");
+    EXPECT_EQ(name, "");
+  }
+
+  if (true) {
+    // Access and iteration.
+    FirstName fn{"John"};
+    EXPECT_EQ(fn.value(), "John");
+    EXPECT_EQ(fn->size(), 4u);
+    EXPECT_EQ(fn->at(0), 'J');
+    EXPECT_EQ(fn->front(), 'J');
+    EXPECT_EQ(fn->back(), 'n');
+    EXPECT_EQ(std::string_view{fn->data()}, "John");
+    EXPECT_EQ(std::string_view{fn->c_str()}, "John");
+    std::string s;
+    for (auto c : fn) s += c;
+    EXPECT_EQ(s, "John");
+    // You can move through get.
+    s.clear();
+    s = std::move(*fn);
+    EXPECT_EQ(s, "John");
+    EXPECT_EQ(fn, "");
+  }
+
+  if (true) {
+    // Relational ops.
+    FirstName fn{"John"};
+    FirstName fn2{"Jane"};
+    EXPECT_EQ(fn, "John"s);
+    EXPECT_EQ(fn, fn);
+    // Test spaceship, both heterogeneous and homogeneous.
+    EXPECT_TRUE((fn <=> fn) == (std::strong_ordering::equal));
+    EXPECT_TRUE((fn <=> fn2) == (std::strong_ordering::greater));
+    EXPECT_TRUE((fn2 <=> fn) == (std::strong_ordering::less));
+    EXPECT_TRUE((fn <=> "John"s) == (std::strong_ordering::equal));
+    EXPECT_TRUE((fn <=> "Zoe"s) == (std::strong_ordering::less));
+    EXPECT_TRUE(("Zoe"s <=> fn) == (std::strong_ordering::greater));
+    EXPECT_TRUE(("John"s <=> fn) == (std::strong_ordering::equal));
+    // Test homogeneous comparisons.
+    EXPECT_FALSE(fn == fn2);
+    EXPECT_TRUE(fn != fn2);
+    EXPECT_FALSE(fn < fn2);
+    EXPECT_FALSE(fn <= fn2);
+    EXPECT_TRUE(fn > fn2);
+    EXPECT_TRUE(fn >= fn2);
+    // Test heterogeneous comparisons.
+    EXPECT_TRUE(fn == "John"s);
+    EXPECT_TRUE((fn <=> "John"s) == (std::strong_ordering::equal));
+    EXPECT_FALSE(fn != "John"s);
+    EXPECT_TRUE(fn < "Zoe"s);
+    EXPECT_TRUE(fn <= "John"s);
+    EXPECT_TRUE(fn > "Adam"s);
+    EXPECT_TRUE(fn >= "John"s);
+    EXPECT_TRUE(("John"s <=> fn) == (std::strong_ordering::equal));
+    EXPECT_TRUE("John"s == fn);
+    EXPECT_FALSE("John"s != fn);
+    EXPECT_TRUE("Zoe"s > fn);
+    EXPECT_TRUE("John"s >= fn);
+    EXPECT_TRUE("Adam"s < fn);
+    EXPECT_TRUE("John"s <= fn);
+  }
+
+  // Test unary operators.
+  if (true) {
+    PersonAge age{42};
+    EXPECT_EQ(+age, 42);
+    EXPECT_EQ(-age, -42);
+    EXPECT_EQ(!age, false);
+    EXPECT_EQ(!!age, true);
+    EXPECT_EQ(~age, -43);
+    EXPECT_EQ(++age, 43);
+    EXPECT_EQ(age++, 43);
+    EXPECT_EQ(age, 44);
+    EXPECT_EQ(--age, 43);
+    EXPECT_EQ(age--, 43);
+    EXPECT_EQ(age, 42);
+    // Test bitwise and bool.
+    EXPECT_EQ(age & 1, 0);
+    EXPECT_EQ(age | 1, 43);
+    EXPECT_EQ(age ^ 1, 43);
+    EXPECT_TRUE(age ? true : false);
+    EXPECT_EQ(~age, -43);
+    EXPECT_EQ(age, static_cast<long>(age));
+  }
+
+  // Test binary arithmetic operators.
+  if (true) {
+    PersonAge age{42};
+    EXPECT_EQ(age + 1, 43);
+    EXPECT_EQ(age - 1, 41);
+    EXPECT_EQ(age * 2, 84);
+    EXPECT_EQ(age / 2, 21);
+    EXPECT_EQ(age % 5, 2);
+    EXPECT_EQ(1 + age, 43);
+    EXPECT_EQ(1 - age, -41);
+    EXPECT_EQ(2 * age, 84);
+    EXPECT_EQ(2 / age, 0);
+    EXPECT_EQ(5 % age, 5);
+    EXPECT_EQ(age + age, 84);
+    EXPECT_EQ(age - age, 0);
+    EXPECT_EQ(age * age, 1764);
+    EXPECT_EQ(age / age, 1);
+    EXPECT_EQ(age % age, 0);
+  }
+
+  // Test binary bitwise operators.
+  if (true) {
+    PersonAge age{42};
+    EXPECT_EQ(age & 1, 0);
+    EXPECT_EQ(age | 1, 43);
+    EXPECT_EQ(age ^ 1, 43);
+    EXPECT_EQ(age << 1, 84);
+    EXPECT_EQ(age >> 1, 21);
+    EXPECT_EQ(1 & age, 0);
+    EXPECT_EQ(1 | age, 43);
+    EXPECT_EQ(1 ^ age, 43);
+    EXPECT_EQ(2 & age, 2);
+    EXPECT_EQ(2 | age, 42);
+    EXPECT_EQ(2 ^ age, 40);
+    // Does not compile:
+    //* EXPECT_EQ(2 << age, 16834);
+    //* EXPECT_EQ(2 >> age, 0);
+    EXPECT_EQ(age & age, 42);
+    EXPECT_EQ(age | age, 42);
+    EXPECT_EQ(age ^ age, 0);
+    age = 1;
+    EXPECT_EQ(age << age, 2);
+    EXPECT_EQ(age >> age, 0);
+  }
+
+  // Test arithmetic assignment operators.
+  if (true) {
+    PersonAge age{42};
+    age += 1;
+    EXPECT_EQ(age, 43);
+    age -= 1;
+    EXPECT_EQ(age, 42);
+    age *= 2;
+    EXPECT_EQ(age, 84);
+    age /= 2;
+    EXPECT_EQ(age, 42);
+    age %= 5;
+    EXPECT_EQ(age, 2);
+    int i = 1;
+    // Does not compile.
+    //* i += age;
+    i += *age;
+    EXPECT_EQ(i, 3);
+  }
+
+  if (true) {
+    WeakPersonFn fn = [](FirstName, LastName) -> PersonAge {
+      return PersonAge{42};
+    };
+    WeakPointlessFn fn2 = [](FirstName, LastName) {};
+    PersonFn pf{fn};
+    PointlessFn pf2{fn2};
+    EXPECT_EQ((pf.value()(FirstName{"John"}, LastName{"Smith"})),
+        PersonAge{42});
+    EXPECT_EQ((pf(FirstName{"John"}, LastName{"Smith"})), PersonAge{42});
+    // Does not compile, due to nodiscard.
+    //* pf(FirstName{"John"}, LastName{"Smith"});
+    // This one is void.
+    pf2(FirstName{"John"}, LastName{"Smith"});
+  }
+
+  if (true) {
+    // Test map and unordered_map compatibility.
+    std::map<FirstName, LastName> m;
+    FirstName fn{"John"};
+    LastName ln{"Smith"};
+    m[fn] = ln;
+    EXPECT_EQ(m[fn].value(), "Smith");
+    std::unordered_map<FirstName, LastName> um;
+    um[fn] = ln;
+    EXPECT_EQ(um[fn].value(), "Smith");
+
+    using StrongMap =
+        strong_type<std::map<FirstName, LastName>, struct StrongMapTag>;
+    StrongMap sm;
+    sm[fn] = ln;
+    EXPECT_EQ(sm[fn].value(), "Smith");
+  }
+
+  // TODO: Add tests for op->* and perhaps more thorough tests for various
+  // different kinds of callbacks: function pointers, mutable lambdas, etc.
+
+  // Assorted tests.
+  FirstName fn{"John"};
+  LastName ln{"Smith"};
+  PersonAge age{42};
+
+  // Test `get` method.
+  EXPECT_EQ(fn.value(), "John");
+  EXPECT_EQ(ln.value(), "Smith");
+  EXPECT_EQ(age.value(), 42);
+
+  // Test equality and inequality operators.
+  EXPECT_EQ(fn, "John"s);
+  EXPECT_EQ(fn, fn);
+  EXPECT_EQ(fn, FirstName{"John"});
+  EXPECT_NE(fn, FirstName{"Jane"});
+  // Does not compile.
+  //*  EXPECT_NE(fn, ln); // Different strong types.
+
+  // Test copy and move constructors.
+  FirstName fn_copy{fn};
+  EXPECT_EQ(fn_copy, fn);
+  FirstName fn_moved{std::move(fn_copy)};
+  EXPECT_EQ(fn_moved, fn);
+
+  // Test copy and move assignment operators.
+  FirstName fn_assigned = fn;
+  EXPECT_EQ(fn_assigned, fn);
+  FirstName fn_move_assigned = std::move(fn_assigned);
+  EXPECT_EQ(fn_move_assigned, fn);
+
+  // Test arithmetic operators.
+  EXPECT_EQ(age + 1, PersonAge{43});
+  EXPECT_EQ(age - 1, PersonAge{41});
+  EXPECT_EQ(age * 2, PersonAge{84});
+  EXPECT_EQ(age / 2, PersonAge{21});
+  EXPECT_EQ(age % 5, PersonAge{2});
+
+  // Test arithmetic assignment operators.
+  age += 1;
+  EXPECT_EQ(age, PersonAge{43});
+  age -= 1;
+  EXPECT_EQ(age, PersonAge{42});
+  age *= 2;
+  EXPECT_EQ(age, PersonAge{84});
+  age /= 2;
+  EXPECT_EQ(age, PersonAge{42});
+  age %= 5;
+  EXPECT_EQ(age, PersonAge{2});
+
+  // Test increment and decrement operators.
+  ++age;
+  EXPECT_EQ(age, PersonAge{3});
+  age++;
+  EXPECT_EQ(age, PersonAge{4});
+  --age;
+  EXPECT_EQ(age, PersonAge{3});
+  age--;
+  EXPECT_EQ(age, PersonAge{2});
+
+  // Test bitwise operators.
+  EXPECT_EQ(age & 1, PersonAge{0});
+  EXPECT_EQ(age | 1, PersonAge{3});
+  EXPECT_EQ(age ^ 1, PersonAge{3});
+  EXPECT_EQ(age << 1, PersonAge{4});
+  EXPECT_EQ(age >> 1, PersonAge{1});
+
+  // Test bitwise assignment operators.
+  age &= 1;
+  EXPECT_EQ(age, PersonAge{0});
+  age |= 3;
+  EXPECT_EQ(age, PersonAge{3});
+  age ^= 1;
+  EXPECT_EQ(age, PersonAge{2});
+  age <<= 1;
+  EXPECT_EQ(age, PersonAge{4});
+  age >>= 1;
+  EXPECT_EQ(age, PersonAge{2});
+
+  // Test heterogeneous comparisons.
+  EXPECT_TRUE(fn == "John"s);
+  EXPECT_FALSE(fn != "John"s);
+  EXPECT_TRUE(fn < "Zoe"s);
+  EXPECT_TRUE(fn <= "John"s);
+  EXPECT_TRUE(fn > "Adam"s);
+  EXPECT_TRUE(fn >= "John"s);
+
+  // Test map and unordered_map compatibility.
+  std::map<FirstName, LastName> m;
+  m[fn] = ln;
+  EXPECT_EQ(m[fn].value(), "Smith");
+
+  std::unordered_map<FirstName, LastName> um;
+  um[fn] = ln;
+  EXPECT_EQ(um[fn].value(), "Smith");
+
+  // Test stream output (if implemented).
+  std::ostringstream oss;
+  oss << fn;
+  EXPECT_EQ(oss.str(), "John");
 }
 
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
@@ -1246,7 +1591,7 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     IntervalTest_Append, TransparentTest_General, IndirectKey_Basic,
     InternTableTest_Basic, InternTableTest_Badkey, OwnPtrTest_Ctor,
     DeductionTest_Experimental, CustomHandleTest_Basic, NoInitResize_Basic,
-    StrongType_Basic);
+    StrongType_Basic, StrongType_Extended);
 
 // Ok, so the plan is to make all of the Ptr/Del ctors take the same three
 // templated arguments. The third is just a named thing that's defaulted to

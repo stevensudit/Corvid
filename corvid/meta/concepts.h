@@ -216,4 +216,20 @@ concept Viewable =
     Makeable<std::remove_cvref_t<T>, std::remove_cvref_t<U>> &&
     Comparable<std::remove_cvref_t<T>, std::remove_cvref_t<U>>;
 
+// `F` must callable with `Args` and return void.
+template<typename F, typename... Args>
+concept CallableReturningVoid = requires(F f, Args&&... args) {
+  {
+    f(std::forward<Args>(args)...)
+  } -> std::same_as<void>;
+};
+
+// `F` must callable with `Args` and return something other than void.
+template<typename F, typename... Args>
+concept CallableReturningNonVoid = requires(F f, Args&&... args) {
+  {
+    f(std::forward<Args>(args)...)
+  } -> std::same_as<std::invoke_result_t<F, Args...>>;
+} && (!std::is_void_v<std::invoke_result_t<F, Args...>>);
+
 }}} // namespace corvid::meta::concepts

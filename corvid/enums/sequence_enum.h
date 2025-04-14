@@ -177,7 +177,7 @@ template<SequentialEnum E>
 
 // Math
 //
-// Only heterogenous addition and subtraction operations are supported.
+// Only heterogeneous addition and subtraction operations are supported.
 //
 // When `wrapclip::limit`, all results are modulo the sequence size. Otherwise,
 // they are undefined when they exceed the range.
@@ -388,7 +388,7 @@ template<ScopedEnum E, E maxseq, E minseq = E{}, wrapclip wrapseq = wrapclip{}>
 // though. Maybe we can't do it automatically but can make it easier. Maybe
 // inheriting with specialization might work.
 
-// TODO: Consider making a variation on sequence enums that allows homogenous
+// TODO: Consider making a variation on sequence enums that allows homogeneous
 // operations, which makes sense for `std::byte` and other strongly-typed
 // integers, like `arithmetic_enum`. It would also support the full set of ops.
 // Possibly, it would also qualify as a SequentialEnum, but it would not
