@@ -314,9 +314,27 @@ void MetaTest_SpanConstness() {
   EXPECT_TRUE((Span<std::span<const char>, const char>));
 }
 
+void MetaTest_FunctionVoidReturn() {
+  using FNV0 = std::function<void()>;
+  using FNV1 = std::function<void(int)>;
+  using FNI0 = std::function<int()>;
+  using FNI1 = std::function<int(int)>;
+
+  EXPECT_TRUE((CallableReturningVoid<FNV0>));
+  EXPECT_TRUE((CallableReturningVoid<FNV1, int>));
+  EXPECT_FALSE((CallableReturningVoid<FNI0>));
+  EXPECT_FALSE((CallableReturningVoid<FNI1, int>));
+
+  EXPECT_FALSE((CallableReturningNonVoid<FNV0>));
+  EXPECT_FALSE((CallableReturningNonVoid<FNV1, int>));
+  EXPECT_TRUE((CallableReturningNonVoid<FNI0>));
+  EXPECT_TRUE((CallableReturningNonVoid<FNI1, int>));
+}
+
 MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
     MetaTest_EnumHighestValueInNBits, MetaTest_EnumPow2,
-    MetaTest_SpanConstness);
+    MetaTest_SpanConstness, MetaTest_FunctionVoidReturn);
+
 
 // TODO: Port the tests below.
 

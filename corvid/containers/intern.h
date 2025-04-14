@@ -155,7 +155,7 @@ public:
     return *value_ >= *other.value_;
   }
 
-  // Heterogenous comparisons with types that are viewable as `value_t`.
+  // Heterogeneous comparisons with types that are viewable as `value_t`.
   template<typename U>
   requires Viewable<value_t, U>
   friend constexpr auto operator<=>(const interned_value& lhs, const U& rhs) {

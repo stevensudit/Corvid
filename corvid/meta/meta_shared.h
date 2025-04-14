@@ -19,6 +19,7 @@
 #include <array>
 #include <bit>
 #include <cstdlib>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>

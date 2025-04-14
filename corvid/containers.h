@@ -28,3 +28,4 @@
 #include "containers/intern.h"
 #include "containers/circular_buffer.h"
 #include "containers/timers.h"
+#include "containers/strong_type.h"
