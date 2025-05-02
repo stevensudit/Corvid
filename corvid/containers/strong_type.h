@@ -61,6 +61,8 @@ public:
   using Tag = TAG;
   static_assert(!std::is_reference_v<T>,
       "strong_type cannot wrap a reference type");
+  static_assert(NotStrongType<T>,
+      "strong_type cannot wrap another strong_type");
 
 #pragma region ctors
 
@@ -110,12 +112,9 @@ public:
 #pragma region access
 
   // Access.
-  [[nodiscard]] constexpr const T& value() const& noexcept { return value_; }
-  [[nodiscard]] constexpr T& value() & noexcept { return value_; }
-  [[nodiscard]] constexpr const T&& value() const&& noexcept {
-    return std::move(value_);
+  [[nodiscard]] constexpr decltype(auto) value(this auto&& self) noexcept {
+    return std::forward_like<decltype(self)>(self.value_);
   }
-  [[nodiscard]] constexpr T&& value() && noexcept { return std::move(value_); }
 
 #pragma endregion access
 #pragma region pointers
@@ -123,29 +122,18 @@ public:
   // Deference and pointer semantics for access. Unlike `std::optional` or
   // `std::unique_ptr`, there is no possibility of a null. Also, note that
   // mutable references allow changing or moving.
-  [[nodiscard]] constexpr const T& operator*() const& noexcept {
-    return value_;
-  }
-  [[nodiscard]] constexpr T& operator*() & noexcept { return value_; }
-
-  [[nodiscard]] constexpr const T&& operator*() const&& noexcept {
-    return std::move(value_);
-  }
-  [[nodiscard]] constexpr T&& operator*() && noexcept {
-    return std::move(value_);
+  [[nodiscard]] constexpr decltype(auto) operator*(this auto&& self) noexcept {
+    return std::forward_like<decltype(self)>(self.value_);
   }
 
-  [[nodiscard]] constexpr const T* operator->() const noexcept {
-    return &value_;
+  [[nodiscard]] constexpr decltype(auto) operator->(
+      this auto&& self) noexcept {
+    return &std::forward_like<decltype(self)>(self.value_);
   }
-  [[nodiscard]] constexpr T* operator->() noexcept { return &value_; }
 
-  // Pointer to member.
-  template<typename U>
-  requires requires(T t, U&& u) { t->*std::forward<U>(u); }
-  [[nodiscard]] constexpr auto operator->*(U&& u) const {
-    return value_->*std::forward<U>(u);
-  }
+  // Note: There is no upside to overloading `operator->*`. At best, it would
+  // provide a bit of syntactic sugar to avoid calling an accessor. In reality,
+  // this doesn't work very well at all.
 
 #pragma endregion pointers
 #pragma region relational
@@ -325,20 +313,12 @@ public:
   }
 
   template<typename = void>
-  requires requires(T t) { bool(t); }
+  requires requires(T t) { t ? true : false; }
   [[nodiscard]] explicit operator bool() const {
-    return static_cast<bool>(value_);
+    return value_ ? true : false;
   }
-  template<typename = void>
-  requires requires(T t) { T(t); }
-  [[nodiscard]] explicit operator const T&() const {
-    return value_;
-  }
-  template<typename = void>
-  requires requires(T t) { T(t); }
-  [[nodiscard]] explicit operator T&() {
-    return value_;
-  }
+  [[nodiscard]] explicit operator const T&() const { return value_; }
+  [[nodiscard]] explicit operator T&() { return value_; }
 
 #pragma endregion unary
 #pragma region binarymath
@@ -511,8 +491,8 @@ public:
   // Heterogeneous bitwise shift operators.
   //
   // We do not attempt to support streaming into or from T. We also do not
-  // support streaming into or from T on LHS. See below, outside the class, for
-  // streaming overrides using `strong_type` only as the value.
+  // support streaming into or from T on LHS. See below, outside the class,
+  // for streaming overrides using `strong_type` only as the value.
   template<NotStrongType U>
   requires requires(T t, const U& rhs) { t << rhs; }
   [[nodiscard]] friend constexpr strong_type
@@ -753,7 +733,6 @@ constexpr std::istream&
 operator>>(std::istream& is, strong_type<T, TAG>& obj) {
   return is >> *obj;
 }
-
 }} // namespace corvid::strongtypes
 
 // Support hash for wrapper, if supported for underlying type.

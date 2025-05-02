@@ -20,3 +20,5 @@ h. strings_test needs more tests.
 Add clang-tidy!
 
 6. Remove CRTP using "deducing this".
+
+7. Consider adding `final` to classes that really ought to be.
