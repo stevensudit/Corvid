@@ -1582,6 +1582,136 @@ void StrongType_Extended() {
   EXPECT_EQ(oss.str(), "John");
 }
 
+struct RetrievalKey {
+  size_t id{};
+  std::string name;
+};
+
+struct RangeKey {
+  size_t start{};
+  size_t end{};
+};
+
+enum class QueryType { None, Retrieve, Range, OtherRange, Status };
+
+using QueryVariant = enum_variant<QueryType, std::monostate, RetrievalKey,
+    RangeKey, RangeKey, std::string>;
+
+// Utility function to take a variable number of arguments and use
+// ostringstream to concatenate them into the returned string.
+template<typename... Args>
+inline auto format_args(Args&&... args) {
+  std::ostringstream oss;
+  ((oss << std::forward<Args>(args)), ...);
+  return oss.str();
+}
+
+void EnumVariant_Basic() {
+#if 1
+  if (true) {
+    QueryVariant qv;
+    auto e = qv.index();
+    EXPECT_EQ(e, QueryType::None);
+  }
+  if (true) {
+    QueryVariant qv{RetrievalKey{1, "test"}};
+    auto e = qv.index();
+    EXPECT_EQ(e, QueryType::Retrieve);
+  }
+  if (true) {
+    QueryVariant qv{in_place_enum<QueryType::OtherRange>, RangeKey{10, 20}};
+    auto e = qv.index();
+    EXPECT_EQ(e, QueryType::OtherRange);
+  }
+  if (true) {
+    QueryVariant qv{in_place_enum<QueryType::Status>};
+    auto e = qv.index();
+    EXPECT_EQ(e, QueryType::Status);
+  }
+  if (true) {
+    QueryVariant::underlying_type underlying_other_range_key{
+        std::in_place_index<3>, RangeKey{10, 20}};
+    EXPECT_EQ(underlying_other_range_key.index(),
+        (size_t)QueryType::OtherRange);
+    QueryVariant qv{in_place_enum<QueryType::OtherRange>, RangeKey{10, 20}};
+    auto e = qv.index();
+    EXPECT_EQ(e, QueryType::OtherRange);
+    auto qv2 = QueryVariant::make<QueryType::Status>();
+    qv2 = QueryVariant::make<QueryType::OtherRange>(RangeKey{10, 20});
+    //(QueryType::Retrieve, RetrievalKey{2, "retrieve"});
+    // QueryVariant qv3{QueryType::OtherRange, RangeKey{10, 20}};
+    QueryVariant qv4{QueryType::None};
+    qv4 = QueryVariant::make<QueryType::Status>("meh");
+    qv4 = QueryType::None;
+    e = QueryType::None;
+    qv4 = RetrievalKey{1, "test"};
+    qv4 = QueryType::Status;
+    qv.emplace<RetrievalKey>(RetrievalKey{1, "retrieve"});
+    qv.emplace<RetrievalKey>(1, "retrieve");
+    qv.emplace<QueryType::Retrieve>(RetrievalKey{1, "retrieve"});
+    qv.emplace<QueryType::Retrieve>(1, "retrieve");
+    const auto& r = qv.get<RetrievalKey>();
+    EXPECT_EQ(r.id, 1u);
+    EXPECT_EQ(r.name, "retrieve");
+    // The following won't compile because `e` is not known at compile time.
+    // QueryVariant qv5{e};
+  }
+  if (true) {
+    auto visitor = indexed_callbacks( //
+        [](std::monostate) { return "None"s; },
+        [](const RetrievalKey& rk) {
+          return format_args("RetrievalKey(id=", rk.id, ", name=", rk.name,
+              ")");
+        },
+        [](const RangeKey& rk) {
+          return format_args("Main RangeKey(start=", rk.start,
+              ", end=", rk.end, ")");
+        },
+        [](const RangeKey& rk) {
+          return format_args("Other RangeKey(start=", rk.start,
+              ", end=", rk.end, ")");
+        },
+        [](const std::string& s) { return format_args("Status(", s, ")"); });
+
+    QueryVariant qv{RetrievalKey{1, "retrieve"}};
+    std::string s;
+    s = visitor.visit(qv);
+    switch (qv.index()) {
+    case QueryType::None: //
+      EXPECT_EQ(s, "None");
+      break;
+    case QueryType::Retrieve:
+      EXPECT_EQ(s, "RetrievalKey(id=1, name=retrieve)");
+      break;
+    case QueryType::Range:
+      EXPECT_EQ(s, "Main RangeKey(start=0, end=0)");
+      break;
+    case QueryType::OtherRange:
+      EXPECT_EQ(s, "Other RangeKey(start=0, end=0)");
+      break;
+    case QueryType::Status: EXPECT_EQ(s, "Status()"); break;
+    }
+    qv = QueryVariant::make<QueryType::OtherRange>(RangeKey{10, 20});
+    s = visitor.visit(qv);
+    EXPECT_EQ(s, "Other RangeKey(start=10, end=20)");
+    auto overload_visitor = overloaded_callbacks( //
+        [](std::monostate) { return "None"s; },
+        [](const RetrievalKey& rk) {
+          return format_args("RetrievalKey(id=", rk.id, ", name=", rk.name,
+              ")");
+        },
+        [](const RangeKey& rk) {
+          return format_args("Some RangeKey(start=", rk.start,
+              ", end=", rk.end, ")");
+        },
+        [](const std::string& s) { return format_args("Status(", s, ")"); });
+
+    s = overload_visitor.visit(qv);
+    EXPECT_EQ(s, "Some RangeKey(start=10, end=20)");
+  }
+#endif
+}
+
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
     FindOptTest_Maps, FindOptTest_Sets, FindOptTest_Vectors,
@@ -1591,7 +1721,7 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     IntervalTest_Append, TransparentTest_General, IndirectKey_Basic,
     InternTableTest_Basic, InternTableTest_Badkey, OwnPtrTest_Ctor,
     DeductionTest_Experimental, CustomHandleTest_Basic, NoInitResize_Basic,
-    StrongType_Basic, StrongType_Extended);
+    StrongType_Basic, StrongType_Extended, EnumVariant_Basic);
 
 // Ok, so the plan is to make all of the Ptr/Del ctors take the same three
 // templated arguments. The third is just a named thing that's defaulted to
