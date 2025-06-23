@@ -1606,8 +1606,18 @@ inline auto format_args(Args&&... args) {
   return oss.str();
 }
 
+// Given a variant type, lists the types in the variant and their indices.
+template<typename T>
+void list_variant_types() {
+  [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+    ((std::cout << typeid(std::variant_alternative_t<Is, T>).name() << "\n"),
+        ...);
+  }(std::make_index_sequence<std::variant_size_v<T>>{});
+}
+
 void EnumVariant_Basic() {
-#if 1
+  std::variant<std::monostate, int, char, std::string> v;
+  list_variant_types<decltype(v)>();
   if (true) {
     QueryVariant qv;
     auto e = qv.index();
@@ -1709,7 +1719,6 @@ void EnumVariant_Basic() {
     s = overload_visitor.visit(qv);
     EXPECT_EQ(s, "Some RangeKey(start=10, end=20)");
   }
-#endif
 }
 
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
