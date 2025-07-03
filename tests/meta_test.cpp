@@ -335,7 +335,6 @@ MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
     MetaTest_EnumHighestValueInNBits, MetaTest_EnumPow2,
     MetaTest_SpanConstness, MetaTest_FunctionVoidReturn);
 
-
 // TODO: Port the tests below.
 
 #if 0
@@ -411,20 +410,20 @@ TEST(MetaTest, ContainerElement) {
 
 TEST(MetaTest, FindRet) {
   using M = std::map<int, Foo>;
-  EXPECT_TRUE((has_find_v<M, int>));
-  EXPECT_FALSE((has_find_v<M, Foo>));
+  EXPECT_TRUE((has_key_find_v<M, int>));
+  EXPECT_FALSE((has_key_find_v<M, Foo>));
   EXPECT_TRUE(
-      (std::is_same_v<finding::details::find_ret_t<M, int>, M::iterator>));
+      (std::is_same_v<keyfinding::details::find_ret_t<M, int>, M::iterator>));
 
   using S = std::set<Foo>;
-  EXPECT_TRUE((has_find_v<S, Foo>));
-  EXPECT_FALSE((has_find_v<S, int>));
+  EXPECT_TRUE((has_key_find_v<S, Foo>));
+  EXPECT_FALSE((has_key_find_v<S, int>));
   EXPECT_TRUE(
-      (std::is_same_v<finding::details::find_ret_t<S, Foo>, S::iterator>));
+      (std::is_same_v<keyfinding::details::find_ret_t<S, Foo>, S::iterator>));
 
   using V = std::vector<int>;
-  EXPECT_FALSE((has_find_v<V, int>));
-  EXPECT_FALSE((has_find_v<V, Foo>));
+  EXPECT_FALSE((has_key_find_v<V, int>));
+  EXPECT_FALSE((has_key_find_v<V, Foo>));
 }
 
 TEST(MetaTest, TypeName) {

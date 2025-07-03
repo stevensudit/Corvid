@@ -114,22 +114,22 @@ template<typename T>
 using pointer_element_t = decltype(details::pointer_element<T>(0));
 
 } // namespace pointers
-inline namespace finding {
+inline namespace keyfinding {
 
-// Determine whether `T` has a `find` method.
+// Determine whether `T` has a `find` method which takes a `T::key_type`.
 namespace details {
 template<typename T, typename = void>
-struct has_find_method: std::false_type {};
+struct has_key_find_method: std::false_type {};
 
 template<typename T>
-struct has_find_method<T, std::void_t<decltype(std::declval<T&>().find(
-                              std::declval<typename T::key_type>()))>>
-    : std::true_type {};
+struct has_key_find_method<T,
+    std::void_t<decltype(std::declval<T&>().find(
+        std::declval<typename T::key_type>()))>>: std::true_type {};
 } // namespace details
 
 template<typename T>
-constexpr bool has_find_v =
-    details::has_find_method<std::remove_cvref_t<T>>::value;
+constexpr bool has_key_find_v =
+    details::has_key_find_method<std::remove_cvref_t<T>>::value;
 
-} // namespace finding
+} // namespace keyfinding
 }}} // namespace corvid::meta::traits

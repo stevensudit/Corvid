@@ -253,7 +253,7 @@ void FindOptTest_Maps() {
     C m{{key, value}};
     EXPECT_EQ(*find_opt(m, key), value);
     EXPECT_EQ(find_opt(m, value).value_or_ptr(&key), key);
-    EXPECT_TRUE(Findable<C>);
+    EXPECT_TRUE(KeyFindable<C>);
     EXPECT_FALSE(RangeWithoutFind<C>);
   }
   if (true) {
@@ -263,7 +263,7 @@ void FindOptTest_Maps() {
     C m{{key, value}};
     EXPECT_EQ(*find_opt(m, key), value);
     EXPECT_EQ(find_opt(m, "missing"sv).value_or(0), 0);
-    EXPECT_TRUE(Findable<C>);
+    EXPECT_TRUE(KeyFindable<C>);
     EXPECT_FALSE(RangeWithoutFind<C>);
   }
   if (true) {
@@ -275,7 +275,7 @@ void FindOptTest_Maps() {
     C m{{key, value}};
     EXPECT_EQ(*find_opt(m, key), value);
     EXPECT_EQ(find_opt(m, "missing"sv).value_or(0), 0);
-    EXPECT_TRUE(Findable<C>);
+    EXPECT_TRUE(KeyFindable<C>);
     EXPECT_FALSE(RangeWithoutFind<C>);
   }
 }
@@ -286,7 +286,7 @@ void FindOptTest_Sets() {
   C s{value};
   EXPECT_EQ(*find_opt(s, value), value);
   EXPECT_EQ(find_opt(s, "").value_or("nope"), "nope");
-  EXPECT_TRUE(Findable<C>);
+  EXPECT_TRUE(KeyFindable<C>);
   EXPECT_FALSE(RangeWithoutFind<C>);
 }
 
@@ -296,7 +296,7 @@ void FindOptTest_Vectors() {
   C s{value};
   EXPECT_EQ(*find_opt(s, value), value);
   EXPECT_EQ(find_opt(s, "").value_or("nope"), "nope");
-  EXPECT_FALSE(Findable<C>);
+  EXPECT_FALSE(KeyFindable<C>);
   EXPECT_TRUE(RangeWithoutFind<C>);
 }
 
@@ -305,7 +305,7 @@ void FindOptTest_Arrays() {
   using C = decltype(s);
   EXPECT_EQ(*find_opt(s, 3), 3);
   EXPECT_EQ(find_opt(s, 5).value_or(-1), -1);
-  EXPECT_FALSE(Findable<C>);
+  EXPECT_FALSE(KeyFindable<C>);
   EXPECT_TRUE(RangeWithoutFind<C>);
 }
 
@@ -315,7 +315,7 @@ void FindOptTest_Strings() {
     C s{"value"};
     EXPECT_EQ(*find_opt(s, 'a'), 'a');
     EXPECT_FALSE(contains(s, 'z'));
-    EXPECT_FALSE(Findable<C>);
+    EXPECT_FALSE(KeyFindable<C>);
     EXPECT_TRUE(RangeWithoutFind<C>);
   }
   if (true) {
@@ -323,7 +323,7 @@ void FindOptTest_Strings() {
     C s{"value"};
     EXPECT_EQ(*find_opt(s, 'a'), 'a');
     EXPECT_FALSE(contains(s, 'z'));
-    EXPECT_FALSE(Findable<C>);
+    EXPECT_FALSE(KeyFindable<C>);
     EXPECT_TRUE(RangeWithoutFind<C>);
   }
   if (true) {
@@ -331,7 +331,7 @@ void FindOptTest_Strings() {
     C s{'v', 'a', 'l', 'u', 'e'};
     EXPECT_EQ(*find_opt(s, 'a'), 'a');
     EXPECT_FALSE(contains(s, 'z'));
-    EXPECT_FALSE(Findable<C>);
+    EXPECT_FALSE(KeyFindable<C>);
     EXPECT_TRUE(RangeWithoutFind<C>);
   }
 }
@@ -767,7 +767,7 @@ void InternTableTest_Basic() {
     iv = SIT::interned_value_t{};
     EXPECT_FALSE(iv);
     using C = SIT::lookup_by_value_t;
-    EXPECT_TRUE(Findable<C>);
+    EXPECT_TRUE(KeyFindable<C>);
     EXPECT_FALSE(RangeWithoutFind<C>);
     iv = sit("abc");
     EXPECT_TRUE(iv);

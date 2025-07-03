@@ -194,13 +194,13 @@ concept MonoState = SameAs<std::monostate, T>;
 template<typename T>
 concept PairLike = StdPair<T> || PairConvertible<T>;
 
-// `T` must have a `find` method.
+// `T` must have a `find` method that takes a `T::key_type`.
 template<typename T>
-concept Findable = has_find_v<T>;
+concept KeyFindable = has_key_find_v<T>;
 
 // `T` must be a container that lacks a `find` method.
 template<typename T>
-concept RangeWithoutFind = Range<T> && (!Findable<T>);
+concept RangeWithoutFind = Range<T> && (!KeyFindable<T>);
 
 // `U` must be usable for constructing a `T`.
 template<typename T, typename U>
