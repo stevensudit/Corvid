@@ -1,7 +1,7 @@
 1. Install WSL 2 with Jammy, and do the usual `apt update` and `apt upgrade`.
 2. Install VSCode on Windows, including [WSL support](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-wsl).
 3. All steps below are in WSL. First, install `gh` and link it to your account.
-4. Clone the repo. Also, clone `mity/acutest`.
+4. Clone the repo.
 5. Run `git config --global user.name "user name"` and `git config --global user.email "user_name@gmail.com"`.
 6. Install the clang key.
 ```
