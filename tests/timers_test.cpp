@@ -29,7 +29,7 @@ operator<<(std::ostream& os, const corvid::timers_ns::timer_id_t& id) {
   return os;
 }
 
-#include "AcutestShim.h"
+#include "minitest.h"
 
 using namespace std::literals;
 using namespace std::chrono;

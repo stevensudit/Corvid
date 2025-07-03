@@ -25,7 +25,7 @@ operator<<(std::ostream& os, const corvid::strings::location& l) {
   return os << "location{" << l.pos << ", " << l.pos_value << "}";
 }
 
-#include "AcutestShim.h"
+#include "minitest.h"
 
 using namespace std::literals;
 using namespace corvid;

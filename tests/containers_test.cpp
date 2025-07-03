@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "../corvid/containers.h"
-#include "AcutestShim.h"
+#include "minitest.h"
 
 using namespace std::literals;
 using namespace corvid;

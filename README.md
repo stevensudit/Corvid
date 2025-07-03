@@ -24,7 +24,7 @@ HISTORY
 
 This is a fork of the original Corvid library, which was written for C++17. It was initially called Corvid20, but now that it's moved past that, the version number has been removed.
 
-With the C++17 version, rather than try to update it in place, it made more sense to make a new project and move code over, bit by bit, cleaning and upgrading it as I went. This approach enabled me to switch from MSVC to clang, which has resulted in more-compliant code, and to use GitHub Copilot and ChatGPT to help with the more tedious parts of the process. I also got rid of Google Test, just to simplify things, switching to the header-only Acutest, which is referenced but not bundled.
+With the C++17 version, rather than try to update it in place, it made more sense to make a new project and move code over, bit by bit, cleaning and upgrading it as I went. This approach enabled me to switch from MSVC to clang, which has resulted in more-compliant code, and to use GitHub Copilot and ChatGPT to help with the more tedious parts of the process. I also got rid of Google Test, simplifying things with a tiny built-in framework.
 
 
 CONTENTS
@@ -36,7 +36,6 @@ EXTERNAL DEPENDENCIES
 
 LLVM suite: For clang, clang-format, and lldb. https://releases.llvm.org/download.html
 CMake: For batch build files. https://cmake.org/download/
-Acutest: For unit tests. https://github.com/mity/acutest
 
 
 NOTICE

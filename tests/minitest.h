@@ -1,11 +1,22 @@
 #include <iostream>
 #include <sstream>
 #include <type_traits>
+#include <cstdio>
+#include <exception>
 
-// From: https://github.com/mity/acutest
-#include "../../acutest/include/acutest.h"
+// Minimal test utilities, replacing the external Acutest dependency.
+namespace minitest {
 
-namespace acutest_shim {
+struct test {
+  const char* name;
+  void (*func)();
+};
+
+extern test TEST_LIST[];
+inline bool current_failed = false;
+inline int failed_tests = 0;
+
+inline void mark_failed() { current_failed = true; }
 
 template<typename T>
 concept OStreamable = requires(T t, std::ostream& os) { os << t; };
@@ -31,12 +42,56 @@ auto inline stream_to_text(const auto& v) {
   return os.str();
 }
 
-} // namespace acutest_shim
+} // namespace minitest
 
-#define VALUE_MSG(actual, expected)                                           \
-  TEST_MSG("Actual:   `%s`", acutest_shim::stream_to_text(actual).c_str());   \
-  TEST_MSG("Expected: `%s`", acutest_shim::stream_to_text(expected).c_str()); \
+#define TEST_MSG(fmt, ...) std::printf(fmt "\n", ##__VA_ARGS__)
+
+#define TEST_CHECK_(cond, fmt, ...)                                           \
+  do {                                                                        \
+    if (!(cond)) {                                                            \
+      minitest::mark_failed();                                                \
+      std::printf("Check failed at %s:%d: " fmt "\n", __FILE__, __LINE__,     \
+          ##__VA_ARGS__);                                                     \
+    }                                                                         \
+  } while (false)
+
+#define TEST_ASSERT_(cond, fmt, ...)                                          \
+  do {                                                                        \
+    if (!(cond)) {                                                            \
+      minitest::mark_failed();                                                \
+      std::printf("Assertion failed at %s:%d: " fmt "\n", __FILE__, __LINE__, \
+          ##__VA_ARGS__);                                                     \
+      return;                                                                 \
+    }                                                                         \
+  } while (false)
+
+#define TEST_EXCEPTION(call, exc)                                             \
+  do {                                                                        \
+    bool caught_ = false;                                                     \
+    try {                                                                     \
+      call;                                                                   \
+    }                                                                         \
+    catch (const exc&) {                                                      \
+      caught_ = true;                                                         \
+    }                                                                         \
+    catch (...) {                                                             \
+      minitest::mark_failed();                                                \
+      std::printf("Unexpected exception at %s:%d\n", __FILE__, __LINE__);     \
+      caught_ = true;                                                         \
+    }                                                                         \
+    if (!caught_) {                                                           \
+      minitest::mark_failed();                                                \
+      std::printf("Expected exception %s not thrown at %s:%d\n", #exc,        \
+          __FILE__, __LINE__);                                                \
+    }                                                                         \
+  } while (false)
+
+#define VALUE_MSG(actual, expected)
+#if 0
+  TEST_MSG("Actual:   `%s`", minitest::stream_to_text(actual).c_str());       \
+  TEST_MSG("Expected: `%s`", minitest::stream_to_text(expected).c_str());     \
   TEST_MSG("File: %s Line: %d Function: %s", __FILE__, __LINE__, __FUNCTION__);
+#endif
 
 #define EXPECT_EQ(actual, expected)                                           \
   do {                                                                        \
@@ -221,5 +276,39 @@ auto inline stream_to_text(const auto& v) {
 #define TEST_LIST_IMPL(N, ...) TEST_LIST_IMPL_N(N, __VA_ARGS__)
 
 #define MAKE_TEST_LIST(...)                                                   \
-  TEST_LIST = {                                                               \
-      TEST_LIST_IMPL(VA_NARGS(__VA_ARGS__), __VA_ARGS__){nullptr, nullptr}};
+  namespace minitest {                                                        \
+  test TEST_LIST[] = {                                                        \
+      TEST_LIST_IMPL(VA_NARGS(__VA_ARGS__), __VA_ARGS__){nullptr, nullptr}};  \
+  }
+
+int main() {
+  using namespace minitest;
+  for (const test* t = TEST_LIST; t->name; ++t) {
+    current_failed = false;
+    std::printf("Running %s\n", t->name);
+    try {
+      t->func();
+    }
+    catch (const std::exception& e) {
+      mark_failed();
+      std::printf("Unexpected exception: %s\n", e.what());
+    }
+    catch (...) {
+      mark_failed();
+      std::printf("Unknown exception occurred\n");
+    }
+    if (current_failed) {
+      std::printf("[FAIL] %s\n", t->name);
+      ++failed_tests;
+    } else {
+      std::printf("[PASS] %s\n", t->name);
+    }
+  }
+  if (failed_tests) {
+    std::printf("%d test(s) failed\n", failed_tests);
+    return 1;
+  }
+  std::printf("All tests passed\n");
+
+  return 0;
+}
