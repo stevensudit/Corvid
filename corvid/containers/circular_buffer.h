@@ -55,19 +55,22 @@ public:
     return *this;
   }
 
-  // Construct from any container that converts to std::span. Starts off empty.
+  // Construct from any container that converts to `std::span`. Starts off
+  // empty.
   template<typename U>
   explicit circular_buffer(U&& u) noexcept
   requires std::convertible_to<U, std::span<T>>
       : range_(std::forward<U>(u)), back_(last_index()) {
+    assert(range_.size() > 0);
     assert(range_.size() <= std::numeric_limits<size_type>::max());
   }
 
-  // Construct with an initial size, from container.
+  // Construct, with an initial size, from container.
   template<typename U>
   explicit circular_buffer(U&& u, size_type size) noexcept
       : range_(std::forward<U>(u)), back_(size ? size - 1 : last_index()),
         size_(size) {
+    assert(range_.size() > 0);
     assert(range_.size() <= std::numeric_limits<size_type>::max());
     assert(size <= capacity());
   }
@@ -99,20 +102,20 @@ public:
 
   // Try to push the value to the front of the buffer. Returns pointer to the
   // new element or nullptr if full.
-  auto* try_push_front(const value_type& value) noexcept(
+  [[nodiscard]] auto* try_push_front(const value_type& value) noexcept(
       noexcept(*data() = value)) {
     if (full()) return pointer{};
     ++size_;
     return &(add_front() = value);
   }
-  auto* try_push_front(value_type&& value) noexcept(
+  [[nodiscard]] auto* try_push_front(value_type&& value) noexcept(
       noexcept(*data() = std::move(value))) {
     if (full()) return pointer{};
     ++size_;
     return &(add_front() = std::move(value));
   }
   template<class... Args>
-  auto* try_emplace_front(Args&&... args) noexcept(
+  [[nodiscard]] auto* try_emplace_front(Args&&... args) noexcept(
       noexcept(*data() = value_type{std::forward<Args>(args)...})) {
     if (full()) return pointer{};
     ++size_;
@@ -140,20 +143,20 @@ public:
 
   // Try to push the value to the back of the buffer. Returns pointer to the
   // new element or nullptr if full.
-  auto* try_push_back(const value_type& value) noexcept(
+  [[nodiscard]] auto* try_push_back(const value_type& value) noexcept(
       noexcept(*data() = value)) {
     if (full()) return pointer{};
     ++size_;
     return &(add_back() = value);
   }
-  auto* try_push_back(value_type&& value) noexcept(
+  [[nodiscard]] auto* try_push_back(value_type&& value) noexcept(
       noexcept(*data() = std::move(value))) {
     if (full()) return pointer{};
     ++size_;
     return &(add_back() = std::move(value));
   }
   template<class... Args>
-  auto* try_emplace_back(Args&&... args) noexcept(
+  [[nodiscard]] auto* try_emplace_back(Args&&... args) noexcept(
       noexcept(*data() = value_type{std::forward<Args>(args)...})) {
     if (full()) return pointer{};
     ++size_;
@@ -338,7 +341,7 @@ private:
       ++size_;
   }
 
-  void steal(circular_buffer&& other) {
+  void steal(circular_buffer&& other) noexcept {
     range_ = std::exchange(other.range_, {});
     front_ = std::exchange(other.front_, {});
     back_ = std::exchange(other.back_, {});

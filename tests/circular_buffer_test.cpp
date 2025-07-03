@@ -346,16 +346,16 @@ void CircularBufferTest_Smoke() {
     EXPECT_EQ(cb[0], 1);
     cb.clear();
 
-    cb.try_push_front(1);
+    (void)cb.try_push_front(1);
     EXPECT_EQ(cb[0], 1);
     cb.clear();
-    cb.try_push_back(1);
+    (void)cb.try_push_back(1);
     EXPECT_EQ(cb[0], 1);
     cb.clear();
-    cb.try_emplace_front(1);
+    (void)cb.try_emplace_front(1);
     EXPECT_EQ(cb[0], 1);
     cb.clear();
-    cb.try_emplace_back(1);
+    (void)cb.try_emplace_back(1);
     EXPECT_EQ(cb[0], 1);
     cb.clear();
 
@@ -416,7 +416,7 @@ void CircularBufferTest_Smoke() {
     //* cb.push_back({1, 2});
 
     //* cb.try_push_back(moi);
-    cb.try_push_back(std::move(moi));
+    (void)cb.try_push_back(std::move(moi));
     EXPECT_EQ(cb[0].value(), 1);
     moi = MoveOnlyInt{1};
     cb.clear();
@@ -456,7 +456,7 @@ void CircularBufferTest_Smoke() {
     //* cb.push_front({1, 2});
 
     //* cb.try_push_front(moi);
-    cb.try_push_front(std::move(moi));
+    (void)cb.try_push_front(std::move(moi));
     EXPECT_EQ(cb[0].value(), 1);
     moi = MoveOnlyInt{1};
     cb.clear();
