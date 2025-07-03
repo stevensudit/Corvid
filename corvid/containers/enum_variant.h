@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <variant>
+#include <tuple>
 
 #include "../meta/concepts.h"
 
@@ -35,9 +36,8 @@ concept HasUnderlyingType = requires {
 // Get the underlying type of a variant, which is either the type itself
 // or the type of its underlying value if it has one.
 template<typename T>
-using underlying_variant_type_t = std::conditional_t<requires {
-  HasUnderlyingType<T>;
-}, typename std::decay_t<T>::underlying_type, std::decay_t<T>>;
+using underlying_variant_type_t = std::conditional_t<HasUnderlyingType<T>,
+    typename std::decay_t<T>::underlying_type, std::decay_t<T>>;
 
 // Check if `T` has a `visit` member template that can be called with a
 // variant of type `V`.
@@ -250,9 +250,9 @@ public:
   = default;
 
   // Compile-time conversion constructor from constexpr enum index. Only works
-  // if the value corresonding to the index is constexpr default-constructible.
-  // Note that, being implicit, this lets you assign an `enum_type` to an
-  // `enum_variant`.
+  // if the value corresponding to the index is constexpr
+  // default-constructible. Note that, being implicit, this lets you assign an
+  // `enum_type` to an `enum_variant`.
   consteval enum_variant(enum_type e)
       : value_(construct(static_cast<std::size_t>(e))) {}
 
@@ -357,7 +357,7 @@ public:
     return *this;
   }
 
-  // Conversion assigment from copy of `underlying_variant`.
+  // Conversion assignment from copy of `underlying_variant`.
   constexpr enum_variant& operator=(const underlying_type& v) noexcept(
       std::is_nothrow_copy_assignable_v<underlying_type>)
   requires std::is_copy_assignable_v<underlying_type>
@@ -379,7 +379,8 @@ public:
   // corresponding alternative at runtime. It mirrors the behavior of the
   // consteval converting constructor used for compile-time initialization.
   constexpr enum_variant& operator=(enum_type e) noexcept
-      requires std::is_default_constructible_v<underlying_type> {
+  requires std::is_default_constructible_v<underlying_type>
+  {
     assign_index(static_cast<std::size_t>(e));
     return *this;
   }
