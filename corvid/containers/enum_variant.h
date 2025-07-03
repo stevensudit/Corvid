@@ -254,10 +254,7 @@ public:
   // Note that, being implicit, this lets you assign an `enum_type` to an
   // `enum_variant`.
   consteval enum_variant(enum_type e)
-      : value_(construct(static_cast<std::size_t>(e))) {
-    static_assert(static_cast<std::size_t>(e) < variant_size,
-        "Enum index out of range");
-  }
+      : value_(construct(static_cast<std::size_t>(e))) {}
 
   // Conversion constructor, where `T` is one of the types in `Ts...`.
   template<typename T>
