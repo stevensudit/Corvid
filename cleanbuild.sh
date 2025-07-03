@@ -3,14 +3,26 @@
 # Fail fast.
 set -e
 
-# Set the environment variables to use clang. When running on Codex, fall back to
-# the default clang and build with libstdc++.
-if [[ -n "$CODEX_PROXY_CERT" ]]; then
-  echo "Codex environment detected: using libstdc++"
+# Choose which standard library to use. Pass "libstdcpp" or "libcxx" as the first
+# argument to override the default. Outside of Codex, the default is libc++.
+choice=$1
+
+if [[ -n "$choice" && "$choice" != "libstdcpp" && "$choice" != "libcxx" ]]; then
+  echo "Usage: $0 [libstdcpp|libcxx]" >&2
+  exit 1
+fi
+
+if [[ -n "$CODEX_PROXY_CERT" && -z "$choice" ]]; then
+  choice="libstdcpp"
+fi
+
+if [[ "$choice" == "libstdcpp" ]]; then
+  echo "Using libstdc++"
   export CC="$(command -v clang)"
   export CXX="$(command -v clang++)"
   LIBSTD_OPTION="-DUSE_LIBSTDCPP=ON"
 else
+  echo "Using libc++"
   export CC="/usr/bin/clang-19"
   export CXX="/usr/bin/clang++-19"
   LIBSTD_OPTION="-DUSE_LIBSTDCPP=OFF"

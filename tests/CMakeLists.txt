@@ -2,19 +2,26 @@ cmake_minimum_required(VERSION 3.16)
 
 project(Corvid VERSION 1.0 LANGUAGES CXX)
 
+# Allow selecting the standard library. Passing -DUSE_LIBSTDCPP=ON to cmake will
+# force libstdc++. Otherwise, the default is libc++ unless we're running on
+# Codex, where libstdc++ is required.
+option(USE_LIBSTDCPP "Use GNU libstdc++ instead of libc++" OFF)
+
 # Set the C++ standard to C++23
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Detect whether we're running on Codex. If so, use libstdc++; otherwise, use
-# clang 19 with libc++.
-if(DEFINED ENV{CODEX_PROXY_CERT})
+# On Codex, default to libstdc++ unless explicitly overridden.
+if(DEFINED ENV{CODEX_PROXY_CERT} AND NOT USE_LIBSTDCPP)
     message(STATUS "Codex environment detected: using libstdc++")
-    set(USE_LIBSTDCPP ON)
+    set(USE_LIBSTDCPP ON CACHE BOOL "Use GNU libstdc++ instead of libc++" FORCE)
 else()
-    message(STATUS "Using libc++")
-    set(USE_LIBSTDCPP OFF)
+    if(USE_LIBSTDCPP)
+        message(STATUS "Using libstdc++ (manual override)")
+    else()
+        message(STATUS "Using libc++")
+    endif()
 endif()
 
 if(USE_LIBSTDCPP)

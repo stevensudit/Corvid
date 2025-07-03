@@ -1,12 +1,27 @@
-# Set the environment variables to use clang. When running on Codex, use the
-# default clang and libstdc++.
-if ($Env:CODEX_PROXY_CERT) {
-    Write-Host "Codex environment detected: using libstdc++"
+# Choose which standard library to use. Pass 'libstdcpp' or 'libcxx' as the
+# first argument to override the default. Outside of Codex, the default is
+# libc++.
+param(
+    [string]$StdLib
+)
+
+if ($StdLib -and $StdLib -ne 'libstdcpp' -and $StdLib -ne 'libcxx') {
+    Write-Host "Usage: cleanbuild.ps1 [libstdcpp|libcxx]" -ForegroundColor Red
+    exit 1
+}
+
+if (-not $StdLib -and $Env:CODEX_PROXY_CERT) {
+    $StdLib = 'libstdcpp'
+}
+
+if ($StdLib -eq 'libstdcpp') {
+    Write-Host "Using libstdc++"
     $env:CC = (Get-Command clang).Source
     $env:CXX = (Get-Command clang++).Source
     $env:RC = (Get-Command clang).Source
     $libStdOption = "-DUSE_LIBSTDCPP=ON"
 } else {
+    Write-Host "Using libc++"
     $env:CC="c:/program files/llvm/bin/clang"
     $env:CXX="c:/program files/llvm/bin/clang++"
 
