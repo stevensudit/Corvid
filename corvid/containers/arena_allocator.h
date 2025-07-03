@@ -49,7 +49,7 @@ namespace corvid { inline namespace container { namespace arena {
 //
 // TODO: Consider adding the ability to limit per-block sizes or total size.
 // Consider making the next block size constant, even when we had to blow past
-// the limit to accomodate an oversize allocation. Sufficiently filled should
+// the limit to accommodate an oversize allocation. Sufficiently filled should
 // be defined as having less than 1/4 of the capacity free, although it could
 // also be configured. Consider changing algorithm so that we keep the current
 // block as the head until it's sufficiently filled, overflowing as needed down
@@ -69,7 +69,7 @@ class extensible_arena {
   // `extensible_arena::scope` to install whenever an allocation is needed.
   thread_local static inline pointer* tls_head_;
 
-  static auto& get_head() {
+  [[nodiscard]] static auto& get_head() {
     assert(tls_head_);
     return *tls_head_;
   }
@@ -83,12 +83,13 @@ class extensible_arena {
     // Helper function to calculate the total size needed for a list_node with
     // a given capacity. The minus 1 is because the list_node struct already
     // includes storage for one element.
-    static constexpr size_t calculate_total_size(size_t capacity) {
+    [[nodiscard]] static constexpr size_t calculate_total_size(
+        size_t capacity) {
       return sizeof(list_node) + capacity - 1;
     }
 
     // Make a new node of `capacity`.
-    static pointer make(size_t capacity) {
+    [[nodiscard]] static pointer make(size_t capacity) {
       // The new operator is used to allocate raw memory, and then placement
       // new is used to construct a new list_node object in that memory.
       auto buffer_for_placement = new char[calculate_total_size(capacity)];
@@ -99,7 +100,7 @@ class extensible_arena {
 
     // Allocate a block of size `n` with `align` alignment from the current
     // node. If no room, returns `nullptr`.
-    void* allocate(size_t n, size_t align) noexcept {
+    [[nodiscard]] void* allocate(size_t n, size_t align) noexcept {
       // Ensure alignment by rounding up to the nearest multiple of 'align'.
       auto start_index = (size_ + align - 1) & ~(align - 1);
       auto past_index = start_index + n;
@@ -111,7 +112,7 @@ class extensible_arena {
 
   // Allocate a block of size `n` with `align` alignment. If no room at `head`,
   // replaces with new block, chaining the rest.
-  static void* allocate(pointer& head, size_t n, size_t align) {
+  [[nodiscard]] static void* allocate(pointer& head, size_t n, size_t align) {
     if (auto start = head->allocate(n, align)) return start;
     auto new_head = list_node::make(std::max(head->capacity_, n));
     new_head->next_ = std::move(head);
@@ -125,11 +126,11 @@ public:
   explicit extensible_arena(size_t capacity) noexcept
       : head_{list_node::make(capacity)} {}
 
-  static void* allocate(size_t n, size_t align) {
+  [[nodiscard]] static void* allocate(size_t n, size_t align) {
     return allocate(get_head(), n, align);
   }
 
-  static bool contains(const void* pv) {
+  [[nodiscard]] static bool contains(const void* pv) {
     for (auto next = get_head().get(); next; next = next->next_.get())
       if (next->data_ <= pv && pv < next->data_ + next->size_) return true;
 
@@ -212,7 +213,7 @@ static_assert(
 // same arena. To avoid unnecessary destructors and frees, the caller should
 // "leak" the object.
 template<typename T, class... Args>
-T* arena_new(Args&&... args) {
+[[nodiscard]] T* arena_new(Args&&... args) {
   arena_allocator<T> a{};
   auto p = arena_allocator_traits<T>::allocate(a, 1);
   arena_allocator_traits<T>::construct(a, p, std::forward<Args>(args)...);
@@ -221,7 +222,7 @@ T* arena_new(Args&&... args) {
 
 // Construct a new object of type `T` using the `arena` parameter.
 template<typename T, class... Args>
-T& arena_construct(extensible_arena& arena, Args&&... args) {
+[[nodiscard]] T& arena_construct(extensible_arena& arena, Args&&... args) {
   extensible_arena::scope s{arena};
   return *arena_new<T>(std::forward<Args>(args)...);
 }
