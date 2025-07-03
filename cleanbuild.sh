@@ -3,9 +3,14 @@
 # Fail fast.
 set -e
 
-# Set the environment variables to use clang
-export CC="/usr/bin/clang-19"
-export CXX="/usr/bin/clang++-19"
+# Prefer clang-19 if available, otherwise use the system default
+if command -v clang-19 >/dev/null 2>&1; then
+  export CC="$(command -v clang-19)"
+  export CXX="$(command -v clang++-19)"
+else
+  export CC="$(command -v clang)"
+  export CXX="$(command -v clang++)"
+fi
 
 # Define the build directory (assuming you're using an out-of-source build)
 buildDir="tests/release_bin"
@@ -38,7 +43,7 @@ cd "$buildDir" || exit
 cmake -G "Ninja" ..
 
 # Run the build (this will compile everything from scratch)
-cmake --build .. --config Release
+cmake --build . --config Release
 
 # Loop through each file in the current directory
 for file in *; do
