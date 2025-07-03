@@ -182,6 +182,8 @@ void OptionalPtrTest_Smart() {
 
     o.reset(std::make_unique<std::string>(test));
     EXPECT_EQ(o->size(), 4u);
+    o.reset();
+    EXPECT_FALSE(o.has_value());
   }
   if (true) {
     auto test{"test"s};

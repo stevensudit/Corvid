@@ -22,9 +22,9 @@ limitations under the License.
 
 HISTORY
 
-This is a fork of the original Corvid library, which was written for C++17. It was initially called Corvid20, but now that it's moved past that, the version number has been removed.
+This is a fork of the original Corvid library, which was written for C++17. It was initially called Corvid20, but the number has been removed because now it just tracks the current version of the language.
 
-With the C++17 version, rather than try to update it in place, it made more sense to make a new project and move code over, bit by bit, cleaning and upgrading it as I went. This approach enabled me to switch from MSVC to clang, which has resulted in more-compliant code, and to use GitHub Copilot and ChatGPT to help with the more tedious parts of the process. I also got rid of Google Test, simplifying things with a tiny built-in framework.
+Rather than porting the C++17 version in place, it made more sense to make a new project and move code over, bit by bit, cleaning and upgrading it as I went. This approach enabled me to switch from MSVC to clang, which has resulted in more-compliant code, and to use GitHub Copilot and ChatGPT to help with the more tedious parts of the process. I also got rid of Google Test, simplifying things with a tiny built-in framework. Although it's intended for libcxx, it works with libstdcpp so as to support the build env of ChatGPT Codex.
 
 
 CONTENTS
@@ -35,6 +35,7 @@ The entirety of the Corvid library is in the `corvid` subdirectory, as headers y
 EXTERNAL DEPENDENCIES
 
 LLVM suite: For clang, clang-format, and lldb. https://releases.llvm.org/download.html
+
 CMake: For batch build files. https://cmake.org/download/
 
 

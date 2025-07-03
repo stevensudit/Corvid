@@ -56,14 +56,26 @@ public:
   constexpr optional_ptr(std::nullptr_t) noexcept {}
   constexpr optional_ptr(std::nullopt_t) noexcept {}
 
-  constexpr optional_ptr(const pointer& p) noexcept : ptr_{p} {}
-  constexpr optional_ptr(pointer&& p) noexcept : ptr_{std::move(p)} {}
+  constexpr optional_ptr(const pointer& p) noexcept(
+      std::is_nothrow_copy_assignable_v<pointer>)
+      : ptr_{p} {}
+  constexpr optional_ptr(pointer&& p) noexcept(
+      std::is_nothrow_move_assignable_v<pointer>)
+      : ptr_{std::move(p)} {}
 
-  constexpr optional_ptr(const optional_ptr&) noexcept = default;
-  constexpr optional_ptr(optional_ptr&&) noexcept = default;
+  constexpr optional_ptr(const optional_ptr&) noexcept(
+      std::is_nothrow_copy_assignable_v<pointer>) = default;
+  constexpr optional_ptr(optional_ptr&&) noexcept(
+      std::is_nothrow_move_assignable_v<pointer>) = default;
 
-  constexpr const optional_ptr& operator=(optional_ptr&& o) noexcept {
-    ptr_ = std::forward<decltype(o)>(o.ptr_);
+  constexpr optional_ptr& operator=(const optional_ptr& o) noexcept(
+      std::is_nothrow_copy_assignable_v<pointer>) {
+    ptr_ = o.ptr_;
+    return *this;
+  }
+  constexpr optional_ptr& operator=(optional_ptr&& o) noexcept(
+      std::is_nothrow_move_assignable_v<pointer>) {
+    ptr_ = std::move(o.ptr_);
     return *this;
   }
 
@@ -103,9 +115,22 @@ public:
     return std::move(*ptr_);
   }
 
-  // Reset to new pointer value.
-  constexpr void reset(const pointer& p = nullptr) noexcept { ptr_ = p; }
-  constexpr void reset(pointer&& p) noexcept { ptr_ = std::move(p); }
+  // Reset to new pointer value or null.
+  constexpr void reset() noexcept(std::is_nothrow_move_assignable_v<pointer>) {
+    ptr_ = pointer{};
+  }
+  constexpr void
+  reset(const pointer& p) noexcept(std::is_nothrow_copy_assignable_v<pointer>)
+  requires std::is_copy_assignable_v<pointer>
+  {
+    ptr_ = p;
+  }
+  constexpr void
+  reset(pointer&& p) noexcept(std::is_nothrow_move_assignable_v<pointer>)
+  requires std::is_move_assignable_v<pointer>
+  {
+    ptr_ = std::move(p);
+  }
 
   // Whether there is a value.
   [[nodiscard]] constexpr bool has_value() const noexcept {
@@ -117,7 +142,9 @@ public:
 
   // Get value, or if null, `default_val`. Returns by value.
   [[nodiscard]] constexpr element_type value_or(auto&& default_val) const {
-    return ptr_ ? *ptr_ : default_val;
+    return ptr_ ? *ptr_
+                : element_type{
+                      std::forward<decltype(default_val)>(default_val)};
   }
 
   // Get value, or if null, default value. Returns by value.
