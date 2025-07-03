@@ -285,7 +285,7 @@ int main() {
   using namespace minitest;
   for (const test* t = TEST_LIST; t->name; ++t) {
     current_failed = false;
-    std::printf("Running %s\n", t->name);
+    // std::printf("Running %s\n", t->name);
     try {
       t->func();
     }
@@ -301,7 +301,7 @@ int main() {
       std::printf("[FAIL] %s\n", t->name);
       ++failed_tests;
     } else {
-      std::printf("[PASS] %s\n", t->name);
+      // std::printf("[PASS] %s\n", t->name);
     }
   }
   if (failed_tests) {

@@ -287,11 +287,12 @@ void CStringViewTest_Cast() {
   // Casts "up" implicitly.
   EXPECT_EQ("abc"_csv, "abc"_csv);
   EXPECT_EQ(accept_string_view("abc"sv), "abc");
-  EXPECT_EQ(accept_string_view("abc"s), "abc");
+  auto abc_str = "abc"s;
+  EXPECT_EQ(accept_string_view(abc_str), "abc");
   EXPECT_EQ(accept_string_view("abc"_csv), "abc");
 
   EXPECT_EQ(accept_cstring_view("abc"_csv), "abc");
-  EXPECT_EQ(accept_cstring_view("abc"s), "abc");
+  EXPECT_EQ(accept_cstring_view(abc_str), "abc");
 
   // But not down.
   // * EXPECT_EQ(accept_cstring_view("abc"sv), "abc");

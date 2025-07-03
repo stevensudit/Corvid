@@ -22,35 +22,28 @@ rm -f "cmake_install.cmake"
 
 # If the build directory exists, delete it to clean the build
 if [ -d "$buildDir" ]; then
-    echo "Cleaning the build directory..."
+    echo "Cleaning the build directory at $buildDir"
     rm -rf "$buildDir"
 else
-    echo "Build directory not found. Creating a new one."
+    echo "Build directory not found. Creating a new one at $buildDir"
 fi
 
 # Create the build directory
 mkdir -p "$buildDir"
 
-# Navigate to the build directory
-cd "$buildDir" || exit
-
 # Run cmake to configure the project with Ninja (or MinGW Makefiles) and clang
-cmake -G "Ninja" ..
+cmake -G "Ninja" tests/
 
 # Run the build (this will compile everything from scratch)
-cmake --build .. --config Release
+cmake --build tests/ --config Release
 
-# Loop through each file in the current directory
-for file in *; do
+# Loop through each file in the release directory
+for file in "$buildDir"/*; do
   # Check if the file is an executable and a regular file (not a directory or symlink)
-  if [[ -x "$file" && -f "$file" ]]; then
-    echo "Executing $file..."
-    ./"$file"
-    echo "$file finished execution."
+  if [[ -x "$file" && -f "$file" && "$file" != *"CMakeCXXCompilerId"* ]]; then
+    echo "$file..."
+    "$file"
+    echo "."
   fi
 done
 
-# Navigate back to the original directory after building
-cd ..
-
-rm -f "cmake_install.cmake"

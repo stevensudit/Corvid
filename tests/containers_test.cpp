@@ -1607,11 +1607,12 @@ inline auto format_args(Args&&... args) {
 
 // Given a variant type, lists the types in the variant and their indices.
 template<typename T>
-void list_variant_types() {
+std::string list_variant_types() {
+  std::ostringstream oss;
   [&]<std::size_t... Is>(std::index_sequence<Is...>) {
-    ((std::cout << typeid(std::variant_alternative_t<Is, T>).name() << "\n"),
-        ...);
+    ((oss << typeid(std::variant_alternative_t<Is, T>).name() << "\n"), ...);
   }(std::make_index_sequence<std::variant_size_v<T>>{});
+  return oss.str();
 }
 
 void EnumVariant_Basic() {

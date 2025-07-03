@@ -291,11 +291,12 @@ void OptStringViewTest_Cast() {
   // Casts "up" implicitly.
   EXPECT_EQ("abc"_osv, "abc"_osv);
   EXPECT_EQ(accept_string_view("abc"sv), "abc");
-  EXPECT_EQ(accept_string_view("abc"s), "abc");
+  auto abc_str = "abc"s;
+  EXPECT_EQ(accept_string_view(abc_str), "abc");
   EXPECT_EQ(accept_string_view("abc"_osv), "abc");
 
   EXPECT_EQ(accept_opt_string_view("abc"_osv), "abc");
-  EXPECT_EQ(accept_opt_string_view("abc"s), "abc");
+  EXPECT_EQ(accept_opt_string_view(abc_str), "abc");
 
   // Or down.
   EXPECT_EQ(accept_opt_string_view("abc"sv), "abc");
