@@ -18,6 +18,7 @@
 #include "containers_shared.h"
 #include <atomic>
 #include <mutex>
+#include <cassert>
 
 namespace corvid { inline namespace container { inline namespace sync_lock {
 
@@ -44,9 +45,9 @@ private:
 // synchronizer*`.
 class breakable_synchronizer {
 public:
-  operator const synchronizer*() const { return sync_; };
-  void disable() const { sync_ = nullptr; };
-  bool is_disabled() const { return !sync_; }
+  operator const synchronizer*() const noexcept { return sync_; };
+  void disable() const noexcept { sync_ = nullptr; };
+  bool is_disabled() const noexcept { return !sync_; }
 
 private:
   synchronizer actual_sync_;
@@ -70,9 +71,9 @@ private:
 //
 // Within a method that takes `attestation`, when calling other methods of the
 // same instance, pass that `attestation` instead of allowing it to be
-// defaulted. Note that if allow it to be defaulted, you'll deadlock. If your
-// method doesn't access any data, it can skip the attestation sync call at
-// top, just passing along the `attestation` without calling it.
+// defaulted. Note that if you allow it to be defaulted, you'll deadlock. If
+// your method doesn't access any data, it can skip the attestation sync call
+// at top, just passing along the `attestation` without calling it.
 //
 // You can use a `breakable_synchronizer` if you want the ability to disable
 // locking once the object is frozen.
@@ -94,7 +95,7 @@ private:
 // even construct it on the instance's `sync` member.
 class lock {
 public:
-  lock() = default;
+  constexpr lock() noexcept = default;
 
   explicit lock(const synchronizer& sync) : sync_{&sync} { sync_->lock(); }
   explicit lock(const synchronizer* sync) : sync_{sync} {
@@ -104,8 +105,8 @@ public:
   lock(const lock&) = delete;
   lock& operator=(const lock&) = delete;
 
-  lock(lock&& r) : sync_(r.release()) {}
-  lock& operator=(lock&& r) {
+  lock(lock&& r) noexcept : sync_(r.release()) {}
+  lock& operator=(lock&& r) noexcept {
     sync_ = r.release();
     return *this;
   }
@@ -125,7 +126,7 @@ public:
     if (sync) (*this)(*sync);
   }
 
-  const synchronizer* release() const {
+  const synchronizer* release() const noexcept {
     const auto old = sync_;
     sync_ = nullptr;
     return old;

@@ -108,6 +108,12 @@ public:
     return *this;
   }
 
+  constexpr void swap(strong_type& other) noexcept(
+      std::is_nothrow_swappable_v<T>) {
+    using std::swap;
+    swap(value_, other.value_);
+  }
+
 #pragma endregion assignment
 #pragma region access
 

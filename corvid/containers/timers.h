@@ -21,6 +21,7 @@
 #include <map>
 #include <queue>
 #include <string_view>
+#include <limits>
 
 namespace corvid { inline namespace container {
 // This namespace is not inline, so we export just the types that the user is
@@ -154,7 +155,7 @@ public:
   auto& set(duration_t start_in, timer_callback_t callback,
       duration_t repeat_in = {}, duration_t stop_in = {}) {
     const auto now = clock_callback_();
-    const auto start_at = clock_callback_() + start_in;
+    const auto start_at = now + start_in;
     const auto stop_at =
         (stop_in == duration_t{}) ? time_point_t{} : now + stop_in;
     return set(start_at, std::move(callback), repeat_in, stop_at);
@@ -168,7 +169,7 @@ public:
 
   // TODO: Consider making this entire class thread-safe.
 
-  // Cancel a timer,
+  // Cancel a timer.
   bool cancel(timer_id_t timer_id) {
     auto it = events_by_id_.find(timer_id);
     if (it == events_by_id_.end()) return false;
@@ -267,7 +268,7 @@ public:
   duration_t next_in(duration_t default_duration = duration_t{}) const {
     auto next_delay = default_duration;
     if (!scheduled_events_.empty()) {
-      next_delay = duration_cast<duration_t>(
+      next_delay = std::chrono::duration_cast<duration_t>(
           scheduled_events_.top().next_at - clock_callback_());
     }
     // If we're overdue, instead claim we're ready now.

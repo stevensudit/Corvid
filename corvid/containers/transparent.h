@@ -18,9 +18,12 @@
 #pragma once
 #include "containers_shared.h"
 
+#include <string>
+#include <string_view>
+
 namespace corvid { inline namespace containers {
 
-// Transparent comparators allows comparing any stringlike values without
+// Transparent comparators allow comparing any stringlike values without
 // constructing temporary `std::string` instances from them. This works for
 // `find` but not `operator[]`.
 //
@@ -59,7 +62,7 @@ using string_map = std::map<std::string, V, transparent_less_stringlike, A>;
 
 // Set of `std::string`, with transparent search.
 template<typename A = std::allocator<std::string>>
-using string_set_alloc = std::set<std::string, transparent_less_stringlike>;
+using string_set_alloc = std::set<std::string, transparent_less_stringlike, A>;
 
 using string_set = string_set_alloc<>;
 
@@ -75,8 +78,5 @@ using string_unordered_set_alloc = std::unordered_set<std::string,
     transparent_hash_equal_stringlike, transparent_hash_equal_stringlike, A>;
 
 using string_unordered_set = string_unordered_set_alloc<>;
-
-using string_unordered_set = std::unordered_set<std::string,
-    transparent_hash_equal_stringlike, transparent_hash_equal_stringlike>;
 
 }} // namespace corvid::containers
