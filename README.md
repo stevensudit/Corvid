@@ -36,7 +36,7 @@ EXTERNAL DEPENDENCIES
 
 LLVM suite: For clang, clang-format, and lldb. https://releases.llvm.org/download.html
 CMake: For batch build files. https://cmake.org/download/
-Accutest: For unit tests. https://github.com/mity/acutest
+Acutest: For unit tests. https://github.com/mity/acutest
 
 
 NOTICE
