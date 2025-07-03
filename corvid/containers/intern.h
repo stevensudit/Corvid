@@ -19,7 +19,6 @@
 #include "arena_allocator.h"
 #include "opt_find.h"
 #include "../enums.h"
-#include "../strings/cstring_view.h"
 
 namespace corvid { inline namespace container { inline namespace intern {
 
@@ -311,7 +310,7 @@ public:
   }
 
   // When full, `intern` fails.
-  bool is_full() const { return sync.is_disabled(); }
+  [[nodiscard]] bool is_full() const { return sync.is_disabled(); }
 
   // Get interned value by ID. If not found, returns empty. Chains to next
   // table if necessary. See also: `operator()`.
@@ -453,5 +452,3 @@ interned_value<T, ID>::interned_value(intern_table<T, ID, TR>& table,
 }
 
 }}} // namespace corvid::container::intern
-
-// TODO: Replace find with opt_find.
