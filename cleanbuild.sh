@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Fail fast.
+set -e
+
 # Set the environment variables to use clang
 export CC="/usr/bin/clang-19"
 export CXX="/usr/bin/clang++-19"
