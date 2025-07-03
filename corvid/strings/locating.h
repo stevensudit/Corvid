@@ -17,6 +17,9 @@
 #pragma once
 #include "strings_shared.h"
 
+#include <array>
+#include <cstring>
+
 // Search and replace, except `search`, `find`, `replace`, and `erase` are all
 // symbols in the `std` namespace. We had to substitute `locate`, `substitute`,
 // and `excise` in order to disambiguate them so as to avoid the conflicts that
@@ -419,11 +422,15 @@ template<npos_choice npv = npos_choice::npos>
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location rlocate_none_char(std::string_view s,
     const ConstCharSpan auto& values, position pos = npos) noexcept {
-  (void)s;
-  (void)values;
-  (void)pos;
-  // TODO: Do this.
-  return {};
+  if (s.empty()) return as_nloc<npv>(s, values);
+  if (pos >= s.size()) pos = s.size() - 1;
+  for (++pos; pos-- > 0;) {
+    position pos_value = 0;
+    for (; pos_value < values.size(); ++pos_value)
+      if (s[pos] == values[pos_value]) break;
+    if (pos_value == values.size()) return {pos, pos_value};
+  }
+  return as_nloc<npv>(s, values);
 }
 
 // Locate strings.
@@ -460,11 +467,19 @@ template<npos_choice npv = npos_choice::npos>
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location locate_none_string(std::string_view s,
     const StringViewConvertibleSpan auto& values, position pos = 0) noexcept {
-  (void)s;
-  (void)values;
-  (void)pos;
-  // TODO: Do this.
-  return {};
+  for (; pos < s.size(); ++pos) {
+    bool matched = false;
+    position pos_value = 0;
+    for (; pos_value < values.size(); ++pos_value) {
+      std::string_view value{values[pos_value]};
+      if (s.substr(pos, value.size()) == value) {
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) return {pos, values.size()};
+  }
+  return as_nloc<npv>(s, values);
 }
 
 // Reverse-locate any of the strings.
@@ -490,11 +505,21 @@ template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location rlocate_none_string(std::string_view s,
     const StringViewConvertibleSpan auto& values,
     position pos = npos) noexcept {
-  (void)s;
-  (void)values;
-  (void)pos;
-  // TODO: Do this.
-  return {};
+  if (s.empty()) return as_nloc<npv>(s, values);
+  if (pos >= s.size()) pos = s.size() - 1;
+  for (++pos; pos-- > 0;) {
+    bool matched = false;
+    position pos_value = 0;
+    for (; pos_value < values.size(); ++pos_value) {
+      std::string_view value{values[pos_value]};
+      if (s.substr(pos, value.size()) == value) {
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) return {pos, values.size()};
+  }
+  return as_nloc<npv>(s, values);
 }
 
 } // namespace helpers
@@ -843,6 +868,20 @@ substituted(std::string s, const auto& from, const auto& to) noexcept {
   substitute(ss, from, to);
   return ss;
 }
+[[nodiscard]] inline std::string substituted(std::string s,
+    std::initializer_list<char> from,
+    std::initializer_list<char> to) noexcept {
+  auto ss = std::string{std::move(s)};
+  substitute(ss, from, to);
+  return ss;
+}
+[[nodiscard]] inline std::string substituted(std::string s,
+    std::initializer_list<std::string_view> from,
+    std::initializer_list<std::string_view> to) noexcept {
+  auto ss = std::string{std::move(s)};
+  substitute(ss, from, to);
+  return ss;
+}
 
 //
 // Excise
@@ -905,7 +944,18 @@ inline size_t excise(std::string& s,
   excise(ss, from);
   return ss;
 }
-
+[[nodiscard]] inline std::string
+excised(std::string s, std::initializer_list<char> from) noexcept {
+  auto ss = std::string{std::move(s)};
+  excise(ss, from);
+  return ss;
+}
+[[nodiscard]] inline std::string
+excised(std::string s, std::initializer_list<std::string_view> from) noexcept {
+  auto ss = std::string{std::move(s)};
+  excise(ss, from);
+  return ss;
+}
 // TODO: Substituted and excised don't work for initializer lists. Wrap them.
 // TODO: Excise can always be optimized to do a single pass over the string,
 // never copying the tail more than once.

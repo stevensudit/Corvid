@@ -286,6 +286,19 @@ void StringUtilsTest_Locate() {
     EXPECT_EQ(pos, npos);
   }
   if (true) {
+    using location = corvid::strings::location;
+    constexpr auto s1 = "abaac"sv;
+    const auto ab = {'a', 'b'};
+    EXPECT_EQ(strings::rlocate_not(s1, ab), (location{4u, 2u}));
+    EXPECT_EQ(strings::rlocate_not("abab"sv, ab), nloc);
+
+    constexpr auto s2 = "abxcdef"sv;
+    const auto abcd = {"ab"sv, "cd"sv};
+    EXPECT_EQ(strings::locate_not(s2, abcd), (location{1u, 2u}));
+    EXPECT_EQ(strings::rlocate_not(s2, abcd), (location{6u, 2u}));
+    EXPECT_EQ(strings::locate_not(s2, {"", "ab"sv}), nloc);
+  }
+  if (true) {
     // located(ch).
     constexpr auto t = "abcabcabc"sv;
     size_t pos{};
@@ -723,6 +736,9 @@ void StringUtilsTest_Substitute() {
     EXPECT_EQ(3u, strings::substitute(s, 'z', 'x'));
     EXPECT_EQ(s, "xxxdefghij");
     EXPECT_EQ(strings::substituted("abcdef", "abc", "yyy"), "yyydef");
+    EXPECT_EQ(strings::substituted("abba", {'a', 'b'}, {'b', 'a'}), "baab");
+    EXPECT_EQ(strings::substituted("abcd", {"ab"sv, "cd"sv}, {"xy"sv, "zz"sv}),
+        "xyzz");
   }
   if (true) {
     constexpr auto sv = "aaaaaaaaaa"sv;
@@ -823,6 +839,8 @@ void StringUtilsTest_Excise() {
     EXPECT_EQ(strings::excise(s, sxy), 1u);
     EXPECT_EQ(s, "abcdefghijabdefghijaaa");
     EXPECT_EQ(strings::excised(s, 'x'), "abcdefghijabdefghijaaa");
+    EXPECT_EQ(strings::excised("abba", {'a', 'b'}), "");
+    EXPECT_EQ(strings::excised("abcdabcd", {"ab"sv, "cd"sv}), "");
   }
   if (true) {
     // excise: init<sv>, array<sv>, span<sv>.
