@@ -52,3 +52,5 @@ done
 
 # Navigate back to the original directory after building
 cd ..
+
+rm -f "cmake_install.cmake"

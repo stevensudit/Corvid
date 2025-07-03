@@ -1,7 +1,7 @@
 # Corvid
 <img src="https://upload.wikimedia.org/wikipedia/commons/0/0a/Corvus-brachyrhynchos-001.jpg" height=768 width=768>
 
-Corvid: A general-purpose C++ library extending std.
+Corvid: A general-purpose modern C++ library extending std.
 
 https://github.com/stevensudit/Corvid
 

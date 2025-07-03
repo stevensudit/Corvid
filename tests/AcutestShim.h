@@ -1,5 +1,6 @@
 #include <iostream>
 #include <sstream>
+#include <type_traits>
 
 // From: https://github.com/mity/acutest
 #include "../../acutest/include/acutest.h"
