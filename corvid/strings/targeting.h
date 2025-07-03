@@ -31,9 +31,9 @@ namespace corvid::strings { inline namespace targeting {
 // quite. But this is consistent with MSVC's overall pattern of underwhelming
 // optimization.
 
-// Base template.
+// Base template forward declaration. Only specialized for supported targets.
 template<typename T>
-class appender {};
+class appender;
 
 // CRTP base.
 template<typename T>

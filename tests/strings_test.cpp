@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <map>
 #include <set>
+#include <type_traits>
 
 #include "../corvid/strings.h"
 std::ostream&
@@ -278,6 +279,8 @@ void StringUtilsTest_Locate() {
     EXPECT_EQ(strings::rlocate_not("aaaaaa"sv, "a"), npos);
     EXPECT_EQ(strings::rlocate_not("aaaaaa"sv, "aa"), npos);
     EXPECT_EQ(strings::rlocate_not("abcde"sv, "de"), 1u);
+    EXPECT_EQ(strings::rlocate_not("abc"sv, "abcdef"sv), 0u);
+    EXPECT_EQ(strings::rlocate_not(""sv, "abcdef"sv), 0u);
     pos = s.size();
     EXPECT_EQ(strings::rlocated_not(pos, s, 'a'), true);
     EXPECT_EQ(pos, 4u);
@@ -972,6 +975,24 @@ void StringUtilsTest_Print() {
     strings::println_with(", ", 'a', 5, "bc", 5.5);
     EXPECT_EQ(ss.str(), "a, 5, bc, 5.5\n");
   }
+  if (true) {
+    std::stringstream ss;
+    strings::ostream_redirector cout_to_ss(std::cout, ss);
+    strings::print_with(", ", 42);
+    EXPECT_EQ(ss.str(), "42");
+  }
+  if (true) {
+    std::stringstream ss;
+    strings::ostream_redirector cout_to_ss(std::cout, ss);
+    strings::println_with(", ", 42);
+    EXPECT_EQ(ss.str(), "42\n");
+  }
+  if (true) {
+    std::stringstream ss;
+    strings::ostream_redirector cerr_to_ss(std::cerr, ss);
+    strings::report_with(", ", 42);
+    EXPECT_EQ(ss.str(), "42\n");
+  }
 #ifdef NOT_SUPPOSED_TO_COMPILE
   if (true) {
     std::stringstream ss;
@@ -980,6 +1001,28 @@ void StringUtilsTest_Print() {
     EXPECT_EQ(ss.str(), "a=5");
   }
 #endif
+}
+
+void StringUtilsTest_OstreamRedirectorTraits() {
+  using R = strings::ostream_redirector;
+  static_assert(!std::is_copy_constructible_v<R>);
+  static_assert(!std::is_copy_assignable_v<R>);
+  static_assert(!std::is_move_constructible_v<R>);
+  static_assert(!std::is_move_assignable_v<R>);
+}
+
+void StringUtilsTest_OstreamRedirectorRestore() {
+  auto* orig = std::cout.rdbuf();
+  {
+    std::stringstream ss;
+    {
+      strings::ostream_redirector r(std::cout, ss);
+      std::cout << "abc";
+      EXPECT_EQ(ss.str(), "abc");
+      EXPECT_NE(std::cout.rdbuf(), orig);
+    }
+    EXPECT_EQ(std::cout.rdbuf(), orig);
+  }
 }
 
 void StringUtilsTest_Trim() {
@@ -1054,6 +1097,17 @@ void StringUtilsTest_Trim() {
     EXPECT_EQ(mss[0], " 1");
     strings::trim(mss);
     EXPECT_EQ(mss[0], "1");
+  }
+  if (true) {
+    std::string s{"  abc  "};
+    strings::trim_left(s);
+    EXPECT_EQ(s, "abc  ");
+    s = "  abc  ";
+    strings::trim_right(s);
+    EXPECT_EQ(s, "  abc");
+    s = "  abc  ";
+    strings::trim(s);
+    EXPECT_EQ(s, "abc");
   }
 }
 
@@ -1930,7 +1984,9 @@ MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_AddBraces, StringUtilsTest_Case, StringUtilsTest_Locate,
     StringUtilsTest_RLocate, StringUtilsTest_LocateEdges,
     StringUtilsTest_Substitute, StringUtilsTest_Excise, StringUtilsTest_Target,
-    StringUtilsTest_Print, StringUtilsTest_Trim, StringUtilsTest_AppendNum,
-    StringUtilsTest_Append, StringUtilsTest_Edges, StringUtilsTest_Streams,
-    StringUtilsTest_AppendEnum, StringUtilsTest_AppendStream,
-    StringUtilsTest_AppendJson, StringUtilsTest_RawBuffer);
+    StringUtilsTest_Print, StringUtilsTest_OstreamRedirectorTraits,
+    StringUtilsTest_OstreamRedirectorRestore, StringUtilsTest_Trim,
+    StringUtilsTest_AppendNum, StringUtilsTest_Append, StringUtilsTest_Edges,
+    StringUtilsTest_Streams, StringUtilsTest_AppendEnum,
+    StringUtilsTest_AppendStream, StringUtilsTest_AppendJson,
+    StringUtilsTest_RawBuffer);

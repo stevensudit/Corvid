@@ -36,7 +36,10 @@ stream_out(OStreamDerived auto& os, const OStreamable auto&... args) {
 constexpr auto& stream_out_with(OStreamDerived auto& os, delim d,
     const OStreamable auto& head, const OStreamable auto&... tail) {
   os << head;
-  return ((os << d << (tail)), ...);
+  if constexpr (sizeof...(tail) > 0) {
+    ((os << d << tail), ...);
+  }
+  return os;
 }
 
 constexpr auto& print(const OStreamable auto&... parts) {
@@ -77,7 +80,12 @@ public:
     from.rdbuf(to.rdbuf());
   }
 
-  ~ostream_redirector() { from_->rdbuf(rdbuf_); }
+  ostream_redirector(const ostream_redirector&) = delete;
+  ostream_redirector& operator=(const ostream_redirector&) = delete;
+  ostream_redirector(ostream_redirector&&) = delete;
+  ostream_redirector& operator=(ostream_redirector&&) = delete;
+
+  ~ostream_redirector() noexcept { from_->rdbuf(rdbuf_); }
 
 private:
   std::ostream* from_;

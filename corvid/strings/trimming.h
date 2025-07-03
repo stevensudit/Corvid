@@ -59,6 +59,38 @@ constexpr void trim(Container auto& wholes, const delim ws = {}) {
   }
 }
 
+// Trim whitespace on left in place.
+inline void trim_left(std::string& whole, delim ws = {}) {
+  auto pos = ws.find_not_in(std::string_view{whole});
+  if (pos == std::string_view::npos)
+    whole.clear();
+  else if (pos)
+    whole.erase(0, pos);
+}
+
+// Trim whitespace on right in place.
+inline void trim_right(std::string& whole, delim ws = {}) {
+  auto sv = std::string_view{whole};
+  auto pos = ws.find_last_not_in(sv);
+  if (pos == std::string_view::npos)
+    whole.clear();
+  else if (pos + 1 < whole.size())
+    whole.erase(pos + 1);
+}
+
+// Trim whitespace in place.
+inline void trim(std::string& whole, delim ws = {}) {
+  auto sv = std::string_view{whole};
+  auto left = ws.find_not_in(sv);
+  if (left == std::string_view::npos) {
+    whole.clear();
+    return;
+  }
+  auto right = ws.find_last_not_in(sv);
+  whole.erase(right + 1);
+  if (left) whole.erase(0, left);
+}
+
 // TODO: Determine if there's a safe, correct way to pass through a temporary
 // container. Maybe try binding on a defaulted parameter.
 
@@ -91,7 +123,5 @@ add_braces(std::string_view whole, delim braces = {"[]"}) {
   target.push_back(braces.back());
   return target;
 }
-
-// TODO: Consider writing versions that modify strings in place.
 
 }} // namespace corvid::strings::trimming

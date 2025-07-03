@@ -347,19 +347,19 @@ template<npos_choice npv = npos_choice::npos>
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr position rlocate_not_string(std::string_view s,
     std::string_view value, position pos = npos) noexcept {
-  // !!! TODO: This is idiotically overcomplicated. Fix it.
-  const auto& v = value;
-  pos = std::min(pos, s.size() >= v.size() ? s.size() - v.size() : npos);
-  if (pos != npos)
-    for (;; pos = (pos > v.size() ? pos - v.size() : 0)) {
-      if (s.substr(pos, v.size()) != v) {
-        break;
-      }
-      if (pos == 0) {
-        pos = npos;
-        break;
-      }
+  auto v = std::string_view{value};
+  if (v.size() > s.size()) return 0;
+
+  auto last = s.size() - v.size();
+  if (pos == npos || pos > last) pos = last;
+
+  for (;; pos = (pos > v.size() ? pos - v.size() : 0)) {
+    if (s.substr(pos, v.size()) != v) break;
+    if (pos == 0) {
+      pos = npos;
+      break;
     }
+  }
   return from_npos<npv>(s, pos);
 }
 
