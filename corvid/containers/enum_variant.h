@@ -375,6 +375,15 @@ public:
     return *this;
   }
 
+  // Assignment from the enum value itself. This will default construct the
+  // corresponding alternative at runtime. It mirrors the behavior of the
+  // consteval converting constructor used for compile-time initialization.
+  constexpr enum_variant& operator=(enum_type e) noexcept
+      requires std::is_default_constructible_v<underlying_type> {
+    assign_index(static_cast<std::size_t>(e));
+    return *this;
+  }
+
   //
   // Emplace
   //
@@ -542,6 +551,18 @@ private:
       }
     } else {
       return {}; // Unreachable, avoids warning
+    }
+  }
+
+  // Runtime equivalent of `construct` used by the enum assignment operator.
+  template<std::size_t I = 0>
+  constexpr void assign_index(std::size_t idx) {
+    if constexpr (I < sizeof...(Ts)) {
+      if (idx == I) {
+        value_.template emplace<I>();
+      } else {
+        assign_index<I + 1>(idx);
+      }
     }
   }
 };

@@ -34,8 +34,8 @@ else
 fi
 
 # Define the build directory (assuming you're using an out-of-source build)
-buildDir="tests/release_bin"
 buildRoot="tests/build"
+buildDir="$buildRoot/release_bin"
 
 rm -f "CMakeCache.txt"
 rm -f "cmake_install.cmake"
