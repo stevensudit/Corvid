@@ -39,8 +39,8 @@ endif()
 # Output directory
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/release_bin")
 
-# Source files
-file(GLOB_RECURSE SOURCES "*.cpp")
+# Source files (only in this directory)
+file(GLOB SOURCES "*.cpp")
 
 # Loop through each source file and create a separate executable
 foreach(SOURCE_FILE ${SOURCES})

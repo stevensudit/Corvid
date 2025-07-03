@@ -5,8 +5,8 @@
 
 namespace corvid { inline namespace container { inline namespace indirect_key {
 
-// Indirect keys are similar to std::reference_wrapper, but are designed to be
-// used as keys in associative containers.
+// Indirect keys are similar to `std::reference_wrapper`, but are designed to
+// be used as keys in associative containers.
 //
 // This is useful when the key is already stored in another container, which
 // guarantees that the value will not be moved, but we want an associative
