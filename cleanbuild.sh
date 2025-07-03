@@ -3,9 +3,18 @@
 # Fail fast.
 set -e
 
-# Set the environment variables to use clang
-export CC="/usr/bin/clang-19"
-export CXX="/usr/bin/clang++-19"
+# Set the environment variables to use clang. When running on Codex, fall back to
+# the default clang and build with libstdc++.
+if [[ -n "$CODEX_PROXY_CERT" ]]; then
+  echo "Codex environment detected: using libstdc++"
+  export CC="$(command -v clang)"
+  export CXX="$(command -v clang++)"
+  LIBSTD_OPTION="-DUSE_LIBSTDCPP=ON"
+else
+  export CC="/usr/bin/clang-19"
+  export CXX="/usr/bin/clang++-19"
+  LIBSTD_OPTION="-DUSE_LIBSTDCPP=OFF"
+fi
 
 # Define the build directory (assuming you're using an out-of-source build)
 buildDir="tests/release_bin"
@@ -32,10 +41,10 @@ fi
 mkdir -p "$buildDir"
 
 # Run cmake to configure the project with Ninja (or MinGW Makefiles) and clang
-cmake -G "Ninja" tests/
+cmake -G "Ninja" tests/ $LIBSTD_OPTION
 
 # Run the build (this will compile everything from scratch)
-cmake --build tests/ --config Release
+cmake --build . --config Release
 
 # Loop through each file in the release directory
 for file in "$buildDir"/*; do

@@ -7,14 +7,27 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Use Clang 19 and avoid pulling in GCC
-set(CMAKE_CXX_COMPILER "/usr/bin/clang++-19")
-set(CMAKE_CXX_COMPILER_TARGET "x86_64-pc-linux-gnu")
+# Detect whether we're running on Codex. If so, use libstdc++; otherwise, use
+# clang 19 with libc++.
+if(DEFINED ENV{CODEX_PROXY_CERT})
+    message(STATUS "Codex environment detected: using libstdc++")
+    set(USE_LIBSTDCPP ON)
+else()
+    message(STATUS "Using libc++")
+    set(USE_LIBSTDCPP OFF)
+endif()
 
-# Compilation and linking flags
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra -Werror -nostdinc++ -isystem /usr/include/c++/v1 -std=c++23")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ --rtlib=compiler-rt -fuse-ld=lld")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L/usr/lib/llvm-19/lib -lc++ -lc++abi")
+if(USE_LIBSTDCPP)
+    # Rely on whichever clang is available and the default libstdc++ install.
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra -Werror -std=c++23")
+else()
+    # Use Clang 19 and avoid pulling in GCC.
+    set(CMAKE_CXX_COMPILER "/usr/bin/clang++-19")
+    set(CMAKE_CXX_COMPILER_TARGET "x86_64-pc-linux-gnu")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra -Werror -nostdinc++ -isystem /usr/include/c++/v1 -std=c++23")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ --rtlib=compiler-rt -fuse-ld=lld")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L/usr/lib/llvm-19/lib -lc++ -lc++abi")
+endif()
 
 # Output directory
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/release_bin")
@@ -30,6 +43,8 @@ foreach(SOURCE_FILE ${SOURCES})
     # Add executable for each source file
     add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
 
-    # Link libc++ and libc++abi explicitly
-    target_link_libraries(${EXECUTABLE_NAME} PRIVATE c++ c++abi)
+    if(NOT USE_LIBSTDCPP)
+        # Link libc++ and libc++abi explicitly
+        target_link_libraries(${EXECUTABLE_NAME} PRIVATE c++ c++abi)
+    endif()
 endforeach()

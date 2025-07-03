@@ -1,9 +1,19 @@
-# Set the environment variables to use clang
-$env:CC="c:/program files/llvm/bin/clang"
-$env:CXX="c:/program files/llvm/bin/clang++"
+# Set the environment variables to use clang. When running on Codex, use the
+# default clang and libstdc++.
+if ($Env:CODEX_PROXY_CERT) {
+    Write-Host "Codex environment detected: using libstdc++"
+    $env:CC = (Get-Command clang).Source
+    $env:CXX = (Get-Command clang++).Source
+    $env:RC = (Get-Command clang).Source
+    $libStdOption = "-DUSE_LIBSTDCPP=ON"
+} else {
+    $env:CC="c:/program files/llvm/bin/clang"
+    $env:CXX="c:/program files/llvm/bin/clang++"
 
-# This is a crude lie to shut it up about resource compilers.
-$env:RC="c:/program files/llvm/bin/clang"
+    # This is a crude lie to shut it up about resource compilers.
+    $env:RC="c:/program files/llvm/bin/clang"
+    $libStdOption = "-DUSE_LIBSTDCPP=OFF"
+}
 
 # Define the build directory (assuming you're using an out-of-source build)
 $buildDir = "build"
@@ -23,7 +33,7 @@ New-Item -ItemType Directory -Path $buildDir
 Set-Location $buildDir
 
 # Run cmake to configure the project with Ninja (or MinGW Makefiles) and clang
-cmake -G "Ninja" ..
+cmake -G "Ninja" .. $libStdOption
 
 # Run the build (this will compile everything from scratch)
 cmake --build . --config Release
