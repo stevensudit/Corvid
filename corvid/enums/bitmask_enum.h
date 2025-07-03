@@ -272,7 +272,7 @@ template<BitmaskEnum E>
 // Return value with bit at `ndx` (counting from the lsb) set.
 template<BitmaskEnum E>
 [[nodiscard]] constexpr E make_at(size_t ndx) noexcept {
-  return make<E>(1 << (ndx - 1));
+  return make<E>(std::underlying_t<E>{1} << (ndx - 1));
 }
 
 // Set
@@ -489,7 +489,7 @@ struct bitmask_enum_names_spec
 /// Whitespace is trimmed. An empty string or hyphen means invalid.
 //
 // TODO: Consider offering a version that is aligned to the msb instead of the
-// lsb. This would avoiding forcing the user to potentally pad with dozens of
+// lsb. This would avoid forcing the user to potentally pad with dozens of
 // commas.
 template<strings::fixed_string bit_names>
 consteval uint64_t calc_valid_bits_from_bit_names() {
@@ -616,7 +616,7 @@ template<ScopedEnum E, strings::fixed_string bit_names,
 // We follow the same rules about placeholders, where space or hyphen mean its
 // invalid and an asterisk or question mark mean its valid but unnamed. When
 // displaying a value, the position of a nameless bit is filled with a hyphen,
-// so if the defintion is "r,-,b" or "r,?,b", we'd show purple or white as
+// so if the definition is "r,-,b" or "r,?,b", we'd show purple or white as
 // "R-B". For white, since we have a residual, we'd show it as usual, as a hex
 // number added to the end. In theory, we could just treat a definition with
 // single-character names as a binary output, but that would be unwise due to

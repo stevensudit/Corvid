@@ -18,7 +18,7 @@
 #include "enums_shared.h"
 #include "../strings/targeting.h"
 
-// Note: This does not need to be directly included by the user, because it's
+// Note: This does not need to be directly included by the user because it's
 // in both "bitmask_enum.h" and "sequence_enum.h". It does get included by
 // "strings/conversion.h" for access to  `enum_spec_v`.
 
@@ -52,8 +52,8 @@ struct base_enum_spec {
 // Such a match does not enable the type as anything; further specialization is
 // needed for that.
 //
-// Note that `std::byte` is used as a placeholder for the type `T` to satsify
-// the compiler (because it counts as a ScopedEnum) and is not otherwise
+// Note that `std::byte` is used as a placeholder for the type `T` to satisfy
+// the compiler (because it counts as a `ScopedEnum`) and is not otherwise
 // significant.
 template<typename T, typename... Ts>
 constexpr inline auto enum_spec_v = base_enum_spec<std::byte>();
@@ -62,11 +62,13 @@ namespace details {
 
 // Enum lookup helper to handle the case of numeric values.
 template<ScopedEnum E>
-bool lookup_helper(E& v, std::string_view sv) {
-  // Caller is responsible for ensuring `sv` is not empty.
+[[nodiscard]] bool lookup_helper(E& v, std::string_view sv) {
+  // Input must be an integer. Caller checks for empty.
   assert(!sv.empty());
   char first = sv.front();
   if ((first < '0' || first > '9') && first != '-') return false;
+
+  // Convert to enum value of integer.
   std::underlying_type_t<E> t;
   auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t);
   if (ec != std::errc{} || ptr != sv.end()) return false;

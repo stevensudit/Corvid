@@ -25,20 +25,17 @@ namespace corvid::strings { inline namespace cases {
 
 // Convert to uppercase.
 // Avoids `std::toupper` because it's locale-dependent and slow.
-[[nodiscard]] inline char to_upper(char c) {
+[[nodiscard]] constexpr char to_upper(char c) noexcept {
   return (c >= 'a' && c <= 'z') ? c - ('a' - 'A') : c;
 }
 
 // Convert to uppercase.
-inline void to_upper(Range auto& r) {
-  std::span s{r};
-  std::ranges::transform(s, s.begin(), [](unsigned char c) {
-    return toupper(c);
-  });
+inline constexpr void to_upper(Range auto& r) noexcept {
+  for (auto& ch : std::span{r}) ch = to_upper(static_cast<char>(ch));
 }
 
 // Return as uppercase.
-[[nodiscard]] inline std::string as_upper(std::string_view sv) {
+[[nodiscard]] constexpr std::string as_upper(std::string_view sv) {
   std::string s{sv};
   to_upper(s);
   return s;
@@ -46,20 +43,17 @@ inline void to_upper(Range auto& r) {
 
 // Convert to lowercase.
 // Avoids `std::tolower` because it's locale-dependent and slow.
-[[nodiscard]] inline char to_lower(char c) {
+[[nodiscard]] constexpr char to_lower(char c) noexcept {
   return (c >= 'A' && c <= 'Z') ? c + ('a' - 'A') : c;
 }
 
 // Convert to lowercase.
-inline void to_lower(Range auto& r) {
-  std::span s{r};
-  std::ranges::transform(s, s.begin(), [](unsigned char c) {
-    return tolower(c);
-  });
+inline constexpr void to_lower(Range auto& r) noexcept {
+  for (auto& ch : std::span{r}) ch = to_lower(static_cast<char>(ch));
 }
 
 // Return as lowercase.
-[[nodiscard]] inline std::string as_lower(std::string_view sv) {
+[[nodiscard]] constexpr std::string as_lower(std::string_view sv) noexcept {
   std::string s{sv};
   to_lower(s);
   return s;

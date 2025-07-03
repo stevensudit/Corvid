@@ -27,7 +27,7 @@ namespace corvid { inline namespace enums { namespace sequence {
 //
 
 // A sequence enum is a scoped enum (aka `enum class`) that holds a sequence of
-// contiguous values. It supports operations such as add and subtract, while
+// contiguous values. It supports operations such as add and subtract while
 // providing some additional functionality. Conceptually, sequential values are
 // mutually exclusive options.
 //
@@ -140,7 +140,7 @@ template<SequentialEnum E, bool noclip = false>
   if constexpr (seq_actually_need_wrap_v<E>) {
     constexpr auto lo = seq_min_num_v<E>, hi = seq_max_num_v<E>;
     static_assert(lo <= hi);
-    using U = std::underlying_type_t<E>;
+    using U = decltype(u);
 
     // Underflow is only possible if it starts above the underlying min.
     if constexpr (lo != std::numeric_limits<U>::min()) {
@@ -289,7 +289,7 @@ template<std::integral T>
 // Length of range.
 template<SequentialEnum E>
 [[nodiscard]] constexpr auto range_length() noexcept {
-  return to_integer<size_t>(seq_size_v<E>());
+  return to_integer<size_t>(seq_size_v<E>);
 }
 
 namespace details {

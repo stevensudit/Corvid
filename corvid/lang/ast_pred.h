@@ -18,6 +18,7 @@
 #include <string_view>
 #include <variant>
 #include <vector>
+#include <memory>
 
 #include "../containers/transparent.h"
 #include "../enums/sequence_enum.h"
