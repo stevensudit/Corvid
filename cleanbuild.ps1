@@ -10,8 +10,12 @@ if ($StdLib -and $StdLib -ne 'libstdcpp' -and $StdLib -ne 'libcxx') {
     exit 1
 }
 
-if (-not $StdLib -and $Env:CODEX_PROXY_CERT) {
-    $StdLib = 'libstdcpp'
+if (-not $StdLib) {
+    if ($Env:CODEX_PROXY_CERT) {
+        $StdLib = 'libstdcpp'
+    } else {
+        $StdLib = 'libcxx'
+    }
 }
 
 if ($StdLib -eq 'libstdcpp') {
@@ -32,6 +36,7 @@ if ($StdLib -eq 'libstdcpp') {
 
 # Define the build directory (assuming you're using an out-of-source build)
 $buildDir = "build"
+$buildRoot = "$buildDir/cmake"
 
 # If the build directory exists, delete it to clean the build
 if (Test-Path $buildDir) {
@@ -42,16 +47,11 @@ if (Test-Path $buildDir) {
 }
 
 # Create the build directory
-New-Item -ItemType Directory -Path $buildDir
+New-Item -ItemType Directory -Force -Path $buildRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 
-# Navigate to the build directory
-Set-Location $buildDir
-
-# Run cmake to configure the project with Ninja (or MinGW Makefiles) and clang
-cmake -G "Ninja" .. $libStdOption
+# Run cmake to configure the project with Ninja and clang
+cmake -S tests -B $buildRoot -G "Ninja" $libStdOption
 
 # Run the build (this will compile everything from scratch)
-cmake --build . --config Release
-
-# Navigate back to the original directory after building
-Set-Location ..
+cmake --build $buildRoot --config Release

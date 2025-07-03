@@ -3,8 +3,9 @@
 # Fail fast.
 set -e
 
-# Choose which standard library to use. Pass "libstdcpp" or "libcxx" as the first
-# argument to override the default. Outside of Codex, the default is libc++.
+# Choose which standard library to use. Pass "libstdcpp" or "libcxx" as the
+# first argument to override the default. Outside of Codex, the default is
+# libc++.
 choice=$1
 
 if [[ -n "$choice" && "$choice" != "libstdcpp" && "$choice" != "libcxx" ]]; then
@@ -12,8 +13,12 @@ if [[ -n "$choice" && "$choice" != "libstdcpp" && "$choice" != "libcxx" ]]; then
   exit 1
 fi
 
-if [[ -n "$CODEX_PROXY_CERT" && -z "$choice" ]]; then
-  choice="libstdcpp"
+if [[ -z "$choice" ]]; then
+  if [[ -n "$CODEX_PROXY_CERT" ]]; then
+    choice="libstdcpp"
+  else
+    choice="libcxx"
+  fi
 fi
 
 if [[ "$choice" == "libstdcpp" ]]; then
@@ -30,6 +35,7 @@ fi
 
 # Define the build directory (assuming you're using an out-of-source build)
 buildDir="tests/release_bin"
+buildRoot="tests/build"
 
 rm -f "CMakeCache.txt"
 rm -f "cmake_install.cmake"
@@ -41,7 +47,7 @@ rm -f ".ninja_log"
 rm -f "build.ninja"
 rm -f "cmake_install.cmake"
 
-# If the build directory exists, delete it to clean the build
+# If the release directory exists, delete it to clean the build
 if [ -d "$buildDir" ]; then
     echo "Cleaning the build directory at $buildDir"
     rm -rf "$buildDir"
@@ -49,14 +55,15 @@ else
     echo "Build directory not found. Creating a new one at $buildDir"
 fi
 
-# Create the build directory
-mkdir -p "$buildDir"
+# Remove and recreate the CMake build directory
+rm -rf "$buildRoot"
+mkdir -p "$buildRoot" "$buildDir"
 
 # Run cmake to configure the project with Ninja (or MinGW Makefiles) and clang
-cmake -G "Ninja" tests/ $LIBSTD_OPTION
+cmake -S tests -B "$buildRoot" -G "Ninja" $LIBSTD_OPTION
 
 # Run the build (this will compile everything from scratch)
-cmake --build . --config Release
+cmake --build "$buildRoot" --config Release
 
 # Loop through each file in the release directory
 for file in "$buildDir"/*; do
