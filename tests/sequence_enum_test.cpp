@@ -22,7 +22,7 @@
 #include "../corvid/meta.h"
 #include "../corvid/enums/sequence_enum.h"
 #include "../corvid/containers.h"
-#include "AccutestShim.h"
+#include "AcutestShim.h"
 
 using namespace corvid;
 using namespace corvid::enums;

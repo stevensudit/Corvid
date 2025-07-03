@@ -17,7 +17,7 @@
 
 #include "../corvid/strings/fixed_string.h"
 #include "../corvid/strings/fixed_string_utils.h"
-#include "AccutestShim.h"
+#include "AcutestShim.h"
 
 using namespace std::literals;
 using namespace corvid;

@@ -23,7 +23,7 @@
 #include "../corvid/meta.h"
 #include "../corvid/enums/bitmask_enum.h"
 #include "../corvid/containers.h"
-#include "AccutestShim.h"
+#include "AcutestShim.h"
 
 using namespace std::literals;
 using namespace corvid;

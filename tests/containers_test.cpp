@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "../corvid/containers.h"
-#include "AccutestShim.h"
+#include "AcutestShim.h"
 
 using namespace std::literals;
 using namespace corvid;
@@ -1073,8 +1073,7 @@ void OwnPtrTest_Ctor() {
     auto p = own_ptr<int>{new int};
 
     // auto q = own_ptr{new int, D{}};
-#if 0    
-    
+#if 0
     auto q{std::move(p)};
     auto uq{std::move(up)};
     auto r = own_ptr{new int, std::default_delete<int>{}};

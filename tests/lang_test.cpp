@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "../corvid/lang.h"
-#include "AccutestShim.h"
+#include "AcutestShim.h"
 
 using namespace std::literals;
 using namespace corvid::lang::ast_pred;

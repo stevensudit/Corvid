@@ -4,7 +4,7 @@
 // From: https://github.com/mity/acutest
 #include "../../acutest/include/acutest.h"
 
-namespace accutest_shim {
+namespace acutest_shim {
 
 template<typename T>
 concept OStreamable = requires(T t, std::ostream& os) { os << t; };
@@ -30,12 +30,11 @@ auto inline stream_to_text(const auto& v) {
   return os.str();
 }
 
-} // namespace accutest_shim
+} // namespace acutest_shim
 
 #define VALUE_MSG(actual, expected)                                           \
-  TEST_MSG("Actual:   `%s`", accutest_shim::stream_to_text(actual).c_str());  \
-  TEST_MSG("Expected: `%s`",                                                  \
-      accutest_shim::stream_to_text(expected).c_str());                       \
+  TEST_MSG("Actual:   `%s`", acutest_shim::stream_to_text(actual).c_str());   \
+  TEST_MSG("Expected: `%s`", acutest_shim::stream_to_text(expected).c_str()); \
   TEST_MSG("File: %s Line: %d Function: %s", __FILE__, __LINE__, __FUNCTION__);
 
 #define EXPECT_EQ(actual, expected)                                           \
