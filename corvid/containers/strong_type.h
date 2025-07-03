@@ -113,7 +113,7 @@ public:
 
   // Access.
   [[nodiscard]] constexpr decltype(auto) value(this auto&& self) noexcept {
-    return std::forward_like<decltype(self)>(self.value_);
+    return forward_like<decltype(self)>(self.value_);
   }
 
 #pragma endregion access
@@ -123,12 +123,12 @@ public:
   // `std::unique_ptr`, there is no possibility of a null. Also, note that
   // mutable references allow changing or moving.
   [[nodiscard]] constexpr decltype(auto) operator*(this auto&& self) noexcept {
-    return std::forward_like<decltype(self)>(self.value_);
+    return forward_like<decltype(self)>(self.value_);
   }
 
   [[nodiscard]] constexpr decltype(auto) operator->(
       this auto&& self) noexcept {
-    return &std::forward_like<decltype(self)>(self.value_);
+    return &forward_like<decltype(self)>(self.value_);
   }
 
   // Note: There is no upside to overloading `operator->*`. At best, it would

@@ -22,3 +22,4 @@
 #include "meta/enums.h"
 #include "meta/naming.h"
 #include "meta/containers.h"
+#include "meta/forward_like.h"

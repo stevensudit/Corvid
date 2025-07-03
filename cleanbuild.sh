@@ -3,12 +3,39 @@
 # Fail fast.
 set -e
 
-# Set the environment variables to use clang
-export CC="/usr/bin/clang-19"
-export CXX="/usr/bin/clang++-19"
+# Choose which standard library to use. Pass "libstdcpp" or "libcxx" as the
+# first argument to override the default. Outside of Codex, the default is
+# libc++.
+choice=$1
+
+if [[ -n "$choice" && "$choice" != "libstdcpp" && "$choice" != "libcxx" ]]; then
+  echo "Usage: $0 [libstdcpp|libcxx]" >&2
+  exit 1
+fi
+
+if [[ -z "$choice" ]]; then
+  if [[ -n "$CODEX_PROXY_CERT" ]]; then
+    choice="libstdcpp"
+  else
+    choice="libcxx"
+  fi
+fi
+
+if [[ "$choice" == "libstdcpp" ]]; then
+  echo "Using libstdc++"
+  export CC="$(command -v clang)"
+  export CXX="$(command -v clang++)"
+  LIBSTD_OPTION="-DUSE_LIBSTDCPP=ON"
+else
+  echo "Using libc++"
+  export CC="/usr/bin/clang-19"
+  export CXX="/usr/bin/clang++-19"
+  LIBSTD_OPTION="-DUSE_LIBSTDCPP=OFF"
+fi
 
 # Define the build directory (assuming you're using an out-of-source build)
-buildDir="tests/release_bin"
+buildRoot="tests/build"
+buildDir="$buildRoot/release_bin"
 
 rm -f "CMakeCache.txt"
 rm -f "cmake_install.cmake"
@@ -20,7 +47,7 @@ rm -f ".ninja_log"
 rm -f "build.ninja"
 rm -f "cmake_install.cmake"
 
-# If the build directory exists, delete it to clean the build
+# If the release directory exists, delete it to clean the build
 if [ -d "$buildDir" ]; then
     echo "Cleaning the build directory at $buildDir"
     rm -rf "$buildDir"
@@ -28,14 +55,15 @@ else
     echo "Build directory not found. Creating a new one at $buildDir"
 fi
 
-# Create the build directory
-mkdir -p "$buildDir"
+# Remove and recreate the CMake build directory
+rm -rf "$buildRoot"
+mkdir -p "$buildRoot" "$buildDir"
 
 # Run cmake to configure the project with Ninja (or MinGW Makefiles) and clang
-cmake -G "Ninja" tests/
+cmake -S tests -B "$buildRoot" -G "Ninja" $LIBSTD_OPTION
 
 # Run the build (this will compile everything from scratch)
-cmake --build tests/ --config Release
+cmake --build "$buildRoot" --config Release
 
 # Loop through each file in the release directory
 for file in "$buildDir"/*; do
