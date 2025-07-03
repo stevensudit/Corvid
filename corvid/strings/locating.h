@@ -907,8 +907,22 @@ size_t excise(std::string& s, SingleLocateValue auto from,
 }
 inline size_t
 excise(std::string& s, std::span<const char> from, position pos = 0) {
+  if (from.empty() || pos >= s.size()) return 0;
+
+  std::array<bool, 256> del{};
+  for (char c : from) del[static_cast<unsigned char>(c)] = true;
   size_t cnt{};
-  for (location loc{pos, 0}; located(loc, s, from); ++cnt) s.erase(loc.pos, 1);
+
+  auto* data = s.data();
+  auto write = pos;
+  for (auto read = pos; read < s.size(); ++read) {
+    unsigned char ch = data[read];
+    if (!del[ch])
+      data[write++] = static_cast<char>(ch);
+    else
+      ++cnt;
+  }
+  if (cnt) s.erase(write);
   return cnt;
 }
 inline size_t
@@ -917,16 +931,35 @@ excise(std::string& s, std::initializer_list<char> from, position pos = 0) {
 }
 inline size_t excise(std::string& s, std::span<const std::string_view> from,
     position pos = 0) {
-  size_t cnt{};
-  for (location loc{pos, 0}; located(loc, s, from) && !s.empty(); ++cnt) {
-    size_t from_size = from[loc.pos_value].size();
-    if (!from_size) {
-      cnt = s.size();
+  if (from.empty() || pos >= s.size()) return 0;
+
+  for (auto sv : from)
+    if (sv.empty()) {
+      auto cnt = s.size();
       s.clear();
       return cnt;
     }
-    s.erase(loc.pos, from_size);
+
+  size_t cnt{};
+  auto* data = s.data();
+  auto write = pos;
+  auto read = pos;
+  while (read < s.size()) {
+    bool matched = false;
+    for (size_t i = 0; i < from.size(); ++i) {
+      auto fv = from[i];
+      if (fv.size() && read + fv.size() <= s.size() &&
+          std::memcmp(data + read, fv.data(), fv.size()) == 0)
+      {
+        read += fv.size();
+        ++cnt;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) data[write++] = data[read++];
   }
+  if (cnt) s.erase(write);
   return cnt;
 }
 inline size_t excise(std::string& s,
