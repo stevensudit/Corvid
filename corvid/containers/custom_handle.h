@@ -28,14 +28,14 @@
 namespace corvid { inline namespace custhandle {
 
 // A `custom_handle` is a wrapper for a raw pointer, or for a resource ID that
-// is the moral equivalent of one, such as a file descriptor. It fullfills
+// is the moral equivalent of one, such as a file descriptor. It fulfills
 // https://en.cppreference.com/w/cpp/named_req/NullablePointer.
 //
-// It is not intended for general use and is not, in itself, a smart pointer,
-// in that it does not free the object in its destructor. Instead, it's made to
-// be used as the `pointer` alias in a custom deleter for `own_ptr`, replacing
-// the raw pointer that it normally stores and manages. In this context, it's
-// considered a "custom handle type".
+// It is not intended for general use and is not -- in itself -- a smart
+// pointer, as it does not free the object in its destructor. Instead, it's
+// made to be used as the `pointer` alias in a custom deleter for `own_ptr`,
+// replacing the raw pointer that it normally stores and manages. In this
+// context, it's considered a "custom handle type".
 //
 // To use it, you define your own deleter that exposes an appropriate
 // `custom_handle` as `pointer` and then offers an `operator()` that closes it.
@@ -49,14 +49,14 @@ namespace corvid { inline namespace custhandle {
 //
 // 1. For wrapping something like a file descriptor, specialize `element_type`
 // and `resource_id_type` to the same type and set `null_v` to the desired
-// default value, which is something like -1 or INVALID_HANDLE_VALUE. The
+// default value, which is something like -1 or `INVALID_HANDLE_VALUE`. The
 // `own_ptr` will then store the value as a `resource_id_type` but expose it as
 // an `element_type` when you dereference it.
 //
 // Note that, unlike `own_ptr<int, fd_deleter>`, it does not involve
 // dynamically allocating an `int`. Also note that you can use same-sized class
 // enums and underlying integral types for the `element_type` and
-// `resource_id_type` and they'll be converted.
+// `resource_id_type`, and they'll be converted.
 //
 // 2. For replacing the default value of an actual pointer, you specialize
 // `resource_id_type` to a raw pointer to `element_type`, and set `null_v` to
@@ -89,46 +89,56 @@ public:
   using reference_type = element_type&;
   static constexpr resource_id_type null_v = N;
 
-  custom_handle() = default;
-  custom_handle(std::nullptr_t) {}
-  custom_handle(const custom_handle&) = default;
+  custom_handle() noexcept = default;
+  custom_handle(std::nullptr_t) noexcept {}
+  custom_handle(const custom_handle&) noexcept = default;
 
   custom_handle(element_type element)
       : resource_{static_cast<resource_id_type>(element)} {}
   custom_handle(resource_id_type resource) : resource_(resource) {}
 
-  custom_handle& operator=(std::nullptr_t) {
+  custom_handle& operator=(std::nullptr_t) noexcept {
     resource_ = null_v;
     return *this;
   }
-  custom_handle& operator=(const custom_handle&) = default;
-  custom_handle& operator=(resource_id_type resource) {
+  custom_handle& operator=(const custom_handle&) noexcept = default;
+  custom_handle& operator=(resource_id_type resource) noexcept {
     resource_ = resource;
     return *this;
   }
-  custom_handle& operator=(element_type element) {
+  custom_handle& operator=(element_type element) noexcept {
     resource_ = static_cast<resource_id_type>(element);
     return *this;
   }
 
-  reference_type operator*() const {
+  [[nodiscard]] reference_type operator*() const {
     if constexpr (std::is_pointer_v<resource_id_type>)
       return *reinterpret_cast<element_type*>(resource_);
     else
       return reinterpret_cast<reference_type>(resource_);
   }
 
-  friend bool operator==(const custom_handle& p, std::nullptr_t) {
+  [[nodiscard]] constexpr element_type* operator->() const noexcept {
+    if constexpr (std::is_pointer_v<resource_id_type>)
+      return reinterpret_cast<element_type*>(resource_);
+    else
+      return reinterpret_cast<element_type*>(&resource_);
+  }
+
+  [[nodiscard]] friend bool
+  operator==(const custom_handle& p, std::nullptr_t) {
     return p.resource_ == null_v;
   }
-  friend bool operator==(std::nullptr_t, const custom_handle& p) {
+  [[nodiscard]] friend bool
+  operator==(std::nullptr_t, const custom_handle& p) {
     return p.resource_ == null_v;
   }
-  friend bool operator==(const custom_handle& p, const custom_handle& q) {
+  [[nodiscard]] friend bool
+  operator==(const custom_handle& p, const custom_handle& q) {
     return p.resource_ == q.resource_;
   }
 
-  explicit operator bool() const { return resource_ != null_v; }
+  [[nodiscard]] explicit operator bool() const { return resource_ != null_v; }
 
   // Note: Mutable because a const pointer to a mutable resource allows mutable
   // access and this is just as true for resource ID's.
