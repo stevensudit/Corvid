@@ -160,7 +160,7 @@ operator""_osv(const char* ps, std::size_t n) noexcept {
 
 // Null literal; must pass 0.
 constexpr opt_string_view operator""_osv(unsigned long long zero_only) {
-  if (zero_only) throw std::out_of_range("c_string_view not zero");
+  if (zero_only) throw std::out_of_range("opt_string_view not zero");
   return opt_string_view{};
 }
 

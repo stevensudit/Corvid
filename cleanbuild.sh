@@ -8,12 +8,12 @@ export CXX="/usr/bin/clang++-19"
 buildDir="tests/release_bin"
 
 rm "CMakeCache.txt"
-rm "cmale_install.cmake"
+rm "cmake_install.cmake"
 rm "ClangExeProject.sln"
 rm "build.ninja"
 rm "CMakeFiles/*"
 rm ".ninja_deps"
-rm ".ninja_log"
+rm ".ninja_log"`
 rm "build.ninja"
 rm "cmake_install.cmake"
 

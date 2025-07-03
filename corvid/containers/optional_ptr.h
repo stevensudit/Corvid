@@ -63,7 +63,7 @@ public:
   constexpr optional_ptr(optional_ptr&&) noexcept = default;
 
   constexpr const optional_ptr& operator=(optional_ptr&& o) noexcept {
-    ptr_ = std::forward<optional_ptr>(o.ptr_);
+    ptr_ = std::forward<decltype(o)>(o.ptr_);
     return *this;
   }
 
