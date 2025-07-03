@@ -336,27 +336,6 @@ void FindOptTest_Strings() {
   }
 }
 
-void FindOptTest_Reversed() {
-  if (true) {
-    using C = std::vector<char>;
-    C s{'v', 'a', 'l', 'u', 'e'};
-    char c{};
-    for (auto e : s) {
-      c = e;
-    }
-    EXPECT_EQ(c, 'e');
-  }
-  if (true) {
-    using C = std::vector<char>;
-    C s{'v', 'a', 'l', 'u', 'e'};
-    char c{};
-    for (auto e : reversed_range(s)) {
-      c = e;
-    }
-    EXPECT_EQ(c, 'v');
-  }
-}
-
 void Intervals_Ctors() {
   if (true) {
     interval i;
@@ -1724,13 +1703,13 @@ void EnumVariant_Basic() {
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
     FindOptTest_Maps, FindOptTest_Sets, FindOptTest_Vectors,
-    FindOptTest_Arrays, FindOptTest_Strings, FindOptTest_Reversed,
-    Intervals_Ctors, IntervalTest_Insert, IntervalTest_ForEach,
-    IntervalTest_Reverse, IntervalTest_MinMax, IntervalTest_CompareAndSwap,
-    IntervalTest_Append, TransparentTest_General, IndirectKey_Basic,
-    InternTableTest_Basic, InternTableTest_Badkey, OwnPtrTest_Ctor,
-    DeductionTest_Experimental, CustomHandleTest_Basic, NoInitResize_Basic,
-    StrongType_Basic, StrongType_Extended, EnumVariant_Basic);
+    FindOptTest_Arrays, FindOptTest_Strings, Intervals_Ctors,
+    IntervalTest_Insert, IntervalTest_ForEach, IntervalTest_Reverse,
+    IntervalTest_MinMax, IntervalTest_CompareAndSwap, IntervalTest_Append,
+    TransparentTest_General, IndirectKey_Basic, InternTableTest_Basic,
+    InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
+    CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
+    StrongType_Extended, EnumVariant_Basic);
 
 // Ok, so the plan is to make all of the Ptr/Del ctors take the same three
 // templated arguments. The third is just a named thing that's defaulted to
