@@ -17,34 +17,38 @@ namespace corvid { inline namespace container { inline namespace indirect_key {
 template<typename T, typename H = std::hash<T>, typename E = std::equal_to<T>>
 struct indirect_hash_key {
   const T& key;
-  indirect_hash_key(const T& key) : key{key} {}
+
+  constexpr indirect_hash_key(const T& key) : key{key} {}
 
   // We don't want to bind to a temporary.
   indirect_hash_key(const T&&) = delete;
 
-  [[nodiscard]] operator const T&() const noexcept { return key; }
+  [[nodiscard]] constexpr operator const T&() const noexcept { return key; }
 
   struct hash_equal_to {
     using is_transparent = void;
 
-    std::size_t operator()(const indirect_hash_key& ik) const noexcept {
+    [[nodiscard]] constexpr std::size_t operator()(
+        const indirect_hash_key& ik) const noexcept {
       return H{}(ik.key);
     }
     template<typename U>
-    size_t operator()(const U& u) const noexcept {
+    [[nodiscard]] constexpr size_t operator()(const U& u) const noexcept {
       return H{}(u);
     }
 
-    bool operator()(const indirect_hash_key& l,
+    [[nodiscard]] constexpr bool operator()(const indirect_hash_key& l,
         const indirect_hash_key& r) const noexcept {
       return E{}(l.key, r.key);
     }
     template<typename U>
-    bool operator()(const indirect_hash_key& l, const U& r) const noexcept {
+    [[nodiscard]] constexpr bool
+    operator()(const indirect_hash_key& l, const U& r) const noexcept {
       return E{}(l.key, r);
     }
     template<typename U>
-    bool operator()(const U& l, const indirect_hash_key& r) const noexcept {
+    [[nodiscard]] constexpr bool
+    operator()(const U& l, const indirect_hash_key& r) const noexcept {
       return E{}(l, r.key);
     }
   };
@@ -55,7 +59,8 @@ struct indirect_hash_key {
 template<typename T, class C = std::less<T>>
 struct indirect_map_key {
   const T& key;
-  indirect_map_key(const T& key) : key{key} {}
+
+  constexpr indirect_map_key(const T& key) : key{key} {}
 
   // We don't want to bind to a temporary.
   indirect_map_key(const T&&) = delete;
@@ -65,16 +70,18 @@ struct indirect_map_key {
   struct compare {
     using is_transparent = void;
 
-    bool operator()(const indirect_map_key& l,
+    [[nodiscard]] constexpr bool operator()(const indirect_map_key& l,
         const indirect_map_key& r) const noexcept {
       return C{}(l.key, r.key);
     }
     template<typename U>
-    bool operator()(const indirect_map_key& l, const U& r) const noexcept {
+    [[nodiscard]] constexpr bool
+    operator()(const indirect_map_key& l, const U& r) const noexcept {
       return C{}(l.key, r);
     }
     template<typename U>
-    bool operator()(const U& l, const indirect_map_key& r) const noexcept {
+    [[nodiscard]] constexpr bool
+    operator()(const U& l, const indirect_map_key& r) const noexcept {
       return C{}(l, r.key);
     }
   };

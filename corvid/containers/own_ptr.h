@@ -42,10 +42,6 @@ struct get_pointer_type<T, Deleter,
 
 template<typename T, class Deleter>
 using pointer = typename get_pointer_type<T, Deleter>::type;
-
-template<class Deleter>
-concept AllowDefaultConstruction =
-    std::is_default_constructible_v<Deleter> && !std::is_pointer_v<Deleter>;
 } // namespace details
 
 // The `own_ptr` class is a replacement for `std::unique_ptr` that takes
@@ -200,7 +196,7 @@ public:
   requires is_move_constructible_deleter_v
   {
     if (this != &other) {
-      do_delete(ptr_) = std::exchange(other.ptr_, pointer{});
+      do_delete() = std::exchange(other.ptr_, pointer{});
       del_ = std::move(other.del_);
     }
     return *this;
@@ -212,7 +208,7 @@ public:
            std::is_assignable_v<deleter_type&, E&&>
   {
     if (this != &other) {
-      do_delete(ptr_) = std::exchange(other.ptr_, pointer{});
+      do_delete() = std::exchange(other.ptr_, pointer{});
       del_ = std::move(other.del_);
     }
     return *this;
@@ -228,7 +224,7 @@ public:
   }
 
   constexpr void reset(pointer&& ptr = pointer{}) {
-    do_delete(ptr_) = std::exchange(ptr, pointer{});
+    do_delete() = std::exchange(ptr, pointer{});
   }
 
   [[nodiscard]] constexpr pointer release() noexcept {
