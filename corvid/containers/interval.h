@@ -21,6 +21,8 @@
 #include "../strings.h"
 #include "../enums.h"
 #include <cassert>
+#include <limits>
+#include <iterator>
 
 namespace corvid { inline namespace intervals {
 
@@ -47,7 +49,7 @@ namespace corvid { inline namespace intervals {
 // interval, [min, max], in keeping with the vector fiction.
 //
 // Note: Iterating over an interval that ends at the maximum value for the
-// underlying type doesn't work, and can't work unless we use a prohibitvely
+// underlying type doesn't work, and can't work unless we use a prohibitively
 // expensive implementation. See note below.
 //
 // It's perfectly fine for an interval to be empty, but if the range is
@@ -93,7 +95,7 @@ public:
     // a carry flag, which could then be added to the overflow, and then
     // testing the overflow only as a tie-breaker. This is essentially how
     // integers larger than what fits in a CPU register are implemented.
-    // However, how to accomplish this reliably and efficently in
+    // However, how to accomplish this reliably and efficiently in
     // cross-platform C++ is non-obvious. And, really, the right answer in such
     // cases is to use a closed interval in the first place.
     //
@@ -249,7 +251,9 @@ public:
   }
 
   // Resize by moving `back`.
-  constexpr void resize(size_type len) noexcept { e() = b() + len; }
+  constexpr void resize(size_type len) noexcept {
+    e() = b() + static_cast<U>(len);
+  }
 
   // Insert value, expanding `front` and `back` as needed.
   //
@@ -322,7 +326,7 @@ public:
   // Only valid when `!empty()` and `size() >= len`.
   constexpr void pop_front(size_type len = 1) noexcept {
     assert(!empty() && size() >= len);
-    b() += V(len);
+    b() += as_u(len);
   }
 
   //
