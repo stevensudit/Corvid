@@ -18,6 +18,11 @@
 #include <array>
 #include <span>
 #include <vector>
+#include <type_traits>
+#include <limits>
+#include <cassert>
+#include <stdexcept>
+#include <utility>
 
 namespace corvid { inline namespace adapters {
 

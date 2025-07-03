@@ -1,5 +1,7 @@
 #pragma once
 #include <unordered_map>
+#include <functional>
+#include <cstddef>
 
 namespace corvid { inline namespace container { inline namespace indirect_key {
 
