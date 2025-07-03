@@ -24,7 +24,7 @@ namespace corvid::strings { inline namespace trimming {
 // Trim
 //
 
-// For all split functions, `delim` defaults to " " and can be specified as any
+// For all trim functions, `delim` defaults to " " and can be specified as any
 // set of characters.
 
 // Trim whitespace on left, returning part.

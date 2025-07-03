@@ -148,7 +148,7 @@ constexpr std::optional<T> parse_num(std::string_view sv) {
 //
 // On failure, returns `default_value`.
 template<std::integral T = int64_t, int base = 10>
-constexpr T parse_num(std::string_view sv, std::integral auto default_value) {
+constexpr T parse_num(std::string_view sv, T default_value) {
   T t;
   return (extract_num<base>(t, sv) && sv.empty()) ? t : default_value;
 }
@@ -187,7 +187,7 @@ constexpr auto& append_num(AppendTarget auto& target, Bool auto num) {
 // Return integral number as string.
 // Accepts integers or bool.
 template<int base = 10, size_t width = 0, char pad = ' '>
-constexpr std::string num_as_string(std::integral auto num) {
+[[nodiscard]] constexpr std::string num_as_string(std::integral auto num) {
   std::string target;
   return append_num<base, width, pad>(target, num);
 }
@@ -284,7 +284,8 @@ append_num(AppendTarget auto& target, std::floating_point auto num) {
 // Return floating-point number as string.
 template<std::chars_format fmt = std::chars_format::general,
     int precision = -1, size_t width = 0, char pad = ' '>
-constexpr std::string num_as_string(std::floating_point auto num) {
+[[nodiscard]] constexpr std::string
+num_as_string(std::floating_point auto num) {
   std::string target;
   return append_num<fmt, precision, width, pad>(target, num);
 }

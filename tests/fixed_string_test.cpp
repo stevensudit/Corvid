@@ -44,6 +44,19 @@ consteval auto test_split() { return GetSecondString<"abc,def">(); }
 
 consteval auto test_cstr() { return GetFixedCString<"abc">(); }
 
+template<strings::fixed_string D>
+consteval bool CanSplit() {
+  if constexpr (D.view().size() == 0) {
+    return false;
+  } else {
+    static_cast<void>(strings::fixed_split<"a,b", D>());
+    return true;
+  }
+}
+
+static_assert(CanSplit<",">());
+static_assert(!CanSplit<"">());
+
 void FixedStringTest_General() {
   std::string_view s;
   s = GetFixedString<"abc">();

@@ -23,11 +23,17 @@ namespace corvid::strings { inline namespace fixed {
 
 // Split fixed string by delimiter, returning array of string views, optionally
 // trimming by whitespace.
+//
+// Splits `W` into views using delimiter characters `D`. `WS` specifies
+// characters to trim from each piece; pass "" to disable trimming. `D` is a
+// set of delimiter characters, not a multi-character token. The delimiter must
+// be non-empty, as enforced below.
 template<strings::fixed_string W, strings::fixed_string D = ",",
     strings::fixed_string WS = "">
 consteval auto fixed_split() {
   constexpr auto whole = W.view();
   constexpr auto delim = D.view();
+  static_assert(delim.size(), "Delimiter cannot be empty");
   constexpr auto n = std::count_if(whole.begin(), whole.end(), [&](char c) {
     return delim.find(c) != delim.npos;
   });
@@ -47,6 +53,8 @@ consteval auto fixed_split() {
 
 // Split fixed string by delimiter, returning array of string views, trimming
 // by specified whitespace.
+//
+// Splits `W` using delimiter characters, trimming pieces with the `WS` set.
 template<strings::fixed_string W, strings::fixed_string WS = " ",
     strings::fixed_string D = ",">
 consteval auto fixed_split_trim() {

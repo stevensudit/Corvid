@@ -287,12 +287,12 @@ constexpr auto& append(A& target, const T& part) {
 }
 
 // Determine if `c` needs to be escaped for JSON.
-[[nodiscard]] inline bool needs_escaping(char c) noexcept {
+[[nodiscard]] constexpr bool needs_escaping(char c) noexcept {
   return (c == '"' || c == '\\' || c == '/' || c < 32);
 }
 
 // Determine if `s` needs to be escaped for JSON.
-[[nodiscard]] inline bool needs_escaping(std::string_view s) noexcept {
+[[nodiscard]] constexpr bool needs_escaping(std::string_view s) noexcept {
   for (auto c : s)
     if (needs_escaping(c)) return true;
   return false;
@@ -658,8 +658,11 @@ constexpr auto& append_join_with(AppendTarget auto& target, delim d,
   constexpr bool is_obj = is_keyed && decode::json_v<opt>;
   constexpr char next_open = open ? open : (is_obj ? '{' : '[');
   constexpr char next_close = close ? close : (is_obj ? '}' : ']');
+  // Note: We cast to `int` here to avoid issues with `char` being unsigned on
+  // some platforms.
   constexpr bool add_braces =
-      decode::braces_v<opt, next_open, next_close> && open >= 0 && close >= 0;
+      decode::braces_v<opt, next_open, next_close> && (int)open >= 0 &&
+      (int)close >= 0;
   constexpr auto head_opt = decode::head_opt_v<opt>;
   constexpr auto next_opt = decode::next_opt_v<opt>;
 

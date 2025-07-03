@@ -37,8 +37,6 @@ namespace corvid::strings { inline namespace delimiting {
 struct delim: public std::string_view {
   constexpr delim() : delim(" "sv) {}
 
-  // TODO: Construct from initializer list of char.
-
   template<typename T>
   constexpr delim(T&& list) : std::string_view(std::forward<T>(list)) {}
 

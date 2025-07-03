@@ -15,7 +15,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include <string>
 #include <string_view>
 
 #ifndef CORVID_AVOID_CSTRINGVIEW
@@ -26,8 +25,8 @@ namespace corvid::strings { inline namespace fixed {
 
 // Fixed string, suitable for use as a non-type template parameter.
 //
-// While I didn't know it at the start, it turns out that, much like
-// `cstring_view`, this class likely owes its existence to a dropped ANSI
+// While I didn't know it at the start, it turns out that -- much like
+// `cstring_view` -- this class likely owes its existence to a dropped ANSI
 // committee proposal by Andrew Tomazos (and Michael Price).
 // https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2016/p0259r0.pdf
 template<unsigned N>

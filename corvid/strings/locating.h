@@ -86,7 +86,6 @@ using position = size_t;
 // to a `std::string_view`. Contrast with lists of these values. Note that, in
 // C++20, range-based construction was added for `std::string_view`, so we have
 // to manually exclude it.
-// TODO: kill this.
 template<typename T>
 concept SingleLocateValue = (StringViewConvertible<T> || Char<T>);
 
@@ -125,8 +124,6 @@ struct location {
 // item. When nothing is found, both positions are `npos`. Otherwise, `begin`
 // points to the found item and `end` points to the character after it. This is
 // probably most useful for locating delimiters.
-//
-// TODO: As this appears to be unused now, reconsider its existence.
 struct pos_range {
   position begin{};
   position end{};

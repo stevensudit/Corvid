@@ -29,14 +29,16 @@ constexpr bool
 help_extract_enum(bitmask::BitmaskEnum auto& e, std::string_view& sv) {
   using E = std::remove_cvref_t<decltype(e)>;
   E ev{};
+  bool succeeded{};
   for (auto piece = trim(extract_piece(sv, "+")); !piece.empty();
       piece = trim(extract_piece(sv, "+")))
   {
     if (!registry::enum_spec_v<E>.lookup(ev, piece)) return false;
-    // TODO: Why does `e |= ev` not work except when it does?
-    e = static_cast<E>(meta::as_underlying(e) | meta::as_underlying(ev));
+    // Use operator syntax to avoid ADL issues.
+    corvid::enums::bitmask::operator|=(e, ev);
+    succeeded = true;
   }
-  return true;
+  return succeeded;
 }
 } // namespace details
 
@@ -61,6 +63,10 @@ constexpr bool extract_enum(StdEnum auto& e, std::string_view& sv) {
   e = E{};
   auto save_sv = sv;
   auto whole = trim(extract_piece(sv, ",.;"));
+  if (whole.empty()) {
+    sv = save_sv;
+    return false;
+  }
   bool succeeded;
   if constexpr (bitmask::BitmaskEnum<E>)
     succeeded = details::help_extract_enum(e, whole);

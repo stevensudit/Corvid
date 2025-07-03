@@ -1026,7 +1026,7 @@ void StringUtilsTest_Trim() {
 
     auto vs = strings::split<std::string>(w, ",");
     strings::trim(vs);
-    EXPECT_EQ(vsv[0], "1");
+    EXPECT_EQ(vs[0], "1");
 
     vsv = strings::split(w, ",");
     std::map<int, std::string> mss;
@@ -1036,6 +1036,17 @@ void StringUtilsTest_Trim() {
     EXPECT_EQ(mss[0], " 1");
     strings::trim(mss);
     EXPECT_EQ(mss[0], "1");
+  }
+}
+
+void StringUtilsTest_AddBraces() {
+  if (true) {
+    EXPECT_EQ(strings::add_braces(""), "[]");
+    EXPECT_EQ(strings::add_braces("1"), "[1]");
+    EXPECT_EQ(strings::add_braces("12"), "[12]");
+    EXPECT_EQ(strings::add_braces("1", "{}"), "{1}");
+    EXPECT_EQ(strings::add_braces("12", "{}"), "{12}");
+    EXPECT_EQ(strings::add_braces("12", "'"), "'12'");
   }
 }
 
@@ -1096,6 +1107,21 @@ void StringUtilsTest_ParseNum() {
     ot = strings::parse_num(sv);
     EXPECT_TRUE(ot.has_value());
     EXPECT_EQ(ot.value(), 123);
+
+    // Verify default values with various integral types
+    sv = "77";
+    char c = strings::parse_num<char>(sv, 'x');
+    EXPECT_EQ(c, 77);
+    sv = "x";
+    c = strings::parse_num<char>(sv, 'x');
+    EXPECT_EQ(c, 'x');
+
+    sv = "42";
+    unsigned short us = strings::parse_num<unsigned short>(sv, 7);
+    EXPECT_EQ(us, 42);
+    sv = "foo";
+    us = strings::parse_num<unsigned short>(sv, 7);
+    EXPECT_EQ(us, 7);
   }
   if (true) {
     std::string_view sv;
@@ -1630,6 +1656,10 @@ void StringUtilsTest_AppendEnum() {
   s = (strings::join<strings::join_opt::braced, -1, -1>(rgb::yellow,
       rgb::cyan));
   EXPECT_EQ(s, "red + green, green + blue");
+  s.clear();
+  strings::append_join_with<strings::join_opt::braced, -1, -1>(s, ", ",
+      rgb::yellow, rgb::cyan);
+  EXPECT_EQ(s, "red + green, green + blue");
 }
 
 // Enlisted Marine Corps ranks.
@@ -1879,10 +1909,10 @@ void StringUtilsTest_RawBuffer() {
 
 MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_Split, StringUtilsTest_SplitPg, StringUtilsTest_ParseNum,
-    StringUtilsTest_Case, StringUtilsTest_Locate, StringUtilsTest_RLocate,
-    StringUtilsTest_LocateEdges, StringUtilsTest_Substitute,
-    StringUtilsTest_Excise, StringUtilsTest_Target, StringUtilsTest_Print,
-    StringUtilsTest_Trim, StringUtilsTest_AppendNum, StringUtilsTest_Append,
-    StringUtilsTest_Edges, StringUtilsTest_Streams, StringUtilsTest_AppendEnum,
-    StringUtilsTest_AppendStream, StringUtilsTest_AppendJson,
-    StringUtilsTest_RawBuffer);
+    StringUtilsTest_AddBraces, StringUtilsTest_Case, StringUtilsTest_Locate,
+    StringUtilsTest_RLocate, StringUtilsTest_LocateEdges,
+    StringUtilsTest_Substitute, StringUtilsTest_Excise, StringUtilsTest_Target,
+    StringUtilsTest_Print, StringUtilsTest_Trim, StringUtilsTest_AppendNum,
+    StringUtilsTest_Append, StringUtilsTest_Edges, StringUtilsTest_Streams,
+    StringUtilsTest_AppendEnum, StringUtilsTest_AppendStream,
+    StringUtilsTest_AppendJson, StringUtilsTest_RawBuffer);

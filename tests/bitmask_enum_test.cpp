@@ -776,6 +776,11 @@ void BitMaskTest_ExtractEnum() {
     EXPECT_TRUE(extract_enum(e, sv));
     EXPECT_TRUE(sv.empty());
     EXPECT_EQ(e, rgb::red + rgb::green);
+
+    sv = "";
+    EXPECT_FALSE(extract_enum(e, sv));
+    sv = " + ";
+    EXPECT_FALSE(extract_enum(e, sv));
   }
 }
 

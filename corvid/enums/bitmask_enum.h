@@ -272,7 +272,7 @@ template<BitmaskEnum E>
 // Return value with bit at `ndx` (counting from the lsb) set.
 template<BitmaskEnum E>
 [[nodiscard]] constexpr E make_at(size_t ndx) noexcept {
-  return make<E>(std::underlying_t<E>{1} << (ndx - 1));
+  return make<E>(std::underlying_type_t<E>{1} << (ndx - 1));
 }
 
 // Set
