@@ -1,5 +1,5 @@
-// Corvid20: A general-purpose C++20 library extending std.
-// https://github.com/stevensudit/Corvid20
+// Corvid: A general-purpose modern C++ library extending std.
+// https://github.com/stevensudit/Corvid
 //
 // Copyright 2022-2025 Steven Sudit
 //
@@ -24,7 +24,6 @@
 #include "strings/targeting.h"
 #include "strings/delimiting.h"
 #include "strings/streaming.h"
-#include "strings/delimiting.h"
 #include "strings/trimming.h"
 #include "strings/splitting.h"
 #include "strings/conversion.h"

@@ -11,7 +11,7 @@ rm "CMakeCache.txt"
 rm "cmake_install.cmake"
 rm "ClangExeProject.sln"
 rm "build.ninja"
-rm "CMakeFiles/*"
+rm CMakeFiles/*
 rm ".ninja_deps"
 rm ".ninja_log"
 rm "build.ninja"

@@ -31,7 +31,7 @@
     lldb-19 \
     llvm-19 \
     llvm-19-dev \
-    llvm-19-dev lld-19 \
+    lld-19 \
     llvm-19-tools \
     cmake \
     ninja-build
