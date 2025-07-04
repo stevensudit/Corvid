@@ -163,7 +163,7 @@ public:
     const auto start_at = now + start_in;
     const auto stop_at =
         (stop_in == duration_t{}) ? time_point_t{} : now + stop_in;
-    return set(start_at, std::move(callback), repeat_in, stop_at);
+    return set(start_at, callback, repeat_in, stop_at);
   }
 
   // TODO: Consider offering overloads that take when/expire_in and

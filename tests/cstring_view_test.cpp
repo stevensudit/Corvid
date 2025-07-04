@@ -318,6 +318,7 @@ void CStringViewTest_Cast() {
   accept_string_view_ref(sv);
   // But not this, so we can maintain our invariant.
   // * accept_string_view_ref(csv);
+  // NOLINTNEXTLINE(performance-move-const-arg)
   accept_string_view_rref(std::move(sv));
   // NOLINTNEXTLINE(bugprone-use-after-move)
   EXPECT_EQ(sv, "changed");

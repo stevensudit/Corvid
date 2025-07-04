@@ -58,6 +58,7 @@ void OptionalPtrTest_Construction() {
   if (true) {
     int i{42};
     optional_ptr o{&i};
+    // NOLINTNEXTLINE(performance-move-const-arg)
     optional_ptr qo{std::move(o)};
     // NOLINTBEGIN
     optional_ptr ro{o};

@@ -300,6 +300,7 @@ void OptStringViewTest_Workalike() {
     EXPECT_EQ(opt_string_view{"tmp"}.value_or("def"), "tmp");
 
     opt_string_view src{"xyz"};
+    // NOLINTNEXTLINE(performance-move-const-arg)
     opt_string_view dst{std::move(src)};
     // Moving doesn't clear opt_string_view
     // NOLINTNEXTLINE(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
@@ -313,6 +314,7 @@ void OptStringViewTest_Workalike() {
   // Methods operate correctly on rvalues.
   if (true) {
     opt_string_view osv{"qqq"};
+    // NOLINTNEXTLINE(performance-move-const-arg)
     EXPECT_EQ(std::move(osv).value_or("def"), "qqq");
     opt_string_view{"aaa"}.emplace("bbb");
   }
@@ -358,9 +360,11 @@ void OptStringViewTest_Cast() {
   accept_string_view_ref(sv);
   // And even this.
   accept_string_view_ref(osv);
+  // NOLINTNEXTLINE(performance-move-const-arg)
   accept_string_view_rref(std::move(sv));
   // NOLINTNEXTLINE(bugprone-use-after-move)
   EXPECT_EQ(sv, "changed");
+  // NOLINTNEXTLINE(performance-move-const-arg)
   accept_string_view_rref(std::move(osv));
   // NOLINTNEXTLINE(bugprone-use-after-move)
   EXPECT_EQ(osv, "changed");
