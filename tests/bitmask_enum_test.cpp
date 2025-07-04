@@ -769,7 +769,8 @@ void BitMaskTest_ExtractEnum() {
     EXPECT_TRUE(extract_enum(e, sv));
     EXPECT_TRUE(sv.empty());
     EXPECT_EQ(e, rgb::red + rgb::blue);
-    sv = enum_as_string(e);
+    auto s = enum_as_string(e);
+    sv = s;
     EXPECT_EQ(sv, "red + blue");
 
     sv = " 2 + red";

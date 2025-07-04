@@ -1271,8 +1271,8 @@ void StringUtilsTest_AppendNum() {
     EXPECT_EQ((strings::num_as_string<16>(uint16_t(0))), "0x0000");
     EXPECT_EQ((strings::num_as_string<16>(uint32_t(0))), "0x00000000");
     EXPECT_EQ((strings::num_as_string<16>(uint64_t(0))), "0x0000000000000000");
-    EXPECT_EQ((strings::num_as_string(float(0.25f))), "0.25");
-    EXPECT_EQ((strings::num_as_string(double(0.25f))), "0.25");
+    EXPECT_EQ((strings::num_as_string(float(0.25F))), "0.25");
+    EXPECT_EQ((strings::num_as_string(double(0.25F))), "0.25");
     EXPECT_EQ((strings::num_as_string<std::chars_format::hex>(double(0.25))),
         "1p-2");
     EXPECT_EQ(

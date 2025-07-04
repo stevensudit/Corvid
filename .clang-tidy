@@ -5,7 +5,6 @@ Checks: >
   -clang-analyzer-deadcode.DeadStores,
   -clang-analyzer-core.StackAddressEscape,
   bugprone-*,
-  -bugprone-unused-local-non-trivial-variable,
   -bugprone-reserved-identifier,
   -bugprone-exception-escape,
   -bugprone-forwarding-reference-overload,
@@ -26,6 +25,7 @@ Checks: >
   -modernize-avoid-c-arrays,
   -modernize-use-equals-default,
   -modernize-use-nodiscard,
+  -modernize-use-auto,
   -modernize-use-designated-initializers,
   -modernize-loop-convert,
   -modernize-pass-by-value,
@@ -35,6 +35,8 @@ Checks: >
   -performance-move-const-arg,
   -performance-noexcept-move-constructor,
   -performance-unnecessary-copy-initialization,
+  -performance-faster-string-find,
+  -performance-no-int-to-ptr,
   readability-*,
   -readability-identifier-length,
   -readability-braces-around-statements,
@@ -59,6 +61,7 @@ Checks: >
   -readability-enum-initial-value,
   -readability-non-const-parameter,
   -readability-redundant-string-cstr,
+  -readability-redundant-casting,
   misc-unused-parameters
 WarningsAsErrors: ''
 HeaderFilterRegex: 'corvid/.*'

@@ -678,6 +678,7 @@ void InternTableTest_Basic() {
     std::deque<std::string> dq{42};
     arena_deque<arena_string> adq{42};
     auto z = key + key;
+    (void)z;
   }
   if (true) {
     // Show that, when we're not using arena-specialized types, we can create
@@ -1175,6 +1176,7 @@ void NoInitResize_Basic() {
   v.resize(2);
   std::string s;
   // s.resize_and_overwrite(2);
+  (void)s;
 }
 
 using FirstName = strong_type<std::string, struct FirstNameTag>;
