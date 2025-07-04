@@ -29,6 +29,8 @@ using namespace std::literals;
 using namespace corvid;
 using namespace corvid::enums::bitmask;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 enum class rgb : std::int8_t {
   black,      // ---
   red = 4,    // r--
@@ -797,3 +799,5 @@ MAKE_TEST_LIST(BitMaskTest_Ops, BitMaskTest_NamedFunctions,
     BitMaskTest_SafeBlackWhite, BitMaskTest_EnumCalcBitNames,
     BitMaskTest_EnumCalcValueNames, BitMaskTest_SafeWhite,
     BitMaskTest_ExtractEnum);
+
+// NOLINTEND(readability-function-cognitive-complexity)

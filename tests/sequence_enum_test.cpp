@@ -28,6 +28,8 @@ using namespace corvid;
 using namespace corvid::enums;
 using namespace corvid::enums::sequence;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 enum class tiger_pick : std::int8_t { eeny, meany, miny, moe };
 
 template<>
@@ -633,3 +635,5 @@ MAKE_TEST_LIST(SequentialEnumTest_Registry, SequentialEnumTest_Ops,
 
 // TODO: Check if enum_as_string works with unscoped enums. Should it? Or
 // should it just count as an int?
+
+// NOLINTEND(readability-function-cognitive-complexity)

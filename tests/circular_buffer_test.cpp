@@ -24,6 +24,8 @@
 using namespace std::literals;
 using namespace corvid;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 void CircularBufferTest_Construction() {
   if (true) {
     std::vector<int> v;
@@ -532,3 +534,5 @@ void CircularBufferTest_Smoke() {
 MAKE_TEST_LIST(CircularBufferTest_Construction, CircularBufferTest_WrapIndex,
     CircularBufferTest_Ops, CircularBufferTest_PushPop,
     CircularBufferTest_Iterate, CircularBufferTest_Smoke);
+
+// NOLINTEND(readability-function-cognitive-complexity)

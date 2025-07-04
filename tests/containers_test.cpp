@@ -28,6 +28,8 @@ using namespace corvid;
 using namespace corvid::internal;
 using namespace corvid::sequence;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 void OptionalPtrTest_Construction() {
   if (true) {
     optional_ptr<int*> o;
@@ -217,6 +219,9 @@ void OptionalPtrTest_Smart() {
     // * f = o;
 
     EXPECT_EQ(o->size(), 4U);
+
+    p.reset();
+    qo.reset();
   }
 }
 
@@ -910,7 +915,7 @@ struct D // deleter
   D() { action = "ctor"sv; }
   D(const D&) { action = "copy"sv; }
   D(D&) { action = "non-const copy"sv; }
-  D(D&&) { action = "move"sv; }
+  D(D&&) noexcept { action = "move"sv; }
   void operator()(int* p) const {
     action = "delete"sv;
     delete p;
@@ -1739,3 +1744,5 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
 // templated arguments. The third is just a named thing that's defaulted to
 // void and then the requires clause requires it to be void. Then we add a
 // bunch of deduction guides that set the must-be-void to something else.
+
+// NOLINTEND(readability-function-cognitive-complexity)

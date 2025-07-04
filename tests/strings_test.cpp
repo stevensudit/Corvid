@@ -34,6 +34,8 @@ using namespace corvid::literals;
 using namespace corvid::enums::sequence;
 using namespace corvid::enums::bitmask;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 // Test extract_piece.
 void StringUtilsTest_ExtractPiece() {
   std::string_view sv;
@@ -1544,6 +1546,7 @@ void StringUtilsTest_Append() {
   EXPECT_NE(s, "42");
 
   s.clear();
+  // NOLINTNEXTLINE(performance-no-int-to-ptr)
   strings::append_join_with(s, ";", reinterpret_cast<const void*>(NULL));
   EXPECT_EQ(s, "0x0000000000000000");
 
@@ -1990,3 +1993,5 @@ MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_Streams, StringUtilsTest_AppendEnum,
     StringUtilsTest_AppendStream, StringUtilsTest_AppendJson,
     StringUtilsTest_RawBuffer);
+
+// NOLINTEND(readability-function-cognitive-complexity)

@@ -23,6 +23,8 @@ using namespace std::literals;
 using namespace corvid;
 using namespace corvid::literals;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 template<strings::fixed_string W>
 constexpr std::string_view GetFixedString() {
   return W;
@@ -84,3 +86,5 @@ void FixedStringTest_General() {
 }
 
 MAKE_TEST_LIST(FixedStringTest_General);
+
+// NOLINTEND(readability-function-cognitive-complexity)

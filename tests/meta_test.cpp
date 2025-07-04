@@ -23,6 +23,8 @@
 using namespace std::literals;
 using namespace corvid;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 // OStreamDerived
 
 auto& stream_out(OStreamDerived auto& os, const OStreamable auto& osb) {
@@ -577,3 +579,5 @@ TEST(MetaTest, Streamable) {
   EXPECT_FALSE(can_stream_out_v<Foo>);
 }
 #endif
+
+// NOLINTEND(readability-function-cognitive-complexity)

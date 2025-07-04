@@ -26,6 +26,8 @@
 using namespace std::literals;
 using namespace corvid::lang::ast_pred;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 template<operation op, typename... Args>
 [[nodiscard]] node_ptr M(Args&&... args) {
   return make<op>(std::forward<Args>(args)...);
@@ -419,3 +421,5 @@ void LangTest_AstPred() {
 }
 
 MAKE_TEST_LIST(LangTest_AstPred);
+
+// NOLINTEND(readability-function-cognitive-complexity)

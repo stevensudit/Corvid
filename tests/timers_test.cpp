@@ -36,6 +36,8 @@ using namespace std::chrono;
 using namespace std::chrono_literals;
 using namespace corvid;
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 auto make_date(auto date) {
   return steady_clock::time_point{} + sys_days{date}.time_since_epoch();
 }
@@ -216,3 +218,5 @@ void TimersTest_Edge() {
 
 MAKE_TEST_LIST(TimersTest_OneShot, TimersTest_Repeating, TimersTest_Cancel,
     TimersTest_Reschedule, TimersTest_General, TimersTest_Edge);
+
+// NOLINTEND(readability-function-cognitive-complexity)
