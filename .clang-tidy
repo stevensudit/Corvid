@@ -1,9 +1,9 @@
 Checks: >
   clang-analyzer-*,
-  -clang-analyzer-optin.core.EnumCastOutOfRange, # Generally invalid.
-  -clang-analyzer-core.StackAddressEscape, # Also hardcoded in CMakeLists.txt.
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
+  -clang-analyzer-core.StackAddressEscape,
   bugprone-*,
-  -bugprone-easily-swappable-parameters, # Generally invalid.
+  -bugprone-easily-swappable-parameters,
   modernize-*,
   -modernize-concat-nested-namespaces,
   -modernize-use-trailing-return-type,

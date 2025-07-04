@@ -43,7 +43,7 @@ if(USE_CLANG_TIDY)
         message(STATUS "clang-tidy enabled: ${CLANG_TIDY_EXE}")
         # Hardcode disabling StackAddressEscape explicitly
         set(CMAKE_CXX_CLANG_TIDY
-            "${CLANG_TIDY_EXE};-checks=-clang-analyzer-core.StackAddressEscape"
+            "${CLANG_TIDY_EXE}"
         )
     else()
         message(WARNING "clang-tidy requested but not found")
