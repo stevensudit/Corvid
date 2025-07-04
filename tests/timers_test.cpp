@@ -54,7 +54,7 @@ void TimersTest_OneShot() {
   std::vector<timer_id_t> fired;
   auto& ev = t.set(50ms, [&](timer_event& e) { fired.push_back(e.timer_id); });
 
-  EXPECT_EQ(t.events().size(), 1u);
+  EXPECT_EQ(t.events().size(), 1U);
   EXPECT_EQ(ev.start_at, make_time(50));
 
   t.tick(); // before time
@@ -62,11 +62,11 @@ void TimersTest_OneShot() {
 
   now += 50ms;
   t.tick();
-  EXPECT_EQ(fired.size(), 1u);
+  EXPECT_EQ(fired.size(), 1U);
   EXPECT_TRUE(t.events().empty());
   now += 50ms;
   t.tick();
-  EXPECT_EQ(fired.size(), 1u); // no extra fire
+  EXPECT_EQ(fired.size(), 1U); // no extra fire
 }
 
 void TimersTest_Repeating() {
@@ -77,20 +77,20 @@ void TimersTest_Repeating() {
   auto& ev = t.set(10ms, [&](timer_event&) { ++calls; }, 15ms);
   now += 10ms;
   t.tick();
-  EXPECT_EQ(calls, 1u);
+  EXPECT_EQ(calls, 1U);
 
   now += 15ms;
   t.tick();
-  EXPECT_EQ(calls, 2u);
+  EXPECT_EQ(calls, 2U);
 
   now += 15ms;
   t.tick();
-  EXPECT_EQ(calls, 3u);
+  EXPECT_EQ(calls, 3U);
 
   t.cancel(ev.timer_id);
   now += 15ms;
   t.tick();
-  EXPECT_EQ(calls, 3u); // cancelled
+  EXPECT_EQ(calls, 3U); // cancelled
 }
 
 void TimersTest_Cancel() {
@@ -122,16 +122,16 @@ void TimersTest_Reschedule() {
 
   now += 10ms;
   t.tick();
-  EXPECT_EQ(calls, 1u);
-  EXPECT_EQ(t.events().size(), 1u);
+  EXPECT_EQ(calls, 1U);
+  EXPECT_EQ(t.events().size(), 1U);
 
   now += 10ms;
   t.tick();
-  EXPECT_EQ(calls, 1u); // not yet
+  EXPECT_EQ(calls, 1U); // not yet
 
   now += 10ms;
   t.tick();
-  EXPECT_EQ(calls, 2u);
+  EXPECT_EQ(calls, 2U);
   EXPECT_TRUE(t.events().empty());
 }
 
@@ -143,10 +143,10 @@ void TimersTest_General() {
   t.set_clock_callback(now_cb);
   auto cb = [&ids](timer_event& event) { ids.push_back(event.timer_id); };
 
-  EXPECT_EQ(t.events().size(), 0u);
+  EXPECT_EQ(t.events().size(), 0U);
 
   auto& t1 = t.set(30s, cb);
-  EXPECT_EQ(t.events().size(), 1u);
+  EXPECT_EQ(t.events().size(), 1U);
   auto id1 = t1.timer_id;
   EXPECT_EQ(id1, timer_id_t{1});
   auto& t1b = t.event(id1);
@@ -156,7 +156,7 @@ void TimersTest_General() {
   EXPECT_EQ(t1_start, now + 30s);
 
   auto& t2 = t.set(60s, cb);
-  EXPECT_EQ(t.events().size(), 2u);
+  EXPECT_EQ(t.events().size(), 2U);
   auto id2 = t2.timer_id;
   EXPECT_EQ(id2, timer_id_t{2});
   auto& t2b = t.event(id2);
@@ -167,23 +167,23 @@ void TimersTest_General() {
 
   size_t count = 0;
   count = t.tick();
-  EXPECT_EQ(count, 0u);
+  EXPECT_EQ(count, 0U);
   now += 29s;
   count = t.tick();
-  EXPECT_EQ(count, 0u);
+  EXPECT_EQ(count, 0U);
   now += 1s;
-  EXPECT_EQ(t.events().size(), 2u);
+  EXPECT_EQ(t.events().size(), 2U);
   count = t.tick();
-  EXPECT_EQ(count, 1u);
-  EXPECT_EQ(ids.size(), 1u);
+  EXPECT_EQ(count, 1U);
+  EXPECT_EQ(ids.size(), 1U);
   EXPECT_EQ(ids[0], id1);
-  EXPECT_EQ(t.events().size(), 1u);
+  EXPECT_EQ(t.events().size(), 1U);
   now += 30s;
   count = t.tick();
-  EXPECT_EQ(count, 1u);
-  EXPECT_EQ(ids.size(), 2u);
+  EXPECT_EQ(count, 1U);
+  EXPECT_EQ(ids.size(), 2U);
   EXPECT_EQ(ids[1], id2);
-  EXPECT_EQ(t.events().size(), 0u);
+  EXPECT_EQ(t.events().size(), 0U);
 }
 
 void TimersTest_Edge() {
@@ -200,18 +200,18 @@ void TimersTest_Edge() {
   [[maybe_unused]] auto& t1 = t.set(30s, cb, 60s);
   now += 29s;
   count = t.tick();
-  EXPECT_EQ(count, 0u);
+  EXPECT_EQ(count, 0U);
   now += 1s;
   count = t.tick();
-  EXPECT_EQ(count, 1u); // Fires at 30s.
-  EXPECT_EQ(ids.size(), 1u);
+  EXPECT_EQ(count, 1U); // Fires at 30s.
+  EXPECT_EQ(ids.size(), 1U);
   now += 59s;
   count = t.tick();
-  EXPECT_EQ(count, 0u);
+  EXPECT_EQ(count, 0U);
   now += 1s;
   count = t.tick();
-  EXPECT_EQ(count, 1u); // Fires at 90s.
-  EXPECT_EQ(ids.size(), 2u);
+  EXPECT_EQ(count, 1U); // Fires at 90s.
+  EXPECT_EQ(ids.size(), 2U);
 }
 
 MAKE_TEST_LIST(TimersTest_OneShot, TimersTest_Repeating, TimersTest_Cancel,

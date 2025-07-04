@@ -77,7 +77,7 @@ public:
 
   // Clear the buffer. Does not affect underlying container.
   void clear() noexcept {
-    front_ = size_ = 0u;
+    front_ = size_ = 0U;
     back_ = last_index();
   }
 

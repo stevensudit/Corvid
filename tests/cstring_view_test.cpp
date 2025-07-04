@@ -229,8 +229,8 @@ void CStringViewTest_Construction() {
     EXPECT_FALSE(v.empty());
     EXPECT_NE(v.data(), nullptr);
     EXPECT_NE(&*v.begin(), &*v.end());
-    EXPECT_EQ(r.size(), 4u);
-    EXPECT_EQ(v.size(), 4u);
+    EXPECT_EQ(r.size(), 4U);
+    EXPECT_EQ(v.size(), 4U);
   }
   // Construct cstring_view on it/end
   if (true) {
@@ -241,8 +241,8 @@ void CStringViewTest_Construction() {
     EXPECT_NE(v.data(), nullptr);
     EXPECT_NE(v.c_str(), nullptr);
     EXPECT_NE(&*v.begin(), &*v.end());
-    EXPECT_EQ(r.size(), 4u);
-    EXPECT_EQ(v.size(), 3u);
+    EXPECT_EQ(r.size(), 4U);
+    EXPECT_EQ(v.size(), 3U);
   }
   // Construct using UDL.
   if (true) {
@@ -250,12 +250,12 @@ void CStringViewTest_Construction() {
     EXPECT_TRUE(a.empty());
     EXPECT_FALSE(a.null());
     auto b = "abc"_csv;
-    EXPECT_EQ(b.size(), 3u);
+    EXPECT_EQ(b.size(), 3U);
     // Embedded zeros are permitted.
     auto c = "abc\0def"_csv;
-    EXPECT_EQ(c.size(), 7u);
+    EXPECT_EQ(c.size(), 7U);
     auto d = cstring_view(c.c_str());
-    EXPECT_EQ(d.size(), 3u);
+    EXPECT_EQ(d.size(), 3U);
     auto e = 0_csv;
     EXPECT_TRUE(e.null());
     EXPECT_THROW((1_csv), std::out_of_range);

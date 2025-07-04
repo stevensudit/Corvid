@@ -93,7 +93,7 @@ void OptionalPtrTest_Access() {
     f = o;
 
     o.reset(&test);
-    EXPECT_EQ(o->size(), 4u);
+    EXPECT_EQ(o->size(), 4U);
   }
   if (true) {
     auto const test{"test"s};
@@ -181,7 +181,7 @@ void OptionalPtrTest_Smart() {
     // * f = o;
 
     o.reset(std::make_unique<std::string>(test));
-    EXPECT_EQ(o->size(), 4u);
+    EXPECT_EQ(o->size(), 4U);
     o.reset();
     EXPECT_FALSE(o.has_value());
   }
@@ -209,7 +209,7 @@ void OptionalPtrTest_Smart() {
     // not a predicate context.
     // * f = o;
 
-    EXPECT_EQ(o->size(), 4u);
+    EXPECT_EQ(o->size(), 4U);
   }
 }
 
@@ -348,7 +348,7 @@ void Intervals_Ctors() {
     interval i{42};
     EXPECT_FALSE(i.empty());
     EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1u);
+    EXPECT_EQ(i.size(), 1U);
     EXPECT_EQ(i.front(), 42);
     EXPECT_EQ(i.back(), 42);
   }
@@ -356,7 +356,7 @@ void Intervals_Ctors() {
     interval i{40, 42};
     EXPECT_FALSE(i.empty());
     EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 3u);
+    EXPECT_EQ(i.size(), 3U);
     EXPECT_EQ(i.front(), 40);
     EXPECT_EQ(i.back(), 42);
   }
@@ -378,21 +378,21 @@ void IntervalTest_Insert() {
     EXPECT_TRUE(i.insert(0));
     EXPECT_FALSE(i.empty());
     EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1u);
+    EXPECT_EQ(i.size(), 1U);
     EXPECT_EQ(i.front(), 0);
     EXPECT_EQ(i.back(), 0);
 
     EXPECT_TRUE(i.insert(5));
     EXPECT_FALSE(i.empty());
     EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 6u);
+    EXPECT_EQ(i.size(), 6U);
     EXPECT_EQ(i.front(), 0);
     EXPECT_EQ(i.back(), 5);
 
     EXPECT_TRUE(i.insert(-5));
     EXPECT_FALSE(i.empty());
     EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 11u);
+    EXPECT_EQ(i.size(), 11U);
     EXPECT_EQ(i.front(), -5);
     EXPECT_EQ(i.back(), 5);
 
@@ -404,19 +404,19 @@ void IntervalTest_Insert() {
     interval i{5};
     EXPECT_FALSE(i.empty());
     EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1u);
+    EXPECT_EQ(i.size(), 1U);
 
     EXPECT_FALSE(i.push_back(0));
     EXPECT_FALSE(i.push_back(5));
     EXPECT_TRUE(i.push_back(6));
     EXPECT_TRUE(i.push_back(7));
     EXPECT_FALSE(i.push_back(6));
-    EXPECT_EQ(i.size(), 3u);
+    EXPECT_EQ(i.size(), 3U);
     EXPECT_EQ(i.front(), 5);
     EXPECT_EQ(i.back(), 7);
 
     i.pop_back();
-    EXPECT_EQ(i.size(), 2u);
+    EXPECT_EQ(i.size(), 2U);
     EXPECT_EQ(i.front(), 5);
     EXPECT_EQ(i.back(), 6);
     i.pop_back(2);
@@ -426,7 +426,7 @@ void IntervalTest_Insert() {
     interval i{5};
     EXPECT_FALSE(i.empty());
     EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1u);
+    EXPECT_EQ(i.size(), 1U);
 
     EXPECT_FALSE(i.push_front(7));
     EXPECT_FALSE(i.push_front(6));
@@ -434,12 +434,12 @@ void IntervalTest_Insert() {
     EXPECT_TRUE(i.push_front(4));
     EXPECT_TRUE(i.push_front(3));
     EXPECT_FALSE(i.push_front(6));
-    EXPECT_EQ(i.size(), 3u);
+    EXPECT_EQ(i.size(), 3U);
     EXPECT_EQ(i.front(), 3);
     EXPECT_EQ(i.back(), 5);
 
     i.pop_front();
-    EXPECT_EQ(i.size(), 2u);
+    EXPECT_EQ(i.size(), 2U);
     EXPECT_EQ(i.front(), 4);
     EXPECT_EQ(i.back(), 5);
     i.pop_front(2);
@@ -567,8 +567,8 @@ void TransparentTest_General() {
   if (true) {
     std::map<std::string, int> m;
     string_map<int> tm;
-    EXPECT_EQ(m.size(), 0u);
-    EXPECT_EQ(tm.size(), 0u);
+    EXPECT_EQ(m.size(), 0U);
+    EXPECT_EQ(tm.size(), 0U);
     m[ks] = 42;
     tm[ks] = 42;
     // * tm[ksv] = 42; // error: no match for ‘operator[]’
@@ -1125,7 +1125,7 @@ void CustomHandleTest_Basic() {
   // Custom deleter for unique_ptr.
   if (true) {
     using P = unique_fd;
-    EXPECT_EQ(fd_deleter::close_count, 0u);
+    EXPECT_EQ(fd_deleter::close_count, 0U);
     P p;
     EXPECT_EQ(sizeof(p), sizeof(int));
     P q{FileDescriptor{42}};
@@ -1136,21 +1136,21 @@ void CustomHandleTest_Basic() {
     p.reset(q.release());
     q = std::move(p);
     p.reset(FileDescriptor{43});
-    EXPECT_EQ(fd_deleter::close_count, 0u);
+    EXPECT_EQ(fd_deleter::close_count, 0U);
     FileDescriptor i{49};
     p.reset(i);
-    EXPECT_EQ(fd_deleter::close_count, 1u);
+    EXPECT_EQ(fd_deleter::close_count, 1U);
     EXPECT_EQ(i, FileDescriptor{42});
     p = unique_fd{std::move(i)};
-    EXPECT_EQ(fd_deleter::close_count, 2u);
+    EXPECT_EQ(fd_deleter::close_count, 2U);
     EXPECT_EQ(i, FileDescriptor::invalid);
     const FileDescriptor j{42};
     p = unique_fd{j};
-    EXPECT_EQ(fd_deleter::close_count, 3u);
+    EXPECT_EQ(fd_deleter::close_count, 3U);
     EXPECT_EQ(j, FileDescriptor{42});
     // * p = unique_fd{std::move(j)};
     p.reset();
-    EXPECT_EQ(fd_deleter::close_count, 4u);
+    EXPECT_EQ(fd_deleter::close_count, 4U);
     i = FileDescriptor{46};
     p.reset(i);
     EXPECT_EQ(*p, FileDescriptor{46});
@@ -1164,9 +1164,9 @@ void CustomHandleTest_Basic() {
     bool is_present = p ? true : false;
     EXPECT_EQ(is_present, true);
     p.reset();
-    EXPECT_EQ(fd_deleter::close_count, 6u);
+    EXPECT_EQ(fd_deleter::close_count, 6U);
   }
-  EXPECT_EQ(fd_deleter::close_count, 8u);
+  EXPECT_EQ(fd_deleter::close_count, 8U);
 #endif
 }
 
@@ -1214,7 +1214,7 @@ void StrongType_Basic() {
   EXPECT_NE(age, PersonAge{43});
   ++age;
   EXPECT_EQ(age, 43);
-  age = age + 1l;
+  age = age + 1L;
   EXPECT_EQ(age, 44);
   age = age - 1;
   EXPECT_EQ(age, 43);
@@ -1282,7 +1282,7 @@ void StrongType_Extended() {
     // Access and iteration.
     FirstName fn{"John"};
     EXPECT_EQ(fn.value(), "John");
-    EXPECT_EQ(fn->size(), 4u);
+    EXPECT_EQ(fn->size(), 4U);
     EXPECT_EQ(fn->at(0), 'J');
     EXPECT_EQ(fn->front(), 'J');
     EXPECT_EQ(fn->back(), 'n');
@@ -1642,7 +1642,7 @@ void EnumVariant_Basic() {
     qv.emplace<QueryType::Retrieve>(RetrievalKey{1, "retrieve"});
     qv.emplace<QueryType::Retrieve>(1, "retrieve");
     const auto& r = qv.get<RetrievalKey>();
-    EXPECT_EQ(r.id, 1u);
+    EXPECT_EQ(r.id, 1U);
     EXPECT_EQ(r.name, "retrieve");
     // The following won't compile because `e` is not known at compile time.
     // QueryVariant qv5{e};
