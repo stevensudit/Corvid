@@ -41,11 +41,9 @@ rm -f "CMakeCache.txt"
 rm -f "cmake_install.cmake"
 rm -f "ClangExeProject.sln"
 rm -f "build.ninja"
-rm -f "CMakeFiles/*"
+rm -rf "CMakeFiles"
 rm -f ".ninja_deps"
 rm -f ".ninja_log"
-rm -f "build.ninja"
-rm -f "cmake_install.cmake"
 
 # If the release directory exists, delete it to clean the build
 if [ -d "$buildDir" ]; then
