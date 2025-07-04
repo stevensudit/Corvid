@@ -23,7 +23,8 @@
 using namespace std::literals;
 using namespace corvid;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-cognitive-complexity,
+// readability-function-size)
 
 // OStreamDerived
 
@@ -580,4 +581,5 @@ TEST(MetaTest, Streamable) {
 }
 #endif
 
-// NOLINTEND(readability-function-cognitive-complexity)
+// NOLINTEND(readability-function-cognitive-complexity,
+// readability-function-size)

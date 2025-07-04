@@ -32,7 +32,7 @@ using namespace corvid::enums::bitmask;
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 enum class rgb : std::int8_t {
-  black,      // ---
+  black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
   blue = 1,   // --b
@@ -49,7 +49,7 @@ constexpr auto registry::enum_spec_v<rgb> =
 
 // Same thing, but safe due to clipping.
 enum class safe_rgb : std::uint8_t {
-  black,      // ---
+  black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
   blue = 1,   // --b
@@ -157,7 +157,8 @@ void BitMaskTest_NamedFunctions() {
     EXPECT_EQ((set_at_to(rgb::black, 1, true)), rgb::blue);
     EXPECT_EQ((set_at_to(rgb::white, 2, false)), rgb::purple);
 
-    size_t c{}, s{};
+    size_t c{};
+    size_t s{};
     for (auto e : make_interval<rgb>()) {
       ++c;
       s += *e;
@@ -238,7 +239,8 @@ void BitMaskTest_SafeNamedFunctions() {
     EXPECT_FALSE(has_all(safe_rgb::purple, safe_rgb::green));
     EXPECT_TRUE(has_all(safe_rgb::purple, safe_rgb::black));
 
-    size_t c{}, s{};
+    size_t c{};
+    size_t s{};
     for (auto e : make_interval<safe_rgb>()) {
       ++c;
       s += *e;
@@ -262,7 +264,7 @@ void BitMaskTest_SafeNamedFunctions() {
 }
 
 enum class rgb_unnamed : std::uint8_t {
-  black,      // ---
+  black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
   blue = 1,   // --b
@@ -277,7 +279,7 @@ constexpr auto registry::enum_spec_v<rgb_unnamed> =
     make_bitmask_enum_spec<rgb_unnamed, rgb_unnamed::white, wrapclip::limit>();
 
 enum class patchy_rgb : std::uint8_t {
-  black,      // ---
+  black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
   blue = 1,   // --b
@@ -349,7 +351,7 @@ void BitMaskTest_StreamingOut() {
 
 // RGB, but without the G.
 enum class rb : std::uint8_t {
-  black,      // ---
+  black = 0,  // ---
   red = 4,    // r--
   blue = 1,   // --b
   purple = 5, // r-b
@@ -383,7 +385,7 @@ void BitMaskTest_NoGreen() {
 
 // RGB, but without the B.
 enum class rg : std::uint8_t {
-  black,      // ---
+  black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
   yellow = 6, // rg-
@@ -417,7 +419,7 @@ void BitMaskTest_NoBlue() {
 
 // RGB, but without the R.
 enum class gb : std::uint8_t {
-  black,      // ---
+  black = 0,  // ---
   green = 2,  // -g-
   blue = 1,   // --b
   yellow = 3, // -gb
@@ -454,7 +456,7 @@ void BitMaskTest_NoRed() {
 
 // Same thing, but safe due to clipping.
 enum class safe_rb : std::uint8_t {
-  black,      // ---
+  black = 0,  // ---
   red = 4,    // r--
   blue = 1,   // --b
   purple = 5, // r-b
@@ -488,7 +490,7 @@ void BitMaskTest_SafeNoGreen() {
 
 // Same thing, but safe due to clipping.
 enum class safe_rg : std::uint8_t {
-  black,      // ---
+  black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
   yellow = 6, // rg-
@@ -522,7 +524,7 @@ void BitMaskTest_SafeNoBlue() {
 
 // Same thing, but safe due to clipping.
 enum class safe_gb : std::uint8_t {
-  black,     // ---
+  black = 0, // ---
   green = 2, // -g-
   blue = 1,  // --b
   cyan = 3,  // -gb
@@ -558,7 +560,7 @@ void BitMaskTest_SafeNoRed() {
 // placeholder space. Contrast it with rb, which has no space and therefore
 // considers green invalid.
 enum class rskipb : std::uint8_t {
-  black,      // ---
+  black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
   blue = 1,   // --b
@@ -575,7 +577,7 @@ constexpr auto registry::enum_spec_v<rskipb> =
 // All three bits are valid, but we have no names for colors with green.
 // Contrast this with safe_rb, which considers the green bit invalid.
 enum class safe_rskipb : std::uint8_t {
-  black,      // ---
+  black = 0,  // ---
   red = 4,    // r--
   green = 2,  // -g-
   blue = 1,   // --b

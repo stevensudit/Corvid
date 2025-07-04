@@ -34,7 +34,8 @@ using namespace corvid::literals;
 using namespace corvid::enums::sequence;
 using namespace corvid::enums::bitmask;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-cognitive-complexity,
+// readability-function-size)
 
 // Test extract_piece.
 void StringUtilsTest_ExtractPiece() {
@@ -1994,4 +1995,5 @@ MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_AppendStream, StringUtilsTest_AppendJson,
     StringUtilsTest_RawBuffer);
 
-// NOLINTEND(readability-function-cognitive-complexity)
+// NOLINTEND(readability-function-cognitive-complexity,
+// readability-function-size)

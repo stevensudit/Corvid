@@ -28,7 +28,8 @@ using namespace corvid;
 using namespace corvid::internal;
 using namespace corvid::sequence;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-cognitive-complexity,
+// readability-function-size)
 
 void OptionalPtrTest_Construction() {
   if (true) {
@@ -1745,4 +1746,5 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
 // void and then the requires clause requires it to be void. Then we add a
 // bunch of deduction guides that set the must-be-void to something else.
 
-// NOLINTEND(readability-function-cognitive-complexity)
+// NOLINTEND(readability-function-cognitive-complexity,
+// readability-function-size)

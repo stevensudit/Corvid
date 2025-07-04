@@ -442,7 +442,8 @@ private:
   // Handle the children of an AND.
   static node_ptr handle_conjunction(const node_list& nodes) {
     // Convert each node, splitting into a list of OR's and the rest.
-    node_list converted_nodes, converted_or_nodes;
+    node_list converted_nodes;
+    node_list converted_or_nodes;
     for (const auto& n : nodes) {
       auto converted = convert(n);
       // An always-true node cannot contribute to the result.

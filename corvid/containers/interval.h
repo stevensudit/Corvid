@@ -122,7 +122,7 @@ public:
 
     constexpr interval_iterator(U u) : u_{u} {}
 
-    constexpr const V operator*() const noexcept { return as_v(u_); }
+    constexpr V operator*() const noexcept { return as_v(u_); }
 
     constexpr auto operator<=>(
         const interval_iterator& r) const noexcept = default;

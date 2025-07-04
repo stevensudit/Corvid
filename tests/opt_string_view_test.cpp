@@ -28,7 +28,8 @@ using namespace std::literals;
 using namespace corvid;
 using namespace corvid::literals;
 
-// NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-cognitive-complexity,
+// readability-function-size)
 
 void OptStringViewTest_Construction() {
   // Default-constructed string_view.
@@ -471,4 +472,5 @@ MAKE_TEST_LIST(OptStringViewTest_Construction, OptStringViewTest_Optional,
     OptStringViewTest_Workalike, OptStringViewTest_Cast,
     OptStringViewTestEqual);
 
-// NOLINTEND(readability-function-cognitive-complexity)
+// NOLINTEND(readability-function-cognitive-complexity,
+// readability-function-size)

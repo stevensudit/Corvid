@@ -138,7 +138,8 @@ template<SequentialEnum E, bool noclip = false>
 [[nodiscard]] constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
   // Wrapping is only meaningful if the underlying type is not a perfect fit.
   if constexpr (seq_actually_need_wrap_v<E>) {
-    constexpr auto lo = seq_min_num_v<E>, hi = seq_max_num_v<E>;
+    constexpr auto lo = seq_min_num_v<E>;
+    constexpr auto hi = seq_max_num_v<E>;
     static_assert(lo <= hi);
     using U = decltype(u);
 
