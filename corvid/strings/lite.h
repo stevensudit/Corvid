@@ -21,7 +21,6 @@
 #include "targeting.h"
 #include "delimiting.h"
 #include "streaming.h"
-#include "delimiting.h"
 #include "trimming.h"
 #include "splitting.h"
 #include "conversion.h"

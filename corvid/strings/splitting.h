@@ -70,7 +70,7 @@ template<typename R = std::string_view>
 }
 
 // Split a temporary string by delimiters, making deep copies of the parts.
-[[nodiscard]] inline constexpr auto split(std::string&& whole, delim d = {}) {
+[[nodiscard]] constexpr auto split(std::string&& whole, delim d = {}) {
   return split<std::string>(std::string_view(whole), d);
 }
 
@@ -157,7 +157,7 @@ struct piece_generator {
     return more_pieces(part, whole, finder, filter);
   }
 
-  opt_string_view whole = {};
+  opt_string_view whole;
   find_delim_cb finder = [](std::string_view s) {
     auto pos = s.find(' ');
     return std::pair{pos, pos + 1};

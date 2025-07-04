@@ -48,7 +48,8 @@ std::string type_name() {
 
 // Extract fully-qualified type name, deducing it from the parameter.
 template<typename T>
-std::string type_name(T&&) {
+std::string type_name(T&& unused) {
+  (void)unused;
   return type_name<T>();
 }
 

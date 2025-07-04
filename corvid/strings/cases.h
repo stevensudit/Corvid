@@ -30,7 +30,7 @@ namespace corvid::strings { inline namespace cases {
 }
 
 // Convert to uppercase.
-inline constexpr void to_upper(Range auto& r) noexcept {
+constexpr void to_upper(Range auto& r) noexcept {
   for (auto& ch : std::span{r}) ch = to_upper(static_cast<char>(ch));
 }
 
@@ -48,7 +48,7 @@ inline constexpr void to_upper(Range auto& r) noexcept {
 }
 
 // Convert to lowercase.
-inline constexpr void to_lower(Range auto& r) noexcept {
+constexpr void to_lower(Range auto& r) noexcept {
   for (auto& ch : std::span{r}) ch = to_lower(static_cast<char>(ch));
 }
 

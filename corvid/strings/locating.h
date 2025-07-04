@@ -203,7 +203,7 @@ as_pos_range(const std::string_view& s, position pos) noexcept {
 }
 
 // Smallest size of a list of values. If no values, returns 0.
-[[nodiscard]] inline constexpr size_t min_value_size(
+[[nodiscard]] constexpr size_t min_value_size(
     const StringViewConvertibleSpan auto& values) noexcept {
   auto smallest = std::ranges::min_element(values,
       [](const auto& a, const auto& b) { return a.size() < b.size(); });
@@ -218,10 +218,8 @@ as_pos_range(const std::string_view& s, position pos) noexcept {
 // Note that you cannot safely use it before the first call to
 // `locate` or when `locate` fails, because `pos_value` must be in range
 // (and not npos).
-inline constexpr position point_past(position& pos, char) noexcept {
-  return ++pos;
-}
-inline constexpr position
+constexpr position point_past(position& pos, char) noexcept { return ++pos; }
+constexpr position
 point_past(position& pos, const StringViewConvertible auto& value) noexcept {
   return pos += std::max(value_size(value), size_t{1});
 }
@@ -231,11 +229,11 @@ point_past(location& loc, const SpanConvertible auto& values) noexcept {
   loc.pos += std::max(value_size(values[loc.pos_value]), size_t{1});
   return loc.pos;
 }
-inline constexpr position
+constexpr position
 point_past(location& loc, std::initializer_list<char> values) noexcept {
   return point_past(loc, std::span<const char>{values.begin(), values.end()});
 }
-inline constexpr position point_past(location& loc,
+constexpr position point_past(location& loc,
     std::initializer_list<std::string_view> values) noexcept {
   return point_past(loc, std::span{values.begin(), values.end()});
 }

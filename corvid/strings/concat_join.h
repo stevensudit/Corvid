@@ -94,7 +94,7 @@ inline namespace existing {
 PRAGMA_GCC_DIAG(push);
 PRAGMA_GCC_IGNORED("-Waddress");
 PRAGMA_GCC_IGNORED("-Wnonnull-compare");
-[[nodiscard]] inline constexpr bool is_present(const BoolLike auto& p) {
+[[nodiscard]] constexpr bool is_present(const BoolLike auto& p) {
   return (p) ? true : false;
 }
 PRAGMA_GCC_DIAG(pop);
@@ -102,7 +102,7 @@ PRAGMA_GCC_DIAG(pop);
 // If it's not like a bool, then it's always present.
 template<typename T>
 requires(!BoolLike<T>)
-[[nodiscard]] inline constexpr bool is_present(const T&) {
+[[nodiscard]] constexpr bool is_present(const T&) {
   return true;
 }
 } // namespace existing

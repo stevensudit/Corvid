@@ -46,3 +46,4 @@ cmake_install.cmake
 # Test
 debug_bin
 release_bin
+tidy.log
