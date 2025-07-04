@@ -61,7 +61,7 @@ protected:
 
 // std::ostream specialization.
 template<OStreamDerived T>
-class appender<T>: public appender_crtp<T> {
+class appender<T> final: public appender_crtp<T> {
 public:
   explicit appender(T& target) : appender_crtp<T>{target} {}
 
@@ -79,7 +79,7 @@ private:
 
 // String specialization.
 template<StdString T>
-class appender<T>: public appender_crtp<T> {
+class appender<T> final: public appender_crtp<T> {
 public:
   explicit appender(T& target) : appender_crtp<T>{target} {}
 

@@ -344,7 +344,7 @@ template<operation op, typename... Args>
 // Disjunctive Normal Form (DNF) conversion.
 //
 // Performs some optimizations and simplifications.
-class dnf {
+class dnf final {
 public:
   static node_ptr convert(const node_ptr& root) { return handle(root); }
 

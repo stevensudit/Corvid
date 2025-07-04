@@ -26,7 +26,11 @@ namespace corvid { inline namespace container { inline namespace sync_lock {
 //
 // Not copyable or moveable.
 //
-// TODO: Consider adding debug-only lock counts so that deadlocks throw.
+// TODO: Consider adding a safe version of mutex, perhaps based on
+// `std::timed_mutex`, which is guaranteed to throw if a lock is not acquired
+// within a certain time. It would start with a `try_lock`, and if that fails,
+// loop through `try_lock_for` until it succeeds or times out. Alternately, it
+// could just fail.
 class synchronizer {
 public:
   void lock() const { mutex_.lock(); }
@@ -43,7 +47,7 @@ private:
 // If you don't want to allow someone outside the class to call `disable`, make
 // this object private and expose it through a function that returns a `const
 // synchronizer*`.
-class breakable_synchronizer {
+class breakable_synchronizer final {
 public:
   operator const synchronizer*() const noexcept { return sync_; };
   void disable() const noexcept { sync_ = nullptr; };
@@ -93,7 +97,7 @@ private:
 // Note again how, in the above case, the caller could make their own `lock`
 // object and reuse it across multiple calls, maintaining a lock. They could
 // even construct it on the instance's `sync` member.
-class lock {
+class lock final {
 public:
   constexpr lock() noexcept = default;
 

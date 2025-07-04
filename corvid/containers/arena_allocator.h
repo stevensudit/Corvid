@@ -54,7 +54,7 @@ namespace corvid { inline namespace container { namespace arena {
 // also be configured. Consider changing algorithm so that we keep the current
 // block as the head until it's sufficiently filled, overflowing as needed down
 // the chain.
-class extensible_arena {
+class extensible_arena final {
   struct list_node;
   struct list_node_deleter {
     void operator()(list_node* node) const noexcept {

@@ -73,7 +73,7 @@ constexpr auto& report_with(delim d, const OStreamable auto&... parts) {
 
 // Redirect a `std::ostream`, `from`, to a different one, `to`, during its
 // lifespan.
-class ostream_redirector {
+class ostream_redirector final {
 public:
   explicit ostream_redirector(std::ostream& from, std::ostream& to)
       : from_{&from}, rdbuf_{from.rdbuf()} {

@@ -90,7 +90,7 @@ inline namespace cstringview {
 // http://open-std.org/JTC1/SC22/WG21/docs/papers/2019/p1402r0.pdf
 // https://github.com/cplusplus/papers/issues/189
 template<typename T = std::string_view>
-class basic_cstring_view {
+class basic_cstring_view final {
 public:
   using SV = T;
   using CharT = SV::value_type;

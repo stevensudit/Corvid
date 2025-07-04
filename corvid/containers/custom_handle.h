@@ -81,7 +81,7 @@ namespace corvid { inline namespace custhandle {
 //    return ::open(filename, oflag); }
 // ```
 template<typename TAG, typename T, typename TPtr = T*, TPtr N = nullptr>
-class custom_handle {
+class custom_handle final {
 public:
   using element_type = T;
   using resource_id_type = TPtr;

@@ -56,7 +56,7 @@ using scheduled_queue_t = std::priority_queue<scheduled_event>;
 //
 // Contains full state of the event. Available to the callback handler, which
 // can modify certain fields.
-struct timer_event {
+struct timer_event final {
   timer_event(timer_id_t timer_id, time_point_t start_at, duration_t repeat_in,
       time_point_t stop_at, timer_callback_t callback)
       : timer_id{timer_id}, start_at{start_at}, repeat_in{repeat_in},
@@ -103,7 +103,7 @@ struct timer_event {
 };
 
 // Lightweight class to reference an upcoming event.
-struct scheduled_event {
+struct scheduled_event final {
   time_point_t next_at;
   timer_id_t timer_id;
 
@@ -118,7 +118,7 @@ struct scheduled_event {
 // Events may be one-shot or recurring. Callbacks are executed only when `tick`
 // is called. During the execution of the callback, the `event` object is
 // available and certain fields may be modified.
-class timers {
+class timers final {
 public:
   // Get current time according to the registered clock callback.
   auto get_now() const { return clock_callback_(); }
