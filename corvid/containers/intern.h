@@ -271,11 +271,11 @@ public:
   static_assert(sizeof(arena_value_t) == sizeof(value_t));
 
   // Effectively-private constructor.
-  intern_table(allow, id_t min_id, id_t max_id, const const_pointer& next = {})
+  intern_table(allow, id_t min_id, id_t max_id, const_pointer next = {})
       : min_id_{min_id}, max_id_{max_id},
         lookup_by_id_{arena_construct<lookup_by_id_t>(arena_)},
         lookup_by_value_{arena_construct<lookup_by_value_t>(arena_)},
-        next_{next} {
+        next_{std::move(next)} {
     assert(min_id);
     assert(min_id_ < max_id_);
     // TODO: Consider whether we should disable `next` if it's specified.

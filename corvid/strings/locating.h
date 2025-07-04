@@ -958,8 +958,7 @@ inline size_t excise(std::string& s, std::span<const std::string_view> from,
   auto read = pos;
   while (read < s.size()) {
     bool matched = false;
-    for (size_t i = 0; i < from.size(); ++i) {
-      auto fv = from[i];
+    for (const auto& fv : from) {
       if (fv.size() && read + fv.size() <= s.size() &&
           std::memcmp(data + read, fv.data(), fv.size()) == 0)
       {

@@ -1019,9 +1019,9 @@ void StringUtilsTest_OstreamRedirectorRestore() {
       strings::ostream_redirector r(std::cout, ss);
       std::cout << "abc";
       EXPECT_EQ(ss.str(), "abc");
-      EXPECT_NE(std::cout.rdbuf(), orig);
+      EXPECT_FALSE(std::cout.rdbuf() == orig);
     }
-    EXPECT_EQ(std::cout.rdbuf(), orig);
+    EXPECT_TRUE(std::cout.rdbuf() == orig);
   }
 }
 
@@ -1189,7 +1189,7 @@ void StringUtilsTest_ParseNum() {
     EXPECT_EQ(c, 'x');
 
     sv = "42";
-    unsigned short us = strings::parse_num<unsigned short>(sv, 7);
+    auto us = strings::parse_num<unsigned short>(sv, 7);
     EXPECT_EQ(us, 42);
     sv = "foo";
     us = strings::parse_num<unsigned short>(sv, 7);

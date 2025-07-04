@@ -16,9 +16,18 @@ struct test {
 
 extern test TEST_LIST[];
 inline bool current_failed = false;
+inline bool just_failed = false;
 inline int failed_tests = 0;
 
-inline void mark_failed() { current_failed = true; }
+inline void mark_failed() {
+  current_failed = true;
+  just_failed = true;
+}
+inline bool was_failed() {
+  bool failed{just_failed};
+  just_failed = false;
+  return failed;
+}
 
 template<typename T>
 concept OStreamable = requires(T t, std::ostream& os) { os << t; };
@@ -88,12 +97,13 @@ auto inline stream_to_text(const auto& v) {
     }                                                                         \
   } while (false)
 
-#define VALUE_MSG(actual, expected)
-#if 0
-  TEST_MSG("Actual:   `%s`", minitest::stream_to_text(actual).c_str());       \
-  TEST_MSG("Expected: `%s`", minitest::stream_to_text(expected).c_str());     \
-  TEST_MSG("File: %s Line: %d Function: %s", __FILE__, __LINE__, __FUNCTION__);
-#endif
+#define VALUE_MSG(actual, expected)                                           \
+  if (minitest::was_failed()) {                                               \
+    TEST_MSG("Actual:   `%s`", minitest::stream_to_text(actual).c_str());     \
+    TEST_MSG("Expected: `%s`", minitest::stream_to_text(expected).c_str());   \
+    TEST_MSG("File: %s Line: %d Function: %s", __FILE__, __LINE__,            \
+        __FUNCTION__);                                                        \
+  }
 
 #define EXPECT_EQ(actual, expected)                                           \
   do {                                                                        \

@@ -136,11 +136,15 @@ public:
     ptr = pointer{};
   }
 
+  // NOLINTBEGIN(modernize-pass-by-value)
+
   // Construct with pointer and deleter, when specialized on non-reference
   // deleter.
   constexpr own_ptr(pointer p, const deleter_type& d) noexcept
   requires is_deleter_non_reference_v
       : ptr_{p}, del_{d} {}
+
+  // NOLINTEND(modernize-pass-by-value)
 
   constexpr own_ptr(pointer p, auto&& d) noexcept
   requires is_deleter_non_reference_v && is_deleter<decltype(d)> &&
