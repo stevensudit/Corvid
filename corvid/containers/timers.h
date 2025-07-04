@@ -68,7 +68,12 @@ struct timer_event final {
   timer_event& operator=(const timer_event&) = delete;
 
   ~timer_event() {
-    if (deleter) deleter(*this);
+    try {
+      if (deleter) deleter(*this);
+    }
+    // NOLINTNEXTLINE(bugprone-empty-catch)
+    catch (...) { // Swallow.
+    }
   }
 
   // Timer ID; unique within `timers` instance.

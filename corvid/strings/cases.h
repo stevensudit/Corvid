@@ -53,7 +53,7 @@ constexpr void to_lower(Range auto& r) noexcept {
 }
 
 // Return as lowercase.
-[[nodiscard]] constexpr std::string as_lower(std::string_view sv) noexcept {
+[[nodiscard]] constexpr std::string as_lower(std::string_view sv) {
   std::string s{sv};
   to_lower(s);
   return s;

@@ -807,7 +807,7 @@ count_located(std::string_view s, auto&& value, position pos = 0) noexcept {
 // substitutions. Note that an empty `from` follows the same behavior as Python
 // `string.replace`, in that it will insert `to` around each character in `s`.
 size_t substitute(std::string& s, SingleLocateValue auto from,
-    SingleLocateValue auto to, position pos = 0) noexcept {
+    SingleLocateValue auto to, position pos = 0) {
   size_t cnt{};
   if constexpr (Char<decltype(from)>) {
     static_assert(Char<decltype(to)>, "from/to must match");
@@ -861,21 +861,20 @@ inline size_t substitute(std::string& s,
 
 // Return new string that contains `s` with `from` replaced with `to`.
 [[nodiscard]] std::string
-substituted(std::string s, const auto& from, const auto& to) noexcept {
+substituted(std::string s, const auto& from, const auto& to) {
   auto ss = std::string{std::move(s)};
   substitute(ss, from, to);
   return ss;
 }
 [[nodiscard]] inline std::string substituted(std::string s,
-    std::initializer_list<char> from,
-    std::initializer_list<char> to) noexcept {
+    std::initializer_list<char> from, std::initializer_list<char> to) {
   auto ss = std::string{std::move(s)};
   substitute(ss, from, to);
   return ss;
 }
 [[nodiscard]] inline std::string substituted(std::string s,
     std::initializer_list<std::string_view> from,
-    std::initializer_list<std::string_view> to) noexcept {
+    std::initializer_list<std::string_view> to) {
   auto ss = std::string{std::move(s)};
   substitute(ss, from, to);
   return ss;
@@ -887,8 +886,7 @@ substituted(std::string s, const auto& from, const auto& to) noexcept {
 
 // Excise all instances of `from` in `s`, returning count of
 // excisions. An empty `from` clears the string.
-size_t excise(std::string& s, SingleLocateValue auto from,
-    position pos = 0) noexcept {
+size_t excise(std::string& s, SingleLocateValue auto from, position pos = 0) {
   size_t cnt{};
   if constexpr (Char<decltype(from)>) {
     for (; located(pos, s, from); ++cnt) s.erase(pos, 1);
@@ -970,19 +968,19 @@ inline size_t excise(std::string& s,
 //
 
 // Return new string that contains `s` with `from` excised.
-[[nodiscard]] std::string excised(std::string s, const auto& from) noexcept {
+[[nodiscard]] std::string excised(std::string s, const auto& from) {
   auto ss = std::string{std::move(s)};
   excise(ss, from);
   return ss;
 }
 [[nodiscard]] inline std::string
-excised(std::string s, std::initializer_list<char> from) noexcept {
+excised(std::string s, std::initializer_list<char> from) {
   auto ss = std::string{std::move(s)};
   excise(ss, from);
   return ss;
 }
 [[nodiscard]] inline std::string
-excised(std::string s, std::initializer_list<std::string_view> from) noexcept {
+excised(std::string s, std::initializer_list<std::string_view> from) {
   auto ss = std::string{std::move(s)};
   excise(ss, from);
   return ss;

@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 // For std::getenv, which is deprecated.
+// NOLINTNEXTLINE(bugprone-reserved-identifier)
 #define _CRT_SECURE_NO_WARNINGS 1
 #include <cstdlib>
 
@@ -301,23 +302,21 @@ namespace literals {
 //
 
 // basic_cstring_view literals.
-constexpr cstring_view operator""_csv(const char* ps, std::size_t n) noexcept {
+constexpr cstring_view operator""_csv(const char* ps, std::size_t n) {
   return cstring_view{std::string_view{ps, n + 1}};
 }
-constexpr wcstring_view
-operator""_wcsv(const wchar_t* ps, std::size_t n) noexcept {
+constexpr wcstring_view operator""_wcsv(const wchar_t* ps, std::size_t n) {
   return wcstring_view{std::wstring_view{ps, n + 1}};
 }
-constexpr u8cstring_view
-operator""_u8csv(const char8_t* ps, std::size_t n) noexcept {
+constexpr u8cstring_view operator""_u8csv(const char8_t* ps, std::size_t n) {
   return u8cstring_view{std::u8string_view{ps, n + 1}};
 }
 constexpr u16cstring_view
-operator""_u16csv(const char16_t* ps, std::size_t n) noexcept {
+operator""_u16csv(const char16_t* ps, std::size_t n) {
   return u16cstring_view{std::u16string_view{ps, n + 1}};
 }
 constexpr u32cstring_view
-operator""_u32csv(const char32_t* ps, std::size_t n) noexcept {
+operator""_u32csv(const char32_t* ps, std::size_t n) {
   return u32cstring_view{std::u32string_view{ps, n + 1}};
 }
 

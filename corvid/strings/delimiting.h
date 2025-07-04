@@ -36,9 +36,13 @@ namespace corvid::strings { inline namespace delimiting {
 // - When manipulating braces, treated as an open/close pair.
 struct delim: public std::string_view {
   constexpr delim() : delim(" "sv) {}
+  constexpr delim(const delim&) = default;
 
   template<typename T>
+  requires(!std::is_same_v<std::decay_t<T>, delim>)
   constexpr delim(T&& list) : std::string_view(std::forward<T>(list)) {}
+
+  constexpr delim& operator=(const delim&) = default;
 
   [[nodiscard]] constexpr auto find_in(std::string_view whole) const {
     if (size() == 1) return whole.find(front());
