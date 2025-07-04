@@ -6,10 +6,8 @@ Checks: >
   -clang-analyzer-core.StackAddressEscape,
   bugprone-*,
   -bugprone-easily-swappable-parameters, # Never.
-  -bugprone-move-forwarding-reference,
-  -bugprone-use-after-move,
-  -bugprone-suspicious-stringview-data-usage,
-  -bugprone-unchecked-optional-access,
+
+ 
   -bugprone-sizeof-expression,
   modernize-*,
   -modernize-concat-nested-namespaces,

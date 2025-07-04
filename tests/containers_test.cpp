@@ -59,7 +59,9 @@ void OptionalPtrTest_Construction() {
     int i{42};
     optional_ptr o{&i};
     optional_ptr qo{std::move(o)};
+    // NOLINTNEXTLINE(bugprone-use-after-move)
     optional_ptr ro{o};
+    // NOLINTNEXTLINE(bugprone-use-after-move)
     EXPECT_TRUE(o.has_value());
     EXPECT_TRUE(qo.has_value());
     EXPECT_TRUE(ro.has_value());
@@ -69,6 +71,7 @@ void OptionalPtrTest_Construction() {
     optional_ptr o{std::make_unique<std::string>(test)};
     // * optional_ptr qo{o};
     optional_ptr ro{std::move(o)};
+    // NOLINTNEXTLINE(bugprone-use-after-move)
     EXPECT_FALSE(o.has_value());
     EXPECT_TRUE(ro.has_value());
   }
@@ -154,6 +157,7 @@ void OptionalPtrTest_Smart() {
 
     // * auto qo{o};
     auto qo{std::move(o)};
+    // NOLINTNEXTLINE(bugprone-use-after-move)
     EXPECT_FALSE(o.has_value());
     EXPECT_TRUE(qo.has_value());
 
@@ -1238,6 +1242,7 @@ void StrongType_Extended() {
     // Move ctor.
     FirstName fn_moved{std::move(fn_copy)};
     EXPECT_EQ(fn_moved, "John");
+    // NOLINTNEXTLINE(bugprone-use-after-move)
     EXPECT_EQ(fn_copy, "");
     // Copy conversion from string.
     std::string name{"Jane"};
@@ -1246,6 +1251,7 @@ void StrongType_Extended() {
     // Move conversion from string.
     FirstName fn_move_from_string{std::move(name)};
     EXPECT_EQ(fn_move_from_string, "Jane");
+    // NOLINTNEXTLINE(bugprone-use-after-move)
     EXPECT_EQ(name, "");
     // Conversion from char[].
     char name2[]{"Jim"};
@@ -1264,6 +1270,7 @@ void StrongType_Extended() {
     FirstName fn_move;
     fn_move = std::move(fn_copy);
     EXPECT_EQ(fn_move, "Jane");
+    // NOLINTNEXTLINE(bugprone-use-after-move)
     EXPECT_EQ(fn_copy, "");
     // Copy from char[].
     char namearray[]{"John"};
@@ -1277,6 +1284,7 @@ void StrongType_Extended() {
     fn->clear();
     fn = std::move(name);
     EXPECT_EQ(fn, "Jane");
+    // NOLINTNEXTLINE(bugprone-use-after-move)
     EXPECT_EQ(name, "");
   }
 

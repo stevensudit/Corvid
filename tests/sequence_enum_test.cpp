@@ -516,17 +516,17 @@ void SequentialEnumTest_ExtractEnum() {
     EXPECT_EQ(e, tiger_pick::miny);
 
     sv = "miny";
-    e = extract_enum<tiger_pick>(sv).value();
+    e = extract_enum<tiger_pick>(sv).value_or(tiger_pick{-1});
     EXPECT_EQ(e, tiger_pick::miny);
     EXPECT_TRUE(sv.empty());
 
     sv = "miny";
     auto opte = parse_enum<tiger_pick>(sv);
-    EXPECT_EQ(opte.value(), tiger_pick::miny);
+    EXPECT_EQ(opte.value_or(tiger_pick{-1}), tiger_pick::miny);
 
     sv = "miny  ";
     opte = parse_enum<tiger_pick>(sv);
-    EXPECT_EQ(opte.value(), tiger_pick::miny);
+    EXPECT_EQ(opte.value_or(tiger_pick{-1}), tiger_pick::miny);
 
     sv = "miny ; ";
     opte = parse_enum<tiger_pick>(sv);

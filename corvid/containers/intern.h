@@ -356,7 +356,7 @@ public:
     attestation(sync);
 
     // If we found it, or if we have no more room, return what we have.
-    auto iv = get(std::forward<U>(value), attestation);
+    auto iv = get(value, attestation);
     if (iv || sync.is_disabled()) return iv;
 
     extensible_arena::scope s{arena_};

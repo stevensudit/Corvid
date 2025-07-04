@@ -144,8 +144,7 @@ public:
       timer_id = timer_id_t{++next_timer_id_};
       if (timer_id == timer_id_t::invalid) continue;
       auto [inserted_at, was_inserted] = events_by_id_.emplace(timer_id,
-          timer_event{timer_id, start_at, repeat_in, stop_at,
-              std::move(callback)});
+          timer_event{timer_id, start_at, repeat_in, stop_at, callback});
       if (was_inserted) {
         new_event = &inserted_at->second;
         break;

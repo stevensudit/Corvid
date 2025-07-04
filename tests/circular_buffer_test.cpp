@@ -52,6 +52,7 @@ void CircularBufferTest_Construction() {
     EXPECT_EQ(cb.size(), 0U);
     cb.push_back(1);
     CB cb2{std::move(cb)};
+    // NOLINTNEXTLINE(bugprone-use-after-move)
     EXPECT_TRUE(cb.empty());
     EXPECT_EQ(cb0.capacity(), 0U);
     EXPECT_EQ(cb0.size(), 0U);

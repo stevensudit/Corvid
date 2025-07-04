@@ -248,6 +248,7 @@ void OptStringViewTest_Construction() {
     // Embedded zeros are permitted.
     auto c = "abc\0def"_osv;
     EXPECT_EQ(c.size(), 7U);
+    // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
     auto d = opt_string_view(c.data());
     EXPECT_EQ(d.size(), 3U);
     auto e = 0_osv;
@@ -301,6 +302,7 @@ void OptStringViewTest_Workalike() {
     opt_string_view src{"xyz"};
     opt_string_view dst{std::move(src)};
     // Moving doesn't clear opt_string_view
+    // NOLINTNEXTLINE(bugprone-use-after-move)
     EXPECT_TRUE(src.has_value());
     EXPECT_TRUE(dst.has_value());
 
@@ -357,8 +359,10 @@ void OptStringViewTest_Cast() {
   // And even this.
   accept_string_view_ref(osv);
   accept_string_view_rref(std::move(sv));
+  // NOLINTNEXTLINE(bugprone-use-after-move)
   EXPECT_EQ(sv, "changed");
   accept_string_view_rref(std::move(osv));
+  // NOLINTNEXTLINE(bugprone-use-after-move)
   EXPECT_EQ(osv, "changed");
   // Same thing happens with `std::string`. If you want this not to happen, you
   // need to prevent conversion (by hiding behind `enable_if` or forcing a
