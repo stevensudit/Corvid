@@ -38,6 +38,13 @@ LLVM suite: For clang, clang-format, and lldb. https://releases.llvm.org/downloa
 
 CMake: For batch build files. https://cmake.org/download/
 
+## Building
+
+Run `./cleanbuild.sh` to build the tests. Pass `tidy` as an optional
+argument to enable clang-tidy analysis during the build. You can also
+specify `libstdcpp` or `libcxx` as the first argument to choose the
+standard library implementation.
+
 
 NOTICE
 

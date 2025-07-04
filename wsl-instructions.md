@@ -39,3 +39,5 @@
     ninja-build
 ```
 8. In the repo, run `code .`, which brings up VSCode remotely.
+9. Run `./cleanbuild.sh tidy` to build the tests with clang-tidy enabled. You can specify `libstdcpp` or `libcxx` as the first argument to choose the standard library.
+

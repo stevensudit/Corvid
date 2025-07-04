@@ -6,6 +6,7 @@ project(Corvid VERSION 1.0 LANGUAGES CXX)
 # force libstdc++. Otherwise, the default is libc++ unless we're running on
 # Codex, where libstdc++ is required.
 option(USE_LIBSTDCPP "Use GNU libstdc++ instead of libc++" OFF)
+option(USE_CLANG_TIDY "Run clang-tidy analysis" OFF)
 
 # Set the C++ standard to C++23
 set(CMAKE_CXX_STANDARD 23)
@@ -34,6 +35,16 @@ else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra -Werror -nostdinc++ -isystem /usr/include/c++/v1 -std=c++23")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ --rtlib=compiler-rt -fuse-ld=lld")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L/usr/lib/llvm-19/lib -lc++ -lc++abi")
+endif()
+
+if(USE_CLANG_TIDY)
+    find_program(CLANG_TIDY_EXE NAMES clang-tidy clang-tidy-19 clang-tidy-20)
+    if(CLANG_TIDY_EXE)
+        message(STATUS "clang-tidy enabled: ${CLANG_TIDY_EXE}")
+        set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
+    else()
+        message(WARNING "clang-tidy requested but not found")
+    endif()
 endif()
 
 # Output directory
