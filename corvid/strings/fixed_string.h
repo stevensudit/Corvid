@@ -39,6 +39,7 @@ struct fixed_string {
 
   // Conversions.
   constexpr const char* c_str() const { return do_not_use; }
+  // NOLINTNEXTLINE(bugprone-string-constructor)
   constexpr std::string_view view() const { return {do_not_use, N}; }
   constexpr operator std::string_view() const { return view(); }
 

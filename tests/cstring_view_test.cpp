@@ -89,6 +89,7 @@ void CStringViewTest_Construction() {
   if (true) {
     // Same as default.
     const char* p{};
+    // NOLINTNEXTLINE(bugprone-string-constructor)
     std::string_view v{p, 0};
     EXPECT_TRUE(v.empty());
     EXPECT_EQ(v.data(), nullptr);
@@ -126,6 +127,7 @@ void CStringViewTest_Construction() {
   // Construct string_view on empty and 0.
   if (true) {
     const char* p = "";
+    // NOLINTNEXTLINE(bugprone-string-constructor)
     std::string_view v{p, 0};
     EXPECT_TRUE(v.empty());
     EXPECT_NE(v.data(), nullptr);
@@ -194,6 +196,7 @@ void CStringViewTest_Construction() {
     std::string_view svbad("");
     EXPECT_NE(svbad.data(), nullptr);
     EXPECT_THROW((cstring_view(svbad)), std::length_error);
+    // NOLINTNEXTLINE(bugprone-string-constructor)
     std::string_view sv{"", 1};
     cstring_view v(sv);
     EXPECT_TRUE(v.empty());
@@ -214,6 +217,7 @@ void CStringViewTest_Construction() {
   if (true) {
     std::string_view svbad("abc");
     EXPECT_THROW((cstring_view(svbad)), std::invalid_argument);
+    // NOLINTNEXTLINE(bugprone-string-constructor)
     std::string_view sv("abc", 4);
     cstring_view v(sv);
     EXPECT_FALSE(v.empty());

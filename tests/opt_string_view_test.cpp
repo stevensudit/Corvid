@@ -85,6 +85,7 @@ void OptStringViewTest_Construction() {
   if (true) {
     // Same as default.
     const char* p{};
+    // NOLINTNEXTLINE(bugprone-string-constructor)
     std::string_view v{p, 0};
     EXPECT_TRUE(v.empty());
     EXPECT_EQ(v.data(), nullptr);
@@ -130,6 +131,7 @@ void OptStringViewTest_Construction() {
   // Construct string_view on empty and 0.
   if (true) {
     const char* p = "";
+    // NOLINTNEXTLINE(bugprone-string-constructor)
     std::string_view v{p, 0};
     EXPECT_TRUE(v.empty());
     EXPECT_NE(v.data(), nullptr);
