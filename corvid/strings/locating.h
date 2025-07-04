@@ -522,6 +522,8 @@ template<npos_choice npv = npos_choice::npos>
 
 } // namespace helpers
 
+// NOLINTBEGIN(bugprone-branch-clone)
+
 // See documentation for the corresponding `details::locate_*` above.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr auto
@@ -543,6 +545,8 @@ locate(std::string_view s, auto&& value, position pos = 0) noexcept {
     static_assert(false, "Invalid type for locate");
 }
 
+// NOLINTEND(bugprone-branch-clone)
+
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location locate(std::string_view s,
     std::initializer_list<char> values, position pos = 0) noexcept {
@@ -557,6 +561,8 @@ template<npos_choice npv = npos_choice::npos>
   return locate<npv>(s,
       std::span<const std::string_view>{values.begin(), values.end()}, pos);
 }
+
+// NOLINTBEGIN(bugprone-branch-clone)
 
 // See documentation for the corresponding `details::locate_not_*` above.
 template<npos_choice npv = npos_choice::npos>
@@ -579,6 +585,8 @@ locate_not(std::string_view s, auto&& value, position pos = 0) noexcept {
     static_assert(false, "Invalid type for locate");
 }
 
+// NOLINTEND(bugprone-branch-clone)
+
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location locate_not(std::string_view s,
     std::initializer_list<char> values, position pos = 0) noexcept {
@@ -593,6 +601,8 @@ template<npos_choice npv = npos_choice::npos>
   return locate_not<npv>(s,
       std::span<const std::string_view>{values.begin(), values.end()}, pos);
 }
+
+// NOLINTBEGIN(bugprone-branch-clone)
 
 // See documentation for the corresponding `details::rlocate_*` above.
 template<npos_choice npv = npos_choice::npos>
@@ -615,6 +625,8 @@ rlocate(std::string_view s, auto&& value, position pos = npos) noexcept {
     static_assert(false, "Invalid type for locate");
 }
 
+// NOLINTEND(bugprone-branch-clone)
+
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location rlocate(std::string_view s,
     std::initializer_list<char> values, position pos = npos) noexcept {
@@ -628,6 +640,8 @@ template<npos_choice npv = npos_choice::npos>
   return rlocate<npv>(s,
       std::span<const std::string_view>{values.begin(), values.end()}, pos);
 }
+
+// NOLINTBEGIN(bugprone-branch-clone)
 
 // See documentation for the corresponding `details::rlocate_not_*` above.
 template<npos_choice npv = npos_choice::npos>
@@ -649,6 +663,8 @@ rlocate_not(std::string_view s, auto&& value, position pos = npos) noexcept {
   else
     static_assert(false, "Invalid type for locate");
 }
+
+// NOLINTEND(bugprone-branch-clone)
 
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location rlocate_not(std::string_view s,

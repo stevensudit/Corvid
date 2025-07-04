@@ -1419,7 +1419,7 @@ void StrongType_Extended() {
     EXPECT_EQ(age, 42);
     age %= 5;
     EXPECT_EQ(age, 2);
-    int i = 1;
+    long i = 1;
     // Does not compile.
     //* i += age;
     i += *age;

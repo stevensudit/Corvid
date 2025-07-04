@@ -1092,7 +1092,7 @@ void StringUtilsTest_Trim() {
     vsv = strings::split(w, ",");
     std::map<int, std::string> mss;
     for (size_t i = 0; i < vsv.size(); ++i) {
-      mss[i] = vsv[i];
+      mss[static_cast<int>(i)] = vsv[i];
     }
     EXPECT_EQ(mss[0], " 1");
     strings::trim(mss);

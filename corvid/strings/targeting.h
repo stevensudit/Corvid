@@ -71,6 +71,7 @@ private:
     appender_crtp<T>::target_.write(sv.data(), sv.size());
     return *this;
   }
+  // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
   auto& append_ch(size_t len, char ch) {
     while (len--) appender_crtp<T>::target_.put(ch);
     return *this;

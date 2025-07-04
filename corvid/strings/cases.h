@@ -26,7 +26,7 @@ namespace corvid::strings { inline namespace cases {
 // Convert to uppercase.
 // Avoids `std::toupper` because it's locale-dependent and slow.
 [[nodiscard]] constexpr char to_upper(char c) noexcept {
-  return (c >= 'a' && c <= 'z') ? c - ('a' - 'A') : c;
+  return (c >= 'a' && c <= 'z') ? static_cast<char>(c - ('a' - 'A')) : c;
 }
 
 // Convert to uppercase.
@@ -44,7 +44,7 @@ constexpr void to_upper(Range auto& r) noexcept {
 // Convert to lowercase.
 // Avoids `std::tolower` because it's locale-dependent and slow.
 [[nodiscard]] constexpr char to_lower(char c) noexcept {
-  return (c >= 'A' && c <= 'Z') ? c + ('a' - 'A') : c;
+  return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
 }
 
 // Convert to lowercase.

@@ -145,7 +145,7 @@ public:
   constexpr own_ptr(pointer p, auto&& d) noexcept
   requires is_deleter_non_reference_v && is_deleter<decltype(d)> &&
                std::is_rvalue_reference_v<decltype(d)>
-      : ptr_{p}, del_{std::move(d)} {}
+      : ptr_{p}, del_{std::forward<decltype(d)>(d)} {}
 
   // Construct with pointer and deleter, when specialized on mutable lvalue
   // deleter reference.
