@@ -29,13 +29,13 @@ void CircularBufferTest_Construction() {
     std::vector<int> v;
     v.resize(3);
     circular_buffer cbv{v};
-    circular_buffer cbv2{v, 0u};
+    circular_buffer cbv2{v, 0U};
     std::array<int, 3> a;
     circular_buffer cba{a};
-    circular_buffer cba2{a, 0u};
+    circular_buffer cba2{a, 0U};
     auto sv = std::span{v};
     circular_buffer cbsv{sv};
-    circular_buffer cbsv2{sv, 0u};
+    circular_buffer cbsv2{sv, 0U};
     EXPECT_TRUE(cbv.empty());
     EXPECT_TRUE(cbv2.empty());
     EXPECT_TRUE(cba.empty());
@@ -48,18 +48,18 @@ void CircularBufferTest_Construction() {
     std::array<int, 3> a;
     CB cb0;
     CB cb{a};
-    EXPECT_EQ(cb.capacity(), 3u);
-    EXPECT_EQ(cb.size(), 0u);
+    EXPECT_EQ(cb.capacity(), 3U);
+    EXPECT_EQ(cb.size(), 0U);
     cb.push_back(1);
     CB cb2{std::move(cb)};
     EXPECT_TRUE(cb.empty());
-    EXPECT_EQ(cb0.capacity(), 0u);
-    EXPECT_EQ(cb0.size(), 0u);
-    EXPECT_EQ(cb2.capacity(), 3u);
-    EXPECT_EQ(cb2.size(), 1u);
+    EXPECT_EQ(cb0.capacity(), 0U);
+    EXPECT_EQ(cb0.size(), 0U);
+    EXPECT_EQ(cb2.capacity(), 3U);
+    EXPECT_EQ(cb2.size(), 1U);
     cb2.clear();
-    EXPECT_EQ(cb2.capacity(), 3u);
-    EXPECT_EQ(cb2.size(), 0u);
+    EXPECT_EQ(cb2.capacity(), 3U);
+    EXPECT_EQ(cb2.size(), 0U);
     cb2.push_back(2);
   }
 }
@@ -69,14 +69,14 @@ void CircularBufferTest_Ops() {
   v.resize(3);
   circular_buffer cb{v};
 
-  EXPECT_EQ(cb.capacity(), 3u);
-  EXPECT_EQ(cb.size(), 0u);
+  EXPECT_EQ(cb.capacity(), 3U);
+  EXPECT_EQ(cb.size(), 0U);
   EXPECT_TRUE(cb.empty());
   EXPECT_FALSE(cb.full());
 
   cb.push_back(1);
-  EXPECT_EQ(cb.capacity(), 3u);
-  EXPECT_EQ(cb.size(), 1u);
+  EXPECT_EQ(cb.capacity(), 3U);
+  EXPECT_EQ(cb.size(), 1U);
   EXPECT_FALSE(cb.empty());
   EXPECT_FALSE(cb.full());
   EXPECT_EQ(cb.front(), 1);
@@ -84,8 +84,8 @@ void CircularBufferTest_Ops() {
   EXPECT_EQ(cb[0], 1);
 
   cb.push_back(2);
-  EXPECT_EQ(cb.capacity(), 3u);
-  EXPECT_EQ(cb.size(), 2u);
+  EXPECT_EQ(cb.capacity(), 3U);
+  EXPECT_EQ(cb.size(), 2U);
   EXPECT_FALSE(cb.empty());
   EXPECT_FALSE(cb.full());
   EXPECT_EQ(cb.front(), 1);
@@ -94,8 +94,8 @@ void CircularBufferTest_Ops() {
   EXPECT_EQ(cb[1], 2);
 
   cb.push_back(3);
-  EXPECT_EQ(cb.capacity(), 3u);
-  EXPECT_EQ(cb.size(), 3u);
+  EXPECT_EQ(cb.capacity(), 3U);
+  EXPECT_EQ(cb.size(), 3U);
   EXPECT_FALSE(cb.empty());
   EXPECT_TRUE(cb.full());
   EXPECT_EQ(cb.front(), 1);
@@ -105,8 +105,8 @@ void CircularBufferTest_Ops() {
   EXPECT_EQ(cb[2], 3);
 
   cb.push_back(4);
-  EXPECT_EQ(cb.capacity(), 3u);
-  EXPECT_EQ(cb.size(), 3u);
+  EXPECT_EQ(cb.capacity(), 3U);
+  EXPECT_EQ(cb.size(), 3U);
   EXPECT_FALSE(cb.empty());
   EXPECT_TRUE(cb.full());
   EXPECT_EQ(cb.front(), 2);
@@ -116,8 +116,8 @@ void CircularBufferTest_Ops() {
   EXPECT_EQ(cb[2], 4);
 
   cb.push_back(5);
-  EXPECT_EQ(cb.capacity(), 3u);
-  EXPECT_EQ(cb.size(), 3u);
+  EXPECT_EQ(cb.capacity(), 3U);
+  EXPECT_EQ(cb.size(), 3U);
   EXPECT_FALSE(cb.empty());
   EXPECT_TRUE(cb.full());
   EXPECT_EQ(cb.front(), 3);
@@ -127,8 +127,8 @@ void CircularBufferTest_Ops() {
   EXPECT_EQ(cb[2], 5);
 
   cb.push_back(6);
-  EXPECT_EQ(cb.capacity(), 3u);
-  EXPECT_EQ(cb.size(), 3u);
+  EXPECT_EQ(cb.capacity(), 3U);
+  EXPECT_EQ(cb.size(), 3U);
   EXPECT_FALSE(cb.empty());
   EXPECT_TRUE(cb.full());
   EXPECT_EQ(cb.front(), 4);
@@ -140,8 +140,8 @@ void CircularBufferTest_Ops() {
   EXPECT_TRUE(cb.empty());
 
   cb.push_front(7);
-  EXPECT_EQ(cb.capacity(), 3u);
-  EXPECT_EQ(cb.size(), 1u);
+  EXPECT_EQ(cb.capacity(), 3U);
+  EXPECT_EQ(cb.size(), 1U);
   EXPECT_FALSE(cb.empty());
   EXPECT_FALSE(cb.full());
   EXPECT_EQ(cb.front(), 7);
@@ -149,8 +149,8 @@ void CircularBufferTest_Ops() {
   EXPECT_EQ(cb[0], 7);
 
   cb.push_front(8);
-  EXPECT_EQ(cb.capacity(), 3u);
-  EXPECT_EQ(cb.size(), 2u);
+  EXPECT_EQ(cb.capacity(), 3U);
+  EXPECT_EQ(cb.size(), 2U);
   EXPECT_FALSE(cb.empty());
   EXPECT_FALSE(cb.full());
   EXPECT_EQ(cb.front(), 8);
@@ -159,8 +159,8 @@ void CircularBufferTest_Ops() {
   EXPECT_EQ(cb[1], 7);
 
   cb.push_front(9);
-  EXPECT_EQ(cb.capacity(), 3u);
-  EXPECT_EQ(cb.size(), 3u);
+  EXPECT_EQ(cb.capacity(), 3U);
+  EXPECT_EQ(cb.size(), 3U);
   EXPECT_FALSE(cb.empty());
   EXPECT_TRUE(cb.full());
   EXPECT_EQ(cb.front(), 9);
@@ -280,7 +280,7 @@ void CircularBufferTest_Iterate() {
   }
   if (true) {
     std::vector<int> v{4, 2, 3};
-    const circular_buffer cb{v, 3u};
+    const circular_buffer cb{v, 3U};
     std::string s;
     for (auto& i : cb) {
       if (s.size() > 0) s += ","sv;

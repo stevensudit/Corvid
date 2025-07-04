@@ -76,7 +76,7 @@ PRAGMA_CLANG_DIAG(pop);
 
 // Compile-time pow2.
 [[nodiscard]] constexpr uint64_t pow2(uint64_t n) noexcept {
-  return n < 64 ? 1ull << n : 0ull;
+  return n < 64 ? 1ULL << n : 0ULL;
 }
 
 // Compile-time reverse of std::bit_width. Returns the highest value that can

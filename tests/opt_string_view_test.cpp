@@ -222,8 +222,8 @@ void OptStringViewTest_Construction() {
     EXPECT_FALSE(v.empty());
     EXPECT_NE(v.data(), nullptr);
     EXPECT_NE(v.begin(), v.end());
-    EXPECT_EQ(r.size(), 4u);
-    EXPECT_EQ(v.size(), 4u);
+    EXPECT_EQ(r.size(), 4U);
+    EXPECT_EQ(v.size(), 4U);
   }
   // Construct opt_string_view on it/end
   if (true) {
@@ -233,8 +233,8 @@ void OptStringViewTest_Construction() {
     EXPECT_FALSE(v.null());
     EXPECT_NE(v.data(), nullptr);
     EXPECT_NE(v.begin(), v.end());
-    EXPECT_EQ(r.size(), 4u);
-    EXPECT_EQ(v.size(), 4u);
+    EXPECT_EQ(r.size(), 4U);
+    EXPECT_EQ(v.size(), 4U);
   }
   // Construct using UDL.
   if (true) {
@@ -242,12 +242,12 @@ void OptStringViewTest_Construction() {
     EXPECT_TRUE(a.empty());
     EXPECT_FALSE(a.null());
     auto b = "abc"_osv;
-    EXPECT_EQ(b.size(), 3u);
+    EXPECT_EQ(b.size(), 3U);
     // Embedded zeros are permitted.
     auto c = "abc\0def"_osv;
-    EXPECT_EQ(c.size(), 7u);
+    EXPECT_EQ(c.size(), 7U);
     auto d = opt_string_view(c.data());
-    EXPECT_EQ(d.size(), 3u);
+    EXPECT_EQ(d.size(), 3U);
     auto e = 0_osv;
     EXPECT_TRUE(e.null());
     EXPECT_THROW((1_osv), std::out_of_range);

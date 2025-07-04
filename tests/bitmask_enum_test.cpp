@@ -71,7 +71,7 @@ void BitMaskTest_Ops() {
     EXPECT_EQ(valid_bits_v<rgb>, 7);
     EXPECT_EQ(max_value<rgb>(), rgb::white);
     EXPECT_FALSE(bit_clip_v<rgb>);
-    EXPECT_EQ(bits_length<rgb>(), 3u)
+    EXPECT_EQ(bits_length<rgb>(), 3U)
   }
   if (true) {
     // Does not compile.
@@ -160,8 +160,8 @@ void BitMaskTest_NamedFunctions() {
       ++c;
       s += *e;
     }
-    EXPECT_EQ(c, 8u);
-    EXPECT_EQ(s, 28u);
+    EXPECT_EQ(c, 8U);
+    EXPECT_EQ(s, 28U);
   }
   if (true) {
     using namespace strings;
@@ -184,7 +184,7 @@ void BitMaskTest_SafeOps() {
     EXPECT_EQ(valid_bits_v<safe_rgb>, 7);
     EXPECT_EQ(max_value<safe_rgb>(), safe_rgb::white);
     EXPECT_TRUE(bit_clip_v<safe_rgb>);
-    EXPECT_EQ(bits_length<safe_rgb>(), 3u)
+    EXPECT_EQ(bits_length<safe_rgb>(), 3U)
   }
   if (true) {
     auto c = safe_rgb::red;
@@ -242,8 +242,8 @@ void BitMaskTest_SafeNamedFunctions() {
       ++c;
       s += *e;
     }
-    EXPECT_EQ(c, 8u);
-    EXPECT_EQ(s, 28u);
+    EXPECT_EQ(c, 8U);
+    EXPECT_EQ(s, 28U);
   }
   if (true) {
     using namespace strings;
@@ -297,7 +297,7 @@ void BitMaskTest_MoreNamingTests() {
     EXPECT_EQ(valid_bits_v<rgb_unnamed>, 7);
     EXPECT_EQ(max_value<rgb_unnamed>(), rgb_unnamed::white);
     EXPECT_TRUE(bit_clip_v<rgb_unnamed>);
-    EXPECT_EQ(bits_length<rgb_unnamed>(), 3u)
+    EXPECT_EQ(bits_length<rgb_unnamed>(), 3U)
   }
   if (true) {
     EXPECT_EQ(enum_as_string(rgb_unnamed(0x00)), "0x00000000");
@@ -315,7 +315,7 @@ void BitMaskTest_MoreNamingTests() {
     EXPECT_EQ(valid_bits_v<patchy_rgb>, 7);
     EXPECT_EQ(max_value<patchy_rgb>(), patchy_rgb::white);
     EXPECT_FALSE(bit_clip_v<patchy_rgb>);
-    EXPECT_EQ(bits_length<patchy_rgb>(), 3u)
+    EXPECT_EQ(bits_length<patchy_rgb>(), 3U)
   }
   if (true) {
     EXPECT_EQ(enum_as_string(patchy_rgb::black), "0x00000000");
@@ -363,7 +363,7 @@ void BitMaskTest_NoGreen() {
     EXPECT_EQ(valid_bits_v<rb>, 5);
     EXPECT_EQ(max_value<rb>(), rb::purple);
     EXPECT_FALSE(bit_clip_v<rb>);
-    EXPECT_EQ(bits_length<rb>(), 3u)
+    EXPECT_EQ(bits_length<rb>(), 3U)
   }
   if (true) {
     EXPECT_EQ(enum_as_string(rb(0x00)), "0x00000000");
@@ -397,7 +397,7 @@ void BitMaskTest_NoBlue() {
     EXPECT_EQ(valid_bits_v<rg>, 6);
     EXPECT_EQ(max_value<rg>(), rg::yellow);
     EXPECT_FALSE(bit_clip_v<rg>);
-    EXPECT_EQ(bits_length<rg>(), 3u)
+    EXPECT_EQ(bits_length<rg>(), 3U)
   }
   if (true) {
     EXPECT_EQ(enum_as_string(rg(0x00)), "0x00000000");
@@ -434,7 +434,7 @@ void BitMaskTest_NoRed() {
     EXPECT_EQ(valid_bits_v<gb>, 3);
     EXPECT_EQ(max_value<gb>(), gb::yellow);
     EXPECT_FALSE(bit_clip_v<gb>);
-    EXPECT_EQ(bits_length<gb>(), 2u)
+    EXPECT_EQ(bits_length<gb>(), 2U)
   }
   if (true) {
     EXPECT_EQ(enum_as_string(gb(0x00)), "0x00000000");
@@ -468,7 +468,7 @@ void BitMaskTest_SafeNoGreen() {
     EXPECT_EQ(valid_bits_v<safe_rb>, 5);
     EXPECT_EQ(max_value<safe_rb>(), safe_rb::purple);
     EXPECT_TRUE(bit_clip_v<safe_rb>);
-    EXPECT_EQ(bits_length<safe_rb>(), 3u)
+    EXPECT_EQ(bits_length<safe_rb>(), 3U)
   }
   if (true) {
     EXPECT_EQ(enum_as_string(safe_rb(0x00)), "black");
@@ -502,7 +502,7 @@ void BitMaskTest_SafeNoBlue() {
     EXPECT_EQ(valid_bits_v<safe_rg>, 6);
     EXPECT_EQ(max_value<safe_rg>(), safe_rg::yellow);
     EXPECT_TRUE(bit_clip_v<safe_rg>);
-    EXPECT_EQ(bits_length<safe_rg>(), 3u)
+    EXPECT_EQ(bits_length<safe_rg>(), 3U)
   }
   if (true) {
     EXPECT_EQ(enum_as_string(safe_rg(0x00)), "black");
@@ -536,7 +536,7 @@ void BitMaskTest_SafeNoRed() {
     EXPECT_EQ(valid_bits_v<safe_gb>, 3);
     EXPECT_EQ(max_value<safe_gb>(), safe_gb::cyan);
     EXPECT_TRUE(bit_clip_v<safe_gb>);
-    EXPECT_EQ(bits_length<safe_gb>(), 2u)
+    EXPECT_EQ(bits_length<safe_gb>(), 2U)
   }
   if (true) {
     EXPECT_EQ(enum_as_string(safe_gb(0x00)), "black");
@@ -594,7 +594,7 @@ void BitMaskTest_SkipBlue() {
     EXPECT_EQ(valid_bits_v<rskipb>, 7);
     EXPECT_EQ(max_value<rskipb>(), rskipb::white);
     EXPECT_FALSE(bit_clip_v<rskipb>);
-    EXPECT_EQ(bits_length<rskipb>(), 3u)
+    EXPECT_EQ(bits_length<rskipb>(), 3U)
   }
   if (true) {
     EXPECT_EQ(enum_as_string(rskipb(0x00)), "0x00000000");
@@ -612,7 +612,7 @@ void BitMaskTest_SkipBlue() {
     EXPECT_EQ(valid_bits_v<safe_rskipb>, 7);
     EXPECT_EQ(max_value<safe_rskipb>(), safe_rskipb(0x07));
     EXPECT_TRUE(bit_clip_v<safe_rskipb>);
-    EXPECT_EQ(bits_length<safe_rskipb>(), 3u)
+    EXPECT_EQ(bits_length<safe_rskipb>(), 3U)
   }
   if (true) {
     EXPECT_EQ(enum_as_string(safe_rskipb(0x00)), "black");
@@ -643,7 +643,7 @@ void BitMaskTest_SafeBlackWhite() {
     EXPECT_EQ(valid_bits_v<safe_bw>, 1);
     EXPECT_EQ(max_value<safe_bw>(), safe_bw::white);
     EXPECT_TRUE(bit_clip_v<safe_bw>);
-    EXPECT_EQ(bits_length<safe_bw>(), 1u)
+    EXPECT_EQ(bits_length<safe_bw>(), 1U)
   }
   if (true) {
     EXPECT_EQ(enum_as_string(safe_bw(0x00)), "color::black");
@@ -673,7 +673,7 @@ void BitMaskTest_SafeWhite() {
     EXPECT_EQ(valid_bits_v<safe_w>, 1);
     EXPECT_EQ(max_value<safe_w>(), safe_w::white);
     EXPECT_TRUE(bit_clip_v<safe_w>);
-    EXPECT_EQ(bits_length<safe_w>(), 1u)
+    EXPECT_EQ(bits_length<safe_w>(), 1U)
   }
   if (true) {
     EXPECT_EQ(enum_as_string(safe_w(0x00)), "0x00000000");
@@ -706,7 +706,7 @@ void BitMaskTest_EnumCalcBitNames() {
       cvbfbn<"a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,aa,ab,ac,ad,"
              "ae,af,ag,ah,ai,aj,ak,al,am,an,ao,ap,aq,ar,as,at,au,av,aw,ax,ay,"
              "az,ba,bb,bc,bd,be,bf,bg,bh,bi,bj,bk,bl,bm,bn,bo,bp,bq,br,bs,bt,"
-             "bu,bv,bw,bx,by,bz">() == 18446744073709551615ull);
+             "bu,bv,bw,bx,by,bz">() == 18446744073709551615ULL);
 }
 
 template<strings::fixed_string W>
