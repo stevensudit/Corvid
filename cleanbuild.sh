@@ -74,7 +74,12 @@ mkdir -p "$buildRoot" "$buildDir"
 cmake -S tests -B "$buildRoot" -G "Ninja" $LIBSTD_OPTION $TIDY_OPTION
 
 # Run the build (this will compile everything from scratch)
-cmake --build "$buildRoot" --config Release
+if $use_tidy; then
+  tidyLogFile="$buildRoot/tidy.log"
+  cmake --build "$buildRoot" --config Release 2>&1 | tee "$tidyLogFile"
+else
+  cmake --build "$buildRoot" --config Release
+fi
 
 # Loop through each file in the release directory
 for file in "$buildDir"/*; do

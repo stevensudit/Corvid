@@ -1,4 +1,15 @@
-Checks: 'clang-analyzer-*,bugprone-*,modernize-*,performance-*,readability-*,misc-unused-parameters'
+Checks: >
+  clang-analyzer-*,
+  bugprone-*,
+  modernize-*,
+  -modernize-concat-nested-namespaces,
+  -modernize-use-trailing-return-type,
+  performance-*,
+  readability-*,
+  -readability-identifier-length,
+  -readability-braces-around-statements,
+  -readability-magic-numbers, # This has some value.
+  misc-unused-parameters
 WarningsAsErrors: ''
 HeaderFilterRegex: 'corvid/.*'
 FormatStyle: file

@@ -75,14 +75,13 @@ PRAGMA_CLANG_DIAG(pop);
 // value.
 
 // Compile-time pow2.
-[[nodiscard]] inline constexpr uint64_t pow2(uint64_t n) noexcept {
+[[nodiscard]] constexpr uint64_t pow2(uint64_t n) noexcept {
   return n < 64 ? 1ull << n : 0ull;
 }
 
 // Compile-time reverse of std::bit_width. Returns the highest value that can
 // be encoded in `n` bits.
-[[nodiscard]] inline constexpr uint64_t highest_value_in_n_bits(
-    uint64_t n) noexcept {
+[[nodiscard]] constexpr uint64_t highest_value_in_n_bits(uint64_t n) noexcept {
   return pow2(n) - 1;
 }
 
