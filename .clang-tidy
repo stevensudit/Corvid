@@ -1,7 +1,7 @@
 Checks: >
   clang-analyzer-*,
   -clang-analyzer-optin.core.EnumCastOutOfRange, # Generally invalid.
-  -clang-analyzer-core.StackAddressEscape, # False positive in arena_allocator.h
+  -clang-analyzer-core.StackAddressEscape, # Also hardcoded in CMakeLists.txt.
   bugprone-*,
   -bugprone-easily-swappable-parameters, # Generally invalid.
   modernize-*,
