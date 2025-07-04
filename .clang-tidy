@@ -1,0 +1,4 @@
+Checks: 'clang-analyzer-*,bugprone-*,modernize-*,performance-*,readability-*,misc-unused-parameters'
+WarningsAsErrors: ''
+HeaderFilterRegex: 'corvid/.*'
+FormatStyle: file
