@@ -278,6 +278,42 @@ void OptStringViewTest_Optional() {
   // don't work.
 }
 
+void OptStringViewTest_Workalike() {
+  // Verify optional-like interface.
+  if (true) {
+    opt_string_view osv;
+    EXPECT_FALSE(osv.has_value());
+    EXPECT_EQ(osv.value_or("def"), "def");
+    osv.emplace("abc");
+    EXPECT_TRUE(osv.has_value());
+    EXPECT_EQ(osv.value(), "abc");
+    EXPECT_EQ(osv.value_or("def"), "abc");
+    osv.reset();
+    EXPECT_FALSE(osv.has_value());
+  }
+
+  // Interaction with temporaries and moved-from values.
+  if (true) {
+    EXPECT_EQ(opt_string_view{"tmp"}.value_or("def"), "tmp");
+
+    opt_string_view src{"xyz"};
+    opt_string_view dst{std::move(src)};
+    // Moving doesn't clear opt_string_view
+    EXPECT_TRUE(src.has_value());
+    EXPECT_TRUE(dst.has_value());
+
+    dst.reset();
+    EXPECT_FALSE(dst.has_value());
+  }
+
+  // Methods operate correctly on rvalues.
+  if (true) {
+    opt_string_view osv{"qqq"};
+    EXPECT_EQ(std::move(osv).value_or("def"), "qqq");
+    opt_string_view{"aaa"}.emplace("bbb");
+  }
+}
+
 auto accept_string_view(std::string_view v) { return v; }
 auto accept_opt_string_view(opt_string_view v) { return v; }
 
@@ -420,4 +456,5 @@ void OptStringViewTestEqual() {
 }
 
 MAKE_TEST_LIST(OptStringViewTest_Construction, OptStringViewTest_Optional,
-    OptStringViewTest_Cast, OptStringViewTestEqual);
+    OptStringViewTest_Workalike, OptStringViewTest_Cast,
+    OptStringViewTestEqual);
