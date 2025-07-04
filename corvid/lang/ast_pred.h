@@ -39,7 +39,7 @@ using any_value = std::variant<std::monostate, any_single_value,
 using key_or_value = std::variant<std::monostate, std::string, any_value>;
 
 // Operations for AST predicates.
-enum class operation {
+enum class operation : std::uint8_t {
   undefined,
   always_false,
   always_true,
@@ -115,7 +115,7 @@ concept node_ptr_type =
 // Construct using `make` factory function.
 struct node: public std::enable_shared_from_this<node> {
 protected:
-  enum class allow { ctor };
+  enum class allow : std::uint8_t { ctor };
 
 public:
   explicit node(allow, operation op) : op{op} {}

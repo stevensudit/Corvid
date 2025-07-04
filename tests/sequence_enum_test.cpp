@@ -28,14 +28,14 @@ using namespace corvid;
 using namespace corvid::enums;
 using namespace corvid::enums::sequence;
 
-enum class tiger_pick { eeny, meany, miny, moe };
+enum class tiger_pick : std::int8_t { eeny, meany, miny, moe };
 
 template<>
 constexpr auto registry::enum_spec_v<tiger_pick> =
     make_sequence_enum_spec<tiger_pick, "eeny, meany, miny, moe">();
 
-enum old_enum { old_zero, old_one, old_two, old_three };
-enum class new_enum { new_zero, new_one, new_two, new_three };
+enum old_enum : std::uint8_t { old_zero, old_one, old_two, old_three };
+enum class new_enum : std::uint8_t { new_zero, new_one, new_two, new_three };
 
 void SequentialEnumTest_Registry() {
   if (true) {
@@ -48,7 +48,7 @@ void SequentialEnumTest_Ops() {
     EXPECT_TRUE(!tiger_pick{});
 
     auto e = tiger_pick::eeny;
-    int i = *e;
+    auto i = *e;
     EXPECT_EQ(i, 0);
 
     // The next line correctly fails because std::byte isn't a registered enum.
@@ -376,7 +376,7 @@ void SequentialEnumTest_SafeOps() {
   }
 }
 
-enum class tiger_nochoice { tiger };
+enum class tiger_nochoice : std::uint8_t { tiger };
 
 template<>
 constexpr auto registry::enum_spec_v<tiger_nochoice> =
@@ -410,7 +410,8 @@ void SequentialEnumTest_StreamingOut() {
   EXPECT_TRUE(OStreamable<tiger_pick>);
   if (true) {
     std::stringstream ss;
-    ss << *tiger_pick::moe << std::flush;
+    int i = *tiger_pick::moe;
+    ss << i << std::flush;
     EXPECT_EQ(ss.str(), "3");
   }
 
@@ -428,7 +429,7 @@ void SequentialEnumTest_StreamingOut() {
   }
 }
 
-enum class tiger_missing { eeny, miny = 2, moe };
+enum class tiger_missing : std::uint8_t { eeny, miny = 2, moe };
 
 template<>
 constexpr auto registry::enum_spec_v<tiger_missing> =
@@ -441,7 +442,7 @@ void SequentialEnumTest_Missing() {
     EXPECT_EQ(enum_as_string(tiger_missing(1)), "1");
     EXPECT_EQ((enum_as_string(tiger_missing::miny)), "miny");
     EXPECT_EQ((enum_as_string(tiger_missing::moe)), "moe");
-    EXPECT_EQ(enum_as_string(tiger_missing(-1)), "-1");
+    EXPECT_EQ(enum_as_string(tiger_missing(-1)), "255");
     EXPECT_EQ(enum_as_string(tiger_missing(4)), "4");
   }
 }

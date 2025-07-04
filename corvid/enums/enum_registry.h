@@ -26,7 +26,7 @@ namespace corvid { inline namespace enums {
 
 // Whether or not to limit the value, as by wrapping or clipping, when it
 // exceeds the range of the enum.
-enum class wrapclip { none, limit };
+enum class wrapclip : std::uint8_t { none, limit };
 
 namespace registry {
 

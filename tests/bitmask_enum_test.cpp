@@ -29,7 +29,7 @@ using namespace std::literals;
 using namespace corvid;
 using namespace corvid::enums::bitmask;
 
-enum class rgb {
+enum class rgb : std::int8_t {
   black,      // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -46,7 +46,7 @@ constexpr auto registry::enum_spec_v<rgb> =
     make_bitmask_enum_spec<rgb, "red, green, blue">();
 
 // Same thing, but safe due to clipping.
-enum class safe_rgb {
+enum class safe_rgb : std::uint8_t {
   black,      // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -63,7 +63,7 @@ constexpr auto registry::enum_spec_v<safe_rgb> = make_bitmask_enum_values_spec<
     wrapclip::limit>();
 
 // This is not a bitmask class, so it shouldn't work as a bitmap.
-enum class tires { none, one, two, three, four, five, six };
+enum class tires : std::uint8_t { none, one, two, three, four, five, six };
 
 void BitMaskTest_Ops() {
   if (true) {
@@ -168,14 +168,13 @@ void BitMaskTest_NamedFunctions() {
     EXPECT_EQ(enum_as_string(rgb::red), "red");
     EXPECT_EQ(enum_as_string(rgb::green), "green");
     EXPECT_EQ(enum_as_string(rgb::blue), "blue");
-    EXPECT_EQ(enum_as_string(rgb::black), "0x00000000");
+    EXPECT_EQ(enum_as_string(rgb::black), "0x00");
     EXPECT_EQ(enum_as_string(rgb::yellow), "red + green");
     EXPECT_EQ(enum_as_string(rgb::purple), "red + blue");
     EXPECT_EQ(enum_as_string(rgb::cyan), "green + blue");
     EXPECT_EQ(enum_as_string(rgb::white), "red + green + blue");
-    EXPECT_EQ(enum_as_string(rgb(0x40)), "0x00000040");
-    EXPECT_EQ(enum_as_string(rgb(7 + 0x40)),
-        "red + green + blue + 0x00000040");
+    EXPECT_EQ(enum_as_string(rgb(0x40)), "0x40");
+    EXPECT_EQ(enum_as_string(rgb(7 + 0x40)), "red + green + blue + 0x40");
   }
 }
 
@@ -255,12 +254,12 @@ void BitMaskTest_SafeNamedFunctions() {
     EXPECT_EQ(enum_as_string(safe_rgb::purple), "purple");
     EXPECT_EQ(enum_as_string(safe_rgb::cyan), "cyan");
     EXPECT_EQ(enum_as_string(safe_rgb::white), "white");
-    EXPECT_EQ(enum_as_string(safe_rgb(0x40)), "black + 0x00000040");
-    EXPECT_EQ(enum_as_string(safe_rgb(7 + 0x40)), "white + 0x00000040");
+    EXPECT_EQ(enum_as_string(safe_rgb(0x40)), "black + 0x40");
+    EXPECT_EQ(enum_as_string(safe_rgb(7 + 0x40)), "white + 0x40");
   }
 }
 
-enum class rgb_unnamed {
+enum class rgb_unnamed : std::uint8_t {
   black,      // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -275,7 +274,7 @@ template<>
 constexpr auto registry::enum_spec_v<rgb_unnamed> =
     make_bitmask_enum_spec<rgb_unnamed, rgb_unnamed::white, wrapclip::limit>();
 
-enum class patchy_rgb {
+enum class patchy_rgb : std::uint8_t {
   black,      // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -300,16 +299,16 @@ void BitMaskTest_MoreNamingTests() {
     EXPECT_EQ(bits_length<rgb_unnamed>(), 3U)
   }
   if (true) {
-    EXPECT_EQ(enum_as_string(rgb_unnamed(0x00)), "0x00000000");
-    EXPECT_EQ(enum_as_string(rgb_unnamed(0x01)), "0x00000001");
-    EXPECT_EQ(enum_as_string(rgb_unnamed(0x02)), "0x00000002");
-    EXPECT_EQ(enum_as_string(rgb_unnamed(0x03)), "0x00000003");
-    EXPECT_EQ(enum_as_string(rgb_unnamed(0x04)), "0x00000004");
-    EXPECT_EQ(enum_as_string(rgb_unnamed(0x05)), "0x00000005");
-    EXPECT_EQ(enum_as_string(rgb_unnamed(0x06)), "0x00000006");
-    EXPECT_EQ(enum_as_string(rgb_unnamed(0x07)), "0x00000007");
-    EXPECT_EQ(enum_as_string(rgb_unnamed(0x40)), "0x00000040");
-    EXPECT_EQ(enum_as_string(rgb_unnamed(0x7 + 0x40)), "0x00000047");
+    EXPECT_EQ(enum_as_string(rgb_unnamed(0x00)), "0x00");
+    EXPECT_EQ(enum_as_string(rgb_unnamed(0x01)), "0x01");
+    EXPECT_EQ(enum_as_string(rgb_unnamed(0x02)), "0x02");
+    EXPECT_EQ(enum_as_string(rgb_unnamed(0x03)), "0x03");
+    EXPECT_EQ(enum_as_string(rgb_unnamed(0x04)), "0x04");
+    EXPECT_EQ(enum_as_string(rgb_unnamed(0x05)), "0x05");
+    EXPECT_EQ(enum_as_string(rgb_unnamed(0x06)), "0x06");
+    EXPECT_EQ(enum_as_string(rgb_unnamed(0x07)), "0x07");
+    EXPECT_EQ(enum_as_string(rgb_unnamed(0x40)), "0x40");
+    EXPECT_EQ(enum_as_string(rgb_unnamed(0x7 + 0x40)), "0x47");
   }
   if (true) {
     EXPECT_EQ(valid_bits_v<patchy_rgb>, 7);
@@ -318,7 +317,7 @@ void BitMaskTest_MoreNamingTests() {
     EXPECT_EQ(bits_length<patchy_rgb>(), 3U)
   }
   if (true) {
-    EXPECT_EQ(enum_as_string(patchy_rgb::black), "0x00000000");
+    EXPECT_EQ(enum_as_string(patchy_rgb::black), "0x00");
     EXPECT_EQ(enum_as_string(patchy_rgb::red), "red");
     EXPECT_EQ(enum_as_string(patchy_rgb::green), "green");
     EXPECT_EQ(enum_as_string(patchy_rgb::blue), "blue");
@@ -326,8 +325,8 @@ void BitMaskTest_MoreNamingTests() {
     EXPECT_EQ(enum_as_string(patchy_rgb::purple), "purple");
     EXPECT_EQ(enum_as_string(patchy_rgb::cyan), "green + blue");
     EXPECT_EQ(enum_as_string(patchy_rgb::white), "white");
-    EXPECT_EQ(enum_as_string(patchy_rgb(0x40)), "0x00000040");
-    EXPECT_EQ(enum_as_string(patchy_rgb(7 + 0x40)), "white + 0x00000040");
+    EXPECT_EQ(enum_as_string(patchy_rgb(0x40)), "0x40");
+    EXPECT_EQ(enum_as_string(patchy_rgb(7 + 0x40)), "white + 0x40");
   }
 }
 
@@ -335,7 +334,8 @@ void BitMaskTest_StreamingOut() {
   EXPECT_TRUE(OStreamable<rgb>);
   if (true) {
     std::stringstream ss;
-    ss << *rgb::red << std::flush;
+    int i = *rgb::red;
+    ss << i << std::flush;
     EXPECT_EQ(ss.str(), "4");
   }
   if (true) {
@@ -346,7 +346,7 @@ void BitMaskTest_StreamingOut() {
 }
 
 // RGB, but without the G.
-enum class rb {
+enum class rb : std::uint8_t {
   black,      // ---
   red = 4,    // r--
   blue = 1,   // --b
@@ -366,21 +366,21 @@ void BitMaskTest_NoGreen() {
     EXPECT_EQ(bits_length<rb>(), 3U)
   }
   if (true) {
-    EXPECT_EQ(enum_as_string(rb(0x00)), "0x00000000");
+    EXPECT_EQ(enum_as_string(rb(0x00)), "0x00");
     EXPECT_EQ(enum_as_string(rb(0x01)), "blue");
-    EXPECT_EQ(enum_as_string(rb(0x02)), "0x00000002");
-    EXPECT_EQ(enum_as_string(rb(0x03)), "blue + 0x00000002");
+    EXPECT_EQ(enum_as_string(rb(0x02)), "0x02");
+    EXPECT_EQ(enum_as_string(rb(0x03)), "blue + 0x02");
     EXPECT_EQ(enum_as_string(rb(0x04)), "red");
     EXPECT_EQ(enum_as_string(rb(0x05)), "red + blue");
-    EXPECT_EQ(enum_as_string(rb(0x06)), "red + 0x00000002");
-    EXPECT_EQ(enum_as_string(rb(0x07)), "red + blue + 0x00000002");
-    EXPECT_EQ(enum_as_string(rb(0x40)), "0x00000040");
-    EXPECT_EQ(enum_as_string(rb(0x7 + 0x40)), "red + blue + 0x00000042");
+    EXPECT_EQ(enum_as_string(rb(0x06)), "red + 0x02");
+    EXPECT_EQ(enum_as_string(rb(0x07)), "red + blue + 0x02");
+    EXPECT_EQ(enum_as_string(rb(0x40)), "0x40");
+    EXPECT_EQ(enum_as_string(rb(0x7 + 0x40)), "red + blue + 0x42");
   }
 }
 
 // RGB, but without the B.
-enum class rg {
+enum class rg : std::uint8_t {
   black,      // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -400,21 +400,21 @@ void BitMaskTest_NoBlue() {
     EXPECT_EQ(bits_length<rg>(), 3U)
   }
   if (true) {
-    EXPECT_EQ(enum_as_string(rg(0x00)), "0x00000000");
-    EXPECT_EQ(enum_as_string(rg(0x01)), "0x00000001");
+    EXPECT_EQ(enum_as_string(rg(0x00)), "0x00");
+    EXPECT_EQ(enum_as_string(rg(0x01)), "0x01");
     EXPECT_EQ(enum_as_string(rg(0x02)), "green");
-    EXPECT_EQ(enum_as_string(rg(0x03)), "green + 0x00000001");
+    EXPECT_EQ(enum_as_string(rg(0x03)), "green + 0x01");
     EXPECT_EQ(enum_as_string(rg(0x04)), "red");
-    EXPECT_EQ(enum_as_string(rg(0x05)), "red + 0x00000001");
+    EXPECT_EQ(enum_as_string(rg(0x05)), "red + 0x01");
     EXPECT_EQ(enum_as_string(rg(0x06)), "red + green");
-    EXPECT_EQ(enum_as_string(rg(0x07)), "red + green + 0x00000001");
-    EXPECT_EQ(enum_as_string(rg(0x40)), "0x00000040");
-    EXPECT_EQ(enum_as_string(rg(0x7 + 0x40)), "red + green + 0x00000041");
+    EXPECT_EQ(enum_as_string(rg(0x07)), "red + green + 0x01");
+    EXPECT_EQ(enum_as_string(rg(0x40)), "0x40");
+    EXPECT_EQ(enum_as_string(rg(0x7 + 0x40)), "red + green + 0x41");
   }
 }
 
 // RGB, but without the R.
-enum class gb {
+enum class gb : std::uint8_t {
   black,      // ---
   green = 2,  // -g-
   blue = 1,   // --b
@@ -437,21 +437,21 @@ void BitMaskTest_NoRed() {
     EXPECT_EQ(bits_length<gb>(), 2U)
   }
   if (true) {
-    EXPECT_EQ(enum_as_string(gb(0x00)), "0x00000000");
+    EXPECT_EQ(enum_as_string(gb(0x00)), "0x00");
     EXPECT_EQ(enum_as_string(gb(0x01)), "blue");
     EXPECT_EQ(enum_as_string(gb(0x02)), "green");
     EXPECT_EQ(enum_as_string(gb(0x03)), "green + blue");
-    EXPECT_EQ(enum_as_string(gb(0x04)), "0x00000004");
-    EXPECT_EQ(enum_as_string(gb(0x05)), "blue + 0x00000004");
-    EXPECT_EQ(enum_as_string(gb(0x06)), "green + 0x00000004");
-    EXPECT_EQ(enum_as_string(gb(0x07)), "green + blue + 0x00000004");
-    EXPECT_EQ(enum_as_string(gb(0x40)), "0x00000040");
-    EXPECT_EQ(enum_as_string(gb(0x7 + 0x40)), "green + blue + 0x00000044");
+    EXPECT_EQ(enum_as_string(gb(0x04)), "0x04");
+    EXPECT_EQ(enum_as_string(gb(0x05)), "blue + 0x04");
+    EXPECT_EQ(enum_as_string(gb(0x06)), "green + 0x04");
+    EXPECT_EQ(enum_as_string(gb(0x07)), "green + blue + 0x04");
+    EXPECT_EQ(enum_as_string(gb(0x40)), "0x40");
+    EXPECT_EQ(enum_as_string(gb(0x7 + 0x40)), "green + blue + 0x44");
   }
 }
 
 // Same thing, but safe due to clipping.
-enum class safe_rb {
+enum class safe_rb : std::uint8_t {
   black,      // ---
   red = 4,    // r--
   blue = 1,   // --b
@@ -473,19 +473,19 @@ void BitMaskTest_SafeNoGreen() {
   if (true) {
     EXPECT_EQ(enum_as_string(safe_rb(0x00)), "black");
     EXPECT_EQ(enum_as_string(safe_rb(0x01)), "blue");
-    EXPECT_EQ(enum_as_string(safe_rb(0x02)), "black + 0x00000002");
-    EXPECT_EQ(enum_as_string(safe_rb(0x03)), "blue + 0x00000002");
+    EXPECT_EQ(enum_as_string(safe_rb(0x02)), "black + 0x02");
+    EXPECT_EQ(enum_as_string(safe_rb(0x03)), "blue + 0x02");
     EXPECT_EQ(enum_as_string(safe_rb(0x04)), "red");
     EXPECT_EQ(enum_as_string(safe_rb(0x05)), "purple");
-    EXPECT_EQ(enum_as_string(safe_rb(0x06)), "red + 0x00000002");
-    EXPECT_EQ(enum_as_string(safe_rb(0x07)), "purple + 0x00000002");
-    EXPECT_EQ(enum_as_string(safe_rb(0x40)), "black + 0x00000040");
-    EXPECT_EQ(enum_as_string(safe_rb(0x7 + 0x40)), "purple + 0x00000042");
+    EXPECT_EQ(enum_as_string(safe_rb(0x06)), "red + 0x02");
+    EXPECT_EQ(enum_as_string(safe_rb(0x07)), "purple + 0x02");
+    EXPECT_EQ(enum_as_string(safe_rb(0x40)), "black + 0x40");
+    EXPECT_EQ(enum_as_string(safe_rb(0x7 + 0x40)), "purple + 0x42");
   }
 }
 
 // Same thing, but safe due to clipping.
-enum class safe_rg {
+enum class safe_rg : std::uint8_t {
   black,      // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -506,20 +506,20 @@ void BitMaskTest_SafeNoBlue() {
   }
   if (true) {
     EXPECT_EQ(enum_as_string(safe_rg(0x00)), "black");
-    EXPECT_EQ(enum_as_string(safe_rg(0x01)), "black + 0x00000001");
+    EXPECT_EQ(enum_as_string(safe_rg(0x01)), "black + 0x01");
     EXPECT_EQ(enum_as_string(safe_rg(0x02)), "green");
-    EXPECT_EQ(enum_as_string(safe_rg(0x03)), "green + 0x00000001");
+    EXPECT_EQ(enum_as_string(safe_rg(0x03)), "green + 0x01");
     EXPECT_EQ(enum_as_string(safe_rg(0x04)), "red");
-    EXPECT_EQ(enum_as_string(safe_rg(0x05)), "red + 0x00000001");
+    EXPECT_EQ(enum_as_string(safe_rg(0x05)), "red + 0x01");
     EXPECT_EQ(enum_as_string(safe_rg(0x06)), "yellow");
-    EXPECT_EQ(enum_as_string(safe_rg(0x07)), "yellow + 0x00000001");
-    EXPECT_EQ(enum_as_string(safe_rg(0x40)), "black + 0x00000040");
-    EXPECT_EQ(enum_as_string(safe_rg(0x7 + 0x40)), "yellow + 0x00000041");
+    EXPECT_EQ(enum_as_string(safe_rg(0x07)), "yellow + 0x01");
+    EXPECT_EQ(enum_as_string(safe_rg(0x40)), "black + 0x40");
+    EXPECT_EQ(enum_as_string(safe_rg(0x7 + 0x40)), "yellow + 0x41");
   }
 }
 
 // Same thing, but safe due to clipping.
-enum class safe_gb {
+enum class safe_gb : std::uint8_t {
   black,     // ---
   green = 2, // -g-
   blue = 1,  // --b
@@ -543,19 +543,19 @@ void BitMaskTest_SafeNoRed() {
     EXPECT_EQ(enum_as_string(safe_gb(0x01)), "blue");
     EXPECT_EQ(enum_as_string(safe_gb(0x02)), "green");
     EXPECT_EQ(enum_as_string(safe_gb(0x03)), "cyan");
-    EXPECT_EQ(enum_as_string(safe_gb(0x04)), "black + 0x00000004");
-    EXPECT_EQ(enum_as_string(safe_gb(0x05)), "blue + 0x00000004");
-    EXPECT_EQ(enum_as_string(safe_gb(0x06)), "green + 0x00000004");
-    EXPECT_EQ(enum_as_string(safe_gb(0x07)), "cyan + 0x00000004");
-    EXPECT_EQ(enum_as_string(safe_gb(0x40)), "black + 0x00000040");
-    EXPECT_EQ(enum_as_string(safe_gb(0x7 + 0x40)), "cyan + 0x00000044");
+    EXPECT_EQ(enum_as_string(safe_gb(0x04)), "black + 0x04");
+    EXPECT_EQ(enum_as_string(safe_gb(0x05)), "blue + 0x04");
+    EXPECT_EQ(enum_as_string(safe_gb(0x06)), "green + 0x04");
+    EXPECT_EQ(enum_as_string(safe_gb(0x07)), "cyan + 0x04");
+    EXPECT_EQ(enum_as_string(safe_gb(0x40)), "black + 0x40");
+    EXPECT_EQ(enum_as_string(safe_gb(0x7 + 0x40)), "cyan + 0x44");
   }
 }
 
 // All three bits are valid, but we have no name for green, so we use a
 // placeholder space. Contrast it with rb, which has no space and therefore
 // considers green invalid.
-enum class rskipb {
+enum class rskipb : std::uint8_t {
   black,      // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -572,7 +572,7 @@ constexpr auto registry::enum_spec_v<rskipb> =
 
 // All three bits are valid, but we have no names for colors with green.
 // Contrast this with safe_rb, which considers the green bit invalid.
-enum class safe_rskipb {
+enum class safe_rskipb : std::uint8_t {
   black,      // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -597,16 +597,16 @@ void BitMaskTest_SkipBlue() {
     EXPECT_EQ(bits_length<rskipb>(), 3U)
   }
   if (true) {
-    EXPECT_EQ(enum_as_string(rskipb(0x00)), "0x00000000");
+    EXPECT_EQ(enum_as_string(rskipb(0x00)), "0x00");
     EXPECT_EQ(enum_as_string(rskipb(0x01)), "blue");
-    EXPECT_EQ(enum_as_string(rskipb(0x02)), "0x00000002");
-    EXPECT_EQ(enum_as_string(rskipb(0x03)), "blue + 0x00000002");
+    EXPECT_EQ(enum_as_string(rskipb(0x02)), "0x02");
+    EXPECT_EQ(enum_as_string(rskipb(0x03)), "blue + 0x02");
     EXPECT_EQ(enum_as_string(rskipb(0x04)), "red");
     EXPECT_EQ(enum_as_string(rskipb(0x05)), "red + blue");
-    EXPECT_EQ(enum_as_string(rskipb(0x06)), "red + 0x00000002");
-    EXPECT_EQ(enum_as_string(rskipb(0x07)), "red + blue + 0x00000002");
-    EXPECT_EQ(enum_as_string(rskipb(0x40)), "0x00000040");
-    EXPECT_EQ(enum_as_string(rskipb(0x7 + 0x40)), "red + blue + 0x00000042");
+    EXPECT_EQ(enum_as_string(rskipb(0x06)), "red + 0x02");
+    EXPECT_EQ(enum_as_string(rskipb(0x07)), "red + blue + 0x02");
+    EXPECT_EQ(enum_as_string(rskipb(0x40)), "0x40");
+    EXPECT_EQ(enum_as_string(rskipb(0x7 + 0x40)), "red + blue + 0x42");
   }
   if (true) {
     EXPECT_EQ(valid_bits_v<safe_rskipb>, 7);
@@ -617,21 +617,21 @@ void BitMaskTest_SkipBlue() {
   if (true) {
     EXPECT_EQ(enum_as_string(safe_rskipb(0x00)), "black");
     EXPECT_EQ(enum_as_string(safe_rskipb(0x01)), "blue");
-    EXPECT_EQ(enum_as_string(safe_rskipb(0x02)), "black + 0x00000002");
-    EXPECT_EQ(enum_as_string(safe_rskipb(0x03)), "blue + 0x00000002");
+    EXPECT_EQ(enum_as_string(safe_rskipb(0x02)), "black + 0x02");
+    EXPECT_EQ(enum_as_string(safe_rskipb(0x03)), "blue + 0x02");
     EXPECT_EQ(enum_as_string(safe_rskipb(0x04)), "red");
     EXPECT_EQ(enum_as_string(safe_rskipb(0x05)), "purple");
-    EXPECT_EQ(enum_as_string(safe_rskipb(0x06)), "red + 0x00000002");
-    EXPECT_EQ(enum_as_string(safe_rskipb(0x07)), "purple + 0x00000002");
-    EXPECT_EQ(enum_as_string(safe_rskipb(0x40)), "black + 0x00000040");
-    EXPECT_EQ(enum_as_string(safe_rskipb(0x7 + 0x40)), "purple + 0x00000042");
+    EXPECT_EQ(enum_as_string(safe_rskipb(0x06)), "red + 0x02");
+    EXPECT_EQ(enum_as_string(safe_rskipb(0x07)), "purple + 0x02");
+    EXPECT_EQ(enum_as_string(safe_rskipb(0x40)), "black + 0x40");
+    EXPECT_EQ(enum_as_string(safe_rskipb(0x7 + 0x40)), "purple + 0x42");
   }
 }
 
 // Note: safe_b is impossible because we need at least one valid bit.
 
 // Same thing, but safe due to clipping.
-enum class safe_bw { black, white };
+enum class safe_bw : std::uint8_t { black, white };
 
 template<>
 constexpr auto registry::enum_spec_v<safe_bw> = make_bitmask_enum_values_spec<
@@ -648,20 +648,19 @@ void BitMaskTest_SafeBlackWhite() {
   if (true) {
     EXPECT_EQ(enum_as_string(safe_bw(0x00)), "color::black");
     EXPECT_EQ(enum_as_string(safe_bw(0x01)), "color::white");
-    EXPECT_EQ(enum_as_string(safe_bw(0x02)), "color::black + 0x00000002");
-    EXPECT_EQ(enum_as_string(safe_bw(0x03)), "color::white + 0x00000002");
-    EXPECT_EQ(enum_as_string(safe_bw(0x04)), "color::black + 0x00000004");
-    EXPECT_EQ(enum_as_string(safe_bw(0x05)), "color::white + 0x00000004");
-    EXPECT_EQ(enum_as_string(safe_bw(0x06)), "color::black + 0x00000006");
-    EXPECT_EQ(enum_as_string(safe_bw(0x07)), "color::white + 0x00000006");
-    EXPECT_EQ(enum_as_string(safe_bw(0x40)), "color::black + 0x00000040");
-    EXPECT_EQ(enum_as_string(safe_bw(0x7 + 0x40)),
-        "color::white + 0x00000046");
+    EXPECT_EQ(enum_as_string(safe_bw(0x02)), "color::black + 0x02");
+    EXPECT_EQ(enum_as_string(safe_bw(0x03)), "color::white + 0x02");
+    EXPECT_EQ(enum_as_string(safe_bw(0x04)), "color::black + 0x04");
+    EXPECT_EQ(enum_as_string(safe_bw(0x05)), "color::white + 0x04");
+    EXPECT_EQ(enum_as_string(safe_bw(0x06)), "color::black + 0x06");
+    EXPECT_EQ(enum_as_string(safe_bw(0x07)), "color::white + 0x06");
+    EXPECT_EQ(enum_as_string(safe_bw(0x40)), "color::black + 0x40");
+    EXPECT_EQ(enum_as_string(safe_bw(0x7 + 0x40)), "color::white + 0x46");
   }
 }
 
 // Same thing, but safe due to clipping.
-enum class safe_w { white = 1 };
+enum class safe_w : std::uint8_t { white = 1 };
 
 template<>
 constexpr auto registry::enum_spec_v<safe_w> =
@@ -676,16 +675,16 @@ void BitMaskTest_SafeWhite() {
     EXPECT_EQ(bits_length<safe_w>(), 1U)
   }
   if (true) {
-    EXPECT_EQ(enum_as_string(safe_w(0x00)), "0x00000000");
+    EXPECT_EQ(enum_as_string(safe_w(0x00)), "0x00");
     EXPECT_EQ(enum_as_string(safe_w(0x01)), "color::white");
-    EXPECT_EQ(enum_as_string(safe_w(0x02)), "0x00000002");
-    EXPECT_EQ(enum_as_string(safe_w(0x03)), "color::white + 0x00000002");
-    EXPECT_EQ(enum_as_string(safe_w(0x04)), "0x00000004");
-    EXPECT_EQ(enum_as_string(safe_w(0x05)), "color::white + 0x00000004");
-    EXPECT_EQ(enum_as_string(safe_w(0x06)), "0x00000006");
-    EXPECT_EQ(enum_as_string(safe_w(0x07)), "color::white + 0x00000006");
-    EXPECT_EQ(enum_as_string(safe_w(0x40)), "0x00000040");
-    EXPECT_EQ(enum_as_string(safe_w(0x7 + 0x40)), "color::white + 0x00000046");
+    EXPECT_EQ(enum_as_string(safe_w(0x02)), "0x02");
+    EXPECT_EQ(enum_as_string(safe_w(0x03)), "color::white + 0x02");
+    EXPECT_EQ(enum_as_string(safe_w(0x04)), "0x04");
+    EXPECT_EQ(enum_as_string(safe_w(0x05)), "color::white + 0x04");
+    EXPECT_EQ(enum_as_string(safe_w(0x06)), "0x06");
+    EXPECT_EQ(enum_as_string(safe_w(0x07)), "color::white + 0x06");
+    EXPECT_EQ(enum_as_string(safe_w(0x40)), "0x40");
+    EXPECT_EQ(enum_as_string(safe_w(0x7 + 0x40)), "color::white + 0x46");
   }
 }
 

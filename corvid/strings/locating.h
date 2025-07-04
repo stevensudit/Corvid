@@ -140,7 +140,7 @@ constexpr location nloc{npos, npos};
 constexpr pos_range npos_range{npos, npos};
 
 // Whether to return `npos` or `size` when nothing is found.
-enum class npos_choice { npos, size };
+enum class npos_choice : std::uint8_t { npos, size };
 } // namespace literals
 
 // Utility to convert `npos` to `size()`, based on `npos_choice`.

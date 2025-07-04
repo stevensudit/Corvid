@@ -27,7 +27,7 @@ using namespace arena;
 
 // Provide restricted access to `allow` to control construction.
 class restrict_intern_construction {
-  enum class allow { ctor };
+  enum class allow : std::uint8_t { ctor };
 
   template<typename T, SequentialEnum ID>
   friend class interned_value;

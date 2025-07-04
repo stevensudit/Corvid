@@ -1438,8 +1438,8 @@ void StringUtilsTest_Append() {
   strings::append(s, (uintptr_t)4);
   EXPECT_EQ(s, "1234");
 
-  enum ColorEnum { red, green = 20, blue };
-  enum class ColorClass { red, green = 20, blue };
+  enum ColorEnum : std::uint8_t { red, green = 20, blue };
+  enum class ColorClass : std::uint8_t { red, green = 20, blue };
 
   s.clear();
   strings::append(s, green);
@@ -1705,7 +1705,7 @@ void StringUtilsTest_Streams() {
   }
 }
 
-enum class rgb {
+enum class rgb : std::uint8_t {
   black,      // ---
   red = 4,    // r--
   green = 2,  // -g-
@@ -1735,7 +1735,7 @@ void StringUtilsTest_AppendEnum() {
 }
 
 // Enlisted Marine Corps ranks.
-enum class marine_rank {
+enum class marine_rank : std::uint8_t {
   Civilian,
   Private,
   PrivateFirstClass,

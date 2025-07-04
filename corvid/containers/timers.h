@@ -28,6 +28,7 @@ namespace corvid { inline namespace container {
 // expected to need, but the others are available if necessary.
 namespace timers_ns {
 
+// NOLINTNEXTLINE(performance-enum-size)
 enum class timer_id_t : uint64_t { invalid };
 
 // Time point and duration using steady clock.

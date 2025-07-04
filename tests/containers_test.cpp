@@ -641,7 +641,7 @@ struct intern_test {
 };
 }}} // namespace corvid::container::intern
 
-enum class string_id { missing };
+enum class string_id : std::uint8_t { missing };
 
 template<>
 constexpr inline auto registry::enum_spec_v<string_id> =
@@ -1106,7 +1106,8 @@ void DeductionTest_Experimental() {
   //  Holder h2{42.0};
 }
 
-enum class FileDescriptor { invalid = -1 };
+// NOLINTNEXTLINE(performance-enum-size)
+enum class FileDescriptor : int { invalid = -1 };
 
 struct fd_deleter {
   using pointer = custom_handle<fd_deleter, FileDescriptor, int, -1>;
@@ -1584,7 +1585,13 @@ struct RangeKey {
   size_t end{};
 };
 
-enum class QueryType { None, Retrieve, Range, OtherRange, Status };
+enum class QueryType : std::uint8_t {
+  None,
+  Retrieve,
+  Range,
+  OtherRange,
+  Status
+};
 
 using QueryVariant = enum_variant<QueryType, std::monostate, RetrievalKey,
     RangeKey, RangeKey, std::string>;

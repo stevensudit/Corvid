@@ -350,7 +350,7 @@ inline namespace joinoptions {
 // that we need to delimit unless we're writing multiple parts ourselves. The
 // caller would have to specify this delimiting with the `prefixed` option, if
 // that's what they want.
-enum class join_opt {
+enum class join_opt : std::uint8_t {
   // braced - Show braces around containers; the default behavior.
   braced = 0,
   // flat - Avoid showing braces around containers.
