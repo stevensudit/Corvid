@@ -40,6 +40,101 @@ auto make_date(auto date) {
   return steady_clock::time_point{} + sys_days{date}.time_since_epoch();
 }
 
+using time_point_t = corvid::timers_ns::time_point_t;
+
+static time_point_t make_time(int ms) {
+  return time_point_t{} + milliseconds{ms};
+}
+
+void TimersTest_OneShot() {
+  timers t;
+  time_point_t now{};
+  t.set_clock_callback([&]() { return now; });
+
+  std::vector<timer_id_t> fired;
+  auto& ev = t.set(50ms, [&](timer_event& e) { fired.push_back(e.timer_id); });
+
+  EXPECT_EQ(t.events().size(), 1u);
+  EXPECT_EQ(ev.start_at, make_time(50));
+
+  t.tick(); // before time
+  EXPECT_TRUE(fired.empty());
+
+  now += 50ms;
+  t.tick();
+  EXPECT_EQ(fired.size(), 1u);
+  EXPECT_TRUE(t.events().empty());
+  now += 50ms;
+  t.tick();
+  EXPECT_EQ(fired.size(), 1u); // no extra fire
+}
+
+void TimersTest_Repeating() {
+  timers t;
+  time_point_t now{};
+  t.set_clock_callback([&]() { return now; });
+  size_t calls{};
+  auto& ev = t.set(10ms, [&](timer_event&) { ++calls; }, 15ms);
+  now += 10ms;
+  t.tick();
+  EXPECT_EQ(calls, 1u);
+
+  now += 15ms;
+  t.tick();
+  EXPECT_EQ(calls, 2u);
+
+  now += 15ms;
+  t.tick();
+  EXPECT_EQ(calls, 3u);
+
+  t.cancel(ev.timer_id);
+  now += 15ms;
+  t.tick();
+  EXPECT_EQ(calls, 3u); // cancelled
+}
+
+void TimersTest_Cancel() {
+  timers t;
+  time_point_t now{};
+  t.set_clock_callback([&]() { return now; });
+
+  bool called = false;
+  auto id = t.set(20ms, [&](timer_event&) { called = true; }).timer_id;
+  EXPECT_TRUE(t.cancel(id));
+
+  now += 25ms;
+  t.tick();
+  EXPECT_FALSE(called);
+}
+
+void TimersTest_Reschedule() {
+  timers t;
+  time_point_t now{};
+  t.set_clock_callback([&]() { return now; });
+
+  size_t calls{};
+  t.set(10ms, [&](timer_event& e) {
+    ++calls;
+    if (calls == 1) {
+      e.next_at = t.get_now() + 20ms; // reschedule
+    }
+  });
+
+  now += 10ms;
+  t.tick();
+  EXPECT_EQ(calls, 1u);
+  EXPECT_EQ(t.events().size(), 1u);
+
+  now += 10ms;
+  t.tick();
+  EXPECT_EQ(calls, 1u); // not yet
+
+  now += 10ms;
+  t.tick();
+  EXPECT_EQ(calls, 2u);
+  EXPECT_TRUE(t.events().empty());
+}
+
 void TimersTest_General() {
   timers t;
   auto now = make_date(2024y / 1 / 1);
@@ -119,4 +214,5 @@ void TimersTest_Edge() {
   EXPECT_EQ(ids.size(), 2u);
 }
 
-MAKE_TEST_LIST(TimersTest_General, TimersTest_Edge);
+MAKE_TEST_LIST(TimersTest_OneShot, TimersTest_Repeating, TimersTest_Cancel,
+    TimersTest_Reschedule, TimersTest_General, TimersTest_Edge);

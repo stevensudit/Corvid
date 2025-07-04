@@ -60,7 +60,7 @@ using pointer = typename get_pointer_type<T, Deleter>::type;
 // TODO: Consider supporting arrays.
 // TODO: Consider supporting interop with `std::shared_ptr`.
 template<typename T, class Deleter = std::default_delete<T>>
-class own_ptr {
+class own_ptr final {
 public:
   using pointer = details::pointer<T, Deleter>;
   using element_type = T;

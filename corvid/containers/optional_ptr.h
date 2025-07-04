@@ -37,7 +37,7 @@ namespace corvid::internal {
 // For safety, enforces `[[nodiscard]]` and deletes some unwanted raw pointer
 // behavior.
 template<PointerLike Ptr>
-class optional_ptr {
+class optional_ptr final {
 public:
   // Infer.
   using P = Ptr;

@@ -33,7 +33,7 @@ namespace corvid { inline namespace adapters {
 // As an optimization, you may specialize on a SZ smaller than size_t, such as
 // uint32_t, if you know that your buffer will never be larger than that.
 template<typename T, typename SZ = size_t>
-class circular_buffer {
+class circular_buffer final {
 public:
   using value_type = T;
   using reference = T&;

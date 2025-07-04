@@ -56,7 +56,7 @@ inline namespace optstringview {
 // For comparison purposes, `empty` and `null` values are always equivalent. If
 // you want to check for an exact match that distinguishes between these two
 // states, use `same`.
-class opt_string_view: public std::string_view {
+class opt_string_view final: public std::string_view {
 public:
   using base = std::string_view;
 

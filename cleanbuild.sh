@@ -85,4 +85,3 @@ for file in "$buildDir"/*; do
     echo "."
   fi
 done
-
