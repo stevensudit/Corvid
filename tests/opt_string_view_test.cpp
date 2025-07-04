@@ -302,7 +302,7 @@ void OptStringViewTest_Workalike() {
     opt_string_view src{"xyz"};
     opt_string_view dst{std::move(src)};
     // Moving doesn't clear opt_string_view
-    // NOLINTNEXTLINE(bugprone-use-after-move)
+    // NOLINTNEXTLINE(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
     EXPECT_TRUE(src.has_value());
     EXPECT_TRUE(dst.has_value());
 

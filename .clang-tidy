@@ -1,14 +1,9 @@
 Checks: >
   clang-analyzer-*,
-  -clang-analyzer-cplusplus.Move,
-  -clang-analyzer-optin.core.EnumCastOutOfRange,
-  -clang-analyzer-deadcode.DeadStores,
-  -clang-analyzer-core.StackAddressEscape,
+  -clang-analyzer-optin.core.EnumCastOutOfRange, # Generally invalid.
+  -clang-analyzer-core.StackAddressEscape, # False positive in arena_allocator.h
   bugprone-*,
-  -bugprone-easily-swappable-parameters, # Never.
-
- 
-  -bugprone-sizeof-expression,
+  -bugprone-easily-swappable-parameters, # Generally invalid.
   modernize-*,
   -modernize-concat-nested-namespaces,
   -modernize-use-trailing-return-type,

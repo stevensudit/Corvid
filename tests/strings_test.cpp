@@ -1150,7 +1150,7 @@ void StringUtilsTest_ParseNum() {
     sv = "123";
     auto r = strings::extract_num(sv);
     EXPECT_TRUE(r.has_value());
-    EXPECT_EQ(r.value(), 123);
+    EXPECT_EQ(r.value_or(-1), 123);
     EXPECT_TRUE(sv.empty());
     r = strings::extract_num(sv);
     EXPECT_FALSE(r.has_value());
@@ -1178,7 +1178,7 @@ void StringUtilsTest_ParseNum() {
     sv = "123";
     ot = strings::parse_num(sv);
     EXPECT_TRUE(ot.has_value());
-    EXPECT_EQ(ot.value(), 123);
+    EXPECT_EQ(ot.value_or(-1), 123);
 
     // Verify default values with various integral types
     sv = "77";
@@ -1232,7 +1232,7 @@ void StringUtilsTest_ParseNum() {
     sv = "12.3";
     auto r = strings::extract_num<double>(sv);
     EXPECT_TRUE(r.has_value());
-    EXPECT_EQ(r.value(), 12.3);
+    EXPECT_EQ(r.value_or(-1), 12.3);
     EXPECT_TRUE(sv.empty());
     r = strings::extract_num<double>(sv);
     EXPECT_FALSE(r.has_value());
@@ -1258,7 +1258,7 @@ void StringUtilsTest_ParseNum() {
     sv = "12.3";
     ot = strings::parse_num<double>(sv);
     EXPECT_TRUE(ot.has_value());
-    EXPECT_EQ(ot.value(), 12.3);
+    EXPECT_EQ(ot.value_or(-1), 12.3);
   }
 }
 

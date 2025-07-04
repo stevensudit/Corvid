@@ -59,10 +59,10 @@ void OptionalPtrTest_Construction() {
     int i{42};
     optional_ptr o{&i};
     optional_ptr qo{std::move(o)};
-    // NOLINTNEXTLINE(bugprone-use-after-move)
+    // NOLINTBEGIN
     optional_ptr ro{o};
-    // NOLINTNEXTLINE(bugprone-use-after-move)
     EXPECT_TRUE(o.has_value());
+    // NOLINTEND
     EXPECT_TRUE(qo.has_value());
     EXPECT_TRUE(ro.has_value());
   }
@@ -94,6 +94,7 @@ void OptionalPtrTest_Access() {
 
     // Raw pointers evaluate to bool in any context.
     f = o;
+    (void)f;
 
     o.reset(&test);
     EXPECT_EQ(o->size(), 4U);
@@ -106,6 +107,7 @@ void OptionalPtrTest_Access() {
     p++;
     (void)p[6];
     p = p + 1;
+    (void)p;
     // * o++;
     // * o[6];
     // * o + 1;
@@ -1645,6 +1647,7 @@ void EnumVariant_Basic() {
     qv4 = QueryVariant::make<QueryType::Status>("meh");
     qv4 = QueryType::None;
     e = QueryType::None;
+    (void)e;
     qv4 = RetrievalKey{1, "test"};
     qv4 = QueryType::Status;
     qv.emplace<RetrievalKey>(RetrievalKey{1, "retrieve"});

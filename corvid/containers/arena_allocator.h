@@ -169,12 +169,16 @@ public:
 
   constexpr ~arena_allocator() = default;
 
+  // NOLINTBEGIN(bugprone-sizeof-expression)
+
   // Allocates a block of memory suitable for an array of `n` objects of type
   // `T`, using the scoped `extensible_arena`.
   [[nodiscard]] constexpr T* allocate(std::size_t n) {
     return static_cast<T*>(
         extensible_arena::allocate(n * sizeof(T), alignof(T)));
   }
+
+  // NOLINTEND(bugprone-sizeof-expression)
 
   constexpr void deallocate(T*, std::size_t) {}
 };

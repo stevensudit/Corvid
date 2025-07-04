@@ -4,6 +4,8 @@
 #include <cstdio>
 #include <exception>
 
+// NOLINTBEGIN
+
 // Minimal test utilities, replacing the external Acutest dependency.
 namespace minitest {
 
@@ -312,3 +314,5 @@ int main() {
 
   return 0;
 }
+
+// NOLINTEND
