@@ -288,8 +288,8 @@ public:
   // table will chain to that one and will default its `min_id` to 1 past that
   // table's `max_id`. Otherwise, if unspecified, then it defaults to 1. If
   // `max_id` is unspecified, it defaults to the max of the underlying type.
-  [[nodiscard]] static auto
-  make(id_t min_id = id_t{}, id_t max_id = id_t{}, const_pointer next = {}) {
+  [[nodiscard]] static auto make(id_t min_id = id_t{}, id_t max_id = id_t{},
+      const const_pointer& next = {}) {
     if (next)
       min_id = next->max_id_ + 1;
     else if (!min_id)

@@ -131,7 +131,7 @@ public:
 
   // Set timer for a new event. Returns the event, so that mutable fields may
   // be set.
-  timer_event& set(time_point_t start_at, timer_callback_t callback,
+  timer_event& set(time_point_t start_at, const timer_callback_t& callback,
       duration_t repeat_in = {}, time_point_t stop_at = {}) {
     // If all slots were filled, we'd loop forever, so just fail.
     if (events_by_id_.size() == std::numeric_limits<uint64_t>::max() - 1)
@@ -157,7 +157,7 @@ public:
     return *new_event;
   }
 
-  auto& set(duration_t start_in, timer_callback_t callback,
+  auto& set(duration_t start_in, timer_callback_t&& callback,
       duration_t repeat_in = {}, duration_t stop_in = {}) {
     const auto now = clock_callback_();
     const auto start_at = now + start_in;
@@ -299,7 +299,7 @@ public:
 
   // For testing only.
 
-  void set_clock_callback(clock_callback_t callback) {
+  void set_clock_callback(const clock_callback_t& callback) {
     clock_callback_ = callback;
   }
 

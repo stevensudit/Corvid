@@ -136,7 +136,8 @@ struct piece_generator {
   // Fills `part` with the next piece from `whole` and returns `true`. On
   // failure, such as when there's nothing left to parse, returns `false`.
   [[nodiscard]] static bool more_pieces(std::string_view& part,
-      opt_string_view& whole, find_delim_cb finder, filter_piece_cb filter) {
+      opt_string_view& whole, const find_delim_cb& finder,
+      const filter_piece_cb& filter) {
     for (;;) {
       if (whole.null()) return false;
       auto [pos, next] = finder(whole);

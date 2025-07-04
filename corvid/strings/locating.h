@@ -822,8 +822,8 @@ count_located(std::string_view s, auto&& value, position pos = 0) noexcept {
 // Substitute all instances of `from` in `s` with `to`, returning count of
 // substitutions. Note that an empty `from` follows the same behavior as Python
 // `string.replace`, in that it will insert `to` around each character in `s`.
-size_t substitute(std::string& s, SingleLocateValue auto from,
-    SingleLocateValue auto to, position pos = 0) {
+size_t substitute(std::string& s, const SingleLocateValue auto& from,
+    const SingleLocateValue auto& to, position pos = 0) {
   size_t cnt{};
   if constexpr (Char<decltype(from)>) {
     static_assert(Char<decltype(to)>, "from/to must match");
@@ -902,7 +902,8 @@ substituted(std::string s, const auto& from, const auto& to) {
 
 // Excise all instances of `from` in `s`, returning count of
 // excisions. An empty `from` clears the string.
-size_t excise(std::string& s, SingleLocateValue auto from, position pos = 0) {
+size_t
+excise(std::string& s, const SingleLocateValue auto& from, position pos = 0) {
   size_t cnt{};
   if constexpr (Char<decltype(from)>) {
     for (; located(pos, s, from); ++cnt) s.erase(pos, 1);

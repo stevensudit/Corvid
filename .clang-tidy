@@ -10,7 +10,6 @@ Checks: >
   -modernize-avoid-c-arrays,
   -modernize-use-designated-initializers,
   performance-*,
-  -performance-unnecessary-value-param,
   -performance-move-const-arg,
   -performance-noexcept-move-constructor,
   -performance-unnecessary-copy-initialization,

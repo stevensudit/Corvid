@@ -1190,9 +1190,10 @@ using FirstName = strong_type<std::string, struct FirstNameTag>;
 using LastName = strong_type<std::string, struct LastNameTag>;
 using PersonAge = strong_type<long, struct PersonAgeTag>;
 
-using WeakPersonFn = std::function<PersonAge(FirstName, LastName)>;
+using WeakPersonFn =
+    std::function<PersonAge(const FirstName&, const LastName&)>;
 using PersonFn = strong_type<WeakPersonFn, struct PersonFnTag>;
-using WeakPointlessFn = std::function<void(FirstName, LastName)>;
+using WeakPointlessFn = std::function<void(const FirstName&, const LastName&)>;
 using PointlessFn = strong_type<WeakPointlessFn, struct PointlessFnTag>;
 
 void StrongType_Basic() {
@@ -1438,10 +1439,10 @@ void StrongType_Extended() {
   }
 
   if (true) {
-    WeakPersonFn fn = [](FirstName, LastName) -> PersonAge {
+    WeakPersonFn fn = [](const FirstName&, const LastName&) -> PersonAge {
       return PersonAge{42};
     };
-    WeakPointlessFn fn2 = [](FirstName, LastName) {};
+    WeakPointlessFn fn2 = [](const FirstName&, const LastName&) {};
     PersonFn pf{fn};
     PointlessFn pf2{fn2};
     EXPECT_EQ((pf.value()(FirstName{"John"}, LastName{"Smith"})),
