@@ -28,7 +28,7 @@ namespace corvid { inline namespace meta { inline namespace naming {
 // This is a crude solution, but sufficient for debugging.
 template<typename T>
 std::string type_name() {
-  using TR = typename std::remove_reference<T>::type;
+  using TR = typename std::remove_reference_t<T>;
   std::unique_ptr<char, void (*)(void*)> own(
 #ifndef _MSC_VER
       abi::__cxa_demangle(typeid(TR).name(), nullptr, nullptr, nullptr),

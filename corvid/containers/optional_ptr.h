@@ -52,7 +52,7 @@ public:
   // Construct
   //
 
-  constexpr optional_ptr() noexcept {}
+  constexpr optional_ptr() noexcept = default;
   constexpr optional_ptr(std::nullptr_t) noexcept {}
   constexpr optional_ptr(std::nullopt_t) noexcept {}
 
@@ -69,15 +69,9 @@ public:
       std::is_nothrow_move_assignable_v<pointer>) = default;
 
   constexpr optional_ptr& operator=(const optional_ptr& o) noexcept(
-      std::is_nothrow_copy_assignable_v<pointer>) {
-    ptr_ = o.ptr_;
-    return *this;
-  }
+      std::is_nothrow_copy_assignable_v<pointer>) = default;
   constexpr optional_ptr& operator=(optional_ptr&& o) noexcept(
-      std::is_nothrow_move_assignable_v<pointer>) {
-    ptr_ = std::move(o.ptr_);
-    return *this;
-  }
+      std::is_nothrow_move_assignable_v<pointer>) = default;
 
   //
   // Access

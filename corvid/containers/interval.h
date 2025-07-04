@@ -199,25 +199,25 @@ public:
 
   // Note: When `invalid`, so are the iterators, but `empty` is fine.
 
-  constexpr const_iterator cbegin() const noexcept {
+  [[nodiscard]] constexpr const_iterator cbegin() const noexcept {
     assert(!invalid());
     return b();
   }
-  constexpr const_iterator cend() const noexcept {
+  [[nodiscard]] constexpr const_iterator cend() const noexcept {
     assert(!invalid());
     return e();
   }
-  constexpr iterator begin() const noexcept { return cbegin(); }
-  constexpr iterator end() const noexcept { return cend(); }
+  [[nodiscard]] constexpr iterator begin() const noexcept { return cbegin(); }
+  [[nodiscard]] constexpr iterator end() const noexcept { return cend(); }
 
-  constexpr auto crbegin() const noexcept {
+  [[nodiscard]] constexpr auto crbegin() const noexcept {
     return std::make_reverse_iterator(cend());
   }
-  constexpr auto crend() const noexcept {
+  [[nodiscard]] constexpr auto crend() const noexcept {
     return std::make_reverse_iterator(cbegin());
   }
-  constexpr auto rbegin() const noexcept { return crbegin(); }
-  constexpr auto rend() const noexcept { return crend(); }
+  [[nodiscard]] constexpr auto rbegin() const noexcept { return crbegin(); }
+  [[nodiscard]] constexpr auto rend() const noexcept { return crend(); }
 
   //
   // Size
@@ -226,26 +226,26 @@ public:
   // Note: When `invalid`, then `size` underflows by going negative. Therefore,
   // while an invalid instance counts as empty, its size is undefined.
 
-  constexpr bool empty() const noexcept { return b() >= e(); }
-  constexpr bool invalid() const noexcept { return b() > e(); }
+  [[nodiscard]] constexpr bool empty() const noexcept { return b() >= e(); }
+  [[nodiscard]] constexpr bool invalid() const noexcept { return b() > e(); }
 
-  constexpr size_type size() const noexcept {
+  [[nodiscard]] constexpr size_type size() const noexcept {
     assert(!invalid());
     return e() - b();
   }
 
-  constexpr static size_type max_size() noexcept {
+  [[nodiscard]] constexpr static size_type max_size() noexcept {
     return static_cast<size_type>(std::numeric_limits<U>::max());
   }
 
   // Access front and back value.
   //
   // Invalid when `empty`.
-  constexpr V front() const noexcept {
+  [[nodiscard]] constexpr V front() const noexcept {
     assert(!empty());
     return as_v(b());
   }
-  constexpr V back() const noexcept {
+  [[nodiscard]] constexpr V back() const noexcept {
     assert(!empty());
     return as_v(e() - 1);
   }
@@ -337,13 +337,13 @@ public:
   // values, both because they return U instead of V, and also because they
   // give direct control over the both.
 
-  constexpr U min() const noexcept { return b(); }
+  [[nodiscard]] constexpr U min() const noexcept { return b(); }
   constexpr interval& min(U u) noexcept {
     b() = u;
     return *this;
   }
 
-  constexpr U max() const noexcept { return e() - 1; }
+  [[nodiscard]] constexpr U max() const noexcept { return e() - 1; }
   constexpr interval& max(U u) noexcept {
     assert(static_cast<size_t>(u) < max_size());
     e() = u + 1;
@@ -378,18 +378,18 @@ public:
   }
 
 private:
-  constexpr parent& p() { return static_cast<parent&>(*this); }
-  constexpr const parent& p() const {
+  [[nodiscard]] constexpr parent& p() { return static_cast<parent&>(*this); }
+  [[nodiscard]] constexpr const parent& p() const {
     return static_cast<const parent&>(*this);
   }
-  constexpr U& b() noexcept { return p().first; }
-  constexpr const U& b() const noexcept { return p().first; }
+  [[nodiscard]] constexpr U& b() noexcept { return p().first; }
+  [[nodiscard]] constexpr const U& b() const noexcept { return p().first; }
 
-  constexpr U& e() noexcept { return p().second; }
-  constexpr const U& e() const noexcept { return p().second; }
+  [[nodiscard]] constexpr U& e() noexcept { return p().second; }
+  [[nodiscard]] constexpr const U& e() const noexcept { return p().second; }
 
-  static constexpr U as_u(V v) { return static_cast<U>(v); }
-  static constexpr V as_v(U u) { return static_cast<V>(u); }
+  [[nodiscard]] static constexpr U as_u(V v) { return static_cast<U>(v); }
+  [[nodiscard]] static constexpr V as_v(U u) { return static_cast<V>(u); }
 };
 
 // Make interval for full range of sequence enum, for use with ranged-for.
@@ -397,7 +397,7 @@ private:
 // Note: See comments in about the need to use a larger underlying type in some
 // cases, as indicated by the static_assert.
 template<sequence::SequentialEnum E, typename U = as_underlying_t<E>>
-constexpr auto make_interval() noexcept {
+[[nodiscard]] constexpr auto make_interval() noexcept {
   using namespace corvid::enums::sequence;
   static_assert(*seq_max_v<E> != std::numeric_limits<U>::max(),
       "Specify U as something larger than the underlying type");
@@ -409,7 +409,7 @@ constexpr auto make_interval() noexcept {
 // Note: See comments about the need to use a larger underlying type in some
 // cases, as indicated by the static_assert.
 template<bitmask::BitmaskEnum E, typename U = as_underlying_t<E>>
-constexpr auto make_interval() noexcept {
+[[nodiscard]] constexpr auto make_interval() noexcept {
   using namespace corvid::enums::bitmask;
   static_assert(*max_value<E>() != std::numeric_limits<U>::max(),
       "Specify U as something larger than the underlying type");

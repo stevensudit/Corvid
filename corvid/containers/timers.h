@@ -126,7 +126,7 @@ struct scheduled_event final {
 class timers final {
 public:
   // Get current time according to the registered clock callback.
-  auto get_now() const { return clock_callback_(); }
+  [[nodiscard]] auto get_now() const { return clock_callback_(); }
 
   // Set timer for a new event. Returns the event, so that mutable fields may
   // be set.
@@ -269,7 +269,8 @@ public:
   //
   // The purpose is to allow the caller to sleep until the next event. Note,
   // however, that an event that's inserted may be ready sooner.
-  duration_t next_in(duration_t default_duration = duration_t{}) const {
+  [[nodiscard]] duration_t next_in(
+      duration_t default_duration = duration_t{}) const {
     auto next_delay = default_duration;
     if (!scheduled_events_.empty()) {
       next_delay = std::chrono::duration_cast<duration_t>(
@@ -282,14 +283,15 @@ public:
 
   // Returns the time of the next event (which could be in the past if we're
   // overdue). If no events, returns `default_time`.
-  time_point_t next_at(time_point_t default_time = time_point_t{}) const {
+  [[nodiscard]] time_point_t next_at(
+      time_point_t default_time = time_point_t{}) const {
     auto next_time = default_time;
     if (!scheduled_events_.empty())
       next_time = scheduled_events_.top().next_at;
     return next_time;
   }
 
-  const auto& events() const { return events_by_id_; }
+  [[nodiscard]] const auto& events() const { return events_by_id_; }
   timer_event& event(timer_id_t timer_id) {
     return events_by_id_.at(timer_id);
   }

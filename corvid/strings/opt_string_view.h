@@ -64,7 +64,7 @@ public:
   // Construction
   //
 
-  constexpr opt_string_view() noexcept {}
+  constexpr opt_string_view() noexcept = default;
   constexpr opt_string_view(std::nullptr_t) noexcept {}
   constexpr opt_string_view(std::nullopt_t) noexcept {}
 
@@ -93,20 +93,24 @@ public:
   // Novel
 
   // Whether `data` is `nullptr`.
-  constexpr bool null() const noexcept { return !data(); }
+  [[nodiscard]] constexpr bool null() const noexcept { return !data(); }
 
   // Essentially `operator===`, distinguishing between empty and null.
-  constexpr bool same(opt_string_view v) const noexcept {
+  [[nodiscard]] constexpr bool same(opt_string_view v) const noexcept {
     return ((*this == v) && (null() == v.null()));
   }
 
   // std::optional workalike.
-  constexpr bool has_value() const noexcept { return !null(); }
-  constexpr explicit operator bool() const noexcept { return has_value(); }
-  constexpr const base& value() const noexcept { return *this; }
-  constexpr base& operator*() noexcept { return *this; }
-  constexpr const base& operator*() const noexcept { return *this; }
-  constexpr base value_or(base v) const noexcept {
+  [[nodiscard]] constexpr bool has_value() const noexcept { return !null(); }
+  [[nodiscard]] constexpr explicit operator bool() const noexcept {
+    return has_value();
+  }
+  [[nodiscard]] constexpr const base& value() const noexcept { return *this; }
+  [[nodiscard]] constexpr base& operator*() noexcept { return *this; }
+  [[nodiscard]] constexpr const base& operator*() const noexcept {
+    return *this;
+  }
+  [[nodiscard]] constexpr base value_or(base v) const noexcept {
     return *this ? base{*this} : v;
   }
   constexpr base* operator->() { return this; }
@@ -129,12 +133,12 @@ public:
   }
 
 private:
-  static constexpr base from_ptr(const char* psz) {
+  [[nodiscard]] static constexpr base from_ptr(const char* psz) {
     // Null pointer maps to default instance.
     return psz ? base{psz} : base{};
   }
 
-  static constexpr base from_ptr(const char* ps, size_t l) {
+  [[nodiscard]] static constexpr base from_ptr(const char* ps, size_t l) {
     // Null is always zero-length. But note that we do not enforce this when
     // dealing with base instances. We expect them to be valid, since a null
     // with a non-zero length is undefined behavior for them, but not us.

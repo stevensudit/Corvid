@@ -231,8 +231,10 @@ public:
     return std::exchange(ptr_, pointer{});
   }
 
-  constexpr deleter_type& get_deleter() noexcept { return del_; }
-  constexpr const deleter_type& get_deleter() const noexcept { return del_; }
+  [[nodiscard]] constexpr deleter_type& get_deleter() noexcept { return del_; }
+  [[nodiscard]] constexpr const deleter_type& get_deleter() const noexcept {
+    return del_;
+  }
 
   // Make an owned instance from parameters. Moral equivalent of
   // `std::make_unique`.

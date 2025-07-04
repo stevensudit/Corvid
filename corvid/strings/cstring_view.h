@@ -116,9 +116,9 @@ public:
   // Safe construction.
   //
   // Always works.
-  constexpr basic_cstring_view() noexcept {}
-  constexpr basic_cstring_view(std::nullptr_t) noexcept {}
-  constexpr basic_cstring_view(std::nullopt_t) noexcept {}
+  constexpr basic_cstring_view() noexcept = default;
+  constexpr basic_cstring_view(std::nullptr_t) noexcept {};
+  constexpr basic_cstring_view(std::nullopt_t) noexcept {};
 
   constexpr basic_cstring_view(const basic_cstring_view&) noexcept = default;
   constexpr basic_cstring_view(const std::string& s) noexcept : sv_{s} {}
@@ -150,30 +150,37 @@ public:
   //
 
   constexpr basic_cstring_view& operator=(
-      const basic_cstring_view& csv) noexcept {
-    sv_ = csv.sv_;
-    return *this;
+      const basic_cstring_view& csv) noexcept = default;
+
+  [[nodiscard]] constexpr auto begin() const noexcept { return sv_.begin(); };
+  [[nodiscard]] constexpr auto end() const noexcept { return sv_.end(); };
+  [[nodiscard]] constexpr auto cbegin() const noexcept {
+    return sv_.cbegin();
+  };
+  [[nodiscard]] constexpr auto cend() const noexcept { return sv_.cend(); };
+
+  [[nodiscard]] constexpr auto rbegin() const noexcept {
+    return sv_.rbegin();
+  };
+  [[nodiscard]] constexpr auto rend() const noexcept { return sv_.rend(); };
+  [[nodiscard]] constexpr auto crbegin() const noexcept {
+    return sv_.crbegin();
+  };
+  [[nodiscard]] constexpr auto crend() const noexcept { return sv_.crend(); };
+
+  [[nodiscard]] constexpr auto& operator[](size_type pos) const {
+    return sv_[pos];
+  };
+  [[nodiscard]] constexpr auto& at(size_type pos) const { return sv_.at(pos); }
+  [[nodiscard]] constexpr auto& front() const { return sv_.front(); }
+  [[nodiscard]] constexpr auto& back() const { return sv_.back(); }
+  [[nodiscard]] constexpr auto data() const noexcept { return sv_.data(); }
+
+  [[nodiscard]] constexpr auto size() const noexcept { return sv_.size(); }
+  [[nodiscard]] constexpr auto length() const noexcept { return sv_.length(); }
+  [[nodiscard]] constexpr auto max_size() const noexcept {
+    return sv_.max_size();
   }
-
-  constexpr auto begin() const noexcept { return sv_.begin(); };
-  constexpr auto end() const noexcept { return sv_.end(); };
-  constexpr auto cbegin() const noexcept { return sv_.cbegin(); };
-  constexpr auto cend() const noexcept { return sv_.cend(); };
-
-  constexpr auto rbegin() const noexcept { return sv_.rbegin(); };
-  constexpr auto rend() const noexcept { return sv_.rend(); };
-  constexpr auto crbegin() const noexcept { return sv_.crbegin(); };
-  constexpr auto crend() const noexcept { return sv_.crend(); };
-
-  constexpr auto& operator[](size_type pos) const { return sv_[pos]; };
-  constexpr auto& at(size_type pos) const { return sv_.at(pos); }
-  constexpr auto& front() const { return sv_.front(); }
-  constexpr auto& back() const { return sv_.back(); }
-  constexpr auto data() const noexcept { return sv_.data(); }
-
-  constexpr auto size() const noexcept { return sv_.size(); }
-  constexpr auto length() const noexcept { return sv_.length(); }
-  constexpr auto max_size() const noexcept { return sv_.max_size(); }
 
   [[nodiscard]] constexpr bool empty() const noexcept { return sv_.empty(); }
   constexpr void remove_prefix(size_type n) { sv_.remove_prefix(n); }
@@ -183,49 +190,49 @@ public:
   }
 
   template<typename... Args>
-  constexpr auto compare(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto compare(Args&&... args) const noexcept {
     return sv_.compare(std::forward<Args>(args)...);
   }
 
   template<typename... Args>
-  constexpr auto find(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto find(Args&&... args) const noexcept {
     return sv_.find(std::forward<Args>(args)...);
   }
 
   template<typename... Args>
-  constexpr auto rfind(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto rfind(Args&&... args) const noexcept {
     return sv_.rfind(std::forward<Args>(args)...);
   }
 
   template<typename... Args>
-  constexpr auto find_first_of(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto find_first_of(Args&&... args) const noexcept {
     return sv_.find_first_of(std::forward<Args>(args)...);
   }
 
   template<typename... Args>
-  constexpr auto find_last_of(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto find_last_of(Args&&... args) const noexcept {
     return sv_.find_last_of(std::forward<Args>(args)...);
   }
 
   template<typename... Args>
-  constexpr auto find_first_not_of(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto
+  find_first_not_of(Args&&... args) const noexcept {
     return sv_.find_first_not_of(std::forward<Args>(args)...);
   }
 
   template<typename... Args>
-  constexpr auto find_last_not_of(Args&&... args) const noexcept {
+  [[nodiscard]] constexpr auto
+  find_last_not_of(Args&&... args) const noexcept {
     return sv_.find_last_not_of(std::forward<Args>(args)...);
   }
 
-  friend auto constexpr operator<=>(const basic_cstring_view&,
+  [[nodiscard]] friend auto constexpr operator<=>(const basic_cstring_view&,
       const basic_cstring_view&) noexcept = default;
-
-  friend auto constexpr operator<=>(const std::string_view& lv,
+  [[nodiscard]] friend auto constexpr operator<=>(const std::string_view& lv,
       const basic_cstring_view& r) noexcept {
     return lv <=> r.view();
   };
-
-  friend auto constexpr operator<=>(const basic_cstring_view& l,
+  [[nodiscard]] friend auto constexpr operator<=>(const basic_cstring_view& l,
       const std::string_view& rv) noexcept {
     return l.view() <=> rv;
   };
@@ -247,33 +254,39 @@ public:
   //
 
   // Whether `data` is `nullptr`.
-  constexpr bool null() const noexcept { return !sv_.data(); }
+  [[nodiscard]] constexpr bool null() const noexcept { return !sv_.data(); }
 
   // Conversion to `std::string_view`.
-  constexpr std::string_view view() const noexcept { return sv_; }
-  constexpr operator std::string_view() const noexcept { return sv_; }
+  [[nodiscard]] constexpr std::string_view view() const noexcept {
+    return sv_;
+  }
+  [[nodiscard]] constexpr operator std::string_view() const noexcept {
+    return sv_;
+  }
 
   // Pointer to terminated string; never `nullptr`.
-  constexpr const_pointer c_str() const noexcept {
+  [[nodiscard]] constexpr const_pointer c_str() const noexcept {
     return data() ? data() : reinterpret_cast<const_pointer>(U"");
   }
 
   // The precedent for this is `std::optional`.
-  constexpr explicit operator bool() const noexcept { return !null(); }
+  [[nodiscard]] constexpr explicit operator bool() const noexcept {
+    return !null();
+  }
 
   // Essentially `operator===`, distinguishing between empty and null.
-  constexpr bool same(basic_cstring_view v) const noexcept {
+  [[nodiscard]] constexpr bool same(basic_cstring_view v) const noexcept {
     return ((*this == v) && (null() == v.null()));
   }
 
 private:
   SV sv_;
 
-  static constexpr SV from_ptr(const char* psz) {
+  [[nodiscard]] static constexpr SV from_ptr(const char* psz) {
     return psz ? SV{psz} : SV{};
   }
 
-  static constexpr SV from_sv(SV sv) {
+  [[nodiscard]] static constexpr SV from_sv(SV sv) {
     // Empty is allowed, but only when null. A non-null empty must include the
     // terminator in its length.
     if (sv.empty()) {

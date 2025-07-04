@@ -1089,7 +1089,7 @@ public:
   requires std::is_same_v<U, void>
   Holder(T* t) : t_(t) {}
 
-  const T& get() const { return *t_; }
+  [[nodiscard]] const T& get() const { return *t_; }
 
 private:
   T* t_;

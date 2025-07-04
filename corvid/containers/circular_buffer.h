@@ -287,35 +287,39 @@ private:
   size_type size_{};
 
   // Note: Size must be adjusted before calling these, due to assert.
-  auto* data() noexcept {
+  [[nodiscard]] auto* data() noexcept {
     assert(!empty());
     return &*range_.begin();
   }
-  const auto* data() const noexcept {
+  [[nodiscard]] const auto* data() const noexcept {
     assert(!empty());
     return &*range_.begin();
   }
-  auto& data(size_type index) noexcept { return data()[index]; }
-  auto& data(size_type index) const noexcept { return data()[index]; }
+  [[nodiscard]] auto& data(size_type index) noexcept { return data()[index]; }
+  [[nodiscard]] auto& data(size_type index) const noexcept {
+    return data()[index];
+  }
 
-  size_type last_index() const noexcept { return capacity() - 1; }
+  [[nodiscard]] size_type last_index() const noexcept {
+    return capacity() - 1;
+  }
 
   // Note: Size must be adjusted before calling these, due to offset modulo.
-  size_type index_at(size_type offset) const noexcept {
+  [[nodiscard]] size_type index_at(size_type offset) const noexcept {
     offset %= size();
     return (front_ + offset) % capacity();
   }
-  size_type index_at_checked(size_type offset) const {
+  [[nodiscard]] size_type index_at_checked(size_type offset) const {
     if (offset >= size_) throw std::out_of_range("index out of range");
     return (front_ + offset) % capacity();
   }
 
   // Note: Size must be adjusted before calling these, due to data().
-  auto& add_front() noexcept {
+  [[nodiscard]] auto& add_front() noexcept {
     if (front_ == 0) front_ = capacity();
     return data(--front_);
   }
-  auto& add_back() noexcept {
+  [[nodiscard]] auto& add_back() noexcept {
     if (++back_ == capacity()) back_ = 0;
     return data(back_);
   }

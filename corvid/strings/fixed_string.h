@@ -38,14 +38,17 @@ struct fixed_string {
   }
 
   // Conversions.
-  constexpr const char* c_str() const { return do_not_use; }
-  // NOLINTNEXTLINE(bugprone-string-constructor)
-  constexpr std::string_view view() const { return {do_not_use, N}; }
-  constexpr operator std::string_view() const { return view(); }
+  [[nodiscard]] constexpr const char* c_str() const { return do_not_use; }
+  // NOLINTBEGIN(bugprone-string-constructor)
+  [[nodiscard]] constexpr std::string_view view() const {
+    return {do_not_use, N};
+  }
+  // NOLINTEND(bugprone-string-constructor)
+  [[nodiscard]] constexpr operator std::string_view() const { return view(); }
 
 #ifndef CORVID_AVOID_CSTRINGVIEW
   // A fixed string is necessarily terminated.
-  constexpr cstring_view cview() const {
+  [[nodiscard]] constexpr cstring_view cview() const {
     return cstring_view{do_not_use, N + 1};
   }
 #endif

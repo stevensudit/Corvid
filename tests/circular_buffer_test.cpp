@@ -321,7 +321,7 @@ public:
   MoveOnlyInt(const MoveOnlyInt&) = delete;
   MoveOnlyInt& operator=(const MoveOnlyInt&) = delete;
 
-  int value() const { return value_; }
+  [[nodiscard]] int value() const { return value_; }
 
 private:
   int value_{};
