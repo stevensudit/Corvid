@@ -1,8 +1,9 @@
+#include <cmath>
+#include <cstdio>
+#include <exception>
 #include <iostream>
 #include <sstream>
 #include <type_traits>
-#include <cstdio>
-#include <exception>
 
 // NOLINTBEGIN
 
@@ -225,6 +226,15 @@ auto inline stream_to_text(const auto& v) {
     const bool actual_ = (actual) ? true : false;                             \
     TEST_CHECK_((!actual_), "%s", ("!(" #actual ")"));                        \
     VALUE_MSG(actual_, false);                                                \
+  } while (false);
+
+#define EXPECT_NEAR(actual, expected, abs_error)                              \
+  do {                                                                        \
+    const auto& actual_ = (actual);                                           \
+    const auto& expected_ = (expected);                                       \
+    TEST_CHECK_(std::abs(actual_ - expected_) <= abs_error, "%s",             \
+        ("std::abs(" #actual " - " #expected ") <= " #abs_error));            \
+    VALUE_MSG(actual_, expected_);                                            \
   } while (false);
 
 #define EXPECT_THROW(call, exc) TEST_EXCEPTION((void)(call), exc)

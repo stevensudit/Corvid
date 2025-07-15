@@ -17,8 +17,6 @@ h. strings_test needs more tests.
   // TODO: Fix splitter, working on adding a filter predicate and perhaps
   // allowing assignment to arbitrary containers.
 
-Add clang-tidy!
-
 6. Remove CRTP using "deducing this".
 
 7. Consider adding `final` to classes that really ought to be.
