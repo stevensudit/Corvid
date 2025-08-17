@@ -147,8 +147,10 @@ void sopdt_plant_test() {
     for (int i = 0; i < steps; ++i) {
       double control = pid.update(setpoint, measured, time);
       measured = plant.update(control);
+#if 0
       std::cout << time << "\t" << setpoint << "\t" << measured << "\t"
                 << control << "\n";
+#endif
       time += dt;
     }
   }

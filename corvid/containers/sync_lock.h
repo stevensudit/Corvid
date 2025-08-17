@@ -58,14 +58,47 @@ private:
   mutable std::atomic<const synchronizer*> sync_ = &actual_sync_;
 };
 
+// Reversed lock. Unlocks on construction, relocks on destruction.
+//
+// This class is largely internal. The normal way to use it is to call
+// `reverse` on a `lock`.
+class reverse_lock final {
+public:
+  explicit reverse_lock(const synchronizer* sync) : sync_{sync} {
+    if (sync_) sync_->unlock();
+  }
+
+  reverse_lock(reverse_lock&& r) noexcept : sync_{r.release()} {}
+  reverse_lock(const reverse_lock&) = delete;
+  reverse_lock& operator=(const reverse_lock&) = delete;
+  reverse_lock& operator=(reverse_lock&&) = delete;
+
+  ~reverse_lock() {
+    if (sync_) sync_->lock();
+  }
+
+  [[nodiscard]] const synchronizer* release() const noexcept {
+    const auto old = sync_;
+    sync_ = nullptr;
+    return old;
+  }
+
+  [[nodiscard]] operator bool() const noexcept { return sync_; }
+
+private:
+  mutable const synchronizer* sync_{};
+};
+
 // Attestation of a lock on a sync object.
 //
-// This is not a drop-in replacement for `std::lock_guard` or
-// `std::unique_lock`. Instead, it's intended to be used with the attestation
-// idiom so as to allow nested calls to public methods. The alternative is
-// either expensive recursive mutexes or shadowing each public method with a
-// private one that lacks the lock on top. This method is as fast as the
-// latter, without the code duplication.
+// While this does create a scope within which a lock is held, it is not a
+// drop-in replacement for `std::lock_guard` or `std::unique_lock`. Instead,
+// it's intended to be used with the attestation idiom so as to allow nested
+// calls to public methods.
+//
+// The alternative is either expensive recursive mutexes or shadowing each
+// public method with a private one that lacks the lock on top. This idiom is
+// as fast as the latter, without the code duplication.
 //
 // The way it works is that you add `const lock& attestation = {}` to the end
 // of the method, and then call `attestation(sync)` at the top. The `sync` is
@@ -79,8 +112,12 @@ private:
 // your method doesn't access any data, it can skip the attestation sync call
 // at top, just passing along the `attestation` without calling it.
 //
+// There is an additional pattern where you pass in a `lock&` that is either
+// already associated with the synchronizer, or will become associated.
+//
 // You can use a `breakable_synchronizer` if you want the ability to disable
-// locking once the object is frozen.
+// locking once the object is frozen. And if you need to reverse the lock
+// within a scope, use `reverse`.
 //
 // All methods are `const` and all members are `mutable` because thread
 // safety is needed regardless of constness.
@@ -111,6 +148,8 @@ public:
 
   lock(lock&& r) noexcept : sync_(r.release()) {}
   lock& operator=(lock&& r) noexcept {
+    if (sync_ == r.sync_) return *this;
+    if (sync_) sync_->unlock();
     sync_ = r.release();
     return *this;
   }
@@ -119,7 +158,11 @@ public:
     if (sync_) sync_->unlock();
   }
 
-  // Call this at top of method.
+  // Whether a `synchronizer` is associated.
+  [[nodiscard]] explicit operator bool() const noexcept { return sync_; }
+
+  // Call this at top of method to acquire a lock on the synchronizer. Performs
+  // a no-op if already locked, but asserts if locks are mixed.
   void operator()(const synchronizer& sync) const {
     assert(!sync_ || sync_ == &sync);
     if (sync_) return;
@@ -130,10 +173,17 @@ public:
     if (sync) (*this)(*sync);
   }
 
-  const synchronizer* release() const noexcept {
+  // Release ownership of the synchronizer, but does not unlock it. The caller
+  // now owns the existing lock.
+  [[nodiscard]] const synchronizer* release() const noexcept {
     const auto old = sync_;
     sync_ = nullptr;
     return old;
+  }
+
+  // Reverse the lock, so that it unlocks the synchronizer when destroyed.
+  [[nodiscard]] reverse_lock lock_reverse() const noexcept {
+    return reverse_lock{sync_};
   }
 
 private:

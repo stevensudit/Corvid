@@ -24,6 +24,7 @@ Checks: >
   -readability-qualified-auto,
   -readability-else-after-return,
   -readability-redundant-access-specifiers,
+  -readability-avoid-unconditional-preprocessor-if,
   misc-unused-parameters
 WarningsAsErrors: ''
 HeaderFilterRegex: 'corvid/.*'

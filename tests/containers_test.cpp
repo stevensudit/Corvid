@@ -1730,6 +1730,35 @@ void EnumVariant_Basic() {
   }
 }
 
+using namespace corvid::atomic_tomb;
+
+void TombStone_Basic() {
+  tombstone t;
+  EXPECT_FALSE(t.dead());
+  EXPECT_FALSE(t.get());
+  EXPECT_FALSE(*t);
+  if (t) {
+    EXPECT_FALSE(true);
+  } else {
+    EXPECT_FALSE(false);
+  }
+  if (!t) {
+    EXPECT_TRUE(true);
+  } else {
+    EXPECT_FALSE(false);
+  }
+  t.set(false);
+  EXPECT_FALSE(t.dead());
+  t.set(true);
+  EXPECT_TRUE(t.dead());
+  EXPECT_TRUE(t.get());
+  EXPECT_TRUE(*t);
+  t.set(false);
+  EXPECT_TRUE(t.dead());
+  EXPECT_TRUE(t.get());
+  EXPECT_TRUE(*t);
+}
+
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
     FindOptTest_Maps, FindOptTest_Sets, FindOptTest_Vectors,
@@ -1739,7 +1768,7 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     TransparentTest_General, IndirectKey_Basic, InternTableTest_Basic,
     InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
-    StrongType_Extended, EnumVariant_Basic);
+    StrongType_Extended, EnumVariant_Basic, TombStone_Basic);
 
 // Ok, so the plan is to make all of the Ptr/Del ctors take the same three
 // templated arguments. The third is just a named thing that's defaulted to

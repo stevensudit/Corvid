@@ -59,6 +59,7 @@ using pointer = typename get_pointer_type<T, Deleter>::type;
 //
 // TODO: Consider supporting arrays.
 // TODO: Consider supporting interop with `std::shared_ptr`.
+// TODO: Consider allowing specialization to make all operations atomic.
 template<typename T, class Deleter = std::default_delete<T>>
 class own_ptr final {
 public:

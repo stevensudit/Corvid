@@ -120,6 +120,13 @@ protected:
 public:
   explicit node(allow, operation op) : op{op} {}
   virtual ~node() = default;
+
+  // Disallow copy/move.
+  node(const node&) = delete;
+  node& operator=(const node&) = delete;
+  node(node&&) = delete;
+  node& operator=(node&&) = delete;
+
   virtual bool eval(const lookup& lk) const {
     (void)lk;
     return false;
