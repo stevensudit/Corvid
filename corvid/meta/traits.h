@@ -76,20 +76,31 @@ constexpr bool is_pair_convertible_v<C<F, S>> =
 // Determine whether `T` is a `std::array`.
 // Note: Can't use `is_specialization_of_v` because `std::array` specializes
 // on a number.
+namespace details {
 template<typename... Ts>
-constexpr bool is_std_array_v = false;
+constexpr bool is_std_array_impl_v = false;
 
 template<typename T, std::size_t N>
-constexpr bool is_std_array_v<std::array<T, N>> = true;
+constexpr bool is_std_array_impl_v<std::array<T, N>> = true;
+} // namespace details
+
+template<typename T>
+constexpr bool is_std_array_v =
+    details::is_std_array_impl_v<std::remove_cvref_t<T>>;
 
 // Determine whether `T` is `std::span`.
 // Note: We likewise can't use `is_specialization_of_v` because `std::span`
 // specializes on a number.
+namespace details {
 template<typename... Ts>
-constexpr bool is_span_v = false;
+constexpr bool is_span_impl_v = false;
 
 template<typename T, std::size_t N>
-constexpr bool is_span_v<std::span<T, N>> = true;
+constexpr bool is_span_impl_v<std::span<T, N>> = true;
+} // namespace details
+
+template<typename T>
+constexpr bool is_span_v = details::is_span_impl_v<std::remove_cvref_t<T>>;
 
 // Determine whether `T` is a `std::initializer_list`.
 template<typename T>

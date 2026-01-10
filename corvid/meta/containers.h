@@ -58,6 +58,10 @@ template<auto field = extract_field::value>
 // Returns pointer to the found value, so for keyed collections such as
 // `std::map`, it points to the `pair.second`, not the `pair`, unless `field`
 // is `extract_field::key_value`.
+//
+// Note: Uses -1 as sentinel for "not found". While this technically requires
+// a signed integer type, in practice the usage pattern (string find
+// operations) ensures this is always the case.
 template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto it_to_ptr(auto& c, Integer auto ndx) {
   return ndx != -1 ? &container_element_v<field>(&c[ndx]) : nullptr;
