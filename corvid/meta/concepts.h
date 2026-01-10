@@ -48,14 +48,8 @@ template<typename T>
 concept StdEnum = std::is_enum_v<std::remove_cvref_t<T>>;
 
 // `T` must be a scoped enum.
-// NOTE: The old implementation using `!std::constructible_from<T, int>` was
-// incorrect (it accepted all enums, not just scoped ones), but changing to the
-// correct `std::is_scoped_enum_v` breaks existing code that relies on the buggy
-// behavior. Fixing this properly requires changes to enum_conversion.h and
-// potentially test code.
 template<typename T>
-concept ScopedEnum =
-    StdEnum<T> && (!std::constructible_from<std::remove_cvref_t<T>, int>);
+concept ScopedEnum = std::is_scoped_enum_v<std::remove_cvref_t<T>>;
 
 // `T` must be bool.
 template<typename T>
@@ -224,9 +218,7 @@ concept Viewable =
 // `F` must callable with `Args` and return void.
 template<typename F, typename... Args>
 concept CallableReturningVoid = requires(F f, Args&&... args) {
-  {
-    f(std::forward<Args>(args)...)
-  } -> std::same_as<void>;
+  { f(std::forward<Args>(args)...) } -> std::same_as<void>;
 };
 
 // `F` must callable with `Args` and return something other than void.
@@ -240,9 +232,7 @@ concept CallableReturningNonVoid = requires(F f, Args&&... args) {
 // Concept for std::is_scoped_enum.
 template<typename T>
 concept ScopedEnumType = requires {
-  {
-    std::is_scoped_enum_v<std::remove_cvref_t<T>>
-  };
+  { std::is_scoped_enum_v<std::remove_cvref_t<T>> };
 };
 
 }}} // namespace corvid::meta::concepts

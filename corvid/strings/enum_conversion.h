@@ -70,8 +70,10 @@ constexpr bool extract_enum(StdEnum auto& e, std::string_view& sv) {
   bool succeeded;
   if constexpr (bitmask::BitmaskEnum<E>)
     succeeded = details::help_extract_enum(e, whole);
-  else
+  else if constexpr (ScopedEnum<E>)
     succeeded = registry::enum_spec_v<E>.lookup(e, whole);
+  else
+    succeeded = registry::details::lookup_helper_wrapper(e, whole);
 
   if (!succeeded) {
     sv = save_sv;

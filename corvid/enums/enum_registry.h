@@ -60,8 +60,9 @@ constexpr inline auto enum_spec_v = base_enum_spec<std::byte>();
 
 namespace details {
 
-// Enum lookup helper to handle the case of numeric values.
-template<ScopedEnum E>
+// Enum lookup helper to handle the case of numeric values, expecting empty
+// inputs.
+template<StdEnum E>
 [[nodiscard]] bool lookup_helper(E& v, std::string_view sv) {
   // Input must be an integer. Caller checks for empty.
   assert(!sv.empty());
@@ -74,6 +75,15 @@ template<ScopedEnum E>
   if (ec != std::errc{} || ptr != sv.end()) return false;
   v = static_cast<E>(t);
   return true;
+}
+
+// Enum lookup helper to handle the case of numeric values, handling empty
+// inputs.
+template<StdEnum E>
+[[nodiscard]] bool lookup_helper_wrapper(E& v, std::string_view sv) {
+  if (sv.empty()) return false;
+  if (lookup_helper(v, sv)) return true;
+  return false;
 }
 
 } // namespace details
