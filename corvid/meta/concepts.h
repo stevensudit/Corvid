@@ -145,15 +145,8 @@ concept StdArray = is_std_array_v<std::remove_cvref_t<T>>;
 // `T` must be a `std::span` compatible with `V`. When `V` isn't const, then
 // the element type can be but doesn't have to be. Otherwise, for non-const
 // `V`, the element type must not be `const`. In other words, it's const-safe.
-//
-// TODO: Move implementation into traits.
 template<typename T, typename V>
-concept Span =
-    is_span_v<T> &&
-    std::same_as<std::remove_cv_t<V>,
-        std::remove_cv_t<typename T::element_type>> &&
-    (!std::is_same_v<V, std::remove_const_t<V>> ||
-        !std::is_const_v<typename T::element_type>);
+concept Span = is_span_compatible_v<T, V>;
 
 // `T` must be a `std::span` of `char` or `const char`.
 template<typename T>
