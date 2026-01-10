@@ -35,6 +35,9 @@
 - Tests: tests/*_test.cpp
 - String utilities: corvid/strings/
 - Test framework: tests/minitest.h
+- **TODO file**: The project uses a TODO file at the root level to track enhancement requests and design decisions
+  - When encountering TODO comments in code that represent enhancement requests (not immediate implementation tasks), move them to the TODO file
+  - Keep TODO comments in code only for items that should be addressed soon as part of ongoing work
 
 ## Specific Notes
 - The project uses C++23 standard

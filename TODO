@@ -20,3 +20,5 @@ h. strings_test needs more tests.
 6. Remove CRTP using "deducing this".
 
 7. Consider adding `final` to classes that really ought to be.
+
+8. meta/containers.h search_and_replace: Consider adding a version that takes parallel arrays for `from` and `to`, replacing all of them. This can't be emulated by nesting.

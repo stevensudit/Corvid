@@ -48,6 +48,7 @@ template<auto field = extract_field::value>
 // is `extract_field::key_value`.
 template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto it_to_ptr(auto& c, Dereferenceable auto&& it) {
+  // ADL technique.
   using namespace std;
   return it != end(c) ? &container_element_v<field>(it) : nullptr;
 }
@@ -70,9 +71,6 @@ template<auto field = extract_field::value>
 // Compile-time search and replace for `std::string_view` array. It operates
 // on whole `std::string_value` elements, not substrings.
 // This function is most useful with `fixed_string`.
-//
-// TODO: Consider adding a version that takes parallel arrays for `from` and
-// `to`, replacing all of them. This can't be emulated by nesting.
 template<size_t N>
 [[nodiscard]] consteval auto search_and_replace(
     std::array<std::string, N> values, std::string from, std::string to) {
