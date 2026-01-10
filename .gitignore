@@ -47,3 +47,6 @@ cmake_install.cmake
 debug_bin
 release_bin
 tidy.log
+
+# Claude Code
+.claude/
