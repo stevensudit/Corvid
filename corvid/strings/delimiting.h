@@ -35,7 +35,9 @@ namespace corvid::strings { inline namespace delimiting {
 // - When joining, appends the entire string.
 // - When manipulating braces, treated as an open/close pair.
 struct delim: public std::string_view {
-  constexpr delim() : delim(" "sv) {}
+  // Note: Chaining to the conversion constructor breaks constexpr-ness.
+  // This is a "feature" of the C++23 standard.
+  constexpr delim() : std::string_view(" "sv) {}
   constexpr delim(const delim&) = default;
 
   template<typename T>
