@@ -23,7 +23,7 @@ namespace corvid { inline namespace meta { inline namespace enums {
 
 // Cast enum to underlying integer value.
 //
-// Similar to `std::to_underlying_type` in C++23, but more forgiving. If `E` is
+// Similar to `std::to_underlying` in C++23, but more forgiving. If `E` is
 // not an enum, just passes the value through unchanged.
 template<typename E>
 [[nodiscard]] constexpr auto as_underlying(E v) noexcept {

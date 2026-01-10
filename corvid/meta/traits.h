@@ -102,16 +102,24 @@ constexpr bool is_span_impl_v<std::span<T, N>> = true;
 template<typename T>
 constexpr bool is_span_v = details::is_span_impl_v<std::remove_cvref_t<T>>;
 
+// Helper for span compatibility check.
+template<typename T, typename V>
+constexpr bool is_span_compatible_impl() {
+  if constexpr (is_span_v<T>) {
+    return std::same_as<std::remove_cv_t<V>,
+               std::remove_cv_t<typename T::element_type>> &&
+           (!std::is_same_v<V, std::remove_const_t<V>> ||
+               !std::is_const_v<typename T::element_type>);
+  } else {
+    return false;
+  }
+}
+
 // Determine whether span `T` is compatible with element type `V` in a
 // const-safe way. When `V` isn't const, the span's element type can be const
 // or non-const. When `V` is const, the span's element type must be const.
 template<typename T, typename V>
-constexpr bool is_span_compatible_v =
-    is_span_v<T> &&
-    std::same_as<std::remove_cv_t<V>,
-        std::remove_cv_t<typename T::element_type>> &&
-    (!std::is_same_v<V, std::remove_const_t<V>> ||
-        !std::is_const_v<typename T::element_type>);
+constexpr bool is_span_compatible_v = is_span_compatible_impl<T, V>();
 
 // Determine whether `T` is a `std::initializer_list`.
 template<typename T>

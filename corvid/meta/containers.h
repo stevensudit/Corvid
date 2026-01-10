@@ -69,7 +69,7 @@ template<auto field = extract_field::value>
 }
 
 // Compile-time search and replace for `std::string_view` array. It operates
-// on whole `std::string_value` elements, not substrings.
+// on whole `std::string_view` elements, not substrings.
 // This function is most useful with `fixed_string`.
 template<size_t N>
 [[nodiscard]] consteval auto search_and_replace(
