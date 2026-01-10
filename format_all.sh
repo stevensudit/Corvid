@@ -5,8 +5,17 @@
 # Fail fast.
 set -e
 
-CLANG_FORMAT="/usr/bin/clang-format-19"
+# Locate clang-format, preferring versioned clang-format-19 if available
+if command -v clang-format-19 &> /dev/null; then
+  CLANG_FORMAT="clang-format-19"
+elif command -v clang-format &> /dev/null; then
+  CLANG_FORMAT="clang-format"
+else
+  echo "Error: clang-format not found. Please install clang-format." >&2
+  exit 1
+fi
 
+echo "Using $CLANG_FORMAT"
 echo "Formatting all .cpp and .h files..."
 
 # Find and format all .cpp files, excluding build directories and CMake files

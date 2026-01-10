@@ -1,0 +1,7 @@
+# Documentation files
+.clinerules linguist-documentation
+*.md linguist-documentation
+
+# Configuration files
+.clang-format linguist-generated
+.clang-tidy linguist-generated

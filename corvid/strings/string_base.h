@@ -16,7 +16,6 @@
 // limitations under the License.
 #pragma once
 #include <string_view>
-#include <cstdint>
 
 namespace corvid::strings {
 
