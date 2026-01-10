@@ -134,7 +134,7 @@ concept PairConvertible = is_pair_convertible_v<T>;
 template<typename T>
 concept StdTuple = is_tuple_v<T>;
 
-// `T` must be a `std::tuple` or a pair to it.
+// `T` must be a `std::tuple` or convertible to a pair.
 template<typename T>
 concept TupleLike = StdTuple<T> || PairConvertible<T>;
 
@@ -205,7 +205,7 @@ concept RangeWithoutFind = Range<T> && (!KeyFindable<T>);
 template<typename T, typename U>
 concept Makeable = std::constructible_from<T, U>;
 
-// `U` must be comparable with a `T`
+// `U` must be comparable with a `T`.
 template<typename T, typename U>
 concept Comparable = std::totally_ordered_with<T, U>;
 
@@ -215,15 +215,13 @@ concept Viewable =
     Makeable<std::remove_cvref_t<T>, std::remove_cvref_t<U>> &&
     Comparable<std::remove_cvref_t<T>, std::remove_cvref_t<U>>;
 
-// `F` must callable with `Args` and return void.
+// `F` must be callable with `Args` and return void.
 template<typename F, typename... Args>
 concept CallableReturningVoid = requires(F f, Args&&... args) {
-  {
-    f(std::forward<Args>(args)...)
-  } -> std::same_as<void>;
+  { f(std::forward<Args>(args)...) } -> std::same_as<void>;
 };
 
-// `F` must callable with `Args` and return something other than void.
+// `F` must be callable with `Args` and return something other than void.
 template<typename F, typename... Args>
 concept CallableReturningNonVoid = requires(F f, Args&&... args) {
   {
