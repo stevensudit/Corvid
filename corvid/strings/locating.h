@@ -81,10 +81,6 @@
 // corvid::literals;` to get `npos` and `nloc`.
 namespace corvid::strings { inline namespace locating {
 
-// A `position` is a `size_t` that represents a location within a string, with
-// `npos` as the logical equivalent of the string's size.
-using position = size_t;
-
 // A single value to `locate`, which can be a `char` or something that converts
 // to a `std::string_view`. Contrast with lists of these values. Note that, in
 // C++20, range-based construction was added for `std::string_view`, so we have
@@ -134,8 +130,9 @@ struct pos_range {
 
 // To get `npos`, `nloc`, `npos_choice`, and `nloc_value`, use:
 //  using namespace corvid::literals;
+// Note: `npos` is defined in string_base.h
 inline namespace literals {
-constexpr position npos = std::string_view::npos;
+
 constexpr location nloc{npos, npos};
 constexpr pos_range npos_range{npos, npos};
 

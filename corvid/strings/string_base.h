@@ -15,28 +15,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include <algorithm>
-#include <cassert>
-#include <charconv>
-#include <cstdlib>
-#include <concepts>
-#include <functional>
-#include <iostream>
-#include <sstream>
-#include <string>
 #include <string_view>
-#include <ranges>
-#include <vector>
-#include <stdexcept>
-#include <optional>
-
-#include "../meta.h"
-
-#include "string_base.h"
 
 namespace corvid::strings {
 
-// Import.
-using namespace std::literals;
+// A `position` is a `size_t` that represents a location within a string, with
+// `npos` as the logical equivalent of the string's size.
+using position = std::size_t;
 
+// To get `npos`, use:
+//  using namespace corvid::strings::literals;
+inline namespace literals {
+
+constexpr position npos = std::string_view::npos;
+
+} // namespace literals
 } // namespace corvid::strings
+
+// Publish these literals corvid-wide.
+namespace corvid::literals {
+using namespace corvid::strings::literals;
+}

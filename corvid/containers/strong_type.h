@@ -343,7 +343,9 @@ public:
     return strong_type{value_ - rhs.value_};
   }
   template<typename = void>
+  // clang-format off
   requires requires(T t) { t * t; }
+  // clang-format on
   [[nodiscard]] constexpr strong_type operator*(const strong_type& rhs) const {
     return strong_type{value_ * rhs.value_};
   }
@@ -372,7 +374,9 @@ public:
     return strong_type{lhs.value_ - rhs};
   }
   template<NotStrongType U>
+  // clang-format off
   requires requires(T t, const U& rhs) { t * rhs; }
+  // clang-format on
   [[nodiscard]] friend constexpr strong_type
   operator*(const strong_type& lhs, const U& rhs) {
     return strong_type{lhs.value_ * rhs};
@@ -403,7 +407,9 @@ public:
     return strong_type{lhs - rhs.value_};
   }
   template<NotStrongType U>
+  // clang-format off
   requires requires(T t, const U& lhs) { lhs * t; }
+  // clang-format on
   [[nodiscard]] friend constexpr strong_type
   operator*(const U& lhs, const strong_type& rhs) {
     return strong_type{lhs * rhs.value_};
