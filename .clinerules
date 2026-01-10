@@ -14,7 +14,7 @@
 - Follow existing code patterns in the codebase
 - When referencing code locations, use the format: filename.ext:line_number
 - **format_all.sh**: Run `./format_all.sh` from project root to format all source files with clang-format
-  - Run before committing changes to ensure consistent formatting (It is understood that the ideal solution it a git hook, but this is out of scope for now)
+  - Run before committing changes to ensure consistent formatting (It is understood that the ideal solution is a git hook, but this is out of scope for now)
 
 ## Git Operations
 - When the user asks to commit changes, use `git add .` to stage all changes (including user-made modifications)
