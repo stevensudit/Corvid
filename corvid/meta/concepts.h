@@ -231,12 +231,4 @@ concept CallableReturningNonVoid = requires(F f, Args&&... args) {
   } -> std::same_as<std::invoke_result_t<F, Args...>>;
 } && (!std::is_void_v<std::invoke_result_t<F, Args...>>);
 
-// Concept for std::is_scoped_enum.
-template<typename T>
-concept ScopedEnumType = requires {
-  {
-    std::is_scoped_enum_v<std::remove_cvref_t<T>>
-  };
-};
-
 }}} // namespace corvid::meta::concepts
