@@ -176,7 +176,7 @@ template<typename T>
 concept StringViewConvertibleSpan =
     is_span_v<T> && StringViewConvertible<typename T::element_type>;
 
-// `T` must be a container, which exludes strings and pairs.
+// `T` must be a container, which excludes strings and pairs.
 template<typename T>
 concept Container =
     Range<T> && (!StringViewConvertible<T>) && (!PairConvertible<T>);
@@ -218,7 +218,9 @@ concept Viewable =
 // `F` must callable with `Args` and return void.
 template<typename F, typename... Args>
 concept CallableReturningVoid = requires(F f, Args&&... args) {
-  { f(std::forward<Args>(args)...) } -> std::same_as<void>;
+  {
+    f(std::forward<Args>(args)...)
+  } -> std::same_as<void>;
 };
 
 // `F` must callable with `Args` and return something other than void.
@@ -232,7 +234,9 @@ concept CallableReturningNonVoid = requires(F f, Args&&... args) {
 // Concept for std::is_scoped_enum.
 template<typename T>
 concept ScopedEnumType = requires {
-  { std::is_scoped_enum_v<std::remove_cvref_t<T>> };
+  {
+    std::is_scoped_enum_v<std::remove_cvref_t<T>>
+  };
 };
 
 }}} // namespace corvid::meta::concepts
