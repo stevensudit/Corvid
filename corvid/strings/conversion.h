@@ -27,9 +27,6 @@ inline namespace cvt_fix_from_chars {
 
 // Ugly workaround for the fact that `std::from_chars` is not available in
 // libstdc++. Does not honor `fmt`.
-//
-// TODO: Add thorough testing, or just replace with a stable third-party
-// dependency.
 template<typename T>
 std::from_chars_result std_from_chars(const char* first, const char* last,
     T& value, std::chars_format fmt = std::chars_format::general) {

@@ -91,9 +91,6 @@ inline void trim(std::string& whole, delim ws = {}) {
   if (left) whole.erase(0, left);
 }
 
-// TODO: Determine if there's a safe, correct way to pass through a temporary
-// container. Maybe try binding on a defaulted parameter.
-
 //
 // Braces
 //

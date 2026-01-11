@@ -998,20 +998,6 @@ excised(std::string s, std::initializer_list<std::string_view> from) {
   excise(ss, from);
   return ss;
 }
-// TODO: Substituted and excised don't work for initializer lists. Wrap them.
-// TODO: Excise can always be optimized to do a single pass over the string,
-// never copying the tail more than once.
-// TODO: Consider replacing free functions with something more object-oriented.
-// For example, a `locator` constructed over `s` and `loc` (and maybe
-// `as_npos`), which then has a `located` and `substituted` method. We could
-// also go the other way, making `from` and `to` into objects that have a
-// `locate` taking `s`, or even taking a `locator`. Point is, we're not stuck
-// repeating the C RTL endlessly.
-// TODO: Benchmark whether it's faster to do replacements in-place or to
-// build a new string. There's also the middle ground of in-place but in a
-// single pass, so long as we're not growing.
-// TODO: If span size is 1, forward to regular, with pos_value hardcoded to
-// 0? If string size is 1, forward to regular?
 //
 // Check whether examples of as_views in test are still needed.
 //

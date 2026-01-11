@@ -61,8 +61,4 @@ consteval auto fixed_split_trim() {
   return fixed_split<W, D, WS>();
 }
 
-// TODO: Consider writing a version of split that also does a search/replace in
-// parallel, as by calling search_and_replace.  Might even take a list of froms
-// and to's.
-
 }} // namespace corvid::strings::fixed

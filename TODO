@@ -22,3 +22,32 @@ h. strings_test needs more tests.
 7. Consider adding `final` to classes that really ought to be.
 
 8. meta/containers.h search_and_replace: Consider adding a version that takes parallel arrays for `from` and `to`, replacing all of them. This can't be emulated by nesting.
+
+9. strings/fixed_string_utils.h: Consider writing a version of split that also does a search/replace in parallel (one pass to locate, count, and do the replacements).
+
+10. strings/locating.h substitution/excision improvements:
+   a. Substituted and excised don't work for initializer lists. Wrap them.
+   b. Excise can always be optimized to do a single pass over the string (locate and copy, skipping the excised parts).
+   c. Consider replacing free functions with something more object-oriented (fluent interface or builder pattern).
+   d. Benchmark whether it's faster to do replacements in-place or to build a new string with pre-allocated capacity.
+   e. If span size is 1, forward to regular locate with pos_value hardcoded to zero, since we know which value it was.
+
+11. strings/conversion.h: Add thorough testing for from_chars_wrap, or replace with a stable third-party library.
+
+12. strings/trimming.h: Determine if there's a safe, correct way to pass through a temporary container without lifetime issues.
+
+13. strings/splitting.h enhancements:
+   a. Probably kill the hardcoded vector-only split() overloads that return std::vector.
+   b. Consider supporting extended concept where there's a way to register custom splitter behavior.
+   c. Write helper in locating.h to take a `location` and return a substring span.
+   d. Write split_adapter version that works with any container that can emplace_back.
+   e. Implement split_adapter with efficient pre-allocation and single-pass splitting.
+   f. Benchmark and optimize single-char delimiter handling.
+
+14. strings/concat_join.h improvements:
+   a. Consider adding !Container validation and null key handling in append_join_with for pairs.
+   b. Test quote-encoding when a non-string is wrapped in quotes.
+   c. Add method that takes pieces and counts up their total (estimated) size for pre-allocation.
+   d. Benchmark delim `find` single-char optimizations to verify performance gains.
+   e. Consider offering a way to register a tuple-view function for use in formatted output.
+   f. Consider offering the reverse of `stream_append_v` for deserialization.
