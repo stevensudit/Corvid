@@ -374,22 +374,22 @@ void MetaTest_IsPair() {
   EXPECT_FALSE((is_pair_v<std::tuple<int, int>>));
   EXPECT_FALSE((is_pair_v<int>));
 
-  // PairLike concept replaces the old is_pair_like_v trait
+  // PairConvertible concept replaces the old is_pair_like_v trait
   // Note: std::tuple<F, S> IS convertible to std::pair<F, S> in C++
-  EXPECT_TRUE((PairLike<std::pair<int, int>>));
+  EXPECT_TRUE((PairConvertible<std::pair<int, int>>));
   EXPECT_TRUE(
-      (PairLike<std::tuple<int, int>>)); // tuple<2> is pair-convertible
-  EXPECT_FALSE((PairLike<int>));
+      (PairConvertible<std::tuple<int, int>>)); // tuple<2> is pair-convertible
+  EXPECT_FALSE((PairConvertible<int>));
 
   // Test with type aliases and cv-qualifiers
   using T = std::pair<int, int>;
-  EXPECT_TRUE((PairLike<T>));
+  EXPECT_TRUE((PairConvertible<T>));
   using U = const std::pair<int, int>&;
-  EXPECT_TRUE((PairLike<U>));
+  EXPECT_TRUE((PairConvertible<U>));
   using V = std::pair<int, int>&;
-  EXPECT_TRUE((PairLike<V>));
+  EXPECT_TRUE((PairConvertible<V>));
   using W = const std::pair<int, int>;
-  EXPECT_TRUE((PairLike<W>));
+  EXPECT_TRUE((PairConvertible<W>));
 
   // Note: Tests with intervals::interval skipped (requires Interval.h)
 }

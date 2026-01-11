@@ -73,6 +73,12 @@ template<template<typename...> typename C, typename F, typename S>
 constexpr bool is_pair_convertible_v<C<F, S>> =
     std::is_convertible_v<C<F, S>, std::pair<F, S>>;
 
+// Specialization to handle cv-qualified and reference types
+template<typename T>
+  requires (!std::same_as<T, std::remove_cvref_t<T>>)
+constexpr bool is_pair_convertible_v<T> =
+    is_pair_convertible_v<std::remove_cvref_t<T>>;
+
 // Determine whether `T` is a `std::array`.
 // Note: Can't use `is_specialization_of_v` because `std::array` specializes
 // on a number.

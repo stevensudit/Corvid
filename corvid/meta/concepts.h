@@ -182,10 +182,6 @@ concept Variant = is_variant_v<T>;
 template<typename T>
 concept MonoState = SameAs<std::monostate, T>;
 
-// `T` must be `std::pair` or convertible to it.
-template<typename T>
-concept PairLike = StdPair<T> || PairConvertible<T>;
-
 // `T` must have a `find` method that takes a `T::key_type`.
 template<typename T>
 concept KeyFindable = has_key_find_v<T>;
