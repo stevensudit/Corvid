@@ -875,22 +875,19 @@ inline size_t substitute(std::string& s,
 // Return new string that contains `s` with `from` replaced with `to`.
 [[nodiscard]] std::string
 substituted(std::string s, const auto& from, const auto& to) {
-  auto ss = std::string{std::move(s)};
-  substitute(ss, from, to);
-  return ss;
+  substitute(s, from, to);
+  return s;
 }
 [[nodiscard]] inline std::string substituted(std::string s,
     std::initializer_list<char> from, std::initializer_list<char> to) {
-  auto ss = std::string{std::move(s)};
-  substitute(ss, from, to);
-  return ss;
+  substitute(s, from, to);
+  return s;
 }
 [[nodiscard]] inline std::string substituted(std::string s,
     std::initializer_list<std::string_view> from,
     std::initializer_list<std::string_view> to) {
-  auto ss = std::string{std::move(s)};
-  substitute(ss, from, to);
-  return ss;
+  substitute(s, from, to);
+  return s;
 }
 
 //
@@ -982,31 +979,20 @@ inline size_t excise(std::string& s,
 
 // Return new string that contains `s` with `from` excised.
 [[nodiscard]] std::string excised(std::string s, const auto& from) {
-  auto ss = std::string{std::move(s)};
-  excise(ss, from);
-  return ss;
+  excise(s, from);
+  return s;
 }
 [[nodiscard]] inline std::string
 excised(std::string s, std::initializer_list<char> from) {
-  auto ss = std::string{std::move(s)};
-  excise(ss, from);
-  return ss;
+  excise(s, from);
+  return s;
 }
 [[nodiscard]] inline std::string
 excised(std::string s, std::initializer_list<std::string_view> from) {
-  auto ss = std::string{std::move(s)};
-  excise(ss, from);
-  return ss;
+  excise(s, from);
+  return s;
 }
-//
-// Check whether examples of as_views in test are still needed.
-//
-// check for this:     EXPECT_EQ(strings::locate(s, {"uvw", "xyz"}),
-// (location{npos, npos}));
-// this should not match on span<char> here.
-//
-// Add tests for mismatched types in substitute/d. Add more tests for multiple
-// values that are of a type convertible to `std::string_view`.
+
 }} // namespace corvid::strings::locating
 
 // Publish these literals corvid-wide.
