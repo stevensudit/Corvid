@@ -36,8 +36,7 @@ namespace corvid { inline namespace meta { inline namespace pragmas {
 #define PRAGMA_DIAG(action) PRAGMA_GCC_DIAG(action)
 #define PRAGMA_IGNORED(quoted) PRAGMA_GCC_IGNORED(quoted)
 #else
-// Other compilers - define empty macros
-// Primary target: Clang, Secondary target: GCC
+// Other compilers - define empty macro stubs
 #define PRAGMA_CLANG_DIAG(action)
 #define PRAGMA_CLANG_IGNORED(quoted)
 #define PRAGMA_GCC_DIAG(action)
