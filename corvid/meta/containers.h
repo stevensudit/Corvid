@@ -48,7 +48,7 @@ template<auto field = extract_field::value>
 // is `extract_field::key_value`.
 template<auto field = extract_field::value>
 [[nodiscard]] constexpr auto it_to_ptr(auto& c, Dereferenceable auto&& it) {
-  // ADL technique.
+  // Enable ADL to find appropriate end() for custom container types.
   using namespace std;
   return it != end(c) ? &container_element_v<field>(it) : nullptr;
 }

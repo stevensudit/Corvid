@@ -142,9 +142,9 @@ concept TupleLike = StdTuple<T> || PairConvertible<T>;
 template<typename T>
 concept StdArray = is_std_array_v<std::remove_cvref_t<T>>;
 
-// `T` must be a `std::span` compatible with `V`. When `V` isn't const, then
-// the element type can be but doesn't have to be. Otherwise, for non-const
-// `V`, the element type must not be `const`. In other words, it's const-safe.
+// `T` must be a `std::span` compatible with `V` in a const-safe way. When `V`
+// is non-const, the span's element type can be either const or non-const. When
+// `V` is const, the span's element type must also be const.
 template<typename T, typename V>
 concept Span = is_span_compatible_v<T, V>;
 
