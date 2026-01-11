@@ -23,7 +23,7 @@ namespace corvid { inline namespace meta { inline namespace enums {
 
 // Cast enum to underlying integer value.
 //
-// Similar to `std::to_underlying_type` in C++23, but more forgiving. If `E` is
+// Similar to `std::to_underlying` in C++23, but more forgiving. If `E` is
 // not an enum, just passes the value through unchanged.
 template<typename E>
 [[nodiscard]] constexpr auto as_underlying(E v) noexcept {
@@ -37,22 +37,6 @@ template<typename E>
 // Determine underlying type of enum. If not enum, harmlessly returns `E`.
 template<typename E>
 using as_underlying_t = decltype(as_underlying(std::declval<E>()));
-
-// Cast underlying value to enum.
-//
-// Similar to `static_cast<E>(U)` except that, when `E` isn't an enum, instead
-// returns a default-constructed `X`.
-//
-// If this seems like a strange thing to want to do, you're not wrong, but it
-// turns out to be surprisingly useful.
-template<typename E, typename X = std::byte, typename V>
-[[nodiscard]] constexpr auto from_underlying(const V& u) {
-  if constexpr (ScopedEnum<E>) {
-    return static_cast<E>(u);
-  } else {
-    return X{};
-  }
-}
 
 PRAGMA_CLANG_DIAG(push);
 PRAGMA_CLANG_IGNORED("-Wenum-constexpr-conversion");

@@ -18,6 +18,10 @@
 #include "../corvid/meta.h"
 #include "minitest.h"
 
+#include <map>
+#include <memory>
+#include <set>
+
 // #include "Interval.h"
 
 using namespace std::literals;
@@ -334,212 +338,234 @@ void MetaTest_FunctionVoidReturn() {
   EXPECT_TRUE((CallableReturningNonVoid<FNI1, int>));
 }
 
-MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
-    MetaTest_EnumHighestValueInNBits, MetaTest_EnumPow2,
-    MetaTest_SpanConstness, MetaTest_FunctionVoidReturn);
-
-// TODO: Port the tests below.
-
-#if 0
+// Helper types for specialization tests
 struct Foo {};
 
 template<typename T>
 struct Goo {};
 
-
-TEST(MetaTest, Special) {
+void MetaTest_Specialization() {
   EXPECT_TRUE((is_specialization_of_v<std::vector<int>, std::vector>));
   EXPECT_FALSE((is_specialization_of_v<std::vector<int>, std::map>));
   EXPECT_FALSE((is_specialization_of_v<int, std::map>));
   EXPECT_FALSE((is_specialization_of_v<int, Goo>));
   EXPECT_TRUE((is_specialization_of_v<Goo<int>, Goo>));
 
-  // Fails because char is not a template with type parameters.
-  // * EXPECT_FALSE((is_specialization_of_v<int, char>));
-
-  // Fails because std::array is not specialized on just type parameters.
-  // * EXPECT_FALSE((is_specialization_of_v<int, std::array<int, 4>>));
+  // Note: These would fail to compile:
+  // - is_specialization_of_v<int, char> (char is not a template)
+  // - is_specialization_of_v<std::array<int, 4>, std::array> (non-type params)
 }
 
-TEST(MetaTest, PointerElement) {
+void MetaTest_PointerElement() {
   EXPECT_TRUE((std::is_same_v<int, pointer_element_t<int*>>));
   EXPECT_TRUE((std::is_same_v<int, pointer_element_t<std::unique_ptr<int>>>));
   EXPECT_TRUE((std::is_same_v<void, pointer_element_t<int>>));
 }
 
-TEST(MetaTest, IsDeref) {
-  EXPECT_TRUE((is_dereferenceable_v<int*>));
-  EXPECT_TRUE((is_dereferenceable_v<std::unique_ptr<int>>));
-  EXPECT_FALSE((is_dereferenceable_v<int>));
-  EXPECT_TRUE((is_dereferenceable_v<std::optional<int>()>));
+void MetaTest_Dereferenceable() {
+  EXPECT_TRUE((Dereferenceable<int*>));
+  EXPECT_TRUE((Dereferenceable<std::unique_ptr<int>>));
+  EXPECT_FALSE((Dereferenceable<int>));
+  EXPECT_TRUE((Dereferenceable<decltype(std::optional<int>())>));
 }
 
-TEST(MetaTest, IsPair) {
+void MetaTest_IsPair() {
   EXPECT_TRUE((is_pair_v<std::pair<int, int>>));
   EXPECT_FALSE((is_pair_v<std::tuple<int, int>>));
   EXPECT_FALSE((is_pair_v<int>));
-  EXPECT_FALSE((is_pair_v<intervals::interval<int>>));
 
-  EXPECT_TRUE((is_pair_like_v<std::pair<int, int>>));
-  EXPECT_FALSE((is_pair_like_v<std::tuple<int, int>>));
-  EXPECT_FALSE((is_pair_like_v<int>));
-  EXPECT_TRUE((is_pair_like_v<intervals::interval<int>>));
-  using T = intervals::interval<int>;
-  EXPECT_TRUE((is_pair_like_v<T>));
-  using U = const intervals::interval<int>&;
-  EXPECT_TRUE((is_pair_like_v<U>));
-  using V = intervals::interval<int>&;
-  EXPECT_TRUE((is_pair_like_v<V>));
-  using W = const intervals::interval<int>;
-  EXPECT_TRUE((is_pair_like_v<W>));
+  // PairConvertible concept replaces the old is_pair_like_v trait
+  // Note: std::tuple<F, S> IS convertible to std::pair<F, S> in C++
+  EXPECT_TRUE((PairConvertible<std::pair<int, int>>));
+  EXPECT_TRUE(
+      (PairConvertible<std::tuple<int, int>>)); // tuple<2> is pair-convertible
+  EXPECT_FALSE((PairConvertible<int>));
+
+  // Test with type aliases and cv-qualifiers
+  using T = std::pair<int, int>;
+  EXPECT_TRUE((PairConvertible<T>));
+  using U = const std::pair<int, int>&;
+  EXPECT_TRUE((PairConvertible<U>));
+  using V = std::pair<int, int>&;
+  EXPECT_TRUE((PairConvertible<V>));
+  using W = const std::pair<int, int>;
+  EXPECT_TRUE((PairConvertible<W>));
+
+  // Note: Tests with intervals::interval skipped (requires Interval.h)
 }
 
-TEST(MetaTest, ContainerElement) {
-  if (true) {
+void MetaTest_ContainerElement() {
+  // Test with pair - extracts the second element (value)
+  {
     std::pair<int, int> kv{1, 2};
     auto p = &kv;
     EXPECT_EQ(container_element_v(p), 2);
   }
-  if (true) {
+
+  // Test with plain value - returns the value itself
+  {
     int v{2};
     auto p = &v;
     EXPECT_EQ(container_element_v(p), 2);
   }
-  if (true) {
+
+  // Test with string element pointer
+  {
     std::string s{"abc"};
     EXPECT_EQ(container_element_v(&s[1]), 'b');
   }
 }
 
-TEST(MetaTest, FindRet) {
+void MetaTest_KeyFind() {
+  // has_key_find_v checks if container has find(key_type) method
   using M = std::map<int, Foo>;
-  EXPECT_TRUE((has_key_find_v<M, int>));
-  EXPECT_FALSE((has_key_find_v<M, Foo>));
-  EXPECT_TRUE(
-      (std::is_same_v<keyfinding::details::find_ret_t<M, int>, M::iterator>));
+  EXPECT_TRUE((has_key_find_v<M>));
 
   using S = std::set<Foo>;
-  EXPECT_TRUE((has_key_find_v<S, Foo>));
-  EXPECT_FALSE((has_key_find_v<S, int>));
-  EXPECT_TRUE(
-      (std::is_same_v<keyfinding::details::find_ret_t<S, Foo>, S::iterator>));
+  EXPECT_TRUE((has_key_find_v<S>));
 
   using V = std::vector<int>;
-  EXPECT_FALSE((has_key_find_v<V, int>));
-  EXPECT_FALSE((has_key_find_v<V, Foo>));
+  EXPECT_FALSE((has_key_find_v<V>));
+
+  // Note: Old two-parameter version (checking specific key type compatibility)
+  // and find_ret_t have been removed from the API
 }
 
-TEST(MetaTest, TypeName) {
+void MetaTest_TypeName() {
   using T = std::string;
   using U = const std::string;
   using V = std::string&;
   using W = const std::string&;
+
+  // Same types have same names
   EXPECT_EQ(type_name<T>(), type_name<T>());
+
+  // Different cv-qualifiers produce different names
   EXPECT_NE(type_name<T>(), type_name<U>());
   EXPECT_NE(type_name<U>(), type_name<V>());
   EXPECT_NE(type_name<V>(), type_name<W>());
+
+  // Value-based overload matches type-based version
   EXPECT_EQ(type_name<T>(), type_name(T{}));
 }
 
-TEST(MetaTest, StringViewConvertible) {
-  EXPECT_TRUE(is_string_view_convertible_v<std::string_view>);
-  EXPECT_TRUE(is_string_view_convertible_v<std::string>);
-  EXPECT_TRUE(is_string_view_convertible_v<char*>);
-  EXPECT_TRUE(is_string_view_convertible_v<char[]>);
-  EXPECT_FALSE(is_string_view_convertible_v<int>);
-  EXPECT_FALSE(is_string_view_convertible_v<nullptr_t>);
-  EXPECT_TRUE(is_string_view_convertible_v<std::string&>);
-  EXPECT_TRUE(is_string_view_convertible_v<std::string&&>);
+void MetaTest_StringViewConvertible() {
+  // StringViewConvertible concept (replaces is_string_view_convertible_v)
+  EXPECT_TRUE((StringViewConvertible<std::string_view>));
+  EXPECT_TRUE((StringViewConvertible<std::string>));
+  EXPECT_TRUE((StringViewConvertible<char*>));
+  EXPECT_TRUE((StringViewConvertible<char[]>));
+  EXPECT_FALSE((StringViewConvertible<int>));
+  EXPECT_FALSE((StringViewConvertible<std::nullptr_t>));
+  EXPECT_TRUE((StringViewConvertible<std::string&>));
+  EXPECT_TRUE((StringViewConvertible<std::string&&>));
 
-  EXPECT_FALSE(can_ranged_for_v<int>);
-  EXPECT_TRUE(can_ranged_for_v<std::vector<int>>);
-  EXPECT_TRUE(can_ranged_for_v<std::string>);
-  EXPECT_TRUE((can_ranged_for_v<int[4]>));
-  EXPECT_TRUE((can_ranged_for_v<char[4]>));
-  EXPECT_FALSE((can_ranged_for_v<char*>));
+  // Range concept (replaces can_ranged_for_v)
+  EXPECT_FALSE((Range<int>));
+  EXPECT_TRUE((Range<std::vector<int>>));
+  EXPECT_TRUE((Range<std::string>));
+  EXPECT_TRUE((Range<int[4]>));
+  EXPECT_TRUE((Range<char[4]>));
+  EXPECT_FALSE((Range<char*>));
 
-  EXPECT_FALSE(is_container_v<int>);
-  EXPECT_TRUE(is_container_v<std::vector<int>>);
-  EXPECT_FALSE(is_container_v<std::string>);
-  EXPECT_TRUE((is_container_v<std::array<int, 2>>));
-  EXPECT_TRUE((is_container_v<int[4]>));
-  EXPECT_FALSE((is_container_v<char[4]>));
-  EXPECT_FALSE((is_container_v<char*>));
+  // Container concept (replaces is_container_v)
+  EXPECT_FALSE((Container<int>));
+  EXPECT_TRUE((Container<std::vector<int>>));
+  EXPECT_FALSE((Container<std::string>)); // Excluded (StringViewConvertible)
+  EXPECT_TRUE((Container<std::array<int, 2>>));
+  EXPECT_TRUE((Container<int[4]>));
+  EXPECT_FALSE((Container<char[4]>)); // Excluded (StringViewConvertible)
+  EXPECT_FALSE((Container<char*>));
 }
 
-TEST(MetaTest, Number) {
-  EXPECT_TRUE(is_number_v<char>);
-  EXPECT_TRUE(is_number_v<int>);
-  EXPECT_TRUE(is_number_v<float>);
-  EXPECT_TRUE(is_number_v<double>);
+void MetaTest_Number() {
+  // Integer concept (integral excluding bool)
+  EXPECT_TRUE((Integer<char>));
+  EXPECT_TRUE((Integer<int>));
+  EXPECT_FALSE((Integer<float>));
+  EXPECT_FALSE((Integer<double>));
 
-  EXPECT_FALSE(is_number_v<std::byte>);
+  // Floating point check
+  EXPECT_TRUE((std::floating_point<float>));
+  EXPECT_TRUE((std::floating_point<double>));
+
+  // std::byte is an enum, not arithmetic
+  EXPECT_FALSE((Integer<std::byte>));
   EXPECT_TRUE(std::is_enum_v<std::byte>);
   EXPECT_FALSE(std::is_enum_v<const std::byte&>);
-  EXPECT_TRUE(is_enum_v<const std::byte&>);
+  EXPECT_TRUE((StdEnum<const std::byte&>)); // StdEnum strips cvref
 
+  // Arithmetic checks
   EXPECT_TRUE(std::is_arithmetic_v<int>);
   EXPECT_FALSE(std::is_arithmetic_v<int&>);
 
+  // Bool is arithmetic but not Integer
   EXPECT_TRUE(std::is_arithmetic_v<bool>);
-  EXPECT_FALSE(is_number_v<bool>);
-  EXPECT_TRUE(is_bool_v<bool>);
+  EXPECT_FALSE((Integer<bool>));
+  EXPECT_TRUE((is_bool_v<bool>));
 
   enum ColorEnum { red, green = 20, blue };
   enum class ColorClass { red, green = 20, blue };
 
-  EXPECT_TRUE(is_enum_v<ColorClass>);
-  EXPECT_TRUE(is_enum_v<ColorEnum>);
+  EXPECT_TRUE((StdEnum<ColorClass>));
+  EXPECT_TRUE((StdEnum<ColorEnum>));
+
+  // Note: is_number_v (arithmetic excluding bool) no longer exists
+  // Use Integer for integral types or std::floating_point for floats
 }
 
-TEST(MetaTest, Tuple) {
+void MetaTest_Tuple() {
   using T0 = std::tuple<>;
   using T2 = std::tuple<int, int>;
   using PI = std::pair<int, int>;
   using I2 = std::array<int, 2>;
 
+  // std::tuple_size works for tuples, pairs, and arrays
   EXPECT_EQ(std::tuple_size_v<T2>, 2);
   EXPECT_EQ(std::tuple_size_v<T0>, 0);
   EXPECT_EQ(std::tuple_size_v<PI>, 2);
   EXPECT_EQ(std::tuple_size_v<I2>, 2);
 
-  EXPECT_TRUE(is_std_array_v<I2>);
-  EXPECT_FALSE(is_std_array_v<T2>);
-  EXPECT_TRUE((is_tuple_like_v<I2>));
-  EXPECT_FALSE((is_tuple_like_v<std::string>));
+  // is_std_array_v trait
+  EXPECT_TRUE((is_std_array_v<I2>));
+  EXPECT_FALSE((is_std_array_v<T2>));
 
-  EXPECT_FALSE(is_tuple_v<int>);
+  // TupleLike concept (replaces is_tuple_like_v)
+  // Note: TupleLike = StdTuple || PairConvertible (excludes array)
+  EXPECT_FALSE((TupleLike<I2>)); // array is NOT tuple-like
+  EXPECT_FALSE((TupleLike<std::string>));
+
+  // is_tuple_v trait
+  EXPECT_FALSE((is_tuple_v<int>));
   EXPECT_TRUE((is_tuple_v<T0>));
   EXPECT_TRUE((is_tuple_v<T2>));
   EXPECT_FALSE((is_tuple_v<PI>));
-  EXPECT_TRUE((is_tuple_like_v<PI>));
+  EXPECT_TRUE((TupleLike<PI>)); // pair is tuple-like
 }
 
-TEST(MetaTest, Detection) {
-  if (true) {
+void MetaTest_Detection() {
+  // initializer_list detection
+  {
     auto il = {1, 2, 3};
     EXPECT_TRUE((is_initializer_list_v<decltype(il)>));
   }
-  if (true) {
+
+  // variant detection
+  {
     std::variant<int, float> va = 42;
     EXPECT_TRUE((is_variant_v<decltype(va)>));
   }
-  if (true) {
-    EXPECT_TRUE((is_optional_like_v<std::optional<int>>));
-    EXPECT_TRUE((is_optional_like_v<int*>));
-    EXPECT_FALSE((is_optional_like_v<void*>));
-    EXPECT_FALSE((is_optional_like_v<const char*>));
+
+  // OptionalLike concept (replaces is_optional_like_v)
+  {
+    EXPECT_TRUE((OptionalLike<std::optional<int>>));
+    EXPECT_TRUE((OptionalLike<int*>));
+    EXPECT_FALSE((OptionalLike<void*>)); // void* not dereferenceable to value
+    EXPECT_FALSE((OptionalLike<const char*>)); // string-like
   }
-  if (true) {
-    EXPECT_TRUE((is_void_ptr_v<void*>));
-    EXPECT_TRUE((is_void_ptr_v<const void*>));
-    EXPECT_TRUE((is_void_ptr_v<void* const>));
-    EXPECT_TRUE((is_void_ptr_v<const void* const>));
-    EXPECT_FALSE((is_void_ptr_v<int>));
-    EXPECT_FALSE((is_void_ptr_v<int*>));
-    EXPECT_FALSE((is_void_ptr_v<int* const>));
-  }
-  if (true) {
+
+  // char pointer detection
+  {
     EXPECT_TRUE((is_char_ptr_v<char*>));
     EXPECT_TRUE((is_char_ptr_v<const char*>));
     EXPECT_TRUE((is_char_ptr_v<char[]>));
@@ -552,34 +578,47 @@ TEST(MetaTest, Detection) {
     const char* psz{};
     EXPECT_TRUE((is_char_ptr_v<decltype(psz)>));
   }
+
+  // Note: is_void_ptr_v trait no longer exists
 }
 
-TEST(MetaTest, Underlying) {
+void MetaTest_Underlying() {
   enum class X : size_t { x1 = 1, x2 };
   enum class Y : int64_t { ylow = -1 };
   enum Z { z1 = 1 };
+
+  // as_underlying converts scoped enum to underlying type
   auto x = as_underlying(X::x1);
-  EXPECT_EQ(x, 1);
+  EXPECT_EQ(x, 1UL);
   EXPECT_TRUE((std::is_same_v<size_t, decltype(x)>));
+
   auto y = as_underlying(Y::ylow);
   EXPECT_EQ(y, -1);
   EXPECT_TRUE((std::is_same_v<int64_t, decltype(y)>));
 
-  // No conversion needed for unscoped, although we can also used the scoped
-  // name.
+  // as_underlying works for unscoped enums too
   auto z0 = Z::z1;
   auto z = as_underlying(z1);
-  EXPECT_EQ(z0, 1);
-  EXPECT_EQ(z, 1);
-  EXPECT_TRUE((std::is_same_v<int, decltype(z)>));
+  EXPECT_EQ(z0, 1U);
+  EXPECT_EQ(z, 1U);
+  // Unscoped enum has unsigned int as underlying type
+  EXPECT_TRUE((std::is_same_v<unsigned int, decltype(z)>));
 }
 
-TEST(MetaTest, Streamable) {
-  // This sort of works a little.
-  EXPECT_TRUE(can_stream_out_v<int>);
-  EXPECT_FALSE(can_stream_out_v<Foo>);
+void MetaTest_Streamable() {
+  // OStreamable concept (replaces can_stream_out_v)
+  EXPECT_TRUE((OStreamable<int>));
+  EXPECT_FALSE((OStreamable<Foo>));
 }
-#endif
+
+MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
+    MetaTest_EnumHighestValueInNBits, MetaTest_EnumPow2,
+    MetaTest_SpanConstness, MetaTest_FunctionVoidReturn,
+    MetaTest_Specialization, MetaTest_PointerElement, MetaTest_Dereferenceable,
+    MetaTest_IsPair, MetaTest_ContainerElement, MetaTest_KeyFind,
+    MetaTest_TypeName, MetaTest_StringViewConvertible, MetaTest_Number,
+    MetaTest_Tuple, MetaTest_Detection, MetaTest_Underlying,
+    MetaTest_Streamable);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

@@ -2,7 +2,10 @@
 
 ## Build System
 - Always use CMake to build files, never direct calls to clang or g++ (unless you are specifically debugging issues related to build flags, such as release/debug or optimization level)
-- Build commands should be run from the tests/ directory: `cd tests && cmake --build build --target <target>`
+- **IMPORTANT**: CMake build commands MUST be run from the tests/ directory, NOT from the project root
+  - The build directory is at `tests/build/`, not at the root level
+  - Always use: `cd tests && cmake --build build --target <target>`
+  - If you're not sure what directory you're in, check with `pwd` first
 - When creating new test files, they will be automatically picked up by CMakeLists.txt (it globs *.cpp files)
 - **cleanbuild.sh**: Run `./cleanbuild.sh` from project root for a clean build and execution of all unit tests
   - Use this to check for regressions globally after broad changes
@@ -12,13 +15,16 @@
 ## Code Style
 - Avoid using emojis in code or comments unless explicitly requested
 - Follow existing code patterns in the codebase
-- When referencing code locations, use the format: filename.ext:line_number
+- When referencing code locations, always use markdown link format: `[filename.ext:line](filename.ext#Lline)` to make them clickable in the IDE
 - **format_all.sh**: Run `./format_all.sh` from project root to format all source files with clang-format
-  - Run before committing changes to ensure consistent formatting (It is understood that the ideal solution is a git hook, but this is out of scope for now)
+  - MUST run before committing changes to ensure consistent formatting
+  - Claude's Edit/Write tools bypass IDE save hooks (like format-on-save), so formatting must be applied manually
+  - Run after making code changes but before `git commit`
 
 ## Git Operations
 - When the user asks to commit changes, use `git add .` to stage all changes (including user-made modifications)
 - This ensures any additional changes the user made are included in the commit
+- Use `git switch` instead of `git checkout` for switching branches (safer and clearer intent)
 
 ## Testing
 - Test executables are built to: tests/build/release_bin/
@@ -31,6 +37,9 @@
 - Tests: tests/*_test.cpp
 - String utilities: corvid/strings/
 - Test framework: tests/minitest.h
+- **TODO file**: The project uses a TODO file at the root level to track enhancement requests and design decisions
+  - When encountering TODO comments in code that represent enhancement requests (not immediate implementation tasks), move them to the TODO file
+  - Keep TODO comments in code only for items that should be addressed soon as part of ongoing work
 
 ## Specific Notes
 - The project uses C++23 standard

@@ -38,9 +38,7 @@ struct scoped_enum_spec
   }
 
   bool lookup(E& v, std::string_view sv) const {
-    if (sv.empty()) return false;
-    if (details::lookup_helper(v, sv)) return true;
-    return false;
+    return details::lookup_helper_wrapper(v, sv);
   }
 };
 PRAGMA_CLANG_DIAG(pop);

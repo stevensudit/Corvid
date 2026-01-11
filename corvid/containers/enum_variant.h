@@ -218,7 +218,7 @@ struct indexed_callbacks {
 // As with `std::variant`, each `T` should ideally be distinct, which is easy
 // enough if you use `strong_type`. But even if they're not, you can still
 // visit based on index.
-template<ScopedEnumType E, typename... Ts>
+template<ScopedEnum E, typename... Ts>
 class enum_variant {
 public:
   using underlying_type = std::variant<Ts...>;
@@ -571,7 +571,7 @@ private:
 
 // Hash support.
 namespace std {
-template<corvid::meta::concepts::ScopedEnumType E, typename... Ts>
+template<corvid::meta::concepts::ScopedEnum E, typename... Ts>
 struct hash<corvid::container::rust_like::enum_variant<E, Ts...>> {
   using argument_type = corvid::container::rust_like::enum_variant<E, Ts...>;
   using result_type = std::size_t;

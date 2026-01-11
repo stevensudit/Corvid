@@ -1,3 +1,8 @@
+// Corvid: A general-purpose modern C++ library extending std.
+// https://github.com/stevensudit/Corvid
+//
+// Copyright 2022-2025 Steven Sudit
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -25,10 +30,18 @@ namespace corvid { inline namespace meta { inline namespace pragmas {
 #define PRAGMA_IGNORED(quoted) PRAGMA_CLANG_IGNORED(quoted)
 #elif defined(__GNUC__) || defined(__GNUG__)
 #define PRAGMA_CLANG_DIAG(action)
-#define PRAGMA_CLANG_IGNORED(action)
+#define PRAGMA_CLANG_IGNORED(quoted)
 #define PRAGMA_GCC_DIAG(action) PRAGMA_DIAG_HELPER(GCC diagnostic action)
 #define PRAGMA_GCC_IGNORED(quoted) PRAGMA_GCC_DIAG(ignored quoted)
 #define PRAGMA_DIAG(action) PRAGMA_GCC_DIAG(action)
+#define PRAGMA_IGNORED(quoted) PRAGMA_GCC_IGNORED(quoted)
+#else
+// Other compilers - define empty macro stubs
+#define PRAGMA_CLANG_DIAG(action)
+#define PRAGMA_CLANG_IGNORED(quoted)
+#define PRAGMA_GCC_DIAG(action)
+#define PRAGMA_GCC_IGNORED(quoted)
+#define PRAGMA_DIAG(action)
 #define PRAGMA_IGNORED(quoted)
 #endif
 

@@ -49,8 +49,7 @@ concept StdEnum = std::is_enum_v<std::remove_cvref_t<T>>;
 
 // `T` must be a scoped enum.
 template<typename T>
-concept ScopedEnum =
-    StdEnum<T> && (!std::constructible_from<std::remove_cvref_t<T>, int>);
+concept ScopedEnum = std::is_scoped_enum_v<std::remove_cvref_t<T>>;
 
 // `T` must be bool.
 template<typename T>
@@ -135,7 +134,7 @@ concept PairConvertible = is_pair_convertible_v<T>;
 template<typename T>
 concept StdTuple = is_tuple_v<T>;
 
-// `T` must be a `std::tuple` or a pair to it.
+// `T` must be a `std::tuple` or convertible to a pair.
 template<typename T>
 concept TupleLike = StdTuple<T> || PairConvertible<T>;
 
@@ -143,18 +142,11 @@ concept TupleLike = StdTuple<T> || PairConvertible<T>;
 template<typename T>
 concept StdArray = is_std_array_v<std::remove_cvref_t<T>>;
 
-// `T` must be a `std::span` compatible with `V`. When `V` isn't const, then
-// the element type can be but doesn't have to be. Otherwise, for non-const
-// `V`, the element type must not be `const`. In other words, it's const-safe.
-//
-// TODO: Move implementation into traits.
+// `T` must be a `std::span` compatible with `V` in a const-safe way. When `V`
+// is non-const, the span's element type can be either const or non-const. When
+// `V` is const, the span's element type must also be const.
 template<typename T, typename V>
-concept Span =
-    is_span_v<T> &&
-    std::same_as<std::remove_cv_t<V>,
-        std::remove_cv_t<typename T::element_type>> &&
-    (!std::is_same_v<V, std::remove_const_t<V>> ||
-        !std::is_const_v<typename T::element_type>);
+concept Span = is_span_compatible_v<T, V>;
 
 // `T` must be a `std::span` of `char` or `const char`.
 template<typename T>
@@ -177,7 +169,7 @@ template<typename T>
 concept StringViewConvertibleSpan =
     is_span_v<T> && StringViewConvertible<typename T::element_type>;
 
-// `T` must be a container, which exludes strings and pairs.
+// `T` must be a container, which excludes strings and pairs.
 template<typename T>
 concept Container =
     Range<T> && (!StringViewConvertible<T>) && (!PairConvertible<T>);
@@ -189,10 +181,6 @@ concept Variant = is_variant_v<T>;
 // `T` must be a `std::monostate`.
 template<typename T>
 concept MonoState = SameAs<std::monostate, T>;
-
-// `T` must be `std::pair` or convertible to it.
-template<typename T>
-concept PairLike = StdPair<T> || PairConvertible<T>;
 
 // `T` must have a `find` method that takes a `T::key_type`.
 template<typename T>
@@ -206,7 +194,7 @@ concept RangeWithoutFind = Range<T> && (!KeyFindable<T>);
 template<typename T, typename U>
 concept Makeable = std::constructible_from<T, U>;
 
-// `U` must be comparable with a `T`
+// `U` must be comparable with a `T`.
 template<typename T, typename U>
 concept Comparable = std::totally_ordered_with<T, U>;
 
@@ -216,7 +204,7 @@ concept Viewable =
     Makeable<std::remove_cvref_t<T>, std::remove_cvref_t<U>> &&
     Comparable<std::remove_cvref_t<T>, std::remove_cvref_t<U>>;
 
-// `F` must callable with `Args` and return void.
+// `F` must be callable with `Args` and return void.
 template<typename F, typename... Args>
 concept CallableReturningVoid = requires(F f, Args&&... args) {
   {
@@ -224,20 +212,12 @@ concept CallableReturningVoid = requires(F f, Args&&... args) {
   } -> std::same_as<void>;
 };
 
-// `F` must callable with `Args` and return something other than void.
+// `F` must be callable with `Args` and return something other than void.
 template<typename F, typename... Args>
 concept CallableReturningNonVoid = requires(F f, Args&&... args) {
   {
     f(std::forward<Args>(args)...)
   } -> std::same_as<std::invoke_result_t<F, Args...>>;
 } && (!std::is_void_v<std::invoke_result_t<F, Args...>>);
-
-// Concept for std::is_scoped_enum.
-template<typename T>
-concept ScopedEnumType = requires {
-  {
-    std::is_scoped_enum_v<std::remove_cvref_t<T>>
-  };
-};
 
 }}} // namespace corvid::meta::concepts
