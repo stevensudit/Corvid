@@ -36,7 +36,7 @@
 // be. This is controlled by specializing on the `npos_choice::size` enum
 // value.
 //
-// Functions support both both single and multiple values. The latter case is
+// Functions support both single and multiple values. The latter case is
 // distinct from, and more powerful than, calling once for each value. For
 // example, you can swap 'a' with 'b' and 'b' with 'a' in a single pass,
 // whereas two separate calls would leave you entirely without `b`s.
@@ -708,7 +708,7 @@ located_not(position& pos, std::string_view s, auto&& value) noexcept {
   if constexpr (std::is_same_v<R, position>)
     return (pos = locate_not<npv>(s, value, pos)) != as_npos<npv>(s);
   else
-    static_assert("Single value not supported");
+    static_assert("Multiple values not supported");
   return {};
 }
 // Same as above, but from the rear. To locate the previous instance,
