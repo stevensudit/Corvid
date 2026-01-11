@@ -75,7 +75,7 @@ constexpr bool is_pair_convertible_v<C<F, S>> =
 
 // Specialization to handle cv-qualified and reference types
 template<typename T>
-  requires (!std::same_as<T, std::remove_cvref_t<T>>)
+requires(!std::same_as<T, std::remove_cvref_t<T>>)
 constexpr bool is_pair_convertible_v<T> =
     is_pair_convertible_v<std::remove_cvref_t<T>>;
 
