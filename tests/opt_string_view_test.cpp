@@ -278,10 +278,6 @@ void OptStringViewTest_Optional() {
     osv = opt;
     EXPECT_EQ(osv, "test");
   }
-  // TODO: Add unit tests for the optional workalike functions. At that point,
-  // consider porting them all to cstring_view.
-  // TODO: Figure out why the && overloads for the optional workalike functions
-  // don't work.
 }
 
 void OptStringViewTest_Workalike() {

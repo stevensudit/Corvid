@@ -38,12 +38,3 @@
 // through the `strings` namespace, such as `strings::trim("a ")`. You can also
 // choose to import the inline namespace for that group of symbols, such as
 // `corvid::trimming`.
-
-//
-// TODO
-//
-
-// TODO: Get extract_num to work with cstring_view cleanly. It's safe because
-// we only remove the prefix, never the suffix. The brute-force solution is to
-// add overloads for the extract methods. Maybe add extract_num and such to
-// cstring, so as not to pollute this.

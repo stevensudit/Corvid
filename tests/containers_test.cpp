@@ -624,7 +624,6 @@ void IndirectKey_Basic() {
   using IHK = indirect_hash_key<std::string>;
   std::unordered_map<IHK, int> um;
   const auto key{"abc"s};
-  // TODO: Follow up on why key can't be a temporary.
   um[key] = 42;
   EXPECT_EQ(um[key], 42);
 
@@ -674,7 +673,6 @@ void InternTableTest_Basic() {
     // This causes a new node to be allocated, which triggered a fencepost bug.
     // That was compounded by a second bug, in which the new buffer was too
     // small.
-    // TODO: We need proper isolated unit tests just for the arena header.
     as.resize(256);
     bool used_to_crash = as_abc > as;
     EXPECT_TRUE(used_to_crash);
@@ -801,16 +799,6 @@ void InternTableTest_Basic() {
     EXPECT_EQ(iv.id(), string_id{1});
     EXPECT_EQ(iv.value(), "abc");
   }
-
-  // TODO: Add a test for edge case of arena capacity use. Allocate a small
-  // thing, then allocate up to the edge. If the two are contiguous, then it
-  // fit.
-
-#if 0
-  // TODO: When the traits wrap the key in an unnecessary indirect_hash_key, it
-  // breaks terribly. We need to test an arbitrary type that has no natural
-  // view as a key, or maybe just use `bad_key`.
-#endif
 }
 
 // This is not technically a `std::string`, so it uses the general traits,
@@ -1086,7 +1074,6 @@ void OwnPtrTest_Ctor() {
     auto p = own_ptr<int>::make(42);
     EXPECT_EQ(*p, 42);
   }
-  // TODO: Test with a move-only pointer type.
 }
 
 template<typename T, typename D = std::default_delete<T>>
@@ -1478,9 +1465,6 @@ void StrongType_Extended() {
     sm[fn] = ln;
     EXPECT_EQ(sm[fn].value(), "Smith");
   }
-
-  // TODO: Add tests for op->* and perhaps more thorough tests for various
-  // different kinds of callbacks: function pointers, mutable lambdas, etc.
 
   // Assorted tests.
   FirstName fn{"John"};

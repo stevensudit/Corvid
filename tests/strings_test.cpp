@@ -597,7 +597,6 @@ void StringUtilsTest_RLocate() {
     EXPECT_EQ(strings::rlocate(s, {'a', 'b'}, 1U), (location{1U, 1U}));
     EXPECT_EQ(strings::rlocate(s, {'a', 'b'}, 0U), (location{0U, 0U}));
   }
-  // TODO: Maybe add rlocate multi-string tests.
 }
 
 void StringUtilsTest_LocateEdges() {
@@ -1489,8 +1488,6 @@ void StringUtilsTest_Append() {
   EXPECT_EQ(strings::num_as_string(123.0L), "123");
   EXPECT_EQ(strings::num_as_string(12.3L), "12.3");
 
-  // TODO: Add nested container torture test.
-
   EXPECT_EQ(strings::concat("1", "2"sv, "3"s), "123");
   EXPECT_EQ(strings::concat(1, 2.0, 3ULL), "123");
   EXPECT_EQ(strings::concat(true, std::byte{2}, 3), "true23");
@@ -1674,11 +1671,6 @@ void StringUtilsTest_Append() {
   s = strings::join_json(std::vector{"a", "b", "c"},
       std::vector{"d", "e", "f"});
   EXPECT_EQ(s, R"([["a", "b", "c"], ["d", "e", "f"]])");
-
-  // TODO: test plain array, std::array, map, set, pair, tuple
-
-  // TODO: Test objects that aren't strings but do have implicit conversion
-  // to string or string_view.
 }
 
 void StringUtilsTest_Edges() {
