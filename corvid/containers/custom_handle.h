@@ -146,6 +146,3 @@ public:
 };
 
 }} // namespace corvid::custhandle
-
-// TODO: Since move semantics don't work, attempt to allow assignment from a
-// pointer.

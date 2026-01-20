@@ -62,11 +62,6 @@ namespace corvid { inline namespace intervals {
 //
 // Either can be signed or unsigned, although mixing those would probably be a
 // bad idea.
-//
-// TODO: Consider defaulting `U` to `int64_t` so that it works better when `V`
-// is an enum. Alternately, create something like `as_underlying_t` that maps
-// to a larger size when possible. Ideally, it would only use a larger size if
-// necessary.
 template<typename V = int64_t, typename U = as_underlying_t<V>>
 requires Integer<V> || StdEnum<V>
 class interval: public std::pair<U, U> {
@@ -98,21 +93,6 @@ public:
     // However, how to accomplish this reliably and efficiently in
     // cross-platform C++ is non-obvious. And, really, the right answer in such
     // cases is to use a closed interval in the first place.
-    //
-    // TODO: It's tempting to consider storing a closed interval, because it
-    // would mean we don't need to use a larger type, except in the iterator.
-    // We could even handle values bigger than 64 bits as an iterator
-    // specialization, although this is of questionable value. What argues
-    // against this is the empty interval, which cannot be distinguished from
-    // the full range. However, we could merge invalid and empty into a single
-    // state, allowing us to represent empty as any inverted pair. This would
-    // impede the efficiency of push_back and push_front, as they'd need to
-    // touch both values. The workaround for that would be to require that the
-    // instance be non-empty before pushing back. This means the caller would
-    // have to insert before pushing back or front. We could also default to
-    // [max,min] to make the push functions safer. This particular value could
-    // also be checked for as "uninitialized", and asserted on. The question is
-    // whether such an iterator would work properly in a ranged for.
   public:
     using value_type = V;
     using difference_type = std::ptrdiff_t;
@@ -185,13 +165,6 @@ public:
   constexpr interval& operator=(const interval&) = default;
 
   void clear() { *this = interval{}; }
-
-  // TODO: Consider writing comparison operators and make it work even if
-  // their types are different. Equality is simple, but it's unclear how
-  // inequality works when there's range overlap. We'd also want to consider
-  // all empty equal to all empty, all invalid equal to all invalid. Or maybe
-  // invalid, like null, is never equal. We'd also need to be careful when
-  // comparing signed and unsigned.
 
   //
   // Iterators
@@ -345,14 +318,13 @@ public:
 
   [[nodiscard]] constexpr U max() const noexcept { return e() - 1; }
   constexpr interval& max(U u) noexcept {
-    assert(static_cast<size_t>(u) < max_size());
+    // Ensure u+1 won't overflow (u must be less than the max representable U)
+    assert(u < std::numeric_limits<U>::max());
     e() = u + 1;
     return *this;
   }
 
   // Append.
-  // TODO: Consider printing as half-open interval unless JSON.
-  // TODO: Consider printing enum string instead of integer.
   template<AppendTarget A>
   static auto& append_fn(A& target, const interval& i) {
     if (i.empty()) return target;

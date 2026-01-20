@@ -25,12 +25,6 @@ namespace corvid { inline namespace container { inline namespace sync_lock {
 // Synchronization object for use with containers.
 //
 // Not copyable or moveable.
-//
-// TODO: Consider adding a safe version of mutex, perhaps based on
-// `std::timed_mutex`, which is guaranteed to throw if a lock is not acquired
-// within a certain time. It would start with a `try_lock`, and if that fails,
-// loop through `try_lock_for` until it succeeds or times out. Alternately, it
-// could just fail.
 class synchronizer {
 public:
   void lock() const { mutex_.lock(); }
@@ -189,8 +183,5 @@ public:
 private:
   mutable const synchronizer* sync_{};
 };
-
-// TODO: Consider whether we need an `empty_t` trick to make it easier to
-// specialize the synchronizer away.
 
 }}} // namespace corvid::container::sync_lock

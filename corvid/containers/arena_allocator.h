@@ -46,14 +46,6 @@ namespace corvid { inline namespace container { namespace arena {
 //
 // The expectation is that the arena is much larger than any single value, so
 // the waste from the last unfilled bit is minimal.
-//
-// TODO: Consider adding the ability to limit per-block sizes or total size.
-// Consider making the next block size constant, even when we had to blow past
-// the limit to accommodate an oversize allocation. Sufficiently filled should
-// be defined as having less than 1/4 of the capacity free, although it could
-// also be configured. Consider changing algorithm so that we keep the current
-// block as the head until it's sufficiently filled, overflowing as needed down
-// the chain.
 class extensible_arena final {
   struct list_node;
   struct list_node_deleter {

@@ -47,13 +47,6 @@ concept NotStrongType = !StrongType<T>;
 // ```
 //  using FirstName = strong_type<std::string, struct FirstNameTag>;
 // ```
-//
-// TODO: Test use case of nested types, where a T is itself a strong_type on a
-// different tag.
-// TODO: Test use case of a lambda.
-// TODO: Consider changing the requires to AND in a flag that can be
-// controlled. This would allow disabling various sets of operations, without
-// doing the whole mixin thing.
 template<typename T, typename TAG>
 class strong_type {
 public:
