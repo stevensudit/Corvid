@@ -515,6 +515,9 @@ consteval uint64_t calc_valid_bits_from_bit_names() {
 
   for (int i = name_array.size() - 1; i >= 0; --i) {
     if (!name_array[i].empty()) valid_bits |= pow2;
+    // Not UB: left shift of unsigned is defined as (E1 * 2^E2) mod 2^N, so the
+    // final shift when pow2 == (1ULL << 63) yields 0. UB only occurs when the
+    // shift count >= type width, not when bits are shifted out.
     pow2 <<= 1;
   }
 
