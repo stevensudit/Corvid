@@ -52,8 +52,6 @@ more_pieces(R& part, std::string_view& whole, delim d = {}) {
   return part.size() != all;
 }
 
-// TODO: Probably kill the hardcoded vector-only versions below.
-
 // Split all pieces by delimiters and return parts in vector.
 //
 // Does not omit empty parts.
@@ -82,9 +80,8 @@ template<typename R = std::string_view>
 // A piece generator is plugged into a split adapter to perform split
 // operations. This modularized approach makes it possible to define delimiters
 // any way you like, strip padding, or skip empty pieces. Using a stateful
-// objects also allows you to do things like limit how many pieces are
-// returned, alternate the delimiters, or make a mutable copy of each so as to
-// unescape.
+// object also allows you to do things like limit how many pieces are returned,
+// alternate the delimiters, or make a mutable copy of each so as to unescape.
 //
 // Note: If the piece generator returns a view into a copy of the piece, then
 // the output must copy it into a `std::string` (or equivalent) to avoid
@@ -124,8 +121,6 @@ struct piece_generator {
   // between calls. The return allows passing `piece_generator.reset(x)` to the
   // `split` function.
   //
-  // TODO: Consider supporting this as an extended concept, such that there's a
-  // version of `split` that takes an instance and a `whole`.
   auto& reset(std::string_view new_whole) {
     whole = new_whole;
     return *this;
@@ -182,33 +177,8 @@ template<typename R = std::string_view>
   return parts;
 }
 
-// TODO: Write helper in "locating.h" to take a `location` and return a
-// begin/end pair for the thing found. This is needed for adapting multi-value
-// `locate`. Maybe promote it to a type, like position_range?
-
-// TODO: Write split_adapter version that works with any container that can
-// construct from a string_view (as well as `std::pair` and `std::tuple`).
-
-// TODO: Basic plan...
-// We need a concept for whether a type is a target for splitting into. We can
-// check for a container by looking for `const_iterator`, but we want to filter
-// out `std::initializer_list` because it could lead to ambiguity. For most
-// containers, we need to ensure that we construct its `value_type` from
-// `std::string_view`, but for keyed containers, this has to be true for both
-// `key_type` and `mapped_type`. We can reuse some of the logic from
-// concat_join here.
-//
-// The key is that we create an object that supports begin/end, such that its
-// iterator returns a std::string_view. It also implicitly converts to anything
-// fitting the target concept above, as well as pair.
-//
-// For maps, which are containers of pairs, we insert even pieces as keys and
-// set odd pieces as values of the previously-inserted key.
-
-// TODO: Optimizations (here and elsewhere)
-// - If filling a vector of strings, instead fill a vector of string_view and
-// then convert it all at once after reserving.
-
+// For alternative design choices when solving a similar problem, compare
+// with:
 // https://github.com/abseil/abseil-cpp/blob/master/absl/strings/internal/str_split_internal.h
 
 }} // namespace corvid::strings::splitting

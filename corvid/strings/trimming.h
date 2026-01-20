@@ -27,7 +27,7 @@ namespace corvid::strings { inline namespace trimming {
 // For all trim functions, `delim` defaults to " " and can be specified as any
 // set of characters.
 
-// Trim whitespace on left, returning part.
+// Trim whitespace on left, returning part. When all whitespace, returns empty.
 template<typename R = std::string_view>
 [[nodiscard]] constexpr auto trim_left(std::string_view whole, delim ws = {}) {
   auto pos = ws.find_not_in(whole);
@@ -36,7 +36,8 @@ template<typename R = std::string_view>
   return R{part};
 }
 
-// Trim whitespace on right, returning part.
+// Trim whitespace on right, returning part. When all whitespace, returns
+// empty.
 template<typename R = std::string_view>
 [[nodiscard]] constexpr auto
 trim_right(std::string_view whole, delim ws = {}) {
@@ -90,9 +91,6 @@ inline void trim(std::string& whole, delim ws = {}) {
   whole.erase(right + 1);
   if (left) whole.erase(0, left);
 }
-
-// TODO: Determine if there's a safe, correct way to pass through a temporary
-// container. Maybe try binding on a defaulted parameter.
 
 //
 // Braces

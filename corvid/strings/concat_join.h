@@ -172,7 +172,7 @@ template<int base = 10, size_t width = 0, char pad = ' ', std::integral T>
 constexpr auto& append(AppendTarget auto& target, T part) {
   if constexpr (Char<T>)
     appender{target}.append(part);
-  else if (Bool<T>)
+  else if constexpr (Bool<T>)
     appender{target}.append(part ? "true"sv : "false"sv);
   else
     append_num<base, width, pad>(target, part);
@@ -554,8 +554,6 @@ append_join_with(AppendTarget auto& target, delim d, const T& part) {
   constexpr char next_close = close ? close : (is_json ? 0 : '}');
   constexpr bool add_quotes =
       is_json && !StringViewConvertible<decltype(part.first)>;
-  // TODO: Should we add !Container and so on?
-  // TODO: What if the key is null?
 
   d.append_if<decode::delimit_v<opt>>(target);
 
@@ -564,9 +562,6 @@ append_join_with(AppendTarget auto& target, delim d, const T& part) {
 
   constexpr delim dq{"\""};
   dq.append_if<add_quotes>(target);
-  // TODO: Test quote-encoding when a non-string is wrapped in quotes. We may
-  // need to print to a string first, unless we know it's safe, such as a
-  // number.
   append_join_with<head_opt>(target, d, part.first);
   dq.append_if<add_quotes>(target);
   constexpr delim ds{": "};
@@ -718,26 +713,3 @@ append_json(AppendTarget auto& target, const auto& head, const auto&... tail) {
 
 } // namespace joining
 } // namespace corvid::strings
-
-//
-// TODO
-//
-
-// TODO: Add method that takes pieces and counts up their total (estimated)
-// size, for the purpose of reserving target capacity. Possibly add this an a
-// `join_opt` for use in `concat` and `join`.
-
-// TODO: Benchmark delim `find` single-char optimizations, to make sure they're
-// faster.
-
-// TODO: Consider offering a way to register a tuple-view function for use in
-// `append_join`. The function would return a view of the object's contents as
-// a tuple of references (perhaps with the aid of a helper), and the presence
-// of this function would pick out the function override. It might also be
-// helpful to be able to specify an internal delimiter. It's not clear that any
-// of this is useful for straight-up `append`, though.
-
-// TODO: Consider offering the reverse of `stream_append_v`. This would be
-// named something like `stream_using_append_v`, and would enable an
-// `operator<<` overload for the type, implemented by calling `append` (or
-// maybe even `append_join`) on it.

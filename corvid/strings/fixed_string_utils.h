@@ -45,6 +45,7 @@ consteval auto fixed_split() {
     auto pos = w.find_first_of(delim);
     result[i] = w.substr(0, pos);
     if (ws.size()) result[i] = strings::trim(result[i], ws);
+    // When npos, substr goes to end, so this works fine.
     w = w.substr(pos + 1);
   }
 
@@ -60,9 +61,5 @@ template<strings::fixed_string W, strings::fixed_string WS = " ",
 consteval auto fixed_split_trim() {
   return fixed_split<W, D, WS>();
 }
-
-// TODO: Consider writing a version of split that also does a search/replace in
-// parallel, as by calling search_and_replace.  Might even take a list of froms
-// and to's.
 
 }} // namespace corvid::strings::fixed

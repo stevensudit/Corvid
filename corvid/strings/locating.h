@@ -36,7 +36,7 @@
 // be. This is controlled by specializing on the `npos_choice::size` enum
 // value.
 //
-// Functions support both both single and multiple values. The latter case is
+// Functions support both single and multiple values. The latter case is
 // distinct from, and more powerful than, calling once for each value. For
 // example, you can swap 'a' with 'b' and 'b' with 'a' in a single pass,
 // whereas two separate calls would leave you entirely without `b`s.
@@ -698,7 +698,7 @@ located(position& pos, std::string_view s, auto&& value) noexcept {
   if constexpr (std::is_same_v<R, position>)
     return (pos = locate<npv>(s, value, pos)) != as_npos<npv>(s);
   else
-    static_assert("Multiple values not supported");
+    static_assert(false, "Multiple values not supported");
   return {};
 }
 template<npos_choice npv = npos_choice::npos>
@@ -708,7 +708,7 @@ located_not(position& pos, std::string_view s, auto&& value) noexcept {
   if constexpr (std::is_same_v<R, position>)
     return (pos = locate_not<npv>(s, value, pos)) != as_npos<npv>(s);
   else
-    static_assert("Single value not supported");
+    static_assert(false, "Multiple values not supported");
   return {};
 }
 // Same as above, but from the rear. To locate the previous instance,
@@ -728,7 +728,7 @@ rlocated(position& pos, std::string_view s, const auto& value) noexcept {
   if constexpr (std::is_same_v<R, position>)
     return (pos = rlocate<npv>(s, value, pos)) != as_npos<npv>(s);
   else
-    static_assert("Multiple values not supported");
+    static_assert(false, "Multiple values not supported");
   return {};
 }
 template<npos_choice npv = npos_choice::npos>
@@ -742,7 +742,7 @@ rlocated_not(position& pos, std::string_view s, const auto& value) noexcept {
   if constexpr (std::is_same_v<R, position>)
     return (pos = rlocate_not<npv>(s, value, pos)) != as_npos<npv>(s);
   else
-    static_assert("Multiple values not supported");
+    static_assert(false, "Multiple values not supported");
   return {};
 }
 
@@ -762,7 +762,7 @@ located(location& loc, std::string_view s, auto&& values) noexcept {
   if constexpr (std::is_same_v<R, location>)
     return (loc = locate<npv>(s, values, loc.pos)).pos != as_npos<npv>(s);
   else
-    static_assert("Single value not supported");
+    static_assert(false, "Single value not supported");
   return {};
 }
 // Same as above, but from the rear. Read the notes above for single-value
@@ -778,7 +778,7 @@ rlocated(location& loc, std::string_view s, auto&& values) noexcept {
   if constexpr (std::is_same_v<R, location>)
     return (loc = rlocate<npv>(s, values, loc.pos)).pos != as_npos<npv>(s);
   else
-    static_assert("Single value not supported");
+    static_assert(false, "Single value not supported");
   return {};
 }
 
@@ -875,22 +875,19 @@ inline size_t substitute(std::string& s,
 // Return new string that contains `s` with `from` replaced with `to`.
 [[nodiscard]] std::string
 substituted(std::string s, const auto& from, const auto& to) {
-  auto ss = std::string{std::move(s)};
-  substitute(ss, from, to);
-  return ss;
+  substitute(s, from, to);
+  return s;
 }
 [[nodiscard]] inline std::string substituted(std::string s,
     std::initializer_list<char> from, std::initializer_list<char> to) {
-  auto ss = std::string{std::move(s)};
-  substitute(ss, from, to);
-  return ss;
+  substitute(s, from, to);
+  return s;
 }
 [[nodiscard]] inline std::string substituted(std::string s,
     std::initializer_list<std::string_view> from,
     std::initializer_list<std::string_view> to) {
-  auto ss = std::string{std::move(s)};
-  substitute(ss, from, to);
-  return ss;
+  substitute(s, from, to);
+  return s;
 }
 
 //
@@ -982,45 +979,20 @@ inline size_t excise(std::string& s,
 
 // Return new string that contains `s` with `from` excised.
 [[nodiscard]] std::string excised(std::string s, const auto& from) {
-  auto ss = std::string{std::move(s)};
-  excise(ss, from);
-  return ss;
+  excise(s, from);
+  return s;
 }
 [[nodiscard]] inline std::string
 excised(std::string s, std::initializer_list<char> from) {
-  auto ss = std::string{std::move(s)};
-  excise(ss, from);
-  return ss;
+  excise(s, from);
+  return s;
 }
 [[nodiscard]] inline std::string
 excised(std::string s, std::initializer_list<std::string_view> from) {
-  auto ss = std::string{std::move(s)};
-  excise(ss, from);
-  return ss;
+  excise(s, from);
+  return s;
 }
-// TODO: Substituted and excised don't work for initializer lists. Wrap them.
-// TODO: Excise can always be optimized to do a single pass over the string,
-// never copying the tail more than once.
-// TODO: Consider replacing free functions with something more object-oriented.
-// For example, a `locator` constructed over `s` and `loc` (and maybe
-// `as_npos`), which then has a `located` and `substituted` method. We could
-// also go the other way, making `from` and `to` into objects that have a
-// `locate` taking `s`, or even taking a `locator`. Point is, we're not stuck
-// repeating the C RTL endlessly.
-// TODO: Benchmark whether it's faster to do replacements in-place or to
-// build a new string. There's also the middle ground of in-place but in a
-// single pass, so long as we're not growing.
-// TODO: If span size is 1, forward to regular, with pos_value hardcoded to
-// 0? If string size is 1, forward to regular?
-//
-// Check whether examples of as_views in test are still needed.
-//
-// check for this:     EXPECT_EQ(strings::locate(s, {"uvw", "xyz"}),
-// (location{npos, npos}));
-// this should not match on span<char> here.
-//
-// Add tests for mismatched types in substitute/d. Add more tests for multiple
-// values that are of a type convertible to `std::string_view`.
+
 }} // namespace corvid::strings::locating
 
 // Publish these literals corvid-wide.

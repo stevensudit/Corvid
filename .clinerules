@@ -40,6 +40,7 @@
 - **TODO file**: The project uses a TODO file at the root level to track enhancement requests and design decisions
   - When encountering TODO comments in code that represent enhancement requests (not immediate implementation tasks), move them to the TODO file
   - Keep TODO comments in code only for items that should be addressed soon as part of ongoing work
+  - When moving TODO comments with positional references (like "below", "above"), rewrite them to be absolute (e.g., name the specific function/class, not line numbers which are brittle)
 
 ## Specific Notes
 - The project uses C++23 standard

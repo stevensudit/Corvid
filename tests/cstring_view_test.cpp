@@ -39,7 +39,7 @@ void CStringViewTest_Construction() {
     EXPECT_EQ(v.data(), nullptr);
     EXPECT_EQ(&*v.begin(), &*v.end());
   }
-  // Default-constucted cstring_view.
+  // Default-constructed cstring_view.
   if (true) {
     cstring_view v;
     EXPECT_TRUE(v.empty());

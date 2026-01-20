@@ -39,7 +39,7 @@ void OptStringViewTest_Construction() {
     EXPECT_EQ(v.data(), nullptr);
     EXPECT_EQ(v.begin(), v.end());
   }
-  // Default-constucted opt_string_view.
+  // Default-constructed opt_string_view.
   if (true) {
     opt_string_view v;
     EXPECT_TRUE(v.empty());
