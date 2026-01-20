@@ -65,6 +65,17 @@ namespace corvid { inline namespace enums { namespace bitmask {
 // While this feature is relatively inexpensive, it does count as a subtle
 // violation of BitmaskType requirements. Having said that, it's opt-in.
 
+// Name list placeholders:
+//
+// When specifying bit or value names, the following placeholders have special
+// meaning:
+// - Empty string or hyphen (`-`): The bit/value is invalid. Invalid bits are
+//   not included in `max_value()` and operations involving them may produce
+//   unexpected results.
+// - Question mark (`?`) or asterisk (`*`): The bit/value is valid but unnamed.
+//   When printed, the numeric value is shown instead of a name. The bit is
+//   included in `max_value()`.
+//
 // Registration.
 //
 // Example:
@@ -270,6 +281,8 @@ template<BitmaskEnum E>
 }
 
 // Return value with bit at `ndx` (counting from the lsb) set.
+//
+// Note: `ndx` is 1-based, so `make_at(1)` sets the least significant bit.
 template<BitmaskEnum E>
 [[nodiscard]] constexpr E make_at(size_t ndx) noexcept {
   return make<E>(std::underlying_type_t<E>{1} << (ndx - 1));
@@ -495,11 +508,16 @@ template<strings::fixed_string bit_names>
 consteval uint64_t calc_valid_bits_from_bit_names() {
   static_assert(!strings::trim(bit_names.view(), " -").starts_with(","));
   constexpr auto name_array = strings::fixed_split_trim<bit_names, " -">();
+  static_assert(name_array.size() <= 64,
+      "bit names list exceeds maximum of 64 bits");
   uint64_t valid_bits = 0;
   uint64_t pow2 = 1;
 
   for (int i = name_array.size() - 1; i >= 0; --i) {
     if (!name_array[i].empty()) valid_bits |= pow2;
+    // Not UB: left shift of unsigned is defined as (E1 * 2^E2) mod 2^N, so the
+    // final shift when pow2 == (1ULL << 63) yields 0. UB only occurs when the
+    // shift count >= type width, not when bits are shifted out.
     pow2 <<= 1;
   }
 
@@ -515,6 +533,8 @@ template<strings::fixed_string bit_names>
 consteval uint64_t calc_valid_bits_from_value_names() {
   static_assert(contains(bit_names.view(), ','));
   constexpr auto name_array = strings::fixed_split_trim<bit_names, " -">();
+  static_assert(name_array.size() <= 64,
+      "value names list exceeds maximum of 64 values");
   uint64_t valid_bits = 0;
   for (size_t i = 1; i < name_array.size(); ++i) {
     if (!name_array[i].empty()) valid_bits |= i;
