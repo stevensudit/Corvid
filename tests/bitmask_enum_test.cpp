@@ -705,11 +705,12 @@ void BitMaskTest_EnumCalcBitNames() {
   static_assert(cvbfbn<"r,,b">() == 5);
   static_assert(cvbfbn<"r,g,">() == 6);
   static_assert(cvbfbn<"r,g,b">() == 7);
+  // Test with exactly 64 bits (maximum allowed).
   static_assert(
       cvbfbn<"a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z,aa,ab,ac,ad,"
              "ae,af,ag,ah,ai,aj,ak,al,am,an,ao,ap,aq,ar,as,at,au,av,aw,ax,ay,"
-             "az,ba,bb,bc,bd,be,bf,bg,bh,bi,bj,bk,bl,bm,bn,bo,bp,bq,br,bs,bt,"
-             "bu,bv,bw,bx,by,bz">() == 18446744073709551615ULL);
+             "az,ba,bb,bc,bd,be,bf,bg,bh,bi,bj,bk,bl">() ==
+      18446744073709551615ULL);
 }
 
 template<strings::fixed_string W>
@@ -791,7 +792,48 @@ void BitMaskTest_ExtractEnum() {
 // TODO: Add test with make_interval<byte> to show how to use it correctly.
 // It'll fail by default, so you have to specify a larger underlying type.
 
-// TODO: Add tests for op~ and flip for bit masks with holes.
+void BitMaskTest_HoleyOps() {
+  // Tests for op~ and flip with bit masks that have holes (non-contiguous
+  // valid bits). rb has valid bits 101 (red and blue, no green).
+  if (true) {
+    // op~ inverts all bits, including invalid ones.
+    // For rb (no clipping), ~black sets all bits including invalid ones.
+    EXPECT_NE(~rb::black, rb::purple); // Not equal because invalid bits set
+    EXPECT_EQ((~rb::black & rb::purple), rb::purple); // Valid bits all set
+  }
+  if (true) {
+    // flip only flips valid bits (rb::purple has valid_bits = 5 = 0b101).
+    EXPECT_EQ(flip(rb::black), rb::purple);
+    EXPECT_EQ(flip(rb::red), rb::blue);
+    EXPECT_EQ(flip(rb::blue), rb::red);
+    EXPECT_EQ(flip(rb::purple), rb::black);
+  }
+  if (true) {
+    // For safe_rb (with wrapclip::limit), op~ behaves like flip.
+    EXPECT_EQ(~safe_rb::black, safe_rb::purple);
+    EXPECT_EQ(~safe_rb::red, safe_rb::blue);
+    EXPECT_EQ(~safe_rb::blue, safe_rb::red);
+    EXPECT_EQ(~safe_rb::purple, safe_rb::black);
+  }
+}
+
+void BitMaskTest_MakeAt() {
+  // make_at uses 1-based indexing.
+  if (true) {
+    EXPECT_EQ(make_at<rgb>(1), rgb::blue);  // bit 0 (lsb)
+    EXPECT_EQ(make_at<rgb>(2), rgb::green); // bit 1
+    EXPECT_EQ(make_at<rgb>(3), rgb::red);   // bit 2
+  }
+  if (true) {
+    // Verify set_at and clear_at use the same indexing.
+    EXPECT_EQ(set_at(rgb::black, 1), rgb::blue);
+    EXPECT_EQ(set_at(rgb::black, 2), rgb::green);
+    EXPECT_EQ(set_at(rgb::black, 3), rgb::red);
+    EXPECT_EQ(clear_at(rgb::white, 1), rgb::yellow);
+    EXPECT_EQ(clear_at(rgb::white, 2), rgb::purple);
+    EXPECT_EQ(clear_at(rgb::white, 3), rgb::cyan);
+  }
+}
 
 MAKE_TEST_LIST(BitMaskTest_Ops, BitMaskTest_NamedFunctions,
     BitMaskTest_SafeOps, BitMaskTest_SafeNamedFunctions,
@@ -800,6 +842,6 @@ MAKE_TEST_LIST(BitMaskTest_Ops, BitMaskTest_NamedFunctions,
     BitMaskTest_SafeNoBlue, BitMaskTest_SafeNoRed, BitMaskTest_SkipBlue,
     BitMaskTest_SafeBlackWhite, BitMaskTest_EnumCalcBitNames,
     BitMaskTest_EnumCalcValueNames, BitMaskTest_SafeWhite,
-    BitMaskTest_ExtractEnum);
+    BitMaskTest_ExtractEnum, BitMaskTest_HoleyOps, BitMaskTest_MakeAt);
 
 // NOLINTEND(readability-function-cognitive-complexity)

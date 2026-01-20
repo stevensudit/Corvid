@@ -26,6 +26,10 @@ namespace corvid { inline namespace enums {
 
 // Whether or not to limit the value, as by wrapping or clipping, when it
 // exceeds the range of the enum.
+//
+// - `none`: No limiting; values outside the valid range are allowed.
+// - `limit`: Values are wrapped (for sequence enums) or clipped (for bitmask
+//   enums) to stay within the valid range.
 enum class wrapclip : std::uint8_t { none, limit };
 
 namespace registry {
