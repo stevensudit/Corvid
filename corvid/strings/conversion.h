@@ -71,7 +71,7 @@ std::from_chars_result std_from_chars(const char* first, const char* last,
 }
 #else
 
-// Passthrough for gcc.
+// Passthrough for conforming implementations, such as gcc.
 template<typename T>
 std::from_chars_result std_from_chars(const char* first, const char* last,
     T& value, std::chars_format fmt = std::chars_format::general) {

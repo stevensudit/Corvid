@@ -172,7 +172,7 @@ template<int base = 10, size_t width = 0, char pad = ' ', std::integral T>
 constexpr auto& append(AppendTarget auto& target, T part) {
   if constexpr (Char<T>)
     appender{target}.append(part);
-  else if (Bool<T>)
+  else if constexpr (Bool<T>)
     appender{target}.append(part ? "true"sv : "false"sv);
   else
     append_num<base, width, pad>(target, part);

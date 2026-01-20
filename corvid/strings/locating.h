@@ -698,7 +698,7 @@ located(position& pos, std::string_view s, auto&& value) noexcept {
   if constexpr (std::is_same_v<R, position>)
     return (pos = locate<npv>(s, value, pos)) != as_npos<npv>(s);
   else
-    static_assert("Multiple values not supported");
+    static_assert(false, "Multiple values not supported");
   return {};
 }
 template<npos_choice npv = npos_choice::npos>
@@ -708,7 +708,7 @@ located_not(position& pos, std::string_view s, auto&& value) noexcept {
   if constexpr (std::is_same_v<R, position>)
     return (pos = locate_not<npv>(s, value, pos)) != as_npos<npv>(s);
   else
-    static_assert("Multiple values not supported");
+    static_assert(false, "Multiple values not supported");
   return {};
 }
 // Same as above, but from the rear. To locate the previous instance,
@@ -728,7 +728,7 @@ rlocated(position& pos, std::string_view s, const auto& value) noexcept {
   if constexpr (std::is_same_v<R, position>)
     return (pos = rlocate<npv>(s, value, pos)) != as_npos<npv>(s);
   else
-    static_assert("Multiple values not supported");
+    static_assert(false, "Multiple values not supported");
   return {};
 }
 template<npos_choice npv = npos_choice::npos>
@@ -742,7 +742,7 @@ rlocated_not(position& pos, std::string_view s, const auto& value) noexcept {
   if constexpr (std::is_same_v<R, position>)
     return (pos = rlocate_not<npv>(s, value, pos)) != as_npos<npv>(s);
   else
-    static_assert("Multiple values not supported");
+    static_assert(false, "Multiple values not supported");
   return {};
 }
 
@@ -762,7 +762,7 @@ located(location& loc, std::string_view s, auto&& values) noexcept {
   if constexpr (std::is_same_v<R, location>)
     return (loc = locate<npv>(s, values, loc.pos)).pos != as_npos<npv>(s);
   else
-    static_assert("Single value not supported");
+    static_assert(false, "Single value not supported");
   return {};
 }
 // Same as above, but from the rear. Read the notes above for single-value
@@ -778,7 +778,7 @@ rlocated(location& loc, std::string_view s, auto&& values) noexcept {
   if constexpr (std::is_same_v<R, location>)
     return (loc = rlocate<npv>(s, values, loc.pos)).pos != as_npos<npv>(s);
   else
-    static_assert("Single value not supported");
+    static_assert(false, "Single value not supported");
   return {};
 }
 

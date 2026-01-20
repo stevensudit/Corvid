@@ -53,7 +53,9 @@ struct fixed_string {
   }
 #endif
 
-  // Some compilers might still need this.
+  // Pre-C++20 conformance: some compilers don't auto-generate operator<=>
+  // from defaulted operator== even though C++20 requires it.
+  // This is left here out of an abundance of caution.
   constexpr auto operator<=>(const fixed_string&) const = default;
 
   // This can't be made private or const, but do not ever use it.

@@ -117,8 +117,8 @@ public:
   //
   // Always works.
   constexpr basic_cstring_view() noexcept = default;
-  constexpr basic_cstring_view(std::nullptr_t) noexcept {};
-  constexpr basic_cstring_view(std::nullopt_t) noexcept {};
+  constexpr basic_cstring_view(std::nullptr_t) noexcept {}
+  constexpr basic_cstring_view(std::nullopt_t) noexcept {}
 
   constexpr basic_cstring_view(const basic_cstring_view&) noexcept = default;
   constexpr basic_cstring_view(const std::string& s) noexcept : sv_{s} {}

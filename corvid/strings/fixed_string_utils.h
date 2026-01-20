@@ -45,6 +45,7 @@ consteval auto fixed_split() {
     auto pos = w.find_first_of(delim);
     result[i] = w.substr(0, pos);
     if (ws.size()) result[i] = strings::trim(result[i], ws);
+    // When npos, substr goes to end, so this works fine.
     w = w.substr(pos + 1);
   }
 

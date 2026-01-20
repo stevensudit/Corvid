@@ -80,9 +80,8 @@ template<typename R = std::string_view>
 // A piece generator is plugged into a split adapter to perform split
 // operations. This modularized approach makes it possible to define delimiters
 // any way you like, strip padding, or skip empty pieces. Using a stateful
-// objects also allows you to do things like limit how many pieces are
-// returned, alternate the delimiters, or make a mutable copy of each so as to
-// unescape.
+// object also allows you to do things like limit how many pieces are returned,
+// alternate the delimiters, or make a mutable copy of each so as to unescape.
 //
 // Note: If the piece generator returns a view into a copy of the piece, then
 // the output must copy it into a `std::string` (or equivalent) to avoid
@@ -178,6 +177,8 @@ template<typename R = std::string_view>
   return parts;
 }
 
+// For alternative design choices when solving a similar problem, compare
+// with:
 // https://github.com/abseil/abseil-cpp/blob/master/absl/strings/internal/str_split_internal.h
 
 }} // namespace corvid::strings::splitting
