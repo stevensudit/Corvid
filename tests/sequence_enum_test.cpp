@@ -634,8 +634,5 @@ MAKE_TEST_LIST(SequentialEnumTest_Registry, SequentialEnumTest_Ops,
     SequentialEnumTest_Missing, SequentialEnumTest_Intervals,
     SequentialEnumTest_ExtractEnum);
 
-// TODO: Check if enum_as_string works with unscoped enums. Should it? Or
-// should it just count as an int?
-
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

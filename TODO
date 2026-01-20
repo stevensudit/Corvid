@@ -96,3 +96,50 @@ h. strings_test needs more tests.
    e. intern_traits: See if specializations can inherit from the primary template and just replace the types that changed.
    f. intern_table constructor: Consider whether we should disable `next` if it's specified.
    g. intern_table: Add real or fake arena allocator, depending on traits. Then create real or fake scopes in the methods that can allocate.
+
+23. controllers/pid_controller.h - PID controller improvements:
+   a. Consider clamping the integral term itself (in addition to final output clamping) for better anti-windup protection. Could default to some fraction of the min and max values.
+
+24. controllers/sopdt_plant.h - SOPTD plant improvements:
+   a. Optimize delay buffer with a circular buffer instead of vector erase(begin()) which is O(n).
+
+25. lang/ast_pred.h - AST predicate improvements:
+   a. lookup::operator[] is declared but has no implementation and is not pure virtual (= 0). Either make it pure virtual or provide an implementation returning `missing`.
+   b. In dnf::handle(), the not_junction case accesses junction::list(root)[0] without bounds checking. If a not_junction is created with zero nodes, this is undefined behavior.
+   c. Register the variant types (any_single_value, any_value, key_or_value) for automatic JSON serialization to replace manual dump() helper functions.
+   d. Turn tautologies into always_true or always_false nodes. This requires determining if an equality is mutually exclusive, which is trickier for inequalities.
+
+26. enums/bitmask_enum.h - bitmask enum improvements:
+   a. Consider making range_length() correct even for validity masks with holes, or at least fail cleanly if we can't.
+   b. Consider offering a version of calc_valid_bits_from_bit_names that is aligned to the msb instead of lsb, to avoid forcing the user to pad with dozens of commas.
+   c. Offer a binary printer that displays value using single-character names (e.g., "RGB" for white, "R-B" for purple). Needs make_bitmask_enum_binary_spec() that enforces single-char names.
+   d. Consider offering a parser to convert string to enum by splitting on "+", trimming spaces, and adding bit values. Consider frozen for compile-time map construction with runtime binary search.
+   e. Consider providing operator[] that returns bool for a given index (op version of get_at), plus a proxy object to invoke set_at.
+   f. Consider some/all helper functions for readable multi-bit comparisons (e.g., `rgb_yellow == some(rgb::red, rgb::green)`).
+
+27. enums/sequence_enum.h - sequence enum improvements:
+   a. Consider specializing std::numeric_limits for sequence enums, inheriting from underlying type and providing correct min/max values.
+   b. Consider making an arithmetic_enum variation that allows homogeneous operations for types like std::byte and other strongly-typed integers with full ops support.
+
+28. strings.h - string utility improvements:
+   a. Get extract_num to work with cstring_view cleanly. Options: add overloads for extract methods, or add extract_num to cstring class.
+
+29. controllers - controller improvements:
+   a. Consider writing a PID auto-tuning class that tunes P, I, D values against a given plant (passed as lambda). Phase 1: increase P until output overshoots. Phase 2: increase I until steady state matches setpoint. Phase 3: tune D to reduce overshoot. Use binary search or gradient descent. Consider ITAE metric and Ziegler-Nichols method.
+
+30. tests - test improvements:
+   a. tests/opt_string_view_test.cpp: Add unit tests for optional workalike functions. Consider porting them all to cstring_view.
+   b. tests/opt_string_view_test.cpp: Figure out why the && overloads for optional workalike functions don't work.
+   c. tests/containers_test.cpp: Follow up on why intern table key can't be a temporary.
+   d. tests/containers_test.cpp: Add proper isolated unit tests for arena_allocator.h.
+   e. tests/containers_test.cpp: Test arena capacity edge case (small arena, allocate exact capacity, verify second alloc gets new block).
+   f. tests/containers_test.cpp: Investigate when traits wrap key in unnecessary indirect_hash_key (affects performance).
+   g. tests/containers_test.cpp: Test own_ptr with a move-only pointer type.
+   h. tests/containers_test.cpp: Add tests for op->* and more thorough tests for various synchronizer scenarios.
+   i. tests/strings_test.cpp: Add rlocate multi-string tests.
+   j. tests/strings_test.cpp: Add nested container torture test.
+   k. tests/strings_test.cpp: Test plain array, std::array, map, set, pair, tuple.
+   l. tests/strings_test.cpp: Test objects that aren't strings but have implicit conversion to string_view.
+   m. tests/sequence_enum_test.cpp: Check if enum_as_string works with unscoped enums.
+   n. tests/bitmask_enum_test.cpp: Find a way to avoid needing to repeat `rgb` in bitmask enum tests.
+   o. tests/bitmask_enum_test.cpp: Add test with make_interval<byte> to show how to use it correctly.
