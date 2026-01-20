@@ -51,3 +51,48 @@ h. strings_test needs more tests.
    d. Benchmark delim `find` single-char optimizations to verify performance gains.
    e. Consider offering a way to register a tuple-view function for use in formatted output.
    f. Consider offering the reverse of `stream_append_v` for deserialization.
+
+15. containers/own_ptr.h - own_ptr class improvements:
+   a. Consider supporting arrays (like std::unique_ptr<T[]>).
+   b. Consider supporting interop with `std::shared_ptr`.
+   c. Consider allowing specialization to make all operations atomic.
+
+16. containers/arena_allocator.h - extensible_arena class improvements:
+   a. Consider adding the ability to limit per-block sizes or total size.
+   b. Consider making the next block size constant, even when we had to blow past the limit to accommodate an oversize allocation.
+   c. Sufficiently filled should be defined as having less than 1/4 of the capacity free, although it could also be configured.
+   d. Consider changing algorithm so that we keep the current block as the head until it's sufficiently filled, overflowing as needed down the chain.
+
+17. containers/custom_handle.h - custom_handle class improvements:
+   a. Since move semantics don't work, attempt to allow assignment from a pointer.
+
+18. containers/sync_lock.h - synchronizer class improvements:
+   a. Consider adding a safe version of mutex, perhaps based on `std::timed_mutex`, which throws if a lock is not acquired within a certain time.
+   b. Consider whether we need an `empty_t` trick to make it easier to specialize the synchronizer away.
+
+19. containers/strong_type.h - strong_type class improvements:
+   a. Test use case of nested types, where a T is itself a strong_type on a different tag.
+   b. Test use case of a lambda as the underlying type.
+   c. Consider changing the requires clauses to AND in a flag that can be specialized, allowing opt-out of operations.
+
+20. containers/timers.h - timers class improvements:
+   a. Add method to block until next event is scheduled, which may be pre-empted by the rescheduling of a repeating event or insertion of a new event.
+   b. Add poll method that waits until the next event is scheduled or a new event is scheduled. This requires an interruptible wait.
+   c. Add clear or reset method to drop all scheduled events. Perhaps add another method to remove all recurring events, optionally sparing them if they've never executed.
+   d. Add shutdown tombstone to prevent events from being rescheduled. Wrap it with a method, perhaps a second one that clears recurring.
+
+21. containers/interval.h - interval class improvements:
+   a. Consider defaulting `U` to `int64_t` so that it works better when `V` is an enum. Alternately, create something like `as_underlying_t` that maps to a larger size when possible.
+   b. Consider storing a closed interval (in interval_iterator) to avoid needing a larger iterator type, merging invalid and empty into a single state.
+   c. Consider writing comparison operators and make it work even if their types are different.
+   d. In append_fn: Consider printing as half-open interval unless JSON.
+   e. In append_fn: Consider printing enum string instead of integer.
+
+22. containers/intern.h improvements:
+   a. interned_value::operator==: If the value is itself a view, then we should compare the views. One way would be to compare `begin()`, if it's available.
+   b. intern_traits: Add arena size as a parameter.
+   c. intern_traits: A deque is only being used for lookup_by_id_ because we want to be able to enlarge without moving. As an optional optimization, write a class with a signature similar to vector or deque that is streamlined to only support appending.
+   d. intern_traits: An entirely different scheme would be to store the values in a stable associative container, such as a map, and then use a deque to store pointers into the map.
+   e. intern_traits: See if specializations can inherit from the primary template and just replace the types that changed.
+   f. intern_table constructor: Consider whether we should disable `next` if it's specified.
+   g. intern_table: Add real or fake arena allocator, depending on traits. Then create real or fake scopes in the methods that can allocate.

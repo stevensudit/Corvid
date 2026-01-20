@@ -130,9 +130,6 @@ public:
 
   // Equality is optimized to compare by address. We do not want to compare
   // ID's because we can't be sure that they're from the same table.
-  //
-  // TODO: If the value is itself a view, then we should compare the views. One
-  // way would be to compare `begin()`, if it's available.
   constexpr bool operator==(const interned_value& other) const noexcept {
     return value_ == other.value_;
   }
@@ -204,8 +201,6 @@ private:
 // - `lookup_by_value_t` is the container that indexes the interned values. In
 // principle, the key could be a value_t, but we use a key_t to avoid
 // duplicating the value in the lookup_by_id_ container.
-//
-// TODO: Add arena size as a parameter.
 template<typename T, SequentialEnum ID>
 struct intern_traits<T, ID> {
   using value_t = T;
@@ -216,22 +211,6 @@ struct intern_traits<T, ID> {
   using lookup_by_id_t = std::deque<value_t>;
   using lookup_by_value_t = std::unordered_map<key_t, id_t>;
 };
-
-// TODO: A deque is only being used because we want to be able to enlarge
-// without moving, so we need something that amounts to a linked list. As an
-// entirely optional optimization, write a class with a signature similar to
-// vector or deque that is streamlined to only support appending, and to use
-// one level of indirection for indexes.
-
-// TODO: An entirely different scheme would be to store the values in a stable
-// associative container, such as a map, and then use a deque to store pointers
-// into the map, thus reversing the pattern. It would add an extra level of
-// indirection to looking up by ID but possibly speed up the by-value lookups.
-// It's unclear whether it's worth experimenting with this, and whether
-// template magic could be used to allow both schemes in the same class.
-
-// TODO: See if specializations can inherit from the primary template and
-// just replace the types that changed.
 
 // For strings, the default traits use an arena to hold the strings and the
 // containers that index them. Strings are stored as `arena_string` but are
@@ -268,6 +247,10 @@ public:
   using key_t = typename TR::key_t;
   using lookup_by_id_t = typename TR::lookup_by_id_t;
   using lookup_by_value_t = typename TR::lookup_by_value_t;
+  // Safety: arena_value_t and value_t must be layout-compatible (same size and
+  // memory layout) for the reinterpret_cast in get/intern/find_by_id to be
+  // valid. For strings, arena_string is std::basic_string with a different
+  // allocator, which maintains ABI compatibility.
   static_assert(sizeof(arena_value_t) == sizeof(value_t));
 
   // Effectively-private constructor.
@@ -278,7 +261,6 @@ public:
         next_{std::move(next)} {
     assert(min_id);
     assert(min_id_ < max_id_);
-    // TODO: Consider whether we should disable `next` if it's specified.
   }
 
   intern_table(const intern_table&) = delete;
@@ -415,9 +397,6 @@ private:
   lookup_by_id_t& lookup_by_id_;
   lookup_by_value_t& lookup_by_value_;
   const_pointer next_;
-
-  // TODO: Add real or fake arena allocator, depending on traits. Then create
-  // real or fake scopes in the methods that can allocate.
 
   // Find value by ID, returning address or `nullptr`.
   [[nodiscard]] const value_t* find_by_id(id_t id) const {

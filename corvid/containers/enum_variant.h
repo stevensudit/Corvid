@@ -223,7 +223,7 @@ class enum_variant {
 public:
   using underlying_type = std::variant<Ts...>;
   using enum_type = E;
-  static constexpr enum_type variant_npos = -1;
+  static constexpr enum_type variant_npos = static_cast<enum_type>(-1);
   static constexpr std::size_t variant_size = sizeof...(Ts);
 
 #pragma region Construct and Assign

@@ -199,10 +199,10 @@ public:
   [[nodiscard]] auto& operator[](size_type index) noexcept {
     return data(index_at(index));
   }
-  [[nodiscard]] const auto& at(size_type index) const noexcept {
+  [[nodiscard]] const auto& at(size_type index) const {
     return data(index_at_checked(index));
   }
-  [[nodiscard]] auto& at(size_type index) noexcept {
+  [[nodiscard]] auto& at(size_type index) {
     return data(index_at_checked(index));
   }
 

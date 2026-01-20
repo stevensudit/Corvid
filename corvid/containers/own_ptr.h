@@ -56,10 +56,6 @@ using pointer = typename get_pointer_type<T, Deleter>::type;
 // - The rhs is always an rvalue reference, even for a raw ptr.
 // - Works with a deleter that supports a custom_handle that is not a pointer.
 // - Does not support arrays at this time.
-//
-// TODO: Consider supporting arrays.
-// TODO: Consider supporting interop with `std::shared_ptr`.
-// TODO: Consider allowing specialization to make all operations atomic.
 template<typename T, class Deleter = std::default_delete<T>>
 class own_ptr final {
 public:
@@ -186,7 +182,7 @@ public:
     other.ptr_ = pointer{};
   }
 
-  ~own_ptr() { do_delete() = pointer{}; }
+  ~own_ptr() { do_delete(); }
 
   own_ptr(own_ptr&) = delete;
   own_ptr(const own_ptr&) = delete;

@@ -377,10 +377,6 @@ public:
     return callbacks_invoked;
   }
 
-  // TODO: Add method to block until next event is scheduled, which may be
-  // pre-empted by the rescheduling of a repeating event or insertion of a new
-  // event.
-
   // For testing only, replace clock with artificial one.
   void set_clock_callback(const clock_callback_t& callback,
       const lock& attestation = {}) {
@@ -404,14 +400,5 @@ private:
   // `scheduled_events_` at any time.
   scheduled_queue_t scheduled_events_;
 };
-
-// TODO: Add poll method that waits until the next event is scheduled or a new
-// event is scheduled. This requires an interruptible wait.
-// TODO: Add clear or reset to drop all scheduled events. Perhaps add another
-// method to remove all recurring events, optionally sparing them if they've
-// never executed. Do we need a monotonic class that allows incrementing but
-// not anything else?
-// TODO: Add shutdown tombstone to prevent events from being rescheduled. Wrap
-// it with a method, perhaps a second one that clears recurring.
 
 } // namespace corvid::timers_ns
