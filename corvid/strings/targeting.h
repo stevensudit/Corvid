@@ -36,7 +36,7 @@ template<typename T>
 class appender;
 
 // Base class with shared functionality using C++23 deducing this.
-// This replaces the CRTP pattern - the `this auto& self` parameter deduces
+// This replaces the CRTP pattern - the `this auto&& self` parameter deduces
 // the actual derived type, allowing base class methods to call derived
 // class methods and return the correct type.
 template<typename T>

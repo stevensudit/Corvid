@@ -632,9 +632,19 @@ void StringUtilsTest_LocateEdges() {
     EXPECT_EQ(strings::rlocate<npos_choice::size>(s, {"uvw"sv, "xyz"sv}),
         (location{s.size(), 2}));
   }
-  // Test for catching the subtle error of passing an initializer list of
-  // string literals.
-  if (true) {}
+  // Test that passing an initializer list of string literals (without sv
+  // suffix) works correctly via implicit conversion to string_view.
+  if (true) {
+    constexpr auto s = "abcdefghijabcdefghij"sv;
+    // locate with psz (string literals) should match sv behavior.
+    EXPECT_EQ(strings::locate(s, {"ab", "cd"}), (location{0U, 0U}));
+    EXPECT_EQ(strings::locate(s, {"cd", "ab"}), (location{0U, 1U}));
+    EXPECT_EQ(strings::locate(s, {"xy", "zz"}), nloc);
+    // rlocate with psz.
+    EXPECT_EQ(strings::rlocate(s, {"ab", "cd"}), (location{12U, 1U}));
+    EXPECT_EQ(strings::rlocate(s, {"cd", "ab"}), (location{12U, 0U}));
+    EXPECT_EQ(strings::rlocate(s, {"xy", "zz"}), nloc);
+  }
   // Confirm the correctness of infinite loops.
   if (true) {
     constexpr auto s = "abcdefghijabcdefghij"sv;
@@ -1761,7 +1771,7 @@ constexpr auto registry::enum_spec_v<marine_rank> =
         "MasterGunnerySergeant, SergeantMajor, SergeantMajorOfTheMarineCorps",
         wrapclip::limit>();
 
-// Enum with special characters in names for quote-encoding test).
+// Enum with special characters in names for quote-encoding test.
 enum class special_chars : int { normal, has_backslash, has_quote };
 
 template<>
@@ -2172,8 +2182,7 @@ void StringUtilsTest_StdFromChars() {
     // Note: The fallback std_from_chars implementation has a limitation where
     // invalid input like "xyz" returns success with value 0.0 and ptr at
     // start. The extract_num wrapper checks for character consumption, so it
-    // may still fail in some cases. This behavior is documented in TODO
-    // item 6.
+    // may still fail in some cases.
   }
   // Test parse_num float wrappers.
   if (true) {
