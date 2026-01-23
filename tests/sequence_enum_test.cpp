@@ -141,6 +141,35 @@ template<>
 constexpr auto registry::enum_spec_v<eneg128_127> = make_sequence_enum_spec<
     eneg128_127, eneg128_127{127}, eneg128_127{-128}>();
 
+// Range of 0 to 3. Tests int64_t underlying type.
+enum class e64_0_3 : int64_t {};
+
+template<>
+constexpr auto registry::enum_spec_v<e64_0_3> = make_sequence_enum_spec<
+    e64_0_3, "alpha, beta, gamma, delta", wrapclip::limit>();
+
+// Range with large int64_t values near the limits.
+enum class e64_large : int64_t {};
+
+template<>
+constexpr auto registry::enum_spec_v<e64_large> = make_sequence_enum_spec<
+    e64_large, "low, mid, high", wrapclip::limit, e64_large{1000000000000}>();
+
+// Range of 0 to 3. Tests uint64_t underlying type.
+enum class eu64_0_3 : uint64_t {};
+
+template<>
+constexpr auto registry::enum_spec_v<eu64_0_3> = make_sequence_enum_spec<
+    eu64_0_3, "one, two, three, four", wrapclip::limit>();
+
+// Range with large uint64_t values.
+enum class eu64_large : uint64_t {};
+
+template<>
+constexpr auto registry::enum_spec_v<eu64_large> =
+    make_sequence_enum_spec<eu64_large, "first, second, third",
+        wrapclip::limit, eu64_large{UINT64_C(10000000000000000000)}>();
+
 void SequentialEnumTest_MakeSafely() {
   if (true) {
     e0_3 e;
@@ -628,11 +657,232 @@ void SequentialEnumTest_ExtractEnum() {
   }
 }
 
+void SequentialEnumTest_Int64() {
+  // Test basic operations with int64_t underlying type.
+  if (true) {
+    e64_0_3 e;
+    e = make<e64_0_3>(0);
+    EXPECT_EQ(*e, 0);
+    e = make<e64_0_3>(1);
+    EXPECT_EQ(*e, 1);
+    e = make<e64_0_3>(3);
+    EXPECT_EQ(*e, 3);
+
+    // Test arithmetic.
+    e = make<e64_0_3>(0);
+    ++e;
+    EXPECT_EQ(*e, 1);
+    --e;
+    EXPECT_EQ(*e, 0);
+    e += 2;
+    EXPECT_EQ(*e, 2);
+    e -= 1;
+    EXPECT_EQ(*e, 1);
+  }
+  // Test make_safely wrapping with int64_t.
+  if (true) {
+    e64_0_3 e;
+    e = make_safely<e64_0_3>(0);
+    EXPECT_EQ(*e, 0);
+    e = make_safely<e64_0_3>(3);
+    EXPECT_EQ(*e, 3);
+
+    // Wrap around.
+    e = make_safely<e64_0_3>(4);
+    EXPECT_EQ(*e, 0);
+    e = make_safely<e64_0_3>(5);
+    EXPECT_EQ(*e, 1);
+    e = make_safely<e64_0_3>(-1);
+    EXPECT_EQ(*e, 3);
+    e = make_safely<e64_0_3>(-2);
+    EXPECT_EQ(*e, 2);
+  }
+  // Test enum_as_string with int64_t.
+  if (true) {
+    using namespace strings;
+    EXPECT_EQ(enum_as_string(e64_0_3(0)), "alpha");
+    EXPECT_EQ(enum_as_string(e64_0_3(1)), "beta");
+    EXPECT_EQ(enum_as_string(e64_0_3(2)), "gamma");
+    EXPECT_EQ(enum_as_string(e64_0_3(3)), "delta");
+    EXPECT_EQ(enum_as_string(e64_0_3(-1)), "-1");
+    EXPECT_EQ(enum_as_string(e64_0_3(4)), "4");
+  }
+  // Test large int64_t values.
+  if (true) {
+    e64_large e;
+    e = make<e64_large>(1000000000000);
+    EXPECT_EQ(*e, 1000000000000);
+    e = make<e64_large>(1000000000001);
+    EXPECT_EQ(*e, 1000000000001);
+    e = make<e64_large>(1000000000002);
+    EXPECT_EQ(*e, 1000000000002);
+
+    // Test arithmetic with large values.
+    e = make<e64_large>(1000000000000);
+    ++e;
+    EXPECT_EQ(*e, 1000000000001);
+    ++e;
+    EXPECT_EQ(*e, 1000000000002);
+  }
+  // Test enum_as_string with large int64_t values.
+  if (true) {
+    using namespace strings;
+    EXPECT_EQ(enum_as_string(e64_large(1000000000000)), "low");
+    EXPECT_EQ(enum_as_string(e64_large(1000000000001)), "mid");
+    EXPECT_EQ(enum_as_string(e64_large(1000000000002)), "high");
+    EXPECT_EQ(enum_as_string(e64_large(999999999999)), "999999999999");
+    EXPECT_EQ(enum_as_string(e64_large(1000000000003)), "1000000000003");
+  }
+  // Test basic operations with uint64_t underlying type.
+  if (true) {
+    eu64_0_3 e;
+    e = make<eu64_0_3>(0);
+    EXPECT_EQ(*e, 0U);
+    e = make<eu64_0_3>(1);
+    EXPECT_EQ(*e, 1U);
+    e = make<eu64_0_3>(3);
+    EXPECT_EQ(*e, 3U);
+
+    // Test arithmetic.
+    e = make<eu64_0_3>(0);
+    ++e;
+    EXPECT_EQ(*e, 1U);
+    e += 2;
+    EXPECT_EQ(*e, 3U);
+  }
+  // Test make_safely wrapping with uint64_t.
+  if (true) {
+    eu64_0_3 e;
+    e = make_safely<eu64_0_3>(0);
+    EXPECT_EQ(*e, 0U);
+    e = make_safely<eu64_0_3>(3);
+    EXPECT_EQ(*e, 3U);
+
+    // Wrap around.
+    e = make_safely<eu64_0_3>(4);
+    EXPECT_EQ(*e, 0U);
+    e = make_safely<eu64_0_3>(5);
+    EXPECT_EQ(*e, 1U);
+  }
+  // Test enum_as_string with uint64_t.
+  if (true) {
+    using namespace strings;
+    EXPECT_EQ(enum_as_string(eu64_0_3(0)), "one");
+    EXPECT_EQ(enum_as_string(eu64_0_3(1)), "two");
+    EXPECT_EQ(enum_as_string(eu64_0_3(2)), "three");
+    EXPECT_EQ(enum_as_string(eu64_0_3(3)), "four");
+    EXPECT_EQ(enum_as_string(eu64_0_3(4)), "4");
+  }
+  // Test large uint64_t values.
+  if (true) {
+    eu64_large e;
+    e = make<eu64_large>(UINT64_C(10000000000000000000));
+    EXPECT_EQ(*e, UINT64_C(10000000000000000000));
+    e = make<eu64_large>(UINT64_C(10000000000000000001));
+    EXPECT_EQ(*e, UINT64_C(10000000000000000001));
+    e = make<eu64_large>(UINT64_C(10000000000000000002));
+    EXPECT_EQ(*e, UINT64_C(10000000000000000002));
+
+    // Test arithmetic with large values.
+    e = make<eu64_large>(UINT64_C(10000000000000000000));
+    ++e;
+    EXPECT_EQ(*e, UINT64_C(10000000000000000001));
+    ++e;
+    EXPECT_EQ(*e, UINT64_C(10000000000000000002));
+  }
+  // Test enum_as_string with large uint64_t values.
+  if (true) {
+    using namespace strings;
+    EXPECT_EQ(enum_as_string(eu64_large(UINT64_C(10000000000000000000))),
+        "first");
+    EXPECT_EQ(enum_as_string(eu64_large(UINT64_C(10000000000000000001))),
+        "second");
+    EXPECT_EQ(enum_as_string(eu64_large(UINT64_C(10000000000000000002))),
+        "third");
+  }
+  // Test intervals with int64_t.
+  if (true) {
+    int c{};
+    int64_t s{};
+    for (auto e : make_interval<e64_0_3>()) {
+      ++c;
+      s += *e;
+    }
+    EXPECT_EQ(c, 4);
+    EXPECT_EQ(s, 0 + 1 + 2 + 3);
+  }
+  // Test intervals with uint64_t.
+  if (true) {
+    int c{};
+    uint64_t s{};
+    for (auto e : make_interval<eu64_0_3>()) {
+      ++c;
+      s += *e;
+    }
+    EXPECT_EQ(c, 4);
+    EXPECT_EQ(s, 0U + 1U + 2U + 3U);
+  }
+  // Test extract_enum with int64_t.
+  if (true) {
+    using namespace corvid::strings;
+    e64_0_3 e{};
+    std::string_view sv;
+
+    sv = "0";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(*e, 0);
+
+    sv = "alpha";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(*e, 0);
+
+    sv = "delta";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(*e, 3);
+  }
+  // Test extract_enum with uint64_t.
+  if (true) {
+    using namespace corvid::strings;
+    eu64_0_3 e{};
+    std::string_view sv;
+
+    sv = "0";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(*e, 0U);
+
+    sv = "one";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(*e, 0U);
+
+    sv = "four";
+    EXPECT_TRUE(extract_enum(e, sv));
+    EXPECT_TRUE(sv.empty());
+    EXPECT_EQ(*e, 3U);
+  }
+  // Test streaming with int64_t.
+  if (true) {
+    std::stringstream ss;
+    ss << e64_0_3(1) << std::flush;
+    EXPECT_EQ(ss.str(), "beta");
+  }
+  // Test streaming with uint64_t.
+  if (true) {
+    std::stringstream ss;
+    ss << eu64_0_3(2) << std::flush;
+    EXPECT_EQ(ss.str(), "three");
+  }
+}
+
 MAKE_TEST_LIST(SequentialEnumTest_Registry, SequentialEnumTest_Ops,
     SequentialEnumTest_MakeSafely, SequentialEnumTest_SafeOps,
     SequentialEnumTest_SubtleBugRepro, SequentialEnumTest_StreamingOut,
     SequentialEnumTest_Missing, SequentialEnumTest_Intervals,
-    SequentialEnumTest_ExtractEnum);
+    SequentialEnumTest_ExtractEnum, SequentialEnumTest_Int64);
 
 // TODO: Check if enum_as_string works with unscoped enums. Should it? Or
 // should it just count as an int?

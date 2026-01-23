@@ -35,25 +35,35 @@ namespace corvid::strings { inline namespace targeting {
 template<typename T>
 class appender;
 
-// CRTP base.
+// Base class with shared functionality using C++23 deducing this.
+// This replaces the CRTP pattern - the `this auto& self` parameter deduces
+// the actual derived type, allowing base class methods to call derived
+// class methods and return the correct type.
 template<typename T>
-class appender_crtp {
-  using Base = appender_crtp<T>;
-  using Child = appender<T>;
-
+class appender_base {
 public:
-  explicit appender_crtp(T& target) : target_{target} {}
-  auto& child() { return *static_cast<Child*>(this); }
+  explicit appender_base(T& target) : target_{target} {}
 
-  auto& append(std::string_view sv) { return child().append_sv(sv); }
-  auto& append(const char* ps, size_t len) { return append({ps, len}); }
-  auto& append(char ch) { return child().append_ch(1, ch); }
-  auto& append(size_t len, char ch) { return child().append_ch(len, ch); }
+  // Deducing this: `self` deduces to the actual derived type (appender<T>).
+  // All append overloads forward to append_sv or append_ch in the derived.
+  auto& append(this auto&& self, std::string_view sv) {
+    return self.append_sv(sv);
+  }
+  auto& append(this auto&& self, const char* ps, size_t len) {
+    return self.append(std::string_view{ps, len});
+  }
+  auto& append(this auto&& self, char ch) { return self.append_ch(1, ch); }
+  // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+  auto& append(this auto&& self, size_t len, char ch) {
+    return self.append_ch(len, ch);
+  }
 
-  auto& reserve(size_t) { return *this; }
+  // Default reserve is no-op; string specialization overrides.
+  // Uses deducing this for return type consistency, not polymorphic dispatch.
+  auto& reserve(this auto&& self, size_t) { return self; }
 
-  T& operator*() { return target_; }
-  T* operator->() { return &target_; }
+  [[nodiscard]] T& operator*() { return target_; }
+  [[nodiscard]] T* operator->() { return &target_; }
 
 protected:
   T& target_;
@@ -61,45 +71,48 @@ protected:
 
 // std::ostream specialization.
 template<OStreamDerived T>
-class appender<T> final: public appender_crtp<T> {
+class appender<T> final: public appender_base<T> {
+  using appender_base<T>::target_;
+
 public:
-  explicit appender(T& target) : appender_crtp<T>{target} {}
+  using appender_base<T>::appender_base;
 
 private:
-  friend appender_crtp<T>;
+  friend appender_base<T>;
   auto& append_sv(std::string_view sv) {
-    appender_crtp<T>::target_.write(sv.data(), sv.size());
+    target_.write(sv.data(), sv.size());
     return *this;
   }
-  // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
   auto& append_ch(size_t len, char ch) {
-    while (len--) appender_crtp<T>::target_.put(ch);
+    while (len--) target_.put(ch);
     return *this;
   }
 };
 
 // String specialization.
 template<StdString T>
-class appender<T> final: public appender_crtp<T> {
+class appender<T> final: public appender_base<T> {
+  using appender_base<T>::target_;
+
 public:
-  explicit appender(T& target) : appender_crtp<T>{target} {}
+  using appender_base<T>::appender_base;
 
   auto& reserve(size_t len) {
-    appender_crtp<T>::target_.reserve(appender_crtp<T>::target_.size() + len);
+    target_.reserve(target_.size() + len);
     return *this;
   }
 
 private:
-  friend appender_crtp<T>;
+  friend appender_base<T>;
   auto& append_sv(std::string_view sv) {
-    appender_crtp<T>::target_.append(sv);
+    target_.append(sv);
     return *this;
   }
   auto& append_ch(size_t len, char ch) {
     if (len == 1)
-      appender_crtp<T>::target_.push_back(ch);
+      target_.push_back(ch);
     else
-      appender_crtp<T>::target_.append(len, ch);
+      target_.append(len, ch);
     return *this;
   }
 };
