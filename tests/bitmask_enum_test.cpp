@@ -42,7 +42,6 @@ enum class rgb : std::int8_t {
   white = 7   // rgb
 };
 
-// TODO: Think of a way to avoid needing to repeat `rgb`.
 template<>
 constexpr auto registry::enum_spec_v<rgb> =
     make_bitmask_enum_spec<rgb, "red, green, blue">();
@@ -788,9 +787,6 @@ void BitMaskTest_ExtractEnum() {
     EXPECT_FALSE(extract_enum(e, sv));
   }
 }
-
-// TODO: Add test with make_interval<byte> to show how to use it correctly.
-// It'll fail by default, so you have to specify a larger underlying type.
 
 void BitMaskTest_HoleyOps() {
   // Tests for op~ and flip with bit masks that have holes (non-contiguous

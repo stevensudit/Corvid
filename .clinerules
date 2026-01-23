@@ -25,6 +25,10 @@
 - When the user asks to commit changes, use `git add .` to stage all changes (including user-made modifications)
 - This ensures any additional changes the user made are included in the commit
 - Use `git switch` instead of `git checkout` for switching branches (safer and clearer intent)
+- **Squash-merge workflow**: PRs are squash-merged, so updates in response to review should be additional commits, not amended ones
+  - Separate commits make it easier to see what changed in response to feedback
+  - Avoids force-push, which can disrupt reviewers
+  - All commits are squashed into one on merge anyway
 
 ## Testing
 - Test executables are built to: tests/build/release_bin/

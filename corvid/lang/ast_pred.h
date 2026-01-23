@@ -533,9 +533,3 @@ private:
   }
 };
 }}} // namespace corvid::lang::ast_pred
-
-// TODO: Properly register the variants so that they can be printed as JSON
-// without all of these helper functions.
-// TODO: Turn tautologies into always_true or always_false nodes. This is easy
-// for always_true and always_false, but we need to be able to determine if an
-// equality is mutually exclusive. It's even trickier for inequalities.

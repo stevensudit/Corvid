@@ -1,94 +1,89 @@
-1. Do all the TODO's scattered throughout the code.
-a. Interval needs a major rewrite.
-c. concat_join has lots to do. and conversion.h has a related change.
-e. string.h has some TODO's.
-f. bitmask_enum_tests has some.
-g. meta_test has a whole section commented out.
-h. strings_test needs more tests.
+1. enums/bitmask_enum.h, enums/sequence_enum.h: Not sure if it's possible, or desirable, but can we overload operators for bitmask and sequence enums to allow comparison with the underlying type? It's still type-safe, but now we don't need to "deref".
 
-2. Consider how ostream could be made optional.
+2. Consider adding `final` to classes that really ought to be. Candidates include:
+   a. containers/tombstone.h: tombstone_of
+   b. containers/enum_variant.h: enum_variant
+   c. containers/indirect_key.h: indirect_hash_key, indirect_map_key
+   d. containers/interval.h: interval
+   e. containers/arena_allocator.h: arena_allocator
+   f. containers/intern.h: interned_value
+   g. containers/timers.h: timer_invocation
+   h. containers/strong_type.h: strong_type
+   i. controllers/sopdt_plant.h: soptd_plant
+   j. controllers/pid_controller.h: pid_controller
+   k. strings/delimiting.h: delim
+   l. strings/fixed_string.h: fixed_string
+   m. strings/locating.h: location, pos_range
+   n. strings/splitting.h: piece_generator
 
-3. We need a verson of split that understands quotes and escaping. Maybe just regex and be done with it?
+3. meta/containers.h search_and_replace: Consider adding a version that takes parallel arrays for `from` and `to`, replacing all of them. This can't be emulated by nesting.
 
-4. Test enums with int64.
+4. strings/fixed_string_utils.h: Consider writing a version of split that also does a search/replace in parallel (one pass to locate, count, and do the replacements).
 
-5. Not sure if it's possible, or desirable, but can we overload operators for bitmask and sequence enums to allow comparison with the underlying type? It's still type-safe, but now we don't need to "deref".
-
-  // TODO: Fix splitter, working on adding a filter predicate and perhaps
-  // allowing assignment to arbitrary containers.
-
-6. Remove CRTP using "deducing this".
-
-7. Consider adding `final` to classes that really ought to be.
-
-8. meta/containers.h search_and_replace: Consider adding a version that takes parallel arrays for `from` and `to`, replacing all of them. This can't be emulated by nesting.
-
-9. strings/fixed_string_utils.h: Consider writing a version of split that also does a search/replace in parallel (one pass to locate, count, and do the replacements).
-
-10. strings/locating.h substitution/excision improvements:
+5. strings/locating.h substitution/excision improvements:
    a. Substituted and excised don't work for initializer lists. Wrap them.
    b. Excise can always be optimized to do a single pass over the string (locate and copy, skipping the excised parts).
    c. Consider replacing free functions with something more object-oriented (fluent interface or builder pattern).
    d. Benchmark whether it's faster to do replacements in-place or to build a new string with pre-allocated capacity.
    e. If span size is 1, forward to regular locate with pos_value hardcoded to zero, since we know which value it was.
 
-11. strings/conversion.h: Add thorough testing for from_chars_wrap, or replace with a stable third-party library.
+6. strings/trimming.h: Determine if there's a safe, correct way to pass through a temporary container without lifetime issues.
 
-12. strings/trimming.h: Determine if there's a safe, correct way to pass through a temporary container without lifetime issues.
+7. strings/splitting.h enhancements:
+   a. We need a version of split that understands quotes and escaping. Maybe just regex and be done with it?
+   b. Fix splitter, working on adding a filter predicate and perhaps allowing assignment to arbitrary containers.
+   c. Probably kill the hardcoded vector-only split() overloads that return std::vector.
+   d. Consider supporting extended concept where there's a way to register custom splitter behavior.
+   e. Write helper in locating.h to take a `location` and return a substring span.
+   f. Write split_adapter version that works with any container that can emplace_back.
+   g. Implement split_adapter with efficient pre-allocation and single-pass splitting.
+   h. Benchmark and optimize single-char delimiter handling.
 
-13. strings/splitting.h enhancements:
-   a. Probably kill the hardcoded vector-only split() overloads that return std::vector.
-   b. Consider supporting extended concept where there's a way to register custom splitter behavior.
-   c. Write helper in locating.h to take a `location` and return a substring span.
-   d. Write split_adapter version that works with any container that can emplace_back.
-   e. Implement split_adapter with efficient pre-allocation and single-pass splitting.
-   f. Benchmark and optimize single-char delimiter handling.
-
-14. strings/concat_join.h improvements:
+8. strings/concat_join.h improvements:
    a. Consider adding !Container validation and null key handling in append_join_with for pairs.
-   b. Test quote-encoding when a non-string is wrapped in quotes.
-   c. Add method that takes pieces and counts up their total (estimated) size for pre-allocation.
-   d. Benchmark delim `find` single-char optimizations to verify performance gains.
-   e. Consider offering a way to register a tuple-view function for use in formatted output.
-   f. Consider offering the reverse of `stream_append_v` for deserialization.
+   b. Add method that takes pieces and counts up their total (estimated) size for pre-allocation.
+   c. Benchmark delim `find` single-char optimizations to verify performance gains.
+   d. Consider offering a way to register a tuple-view function for use in formatted output.
+   e. Consider offering the reverse of `stream_append_v` for deserialization.
 
-15. containers/own_ptr.h - own_ptr class improvements:
+9. containers/own_ptr.h - own_ptr class improvements:
    a. Consider supporting arrays (like std::unique_ptr<T[]>).
    b. Consider supporting interop with `std::shared_ptr`.
    c. Consider allowing specialization to make all operations atomic.
 
-16. containers/arena_allocator.h - extensible_arena class improvements:
+10. containers/arena_allocator.h - extensible_arena class improvements:
    a. Consider adding the ability to limit per-block sizes or total size.
    b. Consider making the next block size constant, even when we had to blow past the limit to accommodate an oversize allocation.
    c. Sufficiently filled should be defined as having less than 1/4 of the capacity free, although it could also be configured.
    d. Consider changing algorithm so that we keep the current block as the head until it's sufficiently filled, overflowing as needed down the chain.
 
-17. containers/custom_handle.h - custom_handle class improvements:
+11. containers/custom_handle.h - custom_handle class improvements:
    a. Since move semantics don't work, attempt to allow assignment from a pointer.
 
-18. containers/sync_lock.h - synchronizer class improvements:
+12. containers/sync_lock.h - synchronizer class improvements:
    a. Consider adding a safe version of mutex, perhaps based on `std::timed_mutex`, which throws if a lock is not acquired within a certain time.
    b. Consider whether we need an `empty_t` trick to make it easier to specialize the synchronizer away.
 
-19. containers/strong_type.h - strong_type class improvements:
+13. containers/strong_type.h - strong_type class improvements:
    a. Test use case of nested types, where a T is itself a strong_type on a different tag.
    b. Test use case of a lambda as the underlying type.
    c. Consider changing the requires clauses to AND in a flag that can be specialized, allowing opt-out of operations.
 
-20. containers/timers.h - timers class improvements:
+14. containers/timers.h - timers class improvements:
    a. Add method to block until next event is scheduled, which may be pre-empted by the rescheduling of a repeating event or insertion of a new event.
    b. Add poll method that waits until the next event is scheduled or a new event is scheduled. This requires an interruptible wait.
    c. Add clear or reset method to drop all scheduled events. Perhaps add another method to remove all recurring events, optionally sparing them if they've never executed.
    d. Add shutdown tombstone to prevent events from being rescheduled. Wrap it with a method, perhaps a second one that clears recurring.
 
-21. containers/interval.h - interval class improvements:
-   a. Consider defaulting `U` to `int64_t` so that it works better when `V` is an enum. Alternately, create something like `as_underlying_t` that maps to a larger size when possible.
-   b. Consider storing a closed interval (in interval_iterator) to avoid needing a larger iterator type, merging invalid and empty into a single state.
-   c. Consider writing comparison operators and make it work even if their types are different.
-   d. In append_fn: Consider printing as half-open interval unless JSON.
-   e. In append_fn: Consider printing enum string instead of integer.
+15. containers/interval.h - interval class improvements:
+   a. Interval needs a major rewrite.
+   b. Consider defaulting `U` to `int64_t` so that it works better when `V` is an enum. Alternately, create something like `as_underlying_t` that maps to a larger size when possible.
+   c. Consider storing a closed interval (in interval_iterator) to avoid needing a larger iterator type, merging invalid and empty into a single state.
+   d. Consider writing comparison operators and make it work even if their types are different.
+   e. In append_fn: Consider printing as half-open interval unless JSON.
+   f. In append_fn: Consider printing enum string instead of integer.
 
-22. containers/intern.h improvements:
+16. containers/intern.h improvements:
    a. interned_value::operator==: If the value is itself a view, then we should compare the views. One way would be to compare `begin()`, if it's available.
    b. intern_traits: Add arena size as a parameter.
    c. intern_traits: A deque is only being used for lookup_by_id_ because we want to be able to enlarge without moving. As an optional optimization, write a class with a signature similar to vector or deque that is streamlined to only support appending.
@@ -96,3 +91,62 @@ h. strings_test needs more tests.
    e. intern_traits: See if specializations can inherit from the primary template and just replace the types that changed.
    f. intern_table constructor: Consider whether we should disable `next` if it's specified.
    g. intern_table: Add real or fake arena allocator, depending on traits. Then create real or fake scopes in the methods that can allocate.
+
+17. lang/ast_pred.h improvements:
+   a. Properly register the variants so that they can be printed as JSON without all of the helper functions.
+   b. Turn tautologies into always_true or always_false nodes. This is easy for always_true and always_false, but we need to be able to determine if an equality is mutually exclusive. It's even trickier for inequalities.
+
+18. enums/bitmask_enum.h improvements:
+   a. range_length: Consider making this correct even for validity masks with holes, or at least failing cleanly if we can't do that.
+   b. calc_valid_bits_from_bit_names: Consider offering a version that is aligned to the msb instead of the lsb. This would avoid forcing the user to potentially pad with dozens of commas.
+   c. Offer a printer that displays the value in binary. It would be defined much like the rest, except that the names would just so happen to be single-character, such as "r,g,b". Given this definition, we'd display "RGB" for white, "RgB" for purple, and "rgb" for black. We need a separate make_bitmask_enum_binary_spec() that enforces single-character names and also sets a new flag in bitmask_enum_names_spec so that its append multiplexer knows how to handle it.
+   d. Consider offering a parser to convert string to enum, using the same definition. In principle, it could split on "+", trim spaces, and then add up the bit values. Consider using a compile-time sorted map allowing binary search at runtime.
+   e. Consider providing `operator[]` that returns bool for a given index. Essentially, the op version of `get_at`. At that point, we could also provide a proxy object to invoke `set_at`.
+   f. Wacky idea: `rgb_yellow == some(rgb::red, rgb::green)` and `rgb_yellow == all(rgb::red, rgb::green)`. The function returns a local type that is initialized on the & of the parameters and offers an appropriate op== and !=. Make sure it doesn't interfere with direct == and !=.
+
+19. enums/sequence_enum.h improvements:
+   a. It might be nice if we could specialize `std::numeric_limits` for all enums that are flagged as sequence, inheriting from the underlying class and providing correct min and max values. Not sure if that's actually possible, though. Maybe we can't do it automatically but can make it easier.
+   b. Consider making a variation on sequence enums that allows homogeneous operations, which makes sense for `std::byte` and other strongly-typed integers, like `arithmetic_enum`. It would also support the full set of ops.
+
+20. strings.h: Get extract_num to work with cstring_view cleanly. It's safe because we only remove the prefix, never the suffix. The brute-force solution is to add overloads for the extract methods. Maybe add extract_num and such to cstring, so as not to pollute this.
+
+21. controllers/pid_controller.h: Consider clamping the integral term itself, but this would be yet another configuration option. In principle, we could also default to some fraction of the min and max values.
+
+22. controllers - PID tuning class: Consider writing a class that tunes a PID controller to work with a given SOPDT plant. The plant is handed to it as a lambda which takes a setting and returns the output. In the first phase, iterate over the P value, increasing it until the output just overshoots the setpoint. In the second phase, increase the I value until the steady state matches the setpoint. In the third phase, tune the D value to reduce overshoot and improve settling time. Consider implementing integral of time-weighted absolute error (ITEA) as a metric. We could use a binary search or gradient descent instead of a linear sweep. Alternately, just implement a simple Ziegler-Nichols tuning method.
+
+23. Test improvements - strings_test.cpp:
+   a. Maybe add rlocate multi-string tests.
+   b. Add nested container torture test.
+   c. Test plain array, std::array, map, set, pair, tuple.
+   d. Test objects that aren't strings but do have implicit conversion to string or string_view.
+
+24. Test improvements - sequence_enum_test.cpp: Check if enum_as_string works with unscoped enums. Should it? Or should it just count as an int?
+
+25. Test improvements - opt_string_view_test.cpp:
+   a. Add unit tests for the optional workalike functions. At that point, consider porting them all to cstring_view.
+   b. Figure out why the && overloads for the optional workalike functions don't work.
+
+26. Test improvements - containers_test.cpp:
+   a. Follow up on why key can't be a temporary (in indirect_key tests).
+   b. We need proper isolated unit tests just for the arena header.
+   c. Add a test for edge case of arena capacity use. Allocate a small thing, then allocate up to the edge. If the two are contiguous, then it fit.
+   d. When the traits wrap the key in an unnecessary indirect_hash_key, it breaks terribly. We need to test an arbitrary type that has no natural view as a key.
+   e. Test with a move-only pointer type (in own_ptr tests).
+   f. Add tests for op->* and perhaps more thorough tests for various different kinds of callbacks: function pointers, mutable lambdas, etc. (in strong_type tests).
+
+27. Test improvements - bitmask_enum_test.cpp:
+   a. Think of a way to avoid needing to repeat `rgb` when specializing enum_spec_v.
+   b. Add test with make_interval<byte> to show how to use it correctly. It'll fail by default, so you have to specify a larger underlying type.
+
+28. controllers/sopdt_plant.h: The delay buffer in `update()` could be optimized with a circular buffer instead of push_back/erase.
+
+29. Test improvements - timers_test.cpp: Multiple tests are disabled with `#if 0` and need to be enabled or fixed:
+   a. TimersTest_Repeating
+   b. TimersTest_Cancel
+   c. TimersTest_Reschedule
+   d. TimersTest_General
+   e. TimersTest_Edge
+
+30. Test improvements - containers_test.cpp: Disabled tests that need to be enabled or fixed:
+   a. own_ptr regression tests (around line 1039 and 1059) - tests for reference deleters and CTAD.
+   b. CustomHandleTest_Basic (around line 1118) - entire test function is disabled.

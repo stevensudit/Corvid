@@ -51,7 +51,6 @@ public:
 
   [[nodiscard]] double update(double u) {
     // Apply dead time via delay buffer.
-    // Note: This could be optimized with a circular buffer.
     delay_buffer_.push_back(u);
     const auto u_delayed = delay_buffer_.front();
     delay_buffer_.erase(delay_buffer_.begin());

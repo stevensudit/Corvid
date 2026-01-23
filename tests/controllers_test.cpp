@@ -156,30 +156,6 @@ void sopdt_plant_test() {
   }
 }
 
-// TODO:
-// Consider writing a class that tunes a PID controller to work with a given
-// SOPDT plant. The plant is handed to it as a lambda which takes a setting and
-// returns the output. In the first phase, the PID controller iterates over the
-// P value, increasing it until the output just overshoots the setpoint. This
-// will likely not be stable in the steady state, though. So, for the second
-// phase, it increases the I value until the steady state is reached matches
-// the setpoint (within tolerances). This will likely cause overshoot, so the
-// third phase will tune the D value to reduce the overshoot and improve
-// settling time. When the value stays within tolerances after hitting the
-// setpoint, we're done. Consider implementing integral of time-weighted
-// absolute error (ITEA) as a metric.
-//
-// We could use a binary search or gradient descent
-// instead of a linear sweep.
-//
-// It might be convenient if passing an input of NaN resets the plant.
-// Alternately, just implement a simple Ziegler-Nichols tuning method.
-//
-// Note: The lambda must maintain state across calls, as with a closure.
-// Also, for real systems, we want to test against measurement noise,
-// quantization, and nonlinearities(e.g., saturation, backlash), as by
-// introducing white noise into the lambda.
-
 MAKE_TEST_LIST(PidControllerTest, sopdt_plant_test);
 
 // NOLINTEND(readability-function-cognitive-complexity,
