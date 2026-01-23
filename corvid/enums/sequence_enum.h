@@ -379,20 +379,4 @@ template<ScopedEnum E, E maxseq, E minseq = E{}, wrapclip wrapseq = wrapclip{}>
   return sequence_enum_spec<E, maxseq, minseq, wrapseq>{};
 }
 
-//
-// TODO
-//
-
-// TODO: It might be nice if we could specialize `std::numeric_limits` for all
-// enums that are flagged as sequence, inheriting from the underlying class and
-// providing correct min and max values. Not sure if that's actually possible,
-// though. Maybe we can't do it automatically but can make it easier. Maybe
-// inheriting with specialization might work.
-
-// TODO: Consider making a variation on sequence enums that allows homogeneous
-// operations, which makes sense for `std::byte` and other strongly-typed
-// integers, like `arithmetic_enum`. It would also support the full set of ops.
-// Possibly, it would also qualify as a SequentialEnum, but it would not
-// benefit from anything more than numeric output.
-
 }}} // namespace corvid::enums::sequence

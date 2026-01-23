@@ -254,9 +254,6 @@ template<std::integral T>
 // Note: If `max_value_v` is the same as the maximum value of `size_t`, returns
 // 0, which is confusing but technically correct, which is the best kind of
 // correct.
-//
-// TODO: Consider making this correct even for validity masks with holes, or at
-// least failing cleanly if we can't do that.
 template<BitmaskEnum E>
 [[nodiscard]] constexpr auto range_length() noexcept {
   return to_integer<size_t>(max_value<E>()) + 1;
@@ -500,10 +497,6 @@ struct bitmask_enum_names_spec
 // Do not put a leading comma in the name list.
 //
 /// Whitespace is trimmed. An empty string or hyphen means invalid.
-//
-// TODO: Consider offering a version that is aligned to the msb instead of the
-// lsb. This would avoid forcing the user to potentally pad with dozens of
-// commas.
 template<strings::fixed_string bit_names>
 consteval uint64_t calc_valid_bits_from_bit_names() {
   static_assert(!strings::trim(bit_names.view(), " -").starts_with(","));
@@ -622,49 +615,3 @@ template<ScopedEnum E, strings::fixed_string bit_names,
 }
 
 }}} // namespace corvid::enums::bitmask
-
-//
-// TODO
-//
-
-// TODO: Offer a printer that displays the value in binary. It would be defined
-// much like the rest, except that the names would just so happen to be
-// single-character, such as "r,g,b". Given this definition, we'd display "RGB"
-// for white, "RgB" for purple, and "rgb" for black. If the definition was
-// instead "R,G,B", then  we would display "RGB" for white, "R-B" for purple,
-// and "---" for black.
-// We follow the same rules about placeholders, where space or hyphen mean its
-// invalid and an asterisk or question mark mean its valid but unnamed. When
-// displaying a value, the position of a nameless bit is filled with a hyphen,
-// so if the definition is "r,-,b" or "r,?,b", we'd show purple or white as
-// "R-B". For white, since we have a residual, we'd show it as usual, as a hex
-// number added to the end. In theory, we could just treat a definition with
-// single-character names as a binary output, but that would be unwise due to
-// possible ambiguities. Instead, we need a separate
-// make_bitmask_enum_binary_spec() that enforces single-character names and
-// also sets a new flag in bitmask_enum_names_spec so that its append
-// multiplexer knows how to handle it.
-
-// Consider offering a parser to convert string to enum, using the same
-// definition. In principle, it could split on "+", trim spaces, and then add
-// up the bit values. A working system would simply do a linear search through
-// the list of names, but maybe something like
-// https://blog.quarkslab.com/frozen-an-header-only-constexpr-alternative-to-gperf-for-c14-users.html
-// would work better. The idea would be to construct a map of names to values
-// at compile time and then query it at runtime. We really just need the part
-// where it sorts it at compile time, allowing us to do binary searches at
-// runtime.
-
-// TODO: Consider providing `operator[]` that returns bool for a given
-// index. Essentially, the op version of `get_at`. At that point, we could
-// also provide a proxy object to invoke `set_at`.
-
-// TODO: Wacky idea:
-// `rgb_yellow == some(rgb::red, rgb::green)`
-//
-// `rgb_yellow == all(rgb::red, rgb::green)`
-//
-// The function returns a local type that is initialized on the & of the
-// parameters and offers an appropriate op== and !=. So != some means has
-// none and != all means it doesn't have all, but might have some. This
-// isn't terrible. Make sure it doesn't interfere with direct == and !=.

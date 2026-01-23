@@ -91,3 +91,49 @@
    e. intern_traits: See if specializations can inherit from the primary template and just replace the types that changed.
    f. intern_table constructor: Consider whether we should disable `next` if it's specified.
    g. intern_table: Add real or fake arena allocator, depending on traits. Then create real or fake scopes in the methods that can allocate.
+
+17. lang/ast_pred.h improvements:
+   a. Properly register the variants so that they can be printed as JSON without all of the helper functions.
+   b. Turn tautologies into always_true or always_false nodes. This is easy for always_true and always_false, but we need to be able to determine if an equality is mutually exclusive. It's even trickier for inequalities.
+
+18. enums/bitmask_enum.h improvements:
+   a. range_length: Consider making this correct even for validity masks with holes, or at least failing cleanly if we can't do that.
+   b. calc_valid_bits_from_bit_names: Consider offering a version that is aligned to the msb instead of the lsb. This would avoid forcing the user to potentially pad with dozens of commas.
+   c. Offer a printer that displays the value in binary. It would be defined much like the rest, except that the names would just so happen to be single-character, such as "r,g,b". Given this definition, we'd display "RGB" for white, "RgB" for purple, and "rgb" for black. We need a separate make_bitmask_enum_binary_spec() that enforces single-character names and also sets a new flag in bitmask_enum_names_spec so that its append multiplexer knows how to handle it.
+   d. Consider offering a parser to convert string to enum, using the same definition. In principle, it could split on "+", trim spaces, and then add up the bit values. Consider using a compile-time sorted map allowing binary search at runtime.
+   e. Consider providing `operator[]` that returns bool for a given index. Essentially, the op version of `get_at`. At that point, we could also provide a proxy object to invoke `set_at`.
+   f. Wacky idea: `rgb_yellow == some(rgb::red, rgb::green)` and `rgb_yellow == all(rgb::red, rgb::green)`. The function returns a local type that is initialized on the & of the parameters and offers an appropriate op== and !=. Make sure it doesn't interfere with direct == and !=.
+
+19. enums/sequence_enum.h improvements:
+   a. It might be nice if we could specialize `std::numeric_limits` for all enums that are flagged as sequence, inheriting from the underlying class and providing correct min and max values. Not sure if that's actually possible, though. Maybe we can't do it automatically but can make it easier.
+   b. Consider making a variation on sequence enums that allows homogeneous operations, which makes sense for `std::byte` and other strongly-typed integers, like `arithmetic_enum`. It would also support the full set of ops.
+
+20. strings.h: Get extract_num to work with cstring_view cleanly. It's safe because we only remove the prefix, never the suffix. The brute-force solution is to add overloads for the extract methods. Maybe add extract_num and such to cstring, so as not to pollute this.
+
+21. controllers/pid_controller.h: Consider clamping the integral term itself, but this would be yet another configuration option. In principle, we could also default to some fraction of the min and max values.
+
+22. controllers - PID tuning class: Consider writing a class that tunes a PID controller to work with a given SOPDT plant. The plant is handed to it as a lambda which takes a setting and returns the output. In the first phase, iterate over the P value, increasing it until the output just overshoots the setpoint. In the second phase, increase the I value until the steady state matches the setpoint. In the third phase, tune the D value to reduce overshoot and improve settling time. Consider implementing integral of time-weighted absolute error (ITEA) as a metric. We could use a binary search or gradient descent instead of a linear sweep. Alternately, just implement a simple Ziegler-Nichols tuning method.
+
+23. Test improvements - strings_test.cpp:
+   a. Maybe add rlocate multi-string tests.
+   b. Add nested container torture test.
+   c. Test plain array, std::array, map, set, pair, tuple.
+   d. Test objects that aren't strings but do have implicit conversion to string or string_view.
+
+24. Test improvements - sequence_enum_test.cpp: Check if enum_as_string works with unscoped enums. Should it? Or should it just count as an int?
+
+25. Test improvements - opt_string_view_test.cpp:
+   a. Add unit tests for the optional workalike functions. At that point, consider porting them all to cstring_view.
+   b. Figure out why the && overloads for the optional workalike functions don't work.
+
+26. Test improvements - containers_test.cpp:
+   a. Follow up on why key can't be a temporary (in indirect_key tests).
+   b. We need proper isolated unit tests just for the arena header.
+   c. Add a test for edge case of arena capacity use. Allocate a small thing, then allocate up to the edge. If the two are contiguous, then it fit.
+   d. When the traits wrap the key in an unnecessary indirect_hash_key, it breaks terribly. We need to test an arbitrary type that has no natural view as a key.
+   e. Test with a move-only pointer type (in own_ptr tests).
+   f. Add tests for op->* and perhaps more thorough tests for various different kinds of callbacks: function pointers, mutable lambdas, etc. (in strong_type tests).
+
+27. Test improvements - bitmask_enum_test.cpp:
+   a. Think of a way to avoid needing to repeat `rgb` when specializing enum_spec_v.
+   b. Add test with make_interval<byte> to show how to use it correctly. It'll fail by default, so you have to specify a larger underlying type.
