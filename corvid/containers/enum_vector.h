@@ -61,28 +61,28 @@ public:
   void resize(size_type count, const T& value) { data_.resize(count, value); }
   void clear() noexcept { data_.clear(); }
 
-  [[nodiscard]] reference operator[](enum_t ndx) noexcept {
-    return data_[*ndx];
+  [[nodiscard]] decltype(auto)
+  operator[](this auto& self, enum_t ndx) noexcept {
+    return self.data_[*ndx];
   }
-  [[nodiscard]] const_reference operator[](enum_t ndx) const noexcept {
-    return data_[*ndx];
+  [[nodiscard]] decltype(auto) at(this auto& self, enum_t ndx) {
+    return self.data_.at(*ndx);
   }
-  [[nodiscard]] reference at(enum_t ndx) { return data_.at(*ndx); }
-  [[nodiscard]] const_reference at(enum_t ndx) const { return data_.at(*ndx); }
 
-  [[nodiscard]] reference front() { return data_.front(); }
-  [[nodiscard]] const_reference front() const { return data_.front(); }
-  [[nodiscard]] reference back() { return data_.back(); }
-  [[nodiscard]] const_reference back() const { return data_.back(); }
+  [[nodiscard]] decltype(auto) front(this auto& self) {
+    return self.data_.front();
+  }
+  [[nodiscard]] decltype(auto) back(this auto& self) {
+    return self.data_.back();
+  }
 
-  [[nodiscard]] T* data() noexcept { return data_.data(); }
-  [[nodiscard]] const T* data() const noexcept { return data_.data(); }
+  [[nodiscard]] decltype(auto) data(this auto& self) noexcept {
+    return self.data_.data();
+  }
 
-  iterator begin() noexcept { return data_.begin(); }
-  const_iterator begin() const noexcept { return data_.begin(); }
+  decltype(auto) begin(this auto& self) noexcept { return self.data_.begin(); }
   const_iterator cbegin() const noexcept { return data_.cbegin(); }
-  iterator end() noexcept { return data_.end(); }
-  const_iterator end() const noexcept { return data_.end(); }
+  decltype(auto) end(this auto& self) noexcept { return self.data_.end(); }
   const_iterator cend() const noexcept { return data_.cend(); }
 
   void push_back(const T& value) { data_.push_back(value); }
@@ -98,11 +98,9 @@ public:
   enum_t size_as_enum() const noexcept { return enum_t{data_.size()}; }
 
   // Access underlying type.
-  auto& underlying() noexcept { return data_; }
-  const auto& underlying() const noexcept { return data_; }
+  auto& underlying(this auto& self) noexcept { return self.data_; }
 
-  auto& operator*() { return data_; }
-  const auto& operator*() const { return data_; }
+  auto& operator*(this auto& self) { return self.data_; }
 
 private:
   std::vector<T, Allocator> data_{};
