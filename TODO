@@ -140,13 +140,6 @@
 
 28. controllers/sopdt_plant.h: The delay buffer in `update()` could be optimized with a circular buffer instead of push_back/erase.
 
-29. Test improvements - timers_test.cpp: Multiple tests are disabled with `#if 0` and need to be enabled or fixed:
-   a. TimersTest_Repeating
-   b. TimersTest_Cancel
-   c. TimersTest_Reschedule
-   d. TimersTest_General
-   e. TimersTest_Edge
-
-30. Test improvements - containers_test.cpp: Disabled tests that need to be enabled or fixed:
+29. Test improvements - containers_test.cpp: Disabled tests that need to be enabled or fixed:
    a. own_ptr regression tests (around line 1039 and 1059) - tests for reference deleters and CTAD.
    b. CustomHandleTest_Basic (around line 1118) - entire test function is disabled.
