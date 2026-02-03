@@ -240,24 +240,29 @@ auto inline stream_to_text(const auto& v) {
 #define EXPECT_THROW(call, exc) TEST_EXCEPTION((void)(call), exc)
 
 #if defined(__GNUC__) || defined(__clang__)
-// Supports 0-10 arguments
+// Supports 0-50 arguments
 #define VA_NARGS_IMPL(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12,  \
     _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26,     \
-    _27, _28, _29, _30, N, ...)                                               \
+    _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40,     \
+    _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, N, ...)                 \
   N
 // ## deletes preceding comma if _VA_ARGS__ is empty (GCC, Clang)
 #define VA_NARGS(...)                                                         \
-  VA_NARGS_IMPL(_, ##__VA_ARGS__, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, \
-      19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+  VA_NARGS_IMPL(_, ##__VA_ARGS__, 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40, \
+      39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, \
+      21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, \
+      1, 0)
 #else
-// Supports 1-10 arguments
+// Supports 1-50 arguments
 #define VA_NARGS_IMPL(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
     _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27,     \
-    _28, _29, _30, N, ...)                                                    \
+    _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41,     \
+    _42, _43, _44, _45, _46, _47, _48, _49, _50, N, ...)                      \
   N
 #define VA_NARGS(...)                                                         \
-  VA_NARGS_IMPL(__VA_ARGS__, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19,  \
-      18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+  VA_NARGS_IMPL(__VA_ARGS__, 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40, 39,  \
+      38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, \
+      20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
 #endif
 
 #define VA_NARGS2(...) ((int)(sizeof((int[]){__VA_ARGS__}) / sizeof(int)))
@@ -293,6 +298,26 @@ auto inline stream_to_text(const auto& v) {
 #define TEST_LIST_IMPL_28(x, ...) {#x, x}, TEST_LIST_IMPL_27(__VA_ARGS__)
 #define TEST_LIST_IMPL_29(x, ...) {#x, x}, TEST_LIST_IMPL_28(__VA_ARGS__)
 #define TEST_LIST_IMPL_30(x, ...) {#x, x}, TEST_LIST_IMPL_29(__VA_ARGS__)
+#define TEST_LIST_IMPL_31(x, ...) {#x, x}, TEST_LIST_IMPL_30(__VA_ARGS__)
+#define TEST_LIST_IMPL_32(x, ...) {#x, x}, TEST_LIST_IMPL_31(__VA_ARGS__)
+#define TEST_LIST_IMPL_33(x, ...) {#x, x}, TEST_LIST_IMPL_32(__VA_ARGS__)
+#define TEST_LIST_IMPL_34(x, ...) {#x, x}, TEST_LIST_IMPL_33(__VA_ARGS__)
+#define TEST_LIST_IMPL_35(x, ...) {#x, x}, TEST_LIST_IMPL_34(__VA_ARGS__)
+#define TEST_LIST_IMPL_36(x, ...) {#x, x}, TEST_LIST_IMPL_35(__VA_ARGS__)
+#define TEST_LIST_IMPL_37(x, ...) {#x, x}, TEST_LIST_IMPL_36(__VA_ARGS__)
+#define TEST_LIST_IMPL_38(x, ...) {#x, x}, TEST_LIST_IMPL_37(__VA_ARGS__)
+#define TEST_LIST_IMPL_39(x, ...) {#x, x}, TEST_LIST_IMPL_38(__VA_ARGS__)
+#define TEST_LIST_IMPL_40(x, ...) {#x, x}, TEST_LIST_IMPL_39(__VA_ARGS__)
+#define TEST_LIST_IMPL_41(x, ...) {#x, x}, TEST_LIST_IMPL_40(__VA_ARGS__)
+#define TEST_LIST_IMPL_42(x, ...) {#x, x}, TEST_LIST_IMPL_41(__VA_ARGS__)
+#define TEST_LIST_IMPL_43(x, ...) {#x, x}, TEST_LIST_IMPL_42(__VA_ARGS__)
+#define TEST_LIST_IMPL_44(x, ...) {#x, x}, TEST_LIST_IMPL_43(__VA_ARGS__)
+#define TEST_LIST_IMPL_45(x, ...) {#x, x}, TEST_LIST_IMPL_44(__VA_ARGS__)
+#define TEST_LIST_IMPL_46(x, ...) {#x, x}, TEST_LIST_IMPL_45(__VA_ARGS__)
+#define TEST_LIST_IMPL_47(x, ...) {#x, x}, TEST_LIST_IMPL_46(__VA_ARGS__)
+#define TEST_LIST_IMPL_48(x, ...) {#x, x}, TEST_LIST_IMPL_47(__VA_ARGS__)
+#define TEST_LIST_IMPL_49(x, ...) {#x, x}, TEST_LIST_IMPL_48(__VA_ARGS__)
+#define TEST_LIST_IMPL_50(x, ...) {#x, x}, TEST_LIST_IMPL_49(__VA_ARGS__)
 
 #define TEST_LIST_IMPL_N(N, ...) TEST_LIST_IMPL_##N(__VA_ARGS__)
 #define TEST_LIST_IMPL(N, ...) TEST_LIST_IMPL_N(N, __VA_ARGS__)

@@ -1743,6 +1743,82 @@ void TombStone_Basic() {
   EXPECT_TRUE(*t);
 }
 
+using int_stable_ids = stable_ids<int>;
+
+void IdVector_Placeholder() {
+  int_stable_ids v;
+  EXPECT_TRUE(true);
+  (void)v;
+}
+
+void EnumVector_Basic() {
+  using id_t = int_stable_ids::id_t;
+  enum_vector<int, id_t> v;
+
+  EXPECT_TRUE(v.empty());
+  EXPECT_EQ(v.size(), 0U);
+
+  v.reserve(6);
+  EXPECT_TRUE(v.capacity() >= 6U);
+
+  v.resize(2, 5);
+  v.resize(2);
+
+  v[id_t{0}] = 10;
+  v.at(id_t{1}) = 11;
+
+  const auto& cv = v;
+  EXPECT_EQ(cv[id_t{0}], 10);
+  EXPECT_EQ(cv.at(id_t{1}), 11);
+
+  auto& f = v.front();
+  auto& b = v.back();
+  f = 12;
+  b = 13;
+  EXPECT_EQ(cv.front(), 12);
+  EXPECT_EQ(cv.back(), 13);
+
+  auto* p = v.data();
+  const auto* cp = cv.data();
+  (void)p;
+  (void)cp;
+
+  auto it = v.begin();
+  auto it_end = v.end();
+  auto cit = v.cbegin();
+  auto cit_end = v.cend();
+  auto cit2 = cv.begin();
+  auto cit3 = cv.end();
+  (void)it;
+  (void)it_end;
+  (void)cit;
+  (void)cit_end;
+  (void)cit2;
+  (void)cit3;
+
+  int lval = 14;
+  v.push_back(lval);
+  v.push_back(15);
+  v.emplace_back(16);
+  v.pop_back();
+
+  auto enum_size = v.size_as_enum();
+  EXPECT_EQ(*enum_size, v.size());
+
+  auto& u = v.underlying();
+  const auto& cu = cv.underlying();
+  (void)u;
+  (void)cu;
+
+  auto& u2 = *v;
+  const auto& u3 = *cv;
+  (void)u2;
+  (void)u3;
+
+  v.clear();
+  EXPECT_TRUE(v.empty());
+}
+
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
     FindOptTest_Maps, FindOptTest_Sets, FindOptTest_Vectors,
@@ -1752,8 +1828,10 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     TransparentTest_General, IndirectKey_Basic, InternTableTest_Basic,
     InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
-    StrongType_Extended, EnumVariant_Basic, TombStone_Basic);
+    StrongType_Extended, EnumVariant_Basic, TombStone_Basic,
+    IdVector_Placeholder, EnumVector_Basic);
 
+// TODO: Move the following to a proper TODO.
 // Ok, so the plan is to make all of the Ptr/Del ctors take the same three
 // templated arguments. The third is just a named thing that's defaulted to
 // void and then the requires clause requires it to be void. Then we add a
