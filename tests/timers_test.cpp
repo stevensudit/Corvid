@@ -110,158 +110,171 @@ void TimersTest_OneShot() {
 }
 
 void TimersTest_Repeating() {
-#if 0
-  timers t;
-  time_point_t now{};
-  t.set_clock_callback([&]() { return now; });
+  auto now = make_time(100);
+  auto t = timers::make("test");
+  t->set_clock_callback([&]() { return now; });
   size_t calls{};
-  auto& ev = t.set(10ms, [&](timer_event&) { ++calls; }, 15ms);
+
+  // Schedule a repeating event: fires at 10ms, repeats every 15ms.
+  auto ev = t->set(
+      10ms,
+      [&](const timer_invocation&) -> time_point_t {
+        ++calls;
+        return {};
+      },
+      15ms);
+
   now += 10ms;
-  t.tick();
+  t->tick();
   EXPECT_EQ(calls, 1U);
 
   now += 15ms;
-  t.tick();
+  t->tick();
   EXPECT_EQ(calls, 2U);
 
   now += 15ms;
-  t.tick();
+  t->tick();
   EXPECT_EQ(calls, 3U);
 
-  t.cancel(ev.timer_id);
+  // Cancel by setting tombstone.
+  ev->canceled.kill();
   now += 15ms;
-  t.tick();
+  t->tick();
   EXPECT_EQ(calls, 3U); // cancelled
-#endif
 }
 
 void TimersTest_Cancel() {
-#if 0
-  timers t;
-  time_point_t now{};
-  t.set_clock_callback([&]() { return now; });
+  auto now = make_time(100);
+  auto t = timers::make("test");
+  t->set_clock_callback([&]() { return now; });
 
   bool called = false;
-  auto id = t.set(20ms, [&](timer_event&) { called = true; }).timer_id;
-  EXPECT_TRUE(t.cancel(id));
+  auto ev = t->set(20ms, [&](const timer_invocation&) -> time_point_t {
+    called = true;
+    return {};
+  });
+
+  // Cancel before it fires.
+  EXPECT_FALSE(ev->canceled);
+  ev->canceled.kill();
+  EXPECT_TRUE(ev->canceled);
 
   now += 25ms;
-  t.tick();
+  t->tick();
   EXPECT_FALSE(called);
-#endif
 }
 
 void TimersTest_Reschedule() {
-#if 0
-  timers t;
-  time_point_t now{};
-  t.set_clock_callback([&]() { return now; });
+  auto now = make_time(100);
+  auto t = timers::make("test");
+  t->set_clock_callback([&]() { return now; });
 
   size_t calls{};
-  t.set(10ms, [&](timer_event& e) {
+  auto ev = t->set(10ms, [&](const timer_invocation& i) -> time_point_t {
     ++calls;
     if (calls == 1) {
-      e.next_at = t.get_now() + 20ms; // reschedule
+      // Reschedule for 20ms from now.
+      return i.now + 20ms;
     }
+    // Don't reschedule again.
+    return {};
   });
 
   now += 10ms;
-  t.tick();
+  t->tick();
   EXPECT_EQ(calls, 1U);
-  EXPECT_EQ(t.events().size(), 1U);
+  EXPECT_FALSE(ev->canceled);
 
   now += 10ms;
-  t.tick();
+  t->tick();
   EXPECT_EQ(calls, 1U); // not yet
 
   now += 10ms;
-  t.tick();
+  t->tick();
   EXPECT_EQ(calls, 2U);
-  EXPECT_TRUE(t.events().empty());
-#endif
+  EXPECT_TRUE(ev->canceled);
 }
 
 void TimersTest_General() {
-#if 0
-  timers t;
   auto now = make_date(2024y / 1 / 1);
-  std::vector<timer_id_t> ids;
-  auto now_cb = [&now]() { return now; };
-  t.set_clock_callback(now_cb);
-  auto cb = [&ids](timer_event& event) { ids.push_back(event.timer_id); };
+  auto t = timers::make("test");
+  t->set_clock_callback([&now]() { return now; });
+  std::vector<timer_event_ptr> fired_events;
 
-  EXPECT_EQ(t.events().size(), 0U);
+  // Schedule two one-shot events at different times.
+  auto ev1 = t->set(30s, [&](const timer_invocation& i) -> time_point_t {
+    fired_events.push_back(i.event);
+    return {};
+  });
+  EXPECT_EQ(ev1->start_at, now + 30s);
 
-  auto& t1 = t.set(30s, cb);
-  EXPECT_EQ(t.events().size(), 1U);
-  auto id1 = t1.timer_id;
-  EXPECT_EQ(id1, timer_id_t{1});
-  auto& t1b = t.event(id1);
-  EXPECT_EQ(t1b.timer_id, id1);
-  t1b.name = "t1";
-  auto t1_start = t1b.start_at;
-  EXPECT_EQ(t1_start, now + 30s);
-
-  auto& t2 = t.set(60s, cb);
-  EXPECT_EQ(t.events().size(), 2U);
-  auto id2 = t2.timer_id;
-  EXPECT_EQ(id2, timer_id_t{2});
-  auto& t2b = t.event(id2);
-  EXPECT_EQ(t2b.timer_id, id2);
-  t2b.name = "t2";
-  auto t2_start = t2b.start_at;
-  EXPECT_EQ(t2_start, now + 60s);
+  auto ev2 = t->set(60s, [&](const timer_invocation& i) -> time_point_t {
+    fired_events.push_back(i.event);
+    return {};
+  });
+  EXPECT_EQ(ev2->start_at, now + 60s);
 
   size_t count = 0;
-  count = t.tick();
+  count = t->tick();
   EXPECT_EQ(count, 0U);
+
   now += 29s;
-  count = t.tick();
+  count = t->tick();
   EXPECT_EQ(count, 0U);
+
   now += 1s;
-  EXPECT_EQ(t.events().size(), 2U);
-  count = t.tick();
+  count = t->tick();
   EXPECT_EQ(count, 1U);
-  EXPECT_EQ(ids.size(), 1U);
-  EXPECT_EQ(ids[0], id1);
-  EXPECT_EQ(t.events().size(), 1U);
+  EXPECT_EQ(fired_events.size(), 1U);
+  EXPECT_EQ(fired_events[0], ev1);
+  EXPECT_TRUE(ev1->canceled);
+  EXPECT_FALSE(ev2->canceled);
+
   now += 30s;
-  count = t.tick();
+  count = t->tick();
   EXPECT_EQ(count, 1U);
-  EXPECT_EQ(ids.size(), 2U);
-  EXPECT_EQ(ids[1], id2);
-  EXPECT_EQ(t.events().size(), 0U);
-#endif
+  EXPECT_EQ(fired_events.size(), 2U);
+  EXPECT_EQ(fired_events[1], ev2);
+  EXPECT_TRUE(ev2->canceled);
 }
 
 void TimersTest_Edge() {
-#if 0
-  timers t;
   auto now = make_date(2024y / 1 / 1);
-  std::vector<timer_id_t> ids;
-  auto now_cb = [&now]() { return now; };
-  t.set_clock_callback(now_cb);
-  auto cb = [&ids](timer_event& event) { ids.push_back(event.timer_id); };
+  auto t = timers::make("test");
+  t->set_clock_callback([&now]() { return now; });
+  size_t calls{};
 
   size_t count = 0;
 
-  // Repeating.
-  [[maybe_unused]] auto& t1 = t.set(30s, cb, 60s);
+  // Repeating: fires at 30s, then every 60s after.
+  auto ev = t->set(
+      30s,
+      [&](const timer_invocation&) -> time_point_t {
+        ++calls;
+        return {};
+      },
+      60s);
+
   now += 29s;
-  count = t.tick();
+  count = t->tick();
   EXPECT_EQ(count, 0U);
+
   now += 1s;
-  count = t.tick();
+  count = t->tick();
   EXPECT_EQ(count, 1U); // Fires at 30s.
-  EXPECT_EQ(ids.size(), 1U);
+  EXPECT_EQ(calls, 1U);
+
   now += 59s;
-  count = t.tick();
+  count = t->tick();
   EXPECT_EQ(count, 0U);
+
   now += 1s;
-  count = t.tick();
-  EXPECT_EQ(count, 1U); // Fires at 90s.
-  EXPECT_EQ(ids.size(), 2U);
-#endif
+  count = t->tick();
+  EXPECT_EQ(count, 1U); // Fires at 90s (30s + 60s).
+  EXPECT_EQ(calls, 2U);
+
+  // Cancel to clean up.
+  ev->canceled.kill();
 }
 
 MAKE_TEST_LIST(TimersTest_OneShot, TimersTest_Repeating, TimersTest_Cancel,
