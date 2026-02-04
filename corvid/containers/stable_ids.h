@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "enum_vector.h"
+#include "../meta/maybe.h"
 
 namespace corvid { inline namespace container {
 inline namespace stable_id_vector {
@@ -347,7 +348,7 @@ public:
     }
 
     // IDs can be sparse; find the highest live ID to size the mappings.
-    const auto new_size = *find_max_extant_id() + 1u;
+    const auto new_size = *find_max_extant_id() + 1U;
     if (new_size != reverse_.size()) {
       indexes_.resize(new_size);
       reverse_.resize(new_size);
@@ -420,7 +421,7 @@ public:
     } else {
       if (reverse_.size() > data_.size()) return reverse_[data_.size()].h_.id_;
     }
-    return max_id() + 1u;
+    return max_id() + 1U;
   }
 
   // Return whether container is empty.

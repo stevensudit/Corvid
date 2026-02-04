@@ -2359,15 +2359,15 @@ void StableId_Fifo() {
   // Interleaved free and alloc: each alloc pops the oldest free.
   if (true) {
     V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
-    v.erase(id_t{0});      // free: [0]
-    v.erase(id_t{1});      // free: [0, 1]
+    (void)v.push_back(10);      // id 0
+    (void)v.push_back(20);      // id 1
+    (void)v.push_back(30);      // id 2
+    v.erase(id_t{0});           // free: [0]
+    v.erase(id_t{1});           // free: [0, 1]
     auto r0 = v.push_back(100); // pops 0; free: [1]
     EXPECT_EQ(r0, id_t{0});
     EXPECT_EQ(v[r0], 100);
-    v.erase(id_t{2});      // free: [1, 2]
+    v.erase(id_t{2});           // free: [1, 2]
     auto r1 = v.push_back(200); // pops 1; free: [2]
     EXPECT_EQ(r1, id_t{1});
     EXPECT_EQ(v[r1], 200);
@@ -2383,9 +2383,9 @@ void StableId_Fifo() {
   if (true) {
     V v;
     EXPECT_EQ(v.next_id(), id_t{0});
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
+    (void)v.push_back(10);           // id 0
+    (void)v.push_back(20);           // id 1
+    (void)v.push_back(30);           // id 2
     EXPECT_EQ(v.next_id(), id_t{3}); // no free IDs
     v.erase(id_t{1});
     EXPECT_EQ(v.next_id(), id_t{1}); // head is 1
@@ -2634,7 +2634,7 @@ void StableId_NoGen() {
     v.erase(id0);
     (void)v.push_back(99);       // reuses id 0 (LIFO)
     EXPECT_TRUE(v.is_valid(h0)); // indistinguishable: ID is live
-    EXPECT_EQ(v.at(h0), 99);    // returns new value, not original 10
+    EXPECT_EQ(v.at(h0), 99);     // returns new value, not original 10
   }
 
   // LIFO reuse: most recently freed ID is reused first.  Contrast with
@@ -2712,15 +2712,15 @@ void StableId_FifoNoGen() {
   // Interleaved free and alloc follow FIFO order without gen.
   if (true) {
     V v;
-    (void)v.push_back(10); // id 0
-    (void)v.push_back(20); // id 1
-    (void)v.push_back(30); // id 2
-    (void)v.push_back(40); // id 3
-    v.erase(id_t{1});      // free: [1]
-    v.erase(id_t{3});      // free: [1, 3]
+    (void)v.push_back(10);      // id 0
+    (void)v.push_back(20);      // id 1
+    (void)v.push_back(30);      // id 2
+    (void)v.push_back(40);      // id 3
+    v.erase(id_t{1});           // free: [1]
+    v.erase(id_t{3});           // free: [1, 3]
     auto r0 = v.push_back(100); // pops 1
     EXPECT_EQ(r0, id_t{1});
-    v.erase(id_t{0});      // free: [3, 0]
+    v.erase(id_t{0});           // free: [3, 0]
     auto r1 = v.push_back(200); // pops 3
     EXPECT_EQ(r1, id_t{3});
     auto r2 = v.push_back(300); // pops 0
@@ -2756,7 +2756,7 @@ void StableId_FifoNoGen() {
     (void)v.push_back(30);
     auto h0 = v.get_handle(id0);
     v.erase(id0);
-    v.erase(id_t{1});      // id 0 is oldest; next alloc reuses it
+    v.erase(id_t{1}); // id 0 is oldest; next alloc reuses it
     (void)v.push_back(99);
     EXPECT_TRUE(v.is_valid(h0)); // indistinguishable: ID is live again
     EXPECT_EQ(v.at(h0), 99);
