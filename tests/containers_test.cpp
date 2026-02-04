@@ -2186,18 +2186,14 @@ constexpr auto corvid::enums::registry::enum_spec_v<small_id_t> =
 
 using int_stable_small_ids = stable_ids<int, small_id_t>;
 
-using int_stable_ids_fifo =
-    stable_ids<int, int_stable_ids::id_t, int_stable_ids::id_t::invalid, true,
-        true, std::allocator<int>>;
-using int_stable_ids_nogen =
-    stable_ids<int, int_stable_ids::id_t, int_stable_ids::id_t::invalid, false,
-        false, std::allocator<int>>;
-using int_stable_ids_fifo_nogen =
-    stable_ids<int, int_stable_ids::id_t, int_stable_ids::id_t::invalid, false,
-        true, std::allocator<int>>;
-using int_stable_small_ids_fifo =
-    stable_ids<int, small_id_t, small_id_t::invalid, true, true,
-        std::allocator<int>>;
+using int_stable_ids_fifo = stable_ids<int, int_stable_ids::id_t,
+    int_stable_ids::id_t::invalid, true, true, std::allocator<int>>;
+using int_stable_ids_nogen = stable_ids<int, int_stable_ids::id_t,
+    int_stable_ids::id_t::invalid, false, false, std::allocator<int>>;
+using int_stable_ids_fifo_nogen = stable_ids<int, int_stable_ids::id_t,
+    int_stable_ids::id_t::invalid, false, true, std::allocator<int>>;
+using int_stable_small_ids_fifo = stable_ids<int, small_id_t,
+    small_id_t::invalid, true, true, std::allocator<int>>;
 
 void StableId_SmallId() {
   using V = int_stable_small_ids;
