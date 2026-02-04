@@ -21,7 +21,8 @@
 #include "enum_registry.h"
 #include "scoped_enum.h"
 
-namespace corvid { inline namespace enums { namespace bitmask {
+namespace corvid {
+inline namespace enums { namespace bitmask {
 
 //
 // bitmask enum
@@ -614,4 +615,8 @@ template<ScopedEnum E, strings::fixed_string bit_names,
       name_count>{trimmed_names};
 }
 
-}}} // namespace corvid::enums::bitmask
+}} // namespace enums::bitmask
+
+using namespace corvid::enums::bitmask::ops;
+
+} // namespace corvid
