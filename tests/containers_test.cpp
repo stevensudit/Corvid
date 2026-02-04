@@ -2186,6 +2186,15 @@ constexpr auto corvid::enums::registry::enum_spec_v<small_id_t> =
 
 using int_stable_small_ids = stable_ids<int, small_id_t>;
 
+using int_stable_ids_fifo =
+    stable_ids<int, int_stable_ids::id_t, std::allocator<int>, true, true>;
+using int_stable_ids_nogen =
+    stable_ids<int, int_stable_ids::id_t, std::allocator<int>, false, false>;
+using int_stable_ids_fifo_nogen =
+    stable_ids<int, int_stable_ids::id_t, std::allocator<int>, false, true>;
+using int_stable_small_ids_fifo =
+    stable_ids<int, small_id_t, std::allocator<int>, true, true>;
+
 void StableId_SmallId() {
   using V = int_stable_small_ids;
   using id_t = V::id_t; // small_id_t : uint8_t, invalid = 255
@@ -2313,6 +2322,460 @@ void StableId_NoThrow() {
   }
 }
 
+void StableId_Fifo() {
+  using V = int_stable_ids_fifo;
+  using id_t = V::id_t;
+
+  // Freed IDs are reused oldest-first (FIFO), not most-recent-first (LIFO).
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    v.erase(id_t{0});      // free list: [0]
+    v.erase(id_t{1});      // free list: [0, 1]
+    // LIFO would give 1 then 0; FIFO gives 0 then 1.
+    EXPECT_EQ(v.push_back(100), id_t{0});
+    EXPECT_EQ(v.push_back(200), id_t{1});
+  }
+
+  // FIFO reuse order matches erase order, not ID order.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    (void)v.push_back(40); // id 3
+    (void)v.push_back(50); // id 4
+    v.erase(id_t{2});
+    v.erase(id_t{0});
+    v.erase(id_t{3});
+    // Erase order was 2, 0, 3; reuse must follow that order.
+    EXPECT_EQ(v.push_back(100), id_t{2});
+    EXPECT_EQ(v.push_back(200), id_t{0});
+    EXPECT_EQ(v.push_back(300), id_t{3});
+  }
+
+  // Interleaved free and alloc: each alloc pops the oldest free.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    v.erase(id_t{0});      // free: [0]
+    v.erase(id_t{1});      // free: [0, 1]
+    auto r0 = v.push_back(100); // pops 0; free: [1]
+    EXPECT_EQ(r0, id_t{0});
+    EXPECT_EQ(v[r0], 100);
+    v.erase(id_t{2});      // free: [1, 2]
+    auto r1 = v.push_back(200); // pops 1; free: [2]
+    EXPECT_EQ(r1, id_t{1});
+    EXPECT_EQ(v[r1], 200);
+    auto r2 = v.push_back(300); // pops 2; free: []
+    EXPECT_EQ(r2, id_t{2});
+    EXPECT_EQ(v[r2], 300);
+    // All live; next insert gets a fresh ID.
+    EXPECT_EQ(v.push_back(400), id_t{3});
+  }
+
+  // next_id returns 0 on empty, the FIFO head when IDs are free, or the
+  // next sequential value when the free list is empty.
+  if (true) {
+    V v;
+    EXPECT_EQ(v.next_id(), id_t{0});
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    EXPECT_EQ(v.next_id(), id_t{3}); // no free IDs
+    v.erase(id_t{1});
+    EXPECT_EQ(v.next_id(), id_t{1}); // head is 1
+    v.erase(id_t{0});
+    EXPECT_EQ(v.next_id(), id_t{1}); // head is still 1 (oldest freed)
+  }
+
+  // Handles are invalidated on FIFO reuse; gen is bumped on erase.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    (void)v.push_back(20);
+    auto h0 = v.get_handle(id0);
+    EXPECT_EQ(h0.get_gen(), 0U);
+    v.erase(id0);
+    EXPECT_FALSE(v.is_valid(h0));
+    auto id0_reused = v.push_back(99);
+    EXPECT_EQ(id0_reused, id0);
+    EXPECT_FALSE(v.is_valid(h0)); // stale handle stays invalid
+    auto h0_new = v.get_handle(id0_reused);
+    EXPECT_TRUE(v.is_valid(h0_new));
+    EXPECT_GT(h0_new.get_gen(), h0.get_gen());
+  }
+
+  // push_back_handle returns a correct handle after FIFO reuse.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    v.erase(id_t{0});
+    auto h = v.push_back_handle(99);
+    EXPECT_EQ(h.get_id(), id_t{0});
+    EXPECT_TRUE(v.is_valid(h));
+    EXPECT_EQ(v.at(h), 99);
+    EXPECT_EQ(h.get_gen(), 1U); // bumped once on erase
+  }
+
+  // Single free is a degenerate FIFO list of length one.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    v.erase(id_t{1});
+    auto r = v.push_back(99);
+    EXPECT_EQ(r, id_t{1});
+    EXPECT_EQ(v[r], 99);
+    EXPECT_EQ(v[id_t{0}], 10);
+    EXPECT_EQ(v[id_t{2}], 30);
+  }
+
+  // Free all elements; reuse order matches erase order.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    v.erase(id_t{2});
+    v.erase(id_t{1});
+    v.erase(id_t{0});
+    EXPECT_TRUE(v.empty());
+    EXPECT_EQ(v.push_back(100), id_t{2});
+    EXPECT_EQ(v.push_back(200), id_t{1});
+    EXPECT_EQ(v.push_back(300), id_t{0});
+  }
+
+  // erase_if frees matching elements; subsequent allocs reuse them in
+  // the order erase_if processed them (data-index scan, swap-and-pop).
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(25); // id 1
+    (void)v.push_back(30); // id 2
+    (void)v.push_back(5);  // id 3
+    (void)v.push_back(15); // id 4
+    auto cnt = v.erase_if([](int x) { return x > 20; });
+    EXPECT_EQ(cnt, 2U);
+    EXPECT_EQ(v.size(), 3U);
+    int sum{};
+    for (auto val : v) sum += val;
+    EXPECT_EQ(sum, 30); // 10 + 5 + 15
+    // erase_if hits id 1 (val 25) first at data-index 1, then id 2
+    // (val 30) at data-index 2 after the swap brings it into range.
+    // FIFO reuses them in that order.
+    EXPECT_EQ(v.push_back(100), id_t{1});
+    EXPECT_EQ(v.push_back(200), id_t{2});
+    EXPECT_EQ(v.size(), 5U);
+  }
+
+  // clear() without shrink rebuilds the FIFO list in position order;
+  // with no prior swaps that matches ID order 0, 1, 2.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    auto h0 = v.get_handle(id_t{0});
+    v.clear();
+    EXPECT_TRUE(v.empty());
+    EXPECT_FALSE(v.is_valid(h0));
+    EXPECT_EQ(v.push_back(100), id_t{0});
+    EXPECT_EQ(v.push_back(200), id_t{1});
+    EXPECT_EQ(v.push_back(300), id_t{2});
+    EXPECT_EQ(v.get_handle(id_t{0}).get_gen(), 1U); // bumped once by clear
+  }
+
+  // clear(true) frees all storage; next insert starts fresh.
+  if (true) {
+    V v;
+    (void)v.push_back(10);
+    (void)v.push_back(20);
+    v.erase(id_t{0});
+    v.clear(true);
+    EXPECT_TRUE(v.empty());
+    auto id = v.push_back(42);
+    EXPECT_EQ(*id, 0U);
+    EXPECT_EQ(v.get_handle(id).get_gen(), 0U);
+  }
+
+  // shrink_to_fit rebuilds the FIFO list; only free IDs below the new
+  // table size survive.  IDs beyond max-live are discarded entirely.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    (void)v.push_back(40); // id 3
+    (void)v.push_back(50); // id 4
+    v.erase(id_t{3});
+    v.erase(id_t{4});
+    v.erase(id_t{0});
+    // Live: ids 1, 2.  shrink trims to max(1,2)+1 = 3; only id 0 is a
+    // free slot that fits.  Ids 3 and 4 are beyond the new table size.
+    v.shrink_to_fit();
+    EXPECT_EQ(v.size(), 2U);
+    EXPECT_EQ(v[id_t{1}], 20);
+    EXPECT_EQ(v[id_t{2}], 30);
+    auto id_new = v.push_back(99);
+    EXPECT_EQ(id_new, id_t{0});
+    EXPECT_EQ(v[id_new], 99);
+  }
+
+  // swap exchanges the complete FIFO free-list state between containers.
+  if (true) {
+    V a, b;
+    (void)a.push_back(10); // a: id 0
+    (void)a.push_back(20); // a: id 1
+    a.erase(id_t{0});      // a free list: [0]
+    (void)b.push_back(30); // b: id 0
+    (void)b.push_back(40); // b: id 1
+    (void)b.push_back(50); // b: id 2
+    b.erase(id_t{1});      // b free list: [1]
+    b.erase(id_t{0});      // b free list: [1, 0]
+    swap(a, b);
+    // a now has b's old free list [1, 0]; oldest free is 1.
+    EXPECT_EQ(a.push_back(100), id_t{1});
+    EXPECT_EQ(a.push_back(200), id_t{0});
+    // b now has a's old free list [0].
+    EXPECT_EQ(b.push_back(300), id_t{0});
+  }
+
+  // Move construction transfers the FIFO free-list intact.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    v.erase(id_t{0});      // free: [0]
+    v.erase(id_t{2});      // free: [0, 2]
+    V w{std::move(v)};
+    EXPECT_EQ(w.push_back(100), id_t{0});
+    EXPECT_EQ(w.push_back(200), id_t{2});
+  }
+
+  // FIFO reuse at small_id_t capacity limit.
+  if (true) {
+    using SV = int_stable_small_ids_fifo;
+    using sid_t = SV::id_t;
+    SV v;
+    for (int i = 0; i < 255; ++i) (void)v.push_back(i);
+    EXPECT_EQ(v.size(), 255U);
+    v.erase(sid_t{10});
+    v.erase(sid_t{20});
+    v.erase(sid_t{30});
+    // FIFO order matches erase order: 10, 20, 30.
+    EXPECT_EQ(v.push_back(100), sid_t{10});
+    EXPECT_EQ(v.push_back(200), sid_t{20});
+    EXPECT_EQ(v.push_back(300), sid_t{30});
+    EXPECT_EQ(v.size(), 255U);
+  }
+}
+
+void StableId_NoGen() {
+  using V = int_stable_ids_nogen;
+  using id_t = V::id_t;
+
+  // Basic push, access, and size without generation tracking.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    auto id1 = v.push_back(20);
+    EXPECT_EQ(*id0, 0U);
+    EXPECT_EQ(*id1, 1U);
+    EXPECT_EQ(v[id0], 10);
+    EXPECT_EQ(v[id1], 20);
+    EXPECT_EQ(v.size(), 2U);
+  }
+
+  // handle_t is exactly sizeof(id_t): the gen field is zero-size via
+  // [[no_unique_address]].  Smaller than the default (gen-enabled) handle.
+  if (true) {
+    static_assert(sizeof(V::handle_t) == sizeof(V::id_t));
+    using WithGen = int_stable_ids;
+    static_assert(sizeof(V::handle_t) < sizeof(WithGen::handle_t));
+  }
+
+  // is_valid detects free IDs; erase makes them invalid.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    (void)v.push_back(20);
+    EXPECT_TRUE(v.is_valid(id0));
+    v.erase(id0);
+    EXPECT_FALSE(v.is_valid(id0));
+  }
+
+  // A handle for a free (not-yet-reused) ID is detected as invalid.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    (void)v.push_back(20);
+    auto h0 = v.get_handle(id0);
+    v.erase(id0);
+    EXPECT_FALSE(v.is_valid(h0));
+    EXPECT_THROW(v.at(h0), std::invalid_argument);
+  }
+
+  // Without gen, a stale handle for a *reused* ID is indistinguishable
+  // from a fresh one: is_valid returns true, at() returns the new value.
+  // This is the documented trade-off of UseGen=false.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    (void)v.push_back(20);
+    auto h0 = v.get_handle(id0); // snapshot while id 0 holds 10
+    v.erase(id0);
+    (void)v.push_back(99);       // reuses id 0 (LIFO)
+    EXPECT_TRUE(v.is_valid(h0)); // indistinguishable: ID is live
+    EXPECT_EQ(v.at(h0), 99);    // returns new value, not original 10
+  }
+
+  // LIFO reuse: most recently freed ID is reused first.  Contrast with
+  // the FIFO variant where the same erase order would yield 0 then 1.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    v.erase(id_t{0});      // freed first
+    v.erase(id_t{1});      // freed second (most recent)
+    // LIFO: id 1 freed last, so it's reused first.
+    EXPECT_EQ(v.push_back(100), id_t{1});
+    EXPECT_EQ(v.push_back(200), id_t{0});
+  }
+
+  // Erase-reinsert cycle: values and IDs stay consistent.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    v.erase(id_t{1});
+    auto r = v.push_back(99);
+    EXPECT_EQ(r, id_t{1});
+    EXPECT_EQ(v[r], 99);
+    EXPECT_EQ(v[id_t{0}], 10);
+    EXPECT_EQ(v[id_t{2}], 30);
+    EXPECT_EQ(v.size(), 3U);
+  }
+
+  // clear() without shrink: all IDs become reusable; no gen to bump.
+  if (true) {
+    V v;
+    (void)v.push_back(10);
+    (void)v.push_back(20);
+    v.clear();
+    EXPECT_TRUE(v.empty());
+    auto id0 = v.push_back(100);
+    auto id1 = v.push_back(200);
+    EXPECT_EQ(id0, id_t{0});
+    EXPECT_EQ(id1, id_t{1});
+    EXPECT_EQ(v[id0], 100);
+    EXPECT_EQ(v[id1], 200);
+  }
+
+  // clear(true) resets the container entirely.
+  if (true) {
+    V v;
+    (void)v.push_back(10);
+    v.clear(true);
+    EXPECT_TRUE(v.empty());
+    auto id = v.push_back(42);
+    EXPECT_EQ(*id, 0U);
+    EXPECT_EQ(v[id], 42);
+  }
+}
+
+void StableId_FifoNoGen() {
+  using V = int_stable_ids_fifo_nogen;
+  using id_t = V::id_t;
+
+  // FIFO reuse order is maintained without generation tracking.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    v.erase(id_t{0});      // free: [0]
+    v.erase(id_t{2});      // free: [0, 2]
+    EXPECT_EQ(v.push_back(100), id_t{0});
+    EXPECT_EQ(v.push_back(200), id_t{2});
+  }
+
+  // Interleaved free and alloc follow FIFO order without gen.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    (void)v.push_back(40); // id 3
+    v.erase(id_t{1});      // free: [1]
+    v.erase(id_t{3});      // free: [1, 3]
+    auto r0 = v.push_back(100); // pops 1
+    EXPECT_EQ(r0, id_t{1});
+    v.erase(id_t{0});      // free: [3, 0]
+    auto r1 = v.push_back(200); // pops 3
+    EXPECT_EQ(r1, id_t{3});
+    auto r2 = v.push_back(300); // pops 0
+    EXPECT_EQ(r2, id_t{0});
+  }
+
+  // Values are correct after FIFO reuse.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    v.erase(id_t{1});
+    auto r = v.push_back(99);
+    EXPECT_EQ(r, id_t{1});
+    EXPECT_EQ(v[r], 99);
+    EXPECT_EQ(v[id_t{0}], 10);
+    EXPECT_EQ(v[id_t{2}], 30);
+  }
+
+  // handle_t is sizeof(id_t): neither gen nor the FIFO next-pointer
+  // appears in it.  The next-pointer lives in the internal slot_t only.
+  if (true) {
+    static_assert(sizeof(V::handle_t) == sizeof(V::id_t));
+  }
+
+  // Without gen, a stale handle for a reused ID is indistinguishable.
+  // FIFO increases the reuse delay but is not a correctness guard.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    (void)v.push_back(20);
+    (void)v.push_back(30);
+    auto h0 = v.get_handle(id0);
+    v.erase(id0);
+    v.erase(id_t{1});      // id 0 is oldest; next alloc reuses it
+    (void)v.push_back(99);
+    EXPECT_TRUE(v.is_valid(h0)); // indistinguishable: ID is live again
+    EXPECT_EQ(v.at(h0), 99);
+  }
+
+  // clear() without shrink rebuilds the FIFO list in position order.
+  if (true) {
+    V v;
+    (void)v.push_back(10);
+    (void)v.push_back(20);
+    (void)v.push_back(30);
+    v.clear();
+    EXPECT_TRUE(v.empty());
+    EXPECT_EQ(v.push_back(100), id_t{0});
+    EXPECT_EQ(v.push_back(200), id_t{1});
+    EXPECT_EQ(v.push_back(300), id_t{2});
+  }
+}
+
 void EnumVector_Basic() {
   using id_t = int_stable_ids::id_t;
   enum_vector<int, id_t> v;
@@ -2391,7 +2854,8 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
     StrongType_Extended, EnumVariant_Basic, TombStone_Basic, StableId_Basic,
-    StableId_SmallId, StableId_NoThrow, EnumVector_Basic);
+    StableId_SmallId, StableId_NoThrow, StableId_Fifo, StableId_NoGen,
+    StableId_FifoNoGen, EnumVector_Basic);
 
 // TODO: Move the following to a proper TODO.
 // Ok, so the plan is to make all of the Ptr/Del ctors take the same three
