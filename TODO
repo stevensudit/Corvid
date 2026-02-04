@@ -93,8 +93,10 @@
    g. intern_table: Add real or fake arena allocator, depending on traits. Then create real or fake scopes in the methods that can allocate.
 
 17. lang/ast_pred.h improvements:
-   a. Properly register the variants so that they can be printed as JSON without all of the helper functions.
-   b. Turn tautologies into always_true or always_false nodes. This is easy for always_true and always_false, but we need to be able to determine if an equality is mutually exclusive. It's even trickier for inequalities.
+   a. lookup::operator[] is declared but has no implementation and is not pure virtual (= 0). Either make it pure virtual or provide an implementation returning `missing`.
+   b. In dnf::handle(), the not_junction case accesses junction::list(root)[0] without bounds checking. If a not_junction is created with zero nodes, this is undefined behavior.
+   c. Properly register the variants so that they can be printed as JSON without all of the helper functions.
+   d. Turn tautologies into always_true or always_false nodes. This is easy for always_true and always_false, but we need to be able to determine if an equality is mutually exclusive. It's even trickier for inequalities.
 
 18. enums/bitmask_enum.h improvements:
    a. range_length: Consider making this correct even for validity masks with holes, or at least failing cleanly if we can't do that.
