@@ -137,13 +137,23 @@ public:
     swap(lhs.data_, rhs.data_);
     swap(lhs.indexes_, rhs.indexes_);
     swap(lhs.reverse_, rhs.reverse_);
+    swap(lhs.throw_on_insert_failure_, rhs.throw_on_insert_failure_);
   }
 
-  // TODO: Add state to set whether to throw on failed insert. If not, returns
-  // id_t::invalid.
+  [[nodiscard]] bool throw_on_insert_failure() const noexcept {
+    return throw_on_insert_failure_;
+  }
+  void set_throw_on_insert_failure(bool value) noexcept {
+    throw_on_insert_failure_ = value;
+  }
 
   [[nodiscard]] id_t push_back(const T& value) {
     const auto id = alloc_id();
+    if (id == id_t::invalid) {
+      if (throw_on_insert_failure_)
+        throw std::overflow_error("stable_ids: exceeded maximum id");
+      return id;
+    }
     data_.push_back(value);
     return id;
   }
@@ -151,6 +161,11 @@ public:
   template<typename... Args>
   [[nodiscard]] id_t emplace_back(Args&&... args) {
     const auto id = alloc_id();
+    if (id == id_t::invalid) {
+      if (throw_on_insert_failure_)
+        throw std::overflow_error("stable_ids: exceeded maximum id");
+      return id;
+    }
     data_.emplace_back(std::forward<Args>(args)...);
     return id;
   }
@@ -343,8 +358,7 @@ private:
 
     // Otherwise, expand indexes with new ID.
     const auto new_id = static_cast<id_t>(new_ndx);
-    if (new_id == id_t::invalid)
-      throw std::overflow_error("stable_ids: exceeded maximum id");
+    if (new_id == id_t::invalid) return id_t::invalid;
     reverse_.push_back(handle_t{new_id});
     indexes_.push_back(new_ndx);
     return new_id;
@@ -378,5 +392,37 @@ private:
 
   // Reverse lookup from data index to handle. May be larger than `data_`.
   std::vector<handle_t, handle_allocator_type> reverse_;
+
+  // Whether to throw on insert failure as opposed to returning
+  // `id_t::invalid`.
+  bool throw_on_insert_failure_{true};
+
+  // Data structure:
+  // `data_` is always sized to the number of elements currently stored.
+  //
+  // `indexes_` and `reverse_` are always the same size as each other, which is
+  // the high water mark of IDs ever allocated (max_id_ever + 1). Their size is
+  // always >= `data_.size()`.
+  //
+  // The free list lives in the tail of `reverse_`. It happens to be a LIFO,
+  // although order doesn't matter for correctnes. This tail is defined as all
+  // the elements of `reverse_` past the size of `data_`.
+  //
+  // To erase an ID, we first bump up the generation for its element in
+  // `reverse_`, to invalidate any handles. We swap its element in `data_` with
+  // the last element in `data_`.  We then modify the corresponding `indexes_`
+  // and `reverse_` so that nothing has changed from the outside.
+  //
+  // In other words, the ID still maps to the correct element: it just so
+  // happens to have moved. However, now that it's at the end, we can just
+  // truncate `data_`. This leaves the corresponding element in `indexes_` and
+  // `reverse_` consistent with each other, but referring to an index past the
+  // end of `data_`, hence invalid.
+  //
+  // When we alloc_id(), we first check for whether there's a tail. If
+  // `reverse_` is larger than `data_`, then there's a tail. If so, we
+  // reactivate the element that's just past the end of what's in `data_`.
+  // Otherwise, we have to expand and prefill `indexes_` and `reverse_` with a
+  // new ID. Either way, we push the new value to the back of `data_`.
 };
 }}} // namespace corvid::container::stable_id_vector

@@ -2049,17 +2049,21 @@ void StableId_Basic() {
     EXPECT_EQ(w[id_t{0}], 10);
   }
 
-  // swap exchanges the contents of two containers.
+  // swap exchanges the contents of two containers, including the
+  // throw_on_insert_failure flag.
   if (true) {
     V a, b;
     (void)a.push_back(10);
     (void)b.push_back(20);
     (void)b.push_back(30);
+    b.set_throw_on_insert_failure(false); // a=true (default), b=false
     swap(a, b);
     EXPECT_EQ(a.size(), 2U);
     EXPECT_EQ(b.size(), 1U);
     EXPECT_EQ(a[id_t{0}], 20);
     EXPECT_EQ(b[id_t{0}], 10);
+    EXPECT_FALSE(a.throw_on_insert_failure());
+    EXPECT_TRUE(b.throw_on_insert_failure());
   }
 
   // Range-based for loop and const iterators cover all live elements.
@@ -2232,6 +2236,82 @@ void StableId_SmallId() {
   }
 }
 
+void StableId_NoThrow() {
+  using V = int_stable_small_ids;
+  using id_t = V::id_t; // small_id_t : uint8_t, invalid = 255
+
+  // Default is to throw.
+  if (true) {
+    V v;
+    EXPECT_TRUE(v.throw_on_insert_failure());
+  }
+
+  // Accessor round-trips.
+  if (true) {
+    V v;
+    v.set_throw_on_insert_failure(false);
+    EXPECT_FALSE(v.throw_on_insert_failure());
+    v.set_throw_on_insert_failure(true);
+    EXPECT_TRUE(v.throw_on_insert_failure());
+  }
+
+  // push_back returns invalid on overflow instead of throwing.
+  if (true) {
+    V v;
+    v.set_throw_on_insert_failure(false);
+    for (int i = 0; i < 255; ++i) (void)v.push_back(i);
+    EXPECT_EQ(v.size(), 255U);
+
+    auto id = v.push_back(999);
+    EXPECT_EQ(id, id_t::invalid);
+    EXPECT_EQ(v.size(), 255U);
+  }
+
+  // emplace_back returns invalid on overflow instead of throwing.
+  if (true) {
+    V v;
+    v.set_throw_on_insert_failure(false);
+    for (int i = 0; i < 255; ++i) (void)v.emplace_back(i);
+    EXPECT_EQ(v.size(), 255U);
+
+    auto id = v.emplace_back(999);
+    EXPECT_EQ(id, id_t::invalid);
+    EXPECT_EQ(v.size(), 255U);
+  }
+
+  // Re-enabling the flag restores throwing on overflow.
+  if (true) {
+    V v;
+    v.set_throw_on_insert_failure(false);
+    for (int i = 0; i < 255; ++i) (void)v.push_back(i);
+    EXPECT_EQ(v.push_back(999), id_t::invalid);
+
+    v.set_throw_on_insert_failure(true);
+    EXPECT_THROW(v.push_back(999), std::overflow_error);
+    EXPECT_EQ(v.size(), 255U);
+  }
+
+  // Free-list reuse works normally with the flag off; only a true overflow
+  // returns invalid.
+  if (true) {
+    V v;
+    v.set_throw_on_insert_failure(false);
+    for (int i = 0; i < 255; ++i) (void)v.push_back(i);
+
+    v.erase(id_t{50});
+    EXPECT_EQ(v.size(), 254U);
+
+    auto id = v.push_back(888);
+    EXPECT_EQ(id, id_t{50});
+    EXPECT_EQ(v[id], 888);
+    EXPECT_EQ(v.size(), 255U);
+
+    // Now truly full — returns invalid, does not throw.
+    EXPECT_EQ(v.push_back(999), id_t::invalid);
+    EXPECT_EQ(v.size(), 255U);
+  }
+}
+
 void EnumVector_Basic() {
   using id_t = int_stable_ids::id_t;
   enum_vector<int, id_t> v;
@@ -2310,7 +2390,7 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
     StrongType_Extended, EnumVariant_Basic, TombStone_Basic, StableId_Basic,
-    StableId_SmallId, EnumVector_Basic);
+    StableId_SmallId, StableId_NoThrow, EnumVector_Basic);
 
 // TODO: Move the following to a proper TODO.
 // Ok, so the plan is to make all of the Ptr/Del ctors take the same three
