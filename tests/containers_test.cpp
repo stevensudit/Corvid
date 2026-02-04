@@ -1901,7 +1901,8 @@ void StableId_Basic() {
     (void)v.push_back(30);
     (void)v.push_back(5);
     (void)v.push_back(15);
-    v.erase_if([](int x) { return x > 20; });
+    auto cnt = v.erase_if([](int x) { return x > 20; });
+    EXPECT_EQ(cnt, 2U);
     EXPECT_EQ(v.size(), 3U);
     int sum{};
     for (auto val : v) {
@@ -2056,7 +2057,7 @@ void StableId_Basic() {
     (void)a.push_back(10);
     (void)b.push_back(20);
     (void)b.push_back(30);
-    b.set_throw_on_insert_failure(false); // a=true (default), b=false
+    b.throw_on_insert_failure(false); // a=true (default), b=false
     swap(a, b);
     EXPECT_EQ(a.size(), 2U);
     EXPECT_EQ(b.size(), 1U);
@@ -2249,16 +2250,16 @@ void StableId_NoThrow() {
   // Accessor round-trips.
   if (true) {
     V v;
-    v.set_throw_on_insert_failure(false);
+    v.throw_on_insert_failure(false);
     EXPECT_FALSE(v.throw_on_insert_failure());
-    v.set_throw_on_insert_failure(true);
+    v.throw_on_insert_failure(true);
     EXPECT_TRUE(v.throw_on_insert_failure());
   }
 
   // push_back returns invalid on overflow instead of throwing.
   if (true) {
     V v;
-    v.set_throw_on_insert_failure(false);
+    v.throw_on_insert_failure(false);
     for (int i = 0; i < 255; ++i) (void)v.push_back(i);
     EXPECT_EQ(v.size(), 255U);
 
@@ -2270,7 +2271,7 @@ void StableId_NoThrow() {
   // emplace_back returns invalid on overflow instead of throwing.
   if (true) {
     V v;
-    v.set_throw_on_insert_failure(false);
+    v.throw_on_insert_failure(false);
     for (int i = 0; i < 255; ++i) (void)v.emplace_back(i);
     EXPECT_EQ(v.size(), 255U);
 
@@ -2282,11 +2283,11 @@ void StableId_NoThrow() {
   // Re-enabling the flag restores throwing on overflow.
   if (true) {
     V v;
-    v.set_throw_on_insert_failure(false);
+    v.throw_on_insert_failure(false);
     for (int i = 0; i < 255; ++i) (void)v.push_back(i);
     EXPECT_EQ(v.push_back(999), id_t::invalid);
 
-    v.set_throw_on_insert_failure(true);
+    v.throw_on_insert_failure(true);
     EXPECT_THROW(v.push_back(999), std::overflow_error);
     EXPECT_EQ(v.size(), 255U);
   }
@@ -2295,7 +2296,7 @@ void StableId_NoThrow() {
   // returns invalid.
   if (true) {
     V v;
-    v.set_throw_on_insert_failure(false);
+    v.throw_on_insert_failure(false);
     for (int i = 0; i < 255; ++i) (void)v.push_back(i);
 
     v.erase(id_t{50});

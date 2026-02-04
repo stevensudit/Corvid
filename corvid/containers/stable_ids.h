@@ -63,7 +63,12 @@ inline namespace stable_id_vector {
 // get type-safe IDs. Note that it must be a sequential enum type and define an
 // `invalid` value equal to its max, as shown by `id_t`.
 //
-// Based loosely on https://github.com/johnBuffer/StableIndexVector.
+// Insertion may throw `std::overflow_error` if the maximum ID value is
+// exceeded. Alternately, you can disable throwing by calling
+// `throw_on_insert_failure(false)`, in which case `id_t::invalid` is
+// returned.
+//
+// Motivated by https://github.com/johnBuffer/StableIndexVector.
 template<typename T, typename ID = id_enums::id_t,
     class Allocator = std::allocator<T>>
 class stable_ids {
@@ -98,7 +103,7 @@ public:
   // this instance, preventing IDs from being used outside their scope.
   struct handle_t {
   private:
-    explicit handle_t(id_t id, size_type gen = 0) : id_{id}, gen_{gen} {}
+    handle_t(id_t id, size_type gen = 0) : id_{id}, gen_{gen} {}
 
   public:
     handle_t() = default;
@@ -140,45 +145,67 @@ public:
     swap(lhs.throw_on_insert_failure_, rhs.throw_on_insert_failure_);
   }
 
+  // Control whether insertion throws on ID overflow or returns
+  // `id_t::invalid`.
   [[nodiscard]] bool throw_on_insert_failure() const noexcept {
     return throw_on_insert_failure_;
   }
-  void set_throw_on_insert_failure(bool value) noexcept {
+  void throw_on_insert_failure(bool value) noexcept {
     throw_on_insert_failure_ = value;
   }
 
+  // Push a new element, returning its assigned ID.
   [[nodiscard]] id_t push_back(const T& value) {
     const auto id = alloc_id();
-    if (id == id_t::invalid) {
-      if (throw_on_insert_failure_)
-        throw std::overflow_error("stable_ids: exceeded maximum id");
-      return id;
-    }
-    data_.push_back(value);
+    if (id != id_t::invalid)
+      data_.push_back(value);
+    else if (throw_on_insert_failure_)
+      throw std::overflow_error("stable_ids: exceeded maximum id");
+
     return id;
   }
 
+  // Emplace a new element, returning its assigned ID.
   template<typename... Args>
   [[nodiscard]] id_t emplace_back(Args&&... args) {
     const auto id = alloc_id();
-    if (id == id_t::invalid) {
-      if (throw_on_insert_failure_)
-        throw std::overflow_error("stable_ids: exceeded maximum id");
-      return id;
-    }
-    data_.emplace_back(std::forward<Args>(args)...);
+    if (id != id_t::invalid)
+      data_.emplace_back(std::forward<Args>(args)...);
+    else if (throw_on_insert_failure_)
+      throw std::overflow_error("stable_ids: exceeded maximum id");
+
     return id;
   }
 
-  // TODO: Consider adding versions of the inserts that return handles.
+  // Push a new element, returning its handle.
+  [[nodiscard]] handle_t push_back_handle(const T& value) {
+    return get_handle(push_back(value));
+  }
 
+  // Emplace a new element, returning its handle.
+  template<typename... Args>
+  [[nodiscard]] handle_t emplace_back_handle(Args&&... args) {
+    return get_handle(emplace_back(std::forward<Args>(args)...));
+  }
+
+  // Get handle for ID.
   [[nodiscard]] handle_t get_handle(id_t id) const {
-    assert(is_valid(id));
+    if (!is_valid(id)) return {id_t::invalid};
 
     const auto ndx = indexes_[id];
     return reverse_[ndx];
   }
 
+  // Checks whether ID is valid.
+  [[nodiscard]] bool is_valid(id_t id) const {
+    if (*id >= indexes_.size()) return false;
+    const auto ndx = indexes_[id];
+    if (ndx >= data_.size()) return false;
+    assert(reverse_[ndx].id_ == id);
+    return true;
+  }
+
+  // Checks whether handle is valid.
   [[nodiscard]] bool is_valid(handle_t handle) const {
     const auto id = handle.id_;
     if (*id >= indexes_.size()) return false;
@@ -189,33 +216,31 @@ public:
     return real_handle.gen_ == handle.gen_;
   }
 
-  [[nodiscard]] bool is_valid(id_t id) const {
-    if (*id >= indexes_.size()) return false;
-    const auto ndx = indexes_[id];
-    if (ndx >= data_.size()) return false;
-    assert(reverse_[ndx].id_ == id);
-    return true;
+  // Erase element by ID. Returns true if erased, false if ID was invalid.
+  bool erase(id_t id) {
+    if (!is_valid(id)) return false;
+    return do_erase(id);
   }
 
-  void erase(id_t id) {
-    assert(is_valid(id));
-    const auto ndx = indexes_[id];
-    const auto last_ndx = data_.size() - 1;
-    const auto last_id = reverse_[last_ndx].id_;
-    erase(ndx, last_ndx, id, last_id);
+  // Erase element by handle. Returns true if erased, false if handle was
+  // invalid.
+  bool erase(handle_t handle) {
+    if (!is_valid(handle)) return false;
+    return do_erase(handle.id_);
   }
 
-  void erase(handle_t handle) {
-    if (is_valid(handle)) erase(handle.id_);
-  }
-
-  void erase_if(auto pred) {
+  // Erase all elements matching predicate. Returns count erased.
+  size_type erase_if(auto pred) {
+    size_type cnt{};
     for (size_type ndx{}; ndx < data_.size();) {
-      if (pred(data_[ndx]))
-        erase(ndx);
-      else
+      if (pred(data_[ndx])) {
+        ++cnt;
+        do_erase(ndx);
+      } else
         ++ndx;
     }
+
+    return cnt;
   }
 
   // Clear all elements. If `shrink` is true, also free all memory.
@@ -246,8 +271,7 @@ public:
     }
 
     // IDs can be sparse; find the highest live ID to size the mappings.
-    const auto new_size = *find_max_extant_id() + 1;
-
+    const auto new_size = *find_max_extant_id() + 1u;
     if (new_size != reverse_.size()) {
       indexes_.resize(new_size);
       reverse_.resize(new_size);
@@ -260,7 +284,7 @@ public:
         const auto ndx = indexes_[id];
         if (ndx < live_size && reverse_[ndx].id_ == id) continue;
         indexes_[id] = free_pos;
-        reverse_[free_pos] = handle_t{id};
+        reverse_[free_pos] = {id};
         ++free_pos;
       }
     }
@@ -270,17 +294,23 @@ public:
     reverse_.shrink_to_fit();
   }
 
+  // Reserve space for at least `new_cap` elements.
   void reserve(size_type new_cap) {
+    // TODO: Consider prefilling `indexes_` and `reverse_` instead of just
+    // reserving.
     data_.reserve(new_cap);
     indexes_.reserve(new_cap);
     reverse_.reserve(new_cap);
   }
 
+  // Return current size. This is the count of elements actually present,
+  // unrelated to their IDs.
   [[nodiscard]] size_type size() const noexcept {
     return static_cast<size_type>(data_.size());
   }
 
-  // Return maximum valid ID, or `id_t::invalid` if empty.
+  // Return maximum valid ID, or `id_t::invalid` if empty. This is effectively
+  // the high-water mark, not the highest extant ID. See `find_max_extant_id`.
   //
   // Note that the list of valid IDs is sparse, so you may need to call
   // `is_valid` on the specific one you care about.
@@ -307,29 +337,33 @@ public:
   // Return next ID to be allocated.
   [[nodiscard]] id_t next_id() const noexcept {
     if (reverse_.size() > data_.size()) return reverse_[data_.size()].id_;
-    return max_id() + 1;
+    return max_id() + 1u;
   }
 
+  // Return whether container is empty.
   [[nodiscard]] bool empty() const noexcept { return data_.empty(); }
 
+  // Access element by ID. Must be valid.
   [[nodiscard]] decltype(auto) operator[](this auto& self, id_t id) noexcept {
     assert(self.is_valid(id));
     const auto ndx = self.indexes_[id];
     return std::forward<decltype(self)>(self).data_[ndx];
   }
 
+  // Access element by ID, with bounds checking.
   [[nodiscard]] decltype(auto) at(this auto& self, id_t id) {
     if (!self.is_valid(id)) throw std::out_of_range("id out of range");
     const auto ndx = self.indexes_[id];
     return std::forward<decltype(self)>(self).data_[ndx];
   }
 
+  // Access element by handle, with bounds and generation checking.
   [[nodiscard]] decltype(auto) at(this auto& self, handle_t handle) {
     if (!self.is_valid(handle)) throw std::invalid_argument("invalid handle");
     return std::forward<decltype(self)>(self).at(handle.id_);
   }
 
-  // Const-only access to vector, so that the ID scheme can't be broken.
+  // Const-only access to vector.
   [[nodiscard]] auto& vector() const noexcept { return data_; }
 
   // Access to data as a span.
@@ -339,6 +373,7 @@ public:
     return std::span{self.data_};
   }
 
+  // Iterators.
   [[nodiscard]] auto begin(this auto& self) noexcept {
     return std::forward<decltype(self)>(self).data_.begin();
   }
@@ -358,13 +393,19 @@ private:
 
     // Otherwise, expand indexes with new ID.
     const auto new_id = static_cast<id_t>(new_ndx);
-    if (new_id == id_t::invalid) return id_t::invalid;
-    reverse_.push_back(handle_t{new_id});
-    indexes_.push_back(new_ndx);
+    if (new_id != id_t::invalid) {
+      reverse_.push_back({new_id});
+      indexes_.push_back(new_ndx);
+    } else if (throw_on_insert_failure_)
+      throw std::overflow_error("stable_ids: exceeded maximum id");
+
     return new_id;
   }
 
-  void erase(size_type ndx, size_type last_ndx, id_t id, id_t last_id) {
+  // Swap-and-pop erase helper.
+  bool swap_and_pop(size_type ndx, size_type last_ndx, id_t id, id_t last_id) {
+    // Assumes validity checked by caller.
+
     // Invalidate handle by bumping generation.
     ++reverse_[ndx].gen_;
 
@@ -373,14 +414,28 @@ private:
     std::swap(indexes_[id], indexes_[last_id]);
     std::swap(reverse_[ndx], reverse_[last_ndx]);
     data_.pop_back();
+    return true;
   }
 
-  void erase(size_type ndx) {
+  // Erase by ID helper.
+  bool do_erase(id_t id) {
+    // Assumes validity checked by caller.
+    assert(is_valid(id));
+    const auto ndx = indexes_[id];
+    const auto last_ndx = data_.size() - 1;
+    const auto last_id = reverse_[last_ndx].id_;
+    return swap_and_pop(ndx, last_ndx, id, last_id);
+  }
+
+  // Erase by data index helper.
+  void do_erase(size_type ndx) {
+    // Assumes validity checked by caller.
     assert(ndx < data_.size());
     const auto last_ndx = data_.size() - 1;
     const auto last_id = reverse_[last_ndx].id_;
     const auto id = reverse_[ndx].id_;
-    erase(ndx, last_ndx, id, last_id);
+    assert(is_valid(id));
+    swap_and_pop(ndx, last_ndx, id, last_id);
   }
 
 private:
