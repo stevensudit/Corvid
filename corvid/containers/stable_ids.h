@@ -80,13 +80,10 @@ inline namespace stable_id_vector {
 // `throw_on_insert_failure(false)`, in which case `id_t::invalid` is
 // returned.
 //
-// TODO: Allow specifying a maximum value on specialization that's lower than
-// `id_t::invalid`. We justneed to test for < that value instead of comparing
-// with the invalid constant.
-//
 // Motivated by https://github.com/johnBuffer/StableIndexVector.
-template<typename T, typename ID = id_enums::id_t, bool UseGen = true,
-    bool UseFifo = false, class Allocator = std::allocator<T>>
+template<typename T, typename ID = id_enums::id_t, ID MaxId = ID::invalid,
+    bool UseGen = true, bool UseFifo = false,
+    class Allocator = std::allocator<T>>
 class stable_ids {
 public:
   using id_t = ID;
@@ -151,7 +148,7 @@ public:
     id_t id_{id_t::invalid};
     [[no_unique_address]] maybe_t<size_type, UseGen> gen_{};
 
-    friend class stable_ids<T, ID, UseGen, UseFifo, Allocator>;
+    friend class stable_ids<T, ID, MaxId, UseGen, UseFifo, Allocator>;
   };
 
   // Internal slot stored in `reverse_`. Contains the handle and, when FIFO is
@@ -493,13 +490,15 @@ private:
 
     // No free ID available; expand with a new one.
     const auto new_id = static_cast<id_t>(new_ndx);
-    if (new_id != id_t::invalid) {
+    if (new_id < MaxId) {
       reverse_.push_back(slot_t{handle_t{new_id}});
       indexes_.push_back(new_ndx);
-    } else if (throw_on_insert_failure_)
-      throw std::overflow_error("stable_ids: exceeded maximum id");
+      return new_id;
+    }
 
-    return new_id;
+    if (throw_on_insert_failure_)
+      throw std::overflow_error("stable_ids: exceeded maximum id");
+    return id_t::invalid;
   }
 
   // Swap-and-pop erase helper.

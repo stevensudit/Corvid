@@ -2187,13 +2187,17 @@ constexpr auto corvid::enums::registry::enum_spec_v<small_id_t> =
 using int_stable_small_ids = stable_ids<int, small_id_t>;
 
 using int_stable_ids_fifo =
-    stable_ids<int, int_stable_ids::id_t, true, true, std::allocator<int>>;
+    stable_ids<int, int_stable_ids::id_t, int_stable_ids::id_t::invalid, true,
+        true, std::allocator<int>>;
 using int_stable_ids_nogen =
-    stable_ids<int, int_stable_ids::id_t, false, false, std::allocator<int>>;
+    stable_ids<int, int_stable_ids::id_t, int_stable_ids::id_t::invalid, false,
+        false, std::allocator<int>>;
 using int_stable_ids_fifo_nogen =
-    stable_ids<int, int_stable_ids::id_t, false, true, std::allocator<int>>;
+    stable_ids<int, int_stable_ids::id_t, int_stable_ids::id_t::invalid, false,
+        true, std::allocator<int>>;
 using int_stable_small_ids_fifo =
-    stable_ids<int, small_id_t, true, true, std::allocator<int>>;
+    stable_ids<int, small_id_t, small_id_t::invalid, true, true,
+        std::allocator<int>>;
 
 void StableId_SmallId() {
   using V = int_stable_small_ids;
@@ -2776,6 +2780,68 @@ void StableId_FifoNoGen() {
   }
 }
 
+// Test the MaxId template parameter to limit ID allocation.
+void StableId_MaxId() {
+  using id_t = int_stable_ids::id_t;
+  // Limit to 3 IDs (0, 1, 2).
+  using V = stable_ids<int, id_t, id_t{3}>;
+
+  // Can allocate up to max.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    auto id1 = v.push_back(20);
+    auto id2 = v.push_back(30);
+    EXPECT_EQ(*id0, 0U);
+    EXPECT_EQ(*id1, 1U);
+    EXPECT_EQ(*id2, 2U);
+    EXPECT_EQ(v.size(), 3U);
+  }
+
+  // The 4th insertion overflows.
+  if (true) {
+    V v;
+    (void)v.push_back(10);
+    (void)v.push_back(20);
+    (void)v.push_back(30);
+    EXPECT_THROW(v.push_back(40), std::overflow_error);
+    EXPECT_EQ(v.size(), 3U);
+  }
+
+  // With throw disabled, returns invalid.
+  if (true) {
+    V v;
+    v.throw_on_insert_failure(false);
+    (void)v.push_back(10);
+    (void)v.push_back(20);
+    (void)v.push_back(30);
+    auto id3 = v.push_back(40);
+    EXPECT_EQ(id3, id_t::invalid);
+    EXPECT_EQ(v.size(), 3U);
+  }
+
+  // Erasing frees a slot for reuse.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    (void)v.push_back(20);
+    (void)v.push_back(30);
+    EXPECT_EQ(v.size(), 3U);
+
+    v.erase(id0);
+    EXPECT_EQ(v.size(), 2U);
+
+    // Can now insert again, reusing the freed ID.
+    auto id_reused = v.push_back(40);
+    EXPECT_EQ(id_reused, id0);
+    EXPECT_EQ(v.size(), 3U);
+    EXPECT_EQ(v[id_reused], 40);
+
+    // Full again — overflow.
+    EXPECT_THROW(v.push_back(50), std::overflow_error);
+  }
+}
+
 void EnumVector_Basic() {
   using id_t = int_stable_ids::id_t;
   enum_vector<int, id_t> v;
@@ -2855,7 +2921,7 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
     StrongType_Extended, EnumVariant_Basic, TombStone_Basic, StableId_Basic,
     StableId_SmallId, StableId_NoThrow, StableId_Fifo, StableId_NoGen,
-    StableId_FifoNoGen, EnumVector_Basic);
+    StableId_FifoNoGen, StableId_MaxId, EnumVector_Basic);
 
 // TODO: Move the following to a proper TODO.
 // Ok, so the plan is to make all of the Ptr/Del ctors take the same three
