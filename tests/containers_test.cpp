@@ -1754,7 +1754,7 @@ void StableId_Basic() {
     V v;
     EXPECT_TRUE(v.empty());
     EXPECT_EQ(v.size(), 0U);
-    EXPECT_EQ(v.find_max_id(), id_t::invalid);
+    EXPECT_EQ(v.find_max_extant_id(), id_t::invalid);
   }
 
   // push_back and emplace_back assign sequential IDs starting at 0.
@@ -1950,16 +1950,16 @@ void StableId_Basic() {
   // find_max_id tracks the largest currently-live ID.
   if (true) {
     V v;
-    EXPECT_EQ(v.find_max_id(), id_t::invalid);
+    EXPECT_EQ(v.find_max_extant_id(), id_t::invalid);
     (void)v.push_back(10); // id 0
-    EXPECT_EQ(v.find_max_id(), id_t{0});
+    EXPECT_EQ(v.find_max_extant_id(), id_t{0});
     (void)v.push_back(20); // id 1
     (void)v.push_back(30); // id 2
-    EXPECT_EQ(v.find_max_id(), id_t{2});
+    EXPECT_EQ(v.find_max_extant_id(), id_t{2});
     v.erase(id_t{2});
-    EXPECT_EQ(v.find_max_id(), id_t{1});
+    EXPECT_EQ(v.find_max_extant_id(), id_t{1});
     v.erase(id_t{0});
-    EXPECT_EQ(v.find_max_id(), id_t{1});
+    EXPECT_EQ(v.find_max_extant_id(), id_t{1});
   }
 
   // next_id returns the ID the next insertion would receive: a freed ID
@@ -1999,7 +1999,7 @@ void StableId_Basic() {
     EXPECT_EQ(v.size(), 2U);
     EXPECT_EQ(v[id_t{1}], 20);
     EXPECT_EQ(v[id_t{2}], 30);
-    EXPECT_EQ(v.find_max_id(), id_t{2});
+    EXPECT_EQ(v.find_max_extant_id(), id_t{2});
     // After compaction id 0 is the only free slot below the new table size;
     // it is reused on the next insert.
     auto id_new = v.push_back(99);

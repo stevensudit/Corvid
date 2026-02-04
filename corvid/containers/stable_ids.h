@@ -61,7 +61,7 @@ inline namespace stable_id_vector {
 //
 // By specializing on an ID type that's unique to your container instance, you
 // get type-safe IDs. Note that it must be a sequential enum type and define an
-// `invalid` value, as shown by `id_t`.
+// `invalid` value equal to its max, as shown by `id_t`.
 //
 // Based loosely on https://github.com/johnBuffer/StableIndexVector.
 template<typename T, typename ID = id_enums::id_t,
@@ -120,6 +120,9 @@ public:
   using handle_allocator_type = typename std::allocator_traits<
       Allocator>::template rebind_alloc<handle_t>;
 
+  static_assert(std::is_trivially_copyable_v<handle_t>);
+  static_assert(sizeof(handle_t) <= 16);
+
   // Construction.
   stable_ids() = default;
   explicit stable_ids(const allocator_type& alloc)
@@ -135,6 +138,9 @@ public:
     swap(lhs.indexes_, rhs.indexes_);
     swap(lhs.reverse_, rhs.reverse_);
   }
+
+  // TODO: Add state to set whether to throw on failed insert. If not, returns
+  // id_t::invalid.
 
   [[nodiscard]] id_t push_back(const T& value) {
     const auto id = alloc_id();
@@ -158,7 +164,7 @@ public:
     return reverse_[ndx];
   }
 
-  [[nodiscard]] bool is_valid(const handle_t& handle) const {
+  [[nodiscard]] bool is_valid(handle_t handle) const {
     const auto id = handle.id_;
     if (*id >= indexes_.size()) return false;
     const auto ndx = indexes_[id];
@@ -184,7 +190,7 @@ public:
     erase(ndx, last_ndx, id, last_id);
   }
 
-  void erase(const handle_t& handle) {
+  void erase(handle_t handle) {
     if (is_valid(handle)) erase(handle.id_);
   }
 
@@ -198,8 +204,8 @@ public:
   }
 
   // Clear all elements. If `shrink` is true, also free all memory.
-  // It's faster to clear with shrink than to clear and then `shrink_to_fit()`.
-  // See comment for `shrink_to_fit()`.
+  // It's faster to clear with shrink than to clear and then `shrink_to_fit`.
+  // See warning in `shrink_to_fit`.
   void clear(bool shrink = false) noexcept {
     data_.clear();
     if (shrink) {
@@ -211,19 +217,6 @@ public:
     } else {
       for (auto& h : reverse_) ++h.gen_;
     }
-  }
-
-  [[nodiscard]] id_t find_max_id() const noexcept {
-    if (data_.empty()) return id_t::invalid;
-
-    // TODO: Take advantage of sequential_enum to avoid using the underlying
-    // type in the loop.
-    size_type max_id_val{};
-    for (size_type ndx{}; ndx < data_.size(); ++ndx) {
-      const auto id_val = *reverse_[ndx].id_;
-      if (id_val > max_id_val) max_id_val = id_val;
-    }
-    return static_cast<id_t>(max_id_val);
   }
 
   // Reduce memory usage to fit current size. Note that this does not preserve
@@ -238,7 +231,7 @@ public:
     }
 
     // IDs can be sparse; find the highest live ID to size the mappings.
-    const auto new_size = *find_max_id() + 1;
+    const auto new_size = *find_max_extant_id() + 1;
 
     if (new_size != reverse_.size()) {
       indexes_.resize(new_size);
@@ -248,11 +241,11 @@ public:
       // points into the live range and reverse_ confirms the match. Freed IDs
       // are placed into the tail; live entries are left untouched.
       size_type free_pos = live_size;
-      for (size_type id_val{}; id_val < new_size; ++id_val) {
-        const auto ndx = indexes_[static_cast<id_t>(id_val)];
-        if (ndx < live_size && *reverse_[ndx].id_ == id_val) continue;
-        indexes_[static_cast<id_t>(id_val)] = free_pos;
-        reverse_[free_pos] = handle_t{static_cast<id_t>(id_val)};
+      for (id_t id{}; *id < new_size; ++id) {
+        const auto ndx = indexes_[id];
+        if (ndx < live_size && reverse_[ndx].id_ == id) continue;
+        indexes_[id] = free_pos;
+        reverse_[free_pos] = handle_t{id};
         ++free_pos;
       }
     }
@@ -273,21 +266,39 @@ public:
   }
 
   // Return maximum valid ID, or `id_t::invalid` if empty.
+  //
+  // Note that the list of valid IDs is sparse, so you may need to call
+  // `is_valid` on the specific one you care about.
   [[nodiscard]] id_t max_id() const noexcept {
     return static_cast<id_t>(indexes_.size() - 1);
+  }
+
+  // Return maximum extant ID, or `id_t::invalid` if empty.
+  //
+  // Note that the list of valid IDs is sparse, so you may need to call
+  // `is_valid` on the specific one you care about.
+  [[nodiscard]] id_t find_max_extant_id() const noexcept {
+    if (data_.empty()) return id_t::invalid;
+
+    id_t max_id{};
+    for (size_type ndx{}; ndx < data_.size(); ++ndx) {
+      const auto id = reverse_[ndx].id_;
+      if (id > max_id) max_id = id;
+    }
+
+    return max_id;
   }
 
   // Return next ID to be allocated.
   [[nodiscard]] id_t next_id() const noexcept {
     if (reverse_.size() > data_.size()) return reverse_[data_.size()].id_;
-    return static_cast<id_t>(data_.size());
+    return max_id() + 1;
   }
 
   [[nodiscard]] bool empty() const noexcept { return data_.empty(); }
 
   [[nodiscard]] decltype(auto) operator[](this auto& self, id_t id) noexcept {
     assert(self.is_valid(id));
-
     const auto ndx = self.indexes_[id];
     return std::forward<decltype(self)>(self).data_[ndx];
   }
@@ -298,7 +309,7 @@ public:
     return std::forward<decltype(self)>(self).data_[ndx];
   }
 
-  [[nodiscard]] decltype(auto) at(this auto& self, const handle_t& handle) {
+  [[nodiscard]] decltype(auto) at(this auto& self, handle_t handle) {
     if (!self.is_valid(handle)) throw std::invalid_argument("invalid handle");
     return std::forward<decltype(self)>(self).at(handle.id_);
   }
@@ -308,7 +319,7 @@ public:
 
   // Access to data as a span.
   //
-  // Note that, unlike `vector()`, this can allow modifying values.
+  // Note that, unlike `vector`, this can allow modifying values.
   [[nodiscard]] auto span(this auto& self) noexcept {
     return std::span{self.data_};
   }
