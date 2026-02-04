@@ -2187,13 +2187,13 @@ constexpr auto corvid::enums::registry::enum_spec_v<small_id_t> =
 using int_stable_small_ids = stable_ids<int, small_id_t>;
 
 using int_stable_ids_fifo =
-    stable_ids<int, int_stable_ids::id_t, std::allocator<int>, true, true>;
+    stable_ids<int, int_stable_ids::id_t, true, true, std::allocator<int>>;
 using int_stable_ids_nogen =
-    stable_ids<int, int_stable_ids::id_t, std::allocator<int>, false, false>;
+    stable_ids<int, int_stable_ids::id_t, false, false, std::allocator<int>>;
 using int_stable_ids_fifo_nogen =
-    stable_ids<int, int_stable_ids::id_t, std::allocator<int>, false, true>;
+    stable_ids<int, int_stable_ids::id_t, false, true, std::allocator<int>>;
 using int_stable_small_ids_fifo =
-    stable_ids<int, small_id_t, std::allocator<int>, true, true>;
+    stable_ids<int, small_id_t, true, true, std::allocator<int>>;
 
 void StableId_SmallId() {
   using V = int_stable_small_ids;

@@ -85,11 +85,8 @@ inline namespace stable_id_vector {
 // with the invalid constant.
 //
 // Motivated by https://github.com/johnBuffer/StableIndexVector.
-// TODO: Move Allocator all the way to the end of the template parameter list,
-// and patch all uses.
-template<typename T, typename ID = id_enums::id_t,
-    class Allocator = std::allocator<T>, bool UseGen = true,
-    bool UseFifo = false>
+template<typename T, typename ID = id_enums::id_t, bool UseGen = true,
+    bool UseFifo = false, class Allocator = std::allocator<T>>
 class stable_ids {
 public:
   using id_t = ID;
@@ -154,7 +151,7 @@ public:
     id_t id_{id_t::invalid};
     [[no_unique_address]] maybe_t<size_type, UseGen> gen_{};
 
-    friend class stable_ids<T, ID, Allocator, UseGen, UseFifo>;
+    friend class stable_ids<T, ID, UseGen, UseFifo, Allocator>;
   };
 
   // Internal slot stored in `reverse_`. Contains the handle and, when FIFO is
