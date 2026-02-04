@@ -2136,6 +2136,41 @@ void StableId_Basic() {
     EXPECT_EQ(b.at(h_a), 10);
     EXPECT_EQ(a.at(h_b), 20);
   }
+
+  // max_id returns the highest ID ever issued (index-table high-water mark).
+  // Unlike find_max_extant_id it does not decrease on erase or non-shrinking
+  // clear; it only resets when the index table itself is freed.
+  if (true) {
+    V v;
+    EXPECT_EQ(v.max_id(), id_t::invalid); // empty: no IDs allocated
+    (void)v.push_back(10);                // id 0
+    EXPECT_EQ(v.max_id(), id_t{0});
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    EXPECT_EQ(v.max_id(), id_t{2});
+    // Erasing does not shrink the index table.
+    v.erase(id_t{2});
+    EXPECT_EQ(v.max_id(), id_t{2});
+    EXPECT_EQ(v.find_max_extant_id(), id_t{1}); // contrast: live max dropped
+    // Reinserting reuses id 2; high-water mark stays the same.
+    (void)v.push_back(99);
+    EXPECT_EQ(v.max_id(), id_t{2});
+    // clear() without shrink keeps the index table intact.
+    v.clear();
+    EXPECT_EQ(v.max_id(), id_t{2});
+    // clear(true) frees the index table; max_id resets.
+    v.clear(true);
+    EXPECT_EQ(v.max_id(), id_t::invalid);
+  }
+
+  // Allocator constructor produces a usable, empty container.
+  if (true) {
+    V v{std::allocator<int>{}};
+    EXPECT_TRUE(v.empty());
+    auto id = v.push_back(42);
+    EXPECT_EQ(v[id], 42);
+    EXPECT_EQ(v.size(), 1U);
+  }
 }
 
 enum class small_id_t : std::uint8_t { invalid = 255 };
