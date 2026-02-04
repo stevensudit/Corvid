@@ -637,7 +637,7 @@ MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
     MetaTest_IsPair, MetaTest_ContainerElement, MetaTest_KeyFind,
     MetaTest_TypeName, MetaTest_StringViewConvertible, MetaTest_Number,
     MetaTest_Tuple, MetaTest_Detection, MetaTest_Underlying,
-    MetaTest_Streamable);
+    MetaTest_Streamable, MetaTest_MaybeTypes);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
