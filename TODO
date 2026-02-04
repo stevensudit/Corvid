@@ -145,3 +145,12 @@
 29. Test improvements - containers_test.cpp: Disabled tests that need to be enabled or fixed:
    a. own_ptr regression tests (around line 1039 and 1059) - tests for reference deleters and CTAD.
    b. CustomHandleTest_Basic (around line 1118) - entire test function is disabled.
+
+30. containers/stable_ids.h - stable_ids class improvements:
+   a. Consider writing a drop-in replacement for vector that contains parallel heterogeneous vectors (e.g., for position and color). This would use a common indexing scheme across all of them, with a view/lens object containing a pointer to the container and an index for element references. The traits would implement the swap method for this multivector container for efficiency.
+   b. Consider adding a heavier handle that contains a pointer to the stable_ids instance, preventing IDs from being used outside their scope.
+   c. In `reserve()`: Consider prefilling `indexes_` and `reverse_` instead of just reserving. Would need to `rebuild_fifo_list`, too.
+   d. In `find_max_extant_id()`: Consider rewriting to search `indexes_` backwards. While still linear, this would be faster when the container is large and full. Could decide which approach to take based on fill ratio (with benchmarks to justify). Currently not a priority since this function is not much used, and never in the critical path.
+
+31. containers/own_ptr.h - CTAD improvements:
+   a. Make all of the Ptr/Del ctors take the same three templated arguments, where the third is a named thing defaulted to void with a requires clause requiring it to be void. Then add deduction guides that set the must-be-void to something else.

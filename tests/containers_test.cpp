@@ -2919,11 +2919,5 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     StableId_SmallId, StableId_NoThrow, StableId_Fifo, StableId_NoGen,
     StableId_FifoNoGen, StableId_MaxId, EnumVector_Basic);
 
-// TODO: Move the following to a proper TODO.
-// Ok, so the plan is to make all of the Ptr/Del ctors take the same three
-// templated arguments. The third is just a named thing that's defaulted to
-// void and then the requires clause requires it to be void. Then we add a
-// bunch of deduction guides that set the must-be-void to something else.
-
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

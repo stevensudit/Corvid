@@ -108,20 +108,9 @@ public:
   static_assert(std::is_unsigned_v<size_type>,
       "ID type for stable_ids must use an unsigned underlying type");
 
-  // TODO: Consider writing a drop-in replacement for vector that contains
-  // parallel heterogeneous vectors, such as for position and color and so on.
-  // This would let us use a common indexing scheme across all of these. We'll
-  // want a view/lens object with a pointer to the container and an index, so
-  // that we can have references to the elements. But we'll also want the
-  // traits to implement the swap method for this multivector container so that
-  // it's reasonably efficient.
-
   // An opaque handle that refers to an element. When UseGen is enabled, it
   // captures a generation snapshot that allows `is_valid(handle_t)` to detect
   // ID reuse. Otherwise, it becomes equivalent to an `id_t`.
-  //
-  // TODO: Consider adding an even heavier handle that contains a pointer to
-  // this instance, preventing IDs from being used outside their scope.
   struct handle_t {
   private:
     explicit handle_t(id_t id) : id_{id} {}
@@ -353,8 +342,6 @@ public:
 
   // Reserve space for at least `new_cap` elements.
   void reserve(size_type new_cap) {
-    // TODO: Consider prefilling `indexes_` and `reverse_` instead of just
-    // reserving. Would need to `rebuild_fifo_list`, too.
     data_.reserve(new_cap);
     indexes_.reserve(new_cap);
     reverse_.reserve(new_cap);
@@ -382,13 +369,6 @@ public:
   [[nodiscard]] id_t find_max_extant_id() const noexcept {
     if (data_.empty()) return id_t::invalid;
 
-    // TODO: Consider rewriting this to instead search `indexes_` backwards.
-    // While still linear, this would be faster when the container is large and
-    // full. Arguably, with benchmarks to justify it, we could have it decide
-    // which approach to take based on fill ratio. Realistically, this function
-    // is not much used, and never in the critical path, so optimization is not
-    // a priority. Its current use is during shrinking, which is rare and
-    // necessarily slow.
     id_t max_id{};
     for (size_type ndx{}; ndx < data_.size(); ++ndx) {
       const auto id = reverse_[ndx].h_.id_;
