@@ -60,6 +60,7 @@ public:
   void resize(size_type count) { data_.resize(count); }
   void resize(size_type count, const T& value) { data_.resize(count, value); }
   void clear() noexcept { data_.clear(); }
+  void shrink_to_fit() { data_.shrink_to_fit(); }
 
   [[nodiscard]] decltype(auto)
   operator[](this auto& self, enum_t ndx) noexcept {
@@ -80,10 +81,16 @@ public:
     return self.data_.data();
   }
 
-  decltype(auto) begin(this auto& self) noexcept { return self.data_.begin(); }
-  const_iterator cbegin() const noexcept { return data_.cbegin(); }
-  decltype(auto) end(this auto& self) noexcept { return self.data_.end(); }
-  const_iterator cend() const noexcept { return data_.cend(); }
+  [[nodiscard]] decltype(auto) begin(this auto& self) noexcept {
+    return self.data_.begin();
+  }
+  [[nodiscard]] const_iterator cbegin() const noexcept {
+    return data_.cbegin();
+  }
+  [[nodiscard]] decltype(auto) end(this auto& self) noexcept {
+    return self.data_.end();
+  }
+  [[nodiscard]] const_iterator cend() const noexcept { return data_.cend(); }
 
   void push_back(const T& value) { data_.push_back(value); }
   void push_back(T&& value) { data_.push_back(std::move(value)); }
@@ -95,7 +102,9 @@ public:
 
   // Additional methods.
 
-  enum_t size_as_enum() const noexcept { return enum_t{data_.size()}; }
+  [[nodiscard]] enum_t size_as_enum() const noexcept {
+    return enum_t{data_.size()};
+  }
 
   // Access underlying type.
   auto& underlying(this auto& self) noexcept { return self.data_; }

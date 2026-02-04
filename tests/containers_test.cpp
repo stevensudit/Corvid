@@ -1745,10 +1745,456 @@ void TombStone_Basic() {
 
 using int_stable_ids = stable_ids<int>;
 
-void IdVector_Placeholder() {
-  int_stable_ids v;
-  EXPECT_TRUE(true);
-  (void)v;
+void StableId_Basic() {
+  using V = int_stable_ids;
+  using id_t = V::id_t;
+
+  // Empty container.
+  if (true) {
+    V v;
+    EXPECT_TRUE(v.empty());
+    EXPECT_EQ(v.size(), 0U);
+    EXPECT_EQ(v.find_max_id(), id_t::invalid);
+  }
+
+  // push_back and emplace_back assign sequential IDs starting at 0.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    EXPECT_EQ(*id0, 0U);
+    EXPECT_EQ(v.size(), 1U);
+    EXPECT_FALSE(v.empty());
+    auto id1 = v.push_back(20);
+    auto id2 = v.emplace_back(30);
+    EXPECT_EQ(*id1, 1U);
+    EXPECT_EQ(*id2, 2U);
+    EXPECT_EQ(v.size(), 3U);
+    EXPECT_EQ(v[id0], 10);
+    EXPECT_EQ(v[id1], 20);
+    EXPECT_EQ(v[id2], 30);
+  }
+
+  // Mutable and const access via operator[] and at().
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    auto id1 = v.push_back(20);
+    EXPECT_EQ(v[id0], 10);
+    EXPECT_EQ(v.at(id0), 10);
+    v[id0] = 42;
+    EXPECT_EQ(v[id0], 42);
+    v.at(id1) = 99;
+    EXPECT_EQ(v.at(id1), 99);
+    const V& cv = v;
+    EXPECT_EQ(cv[id0], 42);
+    EXPECT_EQ(cv.at(id1), 99);
+  }
+
+  // at(id) throws std::out_of_range for an invalid ID.
+  if (true) {
+    V v;
+    (void)v.push_back(10);
+    EXPECT_THROW(v.at(id_t{99}), std::out_of_range);
+  }
+
+  // Handles carry generation; get_handle and is_valid agree.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    auto id1 = v.push_back(20);
+    auto h0 = v.get_handle(id0);
+    auto h1 = v.get_handle(id1);
+    EXPECT_EQ(h0.get_id(), id0);
+    EXPECT_EQ(h0.get_gen(), 0U);
+    EXPECT_TRUE(v.is_valid(h0));
+    EXPECT_TRUE(v.is_valid(h1));
+    EXPECT_TRUE(h0 != h1);
+    auto h0_copy = h0;
+    EXPECT_TRUE(h0 == h0_copy);
+  }
+
+  // at(handle) returns the element; throws when the handle is stale.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(42);
+    auto h0 = v.get_handle(id0);
+    EXPECT_EQ(v.at(h0), 42);
+    v.erase(id0);
+    EXPECT_THROW(v.at(h0), std::invalid_argument);
+  }
+
+  // Erasing the only element empties the container and invalidates.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    auto h0 = v.get_handle(id0);
+    v.erase(id0);
+    EXPECT_TRUE(v.empty());
+    EXPECT_FALSE(v.is_valid(id0));
+    EXPECT_FALSE(v.is_valid(h0));
+    EXPECT_THROW(v.at(id0), std::out_of_range);
+  }
+
+  // Erase of a non-last element swaps the last element into the gap;
+  // all surviving IDs still resolve to their original values.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    auto id1 = v.push_back(20);
+    auto id2 = v.push_back(30);
+    v.erase(id1);
+    EXPECT_EQ(v.size(), 2U);
+    EXPECT_TRUE(v.is_valid(id0));
+    EXPECT_FALSE(v.is_valid(id1));
+    EXPECT_TRUE(v.is_valid(id2));
+    EXPECT_EQ(v[id0], 10);
+    EXPECT_EQ(v[id2], 30);
+  }
+
+  // The next push_back reuses the most recently freed ID.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    (void)v.push_back(20); // id1
+    v.erase(id0);
+    auto id_reused = v.push_back(99);
+    EXPECT_EQ(id_reused, id0);
+    EXPECT_EQ(v[id_reused], 99);
+  }
+
+  // A handle obtained before erase stays invalid even after the ID is reused;
+  // the new handle's generation is strictly greater.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    auto h0 = v.get_handle(id0);
+    EXPECT_EQ(h0.get_gen(), 0U);
+    v.erase(id0);
+    auto id0_reused = v.push_back(99);
+    EXPECT_EQ(id0_reused, id0);
+    EXPECT_FALSE(v.is_valid(h0));
+    auto h0_new = v.get_handle(id0_reused);
+    EXPECT_TRUE(v.is_valid(h0_new));
+    EXPECT_GT(h0_new.get_gen(), h0.get_gen());
+  }
+
+  // erase(handle) is a no-op when the handle is already invalid.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    auto id1 = v.push_back(20);
+    auto h0 = v.get_handle(id0);
+    v.erase(h0);
+    EXPECT_EQ(v.size(), 1U);
+    EXPECT_EQ(v[id1], 20);
+    v.erase(h0); // already invalid; no-op
+    EXPECT_EQ(v.size(), 1U);
+  }
+
+  // erase_if removes exactly the elements matching the predicate,
+  // including cases where the swap-and-pop brings a matching element
+  // into a slot that has already been visited.
+  if (true) {
+    V v;
+    (void)v.push_back(10);
+    (void)v.push_back(25);
+    (void)v.push_back(30);
+    (void)v.push_back(5);
+    (void)v.push_back(15);
+    v.erase_if([](int x) { return x > 20; });
+    EXPECT_EQ(v.size(), 3U);
+    int sum{};
+    for (auto val : v) {
+      EXPECT_TRUE(val <= 20);
+      sum += val;
+    }
+    EXPECT_EQ(sum, 30); // 10 + 5 + 15
+  }
+
+  // clear() without shrink bumps every generation and keeps the index
+  // tables so that subsequent inserts reuse IDs from 0.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(10);
+    auto id1 = v.push_back(20);
+    auto h0 = v.get_handle(id0);
+    auto h1 = v.get_handle(id1);
+    v.clear();
+    EXPECT_TRUE(v.empty());
+    EXPECT_FALSE(v.is_valid(h0));
+    EXPECT_FALSE(v.is_valid(h1));
+    auto id_new0 = v.push_back(100);
+    auto id_new1 = v.push_back(200);
+    EXPECT_EQ(id_new0, id0);
+    EXPECT_EQ(id_new1, id1);
+    auto h_new0 = v.get_handle(id_new0);
+    EXPECT_EQ(h_new0.get_gen(), 1U); // bumped once by clear
+    EXPECT_TRUE(v.is_valid(h_new0));
+    EXPECT_FALSE(v.is_valid(h0));
+  }
+
+  // clear(true) frees all storage; IDs restart from zero with generation 0.
+  if (true) {
+    V v;
+    (void)v.push_back(10);
+    (void)v.push_back(20);
+    v.clear(true);
+    EXPECT_TRUE(v.empty());
+    auto id = v.push_back(42);
+    EXPECT_EQ(*id, 0U);
+    EXPECT_EQ(v[id], 42);
+    auto h = v.get_handle(id);
+    EXPECT_EQ(h.get_gen(), 0U);
+  }
+
+  // find_max_id tracks the largest currently-live ID.
+  if (true) {
+    V v;
+    EXPECT_EQ(v.find_max_id(), id_t::invalid);
+    (void)v.push_back(10); // id 0
+    EXPECT_EQ(v.find_max_id(), id_t{0});
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    EXPECT_EQ(v.find_max_id(), id_t{2});
+    v.erase(id_t{2});
+    EXPECT_EQ(v.find_max_id(), id_t{1});
+    v.erase(id_t{0});
+    EXPECT_EQ(v.find_max_id(), id_t{1});
+  }
+
+  // next_id returns the ID the next insertion would receive: a freed ID
+  // if one exists, otherwise the next sequential value.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    EXPECT_EQ(v.next_id(), id_t{2});
+    v.erase(id_t{0});
+    EXPECT_EQ(v.next_id(), id_t{0}); // freed slot comes first
+  }
+
+  // is_valid correctly rejects IDs that were never allocated.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // only id 0 exists
+    EXPECT_TRUE(v.is_valid(id_t{0}));
+    EXPECT_FALSE(v.is_valid(id_t{1}));
+    EXPECT_FALSE(v.is_valid(id_t{999}));
+  }
+
+  // shrink_to_fit compacts index tables down to max-live-id + 1 and
+  // rebuilds the free list so that freed IDs below that bound are reused.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // id 0
+    (void)v.push_back(20); // id 1
+    (void)v.push_back(30); // id 2
+    (void)v.push_back(40); // id 3
+    (void)v.push_back(50); // id 4
+    v.erase(id_t{3});
+    v.erase(id_t{4});
+    v.erase(id_t{0});
+    // Live: ids 1 and 2.
+    v.shrink_to_fit();
+    EXPECT_EQ(v.size(), 2U);
+    EXPECT_EQ(v[id_t{1}], 20);
+    EXPECT_EQ(v[id_t{2}], 30);
+    EXPECT_EQ(v.find_max_id(), id_t{2});
+    // After compaction id 0 is the only free slot below the new table size;
+    // it is reused on the next insert.
+    auto id_new = v.push_back(99);
+    EXPECT_EQ(id_new, id_t{0});
+    EXPECT_EQ(v[id_new], 99);
+  }
+
+  // shrink_to_fit on an empty container is equivalent to clear(true).
+  if (true) {
+    V v;
+    (void)v.push_back(10);
+    v.erase(id_t{0});
+    v.shrink_to_fit();
+    EXPECT_TRUE(v.empty());
+    auto id = v.push_back(42);
+    EXPECT_EQ(*id, 0U);
+  }
+
+  // reserve pre-allocates without changing logical size.
+  if (true) {
+    V v;
+    v.reserve(64);
+    EXPECT_TRUE(v.empty());
+    EXPECT_EQ(v.size(), 0U);
+  }
+
+  // Move construction transfers full ownership.
+  if (true) {
+    V v;
+    (void)v.push_back(10);
+    (void)v.push_back(20);
+    V w{std::move(v)};
+    EXPECT_TRUE(v.empty());
+    EXPECT_EQ(w.size(), 2U);
+    EXPECT_EQ(w[id_t{0}], 10);
+    EXPECT_EQ(w[id_t{1}], 20);
+  }
+
+  // Move assignment transfers full ownership.
+  if (true) {
+    V v;
+    (void)v.push_back(10);
+    V w;
+    w = std::move(v);
+    EXPECT_TRUE(v.empty());
+    EXPECT_EQ(w.size(), 1U);
+    EXPECT_EQ(w[id_t{0}], 10);
+  }
+
+  // swap exchanges the contents of two containers.
+  if (true) {
+    V a, b;
+    (void)a.push_back(10);
+    (void)b.push_back(20);
+    (void)b.push_back(30);
+    swap(a, b);
+    EXPECT_EQ(a.size(), 2U);
+    EXPECT_EQ(b.size(), 1U);
+    EXPECT_EQ(a[id_t{0}], 20);
+    EXPECT_EQ(b[id_t{0}], 10);
+  }
+
+  // Range-based for loop and const iterators cover all live elements.
+  if (true) {
+    V v;
+    (void)v.push_back(10);
+    (void)v.push_back(20);
+    (void)v.push_back(30);
+    int sum{};
+    for (auto x : v) sum += x;
+    EXPECT_EQ(sum, 60);
+    sum = 0;
+    for (auto it = v.cbegin(); it != v.cend(); ++it) sum += *it;
+    EXPECT_EQ(sum, 60);
+  }
+
+  // span() gives a mutable view into the underlying data array.
+  // Note: span indices are data-order indices, not IDs.
+  if (true) {
+    V v;
+    (void)v.push_back(10);
+    (void)v.push_back(20);
+    auto s = v.span();
+    EXPECT_EQ(s.size(), 2U);
+    s[0] = 99;
+    // In a freshly populated container data index 0 == id 0.
+    EXPECT_EQ(v[id_t{0}], 99);
+  }
+
+  // vector() returns a value copy; mutations to it do not affect the
+  // container.
+  if (true) {
+    V v;
+    (void)v.push_back(10);
+    (void)v.push_back(20);
+    auto vec = v.vector();
+    EXPECT_EQ(vec.size(), 2U);
+    EXPECT_EQ(vec[0], 10);
+    vec[0] = 999;
+    EXPECT_EQ(v[id_t{0}], 10); // original unchanged
+  }
+
+  // Multiple erase-and-reinsert cycles keep the container consistent.
+  if (true) {
+    V v;
+    auto id0 = v.push_back(1);
+    auto id1 = v.push_back(2);
+    auto id2 = v.push_back(3);
+    v.erase(id1);
+    auto id1b = v.push_back(22);
+    EXPECT_EQ(id1b, id1); // reused
+    EXPECT_EQ(v[id1b], 22);
+    v.erase(id0);
+    v.erase(id2);
+    auto ida = v.push_back(100);
+    auto idb = v.push_back(200);
+    EXPECT_EQ(v.size(), 3U);
+    EXPECT_EQ(v[id1b], 22);
+    EXPECT_EQ(v[ida], 100);
+    EXPECT_EQ(v[idb], 200);
+  }
+
+  // Handles survive a swap of containers; validity follows the data.
+  if (true) {
+    V a, b;
+    auto id_a = a.push_back(10);
+    auto h_a = a.get_handle(id_a);
+    auto id_b = b.push_back(20);
+    auto h_b = b.get_handle(id_b);
+    swap(a, b);
+    // After swap h_a's data is in b, h_b's data is in a.
+    EXPECT_TRUE(b.is_valid(h_a));
+    EXPECT_TRUE(a.is_valid(h_b));
+    EXPECT_EQ(b.at(h_a), 10);
+    EXPECT_EQ(a.at(h_b), 20);
+  }
+}
+
+enum class small_id_t : std::uint8_t { invalid = 255 };
+
+template<>
+constexpr auto corvid::enums::registry::enum_spec_v<small_id_t> =
+    corvid::enums::sequence::make_sequence_enum_spec<small_id_t, "">();
+
+using int_stable_small_ids = stable_ids<int, small_id_t>;
+
+void StableId_SmallId() {
+  using V = int_stable_small_ids;
+  using id_t = V::id_t; // small_id_t : uint8_t, invalid = 255
+
+  // Fill to capacity: 255 elements occupy every ID from 0 to 254.
+  if (true) {
+    V v;
+    for (int i = 0; i < 255; ++i) (void)v.push_back(i);
+    EXPECT_EQ(v.size(), 255U);
+    EXPECT_EQ(v[id_t{0}], 0);
+    EXPECT_EQ(v[id_t{127}], 127);
+    EXPECT_EQ(v[id_t{254}], 254);
+  }
+
+  // The 256th insertion overflows; container size is unchanged.
+  if (true) {
+    V v;
+    for (int i = 0; i < 255; ++i) (void)v.push_back(i);
+    EXPECT_EQ(v.size(), 255U);
+    EXPECT_THROW(v.push_back(999), std::overflow_error);
+    EXPECT_EQ(v.size(), 255U);
+  }
+
+  // Erasing one element opens exactly one reuse slot.  After that single
+  // reuse the container is full again and the next insertion overflows.
+  if (true) {
+    V v;
+    for (int i = 0; i < 255; ++i) (void)v.push_back(i);
+    auto h100 = v.get_handle(id_t{100});
+
+    v.erase(id_t{100});
+    EXPECT_EQ(v.size(), 254U);
+    EXPECT_FALSE(v.is_valid(id_t{100}));
+    EXPECT_FALSE(v.is_valid(h100));
+
+    // The freed ID 100 is the one that gets reused.
+    auto id_reused = v.push_back(999);
+    EXPECT_EQ(id_reused, id_t{100});
+    EXPECT_EQ(v[id_reused], 999);
+    EXPECT_EQ(v.size(), 255U);
+    // The old handle is still invalid even though the ID is live again.
+    EXPECT_FALSE(v.is_valid(h100));
+    auto h100_new = v.get_handle(id_reused);
+    EXPECT_TRUE(v.is_valid(h100_new));
+    EXPECT_GT(h100_new.get_gen(), h100.get_gen());
+
+    // Full again — overflow.
+    EXPECT_THROW(v.push_back(0), std::overflow_error);
+  }
 }
 
 void EnumVector_Basic() {
@@ -1828,8 +2274,8 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     TransparentTest_General, IndirectKey_Basic, InternTableTest_Basic,
     InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
-    StrongType_Extended, EnumVariant_Basic, TombStone_Basic,
-    IdVector_Placeholder, EnumVector_Basic);
+    StrongType_Extended, EnumVariant_Basic, TombStone_Basic, StableId_Basic,
+    StableId_SmallId, EnumVector_Basic);
 
 // TODO: Move the following to a proper TODO.
 // Ok, so the plan is to make all of the Ptr/Del ctors take the same three
