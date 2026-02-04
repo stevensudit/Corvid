@@ -24,19 +24,27 @@ namespace corvid { inline namespace meta { inline namespace maybe_types {
 // overhead.
 
 // Empty type used when maybe_t is disabled.
-struct empty_t {};
+//
+// Note that it can be explicitly constructed on anything, so that default
+// member initialization works.
+struct empty_t {
+  constexpr empty_t() noexcept = default;
+
+  template<class... Args>
+  explicit constexpr empty_t(Args&&...) noexcept {}
+};
 
 // Maybe bool type: T if Enabled is true, otherwise empty.
 //
 // Usage:
-//   [[no_unique_address]] maybe_t<int, Enabled> int_or_missing;
+//   [[no_unique_address]] maybe_t<int, Enabled> int_or_missing{42};
 template<typename T, bool Enabled = false>
 using maybe_t = std::conditional_t<Enabled, T, empty_t>;
 
 // Maybe void type: T if T is not void, otherwise empty.
 //
 // Usage:
-//   [[no_unique_address]] maybe_void_t<int> int_or_missing;
+//   [[no_unique_address]] maybe_void_t<int> int_or_missing{42};
 template<typename T = void>
 using maybe_void_t = maybe_t<T, !std::is_void_v<T>>;
 

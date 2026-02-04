@@ -621,7 +621,7 @@ void MetaTest_MaybeTypes() {
   EXPECT_TRUE((std::is_same_v<maybe_void_t<>, empty_t>));
 
   struct NoExtraSpace {
-    [[no_unique_address]] maybe_t<int, false> maybe{};
+    [[no_unique_address]] maybe_t<int, false> maybe{42};
     int value{};
   };
   struct Baseline {
