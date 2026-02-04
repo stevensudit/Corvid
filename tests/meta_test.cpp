@@ -611,6 +611,25 @@ void MetaTest_Streamable() {
   EXPECT_FALSE((OStreamable<Foo>));
 }
 
+void MetaTest_MaybeTypes() {
+  EXPECT_TRUE((std::is_empty_v<empty_t>));
+  EXPECT_TRUE((std::is_same_v<maybe_t<int, true>, int>));
+  EXPECT_TRUE((std::is_same_v<maybe_t<int, false>, empty_t>));
+
+  EXPECT_TRUE((std::is_same_v<maybe_void_t<int>, int>));
+  EXPECT_TRUE((std::is_same_v<maybe_void_t<void>, empty_t>));
+  EXPECT_TRUE((std::is_same_v<maybe_void_t<>, empty_t>));
+
+  struct NoExtraSpace {
+    [[no_unique_address]] maybe_t<int, false> maybe{42};
+    int value{};
+  };
+  struct Baseline {
+    int value{};
+  };
+  EXPECT_EQ(sizeof(NoExtraSpace), sizeof(Baseline));
+}
+
 MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
     MetaTest_EnumHighestValueInNBits, MetaTest_EnumPow2,
     MetaTest_SpanConstness, MetaTest_FunctionVoidReturn,
@@ -618,7 +637,7 @@ MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
     MetaTest_IsPair, MetaTest_ContainerElement, MetaTest_KeyFind,
     MetaTest_TypeName, MetaTest_StringViewConvertible, MetaTest_Number,
     MetaTest_Tuple, MetaTest_Detection, MetaTest_Underlying,
-    MetaTest_Streamable);
+    MetaTest_Streamable, MetaTest_MaybeTypes);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

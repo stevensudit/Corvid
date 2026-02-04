@@ -2,9 +2,10 @@
 
 ## Build System
 - Always use CMake to build files, never direct calls to clang or g++ (unless you are specifically debugging issues related to build flags, such as release/debug or optimization level)
-- **IMPORTANT**: CMake build commands MUST be run from the tests/ directory, NOT from the project root
-  - The build directory is at `tests/build/`, not at the root level
-  - Always use: `cd tests && cmake --build build --target <target>`
+- **IMPORTANT**: CMakeLists.txt lives in `tests/` only — there is none at the project root
+  - The build directory is at `tests/build/`
+  - Build a single target: `cd tests/build && ninja <target>`
+  - Or equivalently: `cd tests && cmake --build build --target <target>`
   - If you're not sure what directory you're in, check with `pwd` first
 - When creating new test files, they will be automatically picked up by CMakeLists.txt (it globs *.cpp files)
 - **cleanbuild.sh**: Run `./cleanbuild.sh` from project root for a clean build and execution of all unit tests
@@ -25,6 +26,10 @@
 - When the user asks to commit changes, use `git add .` to stage all changes (including user-made modifications)
 - This ensures any additional changes the user made are included in the commit
 - Use `git switch` instead of `git checkout` for switching branches (safer and clearer intent)
+- **Squash-merge workflow**: PRs are squash-merged, so updates in response to review should be additional commits, not amended ones
+  - Separate commits make it easier to see what changed in response to feedback
+  - Avoids force-push, which can disrupt reviewers
+  - All commits are squashed into one on merge anyway
 
 ## Testing
 - Test executables are built to: tests/build/release_bin/

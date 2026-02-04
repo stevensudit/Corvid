@@ -16,12 +16,14 @@
 // limitations under the License.
 #pragma once
 #include "containers/containers_shared.h"
+#include "containers/enum_vector.h"
 #include "containers/custom_handle.h"
 #include "containers/optional_ptr.h"
 #include "containers/opt_find.h"
 #include "containers/own_ptr.h"
 #include "containers/transparent.h"
 #include "containers/interval.h"
+#include "containers/stable_ids.h"
 #include "containers/indirect_key.h"
 #include "containers/sync_lock.h"
 #include "containers/intern.h"

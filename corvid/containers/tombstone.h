@@ -62,8 +62,8 @@ public:
   [[nodiscard]] explicit operator bool() const noexcept { return dead(); }
   [[nodiscard]] bool operator!() const noexcept { return !dead(); }
 
-  value_type get() const noexcept { return value_.load(); }
-  value_type operator*() const noexcept { return get(); }
+  [[nodiscard]] value_type get() const noexcept { return value_.load(); }
+  [[nodiscard]] value_type operator*() const noexcept { return get(); }
 
   // Update the value atomically, if not dead.
   void set(value_type v) noexcept {

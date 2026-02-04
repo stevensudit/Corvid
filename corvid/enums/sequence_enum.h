@@ -20,7 +20,8 @@
 #include "enum_registry.h"
 #include "scoped_enum.h"
 
-namespace corvid { inline namespace enums { namespace sequence {
+namespace corvid {
+inline namespace enums { namespace sequence {
 
 //
 // sequence enum
@@ -379,4 +380,8 @@ template<ScopedEnum E, E maxseq, E minseq = E{}, wrapclip wrapseq = wrapclip{}>
   return sequence_enum_spec<E, maxseq, minseq, wrapseq>{};
 }
 
-}}} // namespace corvid::enums::sequence
+}} // namespace enums::sequence
+
+using namespace corvid::enums::sequence::ops;
+
+} // namespace corvid

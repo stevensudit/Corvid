@@ -167,7 +167,6 @@ public:
     if (time_delta < 0.0) return value_last_;
 
     // The I term is based on cumulative error, scaled by time delta.
-    //
     const auto integral = cumulative_error_ + (error * time_delta);
     // Note: Here is where we would normally update the cumulative error with
     // the integral. However, we postpone this until the very end to give us a
