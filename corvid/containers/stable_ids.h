@@ -65,15 +65,23 @@ inline namespace stable_id_vector {
 // `invalid` value equal to its max, as shown by `id_t`.
 //
 // Template options:
-//   UseGen  — when true (default), handles carry a generation counter that
-//             detects ID reuse via is_valid(handle_t). When false, the gen
-//             field is elided entirely via [[no_unique_address]].
-//   UseFifo — when true, freed IDs are reused in FIFO order (oldest first).
-//             When false (default), reuse is LIFO. FIFO increases the delay
-//             before an ID is recycled, which can make the no-gen option
-//             safer in domains with bounded handle lifetimes (e.g. per-frame
-//             ECS). The free-list next-pointer is colocated in an internal
-//             slot type and elided when FIFO is off.
+//   T         — element type stored in the container.
+//   ID        — enum type used for IDs. Must be a sequential enum with an
+//               `invalid` value equal to its underlying type's max (see
+//               `id_t` for an example). Defaults to `id_enums::id_t`.
+//   MaxId     — maximum allowed ID value. Insertion fails when this limit is
+//               reached. Defaults to `ID::invalid`.
+//   UseGen    — when true (default), handles carry a generation counter that
+//               detects ID reuse via is_valid(handle_t). When false, the gen
+//               field is elided entirely via [[no_unique_address]].
+//   UseFifo   — when true, freed IDs are reused in FIFO order (oldest first).
+//               When false (default), reuse is LIFO. FIFO increases the delay
+//               before an ID is recycled, which can make the no-gen option
+//               safer in domains with bounded handle lifetimes (e.g. per-frame
+//               ECS). The free-list next-pointer is colocated in an internal
+//               slot type and elided when FIFO is off.
+//   Allocator — allocator type for element storage. Also rebound internally
+//               for index and slot vectors. Defaults to `std::allocator<T>`.
 //
 // Insertion may throw `std::overflow_error` if the maximum ID value is
 // exceeded. Alternately, you can disable throwing by calling
@@ -200,11 +208,7 @@ public:
   // Push a new element, returning its assigned ID.
   [[nodiscard]] id_t push_back(const T& value) {
     const auto id = alloc_id();
-    if (id != id_t::invalid)
-      data_.push_back(value);
-    else if (throw_on_insert_failure_)
-      throw std::overflow_error("stable_ids: exceeded maximum id");
-
+    if (id != id_t::invalid) data_.push_back(value);
     return id;
   }
 
@@ -212,11 +216,7 @@ public:
   template<typename... Args>
   [[nodiscard]] id_t emplace_back(Args&&... args) {
     const auto id = alloc_id();
-    if (id != id_t::invalid)
-      data_.emplace_back(std::forward<Args>(args)...);
-    else if (throw_on_insert_failure_)
-      throw std::overflow_error("stable_ids: exceeded maximum id");
-
+    if (id != id_t::invalid) data_.emplace_back(std::forward<Args>(args)...);
     return id;
   }
 
