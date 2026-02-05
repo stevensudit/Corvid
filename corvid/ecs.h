@@ -15,19 +15,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "containers/containers_shared.h"
-#include "containers/enum_vector.h"
-#include "containers/custom_handle.h"
-#include "containers/optional_ptr.h"
-#include "containers/opt_find.h"
-#include "containers/own_ptr.h"
-#include "containers/transparent.h"
-#include "containers/interval.h"
-#include "containers/indirect_key.h"
-#include "containers/sync_lock.h"
-#include "containers/intern.h"
-#include "containers/circular_buffer.h"
-#include "containers/timers.h"
-#include "containers/strong_type.h"
-#include "containers/enum_variant.h"
-#include "containers/tombstone.h"
+#include "ecs/stable_ids.h"
+#include "ecs/archetype_vector.h"

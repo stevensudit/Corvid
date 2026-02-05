@@ -26,7 +26,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "enum_vector.h"
+#include "../containers/enum_vector.h"
 #include "../meta/maybe.h"
 
 namespace corvid { inline namespace container {
@@ -220,7 +220,7 @@ public:
   //
   // To lower the limit when live IDs exceed it, first erase those entities,
   // then retry.
-  [[nodiscard]] bool set_id_limit(id_t new_limit) noexcept {
+  [[nodiscard]] bool set_id_limit(id_t new_limit) {
     // Empty container: any limit is valid.
     if (data_.empty()) {
       // If there are freed slots beyond the new limit, clear them.

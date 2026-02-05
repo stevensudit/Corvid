@@ -30,7 +30,7 @@
 #include <vector>
 
 #include "../meta/forward_like.h"
-#include "enum_vector.h"
+#include "../containers/enum_vector.h"
 
 namespace corvid { inline namespace container {
 inline namespace archetype_vectors {
