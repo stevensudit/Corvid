@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "../meta/forward_like.h"
 #include "enum_vector.h"
 
 namespace corvid { inline namespace container {
@@ -37,6 +38,11 @@ inline namespace archetype_vectors {
 // A vector replacement that contains a tuple of vectors, one per archetype
 // field, to implement an ECS-style archetype storage system. This does not
 // implement the full vector interface, just enough to satisfy `stable_ids`.
+//
+// An archetype is a storage unit defined by a fixed set of component types,
+// where each component type is stored in its own dense array, and rows across
+// those arrays correspond to entities. Each component type is represented as a
+// POD struct, usually containing floats, IDs, or small fixed-size arrays.
 //
 // Note that, despite specializing on a tuple of values, it does not
 // physically store a vector of tuples. Rather, the initial implementation
@@ -77,7 +83,7 @@ public:
 
     // Expose owner accessor.
     [[nodiscard]] decltype(auto) get_owner(this auto&& self) noexcept {
-      return std::forward_like<decltype(self)>(*self.owner);
+      return forward_like<decltype(self)>(*self.owner);
     }
 
     // Get index and ID.

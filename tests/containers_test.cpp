@@ -2234,6 +2234,60 @@ void ArchetypeVector_Basic() {
   }
 }
 
+// Test that components() returns references, not copies. Uses unique_ptr which
+// is non-copyable, so this test will fail to compile if there's an accidental
+// copy.
+void ArchetypeVector_NoCopy() {
+  enum class entity_id : std::uint32_t {};
+  using archetype_t =
+      archetype_vector<entity_id, std::tuple<int, std::unique_ptr<int>>>;
+
+  // Mutable components() must return references.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(42, std::make_unique<int>(100));
+
+    auto row = v[0];
+    // Note: `auto` (not `auto&`) works here because components() returns a
+    // tuple of references. Copying the tuple copies the references, not the
+    // referents, so `i` and `ptr` are still references to the original data.
+    auto [i, ptr] = row.components();
+
+    // Verify we got references by modifying through them.
+    i = 99;
+    *ptr = 200;
+
+    EXPECT_EQ(v.get_component_span<int>()[0], 99);
+    EXPECT_EQ(*v.get_component_span<std::unique_ptr<int>>()[0], 200);
+  }
+
+  // Const components() must return const references.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(42, std::make_unique<int>(100));
+
+    const auto row = v[0];
+    auto [i, ptr] = row.components();
+
+    // Verify we can read through the const references.
+    EXPECT_EQ(i, 42);
+    EXPECT_EQ(*ptr, 100);
+  }
+
+  // row_view components() must return const references.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(42, std::make_unique<int>(100));
+    const archetype_t& cv = v;
+
+    auto view = cv[0];
+    auto [i, ptr] = view.components();
+
+    EXPECT_EQ(i, 42);
+    EXPECT_EQ(*ptr, 100);
+  }
+}
+
 void StableId_Basic() {
   using V = int_stable_ids;
   using id_t = V::id_t;
@@ -3232,7 +3286,9 @@ void StableId_FifoNoGen() {
 
   // handle_t is sizeof(id_t): neither gen nor the FIFO next-pointer
   // appears in it.  The next-pointer lives in the internal slot_t only.
-  if (true) { static_assert(sizeof(V::handle_t) == sizeof(V::id_t)); }
+  if (true) {
+    static_assert(sizeof(V::handle_t) == sizeof(V::id_t));
+  }
 
   // Without gen, a stale handle for a reused ID is indistinguishable.
   // FIFO increases the reuse delay but is not a correctness guard.
@@ -3479,8 +3535,9 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
     StrongType_Extended, EnumVariant_Basic, TombStone_Basic, StableId_Basic,
-    ArchetypeVector_Basic, StableId_SmallId, StableId_NoThrow, StableId_Fifo,
-    StableId_NoGen, StableId_FifoNoGen, StableId_MaxId, EnumVector_Basic);
+    ArchetypeVector_Basic, ArchetypeVector_NoCopy, StableId_SmallId,
+    StableId_NoThrow, StableId_Fifo, StableId_NoGen, StableId_FifoNoGen,
+    StableId_MaxId, EnumVector_Basic);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
