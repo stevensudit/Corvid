@@ -64,13 +64,21 @@ public:
 
   static_assert(sizeof...(Cs) >= 0);
 
-  // Mutable row lens for accessing all components of a given index.
+  // Row wrapper for accessing all components of a given index.
   template<bool WRITE = true>
-  class row_lens {
+  class row_wrapper {
   public:
     static constexpr bool writeable_v = WRITE;
     using owner_t = std::conditional_t<writeable_v, archetype_vector,
         const archetype_vector>;
+
+    // Constructor.
+    row_wrapper(owner_t* owner_, size_type ndx_) : owner{owner_}, ndx{ndx_} {}
+
+    // Expose owner accessor.
+    [[nodiscard]] decltype(auto) get_owner(this auto&& self) noexcept {
+      return std::forward_like<decltype(self)>(*self.owner);
+    }
 
     // Get index and ID.
     [[nodiscard]] size_type get_index() const noexcept { return ndx; }
@@ -120,20 +128,6 @@ public:
           owner->get_component_spans_tuple());
     }
 
-    // Swap elements without using `row_lens` or whatever.
-    void swap_elements(size_type left_ndx, size_type right_ndx) noexcept
-    requires(writeable_v)
-    {
-      std::apply(
-          [&](auto&... vecs) {
-            ((std::swap(vecs[left_ndx], vecs[right_ndx])), ...);
-          },
-          owner->components_);
-    }
-
-  private:
-    row_lens(owner_t* owner_, size_type ndx_) : owner{owner_}, ndx{ndx_} {}
-
   private:
     owner_t* owner;
     size_type ndx;
@@ -141,8 +135,11 @@ public:
     friend class archetype_vector;
   };
 
-  // Read-only view, as opposed to mutable lens.
-  using row_view = row_lens<false>;
+  // Read-only row view.
+  using row_view = row_wrapper<false>;
+
+  // Mutable row lens.
+  using row_lens = row_wrapper<true>;
 
   // TODO: Iterators over rows.
 
@@ -219,8 +216,9 @@ public:
     for_each_component([](auto& vec) { vec.emplace_back(); });
   }
 
-  [[nodiscard]] row_lens<> operator[](size_type ndx) noexcept {
-    return row_lens<>{this, ndx};
+  // Index
+  [[nodiscard]] row_lens operator[](size_type ndx) noexcept {
+    return row_lens{this, ndx};
   }
   [[nodiscard]] row_view operator[](size_type ndx) const noexcept {
     return row_view{this, ndx};
@@ -238,6 +236,15 @@ public:
   friend void swap(archetype_vector& lhs, archetype_vector& rhs) noexcept(
       noexcept(lhs.swap(rhs))) {
     lhs.swap(rhs);
+  }
+
+  // Swap elements without using `row_lens` or whatever.
+  void swap_elements(size_type left_ndx, size_type right_ndx) noexcept {
+    std::apply(
+        [&](auto&... vecs) {
+          ((std::swap(vecs[left_ndx], vecs[right_ndx])), ...);
+        },
+        components_);
   }
 
   // Access.
@@ -278,6 +285,7 @@ public:
         self.components_);
   }
 
+  // Emplace with parameters for each component.
   template<typename... Args>
   void emplace_back(Args&&... args) {
     static_assert(sizeof...(Args) == sizeof...(Cs));
@@ -292,7 +300,10 @@ private:
     std::apply([&](auto&... vecs) { (f(vecs), ...); }, components_);
   }
 
+  // SoA storage: a tuple of vectors, one per component type.
   std::tuple<component_vector_t<Cs>...> components_{};
+
+  // Function to map index to ID.
   index_to_id_fn index_to_id_{};
 };
 }}} // namespace corvid::container::archetype_vectors

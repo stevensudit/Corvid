@@ -2099,8 +2099,7 @@ void ArchetypeVector_Basic() {
     v.emplace_back(2, 2.0f, "two"s);
     v.emplace_back(3, 3.0f, "three"s);
 
-    auto row = v[0];
-    row.swap_elements(0, 2);
+    v.swap_elements(0, 2);
 
     EXPECT_EQ(v.get_component_span<int>()[0], 3);
     EXPECT_EQ(v.get_component_span<float>()[0], 3.0f);
@@ -2227,7 +2226,7 @@ void ArchetypeVector_Basic() {
 
   // Type traits verification.
   if (true) {
-    using lens_t = archetype_t::row_lens<true>;
+    using lens_t = archetype_t::row_lens;
     using view_t = archetype_t::row_view;
 
     static_assert(lens_t::writeable_v == true);
@@ -3233,9 +3232,7 @@ void StableId_FifoNoGen() {
 
   // handle_t is sizeof(id_t): neither gen nor the FIFO next-pointer
   // appears in it.  The next-pointer lives in the internal slot_t only.
-  if (true) {
-    static_assert(sizeof(V::handle_t) == sizeof(V::id_t));
-  }
+  if (true) { static_assert(sizeof(V::handle_t) == sizeof(V::id_t)); }
 
   // Without gen, a stale handle for a reused ID is indistinguishable.
   // FIFO increases the reuse delay but is not a correctness guard.
