@@ -50,7 +50,7 @@ namespace corvid { inline namespace container {
 inline namespace stable_id_vector {
 
 // An indexed vector to store elements by stable ID, suitable for Entity
-// Component Systems.
+// Component Systems, where it functions as the basis for a sparse set.
 //
 // It allows linear iteration, fixed-time lookups by ID, as well as fixed-time
 // insertion and removal. The IDs remain stable throughout, although entities
@@ -81,7 +81,7 @@ inline namespace stable_id_vector {
 //   Allocator — allocator type for element storage. Also rebound internally
 //               for index and slot vectors. Defaults to `std::allocator<T>`.
 //
-// Insertion may throw `std::overflow_error` if the maximum ID value is
+// Insertion may throw `std::out_of_range` if the maximum ID value is
 // exceeded. Alternately, you can disable throwing by calling
 // `throw_on_insert_failure(false)`, in which case `id_t::invalid` is
 // returned.
@@ -100,10 +100,13 @@ public:
   using id_t = ID;
   using size_type = std::underlying_type_t<id_t>;
   using allocator_type = Allocator;
+
+private:
   using data_allocator_type = Allocator;
   using index_allocator_type = typename std::allocator_traits<
       Allocator>::template rebind_alloc<size_type>;
 
+public:
   static_assert(*id_t::invalid ==
                     std::numeric_limits<std::underlying_type_t<id_t>>::max(),
       "ID type for stable_ids must define 'invalid' as the maximum value of "
@@ -151,6 +154,7 @@ public:
     friend class stable_ids<T, ID, UseGen, UseFifo, Allocator>;
   };
 
+private:
   // Internal slot stored in `reverse_`. Contains the handle and, when FIFO is
   // enabled, a next-pointer for the intrusive free list.
   struct slot_t {
@@ -158,8 +162,6 @@ public:
     [[no_unique_address]] maybe_t<id_t, UseFifo> fifo_next_{id_t::invalid};
   };
 
-  using handle_allocator_type = typename std::allocator_traits<
-      Allocator>::template rebind_alloc<handle_t>;
   using slot_allocator_type =
       typename std::allocator_traits<Allocator>::template rebind_alloc<slot_t>;
 
@@ -167,6 +169,7 @@ public:
   static_assert(sizeof(handle_t) <= 16);
   static_assert(std::is_trivially_copyable_v<slot_t>);
 
+public:
   // Construction.
   stable_ids() = default;
   explicit stable_ids(const allocator_type& alloc)
@@ -226,14 +229,18 @@ public:
       return true;
     }
 
-    // Check if the new limit would invalidate live IDs.
+    // If raising above the high-water mark, no further checks needed.
+    if (new_limit > max_id()) {
+      id_limit_ = new_limit;
+      return true;
+    }
+
+    // Lowering the limit: check if it would invalidate live IDs.
     const auto max_extant = find_max_extant_id();
     if (new_limit <= max_extant) return false;
 
-    // If the new limit is below the high-water mark, shrink to remove freed
-    // slots that would exceed it.
-    if (new_limit <= max_id()) shrink_to_fit();
-
+    // new_limit > max_extant but <= max_id(): shrink to remove freed slots.
+    shrink_to_fit();
     id_limit_ = new_limit;
     return true;
   }
@@ -357,8 +364,8 @@ public:
   }
 
   // Reduce memory usage to fit current size. Note that this does not preserve
-  // generations, hence it cannot guarantee invalidating handles. Do not call
-  // if you might have dangling handles.
+  // generations, hence it cannot guarantee preserving the validity of handles.
+  // Do not call if you might have dangling handles.
   void shrink_to_fit() {
     // If already empty, just clear with shrink.
     const auto live_size = data_.size();
@@ -533,7 +540,7 @@ private:
     }
 
     if (throw_on_insert_failure_)
-      throw std::overflow_error("stable_ids: exceeded maximum id");
+      throw std::out_of_range("stable_ids: exceeded id limit");
     return id_t::invalid;
   }
 

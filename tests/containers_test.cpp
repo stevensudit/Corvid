@@ -2209,12 +2209,12 @@ void StableId_SmallId() {
     EXPECT_EQ(v[id_t{254}], 254);
   }
 
-  // The 256th insertion overflows; container size is unchanged.
+  // The 256th insertion exceeds the limit; container size is unchanged.
   if (true) {
     V v;
     for (int i = 0; i < 255; ++i) (void)v.push_back(i);
     EXPECT_EQ(v.size(), 255U);
-    EXPECT_THROW(v.push_back(999), std::overflow_error);
+    EXPECT_THROW(v.push_back(999), std::out_of_range);
     EXPECT_EQ(v.size(), 255U);
   }
 
@@ -2241,8 +2241,8 @@ void StableId_SmallId() {
     EXPECT_TRUE(v.is_valid(h100_new));
     EXPECT_GT(h100_new.get_gen(), h100.get_gen());
 
-    // Full again — overflow.
-    EXPECT_THROW(v.push_back(0), std::overflow_error);
+    // Full again — exceeds limit.
+    EXPECT_THROW(v.push_back(0), std::out_of_range);
   }
 }
 
@@ -2297,11 +2297,11 @@ void StableId_NoThrow() {
     EXPECT_EQ(v.push_back(999), id_t::invalid);
 
     v.throw_on_insert_failure(true);
-    EXPECT_THROW(v.push_back(999), std::overflow_error);
+    EXPECT_THROW(v.push_back(999), std::out_of_range);
     EXPECT_EQ(v.size(), 255U);
   }
 
-  // Free-list reuse works normally with the flag off; only a true overflow
+  // Free-list reuse works normally with the flag off; only exceeding the limit
   // returns invalid.
   if (true) {
     V v;
@@ -2800,7 +2800,7 @@ void StableId_MaxId() {
     (void)v.push_back(10);
     (void)v.push_back(20);
     (void)v.push_back(30);
-    EXPECT_THROW(v.push_back(40), std::overflow_error);
+    EXPECT_THROW(v.push_back(40), std::out_of_range);
     EXPECT_EQ(v.size(), 3U);
   }
 
@@ -2833,8 +2833,8 @@ void StableId_MaxId() {
     EXPECT_EQ(v.size(), 3U);
     EXPECT_EQ(v[id_reused], 40);
 
-    // Full again — overflow.
-    EXPECT_THROW(v.push_back(50), std::overflow_error);
+    // Full again — exceeds limit.
+    EXPECT_THROW(v.push_back(50), std::out_of_range);
   }
 
   // set_id_limit on empty container always succeeds.
@@ -2846,7 +2846,7 @@ void StableId_MaxId() {
 
     (void)v.push_back(10);
     (void)v.push_back(20);
-    EXPECT_THROW(v.push_back(30), std::overflow_error);
+    EXPECT_THROW(v.push_back(30), std::out_of_range);
   }
 
   // set_id_limit fails if it would invalidate live IDs.
