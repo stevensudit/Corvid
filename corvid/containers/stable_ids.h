@@ -69,8 +69,6 @@ inline namespace stable_id_vector {
 //   ID        — enum type used for IDs. Must be a sequential enum with an
 //               `invalid` value equal to its underlying type's max (see
 //               `id_t` for an example). Defaults to `id_enums::id_t`.
-//   MaxId     — maximum allowed ID value. Insertion fails when this limit is
-//               reached. Defaults to `ID::invalid`.
 //   UseGen    — when true (default), handles carry a generation counter that
 //               detects ID reuse via is_valid(handle_t). When false, the gen
 //               field is elided entirely via [[no_unique_address]].
@@ -178,11 +176,11 @@ public:
   // Construct with a maximum ID limit. If `prefill` is true, pre-allocates and
   // initializes `indexes_` and `reverse_` so that subsequent insertions do not
   // allocate (useful for exception safety in FIFO mode).
-  explicit stable_ids(id_t max_id, bool prefill = false,
+  explicit stable_ids(id_t id_limit, bool prefill = false,
       const allocator_type& alloc = allocator_type{})
       : data_{alloc}, indexes_{index_allocator_type{alloc}},
-        reverse_{slot_allocator_type{alloc}}, max_id_{max_id} {
-    if (prefill) do_prefill(*max_id_);
+        reverse_{slot_allocator_type{alloc}}, id_limit_{id_limit} {
+    if (prefill) do_prefill(*id_limit_);
   }
 
   stable_ids(stable_ids&&) noexcept = default;
@@ -194,7 +192,7 @@ public:
     swap(lhs.data_, rhs.data_);
     swap(lhs.indexes_, rhs.indexes_);
     swap(lhs.reverse_, rhs.reverse_);
-    swap(lhs.max_id_, rhs.max_id_);
+    swap(lhs.id_limit_, rhs.id_limit_);
     swap(lhs.throw_on_insert_failure_, rhs.throw_on_insert_failure_);
     if constexpr (UseFifo) {
       swap(lhs.fifo_head_, rhs.fifo_head_);
@@ -204,8 +202,41 @@ public:
 
   // Maximum allowed ID value. Insertion fails when this limit is reached.
   // Defaults to `id_t::invalid` (the maximum representable value).
-  [[nodiscard]] id_t id_limit() const noexcept { return max_id_; }
-  void id_limit(id_t value) noexcept { max_id_ = value; }
+  [[nodiscard]] id_t id_limit() const noexcept { return id_limit_; }
+
+  // Set a new ID limit. Returns true on success, false if the limit would
+  // invalidate live IDs (i.e., if `new_limit <= find_max_extant_id()`).
+  //
+  // If the new limit is lower than `max_id()` but higher than
+  // `find_max_extant_id()`, this calls `shrink_to_fit()` to reclaim freed
+  // slots that would exceed the new limit. This prevents reusing IDs that
+  // were previously allocated but are now beyond the new limit.
+  //
+  // After setting a new id limit, consider calling `reserve` with
+  // `prefill=true` to pre-allocate slots up to the new limit.
+  //
+  // To lower the limit when live IDs exceed it, first erase those entities,
+  // then retry.
+  [[nodiscard]] bool set_id_limit(id_t new_limit) noexcept {
+    // Empty container: any limit is valid.
+    if (data_.empty()) {
+      // If there are freed slots beyond the new limit, clear them.
+      if (!indexes_.empty() && new_limit <= max_id()) clear(true);
+      id_limit_ = new_limit;
+      return true;
+    }
+
+    // Check if the new limit would invalidate live IDs.
+    const auto max_extant = find_max_extant_id();
+    if (new_limit <= max_extant) return false;
+
+    // If the new limit is below the high-water mark, shrink to remove freed
+    // slots that would exceed it.
+    if (new_limit <= max_id()) shrink_to_fit();
+
+    id_limit_ = new_limit;
+    return true;
+  }
 
   // Control whether insertion throws on ID overflow (by default) or returns
   // `id_t::invalid`, requiring the caller to check.
@@ -495,7 +526,7 @@ private:
 
     // No free ID available; expand with a new one.
     const auto new_id = static_cast<id_t>(new_ndx);
-    if (new_id < max_id_) {
+    if (new_id < id_limit_) {
       reverse_.push_back(slot_t{handle_t{new_id}});
       indexes_.push_back(new_ndx);
       return new_id;
@@ -614,8 +645,8 @@ private:
   [[no_unique_address]] maybe_t<id_t, UseFifo> fifo_head_{id_t::invalid};
   [[no_unique_address]] maybe_t<id_t, UseFifo> fifo_tail_{id_t::invalid};
 
-  // Maximum allowed ID value.
-  id_t max_id_{id_t::invalid};
+  // Allowed ID values are below this limit.
+  id_t id_limit_{id_t::invalid};
 
   // Whether to throw on insert failure as opposed to returning
   // `id_t::invalid`.
@@ -625,8 +656,8 @@ private:
   // `data_` is always sized to the number of elements currently stored.
   //
   // `indexes_` and `reverse_` are always the same size as each other, which is
-  // the high water mark of IDs ever allocated (max_id_ever + 1). Their size is
-  // always >= `data_.size()`.
+  // the high water mark of IDs ever allocated (max(max_id()) + 1). Their size
+  // is always >= `data_.size()`.
   //
   // The free list lives in the tail of `reverse_` — the slots past
   // `data_.size()`. When `UseFifo` is false, `alloc_id` simply takes the first

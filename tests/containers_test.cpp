@@ -2837,16 +2837,69 @@ void StableId_MaxId() {
     EXPECT_THROW(v.push_back(50), std::overflow_error);
   }
 
-  // id_limit can be changed at runtime.
+  // set_id_limit on empty container always succeeds.
   if (true) {
     V v;
     EXPECT_EQ(v.id_limit(), id_t::invalid);
-    v.id_limit(id_t{2});
+    EXPECT_TRUE(v.set_id_limit(id_t{2}));
     EXPECT_EQ(v.id_limit(), id_t{2});
 
     (void)v.push_back(10);
     (void)v.push_back(20);
     EXPECT_THROW(v.push_back(30), std::overflow_error);
+  }
+
+  // set_id_limit fails if it would invalidate live IDs.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // ID 0
+    (void)v.push_back(20); // ID 1
+    (void)v.push_back(30); // ID 2
+
+    // Can't set limit to 2 because ID 2 is live (limit means IDs 0..limit-1).
+    EXPECT_FALSE(v.set_id_limit(id_t{2}));
+    EXPECT_EQ(v.id_limit(), id_t::invalid); // Unchanged.
+
+    // Can set limit to 3 (IDs 0,1,2 are valid).
+    EXPECT_TRUE(v.set_id_limit(id_t{3}));
+    EXPECT_EQ(v.id_limit(), id_t{3});
+
+    // Can raise the limit.
+    EXPECT_TRUE(v.set_id_limit(id_t{10}));
+    EXPECT_EQ(v.id_limit(), id_t{10});
+  }
+
+  // set_id_limit with freed slots beyond the new limit triggers shrink.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // ID 0
+    (void)v.push_back(20); // ID 1
+    (void)v.push_back(30); // ID 2
+    v.erase(id_t{2});      // Free ID 2, max_id() still 2.
+
+    EXPECT_EQ(v.max_id(), id_t{2});
+    EXPECT_EQ(v.find_max_extant_id(), id_t{1});
+
+    // Setting limit to 2 should succeed and shrink (ID 2 is freed).
+    EXPECT_TRUE(v.set_id_limit(id_t{2}));
+    EXPECT_EQ(v.id_limit(), id_t{2});
+    // After shrink, max_id() should equal find_max_extant_id().
+    EXPECT_EQ(v.max_id(), id_t{1});
+  }
+
+  // set_id_limit on empty container with freed slots clears them.
+  if (true) {
+    V v;
+    (void)v.push_back(10); // ID 0
+    (void)v.push_back(20); // ID 1
+    v.erase(id_t{0});
+    v.erase(id_t{1});
+    EXPECT_TRUE(v.empty());
+    EXPECT_EQ(v.max_id(), id_t{1}); // High-water mark is still 1.
+
+    // Setting a lower limit should clear the freed slots.
+    EXPECT_TRUE(v.set_id_limit(id_t{1}));
+    EXPECT_EQ(v.id_limit(), id_t{1});
   }
 
   // Prefill constructor pre-allocates slots.
