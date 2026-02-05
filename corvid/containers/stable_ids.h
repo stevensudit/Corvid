@@ -262,6 +262,9 @@ public:
   }
 
   // Emplace a new element, returning its assigned ID.
+  //
+  // Note that calling with no parameters constructs a default element in
+  // place, which may be ideal for SoA backing stores.
   template<typename... Args>
   [[nodiscard]] id_t emplace_back(Args&&... args) {
     const auto id = alloc_id();
@@ -275,6 +278,9 @@ public:
   }
 
   // Emplace a new element, returning its handle.
+  //
+  // Note that calling with no parameters constructs a default element in
+  // place, which may be ideal for SoA backing stores.
   template<typename... Args>
   [[nodiscard]] handle_t emplace_back_handle(Args&&... args) {
     return get_handle(emplace_back(std::forward<Args>(args)...));
@@ -626,11 +632,9 @@ private:
     reverse_.resize(count);
 
     // Initialize new slots as free entries.
-    // TODO: Change to iterate using ID.
-    for (size_type ndx = old_size; ndx < count; ++ndx) {
-      const auto id = static_cast<id_t>(ndx);
-      indexes_[id] = ndx;
-      reverse_[ndx] = slot_t{handle_t{id}};
+    for (id_t id{old_size}; *id < count; ++id) {
+      indexes_[id] = *id;
+      reverse_[*id] = slot_t{handle_t{id}};
     }
 
     if constexpr (UseFifo) rebuild_fifo_list();

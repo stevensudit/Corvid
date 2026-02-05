@@ -1745,6 +1745,549 @@ void TombStone_Basic() {
 
 using int_stable_ids = stable_ids<int>;
 
+void ArchetypeVector_Basic() {
+  enum class entity_id : std::uint32_t {};
+  using archetype_t =
+      archetype_vector<entity_id, std::tuple<int, float, std::string>>;
+
+  // Default construction and empty state.
+  if (true) {
+    archetype_t v;
+    EXPECT_TRUE(v.empty());
+    EXPECT_EQ(v.size(), 0U);
+  }
+
+  // Construction with allocator.
+  if (true) {
+    std::allocator<std::byte> alloc;
+    archetype_t v{alloc};
+    EXPECT_TRUE(v.empty());
+  }
+
+  // reserve() and capacity().
+  if (true) {
+    archetype_t v;
+    v.reserve(10);
+    EXPECT_GE(v.capacity(), 10U);
+    EXPECT_TRUE(v.empty()); // reserve doesn't change size.
+  }
+
+  // resize() and size().
+  if (true) {
+    archetype_t v;
+    v.resize(5);
+    EXPECT_EQ(v.size(), 5U);
+    EXPECT_FALSE(v.empty());
+    v.resize(3);
+    EXPECT_EQ(v.size(), 3U);
+    v.resize(0);
+    EXPECT_TRUE(v.empty());
+  }
+
+  // clear().
+  if (true) {
+    archetype_t v;
+    v.resize(5);
+    v.clear();
+    EXPECT_TRUE(v.empty());
+    EXPECT_EQ(v.size(), 0U);
+  }
+
+  // shrink_to_fit().
+  if (true) {
+    archetype_t v;
+    v.reserve(100);
+    v.resize(2);
+    auto cap_before = v.capacity();
+    v.shrink_to_fit();
+    // After shrink_to_fit, capacity should be <= previous (implementation
+    // dependent, but typically reduces).
+    EXPECT_LE(v.capacity(), cap_before);
+    EXPECT_EQ(v.size(), 2U);
+  }
+
+  // set_index_to_id() and index_to_id().
+  if (true) {
+    archetype_t v;
+    v.set_index_to_id([](archetype_t::size_type index) {
+      return entity_id{static_cast<std::uint32_t>(index + 100)};
+    });
+    EXPECT_EQ(v.index_to_id(0), entity_id{100});
+    EXPECT_EQ(v.index_to_id(5), entity_id{105});
+    EXPECT_EQ(v.index_to_id(99), entity_id{199});
+  }
+
+  // emplace_back() without parameters.
+  if (true) {
+    archetype_t v;
+    v.emplace_back();
+    EXPECT_EQ(v.size(), 1U);
+    v.emplace_back();
+    v.emplace_back();
+    EXPECT_EQ(v.size(), 3U);
+  }
+
+  // emplace_back(Args...) with parameters.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(42, 3.14f, "hello"s);
+    EXPECT_EQ(v.size(), 1U);
+    auto ints = v.get_component_span<int>();
+    auto floats = v.get_component_span<float>();
+    auto strings = v.get_component_span<std::string>();
+    EXPECT_EQ(ints[0], 42);
+    EXPECT_NEAR(floats[0], 3.14f, 0.001f);
+    EXPECT_EQ(strings[0], "hello"s);
+
+    v.emplace_back(99, 2.71f, "world"s);
+    EXPECT_EQ(v.size(), 2U);
+    // Re-fetch spans after potential reallocation.
+    ints = v.get_component_span<int>();
+    floats = v.get_component_span<float>();
+    strings = v.get_component_span<std::string>();
+    EXPECT_EQ(ints[1], 99);
+    EXPECT_NEAR(floats[1], 2.71f, 0.001f);
+    EXPECT_EQ(strings[1], "world"s);
+  }
+
+  // get_component_span<T>() by type.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(1, 1.0f, "one"s);
+    v.emplace_back(2, 2.0f, "two"s);
+
+    auto int_span = v.get_component_span<int>();
+    auto float_span = v.get_component_span<float>();
+    auto string_span = v.get_component_span<std::string>();
+
+    EXPECT_EQ(int_span.size(), 2U);
+    EXPECT_EQ(float_span.size(), 2U);
+    EXPECT_EQ(string_span.size(), 2U);
+
+    EXPECT_EQ(int_span[0], 1);
+    EXPECT_EQ(int_span[1], 2);
+    EXPECT_EQ(float_span[0], 1.0f);
+    EXPECT_EQ(float_span[1], 2.0f);
+    EXPECT_EQ(string_span[0], "one"s);
+    EXPECT_EQ(string_span[1], "two"s);
+  }
+
+  // get_component_span<Index>() by index.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(10, 10.5f, "ten"s);
+
+    auto span0 = v.get_component_span<0>(); // int
+    auto span1 = v.get_component_span<1>(); // float
+    auto span2 = v.get_component_span<2>(); // string
+
+    EXPECT_EQ(span0[0], 10);
+    EXPECT_EQ(span1[0], 10.5f);
+    EXPECT_EQ(span2[0], "ten"s);
+  }
+
+  // get_component_vector<T>() by type.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(5, 5.5f, "five"s);
+
+    const auto& int_vec = v.get_component_vector<int>();
+    const auto& float_vec = v.get_component_vector<float>();
+    const auto& string_vec = v.get_component_vector<std::string>();
+
+    EXPECT_EQ(int_vec.size(), 1U);
+    EXPECT_EQ(int_vec[0], 5);
+    EXPECT_EQ(float_vec[0], 5.5f);
+    EXPECT_EQ(string_vec[0], "five"s);
+  }
+
+  // get_component_vector<Index>() by index.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(7, 7.7f, "seven"s);
+
+    const auto& vec0 = v.get_component_vector<0>();
+    const auto& vec1 = v.get_component_vector<1>();
+    const auto& vec2 = v.get_component_vector<2>();
+
+    EXPECT_EQ(vec0[0], 7);
+    EXPECT_EQ(vec1[0], 7.7f);
+    EXPECT_EQ(vec2[0], "seven"s);
+  }
+
+  // get_component_spans_tuple().
+  if (true) {
+    archetype_t v;
+    v.emplace_back(100, 1.1f, "a"s);
+    v.emplace_back(200, 2.2f, "b"s);
+    v.emplace_back(300, 3.3f, "c"s);
+
+    auto [ints, floats, strings] = v.get_component_spans_tuple();
+    EXPECT_EQ(ints.size(), 3U);
+    EXPECT_EQ(ints[0], 100);
+    EXPECT_EQ(ints[1], 200);
+    EXPECT_EQ(ints[2], 300);
+    EXPECT_EQ(floats[0], 1.1f);
+    EXPECT_EQ(strings[2], "c"s);
+  }
+
+  // Mutable span modification.
+  if (true) {
+    archetype_t v;
+    v.resize(2);
+    auto ints = v.get_component_span<int>();
+    auto strings = v.get_component_span<std::string>();
+    ints[0] = 42;
+    ints[1] = 84;
+    strings[0] = "first"s;
+    strings[1] = "second"s;
+
+    EXPECT_EQ(v.get_component_span<int>()[0], 42);
+    EXPECT_EQ(v.get_component_span<int>()[1], 84);
+    EXPECT_EQ(v.get_component_span<std::string>()[0], "first"s);
+    EXPECT_EQ(v.get_component_span<std::string>()[1], "second"s);
+  }
+
+  // Const span access.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(10, 1.0f, "test"s);
+    const archetype_t& cv = v;
+
+    auto const_ints = cv.get_component_span<int>();
+    auto const_floats = cv.get_component_span<1>();
+    EXPECT_EQ(const_ints[0], 10);
+    EXPECT_EQ(const_floats[0], 1.0f);
+  }
+
+  // operator[] mutable - row_lens.
+  if (true) {
+    archetype_t v;
+    v.set_index_to_id([](archetype_t::size_type index) {
+      return entity_id{static_cast<std::uint32_t>(index * 10)};
+    });
+    v.emplace_back(1, 1.0f, "one"s);
+    v.emplace_back(2, 2.0f, "two"s);
+
+    auto row = v[0];
+    EXPECT_EQ(row.get_index(), 0U);
+    EXPECT_EQ(row.get_id(), entity_id{0});
+
+    auto row1 = v[1];
+    EXPECT_EQ(row1.get_index(), 1U);
+    EXPECT_EQ(row1.get_id(), entity_id{10});
+  }
+
+  // operator[] const - row_view.
+  if (true) {
+    archetype_t v;
+    v.set_index_to_id([](archetype_t::size_type index) {
+      return entity_id{static_cast<std::uint32_t>(index + 50)};
+    });
+    v.emplace_back(99, 9.9f, "ninety-nine"s);
+    const archetype_t& cv = v;
+
+    auto row = cv[0];
+    EXPECT_EQ(row.get_index(), 0U);
+    EXPECT_EQ(row.get_id(), entity_id{50});
+  }
+
+  // row_lens::component<T>() mutable.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(0, 0.0f, ""s);
+
+    auto row = v[0];
+    row.component<int>() = 123;
+    row.component<float>() = 4.56f;
+    row.component<std::string>() = "modified"s;
+
+    EXPECT_EQ(v.get_component_span<int>()[0], 123);
+    EXPECT_EQ(v.get_component_span<float>()[0], 4.56f);
+    EXPECT_EQ(v.get_component_span<std::string>()[0], "modified"s);
+  }
+
+  // row_lens::component<T>() const.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(77, 7.7f, "seventy-seven"s);
+
+    const auto row = v[0];
+    EXPECT_EQ(row.component<int>(), 77);
+    EXPECT_EQ(row.component<float>(), 7.7f);
+    EXPECT_EQ(row.component<std::string>(), "seventy-seven"s);
+  }
+
+  // row_lens::component<Index>() mutable.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(0, 0.0f, ""s);
+
+    auto row = v[0];
+    row.component<0>() = 456;
+    row.component<1>() = 7.89f;
+    row.component<2>() = "by-index"s;
+
+    EXPECT_EQ(v.get_component_span<0>()[0], 456);
+    EXPECT_EQ(v.get_component_span<1>()[0], 7.89f);
+    EXPECT_EQ(v.get_component_span<2>()[0], "by-index"s);
+  }
+
+  // row_lens::component<Index>() const.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(11, 1.1f, "eleven"s);
+
+    const auto row = v[0];
+    EXPECT_EQ(row.component<0>(), 11);
+    EXPECT_EQ(row.component<1>(), 1.1f);
+    EXPECT_EQ(row.component<2>(), "eleven"s);
+  }
+
+  // row_lens::components() mutable.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(0, 0.0f, ""s);
+
+    auto row = v[0];
+    auto [i, f, s] = row.components();
+    i = 999;
+    f = 9.99f;
+    s = "components-modified"s;
+
+    EXPECT_EQ(v.get_component_span<int>()[0], 999);
+    EXPECT_EQ(v.get_component_span<float>()[0], 9.99f);
+    EXPECT_EQ(v.get_component_span<std::string>()[0], "components-modified"s);
+  }
+
+  // row_lens::components() const.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(333, 3.33f, "three-three-three"s);
+
+    const auto row = v[0];
+    auto [i, f, s] = row.components();
+    EXPECT_EQ(i, 333);
+    EXPECT_EQ(f, 3.33f);
+    EXPECT_EQ(s, "three-three-three"s);
+  }
+
+  // row_view (const operator[]).
+  if (true) {
+    archetype_t v;
+    v.emplace_back(555, 5.55f, "five-five-five"s);
+    const archetype_t& cv = v;
+
+    auto view = cv[0];
+    EXPECT_EQ(view.component<int>(), 555);
+    EXPECT_EQ(view.component<float>(), 5.55f);
+    EXPECT_EQ(view.component<std::string>(), "five-five-five"s);
+    EXPECT_EQ(view.component<0>(), 555);
+    EXPECT_EQ(view.component<1>(), 5.55f);
+    EXPECT_EQ(view.component<2>(), "five-five-five"s);
+
+    auto [i, f, s] = view.components();
+    EXPECT_EQ(i, 555);
+    EXPECT_EQ(f, 5.55f);
+    EXPECT_EQ(s, "five-five-five"s);
+  }
+
+  // row_lens::swap_elements().
+  if (true) {
+    archetype_t v;
+    v.emplace_back(1, 1.0f, "one"s);
+    v.emplace_back(2, 2.0f, "two"s);
+    v.emplace_back(3, 3.0f, "three"s);
+
+    v.swap_elements(0, 2);
+
+    EXPECT_EQ(v.get_component_span<int>()[0], 3);
+    EXPECT_EQ(v.get_component_span<float>()[0], 3.0f);
+    EXPECT_EQ(v.get_component_span<std::string>()[0], "three"s);
+    EXPECT_EQ(v.get_component_span<int>()[2], 1);
+    EXPECT_EQ(v.get_component_span<float>()[2], 1.0f);
+    EXPECT_EQ(v.get_component_span<std::string>()[2], "one"s);
+    // Middle element unchanged.
+    EXPECT_EQ(v.get_component_span<int>()[1], 2);
+  }
+
+  // Member swap().
+  if (true) {
+    archetype_t v1;
+    v1.emplace_back(10, 1.0f, "v1"s);
+    v1.set_index_to_id([](archetype_t::size_type) { return entity_id{100}; });
+
+    archetype_t v2;
+    v2.emplace_back(20, 2.0f, "v2-a"s);
+    v2.emplace_back(30, 3.0f, "v2-b"s);
+    v2.set_index_to_id([](archetype_t::size_type) { return entity_id{200}; });
+
+    v1.swap(v2);
+
+    EXPECT_EQ(v1.size(), 2U);
+    EXPECT_EQ(v2.size(), 1U);
+    EXPECT_EQ(v1.get_component_span<int>()[0], 20);
+    EXPECT_EQ(v1.get_component_span<int>()[1], 30);
+    EXPECT_EQ(v2.get_component_span<int>()[0], 10);
+    EXPECT_EQ(v1.index_to_id(0), entity_id{200});
+    EXPECT_EQ(v2.index_to_id(0), entity_id{100});
+  }
+
+  // Friend swap().
+  if (true) {
+    archetype_t v1;
+    v1.emplace_back(111, 1.11f, "v1"s);
+
+    archetype_t v2;
+    v2.emplace_back(222, 2.22f, "v2"s);
+
+    using std::swap;
+    swap(v1, v2);
+
+    EXPECT_EQ(v1.get_component_span<int>()[0], 222);
+    EXPECT_EQ(v2.get_component_span<int>()[0], 111);
+    EXPECT_EQ(v1.get_component_span<std::string>()[0], "v2"s);
+    EXPECT_EQ(v2.get_component_span<std::string>()[0], "v1"s);
+  }
+
+  // Move constructor.
+  if (true) {
+    archetype_t v1;
+    v1.emplace_back(42, 4.2f, "move-me"s);
+    v1.set_index_to_id([](archetype_t::size_type ndx) {
+      return entity_id{ndx + 1000};
+    });
+
+    archetype_t v2{std::move(v1)};
+
+    EXPECT_EQ(v2.size(), 1U);
+    EXPECT_EQ(v2.get_component_span<int>()[0], 42);
+    EXPECT_EQ(v2.get_component_span<float>()[0], 4.2f);
+    EXPECT_EQ(v2.get_component_span<std::string>()[0], "move-me"s);
+    EXPECT_EQ(v2.index_to_id(5), entity_id{1005});
+  }
+
+  // Move assignment.
+  if (true) {
+    archetype_t v1;
+    v1.emplace_back(88, 8.8f, "source"s);
+
+    archetype_t v2;
+    v2.emplace_back(99, 9.9f, "dest-old"s);
+    v2.emplace_back(100, 10.0f, "dest-old-2"s);
+
+    v2 = std::move(v1);
+
+    EXPECT_EQ(v2.size(), 1U);
+    EXPECT_EQ(v2.get_component_span<int>()[0], 88);
+    EXPECT_EQ(v2.get_component_span<std::string>()[0], "source"s);
+  }
+
+  // Multiple operations sequence.
+  if (true) {
+    archetype_t v;
+    v.set_index_to_id([](archetype_t::size_type index) {
+      return entity_id{static_cast<std::uint32_t>(index + 100)};
+    });
+
+    v.reserve(4);
+    EXPECT_GE(v.capacity(), 4U);
+
+    v.resize(3);
+    EXPECT_EQ(v.size(), 3U);
+
+    auto ints = v.get_component_span<int>();
+    auto floats = v.get_component_span<1>();
+    auto strings = v.get_component_span<std::string>();
+
+    ints[0] = 10;
+    ints[1] = 20;
+    ints[2] = 30;
+    floats[0] = 1.5f;
+    floats[1] = 2.5f;
+    floats[2] = 3.5f;
+    strings[0] = "a"s;
+    strings[1] = "b"s;
+    strings[2] = "c"s;
+
+    auto [ints2, floats2, strings2] = v.get_component_spans_tuple();
+    EXPECT_EQ(ints2[1], 20);
+    EXPECT_EQ(floats2[2], 3.5f);
+    EXPECT_EQ(strings2[0], "a"s);
+
+    // Verify row access.
+    auto row1 = v[1];
+    EXPECT_EQ(row1.get_id(), entity_id{101});
+    EXPECT_EQ(row1.component<int>(), 20);
+
+    v.clear();
+    EXPECT_TRUE(v.empty());
+  }
+
+  // Type traits verification.
+  if (true) {
+    using lens_t = archetype_t::row_lens;
+    using view_t = archetype_t::row_view;
+
+    static_assert(lens_t::writeable_v == true);
+    static_assert(view_t::writeable_v == false);
+  }
+}
+
+// Test that components() returns references, not copies. Uses unique_ptr which
+// is non-copyable, so this test will fail to compile if there's an accidental
+// copy.
+void ArchetypeVector_NoCopy() {
+  enum class entity_id : std::uint32_t {};
+  using archetype_t =
+      archetype_vector<entity_id, std::tuple<int, std::unique_ptr<int>>>;
+
+  // Mutable components() must return references.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(42, std::make_unique<int>(100));
+
+    auto row = v[0];
+    // Note: `auto` (not `auto&`) works here because components() returns a
+    // tuple of references. Copying the tuple copies the references, not the
+    // referents, so `i` and `ptr` are still references to the original data.
+    auto [i, ptr] = row.components();
+
+    // Verify we got references by modifying through them.
+    i = 99;
+    *ptr = 200;
+
+    EXPECT_EQ(v.get_component_span<int>()[0], 99);
+    EXPECT_EQ(*v.get_component_span<std::unique_ptr<int>>()[0], 200);
+  }
+
+  // Const components() must return const references.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(42, std::make_unique<int>(100));
+
+    const auto row = v[0];
+    auto [i, ptr] = row.components();
+
+    // Verify we can read through the const references.
+    EXPECT_EQ(i, 42);
+    EXPECT_EQ(*ptr, 100);
+  }
+
+  // row_view components() must return const references.
+  if (true) {
+    archetype_t v;
+    v.emplace_back(42, std::make_unique<int>(100));
+    const archetype_t& cv = v;
+
+    auto view = cv[0];
+    auto [i, ptr] = view.components();
+
+    EXPECT_EQ(i, 42);
+    EXPECT_EQ(*ptr, 100);
+  }
+}
+
 void StableId_Basic() {
   using V = int_stable_ids;
   using id_t = V::id_t;
@@ -2992,8 +3535,9 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
     StrongType_Extended, EnumVariant_Basic, TombStone_Basic, StableId_Basic,
-    StableId_SmallId, StableId_NoThrow, StableId_Fifo, StableId_NoGen,
-    StableId_FifoNoGen, StableId_MaxId, EnumVector_Basic);
+    ArchetypeVector_Basic, ArchetypeVector_NoCopy, StableId_SmallId,
+    StableId_NoThrow, StableId_Fifo, StableId_NoGen, StableId_FifoNoGen,
+    StableId_MaxId, EnumVector_Basic);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
