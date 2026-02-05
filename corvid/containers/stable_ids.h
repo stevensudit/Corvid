@@ -50,7 +50,7 @@ namespace corvid { inline namespace container {
 inline namespace stable_id_vector {
 
 // An indexed vector to store elements by stable ID, suitable for Entity
-// Component Systems.
+// Component Systems, where it functions as the basis for a sparse set.
 //
 // It allows linear iteration, fixed-time lookups by ID, as well as fixed-time
 // insertion and removal. The IDs remain stable throughout, although entities
@@ -69,8 +69,6 @@ inline namespace stable_id_vector {
 //   ID        — enum type used for IDs. Must be a sequential enum with an
 //               `invalid` value equal to its underlying type's max (see
 //               `id_t` for an example). Defaults to `id_enums::id_t`.
-//   MaxId     — maximum allowed ID value. Insertion fails when this limit is
-//               reached. Defaults to `ID::invalid`.
 //   UseGen    — when true (default), handles carry a generation counter that
 //               detects ID reuse via is_valid(handle_t). When false, the gen
 //               field is elided entirely via [[no_unique_address]].
@@ -83,24 +81,32 @@ inline namespace stable_id_vector {
 //   Allocator — allocator type for element storage. Also rebound internally
 //               for index and slot vectors. Defaults to `std::allocator<T>`.
 //
-// Insertion may throw `std::overflow_error` if the maximum ID value is
+// Insertion may throw `std::out_of_range` if the maximum ID value is
 // exceeded. Alternately, you can disable throwing by calling
 // `throw_on_insert_failure(false)`, in which case `id_t::invalid` is
 // returned.
 //
+// Exception safety note: In FIFO mode, `alloc_id` modifies the free list
+// before returning. If the subsequent `data_.push_back` throws (e.g., due to
+// allocation failure), the container is left in an inconsistent state. To
+// avoid this, call `reserve` with `prefill=true` (or use the prefilling
+// constructor) before inserting, ensuring that insertions do not allocate.
+//
 // Motivated by https://github.com/johnBuffer/StableIndexVector.
-template<typename T, typename ID = id_enums::id_t, ID MaxId = ID::invalid,
-    bool UseGen = true, bool UseFifo = false,
-    class Allocator = std::allocator<T>>
+template<typename T, typename ID = id_enums::id_t, bool UseGen = true,
+    bool UseFifo = false, class Allocator = std::allocator<T>>
 class stable_ids {
 public:
   using id_t = ID;
   using size_type = std::underlying_type_t<id_t>;
   using allocator_type = Allocator;
+
+private:
   using data_allocator_type = Allocator;
   using index_allocator_type = typename std::allocator_traits<
       Allocator>::template rebind_alloc<size_type>;
 
+public:
   static_assert(*id_t::invalid ==
                     std::numeric_limits<std::underlying_type_t<id_t>>::max(),
       "ID type for stable_ids must define 'invalid' as the maximum value of "
@@ -145,9 +151,10 @@ public:
     id_t id_{id_t::invalid};
     [[no_unique_address]] maybe_t<size_type, UseGen> gen_{};
 
-    friend class stable_ids<T, ID, MaxId, UseGen, UseFifo, Allocator>;
+    friend class stable_ids<T, ID, UseGen, UseFifo, Allocator>;
   };
 
+private:
   // Internal slot stored in `reverse_`. Contains the handle and, when FIFO is
   // enabled, a next-pointer for the intrusive free list.
   struct slot_t {
@@ -155,8 +162,6 @@ public:
     [[no_unique_address]] maybe_t<id_t, UseFifo> fifo_next_{id_t::invalid};
   };
 
-  using handle_allocator_type = typename std::allocator_traits<
-      Allocator>::template rebind_alloc<handle_t>;
   using slot_allocator_type =
       typename std::allocator_traits<Allocator>::template rebind_alloc<slot_t>;
 
@@ -164,11 +169,23 @@ public:
   static_assert(sizeof(handle_t) <= 16);
   static_assert(std::is_trivially_copyable_v<slot_t>);
 
+public:
   // Construction.
   stable_ids() = default;
   explicit stable_ids(const allocator_type& alloc)
       : data_{alloc}, indexes_{index_allocator_type{alloc}},
         reverse_{slot_allocator_type{alloc}} {}
+
+  // Construct with a maximum ID limit. If `prefill` is true, pre-allocates and
+  // initializes `indexes_` and `reverse_` so that subsequent insertions do not
+  // allocate (useful for exception safety in FIFO mode).
+  explicit stable_ids(id_t id_limit, bool prefill = false,
+      const allocator_type& alloc = allocator_type{})
+      : data_{alloc}, indexes_{index_allocator_type{alloc}},
+        reverse_{slot_allocator_type{alloc}}, id_limit_{id_limit} {
+    if (prefill) do_prefill(*id_limit_);
+  }
+
   stable_ids(stable_ids&&) noexcept = default;
 
   stable_ids& operator=(stable_ids&&) noexcept = default;
@@ -178,11 +195,54 @@ public:
     swap(lhs.data_, rhs.data_);
     swap(lhs.indexes_, rhs.indexes_);
     swap(lhs.reverse_, rhs.reverse_);
+    swap(lhs.id_limit_, rhs.id_limit_);
     swap(lhs.throw_on_insert_failure_, rhs.throw_on_insert_failure_);
     if constexpr (UseFifo) {
       swap(lhs.fifo_head_, rhs.fifo_head_);
       swap(lhs.fifo_tail_, rhs.fifo_tail_);
     }
+  }
+
+  // Maximum allowed ID value. Insertion fails when this limit is reached.
+  // Defaults to `id_t::invalid` (the maximum representable value).
+  [[nodiscard]] id_t id_limit() const noexcept { return id_limit_; }
+
+  // Set a new ID limit. Returns true on success, false if the limit would
+  // invalidate live IDs (i.e., if `new_limit <= find_max_extant_id()`).
+  //
+  // If the new limit is lower than `max_id()` but higher than
+  // `find_max_extant_id()`, this calls `shrink_to_fit()` to reclaim freed
+  // slots that would exceed the new limit. This prevents reusing IDs that
+  // were previously allocated but are now beyond the new limit.
+  //
+  // After setting a new id limit, consider calling `reserve` with
+  // `prefill=true` to pre-allocate slots up to the new limit.
+  //
+  // To lower the limit when live IDs exceed it, first erase those entities,
+  // then retry.
+  [[nodiscard]] bool set_id_limit(id_t new_limit) noexcept {
+    // Empty container: any limit is valid.
+    if (data_.empty()) {
+      // If there are freed slots beyond the new limit, clear them.
+      if (!indexes_.empty() && new_limit <= max_id()) clear(true);
+      id_limit_ = new_limit;
+      return true;
+    }
+
+    // If raising above the high-water mark, no further checks needed.
+    if (new_limit > max_id()) {
+      id_limit_ = new_limit;
+      return true;
+    }
+
+    // Lowering the limit: check if it would invalidate live IDs.
+    const auto max_extant = find_max_extant_id();
+    if (new_limit <= max_extant) return false;
+
+    // new_limit > max_extant but <= max_id(): shrink to remove freed slots.
+    shrink_to_fit();
+    id_limit_ = new_limit;
+    return true;
   }
 
   // Control whether insertion throws on ID overflow (by default) or returns
@@ -304,8 +364,8 @@ public:
   }
 
   // Reduce memory usage to fit current size. Note that this does not preserve
-  // generations, hence it cannot guarantee invalidating handles. Do not call
-  // if you might have dangling handles.
+  // generations, hence it cannot guarantee preserving the validity of handles.
+  // Do not call if you might have dangling handles.
   void shrink_to_fit() {
     // If already empty, just clear with shrink.
     const auto live_size = data_.size();
@@ -340,11 +400,14 @@ public:
     reverse_.shrink_to_fit();
   }
 
-  // Reserve space for at least `new_cap` elements.
-  void reserve(size_type new_cap) {
+  // Reserve space for at least `new_cap` elements. If `prefill` is true,
+  // pre-allocates and initializes `indexes_` and `reverse_` so that subsequent
+  // insertions do not allocate (useful for exception safety in FIFO mode).
+  void reserve(size_type new_cap, bool prefill = false) {
     data_.reserve(new_cap);
     indexes_.reserve(new_cap);
     reverse_.reserve(new_cap);
+    if (prefill) do_prefill(new_cap);
   }
 
   // Return current size. This is the count of elements actually present,
@@ -470,14 +533,14 @@ private:
 
     // No free ID available; expand with a new one.
     const auto new_id = static_cast<id_t>(new_ndx);
-    if (new_id < MaxId) {
+    if (new_id < id_limit_) {
       reverse_.push_back(slot_t{handle_t{new_id}});
       indexes_.push_back(new_ndx);
       return new_id;
     }
 
     if (throw_on_insert_failure_)
-      throw std::overflow_error("stable_ids: exceeded maximum id");
+      throw std::out_of_range("stable_ids: exceeded id limit");
     return id_t::invalid;
   }
 
@@ -552,6 +615,27 @@ private:
     fifo_tail_ = reverse_[total - 1].h_.id_;
   }
 
+  // Pre-allocate and initialize `indexes_` and `reverse_` up to `count` slots.
+  // All slots beyond `data_.size()` become free entries. In FIFO mode, also
+  // rebuilds the free list.
+  void do_prefill(size_type count) {
+    const auto old_size = reverse_.size();
+    if (count <= old_size) return;
+
+    indexes_.resize(count);
+    reverse_.resize(count);
+
+    // Initialize new slots as free entries.
+    // TODO: Change to iterate using ID.
+    for (size_type ndx = old_size; ndx < count; ++ndx) {
+      const auto id = static_cast<id_t>(ndx);
+      indexes_[id] = ndx;
+      reverse_[ndx] = slot_t{handle_t{id}};
+    }
+
+    if constexpr (UseFifo) rebuild_fifo_list();
+  }
+
 private:
   // Actual data.
   std::vector<T, data_allocator_type> data_;
@@ -568,6 +652,9 @@ private:
   [[no_unique_address]] maybe_t<id_t, UseFifo> fifo_head_{id_t::invalid};
   [[no_unique_address]] maybe_t<id_t, UseFifo> fifo_tail_{id_t::invalid};
 
+  // Allowed ID values are below this limit.
+  id_t id_limit_{id_t::invalid};
+
   // Whether to throw on insert failure as opposed to returning
   // `id_t::invalid`.
   bool throw_on_insert_failure_{true};
@@ -576,8 +663,8 @@ private:
   // `data_` is always sized to the number of elements currently stored.
   //
   // `indexes_` and `reverse_` are always the same size as each other, which is
-  // the high water mark of IDs ever allocated (max_id_ever + 1). Their size is
-  // always >= `data_.size()`.
+  // the high water mark of IDs ever allocated (max(max_id()) + 1). Their size
+  // is always >= `data_.size()`.
   //
   // The free list lives in the tail of `reverse_` — the slots past
   // `data_.size()`. When `UseFifo` is false, `alloc_id` simply takes the first
