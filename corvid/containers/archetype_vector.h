@@ -103,7 +103,7 @@ public:
     requires(writeable_v)
     {
       return std::apply(
-          [&](auto&... vecs) {
+          [&](auto&&... vecs) {
             return std::tuple<decltype(vecs[ndx])&...>{vecs[ndx]...};
           },
           owner->get_component_spans_tuple());
@@ -112,7 +112,7 @@ public:
     // Access all components as a tuple of const values.
     [[nodiscard]] auto components() const noexcept {
       return std::apply(
-          [&](auto&... vecs) {
+          [&](auto&&... vecs) {
             return std::tuple<
                 const std::remove_reference_t<decltype(vecs[ndx])>&...>{
                 vecs[ndx]...};
@@ -296,3 +296,6 @@ private:
   index_to_id_fn index_to_id_{};
 };
 }}} // namespace corvid::container::archetype_vectors
+
+// TODO: Test how well it fits into stable_ids. We'll at least need to offer a
+// way to detect swap_elements and make use of it.
