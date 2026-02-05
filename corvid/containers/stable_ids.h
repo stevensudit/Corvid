@@ -88,10 +88,15 @@ inline namespace stable_id_vector {
 // `throw_on_insert_failure(false)`, in which case `id_t::invalid` is
 // returned.
 //
+// Exception safety note: In FIFO mode, `alloc_id` modifies the free list
+// before returning. If the subsequent `data_.push_back` throws (e.g., due to
+// allocation failure), the container is left in an inconsistent state. To
+// avoid this, call `reserve` with `prefill=true` (or use the prefilling
+// constructor) before inserting, ensuring that insertions do not allocate.
+//
 // Motivated by https://github.com/johnBuffer/StableIndexVector.
-template<typename T, typename ID = id_enums::id_t, ID MaxId = ID::invalid,
-    bool UseGen = true, bool UseFifo = false,
-    class Allocator = std::allocator<T>>
+template<typename T, typename ID = id_enums::id_t, bool UseGen = true,
+    bool UseFifo = false, class Allocator = std::allocator<T>>
 class stable_ids {
 public:
   using id_t = ID;
@@ -145,7 +150,7 @@ public:
     id_t id_{id_t::invalid};
     [[no_unique_address]] maybe_t<size_type, UseGen> gen_{};
 
-    friend class stable_ids<T, ID, MaxId, UseGen, UseFifo, Allocator>;
+    friend class stable_ids<T, ID, UseGen, UseFifo, Allocator>;
   };
 
   // Internal slot stored in `reverse_`. Contains the handle and, when FIFO is
@@ -169,6 +174,17 @@ public:
   explicit stable_ids(const allocator_type& alloc)
       : data_{alloc}, indexes_{index_allocator_type{alloc}},
         reverse_{slot_allocator_type{alloc}} {}
+
+  // Construct with a maximum ID limit. If `prefill` is true, pre-allocates and
+  // initializes `indexes_` and `reverse_` so that subsequent insertions do not
+  // allocate (useful for exception safety in FIFO mode).
+  explicit stable_ids(id_t max_id, bool prefill = false,
+      const allocator_type& alloc = allocator_type{})
+      : data_{alloc}, indexes_{index_allocator_type{alloc}},
+        reverse_{slot_allocator_type{alloc}}, max_id_{max_id} {
+    if (prefill) do_prefill(*max_id_);
+  }
+
   stable_ids(stable_ids&&) noexcept = default;
 
   stable_ids& operator=(stable_ids&&) noexcept = default;
@@ -178,12 +194,18 @@ public:
     swap(lhs.data_, rhs.data_);
     swap(lhs.indexes_, rhs.indexes_);
     swap(lhs.reverse_, rhs.reverse_);
+    swap(lhs.max_id_, rhs.max_id_);
     swap(lhs.throw_on_insert_failure_, rhs.throw_on_insert_failure_);
     if constexpr (UseFifo) {
       swap(lhs.fifo_head_, rhs.fifo_head_);
       swap(lhs.fifo_tail_, rhs.fifo_tail_);
     }
   }
+
+  // Maximum allowed ID value. Insertion fails when this limit is reached.
+  // Defaults to `id_t::invalid` (the maximum representable value).
+  [[nodiscard]] id_t id_limit() const noexcept { return max_id_; }
+  void id_limit(id_t value) noexcept { max_id_ = value; }
 
   // Control whether insertion throws on ID overflow (by default) or returns
   // `id_t::invalid`, requiring the caller to check.
@@ -340,11 +362,14 @@ public:
     reverse_.shrink_to_fit();
   }
 
-  // Reserve space for at least `new_cap` elements.
-  void reserve(size_type new_cap) {
+  // Reserve space for at least `new_cap` elements. If `prefill` is true,
+  // pre-allocates and initializes `indexes_` and `reverse_` so that subsequent
+  // insertions do not allocate (useful for exception safety in FIFO mode).
+  void reserve(size_type new_cap, bool prefill = false) {
     data_.reserve(new_cap);
     indexes_.reserve(new_cap);
     reverse_.reserve(new_cap);
+    if (prefill) do_prefill(new_cap);
   }
 
   // Return current size. This is the count of elements actually present,
@@ -470,7 +495,7 @@ private:
 
     // No free ID available; expand with a new one.
     const auto new_id = static_cast<id_t>(new_ndx);
-    if (new_id < MaxId) {
+    if (new_id < max_id_) {
       reverse_.push_back(slot_t{handle_t{new_id}});
       indexes_.push_back(new_ndx);
       return new_id;
@@ -552,6 +577,27 @@ private:
     fifo_tail_ = reverse_[total - 1].h_.id_;
   }
 
+  // Pre-allocate and initialize `indexes_` and `reverse_` up to `count` slots.
+  // All slots beyond `data_.size()` become free entries. In FIFO mode, also
+  // rebuilds the free list.
+  void do_prefill(size_type count) {
+    const auto old_size = reverse_.size();
+    if (count <= old_size) return;
+
+    indexes_.resize(count);
+    reverse_.resize(count);
+
+    // Initialize new slots as free entries.
+    // TODO: Change to iterate using ID.
+    for (size_type ndx = old_size; ndx < count; ++ndx) {
+      const auto id = static_cast<id_t>(ndx);
+      indexes_[id] = ndx;
+      reverse_[ndx] = slot_t{handle_t{id}};
+    }
+
+    if constexpr (UseFifo) rebuild_fifo_list();
+  }
+
 private:
   // Actual data.
   std::vector<T, data_allocator_type> data_;
@@ -567,6 +613,9 @@ private:
   // FIFO free-list head and tail.
   [[no_unique_address]] maybe_t<id_t, UseFifo> fifo_head_{id_t::invalid};
   [[no_unique_address]] maybe_t<id_t, UseFifo> fifo_tail_{id_t::invalid};
+
+  // Maximum allowed ID value.
+  id_t max_id_{id_t::invalid};
 
   // Whether to throw on insert failure as opposed to returning
   // `id_t::invalid`.

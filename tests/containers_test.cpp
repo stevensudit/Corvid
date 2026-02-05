@@ -2186,14 +2186,14 @@ constexpr auto corvid::enums::registry::enum_spec_v<small_id_t> =
 
 using int_stable_small_ids = stable_ids<int, small_id_t>;
 
-using int_stable_ids_fifo = stable_ids<int, int_stable_ids::id_t,
-    int_stable_ids::id_t::invalid, true, true, std::allocator<int>>;
-using int_stable_ids_nogen = stable_ids<int, int_stable_ids::id_t,
-    int_stable_ids::id_t::invalid, false, false, std::allocator<int>>;
-using int_stable_ids_fifo_nogen = stable_ids<int, int_stable_ids::id_t,
-    int_stable_ids::id_t::invalid, false, true, std::allocator<int>>;
-using int_stable_small_ids_fifo = stable_ids<int, small_id_t,
-    small_id_t::invalid, true, true, std::allocator<int>>;
+using int_stable_ids_fifo =
+    stable_ids<int, int_stable_ids::id_t, true, true, std::allocator<int>>;
+using int_stable_ids_nogen =
+    stable_ids<int, int_stable_ids::id_t, false, false, std::allocator<int>>;
+using int_stable_ids_fifo_nogen =
+    stable_ids<int, int_stable_ids::id_t, false, true, std::allocator<int>>;
+using int_stable_small_ids_fifo =
+    stable_ids<int, small_id_t, true, true, std::allocator<int>>;
 
 void StableId_SmallId() {
   using V = int_stable_small_ids;
@@ -2776,15 +2776,15 @@ void StableId_FifoNoGen() {
   }
 }
 
-// Test the MaxId template parameter to limit ID allocation.
+// Test the max_id() setting to limit ID allocation.
 void StableId_MaxId() {
   using id_t = int_stable_ids::id_t;
-  // Limit to 3 IDs (0, 1, 2).
-  using V = stable_ids<int, id_t, id_t{3}>;
+  using V = stable_ids<int, id_t>;
 
   // Can allocate up to max.
   if (true) {
-    V v;
+    // Limit to 3 IDs (0, 1, 2).
+    V v{id_t{3}};
     auto id0 = v.push_back(10);
     auto id1 = v.push_back(20);
     auto id2 = v.push_back(30);
@@ -2796,7 +2796,7 @@ void StableId_MaxId() {
 
   // The 4th insertion overflows.
   if (true) {
-    V v;
+    V v{id_t{3}};
     (void)v.push_back(10);
     (void)v.push_back(20);
     (void)v.push_back(30);
@@ -2806,7 +2806,7 @@ void StableId_MaxId() {
 
   // With throw disabled, returns invalid.
   if (true) {
-    V v;
+    V v{id_t{3}};
     v.throw_on_insert_failure(false);
     (void)v.push_back(10);
     (void)v.push_back(20);
@@ -2818,7 +2818,7 @@ void StableId_MaxId() {
 
   // Erasing frees a slot for reuse.
   if (true) {
-    V v;
+    V v{id_t{3}};
     auto id0 = v.push_back(10);
     (void)v.push_back(20);
     (void)v.push_back(30);
@@ -2835,6 +2835,29 @@ void StableId_MaxId() {
 
     // Full again — overflow.
     EXPECT_THROW(v.push_back(50), std::overflow_error);
+  }
+
+  // id_limit can be changed at runtime.
+  if (true) {
+    V v;
+    EXPECT_EQ(v.id_limit(), id_t::invalid);
+    v.id_limit(id_t{2});
+    EXPECT_EQ(v.id_limit(), id_t{2});
+
+    (void)v.push_back(10);
+    (void)v.push_back(20);
+    EXPECT_THROW(v.push_back(30), std::overflow_error);
+  }
+
+  // Prefill constructor pre-allocates slots.
+  if (true) {
+    V v{id_t{5}, true};
+    EXPECT_EQ(v.id_limit(), id_t{5});
+    // Slots are pre-allocated, so push_back won't allocate indexes_/reverse_.
+    auto id0 = v.push_back(10);
+    auto id1 = v.push_back(20);
+    EXPECT_EQ(*id0, 0U);
+    EXPECT_EQ(*id1, 1U);
   }
 }
 
