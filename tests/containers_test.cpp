@@ -1745,6 +1745,52 @@ void TombStone_Basic() {
 
 using int_stable_ids = stable_ids<int>;
 
+void ArchetypeVector_Basic() {
+  enum class entity_id : std::uint32_t {};
+  using archetype_t =
+      archetype_vector<entity_id, std::tuple<int, float, std::string>>;
+
+  archetype_t v;
+  EXPECT_TRUE(v.empty());
+  EXPECT_EQ(v.size(), 0U);
+
+  v.set_index_to_id([](archetype_t::size_type index) {
+    return entity_id{static_cast<std::uint32_t>(index + 100)};
+  });
+  EXPECT_EQ(v.index_to_id(0), entity_id{100});
+
+  v.reserve(4);
+  EXPECT_TRUE(v.capacity() >= 4U);
+
+  v.resize(3);
+  EXPECT_EQ(v.size(), 3U);
+
+  auto ints = v.get_component_span<int>();
+  auto floats = v.get_component_span<1>();
+  auto strings = v.get_component_span<std::string>();
+  EXPECT_EQ(ints.size(), 3U);
+  EXPECT_EQ(floats.size(), 3U);
+  EXPECT_EQ(strings.size(), 3U);
+
+  ints[0] = 10;
+  ints[1] = 20;
+  ints[2] = 30;
+  floats[0] = 1.5f;
+  floats[1] = 2.5f;
+  floats[2] = 3.5f;
+  strings[0] = "a"s;
+  strings[1] = "b"s;
+  strings[2] = "c"s;
+
+  auto [ints2, floats2, strings2] = v.get_component_spans_tuple();
+  EXPECT_EQ(ints2[1], 20);
+  EXPECT_EQ(floats2[2], 3.5f);
+  EXPECT_EQ(strings2[0], "a"s);
+
+  v.clear();
+  EXPECT_TRUE(v.empty());
+}
+
 void StableId_Basic() {
   using V = int_stable_ids;
   using id_t = V::id_t;
@@ -2743,9 +2789,7 @@ void StableId_FifoNoGen() {
 
   // handle_t is sizeof(id_t): neither gen nor the FIFO next-pointer
   // appears in it.  The next-pointer lives in the internal slot_t only.
-  if (true) {
-    static_assert(sizeof(V::handle_t) == sizeof(V::id_t));
-  }
+  if (true) { static_assert(sizeof(V::handle_t) == sizeof(V::id_t)); }
 
   // Without gen, a stale handle for a reused ID is indistinguishable.
   // FIFO increases the reuse delay but is not a correctness guard.
@@ -2992,8 +3036,8 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
     StrongType_Extended, EnumVariant_Basic, TombStone_Basic, StableId_Basic,
-    StableId_SmallId, StableId_NoThrow, StableId_Fifo, StableId_NoGen,
-    StableId_FifoNoGen, StableId_MaxId, EnumVector_Basic);
+    ArchetypeVector_Basic, StableId_SmallId, StableId_NoThrow, StableId_Fifo,
+    StableId_NoGen, StableId_FifoNoGen, StableId_MaxId, EnumVector_Basic);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
