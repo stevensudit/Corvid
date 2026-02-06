@@ -291,11 +291,18 @@ public:
     return (self.records_[id].metadata);
   }
 
-  // Access metadata by handle. Throws if invalid.
+  // Access metadata by ID, with bounds checking.
   [[nodiscard]]
-  decltype(auto) operator[](this auto& self, handle_t handle) {
+  decltype(auto) at(this auto& self, id_t id) {
+    if (!self.is_valid(id)) throw std::out_of_range("id out of range");
+    return (self.records_[id].metadata);
+  }
+
+  // Access metadata by handle, with bounds and generation checking.
+  [[nodiscard]]
+  decltype(auto) at(this auto& self, handle_t handle) {
     if (!self.is_valid(handle)) throw std::invalid_argument("invalid handle");
-    return (self.records_[handle.id_].metadata);
+    return std::forward<decltype(self)>(self).at(handle.id_);
   }
 
   // Erase all records matching predicate. Returns count erased.
@@ -311,6 +318,17 @@ public:
       }
     }
     return cnt;
+  }
+
+  // Return current size: the count of living entities. This is not the size of
+  // the underlying vector, which may be larger due to free records. This is
+  // also not directly related to the highest ID issued or in use.
+  [[nodiscard]] size_type size() const noexcept { return living_count_; }
+
+  // Return maximum valid ID, or `id_t::invalid` if empty. This is effectively
+  // the high-water mark, not the highest extant ID.
+  [[nodiscard]] id_t max_id() const noexcept {
+    return id_t{records_.size() - 1};
   }
 
   // Clear all records.
