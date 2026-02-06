@@ -608,6 +608,9 @@ void StableId_Basic() {
     auto h1 = v.emplace_back_handle(20);
     EXPECT_TRUE(v.is_valid(h0));
     EXPECT_TRUE(v.is_valid(h1));
+    EXPECT_EQ(v.at(h0), 10);
+    const V& cv = v;
+    EXPECT_EQ(cv.at(h1), 20);
   }
 
   // erase by ID.
@@ -645,6 +648,7 @@ void StableId_Basic() {
     EXPECT_TRUE(v.erase(h));
     EXPECT_FALSE(v.is_valid(h));
     EXPECT_FALSE(v.erase(h));
+    EXPECT_THROW(v.at(h), std::invalid_argument);
   }
 
   // ID reuse: erased ID is reused by next insertion (LIFO order).
@@ -1717,6 +1721,61 @@ void EntityRegistry_Basic() {
     EXPECT_FALSE(r.is_valid(id_t{1}));
     EXPECT_FALSE(r.is_valid(id_t{2}));
   }
+
+  // at(id_t) success.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create(loc0, 42);
+    EXPECT_EQ(r.at(id0), 42);
+    r.at(id0) = 99;
+    EXPECT_EQ(r.at(id0), 99);
+  }
+
+  // at(id_t) const.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create(loc0, 42);
+    const auto& cr = r;
+    EXPECT_EQ(cr.at(id0), 42);
+  }
+
+  // at(id_t) throws for invalid ID.
+  if (true) {
+    reg_t r;
+    (void)r.create(loc0, 10);
+    EXPECT_THROW(r.at(id_t{99}), std::out_of_range);
+  }
+
+  // at(id_t) throws for erased ID.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create(loc0, 10);
+    r.erase(id0);
+    EXPECT_THROW(r.at(id0), std::out_of_range);
+  }
+
+  // size() tracks living entities.
+  if (true) {
+    reg_t r;
+    EXPECT_EQ(r.size(), 0U);
+    auto id0 = r.create(loc0, 10);
+    EXPECT_EQ(r.size(), 1U);
+    (void)r.create(loc1, 20);
+    EXPECT_EQ(r.size(), 2U);
+    r.erase(id0);
+    EXPECT_EQ(r.size(), 1U);
+  }
+
+  // max_id() is the high-water mark.
+  if (true) {
+    reg_t r;
+    (void)r.create(loc0, 10); // id 0
+    (void)r.create(loc1, 20); // id 1
+    (void)r.create(loc2, 30); // id 2
+    EXPECT_EQ(r.max_id(), id_t{2});
+    r.erase(id_t{2});
+    EXPECT_EQ(r.max_id(), id_t{2}); // still 2, high-water mark
+  }
 }
 
 void EntityRegistry_Handle() {
@@ -1803,6 +1862,8 @@ void EntityRegistry_Handle() {
     EXPECT_EQ(r.at(h), 42);
     r.at(h) = 100;
     EXPECT_EQ(r.at(h), 100);
+    const auto& cr = r;
+    EXPECT_EQ(cr.at(h), 100);
   }
 
   // Metadata access by invalid handle throws.
@@ -1849,6 +1910,52 @@ void EntityRegistry_Handle() {
     EXPECT_TRUE(h0 != h1);
     EXPECT_TRUE(h0 < h1);
   }
+
+  // Handle comparison: same ID, different gen compares unequal.
+  if (true) {
+    reg_t r;
+    auto h_old = r.create_with_handle(loc0, 10);
+    r.erase(h_old);
+    auto h_new = r.create_with_handle(loc0, 20);
+    EXPECT_EQ(h_old.get_id(), h_new.get_id());
+    EXPECT_TRUE(h_old != h_new);
+  }
+
+  // get_location by invalid handle returns invalid location.
+  if (true) {
+    reg_t r;
+    auto h = r.create_with_handle(loc0, 10);
+    r.erase(h);
+    const auto& loc = r.get_location(h);
+    EXPECT_EQ(loc.store_id, store_id_t::invalid);
+  }
+
+  // set_location by handle to invalid erases the entity.
+  if (true) {
+    reg_t r;
+    auto h = r.create_with_handle(loc0, 10);
+    EXPECT_TRUE(r.is_valid(h));
+    r.set_location(h, loc_t{});
+    EXPECT_FALSE(r.is_valid(h));
+    EXPECT_EQ(r.size(), 0U);
+  }
+
+  // at(handle_t) const.
+  if (true) {
+    reg_t r;
+    auto h = r.create_with_handle(loc0, 42);
+    const auto& cr = r;
+    EXPECT_EQ(cr.at(h), 42);
+  }
+
+  // at(handle_t) const throws for invalid handle.
+  if (true) {
+    reg_t r;
+    auto h = r.create_with_handle(loc0, 42);
+    r.erase(h);
+    const auto& cr = r;
+    EXPECT_THROW(cr.at(h), std::invalid_argument);
+  }
 }
 
 void EntityRegistry_Fifo() {
@@ -1892,6 +1999,19 @@ void EntityRegistry_Clear() {
     EXPECT_FALSE(r.is_valid(h0));
     EXPECT_EQ(r.create(loc0, 100), id_t{0});
     EXPECT_EQ(r.get_handle(id_t{0}).get_gen(), 1U);
+  }
+
+  // clear(true) with shrink: fully resets storage and gens.
+  if (true) {
+    reg_t r;
+    (void)r.create(loc0, 10); // id 0
+    (void)r.create(loc0, 20); // id 1
+    r.clear(true);
+    EXPECT_EQ(r.size(), 0U);
+    EXPECT_FALSE(r.is_valid(id_t{0}));
+    auto id0 = r.create(loc0, 100);
+    EXPECT_EQ(*id0, 0U);
+    EXPECT_EQ(r.get_handle(id0).get_gen(), 0U); // gen reset
   }
 }
 
