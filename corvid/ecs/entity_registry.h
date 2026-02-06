@@ -174,8 +174,16 @@ public:
   // If the limit is reduced, triggers `shrink_to_fit()` to reclaim unused
   // records.
   [[nodiscard]] bool set_id_limit(id_t new_limit) {
-    // TODO: Implement this. If the new limit is lower than the current
-    // records_.size(), this just fails.
+    const auto id_end = records_.size_as_enum();
+    if (new_limit < id_end) {
+      // Fail if any live record exists at or past the new limit.
+      for (auto id = new_limit; id < id_end; ++id) {
+        if (records_[id].location.store_id != store_id_t::invalid)
+          return false;
+      }
+      records_.resize(*new_limit);
+      shrink_to_fit();
+    }
 
     id_limit_ = new_limit;
     return true;
@@ -193,7 +201,7 @@ public:
     if (location.store_id == store_id_t::invalid) return id_t::invalid;
     const id_t id = alloc_id();
     if (id == id_t::invalid) return id_t::invalid;
-    auto& rec = records_[*id];
+    auto& rec = records_[id];
     rec.location = location;
     rec.metadata = metadata;
     return id;
@@ -209,8 +217,11 @@ public:
 
   // Get handle for ID. When invalid, returns an invalid handle.
   [[nodiscard]] handle_t get_handle(id_t id) const {
-    if (!is_valid(id)) return handle_t{id_t::invalid};
-    return handle_t{id, *records_[*id].gen};
+    if (!is_valid(id)) return {};
+    if constexpr (UseGen)
+      return handle_t{id, records_[id].gen};
+    else
+      return handle_t{id, 0};
   }
 
   // Check whether ID is valid. Note that many calls taking an ID expect it to
@@ -218,26 +229,27 @@ public:
   // check.
   [[nodiscard]] bool is_valid(id_t id) const {
     if (*id >= records_.size()) return false;
-    auto loc = records_[*id].location;
+    auto loc = records_[id].location;
     return loc.store_id != store_id_t::invalid;
   }
 
   // Check whether handle is valid.
   [[nodiscard]] bool is_valid(handle_t handle) const {
     if (!is_valid(handle.id_)) return false;
-    if constexpr (UseGen) return records_[*handle.id_].gen == handle.gen_;
+    if constexpr (UseGen) return records_[handle.id_].gen == handle.gen_;
     return true;
   }
 
   // Get location for ID. Must be valid.
   [[nodiscard]] const location_t& get_location(id_t id) const {
     assert(is_valid(id));
-    return records_[*id].location;
+    return records_[id].location;
   }
 
   // Get location for handle. When invalid, returns invalid location.
   [[nodiscard]] const location_t& get_location(handle_t handle) const {
-    if (!is_valid(handle)) return location_t{};
+    static const location_t invalid_loc{};
+    if (!is_valid(handle)) return invalid_loc;
     return get_location(handle.id_);
   }
 
@@ -248,7 +260,7 @@ public:
     if (location.store_id == store_id_t::invalid)
       do_erase(id);
     else
-      records_[*id].location = location;
+      records_[id].location = location;
   }
 
   // Set location for handle. The handle must be valid. Setting to invalid
@@ -276,22 +288,21 @@ public:
   [[nodiscard]]
   decltype(auto) operator[](this auto& self, id_t id) noexcept {
     assert(self.is_valid(id));
-    return (self.records_[*id].metadata);
+    return (self.records_[id].metadata);
   }
 
   // Access metadata by handle. Throws if invalid.
   [[nodiscard]]
   decltype(auto) operator[](this auto& self, handle_t handle) {
     if (!self.is_valid(handle)) throw std::invalid_argument("invalid handle");
-    return (self.records_[*handle.id_].metadata);
+    return (self.records_[handle.id_].metadata);
   }
 
   // Erase all records matching predicate. Returns count erased.
   size_type erase_if(auto pred) {
     size_type cnt{};
-    const size_type n = records_.size();
-    for (size_type i{}; i < n; ++i) {
-      const id_t id{i};
+    const auto id_end = records_.size_as_enum();
+    for (id_t id{}; id < id_end; ++id) {
       auto& rec = records_[id];
       if (rec.location.store_id == store_id_t::invalid) continue;
       if (pred(rec)) {
@@ -304,24 +315,38 @@ public:
 
   // Clear all records.
   void clear(bool shrink = false) noexcept {
-    // TODO: Do the equivalent of erasing all records.
-    // A reasonable way to do this would be to walk through elements of
-    // records_, marking each as invalid and adding it to the free list.
-    // However, when shrink is true, we can just reset everything.
-    (void)shrink;
+    living_count_ = 0;
+    if (shrink) {
+      records_.clear();
+      records_.shrink_to_fit();
+      fifo_head_ = id_t::invalid;
+      fifo_tail_ = id_t::invalid;
+      return;
+    }
+    for (auto& rec : records_) {
+      rec.location.store_id = store_id_t::invalid;
+      if constexpr (UseGen) ++rec.gen;
+    }
+    // TODO: Consider whether it's inefficient to use rebuild_free_list here,
+    // since we know all records are free. Maybe just, given that it checks for
+    // invalid.
+    rebuild_free_list();
   }
 
   // Reduce memory usage to fit current size.
   void shrink_to_fit() {
-    // TODO: Make this work. Do not shrink records_ so as to invalidate any
-    // live IDs, and ensure that the free list is correct.
+    trim_dead_tail();
+    records_.shrink_to_fit();
   }
 
   // Reserve space for at least `new_cap` records.
   void reserve(size_type new_cap, bool prefill = false) {
     records_.reserve(new_cap);
-    (void)prefill;
-    // TODO: If prefill is true, resize to new_cap and set up free list.
+    if (prefill && new_cap > records_.size()) {
+      const auto old_size = records_.size();
+      records_.resize(new_cap);
+      for (size_type i = old_size; i < new_cap; ++i) append_to_tail(id_t{i});
+    }
   }
 
 private:
@@ -335,32 +360,68 @@ private:
     if (living_count_ >= records_.size()) {
       // TODO: Consider resizing to the capacity and adding the extras to the
       // free list. But don't do this initially.
-      const id_t new_id{static_cast<size_type>(records_.size())};
+      const auto new_id = records_.size_as_enum();
       records_.emplace_back();
       ++living_count_;
       return new_id;
     }
 
     // Pick the next free ID from the head of the FIFO free list.
-    const id_t free_id = fifo_head_;
-    assert(free_id != id_t::invalid);
-    const auto& slot = records_[*free_id];
-    fifo_head_ = slot.location.ndx;
+    const auto new_id = fifo_head_;
+    assert(new_id != id_t::invalid);
+    const auto next_ndx = records_[new_id].location.ndx;
+    fifo_head_ = id_t{next_ndx};
     if (fifo_head_ == id_t::invalid) fifo_tail_ = id_t::invalid;
     ++living_count_;
-    return free_id;
+    return new_id;
+  }
+
+  // Trim trailing dead records from records_ and rebuild the free list.
+  void trim_dead_tail() {
+    size_type new_size = records_.size();
+    while (new_size > 0 &&
+           (records_[id_t{new_size - 1}].location.store_id ==
+               store_id_t::invalid))
+      --new_size;
+    if (new_size < records_.size()) {
+      records_.resize(new_size);
+      rebuild_free_list();
+    }
+  }
+
+  // Push an already-invalid record onto the tail of the FIFO free list.
+  void append_to_tail(id_t id) {
+    records_[id].location.ndx = *id_t::invalid;
+    if (fifo_tail_ != id_t::invalid)
+      records_[fifo_tail_].location.ndx = *id;
+    else
+      fifo_head_ = id;
+    fifo_tail_ = id;
+  }
+
+  // Walk `records_` and rebuild the free list from scratch.
+  void rebuild_free_list() {
+    fifo_head_ = id_t::invalid;
+    fifo_tail_ = id_t::invalid;
+    const size_type n = records_.size();
+    for (size_type i = 0; i < n; ++i) {
+      if (records_[id_t{i}].location.store_id != store_id_t::invalid) continue;
+      // TODO: Consider whether calling `append_to_tail` here is inefficient
+      // since we don't need to keep checking whether fifo_tail_ is invalid. We
+      // can instead set it to id from the start. Arguably, we could keep
+      // `append_to_tail` but template it on a bool for whether to test it.
+      append_to_tail(id_t{i});
+    }
   }
 
   // Erase by ID helper. Assumes validity checked by caller.
   bool do_erase(id_t id) {
-    auto& rec = records_[*id];
+    auto& rec = records_[id];
     rec.location.store_id = store_id_t::invalid;
-    rec.location.ndx = fifo_head_;
     if constexpr (UseGen) ++rec.gen;
 
-    // Push onto free list.
-    fifo_head_ = id;
-    if (fifo_tail_ == id_t::invalid) fifo_tail_ = id;
+    // Push onto tail of free list (FIFO).
+    append_to_tail(id);
     --living_count_;
     return true;
   }

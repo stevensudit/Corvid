@@ -36,6 +36,7 @@
 *.pdb
 
 # CMake
+build/
 CMakeFiles
 CMakeCache.txt
 .ninja_deps
