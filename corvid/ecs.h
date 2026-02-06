@@ -15,5 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include "ecs/entity_ids.h"
 #include "ecs/stable_ids.h"
 #include "ecs/archetype_vector.h"
+#include "ecs/entity_registry.h"

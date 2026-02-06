@@ -28,26 +28,9 @@
 
 #include "../containers/enum_vector.h"
 #include "../meta/maybe.h"
+#include "entity_ids.h"
 
-namespace corvid { inline namespace container {
-inline namespace stable_id_vector {
-
-// This has to be declared up front so that we can place `enum_spec_v` in the
-// global namespace. Note that "sys/types.h" also defines a type named `id_t`
-// and rudely injects it into the global namespace.
-namespace id_enums {
-enum class id_t : size_t { invalid = std::numeric_limits<size_t>::max() };
-}
-}}} // namespace corvid::container::stable_id_vector
-
-template<>
-constexpr auto corvid::enums::registry::enum_spec_v<
-    corvid::container::stable_id_vector::id_enums::id_t> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::container::stable_id_vector::id_enums::id_t, "">();
-
-namespace corvid { inline namespace container {
-inline namespace stable_id_vector {
+namespace corvid { inline namespace ecs { inline namespace stable_id_vector {
 
 // An indexed vector to store elements by stable ID, suitable for Entity
 // Component Systems, where it functions as the basis for a sparse set.
@@ -111,7 +94,7 @@ public:
                     std::numeric_limits<std::underlying_type_t<id_t>>::max(),
       "ID type for stable_ids must define 'invalid' as the maximum value of "
       "its underlying type");
-  static_assert(std::is_unsigned_v<size_type>,
+  static_assert(std::is_unsigned_v<std::underlying_type_t<id_t>>,
       "ID type for stable_ids must use an unsigned underlying type");
 
   // An opaque handle that refers to an element. When UseGen is enabled, it
@@ -139,8 +122,9 @@ public:
       return cmp;
     }
 
-    // Note: While equality/inequality is guaranteed, the precise value is not.
     [[nodiscard]] id_t get_id() const { return id_; }
+
+    // Note: While equality/inequality is guaranteed, the precise value is not.
     [[nodiscard]] size_type get_gen() const
     requires UseGen
     {
@@ -690,4 +674,4 @@ private:
   // `indexes_` and `reverse_` with a new ID. Either way, the caller pushes
   // the new value to the back of `data_`.
 };
-}}} // namespace corvid::container::stable_id_vector
+}}} // namespace corvid::ecs::stable_id_vector

@@ -1607,9 +1607,61 @@ void StableId_MaxId() {
   }
 }
 
+void EntityRegistry_Basic() {
+  using namespace id_enums;
+
+  // Default template parameters.
+  if (true) {
+    using reg_t = entity_registry<int>;
+    static_assert(std::is_same_v<reg_t::id_t, entity_id>);
+    static_assert(std::is_same_v<reg_t::store_id_t, store_id_t>);
+    static_assert(std::is_same_v<reg_t::size_type, size_t>);
+    static_assert(std::is_same_v<reg_t::allocator_type, std::allocator<int>>);
+  }
+
+  // handle_t default construction.
+  if (true) {
+    using reg_t = entity_registry<int>;
+    using handle_t = reg_t::handle_t;
+
+    handle_t h;
+    EXPECT_EQ(h.get_id(), entity_id::invalid);
+    EXPECT_EQ(h.get_gen(), *entity_id::invalid);
+  }
+
+  // handle_t copy construction and assignment.
+  if (true) {
+    using reg_t = entity_registry<int>;
+    using handle_t = reg_t::handle_t;
+
+    handle_t h1;
+    handle_t h2{h1};
+    EXPECT_TRUE(h1 == h2);
+
+    handle_t h3;
+    h3 = h1;
+    EXPECT_TRUE(h1 == h3);
+  }
+
+  // handle_t comparison operators.
+  if (true) {
+    using reg_t = entity_registry<int>;
+    using handle_t = reg_t::handle_t;
+
+    handle_t h1;
+    handle_t h2;
+    EXPECT_TRUE(h1 == h2);
+    EXPECT_FALSE(h1 != h2);
+    EXPECT_FALSE(h1 < h2);
+    EXPECT_TRUE(h1 <= h2);
+    EXPECT_FALSE(h1 > h2);
+    EXPECT_TRUE(h1 >= h2);
+  }
+}
+
 MAKE_TEST_LIST(ArchetypeVector_Basic, ArchetypeVector_NoCopy, StableId_Basic,
     StableId_SmallId, StableId_NoThrow, StableId_Fifo, StableId_NoGen,
-    StableId_FifoNoGen, StableId_MaxId);
+    StableId_FifoNoGen, StableId_MaxId, EntityRegistry_Basic);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
