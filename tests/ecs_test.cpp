@@ -2103,8 +2103,10 @@ void EntityRegistry_NoGen() {
   using namespace id_enums;
   using reg_t = entity_registry<int, entity_id, store_id_t, false>;
   using id_t = reg_t::id_t;
+  using handle_t = reg_t::handle_t;
   using loc_t = reg_t::location_t;
   const loc_t loc0{store_id_t{0}, 0};
+  const loc_t loc1{store_id_t{0}, 1};
 
   // handle_t has no get_gen() when UseGen=false.
   // Detailed no-gen behavior is tested in StableId_NoGen and
@@ -2122,6 +2124,124 @@ void EntityRegistry_NoGen() {
     EXPECT_EQ(*id1, 1U);
     EXPECT_EQ(r[id0], 10);
     EXPECT_EQ(r[id1], 20);
+  }
+
+  // create_with_handle and handle validity.
+  if (true) {
+    reg_t r;
+    auto h = r.create_with_handle(loc0, 42);
+    EXPECT_TRUE(r.is_valid(h));
+    EXPECT_EQ(h.get_id(), id_t{0});
+    EXPECT_EQ(r.at(h), 42);
+  }
+
+  // create_with_handle with invalid store_id returns invalid handle.
+  if (true) {
+    reg_t r;
+    auto h = r.create_with_handle(loc_t{}, 42);
+    EXPECT_FALSE(r.is_valid(h));
+    EXPECT_EQ(h.get_id(), id_t::invalid);
+  }
+
+  // erase by handle.
+  if (true) {
+    reg_t r;
+    auto h = r.create_with_handle(loc0, 10);
+    EXPECT_TRUE(r.erase(h));
+    EXPECT_FALSE(r.is_valid(h));
+    EXPECT_FALSE(r.erase(h)); // double erase
+  }
+
+  // get_location and set_location by handle.
+  if (true) {
+    reg_t r;
+    auto h = r.create_with_handle(loc0, 10);
+    const auto& loc = r.get_location(h);
+    EXPECT_EQ(*loc.store_id, 0U);
+    EXPECT_EQ(loc.ndx, 0U);
+    r.set_location(h, loc1);
+    EXPECT_EQ(r.get_location(h).ndx, 1U);
+  }
+
+  // get_location by invalid handle returns invalid location.
+  if (true) {
+    reg_t r;
+    auto h = r.create_with_handle(loc0, 10);
+    r.erase(h);
+    const auto& loc = r.get_location(h);
+    EXPECT_EQ(loc.store_id, store_id_t::invalid);
+  }
+
+  // set_location by invalid handle is a no-op.
+  if (true) {
+    reg_t r;
+    auto h = r.create_with_handle(loc0, 10);
+    r.erase(h);
+    r.set_location(h, loc1); // should not crash
+  }
+
+  // set_location by handle to invalid erases the entity.
+  if (true) {
+    reg_t r;
+    auto h = r.create_with_handle(loc0, 10);
+    r.set_location(h, loc_t{});
+    EXPECT_FALSE(r.is_valid(h));
+    EXPECT_EQ(r.size(), 0U);
+  }
+
+  // Handle comparison.
+  if (true) {
+    reg_t r;
+    auto h0 = r.create_with_handle(loc0, 10);
+    auto h1 = r.create_with_handle(loc1, 20);
+    EXPECT_TRUE(h0 != h1);
+    EXPECT_TRUE(h0 < h1);
+    EXPECT_TRUE(h0 == h0);
+  }
+
+  // Without gen, stale handles are falsely valid after ID reuse.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create(loc0, 10);
+    auto h_old = r.get_handle(id0);
+    r.erase(id0);
+    EXPECT_FALSE(r.is_valid(h_old));
+    auto id0_reused = r.create(loc0, 99);
+    EXPECT_EQ(id0_reused, id0);
+    // Without gen protection, old handle becomes valid again.
+    EXPECT_TRUE(r.is_valid(h_old));
+  }
+
+  // Handle default construction.
+  if (true) {
+    handle_t h;
+    EXPECT_EQ(h.get_id(), id_t::invalid);
+  }
+
+  // Handle copy construction and assignment.
+  if (true) {
+    handle_t h1;
+    handle_t h2{h1};
+    EXPECT_TRUE(h1 == h2);
+    handle_t h3;
+    h3 = h1;
+    EXPECT_TRUE(h1 == h3);
+  }
+
+  // at(handle_t) throws for invalid handle.
+  if (true) {
+    reg_t r;
+    auto h = r.create_with_handle(loc0, 42);
+    r.erase(h);
+    EXPECT_THROW(r.at(h), std::invalid_argument);
+  }
+
+  // at(handle_t) const.
+  if (true) {
+    reg_t r;
+    auto h = r.create_with_handle(loc0, 42);
+    const auto& cr = r;
+    EXPECT_EQ(cr.at(h), 42);
   }
 }
 
@@ -2186,6 +2306,102 @@ void EntityRegistry_VoidMeta() {
     EXPECT_EQ(r.create(loc0), id_t{1});
     r.clear();
     EXPECT_EQ(r.create(loc0), id_t{0});
+  }
+
+  // erase_if with void metadata.
+  if (true) {
+    reg_t r;
+    (void)r.create(loc0); // id 0
+    (void)r.create(loc0); // id 1
+    (void)r.create(loc0); // id 2
+    auto cnt = r.erase_if([](auto& rec) { return rec.location.ndx == 0; });
+    // All have ndx 0 from loc0, so all erased.
+    EXPECT_EQ(cnt, 3U);
+    EXPECT_EQ(r.size(), 0U);
+  }
+
+  // shrink_to_fit with void metadata.
+  if (true) {
+    reg_t r;
+    (void)r.create(loc0); // id 0
+    (void)r.create(loc0); // id 1
+    (void)r.create(loc0); // id 2
+    r.erase(id_t{2});
+    r.shrink_to_fit();
+    EXPECT_EQ(r.max_id(), id_t{1});
+    EXPECT_TRUE(r.is_valid(id_t{0}));
+    EXPECT_TRUE(r.is_valid(id_t{1}));
+  }
+
+  // set_id_limit with void metadata.
+  if (true) {
+    reg_t r;
+    (void)r.create(loc0); // id 0
+    (void)r.create(loc0); // id 1
+    (void)r.create(loc0); // id 2
+    r.erase(id_t{2});
+    EXPECT_TRUE(r.set_id_limit(id_t{2}));
+    // id 2 was trimmed by set_id_limit, and limit prevents new id >= 2.
+    EXPECT_EQ(r.id_limit(), id_t{2});
+    EXPECT_EQ(r.size(), 2U);
+  }
+
+  // Handle with generation tracking (void metadata).
+  if (true) {
+    reg_t r;
+    auto id0 = r.create(loc0);
+    auto h_old = r.get_handle(id0);
+    EXPECT_EQ(h_old.get_gen(), 0U);
+    r.erase(id0);
+    auto id0_reused = r.create(loc0);
+    EXPECT_EQ(id0_reused, id0);
+    auto h_new = r.get_handle(id0_reused);
+    EXPECT_EQ(h_new.get_gen(), 1U);
+    EXPECT_FALSE(r.is_valid(h_old));
+    EXPECT_TRUE(r.is_valid(h_new));
+  }
+}
+
+void EntityRegistry_VoidNoGen() {
+  using namespace id_enums;
+  using reg_t = entity_registry<void, entity_id, store_id_t, false>;
+  using id_t = reg_t::id_t;
+  using loc_t = reg_t::location_t;
+  const loc_t loc0{store_id_t{0}, 0};
+
+  // Minimal footprint: no metadata, no gen.
+  if (true) {
+    static_assert(sizeof(reg_t::handle_t) == sizeof(id_t));
+  }
+
+  // Create and validate.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create(loc0);
+    auto id1 = r.create(loc0);
+    EXPECT_EQ(*id0, 0U);
+    EXPECT_EQ(*id1, 1U);
+    EXPECT_TRUE(r.is_valid(id0));
+  }
+
+  // Handle operations.
+  if (true) {
+    reg_t r;
+    auto h = r.create_with_handle(loc0);
+    EXPECT_TRUE(r.is_valid(h));
+    EXPECT_TRUE(r.erase(h));
+    EXPECT_FALSE(r.is_valid(h));
+  }
+
+  // Erase and FIFO reuse.
+  if (true) {
+    reg_t r;
+    (void)r.create(loc0); // id 0
+    (void)r.create(loc0); // id 1
+    r.erase(id_t{0});
+    r.erase(id_t{1});
+    EXPECT_EQ(r.create(loc0), id_t{0});
+    EXPECT_EQ(r.create(loc0), id_t{1});
   }
 }
 
@@ -2258,11 +2474,11 @@ void EntityRegistry_FifoAdvanced() {
   // Interleaved erase/create: each create pops the oldest free.
   if (true) {
     reg_t r;
-    (void)r.create(loc0, 10); // id 0
-    (void)r.create(loc0, 20); // id 1
-    (void)r.create(loc0, 30); // id 2
-    r.erase(id_t{0});         // free: [0]
-    r.erase(id_t{1});         // free: [0, 1]
+    (void)r.create(loc0, 10);      // id 0
+    (void)r.create(loc0, 20);      // id 1
+    (void)r.create(loc0, 30);      // id 2
+    r.erase(id_t{0});              // free: [0]
+    r.erase(id_t{1});              // free: [0, 1]
     auto r0 = r.create(loc0, 100); // pops 0; free: [1]
     EXPECT_EQ(r0, id_t{0});
     r.erase(id_t{2});              // free: [1, 2]
@@ -2363,7 +2579,7 @@ void EntityRegistry_EdgeCases() {
     (void)r.create(loc0, 10); // id 0
     (void)r.create(loc0, 20); // id 1
     (void)r.create(loc0, 30); // id 2
-    r.erase(id_t{1}); // interior dead
+    r.erase(id_t{1});         // interior dead
     r.shrink_to_fit();
     // id 2 is still live so no trimming happens.
     EXPECT_EQ(r.max_id(), id_t{2});
@@ -2485,6 +2701,68 @@ void EntityRegistry_EdgeCases() {
     r.erase(id3);
     EXPECT_EQ(r.size(), 0U);
   }
+
+  // Constructor with id_limit and custom allocator.
+  if (true) {
+    std::allocator<int> alloc;
+    reg_t r{id_t{5}, true, alloc};
+    EXPECT_EQ(r.id_limit(), id_t{5});
+    EXPECT_EQ(r.create(loc0, 10), id_t{0});
+  }
+
+  // Prefill constructor with prefill=false: just sets limit.
+  if (true) {
+    reg_t r{id_t::invalid, false};
+    EXPECT_EQ(r.id_limit(), id_t::invalid);
+  }
+
+  // Prefill constructor with id_limit{0}: early return, can't create.
+  if (true) {
+    reg_t r{id_t{0}};
+    EXPECT_EQ(r.id_limit(), id_t{0});
+    EXPECT_EQ(r.create(loc0, 10), id_t::invalid);
+  }
+
+  // set_id_limit to 0: no IDs allowed.
+  if (true) {
+    reg_t r;
+    EXPECT_TRUE(r.set_id_limit(id_t{0}));
+    EXPECT_EQ(r.id_limit(), id_t{0});
+    EXPECT_EQ(r.create(loc0, 10), id_t::invalid);
+  }
+
+  // set_id_limit to same value: no-op.
+  if (true) {
+    reg_t r{id_t{3}};
+    (void)r.create(loc0, 10);
+    EXPECT_TRUE(r.set_id_limit(id_t{3}));
+    EXPECT_EQ(r.id_limit(), id_t{3});
+    EXPECT_TRUE(r.is_valid(id_t{0}));
+  }
+
+  // erase_if erases all when all match.
+  if (true) {
+    reg_t r;
+    (void)r.create(loc0, 5);
+    (void)r.create(loc0, 10);
+    (void)r.create(loc0, 15);
+    auto cnt = r.erase_if([](auto&) { return true; });
+    EXPECT_EQ(cnt, 3U);
+    EXPECT_EQ(r.size(), 0U);
+  }
+
+  // shrink_to_fit on all-dead registry trims to empty.
+  if (true) {
+    reg_t r;
+    (void)r.create(loc0, 10);
+    (void)r.create(loc0, 20);
+    r.erase(id_t{0});
+    r.erase(id_t{1});
+    r.shrink_to_fit();
+    EXPECT_EQ(r.size(), 0U);
+    // After full trim, fresh IDs start from 0.
+    EXPECT_EQ(r.create(loc0, 100), id_t{0});
+  }
 }
 
 MAKE_TEST_LIST(ArchetypeVector_Basic, ArchetypeVector_NoCopy, StableId_Basic,
@@ -2492,8 +2770,9 @@ MAKE_TEST_LIST(ArchetypeVector_Basic, ArchetypeVector_NoCopy, StableId_Basic,
     StableId_FifoNoGen, StableId_MaxId, EntityRegistry_Basic,
     EntityRegistry_Handle, EntityRegistry_Fifo, EntityRegistry_Clear,
     EntityRegistry_Reserve, EntityRegistry_IdLimit, EntityRegistry_NoGen,
-    EntityRegistry_VoidMeta, EntityRegistry_IdLimitAdvanced,
-    EntityRegistry_FifoAdvanced, EntityRegistry_EdgeCases);
+    EntityRegistry_VoidMeta, EntityRegistry_VoidNoGen,
+    EntityRegistry_IdLimitAdvanced, EntityRegistry_FifoAdvanced,
+    EntityRegistry_EdgeCases);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
