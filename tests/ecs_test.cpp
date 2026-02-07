@@ -1382,9 +1382,7 @@ void StableId_FifoNoGen() {
 
   // handle_t is sizeof(id_t): neither gen nor the FIFO next-pointer
   // appears in it.  The next-pointer lives in the internal slot_t only.
-  if (true) {
-    static_assert(sizeof(V::handle_t) == sizeof(V::id_t));
-  }
+  if (true) { static_assert(sizeof(V::handle_t) == sizeof(V::id_t)); }
 
   // Without gen, a stale handle for a reused ID is indistinguishable.
   // FIFO increases the reuse delay but is not a correctness guard.
@@ -2111,9 +2109,7 @@ void EntityRegistry_NoGen() {
   // handle_t has no get_gen() when UseGen=false.
   // Detailed no-gen behavior is tested in StableId_NoGen and
   // StableId_FifoNoGen.
-  if (true) {
-    static_assert(sizeof(reg_t::handle_t) == sizeof(id_t));
-  }
+  if (true) { static_assert(sizeof(reg_t::handle_t) == sizeof(id_t)); }
 
   // Basic create and access.
   if (true) {
@@ -2370,9 +2366,7 @@ void EntityRegistry_VoidNoGen() {
   const loc_t loc0{store_id_t{0}, 0};
 
   // Minimal footprint: no metadata, no gen.
-  if (true) {
-    static_assert(sizeof(reg_t::handle_t) == sizeof(id_t));
-  }
+  if (true) { static_assert(sizeof(reg_t::handle_t) == sizeof(id_t)); }
 
   // Create and validate.
   if (true) {
@@ -2765,6 +2759,161 @@ void EntityRegistry_EdgeCases() {
   }
 }
 
+void EntityRegistry_MetadataCleanup() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using id_t = reg_t::id_t;
+  using loc_t = reg_t::location_t;
+  const loc_t loc0{store_id_t{0}, 0};
+
+  // Metadata is cleared on erase; re-creation with default gets 0, not stale.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create(loc0, 42);
+    EXPECT_EQ(r[id0], 42);
+    r.erase(id0);
+    auto id0_reused = r.create(loc0);
+    EXPECT_EQ(id0_reused, id0);
+    EXPECT_EQ(r[id0_reused], 0);
+  }
+
+  // Metadata is cleared on erase even when re-created with explicit value.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create(loc0, 999);
+    r.erase(id0);
+    auto id0_reused = r.create(loc0, 7);
+    EXPECT_EQ(r[id0_reused], 7);
+  }
+
+  // Metadata is cleared on clear(false); re-creation with default gets 0.
+  if (true) {
+    reg_t r;
+    (void)r.create(loc0, 100);
+    (void)r.create(loc0, 200);
+    (void)r.create(loc0, 300);
+    r.clear();
+    EXPECT_EQ(r.create(loc0), id_t{0});
+    EXPECT_EQ(r[id_t{0}], 0);
+    EXPECT_EQ(r.create(loc0), id_t{1});
+    EXPECT_EQ(r[id_t{1}], 0);
+    EXPECT_EQ(r.create(loc0), id_t{2});
+    EXPECT_EQ(r[id_t{2}], 0);
+  }
+
+  // Metadata is cleared on clear(true); re-creation with default gets 0.
+  if (true) {
+    reg_t r;
+    (void)r.create(loc0, 100);
+    (void)r.create(loc0, 200);
+    r.clear(true);
+    auto id0 = r.create(loc0);
+    EXPECT_EQ(r[id0], 0);
+  }
+}
+
+void EntityRegistry_EraseIfPredicate() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using id_t = reg_t::id_t;
+  using loc_t = reg_t::location_t;
+  const loc_t loc0{store_id_t{0}, 0};
+
+  // Predicate is only called for valid (live) records, not dead ones.
+  if (true) {
+    reg_t r;
+    (void)r.create(loc0, 10); // id 0
+    (void)r.create(loc0, 20); // id 1
+    (void)r.create(loc0, 30); // id 2
+    (void)r.create(loc0, 40); // id 3
+    r.erase(id_t{1});
+    r.erase(id_t{3});
+    // 2 live, 2 dead. Predicate should be called exactly twice.
+    size_t call_count = 0;
+    auto cnt = r.erase_if([&](auto& rec) {
+      ++call_count;
+      return rec.metadata > 20;
+    });
+    EXPECT_EQ(call_count, 2U); // only live records
+    EXPECT_EQ(cnt, 1U);        // only id 2 (metadata 30) matches
+    EXPECT_TRUE(r.is_valid(id_t{0}));
+    EXPECT_FALSE(r.is_valid(id_t{2}));
+  }
+}
+
+void EntityRegistry_IdLimitFreeList() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using id_t = reg_t::id_t;
+  using loc_t = reg_t::location_t;
+  const loc_t loc0{store_id_t{0}, 0};
+
+  // Reducing limit trims free-list entries while interior live records remain.
+  if (true) {
+    reg_t r;
+    (void)r.create(loc0, 10); // id 0
+    (void)r.create(loc0, 20); // id 1
+    (void)r.create(loc0, 30); // id 2
+    (void)r.create(loc0, 40); // id 3
+    (void)r.create(loc0, 50); // id 4
+    r.erase(id_t{1});         // interior dead
+    r.erase(id_t{3});         // will be trimmed
+    r.erase(id_t{4});         // will be trimmed
+    // Live: 0, 2. Dead: 1, 3, 4. Trim to limit 3 removes 3 and 4.
+    EXPECT_TRUE(r.set_id_limit(id_t{3}));
+    EXPECT_EQ(r.size(), 2U);
+    EXPECT_TRUE(r.is_valid(id_t{0}));
+    EXPECT_FALSE(r.is_valid(id_t{1}));
+    EXPECT_TRUE(r.is_valid(id_t{2}));
+    // Free list should only contain id 1.
+    EXPECT_EQ(r.create(loc0, 60), id_t{1});
+    // At limit now: 3 live, limit is 3.
+    EXPECT_EQ(r.create(loc0, 70), id_t::invalid);
+  }
+}
+
+void EntityRegistry_ReservePrefillExisting() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using id_t = reg_t::id_t;
+  using loc_t = reg_t::location_t;
+  const loc_t loc0{store_id_t{0}, 0};
+
+  // reserve with prefill on a registry that already has live entities.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create(loc0, 10); // id 0
+    auto id1 = r.create(loc0, 20); // id 1
+    EXPECT_EQ(r.size(), 2U);
+    r.reserve(5, true); // adds free slots 2, 3, 4
+    // Existing entities are undisturbed.
+    EXPECT_TRUE(r.is_valid(id0));
+    EXPECT_TRUE(r.is_valid(id1));
+    EXPECT_EQ(r[id0], 10);
+    EXPECT_EQ(r[id1], 20);
+    // New creates should use the prefilled free slots.
+    EXPECT_EQ(r.create(loc0, 30), id_t{2});
+    EXPECT_EQ(r.create(loc0, 40), id_t{3});
+    EXPECT_EQ(r.create(loc0, 50), id_t{4});
+    // Next create expands.
+    EXPECT_EQ(r.create(loc0, 60), id_t{5});
+  }
+
+  // reserve with prefill when some slots are already free.
+  if (true) {
+    reg_t r;
+    (void)r.create(loc0, 10); // id 0
+    (void)r.create(loc0, 20); // id 1
+    (void)r.create(loc0, 30); // id 2
+    r.erase(id_t{1});         // free: [1]
+    r.reserve(5, true);       // adds free slots 3, 4
+    // Free list should be: 1 (existing), then 3, 4 (new).
+    EXPECT_EQ(r.create(loc0, 40), id_t{1});
+    EXPECT_EQ(r.create(loc0, 50), id_t{3});
+    EXPECT_EQ(r.create(loc0, 60), id_t{4});
+  }
+}
+
 MAKE_TEST_LIST(ArchetypeVector_Basic, ArchetypeVector_NoCopy, StableId_Basic,
     StableId_SmallId, StableId_NoThrow, StableId_Fifo, StableId_NoGen,
     StableId_FifoNoGen, StableId_MaxId, EntityRegistry_Basic,
@@ -2772,7 +2921,9 @@ MAKE_TEST_LIST(ArchetypeVector_Basic, ArchetypeVector_NoCopy, StableId_Basic,
     EntityRegistry_Reserve, EntityRegistry_IdLimit, EntityRegistry_NoGen,
     EntityRegistry_VoidMeta, EntityRegistry_VoidNoGen,
     EntityRegistry_IdLimitAdvanced, EntityRegistry_FifoAdvanced,
-    EntityRegistry_EdgeCases);
+    EntityRegistry_EdgeCases, EntityRegistry_MetadataCleanup,
+    EntityRegistry_EraseIfPredicate, EntityRegistry_IdLimitFreeList,
+    EntityRegistry_ReservePrefillExisting);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

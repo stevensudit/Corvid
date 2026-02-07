@@ -48,7 +48,21 @@ inline namespace entity_registries {
 // check. In contrast, operations that take a handle will check. This means
 // that, even when `UseGen` is false, you can still get some safety by using
 // handles instead of raw IDs.
-template<typename T, typename EID = id_enums::entity_id,
+//
+// Template parameters:
+//  T         - Per-entity metadata type stored alongside location and
+//              generation data. Must be trivial when not void. Use `void` for
+//              no metadata.
+//  EID       - Entity ID enum type. Must be unsigned with `invalid` defined as
+//              the maximum representable value.
+//  SID       - Store ID enum type identifying which storage an entity resides
+//              in. Same constraints as EID.
+//  UseGen    - When true, handles carry a generation counter that detects ID
+//              reuse. When false, handles are equivalent to bare IDs but still
+//              trigger validity checks.
+//  Allocator - Allocator for the metadata type. Rebound internally for
+//              record storage.
+template<typename T = void, typename EID = id_enums::entity_id,
     typename SID = id_enums::store_id_t, bool UseGen = true,
     class Allocator = std::allocator<T>>
 class entity_registry {
@@ -82,6 +96,9 @@ public:
 
   static_assert(std::is_unsigned_v<std::underlying_type_t<store_id_t>>,
       "Location ID type must use an unsigned underlying type");
+
+  static_assert(std::is_void_v<T> || std::is_trivial_v<T>,
+      "Metadata type T must be void or a trivial type");
 
   // A handle to an entity. When UseGen is enabled, it captures a generation
   // snapshot that allows `is_valid(handle_t)` to detect ID reuse. Otherwise,
@@ -125,7 +142,6 @@ public:
     friend class entity_registry<T, EID, SID, UseGen, Allocator>;
   };
 
-private:
   // Entity record. The entity ID is implied by its location in `records_`.
   //
   // The user must do the math to figure out the size and ensure that it aligns
@@ -347,14 +363,21 @@ public:
       fifo_tail_ = id_t::invalid;
       return;
     }
-    for (auto& rec : records_) {
+    const auto id_end = records_.size_as_enum();
+    auto prev = id_t::invalid;
+    for (id_t id{}; id < id_end; ++id) {
+      auto& rec = records_[id];
       rec.location.store_id = store_id_t::invalid;
+      rec.location.ndx = *id_t::invalid;
       if constexpr (UseGen) ++rec.gen;
+
+      if (prev != id_t::invalid)
+        records_[prev].location.ndx = *id;
+      else
+        fifo_head_ = id;
+      prev = id;
     }
-    // TODO: Consider whether it's inefficient to use rebuild_free_list here,
-    // since we know all records are free. Maybe just, given that it checks for
-    // invalid.
-    rebuild_free_list();
+    fifo_tail_ = prev;
   }
 
   // Reduce memory usage to fit current size.
@@ -382,6 +405,9 @@ private:
   id_t alloc_id() {
     // If we're at the limit, can't allocate more.
     if (living_count_ >= *id_limit_) return id_t::invalid;
+
+    // Invariant: living + free == records_.size().
+    assert(living_count_ <= records_.size());
 
     // If no free IDs, and since we're allowed to expand, do so.
     if (living_count_ >= records_.size()) {
@@ -446,6 +472,9 @@ private:
     auto& rec = records_[id];
     rec.location.store_id = store_id_t::invalid;
     if constexpr (UseGen) ++rec.gen;
+    // Note that we do not clear metadata on erase, since we always wipe it on
+    // allocation. If there is any security concern, the user should wipe the
+    // metadata prior to erasing the record.
 
     // Push onto tail of free list (FIFO).
     append_to_tail(id);
