@@ -173,6 +173,9 @@ public:
   //
   // If the limit is reduced, triggers `shrink_to_fit()` to reclaim unused
   // records.
+  //
+  // WARNING: Reducing the limit invalidates generation detection for trimmed
+  // IDs if they are later reused.
   [[nodiscard]] bool set_id_limit(id_t new_limit) {
     const auto id_end = records_.size_as_enum();
     if (new_limit < id_end) {
@@ -332,6 +335,9 @@ public:
   }
 
   // Clear all records.
+  //
+  // WARNING: When `shrink=true`, all generation counters are reset, completely
+  // invalidating generation detection for reused IDs.
   void clear(bool shrink = false) noexcept {
     living_count_ = 0;
     if (shrink) {
@@ -352,6 +358,9 @@ public:
   }
 
   // Reduce memory usage to fit current size.
+  //
+  // WARNING: Trimming records invalidates generation detection for those IDs
+  // if they are later reused.
   void shrink_to_fit() {
     trim_dead_tail();
     records_.shrink_to_fit();
