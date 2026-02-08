@@ -29,29 +29,36 @@
 #include "../containers/enum_vector.h"
 #include "../meta/maybe.h"
 
-namespace corvid { inline namespace container {
-inline namespace entity_registries {
+namespace corvid { inline namespace ecs { inline namespace entity_registries {
 
-// The entity registry owns IDs for entities in an ECS system and tracks their
-// location and metadata.
+// The entity registry owns IDs for entities of a particular entity type in the
+// ECS system and tracks their location and metadata. Entities of different
+// types would be stored in instances specialized on different ID types.
 //
-// IDs may be reused, but unless UseGen is set false, their handles have
-// generation counters to detect this. Reuse is done in FIFO order to maximize
-// the time before an ID is recycled.
+// IDs will be reused after being freed, but unless `UseGen` is set to false,
+// record handles have generation counters to detect this. Reuse is done in
+// FIFO order to maximize the time before an ID is recycled.
 //
 // Entity records are not guaranteed to remain at fixed memory locations unless
 // you set a limit and reserve space for that many entities up front. In that
 // case, you may be able to avoid locking a mutex when looking up records that
 // nobody else will be changing.
 //
-// Operations that take an ID generally expect it to be valid and will not
-// check. In contrast, operations that take a handle will check. This means
-// that, even when `UseGen` is false, you can still get some safety by using
-// handles instead of raw IDs.
+// Lookup by ID or handle is O(1), but unless you reserve space in advance,
+// insertion is O(1) only amortized since it may trigger a resize. Erasure is
+// O(1). Iteration is O(n) in the size of the underlying vector, which may be
+// larger than the count of living entities due to free records. In other
+// words, records are not packed, though they are reused efficiently.
+//
+// Operations that take an ID expect it to be valid and generally will not
+// check. Even if they do, they can't detect reuse. In contrast, operations
+// that take a handle will check. This means that, even when `UseGen` is false,
+// you can still get some additional safety by using handles instead of raw
+// IDs.
 //
 // Template parameters:
 //  T         - Per-entity metadata type stored alongside location and
-//              generation data. Must be trivial when not void. Use `void` for
+//              generation data. Must be trivially copyable. Leave `void` for
 //              no metadata.
 //  EID       - Entity ID enum type. Must be unsigned with `invalid` defined as
 //              the maximum representable value.
@@ -74,15 +81,9 @@ public:
   using gen_t = maybe_t<size_type, UseGen>;
   using allocator_type = Allocator;
 
-  // Location of an entity within a storage.
-  struct location_t {
-    store_id_t store_id{store_id_t::invalid};
-    size_type ndx{*store_id_t::invalid};
-  };
-
   static_assert(*id_t::invalid ==
                     std::numeric_limits<std::underlying_type_t<id_t>>::max(),
-      "Entity ID type must define 'invalid' as the maximum value of  its "
+      "Entity ID type must define 'invalid' as the maximum value of its "
       "underlying type");
 
   static_assert(std::is_unsigned_v<std::underlying_type_t<id_t>>,
@@ -95,20 +96,22 @@ public:
       "underlying type");
 
   static_assert(std::is_unsigned_v<std::underlying_type_t<store_id_t>>,
-      "Location ID type must use an unsigned underlying type");
+      "Store ID type must use an unsigned underlying type");
 
-  static_assert(std::is_void_v<T> || std::is_trivial_v<T>,
-      "Metadata type T must be void or a trivial type");
+  static_assert(!std::is_same_v<store_id_t, id_t>,
+      "Store ID and Entity ID must not be the same type");
 
-  // A handle to an entity. When UseGen is enabled, it captures a generation
-  // snapshot that allows `is_valid(handle_t)` to detect ID reuse. Otherwise,
-  // it becomes equivalent to an `id_t`, but triggers `is_valid(handle_t)`
-  // checks.
+  static_assert(std::is_void_v<T> || std::is_trivially_copyable_v<T>,
+      "Metadata type T must be void or trivially copyable");
+
+  // A handle to an entity.
+  //
+  // When UseGen is enabled, it captures a generation snapshot that allows
+  // `is_valid(handle_t)` to detect ID reuse. Otherwise, it becomes equivalent
+  // to an `id_t`, except that methods check `is_valid(handle_t)`.
+  //
+  // A handle with an ID of `id_t::invalid` is always invalid.
   struct handle_t {
-  private:
-    explicit handle_t(id_t id, size_type gen) : id_{id}, gen_{gen} {}
-
-  public:
     handle_t() = default;
     handle_t(const handle_t&) = default;
     handle_t& operator=(const handle_t&) = default;
@@ -129,6 +132,8 @@ public:
     [[nodiscard]] id_t get_id() const { return id_; }
 
     // Note: While equality/inequality is guaranteed, the precise value is not.
+    // As a result, you should not be checking for specific generation values,
+    // and should probably not call this method at all.
     [[nodiscard]] size_type get_gen() const
     requires UseGen
     {
@@ -139,26 +144,45 @@ public:
     id_t id_{id_t::invalid};
     [[no_unique_address]] gen_t gen_{*id_t::invalid};
 
+    explicit handle_t(id_t id, size_type gen) : id_{id}, gen_{gen} {}
     friend class entity_registry<T, EID, SID, UseGen, Allocator>;
+  };
+
+  // Location of an entity within an external storage.
+  //
+  // When `store_id` is `store_id_t::invalid`, the entity is considered
+  // destroyed and its ID is up for grabs. You may wish to reserve
+  // `store_id_t{0}` for living entities that are not yet assigned storage.
+  // These can always be cleaned up with `erase_if` if they get lost.
+  //
+  // For valid entities, `ndx` identifies where it is in the storage indicated
+  // by `store_id`. The index is an externally-managed value with no meaning
+  // to this class. You use a valid `store_id` with an `ndx` of
+  // `*store_id_t::invalid` to indicate entities that are bound for that
+  // storage but not yet stored.
+  struct location_t {
+    store_id_t store_id{store_id_t::invalid};
+    size_type ndx{*store_id_t::invalid};
   };
 
   // Entity record. The entity ID is implied by its location in `records_`.
   //
-  // The user must do the math to figure out the size and ensure that it aligns
-  // well with cache lines.
+  // When specializing `entity_registry` class, the user must do the math to
+  // figure out the size and ensure that the `record_t` aligns well with cache
+  // lines.
+  //
+  // The other reason this structure is public is because it's passed to
+  // predicates in `erase_if`.
   struct record_t {
-    // Location of the entity. When invalid, entity is considered destroyed and
-    // its ID is up for grabs. You may wish to reserve `store_id_t{0}` for
-    // living entities that are not yet stored.
-    // For valid entities, `ndx` identifies where it is in the storage
-    // indicated by `store_id`.  You can use a valid `store_id` with an `ndx`
-    // of `*store_id_t::invalid` to indicate entities that are not yet stored.
-    // For invalid entities,  `ndx` is reused as the next ID in the intrusive
-    // free list.
+    // Location of the entity. See class definition for details.
+    //
+    // Here is an implementation detail that's not visible from outside:
+    // While an entity is invalid, `ndx` is reused to hold the next ID (not
+    // index) in the intrusive free list.
     location_t location{};
 
-    // Generation counter for this entity ID.
-    [[no_unique_address]] gen_t gen{0};
+    // Generation counter for this entity.
+    [[no_unique_address]] gen_t gen{};
 
     // Optional user metadata. This is the only field that can be freely
     // modified by the user.
@@ -180,26 +204,28 @@ public:
     reserve(*id_limit_, true);
   }
 
-  // Maximum allowed ID value. Insertion fails when this limit is reached.
-  // Defaults to `id_t::invalid` (the maximum representable value).
+  // Maximum allowed ID value.
+  //
+  // Insertion fails when this limit is reached. Defaults to `id_t::invalid`
+  // (the maximum representable value).
   [[nodiscard]] id_t id_limit() const noexcept { return id_limit_; }
 
   // Set a new ID limit. Returns true on success, false if the limit would
   // invalidate live IDs.
   //
-  // If the limit is reduced, triggers `shrink_to_fit()` to reclaim unused
+  // If the limit is reduced, triggers `shrink_to_fit` to reclaim unused
   // records.
   //
   // WARNING: Reducing the limit invalidates generation detection for trimmed
   // IDs if they are later reused.
   [[nodiscard]] bool set_id_limit(id_t new_limit) {
     const auto id_end = records_.size_as_enum();
+    // Fail if any live record exists at or past the new limit.
     if (new_limit < id_end) {
-      // Fail if any live record exists at or past the new limit.
-      for (auto id = new_limit; id < id_end; ++id) {
+      for (auto id = new_limit; id < id_end; ++id)
         if (records_[id].location.store_id != store_id_t::invalid)
           return false;
-      }
+
       records_.resize(*new_limit);
       shrink_to_fit();
     }
@@ -211,12 +237,9 @@ public:
   // Create a new entity record, returning its ID, or `id_t::invalid` on
   // failure. Must provide valid `location.store_id` or creation fails.
   //
-  // If you know the `store_id` where the entity will go but not where in it,
-  // it is safe to pass an `ndx` of `*store_id_t::invalid` initially and then
-  // `set_location` later. If you do not know the `store_id` at creation time,
-  // you may wish to reserve `store_id_t{}` for that case.
+  // See `create_handle` for details.
   [[nodiscard]]
-  id_t create(location_t location, const metadata_t& metadata = {}) {
+  id_t create_id(location_t location, const metadata_t& metadata = {}) {
     if (location.store_id == store_id_t::invalid) return id_t::invalid;
     const id_t id = alloc_id();
     if (id == id_t::invalid) return id_t::invalid;
@@ -227,11 +250,16 @@ public:
   }
 
   // Create a new entity record, returning its handle, or an invalid handle on
-  // failure. See `create` for details.
+  // failure.
+  //
+  // If you know the `store_id` where the entity will go but not where in it,
+  // it is safe to pass an `ndx` of `*store_id_t::invalid` initially and then
+  // `set_location` later. If you do not know the `store_id` at creation time,
+  // you may wish to reserve `store_id_t{}` for that case.
   [[nodiscard]]
   handle_t
-  create_with_handle(location_t location, const metadata_t& metadata = {}) {
-    return get_handle(create(location, metadata));
+  create_handle(location_t location, const metadata_t& metadata = {}) {
+    return get_handle(create_id(location, metadata));
   }
 
   // Get handle for ID. When invalid, returns an invalid handle.
@@ -243,16 +271,17 @@ public:
       return handle_t{id, 0};
   }
 
-  // Check whether ID is valid. Note that many calls taking an ID expect it to
-  // be valid and will not check. In contrast, calls taking a handle will
-  // check.
+  // Check whether ID is valid. Cannot detect ID reuse, since it's not a
+  // handle.
+  //
+  // Note that many methods taking an ID expect it to be valid and will not
+  // check. In contrast, methods taking a handle will check.
   [[nodiscard]] bool is_valid(id_t id) const {
     if (*id >= records_.size()) return false;
-    auto loc = records_[id].location;
-    return loc.store_id != store_id_t::invalid;
+    return records_[id].location.store_id != store_id_t::invalid;
   }
 
-  // Check whether handle is valid.
+  // Check whether handle is valid, including generation.
   [[nodiscard]] bool is_valid(handle_t handle) const {
     if (!is_valid(handle.id_)) return false;
     if constexpr (UseGen) return records_[handle.id_].gen == handle.gen_;
@@ -260,20 +289,19 @@ public:
   }
 
   // Get location for ID. Must be valid.
-  [[nodiscard]] const location_t& get_location(id_t id) const {
+  [[nodiscard]] const location_t get_location(id_t id) const {
     assert(is_valid(id));
     return records_[id].location;
   }
 
   // Get location for handle. When invalid, returns invalid location.
-  [[nodiscard]] const location_t& get_location(handle_t handle) const {
-    static const location_t invalid_loc{};
-    if (!is_valid(handle)) return invalid_loc;
+  [[nodiscard]] const location_t get_location(handle_t handle) const {
+    if (!is_valid(handle)) return location_t{};
     return get_location(handle.id_);
   }
 
-  // Set location for ID. The ID must be valid. Setting location to invalid
-  // erases the entity.
+  // Set location for ID. The ID must be valid. Setting `location.store_id` to
+  // `store_id_t::invalid` erases the entity.
   void set_location(id_t id, location_t location) {
     assert(is_valid(id));
     if (location.store_id == store_id_t::invalid)
@@ -282,22 +310,24 @@ public:
       records_[id].location = location;
   }
 
-  // Set location for handle. The handle must be valid. Setting to invalid
-  // location erases the entity.
-  void set_location(handle_t handle, location_t location) {
-    if (!is_valid(handle)) return;
+  // Set location for handle. The handle must be valid. Setting
+  // `location.store_id` to `store_id_t::invalid` erases the entity.
+  // Returns success.
+  bool set_location(handle_t handle, location_t location) {
+    if (!is_valid(handle)) return false;
     set_location(handle.id_, location);
+    return true;
   }
 
-  // Erase by ID. Fails if ID is invalid. Note that the ID may then be
-  // reused.
+  // Erase by ID. Fails if ID is invalid (but cannot detect ID reuse). Note
+  // that the ID may then be reused. Returns success.
   bool erase(id_t id) {
     if (!is_valid(id)) return false;
     return do_erase(id);
   }
 
   // Erase by handle. Fails if handle is invalid. Note that the ID may then be
-  // reused, but the handle will be invalidated.
+  // reused, but the handle will be invalidated. Returns success.
   bool erase(handle_t handle) {
     if (!is_valid(handle)) return false;
     return do_erase(handle.id_);
@@ -305,26 +335,29 @@ public:
 
   // Access metadata by ID. Must be valid.
   [[nodiscard]]
-  decltype(auto) operator[](this auto& self, id_t id) noexcept {
+  auto& operator[](this auto& self, id_t id) noexcept {
     assert(self.is_valid(id));
-    return (self.records_[id].metadata);
+    return self.records_[id].metadata;
   }
 
-  // Access metadata by ID, with bounds checking.
+  // Access metadata by ID, with bounds checking (but no generation checking).
   [[nodiscard]]
-  decltype(auto) at(this auto& self, id_t id) {
+  auto& at(this auto& self, id_t id) {
     if (!self.is_valid(id)) throw std::out_of_range("id out of range");
-    return (self.records_[id].metadata);
+    return self.records_[id].metadata;
   }
 
   // Access metadata by handle, with bounds and generation checking.
   [[nodiscard]]
-  decltype(auto) at(this auto& self, handle_t handle) {
+  auto& at(this auto& self, handle_t handle) {
     if (!self.is_valid(handle)) throw std::invalid_argument("invalid handle");
     return std::forward<decltype(self)>(self).at(handle.id_);
   }
 
   // Erase all records matching predicate. Returns count erased.
+  //
+  // One particularly obvious use case is to erase all entries that aren't in
+  // any valid store.
   size_type erase_if(auto pred) {
     size_type cnt{};
     const auto id_end = records_.size_as_enum();
@@ -339,13 +372,15 @@ public:
     return cnt;
   }
 
-  // Return current size: the count of living entities. This is not the size of
-  // the underlying vector, which may be larger due to free records. This is
-  // also not directly related to the highest ID issued or in use.
+  // Return current size, which is the count of living entities.
+  //
+  // This is not necessarily the size of the underlying vector, which may be
+  // larger due to free records. This is also not directly linked to the
+  // highest ID issued or in use.
   [[nodiscard]] size_type size() const noexcept { return living_count_; }
 
-  // Return maximum valid ID, or `id_t::invalid` if empty. This is effectively
-  // the high-water mark, not the highest extant ID.
+  // Return maximum valid ID, or `id_t::invalid` if empty. This is the
+  // high-water mark, not the highest extant ID.
   [[nodiscard]] id_t max_id() const noexcept {
     return id_t{records_.size() - 1};
   }
@@ -363,6 +398,8 @@ public:
       fifo_tail_ = id_t::invalid;
       return;
     }
+    // Erase all records, relinking them into the free list. This is faster
+    // than clearing and rebuilding the free list.
     const auto id_end = records_.size_as_enum();
     auto prev = id_t::invalid;
     for (id_t id{}; id < id_end; ++id) {
@@ -371,6 +408,9 @@ public:
       rec.location.ndx = *id_t::invalid;
       if constexpr (UseGen) ++rec.gen;
 
+      // TODO: This check can be optimized away by handling the first ID as a
+      // special case. However, we'd need to check for the edge case of a
+      // registry that has less than 2 records.
       if (prev != id_t::invalid)
         records_[prev].location.ndx = *id;
       else
@@ -403,11 +443,9 @@ private:
   // Allocate a new ID.
   // Caller is obligated to make the record valid.
   id_t alloc_id() {
+    assert(living_count_ <= records_.size());
     // If we're at the limit, can't allocate more.
     if (living_count_ >= *id_limit_) return id_t::invalid;
-
-    // Invariant: living + free == records_.size().
-    assert(living_count_ <= records_.size());
 
     // If no free IDs, and since we're allowed to expand, do so.
     if (living_count_ >= records_.size()) {
@@ -483,13 +521,19 @@ private:
   }
 
 private:
+  // Entity records, with the ID implied by the index.
   enum_vector<record_t, id_t, record_allocator_type> records_;
-  size_type living_count_{0};
+  size_type living_count_{};
 
+  // Free list for recycling IDs. When empty, both are `id_t::invalid`.
+  // Otherwise, `fifo_head_` is the next free ID to allocate, and `fifo_tail_`
+  // is the most recently freed ID. The free IDs are linked together through
+  // the `ndx` field of their location, which is repurposed to hold the next
+  // free ID when the record is invalid.
   id_t fifo_head_{id_t::invalid};
   id_t fifo_tail_{id_t::invalid};
 
   // Allowed ID values are below this limit.
   id_t id_limit_{id_t::invalid};
 };
-}}} // namespace corvid::container::entity_registries
+}}} // namespace corvid::ecs::entity_registries
