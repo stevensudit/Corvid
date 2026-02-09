@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cassert>
+#include <iterator>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -258,6 +259,101 @@ public:
     ids_.reserve(new_cap);
   }
 
+  // Iterator over components. Dereferencing yields a `component_t` reference;
+  // `id()` returns the entity ID at the current position.
+  template<bool IsConst>
+  class iterator_t {
+    using storage_ptr = std::conditional_t<IsConst, const component_storage*,
+        component_storage*>;
+
+  public:
+    using iterator_category = std::random_access_iterator_tag;
+    using value_type = C;
+    using difference_type = std::ptrdiff_t;
+    using reference = std::conditional_t<IsConst, const C&, C&>;
+    using pointer = std::conditional_t<IsConst, const C*, C*>;
+
+    iterator_t() = default;
+
+    [[nodiscard]] reference operator*() const {
+      return storage_->components_[ndx_];
+    }
+    [[nodiscard]] pointer operator->() const {
+      return &storage_->components_[ndx_];
+    }
+    [[nodiscard]] id_t id() const { return storage_->ids_[ndx_]; }
+
+    iterator_t& operator++() {
+      ++ndx_;
+      return *this;
+    }
+    iterator_t operator++(int) {
+      auto tmp = *this;
+      ++ndx_;
+      return tmp;
+    }
+    iterator_t& operator--() {
+      --ndx_;
+      return *this;
+    }
+    iterator_t operator--(int) {
+      auto tmp = *this;
+      --ndx_;
+      return tmp;
+    }
+
+    iterator_t& operator+=(difference_type n) {
+      ndx_ += n;
+      return *this;
+    }
+    iterator_t& operator-=(difference_type n) {
+      ndx_ -= n;
+      return *this;
+    }
+    [[nodiscard]] iterator_t operator+(difference_type n) const {
+      auto tmp = *this;
+      return tmp += n;
+    }
+    [[nodiscard]] iterator_t operator-(difference_type n) const {
+      auto tmp = *this;
+      return tmp -= n;
+    }
+    [[nodiscard]] difference_type operator-(const iterator_t& o) const {
+      return static_cast<difference_type>(ndx_) -
+             static_cast<difference_type>(o.ndx_);
+    }
+    [[nodiscard]] reference operator[](difference_type n) const {
+      return storage_->components_[ndx_ + n];
+    }
+
+    [[nodiscard]] friend iterator_t
+    operator+(difference_type n, const iterator_t& it) {
+      return it + n;
+    }
+
+    [[nodiscard]] bool operator==(const iterator_t& o) const = default;
+    [[nodiscard]] auto operator<=>(const iterator_t& o) const {
+      return ndx_ <=> o.ndx_;
+    }
+
+  private:
+    storage_ptr storage_{};
+    size_type ndx_{};
+
+    iterator_t(storage_ptr s, size_type ndx) : storage_{s}, ndx_{ndx} {}
+    friend class component_storage;
+  };
+
+  using iterator = iterator_t<false>;
+  using const_iterator = iterator_t<true>;
+
+  [[nodiscard]] iterator begin() noexcept { return {this, 0}; }
+  [[nodiscard]] iterator end() noexcept { return {this, size()}; }
+  [[nodiscard]] const_iterator begin() const noexcept { return {this, 0}; }
+  [[nodiscard]] const_iterator end() const noexcept { return {this, size()}; }
+  [[nodiscard]] const_iterator cbegin() const noexcept { return begin(); }
+  [[nodiscard]] const_iterator cend() const noexcept { return end(); }
+
 private:
   // Swap element at `ndx` with the last element and pop. Updates the swapped
   // entity's ndx in the registry.
@@ -273,7 +369,6 @@ private:
     ids_.pop_back();
   }
 
-private:
   // Remove a component, moving the entity to `new_store_id`. Returns success
   // flag.
   bool do_remove_erase(id_t id, store_id_t new_store_id) {

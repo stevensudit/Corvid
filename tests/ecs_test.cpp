@@ -3692,6 +3692,161 @@ void ComponentStorage_LimitAndReserve() {
   }
 }
 
+void ComponentStorage_Iterator() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using id_t = reg_t::id_t;
+  using loc_t = reg_t::location_t;
+  using storage_t = component_storage<float, reg_t>;
+
+  const auto sid = store_id_t{1};
+  const loc_t staging{store_id_t{}};
+
+  // begin == end on empty storage.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    EXPECT_TRUE(s.begin() == s.end());
+    EXPECT_TRUE(s.cbegin() == s.cend());
+  }
+
+  // Dereference yields component reference; id() yields entity ID.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    auto it = s.begin();
+    EXPECT_EQ(*it, 1.0f);
+    EXPECT_EQ(it.id(), id0);
+    ++it;
+    EXPECT_EQ(*it, 2.0f);
+    EXPECT_EQ(it.id(), id1);
+    ++it;
+    EXPECT_TRUE(it == s.end());
+  }
+
+  // Mutable iteration: modify components through iterator.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    *s.begin() = 99.0f;
+    EXPECT_EQ(s[id0], 99.0f);
+  }
+
+  // Const iteration.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(s.add(id0, 3.14f));
+    const auto& cs = s;
+    auto it = cs.begin();
+    EXPECT_EQ(*it, 3.14f);
+    EXPECT_EQ(it.id(), id0);
+  }
+
+  // Range-for loop to sum components.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    auto id2 = r.create_id(staging, 30);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_TRUE(s.add(id2, 3.0f));
+    float sum = 0.0f;
+    for (auto val : s) sum += val;
+    EXPECT_EQ(sum, 6.0f);
+  }
+
+  // Range-for with id() access via explicit iterator.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    std::vector<id_t> ids;
+    for (auto it = s.begin(); it != s.end(); ++it) ids.push_back(it.id());
+    EXPECT_EQ(ids.size(), 2U);
+    EXPECT_EQ(ids[0], id0);
+    EXPECT_EQ(ids[1], id1);
+  }
+
+  // Random access: operator[], +, -, +=, -=.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    auto id2 = r.create_id(staging, 30);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_TRUE(s.add(id2, 3.0f));
+    auto it = s.begin();
+    EXPECT_EQ(it[0], 1.0f);
+    EXPECT_EQ(it[2], 3.0f);
+    auto it2 = it + 2;
+    EXPECT_EQ(*it2, 3.0f);
+    EXPECT_EQ(it2.id(), id2);
+    EXPECT_EQ(it2 - it, 2);
+    it2 -= 1;
+    EXPECT_EQ(*it2, 2.0f);
+  }
+
+  // Comparison operators.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    auto a = s.begin();
+    auto b = s.begin() + 1;
+    EXPECT_TRUE(a < b);
+    EXPECT_TRUE(b > a);
+    EXPECT_TRUE(a <= a);
+    EXPECT_TRUE(a != b);
+  }
+
+  // Post-increment and post-decrement.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    auto it = s.begin();
+    auto prev = it++;
+    EXPECT_EQ(*prev, 1.0f);
+    EXPECT_EQ(*it, 2.0f);
+    auto next = it--;
+    EXPECT_EQ(*next, 2.0f);
+    EXPECT_EQ(*it, 1.0f);
+  }
+
+  // n + iterator (commutative).
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    auto it = 1 + s.begin();
+    EXPECT_EQ(*it, 2.0f);
+  }
+}
+
 MAKE_TEST_LIST(ArchetypeVector_Basic, ArchetypeVector_NoCopy, StableId_Basic,
     StableId_SmallId, StableId_NoThrow, StableId_Fifo, StableId_NoGen,
     StableId_FifoNoGen, StableId_MaxId, EntityRegistry_Basic,
@@ -3705,7 +3860,8 @@ MAKE_TEST_LIST(ArchetypeVector_Basic, ArchetypeVector_NoCopy, StableId_Basic,
     ComponentStorage_Handle, ComponentStorage_Remove,
     ComponentStorage_RemoveAll, ComponentStorage_Erase,
     ComponentStorage_EraseIf, ComponentStorage_Clear,
-    ComponentStorage_SwapAndMove, ComponentStorage_LimitAndReserve);
+    ComponentStorage_SwapAndMove, ComponentStorage_LimitAndReserve,
+    ComponentStorage_Iterator);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
