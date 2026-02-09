@@ -111,6 +111,10 @@ public:
 
   auto& operator*(this auto& self) { return self.data_; }
 
+  [[nodiscard]] allocator_type get_allocator() const noexcept {
+    return data_.get_allocator();
+  }
+
 private:
   std::vector<T, Allocator> data_{};
 };

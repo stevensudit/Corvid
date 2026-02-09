@@ -32,8 +32,7 @@
 #include "../meta/forward_like.h"
 #include "../containers/enum_vector.h"
 
-namespace corvid { inline namespace container {
-inline namespace archetype_vectors {
+namespace corvid { inline namespace ecs { inline namespace archetype_vectors {
 
 // A vector replacement that contains a tuple of vectors, one per archetype
 // field, to implement an ECS-style archetype storage system. This does not
@@ -53,7 +52,7 @@ template<typename ID, typename CsTuple,
     class Allocator = std::allocator<std::byte>>
 class archetype_vector;
 
-template<typename ID, typename... Cs, typename Allocator>
+template<sequence::SequentialEnum ID, typename... Cs, typename Allocator>
 class archetype_vector<ID, std::tuple<Cs...>, Allocator> {
 public:
   using tuple_t = std::tuple<Cs...>;
@@ -87,8 +86,8 @@ public:
     }
 
     // Get index and ID.
-    [[nodiscard]] size_type get_index() const noexcept { return ndx; }
-    [[nodiscard]] id_t get_id() const { return owner->index_to_id(ndx); }
+    [[nodiscard]] size_type index() const noexcept { return ndx; }
+    [[nodiscard]] id_t id() const { return owner->index_to_id(ndx); }
 
     // Access component by type.
     template<typename C>
@@ -312,7 +311,7 @@ private:
   // Function to map index to ID.
   index_to_id_fn index_to_id_{};
 };
-}}} // namespace corvid::container::archetype_vectors
+}}} // namespace corvid::ecs::archetype_vectors
 
 // TODO: Test how well it fits into stable_ids. We'll at least need to offer a
 // way to detect swap_elements and make use of it.
