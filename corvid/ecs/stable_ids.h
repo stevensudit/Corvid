@@ -76,8 +76,9 @@ namespace corvid { inline namespace ecs { inline namespace stable_id_vector {
 // constructor) before inserting, ensuring that insertions do not allocate.
 //
 // Motivated by https://github.com/johnBuffer/StableIndexVector.
-template<typename T, typename ID = id_enums::id_t, bool UseGen = true,
-    bool UseFifo = false, class Allocator = std::allocator<T>>
+template<typename T, sequence::SequentialEnum ID = id_enums::id_t,
+    bool UseGen = true, bool UseFifo = false,
+    class Allocator = std::allocator<T>>
 class stable_ids {
 public:
   using id_t = ID;

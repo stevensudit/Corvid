@@ -52,7 +52,7 @@ template<typename ID, typename CsTuple,
     class Allocator = std::allocator<std::byte>>
 class archetype_vector;
 
-template<typename ID, typename... Cs, typename Allocator>
+template<sequence::SequentialEnum ID, typename... Cs, typename Allocator>
 class archetype_vector<ID, std::tuple<Cs...>, Allocator> {
 public:
   using tuple_t = std::tuple<Cs...>;

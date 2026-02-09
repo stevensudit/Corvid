@@ -28,11 +28,13 @@ namespace corvid { inline namespace ecs { namespace id_enums {
 // global namespace. Note that "sys/types.h" also defines a type named `id_t`
 // and rudely injects it into the global namespace.
 enum class id_t : size_t { invalid = std::numeric_limits<size_t>::max() };
-enum class entity_id : size_t { invalid = std::numeric_limits<size_t>::max() };
-enum class component_id : size_t {
+enum class entity_id_t : size_t {
   invalid = std::numeric_limits<size_t>::max()
 };
-enum class archetype_id : size_t {
+enum class component_id_t : size_t {
+  invalid = std::numeric_limits<size_t>::max()
+};
+enum class archetype_id_t : size_t {
   invalid = std::numeric_limits<size_t>::max()
 };
 enum class store_id_t : size_t {
@@ -49,21 +51,21 @@ constexpr auto
 
 template<>
 constexpr auto
-    corvid::enums::registry::enum_spec_v<corvid::ecs::id_enums::entity_id> =
+    corvid::enums::registry::enum_spec_v<corvid::ecs::id_enums::entity_id_t> =
         corvid::enums::sequence::make_sequence_enum_spec<
-            corvid::ecs::id_enums::entity_id, "">();
+            corvid::ecs::id_enums::entity_id_t, "">();
 
 template<>
-constexpr auto
-    corvid::enums::registry::enum_spec_v<corvid::ecs::id_enums::component_id> =
-        corvid::enums::sequence::make_sequence_enum_spec<
-            corvid::ecs::id_enums::component_id, "">();
+constexpr auto corvid::enums::registry::enum_spec_v<
+    corvid::ecs::id_enums::component_id_t> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::ecs::id_enums::component_id_t, "">();
 
 template<>
-constexpr auto
-    corvid::enums::registry::enum_spec_v<corvid::ecs::id_enums::archetype_id> =
-        corvid::enums::sequence::make_sequence_enum_spec<
-            corvid::ecs::id_enums::archetype_id, "">();
+constexpr auto corvid::enums::registry::enum_spec_v<
+    corvid::ecs::id_enums::archetype_id_t> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::ecs::id_enums::archetype_id_t, "">();
 
 template<>
 constexpr auto

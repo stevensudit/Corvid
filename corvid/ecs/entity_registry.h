@@ -28,6 +28,7 @@
 
 #include "../containers/enum_vector.h"
 #include "../meta/maybe.h"
+#include "entity_ids.h"
 
 namespace corvid { inline namespace ecs { inline namespace entity_registries {
 
@@ -69,8 +70,9 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 //              trigger validity checks.
 //  Allocator - Allocator for the metadata type. Rebound internally for
 //              record storage.
-template<typename T = void, typename EID = id_enums::entity_id,
-    typename SID = id_enums::store_id_t, bool UseGen = true,
+template<typename T = void,
+    sequence::SequentialEnum EID = id_enums::entity_id_t,
+    sequence::SequentialEnum SID = id_enums::store_id_t, bool UseGen = true,
     class Allocator = std::allocator<T>>
 class entity_registry {
 public:
@@ -303,13 +305,13 @@ public:
   }
 
   // Get location for ID. Must be valid.
-  [[nodiscard]] const location_t get_location(id_t id) const {
+  [[nodiscard]] location_t get_location(id_t id) const {
     assert(is_valid(id));
     return records_[id].location;
   }
 
   // Get location for handle. When invalid, returns invalid location.
-  [[nodiscard]] const location_t get_location(handle_t handle) const {
+  [[nodiscard]] location_t get_location(handle_t handle) const {
     if (!is_valid(handle)) return location_t{};
     return get_location(handle.id_);
   }

@@ -33,9 +33,9 @@ using namespace corvid;
 using int_stable_ids = stable_ids<int>;
 
 void ArchetypeVector_Basic() {
-  enum class entity_id : std::uint32_t {};
+  using id_enums::entity_id_t;
   using archetype_t =
-      archetype_vector<entity_id, std::tuple<int, float, std::string>>;
+      archetype_vector<entity_id_t, std::tuple<int, float, std::string>>;
 
   // Default construction and empty state.
   if (true) {
@@ -97,11 +97,11 @@ void ArchetypeVector_Basic() {
   if (true) {
     archetype_t v;
     v.set_index_to_id([](archetype_t::size_type index) {
-      return entity_id{static_cast<std::uint32_t>(index + 100)};
+      return entity_id_t{static_cast<std::uint32_t>(index + 100)};
     });
-    EXPECT_EQ(v.index_to_id(0), entity_id{100});
-    EXPECT_EQ(v.index_to_id(5), entity_id{105});
-    EXPECT_EQ(v.index_to_id(99), entity_id{199});
+    EXPECT_EQ(v.index_to_id(0), entity_id_t{100});
+    EXPECT_EQ(v.index_to_id(5), entity_id_t{105});
+    EXPECT_EQ(v.index_to_id(99), entity_id_t{199});
   }
 
   // emplace_back() without parameters.
@@ -251,32 +251,32 @@ void ArchetypeVector_Basic() {
   if (true) {
     archetype_t v;
     v.set_index_to_id([](archetype_t::size_type index) {
-      return entity_id{static_cast<std::uint32_t>(index * 10)};
+      return entity_id_t{static_cast<std::uint32_t>(index * 10)};
     });
     v.emplace_back(1, 1.0f, "one"s);
     v.emplace_back(2, 2.0f, "two"s);
 
     auto row = v[0];
     EXPECT_EQ(row.index(), 0U);
-    EXPECT_EQ(row.id(), entity_id{0});
+    EXPECT_EQ(row.id(), entity_id_t{0});
 
     auto row1 = v[1];
     EXPECT_EQ(row1.index(), 1U);
-    EXPECT_EQ(row1.id(), entity_id{10});
+    EXPECT_EQ(row1.id(), entity_id_t{10});
   }
 
   // operator[] const - row_view.
   if (true) {
     archetype_t v;
     v.set_index_to_id([](archetype_t::size_type index) {
-      return entity_id{static_cast<std::uint32_t>(index + 50)};
+      return entity_id_t{static_cast<std::uint32_t>(index + 50)};
     });
     v.emplace_back(99, 9.9f, "ninety-nine"s);
     const archetype_t& cv = v;
 
     auto row = cv[0];
     EXPECT_EQ(row.index(), 0U);
-    EXPECT_EQ(row.id(), entity_id{50});
+    EXPECT_EQ(row.id(), entity_id_t{50});
   }
 
   // row_lens::component<T>() mutable.
@@ -402,12 +402,16 @@ void ArchetypeVector_Basic() {
   if (true) {
     archetype_t v1;
     v1.emplace_back(10, 1.0f, "v1"s);
-    v1.set_index_to_id([](archetype_t::size_type) { return entity_id{100}; });
+    v1.set_index_to_id([](archetype_t::size_type) {
+      return entity_id_t{100};
+    });
 
     archetype_t v2;
     v2.emplace_back(20, 2.0f, "v2-a"s);
     v2.emplace_back(30, 3.0f, "v2-b"s);
-    v2.set_index_to_id([](archetype_t::size_type) { return entity_id{200}; });
+    v2.set_index_to_id([](archetype_t::size_type) {
+      return entity_id_t{200};
+    });
 
     v1.swap(v2);
 
@@ -416,8 +420,8 @@ void ArchetypeVector_Basic() {
     EXPECT_EQ(v1.get_component_span<int>()[0], 20);
     EXPECT_EQ(v1.get_component_span<int>()[1], 30);
     EXPECT_EQ(v2.get_component_span<int>()[0], 10);
-    EXPECT_EQ(v1.index_to_id(0), entity_id{200});
-    EXPECT_EQ(v2.index_to_id(0), entity_id{100});
+    EXPECT_EQ(v1.index_to_id(0), entity_id_t{200});
+    EXPECT_EQ(v2.index_to_id(0), entity_id_t{100});
   }
 
   // Friend swap().
@@ -442,7 +446,7 @@ void ArchetypeVector_Basic() {
     archetype_t v1;
     v1.emplace_back(42, 4.2f, "move-me"s);
     v1.set_index_to_id([](archetype_t::size_type ndx) {
-      return entity_id{ndx + 1000};
+      return entity_id_t{ndx + 1000};
     });
 
     archetype_t v2{std::move(v1)};
@@ -451,7 +455,7 @@ void ArchetypeVector_Basic() {
     EXPECT_EQ(v2.get_component_span<int>()[0], 42);
     EXPECT_EQ(v2.get_component_span<float>()[0], 4.2f);
     EXPECT_EQ(v2.get_component_span<std::string>()[0], "move-me"s);
-    EXPECT_EQ(v2.index_to_id(5), entity_id{1005});
+    EXPECT_EQ(v2.index_to_id(5), entity_id_t{1005});
   }
 
   // Move assignment.
@@ -484,9 +488,9 @@ void ArchetypeVector_Basic() {
 // is non-copyable, so this test will fail to compile if there's an accidental
 // copy.
 void ArchetypeVector_NoCopy() {
-  enum class entity_id : std::uint32_t {};
+  using id_enums::entity_id_t;
   using archetype_t =
-      archetype_vector<entity_id, std::tuple<int, std::unique_ptr<int>>>;
+      archetype_vector<entity_id_t, std::tuple<int, std::unique_ptr<int>>>;
 
   // Mutable components() must return references.
   if (true) {
@@ -1565,7 +1569,7 @@ void EntityRegistry_Basic() {
 
   // Default template parameters.
   if (true) {
-    static_assert(std::is_same_v<reg_t::id_t, entity_id>);
+    static_assert(std::is_same_v<reg_t::id_t, entity_id_t>);
     static_assert(std::is_same_v<reg_t::store_id_t, store_id_t>);
     static_assert(std::is_same_v<reg_t::size_type, size_t>);
     static_assert(std::is_same_v<reg_t::allocator_type, std::allocator<int>>);
@@ -1575,8 +1579,8 @@ void EntityRegistry_Basic() {
   if (true) {
     using handle_t = reg_t::handle_t;
     handle_t h;
-    EXPECT_EQ(h.id(), entity_id::invalid);
-    EXPECT_EQ(h.gen(), *entity_id::invalid);
+    EXPECT_EQ(h.id(), entity_id_t::invalid);
+    EXPECT_EQ(h.gen(), *entity_id_t::invalid);
   }
 
   // handle_t copy construction and assignment.
@@ -2101,7 +2105,7 @@ void EntityRegistry_IdLimit() {
 
 void EntityRegistry_NoGen() {
   using namespace id_enums;
-  using reg_t = entity_registry<int, entity_id, store_id_t, false>;
+  using reg_t = entity_registry<int, entity_id_t, store_id_t, false>;
   using id_t = reg_t::id_t;
   using handle_t = reg_t::handle_t;
   using loc_t = reg_t::location_t;
@@ -2364,7 +2368,7 @@ void EntityRegistry_VoidMeta() {
 
 void EntityRegistry_VoidNoGen() {
   using namespace id_enums;
-  using reg_t = entity_registry<void, entity_id, store_id_t, false>;
+  using reg_t = entity_registry<void, entity_id_t, store_id_t, false>;
   using id_t = reg_t::id_t;
   using loc_t = reg_t::location_t;
   const loc_t loc0{store_id_t{0}, 0};
