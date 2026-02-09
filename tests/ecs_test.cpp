@@ -3493,6 +3493,205 @@ void ComponentStorage_SwapAndMove() {
   }
 }
 
+void ComponentStorage_LimitAndReserve() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using id_t = reg_t::id_t;
+  using loc_t = reg_t::location_t;
+  using storage_t = component_storage<float, reg_t>;
+
+  const auto sid = store_id_t{1};
+  const loc_t staging{store_id_t{}};
+
+  // Default limit is effectively unlimited.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    EXPECT_EQ(s.limit(), *id_t::invalid);
+  }
+
+  // Constructor with limit.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid, 3};
+    EXPECT_EQ(s.limit(), 3U);
+    EXPECT_TRUE(s.empty());
+  }
+
+  // Constructor with limit and reserve.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid, 5, true};
+    EXPECT_EQ(s.limit(), 5U);
+    EXPECT_TRUE(s.empty());
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_EQ(s[id0], 1.0f);
+  }
+
+  // Constructor with limit enforces on add.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid, 1};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_FALSE(s.add(id1, 2.0f));
+  }
+
+  // Constructor with default limit and reserve=true is a no-op reserve.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid, *id_t::invalid, true};
+    EXPECT_EQ(s.limit(), *id_t::invalid);
+    EXPECT_TRUE(s.empty());
+  }
+
+  // set_limit on empty storage.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    EXPECT_TRUE(s.set_limit(3));
+    EXPECT_EQ(s.limit(), 3U);
+  }
+
+  // set_limit enforced on add.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    EXPECT_TRUE(s.set_limit(2));
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    auto id2 = r.create_id(staging, 30);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_FALSE(s.add(id2, 3.0f));
+    EXPECT_EQ(s.size(), 2U);
+    // id2 should still be in staging.
+    EXPECT_TRUE(r.is_valid(id2));
+    EXPECT_EQ(*r.get_location(id2).store_id, 0U);
+  }
+
+  // set_limit enforced on add by handle.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    EXPECT_TRUE(s.set_limit(1));
+    auto h0 = r.create_handle(staging, 10);
+    auto h1 = r.create_handle(staging, 20);
+    EXPECT_TRUE(s.add(h0, 1.0f));
+    EXPECT_FALSE(s.add(h1, 2.0f));
+    EXPECT_EQ(s.size(), 1U);
+  }
+
+  // set_limit enforced on add_new.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    EXPECT_TRUE(s.set_limit(1));
+    auto id0 = s.add_new(1.0f, 10);
+    EXPECT_NE(id0, id_t::invalid);
+    auto id1 = s.add_new(2.0f, 20);
+    EXPECT_EQ(id1, id_t::invalid);
+    EXPECT_EQ(s.size(), 1U);
+    // The failed add_new should have cleaned up the entity it created.
+    EXPECT_EQ(r.size(), 1U);
+  }
+
+  // set_limit fails if current size exceeds new limit.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_FALSE(s.set_limit(1));
+    EXPECT_EQ(s.limit(), *id_t::invalid); // unchanged
+  }
+
+  // set_limit succeeds when equal to current size.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.set_limit(1));
+    EXPECT_EQ(s.limit(), 1U);
+  }
+
+  // Remove frees a slot under the limit.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    EXPECT_TRUE(s.set_limit(2));
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    auto id2 = r.create_id(staging, 30);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_FALSE(s.add(id2, 3.0f)); // at limit
+    EXPECT_TRUE(s.remove(id0));
+    EXPECT_TRUE(s.add(id2, 3.0f)); // now succeeds
+    EXPECT_EQ(s.size(), 2U);
+  }
+
+  // set_limit to 0: no adds allowed.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    EXPECT_TRUE(s.set_limit(0));
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_FALSE(s.add(id0, 1.0f));
+  }
+
+  // Raising the limit allows more adds.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    EXPECT_TRUE(s.set_limit(1));
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_FALSE(s.add(id1, 2.0f));
+    EXPECT_TRUE(s.set_limit(2));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_EQ(s.size(), 2U);
+  }
+
+  // shrink_to_fit reduces capacity.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    s.reserve(100);
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    s.shrink_to_fit();
+    EXPECT_EQ(s.size(), 1U);
+    EXPECT_EQ(s[id0], 1.0f);
+  }
+
+  // shrink_to_fit on empty storage.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    s.shrink_to_fit(); // should not crash
+    EXPECT_TRUE(s.empty());
+  }
+
+  // Limit is preserved across swap.
+  if (true) {
+    reg_t r;
+    storage_t s1{r, store_id_t{1}};
+    storage_t s2{r, store_id_t{2}};
+    EXPECT_TRUE(s1.set_limit(5));
+    EXPECT_TRUE(s2.set_limit(10));
+    s1.swap(s2);
+    EXPECT_EQ(s1.limit(), 10U);
+    EXPECT_EQ(s2.limit(), 5U);
+  }
+}
+
 MAKE_TEST_LIST(ArchetypeVector_Basic, ArchetypeVector_NoCopy, StableId_Basic,
     StableId_SmallId, StableId_NoThrow, StableId_Fifo, StableId_NoGen,
     StableId_FifoNoGen, StableId_MaxId, EntityRegistry_Basic,
@@ -3506,7 +3705,7 @@ MAKE_TEST_LIST(ArchetypeVector_Basic, ArchetypeVector_NoCopy, StableId_Basic,
     ComponentStorage_Handle, ComponentStorage_Remove,
     ComponentStorage_RemoveAll, ComponentStorage_Erase,
     ComponentStorage_EraseIf, ComponentStorage_Clear,
-    ComponentStorage_SwapAndMove);
+    ComponentStorage_SwapAndMove, ComponentStorage_LimitAndReserve);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

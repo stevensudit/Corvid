@@ -72,12 +72,14 @@ public:
   // Default-constructed instances can only be assigned to.
   component_storage() noexcept = default;
 
-  explicit component_storage(registry_t& registry, store_id_t store_id)
-      : registry_{&registry}, store_id_{store_id},
+  explicit component_storage(registry_t& registry, store_id_t store_id,
+      size_type limit = *id_t::invalid, bool do_reserve = false)
+      : registry_{&registry}, store_id_{store_id}, limit_{limit},
         components_{component_allocator_type{registry.get_allocator()}},
         ids_{id_allocator_type{registry.get_allocator()}} {
     if (store_id == store_id_t::invalid || store_id == store_id_t{})
       throw std::invalid_argument("store_id must be a valid non-zero value");
+    if (do_reserve && limit_ != *id_t::invalid) reserve(limit_);
   }
 
   component_storage(component_storage&&) noexcept = default;
@@ -90,6 +92,7 @@ public:
     using std::swap;
     swap(registry_, other.registry_);
     swap(store_id_, other.store_id_);
+    swap(limit_, other.limit_);
     components_.swap(other.components_);
     ids_.swap(other.ids_);
   }
@@ -98,7 +101,25 @@ public:
     a.swap(b);
   }
 
-  // TODO: Add limits and reserves.
+  // Maximum number of components allowed in this storage.
+  //
+  // Insertion fails when this limit is reached. Defaults to the maximum
+  // representable value (effectively unlimited).
+  [[nodiscard]] size_type limit() const noexcept { return limit_; }
+
+  // Set a new component limit. Returns true on success, false if the current
+  // size exceeds the new limit.
+  [[nodiscard]] bool set_limit(size_type new_limit) {
+    if (new_limit < components_.size()) return false;
+    limit_ = new_limit;
+    return true;
+  }
+
+  // Reduce memory usage to fit current size.
+  void shrink_to_fit() {
+    components_.shrink_to_fit();
+    ids_.shrink_to_fit();
+  }
 
   // Add a component for a new entity, returning the new entity's ID or
   // `id_t::invalid` on failure.
@@ -119,6 +140,7 @@ public:
     const auto& loc = registry_->get_location(id);
     if (loc.store_id != store_id_t{}) return false;
     const auto ndx = components_.size();
+    if (ndx >= limit_) return false;
     components_.push_back(component);
     ids_.push_back(id);
     registry_->set_location(id, {store_id_, ndx});
@@ -270,6 +292,7 @@ private:
 private:
   registry_t* registry_{nullptr};
   store_id_t store_id_{store_id_t::invalid};
+  size_type limit_{*id_t::invalid};
   std::vector<C, component_allocator_type> components_;
   std::vector<id_t, id_allocator_type> ids_;
 };
