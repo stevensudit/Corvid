@@ -108,7 +108,9 @@ public:
   //
   // When UseGen is enabled, it captures a generation snapshot that allows
   // `is_valid(handle_t)` to detect ID reuse. Otherwise, it becomes equivalent
-  // to an `id_t`, except that methods check `is_valid(handle_t)`.
+  // to an `id_t`, except that methods taking a handle do check
+  // `is_valid(handle_t)`, whereas methods taking an `id_t` typically do not
+  // check `is_valid(id_t)`.
   //
   // A handle with an ID of `id_t::invalid` is always invalid.
   struct handle_t {
@@ -129,12 +131,12 @@ public:
       return cmp;
     }
 
-    [[nodiscard]] id_t get_id() const { return id_; }
+    [[nodiscard]] id_t id() const { return id_; }
 
     // Note: While equality/inequality is guaranteed, the precise value is not.
     // As a result, you should not be checking for specific generation values,
     // and should probably not call this method at all.
-    [[nodiscard]] size_type get_gen() const
+    [[nodiscard]] size_type gen() const
     requires UseGen
     {
       return gen_;
@@ -151,13 +153,13 @@ public:
   // Location of an entity within an external storage.
   //
   // When `store_id` is `store_id_t::invalid`, the entity is considered
-  // destroyed and its ID is up for grabs. You may wish to reserve
-  // `store_id_t{0}` for living entities that are not yet assigned storage.
-  // These can always be cleaned up with `erase_if` if they get lost.
+  // destroyed and its ID is up for grabs. The value of `store_id_t{0}` is
+  // suitable for living entities that are not yet assigned storage. These can
+  // always be cleaned up with `erase_if` if they get lost.
   //
   // For valid entities, `ndx` identifies where it is in the storage indicated
   // by `store_id`. The index is an externally-managed value with no meaning
-  // to this class. You use a valid `store_id` with an `ndx` of
+  // to this class, so you can use a valid `store_id` with an `ndx` of
   // `*store_id_t::invalid` to indicate entities that are bound for that
   // storage but not yet stored.
   struct location_t {
@@ -204,6 +206,10 @@ public:
     reserve(*id_limit_, true);
   }
 
+  [[nodiscard]] allocator_type get_allocator() const noexcept {
+    return allocator_type{records_.get_allocator()};
+  }
+
   // Maximum allowed ID value.
   //
   // Insertion fails when this limit is reached. Defaults to `id_t::invalid`
@@ -235,11 +241,12 @@ public:
   }
 
   // Create a new entity record, returning its ID, or `id_t::invalid` on
-  // failure. Must provide valid `location.store_id` or creation fails.
+  // failure.
   //
   // See `create_handle` for details.
   [[nodiscard]]
-  id_t create_id(location_t location, const metadata_t& metadata = {}) {
+  id_t create_id(location_t location = {store_id_t{}},
+      const metadata_t& metadata = {}) {
     if (location.store_id == store_id_t::invalid) return id_t::invalid;
     const id_t id = alloc_id();
     if (id == id_t::invalid) return id_t::invalid;
@@ -250,15 +257,22 @@ public:
   }
 
   // Create a new entity record, returning its handle, or an invalid handle on
-  // failure.
+  // failure. One cause of failure is reaching the ID limit.
   //
-  // If you know the `store_id` where the entity will go but not where in it,
-  // it is safe to pass an `ndx` of `*store_id_t::invalid` initially and then
-  // `set_location` later. If you do not know the `store_id` at creation time,
-  // you may wish to reserve `store_id_t{}` for that case.
+  // If you do not provide a location, a value of `{store_id_t{},
+  // *store_id_t::invalid}` will be provided for you, indicating that the
+  // entity is alive but not yet assigned to a storage.
+  //
+  // If you know where it will be stored but don't yet have an index, you can
+  // pass a location of `{store_id, *store_id_t::invalid}`. This is still
+  // considered alive and valid, and you can update its location with
+  // `set_location` later.
+  //
+  // A location with `store_id` set to `store_id_t::invalid` is invalid and
+  // will fail.
   [[nodiscard]]
-  handle_t
-  create_handle(location_t location, const metadata_t& metadata = {}) {
+  handle_t create_handle(location_t location = {store_id_t{}},
+      const metadata_t& metadata = {}) {
     return get_handle(create_id(location, metadata));
   }
 
@@ -271,7 +285,7 @@ public:
       return handle_t{id, 0};
   }
 
-  // Check whether ID is valid. Cannot detect ID reuse, since it's not a
+  // Check whether the ID is valid. Cannot detect ID reuse, since it's not a
   // handle.
   //
   // Note that many methods taking an ID expect it to be valid and will not
@@ -301,7 +315,8 @@ public:
   }
 
   // Set location for ID. The ID must be valid. Setting `location.store_id` to
-  // `store_id_t::invalid` erases the entity.
+  // `store_id_t::invalid` erases the entity, while `store_id_t{0}` indicates
+  // that the entity is alive but not assigned to a storage.
   void set_location(id_t id, location_t location) {
     assert(is_valid(id));
     if (location.store_id == store_id_t::invalid)
@@ -319,15 +334,18 @@ public:
     return true;
   }
 
-  // Erase by ID. Fails if ID is invalid (but cannot detect ID reuse). Note
-  // that the ID may then be reused. Returns success.
+  // Erase by ID. Fails if ID is invalid (but cannot detect ID reuse). Returns
+  // success.
+  //
+  // Deleted IDs will be reused.
   bool erase(id_t id) {
     if (!is_valid(id)) return false;
     return do_erase(id);
   }
 
-  // Erase by handle. Fails if handle is invalid. Note that the ID may then be
-  // reused, but the handle will be invalidated. Returns success.
+  // Erase by handle. Fails if handle is invalid. Returns success.
+  //
+  // Deleted IDs will be reused, but the handle will be invalidated.
   bool erase(handle_t handle) {
     if (!is_valid(handle)) return false;
     return do_erase(handle.id_);
@@ -400,6 +418,11 @@ public:
     }
     // Erase all records, relinking them into the free list. This is faster
     // than clearing and rebuilding the free list.
+    //
+    // Note: We could optimize this by special-casing the first element, but
+    // this is not going to be measurably faster. Not only is this function
+    // outside of the hot path, but we'd only get one branch misprediction out
+    // of it.
     const auto id_end = records_.size_as_enum();
     auto prev = id_t::invalid;
     for (id_t id{}; id < id_end; ++id) {
@@ -407,10 +430,6 @@ public:
       rec.location.store_id = store_id_t::invalid;
       rec.location.ndx = *id_t::invalid;
       if constexpr (UseGen) ++rec.gen;
-
-      // TODO: This check can be optimized away by handling the first ID as a
-      // special case. However, we'd need to check for the edge case of a
-      // registry that has less than 2 records.
       if (prev != id_t::invalid)
         records_[prev].location.ndx = *id;
       else
@@ -497,10 +516,6 @@ private:
     const size_type n = records_.size();
     for (size_type i = 0; i < n; ++i) {
       if (records_[id_t{i}].location.store_id != store_id_t::invalid) continue;
-      // TODO: Consider whether calling `append_to_tail` here is inefficient
-      // since we don't need to keep checking whether fifo_tail_ is invalid. We
-      // can instead set it to id from the start. Arguably, we could keep
-      // `append_to_tail` but template it on a bool for whether to test it.
       append_to_tail(id_t{i});
     }
   }

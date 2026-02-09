@@ -257,12 +257,12 @@ void ArchetypeVector_Basic() {
     v.emplace_back(2, 2.0f, "two"s);
 
     auto row = v[0];
-    EXPECT_EQ(row.get_index(), 0U);
-    EXPECT_EQ(row.get_id(), entity_id{0});
+    EXPECT_EQ(row.index(), 0U);
+    EXPECT_EQ(row.id(), entity_id{0});
 
     auto row1 = v[1];
-    EXPECT_EQ(row1.get_index(), 1U);
-    EXPECT_EQ(row1.get_id(), entity_id{10});
+    EXPECT_EQ(row1.index(), 1U);
+    EXPECT_EQ(row1.id(), entity_id{10});
   }
 
   // operator[] const - row_view.
@@ -275,8 +275,8 @@ void ArchetypeVector_Basic() {
     const archetype_t& cv = v;
 
     auto row = cv[0];
-    EXPECT_EQ(row.get_index(), 0U);
-    EXPECT_EQ(row.get_id(), entity_id{50});
+    EXPECT_EQ(row.index(), 0U);
+    EXPECT_EQ(row.id(), entity_id{50});
   }
 
   // row_lens::component<T>() mutable.
@@ -595,10 +595,10 @@ void StableId_Basic() {
     auto h1 = v.get_handle(id1);
     EXPECT_TRUE(v.is_valid(h0));
     EXPECT_TRUE(v.is_valid(h1));
-    EXPECT_EQ(h0.get_id(), id0);
-    EXPECT_EQ(h1.get_id(), id1);
-    EXPECT_EQ(h0.get_gen(), 0U);
-    EXPECT_EQ(h1.get_gen(), 0U);
+    EXPECT_EQ(h0.id(), id0);
+    EXPECT_EQ(h1.id(), id1);
+    EXPECT_EQ(h0.gen(), 0U);
+    EXPECT_EQ(h1.gen(), 0U);
   }
 
   // push_back_handle and emplace_back_handle return handles.
@@ -670,9 +670,9 @@ void StableId_Basic() {
     v.erase(h);
     (void)v.push_back(20); // reuse ID
     EXPECT_FALSE(v.is_valid(h));
-    auto h_new = v.get_handle(h.get_id());
+    auto h_new = v.get_handle(h.id());
     EXPECT_TRUE(v.is_valid(h_new));
-    EXPECT_NE(h.get_gen(), h_new.get_gen());
+    EXPECT_NE(h.gen(), h_new.gen());
   }
 
   // erase_if removes matching elements.
@@ -741,7 +741,7 @@ void StableId_Basic() {
     EXPECT_TRUE(v.empty());
     auto id = v.push_back(100);
     EXPECT_EQ(*id, 0U);
-    EXPECT_EQ(v.get_handle(id).get_gen(), 0U);
+    EXPECT_EQ(v.get_handle(id).gen(), 0U);
   }
 
   // shrink_to_fit compacts the container.
@@ -893,7 +893,7 @@ void StableId_SmallId() {
     EXPECT_FALSE(v.is_valid(h100));
     auto h100_new = v.get_handle(id_reused);
     EXPECT_TRUE(v.is_valid(h100_new));
-    EXPECT_GT(h100_new.get_gen(), h100.get_gen());
+    EXPECT_GT(h100_new.gen(), h100.gen());
 
     // Full again — exceeds limit.
     EXPECT_THROW(v.push_back(0), std::out_of_range);
@@ -1053,7 +1053,7 @@ void StableId_Fifo() {
     auto id0 = v.push_back(10);
     (void)v.push_back(20);
     auto h0 = v.get_handle(id0);
-    EXPECT_EQ(h0.get_gen(), 0U);
+    EXPECT_EQ(h0.gen(), 0U);
     v.erase(id0);
     EXPECT_FALSE(v.is_valid(h0));
     auto id0_reused = v.push_back(99);
@@ -1061,7 +1061,7 @@ void StableId_Fifo() {
     EXPECT_FALSE(v.is_valid(h0)); // stale handle stays invalid
     auto h0_new = v.get_handle(id0_reused);
     EXPECT_TRUE(v.is_valid(h0_new));
-    EXPECT_GT(h0_new.get_gen(), h0.get_gen());
+    EXPECT_GT(h0_new.gen(), h0.gen());
   }
 
   // push_back_handle returns a correct handle after FIFO reuse.
@@ -1071,9 +1071,9 @@ void StableId_Fifo() {
     (void)v.push_back(20); // id 1
     v.erase(id_t{0});
     auto h = v.push_back_handle(99);
-    EXPECT_EQ(h.get_id(), id_t{0});
+    EXPECT_EQ(h.id(), id_t{0});
     EXPECT_TRUE(v.is_valid(h));
-    EXPECT_EQ(h.get_gen(), 1U); // bumped once on erase
+    EXPECT_EQ(h.gen(), 1U); // bumped once on erase
   }
 
   // Free all elements; reuse order matches erase order.
@@ -1128,7 +1128,7 @@ void StableId_Fifo() {
     EXPECT_EQ(v.push_back(100), id_t{0});
     EXPECT_EQ(v.push_back(200), id_t{1});
     EXPECT_EQ(v.push_back(300), id_t{2});
-    EXPECT_EQ(v.get_handle(id_t{0}).get_gen(), 1U); // bumped once by clear
+    EXPECT_EQ(v.get_handle(id_t{0}).gen(), 1U); // bumped once by clear
   }
 
   // clear(true) frees all storage; next insert starts fresh.
@@ -1141,7 +1141,7 @@ void StableId_Fifo() {
     EXPECT_TRUE(v.empty());
     auto id = v.push_back(42);
     EXPECT_EQ(*id, 0U);
-    EXPECT_EQ(v.get_handle(id).get_gen(), 0U);
+    EXPECT_EQ(v.get_handle(id).gen(), 0U);
   }
 
   // shrink_to_fit rebuilds the FIFO list; only free IDs below the new
@@ -1382,7 +1382,9 @@ void StableId_FifoNoGen() {
 
   // handle_t is sizeof(id_t): neither gen nor the FIFO next-pointer
   // appears in it.  The next-pointer lives in the internal slot_t only.
-  if (true) { static_assert(sizeof(V::handle_t) == sizeof(V::id_t)); }
+  if (true) {
+    static_assert(sizeof(V::handle_t) == sizeof(V::id_t));
+  }
 
   // Without gen, a stale handle for a reused ID is indistinguishable.
   // FIFO increases the reuse delay but is not a correctness guard.
@@ -1573,8 +1575,8 @@ void EntityRegistry_Basic() {
   if (true) {
     using handle_t = reg_t::handle_t;
     handle_t h;
-    EXPECT_EQ(h.get_id(), entity_id::invalid);
-    EXPECT_EQ(h.get_gen(), *entity_id::invalid);
+    EXPECT_EQ(h.id(), entity_id::invalid);
+    EXPECT_EQ(h.gen(), *entity_id::invalid);
   }
 
   // handle_t copy construction and assignment.
@@ -1789,8 +1791,8 @@ void EntityRegistry_Handle() {
     reg_t r;
     auto h = r.create_handle(loc0, 42);
     EXPECT_TRUE(r.is_valid(h));
-    EXPECT_EQ(h.get_id(), id_t{0});
-    EXPECT_EQ(h.get_gen(), 0U);
+    EXPECT_EQ(h.id(), id_t{0});
+    EXPECT_EQ(h.gen(), 0U);
   }
 
   // create_with_handle with invalid store_id returns invalid handle.
@@ -1798,7 +1800,7 @@ void EntityRegistry_Handle() {
     reg_t r;
     auto h = r.create_handle(loc_t{}, 42);
     EXPECT_FALSE(r.is_valid(h));
-    EXPECT_EQ(h.get_id(), id_t::invalid);
+    EXPECT_EQ(h.id(), id_t::invalid);
   }
 
   // get_handle for valid ID.
@@ -1807,8 +1809,8 @@ void EntityRegistry_Handle() {
     auto id0 = r.create_id(loc0, 10);
     auto h = r.get_handle(id0);
     EXPECT_TRUE(r.is_valid(h));
-    EXPECT_EQ(h.get_id(), id0);
-    EXPECT_EQ(h.get_gen(), 0U);
+    EXPECT_EQ(h.id(), id0);
+    EXPECT_EQ(h.gen(), 0U);
   }
 
   // get_handle for invalid ID returns invalid handle.
@@ -1816,7 +1818,7 @@ void EntityRegistry_Handle() {
     reg_t r;
     auto h = r.get_handle(id_t{99});
     EXPECT_FALSE(r.is_valid(h));
-    EXPECT_EQ(h.get_id(), id_t::invalid);
+    EXPECT_EQ(h.id(), id_t::invalid);
   }
 
   // Handle is invalidated after erase.
@@ -1833,14 +1835,14 @@ void EntityRegistry_Handle() {
     reg_t r;
     auto id0 = r.create_id(loc0, 10);
     auto h_old = r.get_handle(id0);
-    EXPECT_EQ(h_old.get_gen(), 0U);
+    EXPECT_EQ(h_old.gen(), 0U);
     r.erase(id0);
     auto id0_reused = r.create_id(loc0, 99);
     EXPECT_EQ(id0_reused, id0);
     EXPECT_FALSE(r.is_valid(h_old));
     auto h_new = r.get_handle(id0_reused);
     EXPECT_TRUE(r.is_valid(h_new));
-    EXPECT_GT(h_new.get_gen(), h_old.get_gen());
+    EXPECT_GT(h_new.gen(), h_old.gen());
   }
 
   // erase by handle.
@@ -1915,7 +1917,7 @@ void EntityRegistry_Handle() {
     auto h_old = r.create_handle(loc0, 10);
     r.erase(h_old);
     auto h_new = r.create_handle(loc0, 20);
-    EXPECT_EQ(h_old.get_id(), h_new.get_id());
+    EXPECT_EQ(h_old.id(), h_new.id());
     EXPECT_TRUE(h_old != h_new);
   }
 
@@ -1996,7 +1998,7 @@ void EntityRegistry_Clear() {
     EXPECT_FALSE(r.is_valid(id_t{0}));
     EXPECT_FALSE(r.is_valid(h0));
     EXPECT_EQ(r.create_id(loc0, 100), id_t{0});
-    EXPECT_EQ(r.get_handle(id_t{0}).get_gen(), 1U);
+    EXPECT_EQ(r.get_handle(id_t{0}).gen(), 1U);
   }
 
   // clear(true) with shrink: fully resets storage and gens.
@@ -2009,7 +2011,7 @@ void EntityRegistry_Clear() {
     EXPECT_FALSE(r.is_valid(id_t{0}));
     auto id0 = r.create_id(loc0, 100);
     EXPECT_EQ(*id0, 0U);
-    EXPECT_EQ(r.get_handle(id0).get_gen(), 0U); // gen reset
+    EXPECT_EQ(r.get_handle(id0).gen(), 0U); // gen reset
   }
 }
 
@@ -2109,7 +2111,9 @@ void EntityRegistry_NoGen() {
   // handle_t has no get_gen() when UseGen=false.
   // Detailed no-gen behavior is tested in StableId_NoGen and
   // StableId_FifoNoGen.
-  if (true) { static_assert(sizeof(reg_t::handle_t) == sizeof(id_t)); }
+  if (true) {
+    static_assert(sizeof(reg_t::handle_t) == sizeof(id_t));
+  }
 
   // Basic create and access.
   if (true) {
@@ -2127,7 +2131,7 @@ void EntityRegistry_NoGen() {
     reg_t r;
     auto h = r.create_handle(loc0, 42);
     EXPECT_TRUE(r.is_valid(h));
-    EXPECT_EQ(h.get_id(), id_t{0});
+    EXPECT_EQ(h.id(), id_t{0});
     EXPECT_EQ(r.at(h), 42);
   }
 
@@ -2136,7 +2140,7 @@ void EntityRegistry_NoGen() {
     reg_t r;
     auto h = r.create_handle(loc_t{}, 42);
     EXPECT_FALSE(r.is_valid(h));
-    EXPECT_EQ(h.get_id(), id_t::invalid);
+    EXPECT_EQ(h.id(), id_t::invalid);
   }
 
   // erase by handle.
@@ -2211,7 +2215,7 @@ void EntityRegistry_NoGen() {
   // Handle default construction.
   if (true) {
     handle_t h;
-    EXPECT_EQ(h.get_id(), id_t::invalid);
+    EXPECT_EQ(h.id(), id_t::invalid);
   }
 
   // Handle copy construction and assignment.
@@ -2277,7 +2281,7 @@ void EntityRegistry_VoidMeta() {
     reg_t r;
     auto h = r.create_handle(loc0);
     EXPECT_TRUE(r.is_valid(h));
-    EXPECT_EQ(h.get_gen(), 0U);
+    EXPECT_EQ(h.gen(), 0U);
     r.erase(h);
     EXPECT_FALSE(r.is_valid(h));
   }
@@ -2347,12 +2351,12 @@ void EntityRegistry_VoidMeta() {
     reg_t r;
     auto id0 = r.create_id(loc0);
     auto h_old = r.get_handle(id0);
-    EXPECT_EQ(h_old.get_gen(), 0U);
+    EXPECT_EQ(h_old.gen(), 0U);
     r.erase(id0);
     auto id0_reused = r.create_id(loc0);
     EXPECT_EQ(id0_reused, id0);
     auto h_new = r.get_handle(id0_reused);
-    EXPECT_EQ(h_new.get_gen(), 1U);
+    EXPECT_EQ(h_new.gen(), 1U);
     EXPECT_FALSE(r.is_valid(h_old));
     EXPECT_TRUE(r.is_valid(h_new));
   }
@@ -2366,7 +2370,9 @@ void EntityRegistry_VoidNoGen() {
   const loc_t loc0{store_id_t{0}, 0};
 
   // Minimal footprint: no metadata, no gen.
-  if (true) { static_assert(sizeof(reg_t::handle_t) == sizeof(id_t)); }
+  if (true) {
+    static_assert(sizeof(reg_t::handle_t) == sizeof(id_t));
+  }
 
   // Create and validate.
   if (true) {
@@ -2625,13 +2631,13 @@ void EntityRegistry_EdgeCases() {
     reg_t r;
     auto id0 = r.create_id(loc0, 10);
     auto h = r.get_handle(id0);
-    EXPECT_EQ(h.get_gen(), 0U);
+    EXPECT_EQ(h.gen(), 0U);
     r.clear();
     EXPECT_FALSE(r.is_valid(h));
     auto id0_new = r.create_id(loc0, 20);
     EXPECT_EQ(id0_new, id0);
     auto h_new = r.get_handle(id0_new);
-    EXPECT_EQ(h_new.get_gen(), 1U);
+    EXPECT_EQ(h_new.gen(), 1U);
     EXPECT_TRUE(h != h_new);
   }
 
@@ -2640,17 +2646,17 @@ void EntityRegistry_EdgeCases() {
     reg_t r;
     auto id0 = r.create_id(loc0, 10);
     auto h0 = r.get_handle(id0);
-    EXPECT_EQ(h0.get_gen(), 0U);
+    EXPECT_EQ(h0.gen(), 0U);
     r.erase(id0);
     auto id0_r1 = r.create_id(loc0, 20);
     EXPECT_EQ(id0_r1, id0);
     auto h1 = r.get_handle(id0_r1);
-    EXPECT_EQ(h1.get_gen(), 1U);
+    EXPECT_EQ(h1.gen(), 1U);
     r.erase(id0_r1);
     auto id0_r2 = r.create_id(loc0, 30);
     EXPECT_EQ(id0_r2, id0);
     auto h2 = r.get_handle(id0_r2);
-    EXPECT_EQ(h2.get_gen(), 2U);
+    EXPECT_EQ(h2.gen(), 2U);
     EXPECT_FALSE(r.is_valid(h0));
     EXPECT_FALSE(r.is_valid(h1));
     EXPECT_TRUE(r.is_valid(h2));
@@ -2922,7 +2928,7 @@ void ComponentStorage_Basic() {
   using storage_t = component_storage<float, reg_t>;
 
   const auto sid = store_id_t{1};
-  const loc_t pending{sid, *store_id_t::invalid};
+  const loc_t staging{store_id_t{}};
 
   // Construction.
   if (true) {
@@ -2933,14 +2939,27 @@ void ComponentStorage_Basic() {
     EXPECT_EQ(*s.store_id(), *sid);
   }
 
+  // Construction with invalid store_id throws.
+  if (true) {
+    reg_t r;
+    EXPECT_THROW(storage_t(r, store_id_t::invalid), std::invalid_argument);
+    EXPECT_THROW(storage_t(r, store_id_t{}), std::invalid_argument);
+  }
+
+  // Default construction.
+  if (true) {
+    storage_t s;
+    EXPECT_TRUE(s.empty());
+  }
+
   // Add and lookup.
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto id0 = r.create_id(pending, 10);
-    auto id1 = r.create_id(pending, 20);
-    (void)s.add(id0, 1.0f);
-    (void)s.add(id1, 2.0f);
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
     EXPECT_EQ(s.size(), 2U);
     EXPECT_EQ(s[id0], 1.0f);
     EXPECT_EQ(s[id1], 2.0f);
@@ -2952,8 +2971,8 @@ void ComponentStorage_Basic() {
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto id0 = r.create_id(pending, 10);
-    (void)s.add(id0, 3.14f);
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(s.add(id0, 3.14f));
     const auto& cs = s;
     EXPECT_EQ(cs[id0], 3.14f);
     EXPECT_EQ(cs.at(id0), 3.14f);
@@ -2963,36 +2982,24 @@ void ComponentStorage_Basic() {
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto id0 = r.create_id(pending, 10);
-    (void)s.add(id0, 1.0f);
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(s.add(id0, 1.0f));
     s[id0] = 99.0f;
     EXPECT_EQ(s[id0], 99.0f);
   }
 
-  // contains.
+  // contains by ID.
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto id0 = r.create_id(pending, 10);
-    EXPECT_FALSE(s.contains(id0)); // assigned but ndx=invalid
-    (void)s.add(id0, 1.0f);
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_FALSE(s.contains(id0));
+    EXPECT_TRUE(s.add(id0, 1.0f));
     EXPECT_TRUE(s.contains(id0));
-    EXPECT_FALSE(s.contains(id_t{99})); // nonexistent
+    EXPECT_FALSE(s.contains(id_t{99}));
   }
 
-  // get_id.
-  if (true) {
-    reg_t r;
-    storage_t s{r, sid};
-    auto id0 = r.create_id(pending, 10);
-    auto id1 = r.create_id(pending, 20);
-    (void)s.add(id0, 1.0f);
-    (void)s.add(id1, 2.0f);
-    EXPECT_TRUE(s.contains(id0));
-    EXPECT_TRUE(s.contains(id1));
-  }
-
-  // at() throws for invalid entity.
+  // at() throws for entity not in this storage.
   if (true) {
     reg_t r;
     storage_t s{r, sid};
@@ -3003,11 +3010,170 @@ void ComponentStorage_Basic() {
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto id0 = r.create_id(pending, 10);
-    (void)s.add(id0, 1.0f);
-    const auto& loc = r.get_location(id0);
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    const auto loc = r.get_location(id0);
     EXPECT_EQ(*loc.store_id, *sid);
     EXPECT_EQ(loc.ndx, 0U);
+  }
+
+  // add returns false for entity not at store 0.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_FALSE(s.add(id0, 2.0f));
+  }
+
+  // add_new creates entity and adds component.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = s.add_new(1.0f, 42);
+    EXPECT_NE(id0, id_t::invalid);
+    EXPECT_EQ(s.size(), 1U);
+    EXPECT_EQ(s[id0], 1.0f);
+    EXPECT_EQ(r[id0], 42);
+    EXPECT_TRUE(s.contains(id0));
+    const auto loc = r.get_location(id0);
+    EXPECT_EQ(*loc.store_id, *sid);
+  }
+
+  // add_new with default metadata.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = s.add_new(5.5f);
+    EXPECT_NE(id0, id_t::invalid);
+    EXPECT_EQ(s[id0], 5.5f);
+    EXPECT_EQ(r[id0], 0);
+  }
+
+  // reserve.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    s.reserve(100);
+    EXPECT_TRUE(s.empty());
+  }
+}
+
+void ComponentStorage_Handle() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using loc_t = reg_t::location_t;
+  using storage_t = component_storage<float, reg_t>;
+
+  const auto sid = store_id_t{1};
+  const loc_t staging{store_id_t{}};
+
+  // add by handle.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto h = r.create_handle(staging, 10);
+    EXPECT_TRUE(s.add(h, 1.0f));
+    EXPECT_EQ(s.size(), 1U);
+    EXPECT_EQ(s[h.id()], 1.0f);
+  }
+
+  // add by invalid handle returns false.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto h = r.create_handle(staging, 10);
+    r.erase(h);
+    EXPECT_FALSE(s.add(h, 1.0f));
+  }
+
+  // contains by handle.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto h = r.create_handle(staging, 10);
+    EXPECT_FALSE(s.contains(h));
+    EXPECT_TRUE(s.add(h, 1.0f));
+    EXPECT_TRUE(s.contains(h));
+  }
+
+  // contains by stale handle returns false.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto h = r.create_handle(staging, 10);
+    EXPECT_TRUE(s.add(h, 1.0f));
+    s.erase(h.id());
+    EXPECT_FALSE(s.contains(h));
+  }
+
+  // at by handle.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto h = r.create_handle(staging, 10);
+    EXPECT_TRUE(s.add(h, 3.14f));
+    EXPECT_EQ(s.at(h), 3.14f);
+    s.at(h) = 99.0f;
+    EXPECT_EQ(s.at(h), 99.0f);
+  }
+
+  // at by handle const.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto h = r.create_handle(staging, 10);
+    EXPECT_TRUE(s.add(h, 3.14f));
+    const auto& cs = s;
+    EXPECT_EQ(cs.at(h), 3.14f);
+  }
+
+  // at by invalid handle throws.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto h = r.create_handle(staging, 10);
+    EXPECT_THROW(s.at(h), std::invalid_argument);
+  }
+
+  // remove by handle.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto h = r.create_handle(staging, 10);
+    EXPECT_TRUE(s.add(h, 1.0f));
+    EXPECT_TRUE(s.remove(h));
+    EXPECT_TRUE(s.empty());
+    EXPECT_TRUE(r.is_valid(h));
+    const auto loc = r.get_location(h);
+    EXPECT_EQ(*loc.store_id, 0U);
+  }
+
+  // remove by invalid handle returns false.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto h = r.create_handle(staging, 10);
+    EXPECT_FALSE(s.remove(h));
+  }
+
+  // erase by handle.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto h = r.create_handle(staging, 10);
+    EXPECT_TRUE(s.add(h, 1.0f));
+    EXPECT_TRUE(s.erase(h));
+    EXPECT_TRUE(s.empty());
+    EXPECT_FALSE(r.is_valid(h));
+  }
+
+  // erase by invalid handle returns false.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto h = r.create_handle(staging, 10);
+    EXPECT_FALSE(s.erase(h));
   }
 }
 
@@ -3019,68 +3185,116 @@ void ComponentStorage_Remove() {
   using storage_t = component_storage<float, reg_t>;
 
   const auto sid = store_id_t{1};
-  const auto sid2 = store_id_t{2};
-  const loc_t pending{sid, *store_id_t::invalid};
+  const loc_t staging{store_id_t{}};
 
-  // Remove moves entity to new store_id, entity remains valid.
+  // Remove moves entity to store 0, entity remains valid.
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto id0 = r.create_id(pending, 10);
-    (void)s.add(id0, 1.0f);
-    EXPECT_TRUE(s.remove(id0, sid2));
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.remove(id0));
     EXPECT_FALSE(s.contains(id0));
     EXPECT_TRUE(s.empty());
-    // Entity still valid in registry, at new store_id.
     EXPECT_TRUE(r.is_valid(id0));
-    const auto& loc = r.get_location(id0);
-    EXPECT_EQ(*loc.store_id, *sid2);
-    EXPECT_EQ(loc.ndx, *store_id_t::invalid);
+    const auto loc = r.get_location(id0);
+    EXPECT_EQ(*loc.store_id, 0U);
   }
 
   // Remove returns false for entity not in this storage.
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    EXPECT_FALSE(s.remove(id_t{0}, sid2));
+    EXPECT_FALSE(s.remove(id_t{0}));
   }
 
-  // Swap-and-pop: remove non-last element, verify swapped element is correct.
+  // Swap-and-pop: remove non-last element.
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto id0 = r.create_id(pending, 10);
-    auto id1 = r.create_id(pending, 20);
-    auto id2 = r.create_id(pending, 30);
-    (void)s.add(id0, 1.0f);
-    (void)s.add(id1, 2.0f);
-    (void)s.add(id2, 3.0f);
-    // Remove id0 (index 0). id2 (last) should be swapped into index 0.
-    EXPECT_TRUE(s.remove(id0, sid2));
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    auto id2 = r.create_id(staging, 30);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_TRUE(s.add(id2, 3.0f));
+    EXPECT_TRUE(s.remove(id0));
     EXPECT_EQ(s.size(), 2U);
-    // id2 was at index 2, now at index 0.
     EXPECT_EQ(s[id2], 3.0f);
     EXPECT_EQ(r.get_location(id2).ndx, 0U);
-    // id1 remains at index 1.
     EXPECT_EQ(s[id1], 2.0f);
     EXPECT_EQ(r.get_location(id1).ndx, 1U);
-    // get_id reflects the swap.
-    EXPECT_TRUE(s.contains(id2));
-    EXPECT_TRUE(s.contains(id1));
   }
 
   // Remove last element (no swap needed).
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto id0 = r.create_id(pending, 10);
-    auto id1 = r.create_id(pending, 20);
-    (void)s.add(id0, 1.0f);
-    (void)s.add(id1, 2.0f);
-    EXPECT_TRUE(s.remove(id1, sid2));
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_TRUE(s.remove(id1));
     EXPECT_EQ(s.size(), 1U);
     EXPECT_EQ(s[id0], 1.0f);
-    EXPECT_EQ(r.get_location(id0).ndx, 0U);
+  }
+
+  // Remove allows re-add.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.remove(id0));
+    EXPECT_TRUE(s.add(id0, 99.0f));
+    EXPECT_EQ(s[id0], 99.0f);
+  }
+}
+
+void ComponentStorage_RemoveAll() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using loc_t = reg_t::location_t;
+  using storage_t = component_storage<float, reg_t>;
+
+  const auto sid = store_id_t{1};
+  const loc_t staging{store_id_t{}};
+
+  // remove_all moves all entities to store 0.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    auto id2 = r.create_id(staging, 30);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_TRUE(s.add(id2, 3.0f));
+    s.remove_all();
+    EXPECT_TRUE(s.empty());
+    EXPECT_TRUE(r.is_valid(id0));
+    EXPECT_TRUE(r.is_valid(id1));
+    EXPECT_TRUE(r.is_valid(id2));
+    EXPECT_EQ(*r.get_location(id0).store_id, 0U);
+  }
+
+  // remove_all on empty is a no-op.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    s.remove_all();
+    EXPECT_TRUE(s.empty());
+  }
+
+  // Can re-add after remove_all.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    s.remove_all();
+    EXPECT_TRUE(s.add(id0, 99.0f));
+    EXPECT_EQ(s[id0], 99.0f);
   }
 }
 
@@ -3092,14 +3306,14 @@ void ComponentStorage_Erase() {
   using storage_t = component_storage<float, reg_t>;
 
   const auto sid = store_id_t{1};
-  const loc_t pending{sid, *store_id_t::invalid};
+  const loc_t staging{store_id_t{}};
 
   // Erase removes component and destroys entity in registry.
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto id0 = r.create_id(pending, 10);
-    (void)s.add(id0, 1.0f);
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(s.add(id0, 1.0f));
     EXPECT_TRUE(s.erase(id0));
     EXPECT_TRUE(s.empty());
     EXPECT_FALSE(r.is_valid(id0));
@@ -3109,10 +3323,10 @@ void ComponentStorage_Erase() {
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto id0 = r.create_id(pending, 10);
-    auto id1 = r.create_id(pending, 20);
-    (void)s.add(id0, 1.0f);
-    (void)s.add(id1, 2.0f);
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
     EXPECT_TRUE(s.erase(id0));
     EXPECT_EQ(s.size(), 1U);
     EXPECT_FALSE(r.is_valid(id0));
@@ -3129,6 +3343,53 @@ void ComponentStorage_Erase() {
   }
 }
 
+void ComponentStorage_EraseIf() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using loc_t = reg_t::location_t;
+  using storage_t = component_storage<float, reg_t>;
+
+  const auto sid = store_id_t{1};
+  const loc_t staging{store_id_t{}};
+
+  // erase_if removes matching entities.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    auto id2 = r.create_id(staging, 30);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 5.0f));
+    EXPECT_TRUE(s.add(id2, 10.0f));
+    auto cnt = s.erase_if([](float val, auto) { return val > 3.0f; });
+    EXPECT_EQ(cnt, 2U);
+    EXPECT_EQ(s.size(), 1U);
+    EXPECT_TRUE(s.contains(id0));
+    EXPECT_FALSE(r.is_valid(id1));
+    EXPECT_FALSE(r.is_valid(id2));
+  }
+
+  // erase_if with no matches.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    auto cnt = s.erase_if([](float, auto) { return false; });
+    EXPECT_EQ(cnt, 0U);
+    EXPECT_EQ(s.size(), 1U);
+  }
+
+  // erase_if on empty storage.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto cnt = s.erase_if([](float, auto) { return true; });
+    EXPECT_EQ(cnt, 0U);
+  }
+}
+
 void ComponentStorage_Clear() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -3136,40 +3397,99 @@ void ComponentStorage_Clear() {
   using storage_t = component_storage<float, reg_t>;
 
   const auto sid = store_id_t{1};
-  const loc_t pending{sid, *store_id_t::invalid};
+  const loc_t staging{store_id_t{}};
 
-  // Clear removes all components but entities remain valid.
+  // Clear removes all components and erases entities from registry.
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto id0 = r.create_id(pending, 10);
-    auto id1 = r.create_id(pending, 20);
-    auto id2 = r.create_id(pending, 30);
-    (void)s.add(id0, 1.0f);
-    (void)s.add(id1, 2.0f);
-    (void)s.add(id2, 3.0f);
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    auto id2 = r.create_id(staging, 30);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_TRUE(s.add(id2, 3.0f));
     s.clear();
     EXPECT_TRUE(s.empty());
-    // All entities still valid in registry.
-    EXPECT_TRUE(r.is_valid(id0));
-    EXPECT_TRUE(r.is_valid(id1));
-    EXPECT_TRUE(r.is_valid(id2));
-    // Locations have ndx=invalid but store_id preserved.
-    EXPECT_EQ(*r.get_location(id0).store_id, *sid);
-    EXPECT_EQ(r.get_location(id0).ndx, *store_id_t::invalid);
+    EXPECT_FALSE(r.is_valid(id0));
+    EXPECT_FALSE(r.is_valid(id1));
+    EXPECT_FALSE(r.is_valid(id2));
   }
 
-  // Add after clear works.
+  // Clear on empty is a no-op.
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto id0 = r.create_id(pending, 10);
-    (void)s.add(id0, 1.0f);
     s.clear();
-    // Re-add.
-    (void)s.add(id0, 99.0f);
-    EXPECT_EQ(s.size(), 1U);
-    EXPECT_EQ(s[id0], 99.0f);
+    EXPECT_TRUE(s.empty());
+  }
+}
+
+void ComponentStorage_SwapAndMove() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using loc_t = reg_t::location_t;
+  using storage_t = component_storage<float, reg_t>;
+
+  const auto sid1 = store_id_t{1};
+  const auto sid2 = store_id_t{2};
+  const loc_t staging{store_id_t{}};
+
+  // Member swap.
+  if (true) {
+    reg_t r;
+    storage_t s1{r, sid1};
+    storage_t s2{r, sid2};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(s1.add(id0, 1.0f));
+    EXPECT_TRUE(s2.add(id1, 2.0f));
+    s1.swap(s2);
+    EXPECT_EQ(*s1.store_id(), *sid2);
+    EXPECT_EQ(*s2.store_id(), *sid1);
+    EXPECT_EQ(s1.size(), 1U);
+    EXPECT_EQ(s2.size(), 1U);
+  }
+
+  // Friend swap.
+  if (true) {
+    reg_t r;
+    storage_t s1{r, sid1};
+    storage_t s2{r, sid2};
+    using std::swap;
+    swap(s1, s2);
+    EXPECT_EQ(*s1.store_id(), *sid2);
+    EXPECT_EQ(*s2.store_id(), *sid1);
+  }
+
+  // Move constructor.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create_id(staging, 10);
+    {
+      storage_t s1{r, sid1};
+      EXPECT_TRUE(s1.add(id0, 1.0f));
+      storage_t s2{std::move(s1)};
+      EXPECT_EQ(s2.size(), 1U);
+      EXPECT_EQ(s2[id0], 1.0f);
+      EXPECT_EQ(*s2.store_id(), *sid1);
+    }
+    EXPECT_FALSE(r.is_valid(id0));
+  }
+
+  // Move assignment.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create_id(staging, 10);
+    {
+      storage_t s1{r, sid1};
+      EXPECT_TRUE(s1.add(id0, 1.0f));
+      storage_t s2;
+      s2 = std::move(s1);
+      EXPECT_EQ(s2.size(), 1U);
+      EXPECT_EQ(s2[id0], 1.0f);
+    }
+    EXPECT_FALSE(r.is_valid(id0));
   }
 }
 
@@ -3183,7 +3503,10 @@ MAKE_TEST_LIST(ArchetypeVector_Basic, ArchetypeVector_NoCopy, StableId_Basic,
     EntityRegistry_EdgeCases, EntityRegistry_MetadataCleanup,
     EntityRegistry_EraseIfPredicate, EntityRegistry_IdLimitFreeList,
     EntityRegistry_ReservePrefillExisting, ComponentStorage_Basic,
-    ComponentStorage_Remove, ComponentStorage_Erase, ComponentStorage_Clear);
+    ComponentStorage_Handle, ComponentStorage_Remove,
+    ComponentStorage_RemoveAll, ComponentStorage_Erase,
+    ComponentStorage_EraseIf, ComponentStorage_Clear,
+    ComponentStorage_SwapAndMove);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

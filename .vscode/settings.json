@@ -1,5 +1,11 @@
 {
     "editor.formatOnSave": true,
+    "[cpp]": {
+        "editor.defaultFormatter": "ms-vscode.cpptools"
+    },
+    "[c]": {
+        "editor.defaultFormatter": "ms-vscode.cpptools"
+    },
     "C_Cpp.default.enableIntelliSense": true,
     "files.associations": {
         "algorithm": "cpp",

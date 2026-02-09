@@ -86,8 +86,8 @@ public:
     }
 
     // Get index and ID.
-    [[nodiscard]] size_type get_index() const noexcept { return ndx; }
-    [[nodiscard]] id_t get_id() const { return owner->index_to_id(ndx); }
+    [[nodiscard]] size_type index() const noexcept { return ndx; }
+    [[nodiscard]] id_t id() const { return owner->index_to_id(ndx); }
 
     // Access component by type.
     template<typename C>

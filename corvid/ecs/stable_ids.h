@@ -122,10 +122,10 @@ public:
       return cmp;
     }
 
-    [[nodiscard]] id_t get_id() const { return id_; }
+    [[nodiscard]] id_t id() const { return id_; }
 
     // Note: While equality/inequality is guaranteed, the precise value is not.
-    [[nodiscard]] size_type get_gen() const
+    [[nodiscard]] size_type gen() const
     requires UseGen
     {
       return gen_;
