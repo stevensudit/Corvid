@@ -22,7 +22,7 @@ namespace corvid { inline namespace ecs { namespace id_enums {
 
 // These are the default ID types for various ECS concepts. You can use them
 // as-is, or define your own (typically, smaller ones) and ignore these. If you
-// do used them, you will want to inject `id_enums` into your namespace.
+// do use them, you will want to inject `id_enums` into your namespace.
 
 // These have to be declared up front so that we can place `enum_spec_v` in the
 // global namespace. Note that "sys/types.h" also defines a type named `id_t`

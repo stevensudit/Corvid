@@ -40,9 +40,9 @@ namespace corvid { inline namespace ecs { inline namespace component_storages {
 // is not enforced within this class), and it must not be
 // `store_id_t::invalid` or `store_id_t{0}`.
 //
-// Note that this class stores IDs instead of handles because these it already
-// owns the entities, so any checks would be redundant. We still check the
-// validity of handles passed to us.
+// Note that this class stores IDs instead of handles because it already owns
+// the entities, so any checks would be redundant. We still check the validity
+// of handles passed to us.
 //
 // Template parameters:
 //  C        - Component type. Must be trivially copyable.
@@ -83,8 +83,23 @@ public:
     if (do_reserve && limit_ != *id_t::invalid) reserve(limit_);
   }
 
-  component_storage(component_storage&&) noexcept = default;
-  component_storage& operator=(component_storage&&) noexcept = default;
+  component_storage(component_storage&& other) noexcept
+      : registry_{std::exchange(other.registry_, nullptr)},
+        store_id_{std::exchange(other.store_id_, store_id_t::invalid)},
+        limit_{std::exchange(other.limit_, *id_t::invalid)},
+        components_{std::move(other.components_)},
+        ids_{std::move(other.ids_)} {}
+
+  component_storage& operator=(component_storage&& other) noexcept {
+    if (this == &other) return *this;
+    clear();
+    registry_ = std::exchange(other.registry_, nullptr);
+    store_id_ = std::exchange(other.store_id_, store_id_t::invalid);
+    limit_ = std::exchange(other.limit_, *id_t::invalid);
+    components_ = std::move(other.components_);
+    ids_ = std::move(other.ids_);
+    return *this;
+  }
 
   ~component_storage() { clear(); }
 
@@ -150,10 +165,10 @@ public:
 
   // Add a component for an entity. Returns success flag.
   //
-  // The entity's location must be set be set to `store_id_t{0}` and its `ndx`
-  // doesn't matter, although it would normally be `*store_id_t::invalid`. As a
-  // result of being added, the registry will update the location in the
-  // registry to match its `storage_id_` and the correct `ndx`.
+  // The entity's location must be set to `store_id_t{0}` and its `ndx` doesn't
+  // matter, although it would normally be `*store_id_t::invalid`. As a result
+  // of being added, the registry will update the location in the registry to
+  // match its `storage_id_` and the correct `ndx`.
   [[nodiscard]] bool add(handle_t handle, const C& component) {
     if (!registry_->is_valid(handle)) return false;
     return add(handle.id(), component);
