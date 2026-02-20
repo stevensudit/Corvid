@@ -137,28 +137,24 @@ public:
     ids_.shrink_to_fit();
   }
 
-  // Add a component for a new entity, returning the new entity's ID or
-  // `id_t::invalid` on failure.
-  id_t add_new(const C& component, const metadata_t& metadata = {}) {
-    auto id = registry_->create_id(location_t{store_id_t{}}, metadata);
-    if (id == id_t::invalid) return id_t::invalid;
-    if (!add(id, component)) {
-      registry_->erase(id);
-      return id_t::invalid;
-    }
-    return id;
+  // Add a component for a new entity, returning its handle or an invalid
+  // handle on failure.
+  handle_t add_new(const C& component, const metadata_t& metadata = {}) {
+    auto owner = registry_->create_owner(location_t{store_id_t{}}, metadata);
+    if (!owner || !add(owner.id(), component)) return {};
+    return owner.release();
   }
 
   // Add a component for an entity. Returns success flag.
   //
-  // See comment for `add(handle_t, const C&)`.
+  // ID must be valid. See comment for `add(handle_t, const C&)`.
   [[nodiscard]] bool add(id_t id, const C& component) {
     const auto& loc = registry_->get_location(id);
     if (loc.store_id != store_id_t{}) return false;
     const auto ndx = components_.size();
     if (ndx >= limit_) return false;
     // Reserve in advance in case of memory allocation failure.
-    components_.reserve(components.size() + 1);
+    components_.reserve(components_.size() + 1);
     ids_.reserve(ids_.size() + 1);
     components_.push_back(component);
     ids_.push_back(id);

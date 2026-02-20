@@ -2924,6 +2924,229 @@ void EntityRegistry_ReservePrefillExisting() {
   }
 }
 
+void EntityRegistry_HandleOwner() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using id_t = reg_t::id_t;
+  using loc_t = reg_t::location_t;
+  using owner_t = reg_t::handle_owner;
+  const loc_t staging{store_id_t{}};
+
+  // Default-constructed owner holds no entity.
+  if (true) {
+    owner_t o;
+    EXPECT_FALSE(bool(o));
+    EXPECT_EQ(o.id(), id_t::invalid);
+  }
+
+  // Constructor from existing valid handle takes ownership.
+  if (true) {
+    reg_t r;
+    auto h = r.create_handle(staging, 42);
+    owner_t o{r, h};
+    EXPECT_TRUE(bool(o));
+    EXPECT_EQ(o.id(), h.id());
+    EXPECT_TRUE(o.handle() == h);
+  }
+
+  // Constructor from existing invalid handle: owner is empty.
+  if (true) {
+    reg_t r;
+    auto h = r.create_handle(staging, 42);
+    r.erase(h);
+    owner_t o{r, h};
+    EXPECT_FALSE(bool(o));
+    EXPECT_EQ(o.id(), id_t::invalid);
+  }
+
+  // Creating constructor: creates entity and takes ownership.
+  if (true) {
+    reg_t r;
+    owner_t o{r, staging, 99};
+    EXPECT_TRUE(bool(o));
+    EXPECT_NE(o.id(), id_t::invalid);
+    EXPECT_EQ(r[o.id()], 99);
+    EXPECT_TRUE(r.is_valid(o.id()));
+  }
+
+  // make_owner factory method.
+  if (true) {
+    reg_t r;
+    auto o = r.make_owner(staging, 77);
+    EXPECT_TRUE(bool(o));
+    EXPECT_NE(o.id(), id_t::invalid);
+    EXPECT_EQ(r[o.id()], 77);
+  }
+
+  // Creating constructor: failure (registry at limit) → owner is empty.
+  if (true) {
+    reg_t r{id_t{0}};
+    owner_t o{r, staging, 10};
+    EXPECT_FALSE(bool(o));
+    EXPECT_EQ(o.id(), id_t::invalid);
+  }
+
+  // Destructor erases entity when owner goes out of scope.
+  if (true) {
+    reg_t r;
+    id_t saved_id;
+    {
+      auto o = r.make_owner(staging, 10);
+      saved_id = o.id();
+      EXPECT_TRUE(r.is_valid(saved_id));
+    }
+    EXPECT_FALSE(r.is_valid(saved_id));
+  }
+
+  // Destructor on empty owner is a no-op.
+  if (true) {
+    owner_t o; // destructs without touching any registry
+  }
+
+  // release() returns handle, leaves entity alive, and empties owner.
+  if (true) {
+    reg_t r;
+    auto o = r.make_owner(staging, 10);
+    auto id = o.id();
+    auto h = o.release();
+    EXPECT_FALSE(bool(o));
+    EXPECT_EQ(o.id(), id_t::invalid);
+    EXPECT_EQ(h.id(), id);
+    EXPECT_TRUE(r.is_valid(h));
+    r.erase(h); // manual cleanup
+  }
+
+  // reset() erases entity and empties owner.
+  if (true) {
+    reg_t r;
+    auto o = r.make_owner(staging, 10);
+    auto id = o.id();
+    o.reset();
+    EXPECT_FALSE(bool(o));
+    EXPECT_FALSE(r.is_valid(id));
+  }
+
+  // reset() on empty owner is a no-op.
+  if (true) {
+    owner_t o;
+    o.reset();
+    EXPECT_FALSE(bool(o));
+  }
+
+  // Move constructor transfers ownership; source becomes empty.
+  if (true) {
+    reg_t r;
+    auto o1 = r.make_owner(staging, 10);
+    auto id = o1.id();
+    owner_t o2{std::move(o1)};
+    EXPECT_FALSE(bool(o1));
+    EXPECT_EQ(o1.id(), id_t::invalid);
+    EXPECT_TRUE(bool(o2));
+    EXPECT_EQ(o2.id(), id);
+    EXPECT_TRUE(r.is_valid(id));
+  }
+
+  // Move assignment: erases current entity, takes ownership of source.
+  if (true) {
+    reg_t r;
+    auto o1 = r.make_owner(staging, 10);
+    auto o2 = r.make_owner(staging, 20);
+    auto id1 = o1.id();
+    auto id2 = o2.id();
+    o2 = std::move(o1);
+    EXPECT_FALSE(bool(o1));
+    EXPECT_TRUE(bool(o2));
+    EXPECT_EQ(o2.id(), id1);
+    EXPECT_TRUE(r.is_valid(id1));
+    EXPECT_FALSE(r.is_valid(id2)); // erased by move assignment
+  }
+
+  // Move assignment into empty owner.
+  if (true) {
+    reg_t r;
+    auto o1 = r.make_owner(staging, 10);
+    auto id = o1.id();
+    owner_t o2;
+    o2 = std::move(o1);
+    EXPECT_FALSE(bool(o1));
+    EXPECT_TRUE(bool(o2));
+    EXPECT_EQ(o2.id(), id);
+  }
+
+  // Move self-assignment is a no-op (entity stays intact).
+  if (true) {
+    reg_t r;
+    auto o = r.make_owner(staging, 10);
+    auto id = o.id();
+    // Use pointer indirection to avoid -Wself-move.
+    owner_t* p = &o;
+    o = std::move(*p);
+    EXPECT_TRUE(bool(o));
+    EXPECT_EQ(o.id(), id);
+    EXPECT_TRUE(r.is_valid(id));
+  }
+
+  // handle() accessor returns the underlying handle.
+  if (true) {
+    reg_t r;
+    auto h = r.create_handle(staging, 10);
+    owner_t o{r, h};
+    EXPECT_TRUE(o.handle() == h);
+    EXPECT_EQ(o.handle().id(), h.id());
+    EXPECT_EQ(o.handle().gen(), h.gen());
+  }
+
+  // registry() returns a reference to the associated registry.
+  if (true) {
+    reg_t r;
+    auto o = r.make_owner(staging, 10);
+    EXPECT_TRUE(&o.registry() == &r);
+  }
+
+  // const registry() returns a const reference.
+  if (true) {
+    reg_t r;
+    const auto o = r.make_owner(staging, 10);
+    const reg_t& cr = o.registry();
+    EXPECT_TRUE(&cr == &r);
+  }
+
+  // RAII pattern: early return erases entity; success path releases it.
+  if (true) {
+    reg_t r;
+    id_t saved_id = id_t::invalid;
+
+    auto do_work = [&](bool succeed) -> bool {
+      auto o = r.make_owner(staging, 10);
+      if (!o) return false;
+      saved_id = o.id();
+      if (!succeed) return false; // destructor fires, entity erased
+      (void)o.release();
+      return true;
+    };
+
+    EXPECT_FALSE(do_work(false));
+    EXPECT_FALSE(r.is_valid(saved_id)); // erased on early return
+
+    EXPECT_TRUE(do_work(true));
+    EXPECT_TRUE(r.is_valid(saved_id)); // survived via release()
+    r.erase(saved_id);
+  }
+
+  // handle_owner with void metadata.
+  if (true) {
+    using vreg_t = entity_registry<void>;
+    const vreg_t::location_t vstaging{store_id_t{}};
+    vreg_t r;
+    auto o = r.make_owner(vstaging);
+    EXPECT_TRUE(bool(o));
+    auto id = o.id();
+    EXPECT_TRUE(r.is_valid(id));
+    o.reset();
+    EXPECT_FALSE(r.is_valid(id));
+  }
+}
+
 void ComponentStorage_Basic() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -3030,17 +3253,17 @@ void ComponentStorage_Basic() {
     EXPECT_FALSE(s.add(id0, 2.0f));
   }
 
-  // add_new creates entity and adds component.
+  // add_new creates entity and adds component; returns its handle.
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto id0 = s.add_new(1.0f, 42);
-    EXPECT_NE(id0, id_t::invalid);
+    auto h0 = s.add_new(1.0f, 42);
+    EXPECT_TRUE(bool(h0));
     EXPECT_EQ(s.size(), 1U);
-    EXPECT_EQ(s[id0], 1.0f);
-    EXPECT_EQ(r[id0], 42);
-    EXPECT_TRUE(s.contains(id0));
-    const auto loc = r.get_location(id0);
+    EXPECT_EQ(s[h0.id()], 1.0f);
+    EXPECT_EQ(r[h0.id()], 42);
+    EXPECT_TRUE(s.contains(h0));
+    const auto loc = r.get_location(h0);
     EXPECT_EQ(*loc.store_id, *sid);
   }
 
@@ -3048,10 +3271,10 @@ void ComponentStorage_Basic() {
   if (true) {
     reg_t r;
     storage_t s{r, sid};
-    auto id0 = s.add_new(5.5f);
-    EXPECT_NE(id0, id_t::invalid);
-    EXPECT_EQ(s[id0], 5.5f);
-    EXPECT_EQ(r[id0], 0);
+    auto h0 = s.add_new(5.5f);
+    EXPECT_TRUE(bool(h0));
+    EXPECT_EQ(s[h0.id()], 5.5f);
+    EXPECT_EQ(r[h0.id()], 0);
   }
 
   // reserve.
@@ -3593,10 +3816,10 @@ void ComponentStorage_LimitAndReserve() {
     reg_t r;
     storage_t s{r, sid};
     EXPECT_TRUE(s.set_limit(1));
-    auto id0 = s.add_new(1.0f, 10);
-    EXPECT_NE(id0, id_t::invalid);
-    auto id1 = s.add_new(2.0f, 20);
-    EXPECT_EQ(id1, id_t::invalid);
+    auto h0 = s.add_new(1.0f, 10);
+    EXPECT_TRUE(bool(h0));
+    auto h1 = s.add_new(2.0f, 20);
+    EXPECT_FALSE(bool(h1));
     EXPECT_EQ(s.size(), 1U);
     // The failed add_new should have cleaned up the entity it created.
     EXPECT_EQ(r.size(), 1U);
@@ -3860,7 +4083,8 @@ MAKE_TEST_LIST(ArchetypeVector_Basic, ArchetypeVector_NoCopy, StableId_Basic,
     EntityRegistry_IdLimitAdvanced, EntityRegistry_FifoAdvanced,
     EntityRegistry_EdgeCases, EntityRegistry_MetadataCleanup,
     EntityRegistry_EraseIfPredicate, EntityRegistry_IdLimitFreeList,
-    EntityRegistry_ReservePrefillExisting, ComponentStorage_Basic,
+    EntityRegistry_ReservePrefillExisting, EntityRegistry_HandleOwner,
+    ComponentStorage_Basic,
     ComponentStorage_Handle, ComponentStorage_Remove,
     ComponentStorage_RemoveAll, ComponentStorage_Erase,
     ComponentStorage_EraseIf, ComponentStorage_Clear,
