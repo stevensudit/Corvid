@@ -157,6 +157,9 @@ public:
     if (loc.store_id != store_id_t{}) return false;
     const auto ndx = components_.size();
     if (ndx >= limit_) return false;
+    // Reserve in advance in case of memory allocation failure.
+    components_.reserve(components.size() + 1);
+    ids_.reserve(ids_.size() + 1);
     components_.push_back(component);
     ids_.push_back(id);
     registry_->set_location(id, {store_id_, ndx});
@@ -407,3 +410,7 @@ private:
   std::vector<id_t, id_allocator_type> ids_;
 };
 }}} // namespace corvid::ecs::component_storages
+
+// Open questions:
+// On `clear`, should we instead release the IDs to store_id_t{0} instead of
+// deleting them? Is this something we should parameterize?

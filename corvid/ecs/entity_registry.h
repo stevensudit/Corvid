@@ -32,6 +32,8 @@
 
 namespace corvid { inline namespace ecs { inline namespace entity_registries {
 
+// Entity Component System: Entity Registry
+//
 // The entity registry owns IDs for entities of a particular entity type in the
 // ECS system and tracks their location and metadata. Entities of different
 // types would be stored in instances specialized on different ID types.
@@ -41,7 +43,7 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 // FIFO order to maximize the time before an ID is recycled.
 //
 // Entity records are not guaranteed to remain at fixed memory locations unless
-// you set a limit and reserve space for that many entities up front. In that
+// you set a limit and reserve space for that many entities up front. In this
 // case, you may be able to avoid locking a mutex when looking up records that
 // nobody else will be changing.
 //
@@ -215,7 +217,8 @@ public:
   // Maximum allowed ID value.
   //
   // Insertion fails when this limit is reached. Defaults to `id_t::invalid`
-  // (the maximum representable value).
+  // (the maximum representable value). Note that the limit is exclusive, so
+  // the maximum valid ID is `id_t{id_limit() - 1}`.
   [[nodiscard]] id_t id_limit() const noexcept { return id_limit_; }
 
   // Set a new ID limit. Returns true on success, false if the limit would
@@ -400,7 +403,9 @@ public:
   [[nodiscard]] size_type size() const noexcept { return living_count_; }
 
   // Return maximum valid ID, or `id_t::invalid` if empty. This is the
-  // high-water mark, not the highest extant ID.
+  // high-water mark, not the highest extant ID. (Note that underflow of the
+  // unsigned underlying type is well-defined, so we know that
+  // `id_t{size_type{0} - 1}` is `id_t::invalid`.)
   [[nodiscard]] id_t max_id() const noexcept {
     return id_t{records_.size() - 1};
   }
@@ -465,6 +470,7 @@ private:
   // Caller is obligated to make the record valid.
   id_t alloc_id() {
     assert(living_count_ <= records_.size());
+    assert(records_.size() <= id_limit_);
     // If we're at the limit, can't allocate more.
     if (living_count_ >= *id_limit_) return id_t::invalid;
 
