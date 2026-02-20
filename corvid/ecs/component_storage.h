@@ -45,10 +45,10 @@ namespace corvid { inline namespace ecs { inline namespace component_storages {
 // of handles passed to us.
 //
 // Template parameters:
-//  C        - Component type. Must be trivially copyable.
 //  Registry - `entity_registry` instantiation. Provides id_t, store_id_t,
 //             size_type, location_t, and handle_t.
-template<typename C, typename Registry>
+//  C        - Component type. Must be trivially copyable.
+template<typename Registry, typename C>
 class component_storage {
 public:
   using component_t = C;
@@ -113,8 +113,8 @@ public:
     ids_.swap(other.ids_);
   }
 
-  friend void swap(component_storage& a, component_storage& b) noexcept {
-    a.swap(b);
+  friend void swap(component_storage& lhs, component_storage& rhs) noexcept {
+    lhs.swap(rhs);
   }
 
   // Maximum number of components allowed in this storage.
@@ -139,7 +139,8 @@ public:
 
   // Add a component for a new entity, returning its handle or an invalid
   // handle on failure.
-  handle_t add_new(const C& component, const metadata_t& metadata = {}) {
+  [[nodiscard]] handle_t
+  add_new(const C& component, const metadata_t& metadata = {}) {
     auto owner = registry_->create_owner(location_t{store_id_t{}}, metadata);
     if (!owner || !add(owner.id(), component)) return {};
     return owner.release();
@@ -151,7 +152,7 @@ public:
   [[nodiscard]] bool add(id_t id, const C& component) {
     const auto& loc = registry_->get_location(id);
     if (loc.store_id != store_id_t{}) return false;
-    const auto ndx = components_.size();
+    const auto ndx = ids_.size();
     if (ndx >= limit_) return false;
     // Reserve in advance in case of memory allocation failure.
     components_.reserve(components_.size() + 1);

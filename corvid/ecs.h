@@ -17,6 +17,6 @@
 #pragma once
 #include "ecs/entity_ids.h"
 #include "ecs/stable_ids.h"
-#include "ecs/archetype_vector.h"
+#include "ecs/archetype_storage.h"
 #include "ecs/entity_registry.h"
 #include "ecs/component_storage.h"
