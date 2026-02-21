@@ -106,8 +106,8 @@ public:
   class row_wrapper {
   public:
     static constexpr bool writeable_v = !IsConst;
-    using owner_t = std::conditional_t<IsConst, const archetype_storage,
-        archetype_storage>;
+    using owner_t = std::conditional_t<writeable_v, archetype_storage,
+        const archetype_storage>;
 
     // Constructor.
     row_wrapper() = default;

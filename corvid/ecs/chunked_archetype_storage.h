@@ -31,14 +31,15 @@
 
 #include "../meta/forward_like.h"
 
-namespace corvid { inline namespace ecs { inline namespace chunked_archetype_storages {
+namespace corvid { inline namespace ecs {
+inline namespace chunked_archetype_storages {
 
 // AoSoA archetype component storage with O(1) lookup through
 // `entity_registry`.
 //
-// Organises entities into fixed-size chunks so that all component arrays for
+// Organizes entities into fixed-size chunks so that all component arrays for
 // a given chunk of entities reside in a contiguous memory block, improving
-// cache utilisation when iterating over multiple components together.
+// cache utilization when iterating over multiple components together.
 //
 // Physical layout:
 //   std::vector< std::tuple< std::array<C0,K>, std::array<C1,K>, ... > >
@@ -48,15 +49,13 @@ namespace corvid { inline namespace ecs { inline namespace chunked_archetype_sto
 // which is why ChunkSize is required to be a positive power of two.
 //
 // The public interface is identical to `archetype_storage` so the two can be
-// used interchangeably.  `add_new`, `add`, `remove`, `remove_all`, `erase`,
-// `erase_if`, `erase_if_component`, `clear`, `contains`, `size`, `empty`,
-// `store_id`, `limit`, `set_limit`, `reserve`, `capacity`, `shrink_to_fit`,
-// `operator[]`, `begin`/`end`/`cbegin`/`cend`, and `swap` are all present.
+// used interchangeably.
 //
 // Template parameters:
 //  Registry  - `entity_registry` instantiation.  Provides types.
 //  CsTuple   - Tuple of component types.  Each must be trivially copyable.
-//  ChunkSize - Entities per chunk.  Must be a positive power of two (default 16).
+//  ChunkSize - Entities per chunk.  Must be a positive power of two (default
+//  16).
 
 template<typename Registry, typename CsTuple, std::size_t ChunkSize = 16>
 class chunked_archetype_storage;
@@ -80,9 +79,8 @@ public:
   // Each chunk holds ChunkSize slots for every component type.
   using chunk_t = std::tuple<std::array<Cs, ChunkSize>...>;
 
-  using chunk_allocator_t =
-      typename std::allocator_traits<allocator_type>::template rebind_alloc<
-          chunk_t>;
+  using chunk_allocator_t = typename std::allocator_traits<
+      allocator_type>::template rebind_alloc<chunk_t>;
   using id_allocator_t = typename std::allocator_traits<
       allocator_type>::template rebind_alloc<id_t>;
 
@@ -96,19 +94,23 @@ public:
   class row_wrapper {
   public:
     static constexpr bool writeable_v = !IsConst;
-    using owner_t = std::conditional_t<IsConst, const chunked_archetype_storage,
-        chunked_archetype_storage>;
+    using owner_t = std::conditional_t<writeable_v, chunked_archetype_storage,
+        const chunked_archetype_storage>;
 
+    // Constructor.
     row_wrapper() = default;
     row_wrapper(const row_wrapper&) = default;
     row_wrapper(row_wrapper&&) = default;
+
     row_wrapper& operator=(const row_wrapper&) = default;
     row_wrapper& operator=(row_wrapper&&) = default;
 
+    // Expose owner accessor.
     [[nodiscard]] decltype(auto) get_owner(this auto&& self) noexcept {
       return forward_like<decltype(self)>(*self.owner_);
     }
 
+    // Get index and ID.
     [[nodiscard]] size_type index() const noexcept { return ndx_; }
     [[nodiscard]] id_t id() const { return owner_->ids_[ndx_]; }
 
@@ -116,56 +118,50 @@ public:
     template<typename C>
     requires(writeable_v)
     [[nodiscard]] C& component() noexcept {
-      const auto ci = static_cast<std::size_t>(ndx_) / ChunkSize;
-      const auto ei = static_cast<std::size_t>(ndx_) % ChunkSize;
-      return std::get<std::array<C, ChunkSize>>(owner_->chunks_[ci])[ei];
+      const auto [chunk_ndx, element_ndx] = owner_t::chunk_coords(ndx_);
+      return std::get<std::array<C, ChunkSize>>(owner_->chunks_[chunk_ndx])[element_ndx];
     }
     template<typename C>
     [[nodiscard]] const C& component() const noexcept {
-      const auto ci = static_cast<std::size_t>(ndx_) / ChunkSize;
-      const auto ei = static_cast<std::size_t>(ndx_) % ChunkSize;
-      return std::get<std::array<C, ChunkSize>>(owner_->chunks_[ci])[ei];
+      const auto [chunk_ndx, element_ndx] = owner_t::chunk_coords(ndx_);
+      return std::get<std::array<C, ChunkSize>>(owner_->chunks_[chunk_ndx])[element_ndx];
     }
 
     // Access component by index.
     template<std::size_t Index>
     requires(writeable_v)
     [[nodiscard]] auto& component() noexcept {
-      const auto ci = static_cast<std::size_t>(ndx_) / ChunkSize;
-      const auto ei = static_cast<std::size_t>(ndx_) % ChunkSize;
-      return std::get<Index>(owner_->chunks_[ci])[ei];
+      const auto [chunk_ndx, element_ndx] = owner_t::chunk_coords(ndx_);
+      return std::get<Index>(owner_->chunks_[chunk_ndx])[element_ndx];
     }
     template<std::size_t Index>
     [[nodiscard]] const auto& component() const noexcept {
-      const auto ci = static_cast<std::size_t>(ndx_) / ChunkSize;
-      const auto ei = static_cast<std::size_t>(ndx_) % ChunkSize;
-      return std::get<Index>(owner_->chunks_[ci])[ei];
+      const auto [chunk_ndx, element_ndx] = owner_t::chunk_coords(ndx_);
+      return std::get<Index>(owner_->chunks_[chunk_ndx])[element_ndx];
     }
 
     // Access all components as a tuple of mutable references.
     [[nodiscard]] auto components() noexcept
     requires(writeable_v)
     {
-      const auto ci = static_cast<std::size_t>(ndx_) / ChunkSize;
-      const auto ei = static_cast<std::size_t>(ndx_) % ChunkSize;
+      const auto [chunk_ndx, element_ndx] = owner_t::chunk_coords(ndx_);
       return std::apply(
           [&](auto&&... arrs) {
-            return std::tuple<decltype(arrs[ei])&...>{arrs[ei]...};
+            return std::tuple<decltype(arrs[element_ndx])&...>{arrs[element_ndx]...};
           },
-          owner_->chunks_[ci]);
+          owner_->chunks_[chunk_ndx]);
     }
 
     // Access all components as a tuple of const references.
     [[nodiscard]] auto components() const noexcept {
-      const auto ci = static_cast<std::size_t>(ndx_) / ChunkSize;
-      const auto ei = static_cast<std::size_t>(ndx_) % ChunkSize;
+      const auto [chunk_ndx, element_ndx] = owner_t::chunk_coords(ndx_);
       return std::apply(
           [&](auto&&... arrs) {
             return std::tuple<
-                const std::remove_reference_t<decltype(arrs[ei])>&...>{
-                arrs[ei]...};
+                const std::remove_reference_t<decltype(arrs[element_ndx])>&...>{
+                arrs[element_ndx]...};
           },
-          owner_->chunks_[ci]);
+          owner_->chunks_[chunk_ndx]);
     }
 
   private:
@@ -263,8 +259,8 @@ public:
 
   chunked_archetype_storage(const chunked_archetype_storage&) = delete;
   chunked_archetype_storage(chunked_archetype_storage&&) noexcept = default;
-  chunked_archetype_storage& operator=(const chunked_archetype_storage&) =
-      delete;
+  chunked_archetype_storage& operator=(
+      const chunked_archetype_storage&) = delete;
   chunked_archetype_storage& operator=(
       chunked_archetype_storage&&) noexcept = default;
 
@@ -316,13 +312,12 @@ public:
     if (loc.store_id != store_id_t{}) return false;
     const auto ndx = size();
     if (ndx >= limit_) return false;
-    const auto ci = static_cast<std::size_t>(ndx) / ChunkSize;
-    const auto ei = static_cast<std::size_t>(ndx) % ChunkSize;
+    const auto [chunk_ndx, element_ndx] = chunk_coords(ndx);
     ids_.reserve(static_cast<std::size_t>(ndx) + 1);
-    chunks_.reserve(ci + 1);
-    if (ei == 0) chunks_.emplace_back();
+    chunks_.reserve(chunk_ndx + 1);
+    if (element_ndx == 0) chunks_.emplace_back();
     auto& chunk = chunks_.back();
-    ((void)(std::get<std::array<Cs, ChunkSize>>(chunk)[ei] =
+    ((void)(std::get<std::array<Cs, ChunkSize>>(chunk)[element_ndx] =
                 std::forward<Args>(args)),
         ...);
     ids_.push_back(id);
@@ -365,9 +360,8 @@ public:
   size_type erase_if_component(auto pred) {
     size_type cnt = 0;
     for (size_type ndx{}; ndx < ids_.size();) {
-      const auto ci = static_cast<std::size_t>(ndx) / ChunkSize;
-      const auto ei = static_cast<std::size_t>(ndx) % ChunkSize;
-      auto& comp = std::get<std::array<C, ChunkSize>>(chunks_[ci])[ei];
+      const auto [chunk_ndx, element_ndx] = chunk_coords(ndx);
+      auto& comp = std::get<std::array<C, ChunkSize>>(chunks_[chunk_ndx])[element_ndx];
       if (pred(comp, ids_[ndx])) {
         const auto removed_id = ids_[ndx];
         do_swap_and_pop(ndx);
@@ -471,21 +465,26 @@ public:
   }
 
 private:
+  // Decompose a flat logical index into a (chunk_index, element_index) pair.
+  static constexpr std::pair<std::size_t, std::size_t> chunk_coords(
+      size_type ndx) noexcept {
+    const auto n = static_cast<std::size_t>(ndx);
+    return {n / ChunkSize, n % ChunkSize};
+  }
+
   // Swap the elements (all component slots and the ID) at two logical indices.
   void do_swap_elements(size_type left_ndx, size_type right_ndx) noexcept {
-    const auto lci = static_cast<std::size_t>(left_ndx) / ChunkSize;
-    const auto lei = static_cast<std::size_t>(left_ndx) % ChunkSize;
-    const auto rci = static_cast<std::size_t>(right_ndx) / ChunkSize;
-    const auto rei = static_cast<std::size_t>(right_ndx) % ChunkSize;
-    (std::swap(std::get<std::array<Cs, ChunkSize>>(chunks_[lci])[lei],
-         std::get<std::array<Cs, ChunkSize>>(chunks_[rci])[rei]),
+    const auto [left_chunk_ndx, left_element_ndx] = chunk_coords(left_ndx);
+    const auto [right_chunk_ndx, right_element_ndx] = chunk_coords(right_ndx);
+    (std::swap(std::get<std::array<Cs, ChunkSize>>(chunks_[left_chunk_ndx])[left_element_ndx],
+         std::get<std::array<Cs, ChunkSize>>(chunks_[right_chunk_ndx])[right_element_ndx]),
         ...);
     std::swap(ids_[left_ndx], ids_[right_ndx]);
   }
 
   // Swap element at `ndx` with the last element, pop the last slot, and drop
-  // the last chunk if it is now empty.  Updates the displaced entity's registry
-  // location.
+  // the last chunk if it is now empty.  Updates the displaced entity's
+  // registry location.
   void do_swap_and_pop(size_type ndx) {
     const auto last = size() - 1;
     if (ndx != last) {
