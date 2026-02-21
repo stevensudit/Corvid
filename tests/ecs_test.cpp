@@ -524,6 +524,47 @@ void ArchetypeStorage_RowAccess() {
     EXPECT_EQ(a[0U].id(), id0);
     EXPECT_EQ(a[1U].id(), id1);
   }
+
+  // row_lens is copy-constructible; copy shares view into same data.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(a.add(id0, 42, 1.0f));
+    auto row = a[0U];
+    auto copy = row; // copy construction
+    EXPECT_EQ(copy.index(), 0U);
+    EXPECT_EQ(copy.id(), id0);
+    EXPECT_EQ(copy.component<int>(), 42);
+    copy.component<int>() = 99;
+    EXPECT_EQ(row.component<int>(), 99); // same underlying data
+  }
+
+  // row_lens is move-constructible.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(a.add(id0, 7, 2.0f));
+    auto row = a[0U];
+    auto moved = std::move(row);
+    EXPECT_EQ(moved.index(), 0U);
+    EXPECT_EQ(moved.component<int>(), 7);
+  }
+
+  // row_view is copy-constructible; copy shares view into same data.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(a.add(id0, 55, 3.0f));
+    const auto& ca = a;
+    auto row = ca[0U];
+    auto copy = row; // copy construction
+    EXPECT_EQ(copy.index(), 0U);
+    EXPECT_EQ(copy.id(), id0);
+    EXPECT_EQ(copy.component<int>(), 55);
+  }
 }
 
 void ArchetypeStorage_ComponentAccess() {
@@ -534,7 +575,7 @@ void ArchetypeStorage_ComponentAccess() {
   const auto sid = store_id_t{1};
   const loc_t staging{store_id_t{}};
 
-  // get_component_span<C>() returns a mutable span over the component data.
+  // component<C>() on row_lens gives mutable access to each row's value.
   if (true) {
     reg_t r;
     arch_t a{r, sid};
@@ -542,83 +583,59 @@ void ArchetypeStorage_ComponentAccess() {
     auto id1 = r.create_id(staging, 20);
     EXPECT_TRUE(a.add(id0, 1, 1.0f));
     EXPECT_TRUE(a.add(id1, 2, 2.0f));
-    auto s = a.get_component_span<int>();
-    EXPECT_EQ(s.size(), 2U);
-    EXPECT_EQ(s[0], 1);
-    EXPECT_EQ(s[1], 2);
-    s[0] = 99; // mutable via span
+    EXPECT_EQ(a.size(), 2U);
+    EXPECT_EQ(a[0U].component<int>(), 1);
+    EXPECT_EQ(a[1U].component<int>(), 2);
+    a[0U].component<int>() = 99;
     EXPECT_EQ(a[0U].component<int>(), 99);
   }
 
-  // get_component_span<C>() on const returns const span.
+  // component<C>() on row_view gives const access.
   if (true) {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     EXPECT_TRUE(a.add(id0, 42, 5.0f));
     const auto& ca = a;
-    auto s = ca.get_component_span<float>();
-    EXPECT_EQ(s.size(), 1U);
-    EXPECT_EQ(s[0], 5.0f);
+    EXPECT_EQ(ca.size(), 1U);
+    EXPECT_EQ(ca[0U].component<float>(), 5.0f);
   }
 
-  // get_component_span<Index>() access by index, mutable.
+  // component<Index>() access by index, mutable and const.
   if (true) {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     EXPECT_TRUE(a.add(id0, 7, 4.0f));
-    auto s0 = a.get_component_span<0>();
-    auto s1 = a.get_component_span<1>();
-    EXPECT_EQ(s0[0], 7);
-    EXPECT_EQ(s1[0], 4.0f);
+    EXPECT_EQ(a[0U].component<0>(), 7);
+    EXPECT_EQ(a[0U].component<1>(), 4.0f);
+    a[0U].component<0>() = 77;
+    EXPECT_EQ(a[0U].component<0>(), 77);
   }
 
-  // get_component_vector<C>() returns const vector reference.
-  if (true) {
-    reg_t r;
-    arch_t a{r, sid};
-    auto id0 = r.create_id(staging, 10);
-    EXPECT_TRUE(a.add(id0, 11, 1.1f));
-    const auto& vec = a.get_component_vector<int>();
-    EXPECT_EQ(vec.size(), 1U);
-    EXPECT_EQ(vec[0], 11);
-  }
-
-  // get_component_vector<Index>() const by index.
-  if (true) {
-    reg_t r;
-    arch_t a{r, sid};
-    auto id0 = r.create_id(staging, 10);
-    EXPECT_TRUE(a.add(id0, 5, 6.0f));
-    const auto& vec = a.get_component_vector<1>();
-    EXPECT_EQ(vec.size(), 1U);
-    EXPECT_EQ(vec[0], 6.0f);
-  }
-
-  // get_component_spans_tuple() returns tuple of mutable spans.
+  // components() returns tuple of mutable references.
   if (true) {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     EXPECT_TRUE(a.add(id0, 3, 3.0f));
-    auto [si, sf] = a.get_component_spans_tuple();
-    EXPECT_EQ(si[0], 3);
-    EXPECT_EQ(sf[0], 3.0f);
-    si[0] = 33;
+    auto [i, f] = a[0U].components();
+    EXPECT_EQ(i, 3);
+    EXPECT_EQ(f, 3.0f);
+    i = 33;
     EXPECT_EQ(a[0U].component<int>(), 33);
   }
 
-  // get_component_spans_tuple() const.
+  // components() on const row_view returns tuple of const references.
   if (true) {
     reg_t r;
     arch_t a{r, sid};
     auto id0 = r.create_id(staging, 10);
     EXPECT_TRUE(a.add(id0, 6, 6.0f));
     const auto& ca = a;
-    auto [si, sf] = ca.get_component_spans_tuple();
-    EXPECT_EQ(si[0], 6);
-    EXPECT_EQ(sf[0], 6.0f);
+    auto [i, f] = ca[0U].components();
+    EXPECT_EQ(i, 6);
+    EXPECT_EQ(f, 6.0f);
   }
 }
 
@@ -749,6 +766,210 @@ void ArchetypeStorage_SwapAndMove() {
     EXPECT_EQ(b.size(), 1U);
     EXPECT_EQ(b.store_id(), sid1);
     EXPECT_EQ(b[0U].component<int>(), 7);
+  }
+}
+
+void ArchetypeStorage_Iterator() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using loc_t = reg_t::location_t;
+  using arch_t = archetype_storage<reg_t, std::tuple<int, float>>;
+  const auto sid = store_id_t{1};
+  const loc_t staging{store_id_t{}};
+
+  // Range-based for over mutable archetype yields row_lens per row.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    auto id2 = r.create_id(staging, 30);
+    EXPECT_TRUE(a.add(id0, 1, 1.0f));
+    EXPECT_TRUE(a.add(id1, 2, 2.0f));
+    EXPECT_TRUE(a.add(id2, 3, 3.0f));
+    int sum = 0;
+    for (auto row : a) sum += row.component<int>();
+    EXPECT_EQ(sum, 6);
+  }
+
+  // Range-based for over const archetype yields row_view per row.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(a.add(id0, 10, 1.0f));
+    EXPECT_TRUE(a.add(id1, 20, 2.0f));
+    const auto& ca = a;
+    float fsum = 0.0f;
+    for (const auto& row : ca) fsum += row.component<float>();
+    EXPECT_EQ(fsum, 3.0f);
+  }
+
+  // Mutating components via iterator is reflected in storage.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(a.add(id0, 1, 0.0f));
+    EXPECT_TRUE(a.add(id1, 2, 0.0f));
+    for (auto row : a) row.component<int>() *= 10;
+    EXPECT_EQ(a[0U].component<int>(), 10);
+    EXPECT_EQ(a[1U].component<int>(), 20);
+  }
+
+  // Iterator exposes id() matching the entity at that row.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(a.add(id0, 0, 0.0f));
+    EXPECT_TRUE(a.add(id1, 0, 0.0f));
+    auto it = a.begin();
+    EXPECT_EQ(it->id(), id0);
+    ++it;
+    EXPECT_EQ(it->id(), id1);
+    ++it;
+    EXPECT_TRUE(it == a.end());
+  }
+
+  // Bidirectional: operator-- steps back correctly.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(a.add(id0, 5, 0.0f));
+    EXPECT_TRUE(a.add(id1, 6, 0.0f));
+    auto it = a.end();
+    --it;
+    EXPECT_EQ((*it).component<int>(), 6);
+    --it;
+    EXPECT_EQ((*it).component<int>(), 5);
+    EXPECT_TRUE(it == a.begin());
+  }
+
+  // Empty archetype: begin() == end().
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    EXPECT_TRUE(a.begin() == a.end());
+    const auto& ca = a;
+    EXPECT_TRUE(ca.begin() == ca.end());
+  }
+}
+
+void ArchetypeStorage_EraseIf() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using loc_t = reg_t::location_t;
+  using arch_t = archetype_storage<reg_t, std::tuple<int, float>>;
+  const auto sid = store_id_t{1};
+  const loc_t staging{store_id_t{}};
+
+  // erase_if with pred always false: nothing removed.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(a.add(id0, 1, 1.0f));
+    EXPECT_TRUE(a.add(id1, 2, 2.0f));
+    auto cnt = a.erase_if([](const auto&) { return false; });
+    EXPECT_EQ(cnt, 0U);
+    EXPECT_EQ(a.size(), 2U);
+    EXPECT_TRUE(r.is_valid(id0));
+    EXPECT_TRUE(r.is_valid(id1));
+  }
+
+  // erase_if removes all entities when pred always returns true.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(a.add(id0, 1, 1.0f));
+    EXPECT_TRUE(a.add(id1, 2, 2.0f));
+    auto cnt = a.erase_if([](const auto&) { return true; });
+    EXPECT_EQ(cnt, 2U);
+    EXPECT_EQ(a.size(), 0U);
+    EXPECT_FALSE(r.is_valid(id0));
+    EXPECT_FALSE(r.is_valid(id1));
+  }
+
+  // erase_if removes matching entities; displaced entity keeps correct location.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    auto id2 = r.create_id(staging, 30);
+    EXPECT_TRUE(a.add(id0, 11, 1.0f));
+    EXPECT_TRUE(a.add(id1, 22, 2.0f));
+    EXPECT_TRUE(a.add(id2, 33, 3.0f));
+    // Erase entities whose int component is odd.
+    auto cnt = a.erase_if(
+        [](const auto& row) { return row.template component<int>() % 2 != 0; });
+    EXPECT_EQ(cnt, 2U);
+    EXPECT_EQ(a.size(), 1U);
+    EXPECT_FALSE(r.is_valid(id0));   // 11 is odd; erased
+    EXPECT_TRUE(r.is_valid(id1));    // 22 is even; kept
+    EXPECT_FALSE(r.is_valid(id2));   // 33 is odd; erased
+    EXPECT_EQ(a[0U].id(), id1);
+    EXPECT_EQ(a[0U].component<int>(), 22);
+    EXPECT_EQ(r.get_location(id1).store_id, sid);
+    EXPECT_EQ(r.get_location(id1).ndx, 0U);
+  }
+
+  // erase_if on a single element storage.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(a.add(id0, 1, 1.0f));
+    auto cnt = a.erase_if([](const auto&) { return true; });
+    EXPECT_EQ(cnt, 1U);
+    EXPECT_EQ(a.size(), 0U);
+    EXPECT_FALSE(r.is_valid(id0));
+  }
+
+  // erase_if_component<C> removes by component value predicate.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    auto id2 = r.create_id(staging, 30);
+    EXPECT_TRUE(a.add(id0, 10, 1.0f));
+    EXPECT_TRUE(a.add(id1, 20, 2.0f));
+    EXPECT_TRUE(a.add(id2, 30, 3.0f));
+    auto cnt = a.erase_if_component<int>(
+        [](int val, auto) { return val > 15; });
+    EXPECT_EQ(cnt, 2U);
+    EXPECT_EQ(a.size(), 1U);
+    EXPECT_TRUE(r.is_valid(id0));
+    EXPECT_FALSE(r.is_valid(id1));
+    EXPECT_FALSE(r.is_valid(id2));
+    EXPECT_EQ(a[0U].component<int>(), 10);
+  }
+
+  // erase_if_component<Index> removes by component index predicate.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(a.add(id0, 5, 1.0f));
+    EXPECT_TRUE(a.add(id1, 5, 9.0f));
+    // Component at index 1 is float; erase where float > 5.
+    auto cnt = a.erase_if_component<1>(
+        [](float val, auto) { return val > 5.0f; });
+    EXPECT_EQ(cnt, 1U);
+    EXPECT_EQ(a.size(), 1U);
+    EXPECT_TRUE(r.is_valid(id0));
+    EXPECT_FALSE(r.is_valid(id1));
   }
 }
 
@@ -4285,7 +4506,9 @@ void ComponentStorage_Iterator() {
 MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ArchetypeStorage_Add, ArchetypeStorage_Remove, ArchetypeStorage_Erase,
     ArchetypeStorage_RowAccess, ArchetypeStorage_ComponentAccess,
-    ArchetypeStorage_Limit, ArchetypeStorage_SwapAndMove, StableId_Basic, StableId_SmallId,
+    ArchetypeStorage_Limit, ArchetypeStorage_SwapAndMove, ArchetypeStorage_Iterator,
+    ArchetypeStorage_EraseIf,
+    StableId_Basic, StableId_SmallId,
     StableId_NoThrow, StableId_Fifo, StableId_NoGen, StableId_FifoNoGen,
     StableId_MaxId, EntityRegistry_Basic, EntityRegistry_Handle,
     EntityRegistry_Fifo, EntityRegistry_Clear, EntityRegistry_Reserve,

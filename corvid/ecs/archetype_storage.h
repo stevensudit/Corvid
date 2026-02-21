@@ -130,22 +130,22 @@ public:
     template<typename C>
     requires(writeable_v)
     [[nodiscard]] C& component() noexcept {
-      return owner_->template get_component_span<C>()[ndx_];
+      return std::get<component_vector_t<C>>(owner_->components_)[ndx_];
     }
     template<typename C>
     [[nodiscard]] const C& component() const noexcept {
-      return owner_->template get_component_span<C>()[ndx_];
+      return std::get<component_vector_t<C>>(owner_->components_)[ndx_];
     }
 
     // Access component by index.
     template<std::size_t Index>
     requires(writeable_v)
     [[nodiscard]] auto& component() noexcept {
-      return owner_->template get_component_span<Index>()[ndx_];
+      return std::get<Index>(owner_->components_)[ndx_];
     }
     template<std::size_t Index>
     [[nodiscard]] const auto& component() const noexcept {
-      return owner_->template get_component_span<Index>()[ndx_];
+      return std::get<Index>(owner_->components_)[ndx_];
     }
 
     // Access all components as a tuple of mutable values.
@@ -156,7 +156,7 @@ public:
           [&](auto&&... vecs) {
             return std::tuple<decltype(vecs[ndx_])&...>{vecs[ndx_]...};
           },
-          owner_->get_component_spans_tuple());
+          owner_->components_);
     }
 
     // Access all components as a tuple of const values.
@@ -167,7 +167,7 @@ public:
                 const std::remove_reference_t<decltype(vecs[ndx_])>&...>{
                 vecs[ndx_]...};
           },
-          owner_->get_component_spans_tuple());
+          owner_->components_);
     }
 
   private:
@@ -240,7 +240,7 @@ public:
     }
 
   private:
-    value_type row_{};
+    mutable value_type row_{};
 
     explicit row_iterator(owner_t& owner, size_type ndx) : row_{owner, ndx} {}
     friend class archetype_storage;
@@ -389,8 +389,9 @@ public:
     for (size_type ndx{}; ndx < ids_.size();) {
       row.ndx_ = ndx;
       if (pred(row)) {
+        const auto removed_id = ids_[ndx];
         do_swap_and_pop(ndx);
-        registry_->set_location(ids_[ndx], {store_id_t::invalid});
+        registry_->set_location(removed_id, {store_id_t::invalid});
         ++cnt;
       } else
         ++ndx;
@@ -453,42 +454,20 @@ public:
     return row_view{*this, ndx};
   }
 
-  // Access.
-
-  // Get span of component specified by type.
-  template<typename C>
-  [[nodiscard]] auto get_component_span(this auto& self) noexcept {
-    auto& vec = std::get<component_vector_t<C>>(self.components_);
-    return std::span{vec.data(), vec.size()};
+  // Iterators.
+  [[nodiscard]] iterator begin() noexcept { return iterator{*this, 0}; }
+  [[nodiscard]] iterator end() noexcept { return iterator{*this, size()}; }
+  [[nodiscard]] const_iterator begin() const noexcept {
+    return const_iterator{*this, 0};
   }
-
-  // Get span of component specified by index.
-  template<std::size_t Index>
-  [[nodiscard]] auto get_component_span(this auto& self) noexcept {
-    auto& vec = std::get<Index>(self.components_);
-    return std::span{vec.data(), vec.size()};
+  [[nodiscard]] const_iterator end() const noexcept {
+    return const_iterator{*this, size()};
   }
-
-  // Get vector of component specified by type.
-  template<typename C>
-  [[nodiscard]] const component_vector_t<C>&
-  get_component_vector() const noexcept {
-    return std::get<component_vector_t<C>>(components_);
+  [[nodiscard]] const_iterator cbegin() const noexcept {
+    return const_iterator{*this, 0};
   }
-
-  // Get vector of component specified by index.
-  template<std::size_t Index>
-  [[nodiscard]] const auto& get_component_vector() const noexcept {
-    return std::get<Index>(components_);
-  }
-
-  // Get tuple of spans for all components.
-  [[nodiscard]] auto get_component_spans_tuple(this auto& self) noexcept {
-    return std::apply(
-        [&](auto&... vecs) {
-          return std::tuple{std::span{vecs.data(), vecs.size()}...};
-        },
-        self.components_);
+  [[nodiscard]] const_iterator cend() const noexcept {
+    return const_iterator{*this, size()};
   }
 
 private:
@@ -538,21 +517,6 @@ private:
         ++ndx;
     }
     return cnt;
-  }
-
-  [[nodiscard]] iterator begin() noexcept { return iterator{*this, 0}; }
-  [[nodiscard]] iterator end() noexcept { return iterator{*this, size()}; }
-  [[nodiscard]] const_iterator begin() const noexcept {
-    return const_iterator{*this, 0};
-  }
-  [[nodiscard]] const_iterator end() const noexcept {
-    return const_iterator{*this, size()};
-  }
-  [[nodiscard]] const_iterator cbegin() const noexcept {
-    return const_iterator{*this, 0};
-  }
-  [[nodiscard]] const_iterator cend() const noexcept {
-    return const_iterator{*this, size()};
   }
 
 private:
