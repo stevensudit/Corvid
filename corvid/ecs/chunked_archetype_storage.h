@@ -163,23 +163,29 @@ public:
     requires(writeable_v)
     {
       const auto [chunk_ndx, element_ndx] = owner_t::chunk_coords(ndx_);
+      // This is a false positive.
+      // NOLINTBEGIN(clang-analyzer-core.NullDereference)
       return std::apply(
           [&](auto&&... arrs) {
             return std::tuple<decltype(arrs[element_ndx])&...>{
                 arrs[element_ndx]...};
           },
           owner_->chunks_[chunk_ndx]);
+      // NOLINTEND(clang-analyzer-core.NullDereference)
     }
 
     // Access all components as a tuple of const references.
     [[nodiscard]] auto components() const noexcept {
       const auto [chunk_ndx, element_ndx] = owner_t::chunk_coords(ndx_);
+      // This is a false positive.
+      // NOLINTBEGIN(clang-analyzer-core.NullDereference)
       return std::apply(
           [&](auto&&... arrs) {
             return std::tuple<const std::remove_reference_t<
                 decltype(arrs[element_ndx])>&...>{arrs[element_ndx]...};
           },
           owner_->chunks_[chunk_ndx]);
+      // NOLINTEND(clang-analyzer-core.NullDereference)
     }
 
   private:
