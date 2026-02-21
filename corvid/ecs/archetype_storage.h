@@ -388,11 +388,11 @@ public:
     return erase_if_component<C>(std::move(pred));
   }
 
-  // Erase entities for which `pred(row_view)` returns true.
-  // Returns count erased.
+  // Erase entities for which `pred(row_view)` returns true. Returns count
+  // erased.
   size_type erase_if(auto pred) {
     size_type cnt = 0;
-    row_view row{*this, size_type{}};
+    row_view row{*this, {}};
     for (size_type ndx{}; ndx < ids_.size();) {
       row.ndx_ = ndx;
       if (pred(row)) {
@@ -406,23 +406,23 @@ public:
     return cnt;
   }
 
-  // Remove all entities. Entities are removed from the registry.
+  // Erase all entities from the registry.
   void clear() { do_remove_all(store_id_t::invalid); }
 
-  // Check whether an entity has an archetype in this storage, by ID.
+  // Check whether an entity is in this storage, by ID.
   [[nodiscard]] bool contains(id_t id) const {
     if (!registry_->is_valid(id)) return false;
     const auto loc = registry_->get_location(id);
     return loc.store_id == store_id_;
   }
 
-  // Check whether an entity has an archetype in this storage, by handle.
+  // Check whether an entity is in this storage, by handle.
   [[nodiscard]] bool contains(handle_t handle) const {
     if (!registry_->is_valid(handle)) return false;
     return contains(handle.id());
   }
 
-  // Return the number of elements in this storage.
+  // Return the number of entities in this storage.
   [[nodiscard]] size_type size() const noexcept {
     return static_cast<size_type>(std::get<0>(components_).size());
   }
@@ -486,8 +486,8 @@ private:
     std::swap(ids_[left_ndx], ids_[right_ndx]);
   }
 
-  // Swap element at `ndx` with the last element and pop. Updates the swapped
-  // entity's ndx in the registry.
+  // Swap element at `ndx` with the last element and pop. Updates the displaced
+  // entity's registry location.
   void do_swap_and_pop(size_type ndx) {
     const auto last = size() - 1;
     if (ndx != last) {
@@ -511,8 +511,6 @@ private:
     ids_.clear();
   }
 
-
-private:
   static std::tuple<component_vector_t<Cs>...> make_components(
       const allocator_type& alloc) {
     return std::tuple<component_vector_t<Cs>...>{
@@ -524,6 +522,7 @@ private:
     std::apply([&](auto&... vecs) { (f(vecs), ...); }, components_);
   }
 
+private:
   // SoA storage: a tuple of vectors, one per component type.
   std::tuple<component_vector_t<Cs>...> components_{};
 
@@ -537,5 +536,4 @@ private:
 };
 }}} // namespace corvid::ecs::archetype_storages
 
-// TODO: Test how well it fits into stable_ids. We'll at least need to offer a
-// way to detect swap_elements and make use of it.
+// TODO: Consider whether we want remove_if* methods.

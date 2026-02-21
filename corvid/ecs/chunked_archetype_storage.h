@@ -362,8 +362,8 @@ public:
     return do_remove_erase(handle.id(), store_id_t::invalid);
   }
 
-  // Erase entities for which `pred(component, id)` returns true, selected by
-  // component type. Returns count erased.
+  // Erase entities for which `pred(component, id)` returns true for the
+  // selected component type. Returns count erased.
   template<typename C>
   size_type erase_if_component(auto pred) {
     size_type cnt = 0;
@@ -381,8 +381,8 @@ public:
     return cnt;
   }
 
-  // Erase entities for which `pred(component, id)` returns true, selected by
-  // component index. Returns count erased.
+  // Erase entities for which `pred(component, id)` returns true for the
+  // selected component index. Returns count erased.
   template<std::size_t Index>
   size_type erase_if_component(auto pred) {
     using C = std::tuple_element_t<Index, tuple_t>;
@@ -393,7 +393,7 @@ public:
   // erased.
   size_type erase_if(auto pred) {
     size_type cnt = 0;
-    row_view row{*this, size_type{}};
+    row_view row{*this, {}};
     for (size_type ndx{}; ndx < ids_.size();) {
       row.ndx_ = ndx;
       if (pred(row)) {
@@ -444,8 +444,7 @@ public:
   // Return current entity capacity (min of chunk capacity in entities and
   // ids_ capacity).
   [[nodiscard]] size_type capacity() const noexcept {
-    return static_cast<size_type>(
-        std::min(chunks_.capacity() * ChunkSize, ids_.capacity()));
+    return static_cast<size_type>(ids_.capacity());
   }
 
   // Index.
