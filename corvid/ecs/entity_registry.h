@@ -32,6 +32,8 @@
 
 namespace corvid { inline namespace ecs { inline namespace entity_registries {
 
+// Entity Component System: Entity Registry
+//
 // The entity registry owns IDs for entities of a particular entity type in the
 // ECS system and tracks their location and metadata. Entities of different
 // types would be stored in instances specialized on different ID types.
@@ -41,7 +43,7 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 // FIFO order to maximize the time before an ID is recycled.
 //
 // Entity records are not guaranteed to remain at fixed memory locations unless
-// you set a limit and reserve space for that many entities up front. In that
+// you set a limit and reserve space for that many entities up front. In this
 // case, you may be able to avoid locking a mutex when looking up records that
 // nobody else will be changing.
 //
@@ -135,6 +137,11 @@ public:
 
     [[nodiscard]] id_t id() const { return id_; }
 
+    // True if the handle holds a valid (non-invalid) ID.
+    [[nodiscard]] explicit operator bool() const noexcept {
+      return id_ != id_t::invalid;
+    }
+
     // Note: While equality/inequality is guaranteed, the precise value is not.
     // As a result, you should not be checking for specific generation values,
     // and should probably not call this method at all.
@@ -215,7 +222,8 @@ public:
   // Maximum allowed ID value.
   //
   // Insertion fails when this limit is reached. Defaults to `id_t::invalid`
-  // (the maximum representable value).
+  // (the maximum representable value). Note that the limit is exclusive, so
+  // the maximum valid ID is `id_t{id_limit() - 1}`.
   [[nodiscard]] id_t id_limit() const noexcept { return id_limit_; }
 
   // Set a new ID limit. Returns true on success, false if the limit would
@@ -400,7 +408,9 @@ public:
   [[nodiscard]] size_type size() const noexcept { return living_count_; }
 
   // Return maximum valid ID, or `id_t::invalid` if empty. This is the
-  // high-water mark, not the highest extant ID.
+  // high-water mark, not the highest extant ID. (Note that underflow of the
+  // unsigned underlying type is well-defined, so we know that
+  // `id_t{size_type{0} - 1}` is `id_t::invalid`.)
   [[nodiscard]] id_t max_id() const noexcept {
     return id_t{records_.size() - 1};
   }
@@ -460,11 +470,94 @@ public:
     }
   }
 
+  // RAII owner for an entity ID handle. Erases the entity on destruction
+  // unless ownership is released first.
+  class handle_owner {
+  public:
+    handle_owner() noexcept = default;
+
+    // Take ownership of an existing handle.
+    handle_owner(entity_registry& reg, handle_t handle) noexcept
+        : registry_{&reg}, handle_{handle} {
+      if (!reg.is_valid(handle_)) handle_ = handle_t{};
+    }
+
+    // Create a new entity and take ownership of it. Check `operator bool` or
+    // `id()` afterward to detect allocation failure.
+    //
+    // Prefer calling `make_owner` instead.
+    handle_owner(entity_registry& reg, location_t location,
+        const metadata_t& metadata = {})
+        : registry_{&reg}, handle_{reg.create_handle(location, metadata)} {}
+
+    handle_owner(const handle_owner&) = delete;
+    handle_owner& operator=(const handle_owner&) = delete;
+
+    handle_owner(handle_owner&& other) noexcept
+        : registry_{std::exchange(other.registry_, nullptr)},
+          handle_{std::exchange(other.handle_, handle_t{})} {}
+
+    handle_owner& operator=(handle_owner&& other) noexcept {
+      if (this != &other) {
+        reset();
+        registry_ = std::exchange(other.registry_, nullptr);
+        handle_ = std::exchange(other.handle_, handle_t{});
+      }
+      return *this;
+    }
+
+    ~handle_owner() { reset(); }
+
+    // Get the owned ID.
+    [[nodiscard]] id_t id() const noexcept { return handle_.id(); }
+
+    // Get the owned handle.
+    [[nodiscard]] const handle_t& handle() const noexcept { return handle_; }
+
+    // True if holding a valid ID.
+    [[nodiscard]] explicit operator bool() const noexcept {
+      return handle_.id() != id_t::invalid;
+    }
+
+    // Release ownership without erasing. Returns the handle.
+    [[nodiscard]] handle_t release() noexcept {
+      return std::exchange(handle_, handle_t{});
+    }
+
+    // Erase the owned entity (if any) and reset to empty.
+    void reset() noexcept {
+      if (handle_.id() != id_t::invalid) registry_->erase(handle_);
+      handle_ = handle_t{};
+    }
+
+    // Get the registry.
+    [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
+      return *self.registry_;
+    }
+
+  private:
+    entity_registry* registry_{};
+    handle_t handle_{};
+  };
+
+  // Create a new owner for a newly created entity.
+  [[nodiscard]] handle_owner
+  create_owner(location_t location, const metadata_t& metadata = {}) {
+    return handle_owner{*this, location, metadata};
+  }
+
+  // Backward-compatible alias.
+  [[nodiscard]] handle_owner
+  make_owner(location_t location, const metadata_t& metadata = {}) {
+    return create_owner(location, metadata);
+  }
+
 private:
   // Allocate a new ID.
   // Caller is obligated to make the record valid.
   id_t alloc_id() {
     assert(living_count_ <= records_.size());
+    assert(records_.size() <= *id_limit_);
     // If we're at the limit, can't allocate more.
     if (living_count_ >= *id_limit_) return id_t::invalid;
 

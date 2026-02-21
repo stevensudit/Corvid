@@ -40,15 +40,20 @@ namespace corvid { inline namespace ecs { inline namespace component_storages {
 // is not enforced within this class), and it must not be
 // `store_id_t::invalid` or `store_id_t{0}`.
 //
+// The `Registry` template parameter provides `id_t`, `size_type`,
+// `store_id_t`, `location_t`. An `ids_` vector in parallel with the component
+// vectors tracks which entity occupies each row, enabling O(1) lookup of
+// entity IDs and allowing swap-and-pop to update the registry so the displaced
+// entity knows its new index.
+//
 // Note that this class stores IDs instead of handles because it already owns
 // the entities, so any checks would be redundant. We still check the validity
 // of handles passed to us.
 //
 // Template parameters:
+//  Registry - `entity_registry` instantiation. Provides types.
 //  C        - Component type. Must be trivially copyable.
-//  Registry - `entity_registry` instantiation. Provides id_t, store_id_t,
-//             size_type, location_t, and handle_t.
-template<typename C, typename Registry>
+template<typename Registry, typename C>
 class component_storage {
 public:
   using component_t = C;
@@ -113,8 +118,8 @@ public:
     ids_.swap(other.ids_);
   }
 
-  friend void swap(component_storage& a, component_storage& b) noexcept {
-    a.swap(b);
+  friend void swap(component_storage& lhs, component_storage& rhs) noexcept {
+    lhs.swap(rhs);
   }
 
   // Maximum number of components allowed in this storage.
@@ -137,26 +142,26 @@ public:
     ids_.shrink_to_fit();
   }
 
-  // Add a component for a new entity, returning the new entity's ID or
-  // `id_t::invalid` on failure.
-  id_t add_new(const C& component, const metadata_t& metadata = {}) {
-    auto id = registry_->create_id(location_t{store_id_t{}}, metadata);
-    if (id == id_t::invalid) return id_t::invalid;
-    if (!add(id, component)) {
-      registry_->erase(id);
-      return id_t::invalid;
-    }
-    return id;
+  // Add a component for a new entity, returning its handle or an invalid
+  // handle on failure.
+  [[nodiscard]] handle_t
+  add_new(const C& component, const metadata_t& metadata = {}) {
+    auto owner = registry_->create_owner(location_t{store_id_t{}}, metadata);
+    if (!owner || !add(owner.id(), component)) return {};
+    return owner.release();
   }
 
   // Add a component for an entity. Returns success flag.
   //
-  // See comment for `add(handle_t, const C&)`.
+  // ID must be valid. See comment for `add(handle_t, const C&)`.
   [[nodiscard]] bool add(id_t id, const C& component) {
     const auto& loc = registry_->get_location(id);
     if (loc.store_id != store_id_t{}) return false;
-    const auto ndx = components_.size();
+    const auto ndx = ids_.size();
     if (ndx >= limit_) return false;
+    // Reserve in advance in case of memory allocation failure.
+    components_.reserve(components_.size() + 1);
+    ids_.reserve(ids_.size() + 1);
     components_.push_back(component);
     ids_.push_back(id);
     registry_->set_location(id, {store_id_, ndx});
@@ -278,17 +283,24 @@ public:
   // `id()` returns the entity ID at the current position.
   template<bool IsConst>
   class iterator_t {
-    using storage_ptr = std::conditional_t<IsConst, const component_storage*,
-        component_storage*>;
-
   public:
-    using iterator_category = std::random_access_iterator_tag;
+    static constexpr bool writeable_v = !IsConst;
+    using iterator_category = std::contiguous_iterator_tag;
+    using iterator_concept = std::contiguous_iterator_tag;
     using value_type = C;
     using difference_type = std::ptrdiff_t;
-    using reference = std::conditional_t<IsConst, const C&, C&>;
-    using pointer = std::conditional_t<IsConst, const C*, C*>;
+    using reference =
+        std::conditional_t<writeable_v, value_type&, const value_type&>;
+    using pointer =
+        std::conditional_t<writeable_v, value_type*, const value_type*>;
+    using storage_ptr = std::conditional_t<writeable_v, component_storage*,
+        const component_storage*>;
 
     iterator_t() = default;
+    iterator_t(const iterator_t&) = default;
+    iterator_t(iterator_t&&) = default;
+    iterator_t& operator=(const iterator_t&) = default;
+    iterator_t& operator=(iterator_t&&) = default;
 
     [[nodiscard]] reference operator*() const {
       return storage_->components_[ndx_];
@@ -296,6 +308,7 @@ public:
     [[nodiscard]] pointer operator->() const {
       return &storage_->components_[ndx_];
     }
+
     [[nodiscard]] id_t id() const { return storage_->ids_[ndx_]; }
 
     iterator_t& operator++() {
@@ -337,6 +350,7 @@ public:
       return static_cast<difference_type>(ndx_) -
              static_cast<difference_type>(o.ndx_);
     }
+
     [[nodiscard]] reference operator[](difference_type n) const {
       return storage_->components_[ndx_ + n];
     }
@@ -346,7 +360,9 @@ public:
       return it + n;
     }
 
-    [[nodiscard]] bool operator==(const iterator_t& o) const = default;
+    [[nodiscard]] bool operator==(const iterator_t& o) const {
+      return ndx_ == o.ndx_;
+    };
     [[nodiscard]] auto operator<=>(const iterator_t& o) const {
       return ndx_ <=> o.ndx_;
     }
