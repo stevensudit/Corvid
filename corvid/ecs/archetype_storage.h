@@ -41,6 +41,9 @@ namespace corvid { inline namespace ecs { inline namespace archetype_storages {
 // entity's index in this class's vectors, enabling O(1) access by entity ID
 // while centralizing the management of these IDs.
 //
+// Physical layout:
+//   std::tuple< std::vector<C0>, std::vector<C1>, ... >
+//
 // An archetype is a storage unit defined by a fixed set of component types,
 // where each component type is stored in its own dense array and rows across
 // those arrays correspond to entities. Each component type is represented as a

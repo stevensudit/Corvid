@@ -48,6 +48,11 @@ inline namespace chunked_archetype_storages {
 // When K is a power of two the compiler reduces both to a shift and a mask,
 // which is why ChunkSize is required to be a positive power of two.
 //
+// An archetype is a storage unit defined by a fixed set of component types,
+// where each component type is stored densely in arrays and rows across those
+// arrays correspond to entities. Each component type is represented as a POD
+// struct, usually containing floats, IDs, or small fixed-size arrays.
+//
 // The public interface is identical to `archetype_storage` so the two can be
 // used interchangeably.
 //
