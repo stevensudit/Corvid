@@ -240,29 +240,44 @@ auto inline stream_to_text(const auto& v) {
 #define EXPECT_THROW(call, exc) TEST_EXCEPTION((void)(call), exc)
 
 #if defined(__GNUC__) || defined(__clang__)
-// Supports 0-50 arguments
-#define VA_NARGS_IMPL(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12,  \
-    _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26,     \
-    _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40,     \
-    _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, N, ...)                 \
+// Supports 0-99 arguments
+#define VA_NARGS_IMPL(_0,                                                       \
+    _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16,   \
+    _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30,     \
+    _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44,     \
+    _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58,     \
+    _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72,     \
+    _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86,     \
+    _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, N, ...)  \
   N
-// ## deletes preceding comma if _VA_ARGS__ is empty (GCC, Clang)
-#define VA_NARGS(...)                                                         \
-  VA_NARGS_IMPL(_, ##__VA_ARGS__, 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40, \
-      39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, \
-      21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, \
-      1, 0)
+// ## deletes preceding comma if __VA_ARGS__ is empty (GCC, Clang)
+#define VA_NARGS(...)                                                           \
+  VA_NARGS_IMPL(_, ##__VA_ARGS__,                                               \
+      99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, \
+      81, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68, 67, 66, 65, 64, \
+      63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48, 47, 46, \
+      45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, \
+      27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, \
+      9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
 #else
-// Supports 1-50 arguments
-#define VA_NARGS_IMPL(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, \
-    _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27,     \
-    _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41,     \
-    _42, _43, _44, _45, _46, _47, _48, _49, _50, N, ...)                      \
+// Supports 1-99 arguments
+#define VA_NARGS_IMPL(                                                          \
+    _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16,   \
+    _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30,     \
+    _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44,     \
+    _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58,     \
+    _59, _60, _61, _62, _63, _64, _65, _66, _67, _68, _69, _70, _71, _72,     \
+    _73, _74, _75, _76, _77, _78, _79, _80, _81, _82, _83, _84, _85, _86,     \
+    _87, _88, _89, _90, _91, _92, _93, _94, _95, _96, _97, _98, _99, N, ...)  \
   N
-#define VA_NARGS(...)                                                         \
-  VA_NARGS_IMPL(__VA_ARGS__, 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40, 39,  \
-      38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, \
-      20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+#define VA_NARGS(...)                                                           \
+  VA_NARGS_IMPL(__VA_ARGS__,                                                    \
+      99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, \
+      81, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68, 67, 66, 65, 64, \
+      63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48, 47, 46, \
+      45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, \
+      27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, \
+      9, 8, 7, 6, 5, 4, 3, 2, 1)
 #endif
 
 #define VA_NARGS2(...) ((int)(sizeof((int[]){__VA_ARGS__}) / sizeof(int)))
@@ -318,6 +333,55 @@ auto inline stream_to_text(const auto& v) {
 #define TEST_LIST_IMPL_48(x, ...) {#x, x}, TEST_LIST_IMPL_47(__VA_ARGS__)
 #define TEST_LIST_IMPL_49(x, ...) {#x, x}, TEST_LIST_IMPL_48(__VA_ARGS__)
 #define TEST_LIST_IMPL_50(x, ...) {#x, x}, TEST_LIST_IMPL_49(__VA_ARGS__)
+#define TEST_LIST_IMPL_51(x, ...) {#x, x}, TEST_LIST_IMPL_50(__VA_ARGS__)
+#define TEST_LIST_IMPL_52(x, ...) {#x, x}, TEST_LIST_IMPL_51(__VA_ARGS__)
+#define TEST_LIST_IMPL_53(x, ...) {#x, x}, TEST_LIST_IMPL_52(__VA_ARGS__)
+#define TEST_LIST_IMPL_54(x, ...) {#x, x}, TEST_LIST_IMPL_53(__VA_ARGS__)
+#define TEST_LIST_IMPL_55(x, ...) {#x, x}, TEST_LIST_IMPL_54(__VA_ARGS__)
+#define TEST_LIST_IMPL_56(x, ...) {#x, x}, TEST_LIST_IMPL_55(__VA_ARGS__)
+#define TEST_LIST_IMPL_57(x, ...) {#x, x}, TEST_LIST_IMPL_56(__VA_ARGS__)
+#define TEST_LIST_IMPL_58(x, ...) {#x, x}, TEST_LIST_IMPL_57(__VA_ARGS__)
+#define TEST_LIST_IMPL_59(x, ...) {#x, x}, TEST_LIST_IMPL_58(__VA_ARGS__)
+#define TEST_LIST_IMPL_60(x, ...) {#x, x}, TEST_LIST_IMPL_59(__VA_ARGS__)
+#define TEST_LIST_IMPL_61(x, ...) {#x, x}, TEST_LIST_IMPL_60(__VA_ARGS__)
+#define TEST_LIST_IMPL_62(x, ...) {#x, x}, TEST_LIST_IMPL_61(__VA_ARGS__)
+#define TEST_LIST_IMPL_63(x, ...) {#x, x}, TEST_LIST_IMPL_62(__VA_ARGS__)
+#define TEST_LIST_IMPL_64(x, ...) {#x, x}, TEST_LIST_IMPL_63(__VA_ARGS__)
+#define TEST_LIST_IMPL_65(x, ...) {#x, x}, TEST_LIST_IMPL_64(__VA_ARGS__)
+#define TEST_LIST_IMPL_66(x, ...) {#x, x}, TEST_LIST_IMPL_65(__VA_ARGS__)
+#define TEST_LIST_IMPL_67(x, ...) {#x, x}, TEST_LIST_IMPL_66(__VA_ARGS__)
+#define TEST_LIST_IMPL_68(x, ...) {#x, x}, TEST_LIST_IMPL_67(__VA_ARGS__)
+#define TEST_LIST_IMPL_69(x, ...) {#x, x}, TEST_LIST_IMPL_68(__VA_ARGS__)
+#define TEST_LIST_IMPL_70(x, ...) {#x, x}, TEST_LIST_IMPL_69(__VA_ARGS__)
+#define TEST_LIST_IMPL_71(x, ...) {#x, x}, TEST_LIST_IMPL_70(__VA_ARGS__)
+#define TEST_LIST_IMPL_72(x, ...) {#x, x}, TEST_LIST_IMPL_71(__VA_ARGS__)
+#define TEST_LIST_IMPL_73(x, ...) {#x, x}, TEST_LIST_IMPL_72(__VA_ARGS__)
+#define TEST_LIST_IMPL_74(x, ...) {#x, x}, TEST_LIST_IMPL_73(__VA_ARGS__)
+#define TEST_LIST_IMPL_75(x, ...) {#x, x}, TEST_LIST_IMPL_74(__VA_ARGS__)
+#define TEST_LIST_IMPL_76(x, ...) {#x, x}, TEST_LIST_IMPL_75(__VA_ARGS__)
+#define TEST_LIST_IMPL_77(x, ...) {#x, x}, TEST_LIST_IMPL_76(__VA_ARGS__)
+#define TEST_LIST_IMPL_78(x, ...) {#x, x}, TEST_LIST_IMPL_77(__VA_ARGS__)
+#define TEST_LIST_IMPL_79(x, ...) {#x, x}, TEST_LIST_IMPL_78(__VA_ARGS__)
+#define TEST_LIST_IMPL_80(x, ...) {#x, x}, TEST_LIST_IMPL_79(__VA_ARGS__)
+#define TEST_LIST_IMPL_81(x, ...) {#x, x}, TEST_LIST_IMPL_80(__VA_ARGS__)
+#define TEST_LIST_IMPL_82(x, ...) {#x, x}, TEST_LIST_IMPL_81(__VA_ARGS__)
+#define TEST_LIST_IMPL_83(x, ...) {#x, x}, TEST_LIST_IMPL_82(__VA_ARGS__)
+#define TEST_LIST_IMPL_84(x, ...) {#x, x}, TEST_LIST_IMPL_83(__VA_ARGS__)
+#define TEST_LIST_IMPL_85(x, ...) {#x, x}, TEST_LIST_IMPL_84(__VA_ARGS__)
+#define TEST_LIST_IMPL_86(x, ...) {#x, x}, TEST_LIST_IMPL_85(__VA_ARGS__)
+#define TEST_LIST_IMPL_87(x, ...) {#x, x}, TEST_LIST_IMPL_86(__VA_ARGS__)
+#define TEST_LIST_IMPL_88(x, ...) {#x, x}, TEST_LIST_IMPL_87(__VA_ARGS__)
+#define TEST_LIST_IMPL_89(x, ...) {#x, x}, TEST_LIST_IMPL_88(__VA_ARGS__)
+#define TEST_LIST_IMPL_90(x, ...) {#x, x}, TEST_LIST_IMPL_89(__VA_ARGS__)
+#define TEST_LIST_IMPL_91(x, ...) {#x, x}, TEST_LIST_IMPL_90(__VA_ARGS__)
+#define TEST_LIST_IMPL_92(x, ...) {#x, x}, TEST_LIST_IMPL_91(__VA_ARGS__)
+#define TEST_LIST_IMPL_93(x, ...) {#x, x}, TEST_LIST_IMPL_92(__VA_ARGS__)
+#define TEST_LIST_IMPL_94(x, ...) {#x, x}, TEST_LIST_IMPL_93(__VA_ARGS__)
+#define TEST_LIST_IMPL_95(x, ...) {#x, x}, TEST_LIST_IMPL_94(__VA_ARGS__)
+#define TEST_LIST_IMPL_96(x, ...) {#x, x}, TEST_LIST_IMPL_95(__VA_ARGS__)
+#define TEST_LIST_IMPL_97(x, ...) {#x, x}, TEST_LIST_IMPL_96(__VA_ARGS__)
+#define TEST_LIST_IMPL_98(x, ...) {#x, x}, TEST_LIST_IMPL_97(__VA_ARGS__)
+#define TEST_LIST_IMPL_99(x, ...) {#x, x}, TEST_LIST_IMPL_98(__VA_ARGS__)
 
 #define TEST_LIST_IMPL_N(N, ...) TEST_LIST_IMPL_##N(__VA_ARGS__)
 #define TEST_LIST_IMPL(N, ...) TEST_LIST_IMPL_N(N, __VA_ARGS__)
