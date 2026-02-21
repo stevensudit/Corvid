@@ -76,15 +76,19 @@ public:
   using metadata_t = typename Registry::metadata_t;
   using allocator_type = typename Registry::allocator_type;
 
+  // Array of ChunkSize elements for a single component type within a chunk.
+  template<typename C>
+  using chunk_t = std::array<C, ChunkSize>;
+
   // Each chunk holds ChunkSize slots for every component type.
-  using chunk_t = std::tuple<std::array<Cs, ChunkSize>...>;
+  using chunk_tuple_t = std::tuple<chunk_t<Cs>...>;
 
   using chunk_allocator_t = typename std::allocator_traits<
-      allocator_type>::template rebind_alloc<chunk_t>;
+      allocator_type>::template rebind_alloc<chunk_tuple_t>;
   using id_allocator_t = typename std::allocator_traits<
       allocator_type>::template rebind_alloc<id_t>;
 
-  using chunk_vector_t = std::vector<chunk_t, chunk_allocator_t>;
+  using chunk_vector_t = std::vector<chunk_tuple_t, chunk_allocator_t>;
   using id_vector_t = std::vector<id_t, id_allocator_t>;
 
   static_assert(sizeof...(Cs) >= 0);
@@ -119,12 +123,12 @@ public:
     requires(writeable_v)
     [[nodiscard]] C& component() noexcept {
       const auto [chunk_ndx, element_ndx] = owner_t::chunk_coords(ndx_);
-      return std::get<std::array<C, ChunkSize>>(owner_->chunks_[chunk_ndx])[element_ndx];
+      return std::get<chunk_t<C>>(owner_->chunks_[chunk_ndx])[element_ndx];
     }
     template<typename C>
     [[nodiscard]] const C& component() const noexcept {
       const auto [chunk_ndx, element_ndx] = owner_t::chunk_coords(ndx_);
-      return std::get<std::array<C, ChunkSize>>(owner_->chunks_[chunk_ndx])[element_ndx];
+      return std::get<chunk_t<C>>(owner_->chunks_[chunk_ndx])[element_ndx];
     }
 
     // Access component by index.
@@ -147,7 +151,8 @@ public:
       const auto [chunk_ndx, element_ndx] = owner_t::chunk_coords(ndx_);
       return std::apply(
           [&](auto&&... arrs) {
-            return std::tuple<decltype(arrs[element_ndx])&...>{arrs[element_ndx]...};
+            return std::tuple<decltype(arrs[element_ndx])&...>{
+                arrs[element_ndx]...};
           },
           owner_->chunks_[chunk_ndx]);
     }
@@ -157,16 +162,15 @@ public:
       const auto [chunk_ndx, element_ndx] = owner_t::chunk_coords(ndx_);
       return std::apply(
           [&](auto&&... arrs) {
-            return std::tuple<
-                const std::remove_reference_t<decltype(arrs[element_ndx])>&...>{
-                arrs[element_ndx]...};
+            return std::tuple<const std::remove_reference_t<
+                decltype(arrs[element_ndx])>&...>{arrs[element_ndx]...};
           },
           owner_->chunks_[chunk_ndx]);
     }
 
   private:
-    owner_t* owner_ = nullptr;
-    size_type ndx_ = 0;
+    owner_t* owner_{};
+    size_type ndx_{};
 
     explicit row_wrapper(owner_t& owner, size_type ndx)
         : owner_{&owner}, ndx_{ndx} {}
@@ -180,7 +184,8 @@ public:
   // Mutable row lens.
   using row_lens = row_wrapper<false>;
 
-  // Bidirectional iterator over rows.
+  // Iterator over archetype. Dereferencing yields a `row_wrapper` whose `id()`
+  // returns the entity ID at the current position.
   template<bool IsConst = false>
   class row_iterator {
   public:
@@ -279,9 +284,12 @@ public:
   }
 
   // Maximum number of entities allowed in this storage.
+  //
+  // Insertion fails when this limit is reached. Defaults to the maximum
+  // representable value (effectively unlimited).
   [[nodiscard]] size_type limit() const noexcept { return limit_; }
 
-  // Set a new entity limit. Returns true on success, false if current size
+  // Set a new entity limit. Returns true on success, false if the current size
   // exceeds the new limit.
   [[nodiscard]] bool set_limit(size_type new_limit) {
     if (new_limit < ids_.size()) return false;
@@ -317,7 +325,7 @@ public:
     chunks_.reserve(chunk_ndx + 1);
     if (element_ndx == 0) chunks_.emplace_back();
     auto& chunk = chunks_.back();
-    ((void)(std::get<std::array<Cs, ChunkSize>>(chunk)[element_ndx] =
+    ((void)(std::get<chunk_t<Cs>>(chunk)[element_ndx] =
                 std::forward<Args>(args)),
         ...);
     ids_.push_back(id);
@@ -361,7 +369,7 @@ public:
     size_type cnt = 0;
     for (size_type ndx{}; ndx < ids_.size();) {
       const auto [chunk_ndx, element_ndx] = chunk_coords(ndx);
-      auto& comp = std::get<std::array<C, ChunkSize>>(chunks_[chunk_ndx])[element_ndx];
+      auto& comp = std::get<chunk_t<C>>(chunks_[chunk_ndx])[element_ndx];
       if (pred(comp, ids_[ndx])) {
         const auto removed_id = ids_[ndx];
         do_swap_and_pop(ndx);
@@ -476,8 +484,9 @@ private:
   void do_swap_elements(size_type left_ndx, size_type right_ndx) noexcept {
     const auto [left_chunk_ndx, left_element_ndx] = chunk_coords(left_ndx);
     const auto [right_chunk_ndx, right_element_ndx] = chunk_coords(right_ndx);
-    (std::swap(std::get<std::array<Cs, ChunkSize>>(chunks_[left_chunk_ndx])[left_element_ndx],
-         std::get<std::array<Cs, ChunkSize>>(chunks_[right_chunk_ndx])[right_element_ndx]),
+    (std::swap(
+         std::get<chunk_t<Cs>>(chunks_[left_chunk_ndx])[left_element_ndx],
+         std::get<chunk_t<Cs>>(chunks_[right_chunk_ndx])[right_element_ndx]),
         ...);
     std::swap(ids_[left_ndx], ids_[right_ndx]);
   }

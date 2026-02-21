@@ -171,8 +171,8 @@ public:
     }
 
   private:
-    owner_t* owner_ = nullptr;
-    size_type ndx_ = 0;
+    owner_t* owner_{};
+    size_type ndx_{};
 
     explicit row_wrapper(owner_t& owner, size_type ndx)
         : owner_{&owner}, ndx_{ndx} {}
@@ -290,7 +290,7 @@ public:
   // representable value (effectively unlimited).
   [[nodiscard]] size_type limit() const noexcept { return limit_; }
 
-  // Set a new component limit. Returns true on success, false if the current
+  // Set a new entity limit. Returns true on success, false if the current
   // size exceeds the new limit.
   [[nodiscard]] bool set_limit(size_type new_limit) {
     if (new_limit < ids_.size()) return false;
