@@ -366,7 +366,8 @@ public:
   }
 
   // Insert components for an entity by handle. Validates the handle before
-  // delegating to add(id_t, ...). Returns false for an invalid or stale handle.
+  // delegating to add(id_t, ...). Returns false for an invalid or stale
+  // handle.
   template<typename... Args>
   [[nodiscard]] bool add(handle_t handle, Args&&... args) {
     if (!registry_->is_valid(handle)) return false;
@@ -450,7 +451,8 @@ public:
   }
 
   // Destroy all entities in the registry and empty the storage. Contrast with
-  // remove_all(), which returns entities to staging instead of destroying them.
+  // remove_all(), which returns entities to staging instead of destroying
+  // them.
   void clear() { do_remove_all(store_id_t::invalid); }
 
   // Check whether an entity is in this storage, by ID.

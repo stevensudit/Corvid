@@ -334,20 +334,21 @@ public:
     if (loc.store_id != store_id_t{}) return false;
     const auto ndx = size();
     if (ndx >= limit_) return false;
-    const size_t cap = ndx + 1;
+    const auto cap = static_cast<size_t>(ndx) + 1;
     ids_.reserve(cap);
     for_each_component([&](auto& vec) { vec.reserve(cap); });
-    ids_.push_back(id);
     // Note: `for_each_component` would only complicate this.
     (std::get<component_vector_t<Cs>>(components_)
             .emplace_back(std::forward<Args>(args)),
         ...);
+    ids_.push_back(id);
     registry_->set_location(id, {store_id_, ndx});
     return true;
   }
 
   // Insert components for an entity by handle. Validates the handle before
-  // delegating to add(id_t, ...). Returns false for an invalid or stale handle.
+  // delegating to add(id_t, ...). Returns false for an invalid or stale
+  // handle.
   template<typename... Args>
   [[nodiscard]] bool add(handle_t handle, Args&&... args) {
     if (!registry_->is_valid(handle)) return false;
@@ -430,7 +431,8 @@ public:
   }
 
   // Destroy all entities in the registry and empty the storage. Contrast with
-  // remove_all(), which returns entities to staging instead of destroying them.
+  // remove_all(), which returns entities to staging instead of destroying
+  // them.
   void clear() { do_remove_all(store_id_t::invalid); }
 
   // Check whether an entity is in this storage, by ID.
