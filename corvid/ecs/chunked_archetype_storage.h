@@ -62,24 +62,26 @@ inline namespace chunked_archetype_storages {
 //  ChunkSize - Entities per chunk.  Must be a positive power of two (default
 //  16).
 
-template<typename Registry, typename CsTuple, std::size_t ChunkSize = 16>
+template<typename Registry, typename CsTuple, size_t ChunkSize = 16>
 class chunked_archetype_storage;
 
-template<typename Registry, typename... Cs, std::size_t ChunkSize>
+template<typename Registry, typename... Cs, size_t ChunkSize>
 class chunked_archetype_storage<Registry, std::tuple<Cs...>, ChunkSize> {
 public:
-  static_assert((ChunkSize & (ChunkSize - 1)) == 0 && ChunkSize > 0,
-      "ChunkSize must be a positive power of two");
-
   using tuple_t = std::tuple<Cs...>;
   using registry_t = Registry;
-  using id_t = typename Registry::id_t;
-  using handle_t = typename Registry::handle_t;
-  using size_type = typename Registry::size_type;
-  using store_id_t = typename Registry::store_id_t;
-  using location_t = typename Registry::location_t;
-  using metadata_t = typename Registry::metadata_t;
-  using allocator_type = typename Registry::allocator_type;
+  using id_t = typename registry_t::id_t;
+  using handle_t = typename registry_t::handle_t;
+  using size_type = typename registry_t::size_type;
+  using store_id_t = typename registry_t::store_id_t;
+  using location_t = typename registry_t::location_t;
+  using metadata_t = typename registry_t::metadata_t;
+  using allocator_type = typename registry_t::allocator_type;
+
+  static constexpr size_t chunk_size_v = ChunkSize;
+
+  static_assert((ChunkSize & (ChunkSize - 1)) == 0 && ChunkSize > 0,
+      "ChunkSize must be a positive power of two");
 
   // Array of ChunkSize elements for a single component type within a chunk.
   template<typename C>
@@ -137,13 +139,13 @@ public:
     }
 
     // Access component by index.
-    template<std::size_t Index>
+    template<size_t Index>
     requires(writeable_v)
     [[nodiscard]] auto& component() noexcept {
       const auto [chunk_ndx, element_ndx] = owner_t::chunk_coords(ndx_);
       return std::get<Index>(owner_->chunks_[chunk_ndx])[element_ndx];
     }
-    template<std::size_t Index>
+    template<size_t Index>
     [[nodiscard]] const auto& component() const noexcept {
       const auto [chunk_ndx, element_ndx] = owner_t::chunk_coords(ndx_);
       return std::get<Index>(owner_->chunks_[chunk_ndx])[element_ndx];
@@ -326,7 +328,7 @@ public:
     const auto ndx = size();
     if (ndx >= limit_) return false;
     const auto [chunk_ndx, element_ndx] = chunk_coords(ndx);
-    ids_.reserve(static_cast<std::size_t>(ndx) + 1);
+    ids_.reserve(static_cast<size_t>(ndx) + 1);
     chunks_.reserve(chunk_ndx + 1);
     if (element_ndx == 0) chunks_.emplace_back();
     auto& chunk = chunks_.back();
@@ -388,7 +390,7 @@ public:
 
   // Erase entities for which `pred(component, id)` returns true for the
   // selected component index. Returns count erased.
-  template<std::size_t Index>
+  template<size_t Index>
   size_type erase_if_component(auto pred) {
     using C = std::tuple_element_t<Index, tuple_t>;
     return erase_if_component<C>(std::move(pred));
@@ -441,7 +443,7 @@ public:
   // Reserve capacity for at least `new_cap` entities (rounded up to a whole
   // number of chunks).
   void reserve(size_type new_cap) {
-    const auto n = static_cast<std::size_t>(new_cap);
+    const auto n = static_cast<size_t>(new_cap);
     chunks_.reserve((n + ChunkSize - 1) / ChunkSize);
     ids_.reserve(n);
   }
@@ -478,9 +480,9 @@ public:
 
 private:
   // Decompose a flat logical index into a (chunk_index, element_index) pair.
-  static constexpr std::pair<std::size_t, std::size_t> chunk_coords(
+  static constexpr std::pair<size_t, size_t> chunk_coords(
       size_type ndx) noexcept {
-    const auto n = static_cast<std::size_t>(ndx);
+    const auto n = static_cast<size_t>(ndx);
     return {n / ChunkSize, n % ChunkSize};
   }
 

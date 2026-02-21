@@ -82,13 +82,13 @@ class archetype_storage<Registry, std::tuple<Cs...>> {
 public:
   using tuple_t = std::tuple<Cs...>;
   using registry_t = Registry;
-  using id_t = typename Registry::id_t;
-  using handle_t = typename Registry::handle_t;
-  using size_type = typename Registry::size_type;
-  using store_id_t = typename Registry::store_id_t;
-  using location_t = typename Registry::location_t;
-  using metadata_t = typename Registry::metadata_t;
-  using allocator_type = typename Registry::allocator_type;
+  using id_t = typename registry_t::id_t;
+  using handle_t = typename registry_t::handle_t;
+  using size_type = typename registry_t::size_type;
+  using store_id_t = typename registry_t::store_id_t;
+  using location_t = typename registry_t::location_t;
+  using metadata_t = typename registry_t::metadata_t;
+  using allocator_type = typename registry_t::allocator_type;
 
   template<typename T>
   using component_allocator_t =
@@ -141,12 +141,12 @@ public:
     }
 
     // Access component by index.
-    template<std::size_t Index>
+    template<size_t Index>
     requires(writeable_v)
     [[nodiscard]] auto& component() noexcept {
       return std::get<Index>(owner_->components_)[ndx_];
     }
-    template<std::size_t Index>
+    template<size_t Index>
     [[nodiscard]] const auto& component() const noexcept {
       return std::get<Index>(owner_->components_)[ndx_];
     }
@@ -385,7 +385,7 @@ public:
 
   // Erase entities for which `pred(component, id)` returns true for the
   // selected component index. Returns count erased.
-  template<std::size_t Index>
+  template<size_t Index>
   size_type erase_if_component(auto pred) {
     using C = std::tuple_element_t<Index, tuple_t>;
     return erase_if_component<C>(std::move(pred));
@@ -440,14 +440,14 @@ public:
 
   // Reserve capacity for at least `new_cap` elements.
   void reserve(size_type new_cap) {
-    const auto cap = static_cast<std::size_t>(new_cap);
+    const auto cap = static_cast<size_t>(new_cap);
     for_each_component([&](auto& vec) { vec.reserve(cap); });
     ids_.reserve(cap);
   }
 
   // Return current capacity (minimum across all component vectors and ids_).
   [[nodiscard]] size_type capacity() const noexcept {
-    std::size_t min_cap = ids_.capacity();
+    size_t min_cap = ids_.capacity();
     std::apply(
         [&](const auto&... vecs) {
           ((min_cap = std::min(min_cap, vecs.capacity())), ...);
