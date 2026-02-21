@@ -57,11 +57,9 @@ inline namespace chunked_archetype_storages {
 // used interchangeably.
 //
 // Template parameters:
-//  Registry  - `entity_registry` instantiation.  Provides types.
-//  CsTuple   - Tuple of component types.  Each must be trivially copyable.
-//  ChunkSize - Entities per chunk.  Must be a positive power of two (default
-//  16).
-
+//  Registry  - `entity_registry` instantiation. Provides types.
+//  CsTuple   - Tuple of component types. Each must be trivially copyable.
+//  ChunkSize - Entities per chunk. Must be a positive power of two.
 template<typename Registry, typename CsTuple, size_t ChunkSize = 16>
 class chunked_archetype_storage;
 
@@ -80,14 +78,14 @@ public:
 
   static constexpr size_t chunk_size_v = ChunkSize;
 
-  static_assert((ChunkSize & (ChunkSize - 1)) == 0 && ChunkSize > 0,
+  static_assert((chunk_size_v & (chunk_size_v - 1)) == 0 && chunk_size_v > 0,
       "ChunkSize must be a positive power of two");
 
-  // Array of ChunkSize elements for a single component type within a chunk.
+  // Array of chunk_size_v elements for a single component type within a chunk.
   template<typename C>
-  using chunk_t = std::array<C, ChunkSize>;
+  using chunk_t = std::array<C, chunk_size_v>;
 
-  // Each chunk holds ChunkSize slots for every component type.
+  // Each chunk holds chunk_size_v slots for every component type.
   using chunk_tuple_t = std::tuple<chunk_t<Cs>...>;
 
   using chunk_allocator_t = typename std::allocator_traits<
@@ -444,7 +442,7 @@ public:
   // number of chunks).
   void reserve(size_type new_cap) {
     const auto n = static_cast<size_t>(new_cap);
-    chunks_.reserve((n + ChunkSize - 1) / ChunkSize);
+    chunks_.reserve((n + chunk_size_v - 1) / chunk_size_v);
     ids_.reserve(n);
   }
 
@@ -483,7 +481,7 @@ private:
   static constexpr std::pair<size_t, size_t> chunk_coords(
       size_type ndx) noexcept {
     const auto n = static_cast<size_t>(ndx);
-    return {n / ChunkSize, n % ChunkSize};
+    return {n / chunk_size_v, n % chunk_size_v};
   }
 
   // Swap the elements (all component slots and the ID) at two logical indices.
@@ -498,8 +496,8 @@ private:
   }
 
   // Swap element at `ndx` with the last element, pop the last slot, and drop
-  // the last chunk if it is now empty.  Updates the displaced entity's
-  // registry location.
+  // the last chunk if it is now empty. Updates the displaced entity's registry
+  // location.
   void do_swap_and_pop(size_type ndx) {
     const auto last = size() - 1;
     if (ndx != last) {
@@ -508,8 +506,8 @@ private:
     }
     ids_.pop_back();
     // The last chunk becomes empty when the element we just removed was in its
-    // first slot (slot 0), i.e. ids_.size() is now a multiple of ChunkSize.
-    if (ids_.size() % ChunkSize == 0) chunks_.pop_back();
+    // first slot (slot 0), i.e. ids_.size() is now a multiple of chunk_size_v.
+    if (ids_.size() % chunk_size_v == 0) chunks_.pop_back();
   }
 
   bool do_remove_erase(id_t id, store_id_t new_store_id) {
