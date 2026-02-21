@@ -37,9 +37,11 @@ inline namespace chunked_archetype_storages {
 // AoSoA archetype component storage with O(1) lookup through
 // `entity_registry`.
 //
-// Organizes entities into fixed-size chunks so that all component arrays for
-// a given chunk of entities reside in a contiguous memory block, improving
-// cache utilization when iterating over multiple components together.
+// Drop-in alternative to `archetype_storage`: the public interface is
+// identical, so the two are interchangeable. Prefer this class when systems
+// iterate densely over multiple components per entity, as the AoSoA layout
+// keeps all component data for a slice of `chunk_size_v` entities contiguous
+// in memory.
 //
 // Physical layout:
 //   std::vector< std::tuple< std::array<C0,K>, std::array<C1,K>, ... > >
@@ -53,13 +55,12 @@ inline namespace chunked_archetype_storages {
 // arrays correspond to entities. Each component type is represented as a POD
 // struct, usually containing floats, IDs, or small fixed-size arrays.
 //
-// The public interface is identical to `archetype_storage` so the two can be
-// used interchangeably.
-//
 // Template parameters:
 //  Registry  - `entity_registry` instantiation. Provides types.
 //  CsTuple   - Tuple of component types. Each must be trivially copyable.
 //  ChunkSize - Entities per chunk. Must be a positive power of two.
+//              Default: 16. Tune so that one chunk fills a cache line
+//              (e.g., ChunkSize = 64 / sizeof(largest_component_type)).
 template<typename Registry, typename CsTuple, size_t ChunkSize = 16>
 class chunked_archetype_storage;
 
@@ -98,7 +99,15 @@ public:
 
   static_assert(sizeof...(Cs) >= 0);
 
-  // Row wrapper for accessing all components at a given logical index.
+  // Lightweight, non-owning handle to a single entity's components.
+  //
+  // Stores a pointer to the owning storage and a flat logical index. Each
+  // component access decomposes that index into (chunk_ndx, element_ndx) via
+  // chunk_coords(). Remains valid as long as no structural mutations
+  // (add/remove/erase) occur on the owning storage.
+  //
+  // `IsConst = false`  ->  row_lens  (mutable access)
+  // `IsConst = true`   ->  row_view  (read-only access)
   template<bool IsConst = false>
   class row_wrapper {
   public:
@@ -189,8 +198,14 @@ public:
   // Mutable row lens.
   using row_lens = row_wrapper<false>;
 
-  // Iterator over archetype. Dereferencing yields a `row_wrapper` whose `id()`
-  // returns the entity ID at the current position.
+  // Bidirectional iterator over a chunked_archetype_storage.
+  //
+  // Dereferencing yields a row_wrapper (row_lens or row_view) whose `id()`
+  // returns the entity at the current position. Invalidated by any structural
+  // mutation (add/remove/erase) on the storage.
+  //
+  // NOTE: Do not erase entities during range-for; use erase_if or
+  // erase_if_component instead.
   template<bool IsConst = false>
   class row_iterator {
   public:
@@ -254,11 +269,19 @@ public:
 public:
   // Constructors.
 
-  // Default-constructed instances can only be assigned to.
+  // Default-constructed storage has no registry binding. Assign from a
+  // fully-constructed instance before calling any mutation methods.
   chunked_archetype_storage() = default;
+
+  // Construct with a custom allocator but without binding to a registry.
+  // Useful for staged initialization.
   explicit chunked_archetype_storage(const allocator_type& alloc)
       : chunks_{chunk_allocator_t{alloc}}, ids_{id_allocator_t{alloc}} {}
 
+  // Construct bound to `registry` with the given `store_id`. `store_id` must
+  // not be `store_id_t::invalid` or `store_id_t{0}` (staging). If
+  // `do_reserve` is true and `limit` is not the sentinel unlimited value,
+  // reserves capacity for `limit` entities up front.
   explicit chunked_archetype_storage(registry_t& registry, store_id_t store_id,
       size_type limit = *id_t::invalid, bool do_reserve = false)
       : chunks_{chunk_allocator_t{registry.get_allocator()}},
@@ -288,10 +311,9 @@ public:
     lhs.swap(rhs);
   }
 
-  // Maximum number of entities allowed in this storage.
-  //
-  // Insertion fails when this limit is reached. Defaults to the maximum
-  // representable value (effectively unlimited).
+  // Maximum number of entities allowed in this storage. Insertion fails when
+  // this limit is reached. Defaults to the maximum representable value
+  // (effectively unlimited).
   [[nodiscard]] size_type limit() const noexcept { return limit_; }
 
   // Set a new entity limit. Returns true on success, false if the current size
@@ -302,14 +324,17 @@ public:
     return true;
   }
 
-  // Shrink chunk vector and ids_ to fit their current sizes.
+  // Shrink the chunk vector and ids_ to fit their current sizes. Non-binding
+  // request; honored by all major standard library implementations.
   void shrink_to_fit() {
     chunks_.shrink_to_fit();
     ids_.shrink_to_fit();
   }
 
-  // Add components for a new entity, returning its handle or an invalid
-  // handle on failure.
+  // Atomically create an entity in the registry and insert it into this
+  // storage. Returns the new entity's handle on success, or an invalid handle
+  // if the registry refused creation or the storage limit would be exceeded.
+  // Components are forwarded in the same order as the Cs... pack.
   template<typename... Args>
   [[nodiscard]] handle_t add_new(const metadata_t& metadata, Args&&... args) {
     auto owner = registry_->create_owner(location_t{store_id_t{}}, metadata);
@@ -317,7 +342,9 @@ public:
     return owner.release();
   }
 
-  // Add components for an entity already in staging. Returns success flag.
+  // Insert components for an entity already in staging (store_id ==
+  // store_id_t{}). Returns false if the entity is not in staging, is
+  // invalid, or if the limit would be exceeded.
   template<typename... Args>
   [[nodiscard]] bool add(id_t id, Args&&... args) {
     static_assert(sizeof...(Args) == sizeof...(Cs));
@@ -338,7 +365,8 @@ public:
     return true;
   }
 
-  // Add components for an entity by handle. Returns success flag.
+  // Insert components for an entity by handle. Validates the handle before
+  // delegating to add(id_t, ...). Returns false for an invalid or stale handle.
   template<typename... Args>
   [[nodiscard]] bool add(handle_t handle, Args&&... args) {
     if (!registry_->is_valid(handle)) return false;
@@ -354,21 +382,25 @@ public:
     return do_remove_erase(handle.id(), store_id_t{});
   }
 
-  // Remove all entities, moving them back to staging.
+  // Move all entities back to staging. Entities remain valid
+  // (store_id == store_id_t{0}) after this call; contrast with clear().
   void remove_all() { do_remove_all(store_id_t{}); }
 
-  // Remove entity by ID and erase it from the registry. Returns success flag.
+  // Swap-and-pop the entity out of storage and destroy it in the registry.
+  // The entity ID becomes invalid after this call. Returns success flag.
   bool erase(id_t id) { return do_remove_erase(id, store_id_t::invalid); }
 
-  // Remove entity by handle and erase it from the registry. Returns success
-  // flag.
+  // Erase by handle; validates the handle first. Returns success flag.
   bool erase(handle_t handle) {
     if (!registry_->is_valid(handle)) return false;
     return do_remove_erase(handle.id(), store_id_t::invalid);
   }
 
-  // Erase entities for which `pred(component, id)` returns true for the
-  // selected component type. Returns count erased.
+  // Erase entities for which `pred(comp, id)` returns true, where `comp` is a
+  // mutable reference to the entity's component of type C and `id` is the
+  // entity's ID. Uses swap-and-pop; the predicate must not structurally modify
+  // the storage. All erased entities are destroyed in the registry. Returns
+  // the count erased.
   template<typename C>
   size_type erase_if_component(auto pred) {
     size_type cnt = 0;
@@ -386,16 +418,21 @@ public:
     return cnt;
   }
 
-  // Erase entities for which `pred(component, id)` returns true for the
-  // selected component index. Returns count erased.
+  // Overload that selects the component by zero-based tuple index rather than
+  // by type. Useful when two component types in Cs... are identical. Delegates
+  // to erase_if_component<C>.
   template<size_t Index>
   size_type erase_if_component(auto pred) {
     using C = std::tuple_element_t<Index, tuple_t>;
     return erase_if_component<C>(std::move(pred));
   }
 
-  // Erase entities for which `pred(row_view)` returns true. Returns count
-  // erased.
+  // Erase entities for which `pred(row)` returns true, where `row` is a
+  // row_view giving const access to all components and the entity ID. Use
+  // this overload when the predicate must inspect multiple component types
+  // simultaneously. Uses swap-and-pop; the predicate must not structurally
+  // modify the storage. All erased entities are destroyed in the registry.
+  // Returns the count erased.
   size_type erase_if(auto pred) {
     size_type cnt = 0;
     row_view row{*this, {}};
@@ -412,7 +449,8 @@ public:
     return cnt;
   }
 
-  // Erase all entities from the registry.
+  // Destroy all entities in the registry and empty the storage. Contrast with
+  // remove_all(), which returns entities to staging instead of destroying them.
   void clear() { do_remove_all(store_id_t::invalid); }
 
   // Check whether an entity is in this storage, by ID.
@@ -438,21 +476,23 @@ public:
   // Expose this storage's ID.
   [[nodiscard]] store_id_t store_id() const noexcept { return store_id_; }
 
-  // Reserve capacity for at least `new_cap` entities (rounded up to a whole
-  // number of chunks).
+  // Reserve capacity for at least `new_cap` entities. The chunk vector is
+  // rounded up to `ceil(new_cap / chunk_size_v)` whole chunks; ids_ is
+  // reserved exactly.
   void reserve(size_type new_cap) {
     const auto n = static_cast<size_t>(new_cap);
     chunks_.reserve((n + chunk_size_v - 1) / chunk_size_v);
     ids_.reserve(n);
   }
 
-  // Return current entity capacity (min of chunk capacity in entities and
-  // ids_ capacity).
+  // Return the current entity capacity. Governed by ids_.capacity(); the chunk
+  // vector may hold slightly more slots due to chunk-boundary rounding.
   [[nodiscard]] size_type capacity() const noexcept {
     return static_cast<size_type>(ids_.capacity());
   }
 
-  // Index.
+  // Return the row at logical index `ndx` as a row_lens (mutable) or row_view
+  // (const). No bounds checking is performed.
   [[nodiscard]] row_lens operator[](size_type ndx) noexcept {
     return row_lens{*this, ndx};
   }
@@ -460,7 +500,7 @@ public:
     return row_view{*this, ndx};
   }
 
-  // Iterators.
+  // Bidirectional iteration over all entities in insertion order.
   [[nodiscard]] iterator begin() noexcept { return iterator{*this, 0}; }
   [[nodiscard]] iterator end() noexcept { return iterator{*this, size()}; }
   [[nodiscard]] const_iterator begin() const noexcept {

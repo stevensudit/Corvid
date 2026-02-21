@@ -15,6 +15,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+// Umbrella header for the Corvid ECS module.
+//
+// Includes:
+//  entity_ids                - ID and handle types
+//  stable_ids                - ID-keyed dense storage
+//  archetype_storage         - SoA multi-component archetype storage
+//  chunked_archetype_storage - AoSoA multi-component archetype storage
+//  entity_registry           - Entity lifecycle and location tracking
+//  component_storage         - Single-component per-entity dense storage
 #include "ecs/entity_ids.h"
 #include "ecs/stable_ids.h"
 #include "ecs/archetype_storage.h"
