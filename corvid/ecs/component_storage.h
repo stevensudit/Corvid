@@ -285,17 +285,29 @@ public:
     using iterator_category = std::random_access_iterator_tag;
     using value_type = C;
     using difference_type = std::ptrdiff_t;
-    using reference = std::conditional_t<IsConst, const C&, C&>;
-    using pointer = std::conditional_t<IsConst, const C*, C*>;
+    using reference = C&;
+    using pointer = C*;
 
     iterator_t() = default;
 
-    [[nodiscard]] reference operator*() const {
+    [[nodiscard]] auto& operator*()
+    requires(!IsConst)
+    {
       return storage_->components_[ndx_];
     }
-    [[nodiscard]] pointer operator->() const {
+    [[nodiscard]] const auto& operator*() const {
+      return storage_->components_[ndx_];
+    }
+
+    [[nodiscard]] auto* operator->()
+    requires(!IsConst)
+    {
       return &storage_->components_[ndx_];
     }
+    [[nodiscard]] const auto* operator->() const {
+      return &storage_->components_[ndx_];
+    }
+
     [[nodiscard]] id_t id() const { return storage_->ids_[ndx_]; }
 
     iterator_t& operator++() {
@@ -337,7 +349,13 @@ public:
       return static_cast<difference_type>(ndx_) -
              static_cast<difference_type>(o.ndx_);
     }
-    [[nodiscard]] reference operator[](difference_type n) const {
+
+    [[nodiscard]] auto& operator[](difference_type n)
+    requires(!IsConst)
+    {
+      return storage_->components_[ndx_ + n];
+    }
+    [[nodiscard]] const auto& operator[](difference_type n) const {
       return storage_->components_[ndx_ + n];
     }
 

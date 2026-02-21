@@ -98,12 +98,12 @@ public:
   static_assert(sizeof...(Cs) >= 0);
 
   // Row wrapper for accessing all components at a given index.
-  template<bool WRITE = true>
+  template<bool IsConst = false>
   class row_wrapper {
   public:
-    static constexpr bool writeable_v = WRITE;
-    using owner_t = std::conditional_t<writeable_v, archetype_storage,
-        const archetype_storage>;
+    static constexpr bool writeable_v = !IsConst;
+    using owner_t = std::conditional_t<IsConst, const archetype_storage,
+        archetype_storage>;
 
     // Constructor.
     row_wrapper(owner_t& owner, size_type ndx) : owner_{owner}, ndx_{ndx} {}
@@ -169,10 +169,10 @@ public:
   };
 
   // Read-only row view.
-  using row_view = row_wrapper<false>;
+  using row_view = row_wrapper<true>;
 
   // Mutable row lens.
-  using row_lens = row_wrapper<true>;
+  using row_lens = row_wrapper<false>;
 
   // TODO: Write iterators over rows, which dereference to row_lens or row_view
   // depending on constness. Then expose as begin/end/cbegin/cend.
@@ -233,9 +233,6 @@ public:
     for_each_component([](auto& vec) { vec.shrink_to_fit(); });
     ids_.shrink_to_fit();
   }
-
-  // TODO: Add add(), remove(), erase(), and erase_if() methods parallel to
-  // component_storage.
 
   // Add components for a new entity, returning its handle or an invalid
   // handle on failure.
@@ -298,14 +295,28 @@ public:
     return do_remove_erase(handle.id(), store_id_t::invalid);
   }
 
-#if 0
-  // TODO: Fix this once we have iterators figured out.
-  // Erase archetypes for which `pred(archetype, id)` returns true. Returns
-  // count erased.
+  // Erase archetypes for which `pred(component, id)` returns true for the
+  // selected component type. Returns count erased.
+  template<typename C>
+  size_type erase_if_component(auto pred) {
+    return do_erase_if_component(std::get<component_vector_t<C>>(components_),
+        std::move(pred));
+  }
+
+  // Erase archetypes for which `pred(component, id)` returns true for the
+  // selected component index. Returns count erased.
+  template<std::size_t Index>
+  size_type erase_if_component(auto pred) {
+    return do_erase_if_component(std::get<Index>(components_),
+        std::move(pred));
+  }
+
+  // Erase archetypes for which `pred(row_view)` returns true.
+  // Returns count erased.
   size_type erase_if(auto pred) {
     size_type cnt = 0;
-    for (size_type ndx{}; ndx < components_.size();) {
-      if (pred(components_[ndx], ids_[ndx])) {
+    for (size_type ndx{}; ndx < ids_.size();) {
+      if (pred(row_view{*this, ndx})) {
         const auto removed_id = ids_[ndx];
         do_swap_and_pop(ndx);
         registry_->set_location(removed_id, {store_id_t::invalid});
@@ -315,7 +326,6 @@ public:
     }
     return cnt;
   }
-#endif
 
   // Remove all archetypes. Entities are removed from the registry.
   void clear() { do_remove_all(store_id_t::invalid); }
@@ -442,6 +452,21 @@ private:
     for (const auto id : ids_) registry_->set_location(id, {new_store_id});
     for_each_component([](auto& vec) { vec.clear(); });
     ids_.clear();
+  }
+
+  template<typename ComponentVec, typename Pred>
+  size_type do_erase_if_component(ComponentVec& components, Pred&& pred) {
+    size_type cnt = 0;
+    for (size_type ndx{}; ndx < components.size();) {
+      if (pred(components[ndx], ids_[ndx])) {
+        const auto removed_id = ids_[ndx];
+        do_swap_and_pop(ndx);
+        registry_->set_location(removed_id, {store_id_t::invalid});
+        ++cnt;
+      } else
+        ++ndx;
+    }
+    return cnt;
   }
 
 private:
