@@ -19,6 +19,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <span>
@@ -56,16 +57,19 @@ namespace corvid { inline namespace ecs { inline namespace archetype_storages {
 // implementation uses a tuple of vectors (SoA). Future versions may use more
 // sophisticated storage techniques (e.g., AoSoA chunks) to improve cache
 // performance.
-//
+
 // The `Registry` template parameter provides `id_t`, `size_type`,
 // `store_id_t`, `location_t`. An `ids_` vector in parallel with the component
 // vectors tracks which entity occupies each row, enabling O(1) lookup of
-// entity IDs and allowing `swap_and_pop` to update the registry so the
-// displaced entity knows its new index.
+// entity IDs and allowing swap-and-pop to update the registry so the displaced
+// entity knows its new index.
+//
+// Note that this class stores IDs instead of handles because it already owns
+// the entities, so any checks would be redundant. We still check the validity
+// of handles passed to us.
 //
 // Template parameters:
-//  Registry - `entity_registry` instantiation. Provides id_t, store_id_t,
-//             size_type, location_t, and handle_t.
+//  Registry - `entity_registry` instantiation. Provides types.
 //  CsTuple  - Tuple of component types. Each must be trivially copyable.
 template<typename Registry, typename CsTuple>
 class archetype_storage;
@@ -106,37 +110,42 @@ public:
         archetype_storage>;
 
     // Constructor.
-    row_wrapper(owner_t& owner, size_type ndx) : owner_{owner}, ndx_{ndx} {}
+    row_wrapper() = default;
+    row_wrapper(const row_wrapper&) = default;
+    row_wrapper(row_wrapper&&) = default;
+
+    row_wrapper& operator=(const row_wrapper&) = default;
+    row_wrapper& operator=(row_wrapper&&) = default;
 
     // Expose owner accessor.
     [[nodiscard]] decltype(auto) get_owner(this auto&& self) noexcept {
-      return forward_like<decltype(self)>(self.owner_);
+      return forward_like<decltype(self)>(*self.owner_);
     }
 
     // Get index and ID.
     [[nodiscard]] size_type index() const noexcept { return ndx_; }
-    [[nodiscard]] id_t id() const { return owner_.ids_[ndx_]; }
+    [[nodiscard]] id_t id() const { return owner_->ids_[ndx_]; }
 
     // Access component by type.
     template<typename C>
     requires(writeable_v)
     [[nodiscard]] C& component() noexcept {
-      return owner_.template get_component_span<C>()[ndx_];
+      return owner_->template get_component_span<C>()[ndx_];
     }
     template<typename C>
     [[nodiscard]] const C& component() const noexcept {
-      return owner_.template get_component_span<C>()[ndx_];
+      return owner_->template get_component_span<C>()[ndx_];
     }
 
     // Access component by index.
     template<std::size_t Index>
     requires(writeable_v)
     [[nodiscard]] auto& component() noexcept {
-      return owner_.template get_component_span<Index>()[ndx_];
+      return owner_->template get_component_span<Index>()[ndx_];
     }
     template<std::size_t Index>
     [[nodiscard]] const auto& component() const noexcept {
-      return owner_.template get_component_span<Index>()[ndx_];
+      return owner_->template get_component_span<Index>()[ndx_];
     }
 
     // Access all components as a tuple of mutable values.
@@ -147,7 +156,7 @@ public:
           [&](auto&&... vecs) {
             return std::tuple<decltype(vecs[ndx_])&...>{vecs[ndx_]...};
           },
-          owner_.get_component_spans_tuple());
+          owner_->get_component_spans_tuple());
     }
 
     // Access all components as a tuple of const values.
@@ -158,12 +167,15 @@ public:
                 const std::remove_reference_t<decltype(vecs[ndx_])>&...>{
                 vecs[ndx_]...};
           },
-          owner_.get_component_spans_tuple());
+          owner_->get_component_spans_tuple());
     }
 
   private:
-    owner_t& owner_;
-    size_type ndx_;
+    owner_t* owner_ = nullptr;
+    size_type ndx_ = 0;
+
+    explicit row_wrapper(owner_t& owner, size_type ndx)
+        : owner_{&owner}, ndx_{ndx} {}
 
     friend class archetype_storage;
   };
@@ -174,10 +186,68 @@ public:
   // Mutable row lens.
   using row_lens = row_wrapper<false>;
 
-  // TODO: Write iterators over rows, which dereference to row_lens or row_view
-  // depending on constness. Then expose as begin/end/cbegin/cend.
-  // Or maybe we need to support iterators over a single component, whether by
-  // type or index?
+  // Iterator over archetype. Dereferencing yields a `row_wrapper` whose `id()`
+  // returns the entity ID at the current position.
+  template<bool IsConst = false>
+  class row_iterator {
+  public:
+    static constexpr bool writeable_v = !IsConst;
+    using iterator_category = std::bidirectional_iterator_tag;
+    using iterator_concept = std::bidirectional_iterator_tag;
+    using value_type = std::conditional_t<writeable_v, row_lens, row_view>;
+    using difference_type = std::ptrdiff_t;
+    using reference = value_type&;
+    using pointer = value_type*;
+    using owner_t = std::conditional_t<writeable_v, archetype_storage,
+        const archetype_storage>;
+
+  public:
+    row_iterator() = default;
+    row_iterator(const row_iterator&) = default;
+    row_iterator(row_iterator&&) = default;
+    row_iterator& operator=(const row_iterator&) = default;
+    row_iterator& operator=(row_iterator&&) = default;
+
+    [[nodiscard]] reference operator*() const noexcept { return row_; }
+    [[nodiscard]] pointer operator->() const noexcept { return &row_; }
+
+    row_iterator& operator++() noexcept {
+      ++row_.ndx_;
+      return *this;
+    }
+    row_iterator operator++(int) noexcept {
+      auto out = *this;
+      ++*this;
+      return out;
+    }
+    row_iterator& operator--() noexcept {
+      --row_.ndx_;
+      return *this;
+    }
+    row_iterator operator--(int) noexcept {
+      auto out = *this;
+      --*this;
+      return out;
+    }
+
+    [[nodiscard]] friend bool
+    operator==(row_iterator lhs, row_iterator rhs) noexcept {
+      return lhs.row_.ndx_ == rhs.row_.ndx_;
+    }
+    [[nodiscard]] friend bool
+    operator!=(row_iterator lhs, row_iterator rhs) noexcept {
+      return !(lhs == rhs);
+    }
+
+  private:
+    value_type row_{};
+
+    explicit row_iterator(owner_t& owner, size_type ndx) : row_{owner, ndx} {}
+    friend class archetype_storage;
+  };
+
+  using iterator = row_iterator<false>;
+  using const_iterator = row_iterator<true>;
 
 public:
   // Constructors.
@@ -315,11 +385,12 @@ public:
   // Returns count erased.
   size_type erase_if(auto pred) {
     size_type cnt = 0;
+    row_view row{*this, size_type{}};
     for (size_type ndx{}; ndx < ids_.size();) {
-      if (pred(row_view{*this, ndx})) {
-        const auto removed_id = ids_[ndx];
+      row.ndx_ = ndx;
+      if (pred(row)) {
         do_swap_and_pop(ndx);
-        registry_->set_location(removed_id, {store_id_t::invalid});
+        registry_->set_location(ids_[ndx], {store_id_t::invalid});
         ++cnt;
       } else
         ++ndx;
@@ -467,6 +538,21 @@ private:
         ++ndx;
     }
     return cnt;
+  }
+
+  [[nodiscard]] iterator begin() noexcept { return iterator{*this, 0}; }
+  [[nodiscard]] iterator end() noexcept { return iterator{*this, size()}; }
+  [[nodiscard]] const_iterator begin() const noexcept {
+    return const_iterator{*this, 0};
+  }
+  [[nodiscard]] const_iterator end() const noexcept {
+    return const_iterator{*this, size()};
+  }
+  [[nodiscard]] const_iterator cbegin() const noexcept {
+    return const_iterator{*this, 0};
+  }
+  [[nodiscard]] const_iterator cend() const noexcept {
+    return const_iterator{*this, size()};
   }
 
 private:

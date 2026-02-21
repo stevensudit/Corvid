@@ -40,13 +40,18 @@ namespace corvid { inline namespace ecs { inline namespace component_storages {
 // is not enforced within this class), and it must not be
 // `store_id_t::invalid` or `store_id_t{0}`.
 //
+// The `Registry` template parameter provides `id_t`, `size_type`,
+// `store_id_t`, `location_t`. An `ids_` vector in parallel with the component
+// vectors tracks which entity occupies each row, enabling O(1) lookup of
+// entity IDs and allowing swap-and-pop to update the registry so the displaced
+// entity knows its new index.
+//
 // Note that this class stores IDs instead of handles because it already owns
 // the entities, so any checks would be redundant. We still check the validity
 // of handles passed to us.
 //
 // Template parameters:
-//  Registry - `entity_registry` instantiation. Provides id_t, store_id_t,
-//             size_type, location_t, and handle_t.
+//  Registry - `entity_registry` instantiation. Provides types.
 //  C        - Component type. Must be trivially copyable.
 template<typename Registry, typename C>
 class component_storage {
@@ -278,33 +283,29 @@ public:
   // `id()` returns the entity ID at the current position.
   template<bool IsConst>
   class iterator_t {
-    using storage_ptr = std::conditional_t<IsConst, const component_storage*,
-        component_storage*>;
-
   public:
-    using iterator_category = std::random_access_iterator_tag;
+    static constexpr bool writeable_v = !IsConst;
+    using iterator_category = std::contiguous_iterator_tag;
+    using iterator_concept = std::contiguous_iterator_tag;
     using value_type = C;
     using difference_type = std::ptrdiff_t;
-    using reference = C&;
-    using pointer = C*;
+    using reference =
+        std::conditional_t<writeable_v, value_type&, const value_type&>;
+    using pointer =
+        std::conditional_t<writeable_v, value_type*, const value_type*>;
+    using storage_ptr = std::conditional_t<writeable_v, component_storage*,
+        const component_storage*>;
 
     iterator_t() = default;
+    iterator_t(const iterator_t&) = default;
+    iterator_t(iterator_t&&) = default;
+    iterator_t& operator=(const iterator_t&) = default;
+    iterator_t& operator=(iterator_t&&) = default;
 
-    [[nodiscard]] auto& operator*()
-    requires(!IsConst)
-    {
+    [[nodiscard]] reference operator*() const {
       return storage_->components_[ndx_];
     }
-    [[nodiscard]] const auto& operator*() const {
-      return storage_->components_[ndx_];
-    }
-
-    [[nodiscard]] auto* operator->()
-    requires(!IsConst)
-    {
-      return &storage_->components_[ndx_];
-    }
-    [[nodiscard]] const auto* operator->() const {
+    [[nodiscard]] pointer operator->() const {
       return &storage_->components_[ndx_];
     }
 
@@ -350,12 +351,7 @@ public:
              static_cast<difference_type>(o.ndx_);
     }
 
-    [[nodiscard]] auto& operator[](difference_type n)
-    requires(!IsConst)
-    {
-      return storage_->components_[ndx_ + n];
-    }
-    [[nodiscard]] const auto& operator[](difference_type n) const {
+    [[nodiscard]] reference operator[](difference_type n) const {
       return storage_->components_[ndx_ + n];
     }
 
@@ -364,7 +360,9 @@ public:
       return it + n;
     }
 
-    [[nodiscard]] bool operator==(const iterator_t& o) const = default;
+    [[nodiscard]] bool operator==(const iterator_t& o) const {
+      return ndx_ == o.ndx_;
+    };
     [[nodiscard]] auto operator<=>(const iterator_t& o) const {
       return ndx_ <=> o.ndx_;
     }
@@ -425,7 +423,3 @@ private:
   std::vector<id_t, id_allocator_type> ids_;
 };
 }}} // namespace corvid::ecs::component_storages
-
-// Open questions:
-// On `clear`, should we instead release the IDs to store_id_t{0} instead of
-// deleting them? Is this something we should parameterize?
