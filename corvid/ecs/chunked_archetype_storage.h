@@ -349,7 +349,7 @@ public:
     return do_remove_erase(handle.id(), store_id_t{});
   }
 
-  // Move all entities back to staging.
+  // Remove all entities, moving them back to staging.
   void remove_all() { do_remove_all(store_id_t{}); }
 
   // Remove entity by ID and erase it from the registry. Returns success flag.

@@ -313,7 +313,7 @@ public:
     return owner.release();
   }
 
-  // Add components for an entity. Returns success flag.
+  // Add components for an entity already in staging. Returns success flag.
   template<typename... Args>
   [[nodiscard]] bool add(id_t id, Args&&... args) {
     static_assert(sizeof...(Args) == sizeof...(Cs));
@@ -340,48 +340,55 @@ public:
     return add(handle.id(), std::forward<Args>(args)...);
   }
 
-  // Remove a component by ID, moving the entity to `store_id_t{0}`.
-  // Returns success flag.
+  // Remove entity by ID, moving it back to staging. Returns success flag.
   bool remove(id_t id) { return do_remove_erase(id, store_id_t{}); }
 
-  // Remove a component by handle, moving the entity to `store_id_t{0}`.
-  // Returns success flag.
+  // Remove entity by handle, moving it back to staging. Returns success flag.
   bool remove(handle_t handle) {
     if (!registry_->is_valid(handle)) return false;
     return do_remove_erase(handle.id(), store_id_t{});
   }
 
-  // Remove all components, moving all entities to `store_id_t{0}`.
+  // Remove all entities, moving them back to staging.
   void remove_all() { do_remove_all(store_id_t{}); }
 
-  // Remove a component by ID and erase the entity from the registry.
-  // Returns success flag.
+  // Remove entity by ID and erase it from the registry. Returns success flag.
   bool erase(id_t id) { return do_remove_erase(id, store_id_t::invalid); }
 
-  // Remove a component by handle and erase the entity from the registry.
-  // Returns success flag.
+  // Remove entity by handle and erase it from the registry. Returns success
+  // flag.
   bool erase(handle_t handle) {
     if (!registry_->is_valid(handle)) return false;
     return do_remove_erase(handle.id(), store_id_t::invalid);
   }
 
-  // Erase archetypes for which `pred(component, id)` returns true for the
+  // Erase entities for which `pred(component, id)` returns true for the
   // selected component type. Returns count erased.
   template<typename C>
   size_type erase_if_component(auto pred) {
-    return do_erase_if_component(std::get<component_vector_t<C>>(components_),
-        std::move(pred));
+    size_type cnt = 0;
+    auto& vec = std::get<component_vector_t<C>>(components_);
+    for (size_type ndx{}; ndx < vec.size();) {
+      if (pred(vec[ndx], ids_[ndx])) {
+        const auto removed_id = ids_[ndx];
+        do_swap_and_pop(ndx);
+        registry_->set_location(removed_id, {store_id_t::invalid});
+        ++cnt;
+      } else
+        ++ndx;
+    }
+    return cnt;
   }
 
-  // Erase archetypes for which `pred(component, id)` returns true for the
+  // Erase entities for which `pred(component, id)` returns true for the
   // selected component index. Returns count erased.
   template<std::size_t Index>
   size_type erase_if_component(auto pred) {
-    return do_erase_if_component(std::get<Index>(components_),
-        std::move(pred));
+    using C = std::tuple_element_t<Index, tuple_t>;
+    return erase_if_component<C>(std::move(pred));
   }
 
-  // Erase archetypes for which `pred(row_view)` returns true.
+  // Erase entities for which `pred(row_view)` returns true.
   // Returns count erased.
   size_type erase_if(auto pred) {
     size_type cnt = 0;
@@ -399,7 +406,7 @@ public:
     return cnt;
   }
 
-  // Remove all archetypes. Entities are removed from the registry.
+  // Remove all entities. Entities are removed from the registry.
   void clear() { do_remove_all(store_id_t::invalid); }
 
   // Check whether an entity has an archetype in this storage, by ID.
@@ -504,20 +511,6 @@ private:
     ids_.clear();
   }
 
-  template<typename ComponentVec, typename Pred>
-  size_type do_erase_if_component(ComponentVec& components, Pred&& pred) {
-    size_type cnt = 0;
-    for (size_type ndx{}; ndx < components.size();) {
-      if (pred(components[ndx], ids_[ndx])) {
-        const auto removed_id = ids_[ndx];
-        do_swap_and_pop(ndx);
-        registry_->set_location(removed_id, {store_id_t::invalid});
-        ++cnt;
-      } else
-        ++ndx;
-    }
-    return cnt;
-  }
 
 private:
   static std::tuple<component_vector_t<Cs>...> make_components(

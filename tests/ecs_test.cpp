@@ -200,7 +200,8 @@ void ArchetypeStorage_Add() {
     EXPECT_EQ(a.size(), 0U);
   }
 
-  // add_new returns an invalid handle and cleans up when the archetype is full.
+  // add_new returns an invalid handle and cleans up when the archetype is
+  // full.
   if (true) {
     reg_t r;
     arch_t a{r, sid, 1};
@@ -743,7 +744,8 @@ void ArchetypeStorage_SwapAndMove() {
     EXPECT_LT(a.capacity(), 100U);
   }
 
-  // Move constructor transfers all data; source is left in a valid empty state.
+  // Move constructor transfers all data; source is left in a valid empty
+  // state.
   if (true) {
     reg_t r;
     arch_t a{r, sid1};
@@ -899,7 +901,8 @@ void ArchetypeStorage_EraseIf() {
     EXPECT_FALSE(r.is_valid(id1));
   }
 
-  // erase_if removes matching entities; displaced entity keeps correct location.
+  // erase_if removes matching entities; displaced entity keeps correct
+  // location.
   if (true) {
     reg_t r;
     arch_t a{r, sid};
@@ -910,13 +913,14 @@ void ArchetypeStorage_EraseIf() {
     EXPECT_TRUE(a.add(id1, 22, 2.0f));
     EXPECT_TRUE(a.add(id2, 33, 3.0f));
     // Erase entities whose int component is odd.
-    auto cnt = a.erase_if(
-        [](const auto& row) { return row.template component<int>() % 2 != 0; });
+    auto cnt = a.erase_if([](const auto& row) {
+      return row.template component<int>() % 2 != 0;
+    });
     EXPECT_EQ(cnt, 2U);
     EXPECT_EQ(a.size(), 1U);
-    EXPECT_FALSE(r.is_valid(id0));   // 11 is odd; erased
-    EXPECT_TRUE(r.is_valid(id1));    // 22 is even; kept
-    EXPECT_FALSE(r.is_valid(id2));   // 33 is odd; erased
+    EXPECT_FALSE(r.is_valid(id0)); // 11 is odd; erased
+    EXPECT_TRUE(r.is_valid(id1));  // 22 is even; kept
+    EXPECT_FALSE(r.is_valid(id2)); // 33 is odd; erased
     EXPECT_EQ(a[0U].id(), id1);
     EXPECT_EQ(a[0U].component<int>(), 22);
     EXPECT_EQ(r.get_location(id1).store_id, sid);
@@ -945,8 +949,9 @@ void ArchetypeStorage_EraseIf() {
     EXPECT_TRUE(a.add(id0, 10, 1.0f));
     EXPECT_TRUE(a.add(id1, 20, 2.0f));
     EXPECT_TRUE(a.add(id2, 30, 3.0f));
-    auto cnt = a.erase_if_component<int>(
-        [](int val, auto) { return val > 15; });
+    auto cnt = a.erase_if_component<int>([](int val, auto) {
+      return val > 15;
+    });
     EXPECT_EQ(cnt, 2U);
     EXPECT_EQ(a.size(), 1U);
     EXPECT_TRUE(r.is_valid(id0));
@@ -964,8 +969,9 @@ void ArchetypeStorage_EraseIf() {
     EXPECT_TRUE(a.add(id0, 5, 1.0f));
     EXPECT_TRUE(a.add(id1, 5, 9.0f));
     // Component at index 1 is float; erase where float > 5.
-    auto cnt = a.erase_if_component<1>(
-        [](float val, auto) { return val > 5.0f; });
+    auto cnt = a.erase_if_component<1>([](float val, auto) {
+      return val > 5.0f;
+    });
     EXPECT_EQ(cnt, 1U);
     EXPECT_EQ(a.size(), 1U);
     EXPECT_TRUE(r.is_valid(id0));
@@ -4887,8 +4893,9 @@ void ChunkedArchetypeStorage_EraseIf() {
     EXPECT_TRUE(a.add(id0, 11, 1.0f));
     EXPECT_TRUE(a.add(id1, 22, 2.0f));
     EXPECT_TRUE(a.add(id2, 33, 3.0f));
-    auto cnt = a.erase_if(
-        [](const auto& row) { return row.template component<int>() % 2 != 0; });
+    auto cnt = a.erase_if([](const auto& row) {
+      return row.template component<int>() % 2 != 0;
+    });
     EXPECT_EQ(cnt, 2U);
     EXPECT_EQ(a.size(), 1U);
     EXPECT_FALSE(r.is_valid(id0));
@@ -5036,27 +5043,27 @@ void ChunkedArchetypeStorage_ChunkBoundary() {
     auto ids = make_ids(r, 6);
     for (int i = 0; i < 6; ++i) EXPECT_TRUE(a.add(ids[i], i, float(i)));
     // Erase even-valued ints: 0 (idx 0), 2 (idx 2), 4 (idx 4).
-    auto cnt = a.erase_if(
-        [](const auto& row) { return row.template component<int>() % 2 == 0; });
+    auto cnt = a.erase_if([](const auto& row) {
+      return row.template component<int>() % 2 == 0;
+    });
     EXPECT_EQ(cnt, 3U);
     EXPECT_EQ(a.size(), 3U);
     // All survivors have odd int components.
     for (auto row : a) EXPECT_EQ(row.component<int>() % 2, 1);
     // Registry locations are consistent.
-    for (auto row : a)
-      EXPECT_EQ(r.get_location(row.id()).ndx, row.index());
+    for (auto row : a) EXPECT_EQ(r.get_location(row.id()).ndx, row.index());
   }
 }
 
 MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ArchetypeStorage_Add, ArchetypeStorage_Remove, ArchetypeStorage_Erase,
     ArchetypeStorage_RowAccess, ArchetypeStorage_ComponentAccess,
-    ArchetypeStorage_Limit, ArchetypeStorage_SwapAndMove, ArchetypeStorage_Iterator,
-    ArchetypeStorage_EraseIf,
+    ArchetypeStorage_Limit, ArchetypeStorage_SwapAndMove,
+    ArchetypeStorage_Iterator, ArchetypeStorage_EraseIf,
     ChunkedArchetypeStorage_Basic, ChunkedArchetypeStorage_Add,
-    ChunkedArchetypeStorage_RemoveAndErase, ChunkedArchetypeStorage_RowAndIterator,
-    ChunkedArchetypeStorage_EraseIf, ChunkedArchetypeStorage_ChunkBoundary,
-    StableId_Basic, StableId_SmallId,
+    ChunkedArchetypeStorage_RemoveAndErase,
+    ChunkedArchetypeStorage_RowAndIterator, ChunkedArchetypeStorage_EraseIf,
+    ChunkedArchetypeStorage_ChunkBoundary, StableId_Basic, StableId_SmallId,
     StableId_NoThrow, StableId_Fifo, StableId_NoGen, StableId_FifoNoGen,
     StableId_MaxId, EntityRegistry_Basic, EntityRegistry_Handle,
     EntityRegistry_Fifo, EntityRegistry_Clear, EntityRegistry_Reserve,
