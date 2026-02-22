@@ -1,7 +1,7 @@
 // Corvid: A general-purpose modern C++ library extending std.
 // https://github.com/stevensudit/Corvid
 //
-// Copyright 2022-2026 Steven Sudit
+// Copyright 2022-2025 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -34,13 +34,12 @@ struct empty_t {
   explicit constexpr empty_t(Args&&...) noexcept {}
 };
 
-// Maybe bool type: T if Enabled is true, otherwise empty. Enabled may be a
-// plain bool or any bool-underlying enum class (e.g. "bool_enums.h" values).
+// Maybe bool type: T if Enabled is true, otherwise empty.
 //
 // Usage:
 //   [[no_unique_address]] maybe_t<int, Enabled> int_or_missing{42};
-template<typename T, auto Enabled = false>
-using maybe_t = std::conditional_t<static_cast<bool>(Enabled), T, empty_t>;
+template<typename T, bool Enabled = false>
+using maybe_t = std::conditional_t<Enabled, T, empty_t>;
 
 // Maybe void type: T if T is not void, otherwise empty.
 //

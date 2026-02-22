@@ -79,14 +79,13 @@ template<typename T = void,
     class A = std::allocator<T>>
 class entity_registry {
 public:
+  static constexpr bool is_versioned_v = (GEN == generation_scheme::versioned);
   using metadata_t = maybe_void_t<T>;
   using id_t = EID;
   using size_type = std::underlying_type_t<id_t>;
   using store_id_t = SID;
-  using gen_t = maybe_t<size_type, GEN>;
+  using gen_t = maybe_t<size_type, is_versioned_v>;
   using allocator_type = A;
-
-  static constexpr bool is_versioned_v = (GEN == generation_scheme::versioned);
 
   static_assert(*id_t::invalid ==
                     std::numeric_limits<std::underlying_type_t<id_t>>::max(),
@@ -203,8 +202,8 @@ public:
     [[no_unique_address]] metadata_t metadata{};
   };
 
-  using record_allocator_type = typename std::allocator_traits<
-      A>::template rebind_alloc<record_t>;
+  using record_allocator_type =
+      typename std::allocator_traits<A>::template rebind_alloc<record_t>;
 
 public:
   entity_registry() = default;
