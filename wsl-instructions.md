@@ -15,7 +15,8 @@ wget https://apt.llvm.org/llvm.sh
 chmod +x llvm.sh
 sudo ./llvm.sh 21
 sudo apt update
-sudo apt install clang-21 lldb-21 lld-21 clang-format-21 cmake ninja-build
+sudo apt install -y clang-21 lldb-21 lld-21 clang-format-21 cmake ninja-build
+sudo apt-get install -y libc++-21-dev libc++abi-21-dev
 sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 100 \
 --slave /usr/bin/clang++ clang++ /usr/bin/clang++-21
 ```
