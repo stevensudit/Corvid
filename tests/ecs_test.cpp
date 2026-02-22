@@ -854,6 +854,20 @@ void ArchetypeStorage_Iterator() {
     const auto& ca = a;
     EXPECT_TRUE(ca.begin() == ca.end());
   }
+
+  // cbegin()/cend() return const_iterator; readable on a mutable archetype.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(a.add(id0, 7, 1.5f));
+    float fsum = 0.0f;
+    for (auto it = a.cbegin(); it != a.cend(); ++it)
+      fsum += it->component<float>();
+    EXPECT_EQ(fsum, 1.5f);
+    static_assert(
+        std::is_same_v<decltype(a.cbegin()), arch_t::const_iterator>);
+  }
 }
 
 void ArchetypeStorage_EraseIf() {
@@ -3712,6 +3726,36 @@ void ComponentStorage_Basic() {
     s.reserve(100);
     EXPECT_TRUE(s.empty());
   }
+
+  // add_new(metadata, component) metadata-first overload.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto h0 = s.add_new(42, 2.5f);
+    EXPECT_TRUE(bool(h0));
+    EXPECT_EQ(s[h0.id()], 2.5f);
+    EXPECT_EQ(r[h0.id()], 42);
+  }
+
+  // add_new(metadata) with default-constructed component.
+  if (true) {
+    reg_t r;
+    storage_t s{r, sid};
+    auto h0 = s.add_new(99);
+    EXPECT_TRUE(bool(h0));
+    EXPECT_EQ(s[h0.id()], 0.0f);
+    EXPECT_EQ(r[h0.id()], 99);
+  }
+
+  // tag_t alias matches the template tag parameter.
+  if (true) {
+    struct MyTag {};
+    using tagged_t = component_storage<reg_t, float, MyTag>;
+    static_assert(std::is_same_v<tagged_t::tag_t, MyTag>);
+    static_assert(std::is_same_v<storage_t::tag_t, void>);
+    // Tagged and untagged storages are distinct types.
+    static_assert(!std::is_same_v<tagged_t, storage_t>);
+  }
 }
 
 void ComponentStorage_Handle() {
@@ -4557,6 +4601,17 @@ void ChunkedArchetypeStorage_Basic() {
     EXPECT_TRUE(a.empty());
     EXPECT_EQ(a.limit(), 8U);
   }
+
+  // tag_t alias matches the template tag parameter.
+  if (true) {
+    struct MyTag {};
+    using tagged_t =
+        chunked_archetype_storage<reg_t, std::tuple<int, float>, 4, MyTag>;
+    static_assert(std::is_same_v<tagged_t::tag_t, MyTag>);
+    static_assert(std::is_same_v<arch_t::tag_t, void>);
+    // Tagged and untagged storages are distinct types.
+    static_assert(!std::is_same_v<tagged_t, arch_t>);
+  }
 }
 
 void ChunkedArchetypeStorage_Add() {
@@ -4718,6 +4773,21 @@ void ChunkedArchetypeStorage_RemoveAndErase() {
     EXPECT_FALSE(r.is_valid(id1));
   }
 
+  // remove(handle) moves entity back to staging; invalid handle returns false.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto h = r.create_handle(staging, 10);
+    EXPECT_TRUE(a.add(h, 5, 5.0f));
+    EXPECT_TRUE(a.remove(h));
+    EXPECT_EQ(a.size(), 0U);
+    EXPECT_TRUE(r.is_valid(h));
+    EXPECT_EQ(r.get_location(h).store_id, store_id_t{});
+    // Stale / invalid handle returns false.
+    r.erase(h);
+    EXPECT_FALSE(a.remove(h));
+  }
+
   // Swap-and-pop: displaced entity gets correct registry index.
   if (true) {
     reg_t r;
@@ -4860,6 +4930,20 @@ void ChunkedArchetypeStorage_RowAndIterator() {
     for (auto row : a) row.component<int>() *= 10;
     EXPECT_EQ(a[id0].component<int>(), 10);
     EXPECT_EQ(a[id1].component<int>(), 20);
+  }
+
+  // cbegin()/cend() return const_iterator; readable on a mutable storage.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(a.add(id0, 7, 1.5f));
+    float fsum = 0.0f;
+    for (auto it = a.cbegin(); it != a.cend(); ++it)
+      fsum += it->component<float>();
+    EXPECT_EQ(fsum, 1.5f);
+    static_assert(
+        std::is_same_v<decltype(a.cbegin()), arch_t::const_iterator>);
   }
 }
 
@@ -6077,6 +6161,87 @@ void StableId_ReservePrefill() {
   }
 }
 
+void ChunkedArchetypeStorage_SwapAndMove() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using loc_t = reg_t::location_t;
+  using arch_t = chunked_archetype_storage<reg_t, std::tuple<int, float>, 4>;
+  const auto sid1 = store_id_t{1};
+  const auto sid2 = store_id_t{2};
+  const loc_t staging{store_id_t{}};
+
+  // swap() (member) exchanges component data and store_ids.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid1};
+    arch_t b{r, sid2};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(a.add(id0, 11, 1.0f));
+    EXPECT_TRUE(b.add(id1, 22, 2.0f));
+    a.swap(b);
+    EXPECT_EQ(a.store_id(), sid2);
+    EXPECT_EQ(b.store_id(), sid1);
+    EXPECT_EQ(a.size(), 1U);
+    EXPECT_EQ(b.size(), 1U);
+    EXPECT_EQ(a[id1].component<int>(), 22);
+    EXPECT_EQ(b[id0].component<int>(), 11);
+  }
+
+  // swap() (free function) exchanges component data and store_ids.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid1};
+    arch_t b{r, sid2};
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    EXPECT_TRUE(a.add(id0, 11, 1.0f));
+    EXPECT_TRUE(b.add(id1, 22, 2.0f));
+    swap(a, b);
+    EXPECT_EQ(a.store_id(), sid2);
+    EXPECT_EQ(b.store_id(), sid1);
+    EXPECT_EQ(a[id1].component<int>(), 22);
+    EXPECT_EQ(b[id0].component<int>(), 11);
+  }
+
+  // shrink_to_fit after reserve reduces wasted capacity.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid1};
+    a.reserve(100);
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(a.add(id0, 1, 1.0f));
+    a.shrink_to_fit();
+    EXPECT_EQ(a.size(), 1U);
+    EXPECT_LT(a.capacity(), 100U);
+  }
+
+  // Move constructor transfers all data; source is left valid and empty.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid1};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(a.add(id0, 42, 1.0f));
+    arch_t b{std::move(a)};
+    EXPECT_EQ(b.size(), 1U);
+    EXPECT_EQ(b.store_id(), sid1);
+    EXPECT_EQ(b[id0].component<int>(), 42);
+  }
+
+  // Move assignment transfers data from source to destination.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid1};
+    arch_t b{r, sid2};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(a.add(id0, 7, 7.0f));
+    b = std::move(a);
+    EXPECT_EQ(b.size(), 1U);
+    EXPECT_EQ(b.store_id(), sid1);
+    EXPECT_EQ(b[id0].component<int>(), 7);
+  }
+}
+
 void EntityRegistry_GetAllocator() {
   using reg_t = entity_registry<int>;
 
@@ -6108,7 +6273,8 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ChunkedArchetypeStorage_Add, ChunkedArchetypeStorage_RemoveAndErase,
     ChunkedArchetypeStorage_RowAndIterator, ChunkedArchetypeStorage_EraseIf,
     ChunkedArchetypeStorage_ChunkBoundary, ChunkedArchetypeStorage_At,
-    ChunkedArchetypeStorage_RemoveIf, StableId_Basic, StableId_SmallId,
+    ChunkedArchetypeStorage_RemoveIf, ChunkedArchetypeStorage_SwapAndMove,
+    StableId_Basic, StableId_SmallId,
     StableId_NoThrow, StableId_Fifo, StableId_NoGen, StableId_FifoNoGen,
     StableId_MaxId, StableId_ReservePrefill, EntityRegistry_Basic,
     EntityRegistry_Handle, EntityRegistry_Fifo, EntityRegistry_Clear,

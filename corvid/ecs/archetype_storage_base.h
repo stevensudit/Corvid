@@ -80,10 +80,10 @@ public:
   using typename storage_base_t::allocator_type;
   using typename storage_base_t::id_allocator_t;
   using typename storage_base_t::id_vector_t;
-
-  // Re-export `add_guard` so `CHILD` can write
-  // `friend typename base_t::add_guard`.
   using typename storage_base_t::add_guard;
+
+  using storage_base_t::size;
+  using storage_base_t::contains;
 
   static_assert(sizeof...(Cs) > 0);
 
@@ -103,8 +103,8 @@ public:
   class row_wrapper {
   public:
     static constexpr bool mutable_v = MUTABLE;
-    using base_owner_t = std::conditional_t<mutable_v,
-        archetype_storage_base, const archetype_storage_base>;
+    using base_owner_t = std::conditional_t<mutable_v, archetype_storage_base,
+        const archetype_storage_base>;
     using derived_owner_t =
         std::conditional_t<mutable_v, derived_t, const derived_t>;
 
@@ -180,8 +180,8 @@ public:
     using difference_type = std::ptrdiff_t;
     using reference = value_type&;
     using pointer = value_type*;
-    using base_owner_t = std::conditional_t<mutable_v,
-        archetype_storage_base, const archetype_storage_base>;
+    using base_owner_t = std::conditional_t<mutable_v, archetype_storage_base,
+        const archetype_storage_base>;
 
     row_iterator() = default;
     row_iterator(const row_iterator&) = default;
@@ -379,17 +379,12 @@ public:
     return const_iterator{*this, size()};
   }
 
-  // Bring base members into unqualified scope for use in methods and
-  // nested classes throughout this class and its derived types.
+protected:
   using storage_base_t::registry_;
   using storage_base_t::store_id_;
   using storage_base_t::limit_;
   using storage_base_t::ids_;
   using storage_base_t::derived;
-  using storage_base_t::size;
-  using storage_base_t::contains;
-
-protected:
   // Constructors are protected; only derived classes may construct.
 
   archetype_storage_base() = default;

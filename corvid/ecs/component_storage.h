@@ -68,10 +68,6 @@ public:
   using base_t::size;
   using base_t::clear;
   using base_t::contains;
-  using base_t::registry_;
-  using base_t::store_id_;
-  using base_t::limit_;
-  using base_t::ids_;
 
   using component_allocator_type =
       typename std::allocator_traits<allocator_type>::template rebind_alloc<C>;
@@ -352,6 +348,11 @@ public:
   [[nodiscard]] const_iterator cend() const noexcept { return end(); }
 
 private:
+  using base_t::registry_;
+  using base_t::store_id_;
+  using base_t::limit_;
+  using base_t::ids_;
+
   // Grant `storage_base` and its `add_guard` access to the CRTP customization
   // points.
   friend base_t;
