@@ -88,7 +88,7 @@ public:
   static_assert(sizeof...(Cs) > 0);
 
   // Lightweight, non-owning handle to a single entity's row. When
-  // `IsConst=false`, `row_lens` (mutable); `IsConst=true`, `row_view`
+  // `MUTABLE=true`, `row_lens` (mutable); `MUTABLE=false`, `row_view`
   // (read-only).
   //
   // Stores a pointer to the owning base and a flat logical index. Component
@@ -99,14 +99,14 @@ public:
   // In terms of usage, this should not be seen as a standalone type, but
   // rather as the reference type yielded by iterators and row accessors. You
   // should not be retaining or copying these around.
-  template<bool IsConst = false>
+  template<bool MUTABLE = true>
   class row_wrapper {
   public:
-    static constexpr bool writeable_v = !IsConst;
-    using base_owner_t = std::conditional_t<writeable_v,
+    static constexpr bool mutable_v = MUTABLE;
+    using base_owner_t = std::conditional_t<mutable_v,
         archetype_storage_base, const archetype_storage_base>;
     using derived_owner_t =
-        std::conditional_t<writeable_v, derived_t, const derived_t>;
+        std::conditional_t<mutable_v, derived_t, const derived_t>;
 
     row_wrapper() = default;
     row_wrapper(const row_wrapper&) = default;
@@ -126,7 +126,7 @@ public:
 
     // Access component by type.
     template<typename C>
-    requires(writeable_v)
+    requires(mutable_v)
     [[nodiscard]] C& component() noexcept {
       return owner_->template do_get_component<C>(ndx_);
     }
@@ -137,7 +137,7 @@ public:
 
     // Access component by zero-based tuple index.
     template<size_t Index>
-    requires(writeable_v)
+    requires(mutable_v)
     [[nodiscard]] auto& component() noexcept {
       return owner_->template do_get_component_by_index<Index>(ndx_);
     }
@@ -162,25 +162,25 @@ public:
   };
 
   // Read-only row view.
-  using row_view = row_wrapper<true>;
+  using row_view = row_wrapper<false>;
 
   // Mutable row lens.
-  using row_lens = row_wrapper<false>;
+  using row_lens = row_wrapper<true>;
 
   // Bidirectional iterator. Dereferencing yields a `row_lens` or `row_view`,
   // depending on constness. Invalidated by any structural mutation
   // (add/remove/erase).
-  template<bool IsConst = false>
+  template<bool MUTABLE = true>
   class row_iterator {
   public:
-    static constexpr bool writeable_v = !IsConst;
+    static constexpr bool mutable_v = MUTABLE;
     using iterator_category = std::bidirectional_iterator_tag;
     using iterator_concept = std::bidirectional_iterator_tag;
-    using value_type = std::conditional_t<writeable_v, row_lens, row_view>;
+    using value_type = std::conditional_t<mutable_v, row_lens, row_view>;
     using difference_type = std::ptrdiff_t;
     using reference = value_type&;
     using pointer = value_type*;
-    using base_owner_t = std::conditional_t<writeable_v,
+    using base_owner_t = std::conditional_t<mutable_v,
         archetype_storage_base, const archetype_storage_base>;
 
     row_iterator() = default;
@@ -230,8 +230,8 @@ public:
     friend class archetype_storage_base;
   };
 
-  using iterator = row_iterator<false>;
-  using const_iterator = row_iterator<true>;
+  using iterator = row_iterator<true>;
+  using const_iterator = row_iterator<false>;
 
   // Atomically create an entity in the registry and insert it into this
   // storage. Returns the new entity's handle on success, or an invalid handle

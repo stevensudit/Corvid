@@ -252,19 +252,19 @@ public:
 
   // Contiguous iterator over components. Dereferencing yields a `component_t`
   // reference; `id()` returns the entity ID at the current position.
-  template<bool IsConst>
+  template<bool MUTABLE>
   class iterator_t {
   public:
-    static constexpr bool writeable_v = !IsConst;
+    static constexpr bool mutable_v = MUTABLE;
     using iterator_category = std::contiguous_iterator_tag;
     using iterator_concept = std::contiguous_iterator_tag;
     using value_type = component_t;
     using difference_type = std::ptrdiff_t;
     using reference =
-        std::conditional_t<writeable_v, value_type&, const value_type&>;
+        std::conditional_t<mutable_v, value_type&, const value_type&>;
     using pointer =
-        std::conditional_t<writeable_v, value_type*, const value_type*>;
-    using storage_ptr = std::conditional_t<writeable_v, component_storage*,
+        std::conditional_t<mutable_v, value_type*, const value_type*>;
+    using storage_ptr = std::conditional_t<mutable_v, component_storage*,
         const component_storage*>;
 
     iterator_t() = default;
@@ -346,8 +346,8 @@ public:
     friend class component_storage;
   };
 
-  using iterator = iterator_t<false>;
-  using const_iterator = iterator_t<true>;
+  using iterator = iterator_t<true>;
+  using const_iterator = iterator_t<false>;
 
   [[nodiscard]] iterator begin() noexcept { return {this, 0}; }
   [[nodiscard]] iterator end() noexcept { return {this, size()}; }
