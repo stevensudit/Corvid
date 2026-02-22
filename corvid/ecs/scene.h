@@ -220,10 +220,12 @@ public:
   //
   // Returns false if the entity is staged, `to` is not a valid storage ID, or
   // the target storage rejects the insertion (e.g., at limit). On failure the
-  // entity remains in its current storage or is stranded in staging.
+  // entity remains in its current storage or is stranded in staging.  ID must
+  // be valid.
   //
   // Build shape: `(const auto& row) -> <destination component tuple>`.
   [[nodiscard]] bool migrate(id_t id, store_id_t to, auto&& build) {
+    assert(registry_.is_valid(id));
     const auto store_id = registry_.get_location(id).store_id;
     if (store_id == to) return true; // already there — no-op
     return dispatch_storage<bool>(
@@ -274,12 +276,14 @@ public:
   // in the target are default-constructed.
   //
   // If `to` is already the entity's current storage, returns true immediately.
+  // ID must be valid.
   //
   // This handles both promotion (target has more components than source) and
   // demotion (target has fewer). Components are matched by type; if a type
   // appears in both archetypes it is copied, otherwise it is default-
   // constructed in the target.
   [[nodiscard]] bool migrate(id_t id, store_id_t to) {
+    assert(registry_.is_valid(id));
     const auto store_id = registry_.get_location(id).store_id;
     if (store_id == to) return true; // already there — no-op
     return dispatch_storage<bool>(

@@ -5371,7 +5371,7 @@ void Scene_EraseRemove() {
     EXPECT_EQ(loc.store_id, scene_reg_t::store_id_t{});
   }
 
-  // remove on already-staged entity returns false.
+  // remove on already-staged entity returns true.
   if (true) {
     two_storage_scene_t s;
     auto h = s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
@@ -6464,18 +6464,17 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ChunkedArchetypeStorage_RowAndIterator, ChunkedArchetypeStorage_EraseIf,
     ChunkedArchetypeStorage_ChunkBoundary, ChunkedArchetypeStorage_At,
     ChunkedArchetypeStorage_RemoveIf, ChunkedArchetypeStorage_SwapAndMove,
-    StableId_Basic, StableId_SmallId,
-    StableId_NoThrow, StableId_Fifo, StableId_NoGen, StableId_FifoNoGen,
-    StableId_MaxId, StableId_ReservePrefill, EntityRegistry_Basic,
-    EntityRegistry_Handle, EntityRegistry_Fifo, EntityRegistry_Clear,
-    EntityRegistry_Reserve, EntityRegistry_IdLimit, EntityRegistry_NoGen,
-    EntityRegistry_VoidMeta, EntityRegistry_VoidNoGen,
-    EntityRegistry_IdLimitAdvanced, EntityRegistry_FifoAdvanced,
-    EntityRegistry_EdgeCases, EntityRegistry_MetadataCleanup,
-    EntityRegistry_EraseIfPredicate, EntityRegistry_IdLimitFreeList,
-    EntityRegistry_ReservePrefillExisting, EntityRegistry_HandleOwner,
-    EntityRegistry_GetAllocator, ComponentStorage_Basic,
-    ComponentStorage_Handle, ComponentStorage_Remove,
+    StableId_Basic, StableId_SmallId, StableId_NoThrow, StableId_Fifo,
+    StableId_NoGen, StableId_FifoNoGen, StableId_MaxId,
+    StableId_ReservePrefill, EntityRegistry_Basic, EntityRegistry_Handle,
+    EntityRegistry_Fifo, EntityRegistry_Clear, EntityRegistry_Reserve,
+    EntityRegistry_IdLimit, EntityRegistry_NoGen, EntityRegistry_VoidMeta,
+    EntityRegistry_VoidNoGen, EntityRegistry_IdLimitAdvanced,
+    EntityRegistry_FifoAdvanced, EntityRegistry_EdgeCases,
+    EntityRegistry_MetadataCleanup, EntityRegistry_EraseIfPredicate,
+    EntityRegistry_IdLimitFreeList, EntityRegistry_ReservePrefillExisting,
+    EntityRegistry_HandleOwner, EntityRegistry_GetAllocator,
+    ComponentStorage_Basic, ComponentStorage_Handle, ComponentStorage_Remove,
     ComponentStorage_RemoveAll, ComponentStorage_Erase,
     ComponentStorage_EraseIf, ComponentStorage_Clear,
     ComponentStorage_SwapAndMove, ComponentStorage_LimitAndReserve,

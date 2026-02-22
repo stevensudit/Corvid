@@ -165,13 +165,29 @@ protected:
         ids_{id_allocator_t{registry.get_allocator()}} {
     if (store_id == store_id_t::invalid || store_id == store_id_t{})
       throw std::invalid_argument("store_id must be a valid non-zero value");
-    if (!limit) throw std::invalid_argument("limit must be non-zero");
   }
 
+  // Derived destructors call `clear()`, which unconditionally iterates `ids_`
+  // and writes to the registry. The standard only guarantees a moved-from
+  // `std::vector` is "valid but unspecified" — not necessarily empty — so
+  // explicitly clearing `ids_` after the steal makes destruction safe.
   storage_base(const storage_base&) = delete;
-  storage_base(storage_base&&) noexcept = default;
+  storage_base(storage_base&& other) noexcept
+      : registry_{other.registry_}, store_id_{other.store_id_},
+        limit_{other.limit_}, ids_{std::move(other.ids_)} {
+    other.ids_.clear();
+  }
   storage_base& operator=(const storage_base&) = delete;
-  storage_base& operator=(storage_base&&) noexcept = default;
+  storage_base& operator=(storage_base&& other) noexcept {
+    if (this != &other) {
+      registry_ = other.registry_;
+      store_id_ = other.store_id_;
+      limit_ = other.limit_;
+      ids_ = std::move(other.ids_);
+      other.ids_.clear();
+    }
+    return *this;
+  }
 
   ~storage_base() = default;
 
