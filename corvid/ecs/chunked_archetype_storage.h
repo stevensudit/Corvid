@@ -62,7 +62,7 @@ template<typename REG, typename TUPLE, size_t CHUNKSZ = 16,
 class chunked_archetype_storage;
 
 template<typename REG, typename... Cs, size_t CHUNKSZ, typename TAG>
-class chunked_archetype_storage<REG, std::tuple<Cs...>, CHUNKSZ, TAG>
+class chunked_archetype_storage<REG, std::tuple<Cs...>, CHUNKSZ, TAG> final
     : public archetype_storage_base<
           chunked_archetype_storage<REG, std::tuple<Cs...>, CHUNKSZ, TAG>, REG,
           std::tuple<Cs...>> {

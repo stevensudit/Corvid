@@ -63,7 +63,7 @@ template<typename REG, typename TUPLE, typename TAG = void>
 class archetype_storage;
 
 template<typename REG, typename... Cs, typename TAG>
-class archetype_storage<REG, std::tuple<Cs...>, TAG>
+class archetype_storage<REG, std::tuple<Cs...>, TAG> final
     : public archetype_storage_base<
           archetype_storage<REG, std::tuple<Cs...>, TAG>, REG,
           std::tuple<Cs...>> {

@@ -46,7 +46,7 @@ namespace corvid { inline namespace ecs { inline namespace component_storages {
 //        multiple structurally-identical storages that are nevertheless
 //        different types and can coexist in the same `scene<>` tuple.
 template<typename REG, typename C, typename TAG = void>
-class component_storage
+class component_storage final
     : public storage_base<component_storage<REG, C, TAG>, REG> {
   using base_t = storage_base<component_storage<REG, C, TAG>, REG>;
 
