@@ -207,9 +207,7 @@ concept Viewable =
 // `F` must be callable with `Args` and return void.
 template<typename F, typename... Args>
 concept CallableReturningVoid = requires(F f, Args&&... args) {
-  {
-    f(std::forward<Args>(args)...)
-  } -> std::same_as<void>;
+  { f(std::forward<Args>(args)...) } -> std::same_as<void>;
 };
 
 // `F` must be callable with `Args` and return something other than void.

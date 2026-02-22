@@ -409,9 +409,7 @@ void OptStringViewTestEqual() {
 
   // It's really constexpr, despite throwing on non-0, because it knows at
   // compile-time that it's 0.
-  if constexpr (n.empty()) {
-    EXPECT_TRUE(true);
-  }
+  if constexpr (n.empty()) { EXPECT_TRUE(true); }
 
   auto csv = opt_string_view{"abc"};
   // In contrast, the next line won't compile.

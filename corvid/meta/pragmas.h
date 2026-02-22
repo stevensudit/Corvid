@@ -30,8 +30,8 @@ namespace corvid { inline namespace meta { inline namespace pragmas {
 #define PRAGMA_IGNORED(quoted) PRAGMA_CLANG_IGNORED(quoted)
 // Removed in clang 20+; guard with __has_warning to stay forward-compatible.
 #if __has_warning("-Wenum-constexpr-conversion")
-#define PRAGMA_CLANG_IGNORED_ENUM_CONSTEXPR_CONV \
-    PRAGMA_CLANG_IGNORED("-Wenum-constexpr-conversion")
+#define PRAGMA_CLANG_IGNORED_ENUM_CONSTEXPR_CONV                              \
+  PRAGMA_CLANG_IGNORED("-Wenum-constexpr-conversion")
 #else
 #define PRAGMA_CLANG_IGNORED_ENUM_CONSTEXPR_CONV
 #endif

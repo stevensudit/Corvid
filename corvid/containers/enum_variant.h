@@ -43,9 +43,7 @@ using underlying_variant_type_t = std::conditional_t<HasUnderlyingType<T>,
 // variant of type `V`.
 template<typename T, typename V>
 concept HasVisitMemberTemplate = requires(const T& t, const V& v) {
-  {
-    t.visit(v)
-  };
+  { t.visit(v) };
 };
 
 // Variant size, which works on `enum_variant` and `std::variant`.
