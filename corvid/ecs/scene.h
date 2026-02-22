@@ -321,9 +321,7 @@ public:
   // after failed migrations or other error paths. Runs in O(N) in the total
   // count of living entities.
   size_type erase_staged() {
-    // TODO: Consider doing a check in advance by comparing the entity count to
-    // the size(). If they match, then there's no reason to search for staged
-    // entities.
+    if (registry_.size() == size()) return 0;
     return registry_.erase_if([](const auto& rec) {
       return rec.location.store_id == store_id_t{};
     });
