@@ -201,11 +201,11 @@ private:
   // Swap element at `ndx` with the last element and pop. Updates the displaced
   // entity's registry location.
   void do_swap_and_pop(size_type ndx) {
+    assert(size());
     const auto last = size() - 1;
     if (ndx != last) {
       do_swap_elements(ndx, last);
-      if (registry_)
-        registry_->set_location(ids_[ndx], {store_id_, ndx});
+      if (registry_) registry_->set_location(ids_[ndx], {store_id_, ndx});
     }
     for_each_component([&](auto& vec) { vec.pop_back(); });
     ids_.pop_back();

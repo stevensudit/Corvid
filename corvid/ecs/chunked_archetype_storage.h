@@ -225,11 +225,11 @@ private:
   // the last chunk if it is now empty. Updates the displaced entity's registry
   // location.
   void do_swap_and_pop(size_type ndx) {
+    assert(size());
     const auto last = size() - 1;
     if (ndx != last) {
       do_swap_elements(ndx, last);
-      if (registry_)
-        registry_->set_location(ids_[ndx], {store_id_, ndx});
+      if (registry_) registry_->set_location(ids_[ndx], {store_id_, ndx});
     }
     ids_.pop_back();
     // The last chunk becomes empty when the element we just removed was in its

@@ -222,15 +222,13 @@ public:
 
   // Mutable access by entity ID, with checking.
   [[nodiscard]] component_t& at(id_t id) {
-    if (!contains(id))
-      throw std::out_of_range("entity not in this storage");
+    if (!contains(id)) throw std::out_of_range("entity not in this storage");
     return components_[registry_->get_location(id).ndx];
   }
 
   // Const access by entity ID, with checking.
   [[nodiscard]] row_view at(id_t id) const {
-    if (!contains(id))
-      throw std::out_of_range("entity not in this storage");
+    if (!contains(id)) throw std::out_of_range("entity not in this storage");
     const auto ndx = registry_->get_location(id).ndx;
     return {components_[ndx], ids_[ndx]};
   }
@@ -352,9 +350,7 @@ public:
   [[nodiscard]] iterator begin() noexcept { return {this, 0}; }
   [[nodiscard]] iterator end() noexcept { return {this, size()}; }
   [[nodiscard]] const_iterator begin() const noexcept { return {this, 0}; }
-  [[nodiscard]] const_iterator end() const noexcept {
-    return {this, size()};
-  }
+  [[nodiscard]] const_iterator end() const noexcept { return {this, size()}; }
   [[nodiscard]] const_iterator cbegin() const noexcept { return begin(); }
   [[nodiscard]] const_iterator cend() const noexcept { return end(); }
 
@@ -365,6 +361,7 @@ private:
   // Swap element at `ndx` with the last element and pop. Updates the
   // swapped-in entity's registry location.
   void do_swap_and_pop(size_type ndx) {
+    assert(size());
     const auto last = static_cast<size_type>(components_.size() - 1);
     if (ndx != last) {
       std::swap(components_[ndx], components_[last]);
