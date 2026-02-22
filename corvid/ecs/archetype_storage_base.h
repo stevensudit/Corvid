@@ -43,13 +43,12 @@ inline namespace archetype_storage_bases {
 // and `typename base_t::add_guard`):
 //   `template<typename... Args>
 //         void do_add_components(Args&&... args);`
-//   `template<typename C> C& do_get_component(size_type ndx);`
-//   `template<typename C> const C& do_get_component(size_type ndx) const;`
-//   `template<size_t I> auto& do_get_component_by_index(size_type ndx);`
-//   `template<size_t I> const auto& do_get_component_by_index(size_type ndx)
-//         const;`
-//   `auto do_make_components_tuple(size_type ndx);`
-//   `auto do_make_components_tuple(size_type ndx) const;`
+//   `template<typename C>
+//         decltype(auto) do_get_component(this auto& self, size_type ndx);`
+//   `template<size_t I>
+//         decltype(auto) do_get_component_by_index(this auto& self,
+//         size_type ndx);`
+//   `decltype(auto) do_make_components_tuple(this auto& self, size_type ndx);`
 //   `void do_swap_and_pop(size_type ndx);`
 //   `void do_clear_storage();`
 //   `void do_resize_storage(size_type new_size);`
@@ -124,26 +123,19 @@ public:
     [[nodiscard]] size_type index() const noexcept { return ndx_; }
     [[nodiscard]] id_t id() const { return owner_->ids_[ndx_]; }
 
-    // Access component by type.
+    // Access component by type. Constness of the return propagates from
+    // `owner_`, which is typed `const derived_t*` for `row_view` and
+    // `derived_t*` for `row_lens`. `auto&&` accepts both lvalue and rvalue
+    // row wrappers (e.g. temporaries returned by `operator[]`).
     template<typename C>
-    requires(mutable_v)
-    [[nodiscard]] C& component() noexcept {
-      return owner_->template do_get_component<C>(ndx_);
-    }
-    template<typename C>
-    [[nodiscard]] const C& component() const noexcept {
-      return owner_->template do_get_component<C>(ndx_);
+    [[nodiscard]] decltype(auto) component(this auto&& self) noexcept {
+      return self.owner_->template do_get_component<C>(self.ndx_);
     }
 
-    // Access component by zero-based tuple index.
+    // Access component by zero-based tuple index. Same constness propagation.
     template<size_t Index>
-    requires(mutable_v)
-    [[nodiscard]] auto& component() noexcept {
-      return owner_->template do_get_component_by_index<Index>(ndx_);
-    }
-    template<size_t Index>
-    [[nodiscard]] const auto& component() const noexcept {
-      return owner_->template do_get_component_by_index<Index>(ndx_);
+    [[nodiscard]] decltype(auto) component(this auto&& self) noexcept {
+      return self.owner_->template do_get_component_by_index<Index>(self.ndx_);
     }
 
     // Access all components as a tuple of references.
