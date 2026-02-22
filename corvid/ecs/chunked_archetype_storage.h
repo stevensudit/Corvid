@@ -185,8 +185,8 @@ private:
   // Append one row of components into the correct chunk slot (called by
   // base's `add(id_t, ...)`).
   template<typename... Args>
-  void do_add_components(size_type ndx, Args&&... args) {
-    const auto [chunk_ndx, element_ndx] = chunk_coords(ndx);
+  void do_add_components(Args&&... args) {
+    const auto [chunk_ndx, element_ndx] = chunk_coords(this->size());
     if (element_ndx == 0) chunks_.emplace_back();
     auto& chunk = chunks_.back();
     ((void)(std::get<chunk_t<Cs>>(chunk)[element_ndx] =

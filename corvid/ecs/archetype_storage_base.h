@@ -42,7 +42,7 @@ inline namespace archetype_storage_bases {
 // Required customization points in `CHILD` (may be private; befriend `base_t`
 // and `typename base_t::add_guard`):
 //   `template<typename... Args>
-//         void do_add_components(size_type ndx, Args&&... args);`
+//         void do_add_components(Args&&... args);`
 //   `template<typename C> C& do_get_component(size_type ndx);`
 //   `template<typename C> const C& do_get_component(size_type ndx) const;`
 //   `template<size_t I> auto& do_get_component_by_index(size_type ndx);`
@@ -255,7 +255,7 @@ public:
     const auto ndx = this->size();
     if (ndx >= limit_) return false;
     add_guard guard{derived()};
-    derived().do_add_components(ndx, std::forward<Args>(args)...);
+    derived().do_add_components(std::forward<Args>(args)...);
     ids_.push_back(id);
     registry_->set_location(id, {store_id_, ndx});
     return guard.disarm();

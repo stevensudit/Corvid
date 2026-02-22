@@ -184,7 +184,7 @@ private:
   // Append one row of components (called by base's `add(id_t, ...)`).
   // Note: `for_each_component` would only complicate this.
   template<typename... Args>
-  void do_add_components(size_type /*ndx*/, Args&&... args) {
+  void do_add_components(Args&&... args) {
     (std::get<component_vector_t<Cs>>(components_)
             .emplace_back(std::forward<Args>(args)),
         ...);
