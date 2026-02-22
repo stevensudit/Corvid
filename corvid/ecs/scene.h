@@ -86,6 +86,7 @@ public:
   using store_id_t = typename registry_t::store_id_t;
   using location_t = typename registry_t::location_t;
   using metadata_t = typename registry_t::metadata_t;
+  using allocator_type = typename registry_t::allocator_type;
 
   static constexpr size_t storage_count_v = sizeof...(STORES);
 
@@ -106,11 +107,12 @@ public:
   using storage_t =
       std::tuple_element_t<*SID, std::tuple<std::monostate, STORES...>>;
 
-  // Construct with unlimited, unbound storages and a default-constructed
-  // registry. Each storage is bound to this scene's registry and assigned
-  // `store_id_t{N}` for 1-based index N.
-  scene()
-      : registry_{},
+  // Construct with unlimited, unbound storages. Each storage is bound to
+  // this scene's registry and assigned `store_id_t{N}` for 1-based index N.
+  // An optional allocator propagates to the registry; all storage allocations
+  // derive from it via `registry_.get_allocator()`.
+  explicit scene(const allocator_type& alloc = allocator_type{})
+      : registry_{alloc},
         storages_{make_storages(std::index_sequence_for<STORES...>{})} {}
 
   scene(const scene&) = delete;
