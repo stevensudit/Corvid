@@ -90,6 +90,12 @@ public:
   using typename base_t::iterator;
   using typename base_t::const_iterator;
   using base_t::size;
+  using base_t::clear;
+  using storage_base_t = typename base_t::storage_base_t;
+  using storage_base_t::registry_;
+  using storage_base_t::store_id_;
+  using storage_base_t::limit_;
+  using storage_base_t::ids_;
 
   template<typename T>
   using component_allocator_t =
@@ -124,7 +130,7 @@ public:
   archetype_storage(const archetype_storage&) = delete;
   archetype_storage(archetype_storage&&) noexcept = default;
 
-  ~archetype_storage() { this->clear(); }
+  ~archetype_storage() { clear(); }
 
   archetype_storage& operator=(const archetype_storage&) = delete;
   archetype_storage& operator=(archetype_storage&&) noexcept = default;
@@ -151,12 +157,12 @@ public:
   void reserve(size_type new_cap) {
     const auto cap = static_cast<size_t>(new_cap);
     for_each_component([&](auto& vec) { vec.reserve(cap); });
-    this->ids_.reserve(cap);
+    ids_.reserve(cap);
   }
 
   // Return current capacity (minimum across all component vectors and IDs).
   [[nodiscard]] size_type capacity() const noexcept {
-    size_t min_cap = this->ids_.capacity();
+    size_t min_cap = ids_.capacity();
     std::apply(
         [&](const auto&... vecs) {
           ((min_cap = std::min(min_cap, vecs.capacity())), ...);
@@ -164,13 +170,6 @@ public:
         components_);
     return static_cast<size_type>(min_cap);
   }
-
-protected:
-  using storage_base_t = typename base_t::storage_base_t;
-  using storage_base_t::registry_;
-  using storage_base_t::store_id_;
-  using storage_base_t::limit_;
-  using storage_base_t::ids_;
 
 private:
   // Grant the base chain and row wrappers access to private customization
@@ -201,7 +200,7 @@ private:
     for_each_component([&](auto& vec) {
       std::swap(vec[left_ndx], vec[right_ndx]);
     });
-    std::swap(this->ids_[left_ndx], this->ids_[right_ndx]);
+    std::swap(ids_[left_ndx], ids_[right_ndx]);
   }
 
   // Swap element at `ndx` with the last element and pop. Updates the displaced
@@ -210,11 +209,11 @@ private:
     const auto last = size() - 1;
     if (ndx != last) {
       do_swap_elements(ndx, last);
-      if (this->registry_)
-        this->registry_->set_location(this->ids_[ndx], {this->store_id_, ndx});
+      if (registry_)
+        registry_->set_location(ids_[ndx], {store_id_, ndx});
     }
     for_each_component([&](auto& vec) { vec.pop_back(); });
-    this->ids_.pop_back();
+    ids_.pop_back();
   }
 
   // Clear all component vectors (called by base's `do_remove_all`).

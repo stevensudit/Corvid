@@ -252,7 +252,7 @@ public:
     static_assert(sizeof...(Args) == sizeof...(Cs));
     const auto& loc = registry_->get_location(id);
     if (loc.store_id != store_id_t{}) return false;
-    const auto ndx = this->size();
+    const auto ndx = size();
     if (ndx >= limit_) return false;
     add_guard guard{derived()};
     derived().do_add_components(std::forward<Args>(args)...);
@@ -266,7 +266,7 @@ public:
   template<typename... Args>
   [[nodiscard]] bool add(handle_t handle, Args&&... args) {
     if (!registry_->is_valid(handle)) return false;
-    return this->add(handle.id(), std::forward<Args>(args)...);
+    return add(handle.id(), std::forward<Args>(args)...);
   }
 
   // Erase entities for which `pred(comp, id)` returns true, where `comp` is a
@@ -328,24 +328,22 @@ public:
   // Access the row for entity `id` as a `row_lens` (mutable) or `row_view`
   // (const). Entity must be valid and in this storage; asserts in debug.
   [[nodiscard]] row_lens operator[](id_t id) noexcept {
-    assert(this->contains(id));
+    assert(contains(id));
     return row_lens{*this, registry_->get_location(id).ndx};
   }
   [[nodiscard]] row_view operator[](id_t id) const noexcept {
-    assert(this->contains(id));
+    assert(contains(id));
     return row_view{*this, registry_->get_location(id).ndx};
   }
 
   // Access the row for entity `id` with bounds checking. Throws
   // `std::out_of_range` if the entity is not in this storage.
   [[nodiscard]] row_lens at(id_t id) {
-    if (!this->contains(id))
-      throw std::out_of_range("entity not in this storage");
+    if (!contains(id)) throw std::out_of_range("entity not in this storage");
     return row_lens{*this, registry_->get_location(id).ndx};
   }
   [[nodiscard]] row_view at(id_t id) const {
-    if (!this->contains(id))
-      throw std::out_of_range("entity not in this storage");
+    if (!contains(id)) throw std::out_of_range("entity not in this storage");
     return row_view{*this, registry_->get_location(id).ndx};
   }
 
@@ -353,13 +351,13 @@ public:
   // `std::invalid_argument` if the handle is invalid or stale, or if the
   // entity is not in this storage.
   [[nodiscard]] row_lens at(handle_t handle) {
-    if (!this->contains(handle))
+    if (!contains(handle))
       throw std::invalid_argument(
           "invalid handle or entity not in this storage");
     return (*this)[handle.id()];
   }
   [[nodiscard]] row_view at(handle_t handle) const {
-    if (!this->contains(handle))
+    if (!contains(handle))
       throw std::invalid_argument(
           "invalid handle or entity not in this storage");
     return (*this)[handle.id()];
@@ -367,23 +365,20 @@ public:
 
   // Bidirectional iteration over all entities in storage-sequential order.
   [[nodiscard]] iterator begin() noexcept { return iterator{*this, 0}; }
-  [[nodiscard]] iterator end() noexcept {
-    return iterator{*this, this->size()};
-  }
+  [[nodiscard]] iterator end() noexcept { return iterator{*this, size()}; }
   [[nodiscard]] const_iterator begin() const noexcept {
     return const_iterator{*this, 0};
   }
   [[nodiscard]] const_iterator end() const noexcept {
-    return const_iterator{*this, this->size()};
+    return const_iterator{*this, size()};
   }
   [[nodiscard]] const_iterator cbegin() const noexcept {
     return const_iterator{*this, 0};
   }
   [[nodiscard]] const_iterator cend() const noexcept {
-    return const_iterator{*this, this->size()};
+    return const_iterator{*this, size()};
   }
 
-protected:
   // Bring base members into unqualified scope for use in methods and
   // nested classes throughout this class and its derived types.
   using storage_base_t::registry_;
@@ -391,7 +386,10 @@ protected:
   using storage_base_t::limit_;
   using storage_base_t::ids_;
   using storage_base_t::derived;
+  using storage_base_t::size;
+  using storage_base_t::contains;
 
+protected:
   // Constructors are protected; only derived classes may construct.
 
   archetype_storage_base() = default;

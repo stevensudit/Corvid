@@ -65,6 +65,13 @@ public:
   using typename base_t::allocator_type;
   using typename base_t::id_allocator_t;
   using typename base_t::id_vector_t;
+  using base_t::size;
+  using base_t::clear;
+  using base_t::contains;
+  using base_t::registry_;
+  using base_t::store_id_;
+  using base_t::limit_;
+  using base_t::ids_;
 
   using component_allocator_type =
       typename std::allocator_traits<allocator_type>::template rebind_alloc<C>;
@@ -86,11 +93,11 @@ public:
   }
 
   component_storage(component_storage&&) noexcept = default;
-  ~component_storage() { this->clear(); }
+  ~component_storage() { clear(); }
 
   component_storage& operator=(component_storage&& other) noexcept {
     if (this == &other) return *this;
-    this->clear();
+    clear();
     base_t::operator=(std::move(other));
     components_ = std::move(other.components_);
     return *this;
@@ -202,27 +209,27 @@ public:
 
   // Mutable access: returns `component_t&` directly.
   [[nodiscard]] component_t& operator[](id_t id) noexcept {
-    assert(this->contains(id));
+    assert(contains(id));
     return components_[registry_->get_location(id).ndx];
   }
 
   // Const access: returns `row_view` for uniform migrate-compatible access.
   [[nodiscard]] row_view operator[](id_t id) const noexcept {
-    assert(this->contains(id));
+    assert(contains(id));
     const auto ndx = registry_->get_location(id).ndx;
     return {components_[ndx], ids_[ndx]};
   }
 
   // Mutable access by entity ID, with checking.
   [[nodiscard]] component_t& at(id_t id) {
-    if (!this->contains(id))
+    if (!contains(id))
       throw std::out_of_range("entity not in this storage");
     return components_[registry_->get_location(id).ndx];
   }
 
   // Const access by entity ID, with checking.
   [[nodiscard]] row_view at(id_t id) const {
-    if (!this->contains(id))
+    if (!contains(id))
       throw std::out_of_range("entity not in this storage");
     const auto ndx = registry_->get_location(id).ndx;
     return {components_[ndx], ids_[ndx]};
@@ -230,14 +237,14 @@ public:
 
   // Access component by handle, with checking.
   [[nodiscard]] component_t& at(handle_t handle) {
-    if (!this->contains(handle))
+    if (!contains(handle))
       throw std::invalid_argument(
           "invalid handle or entity not in this storage");
     return (*this)[handle.id()];
   }
 
   [[nodiscard]] row_view at(handle_t handle) const {
-    if (!this->contains(handle))
+    if (!contains(handle))
       throw std::invalid_argument(
           "invalid handle or entity not in this storage");
     return (*this)[handle.id()];
@@ -343,20 +350,13 @@ public:
   using const_iterator = iterator_t<true>;
 
   [[nodiscard]] iterator begin() noexcept { return {this, 0}; }
-  [[nodiscard]] iterator end() noexcept { return {this, this->size()}; }
+  [[nodiscard]] iterator end() noexcept { return {this, size()}; }
   [[nodiscard]] const_iterator begin() const noexcept { return {this, 0}; }
   [[nodiscard]] const_iterator end() const noexcept {
-    return {this, this->size()};
+    return {this, size()};
   }
   [[nodiscard]] const_iterator cbegin() const noexcept { return begin(); }
   [[nodiscard]] const_iterator cend() const noexcept { return end(); }
-
-protected:
-  // Bring base members into unqualified scope.
-  using base_t::registry_;
-  using base_t::store_id_;
-  using base_t::limit_;
-  using base_t::ids_;
 
 private:
   // Grant `storage_base` access to the CRTP customization points.

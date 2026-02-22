@@ -88,6 +88,12 @@ public:
   using typename base_t::iterator;
   using typename base_t::const_iterator;
   using base_t::size;
+  using base_t::clear;
+  using storage_base_t = typename base_t::storage_base_t;
+  using storage_base_t::registry_;
+  using storage_base_t::store_id_;
+  using storage_base_t::limit_;
+  using storage_base_t::ids_;
 
   using tag_t = TAG;
 
@@ -128,13 +134,13 @@ public:
       : base_t{&registry, store_id, limit,
             id_allocator_t{registry.get_allocator()}},
         chunks_{chunk_allocator_t{registry.get_allocator()}} {
-    if (do_reserve && this->limit_ != *id_t::invalid) reserve(this->limit_);
+    if (do_reserve && limit_ != *id_t::invalid) reserve(limit_);
   }
 
   chunked_archetype_storage(const chunked_archetype_storage&) = delete;
   chunked_archetype_storage(chunked_archetype_storage&&) noexcept = default;
 
-  ~chunked_archetype_storage() { this->clear(); }
+  ~chunked_archetype_storage() { clear(); }
 
   chunked_archetype_storage& operator=(
       const chunked_archetype_storage&) = delete;
@@ -155,7 +161,7 @@ public:
   // Shrink the chunk vector and IDs to fit their current sizes.
   void shrink_to_fit() {
     chunks_.shrink_to_fit();
-    this->ids_.shrink_to_fit();
+    ids_.shrink_to_fit();
   }
 
   // Reserve capacity for at least `new_cap` entities. The chunk vector is
@@ -164,13 +170,13 @@ public:
   void reserve(size_type new_cap) {
     const auto n = static_cast<size_t>(new_cap);
     chunks_.reserve((n + chunk_size_v - 1) / chunk_size_v);
-    this->ids_.reserve(n);
+    ids_.reserve(n);
   }
 
   // Return the current entity capacity. Governed by IDs capacity(); the chunk
   // vector may hold slightly more slots due to chunk-boundary rounding.
   [[nodiscard]] size_type capacity() const noexcept {
-    return static_cast<size_type>(this->ids_.capacity());
+    return static_cast<size_type>(ids_.capacity());
   }
 
 private:
@@ -186,7 +192,7 @@ private:
   // base's `add(id_t, ...)`).
   template<typename... Args>
   void do_add_components(Args&&... args) {
-    const auto [chunk_ndx, element_ndx] = chunk_coords(this->size());
+    const auto [chunk_ndx, element_ndx] = chunk_coords(size());
     if (element_ndx == 0) chunks_.emplace_back();
     auto& chunk = chunks_.back();
     ((void)(std::get<chunk_t<Cs>>(chunk)[element_ndx] =
@@ -217,7 +223,7 @@ private:
          std::get<chunk_t<Cs>>(chunks_[left_chunk_ndx])[left_element_ndx],
          std::get<chunk_t<Cs>>(chunks_[right_chunk_ndx])[right_element_ndx]),
         ...);
-    std::swap(this->ids_[left_ndx], this->ids_[right_ndx]);
+    std::swap(ids_[left_ndx], ids_[right_ndx]);
   }
 
   // Swap element at `ndx` with the last element, pop the last slot, and drop
@@ -227,14 +233,14 @@ private:
     const auto last = size() - 1;
     if (ndx != last) {
       do_swap_elements(ndx, last);
-      if (this->registry_)
-        this->registry_->set_location(this->ids_[ndx], {this->store_id_, ndx});
+      if (registry_)
+        registry_->set_location(ids_[ndx], {store_id_, ndx});
     }
-    this->ids_.pop_back();
+    ids_.pop_back();
     // The last chunk becomes empty when the element we just removed was in its
     // first slot (slot 0), i.e. `ids_.size()` is now a multiple of
     // `chunk_size_v`.
-    if (this->ids_.size() % chunk_size_v == 0) chunks_.pop_back();
+    if (ids_.size() % chunk_size_v == 0) chunks_.pop_back();
   }
 
   // Clear chunk storage (called by base's `do_remove_all`).
