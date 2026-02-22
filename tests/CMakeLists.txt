@@ -29,16 +29,16 @@ if(USE_LIBSTDCPP)
     # Rely on whichever clang is available and the default libstdc++ install.
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra -Werror -std=c++23")
 else()
-    # Use Clang 19 and avoid pulling in GCC.
-    set(CMAKE_CXX_COMPILER "/usr/bin/clang++-19")
+    # Use Clang 21 and avoid pulling in GCC.
+    set(CMAKE_CXX_COMPILER "/usr/bin/clang++-21")
     set(CMAKE_CXX_COMPILER_TARGET "x86_64-pc-linux-gnu")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra -Werror -nostdinc++ -isystem /usr/include/c++/v1 -std=c++23")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra -Werror -nostdinc++ -isystem /usr/lib/llvm-21/include/c++/v1 -std=c++23")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ --rtlib=compiler-rt -fuse-ld=lld")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L/usr/lib/llvm-19/lib -lc++ -lc++abi")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L/usr/lib/llvm-21/lib -lc++ -lc++abi")
 endif()
 
 if(USE_CLANG_TIDY)
-    find_program(CLANG_TIDY_EXE NAMES clang-tidy clang-tidy-19 clang-tidy-20)
+    find_program(CLANG_TIDY_EXE NAMES clang-tidy clang-tidy-21)
     if(CLANG_TIDY_EXE)
         message(STATUS "clang-tidy enabled: ${CLANG_TIDY_EXE}")
         # Hardcode disabling StackAddressEscape explicitly

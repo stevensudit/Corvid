@@ -39,7 +39,7 @@ template<typename E>
 using as_underlying_t = decltype(as_underlying(std::declval<E>()));
 
 PRAGMA_CLANG_DIAG(push);
-PRAGMA_CLANG_IGNORED("-Wenum-constexpr-conversion");
+PRAGMA_CLANG_IGNORED_ENUM_CONSTEXPR_CONV;
 
 // Minimum value of enum, based on its underlying type.
 template<ScopedEnum E>

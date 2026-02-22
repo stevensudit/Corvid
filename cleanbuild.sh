@@ -40,8 +40,8 @@ if [[ "$choice" == "libstdcpp" ]]; then
   LIBSTD_OPTION="-DUSE_LIBSTDCPP=ON"
 else
   echo "Using libc++"
-  export CC="/usr/bin/clang-19"
-  export CXX="/usr/bin/clang++-19"
+  export CC="/usr/bin/clang-21"
+  export CXX="/usr/bin/clang++-21"
   LIBSTD_OPTION="-DUSE_LIBSTDCPP=OFF"
 fi
 
