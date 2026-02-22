@@ -5531,13 +5531,13 @@ void Scene_EraseStaged() {
   // After a failed migration the entity is staged; erase_staged() cleans it.
   if (true) {
     two_storage_scene_t s;
-    // Set storage<1> limit to 0 so add will fail.
+    // Set storage<2> limit to 0 so add will fail.
     (void)s.storage<scene_sid_t{2}>().set_limit(0);
     auto h = s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
     auto id = h.id();
-    // Auto-migrate promotes to storage 1 — but storage 1 is full.
-    // The entity ends up in staging after remove() from storage 0 succeeds
-    // but add() to storage 1 fails.
+    // Auto-migrate promotes to storage 2 — but storage 2 is full.
+    // The entity ends up in staging after remove() from storage 1 succeeds
+    // but add() to storage 2 fails.
     (void)s.migrate(id, scene_sid_t{2});
     // Entity may be stranded in staging; erase_staged cleans it up.
     EXPECT_EQ(s.erase_staged(), 1U);
@@ -5647,19 +5647,19 @@ void Scene_MultiStorage() {
     EXPECT_EQ(s.storage<scene_sid_t{2}>().size(), 1U);
     EXPECT_EQ(s.storage<scene_sid_t{3}>().size(), 1U);
 
-    // scene::erase dispatches to storage 0.
+    // scene::erase dispatches to storage 1.
     auto id0 = h0.id();
     EXPECT_TRUE(s.erase(id0));
     EXPECT_EQ(id0, scene_reg_t::id_t::invalid);
     EXPECT_EQ(s.storage<scene_sid_t{1}>().size(), 0U);
     EXPECT_EQ(s.size(), 2U);
 
-    // scene::remove dispatches to storage 2.
+    // scene::remove dispatches to storage 3.
     EXPECT_TRUE(s.remove(h2.id()));
     EXPECT_EQ(s.storage<scene_sid_t{3}>().size(), 0U);
     EXPECT_TRUE(s.registry().is_valid(h2.id())); // still alive (staged)
 
-    // scene::erase dispatches to storage 1.
+    // scene::erase dispatches to storage 2.
     EXPECT_TRUE(s.erase(h1));
     EXPECT_FALSE(h1); // handle reset
     EXPECT_EQ(s.size(), 0U);
