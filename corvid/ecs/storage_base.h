@@ -24,9 +24,9 @@
 #include "entity_registry.h"
 
 // Forward declaration for friendship; defined in "scene.h".
-namespace corvid { inline namespace ecs {
+namespace corvid { inline namespace ecs { inline namespace scenes {
 class scene_base;
-}} // namespace corvid::ecs
+}}} // namespace corvid::ecs::scenes
 
 namespace corvid { inline namespace ecs { inline namespace storage_bases {
 

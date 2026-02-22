@@ -25,10 +25,11 @@
 #include "ecs_meta.h"
 #include "entity_registry.h"
 
+namespace corvid { inline namespace ecs { inline namespace scenes {
+
 // Non-templated base for `scene<>`. Befriended by `storage_base` so that the
 // protected `storage_drop_all` thunk can reach the otherwise-private
 // `do_drop_all()` on any storage, without making that method public.
-namespace corvid { inline namespace ecs {
 class scene_base {
 protected:
   // Invoke `do_drop_all()` on storage `s`. Skips per-entity registry updates;
@@ -38,9 +39,6 @@ protected:
     s.do_drop_all();
   }
 };
-}} // namespace corvid::ecs
-
-namespace corvid { inline namespace ecs { inline namespace scenes {
 
 // Aggregates an `entity_registry` with a fixed, heterogeneous tuple of entity
 // data storages (`archetype_storage` or `chunked_archetype_storage` or
