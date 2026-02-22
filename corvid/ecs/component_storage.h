@@ -373,7 +373,7 @@ private:
     ids_.pop_back();
   }
 
-  // Clear all component data (called by `storage_base::do_remove_all`).
+  // Clear all component data (called by `storage_base::do_remove_erase_all`).
   void do_clear_storage() { components_.clear(); }
 
   // Roll back component storage to `new_size` (called by `add_guard` on

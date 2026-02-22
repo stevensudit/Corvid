@@ -101,7 +101,7 @@ public:
   }
 
   // Move all entities back to staging. Entities remain valid after this call.
-  void remove_all() { do_remove_all(store_id_t{}); }
+  void remove_all() { do_remove_erase_all(store_id_t{}); }
 
   // Swap-and-pop the entity out of storage and destroy it in the registry.
   // Sets `id` to `id_t::invalid` on success. Returns success flag.
@@ -121,7 +121,7 @@ public:
   }
 
   // Destroy all entities in the registry and empty the storage.
-  void clear() { do_remove_all(store_id_t::invalid); }
+  void clear() { do_remove_erase_all(store_id_t::invalid); }
 
   // RAII guard for `add()`: captures `size()` on construction. If `disarm()`
   // is not called before destruction, rolls `ids_` and derived storage back to
@@ -203,7 +203,7 @@ private:
     return true;
   }
 
-  void do_remove_all(store_id_t new_store_id) {
+  void do_remove_erase_all(store_id_t new_store_id) {
     for (const auto id : ids_) registry_->set_location(id, {new_store_id});
     derived().do_clear_storage();
     ids_.clear();

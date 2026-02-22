@@ -211,7 +211,7 @@ private:
     ids_.pop_back();
   }
 
-  // Clear all component vectors (called by base's `do_remove_all`).
+  // Clear all component vectors (called by base's `do_remove_erase_all`).
   void do_clear_storage() {
     for_each_component([](auto& vec) { vec.clear(); });
   }

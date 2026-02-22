@@ -238,7 +238,7 @@ private:
     if (ids_.size() % chunk_size_v == 0) chunks_.pop_back();
   }
 
-  // Clear chunk storage (called by base's `do_remove_all`).
+  // Clear chunk storage (called by base's `do_remove_erase_all`).
   void do_clear_storage() { chunks_.clear(); }
 
   // Customization points called by base's `do_remove_erase_if_component` and
