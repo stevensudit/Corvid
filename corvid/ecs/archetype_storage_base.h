@@ -382,8 +382,8 @@ protected:
   archetype_storage_base() = default;
 
   archetype_storage_base(registry_t* registry, store_id_t store_id,
-      size_type limit, id_allocator_t id_alloc)
-      : storage_base_t{registry, store_id, limit, std::move(id_alloc)} {}
+      size_type limit)
+      : storage_base_t{registry, store_id, limit} {}
 
   archetype_storage_base(const archetype_storage_base&) = delete;
   archetype_storage_base(archetype_storage_base&&) noexcept = default;

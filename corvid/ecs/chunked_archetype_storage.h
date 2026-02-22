@@ -122,8 +122,7 @@ public:
   // reserves capacity for `limit` entities up front.
   explicit chunked_archetype_storage(registry_t& registry, store_id_t store_id,
       size_type limit = *id_t::invalid, bool do_reserve = false)
-      : base_t{&registry, store_id, limit,
-            id_allocator_t{registry.get_allocator()}},
+      : base_t{&registry, store_id, limit},
         chunks_{chunk_allocator_t{registry.get_allocator()}} {
     if (do_reserve && limit_ != *id_t::invalid) reserve(limit_);
   }
