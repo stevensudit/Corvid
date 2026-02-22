@@ -17,8 +17,12 @@
 #pragma once
 
 #include "../enums/sequence_enum.h"
+#include "../enums/bool_enums.h"
 
-namespace corvid { inline namespace ecs { namespace id_enums {
+namespace corvid { inline namespace ecs {
+using namespace bool_enums;
+
+namespace id_enums {
 
 // These are the default ID types for various ECS concepts. You can use them
 // as-is, or define your own (typically, smaller ones) and ignore these. If you
@@ -41,7 +45,8 @@ enum class store_id_t : size_t {
   invalid = std::numeric_limits<size_t>::max()
 };
 
-}}} // namespace corvid::ecs::id_enums
+} // namespace id_enums
+}} // namespace corvid::ecs
 
 template<>
 constexpr auto

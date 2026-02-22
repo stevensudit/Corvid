@@ -144,7 +144,7 @@ public:
       return true;
     }
 
-    ~add_guard() noexcept { // NOLINT(bugprone-exception-escape)
+    ~add_guard() { // NOLINT(bugprone-exception-escape)
       if (saved_size_ == *id_t::invalid) return;
       owner_->ids_.resize(saved_size_);
       owner_->do_resize_storage(saved_size_);
@@ -222,7 +222,7 @@ protected:
   size_type limit_{*id_t::invalid};
   id_vector_t ids_{};
 
-  // Grant scene_base (and through it, scene<>) access to do_drop_all().
+  // Grant scene_base (and through it, `scene<>`) access to do_drop_all().
   friend class ::corvid::ecs::scene_base;
 
 private:

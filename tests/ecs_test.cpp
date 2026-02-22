@@ -23,6 +23,7 @@
 
 #include "../corvid/ecs.h"
 #include "minitest.h"
+using namespace corvid::bool_enums;
 
 using namespace std::literals;
 using namespace corvid;
@@ -89,7 +90,7 @@ void ArchetypeStorage_Registry() {
   // Registry constructor with do_reserve pre-allocates capacity.
   if (true) {
     reg_t r;
-    arch_t a{r, sid, 10, true};
+    arch_t a{r, sid, 10, allocation_policy::eager};
     EXPECT_GE(a.capacity(), 10U);
     EXPECT_TRUE(a.empty());
   }
@@ -1250,7 +1251,7 @@ void StableId_Basic() {
   if (true) {
     V v;
     (void)v.push_back(1);
-    v.clear(true);
+    v.clear(deallocation_policy::release);
     EXPECT_TRUE(v.empty());
     auto id = v.push_back(100);
     EXPECT_EQ(*id, 0U);
@@ -1331,7 +1332,7 @@ void StableId_Basic() {
     v.clear();
     EXPECT_EQ(v.max_id(), V::id_t{2});
     // clear(true) frees the index table; max_id resets.
-    v.clear(true);
+    v.clear(deallocation_policy::release);
     EXPECT_EQ(v.max_id(), V::id_t::invalid);
   }
 
@@ -1354,13 +1355,13 @@ constexpr auto corvid::enums::registry::enum_spec_v<small_id_t> =
 using int_stable_small_ids = stable_ids<int, small_id_t>;
 
 using int_stable_ids_fifo =
-    stable_ids<int, int_stable_ids::id_t, true, true, std::allocator<int>>;
+    stable_ids<int, int_stable_ids::id_t, generation_scheme::versioned, reuse_order::fifo, std::allocator<int>>;
 using int_stable_ids_nogen =
-    stable_ids<int, int_stable_ids::id_t, false, false, std::allocator<int>>;
+    stable_ids<int, int_stable_ids::id_t, generation_scheme::unversioned, reuse_order::lifo, std::allocator<int>>;
 using int_stable_ids_fifo_nogen =
-    stable_ids<int, int_stable_ids::id_t, false, true, std::allocator<int>>;
+    stable_ids<int, int_stable_ids::id_t, generation_scheme::unversioned, reuse_order::fifo, std::allocator<int>>;
 using int_stable_small_ids_fifo =
-    stable_ids<int, small_id_t, true, true, std::allocator<int>>;
+    stable_ids<int, small_id_t, generation_scheme::versioned, reuse_order::fifo, std::allocator<int>>;
 
 void StableId_SmallId() {
   using V = int_stable_small_ids;
@@ -1420,22 +1421,22 @@ void StableId_NoThrow() {
   // Default is to throw.
   if (true) {
     V v;
-    EXPECT_TRUE(v.throw_on_insert_failure());
+    EXPECT_EQ(v.throw_on_insert_failure(), on_failure::raise);
   }
 
   // Accessor round-trips.
   if (true) {
     V v;
-    v.throw_on_insert_failure(false);
-    EXPECT_FALSE(v.throw_on_insert_failure());
-    v.throw_on_insert_failure(true);
-    EXPECT_TRUE(v.throw_on_insert_failure());
+    v.throw_on_insert_failure(on_failure::ignore);
+    EXPECT_EQ(v.throw_on_insert_failure(), on_failure::ignore);
+    v.throw_on_insert_failure(on_failure::raise);
+    EXPECT_EQ(v.throw_on_insert_failure(), on_failure::raise);
   }
 
   // push_back returns invalid on overflow instead of throwing.
   if (true) {
     V v;
-    v.throw_on_insert_failure(false);
+    v.throw_on_insert_failure(on_failure::ignore);
     for (int i = 0; i < 255; ++i) (void)v.push_back(i);
     EXPECT_EQ(v.size(), 255U);
 
@@ -1447,7 +1448,7 @@ void StableId_NoThrow() {
   // emplace_back returns invalid on overflow instead of throwing.
   if (true) {
     V v;
-    v.throw_on_insert_failure(false);
+    v.throw_on_insert_failure(on_failure::ignore);
     for (int i = 0; i < 255; ++i) (void)v.emplace_back(i);
     EXPECT_EQ(v.size(), 255U);
 
@@ -1459,11 +1460,11 @@ void StableId_NoThrow() {
   // Re-enabling the flag restores throwing on overflow.
   if (true) {
     V v;
-    v.throw_on_insert_failure(false);
+    v.throw_on_insert_failure(on_failure::ignore);
     for (int i = 0; i < 255; ++i) (void)v.push_back(i);
     EXPECT_EQ(v.push_back(999), id_t::invalid);
 
-    v.throw_on_insert_failure(true);
+    v.throw_on_insert_failure(on_failure::raise);
     EXPECT_THROW(v.push_back(999), std::out_of_range);
     EXPECT_EQ(v.size(), 255U);
   }
@@ -1472,7 +1473,7 @@ void StableId_NoThrow() {
   // returns invalid.
   if (true) {
     V v;
-    v.throw_on_insert_failure(false);
+    v.throw_on_insert_failure(on_failure::ignore);
     for (int i = 0; i < 255; ++i) (void)v.push_back(i);
 
     v.erase(id_t{50});
@@ -1650,7 +1651,7 @@ void StableId_Fifo() {
     (void)v.push_back(10);
     (void)v.push_back(20);
     v.erase(id_t{0});
-    v.clear(true);
+    v.clear(deallocation_policy::release);
     EXPECT_TRUE(v.empty());
     auto id = v.push_back(42);
     EXPECT_EQ(*id, 0U);
@@ -1837,7 +1838,7 @@ void StableId_NoGen() {
   if (true) {
     V v;
     (void)v.push_back(10);
-    v.clear(true);
+    v.clear(deallocation_policy::release);
     EXPECT_TRUE(v.empty());
     auto id = v.push_back(42);
     EXPECT_EQ(*id, 0U);
@@ -1957,7 +1958,7 @@ void StableId_MaxId() {
   // With throw disabled, returns invalid.
   if (true) {
     V v{id_t{3}};
-    v.throw_on_insert_failure(false);
+    v.throw_on_insert_failure(on_failure::ignore);
     (void)v.push_back(10);
     (void)v.push_back(20);
     (void)v.push_back(30);
@@ -2054,7 +2055,7 @@ void StableId_MaxId() {
 
   // Prefill constructor pre-allocates slots.
   if (true) {
-    V v{id_t{5}, true};
+    V v{id_t{5}, allocation_policy::eager};
     EXPECT_EQ(v.id_limit(), id_t{5});
     // Slots are pre-allocated, so push_back won't allocate indexes_/reverse_.
     auto id0 = v.push_back(10);
@@ -2517,7 +2518,7 @@ void EntityRegistry_Clear() {
     reg_t r;
     (void)r.create_id(loc0, 10); // id 0
     (void)r.create_id(loc0, 20); // id 1
-    r.clear(true);
+    r.clear(deallocation_policy::release);
     EXPECT_EQ(r.size(), 0U);
     EXPECT_FALSE(r.is_valid(id_t{0}));
     auto id0 = r.create_id(loc0, 100);
@@ -2545,7 +2546,7 @@ void EntityRegistry_Reserve() {
   // reserve with prefill: pre-creates free slots.
   if (true) {
     reg_t r;
-    r.reserve(5, true);
+    r.reserve(5, allocation_policy::eager);
     // Slots exist but are not valid (free).
     EXPECT_FALSE(r.is_valid(id_t{0}));
     EXPECT_FALSE(r.is_valid(id_t{4}));
@@ -2559,7 +2560,7 @@ void EntityRegistry_Reserve() {
 
   // Prefill constructor.
   if (true) {
-    reg_t r{id_t{5}, true};
+    reg_t r{id_t{5}, allocation_policy::eager};
     EXPECT_EQ(r.id_limit(), id_t{5});
     EXPECT_EQ(r.create_id(loc0, 10), id_t{0});
     EXPECT_EQ(r.create_id(loc0, 20), id_t{1});
@@ -2612,7 +2613,7 @@ void EntityRegistry_IdLimit() {
 
 void EntityRegistry_NoGen() {
   using namespace id_enums;
-  using reg_t = entity_registry<int, entity_id_t, store_id_t, false>;
+  using reg_t = entity_registry<int, entity_id_t, store_id_t, generation_scheme::unversioned>;
   using id_t = reg_t::id_t;
   using handle_t = reg_t::handle_t;
   using loc_t = reg_t::location_t;
@@ -2810,7 +2811,7 @@ void EntityRegistry_VoidMeta() {
   // clear and reserve with prefill.
   if (true) {
     reg_t r;
-    r.reserve(5, true);
+    r.reserve(5, allocation_policy::eager);
     EXPECT_EQ(r.create_id(loc0), id_t{0});
     EXPECT_EQ(r.create_id(loc0), id_t{1});
     r.clear();
@@ -2873,7 +2874,7 @@ void EntityRegistry_VoidMeta() {
 
 void EntityRegistry_VoidNoGen() {
   using namespace id_enums;
-  using reg_t = entity_registry<void, entity_id_t, store_id_t, false>;
+  using reg_t = entity_registry<void, entity_id_t, store_id_t, generation_scheme::unversioned>;
   using id_t = reg_t::id_t;
   using loc_t = reg_t::location_t;
   const loc_t loc0{store_id_t{0}, 0};
@@ -3127,7 +3128,7 @@ void EntityRegistry_EdgeCases() {
 
   // Prefill constructor with prefill=false: just sets limit, no slots.
   if (true) {
-    reg_t r{id_t{5}, false};
+    reg_t r{id_t{5}, allocation_policy::lazy};
     EXPECT_EQ(r.id_limit(), id_t{5});
     EXPECT_EQ(r.create_id(loc0, 10), id_t{0});
     EXPECT_EQ(r.create_id(loc0, 20), id_t{1});
@@ -3212,14 +3213,14 @@ void EntityRegistry_EdgeCases() {
   // Constructor with id_limit and custom allocator.
   if (true) {
     std::allocator<int> alloc;
-    reg_t r{id_t{5}, true, alloc};
+    reg_t r{id_t{5}, allocation_policy::eager, alloc};
     EXPECT_EQ(r.id_limit(), id_t{5});
     EXPECT_EQ(r.create_id(loc0, 10), id_t{0});
   }
 
   // Prefill constructor with prefill=false: just sets limit.
   if (true) {
-    reg_t r{id_t::invalid, false};
+    reg_t r{id_t::invalid, allocation_policy::lazy};
     EXPECT_EQ(r.id_limit(), id_t::invalid);
   }
 
@@ -3319,7 +3320,7 @@ void EntityRegistry_MetadataCleanup() {
     reg_t r;
     (void)r.create_id(loc0, 100);
     (void)r.create_id(loc0, 200);
-    r.clear(true);
+    r.clear(deallocation_policy::release);
     auto id0 = r.create_id(loc0);
     EXPECT_EQ(r[id0], 0);
   }
@@ -3398,7 +3399,7 @@ void EntityRegistry_ReservePrefillExisting() {
     auto id0 = r.create_id(loc0, 10); // id 0
     auto id1 = r.create_id(loc0, 20); // id 1
     EXPECT_EQ(r.size(), 2U);
-    r.reserve(5, true); // adds free slots 2, 3, 4
+    r.reserve(5, allocation_policy::eager); // adds free slots 2, 3, 4
     // Existing entities are undisturbed.
     EXPECT_TRUE(r.is_valid(id0));
     EXPECT_TRUE(r.is_valid(id1));
@@ -3419,7 +3420,7 @@ void EntityRegistry_ReservePrefillExisting() {
     (void)r.create_id(loc0, 20); // id 1
     (void)r.create_id(loc0, 30); // id 2
     r.erase(id_t{1});            // free: [1]
-    r.reserve(5, true);          // adds free slots 3, 4
+    r.reserve(5, allocation_policy::eager);          // adds free slots 3, 4
     // Free list should be: 1 (existing), then 3, 4 (new).
     EXPECT_EQ(r.create_id(loc0, 40), id_t{1});
     EXPECT_EQ(r.create_id(loc0, 50), id_t{3});
@@ -4297,7 +4298,7 @@ void ComponentStorage_LimitAndReserve() {
   // Constructor with limit and reserve.
   if (true) {
     reg_t r;
-    storage_t s{r, sid, 5, true};
+    storage_t s{r, sid, 5, allocation_policy::eager};
     EXPECT_EQ(s.limit(), 5U);
     EXPECT_TRUE(s.empty());
     auto id0 = r.create_id(staging, 10);
@@ -4318,7 +4319,7 @@ void ComponentStorage_LimitAndReserve() {
   // Constructor with default limit and reserve=true is a no-op reserve.
   if (true) {
     reg_t r;
-    storage_t s{r, sid, *id_t::invalid, true};
+    storage_t s{r, sid, *id_t::invalid, allocation_policy::eager};
     EXPECT_EQ(s.limit(), *id_t::invalid);
     EXPECT_TRUE(s.empty());
   }
@@ -4671,7 +4672,7 @@ void ChunkedArchetypeStorage_Basic() {
   // Constructor with limit and do_reserve.
   if (true) {
     reg_t r;
-    arch_t a{r, sid, 8, true};
+    arch_t a{r, sid, 8, allocation_policy::eager};
     EXPECT_GE(a.capacity(), 8U);
     EXPECT_TRUE(a.empty());
     EXPECT_EQ(a.limit(), 8U);
@@ -5575,7 +5576,7 @@ void Scene_Clear() {
     auto h = s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
     (void)s.remove(h.id()); // now staged
     EXPECT_EQ(s.registry().size(), 1U);
-    s.clear(true);
+    s.clear(deallocation_policy::release);
     EXPECT_EQ(s.registry().size(), 0U);
   }
 
@@ -5585,7 +5586,7 @@ void Scene_Clear() {
     (void)s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
     (void)s.add_new<scene_sid_t{2}>({}, Position{}, Velocity{}, Health{});
     EXPECT_EQ(s.size(), 2U);
-    s.clear(false);
+    s.clear(deallocation_policy::preserve);
     EXPECT_EQ(s.size(), 0U);
     EXPECT_EQ(s.registry().size(), 0U);
   }
@@ -5596,7 +5597,7 @@ void Scene_Clear() {
     auto h = s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
     (void)s.remove(h.id()); // now staged
     EXPECT_EQ(s.registry().size(), 1U);
-    s.clear(false);
+    s.clear(deallocation_policy::preserve);
     EXPECT_EQ(s.registry().size(), 0U);
   }
 
@@ -5607,7 +5608,7 @@ void Scene_Clear() {
     two_storage_scene_t s;
     auto h = s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
     EXPECT_EQ(h.gen(), 0U); // initial generation
-    s.clear(true);
+    s.clear(deallocation_policy::release);
     EXPECT_FALSE(s.registry().is_valid(h)); // entity gone
     // Re-create: gen starts at 0 again because records were wiped.
     auto h2 = s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
@@ -5622,7 +5623,7 @@ void Scene_Clear() {
     two_storage_scene_t s;
     auto h = s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
     EXPECT_EQ(h.gen(), 0U); // initial generation
-    s.clear(false);
+    s.clear(deallocation_policy::preserve);
     EXPECT_FALSE(s.registry().is_valid(h)); // entity gone
     // Re-create: gen is 1 because the slow-path erase incremented it.
     auto h2 = s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
@@ -6299,7 +6300,7 @@ void StableId_ReservePrefill() {
   if (true) {
     int_stable_ids ids;
     EXPECT_EQ(ids.max_id(), int_stable_ids::id_t::invalid);
-    ids.reserve(5, true);
+    ids.reserve(5, allocation_policy::eager);
     EXPECT_EQ(ids.size(), 0U);                        // no elements inserted
     EXPECT_EQ(ids.max_id(), int_stable_ids::id_t{4}); // ID space set to [0,4]
   }
@@ -6307,7 +6308,7 @@ void StableId_ReservePrefill() {
   // reserve(n, false) does not extend the ID space.
   if (true) {
     int_stable_ids ids;
-    ids.reserve(5, false);
+    ids.reserve(5, allocation_policy::lazy);
     EXPECT_EQ(ids.size(), 0U);
     EXPECT_EQ(ids.max_id(), int_stable_ids::id_t::invalid);
   }
@@ -6315,7 +6316,7 @@ void StableId_ReservePrefill() {
   // After reserve(n, true), push_back uses the pre-filled slots correctly.
   if (true) {
     int_stable_ids ids;
-    ids.reserve(3, true);
+    ids.reserve(3, allocation_policy::eager);
     auto id0 = ids.push_back(10);
     auto id1 = ids.push_back(20);
     auto id2 = ids.push_back(30);

@@ -343,22 +343,23 @@ public:
   [[nodiscard]] bool empty() const noexcept { return size() == 0; }
 
   // Erase all entities in all storages and in staging. After this call the
-  // registry and all storages are empty. When `fast` is true, uses the fast
-  // path that drops storage vectors and resets the registry wholesale,
-  // invalidating all generation counters. When `fast` is false, erases
+  // registry and all storages are empty. When `policy` is release, uses the
+  // fast path that drops storage vectors and resets the registry wholesale,
+  // invalidating all generation counters. When `policy` is preserve, erases
   // entities one by one, which updates the registry and allows generation
   // counters to survive, but is slower. O(S) vs O(N).
   //
-  // Fast path: drops storage vectors without per-entity registry updates, then
-  // resets the registry wholesale via `clear(true)`. This invalidates all
-  // outstanding generation counters, but that is acceptable since every entity
-  // is destroyed. O(S) in the number of storages, not O(N) in entities.
-  void clear(bool fast = true) {
-    if (fast) {
+  // Release path: drops storage vectors without per-entity registry updates,
+  // then resets the registry wholesale. This invalidates all outstanding
+  // generation counters, but that is acceptable since every entity is
+  // destroyed. O(S) in the number of storages, not O(N) in entities.
+  void clear(bool_enums::deallocation_policy policy =
+      bool_enums::deallocation_policy::release) {
+    if (policy == bool_enums::deallocation_policy::release) {
       [&]<size_t... Is>(std::index_sequence<Is...>) {
         (storage_drop_all(std::get<Is>(storages_)), ...);
       }(storage_indices());
-      registry_.clear(true);
+      registry_.clear(bool_enums::deallocation_policy::release);
     } else {
       // Slow path: erase entities one by one, which updates the registry and
       // allows generation counters to survive. O(N) in entities.

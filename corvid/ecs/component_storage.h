@@ -81,10 +81,12 @@ public:
   component_storage() noexcept = default;
 
   explicit component_storage(registry_t& registry, store_id_t store_id,
-      size_type limit = *id_t::invalid, bool do_reserve = false)
+      size_type limit = *id_t::invalid,
+      allocation_policy policy = allocation_policy::lazy)
       : base_t{registry, store_id, limit},
         components_{component_allocator_type{registry.get_allocator()}} {
-    if (do_reserve && limit_ != *id_t::invalid) reserve(limit_);
+    if (policy == allocation_policy::eager && limit_ != *id_t::invalid)
+      reserve(limit_);
   }
 
   component_storage(component_storage&&) noexcept = default;
@@ -242,10 +244,10 @@ public:
 
   // Contiguous iterator over components. Dereferencing yields a `component_t`
   // reference; `id()` returns the entity ID at the current position.
-  template<bool MUTABLE>
+  template<access ACCESS>
   class iterator_t {
   public:
-    static constexpr bool mutable_v = MUTABLE;
+    static constexpr bool mutable_v = static_cast<bool>(ACCESS);
     using iterator_category = std::contiguous_iterator_tag;
     using iterator_concept = std::contiguous_iterator_tag;
     using value_type = component_t;
@@ -336,8 +338,8 @@ public:
     friend class component_storage;
   };
 
-  using iterator = iterator_t<true>;
-  using const_iterator = iterator_t<false>;
+  using iterator = iterator_t<access::as_mutable>;
+  using const_iterator = iterator_t<access::as_const>;
 
   [[nodiscard]] iterator begin() noexcept { return {this, 0}; }
   [[nodiscard]] iterator end() noexcept { return {this, size()}; }
