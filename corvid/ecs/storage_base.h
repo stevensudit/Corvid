@@ -144,7 +144,7 @@ public:
       return true;
     }
 
-    ~add_guard() {
+    ~add_guard() noexcept { // NOLINT(bugprone-exception-escape)
       if (saved_size_ == *id_t::invalid) return;
       owner_->ids_.resize(saved_size_);
       owner_->do_resize_storage(saved_size_);
@@ -161,9 +161,12 @@ public:
 
 protected:
   // Constructors are protected; only derived classes may construct.
+  // NOLINT: multi-level CRTP (intermediate base calls these) prevents the
+  // private+friend pattern that bugprone-crtp-constructor-accessibility
+  // prefers.
+  storage_base() = default; // NOLINT(bugprone-crtp-constructor-accessibility)
 
-  storage_base() = default;
-
+  // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility)
   storage_base(registry_t& registry, store_id_t store_id, size_type limit)
       : registry_{&registry}, store_id_{store_id}, limit_{limit},
         ids_{id_allocator_t{registry.get_allocator()}} {
@@ -175,6 +178,7 @@ protected:
   // and writes to the registry. The standard only guarantees a moved-from
   // `std::vector` is "valid but unspecified" — not necessarily empty — so
   // explicitly clearing `ids_` after the steal makes destruction safe.
+  // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility)
   storage_base(storage_base&& other) noexcept
       : registry_{other.registry_}, store_id_{other.store_id_},
         limit_{other.limit_}, ids_{std::move(other.ids_)} {
