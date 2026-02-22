@@ -37,8 +37,7 @@ template<operation op, typename... Args>
 void LangTest_AstPred() {
   using enum operation;
   node_ptr root;
-  if (true) {
-  }
+  if (true) {}
   if (true) {
     // Degenerate case.
     root = M<always_true>();

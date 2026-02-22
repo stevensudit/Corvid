@@ -36,9 +36,7 @@ stream_out(OStreamDerived auto& os, const OStreamable auto&... args) {
 constexpr auto& stream_out_with(OStreamDerived auto& os, delim d,
     const OStreamable auto& head, const OStreamable auto&... tail) {
   os << head;
-  if constexpr (sizeof...(tail) > 0) {
-    ((os << d << tail), ...);
-  }
+  if constexpr (sizeof...(tail) > 0) { ((os << d << tail), ...); }
   return os;
 }
 

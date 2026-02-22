@@ -41,9 +41,7 @@ enum old_enum : std::uint8_t { old_zero, old_one, old_two, old_three };
 enum class new_enum : std::uint8_t { new_zero, new_one, new_two, new_three };
 
 void SequentialEnumTest_Registry() {
-  if (true) {
-    EXPECT_EQ((strings::enum_as_string(tiger_pick::eeny)), "eeny");
-  }
+  if (true) { EXPECT_EQ((strings::enum_as_string(tiger_pick::eeny)), "eeny"); }
 }
 
 void SequentialEnumTest_Ops() {

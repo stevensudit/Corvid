@@ -25,7 +25,7 @@ namespace corvid { inline namespace enums { namespace registry {
 // sequential and bitmask while providing a simple append method that outputs
 // the underlying value as a number.
 PRAGMA_CLANG_DIAG(push);
-PRAGMA_CLANG_IGNORED("-Wenum-constexpr-conversion");
+PRAGMA_CLANG_IGNORED_ENUM_CONSTEXPR_CONV;
 template<ScopedEnum E, E minseq = min_scoped_enum_v<E>,
     E maxseq = max_scoped_enum_v<E>, bool validseq = false,
     wrapclip wrapseq = wrapclip{}, uint64_t validbits = 0,

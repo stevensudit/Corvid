@@ -90,12 +90,8 @@ template<typename R = std::string_view>
 template<typename T>
 concept PieceGenerator = requires(T t, std::string_view s) {
   requires std::is_move_constructible_v<T>;
-  {
-    T{s}
-  };
-  {
-    t.more_pieces(s)
-  };
+  { T{s} };
+  { t.more_pieces(s) };
 };
 
 // Implements the PieceGenerator concept to provide a working example that is

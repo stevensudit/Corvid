@@ -484,8 +484,8 @@ template<auto opt = join_opt::braced, char open = 0, char close = 0,
     JoinAppendable T>
 requires(!Container<T>) && (!Variant<T>) && (!OptionalLike<T>) &&
         (!TupleLike<T>)
-constexpr auto& append_join_with(AppendTarget auto& target, delim d,
-    const T& part) {
+constexpr auto&
+append_join_with(AppendTarget auto& target, delim d, const T& part) {
   constexpr bool add_braces = decode::braces_v<opt, open, close>;
   constexpr bool add_quotes =
       (StringViewConvertible<T> || StdEnum<T>) && decode::quoted_v<opt>;
