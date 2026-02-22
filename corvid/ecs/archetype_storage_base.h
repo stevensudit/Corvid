@@ -228,7 +228,8 @@ public:
   // Atomically create an entity in the registry and insert it into this
   // storage. Returns the new entity's handle on success, or an invalid handle
   // if the registry refused creation or the storage limit would be exceeded.
-  // Components are forwarded in the same order as the `Cs...` pack.
+  // Components are forwarded in the same order as the `Cs...` pack. Trailing
+  // components may be omitted and will be default-constructed.
   template<typename... Args>
   [[nodiscard]] handle_t add_new(const metadata_t& metadata, Args&&... args) {
     auto owner = registry_->create_owner(location_t{store_id_t{}}, metadata);
@@ -238,16 +239,24 @@ public:
 
   // Insert components for an entity already in staging (`store_id ==
   // store_id_t{}`). Returns false if the entity is not in staging, is
-  // invalid, or if the limit would be exceeded.
+  // invalid, or if the limit would be exceeded. Trailing components may be
+  // omitted; they are default-constructed. Passing more args than components
+  // is a compile-time error.
   template<typename... Args>
   [[nodiscard]] bool add(id_t id, Args&&... args) {
-    static_assert(sizeof...(Args) == sizeof...(Cs));
+    static_assert(sizeof...(Args) <= sizeof...(Cs),
+        "too many arguments: cannot exceed the component count");
     const auto& loc = registry_->get_location(id);
     if (loc.store_id != store_id_t{}) return false;
     const auto ndx = size();
     if (ndx >= limit_) return false;
     add_guard guard{derived()};
-    derived().do_add_components(std::forward<Args>(args)...);
+    // Forward provided args; default-construct any trailing omitted
+    // components.
+    [&]<size_t... Is>(std::index_sequence<Is...>) {
+      auto fwd = std::forward_as_tuple(std::forward<Args>(args)...);
+      derived().do_add_components(do_arg<Is>(std::move(fwd))...);
+    }(std::make_index_sequence<sizeof...(Cs)>{});
     ids_.push_back(id);
     registry_->set_location(id, {store_id_, ndx});
     return guard.disarm();
@@ -395,6 +404,16 @@ protected:
       archetype_storage_base&&) noexcept = default;
 
 private:
+  // Return arg I from a `forward_as_tuple` result, or a default-constructed
+  // component when I is past the end of the provided arguments.
+  template<size_t I, typename ArgTuple>
+  static decltype(auto) do_arg(ArgTuple&& fwd) {
+    if constexpr (I < std::tuple_size_v<std::remove_cvref_t<ArgTuple>>)
+      return std::get<I>(std::forward<ArgTuple>(fwd));
+    else
+      return std::tuple_element_t<I, tuple_t>{};
+  }
+
   // Sweep the storage, calling `pred` on component `C` (or on the full row),
   // and either erasing or removing each entity that satisfies `pred`.
 

@@ -158,9 +158,6 @@ public:
   // storage or insertion fails.
   [[nodiscard]] handle_t
   add_new(store_id_t store_id, const metadata_t& metadata = {}) {
-    // TODO: This probably doesn't work so test it thoroughly. We may need to
-    // change the add_new methods to accept just the metadata and no other
-    // parameters.
     return dispatch_storage<handle_t>(
         store_id, [&](auto& s) -> handle_t { return s.add_new(metadata); },
         handle_t{});

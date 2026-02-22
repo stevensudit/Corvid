@@ -206,6 +206,46 @@ void ArchetypeStorage_Add() {
     EXPECT_EQ(r.size(), 1U); // second entity cleaned up by RAII owner
   }
 
+  // add with one trailing component omitted: it is default-constructed.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(a.add(id0, 7));
+    EXPECT_EQ(a[id0].template component<int>(), 7);
+    EXPECT_EQ(a[id0].template component<float>(), 0.0f);
+  }
+
+  // add with all components omitted: all are default-constructed.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(a.add(id0));
+    EXPECT_EQ(a[id0].template component<int>(), 0);
+    EXPECT_EQ(a[id0].template component<float>(), 0.0f);
+  }
+
+  // add_new with one trailing component omitted: it is default-constructed.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto h = a.add_new(42, 7);
+    EXPECT_TRUE(r.is_valid(h));
+    EXPECT_EQ(a[h.id()].template component<int>(), 7);
+    EXPECT_EQ(a[h.id()].template component<float>(), 0.0f);
+  }
+
+  // add_new with all components omitted: all are default-constructed.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto h = a.add_new(42);
+    EXPECT_TRUE(r.is_valid(h));
+    EXPECT_EQ(a[h.id()].template component<int>(), 0);
+    EXPECT_EQ(a[h.id()].template component<float>(), 0.0f);
+  }
+
   // contains(id) returns false for entity in staging, true after add.
   if (true) {
     reg_t r;
@@ -4733,6 +4773,46 @@ void ChunkedArchetypeStorage_Add() {
     EXPECT_FALSE(a.set_limit(1U));
     EXPECT_TRUE(a.set_limit(3U));
     EXPECT_EQ(a.limit(), 3U);
+  }
+
+  // add with one trailing component omitted: it is default-constructed.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(a.add(id0, 7));
+    EXPECT_EQ(a[id0].template component<int>(), 7);
+    EXPECT_EQ(a[id0].template component<float>(), 0.0f);
+  }
+
+  // add with all components omitted: all are default-constructed.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto id0 = r.create_id(staging, 10);
+    EXPECT_TRUE(a.add(id0));
+    EXPECT_EQ(a[id0].template component<int>(), 0);
+    EXPECT_EQ(a[id0].template component<float>(), 0.0f);
+  }
+
+  // add_new with one trailing component omitted: it is default-constructed.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto h = a.add_new(42, 7);
+    EXPECT_TRUE(r.is_valid(h));
+    EXPECT_EQ(a[h.id()].template component<int>(), 7);
+    EXPECT_EQ(a[h.id()].template component<float>(), 0.0f);
+  }
+
+  // add_new with all components omitted: all are default-constructed.
+  if (true) {
+    reg_t r;
+    arch_t a{r, sid};
+    auto h = a.add_new(42);
+    EXPECT_TRUE(r.is_valid(h));
+    EXPECT_EQ(a[h.id()].template component<int>(), 0);
+    EXPECT_EQ(a[h.id()].template component<float>(), 0.0f);
   }
 }
 
