@@ -49,25 +49,25 @@ inline namespace chunked_archetype_storages {
 //
 // Template parameters:
 //  REG       - `entity_registry` instantiation. Provides types.
-//  CsTuple   - Tuple of component types. Each must be trivially copyable.
-//  ChunkSize - Entities per chunk. Must be a positive power of two.
+//  TUPLE     - Tuple of component types. Each must be trivially copyable.
+//  CHUNKSZ   - Entities per chunk. Must be a positive power of two.
 //              Default: 16. Tune so that one chunk fills a cache line
-//              (e.g., ChunkSize = 64 / sizeof(largest_component_type)).
-//  Tag       - Optional tag type (default: `void`). Use a distinct tag to
+//              (e.g., CHUNKSZ = 64 / sizeof(largest_component_type)).
+//  TAG       - Optional tag type (default: `void`). Use a distinct tag to
 //              create multiple structurally-identical storages that are
 //              nevertheless different types and can coexist in the same
 //              `scene<>` tuple.
-template<typename REG, typename CsTuple, size_t ChunkSize = 16,
-    typename Tag = void>
+template<typename REG, typename TUPLE, size_t CHUNKSZ = 16,
+    typename TAG = void>
 class chunked_archetype_storage;
 
-template<typename REG, typename... Cs, size_t ChunkSize, typename Tag>
-class chunked_archetype_storage<REG, std::tuple<Cs...>, ChunkSize, Tag>
+template<typename REG, typename... Cs, size_t CHUNKSZ, typename TAG>
+class chunked_archetype_storage<REG, std::tuple<Cs...>, CHUNKSZ, TAG>
     : public archetype_storage_base<
-          chunked_archetype_storage<REG, std::tuple<Cs...>, ChunkSize, Tag>,
-          REG, std::tuple<Cs...>> {
+          chunked_archetype_storage<REG, std::tuple<Cs...>, CHUNKSZ, TAG>, REG,
+          std::tuple<Cs...>> {
   using base_t = archetype_storage_base<
-      chunked_archetype_storage<REG, std::tuple<Cs...>, ChunkSize, Tag>, REG,
+      chunked_archetype_storage<REG, std::tuple<Cs...>, CHUNKSZ, TAG>, REG,
       std::tuple<Cs...>>;
 
 public:
@@ -89,14 +89,12 @@ public:
   using typename base_t::const_iterator;
   using base_t::size;
 
-  using tag_t = Tag;
+  using tag_t = TAG;
 
-  static constexpr size_t chunk_size_v = ChunkSize;
+  static constexpr size_t chunk_size_v = CHUNKSZ;
 
   static_assert((chunk_size_v & (chunk_size_v - 1)) == 0 && chunk_size_v > 0,
-      "ChunkSize must be a positive power of two");
-  static_assert(std::is_nothrow_copy_constructible_v<tuple_t>,
-      "CsTuple must be nothrow copy constructible");
+      "CHUNKSZ must be a positive power of two");
 
   // Array of chunk_size_v elements for a single component type within a chunk.
   template<typename C>
@@ -135,6 +133,9 @@ public:
 
   chunked_archetype_storage(const chunked_archetype_storage&) = delete;
   chunked_archetype_storage(chunked_archetype_storage&&) noexcept = default;
+
+  ~chunked_archetype_storage() { this->clear(); }
+
   chunked_archetype_storage& operator=(
       const chunked_archetype_storage&) = delete;
   chunked_archetype_storage& operator=(

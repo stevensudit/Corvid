@@ -86,6 +86,7 @@ public:
   }
 
   component_storage(component_storage&&) noexcept = default;
+  ~component_storage() { this->clear(); }
 
   component_storage& operator=(component_storage&& other) noexcept {
     if (this == &other) return *this;
@@ -94,8 +95,6 @@ public:
     components_ = std::move(other.components_);
     return *this;
   }
-
-  ~component_storage() { this->clear(); }
 
   // Swap with another storage.
   void swap(component_storage& other) noexcept {
@@ -163,6 +162,7 @@ public:
 
   // Erase components for which `pred(component, id)` returns true. Returns
   // count erased.
+  // Predicate shape: `(const component_t& comp, id_t id) -> bool`.
   size_type erase_if(auto pred) {
     size_type cnt = 0;
     for (size_type ndx{}; ndx < components_.size();) {

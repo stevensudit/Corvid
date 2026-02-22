@@ -28,7 +28,7 @@ namespace corvid { inline namespace ecs { inline namespace storage_bases {
 // CRTP base class shared by `archetype_storage_base` and `component_storage`.
 //
 // Provides the registry-interaction plumbing common to all packed ECS
-// storages: entity ID tracking (`ids_`), registry pointer, `store_id`,
+// storages: entity ID tracking, `entity_registry` pointer, `store_id`,
 // capacity limit, and the core `remove`/`erase`/`clear` operations built on
 // swap-and-pop.
 //

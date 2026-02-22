@@ -46,33 +46,32 @@ namespace corvid { inline namespace ecs { inline namespace archetype_storages {
 // vectors (SoA). For an AoSoA alternative with the same public interface, see
 // `chunked_archetype_storage` in `chunked_archetype_storage.h`.
 //
-// The `Registry` template parameter provides `id_t`, `size_type`,
-// `store_id_t`, `location_t`. An `ids_` vector in parallel with the component
-// vectors tracks which entity occupies each row, enabling O(1) lookup of
-// entity IDs and allowing swap-and-pop to update the registry so the displaced
-// entity knows its new index.
+// The `REG` template parameter provides `id_t`, `size_type`, `store_id_t`,
+// `location_t`. An ID vector in parallel with the component vectors tracks
+// which entity occupies each row, enabling O(1) lookup of entity IDs and
+// allowing swap-and-pop to update the registry so the displaced entity knows
+// its new index.
 //
 // Template parameters:
-//  Registry - `entity_registry` instantiation. Provides types.
-//  CsTuple  - Tuple of component types. Each must be trivially copyable.
-//  Tag      - Optional tag type (default: `void`). Use a distinct tag to
+//  REG      - `entity_registry` instantiation. Provides types.
+//  TUPLE    - Tuple of component types. Each must be trivially copyable.
+//  TAG      - Optional tag type (default: `void`). Use a distinct tag to
 //             create multiple structurally-identical storages that are
 //             nevertheless different types and can coexist in the same
 //             `scene<>` tuple.
-template<typename Registry, typename CsTuple, typename Tag = void>
+template<typename REG, typename TUPLE, typename TAG = void>
 class archetype_storage;
 
-template<typename Registry, typename... Cs, typename Tag>
-class archetype_storage<Registry, std::tuple<Cs...>, Tag>
+template<typename REG, typename... Cs, typename TAG>
+class archetype_storage<REG, std::tuple<Cs...>, TAG>
     : public archetype_storage_base<
-          archetype_storage<Registry, std::tuple<Cs...>, Tag>, Registry,
+          archetype_storage<REG, std::tuple<Cs...>, TAG>, REG,
           std::tuple<Cs...>> {
   using base_t = archetype_storage_base<
-      archetype_storage<Registry, std::tuple<Cs...>, Tag>, Registry,
-      std::tuple<Cs...>>;
+      archetype_storage<REG, std::tuple<Cs...>, TAG>, REG, std::tuple<Cs...>>;
 
 public:
-  using tag_t = Tag;
+  using tag_t = TAG;
 
   // Inherit all type aliases from the base.
   using typename base_t::tuple_t;
@@ -124,6 +123,9 @@ public:
 
   archetype_storage(const archetype_storage&) = delete;
   archetype_storage(archetype_storage&&) noexcept = default;
+
+  ~archetype_storage() { this->clear(); }
+
   archetype_storage& operator=(const archetype_storage&) = delete;
   archetype_storage& operator=(archetype_storage&&) noexcept = default;
 
@@ -194,7 +196,7 @@ private:
     for_each_component([&](auto& vec) { vec.resize(new_size); });
   }
 
-  // Swap elements at left_ndx and right_ndx, including their IDs.
+  // Swap elements at `left_ndx` and `right_ndx`, including their IDs.
   void do_swap_elements(size_type left_ndx, size_type right_ndx) noexcept {
     for_each_component([&](auto& vec) {
       std::swap(vec[left_ndx], vec[right_ndx]);
@@ -215,13 +217,13 @@ private:
     this->ids_.pop_back();
   }
 
-  // Clear all component vectors (called by base's do_remove_all).
+  // Clear all component vectors (called by base's `do_remove_all`).
   void do_clear_storage() {
     for_each_component([](auto& vec) { vec.clear(); });
   }
 
-  // Customization points called by base's do_remove_erase_if_component and
-  // by row_wrapper's component() accessors.
+  // Customization points called by base's `do_remove_erase_if_component` and
+  // by row_wrapper's `component()` accessors.
 
   template<typename C>
   [[nodiscard]] decltype(auto)

@@ -57,8 +57,8 @@ inline namespace archetype_storage_bases {
 // Template parameters:
 //   CHILD   - The concrete derived class (CRTP).
 //   REG     - `entity_registry` instantiation. Provides types.
-//   CsTuple - `std::tuple<Cs...>` of component types.
-template<typename CHILD, typename REG, typename CsTuple>
+//   TUPLE   - `std::tuple<Cs...>` of component types.
+template<typename CHILD, typename REG, typename TUPLE>
 class archetype_storage_base;
 
 template<typename CHILD, typename REG, typename... Cs>
@@ -95,6 +95,10 @@ public:
   // access is dispatched through the CRTP derived class's customization
   // points. Remains valid as long as no structural mutations
   // (add/remove/erase) occur on the owning storage.
+  //
+  // In terms of usage, this should not be seen as a standalone type, but
+  // rather as the reference type yielded by iterators and row accessors. You
+  // should not be retaining or copying these around.
   template<bool IsConst = false>
   class row_wrapper {
   public:
@@ -272,21 +276,18 @@ public:
   // Predicate shape: `(const C& comp, id_t id) -> bool`.
   template<typename C>
   size_type erase_if_component(auto pred) {
-    static_assert(std::is_invocable_r_v<bool, decltype(pred), const C&, id_t>,
-        "pred must be callable as (const C& comp, id_t id) -> bool");
     return do_remove_erase_if_component<C>(std::move(pred),
         store_id_t::invalid);
   }
 
   // Overload that selects the component by zero-based tuple index rather than
-  // by type. Useful when two component types in `Cs...` are identical.
+  // by type. Needed when two component types in `Cs...` are identical
+  // (although this should be avoided when possible).
   // Predicate shape: `(const C& comp, id_t id) -> bool`, where `C` is
   // `std::tuple_element_t<Index, tuple_t>`.
   template<size_t Index>
   size_type erase_if_component(auto pred) {
     using C = std::tuple_element_t<Index, tuple_t>;
-    static_assert(std::is_invocable_r_v<bool, decltype(pred), const C&, id_t>,
-        "pred must be callable as (const C& comp, id_t id) -> bool");
     return erase_if_component<C>(std::move(pred));
   }
 
@@ -294,10 +295,8 @@ public:
   // `row_view` giving const access to all components and the entity ID. Uses
   // swap-and-pop; `pred` must not structurally modify the storage. Returns the
   // count erased.
-  // Predicate shape: `(row_view row) -> bool`.
+  // Predicate shape: `(const row_view& row) -> bool`.
   size_type erase_if(auto pred) {
-    static_assert(std::is_invocable_r_v<bool, decltype(pred), row_view>,
-        "pred must be callable as (row_view row) -> bool");
     return do_remove_erase_if(std::move(pred), store_id_t::invalid);
   }
 
@@ -307,8 +306,6 @@ public:
   // Predicate shape: `(const C& comp, id_t id) -> bool`.
   template<typename C>
   size_type remove_if_component(auto pred) {
-    static_assert(std::is_invocable_r_v<bool, decltype(pred), const C&, id_t>,
-        "pred must be callable as (const C& comp, id_t id) -> bool");
     return do_remove_erase_if_component<C>(std::move(pred), store_id_t{});
   }
 
@@ -318,17 +315,13 @@ public:
   template<size_t Index>
   size_type remove_if_component(auto pred) {
     using C = std::tuple_element_t<Index, tuple_t>;
-    static_assert(std::is_invocable_r_v<bool, decltype(pred), const C&, id_t>,
-        "pred must be callable as (const C& comp, id_t id) -> bool");
     return remove_if_component<C>(std::move(pred));
   }
 
   // Move entities for which `pred(row)` returns true back to staging. Parallel
   // to `erase_if` but keeps entities alive. Returns the count moved.
-  // Predicate shape: `(row_view row) -> bool`.
+  // Predicate shape: `(const row_view& row) -> bool`.
   size_type remove_if(auto pred) {
-    static_assert(std::is_invocable_r_v<bool, decltype(pred), row_view>,
-        "pred must be callable as (row_view row) -> bool");
     return do_remove_erase_if(std::move(pred), store_id_t{});
   }
 
@@ -412,11 +405,12 @@ protected:
 
   archetype_storage_base(const archetype_storage_base&) = delete;
   archetype_storage_base(archetype_storage_base&&) noexcept = default;
+
+  ~archetype_storage_base() = default;
+
   archetype_storage_base& operator=(const archetype_storage_base&) = delete;
   archetype_storage_base& operator=(
       archetype_storage_base&&) noexcept = default;
-
-  ~archetype_storage_base() = default;
 
 private:
   // Sweep the storage, calling `pred` on component `C` (or on the full row),
@@ -424,6 +418,8 @@ private:
 
   template<typename C>
   size_type do_remove_erase_if_component(auto pred, store_id_t new_store_id) {
+    static_assert(std::is_invocable_r_v<bool, decltype(pred), const C&, id_t>,
+        "pred must be callable as (const C& comp, id_t id) -> bool");
     size_type cnt = 0;
     for (size_type ndx{}; ndx < ids_.size();) {
       const auto& comp = derived().template do_get_component<C>(ndx);
@@ -439,6 +435,8 @@ private:
   }
 
   size_type do_remove_erase_if(auto pred, store_id_t new_store_id) {
+    static_assert(std::is_invocable_r_v<bool, decltype(pred), const row_view&>,
+        "pred must be callable as (const row_view& row) -> bool");
     size_type cnt = 0;
     row_view row{*this, {}};
     for (size_type ndx{}; ndx < ids_.size();) {

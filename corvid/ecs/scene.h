@@ -44,7 +44,7 @@ namespace corvid { inline namespace ecs { inline namespace scenes {
 // All `storage_ts` must be fully-typed storage specializations (e.g.,
 // `archetype_storage<registry_t, tuple<Pos, Vel>>`) sharing the same
 // `registry_t` type. At most `*store_id_t::invalid - 1` storages are
-// supported. It is helpful if each type is distinct, so you can use the TAG
+// supported. It is helpful if each type is distinct, so you can use the `TAG`
 // specialization to achieve this.
 //
 // Construction creates all storages with unlimited capacity. To restrict a
@@ -194,7 +194,7 @@ public:
   // Migrate entity to storage `to` using a caller-supplied `build` function
   // that maps the source row to the target components. Both the source storage
   // (looked up from the registry) and the destination storage are dispatched
-  // at runtime.
+  // at runtime. This is linear for a small N.
   //
   // If `to` is already the entity's current storage, returns true immediately
   // without calling `build` or modifying any state.
@@ -307,6 +307,9 @@ public:
   // after failed migrations or other error paths. Runs in O(N) in the total
   // count of living entities.
   size_type erase_staged() {
+    // TODO: Consider doing a check in advance by comparing the entity count to
+    // the size(). If they match, then there's no reason to search for staged
+    // entities.
     return registry_.erase_if([](const auto& rec) {
       return rec.location.store_id == store_id_t{};
     });
