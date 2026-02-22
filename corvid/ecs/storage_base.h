@@ -155,8 +155,6 @@ protected:
 
   storage_base() = default;
 
-  explicit storage_base(id_allocator_t id_alloc) : ids_{std::move(id_alloc)} {}
-
   storage_base(registry_t* registry, store_id_t store_id, size_type limit,
       id_allocator_t id_alloc)
       : registry_{registry}, store_id_{store_id}, limit_{limit},

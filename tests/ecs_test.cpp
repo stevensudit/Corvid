@@ -46,13 +46,6 @@ void ArchetypeStorage_Basic() {
     EXPECT_EQ(v.size(), 0U);
   }
 
-  // Construction with allocator.
-  if (true) {
-    std::allocator<std::byte> alloc;
-    archetype_t v{alloc};
-    EXPECT_TRUE(v.empty());
-  }
-
   // reserve() and capacity().
   if (true) {
     archetype_t v;
@@ -4527,13 +4520,6 @@ void ChunkedArchetypeStorage_Basic() {
     arch_t a;
     EXPECT_TRUE(a.empty());
     EXPECT_EQ(a.size(), 0U);
-  }
-
-  // Allocator constructor.
-  if (true) {
-    std::allocator<std::byte> alloc;
-    arch_t a{alloc};
-    EXPECT_TRUE(a.empty());
   }
 
   // reserve() and capacity().

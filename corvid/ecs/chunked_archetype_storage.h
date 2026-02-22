@@ -120,11 +120,6 @@ public:
   // fully-constructed instance before calling any mutation methods.
   chunked_archetype_storage() = default;
 
-  // Construct with a custom allocator but without binding to a registry.
-  // Useful for staged initialization.
-  explicit chunked_archetype_storage(const allocator_type& alloc)
-      : base_t{id_allocator_t{alloc}}, chunks_{chunk_allocator_t{alloc}} {}
-
   // Construct bound to `registry` with the given `store_id`. `store_id` must
   // not be `store_id_t::invalid` or `store_id_t{0}` (staging). If
   // `do_reserve` is true and `limit` is not the sentinel unlimited value,
