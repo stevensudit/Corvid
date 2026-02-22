@@ -149,16 +149,13 @@ public:
   [[nodiscard]] bool add(id_t id, const component_t& component) {
     const auto& loc = registry_->get_location(id);
     if (loc.store_id != store_id_t{}) return false;
-    const auto ndx = ids_.size();
+    const auto ndx = size();
     if (ndx >= limit_) return false;
-    // Reserve in advance so that if allocation fails neither vector is
-    // modified, preserving strong exception safety without add_guard.
-    components_.reserve(components_.size() + 1);
-    ids_.reserve(ids_.size() + 1);
+    typename base_t::add_guard guard{*this};
     components_.push_back(component);
     ids_.push_back(id);
     registry_->set_location(id, {store_id_, ndx});
-    return true;
+    return guard.disarm();
   }
 
   // Add a component for an entity by handle. Returns success flag.
@@ -355,8 +352,10 @@ public:
   [[nodiscard]] const_iterator cend() const noexcept { return end(); }
 
 private:
-  // Grant `storage_base` access to the CRTP customization points.
+  // Grant `storage_base` and its `add_guard` access to the CRTP customization
+  // points.
   friend base_t;
+  friend typename base_t::add_guard;
 
   // Swap element at `ndx` with the last element and pop. Updates the
   // swapped-in entity's registry location.
