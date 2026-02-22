@@ -1354,14 +1354,14 @@ constexpr auto corvid::enums::registry::enum_spec_v<small_id_t> =
 
 using int_stable_small_ids = stable_ids<int, small_id_t>;
 
-using int_stable_ids_fifo =
-    stable_ids<int, int_stable_ids::id_t, generation_scheme::versioned, reuse_order::fifo, std::allocator<int>>;
-using int_stable_ids_nogen =
-    stable_ids<int, int_stable_ids::id_t, generation_scheme::unversioned, reuse_order::lifo, std::allocator<int>>;
-using int_stable_ids_fifo_nogen =
-    stable_ids<int, int_stable_ids::id_t, generation_scheme::unversioned, reuse_order::fifo, std::allocator<int>>;
-using int_stable_small_ids_fifo =
-    stable_ids<int, small_id_t, generation_scheme::versioned, reuse_order::fifo, std::allocator<int>>;
+using int_stable_ids_fifo = stable_ids<int, int_stable_ids::id_t,
+    generation_scheme::versioned, reuse_order::fifo, std::allocator<int>>;
+using int_stable_ids_nogen = stable_ids<int, int_stable_ids::id_t,
+    generation_scheme::unversioned, reuse_order::lifo, std::allocator<int>>;
+using int_stable_ids_fifo_nogen = stable_ids<int, int_stable_ids::id_t,
+    generation_scheme::unversioned, reuse_order::fifo, std::allocator<int>>;
+using int_stable_small_ids_fifo = stable_ids<int, small_id_t,
+    generation_scheme::versioned, reuse_order::fifo, std::allocator<int>>;
 
 void StableId_SmallId() {
   using V = int_stable_small_ids;
@@ -2613,7 +2613,8 @@ void EntityRegistry_IdLimit() {
 
 void EntityRegistry_NoGen() {
   using namespace id_enums;
-  using reg_t = entity_registry<int, entity_id_t, store_id_t, generation_scheme::unversioned>;
+  using reg_t = entity_registry<int, entity_id_t, store_id_t,
+      generation_scheme::unversioned>;
   using id_t = reg_t::id_t;
   using handle_t = reg_t::handle_t;
   using loc_t = reg_t::location_t;
@@ -2874,7 +2875,8 @@ void EntityRegistry_VoidMeta() {
 
 void EntityRegistry_VoidNoGen() {
   using namespace id_enums;
-  using reg_t = entity_registry<void, entity_id_t, store_id_t, generation_scheme::unversioned>;
+  using reg_t = entity_registry<void, entity_id_t, store_id_t,
+      generation_scheme::unversioned>;
   using id_t = reg_t::id_t;
   using loc_t = reg_t::location_t;
   const loc_t loc0{store_id_t{0}, 0};
@@ -3416,11 +3418,11 @@ void EntityRegistry_ReservePrefillExisting() {
   // reserve with prefill when some slots are already free.
   if (true) {
     reg_t r;
-    (void)r.create_id(loc0, 10); // id 0
-    (void)r.create_id(loc0, 20); // id 1
-    (void)r.create_id(loc0, 30); // id 2
-    r.erase(id_t{1});            // free: [1]
-    r.reserve(5, allocation_policy::eager);          // adds free slots 3, 4
+    (void)r.create_id(loc0, 10);            // id 0
+    (void)r.create_id(loc0, 20);            // id 1
+    (void)r.create_id(loc0, 30);            // id 2
+    r.erase(id_t{1});                       // free: [1]
+    r.reserve(5, allocation_policy::eager); // adds free slots 3, 4
     // Free list should be: 1 (existing), then 3, 4 (new).
     EXPECT_EQ(r.create_id(loc0, 40), id_t{1});
     EXPECT_EQ(r.create_id(loc0, 50), id_t{3});

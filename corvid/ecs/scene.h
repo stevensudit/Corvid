@@ -353,13 +353,12 @@ public:
   // then resets the registry wholesale. This invalidates all outstanding
   // generation counters, but that is acceptable since every entity is
   // destroyed. O(S) in the number of storages, not O(N) in entities.
-  void clear(bool_enums::deallocation_policy policy =
-      bool_enums::deallocation_policy::release) {
-    if (policy == bool_enums::deallocation_policy::release) {
+  void clear(deallocation_policy policy = deallocation_policy::release) {
+    if (policy == deallocation_policy::release) {
       [&]<size_t... Is>(std::index_sequence<Is...>) {
         (storage_drop_all(std::get<Is>(storages_)), ...);
       }(storage_indices());
-      registry_.clear(bool_enums::deallocation_policy::release);
+      registry_.clear(deallocation_policy::release);
     } else {
       // Slow path: erase entities one by one, which updates the registry and
       // allows generation counters to survive. O(N) in entities.

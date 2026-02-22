@@ -27,13 +27,10 @@
 #include <utility>
 
 #include "../containers/enum_vector.h"
-#include "../enums/bool_enums.h"
 #include "../meta/maybe.h"
 #include "entity_ids.h"
 
 namespace corvid { inline namespace ecs { inline namespace stable_id_vector {
-
-using namespace bool_enums;
 
 // An indexed vector to store elements by stable ID, suitable for Entity
 // Component Systems, where it functions as the basis for a sparse set.
