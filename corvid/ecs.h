@@ -20,13 +20,21 @@
 // Includes:
 //  entity_ids                - ID and handle types
 //  stable_ids                - ID-keyed dense storage
+//  storage_base              - CRTP base for all ECS storage classes
+//  archetype_storage_base    - CRTP base for archetype storage classes
 //  archetype_storage         - SoA multi-component archetype storage
 //  chunked_archetype_storage - AoSoA multi-component archetype storage
 //  entity_registry           - Entity lifecycle and location tracking
 //  component_storage         - Single-component per-entity dense storage
+//  ecs_meta                  - ECS-specific type metaprogramming utilities
+//  scene                     - Unified scene aggregating registry + storages
 #include "ecs/entity_ids.h"
 #include "ecs/stable_ids.h"
+#include "ecs/storage_base.h"
+#include "ecs/archetype_storage_base.h"
 #include "ecs/archetype_storage.h"
 #include "ecs/chunked_archetype_storage.h"
 #include "ecs/entity_registry.h"
 #include "ecs/component_storage.h"
+#include "ecs/ecs_meta.h"
+#include "ecs/scene.h"

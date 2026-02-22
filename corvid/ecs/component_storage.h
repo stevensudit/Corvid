@@ -23,54 +23,56 @@
 #include <utility>
 #include <vector>
 
-#include "entity_registry.h"
+#include "storage_base.h"
 
 namespace corvid { inline namespace ecs { inline namespace component_storages {
 
-// Packed component storage with O(1) lookup through `entity_registry`.
+// Packed single-component storage with O(1) lookup through `entity_registry`.
 //
 // Maps entity IDs to densely-packed component records using swap-and-pop for
 // removal. The entity registry's `location_t.ndx` stores each entity's index
 // in this class's vector, enabling O(1) access by entity ID while
 // centralizing the management of these IDs.
 //
-// The intention is for components sharing a common `entity_registry` to be
-// stored in any of the `component_storage` instances specialized on that
-// registry's type. Each of them must have a distinct `store_id` (although this
-// is not enforced within this class), and it must not be
-// `store_id_t::invalid` or `store_id_t{0}`.
-//
-// The `Registry` template parameter provides `id_t`, `size_type`,
-// `store_id_t`, `location_t`. An `ids_` vector in parallel with the component
-// vectors tracks which entity occupies each row, enabling O(1) lookup of
-// entity IDs and allowing swap-and-pop to update the registry so the displaced
-// entity knows its new index.
-//
-// Note that this class stores IDs instead of handles because it already owns
-// the entities, so any checks would be redundant. We still check the validity
-// of handles passed to us.
+// Inherits registry/ID plumbing from `storage_base`. Provides a contiguous
+// iterator (the underlying `components_` vector is a plain `std::vector`),
+// a `row_view` with both `component<T>()` and implicit `const component_t&`
+// conversion for backward compatibility, and a component-first `erase_if`.
 //
 // Template parameters:
-//  Registry - `entity_registry` instantiation. Provides types.
-//  C        - Component type. Must be trivially copyable.
-template<typename Registry, typename C>
-class component_storage {
+//  REG - `entity_registry` instantiation. Provides types.
+//  C   - Component type. Must be trivially copyable.
+//  TAG - Optional tag type (default: `void`). Use a distinct tag to create
+//        multiple structurally-identical storages that are nevertheless
+//        different types and can coexist in the same `scene<>` tuple.
+template<typename REG, typename C, typename TAG = void>
+class component_storage final
+    : public storage_base<component_storage<REG, C, TAG>, REG> {
+  using base_t = storage_base<component_storage<REG, C, TAG>, REG>;
+
 public:
+  using tag_t = TAG;
   using component_t = C;
-  using registry_t = Registry;
-  using id_t = typename Registry::id_t;
-  using size_type = typename Registry::size_type;
-  using store_id_t = typename Registry::store_id_t;
-  using location_t = typename Registry::location_t;
-  using handle_t = typename Registry::handle_t;
-  using metadata_t = typename Registry::metadata_t;
-  using allocator_type = typename Registry::allocator_type;
+  using tuple_t = std::tuple<C>;
+
+  using typename base_t::registry_t;
+  using typename base_t::id_t;
+  using typename base_t::handle_t;
+  using typename base_t::size_type;
+  using typename base_t::store_id_t;
+  using typename base_t::location_t;
+  using typename base_t::metadata_t;
+  using typename base_t::allocator_type;
+  using typename base_t::id_allocator_t;
+  using typename base_t::id_vector_t;
+  using base_t::size;
+  using base_t::clear;
+  using base_t::contains;
+
   using component_allocator_type =
       typename std::allocator_traits<allocator_type>::template rebind_alloc<C>;
-  using id_allocator_type = typename std::allocator_traits<
-      allocator_type>::template rebind_alloc<id_t>;
 
-  static_assert(std::is_trivially_copyable_v<C>,
+  static_assert(std::is_trivially_copyable_v<component_t>,
       "Component type must be trivially copyable");
 
   // Constructors.
@@ -80,60 +82,30 @@ public:
 
   explicit component_storage(registry_t& registry, store_id_t store_id,
       size_type limit = *id_t::invalid, bool do_reserve = false)
-      : registry_{&registry}, store_id_{store_id}, limit_{limit},
-        components_{component_allocator_type{registry.get_allocator()}},
-        ids_{id_allocator_type{registry.get_allocator()}} {
-    if (store_id == store_id_t::invalid || store_id == store_id_t{})
-      throw std::invalid_argument("store_id must be a valid non-zero value");
+      : base_t{registry, store_id, limit},
+        components_{component_allocator_type{registry.get_allocator()}} {
     if (do_reserve && limit_ != *id_t::invalid) reserve(limit_);
   }
 
-  component_storage(component_storage&& other) noexcept
-      : registry_{std::exchange(other.registry_, nullptr)},
-        store_id_{std::exchange(other.store_id_, store_id_t::invalid)},
-        limit_{std::exchange(other.limit_, *id_t::invalid)},
-        components_{std::move(other.components_)},
-        ids_{std::move(other.ids_)} {}
+  component_storage(component_storage&&) noexcept = default;
+  ~component_storage() { clear(); }
 
   component_storage& operator=(component_storage&& other) noexcept {
     if (this == &other) return *this;
     clear();
-    registry_ = std::exchange(other.registry_, nullptr);
-    store_id_ = std::exchange(other.store_id_, store_id_t::invalid);
-    limit_ = std::exchange(other.limit_, *id_t::invalid);
+    base_t::operator=(std::move(other));
     components_ = std::move(other.components_);
-    ids_ = std::move(other.ids_);
     return *this;
   }
 
-  ~component_storage() { clear(); }
-
   // Swap with another storage.
   void swap(component_storage& other) noexcept {
-    using std::swap;
-    swap(registry_, other.registry_);
-    swap(store_id_, other.store_id_);
-    swap(limit_, other.limit_);
+    base_t::do_swap_base(other);
     components_.swap(other.components_);
-    ids_.swap(other.ids_);
   }
 
   friend void swap(component_storage& lhs, component_storage& rhs) noexcept {
     lhs.swap(rhs);
-  }
-
-  // Maximum number of components allowed in this storage.
-  //
-  // Insertion fails when this limit is reached. Defaults to the maximum
-  // representable value (effectively unlimited).
-  [[nodiscard]] size_type limit() const noexcept { return limit_; }
-
-  // Set a new component limit. Returns true on success, false if the current
-  // size exceeds the new limit.
-  [[nodiscard]] bool set_limit(size_type new_limit) {
-    if (new_limit < components_.size()) return false;
-    limit_ = new_limit;
-    return true;
   }
 
   // Reduce memory usage to fit current size.
@@ -142,70 +114,54 @@ public:
     ids_.shrink_to_fit();
   }
 
+  // Reserve space for at least `new_cap` components.
+  void reserve(size_type new_cap) {
+    components_.reserve(new_cap);
+    ids_.reserve(new_cap);
+  }
+
   // Add a component for a new entity, returning its handle or an invalid
   // handle on failure.
   [[nodiscard]] handle_t
-  add_new(const C& component, const metadata_t& metadata = {}) {
+  add_new(const component_t& component, const metadata_t& metadata = {}) {
     auto owner = registry_->create_owner(location_t{store_id_t{}}, metadata);
     if (!owner || !add(owner.id(), component)) return {};
     return owner.release();
   }
 
-  // Add a component for an entity. Returns success flag.
-  //
-  // ID must be valid. See comment for `add(handle_t, const C&)`.
-  [[nodiscard]] bool add(id_t id, const C& component) {
-    const auto& loc = registry_->get_location(id);
-    if (loc.store_id != store_id_t{}) return false;
-    const auto ndx = ids_.size();
-    if (ndx >= limit_) return false;
-    // Reserve in advance in case of memory allocation failure.
-    components_.reserve(components_.size() + 1);
-    ids_.reserve(ids_.size() + 1);
-    components_.push_back(component);
-    ids_.push_back(id);
-    registry_->set_location(id, {store_id_, ndx});
-    return true;
+  // Metadata-first overload matching the archetype storage convention,
+  // enabling use as a StorageSpec in `scene`.
+  [[nodiscard]] handle_t add_new(const metadata_t& metadata,
+      const component_t& component = component_t{}) {
+    return add_new(component, metadata);
   }
 
   // Add a component for an entity. Returns success flag.
   //
-  // The entity's location must be set to `store_id_t{0}` and its `ndx` doesn't
-  // matter, although it would normally be `*store_id_t::invalid`. As a result
-  // of being added, the registry will update the location in the registry to
-  // match its `storage_id_` and the correct `ndx`.
-  [[nodiscard]] bool add(handle_t handle, const C& component) {
+  // ID must be valid. The entity's location must be `store_id_t{0}` (staging).
+  // As a result of being added, the registry updates the entity's location to
+  // this storage's `store_id_` and the correct `ndx`.
+  [[nodiscard]] bool add(id_t id, const component_t& component) {
+    const auto& loc = registry_->get_location(id);
+    if (loc.store_id != store_id_t{}) return false;
+    const auto ndx = size();
+    if (ndx >= limit_) return false;
+    typename base_t::add_guard guard{*this};
+    components_.push_back(component);
+    ids_.push_back(id);
+    registry_->set_location(id, {store_id_, ndx});
+    return guard.disarm();
+  }
+
+  // Add a component for an entity by handle. Returns success flag.
+  [[nodiscard]] bool add(handle_t handle, const component_t& component) {
     if (!registry_->is_valid(handle)) return false;
     return add(handle.id(), component);
   }
 
-  // Remove a component by ID, moving the entity to `store_id_t{0}`.
-  // Returns success flag.
-  bool remove(id_t id) { return do_remove_erase(id, store_id_t{}); }
-
-  // Remove a component by handle, moving the entity to `store_id_t{0}`.
-  // Returns success flag.
-  bool remove(handle_t handle) {
-    if (!registry_->is_valid(handle)) return false;
-    return do_remove_erase(handle.id(), store_id_t{});
-  }
-
-  // Remove all components, moving all entities to `store_id_t{0}`.
-  void remove_all() { do_remove_all(store_id_t{}); }
-
-  // Remove a component by ID and erase the entity from the registry.
-  // Returns success flag.
-  bool erase(id_t id) { return do_remove_erase(id, store_id_t::invalid); }
-
-  // Remove a component by handle and erase the entity from the registry.
-  // Returns success flag.
-  bool erase(handle_t handle) {
-    if (!registry_->is_valid(handle)) return false;
-    return do_remove_erase(handle.id(), store_id_t::invalid);
-  }
-
   // Erase components for which `pred(component, id)` returns true. Returns
   // count erased.
+  // Predicate shape: `(const component_t& comp, id_t id) -> bool`.
   size_type erase_if(auto pred) {
     size_type cnt = 0;
     for (size_type ndx{}; ndx < components_.size();) {
@@ -220,80 +176,85 @@ public:
     return cnt;
   }
 
-  // Remove all components. Entities are removed from the registry.
-  void clear() { do_remove_all(store_id_t::invalid); }
+  // Read-only view of a single entity's row. Provides a `component<T>()`
+  // accessor uniform with archetype storages (only valid for `T ==
+  // component_t`), plus an implicit conversion to `const component_t&` for
+  // backward compatibility.
+  struct row_view {
+    const component_t& value;
+    id_t entity_id;
 
-  // Check whether an entity has a component in this storage, by ID.
-  [[nodiscard]] bool contains(id_t id) const {
-    if (!registry_->is_valid(id)) return false;
-    const auto loc = registry_->get_location(id);
-    return loc.store_id == store_id_;
+    [[nodiscard]] operator const component_t&() const noexcept {
+      return value;
+    }
+
+    // Uniform accessor (component_t only).
+    template<typename T>
+    [[nodiscard]] const T& component() const noexcept {
+      static_assert(std::is_same_v<T, component_t>,
+          "component_storage only has one component type");
+      return value;
+    }
+
+    [[nodiscard]] id_t id() const noexcept { return entity_id; }
+  };
+
+  // Mutable access: returns `component_t&` directly.
+  [[nodiscard]] component_t& operator[](id_t id) noexcept {
+    assert(contains(id));
+    return components_[registry_->get_location(id).ndx];
   }
 
-  // Check whether an entity has a component in this storage, by handle.
-  [[nodiscard]] bool contains(handle_t handle) const {
-    if (!registry_->is_valid(handle)) return false;
-    return contains(handle.id());
+  // Const access: returns `row_view` for uniform migrate-compatible access.
+  [[nodiscard]] row_view operator[](id_t id) const noexcept {
+    assert(contains(id));
+    const auto ndx = registry_->get_location(id).ndx;
+    return {components_[ndx], ids_[ndx]};
   }
 
-  // Access component by entity ID. Entity must be valid and in this storage.
-  [[nodiscard]]
-  decltype(auto) operator[](this auto& self, id_t id) noexcept {
-    assert(self.contains(id));
-    const auto ndx = self.registry_->get_location(id).ndx;
-    return self.components_[ndx];
+  // Mutable access by entity ID, with checking.
+  [[nodiscard]] component_t& at(id_t id) {
+    if (!contains(id)) throw std::out_of_range("entity not in this storage");
+    return components_[registry_->get_location(id).ndx];
   }
 
-  // Access component by entity ID, with checking.
-  [[nodiscard]]
-  decltype(auto) at(this auto& self, id_t id) {
-    if (!self.contains(id))
-      throw std::out_of_range("entity not in this storage");
-    const auto ndx = self.registry_->get_location(id).ndx;
-    return self.components_[ndx];
+  // Const access by entity ID, with checking.
+  [[nodiscard]] row_view at(id_t id) const {
+    if (!contains(id)) throw std::out_of_range("entity not in this storage");
+    const auto ndx = registry_->get_location(id).ndx;
+    return {components_[ndx], ids_[ndx]};
   }
 
   // Access component by handle, with checking.
-  [[nodiscard]]
-  decltype(auto) at(this auto& self, handle_t handle) {
-    if (!self.contains(handle))
+  [[nodiscard]] component_t& at(handle_t handle) {
+    if (!contains(handle))
       throw std::invalid_argument(
           "invalid handle or entity not in this storage");
-    return self[handle.id()];
+    return (*this)[handle.id()];
   }
 
-  // Return the number of components in this storage.
-  [[nodiscard]] size_type size() const noexcept {
-    return static_cast<size_type>(components_.size());
+  [[nodiscard]] row_view at(handle_t handle) const {
+    if (!contains(handle))
+      throw std::invalid_argument(
+          "invalid handle or entity not in this storage");
+    return (*this)[handle.id()];
   }
 
-  // Check whether this storage is empty.
-  [[nodiscard]] bool empty() const noexcept { return components_.empty(); }
-
-  // Expose this storage's ID.
-  [[nodiscard]] store_id_t store_id() const noexcept { return store_id_; }
-
-  // Reserve space for at least `new_cap` components.
-  void reserve(size_type new_cap) {
-    components_.reserve(new_cap);
-    ids_.reserve(new_cap);
-  }
-
-  // Iterator over components. Dereferencing yields a `component_t` reference;
-  // `id()` returns the entity ID at the current position.
-  template<bool IsConst>
+  // Contiguous iterator over components. Dereferencing yields a `component_t`
+  // reference; `id()` returns the entity ID at the current position.
+  template<bool MUTABLE>
   class iterator_t {
   public:
-    static constexpr bool writeable_v = !IsConst;
+    static constexpr bool mutable_v = MUTABLE;
     using iterator_category = std::contiguous_iterator_tag;
     using iterator_concept = std::contiguous_iterator_tag;
-    using value_type = C;
+    using value_type = component_t;
     using difference_type = std::ptrdiff_t;
     using reference =
-        std::conditional_t<writeable_v, value_type&, const value_type&>;
+        std::conditional_t<mutable_v, value_type&, const value_type&>;
     using pointer =
-        std::conditional_t<writeable_v, value_type*, const value_type*>;
-    using storage_ptr = std::conditional_t<writeable_v, component_storage*,
+        std::conditional_t<mutable_v, value_type*, const value_type*>;
+    using storage_ptr = std::conditional_t<mutable_v, component_storage*,
         const component_storage*>;
 
     iterator_t() = default;
@@ -375,8 +336,8 @@ public:
     friend class component_storage;
   };
 
-  using iterator = iterator_t<false>;
-  using const_iterator = iterator_t<true>;
+  using iterator = iterator_t<true>;
+  using const_iterator = iterator_t<false>;
 
   [[nodiscard]] iterator begin() noexcept { return {this, 0}; }
   [[nodiscard]] iterator end() noexcept { return {this, size()}; }
@@ -386,9 +347,20 @@ public:
   [[nodiscard]] const_iterator cend() const noexcept { return end(); }
 
 private:
-  // Swap element at `ndx` with the last element and pop. Updates the swapped
-  // entity's ndx in the registry.
+  using base_t::registry_;
+  using base_t::store_id_;
+  using base_t::limit_;
+  using base_t::ids_;
+
+  // Grant `storage_base` and its `add_guard` access to the CRTP customization
+  // points.
+  friend base_t;
+  friend typename base_t::add_guard;
+
+  // Swap element at `ndx` with the last element and pop. Updates the
+  // swapped-in entity's registry location.
   void do_swap_and_pop(size_type ndx) {
+    assert(size());
     const auto last = static_cast<size_type>(components_.size() - 1);
     if (ndx != last) {
       std::swap(components_[ndx], components_[last]);
@@ -400,26 +372,15 @@ private:
     ids_.pop_back();
   }
 
-  // Remove a component, moving the entity to `new_store_id`. Returns success
-  // flag.
-  bool do_remove_erase(id_t id, store_id_t new_store_id) {
-    if (!contains(id)) return false;
-    do_swap_and_pop(registry_->get_location(id).ndx);
-    registry_->set_location(id, {new_store_id, *store_id_t::invalid});
-    return true;
-  }
+  // Clear all component data (called by `storage_base::do_remove_erase_all`).
+  void do_clear_storage() { components_.clear(); }
 
-  void do_remove_all(store_id_t new_store_id) {
-    for (const auto id : ids_) registry_->set_location(id, {new_store_id});
-    components_.clear();
-    ids_.clear();
-  }
+  // Roll back component storage to `new_size` (called by `add_guard` on
+  // exception, if used by a derived add path).
+  void do_resize_storage(size_type new_size) { components_.resize(new_size); }
 
 private:
-  registry_t* registry_{nullptr};
-  store_id_t store_id_{store_id_t::invalid};
-  size_type limit_{*id_t::invalid};
   std::vector<C, component_allocator_type> components_;
-  std::vector<id_t, id_allocator_type> ids_;
 };
+
 }}} // namespace corvid::ecs::component_storages
