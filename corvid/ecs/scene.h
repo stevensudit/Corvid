@@ -154,15 +154,15 @@ public:
   // ID must be valid.
   [[nodiscard]] bool erase(id_t& id) {
     assert(registry_.is_valid(id));
-    const auto sid = registry_.get_location(id).store_id;
-    if (sid == store_id_t{}) {
+    const auto store_id = registry_.get_location(id).store_id;
+    if (store_id == store_id_t{}) {
       // Staged: destroy directly in the registry.
       if (!registry_.erase(id)) return false;
       id = id_t::invalid;
       return true;
     }
     return dispatch_storage<bool>(
-        sid, [&](auto& s) { return s.erase(id); }, false);
+        store_id, [&](auto& s) { return s.erase(id); }, false);
   }
 
   // Erase entity by handle. Resets `handle` to an invalid state on success.
@@ -179,10 +179,10 @@ public:
   // success. If already staged, succeeds. ID must be valid.
   [[nodiscard]] bool remove(id_t id) {
     assert(registry_.is_valid(id));
-    const auto sid = registry_.get_location(id).store_id;
-    if (sid == store_id_t{}) return true;
+    const auto store_id = registry_.get_location(id).store_id;
+    if (store_id == store_id_t{}) return true;
     return dispatch_storage<bool>(
-        sid, [&](auto& s) { return s.remove(id); }, false);
+        store_id, [&](auto& s) { return s.remove(id); }, false);
   }
 
   // Move entity back to staging by handle. Returns success.
@@ -210,10 +210,10 @@ public:
   //
   // Build shape: `(const auto& row) -> <destination component tuple>`.
   [[nodiscard]] bool migrate(id_t id, store_id_t to, auto&& build) {
-    const auto sid = registry_.get_location(id).store_id;
-    if (sid == to) return true; // already there — no-op
+    const auto store_id = registry_.get_location(id).store_id;
+    if (store_id == to) return true; // already there — no-op
     return dispatch_storage<bool>(
-        sid,
+        store_id,
         [&](auto& src) {
           return dispatch_storage<bool>(
               to,
@@ -266,10 +266,10 @@ public:
   // appears in both archetypes it is copied, otherwise it is default-
   // constructed in the target.
   [[nodiscard]] bool migrate(id_t id, store_id_t to) {
-    const auto sid = registry_.get_location(id).store_id;
-    if (sid == to) return true; // already there — no-op
+    const auto store_id = registry_.get_location(id).store_id;
+    if (store_id == to) return true; // already there — no-op
     return dispatch_storage<bool>(
-        sid,
+        store_id,
         [&](auto& src) {
           return dispatch_storage<bool>(
               to,
