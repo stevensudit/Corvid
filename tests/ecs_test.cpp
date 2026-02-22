@@ -738,29 +738,50 @@ void ArchetypeStorage_SwapAndMove() {
   }
 
   // Move constructor transfers all data; source is left in a valid empty
-  // state.
+  // state. Destructor of the move-destination erases entities from registry.
   if (true) {
     reg_t r;
-    arch_t a{r, sid1};
     auto id0 = r.create_id(staging, 10);
-    EXPECT_TRUE(a.add(id0, 42, 1.0f));
-    arch_t b{std::move(a)};
-    EXPECT_EQ(b.size(), 1U);
-    EXPECT_EQ(b.store_id(), sid1);
-    EXPECT_EQ(b[id0].component<int>(), 42);
+    {
+      arch_t a{r, sid1};
+      EXPECT_TRUE(a.add(id0, 42, 1.0f));
+      arch_t b{std::move(a)};
+      EXPECT_EQ(b.size(), 1U);
+      EXPECT_EQ(b.store_id(), sid1);
+      EXPECT_EQ(b[id0].component<int>(), 42);
+    } // b destructor fires
+    EXPECT_FALSE(r.is_valid(id0));
   }
 
-  // Move assignment transfers data from source to destination.
+  // Move assignment transfers data from source to destination. Destructor
+  // of the move-destination erases entities from registry.
   if (true) {
     reg_t r;
-    arch_t a{r, sid1};
-    arch_t b{r, sid2};
     auto id0 = r.create_id(staging, 10);
-    EXPECT_TRUE(a.add(id0, 7, 7.0f));
-    b = std::move(a);
-    EXPECT_EQ(b.size(), 1U);
-    EXPECT_EQ(b.store_id(), sid1);
-    EXPECT_EQ(b[id0].component<int>(), 7);
+    {
+      arch_t a{r, sid1};
+      arch_t b{r, sid2};
+      EXPECT_TRUE(a.add(id0, 7, 7.0f));
+      b = std::move(a);
+      EXPECT_EQ(b.size(), 1U);
+      EXPECT_EQ(b.store_id(), sid1);
+      EXPECT_EQ(b[id0].component<int>(), 7);
+    } // b destructor fires
+    EXPECT_FALSE(r.is_valid(id0));
+  }
+
+  // Destructor clears all entities from the registry (regression guard).
+  if (true) {
+    reg_t r;
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    {
+      arch_t a{r, sid1};
+      EXPECT_TRUE(a.add(id0, 1, 1.0f));
+      EXPECT_TRUE(a.add(id1, 2, 2.0f));
+    } // destructor fires
+    EXPECT_FALSE(r.is_valid(id0));
+    EXPECT_FALSE(r.is_valid(id1));
   }
 }
 
@@ -4192,6 +4213,20 @@ void ComponentStorage_SwapAndMove() {
     }
     EXPECT_FALSE(r.is_valid(id0));
   }
+
+  // Destructor clears all entities from the registry (regression guard).
+  if (true) {
+    reg_t r;
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    {
+      storage_t s{r, sid1};
+      EXPECT_TRUE(s.add(id0, 1.0f));
+      EXPECT_TRUE(s.add(id1, 2.0f));
+    } // destructor fires
+    EXPECT_FALSE(r.is_valid(id0));
+    EXPECT_FALSE(r.is_valid(id1));
+  }
 }
 
 void ComponentStorage_LimitAndReserve() {
@@ -6217,28 +6252,50 @@ void ChunkedArchetypeStorage_SwapAndMove() {
   }
 
   // Move constructor transfers all data; source is left valid and empty.
+  // Destructor of the move-destination erases entities from registry.
   if (true) {
     reg_t r;
-    arch_t a{r, sid1};
     auto id0 = r.create_id(staging, 10);
-    EXPECT_TRUE(a.add(id0, 42, 1.0f));
-    arch_t b{std::move(a)};
-    EXPECT_EQ(b.size(), 1U);
-    EXPECT_EQ(b.store_id(), sid1);
-    EXPECT_EQ(b[id0].component<int>(), 42);
+    {
+      arch_t a{r, sid1};
+      EXPECT_TRUE(a.add(id0, 42, 1.0f));
+      arch_t b{std::move(a)};
+      EXPECT_EQ(b.size(), 1U);
+      EXPECT_EQ(b.store_id(), sid1);
+      EXPECT_EQ(b[id0].component<int>(), 42);
+    } // b destructor fires
+    EXPECT_FALSE(r.is_valid(id0));
   }
 
-  // Move assignment transfers data from source to destination.
+  // Move assignment transfers data from source to destination. Destructor
+  // of the move-destination erases entities from registry.
   if (true) {
     reg_t r;
-    arch_t a{r, sid1};
-    arch_t b{r, sid2};
     auto id0 = r.create_id(staging, 10);
-    EXPECT_TRUE(a.add(id0, 7, 7.0f));
-    b = std::move(a);
-    EXPECT_EQ(b.size(), 1U);
-    EXPECT_EQ(b.store_id(), sid1);
-    EXPECT_EQ(b[id0].component<int>(), 7);
+    {
+      arch_t a{r, sid1};
+      arch_t b{r, sid2};
+      EXPECT_TRUE(a.add(id0, 7, 7.0f));
+      b = std::move(a);
+      EXPECT_EQ(b.size(), 1U);
+      EXPECT_EQ(b.store_id(), sid1);
+      EXPECT_EQ(b[id0].component<int>(), 7);
+    } // b destructor fires
+    EXPECT_FALSE(r.is_valid(id0));
+  }
+
+  // Destructor clears all entities from the registry (regression guard).
+  if (true) {
+    reg_t r;
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(staging, 20);
+    {
+      arch_t a{r, sid1};
+      EXPECT_TRUE(a.add(id0, 1, 1.0f));
+      EXPECT_TRUE(a.add(id1, 2, 2.0f));
+    } // destructor fires
+    EXPECT_FALSE(r.is_valid(id0));
+    EXPECT_FALSE(r.is_valid(id1));
   }
 }
 
