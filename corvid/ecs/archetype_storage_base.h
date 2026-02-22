@@ -381,7 +381,7 @@ protected:
 
   archetype_storage_base() = default;
 
-  archetype_storage_base(registry_t* registry, store_id_t store_id,
+  archetype_storage_base(registry_t& registry, store_id_t store_id,
       size_type limit)
       : storage_base_t{registry, store_id, limit} {}
 

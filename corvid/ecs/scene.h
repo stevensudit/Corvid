@@ -120,7 +120,6 @@ public:
   scene& operator=(const scene&) = delete;
   scene& operator=(scene&&) = delete;
 
-  // Use the fast clear path on destruction.
   ~scene() { clear(); }
 
   // Registry access.

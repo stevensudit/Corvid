@@ -160,9 +160,9 @@ protected:
 
   storage_base() = default;
 
-  storage_base(registry_t* registry, store_id_t store_id, size_type limit)
-      : registry_{registry}, store_id_{store_id}, limit_{limit},
-        ids_{id_allocator_t{registry->get_allocator()}} {
+  storage_base(registry_t& registry, store_id_t store_id, size_type limit)
+      : registry_{&registry}, store_id_{store_id}, limit_{limit},
+        ids_{id_allocator_t{registry.get_allocator()}} {
     if (store_id == store_id_t::invalid || store_id == store_id_t{})
       throw std::invalid_argument("store_id must be a valid non-zero value");
     if (!limit) throw std::invalid_argument("limit must be non-zero");
