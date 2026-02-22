@@ -25,6 +25,21 @@
 #include "ecs_meta.h"
 #include "entity_registry.h"
 
+// Non-templated base for `scene<>`. Befriended by `storage_base` so that the
+// protected `storage_drop_all` thunk can reach the otherwise-private
+// `do_drop_all()` on any storage, without making that method public.
+namespace corvid { inline namespace ecs {
+class scene_base {
+protected:
+  // Invoke `do_drop_all()` on storage `s`. Skips per-entity registry updates;
+  // safe only when the registry will be reset wholesale immediately after.
+  template<typename S>
+  static void storage_drop_all(S& s) {
+    s.do_drop_all();
+  }
+};
+}} // namespace corvid::ecs
+
 namespace corvid { inline namespace ecs { inline namespace scenes {
 
 // Aggregates an `entity_registry` with a fixed, heterogeneous tuple of entity
@@ -63,7 +78,7 @@ namespace corvid { inline namespace ecs { inline namespace scenes {
 //   REG      - Shared `entity_registry` specialization.
 //   STORES   - Fully-typed storage specializations, all using `REG`.
 template<typename REG, typename... STORES>
-class scene {
+class scene: public scene_base {
 public:
   using registry_t = REG;
   using storage_ts = std::tuple<STORES...>;
@@ -104,6 +119,9 @@ public:
   scene(scene&&) = delete;
   scene& operator=(const scene&) = delete;
   scene& operator=(scene&&) = delete;
+
+  // Use the fast clear path on destruction.
+  ~scene() { clear(); }
 
   // Registry access.
   [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
@@ -327,12 +345,30 @@ public:
   [[nodiscard]] bool empty() const noexcept { return size() == 0; }
 
   // Erase all entities in all storages and in staging. After this call the
-  // registry and all storages are empty.
-  void clear() {
-    [&]<size_t... Is>(std::index_sequence<Is...>) {
-      (std::get<Is>(storages_).clear(), ...);
-    }(storage_indices());
-    erase_staged();
+  // registry and all storages are empty. When `fast` is true, uses the fast
+  // path that drops storage vectors and resets the registry wholesale,
+  // invalidating all generation counters. When `fast` is false, erases
+  // entities one by one, which updates the registry and allows generation
+  // counters to survive, but is slower. O(S) vs O(N).
+  //
+  // Fast path: drops storage vectors without per-entity registry updates, then
+  // resets the registry wholesale via `clear(true)`. This invalidates all
+  // outstanding generation counters, but that is acceptable since every entity
+  // is destroyed. O(S) in the number of storages, not O(N) in entities.
+  void clear(bool fast = true) {
+    if (fast) {
+      [&]<size_t... Is>(std::index_sequence<Is...>) {
+        (storage_drop_all(std::get<Is>(storages_)), ...);
+      }(storage_indices());
+      registry_.clear(true);
+    } else {
+      // Slow path: erase entities one by one, which updates the registry and
+      // allows generation counters to survive. O(N) in entities.
+      [&]<size_t... Is>(std::index_sequence<Is...>) {
+        (std::get<Is>(storages_).clear(), ...);
+      }(storage_indices());
+      erase_staged();
+    }
   }
 
 private:

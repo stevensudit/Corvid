@@ -5476,26 +5476,79 @@ void Scene_EraseStaged() {
 
 // scene::clear empties everything.
 void Scene_Clear() {
+  // clear(true) — fast path: all entities gone, registry empty.
   if (true) {
     two_storage_scene_t s;
     (void)s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
     (void)s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
     (void)s.add_new<scene_sid_t{2}>({}, Position{}, Velocity{}, Health{});
     EXPECT_EQ(s.size(), 3U);
-    s.clear();
+    s.clear(); // fast=true by default
     EXPECT_EQ(s.size(), 0U);
     EXPECT_TRUE(s.empty());
     EXPECT_EQ(s.registry().size(), 0U);
   }
 
-  // clear() also removes staged entities.
+  // clear(true) also removes staged entities.
   if (true) {
     two_storage_scene_t s;
     auto h = s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
     (void)s.remove(h.id()); // now staged
     EXPECT_EQ(s.registry().size(), 1U);
-    s.clear();
+    s.clear(true);
     EXPECT_EQ(s.registry().size(), 0U);
+  }
+
+  // clear(false) — slow path: all entities gone, registry empty.
+  if (true) {
+    two_storage_scene_t s;
+    (void)s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
+    (void)s.add_new<scene_sid_t{2}>({}, Position{}, Velocity{}, Health{});
+    EXPECT_EQ(s.size(), 2U);
+    s.clear(false);
+    EXPECT_EQ(s.size(), 0U);
+    EXPECT_EQ(s.registry().size(), 0U);
+  }
+
+  // clear(false) also removes staged entities.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
+    (void)s.remove(h.id()); // now staged
+    EXPECT_EQ(s.registry().size(), 1U);
+    s.clear(false);
+    EXPECT_EQ(s.registry().size(), 0U);
+  }
+
+  // clear(true) resets generation counters: after re-creating an entity the
+  // old handle appears valid again (gen was reset to 0 rather than
+  // incremented). This is the documented trade-off of the fast path.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
+    EXPECT_EQ(h.gen(), 0U); // initial generation
+    s.clear(true);
+    EXPECT_FALSE(s.registry().is_valid(h)); // entity gone
+    // Re-create: gen starts at 0 again because records were wiped.
+    auto h2 = s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
+    EXPECT_EQ(h2.gen(), 0U); // generation was reset, not incremented
+    // Old handle (gen=0) matches the new record's gen=0: appears valid.
+    EXPECT_TRUE(s.registry().is_valid(h));
+  }
+
+  // clear(false) does NOT reset generation counters: after re-creating an
+  // entity the old handle remains invalid because gen was incremented.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
+    EXPECT_EQ(h.gen(), 0U); // initial generation
+    s.clear(false);
+    EXPECT_FALSE(s.registry().is_valid(h)); // entity gone
+    // Re-create: gen is 1 because the slow-path erase incremented it.
+    auto h2 = s.add_new<scene_sid_t{1}>({}, Position{}, Velocity{});
+    EXPECT_EQ(h2.gen(), 1U); // generation incremented, not reset
+    // Old handle (gen=0) no longer matches record's gen=1: still invalid.
+    EXPECT_FALSE(s.registry().is_valid(h));
   }
 }
 

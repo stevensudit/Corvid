@@ -23,6 +23,11 @@
 
 #include "entity_registry.h"
 
+// Forward declaration for friendship; defined in "scene.h".
+namespace corvid { inline namespace ecs {
+class scene_base;
+}} // namespace corvid::ecs
+
 namespace corvid { inline namespace ecs { inline namespace storage_bases {
 
 // CRTP base class shared by `archetype_storage_base` and `component_storage`.
@@ -195,7 +200,19 @@ protected:
   size_type limit_{*id_t::invalid};
   id_vector_t ids_{};
 
+  // Grant scene_base (and through it, scene<>) access to do_drop_all().
+  friend class ::corvid::ecs::scene_base;
+
 private:
+  // Fast bulk-drop: clear component and ID vectors without touching the
+  // registry. Only safe when the registry will be reset wholesale immediately
+  // afterward (e.g. `scene::clear()`). Called via
+  // `scene_base::storage_drop_all`.
+  void do_drop_all() {
+    ids_.clear();
+    derived().do_clear_storage();
+  }
+
   bool do_remove_erase(id_t id, store_id_t new_store_id) {
     if (!contains(id)) return false;
     derived().do_swap_and_pop(registry_->get_location(id).ndx);
@@ -205,8 +222,7 @@ private:
 
   void do_remove_erase_all(store_id_t new_store_id) {
     for (const auto id : ids_) registry_->set_location(id, {new_store_id});
-    derived().do_clear_storage();
-    ids_.clear();
+    do_drop_all();
   }
 };
 
