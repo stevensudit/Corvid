@@ -22,39 +22,28 @@ namespace corvid { inline namespace enums { namespace bool_enums {
 // Strongly-typed two-value enums intended to replace plain `bool` parameters.
 // All have `bool` as their underlying type, enabling explicit conversion via
 // `static_cast` and use as C++20 non-type template parameters.
+//
+// For naming, these typically have suffixes like "_scheme", "_mode",
+// "_behavior", or "_policy", or they have prefixes like "on_".
 
-// Read/write access. Replaces `bool MUTABLE` in row_wrapper, row_iterator,
-// and iterator_t.
-enum class access_t : bool { ro = false, rw = true };
+// Whether to access values as const or as mutable.
+enum class access : bool { as_const = false, as_mutable = true };
 
-// Whether IDs carry a generation counter for stale-reference detection.
-// Replaces `bool UseGen` in stable_ids and entity_registry.
-enum class gen_t : bool { unversioned = false, versioned = true };
+// Whether to enable generation counters for stale-reference detection or save
+// memory by avoiding any versioning.
+enum class generation_scheme : bool { unversioned = false, versioned = true };
 
-// Recycled-ID reuse order. Replaces `bool UseFifo` in stable_ids.
-enum class reuse_order_t : bool { lifo = false, fifo = true };
+// Reuse order for freed resources.
+enum class reuse_order : bool { lifo = false, fifo = true };
 
-// Whether to pre-populate the free list during construction or reserve.
-// Replaces `bool prefill` in stable_ids and entity_registry.
-enum class prefill_t : bool { lazy = false, eager = true };
+// Whether to allocate eagerly (reserving capacity up front and prefilling as
+// needed) or lazily (just-in-time).
+enum class allocation_policy : bool { lazy = false, eager = true };
 
 // Whether to release backing memory (and reset generation counters) on clear.
-// Replaces `bool shrink` in entity_registry::clear.
-enum class shrink_t : bool { preserve = false, shrink = true };
+enum class deallocation_policy : bool { preserve = false, release = true };
 
-// Whether to pre-allocate storage capacity up to the limit at construction.
-// Replaces `bool do_reserve` in archetype_storage, chunked_archetype_storage,
-// and component_storage constructors.
-enum class reserve_t : bool { on_demand = false, preallocate = true };
-
-// Fast vs. full clear semantics for scene. Fast path drops all storage vectors
-// and resets the registry wholesale (O(S)); full path erases entities one by
-// one, preserving generation counters (O(N)). Replaces `bool fast` in
-// scene::clear.
-enum class clear_mode_t : bool { full = false, fast = true };
-
-// Behavior when an insertion into stable_ids fails due to capacity exhaustion.
-// Replaces `bool value` in stable_ids::throw_on_insert_failure.
-enum class insert_fail_t : bool { silent = false, throws = true };
+// Whether to throw on failure or fail silently.
+enum class on_failure : bool { ignore = false, raise = true };
 
 }}} // namespace corvid::enums::bool_enums

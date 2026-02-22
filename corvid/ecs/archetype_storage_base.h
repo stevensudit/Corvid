@@ -255,7 +255,7 @@ public:
     // components.
     [&]<size_t... Is>(std::index_sequence<Is...>) {
       auto fwd = std::forward_as_tuple(std::forward<Args>(args)...);
-      derived().do_add_components(do_arg<Is>(std::move(fwd))...);
+      derived().do_add_components(do_arg<Is>(fwd)...);
     }(std::make_index_sequence<sizeof...(Cs)>{});
     ids_.push_back(id);
     registry_->set_location(id, {store_id_, ndx});
@@ -380,6 +380,11 @@ public:
     return const_iterator{*this, size()};
   }
 
+  // Public deleted constructors and assignment operators.
+  archetype_storage_base(const archetype_storage_base&) = delete;
+  archetype_storage_base(archetype_storage_base&&) noexcept = default;
+  archetype_storage_base& operator=(const archetype_storage_base&) = delete;
+
 protected:
   using storage_base_t::registry_;
   using storage_base_t::store_id_;
@@ -394,12 +399,8 @@ protected:
       size_type limit)
       : storage_base_t{registry, store_id, limit} {}
 
-  archetype_storage_base(const archetype_storage_base&) = delete;
-  archetype_storage_base(archetype_storage_base&&) noexcept = default;
-
   ~archetype_storage_base() = default;
 
-  archetype_storage_base& operator=(const archetype_storage_base&) = delete;
   archetype_storage_base& operator=(
       archetype_storage_base&&) noexcept = default;
 

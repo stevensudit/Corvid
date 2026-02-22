@@ -155,6 +155,10 @@ public:
     size_type saved_size_{};
   };
 
+  // Public deleted constructors and assignment operators.
+  storage_base(const storage_base&) = delete;
+  storage_base& operator=(const storage_base&) = delete;
+
 protected:
   // Constructors are protected; only derived classes may construct.
 
@@ -171,13 +175,12 @@ protected:
   // and writes to the registry. The standard only guarantees a moved-from
   // `std::vector` is "valid but unspecified" — not necessarily empty — so
   // explicitly clearing `ids_` after the steal makes destruction safe.
-  storage_base(const storage_base&) = delete;
   storage_base(storage_base&& other) noexcept
       : registry_{other.registry_}, store_id_{other.store_id_},
         limit_{other.limit_}, ids_{std::move(other.ids_)} {
     other.ids_.clear();
   }
-  storage_base& operator=(const storage_base&) = delete;
+
   storage_base& operator=(storage_base&& other) noexcept {
     if (this != &other) {
       registry_ = other.registry_;

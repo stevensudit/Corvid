@@ -21,7 +21,7 @@ namespace corvid { inline namespace meta { inline namespace pragmas {
 
 // Glue to silence overeager warnings.
 #define PRAGMA_DIAG_HELPER(action) _Pragma(#action)
-#if defined(__clang__)
+#ifdef __clang__
 #define PRAGMA_CLANG_DIAG(action) PRAGMA_DIAG_HELPER(clang diagnostic action)
 #define PRAGMA_CLANG_IGNORED(quoted) PRAGMA_CLANG_DIAG(ignored quoted)
 #define PRAGMA_GCC_DIAG(action)

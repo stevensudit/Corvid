@@ -93,8 +93,8 @@ public:
   component_storage& operator=(component_storage&& other) noexcept {
     if (this == &other) return *this;
     clear();
-    base_t::operator=(std::move(other));
     components_ = std::move(other.components_);
+    base_t::operator=(std::move(other));
     return *this;
   }
 

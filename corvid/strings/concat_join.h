@@ -93,7 +93,6 @@ inline namespace existing {
 // gcc, so we isolate it.
 PRAGMA_GCC_DIAG(push);
 PRAGMA_GCC_IGNORED("-Waddress");
-PRAGMA_GCC_IGNORED("-Wnonnull-compare");
 [[nodiscard]] constexpr bool is_present(const BoolLike auto& p) {
   return (p) ? true : false;
 }
