@@ -95,8 +95,11 @@ public:
   component_storage& operator=(component_storage&& other) noexcept {
     if (this == &other) return *this;
     clear();
-    components_ = std::move(other.components_);
     base_t::operator=(std::move(other));
+    // base_t::operator= moves only the base sub-object; other.components_ is
+    // unaffected, so this access is safe (false positive).
+    // NOLINTNEXTLINE(bugprone-use-after-move)
+    components_ = std::move(other.components_);
     return *this;
   }
 
