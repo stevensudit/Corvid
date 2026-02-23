@@ -23,6 +23,10 @@
 
 using namespace corvid;
 
+// Minimal scoped enum used by POS-parameter and at() tests.
+// It has no arithmetic operators, which exercises the as_sz/as_pos casts.
+enum class slot_t : size_t {};
+
 // NOLINTBEGIN(readability-function-cognitive-complexity,
 // readability-function-size)
 
@@ -770,12 +774,357 @@ void FixedBitset_MultiWord() {
   }
 }
 
+void FixedBitset_PosParam() {
+  using bs_t = fixed_bitset<64, slot_t>;
+
+  // pos_t is the enum type.
+  static_assert(std::is_same_v<bs_t::pos_t, slot_t>);
+
+  // set/clear/test/operator[] accept pos_t.
+  if (true) {
+    bs_t b;
+    b.set(slot_t{5});
+    EXPECT_TRUE(b.test(slot_t{5}));
+    EXPECT_TRUE(b[slot_t{5}]);
+    EXPECT_FALSE(b.test(slot_t{0}));
+
+    b.clear(slot_t{5});
+    EXPECT_FALSE(b.test(slot_t{5}));
+  }
+
+  // Iterator yields pos_t values.
+  if (true) {
+    bs_t b;
+    b.set(slot_t{3});
+    b.set(slot_t{17});
+    b.set(slot_t{63});
+
+    std::vector<slot_t> got;
+    for (auto p : b) got.push_back(p);
+    EXPECT_EQ(got.size(), 3U);
+    // Use EXPECT_TRUE for enum comparisons: EXPECT_EQ's error path can't
+    // print unprintable types.
+    EXPECT_TRUE(got[0] == slot_t{3});
+    EXPECT_TRUE(got[1] == slot_t{17});
+    EXPECT_TRUE(got[2] == slot_t{63});
+  }
+
+  // countr_zero returns pos_t; sentinel is as_pos(bit_count_v).
+  if (true) {
+    bs_t empty;
+    EXPECT_TRUE(empty.countr_zero() == slot_t{64});
+
+    bs_t b;
+    b.set(slot_t{7});
+    EXPECT_TRUE(b.countr_zero() == slot_t{7});
+  }
+
+  // countr_one returns pos_t.
+  if (true) {
+    bs_t b;
+    for (size_t i = 0; i < 4; ++i) b.set(slot_t{i});
+    EXPECT_TRUE(b.countr_one() == slot_t{4});
+  }
+
+  // countl_zero returns pos_t.
+  if (true) {
+    bs_t empty;
+    EXPECT_TRUE(empty.countl_zero() == slot_t{64});
+
+    bs_t b;
+    b.set(slot_t{63});
+    EXPECT_TRUE(b.countl_zero() == slot_t{0});
+
+    bs_t b2;
+    b2.set(slot_t{62});
+    EXPECT_TRUE(b2.countl_zero() == slot_t{1});
+  }
+
+  // countl_one returns pos_t.
+  if (true) {
+    bs_t empty;
+    EXPECT_TRUE(empty.countl_one() == slot_t{0});
+
+    bs_t b;
+    b.set(slot_t{63});
+    EXPECT_TRUE(b.countl_one() == slot_t{1});
+  }
+
+  // bit_width returns pos_t.
+  if (true) {
+    bs_t empty;
+    EXPECT_TRUE(empty.bit_width() == slot_t{0});
+
+    bs_t b;
+    b.set(slot_t{5});
+    EXPECT_TRUE(b.bit_width() == slot_t{6});
+  }
+
+  // Bitwise operators preserve pos_t interface.
+  if (true) {
+    bs_t a, b;
+    a.set(slot_t{2});
+    b.set(slot_t{2});
+    b.set(slot_t{4});
+    auto c = a & b;
+    EXPECT_TRUE(c.test(slot_t{2}));
+    EXPECT_FALSE(c.test(slot_t{4}));
+
+    auto d = a | b;
+    EXPECT_TRUE(d.test(slot_t{2}));
+    EXPECT_TRUE(d.test(slot_t{4}));
+
+    auto e = a ^ b;
+    EXPECT_FALSE(e.test(slot_t{2}));
+    EXPECT_TRUE(e.test(slot_t{4}));
+  }
+}
+
+// size(), max_size(), empty() are constexpr instance methods reflecting
+// bit_count_v.
+void FixedBitset_SizeEmpty() {
+  // Callable on instances.
+  if (true) {
+    EXPECT_EQ(fixed_bitset<64>{}.size(), 64U);
+    EXPECT_EQ(fixed_bitset<64>{}.max_size(), 64U);
+    EXPECT_FALSE(fixed_bitset<64>{}.empty());
+
+    EXPECT_EQ(fixed_bitset<128>{}.size(), 128U);
+    EXPECT_EQ(fixed_bitset<128>{}.max_size(), 128U);
+    EXPECT_FALSE(fixed_bitset<128>{}.empty());
+  }
+
+  // Callable on named instances (same results).
+  if (true) {
+    fixed_bitset<64> b;
+    EXPECT_EQ(b.size(), 64U);
+    EXPECT_EQ(b.max_size(), 64U);
+    EXPECT_FALSE(b.empty());
+  }
+
+  // Usable in constant expressions.
+  if (true) {
+    static_assert(fixed_bitset<64>{}.size() == 64);
+    static_assert(fixed_bitset<64>{}.max_size() == 64);
+    static_assert(!fixed_bitset<64>{}.empty());
+    static_assert(fixed_bitset<192>{}.size() == 192);
+  }
+}
+
+// at() is the bounds-checked alternative to test()/operator[].
+void FixedBitset_At() {
+  // In-range: agrees with test() at every position.
+  if (true) {
+    fixed_bitset<64> b;
+    b.set(10);
+    b.set(50);
+    for (size_t i = 0; i < 64; ++i) EXPECT_EQ(b.at(i), b.test(i));
+  }
+
+  // at() throws std::out_of_range for out-of-range positions.
+  if (true) {
+    fixed_bitset<64> b;
+    TEST_EXCEPTION(b.at(64), std::out_of_range);
+    TEST_EXCEPTION(b.at(1000), std::out_of_range);
+  }
+
+  // Works with enum POS.
+  if (true) {
+    fixed_bitset<64, slot_t> b;
+    b.set(slot_t{5});
+    EXPECT_TRUE(b.at(slot_t{5}));
+    EXPECT_FALSE(b.at(slot_t{6}));
+    TEST_EXCEPTION(b.at(slot_t{64}), std::out_of_range);
+  }
+
+  // In-range at() is usable in constant expressions.
+  if (true) {
+    constexpr auto b = []() {
+      fixed_bitset<64> r;
+      r.set(7);
+      return r;
+    }();
+    static_assert(b.at(7));
+    static_assert(!b.at(6));
+  }
+}
+
+// operator<=> provides lexicographic ordering over the underlying words array.
+// Word 0 (bits 0-63) is compared before word 1 (bits 64-127), so lower-index
+// words dominate even though they hold lower-index bits.
+void FixedBitset_Ordering() {
+  // Reflexive: equal bitsets compare equal.
+  if (true) {
+    fixed_bitset<64> a, b;
+    EXPECT_TRUE((a <=> b) == 0);
+    a.set(5);
+    b.set(5);
+    EXPECT_TRUE((a <=> b) == 0);
+  }
+
+  // Within one word: a higher-index bit makes the word value larger.
+  if (true) {
+    fixed_bitset<64> lo, hi;
+    lo.set(0); // words_[0] = 1
+    hi.set(1); // words_[0] = 2
+    EXPECT_TRUE(lo < hi);
+    EXPECT_TRUE(hi > lo);
+    EXPECT_TRUE(lo <= hi);
+    EXPECT_TRUE(hi >= lo);
+  }
+
+  // Empty is less than any set bit.
+  if (true) {
+    fixed_bitset<64> empty, b;
+    b.set(0);
+    EXPECT_TRUE(empty < b);
+    EXPECT_FALSE(b < empty);
+  }
+
+  // Multi-word: word 0 dominates word 1, so a single bit in word 0 outweighs
+  // any combination of bits in word 1.
+  if (true) {
+    fixed_bitset<128> word0, word1;
+    word0.set(0);  // words_ = {1, 0}
+    word1.set(64); // words_ = {0, 1}
+    // word0 > word1 because words_[0]=1 > 0
+    EXPECT_TRUE(word0 > word1);
+    EXPECT_TRUE(word1 < word0);
+  }
+
+  // A full word 1 is still less than a single bit in word 0.
+  if (true) {
+    fixed_bitset<128> w0bit, w1full;
+    w0bit.set(0);
+    for (std::size_t i = 64; i < 128; ++i) w1full.set(i);
+    // w0bit: words_ = {1, 0}; w1full: words_ = {0, ~0ull}
+    // words_[0]: 1 > 0, so w0bit > w1full
+    EXPECT_TRUE(w0bit > w1full);
+  }
+
+  // Ordering is consistent with equality.
+  if (true) {
+    fixed_bitset<64> a, b;
+    a.set(10);
+    b.set(10);
+    EXPECT_TRUE(a <= b);
+    EXPECT_TRUE(a >= b);
+    EXPECT_FALSE(a < b);
+    EXPECT_FALSE(a > b);
+  }
+}
+
+// TAG prevents structurally-identical bitsets from being mixed.
+void FixedBitset_Tag() {
+  struct tag_a {};
+  struct tag_b {};
+  using bs_a = fixed_bitset<64, size_t, tag_a>;
+  using bs_b = fixed_bitset<64, size_t, tag_b>;
+  using bs_u = fixed_bitset<64>; // untagged
+
+  // Different tags produce incompatible types even with identical N_BITS/POS.
+  static_assert(!std::is_same_v<bs_a, bs_b>);
+  static_assert(!std::is_same_v<bs_a, bs_u>);
+  static_assert(!std::is_assignable_v<bs_a&, bs_b>);
+  static_assert(!std::is_constructible_v<bs_a, bs_b>);
+
+  // tag_t alias is accessible and correct.
+  static_assert(std::is_same_v<bs_a::tag_t, tag_a>);
+  static_assert(std::is_same_v<bs_b::tag_t, tag_b>);
+  static_assert(std::is_same_v<bs_u::tag_t, void>);
+
+  // Each tagged type is independently usable at runtime.
+  if (true) {
+    bs_a a;
+    a.set(1);
+    a.set(33);
+    EXPECT_TRUE(a.test(1));
+    EXPECT_TRUE(a.test(33));
+    EXPECT_EQ(a.popcount(), 2U);
+
+    bs_b b;
+    b.set(1);
+    EXPECT_TRUE(b.test(1));
+    EXPECT_EQ(b.popcount(), 1U);
+
+    // a and b have equal content in the overlapping bit, but are distinct
+    // objects of different types — no mixing is possible.
+    EXPECT_EQ(a.test(1), b.test(1));
+    EXPECT_NE(a.popcount(), b.popcount());
+  }
+}
+
+// constexpr: bitset operations are usable in constant expressions.
+void FixedBitset_Constexpr() {
+  // Build a bitset at compile time.
+  constexpr auto b = []() {
+    fixed_bitset<64> r;
+    r.set(5);
+    r.set(63);
+    return r;
+  }();
+
+  static_assert(b.test(5));
+  static_assert(b.test(63));
+  static_assert(!b.test(0));
+  static_assert(b.popcount() == 2);
+  static_assert(b.any());
+  static_assert(!b.none());
+  static_assert(!b.all());
+
+  // Bitwise operators.
+  constexpr auto a = []() {
+    fixed_bitset<64> r;
+    r.set(1);
+    r.set(3);
+    return r;
+  }();
+  constexpr auto c = []() {
+    fixed_bitset<64> r;
+    r.set(3);
+    r.set(5);
+    return r;
+  }();
+
+  static_assert((a & c).test(3));
+  static_assert(!(a & c).test(1));
+  static_assert((a | c).test(1));
+  static_assert((a | c).test(5));
+  static_assert((a ^ c).test(1));
+  static_assert(!(a ^ c).test(3));
+  static_assert((~a).test(0));
+  static_assert(!(~a).test(1));
+
+  // Counting queries.
+  static_assert(a.countr_zero() == 1);
+  static_assert(c.countr_zero() == 3);
+  static_assert(b.countl_zero() == 0); // bit 63 is highest
+  static_assert(b.bit_width() == 64);  // highest set bit is 63 → width 64
+
+  // Iteration in a constexpr context.
+  constexpr size_t iter_count = []() {
+    fixed_bitset<64> r;
+    r.set(10);
+    r.set(20);
+    r.set(30);
+    size_t n = 0;
+    for ([[maybe_unused]] auto p : r) ++n;
+    return n;
+  }();
+  static_assert(iter_count == 3);
+
+  // size()/max_size() are already constexpr; verify with static_assert.
+  static_assert(fixed_bitset<64>{}.size() == 64);
+}
+
 MAKE_TEST_LIST(FixedBitset_Empty, FixedBitset_SetClearTest,
     FixedBitset_Subscript, FixedBitset_Popcount, FixedBitset_Reset,
     FixedBitset_Equality, FixedBitset_CopyMove, FixedBitset_BitwiseAnd,
     FixedBitset_BitwiseOr, FixedBitset_BitwiseXor, FixedBitset_Complement,
     FixedBitset_CountBits, FixedBitset_HasSingleBit, FixedBitset_Iteration,
-    FixedBitset_MultiWord);
+    FixedBitset_MultiWord, FixedBitset_PosParam, FixedBitset_SizeEmpty,
+    FixedBitset_At, FixedBitset_Ordering, FixedBitset_Tag,
+    FixedBitset_Constexpr);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

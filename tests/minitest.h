@@ -81,7 +81,7 @@ auto inline stream_to_text(const auto& v) {
   do {                                                                        \
     bool caught_ = false;                                                     \
     try {                                                                     \
-      call;                                                                   \
+      (void)(call);                                                           \
     }                                                                         \
     catch (const exc&) {                                                      \
       caught_ = true;                                                         \
