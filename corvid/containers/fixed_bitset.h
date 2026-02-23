@@ -70,8 +70,8 @@ public:
       advance_to_next_set_word();
     }
 
-    [[nodiscard]] constexpr const pos_t operator*() const noexcept {
-      return as_pos(word_ndx_ * 64 + std::countr_zero(current_word_));
+    [[nodiscard]] constexpr pos_t operator*() const noexcept {
+      return as_pos((word_ndx_ * 64) + std::countr_zero(current_word_));
     }
 
     constexpr iterator& operator++() noexcept {
@@ -226,7 +226,7 @@ public:
     for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
       const auto w = words_[ndx];
       if (w)
-        return as_pos(ndx * 64 + static_cast<size_t>(std::countr_zero(w)));
+        return as_pos((ndx * 64) + static_cast<size_t>(std::countr_zero(w)));
     }
     return as_pos(bit_count_v);
   }
@@ -235,7 +235,7 @@ public:
     for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
       const auto w = words_[ndx];
       if (w != ~uint64_t{0})
-        return as_pos(ndx * 64 + static_cast<size_t>(std::countr_zero(~w)));
+        return as_pos((ndx * 64) + static_cast<size_t>(std::countr_zero(~w)));
     }
     return as_pos(bit_count_v);
   }
@@ -245,7 +245,7 @@ public:
       const auto w = words_[ndx - 1];
       if (w)
         return as_pos(
-            (word_count_v - ndx) * 64 +
+            ((word_count_v - ndx) * 64) +
             static_cast<size_t>(std::countl_zero(w)));
     }
     return as_pos(bit_count_v);
@@ -256,7 +256,7 @@ public:
       const auto w = words_[ndx - 1];
       if (w != ~uint64_t{0})
         return as_pos(
-            (word_count_v - ndx) * 64 +
+            ((word_count_v - ndx) * 64) +
             static_cast<size_t>(std::countl_zero(~w)));
     }
     return as_pos(bit_count_v);
