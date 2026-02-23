@@ -1,7 +1,7 @@
 // Corvid: A general-purpose modern C++ library extending std.
 // https://github.com/stevensudit/Corvid
 //
-// Copyright 2022-2025 Steven Sudit
+// Copyright 2022-2026 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -144,7 +144,7 @@ public:
       return true;
     }
 
-    ~add_guard() {
+    ~add_guard() { // NOLINT(bugprone-exception-escape)
       if (saved_size_ == *id_t::invalid) return;
       owner_->ids_.resize(saved_size_);
       owner_->do_resize_storage(saved_size_);
@@ -155,11 +155,18 @@ public:
     size_type saved_size_{};
   };
 
+  // Public deleted constructors and assignment operators.
+  storage_base(const storage_base&) = delete;
+  storage_base& operator=(const storage_base&) = delete;
+
 protected:
   // Constructors are protected; only derived classes may construct.
+  // NOLINT: multi-level CRTP (intermediate base calls these) prevents the
+  // private+friend pattern that bugprone-crtp-constructor-accessibility
+  // prefers.
+  storage_base() = default; // NOLINT(bugprone-crtp-constructor-accessibility)
 
-  storage_base() = default;
-
+  // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility)
   storage_base(registry_t& registry, store_id_t store_id, size_type limit)
       : registry_{&registry}, store_id_{store_id}, limit_{limit},
         ids_{id_allocator_t{registry.get_allocator()}} {
@@ -171,13 +178,13 @@ protected:
   // and writes to the registry. The standard only guarantees a moved-from
   // `std::vector` is "valid but unspecified" — not necessarily empty — so
   // explicitly clearing `ids_` after the steal makes destruction safe.
-  storage_base(const storage_base&) = delete;
+  // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility)
   storage_base(storage_base&& other) noexcept
       : registry_{other.registry_}, store_id_{other.store_id_},
         limit_{other.limit_}, ids_{std::move(other.ids_)} {
     other.ids_.clear();
   }
-  storage_base& operator=(const storage_base&) = delete;
+
   storage_base& operator=(storage_base&& other) noexcept {
     if (this != &other) {
       registry_ = other.registry_;
@@ -215,7 +222,7 @@ protected:
   size_type limit_{*id_t::invalid};
   id_vector_t ids_{};
 
-  // Grant scene_base (and through it, scene<>) access to do_drop_all().
+  // Grant scene_base (and through it, `scene<>`) access to do_drop_all().
   friend class ::corvid::ecs::scene_base;
 
 private:

@@ -1,7 +1,7 @@
 // Corvid: A general-purpose modern C++ library extending std.
 // https://github.com/stevensudit/Corvid
 //
-// Copyright 2022-2025 Steven Sudit
+// Copyright 2022-2026 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -35,8 +35,8 @@ namespace corvid::strings { inline namespace delimiting {
 // - When joining, appends the entire string.
 // - When manipulating braces, treated as an open/close pair.
 struct delim: public std::string_view {
-  // Note: Delegating to the templated constructor with std::forward breaks
-  // constexpr evaluation. Direct base class initialization is required.
+  // Note: Delegating to the templated constructor with `std::forward` breaks
+  // `constexpr` evaluation. Direct base class initialization is required.
   constexpr delim() : std::string_view(" "sv) {}
   constexpr delim(const delim&) = default;
 

@@ -1,7 +1,7 @@
 // Corvid: A general-purpose modern C++ library extending std.
 // https://github.com/stevensudit/Corvid
 //
-// Copyright 2022-2025 Steven Sudit
+// Copyright 2022-2026 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -112,10 +112,10 @@ template<typename E>
 constexpr bool seq_actually_wrap_v =
     seq_actually_need_wrap_v<E> && seq_wrap_v<E>;
 
-// Clip, unless `noclip` set, by modding to size.
-template<SequentialEnum E, bool noclip = false>
+// Clip by modding to size when `mode` is `wrapclip::limit`.
+template<SequentialEnum E, wrapclip mode = wrapclip::limit>
 [[nodiscard]] constexpr auto clip(std::underlying_type_t<E> u) {
-  if constexpr (!noclip && seq_actually_need_wrap_v<E>)
+  if constexpr (mode == wrapclip::limit && seq_actually_need_wrap_v<E>)
     return u % seq_size_v<E>;
   else
     return u;
@@ -124,7 +124,7 @@ template<SequentialEnum E, bool noclip = false>
 // Clip if wrapping enabled.
 template<SequentialEnum E>
 [[nodiscard]] constexpr auto clip_if_wrap(std::underlying_type_t<E> u) {
-  return clip<E, !seq_actually_wrap_v<E>>(u);
+  return clip<E, seq_actually_wrap_v<E> ? wrapclip::limit : wrapclip::none>(u);
 }
 
 } // namespace internal
@@ -135,7 +135,7 @@ template<SequentialEnum E>
 
 // Cast integer value from underlying type to sequence, wrapping to keep it in
 // range.
-template<SequentialEnum E, bool noclip = false>
+template<SequentialEnum E, wrapclip mode = wrapclip::limit>
 [[nodiscard]] constexpr E make_safely(std::underlying_type_t<E> u) noexcept {
   // Wrapping is only meaningful if the underlying type is not a perfect fit.
   if constexpr (seq_actually_need_wrap_v<E>) {
@@ -146,12 +146,12 @@ template<SequentialEnum E, bool noclip = false>
 
     // Underflow is only possible if it starts above the underlying min.
     if constexpr (lo != std::numeric_limits<U>::min()) {
-      if (u < lo) return E(hi + clip<E, noclip>(u - lo + 1));
+      if (u < lo) return E(hi + clip<E, mode>(u - lo + 1));
     }
 
     // Overflow is only possible if it ends below the underlying max.
     if constexpr (hi != std::numeric_limits<U>::max()) {
-      if (u > hi) return E(lo + clip<E, noclip>(u - hi - 1));
+      if (u > hi) return E(lo + clip<E, mode>(u - hi - 1));
     }
   }
   return static_cast<E>(u);
@@ -159,10 +159,10 @@ template<SequentialEnum E, bool noclip = false>
 
 // Cast integer value from underlying type to sequence. When `wrapclip::limit`,
 // wraps value to ensure safety.
-template<SequentialEnum E, bool noclip = false>
+template<SequentialEnum E, wrapclip mode = wrapclip::limit>
 [[nodiscard]] constexpr E make(std::underlying_type_t<E> u) noexcept {
   if constexpr (seq_actually_wrap_v<E>)
-    return make_safely<E, noclip>(u);
+    return make_safely<E, mode>(u);
   else
     return static_cast<E>(u);
 }
@@ -201,7 +201,7 @@ template<SequentialEnum E>
 template<SequentialEnum E>
 [[nodiscard]] constexpr E
 operator+(E l, std::underlying_type_t<E> r) noexcept {
-  return make<E, true>(*l + clip_if_wrap<E>(r));
+  return make<E, wrapclip::none>(*l + clip_if_wrap<E>(r));
 }
 
 template<SequentialEnum E>
@@ -237,7 +237,7 @@ template<SequentialEnum E>
 template<SequentialEnum E>
 [[nodiscard]] constexpr E
 operator-(E l, std::underlying_type_t<E> r) noexcept {
-  return make<E, true>(*l - clip_if_wrap<E>(r));
+  return make<E, wrapclip::none>(*l - clip_if_wrap<E>(r));
 }
 
 template<SequentialEnum E>

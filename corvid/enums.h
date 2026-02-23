@@ -1,7 +1,7 @@
 // Corvid: A general-purpose modern C++ library extending std.
 // https://github.com/stevensudit/Corvid
 //
-// Copyright 2022-2025 Steven Sudit
+// Copyright 2022-2026 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 #include "enums/enums_shared.h"
 #include "enums/bitmask_enum.h"
 #include "enums/sequence_enum.h"
+#include "enums/bool_enums.h"
 
 // Importing the `corvid::enums::bitmask` and `corvid::enums::sequence`
 // namespaces is optional, but you need to import `corvid::enums::bitmask::ops`

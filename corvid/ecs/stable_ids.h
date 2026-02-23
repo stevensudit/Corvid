@@ -1,7 +1,7 @@
 // Corvid: A general-purpose modern C++ library extending std.
 // https://github.com/stevensudit/Corvid
 //
-// Copyright 2022-2025 Steven Sudit
+// Copyright 2022-2026 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -52,44 +52,51 @@ namespace corvid { inline namespace ecs { inline namespace stable_id_vector {
 //   ID        — enum type used for IDs. Must be a sequential enum with an
 //               `invalid` value equal to its underlying type's max (see
 //               `id_t` for an example). Defaults to `id_enums::id_t`.
-//   UseGen    — when true (default), handles carry a generation counter that
-//               detects ID reuse via is_valid(handle_t). When false, the gen
-//               field is elided entirely via [[no_unique_address]].
-//   UseFifo   — when true, freed IDs are reused in FIFO order (oldest first).
-//               When false (default), reuse is LIFO. FIFO increases the delay
-//               before an ID is recycled, which can make the no-gen option
-//               safer in domains with bounded handle lifetimes (e.g. per-frame
-//               ECS). The free-list next-pointer is colocated in an internal
-//               slot type and elided when FIFO is off.
-//   Allocator — allocator type for element storage. Also rebound internally
+//   GEN       — when versioned (default), handles carry a generation counter
+//               that detects ID reuse via is_valid(handle_t). When
+//               unversioned, the gen field is elided entirely via
+//               [[no_unique_address]].
+//   REUSE_ORDER
+//             — when fifo, freed IDs are reused in FIFO order (oldest
+//               first). When lifo (default), reuse is LIFO. FIFO increases the
+//               delay before an ID is recycled, which can make the no-gen
+//               option safer in domains with bounded handle lifetimes (e.g.
+//               per-frame ECS). The free-list next-pointer is colocated in an
+//               internal slot type and elided when FIFO is off.
+//   ALLOCATOR — allocator type for element storage. Also rebound internally
 //               for index and slot vectors. Defaults to `std::allocator<T>`.
 //
 // Insertion may throw `std::out_of_range` if the maximum ID value is
 // exceeded. Alternately, you can disable throwing by calling
-// `throw_on_insert_failure(false)`, in which case `id_t::invalid` is
-// returned.
+// `throw_on_insert_failure(on_failure::ignore)`, in which case `id_t::invalid`
+// is returned.
 //
 // Exception safety note: In FIFO mode, `alloc_id` modifies the free list
 // before returning. If the subsequent `data_.push_back` throws (e.g., due to
 // allocation failure), the container is left in an inconsistent state. To
-// avoid this, call `reserve` with `prefill=true` (or use the prefilling
-// constructor) before inserting, ensuring that insertions do not allocate.
+// avoid this, call `reserve` with `allocation_policy::eager` (or use the
+// prefilling constructor) before inserting, ensuring that insertions do not
+// allocate.
 //
 // Motivated by https://github.com/johnBuffer/StableIndexVector. Largely
 // obsoleted by `entity_registry` and `component_storage`.
 template<typename T, sequence::SequentialEnum ID = id_enums::id_t,
-    bool UseGen = true, bool UseFifo = false,
-    class Allocator = std::allocator<T>>
+    generation_scheme GEN = generation_scheme::versioned,
+    reuse_order REUSE_ORDER = reuse_order::lifo,
+    typename ALLOCATOR = std::allocator<T>>
 class stable_ids {
 public:
   using id_t = ID;
   using size_type = std::underlying_type_t<id_t>;
-  using allocator_type = Allocator;
+  using allocator_type = ALLOCATOR;
+
+  static constexpr bool is_versioned_v = (GEN == generation_scheme::versioned);
+  static constexpr bool is_fifo_v = (REUSE_ORDER == reuse_order::fifo);
 
 private:
-  using data_allocator_type = Allocator;
+  using data_allocator_type = ALLOCATOR;
   using index_allocator_type = typename std::allocator_traits<
-      Allocator>::template rebind_alloc<size_type>;
+      ALLOCATOR>::template rebind_alloc<size_type>;
 
 public:
   static_assert(*id_t::invalid ==
@@ -99,7 +106,7 @@ public:
   static_assert(std::is_unsigned_v<std::underlying_type_t<id_t>>,
       "ID type for stable_ids must use an unsigned underlying type");
 
-  // An opaque handle that refers to an element. When UseGen is enabled, it
+  // An opaque handle that refers to an element. When GEN is enabled, it
   // captures a generation snapshot that allows `is_valid(handle_t)` to detect
   // ID reuse. Otherwise, it becomes equivalent to an `id_t`.
   struct handle_t {
@@ -113,13 +120,13 @@ public:
 
     [[nodiscard]] bool operator==(const handle_t& other) const noexcept {
       if (id_ != other.id_) return false;
-      if constexpr (UseGen) return gen_ == other.gen_;
+      if constexpr (is_versioned_v) return gen_ == other.gen_;
       return true;
     }
 
     [[nodiscard]] auto operator<=>(const handle_t& other) const noexcept {
       auto cmp = id_ <=> other.id_;
-      if constexpr (UseGen)
+      if constexpr (is_versioned_v)
         if (cmp == 0) cmp = gen_ <=> other.gen_;
       return cmp;
     }
@@ -128,16 +135,16 @@ public:
 
     // Note: While equality/inequality is guaranteed, the precise value is not.
     [[nodiscard]] size_type gen() const
-    requires UseGen
+    requires(is_versioned_v)
     {
       return gen_;
     }
 
   private:
     id_t id_{id_t::invalid};
-    [[no_unique_address]] maybe_t<size_type, UseGen> gen_{};
+    [[no_unique_address]] maybe_t<size_type, is_versioned_v> gen_{};
 
-    friend class stable_ids<T, ID, UseGen, UseFifo, Allocator>;
+    friend class stable_ids<T, ID, GEN, REUSE_ORDER, ALLOCATOR>;
   };
 
 private:
@@ -145,11 +152,11 @@ private:
   // enabled, a next-pointer for the intrusive free list.
   struct slot_t {
     handle_t h_;
-    [[no_unique_address]] maybe_t<id_t, UseFifo> fifo_next_{id_t::invalid};
+    [[no_unique_address]] maybe_t<id_t, is_fifo_v> fifo_next_{id_t::invalid};
   };
 
   using slot_allocator_type =
-      typename std::allocator_traits<Allocator>::template rebind_alloc<slot_t>;
+      typename std::allocator_traits<ALLOCATOR>::template rebind_alloc<slot_t>;
 
   static_assert(std::is_trivially_copyable_v<handle_t>);
   static_assert(sizeof(handle_t) <= 16);
@@ -162,14 +169,15 @@ public:
       : data_{alloc}, indexes_{index_allocator_type{alloc}},
         reverse_{slot_allocator_type{alloc}} {}
 
-  // Construct with a maximum ID limit. If `prefill` is true, pre-allocates and
-  // initializes `indexes_` and `reverse_` so that subsequent insertions do not
-  // allocate (useful for exception safety in FIFO mode).
-  explicit stable_ids(id_t id_limit, bool prefill = false,
+  // Construct with a maximum ID limit. If `prefill` is eager, pre-allocates
+  // and initializes `indexes_` and `reverse_` so that subsequent insertions do
+  // not allocate (useful for exception safety in FIFO mode).
+  explicit stable_ids(id_t id_limit,
+      allocation_policy prefill = allocation_policy::lazy,
       const allocator_type& alloc = allocator_type{})
       : data_{alloc}, indexes_{index_allocator_type{alloc}},
         reverse_{slot_allocator_type{alloc}}, id_limit_{id_limit} {
-    if (prefill) do_prefill(*id_limit_);
+    if (prefill == allocation_policy::eager) do_prefill(*id_limit_);
   }
 
   stable_ids(stable_ids&&) noexcept = default;
@@ -183,7 +191,7 @@ public:
     swap(lhs.reverse_, rhs.reverse_);
     swap(lhs.id_limit_, rhs.id_limit_);
     swap(lhs.throw_on_insert_failure_, rhs.throw_on_insert_failure_);
-    if constexpr (UseFifo) {
+    if constexpr (is_fifo_v) {
       swap(lhs.fifo_head_, rhs.fifo_head_);
       swap(lhs.fifo_tail_, rhs.fifo_tail_);
     }
@@ -210,7 +218,8 @@ public:
     // Empty container: any limit is valid.
     if (data_.empty()) {
       // If there are freed slots beyond the new limit, clear them.
-      if (!indexes_.empty() && new_limit <= max_id()) clear(true);
+      if (!indexes_.empty() && new_limit <= max_id())
+        clear(deallocation_policy::release);
       id_limit_ = new_limit;
       return true;
     }
@@ -233,11 +242,11 @@ public:
 
   // Control whether insertion throws on ID overflow (by default) or returns
   // `id_t::invalid`, requiring the caller to check.
-  [[nodiscard]] bool throw_on_insert_failure() const noexcept {
+  [[nodiscard]] on_failure throw_on_insert_failure() const noexcept {
     return throw_on_insert_failure_;
   }
-  void throw_on_insert_failure(bool value) noexcept {
-    throw_on_insert_failure_ = value;
+  void throw_on_insert_failure(on_failure policy) noexcept {
+    throw_on_insert_failure_ = policy;
   }
 
   // Push a new element, returning its assigned ID.
@@ -296,7 +305,7 @@ public:
     if (ndx >= data_.size()) return false;
     const auto& live = reverse_[ndx].h_;
     assert(live.id_ == id);
-    if constexpr (UseGen) return live.gen_ == handle.gen_;
+    if constexpr (is_versioned_v) return live.gen_ == handle.gen_;
     return true;
   }
 
@@ -330,16 +339,17 @@ public:
     return cnt;
   }
 
-  // Clear all elements. If `shrink` is true, also free all memory.
-  // It's faster to clear with shrink than to clear and then `shrink_to_fit`.
+  // Clear all elements. If `policy` is release, also free all memory.
+  // It's faster to clear with release than to clear and then `shrink_to_fit`.
   // See warning in `shrink_to_fit`.
-  void clear(bool shrink = false) noexcept {
+  void clear(
+      deallocation_policy policy = deallocation_policy::preserve) noexcept {
     const auto live_size = data_.size();
     data_.clear();
-    if (shrink) {
+    if (policy == deallocation_policy::release) {
       indexes_.clear();
       reverse_.clear();
-      if constexpr (UseFifo) {
+      if constexpr (is_fifo_v) {
         fifo_head_ = id_t::invalid;
         fifo_tail_ = id_t::invalid;
       }
@@ -347,11 +357,11 @@ public:
       // Bump generation only for entries that were live, to invalidate
       // outstanding handles. Free entries already had their gen bumped on
       // erase.
-      if constexpr (UseGen) {
+      if constexpr (is_versioned_v) {
         for (size_type i{}; i < live_size; ++i) ++reverse_[i].h_.gen_;
       }
       // Maintain FIFO free list.
-      if constexpr (UseFifo) rebuild_fifo_list();
+      if constexpr (is_fifo_v) rebuild_fifo_list();
     }
   }
 
@@ -359,10 +369,10 @@ public:
   // generations, hence it cannot guarantee preserving the validity of handles.
   // Do not call if you might have dangling handles.
   void shrink_to_fit() {
-    // If already empty, just clear with shrink.
+    // If already empty, just clear with release.
     const auto live_size = data_.size();
     if (live_size == 0) {
-      clear(true);
+      clear(deallocation_policy::release);
       return;
     }
 
@@ -384,7 +394,7 @@ public:
         ++free_pos;
       }
 
-      if constexpr (UseFifo) rebuild_fifo_list();
+      if constexpr (is_fifo_v) rebuild_fifo_list();
     }
 
     data_.shrink_to_fit();
@@ -392,14 +402,15 @@ public:
     reverse_.shrink_to_fit();
   }
 
-  // Reserve space for at least `new_cap` elements. If `prefill` is true,
+  // Reserve space for at least `new_cap` elements. If `prefill` is eager,
   // pre-allocates and initializes `indexes_` and `reverse_` so that subsequent
   // insertions do not allocate (useful for exception safety in FIFO mode).
-  void reserve(size_type new_cap, bool prefill = false) {
+  void reserve(size_type new_cap,
+      allocation_policy prefill = allocation_policy::lazy) {
     data_.reserve(new_cap);
     indexes_.reserve(new_cap);
     reverse_.reserve(new_cap);
-    if (prefill) do_prefill(new_cap);
+    if (prefill == allocation_policy::eager) do_prefill(new_cap);
   }
 
   // Return current size. This is the count of elements actually present,
@@ -436,7 +447,7 @@ public:
   // Return next ID to be allocated: the head of the free list if one exists,
   // otherwise the next sequential value past the high-water mark.
   [[nodiscard]] id_t next_id() const noexcept {
-    if constexpr (UseFifo) {
+    if constexpr (is_fifo_v) {
       if (fifo_head_ != id_t::invalid) return fifo_head_;
     } else {
       if (reverse_.size() > data_.size()) return reverse_[data_.size()].h_.id_;
@@ -489,14 +500,13 @@ public:
 
 private:
   // Allocate a new ID, either by reusing a freed one or creating a new one.
-  // When UseFifo is true, pops the oldest freed ID (FIFO) and swaps it into
-  // the tail-front position so the caller's push_back absorbs it into the
-  // live range. When UseFifo is false, returns the tail-front directly
-  // (LIFO).
+  // When `REUSE_ORDER` is FIFO, pops the oldest freed ID and swaps it into the
+  // tail-front position so the caller's push_back absorbs it into the live
+  // range. When `REUSE_ORDER` is LIFO, returns the tail-front directly.
   id_t alloc_id() {
     const auto new_ndx = data_.size();
 
-    if constexpr (UseFifo) {
+    if constexpr (is_fifo_v) {
       if (fifo_head_ != id_t::invalid) {
         const auto id = fifo_head_;
         const auto id_ndx = indexes_[id];
@@ -531,7 +541,7 @@ private:
       return new_id;
     }
 
-    if (throw_on_insert_failure_)
+    if (throw_on_insert_failure_ == on_failure::raise)
       throw std::out_of_range("stable_ids: exceeded id limit");
     return id_t::invalid;
   }
@@ -541,7 +551,7 @@ private:
     // Assumes validity checked by caller.
 
     // Invalidate handle by bumping generation.
-    if constexpr (UseGen) ++reverse_[ndx].h_.gen_;
+    if constexpr (is_versioned_v) ++reverse_[ndx].h_.gen_;
 
     // Swap and pop.
     std::swap(data_[ndx], data_[last_ndx]);
@@ -551,7 +561,7 @@ private:
 
     // id is now free; its slot is at indexes_[id] (== last_ndx, which is now
     // == data_.size()). Append it to the FIFO free-list tail.
-    if constexpr (UseFifo) {
+    if constexpr (is_fifo_v) {
       const auto free_ndx = indexes_[id];
       reverse_[free_ndx].fifo_next_ = id_t::invalid;
       if (fifo_tail_ != id_t::invalid)
@@ -590,7 +600,7 @@ private:
   // Links free entries in position order; prior free-order is not preserved
   // (nor is it meaningful after a bulk operation).
   void rebuild_fifo_list() noexcept
-  requires UseFifo
+  requires(is_fifo_v)
   {
     const auto live = data_.size();
     const auto total = reverse_.size();
@@ -623,7 +633,7 @@ private:
       reverse_[*id] = slot_t{handle_t{id}};
     }
 
-    if constexpr (UseFifo) rebuild_fifo_list();
+    if constexpr (is_fifo_v) rebuild_fifo_list();
   }
 
 private:
@@ -639,15 +649,15 @@ private:
   std::vector<slot_t, slot_allocator_type> reverse_;
 
   // FIFO free-list head and tail.
-  [[no_unique_address]] maybe_t<id_t, UseFifo> fifo_head_{id_t::invalid};
-  [[no_unique_address]] maybe_t<id_t, UseFifo> fifo_tail_{id_t::invalid};
+  [[no_unique_address]] maybe_t<id_t, is_fifo_v> fifo_head_{id_t::invalid};
+  [[no_unique_address]] maybe_t<id_t, is_fifo_v> fifo_tail_{id_t::invalid};
 
   // Allowed ID values are below this limit.
   id_t id_limit_{id_t::invalid};
 
   // Whether to throw on insert failure as opposed to returning
   // `id_t::invalid`.
-  bool throw_on_insert_failure_{true};
+  on_failure throw_on_insert_failure_{on_failure::raise};
 
   // Data structure:
   // `data_` is always sized to the number of elements currently stored.
@@ -657,8 +667,8 @@ private:
   // is always >= `data_.size()`.
   //
   // The free list lives in the tail of `reverse_` — the slots past
-  // `data_.size()`. When `UseFifo` is false, `alloc_id` simply takes the first
-  // free slot (LIFO). When `UseFifo` is true, the free slots are threaded into
+  // `data_.size()`. When `REUSE_ORDER` is LIFO, `alloc_id` takes the first
+  // free slot. When `REUSE_ORDER` is FIFO, the free slots are threaded into
   // a singly-linked list via their `fifo_next_` fields, ordered by free time;
   // `alloc_id` pops from the head (oldest) and swaps the slot into the
   // tail-front position before the caller's `push_back` absorbs it.
@@ -667,9 +677,9 @@ private:
   // `reverse_` to invalidate any handles. We swap its element in `data_`
   // with the last element in `data_`, modify the corresponding `indexes_`
   // and `reverse_` so that nothing has changed from the outside, and
-  // truncate `data_`. This leaves the erased slot consistent but referring
-  // to an index past the end of `data_`, hence invalid. When `UseFifo` is
-  // true, the slot is appended to the free-list tail at this point.
+  // truncate `data_`. This leaves the erased slot consistent but referring to
+  // an index past the end of `data_`, hence invalid. In FIFO mode, the slot
+  // is appended to the free-list tail at this point.
   //
   // When we `alloc_id`, we first check for a free slot. If found, we
   // reactivate it (LIFO or FIFO as above). Otherwise we expand and prefill

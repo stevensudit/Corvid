@@ -1,7 +1,7 @@
 // Corvid: A general-purpose modern C++ library extending std.
 // https://github.com/stevensudit/Corvid
 //
-// Copyright 2022-2025 Steven Sudit
+// Copyright 2022-2026 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -93,7 +93,6 @@ inline namespace existing {
 // gcc, so we isolate it.
 PRAGMA_GCC_DIAG(push);
 PRAGMA_GCC_IGNORED("-Waddress");
-PRAGMA_GCC_IGNORED("-Wnonnull-compare");
 [[nodiscard]] constexpr bool is_present(const BoolLike auto& p) {
   return (p) ? true : false;
 }

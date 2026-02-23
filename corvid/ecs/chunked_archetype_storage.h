@@ -1,7 +1,7 @@
 // Corvid: A general-purpose modern C++ library extending std.
 // https://github.com/stevensudit/Corvid
 //
-// Copyright 2022-2025 Steven Sudit
+// Copyright 2022-2026 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -121,10 +121,12 @@ public:
   // `do_reserve` is true and `limit` is not the sentinel unlimited value,
   // reserves capacity for `limit` entities up front.
   explicit chunked_archetype_storage(registry_t& registry, store_id_t store_id,
-      size_type limit = *id_t::invalid, bool do_reserve = false)
+      size_type limit = *id_t::invalid,
+      allocation_policy policy = allocation_policy::lazy)
       : base_t{registry, store_id, limit},
         chunks_{chunk_allocator_t{registry.get_allocator()}} {
-    if (do_reserve && limit_ != *id_t::invalid) reserve(limit_);
+    if (policy == allocation_policy::eager && limit_ != *id_t::invalid)
+      reserve(limit_);
   }
 
   chunked_archetype_storage(const chunked_archetype_storage&) = delete;

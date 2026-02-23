@@ -1,7 +1,7 @@
 // Corvid: A general-purpose modern C++ library extending std.
 // https://github.com/stevensudit/Corvid
 //
-// Copyright 2022-2025 Steven Sudit
+// Copyright 2022-2026 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,9 +38,10 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 // ECS system and tracks their location and metadata. Entities of different
 // types would be stored in instances specialized on different ID types.
 //
-// IDs will be reused after being freed, but unless `UseGen` is set to false,
-// record handles have generation counters to detect this. Reuse is done in
-// FIFO order to maximize the time before an ID is recycled.
+// IDs will be reused after being freed, but unless `GEN` is set to
+// `generation_scheme::unversioned`, record handles have generation counters to
+// detect this. Reuse is done in FIFO order to maximize the time before an ID
+// is recycled.
 //
 // Entity records are not guaranteed to remain at fixed memory locations unless
 // you set a limit and reserve space for that many entities up front. In this
@@ -55,9 +56,9 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 //
 // Operations that take an ID expect it to be valid and generally will not
 // check. Even if they do, they can't detect reuse. In contrast, operations
-// that take a handle will check. This means that, even when `UseGen` is false,
-// you can still get some additional safety by using handles instead of raw
-// IDs.
+// that take a handle will check. This means that, even when `GEN` is
+// `generation_scheme::unversioned`, you can still get some additional safety
+// by using handles instead of raw IDs.
 //
 // Template parameters:
 //  T         - Per-entity metadata type stored alongside location and
@@ -67,23 +68,25 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 //              the maximum representable value.
 //  SID       - Store ID enum type identifying which storage an entity resides
 //              in. Same constraints as EID.
-//  UseGen    - When true, handles carry a generation counter that detects ID
-//              reuse. When false, handles are equivalent to bare IDs but still
-//              trigger validity checks.
-//  Allocator - Allocator for the metadata type. Rebound internally for
+//  GEN       - When versioned (default), handles carry a generation counter
+//              that detects ID reuse. When unversioned, handles are equivalent
+//              to bare IDs but still trigger validity checks.
+//  A         - Allocator for the metadata type. Rebound internally for
 //              record storage.
 template<typename T = void,
     sequence::SequentialEnum EID = id_enums::entity_id_t,
-    sequence::SequentialEnum SID = id_enums::store_id_t, bool UseGen = true,
-    class Allocator = std::allocator<T>>
+    sequence::SequentialEnum SID = id_enums::store_id_t,
+    generation_scheme GEN = generation_scheme::versioned,
+    class A = std::allocator<T>>
 class entity_registry {
 public:
+  static constexpr bool is_versioned_v = (GEN == generation_scheme::versioned);
   using metadata_t = maybe_void_t<T>;
   using id_t = EID;
   using size_type = std::underlying_type_t<id_t>;
   using store_id_t = SID;
-  using gen_t = maybe_t<size_type, UseGen>;
-  using allocator_type = Allocator;
+  using gen_t = maybe_t<size_type, is_versioned_v>;
+  using allocator_type = A;
 
   static_assert(*id_t::invalid ==
                     std::numeric_limits<std::underlying_type_t<id_t>>::max(),
@@ -110,7 +113,7 @@ public:
 
   // A handle to an entity.
   //
-  // When UseGen is enabled, it captures a generation snapshot that allows
+  // When GEN is enabled, it captures a generation snapshot that allows
   // `is_valid(handle_t)` to detect ID reuse. Otherwise, it becomes equivalent
   // to an `id_t`, except that methods taking a handle do check
   // `is_valid(handle_t)`, whereas methods taking an `id_t` typically do not
@@ -124,13 +127,13 @@ public:
 
     [[nodiscard]] bool operator==(const handle_t& other) const noexcept {
       if (id_ != other.id_) return false;
-      if constexpr (UseGen) return gen_ == other.gen_;
+      if constexpr (is_versioned_v) return gen_ == other.gen_;
       return true;
     }
 
     [[nodiscard]] auto operator<=>(const handle_t& other) const noexcept {
       auto cmp = id_ <=> other.id_;
-      if constexpr (UseGen)
+      if constexpr (is_versioned_v)
         if (cmp == 0) cmp = gen_ <=> other.gen_;
       return cmp;
     }
@@ -146,7 +149,7 @@ public:
     // As a result, you should not be checking for specific generation values,
     // and should probably not call this method at all.
     [[nodiscard]] size_type gen() const
-    requires UseGen
+    requires(is_versioned_v)
     {
       return gen_;
     }
@@ -156,7 +159,7 @@ public:
     [[no_unique_address]] gen_t gen_{*id_t::invalid};
 
     explicit handle_t(id_t id, size_type gen) : id_{id}, gen_{gen} {}
-    friend class entity_registry<T, EID, SID, UseGen, Allocator>;
+    friend class entity_registry<T, EID, SID, GEN, A>;
   };
 
   // Location of an entity within an external storage.
@@ -200,19 +203,20 @@ public:
     [[no_unique_address]] metadata_t metadata{};
   };
 
-  using record_allocator_type = typename std::allocator_traits<
-      Allocator>::template rebind_alloc<record_t>;
+  using record_allocator_type =
+      typename std::allocator_traits<A>::template rebind_alloc<record_t>;
 
 public:
   entity_registry() = default;
   explicit entity_registry(const allocator_type& alloc)
       : records_{record_allocator_type{alloc}} {}
 
-  explicit entity_registry(id_t id_limit, bool prefill = false,
+  explicit entity_registry(id_t id_limit,
+      allocation_policy prefill = allocation_policy::lazy,
       const allocator_type& alloc = allocator_type{})
       : records_{record_allocator_type{alloc}}, id_limit_{id_limit} {
-    if (!prefill || !id_limit_) return;
-    reserve(*id_limit_, true);
+    if (prefill == allocation_policy::lazy || !id_limit_) return;
+    reserve(*id_limit_, allocation_policy::eager);
   }
 
   [[nodiscard]] allocator_type get_allocator() const noexcept {
@@ -289,7 +293,7 @@ public:
   // Get handle for ID. When invalid, returns an invalid handle.
   [[nodiscard]] handle_t get_handle(id_t id) const {
     if (!is_valid(id)) return {};
-    if constexpr (UseGen)
+    if constexpr (is_versioned_v)
       return handle_t{id, records_[id].gen};
     else
       return handle_t{id, 0};
@@ -308,7 +312,8 @@ public:
   // Check whether handle is valid, including generation.
   [[nodiscard]] bool is_valid(handle_t handle) const {
     if (!is_valid(handle.id_)) return false;
-    if constexpr (UseGen) return records_[handle.id_].gen == handle.gen_;
+    if constexpr (is_versioned_v)
+      return records_[handle.id_].gen == handle.gen_;
     return true;
   }
 
@@ -417,11 +422,12 @@ public:
 
   // Clear all records.
   //
-  // WARNING: When `shrink=true`, all generation counters are reset, completely
-  // invalidating generation detection for reused IDs.
-  void clear(bool shrink = false) noexcept {
+  // WARNING: When `policy=release`, all generation counters are reset,
+  // completely invalidating generation detection for reused IDs.
+  void clear(
+      deallocation_policy policy = deallocation_policy::preserve) noexcept {
     living_count_ = 0;
-    if (shrink) {
+    if (policy == deallocation_policy::release) {
       records_.clear();
       records_.shrink_to_fit();
       fifo_head_ = id_t::invalid;
@@ -441,7 +447,7 @@ public:
       auto& rec = records_[id];
       rec.location.store_id = store_id_t::invalid;
       rec.location.ndx = *id_t::invalid;
-      if constexpr (UseGen) ++rec.gen;
+      if constexpr (is_versioned_v) ++rec.gen;
       if (prev != id_t::invalid)
         records_[prev].location.ndx = *id;
       else
@@ -461,9 +467,10 @@ public:
   }
 
   // Reserve space for at least `new_cap` records.
-  void reserve(size_type new_cap, bool prefill = false) {
+  void reserve(size_type new_cap,
+      allocation_policy prefill = allocation_policy::lazy) {
     records_.reserve(new_cap);
-    if (prefill && new_cap > records_.size()) {
+    if (prefill == allocation_policy::eager && new_cap > records_.size()) {
       const auto old_size = records_.size();
       records_.resize(new_cap);
       for (size_type i = old_size; i < new_cap; ++i) append_to_tail(id_t{i});
@@ -619,7 +626,7 @@ private:
   bool do_erase(id_t id) {
     auto& rec = records_[id];
     rec.location.store_id = store_id_t::invalid;
-    if constexpr (UseGen) ++rec.gen;
+    if constexpr (is_versioned_v) ++rec.gen;
     // Note that we do not clear metadata on erase, since we always wipe it on
     // allocation. If there is any security concern, the user should wipe the
     // metadata prior to erasing the record.

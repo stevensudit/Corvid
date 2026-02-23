@@ -1,7 +1,7 @@
 // Corvid: A general-purpose modern C++ library extending std.
 // https://github.com/stevensudit/Corvid
 //
-// Copyright 2022-2025 Steven Sudit
+// Copyright 2022-2026 Steven Sudit
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -87,8 +87,8 @@ public:
   static_assert(sizeof...(Cs) > 0);
 
   // Lightweight, non-owning handle to a single entity's row. When
-  // `MUTABLE=true`, `row_lens` (mutable); `MUTABLE=false`, `row_view`
-  // (read-only).
+  // `ACCESS=access::as_mutable`, `row_lens` (mutable);
+  // `ACCESS=access::as_const`, `row_view` (read-only).
   //
   // Stores a pointer to the owning base and a flat logical index. Component
   // access is dispatched through the CRTP derived class's customization
@@ -98,10 +98,10 @@ public:
   // In terms of usage, this should not be seen as a standalone type, but
   // rather as the reference type yielded by iterators and row accessors. You
   // should not be retaining or copying these around.
-  template<bool MUTABLE = true>
+  template<access ACCESS = access::as_mutable>
   class row_wrapper {
   public:
-    static constexpr bool mutable_v = MUTABLE;
+    static constexpr bool mutable_v = (ACCESS == access::as_mutable);
     using base_owner_t = std::conditional_t<mutable_v, archetype_storage_base,
         const archetype_storage_base>;
     using derived_owner_t =
@@ -154,18 +154,18 @@ public:
   };
 
   // Read-only row view.
-  using row_view = row_wrapper<false>;
+  using row_view = row_wrapper<access::as_const>;
 
   // Mutable row lens.
-  using row_lens = row_wrapper<true>;
+  using row_lens = row_wrapper<access::as_mutable>;
 
   // Bidirectional iterator. Dereferencing yields a `row_lens` or `row_view`,
   // depending on constness. Invalidated by any structural mutation
   // (add/remove/erase).
-  template<bool MUTABLE = true>
+  template<access ACCESS = access::as_mutable>
   class row_iterator {
   public:
-    static constexpr bool mutable_v = MUTABLE;
+    static constexpr bool mutable_v = (ACCESS == access::as_mutable);
     using iterator_category = std::bidirectional_iterator_tag;
     using iterator_concept = std::bidirectional_iterator_tag;
     using value_type = std::conditional_t<mutable_v, row_lens, row_view>;
@@ -222,8 +222,8 @@ public:
     friend class archetype_storage_base;
   };
 
-  using iterator = row_iterator<true>;
-  using const_iterator = row_iterator<false>;
+  using iterator = row_iterator<access::as_mutable>;
+  using const_iterator = row_iterator<access::as_const>;
 
   // Atomically create an entity in the registry and insert it into this
   // storage. Returns the new entity's handle on success, or an invalid handle
@@ -255,6 +255,10 @@ public:
     // components.
     [&]<size_t... Is>(std::index_sequence<Is...>) {
       auto fwd = std::forward_as_tuple(std::forward<Args>(args)...);
+      // do_arg binds fwd by forwarding reference without consuming it; the
+      // tuple holds references, so repeated std::move is safe (false
+      // positive).
+      // NOLINTNEXTLINE(bugprone-use-after-move)
       derived().do_add_components(do_arg<Is>(std::move(fwd))...);
     }(std::make_index_sequence<sizeof...(Cs)>{});
     ids_.push_back(id);
@@ -380,12 +384,18 @@ public:
     return const_iterator{*this, size()};
   }
 
+  // Public deleted constructors and assignment operators.
+  archetype_storage_base(const archetype_storage_base&) = delete;
+  archetype_storage_base(archetype_storage_base&&) noexcept = default;
+  archetype_storage_base& operator=(const archetype_storage_base&) = delete;
+
 protected:
   using storage_base_t::registry_;
   using storage_base_t::store_id_;
   using storage_base_t::limit_;
   using storage_base_t::ids_;
   using storage_base_t::derived;
+
   // Constructors are protected; only derived classes may construct.
 
   archetype_storage_base() = default;
@@ -394,12 +404,6 @@ protected:
       size_type limit)
       : storage_base_t{registry, store_id, limit} {}
 
-  archetype_storage_base(const archetype_storage_base&) = delete;
-  archetype_storage_base(archetype_storage_base&&) noexcept = default;
-
-  ~archetype_storage_base() = default;
-
-  archetype_storage_base& operator=(const archetype_storage_base&) = delete;
   archetype_storage_base& operator=(
       archetype_storage_base&&) noexcept = default;
 
