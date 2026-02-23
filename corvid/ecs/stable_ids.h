@@ -68,8 +68,8 @@ namespace corvid { inline namespace ecs { inline namespace stable_id_vector {
 //
 // Insertion may throw `std::out_of_range` if the maximum ID value is
 // exceeded. Alternately, you can disable throwing by calling
-// `throw_on_insert_failure(false)`, in which case `id_t::invalid` is
-// returned.
+// `throw_on_insert_failure(on_failure::ignore)`, in which case `id_t::invalid`
+// is returned.
 //
 // Exception safety note: In FIFO mode, `alloc_id` modifies the free list
 // before returning. If the subsequent `data_.push_back` throws (e.g., due to

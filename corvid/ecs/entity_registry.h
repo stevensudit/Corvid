@@ -38,9 +38,10 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 // ECS system and tracks their location and metadata. Entities of different
 // types would be stored in instances specialized on different ID types.
 //
-// IDs will be reused after being freed, but unless `GEN` is set to false,
-// record handles have generation counters to detect this. Reuse is done in
-// FIFO order to maximize the time before an ID is recycled.
+// IDs will be reused after being freed, but unless `GEN` is set to
+// `generation_scheme::versioned`, record handles have generation counters to
+// detect this. Reuse is done in FIFO order to maximize the time before an ID
+// is recycled.
 //
 // Entity records are not guaranteed to remain at fixed memory locations unless
 // you set a limit and reserve space for that many entities up front. In this
