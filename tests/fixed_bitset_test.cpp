@@ -902,6 +902,14 @@ void FixedBitset_SizeEmpty() {
     EXPECT_FALSE(b.empty());
   }
 
+  // Callable on const references (requires const qualifier on these methods).
+  if (true) {
+    const fixed_bitset<64> b;
+    EXPECT_EQ(b.size(), 64U);
+    EXPECT_EQ(b.max_size(), 64U);
+    EXPECT_FALSE(b.empty());
+  }
+
   // Usable in constant expressions.
   if (true) {
     static_assert(fixed_bitset<64>{}.size() == 64);
