@@ -14,3 +14,5 @@
 **Generation counters**: Entity handles carry an optional generation counter to detect ID reuse. Even with `generation_scheme::unversioned`, handles still provide more safety than raw IDs.
 
 **`stable_ids.h` is legacy** — a standalone indexed vector predating the full ECS hierarchy. It is largely obsoleted by `entity_registry` and `component_storage` and is not part of the registry/storage/scene design. Prefer the full ECS stack for new code.
+
+**Roadmap**: `corvid/ecs/roadmap.md` documents missing features (query/view system, change detection, sparse storage, etc.) and prioritized next steps for building out the ECS further.

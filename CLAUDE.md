@@ -29,7 +29,7 @@ CMakeLists.txt lives in `tests/` only — there is none at the project root. Bui
 
 ## Testing
 
-Framework: custom minitest (`tests/minitest.h`).
+Framework: custom minitest (`tests/minitest.h`). All classes have test coverage in `tests/` — tests may be per-class, grouped by related classes, or cover an entire subfolder (e.g., all ECS headers tested together). Check `tests/` before asking about coverage.
 
 ## TODO File
 
