@@ -204,6 +204,118 @@ void FixedBitset_CopyMove() {
   }
 }
 
+// word_t is automatically selected as the largest power-of-2 unsigned type
+// whose width evenly divides N_BITS. bits_per_word_v reflects the word size.
+void FixedBitset_WordType() {
+  // Type selection: compile-time verification.
+  if (true) {
+    static_assert(std::is_same_v<fixed_bitset<64>::word_t, uint64_t>);
+    static_assert(std::is_same_v<fixed_bitset<128>::word_t, uint64_t>);
+    static_assert(std::is_same_v<fixed_bitset<32>::word_t, uint32_t>);
+    static_assert(std::is_same_v<fixed_bitset<96>::word_t, uint32_t>);
+    static_assert(std::is_same_v<fixed_bitset<16>::word_t, uint16_t>);
+    static_assert(std::is_same_v<fixed_bitset<48>::word_t, uint16_t>);
+    static_assert(std::is_same_v<fixed_bitset<8>::word_t, uint8_t>);
+    static_assert(std::is_same_v<fixed_bitset<24>::word_t, uint8_t>);
+
+    // bits_per_word_v matches the chosen type.
+    static_assert(fixed_bitset<64>::bits_per_word_v == 64);
+    static_assert(fixed_bitset<32>::bits_per_word_v == 32);
+    static_assert(fixed_bitset<16>::bits_per_word_v == 16);
+    static_assert(fixed_bitset<8>::bits_per_word_v == 8);
+
+    // word_count_v: the canonical 24-bit / 3-word cases.
+    static_assert(fixed_bitset<24>::bit_count_v == 24);
+    static_assert(fixed_bitset<24>::bits_per_word_v == 8);
+    static_assert(fixed_bitset<48>::bits_per_word_v == 16);
+    static_assert(fixed_bitset<96>::bits_per_word_v == 32);
+  }
+
+  // Runtime: fixed_bitset<8> — single uint8_t word.
+  if (true) {
+    fixed_bitset<8> b;
+    EXPECT_TRUE(b.none());
+    b.set(0);
+    b.set(7);
+    EXPECT_TRUE(b.test(0));
+    EXPECT_TRUE(b.test(7));
+    EXPECT_FALSE(b.test(1));
+    EXPECT_EQ(b.popcount(), 2U);
+
+    std::vector<std::size_t> bits;
+    for (auto idx : b) bits.push_back(idx);
+    EXPECT_EQ(bits.size(), 2U);
+    EXPECT_EQ(bits[0], 0U);
+    EXPECT_EQ(bits[1], 7U);
+
+    // all() requires all 8 bits set.
+    for (std::size_t i = 0; i < 8; ++i) b.set(i);
+    EXPECT_TRUE(b.all());
+    b.clear(3);
+    EXPECT_FALSE(b.all());
+  }
+
+  // Runtime: fixed_bitset<24> — three uint8_t words.
+  if (true) {
+    fixed_bitset<24> b;
+
+    // Set one bit per word.
+    b.set(0);  // word 0, bit 0
+    b.set(9);  // word 1, bit 1
+    b.set(23); // word 2, bit 7
+    EXPECT_EQ(b.popcount(), 3U);
+
+    std::vector<std::size_t> bits;
+    for (auto idx : b) bits.push_back(idx);
+    EXPECT_EQ(bits.size(), 3U);
+    EXPECT_EQ(bits[0], 0U);
+    EXPECT_EQ(bits[1], 9U);
+    EXPECT_EQ(bits[2], 23U);
+
+    // Complement flips all 24 bits.
+    auto c = ~b;
+    EXPECT_EQ(c.popcount(), 21U);
+    EXPECT_FALSE(c.test(0));
+    EXPECT_FALSE(c.test(9));
+    EXPECT_FALSE(c.test(23));
+    EXPECT_TRUE(c.test(1));
+    EXPECT_TRUE(c.test(8));
+
+    // AND across all three words.
+    fixed_bitset<24> a;
+    a.set(0);
+    a.set(8);
+    a.set(16);
+    auto d = a & b;
+    EXPECT_TRUE(d.test(0));   // in both
+    EXPECT_FALSE(d.test(8));  // only in a
+    EXPECT_FALSE(d.test(9));  // only in b
+    EXPECT_FALSE(d.test(16)); // only in a
+
+    // OR across all three words.
+    auto e = a | b;
+    EXPECT_TRUE(e.test(0));
+    EXPECT_TRUE(e.test(8));
+    EXPECT_TRUE(e.test(9));
+    EXPECT_TRUE(e.test(16));
+    EXPECT_TRUE(e.test(23));
+  }
+
+  // Runtime: fixed_bitset<32> — single uint32_t word.
+  if (true) {
+    fixed_bitset<32> b;
+    b.set(0);
+    b.set(31);
+    EXPECT_TRUE(b.test(0));
+    EXPECT_TRUE(b.test(31));
+    EXPECT_FALSE(b.test(16));
+    EXPECT_EQ(b.popcount(), 2U);
+
+    for (std::size_t i = 0; i < 32; ++i) b.set(i);
+    EXPECT_TRUE(b.all());
+  }
+}
+
 void FixedBitset_BitwiseAnd() {
   if (true) {
     fixed_bitset<64> a, b;
@@ -1127,12 +1239,12 @@ void FixedBitset_Constexpr() {
 
 MAKE_TEST_LIST(FixedBitset_Empty, FixedBitset_SetClearTest,
     FixedBitset_Subscript, FixedBitset_Popcount, FixedBitset_Reset,
-    FixedBitset_Equality, FixedBitset_CopyMove, FixedBitset_BitwiseAnd,
-    FixedBitset_BitwiseOr, FixedBitset_BitwiseXor, FixedBitset_Complement,
-    FixedBitset_CountBits, FixedBitset_HasSingleBit, FixedBitset_Iteration,
-    FixedBitset_MultiWord, FixedBitset_PosParam, FixedBitset_SizeEmpty,
-    FixedBitset_At, FixedBitset_Ordering, FixedBitset_Tag,
-    FixedBitset_Constexpr);
+    FixedBitset_Equality, FixedBitset_CopyMove, FixedBitset_WordType,
+    FixedBitset_BitwiseAnd, FixedBitset_BitwiseOr, FixedBitset_BitwiseXor,
+    FixedBitset_Complement, FixedBitset_CountBits, FixedBitset_HasSingleBit,
+    FixedBitset_Iteration, FixedBitset_MultiWord, FixedBitset_PosParam,
+    FixedBitset_SizeEmpty, FixedBitset_At, FixedBitset_Ordering,
+    FixedBitset_Tag, FixedBitset_Constexpr);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

@@ -23,14 +23,27 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 #include <stdexcept>
 
 namespace corvid { inline namespace container {
 inline namespace fixed_bitsets {
 
-// Fixed-size bitset backed by std::array<uint64_t, N_BITS/64>.
+// Fixed-size bitset backed by std::array<word_t, N_BITS/bits_per_word_v>.
 //
-// `N_BITS` must be a positive multiple of 64. The default is 64.
+// `N_BITS` must be a positive multiple of 8. The default is 64.
+//
+// The internal word type is chosen automatically as the largest power-of-2
+// unsigned type whose bit-width evenly divides N_BITS:
+//
+//   N_BITS divisible by 64 → uint64_t
+//   N_BITS divisible by 32 → uint32_t
+//   N_BITS divisible by 16 → uint16_t
+//   otherwise              → uint8_t
+//
+// Examples: fixed_bitset<64>  → array<uint64_t, 1>
+//           fixed_bitset<24>  → array<uint8_t,  3>
+//           fixed_bitset<96>  → array<uint32_t, 3>
 //
 // `POS` is the position type used at the public interface. It defaults to
 // `size_t`, but may be specialised on a scoped enum (e.g. `store_id_t`) to
@@ -43,11 +56,17 @@ template<size_t N_BITS = 64, typename POS = size_t, typename TAG = void>
 class fixed_bitset {
 public:
   static constexpr size_t bit_count_v = N_BITS;
-  static_assert(bit_count_v > 0 && bit_count_v % 64 == 0,
-      "N_BITS must be a positive multiple of 64");
+  static_assert(bit_count_v > 0 && bit_count_v % 8 == 0,
+      "N_BITS must be a positive multiple of 8");
 
   using pos_t = POS;
   using tag_t = TAG;
+
+  // Largest power-of-2 unsigned type whose width evenly divides N_BITS.
+  using word_t = std::conditional_t<(N_BITS % 64 == 0), uint64_t,
+      std::conditional_t<(N_BITS % 32 == 0), uint32_t,
+          std::conditional_t<(N_BITS % 16 == 0), uint16_t, uint8_t>>>;
+  static constexpr size_t bits_per_word_v = sizeof(word_t) * 8;
 
   // Read-only iterator over set bit positions.
   //
@@ -71,7 +90,9 @@ public:
     }
 
     [[nodiscard]] constexpr pos_t operator*() const noexcept {
-      return as_pos((word_ndx_ * 64) + std::countr_zero(current_word_));
+      return as_pos(
+          (word_ndx_ * bits_per_word_v) +
+          static_cast<size_t>(std::countr_zero(current_word_)));
     }
 
     constexpr iterator& operator++() noexcept {
@@ -103,7 +124,7 @@ public:
   private:
     const fixed_bitset* bs_{nullptr};
     size_t word_ndx_{word_count_v}; // `word_count_v` signals "end"
-    uint64_t current_word_{0};
+    word_t current_word_{0};
 
     constexpr void advance_to_next_set_word() noexcept {
       while (word_ndx_ < word_count_v && bs_->words_[word_ndx_] == 0)
@@ -196,7 +217,7 @@ public:
   [[nodiscard]] constexpr fixed_bitset operator~() const noexcept {
     fixed_bitset out;
     for (size_t ndx = 0; ndx < word_count_v; ++ndx)
-      out.words_[ndx] = ~words_[ndx];
+      out.words_[ndx] = static_cast<word_t>(~words_[ndx]);
     return out;
   }
 
@@ -218,7 +239,7 @@ public:
 
   [[nodiscard]] constexpr bool all() const noexcept {
     for (auto w : words_)
-      if (w != ~uint64_t{0}) return false;
+      if (w != all_ones_v) return false;
     return true;
   }
 
@@ -226,7 +247,9 @@ public:
     for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
       const auto w = words_[ndx];
       if (w)
-        return as_pos((ndx * 64) + static_cast<size_t>(std::countr_zero(w)));
+        return as_pos(
+            (ndx * bits_per_word_v) +
+            static_cast<size_t>(std::countr_zero(w)));
     }
     return as_pos(bit_count_v);
   }
@@ -234,8 +257,10 @@ public:
   [[nodiscard]] constexpr pos_t countr_one() const noexcept {
     for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
       const auto w = words_[ndx];
-      if (w != ~uint64_t{0})
-        return as_pos((ndx * 64) + static_cast<size_t>(std::countr_zero(~w)));
+      if (w != all_ones_v)
+        return as_pos(
+            (ndx * bits_per_word_v) +
+            static_cast<size_t>(std::countr_zero(static_cast<word_t>(~w))));
     }
     return as_pos(bit_count_v);
   }
@@ -245,7 +270,7 @@ public:
       const auto w = words_[ndx - 1];
       if (w)
         return as_pos(
-            ((word_count_v - ndx) * 64) +
+            ((word_count_v - ndx) * bits_per_word_v) +
             static_cast<size_t>(std::countl_zero(w)));
     }
     return as_pos(bit_count_v);
@@ -254,10 +279,10 @@ public:
   [[nodiscard]] constexpr pos_t countl_one() const noexcept {
     for (size_t ndx = word_count_v; ndx > 0; --ndx) {
       const auto w = words_[ndx - 1];
-      if (w != ~uint64_t{0})
+      if (w != all_ones_v)
         return as_pos(
-            ((word_count_v - ndx) * 64) +
-            static_cast<size_t>(std::countl_zero(~w)));
+            ((word_count_v - ndx) * bits_per_word_v) +
+            static_cast<size_t>(std::countl_zero(static_cast<word_t>(~w))));
     }
     return as_pos(bit_count_v);
   }
@@ -281,9 +306,9 @@ public:
   [[nodiscard]] constexpr bool operator==(
       const fixed_bitset&) const noexcept = default;
 
-  // Lexicographic over words_[]: word 0 (bits 0-63) dominates word 1
-  // (bits 64-127), etc. Within a word, a higher-index bit produces a larger
-  // uint64_t value and therefore a greater bitset.
+  // Lexicographic over words_[]: word 0 dominates word 1, etc. Within a
+  // word, a higher-index bit produces a larger word value and therefore a
+  // greater bitset.
   [[nodiscard]] constexpr auto operator<=>(
       const fixed_bitset&) const noexcept = default;
 
@@ -301,12 +326,19 @@ public:
   }
 
 private:
-  static constexpr size_t word_count_v = bit_count_v / 64;
-  std::array<uint64_t, word_count_v> words_{};
+  static constexpr size_t word_count_v = bit_count_v / bits_per_word_v;
+  std::array<word_t, word_count_v> words_{};
 
-  static constexpr size_t word_of(size_t pos) noexcept { return pos / 64; }
-  static constexpr uint64_t mask_of(size_t pos) noexcept {
-    return uint64_t{1} << (pos % 64);
+  // All-ones sentinel. Uses numeric_limits rather than ~word_t{0} to avoid
+  // integer-promotion bugs when word_t is narrower than int: ~uint8_t{0}
+  // promotes to int{-1}, which does not compare equal to uint8_t{0xFF}.
+  static constexpr word_t all_ones_v = std::numeric_limits<word_t>::max();
+
+  static constexpr size_t word_of(size_t pos) noexcept {
+    return pos / bits_per_word_v;
+  }
+  static constexpr word_t mask_of(size_t pos) noexcept {
+    return static_cast<word_t>(word_t{1} << (pos % bits_per_word_v));
   }
 
   static constexpr size_t as_sz(pos_t pos) noexcept {
