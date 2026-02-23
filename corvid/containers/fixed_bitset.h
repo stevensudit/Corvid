@@ -141,9 +141,13 @@ public:
     return test(pos);
   }
 
-  [[nodiscard]] constexpr bool empty() const noexcept { return bit_count_v == 0; }
+  [[nodiscard]] constexpr bool empty() const noexcept {
+    return bit_count_v == 0;
+  }
   [[nodiscard]] constexpr size_t size() const noexcept { return bit_count_v; }
-  [[nodiscard]] constexpr size_t max_size() const noexcept { return bit_count_v; }
+  [[nodiscard]] constexpr size_t max_size() const noexcept {
+    return bit_count_v;
+  }
 
   [[nodiscard]] constexpr bool at(pos_t pos) const {
     const auto ndx = as_sz(pos);
