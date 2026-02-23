@@ -39,7 +39,7 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 // types would be stored in instances specialized on different ID types.
 //
 // IDs will be reused after being freed, but unless `GEN` is set to
-// `generation_scheme::versioned`, record handles have generation counters to
+// `generation_scheme::unversioned`, record handles have generation counters to
 // detect this. Reuse is done in FIFO order to maximize the time before an ID
 // is recycled.
 //
@@ -56,9 +56,9 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 //
 // Operations that take an ID expect it to be valid and generally will not
 // check. Even if they do, they can't detect reuse. In contrast, operations
-// that take a handle will check. This means that, even when `GEN` is false,
-// you can still get some additional safety by using handles instead of raw
-// IDs.
+// that take a handle will check. This means that, even when `GEN` is
+// `generation_scheme::unversioned`, you can still get some additional safety
+// by using handles instead of raw IDs.
 //
 // Template parameters:
 //  T         - Per-entity metadata type stored alongside location and

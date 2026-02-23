@@ -255,7 +255,10 @@ public:
     // components.
     [&]<size_t... Is>(std::index_sequence<Is...>) {
       auto fwd = std::forward_as_tuple(std::forward<Args>(args)...);
-      derived().do_add_components(do_arg<Is>(fwd)...);
+      // do_arg binds fwd by forwarding reference without consuming it; the
+      // tuple holds references, so repeated std::move is safe (false
+      // positive). NOLINTNEXTLINE(bugprone-use-after-move)
+      derived().do_add_components(do_arg<Is>(std::move(fwd))...);
     }(std::make_index_sequence<sizeof...(Cs)>{});
     ids_.push_back(id);
     registry_->set_location(id, {store_id_, ndx});
