@@ -19,6 +19,7 @@
 
 #include <array>
 #include <bit>
+#include <cassert>
 #include <compare>
 #include <cstddef>
 #include <cstdint>
@@ -29,7 +30,7 @@
 namespace corvid { inline namespace container {
 inline namespace fixed_bitsets {
 
-// Fixed-size bitset backed by std::array<word_t, word_count_v>.
+// Fixed-size bitset backed by `std::array<word_t, word_count_v>`.
 //
 // This is a maximalist version of `std::bitset`.
 //
@@ -63,12 +64,19 @@ inline namespace fixed_bitsets {
 // `TAG` is an optional tag type for disambiguating multiple
 // structurally-identical `fixed_bitset` types. It has no effect on the
 // implementation, except to provide type safety and prevent mixing.
+//
+// So long as `FORCED_WORD=0`, `sizeof(fixed_bitset<...>)` is `N_BITS / 8`,
+// meaning that there is no overhead.
 template<size_t N_BITS = 64, typename POS = size_t, typename TAG = void,
     size_t FORCED_WORD = 0>
 class fixed_bitset {
 public:
   static constexpr size_t bit_count_v = N_BITS;
   static constexpr size_t forced_word_v = FORCED_WORD;
+
+  using pos_t = POS;
+  using tag_t = TAG;
+
   static_assert(bit_count_v > 0 && bit_count_v % 8 == 0,
       "N_BITS must be a positive multiple of 8");
   static_assert(
@@ -76,30 +84,36 @@ public:
           forced_word_v == 32 || forced_word_v == 64,
       "FORCED_WORD must be 0 (auto), 8, 16, 32, or 64");
 
-  using pos_t = POS;
-  using tag_t = TAG;
+private:
+  // Effective word bit-width: `forced_word_v` if nonzero, otherwise the
+  // largest power of 2 that evenly divides `bit_count_v`, from {64, 32, 16,
+  // 8}.
+  static constexpr size_t word_bits_v =
+      forced_word_v != 0      ? forced_word_v
+      : bit_count_v % 64 == 0 ? 64u
+      : bit_count_v % 32 == 0 ? 32u
+      : bit_count_v % 16 == 0
+          ? 16u
+          : 8u;
 
-  // Word type: FORCED_WORD overrides auto-selection (0 = auto). Auto selects
-  // the largest power-of-2 unsigned type whose width evenly divides N_BITS.
-  using word_t = std::conditional_t<(forced_word_v == 64), uint64_t,
-      std::conditional_t<(forced_word_v == 32), uint32_t,
-          std::conditional_t<(forced_word_v == 16), uint16_t,
-              std::conditional_t<(forced_word_v == 8), uint8_t,
-                  std::conditional_t<(bit_count_v % 64 == 0), uint64_t,
-                      std::conditional_t<(bit_count_v % 32 == 0), uint32_t,
-                          std::conditional_t<(bit_count_v % 16 == 0), uint16_t,
-                              uint8_t>>>>>>>;
+public:
+  // Word type: `FORCED_WORD` overrides auto-selection (0 = auto). Auto selects
+  // the largest power-of-2 unsigned type whose width evenly divides
+  // `bit_count_v`.
+  using word_t = std::conditional_t<(word_bits_v == 64), uint64_t,
+      std::conditional_t<(word_bits_v == 32), uint32_t,
+          std::conditional_t<(word_bits_v == 16), uint16_t, uint8_t>>>;
   static constexpr size_t bits_per_word_v = sizeof(word_t) * 8;
 
-  // Number of words needed to hold all N_BITS bits (ceiling division).
+  // Number of words needed to hold all `bit_count_v` bits (ceiling division).
   static constexpr size_t word_count_v =
       (bit_count_v + bits_per_word_v - 1) / bits_per_word_v;
 
-  // Read-only iterator over set bit positions.
+  // Read-only iterator over bit positions that are set.
   //
   // Yields each set bit's position as `pos_t` in ascending order.
-  // Efficient: each advance costs one bit-clear plus (amortized) one
-  // word-skip.
+  // This is efficient, as each advance costs one bit-clear plus (amortized)
+  // one word-skip.
   class iterator {
   public:
     using iterator_category = std::forward_iterator_tag;
@@ -117,12 +131,14 @@ public:
       advance_to_next_set_word();
     }
 
+    // Position of the current set bit as `pos_t`.
     [[nodiscard]] constexpr pos_t operator*() const noexcept {
       return as_pos(
           (word_ndx_ * bits_per_word_v) +
           static_cast<size_t>(std::countr_zero(current_word_)));
     }
 
+    // Advance to the next set bit.
     constexpr iterator& operator++() noexcept {
       // Clear the lowest set bit in the current word.
       current_word_ &= current_word_ - 1;
@@ -133,14 +149,17 @@ public:
       return *this;
     }
 
+    // Post-increment; returns a copy before advancing.
     constexpr iterator operator++(int) noexcept {
       auto tmp = *this;
       ++*this;
       return tmp;
     }
 
+    // Equal when at the same position.
     [[nodiscard]] constexpr bool operator==(
         const iterator& other) const noexcept {
+      assert(bs_ == other.bs_ || bs_ == nullptr || other.bs_ == nullptr);
       return word_ndx_ == other.word_ndx_ &&
              current_word_ == other.current_word_;
     }
@@ -150,6 +169,8 @@ public:
     size_t word_ndx_{word_count_v}; // `word_count_v` signals "end"
     word_t current_word_{0};
 
+    // Scan forward from `word_ndx_` until a non-zero word or all words are
+    // exhausted.
     constexpr void advance_to_next_set_word() noexcept {
       while (word_ndx_ < word_count_v && bs_->words_[word_ndx_] == 0)
         ++word_ndx_;
@@ -165,37 +186,43 @@ public:
     constexpr reference() noexcept = default;
     constexpr reference(const reference&) noexcept = default;
 
+    // Assign by reading rhs as bool; self-assignment is a harmless no-op.
     // NOLINTNEXTLINE(bugprone-unhandled-self-assignment)
     constexpr reference& operator=(const reference& rhs) noexcept {
       return *this = static_cast<bool>(rhs);
     }
 
+    // Set the referenced bit to `value`.
     constexpr reference& operator=(bool value) noexcept {
-      bitset_->set(as_pos(ndx_), value);
+      bitset_->set_unchecked(ndx_, value);
       return *this;
     }
 
+    // Read the referenced bit.
     [[nodiscard]] constexpr operator bool() const noexcept {
-      return bitset_->test(as_pos(ndx_));
+      return bitset_->test_unchecked(ndx_);
     }
 
+    // Complement of the referenced bit; does not modify it.
     [[nodiscard]] constexpr bool operator~() const noexcept {
       return !static_cast<bool>(*this);
     }
 
+    // Flip the referenced bit in-place.
     constexpr reference& flip() noexcept {
-      bitset_->flip(as_pos(ndx_));
+      bitset_->flip_unchecked(ndx_);
       return *this;
     }
 
   private:
-    friend class fixed_bitset;
-
-    constexpr reference(fixed_bitset& bitset, size_t ndx) noexcept
-        : bitset_(&bitset), ndx_(ndx) {}
-
     fixed_bitset* bitset_{nullptr};
     size_t ndx_{0};
+
+    friend class fixed_bitset;
+
+    // Only constructed by `fixed_bitset::operator()`.
+    constexpr reference(fixed_bitset& bitset, size_t ndx) noexcept
+        : bitset_(&bitset), ndx_(ndx) {}
   };
 
   // Construction
@@ -209,113 +236,101 @@ public:
 
   // Access.
 
-  constexpr void set(pos_t pos, bool value = true) noexcept {
-    const auto ndx = as_sz(pos);
-    const auto w = word_of(ndx);
-    const auto m = mask_of(ndx);
-    words_[w] = (words_[w] & ~m) | (static_cast<word_t>(-value) & m);
-  }
-
+  // Set all bits.
   constexpr void set() noexcept {
     words_.fill(all_ones_v);
     if constexpr (top_padding_bits_ != 0)
       words_[word_count_v - 1] &= top_word_mask_;
   }
 
-  constexpr void clear(pos_t pos) noexcept {
-    words_[word_of(as_sz(pos))] &= ~mask_of(as_sz(pos));
+  // Set or clear bit at `pos`. Throws `std::out_of_range`. The fastest path is
+  // `operator[]`.
+  constexpr void set(pos_t pos, bool value = true) {
+    set_unchecked(checked_index(pos), value);
   }
 
-  [[nodiscard]] constexpr bool test(pos_t pos) const noexcept {
-    return (words_[word_of(as_sz(pos))] & mask_of(as_sz(pos))) != 0;
+  // Clear bit at `pos`. Throws `std::out_of_range`. The fastest path is
+  // `operator[]`.
+  constexpr void clear(pos_t pos) { set_unchecked(checked_index(pos), false); }
+
+  // True if bit at `pos` is set. Throws `std::out_of_range`. The fastest path
+  // is `operator[]`.
+  [[nodiscard]] constexpr bool test(pos_t pos) const {
+    return test_unchecked(checked_index(pos));
   }
 
+  // Read-only bit access. Does not throw. Fastest path.
   [[nodiscard]] constexpr bool operator[](pos_t pos) const noexcept {
-    return test(pos);
+    return test_unchecked(as_sz(pos));
   }
 
-  [[nodiscard]] constexpr auto
-  operator()(this auto& self, pos_t pos) noexcept {
-    using self_t = std::remove_reference_t<decltype(self)>;
-    if constexpr (std::is_const_v<self_t>) {
-      static_assert(!std::is_const_v<self_t>,
-          "fixed_bitset::operator() does not support const `this`; use "
-          "operator[] for const access");
-    } else {
-      return reference{self, as_sz(pos)};
-    }
+  // Mutable proxy access via subscript. Does not throw. Fastest path, even for
+  // reads.
+  [[nodiscard]] constexpr reference operator[](pos_t pos) noexcept {
+    return reference{*this, as_sz(pos)};
   }
 
   // Direct access to the underlying word array. The array contains
-  // `word_count_v` elements of type `word_t`. When FORCED_WORD introduces
+  // `word_count_v` elements of type `word_t`. When `FORCED_WORD` introduces
   // padding, the high bits of the last word are always kept zero.
-  [[nodiscard]] constexpr word_t* data() noexcept { return words_.data(); }
-  [[nodiscard]] constexpr const word_t* data() const noexcept {
-    return words_.data();
+  [[nodiscard]] constexpr decltype(auto) data(this auto& self) noexcept {
+    return self.words_.data();
   }
 
-  [[nodiscard]] constexpr bool empty() const noexcept {
-    return bit_count_v == 0;
-  }
+  // Number of bit positions (N_BITS).
   [[nodiscard]] constexpr size_t size() const noexcept { return bit_count_v; }
-  [[nodiscard]] constexpr size_t max_size() const noexcept {
-    return bit_count_v;
-  }
-
-  [[nodiscard]] constexpr bool at(pos_t pos) const {
-    const auto ndx = as_sz(pos);
-    if (ndx >= bit_count_v) throw std::out_of_range{"fixed_bitset::at"};
-    return (words_[word_of(ndx)] & mask_of(ndx)) != 0;
-  }
-
-  constexpr fixed_bitset& reset(pos_t pos) noexcept {
-    words_[word_of(as_sz(pos))] &= ~mask_of(as_sz(pos));
-    return *this;
-  }
 
   // Clear all bits.
   constexpr void reset() noexcept { words_.fill(0); }
 
+  // Clear bit at `pos`. Throws `std::out_of_range`. The fastest path is
+  // `operator[]`.
+  constexpr fixed_bitset& reset(pos_t pos) {
+    return set_unchecked(checked_index(pos), false);
+  }
+
   // Bitwise operators
 
+  // AND each word with rhs in place.
   constexpr fixed_bitset& operator&=(const fixed_bitset& rhs) noexcept {
     for (size_t ndx = 0; ndx < word_count_v; ++ndx)
       words_[ndx] &= rhs.words_[ndx];
     return *this;
   }
 
+  // OR each word with rhs in place.
   constexpr fixed_bitset& operator|=(const fixed_bitset& rhs) noexcept {
     for (size_t ndx = 0; ndx < word_count_v; ++ndx)
       words_[ndx] |= rhs.words_[ndx];
     return *this;
   }
 
+  // XOR each word with rhs in place.
   constexpr fixed_bitset& operator^=(const fixed_bitset& rhs) noexcept {
     for (size_t ndx = 0; ndx < word_count_v; ++ndx)
       words_[ndx] ^= rhs.words_[ndx];
     return *this;
   }
 
+  // Bitwise AND.
   [[nodiscard]] friend constexpr fixed_bitset
   operator&(fixed_bitset lhs, const fixed_bitset& rhs) noexcept {
     return lhs &= rhs;
   }
 
+  // Bitwise OR.
   [[nodiscard]] friend constexpr fixed_bitset
   operator|(fixed_bitset lhs, const fixed_bitset& rhs) noexcept {
     return lhs |= rhs;
   }
 
+  // Bitwise XOR.
   [[nodiscard]] friend constexpr fixed_bitset
   operator^(fixed_bitset lhs, const fixed_bitset& rhs) noexcept {
     return lhs ^= rhs;
   }
 
-  constexpr fixed_bitset& flip(pos_t pos) noexcept {
-    words_[word_of(as_sz(pos))] ^= mask_of(as_sz(pos));
-    return *this;
-  }
-
+  // Flip all bits.
   constexpr fixed_bitset& flip() noexcept {
     for (size_t ndx = 0; ndx < word_count_v; ++ndx) words_[ndx] ^= all_ones_v;
     if constexpr (top_padding_bits_ != 0)
@@ -323,12 +338,20 @@ public:
     return *this;
   }
 
+  // Flip bit at pos. Throws `std::out_of_range`. The fastest path is
+  // `operator[]`.
+  constexpr fixed_bitset& flip(pos_t pos) {
+    return flip_unchecked(checked_index(pos));
+  }
+
+  // Return a new bitset with all bits complemented.
   [[nodiscard]] constexpr fixed_bitset operator~() const noexcept {
     fixed_bitset out{*this};
     out.flip();
     return out;
   }
 
+  // Shift bits toward higher indices; vacated low bits become zero.
   constexpr fixed_bitset& operator<<=(size_t shift) noexcept {
     if (shift == 0) return *this;
     if (shift >= bit_count_v) {
@@ -357,6 +380,7 @@ public:
     return *this;
   }
 
+  // Shift bits toward lower indices; vacated high bits become zero.
   constexpr fixed_bitset& operator>>=(size_t shift) noexcept {
     if (shift == 0) return *this;
     if (shift >= bit_count_v) {
@@ -385,16 +409,19 @@ public:
     return *this;
   }
 
+  // Left shift.
   [[nodiscard]] friend constexpr fixed_bitset
   operator<<(fixed_bitset lhs, size_t shift) noexcept {
     return lhs <<= shift;
   }
 
+  // Right shift.
   [[nodiscard]] friend constexpr fixed_bitset
   operator>>(fixed_bitset lhs, size_t shift) noexcept {
     return lhs >>= shift;
   }
 
+  // Rotate bits left by shift positions.
   constexpr fixed_bitset& rotl(size_t shift) noexcept {
     shift %= bit_count_v;
     if (shift == 0) return *this;
@@ -434,6 +461,7 @@ public:
     return *this;
   }
 
+  // Rotate bits right by shift positions.
   constexpr fixed_bitset& rotr(size_t shift) noexcept {
     shift %= bit_count_v;
     if (shift == 0) return *this;
@@ -471,37 +499,45 @@ public:
     return *this;
   }
 
+  // Non-member left rotation.
   [[nodiscard]] friend constexpr fixed_bitset
   rotl(fixed_bitset lhs, size_t shift) noexcept {
     return lhs.rotl(shift);
   }
 
+  // Non-member right rotation.
   [[nodiscard]] friend constexpr fixed_bitset
   rotr(fixed_bitset lhs, size_t shift) noexcept {
     return lhs.rotr(shift);
   }
 
   // Queries.
+
+  // Number of set bits.
   [[nodiscard]] constexpr size_t count() const noexcept {
     size_t cnt = 0;
     for (auto w : words_) cnt += static_cast<size_t>(std::popcount(w));
     return cnt;
   }
 
+  // True if no bits are set.
   [[nodiscard]] constexpr bool none() const noexcept {
     for (auto w : words_)
       if (w) return false;
     return true;
   }
 
+  // True if at least one bit is set.
   [[nodiscard]] constexpr bool any() const noexcept { return !none(); }
 
+  // True if all bits are set.
   [[nodiscard]] constexpr bool all() const noexcept {
     for (size_t ndx = 0; ndx + 1 < word_count_v; ++ndx)
       if (words_[ndx] != all_ones_v) return false;
     return words_[word_count_v - 1] == top_word_mask_;
   }
 
+  // Number of consecutive zero bits starting at bit 0.
   [[nodiscard]] constexpr pos_t countr_zero() const noexcept {
     for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
       const auto w = words_[ndx];
@@ -513,6 +549,7 @@ public:
     return as_pos(bit_count_v);
   }
 
+  // Number of consecutive one bits starting at bit 0.
   [[nodiscard]] constexpr pos_t countr_one() const noexcept {
     for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
       const auto w = words_[ndx];
@@ -524,6 +561,7 @@ public:
     return as_pos(bit_count_v);
   }
 
+  // Number of consecutive zero bits from the most significant bit downward.
   [[nodiscard]] constexpr pos_t countl_zero() const noexcept {
     // Shift the top word left by top_padding_bits_ to discard padding before
     // counting. When top_padding_bits_ == 0 the shift is a no-op.
@@ -540,6 +578,7 @@ public:
     return as_pos(bit_count_v);
   }
 
+  // Number of consecutive one bits from the most significant bit downward.
   [[nodiscard]] constexpr pos_t countl_one() const noexcept {
     // Compare the top word against top_word_mask_ (not all_ones_v) so that
     // padding bits do not affect the result.
@@ -559,6 +598,7 @@ public:
     return as_pos(bit_count_v);
   }
 
+  // True if exactly one bit is set.
   [[nodiscard]] constexpr bool has_single_bit() const noexcept {
     bool seen_one{};
     for (auto w : words_) {
@@ -569,12 +609,14 @@ public:
     return seen_one;
   }
 
+  // Position of the highest set bit plus one; zero if all bits are clear.
   [[nodiscard]] constexpr pos_t bit_width() const noexcept {
     return as_pos(bit_count_v - as_sz(countl_zero()));
   }
 
   // Equality.
 
+  // Equality comparison.
   [[nodiscard]] constexpr bool operator==(
       const fixed_bitset&) const noexcept = default;
 
@@ -586,17 +628,22 @@ public:
 
   // Iteration over set bit indices.
 
+  // Iterator to the first set bit, or end() if none are set.
   [[nodiscard]] constexpr iterator begin() const noexcept {
     return iterator{*this};
   }
+  // Past-the-end sentinel.
   [[nodiscard]] constexpr iterator end() const noexcept { return iterator{}; }
+  // Synonym for begin().
   [[nodiscard]] constexpr const_iterator cbegin() const noexcept {
     return begin();
   }
+  // Synonym for end().
   [[nodiscard]] constexpr const_iterator cend() const noexcept {
     return end();
   }
 
+  // Underlying word array, by reference.
   [[nodiscard]] constexpr decltype(auto) array(this auto& self) noexcept {
     return (self.words_);
   }
@@ -624,18 +671,54 @@ private:
   // promotes to int{-1}, which does not compare equal to uint8_t{0xFF}.
   static constexpr word_t all_ones_v = std::numeric_limits<word_t>::max();
 
+  // Word index for the bit at pos.
   static constexpr size_t word_of(size_t pos) noexcept {
     return pos / bits_per_word_v;
   }
+  // Single-bit mask for pos within its word.
   static constexpr word_t mask_of(size_t pos) noexcept {
     return static_cast<word_t>(word_t{1} << (pos % bits_per_word_v));
   }
 
+  // Cast `pos_t` to `size_t` for indexing.
   static constexpr size_t as_sz(pos_t pos) noexcept {
+    assert(static_cast<size_t>(pos) < bit_count_v);
     return static_cast<size_t>(pos);
   }
+  // Cast `size_t` back to `pos_t`.
   static constexpr pos_t as_pos(size_t n) noexcept {
+    assert(n <= bit_count_v);
     return static_cast<pos_t>(n);
+  }
+
+  // Test the bit at pre-validated index ndx (no bounds check).
+  [[nodiscard]] constexpr bool test_unchecked(size_t ndx) const noexcept {
+    assert(ndx < bit_count_v);
+    return (words_[word_of(ndx)] & mask_of(ndx)) != 0;
+  }
+
+  // Set or clear the bit at pre-validated index ndx (no bounds check).
+  constexpr fixed_bitset& set_unchecked(size_t ndx, bool value) noexcept {
+    assert(ndx < bit_count_v);
+    const auto w = word_of(ndx);
+    const auto m = mask_of(ndx);
+    words_[w] = (words_[w] & ~m) | (static_cast<word_t>(-value) & m);
+    return *this;
+  }
+
+  // Flip the bit at pre-validated index ndx (no bounds check).
+  constexpr fixed_bitset& flip_unchecked(size_t ndx) noexcept {
+    assert(ndx < bit_count_v);
+    words_[word_of(ndx)] ^= mask_of(ndx);
+    return *this;
+  }
+
+  // Return bit index as size_t; throw if out of range.
+  static constexpr size_t checked_index(pos_t pos) {
+    const auto ndx = as_sz(pos);
+    if (ndx >= bit_count_v) [[unlikely]]
+      throw std::out_of_range{"fixed_bitset: pos out of range"};
+    return ndx;
   }
 };
 
