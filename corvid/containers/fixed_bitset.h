@@ -29,49 +29,77 @@
 namespace corvid { inline namespace container {
 inline namespace fixed_bitsets {
 
-// Fixed-size bitset backed by std::array<word_t, N_BITS/bits_per_word_v>.
+// Fixed-size bitset backed by std::array<word_t, word_count_v>.
+//
+// This is a maximalist version of `std::bitset`.
 //
 // `N_BITS` must be a positive multiple of 8. The default is 64.
 //
-// The internal word type is chosen automatically as the largest power-of-2
-// unsigned type whose bit-width evenly divides N_BITS:
+// The internal word type is selected automatically as the largest power-of-2
+// unsigned type whose bit-width evenly divides N_BITS, unless overridden by
+// `FORCED_WORD`:
 //
-//   N_BITS divisible by 64 → uint64_t
-//   N_BITS divisible by 32 → uint32_t
-//   N_BITS divisible by 16 → uint16_t
-//   otherwise              → uint8_t
+//   N_BITS divisible by 64 -> uint64_t  (FORCED_WORD == 0)
+//   N_BITS divisible by 32 -> uint32_t  (FORCED_WORD == 0)
+//   N_BITS divisible by 16 -> uint16_t  (FORCED_WORD == 0)
+//   otherwise              -> uint8_t   (FORCED_WORD == 0)
 //
-// Examples: fixed_bitset<64>  → array<uint64_t, 1>
-//           fixed_bitset<24>  → array<uint8_t,  3>
-//           fixed_bitset<96>  → array<uint32_t, 3>
+// `FORCED_WORD` (8, 16, 32, or 64) overrides the auto-selected word size.
+// When the word is larger than N_BITS (e.g. N_BITS=8 with FORCED_WORD=64),
+// the high bits of the single word are padding and are always kept zero.
+// When the word is smaller than the auto choice (e.g. N_BITS=64 with
+// FORCED_WORD=8), more words are used at the cost of loop overhead.
+//
+// Examples: fixed_bitset<64>                 -> array<uint64_t, 1>
+//           fixed_bitset<24>                 -> array<uint8_t,  3>
+//           fixed_bitset<96>                 -> array<uint32_t, 3>
+//           fixed_bitset<64, size_t, void, 8>  -> array<uint8_t,  8>
+//           fixed_bitset<8,  size_t, void, 64> -> array<uint64_t, 1> (56 pad)
 //
 // `POS` is the position type used at the public interface. It defaults to
-// `size_t`, but may be specialised on a scoped enum (e.g. `store_id_t`) to
+// `size_t`, but may be specialized on a scoped enum (e.g. `store_id_t`) to
 // prevent accidental mixing of unrelated index spaces.
 //
 // `TAG` is an optional tag type for disambiguating multiple
 // structurally-identical `fixed_bitset` types. It has no effect on the
 // implementation, except to provide type safety and prevent mixing.
-template<size_t N_BITS = 64, typename POS = size_t, typename TAG = void>
+template<size_t N_BITS = 64, typename POS = size_t, typename TAG = void,
+    size_t FORCED_WORD = 0>
 class fixed_bitset {
 public:
   static constexpr size_t bit_count_v = N_BITS;
+  static constexpr size_t forced_word_v = FORCED_WORD;
   static_assert(bit_count_v > 0 && bit_count_v % 8 == 0,
       "N_BITS must be a positive multiple of 8");
+  static_assert(
+      forced_word_v == 0 || forced_word_v == 8 || forced_word_v == 16 ||
+          forced_word_v == 32 || forced_word_v == 64,
+      "FORCED_WORD must be 0 (auto), 8, 16, 32, or 64");
 
   using pos_t = POS;
   using tag_t = TAG;
 
-  // Largest power-of-2 unsigned type whose width evenly divides N_BITS.
-  using word_t = std::conditional_t<(N_BITS % 64 == 0), uint64_t,
-      std::conditional_t<(N_BITS % 32 == 0), uint32_t,
-          std::conditional_t<(N_BITS % 16 == 0), uint16_t, uint8_t>>>;
+  // Word type: FORCED_WORD overrides auto-selection (0 = auto). Auto selects
+  // the largest power-of-2 unsigned type whose width evenly divides N_BITS.
+  using word_t = std::conditional_t<(forced_word_v == 64), uint64_t,
+      std::conditional_t<(forced_word_v == 32), uint32_t,
+          std::conditional_t<(forced_word_v == 16), uint16_t,
+              std::conditional_t<(forced_word_v == 8), uint8_t,
+                  std::conditional_t<(bit_count_v % 64 == 0), uint64_t,
+                      std::conditional_t<(bit_count_v % 32 == 0), uint32_t,
+                          std::conditional_t<(bit_count_v % 16 == 0), uint16_t,
+                              uint8_t>>>>>>>;
   static constexpr size_t bits_per_word_v = sizeof(word_t) * 8;
+
+  // Number of words needed to hold all N_BITS bits (ceiling division).
+  static constexpr size_t word_count_v =
+      (bit_count_v + bits_per_word_v - 1) / bits_per_word_v;
 
   // Read-only iterator over set bit positions.
   //
-  // Yields each set bit's position as `pos_t` in ascending order. Efficient:
-  // each advance costs one bit-clear plus (amortized) one word-skip.
+  // Yields each set bit's position as `pos_t` in ascending order.
+  // Efficient: each advance costs one bit-clear plus (amortized) one
+  // word-skip.
   class iterator {
   public:
     using iterator_category = std::forward_iterator_tag;
@@ -113,10 +141,6 @@ public:
 
     [[nodiscard]] constexpr bool operator==(
         const iterator& other) const noexcept {
-      // Both exhausted (`word_ndx_` == `word_count_v`) regardless of `bs_`
-      // pointer.
-      if (word_ndx_ == word_count_v && other.word_ndx_ == word_count_v)
-        return true;
       return word_ndx_ == other.word_ndx_ &&
              current_word_ == other.current_word_;
     }
@@ -135,6 +159,45 @@ public:
 
   using const_iterator = iterator;
 
+  // Akin to `std::bitset<N>::reference`.
+  class reference {
+  public:
+    constexpr reference() noexcept = default;
+    constexpr reference(const reference&) noexcept = default;
+
+    // NOLINTNEXTLINE(bugprone-unhandled-self-assignment)
+    constexpr reference& operator=(const reference& rhs) noexcept {
+      return *this = static_cast<bool>(rhs);
+    }
+
+    constexpr reference& operator=(bool value) noexcept {
+      bitset_->set(as_pos(ndx_), value);
+      return *this;
+    }
+
+    [[nodiscard]] constexpr operator bool() const noexcept {
+      return bitset_->test(as_pos(ndx_));
+    }
+
+    [[nodiscard]] constexpr bool operator~() const noexcept {
+      return !static_cast<bool>(*this);
+    }
+
+    constexpr reference& flip() noexcept {
+      bitset_->flip(as_pos(ndx_));
+      return *this;
+    }
+
+  private:
+    friend class fixed_bitset;
+
+    constexpr reference(fixed_bitset& bitset, size_t ndx) noexcept
+        : bitset_(&bitset), ndx_(ndx) {}
+
+    fixed_bitset* bitset_{nullptr};
+    size_t ndx_{0};
+  };
+
   // Construction
 
   constexpr fixed_bitset() = default;
@@ -146,8 +209,17 @@ public:
 
   // Access.
 
-  constexpr void set(pos_t pos) noexcept {
-    words_[word_of(as_sz(pos))] |= mask_of(as_sz(pos));
+  constexpr void set(pos_t pos, bool value = true) noexcept {
+    const auto ndx = as_sz(pos);
+    const auto w = word_of(ndx);
+    const auto m = mask_of(ndx);
+    words_[w] = (words_[w] & ~m) | (static_cast<word_t>(-value) & m);
+  }
+
+  constexpr void set() noexcept {
+    words_.fill(all_ones_v);
+    if constexpr (top_padding_bits_ != 0)
+      words_[word_count_v - 1] &= top_word_mask_;
   }
 
   constexpr void clear(pos_t pos) noexcept {
@@ -162,6 +234,26 @@ public:
     return test(pos);
   }
 
+  [[nodiscard]] constexpr auto
+  operator()(this auto& self, pos_t pos) noexcept {
+    using self_t = std::remove_reference_t<decltype(self)>;
+    if constexpr (std::is_const_v<self_t>) {
+      static_assert(!std::is_const_v<self_t>,
+          "fixed_bitset::operator() does not support const `this`; use "
+          "operator[] for const access");
+    } else {
+      return reference{self, as_sz(pos)};
+    }
+  }
+
+  // Direct access to the underlying word array. The array contains
+  // `word_count_v` elements of type `word_t`. When FORCED_WORD introduces
+  // padding, the high bits of the last word are always kept zero.
+  [[nodiscard]] constexpr word_t* data() noexcept { return words_.data(); }
+  [[nodiscard]] constexpr const word_t* data() const noexcept {
+    return words_.data();
+  }
+
   [[nodiscard]] constexpr bool empty() const noexcept {
     return bit_count_v == 0;
   }
@@ -174,6 +266,11 @@ public:
     const auto ndx = as_sz(pos);
     if (ndx >= bit_count_v) throw std::out_of_range{"fixed_bitset::at"};
     return (words_[word_of(ndx)] & mask_of(ndx)) != 0;
+  }
+
+  constexpr fixed_bitset& reset(pos_t pos) noexcept {
+    words_[word_of(as_sz(pos))] &= ~mask_of(as_sz(pos));
+    return *this;
   }
 
   // Clear all bits.
@@ -214,16 +311,178 @@ public:
     return lhs ^= rhs;
   }
 
+  constexpr fixed_bitset& flip(pos_t pos) noexcept {
+    words_[word_of(as_sz(pos))] ^= mask_of(as_sz(pos));
+    return *this;
+  }
+
+  constexpr fixed_bitset& flip() noexcept {
+    for (size_t ndx = 0; ndx < word_count_v; ++ndx) words_[ndx] ^= all_ones_v;
+    if constexpr (top_padding_bits_ != 0)
+      words_[word_count_v - 1] &= top_word_mask_;
+    return *this;
+  }
+
   [[nodiscard]] constexpr fixed_bitset operator~() const noexcept {
-    fixed_bitset out;
-    for (size_t ndx = 0; ndx < word_count_v; ++ndx)
-      out.words_[ndx] = static_cast<word_t>(~words_[ndx]);
+    fixed_bitset out{*this};
+    out.flip();
     return out;
   }
 
-  // Queries.
+  constexpr fixed_bitset& operator<<=(size_t shift) noexcept {
+    if (shift == 0) return *this;
+    if (shift >= bit_count_v) {
+      reset();
+      return *this;
+    }
 
-  [[nodiscard]] constexpr size_t popcount() const noexcept {
+    const size_t word_shift = shift / bits_per_word_v;
+    const size_t bit_shift = shift % bits_per_word_v;
+
+    if (bit_shift == 0) {
+      for (size_t ndx = word_count_v; ndx-- > word_shift;)
+        words_[ndx] = words_[ndx - word_shift];
+    } else {
+      const size_t rshift = bits_per_word_v - bit_shift;
+      for (size_t ndx = word_count_v; ndx-- > word_shift + 1;)
+        words_[ndx] = static_cast<word_t>(
+            (words_[ndx - word_shift] << bit_shift) |
+            (words_[ndx - word_shift - 1] >> rshift));
+      words_[word_shift] = static_cast<word_t>(words_[0] << bit_shift);
+    }
+
+    for (size_t ndx = 0; ndx < word_shift; ++ndx) words_[ndx] = 0;
+    if constexpr (top_padding_bits_ != 0)
+      words_[word_count_v - 1] &= top_word_mask_;
+    return *this;
+  }
+
+  constexpr fixed_bitset& operator>>=(size_t shift) noexcept {
+    if (shift == 0) return *this;
+    if (shift >= bit_count_v) {
+      reset();
+      return *this;
+    }
+
+    const size_t word_shift = shift / bits_per_word_v;
+    const size_t bit_shift = shift % bits_per_word_v;
+    const size_t limit = word_count_v - word_shift;
+
+    if (bit_shift == 0) {
+      for (size_t ndx = 0; ndx < limit; ++ndx)
+        words_[ndx] = words_[ndx + word_shift];
+    } else {
+      const size_t lshift = bits_per_word_v - bit_shift;
+      for (size_t ndx = 0; ndx + 1 < limit; ++ndx)
+        words_[ndx] = static_cast<word_t>(
+            (words_[ndx + word_shift] >> bit_shift) |
+            (words_[ndx + word_shift + 1] << lshift));
+      words_[limit - 1] =
+          static_cast<word_t>(words_[word_count_v - 1] >> bit_shift);
+    }
+
+    for (size_t ndx = limit; ndx < word_count_v; ++ndx) words_[ndx] = 0;
+    return *this;
+  }
+
+  [[nodiscard]] friend constexpr fixed_bitset
+  operator<<(fixed_bitset lhs, size_t shift) noexcept {
+    return lhs <<= shift;
+  }
+
+  [[nodiscard]] friend constexpr fixed_bitset
+  operator>>(fixed_bitset lhs, size_t shift) noexcept {
+    return lhs >>= shift;
+  }
+
+  constexpr fixed_bitset& rotl(size_t shift) noexcept {
+    shift %= bit_count_v;
+    if (shift == 0) return *this;
+
+    // When the top word has padding, the multi-word rotation logic would
+    // incorrectly treat padding bits as data. Decompose into two shifts
+    // instead (operator<<= already masks out the padding).
+    if constexpr (top_padding_bits_ != 0) {
+      *this = (*this << shift) | (*this >> (bit_count_v - shift));
+      return *this;
+    }
+
+    const size_t word_shift = shift / bits_per_word_v;
+    const size_t bit_shift = shift % bits_per_word_v;
+    std::array<word_t, word_count_v> out{};
+
+    if (bit_shift == 0) {
+      size_t src = word_count_v - word_shift;
+      for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
+        out[ndx] = words_[src];
+        if (++src == word_count_v) src = 0;
+      }
+    } else {
+      const size_t rshift = bits_per_word_v - bit_shift;
+      size_t src = word_count_v - word_shift;
+      size_t prev = (src == 0) ? (word_count_v - 1) : (src - 1);
+
+      for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
+        out[ndx] = static_cast<word_t>(
+            (words_[src] << bit_shift) | (words_[prev] >> rshift));
+        prev = src;
+        if (++src == word_count_v) src = 0;
+      }
+    }
+
+    words_ = out;
+    return *this;
+  }
+
+  constexpr fixed_bitset& rotr(size_t shift) noexcept {
+    shift %= bit_count_v;
+    if (shift == 0) return *this;
+
+    if constexpr (top_padding_bits_ != 0) {
+      *this = (*this >> shift) | (*this << (bit_count_v - shift));
+      return *this;
+    }
+
+    const size_t word_shift = shift / bits_per_word_v;
+    const size_t bit_shift = shift % bits_per_word_v;
+    std::array<word_t, word_count_v> out{};
+
+    if (bit_shift == 0) {
+      size_t src = word_shift;
+      for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
+        out[ndx] = words_[src];
+        if (++src == word_count_v) src = 0;
+      }
+    } else {
+      const size_t lshift = bits_per_word_v - bit_shift;
+      size_t src = word_shift;
+      size_t next = src + 1;
+      if (next == word_count_v) next = 0;
+
+      for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
+        out[ndx] = static_cast<word_t>(
+            (words_[src] >> bit_shift) | (words_[next] << lshift));
+        src = next;
+        if (++next == word_count_v) next = 0;
+      }
+    }
+
+    words_ = out;
+    return *this;
+  }
+
+  [[nodiscard]] friend constexpr fixed_bitset
+  rotl(fixed_bitset lhs, size_t shift) noexcept {
+    return lhs.rotl(shift);
+  }
+
+  [[nodiscard]] friend constexpr fixed_bitset
+  rotr(fixed_bitset lhs, size_t shift) noexcept {
+    return lhs.rotr(shift);
+  }
+
+  // Queries.
+  [[nodiscard]] constexpr size_t count() const noexcept {
     size_t cnt = 0;
     for (auto w : words_) cnt += static_cast<size_t>(std::popcount(w));
     return cnt;
@@ -238,9 +497,9 @@ public:
   [[nodiscard]] constexpr bool any() const noexcept { return !none(); }
 
   [[nodiscard]] constexpr bool all() const noexcept {
-    for (auto w : words_)
-      if (w != all_ones_v) return false;
-    return true;
+    for (size_t ndx = 0; ndx + 1 < word_count_v; ++ndx)
+      if (words_[ndx] != all_ones_v) return false;
+    return words_[word_count_v - 1] == top_word_mask_;
   }
 
   [[nodiscard]] constexpr pos_t countr_zero() const noexcept {
@@ -266,23 +525,36 @@ public:
   }
 
   [[nodiscard]] constexpr pos_t countl_zero() const noexcept {
-    for (size_t ndx = word_count_v; ndx > 0; --ndx) {
+    // Shift the top word left by top_padding_bits_ to discard padding before
+    // counting. When top_padding_bits_ == 0 the shift is a no-op.
+    const auto top = words_[word_count_v - 1];
+    if (top)
+      return as_pos(static_cast<size_t>(
+          std::countl_zero(static_cast<word_t>(top << top_padding_bits_))));
+    size_t accum = top_word_valid_bits_;
+    for (size_t ndx = word_count_v - 1; ndx > 0; --ndx) {
       const auto w = words_[ndx - 1];
-      if (w)
-        return as_pos(
-            ((word_count_v - ndx) * bits_per_word_v) +
-            static_cast<size_t>(std::countl_zero(w)));
+      if (w) return as_pos(accum + static_cast<size_t>(std::countl_zero(w)));
+      accum += bits_per_word_v;
     }
     return as_pos(bit_count_v);
   }
 
   [[nodiscard]] constexpr pos_t countl_one() const noexcept {
-    for (size_t ndx = word_count_v; ndx > 0; --ndx) {
+    // Compare the top word against top_word_mask_ (not all_ones_v) so that
+    // padding bits do not affect the result.
+    const auto top = words_[word_count_v - 1];
+    if (top != top_word_mask_)
+      return as_pos(static_cast<size_t>(std::countl_zero(static_cast<word_t>(
+          static_cast<word_t>(~top) << top_padding_bits_))));
+    size_t accum = top_word_valid_bits_;
+    for (size_t ndx = word_count_v - 1; ndx > 0; --ndx) {
       const auto w = words_[ndx - 1];
       if (w != all_ones_v)
         return as_pos(
-            ((word_count_v - ndx) * bits_per_word_v) +
+            accum +
             static_cast<size_t>(std::countl_zero(static_cast<word_t>(~w))));
+      accum += bits_per_word_v;
     }
     return as_pos(bit_count_v);
   }
@@ -325,9 +597,27 @@ public:
     return end();
   }
 
+  [[nodiscard]] constexpr decltype(auto) array(this auto& self) noexcept {
+    return (self.words_);
+  }
+
 private:
-  static constexpr size_t word_count_v = bit_count_v / bits_per_word_v;
   std::array<word_t, word_count_v> words_{};
+
+  // Valid bits in the topmost word. Less than bits_per_word_v only when
+  // FORCED_WORD causes N_BITS to not be a multiple of bits_per_word_v.
+  static constexpr size_t top_word_valid_bits_ =
+      (bit_count_v % bits_per_word_v != 0)
+          ? (bit_count_v % bits_per_word_v)
+          : bits_per_word_v;
+  // Padding bits at the top of the last word (must always be kept zero).
+  static constexpr size_t top_padding_bits_ =
+      bits_per_word_v - top_word_valid_bits_;
+  // Mask covering only the valid bits of the top word.
+  static constexpr word_t top_word_mask_ =
+      (top_padding_bits_ == 0)
+          ? std::numeric_limits<word_t>::max()
+          : static_cast<word_t>((word_t{1} << top_word_valid_bits_) - 1);
 
   // All-ones sentinel. Uses numeric_limits rather than ~word_t{0} to avoid
   // integer-promotion bugs when word_t is narrower than int: ~uint8_t{0}

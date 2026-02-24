@@ -37,7 +37,7 @@ void FixedBitset_Empty() {
     EXPECT_TRUE(b.none());
     EXPECT_FALSE(b.any());
     EXPECT_FALSE(b.all());
-    EXPECT_EQ(b.popcount(), 0U);
+    EXPECT_EQ(b.count(), 0U);
   }
 
   // Iterating an empty bitset yields no elements.
@@ -75,10 +75,52 @@ void FixedBitset_SetClearTest() {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 64; ++i) b.set(i);
     EXPECT_TRUE(b.all());
-    EXPECT_EQ(b.popcount(), 64U);
+    EXPECT_EQ(b.count(), 64U);
 
     for (std::size_t i = 0; i < 64; ++i) b.clear(i);
     EXPECT_TRUE(b.none());
+  }
+
+  // set(pos, false) clears the bit — equivalent to clear(pos).
+  if (true) {
+    fixed_bitset<64> b;
+    b.set(10);
+    b.set(20);
+    b.set(10, false);
+    EXPECT_FALSE(b.test(10));
+    EXPECT_TRUE(b.test(20));
+
+    b.set(20, true); // redundant but valid
+    EXPECT_TRUE(b.test(20));
+  }
+
+  // set() with no arguments sets all bits at once.
+  if (true) {
+    fixed_bitset<64> b;
+    b.set();
+    EXPECT_TRUE(b.all());
+    EXPECT_EQ(b.count(), 64U);
+  }
+
+  // set() with padding respects the valid-bit mask.
+  if (true) {
+    fixed_bitset<8, size_t, void, 64> b;
+    b.set();
+    EXPECT_TRUE(b.all());
+    EXPECT_EQ(b.count(), 8U);
+    EXPECT_EQ(b.data()[0], uint64_t{0xFF}); // only 8 valid bits set
+  }
+
+  // reset(pos_t) clears one bit and returns *this, enabling chaining.
+  if (true) {
+    fixed_bitset<64> b;
+    b.set(5);
+    b.set(10);
+    b.set(20);
+    b.reset(10).reset(20);
+    EXPECT_TRUE(b.test(5));
+    EXPECT_FALSE(b.test(10));
+    EXPECT_FALSE(b.test(20));
   }
 }
 
@@ -107,7 +149,7 @@ void FixedBitset_Popcount() {
     b.set(3);
     b.set(7);
     b.set(62);
-    EXPECT_EQ(b.popcount(), 3U);
+    EXPECT_EQ(b.count(), 3U);
     EXPECT_TRUE(b.any());
     EXPECT_FALSE(b.all());
     EXPECT_FALSE(b.none());
@@ -120,7 +162,7 @@ void FixedBitset_Popcount() {
     EXPECT_FALSE(b.all());
     b.set(63);
     EXPECT_TRUE(b.all());
-    EXPECT_EQ(b.popcount(), 64U);
+    EXPECT_EQ(b.count(), 64U);
   }
 }
 
@@ -130,10 +172,10 @@ void FixedBitset_Reset() {
     b.set(0);
     b.set(31);
     b.set(63);
-    EXPECT_EQ(b.popcount(), 3U);
+    EXPECT_EQ(b.count(), 3U);
     b.reset();
     EXPECT_TRUE(b.none());
-    EXPECT_EQ(b.popcount(), 0U);
+    EXPECT_EQ(b.count(), 0U);
   }
 }
 
@@ -227,8 +269,21 @@ void FixedBitset_WordType() {
     // word_count_v: the canonical 24-bit / 3-word cases.
     static_assert(fixed_bitset<24>::bit_count_v == 24);
     static_assert(fixed_bitset<24>::bits_per_word_v == 8);
+    static_assert(fixed_bitset<24>::word_count_v == 3);
     static_assert(fixed_bitset<48>::bits_per_word_v == 16);
+    static_assert(fixed_bitset<48>::word_count_v == 3);
     static_assert(fixed_bitset<96>::bits_per_word_v == 32);
+    static_assert(fixed_bitset<96>::word_count_v == 3);
+
+    // No padding: the object is exactly N/8 bytes, one bit per bit.
+    static_assert(sizeof(fixed_bitset<8>) == 1);
+    static_assert(sizeof(fixed_bitset<16>) == 2);
+    static_assert(sizeof(fixed_bitset<24>) == 3);
+    static_assert(sizeof(fixed_bitset<32>) == 4);
+    static_assert(sizeof(fixed_bitset<48>) == 6);
+    static_assert(sizeof(fixed_bitset<64>) == 8);
+    static_assert(sizeof(fixed_bitset<96>) == 12);
+    static_assert(sizeof(fixed_bitset<128>) == 16);
   }
 
   // Runtime: fixed_bitset<8> — single uint8_t word.
@@ -240,7 +295,7 @@ void FixedBitset_WordType() {
     EXPECT_TRUE(b.test(0));
     EXPECT_TRUE(b.test(7));
     EXPECT_FALSE(b.test(1));
-    EXPECT_EQ(b.popcount(), 2U);
+    EXPECT_EQ(b.count(), 2U);
 
     std::vector<std::size_t> bits;
     for (auto idx : b) bits.push_back(idx);
@@ -263,7 +318,7 @@ void FixedBitset_WordType() {
     b.set(0);  // word 0, bit 0
     b.set(9);  // word 1, bit 1
     b.set(23); // word 2, bit 7
-    EXPECT_EQ(b.popcount(), 3U);
+    EXPECT_EQ(b.count(), 3U);
 
     std::vector<std::size_t> bits;
     for (auto idx : b) bits.push_back(idx);
@@ -274,7 +329,7 @@ void FixedBitset_WordType() {
 
     // Complement flips all 24 bits.
     auto c = ~b;
-    EXPECT_EQ(c.popcount(), 21U);
+    EXPECT_EQ(c.count(), 21U);
     EXPECT_FALSE(c.test(0));
     EXPECT_FALSE(c.test(9));
     EXPECT_FALSE(c.test(23));
@@ -309,10 +364,292 @@ void FixedBitset_WordType() {
     EXPECT_TRUE(b.test(0));
     EXPECT_TRUE(b.test(31));
     EXPECT_FALSE(b.test(16));
-    EXPECT_EQ(b.popcount(), 2U);
+    EXPECT_EQ(b.count(), 2U);
 
     for (std::size_t i = 0; i < 32; ++i) b.set(i);
     EXPECT_TRUE(b.all());
+  }
+
+  // data() exposes the raw word array; mutations through it are reflected in
+  // the bitset, and reads through it agree with test().
+  if (true) {
+    // Mutable: write a known pattern directly into the words.
+    fixed_bitset<24> b; // 3 × uint8_t
+    b.data()[0] = 0x01; // bit 0 set in word 0
+    b.data()[1] = 0x02; // bit 9 set in word 1
+    b.data()[2] = 0x80; // bit 23 set in word 2
+    EXPECT_TRUE(b.test(0));
+    EXPECT_TRUE(b.test(9));
+    EXPECT_TRUE(b.test(23));
+    EXPECT_EQ(b.count(), 3U);
+
+    // Const: pointer type is const word_t*.
+    const fixed_bitset<24>& cb = b;
+    static_assert(
+        std::is_same_v<decltype(cb.data()), const fixed_bitset<24>::word_t*>);
+    EXPECT_EQ(cb.data()[0], uint8_t{0x01});
+    EXPECT_EQ(cb.data()[1], uint8_t{0x02});
+    EXPECT_EQ(cb.data()[2], uint8_t{0x80});
+  }
+}
+
+// FORCED_WORD overrides the auto-selected word type. When the word is larger
+// than N_BITS, the top (N_BITS % bits_per_word_v) bits are padding kept zero.
+void FixedBitset_ForcedWord() {
+  // Compile-time: type and sizing.
+  if (true) {
+    // Force smaller words for a large bitset.
+    using fb64x8 = fixed_bitset<64, size_t, void, 8>;
+    static_assert(std::is_same_v<fb64x8::word_t, uint8_t>);
+    static_assert(fb64x8::bits_per_word_v == 8);
+    static_assert(fb64x8::word_count_v == 8);
+    static_assert(sizeof(fb64x8) == 8); // 8 × uint8_t
+
+    // Force a larger word for a small bitset (padding in the top word).
+    using fb8x64 = fixed_bitset<8, size_t, void, 64>;
+    static_assert(std::is_same_v<fb8x64::word_t, uint64_t>);
+    static_assert(fb8x64::bits_per_word_v == 64);
+    static_assert(fb8x64::word_count_v == 1);
+    static_assert(sizeof(fb8x64) == 8); // 1 × uint64_t
+
+    // 24 bits in a single uint32_t (8 padding bits).
+    using fb24x32 = fixed_bitset<24, size_t, void, 32>;
+    static_assert(std::is_same_v<fb24x32::word_t, uint32_t>);
+    static_assert(fb24x32::word_count_v == 1);
+    static_assert(sizeof(fb24x32) == 4); // 1 × uint32_t
+
+    // 96 bits in two uint64_t words (32 padding bits in the top word).
+    using fb96x64 = fixed_bitset<96, size_t, void, 64>;
+    static_assert(std::is_same_v<fb96x64::word_t, uint64_t>);
+    static_assert(fb96x64::word_count_v == 2);
+    static_assert(sizeof(fb96x64) == 16); // 2 × uint64_t
+  }
+
+  // Runtime: fixed_bitset<64, size_t, void, 8> — 8 × uint8_t, no padding.
+  if (true) {
+    fixed_bitset<64, size_t, void, 8> b;
+    b.set(0);
+    b.set(7);  // last bit of word 0
+    b.set(8);  // first bit of word 1
+    b.set(63); // last bit of word 7
+    EXPECT_EQ(b.count(), 4U);
+    EXPECT_TRUE(b.test(0));
+    EXPECT_TRUE(b.test(7));
+    EXPECT_TRUE(b.test(8));
+    EXPECT_TRUE(b.test(63));
+    EXPECT_FALSE(b.test(1));
+
+    std::vector<size_t> bits;
+    for (auto idx : b) bits.push_back(idx);
+    EXPECT_EQ(bits.size(), 4U);
+    EXPECT_EQ(bits[0], 0U);
+    EXPECT_EQ(bits[1], 7U);
+    EXPECT_EQ(bits[2], 8U);
+    EXPECT_EQ(bits[3], 63U);
+
+    // all() requires all 64 bits set.
+    for (size_t i = 0; i < 64; ++i) b.set(i);
+    EXPECT_TRUE(b.all());
+  }
+
+  // Runtime: fixed_bitset<8, size_t, void, 64> — 1 × uint64_t, 56 pad bits.
+  if (true) {
+    using fb8 = fixed_bitset<8, size_t, void, 64>;
+    fb8 b;
+    b.set(0);
+    b.set(7);
+    EXPECT_EQ(b.count(), 2U);
+    EXPECT_TRUE(b.test(0));
+    EXPECT_TRUE(b.test(7));
+
+    // Padding bits (8-63) are never set by normal operations.
+    EXPECT_EQ(b.data()[0] & ~uint64_t{0xFF}, uint64_t{0});
+
+    // all() requires only the 8 valid bits to be set.
+    for (size_t i = 0; i < 8; ++i) b.set(i);
+    EXPECT_TRUE(b.all());
+    EXPECT_EQ(b.count(), 8U);
+    EXPECT_EQ(b.data()[0], uint64_t{0xFF}); // padding bits remain 0
+
+    // flip() inverts only the 8 valid bits; padding stays zero.
+    fb8 empty;
+    auto full = ~empty;
+    EXPECT_TRUE(full.all());
+    EXPECT_EQ(full.data()[0], uint64_t{0xFF});
+
+    // operator<<= keeps padding clear.
+    fb8 s;
+    s.set(3);
+    s <<= 4;
+    EXPECT_TRUE(s.test(7));
+    EXPECT_FALSE(s.test(3));
+    EXPECT_EQ(s.data()[0] & ~uint64_t{0xFF}, uint64_t{0});
+
+    // countl_zero counts only the 8 valid bits.
+    fb8 top_bit;
+    top_bit.set(7); // highest valid bit
+    EXPECT_EQ(top_bit.countl_zero(), 0U);
+
+    fb8 bot_bit;
+    bot_bit.set(0);
+    EXPECT_EQ(bot_bit.countl_zero(), 7U);
+
+    // countl_one.
+    fb8 all_set;
+    for (size_t i = 0; i < 8; ++i) all_set.set(i);
+    EXPECT_EQ(all_set.countl_one(), 8U);
+
+    fb8 top_two;
+    top_two.set(7);
+    top_two.set(6);
+    EXPECT_EQ(top_two.countl_one(), 2U);
+
+    // rotl wraps the top valid bit to bit 0.
+    fb8 rot;
+    rot.set(7);
+    rot.rotl(1);
+    EXPECT_TRUE(rot.test(0));
+    EXPECT_FALSE(rot.test(7));
+    EXPECT_EQ(rot.data()[0] & ~uint64_t{0xFF}, uint64_t{0});
+  }
+
+  // Runtime: fixed_bitset<24, size_t, void, 32> — 1 × uint32_t, 8 pad bits.
+  if (true) {
+    using fb24 = fixed_bitset<24, size_t, void, 32>;
+    fb24 b;
+    b.set(0);
+    b.set(12);
+    b.set(23); // highest valid bit
+    EXPECT_EQ(b.count(), 3U);
+
+    std::vector<size_t> bits;
+    for (auto idx : b) bits.push_back(idx);
+    EXPECT_EQ(bits.size(), 3U);
+    EXPECT_EQ(bits[0], 0U);
+    EXPECT_EQ(bits[1], 12U);
+    EXPECT_EQ(bits[2], 23U);
+
+    // flip() sets exactly 24 bits; top 8 bits of the uint32_t remain 0.
+    fb24 empty;
+    auto full = ~empty;
+    EXPECT_EQ(full.count(), 24U);
+    EXPECT_EQ(full.data()[0], uint32_t{0x00FFFFFF});
+    EXPECT_TRUE(full.all());
+
+    // countl_zero counts only the 24 valid bits.
+    fb24 top_only;
+    top_only.set(23);
+    EXPECT_EQ(top_only.countl_zero(), 0U);
+
+    fb24 bot_only;
+    bot_only.set(0);
+    EXPECT_EQ(bot_only.countl_zero(), 23U);
+
+    // countl_one.
+    EXPECT_EQ(full.countl_one(), 24U);
+
+    // rotl wraps the top valid bit (23) to bit 0.
+    fb24 rot;
+    rot.set(23);
+    rot.rotl(1);
+    EXPECT_TRUE(rot.test(0));
+    EXPECT_FALSE(rot.test(23));
+    EXPECT_EQ(rot.data()[0] & ~uint32_t{0x00FFFFFF}, uint32_t{0});
+  }
+}
+
+// operator() returns a `reference` proxy akin to std::bitset<N>::reference.
+// array() exposes the underlying std::array by reference.
+void FixedBitset_Reference() {
+  // operator() on a mutable bitset yields a reference.
+  // operator bool() reads the current bit value through the reference.
+  if (true) {
+    fixed_bitset<64> b;
+    b.set(7);
+    EXPECT_TRUE(static_cast<bool>(b(7)));
+    EXPECT_FALSE(static_cast<bool>(b(0)));
+  }
+
+  // operator=(bool) writes through the reference.
+  if (true) {
+    fixed_bitset<64> b;
+    b(3) = true;
+    EXPECT_TRUE(b.test(3));
+    b(3) = false;
+    EXPECT_FALSE(b.test(3));
+
+    // Setting a bit that is already set / clearing one already clear.
+    b.set(9);
+    b(9) = true;
+    EXPECT_TRUE(b.test(9));
+    b(9) = false;
+    EXPECT_FALSE(b.test(9));
+  }
+
+  // operator~() returns the inverted bit value without modifying the bitset.
+  if (true) {
+    fixed_bitset<64> b;
+    b.set(5);
+    EXPECT_FALSE(~b(5));     // set → inverted is false
+    EXPECT_TRUE(~b(6));      // clear → inverted is true
+    EXPECT_TRUE(b.test(5));  // unchanged
+    EXPECT_FALSE(b.test(6)); // unchanged
+  }
+
+  // flip() toggles the referenced bit.
+  if (true) {
+    fixed_bitset<64> b;
+    b.set(8);
+    b(8).flip();
+    EXPECT_FALSE(b.test(8));
+    b(8).flip();
+    EXPECT_TRUE(b.test(8));
+  }
+
+  // operator=(const reference&) copies the bit value from another reference.
+  if (true) {
+    fixed_bitset<64> a, b;
+    a.set(2);
+    b(5) = a(2); // b(5) ← true (bit 2 of a)
+    EXPECT_TRUE(b.test(5));
+    b(5) = a(3); // b(5) ← false (bit 3 of a is clear)
+    EXPECT_FALSE(b.test(5));
+  }
+
+  // array() — mutable overload returns a reference to the underlying array.
+  if (true) {
+    fixed_bitset<64> b;
+    static_assert(std::is_same_v<decltype(b.array()),
+        std::array<fixed_bitset<64>::word_t,
+            fixed_bitset<64>::word_count_v>&>);
+
+    b.array()[0] = uint64_t{0xFF}; // set bits 0-7 directly
+    EXPECT_EQ(b.count(), 8U);
+    for (size_t i = 0; i < 8; ++i) EXPECT_TRUE(b.test(i));
+    for (size_t i = 8; i < 64; ++i) EXPECT_FALSE(b.test(i));
+  }
+
+  // array() — const overload returns a const reference to the underlying
+  // array.
+  if (true) {
+    fixed_bitset<64> b;
+    b.set(0);
+    b.set(63);
+    const fixed_bitset<64>& cb = b;
+    static_assert(std::is_same_v<decltype(cb.array()),
+        const std::array<fixed_bitset<64>::word_t,
+            fixed_bitset<64>::word_count_v>&>);
+    const auto expected = (uint64_t{1}) | (uint64_t{1} << 63);
+    EXPECT_EQ(cb.array()[0], expected);
+  }
+
+  // Multi-word array() access.
+  if (true) {
+    fixed_bitset<128> b;
+    b.set(0);
+    b.set(64);
+    EXPECT_EQ(b.array()[0], uint64_t{1}); // word 0
+    EXPECT_EQ(b.array()[1], uint64_t{1}); // word 1
   }
 }
 
@@ -331,7 +668,7 @@ void FixedBitset_BitwiseAnd() {
     EXPECT_TRUE(c.test(3));
     EXPECT_TRUE(c.test(5));
     EXPECT_FALSE(c.test(7));
-    EXPECT_EQ(c.popcount(), 2U);
+    EXPECT_EQ(c.count(), 2U);
   }
 
   // AND with itself is idempotent.
@@ -377,7 +714,7 @@ void FixedBitset_BitwiseOr() {
     EXPECT_TRUE(c.test(1));
     EXPECT_TRUE(c.test(3));
     EXPECT_TRUE(c.test(5));
-    EXPECT_EQ(c.popcount(), 3U);
+    EXPECT_EQ(c.count(), 3U);
   }
 
   // OR with empty is idempotent.
@@ -396,7 +733,7 @@ void FixedBitset_BitwiseOr() {
     a |= b;
     EXPECT_TRUE(a.test(1));
     EXPECT_TRUE(a.test(2));
-    EXPECT_EQ(a.popcount(), 2U);
+    EXPECT_EQ(a.count(), 2U);
   }
 }
 
@@ -416,7 +753,7 @@ void FixedBitset_BitwiseXor() {
     EXPECT_FALSE(c.test(3)); // in both, cancelled
     EXPECT_FALSE(c.test(5)); // in both, cancelled
     EXPECT_TRUE(c.test(7));  // only in b
-    EXPECT_EQ(c.popcount(), 2U);
+    EXPECT_EQ(c.count(), 2U);
   }
 
   // XOR with itself yields empty.
@@ -468,7 +805,7 @@ void FixedBitset_Complement() {
     fixed_bitset<64> empty;
     auto full = ~empty;
     EXPECT_TRUE(full.all());
-    EXPECT_EQ(full.popcount(), 64U);
+    EXPECT_EQ(full.count(), 64U);
   }
 
   // ~all-ones is empty.
@@ -497,7 +834,7 @@ void FixedBitset_Complement() {
     EXPECT_TRUE(c.test(4));
     EXPECT_TRUE(c.test(6));
     EXPECT_TRUE(c.test(63));
-    EXPECT_EQ(c.popcount(), 63U);
+    EXPECT_EQ(c.count(), 63U);
   }
 
   // Complement across word boundary (128-bit).
@@ -510,7 +847,7 @@ void FixedBitset_Complement() {
     EXPECT_FALSE(c.test(64));
     EXPECT_TRUE(c.test(62));
     EXPECT_TRUE(c.test(65));
-    EXPECT_EQ(c.popcount(), 126U);
+    EXPECT_EQ(c.count(), 126U);
   }
 }
 
@@ -771,7 +1108,7 @@ void FixedBitset_Iteration() {
     EXPECT_EQ(bits[3], 63U);
   }
 
-  // Iteration count matches popcount.
+  // Iteration count matches count().
   if (true) {
     fixed_bitset<64> b;
     b.set(5);
@@ -779,7 +1116,7 @@ void FixedBitset_Iteration() {
     b.set(25);
     std::size_t count = 0;
     for ([[maybe_unused]] auto idx : b) ++count;
-    EXPECT_EQ(count, b.popcount());
+    EXPECT_EQ(count, b.count());
   }
 
   // Post-increment yields the old value.
@@ -810,7 +1147,7 @@ void FixedBitset_MultiWord() {
     b.set(63);  // word 0, bit 63
     b.set(64);  // word 1, bit 0
     b.set(127); // word 1, bit 63
-    EXPECT_EQ(b.popcount(), 4U);
+    EXPECT_EQ(b.count(), 4U);
 
     std::vector<std::size_t> bits;
     for (auto idx : b) bits.push_back(idx);
@@ -832,7 +1169,7 @@ void FixedBitset_MultiWord() {
     EXPECT_TRUE(c.test(63));
     EXPECT_FALSE(c.test(64));
     EXPECT_FALSE(c.test(65));
-    EXPECT_EQ(c.popcount(), 1U);
+    EXPECT_EQ(c.count(), 1U);
   }
 
   // OR across word boundary.
@@ -843,7 +1180,7 @@ void FixedBitset_MultiWord() {
     auto c = a | b;
     EXPECT_TRUE(c.test(60));
     EXPECT_TRUE(c.test(68));
-    EXPECT_EQ(c.popcount(), 2U);
+    EXPECT_EQ(c.count(), 2U);
   }
 
   // Iteration skips entirely empty words.
@@ -1160,17 +1497,17 @@ void FixedBitset_Tag() {
     a.set(33);
     EXPECT_TRUE(a.test(1));
     EXPECT_TRUE(a.test(33));
-    EXPECT_EQ(a.popcount(), 2U);
+    EXPECT_EQ(a.count(), 2U);
 
     bs_b b;
     b.set(1);
     EXPECT_TRUE(b.test(1));
-    EXPECT_EQ(b.popcount(), 1U);
+    EXPECT_EQ(b.count(), 1U);
 
     // a and b have equal content in the overlapping bit, but are distinct
     // objects of different types — no mixing is possible.
     EXPECT_EQ(a.test(1), b.test(1));
-    EXPECT_NE(a.popcount(), b.popcount());
+    EXPECT_NE(a.count(), b.count());
   }
 }
 
@@ -1187,7 +1524,7 @@ void FixedBitset_Constexpr() {
   static_assert(b.test(5));
   static_assert(b.test(63));
   static_assert(!b.test(0));
-  static_assert(b.popcount() == 2);
+  static_assert(b.count() == 2);
   static_assert(b.any());
   static_assert(!b.none());
   static_assert(!b.all());
@@ -1235,16 +1572,61 @@ void FixedBitset_Constexpr() {
 
   // size()/max_size() are already constexpr; verify with static_assert.
   static_assert(fixed_bitset<64>{}.size() == 64);
+
+  // set() (all bits) and set(pos, false) are constexpr.
+  constexpr auto all_set = []() {
+    fixed_bitset<64> r;
+    r.set(); // set all 64 bits
+    return r;
+  }();
+  static_assert(all_set.all());
+  static_assert(all_set.count() == 64);
+
+  constexpr auto cleared = []() {
+    fixed_bitset<64> r;
+    r.set();
+    r.set(5, false); // clear bit 5
+    return r;
+  }();
+  static_assert(!cleared.test(5));
+  static_assert(cleared.count() == 63);
+
+  // reset(pos_t) and chaining are constexpr.
+  constexpr auto chained = []() {
+    fixed_bitset<64> r;
+    r.set(1);
+    r.set(2);
+    r.set(3);
+    r.reset(2).reset(3);
+    return r;
+  }();
+  static_assert(chained.test(1));
+  static_assert(!chained.test(2));
+  static_assert(!chained.test(3));
+  static_assert(chained.count() == 1);
+
+  // reference operator= and flip() are constexpr.
+  constexpr auto via_ref = []() {
+    fixed_bitset<64> r;
+    r(10) = true;
+    r(20) = true;
+    r(10).flip(); // clears bit 10
+    return r;
+  }();
+  static_assert(!via_ref.test(10));
+  static_assert(via_ref.test(20));
+  static_assert(via_ref.count() == 1);
 }
 
 MAKE_TEST_LIST(FixedBitset_Empty, FixedBitset_SetClearTest,
     FixedBitset_Subscript, FixedBitset_Popcount, FixedBitset_Reset,
     FixedBitset_Equality, FixedBitset_CopyMove, FixedBitset_WordType,
-    FixedBitset_BitwiseAnd, FixedBitset_BitwiseOr, FixedBitset_BitwiseXor,
-    FixedBitset_Complement, FixedBitset_CountBits, FixedBitset_HasSingleBit,
-    FixedBitset_Iteration, FixedBitset_MultiWord, FixedBitset_PosParam,
-    FixedBitset_SizeEmpty, FixedBitset_At, FixedBitset_Ordering,
-    FixedBitset_Tag, FixedBitset_Constexpr);
+    FixedBitset_ForcedWord, FixedBitset_Reference, FixedBitset_BitwiseAnd,
+    FixedBitset_BitwiseOr, FixedBitset_BitwiseXor, FixedBitset_Complement,
+    FixedBitset_CountBits, FixedBitset_HasSingleBit, FixedBitset_Iteration,
+    FixedBitset_MultiWord, FixedBitset_PosParam, FixedBitset_SizeEmpty,
+    FixedBitset_At, FixedBitset_Ordering, FixedBitset_Tag,
+    FixedBitset_Constexpr);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
