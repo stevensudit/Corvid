@@ -221,3 +221,4 @@ Implementation Steps (in order)
 8. Implement component_scene
 9. Add view<Cs...>() to archetype_scene (entity_view / entity_lens)
 10. Add view<Cs...>() to component_scene
+11. Minor: Follow the TODO in fixed_bitset.
