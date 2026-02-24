@@ -90,11 +90,11 @@ private:
   // 8}.
   static constexpr size_t word_bits_v =
       forced_word_v != 0      ? forced_word_v
-      : bit_count_v % 64 == 0 ? 64u
-      : bit_count_v % 32 == 0 ? 32u
+      : bit_count_v % 64 == 0 ? 64U
+      : bit_count_v % 32 == 0 ? 32U
       : bit_count_v % 16 == 0
-          ? 16u
-          : 8u;
+          ? 16U
+          : 8U;
 
 public:
   // Word type: `FORCED_WORD` overrides auto-selection (0 = auto). Auto selects
@@ -233,6 +233,12 @@ public:
   constexpr fixed_bitset() = default;
   constexpr fixed_bitset(const fixed_bitset&) = default;
   constexpr fixed_bitset(fixed_bitset&&) noexcept = default;
+  constexpr explicit fixed_bitset(
+      const std::array<word_t, word_count_v>& words) noexcept
+      : words_(words) {
+    if constexpr (top_padding_bits_ != 0)
+      words_[word_count_v - 1] &= top_word_mask_;
+  }
 
   constexpr fixed_bitset& operator=(const fixed_bitset&) = default;
   constexpr fixed_bitset& operator=(fixed_bitset&&) noexcept = default;
@@ -438,14 +444,14 @@ public:
     std::array<word_t, word_count_v> out{};
 
     if (bit_shift == 0) {
-      size_t src = word_count_v - word_shift;
+      size_t src = (word_count_v - word_shift) % word_count_v;
       for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
         out[ndx] = words_[src];
         if (++src == word_count_v) src = 0;
       }
     } else {
       const size_t rshift = bits_per_word_v - bit_shift;
-      size_t src = word_count_v - word_shift;
+      size_t src = (word_count_v - word_shift) % word_count_v;
       size_t prev = (src == 0) ? (word_count_v - 1) : (src - 1);
 
       for (size_t ndx = 0; ndx < word_count_v; ++ndx) {
@@ -622,7 +628,7 @@ public:
 
   // Position of the highest set bit plus one; zero if all bits are clear.
   [[nodiscard]] constexpr pos_t bit_width() const noexcept {
-    return as_pos(bit_count_v - as_sz(countl_zero()));
+    return as_pos(bit_count_v - static_cast<size_t>(countl_zero()));
   }
 
   // Iteration. All const.
@@ -711,9 +717,10 @@ private:
     return *this;
   }
 
-  // Return bit index as size_t; throw if out of range.
+  // Return bit index as size_t; throw if out of range. Does not call as_sz()
+  // so that the throw happens before the assert in as_sz() can fire.
   static constexpr size_t checked_index(pos_t pos) {
-    const auto ndx = as_sz(pos);
+    const auto ndx = static_cast<size_t>(pos);
     if (ndx >= bit_count_v) [[unlikely]]
       throw std::out_of_range{"fixed_bitset: pos out of range"};
     return ndx;
