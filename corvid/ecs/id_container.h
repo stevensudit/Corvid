@@ -72,7 +72,7 @@ public:
       allocation_policy prefill = allocation_policy::lazy,
       const allocator_type& alloc = allocator_type{})
       : data_{alloc} {
-    set_id_limit(limit, prefill);
+    (void)set_id_limit(limit, prefill);
   }
 
   [[nodiscard]] allocator_type get_allocator() const noexcept {
@@ -87,7 +87,7 @@ public:
   // Change the ID limit. Fails when the new limit would invalidate live IDs.
   // When expanding and `prefill` is `allocation_policy::eager`, reserves but
   // does not resize.
-  bool set_id_limit(id_t new_limit,
+  [[nodiscard]] bool set_id_limit(id_t new_limit,
       allocation_policy prefill = allocation_policy::lazy) {
     if (new_limit < size_as_enum()) return false;
     limit_ = new_limit;

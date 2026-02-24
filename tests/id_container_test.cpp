@@ -48,9 +48,9 @@ void IdContainer_PushBack() {
   // push_back appends values accessible by slot index.
   if (true) {
     container_t c;
-    c.push_back(10);
-    c.push_back(20);
-    c.push_back(30);
+    EXPECT_TRUE(c.push_back(10));
+    EXPECT_TRUE(c.push_back(20));
+    EXPECT_TRUE(c.push_back(30));
     EXPECT_EQ(c.size(), 3U);
     EXPECT_FALSE(c.empty());
     EXPECT_EQ(c[eid_t{0}], 10);
@@ -102,8 +102,8 @@ void IdContainer_PopBack() {
   // pop_back removes the last slot.
   if (true) {
     container_t c;
-    c.push_back(1);
-    c.push_back(2);
+    EXPECT_TRUE(c.push_back(1));
+    EXPECT_TRUE(c.push_back(2));
     c.pop_back();
     EXPECT_EQ(c.size(), 1U);
     EXPECT_EQ(c[eid_t{0}], 1);
@@ -114,9 +114,9 @@ void IdContainer_FrontBack() {
   // front() and back() return the first and last elements.
   if (true) {
     container_t c;
-    c.push_back(11);
-    c.push_back(22);
-    c.push_back(33);
+    EXPECT_TRUE(c.push_back(11));
+    EXPECT_TRUE(c.push_back(22));
+    EXPECT_TRUE(c.push_back(33));
     EXPECT_EQ(c.front(), 11);
     EXPECT_EQ(c.back(), 33);
   }
@@ -124,8 +124,8 @@ void IdContainer_FrontBack() {
   // front() and back() are mutable.
   if (true) {
     container_t c;
-    c.push_back(1);
-    c.push_back(2);
+    EXPECT_TRUE(c.push_back(1));
+    EXPECT_TRUE(c.push_back(2));
     c.front() = 100;
     c.back() = 200;
     EXPECT_EQ(c[eid_t{0}], 100);
@@ -137,7 +137,7 @@ void IdContainer_Subscript() {
   // operator[] returns a mutable reference.
   if (true) {
     container_t c;
-    c.push_back(5);
+    EXPECT_TRUE(c.push_back(5));
     c[eid_t{0}] = 50;
     EXPECT_EQ(c[eid_t{0}], 50);
   }
@@ -145,7 +145,7 @@ void IdContainer_Subscript() {
   // const operator[] returns a const reference.
   if (true) {
     container_t c;
-    c.push_back(7);
+    EXPECT_TRUE(c.push_back(7));
     const container_t& cc = c;
     EXPECT_EQ(cc[eid_t{0}], 7);
   }
@@ -155,8 +155,8 @@ void IdContainer_At() {
   // at() provides bounds-checked access; throws std::out_of_range.
   if (true) {
     container_t c;
-    c.push_back(3);
-    c.push_back(6);
+    EXPECT_TRUE(c.push_back(3));
+    EXPECT_TRUE(c.push_back(6));
     EXPECT_EQ(c.at(eid_t{0}), 3);
     EXPECT_EQ(c.at(eid_t{1}), 6);
     TEST_EXCEPTION(c.at(eid_t{2}), std::out_of_range);
@@ -165,7 +165,7 @@ void IdContainer_At() {
   // const at().
   if (true) {
     container_t c;
-    c.push_back(9);
+    EXPECT_TRUE(c.push_back(9));
     const container_t& cc = c;
     EXPECT_EQ(cc.at(eid_t{0}), 9);
     TEST_EXCEPTION(cc.at(eid_t{1}), std::out_of_range);
@@ -174,7 +174,7 @@ void IdContainer_At() {
   // at() returns a mutable reference.
   if (true) {
     container_t c;
-    c.push_back(1);
+    EXPECT_TRUE(c.push_back(1));
     c.at(eid_t{0}) = 100;
     EXPECT_EQ(c[eid_t{0}], 100);
   }
@@ -185,9 +185,9 @@ void IdContainer_SizeAsEnum() {
   if (true) {
     container_t c;
     EXPECT_TRUE(c.size_as_enum() == eid_t{0});
-    c.push_back(1);
+    EXPECT_TRUE(c.push_back(1));
     EXPECT_TRUE(c.size_as_enum() == eid_t{1});
-    c.push_back(2);
+    EXPECT_TRUE(c.push_back(2));
     EXPECT_TRUE(c.size_as_enum() == eid_t{2});
   }
 }
@@ -225,9 +225,9 @@ void IdContainer_Resize() {
   // resize to smaller discards tail slots.
   if (true) {
     container_t c;
-    c.push_back(1);
-    c.push_back(2);
-    c.push_back(3);
+    EXPECT_TRUE(c.push_back(1));
+    EXPECT_TRUE(c.push_back(2));
+    EXPECT_TRUE(c.push_back(3));
     c.resize(2);
     EXPECT_EQ(c.size(), 2U);
     EXPECT_EQ(c[eid_t{0}], 1);
@@ -239,8 +239,8 @@ void IdContainer_Clear() {
   // clear() empties the container without releasing capacity.
   if (true) {
     container_t c;
-    c.push_back(1);
-    c.push_back(2);
+    EXPECT_TRUE(c.push_back(1));
+    EXPECT_TRUE(c.push_back(2));
     c.clear();
     EXPECT_TRUE(c.empty());
     EXPECT_EQ(c.size(), 0U);
@@ -252,7 +252,7 @@ void IdContainer_ShrinkToFit() {
   if (true) {
     container_t c;
     c.reserve(100);
-    c.push_back(42);
+    EXPECT_TRUE(c.push_back(42));
     c.shrink_to_fit();
     EXPECT_EQ(c.size(), 1U);
     // Capacity is implementation-defined but should not exceed size by much.
@@ -285,8 +285,8 @@ void IdContainer_Limit() {
   // set_id_limit() fails when the new limit would be below current size.
   if (true) {
     container_t c;
-    c.push_back(1);
-    c.push_back(2);
+    EXPECT_TRUE(c.push_back(1));
+    EXPECT_TRUE(c.push_back(2));
     EXPECT_FALSE(c.set_id_limit(eid_t{1}));
     EXPECT_EQ(c.id_limit(), eid_t::invalid);
   }
@@ -302,7 +302,7 @@ void IdContainer_Limit() {
   // set_id_limit() with eager prefill reserves capacity.
   if (true) {
     container_t c;
-    c.set_id_limit(eid_t{30}, allocation_policy::eager);
+    EXPECT_TRUE(c.set_id_limit(eid_t{30}, allocation_policy::eager));
     EXPECT_GE(c.capacity(), 30U);
     EXPECT_EQ(c.id_limit(), eid_t{30});
   }
@@ -312,9 +312,9 @@ void IdContainer_Iteration() {
   // Range-for iterates over all slots in index order.
   if (true) {
     container_t c;
-    c.push_back(10);
-    c.push_back(20);
-    c.push_back(30);
+    EXPECT_TRUE(c.push_back(10));
+    EXPECT_TRUE(c.push_back(20));
+    EXPECT_TRUE(c.push_back(30));
 
     std::vector<int> got;
     for (auto v : c) got.push_back(v);
@@ -335,7 +335,7 @@ void IdContainer_Iteration() {
   // cbegin/cend match begin/end.
   if (true) {
     container_t c;
-    c.push_back(1);
+    EXPECT_TRUE(c.push_back(1));
     EXPECT_EQ(*c.cbegin(), *c.begin());
     EXPECT_TRUE(c.cend() == c.end());
   }
@@ -343,8 +343,8 @@ void IdContainer_Iteration() {
   // Mutable iteration allows modifying values.
   if (true) {
     container_t c;
-    c.push_back(1);
-    c.push_back(2);
+    EXPECT_TRUE(c.push_back(1));
+    EXPECT_TRUE(c.push_back(2));
     for (auto& v : c) v *= 10;
     EXPECT_EQ(c[eid_t{0}], 10);
     EXPECT_EQ(c[eid_t{1}], 20);
@@ -355,8 +355,8 @@ void IdContainer_Underlying() {
   // underlying() returns the inner std::vector<T>.
   if (true) {
     container_t c;
-    c.push_back(5);
-    c.push_back(6);
+    EXPECT_TRUE(c.push_back(5));
+    EXPECT_TRUE(c.push_back(6));
     auto& vec = c.underlying();
     EXPECT_EQ(vec.size(), 2U);
     EXPECT_EQ(vec[0], 5);
@@ -366,7 +366,7 @@ void IdContainer_Underlying() {
   // Mutations through underlying() are visible via operator[].
   if (true) {
     container_t c;
-    c.push_back(0);
+    EXPECT_TRUE(c.push_back(0));
     c.underlying()[0] = 99;
     EXPECT_EQ(c[eid_t{0}], 99);
   }
@@ -376,8 +376,8 @@ void IdContainer_Data() {
   // data() returns a pointer to the first element.
   if (true) {
     container_t c;
-    c.push_back(1);
-    c.push_back(2);
+    EXPECT_TRUE(c.push_back(1));
+    EXPECT_TRUE(c.push_back(2));
     const int* p = c.data();
     EXPECT_EQ(p[0], 1);
     EXPECT_EQ(p[1], 2);
@@ -412,8 +412,8 @@ void IdContainer_NonIntType() {
   // id_container works with non-int value types.
   if (true) {
     id_container<double, eid_t> c;
-    c.push_back(1.5);
-    c.push_back(2.5);
+    EXPECT_TRUE(c.push_back(1.5));
+    EXPECT_TRUE(c.push_back(2.5));
     EXPECT_EQ(c.size(), 2U);
     EXPECT_EQ(c[eid_t{0}], 1.5);
     EXPECT_EQ(c[eid_t{1}], 2.5);
