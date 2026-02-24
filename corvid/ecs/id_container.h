@@ -16,9 +16,11 @@
 // limitations under the License.
 #pragma once
 
+#include <cassert>
 #include <limits>
 #include <memory>
 #include <type_traits>
+#include <utility>
 
 #include "../containers/enum_vector.h"
 #include "entity_ids.h"
@@ -149,20 +151,20 @@ public:
 
   // Modifiers.
 
-  bool push_back(const value_type& value) {
+  [[nodiscard]] bool push_back(const value_type& value) {
     if (size_as_enum() >= limit_) return false;
     data_.push_back(value);
     return true;
   }
 
-  bool push_back(value_type&& value) {
+  [[nodiscard]] bool push_back(value_type&& value) {
     if (size_as_enum() >= limit_) return false;
     data_.push_back(std::move(value));
     return true;
   }
 
   template<class... Args>
-  value_type* emplace_back(Args&&... args) {
+  [[nodiscard]] value_type* emplace_back(Args&&... args) {
     if (size_as_enum() >= limit_) return nullptr;
     return &data_.emplace_back(std::forward<Args>(args)...);
   }
