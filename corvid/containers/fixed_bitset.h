@@ -671,7 +671,7 @@ private:
           ? std::numeric_limits<word_t>::max()
           : static_cast<word_t>((word_t{1} << top_word_valid_bits_) - 1);
 
-  // All-ones sentinel. Uses` numeric_limits` rather than `~word_t{0}` to avoid
+  // All-ones sentinel. Uses `numeric_limits` rather than `~word_t{0}` to avoid
   // integer-promotion bugs when `word_t` is narrower than `int`: `~uint8_t{0}`
   // promotes to `int{-1}`, which does not compare equal to `uint8_t{0xFF}`.
   static constexpr word_t all_ones_v = std::numeric_limits<word_t>::max();
