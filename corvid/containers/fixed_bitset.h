@@ -243,7 +243,8 @@ public:
   constexpr fixed_bitset& operator=(const fixed_bitset&) = default;
   constexpr fixed_bitset& operator=(fixed_bitset&&) noexcept = default;
 
-  // TODO: Consider adding fancier constructors that take a number or a string.
+  // TODO: Consider implementing `to_string`, `to_ulong`, `to_ullong`, and
+  // constructors that initialize from numbers and strings.
 
   // Comparison.
 

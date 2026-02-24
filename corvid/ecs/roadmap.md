@@ -208,11 +208,11 @@ already in archetype_storage_base.
 
 Implementation Steps (in order)
 ---------------------------------
-1. Add fixed_bitset<N_BITS> to containers/
-2. Add id_container<T, id_t> to containers/, factored from entity_registry
+1. Add fixed_bitset<N_BITS> to containers/ (COMPLETED)
+2. Add id_container<T, id_t> to containers/, factored from entity_registry (COMPLETED)
 3. Refactor entity_registry to use id_container internally; add
    location_scheme and N_BITS template parameters; wire in fixed_bitset for
-   component mode via maybe_t
+   component mode via maybe_t. As part of this, move the unit tests for this file out from ecs_test.cpp and into entity_registry_test.cpp
 4. Collapse storage_base into archetype_storage_base (merge the two files,
    flatten the CRTP chain)
 5. Rename component_storage → mono_archetype_storage
