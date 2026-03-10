@@ -225,27 +225,27 @@ public:
   public:
     constexpr location_record(const location_record& other) noexcept = default;
 
-    size_type ndx() const noexcept { return ndx_; }
+    [[nodiscard]] size_type ndx() const noexcept { return ndx_; }
 
-    location_t get_underlying() const noexcept
+    [[nodiscard]] location_t get_underlying() const noexcept
     requires(is_archetype_v)
     {
       return {store_id_, ndx_};
     }
 
-    const store_id_set_t& get_underlying() const noexcept
+    [[nodiscard]] const store_id_set_t& get_underlying() const noexcept
     requires(is_component_v)
     {
       return store_ids_;
     }
 
-    store_id_t get_store_id() const noexcept
+    [[nodiscard]] store_id_t get_store_id() const noexcept
     requires(is_archetype_v)
     {
       return store_id_;
     }
 
-    store_id_set_t get_store_ids() const noexcept
+    [[nodiscard]] store_id_set_t get_store_ids() const noexcept
     requires(is_component_v)
     {
       return store_ids_;
@@ -696,8 +696,8 @@ public:
     handle_owner(entity_registry& reg, const metadata_t& metadata = {})
     requires(is_component_v)
         : registry_{&reg},
-          handle_{reg.create_handle(
-              location_t{store_id_t{}, *id_t::invalid}, metadata)} {}
+          handle_{reg.create_handle(location_t{store_id_t{}, *id_t::invalid},
+              metadata)} {}
 
     handle_owner(const handle_owner&) = delete;
     handle_owner& operator=(const handle_owner&) = delete;
