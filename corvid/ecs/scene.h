@@ -326,8 +326,8 @@ public:
   // count of living entities.
   size_type erase_staged() {
     if (registry_.size() == size()) return 0;
-    return registry_.erase_if([](const auto& rec) {
-      return rec.location.store_id == store_id_t{};
+    return registry_.erase_if([](auto, const auto& rec) {
+      return rec.location.contains(store_id_t{});
     });
   }
 

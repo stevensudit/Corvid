@@ -497,7 +497,7 @@ public:
   {
     assert(is_valid(id));
     assert(*sid >= 1 && *sid < OWN_COUNT);
-    auto& bm = records_[id].location.store_ids;
+    auto& bm = records_[id].location.store_ids_;
     bm.reset(store_id_t{0}); // leave staging (no-op if already out)
     bm.set(sid);
   }
@@ -514,7 +514,7 @@ public:
   {
     assert(is_valid(id));
     assert(*sid >= 1 && *sid < OWN_COUNT);
-    auto& bm = records_[id].location.store_ids;
+    auto& bm = records_[id].location.store_ids_;
     bm.reset(sid);
     if (bm.none()) {
       if (mode == removal_mode::preserve)
@@ -531,7 +531,7 @@ public:
   {
     assert(is_valid(id));
     assert(*sid < OWN_COUNT);
-    return records_[id].location.store_ids.test(sid);
+    return records_[id].location.store_ids_.test(sid);
   }
 
   // Erase by ID. Fails if ID is invalid (but cannot detect ID reuse). Returns
@@ -572,13 +572,11 @@ public:
     return std::forward<decltype(self)>(self).at(handle.id_);
   }
 
-  // Erase all records matching predicate that gets a pair of ID and record.
-  // Returns count erased.
+  // Erase all records matching predicate called as `pred(id, rec)`, where
+  // `id` is the entity ID and `rec` is the `record_t&`. Returns count erased.
   //
   // One particularly obvious use case is to erase all entries that aren't in
-  // any valid store.
-  //
-  // Note that the ID is passed in so that you can cascade the deletion to the
+  // any valid store. The ID is passed so you can cascade deletion to the
   // appropriate storage(s).
   size_type erase_if(auto pred) {
     size_type cnt{};
@@ -586,7 +584,7 @@ public:
     for (id_t id{}; id < id_end; ++id) {
       auto& rec = records_[id];
       if (!is_alive(id)) continue;
-      if (pred(std::pair{id, rec})) {
+      if (pred(id, rec)) {
         do_erase(id);
         ++cnt;
       }
@@ -635,10 +633,10 @@ public:
     for (id_t id{}; id < id_end; ++id) {
       auto& rec = records_[id];
       if constexpr (is_archetype_v) {
-        rec.location.store_id = store_id_t::invalid;
-        rec.location.ndx = *id_t::invalid;
+        rec.location.store_id_ = store_id_t::invalid;
+        rec.location.ndx_ = *id_t::invalid;
       } else {
-        rec.location.store_ids.reset();
+        rec.location.store_ids_.reset();
       }
       if constexpr (is_versioned_v) ++rec.gen;
       if (prev != id_t::invalid)
@@ -697,7 +695,9 @@ public:
     // Prefer calling `make_owner` instead.
     handle_owner(entity_registry& reg, const metadata_t& metadata = {})
     requires(is_component_v)
-        : registry_{&reg}, handle_{reg.create_handle(metadata)} {}
+        : registry_{&reg},
+          handle_{reg.create_handle(
+              location_t{store_id_t{}, *id_t::invalid}, metadata)} {}
 
     handle_owner(const handle_owner&) = delete;
     handle_owner& operator=(const handle_owner&) = delete;
@@ -782,25 +782,25 @@ public:
 private:
   // True if the record at `id` represents a living entity.
   //
-  // In archetype mode: `store_id != store_id_t::invalid`.
-  // In component mode: `store_ids.any()` is true.
+  // In archetype mode: `store_id_ != store_id_t::invalid`.
+  // In component mode: `store_ids_.any()` is true.
   //
   // Assumes `id` is within bounds (caller must check).
   [[nodiscard]] bool is_alive(id_t id) const noexcept {
     if constexpr (is_archetype_v)
-      return records_[id].location.store_id != store_id_t::invalid;
+      return records_[id].location.store_id_ != store_id_t::invalid;
     else
-      return records_[id].location.store_ids.any();
+      return records_[id].location.store_ids_.any();
   }
 
   // Get the intrusive free-list next pointer for a dead record.
   [[nodiscard]] size_type get_next_free(id_t id) const noexcept {
-    return records_[id].location.ndx;
+    return records_[id].location.ndx_;
   }
 
   // Set the intrusive free-list next pointer for a dead record.
   void set_next_free(id_t id, size_type next) noexcept {
-    records_[id].location.ndx = next;
+    records_[id].location.ndx_ = next;
   }
 
   // Allocate a new ID.
@@ -867,9 +867,9 @@ private:
   bool do_erase(id_t id) {
     auto& rec = records_[id];
     if constexpr (is_archetype_v)
-      rec.location.store_id = store_id_t::invalid;
+      rec.location.store_id_ = store_id_t::invalid;
     else
-      rec.location.store_ids.reset();
+      rec.location.store_ids_.reset();
     if constexpr (is_versioned_v) ++rec.gen;
     // Note that we do not clear metadata on erase, since we always wipe it on
     // allocation. If there is any security concern, the user should wipe the

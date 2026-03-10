@@ -190,7 +190,7 @@ void EntityRegistry_Basic() {
     (void)r.create_id(loc0, 5);
     (void)r.create_id(loc1, 15);
     (void)r.create_id(loc2, 25);
-    auto cnt = r.erase_if([](auto& rec) { return rec.metadata > 10; });
+    auto cnt = r.erase_if([](auto, auto& rec) { return rec.metadata > 10; });
     EXPECT_EQ(cnt, 2U);
     EXPECT_TRUE(r.is_valid(id_t{0}));
     EXPECT_FALSE(r.is_valid(id_t{1}));
@@ -788,7 +788,7 @@ void EntityRegistry_VoidMeta() {
     (void)r.create_id(loc0); // id 0
     (void)r.create_id(loc0); // id 1
     (void)r.create_id(loc0); // id 2
-    auto cnt = r.erase_if([](auto& rec) { return rec.location.ndx == 0; });
+    auto cnt = r.erase_if([](auto, auto& rec) { return rec.location.ndx() == 0; });
     // All have ndx 0 from loc0, so all erased.
     EXPECT_EQ(cnt, 3U);
     EXPECT_EQ(r.size(), 0U);
@@ -1034,7 +1034,7 @@ void EntityRegistry_EdgeCases() {
     reg_t r;
     (void)r.create_id(loc0, 5);
     (void)r.create_id(loc0, 10);
-    auto cnt = r.erase_if([](auto& rec) { return rec.metadata > 100; });
+    auto cnt = r.erase_if([](auto, auto& rec) { return rec.metadata > 100; });
     EXPECT_EQ(cnt, 0U);
     EXPECT_EQ(r.size(), 2U);
   }
@@ -1042,7 +1042,7 @@ void EntityRegistry_EdgeCases() {
   // erase_if on empty registry.
   if (true) {
     reg_t r;
-    auto cnt = r.erase_if([](auto&) { return true; });
+    auto cnt = r.erase_if([](auto, auto&) { return true; });
     EXPECT_EQ(cnt, 0U);
   }
 
@@ -1219,7 +1219,7 @@ void EntityRegistry_EdgeCases() {
     (void)r.create_id(loc0, 5);
     (void)r.create_id(loc0, 10);
     (void)r.create_id(loc0, 15);
-    auto cnt = r.erase_if([](auto&) { return true; });
+    auto cnt = r.erase_if([](auto, auto&) { return true; });
     EXPECT_EQ(cnt, 3U);
     EXPECT_EQ(r.size(), 0U);
   }
@@ -1309,7 +1309,7 @@ void EntityRegistry_EraseIfPredicate() {
     r.erase(id_t{3});
     // 2 live, 2 dead. Predicate should be called exactly twice.
     size_t call_count = 0;
-    auto cnt = r.erase_if([&](auto& rec) {
+    auto cnt = r.erase_if([&](auto, auto& rec) {
       ++call_count;
       return rec.metadata > 20;
     });
@@ -1895,8 +1895,8 @@ void EntityRegistry_ComponentMode_Bitmap() {
     r.add_location(id0, store_id_t{1});
     r.add_location(id2, store_id_t{1});
     // Erase all entities in `store_id_t{1}` (bit 1 set).
-    auto cnt = r.erase_if([](auto& rec) {
-      return rec.location.store_ids.test(store_id_t{1});
+    auto cnt = r.erase_if([](auto, auto& rec) {
+      return rec.location.get_store_ids().test(store_id_t{1});
     });
     EXPECT_EQ(cnt, 2U);
     EXPECT_FALSE(r.is_valid(id0));
@@ -2133,8 +2133,8 @@ void EntityRegistry_ComponentMode_VoidMeta() {
     creg_t r;
     auto id0 = r.create_id();
     EXPECT_TRUE(r.is_in_location(id0, store_id_t{0})); // staging bit set
-    auto cnt = r.erase_if([](auto& rec) {
-      return rec.location.store_ids.test(store_id_t{0});
+    auto cnt = r.erase_if([](auto, auto& rec) {
+      return rec.location.get_store_ids().test(store_id_t{0});
     });
     EXPECT_EQ(cnt, 1U);
     EXPECT_EQ(r.size(), 0U);
