@@ -46,4 +46,10 @@ enum class deallocation_policy : bool { preserve = false, release = true };
 // Whether to throw on failure or fail silently.
 enum class on_failure : bool { ignore = false, raise = true };
 
+// Whether the resource is owned exclusively or is shared.
+enum class ownership : bool { unique = false, shared = true };
+
+// Whether the resource should be preserved or removed immediately.
+enum class removal_mode : bool { preserve = false, remove = true };
+
 }}} // namespace corvid::enums::bool_enums

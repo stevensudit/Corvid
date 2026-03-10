@@ -611,8 +611,8 @@ void FixedBitset_Reference() {
   if (true) {
     fixed_bitset<64> b;
     b.set(5);
-    EXPECT_FALSE(~b[5]);     // set → inverted is false
-    EXPECT_TRUE(~b[6]);      // clear → inverted is true
+    EXPECT_FALSE(~b[5]);     // set -> inverted is false
+    EXPECT_TRUE(~b[6]);      // clear -> inverted is true
     EXPECT_TRUE(b.test(5));  // unchanged
     EXPECT_FALSE(b.test(6)); // unchanged
   }
@@ -875,30 +875,30 @@ void FixedBitset_Complement() {
 void FixedBitset_CountBits() {
   // --- countr_zero: index of the lowest set bit, or bit_count_v if none ---
 
-  // Empty → bit_count_v.
+  // Empty -> bit_count_v.
   if (true) {
     fixed_bitset<64> b;
     EXPECT_EQ(b.countr_zero(), 64U);
   }
-  // Bit 0 set → 0 trailing zeros.
+  // Bit 0 set -> 0 trailing zeros.
   if (true) {
     fixed_bitset<64> b;
     b.set(0);
     EXPECT_EQ(b.countr_zero(), 0U);
   }
-  // Bit 5 set (bits 0-4 clear) → 5 trailing zeros.
+  // Bit 5 set (bits 0-4 clear) -> 5 trailing zeros.
   if (true) {
     fixed_bitset<64> b;
     b.set(5);
     EXPECT_EQ(b.countr_zero(), 5U);
   }
-  // All set → 0 trailing zeros.
+  // All set -> 0 trailing zeros.
   if (true) {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 64; ++i) b.set(i);
     EXPECT_EQ(b.countr_zero(), 0U);
   }
-  // Multi-word: only bit 64 set → 64 trailing zeros.
+  // Multi-word: only bit 64 set -> 64 trailing zeros.
   if (true) {
     fixed_bitset<128> b;
     b.set(64);
@@ -907,36 +907,36 @@ void FixedBitset_CountBits() {
 
   // --- countr_one: number of consecutive ones from bit 0 ---
 
-  // Empty → 0.
+  // Empty -> 0.
   if (true) {
     fixed_bitset<64> b;
     EXPECT_EQ(b.countr_one(), 0U);
   }
-  // Bit 0 only → 1.
+  // Bit 0 only -> 1.
   if (true) {
     fixed_bitset<64> b;
     b.set(0);
     EXPECT_EQ(b.countr_one(), 1U);
   }
-  // Bits 0-4 set, bit 5 clear → 5.
+  // Bits 0-4 set, bit 5 clear -> 5.
   if (true) {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 5; ++i) b.set(i);
     EXPECT_EQ(b.countr_one(), 5U);
   }
-  // All set → 64.
+  // All set -> 64.
   if (true) {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 64; ++i) b.set(i);
     EXPECT_EQ(b.countr_one(), 64U);
   }
-  // Multi-word: bits 0-63 set, bit 64 clear → 64.
+  // Multi-word: bits 0-63 set, bit 64 clear -> 64.
   if (true) {
     fixed_bitset<128> b;
     for (std::size_t i = 0; i < 64; ++i) b.set(i);
     EXPECT_EQ(b.countr_one(), 64U);
   }
-  // Multi-word: bits 0-64 set → 65.
+  // Multi-word: bits 0-64 set -> 65.
   if (true) {
     fixed_bitset<128> b;
     for (std::size_t i = 0; i <= 64; ++i) b.set(i);
@@ -945,42 +945,42 @@ void FixedBitset_CountBits() {
 
   // --- countl_zero: leading zeros from the top bit ---
 
-  // Empty → bit_count_v.
+  // Empty -> bit_count_v.
   if (true) {
     fixed_bitset<64> b;
     EXPECT_EQ(b.countl_zero(), 64U);
   }
-  // Bit 63 set (highest) → 0 leading zeros.
+  // Bit 63 set (highest) -> 0 leading zeros.
   if (true) {
     fixed_bitset<64> b;
     b.set(63);
     EXPECT_EQ(b.countl_zero(), 0U);
   }
-  // Bit 62 set → 1 leading zero.
+  // Bit 62 set -> 1 leading zero.
   if (true) {
     fixed_bitset<64> b;
     b.set(62);
     EXPECT_EQ(b.countl_zero(), 1U);
   }
-  // Bit 0 only → 63 leading zeros.
+  // Bit 0 only -> 63 leading zeros.
   if (true) {
     fixed_bitset<64> b;
     b.set(0);
     EXPECT_EQ(b.countl_zero(), 63U);
   }
-  // All set → 0 leading zeros.
+  // All set -> 0 leading zeros.
   if (true) {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 64; ++i) b.set(i);
     EXPECT_EQ(b.countl_zero(), 0U);
   }
-  // Multi-word 128-bit: only bit 64 set → 63 leading zeros.
+  // Multi-word 128-bit: only bit 64 set -> 63 leading zeros.
   if (true) {
     fixed_bitset<128> b;
     b.set(64);
     EXPECT_EQ(b.countl_zero(), 63U);
   }
-  // Multi-word 128-bit: only bit 0 set → 127 leading zeros.
+  // Multi-word 128-bit: only bit 0 set -> 127 leading zeros.
   if (true) {
     fixed_bitset<128> b;
     b.set(0);
@@ -989,31 +989,31 @@ void FixedBitset_CountBits() {
 
   // --- countl_one: leading ones from the top bit ---
 
-  // Empty → 0.
+  // Empty -> 0.
   if (true) {
     fixed_bitset<64> b;
     EXPECT_EQ(b.countl_one(), 0U);
   }
-  // Bit 63 set → 1.
+  // Bit 63 set -> 1.
   if (true) {
     fixed_bitset<64> b;
     b.set(63);
     EXPECT_EQ(b.countl_one(), 1U);
   }
-  // Bits 62-63 set → 2.
+  // Bits 62-63 set -> 2.
   if (true) {
     fixed_bitset<64> b;
     b.set(62);
     b.set(63);
     EXPECT_EQ(b.countl_one(), 2U);
   }
-  // All set → 64.
+  // All set -> 64.
   if (true) {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 64; ++i) b.set(i);
     EXPECT_EQ(b.countl_one(), 64U);
   }
-  // Multi-word 128-bit: bits 64-127 set, word 0 empty → 64.
+  // Multi-word 128-bit: bits 64-127 set, word 0 empty -> 64.
   if (true) {
     fixed_bitset<128> b;
     for (std::size_t i = 64; i < 128; ++i) b.set(i);
@@ -1022,24 +1022,24 @@ void FixedBitset_CountBits() {
 
   // --- bit_width: position of highest set bit + 1, or 0 if empty ---
 
-  // Empty → 0.
+  // Empty -> 0.
   if (true) {
     fixed_bitset<64> b;
     EXPECT_EQ(b.bit_width(), 0U);
   }
-  // Bit 0 → 1.
+  // Bit 0 -> 1.
   if (true) {
     fixed_bitset<64> b;
     b.set(0);
     EXPECT_EQ(b.bit_width(), 1U);
   }
-  // Bit 5 → 6.
+  // Bit 5 -> 6.
   if (true) {
     fixed_bitset<64> b;
     b.set(5);
     EXPECT_EQ(b.bit_width(), 6U);
   }
-  // Bit 63 → 64.
+  // Bit 63 -> 64.
   if (true) {
     fixed_bitset<64> b;
     b.set(63);
@@ -1056,13 +1056,13 @@ void FixedBitset_CountBits() {
 }
 
 void FixedBitset_HasSingleBit() {
-  // Empty → false.
+  // Empty -> false.
   if (true) {
     fixed_bitset<64> b;
     EXPECT_FALSE(b.has_single_bit());
   }
 
-  // Each individual bit → true.
+  // Each individual bit -> true.
   if (true) {
     for (std::size_t i = 0; i < 64; ++i) {
       fixed_bitset<64> b;
@@ -1071,7 +1071,7 @@ void FixedBitset_HasSingleBit() {
     }
   }
 
-  // Two bits in the same word → false.
+  // Two bits in the same word -> false.
   if (true) {
     fixed_bitset<64> b;
     b.set(0);
@@ -1079,7 +1079,7 @@ void FixedBitset_HasSingleBit() {
     EXPECT_FALSE(b.has_single_bit());
   }
 
-  // Two bits in different words → false.
+  // Two bits in different words -> false.
   if (true) {
     fixed_bitset<128> b;
     b.set(0);
@@ -1087,14 +1087,14 @@ void FixedBitset_HasSingleBit() {
     EXPECT_FALSE(b.has_single_bit());
   }
 
-  // A single bit in the second word → true.
+  // A single bit in the second word -> true.
   if (true) {
     fixed_bitset<128> b;
     b.set(100);
     EXPECT_TRUE(b.has_single_bit());
   }
 
-  // All set → false.
+  // All set -> false.
   if (true) {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 64; ++i) b.set(i);
@@ -1591,7 +1591,7 @@ void FixedBitset_Constexpr() {
   static_assert(a.countr_zero() == 1);
   static_assert(c.countr_zero() == 3);
   static_assert(b.countl_zero() == 0); // bit 63 is highest
-  static_assert(b.bit_width() == 64);  // highest set bit is 63 → width 64
+  static_assert(b.bit_width() == 64);  // highest set bit is 63 -> width 64
 
   // Iteration in a constexpr context.
   constexpr size_t iter_count = []() {
