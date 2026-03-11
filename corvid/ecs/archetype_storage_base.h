@@ -65,7 +65,7 @@ class archetype_storage_base<CHILD, REG, std::tuple<Cs...>>
     : public storage_base<CHILD, REG> {
 public:
   using storage_base_t = storage_base<CHILD, REG>;
-  using derived_t = typename storage_base_t::derived_t;
+  using derived_t = storage_base_t::derived_t;
   using tuple_t = std::tuple<Cs...>;
 
   // Import all type aliases from `storage_base`.

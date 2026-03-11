@@ -94,7 +94,10 @@ inline namespace existing {
 PRAGMA_GCC_DIAG(push);
 PRAGMA_GCC_IGNORED("-Waddress");
 [[nodiscard]] constexpr bool is_present(const BoolLike auto& p) {
-  return (p) ? true : false;
+  if (p)
+    return true;
+  else
+    return false;
 }
 PRAGMA_GCC_DIAG(pop);
 

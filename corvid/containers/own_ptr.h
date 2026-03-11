@@ -37,11 +37,11 @@ struct get_pointer_type {
 template<typename T, class Deleter>
 struct get_pointer_type<T, Deleter,
     std::void_t<typename std::remove_reference_t<Deleter>::pointer>> {
-  using type = typename std::remove_reference_t<Deleter>::pointer;
+  using type = std::remove_reference_t<Deleter>::pointer;
 };
 
 template<typename T, class Deleter>
-using pointer = typename get_pointer_type<T, Deleter>::type;
+using pointer = get_pointer_type<T, Deleter>::type;
 } // namespace details
 
 // The `own_ptr` class is a replacement for `std::unique_ptr` that takes

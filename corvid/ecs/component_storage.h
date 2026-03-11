@@ -70,7 +70,7 @@ public:
   using base_t::contains;
 
   using component_allocator_type =
-      typename std::allocator_traits<allocator_type>::template rebind_alloc<C>;
+      std::allocator_traits<allocator_type>::template rebind_alloc<C>;
 
   static_assert(std::is_trivially_copyable_v<component_t>,
       "Component type must be trivially copyable");
@@ -360,7 +360,7 @@ private:
   // Grant `storage_base` and its `add_guard` access to the CRTP customization
   // points.
   friend base_t;
-  friend typename base_t::add_guard;
+  friend base_t::add_guard;
 
   // Swap element at `ndx` with the last element and pop. Updates the
   // swapped-in entity's registry location.

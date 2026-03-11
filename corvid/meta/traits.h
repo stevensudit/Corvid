@@ -46,8 +46,8 @@ constexpr bool is_char_v = std::is_same_v<std::remove_cvref_t<T>, char>;
 template<typename T>
 constexpr bool is_char_ptr_v =
     std::is_pointer_v<std::decay_t<T>> &&
-    (std::is_same_v<
-        std::remove_cvref_t<std::remove_pointer_t<std::decay_t<T>>>, char>);
+    std::is_same_v<std::remove_cvref_t<std::remove_pointer_t<std::decay_t<T>>>,
+        char>;
 
 // Determine whether `T` is a `bool`.
 template<typename T>

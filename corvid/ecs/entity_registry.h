@@ -175,7 +175,7 @@ public:
     // As a result, you should not be checking for specific generation values,
     // and should probably not call this method at all.
     [[nodiscard]] size_type gen() const
-    requires(is_versioned_v)
+    requires is_versioned_v
     {
       return gen_;
     }
@@ -233,30 +233,30 @@ public:
     [[nodiscard]] size_type ndx() const noexcept { return ndx_; }
 
     [[nodiscard]] location_t get_underlying() const noexcept
-    requires(is_archetype_v)
+    requires is_archetype_v
     {
       return {store_id_, ndx_};
     }
 
     [[nodiscard]] const store_id_set_t& get_underlying() const noexcept
-    requires(is_component_v)
+    requires is_component_v
     {
       return store_ids_;
     }
 
     [[nodiscard]] store_id_t get_store_id() const noexcept
-    requires(is_archetype_v)
+    requires is_archetype_v
     {
       return store_id_;
     }
 
     [[nodiscard]] store_id_set_t get_store_ids() const noexcept
-    requires(is_component_v)
+    requires is_component_v
     {
       return store_ids_;
     }
 
-    constexpr void set(location_t location) noexcept {
+    constexpr void set(location_t location) {
       ndx_ = location.ndx;
       if constexpr (is_archetype_v) {
         store_id_ = location.store_id;
@@ -274,7 +274,7 @@ public:
       }
     }
 
-    constexpr void reset(location_t location) noexcept {
+    constexpr void reset(location_t location) {
       if constexpr (is_component_v) store_ids_.reset();
       set(location);
     }
@@ -295,7 +295,7 @@ public:
     [[no_unique_address]] maybe_t<store_id_set_t, is_component_v> store_ids_;
     size_type ndx_{*id_t::invalid};
 
-    constexpr location_record(location_t location = location_t{}) noexcept {
+    constexpr location_record(location_t location = location_t{}) {
       set(location);
     }
     friend class entity_registry<T, EID, SID, GEN, OWN_COUNT, REUSE, A>;
@@ -325,7 +325,7 @@ public:
   };
 
   using record_allocator_type =
-      typename std::allocator_traits<A>::template rebind_alloc<record_t>;
+      std::allocator_traits<A>::template rebind_alloc<record_t>;
 
 public:
   entity_registry() = default;
@@ -451,7 +451,7 @@ public:
   // while `store_id_t{0}` indicates that the entity is alive but not assigned
   // to a storage. (Archetype mode only.)
   void set_location(id_t id, location_t location)
-  requires(is_archetype_v)
+  requires is_archetype_v
   {
     assert(is_valid(id));
     if (location.store_id == store_id_t::invalid)
@@ -465,7 +465,7 @@ public:
   // Setting `location.store_id` to `store_id_t::invalid` erases the entity.
   // Returns success. (Archetype mode only.)
   bool set_location(handle_t handle, location_t location)
-  requires(is_archetype_v)
+  requires is_archetype_v
   {
     if (!is_valid(handle)) return false;
     set_location(handle.id_, location);
@@ -476,7 +476,7 @@ public:
   // set), the staging bit is cleared first. `*sid` must be in [1, OWN_COUNT).
   // (Component mode only.)
   void add_location(id_t id, store_id_t sid)
-  requires(is_component_v)
+  requires is_component_v
   {
     assert(is_valid(id));
     assert(*sid >= 1 && *sid < OWN_COUNT);
@@ -493,7 +493,7 @@ public:
   // removal_mode::remove.
   void remove_location(id_t id, store_id_t sid,
       removal_mode mode = removal_mode::preserve)
-  requires(is_component_v)
+  requires is_component_v
   {
     assert(is_valid(id));
     assert(*sid >= 1 && *sid < OWN_COUNT);
@@ -510,7 +510,7 @@ public:
   // Test whether entity is in a given storage. `*sid` must be < OWN_COUNT.
   // (Component mode only.)
   [[nodiscard]] bool is_in_location(id_t id, store_id_t sid) const
-  requires(is_component_v)
+  requires is_component_v
   {
     assert(is_valid(id));
     assert(*sid < OWN_COUNT);
@@ -656,7 +656,7 @@ public:
     // Prefer calling `create_owner` instead.
     handle_owner(entity_registry& reg, location_t location,
         const metadata_t& metadata = {})
-    requires(is_archetype_v)
+    requires is_archetype_v
         : registry_{&reg}, handle_{reg.create_handle(location, metadata)} {}
 
     // Create a new entity and take ownership of it (component mode). Check
@@ -664,7 +664,7 @@ public:
     //
     // Prefer calling `create_owner` instead.
     handle_owner(entity_registry& reg, const metadata_t& metadata = {})
-    requires(is_component_v)
+    requires is_component_v
         : registry_{&reg},
           handle_{reg.create_handle(location_t{store_id_t{}, *id_t::invalid},
               metadata)} {}
@@ -722,14 +722,14 @@ public:
   // Create a new owner for a newly created entity. (Archetype mode only.)
   [[nodiscard]] handle_owner
   create_owner(location_t location, const metadata_t& metadata = {})
-  requires(is_archetype_v)
+  requires is_archetype_v
   {
     return handle_owner{*this, location, metadata};
   }
 
   // Create a new owner for a newly created entity. (Component mode only.)
   [[nodiscard]] handle_owner create_owner(const metadata_t& metadata = {})
-  requires(is_component_v)
+  requires is_component_v
   {
     return handle_owner{*this, metadata};
   }

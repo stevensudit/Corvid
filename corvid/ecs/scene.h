@@ -80,13 +80,13 @@ class scene: public scene_base {
 public:
   using registry_t = REG;
   using storage_ts = std::tuple<STORES...>;
-  using id_t = typename registry_t::id_t;
-  using handle_t = typename registry_t::handle_t;
-  using size_type = typename registry_t::size_type;
-  using store_id_t = typename registry_t::store_id_t;
-  using location_t = typename registry_t::location_t;
-  using metadata_t = typename registry_t::metadata_t;
-  using allocator_type = typename registry_t::allocator_type;
+  using id_t = registry_t::id_t;
+  using handle_t = registry_t::handle_t;
+  using size_type = registry_t::size_type;
+  using store_id_t = registry_t::store_id_t;
+  using location_t = registry_t::location_t;
+  using metadata_t = registry_t::metadata_t;
+  using allocator_type = registry_t::allocator_type;
 
   static constexpr size_t storage_count_v = sizeof...(STORES);
 
@@ -241,7 +241,7 @@ public:
                 using build_result_t = std::invoke_result_t<decltype(build),
                     decltype(std::as_const(src)[id])>;
                 using dst_tuple_t =
-                    typename std::remove_reference_t<decltype(dst)>::tuple_t;
+                    std::remove_reference_t<decltype(dst)>::tuple_t;
                 if constexpr (std::is_same_v<
                                   std::remove_cvref_t<build_result_t>,
                                   dst_tuple_t>)
@@ -293,9 +293,9 @@ public:
               to,
               [&](auto& dst) {
                 using src_tuple_t =
-                    typename std::remove_reference_t<decltype(src)>::tuple_t;
+                    std::remove_reference_t<decltype(src)>::tuple_t;
                 using dst_tuple_t =
-                    typename std::remove_reference_t<decltype(dst)>::tuple_t;
+                    std::remove_reference_t<decltype(dst)>::tuple_t;
                 auto components = [&]<size_t... Is>(
                                       std::index_sequence<Is...>) {
                   return dst_tuple_t{
