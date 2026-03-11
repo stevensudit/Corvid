@@ -876,7 +876,6 @@ void EntityRegistry_IdLimitAdvanced() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
-  using loc_t = reg_t::location_t;
 
   // set_id_limit fails when live IDs exist at or past the new limit.
   if (true) {
@@ -934,7 +933,6 @@ void EntityRegistry_FifoAdvanced() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
-  using loc_t = reg_t::location_t;
 
   // Interleaved erase/create: each create pops the oldest free.
   if (true) {
@@ -996,6 +994,61 @@ void EntityRegistry_FifoAdvanced() {
     EXPECT_EQ(r.create_id({}, 100), id_t{0});
     EXPECT_EQ(r.create_id({}, 200), id_t{1});
     EXPECT_EQ(r.create_id({}, 300), id_t{2});
+  }
+}
+
+void EntityRegistry_LifoAdvanced() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int, entity_id_t, store_id_t,
+      generation_scheme::versioned, 1, reuse_order::lifo>;
+  using id_t = reg_t::id_t;
+
+  static_assert(!reg_t::is_fifo_v);
+  static_assert(reg_t::is_lifo_v);
+
+  // LIFO reuse: most recently freed is reallocated first.
+  if (true) {
+    reg_t r;
+    (void)r.create_id({}, 10); // id 0
+    (void)r.create_id({}, 20); // id 1
+    (void)r.create_id({}, 30); // id 2
+    r.erase(id_t{0});          // stack: [0]
+    r.erase(id_t{1});          // stack: [1, 0]
+    // pops 1 (most recently freed), then 0
+    EXPECT_EQ(r.create_id({}, 100), id_t{1});
+    EXPECT_EQ(r.create_id({}, 200), id_t{0});
+    // All live; next gets fresh ID.
+    EXPECT_EQ(r.create_id({}, 300), id_t{3});
+  }
+
+  // LIFO erase order preserved across interleaving.
+  if (true) {
+    reg_t r;
+    (void)r.create_id({}, 10); // id 0
+    (void)r.create_id({}, 20); // id 1
+    (void)r.create_id({}, 30); // id 2
+    (void)r.create_id({}, 40); // id 3
+    (void)r.create_id({}, 50); // id 4
+    r.erase(id_t{2});
+    r.erase(id_t{0});
+    r.erase(id_t{3});
+    // LIFO pops in reverse erase order: 3, 0, 2
+    EXPECT_EQ(r.create_id({}, 100), id_t{3});
+    EXPECT_EQ(r.create_id({}, 200), id_t{0});
+    EXPECT_EQ(r.create_id({}, 300), id_t{2});
+  }
+
+  // After clear(), free list is rebuilt in LIFO-scan order (highest ID first).
+  if (true) {
+    reg_t r;
+    (void)r.create_id({}, 10); // id 0
+    (void)r.create_id({}, 20); // id 1
+    (void)r.create_id({}, 30); // id 2
+    r.clear();
+    // Scanning forward and pushing to head yields reverse order: 2, 1, 0.
+    EXPECT_EQ(r.create_id({}, 100), id_t{2});
+    EXPECT_EQ(r.create_id({}, 200), id_t{1});
+    EXPECT_EQ(r.create_id({}, 300), id_t{0});
   }
 }
 
@@ -1232,7 +1285,6 @@ void EntityRegistry_MetadataCleanup() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
-  using loc_t = reg_t::location_t;
 
   // Metadata is cleared on erase; re-creation with default gets 0, not stale.
   if (true) {
@@ -1284,7 +1336,6 @@ void EntityRegistry_EraseIfPredicate() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
-  using loc_t = reg_t::location_t;
 
   // Predicate is only called for valid (live) records, not dead ones.
   if (true) {
@@ -1312,7 +1363,6 @@ void EntityRegistry_IdLimitFreeList() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
-  using loc_t = reg_t::location_t;
 
   // Reducing limit trims free-list entries while interior live records remain.
   if (true) {
@@ -2130,12 +2180,12 @@ MAKE_TEST_LIST(EntityRegistry_Basic, EntityRegistry_Handle,
     EntityRegistry_Fifo, EntityRegistry_Clear, EntityRegistry_Reserve,
     EntityRegistry_IdLimit, EntityRegistry_NoGen, EntityRegistry_VoidMeta,
     EntityRegistry_VoidNoGen, EntityRegistry_IdLimitAdvanced,
-    EntityRegistry_FifoAdvanced, EntityRegistry_EdgeCases,
-    EntityRegistry_MetadataCleanup, EntityRegistry_EraseIfPredicate,
-    EntityRegistry_IdLimitFreeList, EntityRegistry_ReservePrefillExisting,
-    EntityRegistry_HandleOwner, EntityRegistry_GetAllocator,
-    EntityRegistry_ComponentMode_Basic, EntityRegistry_ComponentMode_Bitmap,
-    EntityRegistry_ComponentMode_Fifo,
+    EntityRegistry_FifoAdvanced, EntityRegistry_LifoAdvanced,
+    EntityRegistry_EdgeCases, EntityRegistry_MetadataCleanup,
+    EntityRegistry_EraseIfPredicate, EntityRegistry_IdLimitFreeList,
+    EntityRegistry_ReservePrefillExisting, EntityRegistry_HandleOwner,
+    EntityRegistry_GetAllocator, EntityRegistry_ComponentMode_Basic,
+    EntityRegistry_ComponentMode_Bitmap, EntityRegistry_ComponentMode_Fifo,
     EntityRegistry_ComponentMode_HandleOwner,
     EntityRegistry_ComponentMode_NoGen, EntityRegistry_ComponentMode_VoidMeta);
 

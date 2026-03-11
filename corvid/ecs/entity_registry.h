@@ -81,18 +81,23 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 //              lookup. Any multiple of 8 >= 8 selects component mode, where
 //              `record_t` stores a `location_record{store_ids,ndx}`, where
 //              `store_ids` is a `fixed_bitset<OWN_COUNT>` presence bitmap.
+//  REUSE     - `reuse_order::fifo` (default) or `reuse_order::lifo`,
+//              controlling whether freed IDs are reused in first-in-first-out
+//              or last-in-first-out order.
 //  A         - Allocator for the metadata type. Rebound internally for
 //              record storage.
 template<typename T = void,
     sequence::SequentialEnum EID = id_enums::entity_id_t,
     sequence::SequentialEnum SID = id_enums::store_id_t,
     generation_scheme GEN = generation_scheme::versioned, size_t OWN_COUNT = 1,
-    class A = std::allocator<T>>
+    reuse_order REUSE = reuse_order::fifo, class A = std::allocator<T>>
 class entity_registry {
 public:
   static constexpr bool is_versioned_v = (GEN == generation_scheme::versioned);
   static constexpr bool is_archetype_v = (OWN_COUNT == 1);
   static constexpr bool is_component_v = !is_archetype_v;
+  static constexpr bool is_fifo_v = (REUSE == reuse_order::fifo);
+  static constexpr bool is_lifo_v = !is_fifo_v;
   static constexpr size_t bitmap_bits_v = is_component_v ? OWN_COUNT : 1;
 
   using metadata_t = maybe_void_t<T>;
@@ -180,7 +185,7 @@ public:
     [[no_unique_address]] gen_t gen_{*id_t::invalid};
 
     explicit handle_t(id_t id, size_type gen) : id_{id}, gen_{gen} {}
-    friend class entity_registry<T, EID, SID, GEN, OWN_COUNT, A>;
+    friend class entity_registry<T, EID, SID, GEN, OWN_COUNT, REUSE, A>;
   };
 
   // Single location type.
@@ -310,7 +315,7 @@ public:
     constexpr location_record(location_t location = location_t{}) noexcept {
       set(location);
     }
-    friend class entity_registry<T, EID, SID, GEN, OWN_COUNT, A>;
+    friend class entity_registry<T, EID, SID, GEN, OWN_COUNT, REUSE, A>;
   };
 
   static constexpr const location_record invalid_location;
@@ -609,38 +614,25 @@ public:
   void clear(
       deallocation_policy policy = deallocation_policy::preserve) noexcept {
     living_count_ = 0;
+    free_head_ = id_t::invalid;
+    if constexpr (is_fifo_v) free_tail_ = id_t::invalid;
     if (policy == deallocation_policy::release) {
       records_.clear();
       records_.shrink_to_fit();
-      fifo_head_ = id_t::invalid;
-      fifo_tail_ = id_t::invalid;
       return;
     }
-    // Erase all records, relinking them into the free list. This is faster
-    // than clearing and rebuilding the free list.
-    //
-    // Note: We could optimize this by special-casing the first element, but
-    // this is not going to be measurably faster. Not only is this function
-    // outside of the hot path, but we'd only get one branch misprediction out
-    // of it.
+    // Erase all records, relinking them into the free list.
     const auto id_end = records_.size_as_enum();
-    auto prev = id_t::invalid;
     for (id_t id{}; id < id_end; ++id) {
       auto& rec = records_[id];
       if constexpr (is_archetype_v) {
         rec.location.store_id_ = store_id_t::invalid;
-        rec.location.ndx_ = *id_t::invalid;
       } else {
         rec.location.store_ids_.reset();
       }
       if constexpr (is_versioned_v) ++rec.gen;
-      if (prev != id_t::invalid)
-        set_next_free(prev, *id);
-      else
-        fifo_head_ = id;
-      prev = id;
+      push_free(id);
     }
-    fifo_tail_ = prev;
   }
 
   // Reduce memory usage to fit current size.
@@ -659,7 +651,7 @@ public:
     if (prefill == allocation_policy::eager && new_cap > records_.size()) {
       const auto old_size = records_.size();
       records_.resize(new_cap);
-      for (size_type i = old_size; i < new_cap; ++i) append_to_tail(id_t{i});
+      for (size_type i = old_size; i < new_cap; ++i) push_free(id_t{i});
     }
   }
 
@@ -816,12 +808,13 @@ private:
       return new_id;
     }
 
-    // Pick the next free ID from the head of the FIFO free list.
-    const auto new_id = fifo_head_;
+    // Pop the next free ID from the head of the free list.
+    const auto new_id = free_head_;
     assert(new_id != id_t::invalid);
     const auto next_ndx = get_next_free(new_id);
-    fifo_head_ = id_t{next_ndx};
-    if (fifo_head_ == id_t::invalid) fifo_tail_ = id_t::invalid;
+    free_head_ = id_t{next_ndx};
+    if constexpr (is_fifo_v)
+      if (free_head_ == id_t::invalid) free_tail_ = id_t::invalid;
     ++living_count_;
     return new_id;
   }
@@ -836,25 +829,32 @@ private:
     }
   }
 
-  // Push an already-invalid record onto the tail of the FIFO free list.
-  void append_to_tail(id_t id) {
-    set_next_free(id, *id_t::invalid);
-    if (fifo_tail_ != id_t::invalid)
-      set_next_free(fifo_tail_, *id);
-    else
-      fifo_head_ = id;
-    fifo_tail_ = id;
+  // Push a dead record onto the free list.
+  // FIFO: appends to tail, maximizing time before ID reuse.
+  // LIFO: pushes to head, minimizing time before ID reuse.
+  void push_free(id_t id) {
+    if constexpr (is_fifo_v) {
+      set_next_free(id, *id_t::invalid);
+      if (free_tail_ != id_t::invalid)
+        set_next_free(free_tail_, *id);
+      else
+        free_head_ = id;
+      free_tail_ = id;
+    } else {
+      set_next_free(id, *free_head_);
+      free_head_ = id;
+    }
   }
 
   // Walk `records_` and rebuild the free list from scratch.
   void rebuild_free_list() {
-    fifo_head_ = id_t::invalid;
-    fifo_tail_ = id_t::invalid;
+    free_head_ = id_t::invalid;
+    if constexpr (is_fifo_v) free_tail_ = id_t::invalid;
     const size_type n = records_.size();
     for (size_type i = 0; i < n; ++i) {
       const id_t id = id_t{i};
       if (is_alive(id)) continue;
-      append_to_tail(id);
+      push_free(id);
     }
   }
 
@@ -870,8 +870,7 @@ private:
     // allocation. If there is any security concern, the user should wipe the
     // metadata prior to erasing the record.
 
-    // Push onto tail of free list (FIFO).
-    append_to_tail(id);
+    push_free(id);
     --living_count_;
     return true;
   }
@@ -883,13 +882,15 @@ private:
   id_container_t records_;
   size_type living_count_{};
 
-  // FIFO free list for recycling IDs. When empty, both are `id_t::invalid`.
-  // Otherwise, `fifo_head_` is the next free ID to allocate, and `fifo_tail_`
-  // is the most recently freed ID. Free IDs are linked via
-  // `record_t::location.ndx` in both modes.
-
-  // TODO: Do we need to make this go away in LIFO mode?
-  id_t fifo_head_{id_t::invalid};
-  id_t fifo_tail_{id_t::invalid};
+  // Free list for recycling IDs. `free_head_` is the next free ID to
+  // allocate; `id_t::invalid` means empty. Free IDs are linked via
+  // `record_t::location.ndx_` in both archetype and component modes.
+  //
+  // FIFO: `free_tail_` is the last freed ID (queue tail); new IDs are
+  // appended there, maximizing the interval before reuse.
+  // LIFO: `free_tail_` is absent; new IDs are pushed onto `free_head_`,
+  // giving stack (most-recently-freed-first) reuse order.
+  id_t free_head_{id_t::invalid};
+  [[no_unique_address]] maybe_t<id_t, is_fifo_v> free_tail_{id_t::invalid};
 };
 }}} // namespace corvid::ecs::entity_registries
