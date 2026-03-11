@@ -210,7 +210,7 @@ Implementation Steps (in order)
    ownership LOCATION and N_BITS template parameters; wire in fixed_bitset for
    component mode via maybe_t. As part of this, move the unit tests for this file out from ecs_test.cpp and into entity_registry_test.cpp (COMPLETED)
 4. Collapse storage_base into archetype_storage_base (merge the two files,
-   flatten the CRTP chain)
+   flatten the CRTP chain) (COMPLETED)
 5. Rename component_storage -> mono_archetype_storage
 6. Rename scene -> archetype_scene; update ecs.h umbrella
 7. Implement component_storage_base and component_storage

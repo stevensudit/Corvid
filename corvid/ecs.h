@@ -21,8 +21,7 @@
 //  entity_ids                - ID and handle types
 //  id_container              - ECS ID-keyed flat vector (no free list)
 //  stable_ids                - ID-keyed dense storage
-//  storage_base              - CRTP base for all ECS storage classes
-//  archetype_storage_base    - CRTP base for archetype storage classes
+//  archetype_storage_base    - CRTP base for all archetype storage classes
 //  archetype_storage         - SoA multi-component archetype storage
 //  chunked_archetype_storage - AoSoA multi-component archetype storage
 //  entity_registry           - Entity lifecycle and location tracking
@@ -32,7 +31,6 @@
 #include "ecs/entity_ids.h"
 #include "ecs/id_container.h"
 #include "ecs/stable_ids.h"
-#include "ecs/storage_base.h"
 #include "ecs/archetype_storage_base.h"
 #include "ecs/archetype_storage.h"
 #include "ecs/chunked_archetype_storage.h"

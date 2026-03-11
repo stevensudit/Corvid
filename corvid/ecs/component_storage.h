@@ -20,10 +20,11 @@
 #include <iterator>
 #include <stdexcept>
 #include <type_traits>
+#include <tuple>
 #include <utility>
 #include <vector>
 
-#include "storage_base.h"
+#include "archetype_storage_base.h"
 
 namespace corvid { inline namespace ecs { inline namespace component_storages {
 
@@ -34,10 +35,10 @@ namespace corvid { inline namespace ecs { inline namespace component_storages {
 // in this class's vector, enabling O(1) access by entity ID while
 // centralizing the management of these IDs.
 //
-// Inherits registry/ID plumbing from `storage_base`. Provides a contiguous
-// iterator (the underlying `components_` vector is a plain `std::vector`),
-// a `row_view` with both `component<T>()` and implicit `const component_t&`
-// conversion for backward compatibility, and a component-first `erase_if`.
+// Derives from `archetype_storage_base` with a single-element tuple. Provides
+// a contiguous iterator (the underlying `components_` vector is a plain
+// `std::vector`), a `row_view` with both `component<T>()` and implicit
+// `const component_t&` conversion, and a component-first `erase_if`.
 //
 // Template parameters:
 //  REG - `entity_registry` instantiation. Provides types.
@@ -47,13 +48,14 @@ namespace corvid { inline namespace ecs { inline namespace component_storages {
 //        different types and can coexist in the same `scene<>` tuple.
 template<typename REG, typename C, typename TAG = void>
 class component_storage final
-    : public storage_base<component_storage<REG, C, TAG>, REG> {
-  using base_t = storage_base<component_storage<REG, C, TAG>, REG>;
+    : public archetype_storage_base<component_storage<REG, C, TAG>, REG,
+          std::tuple<C>> {
+  using base_t = archetype_storage_base<component_storage<REG, C, TAG>, REG,
+      std::tuple<C>>;
 
 public:
   using tag_t = TAG;
   using component_t = C;
-  using tuple_t = std::tuple<C>;
 
   using typename base_t::registry_t;
   using typename base_t::id_t;
@@ -65,6 +67,7 @@ public:
   using typename base_t::allocator_type;
   using typename base_t::id_allocator_t;
   using typename base_t::id_vector_t;
+  using typename base_t::tuple_t;
   using base_t::size;
   using base_t::clear;
   using base_t::contains;
@@ -357,10 +360,43 @@ private:
   using base_t::limit_;
   using base_t::ids_;
 
-  // Grant `storage_base` and its `add_guard` access to the CRTP customization
-  // points.
+  // Grant `archetype_storage_base` and its nested types access to the CRTP
+  // customization points.
   friend base_t;
   friend base_t::add_guard;
+  friend base_t::row_lens;
+  friend base_t::row_view;
+
+  // Append one component row (called by the base's `add(id_t, ...)`).
+  template<typename... Args>
+  void do_add_components(Args&&... args) {
+    components_.push_back(std::forward<Args>(args)...);
+  }
+
+  // Access the component by type (called by `row_wrapper::component<C>()`
+  // and `erase_if_component<C>()`).
+  template<typename T>
+  [[nodiscard]] decltype(auto)
+  do_get_component(this auto& self, size_type ndx) noexcept {
+    static_assert(std::is_same_v<T, component_t>,
+        "component_storage only has one component type");
+    return self.components_[ndx];
+  }
+
+  // Access the component by zero-based tuple index (must be 0).
+  template<size_t Index>
+  [[nodiscard]] decltype(auto)
+  do_get_component_by_index(this auto& self, size_type ndx) noexcept {
+    static_assert(Index == 0,
+        "component_storage only has one component (index 0)");
+    return self.components_[ndx];
+  }
+
+  // Return all components as a single-element tuple of references.
+  [[nodiscard]] decltype(auto)
+  do_make_components_tuple(this auto& self, size_type ndx) noexcept {
+    return std::tuple<decltype(self.components_[ndx])>{self.components_[ndx]};
+  }
 
   // Swap element at `ndx` with the last element and pop. Updates the
   // swapped-in entity's registry location.
@@ -377,11 +413,12 @@ private:
     ids_.pop_back();
   }
 
-  // Clear all component data (called by `storage_base::do_remove_erase_all`).
+  // Clear all component data (called by
+  // `archetype_storage_base::do_drop_all`).
   void do_clear_storage() { components_.clear(); }
 
   // Roll back component storage to `new_size` (called by `add_guard` on
-  // exception, if used by a derived add path).
+  // exception).
   void do_resize_storage(size_type new_size) { components_.resize(new_size); }
 
 private:
