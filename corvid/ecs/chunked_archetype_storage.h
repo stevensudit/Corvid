@@ -89,7 +89,7 @@ public:
   using typename base_t::const_iterator;
   using base_t::size;
   using base_t::clear;
-  using storage_base_t = typename base_t::storage_base_t;
+  using storage_base_t = base_t::storage_base_t;
 
   using tag_t = TAG;
 
@@ -105,7 +105,7 @@ public:
   // Each chunk holds chunk_size_v slots for every component type.
   using chunk_tuple_t = std::tuple<chunk_t<Cs>...>;
 
-  using chunk_allocator_t = typename std::allocator_traits<
+  using chunk_allocator_t = std::allocator_traits<
       allocator_type>::template rebind_alloc<chunk_tuple_t>;
 
   using chunk_vector_t = std::vector<chunk_tuple_t, chunk_allocator_t>;
@@ -180,8 +180,8 @@ private:
   // Grant the base chain and row wrappers access to private customization
   // points.
   friend base_t;
-  friend typename base_t::storage_base_t;
-  friend typename base_t::add_guard;
+  friend base_t::storage_base_t;
+  friend base_t::add_guard;
   friend row_lens;
   friend row_view;
 
@@ -267,7 +267,7 @@ private:
     return std::apply(
         [&](auto&&... arrs) {
           return std::tuple<decltype(arrs[element_ndx])&...>{
-              arrs[element_ndx]...};
+              arrs[element_ndx]...}; // NOLINT(modernize-type-traits)
         },
         self.chunks_[chunk_ndx]);
     // NOLINTEND(clang-analyzer-core.NullDereference)

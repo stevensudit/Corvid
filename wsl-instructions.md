@@ -13,12 +13,12 @@ gh auth status
 ```
 wget https://apt.llvm.org/llvm.sh
 chmod +x llvm.sh
-sudo ./llvm.sh 21
+sudo ./llvm.sh 22
 sudo apt update
-sudo apt install -y clang-21 lldb-21 lld-21 clang-format-21 clang-tidy-21 cmake ninja-build
-sudo apt-get install -y libc++-21-dev libc++abi-21-dev
-sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-21 100 \
---slave /usr/bin/clang++ clang++ /usr/bin/clang++-21
+sudo apt install -y clang-22 lldb-22 lld-22 clang-format-22 clang-tidy-22 cmake ninja-build
+sudo apt-get install -y libc++-22-dev libc++abi-22-dev
+sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-22 100 \
+--slave /usr/bin/clang++ clang++ /usr/bin/clang++-22
 ```
 8. In the repo, run `code .`, which brings up VSCode remotely.
 9. Run `./cleanbuild.sh tidy` to build the tests with clang-tidy enabled. You can specify `libstdcpp` or `libcxx` as the first argument to choose the standard library.

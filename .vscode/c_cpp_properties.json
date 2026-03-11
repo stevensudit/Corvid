@@ -3,19 +3,19 @@
         {
             "name": "Linux",
             "intelliSenseMode": "clang-x64",
-            "compilerPath": "/usr/bin/clang-21",
+            "compilerPath": "/usr/bin/clang-22",
             "cStandard": "c11",
             "cppStandard": "c++23",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/usr/lib/llvm-21/include",
+                "/usr/lib/llvm-22/include",
                 "/usr/include"
             ],
             "defines": [],
             "browse": {
                 "path": [
                     "${workspaceFolder}",
-                    "/usr/lib/llvm-21/include",
+                    "/usr/lib/llvm-22/include",
                     "/usr/include"
                 ],
                 "limitSymbolsToIncludedHeaders": true,
@@ -23,6 +23,7 @@
             },
             "compilerArgs": [
                 "-stdlib=libc++",
+                "-march=native",
                 "-Wall",
                 "-Wextra",
                 "-Werror"

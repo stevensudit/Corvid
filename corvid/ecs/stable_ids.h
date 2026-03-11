@@ -95,8 +95,8 @@ public:
 
 private:
   using data_allocator_type = ALLOCATOR;
-  using index_allocator_type = typename std::allocator_traits<
-      ALLOCATOR>::template rebind_alloc<size_type>;
+  using index_allocator_type =
+      std::allocator_traits<ALLOCATOR>::template rebind_alloc<size_type>;
 
 public:
   static_assert(*id_t::invalid ==
@@ -135,7 +135,7 @@ public:
 
     // Note: While equality/inequality is guaranteed, the precise value is not.
     [[nodiscard]] size_type gen() const
-    requires(is_versioned_v)
+    requires is_versioned_v
     {
       return gen_;
     }
@@ -156,7 +156,7 @@ private:
   };
 
   using slot_allocator_type =
-      typename std::allocator_traits<ALLOCATOR>::template rebind_alloc<slot_t>;
+      std::allocator_traits<ALLOCATOR>::template rebind_alloc<slot_t>;
 
   static_assert(std::is_trivially_copyable_v<handle_t>);
   static_assert(sizeof(handle_t) <= 16);
@@ -600,7 +600,7 @@ private:
   // Links free entries in position order; prior free-order is not preserved
   // (nor is it meaningful after a bulk operation).
   void rebuild_fifo_list() noexcept
-  requires(is_fifo_v)
+  requires is_fifo_v
   {
     const auto live = data_.size();
     const auto total = reverse_.size();

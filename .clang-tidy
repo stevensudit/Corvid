@@ -4,11 +4,13 @@ Checks: >
   -clang-analyzer-core.StackAddressEscape,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
+  -bugprone-invalid-enum-default-initialization,
   modernize-*,
   -modernize-concat-nested-namespaces,
   -modernize-use-trailing-return-type,
   -modernize-avoid-c-arrays,
   -modernize-use-designated-initializers,
+  -modernize-avoid-c-style-cast,
   performance-*,
   readability-*,
   -readability-identifier-length,
@@ -25,6 +27,7 @@ Checks: >
   -readability-else-after-return,
   -readability-redundant-access-specifiers,
   -readability-avoid-unconditional-preprocessor-if,
+  -readability-inconsistent-ifelse-braces,
   misc-unused-parameters
 WarningsAsErrors: ''
 HeaderFilterRegex: 'corvid/.*'

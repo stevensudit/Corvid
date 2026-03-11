@@ -240,13 +240,13 @@ class intern_table
 public:
   using pointer = std::shared_ptr<intern_table>;
   using const_pointer = std::shared_ptr<const intern_table>;
-  using value_t = typename TR::value_t;
-  using arena_value_t = typename TR::arena_value_t;
-  using id_t = typename TR::id_t;
-  using interned_value_t = typename TR::interned_value_t;
-  using key_t = typename TR::key_t;
-  using lookup_by_id_t = typename TR::lookup_by_id_t;
-  using lookup_by_value_t = typename TR::lookup_by_value_t;
+  using value_t = TR::value_t;
+  using arena_value_t = TR::arena_value_t;
+  using id_t = TR::id_t;
+  using interned_value_t = TR::interned_value_t;
+  using key_t = TR::key_t;
+  using lookup_by_id_t = TR::lookup_by_id_t;
+  using lookup_by_value_t = TR::lookup_by_value_t;
   // Safety: arena_value_t and value_t must be layout-compatible (same size and
   // memory layout) for the reinterpret_cast in get/intern/find_by_id to be
   // valid. For strings, arena_string is std::basic_string with a different

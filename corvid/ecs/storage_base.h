@@ -51,15 +51,15 @@ class storage_base {
 public:
   using derived_t = CHILD;
   using registry_t = REG;
-  using id_t = typename registry_t::id_t;
-  using handle_t = typename registry_t::handle_t;
-  using size_type = typename registry_t::size_type;
-  using store_id_t = typename registry_t::store_id_t;
-  using location_t = typename registry_t::location_t;
-  using metadata_t = typename registry_t::metadata_t;
-  using allocator_type = typename registry_t::allocator_type;
-  using id_allocator_t = typename std::allocator_traits<
-      allocator_type>::template rebind_alloc<id_t>;
+  using id_t = registry_t::id_t;
+  using handle_t = registry_t::handle_t;
+  using size_type = registry_t::size_type;
+  using store_id_t = registry_t::store_id_t;
+  using location_t = registry_t::location_t;
+  using metadata_t = registry_t::metadata_t;
+  using allocator_type = registry_t::allocator_type;
+  using id_allocator_t =
+      std::allocator_traits<allocator_type>::template rebind_alloc<id_t>;
   using id_vector_t = std::vector<id_t, id_allocator_t>;
 
   // Check whether an entity is in this storage, by ID.

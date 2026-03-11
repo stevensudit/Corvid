@@ -79,7 +79,7 @@ void PidControllerTest() {
     pid_controller pid(0.0, 0.0, 1.0, 0.5);    // D-only, filtered
     double first = pid.update(0.0, 10.0, 0.0); // First call, no D yet
     EXPECT_NEAR(first, 0.0, eps);              // No change, no previous error
-    // Error jump from -10 to 0 → D spike
+    // Error jump from -10 to 0 -> D spike
     double out = pid.update(0.0, 0.0, 0.1);
     // raw D = (0 - (-10)) / 0.1 = 100, but filtered: 0.5 * 0 + 0.5 * 100 = 50
     EXPECT_NEAR(out, 50.0, eps);
@@ -88,7 +88,7 @@ void PidControllerTest() {
     // Saturation and windup
     // Aggressive gains, clamped
     pid_controller pid(100.0, 50.0, 0.0, 0.0, -10.0, 10.0);
-    double first = pid.update(1.0, -1.0, 0.0); // Error = 2 → unclamped = huge
+    double first = pid.update(1.0, -1.0, 0.0); // Error = 2 -> unclamped = huge
     EXPECT_NEAR(first, 10.0, eps);             // Clamped at max
     // Integral term would grow, but shouldn't
     double second = pid.update(1.0, -1.0, 1.0);

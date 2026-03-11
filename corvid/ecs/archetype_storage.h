@@ -91,11 +91,11 @@ public:
   using typename base_t::const_iterator;
   using base_t::size;
   using base_t::clear;
-  using storage_base_t = typename base_t::storage_base_t;
+  using storage_base_t = base_t::storage_base_t;
 
   template<typename T>
   using component_allocator_t =
-      typename std::allocator_traits<allocator_type>::template rebind_alloc<T>;
+      std::allocator_traits<allocator_type>::template rebind_alloc<T>;
 
   template<typename T>
   using component_vector_t = std::vector<T, component_allocator_t<T>>;
@@ -172,8 +172,8 @@ private:
   // Grant the base chain and row wrappers access to private customization
   // points.
   friend base_t;
-  friend typename base_t::storage_base_t;
-  friend typename base_t::add_guard;
+  friend base_t::storage_base_t;
+  friend base_t::add_guard;
   friend row_lens;
   friend row_view;
 

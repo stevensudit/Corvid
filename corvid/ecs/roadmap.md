@@ -57,22 +57,18 @@ id_container<T, id_t>
 
 entity_registry evolution
 --------------------------
-Add a location_scheme template parameter:
-  size_type living_count_ - distinguishes between the number of living
-     entities and the size of the id_container. This is needed because
-     we don't resize downward when removing; we leave an empty slot open
-     and reuse it later.
-  location_scheme::archetype (default) — record_t holds location_t
-    {store_id, ndx}, as today.
-  location_scheme::component — record_t holds a fixed_bitset<N_BITS>
-    presence bitmap instead of location_t. Each bit corresponds to a
-    store_id (bit i = store_id_t{i+1} is occupied). No ndx stored here;
-    ndx lookup goes through component_storage_base's own id_container.
-    N_BITS is a second new template parameter, defaulting to 64.
+[DONE] Added OWN_COUNT template parameter to select registry mode:
+  OWN_COUNT == 1 (default, archetype mode) — record_t holds location_t
+    {store_id, ndx}, as before.
+  OWN_COUNT any multiple of 8 >= 8 (component mode) — record_t holds a
+    fixed_bitset<OWN_COUNT> presence bitmap instead of location_t. Each bit
+    corresponds to a store_id (bit i = store_id_t{i} is occupied). No ndx
+    stored here; ndx lookup goes through component_storage_base's own
+    id_container. OWN_COUNT also sets the bitmap size.
 
 Presence bitmap semantics:
-  - "Does entity E have component in store S?" → bitmap.test(*S - 1), O(1)
-  - "Which stores does entity E occupy?" → iterate set bits, O(popcount)
+  - "Does entity E have component in store S?" -> bitmap.test(*S), O(1)
+  - "Which stores does entity E occupy?" -> iterate set bits, O(popcount)
   - component_scene::erase(id) fans out only to stores with set bits, not
     all stores.
   - component_scene::view<Cs...>() intersects bitmaps to find candidates.
@@ -83,27 +79,27 @@ first confirming presence via the bitmap, so no slot sentinel is needed.
 Archetype Hierarchy Refactor (rename only, no behavior change)
 ---------------------------------------------------------------
 - storage_base.h: absorbed into archetype_storage_base.h. The two-level
-  CRTP chain (storage_base → archetype_storage_base) collapses into a
+  CRTP chain (storage_base -> archetype_storage_base) collapses into a
   single archetype_storage_base, since the only reason storage_base was a
   separate, narrower class was to serve as a shared root for both
   component_storage and the archetype chain. That reason is gone.
-- component_storage → mono_archetype_storage. Naming rationale: it is an
+- component_storage -> mono_archetype_storage. Naming rationale: it is an
   archetype with a single component type (mono = one), consistent with the
   archetype_storage / chunked_archetype_storage family.
-- scene → archetype_scene.
+- scene -> archetype_scene.
 
 Storage / Scene Compatibility
 ------------------------------
 The two storage families are not interchangeable. Each is coupled to its
 scene type through the registry specialization they share:
 
-  archetype_scene  ←→  archetype-mode registry (location_scheme::archetype)
-                   ←→  archetype_storage_base-derived storages
+  archetype_scene  ←->  archetype-mode registry (ownership::unique)
+                   ←->  archetype_storage_base-derived storages
                          (archetype_storage, chunked_archetype_storage,
                           mono_archetype_storage)
 
-  component_scene  ←→  component-mode registry (location_scheme::component)
-                   ←→  component_storage_base-derived storages
+  component_scene  ←->  component-mode registry (ownership::shared)
+                   ←->  component_storage_base-derived storages
                          (component_storage, future grouped variants)
 
 Mixing them is not possible: archetype storages require record_t.location
@@ -114,7 +110,7 @@ on the shared registry_t.
 
 Reverse-Index Policy
 ---------------------
-component_storage_base requires an entity_id → packed_ndx reverse index for
+component_storage_base requires an entity_id -> packed_ndx reverse index for
 O(1) remove and direct access. Three strategies are supported, selected per
 component at compile time. A single component_scene may mix them freely.
 
@@ -160,12 +156,12 @@ component_storage_base<CHILD, REG, IDX = flat_sparse_index<...>>
   reverse index instead of registry location. Members:
     store_id_t store_id_
     registry_t* registry_        — used for ID validity and bitmap updates only
-    vector<id_t> ids_             — dense-to-ID (ndx → entity_id)
-    IDX reverse_index_            — entity_id → ndx (policy type from above)
+    vector<id_t> ids_             — dense-to-ID (ndx -> entity_id)
+    IDX reverse_index_            — entity_id -> ndx (policy type from above)
   When an entity is removed (swap-and-pop), the moved entity's ndx is
   updated in reverse_index_, and the registry bitmap bit for this store is
   cleared. No entity lifetime ownership: entities are not "staged" or
-  uniquely owned. REG must be specialized with location_scheme::component.
+  uniquely owned. REG must be specialized with ownership::shared.
 
 component_storage<REG, C, TAG, IDX = flat_sparse_index<...>>
   Derives from component_storage_base. Concrete single-component storage.
@@ -211,12 +207,12 @@ Implementation Steps (in order)
 1. Add fixed_bitset<N_BITS> to containers/ (COMPLETED)
 2. Add id_container<T, id_t> to containers/, factored from entity_registry (COMPLETED)
 3. Refactor entity_registry to use id_container internally; add
-   location_scheme and N_BITS template parameters; wire in fixed_bitset for
-   component mode via maybe_t. As part of this, move the unit tests for this file out from ecs_test.cpp and into entity_registry_test.cpp
+   ownership LOCATION and N_BITS template parameters; wire in fixed_bitset for
+   component mode via maybe_t. As part of this, move the unit tests for this file out from ecs_test.cpp and into entity_registry_test.cpp (COMPLETED)
 4. Collapse storage_base into archetype_storage_base (merge the two files,
    flatten the CRTP chain)
-5. Rename component_storage → mono_archetype_storage
-6. Rename scene → archetype_scene; update ecs.h umbrella
+5. Rename component_storage -> mono_archetype_storage
+6. Rename scene -> archetype_scene; update ecs.h umbrella
 7. Implement component_storage_base and component_storage
 8. Implement component_scene
 9. Add view<Cs...>() to archetype_scene (entity_view / entity_lens)

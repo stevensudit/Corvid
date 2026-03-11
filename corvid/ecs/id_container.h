@@ -117,6 +117,8 @@ public:
 
   void resize(size_type count) { data_.resize(count); }
   void resize(size_type count, const value_type& value) {
+    const auto new_size = static_cast<id_t>(count);
+    if (limit_ < new_size) limit_ = new_size;
     data_.resize(count, value);
   }
 

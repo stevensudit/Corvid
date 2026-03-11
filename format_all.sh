@@ -5,9 +5,9 @@
 # Fail fast.
 set -e
 
-# Locate clang-format, preferring versioned clang-format-21 if available
-if command -v clang-format-21 &> /dev/null; then
-  CLANG_FORMAT="clang-format-21"
+# Locate clang-format, preferring versioned clang-format-22 if available
+if command -v clang-format-22 &> /dev/null; then
+  CLANG_FORMAT="clang-format-22"
 elif command -v clang-format &> /dev/null; then
   CLANG_FORMAT="clang-format"
 else

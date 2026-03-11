@@ -26,9 +26,10 @@
 #include <type_traits>
 #include <utility>
 
-#include "../containers/enum_vector.h"
+#include "../containers/fixed_bitset.h"
 #include "../meta/maybe.h"
 #include "entity_ids.h"
+#include "id_container.h"
 
 namespace corvid { inline namespace ecs { inline namespace entity_registries {
 
@@ -36,12 +37,12 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 //
 // The entity registry owns IDs for entities of a particular entity type in the
 // ECS system and tracks their location and metadata. Entities of different
-// types would be stored in instances specialized on different ID types.
+// types are stored in instances specialized on different ID types.
 //
-// IDs will be reused after being freed, but unless `GEN` is set to
+// IDs are reused after being freed, but unless `GEN` is set to
 // `generation_scheme::unversioned`, record handles have generation counters to
 // detect this. Reuse is done in FIFO order to maximize the time before an ID
-// is recycled.
+// is recycled, unless LIFO is selected.
 //
 // Entity records are not guaranteed to remain at fixed memory locations unless
 // you set a limit and reserve space for that many entities up front. In this
@@ -49,14 +50,15 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 // nobody else will be changing.
 //
 // Lookup by ID or handle is O(1), but unless you reserve space in advance,
-// insertion is O(1) only amortized since it may trigger a resize. Erasure is
-// O(1). Iteration is O(n) in the size of the underlying vector, which may be
-// larger than the count of living entities due to free records. In other
-// words, records are not packed, though they are reused efficiently.
+// insertion is O(1) only when amortized, because it may trigger a resize.
+// Erasure is O(1). Iteration is O(n) in the size of the underlying vector,
+// which may be larger than the count of living entities, due to free records.
+// In other words, records are not packed, though they are reused efficiently.
 //
 // Operations that take an ID expect it to be valid and generally will not
 // check. Even if they do, they can't detect reuse. In contrast, operations
-// that take a handle will check. This means that, even when `GEN` is
+// that take a handle will check for validity and (when generation versioning
+// is enabled) reuse. This means that, even when `GEN` is
 // `generation_scheme::unversioned`, you can still get some additional safety
 // by using handles instead of raw IDs.
 //
@@ -64,29 +66,48 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 //  T         - Per-entity metadata type stored alongside location and
 //              generation data. Must be trivially copyable. Leave `void` for
 //              no metadata.
-//  EID       - Entity ID enum type. Must be unsigned with `invalid` defined as
-//              the maximum representable value.
-//  SID       - Store ID enum type identifying which storage an entity resides
-//              in. Same constraints as EID.
-//  GEN       - When versioned (default), handles carry a generation counter
-//              that detects ID reuse. When unversioned, handles are equivalent
-//              to bare IDs but still trigger validity checks.
+//  EID       - Entity ID enum type, such as `entity_id_t`. Must be unsigned
+//              with `invalid` defined as the maximum representable value.
+//  SID       - Store ID enum type, such as `store_id_t`. In archetype mode,
+//              identifies which storage an entity resides in. In component
+//              mode, identifies all of the storages. Same constraints as EID.
+//  GEN       - When `generation_scheme::versioned` (default), handles carry a
+//              generation counter that detects ID reuse. When
+//              `generation_scheme::unversioned`, handles are equivalent to
+//              bare IDs but still trigger validity checks, albeit less
+//              thorough ones.
+//  OWN_COUNT - 1 selects archetype mode, where `record_t` stores a
+//              `location_record{store_id, ndx}` for O(1) entity location
+//              lookup. Any multiple of 8 >= 8 selects component mode, where
+//              `record_t` stores a `location_record{store_ids,ndx}`, where
+//              `store_ids` is a `fixed_bitset<OWN_COUNT>` presence bitmap.
+//  REUSE     - `reuse_order::fifo` (default) or `reuse_order::lifo`,
+//              controlling whether freed IDs are reused in first-in-first-out
+//              or last-in-first-out order.
 //  A         - Allocator for the metadata type. Rebound internally for
 //              record storage.
 template<typename T = void,
     sequence::SequentialEnum EID = id_enums::entity_id_t,
     sequence::SequentialEnum SID = id_enums::store_id_t,
-    generation_scheme GEN = generation_scheme::versioned,
-    class A = std::allocator<T>>
+    generation_scheme GEN = generation_scheme::versioned, size_t OWN_COUNT = 1,
+    reuse_order REUSE = reuse_order::fifo, class A = std::allocator<T>>
 class entity_registry {
 public:
   static constexpr bool is_versioned_v = (GEN == generation_scheme::versioned);
+  static constexpr bool is_archetype_v = (OWN_COUNT == 1);
+  static constexpr bool is_component_v = !is_archetype_v;
+  static constexpr bool is_fifo_v = (REUSE == reuse_order::fifo);
+  static constexpr bool is_lifo_v = !is_fifo_v;
+  static constexpr size_t bitmap_bits_v = is_component_v ? OWN_COUNT : 1;
+
   using metadata_t = maybe_void_t<T>;
   using id_t = EID;
   using size_type = std::underlying_type_t<id_t>;
   using store_id_t = SID;
   using gen_t = maybe_t<size_type, is_versioned_v>;
   using allocator_type = A;
+
+  using store_id_set_t = fixed_bitset<bitmap_bits_v, store_id_t>;
 
   static_assert(*id_t::invalid ==
                     std::numeric_limits<std::underlying_type_t<id_t>>::max(),
@@ -111,9 +132,14 @@ public:
   static_assert(std::is_void_v<T> || std::is_trivially_copyable_v<T>,
       "Metadata type T must be void or trivially copyable");
 
-  // A handle to an entity.
+  static_assert(OWN_COUNT == 1 || (OWN_COUNT >= 8 && OWN_COUNT % 8 == 0),
+      "OWN_COUNT must be 1 (archetype mode) or a multiple of 8 >= 8 "
+      "(component mode)");
+
+  // A handle to an entity. Contains ID and optionally generation data to
+  // detect reuse. No ownership: does nothing on destruction.
   //
-  // When GEN is enabled, it captures a generation snapshot that allows
+  // When `GEN` is enabled, it captures a generation snapshot that allows
   // `is_valid(handle_t)` to detect ID reuse. Otherwise, it becomes equivalent
   // to an `id_t`, except that methods taking a handle do check
   // `is_valid(handle_t)`, whereas methods taking an `id_t` typically do not
@@ -149,7 +175,7 @@ public:
     // As a result, you should not be checking for specific generation values,
     // and should probably not call this method at all.
     [[nodiscard]] size_type gen() const
-    requires(is_versioned_v)
+    requires is_versioned_v
     {
       return gen_;
     }
@@ -159,25 +185,124 @@ public:
     [[no_unique_address]] gen_t gen_{*id_t::invalid};
 
     explicit handle_t(id_t id, size_type gen) : id_{id}, gen_{gen} {}
-    friend class entity_registry<T, EID, SID, GEN, A>;
+    friend class entity_registry<T, EID, SID, GEN, OWN_COUNT, REUSE, A>;
   };
 
-  // Location of an entity within an external storage.
+  // Single location type.
   //
-  // When `store_id` is `store_id_t::invalid`, the entity is considered
-  // destroyed and its ID is up for grabs. The value of `store_id_t{0}` is
-  // suitable for living entities that are not yet assigned storage. These can
-  // always be cleaned up with `erase_if` if they get lost.
+  // This is the type used for parameters.
   //
-  // For valid entities, `ndx` identifies where it is in the storage indicated
-  // by `store_id`. The index is an externally-managed value with no meaning
-  // to this class, so you can use a valid `store_id` with an `ndx` of
-  // `*store_id_t::invalid` to indicate entities that are bound for that
-  // storage but not yet stored.
+  // A `store_id` identifies the storage an entity resides in, and `ndx` is the
+  // index within that storage.
   struct location_t {
     store_id_t store_id{store_id_t::invalid};
-    size_type ndx{*store_id_t::invalid};
+    size_type ndx{*id_t::invalid};
   };
+
+  // Record of external storage location(s) for entity.
+  //
+  // This is used in `erase_if`.
+  //
+  // Active fields depend on `OWN_COUNT`.
+  //
+  // Archetype mode (OWN_COUNT == 1):
+  //   `store_id` and `ndx` identify the entity's single storage slot.
+  //   `store_id_t{0}` is in staging: alive but unplaced.
+  //   `store_id_t::invalid` is a dead entity.
+  //   When dead, `ndx` doubles as the intrusive free-list next pointer.
+  //
+  // Component mode (OWN_COUNT >= 8, multiple of 8):
+  //   `store_ids` is a presence bitmap; a bit is set when the entity occupies
+  //   that storage.
+  //  `store_id_t{0}` is set (and all other bits are cleared) is in staging,
+  //  equivalent to `store_id_t{0}`.
+  //  `store_ids.none()` is a dead entity, equivalent to `store_id_t::invalid`.
+  //   While an entity is alive, `ndx` is not used for anything.
+  //   When dead, `ndx` doubles as the intrusive free-list next pointer,
+  //   exactly as in archetype mode.
+  //
+  // TODO: Investigate encoding the free-list next pointer in the
+  // `store_ids` bytes when dead, eliminating the wasted `ndx` in component
+  // mode. Requires OWN_COUNT >= 8*sizeof(size_type), since the bytes must
+  // be large enough to hold a size_type. The end-of-list sentinel would be
+  // *id_t::invalid (all ones), which is not a valid entity index.
+  class location_record {
+  public:
+    constexpr location_record(const location_record& other) noexcept = default;
+
+    [[nodiscard]] size_type ndx() const noexcept { return ndx_; }
+
+    [[nodiscard]] location_t get_underlying() const noexcept
+    requires is_archetype_v
+    {
+      return {store_id_, ndx_};
+    }
+
+    [[nodiscard]] const store_id_set_t& get_underlying() const noexcept
+    requires is_component_v
+    {
+      return store_ids_;
+    }
+
+    [[nodiscard]] store_id_t get_store_id() const noexcept
+    requires is_archetype_v
+    {
+      return store_id_;
+    }
+
+    [[nodiscard]] const store_id_set_t& get_store_ids() const noexcept
+    requires is_component_v
+    {
+      return store_ids_;
+    }
+
+    constexpr void set(location_t location) {
+      ndx_ = location.ndx;
+      if constexpr (is_archetype_v) {
+        store_id_ = location.store_id;
+      } else {
+        const auto store_id = location.store_id;
+        assert(store_id == store_id_t::invalid || *store_id < OWN_COUNT);
+        if (store_id == store_id_t::invalid)
+          store_ids_.reset();
+        else if (store_id == store_id_t{}) {
+          store_ids_.reset();
+          store_ids_.set(store_id_t{});
+        } else {
+          store_ids_.reset(store_id_t{});
+          store_ids_.set(store_id);
+        }
+      }
+    }
+
+    constexpr void reset(location_t location) {
+      if constexpr (is_component_v) store_ids_.reset();
+      set(location);
+    }
+
+    // Whether location contains the `store_id_t`.
+    [[nodiscard]] constexpr bool contains(store_id_t sid) const noexcept {
+      if constexpr (is_archetype_v) {
+        return store_id_ == sid;
+      } else {
+        if (sid == store_id_t::invalid) return store_ids_.none();
+        return store_ids_[sid];
+      }
+    }
+
+  private:
+    [[no_unique_address]] maybe_t<store_id_t, is_archetype_v> store_id_{
+        *store_id_t::invalid};
+    [[no_unique_address]] maybe_t<store_id_set_t, is_component_v> store_ids_;
+    size_type ndx_{*id_t::invalid};
+
+    constexpr location_record(location_t location = location_t{}) {
+      set(location);
+    }
+    friend class entity_registry<T, EID, SID, GEN, OWN_COUNT, REUSE, A>;
+  };
+
+  static constexpr location_record invalid_location;
 
   // Entity record. The entity ID is implied by its location in `records_`.
   //
@@ -188,12 +313,9 @@ public:
   // The other reason this structure is public is because it's passed to
   // predicates in `erase_if`.
   struct record_t {
-    // Location of the entity. See class definition for details.
-    //
-    // Here is an implementation detail that's not visible from outside:
-    // While an entity is invalid, `ndx` is reused to hold the next ID (not
-    // index) in the intrusive free list.
-    location_t location{};
+    // Entity location; active fields within `location_record` depend on
+    // `OWN_COUNT`.
+    location_record location{};
 
     // Generation counter for this entity.
     [[no_unique_address]] gen_t gen{};
@@ -204,7 +326,7 @@ public:
   };
 
   using record_allocator_type =
-      typename std::allocator_traits<A>::template rebind_alloc<record_t>;
+      std::allocator_traits<A>::template rebind_alloc<record_t>;
 
 public:
   entity_registry() = default;
@@ -214,10 +336,7 @@ public:
   explicit entity_registry(id_t id_limit,
       allocation_policy prefill = allocation_policy::lazy,
       const allocator_type& alloc = allocator_type{})
-      : records_{record_allocator_type{alloc}}, id_limit_{id_limit} {
-    if (prefill == allocation_policy::lazy || !id_limit_) return;
-    reserve(*id_limit_, allocation_policy::eager);
-  }
+      : records_{id_limit, prefill, record_allocator_type{alloc}} {}
 
   [[nodiscard]] allocator_type get_allocator() const noexcept {
     return allocator_type{records_.get_allocator()};
@@ -228,7 +347,7 @@ public:
   // Insertion fails when this limit is reached. Defaults to `id_t::invalid`
   // (the maximum representable value). Note that the limit is exclusive, so
   // the maximum valid ID is `id_t{id_limit() - 1}`.
-  [[nodiscard]] id_t id_limit() const noexcept { return id_limit_; }
+  [[nodiscard]] id_t id_limit() const noexcept { return records_.id_limit(); }
 
   // Set a new ID limit. Returns true on success, false if the limit would
   // invalidate live IDs.
@@ -243,15 +362,13 @@ public:
     // Fail if any live record exists at or past the new limit.
     if (new_limit < id_end) {
       for (auto id = new_limit; id < id_end; ++id)
-        if (records_[id].location.store_id != store_id_t::invalid)
-          return false;
+        if (is_alive(id)) return false;
 
       records_.resize(*new_limit);
       shrink_to_fit();
     }
 
-    id_limit_ = new_limit;
-    return true;
+    return records_.set_id_limit(new_limit);
   }
 
   // Create a new entity record, returning its ID, or `id_t::invalid` on
@@ -259,13 +376,14 @@ public:
   //
   // See `create_handle` for details.
   [[nodiscard]]
-  id_t create_id(location_t location = {store_id_t{}},
+  id_t create_id(location_t location = location_t{},
       const metadata_t& metadata = {}) {
-    if (location.store_id == store_id_t::invalid) return id_t::invalid;
+    if (location.store_id == store_id_t::invalid)
+      location.store_id = store_id_t{};
     const id_t id = alloc_id();
     if (id == id_t::invalid) return id_t::invalid;
     auto& rec = records_[id];
-    rec.location = location;
+    rec.location.reset(location);
     rec.metadata = metadata;
     return id;
   }
@@ -273,19 +391,12 @@ public:
   // Create a new entity record, returning its handle, or an invalid handle on
   // failure. One cause of failure is reaching the ID limit.
   //
-  // If you do not provide a location, a value of `{store_id_t{},
-  // *store_id_t::invalid}` will be provided for you, indicating that the
-  // entity is alive but not yet assigned to a storage.
-  //
-  // If you know where it will be stored but don't yet have an index, you can
-  // pass a location of `{store_id, *store_id_t::invalid}`. This is still
-  // considered alive and valid, and you can update its location with
-  // `set_location` later.
-  //
-  // A location with `store_id` set to `store_id_t::invalid` is invalid and
-  // will fail.
+  // When `location` is defaulted to `{store_id_t::invalid, *id_t::invalid}`,
+  // the `store_id` is interpreted as `store_id_t{0}`. The entity is then
+  // created in staging, and its location may be updated later with
+  // `set_location` or `add_location`/`remove_location`.
   [[nodiscard]]
-  handle_t create_handle(location_t location = {store_id_t{}},
+  handle_t create_handle(location_t location = location_t{},
       const metadata_t& metadata = {}) {
     return get_handle(create_id(location, metadata));
   }
@@ -306,7 +417,7 @@ public:
   // check. In contrast, methods taking a handle will check.
   [[nodiscard]] bool is_valid(id_t id) const {
     if (*id >= records_.size()) return false;
-    return records_[id].location.store_id != store_id_t::invalid;
+    return is_alive(id);
   }
 
   // Check whether handle is valid, including generation.
@@ -318,35 +429,93 @@ public:
   }
 
   // Get location for ID. Must be valid.
-  [[nodiscard]] location_t get_location(id_t id) const {
+  //
+  // Returns `location_t` in archetype mode, and `store_id_set_t` in component
+  // mode.
+  [[nodiscard]] decltype(auto) get_location(id_t id) const {
     assert(is_valid(id));
-    return records_[id].location;
+    return records_[id].location.get_underlying();
   }
 
   // Get location for handle. When invalid, returns invalid location.
-  [[nodiscard]] location_t get_location(handle_t handle) const {
-    if (!is_valid(handle)) return location_t{};
+  //
+  // Returns `location_t` in archetype mode, and `store_id_set_t` in component
+  // mode.
+  [[nodiscard]] decltype(auto) get_location(handle_t handle) const {
+    if (!is_valid(handle)) return invalid_location.get_underlying();
     return get_location(handle.id_);
   }
 
-  // Set location for ID. The ID must be valid. Setting `location.store_id` to
-  // `store_id_t::invalid` erases the entity, while `store_id_t{0}` indicates
-  // that the entity is alive but not assigned to a storage.
-  void set_location(id_t id, location_t location) {
+  // Set location for ID. The ID must be valid.
+  //
+  // Setting `location.store_id` to `store_id_t::invalid` erases the entity,
+  // while `store_id_t{0}` indicates that the entity is alive but not assigned
+  // to a storage. (Archetype mode only.)
+  void set_location(id_t id, location_t location)
+  requires is_archetype_v
+  {
     assert(is_valid(id));
     if (location.store_id == store_id_t::invalid)
       do_erase(id);
     else
-      records_[id].location = location;
+      records_[id].location.set(location);
   }
 
-  // Set location for handle. The handle must be valid. Setting
-  // `location.store_id` to `store_id_t::invalid` erases the entity.
-  // Returns success.
-  bool set_location(handle_t handle, location_t location) {
+  // Set location for handle. The handle must be valid.
+  //
+  // Setting `location.store_id` to `store_id_t::invalid` erases the entity.
+  // Returns success. (Archetype mode only.)
+  bool set_location(handle_t handle, location_t location)
+  requires is_archetype_v
+  {
     if (!is_valid(handle)) return false;
     set_location(handle.id_, location);
     return true;
+  }
+
+  // Add entity to a storage. If the entity is currently in staging (bit 0
+  // set), the staging bit is cleared first. `*sid` must be in [1, OWN_COUNT).
+  // (Component mode only.)
+  void add_location(id_t id, store_id_t sid)
+  requires is_component_v
+  {
+    assert(is_valid(id));
+    assert(*sid >= 1 && *sid < OWN_COUNT);
+    auto& bm = records_[id].location.store_ids_;
+    bm.reset(store_id_t{0}); // leave staging (no-op if already out)
+    bm.set(sid);
+  }
+
+  // Remove entity from a storage. If the bitmap becomes empty:
+  //   `removal_mode::preserve` -> return entity to staging (bit 0 set).
+  //   `removal_mode::remove`   -> erase the entity.
+  // `*sid` must be in [1, OWN_COUNT). (Component mode only.)
+  // TODO: Consider adding `erase_location` which calls here with
+  // removal_mode::remove.
+  void remove_location(id_t id, store_id_t sid,
+      removal_mode mode = removal_mode::preserve)
+  requires is_component_v
+  {
+    assert(is_valid(id));
+    assert(*sid >= 1 && *sid < OWN_COUNT);
+    auto& bm = records_[id].location.store_ids_;
+    bm.reset(sid);
+    if (bm.none()) {
+      if (mode == removal_mode::preserve)
+        bm.set(store_id_t{0}); // back to staging
+      else
+        do_erase(id);
+    }
+  }
+
+  // Test whether entity is in a given storage. `*sid` must be < OWN_COUNT.
+  // (Component mode only.)
+  [[nodiscard]] bool is_in_location(id_t id, store_id_t sid) const
+  requires is_component_v
+  {
+    assert(is_valid(id));
+    assert(*sid < OWN_COUNT);
+    return records_[id].location.store_ids_.test(sid);
   }
 
   // Erase by ID. Fails if ID is invalid (but cannot detect ID reuse). Returns
@@ -387,17 +556,19 @@ public:
     return std::forward<decltype(self)>(self).at(handle.id_);
   }
 
-  // Erase all records matching predicate. Returns count erased.
+  // Erase all records matching predicate called as `pred(id, rec)`, where
+  // `id` is the entity ID and `rec` is the `record_t&`. Returns count erased.
   //
   // One particularly obvious use case is to erase all entries that aren't in
-  // any valid store.
+  // any valid store. The ID is passed so you can cascade deletion to the
+  // appropriate storage(s).
   size_type erase_if(auto pred) {
     size_type cnt{};
     const auto id_end = records_.size_as_enum();
     for (id_t id{}; id < id_end; ++id) {
       auto& rec = records_[id];
-      if (rec.location.store_id == store_id_t::invalid) continue;
-      if (pred(rec)) {
+      if (!is_alive(id)) continue;
+      if (pred(id, rec)) {
         do_erase(id);
         ++cnt;
       }
@@ -427,34 +598,25 @@ public:
   void clear(
       deallocation_policy policy = deallocation_policy::preserve) noexcept {
     living_count_ = 0;
+    free_head_ = id_t::invalid;
+    if constexpr (is_fifo_v) free_tail_ = id_t::invalid;
     if (policy == deallocation_policy::release) {
       records_.clear();
       records_.shrink_to_fit();
-      fifo_head_ = id_t::invalid;
-      fifo_tail_ = id_t::invalid;
       return;
     }
-    // Erase all records, relinking them into the free list. This is faster
-    // than clearing and rebuilding the free list.
-    //
-    // Note: We could optimize this by special-casing the first element, but
-    // this is not going to be measurably faster. Not only is this function
-    // outside of the hot path, but we'd only get one branch misprediction out
-    // of it.
+    // Erase all records, relinking them into the free list.
     const auto id_end = records_.size_as_enum();
-    auto prev = id_t::invalid;
     for (id_t id{}; id < id_end; ++id) {
       auto& rec = records_[id];
-      rec.location.store_id = store_id_t::invalid;
-      rec.location.ndx = *id_t::invalid;
+      if constexpr (is_archetype_v) {
+        rec.location.store_id_ = store_id_t::invalid;
+      } else {
+        rec.location.store_ids_.reset();
+      }
       if constexpr (is_versioned_v) ++rec.gen;
-      if (prev != id_t::invalid)
-        records_[prev].location.ndx = *id;
-      else
-        fifo_head_ = id;
-      prev = id;
+      push_free(id);
     }
-    fifo_tail_ = prev;
   }
 
   // Reduce memory usage to fit current size.
@@ -473,7 +635,7 @@ public:
     if (prefill == allocation_policy::eager && new_cap > records_.size()) {
       const auto old_size = records_.size();
       records_.resize(new_cap);
-      for (size_type i = old_size; i < new_cap; ++i) append_to_tail(id_t{i});
+      for (size_type i = old_size; i < new_cap; ++i) push_free(id_t{i});
     }
   }
 
@@ -489,13 +651,24 @@ public:
       if (!reg.is_valid(handle_)) handle_ = handle_t{};
     }
 
-    // Create a new entity and take ownership of it. Check `operator bool` or
-    // `id()` afterward to detect allocation failure.
+    // Create a new entity and take ownership of it (archetype mode). Check
+    // `operator bool` or `id()` afterward to detect allocation failure.
     //
-    // Prefer calling `make_owner` instead.
+    // Prefer calling `create_owner` instead.
     handle_owner(entity_registry& reg, location_t location,
         const metadata_t& metadata = {})
+    requires is_archetype_v
         : registry_{&reg}, handle_{reg.create_handle(location, metadata)} {}
+
+    // Create a new entity and take ownership of it (component mode). Check
+    // `operator bool` or `id()` afterward to detect allocation failure.
+    //
+    // Prefer calling `create_owner` instead.
+    handle_owner(entity_registry& reg, const metadata_t& metadata = {})
+    requires is_component_v
+        : registry_{&reg},
+          handle_{reg.create_handle(location_t{store_id_t{}, *id_t::invalid},
+              metadata)} {}
 
     handle_owner(const handle_owner&) = delete;
     handle_owner& operator=(const handle_owner&) = delete;
@@ -547,43 +720,70 @@ public:
     handle_t handle_{};
   };
 
-  // Create a new owner for a newly created entity.
+  // Create a new owner for a newly created entity. (Archetype mode only.)
   [[nodiscard]] handle_owner
-  create_owner(location_t location, const metadata_t& metadata = {}) {
+  create_owner(location_t location, const metadata_t& metadata = {})
+  requires is_archetype_v
+  {
     return handle_owner{*this, location, metadata};
   }
 
-  // Backward-compatible alias.
-  [[nodiscard]] handle_owner
-  make_owner(location_t location, const metadata_t& metadata = {}) {
-    return create_owner(location, metadata);
+  // Create a new owner for a newly created entity. (Component mode only.)
+  [[nodiscard]] handle_owner create_owner(const metadata_t& metadata = {})
+  requires is_component_v
+  {
+    return handle_owner{*this, metadata};
   }
 
 private:
+  // True if the record at `id` represents a living entity.
+  //
+  // In archetype mode: `store_id_ != store_id_t::invalid`.
+  // In component mode: `store_ids_.any()` is true.
+  //
+  // Assumes `id` is within bounds (caller must check).
+  [[nodiscard]] bool is_alive(id_t id) const noexcept {
+    if constexpr (is_archetype_v)
+      return records_[id].location.store_id_ != store_id_t::invalid;
+    else
+      return records_[id].location.store_ids_.any();
+  }
+
+  // Get the intrusive free-list next pointer for a dead record.
+  [[nodiscard]] size_type get_next_free(id_t id) const noexcept {
+    return records_[id].location.ndx_;
+  }
+
+  // Set the intrusive free-list next pointer for a dead record.
+  void set_next_free(id_t id, size_type next) noexcept {
+    records_[id].location.ndx_ = next;
+  }
+
   // Allocate a new ID.
   // Caller is obligated to make the record valid.
   id_t alloc_id() {
     assert(living_count_ <= records_.size());
-    assert(records_.size() <= *id_limit_);
+    assert(records_.size() <= *records_.id_limit());
     // If we're at the limit, can't allocate more.
-    if (living_count_ >= *id_limit_) return id_t::invalid;
+    if (living_count_ >= *records_.id_limit()) return id_t::invalid;
 
     // If no free IDs, and since we're allowed to expand, do so.
     if (living_count_ >= records_.size()) {
       // TODO: Consider resizing to the capacity and adding the extras to the
       // free list. But don't do this initially.
       const auto new_id = records_.size_as_enum();
-      records_.emplace_back();
+      (void)records_.emplace_back();
       ++living_count_;
       return new_id;
     }
 
-    // Pick the next free ID from the head of the FIFO free list.
-    const auto new_id = fifo_head_;
+    // Pop the next free ID from the head of the free list.
+    const auto new_id = free_head_;
     assert(new_id != id_t::invalid);
-    const auto next_ndx = records_[new_id].location.ndx;
-    fifo_head_ = id_t{next_ndx};
-    if (fifo_head_ == id_t::invalid) fifo_tail_ = id_t::invalid;
+    const auto next_ndx = get_next_free(new_id);
+    free_head_ = id_t{next_ndx};
+    if constexpr (is_fifo_v)
+      if (free_head_ == id_t::invalid) free_tail_ = id_t::invalid;
     ++living_count_;
     return new_id;
   }
@@ -591,66 +791,75 @@ private:
   // Trim trailing dead records from records_ and rebuild the free list.
   void trim_dead_tail() {
     size_type new_size = records_.size();
-    while (new_size > 0 &&
-           (records_[id_t{new_size - 1}].location.store_id ==
-               store_id_t::invalid))
-      --new_size;
+    while (new_size > 0 && !is_alive(id_t{new_size - 1})) --new_size;
     if (new_size < records_.size()) {
       records_.resize(new_size);
       rebuild_free_list();
     }
   }
 
-  // Push an already-invalid record onto the tail of the FIFO free list.
-  void append_to_tail(id_t id) {
-    records_[id].location.ndx = *id_t::invalid;
-    if (fifo_tail_ != id_t::invalid)
-      records_[fifo_tail_].location.ndx = *id;
-    else
-      fifo_head_ = id;
-    fifo_tail_ = id;
+  // Push a dead record onto the free list.
+  // FIFO: appends to tail, maximizing time before ID reuse.
+  // LIFO: pushes to head, minimizing time before ID reuse.
+  void push_free(id_t id) {
+    if constexpr (is_fifo_v) {
+      set_next_free(id, *id_t::invalid);
+      if (free_tail_ != id_t::invalid)
+        set_next_free(free_tail_, *id);
+      else
+        free_head_ = id;
+      free_tail_ = id;
+    } else {
+      set_next_free(id, *free_head_);
+      free_head_ = id;
+    }
   }
 
   // Walk `records_` and rebuild the free list from scratch.
   void rebuild_free_list() {
-    fifo_head_ = id_t::invalid;
-    fifo_tail_ = id_t::invalid;
+    free_head_ = id_t::invalid;
+    if constexpr (is_fifo_v) free_tail_ = id_t::invalid;
     const size_type n = records_.size();
     for (size_type i = 0; i < n; ++i) {
-      if (records_[id_t{i}].location.store_id != store_id_t::invalid) continue;
-      append_to_tail(id_t{i});
+      const id_t id = id_t{i};
+      if (is_alive(id)) continue;
+      push_free(id);
     }
   }
 
   // Erase by ID helper. Assumes validity checked by caller.
   bool do_erase(id_t id) {
     auto& rec = records_[id];
-    rec.location.store_id = store_id_t::invalid;
+    if constexpr (is_archetype_v)
+      rec.location.store_id_ = store_id_t::invalid;
+    else
+      rec.location.store_ids_.reset();
     if constexpr (is_versioned_v) ++rec.gen;
     // Note that we do not clear metadata on erase, since we always wipe it on
     // allocation. If there is any security concern, the user should wipe the
     // metadata prior to erasing the record.
 
-    // Push onto tail of free list (FIFO).
-    append_to_tail(id);
+    push_free(id);
     --living_count_;
     return true;
   }
 
 private:
+  using id_container_t = id_container<record_t, id_t, record_allocator_type>;
+
   // Entity records, with the ID implied by the index.
-  enum_vector<record_t, id_t, record_allocator_type> records_;
+  id_container_t records_;
   size_type living_count_{};
 
-  // Free list for recycling IDs. When empty, both are `id_t::invalid`.
-  // Otherwise, `fifo_head_` is the next free ID to allocate, and `fifo_tail_`
-  // is the most recently freed ID. The free IDs are linked together through
-  // the `ndx` field of their location, which is repurposed to hold the next
-  // free ID when the record is invalid.
-  id_t fifo_head_{id_t::invalid};
-  id_t fifo_tail_{id_t::invalid};
-
-  // Allowed ID values are below this limit.
-  id_t id_limit_{id_t::invalid};
+  // Free list for recycling IDs. `free_head_` is the next free ID to
+  // allocate; `id_t::invalid` means empty. Free IDs are linked via
+  // `record_t::location.ndx_` in both archetype and component modes.
+  //
+  // FIFO: `free_tail_` is the last freed ID (queue tail); new IDs are
+  // appended there, maximizing the interval before reuse.
+  // LIFO: `free_tail_` is absent; new IDs are pushed onto `free_head_`,
+  // giving stack (most-recently-freed-first) reuse order.
+  id_t free_head_{id_t::invalid};
+  [[no_unique_address]] maybe_t<id_t, is_fifo_v> free_tail_{id_t::invalid};
 };
 }}} // namespace corvid::ecs::entity_registries

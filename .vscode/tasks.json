@@ -4,10 +4,11 @@
         {
             "label": "clang-build",
             "type": "shell",
-            "command": "/usr/bin/clang++-21",
+            "command": "/usr/bin/clang++-22",
             "args": [
                 "-std=c++23",
                 "-stdlib=libc++",
+                "-march=native",
                 "-g",
                 "-O0",
                 "-D_LIBCPP_NO_ABI_TAG",
@@ -26,7 +27,7 @@
             "problemMatcher": [
                 "$gcc"
             ],
-            "detail": "Task to build C++ files using Clang 21 and libc++ on Ubuntu."
+            "detail": "Task to build C++ files using Clang and libc++ on Ubuntu."
         },
         {
             "label": "Run Executable",

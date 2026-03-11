@@ -35,11 +35,10 @@ public:
   using difference_type = std::ptrdiff_t;
   using reference = value_type&;
   using const_reference = const value_type&;
-  using pointer = typename std::allocator_traits<Allocator>::pointer;
-  using const_pointer =
-      typename std::allocator_traits<Allocator>::const_pointer;
-  using iterator = typename std::vector<T, Allocator>::iterator;
-  using const_iterator = typename std::vector<T, Allocator>::const_iterator;
+  using pointer = std::allocator_traits<Allocator>::pointer;
+  using const_pointer = std::allocator_traits<Allocator>::const_pointer;
+  using iterator = std::vector<T, Allocator>::iterator;
+  using const_iterator = std::vector<T, Allocator>::const_iterator;
   using enum_t = E;
 
   enum_vector() = default;

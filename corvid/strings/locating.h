@@ -324,7 +324,7 @@ template<npos_choice npv = npos_choice::npos>
 // Locate single string not.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr position locate_not_string(std::string_view s,
-    std::string_view value, position pos = 0) noexcept {
+    std::string_view value, position pos = 0) {
   for (auto v = std::string_view{value}; pos < s.size(); pos += v.size())
     if (s.substr(pos, v.size()) != v) break;
 
@@ -341,7 +341,7 @@ template<npos_choice npv = npos_choice::npos>
 // Reverse-locate single string not.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr position rlocate_not_string(std::string_view s,
-    std::string_view value, position pos = npos) noexcept {
+    std::string_view value, position pos = npos) {
   auto v = std::string_view{value};
   if (v.size() > s.size()) return 0;
 
@@ -449,7 +449,7 @@ template<npos_choice npv = npos_choice::npos>
 // Locate any of the strings.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr struct location locate_any_string(std::string_view s,
-    const StringViewConvertibleSpan auto& values, position pos = 0) noexcept {
+    const StringViewConvertibleSpan auto& values, position pos = 0) {
   for (; pos <= s.size(); ++pos)
     for (position pos_value = 0; pos_value < values.size(); ++pos_value) {
       std::string_view value{values[pos_value]};
@@ -461,7 +461,7 @@ template<npos_choice npv = npos_choice::npos>
 // Locate none of the strings.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location locate_none_string(std::string_view s,
-    const StringViewConvertibleSpan auto& values, position pos = 0) noexcept {
+    const StringViewConvertibleSpan auto& values, position pos = 0) {
   for (; pos < s.size(); ++pos) {
     bool matched = false;
     position pos_value = 0;
@@ -483,8 +483,7 @@ template<npos_choice npv = npos_choice::npos>
 // size, from the returned pos to locate the previous instance.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr struct location rlocate_any_string(std::string_view s,
-    const StringViewConvertibleSpan auto& values,
-    position pos = npos) noexcept {
+    const StringViewConvertibleSpan auto& values, position pos = npos) {
   if (s.empty()) return as_nloc<npv>(s, values);
   if (pos >= s.size()) pos = s.size() - 1;
   for (++pos; pos-- > 0;)
@@ -498,8 +497,7 @@ template<npos_choice npv = npos_choice::npos>
 // Reverse-locate none of the strings.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location rlocate_none_string(std::string_view s,
-    const StringViewConvertibleSpan auto& values,
-    position pos = npos) noexcept {
+    const StringViewConvertibleSpan auto& values, position pos = npos) {
   if (s.empty()) return as_nloc<npv>(s, values);
   if (pos >= s.size()) pos = s.size() - 1;
   for (++pos; pos-- > 0;) {
@@ -524,7 +522,7 @@ template<npos_choice npv = npos_choice::npos>
 // See documentation for the corresponding `details::locate_*` above.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr auto
-locate(std::string_view s, auto&& value, position pos = 0) noexcept {
+locate(std::string_view s, auto&& value, position pos = 0) {
   using T = std::remove_cvref_t<decltype(value)>;
   if constexpr (Char<T>)
     return helpers::locate_char<npv>(s, value, pos);
@@ -553,8 +551,7 @@ template<npos_choice npv = npos_choice::npos>
 
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location locate(std::string_view s,
-    std::initializer_list<const std::string_view> values,
-    position pos = 0) noexcept {
+    std::initializer_list<const std::string_view> values, position pos = 0) {
   return locate<npv>(s,
       std::span<const std::string_view>{values.begin(), values.end()}, pos);
 }
@@ -564,7 +561,7 @@ template<npos_choice npv = npos_choice::npos>
 // See documentation for the corresponding `details::locate_not_*` above.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr auto
-locate_not(std::string_view s, auto&& value, position pos = 0) noexcept {
+locate_not(std::string_view s, auto&& value, position pos = 0) {
   using T = std::remove_cvref_t<decltype(value)>;
   if constexpr (Char<T>)
     return helpers::locate_not_char<npv>(s, value, pos);
@@ -586,15 +583,14 @@ locate_not(std::string_view s, auto&& value, position pos = 0) noexcept {
 
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location locate_not(std::string_view s,
-    std::initializer_list<char> values, position pos = 0) noexcept {
+    std::initializer_list<char> values, position pos = 0) {
   return locate_not<npv>(s,
       std::span<const char>{values.begin(), values.end()}, pos);
 }
 
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location locate_not(std::string_view s,
-    std::initializer_list<const std::string_view> values,
-    position pos = 0) noexcept {
+    std::initializer_list<const std::string_view> values, position pos = 0) {
   return locate_not<npv>(s,
       std::span<const std::string_view>{values.begin(), values.end()}, pos);
 }
@@ -604,7 +600,7 @@ template<npos_choice npv = npos_choice::npos>
 // See documentation for the corresponding `details::rlocate_*` above.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr auto
-rlocate(std::string_view s, auto&& value, position pos = npos) noexcept {
+rlocate(std::string_view s, auto&& value, position pos = npos) {
   using T = std::remove_cvref_t<decltype(value)>;
   if constexpr (Char<T>)
     return helpers::rlocate_char<npv>(s, value, pos);
@@ -626,14 +622,14 @@ rlocate(std::string_view s, auto&& value, position pos = npos) noexcept {
 
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location rlocate(std::string_view s,
-    std::initializer_list<char> values, position pos = npos) noexcept {
+    std::initializer_list<char> values, position pos = npos) {
   return rlocate<npv>(s, std::span<const char>{values.begin(), values.end()},
       pos);
 }
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr location rlocate(std::string_view s,
     std::initializer_list<const std::string_view> values,
-    position pos = npos) noexcept {
+    position pos = npos) {
   return rlocate<npv>(s,
       std::span<const std::string_view>{values.begin(), values.end()}, pos);
 }
@@ -643,7 +639,7 @@ template<npos_choice npv = npos_choice::npos>
 // See documentation for the corresponding `details::rlocate_not_*` above.
 template<npos_choice npv = npos_choice::npos>
 [[nodiscard]] constexpr auto
-rlocate_not(std::string_view s, auto&& value, position pos = npos) noexcept {
+rlocate_not(std::string_view s, auto&& value, position pos = npos) {
   using T = std::remove_cvref_t<decltype(value)>;
   if constexpr (Char<T>)
     return helpers::rlocate_not_char<npv>(s, value, pos);
@@ -756,8 +752,7 @@ rlocated_not(position& pos, std::string_view s, const auto& value) noexcept {
 //  `std::string_view`, this is its `size`, which is most easily found by
 //  calling `point_past` on `loc`.
 template<npos_choice npv = npos_choice::npos>
-constexpr bool
-located(location& loc, std::string_view s, auto&& values) noexcept {
+constexpr bool located(location& loc, std::string_view s, auto&& values) {
   using R = decltype(locate<npv>(s, values, loc.pos));
   if constexpr (std::is_same_v<R, location>)
     return (loc = locate<npv>(s, values, loc.pos)).pos != as_npos<npv>(s);
@@ -768,8 +763,7 @@ located(location& loc, std::string_view s, auto&& values) noexcept {
 // Same as above, but from the rear. Read the notes above for single-value
 // `rlocated` for more about `pos`.
 template<npos_choice npv = npos_choice::npos>
-constexpr bool
-rlocated(location& loc, std::string_view s, auto&& values) noexcept {
+constexpr bool rlocated(location& loc, std::string_view s, auto&& values) {
   if (loc.pos > s.size()) {
     loc.pos = as_npos<npv>(s);
     return false;
@@ -788,7 +782,7 @@ rlocated(location& loc, std::string_view s, auto&& values) noexcept {
 
 // Return count of instances of a `value` in `s`, starting at `pos`.
 [[nodiscard]] size_t
-count_located(std::string_view s, auto&& value, position pos = 0) noexcept {
+count_located(std::string_view s, auto&& value, position pos = 0) {
   size_t cnt{};
   using R = decltype(locate(s, value, pos));
   if constexpr (std::is_same_v<R, position>)
@@ -801,13 +795,12 @@ count_located(std::string_view s, auto&& value, position pos = 0) noexcept {
 }
 
 [[nodiscard]] size_t count_located(std::string_view s,
-    std::initializer_list<char> values, position pos = 0) noexcept {
+    std::initializer_list<char> values, position pos = 0) {
   return count_located(s, std::span<const char>{values.begin(), values.end()},
       pos);
 }
 [[nodiscard]] size_t count_located(std::string_view s,
-    std::initializer_list<std::string_view> values,
-    position pos = 0) noexcept {
+    std::initializer_list<std::string_view> values, position pos = 0) {
   return count_located(s,
       std::span<const std::string_view>{values.begin(), values.end()}, pos);
 }
