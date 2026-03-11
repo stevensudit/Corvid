@@ -653,7 +653,7 @@ public:
     // Create a new entity and take ownership of it (archetype mode). Check
     // `operator bool` or `id()` afterward to detect allocation failure.
     //
-    // Prefer calling `make_owner` instead.
+    // Prefer calling `create_owner` instead.
     handle_owner(entity_registry& reg, location_t location,
         const metadata_t& metadata = {})
     requires(is_archetype_v)
@@ -662,7 +662,7 @@ public:
     // Create a new entity and take ownership of it (component mode). Check
     // `operator bool` or `id()` afterward to detect allocation failure.
     //
-    // Prefer calling `make_owner` instead.
+    // Prefer calling `create_owner` instead.
     handle_owner(entity_registry& reg, const metadata_t& metadata = {})
     requires(is_component_v)
         : registry_{&reg},

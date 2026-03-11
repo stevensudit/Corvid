@@ -38,12 +38,18 @@ void EntityRegistry_Basic() {
   const loc_t loc2{store_id_t{1}, 2};
   const loc_t loc_s1{store_id_t{2}, 0};
 
-  // Default template parameters.
+  // Default template parameters and static constants.
   if (true) {
     static_assert(std::is_same_v<reg_t::id_t, entity_id_t>);
     static_assert(std::is_same_v<reg_t::store_id_t, store_id_t>);
     static_assert(std::is_same_v<reg_t::size_type, size_t>);
     static_assert(std::is_same_v<reg_t::allocator_type, std::allocator<int>>);
+    static_assert(reg_t::is_versioned_v);
+    static_assert(reg_t::is_archetype_v);
+    static_assert(!reg_t::is_component_v);
+    static_assert(reg_t::is_fifo_v);
+    static_assert(!reg_t::is_lifo_v);
+    static_assert(reg_t::bitmap_bits_v == 1);
   }
 
   // handle_t default construction.
@@ -430,6 +436,19 @@ void EntityRegistry_Handle() {
     r.erase(h);
     const auto& cr = r;
     EXPECT_THROW(cr.at(h), std::invalid_argument);
+  }
+
+  // handle_t::operator bool() checks for non-invalid ID, not entity liveness.
+  if (true) {
+    using handle_t = reg_t::handle_t;
+    handle_t empty_h;
+    EXPECT_FALSE(bool(empty_h)); // default-constructed: holds id_t::invalid
+    reg_t r;
+    auto h = r.create_handle(loc0, 10);
+    EXPECT_TRUE(bool(h)); // holds a live ID
+    r.erase(h);
+    EXPECT_TRUE(bool(h));        // ID unchanged after erase; bool still true
+    EXPECT_FALSE(r.is_valid(h)); // but entity is gone
   }
 }
 
@@ -1049,6 +1068,122 @@ void EntityRegistry_LifoAdvanced() {
     EXPECT_EQ(r.create_id({}, 100), id_t{2});
     EXPECT_EQ(r.create_id({}, 200), id_t{1});
     EXPECT_EQ(r.create_id({}, 300), id_t{0});
+  }
+
+  // shrink_to_fit triggers rebuild_free_list in LIFO mode: interior free IDs
+  // are pushed to head in forward scan order, so highest comes out first.
+  if (true) {
+    reg_t r;
+    (void)r.create_id({}, 10); // id 0: live
+    (void)r.create_id({}, 20); // id 1: will remain free interior
+    (void)r.create_id({}, 30); // id 2: will remain free interior
+    (void)r.create_id({}, 40); // id 3: live
+    (void)r.create_id({}, 50); // id 4: trailing dead, trimmed
+    (void)r.create_id({}, 60); // id 5: trailing dead, trimmed
+    r.erase(id_t{1});
+    r.erase(id_t{2});
+    r.erase(id_t{4});
+    r.erase(id_t{5});
+    r.shrink_to_fit(); // trims 4, 5; rebuilds free list from {1, 2}
+    // LIFO scan: push(1) then push(2) -> stack top is 2.
+    EXPECT_EQ(r.create_id({}, 100), id_t{2});
+    EXPECT_EQ(r.create_id({}, 200), id_t{1});
+    EXPECT_EQ(r.create_id({}, 300), id_t{4}); // fresh expansion
+  }
+
+  // reserve with eager prefill: slots are pushed to head in order, so
+  // highest prefilled slot is allocated first.
+  if (true) {
+    reg_t r;
+    r.reserve(4, allocation_policy::eager); // pushes 0, 1, 2, 3 -> top is 3
+    EXPECT_EQ(r.create_id({}, 10), id_t{3});
+    EXPECT_EQ(r.create_id({}, 20), id_t{2});
+    EXPECT_EQ(r.create_id({}, 30), id_t{1});
+    EXPECT_EQ(r.create_id({}, 40), id_t{0});
+  }
+}
+
+void EntityRegistry_LocationRecord() {
+  using namespace id_enums;
+
+  // Archetype mode: get_store_id() and contains() via erase_if predicates.
+  {
+    using reg_t = entity_registry<int>;
+
+    // invalid_location contains store_id_t::invalid.
+    if (true) {
+      EXPECT_TRUE(reg_t::invalid_location.contains(store_id_t::invalid));
+      EXPECT_FALSE(reg_t::invalid_location.contains(store_id_t{0}));
+    }
+
+    // get_store_id() returns the store_id stored in the location_record.
+    if (true) {
+      reg_t r;
+      (void)r.create_id({store_id_t{3}, 7}, 10);
+      store_id_t found = store_id_t::invalid;
+      r.erase_if([&](auto, auto& rec) {
+        found = rec.location.get_store_id();
+        return false;
+      });
+      EXPECT_EQ(found, store_id_t{3});
+    }
+
+    // contains() matches the current store_id; does not match others.
+    if (true) {
+      reg_t r;
+      (void)r.create_id({store_id_t{2}, 0}, 10);
+      bool has_2 = false, has_1 = false, has_invalid = false;
+      r.erase_if([&](auto, auto& rec) {
+        has_2 = rec.location.contains(store_id_t{2});
+        has_1 = rec.location.contains(store_id_t{1});
+        has_invalid = rec.location.contains(store_id_t::invalid);
+        return false;
+      });
+      EXPECT_TRUE(has_2);
+      EXPECT_FALSE(has_1);
+      EXPECT_FALSE(has_invalid); // live entity never contains invalid
+    }
+  }
+
+  // Component mode: contains() on staging and placed entities.
+  {
+    using creg_t = entity_registry<int, entity_id_t, store_id_t,
+        generation_scheme::versioned, 64>;
+
+    // invalid_location in component mode: store_ids_.none() -> contains
+    // invalid.
+    if (true) {
+      EXPECT_TRUE(creg_t::invalid_location.contains(store_id_t::invalid));
+    }
+
+    // Staging entity has bit 0 set; contains() reflects that.
+    if (true) {
+      creg_t r;
+      (void)r.create_id({}, 10);
+      bool has_staging = false, has_1 = false;
+      r.erase_if([&](auto, auto& rec) {
+        has_staging = rec.location.contains(store_id_t{0});
+        has_1 = rec.location.contains(store_id_t{1});
+        return false;
+      });
+      EXPECT_TRUE(has_staging);
+      EXPECT_FALSE(has_1);
+    }
+
+    // After add_location, contains() reflects the added store.
+    if (true) {
+      creg_t r;
+      auto id0 = r.create_id({}, 10);
+      r.add_location(id0, store_id_t{5});
+      bool has_5 = false, has_0 = false;
+      r.erase_if([&](auto, auto& rec) {
+        has_5 = rec.location.contains(store_id_t{5});
+        has_0 = rec.location.contains(store_id_t{0}); // staging cleared
+        return false;
+      });
+      EXPECT_TRUE(has_5);
+      EXPECT_FALSE(has_0);
+    }
   }
 }
 
@@ -2176,18 +2311,55 @@ void EntityRegistry_ComponentMode_VoidMeta() {
   }
 }
 
+void EntityRegistry_ComponentMode_Lifo() {
+  using namespace id_enums;
+  using creg_t = entity_registry<int, entity_id_t, store_id_t,
+      generation_scheme::versioned, 64, reuse_order::lifo>;
+  using id_t = creg_t::id_t;
+
+  static_assert(creg_t::is_component_v);
+  static_assert(creg_t::is_lifo_v);
+
+  // LIFO reuse in component mode: most recently freed is reallocated first.
+  if (true) {
+    creg_t r;
+    (void)r.create_id({}, 10);                // id 0
+    (void)r.create_id({}, 20);                // id 1
+    (void)r.create_id({}, 30);                // id 2
+    r.erase(id_t{0});                         // stack: [0]
+    r.erase(id_t{1});                         // stack: [1, 0]
+    EXPECT_EQ(r.create_id({}, 100), id_t{1}); // most recently freed
+    EXPECT_EQ(r.create_id({}, 200), id_t{0});
+    EXPECT_EQ(r.create_id({}, 300), id_t{3}); // fresh expansion
+  }
+
+  // clear() rebuilds free list in reverse scan order (highest ID first).
+  if (true) {
+    creg_t r;
+    (void)r.create_id({}, 10); // id 0
+    (void)r.create_id({}, 20); // id 1
+    (void)r.create_id({}, 30); // id 2
+    r.clear();
+    EXPECT_EQ(r.create_id({}, 100), id_t{2});
+    EXPECT_EQ(r.create_id({}, 200), id_t{1});
+    EXPECT_EQ(r.create_id({}, 300), id_t{0});
+  }
+}
+
 MAKE_TEST_LIST(EntityRegistry_Basic, EntityRegistry_Handle,
     EntityRegistry_Fifo, EntityRegistry_Clear, EntityRegistry_Reserve,
     EntityRegistry_IdLimit, EntityRegistry_NoGen, EntityRegistry_VoidMeta,
     EntityRegistry_VoidNoGen, EntityRegistry_IdLimitAdvanced,
     EntityRegistry_FifoAdvanced, EntityRegistry_LifoAdvanced,
-    EntityRegistry_EdgeCases, EntityRegistry_MetadataCleanup,
-    EntityRegistry_EraseIfPredicate, EntityRegistry_IdLimitFreeList,
-    EntityRegistry_ReservePrefillExisting, EntityRegistry_HandleOwner,
-    EntityRegistry_GetAllocator, EntityRegistry_ComponentMode_Basic,
-    EntityRegistry_ComponentMode_Bitmap, EntityRegistry_ComponentMode_Fifo,
+    EntityRegistry_LocationRecord, EntityRegistry_EdgeCases,
+    EntityRegistry_MetadataCleanup, EntityRegistry_EraseIfPredicate,
+    EntityRegistry_IdLimitFreeList, EntityRegistry_ReservePrefillExisting,
+    EntityRegistry_HandleOwner, EntityRegistry_GetAllocator,
+    EntityRegistry_ComponentMode_Basic, EntityRegistry_ComponentMode_Bitmap,
+    EntityRegistry_ComponentMode_Fifo,
     EntityRegistry_ComponentMode_HandleOwner,
-    EntityRegistry_ComponentMode_NoGen, EntityRegistry_ComponentMode_VoidMeta);
+    EntityRegistry_ComponentMode_NoGen, EntityRegistry_ComponentMode_VoidMeta,
+    EntityRegistry_ComponentMode_Lifo);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
