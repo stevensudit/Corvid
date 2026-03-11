@@ -279,15 +279,6 @@ public:
       set(location);
     }
 
-    constexpr void set(location_record other) noexcept {
-      ndx_ = other.ndx_;
-      if constexpr (is_archetype_v) {
-        store_id_ = other.store_id_;
-      } else {
-        store_ids_ = other.store_ids_;
-      }
-    }
-
     // Whether location contains the `store_id_t`.
     [[nodiscard]] constexpr bool contains(store_id_t sid) const noexcept {
       if constexpr (is_archetype_v) {
@@ -296,14 +287,6 @@ public:
         if (sid == store_id_t::invalid) return store_ids_.none();
         return store_ids_[sid];
       }
-    }
-
-    static constexpr bool is_valid(const location_record& loc) noexcept {
-      return !loc.contains(store_id_t::invalid);
-    }
-
-    static constexpr bool is_valid(store_id_t sid) noexcept {
-      return sid != store_id_t::invalid;
     }
 
   private:
@@ -749,21 +732,6 @@ public:
   requires(is_component_v)
   {
     return handle_owner{*this, metadata};
-  }
-
-  // Backward-compatible alias. (Archetype mode only.)
-  [[nodiscard]] handle_owner
-  make_owner(location_t location, const metadata_t& metadata = {})
-  requires(is_archetype_v)
-  {
-    return create_owner(location, metadata);
-  }
-
-  // Backward-compatible alias. (Component mode only.)
-  [[nodiscard]] handle_owner make_owner(const metadata_t& metadata = {})
-  requires(is_component_v)
-  {
-    return create_owner(metadata);
   }
 
 private:

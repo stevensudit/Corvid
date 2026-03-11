@@ -1473,10 +1473,10 @@ void EntityRegistry_HandleOwner() {
     EXPECT_TRUE(r.is_valid(o.id()));
   }
 
-  // make_owner factory method.
+  // create_owner factory method.
   if (true) {
     reg_t r;
-    auto o = r.make_owner(staging, 77);
+    auto o = r.create_owner(staging, 77);
     EXPECT_TRUE(bool(o));
     EXPECT_NE(o.id(), id_t::invalid);
     EXPECT_EQ(r[o.id()], 77);
@@ -1495,7 +1495,7 @@ void EntityRegistry_HandleOwner() {
     reg_t r;
     id_t saved_id;
     {
-      auto o = r.make_owner(staging, 10);
+      auto o = r.create_owner(staging, 10);
       saved_id = o.id();
       EXPECT_TRUE(r.is_valid(saved_id));
     }
@@ -1510,7 +1510,7 @@ void EntityRegistry_HandleOwner() {
   // release() returns handle, leaves entity alive, and empties owner.
   if (true) {
     reg_t r;
-    auto o = r.make_owner(staging, 10);
+    auto o = r.create_owner(staging, 10);
     auto id = o.id();
     auto h = o.release();
     EXPECT_FALSE(bool(o));
@@ -1523,7 +1523,7 @@ void EntityRegistry_HandleOwner() {
   // reset() erases entity and empties owner.
   if (true) {
     reg_t r;
-    auto o = r.make_owner(staging, 10);
+    auto o = r.create_owner(staging, 10);
     auto id = o.id();
     o.reset();
     EXPECT_FALSE(bool(o));
@@ -1540,7 +1540,7 @@ void EntityRegistry_HandleOwner() {
   // Move constructor transfers ownership; source becomes empty.
   if (true) {
     reg_t r;
-    auto o1 = r.make_owner(staging, 10);
+    auto o1 = r.create_owner(staging, 10);
     auto id = o1.id();
     owner_t o2{std::move(o1)};
     EXPECT_FALSE(bool(o1));
@@ -1553,8 +1553,8 @@ void EntityRegistry_HandleOwner() {
   // Move assignment: erases current entity, takes ownership of source.
   if (true) {
     reg_t r;
-    auto o1 = r.make_owner(staging, 10);
-    auto o2 = r.make_owner(staging, 20);
+    auto o1 = r.create_owner(staging, 10);
+    auto o2 = r.create_owner(staging, 20);
     auto id1 = o1.id();
     auto id2 = o2.id();
     o2 = std::move(o1);
@@ -1568,7 +1568,7 @@ void EntityRegistry_HandleOwner() {
   // Move assignment into empty owner.
   if (true) {
     reg_t r;
-    auto o1 = r.make_owner(staging, 10);
+    auto o1 = r.create_owner(staging, 10);
     auto id = o1.id();
     owner_t o2;
     o2 = std::move(o1);
@@ -1580,7 +1580,7 @@ void EntityRegistry_HandleOwner() {
   // Move self-assignment is a no-op (entity stays intact).
   if (true) {
     reg_t r;
-    auto o = r.make_owner(staging, 10);
+    auto o = r.create_owner(staging, 10);
     auto id = o.id();
     // Use pointer indirection to avoid -Wself-move.
     owner_t* p = &o;
@@ -1603,14 +1603,14 @@ void EntityRegistry_HandleOwner() {
   // registry() returns a reference to the associated registry.
   if (true) {
     reg_t r;
-    auto o = r.make_owner(staging, 10);
+    auto o = r.create_owner(staging, 10);
     EXPECT_TRUE(&o.registry() == &r);
   }
 
   // const registry() returns a const reference.
   if (true) {
     reg_t r;
-    const auto o = r.make_owner(staging, 10);
+    const auto o = r.create_owner(staging, 10);
     const reg_t& cr = o.registry();
     EXPECT_TRUE(&cr == &r);
   }
@@ -1621,7 +1621,7 @@ void EntityRegistry_HandleOwner() {
     id_t saved_id = id_t::invalid;
 
     auto do_work = [&](bool succeed) -> bool {
-      auto o = r.make_owner(staging, 10);
+      auto o = r.create_owner(staging, 10);
       if (!o) return false;
       saved_id = o.id();
       if (!succeed) return false; // destructor fires, entity erased
@@ -1642,7 +1642,7 @@ void EntityRegistry_HandleOwner() {
     using vreg_t = entity_registry<void>;
     const vreg_t::location_t vstaging{store_id_t{}};
     vreg_t r;
-    auto o = r.make_owner(vstaging);
+    auto o = r.create_owner(vstaging);
     EXPECT_TRUE(bool(o));
     auto id = o.id();
     EXPECT_TRUE(r.is_valid(id));
@@ -2034,10 +2034,10 @@ void EntityRegistry_ComponentMode_HandleOwner() {
     EXPECT_FALSE(bool(o));
   }
 
-  // make_owner creates and takes ownership.
+  // create_owner creates and takes ownership.
   if (true) {
     creg_t r;
-    auto o = r.make_owner(77);
+    auto o = r.create_owner(77);
     EXPECT_TRUE(bool(o));
     EXPECT_NE(o.id(), id_t::invalid);
     EXPECT_EQ(r[o.id()], 77);
@@ -2048,7 +2048,7 @@ void EntityRegistry_ComponentMode_HandleOwner() {
     creg_t r;
     id_t saved_id;
     {
-      auto o = r.make_owner(10);
+      auto o = r.create_owner(10);
       saved_id = o.id();
       EXPECT_TRUE(r.is_valid(saved_id));
     }
@@ -2058,7 +2058,7 @@ void EntityRegistry_ComponentMode_HandleOwner() {
   // release() leaves entity alive.
   if (true) {
     creg_t r;
-    auto o = r.make_owner(10);
+    auto o = r.create_owner(10);
     [[maybe_unused]] auto id = o.id();
     auto h = o.release();
     EXPECT_FALSE(bool(o));
@@ -2069,7 +2069,7 @@ void EntityRegistry_ComponentMode_HandleOwner() {
   // Move semantics work correctly.
   if (true) {
     creg_t r;
-    auto o1 = r.make_owner(10);
+    auto o1 = r.create_owner(10);
     auto id = o1.id();
     owner_t o2{std::move(o1)};
     EXPECT_FALSE(bool(o1));
