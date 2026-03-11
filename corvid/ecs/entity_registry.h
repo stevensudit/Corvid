@@ -387,10 +387,10 @@ public:
   //
   // See `create_handle` for details.
   [[nodiscard]]
-  id_t
-  create_id(location_t location = location_t{store_id_t{}, *id_t::invalid},
+  id_t create_id(location_t location = location_t{},
       const metadata_t& metadata = {}) {
-    if (location.store_id == store_id_t::invalid) return id_t::invalid;
+    if (location.store_id == store_id_t::invalid)
+      location.store_id = store_id_t{};
     const id_t id = alloc_id();
     if (id == id_t::invalid) return id_t::invalid;
     auto& rec = records_[id];
@@ -402,17 +402,12 @@ public:
   // Create a new entity record, returning its handle, or an invalid handle on
   // failure. One cause of failure is reaching the ID limit.
   //
-  // If you know where it will be stored but don't yet have an index (or, in
-  // the case of component mode, there is no meaningful index), you can pass a
-  // location of `{store_id, *id_t::invalid}`. This is still considered alive
-  // and valid, and you can update its location with `set_location` later. In
-  // component mode, the index will always be ignored.
-  //
-  // A location with `store_id` set to `store_id_t::invalid` is invalid and
-  // will fail.
+  // When `location` is defaulted to `{store_id_t::invalid, *id_t::invalid}`,
+  // the `store_id` is interpreted as `store_id_t{0}`. The entity is then
+  // created in staging, and its location may be updated later with
+  // `set_location`.
   [[nodiscard]]
-  handle_t
-  create_handle(location_t location = location_t{store_id_t{}, *id_t::invalid},
+  handle_t create_handle(location_t location = location_t{},
       const metadata_t& metadata = {}) {
     return get_handle(create_id(location, metadata));
   }
