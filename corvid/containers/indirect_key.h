@@ -67,8 +67,8 @@ struct indirect_map_key {
 
   [[nodiscard]] operator const T&() const noexcept { return key; }
 
-  [[nodiscard]] constexpr bool
-  operator<(const indirect_map_key& r) const noexcept {
+  [[nodiscard]] constexpr bool operator<(
+      const indirect_map_key& r) const noexcept {
     return C{}(key, r.key);
   }
 

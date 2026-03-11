@@ -57,21 +57,17 @@ id_container<T, id_t>
 
 entity_registry evolution
 --------------------------
-Add an ownership LOC template parameter:
-  size_type living_count_ - distinguishes between the number of living
-     entities and the size of the id_container. This is needed because
-     we don't resize downward when removing; we leave an empty slot open
-     and reuse it later.
-  ownership::unique (default, archetype mode) — record_t holds location_t
-    {store_id, ndx}, as today.
-  ownership::shared (component mode) — record_t holds a fixed_bitset<N_BITS>
-    presence bitmap instead of location_t. Each bit corresponds to a
-    store_id (bit i = store_id_t{i} is occupied). No ndx stored here;
-    ndx lookup goes through component_storage_base's own id_container.
-    N_BITS is a second new template parameter, defaulting to 64.
+[DONE] Added OWN_COUNT template parameter to select registry mode:
+  OWN_COUNT == 1 (default, archetype mode) — record_t holds location_t
+    {store_id, ndx}, as before.
+  OWN_COUNT any multiple of 8 >= 8 (component mode) — record_t holds a
+    fixed_bitset<OWN_COUNT> presence bitmap instead of location_t. Each bit
+    corresponds to a store_id (bit i = store_id_t{i} is occupied). No ndx
+    stored here; ndx lookup goes through component_storage_base's own
+    id_container. OWN_COUNT also sets the bitmap size.
 
 Presence bitmap semantics:
-  - "Does entity E have component in store S?" -> bitmap.test(*S - 1), O(1)
+  - "Does entity E have component in store S?" -> bitmap.test(*S), O(1)
   - "Which stores does entity E occupy?" -> iterate set bits, O(popcount)
   - component_scene::erase(id) fans out only to stores with set bits, not
     all stores.

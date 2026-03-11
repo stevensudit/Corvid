@@ -8,6 +8,7 @@
             "args": [
                 "-std=c++23",
                 "-stdlib=libc++",
+                "-march=native",
                 "-g",
                 "-O0",
                 "-D_LIBCPP_NO_ABI_TAG",

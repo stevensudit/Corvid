@@ -250,7 +250,7 @@ public:
       return store_id_;
     }
 
-    [[nodiscard]] store_id_set_t get_store_ids() const noexcept
+    [[nodiscard]] const store_id_set_t& get_store_ids() const noexcept
     requires is_component_v
     {
       return store_ids_;
@@ -262,6 +262,7 @@ public:
         store_id_ = location.store_id;
       } else {
         const auto store_id = location.store_id;
+        assert(store_id == store_id_t::invalid || *store_id < OWN_COUNT);
         if (store_id == store_id_t::invalid)
           store_ids_.reset();
         else if (store_id == store_id_t{}) {
@@ -301,7 +302,7 @@ public:
     friend class entity_registry<T, EID, SID, GEN, OWN_COUNT, REUSE, A>;
   };
 
-  static constexpr const location_record invalid_location;
+  static constexpr location_record invalid_location;
 
   // Entity record. The entity ID is implied by its location in `records_`.
   //
@@ -393,7 +394,7 @@ public:
   // When `location` is defaulted to `{store_id_t::invalid, *id_t::invalid}`,
   // the `store_id` is interpreted as `store_id_t{0}`. The entity is then
   // created in staging, and its location may be updated later with
-  // `set_location`.
+  // `set_location` or `add_location`/`remove_location`.
   [[nodiscard]]
   handle_t create_handle(location_t location = location_t{},
       const metadata_t& metadata = {}) {

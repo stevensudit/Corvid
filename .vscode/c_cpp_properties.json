@@ -23,6 +23,7 @@
             },
             "compilerArgs": [
                 "-stdlib=libc++",
+                "-march=native",
                 "-Wall",
                 "-Wextra",
                 "-Werror"

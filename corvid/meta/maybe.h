@@ -44,7 +44,7 @@ using maybe_t = std::conditional_t<Enabled, T, empty_t>;
 // Maybe void type: `T` if `T` is not void, otherwise `empty_t`.
 //
 // Usage:
-//   [[no_unique_address]] maybe_void_t<int_t> int_or_missing{42};
+//   [[no_unique_address]] maybe_void_t<int> int_or_missing{42};
 template<typename T = void>
 using maybe_void_t = maybe_t<T, !std::is_void_v<T>>;
 
