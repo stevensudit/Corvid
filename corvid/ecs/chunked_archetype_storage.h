@@ -56,7 +56,7 @@ inline namespace chunked_archetype_storages {
 //  TAG       - Optional tag type (default: `void`). Use a distinct tag to
 //              create multiple structurally-identical storages that are
 //              nevertheless different types and can coexist in the same
-//              `scene<>` tuple.
+//              `archetype_scene<>` tuple.
 template<typename REG, typename TUPLE, size_t CHUNKSZ = 16,
     typename TAG = void>
 class chunked_archetype_storage;

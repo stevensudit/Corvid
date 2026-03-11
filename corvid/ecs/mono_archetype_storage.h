@@ -26,7 +26,8 @@
 
 #include "archetype_storage_base.h"
 
-namespace corvid { inline namespace ecs { inline namespace component_storages {
+namespace corvid { inline namespace ecs {
+inline namespace mono_archetype_storages {
 
 // Packed single-component storage with O(1) lookup through `entity_registry`.
 //
@@ -45,13 +46,14 @@ namespace corvid { inline namespace ecs { inline namespace component_storages {
 //  C   - Component type. Must be trivially copyable.
 //  TAG - Optional tag type (default: `void`). Use a distinct tag to create
 //        multiple structurally-identical storages that are nevertheless
-//        different types and can coexist in the same `scene<>` tuple.
+//        different types and can coexist in the same `archetype_scene<>`
+//        tuple.
 template<typename REG, typename C, typename TAG = void>
-class component_storage final
-    : public archetype_storage_base<component_storage<REG, C, TAG>, REG,
+class mono_archetype_storage final
+    : public archetype_storage_base<mono_archetype_storage<REG, C, TAG>, REG,
           std::tuple<C>> {
-  using base_t = archetype_storage_base<component_storage<REG, C, TAG>, REG,
-      std::tuple<C>>;
+  using base_t = archetype_storage_base<mono_archetype_storage<REG, C, TAG>,
+      REG, std::tuple<C>>;
 
 public:
   using tag_t = TAG;
@@ -81,9 +83,9 @@ public:
   // Constructors.
 
   // Default-constructed instances can only be assigned to.
-  component_storage() noexcept = default;
+  mono_archetype_storage() noexcept = default;
 
-  explicit component_storage(registry_t& registry, store_id_t store_id,
+  explicit mono_archetype_storage(registry_t& registry, store_id_t store_id,
       size_type limit = *id_t::invalid,
       allocation_policy policy = allocation_policy::lazy)
       : base_t{registry, store_id, limit},
@@ -92,10 +94,10 @@ public:
       reserve(limit_);
   }
 
-  component_storage(component_storage&&) noexcept = default;
-  ~component_storage() { clear(); }
+  mono_archetype_storage(mono_archetype_storage&&) noexcept = default;
+  ~mono_archetype_storage() { clear(); }
 
-  component_storage& operator=(component_storage&& other) noexcept {
+  mono_archetype_storage& operator=(mono_archetype_storage&& other) noexcept {
     if (this == &other) return *this;
     clear();
     base_t::operator=(std::move(other));
@@ -107,12 +109,13 @@ public:
   }
 
   // Swap with another storage.
-  void swap(component_storage& other) noexcept {
+  void swap(mono_archetype_storage& other) noexcept {
     base_t::do_swap_base(other);
     components_.swap(other.components_);
   }
 
-  friend void swap(component_storage& lhs, component_storage& rhs) noexcept {
+  friend void
+  swap(mono_archetype_storage& lhs, mono_archetype_storage& rhs) noexcept {
     lhs.swap(rhs);
   }
 
@@ -138,7 +141,7 @@ public:
   }
 
   // Metadata-first overload matching the archetype storage convention,
-  // enabling use as a StorageSpec in `scene`.
+  // enabling use as a StorageSpec in `archetype_scene`.
   [[nodiscard]] handle_t add_new(const metadata_t& metadata,
       const component_t& component = component_t{}) {
     return add_new(component, metadata);
@@ -200,7 +203,7 @@ public:
     template<typename T>
     [[nodiscard]] const T& component() const noexcept {
       static_assert(std::is_same_v<T, component_t>,
-          "component_storage only has one component type");
+          "mono_archetype_storage only has one component type");
       return value;
     }
 
@@ -262,8 +265,8 @@ public:
         std::conditional_t<mutable_v, value_type&, const value_type&>;
     using pointer =
         std::conditional_t<mutable_v, value_type*, const value_type*>;
-    using storage_ptr = std::conditional_t<mutable_v, component_storage*,
-        const component_storage*>;
+    using storage_ptr = std::conditional_t<mutable_v, mono_archetype_storage*,
+        const mono_archetype_storage*>;
 
     iterator_t() = default;
     iterator_t(const iterator_t&) = default;
@@ -341,7 +344,7 @@ public:
     size_type ndx_{};
 
     iterator_t(storage_ptr s, size_type ndx) : storage_{s}, ndx_{ndx} {}
-    friend class component_storage;
+    friend class mono_archetype_storage;
   };
 
   using iterator = iterator_t<access::as_mutable>;
@@ -379,7 +382,7 @@ private:
   [[nodiscard]] decltype(auto)
   do_get_component(this auto& self, size_type ndx) noexcept {
     static_assert(std::is_same_v<T, component_t>,
-        "component_storage only has one component type");
+        "mono_archetype_storage only has one component type");
     return self.components_[ndx];
   }
 
@@ -388,7 +391,7 @@ private:
   [[nodiscard]] decltype(auto)
   do_get_component_by_index(this auto& self, size_type ndx) noexcept {
     static_assert(Index == 0,
-        "component_storage only has one component (index 0)");
+        "mono_archetype_storage only has one component (index 0)");
     return self.components_[ndx];
   }
 
@@ -425,4 +428,4 @@ private:
   std::vector<C, component_allocator_type> components_;
 };
 
-}}} // namespace corvid::ecs::component_storages
+}}} // namespace corvid::ecs::mono_archetype_storages

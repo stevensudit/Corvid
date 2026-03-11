@@ -27,10 +27,10 @@
 #include "../meta/forward_like.h"
 #include "entity_registry.h"
 
-// Forward declaration for friendship; defined in "scene.h".
-namespace corvid { inline namespace ecs { inline namespace scenes {
-class scene_base;
-}}} // namespace corvid::ecs::scenes
+// Forward declaration for friendship; defined in "archetype_scene.h".
+namespace corvid { inline namespace ecs { inline namespace archetype_scenes {
+class archetype_scene_base;
+}}} // namespace corvid::ecs::archetype_scenes
 
 namespace corvid { inline namespace ecs {
 inline namespace archetype_storage_bases {
@@ -548,14 +548,15 @@ protected:
   size_type limit_{*id_t::invalid};
   id_vector_t ids_{};
 
-  // Grant `scene_base` (and through it, `scene<>`) access to `do_drop_all()`.
-  friend class ::corvid::ecs::scene_base;
+  // Grant `archetype_scene_base` (and through it, `archetype_scene<>`) access
+  // to `do_drop_all()`.
+  friend class ::corvid::ecs::archetype_scene_base;
 
 private:
   // Fast bulk-drop: clear component and ID vectors without touching the
   // registry. Only safe when the registry will be reset wholesale immediately
-  // afterward (e.g. `scene::clear()`). Called via
-  // `scene_base::storage_drop_all`.
+  // afterward (e.g. `archetype_scene::clear()`). Called via
+  // `archetype_scene_base::storage_drop_all`.
   void do_drop_all() {
     ids_.clear();
     derived().do_clear_storage();

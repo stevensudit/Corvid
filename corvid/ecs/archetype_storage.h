@@ -58,7 +58,7 @@ namespace corvid { inline namespace ecs { inline namespace archetype_storages {
 //  TAG      - Optional tag type (default: `void`). Use a distinct tag to
 //             create multiple structurally-identical storages that are
 //             nevertheless different types and can coexist in the same
-//             `scene<>` tuple.
+//             `archetype_scene<>` tuple.
 template<typename REG, typename TUPLE, typename TAG = void>
 class archetype_storage;
 
