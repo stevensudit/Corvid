@@ -214,7 +214,7 @@ Implementation Steps (in order)
 5. Rename component_storage -> mono_archetype_storage (COMPLETED)
 6. Rename scene -> archetype_scene; update ecs.h umbrella (COMPLETED)
 7. Implement component_storage_base and component_storage (COMPLETED)
-8. Implement component_scene
+8. Implement component_scene (COMPLETED)
 9. Add view<Cs...>() to archetype_scene (entity_view / entity_lens)
 10. Add view<Cs...>() to component_scene
 11. Minor: Follow the TODO in fixed_bitset.

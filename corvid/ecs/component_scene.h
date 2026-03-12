@@ -1,0 +1,266 @@
+// Corvid: A general-purpose modern C++ library extending std.
+// https://github.com/stevensudit/Corvid
+//
+// Copyright 2022-2026 Steven Sudit
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+#pragma once
+
+#include <cstddef>
+#include <tuple>
+#include <type_traits>
+#include <utility>
+
+#include "component_storage_base.h"
+#include "entity_registry.h"
+
+namespace corvid { inline namespace ecs { inline namespace component_scenes {
+
+// Non-templated base for `component_scene<>`. Befriended by
+// `component_storage_base` so that the protected `storage_drop_all` thunk can
+// reach the otherwise-private `do_drop_all()` on any storage, without making
+// that method public.
+class component_scene_base {
+protected:
+  // Invoke `do_drop_all()` on storage `s`. Skips per-entity registry updates;
+  // safe only when the registry will be reset wholesale immediately after.
+  template<typename S>
+  static void storage_drop_all(S& s) {
+    s.do_drop_all();
+  }
+};
+
+// Aggregates a component-mode `entity_registry` with a fixed, heterogeneous
+// tuple of `component_storage_base`-derived storages and exposes a unified
+// component-model ECS interface.
+//
+// Unlike `archetype_scene`, a single entity may occupy multiple storages
+// simultaneously. Components are added and removed independently per storage;
+// the registry tracks membership via a `fixed_bitset` presence bitmap (one bit
+// per `store_id_t`).
+//
+// No staging reservation in the tuple: `store_id_t{1}` is the first storage.
+// Entities begin in staging (bitmap bit 0 set) and leave staging when their
+// first component is added via `add_component` or `add_new`. They return to
+// staging if all components are removed with `remove_component`. They are
+// destroyed (completely removed from the registry) only by `erase`.
+//
+// All `STORES` must be `component_storage_base`-derived types sharing the same
+// `REG`. `REG` must be a component-mode registry (`is_component_v == true`).
+// At most `*store_id_t::invalid - 2` storages are supported (as
+// `store_id_t{0}` is reserved for staging and `store_id_t::invalid` is the
+// invalid flag.).
+//
+// Construction creates all storages with unlimited capacity. To restrict a
+// specific storage, call `storage<store_id_t{N}>().set_limit(n)` after
+// construction.
+//
+// Template parameters:
+//   REG    - Shared component-mode `entity_registry` specialization.
+//   STORES - Fully-typed `component_storage`-family specializations,
+//            all using `REG`.
+template<typename REG, typename... STORES>
+class component_scene: public component_scene_base {
+public:
+  using registry_t = REG;
+  using storage_ts = std::tuple<STORES...>;
+  using id_t = registry_t::id_t;
+  using handle_t = registry_t::handle_t;
+  using size_type = registry_t::size_type;
+  using store_id_t = registry_t::store_id_t;
+  using metadata_t = registry_t::metadata_t;
+  using allocator_type = registry_t::allocator_type;
+
+  static constexpr size_t storage_count_v = sizeof...(STORES);
+
+  static_assert(registry_t::is_component_v,
+      "component_scene requires a component-mode registry "
+      "(OWN_COUNT must be a multiple of 8 >= 8)");
+  static_assert(sizeof...(STORES) >= 1,
+      "component_scene requires at least one storage");
+  static_assert(
+      (std::is_same_v<registry_t, typename STORES::registry_t> && ...),
+      "all STORES must use the same registry_t");
+  // Defensive: the largest store_id assigned is `storage_count_v`. It must not
+  // reach the sentinel.
+  static_assert(storage_count_v < *store_id_t::invalid,
+      "too many STORES: store_id_t would overflow into the invalid sentinel");
+
+  // Type of the storage with the given `store_id`. `std::monostate` occupies
+  // index 0 so that `*SID` equals the tuple index directly.
+  template<store_id_t SID>
+  using storage_t =
+      std::tuple_element_t<*SID, std::tuple<std::monostate, STORES...>>;
+
+  // Construct with unlimited, unbound storages. Each storage is bound to this
+  // scene's registry and assigned `store_id_t{N}` for 1-based index N. An
+  // optional allocator propagates to the registry.
+  explicit component_scene(const allocator_type& alloc = allocator_type{})
+      : registry_{alloc},
+        storages_{make_storages(std::index_sequence_for<STORES...>{})} {}
+
+  component_scene(const component_scene&) = delete;
+  component_scene(component_scene&&) = delete;
+  component_scene& operator=(const component_scene&) = delete;
+  component_scene& operator=(component_scene&&) = delete;
+
+  ~component_scene() { clear(); }
+
+  // Registry access.
+  [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
+    return (self.registry_);
+  }
+
+  // Access the storage with the given `store_id` by mutable or const
+  // reference.
+  template<store_id_t SID>
+  [[nodiscard]] decltype(auto) storage(this auto& self) noexcept {
+    return (std::get<*SID>(self.storages_));
+  }
+
+  // Access a storage with the given type by mutable or const reference.
+  template<typename STORAGE>
+  [[nodiscard]] decltype(auto) storage(this auto& self) noexcept {
+    using storage_type = std::remove_cvref_t<STORAGE>;
+    static_assert((std::is_same_v<storage_type, STORES> || ...),
+        "STORAGE must be one of this component_scene's STORES");
+    return (std::get<storage_type>(self.storages_));
+  }
+
+  // Create a new entity in staging. Returns its handle, or an invalid handle
+  // on failure (e.g., registry at ID limit).
+  [[nodiscard]] handle_t make_entity(const metadata_t& metadata = {}) {
+    auto owner = registry_.create_owner(metadata);
+    if (!owner) return {};
+    return owner.release();
+  }
+
+  // Create a new entity and add it to storage `SID` in one step. Returns a
+  // valid handle on success, or an invalid handle if creation or storage
+  // insertion fails (e.g., at limit).
+  template<store_id_t SID, typename... Args>
+  [[nodiscard]] handle_t add_new(const metadata_t& metadata, Args&&... args) {
+    return storage<SID>().add_new(metadata, std::forward<Args>(args)...);
+  }
+
+  // Add a component to storage `SID` for an existing entity. The entity must
+  // be valid and not already present in that storage. Returns false if the
+  // entity is invalid, already in `SID`, or if the storage is at its limit.
+  template<store_id_t SID, typename... Args>
+  [[nodiscard]] bool add_component(id_t id, Args&&... args) {
+    return storage<SID>().add(id, std::forward<Args>(args)...);
+  }
+
+  // Add component by handle. Validates the handle first.
+  template<store_id_t SID, typename... Args>
+  [[nodiscard]] bool add_component(handle_t handle, Args&&... args) {
+    if (!registry_.is_valid(handle)) return false;
+    return add_component<SID>(handle.id(), std::forward<Args>(args)...);
+  }
+
+  // Remove entity from storage `SID` only. The entity remains alive in the
+  // registry and any other storages it occupies. If this is its last storage,
+  // the entity returns to staging. Returns false if the entity is invalid or
+  // not in storage `SID`.
+  template<store_id_t SID>
+  bool remove_component(id_t id) {
+    return storage<SID>().remove(id);
+  }
+
+  // Remove component by handle. Validates the handle first.
+  template<store_id_t SID>
+  bool remove_component(handle_t handle) {
+    if (!registry_.is_valid(handle)) return false;
+    return remove_component<SID>(handle.id());
+  }
+
+  // Erase entity: remove from all storages it currently occupies, then
+  // destroy it in the registry. Sets `id` to `id_t::invalid` on success.
+  // Returns false if the entity is already invalid.
+  [[nodiscard]] bool erase(id_t& id) {
+    if (!registry_.is_valid(id)) return false;
+    // Remove from every storage (preserve mode so each storage's swap-and-pop
+    // runs cleanly; the entity stays alive until the registry erase below).
+    [&]<size_t... Is>(std::index_sequence<Is...>) {
+      (std::get<Is + 1>(storages_).remove(id), ...);
+    }(std::make_index_sequence<storage_count_v>{});
+    // Entity is now in staging. Destroy it.
+    registry_.erase(id);
+    id = id_t::invalid;
+    return true;
+  }
+
+  // Erase by handle. Resets `handle` to an invalid state on success. Returns
+  // false if the handle is invalid or stale.
+  [[nodiscard]] bool erase(handle_t& handle) {
+    if (!registry_.is_valid(handle)) return false;
+    auto id = handle.id();
+    if (!erase(id)) return false;
+    handle = handle_t{};
+    return true;
+  }
+
+  // Erase all staged entities (those with no components in any storage).
+  // Returns the count erased. Useful for cleaning up entities that were
+  // removed from all their storages via `remove_component`.
+  size_type erase_staged() {
+    return registry_.erase_if([](auto, const auto& rec) {
+      return rec.location.contains(store_id_t{});
+    });
+  }
+
+  // Return the total number of living entities (including those in staging).
+  [[nodiscard]] size_type size() const noexcept { return registry_.size(); }
+
+  // Return true if there are no living entities.
+  [[nodiscard]] bool empty() const noexcept { return registry_.size() == 0; }
+
+  // Erase all entities in all storages and in staging.
+  //
+  // Release path (default): drops storage vectors without per-entity registry
+  // updates, then resets the registry wholesale. Invalidates all outstanding
+  // generation counters. O(S) in the number of storages.
+  //
+  // Preserve path: erases entities one by one via each storage's `clear()`,
+  // preserving generation counter validity. O(N) in entities.
+  void clear(deallocation_policy policy = deallocation_policy::release) {
+    if (policy == deallocation_policy::release) {
+      [&]<size_t... Is>(std::index_sequence<Is...>) {
+        (storage_drop_all(std::get<Is + 1>(storages_)), ...);
+      }(std::make_index_sequence<storage_count_v>{});
+      registry_.clear(deallocation_policy::release);
+    } else {
+      [&]<size_t... Is>(std::index_sequence<Is...>) {
+        (std::get<Is + 1>(storages_).clear(), ...);
+      }(std::make_index_sequence<storage_count_v>{});
+      erase_staged();
+    }
+  }
+
+private:
+  // Construct all storages. `std::monostate` occupies index 0 so that each
+  // storage's `store_id_t{N}` equals its tuple index N directly.
+  template<size_t... Is>
+  std::tuple<std::monostate, STORES...>
+  make_storages(std::index_sequence<Is...>) {
+    return std::make_tuple(std::monostate{},
+        STORES{registry_, store_id_t{Is + 1}}...);
+  }
+
+  // `registry_` must be declared before `storages_` because each storage
+  // holds a pointer to it (initialized in `make_storages`).
+  registry_t registry_;
+  std::tuple<std::monostate, STORES...> storages_;
+};
+
+}}} // namespace corvid::ecs::component_scenes

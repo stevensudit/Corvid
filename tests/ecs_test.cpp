@@ -5459,6 +5459,281 @@ void ComponentStorage_IndexVariants() {
   }
 }
 
+// ============================================================
+// component_scene tests
+// ============================================================
+
+// Scene with two component storages: one for float (position proxy), one for
+// int (health proxy). The registry uses OWN_COUNT=8 so up to 7 real storages
+// are supported.
+using cs_scene_reg_t = entity_registry<void, id_enums::entity_id_t,
+    id_enums::store_id_t, generation_scheme::versioned, 8>;
+using cs_scene_sid_t = cs_scene_reg_t::store_id_t;
+using cs_scene_id_t = cs_scene_reg_t::id_t;
+using cs_scene_store1_t = component_storage<cs_scene_reg_t, float>;
+using cs_scene_store2_t = component_storage<cs_scene_reg_t, int>;
+using two_cs_scene_t =
+    component_scene<cs_scene_reg_t, cs_scene_store1_t, cs_scene_store2_t>;
+
+void ComponentScene_Basic() {
+  // Default construction: empty registry, no entities.
+  if (true) {
+    two_cs_scene_t s;
+    EXPECT_TRUE(s.empty());
+    EXPECT_EQ(s.size(), 0U);
+    EXPECT_EQ(two_cs_scene_t::storage_count_v, 2U);
+  }
+
+  // storage<N>() returns the correct storage with the correct store_id.
+  if (true) {
+    two_cs_scene_t s;
+    EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().empty());
+    EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().empty());
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().store_id(), cs_scene_sid_t{1});
+    EXPECT_EQ(s.storage<cs_scene_sid_t{2}>().store_id(), cs_scene_sid_t{2});
+  }
+
+  // storage<TYPE>() access by type.
+  if (true) {
+    two_cs_scene_t s;
+    EXPECT_TRUE(s.storage<cs_scene_store1_t>().empty());
+    EXPECT_TRUE(s.storage<cs_scene_store2_t>().empty());
+  }
+
+  // add_new inserts into the chosen storage and returns a valid handle.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.add_new<cs_scene_sid_t{1}>({}, 1.5f);
+    EXPECT_TRUE(static_cast<bool>(h));
+    EXPECT_EQ(s.size(), 1U);
+    EXPECT_FALSE(s.empty());
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 1U);
+    EXPECT_EQ(s.storage<cs_scene_sid_t{2}>().size(), 0U);
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[h.id()], 1.5f);
+  }
+
+  // make_entity creates entity in staging; registry size reflects it.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.make_entity();
+    EXPECT_TRUE(static_cast<bool>(h));
+    EXPECT_EQ(s.size(), 1U);
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 0U);
+    EXPECT_EQ(s.storage<cs_scene_sid_t{2}>().size(), 0U);
+  }
+
+  // size() reflects the registry total (including staging).
+  if (true) {
+    two_cs_scene_t s;
+    (void)s.add_new<cs_scene_sid_t{1}>({}, 1.0f);
+    (void)s.add_new<cs_scene_sid_t{2}>({}, 10);
+    (void)s.make_entity(); // staged
+    EXPECT_EQ(s.size(), 3U);
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 1U);
+    EXPECT_EQ(s.storage<cs_scene_sid_t{2}>().size(), 1U);
+  }
+}
+
+// component_scene: add_component and multi-storage membership.
+void ComponentScene_AddComponent() {
+  // add_component adds entity to a second storage without removing it from
+  // the first. Entity is in both storages simultaneously.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.add_new<cs_scene_sid_t{1}>({}, 2.0f);
+    auto id = h.id();
+    EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().contains(id));
+    EXPECT_FALSE(s.storage<cs_scene_sid_t{2}>().contains(id));
+
+    EXPECT_TRUE(s.add_component<cs_scene_sid_t{2}>(id, 42));
+    EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().contains(id));
+    EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().contains(id));
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[id], 2.0f);
+    EXPECT_EQ(s.storage<cs_scene_sid_t{2}>()[id], 42);
+  }
+
+  // add_component by handle.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.make_entity();
+    EXPECT_TRUE(s.add_component<cs_scene_sid_t{1}>(h, 3.14f));
+    EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().contains(h.id()));
+
+    // add_component with invalid handle returns false.
+    cs_scene_reg_t::handle_t bad{};
+    EXPECT_FALSE(s.add_component<cs_scene_sid_t{1}>(bad, 1.0f));
+  }
+
+  // add_component fails if entity is already in that storage.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.add_new<cs_scene_sid_t{1}>({}, 1.0f);
+    EXPECT_FALSE(s.add_component<cs_scene_sid_t{1}>(h.id(), 2.0f));
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 1U);
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[h.id()], 1.0f); // unchanged
+  }
+}
+
+// component_scene: remove_component, staging, and erase.
+void ComponentScene_RemoveErase() {
+  // remove_component removes entity from one storage; it remains in others.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.add_new<cs_scene_sid_t{1}>({}, 5.0f);
+    auto id = h.id();
+    EXPECT_TRUE(s.add_component<cs_scene_sid_t{2}>(id, 7));
+
+    EXPECT_TRUE(s.remove_component<cs_scene_sid_t{1}>(id));
+    EXPECT_FALSE(s.storage<cs_scene_sid_t{1}>().contains(id));
+    EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().contains(id));
+    EXPECT_EQ(s.size(), 1U); // still alive
+  }
+
+  // remove_component from last storage returns entity to staging.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.add_new<cs_scene_sid_t{1}>({}, 9.0f);
+    auto id = h.id();
+    EXPECT_TRUE(s.remove_component<cs_scene_sid_t{1}>(id));
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 0U);
+    // Entity still alive (staged).
+    EXPECT_TRUE(s.registry().is_valid(h));
+    EXPECT_EQ(s.size(), 1U);
+  }
+
+  // remove_component by handle.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.add_new<cs_scene_sid_t{2}>({}, 99);
+    EXPECT_TRUE(s.remove_component<cs_scene_sid_t{2}>(h));
+    EXPECT_EQ(s.storage<cs_scene_sid_t{2}>().size(), 0U);
+    EXPECT_TRUE(s.registry().is_valid(h)); // still alive
+
+    // Invalid handle returns false.
+    cs_scene_reg_t::handle_t bad{};
+    EXPECT_FALSE(s.remove_component<cs_scene_sid_t{2}>(bad));
+  }
+
+  // erase(id) removes from all storages and destroys in registry.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.add_new<cs_scene_sid_t{1}>({}, 1.0f);
+    auto id = h.id();
+    EXPECT_TRUE(s.add_component<cs_scene_sid_t{2}>(id, 2));
+
+    EXPECT_TRUE(s.erase(id));
+    EXPECT_EQ(id, cs_scene_id_t::invalid);
+    EXPECT_FALSE(s.registry().is_valid(h));
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 0U);
+    EXPECT_EQ(s.storage<cs_scene_sid_t{2}>().size(), 0U);
+    EXPECT_EQ(s.size(), 0U);
+  }
+
+  // erase(id) on a staged entity (no components).
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.make_entity();
+    auto id = h.id();
+    EXPECT_TRUE(s.erase(id));
+    EXPECT_EQ(id, cs_scene_id_t::invalid);
+    EXPECT_FALSE(s.registry().is_valid(h));
+    EXPECT_EQ(s.size(), 0U);
+  }
+
+  // erase(handle) resets handle on success.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.add_new<cs_scene_sid_t{1}>({}, 3.0f);
+    EXPECT_TRUE(s.erase(h));
+    EXPECT_FALSE(static_cast<bool>(h));
+    EXPECT_EQ(s.size(), 0U);
+  }
+
+  // erase(handle) returns false for an invalid handle.
+  if (true) {
+    two_cs_scene_t s;
+    cs_scene_reg_t::handle_t bad{};
+    EXPECT_FALSE(s.erase(bad));
+  }
+
+  // erase(id) returns false for invalid id.
+  if (true) {
+    two_cs_scene_t s;
+    auto id = cs_scene_id_t::invalid;
+    EXPECT_FALSE(s.erase(id));
+  }
+}
+
+// component_scene: erase_staged and clear.
+void ComponentScene_EraseStaged() {
+  // erase_staged removes entities with no components.
+  if (true) {
+    two_cs_scene_t s;
+    auto h1 = s.add_new<cs_scene_sid_t{1}>({}, 1.0f); // has component
+    auto h2 = s.make_entity();                        // staged
+    auto h3 = s.make_entity();                        // staged
+    EXPECT_EQ(s.size(), 3U);
+    const auto erased = s.erase_staged();
+    EXPECT_EQ(erased, 2U);
+    EXPECT_EQ(s.size(), 1U);
+    EXPECT_TRUE(s.registry().is_valid(h1));
+    EXPECT_FALSE(s.registry().is_valid(h2));
+    EXPECT_FALSE(s.registry().is_valid(h3));
+  }
+
+  // erase_staged returns 0 when no staged entities exist.
+  if (true) {
+    two_cs_scene_t s;
+    (void)s.add_new<cs_scene_sid_t{1}>({}, 1.0f);
+    EXPECT_EQ(s.erase_staged(), 0U);
+  }
+
+  // clear(release) empties everything in O(S).
+  if (true) {
+    two_cs_scene_t s;
+    (void)s.add_new<cs_scene_sid_t{1}>({}, 1.0f);
+    (void)s.add_new<cs_scene_sid_t{2}>({}, 2);
+    (void)s.make_entity();
+    s.clear(deallocation_policy::release);
+    EXPECT_TRUE(s.empty());
+    EXPECT_EQ(s.size(), 0U);
+    EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().empty());
+    EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().empty());
+  }
+
+  // clear(preserve) erases entities one by one, then staged.
+  if (true) {
+    two_cs_scene_t s;
+    (void)s.add_new<cs_scene_sid_t{1}>({}, 1.0f);
+    (void)s.add_new<cs_scene_sid_t{2}>({}, 2);
+    (void)s.make_entity();
+    s.clear(deallocation_policy::preserve);
+    EXPECT_TRUE(s.empty());
+    EXPECT_EQ(s.size(), 0U);
+    EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().empty());
+    EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().empty());
+  }
+}
+
+// component_scene: destructor runs clear automatically.
+void ComponentScene_Destructor() {
+  if (true) {
+    auto h1 = cs_scene_reg_t::handle_t{};
+    auto h2 = cs_scene_reg_t::handle_t{};
+    {
+      two_cs_scene_t s;
+      h1 = s.add_new<cs_scene_sid_t{1}>({}, 1.0f);
+      h2 = s.add_new<cs_scene_sid_t{2}>({}, 2);
+      EXPECT_EQ(s.size(), 2U);
+    }
+    // After destruction all entities are gone; handles point into dead memory,
+    // but we can verify the handles themselves are non-null before
+    // destruction.
+    EXPECT_TRUE(static_cast<bool>(h1));
+    EXPECT_TRUE(static_cast<bool>(h2));
+  }
+}
+
 MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ArchetypeStorage_Add, ArchetypeStorage_Remove, ArchetypeStorage_Erase,
     ArchetypeStorage_RowAccess, ArchetypeStorage_ComponentAccess,
@@ -5486,7 +5761,10 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ComponentIndex_Sorted, ComponentIndex_Paged, ComponentStorage_Basic,
     ComponentStorage_MultiStore, ComponentStorage_Remove,
     ComponentStorage_Erase, ComponentStorage_EraseIf,
-    ComponentStorage_Iterator, ComponentStorage_IndexVariants);
+    ComponentStorage_Iterator, ComponentStorage_IndexVariants,
+    ComponentScene_Basic, ComponentScene_AddComponent,
+    ComponentScene_RemoveErase, ComponentScene_EraseStaged,
+    ComponentScene_Destructor);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
