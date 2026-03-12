@@ -20,6 +20,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <variant>
 
 #include "component_storage_base.h"
 #include "entity_registry.h"
@@ -147,7 +148,7 @@ public:
   // may already occupy other storages.
   template<store_id_t SID, typename... Args>
   [[nodiscard]] bool store_entity(id_t id, Args&&... args) {
-    assert(registry_.is_valid(id));
+    if (!registry_.is_valid(id)) return false;
     return storage<SID>().add(id, std::forward<Args>(args)...);
   }
 
@@ -165,7 +166,7 @@ public:
   // not in storage `SID`.
   template<store_id_t SID>
   bool remove_entity(id_t id) {
-    assert(registry_.is_valid(id));
+    if (!registry_.is_valid(id)) return false;
     return storage<SID>().remove(id);
   }
 
@@ -214,8 +215,8 @@ public:
     return true;
   }
 
-  // Erase entity by handle. Resets `handle` to an invalid state on success.
-  // Returns false if the handle is invalid or stale.
+  // Erase entity by handle. Resets `handle` to an invalid state. Returns false
+  // if the handle is invalid or stale.
   [[nodiscard]] bool erase_entity(handle_t& handle) {
     const auto old_handle = handle;
     handle = handle_t{};

@@ -44,7 +44,7 @@ protected:
 // data storages (`archetype_storage` or `chunked_archetype_storage` or
 // `mono_archetype_storage`) and exposes a unified ECS interface.
 //
-// Each of these is identified by a ``store_id_t`. The value of `store_id_t{0}`
+// Each of these is identified by a `store_id_t`. The value of `store_id_t{0}`
 // is reserved for entities in the staging state: existing in the registry but
 // not currently in any storage. In other words, `store_id_t{0}` is
 // conceptually the entity registry itself.
