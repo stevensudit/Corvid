@@ -6198,6 +6198,33 @@ void ComponentScene_EntityLifecycle() {
   EXPECT_FALSE(s.registry().is_valid(h)); // stale handle
 }
 
+// component_scene with OWN_COUNT that is not a multiple of 8: the registry
+// rounds the bitmap width up internally; the user-visible OWN_COUNT still
+// enforces the storage-count limit.
+void ComponentScene_NonAlignedOwnCount() {
+  using namespace id_enums;
+  // OWN_COUNT=3 means staging bit 0 + up to 2 real storages. The
+  // `fixed_bitset` backing the presence bitmap is rounded up to 8 bits
+  // internally; bits 3-7 are unused padding.
+  using reg3_t = entity_registry<void, entity_id_t, store_id_t,
+      generation_scheme::versioned, 3>;
+  using store3a_t = component_storage<reg3_t, float>;
+  using store3b_t = component_storage<reg3_t, int>;
+  using scene3_t = component_scene<reg3_t, store3a_t, store3b_t>;
+
+  scene3_t s;
+  auto h = s.stage_new_entity();
+  auto id = h.id();
+  EXPECT_TRUE(s.store_entity<reg3_t::store_id_t{1}>(id, 1.0f));
+  EXPECT_TRUE(s.store_entity<reg3_t::store_id_t{2}>(id, 42));
+  EXPECT_TRUE(s.storage<reg3_t::store_id_t{1}>().contains(id));
+  EXPECT_TRUE(s.storage<reg3_t::store_id_t{2}>().contains(id));
+  EXPECT_EQ(s.storage<reg3_t::store_id_t{1}>()[id], 1.0f);
+  EXPECT_EQ(s.storage<reg3_t::store_id_t{2}>()[id], 42);
+  EXPECT_TRUE(s.erase_entity(id));
+  EXPECT_EQ(s.size(), 0U);
+}
+
 void ComponentStorage_SwapMoveReserve() {
   using namespace id_enums;
 
@@ -6415,7 +6442,8 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ComponentStorage_At, ComponentScene_Basic, ComponentScene_StoreEntity,
     ComponentScene_RemoveErase, ComponentScene_EraseStaged,
     ComponentScene_Destructor, ComponentScene_StageNewEntity,
-    ComponentScene_RemoveAll, ComponentScene_EntityLifecycle);
+    ComponentScene_RemoveAll, ComponentScene_EntityLifecycle,
+    ComponentScene_NonAlignedOwnCount);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

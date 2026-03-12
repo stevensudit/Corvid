@@ -99,6 +99,12 @@ public:
   static constexpr bool is_fifo_v = (REUSE == reuse_order::fifo);
   static constexpr bool is_lifo_v = !is_fifo_v;
   static constexpr size_t bitmap_bits_v = is_component_v ? OWN_COUNT : 1;
+  // `fixed_bitset` requires `N_BITS % 8 == 0`; round up to the nearest
+  // multiple of 8. Bits above `bitmap_bits_v` are padding and are never set.
+  // All `OWN_COUNT`- and `bitmap_bits_v`-based validation uses the unpadded
+  // value.
+  static constexpr size_t padded_bitmap_bits_v =
+      is_component_v ? ((bitmap_bits_v + 7) / 8 * 8) : 1;
 
   using metadata_t = maybe_void_t<T>;
   using id_t = EID;
@@ -107,7 +113,7 @@ public:
   using gen_t = maybe_t<size_type, is_versioned_v>;
   using allocator_type = A;
 
-  using store_id_set_t = fixed_bitset<bitmap_bits_v, store_id_t>;
+  using store_id_set_t = fixed_bitset<padded_bitmap_bits_v, store_id_t>;
 
   static_assert(*id_t::invalid ==
                     std::numeric_limits<std::underlying_type_t<id_t>>::max(),
