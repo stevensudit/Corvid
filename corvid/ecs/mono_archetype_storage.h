@@ -20,45 +20,40 @@
 #include <iterator>
 #include <stdexcept>
 #include <type_traits>
+#include <tuple>
 #include <utility>
 #include <vector>
 
-#include "component_index_policies.h"
-#include "component_storage_base.h"
+#include "archetype_storage_base.h"
 
-namespace corvid { inline namespace ecs { inline namespace component_storages {
+namespace corvid { inline namespace ecs {
+inline namespace mono_archetype_storages {
 
-// Packed single-component storage for the component model.
+// Packed single-component storage with O(1) lookup through `entity_registry`.
 //
 // Maps entity IDs to densely-packed component records using swap-and-pop for
-// removal. Unlike `mono_archetype_storage`, a single entity may occupy
-// multiple `component_storage` instances simultaneously; the registry bitmap
-// (not the `ndx` field) tracks membership.
+// removal. The entity registry's `location_t.ndx` stores each entity's index
+// in this class's vector, enabling O(1) access by entity ID while
+// centralizing the management of these IDs.
 //
-// Derives from `component_storage_base` with a policy-based reverse index
-// (`IDX`) for O(1) or O(log K) entity-to-ndx lookup. Provides:
-//   - A contiguous iterator (the underlying `components_` vector is plain
-//     `std::vector`), exposing `id()` per element.
-//   - A `row_view` with both `component<T>()` and implicit `const C&`
-//     conversion.
-//   - `erase_if` and `remove_if` for predicated bulk operations.
+// Derives from `archetype_storage_base` with a single-element tuple. Provides
+// a contiguous iterator (the underlying `components_` vector is a plain
+// `std::vector`), a `row_view` with both `component<T>()` and implicit
+// `const component_t&` conversion, and a component-first `erase_if`.
 //
 // Template parameters:
-//   REG - `entity_registry` instantiation; must be component-mode
-//         (`is_component_v == true`).
-//   C   - Component type. Must be trivially copyable.
-//   TAG - Optional tag type (default: `void`). Use a distinct tag to
-//         create multiple structurally-identical storages that are
-//         nevertheless different types and can coexist in the same
-//         `component_scene<>` tuple.
-//   IDX - Reverse-index policy (default: `flat_sparse_index<id_t>`).
-template<typename REG, typename C, typename TAG = void,
-    typename IDX = flat_sparse_index<typename REG::id_t>>
-class component_storage final
-    : public component_storage_base<component_storage<REG, C, TAG, IDX>, REG,
-          IDX> {
-  using base_t =
-      component_storage_base<component_storage<REG, C, TAG, IDX>, REG, IDX>;
+//  REG - `entity_registry` instantiation. Provides types.
+//  C   - Component type. Must be trivially copyable.
+//  TAG - Optional tag type (default: `void`). Use a distinct tag to create
+//        multiple structurally-identical storages that are nevertheless
+//        different types and can coexist in the same `archetype_scene<>`
+//        tuple.
+template<typename REG, typename C, typename TAG = void>
+class mono_archetype_storage final
+    : public archetype_storage_base<mono_archetype_storage<REG, C, TAG>, REG,
+          std::tuple<C>> {
+  using base_t = archetype_storage_base<mono_archetype_storage<REG, C, TAG>,
+      REG, std::tuple<C>>;
 
 public:
   using tag_t = TAG;
@@ -69,11 +64,12 @@ public:
   using typename base_t::handle_t;
   using typename base_t::size_type;
   using typename base_t::store_id_t;
+  using typename base_t::location_t;
   using typename base_t::metadata_t;
   using typename base_t::allocator_type;
   using typename base_t::id_allocator_t;
   using typename base_t::id_vector_t;
-  using typename base_t::index_t;
+  using typename base_t::tuple_t;
   using base_t::size;
   using base_t::clear;
   using base_t::contains;
@@ -87,9 +83,9 @@ public:
   // Constructors.
 
   // Default-constructed instances can only be assigned to.
-  component_storage() noexcept = default;
+  mono_archetype_storage() noexcept = default;
 
-  explicit component_storage(registry_t& registry, store_id_t store_id,
+  explicit mono_archetype_storage(registry_t& registry, store_id_t store_id,
       size_type limit = *id_t::invalid,
       allocation_policy policy = allocation_policy::lazy)
       : base_t{registry, store_id, limit},
@@ -98,10 +94,10 @@ public:
       reserve(limit_);
   }
 
-  component_storage(component_storage&&) noexcept = default;
-  ~component_storage() { clear(); }
+  mono_archetype_storage(mono_archetype_storage&&) noexcept = default;
+  ~mono_archetype_storage() { clear(); }
 
-  component_storage& operator=(component_storage&& other) noexcept {
+  mono_archetype_storage& operator=(mono_archetype_storage&& other) noexcept {
     if (this == &other) return *this;
     clear();
     base_t::operator=(std::move(other));
@@ -112,13 +108,14 @@ public:
     return *this;
   }
 
-  // Swap with another storage of the same type.
-  void swap(component_storage& other) noexcept {
+  // Swap with another storage.
+  void swap(mono_archetype_storage& other) noexcept {
     base_t::do_swap_base(other);
     components_.swap(other.components_);
   }
 
-  friend void swap(component_storage& lhs, component_storage& rhs) noexcept {
+  friend void
+  swap(mono_archetype_storage& lhs, mono_archetype_storage& rhs) noexcept {
     lhs.swap(rhs);
   }
 
@@ -134,38 +131,66 @@ public:
     ids_.reserve(new_cap);
   }
 
-  // Add a component for a new entity. Component-first convenience overload.
+  // Add a component for a new entity, returning its handle or an invalid
+  // handle on failure.
   [[nodiscard]] handle_t
   add_new(const component_t& component, const metadata_t& metadata = {}) {
-    return base_t::add_new(metadata, component);
+    auto owner = registry_->create_owner(location_t{store_id_t{}}, metadata);
+    if (!owner || !add(owner.id(), component)) return {};
+    return owner.release();
   }
 
   // Metadata-first overload matching the archetype storage convention,
-  // enabling use as a `StorageSpec` in `component_scene`.
+  // enabling use as a StorageSpec in `archetype_scene`.
   [[nodiscard]] handle_t add_new(const metadata_t& metadata,
       const component_t& component = component_t{}) {
-    return base_t::add_new(metadata, component);
+    return add_new(component, metadata);
   }
 
-  // Erase entities for which `pred(component, id)` returns true. Removed
-  // entities are erased from the registry if this is their last storage.
-  // Returns count erased.
+  // Add a component for an entity. Returns success flag.
+  //
+  // ID must be valid. The entity's location must be `store_id_t{0}` (staging).
+  // As a result of being added, the registry updates the entity's location to
+  // this storage's `store_id_` and the correct `ndx`.
+  [[nodiscard]] bool add(id_t id, const component_t& component) {
+    const auto& loc = registry_->get_location(id);
+    if (loc.store_id != store_id_t{}) return false;
+    const auto ndx = size();
+    if (ndx >= limit_) return false;
+    typename base_t::add_guard guard{*this};
+    components_.push_back(component);
+    ids_.push_back(id);
+    registry_->set_location(id, {store_id_, ndx});
+    return guard.disarm();
+  }
+
+  // Add a component for an entity by handle. Returns success flag.
+  [[nodiscard]] bool add(handle_t handle, const component_t& component) {
+    if (!registry_->is_valid(handle)) return false;
+    return add(handle.id(), component);
+  }
+
+  // Erase components for which `pred(component, id)` returns true. Returns
+  // count erased.
   // Predicate shape: `(const component_t& comp, id_t id) -> bool`.
   size_type erase_if(auto pred) {
-    return do_bulk_op(std::move(pred), removal_mode::remove);
-  }
-
-  // Remove entities for which `pred(component, id)` returns true. Entities
-  // are returned to staging if this is their last storage. Returns count
-  // removed.
-  // Predicate shape: `(const component_t& comp, id_t id) -> bool`.
-  size_type remove_if(auto pred) {
-    return do_bulk_op(std::move(pred), removal_mode::preserve);
+    size_type cnt = 0;
+    for (size_type ndx{}; ndx < components_.size();) {
+      if (pred(components_[ndx], ids_[ndx])) {
+        const auto removed_id = ids_[ndx];
+        do_swap_and_pop(ndx);
+        registry_->set_location(removed_id, {store_id_t::invalid});
+        ++cnt;
+      } else
+        ++ndx;
+    }
+    return cnt;
   }
 
   // Read-only view of a single entity's row. Provides a `component<T>()`
   // accessor uniform with archetype storages (only valid for `T ==
-  // component_t`), plus an implicit conversion to `const component_t&`.
+  // component_t`), plus an implicit conversion to `const component_t&` for
+  // backward compatibility.
   struct row_view {
     const component_t& value;
     id_t entity_id;
@@ -174,11 +199,11 @@ public:
       return value;
     }
 
-    // Uniform accessor (`component_t` only).
+    // Uniform accessor (component_t only).
     template<typename T>
     [[nodiscard]] const T& component() const noexcept {
       static_assert(std::is_same_v<T, component_t>,
-          "component_storage only has one component type");
+          "mono_archetype_storage only has one component type");
       return value;
     }
 
@@ -188,26 +213,26 @@ public:
   // Mutable access: returns `component_t&` directly.
   [[nodiscard]] component_t& operator[](id_t id) noexcept {
     assert(contains(id));
-    return components_[reverse_index_.lookup(id)];
+    return components_[registry_->get_location(id).ndx];
   }
 
   // Const access: returns `row_view` for uniform migrate-compatible access.
   [[nodiscard]] row_view operator[](id_t id) const noexcept {
     assert(contains(id));
-    const auto ndx = reverse_index_.lookup(id);
+    const auto ndx = registry_->get_location(id).ndx;
     return {components_[ndx], ids_[ndx]};
   }
 
   // Mutable access by entity ID, with checking.
   [[nodiscard]] component_t& at(id_t id) {
     if (!contains(id)) throw std::out_of_range("entity not in this storage");
-    return components_[reverse_index_.lookup(id)];
+    return components_[registry_->get_location(id).ndx];
   }
 
   // Const access by entity ID, with checking.
   [[nodiscard]] row_view at(id_t id) const {
     if (!contains(id)) throw std::out_of_range("entity not in this storage");
-    const auto ndx = reverse_index_.lookup(id);
+    const auto ndx = registry_->get_location(id).ndx;
     return {components_[ndx], ids_[ndx]};
   }
 
@@ -240,8 +265,8 @@ public:
         std::conditional_t<mutable_v, value_type&, const value_type&>;
     using pointer =
         std::conditional_t<mutable_v, value_type*, const value_type*>;
-    using storage_ptr = std::conditional_t<mutable_v, component_storage*,
-        const component_storage*>;
+    using storage_ptr = std::conditional_t<mutable_v, mono_archetype_storage*,
+        const mono_archetype_storage*>;
 
     iterator_t() = default;
     iterator_t(const iterator_t&) = default;
@@ -308,9 +333,11 @@ public:
     }
 
     [[nodiscard]] bool operator==(const iterator_t& o) const {
+      assert(storage_ == o.storage_);
       return ndx_ == o.ndx_;
     };
     [[nodiscard]] auto operator<=>(const iterator_t& o) const {
+      assert(storage_ == o.storage_);
       return ndx_ <=> o.ndx_;
     }
 
@@ -319,7 +346,7 @@ public:
     size_type ndx_{};
 
     iterator_t(storage_ptr s, size_type ndx) : storage_{s}, ndx_{ndx} {}
-    friend class component_storage;
+    friend class mono_archetype_storage;
   };
 
   using iterator = iterator_t<access::as_mutable>;
@@ -337,66 +364,70 @@ private:
   using base_t::store_id_;
   using base_t::limit_;
   using base_t::ids_;
-  using base_t::reverse_index_;
 
-  // Grant `component_storage_base` and its nested types access to the CRTP
+  // Grant `archetype_storage_base` and its nested types access to the CRTP
   // customization points.
   friend base_t;
   friend base_t::add_guard;
+  friend base_t::row_lens;
+  friend base_t::row_view;
 
   // Append one component row (called by the base's `add(id_t, ...)`).
-  void do_add_components(const component_t& component) {
-    components_.push_back(component);
+  template<typename... Args>
+  void do_add_components(Args&&... args) {
+    components_.push_back(std::forward<Args>(args)...);
   }
 
-  // Swap the component at `ndx` with the last element and pop. The base
-  // handles `ids_` and `reverse_index_`; this method touches only
-  // `components_`.
+  // Access the component by type (called by `row_wrapper::component<C>()`
+  // and `erase_if_component<C>()`).
+  template<typename T>
+  [[nodiscard]] decltype(auto)
+  do_get_component(this auto& self, size_type ndx) noexcept {
+    static_assert(std::is_same_v<T, component_t>,
+        "mono_archetype_storage only has one component type");
+    return self.components_[ndx];
+  }
+
+  // Access the component by zero-based tuple index (must be 0).
+  template<size_t Index>
+  [[nodiscard]] decltype(auto)
+  do_get_component_by_index(this auto& self, size_type ndx) noexcept {
+    static_assert(Index == 0,
+        "mono_archetype_storage only has one component (index 0)");
+    return self.components_[ndx];
+  }
+
+  // Return all components as a single-element tuple of references.
+  [[nodiscard]] decltype(auto)
+  do_make_components_tuple(this auto& self, size_type ndx) noexcept {
+    return std::tuple<decltype(self.components_[ndx])>{self.components_[ndx]};
+  }
+
+  // Swap element at `ndx` with the last element and pop. Updates the
+  // swapped-in entity's registry location.
   void do_swap_and_pop(size_type ndx) {
-    assert(components_.size() > 0);
+    assert(size());
     const auto last = static_cast<size_type>(components_.size() - 1);
-    if (ndx != last) std::swap(components_[ndx], components_[last]);
+    if (ndx != last) {
+      std::swap(components_[ndx], components_[last]);
+      std::swap(ids_[ndx], ids_[last]);
+      // Update the swapped-in entity's index in the registry.
+      registry_->set_location(ids_[ndx], {store_id_, ndx});
+    }
     components_.pop_back();
+    ids_.pop_back();
   }
 
-  // Clear all component data (called by `do_drop_all` and
-  // `do_remove_erase_all`).
+  // Clear all component data (called by
+  // `archetype_storage_base::do_drop_all`).
   void do_clear_storage() { components_.clear(); }
 
   // Roll back component storage to `new_size` (called by `add_guard` on
   // exception).
   void do_resize_storage(size_type new_size) { components_.resize(new_size); }
 
-  // Sweep the storage, calling `pred(components_[ndx], ids_[ndx])` and either
-  // erasing or removing each entity that satisfies `pred`.
-  size_type do_bulk_op(auto pred, removal_mode mode) {
-    size_type cnt = 0;
-    for (size_type ndx{}; ndx < components_.size();) {
-      if (pred(components_[ndx], ids_[ndx])) {
-        const auto removed_id = ids_[ndx];
-        // Remove from ids_ and components_ using the same swap-and-pop
-        // logic as do_remove_erase, but inline to avoid an extra
-        // `contains` check and reverse-index lookup.
-        const auto last = size() - 1;
-        if (ndx != last) {
-          ids_[ndx] = ids_[last];
-          reverse_index_.update(ids_[ndx], ndx);
-          std::swap(components_[ndx], components_[last]);
-        }
-        ids_.pop_back();
-        reverse_index_.erase(removed_id);
-        components_.pop_back();
-        registry_->remove_location(removed_id, store_id_, mode);
-        ++cnt;
-      } else {
-        ++ndx;
-      }
-    }
-    return cnt;
-  }
-
 private:
   std::vector<C, component_allocator_type> components_;
 };
 
-}}} // namespace corvid::ecs::component_storages
+}}} // namespace corvid::ecs::mono_archetype_storages

@@ -21,22 +21,26 @@
 //  entity_ids                - ID and handle types
 //  id_container              - ECS ID-keyed flat vector (no free list)
 //  stable_ids                - ID-keyed dense storage
-//  storage_base              - CRTP base for all ECS storage classes
-//  archetype_storage_base    - CRTP base for archetype storage classes
+//  archetype_storage_base    - CRTP base for all archetype storage classes
 //  archetype_storage         - SoA multi-component archetype storage
 //  chunked_archetype_storage - AoSoA multi-component archetype storage
 //  entity_registry           - Entity lifecycle and location tracking
-//  component_storage         - Single-component per-entity dense storage
+//  mono_archetype_storage    - Single-component per-entity dense storage
 //  ecs_meta                  - ECS-specific type metaprogramming utilities
-//  scene                     - Unified scene aggregating registry + storages
+//  archetype_scene           - Unified scene aggregating registry + storages
+//  component_index_policies  - Reverse-index policies for component storages
+//  component_storage_base    - CRTP base for component-model storages
+//  component_storage         - Single-component per-entity component storage
 #include "ecs/entity_ids.h"
 #include "ecs/id_container.h"
 #include "ecs/stable_ids.h"
-#include "ecs/storage_base.h"
 #include "ecs/archetype_storage_base.h"
 #include "ecs/archetype_storage.h"
 #include "ecs/chunked_archetype_storage.h"
 #include "ecs/entity_registry.h"
-#include "ecs/component_storage.h"
+#include "ecs/mono_archetype_storage.h"
 #include "ecs/ecs_meta.h"
-#include "ecs/scene.h"
+#include "ecs/archetype_scene.h"
+#include "ecs/component_index_policies.h"
+#include "ecs/component_storage_base.h"
+#include "ecs/component_storage.h"

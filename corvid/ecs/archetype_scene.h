@@ -25,12 +25,12 @@
 #include "ecs_meta.h"
 #include "entity_registry.h"
 
-namespace corvid { inline namespace ecs { inline namespace scenes {
+namespace corvid { inline namespace ecs { inline namespace archetype_scenes {
 
-// Non-templated base for `scene<>`. Befriended by `storage_base` so that the
-// protected `storage_drop_all` thunk can reach the otherwise-private
+// Non-templated base for `archetype_scene<>`. Befriended by `storage_base` so
+// that the protected `storage_drop_all` thunk can reach the otherwise-private
 // `do_drop_all()` on any storage, without making that method public.
-class scene_base {
+class archetype_scene_base {
 protected:
   // Invoke `do_drop_all()` on storage `s`. Skips per-entity registry updates;
   // safe only when the registry will be reset wholesale immediately after.
@@ -42,7 +42,7 @@ protected:
 
 // Aggregates an `entity_registry` with a fixed, heterogeneous tuple of entity
 // data storages (`archetype_storage` or `chunked_archetype_storage` or
-// `component_storage`) and exposes a unified ECS interface.
+// `mono_archetype_storage`) and exposes a unified ECS interface.
 //
 // Each of these is identified by a ``store_id_t`, with `store_id_t{0}`
 // reserved for entities in the staging state: existing in the registry but not
@@ -76,7 +76,7 @@ protected:
 //   REG      - Shared `entity_registry` specialization.
 //   STORES   - Fully-typed storage specializations, all using `REG`.
 template<typename REG, typename... STORES>
-class scene: public scene_base {
+class archetype_scene: public archetype_scene_base {
 public:
   using registry_t = REG;
   using storage_ts = std::tuple<STORES...>;
@@ -90,7 +90,8 @@ public:
 
   static constexpr size_t storage_count_v = sizeof...(STORES);
 
-  static_assert(sizeof...(STORES) >= 1, "scene requires at least one storage");
+  static_assert(sizeof...(STORES) >= 1,
+      "archetype_scene requires at least one storage");
   static_assert(
       (std::is_same_v<registry_t, typename STORES::registry_t> && ...),
       "all storage_ts must use the same Registry type");
@@ -111,16 +112,16 @@ public:
   // this scene's registry and assigned `store_id_t{N}` for 1-based index N.
   // An optional allocator propagates to the registry; all storage allocations
   // derive from it via `registry_.get_allocator()`.
-  explicit scene(const allocator_type& alloc = allocator_type{})
+  explicit archetype_scene(const allocator_type& alloc = allocator_type{})
       : registry_{alloc},
         storages_{make_storages(std::index_sequence_for<STORES...>{})} {}
 
-  scene(const scene&) = delete;
-  scene(scene&&) = delete;
-  scene& operator=(const scene&) = delete;
-  scene& operator=(scene&&) = delete;
+  archetype_scene(const archetype_scene&) = delete;
+  archetype_scene(archetype_scene&&) = delete;
+  archetype_scene& operator=(const archetype_scene&) = delete;
+  archetype_scene& operator=(archetype_scene&&) = delete;
 
-  ~scene() { clear(); }
+  ~archetype_scene() { clear(); }
 
   // Registry access.
   [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
@@ -140,7 +141,7 @@ public:
   [[nodiscard]] decltype(auto) storage(this auto& self) noexcept {
     using storage_type = std::remove_cvref_t<STORAGE>;
     static_assert((std::is_same_v<storage_type, STORES> || ...),
-        "Storage must be one of this scene's storage_ts");
+        "Storage must be one of this archetype_scene's storage_ts");
     return (std::get<storage_type>(self.storages_));
   }
 
@@ -227,7 +228,7 @@ public:
   [[nodiscard]] bool migrate(id_t id, store_id_t to, auto&& build) {
     assert(registry_.is_valid(id));
     const auto store_id = registry_.get_location(id).store_id;
-    if (store_id == to) return true; // already there — no-op
+    if (store_id == to) return true; // already there -- no-op
     return dispatch_storage<bool>(
         store_id,
         [&](auto& src) {
@@ -285,7 +286,7 @@ public:
   [[nodiscard]] bool migrate(id_t id, store_id_t to) {
     assert(registry_.is_valid(id));
     const auto store_id = registry_.get_location(id).store_id;
-    if (store_id == to) return true; // already there — no-op
+    if (store_id == to) return true; // already there -- no-op
     return dispatch_storage<bool>(
         store_id,
         [&](auto& src) {
@@ -417,4 +418,4 @@ private:
   std::tuple<std::monostate, STORES...> storages_;
 };
 
-}}} // namespace corvid::ecs::scenes
+}}} // namespace corvid::ecs::archetype_scenes

@@ -58,7 +58,7 @@ namespace corvid { inline namespace ecs { inline namespace archetype_storages {
 //  TAG      - Optional tag type (default: `void`). Use a distinct tag to
 //             create multiple structurally-identical storages that are
 //             nevertheless different types and can coexist in the same
-//             `scene<>` tuple.
+//             `archetype_scene<>` tuple.
 template<typename REG, typename TUPLE, typename TAG = void>
 class archetype_storage;
 
@@ -91,7 +91,6 @@ public:
   using typename base_t::const_iterator;
   using base_t::size;
   using base_t::clear;
-  using storage_base_t = base_t::storage_base_t;
 
   template<typename T>
   using component_allocator_t =
@@ -164,15 +163,14 @@ public:
   }
 
 private:
-  using storage_base_t::registry_;
-  using storage_base_t::store_id_;
-  using storage_base_t::limit_;
-  using storage_base_t::ids_;
+  using base_t::registry_;
+  using base_t::store_id_;
+  using base_t::limit_;
+  using base_t::ids_;
 
   // Grant the base chain and row wrappers access to private customization
   // points.
   friend base_t;
-  friend base_t::storage_base_t;
   friend base_t::add_guard;
   friend row_lens;
   friend row_view;

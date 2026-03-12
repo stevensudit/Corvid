@@ -252,7 +252,7 @@ public:
   [[nodiscard]] constexpr bool operator==(
       const fixed_bitset&) const noexcept = default;
 
-  // Lexicographic over words_[]: word 0 dominates word 1, etc. Within a
+  // Lexicographic over `words_[]`: word 0 dominates word 1, etc. Within a
   // word, a higher-index bit produces a larger word value and therefore a
   // greater bitset.
   [[nodiscard]] constexpr auto operator<=>(
@@ -306,26 +306,26 @@ public:
 
   // Capacity.
 
-  // Number of bit positions (N_BITS).
+  // Number of bit positions (`N_BITS`).
   [[nodiscard]] constexpr size_t size() const noexcept { return bit_count_v; }
 
   // Modifiers.
 
-  // AND each word with rhs in place.
+  // AND each word with `rhs` in place.
   constexpr fixed_bitset& operator&=(const fixed_bitset& rhs) noexcept {
     for (size_t ndx = 0; ndx < word_count_v; ++ndx)
       words_[ndx] &= rhs.words_[ndx];
     return *this;
   }
 
-  // OR each word with rhs in place.
+  // OR each word with `rhs` in place.
   constexpr fixed_bitset& operator|=(const fixed_bitset& rhs) noexcept {
     for (size_t ndx = 0; ndx < word_count_v; ++ndx)
       words_[ndx] |= rhs.words_[ndx];
     return *this;
   }
 
-  // XOR each word with rhs in place.
+  // XOR each word with `rhs` in place.
   constexpr fixed_bitset& operator^=(const fixed_bitset& rhs) noexcept {
     for (size_t ndx = 0; ndx < word_count_v; ++ndx)
       words_[ndx] ^= rhs.words_[ndx];
@@ -547,7 +547,7 @@ public:
     return *this;
   }
 
-  // Flip bit at pos. Throws `std::out_of_range`. The fastest path is
+  // Flip bit at `pos`. Throws `std::out_of_range`. The fastest path is
   // `operator[]`.
   constexpr fixed_bitset& flip(pos_t pos) {
     return flip_unchecked(checked_index(pos));
@@ -634,7 +634,7 @@ public:
 
   // Iteration. All const.
 
-  // Iterator to the first set bit, or end() if none are set.
+  // Iterator to the first set bit, or `end()` if none are set.
   [[nodiscard]] constexpr iterator begin() const noexcept {
     return iterator{*this};
   }
@@ -701,11 +701,13 @@ private:
 
   // Test the bit at pre-validated `ndx` (no bounds check).
   [[nodiscard]] constexpr bool test_unchecked(size_t ndx) const noexcept {
+    assert(ndx < bit_count_v);
     return (words_[word_of(ndx)] & mask_of(ndx)) != 0;
   }
 
   // Set or clear the bit at pre-validated `ndx` (no bounds check).
   constexpr fixed_bitset& set_unchecked(size_t ndx, bool value) noexcept {
+    assert(ndx < bit_count_v);
     const auto w = word_of(ndx);
     const auto m = mask_of(ndx);
     words_[w] = (words_[w] & ~m) | (static_cast<word_t>(-value) & m);
@@ -714,6 +716,7 @@ private:
 
   // Flip the bit at pre-validated `ndx` (no bounds check).
   constexpr fixed_bitset& flip_unchecked(size_t ndx) noexcept {
+    assert(ndx < bit_count_v);
     words_[word_of(ndx)] ^= mask_of(ndx);
     return *this;
   }

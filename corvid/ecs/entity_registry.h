@@ -256,7 +256,7 @@ public:
       return store_ids_;
     }
 
-    constexpr void set(location_t location) {
+    constexpr void set(location_t location) noexcept {
       ndx_ = location.ndx;
       if constexpr (is_archetype_v) {
         store_id_ = location.store_id;
@@ -267,15 +267,15 @@ public:
           store_ids_.reset();
         else if (store_id == store_id_t{}) {
           store_ids_.reset();
-          store_ids_.set(store_id_t{});
+          store_ids_[store_id_t{}] = true;
         } else {
-          store_ids_.reset(store_id_t{});
-          store_ids_.set(store_id);
+          store_ids_[store_id_t{}] = false;
+          store_ids_[store_id] = true;
         }
       }
     }
 
-    constexpr void reset(location_t location) {
+    constexpr void reset(location_t location) noexcept {
       if constexpr (is_component_v) store_ids_.reset();
       set(location);
     }
@@ -296,7 +296,7 @@ public:
     [[no_unique_address]] maybe_t<store_id_set_t, is_component_v> store_ids_;
     size_type ndx_{*id_t::invalid};
 
-    constexpr location_record(location_t location = location_t{}) {
+    constexpr location_record(location_t location = location_t{}) noexcept {
       set(location);
     }
     friend class entity_registry<T, EID, SID, GEN, OWN_COUNT, REUSE, A>;
@@ -482,8 +482,8 @@ public:
     assert(is_valid(id));
     assert(*sid >= 1 && *sid < OWN_COUNT);
     auto& bm = records_[id].location.store_ids_;
-    bm.reset(store_id_t{0}); // leave staging (no-op if already out)
-    bm.set(sid);
+    bm[store_id_t{0}] = false; // leave staging (no-op if already out)
+    bm[sid] = true;
   }
 
   // Remove entity from a storage. If the bitmap becomes empty:
@@ -499,23 +499,23 @@ public:
     assert(is_valid(id));
     assert(*sid >= 1 && *sid < OWN_COUNT);
     auto& bm = records_[id].location.store_ids_;
-    bm.reset(sid);
+    bm[sid] = false;
     if (bm.none()) {
       if (mode == removal_mode::preserve)
-        bm.set(store_id_t{0}); // back to staging
+        bm[store_id_t{0}] = true; // back to staging
       else
         do_erase(id);
     }
   }
 
-  // Test whether entity is in a given storage. `*sid` must be < OWN_COUNT.
+  // Test whether entity is in a given storage. `*sid` must be < `OWN_COUNT`.
   // (Component mode only.)
-  [[nodiscard]] bool is_in_location(id_t id, store_id_t sid) const
+  [[nodiscard]] bool is_in_location(id_t id, store_id_t sid) const noexcept
   requires is_component_v
   {
     assert(is_valid(id));
     assert(*sid < OWN_COUNT);
-    return records_[id].location.store_ids_.test(sid);
+    return records_[id].location.store_ids_[sid];
   }
 
   // Erase by ID. Fails if ID is invalid (but cannot detect ID reuse). Returns
