@@ -33,13 +33,21 @@ namespace corvid { inline namespace ecs { inline namespace component_indexes {
 // Each policy maps entity IDs to packed-array indices (`ndx`), supporting O(1)
 // add/update and either O(1) or O(log K) lookup, depending on the strategy.
 //
+// clang-format off
+//
 // All three policies satisfy the same interface concept:
+//
 //   void insert(id_t id, size_type ndx) -- register or overwrite entity at
 //                                          `ndx`
 //   void update(id_t id, size_type ndx) -- update in-place; slot must
-//   exist size_type lookup(id_t id) const noexcept -- return `ndx`; slot must
-//   exist void erase(id_t id)           -- remove entity; no-op where not
-//   needed void clear()                 -- reset all state
+//                                          exist
+//   size_type lookup(id_t id) const     -- return `ndx`; slot must
+//                                          exist 
+//   void erase(id_t id)                 -- remove entity; no-op where not
+//                                          needed
+//   void clear()                        -- reset all state
+//
+// clang-format on
 //
 // Callers confirm membership via the registry bitmap before calling `lookup`,
 // `update`, or `erase`, so those methods may assert slot existence.

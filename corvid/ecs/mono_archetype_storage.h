@@ -333,9 +333,11 @@ public:
     }
 
     [[nodiscard]] bool operator==(const iterator_t& o) const {
+      assert(storage_ == o.storage_);
       return ndx_ == o.ndx_;
     };
     [[nodiscard]] auto operator<=>(const iterator_t& o) const {
+      assert(storage_ == o.storage_);
       return ndx_ <=> o.ndx_;
     }
 
