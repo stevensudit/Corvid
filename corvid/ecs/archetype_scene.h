@@ -44,10 +44,10 @@ protected:
 // data storages (`archetype_storage` or `chunked_archetype_storage` or
 // `mono_archetype_storage`) and exposes a unified ECS interface.
 //
-// Each of these is identified by a ``store_id_t`, with `store_id_t{0}`
-// reserved for entities in the staging state: existing in the registry but not
-// currently in any storage. In other words, `store_id_t{0}` is conceptually
-// the entity registry itself.
+// Each of these is identified by a ``store_id_t`. The value of `store_id_t{0}`
+// is reserved for entities in the staging state: existing in the registry but
+// not currently in any storage. In other words, `store_id_t{0}` is
+// conceptually the entity registry itself.
 //
 // Physically, the storages are stored in a tuple, and their `store_id` values
 // are assigned sequentially starting from 1 in the order they appear in the
@@ -56,7 +56,7 @@ protected:
 //
 // All `storage_ts` must be fully-typed storage specializations (e.g.,
 // `archetype_storage<registry_t, tuple<Pos, Vel>>`) sharing the same
-// `registry_t` type. At most `*store_id_t::invalid - 1` storages are
+// `registry_t` type. At most `*store_id_t::invalid - 2` storages are
 // supported. It is helpful if each type is distinct, so you can use the `TAG`
 // specialization to achieve this.
 //
@@ -103,7 +103,7 @@ public:
       "too many storage_ts: store_id_t would overflow into the invalid "
       "sentinel");
 
-  // Type of the storage with the given store_id.
+  // Type of the storage with the given `store_id`.
   template<store_id_t SID>
   using storage_t =
       std::tuple_element_t<*SID, std::tuple<std::monostate, STORES...>>;
@@ -143,14 +143,18 @@ public:
 
   // Create a new entity in staging. Returns its handle, or an invalid handle
   // on failure (e.g., registry at ID limit).
-  [[nodiscard]] handle_t create_handle(const metadata_t& metadata = {}) {
+  [[nodiscard]] handle_t stage_new_entity(const metadata_t& metadata = {}) {
     return registry_.create_handle({}, metadata);
   }
 
-  // Create a new entity in staging. Returns its ID, or an invalid ID
-  // on failure (e.g., registry at ID limit).
-  [[nodiscard]] id_t create_id(const metadata_t& metadata = {}) {
-    return registry_.create_id({}, metadata);
+  // Create a new default-valued entity in the storage selected at runtime by
+  // `store_id`. Returns an invalid handle if `store_id` does not match a
+  // storage or insertion fails.
+  [[nodiscard]] handle_t
+  store_new_entity(store_id_t store_id, const metadata_t& metadata = {}) {
+    return dispatch_storage<handle_t>(
+        store_id, [&](auto& s) -> handle_t { return s.add_new(metadata); },
+        handle_t{});
   }
 
   // Create a new entity and insert it into the storage with the given
@@ -158,22 +162,25 @@ public:
   // handle if the registry refused creation or the storage limit would be
   // exceeded.
   template<store_id_t SID, typename... Args>
-  [[nodiscard]] handle_t add_new(const metadata_t& metadata, Args&&... args) {
+  [[nodiscard]] handle_t
+  store_new_entity(const metadata_t& metadata, Args&&... args) {
     return storage<SID>().add_new(metadata, std::forward<Args>(args)...);
   }
 
   // Create a new entity in the storage uniquely identified by the type of
   // `obj`. `T` must be the `tuple_t` of exactly one storage in this scene; if
-  // two or more storages share the same `tuple_t`, use the `add_new<SID>()`
-  // overload to disambiguate. The component tuple is unpacked into the
-  // storage. Returns a valid handle on success, or an invalid handle if the
-  // registry refused creation or the storage limit would be exceeded.
+  // two or more storages share the same `tuple_t`, use the
+  // `store_new_entity<SID>()` overload to disambiguate. The component tuple is
+  // unpacked into the storage. Returns a valid handle on success, or an
+  // invalid handle if the registry refused creation or the storage limit would
+  // be exceeded.
   template<typename T>
-  [[nodiscard]] handle_t add_new(const metadata_t& metadata, T&& obj) {
+  [[nodiscard]] handle_t
+  store_new_entity(const metadata_t& metadata, T&& obj) {
     using U = std::remove_cvref_t<T>;
     static_assert(count_stores_with_tuple_v<U> == 1,
-        "add_new: T must be the `tuple_t` of exactly one storage; "
-        "use add_new<SID>() to disambiguate");
+        "store_new_entity: T must be the `tuple_t` of exactly one storage; "
+        "use store_new_entity<SID>() to disambiguate");
     constexpr auto SID =
         find_sid_for_tuple<U>(std::index_sequence_for<STORES...>{});
     return std::apply(
@@ -184,15 +191,11 @@ public:
         std::forward<T>(obj));
   }
 
-  // Create a new default-valued entity in the storage selected at runtime by
-  // `store_id`. Returns an invalid handle if `store_id` does not match a
-  // storage or insertion fails.
-  [[nodiscard]] handle_t
-  add_new(store_id_t store_id, const metadata_t& metadata = {}) {
-    return dispatch_storage<handle_t>(
-        store_id, [&](auto& s) -> handle_t { return s.add_new(metadata); },
-        handle_t{});
-  }
+  // TODO: Write a trio of `store_entity` overloads that take an existing
+  // staged entity by ID and move it into a storage, parallel to the
+  // `store_new_entity` trio above. Then write a second trio of `store_entity`
+  // overloads that take an existing handle, checks it, and then calls one of
+  // the ID-based overloads.
 
   // Erase entity from whatever storage it occupies (or from staging if it
   // has not been placed in any storage). Invalidates `id`. ID must be valid.
@@ -222,6 +225,17 @@ public:
     handle = handle_t{};
     if (!erase(old_id)) return false;
     return true;
+  }
+
+  // Destroy all entities in staging (`store_id == store_id_t{0}`). Returns
+  // the count erased. Useful for cleaning up entities stranded in staging
+  // after failed migrations or other error paths. Runs in O(N) in the total
+  // count of living entities.
+  size_type erase_staged() {
+    if (registry_.size() == size()) return 0;
+    return registry_.erase_if([](auto, const auto& rec) {
+      return rec.location.contains(store_id_t{});
+    });
   }
 
   // Move entity back to staging from whatever storage it occupies. Returns
@@ -353,17 +367,6 @@ public:
   [[nodiscard]] bool migrate(handle_t handle, store_id_t to) {
     if (!registry_.is_valid(handle)) return false;
     return migrate(handle.id(), to);
-  }
-
-  // Destroy all entities in staging (`store_id == store_id_t{0}`). Returns
-  // the count erased. Useful for cleaning up entities stranded in staging
-  // after failed migrations or other error paths. Runs in O(N) in the total
-  // count of living entities.
-  size_type erase_staged() {
-    if (registry_.size() == size()) return 0;
-    return registry_.erase_if([](auto, const auto& rec) {
-      return rec.location.contains(store_id_t{});
-    });
   }
 
   // Return the total number of entities across all storages. Does not include
