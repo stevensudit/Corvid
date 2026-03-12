@@ -4851,6 +4851,614 @@ void ChunkedArchetypeStorage_SwapAndMove() {
   }
 }
 
+// ============================================================
+// component_index_policies tests
+// ============================================================
+
+void ComponentIndex_Flat() {
+  using namespace id_enums;
+  using idx_t = flat_sparse_index<entity_id_t>;
+
+  // Basic insert and lookup.
+  if (true) {
+    idx_t idx;
+    idx.insert(entity_id_t{0}, 0U);
+    idx.insert(entity_id_t{5}, 3U);
+    EXPECT_EQ(idx.lookup(entity_id_t{0}), 0U);
+    EXPECT_EQ(idx.lookup(entity_id_t{5}), 3U);
+  }
+
+  // Update overwrites existing entry.
+  if (true) {
+    idx_t idx;
+    idx.insert(entity_id_t{2}, 7U);
+    idx.update(entity_id_t{2}, 42U);
+    EXPECT_EQ(idx.lookup(entity_id_t{2}), 42U);
+  }
+
+  // erase is a no-op (bitmap is source of truth).
+  if (true) {
+    idx_t idx;
+    idx.insert(entity_id_t{1}, 5U);
+    idx.erase(entity_id_t{1});                 // should not crash
+    EXPECT_EQ(idx.lookup(entity_id_t{1}), 5U); // slot unchanged
+  }
+
+  // clear resets the index.
+  if (true) {
+    idx_t idx;
+    idx.insert(entity_id_t{3}, 9U);
+    idx.clear();
+    // After clear, re-inserting works.
+    idx.insert(entity_id_t{3}, 1U);
+    EXPECT_EQ(idx.lookup(entity_id_t{3}), 1U);
+  }
+
+  // insert is an upsert: overwriting a slot works.
+  if (true) {
+    idx_t idx;
+    idx.insert(entity_id_t{4}, 10U);
+    idx.insert(entity_id_t{4}, 20U); // overwrite
+    EXPECT_EQ(idx.lookup(entity_id_t{4}), 20U);
+  }
+}
+
+void ComponentIndex_Sorted() {
+  using namespace id_enums;
+  using idx_t = sorted_pair_index<entity_id_t>;
+
+  // Basic insert and lookup.
+  if (true) {
+    idx_t idx;
+    idx.insert(entity_id_t{2}, 0U);
+    idx.insert(entity_id_t{5}, 1U);
+    idx.insert(entity_id_t{0}, 2U);
+    EXPECT_EQ(idx.lookup(entity_id_t{0}), 2U);
+    EXPECT_EQ(idx.lookup(entity_id_t{2}), 0U);
+    EXPECT_EQ(idx.lookup(entity_id_t{5}), 1U);
+  }
+
+  // update overwrites in-place.
+  if (true) {
+    idx_t idx;
+    idx.insert(entity_id_t{3}, 7U);
+    idx.update(entity_id_t{3}, 99U);
+    EXPECT_EQ(idx.lookup(entity_id_t{3}), 99U);
+  }
+
+  // erase removes the entry.
+  if (true) {
+    idx_t idx;
+    idx.insert(entity_id_t{1}, 5U);
+    idx.insert(entity_id_t{2}, 6U);
+    idx.erase(entity_id_t{1});
+    EXPECT_EQ(idx.lookup(entity_id_t{2}), 6U);
+    // Re-insert after erase works correctly (no duplicate).
+    idx.insert(entity_id_t{1}, 11U);
+    EXPECT_EQ(idx.lookup(entity_id_t{1}), 11U);
+  }
+
+  // insert is an upsert: phantom entry overwritten, not duplicated.
+  if (true) {
+    idx_t idx;
+    idx.insert(entity_id_t{7}, 3U); // first insert (simulates phantom)
+    idx.insert(entity_id_t{7}, 8U); // upsert: should overwrite, not duplicate
+    idx.update(entity_id_t{7}, 8U); // should not assert
+    EXPECT_EQ(idx.lookup(entity_id_t{7}), 8U);
+  }
+
+  // clear resets the index.
+  if (true) {
+    idx_t idx;
+    idx.insert(entity_id_t{0}, 1U);
+    idx.clear();
+    idx.insert(entity_id_t{0}, 2U);
+    EXPECT_EQ(idx.lookup(entity_id_t{0}), 2U);
+  }
+}
+
+void ComponentIndex_Paged() {
+  using namespace id_enums;
+  using idx_t = paged_sparse_index<entity_id_t>;
+
+  // Basic insert and lookup.
+  if (true) {
+    idx_t idx;
+    idx.insert(entity_id_t{0}, 0U);
+    idx.insert(entity_id_t{255}, 1U); // same page as 0
+    idx.insert(entity_id_t{256}, 2U); // new page
+    EXPECT_EQ(idx.lookup(entity_id_t{0}), 0U);
+    EXPECT_EQ(idx.lookup(entity_id_t{255}), 1U);
+    EXPECT_EQ(idx.lookup(entity_id_t{256}), 2U);
+  }
+
+  // update overwrites slot.
+  if (true) {
+    idx_t idx;
+    idx.insert(entity_id_t{10}, 5U);
+    idx.update(entity_id_t{10}, 42U);
+    EXPECT_EQ(idx.lookup(entity_id_t{10}), 42U);
+  }
+
+  // erase is a no-op.
+  if (true) {
+    idx_t idx;
+    idx.insert(entity_id_t{3}, 7U);
+    idx.erase(entity_id_t{3});                 // should not crash
+    EXPECT_EQ(idx.lookup(entity_id_t{3}), 7U); // slot unchanged
+  }
+
+  // clear frees all pages and allows re-use.
+  if (true) {
+    idx_t idx;
+    idx.insert(entity_id_t{512}, 99U);
+    idx.clear();
+    idx.insert(entity_id_t{512}, 1U);
+    EXPECT_EQ(idx.lookup(entity_id_t{512}), 1U);
+  }
+}
+
+// ============================================================
+// component_storage tests
+// ============================================================
+
+// Component-mode registry with OWN_COUNT=8 (is_component_v == true).
+// At most 7 real storages (bits 1..7); bit 0 is the staging bit.
+using cs_reg_t = entity_registry<int, id_enums::entity_id_t,
+    id_enums::store_id_t, generation_scheme::versioned, 8>;
+using cs_sid_t = cs_reg_t::store_id_t;
+using cs_id_t = cs_reg_t::id_t;
+
+// Default storage (flat_sparse_index).
+using cs_store_t = component_storage<cs_reg_t, float>;
+
+void ComponentStorage_Basic() {
+  using namespace id_enums;
+
+  // Default construction.
+  if (true) {
+    cs_store_t s;
+    EXPECT_TRUE(s.empty());
+    EXPECT_EQ(s.size(), 0U);
+  }
+
+  // Construction with registry and store_id.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    EXPECT_TRUE(s.empty());
+    EXPECT_EQ(s.size(), 0U);
+    EXPECT_EQ(s.store_id(), cs_sid_t{1});
+  }
+
+  // Invalid store_id throws.
+  if (true) {
+    cs_reg_t r;
+    EXPECT_THROW(cs_store_t(r, cs_sid_t::invalid), std::invalid_argument);
+    EXPECT_THROW(cs_store_t(r, cs_sid_t{}), std::invalid_argument);
+  }
+
+  // add() and lookup via operator[].
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 10);
+    auto id1 = r.create_id({}, 20);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_EQ(s.size(), 2U);
+    EXPECT_FALSE(s.empty());
+    EXPECT_EQ(s[id0], 1.0f);
+    EXPECT_EQ(s[id1], 2.0f);
+  }
+
+  // contains() returns true only for entities in this storage.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    EXPECT_FALSE(s.contains(id0));
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.contains(id0));
+    EXPECT_FALSE(s.contains(cs_id_t{99})); // out of range
+  }
+
+  // add() rejects duplicate insertion.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_FALSE(s.add(id0, 2.0f)); // already in storage
+    EXPECT_EQ(s.size(), 1U);
+    EXPECT_EQ(s[id0], 1.0f);
+  }
+
+  // add_new() creates entity and adds in one step.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto h = s.add_new({}, 3.14f);
+    EXPECT_TRUE(static_cast<bool>(h));
+    EXPECT_TRUE(s.contains(h.id()));
+    EXPECT_EQ(s[h.id()], 3.14f);
+  }
+
+  // Mutable operator[] modifies in place.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    s[id0] = 99.0f;
+    EXPECT_EQ(s[id0], 99.0f);
+  }
+
+  // Const operator[] returns row_view.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 5.0f));
+    const auto& cs = s;
+    EXPECT_EQ(cs[id0], 5.0f);
+    EXPECT_EQ(cs[id0].component<float>(), 5.0f);
+    EXPECT_EQ(cs[id0].id(), id0);
+  }
+
+  // at() throws for invalid or absent entity.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    EXPECT_THROW((void)s.at(id0), std::out_of_range);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_EQ(s.at(id0), 1.0f);
+  }
+}
+
+void ComponentStorage_MultiStore() {
+  using namespace id_enums;
+
+  // An entity can occupy two storages simultaneously.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s1{r, cs_sid_t{1}};
+    cs_store_t s2{r, cs_sid_t{2}};
+
+    auto id0 = r.create_id({}, 0);
+
+    EXPECT_TRUE(s1.add(id0, 1.0f));
+    EXPECT_TRUE(s2.add(id0, 2.0f)); // same entity, second storage
+
+    EXPECT_TRUE(s1.contains(id0));
+    EXPECT_TRUE(s2.contains(id0));
+    EXPECT_EQ(s1[id0], 1.0f);
+    EXPECT_EQ(s2[id0], 2.0f);
+
+    // Entity remains valid and alive throughout.
+    EXPECT_TRUE(r.is_valid(id0));
+  }
+
+  // add_new() then add() to a second storage.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t sa{r, cs_sid_t{1}};
+    cs_store_t sb{r, cs_sid_t{2}};
+
+    auto h = sa.add_new({}, 10.0f);
+    EXPECT_TRUE(static_cast<bool>(h));
+    EXPECT_TRUE(sb.add(h.id(), 20.0f));
+
+    EXPECT_TRUE(sa.contains(h.id()));
+    EXPECT_TRUE(sb.contains(h.id()));
+  }
+}
+
+void ComponentStorage_Remove() {
+  using namespace id_enums;
+
+  // remove() from one storage; entity stays alive in the other.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s1{r, cs_sid_t{1}};
+    cs_store_t s2{r, cs_sid_t{2}};
+
+    auto id0 = r.create_id({}, 0);
+    EXPECT_TRUE(s1.add(id0, 1.0f));
+    EXPECT_TRUE(s2.add(id0, 2.0f));
+
+    EXPECT_TRUE(s1.remove(id0));
+
+    EXPECT_FALSE(s1.contains(id0));
+    EXPECT_TRUE(s2.contains(id0));
+    EXPECT_TRUE(r.is_valid(id0)); // still alive in s2
+    EXPECT_EQ(s2[id0], 2.0f);
+  }
+
+  // remove() from only storage sends entity to staging (still alive).
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+
+    auto id0 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 5.0f));
+    EXPECT_TRUE(s.remove(id0));
+
+    EXPECT_FALSE(s.contains(id0));
+    EXPECT_TRUE(r.is_valid(id0)); // alive but staged
+
+    // Can be re-added.
+    EXPECT_TRUE(s.add(id0, 7.0f));
+    EXPECT_EQ(s[id0], 7.0f);
+  }
+
+  // remove() returns false for entity not in storage.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    EXPECT_FALSE(s.remove(id0)); // not in storage
+  }
+
+  // remove_all() empties the storage; all entities stay alive.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    auto id1 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    s.remove_all();
+    EXPECT_TRUE(s.empty());
+    EXPECT_TRUE(r.is_valid(id0));
+    EXPECT_TRUE(r.is_valid(id1));
+  }
+}
+
+void ComponentStorage_Erase() {
+  using namespace id_enums;
+
+  // erase() from last storage destroys the entity.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+
+    auto id0 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 5.0f));
+    EXPECT_TRUE(s.erase(id0));
+
+    EXPECT_FALSE(s.contains(id0));
+    EXPECT_FALSE(r.is_valid(id0)); // destroyed
+  }
+
+  // erase() from one storage when entity is in two: entity survives.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s1{r, cs_sid_t{1}};
+    cs_store_t s2{r, cs_sid_t{2}};
+
+    auto id0 = r.create_id({}, 0);
+    EXPECT_TRUE(s1.add(id0, 1.0f));
+    EXPECT_TRUE(s2.add(id0, 2.0f));
+    EXPECT_TRUE(s1.erase(id0)); // removes from s1 only
+
+    EXPECT_FALSE(s1.contains(id0));
+    EXPECT_TRUE(s2.contains(id0));
+    EXPECT_TRUE(r.is_valid(id0)); // still alive in s2
+  }
+
+  // erase() returns false for entity not in storage.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    EXPECT_FALSE(s.erase(id0));
+    EXPECT_TRUE(r.is_valid(id0)); // unaffected
+  }
+
+  // clear() destroys all entities that have no remaining storages.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    auto id1 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    s.clear();
+    EXPECT_TRUE(s.empty());
+    EXPECT_FALSE(r.is_valid(id0));
+    EXPECT_FALSE(r.is_valid(id1));
+  }
+
+  // Swap-and-pop correctness: erase middle entity, check survivors.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    auto id1 = r.create_id({}, 0);
+    auto id2 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_TRUE(s.add(id2, 3.0f));
+    EXPECT_TRUE(s.erase(id1)); // erase middle
+    EXPECT_EQ(s.size(), 2U);
+    EXPECT_FALSE(s.contains(id1));
+    EXPECT_TRUE(s.contains(id0));
+    EXPECT_TRUE(s.contains(id2));
+    EXPECT_EQ(s[id0], 1.0f);
+    EXPECT_EQ(s[id2], 3.0f);
+  }
+}
+
+void ComponentStorage_EraseIf() {
+  using namespace id_enums;
+
+  // erase_if removes matching entities (destroys if last storage).
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    auto id1 = r.create_id({}, 0);
+    auto id2 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_TRUE(s.add(id2, 3.0f));
+
+    const auto cnt = s.erase_if([](float v, cs_id_t) {
+      return v < 2.5f;
+    }); // erases id0, id1
+    EXPECT_EQ(cnt, 2U);
+    EXPECT_EQ(s.size(), 1U);
+    EXPECT_TRUE(s.contains(id2));
+    EXPECT_EQ(s[id2], 3.0f);
+    EXPECT_FALSE(r.is_valid(id0));
+    EXPECT_FALSE(r.is_valid(id1));
+    EXPECT_TRUE(r.is_valid(id2));
+  }
+
+  // remove_if moves entities to staging; they remain alive.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    auto id1 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 10.0f));
+    EXPECT_TRUE(s.add(id1, 20.0f));
+
+    const auto cnt = s.remove_if([](float v, cs_id_t) { return v < 15.0f; });
+    EXPECT_EQ(cnt, 1U);
+    EXPECT_EQ(s.size(), 1U);
+    EXPECT_FALSE(s.contains(id0));
+    EXPECT_TRUE(s.contains(id1));
+    EXPECT_TRUE(r.is_valid(id0)); // still alive (staged)
+    EXPECT_TRUE(r.is_valid(id1));
+  }
+}
+
+void ComponentStorage_Iterator() {
+  using namespace id_enums;
+
+  // Mutable iterator: operator*, operator->, id(), arithmetic.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    auto id1 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+
+    float sum = 0.0f;
+    for (auto it = s.begin(); it != s.end(); ++it) {
+      sum += *it;
+      EXPECT_TRUE(r.is_valid(it.id()));
+    }
+    EXPECT_EQ(sum, 3.0f);
+  }
+
+  // Range-for over mutable storage.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 7.0f));
+    for (auto& c : s) c = 8.0f;
+    EXPECT_EQ(s[id0], 8.0f);
+  }
+
+  // Const iterator.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    auto id1 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 3.0f));
+    EXPECT_TRUE(s.add(id1, 4.0f));
+    const auto& cs = s;
+    float sum = 0.0f;
+    for (const auto& c : cs) sum += c;
+    EXPECT_EQ(sum, 7.0f);
+  }
+
+  // Random-access: arithmetic operators and operator[].
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    auto id1 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 10.0f));
+    EXPECT_TRUE(s.add(id1, 20.0f));
+
+    auto it = s.begin();
+    EXPECT_EQ(it[0], 10.0f);
+    EXPECT_EQ(it[1], 20.0f);
+    EXPECT_EQ(*(it + 1), 20.0f);
+    EXPECT_EQ(s.end() - s.begin(), 2);
+  }
+
+  // Empty storage: begin() == end().
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    EXPECT_TRUE(s.begin() == s.end());
+  }
+}
+
+void ComponentStorage_IndexVariants() {
+  using namespace id_enums;
+
+  // sorted_pair_index variant: same behavior as flat for add/remove/lookup.
+  if (true) {
+    using sorted_store_t = component_storage<cs_reg_t, float, void,
+        sorted_pair_index<cs_reg_t::id_t>>;
+    cs_reg_t r;
+    sorted_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    auto id1 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_EQ(s[id0], 1.0f);
+    EXPECT_EQ(s[id1], 2.0f);
+    EXPECT_TRUE(s.erase(id0));
+    EXPECT_FALSE(s.contains(id0));
+    EXPECT_EQ(s[id1], 2.0f);
+  }
+
+  // paged_sparse_index variant.
+  if (true) {
+    using paged_store_t = component_storage<cs_reg_t, float, void,
+        paged_sparse_index<cs_reg_t::id_t>>;
+    cs_reg_t r;
+    paged_store_t s{r, cs_sid_t{1}};
+    auto id0 = r.create_id({}, 0);
+    auto id1 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 3.0f));
+    EXPECT_TRUE(s.add(id1, 4.0f));
+    EXPECT_EQ(s[id0], 3.0f);
+    EXPECT_EQ(s[id1], 4.0f);
+    s.clear();
+    EXPECT_TRUE(s.empty());
+  }
+
+  // TAG distinguishes two component_storage<reg, float> instances.
+  if (true) {
+    struct TagA {};
+    struct TagB {};
+    using store_a_t = component_storage<cs_reg_t, float, TagA>;
+    using store_b_t = component_storage<cs_reg_t, float, TagB>;
+    static_assert(!std::is_same_v<store_a_t, store_b_t>);
+
+    cs_reg_t r;
+    store_a_t sa{r, cs_sid_t{1}};
+    store_b_t sb{r, cs_sid_t{2}};
+    auto id0 = r.create_id({}, 0);
+    EXPECT_TRUE(sa.add(id0, 1.0f));
+    EXPECT_TRUE(sb.add(id0, 2.0f));
+    EXPECT_EQ(sa[id0], 1.0f);
+    EXPECT_EQ(sb[id0], 2.0f);
+  }
+}
+
 MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ArchetypeStorage_Add, ArchetypeStorage_Remove, ArchetypeStorage_Erase,
     ArchetypeStorage_RowAccess, ArchetypeStorage_ComponentAccess,
@@ -4874,7 +5482,11 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ArchetypeScene_Migrate_Manual, ArchetypeScene_Migrate_Auto,
     ArchetypeScene_EraseStaged, ArchetypeScene_Clear,
     ArchetypeScene_MultiStorage, ArchetypeScene_MixedStorages,
-    ArchetypeScene_StorageTypeAccess);
+    ArchetypeScene_StorageTypeAccess, ComponentIndex_Flat,
+    ComponentIndex_Sorted, ComponentIndex_Paged, ComponentStorage_Basic,
+    ComponentStorage_MultiStore, ComponentStorage_Remove,
+    ComponentStorage_Erase, ComponentStorage_EraseIf,
+    ComponentStorage_Iterator, ComponentStorage_IndexVariants);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

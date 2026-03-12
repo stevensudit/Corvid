@@ -28,6 +28,9 @@
 //  mono_archetype_storage    - Single-component per-entity dense storage
 //  ecs_meta                  - ECS-specific type metaprogramming utilities
 //  archetype_scene           - Unified scene aggregating registry + storages
+//  component_index_policies  - Reverse-index policies for component storages
+//  component_storage_base    - CRTP base for component-model storages
+//  component_storage         - Single-component per-entity component storage
 #include "ecs/entity_ids.h"
 #include "ecs/id_container.h"
 #include "ecs/stable_ids.h"
@@ -38,3 +41,6 @@
 #include "ecs/mono_archetype_storage.h"
 #include "ecs/ecs_meta.h"
 #include "ecs/archetype_scene.h"
+#include "ecs/component_index_policies.h"
+#include "ecs/component_storage_base.h"
+#include "ecs/component_storage.h"
