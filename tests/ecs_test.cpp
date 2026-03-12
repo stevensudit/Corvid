@@ -3707,9 +3707,8 @@ void ArchetypeScene_Basic() {
   // store_new_entity inserts into the chosen storage.
   if (true) {
     two_storage_scene_t s;
-    auto h =
-        s.store_new_entity<scene_sid_t{1}>(
-            {}, Position{1.f, 2.f}, Velocity{3.f, 4.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 2.f},
+        Velocity{3.f, 4.f});
     EXPECT_TRUE(h);
     EXPECT_EQ(s.size(), 1U);
     EXPECT_FALSE(s.empty());
@@ -3750,8 +3749,8 @@ void ArchetypeScene_Basic() {
     two_storage_scene_t s;
     (void)s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
     (void)s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
-    (void)s.store_new_entity<scene_sid_t{2}>(
-        {}, Position{}, Velocity{}, Health{50});
+    (void)s.store_new_entity<scene_sid_t{2}>({}, Position{}, Velocity{},
+        Health{50});
     EXPECT_EQ(s.size(), 3U);
     EXPECT_EQ(s.storage<scene_sid_t{1}>().size(), 2U);
     EXPECT_EQ(s.storage<scene_sid_t{2}>().size(), 1U);
@@ -3761,7 +3760,7 @@ void ArchetypeScene_Basic() {
 // archetype_scene::erase and archetype_scene::remove dispatch to the correct
 // storage.
 void ArchetypeScene_EraseRemove() {
-  // erase(id) on an entity in storage 0.
+  // erase_entity(id) on an entity in storage 0.
   if (true) {
     two_storage_scene_t s;
     auto h0 =
@@ -3769,47 +3768,48 @@ void ArchetypeScene_EraseRemove() {
     auto h1 =
         s.store_new_entity<scene_sid_t{1}>({}, Position{2.f, 0.f}, Velocity{});
     auto id0 = h0.id();
-    EXPECT_TRUE(s.erase(id0));
+    EXPECT_TRUE(s.erase_entity(id0));
     EXPECT_EQ(id0, scene_reg_t::id_t::invalid); // invalidated on success
     EXPECT_EQ(s.storage<scene_sid_t{1}>().size(), 1U);
     // Remaining entity still accessible.
     EXPECT_TRUE(s.registry().is_valid(h1.id()));
   }
 
-  // erase(id) on an entity in storage 1.
+  // erase_entity(id) on an entity in storage 1.
   if (true) {
     two_storage_scene_t s;
-    auto h =
-        s.store_new_entity<scene_sid_t{2}>({}, Position{}, Velocity{}, Health{42});
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{}, Velocity{},
+        Health{42});
     auto id = h.id();
-    EXPECT_TRUE(s.erase(id));
+    EXPECT_TRUE(s.erase_entity(id));
     EXPECT_EQ(id, scene_reg_t::id_t::invalid);
     EXPECT_EQ(s.storage<scene_sid_t{2}>().size(), 0U);
   }
 
-  // erase(handle) resets the handle on success.
+  // erase_entity(handle) resets the handle on success.
   if (true) {
     two_storage_scene_t s;
     auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
-    EXPECT_TRUE(s.erase(h));
+    EXPECT_TRUE(s.erase_entity(h));
     EXPECT_FALSE(h); // handle invalidated
     EXPECT_EQ(s.size(), 0U);
   }
 
-  // erase(handle) returns false for an invalid handle (handle overload
-  // validates before calling into erase(id_t&), so no precondition violation).
+  // erase_entity(handle) returns false for an invalid handle (handle overload
+  // validates before calling into erase_entity(id_t&), no precondition
+  // violation).
   if (true) {
     two_storage_scene_t s;
     auto h = scene_reg_t::handle_t{};
-    EXPECT_FALSE(s.erase(h));
+    EXPECT_FALSE(s.erase_entity(h));
   }
 
-  // remove(id) moves entity back to staging.
+  // remove_entity(id) moves entity back to staging.
   if (true) {
     two_storage_scene_t s;
     auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
     auto id = h.id();
-    EXPECT_TRUE(s.remove(id));
+    EXPECT_TRUE(s.remove_entity(id));
     EXPECT_EQ(s.storage<scene_sid_t{1}>().size(), 0U);
     // Entity still alive (staged), handle still valid.
     EXPECT_TRUE(s.registry().is_valid(h));
@@ -3817,21 +3817,21 @@ void ArchetypeScene_EraseRemove() {
     EXPECT_EQ(loc.store_id, scene_reg_t::store_id_t{});
   }
 
-  // remove on already-staged entity returns true.
+  // remove_entity on already-staged entity returns true.
   if (true) {
     two_storage_scene_t s;
     auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
     auto id = h.id();
-    (void)s.remove(id);        // now staged
-    EXPECT_TRUE(s.remove(id)); // already staged
+    (void)s.remove_entity(id);        // now staged
+    EXPECT_TRUE(s.remove_entity(id)); // already staged
   }
 
-  // remove(handle) overload.
+  // remove_entity(handle) overload.
   if (true) {
     two_storage_scene_t s;
-    auto h =
-        s.store_new_entity<scene_sid_t{2}>({}, Position{}, Velocity{}, Health{});
-    EXPECT_TRUE(s.remove(h));
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{}, Velocity{},
+        Health{});
+    EXPECT_TRUE(s.remove_entity(h));
     EXPECT_EQ(s.storage<scene_sid_t{2}>().size(), 0U);
   }
 }
@@ -3841,9 +3841,8 @@ void ArchetypeScene_Migrate_Manual() {
   // Promote from arch_pv to arch_pvh, providing a new Health component.
   if (true) {
     two_storage_scene_t s;
-    auto h =
-        s.store_new_entity<scene_sid_t{1}>(
-            {}, Position{1.f, 2.f}, Velocity{3.f, 4.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 2.f},
+        Velocity{3.f, 4.f});
     auto id = h.id();
     EXPECT_TRUE(s.storage<scene_sid_t{1}>().contains(id));
 
@@ -3852,7 +3851,7 @@ void ArchetypeScene_Migrate_Manual() {
           row.template component<Position>(),
           row.template component<Velocity>(), Health{99}};
     };
-    bool ok = s.migrate(id, scene_sid_t{2}, build1);
+    bool ok = s.migrate_entity(id, scene_sid_t{2}, build1);
     EXPECT_TRUE(ok);
     EXPECT_FALSE(s.storage<scene_sid_t{1}>().contains(id));
     EXPECT_TRUE(s.storage<scene_sid_t{2}>().contains(id));
@@ -3866,15 +3865,14 @@ void ArchetypeScene_Migrate_Manual() {
   // Migrate via handle overload.
   if (true) {
     two_storage_scene_t s;
-    auto h =
-        s.store_new_entity<scene_sid_t{1}>(
-            {}, Position{5.f, 6.f}, Velocity{7.f, 8.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{5.f, 6.f},
+        Velocity{7.f, 8.f});
     auto build2 = [](const auto& row) {
       return std::tuple<Position, Velocity, Health>{
           row.template component<Position>(),
           row.template component<Velocity>(), Health{50}};
     };
-    bool ok = s.migrate(h, scene_sid_t{2}, build2);
+    bool ok = s.migrate_entity(h, scene_sid_t{2}, build2);
     EXPECT_TRUE(ok);
     EXPECT_TRUE(s.storage<scene_sid_t{2}>().contains(h.id()));
     EXPECT_EQ(s.storage<scene_sid_t{2}>()[h.id()].component<Health>().hp, 50);
@@ -3884,27 +3882,26 @@ void ArchetypeScene_Migrate_Manual() {
   if (true) {
     two_storage_scene_t s;
     auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
-    (void)s.remove(h.id()); // move back to staging
+    (void)s.remove_entity(h.id()); // move back to staging
     auto build3 = [](const auto&) {
       return std::tuple<Position, Velocity, Health>{};
     };
-    bool ok = s.migrate(h.id(), scene_sid_t{2}, build3);
+    bool ok = s.migrate_entity(h.id(), scene_sid_t{2}, build3);
     EXPECT_FALSE(ok); // entity is staged, not in any storage
     EXPECT_FALSE(s.storage<scene_sid_t{2}>().contains(h.id())); // still staged
   }
 }
 
-// migrate with automatic type-based component mapping.
+// migrate_entity with automatic type-based component mapping.
 void ArchetypeScene_Migrate_Auto() {
   // Promote: arch_pv (Position, Velocity) -> arch_pvh (Position, Velocity,
   // Health). Health should be default-constructed (hp=100).
   if (true) {
     two_storage_scene_t s;
-    auto h =
-        s.store_new_entity<scene_sid_t{1}>(
-            {}, Position{1.f, 2.f}, Velocity{3.f, 4.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 2.f},
+        Velocity{3.f, 4.f});
     auto id = h.id();
-    bool ok_promote = s.migrate(id, scene_sid_t{2});
+    bool ok_promote = s.migrate_entity(id, scene_sid_t{2});
     EXPECT_TRUE(ok_promote);
     EXPECT_FALSE(s.storage<scene_sid_t{1}>().contains(id));
     EXPECT_TRUE(s.storage<scene_sid_t{2}>().contains(id));
@@ -3918,10 +3915,10 @@ void ArchetypeScene_Migrate_Auto() {
   // are copied.
   if (true) {
     two_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{2}>(
-        {}, Position{5.f, 6.f}, Velocity{7.f, 8.f}, Health{42});
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{5.f, 6.f},
+        Velocity{7.f, 8.f}, Health{42});
     auto id = h.id();
-    bool ok_demote = s.migrate(id, scene_sid_t{1});
+    bool ok_demote = s.migrate_entity(id, scene_sid_t{1});
     EXPECT_TRUE(ok_demote);
     EXPECT_FALSE(s.storage<scene_sid_t{2}>().contains(id));
     EXPECT_TRUE(s.storage<scene_sid_t{1}>().contains(id));
@@ -3935,7 +3932,7 @@ void ArchetypeScene_Migrate_Auto() {
     two_storage_scene_t s;
     auto h =
         s.store_new_entity<scene_sid_t{1}>({}, Position{9.f, 0.f}, Velocity{});
-    bool ok_h = s.migrate(h, scene_sid_t{2});
+    bool ok_h = s.migrate_entity(h, scene_sid_t{2});
     EXPECT_TRUE(ok_h);
     EXPECT_TRUE(s.storage<scene_sid_t{2}>().contains(h.id()));
   }
@@ -3944,11 +3941,10 @@ void ArchetypeScene_Migrate_Auto() {
   // components default-constructed.
   if (true) {
     three_storage_scene_t s;
-    auto h =
-        s.store_new_entity<scene_sid_t{1}>(
-            {}, Position{1.f, 1.f}, Velocity{2.f, 2.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 1.f},
+        Velocity{2.f, 2.f});
     auto id = h.id();
-    bool ok_cross = s.migrate(id, scene_sid_t{3}); // arch_pv -> arch_h
+    bool ok_cross = s.migrate_entity(id, scene_sid_t{3}); // arch_pv -> arch_h
     EXPECT_TRUE(ok_cross);
     EXPECT_TRUE(s.storage<scene_sid_t{3}>().contains(id));
     // Health default-constructed because source has no Health.
@@ -3956,32 +3952,33 @@ void ArchetypeScene_Migrate_Auto() {
   }
 }
 
-// erase_staged removes all staged entities.
+// erase_staged_entities removes all staged entities.
 void ArchetypeScene_EraseStaged() {
   // Entities placed in a storage are not staged and are not affected.
   if (true) {
     two_storage_scene_t s;
     auto h0 = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
-    auto h1 =
-        s.store_new_entity<scene_sid_t{2}>({}, Position{}, Velocity{}, Health{});
-    EXPECT_EQ(s.erase_staged(), 0U);
+    auto h1 = s.store_new_entity<scene_sid_t{2}>({}, Position{}, Velocity{},
+        Health{});
+    EXPECT_EQ(s.erase_staged_entities(), 0U);
     EXPECT_TRUE(s.registry().is_valid(h0));
     EXPECT_TRUE(s.registry().is_valid(h1));
   }
 
-  // Entities returned to staging via remove() are erased by erase_staged().
+  // Entities returned to staging via remove_entity() are erased.
   if (true) {
     two_storage_scene_t s;
     auto h0 = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
     auto h1 = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
-    (void)s.remove(h0.id());
-    (void)s.remove(h1.id());
-    EXPECT_EQ(s.erase_staged(), 2U);
+    (void)s.remove_entity(h0.id());
+    (void)s.remove_entity(h1.id());
+    EXPECT_EQ(s.erase_staged_entities(), 2U);
     EXPECT_FALSE(s.registry().is_valid(h0));
     EXPECT_FALSE(s.registry().is_valid(h1));
   }
 
-  // After a failed migration the entity is staged; erase_staged() cleans it.
+  // After a failed migration the entity is staged; erase_staged_entities()
+  // cleans it.
   if (true) {
     two_storage_scene_t s;
     // Set storage<2> limit to 0 so add will fail.
@@ -3991,9 +3988,9 @@ void ArchetypeScene_EraseStaged() {
     // Auto-migrate promotes to storage 2 — but storage 2 is full.
     // The entity ends up in staging after remove() from storage 1 succeeds
     // but add() to storage 2 fails.
-    (void)s.migrate(id, scene_sid_t{2});
-    // Entity may be stranded in staging; erase_staged cleans it up.
-    EXPECT_EQ(s.erase_staged(), 1U);
+    (void)s.migrate_entity(id, scene_sid_t{2});
+    // Entity may be stranded in staging; erase_staged_entities cleans it up.
+    EXPECT_EQ(s.erase_staged_entities(), 1U);
     EXPECT_FALSE(s.registry().is_valid(id));
   }
 
@@ -4002,8 +3999,8 @@ void ArchetypeScene_EraseStaged() {
     two_storage_scene_t s;
     auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
     auto id = h.id();
-    (void)s.erase(id);
-    EXPECT_EQ(s.erase_staged(), 0U);
+    (void)s.erase_entity(id);
+    EXPECT_EQ(s.erase_staged_entities(), 0U);
   }
 }
 
@@ -4014,8 +4011,8 @@ void ArchetypeScene_Clear() {
     two_storage_scene_t s;
     (void)s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
     (void)s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
-    (void)s.store_new_entity<scene_sid_t{2}>(
-        {}, Position{}, Velocity{}, Health{});
+    (void)s.store_new_entity<scene_sid_t{2}>({}, Position{}, Velocity{},
+        Health{});
     EXPECT_EQ(s.size(), 3U);
     s.clear(); // fast=true by default
     EXPECT_EQ(s.size(), 0U);
@@ -4027,7 +4024,7 @@ void ArchetypeScene_Clear() {
   if (true) {
     two_storage_scene_t s;
     auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
-    (void)s.remove(h.id()); // now staged
+    (void)s.remove_entity(h.id()); // now staged
     EXPECT_EQ(s.registry().size(), 1U);
     s.clear(deallocation_policy::release);
     EXPECT_EQ(s.registry().size(), 0U);
@@ -4037,8 +4034,8 @@ void ArchetypeScene_Clear() {
   if (true) {
     two_storage_scene_t s;
     (void)s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
-    (void)s.store_new_entity<scene_sid_t{2}>(
-        {}, Position{}, Velocity{}, Health{});
+    (void)s.store_new_entity<scene_sid_t{2}>({}, Position{}, Velocity{},
+        Health{});
     EXPECT_EQ(s.size(), 2U);
     s.clear(deallocation_policy::preserve);
     EXPECT_EQ(s.size(), 0U);
@@ -4049,7 +4046,7 @@ void ArchetypeScene_Clear() {
   if (true) {
     two_storage_scene_t s;
     auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
-    (void)s.remove(h.id()); // now staged
+    (void)s.remove_entity(h.id()); // now staged
     EXPECT_EQ(s.registry().size(), 1U);
     s.clear(deallocation_policy::preserve);
     EXPECT_EQ(s.registry().size(), 0U);
@@ -4095,33 +4092,33 @@ void ArchetypeScene_MultiStorage() {
     // Add entities to each of the three storages.
     auto h0 =
         s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f}, Velocity{});
-    auto h1 = s.store_new_entity<scene_sid_t{2}>(
-        {}, Position{2.f, 0.f}, Velocity{}, Health{50});
+    auto h1 = s.store_new_entity<scene_sid_t{2}>({}, Position{2.f, 0.f},
+        Velocity{}, Health{50});
     auto h2 = s.store_new_entity<scene_sid_t{3}>({}, Health{75});
     EXPECT_EQ(s.size(), 3U);
     EXPECT_EQ(s.storage<scene_sid_t{1}>().size(), 1U);
     EXPECT_EQ(s.storage<scene_sid_t{2}>().size(), 1U);
     EXPECT_EQ(s.storage<scene_sid_t{3}>().size(), 1U);
 
-    // archetype_scene::erase dispatches to storage 1.
+    // archetype_scene::erase_entity dispatches to storage 1.
     auto id0 = h0.id();
-    EXPECT_TRUE(s.erase(id0));
+    EXPECT_TRUE(s.erase_entity(id0));
     EXPECT_EQ(id0, scene_reg_t::id_t::invalid);
     EXPECT_EQ(s.storage<scene_sid_t{1}>().size(), 0U);
     EXPECT_EQ(s.size(), 2U);
 
-    // archetype_scene::remove dispatches to storage 3.
-    EXPECT_TRUE(s.remove(h2.id()));
+    // archetype_scene::remove_entity dispatches to storage 3.
+    EXPECT_TRUE(s.remove_entity(h2.id()));
     EXPECT_EQ(s.storage<scene_sid_t{3}>().size(), 0U);
     EXPECT_TRUE(s.registry().is_valid(h2.id())); // still alive (staged)
 
-    // archetype_scene::erase dispatches to storage 2.
-    EXPECT_TRUE(s.erase(h1));
+    // archetype_scene::erase_entity dispatches to storage 2.
+    EXPECT_TRUE(s.erase_entity(h1));
     EXPECT_FALSE(h1); // handle reset
     EXPECT_EQ(s.size(), 0U);
 
     // One staged entity remains; clean up.
-    EXPECT_EQ(s.erase_staged(), 1U);
+    EXPECT_EQ(s.erase_staged_entities(), 1U);
     EXPECT_EQ(s.registry().size(), 0U);
   }
 }
@@ -4136,9 +4133,8 @@ void ArchetypeScene_MixedStorages() {
   // add_new into each storage type; size() sums all three.
   if (true) {
     mixed_scene_t s;
-    auto h0 =
-        s.store_new_entity<scene_sid_t{1}>(
-            {}, Position{1.f, 2.f}, Velocity{3.f, 4.f});
+    auto h0 = s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 2.f},
+        Velocity{3.f, 4.f});
     auto h1 = s.store_new_entity<scene_sid_t{2}>({}, Health{50});
     auto h2 = s.store_new_entity<scene_sid_t{3}>({}, Position{5.f, 6.f});
     EXPECT_TRUE(h0);
@@ -4155,7 +4151,7 @@ void ArchetypeScene_MixedStorages() {
     EXPECT_EQ(s.storage<scene_sid_t{3}>()[h2.id()].x, 5.f);
   }
 
-  // erase dispatches to the correct storage regardless of type.
+  // erase_entity dispatches to the correct storage regardless of type.
   if (true) {
     mixed_scene_t s;
     auto h0 = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
@@ -4164,9 +4160,9 @@ void ArchetypeScene_MixedStorages() {
     auto id0 = h0.id();
     auto id1 = h1.id();
     auto id2 = h2.id();
-    EXPECT_TRUE(s.erase(id0));
-    EXPECT_TRUE(s.erase(id1));
-    EXPECT_TRUE(s.erase(id2));
+    EXPECT_TRUE(s.erase_entity(id0));
+    EXPECT_TRUE(s.erase_entity(id1));
+    EXPECT_TRUE(s.erase_entity(id2));
     EXPECT_TRUE(s.empty());
   }
 
@@ -4174,11 +4170,10 @@ void ArchetypeScene_MixedStorages() {
   // Position is copied; Velocity is dropped (not in dst).
   if (true) {
     mixed_scene_t s;
-    auto h =
-        s.store_new_entity<scene_sid_t{1}>(
-            {}, Position{7.f, 8.f}, Velocity{9.f, 10.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{7.f, 8.f},
+        Velocity{9.f, 10.f});
     auto id = h.id();
-    bool ok = s.migrate(id, scene_sid_t{3});
+    bool ok = s.migrate_entity(id, scene_sid_t{3});
     EXPECT_TRUE(ok);
     EXPECT_FALSE(s.storage<scene_sid_t{1}>().contains(id));
     EXPECT_TRUE(s.storage<scene_sid_t{3}>().contains(id));
@@ -4192,7 +4187,7 @@ void ArchetypeScene_MixedStorages() {
     mixed_scene_t s;
     auto h = s.store_new_entity<scene_sid_t{2}>({}, Health{99});
     auto id = h.id();
-    bool ok = s.migrate(id, scene_sid_t{3});
+    bool ok = s.migrate_entity(id, scene_sid_t{3});
     EXPECT_TRUE(ok);
     EXPECT_FALSE(s.storage<scene_sid_t{2}>().contains(id));
     EXPECT_TRUE(s.storage<scene_sid_t{3}>().contains(id));
@@ -4205,7 +4200,7 @@ void ArchetypeScene_MixedStorages() {
     mixed_scene_t s;
     auto h = s.store_new_entity<scene_sid_t{3}>({}, Position{3.f, 4.f});
     auto id = h.id();
-    bool ok = s.migrate(id, scene_sid_t{1});
+    bool ok = s.migrate_entity(id, scene_sid_t{1});
     EXPECT_TRUE(ok);
     EXPECT_FALSE(s.storage<scene_sid_t{3}>().contains(id));
     EXPECT_TRUE(s.storage<scene_sid_t{1}>().contains(id));
@@ -4709,8 +4704,8 @@ void ArchetypeScene_StorageTypeAccess() {
   // Data is visible through both access paths after insertion.
   if (true) {
     two_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{1}>(
-        {}, Position{1.f, 2.f}, Velocity{3.f, 4.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 2.f},
+        Velocity{3.f, 4.f});
     const auto& st = s.storage<arch_pv_t>();
     EXPECT_EQ(st.size(), 1U);
     EXPECT_EQ(st[h.id()].component<Position>().x, 1.f);
@@ -5541,10 +5536,10 @@ void ComponentScene_Basic() {
     EXPECT_TRUE(s.storage<cs_scene_store2_t>().empty());
   }
 
-  // make_entity creates entity in staging; registry size reflects it.
+  // stage_new_entity creates entity in staging; registry size reflects it.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
+    auto h = s.stage_new_entity();
     EXPECT_TRUE(static_cast<bool>(h));
     EXPECT_EQ(s.size(), 1U);
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 0U);
@@ -5552,100 +5547,100 @@ void ComponentScene_Basic() {
   }
 }
 
-// component_scene: add and multi-storage membership.
-void ComponentScene_AddComponent() {
-  // add adds entity to a second storage without removing it from
+// component_scene: store_entity and multi-storage membership.
+void ComponentScene_StoreEntity() {
+  // store_entity adds entity to a second storage without removing it from
   // the first. Entity is in both storages simultaneously.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
+    auto h = s.stage_new_entity();
     auto id = h.id();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(id, 2.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(id, 2.0f));
     EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().contains(id));
     EXPECT_FALSE(s.storage<cs_scene_sid_t{2}>().contains(id));
 
-    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(id, 42));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(id, 42));
     EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().contains(id));
     EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().contains(id));
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[id], 2.0f);
     EXPECT_EQ(s.storage<cs_scene_sid_t{2}>()[id], 42);
   }
 
-  // add by handle.
+  // store_entity by handle.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h, 3.14f));
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h, 3.14f));
     EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().contains(h.id()));
 
-    // add with invalid handle returns false.
+    // store_entity with invalid handle returns false.
     cs_scene_reg_t::handle_t bad{};
-    EXPECT_FALSE(s.add<cs_scene_sid_t{1}>(bad, 1.0f));
+    EXPECT_FALSE(s.store_entity<cs_scene_sid_t{1}>(bad, 1.0f));
   }
 
-  // add fails if entity is already in that storage.
+  // store_entity fails if entity is already in that storage.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h.id(), 1.0f));
-    EXPECT_FALSE(s.add<cs_scene_sid_t{1}>(h.id(), 2.0f));
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 1.0f));
+    EXPECT_FALSE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 2.0f));
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 1U);
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[h.id()], 1.0f); // unchanged
   }
 }
 
-// component_scene: remove, staging, and erase.
+// component_scene: remove_entity, staging, and erase_entity.
 void ComponentScene_RemoveErase() {
-  // remove removes entity from one storage; it remains in others.
+  // remove_entity removes entity from one storage; it remains in others.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
+    auto h = s.stage_new_entity();
     auto id = h.id();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(id, 5.0f));
-    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(id, 7));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(id, 5.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(id, 7));
 
-    EXPECT_TRUE(s.remove<cs_scene_sid_t{1}>(id));
+    EXPECT_TRUE(s.remove_entity<cs_scene_sid_t{1}>(id));
     EXPECT_FALSE(s.storage<cs_scene_sid_t{1}>().contains(id));
     EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().contains(id));
     EXPECT_EQ(s.size(), 1U); // still alive
   }
 
-  // remove from last storage returns entity to staging.
+  // remove_entity from last storage returns entity to staging.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
+    auto h = s.stage_new_entity();
     auto id = h.id();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(id, 9.0f));
-    EXPECT_TRUE(s.remove<cs_scene_sid_t{1}>(id));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(id, 9.0f));
+    EXPECT_TRUE(s.remove_entity<cs_scene_sid_t{1}>(id));
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 0U);
     // Entity still alive (staged).
     EXPECT_TRUE(s.registry().is_valid(h));
     EXPECT_EQ(s.size(), 1U);
   }
 
-  // remove by handle.
+  // remove_entity by handle.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(h, 99));
-    EXPECT_TRUE(s.remove<cs_scene_sid_t{2}>(h));
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h, 99));
+    EXPECT_TRUE(s.remove_entity<cs_scene_sid_t{2}>(h));
     EXPECT_EQ(s.storage<cs_scene_sid_t{2}>().size(), 0U);
     EXPECT_TRUE(s.registry().is_valid(h)); // still alive
 
     // Invalid handle returns false.
     cs_scene_reg_t::handle_t bad{};
-    EXPECT_FALSE(s.remove<cs_scene_sid_t{2}>(bad));
+    EXPECT_FALSE(s.remove_entity<cs_scene_sid_t{2}>(bad));
   }
 
-  // erase(id) removes from all storages and destroys in registry.
+  // erase_entity(id) removes from all storages and destroys in registry.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
+    auto h = s.stage_new_entity();
     auto id = h.id();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(id, 1.0f));
-    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(id, 2));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(id, 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(id, 2));
 
-    EXPECT_TRUE(s.erase(id));
+    EXPECT_TRUE(s.erase_entity(id));
     EXPECT_EQ(id, cs_scene_id_t::invalid);
     EXPECT_FALSE(s.registry().is_valid(h));
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 0U);
@@ -5653,53 +5648,53 @@ void ComponentScene_RemoveErase() {
     EXPECT_EQ(s.size(), 0U);
   }
 
-  // erase(id) on a staged entity (no components).
+  // erase_entity(id) on a staged entity (no components).
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
+    auto h = s.stage_new_entity();
     auto id = h.id();
-    EXPECT_TRUE(s.erase(id));
+    EXPECT_TRUE(s.erase_entity(id));
     EXPECT_EQ(id, cs_scene_id_t::invalid);
     EXPECT_FALSE(s.registry().is_valid(h));
     EXPECT_EQ(s.size(), 0U);
   }
 
-  // erase(handle) resets handle on success.
+  // erase_entity(handle) resets handle on success.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h.id(), 3.0f));
-    EXPECT_TRUE(s.erase(h));
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0f));
+    EXPECT_TRUE(s.erase_entity(h));
     EXPECT_FALSE(static_cast<bool>(h));
     EXPECT_EQ(s.size(), 0U);
   }
 
-  // erase(handle) returns false for an invalid handle.
+  // erase_entity(handle) returns false for an invalid handle.
   if (true) {
     two_cs_scene_t s;
     cs_scene_reg_t::handle_t bad{};
-    EXPECT_FALSE(s.erase(bad));
+    EXPECT_FALSE(s.erase_entity(bad));
   }
 
-  // erase(id) returns false for invalid id.
+  // erase_entity(id) returns false for invalid id.
   if (true) {
     two_cs_scene_t s;
     auto id = cs_scene_id_t::invalid;
-    EXPECT_FALSE(s.erase(id));
+    EXPECT_FALSE(s.erase_entity(id));
   }
 }
 
-// component_scene: erase_staged and clear.
+// component_scene: erase_staged_entities and clear.
 void ComponentScene_EraseStaged() {
-  // erase_staged removes entities with no components.
+  // erase_staged_entities removes entities with no components.
   if (true) {
     two_cs_scene_t s;
-    auto h1 = s.create_handle();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h1.id(), 1.0f));
-    auto h2 = s.create_handle(); // staged
-    auto h3 = s.create_handle(); // staged
+    auto h1 = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h1.id(), 1.0f));
+    auto h2 = s.stage_new_entity(); // staged
+    auto h3 = s.stage_new_entity(); // staged
     EXPECT_EQ(s.size(), 3U);
-    const auto erased = s.erase_staged();
+    const auto erased = s.erase_staged_entities();
     EXPECT_EQ(erased, 2U);
     EXPECT_EQ(s.size(), 1U);
     EXPECT_TRUE(s.registry().is_valid(h1));
@@ -5707,22 +5702,22 @@ void ComponentScene_EraseStaged() {
     EXPECT_FALSE(s.registry().is_valid(h3));
   }
 
-  // erase_staged returns 0 when no staged entities exist.
+  // erase_staged_entities returns 0 when no staged entities exist.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h.id(), 1.0f));
-    EXPECT_EQ(s.erase_staged(), 0U);
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 1.0f));
+    EXPECT_EQ(s.erase_staged_entities(), 0U);
   }
 
   // clear(release) empties everything in O(S).
   if (true) {
     two_cs_scene_t s;
-    auto h1 = s.create_handle();
-    auto h2 = s.create_handle();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h1.id(), 1.0f));
-    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(h2.id(), 2));
-    (void)s.create_handle();
+    auto h1 = s.stage_new_entity();
+    auto h2 = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h1.id(), 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h2.id(), 2));
+    (void)s.stage_new_entity();
     s.clear(deallocation_policy::release);
     EXPECT_TRUE(s.empty());
     EXPECT_EQ(s.size(), 0U);
@@ -5733,11 +5728,11 @@ void ComponentScene_EraseStaged() {
   // clear(preserve) erases entities one by one, then staged.
   if (true) {
     two_cs_scene_t s;
-    auto h1 = s.create_handle();
-    auto h2 = s.create_handle();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h1.id(), 1.0f));
-    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(h2.id(), 2));
-    (void)s.create_handle();
+    auto h1 = s.stage_new_entity();
+    auto h2 = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h1.id(), 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h2.id(), 2));
+    (void)s.stage_new_entity();
     s.clear(deallocation_policy::preserve);
     EXPECT_TRUE(s.empty());
     EXPECT_EQ(s.size(), 0U);
@@ -5753,10 +5748,10 @@ void ComponentScene_Destructor() {
     auto h2 = cs_scene_reg_t::handle_t{};
     {
       two_cs_scene_t s;
-      h1 = s.create_handle();
-      h2 = s.create_handle();
-      EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h1.id(), 1.0f));
-      EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(h2.id(), 2));
+      h1 = s.stage_new_entity();
+      h2 = s.stage_new_entity();
+      EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h1.id(), 1.0f));
+      EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h2.id(), 2));
       EXPECT_EQ(s.size(), 2U);
     }
     // After destruction all entities are gone; handles point into dead memory,
@@ -5789,21 +5784,22 @@ void ArchetypeScene_CreateHandleId() {
     EXPECT_TRUE(st.contains(h.id()));
   }
 
-  // Staged entities from stage_new_entity() are visible to erase_staged.
+  // Staged entities from stage_new_entity() are visible to
+  // erase_staged_entities.
   if (true) {
     two_storage_scene_t s;
     auto h0 = s.stage_new_entity();
     auto h1 = s.stage_new_entity();
     EXPECT_EQ(s.registry().size(), 2U);
-    EXPECT_EQ(s.erase_staged(), 2U);
+    EXPECT_EQ(s.erase_staged_entities(), 2U);
     EXPECT_FALSE(s.registry().is_valid(h0));
     EXPECT_FALSE(s.registry().is_valid(h1));
   }
 }
 
 void ArchetypeScene_AddNewRuntime() {
-  // store_new_entity(store_id) dispatches to the correct storage at runtime and
-  // default-constructs all components.
+  // store_new_entity(store_id) dispatches to the correct storage at runtime
+  // and default-constructs all components.
   if (true) {
     two_storage_scene_t s;
     auto h = s.store_new_entity(scene_sid_t{1});
@@ -5835,130 +5831,374 @@ void ArchetypeScene_AddNewRuntime() {
   }
 }
 
+void ArchetypeScene_StoreEntity() {
+  // store_entity(id, store_id) moves a staged entity into the chosen storage
+  // at runtime using default-constructed components.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(h);
+    EXPECT_EQ(s.size(), 0U);
+    auto id = h.id();
+    EXPECT_TRUE(s.store_entity(id, scene_sid_t{1}));
+    EXPECT_EQ(s.size(), 1U);
+    EXPECT_TRUE(s.storage<scene_sid_t{1}>().contains(id));
+    EXPECT_EQ(s.storage<scene_sid_t{1}>()[id].component<Position>().x, 0.f);
+  }
+
+  // store_entity(id, store_id) targeting the second storage.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.stage_new_entity();
+    auto id = h.id();
+    EXPECT_TRUE(s.store_entity(id, scene_sid_t{2}));
+    EXPECT_TRUE(s.storage<scene_sid_t{2}>().contains(id));
+    EXPECT_EQ(s.storage<scene_sid_t{2}>()[id].component<Health>().hp, 100);
+  }
+
+  // store_entity(id, store_id) with an unrecognized store_id returns false.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.stage_new_entity();
+    auto id = h.id();
+    EXPECT_FALSE(s.store_entity(id, scene_sid_t{99}));
+    EXPECT_EQ(s.size(), 0U);
+    // Entity remains valid and staged.
+    EXPECT_TRUE(s.registry().is_valid(id));
+  }
+
+  // store_entity<SID>(id, args) inserts with explicit components.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.stage_new_entity();
+    auto id = h.id();
+    EXPECT_TRUE(s.store_entity<scene_sid_t{1}>(id, Position{3.f, 4.f},
+        Velocity{5.f, 6.f}));
+    EXPECT_TRUE(s.storage<scene_sid_t{1}>().contains(id));
+    EXPECT_EQ(s.storage<scene_sid_t{1}>()[id].component<Position>().x, 3.f);
+    EXPECT_EQ(s.storage<scene_sid_t{1}>()[id].component<Velocity>().vx, 5.f);
+  }
+
+  // store_entity(id, tuple) infers the storage from the tuple type.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.stage_new_entity();
+    auto id = h.id();
+    EXPECT_TRUE(s.store_entity(id,
+        std::tuple<Position, Velocity, Health>{Position{7.f, 8.f},
+            Velocity{9.f, 0.f}, Health{55}}));
+    EXPECT_TRUE(s.storage<scene_sid_t{2}>().contains(id));
+    EXPECT_EQ(s.storage<scene_sid_t{2}>()[id].component<Health>().hp, 55);
+  }
+
+  // store_entity(handle, store_id) validates the handle before inserting.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity(h, scene_sid_t{1}));
+    EXPECT_TRUE(s.storage<scene_sid_t{1}>().contains(h.id()));
+  }
+
+  // store_entity(handle, store_id) returns false for an invalid handle.
+  if (true) {
+    two_storage_scene_t s;
+    auto bad = scene_reg_t::handle_t{};
+    EXPECT_FALSE(s.store_entity(bad, scene_sid_t{1}));
+    EXPECT_EQ(s.size(), 0U);
+  }
+
+  // store_entity<SID>(handle, args) validates the handle.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<scene_sid_t{1}>(h, Position{1.f, 2.f},
+        Velocity{3.f, 4.f}));
+    EXPECT_EQ(s.storage<scene_sid_t{1}>()[h.id()].component<Position>().x,
+        1.f);
+  }
+
+  // store_entity<SID>(invalid handle, args) returns false.
+  if (true) {
+    two_storage_scene_t s;
+    auto bad = scene_reg_t::handle_t{};
+    EXPECT_FALSE(s.store_entity<scene_sid_t{1}>(bad, Position{}, Velocity{}));
+  }
+
+  // store_entity(handle, tuple) validates the handle and infers storage.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity(h,
+        std::tuple<Position, Velocity>{Position{2.f, 3.f}, Velocity{}}));
+    EXPECT_TRUE(s.storage<scene_sid_t{1}>().contains(h.id()));
+    EXPECT_EQ(s.storage<scene_sid_t{1}>()[h.id()].component<Position>().x,
+        2.f);
+  }
+
+  // store_entity(invalid handle, tuple) returns false.
+  if (true) {
+    two_storage_scene_t s;
+    auto bad = scene_reg_t::handle_t{};
+    EXPECT_FALSE(s.store_entity(bad,
+        std::tuple<Position, Velocity>{Position{}, Velocity{}}));
+  }
+}
+
+void ArchetypeScene_EntityLifecycle() {
+  // Full entity lifecycle: stage -> store -> remove_entity -> re-store ->
+  // migrate_entity -> erase_entity.
+  two_storage_scene_t s;
+
+  // Stage: entity exists in the registry but not in any storage.
+  auto h = s.stage_new_entity();
+  EXPECT_TRUE(h);
+  EXPECT_EQ(s.size(), 0U);
+  auto id = h.id();
+  EXPECT_TRUE(s.registry().is_valid(id));
+  EXPECT_FALSE(s.storage<scene_sid_t{1}>().contains(id));
+  EXPECT_FALSE(s.storage<scene_sid_t{2}>().contains(id));
+
+  // Store: move the staged entity into storage 1.
+  EXPECT_TRUE(s.store_entity<scene_sid_t{1}>(id, Position{1.f, 2.f},
+      Velocity{3.f, 4.f}));
+  EXPECT_EQ(s.size(), 1U);
+  EXPECT_TRUE(s.storage<scene_sid_t{1}>().contains(id));
+  EXPECT_EQ(s.storage<scene_sid_t{1}>()[id].component<Position>().x, 1.f);
+
+  // Remove: entity returns to staging; it remains valid but leaves storage 1.
+  EXPECT_TRUE(s.remove_entity(id));
+  EXPECT_EQ(s.size(), 0U);
+  EXPECT_FALSE(s.storage<scene_sid_t{1}>().contains(id));
+  EXPECT_TRUE(s.registry().is_valid(id));
+
+  // Re-store: put the same entity into storage 2.
+  EXPECT_TRUE(s.store_entity<scene_sid_t{2}>(id, Position{5.f, 6.f},
+      Velocity{7.f, 8.f}, Health{50}));
+  EXPECT_EQ(s.size(), 1U);
+  EXPECT_TRUE(s.storage<scene_sid_t{2}>().contains(id));
+  EXPECT_EQ(s.storage<scene_sid_t{2}>()[id].component<Health>().hp, 50);
+
+  // Migrate: move from storage 2 to storage 1 using automatic component
+  // mapping. `Position` and `Velocity` are copied from the source; `Health`
+  // is dropped (not present in storage 1).
+  EXPECT_TRUE(s.migrate_entity(id, scene_sid_t{1}));
+  EXPECT_EQ(s.size(), 1U);
+  EXPECT_FALSE(s.storage<scene_sid_t{2}>().contains(id));
+  EXPECT_TRUE(s.storage<scene_sid_t{1}>().contains(id));
+  EXPECT_EQ(s.storage<scene_sid_t{1}>()[id].component<Position>().x, 5.f);
+
+  // Erase: entity is destroyed; handle becomes stale.
+  EXPECT_TRUE(s.erase_entity(id));
+  EXPECT_EQ(s.size(), 0U);
+  EXPECT_FALSE(s.storage<scene_sid_t{1}>().contains(id));
+  EXPECT_FALSE(s.registry().is_valid(id));
+  EXPECT_FALSE(s.registry().is_valid(h)); // stale handle
+}
+
 void ArchetypeScene_MigrateEdgeCases() {
   // migrate(id, to, build) is a no-op when entity is already in target
   // storage.
   if (true) {
     two_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{1}>(
-        {}, Position{1.f, 2.f}, Velocity{3.f, 4.f});
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 2.f},
+        Velocity{3.f, 4.f});
     auto id = h.id();
     auto build = [](const auto&) {
       return std::tuple<Position, Velocity, Health>{};
     };
     // Already in storage 1; returns true without calling build.
-    EXPECT_TRUE(s.migrate(id, scene_sid_t{1}, build));
+    EXPECT_TRUE(s.migrate_entity(id, scene_sid_t{1}, build));
     EXPECT_TRUE(s.storage<scene_sid_t{1}>().contains(id));
     EXPECT_EQ(s.storage<scene_sid_t{1}>().size(), 1U);
   }
 
-  // migrate(handle, to, build) returns false for an invalid handle.
+  // migrate_entity(handle, to, build) returns false for an invalid handle.
   if (true) {
     two_storage_scene_t s;
     auto bad = scene_reg_t::handle_t{};
     auto build = [](const auto&) {
       return std::tuple<Position, Velocity, Health>{};
     };
-    EXPECT_FALSE(s.migrate(bad, scene_sid_t{2}, build));
+    EXPECT_FALSE(s.migrate_entity(bad, scene_sid_t{2}, build));
   }
 
-  // migrate(id, to) is a no-op when entity is already in target storage.
+  // migrate_entity(id, to) is a no-op when entity is already in target
+  // storage.
   if (true) {
     two_storage_scene_t s;
-    auto h = s.store_new_entity<scene_sid_t{2}>(
-        {}, Position{5.f, 0.f}, Velocity{}, Health{77});
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{5.f, 0.f},
+        Velocity{}, Health{77});
     auto id = h.id();
-    EXPECT_TRUE(s.migrate(id, scene_sid_t{2})); // same storage -- no-op
+    EXPECT_TRUE(s.migrate_entity(id, scene_sid_t{2})); // same storage -- no-op
     EXPECT_TRUE(s.storage<scene_sid_t{2}>().contains(id));
     EXPECT_EQ(s.storage<scene_sid_t{2}>()[id].component<Health>().hp, 77);
   }
 
-  // migrate(handle, to) returns false for an invalid handle.
+  // migrate_entity(handle, to) returns false for an invalid handle.
   if (true) {
     two_storage_scene_t s;
     auto bad = scene_reg_t::handle_t{};
-    EXPECT_FALSE(s.migrate(bad, scene_sid_t{1}));
+    EXPECT_FALSE(s.migrate_entity(bad, scene_sid_t{1}));
   }
 }
 
-void ComponentScene_CreateId() {
-  // create_id() creates a staged entity and returns its ID.
+void ComponentScene_StageNewEntity() {
+  // stage_new_entity() creates a staged entity and returns its handle.
   if (true) {
     two_cs_scene_t s;
-    auto id = s.create_id();
+    auto id = s.stage_new_entity().id();
     EXPECT_NE(id, cs_scene_id_t::invalid);
     EXPECT_TRUE(s.registry().is_valid(id));
     EXPECT_EQ(s.size(), 1U); // component_scene::size() includes staged
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 0U);
   }
 
-  // A staged entity from create_id can receive components in any storage.
+  // A staged entity from stage_new_entity can receive components in any
+  // storage.
   if (true) {
     two_cs_scene_t s;
-    auto id = s.create_id();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(id, 7.0f));
-    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(id, 42));
+    auto id = s.stage_new_entity().id();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(id, 7.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(id, 42));
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[id], 7.0f);
     EXPECT_EQ(s.storage<cs_scene_sid_t{2}>()[id], 42);
   }
 }
 
 void ComponentScene_RemoveAll() {
-  // remove_all(id) removes entity from all storages; entity stays alive
+  // restage_entity(id) removes entity from all storages; entity stays alive
   // staged.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
+    auto h = s.stage_new_entity();
     auto id = h.id();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(id, 1.0f));
-    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(id, 42));
-    EXPECT_TRUE(s.remove_all(id));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(id, 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(id, 42));
+    EXPECT_TRUE(s.restage_entity(id));
     EXPECT_FALSE(s.storage<cs_scene_sid_t{1}>().contains(id));
     EXPECT_FALSE(s.storage<cs_scene_sid_t{2}>().contains(id));
     EXPECT_TRUE(s.registry().is_valid(h));
     EXPECT_EQ(s.size(), 1U); // entity still alive (staged)
   }
 
-  // remove_all(id) on a staged entity succeeds (no-op).
+  // restage_entity(id) on a staged entity succeeds (no-op).
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
+    auto h = s.stage_new_entity();
     auto id = h.id();
-    EXPECT_TRUE(s.remove_all(id));
+    EXPECT_TRUE(s.restage_entity(id));
     EXPECT_TRUE(s.registry().is_valid(h));
     EXPECT_EQ(s.size(), 1U);
   }
 
-  // remove_all(handle) removes entity from all storages it occupies.
+  // restage_entity(handle) removes entity from all storages it occupies.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h.id(), 3.0f));
-    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(h.id(), 5));
-    EXPECT_TRUE(s.remove_all(h));
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h.id(), 5));
+    EXPECT_TRUE(s.restage_entity(h));
     EXPECT_FALSE(s.storage<cs_scene_sid_t{1}>().contains(h.id()));
     EXPECT_FALSE(s.storage<cs_scene_sid_t{2}>().contains(h.id()));
     EXPECT_TRUE(s.registry().is_valid(h));
   }
 
-  // remove_all(handle) returns false for an invalid handle.
+  // restage_entity(handle) returns false for an invalid handle.
   if (true) {
     two_cs_scene_t s;
     cs_scene_reg_t::handle_t bad{};
-    EXPECT_FALSE(s.remove_all(bad));
+    EXPECT_FALSE(s.restage_entity(bad));
   }
 
-  // remove_all then erase_staged cleans up completely.
+  // restage_entity then erase_staged_entities cleans up completely.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.create_handle();
+    auto h = s.stage_new_entity();
     auto id = h.id();
-    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(id, 9.0f));
-    EXPECT_TRUE(s.remove_all(id));
-    EXPECT_EQ(s.erase_staged(), 1U);
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(id, 9.0f));
+    EXPECT_TRUE(s.restage_entity(id));
+    EXPECT_EQ(s.erase_staged_entities(), 1U);
     EXPECT_FALSE(s.registry().is_valid(h));
     EXPECT_EQ(s.size(), 0U);
   }
+}
+
+void ComponentScene_EntityLifecycle() {
+  // Full entity lifecycle for component_scene: demonstrates an entity
+  // occupying multiple storages simultaneously, which is the key distinction
+  // from archetype_scene (where an entity occupies exactly one storage at a
+  // time).
+  two_cs_scene_t s;
+
+  // Stage: entity exists in the registry but not in any storage.
+  // component_scene::size() counts staged entities (unlike archetype_scene).
+  auto h = s.stage_new_entity();
+  EXPECT_TRUE(static_cast<bool>(h));
+  EXPECT_EQ(s.size(), 1U);
+  auto id = h.id();
+  EXPECT_TRUE(s.registry().is_valid(id));
+  EXPECT_FALSE(s.storage<cs_scene_sid_t{1}>().contains(id));
+  EXPECT_FALSE(s.storage<cs_scene_sid_t{2}>().contains(id));
+
+  // Add to storage 1: entity now carries a float component.
+  EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(id, 3.14f));
+  EXPECT_EQ(s.size(), 1U);
+  EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().contains(id));
+  EXPECT_FALSE(s.storage<cs_scene_sid_t{2}>().contains(id));
+  EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[id], 3.14f);
+
+  // Add to storage 2 simultaneously: entity now occupies both storages at
+  // once. Both components are independently accessible.
+  EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(id, 42));
+  EXPECT_EQ(s.size(), 1U);
+  EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().contains(id));
+  EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().contains(id));
+  EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[id], 3.14f);
+  EXPECT_EQ(s.storage<cs_scene_sid_t{2}>()[id], 42);
+
+  // store_entity is idempotent per storage: a second add to storage 1 fails
+  // and leaves the existing component unchanged.
+  EXPECT_FALSE(s.store_entity<cs_scene_sid_t{1}>(id, 99.0f));
+  EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[id], 3.14f);
+
+  // Remove from storage 1 only: entity leaves that storage but remains in
+  // storage 2 and in the registry. This is impossible in archetype_scene,
+  // where removal always returns the entity to staging.
+  EXPECT_TRUE(s.remove_entity<cs_scene_sid_t{1}>(id));
+  EXPECT_FALSE(s.storage<cs_scene_sid_t{1}>().contains(id));
+  EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().contains(id));
+  EXPECT_TRUE(s.registry().is_valid(id));
+  EXPECT_EQ(s.size(), 1U);
+
+  // Re-add to storage 1 with a new value while the entity is still in
+  // storage 2; both storages are occupied again.
+  EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(id, 2.72f));
+  EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().contains(id));
+  EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().contains(id));
+  EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[id], 2.72f);
+  EXPECT_EQ(s.storage<cs_scene_sid_t{2}>()[id], 42);
+
+  // Restage: remove from all storages in one call. The entity returns to
+  // staging and remains alive in the registry.
+  EXPECT_TRUE(s.restage_entity(id));
+  EXPECT_FALSE(s.storage<cs_scene_sid_t{1}>().contains(id));
+  EXPECT_FALSE(s.storage<cs_scene_sid_t{2}>().contains(id));
+  EXPECT_TRUE(s.registry().is_valid(h));
+  EXPECT_EQ(s.size(), 1U); // entity survives as staged
+
+  // Re-add to just storage 2 before erasing.
+  EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(id, 99));
+  EXPECT_FALSE(s.storage<cs_scene_sid_t{1}>().contains(id));
+  EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().contains(id));
+
+  // Erase: removes the entity from all storages and destroys it in the
+  // registry. The local `id` is set to `invalid`; the handle becomes stale.
+  EXPECT_TRUE(s.erase_entity(id));
+  EXPECT_EQ(id, cs_scene_id_t::invalid);
+  EXPECT_EQ(s.size(), 0U);
+  EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().empty());
+  EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().empty());
+  EXPECT_FALSE(s.registry().is_valid(h)); // stale handle
 }
 
 void ComponentStorage_SwapMoveReserve() {
@@ -6168,16 +6408,17 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ArchetypeScene_EraseStaged, ArchetypeScene_Clear,
     ArchetypeScene_MultiStorage, ArchetypeScene_MixedStorages,
     ArchetypeScene_StorageTypeAccess, ArchetypeScene_CreateHandleId,
-    ArchetypeScene_AddNewRuntime, ArchetypeScene_MigrateEdgeCases,
+    ArchetypeScene_AddNewRuntime, ArchetypeScene_StoreEntity,
+    ArchetypeScene_EntityLifecycle, ArchetypeScene_MigrateEdgeCases,
     ComponentIndex_Flat, ComponentIndex_Sorted, ComponentIndex_Paged,
     ComponentStorage_Basic, ComponentStorage_MultiStore,
     ComponentStorage_Remove, ComponentStorage_Erase, ComponentStorage_EraseIf,
     ComponentStorage_Iterator, ComponentStorage_IndexVariants,
     ComponentStorage_AddNew, ComponentStorage_SwapMoveReserve,
-    ComponentStorage_At, ComponentScene_Basic, ComponentScene_AddComponent,
+    ComponentStorage_At, ComponentScene_Basic, ComponentScene_StoreEntity,
     ComponentScene_RemoveErase, ComponentScene_EraseStaged,
-    ComponentScene_Destructor, ComponentScene_CreateId,
-    ComponentScene_RemoveAll);
+    ComponentScene_Destructor, ComponentScene_StageNewEntity,
+    ComponentScene_RemoveAll, ComponentScene_EntityLifecycle);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

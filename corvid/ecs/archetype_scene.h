@@ -80,6 +80,7 @@ class archetype_scene: public archetype_scene_base {
 public:
   using registry_t = REG;
   using storage_ts = std::tuple<STORES...>;
+  using storage_tuple_t = std::tuple<std::monostate, STORES...>;
   using id_t = registry_t::id_t;
   using handle_t = registry_t::handle_t;
   using size_type = registry_t::size_type;
@@ -105,8 +106,7 @@ public:
 
   // Type of the storage with the given `store_id`.
   template<store_id_t SID>
-  using storage_t =
-      std::tuple_element_t<*SID, std::tuple<std::monostate, STORES...>>;
+  using storage_t = std::tuple_element_t<*SID, storage_tuple_t>;
 
   // Construct with unlimited, unbound storages. Each storage is bound to
   // this scene's registry and assigned `store_id_t{N}` for 1-based index N.
@@ -191,15 +191,77 @@ public:
         std::forward<T>(obj));
   }
 
-  // TODO: Write a trio of `store_entity` overloads that take an existing
-  // staged entity by ID and move it into a storage, parallel to the
-  // `store_new_entity` trio above. Then write a second trio of `store_entity`
-  // overloads that take an existing handle, checks it, and then calls one of
-  // the ID-based overloads.
+  // Insert an already-staged entity into a storage selected at runtime by
+  // `store_id`. Returns false if `store_id` does not match a storage, the
+  // entity is not in staging, or insertion fails (e.g., storage at limit).
+  // ID must be valid.
+  [[nodiscard]] bool store_entity(id_t id, store_id_t store_id) {
+    assert(registry_.is_valid(id));
+    return dispatch_storage<bool>(
+        store_id, [&](auto& s) { return s.add(id); }, false);
+  }
+
+  // Insert an already-staged entity into the storage with the given `store_id`
+  // at compile time. Trailing components may be omitted and will be default-
+  // constructed. Returns false if the entity is not in staging or insertion
+  // fails. ID must be valid.
+  template<store_id_t SID, typename... Args>
+  [[nodiscard]] bool store_entity(id_t id, Args&&... args) {
+    assert(registry_.is_valid(id));
+    return storage<SID>().add(id, std::forward<Args>(args)...);
+  }
+
+  // Insert an already-staged entity into the storage uniquely identified by
+  // the type of `obj`. `T` must be the `tuple_t` of exactly one storage in
+  // this scene; use `store_entity<SID>()` to disambiguate when two storages
+  // share the same `tuple_t`. The component tuple is unpacked into the
+  // storage. Returns false if the entity is not in staging or insertion fails.
+  // ID must be valid.
+  template<typename T>
+  [[nodiscard]] bool store_entity(id_t id, T&& obj) {
+    using U = std::remove_cvref_t<T>;
+    static_assert(count_stores_with_tuple_v<U> == 1,
+        "store_entity: T must be the `tuple_t` of exactly one storage; "
+        "use store_entity<SID>() to disambiguate");
+    assert(registry_.is_valid(id));
+    constexpr auto SID =
+        find_sid_for_tuple<U>(std::index_sequence_for<STORES...>{});
+    return std::apply(
+        [&](auto&&... cs) {
+          return storage<SID>().add(id, std::forward<decltype(cs)>(cs)...);
+        },
+        std::forward<T>(obj));
+  }
+
+  // Insert an already-staged entity (by handle) into a storage selected at
+  // runtime by `store_id`. Returns false if the handle is invalid or stale,
+  // the entity is not in staging, or insertion fails.
+  [[nodiscard]] bool store_entity(handle_t handle, store_id_t store_id) {
+    if (!registry_.is_valid(handle)) return false;
+    return store_entity(handle.id(), store_id);
+  }
+
+  // Insert an already-staged entity (by handle) into the storage with the
+  // given `store_id` at compile time. Returns false if the handle is invalid
+  // or stale, the entity is not in staging, or insertion fails.
+  template<store_id_t SID, typename... Args>
+  [[nodiscard]] bool store_entity(handle_t handle, Args&&... args) {
+    if (!registry_.is_valid(handle)) return false;
+    return store_entity<SID>(handle.id(), std::forward<Args>(args)...);
+  }
+
+  // Insert an already-staged entity (by handle) into the storage uniquely
+  // identified by the type of `obj`. Returns false if the handle is invalid
+  // or stale, the entity is not in staging, or insertion fails.
+  template<typename T>
+  [[nodiscard]] bool store_entity(handle_t handle, T&& obj) {
+    if (!registry_.is_valid(handle)) return false;
+    return store_entity(handle.id(), std::forward<T>(obj));
+  }
 
   // Erase entity from whatever storage it occupies (or from staging if it
   // has not been placed in any storage). Invalidates `id`. ID must be valid.
-  [[nodiscard]] bool erase(id_t& id) {
+  [[nodiscard]] bool erase_entity(id_t& id) {
     assert(registry_.is_valid(id));
     const auto old_id = id;
     id = id_t::invalid;
@@ -219,11 +281,11 @@ public:
 
   // Erase entity by handle. Invalidates `handle`. Returns false if the handle
   // is invalid or stale.
-  [[nodiscard]] bool erase(handle_t& handle) {
+  [[nodiscard]] bool erase_entity(handle_t& handle) {
     if (!registry_.is_valid(handle)) return false;
     auto old_id = handle.id();
     handle = handle_t{};
-    if (!erase(old_id)) return false;
+    if (!erase_entity(old_id)) return false;
     return true;
   }
 
@@ -231,7 +293,7 @@ public:
   // the count erased. Useful for cleaning up entities stranded in staging
   // after failed migrations or other error paths. Runs in O(N) in the total
   // count of living entities.
-  size_type erase_staged() {
+  size_type erase_staged_entities() {
     if (registry_.size() == size()) return 0;
     return registry_.erase_if([](auto, const auto& rec) {
       return rec.location.contains(store_id_t{});
@@ -240,7 +302,7 @@ public:
 
   // Move entity back to staging from whatever storage it occupies. Returns
   // success. If already staged, succeeds. ID must be valid.
-  [[nodiscard]] bool remove(id_t id) {
+  [[nodiscard]] bool remove_entity(id_t id) {
     assert(registry_.is_valid(id));
     const auto store_id = registry_.get_location(id).store_id;
     if (store_id == store_id_t{}) return true;
@@ -249,9 +311,9 @@ public:
   }
 
   // Move entity back to staging by handle. Returns success.
-  [[nodiscard]] bool remove(handle_t handle) {
+  [[nodiscard]] bool remove_entity(handle_t handle) {
     if (!registry_.is_valid(handle)) return false;
-    return remove(handle.id());
+    return remove_entity(handle.id());
   }
 
   // Migrate entity to storage `to` using a caller-supplied `build` function
@@ -273,7 +335,7 @@ public:
   // be valid.
   //
   // Build shape: `(const auto& row) -> <destination component tuple>`.
-  [[nodiscard]] bool migrate(id_t id, store_id_t to, auto&& build) {
+  [[nodiscard]] bool migrate_entity(id_t id, store_id_t to, auto&& build) {
     assert(registry_.is_valid(id));
     const auto store_id = registry_.get_location(id).store_id;
     if (store_id == to) return true; // already there -- no-op
@@ -315,9 +377,11 @@ public:
   }
 
   // Overload taking a handle.
-  [[nodiscard]] bool migrate(handle_t handle, store_id_t to, auto&& build) {
+  [[nodiscard]] bool
+  migrate_entity(handle_t handle, store_id_t to, auto&& build) {
     if (!registry_.is_valid(handle)) return false;
-    return migrate(handle.id(), to, std::forward<decltype(build)>(build));
+    return migrate_entity(handle.id(), to,
+        std::forward<decltype(build)>(build));
   }
 
   // Migrate entity to storage `to`, automatically mapping components by type:
@@ -331,7 +395,7 @@ public:
   // demotion (target has fewer). Components are matched by type; if a type
   // appears in both archetypes it is copied, otherwise it is default-
   // constructed in the target.
-  [[nodiscard]] bool migrate(id_t id, store_id_t to) {
+  [[nodiscard]] bool migrate_entity(id_t id, store_id_t to) {
     assert(registry_.is_valid(id));
     const auto store_id = registry_.get_location(id).store_id;
     if (store_id == to) return true; // already there -- no-op
@@ -364,9 +428,9 @@ public:
   }
 
   // Overload taking a handle.
-  [[nodiscard]] bool migrate(handle_t handle, store_id_t to) {
+  [[nodiscard]] bool migrate_entity(handle_t handle, store_id_t to) {
     if (!registry_.is_valid(handle)) return false;
-    return migrate(handle.id(), to);
+    return migrate_entity(handle.id(), to);
   }
 
   // Return the total number of entities across all storages. Does not include
@@ -403,7 +467,7 @@ public:
       [&]<size_t... Is>(std::index_sequence<Is...>) {
         (std::get<Is>(storages_).clear(), ...);
       }(storage_indices());
-      erase_staged();
+      erase_staged_entities();
     }
   }
 
@@ -428,25 +492,24 @@ private:
     return result;
   }
 
-  // Produces std::index_sequence<Offset, Offset+1, ..., Offset+N-1>.
+  // Produces `std::index_sequence<Offset, Offset+1, ..., Offset+N-1>`.
   template<size_t Offset, size_t... Is>
   static constexpr auto make_offset_sequence(std::index_sequence<Is...>)
       -> std::index_sequence<(Is + Offset)...> {
     return {};
   }
 
-  // Index sequence spanning all real storages: 1, 2, ..., storage_count_v.
-  // Matches store_id_t values and tuple indices directly (monostate at 0).
+  // Index sequence spanning all real storages: 1, 2, ..., `storage_count_v`.
+  // Matches `store_id_t` values and tuple indices directly (monostate at 0).
   static constexpr auto storage_indices() {
     return make_offset_sequence<1>(
         std::make_index_sequence<storage_count_v>{});
   }
 
-  // Construct all storages. std::monostate occupies index 0 so that each
-  // storage's store_id_t{N} equals its tuple index N directly.
+  // Construct all storages. `std::monostate` occupies index 0 so that each
+  // storage's `store_id_t{N}` equals its tuple index N directly.
   template<size_t... Is>
-  std::tuple<std::monostate, STORES...>
-  make_storages(std::index_sequence<Is...>) {
+  storage_tuple_t make_storages(std::index_sequence<Is...>) {
     return std::make_tuple(std::monostate{},
         STORES{registry_, store_id_t{Is + 1}}...);
   }
@@ -472,7 +535,7 @@ private:
   // `registry_` must be declared before `storages_` because each storage
   // holds a pointer to it (initialized in `make_storages`).
   registry_t registry_;
-  std::tuple<std::monostate, STORES...> storages_;
+  storage_tuple_t storages_;
 };
 
 }}} // namespace corvid::ecs::archetype_scenes
