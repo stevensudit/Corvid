@@ -3720,6 +3720,30 @@ void ArchetypeScene_Basic() {
     EXPECT_EQ(row.component<Velocity>().vx, 3.f);
   }
 
+  // add_new by tuple type: SID inferred from tuple_t.
+  if (true) {
+    two_storage_scene_t s;
+    // `tuple<Position, Velocity>` is unique to storage 1.
+    auto h1 = s.add_new({},
+        std::tuple<Position, Velocity>{Position{1.f, 2.f},
+            Velocity{3.f, 4.f}});
+    EXPECT_TRUE(h1);
+    EXPECT_TRUE(s.storage<scene_sid_t{1}>().contains(h1.id()));
+    auto row1 = s.storage<scene_sid_t{1}>()[h1.id()];
+    EXPECT_EQ(row1.component<Position>().x, 1.f);
+    EXPECT_EQ(row1.component<Velocity>().vx, 3.f);
+    // `tuple<Position, Velocity, Health>` is unique to storage 2.
+    auto h2 = s.add_new({},
+        std::tuple<Position, Velocity, Health>{Position{5.f, 6.f}, Velocity{},
+            Health{42}});
+    EXPECT_TRUE(h2);
+    EXPECT_TRUE(s.storage<scene_sid_t{2}>().contains(h2.id()));
+    auto row2 = s.storage<scene_sid_t{2}>()[h2.id()];
+    EXPECT_EQ(row2.component<Position>().x, 5.f);
+    EXPECT_EQ(row2.component<Health>().hp, 42);
+    EXPECT_EQ(s.size(), 2U);
+  }
+
   // size() sums across all storages.
   if (true) {
     two_storage_scene_t s;
@@ -5500,126 +5524,109 @@ void ComponentScene_Basic() {
     EXPECT_TRUE(s.storage<cs_scene_store2_t>().empty());
   }
 
-  // add_new inserts into the chosen storage and returns a valid handle.
-  if (true) {
-    two_cs_scene_t s;
-    auto h = s.add_new<cs_scene_sid_t{1}>({}, 1.5f);
-    EXPECT_TRUE(static_cast<bool>(h));
-    EXPECT_EQ(s.size(), 1U);
-    EXPECT_FALSE(s.empty());
-    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 1U);
-    EXPECT_EQ(s.storage<cs_scene_sid_t{2}>().size(), 0U);
-    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[h.id()], 1.5f);
-  }
-
   // make_entity creates entity in staging; registry size reflects it.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.make_entity();
+    auto h = s.create_handle();
     EXPECT_TRUE(static_cast<bool>(h));
     EXPECT_EQ(s.size(), 1U);
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 0U);
     EXPECT_EQ(s.storage<cs_scene_sid_t{2}>().size(), 0U);
   }
-
-  // size() reflects the registry total (including staging).
-  if (true) {
-    two_cs_scene_t s;
-    (void)s.add_new<cs_scene_sid_t{1}>({}, 1.0f);
-    (void)s.add_new<cs_scene_sid_t{2}>({}, 10);
-    (void)s.make_entity(); // staged
-    EXPECT_EQ(s.size(), 3U);
-    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 1U);
-    EXPECT_EQ(s.storage<cs_scene_sid_t{2}>().size(), 1U);
-  }
 }
 
-// component_scene: add_component and multi-storage membership.
+// component_scene: add and multi-storage membership.
 void ComponentScene_AddComponent() {
-  // add_component adds entity to a second storage without removing it from
+  // add adds entity to a second storage without removing it from
   // the first. Entity is in both storages simultaneously.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.add_new<cs_scene_sid_t{1}>({}, 2.0f);
+    auto h = s.create_handle();
     auto id = h.id();
+    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(id, 2.0f));
     EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().contains(id));
     EXPECT_FALSE(s.storage<cs_scene_sid_t{2}>().contains(id));
 
-    EXPECT_TRUE(s.add_component<cs_scene_sid_t{2}>(id, 42));
+    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(id, 42));
     EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().contains(id));
     EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().contains(id));
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[id], 2.0f);
     EXPECT_EQ(s.storage<cs_scene_sid_t{2}>()[id], 42);
   }
 
-  // add_component by handle.
+  // add by handle.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.make_entity();
-    EXPECT_TRUE(s.add_component<cs_scene_sid_t{1}>(h, 3.14f));
+    auto h = s.create_handle();
+    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h, 3.14f));
     EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().contains(h.id()));
 
-    // add_component with invalid handle returns false.
+    // add with invalid handle returns false.
     cs_scene_reg_t::handle_t bad{};
-    EXPECT_FALSE(s.add_component<cs_scene_sid_t{1}>(bad, 1.0f));
+    EXPECT_FALSE(s.add<cs_scene_sid_t{1}>(bad, 1.0f));
   }
 
-  // add_component fails if entity is already in that storage.
+  // add fails if entity is already in that storage.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.add_new<cs_scene_sid_t{1}>({}, 1.0f);
-    EXPECT_FALSE(s.add_component<cs_scene_sid_t{1}>(h.id(), 2.0f));
+    auto h = s.create_handle();
+    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h.id(), 1.0f));
+    EXPECT_FALSE(s.add<cs_scene_sid_t{1}>(h.id(), 2.0f));
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 1U);
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[h.id()], 1.0f); // unchanged
   }
 }
 
-// component_scene: remove_component, staging, and erase.
+// component_scene: remove, staging, and erase.
 void ComponentScene_RemoveErase() {
-  // remove_component removes entity from one storage; it remains in others.
+  // remove removes entity from one storage; it remains in others.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.add_new<cs_scene_sid_t{1}>({}, 5.0f);
+    auto h = s.create_handle();
     auto id = h.id();
-    EXPECT_TRUE(s.add_component<cs_scene_sid_t{2}>(id, 7));
+    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(id, 5.0f));
+    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(id, 7));
 
-    EXPECT_TRUE(s.remove_component<cs_scene_sid_t{1}>(id));
+    EXPECT_TRUE(s.remove<cs_scene_sid_t{1}>(id));
     EXPECT_FALSE(s.storage<cs_scene_sid_t{1}>().contains(id));
     EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().contains(id));
     EXPECT_EQ(s.size(), 1U); // still alive
   }
 
-  // remove_component from last storage returns entity to staging.
+  // remove from last storage returns entity to staging.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.add_new<cs_scene_sid_t{1}>({}, 9.0f);
+    auto h = s.create_handle();
     auto id = h.id();
-    EXPECT_TRUE(s.remove_component<cs_scene_sid_t{1}>(id));
+    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(id, 9.0f));
+    EXPECT_TRUE(s.remove<cs_scene_sid_t{1}>(id));
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 0U);
     // Entity still alive (staged).
     EXPECT_TRUE(s.registry().is_valid(h));
     EXPECT_EQ(s.size(), 1U);
   }
 
-  // remove_component by handle.
+  // remove by handle.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.add_new<cs_scene_sid_t{2}>({}, 99);
-    EXPECT_TRUE(s.remove_component<cs_scene_sid_t{2}>(h));
+    auto h = s.create_handle();
+    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(h, 99));
+    EXPECT_TRUE(s.remove<cs_scene_sid_t{2}>(h));
     EXPECT_EQ(s.storage<cs_scene_sid_t{2}>().size(), 0U);
     EXPECT_TRUE(s.registry().is_valid(h)); // still alive
 
     // Invalid handle returns false.
     cs_scene_reg_t::handle_t bad{};
-    EXPECT_FALSE(s.remove_component<cs_scene_sid_t{2}>(bad));
+    EXPECT_FALSE(s.remove<cs_scene_sid_t{2}>(bad));
   }
 
   // erase(id) removes from all storages and destroys in registry.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.add_new<cs_scene_sid_t{1}>({}, 1.0f);
+    auto h = s.create_handle();
     auto id = h.id();
-    EXPECT_TRUE(s.add_component<cs_scene_sid_t{2}>(id, 2));
+    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(id, 1.0f));
+    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(id, 2));
 
     EXPECT_TRUE(s.erase(id));
     EXPECT_EQ(id, cs_scene_id_t::invalid);
@@ -5632,7 +5639,7 @@ void ComponentScene_RemoveErase() {
   // erase(id) on a staged entity (no components).
   if (true) {
     two_cs_scene_t s;
-    auto h = s.make_entity();
+    auto h = s.create_handle();
     auto id = h.id();
     EXPECT_TRUE(s.erase(id));
     EXPECT_EQ(id, cs_scene_id_t::invalid);
@@ -5643,7 +5650,8 @@ void ComponentScene_RemoveErase() {
   // erase(handle) resets handle on success.
   if (true) {
     two_cs_scene_t s;
-    auto h = s.add_new<cs_scene_sid_t{1}>({}, 3.0f);
+    auto h = s.create_handle();
+    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h.id(), 3.0f));
     EXPECT_TRUE(s.erase(h));
     EXPECT_FALSE(static_cast<bool>(h));
     EXPECT_EQ(s.size(), 0U);
@@ -5669,9 +5677,10 @@ void ComponentScene_EraseStaged() {
   // erase_staged removes entities with no components.
   if (true) {
     two_cs_scene_t s;
-    auto h1 = s.add_new<cs_scene_sid_t{1}>({}, 1.0f); // has component
-    auto h2 = s.make_entity();                        // staged
-    auto h3 = s.make_entity();                        // staged
+    auto h1 = s.create_handle();
+    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h1.id(), 1.0f));
+    auto h2 = s.create_handle(); // staged
+    auto h3 = s.create_handle(); // staged
     EXPECT_EQ(s.size(), 3U);
     const auto erased = s.erase_staged();
     EXPECT_EQ(erased, 2U);
@@ -5684,16 +5693,19 @@ void ComponentScene_EraseStaged() {
   // erase_staged returns 0 when no staged entities exist.
   if (true) {
     two_cs_scene_t s;
-    (void)s.add_new<cs_scene_sid_t{1}>({}, 1.0f);
+    auto h = s.create_handle();
+    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h.id(), 1.0f));
     EXPECT_EQ(s.erase_staged(), 0U);
   }
 
   // clear(release) empties everything in O(S).
   if (true) {
     two_cs_scene_t s;
-    (void)s.add_new<cs_scene_sid_t{1}>({}, 1.0f);
-    (void)s.add_new<cs_scene_sid_t{2}>({}, 2);
-    (void)s.make_entity();
+    auto h1 = s.create_handle();
+    auto h2 = s.create_handle();
+    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h1.id(), 1.0f));
+    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(h2.id(), 2));
+    (void)s.create_handle();
     s.clear(deallocation_policy::release);
     EXPECT_TRUE(s.empty());
     EXPECT_EQ(s.size(), 0U);
@@ -5704,9 +5716,11 @@ void ComponentScene_EraseStaged() {
   // clear(preserve) erases entities one by one, then staged.
   if (true) {
     two_cs_scene_t s;
-    (void)s.add_new<cs_scene_sid_t{1}>({}, 1.0f);
-    (void)s.add_new<cs_scene_sid_t{2}>({}, 2);
-    (void)s.make_entity();
+    auto h1 = s.create_handle();
+    auto h2 = s.create_handle();
+    EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h1.id(), 1.0f));
+    EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(h2.id(), 2));
+    (void)s.create_handle();
     s.clear(deallocation_policy::preserve);
     EXPECT_TRUE(s.empty());
     EXPECT_EQ(s.size(), 0U);
@@ -5722,8 +5736,10 @@ void ComponentScene_Destructor() {
     auto h2 = cs_scene_reg_t::handle_t{};
     {
       two_cs_scene_t s;
-      h1 = s.add_new<cs_scene_sid_t{1}>({}, 1.0f);
-      h2 = s.add_new<cs_scene_sid_t{2}>({}, 2);
+      h1 = s.create_handle();
+      h2 = s.create_handle();
+      EXPECT_TRUE(s.add<cs_scene_sid_t{1}>(h1.id(), 1.0f));
+      EXPECT_TRUE(s.add<cs_scene_sid_t{2}>(h2.id(), 2));
       EXPECT_EQ(s.size(), 2U);
     }
     // After destruction all entities are gone; handles point into dead memory,

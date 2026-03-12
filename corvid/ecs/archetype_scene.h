@@ -121,8 +121,6 @@ public:
   archetype_scene& operator=(const archetype_scene&) = delete;
   archetype_scene& operator=(archetype_scene&&) = delete;
 
-  ~archetype_scene() { clear(); }
-
   // Registry access.
   [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
     return (self.registry_);
@@ -143,6 +141,18 @@ public:
     return (std::get<storage_type>(self.storages_));
   }
 
+  // Create a new entity in staging. Returns its handle, or an invalid handle
+  // on failure (e.g., registry at ID limit).
+  [[nodiscard]] handle_t create_handle(const metadata_t& metadata = {}) {
+    return registry_.create_handle({}, metadata);
+  }
+
+  // Create a new entity in staging. Returns its ID, or an invalid ID
+  // on failure (e.g., registry at ID limit).
+  [[nodiscard]] id_t create_id(const metadata_t& metadata = {}) {
+    return registry_.create_id({}, metadata);
+  }
+
   // Create a new entity and insert it into the storage with the given
   // `store_id` in one step. Returns a valid handle on success, or an invalid
   // handle if the registry refused creation or the storage limit would be
@@ -150,6 +160,28 @@ public:
   template<store_id_t SID, typename... Args>
   [[nodiscard]] handle_t add_new(const metadata_t& metadata, Args&&... args) {
     return storage<SID>().add_new(metadata, std::forward<Args>(args)...);
+  }
+
+  // Create a new entity in the storage uniquely identified by the type of
+  // `obj`. `T` must be the `tuple_t` of exactly one storage in this scene; if
+  // two or more storages share the same `tuple_t`, use the `add_new<SID>()`
+  // overload to disambiguate. The component tuple is unpacked into the
+  // storage. Returns a valid handle on success, or an invalid handle if the
+  // registry refused creation or the storage limit would be exceeded.
+  template<typename T>
+  [[nodiscard]] handle_t add_new(const metadata_t& metadata, T&& obj) {
+    using U = std::remove_cvref_t<T>;
+    static_assert(count_stores_with_tuple_v<U> == 1,
+        "add_new: T must be the `tuple_t` of exactly one storage; "
+        "use add_new<SID>() to disambiguate");
+    constexpr auto SID =
+        find_sid_for_tuple<U>(std::index_sequence_for<STORES...>{});
+    return std::apply(
+        [&](auto&&... cs) {
+          return storage<SID>().add_new(metadata,
+              std::forward<decltype(cs)>(cs)...);
+        },
+        std::forward<T>(obj));
   }
 
   // Create a new default-valued entity in the storage selected at runtime by
@@ -163,28 +195,32 @@ public:
   }
 
   // Erase entity from whatever storage it occupies (or from staging if it
-  // has not been placed in any storage). Invalidates `id` on success.
-  // ID must be valid.
+  // has not been placed in any storage). Invalidates `id`. ID must be valid.
   [[nodiscard]] bool erase(id_t& id) {
     assert(registry_.is_valid(id));
-    const auto store_id = registry_.get_location(id).store_id;
+    const auto old_id = id;
+    id = id_t::invalid;
+    const auto store_id = registry_.get_location(old_id).store_id;
     if (store_id == store_id_t{}) {
-      // Staged: destroy directly in the registry.
-      if (!registry_.erase(id)) return false;
-      id = id_t::invalid;
+      if (!registry_.erase(old_id)) return false;
       return true;
     }
     return dispatch_storage<bool>(
-        store_id, [&](auto& s) { return s.erase(id); }, false);
+        store_id,
+        [&](auto& s) {
+          auto temp_id = old_id;
+          return s.erase(temp_id);
+        },
+        false);
   }
 
-  // Erase entity by handle. Resets `handle` to an invalid state on success.
-  // Returns false if the handle is invalid or stale.
+  // Erase entity by handle. Invalidates `handle`. Returns false if the handle
+  // is invalid or stale.
   [[nodiscard]] bool erase(handle_t& handle) {
     if (!registry_.is_valid(handle)) return false;
-    auto id = handle.id();
-    if (!erase(id)) return false;
+    auto old_id = handle.id();
     handle = handle_t{};
+    if (!erase(old_id)) return false;
     return true;
   }
 
@@ -369,6 +405,26 @@ public:
   }
 
 private:
+  // Count how many storages expose a `tuple_t` equal to `T`.
+  template<typename T>
+  static constexpr size_t count_stores_with_tuple_v =
+      (std::is_same_v<T, typename STORES::tuple_t> + ...);
+
+  // Find the `store_id_t` of the first storage whose `tuple_t` equals `T`.
+  // Caller must ensure exactly one match (guarded by
+  // `count_stores_with_tuple_v`).
+  template<typename T, size_t... Is>
+  static constexpr store_id_t
+  find_sid_for_tuple(std::index_sequence<Is...>) noexcept {
+    store_id_t result = store_id_t::invalid;
+    (void)((std::is_same_v<T, typename std::tuple_element_t<Is,
+                                  std::tuple<STORES...>>::tuple_t>
+                   ? (result = store_id_t{Is + 1}, true)
+                   : false) ||
+           ...);
+    return result;
+  }
+
   // Produces std::index_sequence<Offset, Offset+1, ..., Offset+N-1>.
   template<size_t Offset, size_t... Is>
   static constexpr auto make_offset_sequence(std::index_sequence<Is...>)

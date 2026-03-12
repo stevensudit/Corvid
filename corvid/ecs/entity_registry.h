@@ -78,7 +78,7 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 //              thorough ones.
 //  OWN_COUNT - 1 selects archetype mode, where `record_t` stores a
 //              `location_record{store_id, ndx}` for O(1) entity location
-//              lookup. Any multiple of 8 >= 8 selects component mode, where
+//              lookup. Any value >= 2 selects component mode, where
 //              `record_t` stores a `location_record{store_ids,ndx}`, where
 //              `store_ids` is a `fixed_bitset<OWN_COUNT>` presence bitmap.
 //  REUSE     - `reuse_order::fifo` (default) or `reuse_order::lifo`,
@@ -132,9 +132,8 @@ public:
   static_assert(std::is_void_v<T> || std::is_trivially_copyable_v<T>,
       "Metadata type T must be void or trivially copyable");
 
-  static_assert(OWN_COUNT == 1 || (OWN_COUNT >= 8 && OWN_COUNT % 8 == 0),
-      "OWN_COUNT must be 1 (archetype mode) or a multiple of 8 >= 8 "
-      "(component mode)");
+  static_assert(OWN_COUNT >= 1,
+      "OWN_COUNT must be 1 (archetype mode) or >= 2 (component mode)");
 
   // A handle to an entity. Contains ID and optionally generation data to
   // detect reuse. No ownership: does nothing on destruction.
@@ -211,7 +210,7 @@ public:
   //   `store_id_t::invalid` is a dead entity.
   //   When dead, `ndx` doubles as the intrusive free-list next pointer.
   //
-  // Component mode (OWN_COUNT >= 8, multiple of 8):
+  // Component mode (OWN_COUNT >= 2):
   //   `store_ids` is a presence bitmap; a bit is set when the entity occupies
   //   that storage.
   //  `store_id_t{0}` is set (and all other bits are cleared) is in staging,

@@ -51,8 +51,8 @@ protected:
 //
 // No staging reservation in the tuple: `store_id_t{1}` is the first storage.
 // Entities begin in staging (bitmap bit 0 set) and leave staging when their
-// first component is added via `add_component` or `add_new`. They return to
-// staging if all components are removed with `remove_component`. They are
+// first component is added via `add` or `add_new`. They return to
+// staging if all components are removed with `remove`. They are
 // destroyed (completely removed from the registry) only by `erase`.
 //
 // All `STORES` must be `component_storage_base`-derived types sharing the same
@@ -85,7 +85,7 @@ public:
 
   static_assert(registry_t::is_component_v,
       "component_scene requires a component-mode registry "
-      "(OWN_COUNT must be a multiple of 8 >= 8)");
+      "(OWN_COUNT must be >= 2)");
   static_assert(sizeof...(STORES) >= 1,
       "component_scene requires at least one storage");
   static_assert(
@@ -114,8 +114,6 @@ public:
   component_scene& operator=(const component_scene&) = delete;
   component_scene& operator=(component_scene&&) = delete;
 
-  ~component_scene() { clear(); }
-
   // Registry access.
   [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
     return (self.registry_);
@@ -137,33 +135,30 @@ public:
 
   // Create a new entity in staging. Returns its handle, or an invalid handle
   // on failure (e.g., registry at ID limit).
-  [[nodiscard]] handle_t make_entity(const metadata_t& metadata = {}) {
-    auto owner = registry_.create_owner(metadata);
-    if (!owner) return {};
-    return owner.release();
+  [[nodiscard]] handle_t create_handle(const metadata_t& metadata = {}) {
+    return registry_.create_handle({}, metadata);
   }
 
-  // Create a new entity and add it to storage `SID` in one step. Returns a
-  // valid handle on success, or an invalid handle if creation or storage
-  // insertion fails (e.g., at limit).
-  template<store_id_t SID, typename... Args>
-  [[nodiscard]] handle_t add_new(const metadata_t& metadata, Args&&... args) {
-    return storage<SID>().add_new(metadata, std::forward<Args>(args)...);
+  // Create a new entity in staging. Returns its ID, or an invalid ID
+  // on failure (e.g., registry at ID limit).
+  [[nodiscard]] id_t create_id(const metadata_t& metadata = {}) {
+    return registry_.create_id({}, metadata);
   }
 
   // Add a component to storage `SID` for an existing entity. The entity must
   // be valid and not already present in that storage. Returns false if the
   // entity is invalid, already in `SID`, or if the storage is at its limit.
   template<store_id_t SID, typename... Args>
-  [[nodiscard]] bool add_component(id_t id, Args&&... args) {
+  [[nodiscard]] bool add(id_t id, Args&&... args) {
+    assert(registry_.is_valid(id));
     return storage<SID>().add(id, std::forward<Args>(args)...);
   }
 
   // Add component by handle. Validates the handle first.
   template<store_id_t SID, typename... Args>
-  [[nodiscard]] bool add_component(handle_t handle, Args&&... args) {
+  [[nodiscard]] bool add(handle_t handle, Args&&... args) {
     if (!registry_.is_valid(handle)) return false;
-    return add_component<SID>(handle.id(), std::forward<Args>(args)...);
+    return add<SID>(handle.id(), std::forward<Args>(args)...);
   }
 
   // Remove entity from storage `SID` only. The entity remains alive in the
@@ -171,46 +166,70 @@ public:
   // the entity returns to staging. Returns false if the entity is invalid or
   // not in storage `SID`.
   template<store_id_t SID>
-  bool remove_component(id_t id) {
+  bool remove(id_t id) {
+    assert(registry_.is_valid(id));
     return storage<SID>().remove(id);
   }
 
   // Remove component by handle. Validates the handle first.
   template<store_id_t SID>
-  bool remove_component(handle_t handle) {
+  bool remove(handle_t handle) {
     if (!registry_.is_valid(handle)) return false;
-    return remove_component<SID>(handle.id());
+    return remove<SID>(handle.id());
+  }
+
+  // Remove entity from all storages without destroying it in the registry.
+  // The entity is returned to staging. Returns false if the entity is invalid.
+  [[nodiscard]] bool remove_all(id_t id) {
+    if (!registry_.is_valid(id)) return false;
+    const auto location = registry_.get_location(id);
+    [&]<size_t... Is>(std::index_sequence<Is...>) {
+      ((location[store_id_t{
+            static_cast<std::underlying_type_t<store_id_t>>(Is + 1)}]
+               ? std::get<Is + 1>(storages_).remove(id)
+               : false),
+          ...);
+    }(std::make_index_sequence<storage_count_v>{});
+    return true;
+  }
+
+  // Remove entity from all storages by handle. Validates the handle first.
+  [[nodiscard]] bool remove_all(handle_t handle) {
+    if (!registry_.is_valid(handle)) return false;
+    return remove_all(handle.id());
   }
 
   // Erase entity: remove from all storages it currently occupies, then
-  // destroy it in the registry. Sets `id` to `id_t::invalid` on success.
-  // Returns false if the entity is already invalid.
+  // destroy it in the registry. Sets `id` to `id_t::invalid`. Returns false
+  // if the entity is already invalid.
   [[nodiscard]] bool erase(id_t& id) {
-    if (!registry_.is_valid(id)) return false;
+    const auto old_id = id;
+    id = id_t::invalid;
+    if (!registry_.is_valid(old_id)) return false;
     // Remove from every storage (preserve mode so each storage's swap-and-pop
     // runs cleanly; the entity stays alive until the registry erase below).
     [&]<size_t... Is>(std::index_sequence<Is...>) {
-      (std::get<Is + 1>(storages_).remove(id), ...);
+      (std::get<Is + 1>(storages_).remove(old_id), ...);
     }(std::make_index_sequence<storage_count_v>{});
     // Entity is now in staging. Destroy it.
-    registry_.erase(id);
-    id = id_t::invalid;
+    registry_.erase(old_id);
     return true;
   }
 
   // Erase by handle. Resets `handle` to an invalid state on success. Returns
   // false if the handle is invalid or stale.
   [[nodiscard]] bool erase(handle_t& handle) {
-    if (!registry_.is_valid(handle)) return false;
-    auto id = handle.id();
-    if (!erase(id)) return false;
+    const auto old_handle = handle;
     handle = handle_t{};
+    if (!registry_.is_valid(old_handle)) return false;
+    auto id = old_handle.id();
+    if (!erase(id)) return false;
     return true;
   }
 
   // Erase all staged entities (those with no components in any storage).
   // Returns the count erased. Useful for cleaning up entities that were
-  // removed from all their storages via `remove_component`.
+  // removed from all their storages via `remove`.
   size_type erase_staged() {
     return registry_.erase_if([](auto, const auto& rec) {
       return rec.location.contains(store_id_t{});
