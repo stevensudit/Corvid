@@ -5741,24 +5741,21 @@ void ComponentScene_EraseStaged() {
   }
 }
 
-// component_scene: destructor runs clear automatically.
+// component_scene: destructor implicitly calls clear().
 void ComponentScene_Destructor() {
+  // The meaningful check is that the scene is non-empty going in and that
+  // destruction completes without error (i.e., the destructor calls clear()
+  // and does not assert or crash). Handles are value types (ID + generation),
+  // not pointers, so there is nothing to verify about them after the scene is
+  // gone.
   if (true) {
-    auto h1 = cs_scene_reg_t::handle_t{};
-    auto h2 = cs_scene_reg_t::handle_t{};
-    {
-      two_cs_scene_t s;
-      h1 = s.stage_new_entity();
-      h2 = s.stage_new_entity();
-      EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h1.id(), 1.0f));
-      EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h2.id(), 2));
-      EXPECT_EQ(s.size(), 2U);
-    }
-    // After destruction all entities are gone; handles point into dead memory,
-    // but we can verify the handles themselves are non-null before
-    // destruction.
-    EXPECT_TRUE(static_cast<bool>(h1));
-    EXPECT_TRUE(static_cast<bool>(h2));
+    two_cs_scene_t s;
+    auto h1 = s.stage_new_entity();
+    auto h2 = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h1.id(), 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h2.id(), 2));
+    EXPECT_EQ(s.size(), 2U);
+    // Scope ends here; destructor runs clear() implicitly.
   }
 }
 
