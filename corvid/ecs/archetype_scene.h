@@ -56,7 +56,7 @@ protected:
 //
 // All `storage_ts` must be fully-typed storage specializations (e.g.,
 // `archetype_storage<registry_t, tuple<Pos, Vel>>`) sharing the same
-// `registry_t` type. At most `*store_id_t::invalid - 2` storages are
+// `registry_t` type. At most `*store_id_t::invalid - 1` storages are
 // supported. It is helpful if each type is distinct, so you can use the `TAG`
 // specialization to achieve this.
 //
@@ -282,9 +282,10 @@ public:
   // Erase entity by handle. Invalidates `handle`. Returns false if the handle
   // is invalid or stale.
   [[nodiscard]] bool erase_entity(handle_t& handle) {
-    if (!registry_.is_valid(handle)) return false;
+    const auto old_handle = handle;
     auto old_id = handle.id();
     handle = handle_t{};
+    if (!registry_.is_valid(old_handle)) return false;
     if (!erase_entity(old_id)) return false;
     return true;
   }

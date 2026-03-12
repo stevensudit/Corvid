@@ -58,9 +58,9 @@ protected:
 //
 // All `STORES` must be `component_storage_base`-derived types sharing the same
 // `REG`. `REG` must be a component-mode registry (`is_component_v == true`).
-// At most `*store_id_t::invalid - 2` storages are supported (as
-// `store_id_t{0}` is reserved for staging and `store_id_t::invalid` is the
-// invalid flag.).
+// At most `*store_id_t::invalid - 1` storages are supported (`store_id_t{0}`
+// is reserved for staging, so store IDs 1..`*store_id_t::invalid - 1` are
+// available for storages).
 //
 // Construction creates all storages with unlimited capacity. To restrict a
 // specific storage, call `storage<store_id_t{N}>().set_limit(n)` after
@@ -97,6 +97,11 @@ public:
   // reach the sentinel.
   static_assert(storage_count_v < *store_id_t::invalid,
       "too many STORES: store_id_t would overflow into the invalid sentinel");
+  // Defensive: `add_location`/`remove_location` assert `*sid < OWN_COUNT`
+  // (i.e., `< bitmap_bits_v`). The largest assigned `store_id` is
+  // `storage_count_v`, so it must be strictly less than the bitmap size.
+  static_assert(storage_count_v < registry_t::bitmap_bits_v,
+      "too many STORES: storage_count_v must be < OWN_COUNT (bitmap_bits_v)");
 
   // Type of the storage with the given `store_id`. `std::monostate` occupies
   // index 0 so that `*SID` equals the tuple index directly.
