@@ -36,11 +36,14 @@ namespace corvid { inline namespace ecs {
 inline namespace archetype_storage_bases {
 
 // CRTP base class for `archetype_storage`, `chunked_archetype_storage`, and
-// `component_storage`. Provides the registry-interaction plumbing common to
-// all packed ECS storages (entity ID tracking, `entity_registry` pointer,
-// `store_id`, capacity limit, and the core `remove`/`erase`/`clear`
+// `mono_archetype_storage`. Provides the registry-interaction plumbing common
+// to all packed archetype storages (entity ID tracking, `entity_registry`
+// pointer, `store_id`, capacity limit, and the core `remove`/`erase`/`clear`
 // operations built on swap-and-pop), plus multi-component row wrappers,
 // bidirectional iterators, and the `add`/`erase_if`/`remove_if` family.
+//
+// For the component model (entities in multiple storages simultaneously), see
+// `component_storage_base` and `component_storage`.
 //
 // An archetype is a storage unit defined by a fixed set of component types,
 // where each component type is stored densely in arrays and rows across those

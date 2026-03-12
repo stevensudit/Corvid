@@ -701,13 +701,13 @@ private:
 
   // Test the bit at pre-validated `ndx` (no bounds check).
   [[nodiscard]] constexpr bool test_unchecked(size_t ndx) const noexcept {
-    assert(ndx <= bit_count_v);
+    assert(ndx < bit_count_v);
     return (words_[word_of(ndx)] & mask_of(ndx)) != 0;
   }
 
   // Set or clear the bit at pre-validated `ndx` (no bounds check).
   constexpr fixed_bitset& set_unchecked(size_t ndx, bool value) noexcept {
-    assert(ndx <= bit_count_v);
+    assert(ndx < bit_count_v);
     const auto w = word_of(ndx);
     const auto m = mask_of(ndx);
     words_[w] = (words_[w] & ~m) | (static_cast<word_t>(-value) & m);
@@ -716,7 +716,7 @@ private:
 
   // Flip the bit at pre-validated `ndx` (no bounds check).
   constexpr fixed_bitset& flip_unchecked(size_t ndx) noexcept {
-    assert(ndx <= bit_count_v);
+    assert(ndx < bit_count_v);
     words_[word_of(ndx)] ^= mask_of(ndx);
     return *this;
   }
