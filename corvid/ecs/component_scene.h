@@ -103,7 +103,7 @@ public:
       std::tuple_element_t<*SID, std::tuple<std::monostate, STORES...>>;
 
   // Construct with unlimited, unbound storages. Each storage is bound to this
-  // scene's registry and assigned `store_id_t{N}` for 1-based index N. An
+  // scene's registry and assigned `store_id_t{N}` for 1-based index `N`. An
   // optional allocator propagates to the registry.
   explicit component_scene(const allocator_type& alloc = allocator_type{})
       : registry_{alloc},
@@ -132,8 +132,6 @@ public:
   template<typename STORAGE>
   [[nodiscard]] decltype(auto) storage(this auto& self) noexcept {
     using storage_type = std::remove_cvref_t<STORAGE>;
-    static_assert((std::is_same_v<storage_type, STORES> || ...),
-        "STORAGE must be one of this component_scene's STORES");
     return (std::get<storage_type>(self.storages_));
   }
 

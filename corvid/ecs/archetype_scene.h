@@ -140,8 +140,6 @@ public:
   template<typename STORAGE>
   [[nodiscard]] decltype(auto) storage(this auto& self) noexcept {
     using storage_type = std::remove_cvref_t<STORAGE>;
-    static_assert((std::is_same_v<storage_type, STORES> || ...),
-        "Storage must be one of this archetype_scene's storage_ts");
     return (std::get<storage_type>(self.storages_));
   }
 
