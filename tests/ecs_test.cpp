@@ -5099,6 +5099,19 @@ void ComponentStorage_Basic() {
     EXPECT_FALSE(s.contains(cs_id_t{99})); // out of range
   }
 
+  // contains(handle_t): valid present handle -> true; invalid handle -> false.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    auto h = s.add_new(9.0f);
+    EXPECT_TRUE(s.contains(h));
+    cs_reg_t::handle_t bad{};
+    EXPECT_FALSE(s.contains(bad));
+    // After erasing the entity the handle becomes stale.
+    EXPECT_TRUE(s.erase(h.id()));
+    EXPECT_FALSE(s.contains(h)); // stale
+  }
+
   // add() rejects duplicate insertion.
   if (true) {
     cs_reg_t r;
@@ -5370,6 +5383,23 @@ void ComponentStorage_EraseIf() {
     EXPECT_TRUE(r.is_valid(id0)); // still alive (staged)
     EXPECT_TRUE(r.is_valid(id1));
   }
+
+  // erase_if on a multi-storage entity: the entity is removed from this
+  // storage but survives because it is still present in a second storage.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s1{r, cs_sid_t{1}};
+    cs_store_t s2{r, cs_sid_t{2}};
+    auto id0 = r.create_id({}, 0);
+    EXPECT_TRUE(s1.add(id0, 5.0f)); // will be erased from s1
+    EXPECT_TRUE(s2.add(id0, 9.0f)); // entity still lives here after erase_if
+    const auto cnt = s1.erase_if([](float, cs_id_t) { return true; });
+    EXPECT_EQ(cnt, 1U);
+    EXPECT_FALSE(s1.contains(id0));
+    EXPECT_TRUE(s2.contains(id0)); // entity survives in s2
+    EXPECT_TRUE(r.is_valid(id0));  // not destroyed
+    EXPECT_EQ(s2[id0], 9.0f);
+  }
 }
 
 void ComponentStorage_Iterator() {
@@ -5520,6 +5550,11 @@ using tagged_float_b_t = component_storage<cs_scene_reg_t, float, FloatTagB>;
 using two_tagged_scene_t =
     component_scene<cs_scene_reg_t, tagged_float_a_t, tagged_float_b_t>;
 
+// Three-storage scene: SID{1}=float/FloatTagA, SID{2}=float/FloatTagB,
+// SID{3}=int. Used for mixed tag+component selector tests.
+using three_tagged_scene_t = component_scene<cs_scene_reg_t, tagged_float_a_t,
+    tagged_float_b_t, cs_scene_store2_t>;
+
 void ComponentScene_Basic() {
   // Default construction: empty registry, no entities.
   if (true) {
@@ -5595,6 +5630,28 @@ void ComponentScene_StoreEntity() {
     EXPECT_FALSE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 2.0f));
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 1U);
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[h.id()], 1.0f); // unchanged
+  }
+
+  // store_entity with no component argument default-constructs the value.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id())); // float{}
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[h.id()], 0.0f);
+  }
+
+  // store_entity returns false when the target storage is at its limit.
+  if (true) {
+    two_cs_scene_t s;
+    s.storage<cs_scene_sid_t{1}>().set_limit(1);
+    auto ha = s.stage_new_entity();
+    auto hb = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    EXPECT_FALSE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f)); // at limit
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>().size(), 1U); // unchanged
+    EXPECT_FALSE(s.storage<cs_scene_sid_t{1}>().contains(hb.id()));
+    EXPECT_TRUE(s.registry().is_valid(hb)); // entity still alive (staged)
+    (void)ha;
   }
 }
 
@@ -5690,6 +5747,18 @@ void ComponentScene_RemoveErase() {
     two_cs_scene_t s;
     auto id = cs_scene_id_t::invalid;
     EXPECT_FALSE(s.erase_entity(id));
+  }
+
+  // remove_entity returns false when the entity is valid but not in that
+  // storage; the entity's membership in other storages is unchanged.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.stage_new_entity();
+    auto id = h.id();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(id, 99)); // in storage 2 only
+    EXPECT_FALSE(s.remove_entity<cs_scene_sid_t{1}>(id));   // not in storage 1
+    EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().contains(id)); // unchanged
+    EXPECT_FALSE(s.storage<cs_scene_sid_t{1}>().contains(id));
   }
 }
 
@@ -6518,6 +6587,36 @@ void ComponentScene_ForEach() {
     });
     EXPECT_EQ(seen_id, id);
   }
+
+  // Primary storage switches to store2 when it is smaller. Store1 (float) has
+  // 3 entities; store2 (int) has 1 entity that is also in store1.
+  // find_primary_ids selects store2 as the iteration driver; the is_subset_of
+  // check then filters by membership in store1.
+  if (true) {
+    two_cs_scene_t s;
+    auto ha = s.stage_new_entity(); // both stores: the match
+    auto hb = s.stage_new_entity(); // float only
+    auto hc = s.stage_new_entity(); // float only
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 10));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 3.0f));
+    // store1 has 3 entities; store2 has 1 -- primary switches to store2.
+    int count = 0;
+    float fval = 0.f;
+    int ival = 0;
+    s.for_each<float, int>([&](auto, auto comps) {
+      ++count;
+      fval = std::get<0>(comps);
+      ival = std::get<1>(comps);
+      return true;
+    });
+    EXPECT_EQ(count, 1); // only ha
+    EXPECT_EQ(fval, 1.0f);
+    EXPECT_EQ(ival, 10);
+    (void)hb;
+    (void)hc;
+  }
 }
 
 void ComponentScene_NonAlignedOwnCount() {
@@ -6653,6 +6752,52 @@ void ComponentScene_ForAll() {
     EXPECT_EQ(f, 0U);
     EXPECT_EQ(seen_id, id);
   }
+
+  // for_all skips staged entities (valid in registry, no storage membership).
+  if (true) {
+    two_cs_scene_t s;
+    auto ha = s.stage_new_entity(); // staged only -- must not be visited
+    auto hb = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 5.0f));
+    int count = 0;
+    float fsum = 0.f;
+    auto f = s.for_all<float>([&](auto, auto comps) {
+      ++count;
+      fsum += std::get<0>(comps);
+      return true;
+    });
+    EXPECT_EQ(f, 0U);
+    EXPECT_EQ(count, 1); // only hb
+    EXPECT_EQ(fsum, 5.0f);
+    (void)ha;
+    (void)hb;
+  }
+
+  // for_all correctly skips IDs left by erased entities (registry holes).
+  // hb occupies the middle ID and is erased before for_all runs; its ID
+  // slot is no longer valid and must not be visited.
+  if (true) {
+    two_cs_scene_t s;
+    auto ha = s.stage_new_entity();
+    auto hb = s.stage_new_entity();
+    auto hc = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 99.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 3.0f));
+    EXPECT_TRUE(s.erase_entity(hb)); // leave a gap at hb's ID
+    int count = 0;
+    float fsum = 0.f;
+    auto f = s.for_all<float>([&](auto, auto comps) {
+      ++count;
+      fsum += std::get<0>(comps);
+      return true;
+    });
+    EXPECT_EQ(f, 0U);
+    EXPECT_EQ(count, 2);    // only ha and hc
+    EXPECT_EQ(fsum, 4.0f); // 1.0 + 3.0
+    (void)ha;
+    (void)hc;
+  }
 }
 
 // component_scene: tag-based storage resolution.
@@ -6780,6 +6925,18 @@ void ComponentScene_TagLookup() {
     (void)h;
   }
 
+  // storage<TYPE>() by tagged storage type returns the correct storage.
+  if (true) {
+    two_tagged_scene_t s;
+    EXPECT_TRUE(s.storage<tagged_float_a_t>().empty());
+    EXPECT_TRUE(s.storage<tagged_float_b_t>().empty());
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0f));
+    EXPECT_EQ(s.storage<tagged_float_a_t>()[h.id()], 3.0f);
+    EXPECT_TRUE(s.storage<tagged_float_b_t>().empty());
+    (void)h;
+  }
+
   // for_all<FloatTagA>: registry-driven, visits only entities in TagA storage.
   if (true) {
     two_tagged_scene_t s;
@@ -6836,6 +6993,123 @@ void ComponentScene_TagLookup() {
     EXPECT_EQ(aval, 21.0f);
     EXPECT_EQ(bval, 42.0f);
     (void)h;
+  }
+
+  // Mixed selectors: tag-resolved (FloatTagA -> float) and direct component
+  // (int -> SID{3}). three_tagged_scene_t: SID{1}=float/FloatTagA,
+  // SID{2}=float/FloatTagB, SID{3}=int.
+  if (true) {
+    three_tagged_scene_t s;
+    auto ha = s.stage_new_entity(); // FloatTagA + int: visited
+    auto hb = s.stage_new_entity(); // FloatTagA only: skipped
+    auto hc = s.stage_new_entity(); // int only: skipped
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{3}>(ha.id(), 10));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{3}>(hc.id(), 20));
+    int count = 0;
+    float fsum = 0.f;
+    int isum = 0;
+    s.for_each<FloatTagA, int>([&](auto, auto comps) {
+      ++count;
+      fsum += std::get<0>(comps); // float from FloatTagA storage
+      isum += std::get<1>(comps); // int from SID{3}
+      return true;
+    });
+    EXPECT_EQ(count, 1); // only ha
+    EXPECT_EQ(fsum, 1.0f);
+    EXPECT_EQ(isum, 10);
+    (void)hb;
+    (void)hc;
+  }
+
+  // Mixed selectors with for_all: same intersection, registry-driven.
+  if (true) {
+    three_tagged_scene_t s;
+    auto ha = s.stage_new_entity(); // FloatTagA + int
+    auto hb = s.stage_new_entity(); // FloatTagA only
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 3.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{3}>(ha.id(), 30));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 4.0f));
+    int count = 0;
+    float fsum = 0.f;
+    int isum = 0;
+    auto f = s.for_all<FloatTagA, int>([&](auto, auto comps) {
+      ++count;
+      fsum += std::get<0>(comps);
+      isum += std::get<1>(comps);
+      return true;
+    });
+    EXPECT_EQ(f, 0U);
+    EXPECT_EQ(count, 1); // only ha
+    EXPECT_EQ(fsum, 3.0f);
+    EXPECT_EQ(isum, 30);
+    (void)hb;
+  }
+
+  // Three-selector for_each: all three storages must be occupied.
+  if (true) {
+    three_tagged_scene_t s;
+    auto ha = s.stage_new_entity(); // all three: the only match
+    auto hb = s.stage_new_entity(); // FloatTagA + FloatTagB only
+    auto hc = s.stage_new_entity(); // FloatTagA + int only
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 2.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{3}>(ha.id(), 10));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 3.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 4.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 5.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{3}>(hc.id(), 20));
+    int count = 0;
+    float asum = 0.f;
+    float bsum = 0.f;
+    int isum = 0;
+    s.for_each<FloatTagA, FloatTagB, int>([&](auto, auto comps) {
+      ++count;
+      asum += std::get<0>(comps); // float from SID{1}
+      bsum += std::get<1>(comps); // float from SID{2}
+      isum += std::get<2>(comps); // int from SID{3}
+      return true;
+    });
+    EXPECT_EQ(count, 1); // only ha
+    EXPECT_EQ(asum, 1.0f);
+    EXPECT_EQ(bsum, 2.0f);
+    EXPECT_EQ(isum, 10);
+    (void)hb;
+    (void)hc;
+  }
+
+  // for_all<float, int> on three_tagged_scene_t: float matches two storages
+  // (nc > 1) while int is unique. Entities in exactly one float storage + int
+  // are visited; entities in both float storages + int are ambiguous failures.
+  if (true) {
+    three_tagged_scene_t s;
+    auto ha = s.stage_new_entity(); // TagA + int: visited (float unambiguous)
+    auto hb = s.stage_new_entity(); // TagB + int: visited (float unambiguous)
+    auto hc = s.stage_new_entity(); // TagA + TagB + int: ambiguous, counted
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{3}>(ha.id(), 10));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 2.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{3}>(hb.id(), 20));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 99.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(hc.id(), 99.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{3}>(hc.id(), 99));
+    int count = 0;
+    float fsum = 0.f;
+    int isum = 0;
+    auto f = s.for_all<float, int>([&](auto, auto comps) {
+      ++count;
+      fsum += std::get<0>(comps);
+      isum += std::get<1>(comps);
+      return true;
+    });
+    EXPECT_EQ(f, 1U); // hc is ambiguous
+    EXPECT_EQ(count, 2); // ha and hb
+    EXPECT_EQ(fsum, 3.0f); // 1.0 + 2.0
+    EXPECT_EQ(isum, 30); // 10 + 20
+    (void)ha;
+    (void)hb;
+    (void)hc;
   }
 }
 
@@ -6954,6 +7228,28 @@ void ComponentScene_ForAllSharedType() {
     });
     EXPECT_EQ(f6, 0U);
     EXPECT_EQ(count, 1);
+    (void)ha;
+    (void)hb;
+  }
+
+  // Partial failure count is preserved when fn causes early termination.
+  // ha (ambiguous) is processed first: failure counted, then skipped. hb
+  // (TagA only) is visited next: fn returns false and the loop exits. The
+  // returned count reflects the failure accumulated before the early stop.
+  if (true) {
+    two_tagged_scene_t s;
+    auto ha = s.stage_new_entity(); // ambiguous: in both storages
+    auto hb = s.stage_new_entity(); // TagA only
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 99.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 99.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 4.0f));
+    int count = 0;
+    auto f = s.for_all<float>([&](auto, auto) {
+      ++count;
+      return false; // stop after hb
+    });
+    EXPECT_EQ(f, 1U); // ha's failure counted before hb was visited
+    EXPECT_EQ(count, 1); // only hb reached the callback
     (void)ha;
     (void)hb;
   }
@@ -7100,6 +7396,24 @@ void ComponentStorage_AddNew() {
     EXPECT_FALSE(static_cast<bool>(h1));
     EXPECT_EQ(s.size(), 1U);
     EXPECT_EQ(r.size(), 1U);
+  }
+
+  // set_limit returns false when the new limit is below the current size;
+  // the limit is left unchanged. limit() returns the current limit.
+  if (true) {
+    cs_reg_t r;
+    cs_store_t s{r, cs_sid_t{1}};
+    EXPECT_EQ(s.limit(), *cs_id_t::invalid); // default: unlimited
+    auto id0 = r.create_id({}, 0);
+    auto id1 = r.create_id({}, 0);
+    EXPECT_TRUE(s.add(id0, 1.0f));
+    EXPECT_TRUE(s.add(id1, 2.0f));
+    EXPECT_FALSE(s.set_limit(1)); // 2 entities; 1 < 2 -- rejected
+    EXPECT_EQ(s.limit(), *cs_id_t::invalid); // unchanged
+    EXPECT_TRUE(s.set_limit(2));  // exactly current size -- accepted
+    EXPECT_EQ(s.limit(), 2U);
+    EXPECT_TRUE(s.set_limit(10)); // raise limit
+    EXPECT_EQ(s.limit(), 10U);
   }
 }
 
