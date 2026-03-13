@@ -2060,18 +2060,18 @@ void FixedBitset_Intersects() {
     EXPECT_TRUE(c.is_disjoint_from(a));  // symmetric
   }
 
-  // Multi-word bitset.
+  // Multi-word bitset (128 bits = two 64-bit words, exercises the word loop).
   if (true) {
-    fixed_bitset<64> a, b;
-    a.set(0);
-    a.set(33);
-    b.set(33);
-    b.set(63);
-    EXPECT_TRUE(a.intersects(b)); // bit 33 in both
+    fixed_bitset<128> a, b;
+    a.set(0);                     // word 0
+    a.set(65);                    // word 1
+    b.set(65);                    // word 1 -- shared with a
+    b.set(127);                   // word 1
+    EXPECT_TRUE(a.intersects(b)); // bit 65 in both
     EXPECT_FALSE(a.is_disjoint_from(b));
-    fixed_bitset<64> c;
-    c.set(1);
-    c.set(62);
+    fixed_bitset<128> c;
+    c.set(1);                      // word 0
+    c.set(126);                    // word 1
     EXPECT_FALSE(a.intersects(c)); // no overlap
     EXPECT_TRUE(a.is_disjoint_from(c));
   }
@@ -2148,16 +2148,18 @@ void FixedBitset_IsSubset() {
     EXPECT_FALSE(a.is_superset_of(b)); // {2} does not contain {2,5}
   }
 
-  // Multi-word bitset.
+  // Multi-word bitset (128 bits = two 64-bit words, exercises the word loop).
   if (true) {
-    fixed_bitset<64> a, b;
-    a.set(0);
-    a.set(33);
-    b.set(0);
-    b.set(33);
-    b.set(63);
-    EXPECT_TRUE(a.is_subset_of(b));
-    EXPECT_FALSE(b.is_subset_of(a));
+    fixed_bitset<128> a, b;
+    a.set(0);                          // word 0
+    a.set(65);                         // word 1
+    b.set(0);                          // word 0
+    b.set(65);                         // word 1
+    b.set(127);                        // word 1 -- extra bit only in b
+    EXPECT_TRUE(a.is_subset_of(b));    // all of a's bits are in b
+    EXPECT_FALSE(b.is_subset_of(a));   // b has bit 127 which a lacks
+    EXPECT_TRUE(b.is_superset_of(a));  // b contains all of a
+    EXPECT_FALSE(a.is_superset_of(b)); // a lacks bit 127
   }
 
   // Constexpr.

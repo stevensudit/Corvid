@@ -343,7 +343,8 @@ private:
   // Build a store-ID bitmask for components in `Cs...`. If a component type
   // appears in multiple storages (via tags), all matching storage bits are
   // set. Computed entirely from type information: the storage at tuple index
-  // `I+1` invariantly holds `store_id_t{I+1}` (established by `make_storages`).
+  // `I+1` invariantly holds `store_id_t{I+1}` (established by
+  // `make_storages`).
   template<typename... Cs>
   [[nodiscard]] static constexpr registry_t::store_id_set_t
   make_target_mask() noexcept {
