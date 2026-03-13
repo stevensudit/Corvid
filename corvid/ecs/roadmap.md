@@ -215,6 +215,9 @@ Implementation Steps (in order)
 6. Rename scene -> archetype_scene; update ecs.h umbrella (COMPLETED)
 7. Implement component_storage_base and component_storage (COMPLETED)
 8. Implement component_scene (COMPLETED)
-9. Add view<Cs...>() to archetype_scene (entity_view / entity_lens)
-10. Add view<Cs...>() to component_scene
+9. Add for_each<Cs...>(fn) to archetype_scene: iterates every entity in every
+   storage containing all of Cs..., calling fn(id, tuple<Cs&...>) -> bool.
+   Also added store_id() to row_wrapper and has_all_components_v to ecs_meta.
+   (COMPLETED)
+10. Add for_each<Cs...>(fn) to component_scene (same callback shape)
 11. Minor: Follow the TODO in fixed_bitset.

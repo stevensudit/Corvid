@@ -447,6 +447,37 @@ public:
   // Return true if all storages are empty (staged entities are not counted).
   [[nodiscard]] bool empty() const noexcept { return size() == 0; }
 
+  // Call `fn(id, std::tuple<Cs&...>)` for each entity in every storage that
+  // contains all of `Cs...`. Storages are visited in tuple order. `fn` must
+  // return `bool`: `true` continues, `false` stops early. Deduces `const`
+  // from the scene: on a const scene, component references are `const Cs&...`.
+  //
+  // Fn shape: `(id_t, std::tuple<Cs&...>) -> bool`.
+  template<typename... Cs>
+  void for_each(this auto& self, auto&& fn) {
+    [&]<size_t... Is>(std::index_sequence<Is...>) {
+      bool cont = true;
+      (
+          [&](auto& storage) {
+            if constexpr (has_all_components_v<
+                              std::remove_cvref_t<decltype(storage)>, Cs...>)
+            {
+              if (cont) {
+                for (auto row : storage) {
+                  if (!fn(row.id(), std::forward_as_tuple(
+                                        row.template component<Cs>()...)))
+                  {
+                    cont = false;
+                    break;
+                  }
+                }
+              }
+            }
+          }(std::get<Is>(self.storages_)),
+          ...);
+    }(storage_indices());
+  }
+
   // Erase all entities in all storages and in staging. After this call the
   // registry and all storages are empty. When `policy` is release, uses the
   // fast path that drops storage vectors and resets the registry wholesale,

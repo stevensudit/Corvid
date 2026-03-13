@@ -31,6 +31,11 @@ struct tuple_contains<T, std::tuple<Ts...>>
 template<typename T, typename Tuple>
 inline constexpr bool tuple_contains_v = tuple_contains<T, Tuple>::value;
 
+// True if `Storage::tuple_t` contains every type in `Cs...`.
+template<typename Storage, typename... Cs>
+inline constexpr bool has_all_components_v =
+    (tuple_contains_v<Cs, typename Storage::tuple_t> && ...);
+
 // Returns a copy of component `C` from `row` if `SrcTuple` contains `C`,
 // otherwise returns a value-initialized `C{}`.
 //

@@ -6039,6 +6039,178 @@ void ArchetypeScene_MigrateEdgeCases() {
   }
 }
 
+void ArchetypeScene_ForEach() {
+  // for_each<Cs...> visits all entities in all storages that have Cs...
+  // three_storage_scene_t: SID{1}=arch_pv_t, SID{2}=arch_pvh_t,
+  // SID{3}=arch_h_t.
+  if (true) {
+    three_storage_scene_t s;
+    auto h1 =
+        s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f}, Velocity{});
+    auto h2 = s.store_new_entity<scene_sid_t{2}>({}, Position{2.f, 0.f},
+        Velocity{}, Health{});
+    (void)s.store_new_entity<scene_sid_t{3}>({}, Health{});
+    // for_each<Position, Velocity> matches SID{1} and SID{2}, not SID{3}.
+    int count = 0;
+    float sum = 0.f;
+    s.for_each<Position, Velocity>([&](auto id, auto comps) {
+      ++count;
+      sum += std::get<0>(comps).x;
+      (void)id;
+      return true;
+    });
+    EXPECT_EQ(count, 2);
+    EXPECT_EQ(sum, 3.f); // 1.f + 2.f
+    (void)h1;
+    (void)h2;
+  }
+
+  // for_each<Health> matches SID{2} and SID{3}.
+  if (true) {
+    three_storage_scene_t s;
+    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
+    (void)s.store_new_entity<scene_sid_t{2}>({}, Position{}, Velocity{},
+        Health{10});
+    (void)s.store_new_entity<scene_sid_t{3}>({}, Health{20});
+    int hp_sum = 0;
+    s.for_each<Health>([&](auto, auto comps) {
+      hp_sum += std::get<0>(comps).hp;
+      return true;
+    });
+    EXPECT_EQ(hp_sum, 30); // 10 + 20
+  }
+
+  // for_each<Position, Velocity, Health> matches only SID{2}.
+  if (true) {
+    three_storage_scene_t s;
+    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
+    (void)s.store_new_entity<scene_sid_t{2}>({}, Position{9.f, 0.f},
+        Velocity{}, Health{});
+    (void)s.store_new_entity<scene_sid_t{3}>({}, Health{});
+    int count = 0;
+    float x_sum = 0.f;
+    s.for_each<Position, Velocity, Health>([&](auto, auto comps) {
+      ++count;
+      x_sum += std::get<0>(comps).x;
+      return true;
+    });
+    EXPECT_EQ(count, 1);
+    EXPECT_EQ(x_sum, 9.f);
+  }
+
+  // for_each stops early when fn returns false.
+  if (true) {
+    three_storage_scene_t s;
+    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f},
+        Velocity{});
+    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{2.f, 0.f},
+        Velocity{});
+    (void)s.store_new_entity<scene_sid_t{2}>({}, Position{3.f, 0.f},
+        Velocity{}, Health{});
+    int count = 0;
+    s.for_each<Position, Velocity>([&](auto, auto) {
+      ++count;
+      return false; // stop after first entity
+    });
+    EXPECT_EQ(count, 1);
+  }
+
+  // Callback receives correct entity IDs.
+  if (true) {
+    three_storage_scene_t s;
+    auto h1 = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
+    auto h2 = s.store_new_entity<scene_sid_t{2}>({}, Position{}, Velocity{},
+        Health{});
+    std::vector<scene_reg_t::id_t> seen;
+    s.for_each<Position, Velocity>([&](auto id, auto) {
+      seen.push_back(id);
+      return true;
+    });
+    EXPECT_EQ(seen.size(), 2U);
+    EXPECT_TRUE(std::find(seen.begin(), seen.end(), h1.id()) != seen.end());
+    EXPECT_TRUE(std::find(seen.begin(), seen.end(), h2.id()) != seen.end());
+  }
+
+  // for_each on a const scene yields const component references.
+  if (true) {
+    three_storage_scene_t s;
+    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{7.f, 0.f},
+        Velocity{});
+    const auto& cs = s;
+    float x = 0.f;
+    cs.for_each<Position, Velocity>([&](auto, auto comps) {
+      // std::get<0>(comps) is const Position&
+      x = std::get<0>(comps).x;
+      return true;
+    });
+    EXPECT_EQ(x, 7.f);
+  }
+
+  // for_each is a no-op when no storage has all requested components.
+  if (true) {
+    two_storage_scene_t s;
+    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
+    int count = 0;
+    // arch_pv_t has no Health; arch_pvh_t has all three -- but two_storage has
+    // no arch_h_t either. arch_pvh_t has Health, so this WILL match it.
+    // Use a component combo that truly doesn't exist in either storage to test
+    // zero-match: use three_storage_scene for that.
+    three_storage_scene_t s3;
+    (void)s3.store_new_entity<scene_sid_t{3}>({}, Health{}); // only Health
+    s3.for_each<Position, Velocity, Health>([&](auto, auto) {
+      ++count; // SID{3} (arch_h_t) doesn't have Position or Velocity
+      return true;
+    });
+    EXPECT_EQ(count, 0);
+  }
+
+  // for_each on an empty scene: callback never called.
+  if (true) {
+    three_storage_scene_t s;
+    int count = 0;
+    s.for_each<Position>([&](auto, auto) {
+      ++count;
+      return true;
+    });
+    EXPECT_EQ(count, 0);
+  }
+
+  // Mutable for_each can modify components through the tuple references.
+  if (true) {
+    three_storage_scene_t s;
+    auto h =
+        s.store_new_entity<scene_sid_t{1}>({}, Position{0.f, 0.f}, Velocity{});
+    s.for_each<Position, Velocity>([](auto, auto comps) {
+      std::get<0>(comps).x = 42.f;
+      return true;
+    });
+    EXPECT_EQ(s.storage<scene_sid_t{1}>()[h.id()].component<Position>().x,
+        42.f);
+  }
+
+  // Component order in the template list is independent of matching but
+  // determines tuple layout: for_each<Velocity, Position> visits the same
+  // storages as for_each<Position, Velocity>, with std::get<0> = Velocity
+  // and std::get<1> = Position.
+  if (true) {
+    three_storage_scene_t s;
+    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{3.f, 0.f},
+        Velocity{5.f, 0.f});
+    (void)s.store_new_entity<scene_sid_t{2}>({}, Position{7.f, 0.f},
+        Velocity{9.f, 0.f}, Health{});
+    (void)s.store_new_entity<scene_sid_t{3}>({}, Health{}); // no Position/Vel
+    float pos_sum = 0.f;
+    float vel_sum = 0.f;
+    s.for_each<Velocity, Position>([&](auto, auto comps) {
+      vel_sum += std::get<0>(comps).vx; // index 0 = Velocity (first in list)
+      pos_sum += std::get<1>(comps).x;  // index 1 = Position (second in list)
+      return true;
+    });
+    EXPECT_EQ(pos_sum, 10.f); // 3.f + 7.f
+    EXPECT_EQ(vel_sum, 14.f); // 5.f + 9.f
+  }
+}
+
 void ComponentScene_StageNewEntity() {
   // stage_new_entity() creates a staged entity and returns its handle.
   if (true) {
@@ -6434,8 +6606,8 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ArchetypeScene_StorageTypeAccess, ArchetypeScene_CreateHandleId,
     ArchetypeScene_AddNewRuntime, ArchetypeScene_StoreEntity,
     ArchetypeScene_EntityLifecycle, ArchetypeScene_MigrateEdgeCases,
-    ComponentIndex_Flat, ComponentIndex_Sorted, ComponentIndex_Paged,
-    ComponentStorage_Basic, ComponentStorage_MultiStore,
+    ArchetypeScene_ForEach, ComponentIndex_Flat, ComponentIndex_Sorted,
+    ComponentIndex_Paged, ComponentStorage_Basic, ComponentStorage_MultiStore,
     ComponentStorage_Remove, ComponentStorage_Erase, ComponentStorage_EraseIf,
     ComponentStorage_Iterator, ComponentStorage_IndexVariants,
     ComponentStorage_AddNew, ComponentStorage_SwapMoveReserve,
