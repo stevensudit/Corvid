@@ -285,25 +285,57 @@ public:
 
   // Like `for_each`, but drives the outer loop from the registry rather than
   // from the smallest matching storage. Potentially faster when the matching
-  // storages are densely populated. Each selector in `Cs...` is resolved by
-  // `storage_index_for_v` (component type first, then `tag_t` fallback) --
-  // see `for_each` for the full disambiguation rules.
+  // storages are densely populated.
+  //
+  // Unlike `for_each`, selectors in `Cs...` may be plain component types even
+  // when that type is shared by multiple tagged storages. Resolution:
+  //   - Unique component type or tag: same as `for_each`.
+  //   - Component type shared by multiple storages: the entity must be in
+  //     exactly one of those storages at runtime. If it is in none it is
+  //     skipped normally. If it is in more than one, the entity is counted as
+  //     a failure and skipped. The callback receives the component from
+  //     whichever single storage the entity occupies.
+  //
+  // Returns the number of entities that were skipped due to ambiguity (present
+  // in more than one storage for a shared component type). Returns a partial
+  // count if `fn` causes early termination by returning `false`.
   //
   // Fn shape: `(id_t, std::tuple<component&...>) -> bool`.
   template<typename... Cs>
-  void for_all(this auto& self, auto&& fn) {
+  [[nodiscard]] size_type for_all(this auto& self, auto&& fn) {
     static_assert(sizeof...(Cs) >= 1,
         "`for_all` requires at least one component type");
-    constexpr auto target_mask = make_target_mask<Cs...>();
-    if (self.registry_.size() == 0) return;
+    size_type failures = 0;
+    if (self.registry_.size() == 0) return failures;
     const id_t id_end = self.registry_.max_id();
     for (id_t id{}; id <= id_end; ++id) {
       if (!self.registry_.is_valid(id)) continue;
-      if (!target_mask.is_subset_of(self.registry_.get_location(id))) continue;
+      const auto loc = self.registry_.get_location(id);
+      // Per-selector presence check. For unique selectors: require the single
+      // storage bit. For multi-match component types: require exactly one of
+      // the union of matching storage bits (skip if zero or more than one).
+      bool match = true;
+      bool ambiguous = false;
+      auto check_one = [&]<typename C>() {
+        constexpr size_t nc = component_match_count_v<C, STORES...>;
+        if constexpr (nc > 1) {
+          constexpr auto union_mask = make_union_mask_for<C>();
+          const auto count = (union_mask & loc).count();
+          if (count > 1) ambiguous = true;
+          match &= (count == 1);
+        } else {
+          constexpr size_t idx = storage_index_for_v<C, STORES...>;
+          match &= static_cast<bool>(loc[store_id_t{idx + 1}]);
+        }
+      };
+      (check_one.template operator()<Cs>(), ...);
+      if (ambiguous) { ++failures; continue; }
+      if (!match) continue;
       if (!fn(id,
-              std::forward_as_tuple(self.template get_component<Cs>(id)...)))
-        return;
+              std::forward_as_tuple(self.template get_component_dyn<Cs>(id)...)))
+        return failures;
     }
+    return failures;
   }
 
   // Erase all entities in all storages and in staging.
@@ -344,6 +376,71 @@ private:
       return st[id].value;
     else
       return st[id];
+  }
+
+  // Build the union of all storage bits whose `component_t == C`. Used by
+  // `for_all` to detect multi-storage presence for a shared component type.
+  template<typename C>
+  [[nodiscard]] static constexpr registry_t::store_id_set_t
+  make_union_mask_for() noexcept {
+    typename registry_t::store_id_set_t mask{};
+    [&]<size_t... Is>(std::index_sequence<Is...>) {
+      auto set_if_C = [&]<size_t I>() {
+        using S = std::tuple_element_t<I + 1, storage_tuple_t>;
+        if constexpr (std::is_same_v<C, typename S::component_t>)
+          mask[store_id_t{I + 1}] = true;
+      };
+      (set_if_C.template operator()<Is>(), ...);
+    }(std::make_index_sequence<storage_count_v>{});
+    return mask;
+  }
+
+  // Like `get_component`, but for use in `for_all` when `C` may match
+  // multiple storages by `component_t`. When `nc <= 1`, delegates to
+  // `get_component`. When `nc > 1`, scans storages at runtime and returns
+  // the component from the unique storage that contains the entity. The
+  // caller must guarantee the entity is in exactly one matching storage
+  // (the `for_all` per-selector check enforces this).
+  template<typename C>
+  [[nodiscard]] decltype(auto)
+  get_component_dyn(this auto& self, id_t id) noexcept {
+    constexpr size_t nc = component_match_count_v<C, STORES...>;
+    if constexpr (nc <= 1) {
+      return self.template get_component<C>(id);
+    } else {
+      using self_t = std::remove_reference_t<decltype(self)>;
+      // Scan all storages with `component_t == C`; the per-selector check in
+      // `for_all` guarantees exactly one contains the entity.
+      if constexpr (std::is_const_v<self_t>) {
+        const C* result = nullptr;
+        [&]<size_t... Is>(std::index_sequence<Is...>) {
+          auto check = [&]<size_t I>() {
+            using S = std::tuple_element_t<I + 1, storage_tuple_t>;
+            if constexpr (std::is_same_v<C, typename S::component_t>) {
+              const auto& st = std::get<I + 1>(self.storages_);
+              if (st.contains(id)) result = &st[id].value;
+            }
+          };
+          (check.template operator()<Is>(), ...);
+        }(std::make_index_sequence<storage_count_v>{});
+        assert(result != nullptr);
+        return *result; // const C&
+      } else {
+        C* result = nullptr;
+        [&]<size_t... Is>(std::index_sequence<Is...>) {
+          auto check = [&]<size_t I>() {
+            using S = std::tuple_element_t<I + 1, storage_tuple_t>;
+            if constexpr (std::is_same_v<C, typename S::component_t>) {
+              auto& st = std::get<I + 1>(self.storages_);
+              if (st.contains(id)) result = &st[id];
+            }
+          };
+          (check.template operator()<Is>(), ...);
+        }(std::make_index_sequence<storage_count_v>{});
+        assert(result != nullptr);
+        return *result; // C&
+      }
+    }
   }
 
   // Build a store-ID bitmask with one bit per selector in `Cs...`. Each

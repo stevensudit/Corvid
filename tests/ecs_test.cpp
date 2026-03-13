@@ -6562,12 +6562,13 @@ void ComponentScene_ForAll() {
     int count = 0;
     float fsum = 0.f;
     int isum = 0;
-    s.for_all<float, int>([&](auto, auto comps) {
+    auto f = s.for_all<float, int>([&](auto, auto comps) {
       ++count;
       fsum += std::get<0>(comps);
       isum += std::get<1>(comps);
       return true;
     });
+    EXPECT_EQ(f, 0U);
     EXPECT_EQ(count, 1); // only ha
     EXPECT_EQ(fsum, 1.0f);
     EXPECT_EQ(isum, 10);
@@ -6579,10 +6580,11 @@ void ComponentScene_ForAll() {
   if (true) {
     two_cs_scene_t s;
     int count = 0;
-    s.for_all<float>([&](auto, auto) {
+    auto f = s.for_all<float>([&](auto, auto) {
       ++count;
       return true;
     });
+    EXPECT_EQ(f, 0U);
     EXPECT_EQ(count, 0);
   }
 
@@ -6594,10 +6596,11 @@ void ComponentScene_ForAll() {
     EXPECT_TRUE(
         s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 2.0f));
     int count = 0;
-    s.for_all<float>([&](auto, auto) {
+    auto f = s.for_all<float>([&](auto, auto) {
       ++count;
       return false;
     });
+    EXPECT_EQ(f, 0U);
     EXPECT_EQ(count, 1);
   }
 
@@ -6610,11 +6613,12 @@ void ComponentScene_ForAll() {
     const auto& cs = s;
     float fval = 0.f;
     int ival = 0;
-    cs.for_all<float, int>([&](auto, auto comps) {
+    auto f = cs.for_all<float, int>([&](auto, auto comps) {
       fval = std::get<0>(comps);
       ival = std::get<1>(comps);
       return true;
     });
+    EXPECT_EQ(f, 0U);
     EXPECT_EQ(fval, 7.0f);
     EXPECT_EQ(ival, 42);
     (void)h;
@@ -6625,10 +6629,11 @@ void ComponentScene_ForAll() {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
     EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 0.0f));
-    s.for_all<float>([](auto, auto comps) {
+    auto f = s.for_all<float>([](auto, auto comps) {
       std::get<0>(comps) = 55.0f;
       return true;
     });
+    EXPECT_EQ(f, 0U);
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[h.id()], 55.0f);
     (void)h;
   }
@@ -6641,10 +6646,11 @@ void ComponentScene_ForAll() {
     EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(id, 1.0f));
     EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(id, 1));
     cs_scene_id_t seen_id{};
-    s.for_all<float, int>([&](auto eid, auto) {
+    auto f = s.for_all<float, int>([&](auto eid, auto) {
       seen_id = eid;
       return true;
     });
+    EXPECT_EQ(f, 0U);
     EXPECT_EQ(seen_id, id);
   }
 }
@@ -6743,12 +6749,13 @@ void ComponentScene_TagLookup() {
     int count = 0;
     float asum = 0.f;
     float bsum = 0.f;
-    s.for_all<FloatTagA, FloatTagB>([&](auto, auto comps) {
+    auto f = s.for_all<FloatTagA, FloatTagB>([&](auto, auto comps) {
       ++count;
       asum += std::get<0>(comps);
       bsum += std::get<1>(comps);
       return true;
     });
+    EXPECT_EQ(f, 0U);
     EXPECT_EQ(count, 1); // only ha
     EXPECT_EQ(asum, 9.0f);
     EXPECT_EQ(bsum, 8.0f);
@@ -6771,6 +6778,108 @@ void ComponentScene_TagLookup() {
     EXPECT_EQ(bval, 22.0f);
     EXPECT_EQ(aval, 11.0f);
     (void)h;
+  }
+}
+
+// component_scene: for_all with a component type shared by multiple storages.
+// When two storages have the same component_t but different tag_t, passing the
+// plain component type to for_all finds the entity in whichever storage it
+// occupies. If the entity is in both storages simultaneously the result is
+// ambiguous: the entity is skipped and counted in the return value.
+void ComponentScene_ForAllSharedType() {
+  // Entity in TagA storage only: visited once, correct component value.
+  if (true) {
+    two_tagged_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0f)); // TagA
+    int count = 0;
+    float fsum = 0.f;
+    auto f1 = s.for_all<float>([&](auto, auto comps) {
+      ++count;
+      fsum += std::get<0>(comps);
+      return true;
+    });
+    EXPECT_EQ(f1, 0U);
+    EXPECT_EQ(count, 1);
+    EXPECT_EQ(fsum, 3.0f);
+    (void)h;
+  }
+
+  // Entity in TagB storage only: also visited once.
+  if (true) {
+    two_tagged_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h.id(), 7.0f)); // TagB
+    int count = 0;
+    float fsum = 0.f;
+    auto f2 = s.for_all<float>([&](auto, auto comps) {
+      ++count;
+      fsum += std::get<0>(comps);
+      return true;
+    });
+    EXPECT_EQ(f2, 0U);
+    EXPECT_EQ(count, 1);
+    EXPECT_EQ(fsum, 7.0f);
+    (void)h;
+  }
+
+  // Two entities -- one in each storage -- are both visited, no failures.
+  if (true) {
+    two_tagged_scene_t s;
+    auto ha = s.stage_new_entity();
+    auto hb = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f)); // TagA
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 2.0f)); // TagB
+    int count = 0;
+    float fsum = 0.f;
+    auto f3 = s.for_all<float>([&](auto, auto comps) {
+      ++count;
+      fsum += std::get<0>(comps);
+      return true;
+    });
+    EXPECT_EQ(f3, 0U);
+    EXPECT_EQ(count, 2);
+    EXPECT_EQ(fsum, 3.0f);
+    (void)ha;
+    (void)hb;
+  }
+
+  // Entity in both TagA and TagB (ambiguous): skipped, counted as a failure.
+  if (true) {
+    two_tagged_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 5.0f)); // TagA
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h.id(), 6.0f)); // TagB
+    int count = 0;
+    auto f4 = s.for_all<float>([&](auto, auto) {
+      ++count;
+      return true;
+    });
+    EXPECT_EQ(f4, 1U); // one ambiguous entity
+    EXPECT_EQ(count, 0); // callback not called for ambiguous entity
+    (void)h;
+  }
+
+  // Mixed: one ambiguous entity (counted), one unambiguous entity (visited).
+  if (true) {
+    two_tagged_scene_t s;
+    auto ha = s.stage_new_entity(); // ambiguous: both storages
+    auto hb = s.stage_new_entity(); // TagA only
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 99.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 99.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 4.0f));
+    int count = 0;
+    float fsum = 0.f;
+    auto f5 = s.for_all<float>([&](auto, auto comps) {
+      ++count;
+      fsum += std::get<0>(comps);
+      return true;
+    });
+    EXPECT_EQ(f5, 1U); // ha counted as failure
+    EXPECT_EQ(count, 1); // only hb visited
+    EXPECT_EQ(fsum, 4.0f);
+    (void)ha;
+    (void)hb;
   }
 }
 
@@ -6993,7 +7102,8 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ComponentScene_Destructor, ComponentScene_StageNewEntity,
     ComponentScene_RemoveAll, ComponentScene_EntityLifecycle,
     ComponentScene_ForEach, ComponentScene_NonAlignedOwnCount,
-    ComponentScene_ForAll, ComponentScene_TagLookup);
+    ComponentScene_ForAll, ComponentScene_TagLookup,
+    ComponentScene_ForAllSharedType);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
