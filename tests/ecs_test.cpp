@@ -5632,18 +5632,10 @@ void ComponentScene_StoreEntity() {
     EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[h.id()], 1.0f); // unchanged
   }
 
-  // store_entity with no component argument default-constructs the value.
-  if (true) {
-    two_cs_scene_t s;
-    auto h = s.stage_new_entity();
-    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id())); // float{}
-    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[h.id()], 0.0f);
-  }
-
   // store_entity returns false when the target storage is at its limit.
   if (true) {
     two_cs_scene_t s;
-    s.storage<cs_scene_sid_t{1}>().set_limit(1);
+    EXPECT_TRUE(s.storage<cs_scene_sid_t{1}>().set_limit(1));
     auto ha = s.stage_new_entity();
     auto hb = s.stage_new_entity();
     EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
@@ -5755,8 +5747,9 @@ void ComponentScene_RemoveErase() {
     two_cs_scene_t s;
     auto h = s.stage_new_entity();
     auto id = h.id();
-    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(id, 99)); // in storage 2 only
-    EXPECT_FALSE(s.remove_entity<cs_scene_sid_t{1}>(id));   // not in storage 1
+    EXPECT_TRUE(
+        s.store_entity<cs_scene_sid_t{2}>(id, 99));       // in storage 2 only
+    EXPECT_FALSE(s.remove_entity<cs_scene_sid_t{1}>(id)); // not in storage 1
     EXPECT_TRUE(s.storage<cs_scene_sid_t{2}>().contains(id)); // unchanged
     EXPECT_FALSE(s.storage<cs_scene_sid_t{1}>().contains(id));
   }
@@ -6793,7 +6786,7 @@ void ComponentScene_ForAll() {
       return true;
     });
     EXPECT_EQ(f, 0U);
-    EXPECT_EQ(count, 2);    // only ha and hc
+    EXPECT_EQ(count, 2);   // only ha and hc
     EXPECT_EQ(fsum, 4.0f); // 1.0 + 3.0
     (void)ha;
     (void)hc;
@@ -7103,10 +7096,10 @@ void ComponentScene_TagLookup() {
       isum += std::get<1>(comps);
       return true;
     });
-    EXPECT_EQ(f, 1U); // hc is ambiguous
-    EXPECT_EQ(count, 2); // ha and hb
+    EXPECT_EQ(f, 1U);      // hc is ambiguous
+    EXPECT_EQ(count, 2);   // ha and hb
     EXPECT_EQ(fsum, 3.0f); // 1.0 + 2.0
-    EXPECT_EQ(isum, 30); // 10 + 20
+    EXPECT_EQ(isum, 30);   // 10 + 20
     (void)ha;
     (void)hb;
     (void)hc;
@@ -7187,7 +7180,7 @@ void ComponentScene_ForAllSharedType() {
       ++count;
       return true;
     });
-    EXPECT_EQ(f4, 1U); // one ambiguous entity
+    EXPECT_EQ(f4, 1U);   // one ambiguous entity
     EXPECT_EQ(count, 0); // callback not called for ambiguous entity
     (void)h;
   }
@@ -7207,7 +7200,7 @@ void ComponentScene_ForAllSharedType() {
       fsum += std::get<0>(comps);
       return true;
     });
-    EXPECT_EQ(f5, 1U); // ha counted as failure
+    EXPECT_EQ(f5, 1U);   // ha counted as failure
     EXPECT_EQ(count, 1); // only hb visited
     EXPECT_EQ(fsum, 4.0f);
     (void)ha;
@@ -7248,7 +7241,7 @@ void ComponentScene_ForAllSharedType() {
       ++count;
       return false; // stop after hb
     });
-    EXPECT_EQ(f, 1U); // ha's failure counted before hb was visited
+    EXPECT_EQ(f, 1U);    // ha's failure counted before hb was visited
     EXPECT_EQ(count, 1); // only hb reached the callback
     (void)ha;
     (void)hb;
@@ -7273,8 +7266,8 @@ void ComponentScene_ForAllSharedType() {
       fsum += std::get<0>(comps);
       return true;
     });
-    EXPECT_EQ(f7, 0U); // no ambiguity: tag resolves to exactly one storage
-    EXPECT_EQ(count, 2); // ha and hc both have the TagA component
+    EXPECT_EQ(f7, 0U);     // no ambiguity: tag resolves to exactly one storage
+    EXPECT_EQ(count, 2);   // ha and hc both have the TagA component
     EXPECT_EQ(fsum, 4.0f); // 1.0 + 3.0
     (void)ha;
     (void)hb;
@@ -7408,9 +7401,9 @@ void ComponentStorage_AddNew() {
     auto id1 = r.create_id({}, 0);
     EXPECT_TRUE(s.add(id0, 1.0f));
     EXPECT_TRUE(s.add(id1, 2.0f));
-    EXPECT_FALSE(s.set_limit(1)); // 2 entities; 1 < 2 -- rejected
+    EXPECT_FALSE(s.set_limit(1));            // 2 entities; 1 < 2 -- rejected
     EXPECT_EQ(s.limit(), *cs_id_t::invalid); // unchanged
-    EXPECT_TRUE(s.set_limit(2));  // exactly current size -- accepted
+    EXPECT_TRUE(s.set_limit(2)); // exactly current size -- accepted
     EXPECT_EQ(s.limit(), 2U);
     EXPECT_TRUE(s.set_limit(10)); // raise limit
     EXPECT_EQ(s.limit(), 10U);

@@ -256,7 +256,8 @@ public:
   // iterations; entities lacking any other required component are skipped via
   // a single `is_subset_of` check against the registry bitmap. `fn` must
   // return `bool`: `true` continues, `false` stops early. Deduces `const` from
-  // the scene: on a const scene, component references are `const component&...`.
+  // the scene: on a const scene, component references are `const
+  // component&...`.
   //
   // Each selector in `Cs...` is resolved via `storage_index_for_v`:
   //   - If `C` is the `component_t` of exactly one storage, that storage is
@@ -329,10 +330,13 @@ public:
         }
       };
       (check_one.template operator()<Cs>(), ...);
-      if (ambiguous) { ++failures; continue; }
+      if (ambiguous) {
+        ++failures;
+        continue;
+      }
       if (!match) continue;
-      if (!fn(id,
-              std::forward_as_tuple(self.template get_component_dyn<Cs>(id)...)))
+      if (!fn(id, std::forward_as_tuple(
+                      self.template get_component_dyn<Cs>(id)...)))
         return failures;
     }
     return failures;
@@ -403,6 +407,7 @@ private:
   // (the `for_all` per-selector check enforces this).
   template<typename C>
   [[nodiscard]] decltype(auto)
+  // NOLINTNEXTLINE(readability-function-cognitive-complexity)
   get_component_dyn(this auto& self, id_t id) noexcept {
     constexpr size_t nc = component_match_count_v<C, STORES...>;
     if constexpr (nc <= 1) {
