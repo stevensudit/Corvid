@@ -633,6 +633,23 @@ public:
     return other.is_subset_of(*this);
   }
 
+  // True if at least one bit is set in both `*this` and `other`. Equivalent to
+  // `(*this & other).any()`, but faster because it short-circuits and avoids a
+  // temporary.
+  [[nodiscard]] constexpr bool intersects(
+      const fixed_bitset& other) const noexcept {
+    for (size_t ndx = 0; ndx < word_count_v; ++ndx)
+      if (words_[ndx] & other.words_[ndx]) return true;
+    return false;
+  }
+
+  // True if no bit is set in both `*this` and `other`. Equivalent to
+  // `(*this & other).none()`.
+  [[nodiscard]] constexpr bool is_disjoint_from(
+      const fixed_bitset& other) const noexcept {
+    return !intersects(other);
+  }
+
   // True if exactly one bit is set.
   [[nodiscard]] constexpr bool has_single_bit() const noexcept {
     bool seen_one{};

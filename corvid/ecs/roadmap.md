@@ -225,6 +225,6 @@ Implementation Steps (in order)
     check. Added find_component_storage_index_v to ecs_meta, is_subset_of /
     is_superset_of to fixed_bitset. (COMPLETED)
 11. Minor: Follow the TODO in fixed_bitset.
-12. Flesh out fixed_bitset set operations: consider adding named methods such
-    as intersects(), is_disjoint_from(), union_of(), etc. Currently only
-    is_subset_of / is_superset_of are present alongside the bitwise operators.
+12. Flesh out fixed_bitset boolean set-relation methods: is_subset_of,
+    is_superset_of, intersects, is_disjoint_from -- the complete symmetric
+    family of boolean set-relationship predicates. (COMPLETED)

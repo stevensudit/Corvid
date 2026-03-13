@@ -2006,6 +2006,95 @@ void FixedBitset_ArrayConstruct() {
   }
 }
 
+void FixedBitset_Intersects() {
+  // intersects: at least one bit set in both.
+  if (true) {
+    fixed_bitset<8> a, b;
+    a.set(1);
+    a.set(3);
+    b.set(3);
+    b.set(5);
+    EXPECT_TRUE(a.intersects(b)); // bit 3 is in both
+    EXPECT_TRUE(b.intersects(a)); // symmetric
+  }
+
+  // Non-overlapping sets do not intersect.
+  if (true) {
+    fixed_bitset<8> a, b;
+    a.set(0);
+    a.set(2);
+    b.set(1);
+    b.set(3);
+    EXPECT_FALSE(a.intersects(b));
+    EXPECT_FALSE(b.intersects(a));
+  }
+
+  // Empty set intersects nothing.
+  if (true) {
+    fixed_bitset<8> empty, full;
+    full.set();
+    EXPECT_FALSE(empty.intersects(full));
+    EXPECT_FALSE(full.intersects(empty));
+    EXPECT_FALSE(empty.intersects(empty));
+  }
+
+  // Full set intersects any non-empty set.
+  if (true) {
+    fixed_bitset<8> full, single;
+    full.set();
+    single.set(4);
+    EXPECT_TRUE(full.intersects(single));
+    EXPECT_TRUE(single.intersects(full));
+    EXPECT_TRUE(full.intersects(full));
+  }
+
+  // is_disjoint_from is the complement.
+  if (true) {
+    fixed_bitset<8> a, b, c;
+    a.set(0);
+    b.set(0);
+    b.set(7);
+    c.set(7);
+    EXPECT_FALSE(a.is_disjoint_from(b)); // share bit 0
+    EXPECT_TRUE(a.is_disjoint_from(c));  // no overlap
+    EXPECT_TRUE(c.is_disjoint_from(a));  // symmetric
+  }
+
+  // Multi-word bitset.
+  if (true) {
+    fixed_bitset<64> a, b;
+    a.set(0);
+    a.set(33);
+    b.set(33);
+    b.set(63);
+    EXPECT_TRUE(a.intersects(b)); // bit 33 in both
+    EXPECT_FALSE(a.is_disjoint_from(b));
+    fixed_bitset<64> c;
+    c.set(1);
+    c.set(62);
+    EXPECT_FALSE(a.intersects(c)); // no overlap
+    EXPECT_TRUE(a.is_disjoint_from(c));
+  }
+
+  // Constexpr.
+  if (true) {
+    constexpr auto make = []() {
+      fixed_bitset<8> a, b, c;
+      a.set(2);
+      b.set(2);
+      b.set(5);
+      c.set(5);
+      return std::tuple{a.intersects(b), a.intersects(c),
+          a.is_disjoint_from(b), a.is_disjoint_from(c)};
+    };
+    constexpr auto r = make();
+    static_assert(std::get<0>(r) == true);  // a & b share bit 2
+    static_assert(std::get<1>(r) == false); // a & c share nothing
+    static_assert(std::get<2>(r) == false);
+    static_assert(std::get<3>(r) == true);
+  }
+}
+
 void FixedBitset_IsSubset() {
   // is_subset_of: every set bit in *this is also set in other.
   if (true) {
@@ -2095,7 +2184,7 @@ MAKE_TEST_LIST(FixedBitset_Empty, FixedBitset_SetClearTest,
     FixedBitset_MultiWord, FixedBitset_PosParam, FixedBitset_Size,
     FixedBitset_At, FixedBitset_Ordering, FixedBitset_Tag,
     FixedBitset_Constexpr, FixedBitset_Rotation, FixedBitset_Shift,
-    FixedBitset_ArrayConstruct, FixedBitset_IsSubset);
+    FixedBitset_ArrayConstruct, FixedBitset_IsSubset, FixedBitset_Intersects);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
