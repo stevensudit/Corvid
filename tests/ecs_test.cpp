@@ -6779,6 +6779,64 @@ void ComponentScene_TagLookup() {
     EXPECT_EQ(aval, 11.0f);
     (void)h;
   }
+
+  // for_all<FloatTagA>: registry-driven, visits only entities in TagA storage.
+  if (true) {
+    two_tagged_scene_t s;
+    auto ha = s.stage_new_entity(); // TagA only
+    auto hb = s.stage_new_entity(); // TagB only, not visited
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 5.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 6.0f));
+    int count = 0;
+    float asum = 0.f;
+    auto f = s.for_all<FloatTagA>([&](auto, auto comps) {
+      ++count;
+      asum += std::get<0>(comps);
+      return true;
+    });
+    EXPECT_EQ(f, 0U);
+    EXPECT_EQ(count, 1);
+    EXPECT_EQ(asum, 5.0f);
+    (void)ha;
+    (void)hb;
+  }
+
+  // for_each<FloatTagA> early-terminates when fn returns false.
+  if (true) {
+    two_tagged_scene_t s;
+    auto ha = s.stage_new_entity();
+    auto hb = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f));
+    int count = 0;
+    s.for_each<FloatTagA>([&](auto, auto) {
+      ++count;
+      return false; // stop after the first entity
+    });
+    EXPECT_EQ(count, 1);
+    (void)ha;
+    (void)hb;
+  }
+
+  // Const scene: for_all<FloatTagA, FloatTagB> yields const float& refs.
+  if (true) {
+    two_tagged_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 21.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h.id(), 42.0f));
+    const auto& cs = s;
+    float aval = 0.f;
+    float bval = 0.f;
+    auto f = cs.for_all<FloatTagA, FloatTagB>([&](auto, auto comps) {
+      aval = std::get<0>(comps); // const float&
+      bval = std::get<1>(comps); // const float&
+      return true;
+    });
+    EXPECT_EQ(f, 0U);
+    EXPECT_EQ(aval, 21.0f);
+    EXPECT_EQ(bval, 42.0f);
+    (void)h;
+  }
 }
 
 // component_scene: for_all with a component type shared by multiple storages.
@@ -6880,6 +6938,51 @@ void ComponentScene_ForAllSharedType() {
     EXPECT_EQ(fsum, 4.0f);
     (void)ha;
     (void)hb;
+  }
+
+  // for_all<float> early-terminates when fn returns false.
+  if (true) {
+    two_tagged_scene_t s;
+    auto ha = s.stage_new_entity(); // TagA only
+    auto hb = s.stage_new_entity(); // TagA only
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f));
+    int count = 0;
+    auto f6 = s.for_all<float>([&](auto, auto) {
+      ++count;
+      return false; // stop after first entity
+    });
+    EXPECT_EQ(f6, 0U);
+    EXPECT_EQ(count, 1);
+    (void)ha;
+    (void)hb;
+  }
+
+  // for_all<FloatTagA> on a two_tagged_scene_t resolves to the TagA storage
+  // exclusively; the float ambiguity does not affect tag-based selectors.
+  if (true) {
+    two_tagged_scene_t s;
+    auto ha = s.stage_new_entity(); // TagA only
+    auto hb = s.stage_new_entity(); // TagB only, not visited
+    auto hc = s.stage_new_entity(); // both storages (ambiguous for float, not
+                                    // for FloatTagA)
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 2.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hc.id(), 3.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(hc.id(), 99.0f));
+    int count = 0;
+    float fsum = 0.f;
+    auto f7 = s.for_all<FloatTagA>([&](auto, auto comps) {
+      ++count;
+      fsum += std::get<0>(comps);
+      return true;
+    });
+    EXPECT_EQ(f7, 0U); // no ambiguity: tag resolves to exactly one storage
+    EXPECT_EQ(count, 2); // ha and hc both have the TagA component
+    EXPECT_EQ(fsum, 4.0f); // 1.0 + 3.0
+    (void)ha;
+    (void)hb;
+    (void)hc;
   }
 }
 
