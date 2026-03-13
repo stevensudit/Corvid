@@ -63,6 +63,69 @@ template<typename C, typename... Storages>
 inline constexpr size_t find_component_storage_index_v =
     find_component_storage_index_impl<C, 0, Storages...>::value;
 
+// Number of storages in `Storages...` whose `component_t == C`.
+template<typename C, typename... Storages>
+inline constexpr size_t component_match_count_v =
+    (static_cast<size_t>(std::is_same_v<C, typename Storages::component_t>) +
+        ...);
+
+// 0-based index into `Storages...` of the first storage with `tag_t == TAG`.
+// Fails to compile if no storage matches.
+template<typename TAG, size_t I, typename... Storages>
+struct find_storage_by_tag_impl;
+
+template<typename TAG, size_t I, typename First, typename... Rest>
+struct find_storage_by_tag_impl<TAG, I, First, Rest...>
+    : std::conditional_t<std::is_same_v<TAG, typename First::tag_t>,
+          std::integral_constant<size_t, I>,
+          find_storage_by_tag_impl<TAG, I + 1, Rest...>> {};
+
+template<typename TAG, size_t I>
+struct find_storage_by_tag_impl<TAG, I> {
+  static_assert(dependent_false_v<TAG>,
+      "no storage in the scene has `tag_t` equal to `TAG`");
+};
+
+// 0-based index into `Storages...` of the storage with `tag_t == TAG`.
+template<typename TAG, typename... Storages>
+inline constexpr size_t find_storage_by_tag_index_v =
+    find_storage_by_tag_impl<TAG, 0, Storages...>::value;
+
+// Number of storages in `Storages...` whose `tag_t == C`.
+template<typename C, typename... Storages>
+inline constexpr size_t tag_match_count_v =
+    (static_cast<size_t>(std::is_same_v<C, typename Storages::tag_t>) + ...);
+
+// 0-based index into `Storages...` for selector `C`. Resolution order:
+//   1. If exactly one storage has `component_t == C`, use it.
+//   2. Else if exactly one storage has `tag_t == C`, use it (the returned
+//      reference type is that storage's `component_t`, not `C`).
+//   3. Otherwise fail to compile: `C` is ambiguous or absent.
+template<typename C, typename... Storages>
+consteval size_t storage_index_for_impl() noexcept {
+  constexpr size_t nc = component_match_count_v<C, Storages...>;
+  constexpr size_t nt = tag_match_count_v<C, Storages...>;
+  if constexpr (nc == 1) {
+    return find_component_storage_index_v<C, Storages...>;
+  } else if constexpr (nc == 0 && nt == 1) {
+    return find_storage_by_tag_index_v<C, Storages...>;
+  } else if constexpr (nc > 1) {
+    static_assert(dependent_false_v<C>,
+        "`C` matches multiple storages by `component_t`; pass the storage's "
+        "`tag_t` instead to select the specific storage");
+    return 0;
+  } else {
+    static_assert(dependent_false_v<C>,
+        "`C` matches no storage by `component_t` and does not uniquely match "
+        "any storage by `tag_t`");
+    return 0;
+  }
+}
+
+template<typename C, typename... Storages>
+inline constexpr size_t storage_index_for_v =
+    storage_index_for_impl<C, Storages...>();
+
 // Returns a copy of component `C` from `row` if `SrcTuple` contains `C`,
 // otherwise returns a value-initialized `C{}`.
 //

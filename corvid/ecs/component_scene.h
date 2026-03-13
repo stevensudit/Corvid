@@ -250,27 +250,30 @@ public:
   // Return true if there are no living entities.
   [[nodiscard]] bool empty() const noexcept { return registry_.size() == 0; }
 
-  // Call `fn(id, std::tuple<Cs&...>)` for each entity simultaneously present
-  // in all component storages for `Cs...`. At runtime, the storage with the
+  // Call `fn(id, std::tuple<component&...>)` for each entity simultaneously
+  // present in all storages named by `Cs...`. At runtime, the storage with the
   // fewest entities is chosen as the primary to minimize outer-loop
   // iterations; entities lacking any other required component are skipped via
   // a single `is_subset_of` check against the registry bitmap. `fn` must
   // return `bool`: `true` continues, `false` stops early. Deduces `const` from
-  // the scene: on a const scene, component references are `const Cs&...`.
+  // the scene: on a const scene, component references are `const component&...`.
   //
-  // Every `C` in `Cs...` must be the `component_t` of exactly one storage in
-  // `STORES`. If any `C` maps to multiple storages (via tags), this is caught
-  // at compile time; use `for_all` instead.
+  // Each selector in `Cs...` is resolved via `storage_index_for_v`:
+  //   - If `C` is the `component_t` of exactly one storage, that storage is
+  //     used and the callback receives `C&`.
+  //   - If `C` matches no `component_t` but is the `tag_t` of exactly one
+  //     storage, that storage is used and the callback receives that storage's
+  //     `component_t&` (not `C&`).
+  //   - Otherwise, compilation fails with a diagnostic.
   //
-  // Fn shape: `(id_t, std::tuple<Cs&...>) -> bool`.
+  // Fn shape: `(id_t, std::tuple<component&...>) -> bool`.
   template<typename... Cs>
   void for_each(this auto& self, auto&& fn) {
     static_assert(sizeof...(Cs) >= 1,
         "`for_each` requires at least one component type");
     constexpr auto target_mask = make_target_mask<Cs...>();
     static_assert(target_mask.count() == sizeof...(Cs),
-        "one or more component types in `Cs...` map to multiple storages; "
-        "use `for_all` instead");
+        "two or more selectors in `Cs...` resolved to the same storage");
     const auto primary_ids = self.template find_primary_ids<Cs...>();
     for (const id_t id : primary_ids) {
       if (!target_mask.is_subset_of(self.registry_.get_location(id))) continue;
@@ -281,19 +284,18 @@ public:
   }
 
   // Like `for_each`, but drives the outer loop from the registry rather than
-  // from the smallest matching storage. This handles the case where a
-  // component type maps to multiple tagged storages (which `for_each` rejects
-  // at compile time), requiring entity presence in all of them. Also
-  // potentially faster when the matching storages are densely populated, as
-  // it avoids the bias toward the smallest storage.
+  // from the smallest matching storage. Potentially faster when the matching
+  // storages are densely populated. Each selector in `Cs...` is resolved by
+  // `storage_index_for_v` (component type first, then `tag_t` fallback) --
+  // see `for_each` for the full disambiguation rules.
   //
-  // Fn shape: `(id_t, std::tuple<Cs&...>) -> bool`.
+  // Fn shape: `(id_t, std::tuple<component&...>) -> bool`.
   template<typename... Cs>
   void for_all(this auto& self, auto&& fn) {
     static_assert(sizeof...(Cs) >= 1,
         "`for_all` requires at least one component type");
     constexpr auto target_mask = make_target_mask<Cs...>();
-    if (self.registry_.empty()) return;
+    if (self.registry_.size() == 0) return;
     const id_t id_end = self.registry_.max_id();
     for (id_t id{}; id <= id_end; ++id) {
       if (!self.registry_.is_valid(id)) continue;
@@ -327,12 +329,16 @@ public:
   }
 
 private:
-  // Return a mutable or const reference to component `C` for entity `id`,
-  // propagating the scene's constness.
+  // Return a mutable or const reference to the component held by the storage
+  // matched by selector `C` for entity `id`, propagating the scene's
+  // constness. `C` is resolved via `storage_index_for_v`: component type
+  // first, then `tag_t` fallback (see `for_each` for full disambiguation
+  // rules). When resolved via tag, the return type is that storage's
+  // `component_t`, not `C`.
   template<typename C>
   [[nodiscard]] decltype(auto)
   get_component(this auto& self, id_t id) noexcept {
-    constexpr size_t idx = find_component_storage_index_v<C, STORES...>;
+    constexpr size_t idx = storage_index_for_v<C, STORES...>;
     auto& st = std::get<idx + 1>(self.storages_);
     if constexpr (std::is_const_v<std::remove_reference_t<decltype(st)>>)
       return st[id].value;
@@ -340,36 +346,33 @@ private:
       return st[id];
   }
 
-  // Build a store-ID bitmask for components in `Cs...`. If a component type
-  // appears in multiple storages (via tags), all matching storage bits are
-  // set. Computed entirely from type information: the storage at tuple index
-  // `I+1` invariantly holds `store_id_t{I+1}` (established by
-  // `make_storages`).
+  // Build a store-ID bitmask with one bit per selector in `Cs...`. Each
+  // selector is resolved via `storage_index_for_v` (component type first,
+  // then `tag_t` fallback). The storage at tuple index `I+1` invariantly
+  // holds `store_id_t{I+1}` (established by `make_storages`).
   template<typename... Cs>
   [[nodiscard]] static constexpr registry_t::store_id_set_t
   make_target_mask() noexcept {
     typename registry_t::store_id_set_t mask{};
-    [&]<size_t... Is>(std::index_sequence<Is...>) {
-      auto set_if_match = [&]<size_t I>() {
-        using S = std::tuple_element_t<I + 1, storage_tuple_t>;
-        if constexpr ((std::is_same_v<Cs, typename S::component_t> || ...))
-          mask[store_id_t{I + 1}] = true;
-      };
-      (set_if_match.template operator()<Is>(), ...);
-    }(std::make_index_sequence<storage_count_v>{});
+    auto set_one = [&]<typename C>() {
+      constexpr size_t idx = storage_index_for_v<C, STORES...>;
+      mask[store_id_t{idx + 1}] = true;
+    };
+    (set_one.template operator()<Cs>(), ...);
     return mask;
   }
 
-  // Return the `entity_ids()` span of the smallest storage among `Cs...`.
+  // Return the `entity_ids()` span of the smallest storage among those
+  // named by `Cs...`. Each selector is resolved via `storage_index_for_v`
+  // (component type first, then `tag_t` fallback).
   template<typename... Cs>
   [[nodiscard]] std::span<const id_t> find_primary_ids() const noexcept {
     using first_c = std::tuple_element_t<0, std::tuple<Cs...>>;
-    constexpr size_t first_idx =
-        find_component_storage_index_v<first_c, STORES...>;
+    constexpr size_t first_idx = storage_index_for_v<first_c, STORES...>;
     std::span<const id_t> primary =
         std::get<first_idx + 1>(storages_).entity_ids();
     auto check_smaller = [&]<typename C>() {
-      constexpr size_t idx = find_component_storage_index_v<C, STORES...>;
+      constexpr size_t idx = storage_index_for_v<C, STORES...>;
       const auto ids = std::get<idx + 1>(storages_).entity_ids();
       if (ids.size() < primary.size()) primary = ids;
     };

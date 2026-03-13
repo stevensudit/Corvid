@@ -5511,6 +5511,15 @@ using cs_scene_store2_t = component_storage<cs_scene_reg_t, int>;
 using two_cs_scene_t =
     component_scene<cs_scene_reg_t, cs_scene_store1_t, cs_scene_store2_t>;
 
+// Tags for testing two float storages in the same scene: same component_t,
+// different tag_t. Resolved by passing the tag type as the selector.
+struct FloatTagA {};
+struct FloatTagB {};
+using tagged_float_a_t = component_storage<cs_scene_reg_t, float, FloatTagA>;
+using tagged_float_b_t = component_storage<cs_scene_reg_t, float, FloatTagB>;
+using two_tagged_scene_t =
+    component_scene<cs_scene_reg_t, tagged_float_a_t, tagged_float_b_t>;
+
 void ComponentScene_Basic() {
   // Default construction: empty registry, no entities.
   if (true) {
@@ -6535,6 +6544,236 @@ void ComponentScene_NonAlignedOwnCount() {
   EXPECT_EQ(s.size(), 0U);
 }
 
+// component_scene: for_all registry-driven iteration.
+void ComponentScene_ForAll() {
+  // for_all<Cs...> visits entities present in all named storages, driving
+  // the outer loop from the registry rather than from the smallest storage.
+
+  // Basic: visits only entities present in all required storages.
+  if (true) {
+    two_cs_scene_t s;
+    auto ha = s.stage_new_entity(); // both storages
+    auto hb = s.stage_new_entity(); // store1 only
+    auto hc = s.stage_new_entity(); // store2 only
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 10));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(hc.id(), 20));
+    int count = 0;
+    float fsum = 0.f;
+    int isum = 0;
+    s.for_all<float, int>([&](auto, auto comps) {
+      ++count;
+      fsum += std::get<0>(comps);
+      isum += std::get<1>(comps);
+      return true;
+    });
+    EXPECT_EQ(count, 1); // only ha
+    EXPECT_EQ(fsum, 1.0f);
+    EXPECT_EQ(isum, 10);
+    (void)hb;
+    (void)hc;
+  }
+
+  // for_all on an empty scene: callback never called.
+  if (true) {
+    two_cs_scene_t s;
+    int count = 0;
+    s.for_all<float>([&](auto, auto) {
+      ++count;
+      return true;
+    });
+    EXPECT_EQ(count, 0);
+  }
+
+  // for_all stops early when fn returns false.
+  if (true) {
+    two_cs_scene_t s;
+    EXPECT_TRUE(
+        s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 1.0f));
+    EXPECT_TRUE(
+        s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 2.0f));
+    int count = 0;
+    s.for_all<float>([&](auto, auto) {
+      ++count;
+      return false;
+    });
+    EXPECT_EQ(count, 1);
+  }
+
+  // for_all on a const scene yields const component references.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 7.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h.id(), 42));
+    const auto& cs = s;
+    float fval = 0.f;
+    int ival = 0;
+    cs.for_all<float, int>([&](auto, auto comps) {
+      fval = std::get<0>(comps);
+      ival = std::get<1>(comps);
+      return true;
+    });
+    EXPECT_EQ(fval, 7.0f);
+    EXPECT_EQ(ival, 42);
+    (void)h;
+  }
+
+  // Mutable for_all can modify component data in place.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 0.0f));
+    s.for_all<float>([](auto, auto comps) {
+      std::get<0>(comps) = 55.0f;
+      return true;
+    });
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[h.id()], 55.0f);
+    (void)h;
+  }
+
+  // Callback receives the correct entity ID.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.stage_new_entity();
+    auto id = h.id();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(id, 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(id, 1));
+    cs_scene_id_t seen_id{};
+    s.for_all<float, int>([&](auto eid, auto) {
+      seen_id = eid;
+      return true;
+    });
+    EXPECT_EQ(seen_id, id);
+  }
+}
+
+// component_scene: tag-based storage resolution.
+// When two storages share the same `component_t` and differ only by `tag_t`,
+// pass the `tag_t` as the selector to `for_each`, `for_all`, and
+// `get_component`. The callback receives the storage's `component_t&`, not
+// the tag type itself.
+void ComponentScene_TagLookup() {
+  // two_tagged_scene_t: SID{1} = float/FloatTagA, SID{2} = float/FloatTagB.
+
+  // for_each<FloatTagA, FloatTagB>: visits only entities in both tag storages.
+  if (true) {
+    two_tagged_scene_t s;
+    auto ha = s.stage_new_entity(); // both
+    auto hb = s.stage_new_entity(); // TagA only
+    auto hc = s.stage_new_entity(); // TagB only
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 10.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(hc.id(), 3.0f));
+    int count = 0;
+    float asum = 0.f;
+    float bsum = 0.f;
+    s.for_each<FloatTagA, FloatTagB>([&](auto, auto comps) {
+      ++count;
+      asum += std::get<0>(comps); // float from FloatTagA storage
+      bsum += std::get<1>(comps); // float from FloatTagB storage
+      return true;
+    });
+    EXPECT_EQ(count, 1); // only ha
+    EXPECT_EQ(asum, 1.0f);
+    EXPECT_EQ(bsum, 10.0f);
+    (void)hb;
+    (void)hc;
+  }
+
+  // for_each<FloatTagA> visits only entities in the TagA storage.
+  if (true) {
+    two_tagged_scene_t s;
+    auto ha = s.stage_new_entity();
+    auto hb = s.stage_new_entity(); // TagB only, not visited
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 5.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(hb.id(), 6.0f));
+    float asum = 0.f;
+    s.for_each<FloatTagA>([&](auto, auto comps) {
+      asum += std::get<0>(comps);
+      return true;
+    });
+    EXPECT_EQ(asum, 5.0f);
+    (void)ha;
+    (void)hb;
+  }
+
+  // Mutable write through a tag-resolved reference.
+  if (true) {
+    two_tagged_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 0.0f));
+    s.for_each<FloatTagA>([](auto, auto comps) {
+      std::get<0>(comps) = 77.0f;
+      return true;
+    });
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[h.id()], 77.0f);
+    (void)h;
+  }
+
+  // Const scene via tag yields const float&.
+  if (true) {
+    two_tagged_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 3.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h.id(), 4.0f));
+    const auto& cs = s;
+    float aval = 0.f;
+    float bval = 0.f;
+    cs.for_each<FloatTagA, FloatTagB>([&](auto, auto comps) {
+      aval = std::get<0>(comps); // const float&
+      bval = std::get<1>(comps); // const float&
+      return true;
+    });
+    EXPECT_EQ(aval, 3.0f);
+    EXPECT_EQ(bval, 4.0f);
+    (void)h;
+  }
+
+  // for_all<FloatTagA, FloatTagB>: same intersection, registry-driven.
+  if (true) {
+    two_tagged_scene_t s;
+    auto ha = s.stage_new_entity(); // both
+    auto hb = s.stage_new_entity(); // TagA only
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 9.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 8.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 1.0f));
+    int count = 0;
+    float asum = 0.f;
+    float bsum = 0.f;
+    s.for_all<FloatTagA, FloatTagB>([&](auto, auto comps) {
+      ++count;
+      asum += std::get<0>(comps);
+      bsum += std::get<1>(comps);
+      return true;
+    });
+    EXPECT_EQ(count, 1); // only ha
+    EXPECT_EQ(asum, 9.0f);
+    EXPECT_EQ(bsum, 8.0f);
+    (void)hb;
+  }
+
+  // Tuple ordering: for_each<FloatTagB, FloatTagA> reverses std::get indices.
+  if (true) {
+    two_tagged_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 11.0f)); // TagA
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h.id(), 22.0f)); // TagB
+    float aval = 0.f;
+    float bval = 0.f;
+    s.for_each<FloatTagB, FloatTagA>([&](auto, auto comps) {
+      bval = std::get<0>(comps); // index 0 = FloatTagB (first in list)
+      aval = std::get<1>(comps); // index 1 = FloatTagA (second in list)
+      return true;
+    });
+    EXPECT_EQ(bval, 22.0f);
+    EXPECT_EQ(aval, 11.0f);
+    (void)h;
+  }
+}
+
 void ComponentStorage_SwapMoveReserve() {
   using namespace id_enums;
 
@@ -6753,7 +6992,8 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ComponentScene_RemoveErase, ComponentScene_EraseStaged,
     ComponentScene_Destructor, ComponentScene_StageNewEntity,
     ComponentScene_RemoveAll, ComponentScene_EntityLifecycle,
-    ComponentScene_ForEach, ComponentScene_NonAlignedOwnCount);
+    ComponentScene_ForEach, ComponentScene_NonAlignedOwnCount,
+    ComponentScene_ForAll, ComponentScene_TagLookup);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
