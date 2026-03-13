@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cstddef>
+#include <span>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -250,14 +251,12 @@ public:
   [[nodiscard]] bool empty() const noexcept { return registry_.size() == 0; }
 
   // Call `fn(id, std::tuple<Cs&...>)` for each entity simultaneously present
-  // in all component storages for `Cs...`. The first-named component's storage
-  // is iterated; entities lacking any other requested component are skipped
-  // via a single `is_subset_of` check against the registry bitmap. `fn` must
-  // return `bool`: `true` continues, `false` stops early. Deduces `const`
-  // from the scene: on a const scene, component references are `const Cs&...`.
-  //
-  // Performance tip: list the least-populated component first so the primary
-  // storage has fewer entities to iterate.
+  // in all component storages for `Cs...`. At runtime, the storage with the
+  // fewest entities is chosen as the primary to minimize outer-loop
+  // iterations; entities lacking any other required component are skipped via
+  // a single `is_subset_of` check against the registry bitmap. `fn` must
+  // return `bool`: `true` continues, `false` stops early. Deduces `const` from
+  // the scene: on a const scene, component references are `const Cs&...`.
   //
   // Every `C` in `Cs...` must be the `component_t` of exactly one storage in
   // `STORES`.
@@ -267,31 +266,12 @@ public:
   void for_each(this auto& self, auto&& fn) {
     static_assert(sizeof...(Cs) >= 1,
         "`for_each` requires at least one component type");
-    // Build a bitmask with one bit set per required storage.
-    typename registry_t::store_id_set_t target_mask{};
-    auto set_bit = [&]<typename C>() {
-      constexpr size_t idx = find_component_storage_index_v<C, STORES...>;
-      target_mask[std::get<idx + 1>(self.storages_).store_id()] = true;
-    };
-    (set_bit.template operator()<Cs>(), ...);
-    // Iterate the primary (first-named) storage, skipping entities that lack
-    // any required component with a single bitset subset check.
-    using primary_c = std::tuple_element_t<0, std::tuple<Cs...>>;
-    constexpr size_t primary_idx =
-        find_component_storage_index_v<primary_c, STORES...>;
-    auto& primary = std::get<primary_idx + 1>(self.storages_);
-    for (const id_t id : primary.entity_ids()) {
+    const auto target_mask = self.template make_target_mask<Cs...>();
+    const auto primary_ids = self.template find_primary_ids<Cs...>();
+    for (const id_t id : primary_ids) {
       if (!target_mask.is_subset_of(self.registry_.get_location(id))) continue;
-      // Project one component reference per C, preserving scene mutability.
-      auto get = [&]<typename C>() -> decltype(auto) {
-        auto& st = std::get<find_component_storage_index_v<C, STORES...> + 1>(
-            self.storages_);
-        if constexpr (std::is_const_v<std::remove_reference_t<decltype(st)>>)
-          return st[id].value;
-        else
-          return st[id];
-      };
-      if (!fn(id, std::forward_as_tuple(get.template operator()<Cs>()...)))
+      if (!fn(id,
+              std::forward_as_tuple(self.template get_component<Cs>(id)...)))
         return;
     }
   }
@@ -319,6 +299,48 @@ public:
   }
 
 private:
+  // Return a mutable or const reference to component `C` for entity `id`,
+  // propagating the scene's constness.
+  template<typename C>
+  [[nodiscard]] decltype(auto)
+  get_component(this auto& self, id_t id) noexcept {
+    constexpr size_t idx = find_component_storage_index_v<C, STORES...>;
+    auto& st = std::get<idx + 1>(self.storages_);
+    if constexpr (std::is_const_v<std::remove_reference_t<decltype(st)>>)
+      return st[id].value;
+    else
+      return st[id];
+  }
+
+  // Build a store-ID bitmask with one bit set for each component in `Cs...`.
+  template<typename... Cs>
+  [[nodiscard]] registry_t::store_id_set_t make_target_mask() const noexcept {
+    typename registry_t::store_id_set_t mask{};
+    auto set_bit = [&]<typename C>() {
+      constexpr size_t idx = find_component_storage_index_v<C, STORES...>;
+      mask[std::get<idx + 1>(storages_).store_id()] = true;
+    };
+    (set_bit.template operator()<Cs>(), ...);
+    return mask;
+  }
+
+  // Return the `entity_ids()` span of the smallest storage among `Cs...`.
+  template<typename... Cs>
+  [[nodiscard]] std::span<const id_t> find_primary_ids() const noexcept {
+    using first_c = std::tuple_element_t<0, std::tuple<Cs...>>;
+    constexpr size_t first_idx =
+        find_component_storage_index_v<first_c, STORES...>;
+    std::span<const id_t> primary =
+        std::get<first_idx + 1>(storages_).entity_ids();
+    auto check_smaller = [&]<typename C>() {
+      constexpr size_t idx = find_component_storage_index_v<C, STORES...>;
+      const auto ids = std::get<idx + 1>(storages_).entity_ids();
+      if (ids.size() < primary.size()) primary = ids;
+    };
+    (check_smaller.template operator()<Cs>(), ...);
+    return primary;
+  }
+
   // Construct all storages. `std::monostate` occupies index 0 so that each
   // storage's `store_id_t{N}` equals its tuple index N directly.
   template<size_t... Is>
