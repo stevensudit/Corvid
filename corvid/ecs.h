@@ -31,6 +31,7 @@
 //  component_index_policies  - Reverse-index policies for component storages
 //  component_storage_base    - CRTP base for component-model storages
 //  component_storage         - Single-component per-entity component storage
+//  component_scene           - Unified scene for component-model ECS
 #include "ecs/entity_ids.h"
 #include "ecs/id_container.h"
 #include "ecs/stable_ids.h"
@@ -44,3 +45,4 @@
 #include "ecs/component_index_policies.h"
 #include "ecs/component_storage_base.h"
 #include "ecs/component_storage.h"
+#include "ecs/component_scene.h"

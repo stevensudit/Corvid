@@ -78,7 +78,7 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 //              thorough ones.
 //  OWN_COUNT - 1 selects archetype mode, where `record_t` stores a
 //              `location_record{store_id, ndx}` for O(1) entity location
-//              lookup. Any multiple of 8 >= 8 selects component mode, where
+//              lookup. Any value >= 2 selects component mode, where
 //              `record_t` stores a `location_record{store_ids,ndx}`, where
 //              `store_ids` is a `fixed_bitset<OWN_COUNT>` presence bitmap.
 //  REUSE     - `reuse_order::fifo` (default) or `reuse_order::lifo`,
@@ -99,6 +99,12 @@ public:
   static constexpr bool is_fifo_v = (REUSE == reuse_order::fifo);
   static constexpr bool is_lifo_v = !is_fifo_v;
   static constexpr size_t bitmap_bits_v = is_component_v ? OWN_COUNT : 1;
+  // `fixed_bitset` requires `N_BITS % 8 == 0`; round up to the nearest
+  // multiple of 8. Bits above `bitmap_bits_v` are padding and are never set.
+  // All `OWN_COUNT`- and `bitmap_bits_v`-based validation uses the unpadded
+  // value.
+  static constexpr size_t padded_bitmap_bits_v =
+      is_component_v ? ((bitmap_bits_v + 7) / 8 * 8) : 1;
 
   using metadata_t = maybe_void_t<T>;
   using id_t = EID;
@@ -107,7 +113,7 @@ public:
   using gen_t = maybe_t<size_type, is_versioned_v>;
   using allocator_type = A;
 
-  using store_id_set_t = fixed_bitset<bitmap_bits_v, store_id_t>;
+  using store_id_set_t = fixed_bitset<padded_bitmap_bits_v, store_id_t>;
 
   static_assert(*id_t::invalid ==
                     std::numeric_limits<std::underlying_type_t<id_t>>::max(),
@@ -132,9 +138,8 @@ public:
   static_assert(std::is_void_v<T> || std::is_trivially_copyable_v<T>,
       "Metadata type T must be void or trivially copyable");
 
-  static_assert(OWN_COUNT == 1 || (OWN_COUNT >= 8 && OWN_COUNT % 8 == 0),
-      "OWN_COUNT must be 1 (archetype mode) or a multiple of 8 >= 8 "
-      "(component mode)");
+  static_assert(OWN_COUNT >= 1,
+      "OWN_COUNT must be 1 (archetype mode) or >= 2 (component mode)");
 
   // A handle to an entity. Contains ID and optionally generation data to
   // detect reuse. No ownership: does nothing on destruction.
@@ -211,7 +216,7 @@ public:
   //   `store_id_t::invalid` is a dead entity.
   //   When dead, `ndx` doubles as the intrusive free-list next pointer.
   //
-  // Component mode (OWN_COUNT >= 8, multiple of 8):
+  // Component mode (OWN_COUNT >= 2):
   //   `store_ids` is a presence bitmap; a bit is set when the entity occupies
   //   that storage.
   //  `store_id_t{0}` is set (and all other bits are cleared) is in staging,

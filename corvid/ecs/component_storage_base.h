@@ -61,14 +61,14 @@ inline namespace component_storage_bases {
 // Template parameters:
 //   CHILD - The concrete derived class (CRTP).
 //   REG   - `entity_registry` instantiation; must be a component-mode registry
-//           (`is_component_v == true`, i.e., `OWN_COUNT >= 8`).
+//           (`is_component_v == true`, i.e., `OWN_COUNT >= 2`).
 //   IDX   - Reverse-index policy (e.g., `flat_sparse_index<id_t>`).
 template<typename CHILD, typename REG, typename IDX>
 class component_storage_base {
 public:
   static_assert(REG::is_component_v,
       "component_storage_base requires a component-mode registry "
-      "(OWN_COUNT must be a multiple of 8 >= 8)");
+      "(OWN_COUNT must be >= 2)");
 
   using derived_t = CHILD;
   using registry_t = REG;
