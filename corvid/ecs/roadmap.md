@@ -215,6 +215,16 @@ Implementation Steps (in order)
 6. Rename scene -> archetype_scene; update ecs.h umbrella (COMPLETED)
 7. Implement component_storage_base and component_storage (COMPLETED)
 8. Implement component_scene (COMPLETED)
-9. Add view<Cs...>() to archetype_scene (entity_view / entity_lens)
-10. Add view<Cs...>() to component_scene
+9. Add for_each<Cs...>(fn) to archetype_scene: iterates every entity in every
+   storage containing all of Cs..., calling fn(id, tuple<Cs&...>) -> bool.
+   Also added store_id() to row_wrapper and has_all_components_v to ecs_meta.
+   (COMPLETED)
+10. Add for_each<Cs...>(fn) to component_scene (same callback shape):
+    iterates the primary (first-named) component's storage, pre-builds a
+    store_id_set_t target mask, and skips entities with a single is_subset_of
+    check. Added find_component_storage_index_v to ecs_meta, is_subset_of /
+    is_superset_of to fixed_bitset. (COMPLETED)
 11. Minor: Follow the TODO in fixed_bitset.
+12. Flesh out fixed_bitset boolean set-relation methods: is_subset_of,
+    is_superset_of, intersects, is_disjoint_from -- the complete symmetric
+    family of boolean set-relationship predicates. (COMPLETED)

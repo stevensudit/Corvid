@@ -2006,6 +2006,177 @@ void FixedBitset_ArrayConstruct() {
   }
 }
 
+void FixedBitset_Intersects() {
+  // intersects: at least one bit set in both.
+  if (true) {
+    fixed_bitset<8> a, b;
+    a.set(1);
+    a.set(3);
+    b.set(3);
+    b.set(5);
+    EXPECT_TRUE(a.intersects(b)); // bit 3 is in both
+    EXPECT_TRUE(b.intersects(a)); // symmetric
+  }
+
+  // Non-overlapping sets do not intersect.
+  if (true) {
+    fixed_bitset<8> a, b;
+    a.set(0);
+    a.set(2);
+    b.set(1);
+    b.set(3);
+    EXPECT_FALSE(a.intersects(b));
+    EXPECT_FALSE(b.intersects(a));
+  }
+
+  // Empty set intersects nothing.
+  if (true) {
+    fixed_bitset<8> empty, full;
+    full.set();
+    EXPECT_FALSE(empty.intersects(full));
+    EXPECT_FALSE(full.intersects(empty));
+    EXPECT_FALSE(empty.intersects(empty));
+  }
+
+  // Full set intersects any non-empty set.
+  if (true) {
+    fixed_bitset<8> full, single;
+    full.set();
+    single.set(4);
+    EXPECT_TRUE(full.intersects(single));
+    EXPECT_TRUE(single.intersects(full));
+    EXPECT_TRUE(full.intersects(full));
+  }
+
+  // is_disjoint_from is the complement.
+  if (true) {
+    fixed_bitset<8> a, b, c;
+    a.set(0);
+    b.set(0);
+    b.set(7);
+    c.set(7);
+    EXPECT_FALSE(a.is_disjoint_from(b)); // share bit 0
+    EXPECT_TRUE(a.is_disjoint_from(c));  // no overlap
+    EXPECT_TRUE(c.is_disjoint_from(a));  // symmetric
+  }
+
+  // Multi-word bitset (128 bits = two 64-bit words, exercises the word loop).
+  if (true) {
+    fixed_bitset<128> a, b;
+    a.set(0);                     // word 0
+    a.set(65);                    // word 1
+    b.set(65);                    // word 1 -- shared with a
+    b.set(127);                   // word 1
+    EXPECT_TRUE(a.intersects(b)); // bit 65 in both
+    EXPECT_FALSE(a.is_disjoint_from(b));
+    fixed_bitset<128> c;
+    c.set(1);                      // word 0
+    c.set(126);                    // word 1
+    EXPECT_FALSE(a.intersects(c)); // no overlap
+    EXPECT_TRUE(a.is_disjoint_from(c));
+  }
+
+  // Constexpr.
+  if (true) {
+    constexpr auto make = []() {
+      fixed_bitset<8> a, b, c;
+      a.set(2);
+      b.set(2);
+      b.set(5);
+      c.set(5);
+      return std::tuple{a.intersects(b), a.intersects(c),
+          a.is_disjoint_from(b), a.is_disjoint_from(c)};
+    };
+    constexpr auto r = make();
+    static_assert(std::get<0>(r) == true);  // a & b share bit 2
+    static_assert(std::get<1>(r) == false); // a & c share nothing
+    static_assert(std::get<2>(r) == false);
+    static_assert(std::get<3>(r) == true);
+  }
+}
+
+void FixedBitset_IsSubset() {
+  // is_subset_of: every set bit in *this is also set in other.
+  if (true) {
+    fixed_bitset<8> a, b;
+    a.set(1);
+    a.set(3);
+    b.set(1);
+    b.set(2);
+    b.set(3);
+    EXPECT_TRUE(a.is_subset_of(b));  // {1,3} subset of {1,2,3}
+    EXPECT_FALSE(b.is_subset_of(a)); // {1,2,3} not subset of {1,3}
+  }
+
+  // Equal sets are subsets of each other.
+  if (true) {
+    fixed_bitset<8> a, b;
+    a.set(0);
+    a.set(7);
+    b.set(0);
+    b.set(7);
+    EXPECT_TRUE(a.is_subset_of(b));
+    EXPECT_TRUE(b.is_subset_of(a));
+  }
+
+  // Empty set is a subset of everything.
+  if (true) {
+    fixed_bitset<8> empty, full;
+    full.set();
+    EXPECT_TRUE(empty.is_subset_of(full));
+    EXPECT_TRUE(empty.is_subset_of(empty));
+    EXPECT_FALSE(full.is_subset_of(empty));
+  }
+
+  // Full set is only a subset of itself.
+  if (true) {
+    fixed_bitset<8> full, almost;
+    full.set();
+    almost = full;
+    almost.reset(3);
+    EXPECT_TRUE(full.is_subset_of(full));
+    EXPECT_FALSE(full.is_subset_of(almost));
+  }
+
+  // is_superset_of is the mirror.
+  if (true) {
+    fixed_bitset<8> a, b;
+    a.set(2);
+    b.set(2);
+    b.set(5);
+    EXPECT_TRUE(b.is_superset_of(a));  // {2,5} contains {2}
+    EXPECT_FALSE(a.is_superset_of(b)); // {2} does not contain {2,5}
+  }
+
+  // Multi-word bitset (128 bits = two 64-bit words, exercises the word loop).
+  if (true) {
+    fixed_bitset<128> a, b;
+    a.set(0);                          // word 0
+    a.set(65);                         // word 1
+    b.set(0);                          // word 0
+    b.set(65);                         // word 1
+    b.set(127);                        // word 1 -- extra bit only in b
+    EXPECT_TRUE(a.is_subset_of(b));    // all of a's bits are in b
+    EXPECT_FALSE(b.is_subset_of(a));   // b has bit 127 which a lacks
+    EXPECT_TRUE(b.is_superset_of(a));  // b contains all of a
+    EXPECT_FALSE(a.is_superset_of(b)); // a lacks bit 127
+  }
+
+  // Constexpr.
+  if (true) {
+    constexpr auto make = []() {
+      fixed_bitset<8> a, b;
+      a.set(1);
+      b.set(1);
+      b.set(2);
+      return std::pair{a.is_subset_of(b), b.is_subset_of(a)};
+    };
+    constexpr auto r = make();
+    static_assert(r.first == true);
+    static_assert(r.second == false);
+  }
+}
+
 MAKE_TEST_LIST(FixedBitset_Empty, FixedBitset_SetClearTest,
     FixedBitset_Subscript, FixedBitset_Popcount, FixedBitset_Reset,
     FixedBitset_Equality, FixedBitset_CopyMove, FixedBitset_WordType,
@@ -2015,7 +2186,7 @@ MAKE_TEST_LIST(FixedBitset_Empty, FixedBitset_SetClearTest,
     FixedBitset_MultiWord, FixedBitset_PosParam, FixedBitset_Size,
     FixedBitset_At, FixedBitset_Ordering, FixedBitset_Tag,
     FixedBitset_Constexpr, FixedBitset_Rotation, FixedBitset_Shift,
-    FixedBitset_ArrayConstruct);
+    FixedBitset_ArrayConstruct, FixedBitset_IsSubset, FixedBitset_Intersects);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

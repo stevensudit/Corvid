@@ -616,6 +616,40 @@ public:
     return as_pos(bit_count_v);
   }
 
+  // True if every bit set in `*this` is also set in `other` (i.e., `*this` is
+  // a subset of `other`). Equivalent to `(*this & other) == *this`, but faster
+  // because it short-circuits and avoids a temporary.
+  [[nodiscard]] constexpr bool is_subset_of(
+      const fixed_bitset& other) const noexcept {
+    for (size_t ndx = 0; ndx < word_count_v; ++ndx)
+      if (words_[ndx] & ~other.words_[ndx]) return false;
+    return true;
+  }
+
+  // True if every bit set in `other` is also set in `*this` (i.e., `*this` is
+  // a superset of `other`). Alias for readability at the call site.
+  [[nodiscard]] constexpr bool is_superset_of(
+      const fixed_bitset& other) const noexcept {
+    return other.is_subset_of(*this);
+  }
+
+  // True if at least one bit is set in both `*this` and `other`. Equivalent to
+  // `(*this & other).any()`, but faster because it short-circuits and avoids a
+  // temporary.
+  [[nodiscard]] constexpr bool intersects(
+      const fixed_bitset& other) const noexcept {
+    for (size_t ndx = 0; ndx < word_count_v; ++ndx)
+      if (words_[ndx] & other.words_[ndx]) return true;
+    return false;
+  }
+
+  // True if no bit is set in both `*this` and `other`. Equivalent to
+  // `(*this & other).none()`.
+  [[nodiscard]] constexpr bool is_disjoint_from(
+      const fixed_bitset& other) const noexcept {
+    return !intersects(other);
+  }
+
   // True if exactly one bit is set.
   [[nodiscard]] constexpr bool has_single_bit() const noexcept {
     bool seen_one{};
