@@ -259,16 +259,44 @@ public:
   // the scene: on a const scene, component references are `const Cs&...`.
   //
   // Every `C` in `Cs...` must be the `component_t` of exactly one storage in
-  // `STORES`.
+  // `STORES`. If any `C` maps to multiple storages (via tags), this is caught
+  // at compile time; use `for_all` instead.
   //
   // Fn shape: `(id_t, std::tuple<Cs&...>) -> bool`.
   template<typename... Cs>
   void for_each(this auto& self, auto&& fn) {
     static_assert(sizeof...(Cs) >= 1,
         "`for_each` requires at least one component type");
-    const auto target_mask = self.template make_target_mask<Cs...>();
+    constexpr auto target_mask = make_target_mask<Cs...>();
+    static_assert(target_mask.count() == sizeof...(Cs),
+        "one or more component types in `Cs...` map to multiple storages; "
+        "use `for_all` instead");
     const auto primary_ids = self.template find_primary_ids<Cs...>();
     for (const id_t id : primary_ids) {
+      if (!target_mask.is_subset_of(self.registry_.get_location(id))) continue;
+      if (!fn(id,
+              std::forward_as_tuple(self.template get_component<Cs>(id)...)))
+        return;
+    }
+  }
+
+  // Like `for_each`, but drives the outer loop from the registry rather than
+  // from the smallest matching storage. This handles the case where a
+  // component type maps to multiple tagged storages (which `for_each` rejects
+  // at compile time), requiring entity presence in all of them. Also
+  // potentially faster when the matching storages are densely populated, as
+  // it avoids the bias toward the smallest storage.
+  //
+  // Fn shape: `(id_t, std::tuple<Cs&...>) -> bool`.
+  template<typename... Cs>
+  void for_all(this auto& self, auto&& fn) {
+    static_assert(sizeof...(Cs) >= 1,
+        "`for_all` requires at least one component type");
+    constexpr auto target_mask = make_target_mask<Cs...>();
+    if (self.registry_.empty()) return;
+    const id_t id_end = self.registry_.max_id();
+    for (id_t id{}; id <= id_end; ++id) {
+      if (!self.registry_.is_valid(id)) continue;
       if (!target_mask.is_subset_of(self.registry_.get_location(id))) continue;
       if (!fn(id,
               std::forward_as_tuple(self.template get_component<Cs>(id)...)))
@@ -312,15 +340,22 @@ private:
       return st[id];
   }
 
-  // Build a store-ID bitmask with one bit set for each component in `Cs...`.
+  // Build a store-ID bitmask for components in `Cs...`. If a component type
+  // appears in multiple storages (via tags), all matching storage bits are
+  // set. Computed entirely from type information: the storage at tuple index
+  // `I+1` invariantly holds `store_id_t{I+1}` (established by `make_storages`).
   template<typename... Cs>
-  [[nodiscard]] registry_t::store_id_set_t make_target_mask() const noexcept {
+  [[nodiscard]] static constexpr registry_t::store_id_set_t
+  make_target_mask() noexcept {
     typename registry_t::store_id_set_t mask{};
-    auto set_bit = [&]<typename C>() {
-      constexpr size_t idx = find_component_storage_index_v<C, STORES...>;
-      mask[std::get<idx + 1>(storages_).store_id()] = true;
-    };
-    (set_bit.template operator()<Cs>(), ...);
+    [&]<size_t... Is>(std::index_sequence<Is...>) {
+      auto set_if_match = [&]<size_t I>() {
+        using S = std::tuple_element_t<I + 1, storage_tuple_t>;
+        if constexpr ((std::is_same_v<Cs, typename S::component_t> || ...))
+          mask[store_id_t{I + 1}] = true;
+      };
+      (set_if_match.template operator()<Is>(), ...);
+    }(std::make_index_sequence<storage_count_v>{});
     return mask;
   }
 
