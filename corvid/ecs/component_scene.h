@@ -311,7 +311,7 @@ public:
     const id_t id_end = self.registry_.max_id();
     for (id_t id{}; id <= id_end; ++id) {
       if (!self.registry_.is_valid(id)) continue;
-      const auto loc = self.registry_.get_location(id);
+      const auto& loc = self.registry_.get_location(id);
       // Per-selector presence check. For unique selectors: require the single
       // storage bit. For multi-match component types: require exactly one of
       // the union of matching storage bits (skip if zero or more than one).
