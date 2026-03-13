@@ -626,8 +626,8 @@ public:
     return true;
   }
 
-  // True if every bit set in `*this` is also set in `other` (i.e., `other` is
-  // a superset of `*this`). Alias for readability at the call site.
+  // True if every bit set in `other` is also set in `*this` (i.e., `*this` is
+  // a superset of `other`). Alias for readability at the call site.
   [[nodiscard]] constexpr bool is_superset_of(
       const fixed_bitset& other) const noexcept {
     return other.is_subset_of(*this);

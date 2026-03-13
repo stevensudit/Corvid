@@ -6147,18 +6147,14 @@ void ArchetypeScene_ForEach() {
   }
 
   // for_each is a no-op when no storage has all requested components.
+  // arch_h_t (SID{3}) only stores Health, so querying Position+Velocity+Health
+  // yields zero matches.
   if (true) {
-    two_storage_scene_t s;
-    (void)s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
+    three_storage_scene_t s;
+    (void)s.store_new_entity<scene_sid_t{3}>({}, Health{}); // only Health
     int count = 0;
-    // arch_pv_t has no Health; arch_pvh_t has all three -- but two_storage has
-    // no arch_h_t either. arch_pvh_t has Health, so this WILL match it.
-    // Use a component combo that truly doesn't exist in either storage to test
-    // zero-match: use three_storage_scene for that.
-    three_storage_scene_t s3;
-    (void)s3.store_new_entity<scene_sid_t{3}>({}, Health{}); // only Health
-    s3.for_each<Position, Velocity, Health>([&](auto, auto) {
-      ++count; // SID{3} (arch_h_t) doesn't have Position or Velocity
+    s.for_each<Position, Velocity, Health>([&](auto, auto) {
+      ++count;
       return true;
     });
     EXPECT_EQ(count, 0);
