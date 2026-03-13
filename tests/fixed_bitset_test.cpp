@@ -2006,6 +2006,86 @@ void FixedBitset_ArrayConstruct() {
   }
 }
 
+void FixedBitset_IsSubset() {
+  // is_subset_of: every set bit in *this is also set in other.
+  if (true) {
+    fixed_bitset<8> a, b;
+    a.set(1);
+    a.set(3);
+    b.set(1);
+    b.set(2);
+    b.set(3);
+    EXPECT_TRUE(a.is_subset_of(b));  // {1,3} subset of {1,2,3}
+    EXPECT_FALSE(b.is_subset_of(a)); // {1,2,3} not subset of {1,3}
+  }
+
+  // Equal sets are subsets of each other.
+  if (true) {
+    fixed_bitset<8> a, b;
+    a.set(0);
+    a.set(7);
+    b.set(0);
+    b.set(7);
+    EXPECT_TRUE(a.is_subset_of(b));
+    EXPECT_TRUE(b.is_subset_of(a));
+  }
+
+  // Empty set is a subset of everything.
+  if (true) {
+    fixed_bitset<8> empty, full;
+    full.set();
+    EXPECT_TRUE(empty.is_subset_of(full));
+    EXPECT_TRUE(empty.is_subset_of(empty));
+    EXPECT_FALSE(full.is_subset_of(empty));
+  }
+
+  // Full set is only a subset of itself.
+  if (true) {
+    fixed_bitset<8> full, almost;
+    full.set();
+    almost = full;
+    almost.reset(3);
+    EXPECT_TRUE(full.is_subset_of(full));
+    EXPECT_FALSE(full.is_subset_of(almost));
+  }
+
+  // is_superset_of is the mirror.
+  if (true) {
+    fixed_bitset<8> a, b;
+    a.set(2);
+    b.set(2);
+    b.set(5);
+    EXPECT_TRUE(b.is_superset_of(a));  // {2,5} contains {2}
+    EXPECT_FALSE(a.is_superset_of(b)); // {2} does not contain {2,5}
+  }
+
+  // Multi-word bitset.
+  if (true) {
+    fixed_bitset<64> a, b;
+    a.set(0);
+    a.set(33);
+    b.set(0);
+    b.set(33);
+    b.set(63);
+    EXPECT_TRUE(a.is_subset_of(b));
+    EXPECT_FALSE(b.is_subset_of(a));
+  }
+
+  // Constexpr.
+  if (true) {
+    constexpr auto make = []() {
+      fixed_bitset<8> a, b;
+      a.set(1);
+      b.set(1);
+      b.set(2);
+      return std::pair{a.is_subset_of(b), b.is_subset_of(a)};
+    };
+    constexpr auto r = make();
+    static_assert(r.first == true);
+    static_assert(r.second == false);
+  }
+}
+
 MAKE_TEST_LIST(FixedBitset_Empty, FixedBitset_SetClearTest,
     FixedBitset_Subscript, FixedBitset_Popcount, FixedBitset_Reset,
     FixedBitset_Equality, FixedBitset_CopyMove, FixedBitset_WordType,
@@ -2015,7 +2095,7 @@ MAKE_TEST_LIST(FixedBitset_Empty, FixedBitset_SetClearTest,
     FixedBitset_MultiWord, FixedBitset_PosParam, FixedBitset_Size,
     FixedBitset_At, FixedBitset_Ordering, FixedBitset_Tag,
     FixedBitset_Constexpr, FixedBitset_Rotation, FixedBitset_Shift,
-    FixedBitset_ArrayConstruct);
+    FixedBitset_ArrayConstruct, FixedBitset_IsSubset);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

@@ -220,7 +220,11 @@ Implementation Steps (in order)
    Also added store_id() to row_wrapper and has_all_components_v to ecs_meta.
    (COMPLETED)
 10. Add for_each<Cs...>(fn) to component_scene (same callback shape):
-    iterates the primary (first-named) component's storage, bitmap-checks the
-    rest, and calls fn(id, tuple<Cs&...>) -> bool. Added
-    find_component_storage_index_v to ecs_meta. (COMPLETED)
+    iterates the primary (first-named) component's storage, pre-builds a
+    store_id_set_t target mask, and skips entities with a single is_subset_of
+    check. Added find_component_storage_index_v to ecs_meta, is_subset_of /
+    is_superset_of to fixed_bitset. (COMPLETED)
 11. Minor: Follow the TODO in fixed_bitset.
+12. Flesh out fixed_bitset set operations: consider adding named methods such
+    as intersects(), is_disjoint_from(), union_of(), etc. Currently only
+    is_subset_of / is_superset_of are present alongside the bitwise operators.

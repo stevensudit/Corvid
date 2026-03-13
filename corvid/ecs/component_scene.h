@@ -250,11 +250,14 @@ public:
   [[nodiscard]] bool empty() const noexcept { return registry_.size() == 0; }
 
   // Call `fn(id, std::tuple<Cs&...>)` for each entity simultaneously present
-  // in all component storages for `Cs...`. The entity set is determined by
-  // iterating the storage for the first-named component and bitmap-checking
-  // the rest. `fn` must return `bool`: `true` continues, `false` stops early.
-  // Deduces `const` from the scene: on a const scene, component references in
-  // the tuple are `const Cs&...`.
+  // in all component storages for `Cs...`. The first-named component's storage
+  // is iterated; entities lacking any other requested component are skipped
+  // via a single `is_subset_of` check against the registry bitmap. `fn` must
+  // return `bool`: `true` continues, `false` stops early. Deduces `const`
+  // from the scene: on a const scene, component references are `const Cs&...`.
+  //
+  // Performance tip: list the least-populated component first so the primary
+  // storage has fewer entities to iterate.
   //
   // Every `C` in `Cs...` must be the `component_t` of exactly one storage in
   // `STORES`.
@@ -264,26 +267,27 @@ public:
   void for_each(this auto& self, auto&& fn) {
     static_assert(sizeof...(Cs) >= 1,
         "`for_each` requires at least one component type");
-    // Identify and hold a reference to the primary (first-named) storage.
+    // Build a bitmask with one bit set per required storage.
+    typename registry_t::store_id_set_t target_mask{};
+    auto set_bit = [&]<typename C>() {
+      constexpr size_t idx = find_component_storage_index_v<C, STORES...>;
+      target_mask[std::get<idx + 1>(self.storages_).store_id()] = true;
+    };
+    (set_bit.template operator()<Cs>(), ...);
+    // Iterate the primary (first-named) storage, skipping entities that lack
+    // any required component with a single bitset subset check.
     using primary_c = std::tuple_element_t<0, std::tuple<Cs...>>;
     constexpr size_t primary_idx =
         find_component_storage_index_v<primary_c, STORES...>;
     auto& primary = std::get<primary_idx + 1>(self.storages_);
-    for (auto it = primary.begin(); it != primary.end(); ++it) {
-      const id_t id = it.id();
-      // Bitmap O(1) check: entity must be in every requested storage.
-      const bool all_present =
-          (std::get<find_component_storage_index_v<Cs, STORES...> + 1>(
-               self.storages_)
-                  .contains(id) &&
-              ...);
-      if (!all_present) continue;
+    for (const id_t id : primary.entity_ids()) {
+      if (!target_mask.is_subset_of(self.registry_.get_location(id))) continue;
       // Project one component reference per C, preserving scene mutability.
       auto get = [&]<typename C>() -> decltype(auto) {
         auto& st = std::get<find_component_storage_index_v<C, STORES...> + 1>(
             self.storages_);
         if constexpr (std::is_const_v<std::remove_reference_t<decltype(st)>>)
-          return (st[id].value);
+          return st[id].value;
         else
           return st[id];
       };

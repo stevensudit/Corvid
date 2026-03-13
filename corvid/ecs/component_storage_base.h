@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cassert>
+#include <span>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -102,6 +103,11 @@ public:
 
   // Return whether the storage is empty.
   [[nodiscard]] bool empty() const noexcept { return ids_.empty(); }
+
+  // Return a read-only view of all entity IDs currently in this storage.
+  [[nodiscard]] std::span<const id_t> entity_ids() const noexcept {
+    return ids_;
+  }
 
   // Expose this storage's `store_id_t`.
   [[nodiscard]] store_id_t store_id() const noexcept { return store_id_; }
