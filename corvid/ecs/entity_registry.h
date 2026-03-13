@@ -100,11 +100,12 @@ public:
   static constexpr bool is_lifo_v = !is_fifo_v;
   static constexpr size_t bitmap_bits_v = is_component_v ? OWN_COUNT : 1;
   // `fixed_bitset` requires `N_BITS % 8 == 0`; round up to the nearest
-  // multiple of 8. Bits above `bitmap_bits_v` are padding and are never set.
-  // All `OWN_COUNT`- and `bitmap_bits_v`-based validation uses the unpadded
-  // value.
+  // multiple of 8. In component mode, bits above `bitmap_bits_v` are padding
+  // and are never set; all `OWN_COUNT`- and `bitmap_bits_v`-based validation
+  // uses the unpadded value. In archetype mode the value is 8 so that
+  // `store_id_set_t` (which uses this as its `N_BITS`) is always well-formed.
   static constexpr size_t padded_bitmap_bits_v =
-      is_component_v ? ((bitmap_bits_v + 7) / 8 * 8) : 1;
+      is_component_v ? ((bitmap_bits_v + 7) / 8 * 8) : 8;
 
   using metadata_t = maybe_void_t<T>;
   using id_t = EID;
