@@ -121,6 +121,8 @@ public:
   archetype_scene& operator=(const archetype_scene&) = delete;
   archetype_scene& operator=(archetype_scene&&) = delete;
 
+  ~archetype_scene() { clear(); }
+
   // Registry access.
   [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
     return (self.registry_);
