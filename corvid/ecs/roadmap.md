@@ -219,5 +219,8 @@ Implementation Steps (in order)
    storage containing all of Cs..., calling fn(id, tuple<Cs&...>) -> bool.
    Also added store_id() to row_wrapper and has_all_components_v to ecs_meta.
    (COMPLETED)
-10. Add for_each<Cs...>(fn) to component_scene (same callback shape)
+10. Add for_each<Cs...>(fn) to component_scene (same callback shape):
+    iterates the primary (first-named) component's storage, bitmap-checks the
+    rest, and calls fn(id, tuple<Cs&...>) -> bool. Added
+    find_component_storage_index_v to ecs_meta. (COMPLETED)
 11. Minor: Follow the TODO in fixed_bitset.

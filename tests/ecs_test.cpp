@@ -6373,6 +6373,148 @@ void ComponentScene_EntityLifecycle() {
 // component_scene with OWN_COUNT that is not a multiple of 8: the registry
 // rounds the bitmap width up internally; the user-visible OWN_COUNT still
 // enforces the storage-count limit.
+void ComponentScene_ForEach() {
+  // for_each<Cs...> visits entities present in all named storages.
+  // two_cs_scene_t: SID{1}=float, SID{2}=int.
+
+  // for_each<float, int> visits only entities in both storages.
+  if (true) {
+    two_cs_scene_t s;
+    auto ha = s.stage_new_entity(); // entity A: both storages
+    auto hb = s.stage_new_entity(); // entity B: store1 only
+    auto hc = s.stage_new_entity(); // entity C: store2 only
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 10));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 2.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(hc.id(), 20));
+    int count = 0;
+    float fsum = 0.f;
+    int isum = 0;
+    s.for_each<float, int>([&](auto, auto comps) {
+      ++count;
+      fsum += std::get<0>(comps);
+      isum += std::get<1>(comps);
+      return true;
+    });
+    EXPECT_EQ(count, 1); // only entity A
+    EXPECT_EQ(fsum, 1.0f);
+    EXPECT_EQ(isum, 10);
+    (void)hb;
+    (void)hc;
+  }
+
+  // for_each<float> visits all entities in store1 regardless of store2.
+  if (true) {
+    two_cs_scene_t s;
+    auto ha = s.stage_new_entity();
+    auto hb = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(ha.id(), 3.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(ha.id(), 0));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(hb.id(), 4.0f));
+    float fsum = 0.f;
+    s.for_each<float>([&](auto, auto comps) {
+      fsum += std::get<0>(comps);
+      return true;
+    });
+    EXPECT_EQ(fsum, 7.0f); // 3.0f + 4.0f
+    (void)ha;
+    (void)hb;
+  }
+
+  // for_each stops early when fn returns false.
+  if (true) {
+    two_cs_scene_t s;
+    EXPECT_TRUE(
+        s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 1.0f));
+    EXPECT_TRUE(
+        s.store_entity<cs_scene_sid_t{1}>(s.stage_new_entity().id(), 2.0f));
+    int count = 0;
+    s.for_each<float>([&](auto, auto) {
+      ++count;
+      return false; // stop after first
+    });
+    EXPECT_EQ(count, 1);
+  }
+
+  // for_each on a const scene yields const component references.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 7.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h.id(), 42));
+    const auto& cs = s;
+    float fval = 0.f;
+    int ival = 0;
+    cs.for_each<float, int>([&](auto, auto comps) {
+      fval = std::get<0>(comps); // const float&
+      ival = std::get<1>(comps); // const int&
+      return true;
+    });
+    EXPECT_EQ(fval, 7.0f);
+    EXPECT_EQ(ival, 42);
+    (void)h;
+  }
+
+  // for_each on an empty scene: callback never called.
+  if (true) {
+    two_cs_scene_t s;
+    int count = 0;
+    s.for_each<float>([&](auto, auto) {
+      ++count;
+      return true;
+    });
+    EXPECT_EQ(count, 0);
+  }
+
+  // Mutable for_each can modify component data through the tuple references.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 0.0f));
+    s.for_each<float>([](auto, auto comps) {
+      std::get<0>(comps) = 99.0f;
+      return true;
+    });
+    EXPECT_EQ(s.storage<cs_scene_sid_t{1}>()[h.id()], 99.0f);
+    (void)h;
+  }
+
+  // Component order determines tuple layout: for_each<int, float> visits the
+  // same entities as for_each<float, int> but std::get<0> = int, std::get<1>
+  // = float.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.stage_new_entity();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(h.id(), 5.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(h.id(), 11));
+    float fval = 0.f;
+    int ival = 0;
+    s.for_each<int, float>([&](auto, auto comps) {
+      ival = std::get<0>(comps); // index 0 = int (first in list)
+      fval = std::get<1>(comps); // index 1 = float (second in list)
+      return true;
+    });
+    EXPECT_EQ(ival, 11);
+    EXPECT_EQ(fval, 5.0f);
+    (void)h;
+  }
+
+  // Callback receives the correct entity ID.
+  if (true) {
+    two_cs_scene_t s;
+    auto h = s.stage_new_entity();
+    auto id = h.id();
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{1}>(id, 1.0f));
+    EXPECT_TRUE(s.store_entity<cs_scene_sid_t{2}>(id, 1));
+    cs_scene_id_t seen_id{};
+    s.for_each<float, int>([&](auto eid, auto) {
+      seen_id = eid;
+      return true;
+    });
+    EXPECT_EQ(seen_id, id);
+  }
+}
+
 void ComponentScene_NonAlignedOwnCount() {
   using namespace id_enums;
   // OWN_COUNT=3 means staging bit 0 + up to 2 real storages. The
@@ -6615,7 +6757,7 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ComponentScene_RemoveErase, ComponentScene_EraseStaged,
     ComponentScene_Destructor, ComponentScene_StageNewEntity,
     ComponentScene_RemoveAll, ComponentScene_EntityLifecycle,
-    ComponentScene_NonAlignedOwnCount);
+    ComponentScene_ForEach, ComponentScene_NonAlignedOwnCount);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

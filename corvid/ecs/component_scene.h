@@ -23,6 +23,7 @@
 #include <variant>
 
 #include "component_storage_base.h"
+#include "ecs_meta.h"
 #include "entity_registry.h"
 
 namespace corvid { inline namespace ecs { inline namespace component_scenes {
@@ -247,6 +248,49 @@ public:
 
   // Return true if there are no living entities.
   [[nodiscard]] bool empty() const noexcept { return registry_.size() == 0; }
+
+  // Call `fn(id, std::tuple<Cs&...>)` for each entity simultaneously present
+  // in all component storages for `Cs...`. The entity set is determined by
+  // iterating the storage for the first-named component and bitmap-checking
+  // the rest. `fn` must return `bool`: `true` continues, `false` stops early.
+  // Deduces `const` from the scene: on a const scene, component references in
+  // the tuple are `const Cs&...`.
+  //
+  // Every `C` in `Cs...` must be the `component_t` of exactly one storage in
+  // `STORES`.
+  //
+  // Fn shape: `(id_t, std::tuple<Cs&...>) -> bool`.
+  template<typename... Cs>
+  void for_each(this auto& self, auto&& fn) {
+    static_assert(sizeof...(Cs) >= 1,
+        "`for_each` requires at least one component type");
+    // Identify and hold a reference to the primary (first-named) storage.
+    using primary_c = std::tuple_element_t<0, std::tuple<Cs...>>;
+    constexpr size_t primary_idx =
+        find_component_storage_index_v<primary_c, STORES...>;
+    auto& primary = std::get<primary_idx + 1>(self.storages_);
+    for (auto it = primary.begin(); it != primary.end(); ++it) {
+      const id_t id = it.id();
+      // Bitmap O(1) check: entity must be in every requested storage.
+      const bool all_present =
+          (std::get<find_component_storage_index_v<Cs, STORES...> + 1>(
+               self.storages_)
+                  .contains(id) &&
+              ...);
+      if (!all_present) continue;
+      // Project one component reference per C, preserving scene mutability.
+      auto get = [&]<typename C>() -> decltype(auto) {
+        auto& st = std::get<find_component_storage_index_v<C, STORES...> + 1>(
+            self.storages_);
+        if constexpr (std::is_const_v<std::remove_reference_t<decltype(st)>>)
+          return (st[id].value);
+        else
+          return st[id];
+      };
+      if (!fn(id, std::forward_as_tuple(get.template operator()<Cs>()...)))
+        return;
+    }
+  }
 
   // Erase all entities in all storages and in staging.
   //

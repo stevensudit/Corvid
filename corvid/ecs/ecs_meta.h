@@ -36,6 +36,28 @@ template<typename Storage, typename... Cs>
 inline constexpr bool has_all_components_v =
     (tuple_contains_v<Cs, typename Storage::tuple_t> && ...);
 
+// 0-based index into `Storages...` of the first storage whose
+// `component_t == C`. Fails to compile if no storage matches.
+template<typename C, size_t I, typename... Storages>
+struct find_component_storage_index_impl;
+
+template<typename C, size_t I, typename First, typename... Rest>
+struct find_component_storage_index_impl<C, I, First, Rest...>
+    : std::conditional_t<std::is_same_v<C, typename First::component_t>,
+          std::integral_constant<size_t, I>,
+          find_component_storage_index_impl<C, I + 1, Rest...>> {};
+
+template<typename C, size_t I>
+struct find_component_storage_index_impl<C, I> {
+  static_assert(sizeof(C) == 0,
+      "no storage in the scene has `component_t` equal to `C`");
+};
+
+// 0-based index into `Storages...` of the storage whose `component_t == C`.
+template<typename C, typename... Storages>
+inline constexpr size_t find_component_storage_index_v =
+    find_component_storage_index_impl<C, 0, Storages...>::value;
+
 // Returns a copy of component `C` from `row` if `SrcTuple` contains `C`,
 // otherwise returns a value-initialized `C{}`.
 //
