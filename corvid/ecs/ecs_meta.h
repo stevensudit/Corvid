@@ -36,6 +36,11 @@ template<typename Storage, typename... Cs>
 inline constexpr bool has_all_components_v =
     (tuple_contains_v<Cs, typename Storage::tuple_t> && ...);
 
+// Always-false helper for `static_assert` in templates, avoiding reliance on
+// `sizeof(C) == 0` which requires `C` to be a complete type.
+template<typename>
+inline constexpr bool dependent_false_v = false;
+
 // 0-based index into `Storages...` of the first storage whose
 // `component_t == C`. Fails to compile if no storage matches.
 template<typename C, size_t I, typename... Storages>
@@ -49,7 +54,7 @@ struct find_component_storage_index_impl<C, I, First, Rest...>
 
 template<typename C, size_t I>
 struct find_component_storage_index_impl<C, I> {
-  static_assert(sizeof(C) == 0,
+  static_assert(dependent_false_v<C>,
       "no storage in the scene has `component_t` equal to `C`");
 };
 
