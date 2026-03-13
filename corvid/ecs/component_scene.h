@@ -120,6 +120,8 @@ public:
   component_scene& operator=(const component_scene&) = delete;
   component_scene& operator=(component_scene&&) = delete;
 
+  ~component_scene() { clear(); }
+
   // Registry access.
   [[nodiscard]] decltype(auto) registry(this auto& self) noexcept {
     return (self.registry_);
