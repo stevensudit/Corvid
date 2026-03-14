@@ -1998,12 +1998,6 @@ void StringUtilsTest_AppendJson() {
   }
 }
 
-void raw_resize(std::string& s, size_t n) {
-  s.clear();
-  s.resize_and_overwrite(n, [&](char*, size_t n) { return n; });
-  s.resize(n);
-}
-
 void StringUtilsTest_StdFromChars() {
   // Test std_from_chars directly for float.
   if (true) {
@@ -2244,10 +2238,98 @@ void StringUtilsTest_StdFromChars() {
 }
 
 void StringUtilsTest_RawBuffer() {
-  std::string buffer;
-  raw_resize(buffer, 4096U);
-  EXPECT_EQ(buffer.size(), 4096U);
-  EXPECT_GE(buffer.capacity(), 4096U);
+  // As a sanity test, confirm that if a string is resized to 50, then cleared,
+  // its capacity is non-zero, but shrinking it to 0 does reduce capacity.
+  if (true) {
+    // As a sanity check, ensure our assumptions about capacity and resizing
+    // hold.
+    std::string s;
+    s.resize(50);
+    EXPECT_GE(s.capacity(), 50u);
+
+    // Clearing the string does not reduce capacity, although the standard
+    // allows it.
+    s.clear();
+    EXPECT_GE(s.capacity(), 50u);
+
+    // Once cleared, shrinking to fit should reduce capacity. Thanks to small
+    // string optimization, it can't drop to zero even when the buffer has been
+    // released.
+    s.shrink_to_fit();
+    EXPECT_LT(s.capacity(), 50u);
+    EXPECT_GT(s.capacity(), 0u);
+  }
+
+  using namespace corvid::strings::non_zero_resize;
+
+  // `resize_to`: size must match exactly; capacity must cover size.
+  if (true) {
+    std::string s;
+    no_zero::resize_to(s, 0);
+    EXPECT_EQ(s.size(), 0u);
+
+    no_zero::resize_to(s, 10);
+    EXPECT_EQ(s.size(), 10u);
+    EXPECT_GE(s.capacity(), s.size());
+
+    // Shrink.
+    no_zero::resize_to(s, 5);
+    EXPECT_EQ(s.size(), 5u);
+    EXPECT_GE(s.capacity(), s.size());
+
+    // Grow again.
+    no_zero::resize_to(s, 20);
+    EXPECT_EQ(s.size(), 20u);
+    EXPECT_GE(s.capacity(), s.size());
+
+    // Same size (no-op).
+    no_zero::resize_to(s, 20);
+    EXPECT_EQ(s.size(), 20u);
+    EXPECT_GE(s.capacity(), s.size());
+  }
+
+  // `enlarge_to`: size must be at least `minimum_size`; capacity must cover
+  // size. When the current capacity already satisfies `minimum_size`, `size`
+  // is expanded to the full capacity.
+  if (true) {
+    std::string s;
+
+    // Enlarging an empty string.
+    no_zero::enlarge_to(s, 10);
+    EXPECT_GE(s.size(), 10u);
+    EXPECT_EQ(s.size(), s.capacity());
+
+    // Requesting a size within the current capacity: size expands to full
+    // capacity without reallocation.
+    auto cap_before = s.capacity();
+    no_zero::enlarge_to(s, 1);
+    EXPECT_EQ(s.size(), cap_before);
+    EXPECT_GE(s.capacity(), s.size());
+
+    // Requesting a size larger than the current capacity: must reallocate.
+    auto large = s.capacity() * 4;
+    no_zero::enlarge_to(s, large);
+    EXPECT_GE(s.size(), large);
+    EXPECT_EQ(s.size(), s.capacity());
+
+    // Chained calls return the same string reference.
+    std::string t;
+    EXPECT_EQ(&no_zero::enlarge_to(t, 8), &t);
+    EXPECT_EQ(&no_zero::resize_to(t, 4), &t);
+  }
+
+  // Shrinking via `resize_to` should not reduce capacity. We want to be able
+  // to fill a buffer, size it back down, and not reallocate it in the process.
+  if (true) {
+    std::string s;
+    no_zero::enlarge_to(s, 500);
+    auto cap_after_grow = s.capacity();
+    EXPECT_GE(cap_after_grow, 500u);
+
+    no_zero::resize_to(s, 50);
+    EXPECT_EQ(s.size(), 50u);
+    EXPECT_EQ(s.capacity(), cap_after_grow);
+  }
 }
 
 MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
