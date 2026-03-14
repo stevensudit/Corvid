@@ -17,8 +17,7 @@
 #pragma once
 #include "strings_shared.h"
 
-namespace corvid::strings {
-inline namespace non_zero_resize {
+namespace corvid::strings { inline namespace no_zero_funcs {
 
 // Support for resizing strings without zero-initialization.
 //
@@ -27,53 +26,66 @@ inline namespace non_zero_resize {
 //
 // Note that, quite intentionally, the contents of the string buffer are
 // indeterminate after any of these calls.
-struct no_zero {
-  // Clear out string, actually releasing the buffer. Capacity drops to
-  // whatever the small string optimization allows.
-  static constexpr auto& clear_out(std::string& s) {
-    s.clear();
-    s.shrink_to_fit();
-    return s;
-  }
+namespace no_zero {
 
-  // Direct wrapper of `resize_and_overwrite`, hiding the lambda away. Note
-  // that, on enlargement, this still copies the old contents to the new
-  // buffer, which is wasteful. Instead, use `enlarge_to` to avoid this.
-  static constexpr auto& resize_to(std::string& s, std::size_t new_size) {
-    s.resize_and_overwrite(new_size, [new_size](char*, std::size_t) noexcept {
-      return new_size;
-    });
-    return s;
-  }
+// Clear out string, actually releasing the buffer. Capacity drops to
+// whatever the small string optimization allows.
+constexpr auto& clear_out(std::string& s) {
+  s.clear();
+  s.shrink_to_fit();
+  return s;
+}
 
-  // Enlarge string to make room for at least `minimum_size` characters.
-  // Does not copy old string contents.
-  static constexpr auto& enlarge_to(std::string& s, size_t minimum_size) {
-    // If we can satisfy the requirement using the current buffer, expand size
-    // to match its capacity.
-    if (minimum_size <= s.capacity()) return resize_to(s, s.capacity());
+// Direct wrapper of `resize_and_overwrite`, hiding the lambda away. Note
+// that, on enlargement, this still copies the old contents to the new
+// buffer, which is wasteful. Instead, use `enlarge_to` to avoid this.
+constexpr auto& resize_to(std::string& s, std::size_t new_size) {
+  s.resize_and_overwrite(new_size, [new_size](char*, std::size_t) noexcept {
+    return new_size;
+  });
+  return s;
+}
 
-    // Since we're going to need to enlarge, we don't want to preserve the old
-    // contents.
-    resize_to(clear_out(s), minimum_size);
+// Resize to the current capacity.
+constexpr auto& resize_to_cap(std::string& s) {
+  return resize_to(s, s.capacity());
+}
 
-    // If there's slack, use all of the available capacity.
-    if (s.capacity() > minimum_size) resize_to(s, s.capacity());
+// Enlarge string to make room for at least `minimum_size` characters.
+// Does not copy old string contents. Does not reduce capacity.
+constexpr auto& enlarge_to(std::string& s, size_t minimum_size) {
+  // If we can satisfy the requirement using the current buffer, expand size
+  // to match its capacity.
+  if (minimum_size <= s.capacity()) return resize_to_cap(s);
 
-    return s;
-  }
+  // Since we're going to need to enlarge, we don't want to preserve the old
+  // contents.
+  resize_to(clear_out(s), minimum_size);
 
-  // Right-size string to be between `minimum_size` and `maximum_size`,
-  // inclusive. This allows the string to grow above `minimum_size`, but puts a
-  // limit on how bloated it can get.
-  static constexpr auto&
-  rightsize_to(std::string&& s, size_t minimum_size, size_t maximum_size) {
-    // If current capacity exceeds `maximum_size`, shrink to fit and then
-    // resize to `minimum_size`.
-    if (s.capacity() > maximum_size)
-      return resize_to(clear_out(s), minimum_size);
+  // If there's slack, use all of the available capacity.
+  if (s.capacity() > minimum_size) resize_to_cap(s);
 
-    // Otherwise, use `enlarge_to`.
-    return enlarge_to(s, minimum_size);
-  }
-} // namespace corvid::strings::non_zero_resize
+  return s;
+}
+
+// Right-size string to be between `minimum_size` and `maximum_size`,
+// inclusive. This allows the string to grow above `minimum_size`, but puts a
+// limit on how bloated it can get.
+//
+// Note: `maximum_size` must be substantially larger than `minimum_size`,
+// otherwise the capacity for `minimum_size` could exceed `maximum_size`,
+// leading to churn. Typically, `maximum_size` should be at least 2x
+// `minimum_size`.
+constexpr auto&
+rightsize_to(std::string& s, size_t minimum_size, size_t maximum_size) {
+  // If current capacity exceeds `maximum_size`, shrink to fit and then
+  // resize to `minimum_size`.
+  if (s.capacity() > maximum_size)
+    return resize_to(clear_out(s), minimum_size);
+
+  // Otherwise, use `enlarge_to`.
+  return enlarge_to(s, minimum_size);
+}
+
+} // namespace no_zero
+}} // namespace corvid::strings::no_zero_funcs

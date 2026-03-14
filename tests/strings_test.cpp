@@ -2237,98 +2237,185 @@ void StringUtilsTest_StdFromChars() {
   }
 }
 
-void StringUtilsTest_RawBuffer() {
-  // As a sanity test, confirm that if a string is resized to 50, then cleared,
-  // its capacity is non-zero, but shrinking it to 0 does reduce capacity.
+void StringUtilsTest_NoZero() {
+  // Sanity check: `clear` does not release a heap buffer, but `shrink_to_fit`
+  // does. SSO ensures capacity never drops to zero.
   if (true) {
-    // As a sanity check, ensure our assumptions about capacity and resizing
-    // hold.
     std::string s;
     s.resize(50);
     EXPECT_GE(s.capacity(), 50u);
-
-    // Clearing the string does not reduce capacity, although the standard
-    // allows it.
     s.clear();
     EXPECT_GE(s.capacity(), 50u);
-
-    // Once cleared, shrinking to fit should reduce capacity. Thanks to small
-    // string optimization, it can't drop to zero even when the buffer has been
-    // released.
     s.shrink_to_fit();
     EXPECT_LT(s.capacity(), 50u);
     EXPECT_GT(s.capacity(), 0u);
   }
 
-  using namespace corvid::strings::non_zero_resize;
+  // Capture the SSO capacity (typically 15 on libc++ 64-bit).
+  const auto sso_cap = std::string{}.capacity();
 
-  // `resize_to`: size must match exactly; capacity must cover size.
+  // Ensure that the small values we use below are within SSO capacity.
+  EXPECT_GT(sso_cap, 10u);
+
+  using namespace corvid::strings::no_zero_funcs;
+
+  // `resize_to`: size matches the requested value exactly; capacity covers it.
+  // Shrinking via `resize_to` does NOT reduce capacity: important for the
+  // fill-buffer-then-commit pattern.
   if (true) {
     std::string s;
+
+    // Zero.
     no_zero::resize_to(s, 0);
     EXPECT_EQ(s.size(), 0u);
 
-    no_zero::resize_to(s, 10);
-    EXPECT_EQ(s.size(), 10u);
-    EXPECT_GE(s.capacity(), s.size());
+    // Tiny (SSO range).
+    no_zero::resize_to(s, 2);
+    EXPECT_EQ(s.size(), 2u);
+    EXPECT_GE(s.capacity(), 2u);
 
-    // Shrink.
-    no_zero::resize_to(s, 5);
-    EXPECT_EQ(s.size(), 5u);
-    EXPECT_GE(s.capacity(), s.size());
+    no_zero::resize_to(s, 4);
+    EXPECT_EQ(s.size(), 4u);
+    EXPECT_GE(s.capacity(), 4u);
 
-    // Grow again.
-    no_zero::resize_to(s, 20);
-    EXPECT_EQ(s.size(), 20u);
-    EXPECT_GE(s.capacity(), s.size());
+    // Shrink within SSO: capacity must not change.
+    auto cap = s.capacity();
+    no_zero::resize_to(s, 2);
+    EXPECT_EQ(s.size(), 2u);
+    EXPECT_EQ(s.capacity(), cap);
+
+    // Small (heap range).
+    no_zero::resize_to(s, 50);
+    EXPECT_EQ(s.size(), 50u);
+    EXPECT_GE(s.capacity(), 50u);
+
+    no_zero::resize_to(s, 100);
+    EXPECT_EQ(s.size(), 100u);
+    EXPECT_GE(s.capacity(), 100u);
+
+    // Shrink on heap: capacity must not change.
+    cap = s.capacity();
+    no_zero::resize_to(s, 50);
+    EXPECT_EQ(s.size(), 50u);
+    EXPECT_EQ(s.capacity(), cap);
 
     // Same size (no-op).
-    no_zero::resize_to(s, 20);
-    EXPECT_EQ(s.size(), 20u);
-    EXPECT_GE(s.capacity(), s.size());
+    no_zero::resize_to(s, 50);
+    EXPECT_EQ(s.size(), 50u);
+    EXPECT_EQ(s.capacity(), cap);
   }
 
-  // `enlarge_to`: size must be at least `minimum_size`; capacity must cover
-  // size. When the current capacity already satisfies `minimum_size`, `size`
-  // is expanded to the full capacity.
+  // `resize_to_cap`: resizes to the full current capacity so that
+  // `size() == capacity()`.
   if (true) {
+    // On an empty string: size expands to the SSO capacity.
     std::string s;
-
-    // Enlarging an empty string.
-    no_zero::enlarge_to(s, 10);
-    EXPECT_GE(s.size(), 10u);
+    no_zero::resize_to_cap(s);
+    EXPECT_EQ(s.size(), sso_cap);
     EXPECT_EQ(s.size(), s.capacity());
 
-    // Requesting a size within the current capacity: size expands to full
-    // capacity without reallocation.
-    auto cap_before = s.capacity();
-    no_zero::enlarge_to(s, 1);
-    EXPECT_EQ(s.size(), cap_before);
-    EXPECT_GE(s.capacity(), s.size());
+    // On a heap-allocated string: fills out to the full allocated capacity.
+    no_zero::resize_to(s, 50);
+    auto cap = s.capacity();
+    no_zero::resize_to_cap(s);
+    EXPECT_EQ(s.size(), cap);
+    EXPECT_EQ(s.size(), s.capacity());
+  }
 
-    // Requesting a size larger than the current capacity: must reallocate.
+  // `enlarge_to`: size is at least `minimum_size`, and always fills capacity.
+  // When `minimum_size` fits in the current buffer, no reallocation occurs.
+  if (true) {
+    // Tiny request on an empty string: fits in SSO, so size expands to the
+    // full SSO capacity.
+    std::string s;
+    no_zero::enlarge_to(s, 3);
+    EXPECT_GE(s.size(), 3u);
+    EXPECT_EQ(s.size(), sso_cap);
+    EXPECT_EQ(s.size(), s.capacity());
+
+    // Another tiny request within current capacity: no reallocation, size
+    // stays at the full current capacity.
+    auto cap_before = s.capacity();
+    no_zero::enlarge_to(s, 2);
+    EXPECT_EQ(s.size(), cap_before);
+    EXPECT_EQ(s.capacity(), cap_before);
+
+    // Small request beyond current capacity: reallocates, then fills capacity.
+    no_zero::enlarge_to(s, 50);
+    EXPECT_GE(s.size(), 50u);
+    EXPECT_EQ(s.size(), s.capacity());
+
+    // Request within the new capacity: no reallocation.
+    cap_before = s.capacity();
+    no_zero::enlarge_to(s, 50);
+    EXPECT_EQ(s.size(), cap_before);
+    EXPECT_EQ(s.capacity(), cap_before);
+
+    // Large request well beyond current capacity: reallocates and fills.
     auto large = s.capacity() * 4;
     no_zero::enlarge_to(s, large);
     EXPECT_GE(s.size(), large);
     EXPECT_EQ(s.size(), s.capacity());
 
-    // Chained calls return the same string reference.
-    std::string t;
-    EXPECT_EQ(&no_zero::enlarge_to(t, 8), &t);
-    EXPECT_EQ(&no_zero::resize_to(t, 4), &t);
+    // Returns a reference to the same string.
+    EXPECT_EQ(&no_zero::enlarge_to(s, 4), &s);
   }
 
-  // Shrinking via `resize_to` should not reduce capacity. We want to be able
-  // to fill a buffer, size it back down, and not reallocate it in the process.
+  // `clear_out`: releases the heap buffer (capacity drops to SSO level) and
+  // sets size to zero. On an SSO string, capacity is already minimal.
   if (true) {
+    // Heap-allocated string: buffer is released.
     std::string s;
-    no_zero::enlarge_to(s, 500);
-    auto cap_after_grow = s.capacity();
-    EXPECT_GE(cap_after_grow, 500u);
+    no_zero::enlarge_to(s, 100);
+    EXPECT_GE(s.capacity(), 100u);
+    no_zero::clear_out(s);
+    EXPECT_EQ(s.size(), 0u);
+    EXPECT_LT(s.capacity(), 100u);
+    EXPECT_GE(s.capacity(), sso_cap);
 
-    no_zero::resize_to(s, 50);
-    EXPECT_EQ(s.size(), 50u);
-    EXPECT_EQ(s.capacity(), cap_after_grow);
+    // SSO-sized string: capacity is unchanged (nothing to release).
+    std::string t;
+    no_zero::resize_to(t, 4);
+    auto cap = t.capacity();
+    no_zero::clear_out(t);
+    EXPECT_EQ(t.size(), 0u);
+    EXPECT_EQ(t.capacity(), cap);
+
+    // Returns a reference to the same string.
+    EXPECT_EQ(&no_zero::clear_out(s), &s);
+  }
+
+  // `rightsize_to`: when capacity is within [minimum_size, maximum_size],
+  // behaves like `enlarge_to`; when capacity exceeds `maximum_size`, releases
+  // the buffer and resizes to exactly `minimum_size`.
+  if (true) {
+    // Tiny: SSO capacity within bounds -> enlarge_to path.
+    std::string s;
+    no_zero::rightsize_to(s, 3, 100);
+    EXPECT_GE(s.size(), 3u);
+    EXPECT_EQ(s.size(), s.capacity());
+
+    // Tiny: SSO capacity above maximum -> shrink to minimum_size.
+    std::string t;
+    no_zero::resize_to(t, 4); // capacity == sso_cap
+    no_zero::rightsize_to(t, 2, sso_cap - 1);
+    EXPECT_EQ(t.size(), 2u);
+
+    // Small: capacity within bounds -> enlarge_to path.
+    std::string u;
+    no_zero::rightsize_to(u, 50, 500);
+    EXPECT_GE(u.size(), 50u);
+    EXPECT_EQ(u.size(), u.capacity());
+
+    // Small: capacity above maximum -> shrinks to minimum_size.
+    no_zero::enlarge_to(u, 200);
+    EXPECT_GE(u.capacity(), 200u);
+    no_zero::rightsize_to(u, 50, 100);
+    EXPECT_EQ(u.size(), 50u);
+    EXPECT_LT(u.capacity(), 200u);
+
+    // Returns a reference to the same string.
+    EXPECT_EQ(&no_zero::rightsize_to(u, 50, 500), &u);
   }
 }
 
@@ -2342,7 +2429,7 @@ MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_AppendNum, StringUtilsTest_Append, StringUtilsTest_Edges,
     StringUtilsTest_Streams, StringUtilsTest_AppendEnum,
     StringUtilsTest_AppendStream, StringUtilsTest_AppendJson,
-    StringUtilsTest_StdFromChars, StringUtilsTest_RawBuffer);
+    StringUtilsTest_StdFromChars, StringUtilsTest_NoZero);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

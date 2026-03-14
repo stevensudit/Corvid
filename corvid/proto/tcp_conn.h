@@ -21,8 +21,8 @@
 #include <deque>
 #include <functional>
 #include <memory>
-#include <span>
 #include <string>
+#include <string_view>
 
 #ifdef __linux__
 #include <unistd.h>
@@ -30,9 +30,11 @@
 
 #include "io_loop.h"
 #include "ip_endpoint.h"
-#include "../corvid/strings/no-zero.h"
+#include "../strings/no_zero.h"
 
 namespace corvid { inline namespace proto {
+
+using namespace corvid::strings::no_zero_funcs;
 
 // User-supplied callbacks for a `tcp_conn`. All fields are optional; a null
 // handler is silently skipped when its event fires.
@@ -131,7 +133,7 @@ public:
     if (!state_->open_.load(std::memory_order_relaxed)) return;
     auto& loop = state_->loop_;
     loop.post([p = state_, b = std::move(buf)]() mutable {
-      p->enqueue(std::move(b));
+      p->enqueue_send(std::move(b));
     });
   }
 
@@ -164,7 +166,7 @@ private:
     std::deque<std::string> send_queue_;
 
     // Unsent tail of `send_queue_.front()`. Empty iff `send_queue_` is empty.
-    std::span<const char> head_span_;
+    std::string_view head_span_;
 
     // Receive staging buffer. Resized without zero-initialization before each
     // `::read`. The user may `std::move` from the buffer in `on_data`.
@@ -189,8 +191,8 @@ private:
           handlers_{std::move(h)}, recv_buf_capacity_{rbs}, open_{true} {}
 
     // Register `sock_` with the loop. Stores a shared owner in the loop's
-    // registration map -- keeping the state alive as long as the fd is
-    // registered, independently of how many `tcp_conn` handles exist.
+    // registration map, keeping the state alive as long as the fd is
+    // registered, even if its `tcp_conn` is destructed.
     void register_with_loop() {
 #ifdef __linux__
       if (!open_.load(std::memory_order_relaxed)) return;
@@ -209,16 +211,14 @@ private:
     // EOF or unrecoverable error.
     void handle_readable() {
 #ifdef __linux__
-      recv_buf_.resize_and_overwrite(recv_buf_capacity_,
-          [](char*, std::size_t n) noexcept { return n; });
       no_zero::enlarge_to(recv_buf_, recv_buf_capacity_);
       const ssize_t n =
           ::read(sock_.file().handle(), recv_buf_.data(), recv_buf_.size());
       if (n > 0) {
-        recv_buf_.resize(static_cast<std::size_t>(n));
+        no_zero::resize_to(recv_buf_, static_cast<size_t>(n));
         if (handlers_.on_data) handlers_.on_data(recv_buf_);
       } else {
-        recv_buf_.resize(0);
+        no_zero::clear_out(recv_buf_);
         if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return;
         do_close_now(); // EOF (n == 0) or unrecoverable error
       }
@@ -231,29 +231,35 @@ private:
     // tracked by `head_span_`. `EPOLLOUT` is armed when the queue becomes
     // non-empty; `do_flush_send_buf()` drains it on subsequent `EPOLLOUT`
     // events.
-    void enqueue(std::string&& buf) {
+    void enqueue_send(std::string&& buf) {
 #ifdef __linux__
       if (!open_.load(std::memory_order_relaxed)) return;
-      if (send_queue_.empty()) {
-        // Attempt a direct write before queuing.
-        const ssize_t n =
-            ::write(sock_.file().handle(), buf.data(), buf.size());
-        if (n == static_cast<ssize_t>(buf.size())) return; // fully written
-        const auto sent =
-            static_cast<std::size_t>(n > 0 ? n : 0); // 0 on EAGAIN
-        if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-          do_close_now();
-          return;
-        }
-        // Partial write or EAGAIN: push to queue and arm `EPOLLOUT`.
+
+      // Queue non-empty: `EPOLLOUT` already armed; just append.
+      if (!send_queue_.empty()) {
         send_queue_.push_back(std::move(buf));
-        const auto& front = send_queue_.front();
-        head_span_ = {front.data() + sent, front.size() - sent};
-        loop_.set_writable(sock_);
-      } else {
-        // Queue non-empty: `EPOLLOUT` already armed; just append.
-        send_queue_.push_back(std::move(buf));
+        return;
       }
+
+      // First try to write directly.
+      const ssize_t n = ::write(sock_.file().handle(), buf.data(), buf.size());
+      if (n == static_cast<ssize_t>(buf.size())) {
+        buf.clear();
+        return; // fully written
+      }
+
+      const auto sent = static_cast<size_t>(n > 0 ? n : 0); // 0 on EAGAIN
+      if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        buf.clear();
+        do_close_now();
+        return;
+      }
+
+      // Partial write or EAGAIN: push to queue and arm `EPOLLOUT`.
+      send_queue_.push_back(std::move(buf));
+      const auto& front = send_queue_.front();
+      head_span_ = {front.data() + sent, front.size() - sent};
+      loop_.set_writable(sock_);
 #else
       (void)buf;
 #endif
@@ -268,27 +274,37 @@ private:
       while (!send_queue_.empty()) {
         const ssize_t n = ::write(sock_.file().handle(), head_span_.data(),
             head_span_.size());
-        if (n > 0) {
-          head_span_ = head_span_.subspan(static_cast<std::size_t>(n));
-          if (head_span_.empty()) {
-            send_queue_.pop_front();
-            if (!send_queue_.empty()) {
-              const auto& front = send_queue_.front();
-              head_span_ = {front.data(), front.size()};
-            }
-          }
-        } else {
-          if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return;
-          do_close_now();
+
+        // If unable to write, try later.
+        if (n < 0) {
+          // If non-retriable error, close immediately.
+          if (errno != EAGAIN && errno != EWOULDBLOCK) do_close_now();
           return;
         }
+
+        // Consume the part we wrote.
+        head_span_.remove_prefix(static_cast<size_t>(n));
+
+        // If all gone, move on to the next string in the queue.
+        if (head_span_.empty()) {
+          send_queue_.pop_front();
+          if (!send_queue_.empty()) {
+            const auto& front = send_queue_.front();
+            head_span_ = {front.data(), front.size()};
+          }
+        }
       }
-      // Queue fully drained.
+
+      // Queue fully drained, so no need to keep `EPOLLOUT` armed.
       loop_.set_writable(sock_, false);
+
+      // If we were waiting to close, do it now.
       if (closing_) {
         do_close_now();
         return;
       }
+
+      // Inform the user that the queue is fully drained.
       if (handlers_.on_drain) handlers_.on_drain();
 #endif
     }
@@ -315,5 +331,4 @@ private:
 
   std::shared_ptr<state> state_;
 };
-
 }} // namespace corvid::proto

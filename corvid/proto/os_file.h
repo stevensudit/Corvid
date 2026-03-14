@@ -97,6 +97,33 @@ public:
     return h;
   }
 
+  // Write as much of `data` as possible to the file. On success, removes the
+  // written prefix from `data` and returns true. On failure, leaves `data`
+  // unchanged and returns false. A "soft" failure (e.g., EAGAIN) is treated
+  // as success with no progress.
+  [[nodiscard]] bool write(std::string_view& data) const {
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+    if (data.empty()) return true;
+
+    auto res = ::write(handle_, data.data(), data.size());
+
+    // If we wrote something, remove it from the front of `data` and return
+    // success.
+    if (res > 0) {
+      data.remove_prefix(static_cast<size_t>(res));
+      return true;
+    }
+
+    // If we failed due to a soft error, treat it as a success with no
+    // progress.
+    const auto err = errno;
+    if (err == EAGAIN || err == EWOULDBLOCK) return true;
+
+    // Otherwise, it's a hard error. Return failure with `data` unchanged.
+    return false;
+#endif
+  }
+
   // Platform-specific fd control and named helpers.
   // Isolated here so that porting to a new OS requires changes only in this
   // guarded section and the platform header includes above.
