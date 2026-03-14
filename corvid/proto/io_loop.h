@@ -17,6 +17,7 @@
 #pragma once
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <system_error>
@@ -53,6 +54,21 @@ struct io_handlers {
   std::function<void()> on_readable = nullptr;
   std::function<void()> on_writable = nullptr;
   std::function<void()> on_error = nullptr;
+};
+
+// Abstract base for objects registered with `io_loop`. Higher-level types
+// (e.g., `tcp_conn`) inherit from this and override the three event methods.
+// The default `on_error` falls through to `on_readable` so that read-path
+// code can observe EOF and errors naturally; override to change that behavior.
+//
+// The `io_loop` stores a `shared_ptr<io_conn>` per registration, so the
+// object stays alive for the duration of any in-progress dispatch even if the
+// caller unregisters it during a callback.
+struct io_conn: std::enable_shared_from_this<io_conn> {
+  virtual void on_readable() {}
+  virtual void on_writable() {}
+  virtual void on_error() { on_readable(); }
+  virtual ~io_conn() = default;
 };
 
 // `epoll`-based I/O event loop, safe for use with a background thread.
@@ -131,6 +147,30 @@ public:
   // Must run on the loop thread. To call safely from another thread, use
   // `post()`: `loop.post([&]{ loop.add(sock, handlers); });`
   bool add(const ip_socket& sock, io_handlers handlers) {
+    struct fn final: io_conn {
+      io_handlers h_;
+      explicit fn(io_handlers h) : h_{std::move(h)} {}
+      void on_readable() override {
+        if (h_.on_readable) h_.on_readable();
+      }
+      void on_writable() override {
+        if (h_.on_writable) h_.on_writable();
+      }
+      void on_error() override {
+        if (h_.on_error)
+          h_.on_error();
+        else if (h_.on_readable)
+          h_.on_readable();
+      }
+    };
+    return add_conn(sock, std::make_shared<fn>(std::move(handlers)));
+  }
+
+  // Register `sock` with a pre-built `io_conn`. Used by higher-level types
+  // (e.g., `tcp_conn`) that implement `io_conn` directly and pass themselves
+  // in to avoid a separate lambda/handler allocation. Must run on the loop
+  // thread.
+  bool add_conn(const ip_socket& sock, std::shared_ptr<io_conn> conn) {
 #ifdef __linux__
     const int fd = sock.file().handle();
     if (registrations_.contains(fd)) return false;
@@ -140,11 +180,11 @@ public:
     ev.data.fd = fd;
     if (::epoll_ctl(epoll_fd_.handle(), EPOLL_CTL_ADD, fd, &ev) != 0)
       return false;
-    registrations_.emplace(fd, registration{events, std::move(handlers)});
+    registrations_.emplace(fd, registration{events, std::move(conn)});
     return true;
 #else
     (void)sock;
-    (void)handlers;
+    (void)conn;
     return false;
 #endif
   }
@@ -259,7 +299,7 @@ public:
 private:
   struct registration {
     uint32_t events;
-    io_handlers handlers;
+    std::shared_ptr<io_conn> conn;
   };
 
   // Swap-and-drain `post_queue_` under the mutex, then invoke each callback.
@@ -274,32 +314,21 @@ private:
     for (auto& fn : pending) fn();
   }
 
-  // Dispatch a single epoll event for `fd` with event mask `ev`. Re-looks up
-  // the registration before each callback because a callback may call
-  // `remove()` or `add()`.
+  // Dispatch a single epoll event for `fd` with event mask `ev`. The
+  // `shared_ptr<io_conn>` is copied before any virtual call so the object
+  // stays alive even if a callback calls `unregister()`.
   void dispatch_event(int fd, uint32_t ev) {
 #ifdef __linux__
     const auto it = registrations_.find(fd);
     if (it == registrations_.end()) return;
-
+    // Keep the conn alive across the entire dispatch.
+    const auto conn = it->second.conn;
     if (ev & (EPOLLERR | EPOLLHUP)) {
-      if (it->second.handlers.on_error)
-        it->second.handlers.on_error();
-      else if (const auto jt = registrations_.find(fd);
-          jt != registrations_.end() && jt->second.handlers.on_readable)
-        jt->second.handlers.on_readable();
+      conn->on_error();
       return;
     }
-    if (ev & EPOLLIN) {
-      if (const auto jt = registrations_.find(fd);
-          jt != registrations_.end() && jt->second.handlers.on_readable)
-        jt->second.handlers.on_readable();
-    }
-    if (ev & EPOLLOUT) {
-      if (const auto jt = registrations_.find(fd);
-          jt != registrations_.end() && jt->second.handlers.on_writable)
-        jt->second.handlers.on_writable();
-    }
+    if (ev & EPOLLIN) conn->on_readable();
+    if (ev & EPOLLOUT) conn->on_writable();
 #else
     (void)fd;
     (void)ev;

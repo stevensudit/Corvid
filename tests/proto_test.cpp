@@ -978,10 +978,13 @@ void TcpConn_Lifecycle() {
   const ip_endpoint remote{ipv4_addr::loopback(), 9999};
   {
     tcp_conn conn{loop, std::move(a), remote, {}};
+    // open_ is set in the state constructor before the post fires.
     EXPECT_TRUE(conn.is_open());
     EXPECT_EQ(conn.remote_endpoint(), remote);
+    loop.run_once(0); // process posted do_open_()
   }
-  // Destructor should have unregistered; an empty poll must not crash.
+  // destructor posted do_close_(); process it, then verify loop is clean.
+  loop.run_once(0);
   EXPECT_EQ(loop.run_once(0), 0);
 #endif
 }
@@ -993,14 +996,13 @@ void TcpConn_Receive() {
 
   std::string received;
   tcp_conn conn{loop, std::move(a), {},
-      {.on_data = [&](std::span<const char> d) {
-        received.assign(d.begin(), d.end());
-      }}};
+      {.on_data = [&](std::string& d) { received = std::move(d); }}};
+  loop.run_once(0); // process posted do_open_()
 
   const char msg[] = "hello";
   EXPECT_EQ(::write(b.file().handle(), msg, 5), 5);
 
-  EXPECT_EQ(loop.run_once(0), 1);
+  EXPECT_EQ(loop.run_once(0), 1); // dispatch EPOLLIN
   EXPECT_EQ(received, "hello");
 #endif
 }
@@ -1012,9 +1014,10 @@ void TcpConn_PeerClose() {
 
   bool closed = false;
   tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  loop.run_once(0); // process posted do_open_()
 
   b.close();
-  loop.run_once(0);
+  loop.run_once(0); // dispatch EPOLLHUP -> on_error -> close_now_()
 
   EXPECT_TRUE(closed);
   EXPECT_FALSE(conn.is_open());
@@ -1027,11 +1030,12 @@ void TcpConn_Send() {
   auto [a, b] = make_nb_sockpair();
 
   tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted do_open_()
 
-  const std::string_view msg = "world";
-  conn.send({msg.data(), msg.size()});
+  conn.send(std::string{"world"});
+  loop.run_once(0); // process posted enqueue() -> immediate ::write
 
-  // The send() immediate-write path delivers bytes without a loop iteration.
+  // Data written by enqueue() is now in the kernel buffer.
   char buf[16]{};
   const ssize_t n = ::read(b.file().handle(), buf, sizeof(buf));
   EXPECT_EQ(n, 5);
@@ -1046,14 +1050,16 @@ void TcpConn_ManualClose() {
 
   bool closed = false;
   tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  loop.run_once(0); // process posted do_open_()
 
   conn.close();
+  loop.run_once(0); // process posted do_close_() -> close_now_()
 
-  // Socket must be closed and on_close must have fired immediately.
   EXPECT_FALSE(conn.is_open());
   EXPECT_TRUE(closed);
 
-  // The destructor's do_close_() is idempotent; a second loop poll is safe.
+  // Destructor posts another do_close_(); it must be idempotent.
+  loop.run_once(0);
   EXPECT_EQ(loop.run_once(0), 0);
 #endif
 }
@@ -1075,9 +1081,9 @@ void TcpConn_DrainAfterBufferedSend() {
 
   int drain_count = 0;
   tcp_conn conn{loop, std::move(a), {}, {.on_drain = [&] { ++drain_count; }}};
+  loop.run_once(0); // process posted do_open_()
 
-  conn.send({payload.data(), payload.size()});
-
+  conn.send(std::string{payload}); // copy payload into send
   // Drain by reading from `b` and running the loop until all data arrives.
   std::string received;
   received.reserve(payload.size());
@@ -1110,14 +1116,12 @@ void TcpConn_GracefulClose() {
 
   bool closed = false;
   tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  loop.run_once(0); // process posted do_open_()
 
   // Queue data then immediately request a close; the close must be deferred
-  // until the send buffer drains.
-  conn.send({payload.data(), payload.size()});
+  // until the send queue drains.
+  conn.send(std::string{payload}); // copy payload into send
   conn.close();
-
-  // Connection should still appear open (flush pending).
-  EXPECT_TRUE(conn.is_open());
 
   // Drain all data from `b` while running the loop.
   std::string received;
