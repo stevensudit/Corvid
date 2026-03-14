@@ -706,6 +706,14 @@ static sockpair_t make_sockpair() {
   if (::socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) return {};
   return {test_socket{fds[0]}, test_socket{fds[1]}};
 }
+// Like `make_sockpair` but both ends are set to non-blocking mode at
+// creation time via `SOCK_NONBLOCK`. Required for use with `tcp_conn`.
+static sockpair_t make_nb_sockpair() {
+  int fds[2];
+  if (::socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, fds) != 0)
+    return {};
+  return {test_socket{fds[0]}, test_socket{fds[1]}};
+}
 #endif
 
 void IoLoop_Lifecycle() {
@@ -962,6 +970,173 @@ void IoLoop_MultipleRegistrations() {
 #endif
 }
 
+void TcpConn_Lifecycle() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  const ip_endpoint remote{ipv4_addr::loopback(), 9999};
+  {
+    tcp_conn conn{loop, std::move(a), remote, {}};
+    EXPECT_TRUE(conn.is_open());
+    EXPECT_EQ(conn.remote_endpoint(), remote);
+  }
+  // Destructor should have unregistered; an empty poll must not crash.
+  EXPECT_EQ(loop.run_once(0), 0);
+#endif
+}
+
+void TcpConn_Receive() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  std::string received;
+  tcp_conn conn{loop, std::move(a), {},
+      {.on_data = [&](std::span<const char> d) {
+        received.assign(d.begin(), d.end());
+      }}};
+
+  const char msg[] = "hello";
+  EXPECT_EQ(::write(b.file().handle(), msg, 5), 5);
+
+  EXPECT_EQ(loop.run_once(0), 1);
+  EXPECT_EQ(received, "hello");
+#endif
+}
+
+void TcpConn_PeerClose() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  bool closed = false;
+  tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+
+  b.close();
+  loop.run_once(0);
+
+  EXPECT_TRUE(closed);
+  EXPECT_FALSE(conn.is_open());
+#endif
+}
+
+void TcpConn_Send() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  tcp_conn conn{loop, std::move(a), {}, {}};
+
+  const std::string_view msg = "world";
+  conn.send({msg.data(), msg.size()});
+
+  // The send() immediate-write path delivers bytes without a loop iteration.
+  char buf[16]{};
+  const ssize_t n = ::read(b.file().handle(), buf, sizeof(buf));
+  EXPECT_EQ(n, 5);
+  EXPECT_EQ(std::string_view(buf, 5), "world");
+#endif
+}
+
+void TcpConn_ManualClose() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  bool closed = false;
+  tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+
+  conn.close();
+
+  // Socket must be closed and on_close must have fired immediately.
+  EXPECT_FALSE(conn.is_open());
+  EXPECT_TRUE(closed);
+
+  // The destructor's do_close_() is idempotent; a second loop poll is safe.
+  EXPECT_EQ(loop.run_once(0), 0);
+#endif
+}
+
+void TcpConn_DrainAfterBufferedSend() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  // Restrict the kernel send buffer so that a large write is partial.
+  // The kernel may round up, but typically honors a small value closely
+  // enough to force at least one EAGAIN before the full payload drains.
+  constexpr int small_buf = 4096;
+  a.set_send_buffer_size(small_buf);
+
+  // Payload larger than the send buffer to reliably exercise the EPOLLOUT
+  // path. 256 KB is large enough on typical Linux systems.
+  const std::string payload(256 * 1024, 'x');
+
+  int drain_count = 0;
+  tcp_conn conn{loop, std::move(a), {}, {.on_drain = [&] { ++drain_count; }}};
+
+  conn.send({payload.data(), payload.size()});
+
+  // Drain by reading from `b` and running the loop until all data arrives.
+  std::string received;
+  received.reserve(payload.size());
+  char tmp[4096];
+  while (received.size() < payload.size()) {
+    loop.run_once(0);
+    ssize_t n;
+    while ((n = ::read(b.file().handle(), tmp, sizeof(tmp))) > 0)
+      received.append(tmp, static_cast<std::size_t>(n));
+  }
+
+  // All bytes must arrive intact.
+  EXPECT_EQ(received.size(), payload.size());
+  EXPECT_EQ(received, payload);
+
+  // `on_drain` must have fired at least once (via the EPOLLOUT path).
+  EXPECT_GE(drain_count, 1);
+#endif
+}
+
+void TcpConn_GracefulClose() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  constexpr int small_buf = 4096;
+  a.set_send_buffer_size(small_buf);
+
+  const std::string payload(64 * 1024, 'z');
+
+  bool closed = false;
+  tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+
+  // Queue data then immediately request a close; the close must be deferred
+  // until the send buffer drains.
+  conn.send({payload.data(), payload.size()});
+  conn.close();
+
+  // Connection should still appear open (flush pending).
+  EXPECT_TRUE(conn.is_open());
+
+  // Drain all data from `b` while running the loop.
+  std::string received;
+  received.reserve(payload.size());
+  char tmp[4096];
+  while (!closed) {
+    loop.run_once(0);
+    ssize_t n;
+    while ((n = ::read(b.file().handle(), tmp, sizeof(tmp))) > 0)
+      received.append(tmp, static_cast<std::size_t>(n));
+  }
+
+  EXPECT_EQ(received.size(), payload.size());
+  EXPECT_EQ(received, payload);
+  EXPECT_TRUE(closed);
+  EXPECT_FALSE(conn.is_open());
+#endif
+}
+
 MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     Ipv4Addr_Comparison, Ipv4Addr_Formatting, Ipv4Addr_PosixInterop,
     Ipv6Addr_Construction, Ipv6Addr_Parse, Ipv6Addr_Classification,
@@ -975,7 +1150,9 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IoLoop_ReadableDispatch, IoLoop_WritableNotFiredByDefault,
     IoLoop_EnableDisableWritable, IoLoop_ErrorFallsThruToReadable,
     IoLoop_ErrorHandler, IoLoop_Post, IoLoop_PostFromCallback, IoLoop_Stop,
-    IoLoop_RemoveFromCallback, IoLoop_MultipleRegistrations);
+    IoLoop_RemoveFromCallback, IoLoop_MultipleRegistrations, TcpConn_Lifecycle,
+    TcpConn_Receive, TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
+    TcpConn_DrainAfterBufferedSend, TcpConn_GracefulClose);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
