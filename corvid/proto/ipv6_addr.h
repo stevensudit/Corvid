@@ -86,7 +86,7 @@ public:
   // IPv4-embedded tails such as `::ffff:192.168.1.1`.
   // Returns `std::nullopt` if the string is not a valid IPv6 address.
   [[nodiscard]] static constexpr std::optional<ipv6_addr> parse(
-      std::string_view s) noexcept {
+      std::string_view s) {
     std::array<uint16_t, 8> groups{};
     std::size_t group_count = 0;
     std::size_t double_colon = 8;
@@ -108,7 +108,7 @@ public:
       auto token_end = pos;
       while (token_end < s.size() && s[token_end] != ':') ++token_end;
       const auto token = s.substr(pos, token_end - pos);
-      if (token.find('.') != std::string_view::npos) {
+      if (token.contains('.')) {
         if (token_end != s.size() || group_count > 6) return std::nullopt;
         const auto ipv4 = ipv4_addr::parse(token);
         if (!ipv4) return std::nullopt;
@@ -192,12 +192,12 @@ public:
 
   // True if this is in fe80::/10.
   [[nodiscard]] constexpr bool is_link_local() const noexcept {
-    return bytes_[0] == 0xfe && (bytes_[1] & 0xc0u) == 0x80u;
+    return bytes_[0] == 0xfe && (bytes_[1] & 0xc0U) == 0x80U;
   }
 
   // True if this is in fc00::/7.
   [[nodiscard]] constexpr bool is_unique_local() const noexcept {
-    return (bytes_[0] & 0xfeu) == 0xfcu;
+    return (bytes_[0] & 0xfeU) == 0xfcU;
   }
 
   [[nodiscard]] friend constexpr auto
@@ -306,7 +306,7 @@ private:
   }
 
   [[nodiscard]] constexpr uint16_t word_at(std::size_t i) const noexcept {
-    return uint16_t((uint16_t(bytes_[2 * i]) << 8) | bytes_[2 * i + 1]);
+    return uint16_t((uint16_t(bytes_[2 * i]) << 8) | bytes_[(2 * i) + 1]);
   }
 
   static constexpr void append_hex_group(std::string& out, uint16_t value) {
@@ -315,7 +315,7 @@ private:
     int len = 0;
 
     do {
-      buffer[len++] = digits[value & 0xfu];
+      buffer[len++] = digits[value & 0xfU];
       value = uint16_t(value >> 4);
     } while (value != 0);
 

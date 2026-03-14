@@ -51,12 +51,12 @@ public:
 
   // The loopback address (127.0.0.1).
   [[nodiscard]] static constexpr ipv4_addr loopback() noexcept {
-    return ipv4_addr{uint32_t{0x7f000001u}};
+    return ipv4_addr{uint32_t{0x7f000001U}};
   }
 
   // The limited broadcast address (255.255.255.255).
   [[nodiscard]] static constexpr ipv4_addr broadcast() noexcept {
-    return ipv4_addr{uint32_t{0xffffffffu}};
+    return ipv4_addr{uint32_t{0xffffffffU}};
   }
 
   // Constructors.
@@ -102,7 +102,7 @@ public:
         return std::nullopt;
       uint32_t octet{};
       while (!s.empty() && s[0] >= '0' && s[0] <= '9') {
-        octet = octet * 10 + uint32_t(s[0] - '0');
+        octet = (octet * 10) + uint32_t(s[0] - '0');
         if (octet > 255) return std::nullopt;
         s.remove_prefix(1);
       }
@@ -130,25 +130,25 @@ public:
 
   // True if this is in the loopback range (127.0.0.0/8).
   [[nodiscard]] constexpr bool is_loopback() const noexcept {
-    return (addr_ >> 24) == 127u;
+    return (addr_ >> 24) == 127U;
   }
 
   // True if this is a multicast address (224.0.0.0/4).
   [[nodiscard]] constexpr bool is_multicast() const noexcept {
-    return (addr_ >> 28) == 0xeu;
+    return (addr_ >> 28) == 0xeU;
   }
 
   // True if this is the limited broadcast address (255.255.255.255).
   [[nodiscard]] constexpr bool is_broadcast() const noexcept {
-    return addr_ == 0xffffffffu;
+    return addr_ == 0xffffffffU;
   }
 
   // True if this is in an RFC 1918 private range:
   //   10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16.
   [[nodiscard]] constexpr bool is_private() const noexcept {
-    return (addr_ & 0xff000000u) == 0x0a000000u ||
-           (addr_ & 0xfff00000u) == 0xac100000u ||
-           (addr_ & 0xffff0000u) == 0xc0a80000u;
+    return (addr_ & 0xff000000U) == 0x0a000000U ||
+           (addr_ & 0xfff00000U) == 0xac100000U ||
+           (addr_ & 0xffff0000U) == 0xc0a80000U;
   }
 
   // Comparison (lexicographic on the host-byte-order value, which is also

@@ -18,13 +18,18 @@
 // Umbrella header for the Corvid proto module.
 //
 // Includes:
-//  ipv4_addr - IPv4 address type with construction, classification, and
-//  formatting
-//  ipv6_addr - IPv6 address type with construction, classification, and
-//  formatting
+//  ipv4_addr   - IPv4 address type with construction, classification, and
+//                formatting
+//  ipv6_addr   - IPv6 address type with construction, classification, and
+//                formatting
 //  ip_endpoint - IP address + port pair for IPv4 or IPv6
 //  ip_socket   - RAII socket handle with type-safe option methods
+//  dns_resolve - thin wrapper around `getaddrinfo` returning a list of
+//                `ip_endpoint` values
+//  io_loop     - single-threaded epoll-based I/O event loop
 #include "proto/ipv4_addr.h"
 #include "proto/ipv6_addr.h"
 #include "proto/ip_endpoint.h"
 #include "proto/ip_socket.h"
+#include "proto/dns_resolve.h"
+#include "proto/io_loop.h"
