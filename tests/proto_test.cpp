@@ -29,6 +29,7 @@ struct test_socket: ip_socket {
 };
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 void Ipv4Addr_Construction() {
   // Default construction yields the "any" address.
@@ -298,7 +299,6 @@ void Ipv6Addr_Parse() {
     EXPECT_EQ(fw[5], 0xFFFFU);
     EXPECT_EQ(fw[6], 0xC0A8U);
     EXPECT_EQ(fw[7], 0x0101U);
-    EXPECT_TRUE(f.has_value());
     auto fb = f->bytes();
     EXPECT_EQ(fb[14], 1U);
     EXPECT_EQ(fb[15], 1U);
@@ -694,8 +694,14 @@ void DnsResolveOne_Failure() {
 
 // Helper: create a connected socketpair and wrap each end in a `test_socket`.
 // Caller must close both sockets when done (RAII via test_socket destructor).
+// Plain struct (not `std::pair`) so structured bindings use direct member
+// access rather than `std::tuple_element<>::type`.
 #ifdef __linux__
-static std::pair<test_socket, test_socket> make_sockpair() {
+struct sockpair_t {
+  test_socket a;
+  test_socket b;
+};
+static sockpair_t make_sockpair() {
   int fds[2];
   if (::socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) return {};
   return {test_socket{fds[0]}, test_socket{fds[1]}};
@@ -721,10 +727,10 @@ void IoLoop_AddRemove() {
   // Adding the same socket again must fail.
   EXPECT_FALSE(loop.add(a, {}));
 
-  EXPECT_TRUE(loop.remove(a));
+  EXPECT_TRUE(loop.unregister(a));
 
   // Removing an unregistered socket must fail.
-  EXPECT_FALSE(loop.remove(a));
+  EXPECT_FALSE(loop.unregister(a));
 #endif
 }
 
@@ -735,8 +741,7 @@ void IoLoop_ReadableDispatch() {
   auto [a, b] = make_sockpair();
 
   int fired = 0;
-  loop.add(a,
-      {.on_readable = [&] { ++fired; }, .on_writable = {}, .on_error = {}});
+  loop.add(a, {.on_readable = [&] { ++fired; }});
 
   const char byte = 'x';
   EXPECT_EQ(::write(b.file().handle(), &byte, 1), 1);
@@ -744,7 +749,7 @@ void IoLoop_ReadableDispatch() {
   EXPECT_EQ(loop.run_once(0), 1);
   EXPECT_EQ(fired, 1);
 
-  loop.remove(a);
+  loop.unregister(a);
 #endif
 }
 
@@ -755,14 +760,13 @@ void IoLoop_WritableNotFiredByDefault() {
   auto [a, b] = make_sockpair();
 
   int fired = 0;
-  loop.add(a,
-      {.on_readable = {}, .on_writable = [&] { ++fired; }, .on_error = {}});
+  loop.add(a, {.on_writable = [&] { ++fired; }});
 
   // EPOLLOUT is not in the initial mask, so on_writable must not fire.
   loop.run_once(0);
   EXPECT_EQ(fired, 0);
 
-  loop.remove(a);
+  loop.unregister(a);
 #endif
 }
 
@@ -773,8 +777,7 @@ void IoLoop_EnableDisableWritable() {
   auto [a, b] = make_sockpair();
 
   int fired = 0;
-  loop.add(a,
-      {.on_readable = {}, .on_writable = [&] { ++fired; }, .on_error = {}});
+  loop.add(a, {.on_writable = [&] { ++fired; }});
 
   // Unix-domain stream sockets are always writable when the buffer is empty.
   EXPECT_TRUE(loop.set_writable(a));
@@ -786,7 +789,7 @@ void IoLoop_EnableDisableWritable() {
   loop.run_once(0);
   EXPECT_EQ(fired, 1);
 
-  loop.remove(a);
+  loop.unregister(a);
 #endif
 }
 
@@ -798,10 +801,7 @@ void IoLoop_ErrorFallsThruToReadable() {
 
   int readable_fired = 0;
   // No on_error; EPOLLHUP must fall through to on_readable.
-  loop.add(a,
-      {.on_readable = [&] { ++readable_fired; },
-          .on_writable = {},
-          .on_error = {}});
+  loop.add(a, {.on_readable = [&] { ++readable_fired; }});
 
   // Closing the write peer triggers EPOLLHUP on `a`.
   b.close();
@@ -809,7 +809,7 @@ void IoLoop_ErrorFallsThruToReadable() {
   loop.run_once(0);
   EXPECT_EQ(readable_fired, 1);
 
-  loop.remove(a);
+  loop.unregister(a);
 #endif
 }
 
@@ -824,7 +824,6 @@ void IoLoop_ErrorHandler() {
   loop.add(a,
       {
           .on_readable = [&] { ++readable_fired; },
-          .on_writable = {},
           .on_error = [&] { ++error_fired; },
       });
 
@@ -836,7 +835,7 @@ void IoLoop_ErrorHandler() {
   EXPECT_EQ(error_fired, 1);
   EXPECT_EQ(readable_fired, 0);
 
-  loop.remove(a);
+  loop.unregister(a);
 #endif
 }
 
@@ -872,8 +871,6 @@ void IoLoop_PostFromCallback() {
                 // it lands in the new post_queue_ after the swap-and-drain.
                 loop.post([&] { ++inner; });
               },
-          .on_writable = {},
-          .on_error = {},
       });
 
   const char byte = 'x';
@@ -886,7 +883,7 @@ void IoLoop_PostFromCallback() {
   loop.run_once(0);
   EXPECT_EQ(inner, 1); // fires on the following iteration
 
-  loop.remove(a);
+  loop.unregister(a);
 #endif
 }
 
@@ -904,8 +901,6 @@ void IoLoop_Stop() {
                 ++fired;
                 loop.stop();
               },
-          .on_writable = {},
-          .on_error = {},
       });
 
   // Write two bytes; the loop should exit after the first dispatch.
@@ -915,7 +910,7 @@ void IoLoop_Stop() {
   loop.run(0);
   EXPECT_EQ(fired, 1);
 
-  loop.remove(a);
+  loop.unregister(a);
 #endif
 }
 
@@ -929,19 +924,16 @@ void IoLoop_RemoveFromCallback() {
   auto [c, d] = make_sockpair();
   loop.add(c, {});
 
-  loop.add(a,
-      {.on_readable = [&] { loop.remove(c); },
-          .on_writable = {},
-          .on_error = {}});
+  loop.add(a, {.on_readable = [&] { loop.unregister(c); }});
 
   const char byte = 'x';
   EXPECT_EQ(::write(b.file().handle(), &byte, 1), 1);
   loop.run_once(0);
 
   // `c` should no longer be registered.
-  EXPECT_FALSE(loop.remove(c));
+  EXPECT_FALSE(loop.unregister(c));
 
-  loop.remove(a);
+  loop.unregister(a);
 #endif
 }
 
@@ -954,10 +946,8 @@ void IoLoop_MultipleRegistrations() {
 
   int a_fired = 0;
   int c_fired = 0;
-  loop.add(a,
-      {.on_readable = [&] { ++a_fired; }, .on_writable = {}, .on_error = {}});
-  loop.add(c,
-      {.on_readable = [&] { ++c_fired; }, .on_writable = {}, .on_error = {}});
+  loop.add(a, {.on_readable = [&] { ++a_fired; }});
+  loop.add(c, {.on_readable = [&] { ++c_fired; }});
 
   // Only write to `b`; only `a` should become readable.
   const char byte = 'x';
@@ -967,8 +957,8 @@ void IoLoop_MultipleRegistrations() {
   EXPECT_EQ(a_fired, 1);
   EXPECT_EQ(c_fired, 0);
 
-  loop.remove(a);
-  loop.remove(c);
+  loop.unregister(a);
+  loop.unregister(c);
 #endif
 }
 
@@ -987,4 +977,5 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IoLoop_ErrorHandler, IoLoop_Post, IoLoop_PostFromCallback, IoLoop_Stop,
     IoLoop_RemoveFromCallback, IoLoop_MultipleRegistrations);
 
+// NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

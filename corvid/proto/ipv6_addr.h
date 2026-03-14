@@ -90,65 +90,11 @@ public:
     std::array<uint16_t, 8> groups{};
     std::size_t group_count = 0;
     std::size_t double_colon = 8;
-    std::size_t pos = 0;
 
-    if (s.empty()) return std::nullopt;
-
-    while (pos < s.size()) {
-      if (s[pos] == ':') {
-        if (pos + 1 >= s.size() || s[pos + 1] != ':' || double_colon != 8)
-          return std::nullopt;
-        double_colon = group_count;
-        pos += 2;
-        if (pos == s.size()) break;
-        continue;
-      }
-
-      if (group_count == 8) return std::nullopt;
-      auto token_end = pos;
-      while (token_end < s.size() && s[token_end] != ':') ++token_end;
-      const auto token = s.substr(pos, token_end - pos);
-      if (token.contains('.')) {
-        if (token_end != s.size() || group_count > 6) return std::nullopt;
-        const auto ipv4 = ipv4_addr::parse(token);
-        if (!ipv4) return std::nullopt;
-        const auto octets = ipv4->octets();
-        groups[group_count++] =
-            uint16_t((uint16_t(octets[0]) << 8) | uint16_t(octets[1]));
-        groups[group_count++] =
-            uint16_t((uint16_t(octets[2]) << 8) | uint16_t(octets[3]));
-        pos = token_end;
-        break;
-      }
-
-      const auto group = parse_group(s, pos);
-      if (!group) return std::nullopt;
-      groups[group_count++] = *group;
-
-      if (pos == s.size()) break;
-      if (s[pos] != ':') return std::nullopt;
-      if (pos + 1 < s.size() && s[pos + 1] == ':') {
-        if (double_colon != 8) return std::nullopt;
-        double_colon = group_count;
-        pos += 2;
-        if (pos == s.size()) break;
-      } else {
-        ++pos;
-        if (pos == s.size()) return std::nullopt;
-      }
-    }
-
-    if (double_colon == 8) {
-      if (group_count != 8) return std::nullopt;
-    } else {
-      if (group_count == 8) return std::nullopt;
-      const auto zeros = 8 - group_count;
-      for (std::size_t i = group_count; i > double_colon; --i)
-        groups[i + zeros - 1] = groups[i - 1];
-      for (std::size_t i = 0; i < zeros; ++i) groups[double_colon + i] = 0;
-    }
-
-    if (group_count > 8) return std::nullopt;
+    if (!parse_groups_loop(s, groups, group_count, double_colon))
+      return std::nullopt;
+    if (!finalize_groups(groups, group_count, double_colon))
+      return std::nullopt;
 
     return ipv6_addr{groups_to_bytes(groups)};
   }
@@ -269,6 +215,115 @@ public:
 #endif
 
 private:
+  // Parse the IPv4-embedded tail token (e.g., `192.168.1.1`) and append two
+  // 16-bit groups to `groups`, advancing `group_count`. Returns false if
+  // `group_count > 6` or the token is not a valid IPv4 address.
+  [[nodiscard]] static constexpr bool
+  append_ipv4_groups(std::string_view token, std::array<uint16_t, 8>& groups,
+      std::size_t& group_count) noexcept {
+    if (group_count > 6) return false;
+    const auto ipv4 = ipv4_addr::parse(token);
+    if (!ipv4) return false;
+    const auto octets = ipv4->octets();
+    groups[group_count++] =
+        uint16_t((uint16_t(octets[0]) << 8) | uint16_t(octets[1]));
+    groups[group_count++] =
+        uint16_t((uint16_t(octets[2]) << 8) | uint16_t(octets[3]));
+    return true;
+  }
+
+  // Validate and consume the `::` that starts at `s[pos]`. Updates `pos` and
+  // `double_colon`. Returns false if `::` is malformed or a second `::`
+  // appears.
+  [[nodiscard]] static constexpr bool advance_double_colon(std::string_view s,
+      std::size_t& pos, std::size_t group_count,
+      std::size_t& double_colon) noexcept {
+    if (pos + 1 >= s.size() || s[pos + 1] != ':' || double_colon != 8)
+      return false;
+    double_colon = group_count;
+    pos += 2;
+    return true;
+  }
+
+  // Consume the separator that follows a parsed hex group. Returns `nullopt`
+  // on error (bad char, second `::`, trailing `:`), `false` when the string
+  // is exhausted (caller should break), `true` to continue parsing groups.
+  [[nodiscard]] static constexpr std::optional<bool>
+  consume_separator(std::string_view s, std::size_t& pos,
+      std::size_t group_count, std::size_t& double_colon) noexcept {
+    if (pos == s.size()) return false;
+    if (s[pos] != ':') return std::nullopt;
+    if (pos + 1 < s.size() && s[pos + 1] == ':') {
+      if (double_colon != 8) return std::nullopt;
+      double_colon = group_count;
+      pos += 2;
+      return pos < s.size();
+    }
+    ++pos;
+    if (pos == s.size()) return std::nullopt;
+    return true;
+  }
+
+  // Parse one non-colon item (hex group or IPv4-embedded tail) at `s[pos]`,
+  // append it to `groups`, then consume the following separator. Returns
+  // `nullopt` on error, `false` when parsing is complete, `true` to continue.
+  [[nodiscard]] static constexpr std::optional<bool> parse_one_item(
+      std::string_view s, std::size_t& pos, std::array<uint16_t, 8>& groups,
+      std::size_t& group_count, std::size_t& double_colon) {
+    if (group_count == 8) return std::nullopt;
+    auto token_end = pos;
+    while (token_end < s.size() && s[token_end] != ':') ++token_end;
+    const auto token = s.substr(pos, token_end - pos);
+    if (token.contains('.')) {
+      if (token_end != s.size()) return std::nullopt;
+      if (!append_ipv4_groups(token, groups, group_count)) return std::nullopt;
+      pos = token_end;
+      return false;
+    }
+    const auto group = parse_group(s, pos);
+    if (!group) return std::nullopt;
+    groups[group_count++] = *group;
+    return consume_separator(s, pos, group_count, double_colon);
+  }
+
+  // Scan `s` and fill `groups[0..group_count)`, recording the `::` insertion
+  // point in `double_colon` (value 8 means no `::` was seen). Returns false
+  // on any syntax error.
+  [[nodiscard]] static constexpr bool parse_groups_loop(std::string_view s,
+      std::array<uint16_t, 8>& groups, std::size_t& group_count,
+      std::size_t& double_colon) {
+    if (s.empty()) return false;
+    std::size_t pos = 0;
+    while (pos < s.size()) {
+      if (s[pos] == ':') {
+        if (!advance_double_colon(s, pos, group_count, double_colon))
+          return false;
+        if (pos == s.size()) break;
+        continue;
+      }
+      const auto result =
+          parse_one_item(s, pos, groups, group_count, double_colon);
+      if (!result) return false;
+      if (!*result) break;
+    }
+    return true;
+  }
+
+  // Validate the group count and expand the `::` zero-run in `groups` in
+  // place. `double_colon` is the insertion index, or 8 if no `::` was seen.
+  // Returns false if the total group count is inconsistent.
+  [[nodiscard]] static constexpr bool
+  finalize_groups(std::array<uint16_t, 8>& groups, std::size_t group_count,
+      std::size_t double_colon) noexcept {
+    if (double_colon == 8) return group_count == 8;
+    if (group_count == 8) return false;
+    const auto zeros = 8 - group_count;
+    for (std::size_t i = group_count; i > double_colon; --i)
+      groups[i + zeros - 1] = groups[i - 1];
+    for (std::size_t i = 0; i < zeros; ++i) groups[double_colon + i] = 0;
+    return true;
+  }
+
   [[nodiscard]] static constexpr bool is_hex_digit(char c) noexcept {
     return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
            (c >= 'A' && c <= 'F');

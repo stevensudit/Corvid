@@ -50,9 +50,9 @@ namespace corvid { inline namespace proto {
 //                   falls through to `on_readable` so the read path can
 //                   observe the error or EOF naturally.
 struct io_handlers {
-  std::function<void()> on_readable;
-  std::function<void()> on_writable;
-  std::function<void()> on_error;
+  std::function<void()> on_readable = nullptr;
+  std::function<void()> on_writable = nullptr;
+  std::function<void()> on_error = nullptr;
 };
 
 // `epoll`-based I/O event loop, safe for use with a background thread.
@@ -151,7 +151,7 @@ public:
 
   // Unregister `sock`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. Must run on the loop thread; use `post()` otherwise.
-  bool remove(const ip_socket& sock) {
+  bool unregister(const ip_socket& sock) {
 #ifdef __linux__
     const int fd = sock.file().handle();
     if (!registrations_.contains(fd)) return false;
@@ -218,18 +218,7 @@ public:
   // first. Returns the number of I/O events dispatched, or -1 on error.
   int run_once(int timeout_ms = -1) {
 #ifdef __linux__
-    // Drain the post queue before blocking. Swap-and-drain under the mutex
-    // so that post() from another thread is safe. Callbacks posted from
-    // within a drained callback land in the new post_queue_ and run on the
-    // next iteration.
-    {
-      std::vector<std::function<void()>> pending;
-      {
-        std::scoped_lock lock{post_mutex_};
-        pending.swap(post_queue_);
-      }
-      for (auto& fn : pending) fn();
-    }
+    drain_post_queue();
 
     epoll_event events[max_events];
     const int n =
@@ -248,30 +237,7 @@ public:
       }
 
       ++dispatched;
-      const uint32_t ev = events[i].events;
-
-      // Re-look up after each callback: a callback may call remove() or add().
-      const auto it = registrations_.find(fd);
-      if (it == registrations_.end()) continue;
-
-      if (ev & (EPOLLERR | EPOLLHUP)) {
-        if (it->second.handlers.on_error)
-          it->second.handlers.on_error();
-        else if (const auto jt = registrations_.find(fd);
-            jt != registrations_.end() && jt->second.handlers.on_readable)
-          jt->second.handlers.on_readable();
-        continue;
-      }
-      if (ev & EPOLLIN) {
-        if (const auto jt = registrations_.find(fd);
-            jt != registrations_.end() && jt->second.handlers.on_readable)
-          jt->second.handlers.on_readable();
-      }
-      if (ev & EPOLLOUT) {
-        if (const auto jt = registrations_.find(fd);
-            jt != registrations_.end() && jt->second.handlers.on_writable)
-          jt->second.handlers.on_writable();
-      }
+      dispatch_event(fd, events[i].events);
     }
 
     return dispatched;
@@ -295,6 +261,50 @@ private:
     uint32_t events;
     io_handlers handlers;
   };
+
+  // Swap-and-drain `post_queue_` under the mutex, then invoke each callback.
+  // Callbacks posted from within a drained callback land in the new
+  // `post_queue_` and run on the next iteration.
+  void drain_post_queue() {
+    std::vector<std::function<void()>> pending;
+    {
+      std::scoped_lock lock{post_mutex_};
+      pending.swap(post_queue_);
+    }
+    for (auto& fn : pending) fn();
+  }
+
+  // Dispatch a single epoll event for `fd` with event mask `ev`. Re-looks up
+  // the registration before each callback because a callback may call
+  // `remove()` or `add()`.
+  void dispatch_event(int fd, uint32_t ev) {
+#ifdef __linux__
+    const auto it = registrations_.find(fd);
+    if (it == registrations_.end()) return;
+
+    if (ev & (EPOLLERR | EPOLLHUP)) {
+      if (it->second.handlers.on_error)
+        it->second.handlers.on_error();
+      else if (const auto jt = registrations_.find(fd);
+          jt != registrations_.end() && jt->second.handlers.on_readable)
+        jt->second.handlers.on_readable();
+      return;
+    }
+    if (ev & EPOLLIN) {
+      if (const auto jt = registrations_.find(fd);
+          jt != registrations_.end() && jt->second.handlers.on_readable)
+        jt->second.handlers.on_readable();
+    }
+    if (ev & EPOLLOUT) {
+      if (const auto jt = registrations_.find(fd);
+          jt != registrations_.end() && jt->second.handlers.on_writable)
+        jt->second.handlers.on_writable();
+    }
+#else
+    (void)fd;
+    (void)ev;
+#endif
+  }
 
   // Write to `wake_fd_` to interrupt a sleeping `epoll_wait`. Idempotent and
   // safe to call from any thread.
