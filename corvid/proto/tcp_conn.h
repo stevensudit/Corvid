@@ -18,6 +18,7 @@
 #include <atomic>
 #include <cassert>
 #include <cerrno>
+#include <coroutine>
 #include <cstddef>
 #include <deque>
 #include <functional>
@@ -30,6 +31,7 @@
 #endif
 
 #include "io_loop.h"
+#include "loop_task.h"
 #include "ip_endpoint.h"
 #include "../strings/no_zero.h"
 
@@ -152,6 +154,31 @@ public:
     loop.post([p = state_] { p->do_close(); });
   }
 
+  // Return an awaitable that suspends the calling coroutine until one batch
+  // of data arrives or the connection closes. Returns the received bytes as a
+  // `std::string`; an empty string signals that the connection was already
+  // closed or closed before data arrived. The caller should check
+  // `is_open()` to distinguish a closed connection from a zero-byte read.
+  //
+  // At most one `async_read` may be outstanding at a time.
+  // Must be awaited from the loop thread (e.g., inside a `loop_task`
+  // coroutine spawned from a loop callback or `post()`'d function).
+  [[nodiscard]] auto async_read() noexcept {
+    return state::async_read_awaitable{state_.get()};
+  }
+
+  // Return an awaitable that takes ownership of `buf`, enqueues it for
+  // sending, and suspends the calling coroutine until the send queue fully
+  // drains (or the connection closes). If `buf` is written synchronously
+  // without queuing, the coroutine resumes immediately without a loop
+  // round-trip.
+  //
+  // At most one `async_send` may be outstanding at a time.
+  // Must be awaited from the loop thread.
+  [[nodiscard]] auto async_send(std::string&& buf) noexcept {
+    return state::async_send_awaitable{state_.get(), std::move(buf)};
+  }
+
 private:
   // Internal state. Inherits from `io_conn` so it can be registered directly
   // with the loop, eliminating the separate lambda/handler allocation used
@@ -190,6 +217,21 @@ private:
     // `do_flush_send_buf()` to call `do_close_now()` after the queue drains.
     bool closing_ = false;
 
+    // Coroutine handle registered by `async_read_awaitable::await_suspend`.
+    // Cleared and resumed (via `loop_.post`) by `handle_readable()` when data
+    // arrives, or by `do_close_now()` when the connection closes.
+    std::coroutine_handle<> pending_read_{};
+
+    // Buffer where `handle_readable()` deposits received bytes before
+    // resuming a coroutine waiting in `async_read()`. Moved into by
+    // `handle_readable`, moved out of by `async_read_awaitable::await_resume`.
+    std::string pending_read_data_;
+
+    // Coroutine handle registered by `async_send_awaitable::await_suspend`.
+    // Cleared and resumed (via `loop_.post`) by `do_flush_send_buf()` when
+    // the send queue empties, or by `do_close_now()`.
+    std::coroutine_handle<> pending_drain_{};
+
     explicit state(io_loop& loop, ip_socket&& sock, const ip_endpoint& remote,
         tcp_conn_handlers&& h, size_t rbs) noexcept
         : loop_{loop}, sock_{std::move(sock)}, remote_{remote},
@@ -222,8 +264,14 @@ private:
         return false;
       }
 
-      if (!recv_buf_.empty() && handlers_.on_data)
-        handlers_.on_data(recv_buf_);
+      if (!recv_buf_.empty()) {
+        if (pending_read_) {
+          pending_read_data_ = std::move(recv_buf_);
+          loop_.post([h = std::exchange(pending_read_, {})] { h.resume(); });
+        } else if (handlers_.on_data) {
+          handlers_.on_data(recv_buf_);
+        }
+      }
 #endif
       return true;
     }
@@ -307,7 +355,11 @@ private:
       }
 
       // Inform the user that the queue is fully drained.
-      if (handlers_.on_drain) handlers_.on_drain();
+      if (pending_drain_) {
+        loop_.post([h = std::exchange(pending_drain_, {})] { h.resume(); });
+      } else if (handlers_.on_drain) {
+        handlers_.on_drain();
+      }
 #endif
       return true;
     }
@@ -328,8 +380,93 @@ private:
       send_queue_.clear();
       head_span_ = {};
       closing_ = false;
+      // Resume any suspended coroutines so they can observe the closed
+      // state. Both handles are posted (not resumed directly) so that any
+      // in-progress `await_suspend` on the call stack has already returned
+      // before the coroutine continues. This prevents use-after-free of the
+      // coroutine frame when `do_close_now` is triggered from within
+      // `enqueue_send` -> `await_suspend`.
+      if (pending_read_)
+        loop_.post([h = std::exchange(pending_read_, {})] { h.resume(); });
+      if (pending_drain_)
+        loop_.post([h = std::exchange(pending_drain_, {})] { h.resume(); });
       if (handlers_.on_close) handlers_.on_close();
     }
+
+    // Awaitable returned by `tcp_conn::async_read()`. Suspends the calling
+    // coroutine until one batch of data arrives or the connection closes.
+    // `await_resume()` returns the received bytes (moved out of
+    // `pending_read_data_`); an empty string means the connection was already
+    // closed when `co_await` was evaluated, or it closed before data arrived.
+    //
+    // At most one `async_read` may be pending at a time. Must be awaited on
+    // the loop thread.
+    struct async_read_awaitable {
+      state* s_;
+
+      // Skip suspension if the connection is already closed; there will be
+      // no future `handle_readable` to resume us.
+      [[nodiscard]] bool await_ready() const noexcept {
+        return !s_->open_.load(std::memory_order_relaxed);
+      }
+
+      void await_suspend(std::coroutine_handle<> h) noexcept {
+        s_->pending_read_ = h;
+      }
+
+      [[nodiscard]] std::string await_resume() noexcept {
+        return std::move(s_->pending_read_data_);
+      }
+    };
+
+    // Awaitable returned by `tcp_conn::async_send(std::string)`. Passes
+    // ownership of `buf` to the send path and suspends the calling coroutine
+    // until the send queue fully drains (or the connection closes).
+    //
+    // `pending_drain_` is set BEFORE `enqueue_send()` is called so that if
+    // `enqueue_send` triggers `do_close_now` (write error), `do_close_now`
+    // can clear the handle and post the resume before `await_suspend` returns.
+    // `await_suspend` then sees `pending_drain_` as null and returns `true`
+    // (stay suspended), which is correct: the resume was already posted.
+    //
+    // If `enqueue_send` writes all bytes synchronously (queue stays empty),
+    // `await_suspend` clears `pending_drain_` and returns `false` to cancel
+    // suspension, resuming the coroutine inline without posting.
+    //
+    // At most one `async_send` may be pending at a time. Must be awaited on
+    // the loop thread.
+    struct async_send_awaitable {
+      state* s_;
+      std::string buf_;
+
+      [[nodiscard]] bool await_ready() const noexcept { return false; }
+
+      // Returns `false` to cancel suspension (immediate resume) when the
+      // write completed synchronously. Returns `true` to stay suspended in
+      // all other cases (queued for drain, or already-posted close resume).
+      bool await_suspend(std::coroutine_handle<> h) noexcept {
+        s_->pending_drain_ = h;
+        s_->enqueue_send(std::move(buf_));
+
+        // Case 1: `do_close_now` fired inside `enqueue_send`; it already
+        // cleared `pending_drain_` and posted `h.resume()`. Stay suspended.
+        if (!s_->pending_drain_) return true;
+
+        // Case 2: Write completed synchronously: queue is still empty.
+        // Cancel suspension so the coroutine resumes without a round-trip
+        // through the loop.
+        if (s_->send_queue_.empty()) {
+          s_->pending_drain_ = {};
+          return false;
+        }
+
+        // Case 3: Data was queued; `EPOLLOUT` will drive `do_flush_send_buf`
+        // which will post the resume when the queue drains.
+        return true;
+      }
+
+      void await_resume() noexcept {}
+    };
   };
 
   std::shared_ptr<state> state_;

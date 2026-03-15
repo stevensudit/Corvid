@@ -1141,6 +1141,110 @@ void TcpConn_GracefulClose() {
 #endif
 }
 
+// Coroutine tests.
+
+// Verify that a `loop_task` coroutine body executes eagerly and that the
+// frame is self-destroyed (i.e., no handle is needed to drive it).
+void LoopTask_FireAndForget() {
+  int counter = 0;
+  auto coro = [&]() -> loop_task {
+    ++counter;
+    co_return;
+  };
+  coro(); // starts and finishes synchronously; frame self-destructs
+  EXPECT_EQ(counter, 1);
+}
+
+// Verify that `async_read` delivers data to a coroutine.
+void TcpConn_AsyncRead() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  std::string received;
+  bool done = false;
+
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  auto coro = [&]() -> loop_task {
+    received = co_await conn.async_read();
+    done = true;
+  };
+  coro(); // starts eagerly; suspends at async_read (no data yet)
+
+  const char msg[] = "hello";
+  EXPECT_EQ(::write(b.file().handle(), msg, 5), 5);
+
+  loop.run_once(0); // dispatch EPOLLIN -> posts resume
+  loop.run_once(0); // drain post queue -> coroutine resumes
+
+  EXPECT_TRUE(done);
+  EXPECT_EQ(received, "hello");
+#endif
+}
+
+// Verify that `async_read` returns an empty string when the peer closes
+// the connection before data arrives.
+void TcpConn_AsyncRead_PeerClose() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  std::string received{"sentinel"};
+  bool done = false;
+
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  auto coro = [&]() -> loop_task {
+    received = co_await conn.async_read();
+    done = true;
+  };
+  coro(); // starts eagerly; suspends at async_read
+
+  b.close(); // trigger EPOLLHUP/EOF on `a`
+
+  loop.run_once(0); // dispatch EPOLLHUP -> do_close_now -> posts resume
+  loop.run_once(0); // drain post queue -> coroutine resumes
+
+  EXPECT_TRUE(done);
+  EXPECT_TRUE(received.empty()); // close delivers empty data
+  EXPECT_FALSE(conn.is_open());
+#endif
+}
+
+// Verify that `async_send` delivers bytes to the peer and suspends until
+// the queue drains.
+void TcpConn_AsyncSend() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  bool sent = false;
+
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  auto coro = [&]() -> loop_task {
+    co_await conn.async_send("world");
+    sent = true;
+  };
+  coro(); // starts eagerly; write likely completes synchronously
+
+  // If the write was synchronous, `sent` is already true after one
+  // run_once (for the register post). Otherwise pump the loop to drain.
+  for (int i = 0; i < 4 && !sent; ++i) loop.run_once(0);
+
+  EXPECT_TRUE(sent);
+
+  char buf[16]{};
+  const ssize_t n = ::read(b.file().handle(), buf, sizeof(buf));
+  EXPECT_EQ(n, 5);
+  EXPECT_EQ(std::string_view(buf, 5), "world");
+#endif
+}
+
 MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     Ipv4Addr_Comparison, Ipv4Addr_Formatting, Ipv4Addr_PosixInterop,
     Ipv6Addr_Construction, Ipv6Addr_Parse, Ipv6Addr_Classification,
@@ -1156,7 +1260,9 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IoLoop_ErrorHandler, IoLoop_Post, IoLoop_PostFromCallback, IoLoop_Stop,
     IoLoop_RemoveFromCallback, IoLoop_MultipleRegistrations, TcpConn_Lifecycle,
     TcpConn_Receive, TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
-    TcpConn_DrainAfterBufferedSend, TcpConn_GracefulClose);
+    TcpConn_DrainAfterBufferedSend, TcpConn_GracefulClose,
+    LoopTask_FireAndForget, TcpConn_AsyncRead, TcpConn_AsyncRead_PeerClose,
+    TcpConn_AsyncSend);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
