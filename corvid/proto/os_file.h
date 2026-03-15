@@ -174,9 +174,11 @@ public:
     return ::fcntl(handle_, cmd, std::forward<Args>(args)...);
   }
 
-  // Return the fd status flags via `fcntl(F_GETFL)`. Returns -1 on failure.
-  // TODO: Fix the API to return bool.
-  [[nodiscard]] int get_flags() const noexcept { return control(F_GETFL); }
+  // Return the fd status flags via `fcntl(F_GETFL)`.
+  [[nodiscard]] std::optional<int> get_flags() const noexcept {
+    const auto res = control(F_GETFL);
+    return res == -1 ? std::optional<int>{} : std::optional<int>{res};
+  }
 
   // Set the fd status flags via `fcntl(F_SETFL)`. Returns false on failure.
   [[nodiscard]] bool set_flags(int flags) const noexcept {
@@ -185,9 +187,9 @@ public:
 
   // Enable or disable non-blocking I/O via `fcntl(F_SETFL, O_NONBLOCK)`.
   [[nodiscard]] bool set_nonblocking(bool on = true) const noexcept {
-    const int flags = get_flags();
-    if (flags < 0) return false;
-    const int new_flags = on ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
+    const auto flags = get_flags();
+    if (!flags) return false;
+    const int new_flags = on ? (*flags | O_NONBLOCK) : (*flags & ~O_NONBLOCK);
     return set_flags(new_flags);
   }
 #endif

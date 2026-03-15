@@ -58,8 +58,7 @@ returns the first result as an `ip_endpoint`, or a default-constructed
 
 ### `io_loop`
 
-`epoll`-based I/O event loop. `add(sock, io_handlers)` registers a socket
-with readable/writable/error callbacks; `register_socket(sock, shared_ptr<io_conn>)`
+`epoll`-based I/O event loop. `register_socket(sock, shared_ptr<io_conn>)`
 accepts a pre-built `io_conn` object (used by `tcp_conn` to eliminate a
 separate allocation). `set_writable(sock, bool)` toggles `EPOLLOUT` without
 disturbing stored handlers -- call it only while the send buffer is

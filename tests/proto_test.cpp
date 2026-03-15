@@ -603,10 +603,10 @@ void IpSocket_Nonblocking() {
     test_socket s{AF_INET, SOCK_STREAM, 0};
 
     EXPECT_TRUE(s.file().set_nonblocking(true));
-    EXPECT_TRUE(s.file().get_flags() & O_NONBLOCK);
+    EXPECT_TRUE(s.file().get_flags().value_or(0) & O_NONBLOCK);
 
     EXPECT_TRUE(s.file().set_nonblocking(false));
-    EXPECT_FALSE(s.file().get_flags() & O_NONBLOCK);
+    EXPECT_FALSE(s.file().get_flags().value_or(0) & O_NONBLOCK);
   }
 #endif
 }

@@ -98,11 +98,13 @@ public:
   // Construct a connection from `sock` (must already be non-blocking) and post
   // its registration with `loop`. `remote` records the peer address for
   // diagnostics. May be called from any thread.
+  // TODO: This should take a `tcp_socket` or we should get rid of the idea of
+  // a `tcp_socket` entirely. Perhaps all we have are `ip_socket`s, and it's
+  // the `*_conn` that specifies TCP or UDP.
   explicit tcp_conn(io_loop& loop, ip_socket&& sock, const ip_endpoint& remote,
       tcp_conn_handlers&& h, size_t recv_buf_size = default_recv_buf_size) {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
-    assert(sock.file().get_flags() >= 0 &&
-           (sock.file().get_flags() & O_NONBLOCK) != 0);
+    assert((sock.file().get_flags().value_or(0) & O_NONBLOCK) != 0);
 #endif
     state_ = std::make_shared<state>(loop, std::move(sock), remote,
         std::move(h), recv_buf_size);
