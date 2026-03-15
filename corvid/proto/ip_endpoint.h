@@ -187,7 +187,7 @@ public:
       auto v6addr = sockaddr_in6{};
       v6addr.sin6_family = AF_INET6;
       v6addr.sin6_port = htons(port_);
-      v6addr.sin6_addr = v6()->to_in6_addr();
+      v6addr.sin6_addr = addr->to_in6_addr();
       *reinterpret_cast<sockaddr_in6*>(&out) = v6addr;
     } else {
       // Leave `out` zero-initialized, which is not a valid address but is

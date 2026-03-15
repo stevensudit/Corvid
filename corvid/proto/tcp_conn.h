@@ -117,11 +117,14 @@ public:
 
   // Posts a graceful close to the loop. Safe to call from any thread.
   // TODO: Consider whether the destructor should instead do a forceful close.
+  // That would avoid the allocation nonsense.
+  // NOLINTBEGIN(bugprone-exception-escape)
   ~tcp_conn() {
     if (!state_) return;
     auto& loop = state_->loop_;
     loop.post([p = std::move(state_)] { p->do_close(); });
   }
+  // NOLINTEND(bugprone-exception-escape)
 
   // True if the connection has not yet been closed.
   [[nodiscard]] bool is_open() const noexcept {
@@ -220,7 +223,7 @@ private:
     // Coroutine handle registered by `async_read_awaitable::await_suspend`.
     // Cleared and resumed (via `loop_.post`) by `handle_readable()` when data
     // arrives, or by `do_close_now()` when the connection closes.
-    std::coroutine_handle<> pending_read_{};
+    std::coroutine_handle<> pending_read_;
 
     // Buffer where `handle_readable()` deposits received bytes before
     // resuming a coroutine waiting in `async_read()`. Moved into by
@@ -230,7 +233,7 @@ private:
     // Coroutine handle registered by `async_send_awaitable::await_suspend`.
     // Cleared and resumed (via `loop_.post`) by `do_flush_send_buf()` when
     // the send queue empties, or by `do_close_now()`.
-    std::coroutine_handle<> pending_drain_{};
+    std::coroutine_handle<> pending_drain_;
 
     explicit state(io_loop& loop, ip_socket&& sock, const ip_endpoint& remote,
         tcp_conn_handlers&& h, size_t rbs) noexcept
@@ -410,11 +413,11 @@ private:
         return !s_->open_.load(std::memory_order_relaxed);
       }
 
-      void await_suspend(std::coroutine_handle<> h) noexcept {
+      void await_suspend(std::coroutine_handle<> h) const noexcept {
         s_->pending_read_ = h;
       }
 
-      [[nodiscard]] std::string await_resume() noexcept {
+      [[nodiscard]] std::string await_resume() const noexcept {
         return std::move(s_->pending_read_data_);
       }
     };
@@ -435,6 +438,7 @@ private:
     //
     // At most one `async_send` may be pending at a time. Must be awaited on
     // the loop thread.
+    // NOLINTBEGIN(readability-convert-member-functions-to-static)
     struct async_send_awaitable {
       state* s_;
       std::string buf_;
@@ -444,7 +448,7 @@ private:
       // Returns `false` to cancel suspension (immediate resume) when the
       // write completed synchronously. Returns `true` to stay suspended in
       // all other cases (queued for drain, or already-posted close resume).
-      bool await_suspend(std::coroutine_handle<> h) noexcept {
+      bool await_suspend(std::coroutine_handle<> h) {
         s_->pending_drain_ = h;
         s_->enqueue_send(std::move(buf_));
 
@@ -467,6 +471,7 @@ private:
 
       void await_resume() noexcept {}
     };
+    // NOLINTEND(readability-convert-member-functions-to-static)
   };
 
   std::shared_ptr<state> state_;

@@ -238,7 +238,7 @@ public:
 
   // Signal the loop to exit after the current dispatch round completes.
   // Safe to call from any thread.
-  void stop() noexcept {
+  void stop() {
     running_ = false;
     wake();
   }
@@ -328,7 +328,7 @@ private:
 
   // Write to `wake_fd_` to interrupt a sleeping `epoll_wait`. Idempotent and
   // safe to call from any thread.
-  void wake() noexcept {
+  void wake() {
     // `eventfd` expects an 8-byte write; the value is ignored.
     std::string buf{"12345678"};
     std::string_view val{buf};

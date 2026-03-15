@@ -116,8 +116,10 @@ public:
     if (n <= 0) return !is_hard_error();
 
     data.remove_prefix(static_cast<size_t>(n));
-    return true;
+#else
+    (void)data;
 #endif
+    return true;
   }
 
   // Read up to `data.size()` bytes from the file into `data`. Use

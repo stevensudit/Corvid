@@ -1077,7 +1077,7 @@ void TcpConn_DrainAfterBufferedSend() {
 
   // Payload larger than the send buffer to reliably exercise the EPOLLOUT
   // path. 256 KB is large enough on typical Linux systems.
-  const std::string payload(256 * 1024, 'x');
+  const std::string payload(256ULL * 1024ULL, 'x');
 
   int drain_count = 0;
   tcp_conn conn{loop, std::move(a), {}, {.on_drain = [&] { ++drain_count; }}};
@@ -1112,7 +1112,7 @@ void TcpConn_GracefulClose() {
   constexpr int small_buf = 4096;
   a.set_send_buffer_size(small_buf);
 
-  const std::string payload(64 * 1024, 'z');
+  const std::string payload(64ULL * 1024ULL, 'z');
 
   bool closed = false;
   tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};

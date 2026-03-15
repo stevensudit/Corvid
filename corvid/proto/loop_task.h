@@ -49,6 +49,7 @@ namespace corvid { inline namespace proto {
 //   // subsequent coroutine resumptions stay on the loop thread:
 //   on_accept = [](tcp_conn conn) { handle_conn(std::move(conn)); };
 //
+// NOLINTBEGIN(readability-convert-member-functions-to-static)
 struct loop_task {
   struct promise_type {
     loop_task get_return_object() noexcept { return {}; }
@@ -58,5 +59,6 @@ struct loop_task {
     void unhandled_exception() noexcept { std::terminate(); }
   };
 };
+// NOLINTEND(readability-convert-member-functions-to-static)
 
 }} // namespace corvid::proto
