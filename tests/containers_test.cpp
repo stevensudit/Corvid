@@ -1818,6 +1818,52 @@ void EnumVector_Basic() {
   EXPECT_TRUE(v.empty());
 }
 
+void ScopedValue_Basic() {
+  if (true) {
+    int x = 1;
+    {
+      scoped_value sv{x, 42};
+      EXPECT_EQ(x, 42);
+    }
+    EXPECT_EQ(x, 1);
+  }
+  if (true) {
+    // Nested scopes restore in reverse order.
+    int x = 1;
+    {
+      scoped_value sv1{x, 10};
+      EXPECT_EQ(x, 10);
+      {
+        scoped_value sv2{x, 20};
+        EXPECT_EQ(x, 20);
+      }
+      EXPECT_EQ(x, 10);
+    }
+    EXPECT_EQ(x, 1);
+  }
+  if (true) {
+    // Works with non-trivial types.
+    std::string s = "original";
+    {
+      scoped_value sv{s, std::string{"temporary"}};
+      EXPECT_EQ(s, "temporary");
+    }
+    EXPECT_EQ(s, "original");
+  }
+  if (true) {
+    // Old value is captured at construction; direct mutations to the target
+    // are overwritten on scope exit.
+    int x = 5;
+    {
+      scoped_value sv{x, 99};
+      x = 7; // Mutate target directly while scoped_value is active.
+      EXPECT_EQ(x, 7);
+    }
+    // Restored to 5 (captured at sv construction), not 7.
+    EXPECT_EQ(x, 5);
+  }
+}
+
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
     FindOptTest_Maps, FindOptTest_Sets, FindOptTest_Vectors,
@@ -1827,7 +1873,8 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     TransparentTest_General, IndirectKey_Basic, InternTableTest_Basic,
     InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
-    StrongType_Extended, EnumVariant_Basic, TombStone_Basic, EnumVector_Basic);
+    StrongType_Extended, EnumVariant_Basic, TombStone_Basic, EnumVector_Basic,
+    ScopedValue_Basic);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

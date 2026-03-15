@@ -22,6 +22,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <system_error>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -73,10 +74,9 @@ struct io_conn: std::enable_shared_from_this<io_conn> {
 // writes to `wake_fd_` so the loop exits promptly even if blocked in
 // `epoll_wait`.
 //
-// TODO: Make a thread-safe wrapper.
 // `register_socket`, `unregister_socket`, and `set_writable` are NOT
-// thread-safe; call them only from the loop thread (i.e., from within a
-// callback or a `post()`'d function).
+// inherentrly thread-safe, but they automatically promote a call from outside
+// the loop thread into a `post()`.
 //
 // `io_loop` is non-copyable and non-movable. Linux only; on other platforms
 // the class is defined but all methods are no-ops or return failure.
@@ -119,6 +119,13 @@ public:
 
   [[nodiscard]] bool
   register_socket(const ip_socket& sock, std::shared_ptr<io_conn> conn) {
+    if (!is_loop_thread()) {
+      post([this, &sock, conn = std::move(conn)] {
+        (void)register_socket(sock, conn);
+      });
+      return true;
+    }
+
 #ifdef __linux__
     const int fd = sock.file().handle();
     if (registrations_.contains(fd)) return false;
@@ -137,8 +144,14 @@ public:
   }
 
   // Unregister `sock`. Returns false if `sock` is not registered or
-  // `epoll_ctl` fails. Must run on the loop thread; use `post()` otherwise.
+  // `epoll_ctl` fails. If executed outside of loop thread, turns into a
+  // `post.`
   bool unregister_socket(const ip_socket& sock) {
+    if (!is_loop_thread()) {
+      post([this, &sock] { unregister_socket(sock); });
+      return true;
+    }
+
 #ifdef __linux__
     const int fd = sock.file().handle();
     if (!registrations_.contains(fd)) return false;
@@ -154,8 +167,14 @@ public:
 
   // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
   // the registered `io_conn`. Returns false if `sock` is not registered or
-  // `epoll_ctl` fails. Must run on the loop thread; use `post()` otherwise.
+  // `epoll_ctl` fails. If executed outside of loop thread, turns into a
+  // `post.`
   bool set_writable(const ip_socket& sock, bool on = true) noexcept {
+    if (!is_loop_thread()) {
+      post([this, &sock, on] { set_writable(sock, on); });
+      return true;
+    }
+
 #ifdef __linux__
     const int fd = sock.file().handle();
     auto found = find_opt(registrations_, fd);
@@ -200,6 +219,12 @@ public:
     wake();
   }
 
+  // Check whether the current thread is the loop thread.
+  bool is_loop_thread() const noexcept {
+    if (!running_ || !loop_thread_id_) return true;
+    return std::this_thread::get_id() == *loop_thread_id_;
+  }
+
   // Wait up to `timeout_ms` milliseconds for events and dispatch ready
   // sockets. Pass -1 to block indefinitely, 0 to poll. Drains `post_queue_`
   // first. Returns the number of I/O events dispatched, or -1 on error.
@@ -238,9 +263,12 @@ public:
   // Dispatch events in a loop until `stop()` is called or `run_once` returns
   // -1. `timeout_ms` is forwarded to each `epoll_wait` call.
   void run(int timeout_ms = -1) {
+    loop_thread_id_ = std::this_thread::get_id();
     running_ = true;
     while (running_)
       if (run_once(timeout_ms) < 0) break;
+
+    loop_thread_id_.reset();
   }
 
 private:
@@ -337,6 +365,7 @@ private:
   std::vector<std::function<void()>> post_queue_;
 
   std::atomic<bool> running_{false};
+  std::optional<std::thread::id> loop_thread_id_;
 };
 
 }} // namespace corvid::proto

@@ -32,3 +32,4 @@
 #include "containers/enum_variant.h"
 #include "containers/tombstone.h"
 #include "containers/fixed_bitset.h"
+#include "containers/scoped_value.h"
