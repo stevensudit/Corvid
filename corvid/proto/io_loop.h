@@ -130,39 +130,21 @@ public:
 
   ~io_loop() = default;
 
-  // Register `sock` with `handlers`. The initial event mask is
-  // `EPOLLIN | EPOLLERR | EPOLLHUP`; `EPOLLOUT` is not enabled until
-  // `set_writable(sock, true)` is called. Returns false if `sock` is already
-  // registered or `epoll_ctl` fails.
+  // Register `sock` with `handlers`.
+  //
+  // Register `sock` with a pre-built `io_conn`. Used by higher-level types
+  // (e.g., `tcp_conn`) that implement `io_conn` directly and pass themselves
+  // in to avoid a separate lambda/handler allocation.
   //
   // Must run on the loop thread. To call safely from another thread, use
   // `post()`: `loop.post([&]{ loop.add(sock, handlers); });`
-  [[nodiscard]] bool add(const ip_socket& sock, io_handlers handlers) {
-    struct fn final: io_conn {
-      io_handlers h_;
-      explicit fn(io_handlers h) : h_{std::move(h)} {}
-      void on_readable() override {
-        if (h_.on_readable) h_.on_readable();
-      }
-      void on_writable() override {
-        if (h_.on_writable) h_.on_writable();
-      }
-      void on_error() override {
-        if (h_.on_error)
-          h_.on_error();
-        else if (h_.on_readable)
-          h_.on_readable();
-      }
-    };
-    return add_conn(sock, std::make_shared<fn>(std::move(handlers)));
-  }
+  //
+  // The initial event mask is `EPOLLIN | EPOLLERR | EPOLLHUP`; `EPOLLOUT` is
+  // not enabled until `set_writable(sock, true)` is called. Returns false if
+  // `sock` is already registered or `epoll_ctl` fails.
 
-  // Register `sock` with a pre-built `io_conn`. Used by higher-level types
-  // (e.g., `tcp_conn`) that implement `io_conn` directly and pass themselves
-  // in to avoid a separate lambda/handler allocation. Must run on the loop
-  // thread.
   [[nodiscard]] bool
-  add_conn(const ip_socket& sock, std::shared_ptr<io_conn> conn) {
+  register_socket(const ip_socket& sock, std::shared_ptr<io_conn> conn) {
 #ifdef __linux__
     const int fd = sock.file().handle();
     if (registrations_.contains(fd)) return false;
@@ -182,7 +164,7 @@ public:
 
   // Unregister `sock`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. Must run on the loop thread; use `post()` otherwise.
-  bool unregister(const ip_socket& sock) {
+  bool unregister_socket(const ip_socket& sock) {
 #ifdef __linux__
     const int fd = sock.file().handle();
     if (!registrations_.contains(fd)) return false;
@@ -306,7 +288,7 @@ private:
 
   // Dispatch a single epoll event for `fd` with event mask `ev`. The
   // `shared_ptr<io_conn>` is copied before any virtual call so the object
-  // stays alive even if a callback calls `unregister()`.
+  // stays alive even if a callback calls `unregister_socket()`.
   void dispatch_event(int fd, uint32_t ev) {
 #ifdef __linux__
     auto found = find_opt(registrations_, fd);
@@ -314,11 +296,19 @@ private:
 
     // Keep the conn alive across the entire dispatch.
     const auto conn = found->conn;
+
+    // Process `EPOLLIN` before `EPOLLERR`/`EPOLLHUP` so that data already in
+    // the kernel receive buffer is delivered even when the peer sends data and
+    // closes the connection in the same wakeup (i.e., `EPOLLHUP | EPOLLIN`).
+    //
+    // `on_readable()` calls `do_close_now()` on EOF/error, and `on_error()`
+    // is idempotent via `open_.exchange(false)`, so calling it afterward is
+    // safe even if the connection was already closed.
+    if (ev & EPOLLIN) conn->on_readable();
     if (ev & (EPOLLERR | EPOLLHUP)) {
       conn->on_error();
       return;
     }
-    if (ev & EPOLLIN) conn->on_readable();
     if (ev & EPOLLOUT) conn->on_writable();
 #else
     (void)fd;

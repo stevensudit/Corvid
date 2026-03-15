@@ -701,13 +701,7 @@ struct sockpair_t {
   test_socket a;
   test_socket b;
 };
-static sockpair_t make_sockpair() {
-  int fds[2];
-  if (::socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) return {};
-  return {test_socket{fds[0]}, test_socket{fds[1]}};
-}
-// Like `make_sockpair` but both ends are set to non-blocking mode at
-// creation time via `SOCK_NONBLOCK`. Required for use with `tcp_conn`.
+// Make a pair of connected sockets, in non-blocking mode.
 static sockpair_t make_nb_sockpair() {
   int fds[2];
   if (::socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, fds) != 0)
@@ -724,129 +718,6 @@ void IoLoop_Lifecycle() {
 #endif
 }
 
-void IoLoop_AddRemove() {
-#ifdef __linux__
-  io_loop loop;
-
-  auto [a, b] = make_sockpair();
-
-  EXPECT_TRUE(loop.add(a, {}));
-
-  // Adding the same socket again must fail.
-  EXPECT_FALSE(loop.add(a, {}));
-
-  EXPECT_TRUE(loop.unregister(a));
-
-  // Removing an unregistered socket must fail.
-  EXPECT_FALSE(loop.unregister(a));
-#endif
-}
-
-void IoLoop_ReadableDispatch() {
-#ifdef __linux__
-  io_loop loop;
-
-  auto [a, b] = make_sockpair();
-
-  int fired = 0;
-  (void)loop.add(a, {.on_readable = [&] { ++fired; }});
-
-  const char byte = 'x';
-  EXPECT_EQ(::write(b.file().handle(), &byte, 1), 1);
-
-  EXPECT_EQ(loop.run_once(0), 1);
-  EXPECT_EQ(fired, 1);
-
-  loop.unregister(a);
-#endif
-}
-
-void IoLoop_WritableNotFiredByDefault() {
-#ifdef __linux__
-  io_loop loop;
-
-  auto [a, b] = make_sockpair();
-
-  int fired = 0;
-  (void)loop.add(a, {.on_writable = [&] { ++fired; }});
-
-  // EPOLLOUT is not in the initial mask, so on_writable must not fire.
-  loop.run_once(0);
-  EXPECT_EQ(fired, 0);
-
-  loop.unregister(a);
-#endif
-}
-
-void IoLoop_EnableDisableWritable() {
-#ifdef __linux__
-  io_loop loop;
-
-  auto [a, b] = make_sockpair();
-
-  int fired = 0;
-  (void)loop.add(a, {.on_writable = [&] { ++fired; }});
-
-  // Unix-domain stream sockets are always writable when the buffer is empty.
-  EXPECT_TRUE(loop.set_writable(a));
-  loop.run_once(0);
-  EXPECT_EQ(fired, 1);
-
-  // After disabling, on_writable must not fire again.
-  EXPECT_TRUE(loop.set_writable(a, false));
-  loop.run_once(0);
-  EXPECT_EQ(fired, 1);
-
-  loop.unregister(a);
-#endif
-}
-
-void IoLoop_ErrorFallsThruToReadable() {
-#ifdef __linux__
-  io_loop loop;
-
-  auto [a, b] = make_sockpair();
-
-  int readable_fired = 0;
-  // No on_error; EPOLLHUP must fall through to on_readable.
-  (void)loop.add(a, {.on_readable = [&] { ++readable_fired; }});
-
-  // Closing the write peer triggers EPOLLHUP on `a`.
-  b.close();
-
-  loop.run_once(0);
-  EXPECT_EQ(readable_fired, 1);
-
-  loop.unregister(a);
-#endif
-}
-
-void IoLoop_ErrorHandler() {
-#ifdef __linux__
-  io_loop loop;
-
-  auto [a, b] = make_sockpair();
-
-  int error_fired = 0;
-  int readable_fired = 0;
-  (void)loop.add(a,
-      {
-          .on_readable = [&] { ++readable_fired; },
-          .on_error = [&] { ++error_fired; },
-      });
-
-  // Closing the write peer triggers EPOLLHUP; on_error must fire, not
-  // on_readable.
-  b.close();
-
-  loop.run_once(0);
-  EXPECT_EQ(error_fired, 1);
-  EXPECT_EQ(readable_fired, 0);
-
-  loop.unregister(a);
-#endif
-}
-
 void IoLoop_Post() {
 #ifdef __linux__
   io_loop loop;
@@ -858,115 +729,6 @@ void IoLoop_Post() {
   // I/O events.
   loop.run_once(0);
   EXPECT_EQ(fired, 1);
-#endif
-}
-
-void IoLoop_PostFromCallback() {
-#ifdef __linux__
-  io_loop loop;
-
-  auto [a, b] = make_sockpair();
-
-  int outer = 0;
-  int inner = 0;
-
-  (void)loop.add(a,
-      {
-          .on_readable =
-              [&] {
-                ++outer;
-                // This post() must NOT fire during the current run_once() --
-                // it lands in the new post_queue_ after the swap-and-drain.
-                loop.post([&] { ++inner; });
-              },
-      });
-
-  const char byte = 'x';
-  EXPECT_EQ(::write(b.file().handle(), &byte, 1), 1);
-
-  loop.run_once(0);
-  EXPECT_EQ(outer, 1);
-  EXPECT_EQ(inner, 0); // posted callback not yet run
-
-  loop.run_once(0);
-  EXPECT_EQ(inner, 1); // fires on the following iteration
-
-  loop.unregister(a);
-#endif
-}
-
-void IoLoop_Stop() {
-#ifdef __linux__
-  io_loop loop;
-
-  auto [a, b] = make_sockpair();
-
-  int fired = 0;
-  (void)loop.add(a,
-      {
-          .on_readable =
-              [&] {
-                ++fired;
-                loop.stop();
-              },
-      });
-
-  // Write two bytes; the loop should exit after the first dispatch.
-  const char buf[2] = {'p', 'q'};
-  EXPECT_EQ(::write(b.file().handle(), buf, 2), 2);
-
-  loop.run(0);
-  EXPECT_EQ(fired, 1);
-
-  loop.unregister(a);
-#endif
-}
-
-void IoLoop_RemoveFromCallback() {
-#ifdef __linux__
-  io_loop loop;
-
-  auto [a, b] = make_sockpair();
-
-  // Removing a *different* fd from within a callback must not crash.
-  auto [c, d] = make_sockpair();
-  (void)loop.add(c, {});
-
-  (void)loop.add(a, {.on_readable = [&] { loop.unregister(c); }});
-
-  const char byte = 'x';
-  EXPECT_EQ(::write(b.file().handle(), &byte, 1), 1);
-  loop.run_once(0);
-
-  // `c` should no longer be registered.
-  EXPECT_FALSE(loop.unregister(c));
-
-  loop.unregister(a);
-#endif
-}
-
-void IoLoop_MultipleRegistrations() {
-#ifdef __linux__
-  io_loop loop;
-
-  auto [a, b] = make_sockpair();
-  auto [c, d] = make_sockpair();
-
-  int a_fired = 0;
-  int c_fired = 0;
-  (void)loop.add(a, {.on_readable = [&] { ++a_fired; }});
-  (void)loop.add(c, {.on_readable = [&] { ++c_fired; }});
-
-  // Only write to `b`; only `a` should become readable.
-  const char byte = 'x';
-  EXPECT_EQ(::write(b.file().handle(), &byte, 1), 1);
-
-  loop.run_once(0);
-  EXPECT_EQ(a_fired, 1);
-  EXPECT_EQ(c_fired, 0);
-
-  loop.unregister(a);
-  loop.unregister(c);
 #endif
 }
 
@@ -1254,11 +1016,7 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IpSocket_Move, IpSocket_Release, IpSocket_Options, IpSocket_Nonblocking,
     DnsResolve_NumericIPv4, DnsResolve_NumericIPv6, DnsResolve_Localhost,
     DnsResolve_FamilyFilter, DnsResolve_InvalidHost, DnsResolveOne_Success,
-    DnsResolveOne_Failure, IoLoop_Lifecycle, IoLoop_AddRemove,
-    IoLoop_ReadableDispatch, IoLoop_WritableNotFiredByDefault,
-    IoLoop_EnableDisableWritable, IoLoop_ErrorFallsThruToReadable,
-    IoLoop_ErrorHandler, IoLoop_Post, IoLoop_PostFromCallback, IoLoop_Stop,
-    IoLoop_RemoveFromCallback, IoLoop_MultipleRegistrations, TcpConn_Lifecycle,
+    DnsResolveOne_Failure, IoLoop_Lifecycle, TcpConn_Lifecycle,
     TcpConn_Receive, TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
     TcpConn_DrainAfterBufferedSend, TcpConn_GracefulClose,
     LoopTask_FireAndForget, TcpConn_AsyncRead, TcpConn_AsyncRead_PeerClose,

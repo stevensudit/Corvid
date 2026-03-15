@@ -247,7 +247,7 @@ private:
 #ifdef __linux__
       if (!open_.load(std::memory_order_relaxed)) return;
       auto self = shared_from_this();
-      (void)loop_.add_conn(sock_, std::move(self));
+      (void)loop_.register_socket(sock_, std::move(self));
 #endif
     }
 
@@ -383,7 +383,7 @@ private:
     // Unconditional close. Idempotent via `open_.exchange(false)`.
     void do_close_now() {
       if (!open_.exchange(false)) return;
-      loop_.unregister(sock_);
+      loop_.unregister_socket(sock_);
       sock_.close();
       send_queue_.clear();
       head_span_ = {};

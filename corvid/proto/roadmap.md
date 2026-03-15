@@ -35,8 +35,8 @@ Non-blocking TCP I/O with an event loop. Initial implementation uses `epoll`;
 the interface is designed so `epoll` can later be swapped for `io_uring`
 without changing higher layers.
 
-- **[done]** `io_loop` -- `epoll`-based event loop; `add` / `add_conn` /
-  `unregister` manage fd registrations; `set_writable` toggles `EPOLLOUT`
+- **[done]** `io_loop` -- `epoll`-based event loop; `add` /
+  `register_socket` / `unregister_socket` manage fd registrations; `set_writable` toggles `EPOLLOUT`
   without changing stored handlers; `post(fn)` schedules work on the loop
   thread from any thread (wakes `epoll_wait` via an internal `eventfd`);
   `run()` / `run_once(timeout_ms)` / `stop()` drive dispatch; `io_conn` is

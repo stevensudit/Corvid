@@ -16,7 +16,9 @@
 // limitations under the License.
 #pragma once
 #include <algorithm>
+#include <cerrno>
 #include <utility>
+#include <csignal>
 
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 #include <fcntl.h>
@@ -33,11 +35,20 @@ namespace details {
 // Platform file handle type and invalid-handle sentinel.
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 using file_handle_t = int;
-inline constexpr file_handle_t invalid_file_handle = -1;
+constexpr file_handle_t invalid_file_handle = -1;
+
+// NOLINTBEGIN(bugprone-throwing-static-initialization)
+inline bool ignore_sigpipe_once = []() {
+  struct sigaction sa{};
+  sa.sa_handler = SIG_IGN;
+  ::sigemptyset(&sa.sa_mask);
+  return ::sigaction(SIGPIPE, &sa, nullptr) != 0;
+}();
+// NOLINTEND(bugprone-throwing-static-initialization)
 #else
 // Placeholder for non-POSIX platforms (e.g., Windows `HANDLE`).
 using file_handle_t = int;
-inline constexpr file_handle_t invalid_file_handle = -1;
+constexpr file_handle_t invalid_file_handle = -1;
 #endif
 } // namespace details
 
@@ -106,8 +117,8 @@ public:
   // Write as much of `data` as possible to the file. On success, removes the
   // written prefix from `data` and returns true. On failure, leaves `data`
   // unchanged and returns false. A "soft" failure (e.g., EAGAIN) is treated
-  // as success with no progress.
-  // TODO: Do we need to ignore SIGPIPE? `signal(SIGPIPE, SIG_IGN);` in static?
+  // as success with no progress. Note that we have disabled SIGPIPE, which
+  // could otherwise be triggered by the other side disconnecting.
   [[nodiscard]] bool write(std::string_view& data) const {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     if (data.empty()) return true;
