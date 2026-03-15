@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <optional>
+#include <utility>
 
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 #include <netinet/in.h>
@@ -23,6 +24,7 @@
 #include <sys/socket.h>
 #endif
 
+#include "ip_endpoint.h"
 #include "os_file.h"
 
 namespace corvid { inline namespace proto {
@@ -115,6 +117,63 @@ public:
   // Set send buffer size in bytes (`SO_SNDBUF`).
   bool set_send_buffer_size(int bytes) noexcept {
     return set_option(SOL_SOCKET, SO_SNDBUF, bytes);
+  }
+
+  // Set non-blocking I/O mode (delegates to `os_file::set_nonblocking()`).
+  [[nodiscard]] bool set_nonblocking(bool on = true) noexcept {
+    return file_.set_nonblocking(on);
+  }
+
+  // Bind the socket to a local endpoint. Returns true on success.
+  [[nodiscard]] bool bind(const ip_endpoint& ep) noexcept {
+    const auto sa = ep.to_sockaddr_storage();
+    const socklen_t len =
+        ep.is_v4() ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
+    return ::bind(file_.handle(), reinterpret_cast<const sockaddr*>(&sa),
+               len) == 0;
+  }
+
+  // Initiate a connection to `ep`. For non-blocking sockets, `EINPROGRESS`
+  // is treated as success (the connection is in progress). Returns true on
+  // success or when the connection is underway.
+  [[nodiscard]] bool connect(const ip_endpoint& ep) noexcept {
+    const auto sa = ep.to_sockaddr_storage();
+    const socklen_t len =
+        ep.is_v4() ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
+    return ::connect(file_.handle(), reinterpret_cast<const sockaddr*>(&sa),
+               len) == 0 ||
+           errno == EINPROGRESS;
+  }
+
+  // Mark the socket as passive and ready to accept connections. `backlog`
+  // is the maximum pending connection queue length. Returns true on success.
+  [[nodiscard]] bool listen(int backlog = SOMAXCONN) noexcept {
+    return ::listen(file_.handle(), backlog) == 0;
+  }
+
+  // Accept a pending connection. On Linux, the returned socket is created
+  // with `SOCK_CLOEXEC | SOCK_NONBLOCK` via `accept4`. Returns `std::nullopt`
+  // when no connection is available (`EAGAIN`/`EWOULDBLOCK`) or an error
+  // occurs.
+  [[nodiscard]] std::optional<std::pair<ip_socket, ip_endpoint>>
+  accept() noexcept {
+    sockaddr_storage addr{};
+    socklen_t len = sizeof(addr);
+#ifdef __linux__
+    const int fd = ::accept4(file_.handle(),
+        reinterpret_cast<sockaddr*>(&addr), &len,
+        SOCK_CLOEXEC | SOCK_NONBLOCK);
+#else
+    const int fd =
+        ::accept(file_.handle(), reinterpret_cast<sockaddr*>(&addr), &len);
+#endif
+    if (fd < 0) return std::nullopt;
+    ip_endpoint peer;
+    if (addr.ss_family == AF_INET)
+      peer = ip_endpoint{*reinterpret_cast<const sockaddr_in*>(&addr)};
+    else if (addr.ss_family == AF_INET6)
+      peer = ip_endpoint{*reinterpret_cast<const sockaddr_in6*>(&addr)};
+    return std::pair{ip_socket{fd}, peer};
   }
 #endif
 

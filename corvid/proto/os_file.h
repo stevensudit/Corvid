@@ -55,8 +55,9 @@ constexpr file_handle_t invalid_file_handle = -1;
 // RAII wrapper around an OS file descriptor or handle.
 //
 // `os_file` owns a single file and closes it on destruction.
-// It is movable and non-copyable. `control()` wraps `fcntl`; `get_flags()`
-// and `set_nonblocking()` are named helpers for common fd-level operations.
+// It is movable and non-copyable. `control()` wraps `fcntl`; `get_flags()`,
+// `set_flags()`, and `set_nonblocking()` are named helpers for common
+// fd-level operations.
 //
 // Platform-specific code is isolated in a guarded section.
 class os_file {
@@ -174,25 +175,30 @@ public:
   }
 
   // Return the fd status flags via `fcntl(F_GETFL)`. Returns -1 on failure.
+  // TODO: Fix the API to return bool.
   [[nodiscard]] int get_flags() const noexcept { return control(F_GETFL); }
+
+  // Set the fd status flags via `fcntl(F_SETFL)`. Returns false on failure.
+  [[nodiscard]] bool set_flags(int flags) const noexcept {
+    return control(F_SETFL, flags) == 0;
+  }
 
   // Enable or disable non-blocking I/O via `fcntl(F_SETFL, O_NONBLOCK)`.
   [[nodiscard]] bool set_nonblocking(bool on = true) const noexcept {
     const int flags = get_flags();
     if (flags < 0) return false;
     const int new_flags = on ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
-    return control(F_SETFL, new_flags) == 0;
+    return set_flags(new_flags);
   }
 #endif
 
-private:
-  // Helper for checking whether the last error was a hard error (true) or a
-  // soft error (false).
-  static bool is_hard_error() {
-    const auto err = errno;
-    return (err != EAGAIN && err != EWOULDBLOCK);
+  // Checks whether the last error was a hard error (true) or a soft error
+  // (false).
+  static bool is_hard_error(int err = errno) noexcept {
+    return (err != EAGAIN && err != EWOULDBLOCK && err != EINTR);
   }
 
+private:
   file_handle_t handle_{invalid_file_handle};
 };
 }} // namespace corvid::proto

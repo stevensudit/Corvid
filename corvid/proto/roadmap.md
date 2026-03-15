@@ -20,12 +20,11 @@ Thin, zero-overhead C++ wrappers around POSIX and Linux networking primitives.
   `sockaddr_in6` in a tagged union; round-trip through POSIX `sockaddr`
   pointers; comparison; formatting
 - **[done]** `ip_socket` -- RAII socket handle (fd on POSIX); movable,
-  non-copyable; `make_tcp_socket()` / `make_udp_socket()` factory helpers;
-  type-safe `set_option` / `get_option` (e.g., `SO_REUSEADDR`,
+  non-copyable; type-safe `set_option` / `get_option` (e.g., `SO_REUSEADDR`,
   `TCP_NODELAY`); `set_nonblocking()`, `bind()`, `connect()`, `listen()`,
   `accept()`; `set_send_buffer_size()` convenience method
-- **[done]** `dns_resolve` -- thin wrapper around `getaddrinfo`; `dns_resolve()`
-  returns `std::vector<ip_endpoint>`; `dns_resolve_one()` returns
+- **[done]** `dns_resolve` -- thin wrapper around `getaddrinfo`; `find_all()`
+  returns `std::vector<ip_endpoint>`; `find_one()` returns
   `std::optional<ip_endpoint>`; both accept an optional address-family
   filter
 

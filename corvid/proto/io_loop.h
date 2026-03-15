@@ -210,10 +210,7 @@ public:
     epoll_event events[max_events];
     int available =
         ::epoll_wait(epoll_fd_.handle(), events, max_events, timeout_ms);
-    if (available < 0) {
-      if (errno == EINTR) return 0;
-      return -1;
-    }
+    if (available < 0) return os_file::is_hard_error() ? -1 : 0;
 
     int dispatched = 0;
     for (int ndx = 0; ndx < available; ++ndx) {

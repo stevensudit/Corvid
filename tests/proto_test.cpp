@@ -611,6 +611,38 @@ void IpSocket_Nonblocking() {
 #endif
 }
 
+void IpSocket_BindListenAccept() {
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+  // Bind a listening socket to a free loopback port.
+  test_socket listener{AF_INET, SOCK_STREAM, 0};
+  EXPECT_TRUE(listener.is_open());
+  EXPECT_TRUE(listener.set_reuse_addr());
+  EXPECT_TRUE(listener.bind(ip_endpoint{ipv4_addr::loopback(), 0}));
+  EXPECT_TRUE(listener.listen());
+
+  // Retrieve the OS-assigned port via `getsockname`.
+  sockaddr_in bound{};
+  socklen_t bound_len = sizeof(bound);
+  EXPECT_EQ(::getsockname(listener.file().handle(),
+                reinterpret_cast<sockaddr*>(&bound), &bound_len),
+      0);
+  const uint16_t port = ntohs(bound.sin_port);
+  EXPECT_NE(port, 0U);
+
+  // Connect a client to the listening socket.
+  test_socket client{AF_INET, SOCK_STREAM, 0};
+  EXPECT_TRUE(client.is_open());
+  EXPECT_TRUE(client.connect(ip_endpoint{ipv4_addr::loopback(), port}));
+
+  // Accept the connection on the listener side.
+  auto result = listener.accept();
+  EXPECT_TRUE(result.has_value());
+  EXPECT_TRUE(result->first.is_open());
+  EXPECT_TRUE(result->second.is_v4());
+  EXPECT_TRUE(result->second.v4()->is_loopback());
+#endif
+}
+
 void DnsResolve_NumericIPv4() {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Numeric IPv4 addresses are resolved without a DNS lookup.
@@ -1137,12 +1169,12 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IpEndpoint_Construction, IpEndpoint_Parse, IpEndpoint_Comparison,
     IpEndpoint_Formatting, IpEndpoint_PosixInterop, IpSocket_Lifecycle,
     IpSocket_Move, IpSocket_Release, IpSocket_Options, IpSocket_Nonblocking,
-    DnsResolve_NumericIPv4, DnsResolve_NumericIPv6, DnsResolve_Localhost,
-    DnsResolve_FamilyFilter, DnsResolve_InvalidHost, DnsResolveOne_Success,
-    DnsResolveOne_Failure, IoLoop_Lifecycle, IoLoop_Post,
-    IoLoop_RegisterUnregister, IoLoop_SetWritable, IoLoop_ErrorSkipsWritable,
-    IoLoop_DefaultOnError, TcpConn_Lifecycle, TcpConn_Receive,
-    TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
+    IpSocket_BindListenAccept, DnsResolve_NumericIPv4, DnsResolve_NumericIPv6,
+    DnsResolve_Localhost, DnsResolve_FamilyFilter, DnsResolve_InvalidHost,
+    DnsResolveOne_Success, DnsResolveOne_Failure, IoLoop_Lifecycle,
+    IoLoop_Post, IoLoop_RegisterUnregister, IoLoop_SetWritable,
+    IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError, TcpConn_Lifecycle,
+    TcpConn_Receive, TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
     TcpConn_DrainAfterBufferedSend, TcpConn_GracefulClose,
     LoopTask_FireAndForget, TcpConn_AsyncRead, TcpConn_AsyncRead_PeerClose,
     TcpConn_AsyncSend);
