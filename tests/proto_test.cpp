@@ -1017,6 +1017,26 @@ void TcpConn_DrainAfterBufferedSend() {
 #endif
 }
 
+void TcpConn_DrainAfterImmediateSend() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  int drain_count = 0;
+  tcp_conn conn{loop, std::move(a), {}, {.on_drain = [&] { ++drain_count; }}};
+  loop.run_once(0); // process posted register_with_loop
+
+  conn.send(std::string{"hello"});
+  loop.run_once(0); // process posted enqueue_send()
+
+  std::string received;
+  no_zero::enlarge_to(received, 16);
+  EXPECT_TRUE(b.file().read(received));
+  EXPECT_EQ(received, "hello");
+  EXPECT_EQ(drain_count, 1);
+#endif
+}
+
 void TcpConn_GracefulClose() {
 #ifdef __linux__
   io_loop loop;
@@ -1209,9 +1229,9 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IoLoop_Post, IoLoop_RegisterUnregister, IoLoop_SetWritable,
     IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError, TcpConn_Lifecycle,
     TcpConn_Receive, TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
-    TcpConn_DrainAfterBufferedSend, TcpConn_GracefulClose,
-    TcpConn_DestructorHangsUp, LoopTask_FireAndForget, TcpConn_AsyncRead,
-    TcpConn_AsyncRead_PeerClose, TcpConn_AsyncSend);
+    TcpConn_DrainAfterBufferedSend, TcpConn_DrainAfterImmediateSend,
+    TcpConn_GracefulClose, TcpConn_DestructorHangsUp, LoopTask_FireAndForget,
+    TcpConn_AsyncRead, TcpConn_AsyncRead_PeerClose, TcpConn_AsyncSend);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

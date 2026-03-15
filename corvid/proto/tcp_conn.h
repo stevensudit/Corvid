@@ -46,9 +46,9 @@ using namespace corvid::strings::no_zero_funcs;
 //                     buffer resized to the number of bytes read; the user may
 //                     `std::move` from it to steal the allocation without an
 //                     extra copy. The reference is valid only during the call.
-//  `on_drain()`    -- fired when the send queue empties after a buffered
-//                     (EPOLLOUT-driven) write. Not fired when `send()` writes
-//                     all bytes immediately.
+//  `on_drain()`    -- fired when a `send()` finishes with no outbound bytes
+//                     left pending. This includes both immediate writes and
+//                     buffered (`EPOLLOUT`-driven) drains.
 //  `on_close()`    -- fired once on EOF or I/O error; the connection is gone.
 struct tcp_conn_handlers {
   std::function<void(std::string&)> on_data = nullptr;
@@ -72,13 +72,14 @@ struct tcp_conn_handlers {
 //
 // Send path: `send(std::string&&)` takes ownership of the caller's string.
 // If the send queue is empty, an immediate `::write` is attempted. If all
-// bytes are written, the string is discarded with no queuing. Otherwise the
-// string is pushed onto `send_queue_` (a `std::deque<std::string>`) and
-// `head_span_` is set to the unsent tail; `EPOLLOUT` is armed. Subsequent
-// `EPOLLOUT` events drive `do_flush_send_buf()`. When the queue empties,
-// `EPOLLOUT` is disarmed and `on_drain` fires. `std::deque` is used instead of
-// `std::vector` because `push_back` does not move existing elements, keeping
-// `head_span_` (which points into `front()`) valid.
+// bytes are written, the string is discarded and `on_drain` fires immediately
+// because no outbound bytes remain pending. Otherwise the string is pushed
+// onto `send_queue_` (a `std::deque<std::string>`) and `head_span_` is set to
+// the unsent tail; `EPOLLOUT` is armed. Subsequent `EPOLLOUT` events drive
+// `do_flush_send_buf()`. When the queue empties, `EPOLLOUT` is disarmed and
+// `on_drain` fires. `std::deque` is used instead of `std::vector` because
+// `push_back` does not move existing elements, keeping `head_span_` (which
+// points into `front()`) valid.
 //
 // Receive path: when `EPOLLIN` fires, the receive buffer is resized to
 // `recv_buf_capacity_` bytes via `resize_and_overwrite` (C++23, no
@@ -247,6 +248,14 @@ private:
         : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
           handlers_{std::move(h)}, recv_buf_capacity_{rbs}, open_{true} {}
 
+    void notify_drained() {
+      if (pending_drain_) {
+        loop_.post([h = std::exchange(pending_drain_, {})] { h.resume(); });
+      } else if (handlers_.on_drain) {
+        handlers_.on_drain();
+      }
+    }
+
     // Register `ip_socket` with the loop. Stores a shared owner in the loop's
     // registration map, keeping the state alive as long as the fd is
     // registered, even if its `tcp_conn` is destructed.
@@ -314,6 +323,7 @@ private:
       // If fully written, nothing to queue.
       if (buf_view.empty()) {
         buf.clear();
+        notify_drained();
         return true;
       }
 
@@ -368,12 +378,8 @@ private:
         return false;
       }
 
-      // Inform the user that the queue is fully drained.
-      if (pending_drain_) {
-        loop_.post([h = std::exchange(pending_drain_, {})] { h.resume(); });
-      } else if (handlers_.on_drain) {
-        handlers_.on_drain();
-      }
+      // Inform the user that all outbound data has drained.
+      notify_drained();
 #endif
       return true;
     }

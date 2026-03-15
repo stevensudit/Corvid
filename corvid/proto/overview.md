@@ -91,8 +91,9 @@ drains; the destructor has the same semantics.
 Supports two async models, mutually exclusive per connection:
 
 - **Callback mode** (`tcp_conn_handlers`): `on_data(string&)` fires on each
-  read, `on_drain()` fires when the send queue empties after a buffered
-  write, `on_close()` fires on EOF or error.
+  read, `on_drain()` fires whenever a `send()` completes with no outbound
+  bytes left pending (including immediate writes), `on_close()` fires on EOF
+  or error.
 
 - **Coroutine mode**: `co_await conn.async_read()` suspends until one batch
   of data arrives (or the connection closes, returning an empty string);
