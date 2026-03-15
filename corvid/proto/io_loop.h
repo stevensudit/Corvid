@@ -46,6 +46,7 @@ namespace corvid { inline namespace proto {
 // caller unregisters it during a callback.
 struct io_conn: std::enable_shared_from_this<io_conn> {
   explicit io_conn(ip_socket&& sock) : sock_(std::move(sock)) {}
+  ip_socket& sock() noexcept { return sock_; }
   const ip_socket& sock() const noexcept { return sock_; }
 
   virtual void on_readable() {}
@@ -63,18 +64,18 @@ private:
 // (e.g., `tcp_conn`). User code drives the loop via `run()` / `run_once()` /
 // `stop()`, but never calls `epoll_ctl` directly.
 //
-// Call `register_socket()` to register an `ip_socket` paired with a
-// `shared_ptr<io_conn>`. The initial event mask is always `EPOLLIN | EPOLLERR
-// | EPOLLHUP`. Write-readiness interest (`EPOLLOUT`) is toggled with
-// `set_writable()` without disturbing the registered `io_conn`. This lets a
-// `tcp_conn` arm write interest only while its send buffer is non-empty.
+// Call `register_socket()` to register an `io_conn`. The initial event mask is
+// always `EPOLLIN | EPOLLERR | EPOLLHUP`. Write-readiness interest
+// (`EPOLLOUT`) is toggled with `set_writable()` without disturbing the
+// registered `io_conn`. This lets a `tcp_conn` arm write interest only while
+// its send buffer is non-empty.
 //
 // `post()` schedules a callback to run at the top of the next `run_once()`
 // iteration. It is safe to call from any thread: it locks `post_mutex_`,
 // pushes the callback, then writes to `wake_fd_` (an `eventfd`) to interrupt
 // a sleeping `epoll_wait`. The expected pattern is that I/O callbacks fire on
-// the loop thread and may hand work off to a thread pool, which uses `post()`
-// to deliver results back.
+// the loop thread and handle I/O immediately, but may hand off work to a
+// thread pool, which uses `post()` to deliver results back.
 //
 // `stop()` is also thread-safe: it sets `running_` (an `atomic<bool>`) and
 // writes to `wake_fd_` so the loop exits promptly even if blocked in
@@ -122,7 +123,7 @@ public:
   // loop thread, turns into a `post()`.
   [[nodiscard]] bool register_socket(std::shared_ptr<io_conn> conn) {
     if (!is_loop_thread()) {
-      post([this, conn = std::move(conn)] {
+      post([this, conn = std::move(conn)]() mutable {
         (void)do_register_socket(std::move(conn));
       });
       return true;

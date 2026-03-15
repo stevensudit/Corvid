@@ -141,6 +141,9 @@ public:
   // Take ownership of `buf` and post it for sending on the loop thread.
   // `buf` must be non-empty. Safe to call from any thread.
   void send(std::string&& buf) {
+    // Note: The reason we don't just call `enqueue_send` directly is that it
+    // mutates loop-owned connection state and performs socket I/O against the
+    // same fd that the loop may also be touching.
     if (!state_ || buf.empty()) return;
     if (!state_->open_.load(std::memory_order_relaxed)) return;
     auto& loop = state_->loop_;
@@ -246,8 +249,7 @@ private:
     void register_with_loop() {
 #ifdef __linux__
       if (!open_.load(std::memory_order_relaxed)) return;
-      auto self = shared_from_this();
-      (void)loop_.register_socket(sock(), std::move(self));
+      (void)loop_.register_socket(shared_from_this());
 #endif
     }
 

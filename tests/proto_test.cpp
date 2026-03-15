@@ -785,8 +785,7 @@ void IoLoop_RegisterUnregister() {
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
-
-  EXPECT_TRUE(loop.register_socket(std::move(conn)));
+  EXPECT_TRUE(loop.register_socket(conn));
 
   auto msg_view = std::string_view{"hi"};
   EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
@@ -817,6 +816,7 @@ void IoLoop_SetWritable() {
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
+  EXPECT_TRUE(loop.register_socket(conn));
 
   // `EPOLLOUT` is not initially armed; no writable event.
   EXPECT_EQ(loop.run_once(0), 0);
@@ -843,7 +843,7 @@ void IoLoop_ErrorSkipsWritable() {
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
-  EXPECT_TRUE(loop.register_socket(std::move(conn)));
+  EXPECT_TRUE(loop.register_socket(conn));
   loop.set_writable(conn->sock(), true); // arm EPOLLOUT
 
   b.close(); // triggers EPOLLHUP on `a`
@@ -870,7 +870,7 @@ void IoLoop_DefaultOnError() {
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<readable_only_conn>(std::move(a));
-  EXPECT_TRUE(loop.register_socket(std::move(conn)));
+  EXPECT_TRUE(loop.register_socket(conn));
 
   b.close(); // EPOLLHUP -> default on_error() -> on_readable()
   loop.run_once(0);
