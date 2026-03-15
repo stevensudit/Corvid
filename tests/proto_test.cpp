@@ -969,7 +969,7 @@ void TcpConn_ManualClose() {
   EXPECT_FALSE(conn.is_open());
   EXPECT_TRUE(closed);
 
-  // Destructor posts another do_close_(); it must be idempotent.
+  // Destructor posts a hangup; it must be idempotent after close().
   loop.run_once(0);
   EXPECT_EQ(loop.run_once(0), 0);
 #endif
@@ -1053,6 +1053,39 @@ void TcpConn_GracefulClose() {
   EXPECT_EQ(received, payload);
   EXPECT_TRUE(closed);
   EXPECT_FALSE(conn.is_open());
+#endif
+}
+
+void TcpConn_DestructorHangsUp() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  constexpr int small_buf = 4096;
+  a.set_send_buffer_size(small_buf);
+
+  const std::string payload(256ULL * 1024ULL, 'q');
+
+  bool closed = false;
+  {
+    tcp_conn conn{loop, std::move(a), {},
+        {.on_close = [&] { closed = true; }}};
+    loop.run_once(0); // process posted register_with_loop
+    conn.send(std::string{payload});
+  }
+
+  loop.run_once(0); // drain posted enqueue_send() then posted hangup()
+
+  std::string received;
+  std::string tmp;
+  no_zero::enlarge_to(tmp, 4096);
+  while (b.file().read(tmp) && !tmp.empty()) {
+    received.append(tmp);
+    no_zero::enlarge_to(tmp, 4096);
+  }
+
+  EXPECT_TRUE(closed);
+  EXPECT_LT(received.size(), payload.size());
 #endif
 }
 
@@ -1177,8 +1210,8 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError, TcpConn_Lifecycle,
     TcpConn_Receive, TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
     TcpConn_DrainAfterBufferedSend, TcpConn_GracefulClose,
-    LoopTask_FireAndForget, TcpConn_AsyncRead, TcpConn_AsyncRead_PeerClose,
-    TcpConn_AsyncSend);
+    TcpConn_DestructorHangsUp, LoopTask_FireAndForget, TcpConn_AsyncRead,
+    TcpConn_AsyncRead_PeerClose, TcpConn_AsyncSend);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

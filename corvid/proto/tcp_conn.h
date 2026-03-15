@@ -66,9 +66,9 @@ struct tcp_conn_handlers {
 // exactly ONE heap allocation per connection: no separate `io_handlers`
 // lambdas and no second `impl` object.
 //
-// Thread safety: `send()`, `close()`, and the destructor are safe to call from
-// any thread. They route work to the loop via `io_loop::post()`. All actual
-// I/O and epoll-mask mutations run exclusively on the loop thread.
+// Thread safety: `send()`, `close()`, `hangup()`, and the destructor are safe
+// to call from any thread. They route work to the loop via `io_loop::post()`.
+// All actual I/O and epoll-mask mutations run exclusively on the loop thread.
 //
 // Send path: `send(std::string&&)` takes ownership of the caller's string.
 // If the send queue is empty, an immediate `::write` is attempted. If all
@@ -87,7 +87,8 @@ struct tcp_conn_handlers {
 // steal its allocation; the next read reallocates if needed.
 //
 // Close: `close()` is graceful -- if the send queue is non-empty, the socket
-// closes only after it drains. The destructor has the same semantics.
+// closes only after it drains. `hangup()` discards pending outbound data and
+// closes immediately. The destructor uses `hangup()`.
 //
 // Linux only; on other platforms all methods are no-ops.
 class tcp_conn {
@@ -117,16 +118,13 @@ public:
   tcp_conn& operator=(tcp_conn&&) noexcept = default;
   tcp_conn& operator=(const tcp_conn&) = delete;
 
-  // Posts a graceful close to the loop. Safe to call from any thread.
-  // TODO: Consider whether the destructor should instead do a forceful close.
-  // That would avoid the allocation nonsense.
-  // NOLINTBEGIN(bugprone-exception-escape)
+  // Performs `hangup()` on destruction. If you want to close cleanly, you must
+  // call `close()` before the instance is destructed.
   ~tcp_conn() {
     if (!state_) return;
     auto& loop = state_->loop_;
-    loop.post([p = std::move(state_)] { p->do_close(); });
+    loop.post([p = std::move(state_)] { p->do_hangup(); });
   }
-  // NOLINTEND(bugprone-exception-escape)
 
   // True if the connection has not yet been closed.
   [[nodiscard]] bool is_open() const noexcept {
@@ -154,12 +152,18 @@ public:
 
   // Post a graceful close to the loop. Pending sends drain first.
   // Safe to call from any thread.
-  // TODO: Add a bool to force a hard close that discards pending sends and
-  // hangs up on the connection.
   void close() {
     if (!state_) return;
     auto& loop = state_->loop_;
     loop.post([p = state_] { p->do_close(); });
+  }
+
+  // Post a forceful close to the loop. Pending sends are discarded and
+  // SO_LINGER is disabled. Safe to call from any thread.
+  void hangup() {
+    if (!state_) return;
+    auto& loop = state_->loop_;
+    loop.post([p = state_] { p->do_hangup(); });
   }
 
   // Return an awaitable that suspends the calling coroutine until one batch
@@ -382,11 +386,20 @@ private:
       if (send_queue_.empty()) do_close_now();
     }
 
+    // Forceful close: discard pending sends and close immediately.
+    void do_hangup() noexcept {
+      if (!open_.load(std::memory_order_relaxed)) return;
+      send_queue_.clear();
+      head_span_ = {};
+      closing_ = false;
+      do_close_now(close_mode::forceful);
+    }
+
     // Unconditional close. Idempotent via `open_.exchange(false)`.
-    void do_close_now() {
+    void do_close_now(close_mode mode = close_mode::graceful) noexcept {
       if (!open_.exchange(false)) return;
       loop_.unregister_socket(sock());
-      sock().close();
+      sock().close(mode);
       send_queue_.clear();
       head_span_ = {};
       closing_ = false;

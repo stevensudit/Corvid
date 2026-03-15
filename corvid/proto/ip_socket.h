@@ -24,10 +24,13 @@
 #include <sys/socket.h>
 #endif
 
+#include "../enums/bool_enums.h"
+
 #include "ip_endpoint.h"
 #include "os_file.h"
 
 namespace corvid { inline namespace proto {
+using namespace bool_enums;
 
 // RAII IP socket with type-safe option methods.
 //
@@ -61,6 +64,17 @@ public:
   // is now closed, false if it could not be closed (likely because it already
   // was).
   bool close() noexcept { return file_.close(); }
+
+  // Close the socket with the option to perform a forceful close (e.g., via
+  // `SO_LINGER` with a zero timeout).
+  bool close(close_mode mode) noexcept {
+    if (mode == close_mode::forceful && file_.is_open()) {
+      const linger abortive{.l_onoff = 1, .l_linger = 0};
+      set_option(SOL_SOCKET, SO_LINGER, abortive);
+    }
+
+    return file_.close();
+  }
 
   // Socket-specific option access and named helpers.
   // Isolated here so that porting to a new OS requires changes only in this
