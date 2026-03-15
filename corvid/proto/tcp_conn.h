@@ -331,6 +331,11 @@ private:
     // `closing_`) when the queue empties.
     bool do_flush_send_buf() {
 #ifdef __linux__
+      // Guard against being called after `do_close_now()` (e.g., when both
+      // `EPOLLIN` and `EPOLLOUT` fire in the same event and the readable
+      // handler closes the connection before we get here).
+      if (!open_.load(std::memory_order_relaxed)) return false;
+
       // Write until we're out of data, are blocked, or fail.
       while (!send_queue_.empty()) {
         // If we can't write at all, close immediately.

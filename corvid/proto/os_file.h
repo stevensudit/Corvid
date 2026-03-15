@@ -123,7 +123,7 @@ public:
   }
 
   // Read up to `data.size()` bytes from the file into `data`. Use
-  // `no_zero::enlarge_to_cap` or `no_zero::resize_to` to get the desired size.
+  // `no_zero::resize_to_cap` or `no_zero::enlarge_to` to get the desired size.
   //
   // On success, resizes `data` to the number of bytes read and returns true. A
   // "soft" failure (e.g., EAGAIN) is treated as success with zero bytes read.
