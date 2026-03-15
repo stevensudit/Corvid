@@ -189,7 +189,6 @@ private:
   // with the loop.
   struct state final: io_conn {
     io_loop& loop_;
-    ip_socket sock_;
     ip_endpoint remote_;
     tcp_conn_handlers handlers_;
 
@@ -238,17 +237,17 @@ private:
 
     explicit state(io_loop& loop, ip_socket&& sock, const ip_endpoint& remote,
         tcp_conn_handlers&& h, size_t rbs) noexcept
-        : loop_{loop}, sock_{std::move(sock)}, remote_{remote},
+        : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
           handlers_{std::move(h)}, recv_buf_capacity_{rbs}, open_{true} {}
 
-    // Register `sock_` with the loop. Stores a shared owner in the loop's
+    // Register `ip_socket` with the loop. Stores a shared owner in the loop's
     // registration map, keeping the state alive as long as the fd is
     // registered, even if its `tcp_conn` is destructed.
     void register_with_loop() {
 #ifdef __linux__
       if (!open_.load(std::memory_order_relaxed)) return;
       auto self = shared_from_this();
-      (void)loop_.register_socket(sock_, std::move(self));
+      (void)loop_.register_socket(sock(), std::move(self));
 #endif
     }
 
@@ -263,7 +262,7 @@ private:
     bool handle_readable() {
 #ifdef __linux__
       no_zero::enlarge_to(recv_buf_, recv_buf_capacity_);
-      if (!sock_.file().read(recv_buf_)) {
+      if (!sock().file().read(recv_buf_)) {
         do_close_now();
         return false;
       }
@@ -299,7 +298,7 @@ private:
 
       // Write as much as we can of the new buffer.
       auto buf_view = std::string_view{buf};
-      if (!sock_.file().write(buf_view)) {
+      if (!sock().file().write(buf_view)) {
         // If we can't write at all, close immediately.
         buf.clear();
         do_close_now();
@@ -319,7 +318,7 @@ private:
       send_queue_.push_back(std::move(buf));
       head_span_ = send_queue_.front();
       head_span_.remove_prefix(sent);
-      loop_.set_writable(sock_);
+      loop_.set_writable(sock());
 #else
       (void)buf;
 #endif
@@ -340,7 +339,7 @@ private:
       // Write until we're out of data, are blocked, or fail.
       while (!send_queue_.empty()) {
         // If we can't write at all, close immediately.
-        if (!sock_.file().write(head_span_)) {
+        if (!sock().file().write(head_span_)) {
           do_close_now();
           return false;
         }
@@ -355,7 +354,7 @@ private:
       }
 
       // Queue fully drained, so no need to keep `EPOLLOUT` armed.
-      loop_.set_writable(sock_, false);
+      loop_.set_writable(sock(), false);
 
       // If we were waiting to close, do it now.
       if (closing_) {
@@ -384,8 +383,8 @@ private:
     // Unconditional close. Idempotent via `open_.exchange(false)`.
     void do_close_now() {
       if (!open_.exchange(false)) return;
-      loop_.unregister_socket(sock_);
-      sock_.close();
+      loop_.unregister_socket(sock());
+      sock().close();
       send_queue_.clear();
       head_span_ = {};
       closing_ = false;

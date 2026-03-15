@@ -743,6 +743,8 @@ static sockpair_t make_nb_sockpair() {
 
 // Minimal `io_conn` that counts how many times each virtual is called.
 struct counting_conn: io_conn {
+  using io_conn::io_conn;
+
   int readable = 0;
   int writable = 0;
   int error = 0;
@@ -782,10 +784,9 @@ void IoLoop_RegisterUnregister() {
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
-  auto conn = std::make_shared<counting_conn>();
+  auto conn = std::make_shared<counting_conn>(std::move(a));
 
-  EXPECT_TRUE(loop.register_socket(a, conn));
-  EXPECT_FALSE(loop.register_socket(a, conn)); // already registered
+  EXPECT_TRUE(loop.register_socket(std::move(conn)));
 
   auto msg_view = std::string_view{"hi"};
   EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
@@ -799,8 +800,8 @@ void IoLoop_RegisterUnregister() {
   std::string buf(8, '\0');
   (void)a.file().read(buf);
 
-  EXPECT_TRUE(loop.unregister_socket(a));
-  EXPECT_FALSE(loop.unregister_socket(a)); // already removed
+  EXPECT_TRUE(loop.unregister_socket(conn->sock()));
+  EXPECT_FALSE(loop.unregister_socket(conn->sock())); // already removed
 
   // No events after unregistering.
   EXPECT_EQ(loop.run_once(0), 0);
@@ -815,19 +816,18 @@ void IoLoop_SetWritable() {
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
-  auto conn = std::make_shared<counting_conn>();
-  (void)loop.register_socket(a, conn);
+  auto conn = std::make_shared<counting_conn>(std::move(a));
 
   // `EPOLLOUT` is not initially armed; no writable event.
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->writable, 0);
 
-  loop.set_writable(a, true);
+  loop.set_writable(conn->sock(), true);
   EXPECT_EQ(loop.run_once(0), 1);
   EXPECT_GE(conn->writable, 1);
 
   // Disarm; no further writable events.
-  loop.set_writable(a, false);
+  loop.set_writable(conn->sock(), false);
   const int w = conn->writable;
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->writable, w);
@@ -842,9 +842,9 @@ void IoLoop_ErrorSkipsWritable() {
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
-  auto conn = std::make_shared<counting_conn>();
-  (void)loop.register_socket(a, conn);
-  loop.set_writable(a, true); // arm EPOLLOUT
+  auto conn = std::make_shared<counting_conn>(std::move(a));
+  EXPECT_TRUE(loop.register_socket(std::move(conn)));
+  loop.set_writable(conn->sock(), true); // arm EPOLLOUT
 
   b.close(); // triggers EPOLLHUP on `a`
 
@@ -860,6 +860,7 @@ void IoLoop_ErrorSkipsWritable() {
 void IoLoop_DefaultOnError() {
 #ifdef __linux__
   struct readable_only_conn: io_conn {
+    using io_conn::io_conn;
     int readable = 0;
     void on_readable() override { ++readable; }
     // on_error not overridden; default calls on_readable()
@@ -868,8 +869,8 @@ void IoLoop_DefaultOnError() {
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
-  auto conn = std::make_shared<readable_only_conn>();
-  (void)loop.register_socket(a, conn);
+  auto conn = std::make_shared<readable_only_conn>(std::move(a));
+  EXPECT_TRUE(loop.register_socket(std::move(conn)));
 
   b.close(); // EPOLLHUP -> default on_error() -> on_readable()
   loop.run_once(0);

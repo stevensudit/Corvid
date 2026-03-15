@@ -45,10 +45,16 @@ namespace corvid { inline namespace proto {
 // object stays alive for the duration of any in-progress dispatch even if the
 // caller unregisters it during a callback.
 struct io_conn: std::enable_shared_from_this<io_conn> {
+  explicit io_conn(ip_socket&& sock) : sock_(std::move(sock)) {}
+  const ip_socket& sock() const noexcept { return sock_; }
+
   virtual void on_readable() {}
   virtual void on_writable() {}
   virtual void on_error() { on_readable(); }
   virtual ~io_conn() = default;
+
+private:
+  ip_socket sock_;
 };
 
 // `epoll`-based I/O event loop, safe for use with a background thread.
@@ -75,7 +81,7 @@ struct io_conn: std::enable_shared_from_this<io_conn> {
 // `epoll_wait`.
 //
 // `register_socket`, `unregister_socket`, and `set_writable` are NOT
-// inherentrly thread-safe, but they automatically promote a call from outside
+// inherently thread-safe, but they automatically promote a call from outside
 // the loop thread into a `post()`.
 //
 // `io_loop` is non-copyable and non-movable. Linux only; on other platforms
@@ -108,93 +114,48 @@ public:
 
   ~io_loop() = default;
 
-  // Register `sock` with `conn`.
-  //
-  // Must run on the loop thread. To call safely from another thread, use
-  // `post()`: `loop.post([&]{ loop.register_socket(sock, conn); });`
+  // Register `conn`.
   //
   // The initial event mask is `EPOLLIN | EPOLLERR | EPOLLHUP`; `EPOLLOUT` is
   // not enabled until `set_writable(sock, true)` is called. Returns false if
-  // `sock` is already registered or `epoll_ctl` fails.
-
-  [[nodiscard]] bool
-  register_socket(const ip_socket& sock, std::shared_ptr<io_conn> conn) {
+  // `sock` is already registered or `epoll_ctl` fails. If executed outside of
+  // loop thread, turns into a `post()`.
+  [[nodiscard]] bool register_socket(std::shared_ptr<io_conn> conn) {
     if (!is_loop_thread()) {
-      post([this, &sock, conn = std::move(conn)] {
-        (void)register_socket(sock, conn);
+      post([this, conn = std::move(conn)] {
+        (void)do_register_socket(std::move(conn));
       });
       return true;
     }
 
-#ifdef __linux__
-    const int fd = sock.file().handle();
-    if (registrations_.contains(fd)) return false;
-
-    const uint32_t events = EPOLLIN | EPOLLERR | EPOLLHUP;
-    epoll_event ev{.events = events, .data = epoll_data_t{.fd = fd}};
-    if (!poll_control(EPOLL_CTL_ADD, fd, ev)) return false;
-
-    registrations_.emplace(fd, registration{events, std::move(conn)});
-    return true;
-#else
-    (void)sock;
-    (void)conn;
-    return false;
-#endif
+    return do_register_socket(std::move(conn));
   }
 
   // Unregister `sock`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
-  // `post.`
+  // `post()`.
   bool unregister_socket(const ip_socket& sock) {
+    const auto fd = sock.file().handle();
     if (!is_loop_thread()) {
-      post([this, &sock] { unregister_socket(sock); });
+      post([this, fd] { do_unregister_socket(fd); });
       return true;
     }
 
-#ifdef __linux__
-    const int fd = sock.file().handle();
-    if (!registrations_.contains(fd)) return false;
-    epoll_event ev{};
-    const bool ok = poll_control(EPOLL_CTL_DEL, fd, ev);
-    registrations_.erase(fd);
-    return ok;
-#else
-    (void)sock;
-    return false;
-#endif
+    return do_unregister_socket(fd);
   }
 
   // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
-  // `post.`
+  // `post()`.
   bool set_writable(const ip_socket& sock, bool on = true) noexcept {
+    const auto fd = sock.file().handle();
     if (!is_loop_thread()) {
-      post([this, &sock, on] { set_writable(sock, on); });
+      post([this, fd, on] { do_set_writable(fd, on); });
       return true;
     }
 
-#ifdef __linux__
-    const int fd = sock.file().handle();
-    auto found = find_opt(registrations_, fd);
-    if (!found) return false;
-    auto& events = found->events;
-
-    const uint32_t mask =
-        on ? (events | EPOLLOUT) : (events & ~uint32_t{EPOLLOUT});
-    if (mask == events) return true;
-
-    epoll_event ev{.events = mask, .data = epoll_data_t{.fd = fd}};
-    if (!poll_control(EPOLL_CTL_MOD, fd, ev)) return false;
-
-    events = mask;
-    return true;
-#else
-    (void)sock;
-    (void)on;
-    return false;
-#endif
+    return do_set_writable(fd, on);
   }
 
   // Schedule `fn` to run at the top of the next `run_once()` iteration,
@@ -202,6 +163,7 @@ public:
   // place to invoke user completion callbacks, hand work to a thread pool,
   // or call `register_socket`/`unregister_socket`/`set_writable` from outside
   // the dispatch loop.
+  //
   // When a thread pool finishes work, it calls `post()` to bring the result
   // back to the loop thread.
   void post(std::function<void()> fn) {
@@ -221,7 +183,10 @@ public:
 
   // Check whether the current thread is the loop thread.
   bool is_loop_thread() const noexcept {
+    // If we're not looping, then we're effectively in the thread loop. This
+    // normally happens during setup, before the loop starts.
     if (!running_ || !loop_thread_id_) return true;
+
     return std::this_thread::get_id() == *loop_thread_id_;
   }
 
@@ -238,6 +203,7 @@ public:
     if (available < 0) return os_file::is_hard_error() ? -1 : 0;
 
     int dispatched = 0;
+    int woken = 0;
     for (int ndx = 0; ndx < available; ++ndx) {
       const int fd = events[ndx].data.fd;
 
@@ -246,6 +212,7 @@ public:
         // `eventfd` expects an 8-byte read; the value is ignored.
         std::string buf{"12345678"};
         (void)wake_fd_.read(buf);
+        ++woken;
         continue;
       }
 
@@ -253,6 +220,7 @@ public:
       dispatch_event(fd, events[ndx].events);
     }
 
+    assert(dispatched + woken == available);
     return dispatched;
 #else
     (void)timeout_ms;
@@ -263,12 +231,19 @@ public:
   // Dispatch events in a loop until `stop()` is called or `run_once` returns
   // -1. `timeout_ms` is forwarded to each `epoll_wait` call.
   void run(int timeout_ms = -1) {
-    loop_thread_id_ = std::this_thread::get_id();
-    running_ = true;
+    {
+      std::scoped_lock lock{post_mutex_};
+      loop_thread_id_ = std::this_thread::get_id();
+      running_ = true;
+    }
+
     while (running_)
       if (run_once(timeout_ms) < 0) break;
 
-    loop_thread_id_.reset();
+    {
+      std::scoped_lock lock{post_mutex_};
+      loop_thread_id_.reset();
+    }
   }
 
 private:
@@ -276,6 +251,63 @@ private:
     uint32_t events;
     std::shared_ptr<io_conn> conn;
   };
+
+  bool do_register_socket(std::shared_ptr<io_conn>&& conn) {
+#ifdef __linux__
+    const int fd = conn->sock().file().handle();
+    if (registrations_.contains(fd)) return false;
+
+    const uint32_t events = EPOLLIN | EPOLLERR | EPOLLHUP;
+    epoll_event ev{.events = events, .data = epoll_data_t{.fd = fd}};
+    if (!poll_control(EPOLL_CTL_ADD, fd, ev)) return false;
+
+    registrations_.emplace(fd, registration{events, std::move(conn)});
+    return true;
+#else
+    (void)conn;
+    return false;
+#endif
+  }
+
+  // Unregister `sock`. Returns false if `sock` is not registered or
+  // `epoll_ctl` fails.
+  bool do_unregister_socket(os_file::file_handle_t fd) {
+#ifdef __linux__
+    if (!registrations_.contains(fd)) return false;
+    epoll_event ev{};
+    const bool ok = poll_control(EPOLL_CTL_DEL, fd, ev);
+    registrations_.erase(fd);
+    return ok;
+#else
+    (void)fd;
+    return false;
+#endif
+  }
+
+  // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
+  // the registered `io_conn`. Returns false if `sock` is not registered or
+  // `epoll_ctl` fails.
+  bool do_set_writable(os_file::file_handle_t fd, bool on = true) noexcept {
+#ifdef __linux__
+    auto found = find_opt(registrations_, fd);
+    if (!found) return false;
+    auto& events = found->events;
+
+    const uint32_t mask =
+        on ? (events | EPOLLOUT) : (events & ~uint32_t{EPOLLOUT});
+    if (mask == events) return true;
+
+    epoll_event ev{.events = mask, .data = epoll_data_t{.fd = fd}};
+    if (!poll_control(EPOLL_CTL_MOD, fd, ev)) return false;
+
+    events = mask;
+    return true;
+#else
+    (void)fd;
+    (void)on;
+    return false;
+#endif
+  }
 
   // Swap-and-drain `post_queue_` under the mutex, then invoke each callback.
   // Callbacks posted from within a drained callback land in the new
