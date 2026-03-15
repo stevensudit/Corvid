@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <atomic>
+#include <cassert>
 #include <cerrno>
 #include <cstddef>
 #include <deque>
@@ -97,6 +98,10 @@ public:
   // diagnostics. May be called from any thread.
   explicit tcp_conn(io_loop& loop, ip_socket&& sock, const ip_endpoint& remote,
       tcp_conn_handlers&& h, size_t recv_buf_size = default_recv_buf_size) {
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+    assert(sock.file().get_flags() >= 0 &&
+           (sock.file().get_flags() & O_NONBLOCK) != 0);
+#endif
     state_ = std::make_shared<state>(loop, std::move(sock), remote,
         std::move(h), recv_buf_size);
     loop.post([p = state_] { p->register_with_loop(); });
@@ -209,20 +214,18 @@ private:
     // Read available data into `recv_buf_` without zero-initializing it
     // (C++23 `resize_and_overwrite`), then deliver to `on_data`. Closes on
     // EOF or unrecoverable error.
-    void handle_readable() {
+    bool handle_readable() {
 #ifdef __linux__
       no_zero::enlarge_to(recv_buf_, recv_buf_capacity_);
-      const ssize_t n =
-          ::read(sock_.file().handle(), recv_buf_.data(), recv_buf_.size());
-      if (n > 0) {
-        no_zero::resize_to(recv_buf_, static_cast<size_t>(n));
-        if (handlers_.on_data) handlers_.on_data(recv_buf_);
-      } else {
-        no_zero::clear_out(recv_buf_);
-        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return;
-        do_close_now(); // EOF (n == 0) or unrecoverable error
+      if (!sock_.file().read(recv_buf_)) {
+        do_close_now();
+        return false;
       }
+
+      if (!recv_buf_.empty() && handlers_.on_data)
+        handlers_.on_data(recv_buf_);
 #endif
+      return true;
     }
 
     // Called on the loop thread from `post()` to enqueue `buf` for sending.
@@ -231,68 +234,67 @@ private:
     // tracked by `head_span_`. `EPOLLOUT` is armed when the queue becomes
     // non-empty; `do_flush_send_buf()` drains it on subsequent `EPOLLOUT`
     // events.
-    void enqueue_send(std::string&& buf) {
+    bool enqueue_send(std::string&& buf) {
 #ifdef __linux__
-      if (!open_.load(std::memory_order_relaxed)) return;
+      if (!open_.load(std::memory_order_relaxed)) return false;
 
-      // Queue non-empty: `EPOLLOUT` already armed; just append.
+      // If there are writes queued ahead of us, just add this to the back:
+      // `EPOLLOUT` already armed.
       if (!send_queue_.empty()) {
         send_queue_.push_back(std::move(buf));
-        return;
+        return true;
       }
 
-      // First try to write directly.
-      const ssize_t n = ::write(sock_.file().handle(), buf.data(), buf.size());
-      if (n == static_cast<ssize_t>(buf.size())) {
-        buf.clear();
-        return; // fully written
-      }
-
-      const auto sent = static_cast<size_t>(n > 0 ? n : 0); // 0 on EAGAIN
-      if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+      // Write as much as we can of the new buffer.
+      auto buf_view = std::string_view{buf};
+      if (!sock_.file().write(buf_view)) {
+        // If we can't write at all, close immediately.
         buf.clear();
         do_close_now();
-        return;
+        return false;
       }
 
-      // Partial write or EAGAIN: push to queue and arm `EPOLLOUT`.
+      // If fully written, nothing to queue.
+      if (buf_view.empty()) {
+        buf.clear();
+        return true;
+      }
+
+      // If we couldn't write all of it, push to queue and arm `EPOLLOUT`.
+      // Note: We don't reuse `buf_view` because, in principle, moving a string
+      // could change the buffer location (such as with SSO).
+      const size_t sent = buf.size() - buf_view.size();
       send_queue_.push_back(std::move(buf));
-      const auto& front = send_queue_.front();
-      head_span_ = {front.data() + sent, front.size() - sent};
+      head_span_ = send_queue_.front();
+      head_span_.remove_prefix(sent);
       loop_.set_writable(sock_);
 #else
       (void)buf;
 #endif
+      return true;
     }
 
     // Drain `send_queue_` as far as `::write` allows, advancing `head_span_`.
     // When a string is fully sent, `pop_front()` destroys it immediately.
     // Disarms `EPOLLOUT` and calls `on_drain` (or `do_close_now()` if
     // `closing_`) when the queue empties.
-    void do_flush_send_buf() {
+    bool do_flush_send_buf() {
 #ifdef __linux__
+      // Write until we're out of data, are blocked, or fail.
       while (!send_queue_.empty()) {
-        const ssize_t n = ::write(sock_.file().handle(), head_span_.data(),
-            head_span_.size());
-
-        // If unable to write, try later.
-        if (n < 0) {
-          // If non-retriable error, close immediately.
-          if (errno != EAGAIN && errno != EWOULDBLOCK) do_close_now();
-          return;
+        // If we can't write at all, close immediately.
+        if (!sock_.file().write(head_span_)) {
+          do_close_now();
+          return false;
         }
 
-        // Consume the part we wrote.
-        head_span_.remove_prefix(static_cast<size_t>(n));
+        // If we weren't able to write the whole buffer, try later; keep
+        // `EPOLLOUT` armed.
+        if (!head_span_.empty()) return true;
 
         // If all gone, move on to the next string in the queue.
-        if (head_span_.empty()) {
-          send_queue_.pop_front();
-          if (!send_queue_.empty()) {
-            const auto& front = send_queue_.front();
-            head_span_ = {front.data(), front.size()};
-          }
-        }
+        send_queue_.pop_front();
+        if (!send_queue_.empty()) head_span_ = send_queue_.front();
       }
 
       // Queue fully drained, so no need to keep `EPOLLOUT` armed.
@@ -301,12 +303,13 @@ private:
       // If we were waiting to close, do it now.
       if (closing_) {
         do_close_now();
-        return;
+        return false;
       }
 
       // Inform the user that the queue is fully drained.
       if (handlers_.on_drain) handlers_.on_drain();
 #endif
+      return true;
     }
 
     // Graceful close: if data is pending let `do_flush_send_buf()` finish

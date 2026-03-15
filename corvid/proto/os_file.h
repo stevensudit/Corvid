@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
 #include <utility>
 
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
@@ -22,7 +23,11 @@
 #include <unistd.h>
 #endif
 
+#include "../strings/no_zero.h"
+
 namespace corvid { inline namespace proto {
+
+using namespace corvid::strings::no_zero_funcs;
 
 namespace details {
 // Platform file handle type and invalid-handle sentinel.
@@ -101,27 +106,46 @@ public:
   // written prefix from `data` and returns true. On failure, leaves `data`
   // unchanged and returns false. A "soft" failure (e.g., EAGAIN) is treated
   // as success with no progress.
+  // TODO: Do we need to ignore SIGPIPE? `signal(SIGPIPE, SIG_IGN);` in static?
   [[nodiscard]] bool write(std::string_view& data) const {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     if (data.empty()) return true;
 
-    auto res = ::write(handle_, data.data(), data.size());
+    const ssize_t n = ::write(handle_, data.data(), data.size());
+    if (n <= 0) return !is_hard_error();
 
-    // If we wrote something, remove it from the front of `data` and return
-    // success.
-    if (res > 0) {
-      data.remove_prefix(static_cast<size_t>(res));
-      return true;
-    }
-
-    // If we failed due to a soft error, treat it as a success with no
-    // progress.
-    const auto err = errno;
-    if (err == EAGAIN || err == EWOULDBLOCK) return true;
-
-    // Otherwise, it's a hard error. Return failure with `data` unchanged.
-    return false;
+    data.remove_prefix(static_cast<size_t>(n));
+    return true;
 #endif
+  }
+
+  // Read up to `data.size()` bytes from the file into `data`. Use
+  // `no_zero::enlarge_to_cap` or `no_zero::resize_to` to get the desired size.
+  //
+  // On success, resizes `data` to the number of bytes read and returns true. A
+  // "soft" failure (e.g., EAGAIN) is treated as success with zero bytes read.
+  // On EOF/disconnect, leaves `data` unchanged and returns false. On hard
+  // failure, clears `data` and returns false.
+  [[nodiscard]] bool read(std::string& data) const {
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+    if (data.empty()) return true;
+
+    // Read up to the current size.
+    const ssize_t n = ::read(handle_, data.data(), data.size());
+
+    // EOF/disconnect. Return false without clearing `data`.
+    if (n == 0) return false;
+
+    // Update `data` to the size actually read.
+    no_zero::resize_to(data, static_cast<size_t>(std::max(n, ssize_t{0})));
+
+    // If retriable, treat as a success with nothing read, while a hard error
+    // is a failure with `data` cleared.
+    if (n < 0) return !is_hard_error();
+#else
+    (void)data;
+#endif
+    return true;
   }
 
   // Platform-specific fd control and named helpers.
@@ -148,7 +172,13 @@ public:
 #endif
 
 private:
+  // Helper for checking whether the last error was a hard error (true) or a
+  // soft error (false).
+  static bool is_hard_error() {
+    const auto err = errno;
+    return (err != EAGAIN && err != EWOULDBLOCK);
+  }
+
   file_handle_t handle_{invalid_file_handle};
 };
-
 }} // namespace corvid::proto
