@@ -1163,7 +1163,7 @@ void TcpConn_AsyncRead_PeerClose() {
   std::string received{"sentinel"};
   bool done = false;
 
-  tcp_conn conn{loop, std::move(a), {}, {}};
+  tcp_conn conn{loop, std::move(a), {}};
   loop.run_once(0); // process posted register_with_loop
 
   auto coro = [&]() -> loop_task {
@@ -1192,7 +1192,7 @@ void TcpConn_AsyncSend() {
 
   bool sent = false;
 
-  tcp_conn conn{loop, std::move(a), {}, {}};
+  tcp_conn conn{loop, std::move(a), {}};
   loop.run_once(0); // process posted register_with_loop
 
   const std::string msg{"world"};

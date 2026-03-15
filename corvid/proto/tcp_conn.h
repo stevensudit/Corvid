@@ -104,7 +104,8 @@ public:
   // a `tcp_socket` entirely. Perhaps all we have are `ip_socket`s, and it's
   // the `*_conn` that specifies TCP or UDP.
   explicit tcp_conn(io_loop& loop, ip_socket&& sock, const ip_endpoint& remote,
-      tcp_conn_handlers&& h, size_t recv_buf_size = default_recv_buf_size) {
+      tcp_conn_handlers&& h = {},
+      size_t recv_buf_size = default_recv_buf_size) {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     assert((sock.file().get_flags().value_or(0) & O_NONBLOCK) != 0);
 #endif
