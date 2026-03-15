@@ -109,14 +109,12 @@ public:
 
   // Create the `epoll` instance and the internal `eventfd` wakeup handle.
   // Throws `std::system_error` on failure.
-  io_loop() : epoll_fd_{create_epoll()}, wake_fd_{create_eventfd()} {
+  io_loop() : epoll_fd_{create_epollfd()}, wake_fd_{create_eventfd()} {
 #ifdef __linux__
-    epoll_event ev{};
-    ev.events = EPOLLIN;
-    ev.data.fd = wake_fd_.handle();
-
     // The `eventfd` is used by `post()` and `stop()` to interrupt a sleeping
     // `epoll_wait` from another thread.
+    epoll_event ev{.events = EPOLLIN,
+        .data = epoll_data_t{.fd = wake_fd_.handle()}};
     if (!poll_control(EPOLL_CTL_ADD, wake_fd_.handle(), ev))
       throw std::system_error(errno, std::generic_category(),
           "epoll_ctl wake_fd");
@@ -139,7 +137,7 @@ public:
   //
   // Must run on the loop thread. To call safely from another thread, use
   // `post()`: `loop.post([&]{ loop.add(sock, handlers); });`
-  bool add(const ip_socket& sock, io_handlers handlers) {
+  [[nodiscard]] bool add(const ip_socket& sock, io_handlers handlers) {
     struct fn final: io_conn {
       io_handlers h_;
       explicit fn(io_handlers h) : h_{std::move(h)} {}
@@ -163,15 +161,14 @@ public:
   // (e.g., `tcp_conn`) that implement `io_conn` directly and pass themselves
   // in to avoid a separate lambda/handler allocation. Must run on the loop
   // thread.
-  bool add_conn(const ip_socket& sock, std::shared_ptr<io_conn> conn) {
+  [[nodiscard]] bool
+  add_conn(const ip_socket& sock, std::shared_ptr<io_conn> conn) {
 #ifdef __linux__
     const int fd = sock.file().handle();
     if (registrations_.contains(fd)) return false;
 
     const uint32_t events = EPOLLIN | EPOLLERR | EPOLLHUP;
-    epoll_event ev{};
-    ev.events = events;
-    ev.data.fd = fd;
+    epoll_event ev{.events = events, .data = epoll_data_t{.fd = fd}};
     if (!poll_control(EPOLL_CTL_ADD, fd, ev)) return false;
 
     registrations_.emplace(fd, registration{events, std::move(conn)});
@@ -213,9 +210,7 @@ public:
         on ? (events | EPOLLOUT) : (events & ~uint32_t{EPOLLOUT});
     if (mask == events) return true;
 
-    epoll_event ev{};
-    ev.events = mask;
-    ev.data.fd = fd;
+    epoll_event ev{.events = mask, .data = epoll_data_t{.fd = fd}};
     if (!poll_control(EPOLL_CTL_MOD, fd, ev)) return false;
 
     events = mask;
@@ -256,13 +251,13 @@ public:
     drain_post_queue();
 
     epoll_event events[max_events];
-    const int n =
+    int available =
         ::epoll_wait(epoll_fd_.handle(), events, max_events, timeout_ms);
-    if (n < 0) return -1;
+    if (available < 0) return -1;
 
     int dispatched = 0;
-    for (int i = 0; i < n; ++i) {
-      const int fd = events[i].data.fd;
+    for (int ndx = 0; ndx < available; ++ndx) {
+      const int fd = events[ndx].data.fd;
 
       // Drain the internal wakeup handle and skip -- it carries no user event.
       if (fd == wake_fd_.handle()) {
@@ -273,7 +268,7 @@ public:
       }
 
       ++dispatched;
-      dispatch_event(fd, events[i].events);
+      dispatch_event(fd, events[ndx].events);
     }
 
     return dispatched;
@@ -287,9 +282,8 @@ public:
   // -1. `timeout_ms` is forwarded to each `epoll_wait` call.
   void run(int timeout_ms = -1) {
     running_ = true;
-    while (running_) {
+    while (running_)
       if (run_once(timeout_ms) < 0) break;
-    }
   }
 
 private:
@@ -315,10 +309,11 @@ private:
   // stays alive even if a callback calls `unregister()`.
   void dispatch_event(int fd, uint32_t ev) {
 #ifdef __linux__
-    const auto it = registrations_.find(fd);
-    if (it == registrations_.end()) return;
+    auto found = find_opt(registrations_, fd);
+    if (!found) return;
+
     // Keep the conn alive across the entire dispatch.
-    const auto conn = it->second.conn;
+    const auto conn = found->conn;
     if (ev & (EPOLLERR | EPOLLHUP)) {
       conn->on_error();
       return;
@@ -345,7 +340,7 @@ private:
   }
 #endif
 
-  static os_file create_epoll() {
+  static os_file create_epollfd() {
 #ifdef __linux__
     auto f = os_file{::epoll_create1(EPOLL_CLOEXEC)};
     if (!f.is_open())

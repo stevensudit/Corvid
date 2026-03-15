@@ -749,7 +749,7 @@ void IoLoop_ReadableDispatch() {
   auto [a, b] = make_sockpair();
 
   int fired = 0;
-  loop.add(a, {.on_readable = [&] { ++fired; }});
+  (void)loop.add(a, {.on_readable = [&] { ++fired; }});
 
   const char byte = 'x';
   EXPECT_EQ(::write(b.file().handle(), &byte, 1), 1);
@@ -768,7 +768,7 @@ void IoLoop_WritableNotFiredByDefault() {
   auto [a, b] = make_sockpair();
 
   int fired = 0;
-  loop.add(a, {.on_writable = [&] { ++fired; }});
+  (void)loop.add(a, {.on_writable = [&] { ++fired; }});
 
   // EPOLLOUT is not in the initial mask, so on_writable must not fire.
   loop.run_once(0);
@@ -785,7 +785,7 @@ void IoLoop_EnableDisableWritable() {
   auto [a, b] = make_sockpair();
 
   int fired = 0;
-  loop.add(a, {.on_writable = [&] { ++fired; }});
+  (void)loop.add(a, {.on_writable = [&] { ++fired; }});
 
   // Unix-domain stream sockets are always writable when the buffer is empty.
   EXPECT_TRUE(loop.set_writable(a));
@@ -809,7 +809,7 @@ void IoLoop_ErrorFallsThruToReadable() {
 
   int readable_fired = 0;
   // No on_error; EPOLLHUP must fall through to on_readable.
-  loop.add(a, {.on_readable = [&] { ++readable_fired; }});
+  (void)loop.add(a, {.on_readable = [&] { ++readable_fired; }});
 
   // Closing the write peer triggers EPOLLHUP on `a`.
   b.close();
@@ -829,7 +829,7 @@ void IoLoop_ErrorHandler() {
 
   int error_fired = 0;
   int readable_fired = 0;
-  loop.add(a,
+  (void)loop.add(a,
       {
           .on_readable = [&] { ++readable_fired; },
           .on_error = [&] { ++error_fired; },
@@ -870,7 +870,7 @@ void IoLoop_PostFromCallback() {
   int outer = 0;
   int inner = 0;
 
-  loop.add(a,
+  (void)loop.add(a,
       {
           .on_readable =
               [&] {
@@ -902,7 +902,7 @@ void IoLoop_Stop() {
   auto [a, b] = make_sockpair();
 
   int fired = 0;
-  loop.add(a,
+  (void)loop.add(a,
       {
           .on_readable =
               [&] {
@@ -930,9 +930,9 @@ void IoLoop_RemoveFromCallback() {
 
   // Removing a *different* fd from within a callback must not crash.
   auto [c, d] = make_sockpair();
-  loop.add(c, {});
+  (void)loop.add(c, {});
 
-  loop.add(a, {.on_readable = [&] { loop.unregister(c); }});
+  (void)loop.add(a, {.on_readable = [&] { loop.unregister(c); }});
 
   const char byte = 'x';
   EXPECT_EQ(::write(b.file().handle(), &byte, 1), 1);
@@ -954,8 +954,8 @@ void IoLoop_MultipleRegistrations() {
 
   int a_fired = 0;
   int c_fired = 0;
-  loop.add(a, {.on_readable = [&] { ++a_fired; }});
-  loop.add(c, {.on_readable = [&] { ++c_fired; }});
+  (void)loop.add(a, {.on_readable = [&] { ++a_fired; }});
+  (void)loop.add(c, {.on_readable = [&] { ++c_fired; }});
 
   // Only write to `b`; only `a` should become readable.
   const char byte = 'x';

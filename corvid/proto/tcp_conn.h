@@ -202,7 +202,7 @@ private:
 #ifdef __linux__
       if (!open_.load(std::memory_order_relaxed)) return;
       auto self = shared_from_this();
-      loop_.add_conn(sock_, std::move(self));
+      (void)loop_.add_conn(sock_, std::move(self));
 #endif
     }
 
