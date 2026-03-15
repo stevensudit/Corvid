@@ -88,10 +88,11 @@ public:
   // was).
   bool close() noexcept {
     if (handle_ == invalid_file_handle) return false;
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
-    if (::close(handle_) != 0) return false;
-#endif
+    const auto old_handle = handle_;
     handle_ = invalid_file_handle;
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+    if (::close(old_handle) != 0) return false;
+#endif
     return true;
   }
 

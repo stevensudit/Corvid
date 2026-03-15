@@ -261,8 +261,8 @@ public:
 
       // Drain the internal wakeup handle and skip -- it carries no user event.
       if (fd == wake_fd_.handle()) {
-        std::string buf;
-        no_zero::resize_to(buf, 1);
+        // `eventfd` expects an 8-byte read; the value is ignored.
+        std::string buf{"12345678"};
         (void)wake_fd_.read(buf);
         continue;
       }
@@ -329,8 +329,9 @@ private:
   // Write to `wake_fd_` to interrupt a sleeping `epoll_wait`. Idempotent and
   // safe to call from any thread.
   void wake() noexcept {
-    char x = '1';
-    std::string_view val{&x, 1};
+    // `eventfd` expects an 8-byte write; the value is ignored.
+    std::string buf{"12345678"};
+    std::string_view val{buf};
     (void)wake_fd_.write(val);
   }
 
