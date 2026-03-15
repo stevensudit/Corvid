@@ -184,8 +184,7 @@ public:
 
 private:
   // Internal state. Inherits from `io_conn` so it can be registered directly
-  // with the loop, eliminating the separate lambda/handler allocation used
-  // by the `io_handlers`-based approach.
+  // with the loop.
   struct state final: io_conn {
     io_loop& loop_;
     ip_socket sock_;

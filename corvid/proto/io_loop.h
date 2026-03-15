@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <atomic>
+#include <cerrno>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -33,29 +34,6 @@
 #include "ip_socket.h"
 
 namespace corvid { inline namespace proto {
-
-// Callbacks for a registered socket. All fields are optional; a null handler
-// is silently skipped when its event fires.
-//
-// These callbacks fire directly inside the `epoll_wait` dispatch loop on the
-// loop thread. They must not block. Their job is to perform the I/O syscall
-// (`::read`, `::write`, `::accept`), update internal state, and call
-// `io_loop::post()` to schedule the user's completion callback for the next
-// iteration. Invoking user-supplied callbacks directly is only appropriate if
-// they are guaranteed to be trivially fast and non-blocking.
-//
-//  `on_readable` -- fired when `EPOLLIN` is reported.
-//  `on_writable` -- fired when `EPOLLOUT` is reported. Should be enabled only
-//                   when there is data waiting to be drained; see
-//                   `io_loop::set_writable`.
-//  `on_error`    -- fired when `EPOLLERR` or `EPOLLHUP` is reported. If null,
-//                   falls through to `on_readable` so the read path can
-//                   observe the error or EOF naturally.
-struct io_handlers {
-  std::function<void()> on_readable = nullptr;
-  std::function<void()> on_writable = nullptr;
-  std::function<void()> on_error = nullptr;
-};
 
 // Abstract base for objects registered with `io_loop`. Higher-level types
 // (e.g., `tcp_conn`) inherit from this and override the three event methods.
@@ -75,15 +53,14 @@ struct io_conn: std::enable_shared_from_this<io_conn> {
 // `epoll`-based I/O event loop, safe for use with a background thread.
 //
 // This is an internal building block for higher-level socket types
-// (`tcp_socket`, `tcp_listener`, `tcp_client`). User code drives the loop via
-// `run()` / `run_once()` / `stop()`, but never registers fds directly.
+// (e.g., `tcp_conn`). User code drives the loop via `run()` / `run_once()` /
+// `stop()`, but never calls `epoll_ctl` directly.
 //
-// Higher-level types call `add()` to register an `ip_socket` with an
-// `io_handlers` struct. The initial event mask is always
-// `EPOLLIN | EPOLLERR | EPOLLHUP`. Write-readiness interest (`EPOLLOUT`) is
-// toggled with `set_writable()` without disturbing the stored handlers --
-// this lets a `tcp_socket` arm write interest only while its send buffer is
-// non-empty.
+// Call `register_socket()` to register an `ip_socket` paired with a
+// `shared_ptr<io_conn>`. The initial event mask is always `EPOLLIN | EPOLLERR
+// | EPOLLHUP`. Write-readiness interest (`EPOLLOUT`) is toggled with
+// `set_writable()` without disturbing the registered `io_conn`. This lets a
+// `tcp_conn` arm write interest only while its send buffer is non-empty.
 //
 // `post()` schedules a callback to run at the top of the next `run_once()`
 // iteration. It is safe to call from any thread: it locks `post_mutex_`,
@@ -96,9 +73,10 @@ struct io_conn: std::enable_shared_from_this<io_conn> {
 // writes to `wake_fd_` so the loop exits promptly even if blocked in
 // `epoll_wait`.
 //
-// `add`, `remove`, and `set_writable` are NOT thread-safe; call them only
-// from the loop thread (i.e., from within a callback or a `post()`'d
-// function).
+// TODO: Make a thread-safe wrapper.
+// `register_socket`, `unregister_socket`, and `set_writable` are NOT
+// thread-safe; call them only from the loop thread (i.e., from within a
+// callback or a `post()`'d function).
 //
 // `io_loop` is non-copyable and non-movable. Linux only; on other platforms
 // the class is defined but all methods are no-ops or return failure.
@@ -130,14 +108,10 @@ public:
 
   ~io_loop() = default;
 
-  // Register `sock` with `handlers`.
-  //
-  // Register `sock` with a pre-built `io_conn`. Used by higher-level types
-  // (e.g., `tcp_conn`) that implement `io_conn` directly and pass themselves
-  // in to avoid a separate lambda/handler allocation.
+  // Register `sock` with `conn`.
   //
   // Must run on the loop thread. To call safely from another thread, use
-  // `post()`: `loop.post([&]{ loop.add(sock, handlers); });`
+  // `post()`: `loop.post([&]{ loop.register_socket(sock, conn); });`
   //
   // The initial event mask is `EPOLLIN | EPOLLERR | EPOLLHUP`; `EPOLLOUT` is
   // not enabled until `set_writable(sock, true)` is called. Returns false if
@@ -179,8 +153,8 @@ public:
   }
 
   // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
-  // handlers. Returns false if `sock` is not registered or `epoll_ctl` fails.
-  // Must run on the loop thread; use `post()` otherwise.
+  // the registered `io_conn`. Returns false if `sock` is not registered or
+  // `epoll_ctl` fails. Must run on the loop thread; use `post()` otherwise.
   bool set_writable(const ip_socket& sock, bool on = true) noexcept {
 #ifdef __linux__
     const int fd = sock.file().handle();
@@ -207,7 +181,8 @@ public:
   // Schedule `fn` to run at the top of the next `run_once()` iteration,
   // before `epoll_wait`. Safe to call from any thread. This is the right
   // place to invoke user completion callbacks, hand work to a thread pool,
-  // or call `add`/`remove`/`set_writable` from outside the dispatch loop.
+  // or call `register_socket`/`unregister_socket`/`set_writable` from outside
+  // the dispatch loop.
   // When a thread pool finishes work, it calls `post()` to bring the result
   // back to the loop thread.
   void post(std::function<void()> fn) {
@@ -235,7 +210,10 @@ public:
     epoll_event events[max_events];
     int available =
         ::epoll_wait(epoll_fd_.handle(), events, max_events, timeout_ms);
-    if (available < 0) return -1;
+    if (available < 0) {
+      if (errno == EINTR) return 0;
+      return -1;
+    }
 
     int dispatched = 0;
     for (int ndx = 0; ndx < available; ++ndx) {
