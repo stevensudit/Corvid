@@ -708,6 +708,16 @@ static sockpair_t make_nb_sockpair() {
     return {};
   return {test_socket{fds[0]}, test_socket{fds[1]}};
 }
+
+// Minimal `io_conn` that counts how many times each virtual is called.
+struct counting_conn: io_conn {
+  int readable = 0;
+  int writable = 0;
+  int error = 0;
+  void on_readable() override { ++readable; }
+  void on_writable() override { ++writable; }
+  void on_error() override { ++error; }
+};
 #endif
 
 void IoLoop_Lifecycle() {
@@ -729,6 +739,110 @@ void IoLoop_Post() {
   // I/O events.
   loop.run_once(0);
   EXPECT_EQ(fired, 1);
+#endif
+}
+
+// `register_socket` dispatches `on_readable` via virtual `io_conn` override;
+// `unregister_socket` stops further dispatch. Double-register and
+// double-unregister both return false.
+void IoLoop_RegisterUnregister() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  auto conn = std::make_shared<counting_conn>();
+
+  EXPECT_TRUE(loop.register_socket(a, conn));
+  EXPECT_FALSE(loop.register_socket(a, conn)); // already registered
+
+  auto msg_view = std::string_view{"hi"};
+  EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
+
+  EXPECT_EQ(loop.run_once(0), 1);
+  EXPECT_EQ(conn->readable, 1);
+  EXPECT_EQ(conn->writable, 0);
+  EXPECT_EQ(conn->error, 0);
+
+  // Drain the data so the fd is no longer readable.
+  std::string buf(8, '\0');
+  (void)a.file().read(buf);
+
+  EXPECT_TRUE(loop.unregister_socket(a));
+  EXPECT_FALSE(loop.unregister_socket(a)); // already removed
+
+  // No events after unregistering.
+  EXPECT_EQ(loop.run_once(0), 0);
+  EXPECT_EQ(conn->readable, 1);
+#endif
+}
+
+// `set_writable(true)` arms `EPOLLOUT`; the kernel fires it when the kernel
+// send buffer has space, which it does immediately on a fresh socketpair.
+void IoLoop_SetWritable() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  auto conn = std::make_shared<counting_conn>();
+  (void)loop.register_socket(a, conn);
+
+  // `EPOLLOUT` is not initially armed; no writable event.
+  EXPECT_EQ(loop.run_once(0), 0);
+  EXPECT_EQ(conn->writable, 0);
+
+  loop.set_writable(a, true);
+  EXPECT_EQ(loop.run_once(0), 1);
+  EXPECT_GE(conn->writable, 1);
+
+  // Disarm; no further writable events.
+  loop.set_writable(a, false);
+  const int w = conn->writable;
+  EXPECT_EQ(loop.run_once(0), 0);
+  EXPECT_EQ(conn->writable, w);
+#endif
+}
+
+// When `EPOLLERR` or `EPOLLHUP` fires together with `EPOLLOUT`, `on_error` is
+// called but `on_writable` is skipped (the early-return path in
+// `dispatch_event`).
+void IoLoop_ErrorSkipsWritable() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  auto conn = std::make_shared<counting_conn>();
+  (void)loop.register_socket(a, conn);
+  loop.set_writable(a, true); // arm EPOLLOUT
+
+  b.close(); // triggers EPOLLHUP on `a`
+
+  loop.run_once(0);
+  EXPECT_EQ(conn->error, 1);
+  EXPECT_EQ(conn->writable, 0); // must not fire when error/hup is reported
+#endif
+}
+
+// The default `io_conn::on_error()` implementation falls through to
+// `on_readable()`. Verify this by registering a subclass that overrides only
+// `on_readable` and confirming it is called when the peer closes.
+void IoLoop_DefaultOnError() {
+#ifdef __linux__
+  struct readable_only_conn: io_conn {
+    int readable = 0;
+    void on_readable() override { ++readable; }
+    // on_error not overridden; default calls on_readable()
+  };
+
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  auto conn = std::make_shared<readable_only_conn>();
+  (void)loop.register_socket(a, conn);
+
+  b.close(); // EPOLLHUP -> default on_error() -> on_readable()
+  loop.run_once(0);
+
+  EXPECT_GE(conn->readable, 1);
 #endif
 }
 
@@ -761,11 +875,12 @@ void TcpConn_Receive() {
       {.on_data = [&](std::string& d) { received = std::move(d); }}};
   loop.run_once(0); // process posted do_open_()
 
-  const char msg[] = "hello";
-  EXPECT_EQ(::write(b.file().handle(), msg, 5), 5);
+  const std::string msg{"hello"};
+  auto msg_view = std::string_view{msg};
+  EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
 
   EXPECT_EQ(loop.run_once(0), 1); // dispatch EPOLLIN
-  EXPECT_EQ(received, "hello");
+  EXPECT_EQ(received, msg);
 #endif
 }
 
@@ -798,10 +913,11 @@ void TcpConn_Send() {
   loop.run_once(0); // process posted enqueue() -> immediate ::write
 
   // Data written by enqueue() is now in the kernel buffer.
-  char buf[16]{};
-  const ssize_t n = ::read(b.file().handle(), buf, sizeof(buf));
-  EXPECT_EQ(n, 5);
-  EXPECT_EQ(std::string_view(buf, 5), "world");
+  std::string buf;
+  no_zero::enlarge_to(buf, 16);
+  EXPECT_TRUE(b.file().read(buf));
+  EXPECT_EQ(buf.size(), 5U);
+  EXPECT_EQ(buf, "world");
 #endif
 }
 
@@ -849,12 +965,14 @@ void TcpConn_DrainAfterBufferedSend() {
   // Drain by reading from `b` and running the loop until all data arrives.
   std::string received;
   received.reserve(payload.size());
-  char tmp[4096];
+  std::string tmp;
   while (received.size() < payload.size()) {
     loop.run_once(0);
-    ssize_t n;
-    while ((n = ::read(b.file().handle(), tmp, sizeof(tmp))) > 0)
-      received.append(tmp, static_cast<std::size_t>(n));
+    no_zero::enlarge_to(tmp, 4096);
+    while (b.file().read(tmp) && !tmp.empty()) {
+      received.append(tmp);
+      no_zero::enlarge_to(tmp, 4096);
+    }
   }
 
   // All bytes must arrive intact.
@@ -888,12 +1006,14 @@ void TcpConn_GracefulClose() {
   // Drain all data from `b` while running the loop.
   std::string received;
   received.reserve(payload.size());
-  char tmp[4096];
+  std::string tmp;
   while (!closed) {
     loop.run_once(0);
-    ssize_t n;
-    while ((n = ::read(b.file().handle(), tmp, sizeof(tmp))) > 0)
-      received.append(tmp, static_cast<std::size_t>(n));
+    no_zero::enlarge_to(tmp, 4096);
+    while (b.file().read(tmp) && !tmp.empty()) {
+      received.append(tmp);
+      no_zero::enlarge_to(tmp, 4096);
+    }
   }
 
   EXPECT_EQ(received.size(), payload.size());
@@ -935,14 +1055,15 @@ void TcpConn_AsyncRead() {
   };
   coro(); // starts eagerly; suspends at async_read (no data yet)
 
-  const char msg[] = "hello";
-  EXPECT_EQ(::write(b.file().handle(), msg, 5), 5);
+  const std::string msg{"hello"};
+  auto msg_view = std::string_view{msg};
+  EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
 
   loop.run_once(0); // dispatch EPOLLIN -> posts resume
   loop.run_once(0); // drain post queue -> coroutine resumes
 
   EXPECT_TRUE(done);
-  EXPECT_EQ(received, "hello");
+  EXPECT_EQ(received, msg);
 #endif
 }
 
@@ -988,8 +1109,10 @@ void TcpConn_AsyncSend() {
   tcp_conn conn{loop, std::move(a), {}, {}};
   loop.run_once(0); // process posted register_with_loop
 
+  const std::string msg{"world"};
+
   auto coro = [&]() -> loop_task {
-    co_await conn.async_send("world");
+    co_await conn.async_send(std::string{msg});
     sent = true;
   };
   coro(); // starts eagerly; write likely completes synchronously
@@ -1000,10 +1123,10 @@ void TcpConn_AsyncSend() {
 
   EXPECT_TRUE(sent);
 
-  char buf[16]{};
-  const ssize_t n = ::read(b.file().handle(), buf, sizeof(buf));
-  EXPECT_EQ(n, 5);
-  EXPECT_EQ(std::string_view(buf, 5), "world");
+  std::string buf;
+  no_zero::enlarge_to(buf, 16);
+  EXPECT_TRUE(b.file().read(buf));
+  EXPECT_EQ(buf, msg);
 #endif
 }
 
@@ -1016,8 +1139,10 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IpSocket_Move, IpSocket_Release, IpSocket_Options, IpSocket_Nonblocking,
     DnsResolve_NumericIPv4, DnsResolve_NumericIPv6, DnsResolve_Localhost,
     DnsResolve_FamilyFilter, DnsResolve_InvalidHost, DnsResolveOne_Success,
-    DnsResolveOne_Failure, IoLoop_Lifecycle, TcpConn_Lifecycle,
-    TcpConn_Receive, TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
+    DnsResolveOne_Failure, IoLoop_Lifecycle, IoLoop_Post,
+    IoLoop_RegisterUnregister, IoLoop_SetWritable, IoLoop_ErrorSkipsWritable,
+    IoLoop_DefaultOnError, TcpConn_Lifecycle, TcpConn_Receive,
+    TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
     TcpConn_DrainAfterBufferedSend, TcpConn_GracefulClose,
     LoopTask_FireAndForget, TcpConn_AsyncRead, TcpConn_AsyncRead_PeerClose,
     TcpConn_AsyncSend);
