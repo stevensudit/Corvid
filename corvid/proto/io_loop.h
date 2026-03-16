@@ -167,7 +167,7 @@ public:
 
   // Run `fn` on the loop thread and block the caller until it returns. If
   // already on the loop thread, executes `fn` inline. Unlike a regular post,
-  // which is asychronous, this is synchronous and passes through the return
+  // which is asynchronous, this is synchronous and passes through the return
   // value.
   template<typename FN>
   [[nodiscard]] bool post_and_wait(FN&& fn) {
@@ -241,8 +241,7 @@ public:
 
       // Callback executes in polling thread and should immediately handle the
       // event by performing I/O. It should not block or post more work to the
-      // loop until ready to handle the
-
+      // loop until ready to handle the callback.
       ++dispatched;
       dispatch_event(fd, events[ndx].events);
     }

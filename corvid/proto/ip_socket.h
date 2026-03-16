@@ -137,7 +137,7 @@ public:
     const ssize_t n = ::recv(handle(), data.data(), data.size(), flags);
     if (n == 0) return false;
 
-    no_zero::resize_to(data, static_cast<size_t>(std::max(n, ssize_t{0})));
+    no_zero::trim_to(data, n);
     if (n < 0) return !os_file::is_hard_error();
     return true;
   }

@@ -619,13 +619,10 @@ private:
     bool handle_readable() {
       if (!read_open_.load(std::memory_order_relaxed)) return false;
 
-      // Resize, allowing shrink.
       const auto recv_buf_capacity =
           recv_buf_capacity_.load(std::memory_order_relaxed);
-      if (recv_buf_.capacity() > recv_buf_capacity)
-        no_zero::resize_to(recv_buf_, recv_buf_capacity);
-      else
-        no_zero::enlarge_to(recv_buf_, recv_buf_capacity);
+      no_zero::rightsize_to(recv_buf_, recv_buf_capacity,
+          recv_buf_capacity * 2);
 
       if (!sock().recv(recv_buf_)) {
         // Distinguish between EOF and error.

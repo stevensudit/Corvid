@@ -36,9 +36,13 @@ constexpr auto& clear_out(std::string& s) {
   return s;
 }
 
-// Direct wrapper of `resize_and_overwrite`, hiding the lambda away. Note
-// that, on enlargement, this still copies the old contents to the new
-// buffer, which is wasteful. Instead, use `enlarge_to` to avoid this.
+// Direct wrapper of `resize_and_overwrite`, hiding the lambda away. This is
+// probably not the function you want to call.
+//
+// On enlargement, this still copies the old contents to the new buffer, which
+// is wasteful. Instead, use `enlarge_to` to avoid this. It also doesn't get
+// rid of unwanted capacity, as `rightsize_to` does. Nor is it ideal for
+// trimming after filling, as `trim_to` is.
 constexpr auto& resize_to(std::string& s, std::size_t new_size) {
   s.resize_and_overwrite(new_size, [new_size](char*, std::size_t) noexcept {
     return new_size;
@@ -46,8 +50,21 @@ constexpr auto& resize_to(std::string& s, std::size_t new_size) {
   return s;
 }
 
-// Resize to the current capacity.
-constexpr auto& resize_to_cap(std::string& s) {
+// Trims size down to `new_size`, but cannot enlarge and does not affect
+// capacity. This is the function to call after filling a buffer partially.
+// Note that it handles the case of negative signed values by clamping them to
+// zero.
+constexpr auto& trim_to(std::string& s, std::integral auto new_size) {
+  if constexpr (std::signed_integral<decltype(new_size)>) {
+    if (new_size < 0) new_size = 0;
+  }
+  const auto cast_size = static_cast<std::size_t>(new_size);
+  if (cast_size < s.size()) resize_to(s, cast_size);
+  return s;
+}
+
+// Resize up to the current capacity.
+constexpr auto& enlarge_to_cap(std::string& s) {
   return resize_to(s, s.capacity());
 }
 
@@ -56,14 +73,14 @@ constexpr auto& resize_to_cap(std::string& s) {
 constexpr auto& enlarge_to(std::string& s, size_t minimum_size) {
   // If we can satisfy the requirement using the current buffer, expand size
   // to match its capacity.
-  if (minimum_size <= s.capacity()) return resize_to_cap(s);
+  if (minimum_size <= s.capacity()) return enlarge_to_cap(s);
 
   // Since we're going to need to enlarge, we don't want to preserve the old
   // contents.
   resize_to(clear_out(s), minimum_size);
 
   // If there's slack, use all of the available capacity.
-  if (s.capacity() > minimum_size) resize_to_cap(s);
+  if (s.capacity() > minimum_size) enlarge_to_cap(s);
 
   return s;
 }

@@ -100,7 +100,7 @@ public:
   // written prefix from `data` and returns true. On failure, leaves `data`
   // unchanged and returns false. A "soft" failure (e.g., EAGAIN) is treated
   // as success with no progress. Note that this call can invoke a SIGPIPE on a
-  // socket, so use `ip_sock::send` instead.
+  // socket, so use `ip_socket::send` instead.
   [[nodiscard]] bool write(std::string_view& data) const {
     if (data.empty()) return true;
 
@@ -112,7 +112,8 @@ public:
   }
 
   // Read up to `data.size()` bytes from the file into `data`. Use
-  // `no_zero::resize_to_cap` or `no_zero::enlarge_to` to get the desired size.
+  // `no_zero::enlarge_to_cap` or `no_zero::enlarge_to` to get the desired
+  // size.
   //
   // On success, resizes `data` to the number of bytes read and returns true. A
   // "soft" failure (e.g., EAGAIN) is treated as success with zero bytes read.
@@ -129,7 +130,7 @@ public:
     if (n == 0) return false;
 
     // Update `data` to the size actually read.
-    no_zero::resize_to(data, static_cast<size_t>(std::max(n, ssize_t{0})));
+    no_zero::trim_to(data, n);
 
     // If retriable, treat as a success with nothing read, while a hard error
     // is a failure with `data` cleared.
