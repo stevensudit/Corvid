@@ -130,7 +130,7 @@ public:
   explicit tcp_conn(io_loop& loop, ip_socket&& sock, const ip_endpoint& remote,
       tcp_conn_handlers&& h = {},
       size_t recv_buf_size = default_recv_buf_size) {
-    assert((sock.file().get_flags().value_or(0) & O_NONBLOCK) != 0);
+    assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
     state_ = std::make_shared<state>(loop, std::move(sock), remote,
         std::move(h), recv_buf_size);
     loop.post([p = state_] { p->register_with_loop(); });
@@ -598,8 +598,7 @@ private:
         (void)handle_readable();
       } else if (read_open_.load(std::memory_order_relaxed)) {
         char byte = '\0';
-        const ssize_t peeked =
-            ::recv(sock().file().handle(), &byte, 1, MSG_PEEK | MSG_DONTWAIT);
+        const ssize_t peeked = sock().recv(&byte, 1, MSG_PEEK | MSG_DONTWAIT);
         if (peeked == 0) {
           handle_read_eof();
         } else if (peeked < 0 && os_file::is_hard_error()) {
@@ -623,7 +622,7 @@ private:
       else
         no_zero::enlarge_to(recv_buf_, recv_buf_capacity);
 
-      if (!sock().file().read(recv_buf_)) {
+      if (!sock().recv(recv_buf_)) {
         // Distinguish between EOF and error.
         if (recv_buf_.empty()) {
           do_close_now(close_mode::forceful);

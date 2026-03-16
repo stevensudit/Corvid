@@ -128,7 +128,7 @@ public:
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post()`.
   bool set_readable(const ip_socket& sock, bool on = true) noexcept {
-    const auto fd = sock.file().handle();
+    const auto fd = sock.handle();
     return execute_or_post([this, fd, on] { return do_set_readable(fd, on); });
   }
 
@@ -137,7 +137,7 @@ public:
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post()`.
   bool set_writable(const ip_socket& sock, bool on = true) noexcept {
-    const auto fd = sock.file().handle();
+    const auto fd = sock.handle();
     return execute_or_post([this, fd, on] { return do_set_writable(fd, on); });
   }
 
@@ -145,7 +145,7 @@ public:
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post()`.
   bool unregister_socket(const ip_socket& sock) {
-    const auto fd = sock.file().handle();
+    const auto fd = sock.handle();
     return execute_or_post([this, fd] { return do_unregister_socket(fd); });
   }
 
@@ -284,7 +284,7 @@ private:
   bool do_register_socket(std::shared_ptr<io_conn>&& conn, bool readable,
       bool writable) {
     assert(is_loop_thread());
-    const int fd = conn->sock().file().handle();
+    const int fd = conn->sock().handle();
     if (registrations_.contains(fd)) return false;
 
     const uint32_t events = make_event_mask(readable, writable);

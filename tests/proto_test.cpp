@@ -17,6 +17,7 @@
 
 #include "../corvid/proto.h"
 #include "minitest.h"
+#include <type_traits>
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -485,24 +486,24 @@ void IpSocket_Lifecycle() {
     ip_socket s;
     EXPECT_FALSE(s.is_open());
     EXPECT_FALSE(static_cast<bool>(s));
-    EXPECT_EQ(s.file().handle(), ip_socket::invalid_handle);
+    EXPECT_EQ(s.handle(), ip_socket::invalid_handle);
     EXPECT_FALSE(s.close());
   }
 
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // A real socket is open; closing it twice is idempotent.
   if (true) {
-    ip_socket s{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
+    ip_socket s{AF_INET, SOCK_STREAM, 0};
     EXPECT_TRUE(s.is_open());
     EXPECT_TRUE(static_cast<bool>(s));
-    EXPECT_NE(s.file().handle(), ip_socket::invalid_handle);
+    EXPECT_NE(s.handle(), ip_socket::invalid_handle);
     EXPECT_TRUE(s.close());
     EXPECT_FALSE(s.is_open());
     EXPECT_FALSE(s.close());
   }
 
   // Destructor closes an open socket (no crash or leak).
-  if (true) { ip_socket s{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)}; }
+  if (true) { ip_socket s{AF_INET, SOCK_STREAM, 0}; }
 #endif
 }
 
@@ -510,35 +511,35 @@ void IpSocket_Move() {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
-    ip_socket a{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
-    const auto h = a.file().handle();
+    ip_socket a{AF_INET, SOCK_STREAM, 0};
+    const auto h = a.handle();
     ip_socket b{std::move(a)};
     EXPECT_FALSE(a.is_open());
     EXPECT_TRUE(b.is_open());
-    EXPECT_EQ(b.file().handle(), h);
+    EXPECT_EQ(b.handle(), h);
   }
 
   // Move assignment closes the destination and transfers the source.
   if (true) {
-    ip_socket a{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
-    ip_socket b{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
-    const auto h = a.file().handle();
+    ip_socket a{AF_INET, SOCK_STREAM, 0};
+    ip_socket b{AF_INET, SOCK_STREAM, 0};
+    const auto h = a.handle();
     b = std::move(a);
     EXPECT_FALSE(a.is_open());
     EXPECT_TRUE(b.is_open());
-    EXPECT_EQ(b.file().handle(), h);
+    EXPECT_EQ(b.handle(), h);
   }
 
   // Self-assignment is a no-op.
   if (true) {
-    ip_socket a{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
-    const auto h = a.file().handle();
+    ip_socket a{AF_INET, SOCK_STREAM, 0};
+    const auto h = a.handle();
     // Route through a pointer to defeat -Wself-move while still exercising
     // the self-assignment path.
     auto* p = &a;
     a = std::move(*p);
     EXPECT_TRUE(a.is_open());
-    EXPECT_EQ(a.file().handle(), h);
+    EXPECT_EQ(a.handle(), h);
   }
 #endif
 }
@@ -547,8 +548,8 @@ void IpSocket_Release() {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // `release()` yields the handle without closing it; socket becomes invalid.
   if (true) {
-    ip_socket s{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
-    const auto h = s.file().release();
+    ip_socket s{AF_INET, SOCK_STREAM, 0};
+    const auto h = s.release();
     EXPECT_NE(h, ip_socket::invalid_handle);
     EXPECT_FALSE(s.is_open());
     ::close(h);
@@ -560,7 +561,7 @@ void IpSocket_Options() {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Named option helpers round-trip through `get_option`.
   if (true) {
-    ip_socket s{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
+    ip_socket s{AF_INET, SOCK_STREAM, 0};
 
     EXPECT_TRUE(s.set_reuse_addr(true));
     auto v = s.get_option<int>(SOL_SOCKET, SO_REUSEADDR);
@@ -579,7 +580,7 @@ void IpSocket_Options() {
 
   // Buffer size helpers: kernel may round up, so just verify >= requested.
   if (true) {
-    ip_socket s{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
+    ip_socket s{AF_INET, SOCK_STREAM, 0};
     EXPECT_TRUE(s.set_recv_buffer_size(65536));
     EXPECT_TRUE(s.set_send_buffer_size(65536));
     auto r = s.get_option<int>(SOL_SOCKET, SO_RCVBUF);
@@ -595,21 +596,47 @@ void IpSocket_Options() {
 void IpSocket_Nonblocking() {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   if (true) {
-    ip_socket s{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
+    ip_socket s{AF_INET, SOCK_STREAM, 0};
 
-    EXPECT_TRUE(s.file().set_nonblocking(true));
-    EXPECT_TRUE(s.file().get_flags().value_or(0) & O_NONBLOCK);
+    EXPECT_TRUE(s.set_nonblocking(true));
+    EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
 
-    EXPECT_TRUE(s.file().set_nonblocking(false));
-    EXPECT_FALSE(s.file().get_flags().value_or(0) & O_NONBLOCK);
+    EXPECT_TRUE(s.set_nonblocking(false));
+    EXPECT_FALSE(s.get_flags().value_or(0) & O_NONBLOCK);
   }
+#endif
+}
+
+void IpSocket_SendRecv() {
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+  int fds[2];
+  ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+  ip_socket a{os_file{fds[0]}};
+  ip_socket b{os_file{fds[1]}};
+
+  auto msg = std::string_view{"hello"};
+  EXPECT_TRUE(a.send(msg));
+  EXPECT_TRUE(msg.empty());
+
+  std::string buf(16, '\0');
+  EXPECT_TRUE(b.recv(buf));
+  EXPECT_EQ(buf, "hello");
+
+  constexpr char raw_msg[] = "raw";
+  EXPECT_EQ(a.send(raw_msg, sizeof(raw_msg) - 1), 3);
+
+  char raw_buf[8]{};
+  EXPECT_EQ(b.recv(raw_buf, sizeof(raw_buf), 0), 3);
+  const auto raw_view = std::string_view{raw_buf, 3};
+  EXPECT_EQ(raw_view, "raw");
 #endif
 }
 
 void IpSocket_BindListenAccept() {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Bind a listening socket to a free loopback port.
-  ip_socket listener{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
+  ip_socket listener{AF_INET, SOCK_STREAM, 0};
   EXPECT_TRUE(listener.is_open());
   EXPECT_TRUE(listener.set_reuse_addr());
   EXPECT_TRUE(listener.bind(ip_endpoint{ipv4_addr::loopback(), 0}));
@@ -618,14 +645,14 @@ void IpSocket_BindListenAccept() {
   // Retrieve the OS-assigned port via `getsockname`.
   sockaddr_in bound{};
   socklen_t bound_len = sizeof(bound);
-  EXPECT_EQ(::getsockname(listener.file().handle(),
+  EXPECT_EQ(::getsockname(listener.handle(),
                 reinterpret_cast<sockaddr*>(&bound), &bound_len),
       0);
   const uint16_t port = ntohs(bound.sin_port);
   EXPECT_NE(port, 0U);
 
   // Connect a client to the listening socket.
-  ip_socket client{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
+  ip_socket client{AF_INET, SOCK_STREAM, 0};
   EXPECT_TRUE(client.is_open());
   EXPECT_TRUE(client.connect(ip_endpoint{ipv4_addr::loopback(), port}));
 
@@ -792,7 +819,7 @@ void IoLoop_RegisterUnregister() {
 
   // Drain the data so the fd is no longer readable.
   std::string buf(8, '\0');
-  (void)a.file().read(buf);
+  (void)a.read(buf);
 
   EXPECT_TRUE(loop.unregister_socket(conn->sock()));
   EXPECT_FALSE(loop.unregister_socket(conn->sock())); // already removed
@@ -850,7 +877,7 @@ void IoLoop_SetReadable() {
   EXPECT_EQ(conn->writable, 0);
 
   std::string buf(8, '\0');
-  (void)conn->sock().file().read(buf);
+  (void)conn->sock().read(buf);
 
   EXPECT_TRUE(loop.set_readable(conn->sock(), false));
   EXPECT_TRUE(loop.set_writable(conn->sock(), true));
@@ -1000,7 +1027,7 @@ void TcpConn_PeerClose() {
 
   std::string buf;
   no_zero::enlarge_to(buf, 32);
-  EXPECT_TRUE(b.file().read(buf));
+  EXPECT_TRUE(b.read(buf));
   EXPECT_EQ(buf, "still-open");
 
   conn.close();
@@ -1023,7 +1050,7 @@ void TcpConn_Send() {
   // Data written by enqueue() is now in the kernel buffer.
   std::string buf;
   no_zero::enlarge_to(buf, 16);
-  EXPECT_TRUE(b.file().read(buf));
+  EXPECT_TRUE(b.read(buf));
   EXPECT_EQ(buf.size(), 5U);
   EXPECT_EQ(buf, "world");
 #endif
@@ -1077,7 +1104,7 @@ void TcpConn_DrainAfterBufferedSend() {
   while (received.size() < payload.size()) {
     loop.run_once(0);
     no_zero::enlarge_to(tmp, 4096);
-    while (b.file().read(tmp) && !tmp.empty()) {
+    while (b.read(tmp) && !tmp.empty()) {
       received.append(tmp);
       no_zero::enlarge_to(tmp, 4096);
     }
@@ -1106,7 +1133,7 @@ void TcpConn_DrainAfterImmediateSend() {
 
   std::string received;
   no_zero::enlarge_to(received, 16);
-  EXPECT_TRUE(b.file().read(received));
+  EXPECT_TRUE(b.read(received));
   EXPECT_EQ(received, "hello");
   EXPECT_EQ(drain_count, 1);
 #endif
@@ -1232,7 +1259,7 @@ void TcpConn_AsyncCbWrite() {
 
   std::string received;
   no_zero::enlarge_to(received, 32);
-  EXPECT_TRUE(b.file().read(received));
+  EXPECT_TRUE(b.read(received));
   EXPECT_EQ(received, "callback-write");
   EXPECT_TRUE(completed);
   EXPECT_EQ(callback_count, 1);
@@ -1314,7 +1341,7 @@ void TcpConn_ShutdownRead() {
 
   std::string buf;
   no_zero::enlarge_to(buf, 32);
-  EXPECT_TRUE(b.file().read(buf));
+  EXPECT_TRUE(b.read(buf));
   EXPECT_EQ(buf, "outbound");
   EXPECT_EQ(data_count, 0);
 #endif
@@ -1410,7 +1437,7 @@ void TcpConn_GracefulClose() {
   while (!closed) {
     loop.run_once(0);
     no_zero::enlarge_to(tmp, 4096);
-    while (b.file().read(tmp) && !tmp.empty()) {
+    while (b.read(tmp) && !tmp.empty()) {
       received.append(tmp);
       no_zero::enlarge_to(tmp, 4096);
     }
@@ -1446,7 +1473,7 @@ void TcpConn_DestructorHangsUp() {
   std::string received;
   std::string tmp;
   no_zero::enlarge_to(tmp, 4096);
-  while (b.file().read(tmp) && !tmp.empty()) {
+  while (b.read(tmp) && !tmp.empty()) {
     received.append(tmp);
     no_zero::enlarge_to(tmp, 4096);
   }
@@ -1644,7 +1671,7 @@ void TcpConn_AsyncSend() {
 
   std::string buf;
   no_zero::enlarge_to(buf, 16);
-  EXPECT_TRUE(b.file().read(buf));
+  EXPECT_TRUE(b.read(buf));
   EXPECT_EQ(buf, msg);
 #endif
 }
@@ -1656,15 +1683,16 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IpEndpoint_Construction, IpEndpoint_Parse, IpEndpoint_Comparison,
     IpEndpoint_Formatting, IpEndpoint_PosixInterop, IpSocket_Lifecycle,
     IpSocket_Move, IpSocket_Release, IpSocket_Options, IpSocket_Nonblocking,
-    IpSocket_BindListenAccept, DnsResolve_NumericIPv4, DnsResolve_NumericIPv6,
-    DnsResolve_Localhost, DnsResolve_FamilyFilter, DnsResolve_InvalidHost,
-    DnsResolveOne_Success, DnsResolveOne_Failure, IoLoop_Lifecycle,
-    IoLoop_Post, IoLoop_RegisterUnregister, IoLoop_SetWritable,
-    IoLoop_SetReadable, IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError,
-    TcpConn_Lifecycle, TcpConn_Receive, TcpConn_SetRecvBufSize,
-    TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
-    TcpConn_DrainAfterBufferedSend, TcpConn_DrainAfterImmediateSend,
-    TcpConn_AsyncCbRead, TcpConn_AsyncCbRead_PreservesEarlyData,
+    IpSocket_SendRecv, IpSocket_BindListenAccept, DnsResolve_NumericIPv4,
+    DnsResolve_NumericIPv6, DnsResolve_Localhost, DnsResolve_FamilyFilter,
+    DnsResolve_InvalidHost, DnsResolveOne_Success, DnsResolveOne_Failure,
+    IoLoop_Lifecycle, IoLoop_Post, IoLoop_RegisterUnregister,
+    IoLoop_SetWritable, IoLoop_SetReadable, IoLoop_ErrorSkipsWritable,
+    IoLoop_DefaultOnError, TcpConn_Lifecycle, TcpConn_Receive,
+    TcpConn_SetRecvBufSize, TcpConn_PeerClose, TcpConn_Send,
+    TcpConn_ManualClose, TcpConn_DrainAfterBufferedSend,
+    TcpConn_DrainAfterImmediateSend, TcpConn_AsyncCbRead,
+    TcpConn_AsyncCbRead_PreservesEarlyData,
     TcpConn_AsyncCbRead_DuplicateRejected, TcpConn_AsyncCbRead_PeerClose,
     TcpConn_AsyncCbWrite, TcpConn_AsyncCbWrite_Failure,
     TcpConn_AsyncCbWrite_DuplicateRejected, TcpConn_ShutdownWrite,

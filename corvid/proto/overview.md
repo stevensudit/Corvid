@@ -37,14 +37,15 @@ On POSIX, interops with `sockaddr_in`, `sockaddr_in6`, and
 
 ### `ip_socket`
 
-RAII socket handle owning an `os_file`; movable, non-copyable; fd-level
-operations delegate to the underlying `os_file` via `file()`. Type-safe
+RAII socket handle derived from `os_file`; movable, non-copyable; inherits
+fd-level operations directly. Type-safe
 `set_option<T>(level, optname, value)` / `get_option<T>(level, optname)`
-wrap `setsockopt` / `getsockopt`. Named helpers cover the most common
-options: `set_reuse_addr`, `set_reuse_port`, `set_nodelay`, `set_keepalive`,
-`set_recv_buffer_size`, `set_send_buffer_size`. Can adopt an existing
-`os_file` by move, and exposes `make_ip_socket(domain, type, protocol)` to
-create one when needed.
+wrap `setsockopt` / `getsockopt`. Socket I/O adds `send(string_view&)` and
+`recv(string&, flags)` wrappers on top of the inherited fd operations. Named
+helpers cover the most common options: `set_reuse_addr`, `set_reuse_port`,
+`set_nodelay`, `set_keepalive`, `set_recv_buffer_size`,
+`set_send_buffer_size`. Can adopt an existing `os_file` by move, or create a socket directly via
+`ip_socket(domain, type, protocol)`.
 
 ### `dns_resolver`
 
