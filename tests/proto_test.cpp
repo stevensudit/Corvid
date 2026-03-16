@@ -791,7 +791,7 @@ void IoLoop_RegisterUnregister() {
   EXPECT_TRUE(loop.register_socket(conn));
 
   auto msg_view = std::string_view{"hi"};
-  EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
 
   EXPECT_EQ(loop.run_once(0), 1);
   EXPECT_EQ(conn->readable, 1);
@@ -913,7 +913,7 @@ void TcpConn_Receive() {
 
   const std::string msg{"hello"};
   auto msg_view = std::string_view{msg};
-  EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
 
   EXPECT_EQ(loop.run_once(0), 1); // dispatch EPOLLIN
   EXPECT_EQ(received, msg);
@@ -926,16 +926,15 @@ void TcpConn_SetRecvBufSize() {
   auto [a, b] = make_nb_sockpair();
 
   std::vector<size_t> chunk_sizes;
-  tcp_conn conn{loop, std::move(a), {}, {.on_data = [&](std::string& d) {
-                  chunk_sizes.push_back(d.size());
-                }},
+  tcp_conn conn{loop, std::move(a), {},
+      {.on_data = [&](std::string& d) { chunk_sizes.push_back(d.size()); }},
       4};
   loop.run_once(0); // process posted register_with_loop
 
   EXPECT_EQ(conn.recv_buf_size(), 4U);
 
   auto first = std::string_view{"abcd1234"};
-  EXPECT_TRUE(b.file().write(first) && first.empty());
+  EXPECT_TRUE(b.send(first) && first.empty());
   EXPECT_EQ(loop.run_once(0), 1); // first read capped at 4 bytes
   EXPECT_EQ(chunk_sizes.size(), 1U);
   EXPECT_EQ(chunk_sizes[0], 4U);
@@ -948,7 +947,7 @@ void TcpConn_SetRecvBufSize() {
   EXPECT_EQ(chunk_sizes[1], 4U);
 
   auto second = std::string_view{"ABCDEFGHijkl"};
-  EXPECT_TRUE(b.file().write(second) && second.empty());
+  EXPECT_TRUE(b.send(second) && second.empty());
   EXPECT_EQ(loop.run_once(0), 1); // next read should use updated cap
   EXPECT_EQ(chunk_sizes.size(), 3U);
   EXPECT_EQ(chunk_sizes[2], 8U);
@@ -964,10 +963,25 @@ void TcpConn_PeerClose() {
   tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
   loop.run_once(0); // process posted do_open_()
 
-  b.close();
-  loop.run_once(0); // dispatch EPOLLHUP -> on_error -> close_now_()
+  EXPECT_TRUE(b.shutdown(SHUT_WR));
+  loop.run_once(0); // dispatch EOF/HUP
 
   EXPECT_TRUE(closed);
+
+  EXPECT_TRUE(conn.is_open());
+  EXPECT_FALSE(conn.can_read());
+  EXPECT_TRUE(conn.can_write());
+
+  conn.send(std::string{"still-open"});
+  loop.run_once(0);
+
+  std::string buf;
+  no_zero::enlarge_to(buf, 32);
+  EXPECT_TRUE(b.file().read(buf));
+  EXPECT_EQ(buf, "still-open");
+
+  conn.close();
+  loop.run_once(0);
   EXPECT_FALSE(conn.is_open());
 #endif
 }
@@ -1084,12 +1098,13 @@ void TcpConn_AsyncCbRead() {
   tcp_conn conn{loop, std::move(a), {}, {}};
   loop.run_once(0); // process posted register_with_loop
 
-  EXPECT_TRUE(conn.async_cb_read(
-      [&](std::string& data) { received = std::move(data); }));
+  EXPECT_TRUE(conn.async_cb_read([&](std::string& data) {
+    received = std::move(data);
+  }));
 
   const std::string msg{"callback-read"};
   auto msg_view = std::string_view{msg};
-  EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
 
   loop.run_once(0); // dispatch EPOLLIN -> inline callback
 
@@ -1111,7 +1126,7 @@ void TcpConn_AsyncCbRead_DuplicateRejected() {
 
   const std::string msg{"one"};
   auto msg_view = std::string_view{msg};
-  EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
 
   loop.run_once(0); // dispatch EPOLLIN -> one callback
 
@@ -1127,8 +1142,7 @@ void TcpConn_AsyncCbRead_PeerClose() {
   std::string received{"sentinel"};
   int callback_count = 0;
   bool closed = false;
-  tcp_conn conn{loop, std::move(a), {},
-      {.on_close = [&] { closed = true; }}};
+  tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
   loop.run_once(0); // process posted register_with_loop
 
   EXPECT_TRUE(conn.async_cb_read([&](std::string& data) {
@@ -1142,6 +1156,12 @@ void TcpConn_AsyncCbRead_PeerClose() {
   EXPECT_EQ(callback_count, 1);
   EXPECT_TRUE(received.empty());
   EXPECT_TRUE(closed);
+  EXPECT_TRUE(conn.is_open());
+  EXPECT_FALSE(conn.can_read());
+  EXPECT_TRUE(conn.can_write());
+
+  conn.close();
+  loop.run_once(0);
   EXPECT_FALSE(conn.is_open());
 #endif
 }
@@ -1178,8 +1198,7 @@ void TcpConn_AsyncCbWrite_Failure() {
 
   bool completed = true;
   bool closed = false;
-  tcp_conn conn{loop, std::move(a), {},
-      {.on_close = [&] { closed = true; }}};
+  tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
   loop.run_once(0); // process posted register_with_loop
 
   b.close();
@@ -1188,8 +1207,88 @@ void TcpConn_AsyncCbWrite_Failure() {
       [&](bool write_completed) { completed = write_completed; }));
 
   EXPECT_FALSE(completed);
+  EXPECT_TRUE(conn.is_open());
+  EXPECT_TRUE(conn.can_read());
+  EXPECT_FALSE(conn.can_write());
+
+  loop.run_once(0); // process peer-close notification
   EXPECT_TRUE(closed);
   EXPECT_FALSE(conn.is_open());
+#endif
+}
+
+void TcpConn_ShutdownWrite() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  std::string received;
+  tcp_conn conn{loop, std::move(a), {},
+      {.on_data = [&](std::string& d) { received = std::move(d); }}};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_TRUE(conn.can_read());
+  EXPECT_TRUE(conn.can_write());
+  EXPECT_TRUE(conn.shutdown_write());
+  EXPECT_TRUE(conn.is_open());
+  EXPECT_TRUE(conn.can_read());
+  EXPECT_FALSE(conn.can_write());
+  EXPECT_FALSE(conn.async_cb_write(std::string{"nope"}, [&](bool) {}));
+
+  const std::string msg{"inbound"};
+  auto msg_view = std::string_view{msg};
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  EXPECT_EQ(loop.run_once(0), 1);
+  EXPECT_EQ(received, msg);
+#endif
+}
+
+void TcpConn_ShutdownRead() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  int data_count = 0;
+  tcp_conn conn{loop, std::move(a), {},
+      {.on_data = [&](std::string&) { ++data_count; }}};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_TRUE(conn.can_read());
+  EXPECT_TRUE(conn.can_write());
+  EXPECT_TRUE(conn.shutdown_read());
+  EXPECT_TRUE(conn.is_open());
+  EXPECT_FALSE(conn.can_read());
+  EXPECT_TRUE(conn.can_write());
+  EXPECT_FALSE(conn.async_cb_read([&](std::string&) { ++data_count; }));
+
+  conn.send(std::string{"outbound"});
+  loop.run_once(0);
+
+  std::string buf;
+  no_zero::enlarge_to(buf, 32);
+  EXPECT_TRUE(b.file().read(buf));
+  EXPECT_EQ(buf, "outbound");
+  EXPECT_EQ(data_count, 0);
+#endif
+}
+
+void TcpConn_ShutdownBothCloses() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_TRUE(conn.shutdown_write());
+  EXPECT_TRUE(conn.is_open());
+  EXPECT_FALSE(conn.can_write());
+  EXPECT_TRUE(conn.can_read());
+
+  EXPECT_TRUE(conn.shutdown_read());
+  EXPECT_FALSE(conn.is_open());
+  EXPECT_FALSE(conn.can_read());
+  EXPECT_FALSE(conn.can_write());
 #endif
 }
 
@@ -1210,7 +1309,9 @@ void TcpConn_AsyncCbWrite_DuplicateRejected() {
   std::atomic<int> completions{0};
 
   auto try_register = [&] {
-    if (conn.async_cb_write(std::string{payload}, [&](bool) { ++completions; }))
+    if (conn.async_cb_write(std::string{payload}, [&](bool) {
+          ++completions;
+        }))
       ++accepted;
     else
       ++rejected;
@@ -1341,7 +1442,7 @@ void TcpConn_AsyncRead() {
 
   const std::string msg{"hello"};
   auto msg_view = std::string_view{msg};
-  EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
 
   loop.run_once(0); // dispatch EPOLLIN -> posts resume
   loop.run_once(0); // drain post queue -> coroutine resumes
@@ -1377,6 +1478,12 @@ void TcpConn_AsyncRead_PeerClose() {
 
   EXPECT_TRUE(done);
   EXPECT_TRUE(received.empty()); // close delivers empty data
+  EXPECT_TRUE(conn.is_open());
+  EXPECT_FALSE(conn.can_read());
+  EXPECT_TRUE(conn.can_write());
+
+  conn.close();
+  loop.run_once(0);
   EXPECT_FALSE(conn.is_open());
 #endif
 }
@@ -1431,7 +1538,8 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     TcpConn_DrainAfterImmediateSend, TcpConn_AsyncCbRead,
     TcpConn_AsyncCbRead_DuplicateRejected, TcpConn_AsyncCbRead_PeerClose,
     TcpConn_AsyncCbWrite, TcpConn_AsyncCbWrite_Failure,
-    TcpConn_AsyncCbWrite_DuplicateRejected, TcpConn_GracefulClose,
+    TcpConn_AsyncCbWrite_DuplicateRejected, TcpConn_ShutdownWrite,
+    TcpConn_ShutdownRead, TcpConn_ShutdownBothCloses, TcpConn_GracefulClose,
     TcpConn_DestructorHangsUp, LoopTask_FireAndForget, TcpConn_AsyncRead,
     TcpConn_AsyncRead_PeerClose, TcpConn_AsyncSend);
 

@@ -122,14 +122,9 @@ public:
   // `sock` is already registered or `epoll_ctl` fails. If executed outside of
   // loop thread, turns into a `post()`.
   [[nodiscard]] bool register_socket(std::shared_ptr<io_conn> conn) {
-    if (!is_loop_thread()) {
-      post([this, conn = std::move(conn)]() mutable {
-        (void)do_register_socket(std::move(conn));
-      });
-      return true;
-    }
-
-    return do_register_socket(std::move(conn));
+    return execute_or_post([this, conn = std::move(conn)]() mutable {
+      return do_register_socket(std::move(conn));
+    });
   }
 
   // Unregister `sock`. Returns false if `sock` is not registered or
@@ -137,12 +132,7 @@ public:
   // `post()`.
   bool unregister_socket(const ip_socket& sock) {
     const auto fd = sock.file().handle();
-    if (!is_loop_thread()) {
-      post([this, fd] { do_unregister_socket(fd); });
-      return true;
-    }
-
-    return do_unregister_socket(fd);
+    return execute_or_post([this, fd] { return do_unregister_socket(fd); });
   }
 
   // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
@@ -151,12 +141,7 @@ public:
   // `post()`.
   bool set_writable(const ip_socket& sock, bool on = true) noexcept {
     const auto fd = sock.file().handle();
-    if (!is_loop_thread()) {
-      post([this, fd, on] { do_set_writable(fd, on); });
-      return true;
-    }
-
-    return do_set_writable(fd, on);
+    return execute_or_post([this, fd, on] { return do_set_writable(fd, on); });
   }
 
   // Schedule `fn` to run at the top of the next `run_once()` iteration,
@@ -167,12 +152,47 @@ public:
   //
   // When a thread pool finishes work, it calls `post()` to bring the result
   // back to the loop thread.
-  void post(std::function<void()> fn) {
+  bool post(std::function<void()> fn) {
     {
       std::scoped_lock lock{post_mutex_};
       post_queue_.push_back(std::move(fn));
     }
     wake();
+    return true;
+  }
+
+  // Run `fn` on the loop thread and block the caller until it returns. If
+  // already on the loop thread, executes `fn` inline. Unlike a regular post,
+  // which is asychronous, this is synchronous and passes through the return
+  // value.
+  template<typename FN>
+  [[nodiscard]] bool post_and_wait(FN&& fn) {
+    if (is_loop_thread()) return fn();
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool done = false;
+    bool result = false;
+    post([&] {
+      {
+        std::lock_guard lock{mutex};
+        result = fn();
+        done = true;
+      }
+      cv.notify_one();
+    });
+    std::unique_lock lock{mutex};
+    cv.wait(lock, [&] { return done; });
+    return result;
+  }
+
+  // Run `fn` immediately if on the loop thread, otherwise `post()` it. Returns
+  // the result of `fn` if executed immediately, otherwise true.
+  template<typename FN>
+  [[nodiscard]] bool execute_or_post(FN&& fn) {
+    if (is_loop_thread()) return fn();
+    post(std::forward<FN>(fn));
+    return true;
   }
 
   // Signal the loop to exit after the current dispatch round completes.
@@ -187,7 +207,6 @@ public:
     // If we're not looping, then we're effectively in the thread loop. This
     // normally happens during setup, before the loop starts.
     if (!running_ || !loop_thread_id_) return true;
-
     return std::this_thread::get_id() == *loop_thread_id_;
   }
 
@@ -196,13 +215,16 @@ public:
   // first. Returns the number of I/O events dispatched, or -1 on error.
   int run_once(int timeout_ms = -1) {
 #ifdef __linux__
+    // Execute backlog of posts.
     drain_post_queue();
 
+    // Poll for available events.
     epoll_event events[max_events];
     int available =
         ::epoll_wait(epoll_fd_.handle(), events, max_events, timeout_ms);
     if (available < 0) return os_file::is_hard_error() ? -1 : 0;
 
+    // Dispatch each event to handler.
     int dispatched = 0;
     int woken = 0;
     for (int ndx = 0; ndx < available; ++ndx) {
@@ -216,6 +238,10 @@ public:
         ++woken;
         continue;
       }
+
+      // Callback executes in polling thread and should immediately handle the
+      // event by performing I/O. It should not block or post more work to the
+      // loop until ready to handle the
 
       ++dispatched;
       dispatch_event(fd, events[ndx].events);

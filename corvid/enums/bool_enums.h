@@ -56,4 +56,8 @@ enum class removal_mode : bool { preserve = false, remove = true };
 // close (e.g., via `hangup()` with SO_LINGER disabled).
 enum class close_mode : bool { graceful = false, forceful = true };
 
+// Whether operations should block until progress is possible or return
+// immediately when they would otherwise wait.
+enum class execution : bool { nonblocking = false, blocking = true };
+
 }}} // namespace corvid::enums::bool_enums

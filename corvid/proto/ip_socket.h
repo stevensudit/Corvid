@@ -138,6 +138,21 @@ public:
     return file_.set_nonblocking(on);
   }
 
+  // Send as much of `data` as possible on the socket. On success, removes the
+  // written prefix from `data` and returns true. On failure, leaves `data`
+  // unchanged and returns false. A "soft" failure (e.g., EAGAIN) is treated
+  // as success with no progress.
+  [[nodiscard]] bool send(std::string_view& data) const noexcept {
+    if (data.empty()) return true;
+
+    const ssize_t n =
+        ::send(file_.handle(), data.data(), data.size(), MSG_NOSIGNAL);
+    if (n <= 0) return !os_file::is_hard_error();
+
+    data.remove_prefix(static_cast<size_t>(n));
+    return true;
+  }
+
   // Bind the socket to a local endpoint. Returns true on success.
   [[nodiscard]] bool bind(const ip_endpoint& ep) noexcept {
     const auto sa = ep.to_sockaddr_storage();
@@ -163,6 +178,12 @@ public:
   // is the maximum pending connection queue length. Returns true on success.
   [[nodiscard]] bool listen(int backlog = SOMAXCONN) noexcept {
     return ::listen(file_.handle(), backlog) == 0;
+  }
+
+  // Shut down part of a full-duplex connection. `how` is one of `SHUT_RD`,
+  // `SHUT_WR`, or `SHUT_RDWR`. Returns true on success.
+  [[nodiscard]] bool shutdown(int how) noexcept {
+    return ::shutdown(file_.handle(), how) == 0;
   }
 
   // Accept a pending connection. On Linux, the returned socket is created

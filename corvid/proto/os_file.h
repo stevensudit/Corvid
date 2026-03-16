@@ -36,15 +36,6 @@ namespace details {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 using file_handle_t = int;
 constexpr file_handle_t invalid_file_handle = -1;
-
-// NOLINTBEGIN(bugprone-throwing-static-initialization)
-inline bool ignore_sigpipe_once = []() {
-  struct sigaction sa{};
-  sa.sa_handler = SIG_IGN;
-  ::sigemptyset(&sa.sa_mask);
-  return ::sigaction(SIGPIPE, &sa, nullptr) != 0;
-}();
-// NOLINTEND(bugprone-throwing-static-initialization)
 #else
 // Placeholder for non-POSIX platforms (e.g., Windows `HANDLE`).
 using file_handle_t = int;
@@ -118,8 +109,8 @@ public:
   // Write as much of `data` as possible to the file. On success, removes the
   // written prefix from `data` and returns true. On failure, leaves `data`
   // unchanged and returns false. A "soft" failure (e.g., EAGAIN) is treated
-  // as success with no progress. Note that we have disabled SIGPIPE, which
-  // could otherwise be triggered by the other side disconnecting.
+  // as success with no progress. Note that this call can invoke a SIGPIPE on a
+  // socket, so use `ip_sock::send` instead.
   [[nodiscard]] bool write(std::string_view& data) const {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     if (data.empty()) return true;

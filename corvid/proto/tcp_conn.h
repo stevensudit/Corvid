@@ -16,7 +16,6 @@
 // limitations under the License.
 #pragma once
 #include <atomic>
-#include <condition_variable>
 #include <cassert>
 #include <cerrno>
 #include <coroutine>
@@ -111,11 +110,11 @@ struct tcp_conn_handlers {
 // - `async_read()` / `async_send()` require the caller to avoid overlap; a
 //   second concurrent wait is a programming error (asserted in debug builds).
 //
-// A pending read callback completes with an empty buffer if the connection
+// A pending read callback completes with an empty buffer if the read side
 // closes before data arrives. The callback can distinguish that case by
-// retaining access to the `tcp_conn` and checking `is_open()`. A pending write
-// waiter completes on either success or failure: coroutine sends resume, while
-// per-call callback sends receive `cb(bool completed)`.
+// retaining access to the `tcp_conn` and checking `can_read()` / `is_open()`.
+// A pending write waiter completes on either success or failure: coroutine
+// sends resume, while per-call callback sends receive `cb(bool completed)`.
 //
 // Linux only; on other platforms all methods are no-ops.
 class tcp_conn {
@@ -129,9 +128,6 @@ public:
   // Construct a connection from `sock` (must already be non-blocking) and post
   // its registration with `loop`. `remote` records the peer address for
   // diagnostics. May be called from any thread.
-  // TODO: This should take a `tcp_socket` or we should get rid of the idea of
-  // a `tcp_socket` entirely. Perhaps all we have are `ip_socket`s, and it's
-  // the `*_conn` that specifies TCP or UDP.
   explicit tcp_conn(io_loop& loop, ip_socket&& sock, const ip_endpoint& remote,
       tcp_conn_handlers&& h = {},
       size_t recv_buf_size = default_recv_buf_size) {
@@ -141,26 +137,6 @@ public:
     state_ = std::make_shared<state>(loop, std::move(sock), remote,
         std::move(h), recv_buf_size);
     loop.post([p = state_] { p->register_with_loop(); });
-  }
-
-  // Change the per-connection receive buffer size used for future reads.
-  // `bytes` must be non-zero. Safe to call from any thread. Returns false if
-  // the connection is closed or `bytes == 0`.
-  bool set_recv_buf_size(size_t bytes) {
-    if (!state_ || bytes == 0) return false;
-    if (!state_->open_.load(std::memory_order_relaxed)) return false;
-    auto& loop = state_->loop_;
-    if (loop.is_loop_thread()) return state_->set_recv_buf_size(bytes);
-    return run_on_loop_sync_([p = state_, bytes] {
-      return p->set_recv_buf_size(bytes);
-    });
-  }
-
-  // The current per-connection receive buffer size used for future reads.
-  // Safe to call from any thread. Returns 0 if the handle is empty.
-  [[nodiscard]] size_t recv_buf_size() const noexcept {
-    if (!state_) return 0;
-    return state_->recv_buf_capacity_.load(std::memory_order_relaxed);
   }
 
   tcp_conn(tcp_conn&&) noexcept = default;
@@ -173,8 +149,10 @@ public:
   // call `close()` before the instance is destructed.
   ~tcp_conn() {
     if (!state_) return;
-    auto& loop = state_->loop_;
-    loop.post([p = std::move(state_)] { p->do_hangup(); });
+    (void)state_->loop_.execute_or_post([p = std::move(state_)] {
+      p->do_hangup();
+      return true;
+    });
   }
 
   // True if the connection has not yet been closed.
@@ -182,39 +160,84 @@ public:
     return state_ && state_->open_.load(std::memory_order_relaxed);
   }
 
+  // Change the per-connection receive buffer size used for future reads.
+  // `bytes` must be non-zero. Safe to call from any thread. Returns false if
+  // the handle is empty or `bytes == 0`.
+  bool set_recv_buf_size(size_t bytes) {
+    if (!state_ || bytes == 0) return false;
+    state_->recv_buf_capacity_.store(bytes, std::memory_order_relaxed);
+    return true;
+  }
+
+  // The current per-connection receive buffer size used for future reads.
+  // Safe to call from any thread.
+  [[nodiscard]] size_t recv_buf_size() const noexcept {
+    if (!state_) return 0;
+    return state_->recv_buf_capacity_.load(std::memory_order_relaxed);
+  }
+
+  // Whether the read side is still open. Safe to call from any thread. Returns
+  // false if the connection is closed or the read side has been shut down.
+  [[nodiscard]] bool can_read() const noexcept {
+    return state_ && state_->read_open_.load(std::memory_order_relaxed);
+  }
+
+  // Whether the write side is still open. Safe to call from any thread.
+  // Returns false if the connection is closed or the write side has been shut
+  // down.
+  [[nodiscard]] bool can_write() const noexcept {
+    return state_ && state_->write_open_.load(std::memory_order_relaxed);
+  }
+
   // The remote peer address supplied at construction.
   [[nodiscard]] const ip_endpoint& remote_endpoint() const noexcept {
     return state_->remote_;
   }
 
-  // Take ownership of `buf` and post it for sending on the loop thread.
-  // `buf` must be non-empty. Safe to call from any thread.
-  void send(std::string&& buf) {
-    // Note: The reason we don't just call `enqueue_send` directly is that it
-    // mutates loop-owned connection state and performs socket I/O against the
-    // same fd that the loop may also be touching.
-    if (!state_ || buf.empty()) return;
-    if (!state_->open_.load(std::memory_order_relaxed)) return;
-    auto& loop = state_->loop_;
-    loop.post([p = state_, b = std::move(buf)]() mutable {
-      p->enqueue_send(std::move(b));
-    });
+  // Take ownership of `buf` and start sending it. Safe to call from any
+  // thread.
+  bool send(std::string&& buf) {
+    if (!state_ || buf.empty()) return false;
+    if (!state_->open_.load(std::memory_order_relaxed)) return false;
+    if (!state_->write_open_.load(std::memory_order_relaxed)) return false;
+    return state_->loop_.execute_or_post(
+        [p = state_, b = std::move(buf)]() mutable {
+          p->enqueue_send(std::move(b));
+          return true;
+        });
   }
 
-  // Post a graceful close to the loop. Pending sends drain first.
+  // Start a graceful close. Drains pending sends first, then shuts down the
+  // socket. Safe to call from any thread.
+  bool close() {
+    if (!state_) return false;
+    state_->loop_.post([p = state_] { p->do_close(); });
+    return true;
+  }
+
+  // Shut down the local read side while keeping the write side available.
   // Safe to call from any thread.
-  void close() {
-    if (!state_) return;
-    auto& loop = state_->loop_;
-    loop.post([p = state_] { p->do_close(); });
+  bool shutdown_read(execution exec = execution::blocking) {
+    if (!state_) return false;
+    if (!state_->open_.load(std::memory_order_relaxed)) return false;
+    return exec_lambda(exec, [p = state_] { return p->do_shutdown_read(); });
+  }
+
+  // Shut down the local write side while keeping the read side available.
+  // Safe to call from any thread.
+  bool shutdown_write(execution exec = execution::blocking) {
+    if (!state_) return false;
+    if (!state_->open_.load(std::memory_order_relaxed)) return false;
+    return exec_lambda(exec, [p = state_] { return p->do_shutdown_write(); });
   }
 
   // Post a forceful close to the loop. Pending sends are discarded and
   // SO_LINGER is disabled. Safe to call from any thread.
-  void hangup() {
-    if (!state_) return;
-    auto& loop = state_->loop_;
-    loop.post([p = state_] { p->do_hangup(); });
+  bool hangup() {
+    if (!state_) return false;
+    return state_->loop_.execute_or_post([p = state_] {
+      return p->do_hangup();
+    });
   }
 
   // Return an awaitable that suspends the calling coroutine until one batch
@@ -244,80 +267,77 @@ public:
     return state::async_send_awaitable{state_.get(), std::move(buf)};
   }
 
-  // Register a one-shot callback for the next readable batch. The callback is
-  // invoked inline on the loop thread with the internal receive buffer so the
-  // caller may inspect it in place or `std::move` from it. Returns false if
-  // the connection is closed, `cb` is null, or another async read waiter is
-  // already pending. If the connection closes before data arrives, `cb` is
-  // invoked with an empty string; code that retains access to the `tcp_conn`
-  // can call `is_open()` to distinguish that case from real data.
-  bool async_cb_read(async_read_cb cb) {
+  // Register a one-shot callback for the next chunk of readable data. Callback
+  // delivery is asynchronous. However, when used outside the loop thread and
+  // with `execution::blocking`, this function will block until the I/O is
+  // registered, giving it a chance to fail immediately if another read
+  // waiter is pending.
+  //
+  // The callback, `cb`, is invoked inline on the loop thread with the
+  // internal receive buffer so that the caller may copy or move it.
+  //
+  // Returns false if the connection is closed, `cb` is null, or another
+  // async read waiter is already pending. If the connection closes before
+  // data arrives, `cb` is invoked with an empty string; code that retains
+  // access to the `tcp_conn` can call `is_open()` to distinguish that case
+  // from real data.
+  bool async_cb_read(async_read_cb cb, execution exec = execution::blocking) {
     if (!state_ || !cb) return false;
     if (!state_->open_.load(std::memory_order_relaxed)) return false;
-    auto& loop = state_->loop_;
-    if (loop.is_loop_thread())
-      return state_->register_async_cb_read(std::move(cb));
-    return run_on_loop_sync_([p = state_, cb = std::move(cb)]() mutable {
+    if (!state_->read_open_.load(std::memory_order_relaxed)) return false;
+    return exec_lambda(exec, [p = state_, cb = std::move(cb)]() mutable {
       return p->register_async_cb_read(std::move(cb));
     });
   }
 
-  // Take ownership of `buf`, send it, and invoke `cb` once the write reaches a
-  // terminal state. `completed == true` means the buffered write fully
+  // Register to write the data in `buf` and receive a one-shot callback when
+  // all data has been written. Callback delivery is asynchronous. However,
+  // when used outside the loop thread and with `execution::blocking`, this
+  // function will block until the I/O is registered, giving it a chance to
+  // fail immediately if another write waiter is pending.
+  //
+  // Takes ownership of `buf`, sends it, and invoke `cb` afterwards. When the
+  // callback gets `completed == true`, that means the buffered write fully
   // drained; `completed == false` means the connection closed or failed before
-  // all bytes were sent, possibly after a partial write. Successful immediate
-  // writes invoke `cb(true)` inline on the loop thread. Returns false if the
-  // connection is closed, `buf` is empty, `cb` is null, or another async write
-  // waiter is already pending.
-  bool async_cb_write(std::string&& buf, async_write_cb cb) {
+  // all bytes were sent, possibly after a partial write
+  //
+  // Returns false if the connection is closed, `buf` is empty, `cb` is null,
+  // or another async write waiter is already pending.
+  bool async_cb_write(std::string&& buf, async_write_cb cb,
+      execution exec = execution::blocking) {
     if (!state_ || buf.empty() || !cb) return false;
     if (!state_->open_.load(std::memory_order_relaxed)) return false;
-    auto& loop = state_->loop_;
-    if (loop.is_loop_thread())
-      return state_->register_async_cb_write(std::move(buf), std::move(cb));
-    return run_on_loop_sync_(
+    if (!state_->write_open_.load(std::memory_order_relaxed)) return false;
+    return exec_lambda(exec,
         [p = state_, b = std::move(buf), cb = std::move(cb)]() mutable {
           return p->register_async_cb_write(std::move(b), std::move(cb));
         });
   }
 
 private:
-  template<typename Fn>
-  bool run_on_loop_sync_(Fn&& fn) {
-    std::mutex mutex;
-    std::condition_variable cv;
-    bool done = false;
-    bool result = false;
-    state_->loop_.post([&] {
-      {
-        std::lock_guard lock{mutex};
-        result = fn();
-        done = true;
-      }
-      cv.notify_one();
-    });
-    std::unique_lock lock{mutex};
-    cv.wait(lock, [&] { return done; });
-    return result;
-  }
-
   // Internal state. Inherits from `io_conn` so it can be registered directly
   // with the loop.
   struct state final: io_conn {
+    // One pending read completion, satisfied by either a coroutine or
+    // callback.
     struct pending_read_op {
       std::coroutine_handle<> coro{};
       async_read_cb cb{};
 
       [[nodiscard]] bool has_waiter() const noexcept {
+        assert(!coro || !cb);
         return coro || static_cast<bool>(cb);
       }
     };
 
+    // One pending write completion, satisfied by either a coroutine or
+    // callback.  Normally, only `coro` or `cb` are set.
     struct pending_write_op {
       std::coroutine_handle<> coro{};
       async_write_cb cb{};
 
       [[nodiscard]] bool has_waiter() const noexcept {
+        assert(!coro || !cb);
         return coro || static_cast<bool>(cb);
       }
     };
@@ -350,17 +370,25 @@ private:
     // `tcp_conn::is_open()`.
     std::atomic<bool> open_;
 
-    // Set by `do_close()` when there is pending data; causes
-    // `do_flush_send_buf()` to call `do_close_now()` after the queue drains.
-    bool closing_ = false;
+    // Whether the read and write sides of the socket are open.
+    std::atomic<bool> read_open_{true};
+    std::atomic<bool> write_open_{true};
+
+    // Set by `do_close()` to request a full close after pending writes drain.
+    bool close_requested_ = false;
+
+    // Set by `notify_close_once` to ensure `on_close` is delivered at most
+    // once.
+    bool close_notified_ = false;
 
     // One-shot read waiter installed by either `async_read()` or
     // `async_cb_read()`.
     pending_read_op pending_read_;
 
-    // Buffer where `handle_readable()` deposits received bytes before
-    // resuming a coroutine waiting in `async_read()`. Moved into by
-    // `handle_readable`, moved out of by `async_read_awaitable::await_resume`.
+    // Receive staging buffer filled by `handle_readable()`. Delivered directly
+    // to callback-based readers (`async_cb_read()` or `handlers_.on_data`), or
+    // moved into `pending_read_data_` to resume a coroutine waiting in
+    // `async_read()`.
     std::string pending_read_data_;
 
     // One-shot write waiter installed by either `async_send()` or
@@ -372,25 +400,23 @@ private:
         : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
           handlers_{std::move(h)}, recv_buf_capacity_{rbs}, open_{true} {}
 
-    [[nodiscard]] bool set_recv_buf_size(size_t bytes) {
-      assert(loop_.is_loop_thread());
-      if (!open_.load(std::memory_order_relaxed) || bytes == 0) return false;
-      recv_buf_capacity_.store(bytes, std::memory_order_relaxed);
-      return true;
-    }
-
+    // Install a one-shot read callback if the read side is still available.
     [[nodiscard]] bool register_async_cb_read(async_read_cb cb) {
       assert(loop_.is_loop_thread());
-      if (!open_.load(std::memory_order_relaxed) || pending_read_.has_waiter())
+      if (!open_.load(std::memory_order_relaxed) ||
+          !read_open_.load(std::memory_order_relaxed) ||
+          pending_read_.has_waiter())
         return false;
       pending_read_.cb = std::move(cb);
       return true;
     }
 
+    // Install a one-shot write callback and enqueue the outbound payload.
     [[nodiscard]] bool
     register_async_cb_write(std::string&& buf, async_write_cb cb) {
       assert(loop_.is_loop_thread());
       if (!open_.load(std::memory_order_relaxed) ||
+          !write_open_.load(std::memory_order_relaxed) ||
           pending_write_.has_waiter())
         return false;
       pending_write_.cb = std::move(cb);
@@ -402,6 +428,15 @@ private:
       return true;
     }
 
+    // Deliver `on_close` at most once for the lifetime of the connection.
+    void notify_close_once() {
+      assert(loop_.is_loop_thread());
+      if (close_notified_) return;
+      close_notified_ = true;
+      if (handlers_.on_close) handlers_.on_close();
+    }
+
+    // Deliver newly read data to the waiting coroutine, callback, or handler.
     void notify_read_ready() {
       if (pending_read_.coro) {
         pending_read_data_ = std::move(recv_buf_);
@@ -416,6 +451,7 @@ private:
       }
     }
 
+    // Report read-side closure to any pending one-shot read waiter.
     void notify_read_closed() {
       if (pending_read_.coro) {
         pending_read_data_.clear();
@@ -429,6 +465,19 @@ private:
       }
     }
 
+    // Fail any pending one-shot write waiter after a close or send failure.
+    void fail_pending_write_waiters() {
+      if (pending_write_.coro)
+        loop_.post([h = std::exchange(pending_write_.coro, {})] {
+          h.resume();
+        });
+      if (pending_write_.cb) {
+        auto cb = std::move(pending_write_.cb);
+        cb(false);
+      }
+    }
+
+    // Notify that all queued outbound data has been fully drained.
     void notify_drained() {
       if (pending_write_.coro) {
         loop_.post([h = std::exchange(pending_write_.coro, {})] {
@@ -440,6 +489,78 @@ private:
       } else if (handlers_.on_drain) {
         handlers_.on_drain();
       }
+    }
+
+    // Complete any pending write waiter when a graceful close drains fully.
+    void complete_pending_writes_after_drain() {
+      if (pending_write_.has_waiter()) notify_drained();
+    }
+
+    // Shut down the local read side and notify any blocked read waiter.
+    [[nodiscard]] bool do_shutdown_read() {
+      if (!open_.load(std::memory_order_relaxed) ||
+          !read_open_.load(std::memory_order_relaxed))
+        return false;
+      if (!sock().shutdown(SHUT_RD)) {
+        do_close_now(close_mode::forceful);
+        return false;
+      }
+      read_open_.store(false, std::memory_order_relaxed);
+      if (pending_read_.has_waiter()) notify_read_closed();
+      maybe_finish_after_side_close();
+      return true;
+    }
+
+    // Shut down the local write side and discard any unsent outbound data.
+    [[nodiscard]] bool do_shutdown_write() {
+      if (!open_.load(std::memory_order_relaxed) ||
+          !write_open_.load(std::memory_order_relaxed))
+        return false;
+      if (!sock().shutdown(SHUT_WR)) {
+        do_close_now(close_mode::forceful);
+        return false;
+      }
+      write_open_.store(false, std::memory_order_relaxed);
+      send_queue_.clear();
+      head_span_ = {};
+      loop_.set_writable(sock(), false);
+      fail_pending_write_waiters();
+      maybe_finish_after_side_close();
+      return true;
+    }
+
+    // Fully close once both local directions have been shut down.
+    void maybe_finish_after_side_close(
+        close_mode mode = close_mode::graceful) {
+      if (!read_open_.load(std::memory_order_relaxed) &&
+          !write_open_.load(std::memory_order_relaxed))
+        do_close_now(mode);
+    }
+
+    // Handle EOF by closing the read side and finishing any pending close.
+    void handle_read_eof() {
+      read_open_.store(false, std::memory_order_relaxed);
+      if (pending_read_.has_waiter()) notify_read_closed();
+      notify_close_once();
+      if (close_requested_ && send_queue_.empty()) {
+        do_close_now();
+        return;
+      }
+      maybe_finish_after_side_close();
+    }
+
+    // Handle write failure by aborting queued sends and closing as needed.
+    void handle_write_failure() {
+      if (!write_open_.exchange(false, std::memory_order_relaxed)) return;
+      send_queue_.clear();
+      head_span_ = {};
+      loop_.set_writable(sock(), false);
+      fail_pending_write_waiters();
+      if (close_requested_ || !read_open_.load(std::memory_order_relaxed)) {
+        do_close_now(close_mode::forceful);
+        return;
+      }
+      maybe_finish_after_side_close(close_mode::forceful);
     }
 
     // Register `ip_socket` with the loop. Stores a shared owner in the loop's
@@ -455,45 +576,58 @@ private:
     // `io_conn` overrides: called on the loop thread by `dispatch_event`.
     void on_readable() override { handle_readable(); }
     void on_writable() override { do_flush_send_buf(); }
-    void on_error() override { do_close_now(close_mode::forceful); }
+    void on_error() override {
+      if (!open_.load(std::memory_order_relaxed)) return;
+      if (read_open_.load(std::memory_order_relaxed)) {
+        (void)handle_readable();
+      } else {
+        maybe_finish_after_side_close();
+      }
+    }
 
     // Read available data into `recv_buf_` without zero-initializing it
-    // (C++23 `resize_and_overwrite`), then deliver to `on_data`. Closes on
-    // EOF or unrecoverable error.
+    // (C++23 `resize_and_overwrite`), then deliver to `on_data`.
     bool handle_readable() {
 #ifdef __linux__
-      const size_t recv_buf_capacity =
+      if (!read_open_.load(std::memory_order_relaxed)) return false;
+
+      // Resize, allowing shrink.
+      const auto recv_buf_capacity =
           recv_buf_capacity_.load(std::memory_order_relaxed);
-      // Allow shrinking.
-      if (recv_buf_.capacity() > recv_buf_capacity) {
+      if (recv_buf_.capacity() > recv_buf_capacity)
         no_zero::resize_to(recv_buf_, recv_buf_capacity);
-      } else {
+      else
         no_zero::enlarge_to(recv_buf_, recv_buf_capacity);
-      }
+
       if (!sock().file().read(recv_buf_)) {
-        // TODO: If recv_buf_ is not empty, then we had a 0 read, which means
-        // the socket is half-closed so no further reads are possible. However,
-        // writes are possible.
-        // TODO: Should this be a forceful close? It's not a soft error, but it
-        // could be a half-closed socket, so maybe we could finish writing.
-        do_close_now(close_mode::forceful);
+        // Distinguish between EOF and error.
+        if (recv_buf_.empty()) {
+          do_close_now(close_mode::forceful);
+        } else {
+          handle_read_eof();
+        }
         return false;
       }
 
+      // If we read something, notify the user.
       if (!recv_buf_.empty()) notify_read_ready();
 #endif
       return true;
     }
 
-    // Called on the loop thread from `post()` to enqueue `buf` for sending.
-    // Attempts an immediate `::write` when the queue is empty; if any bytes
-    // remain (partial write or EAGAIN) they are pushed onto `send_queue_` and
-    // tracked by `head_span_`. `EPOLLOUT` is armed when the queue becomes
-    // non-empty; `do_flush_send_buf()` drains it on subsequent `EPOLLOUT`
-    // events.
-    bool enqueue_send(std::string&& buf) {
+    // Enqueue `their_buf` for sending. Attempts an immediate `::send` when the
+    // queue is empty; if any bytes remain (partial write or EAGAIN) they are
+    // pushed onto `send_queue_` and tracked by `head_span_`. `EPOLLOUT` is
+    // armed when the queue becomes non-empty; `do_flush_send_buf()` drains it
+    // on subsequent `EPOLLOUT` events.
+    bool enqueue_send(std::string&& their_buf) {
+      assert(loop_.is_loop_thread());
 #ifdef __linux__
-      if (!open_.load(std::memory_order_relaxed)) return false;
+      auto buf = std::move(their_buf);
+
+      if (!open_.load(std::memory_order_relaxed) ||
+          !write_open_.load(std::memory_order_relaxed))
+        return false;
 
       // If there are writes queued ahead of us, just add this to the back:
       // `EPOLLOUT` already armed.
@@ -504,16 +638,13 @@ private:
 
       // Write as much as we can of the new buffer.
       auto buf_view = std::string_view{buf};
-      if (!sock().file().write(buf_view)) {
-        // If we can't write at all, close immediately.
-        buf.clear();
-        do_close_now(close_mode::forceful);
+      if (!sock().send(buf_view)) {
+        handle_write_failure();
         return false;
       }
 
       // If fully written, nothing to queue.
       if (buf_view.empty()) {
-        buf.clear();
         // Let `async_send()` keep its inline-resume fast path for immediate
         // completion; callback-based waiters and persistent handlers still
         // notify synchronously here.
@@ -547,11 +678,14 @@ private:
       // handler closes the connection before we get here).
       if (!open_.load(std::memory_order_relaxed)) return false;
 
+      // NOTE: It would be cool if we could gather all the buffers and write
+      // them in a single call...
+
       // Write until we're out of data, are blocked, or fail.
       while (!send_queue_.empty()) {
         // If we can't write at all, close immediately.
-        if (!sock().file().write(head_span_)) {
-          do_close_now(close_mode::forceful);
+        if (!sock().send(head_span_)) {
+          handle_write_failure();
           return false;
         }
 
@@ -568,7 +702,8 @@ private:
       loop_.set_writable(sock(), false);
 
       // If we were waiting to close, do it now.
-      if (closing_) {
+      if (close_requested_) {
+        complete_pending_writes_after_drain();
         do_close_now();
         return false;
       }
@@ -582,28 +717,40 @@ private:
     // Graceful close: if data is pending let `do_flush_send_buf()` finish
     // first.
     void do_close() {
+      assert(loop_.is_loop_thread());
       if (!open_.load(std::memory_order_relaxed)) return;
-      closing_ = true;
+      close_requested_ = true;
       if (send_queue_.empty()) do_close_now();
     }
 
     // Forceful close: discard pending sends and close immediately.
-    void do_hangup() noexcept {
-      if (!open_.load(std::memory_order_relaxed)) return;
+    bool do_hangup() {
+      assert(loop_.is_loop_thread());
+      if (!open_.load(std::memory_order_relaxed)) return false;
+      // TODO: Deal with redundancy between this and do_close_now().
       send_queue_.clear();
       head_span_ = {};
-      closing_ = false;
+      close_requested_ = false;
+
       do_close_now(close_mode::forceful);
+      return true;
     }
 
     // Unconditional close. Idempotent via `open_.exchange(false)`.
     void do_close_now(close_mode mode = close_mode::graceful) noexcept {
+      assert(loop_.is_loop_thread());
       if (!open_.exchange(false)) return;
+
+      read_open_.store(false, std::memory_order_relaxed);
+      write_open_.store(false, std::memory_order_relaxed);
+
       loop_.unregister_socket(sock());
       sock().close(mode);
+
       send_queue_.clear();
       head_span_ = {};
-      closing_ = false;
+      close_requested_ = false;
+
       // Resume any suspended coroutines so they can observe the closed
       // state. Both handles are posted (not resumed directly) so that any
       // in-progress `await_suspend` on the call stack has already returned
@@ -611,15 +758,8 @@ private:
       // coroutine frame when `do_close_now` is triggered from within
       // `enqueue_send` -> `await_suspend`.
       if (pending_read_.has_waiter()) notify_read_closed();
-      if (pending_write_.coro)
-        loop_.post([h = std::exchange(pending_write_.coro, {})] {
-          h.resume();
-        });
-      if (pending_write_.cb) {
-        auto cb = std::move(pending_write_.cb);
-        cb(false);
-      }
-      if (handlers_.on_close) handlers_.on_close();
+      fail_pending_write_waiters();
+      notify_close_once();
     }
 
     // Awaitable returned by `tcp_conn::async_read()`. Suspends the calling
@@ -636,7 +776,8 @@ private:
       // Skip suspension if the connection is already closed; there will be
       // no future `handle_readable` to resume us.
       [[nodiscard]] bool await_ready() const noexcept {
-        return !s_->open_.load(std::memory_order_relaxed);
+        return !s_->open_.load(std::memory_order_relaxed) ||
+               !s_->read_open_.load(std::memory_order_relaxed);
       }
 
       void await_suspend(std::coroutine_handle<> h) const noexcept {
@@ -670,7 +811,10 @@ private:
       state* s_;
       std::string buf_;
 
-      [[nodiscard]] bool await_ready() const noexcept { return false; }
+      [[nodiscard]] bool await_ready() const noexcept {
+        return !s_->open_.load(std::memory_order_relaxed) ||
+               !s_->write_open_.load(std::memory_order_relaxed);
+      }
 
       // Returns `false` to cancel suspension (immediate resume) when the
       // write completed synchronously. Returns `true` to stay suspended in
@@ -702,6 +846,23 @@ private:
     };
     // NOLINTEND(readability-convert-member-functions-to-static)
   };
+
+  // Execute the lambda `fn` on the loop thread.
+  //
+  // If we're already on the loop thread, runs it inline. Otherwise, posts it
+  // to the queue, and either returns immediately (`execution::nonblocking`) or
+  // waits for completion (`execution::blocking`). If we run synchronously, the
+  // return value of the lamda is passed through; otherwise, it's always true.
+  template<typename FN>
+  bool exec_lambda(execution exec, FN&& fn) {
+    auto& loop = state_->loop_;
+    if (loop.is_loop_thread()) return fn();
+    if (exec == execution::nonblocking) {
+      loop.post(std::forward<FN>(fn));
+      return true;
+    }
+    return loop.post_and_wait(std::forward<FN>(fn));
+  }
 
   std::shared_ptr<state> state_;
 };
