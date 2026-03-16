@@ -474,6 +474,130 @@ void IpEndpoint_PosixInterop() {
   }
 }
 
+// Helper: create a non-blocking pipe and wrap each end in an `os_file`.
+std::pair<os_file, os_file> make_nb_pipe() {
+  int fds[2];
+  if (::pipe2(fds, O_CLOEXEC | O_NONBLOCK) != 0)
+    throw std::system_error(errno, std::generic_category(), "pipe2");
+  return {os_file{fds[0]}, os_file{fds[1]}};
+}
+
+void OsFile_Lifecycle() {
+  // Default-constructed file is invalid.
+  if (true) {
+    os_file f;
+    EXPECT_FALSE(f.is_open());
+    EXPECT_FALSE(static_cast<bool>(f));
+    EXPECT_EQ(f.handle(), os_file::invalid_file_handle);
+    EXPECT_FALSE(f.close());
+  }
+
+  // An adopted file handle is open; closing it twice is idempotent.
+  if (true) {
+    auto [reader, writer] = make_nb_pipe();
+    EXPECT_TRUE(reader.is_open());
+    EXPECT_TRUE(static_cast<bool>(reader));
+    EXPECT_NE(reader.handle(), os_file::invalid_file_handle);
+    EXPECT_TRUE(reader.close());
+    EXPECT_FALSE(reader.is_open());
+    EXPECT_FALSE(reader.close());
+  }
+
+  // Destructor closes an open file (no crash or leak).
+  if (true) {
+    auto [reader, writer] = make_nb_pipe();
+    (void)writer;
+  }
+}
+
+void OsFile_Move() {
+  // Move constructor transfers ownership; source becomes invalid.
+  if (true) {
+    auto [reader, writer] = make_nb_pipe();
+    const auto h = reader.handle();
+    os_file moved{std::move(reader)};
+    EXPECT_FALSE(reader.is_open());
+    EXPECT_TRUE(moved.is_open());
+    EXPECT_EQ(moved.handle(), h);
+  }
+
+  // Move assignment closes the destination and transfers the source.
+  if (true) {
+    auto [reader_a, writer_a] = make_nb_pipe();
+    auto [reader_b, writer_b] = make_nb_pipe();
+    const auto h = reader_a.handle();
+    reader_b = std::move(reader_a);
+    EXPECT_FALSE(reader_a.is_open());
+    EXPECT_TRUE(reader_b.is_open());
+    EXPECT_EQ(reader_b.handle(), h);
+  }
+
+  // Self-assignment is a no-op.
+  if (true) {
+    auto [reader, writer] = make_nb_pipe();
+    const auto h = reader.handle();
+    auto* p = &reader;
+    reader = std::move(*p);
+    EXPECT_TRUE(reader.is_open());
+    EXPECT_EQ(reader.handle(), h);
+  }
+}
+
+void OsFile_ReleaseFlags() {
+  // `release()` yields the handle without closing it; file becomes invalid.
+  if (true) {
+    auto [reader, writer] = make_nb_pipe();
+    const auto h = reader.release();
+    EXPECT_NE(h, os_file::invalid_file_handle);
+    EXPECT_FALSE(reader.is_open());
+    ::close(h);
+  }
+
+  // Flag helpers round-trip non-blocking mode through `fcntl`.
+  if (true) {
+    auto [reader, writer] = make_nb_pipe();
+    auto flags = reader.get_flags();
+    EXPECT_TRUE(flags.has_value());
+    EXPECT_TRUE(*flags & O_NONBLOCK);
+
+    EXPECT_TRUE(reader.set_nonblocking(false));
+    flags = reader.get_flags();
+    EXPECT_TRUE(flags.has_value());
+    EXPECT_FALSE(*flags & O_NONBLOCK);
+
+    EXPECT_TRUE(reader.set_nonblocking(true));
+    flags = reader.get_flags();
+    EXPECT_TRUE(flags.has_value());
+    EXPECT_TRUE(*flags & O_NONBLOCK);
+  }
+}
+
+void OsFile_WriteRead() {
+  auto [reader, writer] = make_nb_pipe();
+
+  // A small write drains fully and the read side sees the same bytes.
+  auto msg = std::string_view{"hello"};
+  EXPECT_TRUE(writer.write(msg));
+  EXPECT_TRUE(msg.empty());
+
+  std::string buf;
+  no_zero::enlarge_to(buf, 16);
+  EXPECT_TRUE(reader.read(buf));
+  EXPECT_EQ(buf, "hello");
+
+  // An empty non-blocking read is a soft failure: success with no bytes read.
+  no_zero::enlarge_to(buf, 16);
+  EXPECT_TRUE(reader.read(buf));
+  EXPECT_TRUE(buf.empty());
+  EXPECT_EQ(errno, EAGAIN);
+
+  // EOF leaves the caller's buffer unchanged and returns false.
+  EXPECT_TRUE(writer.close());
+  buf = "sentinel";
+  EXPECT_FALSE(reader.read(buf));
+  EXPECT_EQ(buf, "sentinel");
+}
+
 void IpSocket_Lifecycle() {
   // Default-constructed socket is invalid.
   if (true) {
@@ -597,7 +721,8 @@ void Epoll_ControlWait() {
   event_fd e{0};
   epoll p{epoll::default_flags};
 
-  epoll_event add_ev{.events = EPOLLIN, .data = epoll_data_t{.fd = e.handle()}};
+  epoll_event add_ev{.events = EPOLLIN,
+      .data = epoll_data_t{.fd = e.handle()}};
   EXPECT_TRUE(p.add(e.handle(), add_ev));
 
   EXPECT_TRUE(e.notify(3));
@@ -611,7 +736,8 @@ void Epoll_ControlWait() {
   EXPECT_TRUE(value.has_value());
   EXPECT_EQ(*value, 3U);
 
-  epoll_event mod_ev{.events = EPOLLOUT, .data = epoll_data_t{.fd = e.handle()}};
+  epoll_event mod_ev{.events = EPOLLOUT,
+      .data = epoll_data_t{.fd = e.handle()}};
   EXPECT_TRUE(p.modify(e.handle(), mod_ev));
   EXPECT_TRUE(p.remove(e.handle()));
   EXPECT_EQ(p.wait(events, 1, 0), 0);
@@ -1773,7 +1899,8 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     Ipv6Addr_Construction, Ipv6Addr_Parse, Ipv6Addr_Classification,
     Ipv6Addr_Comparison, Ipv6Addr_Formatting, Ipv6Addr_PosixInterop,
     IpEndpoint_Construction, IpEndpoint_Parse, IpEndpoint_Comparison,
-    IpEndpoint_Formatting, IpEndpoint_PosixInterop, IpSocket_Lifecycle,
+    IpEndpoint_Formatting, IpEndpoint_PosixInterop, OsFile_Lifecycle,
+    OsFile_Move, OsFile_ReleaseFlags, OsFile_WriteRead, IpSocket_Lifecycle,
     EventFd_Lifecycle, Epoll_Lifecycle, Epoll_Move, Epoll_Release,
     Epoll_ControlWait, EventFd_Move, EventFd_Release, EventFd_NotifyRead,
     EventFd_NonblockingEmptyRead, IpSocket_Move, IpSocket_Release,
