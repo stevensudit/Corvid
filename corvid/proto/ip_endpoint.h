@@ -15,7 +15,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cassert>
 #include <charconv>
+#include <compare>
 #include <cstdint>
 #include <format>
 #include <optional>
@@ -23,7 +25,6 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <variant>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -36,46 +37,54 @@ namespace corvid { inline namespace proto {
 
 // Unified IP endpoint: an IPv4 or IPv6 address paired with a port number.
 //
-// Stores the address as a `std::variant<std::monostate, ipv4_addr,
-// ipv6_addr>`. Default-constructs to an invalid (empty) state; use
-// `is_valid()` to check. Construction is available from an `ipv4_addr` or
-// `ipv6_addr` plus a port, or by parsing text in `1.2.3.4:80` (IPv4) or
-// `[2001:db8::1]:80` (IPv6) notation. Named factories `any_v4()` and
-// `any_v6()` produce wildcard bind addresses. On POSIX targets, interop with
-// `sockaddr_in`, `sockaddr_in6`, and `sockaddr_storage` is provided.
+// Stores the endpoint in a `sockaddr_storage`, using `ss_family` as the tag.
+// Default-constructs to an invalid (empty) state; use `is_valid()` to check.
+//
+// Construction is available from an `ipv4_addr` or `ipv6_addr` plus a port,
+// or by parsing text in `1.2.3.4:80` (IPv4) or `[2001:db8::1]:80` (IPv6)
+// notation.
+//
+// Named factories `any_v4()` and `any_v6()` produce wildcard bind addresses.
+// On POSIX targets, interop with `sockaddr_in`, `sockaddr_in6`, and
+// `sockaddr_storage` is provided.
 class ip_endpoint {
 public:
   // Default-construct to an invalid state.
   constexpr ip_endpoint() noexcept = default;
 
   // Construct from an `ipv4_addr` or `ipv6_addr` and a port number.
-  explicit constexpr ip_endpoint(ipv4_addr addr, uint16_t port) noexcept
-      : addr_{addr}, port_{port} {}
+  explicit ip_endpoint(ipv4_addr addr, uint16_t port) noexcept {
+    auto& raw = as_v4();
+    raw.sin_family = AF_INET;
+    raw.sin_port = htons(port);
+    raw.sin_addr = addr.to_in_addr();
+  }
 
-  explicit constexpr ip_endpoint(ipv6_addr addr, uint16_t port) noexcept
-      : addr_{addr}, port_{port} {}
+  explicit ip_endpoint(ipv6_addr addr, uint16_t port) noexcept {
+    auto& raw = as_v6();
+    raw.sin6_family = AF_INET6;
+    raw.sin6_port = htons(port);
+    raw.sin6_addr = addr.to_in6_addr();
+  }
 
   // Construct from text: `1.2.3.4:80` or `[2001:db8::1]:80`.
-  explicit constexpr ip_endpoint(std::string_view s) {
-    auto parsed = parse(s);
+  explicit ip_endpoint(std::string_view s) {
+    const auto parsed = parse(s);
     if (!parsed) throw std::invalid_argument("Invalid IP endpoint");
     *this = *parsed;
   }
 
   // Create wildcard bind endpoints for IPv4 or IPv6 with the given port.
-  [[nodiscard]] static constexpr ip_endpoint any_v4(
-      uint16_t port = 0) noexcept {
+  [[nodiscard]] static ip_endpoint any_v4(uint16_t port = 0) noexcept {
     return ip_endpoint{ipv4_addr::any(), port};
   }
 
-  [[nodiscard]] static constexpr ip_endpoint any_v6(
-      uint16_t port = 0) noexcept {
+  [[nodiscard]] static ip_endpoint any_v6(uint16_t port = 0) noexcept {
     return ip_endpoint{ipv6_addr::any(), port};
   }
 
   // Parse IP and port, returning nullopt on failure.
-  [[nodiscard]] static constexpr std::optional<ip_endpoint> parse(
-      std::string_view s) {
+  [[nodiscard]] static std::optional<ip_endpoint> parse(std::string_view s) {
     if (s.empty()) return std::nullopt;
 
     if (s[0] == '[') {
@@ -102,43 +111,71 @@ public:
 
   // Return true if this endpoint holds a valid (non-default) address.
   [[nodiscard]] constexpr bool is_valid() const noexcept {
-    return !std::holds_alternative<std::monostate>(addr_);
+    return family() == AF_INET || family() == AF_INET6;
   }
 
   // Return true if this endpoint holds an IPv4 or IPv6 address, respectively.
   [[nodiscard]] constexpr bool is_v4() const noexcept {
-    return std::holds_alternative<ipv4_addr>(addr_);
+    return family() == AF_INET;
   }
 
   [[nodiscard]] constexpr bool is_v6() const noexcept {
-    return std::holds_alternative<ipv6_addr>(addr_);
+    return family() == AF_INET6;
   }
 
   // Return the port number.
-  [[nodiscard]] constexpr uint16_t port() const noexcept { return port_; }
-
-  // Return a pointer to the held `ipv4_addr` or `ipv6_addr`, or null if the
-  // endpoint holds the other family.
-  [[nodiscard]] constexpr auto v4(this auto& self) noexcept {
-    return std::get_if<ipv4_addr>(&self.addr_);
+  [[nodiscard]] uint16_t port() const noexcept {
+    if (is_v4()) return ntohs(as_v4().sin_port);
+    if (is_v6()) return ntohs(as_v6().sin6_port);
+    return 0;
   }
 
-  [[nodiscard]] constexpr auto v6(this auto& self) noexcept {
-    return std::get_if<ipv6_addr>(&self.addr_);
+  // Return the held `ipv4_addr` or `ipv6_addr`, respectively, or nullopt if
+  // the endpoint holds something else.
+  [[nodiscard]] std::optional<ipv4_addr> v4() const noexcept {
+    if (!is_v4()) return std::nullopt;
+    return ipv4_addr{as_v4().sin_addr};
+  }
+
+  [[nodiscard]] std::optional<ipv6_addr> v6() const noexcept {
+    if (!is_v6()) return std::nullopt;
+    return ipv6_addr{as_v6().sin6_addr};
   }
 
   // Three-way comparison; endpoints are equal when both address and port
   // match.
-  [[nodiscard]] friend constexpr auto
-  operator<=>(const ip_endpoint&, const ip_endpoint&) noexcept = default;
+  [[nodiscard]] friend bool
+  operator==(const ip_endpoint& lhs, const ip_endpoint& rhs) noexcept {
+    return (lhs <=> rhs) == 0;
+  }
+
+  [[nodiscard]] friend std::strong_ordering
+  operator<=>(const ip_endpoint& lhs, const ip_endpoint& rhs) noexcept {
+    if (const auto by_family = lhs.family() <=> rhs.family(); by_family != 0)
+      return by_family;
+
+    if (!lhs.is_valid()) return std::strong_ordering::equal;
+
+    if (lhs.is_v4()) {
+      if (const auto by_addr = lhs.v4()->to_uint32() <=> rhs.v4()->to_uint32();
+          by_addr != 0)
+        return by_addr;
+    } else {
+      if (const auto by_addr = lhs.v6()->words() <=> rhs.v6()->words();
+          by_addr != 0)
+        return by_addr;
+    }
+
+    return lhs.port() <=> rhs.port();
+  }
 
   // Format as `1.2.3.4:80` (IPv4) or `[2001:db8::1]:80` (IPv6), or
   // `(invalid)` if default-constructed.
   [[nodiscard]] std::string to_string() const {
     if (const auto addr = v4())
-      return std::format("{}:{}", addr->to_string(), port_);
+      return std::format("{}:{}", addr->to_string(), port());
     if (const auto addr = v6())
-      return std::format("[{}]:{}", addr->to_string(), port_);
+      return std::format("[{}]:{}", addr->to_string(), port());
     return "(invalid)";
   }
 
@@ -146,51 +183,41 @@ public:
     return os << ep.to_string();
   }
 
-  // Construct from a POSIX `sockaddr_in` or `sockaddr_in6`.
-  explicit ip_endpoint(const sockaddr_in& addr) noexcept
-      : addr_{ipv4_addr{addr.sin_addr}}, port_{ntohs(addr.sin_port)} {}
+  // Construct from a POSIX `sockaddr_in` or `sockaddr_in6`, respectively.
+  explicit ip_endpoint(const sockaddr_in& addr) noexcept { as_v4() = addr; }
 
-  explicit ip_endpoint(const sockaddr_in6& addr) noexcept
-      : addr_{ipv6_addr{addr.sin6_addr}}, port_{ntohs(addr.sin6_port)} {}
+  explicit ip_endpoint(const sockaddr_in6& addr) noexcept { as_v6() = addr; }
 
-  // Convert to the corresponding POSIX socket address struct. `to_sockaddr_in`
-  // and `to_sockaddr_in6` require the endpoint to hold the matching family;
-  // `to_sockaddr_storage` works for either.
-  [[nodiscard]] sockaddr_in to_sockaddr_in() const {
-    sockaddr_in out{};
-    out.sin_family = AF_INET;
-    out.sin_port = htons(port_);
-    out.sin_addr = std::get<ipv4_addr>(addr_).to_in_addr();
-    return out;
+  // Convert to the corresponding POSIX socket address struct. `as_sockaddr_in`
+  // and `as_sockaddr_in6` require the endpoint to hold the matching family;
+  // `as_sockaddr_storage` works for either.
+  [[nodiscard]] const sockaddr_in& as_sockaddr_in() const {
+    assert(is_v4());
+    return as_v4();
   }
 
-  [[nodiscard]] sockaddr_in6 to_sockaddr_in6() const {
-    sockaddr_in6 out{};
-    out.sin6_family = AF_INET6;
-    out.sin6_port = htons(port_);
-    out.sin6_addr = std::get<ipv6_addr>(addr_).to_in6_addr();
-    return out;
+  [[nodiscard]] const sockaddr_in6& as_sockaddr_in6() const {
+    assert(is_v6());
+    return as_v6();
   }
 
-  [[nodiscard]] sockaddr_storage to_sockaddr_storage() const noexcept {
-    sockaddr_storage out{};
-    if (const auto addr = v4()) {
-      auto v4addr = sockaddr_in{};
-      v4addr.sin_family = AF_INET;
-      v4addr.sin_port = htons(port_);
-      v4addr.sin_addr = addr->to_in_addr();
-      *reinterpret_cast<sockaddr_in*>(&out) = v4addr;
-    } else if (const auto addr = v6()) {
-      auto v6addr = sockaddr_in6{};
-      v6addr.sin6_family = AF_INET6;
-      v6addr.sin6_port = htons(port_);
-      v6addr.sin6_addr = addr->to_in6_addr();
-      *reinterpret_cast<sockaddr_in6*>(&out) = v6addr;
-    } else {
-      // Leave `out` zero-initialized, which is not a valid address but is
-      // better than returning uninitialized data.
-    }
-    return out;
+  [[nodiscard]] constexpr const sockaddr_storage&
+  as_sockaddr_storage() const noexcept {
+    return storage_;
+  }
+
+  [[nodiscard]] constexpr socklen_t sockaddr_size() const noexcept {
+    if (is_v4()) return sizeof(sockaddr_in);
+    if (is_v6()) return sizeof(sockaddr_in6);
+    return sizeof(sockaddr_storage);
+  }
+
+  [[nodiscard]] constexpr std::pair<const sockaddr*, socklen_t>
+  as_sockaddr() const noexcept {
+    const auto addr = reinterpret_cast<const sockaddr*>(&storage_);
+    if (is_v4()) return {addr, sizeof(sockaddr_in)};
+    if (is_v6()) return {addr, sizeof(sockaddr_in6)};
+    return {addr, sizeof(sockaddr_storage)};
   }
 
 private:
@@ -204,8 +231,28 @@ private:
     return static_cast<uint16_t>(port);
   }
 
-  std::variant<std::monostate, ipv4_addr, ipv6_addr> addr_;
-  uint16_t port_{};
+  [[nodiscard]] constexpr sa_family_t family() const noexcept {
+    return storage_.ss_family;
+  }
+
+  [[nodiscard]] sockaddr_in& as_v4() noexcept {
+    return *reinterpret_cast<sockaddr_in*>(&storage_);
+  }
+
+  [[nodiscard]] const sockaddr_in& as_v4() const noexcept {
+    return *reinterpret_cast<const sockaddr_in*>(&storage_);
+  }
+
+  [[nodiscard]] sockaddr_in6& as_v6() noexcept {
+    return *reinterpret_cast<sockaddr_in6*>(&storage_);
+  }
+
+  [[nodiscard]] const sockaddr_in6& as_v6() const noexcept {
+    return *reinterpret_cast<const sockaddr_in6*>(&storage_);
+  }
+
+private:
+  sockaddr_storage storage_{};
 };
 
 }} // namespace corvid::proto

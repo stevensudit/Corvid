@@ -456,11 +456,11 @@ void IpEndpoint_PosixInterop() {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   if (true) {
     ip_endpoint ep{ipv4_addr(192, 168, 1, 2), 1234};
-    auto raw = ep.to_sockaddr_in();
+    auto raw = ep.as_sockaddr_in();
     ip_endpoint roundtrip{raw};
     EXPECT_EQ(roundtrip, ep);
 
-    auto storage = ep.to_sockaddr_storage();
+    auto storage = ep.as_sockaddr_storage();
     auto* as_v4 = reinterpret_cast<const sockaddr_in*>(&storage);
     EXPECT_EQ(as_v4->sin_family, AF_INET);
     EXPECT_EQ(ntohs(as_v4->sin_port), 1234U);
@@ -468,11 +468,11 @@ void IpEndpoint_PosixInterop() {
 
   if (true) {
     ip_endpoint ep{ipv6_addr(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1), 4321};
-    auto raw = ep.to_sockaddr_in6();
+    auto raw = ep.as_sockaddr_in6();
     ip_endpoint roundtrip{raw};
     EXPECT_EQ(roundtrip, ep);
 
-    auto storage = ep.to_sockaddr_storage();
+    auto storage = ep.as_sockaddr_storage();
     auto* as_v6 = reinterpret_cast<const sockaddr_in6*>(&storage);
     EXPECT_EQ(as_v6->sin6_family, AF_INET6);
     EXPECT_EQ(ntohs(as_v6->sin6_port), 4321U);

@@ -168,22 +168,16 @@ public:
 
   // Bind the socket to a local endpoint. Returns true on success.
   [[nodiscard]] bool bind(const ip_endpoint& ep) noexcept {
-    const auto sa = ep.to_sockaddr_storage();
-    const socklen_t len =
-        ep.is_v4() ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
-    return ::bind(handle(), reinterpret_cast<const sockaddr*>(&sa), len) == 0;
+    const auto [sa, len] = ep.as_sockaddr();
+    return ::bind(handle(), sa, len) == 0;
   }
 
   // Initiate a connection to `ep`. For non-blocking sockets, `EINPROGRESS`
   // is treated as success (the connection is in progress). Returns true on
   // success or when the connection is underway.
   [[nodiscard]] bool connect(const ip_endpoint& ep) noexcept {
-    const auto sa = ep.to_sockaddr_storage();
-    const socklen_t len =
-        ep.is_v4() ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
-    return ::connect(handle(), reinterpret_cast<const sockaddr*>(&sa), len) ==
-               0 ||
-           errno == EINPROGRESS;
+    const auto [sa, len] = ep.as_sockaddr();
+    return ::connect(handle(), sa, len) == 0 || errno == EINPROGRESS;
   }
 
   // Mark the socket as passive and ready to accept connections. `backlog`
