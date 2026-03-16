@@ -81,11 +81,13 @@ struct tcp_conn_handlers {
 // `push_back` does not move existing elements, keeping `head_span_` (which
 // points into `front()`) valid.
 //
-// Receive path: when `EPOLLIN` fires, the receive buffer is resized to
-// `recv_buf_capacity_` bytes via `resize_and_overwrite` (C++23, no
-// zero-initialization), filled by `::read`, then trimmed to the actual count
-// before `on_data` is called. The user may `std::move` from the buffer to
-// steal its allocation; the next read reallocates if needed.
+// Receive path: `tcp_conn` arms `EPOLLIN` only when a persistent `on_data`
+// handler exists or a one-shot read waiter is pending. When `EPOLLIN` fires,
+// the receive buffer is resized to `recv_buf_capacity_` bytes via
+// `resize_and_overwrite` (C++23, no zero-initialization), filled by `::read`,
+// then trimmed (without reallocating) to the actual count before delivery. The
+// user may `std::move` from the buffer to steal its allocation; the next read
+// reallocates if needed.
 //
 // Close: `close()` is graceful. If the send queue is non-empty, the socket
 // closes only after it drains. `hangup()` discards pending outbound data and
@@ -400,6 +402,22 @@ private:
         : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
           handlers_{std::move(h)}, recv_buf_capacity_{rbs}, open_{true} {}
 
+    // Read interest is needed only while callback mode is always listening or
+    // a one-shot read waiter is actively awaiting the next chunk.
+    [[nodiscard]] bool wants_read_events() const noexcept {
+      return open_.load(std::memory_order_relaxed) &&
+             read_open_.load(std::memory_order_relaxed) &&
+             (handlers_.on_data || pending_read_.has_waiter());
+    }
+
+    // Apply the current read-interest policy to the loop without disturbing
+    // the always-armed error/hangup notifications.
+    void refresh_read_interest() {
+      assert(loop_.is_loop_thread());
+      if (!open_.load(std::memory_order_relaxed)) return;
+      (void)loop_.set_readable(sock(), wants_read_events());
+    }
+
     // Install a one-shot read callback if the read side is still available.
     [[nodiscard]] bool register_async_cb_read(async_read_cb cb) {
       assert(loop_.is_loop_thread());
@@ -408,6 +426,7 @@ private:
           pending_read_.has_waiter())
         return false;
       pending_read_.cb = std::move(cb);
+      refresh_read_interest();
       return true;
     }
 
@@ -449,6 +468,7 @@ private:
       } else if (handlers_.on_data) {
         handlers_.on_data(recv_buf_);
       }
+      refresh_read_interest();
     }
 
     // Report read-side closure to any pending one-shot read waiter.
@@ -463,6 +483,7 @@ private:
         auto cb = std::move(pending_read_.cb);
         cb(recv_buf_);
       }
+      refresh_read_interest();
     }
 
     // Fail any pending one-shot write waiter after a close or send failure.
@@ -506,6 +527,7 @@ private:
         return false;
       }
       read_open_.store(false, std::memory_order_relaxed);
+      (void)loop_.set_readable(sock(), false);
       if (pending_read_.has_waiter()) notify_read_closed();
       maybe_finish_after_side_close();
       return true;
@@ -569,7 +591,8 @@ private:
     void register_with_loop() {
 #ifdef __linux__
       if (!open_.load(std::memory_order_relaxed)) return;
-      (void)loop_.register_socket(shared_from_this());
+      (void)loop_.register_socket(shared_from_this(),
+          static_cast<bool>(handlers_.on_data), false);
 #endif
     }
 
@@ -578,8 +601,19 @@ private:
     void on_writable() override { do_flush_send_buf(); }
     void on_error() override {
       if (!open_.load(std::memory_order_relaxed)) return;
-      if (read_open_.load(std::memory_order_relaxed)) {
+      if (read_open_.load(std::memory_order_relaxed) && wants_read_events()) {
         (void)handle_readable();
+#ifdef __linux__
+      } else if (read_open_.load(std::memory_order_relaxed)) {
+        char byte = '\0';
+        const ssize_t peeked =
+            ::recv(sock().file().handle(), &byte, 1, MSG_PEEK | MSG_DONTWAIT);
+        if (peeked == 0) {
+          handle_read_eof();
+        } else if (peeked < 0 && os_file::is_hard_error()) {
+          do_close_now(close_mode::forceful);
+        }
+#endif
       } else {
         maybe_finish_after_side_close();
       }
@@ -783,6 +817,7 @@ private:
       void await_suspend(std::coroutine_handle<> h) const noexcept {
         assert(!s_->pending_read_.has_waiter());
         s_->pending_read_.coro = h;
+        s_->refresh_read_interest();
       }
 
       [[nodiscard]] std::string await_resume() const noexcept {

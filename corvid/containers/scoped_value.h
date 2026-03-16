@@ -18,8 +18,8 @@
 #include "containers_shared.h"
 #include <utility>
 
-namespace corvid {
-inline namespace container { inline namespace value_scoping {
+namespace corvid { inline namespace container {
+inline namespace value_scoping {
 
 // RAII helper for temporarily changing a value and restoring it on scope exit.
 template<typename T>

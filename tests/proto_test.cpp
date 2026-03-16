@@ -837,6 +837,37 @@ void IoLoop_SetWritable() {
 #endif
 }
 
+void IoLoop_SetReadable() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  auto conn = std::make_shared<counting_conn>(std::move(a));
+  EXPECT_TRUE(loop.register_socket(conn, false, false));
+
+  auto first = std::string_view{"hi"};
+  EXPECT_TRUE(b.send(first) && first.empty());
+
+  EXPECT_EQ(loop.run_once(0), 0);
+  EXPECT_EQ(conn->readable, 0);
+  EXPECT_EQ(conn->writable, 0);
+
+  EXPECT_TRUE(loop.set_readable(conn->sock(), true));
+  EXPECT_EQ(loop.run_once(0), 1);
+  EXPECT_EQ(conn->readable, 1);
+  EXPECT_EQ(conn->writable, 0);
+
+  std::string buf(8, '\0');
+  (void)conn->sock().file().read(buf);
+
+  EXPECT_TRUE(loop.set_readable(conn->sock(), false));
+  EXPECT_TRUE(loop.set_writable(conn->sock(), true));
+  EXPECT_EQ(loop.run_once(0), 1);
+  EXPECT_EQ(conn->readable, 1);
+  EXPECT_GE(conn->writable, 1);
+#endif
+}
+
 // When `EPOLLERR` or `EPOLLHUP` fires together with `EPOLLOUT`, `on_error` is
 // called but `on_writable` is skipped (the early-return path in
 // `dispatch_event`).
@@ -1108,6 +1139,31 @@ void TcpConn_AsyncCbRead() {
 
   loop.run_once(0); // dispatch EPOLLIN -> inline callback
 
+  EXPECT_EQ(received, msg);
+#endif
+}
+
+void TcpConn_AsyncCbRead_PreservesEarlyData() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  std::string received;
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  const std::string msg{"early-callback-read"};
+  auto msg_view = std::string_view{msg};
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+
+  EXPECT_EQ(loop.run_once(0),
+      0); // read interest is disabled; data stays queued
+
+  EXPECT_TRUE(conn.async_cb_read([&](std::string& data) {
+    received = std::move(data);
+  }));
+
+  EXPECT_EQ(loop.run_once(0), 1); // enabling EPOLLIN surfaces buffered data
   EXPECT_EQ(received, msg);
 #endif
 }
@@ -1452,6 +1508,86 @@ void TcpConn_AsyncRead() {
 #endif
 }
 
+void TcpConn_AsyncRead_PreservesEarlyData() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  std::string received;
+  bool done = false;
+
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  const std::string msg{"early-coroutine-read"};
+  auto msg_view = std::string_view{msg};
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+
+  EXPECT_EQ(loop.run_once(0),
+      0); // data remains in kernel until a read is armed
+
+  auto coro = [&]() -> loop_task {
+    received = co_await conn.async_read();
+    done = true;
+  };
+  coro();
+
+  loop.run_once(0); // dispatch buffered EPOLLIN
+  loop.run_once(0); // drain posted resume
+
+  EXPECT_TRUE(done);
+  EXPECT_EQ(received, msg);
+#endif
+}
+
+void TcpConn_AsyncRead_StopsBetweenCalls() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  std::string first;
+  std::string second;
+  bool first_done = false;
+  bool second_done = false;
+
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  auto first_coro = [&]() -> loop_task {
+    first = co_await conn.async_read();
+    first_done = true;
+  };
+  first_coro();
+
+  auto first_msg = std::string_view{"first"};
+  EXPECT_TRUE(b.send(first_msg) && first_msg.empty());
+
+  loop.run_once(0); // deliver first read
+  loop.run_once(0); // resume first coroutine
+
+  EXPECT_TRUE(first_done);
+  EXPECT_EQ(first, "first");
+
+  auto second_msg = std::string_view{"second"};
+  EXPECT_TRUE(b.send(second_msg) && second_msg.empty());
+
+  EXPECT_EQ(loop.run_once(0), 0); // no waiter, so second chunk stays in kernel
+  EXPECT_FALSE(second_done);
+
+  auto second_coro = [&]() -> loop_task {
+    second = co_await conn.async_read();
+    second_done = true;
+  };
+  second_coro();
+
+  loop.run_once(0); // buffered kernel data is now delivered
+  loop.run_once(0); // resume second coroutine
+
+  EXPECT_TRUE(second_done);
+  EXPECT_EQ(second, "second");
+#endif
+}
+
 // Verify that `async_read` returns an empty string when the peer closes
 // the connection before data arrives.
 void TcpConn_AsyncRead_PeerClose() {
@@ -1532,15 +1668,17 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     DnsResolve_Localhost, DnsResolve_FamilyFilter, DnsResolve_InvalidHost,
     DnsResolveOne_Success, DnsResolveOne_Failure, IoLoop_Lifecycle,
     IoLoop_Post, IoLoop_RegisterUnregister, IoLoop_SetWritable,
-    IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError, TcpConn_Lifecycle,
-    TcpConn_Receive, TcpConn_SetRecvBufSize, TcpConn_PeerClose, TcpConn_Send,
-    TcpConn_ManualClose, TcpConn_DrainAfterBufferedSend,
-    TcpConn_DrainAfterImmediateSend, TcpConn_AsyncCbRead,
+    IoLoop_SetReadable, IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError,
+    TcpConn_Lifecycle, TcpConn_Receive, TcpConn_SetRecvBufSize,
+    TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
+    TcpConn_DrainAfterBufferedSend, TcpConn_DrainAfterImmediateSend,
+    TcpConn_AsyncCbRead, TcpConn_AsyncCbRead_PreservesEarlyData,
     TcpConn_AsyncCbRead_DuplicateRejected, TcpConn_AsyncCbRead_PeerClose,
     TcpConn_AsyncCbWrite, TcpConn_AsyncCbWrite_Failure,
     TcpConn_AsyncCbWrite_DuplicateRejected, TcpConn_ShutdownWrite,
     TcpConn_ShutdownRead, TcpConn_ShutdownBothCloses, TcpConn_GracefulClose,
     TcpConn_DestructorHangsUp, LoopTask_FireAndForget, TcpConn_AsyncRead,
+    TcpConn_AsyncRead_PreservesEarlyData, TcpConn_AsyncRead_StopsBetweenCalls,
     TcpConn_AsyncRead_PeerClose, TcpConn_AsyncSend);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
