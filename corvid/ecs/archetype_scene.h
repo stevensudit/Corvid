@@ -341,7 +341,7 @@ public:
   [[nodiscard]] bool migrate_entity(id_t id, store_id_t to, auto&& build) {
     assert(registry_.is_valid(id));
     const auto store_id = registry_.get_location(id).store_id;
-    if (store_id == to) return true; // already there -- no-op
+    if (store_id == to) return true; // already there: no-op
     return dispatch_storage<bool>(
         store_id,
         [&](auto& src) {
@@ -401,7 +401,7 @@ public:
   [[nodiscard]] bool migrate_entity(id_t id, store_id_t to) {
     assert(registry_.is_valid(id));
     const auto store_id = registry_.get_location(id).store_id;
-    if (store_id == to) return true; // already there -- no-op
+    if (store_id == to) return true; // already there: no-op
     return dispatch_storage<bool>(
         store_id,
         [&](auto& src) {

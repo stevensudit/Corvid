@@ -208,7 +208,7 @@ public:
     for (int ndx = 0; ndx < available; ++ndx) {
       const int fd = events[ndx].data.fd;
 
-      // Drain the internal wakeup handle and skip -- it carries no user event.
+      // Drain the internal wakeup handle and skip: it carries no user event.
       if (fd == wake_fd_.handle()) {
         // `eventfd` expects an 8-byte read; the value is ignored.
         std::string buf{"12345678"};

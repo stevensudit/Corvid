@@ -17,6 +17,9 @@
 
 #include "../corvid/proto.h"
 #include "minitest.h"
+#include <atomic>
+#include <chrono>
+#include <thread>
 
 using namespace corvid;
 
@@ -917,6 +920,41 @@ void TcpConn_Receive() {
 #endif
 }
 
+void TcpConn_SetRecvBufSize() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  std::vector<size_t> chunk_sizes;
+  tcp_conn conn{loop, std::move(a), {}, {.on_data = [&](std::string& d) {
+                  chunk_sizes.push_back(d.size());
+                }},
+      4};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_EQ(conn.recv_buf_size(), 4U);
+
+  auto first = std::string_view{"abcd1234"};
+  EXPECT_TRUE(b.file().write(first) && first.empty());
+  EXPECT_EQ(loop.run_once(0), 1); // first read capped at 4 bytes
+  EXPECT_EQ(chunk_sizes.size(), 1U);
+  EXPECT_EQ(chunk_sizes[0], 4U);
+
+  EXPECT_TRUE(conn.set_recv_buf_size(8));
+  EXPECT_EQ(conn.recv_buf_size(), 8U);
+
+  EXPECT_EQ(loop.run_once(0), 1); // drain remaining 4 bytes
+  EXPECT_EQ(chunk_sizes.size(), 2U);
+  EXPECT_EQ(chunk_sizes[1], 4U);
+
+  auto second = std::string_view{"ABCDEFGHijkl"};
+  EXPECT_TRUE(b.file().write(second) && second.empty());
+  EXPECT_EQ(loop.run_once(0), 1); // next read should use updated cap
+  EXPECT_EQ(chunk_sizes.size(), 3U);
+  EXPECT_EQ(chunk_sizes[2], 8U);
+#endif
+}
+
 void TcpConn_PeerClose() {
 #ifdef __linux__
   io_loop loop;
@@ -1034,6 +1072,166 @@ void TcpConn_DrainAfterImmediateSend() {
   EXPECT_TRUE(b.file().read(received));
   EXPECT_EQ(received, "hello");
   EXPECT_EQ(drain_count, 1);
+#endif
+}
+
+void TcpConn_AsyncCbRead() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  std::string received;
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_TRUE(conn.async_cb_read(
+      [&](std::string& data) { received = std::move(data); }));
+
+  const std::string msg{"callback-read"};
+  auto msg_view = std::string_view{msg};
+  EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
+
+  loop.run_once(0); // dispatch EPOLLIN -> inline callback
+
+  EXPECT_EQ(received, msg);
+#endif
+}
+
+void TcpConn_AsyncCbRead_DuplicateRejected() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  int callback_count = 0;
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_TRUE(conn.async_cb_read([&](std::string&) { ++callback_count; }));
+  EXPECT_FALSE(conn.async_cb_read([&](std::string&) { ++callback_count; }));
+
+  const std::string msg{"one"};
+  auto msg_view = std::string_view{msg};
+  EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
+
+  loop.run_once(0); // dispatch EPOLLIN -> one callback
+
+  EXPECT_EQ(callback_count, 1);
+#endif
+}
+
+void TcpConn_AsyncCbRead_PeerClose() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  std::string received{"sentinel"};
+  int callback_count = 0;
+  bool closed = false;
+  tcp_conn conn{loop, std::move(a), {},
+      {.on_close = [&] { closed = true; }}};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_TRUE(conn.async_cb_read([&](std::string& data) {
+    received = std::move(data);
+    ++callback_count;
+  }));
+
+  b.close();
+  loop.run_once(0); // dispatch EPOLLHUP -> close_now -> inline callback
+
+  EXPECT_EQ(callback_count, 1);
+  EXPECT_TRUE(received.empty());
+  EXPECT_TRUE(closed);
+  EXPECT_FALSE(conn.is_open());
+#endif
+}
+
+void TcpConn_AsyncCbWrite() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  bool completed = false;
+  int callback_count = 0;
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_TRUE(conn.async_cb_write(std::string{"callback-write"},
+      [&](bool write_completed) {
+        completed = write_completed;
+        ++callback_count;
+      }));
+
+  std::string received;
+  no_zero::enlarge_to(received, 32);
+  EXPECT_TRUE(b.file().read(received));
+  EXPECT_EQ(received, "callback-write");
+  EXPECT_TRUE(completed);
+  EXPECT_EQ(callback_count, 1);
+#endif
+}
+
+void TcpConn_AsyncCbWrite_Failure() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  bool completed = true;
+  bool closed = false;
+  tcp_conn conn{loop, std::move(a), {},
+      {.on_close = [&] { closed = true; }}};
+  loop.run_once(0); // process posted register_with_loop
+
+  b.close();
+
+  EXPECT_TRUE(conn.async_cb_write(std::string{"boom"},
+      [&](bool write_completed) { completed = write_completed; }));
+
+  EXPECT_FALSE(completed);
+  EXPECT_TRUE(closed);
+  EXPECT_FALSE(conn.is_open());
+#endif
+}
+
+void TcpConn_AsyncCbWrite_DuplicateRejected() {
+#ifdef __linux__
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  constexpr int small_buf = 4096;
+  a.set_send_buffer_size(small_buf);
+
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  std::thread loop_thread{[&] { loop.run(10); }};
+
+  const std::string payload(256ULL * 1024ULL, 'w');
+  std::atomic<int> accepted{0};
+  std::atomic<int> rejected{0};
+  std::atomic<int> completions{0};
+
+  auto try_register = [&] {
+    if (conn.async_cb_write(std::string{payload}, [&](bool) { ++completions; }))
+      ++accepted;
+    else
+      ++rejected;
+  };
+
+  std::thread t1{try_register};
+  std::thread t2{try_register};
+  t1.join();
+  t2.join();
+
+  EXPECT_EQ(accepted.load(), 1);
+  EXPECT_EQ(rejected.load(), 1);
+
+  b.close();
+  for (int i = 0; i < 100 && completions.load() == 0; ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+
+  EXPECT_EQ(completions.load(), 1);
+
+  loop.stop();
+  loop_thread.join();
 #endif
 }
 
@@ -1228,10 +1426,14 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     DnsResolveOne_Success, DnsResolveOne_Failure, IoLoop_Lifecycle,
     IoLoop_Post, IoLoop_RegisterUnregister, IoLoop_SetWritable,
     IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError, TcpConn_Lifecycle,
-    TcpConn_Receive, TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
-    TcpConn_DrainAfterBufferedSend, TcpConn_DrainAfterImmediateSend,
-    TcpConn_GracefulClose, TcpConn_DestructorHangsUp, LoopTask_FireAndForget,
-    TcpConn_AsyncRead, TcpConn_AsyncRead_PeerClose, TcpConn_AsyncSend);
+    TcpConn_Receive, TcpConn_SetRecvBufSize, TcpConn_PeerClose, TcpConn_Send,
+    TcpConn_ManualClose, TcpConn_DrainAfterBufferedSend,
+    TcpConn_DrainAfterImmediateSend, TcpConn_AsyncCbRead,
+    TcpConn_AsyncCbRead_DuplicateRejected, TcpConn_AsyncCbRead_PeerClose,
+    TcpConn_AsyncCbWrite, TcpConn_AsyncCbWrite_Failure,
+    TcpConn_AsyncCbWrite_DuplicateRejected, TcpConn_GracefulClose,
+    TcpConn_DestructorHangsUp, LoopTask_FireAndForget, TcpConn_AsyncRead,
+    TcpConn_AsyncRead_PeerClose, TcpConn_AsyncSend);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

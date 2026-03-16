@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <atomic>
+#include <condition_variable>
 #include <cassert>
 #include <cerrno>
 #include <coroutine>
@@ -39,8 +40,8 @@ namespace corvid { inline namespace proto {
 
 using namespace corvid::strings::no_zero_funcs;
 
-// User-supplied callbacks for a `tcp_conn`. All fields are optional; a null
-// handler is silently skipped when its event fires.
+// User-supplied persistent callbacks for a `tcp_conn`. All fields are
+// optional; a null handler is silently skipped when its event fires.
 //
 //  `on_data(str)`  -- fired when data arrives. `str` is the internal receive
 //                     buffer resized to the number of bytes read; the user may
@@ -87,13 +88,41 @@ struct tcp_conn_handlers {
 // before `on_data` is called. The user may `std::move` from the buffer to
 // steal its allocation; the next read reallocates if needed.
 //
-// Close: `close()` is graceful -- if the send queue is non-empty, the socket
+// Close: `close()` is graceful. If the send queue is non-empty, the socket
 // closes only after it drains. `hangup()` discards pending outbound data and
 // closes immediately. The destructor uses `hangup()`.
+//
+// Supports three async models:
+// 1. Persistent callbacks via `tcp_conn_handlers`.
+// 2. Coroutine waiters via `async_read()` / `async_send()`.
+// 3. One-shot callbacks via `async_cb_read()` / `async_cb_write()`.
+//
+// Precedence is per-direction (read vs. write):
+// - If a one-shot waiter is pending, it gets the next event for that
+//   direction.
+// - Coroutine waiters and per-call callback waiters share the same one-shot
+//   waiter slot, so they are mutually exclusive.
+// - Persistent handlers (`on_data`, `on_drain`, `on_close`) are fallback
+//   notifications used only when no one-shot waiter is pending for that
+//   direction.
+//
+// Parallel attempts fail cleanly rather than replacing an existing waiter:
+// - `async_cb_read()` / `async_cb_write()` return `false`.
+// - `async_read()` / `async_send()` require the caller to avoid overlap; a
+//   second concurrent wait is a programming error (asserted in debug builds).
+//
+// A pending read callback completes with an empty buffer if the connection
+// closes before data arrives. The callback can distinguish that case by
+// retaining access to the `tcp_conn` and checking `is_open()`. A pending write
+// waiter completes on either success or failure: coroutine sends resume, while
+// per-call callback sends receive `cb(bool completed)`.
 //
 // Linux only; on other platforms all methods are no-ops.
 class tcp_conn {
 public:
+  using async_read_cb = std::function<void(std::string&)>;
+  using async_write_cb = std::function<void(bool completed)>;
+
   // Default receive-buffer capacity per connection, in bytes.
   static constexpr size_t default_recv_buf_size = 16384;
 
@@ -112,6 +141,26 @@ public:
     state_ = std::make_shared<state>(loop, std::move(sock), remote,
         std::move(h), recv_buf_size);
     loop.post([p = state_] { p->register_with_loop(); });
+  }
+
+  // Change the per-connection receive buffer size used for future reads.
+  // `bytes` must be non-zero. Safe to call from any thread. Returns false if
+  // the connection is closed or `bytes == 0`.
+  bool set_recv_buf_size(size_t bytes) {
+    if (!state_ || bytes == 0) return false;
+    if (!state_->open_.load(std::memory_order_relaxed)) return false;
+    auto& loop = state_->loop_;
+    if (loop.is_loop_thread()) return state_->set_recv_buf_size(bytes);
+    return run_on_loop_sync_([p = state_, bytes] {
+      return p->set_recv_buf_size(bytes);
+    });
+  }
+
+  // The current per-connection receive buffer size used for future reads.
+  // Safe to call from any thread. Returns 0 if the handle is empty.
+  [[nodiscard]] size_t recv_buf_size() const noexcept {
+    if (!state_) return 0;
+    return state_->recv_buf_capacity_.load(std::memory_order_relaxed);
   }
 
   tcp_conn(tcp_conn&&) noexcept = default;
@@ -174,7 +223,8 @@ public:
   // closed or closed before data arrived. The caller should check
   // `is_open()` to distinguish a closed connection from a zero-byte read.
   //
-  // At most one `async_read` may be outstanding at a time.
+  // At most one read waiter (`async_read` or `async_cb_read`) may be
+  // outstanding at a time.
   // Must be awaited from the loop thread (e.g., inside a `loop_task`
   // coroutine spawned from a loop callback or `post()`'d function).
   [[nodiscard]] auto async_read() noexcept {
@@ -187,16 +237,91 @@ public:
   // without queuing, the coroutine resumes immediately without a loop
   // round-trip.
   //
-  // At most one `async_send` may be outstanding at a time.
+  // At most one write waiter (`async_send` or `async_cb_write`) may be
+  // outstanding at a time.
   // Must be awaited from the loop thread.
   [[nodiscard]] auto async_send(std::string&& buf) noexcept {
     return state::async_send_awaitable{state_.get(), std::move(buf)};
   }
 
+  // Register a one-shot callback for the next readable batch. The callback is
+  // invoked inline on the loop thread with the internal receive buffer so the
+  // caller may inspect it in place or `std::move` from it. Returns false if
+  // the connection is closed, `cb` is null, or another async read waiter is
+  // already pending. If the connection closes before data arrives, `cb` is
+  // invoked with an empty string; code that retains access to the `tcp_conn`
+  // can call `is_open()` to distinguish that case from real data.
+  bool async_cb_read(async_read_cb cb) {
+    if (!state_ || !cb) return false;
+    if (!state_->open_.load(std::memory_order_relaxed)) return false;
+    auto& loop = state_->loop_;
+    if (loop.is_loop_thread())
+      return state_->register_async_cb_read(std::move(cb));
+    return run_on_loop_sync_([p = state_, cb = std::move(cb)]() mutable {
+      return p->register_async_cb_read(std::move(cb));
+    });
+  }
+
+  // Take ownership of `buf`, send it, and invoke `cb` once the write reaches a
+  // terminal state. `completed == true` means the buffered write fully
+  // drained; `completed == false` means the connection closed or failed before
+  // all bytes were sent, possibly after a partial write. Successful immediate
+  // writes invoke `cb(true)` inline on the loop thread. Returns false if the
+  // connection is closed, `buf` is empty, `cb` is null, or another async write
+  // waiter is already pending.
+  bool async_cb_write(std::string&& buf, async_write_cb cb) {
+    if (!state_ || buf.empty() || !cb) return false;
+    if (!state_->open_.load(std::memory_order_relaxed)) return false;
+    auto& loop = state_->loop_;
+    if (loop.is_loop_thread())
+      return state_->register_async_cb_write(std::move(buf), std::move(cb));
+    return run_on_loop_sync_(
+        [p = state_, b = std::move(buf), cb = std::move(cb)]() mutable {
+          return p->register_async_cb_write(std::move(b), std::move(cb));
+        });
+  }
+
 private:
+  template<typename Fn>
+  bool run_on_loop_sync_(Fn&& fn) {
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool done = false;
+    bool result = false;
+    state_->loop_.post([&] {
+      {
+        std::lock_guard lock{mutex};
+        result = fn();
+        done = true;
+      }
+      cv.notify_one();
+    });
+    std::unique_lock lock{mutex};
+    cv.wait(lock, [&] { return done; });
+    return result;
+  }
+
   // Internal state. Inherits from `io_conn` so it can be registered directly
   // with the loop.
   struct state final: io_conn {
+    struct pending_read_op {
+      std::coroutine_handle<> coro{};
+      async_read_cb cb{};
+
+      [[nodiscard]] bool has_waiter() const noexcept {
+        return coro || static_cast<bool>(cb);
+      }
+    };
+
+    struct pending_write_op {
+      std::coroutine_handle<> coro{};
+      async_write_cb cb{};
+
+      [[nodiscard]] bool has_waiter() const noexcept {
+        return coro || static_cast<bool>(cb);
+      }
+    };
+
     io_loop& loop_;
     ip_endpoint remote_;
     tcp_conn_handlers handlers_;
@@ -219,7 +344,7 @@ private:
     std::string recv_buf_;
 
     // Size to expand `recv_buf_` to before each read.
-    size_t recv_buf_capacity_{default_recv_buf_size};
+    std::atomic<size_t> recv_buf_capacity_{default_recv_buf_size};
 
     // Cleared atomically by `do_close_now()`. Read from any thread via
     // `tcp_conn::is_open()`.
@@ -229,29 +354,89 @@ private:
     // `do_flush_send_buf()` to call `do_close_now()` after the queue drains.
     bool closing_ = false;
 
-    // Coroutine handle registered by `async_read_awaitable::await_suspend`.
-    // Cleared and resumed (via `loop_.post`) by `handle_readable()` when data
-    // arrives, or by `do_close_now()` when the connection closes.
-    std::coroutine_handle<> pending_read_;
+    // One-shot read waiter installed by either `async_read()` or
+    // `async_cb_read()`.
+    pending_read_op pending_read_;
 
     // Buffer where `handle_readable()` deposits received bytes before
     // resuming a coroutine waiting in `async_read()`. Moved into by
     // `handle_readable`, moved out of by `async_read_awaitable::await_resume`.
     std::string pending_read_data_;
 
-    // Coroutine handle registered by `async_send_awaitable::await_suspend`.
-    // Cleared and resumed (via `loop_.post`) by `do_flush_send_buf()` when
-    // the send queue empties, or by `do_close_now()`.
-    std::coroutine_handle<> pending_drain_;
+    // One-shot write waiter installed by either `async_send()` or
+    // `async_cb_write()`.
+    pending_write_op pending_write_;
 
     explicit state(io_loop& loop, ip_socket&& sock, const ip_endpoint& remote,
         tcp_conn_handlers&& h, size_t rbs) noexcept
         : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
           handlers_{std::move(h)}, recv_buf_capacity_{rbs}, open_{true} {}
 
+    [[nodiscard]] bool set_recv_buf_size(size_t bytes) {
+      assert(loop_.is_loop_thread());
+      if (!open_.load(std::memory_order_relaxed) || bytes == 0) return false;
+      recv_buf_capacity_.store(bytes, std::memory_order_relaxed);
+      return true;
+    }
+
+    [[nodiscard]] bool register_async_cb_read(async_read_cb cb) {
+      assert(loop_.is_loop_thread());
+      if (!open_.load(std::memory_order_relaxed) || pending_read_.has_waiter())
+        return false;
+      pending_read_.cb = std::move(cb);
+      return true;
+    }
+
+    [[nodiscard]] bool
+    register_async_cb_write(std::string&& buf, async_write_cb cb) {
+      assert(loop_.is_loop_thread());
+      if (!open_.load(std::memory_order_relaxed) ||
+          pending_write_.has_waiter())
+        return false;
+      pending_write_.cb = std::move(cb);
+      if (enqueue_send(std::move(buf))) return true;
+      if (pending_write_.cb) {
+        auto failed_cb = std::move(pending_write_.cb);
+        failed_cb(false);
+      }
+      return true;
+    }
+
+    void notify_read_ready() {
+      if (pending_read_.coro) {
+        pending_read_data_ = std::move(recv_buf_);
+        loop_.post([h = std::exchange(pending_read_.coro, {})] {
+          h.resume();
+        });
+      } else if (pending_read_.cb) {
+        auto cb = std::move(pending_read_.cb);
+        cb(recv_buf_);
+      } else if (handlers_.on_data) {
+        handlers_.on_data(recv_buf_);
+      }
+    }
+
+    void notify_read_closed() {
+      if (pending_read_.coro) {
+        pending_read_data_.clear();
+        loop_.post([h = std::exchange(pending_read_.coro, {})] {
+          h.resume();
+        });
+      } else if (pending_read_.cb) {
+        recv_buf_.clear();
+        auto cb = std::move(pending_read_.cb);
+        cb(recv_buf_);
+      }
+    }
+
     void notify_drained() {
-      if (pending_drain_) {
-        loop_.post([h = std::exchange(pending_drain_, {})] { h.resume(); });
+      if (pending_write_.coro) {
+        loop_.post([h = std::exchange(pending_write_.coro, {})] {
+          h.resume();
+        });
+      } else if (pending_write_.cb) {
+        auto cb = std::move(pending_write_.cb);
+        cb(true);
       } else if (handlers_.on_drain) {
         handlers_.on_drain();
       }
@@ -267,30 +452,35 @@ private:
 #endif
     }
 
-    // `io_conn` overrides -- called on the loop thread by `dispatch_event`.
+    // `io_conn` overrides: called on the loop thread by `dispatch_event`.
     void on_readable() override { handle_readable(); }
     void on_writable() override { do_flush_send_buf(); }
-    void on_error() override { do_close_now(); }
+    void on_error() override { do_close_now(close_mode::forceful); }
 
     // Read available data into `recv_buf_` without zero-initializing it
     // (C++23 `resize_and_overwrite`), then deliver to `on_data`. Closes on
     // EOF or unrecoverable error.
     bool handle_readable() {
 #ifdef __linux__
-      no_zero::enlarge_to(recv_buf_, recv_buf_capacity_);
+      const size_t recv_buf_capacity =
+          recv_buf_capacity_.load(std::memory_order_relaxed);
+      // Allow shrinking.
+      if (recv_buf_.capacity() > recv_buf_capacity) {
+        no_zero::resize_to(recv_buf_, recv_buf_capacity);
+      } else {
+        no_zero::enlarge_to(recv_buf_, recv_buf_capacity);
+      }
       if (!sock().file().read(recv_buf_)) {
-        do_close_now();
+        // TODO: If recv_buf_ is not empty, then we had a 0 read, which means
+        // the socket is half-closed so no further reads are possible. However,
+        // writes are possible.
+        // TODO: Should this be a forceful close? It's not a soft error, but it
+        // could be a half-closed socket, so maybe we could finish writing.
+        do_close_now(close_mode::forceful);
         return false;
       }
 
-      if (!recv_buf_.empty()) {
-        if (pending_read_) {
-          pending_read_data_ = std::move(recv_buf_);
-          loop_.post([h = std::exchange(pending_read_, {})] { h.resume(); });
-        } else if (handlers_.on_data) {
-          handlers_.on_data(recv_buf_);
-        }
-      }
+      if (!recv_buf_.empty()) notify_read_ready();
 #endif
       return true;
     }
@@ -317,13 +507,17 @@ private:
       if (!sock().file().write(buf_view)) {
         // If we can't write at all, close immediately.
         buf.clear();
-        do_close_now();
+        do_close_now(close_mode::forceful);
         return false;
       }
 
       // If fully written, nothing to queue.
       if (buf_view.empty()) {
         buf.clear();
+        // Let `async_send()` keep its inline-resume fast path for immediate
+        // completion; callback-based waiters and persistent handlers still
+        // notify synchronously here.
+        if (pending_write_.coro) return true;
         notify_drained();
         return true;
       }
@@ -357,7 +551,7 @@ private:
       while (!send_queue_.empty()) {
         // If we can't write at all, close immediately.
         if (!sock().file().write(head_span_)) {
-          do_close_now();
+          do_close_now(close_mode::forceful);
           return false;
         }
 
@@ -416,10 +610,15 @@ private:
       // before the coroutine continues. This prevents use-after-free of the
       // coroutine frame when `do_close_now` is triggered from within
       // `enqueue_send` -> `await_suspend`.
-      if (pending_read_)
-        loop_.post([h = std::exchange(pending_read_, {})] { h.resume(); });
-      if (pending_drain_)
-        loop_.post([h = std::exchange(pending_drain_, {})] { h.resume(); });
+      if (pending_read_.has_waiter()) notify_read_closed();
+      if (pending_write_.coro)
+        loop_.post([h = std::exchange(pending_write_.coro, {})] {
+          h.resume();
+        });
+      if (pending_write_.cb) {
+        auto cb = std::move(pending_write_.cb);
+        cb(false);
+      }
       if (handlers_.on_close) handlers_.on_close();
     }
 
@@ -441,7 +640,8 @@ private:
       }
 
       void await_suspend(std::coroutine_handle<> h) const noexcept {
-        s_->pending_read_ = h;
+        assert(!s_->pending_read_.has_waiter());
+        s_->pending_read_.coro = h;
       }
 
       [[nodiscard]] std::string await_resume() const noexcept {
@@ -476,18 +676,20 @@ private:
       // write completed synchronously. Returns `true` to stay suspended in
       // all other cases (queued for drain, or already-posted close resume).
       bool await_suspend(std::coroutine_handle<> h) {
-        s_->pending_drain_ = h;
+        assert(!s_->pending_write_.has_waiter());
+        s_->pending_write_.coro = h;
         s_->enqueue_send(std::move(buf_));
 
         // Case 1: `do_close_now` fired inside `enqueue_send`; it already
-        // cleared `pending_drain_` and posted `h.resume()`. Stay suspended.
-        if (!s_->pending_drain_) return true;
+        // cleared `pending_write_.coro` and posted `h.resume()`. Stay
+        // suspended.
+        if (!s_->pending_write_.coro) return true;
 
         // Case 2: Write completed synchronously: queue is still empty.
         // Cancel suspension so the coroutine resumes without a round-trip
         // through the loop.
         if (s_->send_queue_.empty()) {
-          s_->pending_drain_ = {};
+          s_->pending_write_.coro = {};
           return false;
         }
 
