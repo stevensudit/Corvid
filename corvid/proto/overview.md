@@ -42,9 +42,9 @@ operations delegate to the underlying `os_file` via `file()`. Type-safe
 `set_option<T>(level, optname, value)` / `get_option<T>(level, optname)`
 wrap `setsockopt` / `getsockopt`. Named helpers cover the most common
 options: `set_reuse_addr`, `set_reuse_port`, `set_nodelay`, `set_keepalive`,
-`set_recv_buffer_size`, `set_send_buffer_size`. Intended as a base class for
-`tcp_socket` and `udp_socket`; a protected constructor and `make_ip_socket`
-static are provided for that purpose.
+`set_recv_buffer_size`, `set_send_buffer_size`. Can adopt an existing
+`os_file` by move, and exposes `make_ip_socket(domain, type, protocol)` to
+create one when needed.
 
 ### `dns_resolver`
 

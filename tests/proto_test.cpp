@@ -23,14 +23,6 @@
 
 using namespace corvid;
 
-// Exposes `ip_socket`'s protected constructors for testing.
-struct test_socket: ip_socket {
-  test_socket() = default;
-  explicit test_socket(handle_t h) : ip_socket(h) {}
-  test_socket(int domain, int type, int protocol)
-      : ip_socket(ip_socket::make_ip_socket(domain, type, protocol)) {}
-};
-
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
@@ -490,7 +482,7 @@ void IpEndpoint_PosixInterop() {
 void IpSocket_Lifecycle() {
   // Default-constructed socket is invalid.
   if (true) {
-    test_socket s;
+    ip_socket s;
     EXPECT_FALSE(s.is_open());
     EXPECT_FALSE(static_cast<bool>(s));
     EXPECT_EQ(s.file().handle(), ip_socket::invalid_handle);
@@ -500,7 +492,7 @@ void IpSocket_Lifecycle() {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // A real socket is open; closing it twice is idempotent.
   if (true) {
-    test_socket s{AF_INET, SOCK_STREAM, 0};
+    ip_socket s{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
     EXPECT_TRUE(s.is_open());
     EXPECT_TRUE(static_cast<bool>(s));
     EXPECT_NE(s.file().handle(), ip_socket::invalid_handle);
@@ -510,7 +502,7 @@ void IpSocket_Lifecycle() {
   }
 
   // Destructor closes an open socket (no crash or leak).
-  if (true) { test_socket s{AF_INET, SOCK_STREAM, 0}; }
+  if (true) { ip_socket s{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)}; }
 #endif
 }
 
@@ -518,9 +510,9 @@ void IpSocket_Move() {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
-    test_socket a{AF_INET, SOCK_STREAM, 0};
+    ip_socket a{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
     const auto h = a.file().handle();
-    test_socket b{std::move(a)};
+    ip_socket b{std::move(a)};
     EXPECT_FALSE(a.is_open());
     EXPECT_TRUE(b.is_open());
     EXPECT_EQ(b.file().handle(), h);
@@ -528,8 +520,8 @@ void IpSocket_Move() {
 
   // Move assignment closes the destination and transfers the source.
   if (true) {
-    test_socket a{AF_INET, SOCK_STREAM, 0};
-    test_socket b{AF_INET, SOCK_STREAM, 0};
+    ip_socket a{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
+    ip_socket b{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
     const auto h = a.file().handle();
     b = std::move(a);
     EXPECT_FALSE(a.is_open());
@@ -539,7 +531,7 @@ void IpSocket_Move() {
 
   // Self-assignment is a no-op.
   if (true) {
-    test_socket a{AF_INET, SOCK_STREAM, 0};
+    ip_socket a{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
     const auto h = a.file().handle();
     // Route through a pointer to defeat -Wself-move while still exercising
     // the self-assignment path.
@@ -555,7 +547,7 @@ void IpSocket_Release() {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // `release()` yields the handle without closing it; socket becomes invalid.
   if (true) {
-    test_socket s{AF_INET, SOCK_STREAM, 0};
+    ip_socket s{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
     const auto h = s.file().release();
     EXPECT_NE(h, ip_socket::invalid_handle);
     EXPECT_FALSE(s.is_open());
@@ -568,7 +560,7 @@ void IpSocket_Options() {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Named option helpers round-trip through `get_option`.
   if (true) {
-    test_socket s{AF_INET, SOCK_STREAM, 0};
+    ip_socket s{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
 
     EXPECT_TRUE(s.set_reuse_addr(true));
     auto v = s.get_option<int>(SOL_SOCKET, SO_REUSEADDR);
@@ -587,7 +579,7 @@ void IpSocket_Options() {
 
   // Buffer size helpers: kernel may round up, so just verify >= requested.
   if (true) {
-    test_socket s{AF_INET, SOCK_STREAM, 0};
+    ip_socket s{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
     EXPECT_TRUE(s.set_recv_buffer_size(65536));
     EXPECT_TRUE(s.set_send_buffer_size(65536));
     auto r = s.get_option<int>(SOL_SOCKET, SO_RCVBUF);
@@ -603,7 +595,7 @@ void IpSocket_Options() {
 void IpSocket_Nonblocking() {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   if (true) {
-    test_socket s{AF_INET, SOCK_STREAM, 0};
+    ip_socket s{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
 
     EXPECT_TRUE(s.file().set_nonblocking(true));
     EXPECT_TRUE(s.file().get_flags().value_or(0) & O_NONBLOCK);
@@ -617,7 +609,7 @@ void IpSocket_Nonblocking() {
 void IpSocket_BindListenAccept() {
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Bind a listening socket to a free loopback port.
-  test_socket listener{AF_INET, SOCK_STREAM, 0};
+  ip_socket listener{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
   EXPECT_TRUE(listener.is_open());
   EXPECT_TRUE(listener.set_reuse_addr());
   EXPECT_TRUE(listener.bind(ip_endpoint{ipv4_addr::loopback(), 0}));
@@ -633,7 +625,7 @@ void IpSocket_BindListenAccept() {
   EXPECT_NE(port, 0U);
 
   // Connect a client to the listening socket.
-  test_socket client{AF_INET, SOCK_STREAM, 0};
+  ip_socket client{ip_socket::make_ip_socket(AF_INET, SOCK_STREAM, 0)};
   EXPECT_TRUE(client.is_open());
   EXPECT_TRUE(client.connect(ip_endpoint{ipv4_addr::loopback(), port}));
 
@@ -727,21 +719,21 @@ void DnsResolveOne_Failure() {
 #endif
 }
 
-// Helper: create a connected socketpair and wrap each end in a `test_socket`.
-// Caller must close both sockets when done (RAII via test_socket destructor).
+// Helper: create a connected socketpair and wrap each end in an `ip_socket`.
+// Caller must close both sockets when done (RAII via `ip_socket` destructor).
 // Plain struct (not `std::pair`) so structured bindings use direct member
 // access rather than `std::tuple_element<>::type`.
 #ifdef __linux__
 struct sockpair_t {
-  test_socket a;
-  test_socket b;
+  ip_socket a;
+  ip_socket b;
 };
 // Make a pair of connected sockets, in non-blocking mode.
 static sockpair_t make_nb_sockpair() {
   int fds[2];
   if (::socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, fds) != 0)
     return {};
-  return {test_socket{fds[0]}, test_socket{fds[1]}};
+  return {ip_socket{os_file{fds[0]}}, ip_socket{os_file{fds[1]}}};
 }
 
 // Minimal `io_conn` that counts how many times each virtual is called.

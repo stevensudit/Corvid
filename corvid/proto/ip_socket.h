@@ -35,14 +35,16 @@ using namespace bool_enums;
 // RAII IP socket with type-safe option methods.
 //
 // Owns an `os_file` handle; lifecycle management and fd-level operations are
-// delegated to it. Movable, non-copyable. Intended as a base class for
-// `tcp_socket` and `udp_socket`.
+// delegated to it. Movable, non-copyable.
 class ip_socket {
 public:
   using handle_t = os_file::file_handle_t;
   static constexpr handle_t invalid_handle = os_file::invalid_file_handle;
 
   ip_socket() noexcept = default;
+
+  explicit ip_socket(os_file&& file) noexcept : file_{std::move(file)} {}
+
   ip_socket(ip_socket&&) noexcept = default;
   ip_socket(const ip_socket&) = delete;
 
@@ -74,6 +76,16 @@ public:
     }
 
     return file_.close();
+  }
+
+  // Create a new socket wrapped in an `os_file`. On failure, returns an
+  // invalid `os_file`.
+  static os_file make_ip_socket(int domain, int type, int protocol) noexcept {
+#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+    return os_file{::socket(domain, type, protocol)};
+#else
+    return os_file{};
+#endif
   }
 
   // Socket-specific option access and named helpers.
@@ -208,23 +220,9 @@ public:
       peer = ip_endpoint{*reinterpret_cast<const sockaddr_in*>(&addr)};
     else if (addr.ss_family == AF_INET6)
       peer = ip_endpoint{*reinterpret_cast<const sockaddr_in6*>(&addr)};
-    return std::pair{ip_socket{fd}, peer};
+    return std::pair{ip_socket{os_file{fd}}, peer};
   }
 #endif
-
-protected:
-  // Construct from an existing native handle; takes ownership.
-  explicit ip_socket(handle_t handle) noexcept : file_{handle} {}
-
-  // Create a new socket via `::socket(domain, type, protocol)`. On failure,
-  // `file_` remains invalid.
-  static auto make_ip_socket(int domain, int type, int protocol) noexcept {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
-    return ::socket(domain, type, protocol);
-#else
-    return os_file::invalid_file_handle;
-#endif
-  }
 
 private:
   os_file file_;
