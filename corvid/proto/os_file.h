@@ -122,6 +122,7 @@ public:
     if (data.empty()) return true;
 
     // Read up to the current size.
+    // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
     const ssize_t n = ::read(handle_, data.data(), data.size());
 
     // EOF/disconnect. Return false without clearing `data`.

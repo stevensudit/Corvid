@@ -126,7 +126,7 @@ public:
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post()`.
-  bool set_readable(const ip_socket& sock, bool on = true) noexcept {
+  bool set_readable(const ip_socket& sock, bool on = true) {
     const auto fd = sock.handle();
     return execute_or_post([this, fd, on] { return do_set_readable(fd, on); });
   }
@@ -135,7 +135,7 @@ public:
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post()`.
-  bool set_writable(const ip_socket& sock, bool on = true) noexcept {
+  bool set_writable(const ip_socket& sock, bool on = true) {
     const auto fd = sock.handle();
     return execute_or_post([this, fd, on] { return do_set_writable(fd, on); });
   }
@@ -179,7 +179,7 @@ public:
     bool result = false;
     post([&] {
       {
-        std::lock_guard lock{mutex};
+        std::scoped_lock lock{mutex};
         result = fn();
         done = true;
       }

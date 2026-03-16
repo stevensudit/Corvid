@@ -1094,9 +1094,9 @@ void IoLoop_RegisterUnregister() {
   EXPECT_EQ(conn->writable, 0);
   EXPECT_EQ(conn->error, 0);
 
-  // Drain the data so the fd is no longer readable.
+  // Drain the data from the registered socket so the fd is no longer readable.
   std::string buf(8, '\0');
-  (void)a.read(buf);
+  (void)conn->sock().read(buf);
 
   EXPECT_TRUE(loop.unregister_socket(conn->sock()));
   EXPECT_FALSE(loop.unregister_socket(conn->sock())); // already removed

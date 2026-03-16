@@ -155,7 +155,7 @@ public:
       return by_family;
 
     if (!lhs.is_valid()) return std::strong_ordering::equal;
-
+    // NOLINTBEGIN(bugprone-unchecked-optional-access)
     if (lhs.is_v4()) {
       if (const auto by_addr = lhs.v4()->to_uint32() <=> rhs.v4()->to_uint32();
           by_addr != 0)
@@ -165,7 +165,7 @@ public:
           by_addr != 0)
         return by_addr;
     }
-
+    // NOLINTEND(bugprone-unchecked-optional-access)
     return lhs.port() <=> rhs.port();
   }
 

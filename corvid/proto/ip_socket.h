@@ -55,6 +55,7 @@ public:
   // Close the socket. Idempotent. Returns true when the socket was open and
   // is now closed, false if it could not be closed (likely because it already
   // was).
+  // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
   bool close() noexcept { return os_file::close(); }
 
   // Close the socket with the option to perform a forceful close (e.g., via
@@ -130,7 +131,7 @@ public:
   // "soft" failure (e.g., EAGAIN) is treated as success with zero bytes read.
   // On EOF/disconnect, leaves `data` unchanged and returns false. On hard
   // failure, clears `data` and returns false.
-  [[nodiscard]] bool recv(std::string& data, int flags = 0) const noexcept {
+  [[nodiscard]] bool recv(std::string& data, int flags = 0) const {
     if (data.empty()) return true;
 
     const ssize_t n = ::recv(handle(), data.data(), data.size(), flags);

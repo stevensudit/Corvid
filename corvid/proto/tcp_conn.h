@@ -145,11 +145,16 @@ public:
   // Performs `hangup()` on destruction. If you want to close cleanly, you must
   // call `close()` before the instance is destructed.
   ~tcp_conn() {
-    if (!state_) return;
-    (void)state_->loop_.execute_or_post([p = std::move(state_)] {
-      p->do_hangup();
-      return true;
-    });
+    try {
+      if (!state_) return;
+      (void)state_->loop_.execute_or_post([p = std::move(state_)] {
+        p->do_hangup();
+        return true;
+      });
+    } // NOLINTNEXTLINE(bugprone-empty-catch)
+    catch (...) {
+      // Don't let exceptions escape the destructor.
+    }
   }
 
   // True if the connection has not yet been closed.
@@ -318,8 +323,8 @@ private:
     // One pending read completion, satisfied by either a coroutine or
     // callback.
     struct pending_read_op {
-      std::coroutine_handle<> coro{};
-      async_read_cb cb{};
+      std::coroutine_handle<> coro;
+      async_read_cb cb;
 
       [[nodiscard]] bool has_waiter() const noexcept {
         assert(!coro || !cb);
@@ -330,8 +335,8 @@ private:
     // One pending write completion, satisfied by either a coroutine or
     // callback.  Normally, only `coro` or `cb` are set.
     struct pending_write_op {
-      std::coroutine_handle<> coro{};
-      async_write_cb cb{};
+      std::coroutine_handle<> coro;
+      async_write_cb cb;
 
       [[nodiscard]] bool has_waiter() const noexcept {
         assert(!coro || !cb);
@@ -753,7 +758,7 @@ private:
     }
 
     // Unconditional close. Idempotent via `open_.exchange(false)`.
-    void do_close_now(close_mode mode = close_mode::graceful) noexcept {
+    void do_close_now(close_mode mode = close_mode::graceful) {
       assert(loop_.is_loop_thread());
       if (!open_.exchange(false)) return;
 
@@ -796,7 +801,7 @@ private:
                !s_->read_open_.load(std::memory_order_relaxed);
       }
 
-      void await_suspend(std::coroutine_handle<> h) const noexcept {
+      void await_suspend(std::coroutine_handle<> h) const {
         assert(!s_->pending_read_.has_waiter());
         s_->pending_read_.coro = h;
         s_->refresh_read_interest();
