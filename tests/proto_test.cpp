@@ -1243,6 +1243,8 @@ void IoLoop_IsLoopThreadIsPerLoop() {
   std::atomic_bool second_result{false};
 
   std::thread loop_thread{[&] { loop_a.run(10); }};
+  EXPECT_TRUE(loop_a.wait_until_running(1000));
+
   loop_a.post([&] {
     first_result = loop_b.register_socket(conn, false, false);
     second_result = loop_b.register_socket(conn, false, false);
@@ -1262,6 +1264,21 @@ void IoLoop_IsLoopThreadIsPerLoop() {
   EXPECT_TRUE(loop_b.set_readable(conn->sock(), true));
   EXPECT_EQ(loop_b.run_once(0), 1);
   EXPECT_EQ(conn->readable, 1);
+}
+
+void IoLoop_WaitUntilRunning() {
+  io_loop loop;
+
+  std::thread loop_thread{[&] { loop.run(10); }};
+  EXPECT_TRUE(loop.wait_until_running(1000));
+
+  loop.stop();
+  loop_thread.join();
+}
+
+void IoLoop_WaitUntilRunning_TimesOut() {
+  io_loop loop;
+  EXPECT_FALSE(loop.wait_until_running(10));
 }
 
 void TcpConn_Lifecycle() {
@@ -1691,6 +1708,7 @@ void TcpConn_AsyncCbWrite_DuplicateRejected() {
 
   tcp_conn conn{loop, std::move(a), {}, {}};
   std::thread loop_thread{[&] { loop.run(10); }};
+  EXPECT_TRUE(loop.wait_until_running(1000));
 
   const std::string payload(256ULL * 1024ULL, 'w');
   std::atomic<int> accepted{0};
@@ -1711,14 +1729,14 @@ void TcpConn_AsyncCbWrite_DuplicateRejected() {
   t1.join();
   t2.join();
 
-  EXPECT_EQ(accepted.load(), 1);
-  EXPECT_EQ(rejected.load(), 1);
+  EXPECT_EQ(accepted, 1);
+  EXPECT_EQ(rejected, 1);
 
   b.close();
-  for (int i = 0; i < 100 && completions.load() == 0; ++i)
+  for (int i = 0; i < 100 && completions == 0; ++i)
     std::this_thread::sleep_for(std::chrono::milliseconds{10});
 
-  EXPECT_EQ(completions.load(), 1);
+  EXPECT_EQ(completions, 1);
 
   loop.stop();
   loop_thread.join();
@@ -2037,11 +2055,12 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     DnsResolveOne_Success, DnsResolveOne_Failure, IoLoop_Lifecycle,
     IoLoop_Post, IoLoop_PreStartWorkIsQueued, IoLoop_RegisterUnregister,
     IoLoop_SetWritable, IoLoop_SetReadable, IoLoop_ErrorSkipsWritable,
-    IoLoop_DefaultOnError, IoLoop_IsLoopThreadIsPerLoop, TcpConn_Lifecycle,
-    TcpConn_Receive, TcpConn_SetRecvBufSize, TcpConn_PeerClose, TcpConn_Send,
-    TcpConn_ManualClose, TcpConn_DrainAfterBufferedSend,
-    TcpConn_DrainAfterImmediateSend, TcpConn_AsyncCbRead,
-    TcpConn_AsyncCbRead_PreservesEarlyData,
+    IoLoop_DefaultOnError, IoLoop_IsLoopThreadIsPerLoop,
+    IoLoop_WaitUntilRunning, IoLoop_WaitUntilRunning_TimesOut,
+    TcpConn_Lifecycle, TcpConn_Receive, TcpConn_SetRecvBufSize,
+    TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
+    TcpConn_DrainAfterBufferedSend, TcpConn_DrainAfterImmediateSend,
+    TcpConn_AsyncCbRead, TcpConn_AsyncCbRead_PreservesEarlyData,
     TcpConn_AsyncCbRead_DuplicateRejected, TcpConn_AsyncCbRead_PeerClose,
     TcpConn_AsyncCbWrite, TcpConn_AsyncCbWrite_Failure,
     TcpConn_AsyncCbWrite_DuplicateRejected, TcpConn_ShutdownWrite,

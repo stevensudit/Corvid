@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cerrno>
 #include <functional>
@@ -209,12 +210,30 @@ public:
   // Signal the loop to exit after the current dispatch round completes.
   // Safe to call from any thread.
   void stop() {
-    running_ = false;
+    {
+      std::scoped_lock lock{lifecycle_mutex_};
+      running_ = false;
+    }
+    lifecycle_cv_.notify_all();
     wake();
   }
 
   // Check whether the current thread is actively polling this loop.
   bool is_loop_thread() const noexcept { return current_loop_ == this; }
+
+  // Block until `run()` enters its polling loop. Returns false on timeout.
+  [[nodiscard]] bool wait_until_running(int timeout_ms = -1) {
+    std::unique_lock lock{lifecycle_mutex_};
+    if (timeout_ms < 0) {
+      lifecycle_cv_.wait(lock, [&] {
+        return running_.load(std::memory_order_relaxed);
+      });
+      return true;
+    }
+
+    return lifecycle_cv_.wait_for(lock, std::chrono::milliseconds{timeout_ms},
+        [&] { return running_.load(std::memory_order_relaxed); });
+  }
 
   // Wait up to `timeout_ms` milliseconds for events and dispatch ready
   // sockets. Pass -1 to block indefinitely, 0 to poll. Drains `post_queue_`
@@ -256,18 +275,35 @@ public:
 
   // Establishes the current thread as the loop thread for this `io_loop`
   // instance. Not needed when you just call `run`, but necessary if you want
-  // to call `run_once`.
+  // to call `run_once`. Almost exclusively for testing purposes.
   auto poll_thread_scope() const {
     return scoped_value<const io_loop*>{current_loop_, this};
   }
 
   // Dispatch events in a loop until `stop()` is called or `run_once` returns
   // -1. `timeout_ms` is forwarded to each `epoll_wait` call.
-  void run(int timeout_ms = -1) {
+  bool run(int timeout_ms = -1) {
     const auto scope = poll_thread_scope();
-    scope_exit on_exit{[&] { running_ = false; }};
-    for (running_ = true; running_;)
-      if (run_once(timeout_ms) < 0) break;
+    {
+      std::scoped_lock lock{lifecycle_mutex_};
+      running_ = true;
+    }
+    lifecycle_cv_.notify_all();
+    scope_exit on_exit{[&] {
+      {
+        std::scoped_lock lock{lifecycle_mutex_};
+        running_ = false;
+      }
+      lifecycle_cv_.notify_all();
+    }};
+
+    for (; running_;)
+      if (run_once(timeout_ms) < 0) {
+        ok = false;
+        break;
+      }
+
+    return ok;
   }
 
 private:
@@ -276,8 +312,8 @@ private:
     std::shared_ptr<io_conn> conn;
   };
 
-  // Register socket and initial interest in reading and writing. Returns false
-  // if already registered or `epoll_ctl` fails.
+  // Register socket and initial interest in reading and writing. Returns
+  // false if already registered or `epoll_ctl` fails.
   bool do_register_socket(std::shared_ptr<io_conn>&& conn, bool readable,
       bool writable) {
     assert(is_loop_thread());
@@ -339,8 +375,9 @@ private:
     // detected even when `EPOLLIN` is not subscribed.
     // This loop intentionally stays level-triggered. `tcp_conn` only arms
     // `EPOLLOUT` while a send queue is backpressured, so LT does not create
-    // steady writable wakeups, and switching to `EPOLLET` would require every
-    // read/write handler to drain to `EAGAIN` to avoid missed readiness.
+    // steady writable wakeups, and switching to `EPOLLET` would require
+    // every read/write handler to drain to `EAGAIN` to avoid missed
+    // readiness.
     constexpr uint32_t always_on_events = EPOLLERR | EPOLLHUP | EPOLLRDHUP;
     return always_on_events | (readable ? uint32_t{EPOLLIN} : uint32_t{0}) |
            (writable ? uint32_t{EPOLLOUT} : uint32_t{0});
@@ -349,13 +386,14 @@ private:
   // Swap-and-drain `post_queue_` under the mutex, then invoke each callback.
   // Callbacks posted from within a drained callback land in the new
   // `post_queue_` and run on the next iteration.
-  void drain_post_queue() {
+  void drain_post_queue(bool execute = true) {
     assert(is_loop_thread());
     std::vector<std::function<void()>> pending;
     {
       std::scoped_lock lock{post_mutex_};
       pending.swap(post_queue_);
     }
+    if (!execute) return;
     for (auto& fn : pending) fn();
   }
 
@@ -371,8 +409,9 @@ private:
     const auto conn = found->conn;
 
     // Process `EPOLLIN` before `EPOLLERR`/`EPOLLHUP` so that data already in
-    // the kernel receive buffer is delivered even when the peer sends data and
-    // closes the connection in the same wakeup (i.e., `EPOLLHUP | EPOLLIN`).
+    // the kernel receive buffer is delivered even when the peer sends data
+    // and closes the connection in the same wakeup (i.e., `EPOLLHUP |
+    // EPOLLIN`).
     //
     // `on_readable()` calls `do_close_now()` on EOF/error, and `on_error()`
     // is idempotent via `open_.exchange(false)`, so calling it afterward is
@@ -417,7 +456,8 @@ private:
   std::mutex post_mutex_;
   std::vector<std::function<void()>> post_queue_;
 
+  std::mutex lifecycle_mutex_;
+  std::condition_variable lifecycle_cv_;
   std::atomic_bool running_{false};
 };
-
 }} // namespace corvid::proto
