@@ -1905,6 +1905,37 @@ void ScopedValue_Basic() {
     EXPECT_EQ(x.value, "original");
     EXPECT_FALSE(x.throw_on_move);
   }
+  if (true) {
+    int x = 1;
+    {
+      scoped_value sv1{x, 10};
+      scoped_value sv2{std::move(sv1)};
+      EXPECT_EQ(x, 10);
+    }
+    EXPECT_EQ(x, 1);
+  }
+  if (true) {
+    int x = 1;
+    int y = 2;
+    {
+      scoped_value sv1{x, 10};
+      scoped_value sv2{y, 20};
+      sv2 = std::move(sv1);
+      EXPECT_EQ(x, 10);
+      EXPECT_EQ(y, 2);
+    }
+    EXPECT_EQ(x, 1);
+    EXPECT_EQ(y, 2);
+  }
+  if (true) {
+    int x = 1;
+    {
+      scoped_value sv{x, 10};
+      sv.disarm();
+      EXPECT_EQ(x, 10);
+    }
+    EXPECT_EQ(x, 10);
+  }
 }
 
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,

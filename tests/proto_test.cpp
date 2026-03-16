@@ -1061,11 +1061,13 @@ struct counting_conn: io_conn {
 void IoLoop_Lifecycle() {
   // Construction succeeds; an empty poll returns 0 events.
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   EXPECT_EQ(loop.run_once(0), 0);
 }
 
 void IoLoop_Post() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
 
   int fired = 0;
   loop.post([&] { ++fired; });
@@ -1076,11 +1078,37 @@ void IoLoop_Post() {
   EXPECT_EQ(fired, 1);
 }
 
+void IoLoop_PreStartWorkIsQueued() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  EXPECT_FALSE(loop.is_loop_thread());
+
+  auto conn = std::make_shared<counting_conn>(std::move(a));
+  EXPECT_TRUE(loop.register_socket(conn, false, false));
+  EXPECT_TRUE(loop.register_socket(conn, false, false));
+
+  auto msg_view = std::string_view{"hi"};
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  EXPECT_EQ(conn->readable, 0);
+
+  // The first pump drains the queued registration work, but read interest is
+  // still disabled so the buffered data should remain undispatched.
+  EXPECT_EQ(loop.run_once(0), 0);
+  EXPECT_EQ(conn->readable, 0);
+
+  EXPECT_TRUE(loop.set_readable(conn->sock(), true));
+  EXPECT_EQ(loop.run_once(0), 1);
+  EXPECT_EQ(conn->readable, 1);
+}
+
 // `register_socket` dispatches `on_readable` via virtual `io_conn` override;
 // `unregister_socket` stops further dispatch. Double-register and
 // double-unregister both return false.
 void IoLoop_RegisterUnregister() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
@@ -1110,6 +1138,7 @@ void IoLoop_RegisterUnregister() {
 // send buffer has space, which it does immediately on a fresh socketpair.
 void IoLoop_SetWritable() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
@@ -1132,6 +1161,7 @@ void IoLoop_SetWritable() {
 
 void IoLoop_SetReadable() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
@@ -1164,6 +1194,7 @@ void IoLoop_SetReadable() {
 // `dispatch_event`).
 void IoLoop_ErrorSkipsWritable() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
@@ -1189,6 +1220,7 @@ void IoLoop_DefaultOnError() {
   };
 
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<readable_only_conn>(std::move(a));
@@ -1200,8 +1232,85 @@ void IoLoop_DefaultOnError() {
   EXPECT_GE(conn->readable, 1);
 }
 
+void IoLoop_StopKeepsOtherThreadsPosting() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+  auto conn = std::make_shared<counting_conn>(std::move(a));
+
+  std::atomic<bool> callback_ready{false};
+  std::atomic<bool> worker_done{false};
+  std::atomic<bool> callback_register_result{false};
+  std::atomic<bool> worker_register_result{false};
+
+  std::thread loop_thread{[&] { loop.run(10); }};
+  loop.post([&] {
+    callback_ready = true;
+    while (!worker_done.load()) std::this_thread::yield();
+    callback_register_result = loop.register_socket(conn, false, false);
+  });
+
+  std::thread worker{[&] {
+    while (!callback_ready.load()) std::this_thread::yield();
+    loop.stop();
+    worker_register_result = loop.register_socket(conn, false, false);
+    worker_done = true;
+  }};
+
+  worker.join();
+  loop_thread.join();
+
+  EXPECT_TRUE(worker_register_result.load());
+  EXPECT_TRUE(callback_register_result.load());
+
+  // Drain the queued off-thread registration attempt. It should be a harmless
+  // duplicate because the loop-thread callback already registered the socket.
+  EXPECT_EQ(loop.run_once(0), 0);
+
+  auto msg_view = std::string_view{"queued-after-stop"};
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  EXPECT_EQ(loop.run_once(0), 0);
+
+  EXPECT_TRUE(loop.set_readable(conn->sock(), true));
+  EXPECT_EQ(loop.run_once(0), 1);
+  EXPECT_EQ(conn->readable, 1);
+}
+
+void IoLoop_IsLoopThreadIsPerLoop() {
+  io_loop loop_a;
+  io_loop loop_b;
+  auto loop_b_scope = loop_b.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+  auto conn = std::make_shared<counting_conn>(std::move(a));
+
+  std::atomic<bool> first_result{false};
+  std::atomic<bool> second_result{false};
+
+  std::thread loop_thread{[&] { loop_a.run(10); }};
+  loop_a.post([&] {
+    first_result = loop_b.register_socket(conn, false, false);
+    second_result = loop_b.register_socket(conn, false, false);
+    loop_a.stop();
+  });
+  loop_thread.join();
+
+  EXPECT_TRUE(first_result.load());
+  EXPECT_TRUE(second_result.load());
+
+  EXPECT_EQ(loop_b.run_once(0), 0);
+
+  auto msg_view = std::string_view{"cross-loop"};
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  EXPECT_EQ(loop_b.run_once(0), 0);
+
+  EXPECT_TRUE(loop_b.set_readable(conn->sock(), true));
+  EXPECT_EQ(loop_b.run_once(0), 1);
+  EXPECT_EQ(conn->readable, 1);
+}
+
 void TcpConn_Lifecycle() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   const ip_endpoint remote{ipv4_addr::loopback(), 9999};
@@ -1219,6 +1328,7 @@ void TcpConn_Lifecycle() {
 
 void TcpConn_Receive() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
@@ -1236,6 +1346,7 @@ void TcpConn_Receive() {
 
 void TcpConn_SetRecvBufSize() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::vector<size_t> chunk_sizes;
@@ -1268,6 +1379,7 @@ void TcpConn_SetRecvBufSize() {
 
 void TcpConn_PeerClose() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool closed = false;
@@ -1298,6 +1410,7 @@ void TcpConn_PeerClose() {
 
 void TcpConn_Send() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   tcp_conn conn{loop, std::move(a), {}, {}};
@@ -1316,6 +1429,7 @@ void TcpConn_Send() {
 
 void TcpConn_ManualClose() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool closed = false;
@@ -1335,6 +1449,7 @@ void TcpConn_ManualClose() {
 
 void TcpConn_DrainAfterBufferedSend() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   // Restrict the kernel send buffer so that a large write is partial.
@@ -1375,6 +1490,7 @@ void TcpConn_DrainAfterBufferedSend() {
 
 void TcpConn_DrainAfterImmediateSend() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   int drain_count = 0;
@@ -1393,6 +1509,7 @@ void TcpConn_DrainAfterImmediateSend() {
 
 void TcpConn_AsyncCbRead() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
@@ -1414,6 +1531,7 @@ void TcpConn_AsyncCbRead() {
 
 void TcpConn_AsyncCbRead_PreservesEarlyData() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
@@ -1437,6 +1555,7 @@ void TcpConn_AsyncCbRead_PreservesEarlyData() {
 
 void TcpConn_AsyncCbRead_DuplicateRejected() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   int callback_count = 0;
@@ -1457,6 +1576,7 @@ void TcpConn_AsyncCbRead_DuplicateRejected() {
 
 void TcpConn_AsyncCbRead_PeerClose() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received{"sentinel"};
@@ -1487,6 +1607,7 @@ void TcpConn_AsyncCbRead_PeerClose() {
 
 void TcpConn_AsyncCbWrite() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool completed = false;
@@ -1510,6 +1631,7 @@ void TcpConn_AsyncCbWrite() {
 
 void TcpConn_AsyncCbWrite_Failure() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool completed = true;
@@ -1534,6 +1656,7 @@ void TcpConn_AsyncCbWrite_Failure() {
 
 void TcpConn_ShutdownWrite() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
@@ -1558,6 +1681,7 @@ void TcpConn_ShutdownWrite() {
 
 void TcpConn_ShutdownRead() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   int data_count = 0;
@@ -1585,6 +1709,7 @@ void TcpConn_ShutdownRead() {
 
 void TcpConn_ShutdownBothCloses() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   tcp_conn conn{loop, std::move(a), {}, {}};
@@ -1645,6 +1770,7 @@ void TcpConn_AsyncCbWrite_DuplicateRejected() {
 
 void TcpConn_GracefulClose() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   constexpr int small_buf = 4096;
@@ -1682,6 +1808,7 @@ void TcpConn_GracefulClose() {
 
 void TcpConn_DestructorHangsUp() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   constexpr int small_buf = 4096;
@@ -1728,6 +1855,7 @@ void LoopTask_FireAndForget() {
 // Verify that `async_read` delivers data to a coroutine.
 void TcpConn_AsyncRead() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
@@ -1755,6 +1883,7 @@ void TcpConn_AsyncRead() {
 
 void TcpConn_AsyncRead_PreservesEarlyData() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
@@ -1785,6 +1914,7 @@ void TcpConn_AsyncRead_PreservesEarlyData() {
 
 void TcpConn_AsyncRead_StopsBetweenCalls() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string first;
@@ -1833,6 +1963,7 @@ void TcpConn_AsyncRead_StopsBetweenCalls() {
 // the connection before data arrives.
 void TcpConn_AsyncRead_PeerClose() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received{"sentinel"};
@@ -1867,6 +1998,7 @@ void TcpConn_AsyncRead_PeerClose() {
 // the queue drains.
 void TcpConn_AsyncSend() {
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool sent = false;

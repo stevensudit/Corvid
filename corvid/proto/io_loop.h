@@ -27,12 +27,15 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../containers/scoped_value.h"
 #include "../containers/opt_find.h"
 #include "epoll.h"
 #include "event_fd.h"
 #include "ip_socket.h"
 
 namespace corvid { inline namespace proto {
+
+using namespace corvid::container::value_scoping;
 
 // Abstract base for objects registered with `io_loop`. Higher-level types
 // (e.g., `tcp_conn`) inherit from this and override the three event methods.
@@ -81,7 +84,7 @@ private:
 //
 // `register_socket`, `unregister_socket`, `set_readable`, and `set_writable`
 // are NOT inherently thread-safe, but they automatically promote a call from
-// outside the loop thread into a `post()`.
+// outside the active polling thread for this loop into a `post()`.
 //
 // `io_loop` is non-copyable and non-movable.
 class io_loop {
@@ -206,18 +209,15 @@ public:
     wake();
   }
 
-  // Check whether the current thread is the loop thread.
-  bool is_loop_thread() const noexcept {
-    // If we're not looping, then we're effectively in the thread loop. This
-    // normally happens during setup, before the loop starts.
-    if (!running_ || !loop_thread_id_) return true;
-    return std::this_thread::get_id() == *loop_thread_id_;
-  }
+  // Check whether the current thread is actively polling this loop.
+  bool is_loop_thread() const noexcept { return current_loop_ == this; }
 
   // Wait up to `timeout_ms` milliseconds for events and dispatch ready
   // sockets. Pass -1 to block indefinitely, 0 to poll. Drains `post_queue_`
   // first. Returns the number of I/O events dispatched, or -1 on error.
   int run_once(int timeout_ms = -1) {
+    assert(is_loop_thread());
+
     // Execute backlog of posts.
     drain_post_queue();
 
@@ -250,22 +250,21 @@ public:
     return dispatched;
   }
 
+  // Establishes the current thread as the loop thread for this `io_loop`
+  // instance. Not needed when you just call `run`, but necessary if you want
+  // to call `run_once`.
+  auto poll_thread_scope() const {
+    return scoped_value<const io_loop*>{current_loop_, this};
+  }
+
   // Dispatch events in a loop until `stop()` is called or `run_once` returns
   // -1. `timeout_ms` is forwarded to each `epoll_wait` call.
   void run(int timeout_ms = -1) {
-    {
-      std::scoped_lock lock{post_mutex_};
-      loop_thread_id_ = std::this_thread::get_id();
-      running_ = true;
-    }
+    auto scope = poll_thread_scope();
+    running_ = true;
 
     while (running_)
       if (run_once(timeout_ms) < 0) break;
-
-    {
-      std::scoped_lock lock{post_mutex_};
-      loop_thread_id_.reset();
-    }
   }
 
 private:
@@ -408,13 +407,14 @@ private:
   const epoll epoll_;
   const event_fd wake_fd_;
 
+  inline static thread_local const io_loop* current_loop_ = nullptr;
+
   std::unordered_map<int, registration> registrations_;
 
   std::mutex post_mutex_;
   std::vector<std::function<void()>> post_queue_;
 
   std::atomic<bool> running_{false};
-  std::optional<std::thread::id> loop_thread_id_;
 };
 
 }} // namespace corvid::proto
