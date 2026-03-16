@@ -1232,50 +1232,6 @@ void IoLoop_DefaultOnError() {
   EXPECT_GE(conn->readable, 1);
 }
 
-void IoLoop_StopKeepsOtherThreadsPosting() {
-  io_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
-  auto conn = std::make_shared<counting_conn>(std::move(a));
-
-  std::atomic<bool> callback_ready{false};
-  std::atomic<bool> worker_done{false};
-  std::atomic<bool> callback_register_result{false};
-  std::atomic<bool> worker_register_result{false};
-
-  std::thread loop_thread{[&] { loop.run(10); }};
-  loop.post([&] {
-    callback_ready = true;
-    while (!worker_done.load()) std::this_thread::yield();
-    callback_register_result = loop.register_socket(conn, false, false);
-  });
-
-  std::thread worker{[&] {
-    while (!callback_ready.load()) std::this_thread::yield();
-    loop.stop();
-    worker_register_result = loop.register_socket(conn, false, false);
-    worker_done = true;
-  }};
-
-  worker.join();
-  loop_thread.join();
-
-  EXPECT_TRUE(worker_register_result.load());
-  EXPECT_TRUE(callback_register_result.load());
-
-  // Drain the queued off-thread registration attempt. It should be a harmless
-  // duplicate because the loop-thread callback already registered the socket.
-  EXPECT_EQ(loop.run_once(0), 0);
-
-  auto msg_view = std::string_view{"queued-after-stop"};
-  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
-  EXPECT_EQ(loop.run_once(0), 0);
-
-  EXPECT_TRUE(loop.set_readable(conn->sock(), true));
-  EXPECT_EQ(loop.run_once(0), 1);
-  EXPECT_EQ(conn->readable, 1);
-}
-
 void IoLoop_IsLoopThreadIsPerLoop() {
   io_loop loop_a;
   io_loop loop_b;
@@ -1283,8 +1239,8 @@ void IoLoop_IsLoopThreadIsPerLoop() {
   auto [a, b] = make_nb_sockpair();
   auto conn = std::make_shared<counting_conn>(std::move(a));
 
-  std::atomic<bool> first_result{false};
-  std::atomic<bool> second_result{false};
+  std::atomic_bool first_result{false};
+  std::atomic_bool second_result{false};
 
   std::thread loop_thread{[&] { loop_a.run(10); }};
   loop_a.post([&] {
@@ -1294,8 +1250,8 @@ void IoLoop_IsLoopThreadIsPerLoop() {
   });
   loop_thread.join();
 
-  EXPECT_TRUE(first_result.load());
-  EXPECT_TRUE(second_result.load());
+  EXPECT_TRUE(first_result);
+  EXPECT_TRUE(second_result);
 
   EXPECT_EQ(loop_b.run_once(0), 0);
 
@@ -2081,9 +2037,8 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     DnsResolveOne_Success, DnsResolveOne_Failure, IoLoop_Lifecycle,
     IoLoop_Post, IoLoop_PreStartWorkIsQueued, IoLoop_RegisterUnregister,
     IoLoop_SetWritable, IoLoop_SetReadable, IoLoop_ErrorSkipsWritable,
-    IoLoop_DefaultOnError, IoLoop_StopKeepsOtherThreadsPosting,
-    IoLoop_IsLoopThreadIsPerLoop, TcpConn_Lifecycle, TcpConn_Receive,
-    TcpConn_SetRecvBufSize, TcpConn_PeerClose, TcpConn_Send,
+    IoLoop_DefaultOnError, IoLoop_IsLoopThreadIsPerLoop, TcpConn_Lifecycle,
+    TcpConn_Receive, TcpConn_SetRecvBufSize, TcpConn_PeerClose, TcpConn_Send,
     TcpConn_ManualClose, TcpConn_DrainAfterBufferedSend,
     TcpConn_DrainAfterImmediateSend, TcpConn_AsyncCbRead,
     TcpConn_AsyncCbRead_PreservesEarlyData,

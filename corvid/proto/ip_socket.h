@@ -72,6 +72,7 @@ public:
   // the C `setsockopt` API; callers pass a typed value directly.
   template<typename T>
   bool set_option(int level, int optname, const T& value) noexcept {
+    assert(is_open());
     return ::setsockopt(handle(), level, optname,
                reinterpret_cast<const char*>(&value),
                static_cast<socklen_t>(sizeof(T))) == 0;
@@ -81,6 +82,7 @@ public:
   template<typename T>
   [[nodiscard]] std::optional<T>
   get_option(int level, int optname) const noexcept {
+    assert(is_open());
     T value{};
     socklen_t len = sizeof(T);
     if (::getsockopt(handle(), level, optname, reinterpret_cast<char*>(&value),
@@ -119,11 +121,6 @@ public:
     return set_option(SOL_SOCKET, SO_SNDBUF, bytes);
   }
 
-  // Set non-blocking I/O mode (delegates to `os_file::set_nonblocking()`).
-  [[nodiscard]] bool set_nonblocking(bool on = true) noexcept {
-    return os_file::set_nonblocking(on);
-  }
-
   // Read up to `data.size()` bytes from the socket into `data`, honoring
   // `flags` as in POSIX `recv()`.
   //
@@ -144,6 +141,7 @@ public:
 
   // Receive raw bytes into `buf`, forwarding directly to POSIX `recv()`.
   [[nodiscard]] ssize_t recv(void* buf, size_t len, int flags) const noexcept {
+    assert(is_open());
     return ::recv(handle(), buf, len, flags);
   }
 
@@ -164,11 +162,13 @@ public:
   // Send raw bytes from `buf`, forwarding to POSIX `send()`.
   [[nodiscard]] ssize_t
   send(const void* buf, size_t len, int flags = MSG_NOSIGNAL) const noexcept {
+    assert(is_open());
     return ::send(handle(), buf, len, flags);
   }
 
   // Bind the socket to a local endpoint. Returns true on success.
   [[nodiscard]] bool bind(const ip_endpoint& ep) noexcept {
+    assert(is_open());
     const auto [sa, len] = ep.as_sockaddr();
     return ::bind(handle(), sa, len) == 0;
   }
@@ -177,6 +177,7 @@ public:
   // is treated as success (the connection is in progress). Returns true on
   // success or when the connection is underway.
   [[nodiscard]] bool connect(const ip_endpoint& ep) noexcept {
+    assert(is_open());
     const auto [sa, len] = ep.as_sockaddr();
     return ::connect(handle(), sa, len) == 0 || errno == EINPROGRESS;
   }
@@ -184,12 +185,14 @@ public:
   // Mark the socket as passive and ready to accept connections. `backlog`
   // is the maximum pending connection queue length. Returns true on success.
   [[nodiscard]] bool listen(int backlog = SOMAXCONN) noexcept {
+    assert(is_open());
     return ::listen(handle(), backlog) == 0;
   }
 
   // Shut down part of a full-duplex connection. `how` is one of `SHUT_RD`,
   // `SHUT_WR`, or `SHUT_RDWR`. Returns true on success.
   [[nodiscard]] bool shutdown(int how) noexcept {
+    assert(is_open());
     return ::shutdown(handle(), how) == 0;
   }
 
@@ -198,6 +201,7 @@ public:
   // no connection is available (`EAGAIN`/`EWOULDBLOCK`) or an error occurs.
   [[nodiscard]] std::optional<std::pair<ip_socket, ip_endpoint>>
   accept() noexcept {
+    assert(is_open());
     sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
     const int fd = ::accept4(handle(), reinterpret_cast<sockaddr*>(&addr),

@@ -89,7 +89,7 @@ read size used for future reads, and `recv_buf_size()` reports the current
 configured size.
 
 Graceful close: `close()` defers the socket close until the send queue
-drains; the destructor insteads closes rudely.
+drains; the destructor instead closes rudely.
 
 Supports three async models:
 

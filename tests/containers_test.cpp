@@ -1822,8 +1822,8 @@ struct throwing_scoped_value_test {
   std::string value;
   bool throw_on_move{};
 
-  throwing_scoped_value_test(
-      std::string value_in, bool throw_on_move_in = false)
+  throwing_scoped_value_test(std::string value_in,
+      bool throw_on_move_in = false)
       : value(std::move(value_in)), throw_on_move(throw_on_move_in) {}
 
   throwing_scoped_value_test(const throwing_scoped_value_test&) = default;
@@ -1900,7 +1900,8 @@ void ScopedValue_Basic() {
     throwing_scoped_value_test x{"original"};
     throwing_scoped_value_test replacement{"temporary", true};
 
-    EXPECT_THROW((void)scoped_value<throwing_scoped_value_test>(x, replacement),
+    EXPECT_THROW(
+        (void)scoped_value<throwing_scoped_value_test>(x, replacement),
         std::runtime_error);
     EXPECT_EQ(x.value, "original");
     EXPECT_FALSE(x.throw_on_move);

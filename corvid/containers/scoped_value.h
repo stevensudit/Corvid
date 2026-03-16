@@ -24,7 +24,6 @@ namespace corvid { inline namespace container {
 inline namespace value_scoping {
 
 // RAII helper for temporarily changing a value and restoring it on scope exit.
-// Marked `[[nodiscard]]` because discarding it defeats the scoped restore.
 template<typename T>
 class [[nodiscard]] scoped_value {
 public:

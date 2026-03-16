@@ -172,6 +172,8 @@ public:
   // already on the loop thread, executes `fn` inline. Unlike a regular post,
   // which is asynchronous, this is synchronous and passes through the return
   // value.
+  //
+  // Note: To prevent a deadlock, this fails when the loop is not running.
   template<typename FN>
   [[nodiscard]] bool post_and_wait(FN&& fn) {
     if (is_loop_thread()) return fn();
@@ -415,7 +417,7 @@ private:
   std::mutex post_mutex_;
   std::vector<std::function<void()>> post_queue_;
 
-  std::atomic<bool> running_{false};
+  std::atomic_bool running_{false};
 };
 
 }} // namespace corvid::proto

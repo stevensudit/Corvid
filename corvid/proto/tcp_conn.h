@@ -194,6 +194,7 @@ public:
 
   // The remote peer address supplied at construction.
   [[nodiscard]] const ip_endpoint& remote_endpoint() const noexcept {
+    assert(state_);
     return state_->remote_;
   }
 
@@ -372,11 +373,11 @@ private:
 
     // Cleared atomically by `do_close_now()`. Read from any thread via
     // `tcp_conn::is_open()`.
-    std::atomic<bool> open_;
+    std::atomic_bool open_;
 
     // Whether the read and write sides of the socket are open.
-    std::atomic<bool> read_open_{true};
-    std::atomic<bool> write_open_{true};
+    std::atomic_bool read_open_{true};
+    std::atomic_bool write_open_{true};
 
     // Set by `do_close()` to request a full close after pending writes drain.
     bool close_requested_ = false;
