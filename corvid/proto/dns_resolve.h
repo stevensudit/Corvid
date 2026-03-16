@@ -20,10 +20,8 @@
 #include <string_view>
 #include <vector>
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 #include <netdb.h>
 #include <sys/socket.h>
-#endif
 
 #include "ip_endpoint.h"
 
@@ -44,7 +42,6 @@ struct dns_resolver {
   // address.
   [[nodiscard]] static std::vector<ip_endpoint> find_all(std::string_view host,
       uint16_t port, int family = AF_UNSPEC, size_t max_results = SIZE_MAX) {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     addrinfo hints{};
     hints.ai_family = family;
     hints.ai_socktype = SOCK_STREAM;
@@ -78,13 +75,6 @@ struct dns_resolver {
     }
 
     return endpoints;
-#else
-    (void)host;
-    (void)port;
-    (void)family;
-    (void)max_results;
-    return {};
-#endif
   }
 
   // Resolve a hostname to a single `ip_endpoint`.

@@ -24,9 +24,7 @@
 #include <string>
 #include <string_view>
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 #include <netinet/in.h>
-#endif
 
 #include "ipv4_addr.h"
 
@@ -196,7 +194,6 @@ public:
     return os << a.to_string();
   }
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   constexpr explicit ipv6_addr(const in6_addr& a) noexcept
       : bytes_{uint8_t(a.s6_addr[0]), uint8_t(a.s6_addr[1]),
             uint8_t(a.s6_addr[2]), uint8_t(a.s6_addr[3]),
@@ -212,7 +209,6 @@ public:
     for (std::size_t i = 0; i < 16; ++i) a.s6_addr[i] = bytes_[i];
     return a;
   }
-#endif
 
 private:
   // Parse the IPv4-embedded tail token (e.g., `192.168.1.1`) and append two

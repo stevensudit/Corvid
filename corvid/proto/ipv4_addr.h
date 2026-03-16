@@ -24,10 +24,7 @@
 #include <string>
 #include <string_view>
 
-// POSIX interop: `in_addr`, `htonl`, `ntohl`.
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 #include <netinet/in.h>
-#endif
 
 namespace corvid { inline namespace proto {
 
@@ -172,7 +169,6 @@ public:
   // Isolated here so that porting to a new OS only requires changes in this
   // guarded section and the corresponding platform header include above.
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Construct from a POSIX `in_addr` (which is in network byte order).
   explicit ipv4_addr(const in_addr& a) noexcept : addr_{ntohl(a.s_addr)} {}
 
@@ -182,7 +178,6 @@ public:
     a.s_addr = htonl(addr_);
     return a;
   }
-#endif
 
 private:
   uint32_t addr_{}; // Host byte order.

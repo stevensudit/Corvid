@@ -26,9 +26,7 @@
 #include <string>
 #include <string_view>
 
-#ifdef __linux__
 #include <unistd.h>
-#endif
 
 #include "io_loop.h"
 #include "loop_task.h"
@@ -118,7 +116,6 @@ struct tcp_conn_handlers {
 // A pending write waiter completes on either success or failure: coroutine
 // sends resume, while per-call callback sends receive `cb(bool completed)`.
 //
-// Linux only; on other platforms all methods are no-ops.
 class tcp_conn {
 public:
   using async_read_cb = std::function<void(std::string&)>;
@@ -133,9 +130,7 @@ public:
   explicit tcp_conn(io_loop& loop, ip_socket&& sock, const ip_endpoint& remote,
       tcp_conn_handlers&& h = {},
       size_t recv_buf_size = default_recv_buf_size) {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     assert((sock.file().get_flags().value_or(0) & O_NONBLOCK) != 0);
-#endif
     state_ = std::make_shared<state>(loop, std::move(sock), remote,
         std::move(h), recv_buf_size);
     loop.post([p = state_] { p->register_with_loop(); });
@@ -589,11 +584,9 @@ private:
     // registration map, keeping the state alive as long as the fd is
     // registered, even if its `tcp_conn` is destructed.
     void register_with_loop() {
-#ifdef __linux__
       if (!open_.load(std::memory_order_relaxed)) return;
       (void)loop_.register_socket(shared_from_this(),
           static_cast<bool>(handlers_.on_data), false);
-#endif
     }
 
     // `io_conn` overrides: called on the loop thread by `dispatch_event`.
@@ -603,7 +596,6 @@ private:
       if (!open_.load(std::memory_order_relaxed)) return;
       if (read_open_.load(std::memory_order_relaxed) && wants_read_events()) {
         (void)handle_readable();
-#ifdef __linux__
       } else if (read_open_.load(std::memory_order_relaxed)) {
         char byte = '\0';
         const ssize_t peeked =
@@ -613,7 +605,6 @@ private:
         } else if (peeked < 0 && os_file::is_hard_error()) {
           do_close_now(close_mode::forceful);
         }
-#endif
       } else {
         maybe_finish_after_side_close();
       }
@@ -622,7 +613,6 @@ private:
     // Read available data into `recv_buf_` without zero-initializing it
     // (C++23 `resize_and_overwrite`), then deliver to `on_data`.
     bool handle_readable() {
-#ifdef __linux__
       if (!read_open_.load(std::memory_order_relaxed)) return false;
 
       // Resize, allowing shrink.
@@ -645,7 +635,6 @@ private:
 
       // If we read something, notify the user.
       if (!recv_buf_.empty()) notify_read_ready();
-#endif
       return true;
     }
 
@@ -656,7 +645,6 @@ private:
     // on subsequent `EPOLLOUT` events.
     bool enqueue_send(std::string&& their_buf) {
       assert(loop_.is_loop_thread());
-#ifdef __linux__
       auto buf = std::move(their_buf);
 
       if (!open_.load(std::memory_order_relaxed) ||
@@ -695,9 +683,6 @@ private:
       head_span_ = send_queue_.front();
       head_span_.remove_prefix(sent);
       loop_.set_writable(sock());
-#else
-      (void)buf;
-#endif
       return true;
     }
 
@@ -706,7 +691,6 @@ private:
     // Disarms `EPOLLOUT` and calls `on_drain` (or `do_close_now()` if
     // `closing_`) when the queue empties.
     bool do_flush_send_buf() {
-#ifdef __linux__
       // Guard against being called after `do_close_now()` (e.g., when both
       // `EPOLLIN` and `EPOLLOUT` fire in the same event and the readable
       // handler closes the connection before we get here).
@@ -744,7 +728,6 @@ private:
 
       // Inform the user that all outbound data has drained.
       notify_drained();
-#endif
       return true;
     }
 

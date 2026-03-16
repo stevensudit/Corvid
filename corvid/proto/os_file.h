@@ -20,10 +20,8 @@
 #include <utility>
 #include <csignal>
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 #include <fcntl.h>
 #include <unistd.h>
-#endif
 
 #include "../strings/no_zero.h"
 
@@ -33,14 +31,8 @@ using namespace corvid::strings::no_zero_funcs;
 
 namespace details {
 // Platform file handle type and invalid-handle sentinel.
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 using file_handle_t = int;
 constexpr file_handle_t invalid_file_handle = -1;
-#else
-// Placeholder for non-POSIX platforms (e.g., Windows `HANDLE`).
-using file_handle_t = int;
-constexpr file_handle_t invalid_file_handle = -1;
-#endif
 } // namespace details
 
 // RAII wrapper around an OS file descriptor or handle.
@@ -93,9 +85,7 @@ public:
     if (handle_ == invalid_file_handle) return false;
     const auto old_handle = handle_;
     handle_ = invalid_file_handle;
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     if (::close(old_handle) != 0) return false;
-#endif
     return true;
   }
 
@@ -112,16 +102,12 @@ public:
   // as success with no progress. Note that this call can invoke a SIGPIPE on a
   // socket, so use `ip_sock::send` instead.
   [[nodiscard]] bool write(std::string_view& data) const {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     if (data.empty()) return true;
 
     const ssize_t n = ::write(handle_, data.data(), data.size());
     if (n <= 0) return !is_hard_error();
 
     data.remove_prefix(static_cast<size_t>(n));
-#else
-    (void)data;
-#endif
     return true;
   }
 
@@ -133,7 +119,6 @@ public:
   // On EOF/disconnect, leaves `data` unchanged and returns false. On hard
   // failure, clears `data` and returns false.
   [[nodiscard]] bool read(std::string& data) const {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     if (data.empty()) return true;
 
     // Read up to the current size.
@@ -148,9 +133,6 @@ public:
     // If retriable, treat as a success with nothing read, while a hard error
     // is a failure with `data` cleared.
     if (n < 0) return !is_hard_error();
-#else
-    (void)data;
-#endif
     return true;
   }
 
@@ -158,7 +140,6 @@ public:
   // Isolated here so that porting to a new OS requires changes only in this
   // guarded section and the platform header includes above.
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Invoke `fcntl(cmd, args...)` on the handle. Returns -1 on failure.
   template<typename... Args>
   [[nodiscard]] int control(int cmd, Args&&... args) const noexcept {
@@ -183,7 +164,6 @@ public:
     const int new_flags = on ? (*flags | O_NONBLOCK) : (*flags & ~O_NONBLOCK);
     return set_flags(new_flags);
   }
-#endif
 
   // Checks whether the last error was a hard error (true) or a soft error
   // (false).

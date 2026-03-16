@@ -18,11 +18,9 @@
 #include <optional>
 #include <utility>
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
-#endif
 
 #include "../enums/bool_enums.h"
 
@@ -81,18 +79,13 @@ public:
   // Create a new socket wrapped in an `os_file`. On failure, returns an
   // invalid `os_file`.
   static os_file make_ip_socket(int domain, int type, int protocol) noexcept {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     return os_file{::socket(domain, type, protocol)};
-#else
-    return os_file{};
-#endif
   }
 
   // Socket-specific option access and named helpers.
   // Isolated here so that porting to a new OS requires changes only in this
   // guarded section and the platform header includes above.
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Set a socket option. Returns true on success. Templated to infer
   // `sizeof(T)` automatically and hide the `reinterpret_cast` required by
   // the C `setsockopt` API; callers pass a typed value directly.
@@ -206,14 +199,9 @@ public:
   accept() noexcept {
     sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
-#ifdef __linux__
     const int fd = ::accept4(file_.handle(),
         reinterpret_cast<sockaddr*>(&addr), &len,
         SOCK_CLOEXEC | SOCK_NONBLOCK);
-#else
-    const int fd =
-        ::accept(file_.handle(), reinterpret_cast<sockaddr*>(&addr), &len);
-#endif
     if (fd < 0) return std::nullopt;
     ip_endpoint peer;
     if (addr.ss_family == AF_INET)
@@ -222,7 +210,6 @@ public:
       peer = ip_endpoint{*reinterpret_cast<const sockaddr_in6*>(&addr)};
     return std::pair{ip_socket{os_file{fd}}, peer};
   }
-#endif
 
 private:
   os_file file_;

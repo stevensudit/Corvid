@@ -25,11 +25,9 @@
 #include <string_view>
 #include <variant>
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#endif
 
 #include "ipv4_addr.h"
 #include "ipv6_addr.h"
@@ -148,7 +146,6 @@ public:
     return os << ep.to_string();
   }
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Construct from a POSIX `sockaddr_in` or `sockaddr_in6`.
   explicit ip_endpoint(const sockaddr_in& addr) noexcept
       : addr_{ipv4_addr{addr.sin_addr}}, port_{ntohs(addr.sin_port)} {}
@@ -195,7 +192,6 @@ public:
     }
     return out;
   }
-#endif
 
 private:
   [[nodiscard]] static constexpr std::optional<uint16_t> parse_port(

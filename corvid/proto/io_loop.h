@@ -27,10 +27,8 @@
 #include <unordered_map>
 #include <vector>
 
-#ifdef __linux__
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
-#endif
 
 #include "../containers/opt_find.h"
 #include "ip_socket.h"
@@ -86,8 +84,7 @@ private:
 // are NOT inherently thread-safe, but they automatically promote a call from
 // outside the loop thread into a `post()`.
 //
-// `io_loop` is non-copyable and non-movable. Linux only; on other platforms
-// the class is defined but all methods are no-ops or return failure.
+// `io_loop` is non-copyable and non-movable.
 class io_loop {
 public:
   // Maximum number of events retrieved per `epoll_wait` call.
@@ -96,7 +93,6 @@ public:
   // Create the `epoll` instance and the internal `eventfd` wakeup handle.
   // Throws `std::system_error` on failure.
   io_loop() : epoll_fd_{create_epollfd()}, wake_fd_{create_eventfd()} {
-#ifdef __linux__
     // The `eventfd` is used by `post()` and `stop()` to interrupt a sleeping
     // `epoll_wait` from another thread.
     epoll_event ev{.events = EPOLLIN,
@@ -104,9 +100,6 @@ public:
     if (!poll_control(EPOLL_CTL_ADD, wake_fd_.handle(), ev))
       throw std::system_error(errno, std::generic_category(),
           "epoll_ctl wake_fd");
-#else
-    throw std::runtime_error("io_loop requires Linux");
-#endif
   }
 
   io_loop(const io_loop&) = delete;
@@ -226,7 +219,6 @@ public:
   // sockets. Pass -1 to block indefinitely, 0 to poll. Drains `post_queue_`
   // first. Returns the number of I/O events dispatched, or -1 on error.
   int run_once(int timeout_ms = -1) {
-#ifdef __linux__
     // Execute backlog of posts.
     drain_post_queue();
 
@@ -261,10 +253,6 @@ public:
 
     assert(dispatched + woken == available);
     return dispatched;
-#else
-    (void)timeout_ms;
-    return -1;
-#endif
   }
 
   // Dispatch events in a loop until `stop()` is called or `run_once` returns
@@ -296,7 +284,6 @@ private:
   bool do_register_socket(std::shared_ptr<io_conn>&& conn, bool readable,
       bool writable) {
     assert(is_loop_thread());
-#ifdef __linux__
     const int fd = conn->sock().file().handle();
     if (registrations_.contains(fd)) return false;
 
@@ -306,26 +293,17 @@ private:
 
     registrations_.emplace(fd, registration{events, std::move(conn)});
     return true;
-#else
-    (void)conn;
-    return false;
-#endif
   }
 
   // Unregister `sock`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails.
   bool do_unregister_socket(os_file::file_handle_t fd) {
     assert(is_loop_thread());
-#ifdef __linux__
     if (!registrations_.contains(fd)) return false;
     epoll_event ev{};
     const bool ok = poll_control(EPOLL_CTL_DEL, fd, ev);
     registrations_.erase(fd);
     return ok;
-#else
-    (void)fd;
-    return false;
-#endif
   }
 
   // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
@@ -345,7 +323,6 @@ private:
   bool do_set_interest(os_file::file_handle_t fd, uint32_t flag,
       bool on = true) noexcept {
     assert(is_loop_thread());
-#ifdef __linux__
     auto found = find_opt(registrations_, fd);
     if (!found) return false;
     auto& events = found->events;
@@ -358,12 +335,6 @@ private:
 
     events = mask;
     return true;
-#else
-    (void)fd;
-    (void)flag;
-    (void)on;
-    return false;
-#endif
   }
 
   static constexpr uint32_t
@@ -375,11 +346,9 @@ private:
            (writable ? uint32_t{EPOLLOUT} : uint32_t{0});
   }
 
-#ifdef __linux__
   bool poll_control(int op, int fd, epoll_event& ev) const noexcept {
     return ::epoll_ctl(epoll_fd_.handle(), op, fd, &ev) == 0;
   }
-#endif
 
   // Swap-and-drain `post_queue_` under the mutex, then invoke each callback.
   // Callbacks posted from within a drained callback land in the new
@@ -399,7 +368,6 @@ private:
   // stays alive even if a callback calls `unregister_socket()`.
   void dispatch_event(int fd, uint32_t ev) {
     assert(is_loop_thread());
-#ifdef __linux__
     auto found = find_opt(registrations_, fd);
     if (!found) return;
 
@@ -421,10 +389,6 @@ private:
       return;
     }
     if (ev & EPOLLOUT) conn->on_writable();
-#else
-    (void)fd;
-    (void)ev;
-#endif
   }
 
   // Write to `wake_fd_` to interrupt a sleeping `epoll_wait`. Idempotent and
@@ -437,25 +401,17 @@ private:
   }
 
   static os_file create_epollfd() {
-#ifdef __linux__
     auto f = os_file{::epoll_create1(EPOLL_CLOEXEC)};
     if (!f.is_open())
       throw std::system_error(errno, std::generic_category(), "epoll_create1");
     return f;
-#else
-    return os_file{};
-#endif
   }
 
   static os_file create_eventfd() {
-#ifdef __linux__
     auto f = os_file{::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)};
     if (!f.is_open())
       throw std::system_error(errno, std::generic_category(), "eventfd");
     return f;
-#else
-    return os_file{};
-#endif
   }
 
   const os_file epoll_fd_;
