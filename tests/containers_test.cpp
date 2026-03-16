@@ -1818,6 +1818,39 @@ void EnumVector_Basic() {
   EXPECT_TRUE(v.empty());
 }
 
+struct throwing_scoped_value_test {
+  std::string value;
+  bool throw_on_move{};
+
+  throwing_scoped_value_test(
+      std::string value_in, bool throw_on_move_in = false)
+      : value(std::move(value_in)), throw_on_move(throw_on_move_in) {}
+
+  throwing_scoped_value_test(const throwing_scoped_value_test&) = default;
+  throwing_scoped_value_test& operator=(
+      const throwing_scoped_value_test&) = default;
+
+  throwing_scoped_value_test(throwing_scoped_value_test&& other) {
+    if (other.throw_on_move) throw std::runtime_error("move failed");
+    value = std::move(other.value);
+    throw_on_move = other.throw_on_move;
+  }
+
+  throwing_scoped_value_test& operator=(throwing_scoped_value_test&& other) {
+    if (other.throw_on_move) throw std::runtime_error("move failed");
+    value = std::move(other.value);
+    throw_on_move = other.throw_on_move;
+    return *this;
+  }
+};
+
+inline void swap(throwing_scoped_value_test& lhs,
+    throwing_scoped_value_test& rhs) noexcept {
+  using std::swap;
+  swap(lhs.value, rhs.value);
+  swap(lhs.throw_on_move, rhs.throw_on_move);
+}
+
 void ScopedValue_Basic() {
   if (true) {
     int x = 1;
@@ -1861,6 +1894,16 @@ void ScopedValue_Basic() {
     }
     // Restored to 5 (captured at sv construction), not 7.
     EXPECT_EQ(x, 5);
+  }
+  if (true) {
+    // If materializing the replacement throws, the target stays untouched.
+    throwing_scoped_value_test x{"original"};
+    throwing_scoped_value_test replacement{"temporary", true};
+
+    EXPECT_THROW((void)scoped_value<throwing_scoped_value_test>(x, replacement),
+        std::runtime_error);
+    EXPECT_EQ(x.value, "original");
+    EXPECT_FALSE(x.throw_on_move);
   }
 }
 

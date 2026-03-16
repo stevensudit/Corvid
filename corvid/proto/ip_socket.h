@@ -34,7 +34,7 @@ using namespace bool_enums;
 //
 // `ip_socket` is-an `os_file`, adding socket-specific operations on top of
 // the shared fd ownership and control helpers. Movable, non-copyable.
-class ip_socket: public os_file {
+class [[nodiscard]] ip_socket: public os_file {
 public:
   using handle_t = os_file::file_handle_t;
   static constexpr handle_t invalid_handle = os_file::invalid_file_handle;
@@ -193,10 +193,9 @@ public:
     return ::shutdown(handle(), how) == 0;
   }
 
-  // Accept a pending connection. On Linux, the returned socket is created
-  // with `SOCK_CLOEXEC | SOCK_NONBLOCK` via `accept4`. Returns `std::nullopt`
-  // when no connection is available (`EAGAIN`/`EWOULDBLOCK`) or an error
-  // occurs.
+  // Accept a pending connection. The returned socket is created with
+  // `SOCK_CLOEXEC | SOCK_NONBLOCK` via `accept4`. Returns `std::nullopt` when
+  // no connection is available (`EAGAIN`/`EWOULDBLOCK`) or an error occurs.
   [[nodiscard]] std::optional<std::pair<ip_socket, ip_endpoint>>
   accept() noexcept {
     sockaddr_storage addr{};

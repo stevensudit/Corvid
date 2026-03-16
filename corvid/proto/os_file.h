@@ -43,7 +43,7 @@ constexpr file_handle_t invalid_file_handle = -1;
 // fd-level operations.
 //
 // Platform-specific code is isolated in a guarded section.
-class os_file {
+class [[nodiscard]] os_file {
 public:
   using file_handle_t = details::file_handle_t;
   static constexpr file_handle_t invalid_file_handle =

@@ -25,7 +25,7 @@ namespace corvid { inline namespace proto {
 //
 // `epoll` owns a single epoll instance, inherits the general fd helpers from
 // `os_file`, and adds named helpers for `epoll_ctl` and `epoll_wait`.
-class epoll: public os_file {
+class [[nodiscard]] epoll: public os_file {
 public:
   using handle_t = os_file::file_handle_t;
   static constexpr handle_t invalid_handle = os_file::invalid_file_handle;

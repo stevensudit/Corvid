@@ -647,7 +647,7 @@ public:
 
   // RAII owner for an entity ID handle. Erases the entity on destruction
   // unless ownership is released first.
-  class handle_owner {
+  class [[nodiscard]] handle_owner {
   public:
     handle_owner() noexcept = default;
 

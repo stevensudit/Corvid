@@ -28,7 +28,7 @@ namespace corvid { inline namespace proto {
 //
 // `event_fd` owns a single eventfd handle, inherits the general fd helpers
 // from `os_file`, and adds typed counter-based read/write operations.
-class event_fd: public os_file {
+class [[nodiscard]] event_fd: public os_file {
 public:
   using handle_t = os_file::file_handle_t;
   using counter_t = eventfd_t;
