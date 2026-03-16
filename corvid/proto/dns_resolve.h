@@ -40,21 +40,17 @@ struct dns_resolver {
   // returned only address families other than `AF_INET` / `AF_INET6`. Only
   // `SOCK_STREAM` results are requested to avoid duplicate entries per
   // address.
-  [[nodiscard]] static std::vector<ip_endpoint> find_all(std::string_view host,
-      uint16_t port, int family = AF_UNSPEC, size_t max_results = SIZE_MAX) {
+  [[nodiscard]] static std::vector<ip_endpoint>
+  find_all(const std::string& host, uint16_t port, int family = AF_UNSPEC,
+      size_t max_results = SIZE_MAX) {
     addrinfo hints{};
     hints.ai_family = family;
     hints.ai_socktype = SOCK_STREAM;
 
-    // Convert port number to a decimal string for `getaddrinfo`.
-    const std::string port_str = std::to_string(port);
-
-    // `getaddrinfo` requires a null-terminated host string.
-    const std::string host_str{host};
-
     std::vector<ip_endpoint> endpoints;
     addrinfo* res = nullptr;
-    if (::getaddrinfo(host_str.c_str(), port_str.c_str(), &hints, &res) != 0)
+    if (::getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints,
+            &res) != 0)
       return endpoints;
 
     const auto info = std::unique_ptr<addrinfo, decltype(&::freeaddrinfo)>{res,
@@ -82,7 +78,7 @@ struct dns_resolver {
   // Returns a default-constructed (invalid) `ip_endpoint` on failure or if no
   // matching address was found.
   [[nodiscard]] static ip_endpoint
-  find_one(std::string_view host, uint16_t port, int family = AF_UNSPEC) {
+  find_one(const std::string& host, uint16_t port, int family = AF_UNSPEC) {
     const auto results = find_all(host, port, family, 1);
     return results.empty() ? ip_endpoint{} : results.front();
   }

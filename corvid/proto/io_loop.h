@@ -194,7 +194,11 @@ public:
       cv.notify_one();
     });
     std::unique_lock lock{mutex};
-    cv.wait(lock, [&] { return done; });
+    // If loop exits, give up.
+    while (!done) {
+      if (!running_.load(std::memory_order_relaxed)) return false;
+      cv.wait_for(lock, std::chrono::milliseconds(100));
+    }
     return result;
   }
 
@@ -297,6 +301,7 @@ public:
       lifecycle_cv_.notify_all();
     }};
 
+    bool ok = true;
     for (; running_;)
       if (run_once(timeout_ms) < 0) {
         ok = false;
@@ -389,6 +394,7 @@ private:
   void drain_post_queue(bool execute = true) {
     assert(is_loop_thread());
     std::vector<std::function<void()>> pending;
+    pending.reserve(post_queue_.size());
     {
       std::scoped_lock lock{post_mutex_};
       pending.swap(post_queue_);
