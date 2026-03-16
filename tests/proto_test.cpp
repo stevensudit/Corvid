@@ -219,7 +219,6 @@ void Ipv4Addr_Formatting() {
 }
 
 void Ipv4Addr_PosixInterop() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   ipv4_addr a{192, 168, 1, 1};
 
   // Convert to `in_addr` and back.
@@ -230,7 +229,6 @@ void Ipv4Addr_PosixInterop() {
   // Verify network byte order: 192.168.1.1 = 0xc0a80101 in host order,
   // so `s_addr` should be 0x0101a8c0 on a little-endian host.
   EXPECT_EQ(ntohl(raw.s_addr), a.to_uint32());
-#endif
 }
 
 void Ipv6Addr_Construction() {
@@ -372,7 +370,6 @@ void Ipv6Addr_Formatting() {
 }
 
 void Ipv6Addr_PosixInterop() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   ipv6_addr a{0x2001, 0xdb8, 0, 0, 0, 0, 0, 1};
 
   in6_addr raw = a.to_in6_addr();
@@ -381,7 +378,6 @@ void Ipv6Addr_PosixInterop() {
   EXPECT_EQ(raw.s6_addr[0], 0x20U);
   EXPECT_EQ(raw.s6_addr[1], 0x01U);
   EXPECT_EQ(raw.s6_addr[15], 0x01U);
-#endif
 }
 
 void IpEndpoint_Construction() {
@@ -453,7 +449,6 @@ void IpEndpoint_Formatting() {
 }
 
 void IpEndpoint_PosixInterop() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   if (true) {
     ip_endpoint ep{ipv4_addr(192, 168, 1, 2), 1234};
     auto raw = ep.as_sockaddr_in();
@@ -477,7 +472,6 @@ void IpEndpoint_PosixInterop() {
     EXPECT_EQ(as_v6->sin6_family, AF_INET6);
     EXPECT_EQ(ntohs(as_v6->sin6_port), 4321U);
   }
-#endif
 }
 
 void IpSocket_Lifecycle() {
@@ -490,7 +484,6 @@ void IpSocket_Lifecycle() {
     EXPECT_FALSE(s.close());
   }
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // A real socket is open; closing it twice is idempotent.
   if (true) {
     ip_socket s{AF_INET, SOCK_STREAM, 0};
@@ -504,11 +497,108 @@ void IpSocket_Lifecycle() {
 
   // Destructor closes an open socket (no crash or leak).
   if (true) { ip_socket s{AF_INET, SOCK_STREAM, 0}; }
-#endif
+}
+
+void EventFd_Lifecycle() {
+  // Default-constructed eventfd is invalid.
+  if (true) {
+    event_fd e;
+    EXPECT_FALSE(e.is_open());
+    EXPECT_FALSE(static_cast<bool>(e));
+    EXPECT_EQ(e.handle(), event_fd::invalid_handle);
+    EXPECT_FALSE(e.close());
+  }
+
+  // A real eventfd is open; closing it twice is idempotent.
+  if (true) {
+    event_fd e{0};
+    EXPECT_TRUE(e.is_open());
+    EXPECT_TRUE(static_cast<bool>(e));
+    EXPECT_NE(e.handle(), event_fd::invalid_handle);
+    EXPECT_TRUE(e.close());
+    EXPECT_FALSE(e.is_open());
+    EXPECT_FALSE(e.close());
+  }
+
+  // Destructor closes an open eventfd (no crash or leak).
+  if (true) { event_fd e{0}; }
+}
+
+void EventFd_Move() {
+  // Move constructor transfers ownership; source becomes invalid.
+  if (true) {
+    event_fd a{0};
+    const auto h = a.handle();
+    event_fd b{std::move(a)};
+    EXPECT_FALSE(a.is_open());
+    EXPECT_TRUE(b.is_open());
+    EXPECT_EQ(b.handle(), h);
+  }
+
+  // Move assignment closes the destination and transfers the source.
+  if (true) {
+    event_fd a{0};
+    event_fd b{0};
+    const auto h = a.handle();
+    b = std::move(a);
+    EXPECT_FALSE(a.is_open());
+    EXPECT_TRUE(b.is_open());
+    EXPECT_EQ(b.handle(), h);
+  }
+
+  // Self-assignment is a no-op.
+  if (true) {
+    event_fd a{0};
+    const auto h = a.handle();
+    auto* p = &a;
+    a = std::move(*p);
+    EXPECT_TRUE(a.is_open());
+    EXPECT_EQ(a.handle(), h);
+  }
+}
+
+void EventFd_Release() {
+  // `release()` yields the handle without closing it; eventfd becomes invalid.
+  if (true) {
+    event_fd e{0};
+    const auto h = e.release();
+    EXPECT_NE(h, event_fd::invalid_handle);
+    EXPECT_FALSE(e.is_open());
+    ::close(h);
+  }
+}
+
+void EventFd_NotifyRead() {
+  // Writes accumulate and a read returns the total while resetting to zero.
+  if (true) {
+    event_fd e{0};
+    EXPECT_TRUE(e.notify());
+    EXPECT_TRUE(e.notify(4));
+
+    auto value = e.read();
+    EXPECT_TRUE(value.has_value());
+    EXPECT_EQ(*value, 5U);
+  }
+
+  // The out-parameter overload returns the current counter value.
+  if (true) {
+    event_fd e{7};
+    event_fd::counter_t value = 0;
+    EXPECT_TRUE(e.read(value));
+    EXPECT_EQ(value, 7U);
+  }
+}
+
+void EventFd_NonblockingEmptyRead() {
+  // Default-created eventfds are non-blocking, so an empty read returns
+  // nullopt.
+  event_fd e{0};
+  auto value = e.read();
+  EXPECT_FALSE(value.has_value());
+  EXPECT_EQ(errno, EAGAIN);
 }
 
 void IpSocket_Move() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
     ip_socket a{AF_INET, SOCK_STREAM, 0};
@@ -541,11 +631,9 @@ void IpSocket_Move() {
     EXPECT_TRUE(a.is_open());
     EXPECT_EQ(a.handle(), h);
   }
-#endif
 }
 
 void IpSocket_Release() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // `release()` yields the handle without closing it; socket becomes invalid.
   if (true) {
     ip_socket s{AF_INET, SOCK_STREAM, 0};
@@ -554,11 +642,9 @@ void IpSocket_Release() {
     EXPECT_FALSE(s.is_open());
     ::close(h);
   }
-#endif
 }
 
 void IpSocket_Options() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Named option helpers round-trip through `get_option`.
   if (true) {
     ip_socket s{AF_INET, SOCK_STREAM, 0};
@@ -590,11 +676,9 @@ void IpSocket_Options() {
     EXPECT_TRUE(t.has_value());
     EXPECT_GE(*t, 65536);
   }
-#endif
 }
 
 void IpSocket_Nonblocking() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   if (true) {
     ip_socket s{AF_INET, SOCK_STREAM, 0};
 
@@ -604,11 +688,9 @@ void IpSocket_Nonblocking() {
     EXPECT_TRUE(s.set_nonblocking(false));
     EXPECT_FALSE(s.get_flags().value_or(0) & O_NONBLOCK);
   }
-#endif
 }
 
 void IpSocket_SendRecv() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   int fds[2];
   ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
 
@@ -630,11 +712,9 @@ void IpSocket_SendRecv() {
   EXPECT_EQ(b.recv(raw_buf, sizeof(raw_buf), 0), 3);
   const auto raw_view = std::string_view{raw_buf, 3};
   EXPECT_EQ(raw_view, "raw");
-#endif
 }
 
 void IpSocket_BindListenAccept() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Bind a listening socket to a free loopback port.
   ip_socket listener{AF_INET, SOCK_STREAM, 0};
   EXPECT_TRUE(listener.is_open());
@@ -662,11 +742,9 @@ void IpSocket_BindListenAccept() {
   EXPECT_TRUE(result->first.is_open());
   EXPECT_TRUE(result->second.is_v4());
   EXPECT_TRUE(result->second.v4()->is_loopback());
-#endif
 }
 
 void DnsResolve_NumericIPv4() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Numeric IPv4 addresses are resolved without a DNS lookup.
   auto result = dns_resolver::find_all("127.0.0.1", 80);
   EXPECT_FALSE(result.empty());
@@ -675,11 +753,9 @@ void DnsResolve_NumericIPv4() {
     if (ep.is_v4() && ep.v4()->is_loopback() && ep.port() == 80) found = true;
   }
   EXPECT_TRUE(found);
-#endif
 }
 
 void DnsResolve_NumericIPv6() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Numeric IPv6 addresses are resolved without a DNS lookup.
   auto result = dns_resolver::find_all("::1", 443, AF_INET6);
   EXPECT_FALSE(result.empty());
@@ -688,11 +764,9 @@ void DnsResolve_NumericIPv6() {
     if (ep.is_v6() && ep.v6()->is_loopback() && ep.port() == 443) found = true;
   }
   EXPECT_TRUE(found);
-#endif
 }
 
 void DnsResolve_Localhost() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // "localhost" is defined in /etc/hosts on all major POSIX systems.
   auto result = dns_resolver::find_all("localhost", 8080);
   EXPECT_FALSE(result.empty());
@@ -706,11 +780,9 @@ void DnsResolve_Localhost() {
       found = true;
   }
   EXPECT_TRUE(found);
-#endif
 }
 
 void DnsResolve_FamilyFilter() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // With `AF_INET`, every result must be an IPv4 endpoint.
   auto v4 = dns_resolver::find_all("localhost", 80, AF_INET);
   for (const auto& ep : v4) EXPECT_TRUE(ep.is_v4());
@@ -718,39 +790,31 @@ void DnsResolve_FamilyFilter() {
   // With `AF_INET6`, every result must be an IPv6 endpoint.
   auto v6 = dns_resolver::find_all("localhost", 80, AF_INET6);
   for (const auto& ep : v6) EXPECT_TRUE(ep.is_v6());
-#endif
 }
 
 void DnsResolve_InvalidHost() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // The `.invalid` TLD (RFC 2606) must not resolve.
   auto result = dns_resolver::find_all("no-such-host.invalid", 80);
   EXPECT_TRUE(result.empty());
-#endif
 }
 
 void DnsResolveOne_Success() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Numeric loopback resolves to exactly one endpoint with the right port.
   const auto ep = dns_resolver::find_one("127.0.0.1", 80);
   EXPECT_TRUE(ep.is_v4());
   EXPECT_EQ(ep.port(), 80U);
-#endif
 }
 
 void DnsResolveOne_Failure() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // An unresolvable host returns a default-constructed (invalid) endpoint.
   const auto ep = dns_resolver::find_one("no-such-host.invalid", 80);
   EXPECT_EQ(ep, ip_endpoint{});
-#endif
 }
 
 // Helper: create a connected socketpair and wrap each end in an `ip_socket`.
 // Caller must close both sockets when done (RAII via `ip_socket` destructor).
 // Plain struct (not `std::pair`) so structured bindings use direct member
 // access rather than `std::tuple_element<>::type`.
-#ifdef __linux__
 struct sockpair_t {
   ip_socket a;
   ip_socket b;
@@ -774,18 +838,14 @@ struct counting_conn: io_conn {
   void on_writable() override { ++writable; }
   void on_error() override { ++error; }
 };
-#endif
 
 void IoLoop_Lifecycle() {
-#ifdef __linux__
   // Construction succeeds; an empty poll returns 0 events.
   io_loop loop;
   EXPECT_EQ(loop.run_once(0), 0);
-#endif
 }
 
 void IoLoop_Post() {
-#ifdef __linux__
   io_loop loop;
 
   int fired = 0;
@@ -795,14 +855,12 @@ void IoLoop_Post() {
   // I/O events.
   loop.run_once(0);
   EXPECT_EQ(fired, 1);
-#endif
 }
 
 // `register_socket` dispatches `on_readable` via virtual `io_conn` override;
 // `unregister_socket` stops further dispatch. Double-register and
 // double-unregister both return false.
 void IoLoop_RegisterUnregister() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -827,13 +885,11 @@ void IoLoop_RegisterUnregister() {
   // No events after unregistering.
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->readable, 1);
-#endif
 }
 
 // `set_writable(true)` arms `EPOLLOUT`; the kernel fires it when the kernel
 // send buffer has space, which it does immediately on a fresh socketpair.
 void IoLoop_SetWritable() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -853,11 +909,9 @@ void IoLoop_SetWritable() {
   const int w = conn->writable;
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->writable, w);
-#endif
 }
 
 void IoLoop_SetReadable() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -884,14 +938,12 @@ void IoLoop_SetReadable() {
   EXPECT_EQ(loop.run_once(0), 1);
   EXPECT_EQ(conn->readable, 1);
   EXPECT_GE(conn->writable, 1);
-#endif
 }
 
 // When `EPOLLERR` or `EPOLLHUP` fires together with `EPOLLOUT`, `on_error` is
 // called but `on_writable` is skipped (the early-return path in
 // `dispatch_event`).
 void IoLoop_ErrorSkipsWritable() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -904,14 +956,12 @@ void IoLoop_ErrorSkipsWritable() {
   loop.run_once(0);
   EXPECT_EQ(conn->error, 1);
   EXPECT_EQ(conn->writable, 0); // must not fire when error/hup is reported
-#endif
 }
 
 // The default `io_conn::on_error()` implementation falls through to
 // `on_readable()`. Verify this by registering a subclass that overrides only
 // `on_readable` and confirming it is called when the peer closes.
 void IoLoop_DefaultOnError() {
-#ifdef __linux__
   struct readable_only_conn: io_conn {
     using io_conn::io_conn;
     int readable = 0;
@@ -929,11 +979,9 @@ void IoLoop_DefaultOnError() {
   loop.run_once(0);
 
   EXPECT_GE(conn->readable, 1);
-#endif
 }
 
 void TcpConn_Lifecycle() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -948,11 +996,9 @@ void TcpConn_Lifecycle() {
   // destructor posted do_close_(); process it, then verify loop is clean.
   loop.run_once(0);
   EXPECT_EQ(loop.run_once(0), 0);
-#endif
 }
 
 void TcpConn_Receive() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -967,11 +1013,9 @@ void TcpConn_Receive() {
 
   EXPECT_EQ(loop.run_once(0), 1); // dispatch EPOLLIN
   EXPECT_EQ(received, msg);
-#endif
 }
 
 void TcpConn_SetRecvBufSize() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1001,11 +1045,9 @@ void TcpConn_SetRecvBufSize() {
   EXPECT_EQ(loop.run_once(0), 1); // next read should use updated cap
   EXPECT_EQ(chunk_sizes.size(), 3U);
   EXPECT_EQ(chunk_sizes[2], 8U);
-#endif
 }
 
 void TcpConn_PeerClose() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1033,11 +1075,9 @@ void TcpConn_PeerClose() {
   conn.close();
   loop.run_once(0);
   EXPECT_FALSE(conn.is_open());
-#endif
 }
 
 void TcpConn_Send() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1053,11 +1093,9 @@ void TcpConn_Send() {
   EXPECT_TRUE(b.read(buf));
   EXPECT_EQ(buf.size(), 5U);
   EXPECT_EQ(buf, "world");
-#endif
 }
 
 void TcpConn_ManualClose() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1074,11 +1112,9 @@ void TcpConn_ManualClose() {
   // Destructor posts a hangup; it must be idempotent after close().
   loop.run_once(0);
   EXPECT_EQ(loop.run_once(0), 0);
-#endif
 }
 
 void TcpConn_DrainAfterBufferedSend() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1116,11 +1152,9 @@ void TcpConn_DrainAfterBufferedSend() {
 
   // `on_drain` must have fired at least once (via the EPOLLOUT path).
   EXPECT_GE(drain_count, 1);
-#endif
 }
 
 void TcpConn_DrainAfterImmediateSend() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1136,11 +1170,9 @@ void TcpConn_DrainAfterImmediateSend() {
   EXPECT_TRUE(b.read(received));
   EXPECT_EQ(received, "hello");
   EXPECT_EQ(drain_count, 1);
-#endif
 }
 
 void TcpConn_AsyncCbRead() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1159,11 +1191,9 @@ void TcpConn_AsyncCbRead() {
   loop.run_once(0); // dispatch EPOLLIN -> inline callback
 
   EXPECT_EQ(received, msg);
-#endif
 }
 
 void TcpConn_AsyncCbRead_PreservesEarlyData() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1184,11 +1214,9 @@ void TcpConn_AsyncCbRead_PreservesEarlyData() {
 
   EXPECT_EQ(loop.run_once(0), 1); // enabling EPOLLIN surfaces buffered data
   EXPECT_EQ(received, msg);
-#endif
 }
 
 void TcpConn_AsyncCbRead_DuplicateRejected() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1206,11 +1234,9 @@ void TcpConn_AsyncCbRead_DuplicateRejected() {
   loop.run_once(0); // dispatch EPOLLIN -> one callback
 
   EXPECT_EQ(callback_count, 1);
-#endif
 }
 
 void TcpConn_AsyncCbRead_PeerClose() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1238,11 +1264,9 @@ void TcpConn_AsyncCbRead_PeerClose() {
   conn.close();
   loop.run_once(0);
   EXPECT_FALSE(conn.is_open());
-#endif
 }
 
 void TcpConn_AsyncCbWrite() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1263,11 +1287,9 @@ void TcpConn_AsyncCbWrite() {
   EXPECT_EQ(received, "callback-write");
   EXPECT_TRUE(completed);
   EXPECT_EQ(callback_count, 1);
-#endif
 }
 
 void TcpConn_AsyncCbWrite_Failure() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1289,11 +1311,9 @@ void TcpConn_AsyncCbWrite_Failure() {
   loop.run_once(0); // process peer-close notification
   EXPECT_TRUE(closed);
   EXPECT_FALSE(conn.is_open());
-#endif
 }
 
 void TcpConn_ShutdownWrite() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1315,11 +1335,9 @@ void TcpConn_ShutdownWrite() {
   EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
   EXPECT_EQ(loop.run_once(0), 1);
   EXPECT_EQ(received, msg);
-#endif
 }
 
 void TcpConn_ShutdownRead() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1344,11 +1362,9 @@ void TcpConn_ShutdownRead() {
   EXPECT_TRUE(b.read(buf));
   EXPECT_EQ(buf, "outbound");
   EXPECT_EQ(data_count, 0);
-#endif
 }
 
 void TcpConn_ShutdownBothCloses() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1364,11 +1380,9 @@ void TcpConn_ShutdownBothCloses() {
   EXPECT_FALSE(conn.is_open());
   EXPECT_FALSE(conn.can_read());
   EXPECT_FALSE(conn.can_write());
-#endif
 }
 
 void TcpConn_AsyncCbWrite_DuplicateRejected() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1408,11 +1422,9 @@ void TcpConn_AsyncCbWrite_DuplicateRejected() {
 
   loop.stop();
   loop_thread.join();
-#endif
 }
 
 void TcpConn_GracefulClose() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1447,11 +1459,9 @@ void TcpConn_GracefulClose() {
   EXPECT_EQ(received, payload);
   EXPECT_TRUE(closed);
   EXPECT_FALSE(conn.is_open());
-#endif
 }
 
 void TcpConn_DestructorHangsUp() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1480,7 +1490,6 @@ void TcpConn_DestructorHangsUp() {
 
   EXPECT_TRUE(closed);
   EXPECT_LT(received.size(), payload.size());
-#endif
 }
 
 // Coroutine tests.
@@ -1499,7 +1508,6 @@ void LoopTask_FireAndForget() {
 
 // Verify that `async_read` delivers data to a coroutine.
 void TcpConn_AsyncRead() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1524,11 +1532,9 @@ void TcpConn_AsyncRead() {
 
   EXPECT_TRUE(done);
   EXPECT_EQ(received, msg);
-#endif
 }
 
 void TcpConn_AsyncRead_PreservesEarlyData() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1556,11 +1562,9 @@ void TcpConn_AsyncRead_PreservesEarlyData() {
 
   EXPECT_TRUE(done);
   EXPECT_EQ(received, msg);
-#endif
 }
 
 void TcpConn_AsyncRead_StopsBetweenCalls() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1604,13 +1608,11 @@ void TcpConn_AsyncRead_StopsBetweenCalls() {
 
   EXPECT_TRUE(second_done);
   EXPECT_EQ(second, "second");
-#endif
 }
 
 // Verify that `async_read` returns an empty string when the peer closes
 // the connection before data arrives.
 void TcpConn_AsyncRead_PeerClose() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1640,13 +1642,11 @@ void TcpConn_AsyncRead_PeerClose() {
   conn.close();
   loop.run_once(0);
   EXPECT_FALSE(conn.is_open());
-#endif
 }
 
 // Verify that `async_send` delivers bytes to the peer and suspends until
 // the queue drains.
 void TcpConn_AsyncSend() {
-#ifdef __linux__
   io_loop loop;
   auto [a, b] = make_nb_sockpair();
 
@@ -1673,7 +1673,6 @@ void TcpConn_AsyncSend() {
   no_zero::enlarge_to(buf, 16);
   EXPECT_TRUE(b.read(buf));
   EXPECT_EQ(buf, msg);
-#endif
 }
 
 MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
@@ -1682,17 +1681,18 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     Ipv6Addr_Comparison, Ipv6Addr_Formatting, Ipv6Addr_PosixInterop,
     IpEndpoint_Construction, IpEndpoint_Parse, IpEndpoint_Comparison,
     IpEndpoint_Formatting, IpEndpoint_PosixInterop, IpSocket_Lifecycle,
-    IpSocket_Move, IpSocket_Release, IpSocket_Options, IpSocket_Nonblocking,
-    IpSocket_SendRecv, IpSocket_BindListenAccept, DnsResolve_NumericIPv4,
-    DnsResolve_NumericIPv6, DnsResolve_Localhost, DnsResolve_FamilyFilter,
-    DnsResolve_InvalidHost, DnsResolveOne_Success, DnsResolveOne_Failure,
-    IoLoop_Lifecycle, IoLoop_Post, IoLoop_RegisterUnregister,
-    IoLoop_SetWritable, IoLoop_SetReadable, IoLoop_ErrorSkipsWritable,
-    IoLoop_DefaultOnError, TcpConn_Lifecycle, TcpConn_Receive,
-    TcpConn_SetRecvBufSize, TcpConn_PeerClose, TcpConn_Send,
-    TcpConn_ManualClose, TcpConn_DrainAfterBufferedSend,
-    TcpConn_DrainAfterImmediateSend, TcpConn_AsyncCbRead,
-    TcpConn_AsyncCbRead_PreservesEarlyData,
+    EventFd_Lifecycle, EventFd_Move, EventFd_Release, EventFd_NotifyRead,
+    EventFd_NonblockingEmptyRead, IpSocket_Move, IpSocket_Release,
+    IpSocket_Options, IpSocket_Nonblocking, IpSocket_SendRecv,
+    IpSocket_BindListenAccept, DnsResolve_NumericIPv4, DnsResolve_NumericIPv6,
+    DnsResolve_Localhost, DnsResolve_FamilyFilter, DnsResolve_InvalidHost,
+    DnsResolveOne_Success, DnsResolveOne_Failure, IoLoop_Lifecycle,
+    IoLoop_Post, IoLoop_RegisterUnregister, IoLoop_SetWritable,
+    IoLoop_SetReadable, IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError,
+    TcpConn_Lifecycle, TcpConn_Receive, TcpConn_SetRecvBufSize,
+    TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
+    TcpConn_DrainAfterBufferedSend, TcpConn_DrainAfterImmediateSend,
+    TcpConn_AsyncCbRead, TcpConn_AsyncCbRead_PreservesEarlyData,
     TcpConn_AsyncCbRead_DuplicateRejected, TcpConn_AsyncCbRead_PeerClose,
     TcpConn_AsyncCbWrite, TcpConn_AsyncCbWrite_Failure,
     TcpConn_AsyncCbWrite_DuplicateRejected, TcpConn_ShutdownWrite,

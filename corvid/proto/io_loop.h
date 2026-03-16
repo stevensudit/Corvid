@@ -28,9 +28,9 @@
 #include <vector>
 
 #include <sys/epoll.h>
-#include <sys/eventfd.h>
 
 #include "../containers/opt_find.h"
+#include "event_fd.h"
 #include "ip_socket.h"
 
 namespace corvid { inline namespace proto {
@@ -236,9 +236,7 @@ public:
 
       // Drain the internal wakeup handle and skip: it carries no user event.
       if (fd == wake_fd_.handle()) {
-        // `eventfd` expects an 8-byte read; the value is ignored.
-        std::string buf{"12345678"};
-        (void)wake_fd_.read(buf);
+        (void)wake_fd_.read();
         ++woken;
         continue;
       }
@@ -341,6 +339,10 @@ private:
   make_event_mask(bool readable = false, bool writable = false) noexcept {
     // `EPOLLRDHUP` is always armed so that peer half-closes (`SHUT_WR`) are
     // detected even when `EPOLLIN` is not subscribed.
+    // This loop intentionally stays level-triggered. `tcp_conn` only arms
+    // `EPOLLOUT` while a send queue is backpressured, so LT does not create
+    // steady writable wakeups, and switching to `EPOLLET` would require every
+    // read/write handler to drain to `EAGAIN` to avoid missed readiness.
     constexpr uint32_t always_on_events = EPOLLERR | EPOLLHUP | EPOLLRDHUP;
     return always_on_events | (readable ? uint32_t{EPOLLIN} : uint32_t{0}) |
            (writable ? uint32_t{EPOLLOUT} : uint32_t{0});
@@ -393,12 +395,7 @@ private:
 
   // Write to `wake_fd_` to interrupt a sleeping `epoll_wait`. Idempotent and
   // safe to call from any thread.
-  void wake() {
-    // `eventfd` expects an 8-byte write; the value is ignored.
-    std::string buf{"12345678"};
-    std::string_view val{buf};
-    (void)wake_fd_.write(val);
-  }
+  void wake() { (void)wake_fd_.notify(); }
 
   static os_file create_epollfd() {
     auto f = os_file{::epoll_create1(EPOLL_CLOEXEC)};
@@ -407,15 +404,15 @@ private:
     return f;
   }
 
-  static os_file create_eventfd() {
-    auto f = os_file{::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)};
+  static event_fd create_eventfd() {
+    auto f = event_fd{0};
     if (!f.is_open())
       throw std::system_error(errno, std::generic_category(), "eventfd");
     return f;
   }
 
   const os_file epoll_fd_;
-  const os_file wake_fd_;
+  const event_fd wake_fd_;
 
   std::unordered_map<int, registration> registrations_;
 
