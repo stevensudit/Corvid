@@ -1932,10 +1932,62 @@ void ScopedValue_Basic() {
     int x = 1;
     {
       scoped_value sv{x, 10};
-      sv.disarm();
+      sv.release();
       EXPECT_EQ(x, 10);
     }
     EXPECT_EQ(x, 10);
+  }
+}
+
+void ScopeExit_Basic() {
+  if (true) {
+    bool exited = false;
+    {
+      scope_exit guard{[&]() noexcept { exited = true; }};
+      EXPECT_FALSE(exited);
+    }
+    EXPECT_TRUE(exited);
+  }
+  if (true) {
+    int value = 0;
+    {
+      auto guard = make_scope_exit([&]() noexcept { value = 42; });
+      (void)guard;
+      EXPECT_EQ(value, 0);
+    }
+    EXPECT_EQ(value, 42);
+  }
+  if (true) {
+    bool exited = false;
+    {
+      auto guard = make_scope_exit([&]() noexcept { exited = true; });
+      guard.release();
+    }
+    EXPECT_FALSE(exited);
+  }
+  if (true) {
+    int calls = 0;
+    {
+      auto guard1 = make_scope_exit([&]() noexcept { ++calls; });
+      {
+        auto guard2 = std::move(guard1);
+        EXPECT_EQ(calls, 0);
+        (void)guard2;
+      }
+      EXPECT_EQ(calls, 1);
+    }
+    EXPECT_EQ(calls, 1);
+  }
+  if (true) {
+    int value = 0;
+    {
+      auto payload = std::make_unique<int>(7);
+      auto guard = make_scope_exit(
+          [owned = std::move(payload), &value]() noexcept { value = *owned; });
+      EXPECT_FALSE(payload);
+      (void)guard;
+    }
+    EXPECT_EQ(value, 7);
   }
 }
 
@@ -1949,7 +2001,7 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
     StrongType_Extended, EnumVariant_Basic, TombStone_Basic, EnumVector_Basic,
-    ScopedValue_Basic);
+    ScopedValue_Basic, ScopeExit_Basic);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

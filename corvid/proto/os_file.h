@@ -99,8 +99,8 @@ public:
   // Write as much of `data` as possible to the file. On success, removes the
   // written prefix from `data` and returns true. On failure, leaves `data`
   // unchanged and returns false. A "soft" failure (e.g., EAGAIN) is treated
-  // as success with no progress. Note that this call can invoke a SIGPIPE on a
-  // socket, so use `ip_socket::send` instead.
+  // as success with no progress. Note that this call can invoke a SIGPIPE on
+  // broken pipes/sockets, so use `ip_socket::send` with MSG_NOSIGNAL instead.
   [[nodiscard]] bool write(std::string_view& data) const {
     if (data.empty()) return true;
 

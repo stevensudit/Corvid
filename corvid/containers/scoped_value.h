@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <atomic>
 #include "containers_shared.h"
 #include <optional>
 #include <type_traits>
@@ -49,7 +50,7 @@ public:
       std::is_nothrow_move_constructible_v<T> &&
       std::is_nothrow_copy_constructible_v<T>)
       : target_(other.target_), old_value_(std::move(other.old_value_)) {
-    other.disarm();
+    other.release();
   }
   scoped_value& operator=(const scoped_value&) = delete;
   scoped_value& operator=(scoped_value&& other) noexcept(
@@ -61,13 +62,13 @@ public:
     target_ = other.target_;
     old_value_ = std::move(other.old_value_);
 
-    other.disarm();
+    other.release();
     return *this;
   }
 
   // Disarm the `scoped_value`, leaving the current value in place and
   // preventing any future restore.
-  void disarm() noexcept(std::is_nothrow_copy_constructible_v<T>) {
+  void release() noexcept(std::is_nothrow_copy_constructible_v<T>) {
     target_ = nullptr;
   }
 

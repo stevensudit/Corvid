@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "../containers/scoped_value.h"
+#include "../containers/scope_exit.h"
 #include "../containers/opt_find.h"
 #include "epoll.h"
 #include "event_fd.h"
@@ -263,10 +264,9 @@ public:
   // Dispatch events in a loop until `stop()` is called or `run_once` returns
   // -1. `timeout_ms` is forwarded to each `epoll_wait` call.
   void run(int timeout_ms = -1) {
-    auto scope = poll_thread_scope();
-    running_ = true;
-
-    while (running_)
+    const auto scope = poll_thread_scope();
+    scope_exit on_exit{[&] { running_ = false; }};
+    for (running_ = true; running_;)
       if (run_once(timeout_ms) < 0) break;
   }
 
