@@ -131,6 +131,7 @@ public:
       tcp_conn_handlers&& h = {},
       size_t recv_buf_size = default_recv_buf_size) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
+    if (recv_buf_size == 0) recv_buf_size = default_recv_buf_size;
     state_ = std::make_shared<state>(loop, std::move(sock), remote,
         std::move(h), recv_buf_size);
     loop.post([p = state_] { p->register_with_loop(); });
@@ -214,6 +215,7 @@ public:
   bool close() {
     if (!state_) return false;
     state_->loop_.post([p = state_] { p->do_close(); });
+    state_.reset();
     return true;
   }
 
@@ -871,7 +873,7 @@ private:
   // If we're already on the loop thread, runs it inline. Otherwise, posts it
   // to the queue, and either returns immediately (`execution::nonblocking`) or
   // waits for completion (`execution::blocking`). If we run synchronously, the
-  // return value of the lamda is passed through; otherwise, it's always true.
+  // return value of the lambda is passed through; otherwise, it's always true.
   template<typename FN>
   bool exec_lambda(execution exec, FN&& fn) {
     auto& loop = state_->loop_;

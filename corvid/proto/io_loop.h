@@ -116,7 +116,7 @@ public:
   // The initial event mask always includes `EPOLLERR | EPOLLHUP`; read and
   // write readiness are controlled by `readable` and `writable`. Returns
   // false if `sock` is already registered or `epoll_ctl` fails. If executed
-  // outside of loop thread, turns into a `post()`.
+  // outside of loop thread, turns into a `post()` and returns true.
   [[nodiscard]] bool register_socket(std::shared_ptr<io_conn> conn,
       bool readable = true, bool writable = false) {
     return execute_or_post(
@@ -128,7 +128,7 @@ public:
   // Add or remove `EPOLLIN` from the event mask for `sock` without changing
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
-  // `post()`.
+  // `post()` and returns true.
   bool set_readable(const ip_socket& sock, bool on = true) {
     const auto fd = sock.handle();
     return execute_or_post([this, fd, on] { return do_set_readable(fd, on); });
@@ -137,7 +137,7 @@ public:
   // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
-  // `post()`.
+  // `post()` and returns true.
   bool set_writable(const ip_socket& sock, bool on = true) {
     const auto fd = sock.handle();
     return execute_or_post([this, fd, on] { return do_set_writable(fd, on); });
@@ -145,7 +145,7 @@ public:
 
   // Unregister `sock`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
-  // `post()`.
+  // `post()` and returns true.
   bool unregister_socket(const ip_socket& sock) {
     const auto fd = sock.handle();
     return execute_or_post([this, fd] { return do_unregister_socket(fd); });
@@ -175,6 +175,7 @@ public:
   template<typename FN>
   [[nodiscard]] bool post_and_wait(FN&& fn) {
     if (is_loop_thread()) return fn();
+    if (!running_.load(std::memory_order_relaxed)) return false;
 
     std::mutex mutex;
     std::condition_variable cv;

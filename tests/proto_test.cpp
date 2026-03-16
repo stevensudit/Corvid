@@ -1083,11 +1083,11 @@ void IoLoop_PreStartWorkIsQueued() {
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
-  EXPECT_FALSE(loop.is_loop_thread());
+  EXPECT_TRUE(loop.is_loop_thread());
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
   EXPECT_TRUE(loop.register_socket(conn, false, false));
-  EXPECT_TRUE(loop.register_socket(conn, false, false));
+  EXPECT_FALSE(loop.register_socket(conn, false, false));
 
   auto msg_view = std::string_view{"hi"};
   EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
@@ -1806,6 +1806,45 @@ void TcpConn_GracefulClose() {
   EXPECT_FALSE(conn.is_open());
 }
 
+void TcpConn_CloseThenDestructStaysGraceful() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  constexpr int small_buf = 4096;
+  a.set_send_buffer_size(small_buf);
+
+  const std::string payload(64ULL * 1024ULL, 'g');
+
+  bool closed = false;
+  {
+    tcp_conn conn{loop, std::move(a), {},
+        {.on_close = [&] { closed = true; }}};
+    loop.run_once(0); // process posted register_with_loop
+
+    conn.send(std::string{payload});
+    conn.close();
+  }
+
+  std::string received;
+  received.reserve(payload.size());
+  std::string tmp;
+  for (int i = 0; i < 512 && !closed; ++i) {
+    loop.run_once(0);
+    no_zero::enlarge_to(tmp, 4096);
+    while (b.read(tmp) && !tmp.empty()) {
+      received.append(tmp);
+      no_zero::enlarge_to(tmp, 4096);
+    }
+  }
+
+  EXPECT_TRUE(closed);
+  EXPECT_EQ(received.size(), payload.size());
+  EXPECT_EQ(received, payload);
+  no_zero::enlarge_to(tmp, 1);
+  EXPECT_FALSE(b.read(tmp));
+}
+
 void TcpConn_DestructorHangsUp() {
   io_loop loop;
   auto loop_scope = loop.poll_thread_scope();
@@ -2040,17 +2079,20 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IpSocket_BindListenAccept, DnsResolve_NumericIPv4, DnsResolve_NumericIPv6,
     DnsResolve_Localhost, DnsResolve_FamilyFilter, DnsResolve_InvalidHost,
     DnsResolveOne_Success, DnsResolveOne_Failure, IoLoop_Lifecycle,
-    IoLoop_Post, IoLoop_RegisterUnregister, IoLoop_SetWritable,
-    IoLoop_SetReadable, IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError,
-    TcpConn_Lifecycle, TcpConn_Receive, TcpConn_SetRecvBufSize,
-    TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
-    TcpConn_DrainAfterBufferedSend, TcpConn_DrainAfterImmediateSend,
-    TcpConn_AsyncCbRead, TcpConn_AsyncCbRead_PreservesEarlyData,
+    IoLoop_Post, IoLoop_PreStartWorkIsQueued, IoLoop_RegisterUnregister,
+    IoLoop_SetWritable, IoLoop_SetReadable, IoLoop_ErrorSkipsWritable,
+    IoLoop_DefaultOnError, IoLoop_StopKeepsOtherThreadsPosting,
+    IoLoop_IsLoopThreadIsPerLoop, TcpConn_Lifecycle, TcpConn_Receive,
+    TcpConn_SetRecvBufSize, TcpConn_PeerClose, TcpConn_Send,
+    TcpConn_ManualClose, TcpConn_DrainAfterBufferedSend,
+    TcpConn_DrainAfterImmediateSend, TcpConn_AsyncCbRead,
+    TcpConn_AsyncCbRead_PreservesEarlyData,
     TcpConn_AsyncCbRead_DuplicateRejected, TcpConn_AsyncCbRead_PeerClose,
     TcpConn_AsyncCbWrite, TcpConn_AsyncCbWrite_Failure,
     TcpConn_AsyncCbWrite_DuplicateRejected, TcpConn_ShutdownWrite,
     TcpConn_ShutdownRead, TcpConn_ShutdownBothCloses, TcpConn_GracefulClose,
-    TcpConn_DestructorHangsUp, LoopTask_FireAndForget, TcpConn_AsyncRead,
+    TcpConn_CloseThenDestructStaysGraceful, TcpConn_DestructorHangsUp,
+    LoopTask_FireAndForget, TcpConn_AsyncRead,
     TcpConn_AsyncRead_PreservesEarlyData, TcpConn_AsyncRead_StopsBetweenCalls,
     TcpConn_AsyncRead_PeerClose, TcpConn_AsyncSend);
 
