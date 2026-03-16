@@ -27,9 +27,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include <sys/epoll.h>
-
 #include "../containers/opt_find.h"
+#include "epoll.h"
 #include "event_fd.h"
 #include "ip_socket.h"
 
@@ -92,12 +91,12 @@ public:
 
   // Create the `epoll` instance and the internal `eventfd` wakeup handle.
   // Throws `std::system_error` on failure.
-  io_loop() : epoll_fd_{create_epollfd()}, wake_fd_{create_eventfd()} {
+  io_loop() : epoll_{create_epollfd()}, wake_fd_{create_eventfd()} {
     // The `eventfd` is used by `post()` and `stop()` to interrupt a sleeping
     // `epoll_wait` from another thread.
     epoll_event ev{.events = EPOLLIN,
         .data = epoll_data_t{.fd = wake_fd_.handle()}};
-    if (!poll_control(EPOLL_CTL_ADD, wake_fd_.handle(), ev))
+    if (!epoll_.add(wake_fd_.handle(), ev))
       throw std::system_error(errno, std::generic_category(),
           "epoll_ctl wake_fd");
   }
@@ -224,8 +223,7 @@ public:
 
     // Poll for available events.
     epoll_event events[max_events];
-    int available =
-        ::epoll_wait(epoll_fd_.handle(), events, max_events, timeout_ms);
+    int available = epoll_.wait(events, max_events, timeout_ms);
     if (available < 0) return os_file::is_hard_error() ? -1 : 0;
 
     // Dispatch each event to handler.
@@ -287,7 +285,7 @@ private:
 
     const uint32_t events = make_event_mask(readable, writable);
     epoll_event ev{.events = events, .data = epoll_data_t{.fd = fd}};
-    if (!poll_control(EPOLL_CTL_ADD, fd, ev)) return false;
+    if (!epoll_.add(fd, ev)) return false;
 
     registrations_.emplace(fd, registration{events, std::move(conn)});
     return true;
@@ -298,8 +296,7 @@ private:
   bool do_unregister_socket(os_file::file_handle_t fd) {
     assert(is_loop_thread());
     if (!registrations_.contains(fd)) return false;
-    epoll_event ev{};
-    const bool ok = poll_control(EPOLL_CTL_DEL, fd, ev);
+    const bool ok = epoll_.remove(fd);
     registrations_.erase(fd);
     return ok;
   }
@@ -329,7 +326,7 @@ private:
     if (mask == events) return true;
 
     epoll_event ev{.events = mask, .data = epoll_data_t{.fd = fd}};
-    if (!poll_control(EPOLL_CTL_MOD, fd, ev)) return false;
+    if (!epoll_.modify(fd, ev)) return false;
 
     events = mask;
     return true;
@@ -346,10 +343,6 @@ private:
     constexpr uint32_t always_on_events = EPOLLERR | EPOLLHUP | EPOLLRDHUP;
     return always_on_events | (readable ? uint32_t{EPOLLIN} : uint32_t{0}) |
            (writable ? uint32_t{EPOLLOUT} : uint32_t{0});
-  }
-
-  bool poll_control(int op, int fd, epoll_event& ev) const noexcept {
-    return ::epoll_ctl(epoll_fd_.handle(), op, fd, &ev) == 0;
   }
 
   // Swap-and-drain `post_queue_` under the mutex, then invoke each callback.
@@ -397,13 +390,15 @@ private:
   // safe to call from any thread.
   void wake() { (void)wake_fd_.notify(); }
 
-  static os_file create_epollfd() {
-    auto f = os_file{::epoll_create1(EPOLL_CLOEXEC)};
+  // Create the loop's epoll instance or throw on failure.
+  static epoll create_epollfd() {
+    auto f = epoll{epoll::default_flags};
     if (!f.is_open())
       throw std::system_error(errno, std::generic_category(), "epoll_create1");
     return f;
   }
 
+  // Create the loop's wakeup eventfd or throw on failure.
   static event_fd create_eventfd() {
     auto f = event_fd{0};
     if (!f.is_open())
@@ -411,7 +406,7 @@ private:
     return f;
   }
 
-  const os_file epoll_fd_;
+  const epoll epoll_;
   const event_fd wake_fd_;
 
   std::unordered_map<int, registration> registrations_;

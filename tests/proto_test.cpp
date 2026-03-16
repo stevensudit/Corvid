@@ -524,6 +524,99 @@ void EventFd_Lifecycle() {
   if (true) { event_fd e{0}; }
 }
 
+void Epoll_Lifecycle() {
+  // Default-constructed epoll handle is invalid.
+  if (true) {
+    epoll p;
+    EXPECT_FALSE(p.is_open());
+    EXPECT_FALSE(static_cast<bool>(p));
+    EXPECT_EQ(p.handle(), epoll::invalid_handle);
+    EXPECT_FALSE(p.close());
+  }
+
+  // A real epoll instance is open; closing it twice is idempotent.
+  if (true) {
+    epoll p{epoll::default_flags};
+    EXPECT_TRUE(p.is_open());
+    EXPECT_TRUE(static_cast<bool>(p));
+    EXPECT_NE(p.handle(), epoll::invalid_handle);
+    EXPECT_TRUE(p.close());
+    EXPECT_FALSE(p.is_open());
+    EXPECT_FALSE(p.close());
+  }
+
+  // Destructor closes an open epoll fd (no crash or leak).
+  if (true) { epoll p{epoll::default_flags}; }
+}
+
+void Epoll_Move() {
+  // Move constructor transfers ownership; source becomes invalid.
+  if (true) {
+    epoll a{epoll::default_flags};
+    const auto h = a.handle();
+    epoll b{std::move(a)};
+    EXPECT_FALSE(a.is_open());
+    EXPECT_TRUE(b.is_open());
+    EXPECT_EQ(b.handle(), h);
+  }
+
+  // Move assignment closes the destination and transfers the source.
+  if (true) {
+    epoll a{epoll::default_flags};
+    epoll b{epoll::default_flags};
+    const auto h = a.handle();
+    b = std::move(a);
+    EXPECT_FALSE(a.is_open());
+    EXPECT_TRUE(b.is_open());
+    EXPECT_EQ(b.handle(), h);
+  }
+
+  // Self-assignment is a no-op.
+  if (true) {
+    epoll a{epoll::default_flags};
+    const auto h = a.handle();
+    auto* p = &a;
+    a = std::move(*p);
+    EXPECT_TRUE(a.is_open());
+    EXPECT_EQ(a.handle(), h);
+  }
+}
+
+void Epoll_Release() {
+  // `release()` yields the handle without closing it; epoll becomes invalid.
+  if (true) {
+    epoll p{epoll::default_flags};
+    const auto h = p.release();
+    EXPECT_NE(h, epoll::invalid_handle);
+    EXPECT_FALSE(p.is_open());
+    ::close(h);
+  }
+}
+
+void Epoll_ControlWait() {
+  event_fd e{0};
+  epoll p{epoll::default_flags};
+
+  epoll_event add_ev{.events = EPOLLIN, .data = epoll_data_t{.fd = e.handle()}};
+  EXPECT_TRUE(p.add(e.handle(), add_ev));
+
+  EXPECT_TRUE(e.notify(3));
+
+  epoll_event events[1]{};
+  ASSERT_EQ(p.wait(events, 1, 0), 1);
+  EXPECT_EQ(events[0].data.fd, e.handle());
+  EXPECT_TRUE(events[0].events & EPOLLIN);
+
+  auto value = e.read();
+  EXPECT_TRUE(value.has_value());
+  EXPECT_EQ(*value, 3U);
+
+  epoll_event mod_ev{.events = EPOLLOUT, .data = epoll_data_t{.fd = e.handle()}};
+  EXPECT_TRUE(p.modify(e.handle(), mod_ev));
+  EXPECT_TRUE(p.remove(e.handle()));
+  EXPECT_EQ(p.wait(events, 1, 0), 0);
+}
+
 void EventFd_Move() {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
@@ -1681,7 +1774,8 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     Ipv6Addr_Comparison, Ipv6Addr_Formatting, Ipv6Addr_PosixInterop,
     IpEndpoint_Construction, IpEndpoint_Parse, IpEndpoint_Comparison,
     IpEndpoint_Formatting, IpEndpoint_PosixInterop, IpSocket_Lifecycle,
-    EventFd_Lifecycle, EventFd_Move, EventFd_Release, EventFd_NotifyRead,
+    EventFd_Lifecycle, Epoll_Lifecycle, Epoll_Move, Epoll_Release,
+    Epoll_ControlWait, EventFd_Move, EventFd_Release, EventFd_NotifyRead,
     EventFd_NonblockingEmptyRead, IpSocket_Move, IpSocket_Release,
     IpSocket_Options, IpSocket_Nonblocking, IpSocket_SendRecv,
     IpSocket_BindListenAccept, DnsResolve_NumericIPv4, DnsResolve_NumericIPv6,
