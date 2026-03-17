@@ -34,10 +34,10 @@ using namespace bool_enums;
 // `ip_socket` is-an `os_file`, adding socket-specific operations on top of
 // the shared fd ownership and control helpers. Movable, non-copyable.
 //
-// `bind` and `connect` accept a `sockaddr_storage`. Callers holding
-// an `ip_endpoint` should pass `ep.as_sockaddr_storage()`. `accept` returns
-// the peer address as a raw `sockaddr_storage`; use
-// `ip_endpoint{sockaddr_storage}` to convert it if needed.
+// `bind` and `connect` accept a `sockaddr_storage`. `ip_endpoint` converts
+// implicitly, so it can be passed directly. `accept` returns the peer address
+// as a raw `sockaddr_storage`; use `ip_endpoint{sockaddr_storage}` to convert
+// it if needed.
 class [[nodiscard]] ip_socket: public os_file {
 public:
   using handle_t = os_file::file_handle_t;

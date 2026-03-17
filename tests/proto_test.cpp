@@ -455,6 +455,10 @@ void IpEndpoint_PosixInterop() {
     ip_endpoint roundtrip{raw};
     EXPECT_EQ(roundtrip, ep);
 
+    ip_endpoint from_sockaddr{
+        reinterpret_cast<const sockaddr&>(raw), sizeof(raw)};
+    EXPECT_EQ(from_sockaddr, ep);
+
     auto storage = ep.as_sockaddr_storage();
     auto* as_v4 = reinterpret_cast<const sockaddr_in*>(&storage);
     EXPECT_EQ(as_v4->sin_family, AF_INET);
@@ -466,6 +470,10 @@ void IpEndpoint_PosixInterop() {
     auto raw = ep.as_sockaddr_in6();
     ip_endpoint roundtrip{raw};
     EXPECT_EQ(roundtrip, ep);
+
+    ip_endpoint from_sockaddr{
+        reinterpret_cast<const sockaddr&>(raw), sizeof(raw)};
+    EXPECT_EQ(from_sockaddr, ep);
 
     auto storage = ep.as_sockaddr_storage();
     auto* as_v6 = reinterpret_cast<const sockaddr_in6*>(&storage);

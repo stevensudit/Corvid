@@ -247,13 +247,13 @@ public:
 
     // Poll for available events.
     epoll_event events[max_events];
-    int available = epoll_.wait(events, max_events, timeout_ms);
-    if (available < 0) return os_file::is_hard_error() ? -1 : 0;
+    auto available = epoll_.wait(events, max_events, timeout_ms);
+    if (!available) return os_file::is_hard_error() ? -1 : 0;
 
     // Dispatch each event to handler.
     int dispatched = 0;
     int woken = 0;
-    for (int ndx = 0; ndx < available; ++ndx) {
+    for (int ndx = 0; ndx < *available; ++ndx) {
       const int fd = events[ndx].data.fd;
 
       // Drain the internal wakeup handle and skip: it carries no user event.

@@ -59,14 +59,8 @@ struct dns_resolver {
     for (const addrinfo* ai = info.get(); ai && endpoints.size() < max_results;
         ai = ai->ai_next)
     {
-      if (ai->ai_family == AF_INET &&
-          ai->ai_addrlen >= static_cast<socklen_t>(sizeof(sockaddr_in)))
-        endpoints.emplace_back(
-            *reinterpret_cast<const sockaddr_in*>(ai->ai_addr));
-      else if (ai->ai_family == AF_INET6 &&
-               ai->ai_addrlen >= static_cast<socklen_t>(sizeof(sockaddr_in6)))
-        endpoints.emplace_back(
-            *reinterpret_cast<const sockaddr_in6*>(ai->ai_addr));
+      endpoints.emplace_back(*ai->ai_addr, ai->ai_addrlen);
+      if (!endpoints.back().is_valid()) endpoints.pop_back();
     }
 
     return endpoints;

@@ -70,9 +70,24 @@ public:
   }
 
   // Wait for up to `maxevents` ready entries, optionally timing out.
-  [[nodiscard]] int wait(epoll_event* events, int maxevents,
-      int timeout_ms = -1) const noexcept {
-    return ::epoll_wait(handle(), events, maxevents, timeout_ms);
+  // A `timeout_ms` of -1 means to wait indefinitely (which is probably
+  // unwise), while 0 means to return immediately. Returns the number of ready
+  // entries on success, or `nullopt` on error. Note that `errno == EINTR` is
+  // not a failure but a signal interruption; callers should retry in this
+  // case.
+  [[nodiscard]] std::optional<int>
+  wait(epoll_event* events, int maxevents, int timeout_ms) const noexcept {
+    const int n = ::epoll_wait(handle(), events, maxevents, timeout_ms);
+    return n == -1 ? std::optional<int>{} : n;
+  }
+
+  // Wait overload for a fixed-size array: `maxevents` is deduced from `N`.
+  //
+  // See other `wait()` overload for more.
+  template<std::size_t N>
+  [[nodiscard]] std::optional<int>
+  wait(epoll_event (&events)[N], int timeout_ms) const noexcept {
+    return wait(events, static_cast<int>(N), timeout_ms);
   }
 };
 

@@ -184,18 +184,26 @@ public:
   }
 
   // Construct from a POSIX `sockaddr_in` or `sockaddr_in6`, respectively.
-  explicit ip_endpoint(const sockaddr_in& addr) noexcept { as_v4() = addr; }
+  explicit ip_endpoint(const sockaddr_in& addr) noexcept {
+    assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
+  }
 
-  explicit ip_endpoint(const sockaddr_in6& addr) noexcept { as_v6() = addr; }
+  explicit ip_endpoint(const sockaddr_in6& addr) noexcept {
+    assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
+  }
+
+  // Construct from a POSIX `sockaddr` plus its actual length. Only IPv4 and
+  // IPv6 addresses with sufficient storage are recognized; anything else
+  // leaves the endpoint in its default (invalid) state.
+  explicit ip_endpoint(const sockaddr& addr, socklen_t len) noexcept {
+    assign_sockaddr(addr, len);
+  }
 
   // Construct from a `sockaddr_storage`. Only IPv4 and IPv6 families are
   // recognized; any other family leaves the endpoint in its default
   // (invalid) state.
   explicit ip_endpoint(const sockaddr_storage& addr) noexcept {
-    if (addr.ss_family == AF_INET)
-      as_v4() = *reinterpret_cast<const sockaddr_in*>(&addr);
-    else if (addr.ss_family == AF_INET6)
-      as_v6() = *reinterpret_cast<const sockaddr_in6*>(&addr);
+    assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
   }
 
   // Convert to the corresponding POSIX socket address struct. `as_sockaddr_in`
@@ -216,6 +224,10 @@ public:
     return storage_;
   }
 
+  [[nodiscard]] constexpr operator const sockaddr_storage&() const noexcept {
+    return storage_;
+  }
+
   [[nodiscard]] constexpr socklen_t sockaddr_size() const noexcept {
     if (is_v4()) return sizeof(sockaddr_in);
     if (is_v6()) return sizeof(sockaddr_in6);
@@ -225,14 +237,21 @@ public:
   [[nodiscard]] constexpr std::pair<const sockaddr*, socklen_t>
   as_sockaddr() const noexcept {
     const auto addr = reinterpret_cast<const sockaddr*>(&storage_);
-    if (is_v4()) return {addr, sizeof(sockaddr_in)};
-    if (is_v6()) return {addr, sizeof(sockaddr_in6)};
-    return {addr, sizeof(sockaddr_storage)};
+    return {addr, sockaddr_size()};
   }
 
   static const ip_endpoint invalid;
 
 private:
+  void assign_sockaddr(const sockaddr& addr, socklen_t len) noexcept {
+    if (addr.sa_family == AF_INET &&
+        len >= static_cast<socklen_t>(sizeof(sockaddr_in)))
+      as_v4() = *reinterpret_cast<const sockaddr_in*>(&addr);
+    else if (addr.sa_family == AF_INET6 &&
+             len >= static_cast<socklen_t>(sizeof(sockaddr_in6)))
+      as_v6() = *reinterpret_cast<const sockaddr_in6*>(&addr);
+  }
+
   [[nodiscard]] static constexpr std::optional<uint16_t> parse_port(
       std::string_view s) noexcept {
     uint32_t port = 0;

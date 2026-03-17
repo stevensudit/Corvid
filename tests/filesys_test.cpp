@@ -282,7 +282,7 @@ void Epoll_ControlWait() {
   EXPECT_TRUE(e.notify(3));
 
   epoll_event events[1]{};
-  ASSERT_EQ(p.wait(events, 1, 0), 1);
+  ASSERT_EQ(p.wait(events, 1, 0).value_or(-1), 1);
   EXPECT_EQ(events[0].data.fd, e.handle());
   EXPECT_TRUE(events[0].events & EPOLLIN);
 
@@ -294,7 +294,32 @@ void Epoll_ControlWait() {
       .data = epoll_data_t{.fd = e.handle()}};
   EXPECT_TRUE(p.modify(e.handle(), mod_ev));
   EXPECT_TRUE(p.remove(e.handle()));
-  EXPECT_EQ(p.wait(events, 1, 0), 0);
+  EXPECT_EQ(p.wait(events, 1, 0).value_or(-1), 0);
+}
+
+void Epoll_WaitArray() {
+  event_fd e{0};
+  epoll p{epoll::default_flags};
+
+  epoll_event add_ev{.events = EPOLLIN,
+      .data = epoll_data_t{.fd = e.handle()}};
+  EXPECT_TRUE(p.add(e.handle(), add_ev));
+  EXPECT_TRUE(e.notify(1));
+
+  // Array overload: no `maxevents` arg; the single-argument call unambiguously
+  // selects the template, which deduces `maxevents=4` from the array. The
+  // event is already ready so this returns without blocking.
+  epoll_event events[4]{};
+  ASSERT_EQ(p.wait(events, 1000).value_or(-1), 1);
+  EXPECT_EQ(events[0].data.fd, e.handle());
+  EXPECT_TRUE(events[0].events & EPOLLIN);
+  (void)e.read();
+
+  // A second pending event also comes through the array overload correctly.
+  EXPECT_TRUE(e.notify(7));
+  ASSERT_EQ(p.wait(events, 1000).value_or(-1), 1);
+  EXPECT_TRUE(events[0].events & EPOLLIN);
+  (void)e.read();
 }
 
 void EventFd_Move() {
@@ -492,8 +517,7 @@ void IpSocket_BindListenAccept() {
   ip_socket listener{AF_INET, SOCK_STREAM, 0};
   EXPECT_TRUE(listener.is_open());
   EXPECT_TRUE(listener.set_reuse_addr());
-  EXPECT_TRUE(listener.bind(
-      ip_endpoint{ipv4_addr::loopback(), 0}.as_sockaddr_storage()));
+  EXPECT_TRUE(listener.bind(ip_endpoint{ipv4_addr::loopback(), 0}));
   EXPECT_TRUE(listener.listen());
 
   // Retrieve the OS-assigned port via `getsockname`.
@@ -508,8 +532,7 @@ void IpSocket_BindListenAccept() {
   // Connect a client to the listening socket.
   ip_socket client{AF_INET, SOCK_STREAM, 0};
   EXPECT_TRUE(client.is_open());
-  EXPECT_TRUE(client.connect(
-      ip_endpoint{ipv4_addr::loopback(), port}.as_sockaddr_storage()));
+  EXPECT_TRUE(client.connect(ip_endpoint{ipv4_addr::loopback(), port}));
 
   // Accept the connection on the listener side.
   auto result = listener.accept();
@@ -522,10 +545,11 @@ void IpSocket_BindListenAccept() {
 
 MAKE_TEST_LIST(OsFile_Lifecycle, OsFile_Move, OsFile_ReleaseFlags,
     OsFile_WriteRead, IpSocket_Lifecycle, EventFd_Lifecycle, Epoll_Lifecycle,
-    Epoll_Move, Epoll_Release, Epoll_ControlWait, EventFd_Move,
-    EventFd_Release, EventFd_NotifyRead, EventFd_NonblockingEmptyRead,
-    IpSocket_Move, IpSocket_Release, IpSocket_Options, IpSocket_Nonblocking,
-    IpSocket_SendRecv, IpSocket_BindListenAccept);
+    Epoll_Move, Epoll_Release, Epoll_ControlWait, Epoll_WaitArray,
+    EventFd_Move, EventFd_Release, EventFd_NotifyRead,
+    EventFd_NonblockingEmptyRead, IpSocket_Move, IpSocket_Release,
+    IpSocket_Options, IpSocket_Nonblocking, IpSocket_SendRecv,
+    IpSocket_BindListenAccept);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
