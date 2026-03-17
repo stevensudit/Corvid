@@ -80,9 +80,9 @@ private:
 // the loop thread and handle I/O immediately, but may hand off work to a
 // thread pool, which uses `post()` to deliver results back.
 //
-// `stop()` is also thread-safe: it sets `running_` (a `notifiable<bool>`) and
-// writes to `wake_fd_` so the loop exits promptly even if blocked in
-// `epoll_wait`.
+// `stop()` is also thread-safe: it sets `running_` (a
+// `notifiable<std::atomic_bool>`) and writes to `wake_fd_` so the loop exits
+// promptly even if blocked in `epoll_wait`.
 //
 // `register_socket`, `unregister_socket`, `set_readable`, and `set_writable`
 // are NOT inherently thread-safe, but they automatically promote a call from
