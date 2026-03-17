@@ -23,6 +23,8 @@
 //  ipv6_addr   - IPv6 address type with construction, classification, and
 //                formatting
 //  ip_endpoint - IP address + port pair for IPv4 or IPv6
+//  epoll       - RAII Linux epoll handle with control and wait helpers
+//  event_fd    - RAII Linux eventfd handle with typed counter I/O
 //  ip_socket   - RAII socket handle with type-safe option methods
 //  dns_resolve - thin wrapper around `getaddrinfo` returning a list of
 //                `ip_endpoint` values
@@ -32,6 +34,8 @@
 #include "proto/ipv4_addr.h"
 #include "proto/ipv6_addr.h"
 #include "proto/ip_endpoint.h"
+#include "proto/epoll.h"
+#include "proto/event_fd.h"
 #include "proto/ip_socket.h"
 #include "proto/dns_resolve.h"
 #include "proto/io_loop.h"

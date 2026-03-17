@@ -130,7 +130,7 @@ public:
   }
 
   // Sets thread-local scope for arena.
-  class scope {
+  class [[nodiscard]] scope {
   public:
     explicit scope(extensible_arena& arena) noexcept : old_head{&arena.head_} {
       tls_head_ = &arena.head_;

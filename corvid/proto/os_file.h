@@ -20,10 +20,8 @@
 #include <utility>
 #include <csignal>
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 #include <fcntl.h>
 #include <unistd.h>
-#endif
 
 #include "../strings/no_zero.h"
 
@@ -33,23 +31,8 @@ using namespace corvid::strings::no_zero_funcs;
 
 namespace details {
 // Platform file handle type and invalid-handle sentinel.
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 using file_handle_t = int;
 constexpr file_handle_t invalid_file_handle = -1;
-
-// NOLINTBEGIN(bugprone-throwing-static-initialization)
-inline bool ignore_sigpipe_once = []() {
-  struct sigaction sa{};
-  sa.sa_handler = SIG_IGN;
-  ::sigemptyset(&sa.sa_mask);
-  return ::sigaction(SIGPIPE, &sa, nullptr) != 0;
-}();
-// NOLINTEND(bugprone-throwing-static-initialization)
-#else
-// Placeholder for non-POSIX platforms (e.g., Windows `HANDLE`).
-using file_handle_t = int;
-constexpr file_handle_t invalid_file_handle = -1;
-#endif
 } // namespace details
 
 // RAII wrapper around an OS file descriptor or handle.
@@ -60,7 +43,7 @@ constexpr file_handle_t invalid_file_handle = -1;
 // fd-level operations.
 //
 // Platform-specific code is isolated in a guarded section.
-class os_file {
+class [[nodiscard]] os_file {
 public:
   using file_handle_t = details::file_handle_t;
   static constexpr file_handle_t invalid_file_handle =
@@ -102,9 +85,7 @@ public:
     if (handle_ == invalid_file_handle) return false;
     const auto old_handle = handle_;
     handle_ = invalid_file_handle;
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     if (::close(old_handle) != 0) return false;
-#endif
     return true;
   }
 
@@ -118,48 +99,42 @@ public:
   // Write as much of `data` as possible to the file. On success, removes the
   // written prefix from `data` and returns true. On failure, leaves `data`
   // unchanged and returns false. A "soft" failure (e.g., EAGAIN) is treated
-  // as success with no progress. Note that we have disabled SIGPIPE, which
-  // could otherwise be triggered by the other side disconnecting.
+  // as success with no progress. Note that this call can invoke a SIGPIPE on
+  // broken pipes/sockets, so use `ip_socket::send` with MSG_NOSIGNAL instead.
   [[nodiscard]] bool write(std::string_view& data) const {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     if (data.empty()) return true;
 
     const ssize_t n = ::write(handle_, data.data(), data.size());
     if (n <= 0) return !is_hard_error();
 
     data.remove_prefix(static_cast<size_t>(n));
-#else
-    (void)data;
-#endif
     return true;
   }
 
   // Read up to `data.size()` bytes from the file into `data`. Use
-  // `no_zero::resize_to_cap` or `no_zero::enlarge_to` to get the desired size.
+  // `no_zero::enlarge_to_cap` or `no_zero::enlarge_to` to get the desired
+  // size.
   //
   // On success, resizes `data` to the number of bytes read and returns true. A
   // "soft" failure (e.g., EAGAIN) is treated as success with zero bytes read.
   // On EOF/disconnect, leaves `data` unchanged and returns false. On hard
   // failure, clears `data` and returns false.
   [[nodiscard]] bool read(std::string& data) const {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
     if (data.empty()) return true;
 
     // Read up to the current size.
+    // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
     const ssize_t n = ::read(handle_, data.data(), data.size());
 
     // EOF/disconnect. Return false without clearing `data`.
     if (n == 0) return false;
 
     // Update `data` to the size actually read.
-    no_zero::resize_to(data, static_cast<size_t>(std::max(n, ssize_t{0})));
+    no_zero::trim_to(data, n);
 
     // If retriable, treat as a success with nothing read, while a hard error
     // is a failure with `data` cleared.
     if (n < 0) return !is_hard_error();
-#else
-    (void)data;
-#endif
     return true;
   }
 
@@ -167,7 +142,6 @@ public:
   // Isolated here so that porting to a new OS requires changes only in this
   // guarded section and the platform header includes above.
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Invoke `fcntl(cmd, args...)` on the handle. Returns -1 on failure.
   template<typename... Args>
   [[nodiscard]] int control(int cmd, Args&&... args) const noexcept {
@@ -192,7 +166,6 @@ public:
     const int new_flags = on ? (*flags | O_NONBLOCK) : (*flags & ~O_NONBLOCK);
     return set_flags(new_flags);
   }
-#endif
 
   // Checks whether the last error was a hard error (true) or a soft error
   // (false).

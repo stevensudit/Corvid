@@ -18,28 +18,32 @@
 #include <optional>
 #include <utility>
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
-#endif
+
+#include "../enums/bool_enums.h"
 
 #include "ip_endpoint.h"
 #include "os_file.h"
 
 namespace corvid { inline namespace proto {
+using namespace bool_enums;
 
 // RAII IP socket with type-safe option methods.
 //
-// Owns an `os_file` handle; lifecycle management and fd-level operations are
-// delegated to it. Movable, non-copyable. Intended as a base class for
-// `tcp_socket` and `udp_socket`.
-class ip_socket {
+// `ip_socket` is-an `os_file`, adding socket-specific operations on top of
+// the shared fd ownership and control helpers. Movable, non-copyable.
+class [[nodiscard]] ip_socket: public os_file {
 public:
   using handle_t = os_file::file_handle_t;
   static constexpr handle_t invalid_handle = os_file::invalid_file_handle;
 
   ip_socket() noexcept = default;
+  ip_socket(int domain, int type, int protocol) noexcept
+      : os_file(::socket(domain, type, protocol)) {}
+  explicit ip_socket(os_file&& file) noexcept : os_file(std::move(file)) {}
+
   ip_socket(ip_socket&&) noexcept = default;
   ip_socket(const ip_socket&) = delete;
 
@@ -48,31 +52,28 @@ public:
 
   ~ip_socket() = default;
 
-  // True if the socket handle is valid.
-  [[nodiscard]] bool is_open() const noexcept { return file_.is_open(); }
-  explicit operator bool() const noexcept { return bool{file_}; }
-
-  // Access the underlying file.
-  [[nodiscard]] decltype(auto) file(this auto& self) noexcept {
-    return (self.file_);
-  }
-
   // Close the socket. Idempotent. Returns true when the socket was open and
   // is now closed, false if it could not be closed (likely because it already
   // was).
-  bool close() noexcept { return file_.close(); }
+  // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
+  bool close() noexcept { return os_file::close(); }
 
-  // Socket-specific option access and named helpers.
-  // Isolated here so that porting to a new OS requires changes only in this
-  // guarded section and the platform header includes above.
+  // Close the socket with the option to perform a forceful close (e.g., via
+  // `SO_LINGER` with a zero timeout).
+  bool close(close_mode mode) noexcept {
+    if (mode == close_mode::forceful && is_open())
+      set_option(SOL_SOCKET, SO_LINGER, linger{.l_onoff = 1, .l_linger = 0});
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+    return os_file::close();
+  }
+
   // Set a socket option. Returns true on success. Templated to infer
   // `sizeof(T)` automatically and hide the `reinterpret_cast` required by
   // the C `setsockopt` API; callers pass a typed value directly.
   template<typename T>
   bool set_option(int level, int optname, const T& value) noexcept {
-    return ::setsockopt(file_.handle(), level, optname,
+    assert(is_open());
+    return ::setsockopt(handle(), level, optname,
                reinterpret_cast<const char*>(&value),
                static_cast<socklen_t>(sizeof(T))) == 0;
   }
@@ -81,10 +82,11 @@ public:
   template<typename T>
   [[nodiscard]] std::optional<T>
   get_option(int level, int optname) const noexcept {
+    assert(is_open());
     T value{};
     socklen_t len = sizeof(T);
-    if (::getsockopt(file_.handle(), level, optname,
-            reinterpret_cast<char*>(&value), &len) != 0)
+    if (::getsockopt(handle(), level, optname, reinterpret_cast<char*>(&value),
+            &len) != 0)
       return std::nullopt;
     return value;
   }
@@ -119,80 +121,99 @@ public:
     return set_option(SOL_SOCKET, SO_SNDBUF, bytes);
   }
 
-  // Set non-blocking I/O mode (delegates to `os_file::set_nonblocking()`).
-  [[nodiscard]] bool set_nonblocking(bool on = true) noexcept {
-    return file_.set_nonblocking(on);
+  // Read up to `data.size()` bytes from the socket into `data`, honoring
+  // `flags` as in POSIX `recv()`.
+  //
+  // On success, resizes `data` to the number of bytes read and returns true. A
+  // "soft" failure (e.g., EAGAIN) is treated as success with zero bytes read.
+  // On EOF/disconnect, leaves `data` unchanged and returns false. On hard
+  // failure, clears `data` and returns false.
+  [[nodiscard]] bool recv(std::string& data, int flags = 0) const {
+    if (data.empty()) return true;
+
+    const ssize_t n = ::recv(handle(), data.data(), data.size(), flags);
+    if (n == 0) return false;
+
+    no_zero::trim_to(data, n);
+    if (n < 0) return !os_file::is_hard_error();
+    return true;
+  }
+
+  // Receive raw bytes into `buf`, forwarding directly to POSIX `recv()`.
+  [[nodiscard]] ssize_t recv(void* buf, size_t len, int flags) const noexcept {
+    assert(is_open());
+    return ::recv(handle(), buf, len, flags);
+  }
+
+  // Send as much of `data` as possible on the socket. On success, removes the
+  // written prefix from `data` and returns true. On failure, leaves `data`
+  // unchanged and returns false. A "soft" failure (e.g., EAGAIN) is treated
+  // as success with no progress.
+  [[nodiscard]] bool send(std::string_view& data) const noexcept {
+    if (data.empty()) return true;
+
+    const ssize_t n = send(data.data(), data.size());
+    if (n <= 0) return !os_file::is_hard_error();
+
+    data.remove_prefix(static_cast<size_t>(n));
+    return true;
+  }
+
+  // Send raw bytes from `buf`, forwarding to POSIX `send()`.
+  [[nodiscard]] ssize_t
+  send(const void* buf, size_t len, int flags = MSG_NOSIGNAL) const noexcept {
+    assert(is_open());
+    return ::send(handle(), buf, len, flags);
   }
 
   // Bind the socket to a local endpoint. Returns true on success.
   [[nodiscard]] bool bind(const ip_endpoint& ep) noexcept {
-    const auto sa = ep.to_sockaddr_storage();
-    const socklen_t len =
-        ep.is_v4() ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
-    return ::bind(file_.handle(), reinterpret_cast<const sockaddr*>(&sa),
-               len) == 0;
+    assert(is_open());
+    const auto [sa, len] = ep.as_sockaddr();
+    return ::bind(handle(), sa, len) == 0;
   }
 
   // Initiate a connection to `ep`. For non-blocking sockets, `EINPROGRESS`
   // is treated as success (the connection is in progress). Returns true on
   // success or when the connection is underway.
   [[nodiscard]] bool connect(const ip_endpoint& ep) noexcept {
-    const auto sa = ep.to_sockaddr_storage();
-    const socklen_t len =
-        ep.is_v4() ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
-    return ::connect(file_.handle(), reinterpret_cast<const sockaddr*>(&sa),
-               len) == 0 ||
-           errno == EINPROGRESS;
+    assert(is_open());
+    const auto [sa, len] = ep.as_sockaddr();
+    return ::connect(handle(), sa, len) == 0 || errno == EINPROGRESS;
   }
 
   // Mark the socket as passive and ready to accept connections. `backlog`
   // is the maximum pending connection queue length. Returns true on success.
   [[nodiscard]] bool listen(int backlog = SOMAXCONN) noexcept {
-    return ::listen(file_.handle(), backlog) == 0;
+    assert(is_open());
+    return ::listen(handle(), backlog) == 0;
   }
 
-  // Accept a pending connection. On Linux, the returned socket is created
-  // with `SOCK_CLOEXEC | SOCK_NONBLOCK` via `accept4`. Returns `std::nullopt`
-  // when no connection is available (`EAGAIN`/`EWOULDBLOCK`) or an error
-  // occurs.
+  // Shut down part of a full-duplex connection. `how` is one of `SHUT_RD`,
+  // `SHUT_WR`, or `SHUT_RDWR`. Returns true on success.
+  [[nodiscard]] bool shutdown(int how) noexcept {
+    assert(is_open());
+    return ::shutdown(handle(), how) == 0;
+  }
+
+  // Accept a pending connection. The returned socket is created with
+  // `SOCK_CLOEXEC | SOCK_NONBLOCK` via `accept4`. Returns `std::nullopt` when
+  // no connection is available (`EAGAIN`/`EWOULDBLOCK`) or an error occurs.
   [[nodiscard]] std::optional<std::pair<ip_socket, ip_endpoint>>
   accept() noexcept {
+    assert(is_open());
     sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
-#ifdef __linux__
-    const int fd = ::accept4(file_.handle(),
-        reinterpret_cast<sockaddr*>(&addr), &len,
-        SOCK_CLOEXEC | SOCK_NONBLOCK);
-#else
-    const int fd =
-        ::accept(file_.handle(), reinterpret_cast<sockaddr*>(&addr), &len);
-#endif
+    const int fd = ::accept4(handle(), reinterpret_cast<sockaddr*>(&addr),
+        &len, SOCK_CLOEXEC | SOCK_NONBLOCK);
     if (fd < 0) return std::nullopt;
     ip_endpoint peer;
     if (addr.ss_family == AF_INET)
       peer = ip_endpoint{*reinterpret_cast<const sockaddr_in*>(&addr)};
     else if (addr.ss_family == AF_INET6)
       peer = ip_endpoint{*reinterpret_cast<const sockaddr_in6*>(&addr)};
-    return std::pair{ip_socket{fd}, peer};
+    return std::pair{ip_socket{os_file{fd}}, peer};
   }
-#endif
-
-protected:
-  // Construct from an existing native handle; takes ownership.
-  explicit ip_socket(handle_t handle) noexcept : file_{handle} {}
-
-  // Create a new socket via `::socket(domain, type, protocol)`. On failure,
-  // `file_` remains invalid.
-  static auto make_ip_socket(int domain, int type, int protocol) noexcept {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
-    return ::socket(domain, type, protocol);
-#else
-    return os_file::invalid_file_handle;
-#endif
-  }
-
-private:
-  os_file file_;
 };
 
 }} // namespace corvid::proto

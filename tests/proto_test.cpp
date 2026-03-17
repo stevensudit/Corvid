@@ -17,16 +17,12 @@
 
 #include "../corvid/proto.h"
 #include "minitest.h"
+#include <type_traits>
+#include <atomic>
+#include <chrono>
+#include <thread>
 
 using namespace corvid;
-
-// Exposes `ip_socket`'s protected constructors for testing.
-struct test_socket: ip_socket {
-  test_socket() = default;
-  explicit test_socket(handle_t h) : ip_socket(h) {}
-  test_socket(int domain, int type, int protocol)
-      : ip_socket(ip_socket::make_ip_socket(domain, type, protocol)) {}
-};
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
@@ -223,7 +219,6 @@ void Ipv4Addr_Formatting() {
 }
 
 void Ipv4Addr_PosixInterop() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   ipv4_addr a{192, 168, 1, 1};
 
   // Convert to `in_addr` and back.
@@ -234,7 +229,6 @@ void Ipv4Addr_PosixInterop() {
   // Verify network byte order: 192.168.1.1 = 0xc0a80101 in host order,
   // so `s_addr` should be 0x0101a8c0 on a little-endian host.
   EXPECT_EQ(ntohl(raw.s_addr), a.to_uint32());
-#endif
 }
 
 void Ipv6Addr_Construction() {
@@ -376,7 +370,6 @@ void Ipv6Addr_Formatting() {
 }
 
 void Ipv6Addr_PosixInterop() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   ipv6_addr a{0x2001, 0xdb8, 0, 0, 0, 0, 0, 1};
 
   in6_addr raw = a.to_in6_addr();
@@ -385,7 +378,6 @@ void Ipv6Addr_PosixInterop() {
   EXPECT_EQ(raw.s6_addr[0], 0x20U);
   EXPECT_EQ(raw.s6_addr[1], 0x01U);
   EXPECT_EQ(raw.s6_addr[15], 0x01U);
-#endif
 }
 
 void IpEndpoint_Construction() {
@@ -457,14 +449,13 @@ void IpEndpoint_Formatting() {
 }
 
 void IpEndpoint_PosixInterop() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   if (true) {
     ip_endpoint ep{ipv4_addr(192, 168, 1, 2), 1234};
-    auto raw = ep.to_sockaddr_in();
+    auto raw = ep.as_sockaddr_in();
     ip_endpoint roundtrip{raw};
     EXPECT_EQ(roundtrip, ep);
 
-    auto storage = ep.to_sockaddr_storage();
+    auto storage = ep.as_sockaddr_storage();
     auto* as_v4 = reinterpret_cast<const sockaddr_in*>(&storage);
     EXPECT_EQ(as_v4->sin_family, AF_INET);
     EXPECT_EQ(ntohs(as_v4->sin_port), 1234U);
@@ -472,100 +463,410 @@ void IpEndpoint_PosixInterop() {
 
   if (true) {
     ip_endpoint ep{ipv6_addr(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1), 4321};
-    auto raw = ep.to_sockaddr_in6();
+    auto raw = ep.as_sockaddr_in6();
     ip_endpoint roundtrip{raw};
     EXPECT_EQ(roundtrip, ep);
 
-    auto storage = ep.to_sockaddr_storage();
+    auto storage = ep.as_sockaddr_storage();
     auto* as_v6 = reinterpret_cast<const sockaddr_in6*>(&storage);
     EXPECT_EQ(as_v6->sin6_family, AF_INET6);
     EXPECT_EQ(ntohs(as_v6->sin6_port), 4321U);
   }
-#endif
+}
+
+// Helper: create a non-blocking pipe and wrap each end in an `os_file`.
+std::pair<os_file, os_file> make_nb_pipe() {
+  int fds[2];
+  if (::pipe2(fds, O_CLOEXEC | O_NONBLOCK) != 0)
+    throw std::system_error(errno, std::generic_category(), "pipe2");
+  return {os_file{fds[0]}, os_file{fds[1]}};
+}
+
+void OsFile_Lifecycle() {
+  // Default-constructed file is invalid.
+  if (true) {
+    os_file f;
+    EXPECT_FALSE(f.is_open());
+    EXPECT_FALSE(static_cast<bool>(f));
+    EXPECT_EQ(f.handle(), os_file::invalid_file_handle);
+    EXPECT_FALSE(f.close());
+  }
+
+  // An adopted file handle is open; closing it twice is idempotent.
+  if (true) {
+    auto [reader, writer] = make_nb_pipe();
+    EXPECT_TRUE(reader.is_open());
+    EXPECT_TRUE(static_cast<bool>(reader));
+    EXPECT_NE(reader.handle(), os_file::invalid_file_handle);
+    EXPECT_TRUE(reader.close());
+    EXPECT_FALSE(reader.is_open());
+    EXPECT_FALSE(reader.close());
+  }
+
+  // Destructor closes an open file (no crash or leak).
+  if (true) {
+    auto [reader, writer] = make_nb_pipe();
+    (void)writer;
+  }
+}
+
+void OsFile_Move() {
+  // Move constructor transfers ownership; source becomes invalid.
+  if (true) {
+    auto [reader, writer] = make_nb_pipe();
+    const auto h = reader.handle();
+    os_file moved{std::move(reader)};
+    EXPECT_FALSE(reader.is_open());
+    EXPECT_TRUE(moved.is_open());
+    EXPECT_EQ(moved.handle(), h);
+  }
+
+  // Move assignment closes the destination and transfers the source.
+  if (true) {
+    auto [reader_a, writer_a] = make_nb_pipe();
+    auto [reader_b, writer_b] = make_nb_pipe();
+    const auto h = reader_a.handle();
+    reader_b = std::move(reader_a);
+    EXPECT_FALSE(reader_a.is_open());
+    EXPECT_TRUE(reader_b.is_open());
+    EXPECT_EQ(reader_b.handle(), h);
+  }
+
+  // Self-assignment is a no-op.
+  if (true) {
+    auto [reader, writer] = make_nb_pipe();
+    const auto h = reader.handle();
+    auto* p = &reader;
+    reader = std::move(*p);
+    EXPECT_TRUE(reader.is_open());
+    EXPECT_EQ(reader.handle(), h);
+  }
+}
+
+void OsFile_ReleaseFlags() {
+  // `release()` yields the handle without closing it; file becomes invalid.
+  if (true) {
+    auto [reader, writer] = make_nb_pipe();
+    const auto h = reader.release();
+    EXPECT_NE(h, os_file::invalid_file_handle);
+    EXPECT_FALSE(reader.is_open());
+    ::close(h);
+  }
+
+  // Flag helpers round-trip non-blocking mode through `fcntl`.
+  if (true) {
+    auto [reader, writer] = make_nb_pipe();
+    auto flags = reader.get_flags();
+    EXPECT_TRUE(flags.has_value());
+    EXPECT_TRUE(*flags & O_NONBLOCK);
+
+    EXPECT_TRUE(reader.set_nonblocking(false));
+    flags = reader.get_flags();
+    EXPECT_TRUE(flags.has_value());
+    EXPECT_FALSE(*flags & O_NONBLOCK);
+
+    EXPECT_TRUE(reader.set_nonblocking(true));
+    flags = reader.get_flags();
+    EXPECT_TRUE(flags.has_value());
+    EXPECT_TRUE(*flags & O_NONBLOCK);
+  }
+}
+
+void OsFile_WriteRead() {
+  auto [reader, writer] = make_nb_pipe();
+
+  // A small write drains fully and the read side sees the same bytes.
+  auto msg = std::string_view{"hello"};
+  EXPECT_TRUE(writer.write(msg));
+  EXPECT_TRUE(msg.empty());
+
+  std::string buf;
+  no_zero::enlarge_to(buf, 16);
+  EXPECT_TRUE(reader.read(buf));
+  EXPECT_EQ(buf, "hello");
+
+  // An empty non-blocking read is a soft failure: success with no bytes read.
+  no_zero::enlarge_to(buf, 16);
+  EXPECT_TRUE(reader.read(buf));
+  EXPECT_TRUE(buf.empty());
+  EXPECT_EQ(errno, EAGAIN);
+
+  // EOF leaves the caller's buffer unchanged and returns false.
+  EXPECT_TRUE(writer.close());
+  buf = "sentinel";
+  EXPECT_FALSE(reader.read(buf));
+  EXPECT_EQ(buf, "sentinel");
 }
 
 void IpSocket_Lifecycle() {
   // Default-constructed socket is invalid.
   if (true) {
-    test_socket s;
+    ip_socket s;
     EXPECT_FALSE(s.is_open());
     EXPECT_FALSE(static_cast<bool>(s));
-    EXPECT_EQ(s.file().handle(), ip_socket::invalid_handle);
+    EXPECT_EQ(s.handle(), ip_socket::invalid_handle);
     EXPECT_FALSE(s.close());
   }
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // A real socket is open; closing it twice is idempotent.
   if (true) {
-    test_socket s{AF_INET, SOCK_STREAM, 0};
+    ip_socket s{AF_INET, SOCK_STREAM, 0};
     EXPECT_TRUE(s.is_open());
     EXPECT_TRUE(static_cast<bool>(s));
-    EXPECT_NE(s.file().handle(), ip_socket::invalid_handle);
+    EXPECT_NE(s.handle(), ip_socket::invalid_handle);
     EXPECT_TRUE(s.close());
     EXPECT_FALSE(s.is_open());
     EXPECT_FALSE(s.close());
   }
 
   // Destructor closes an open socket (no crash or leak).
-  if (true) { test_socket s{AF_INET, SOCK_STREAM, 0}; }
-#endif
+  if (true) { ip_socket s{AF_INET, SOCK_STREAM, 0}; }
 }
 
-void IpSocket_Move() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+void EventFd_Lifecycle() {
+  // Default-constructed eventfd is invalid.
+  if (true) {
+    event_fd e;
+    EXPECT_FALSE(e.is_open());
+    EXPECT_FALSE(static_cast<bool>(e));
+    EXPECT_EQ(e.handle(), event_fd::invalid_handle);
+    EXPECT_FALSE(e.close());
+  }
+
+  // A real eventfd is open; closing it twice is idempotent.
+  if (true) {
+    event_fd e{0};
+    EXPECT_TRUE(e.is_open());
+    EXPECT_TRUE(static_cast<bool>(e));
+    EXPECT_NE(e.handle(), event_fd::invalid_handle);
+    EXPECT_TRUE(e.close());
+    EXPECT_FALSE(e.is_open());
+    EXPECT_FALSE(e.close());
+  }
+
+  // Destructor closes an open eventfd (no crash or leak).
+  if (true) { event_fd e{0}; }
+}
+
+void Epoll_Lifecycle() {
+  // Default-constructed epoll handle is invalid.
+  if (true) {
+    epoll p;
+    EXPECT_FALSE(p.is_open());
+    EXPECT_FALSE(static_cast<bool>(p));
+    EXPECT_EQ(p.handle(), epoll::invalid_handle);
+    EXPECT_FALSE(p.close());
+  }
+
+  // A real epoll instance is open; closing it twice is idempotent.
+  if (true) {
+    epoll p{epoll::default_flags};
+    EXPECT_TRUE(p.is_open());
+    EXPECT_TRUE(static_cast<bool>(p));
+    EXPECT_NE(p.handle(), epoll::invalid_handle);
+    EXPECT_TRUE(p.close());
+    EXPECT_FALSE(p.is_open());
+    EXPECT_FALSE(p.close());
+  }
+
+  // Destructor closes an open epoll fd (no crash or leak).
+  if (true) { epoll p{epoll::default_flags}; }
+}
+
+void Epoll_Move() {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
-    test_socket a{AF_INET, SOCK_STREAM, 0};
-    const auto h = a.file().handle();
-    test_socket b{std::move(a)};
+    epoll a{epoll::default_flags};
+    const auto h = a.handle();
+    epoll b{std::move(a)};
     EXPECT_FALSE(a.is_open());
     EXPECT_TRUE(b.is_open());
-    EXPECT_EQ(b.file().handle(), h);
+    EXPECT_EQ(b.handle(), h);
   }
 
   // Move assignment closes the destination and transfers the source.
   if (true) {
-    test_socket a{AF_INET, SOCK_STREAM, 0};
-    test_socket b{AF_INET, SOCK_STREAM, 0};
-    const auto h = a.file().handle();
+    epoll a{epoll::default_flags};
+    epoll b{epoll::default_flags};
+    const auto h = a.handle();
     b = std::move(a);
     EXPECT_FALSE(a.is_open());
     EXPECT_TRUE(b.is_open());
-    EXPECT_EQ(b.file().handle(), h);
+    EXPECT_EQ(b.handle(), h);
   }
 
   // Self-assignment is a no-op.
   if (true) {
-    test_socket a{AF_INET, SOCK_STREAM, 0};
-    const auto h = a.file().handle();
+    epoll a{epoll::default_flags};
+    const auto h = a.handle();
+    auto* p = &a;
+    a = std::move(*p);
+    EXPECT_TRUE(a.is_open());
+    EXPECT_EQ(a.handle(), h);
+  }
+}
+
+void Epoll_Release() {
+  // `release()` yields the handle without closing it; epoll becomes invalid.
+  if (true) {
+    epoll p{epoll::default_flags};
+    const auto h = p.release();
+    EXPECT_NE(h, epoll::invalid_handle);
+    EXPECT_FALSE(p.is_open());
+    ::close(h);
+  }
+}
+
+void Epoll_ControlWait() {
+  event_fd e{0};
+  epoll p{epoll::default_flags};
+
+  epoll_event add_ev{.events = EPOLLIN,
+      .data = epoll_data_t{.fd = e.handle()}};
+  EXPECT_TRUE(p.add(e.handle(), add_ev));
+
+  EXPECT_TRUE(e.notify(3));
+
+  epoll_event events[1]{};
+  ASSERT_EQ(p.wait(events, 1, 0), 1);
+  EXPECT_EQ(events[0].data.fd, e.handle());
+  EXPECT_TRUE(events[0].events & EPOLLIN);
+
+  auto value = e.read();
+  EXPECT_TRUE(value.has_value());
+  EXPECT_EQ(*value, 3U);
+
+  epoll_event mod_ev{.events = EPOLLOUT,
+      .data = epoll_data_t{.fd = e.handle()}};
+  EXPECT_TRUE(p.modify(e.handle(), mod_ev));
+  EXPECT_TRUE(p.remove(e.handle()));
+  EXPECT_EQ(p.wait(events, 1, 0), 0);
+}
+
+void EventFd_Move() {
+  // Move constructor transfers ownership; source becomes invalid.
+  if (true) {
+    event_fd a{0};
+    const auto h = a.handle();
+    event_fd b{std::move(a)};
+    EXPECT_FALSE(a.is_open());
+    EXPECT_TRUE(b.is_open());
+    EXPECT_EQ(b.handle(), h);
+  }
+
+  // Move assignment closes the destination and transfers the source.
+  if (true) {
+    event_fd a{0};
+    event_fd b{0};
+    const auto h = a.handle();
+    b = std::move(a);
+    EXPECT_FALSE(a.is_open());
+    EXPECT_TRUE(b.is_open());
+    EXPECT_EQ(b.handle(), h);
+  }
+
+  // Self-assignment is a no-op.
+  if (true) {
+    event_fd a{0};
+    const auto h = a.handle();
+    auto* p = &a;
+    a = std::move(*p);
+    EXPECT_TRUE(a.is_open());
+    EXPECT_EQ(a.handle(), h);
+  }
+}
+
+void EventFd_Release() {
+  // `release()` yields the handle without closing it; eventfd becomes invalid.
+  if (true) {
+    event_fd e{0};
+    const auto h = e.release();
+    EXPECT_NE(h, event_fd::invalid_handle);
+    EXPECT_FALSE(e.is_open());
+    ::close(h);
+  }
+}
+
+void EventFd_NotifyRead() {
+  // Writes accumulate and a read returns the total while resetting to zero.
+  if (true) {
+    event_fd e{0};
+    EXPECT_TRUE(e.notify());
+    EXPECT_TRUE(e.notify(4));
+
+    auto value = e.read();
+    EXPECT_TRUE(value.has_value());
+    EXPECT_EQ(*value, 5U);
+  }
+
+  // The out-parameter overload returns the current counter value.
+  if (true) {
+    event_fd e{7};
+    event_fd::counter_t value = 0;
+    EXPECT_TRUE(e.read(value));
+    EXPECT_EQ(value, 7U);
+  }
+}
+
+void EventFd_NonblockingEmptyRead() {
+  // Default-created eventfds are non-blocking, so an empty read returns
+  // nullopt.
+  event_fd e{0};
+  auto value = e.read();
+  EXPECT_FALSE(value.has_value());
+  EXPECT_EQ(errno, EAGAIN);
+}
+
+void IpSocket_Move() {
+  // Move constructor transfers ownership; source becomes invalid.
+  if (true) {
+    ip_socket a{AF_INET, SOCK_STREAM, 0};
+    const auto h = a.handle();
+    ip_socket b{std::move(a)};
+    EXPECT_FALSE(a.is_open());
+    EXPECT_TRUE(b.is_open());
+    EXPECT_EQ(b.handle(), h);
+  }
+
+  // Move assignment closes the destination and transfers the source.
+  if (true) {
+    ip_socket a{AF_INET, SOCK_STREAM, 0};
+    ip_socket b{AF_INET, SOCK_STREAM, 0};
+    const auto h = a.handle();
+    b = std::move(a);
+    EXPECT_FALSE(a.is_open());
+    EXPECT_TRUE(b.is_open());
+    EXPECT_EQ(b.handle(), h);
+  }
+
+  // Self-assignment is a no-op.
+  if (true) {
+    ip_socket a{AF_INET, SOCK_STREAM, 0};
+    const auto h = a.handle();
     // Route through a pointer to defeat -Wself-move while still exercising
     // the self-assignment path.
     auto* p = &a;
     a = std::move(*p);
     EXPECT_TRUE(a.is_open());
-    EXPECT_EQ(a.file().handle(), h);
+    EXPECT_EQ(a.handle(), h);
   }
-#endif
 }
 
 void IpSocket_Release() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // `release()` yields the handle without closing it; socket becomes invalid.
   if (true) {
-    test_socket s{AF_INET, SOCK_STREAM, 0};
-    const auto h = s.file().release();
+    ip_socket s{AF_INET, SOCK_STREAM, 0};
+    const auto h = s.release();
     EXPECT_NE(h, ip_socket::invalid_handle);
     EXPECT_FALSE(s.is_open());
     ::close(h);
   }
-#endif
 }
 
 void IpSocket_Options() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Named option helpers round-trip through `get_option`.
   if (true) {
-    test_socket s{AF_INET, SOCK_STREAM, 0};
+    ip_socket s{AF_INET, SOCK_STREAM, 0};
 
     EXPECT_TRUE(s.set_reuse_addr(true));
     auto v = s.get_option<int>(SOL_SOCKET, SO_REUSEADDR);
@@ -584,7 +885,7 @@ void IpSocket_Options() {
 
   // Buffer size helpers: kernel may round up, so just verify >= requested.
   if (true) {
-    test_socket s{AF_INET, SOCK_STREAM, 0};
+    ip_socket s{AF_INET, SOCK_STREAM, 0};
     EXPECT_TRUE(s.set_recv_buffer_size(65536));
     EXPECT_TRUE(s.set_send_buffer_size(65536));
     auto r = s.get_option<int>(SOL_SOCKET, SO_RCVBUF);
@@ -594,27 +895,47 @@ void IpSocket_Options() {
     EXPECT_TRUE(t.has_value());
     EXPECT_GE(*t, 65536);
   }
-#endif
 }
 
 void IpSocket_Nonblocking() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   if (true) {
-    test_socket s{AF_INET, SOCK_STREAM, 0};
+    ip_socket s{AF_INET, SOCK_STREAM, 0};
 
-    EXPECT_TRUE(s.file().set_nonblocking(true));
-    EXPECT_TRUE(s.file().get_flags().value_or(0) & O_NONBLOCK);
+    EXPECT_TRUE(s.set_nonblocking(true));
+    EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
 
-    EXPECT_TRUE(s.file().set_nonblocking(false));
-    EXPECT_FALSE(s.file().get_flags().value_or(0) & O_NONBLOCK);
+    EXPECT_TRUE(s.set_nonblocking(false));
+    EXPECT_FALSE(s.get_flags().value_or(0) & O_NONBLOCK);
   }
-#endif
+}
+
+void IpSocket_SendRecv() {
+  int fds[2];
+  ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+  ip_socket a{os_file{fds[0]}};
+  ip_socket b{os_file{fds[1]}};
+
+  auto msg = std::string_view{"hello"};
+  EXPECT_TRUE(a.send(msg));
+  EXPECT_TRUE(msg.empty());
+
+  std::string buf(16, '\0');
+  EXPECT_TRUE(b.recv(buf));
+  EXPECT_EQ(buf, "hello");
+
+  constexpr char raw_msg[] = "raw";
+  EXPECT_EQ(a.send(raw_msg, sizeof(raw_msg) - 1), 3);
+
+  char raw_buf[8]{};
+  EXPECT_EQ(b.recv(raw_buf, sizeof(raw_buf), 0), 3);
+  const auto raw_view = std::string_view{raw_buf, 3};
+  EXPECT_EQ(raw_view, "raw");
 }
 
 void IpSocket_BindListenAccept() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Bind a listening socket to a free loopback port.
-  test_socket listener{AF_INET, SOCK_STREAM, 0};
+  ip_socket listener{AF_INET, SOCK_STREAM, 0};
   EXPECT_TRUE(listener.is_open());
   EXPECT_TRUE(listener.set_reuse_addr());
   EXPECT_TRUE(listener.bind(ip_endpoint{ipv4_addr::loopback(), 0}));
@@ -623,14 +944,14 @@ void IpSocket_BindListenAccept() {
   // Retrieve the OS-assigned port via `getsockname`.
   sockaddr_in bound{};
   socklen_t bound_len = sizeof(bound);
-  EXPECT_EQ(::getsockname(listener.file().handle(),
+  EXPECT_EQ(::getsockname(listener.handle(),
                 reinterpret_cast<sockaddr*>(&bound), &bound_len),
       0);
   const uint16_t port = ntohs(bound.sin_port);
   EXPECT_NE(port, 0U);
 
   // Connect a client to the listening socket.
-  test_socket client{AF_INET, SOCK_STREAM, 0};
+  ip_socket client{AF_INET, SOCK_STREAM, 0};
   EXPECT_TRUE(client.is_open());
   EXPECT_TRUE(client.connect(ip_endpoint{ipv4_addr::loopback(), port}));
 
@@ -640,11 +961,9 @@ void IpSocket_BindListenAccept() {
   EXPECT_TRUE(result->first.is_open());
   EXPECT_TRUE(result->second.is_v4());
   EXPECT_TRUE(result->second.v4()->is_loopback());
-#endif
 }
 
 void DnsResolve_NumericIPv4() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Numeric IPv4 addresses are resolved without a DNS lookup.
   auto result = dns_resolver::find_all("127.0.0.1", 80);
   EXPECT_FALSE(result.empty());
@@ -653,11 +972,9 @@ void DnsResolve_NumericIPv4() {
     if (ep.is_v4() && ep.v4()->is_loopback() && ep.port() == 80) found = true;
   }
   EXPECT_TRUE(found);
-#endif
 }
 
 void DnsResolve_NumericIPv6() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Numeric IPv6 addresses are resolved without a DNS lookup.
   auto result = dns_resolver::find_all("::1", 443, AF_INET6);
   EXPECT_FALSE(result.empty());
@@ -666,11 +983,9 @@ void DnsResolve_NumericIPv6() {
     if (ep.is_v6() && ep.v6()->is_loopback() && ep.port() == 443) found = true;
   }
   EXPECT_TRUE(found);
-#endif
 }
 
 void DnsResolve_Localhost() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // "localhost" is defined in /etc/hosts on all major POSIX systems.
   auto result = dns_resolver::find_all("localhost", 8080);
   EXPECT_FALSE(result.empty());
@@ -684,11 +999,9 @@ void DnsResolve_Localhost() {
       found = true;
   }
   EXPECT_TRUE(found);
-#endif
 }
 
 void DnsResolve_FamilyFilter() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // With `AF_INET`, every result must be an IPv4 endpoint.
   auto v4 = dns_resolver::find_all("localhost", 80, AF_INET);
   for (const auto& ep : v4) EXPECT_TRUE(ep.is_v4());
@@ -696,53 +1009,47 @@ void DnsResolve_FamilyFilter() {
   // With `AF_INET6`, every result must be an IPv6 endpoint.
   auto v6 = dns_resolver::find_all("localhost", 80, AF_INET6);
   for (const auto& ep : v6) EXPECT_TRUE(ep.is_v6());
-#endif
 }
 
 void DnsResolve_InvalidHost() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // The `.invalid` TLD (RFC 2606) must not resolve.
   auto result = dns_resolver::find_all("no-such-host.invalid", 80);
   EXPECT_TRUE(result.empty());
-#endif
 }
 
 void DnsResolveOne_Success() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // Numeric loopback resolves to exactly one endpoint with the right port.
   const auto ep = dns_resolver::find_one("127.0.0.1", 80);
   EXPECT_TRUE(ep.is_v4());
   EXPECT_EQ(ep.port(), 80U);
-#endif
 }
 
 void DnsResolveOne_Failure() {
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
   // An unresolvable host returns a default-constructed (invalid) endpoint.
   const auto ep = dns_resolver::find_one("no-such-host.invalid", 80);
   EXPECT_EQ(ep, ip_endpoint{});
-#endif
 }
 
-// Helper: create a connected socketpair and wrap each end in a `test_socket`.
-// Caller must close both sockets when done (RAII via test_socket destructor).
+// Helper: create a connected socketpair and wrap each end in an `ip_socket`.
+// Caller must close both sockets when done (RAII via `ip_socket` destructor).
 // Plain struct (not `std::pair`) so structured bindings use direct member
 // access rather than `std::tuple_element<>::type`.
-#ifdef __linux__
 struct sockpair_t {
-  test_socket a;
-  test_socket b;
+  ip_socket a;
+  ip_socket b;
 };
 // Make a pair of connected sockets, in non-blocking mode.
 static sockpair_t make_nb_sockpair() {
   int fds[2];
   if (::socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, fds) != 0)
     return {};
-  return {test_socket{fds[0]}, test_socket{fds[1]}};
+  return {ip_socket{os_file{fds[0]}}, ip_socket{os_file{fds[1]}}};
 }
 
 // Minimal `io_conn` that counts how many times each virtual is called.
 struct counting_conn: io_conn {
+  using io_conn::io_conn;
+
   int readable = 0;
   int writable = 0;
   int error = 0;
@@ -750,19 +1057,17 @@ struct counting_conn: io_conn {
   void on_writable() override { ++writable; }
   void on_error() override { ++error; }
 };
-#endif
 
 void IoLoop_Lifecycle() {
-#ifdef __linux__
   // Construction succeeds; an empty poll returns 0 events.
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   EXPECT_EQ(loop.run_once(0), 0);
-#endif
 }
 
 void IoLoop_Post() {
-#ifdef __linux__
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
 
   int fired = 0;
   loop.post([&] { ++fired; });
@@ -771,116 +1076,266 @@ void IoLoop_Post() {
   // I/O events.
   loop.run_once(0);
   EXPECT_EQ(fired, 1);
-#endif
+}
+
+void IoLoop_PreStartWorkIsQueued() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  EXPECT_TRUE(loop.is_loop_thread());
+
+  auto conn = std::make_shared<counting_conn>(std::move(a));
+  EXPECT_TRUE(loop.register_socket(conn, false, false));
+  EXPECT_FALSE(loop.register_socket(conn, false, false));
+
+  auto msg_view = std::string_view{"hi"};
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  EXPECT_EQ(conn->readable, 0);
+
+  // The first pump drains the queued registration work, but read interest is
+  // still disabled so the buffered data should remain undispatched.
+  EXPECT_EQ(loop.run_once(0), 0);
+  EXPECT_EQ(conn->readable, 0);
+
+  EXPECT_TRUE(loop.set_readable(conn->sock(), true));
+  EXPECT_EQ(loop.run_once(0), 1);
+  EXPECT_EQ(conn->readable, 1);
 }
 
 // `register_socket` dispatches `on_readable` via virtual `io_conn` override;
 // `unregister_socket` stops further dispatch. Double-register and
 // double-unregister both return false.
 void IoLoop_RegisterUnregister() {
-#ifdef __linux__
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
-  auto conn = std::make_shared<counting_conn>();
-
-  EXPECT_TRUE(loop.register_socket(a, conn));
-  EXPECT_FALSE(loop.register_socket(a, conn)); // already registered
+  auto conn = std::make_shared<counting_conn>(std::move(a));
+  EXPECT_TRUE(loop.register_socket(conn));
 
   auto msg_view = std::string_view{"hi"};
-  EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
 
   EXPECT_EQ(loop.run_once(0), 1);
   EXPECT_EQ(conn->readable, 1);
   EXPECT_EQ(conn->writable, 0);
   EXPECT_EQ(conn->error, 0);
 
-  // Drain the data so the fd is no longer readable.
+  // Drain the data from the registered socket so the fd is no longer readable.
   std::string buf(8, '\0');
-  (void)a.file().read(buf);
+  (void)conn->sock().read(buf);
 
-  EXPECT_TRUE(loop.unregister_socket(a));
-  EXPECT_FALSE(loop.unregister_socket(a)); // already removed
+  EXPECT_TRUE(loop.unregister_socket(conn->sock()));
+  EXPECT_FALSE(loop.unregister_socket(conn->sock())); // already removed
 
   // No events after unregistering.
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->readable, 1);
-#endif
 }
 
 // `set_writable(true)` arms `EPOLLOUT`; the kernel fires it when the kernel
 // send buffer has space, which it does immediately on a fresh socketpair.
 void IoLoop_SetWritable() {
-#ifdef __linux__
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
-  auto conn = std::make_shared<counting_conn>();
-  (void)loop.register_socket(a, conn);
+  auto conn = std::make_shared<counting_conn>(std::move(a));
+  EXPECT_TRUE(loop.register_socket(conn));
 
   // `EPOLLOUT` is not initially armed; no writable event.
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->writable, 0);
 
-  loop.set_writable(a, true);
+  loop.set_writable(conn->sock(), true);
   EXPECT_EQ(loop.run_once(0), 1);
   EXPECT_GE(conn->writable, 1);
 
   // Disarm; no further writable events.
-  loop.set_writable(a, false);
+  loop.set_writable(conn->sock(), false);
   const int w = conn->writable;
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->writable, w);
-#endif
+}
+
+void IoLoop_SetReadable() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  auto conn = std::make_shared<counting_conn>(std::move(a));
+  EXPECT_TRUE(loop.register_socket(conn, false, false));
+
+  auto first = std::string_view{"hi"};
+  EXPECT_TRUE(b.send(first) && first.empty());
+
+  EXPECT_EQ(loop.run_once(0), 0);
+  EXPECT_EQ(conn->readable, 0);
+  EXPECT_EQ(conn->writable, 0);
+
+  EXPECT_TRUE(loop.set_readable(conn->sock(), true));
+  EXPECT_EQ(loop.run_once(0), 1);
+  EXPECT_EQ(conn->readable, 1);
+  EXPECT_EQ(conn->writable, 0);
+
+  std::string buf(8, '\0');
+  (void)conn->sock().read(buf);
+
+  EXPECT_TRUE(loop.set_readable(conn->sock(), false));
+  EXPECT_TRUE(loop.set_writable(conn->sock(), true));
+  EXPECT_EQ(loop.run_once(0), 1);
+  EXPECT_EQ(conn->readable, 1);
+  EXPECT_GE(conn->writable, 1);
 }
 
 // When `EPOLLERR` or `EPOLLHUP` fires together with `EPOLLOUT`, `on_error` is
 // called but `on_writable` is skipped (the early-return path in
 // `dispatch_event`).
 void IoLoop_ErrorSkipsWritable() {
-#ifdef __linux__
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
-  auto conn = std::make_shared<counting_conn>();
-  (void)loop.register_socket(a, conn);
-  loop.set_writable(a, true); // arm EPOLLOUT
+  auto conn = std::make_shared<counting_conn>(std::move(a));
+  EXPECT_TRUE(loop.register_socket(conn));
+  loop.set_writable(conn->sock(), true); // arm EPOLLOUT
 
   b.close(); // triggers EPOLLHUP on `a`
 
   loop.run_once(0);
   EXPECT_EQ(conn->error, 1);
   EXPECT_EQ(conn->writable, 0); // must not fire when error/hup is reported
-#endif
 }
 
 // The default `io_conn::on_error()` implementation falls through to
 // `on_readable()`. Verify this by registering a subclass that overrides only
 // `on_readable` and confirming it is called when the peer closes.
 void IoLoop_DefaultOnError() {
-#ifdef __linux__
   struct readable_only_conn: io_conn {
+    using io_conn::io_conn;
     int readable = 0;
     void on_readable() override { ++readable; }
     // on_error not overridden; default calls on_readable()
   };
 
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
-  auto conn = std::make_shared<readable_only_conn>();
-  (void)loop.register_socket(a, conn);
+  auto conn = std::make_shared<readable_only_conn>(std::move(a));
+  EXPECT_TRUE(loop.register_socket(conn));
 
   b.close(); // EPOLLHUP -> default on_error() -> on_readable()
   loop.run_once(0);
 
   EXPECT_GE(conn->readable, 1);
-#endif
+}
+
+void IoLoop_IsLoopThreadIsPerLoop() {
+  io_loop loop_a;
+  io_loop loop_b;
+  auto loop_b_scope = loop_b.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+  auto conn = std::make_shared<counting_conn>(std::move(a));
+
+  std::atomic_bool first_result{false};
+  std::atomic_bool second_result{false};
+
+  std::thread loop_thread{[&] { loop_a.run(10); }};
+  EXPECT_TRUE(loop_a.wait_until_running(1000));
+
+  loop_a.post([&] {
+    first_result = loop_b.register_socket(conn, false, false);
+    second_result = loop_b.register_socket(conn, false, false);
+    loop_a.stop();
+  });
+  loop_thread.join();
+
+  EXPECT_TRUE(first_result);
+  EXPECT_TRUE(second_result);
+
+  EXPECT_EQ(loop_b.run_once(0), 0);
+
+  auto msg_view = std::string_view{"cross-loop"};
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  EXPECT_EQ(loop_b.run_once(0), 0);
+
+  EXPECT_TRUE(loop_b.set_readable(conn->sock(), true));
+  EXPECT_EQ(loop_b.run_once(0), 1);
+  EXPECT_EQ(conn->readable, 1);
+}
+
+void IoLoop_WaitUntilRunning() {
+  io_loop loop;
+
+  std::thread loop_thread{[&] { loop.run(10); }};
+  EXPECT_TRUE(loop.wait_until_running(1000));
+
+  loop.stop();
+  loop_thread.join();
+}
+
+void IoLoop_WaitUntilRunning_TimesOut() {
+  io_loop loop;
+  EXPECT_FALSE(loop.wait_until_running(10));
+}
+
+void IoLoop_PostAndWait_StopRace() {
+  constexpr int iterations = 64;
+  std::atomic_int waiter_returns{0};
+  std::atomic_int callback_runs{0};
+
+  for (int i = 0; i < iterations; ++i) {
+    io_loop loop;
+    std::mutex blocker_mutex;
+    std::condition_variable blocker_cv;
+    bool release_blocker = false;
+    std::atomic_bool blocker_entered{false};
+    std::atomic_bool waiter_started{false};
+
+    std::thread loop_thread{[&] { loop.run(10); }};
+    EXPECT_TRUE(loop.wait_until_running(1000));
+
+    loop.post([&] {
+      blocker_entered = true;
+      std::unique_lock lock{blocker_mutex};
+      blocker_cv.wait(lock, [&] { return release_blocker; });
+    });
+
+    while (!blocker_entered.load(std::memory_order_relaxed))
+      std::this_thread::yield();
+
+    std::thread waiter{[&] {
+      waiter_started = true;
+      const bool result = loop.post_and_wait([&] {
+        ++callback_runs;
+        return true;
+      });
+      if (result) ++waiter_returns;
+    }};
+
+    while (!waiter_started.load(std::memory_order_relaxed))
+      std::this_thread::yield();
+
+    loop.stop();
+    {
+      std::scoped_lock lock{blocker_mutex};
+      release_blocker = true;
+    }
+    blocker_cv.notify_one();
+
+    waiter.join();
+    loop_thread.join();
+  }
+
+  EXPECT_LE(waiter_returns.load(), iterations);
+  EXPECT_LE(callback_runs.load(), iterations);
 }
 
 void TcpConn_Lifecycle() {
-#ifdef __linux__
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   const ip_endpoint remote{ipv4_addr::loopback(), 9999};
@@ -894,12 +1349,11 @@ void TcpConn_Lifecycle() {
   // destructor posted do_close_(); process it, then verify loop is clean.
   loop.run_once(0);
   EXPECT_EQ(loop.run_once(0), 0);
-#endif
 }
 
 void TcpConn_Receive() {
-#ifdef __linux__
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
@@ -909,33 +1363,79 @@ void TcpConn_Receive() {
 
   const std::string msg{"hello"};
   auto msg_view = std::string_view{msg};
-  EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
 
   EXPECT_EQ(loop.run_once(0), 1); // dispatch EPOLLIN
   EXPECT_EQ(received, msg);
-#endif
+}
+
+void TcpConn_SetRecvBufSize() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  std::vector<size_t> chunk_sizes;
+  tcp_conn conn{loop, std::move(a), {},
+      {.on_data = [&](std::string& d) { chunk_sizes.push_back(d.size()); }},
+      4};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_EQ(conn.recv_buf_size(), 4U);
+
+  auto first = std::string_view{"abcd1234"};
+  EXPECT_TRUE(b.send(first) && first.empty());
+  EXPECT_EQ(loop.run_once(0), 1); // first read capped at 4 bytes
+  EXPECT_EQ(chunk_sizes.size(), 1U);
+  EXPECT_EQ(chunk_sizes[0], 4U);
+
+  EXPECT_TRUE(conn.set_recv_buf_size(8));
+  EXPECT_EQ(conn.recv_buf_size(), 8U);
+
+  EXPECT_EQ(loop.run_once(0), 1); // drain remaining 4 bytes
+  EXPECT_EQ(chunk_sizes.size(), 2U);
+  EXPECT_EQ(chunk_sizes[1], 4U);
+
+  auto second = std::string_view{"ABCDEFGHijkl"};
+  EXPECT_TRUE(b.send(second) && second.empty());
+  EXPECT_EQ(loop.run_once(0), 1); // next read should use updated cap
+  EXPECT_EQ(chunk_sizes.size(), 3U);
+  EXPECT_EQ(chunk_sizes[2], 8U);
 }
 
 void TcpConn_PeerClose() {
-#ifdef __linux__
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool closed = false;
   tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
   loop.run_once(0); // process posted do_open_()
 
-  b.close();
-  loop.run_once(0); // dispatch EPOLLHUP -> on_error -> close_now_()
+  EXPECT_TRUE(b.shutdown(SHUT_WR));
+  loop.run_once(0); // dispatch EOF/HUP
 
   EXPECT_TRUE(closed);
+
+  EXPECT_TRUE(conn.is_open());
+  EXPECT_FALSE(conn.can_read());
+  EXPECT_TRUE(conn.can_write());
+
+  conn.send(std::string{"still-open"});
+  loop.run_once(0);
+
+  std::string buf;
+  no_zero::enlarge_to(buf, 32);
+  EXPECT_TRUE(b.read(buf));
+  EXPECT_EQ(buf, "still-open");
+
+  conn.close();
+  loop.run_once(0);
   EXPECT_FALSE(conn.is_open());
-#endif
 }
 
 void TcpConn_Send() {
-#ifdef __linux__
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   tcp_conn conn{loop, std::move(a), {}, {}};
@@ -947,15 +1447,14 @@ void TcpConn_Send() {
   // Data written by enqueue() is now in the kernel buffer.
   std::string buf;
   no_zero::enlarge_to(buf, 16);
-  EXPECT_TRUE(b.file().read(buf));
+  EXPECT_TRUE(b.read(buf));
   EXPECT_EQ(buf.size(), 5U);
   EXPECT_EQ(buf, "world");
-#endif
 }
 
 void TcpConn_ManualClose() {
-#ifdef __linux__
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool closed = false;
@@ -968,15 +1467,14 @@ void TcpConn_ManualClose() {
   EXPECT_FALSE(conn.is_open());
   EXPECT_TRUE(closed);
 
-  // Destructor posts another do_close_(); it must be idempotent.
+  // Destructor posts a hangup; it must be idempotent after close().
   loop.run_once(0);
   EXPECT_EQ(loop.run_once(0), 0);
-#endif
 }
 
 void TcpConn_DrainAfterBufferedSend() {
-#ifdef __linux__
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   // Restrict the kernel send buffer so that a large write is partial.
@@ -1001,7 +1499,7 @@ void TcpConn_DrainAfterBufferedSend() {
   while (received.size() < payload.size()) {
     loop.run_once(0);
     no_zero::enlarge_to(tmp, 4096);
-    while (b.file().read(tmp) && !tmp.empty()) {
+    while (b.read(tmp) && !tmp.empty()) {
       received.append(tmp);
       no_zero::enlarge_to(tmp, 4096);
     }
@@ -1013,12 +1511,304 @@ void TcpConn_DrainAfterBufferedSend() {
 
   // `on_drain` must have fired at least once (via the EPOLLOUT path).
   EXPECT_GE(drain_count, 1);
-#endif
+}
+
+void TcpConn_DrainAfterImmediateSend() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  int drain_count = 0;
+  tcp_conn conn{loop, std::move(a), {}, {.on_drain = [&] { ++drain_count; }}};
+  loop.run_once(0); // process posted register_with_loop
+
+  conn.send(std::string{"hello"});
+  loop.run_once(0); // process posted enqueue_send()
+
+  std::string received;
+  no_zero::enlarge_to(received, 16);
+  EXPECT_TRUE(b.read(received));
+  EXPECT_EQ(received, "hello");
+  EXPECT_EQ(drain_count, 1);
+}
+
+void TcpConn_AsyncCbRead() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  std::string received;
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_TRUE(conn.async_cb_read([&](std::string& data) {
+    received = std::move(data);
+  }));
+
+  const std::string msg{"callback-read"};
+  auto msg_view = std::string_view{msg};
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+
+  loop.run_once(0); // dispatch EPOLLIN -> inline callback
+
+  EXPECT_EQ(received, msg);
+}
+
+void TcpConn_AsyncCbRead_PreservesEarlyData() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  std::string received;
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  const std::string msg{"early-callback-read"};
+  auto msg_view = std::string_view{msg};
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+
+  EXPECT_EQ(loop.run_once(0),
+      0); // read interest is disabled; data stays queued
+
+  EXPECT_TRUE(conn.async_cb_read([&](std::string& data) {
+    received = std::move(data);
+  }));
+
+  EXPECT_EQ(loop.run_once(0), 1); // enabling EPOLLIN surfaces buffered data
+  EXPECT_EQ(received, msg);
+}
+
+void TcpConn_AsyncCbRead_DuplicateRejected() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  int callback_count = 0;
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_TRUE(conn.async_cb_read([&](std::string&) { ++callback_count; }));
+  EXPECT_FALSE(conn.async_cb_read([&](std::string&) { ++callback_count; }));
+
+  const std::string msg{"one"};
+  auto msg_view = std::string_view{msg};
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+
+  loop.run_once(0); // dispatch EPOLLIN -> one callback
+
+  EXPECT_EQ(callback_count, 1);
+}
+
+void TcpConn_AsyncCbRead_PeerClose() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  std::string received{"sentinel"};
+  int callback_count = 0;
+  bool closed = false;
+  tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_TRUE(conn.async_cb_read([&](std::string& data) {
+    received = std::move(data);
+    ++callback_count;
+  }));
+
+  b.close();
+  loop.run_once(0); // dispatch EPOLLHUP -> close_now -> inline callback
+
+  EXPECT_EQ(callback_count, 1);
+  EXPECT_TRUE(received.empty());
+  EXPECT_TRUE(closed);
+  EXPECT_TRUE(conn.is_open());
+  EXPECT_FALSE(conn.can_read());
+  EXPECT_TRUE(conn.can_write());
+
+  conn.close();
+  loop.run_once(0);
+  EXPECT_FALSE(conn.is_open());
+}
+
+void TcpConn_AsyncCbWrite() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  bool completed = false;
+  int callback_count = 0;
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_TRUE(conn.async_cb_write(std::string{"callback-write"},
+      [&](bool write_completed) {
+        completed = write_completed;
+        ++callback_count;
+      }));
+
+  std::string received;
+  no_zero::enlarge_to(received, 32);
+  EXPECT_TRUE(b.read(received));
+  EXPECT_EQ(received, "callback-write");
+  EXPECT_TRUE(completed);
+  EXPECT_EQ(callback_count, 1);
+}
+
+void TcpConn_AsyncCbWrite_Failure() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  bool completed = true;
+  bool closed = false;
+  tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  loop.run_once(0); // process posted register_with_loop
+
+  b.close();
+
+  EXPECT_TRUE(conn.async_cb_write(std::string{"boom"},
+      [&](bool write_completed) { completed = write_completed; }));
+
+  EXPECT_FALSE(completed);
+  EXPECT_TRUE(conn.is_open());
+  EXPECT_TRUE(conn.can_read());
+  EXPECT_FALSE(conn.can_write());
+
+  loop.run_once(0); // process peer-close notification
+  EXPECT_TRUE(closed);
+  EXPECT_FALSE(conn.is_open());
+}
+
+void TcpConn_ShutdownWrite() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  std::string received;
+  tcp_conn conn{loop, std::move(a), {},
+      {.on_data = [&](std::string& d) { received = std::move(d); }}};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_TRUE(conn.can_read());
+  EXPECT_TRUE(conn.can_write());
+  EXPECT_TRUE(conn.shutdown_write());
+  EXPECT_TRUE(conn.is_open());
+  EXPECT_TRUE(conn.can_read());
+  EXPECT_FALSE(conn.can_write());
+  EXPECT_FALSE(conn.async_cb_write(std::string{"nope"}, [&](bool) {}));
+
+  const std::string msg{"inbound"};
+  auto msg_view = std::string_view{msg};
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  EXPECT_EQ(loop.run_once(0), 1);
+  EXPECT_EQ(received, msg);
+}
+
+void TcpConn_ShutdownRead() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  int data_count = 0;
+  tcp_conn conn{loop, std::move(a), {},
+      {.on_data = [&](std::string&) { ++data_count; }}};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_TRUE(conn.can_read());
+  EXPECT_TRUE(conn.can_write());
+  EXPECT_TRUE(conn.shutdown_read());
+  EXPECT_TRUE(conn.is_open());
+  EXPECT_FALSE(conn.can_read());
+  EXPECT_TRUE(conn.can_write());
+  EXPECT_FALSE(conn.async_cb_read([&](std::string&) { ++data_count; }));
+
+  conn.send(std::string{"outbound"});
+  loop.run_once(0);
+
+  std::string buf;
+  no_zero::enlarge_to(buf, 32);
+  EXPECT_TRUE(b.read(buf));
+  EXPECT_EQ(buf, "outbound");
+  EXPECT_EQ(data_count, 0);
+}
+
+void TcpConn_ShutdownBothCloses() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  EXPECT_TRUE(conn.shutdown_write());
+  EXPECT_TRUE(conn.is_open());
+  EXPECT_FALSE(conn.can_write());
+  EXPECT_TRUE(conn.can_read());
+
+  EXPECT_TRUE(conn.shutdown_read());
+  EXPECT_FALSE(conn.is_open());
+  EXPECT_FALSE(conn.can_read());
+  EXPECT_FALSE(conn.can_write());
+}
+
+void TcpConn_AsyncCbWrite_DuplicateRejected() {
+  io_loop loop;
+  auto [a, b] = make_nb_sockpair();
+
+  constexpr int small_buf = 4096;
+  a.set_send_buffer_size(small_buf);
+
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  std::thread loop_thread{[&] { loop.run(10); }};
+  EXPECT_TRUE(loop.wait_until_running(1000));
+
+  const std::string payload(256ULL * 1024ULL, 'w');
+  std::atomic<int> accepted{0};
+  std::atomic<int> rejected{0};
+  std::atomic<int> completions{0};
+  std::mutex completion_mutex;
+  std::condition_variable completion_cv;
+  bool completion_seen = false;
+
+  auto try_register = [&] {
+    if (conn.async_cb_write(std::string{payload}, [&](bool) {
+          ++completions;
+          {
+            std::scoped_lock lock{completion_mutex};
+            completion_seen = true;
+          }
+          completion_cv.notify_one();
+        }))
+      ++accepted;
+    else
+      ++rejected;
+  };
+
+  std::thread t1{try_register};
+  std::thread t2{try_register};
+  t1.join();
+  t2.join();
+
+  EXPECT_EQ(accepted, 1);
+  EXPECT_EQ(rejected, 1);
+
+  b.close();
+  {
+    std::unique_lock lock{completion_mutex};
+    EXPECT_TRUE(completion_cv.wait_for(lock, std::chrono::seconds{1}, [&] {
+      return completion_seen;
+    }));
+  }
+
+  EXPECT_EQ(completions, 1);
+
+  loop.stop();
+  loop_thread.join();
 }
 
 void TcpConn_GracefulClose() {
-#ifdef __linux__
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   constexpr int small_buf = 4096;
@@ -1042,7 +1832,7 @@ void TcpConn_GracefulClose() {
   while (!closed) {
     loop.run_once(0);
     no_zero::enlarge_to(tmp, 4096);
-    while (b.file().read(tmp) && !tmp.empty()) {
+    while (b.read(tmp) && !tmp.empty()) {
       received.append(tmp);
       no_zero::enlarge_to(tmp, 4096);
     }
@@ -1052,7 +1842,77 @@ void TcpConn_GracefulClose() {
   EXPECT_EQ(received, payload);
   EXPECT_TRUE(closed);
   EXPECT_FALSE(conn.is_open());
-#endif
+}
+
+void TcpConn_CloseThenDestructStaysGraceful() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  constexpr int small_buf = 4096;
+  a.set_send_buffer_size(small_buf);
+
+  const std::string payload(64ULL * 1024ULL, 'g');
+
+  bool closed = false;
+  {
+    tcp_conn conn{loop, std::move(a), {},
+        {.on_close = [&] { closed = true; }}};
+    loop.run_once(0); // process posted register_with_loop
+
+    conn.send(std::string{payload});
+    conn.close();
+  }
+
+  std::string received;
+  received.reserve(payload.size());
+  std::string tmp;
+  for (int i = 0; i < 512 && !closed; ++i) {
+    loop.run_once(0);
+    no_zero::enlarge_to(tmp, 4096);
+    while (b.read(tmp) && !tmp.empty()) {
+      received.append(tmp);
+      no_zero::enlarge_to(tmp, 4096);
+    }
+  }
+
+  EXPECT_TRUE(closed);
+  EXPECT_EQ(received.size(), payload.size());
+  EXPECT_EQ(received, payload);
+  no_zero::enlarge_to(tmp, 1);
+  EXPECT_FALSE(b.read(tmp));
+}
+
+void TcpConn_DestructorHangsUp() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  constexpr int small_buf = 4096;
+  a.set_send_buffer_size(small_buf);
+
+  const std::string payload(256ULL * 1024ULL, 'q');
+
+  bool closed = false;
+  {
+    tcp_conn conn{loop, std::move(a), {},
+        {.on_close = [&] { closed = true; }}};
+    loop.run_once(0); // process posted register_with_loop
+    conn.send(std::string{payload});
+  }
+
+  loop.run_once(0); // drain posted enqueue_send() then posted hangup()
+
+  std::string received;
+  std::string tmp;
+  no_zero::enlarge_to(tmp, 4096);
+  while (b.read(tmp) && !tmp.empty()) {
+    received.append(tmp);
+    no_zero::enlarge_to(tmp, 4096);
+  }
+
+  EXPECT_TRUE(closed);
+  EXPECT_LT(received.size(), payload.size());
 }
 
 // Coroutine tests.
@@ -1071,8 +1931,8 @@ void LoopTask_FireAndForget() {
 
 // Verify that `async_read` delivers data to a coroutine.
 void TcpConn_AsyncRead() {
-#ifdef __linux__
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
@@ -1089,27 +1949,104 @@ void TcpConn_AsyncRead() {
 
   const std::string msg{"hello"};
   auto msg_view = std::string_view{msg};
-  EXPECT_TRUE(b.file().write(msg_view) && msg_view.empty());
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
 
   loop.run_once(0); // dispatch EPOLLIN -> posts resume
   loop.run_once(0); // drain post queue -> coroutine resumes
 
   EXPECT_TRUE(done);
   EXPECT_EQ(received, msg);
-#endif
+}
+
+void TcpConn_AsyncRead_PreservesEarlyData() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  std::string received;
+  bool done = false;
+
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  const std::string msg{"early-coroutine-read"};
+  auto msg_view = std::string_view{msg};
+  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+
+  EXPECT_EQ(loop.run_once(0),
+      0); // data remains in kernel until a read is armed
+
+  auto coro = [&]() -> loop_task {
+    received = co_await conn.async_read();
+    done = true;
+  };
+  coro();
+
+  loop.run_once(0); // dispatch buffered EPOLLIN
+  loop.run_once(0); // drain posted resume
+
+  EXPECT_TRUE(done);
+  EXPECT_EQ(received, msg);
+}
+
+void TcpConn_AsyncRead_StopsBetweenCalls() {
+  io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  std::string first;
+  std::string second;
+  bool first_done = false;
+  bool second_done = false;
+
+  tcp_conn conn{loop, std::move(a), {}, {}};
+  loop.run_once(0); // process posted register_with_loop
+
+  auto first_coro = [&]() -> loop_task {
+    first = co_await conn.async_read();
+    first_done = true;
+  };
+  first_coro();
+
+  auto first_msg = std::string_view{"first"};
+  EXPECT_TRUE(b.send(first_msg) && first_msg.empty());
+
+  loop.run_once(0); // deliver first read
+  loop.run_once(0); // resume first coroutine
+
+  EXPECT_TRUE(first_done);
+  EXPECT_EQ(first, "first");
+
+  auto second_msg = std::string_view{"second"};
+  EXPECT_TRUE(b.send(second_msg) && second_msg.empty());
+
+  EXPECT_EQ(loop.run_once(0), 0); // no waiter, so second chunk stays in kernel
+  EXPECT_FALSE(second_done);
+
+  auto second_coro = [&]() -> loop_task {
+    second = co_await conn.async_read();
+    second_done = true;
+  };
+  second_coro();
+
+  loop.run_once(0); // buffered kernel data is now delivered
+  loop.run_once(0); // resume second coroutine
+
+  EXPECT_TRUE(second_done);
+  EXPECT_EQ(second, "second");
 }
 
 // Verify that `async_read` returns an empty string when the peer closes
 // the connection before data arrives.
 void TcpConn_AsyncRead_PeerClose() {
-#ifdef __linux__
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received{"sentinel"};
   bool done = false;
 
-  tcp_conn conn{loop, std::move(a), {}, {}};
+  tcp_conn conn{loop, std::move(a), {}};
   loop.run_once(0); // process posted register_with_loop
 
   auto coro = [&]() -> loop_task {
@@ -1125,20 +2062,25 @@ void TcpConn_AsyncRead_PeerClose() {
 
   EXPECT_TRUE(done);
   EXPECT_TRUE(received.empty()); // close delivers empty data
+  EXPECT_TRUE(conn.is_open());
+  EXPECT_FALSE(conn.can_read());
+  EXPECT_TRUE(conn.can_write());
+
+  conn.close();
+  loop.run_once(0);
   EXPECT_FALSE(conn.is_open());
-#endif
 }
 
 // Verify that `async_send` delivers bytes to the peer and suspends until
 // the queue drains.
 void TcpConn_AsyncSend() {
-#ifdef __linux__
   io_loop loop;
+  auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool sent = false;
 
-  tcp_conn conn{loop, std::move(a), {}, {}};
+  tcp_conn conn{loop, std::move(a), {}};
   loop.run_once(0); // process posted register_with_loop
 
   const std::string msg{"world"};
@@ -1157,9 +2099,8 @@ void TcpConn_AsyncSend() {
 
   std::string buf;
   no_zero::enlarge_to(buf, 16);
-  EXPECT_TRUE(b.file().read(buf));
+  EXPECT_TRUE(b.read(buf));
   EXPECT_EQ(buf, msg);
-#endif
 }
 
 MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
@@ -1167,17 +2108,32 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     Ipv6Addr_Construction, Ipv6Addr_Parse, Ipv6Addr_Classification,
     Ipv6Addr_Comparison, Ipv6Addr_Formatting, Ipv6Addr_PosixInterop,
     IpEndpoint_Construction, IpEndpoint_Parse, IpEndpoint_Comparison,
-    IpEndpoint_Formatting, IpEndpoint_PosixInterop, IpSocket_Lifecycle,
-    IpSocket_Move, IpSocket_Release, IpSocket_Options, IpSocket_Nonblocking,
+    IpEndpoint_Formatting, IpEndpoint_PosixInterop, OsFile_Lifecycle,
+    OsFile_Move, OsFile_ReleaseFlags, OsFile_WriteRead, IpSocket_Lifecycle,
+    EventFd_Lifecycle, Epoll_Lifecycle, Epoll_Move, Epoll_Release,
+    Epoll_ControlWait, EventFd_Move, EventFd_Release, EventFd_NotifyRead,
+    EventFd_NonblockingEmptyRead, IpSocket_Move, IpSocket_Release,
+    IpSocket_Options, IpSocket_Nonblocking, IpSocket_SendRecv,
     IpSocket_BindListenAccept, DnsResolve_NumericIPv4, DnsResolve_NumericIPv6,
     DnsResolve_Localhost, DnsResolve_FamilyFilter, DnsResolve_InvalidHost,
     DnsResolveOne_Success, DnsResolveOne_Failure, IoLoop_Lifecycle,
-    IoLoop_Post, IoLoop_RegisterUnregister, IoLoop_SetWritable,
-    IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError, TcpConn_Lifecycle,
-    TcpConn_Receive, TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
-    TcpConn_DrainAfterBufferedSend, TcpConn_GracefulClose,
-    LoopTask_FireAndForget, TcpConn_AsyncRead, TcpConn_AsyncRead_PeerClose,
-    TcpConn_AsyncSend);
+    IoLoop_Post, IoLoop_PreStartWorkIsQueued, IoLoop_RegisterUnregister,
+    IoLoop_SetWritable, IoLoop_SetReadable, IoLoop_ErrorSkipsWritable,
+    IoLoop_DefaultOnError, IoLoop_IsLoopThreadIsPerLoop,
+    IoLoop_WaitUntilRunning, IoLoop_WaitUntilRunning_TimesOut,
+    IoLoop_PostAndWait_StopRace, TcpConn_Lifecycle, TcpConn_Receive,
+    TcpConn_SetRecvBufSize, TcpConn_PeerClose, TcpConn_Send,
+    TcpConn_ManualClose, TcpConn_DrainAfterBufferedSend,
+    TcpConn_DrainAfterImmediateSend, TcpConn_AsyncCbRead,
+    TcpConn_AsyncCbRead_PreservesEarlyData,
+    TcpConn_AsyncCbRead_DuplicateRejected, TcpConn_AsyncCbRead_PeerClose,
+    TcpConn_AsyncCbWrite, TcpConn_AsyncCbWrite_Failure,
+    TcpConn_AsyncCbWrite_DuplicateRejected, TcpConn_ShutdownWrite,
+    TcpConn_ShutdownRead, TcpConn_ShutdownBothCloses, TcpConn_GracefulClose,
+    TcpConn_CloseThenDestructStaysGraceful, TcpConn_DestructorHangsUp,
+    LoopTask_FireAndForget, TcpConn_AsyncRead,
+    TcpConn_AsyncRead_PreservesEarlyData, TcpConn_AsyncRead_StopsBetweenCalls,
+    TcpConn_AsyncRead_PeerClose, TcpConn_AsyncSend);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

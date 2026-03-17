@@ -37,14 +37,15 @@ On POSIX, interops with `sockaddr_in`, `sockaddr_in6`, and
 
 ### `ip_socket`
 
-RAII socket handle owning an `os_file`; movable, non-copyable; fd-level
-operations delegate to the underlying `os_file` via `file()`. Type-safe
+RAII socket handle derived from `os_file`; movable, non-copyable; inherits
+fd-level operations directly. Type-safe
 `set_option<T>(level, optname, value)` / `get_option<T>(level, optname)`
-wrap `setsockopt` / `getsockopt`. Named helpers cover the most common
-options: `set_reuse_addr`, `set_reuse_port`, `set_nodelay`, `set_keepalive`,
-`set_recv_buffer_size`, `set_send_buffer_size`. Intended as a base class for
-`tcp_socket` and `udp_socket`; a protected constructor and `make_ip_socket`
-static are provided for that purpose.
+wrap `setsockopt` / `getsockopt`. Socket I/O adds `send(string_view&)` and
+`recv(string&, flags)` wrappers on top of the inherited fd operations. Named
+helpers cover the most common options: `set_reuse_addr`, `set_reuse_port`,
+`set_nodelay`, `set_keepalive`, `set_recv_buffer_size`,
+`set_send_buffer_size`. Can adopt an existing `os_file` by move, or create a socket directly via
+`ip_socket(domain, type, protocol)`.
 
 ### `dns_resolver`
 
@@ -83,16 +84,19 @@ events drain the queue; when empty, `EPOLLOUT` is disarmed.
 
 Receive path: `EPOLLIN` triggers `::read` into a buffer pre-sized with
 `resize_and_overwrite` (no zero-initialization), trimmed to the actual byte
-count before delivery.
+count before delivery. `set_recv_buf_size(bytes)` changes the per-connection
+read size used for future reads, and `recv_buf_size()` reports the current
+configured size.
 
 Graceful close: `close()` defers the socket close until the send queue
-drains; the destructor has the same semantics.
+drains; the destructor instead closes rudely.
 
-Supports two async models, mutually exclusive per connection:
+Supports three async models:
 
 - **Callback mode** (`tcp_conn_handlers`): `on_data(string&)` fires on each
-  read, `on_drain()` fires when the send queue empties after a buffered
-  write, `on_close()` fires on EOF or error.
+  read, `on_drain()` fires whenever a `send()` completes with no outbound
+  bytes left pending (including immediate writes), `on_close()` fires on EOF
+  or error.
 
 - **Coroutine mode**: `co_await conn.async_read()` suspends until one batch
   of data arrives (or the connection closes, returning an empty string);
@@ -100,6 +104,27 @@ Supports two async models, mutually exclusive per connection:
   queue drains. All coroutine resumptions are deferred through `loop_.post()`
   to avoid use-after-free when a write error triggers `do_close_now` from
   within `await_suspend`.
+
+- **One-shot callback mode**: `async_cb_read(cb)` registers a single callback
+  for the next readable batch and invokes it inline on the loop thread with
+  the internal `string&`, preserving the same move-or-borrow semantics as
+  `on_data`. `async_cb_write(buf, cb)` sends `buf` and invokes
+  `cb(bool completed)` when the write reaches a terminal state:
+  `completed == true` means the write fully drained; `completed == false`
+  means the connection closed or failed before all bytes were sent, possibly
+  after a partial write. For each direction, at most one one-shot waiter may
+  be outstanding at a time, regardless of whether it came from the coroutine
+  or callback API.
+
+Precedence is per direction: a pending one-shot waiter consumes the next read
+or write-completion event, and the persistent handlers are used only when no
+one-shot waiter is pending for that direction. Parallel `async_cb_*`
+registrations fail cleanly by returning `false`; overlapping `async_read()` /
+`async_send()` calls are still programming errors. If the connection closes
+before a pending `async_cb_read()` receives data, the callback is invoked with
+an empty string; code that retains access to the `tcp_conn` can use `is_open()`
+to detect that the empty buffer came from closure. Pending write waiters
+always complete, reporting success or failure.
 
 ### `loop_task`
 

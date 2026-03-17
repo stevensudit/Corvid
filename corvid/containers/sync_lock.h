@@ -56,7 +56,7 @@ private:
 //
 // This class is largely internal. The normal way to use it is to call
 // `reverse` on a `lock`.
-class reverse_lock final {
+class [[nodiscard]] reverse_lock final {
 public:
   explicit reverse_lock(const synchronizer* sync) : sync_{sync} {
     if (sync_) sync_->unlock();
@@ -128,7 +128,7 @@ private:
 // Note again how, in the above case, the caller could make their own `lock`
 // object and reuse it across multiple calls, maintaining a lock. They could
 // even construct it on the instance's `sync` member.
-class lock final {
+class [[nodiscard]] lock final {
 public:
   constexpr lock() noexcept = default;
 

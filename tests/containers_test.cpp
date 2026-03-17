@@ -1818,6 +1818,179 @@ void EnumVector_Basic() {
   EXPECT_TRUE(v.empty());
 }
 
+struct throwing_scoped_value_test {
+  std::string value;
+  bool throw_on_move{};
+
+  throwing_scoped_value_test(std::string value_in,
+      bool throw_on_move_in = false)
+      : value(std::move(value_in)), throw_on_move(throw_on_move_in) {}
+
+  throwing_scoped_value_test(const throwing_scoped_value_test&) = default;
+  throwing_scoped_value_test& operator=(
+      const throwing_scoped_value_test&) = default;
+
+  throwing_scoped_value_test(throwing_scoped_value_test&& other) {
+    if (other.throw_on_move) throw std::runtime_error("move failed");
+    value = std::move(other.value);
+    throw_on_move = other.throw_on_move;
+  }
+
+  throwing_scoped_value_test& operator=(throwing_scoped_value_test&& other) {
+    if (other.throw_on_move) throw std::runtime_error("move failed");
+    value = std::move(other.value);
+    throw_on_move = other.throw_on_move;
+    return *this;
+  }
+};
+
+inline void swap(throwing_scoped_value_test& lhs,
+    throwing_scoped_value_test& rhs) noexcept {
+  using std::swap;
+  swap(lhs.value, rhs.value);
+  swap(lhs.throw_on_move, rhs.throw_on_move);
+}
+
+void ScopedValue_Basic() {
+  if (true) {
+    int x = 1;
+    {
+      scoped_value sv{x, 42};
+      EXPECT_EQ(x, 42);
+    }
+    EXPECT_EQ(x, 1);
+  }
+  if (true) {
+    // Nested scopes restore in reverse order.
+    int x = 1;
+    {
+      scoped_value sv1{x, 10};
+      EXPECT_EQ(x, 10);
+      {
+        scoped_value sv2{x, 20};
+        EXPECT_EQ(x, 20);
+      }
+      EXPECT_EQ(x, 10);
+    }
+    EXPECT_EQ(x, 1);
+  }
+  if (true) {
+    // Works with non-trivial types.
+    std::string s = "original";
+    {
+      scoped_value sv{s, std::string{"temporary"}};
+      EXPECT_EQ(s, "temporary");
+    }
+    EXPECT_EQ(s, "original");
+  }
+  if (true) {
+    // Old value is captured at construction; direct mutations to the target
+    // are overwritten on scope exit.
+    int x = 5;
+    {
+      scoped_value sv{x, 99};
+      x = 7; // Mutate target directly while scoped_value is active.
+      EXPECT_EQ(x, 7);
+    }
+    // Restored to 5 (captured at sv construction), not 7.
+    EXPECT_EQ(x, 5);
+  }
+  if (true) {
+    // If materializing the replacement throws, the target stays untouched.
+    throwing_scoped_value_test x{"original"};
+    throwing_scoped_value_test replacement{"temporary", true};
+
+    EXPECT_THROW(
+        (void)scoped_value<throwing_scoped_value_test>(x, replacement),
+        std::runtime_error);
+    EXPECT_EQ(x.value, "original");
+    EXPECT_FALSE(x.throw_on_move);
+  }
+  if (true) {
+    int x = 1;
+    {
+      scoped_value sv1{x, 10};
+      scoped_value sv2{std::move(sv1)};
+      EXPECT_EQ(x, 10);
+    }
+    EXPECT_EQ(x, 1);
+  }
+  if (true) {
+    int x = 1;
+    int y = 2;
+    {
+      scoped_value sv1{x, 10};
+      scoped_value sv2{y, 20};
+      sv2 = std::move(sv1);
+      EXPECT_EQ(x, 10);
+      EXPECT_EQ(y, 2);
+    }
+    EXPECT_EQ(x, 1);
+    EXPECT_EQ(y, 2);
+  }
+  if (true) {
+    int x = 1;
+    {
+      scoped_value sv{x, 10};
+      sv.release();
+      EXPECT_EQ(x, 10);
+    }
+    EXPECT_EQ(x, 10);
+  }
+}
+
+void ScopeExit_Basic() {
+  if (true) {
+    bool exited = false;
+    {
+      scope_exit guard{[&]() noexcept { exited = true; }};
+      EXPECT_FALSE(exited);
+    }
+    EXPECT_TRUE(exited);
+  }
+  if (true) {
+    int value = 0;
+    {
+      auto guard = make_scope_exit([&]() noexcept { value = 42; });
+      (void)guard;
+      EXPECT_EQ(value, 0);
+    }
+    EXPECT_EQ(value, 42);
+  }
+  if (true) {
+    bool exited = false;
+    {
+      auto guard = make_scope_exit([&]() noexcept { exited = true; });
+      guard.release();
+    }
+    EXPECT_FALSE(exited);
+  }
+  if (true) {
+    int calls = 0;
+    {
+      auto guard1 = make_scope_exit([&]() noexcept { ++calls; });
+      {
+        auto guard2 = std::move(guard1);
+        EXPECT_EQ(calls, 0);
+        (void)guard2;
+      }
+      EXPECT_EQ(calls, 1);
+    }
+    EXPECT_EQ(calls, 1);
+  }
+  if (true) {
+    int value = 0;
+    {
+      auto payload = std::make_unique<int>(7);
+      auto guard = make_scope_exit(
+          [owned = std::move(payload), &value]() noexcept { value = *owned; });
+      EXPECT_FALSE(payload);
+      (void)guard;
+    }
+    EXPECT_EQ(value, 7);
+  }
+}
+
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
     FindOptTest_Maps, FindOptTest_Sets, FindOptTest_Vectors,
@@ -1827,7 +2000,8 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     TransparentTest_General, IndirectKey_Basic, InternTableTest_Basic,
     InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
-    StrongType_Extended, EnumVariant_Basic, TombStone_Basic, EnumVector_Basic);
+    StrongType_Extended, EnumVariant_Basic, TombStone_Basic, EnumVector_Basic,
+    ScopedValue_Basic, ScopeExit_Basic);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

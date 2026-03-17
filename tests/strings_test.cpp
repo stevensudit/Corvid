@@ -2305,21 +2305,83 @@ void StringUtilsTest_NoZero() {
     EXPECT_EQ(s.capacity(), cap);
   }
 
-  // `resize_to_cap`: resizes to the full current capacity so that
+  // `enlarge_to_cap`: resizes to the full current capacity so that
   // `size() == capacity()`.
   if (true) {
     // On an empty string: size expands to the SSO capacity.
     std::string s;
-    no_zero::resize_to_cap(s);
+    no_zero::enlarge_to_cap(s);
     EXPECT_EQ(s.size(), sso_cap);
     EXPECT_EQ(s.size(), s.capacity());
 
     // On a heap-allocated string: fills out to the full allocated capacity.
     no_zero::resize_to(s, 50);
     auto cap = s.capacity();
-    no_zero::resize_to_cap(s);
+    no_zero::enlarge_to_cap(s);
     EXPECT_EQ(s.size(), cap);
     EXPECT_EQ(s.size(), s.capacity());
+  }
+
+  // `trim_to`: shrinks when `new_size` is smaller, but never enlarges and
+  // never changes capacity.
+  if (true) {
+    static_assert(requires(std::string& value) {
+      no_zero::trim_to(value, int{1});
+    });
+    static_assert(requires(std::string& value) {
+      no_zero::trim_to(value, unsigned{1});
+    });
+    static_assert(requires(std::string& value) {
+      no_zero::trim_to(value, int16_t{-1});
+    });
+
+    std::string s;
+
+    no_zero::resize_to(s, 50);
+    auto cap = s.capacity();
+
+    // Shrink within current size.
+    no_zero::trim_to(s, 20);
+    EXPECT_EQ(s.size(), 20u);
+    EXPECT_EQ(s.capacity(), cap);
+
+    // Same size is a no-op.
+    no_zero::trim_to(s, 20);
+    EXPECT_EQ(s.size(), 20u);
+    EXPECT_EQ(s.capacity(), cap);
+
+    // Larger size request must not enlarge.
+    no_zero::trim_to(s, 40);
+    EXPECT_EQ(s.size(), 20u);
+    EXPECT_EQ(s.capacity(), cap);
+
+    // Trimming to zero works and still preserves capacity.
+    no_zero::trim_to(s, 0);
+    EXPECT_EQ(s.size(), 0u);
+    EXPECT_EQ(s.capacity(), cap);
+
+    // Negative signed values clamp to zero.
+    no_zero::resize_to(s, 30);
+    no_zero::trim_to(s, -1);
+    EXPECT_EQ(s.size(), 0u);
+    EXPECT_EQ(s.capacity(), cap);
+
+    // Positive signed values trim normally after the signed check.
+    no_zero::resize_to(s, 30);
+    no_zero::trim_to(s, int16_t{6});
+    EXPECT_EQ(s.size(), 6u);
+    EXPECT_EQ(s.capacity(), cap);
+
+    // Any integer type is accepted, including unsigned non-size_t.
+    no_zero::resize_to(s, 30);
+    no_zero::trim_to(s, 7u);
+    EXPECT_EQ(s.size(), 7u);
+    EXPECT_EQ(s.capacity(), cap);
+
+    // Returns a reference to the same string.
+    EXPECT_EQ(&no_zero::trim_to(s, 10), &s);
+    EXPECT_EQ(s.size(), 7u);
+    EXPECT_EQ(s.capacity(), cap);
   }
 
   // `enlarge_to`: size is at least `minimum_size`, and always fills capacity.
@@ -2387,7 +2449,8 @@ void StringUtilsTest_NoZero() {
 
   // `rightsize_to`: when capacity is within [minimum_size, maximum_size],
   // behaves like `enlarge_to`; when capacity exceeds `maximum_size`, releases
-  // the buffer and resizes to exactly `minimum_size`.
+  // the buffer and resizes to exactly `minimum_size` (rounding up to
+  // capacity).
   if (true) {
     // Tiny: SSO capacity within bounds -> enlarge_to path.
     std::string s;

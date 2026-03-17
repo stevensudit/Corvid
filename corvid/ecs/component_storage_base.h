@@ -54,7 +54,7 @@ inline namespace component_storage_bases {
 // and `typename base_t::add_guard`):
 //   `template<typename... Args>
 //         void do_add_components(Args&&... args);`
-//   `void do_swap_and_pop(size_type ndx);`  -- swaps component arrays only;
+//   `void do_swap_and_pop(size_type ndx);`  // swaps component arrays only;
 //         the base handles `ids_` and `reverse_index_`
 //   `void do_clear_storage();`
 //   `void do_resize_storage(size_type new_size);`

@@ -153,7 +153,7 @@ public:
   // and not already present in that storage. Trailing components may be
   // omitted and will be default-constructed. Returns false if the entity is
   // invalid, already in `SID`, or if the storage is at its limit. Unlike
-  // `archetype_scene::store_entity`, the entity need not be in staging -- it
+  // `archetype_scene::store_entity`, the entity need not be in staging: it
   // may already occupy other storages.
   template<store_id_t SID, typename... Args>
   [[nodiscard]] bool store_entity(id_t id, Args&&... args) {

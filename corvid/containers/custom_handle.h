@@ -31,11 +31,11 @@ namespace corvid { inline namespace custhandle {
 // is the moral equivalent of one, such as a file descriptor. It fulfills
 // https://en.cppreference.com/w/cpp/named_req/NullablePointer.
 //
-// It is not intended for general use and is not -- in itself -- a smart
-// pointer, as it does not free the object in its destructor. Instead, it's
-// made to be used as the `pointer` alias in a custom deleter for `own_ptr`,
-// replacing the raw pointer that it normally stores and manages. In this
-// context, it's considered a "custom handle type".
+// It is not intended for general use and is not in itself a smart pointer, as
+// it does not free the object in its destructor. Instead, it's made to be used
+// as the `pointer` alias in a custom deleter for `own_ptr`, replacing the raw
+// pointer that it normally stores and manages. In this context, it's
+// considered a "custom handle type".
 //
 // To use it, you define your own deleter that exposes an appropriate
 // `custom_handle` as `pointer` and then offers an `operator()` that closes it.

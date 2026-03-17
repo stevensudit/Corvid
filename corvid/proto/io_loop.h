@@ -16,24 +16,28 @@
 // limitations under the License.
 #pragma once
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cerrno>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <system_error>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
-#ifdef __linux__
-#include <sys/epoll.h>
-#include <sys/eventfd.h>
-#endif
-
+#include "../containers/scoped_value.h"
+#include "../containers/scope_exit.h"
 #include "../containers/opt_find.h"
+#include "epoll.h"
+#include "event_fd.h"
 #include "ip_socket.h"
 
 namespace corvid { inline namespace proto {
+
+using namespace corvid::container::value_scoping;
 
 // Abstract base for objects registered with `io_loop`. Higher-level types
 // (e.g., `tcp_conn`) inherit from this and override the three event methods.
@@ -44,10 +48,17 @@ namespace corvid { inline namespace proto {
 // object stays alive for the duration of any in-progress dispatch even if the
 // caller unregisters it during a callback.
 struct io_conn: std::enable_shared_from_this<io_conn> {
+  explicit io_conn(ip_socket&& sock) : sock_(std::move(sock)) {}
+  ip_socket& sock() noexcept { return sock_; }
+  const ip_socket& sock() const noexcept { return sock_; }
+
   virtual void on_readable() {}
   virtual void on_writable() {}
   virtual void on_error() { on_readable(); }
   virtual ~io_conn() = default;
+
+private:
+  ip_socket sock_;
 };
 
 // `epoll`-based I/O event loop, safe for use with a background thread.
@@ -56,30 +67,28 @@ struct io_conn: std::enable_shared_from_this<io_conn> {
 // (e.g., `tcp_conn`). User code drives the loop via `run()` / `run_once()` /
 // `stop()`, but never calls `epoll_ctl` directly.
 //
-// Call `register_socket()` to register an `ip_socket` paired with a
-// `shared_ptr<io_conn>`. The initial event mask is always `EPOLLIN | EPOLLERR
-// | EPOLLHUP`. Write-readiness interest (`EPOLLOUT`) is toggled with
-// `set_writable()` without disturbing the registered `io_conn`. This lets a
-// `tcp_conn` arm write interest only while its send buffer is non-empty.
+// Call `register_socket()` to register an `io_conn`. Read and write readiness
+// interest can be chosen at registration time and later toggled with
+// `set_readable()` / `set_writable()` without disturbing the registered
+// `io_conn`. `EPOLLERR | EPOLLHUP` stay armed regardless, so sockets still
+// observe closure and error transitions even when regular reads are disarmed.
 //
 // `post()` schedules a callback to run at the top of the next `run_once()`
 // iteration. It is safe to call from any thread: it locks `post_mutex_`,
 // pushes the callback, then writes to `wake_fd_` (an `eventfd`) to interrupt
 // a sleeping `epoll_wait`. The expected pattern is that I/O callbacks fire on
-// the loop thread and may hand work off to a thread pool, which uses `post()`
-// to deliver results back.
+// the loop thread and handle I/O immediately, but may hand off work to a
+// thread pool, which uses `post()` to deliver results back.
 //
 // `stop()` is also thread-safe: it sets `running_` (an `atomic<bool>`) and
 // writes to `wake_fd_` so the loop exits promptly even if blocked in
 // `epoll_wait`.
 //
-// TODO: Make a thread-safe wrapper.
-// `register_socket`, `unregister_socket`, and `set_writable` are NOT
-// thread-safe; call them only from the loop thread (i.e., from within a
-// callback or a `post()`'d function).
+// `register_socket`, `unregister_socket`, `set_readable`, and `set_writable`
+// are NOT inherently thread-safe, but they automatically promote a call from
+// outside the active polling thread for this loop into a `post()`.
 //
-// `io_loop` is non-copyable and non-movable. Linux only; on other platforms
-// the class is defined but all methods are no-ops or return failure.
+// `io_loop` is non-copyable and non-movable.
 class io_loop {
 public:
   // Maximum number of events retrieved per `epoll_wait` call.
@@ -87,18 +96,14 @@ public:
 
   // Create the `epoll` instance and the internal `eventfd` wakeup handle.
   // Throws `std::system_error` on failure.
-  io_loop() : epoll_fd_{create_epollfd()}, wake_fd_{create_eventfd()} {
-#ifdef __linux__
+  io_loop() : epoll_{create_epollfd()}, wake_fd_{create_eventfd()} {
     // The `eventfd` is used by `post()` and `stop()` to interrupt a sleeping
     // `epoll_wait` from another thread.
     epoll_event ev{.events = EPOLLIN,
         .data = epoll_data_t{.fd = wake_fd_.handle()}};
-    if (!poll_control(EPOLL_CTL_ADD, wake_fd_.handle(), ev))
+    if (!epoll_.add(wake_fd_.handle(), ev))
       throw std::system_error(errno, std::generic_category(),
           "epoll_ctl wake_fd");
-#else
-    throw std::runtime_error("io_loop requires Linux");
-#endif
   }
 
   io_loop(const io_loop&) = delete;
@@ -108,74 +113,44 @@ public:
 
   ~io_loop() = default;
 
-  // Register `sock` with `conn`.
+  // Register `conn`.
   //
-  // Must run on the loop thread. To call safely from another thread, use
-  // `post()`: `loop.post([&]{ loop.register_socket(sock, conn); });`
-  //
-  // The initial event mask is `EPOLLIN | EPOLLERR | EPOLLHUP`; `EPOLLOUT` is
-  // not enabled until `set_writable(sock, true)` is called. Returns false if
-  // `sock` is already registered or `epoll_ctl` fails.
-
-  [[nodiscard]] bool
-  register_socket(const ip_socket& sock, std::shared_ptr<io_conn> conn) {
-#ifdef __linux__
-    const int fd = sock.file().handle();
-    if (registrations_.contains(fd)) return false;
-
-    const uint32_t events = EPOLLIN | EPOLLERR | EPOLLHUP;
-    epoll_event ev{.events = events, .data = epoll_data_t{.fd = fd}};
-    if (!poll_control(EPOLL_CTL_ADD, fd, ev)) return false;
-
-    registrations_.emplace(fd, registration{events, std::move(conn)});
-    return true;
-#else
-    (void)sock;
-    (void)conn;
-    return false;
-#endif
+  // The initial event mask always includes `EPOLLERR | EPOLLHUP`; read and
+  // write readiness are controlled by `readable` and `writable`. Returns
+  // false if `sock` is already registered or `epoll_ctl` fails. If executed
+  // outside of loop thread, turns into a `post()` and returns true.
+  [[nodiscard]] bool register_socket(std::shared_ptr<io_conn> conn,
+      bool readable = true, bool writable = false) {
+    return execute_or_post(
+        [this, conn = std::move(conn), readable, writable]() mutable {
+          return do_register_socket(std::move(conn), readable, writable);
+        });
   }
 
-  // Unregister `sock`. Returns false if `sock` is not registered or
-  // `epoll_ctl` fails. Must run on the loop thread; use `post()` otherwise.
-  bool unregister_socket(const ip_socket& sock) {
-#ifdef __linux__
-    const int fd = sock.file().handle();
-    if (!registrations_.contains(fd)) return false;
-    epoll_event ev{};
-    const bool ok = poll_control(EPOLL_CTL_DEL, fd, ev);
-    registrations_.erase(fd);
-    return ok;
-#else
-    (void)sock;
-    return false;
-#endif
+  // Add or remove `EPOLLIN` from the event mask for `sock` without changing
+  // the registered `io_conn`. Returns false if `sock` is not registered or
+  // `epoll_ctl` fails. If executed outside of loop thread, turns into a
+  // `post()` and returns true.
+  bool set_readable(const ip_socket& sock, bool on = true) {
+    const auto fd = sock.handle();
+    return execute_or_post([this, fd, on] { return do_set_readable(fd, on); });
   }
 
   // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
   // the registered `io_conn`. Returns false if `sock` is not registered or
-  // `epoll_ctl` fails. Must run on the loop thread; use `post()` otherwise.
-  bool set_writable(const ip_socket& sock, bool on = true) noexcept {
-#ifdef __linux__
-    const int fd = sock.file().handle();
-    auto found = find_opt(registrations_, fd);
-    if (!found) return false;
-    auto& events = found->events;
+  // `epoll_ctl` fails. If executed outside of loop thread, turns into a
+  // `post()` and returns true.
+  bool set_writable(const ip_socket& sock, bool on = true) {
+    const auto fd = sock.handle();
+    return execute_or_post([this, fd, on] { return do_set_writable(fd, on); });
+  }
 
-    const uint32_t mask =
-        on ? (events | EPOLLOUT) : (events & ~uint32_t{EPOLLOUT});
-    if (mask == events) return true;
-
-    epoll_event ev{.events = mask, .data = epoll_data_t{.fd = fd}};
-    if (!poll_control(EPOLL_CTL_MOD, fd, ev)) return false;
-
-    events = mask;
-    return true;
-#else
-    (void)sock;
-    (void)on;
-    return false;
-#endif
+  // Unregister `sock`. Returns false if `sock` is not registered or
+  // `epoll_ctl` fails. If executed outside of loop thread, turns into a
+  // `post()` and returns true.
+  bool unregister_socket(const ip_socket& sock) {
+    const auto fd = sock.handle();
+    return execute_or_post([this, fd] { return do_unregister_socket(fd); });
   }
 
   // Schedule `fn` to run at the top of the next `run_once()` iteration,
@@ -183,64 +158,178 @@ public:
   // place to invoke user completion callbacks, hand work to a thread pool,
   // or call `register_socket`/`unregister_socket`/`set_writable` from outside
   // the dispatch loop.
+  //
   // When a thread pool finishes work, it calls `post()` to bring the result
   // back to the loop thread.
-  void post(std::function<void()> fn) {
+  bool post(std::function<void()> fn) {
     {
       std::scoped_lock lock{post_mutex_};
       post_queue_.push_back(std::move(fn));
     }
     wake();
+    return true;
+  }
+
+  // Run `fn` on the loop thread and block the caller until it returns. If
+  // already on the loop thread, executes `fn` inline. Unlike a regular post,
+  // which is asynchronous, this is synchronous and passes through the return
+  // value.
+  //
+  // Note: To prevent a deadlock, this fails when the loop is not running.
+  template<typename FN>
+  [[nodiscard]] bool post_and_wait(FN&& fn) {
+    if (is_loop_thread()) return fn();
+    if (!running_.load(std::memory_order_relaxed)) return false;
+
+    // To avoid a race condition, we need to ensure that the state in the
+    // lambda wrapper survives longer than this function.
+    using fn_type = std::decay_t<FN>;
+    struct wait_state {
+      std::mutex mutex;
+      std::condition_variable cv;
+      bool done{};
+      bool result{};
+      fn_type fn;
+
+      explicit wait_state(fn_type&& fn) : fn(std::move(fn)) {}
+    };
+
+    auto waiter = std::make_shared<wait_state>(std::forward<FN>(fn));
+    post([waiter] {
+      {
+        std::scoped_lock lock{waiter->mutex};
+        waiter->result = waiter->fn();
+        waiter->done = true;
+      }
+      waiter->cv.notify_one();
+    });
+
+    // Wait for the callback to run and signal completion. To avoid deadlock,
+    // we also check `running_` in the wait loop, so if the loop thread exits
+    // before the callback runs, we can give up and return false.
+    std::unique_lock lock{waiter->mutex};
+    // If loop exits, give up.
+    while (!waiter->done) {
+      if (!running_.load(std::memory_order_relaxed)) return false;
+      waiter->cv.wait_for(lock, std::chrono::milliseconds(100));
+    }
+    return waiter->result;
+  }
+
+  // Run `fn` immediately if on the loop thread, otherwise `post()` it. Returns
+  // the result of `fn` if executed immediately, otherwise true.
+  template<typename FN>
+  [[nodiscard]] bool execute_or_post(FN&& fn) {
+    if (is_loop_thread()) return fn();
+    post(std::forward<FN>(fn));
+    return true;
   }
 
   // Signal the loop to exit after the current dispatch round completes.
   // Safe to call from any thread.
   void stop() {
-    running_ = false;
+    {
+      std::scoped_lock lock{lifecycle_mutex_};
+      running_ = false;
+    }
+    lifecycle_cv_.notify_all();
     wake();
+  }
+
+  // Check whether the current thread is actively polling this loop.
+  bool is_loop_thread() const noexcept { return current_loop_ == this; }
+
+  // Block until `run()` enters its polling loop. Returns false on timeout.
+  [[nodiscard]] bool wait_until_running(int timeout_ms = -1) {
+    std::unique_lock lock{lifecycle_mutex_};
+    if (timeout_ms < 0) {
+      lifecycle_cv_.wait(lock, [&] {
+        return running_.load(std::memory_order_relaxed);
+      });
+      return true;
+    }
+
+    return lifecycle_cv_.wait_for(lock, std::chrono::milliseconds{timeout_ms},
+        [&] { return running_.load(std::memory_order_relaxed); });
   }
 
   // Wait up to `timeout_ms` milliseconds for events and dispatch ready
   // sockets. Pass -1 to block indefinitely, 0 to poll. Drains `post_queue_`
   // first. Returns the number of I/O events dispatched, or -1 on error.
   int run_once(int timeout_ms = -1) {
-#ifdef __linux__
+    assert(is_loop_thread());
+
+    // Execute backlog of posts.
     drain_post_queue();
 
+    // Poll for available events.
     epoll_event events[max_events];
-    int available =
-        ::epoll_wait(epoll_fd_.handle(), events, max_events, timeout_ms);
+    int available = epoll_.wait(events, max_events, timeout_ms);
     if (available < 0) return os_file::is_hard_error() ? -1 : 0;
 
+    // Dispatch each event to handler.
     int dispatched = 0;
+    int woken = 0;
     for (int ndx = 0; ndx < available; ++ndx) {
       const int fd = events[ndx].data.fd;
 
-      // Drain the internal wakeup handle and skip -- it carries no user event.
+      // Drain the internal wakeup handle and skip: it carries no user event.
       if (fd == wake_fd_.handle()) {
-        // `eventfd` expects an 8-byte read; the value is ignored.
-        std::string buf{"12345678"};
-        (void)wake_fd_.read(buf);
+        (void)wake_fd_.read();
+        ++woken;
         continue;
       }
 
+      // Callback executes in polling thread and should immediately handle the
+      // event by performing I/O. It should not block or post more work to the
+      // loop until ready to handle the callback.
       ++dispatched;
       dispatch_event(fd, events[ndx].events);
     }
 
+    assert(dispatched + woken == available);
     return dispatched;
-#else
-    (void)timeout_ms;
-    return -1;
-#endif
+  }
+
+  // Establishes the current thread as the loop thread for this `io_loop`
+  // instance. Not needed when you just call `run`, but necessary if you want
+  // to call `run_once`. Almost exclusively for testing purposes.
+  auto poll_thread_scope() const {
+    return scoped_value<const io_loop*>{current_loop_, this};
   }
 
   // Dispatch events in a loop until `stop()` is called or `run_once` returns
   // -1. `timeout_ms` is forwarded to each `epoll_wait` call.
-  void run(int timeout_ms = -1) {
-    running_ = true;
-    while (running_)
-      if (run_once(timeout_ms) < 0) break;
+  //
+  // May only be called once; returns false immediately if called again.
+  bool run(int timeout_ms = -1) {
+    bool expected = false;
+    if (!has_run_.compare_exchange_strong(expected, true,
+            std::memory_order_relaxed))
+      return false;
+
+    const auto scope = poll_thread_scope();
+    {
+      std::scoped_lock lock{lifecycle_mutex_};
+      running_ = true;
+    }
+    lifecycle_cv_.notify_all();
+    scope_exit on_exit{[&] {
+      {
+        std::scoped_lock lock{lifecycle_mutex_};
+        running_ = false;
+      }
+      lifecycle_cv_.notify_all();
+    }};
+
+    bool ok = true;
+    for (; running_;)
+      if (run_once(timeout_ms) < 0) {
+        ok = false;
+        break;
+      }
+
+    return ok;
   }
 
 private:
@@ -249,15 +338,89 @@ private:
     std::shared_ptr<io_conn> conn;
   };
 
+  // Register socket and initial interest in reading and writing. Returns
+  // false if already registered or `epoll_ctl` fails.
+  bool do_register_socket(std::shared_ptr<io_conn>&& conn, bool readable,
+      bool writable) {
+    assert(is_loop_thread());
+    const int fd = conn->sock().handle();
+    if (registrations_.contains(fd)) return false;
+
+    const uint32_t events = make_event_mask(readable, writable);
+    epoll_event ev{.events = events, .data = epoll_data_t{.fd = fd}};
+    if (!epoll_.add(fd, ev)) return false;
+
+    registrations_.emplace(fd, registration{events, std::move(conn)});
+    return true;
+  }
+
+  // Unregister `sock`. Returns false if `sock` is not registered or
+  // `epoll_ctl` fails.
+  bool do_unregister_socket(os_file::file_handle_t fd) {
+    assert(is_loop_thread());
+    if (!registrations_.contains(fd)) return false;
+    const bool ok = epoll_.remove(fd);
+    registrations_.erase(fd);
+    return ok;
+  }
+
+  // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
+  // the registered `io_conn`. Returns false if `sock` is not registered or
+  // `epoll_ctl` fails.
+  bool do_set_readable(os_file::file_handle_t fd, bool on = true) noexcept {
+    return do_set_interest(fd, EPOLLIN, on);
+  }
+
+  // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
+  // the registered `io_conn`. Returns false if `sock` is not registered or
+  // `epoll_ctl` fails.
+  bool do_set_writable(os_file::file_handle_t fd, bool on = true) noexcept {
+    return do_set_interest(fd, EPOLLOUT, on);
+  }
+
+  bool do_set_interest(os_file::file_handle_t fd, uint32_t flag,
+      bool on = true) noexcept {
+    assert(is_loop_thread());
+    auto found = find_opt(registrations_, fd);
+    if (!found) return false;
+    auto& events = found->events;
+
+    const uint32_t mask = on ? (events | flag) : (events & ~flag);
+    if (mask == events) return true;
+
+    epoll_event ev{.events = mask, .data = epoll_data_t{.fd = fd}};
+    if (!epoll_.modify(fd, ev)) return false;
+
+    events = mask;
+    return true;
+  }
+
+  static constexpr uint32_t
+  make_event_mask(bool readable = false, bool writable = false) noexcept {
+    // `EPOLLRDHUP` is always armed so that peer half-closes (`SHUT_WR`) are
+    // detected even when `EPOLLIN` is not subscribed.
+    // This loop intentionally stays level-triggered. `tcp_conn` only arms
+    // `EPOLLOUT` while a send queue is backpressured, so LT does not create
+    // steady writable wakeups, and switching to `EPOLLET` would require
+    // every read/write handler to drain to `EAGAIN` to avoid missed
+    // readiness.
+    constexpr uint32_t always_on_events = EPOLLERR | EPOLLHUP | EPOLLRDHUP;
+    return always_on_events | (readable ? uint32_t{EPOLLIN} : uint32_t{0}) |
+           (writable ? uint32_t{EPOLLOUT} : uint32_t{0});
+  }
+
   // Swap-and-drain `post_queue_` under the mutex, then invoke each callback.
   // Callbacks posted from within a drained callback land in the new
   // `post_queue_` and run on the next iteration.
-  void drain_post_queue() {
+  void drain_post_queue(bool execute = true) {
+    assert(is_loop_thread());
     std::vector<std::function<void()>> pending;
     {
       std::scoped_lock lock{post_mutex_};
+      pending.reserve(post_queue_.size());
       pending.swap(post_queue_);
     }
+    if (!execute) return;
     for (auto& fn : pending) fn();
   }
 
@@ -265,7 +428,7 @@ private:
   // `shared_ptr<io_conn>` is copied before any virtual call so the object
   // stays alive even if a callback calls `unregister_socket()`.
   void dispatch_event(int fd, uint32_t ev) {
-#ifdef __linux__
+    assert(is_loop_thread());
     auto found = find_opt(registrations_, fd);
     if (!found) return;
 
@@ -273,70 +436,56 @@ private:
     const auto conn = found->conn;
 
     // Process `EPOLLIN` before `EPOLLERR`/`EPOLLHUP` so that data already in
-    // the kernel receive buffer is delivered even when the peer sends data and
-    // closes the connection in the same wakeup (i.e., `EPOLLHUP | EPOLLIN`).
+    // the kernel receive buffer is delivered even when the peer sends data
+    // and closes the connection in the same wakeup (i.e., `EPOLLHUP |
+    // EPOLLIN`).
     //
     // `on_readable()` calls `do_close_now()` on EOF/error, and `on_error()`
     // is idempotent via `open_.exchange(false)`, so calling it afterward is
     // safe even if the connection was already closed.
-    if (ev & EPOLLIN) conn->on_readable();
+    // `EPOLLRDHUP` indicates peer half-close; route it through the readable
+    // path so `handle_readable()` can detect EOF via `::read` returning 0.
+    if (ev & (EPOLLIN | EPOLLRDHUP)) conn->on_readable();
     if (ev & (EPOLLERR | EPOLLHUP)) {
       conn->on_error();
       return;
     }
     if (ev & EPOLLOUT) conn->on_writable();
-#else
-    (void)fd;
-    (void)ev;
-#endif
   }
 
   // Write to `wake_fd_` to interrupt a sleeping `epoll_wait`. Idempotent and
   // safe to call from any thread.
-  void wake() {
-    // `eventfd` expects an 8-byte write; the value is ignored.
-    std::string buf{"12345678"};
-    std::string_view val{buf};
-    (void)wake_fd_.write(val);
-  }
+  void wake() { (void)wake_fd_.notify(); }
 
-#ifdef __linux__
-  bool poll_control(int op, int fd, epoll_event& ev) const {
-    return ::epoll_ctl(epoll_fd_.handle(), op, fd, &ev) == 0;
-  }
-#endif
-
-  static os_file create_epollfd() {
-#ifdef __linux__
-    auto f = os_file{::epoll_create1(EPOLL_CLOEXEC)};
+  // Create the loop's epoll instance or throw on failure.
+  static epoll create_epollfd() {
+    auto f = epoll{epoll::default_flags};
     if (!f.is_open())
       throw std::system_error(errno, std::generic_category(), "epoll_create1");
     return f;
-#else
-    return os_file{};
-#endif
   }
 
-  static os_file create_eventfd() {
-#ifdef __linux__
-    auto f = os_file{::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)};
+  // Create the loop's wakeup eventfd or throw on failure.
+  static event_fd create_eventfd() {
+    auto f = event_fd{0};
     if (!f.is_open())
       throw std::system_error(errno, std::generic_category(), "eventfd");
     return f;
-#else
-    return os_file{};
-#endif
   }
 
-  const os_file epoll_fd_;
-  const os_file wake_fd_;
+  const epoll epoll_;
+  const event_fd wake_fd_;
+
+  inline static thread_local const io_loop* current_loop_ = nullptr;
 
   std::unordered_map<int, registration> registrations_;
 
   std::mutex post_mutex_;
   std::vector<std::function<void()>> post_queue_;
 
-  std::atomic<bool> running_{false};
+  std::mutex lifecycle_mutex_;
+  std::condition_variable lifecycle_cv_;
+  std::atomic_bool has_run_{false};
+  std::atomic_bool running_{false};
 };
-
 }} // namespace corvid::proto
