@@ -148,6 +148,7 @@ public:
   ~tcp_conn() {
     try {
       if (!state_) return;
+      if (state_->graceful_close_started_) return;
       (void)state_->loop_.execute_or_post([p = std::move(state_)] {
         p->do_hangup();
         return true;
@@ -212,9 +213,11 @@ public:
   }
 
   // Start a graceful close. Drains pending sends first, then shuts down the
-  // socket. Safe to call from any thread.
+  // socket. Safe to call from any thread. Once this is called, destructing the
+  // object does not cause a rude close.
   bool close() {
     if (!state_) return false;
+    state_->graceful_close_started_ = true;
     state_->loop_.post([p = state_] { p->do_close(); });
     state_.reset();
     return true;
@@ -374,6 +377,10 @@ private:
     // Cleared atomically by `do_close_now()`. Read from any thread via
     // `tcp_conn::is_open()`.
     std::atomic_bool open_;
+
+    //  Set by `close()` to start a graceful close, preventing the destructor
+    //  from closing rudely.
+    std::atomic_bool graceful_close_started_{false};
 
     // Whether the read and write sides of the socket are open.
     std::atomic_bool read_open_{true};

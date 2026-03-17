@@ -36,10 +36,9 @@ public:
   static_assert(std::is_invocable_v<EF&>,
       "scope_exit requires EF to be invocable");
 
-  template<typename Fn,
-      typename = std::enable_if_t<
-          !std::is_same_v<std::remove_cvref_t<Fn>, scope_exit> &&
-          std::is_constructible_v<EF, Fn>>>
+  template<typename Fn>
+    requires (!std::is_same_v<std::remove_cvref_t<Fn>, scope_exit> &&
+              std::is_constructible_v<EF, Fn>)
   explicit scope_exit(Fn&& fn) noexcept(
       std::is_nothrow_constructible_v<EF, Fn>)
       : exit_function_(std::forward<Fn>(fn)) {}
