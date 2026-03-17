@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <map>
 #include <set>
+#include <thread>
 #include <vector>
 
 #include "../corvid/containers.h"
@@ -1991,6 +1992,174 @@ void ScopeExit_Basic() {
   }
 }
 
+void Notifiable_NotifyAndWait() {
+  // `notify` + `wait_until`: waiter unblocks when flag becomes true.
+  if (true) {
+    notifiable<bool> flag{false};
+    std::thread t{[&] { flag.notify(true); }};
+    auto v = flag.wait_until([](bool b) { return b; });
+    EXPECT_TRUE(v);
+    t.join();
+  }
+  // `std::identity` shorthand for bool flag.
+  if (true) {
+    notifiable<bool> flag{false};
+    std::thread t{[&] { flag.notify(true); }};
+    auto v = flag.wait_until(std::identity{});
+    EXPECT_TRUE(v);
+    t.join();
+  }
+}
+
+void Notifiable_ModifyAndNotify() {
+  // `modify_and_notify`: waiter unblocks once value exceeds threshold.
+  notifiable<int> counter{0};
+  std::thread t{[&] {
+    for (int i = 0; i < 5; ++i) counter.modify_and_notify([](int& v) { ++v; });
+  }};
+  auto v = counter.wait_until([](int n) { return n >= 5; });
+  EXPECT_EQ(v, 5);
+  t.join();
+}
+
+void Notifiable_WaitFor() {
+  // `wait_for` satisfied before deadline: returns the matching value.
+  if (true) {
+    notifiable<bool> flag{false};
+    std::thread t{[&] { flag.notify(true); }};
+    auto v = flag.wait_for(std::chrono::seconds{5}, std::identity{});
+    EXPECT_TRUE(v);
+    EXPECT_TRUE(*v);
+    t.join();
+  }
+  // `wait_for` timeout: predicate never met, returns nullopt.
+  if (true) {
+    notifiable<bool> flag{false};
+    auto v = flag.wait_for(std::chrono::milliseconds{1}, std::identity{});
+    EXPECT_FALSE(v);
+  }
+}
+
+void Notifiable_WaitUntilChanged() {
+  // `wait_until_changed` unblocks when the value changes; returns new value.
+  if (true) {
+    notifiable<int> n{0};
+    std::thread t{[&] { n.notify(42); }};
+    EXPECT_EQ(n.wait_until_changed(), 42);
+    t.join();
+  }
+  // `wait_for_changed` unblocks before deadline: returns new value.
+  if (true) {
+    notifiable<int> n{0};
+    std::thread t{[&] { n.notify(42); }};
+    auto v = n.wait_for_changed(std::chrono::seconds{5});
+    EXPECT_TRUE(v);
+    EXPECT_EQ(*v, 42);
+    t.join();
+  }
+  // `wait_for_changed` timeout: value never changes, returns nullopt.
+  if (true) {
+    notifiable<int> n{0};
+    auto v = n.wait_for_changed(std::chrono::milliseconds{1});
+    EXPECT_FALSE(v);
+  }
+}
+
+void Notifiable_Get() {
+  // `get` returns snapshot without blocking.
+  notifiable<int> n{42};
+  EXPECT_EQ(n.get(), 42);
+  n.notify(99);
+  EXPECT_EQ(n.get(), 99);
+}
+
+void Notifiable_Atomic() {
+  // `get` on `std::atomic<bool>`: lock-free relaxed load.
+  if (true) {
+    notifiable<std::atomic_bool> flag{false};
+    EXPECT_FALSE(flag.get());
+    flag.notify(true);
+    EXPECT_TRUE(flag.get());
+    EXPECT_TRUE(flag.get(std::memory_order::acquire));
+  }
+  // `load_value` static helper: relaxed read without implicit `seq_cst` cast.
+  if (true) {
+    std::atomic_bool a{true};
+    EXPECT_TRUE(notifiable<std::atomic_bool>::load_value(a));
+  }
+  // `notify` + `wait_until`: waiter unblocks when atomic flag becomes true.
+  if (true) {
+    notifiable<std::atomic_bool> flag{false};
+    std::thread t{[&] { flag.notify(true); }};
+    auto v = flag.wait_until([](const std::atomic_bool& b) { return b.load(); });
+    EXPECT_TRUE(v);
+    t.join();
+  }
+  // `wait_until_value`: uses `load_value` internally (no implicit `seq_cst`).
+  if (true) {
+    notifiable<std::atomic_bool> flag{false};
+    std::thread t{[&] { flag.notify(true); }};
+    flag.wait_until_value(true);
+    EXPECT_TRUE(flag.get());
+    t.join();
+  }
+  // `wait_until_changed` on atomic int: returns new value.
+  if (true) {
+    notifiable<std::atomic<int>> n{0};
+    std::thread t{[&] { n.notify(42); }};
+    EXPECT_EQ(n.wait_until_changed(), 42);
+    t.join();
+  }
+  // `modify_and_notify` on atomic int: waiter unblocks once threshold reached.
+  if (true) {
+    notifiable<std::atomic<int>> counter{0};
+    std::thread t{[&] {
+      for (int i = 0; i < 5; ++i)
+        counter.modify_and_notify([](std::atomic<int>& v) { ++v; });
+    }};
+    auto v = counter.wait_until(
+        [](const std::atomic<int>& n) { return n.load() >= 5; });
+    EXPECT_EQ(v, 5);
+    t.join();
+  }
+  // `wait_for` satisfied before deadline.
+  if (true) {
+    notifiable<std::atomic_bool> flag{false};
+    std::thread t{[&] { flag.notify(true); }};
+    auto v = flag.wait_for(std::chrono::seconds{5},
+        [](const std::atomic_bool& b) { return b.load(); });
+    EXPECT_TRUE(v);
+    EXPECT_TRUE(*v);
+    t.join();
+  }
+  // `wait_for_value` satisfied before deadline.
+  if (true) {
+    notifiable<std::atomic_bool> flag{false};
+    std::thread t{[&] { flag.notify(true); }};
+    EXPECT_TRUE(flag.wait_for_value(std::chrono::seconds{5}, true));
+    t.join();
+  }
+  // `wait_for_value` timeout: predicate never met.
+  if (true) {
+    notifiable<std::atomic_bool> flag{false};
+    EXPECT_FALSE(flag.wait_for_value(std::chrono::milliseconds{1}, true));
+  }
+  // `wait_for_changed` satisfied before deadline.
+  if (true) {
+    notifiable<std::atomic<int>> n{0};
+    std::thread t{[&] { n.notify(99); }};
+    auto v = n.wait_for_changed(std::chrono::seconds{5});
+    EXPECT_TRUE(v);
+    EXPECT_EQ(*v, 99);
+    t.join();
+  }
+  // `wait_for_changed` timeout: value never changes.
+  if (true) {
+    notifiable<std::atomic<int>> n{0};
+    EXPECT_FALSE(n.wait_for_changed(std::chrono::milliseconds{1}));
+  }
+}
+
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
     FindOptTest_Maps, FindOptTest_Sets, FindOptTest_Vectors,
@@ -2001,7 +2170,9 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
     StrongType_Extended, EnumVariant_Basic, TombStone_Basic, EnumVector_Basic,
-    ScopedValue_Basic, ScopeExit_Basic);
+    ScopedValue_Basic, ScopeExit_Basic, Notifiable_NotifyAndWait,
+    Notifiable_ModifyAndNotify, Notifiable_WaitFor,
+    Notifiable_WaitUntilChanged, Notifiable_Get, Notifiable_Atomic);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

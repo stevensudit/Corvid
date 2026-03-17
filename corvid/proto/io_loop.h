@@ -17,7 +17,6 @@
 #pragma once
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cerrno>
 #include <functional>
 #include <memory>
@@ -28,6 +27,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../containers/notifiable.h"
 #include "../containers/scoped_value.h"
 #include "../containers/scope_exit.h"
 #include "../containers/opt_find.h"
@@ -80,9 +80,9 @@ private:
 // the loop thread and handle I/O immediately, but may hand off work to a
 // thread pool, which uses `post()` to deliver results back.
 //
-// `stop()` is also thread-safe: it sets `running_` (an `atomic<bool>`) and
-// writes to `wake_fd_` so the loop exits promptly even if blocked in
-// `epoll_wait`.
+// `stop()` is also thread-safe: it sets `running_` (a
+// `notifiable<std::atomic_bool>`) and writes to `wake_fd_` so the loop exits
+// promptly even if blocked in `epoll_wait`.
 //
 // `register_socket`, `unregister_socket`, `set_readable`, and `set_writable`
 // are NOT inherently thread-safe, but they automatically promote a call from
@@ -179,15 +179,13 @@ public:
   template<typename FN>
   [[nodiscard]] bool post_and_wait(FN&& fn) {
     if (is_loop_thread()) return fn();
-    if (!running_.load(std::memory_order_relaxed)) return false;
+    if (!running_.get()) return false;
 
     // To avoid a race condition, we need to ensure that the state in the
     // lambda wrapper survives longer than this function.
     using fn_type = std::decay_t<FN>;
     struct wait_state {
-      std::mutex mutex;
-      std::condition_variable cv;
-      bool done{};
+      notifiable<bool> done{false};
       bool result{};
       fn_type fn;
 
@@ -196,24 +194,19 @@ public:
 
     auto waiter = std::make_shared<wait_state>(std::forward<FN>(fn));
     post([waiter] {
-      {
-        std::scoped_lock lock{waiter->mutex};
-        waiter->result = waiter->fn();
-        waiter->done = true;
-      }
-      waiter->cv.notify_one();
+      waiter->result = waiter->fn();
+      waiter->done.notify_one(true);
     });
 
     // Wait for the callback to run and signal completion. To avoid deadlock,
     // we also check `running_` in the wait loop, so if the loop thread exits
     // before the callback runs, we can give up and return false.
-    std::unique_lock lock{waiter->mutex};
-    // If loop exits, give up.
-    while (!waiter->done) {
-      if (!running_.load(std::memory_order_relaxed)) return false;
-      waiter->cv.wait_for(lock, std::chrono::milliseconds(100));
+    using namespace std::chrono_literals;
+    while (true) {
+      if (waiter->done.wait_for_value(100ms, true)) return waiter->result;
+      // If loop exits, give up.
+      if (!running_.get()) return false;
     }
-    return waiter->result;
   }
 
   // Run `fn` immediately if on the loop thread, otherwise `post()` it. Returns
@@ -228,11 +221,7 @@ public:
   // Signal the loop to exit after the current dispatch round completes.
   // Safe to call from any thread.
   void stop() {
-    {
-      std::scoped_lock lock{lifecycle_mutex_};
-      running_ = false;
-    }
-    lifecycle_cv_.notify_all();
+    running_.notify(false);
     wake();
   }
 
@@ -240,17 +229,11 @@ public:
   bool is_loop_thread() const noexcept { return current_loop_ == this; }
 
   // Block until `run()` enters its polling loop. Returns false on timeout.
+  // Pass -1 (the default) to wait up to 60 seconds.
   [[nodiscard]] bool wait_until_running(int timeout_ms = -1) {
-    std::unique_lock lock{lifecycle_mutex_};
-    if (timeout_ms < 0) {
-      lifecycle_cv_.wait(lock, [&] {
-        return running_.load(std::memory_order_relaxed);
-      });
-      return true;
-    }
-
-    return lifecycle_cv_.wait_for(lock, std::chrono::milliseconds{timeout_ms},
-        [&] { return running_.load(std::memory_order_relaxed); });
+    if (timeout_ms < 0) timeout_ms = 60000;
+    return running_.wait_for_value(std::chrono::milliseconds{timeout_ms},
+        true);
   }
 
   // Wait up to `timeout_ms` milliseconds for events and dispatch ready
@@ -305,25 +288,15 @@ public:
   bool run(int timeout_ms = -1) {
     bool expected = false;
     if (!has_run_.compare_exchange_strong(expected, true,
-            std::memory_order_relaxed))
+            std::memory_order::relaxed))
       return false;
 
     const auto scope = poll_thread_scope();
-    {
-      std::scoped_lock lock{lifecycle_mutex_};
-      running_ = true;
-    }
-    lifecycle_cv_.notify_all();
-    scope_exit on_exit{[&] {
-      {
-        std::scoped_lock lock{lifecycle_mutex_};
-        running_ = false;
-      }
-      lifecycle_cv_.notify_all();
-    }};
+    running_.notify(true);
+    scope_exit on_exit{[&] { running_.notify(false); }};
 
     bool ok = true;
-    for (; running_;)
+    for (; running_.get();)
       if (run_once(timeout_ms) < 0) {
         ok = false;
         break;
@@ -483,9 +456,7 @@ private:
   std::mutex post_mutex_;
   std::vector<std::function<void()>> post_queue_;
 
-  std::mutex lifecycle_mutex_;
-  std::condition_variable lifecycle_cv_;
   std::atomic_bool has_run_{false};
-  std::atomic_bool running_{false};
+  notifiable<std::atomic_bool> running_{false};
 };
 }} // namespace corvid::proto
