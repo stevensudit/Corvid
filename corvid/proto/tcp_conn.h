@@ -219,7 +219,6 @@ public:
     if (!state_) return false;
     state_->graceful_close_started_ = true;
     state_->loop_.post([p = state_] { p->do_close(); });
-    state_.reset();
     return true;
   }
 
