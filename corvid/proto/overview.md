@@ -26,7 +26,7 @@ multicast, private ranges, etc. Comparison operators and `std::format` /
 `std::ostream` integration are provided. On POSIX platforms each type
 interops with its corresponding `in_addr` / `in6_addr` struct.
 
-### `ip_endpoint`
+### `net_endpoint`
 
 Address + port pair in a tagged union of `sockaddr_in` and `sockaddr_in6`.
 Default-constructs to an invalid state (checkable via `is_valid()`). Parses
@@ -35,7 +35,7 @@ Named factories `any_v4()` and `any_v6()` produce wildcard bind addresses.
 On POSIX, interops with `sockaddr_in`, `sockaddr_in6`, and
 `sockaddr_storage`.
 
-### `ip_socket`
+### `net_socket`
 
 RAII socket handle derived from `os_file`; movable, non-copyable; inherits
 fd-level operations directly. Type-safe
@@ -45,14 +45,14 @@ wrap `setsockopt` / `getsockopt`. Socket I/O adds `send(string_view&)` and
 helpers cover the most common options: `set_reuse_addr`, `set_reuse_port`,
 `set_nodelay`, `set_keepalive`, `set_recv_buffer_size`,
 `set_send_buffer_size`. Can adopt an existing `os_file` by move, or create a socket directly via
-`ip_socket(domain, type, protocol)`.
+`net_socket(domain, type, protocol)`.
 
 ### `dns_resolver`
 
-Resolves hostnames to `ip_endpoint` values via `getaddrinfo`. `find_all()`
-returns a `std::vector<ip_endpoint>` with an optional address-family filter
+Resolves hostnames to `net_endpoint` values via `getaddrinfo`. `find_all()`
+returns a `std::vector<net_endpoint>` with an optional address-family filter
 (`AF_UNSPEC`, `AF_INET`, or `AF_INET6`) and `max_results` cap. `find_one()`
-returns the first result as an `ip_endpoint`, or a default-constructed
+returns the first result as an `net_endpoint`, or a default-constructed
 (invalid) endpoint on failure.
 
 ## Layer 2: TCP I/O Loop

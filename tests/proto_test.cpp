@@ -382,7 +382,7 @@ void Ipv6Addr_PosixInterop() {
 
 void IpEndpoint_Construction() {
   if (true) {
-    ip_endpoint ep;
+    net_endpoint ep;
     EXPECT_FALSE(ep.is_valid());
     EXPECT_FALSE(ep.is_v4());
     EXPECT_FALSE(ep.is_v6());
@@ -390,14 +390,14 @@ void IpEndpoint_Construction() {
   }
 
   if (true) {
-    ip_endpoint ep{ipv4_addr(127, 0, 0, 1), 80};
+    net_endpoint ep{ipv4_addr(127, 0, 0, 1), 80};
     EXPECT_TRUE(ep.is_v4());
     EXPECT_EQ(ep.port(), 80U);
     EXPECT_EQ(ep.v4()->to_string(), "127.0.0.1");
   }
 
   if (true) {
-    ip_endpoint ep{ipv6_addr::loopback(), 443};
+    net_endpoint ep{ipv6_addr::loopback(), 443};
     EXPECT_TRUE(ep.is_v6());
     EXPECT_EQ(ep.port(), 443U);
     EXPECT_EQ(ep.v6()->to_string(), "::1");
@@ -406,13 +406,13 @@ void IpEndpoint_Construction() {
 
 void IpEndpoint_Parse() {
   if (true) {
-    auto a = ip_endpoint::parse("192.168.1.10:8080");
+    auto a = net_endpoint::parse("192.168.1.10:8080");
     EXPECT_TRUE(a.has_value());
     EXPECT_TRUE(a->is_v4());
     EXPECT_EQ(a->port(), 8080U);
     EXPECT_EQ(a->v4()->to_string(), "192.168.1.10");
 
-    auto b = ip_endpoint::parse("[2001:db8::1]:443");
+    auto b = net_endpoint::parse("[2001:db8::1]:443");
     EXPECT_TRUE(b.has_value());
     EXPECT_TRUE(b->is_v6());
     EXPECT_EQ(b->port(), 443U);
@@ -420,21 +420,21 @@ void IpEndpoint_Parse() {
   }
 
   if (true) {
-    EXPECT_FALSE(ip_endpoint::parse("").has_value());
-    EXPECT_FALSE(ip_endpoint::parse("127.0.0.1").has_value());
-    EXPECT_FALSE(ip_endpoint::parse("127.0.0.1:").has_value());
-    EXPECT_FALSE(ip_endpoint::parse("127.0.0.1:99999").has_value());
-    EXPECT_FALSE(ip_endpoint::parse("2001:db8::1:443").has_value());
-    EXPECT_FALSE(ip_endpoint::parse("[2001:db8::1]").has_value());
-    EXPECT_FALSE(ip_endpoint::parse("[2001:db8::1]:").has_value());
-    EXPECT_FALSE(ip_endpoint::parse("[2001:db8::1]:70000").has_value());
+    EXPECT_FALSE(net_endpoint::parse("").has_value());
+    EXPECT_FALSE(net_endpoint::parse("127.0.0.1").has_value());
+    EXPECT_FALSE(net_endpoint::parse("127.0.0.1:").has_value());
+    EXPECT_FALSE(net_endpoint::parse("127.0.0.1:99999").has_value());
+    EXPECT_FALSE(net_endpoint::parse("2001:db8::1:443").has_value());
+    EXPECT_FALSE(net_endpoint::parse("[2001:db8::1]").has_value());
+    EXPECT_FALSE(net_endpoint::parse("[2001:db8::1]:").has_value());
+    EXPECT_FALSE(net_endpoint::parse("[2001:db8::1]:70000").has_value());
   }
 }
 
 void IpEndpoint_Comparison() {
-  ip_endpoint a{ipv4_addr(10, 0, 0, 1), 80};
-  ip_endpoint b{ipv4_addr(10, 0, 0, 1), 81};
-  ip_endpoint c{ipv4_addr(10, 0, 0, 1), 80};
+  net_endpoint a{ipv4_addr(10, 0, 0, 1), 80};
+  net_endpoint b{ipv4_addr(10, 0, 0, 1), 81};
+  net_endpoint c{ipv4_addr(10, 0, 0, 1), 80};
 
   EXPECT_TRUE(a == c);
   EXPECT_FALSE(a == b);
@@ -442,20 +442,20 @@ void IpEndpoint_Comparison() {
 }
 
 void IpEndpoint_Formatting() {
-  auto v4 = ip_endpoint{ipv4_addr(127, 0, 0, 1), 80};
-  auto v6 = ip_endpoint{ipv6_addr::loopback(), 443};
+  auto v4 = net_endpoint{ipv4_addr(127, 0, 0, 1), 80};
+  auto v6 = net_endpoint{ipv6_addr::loopback(), 443};
   EXPECT_EQ(v4.to_string(), "127.0.0.1:80");
   EXPECT_EQ(v6.to_string(), "[::1]:443");
 }
 
 void IpEndpoint_PosixInterop() {
   if (true) {
-    ip_endpoint ep{ipv4_addr(192, 168, 1, 2), 1234};
+    net_endpoint ep{ipv4_addr(192, 168, 1, 2), 1234};
     auto raw = ep.as_sockaddr_in();
-    ip_endpoint roundtrip{raw};
+    net_endpoint roundtrip{raw};
     EXPECT_EQ(roundtrip, ep);
 
-    ip_endpoint from_sockaddr{reinterpret_cast<const sockaddr&>(raw),
+    net_endpoint from_sockaddr{reinterpret_cast<const sockaddr&>(raw),
         sizeof(raw)};
     EXPECT_EQ(from_sockaddr, ep);
 
@@ -466,12 +466,12 @@ void IpEndpoint_PosixInterop() {
   }
 
   if (true) {
-    ip_endpoint ep{ipv6_addr(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1), 4321};
+    net_endpoint ep{ipv6_addr(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1), 4321};
     auto raw = ep.as_sockaddr_in6();
-    ip_endpoint roundtrip{raw};
+    net_endpoint roundtrip{raw};
     EXPECT_EQ(roundtrip, ep);
 
-    ip_endpoint from_sockaddr{reinterpret_cast<const sockaddr&>(raw),
+    net_endpoint from_sockaddr{reinterpret_cast<const sockaddr&>(raw),
         sizeof(raw)};
     EXPECT_EQ(from_sockaddr, ep);
 
@@ -546,23 +546,23 @@ void DnsResolveOne_Success() {
 void DnsResolveOne_Failure() {
   // An unresolvable host returns a default-constructed (invalid) endpoint.
   const auto ep = dns_resolver::find_one("no-such-host.invalid", 80);
-  EXPECT_EQ(ep, ip_endpoint{});
+  EXPECT_EQ(ep, net_endpoint{});
 }
 
-// Helper: create a connected socketpair and wrap each end in an `ip_socket`.
-// Caller must close both sockets when done (RAII via `ip_socket` destructor).
+// Helper: create a connected socketpair and wrap each end in an `net_socket`.
+// Caller must close both sockets when done (RAII via `net_socket` destructor).
 // Plain struct (not `std::pair`) so structured bindings use direct member
 // access rather than `std::tuple_element<>::type`.
 struct sockpair_t {
-  ip_socket a;
-  ip_socket b;
+  net_socket a;
+  net_socket b;
 };
 // Make a pair of connected sockets, in non-blocking mode.
 static sockpair_t make_nb_sockpair() {
   int fds[2];
   if (::socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, fds) != 0)
     return {};
-  return {ip_socket{os_file{fds[0]}}, ip_socket{os_file{fds[1]}}};
+  return {net_socket{os_file{fds[0]}}, net_socket{os_file{fds[1]}}};
 }
 
 // Minimal `io_conn` that counts how many times each virtual is called.
@@ -850,7 +850,7 @@ void TcpConn_Lifecycle() {
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
-  const ip_endpoint remote{ipv4_addr::loopback(), 9999};
+  const net_endpoint remote{ipv4_addr::loopback(), 9999};
   {
     tcp_conn conn{loop, std::move(a), remote, {}};
     // open_ is set in the state constructor before the post fires.

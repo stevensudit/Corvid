@@ -31,7 +31,7 @@
 
 #include "io_loop.h"
 #include "loop_task.h"
-#include "ip_endpoint.h"
+#include "net_endpoint.h"
 #include "../strings/no_zero.h"
 
 namespace corvid { inline namespace proto {
@@ -130,7 +130,7 @@ public:
   // Construct a connection from `sock` (must already be non-blocking) and post
   // its registration with `loop`. `remote` records the peer address for
   // diagnostics. May be called from any thread.
-  explicit tcp_conn(io_loop& loop, ip_socket&& sock, const ip_endpoint& remote,
+  explicit tcp_conn(io_loop& loop, net_socket&& sock, const net_endpoint& remote,
       tcp_conn_handlers&& h = {},
       size_t recv_buf_size = default_recv_buf_size) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
@@ -198,8 +198,8 @@ public:
 
   // The remote peer address supplied at construction. Requires a valid
   // connection. Safe to call from any thread.
-  [[nodiscard]] const ip_endpoint& remote_endpoint() const noexcept {
-    if (!state_) return ip_endpoint::invalid;
+  [[nodiscard]] const net_endpoint& remote_endpoint() const noexcept {
+    if (!state_) return net_endpoint::invalid;
     return state_->remote_;
   }
 
@@ -354,7 +354,7 @@ private:
     };
 
     io_loop& loop_;
-    ip_endpoint remote_;
+    net_endpoint remote_;
     tcp_conn_handlers handlers_;
 
     // Outbound queue. `std::deque` is used because its `push_back` does not
@@ -410,7 +410,7 @@ private:
     // `async_cb_write()`.
     pending_write_op pending_write_;
 
-    explicit state(io_loop& loop, ip_socket&& sock, const ip_endpoint& remote,
+    explicit state(io_loop& loop, net_socket&& sock, const net_endpoint& remote,
         tcp_conn_handlers&& h, size_t rbs) noexcept
         : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
           handlers_{std::move(h)}, recv_buf_capacity_{rbs}, open_{true} {}
@@ -598,7 +598,7 @@ private:
       maybe_finish_after_side_close(close_mode::forceful);
     }
 
-    // Register `ip_socket` with the loop. Stores a shared owner in the loop's
+    // Register `net_socket` with the loop. Stores a shared owner in the loop's
     // registration map, keeping the state alive as long as the fd is
     // registered, even if its `tcp_conn` is destructed.
     void register_with_loop() {

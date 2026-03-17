@@ -34,7 +34,7 @@
 #include "../containers/opt_find.h"
 #include "../filesys/epoll.h"
 #include "../filesys/event_fd.h"
-#include "../filesys/ip_socket.h"
+#include "../filesys/net_socket.h"
 
 namespace corvid { inline namespace proto {
 
@@ -49,9 +49,9 @@ using namespace corvid::container::value_scoping;
 // object stays alive for the duration of any in-progress dispatch even if the
 // caller unregisters it during a callback.
 struct io_conn: std::enable_shared_from_this<io_conn> {
-  explicit io_conn(ip_socket&& sock) : sock_(std::move(sock)) {}
-  ip_socket& sock() noexcept { return sock_; }
-  const ip_socket& sock() const noexcept { return sock_; }
+  explicit io_conn(net_socket&& sock) : sock_(std::move(sock)) {}
+  net_socket& sock() noexcept { return sock_; }
+  const net_socket& sock() const noexcept { return sock_; }
 
   virtual void on_readable() {}
   virtual void on_writable() {}
@@ -59,7 +59,7 @@ struct io_conn: std::enable_shared_from_this<io_conn> {
   virtual ~io_conn() = default;
 
 private:
-  ip_socket sock_;
+  net_socket sock_;
 };
 
 // `epoll`-based I/O event loop, safe for use with a background thread.
@@ -132,7 +132,7 @@ public:
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post()` and returns true.
-  bool set_readable(const ip_socket& sock, bool on = true) {
+  bool set_readable(const net_socket& sock, bool on = true) {
     const auto fd = sock.handle();
     return execute_or_post([this, fd, on] { return do_set_readable(fd, on); });
   }
@@ -141,7 +141,7 @@ public:
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post()` and returns true.
-  bool set_writable(const ip_socket& sock, bool on = true) {
+  bool set_writable(const net_socket& sock, bool on = true) {
     const auto fd = sock.handle();
     return execute_or_post([this, fd, on] { return do_set_writable(fd, on); });
   }
@@ -149,7 +149,7 @@ public:
   // Unregister `sock`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post()` and returns true.
-  bool unregister_socket(const ip_socket& sock) {
+  bool unregister_socket(const net_socket& sock) {
     const auto fd = sock.handle();
     return execute_or_post([this, fd] { return do_unregister_socket(fd); });
   }
@@ -430,7 +430,8 @@ private:
 
   // Create the loop's epoll instance or throw on failure.
   static epoll create_epollfd() {
-    auto f = epoll::create() if (!f.is_open()) throw std::system_error(errno,
+    auto f = epoll::create();
+    if (!f.is_open()) throw std::system_error(errno,
         std::generic_category(), "epoll_create1");
     return f;
   }

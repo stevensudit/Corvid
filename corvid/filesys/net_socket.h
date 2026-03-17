@@ -31,66 +31,66 @@ using namespace bool_enums;
 
 // RAII IP socket with type-safe option methods.
 //
-// `ip_socket` is-an `os_file`, adding socket-specific operations on top of
+// `net_socket` is-an `os_file`, adding socket-specific operations on top of
 // the shared fd ownership and control helpers. Movable, non-copyable.
 //
-// `bind` and `connect` accept a `sockaddr_storage`. `ip_endpoint` converts
+// `bind` and `connect` accept a `sockaddr_storage`. `net_endpoint` converts
 // implicitly, so it can be passed directly. `accept` returns the peer address
-// as a raw `sockaddr_storage`; use `ip_endpoint{sockaddr_storage}` to convert
+// as a raw `sockaddr_storage`; use `net_endpoint{sockaddr_storage}` to convert
 // it if needed.
-class [[nodiscard]] ip_socket: public os_file {
+class [[nodiscard]] net_socket: public os_file {
 public:
   using handle_t = os_file::file_handle_t;
   static constexpr handle_t invalid_handle = os_file::invalid_file_handle;
 
-  ip_socket() noexcept = default;
-  explicit ip_socket(int domain, int type, int protocol) noexcept
+  net_socket() noexcept = default;
+  explicit net_socket(int domain, int type, int protocol) noexcept
       : os_file(::socket(domain, type, protocol)) {}
-  explicit ip_socket(os_file&& file) noexcept : os_file(std::move(file)) {}
+  explicit net_socket(os_file&& file) noexcept : os_file(std::move(file)) {}
 
-  ip_socket(ip_socket&&) noexcept = default;
-  ip_socket(const ip_socket&) = delete;
+  net_socket(net_socket&&) noexcept = default;
+  net_socket(const net_socket&) = delete;
 
-  ip_socket& operator=(ip_socket&&) noexcept = default;
-  ip_socket& operator=(const ip_socket&) = delete;
+  net_socket& operator=(net_socket&&) noexcept = default;
+  net_socket& operator=(const net_socket&) = delete;
 
-  ~ip_socket() = default;
+  ~net_socket() = default;
 
   // Create an IPv4 socket. Defaults to non-blocking TCP (`SOCK_STREAM |
   // SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass `message_style::datagram` for UDP,
   // or `execution::blocking` to omit `SOCK_NONBLOCK`.
-  [[nodiscard]] static ip_socket
+  [[nodiscard]] static net_socket
   create_ipv4(execution exec = execution::nonblocking,
       message_style style = message_style::stream) noexcept {
     int type = (style == message_style::stream) ? SOCK_STREAM : SOCK_DGRAM;
     type |= SOCK_CLOEXEC;
     if (exec == execution::nonblocking) type |= SOCK_NONBLOCK;
-    return ip_socket{AF_INET, type, 0};
+    return net_socket{AF_INET, type, 0};
   }
 
   // Create an IPv6 socket. Defaults to non-blocking TCP (`SOCK_STREAM |
   // SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass `message_style::datagram` for UDP,
   // or `execution::blocking` to omit `SOCK_NONBLOCK`.
-  [[nodiscard]] static ip_socket
+  [[nodiscard]] static net_socket
   create_ipv6(execution exec = execution::nonblocking,
       message_style style = message_style::stream) noexcept {
     int type = (style == message_style::stream) ? SOCK_STREAM : SOCK_DGRAM;
     type |= SOCK_CLOEXEC;
     if (exec == execution::nonblocking) type |= SOCK_NONBLOCK;
-    return ip_socket{AF_INET6, type, 0};
+    return net_socket{AF_INET6, type, 0};
   }
 
   // Create a Unix domain socket. Defaults to non-blocking stream
   // (`SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass
   // `message_style::datagram` for a connectionless UDS, or
   // `execution::blocking` to omit `SOCK_NONBLOCK`.
-  [[nodiscard]] static ip_socket
+  [[nodiscard]] static net_socket
   create_uds(execution exec = execution::nonblocking,
       message_style style = message_style::stream) noexcept {
     int type = (style == message_style::stream) ? SOCK_STREAM : SOCK_DGRAM;
     type |= SOCK_CLOEXEC;
     if (exec == execution::nonblocking) type |= SOCK_NONBLOCK;
-    return ip_socket{AF_UNIX, type, 0};
+    return net_socket{AF_UNIX, type, 0};
   }
 
   // Close the socket. Idempotent. Returns true when the socket was open and
@@ -242,8 +242,8 @@ public:
   // `SOCK_CLOEXEC | SOCK_NONBLOCK` via `accept4`. Returns `std::nullopt` when
   // no connection is available (`EAGAIN`/`EWOULDBLOCK`) or an error occurs.
   // The peer address is returned as a raw `sockaddr_storage`; use
-  // `ip_endpoint{sockaddr_storage}` to convert it if needed.
-  [[nodiscard]] std::optional<std::pair<ip_socket, sockaddr_storage>>
+  // `net_endpoint{sockaddr_storage}` to convert it if needed.
+  [[nodiscard]] std::optional<std::pair<net_socket, sockaddr_storage>>
   accept() noexcept {
     assert(is_open());
     sockaddr_storage addr{};
@@ -251,7 +251,7 @@ public:
     const int fd = ::accept4(handle(), reinterpret_cast<sockaddr*>(&addr),
         &len, SOCK_CLOEXEC | SOCK_NONBLOCK);
     if (fd < 0) return std::nullopt;
-    return std::pair{ip_socket{os_file{fd}}, addr};
+    return std::pair{net_socket{os_file{fd}}, addr};
   }
 
 private:

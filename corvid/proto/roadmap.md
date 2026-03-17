@@ -8,7 +8,7 @@ Thin, zero-overhead C++ wrappers around POSIX and Linux networking primitives.
 
 - **[done]** `os_file` -- RAII wrapper around a raw file descriptor; non-copyable,
   movable; provides `read`, `write`, `get_flags`, `set_flags`, and `is_open`;
-  used as the fd-owning base for `ip_socket`
+  used as the fd-owning base for `net_socket`
 - **[done]** `ipv4_addr` -- wraps `in_addr`; construction from dotted-decimal
   string, host-byte-order `uint32_t`, and four octets; named factories
   (`any()`, `loopback()`, `broadcast()`); classification predicates;
@@ -16,16 +16,16 @@ Thin, zero-overhead C++ wrappers around POSIX and Linux networking primitives.
 - **[done]** `ipv6_addr` -- wraps `in6_addr`; similar interface to `ipv4_addr`;
   construction from colon-hex string, `uint8_t[16]` array, and
   `uint16_t[8]` array; named factories and classification predicates
-- **[done]** `ip_endpoint` -- address + port pair; wraps both `sockaddr_in` and
+- **[done]** `net_endpoint` -- address + port pair; wraps both `sockaddr_in` and
   `sockaddr_in6` in a tagged union; round-trip through POSIX `sockaddr`
   pointers; comparison; formatting
-- **[done]** `ip_socket` -- RAII socket handle (fd on POSIX); movable,
+- **[done]** `net_socket` -- RAII socket handle (fd on POSIX); movable,
   non-copyable; type-safe `set_option` / `get_option` (e.g., `SO_REUSEADDR`,
   `TCP_NODELAY`); `set_nonblocking()`, `bind()`, `connect()`, `listen()`,
   `accept()`; `set_send_buffer_size()` convenience method
 - **[done]** `dns_resolve` -- thin wrapper around `getaddrinfo`; `find_all()`
-  returns `std::vector<ip_endpoint>`; `find_one()` returns
-  `ip_endpoint`; both accept an optional address-family filter
+  returns `std::vector<net_endpoint>`; `find_one()` returns
+  `net_endpoint`; both accept an optional address-family filter
 
 ## Layer 2: TCP I/O Loop (epoll-based, io_uring later)
 
@@ -50,10 +50,10 @@ without changing higher layers.
   handlers; `initial_suspend` is `suspend_never` (eager start);
   `final_suspend` is `suspend_never` (self-destroying frame); enables
   `co_await conn.async_read()` / `co_await conn.async_send(buf)` patterns
-- `tcp_listener` -- binds and listens on an `ip_endpoint`; produces accepted
+- `tcp_listener` -- binds and listens on an `net_endpoint`; produces accepted
   `tcp_conn` instances via a callback or coroutine
 - `tcp_client` -- initiates an outbound non-blocking `connect()` to an
-  `ip_endpoint` and registers the fd with `io_loop`; delivers a `tcp_conn`
+  `net_endpoint` and registers the fd with `io_loop`; delivers a `tcp_conn`
   on success via the same mechanism used by `tcp_listener`
 - **Future:** replace `epoll` backend with `io_uring` (`io_uring_loop`) behind
   the same `io_loop` interface

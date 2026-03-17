@@ -16,7 +16,7 @@
 // limitations under the License.
 
 #include "../corvid/filesys.h"
-#include "../corvid/proto/ip_endpoint.h"
+#include "../corvid/proto/net_endpoint.h"
 #include "minitest.h"
 
 #include <fcntl.h>
@@ -163,26 +163,26 @@ void OsFile_WriteRead() {
 void IpSocket_Lifecycle() {
   // Default-constructed socket is invalid.
   if (true) {
-    ip_socket s;
+    net_socket s;
     EXPECT_FALSE(s.is_open());
     EXPECT_FALSE(static_cast<bool>(s));
-    EXPECT_EQ(s.handle(), ip_socket::invalid_handle);
+    EXPECT_EQ(s.handle(), net_socket::invalid_handle);
     EXPECT_FALSE(s.close());
   }
 
   // A real socket is open; closing it twice is idempotent.
   if (true) {
-    ip_socket s{AF_INET, SOCK_STREAM, 0};
+    net_socket s{AF_INET, SOCK_STREAM, 0};
     EXPECT_TRUE(s.is_open());
     EXPECT_TRUE(static_cast<bool>(s));
-    EXPECT_NE(s.handle(), ip_socket::invalid_handle);
+    EXPECT_NE(s.handle(), net_socket::invalid_handle);
     EXPECT_TRUE(s.close());
     EXPECT_FALSE(s.is_open());
     EXPECT_FALSE(s.close());
   }
 
   // Destructor closes an open socket (no crash or leak).
-  if (true) { ip_socket s{AF_INET, SOCK_STREAM, 0}; }
+  if (true) { net_socket s{AF_INET, SOCK_STREAM, 0}; }
 }
 
 void EventFd_Lifecycle() {
@@ -510,9 +510,9 @@ void EventFd_NonblockingEmptyRead() {
 void IpSocket_Move() {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
-    ip_socket a{AF_INET, SOCK_STREAM, 0};
+    net_socket a{AF_INET, SOCK_STREAM, 0};
     const auto h = a.handle();
-    ip_socket b{std::move(a)};
+    net_socket b{std::move(a)};
     EXPECT_FALSE(a.is_open());
     EXPECT_TRUE(b.is_open());
     EXPECT_EQ(b.handle(), h);
@@ -520,8 +520,8 @@ void IpSocket_Move() {
 
   // Move assignment closes the destination and transfers the source.
   if (true) {
-    ip_socket a{AF_INET, SOCK_STREAM, 0};
-    ip_socket b{AF_INET, SOCK_STREAM, 0};
+    net_socket a{AF_INET, SOCK_STREAM, 0};
+    net_socket b{AF_INET, SOCK_STREAM, 0};
     const auto h = a.handle();
     b = std::move(a);
     EXPECT_FALSE(a.is_open());
@@ -531,7 +531,7 @@ void IpSocket_Move() {
 
   // Self-assignment is a no-op.
   if (true) {
-    ip_socket a{AF_INET, SOCK_STREAM, 0};
+    net_socket a{AF_INET, SOCK_STREAM, 0};
     const auto h = a.handle();
     // Route through a pointer to defeat -Wself-move while still exercising
     // the self-assignment path.
@@ -545,9 +545,9 @@ void IpSocket_Move() {
 void IpSocket_Release() {
   // `release()` yields the handle without closing it; socket becomes invalid.
   if (true) {
-    ip_socket s{AF_INET, SOCK_STREAM, 0};
+    net_socket s{AF_INET, SOCK_STREAM, 0};
     const auto h = s.release();
-    EXPECT_NE(h, ip_socket::invalid_handle);
+    EXPECT_NE(h, net_socket::invalid_handle);
     EXPECT_FALSE(s.is_open());
     ::close(h);
   }
@@ -556,7 +556,7 @@ void IpSocket_Release() {
 void IpSocket_Options() {
   // Named option helpers round-trip through `get_option`.
   if (true) {
-    ip_socket s{AF_INET, SOCK_STREAM, 0};
+    net_socket s{AF_INET, SOCK_STREAM, 0};
 
     EXPECT_TRUE(s.set_reuse_addr(true));
     auto v = s.get_option<int>(SOL_SOCKET, SO_REUSEADDR);
@@ -575,7 +575,7 @@ void IpSocket_Options() {
 
   // Buffer size helpers: kernel may round up, so just verify >= requested.
   if (true) {
-    ip_socket s{AF_INET, SOCK_STREAM, 0};
+    net_socket s{AF_INET, SOCK_STREAM, 0};
     EXPECT_TRUE(s.set_recv_buffer_size(65536));
     EXPECT_TRUE(s.set_send_buffer_size(65536));
     auto r = s.get_option<int>(SOL_SOCKET, SO_RCVBUF);
@@ -589,7 +589,7 @@ void IpSocket_Options() {
 
 void IpSocket_Nonblocking() {
   if (true) {
-    ip_socket s{AF_INET, SOCK_STREAM, 0};
+    net_socket s{AF_INET, SOCK_STREAM, 0};
 
     EXPECT_TRUE(s.set_nonblocking(true));
     EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
@@ -603,8 +603,8 @@ void IpSocket_SendRecv() {
   int fds[2];
   ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
 
-  ip_socket a{os_file{fds[0]}};
-  ip_socket b{os_file{fds[1]}};
+  net_socket a{os_file{fds[0]}};
+  net_socket b{os_file{fds[1]}};
 
   auto msg = std::string_view{"hello"};
   EXPECT_TRUE(a.send(msg));
@@ -625,10 +625,10 @@ void IpSocket_SendRecv() {
 
 void IpSocket_BindListenAccept() {
   // Bind a listening socket to a free loopback port.
-  ip_socket listener{AF_INET, SOCK_STREAM, 0};
+  net_socket listener{AF_INET, SOCK_STREAM, 0};
   EXPECT_TRUE(listener.is_open());
   EXPECT_TRUE(listener.set_reuse_addr());
-  EXPECT_TRUE(listener.bind(ip_endpoint{ipv4_addr::loopback(), 0}));
+  EXPECT_TRUE(listener.bind(net_endpoint{ipv4_addr::loopback(), 0}));
   EXPECT_TRUE(listener.listen());
 
   // Retrieve the OS-assigned port via `getsockname`.
@@ -641,15 +641,15 @@ void IpSocket_BindListenAccept() {
   EXPECT_NE(port, 0U);
 
   // Connect a client to the listening socket.
-  ip_socket client{AF_INET, SOCK_STREAM, 0};
+  net_socket client{AF_INET, SOCK_STREAM, 0};
   EXPECT_TRUE(client.is_open());
-  EXPECT_TRUE(client.connect(ip_endpoint{ipv4_addr::loopback(), port}));
+  EXPECT_TRUE(client.connect(net_endpoint{ipv4_addr::loopback(), port}));
 
   // Accept the connection on the listener side.
   auto result = listener.accept();
   EXPECT_TRUE(result.has_value());
   EXPECT_TRUE(result->first.is_open());
-  const auto peer = ip_endpoint{result->second};
+  const auto peer = net_endpoint{result->second};
   EXPECT_TRUE(peer.is_v4());
   EXPECT_TRUE(peer.v4()->is_loopback());
 }
@@ -659,7 +659,7 @@ void IpSocket_FactoryMethods() {
 
   // create_ipv4 defaults to non-blocking TCP.
   if (true) {
-    auto s = ip_socket::create_ipv4();
+    auto s = net_socket::create_ipv4();
     EXPECT_TRUE(s.is_open());
     EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
     auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
@@ -673,7 +673,7 @@ void IpSocket_FactoryMethods() {
   // create_ipv4 with blocking + datagram gives a blocking UDP socket.
   if (true) {
     auto s =
-        ip_socket::create_ipv4(execution::blocking, message_style::datagram);
+        net_socket::create_ipv4(execution::blocking, message_style::datagram);
     EXPECT_TRUE(s.is_open());
     EXPECT_FALSE(s.get_flags().value_or(0) & O_NONBLOCK);
     auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
@@ -685,7 +685,7 @@ void IpSocket_FactoryMethods() {
 
   // create_ipv6 defaults to non-blocking TCP.
   if (true) {
-    auto s = ip_socket::create_ipv6();
+    auto s = net_socket::create_ipv6();
     EXPECT_TRUE(s.is_open());
     EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
     auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
@@ -698,7 +698,7 @@ void IpSocket_FactoryMethods() {
 
   // create_uds defaults to non-blocking stream.
   if (true) {
-    auto s = ip_socket::create_uds();
+    auto s = net_socket::create_uds();
     EXPECT_TRUE(s.is_open());
     EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
     auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
@@ -712,7 +712,7 @@ void IpSocket_FactoryMethods() {
   // create_uds with datagram style gives a SOCK_DGRAM UDS.
   if (true) {
     auto s =
-        ip_socket::create_uds(execution::nonblocking, message_style::datagram);
+        net_socket::create_uds(execution::nonblocking, message_style::datagram);
     EXPECT_TRUE(s.is_open());
     auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
     EXPECT_TRUE(type.has_value());

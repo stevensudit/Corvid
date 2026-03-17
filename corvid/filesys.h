@@ -21,8 +21,8 @@
 //  os_file   - RAII OS file-descriptor ownership, control, read/write
 //  event_fd  - RAII Linux eventfd handle with typed counter I/O
 //  epoll     - RAII Linux epoll handle with control and wait helpers
-//  ip_socket - RAII socket handle with type-safe option methods
+//  net_socket - RAII socket handle with type-safe option methods
 #include "filesys/os_file.h"
 #include "filesys/event_fd.h"
 #include "filesys/epoll.h"
-#include "filesys/ip_socket.h"
+#include "filesys/net_socket.h"

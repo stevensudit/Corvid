@@ -22,13 +22,13 @@
 #include <netdb.h>
 #include <sys/socket.h>
 
-#include "ip_endpoint.h"
+#include "net_endpoint.h"
 
 namespace corvid { inline namespace proto {
 
-// Resolves hostnames to `ip_endpoint` values via `getaddrinfo`.
+// Resolves hostnames to `net_endpoint` values via `getaddrinfo`.
 struct dns_resolver {
-  // Resolve a hostname to a list of `ip_endpoint` values.
+  // Resolve a hostname to a list of `net_endpoint` values.
   //
   // `host` is a hostname or numeric address string (e.g. `"example.com"` or
   // `"127.0.0.1"`). `port` is the port number. `family` may be `AF_UNSPEC`
@@ -39,14 +39,14 @@ struct dns_resolver {
   // returned only address families other than `AF_INET` / `AF_INET6`. Only
   // `SOCK_STREAM` results are requested to avoid duplicate entries per
   // address.
-  [[nodiscard]] static std::vector<ip_endpoint>
+  [[nodiscard]] static std::vector<net_endpoint>
   find_all(const std::string& host, uint16_t port, int family = AF_UNSPEC,
       size_t max_results = SIZE_MAX) {
     addrinfo hints{};
     hints.ai_family = family;
     hints.ai_socktype = SOCK_STREAM;
 
-    std::vector<ip_endpoint> endpoints;
+    std::vector<net_endpoint> endpoints;
     addrinfo* res = nullptr;
     if (::getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints,
             &res) != 0)
@@ -66,14 +66,14 @@ struct dns_resolver {
     return endpoints;
   }
 
-  // Resolve a hostname to a single `ip_endpoint`.
+  // Resolve a hostname to a single `net_endpoint`.
   //
-  // Returns a default-constructed (invalid) `ip_endpoint` on failure or if no
+  // Returns a default-constructed (invalid) `net_endpoint` on failure or if no
   // matching address was found.
-  [[nodiscard]] static ip_endpoint
+  [[nodiscard]] static net_endpoint
   find_one(const std::string& host, uint16_t port, int family = AF_UNSPEC) {
     const auto results = find_all(host, port, family, 1);
-    return results.empty() ? ip_endpoint{} : results.front();
+    return results.empty() ? net_endpoint{} : results.front();
   }
 };
 

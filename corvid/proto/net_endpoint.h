@@ -47,20 +47,20 @@ namespace corvid { inline namespace proto {
 // Named factories `any_v4()` and `any_v6()` produce wildcard bind addresses.
 // On POSIX targets, interop with `sockaddr_in`, `sockaddr_in6`, and
 // `sockaddr_storage` is provided.
-class ip_endpoint {
+class net_endpoint {
 public:
   // Default-construct to an invalid state.
-  constexpr ip_endpoint() noexcept = default;
+  constexpr net_endpoint() noexcept = default;
 
   // Construct from an `ipv4_addr` or `ipv6_addr` and a port number.
-  explicit ip_endpoint(ipv4_addr addr, uint16_t port) noexcept {
+  explicit net_endpoint(ipv4_addr addr, uint16_t port) noexcept {
     auto& raw = as_v4();
     raw.sin_family = AF_INET;
     raw.sin_port = htons(port);
     raw.sin_addr = addr.to_in_addr();
   }
 
-  explicit ip_endpoint(ipv6_addr addr, uint16_t port) noexcept {
+  explicit net_endpoint(ipv6_addr addr, uint16_t port) noexcept {
     auto& raw = as_v6();
     raw.sin6_family = AF_INET6;
     raw.sin6_port = htons(port);
@@ -68,23 +68,23 @@ public:
   }
 
   // Construct from text: `1.2.3.4:80` or `[2001:db8::1]:80`.
-  explicit ip_endpoint(std::string_view s) {
+  explicit net_endpoint(std::string_view s) {
     const auto parsed = parse(s);
     if (!parsed) throw std::invalid_argument("Invalid IP endpoint");
     *this = *parsed;
   }
 
   // Create wildcard bind endpoints for IPv4 or IPv6 with the given port.
-  [[nodiscard]] static ip_endpoint any_v4(uint16_t port = 0) noexcept {
-    return ip_endpoint{ipv4_addr::any(), port};
+  [[nodiscard]] static net_endpoint any_v4(uint16_t port = 0) noexcept {
+    return net_endpoint{ipv4_addr::any(), port};
   }
 
-  [[nodiscard]] static ip_endpoint any_v6(uint16_t port = 0) noexcept {
-    return ip_endpoint{ipv6_addr::any(), port};
+  [[nodiscard]] static net_endpoint any_v6(uint16_t port = 0) noexcept {
+    return net_endpoint{ipv6_addr::any(), port};
   }
 
   // Parse IP and port, returning nullopt on failure.
-  [[nodiscard]] static std::optional<ip_endpoint> parse(std::string_view s) {
+  [[nodiscard]] static std::optional<net_endpoint> parse(std::string_view s) {
     if (s.empty()) return std::nullopt;
 
     if (s[0] == '[') {
@@ -96,7 +96,7 @@ public:
       const auto addr = ipv6_addr::parse(s.substr(1, close - 1));
       const auto port = parse_port(s.substr(close + 2));
       if (!addr || !port) return std::nullopt;
-      return ip_endpoint{*addr, *port};
+      return net_endpoint{*addr, *port};
     }
 
     const auto colon = s.rfind(':');
@@ -106,7 +106,7 @@ public:
     const auto addr = ipv4_addr::parse(s.substr(0, colon));
     const auto port = parse_port(s.substr(colon + 1));
     if (!addr || !port) return std::nullopt;
-    return ip_endpoint{*addr, *port};
+    return net_endpoint{*addr, *port};
   }
 
   // Return true if this endpoint holds a valid (non-default) address.
@@ -145,12 +145,12 @@ public:
   // Three-way comparison; endpoints are equal when both address and port
   // match.
   [[nodiscard]] friend bool
-  operator==(const ip_endpoint& lhs, const ip_endpoint& rhs) noexcept {
+  operator==(const net_endpoint& lhs, const net_endpoint& rhs) noexcept {
     return (lhs <=> rhs) == 0;
   }
 
   [[nodiscard]] friend std::strong_ordering
-  operator<=>(const ip_endpoint& lhs, const ip_endpoint& rhs) noexcept {
+  operator<=>(const net_endpoint& lhs, const net_endpoint& rhs) noexcept {
     if (const auto by_family = lhs.family() <=> rhs.family(); by_family != 0)
       return by_family;
 
@@ -179,30 +179,30 @@ public:
     return "(invalid)";
   }
 
-  friend std::ostream& operator<<(std::ostream& os, const ip_endpoint& ep) {
+  friend std::ostream& operator<<(std::ostream& os, const net_endpoint& ep) {
     return os << ep.to_string();
   }
 
   // Construct from a POSIX `sockaddr_in` or `sockaddr_in6`, respectively.
-  explicit ip_endpoint(const sockaddr_in& addr) noexcept {
+  explicit net_endpoint(const sockaddr_in& addr) noexcept {
     assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
   }
 
-  explicit ip_endpoint(const sockaddr_in6& addr) noexcept {
+  explicit net_endpoint(const sockaddr_in6& addr) noexcept {
     assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
   }
 
   // Construct from a POSIX `sockaddr` plus its actual length. Only IPv4 and
   // IPv6 addresses with sufficient storage are recognized; anything else
   // leaves the endpoint in its default (invalid) state.
-  explicit ip_endpoint(const sockaddr& addr, socklen_t len) noexcept {
+  explicit net_endpoint(const sockaddr& addr, socklen_t len) noexcept {
     assign_sockaddr(addr, len);
   }
 
   // Construct from a `sockaddr_storage`. Only IPv4 and IPv6 families are
   // recognized; any other family leaves the endpoint in its default
   // (invalid) state.
-  explicit ip_endpoint(const sockaddr_storage& addr) noexcept {
+  explicit net_endpoint(const sockaddr_storage& addr) noexcept {
     assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
   }
 
@@ -240,7 +240,7 @@ public:
     return {addr, sockaddr_size()};
   }
 
-  static const ip_endpoint invalid;
+  static const net_endpoint invalid;
 
 private:
   void assign_sockaddr(const sockaddr& addr, socklen_t len) noexcept {
@@ -286,6 +286,6 @@ private:
   sockaddr_storage storage_{};
 };
 
-inline const ip_endpoint ip_endpoint::invalid{};
+inline const net_endpoint net_endpoint::invalid{};
 
 }} // namespace corvid::proto
