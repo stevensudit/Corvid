@@ -25,7 +25,7 @@
 
 #include "../strings/no_zero.h"
 
-namespace corvid { inline namespace proto {
+namespace corvid { inline namespace filesys {
 
 using namespace corvid::strings::no_zero_funcs;
 
@@ -79,14 +79,14 @@ public:
   [[nodiscard]] file_handle_t handle() const noexcept { return handle_; }
 
   // Close the file. Idempotent. Returns true when the file was open and is
-  // now closed, false if it failed to be closed (likely because it already
-  // was).
+  // now closed, false if it could not be closed (likely because it already
+  // was). Note that, on failure, the file is left in a closed state to avoid
+  // potential reuse of a stale handle.
   bool close() noexcept {
-    if (handle_ == invalid_file_handle) return false;
+    if (!is_open()) return false;
     const auto old_handle = handle_;
     handle_ = invalid_file_handle;
-    if (::close(old_handle) != 0) return false;
-    return true;
+    return (::close(old_handle) == 0);
   }
 
   // Release ownership and return the handle without closing it.
@@ -138,10 +138,6 @@ public:
     return true;
   }
 
-  // Platform-specific fd control and named helpers.
-  // Isolated here so that porting to a new OS requires changes only in this
-  // guarded section and the platform header includes above.
-
   // Invoke `fcntl(cmd, args...)` on the handle. Returns -1 on failure.
   template<typename... Args>
   [[nodiscard]] int control(int cmd, Args&&... args) const noexcept {
@@ -160,6 +156,7 @@ public:
   }
 
   // Enable or disable non-blocking I/O via `fcntl(F_SETFL, O_NONBLOCK)`.
+  // But consider opening with `O_NONBLOCK` in the first place.
   [[nodiscard]] bool set_nonblocking(bool on = true) const noexcept {
     const auto flags = get_flags();
     if (!flags) return false;
@@ -168,7 +165,8 @@ public:
   }
 
   // Checks whether the last error was a hard error (true) or a soft error
-  // (false).
+  // (false). Note that `errno` is only meaninful immediately after a failure
+  // return from a system call and is invalidated by the next system call.
   static bool is_hard_error(int err = errno) noexcept {
     return (err != EAGAIN && err != EWOULDBLOCK && err != EINTR);
   }
@@ -176,4 +174,4 @@ public:
 private:
   file_handle_t handle_{invalid_file_handle};
 };
-}} // namespace corvid::proto
+}} // namespace corvid::filesys

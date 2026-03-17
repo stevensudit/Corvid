@@ -22,7 +22,7 @@
 
 #include "os_file.h"
 
-namespace corvid { inline namespace proto {
+namespace corvid { inline namespace filesys {
 
 // RAII wrapper around Linux `eventfd`.
 //
@@ -67,4 +67,4 @@ public:
   }
 };
 
-}} // namespace corvid::proto
+}} // namespace corvid::filesys

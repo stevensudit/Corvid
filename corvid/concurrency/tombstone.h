@@ -18,7 +18,7 @@
 
 #include <atomic>
 
-namespace corvid::atomic_tomb {
+namespace corvid { inline namespace concurrency {
 
 // A tombstone is a thread-safe, atomic value that can be set to a final value
 // which indicates that it is dead.
@@ -107,4 +107,4 @@ private:
 
 using tombstone = tombstone_of<bool, true, false>;
 
-} // namespace corvid::atomic_tomb
+}} // namespace corvid::concurrency

@@ -188,6 +188,16 @@ public:
 
   explicit ip_endpoint(const sockaddr_in6& addr) noexcept { as_v6() = addr; }
 
+  // Construct from a `sockaddr_storage`. Only IPv4 and IPv6 families are
+  // recognized; any other family leaves the endpoint in its default
+  // (invalid) state.
+  explicit ip_endpoint(const sockaddr_storage& addr) noexcept {
+    if (addr.ss_family == AF_INET)
+      as_v4() = *reinterpret_cast<const sockaddr_in*>(&addr);
+    else if (addr.ss_family == AF_INET6)
+      as_v6() = *reinterpret_cast<const sockaddr_in6*>(&addr);
+  }
+
   // Convert to the corresponding POSIX socket address struct. `as_sockaddr_in`
   // and `as_sockaddr_in6` require the endpoint to hold the matching family;
   // `as_sockaddr_storage` works for either.

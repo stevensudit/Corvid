@@ -15,10 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "../corvid/containers/timers.h"
+#include "../corvid/concurrency/timers.h"
 
 std::ostream&
-operator<<(std::ostream& os, const corvid::timers_ns::time_point_t& when) {
+operator<<(std::ostream& os, const corvid::concurrency::time_point_t& when) {
   os << when.time_since_epoch().count();
   return os;
 }
@@ -29,8 +29,6 @@ using namespace std::literals;
 using namespace std::chrono;
 using namespace std::chrono_literals;
 using namespace corvid;
-using namespace corvid::atomic_tomb;
-using namespace corvid::timers_ns;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -38,7 +36,7 @@ auto make_date(auto date) {
   return steady_clock::time_point{} + sys_days{date}.time_since_epoch();
 }
 
-using time_point_t = corvid::timers_ns::time_point_t;
+using time_point_t = corvid::concurrency::time_point_t;
 
 static time_point_t make_time(int ms) {
   return time_point_t{} + milliseconds{ms};

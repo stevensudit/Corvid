@@ -15,8 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "containers_shared.h"
-#include "scope_exit.h"
+#include "../containers/containers_shared.h"
+#include "../containers/scope_exit.h"
 
 #include <atomic>
 #include <chrono>
@@ -26,7 +26,7 @@
 #include <optional>
 #include <utility>
 
-namespace corvid { inline namespace container {
+namespace corvid { inline namespace concurrency {
 inline namespace notifiable_ns {
 
 namespace details {
@@ -257,4 +257,4 @@ private:
   T value_;
 };
 
-}}} // namespace corvid::container::notifiable_ns
+}}} // namespace corvid::concurrency::notifiable_ns

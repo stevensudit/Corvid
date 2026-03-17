@@ -15,19 +15,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "containers/containers_shared.h"
-#include "containers/enum_vector.h"
-#include "containers/custom_handle.h"
-#include "containers/optional_ptr.h"
-#include "containers/opt_find.h"
-#include "containers/own_ptr.h"
-#include "containers/transparent.h"
-#include "containers/interval.h"
-#include "containers/indirect_key.h"
-#include "containers/intern.h"
-#include "containers/circular_buffer.h"
-#include "containers/strong_type.h"
-#include "containers/enum_variant.h"
-#include "containers/fixed_bitset.h"
-#include "containers/scoped_value.h"
-#include "containers/scope_exit.h"
+// Umbrella header for the Corvid concurrency module.
+//
+// Includes:
+//  sync_lock  - `synchronizer`, `lock`, and `reverse_lock` attestation idiom
+//  notifiable - value guarded by mutex and condition variable
+//  tombstone  - thread-safe atomic value with a final "dead" state
+//  timers     - thread-safe priority-queue timer scheduler
+#include "concurrency/sync_lock.h"
+#include "concurrency/notifiable.h"
+#include "concurrency/tombstone.h"
+#include "concurrency/timers.h"

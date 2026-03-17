@@ -27,13 +27,13 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../containers/notifiable.h"
+#include "../concurrency/notifiable.h"
 #include "../containers/scoped_value.h"
 #include "../containers/scope_exit.h"
 #include "../containers/opt_find.h"
-#include "epoll.h"
-#include "event_fd.h"
-#include "ip_socket.h"
+#include "../filesys/epoll.h"
+#include "../filesys/event_fd.h"
+#include "../filesys/ip_socket.h"
 
 namespace corvid { inline namespace proto {
 

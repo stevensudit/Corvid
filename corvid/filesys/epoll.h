@@ -19,7 +19,7 @@
 
 #include "os_file.h"
 
-namespace corvid { inline namespace proto {
+namespace corvid { inline namespace filesys {
 
 // RAII wrapper around Linux `epoll`.
 //
@@ -43,13 +43,13 @@ public:
 
   ~epoll() = default;
 
-  // Invoke `epoll_ctl(op, fd, ev)` on this epoll instance.
+  // Invoke `epoll_ctl` on this epoll instance.
   [[nodiscard]] bool
   control(int op, int fd, epoll_event* ev = nullptr) const noexcept {
     return ::epoll_ctl(handle(), op, fd, ev) == 0;
   }
 
-  // Invoke `epoll_ctl(op, fd, &ev)` on this epoll instance.
+  // Invoke `epoll_ctl` on this epoll instance.
   [[nodiscard]] bool control(int op, int fd, epoll_event& ev) const noexcept {
     return control(op, fd, &ev);
   }
@@ -76,4 +76,4 @@ public:
   }
 };
 
-}} // namespace corvid::proto
+}} // namespace corvid::filesys

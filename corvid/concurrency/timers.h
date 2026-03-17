@@ -27,9 +27,7 @@
 #include "sync_lock.h"
 #include "tombstone.h"
 
-namespace corvid::timers_ns {
-
-using namespace corvid::atomic_tomb;
+namespace corvid { inline namespace concurrency {
 
 //
 // Thread-safe timers.
@@ -401,4 +399,4 @@ private:
   scheduled_queue_t scheduled_events_;
 };
 
-} // namespace corvid::timers_ns
+}} // namespace corvid::concurrency
