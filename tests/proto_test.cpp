@@ -455,8 +455,8 @@ void IpEndpoint_PosixInterop() {
     ip_endpoint roundtrip{raw};
     EXPECT_EQ(roundtrip, ep);
 
-    ip_endpoint from_sockaddr{
-        reinterpret_cast<const sockaddr&>(raw), sizeof(raw)};
+    ip_endpoint from_sockaddr{reinterpret_cast<const sockaddr&>(raw),
+        sizeof(raw)};
     EXPECT_EQ(from_sockaddr, ep);
 
     auto storage = ep.as_sockaddr_storage();
@@ -471,8 +471,8 @@ void IpEndpoint_PosixInterop() {
     ip_endpoint roundtrip{raw};
     EXPECT_EQ(roundtrip, ep);
 
-    ip_endpoint from_sockaddr{
-        reinterpret_cast<const sockaddr&>(raw), sizeof(raw)};
+    ip_endpoint from_sockaddr{reinterpret_cast<const sockaddr&>(raw),
+        sizeof(raw)};
     EXPECT_EQ(from_sockaddr, ep);
 
     auto storage = ep.as_sockaddr_storage();

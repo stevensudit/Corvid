@@ -36,6 +36,14 @@ std::pair<os_file, os_file> make_nb_pipe() {
   return {os_file{fds[0]}, os_file{fds[1]}};
 }
 
+// Helper: create a blocking pipe and wrap each end in an `os_file`.
+std::pair<os_file, os_file> make_blocking_pipe() {
+  int fds[2];
+  if (::pipe2(fds, O_CLOEXEC) != 0)
+    throw std::system_error(errno, std::generic_category(), "pipe2");
+  return {os_file{fds[0]}, os_file{fds[1]}};
+}
+
 void OsFile_Lifecycle() {
   // Default-constructed file is invalid.
   if (true) {
@@ -543,13 +551,46 @@ void IpSocket_BindListenAccept() {
   EXPECT_TRUE(peer.v4()->is_loopback());
 }
 
+void OsFile_WriteAllReadExact() {
+  // write_all sends all bytes; read_exact receives exactly that many.
+  if (true) {
+    auto [reader, writer] = make_blocking_pipe();
+    const std::string_view msg = "hello, world";
+    EXPECT_TRUE(writer.write_all(msg));
+
+    std::string buf(msg.size(), '\0');
+    EXPECT_TRUE(reader.read_exact(buf));
+    EXPECT_EQ(buf, msg);
+  }
+
+  // read_exact on EOF before the buffer is filled trims `data` to the
+  // bytes received and returns false.
+  if (true) {
+    auto [reader, writer] = make_blocking_pipe();
+    EXPECT_TRUE(writer.write_all(std::string_view{"hi"}));
+    EXPECT_TRUE(writer.close());
+
+    std::string buf(8, '\0');
+    EXPECT_FALSE(reader.read_exact(buf));
+    EXPECT_EQ(buf, "hi");
+  }
+
+  // Empty write_all and read_exact are no-ops that return true.
+  if (true) {
+    auto [reader, writer] = make_blocking_pipe();
+    EXPECT_TRUE(writer.write_all(std::string_view{}));
+    std::string buf;
+    EXPECT_TRUE(reader.read_exact(buf));
+  }
+}
+
 MAKE_TEST_LIST(OsFile_Lifecycle, OsFile_Move, OsFile_ReleaseFlags,
-    OsFile_WriteRead, IpSocket_Lifecycle, EventFd_Lifecycle, Epoll_Lifecycle,
-    Epoll_Move, Epoll_Release, Epoll_ControlWait, Epoll_WaitArray,
-    EventFd_Move, EventFd_Release, EventFd_NotifyRead,
-    EventFd_NonblockingEmptyRead, IpSocket_Move, IpSocket_Release,
-    IpSocket_Options, IpSocket_Nonblocking, IpSocket_SendRecv,
-    IpSocket_BindListenAccept);
+    OsFile_WriteRead, OsFile_WriteAllReadExact, IpSocket_Lifecycle,
+    EventFd_Lifecycle, Epoll_Lifecycle, Epoll_Move, Epoll_Release,
+    Epoll_ControlWait, Epoll_WaitArray, EventFd_Move, EventFd_Release,
+    EventFd_NotifyRead, EventFd_NonblockingEmptyRead, IpSocket_Move,
+    IpSocket_Release, IpSocket_Options, IpSocket_Nonblocking,
+    IpSocket_SendRecv, IpSocket_BindListenAccept);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

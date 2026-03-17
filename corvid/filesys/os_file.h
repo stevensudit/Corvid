@@ -138,6 +138,46 @@ public:
     return true;
   }
 
+  // Write all of `data` to the file, retrying after partial writes and soft
+  // errors (e.g., `EINTR`). Returns true only when all bytes have been
+  // written. On hard failure, returns false with an indeterminate prefix of
+  // `data` already sent. Intended for blocking I/O; on non-blocking fds, a
+  // full kernel buffer causes a busy-loop.
+  [[nodiscard]] bool write_all(std::string_view data) const {
+    while (!data.empty())
+      if (!write(data)) return false;
+    return true;
+  }
+
+  // Read exactly `data.size()` bytes into `data`, retrying after partial
+  // reads and soft errors (e.g., `EINTR`). Size `data` with `data.resize(n)`
+  // or `no_zero::enlarge_to(data, n)` before calling.
+  //
+  // Returns true only when all bytes have been read. On EOF before
+  // completion, trims `data` to the bytes received and returns false. On hard
+  // failure, clears `data` and returns false. Intended for blocking I/O; on
+  // non-blocking fds, an empty kernel buffer causes a busy-loop.
+  [[nodiscard]] bool read_exact(std::string& data) const {
+    size_t offset = 0;
+    const size_t target = data.size();
+    while (offset < target) {
+      const ssize_t n = ::read(handle_, data.data() + offset, target - offset);
+      // On EOF, trim to bytes received and fail.
+      if (n == 0) {
+        no_zero::trim_to(data, offset);
+        return false;
+      }
+      // On hard error, clear `data` and fail.
+      if (n < 0) {
+        if (!is_hard_error()) continue;
+        data.clear();
+        return false;
+      }
+      offset += static_cast<size_t>(n);
+    }
+    return true;
+  }
+
   // Invoke `fcntl(cmd, args...)` on the handle. Returns -1 on failure.
   template<typename... Args>
   [[nodiscard]] int control(int cmd, Args&&... args) const noexcept {
