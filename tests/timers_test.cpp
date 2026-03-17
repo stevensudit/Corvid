@@ -135,7 +135,7 @@ void TimersTest_Repeating() {
   EXPECT_EQ(calls, 3U);
 
   // Cancel by setting tombstone.
-  ev->canceled.kill();
+  (void)ev->canceled.kill();
   now += 15ms;
   t->tick();
   EXPECT_EQ(calls, 3U); // cancelled
@@ -154,7 +154,7 @@ void TimersTest_Cancel() {
 
   // Cancel before it fires.
   EXPECT_FALSE(ev->canceled);
-  ev->canceled.kill();
+  (void)ev->canceled.kill();
   EXPECT_TRUE(ev->canceled);
 
   now += 25ms;
@@ -272,7 +272,7 @@ void TimersTest_Edge() {
   EXPECT_EQ(calls, 2U);
 
   // Cancel to clean up.
-  ev->canceled.kill();
+  (void)ev->canceled.kill();
 }
 
 MAKE_TEST_LIST(TimersTest_OneShot, TimersTest_Repeating, TimersTest_Cancel,

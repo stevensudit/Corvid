@@ -56,24 +56,40 @@ public:
 
   explicit tombstone_of(value_type v) noexcept : value_{v} {}
 
-  void kill() noexcept { value_.store(final_v, std::memory_order::release); }
+  // Kill the tombstone, returning true if this call killed it and false if it
+  // was already dead.
+  [[nodiscard]] bool kill() noexcept { return try_set(final_v); }
 
-  [[nodiscard]] bool dead() const noexcept { return value_.load() == final_v; }
+  // Checks whether the tombstone is dead, with `acquire` semantics so that
+  // memory published before `kill()` is visible to the caller.
+  [[nodiscard]] bool dead() const noexcept {
+    return value_.load(std::memory_order::acquire) == final_v;
+  }
   [[nodiscard]] explicit operator bool() const noexcept { return dead(); }
   [[nodiscard]] bool operator!() const noexcept { return !dead(); }
 
-  [[nodiscard]] value_type get() const noexcept { return value_.load(); }
+  // Returns the current value with `relaxed` semantics. Use `dead()` when
+  // the result gates access to memory published before `kill()`.
+  [[nodiscard]] value_type get() const noexcept {
+    return value_.load(std::memory_order::relaxed);
+  }
   [[nodiscard]] value_type operator*() const noexcept { return get(); }
 
-  // Update the value atomically, if not dead.
-  void set(value_type v) noexcept {
+  // Update the value atomically, if not dead and not already `v`.
+  // Returns true if the value was changed, false if it was already `v` or the
+  // tombstone is dead.
+  [[nodiscard]] bool try_set(value_type v) noexcept {
     value_type expected = value_.load(std::memory_order::acquire);
-    while (expected != final_v) {
+    while (expected != final_v && expected != v) {
       if (value_.compare_exchange_weak(expected, v, std::memory_order::acq_rel,
               std::memory_order::acquire))
-        break;
+        return true;
     }
+    return false;
   }
+
+  // Update the value atomically, if not dead.
+  void set(value_type v) noexcept { (void)try_set(v); }
   tombstone_of& operator=(const value_type& other) noexcept {
     set(other);
     return *this;

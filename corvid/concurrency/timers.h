@@ -345,7 +345,7 @@ public:
       }
 
       // If next time is never, we're canceled.
-      if (next_at == time_point_t::max()) event.canceled.kill();
+      if (next_at == time_point_t::max()) (void)event.canceled.kill();
 
       // If the event was canceled, don't reschedule it.
       if (event.canceled) continue;
@@ -365,7 +365,7 @@ public:
 
       // If it's not scheduled, then there's no reason to keep it.
       if (next_at <= invocation.now) {
-        event.canceled.kill();
+        (void)event.canceled.kill();
         continue;
       }
 

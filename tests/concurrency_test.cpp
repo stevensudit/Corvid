@@ -52,6 +52,29 @@ void TombStone_Basic() {
   EXPECT_TRUE(*t);
 }
 
+void TombStone_TrySet() {
+  tombstone t;
+  // Returns false when value is already the target.
+  EXPECT_FALSE(t.try_set(false));
+  EXPECT_FALSE(t.dead());
+  // Returns true when value changes.
+  EXPECT_TRUE(t.try_set(true));
+  EXPECT_TRUE(t.dead());
+  // Returns false when dead (even for a different value).
+  EXPECT_FALSE(t.try_set(false));
+  EXPECT_TRUE(t.dead());
+}
+
+void TombStone_Kill() {
+  tombstone t;
+  // First kill succeeds.
+  EXPECT_TRUE(t.kill());
+  EXPECT_TRUE(t.dead());
+  // Second kill reports already dead.
+  EXPECT_FALSE(t.kill());
+  EXPECT_TRUE(t.dead());
+}
+
 void Notifiable_NotifyAndWait() {
   // `notify` + `wait_until`: waiter unblocks when flag becomes true.
   if (true) {
@@ -223,8 +246,8 @@ void Notifiable_Atomic() {
   }
 }
 
-MAKE_TEST_LIST(TombStone_Basic, Notifiable_NotifyAndWait,
-    Notifiable_ModifyAndNotify, Notifiable_WaitFor,
+MAKE_TEST_LIST(TombStone_Basic, TombStone_TrySet, TombStone_Kill,
+    Notifiable_NotifyAndWait, Notifiable_ModifyAndNotify, Notifiable_WaitFor,
     Notifiable_WaitUntilChanged, Notifiable_Get, Notifiable_Atomic);
 
 // NOLINTEND(readability-function-cognitive-complexity)

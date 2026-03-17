@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "../concurrency/notifiable.h"
+#include "../concurrency/tombstone.h"
 #include "../containers/scoped_value.h"
 #include "../containers/scope_exit.h"
 #include "../containers/opt_find.h"
@@ -286,10 +287,7 @@ public:
   //
   // May only be called once; returns false immediately if called again.
   bool run(int timeout_ms = -1) {
-    bool expected = false;
-    if (!has_run_.compare_exchange_strong(expected, true,
-            std::memory_order::relaxed))
-      return false;
+    if (!has_run_.kill()) return false;
 
     const auto scope = poll_thread_scope();
     running_.notify(true);
@@ -456,7 +454,7 @@ private:
   std::mutex post_mutex_;
   std::vector<std::function<void()>> post_queue_;
 
-  std::atomic_bool has_run_{false};
+  tombstone has_run_;
   notifiable<std::atomic_bool> running_{false};
 };
 }} // namespace corvid::proto
