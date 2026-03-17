@@ -43,6 +43,11 @@ public:
 
   ~epoll() = default;
 
+  // Create an `epoll` instance with `flags` (default: `EPOLL_CLOEXEC`).
+  [[nodiscard]] static epoll create(int flags = default_flags) noexcept {
+    return epoll{flags};
+  }
+
   // Invoke `epoll_ctl` on this epoll instance.
   [[nodiscard]] bool
   control(int op, int fd, epoll_event* ev = nullptr) const noexcept {

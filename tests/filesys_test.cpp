@@ -235,6 +235,37 @@ void Epoll_Lifecycle() {
   if (true) { epoll p{epoll::default_flags}; }
 }
 
+void Epoll_Create() {
+  // Default create() produces an open, functional epoll instance.
+  if (true) {
+    auto p = epoll::create();
+    EXPECT_TRUE(p.is_open());
+    EXPECT_NE(p.handle(), epoll::invalid_handle);
+  }
+
+  // Explicit flags are forwarded correctly (flags=0 is also valid).
+  if (true) {
+    auto p = epoll::create(0);
+    EXPECT_TRUE(p.is_open());
+  }
+
+  // A created instance is functional: it can register an eventfd and see
+  // its notification.
+  if (true) {
+    auto p = epoll::create();
+    event_fd e{0};
+
+    epoll_event ev{.events = EPOLLIN, .data = {.fd = e.handle()}};
+    EXPECT_TRUE(p.add(e.handle(), ev));
+    EXPECT_TRUE(e.notify(1));
+
+    epoll_event ready[1]{};
+    ASSERT_EQ(p.wait(ready, 0).value_or(-1), 1);
+    EXPECT_EQ(ready[0].data.fd, e.handle());
+    EXPECT_TRUE(ready[0].events & EPOLLIN);
+  }
+}
+
 void Epoll_Move() {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
@@ -395,6 +426,78 @@ void EventFd_NotifyRead() {
   }
 }
 
+void EventFd_Create() {
+  using namespace bool_enums;
+
+  // Default: non-blocking counter mode, initial value 0.
+  if (true) {
+    auto e = event_fd::create();
+    EXPECT_TRUE(e.is_open());
+    EXPECT_TRUE(e.get_flags().value_or(0) & O_NONBLOCK);
+    // Counter starts at 0, so an immediate read returns nullopt (EAGAIN).
+    EXPECT_FALSE(e.read().has_value());
+    EXPECT_EQ(errno, EAGAIN);
+  }
+
+  // Non-zero initial value is readable immediately.
+  if (true) {
+    auto e = event_fd::create(5);
+    EXPECT_TRUE(e.is_open());
+    auto v = e.read();
+    EXPECT_TRUE(v.has_value());
+    EXPECT_EQ(*v, 5U);
+  }
+
+  // Blocking mode: O_NONBLOCK is absent.
+  if (true) {
+    auto e = event_fd::create(0, event_mode::counter, execution::blocking);
+    EXPECT_TRUE(e.is_open());
+    EXPECT_FALSE(e.get_flags().value_or(0) & O_NONBLOCK);
+  }
+}
+
+void EventFd_SemaphoreMode() {
+  using namespace bool_enums;
+
+  // With initial value 3, each read consumes exactly 1 token and returns 1.
+  if (true) {
+    auto e = event_fd::create(3, event_mode::semaphore);
+    EXPECT_TRUE(e.is_open());
+
+    auto v = e.read();
+    EXPECT_TRUE(v.has_value());
+    EXPECT_EQ(*v, 1U);
+
+    v = e.read();
+    EXPECT_TRUE(v.has_value());
+    EXPECT_EQ(*v, 1U);
+
+    v = e.read();
+    EXPECT_TRUE(v.has_value());
+    EXPECT_EQ(*v, 1U);
+
+    // Counter exhausted: next read would block (EAGAIN).
+    EXPECT_FALSE(e.read().has_value());
+    EXPECT_EQ(errno, EAGAIN);
+  }
+
+  // notify(n) posts n tokens; each read still consumes exactly 1.
+  if (true) {
+    auto e = event_fd::create(0, event_mode::semaphore);
+    EXPECT_TRUE(e.notify(2));
+
+    event_fd::counter_t val = 0;
+    EXPECT_TRUE(e.read(val));
+    EXPECT_EQ(val, 1U);
+
+    EXPECT_TRUE(e.read(val));
+    EXPECT_EQ(val, 1U);
+
+    EXPECT_FALSE(e.read(val));
+    EXPECT_EQ(errno, EAGAIN);
+  }
+}
+
 void EventFd_NonblockingEmptyRead() {
   // Default-created eventfds are non-blocking, so an empty read returns
   // nullopt.
@@ -551,6 +654,72 @@ void IpSocket_BindListenAccept() {
   EXPECT_TRUE(peer.v4()->is_loopback());
 }
 
+void IpSocket_FactoryMethods() {
+  using namespace bool_enums;
+
+  // create_ipv4 defaults to non-blocking TCP.
+  if (true) {
+    auto s = ip_socket::create_ipv4();
+    EXPECT_TRUE(s.is_open());
+    EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
+    auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
+    EXPECT_TRUE(dom.has_value());
+    EXPECT_EQ(*dom, AF_INET);
+    auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
+    EXPECT_TRUE(type.has_value());
+    EXPECT_EQ(*type, SOCK_STREAM);
+  }
+
+  // create_ipv4 with blocking + datagram gives a blocking UDP socket.
+  if (true) {
+    auto s =
+        ip_socket::create_ipv4(execution::blocking, message_style::datagram);
+    EXPECT_TRUE(s.is_open());
+    EXPECT_FALSE(s.get_flags().value_or(0) & O_NONBLOCK);
+    auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
+    EXPECT_EQ(*dom, AF_INET);
+    auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
+    EXPECT_TRUE(type.has_value());
+    EXPECT_EQ(*type, SOCK_DGRAM);
+  }
+
+  // create_ipv6 defaults to non-blocking TCP.
+  if (true) {
+    auto s = ip_socket::create_ipv6();
+    EXPECT_TRUE(s.is_open());
+    EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
+    auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
+    EXPECT_TRUE(dom.has_value());
+    EXPECT_EQ(*dom, AF_INET6);
+    auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
+    EXPECT_TRUE(type.has_value());
+    EXPECT_EQ(*type, SOCK_STREAM);
+  }
+
+  // create_uds defaults to non-blocking stream.
+  if (true) {
+    auto s = ip_socket::create_uds();
+    EXPECT_TRUE(s.is_open());
+    EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
+    auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
+    EXPECT_TRUE(dom.has_value());
+    EXPECT_EQ(*dom, AF_UNIX);
+    auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
+    EXPECT_TRUE(type.has_value());
+    EXPECT_EQ(*type, SOCK_STREAM);
+  }
+
+  // create_uds with datagram style gives a SOCK_DGRAM UDS.
+  if (true) {
+    auto s =
+        ip_socket::create_uds(execution::nonblocking, message_style::datagram);
+    EXPECT_TRUE(s.is_open());
+    auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
+    EXPECT_TRUE(type.has_value());
+    EXPECT_EQ(*type, SOCK_DGRAM);
+  }
+}
+
 void OsFile_WriteAllReadExact() {
   // write_all sends all bytes; read_exact receives exactly that many.
   if (true) {
@@ -587,10 +756,11 @@ void OsFile_WriteAllReadExact() {
 MAKE_TEST_LIST(OsFile_Lifecycle, OsFile_Move, OsFile_ReleaseFlags,
     OsFile_WriteRead, OsFile_WriteAllReadExact, IpSocket_Lifecycle,
     EventFd_Lifecycle, Epoll_Lifecycle, Epoll_Move, Epoll_Release,
-    Epoll_ControlWait, Epoll_WaitArray, EventFd_Move, EventFd_Release,
-    EventFd_NotifyRead, EventFd_NonblockingEmptyRead, IpSocket_Move,
-    IpSocket_Release, IpSocket_Options, IpSocket_Nonblocking,
-    IpSocket_SendRecv, IpSocket_BindListenAccept);
+    Epoll_Create, Epoll_ControlWait, Epoll_WaitArray, EventFd_Move,
+    EventFd_Release, EventFd_NotifyRead, EventFd_NonblockingEmptyRead,
+    EventFd_Create, EventFd_SemaphoreMode, IpSocket_Move, IpSocket_Release,
+    IpSocket_Options, IpSocket_Nonblocking, IpSocket_SendRecv,
+    IpSocket_BindListenAccept, IpSocket_FactoryMethods);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

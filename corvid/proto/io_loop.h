@@ -430,15 +430,14 @@ private:
 
   // Create the loop's epoll instance or throw on failure.
   static epoll create_epollfd() {
-    auto f = epoll{epoll::default_flags};
-    if (!f.is_open())
-      throw std::system_error(errno, std::generic_category(), "epoll_create1");
+    auto f = epoll::create() if (!f.is_open()) throw std::system_error(errno,
+        std::generic_category(), "epoll_create1");
     return f;
   }
 
   // Create the loop's wakeup eventfd or throw on failure.
   static event_fd create_eventfd() {
-    auto f = event_fd{0};
+    auto f = event_fd::create();
     if (!f.is_open())
       throw std::system_error(errno, std::generic_category(), "eventfd");
     return f;

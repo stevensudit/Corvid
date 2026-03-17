@@ -56,6 +56,43 @@ public:
 
   ~ip_socket() = default;
 
+  // Create an IPv4 socket. Defaults to non-blocking TCP (`SOCK_STREAM |
+  // SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass `message_style::datagram` for UDP,
+  // or `execution::blocking` to omit `SOCK_NONBLOCK`.
+  [[nodiscard]] static ip_socket
+  create_ipv4(execution exec = execution::nonblocking,
+      message_style style = message_style::stream) noexcept {
+    int type = (style == message_style::stream) ? SOCK_STREAM : SOCK_DGRAM;
+    type |= SOCK_CLOEXEC;
+    if (exec == execution::nonblocking) type |= SOCK_NONBLOCK;
+    return ip_socket{AF_INET, type, 0};
+  }
+
+  // Create an IPv6 socket. Defaults to non-blocking TCP (`SOCK_STREAM |
+  // SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass `message_style::datagram` for UDP,
+  // or `execution::blocking` to omit `SOCK_NONBLOCK`.
+  [[nodiscard]] static ip_socket
+  create_ipv6(execution exec = execution::nonblocking,
+      message_style style = message_style::stream) noexcept {
+    int type = (style == message_style::stream) ? SOCK_STREAM : SOCK_DGRAM;
+    type |= SOCK_CLOEXEC;
+    if (exec == execution::nonblocking) type |= SOCK_NONBLOCK;
+    return ip_socket{AF_INET6, type, 0};
+  }
+
+  // Create a Unix domain socket. Defaults to non-blocking stream
+  // (`SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass
+  // `message_style::datagram` for a connectionless UDS, or
+  // `execution::blocking` to omit `SOCK_NONBLOCK`.
+  [[nodiscard]] static ip_socket
+  create_uds(execution exec = execution::nonblocking,
+      message_style style = message_style::stream) noexcept {
+    int type = (style == message_style::stream) ? SOCK_STREAM : SOCK_DGRAM;
+    type |= SOCK_CLOEXEC;
+    if (exec == execution::nonblocking) type |= SOCK_NONBLOCK;
+    return ip_socket{AF_UNIX, type, 0};
+  }
+
   // Close the socket. Idempotent. Returns true when the socket was open and
   // is now closed, false if it could not be closed (likely because it already
   // was).
