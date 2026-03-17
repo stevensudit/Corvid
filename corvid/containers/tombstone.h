@@ -56,7 +56,7 @@ public:
 
   explicit tombstone_of(value_type v) noexcept : value_{v} {}
 
-  void kill() noexcept { value_.store(final_v, std::memory_order_release); }
+  void kill() noexcept { value_.store(final_v, std::memory_order::release); }
 
   [[nodiscard]] bool dead() const noexcept { return value_.load() == final_v; }
   [[nodiscard]] explicit operator bool() const noexcept { return dead(); }
@@ -67,10 +67,10 @@ public:
 
   // Update the value atomically, if not dead.
   void set(value_type v) noexcept {
-    value_type expected = value_.load(std::memory_order_acquire);
+    value_type expected = value_.load(std::memory_order::acquire);
     while (expected != final_v) {
-      if (value_.compare_exchange_weak(expected, v, std::memory_order_acq_rel,
-              std::memory_order_acquire))
+      if (value_.compare_exchange_weak(expected, v, std::memory_order::acq_rel,
+              std::memory_order::acquire))
         break;
     }
   }
@@ -81,10 +81,10 @@ public:
 
   // Decrement if not dead.
   tombstone_of& operator--() noexcept {
-    value_type expected = value_.load(std::memory_order_acquire);
+    value_type expected = value_.load(std::memory_order::acquire);
     while (expected != final_v) {
       if (value_.compare_exchange_weak(expected, expected - 1,
-              std::memory_order_acq_rel, std::memory_order_acquire))
+              std::memory_order::acq_rel, std::memory_order::acquire))
         break;
     }
     return *this;
@@ -92,10 +92,10 @@ public:
 
   // Increment if not dead.
   tombstone_of& operator++() noexcept {
-    value_type expected = value_.load(std::memory_order_acquire);
+    value_type expected = value_.load(std::memory_order::acquire);
     while (expected != final_v) {
       if (value_.compare_exchange_weak(expected, expected + 1,
-              std::memory_order_acq_rel, std::memory_order_acquire))
+              std::memory_order::acq_rel, std::memory_order::acquire))
         break;
     }
     return *this;

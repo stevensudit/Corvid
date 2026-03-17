@@ -1303,7 +1303,7 @@ void IoLoop_PostAndWait_StopRace() {
       blocker_cv.wait(lock, [&] { return release_blocker; });
     });
 
-    while (!blocker_entered.load(std::memory_order_relaxed))
+    while (!blocker_entered.load(std::memory_order::relaxed))
       std::this_thread::yield();
 
     std::thread waiter{[&] {
@@ -1315,7 +1315,7 @@ void IoLoop_PostAndWait_StopRace() {
       if (result) ++waiter_returns;
     }};
 
-    while (!waiter_started.load(std::memory_order_relaxed))
+    while (!waiter_started.load(std::memory_order::relaxed))
       std::this_thread::yield();
 
     loop.stop();

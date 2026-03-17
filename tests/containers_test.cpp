@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <map>
 #include <set>
+#include <thread>
 #include <vector>
 
 #include "../corvid/containers.h"
@@ -1991,6 +1992,62 @@ void ScopeExit_Basic() {
   }
 }
 
+void Notifiable_NotifyAndWait() {
+  // `notify` + `wait_until`: waiter unblocks when flag becomes true.
+  if (true) {
+    notifiable<bool> flag{false};
+    std::thread t{[&] { flag.notify(true); }};
+    auto v = flag.wait_until([](bool b) { return b; });
+    EXPECT_TRUE(v);
+    t.join();
+  }
+  // `std::identity` shorthand for bool flag.
+  if (true) {
+    notifiable<bool> flag{false};
+    std::thread t{[&] { flag.notify(true); }};
+    auto v = flag.wait_until(std::identity{});
+    EXPECT_TRUE(v);
+    t.join();
+  }
+}
+
+void Notifiable_ModifyAndNotify() {
+  // `modify_and_notify`: waiter unblocks once value exceeds threshold.
+  notifiable<int> counter{0};
+  std::thread t{[&] {
+    for (int i = 0; i < 5; ++i) counter.modify_and_notify([](int& v) { ++v; });
+  }};
+  auto v = counter.wait_until([](int n) { return n >= 5; });
+  EXPECT_EQ(v, 5);
+  t.join();
+}
+
+void Notifiable_WaitFor() {
+  // `wait_for` satisfied before deadline: returns the matching value.
+  if (true) {
+    notifiable<bool> flag{false};
+    std::thread t{[&] { flag.notify(true); }};
+    auto v = flag.wait_for(std::chrono::seconds{5}, std::identity{});
+    EXPECT_TRUE(v);
+    EXPECT_TRUE(*v);
+    t.join();
+  }
+  // `wait_for` timeout: predicate never met, returns nullopt.
+  if (true) {
+    notifiable<bool> flag{false};
+    auto v = flag.wait_for(std::chrono::milliseconds{1}, std::identity{});
+    EXPECT_FALSE(v);
+  }
+}
+
+void Notifiable_Get() {
+  // `get` returns snapshot without blocking.
+  notifiable<int> n{42};
+  EXPECT_EQ(n.get(), 42);
+  n.notify(99);
+  EXPECT_EQ(n.get(), 99);
+}
+
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
     FindOptTest_Maps, FindOptTest_Sets, FindOptTest_Vectors,
@@ -2001,7 +2058,8 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
     StrongType_Extended, EnumVariant_Basic, TombStone_Basic, EnumVector_Basic,
-    ScopedValue_Basic, ScopeExit_Basic);
+    ScopedValue_Basic, ScopeExit_Basic, Notifiable_NotifyAndWait,
+    Notifiable_ModifyAndNotify, Notifiable_WaitFor, Notifiable_Get);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

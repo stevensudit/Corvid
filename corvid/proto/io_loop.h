@@ -179,7 +179,7 @@ public:
   template<typename FN>
   [[nodiscard]] bool post_and_wait(FN&& fn) {
     if (is_loop_thread()) return fn();
-    if (!running_.load(std::memory_order_relaxed)) return false;
+    if (!running_.load(std::memory_order::relaxed)) return false;
 
     // To avoid a race condition, we need to ensure that the state in the
     // lambda wrapper survives longer than this function.
@@ -210,7 +210,7 @@ public:
     std::unique_lock lock{waiter->mutex};
     // If loop exits, give up.
     while (!waiter->done) {
-      if (!running_.load(std::memory_order_relaxed)) return false;
+      if (!running_.load(std::memory_order::relaxed)) return false;
       waiter->cv.wait_for(lock, std::chrono::milliseconds(100));
     }
     return waiter->result;
@@ -244,13 +244,13 @@ public:
     std::unique_lock lock{lifecycle_mutex_};
     if (timeout_ms < 0) {
       lifecycle_cv_.wait(lock, [&] {
-        return running_.load(std::memory_order_relaxed);
+        return running_.load(std::memory_order::relaxed);
       });
       return true;
     }
 
     return lifecycle_cv_.wait_for(lock, std::chrono::milliseconds{timeout_ms},
-        [&] { return running_.load(std::memory_order_relaxed); });
+        [&] { return running_.load(std::memory_order::relaxed); });
   }
 
   // Wait up to `timeout_ms` milliseconds for events and dispatch ready
@@ -305,7 +305,7 @@ public:
   bool run(int timeout_ms = -1) {
     bool expected = false;
     if (!has_run_.compare_exchange_strong(expected, true,
-            std::memory_order_relaxed))
+            std::memory_order::relaxed))
       return false;
 
     const auto scope = poll_thread_scope();
