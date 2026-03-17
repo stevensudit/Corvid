@@ -1281,6 +1281,58 @@ void IoLoop_WaitUntilRunning_TimesOut() {
   EXPECT_FALSE(loop.wait_until_running(10));
 }
 
+void IoLoop_PostAndWait_StopRace() {
+  constexpr int iterations = 64;
+  std::atomic_int waiter_returns{0};
+  std::atomic_int callback_runs{0};
+
+  for (int i = 0; i < iterations; ++i) {
+    io_loop loop;
+    std::mutex blocker_mutex;
+    std::condition_variable blocker_cv;
+    bool release_blocker = false;
+    std::atomic_bool blocker_entered{false};
+    std::atomic_bool waiter_started{false};
+
+    std::thread loop_thread{[&] { loop.run(10); }};
+    EXPECT_TRUE(loop.wait_until_running(1000));
+
+    loop.post([&] {
+      blocker_entered = true;
+      std::unique_lock lock{blocker_mutex};
+      blocker_cv.wait(lock, [&] { return release_blocker; });
+    });
+
+    while (!blocker_entered.load(std::memory_order_relaxed))
+      std::this_thread::yield();
+
+    std::thread waiter{[&] {
+      waiter_started = true;
+      const bool result = loop.post_and_wait([&] {
+        ++callback_runs;
+        return true;
+      });
+      if (result) ++waiter_returns;
+    }};
+
+    while (!waiter_started.load(std::memory_order_relaxed))
+      std::this_thread::yield();
+
+    loop.stop();
+    {
+      std::scoped_lock lock{blocker_mutex};
+      release_blocker = true;
+    }
+    blocker_cv.notify_one();
+
+    waiter.join();
+    loop_thread.join();
+  }
+
+  EXPECT_LE(waiter_returns.load(), iterations);
+  EXPECT_LE(callback_runs.load(), iterations);
+}
+
 void TcpConn_Lifecycle() {
   io_loop loop;
   auto loop_scope = loop.poll_thread_scope();
@@ -2057,6 +2109,7 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IoLoop_SetWritable, IoLoop_SetReadable, IoLoop_ErrorSkipsWritable,
     IoLoop_DefaultOnError, IoLoop_IsLoopThreadIsPerLoop,
     IoLoop_WaitUntilRunning, IoLoop_WaitUntilRunning_TimesOut,
+    IoLoop_PostAndWait_StopRace,
     TcpConn_Lifecycle, TcpConn_Receive, TcpConn_SetRecvBufSize,
     TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
     TcpConn_DrainAfterBufferedSend, TcpConn_DrainAfterImmediateSend,

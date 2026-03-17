@@ -181,25 +181,39 @@ public:
     if (is_loop_thread()) return fn();
     if (!running_.load(std::memory_order_relaxed)) return false;
 
-    std::mutex mutex;
-    std::condition_variable cv;
-    bool done = false;
-    bool result = false;
-    post([&] {
+    // To avoid a race condition, we need to ensure that the state in the
+    // lambda wrapper survives longer than this function.
+    using fn_type = std::decay_t<FN>;
+    struct wait_state {
+      std::mutex mutex;
+      std::condition_variable cv;
+      bool done{};
+      bool result{};
+      fn_type fn;
+
+      explicit wait_state(fn_type&& fn) : fn(std::move(fn)) {}
+    };
+
+    auto waiter = std::make_shared<wait_state>(std::forward<FN>(fn));
+    post([waiter] {
       {
-        std::scoped_lock lock{mutex};
-        result = fn();
-        done = true;
+        std::scoped_lock lock{waiter->mutex};
+        waiter->result = waiter->fn();
+        waiter->done = true;
       }
-      cv.notify_one();
+      waiter->cv.notify_one();
     });
-    std::unique_lock lock{mutex};
+
+    // Wait for the callback to run and signal completion. To avoid deadlock,
+    // we also check `running_` in the wait loop, so if the loop thread exits
+    // before the callback runs, we can give up and return false.
+    std::unique_lock lock{waiter->mutex};
     // If loop exits, give up.
-    while (!done) {
+    while (!waiter->done) {
       if (!running_.load(std::memory_order_relaxed)) return false;
-      cv.wait_for(lock, std::chrono::milliseconds(100));
+      waiter->cv.wait_for(lock, std::chrono::milliseconds(100));
     }
-    return result;
+    return waiter->result;
   }
 
   // Run `fn` immediately if on the loop thread, otherwise `post()` it. Returns
