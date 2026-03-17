@@ -220,6 +220,8 @@ public:
     return {addr, sizeof(sockaddr_storage)};
   }
 
+  static const ip_endpoint invalid;
+
 private:
   [[nodiscard]] static constexpr std::optional<uint16_t> parse_port(
       std::string_view s) noexcept {
@@ -254,5 +256,7 @@ private:
 private:
   sockaddr_storage storage_{};
 };
+
+inline const ip_endpoint ip_endpoint::invalid{};
 
 }} // namespace corvid::proto

@@ -193,9 +193,10 @@ public:
     return state_ && state_->write_open_.load(std::memory_order_relaxed);
   }
 
-  // The remote peer address supplied at construction.
+  // The remote peer address supplied at construction. Requires a valid
+  // connection. Safe to call from any thread.
   [[nodiscard]] const ip_endpoint& remote_endpoint() const noexcept {
-    assert(state_);
+    if (!state_) return ip_endpoint::invalid;
     return state_->remote_;
   }
 

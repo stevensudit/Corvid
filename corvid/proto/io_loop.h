@@ -408,9 +408,9 @@ private:
   void drain_post_queue(bool execute = true) {
     assert(is_loop_thread());
     std::vector<std::function<void()>> pending;
-    pending.reserve(post_queue_.size());
     {
       std::scoped_lock lock{post_mutex_};
+      pending.reserve(post_queue_.size());
       pending.swap(post_queue_);
     }
     if (!execute) return;

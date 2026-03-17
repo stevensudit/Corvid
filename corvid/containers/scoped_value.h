@@ -28,10 +28,12 @@ inline namespace value_scoping {
 template<typename T>
 class [[nodiscard]] scoped_value {
 public:
+  static_assert(!std::is_reference_v<T>,
+      "scoped_value cannot store a reference type");
   static_assert(std::is_move_constructible_v<T>,
       "scoped_value requires T to be move constructible");
-  static_assert(std::is_copy_constructible_v<T>,
-      "scoped_value requires T to be copy constructible");
+  static_assert(std::is_move_assignable_v<T>,
+      "scoped_value requires T to be move assignable");
   static_assert(std::is_nothrow_swappable_v<T>,
       "scoped_value requires T to be nothrow swappable");
 
@@ -47,15 +49,13 @@ public:
 
   scoped_value(const scoped_value&) = delete;
   scoped_value(scoped_value&& other) noexcept(
-      std::is_nothrow_move_constructible_v<T> &&
-      std::is_nothrow_copy_constructible_v<T>)
+      std::is_nothrow_move_constructible_v<T>)
       : target_(other.target_), old_value_(std::move(other.old_value_)) {
     other.release();
   }
   scoped_value& operator=(const scoped_value&) = delete;
   scoped_value& operator=(scoped_value&& other) noexcept(
-      std::is_nothrow_move_assignable_v<T> &&
-      std::is_nothrow_copy_constructible_v<T>) {
+      std::is_nothrow_move_assignable_v<T>) {
     if (this == &other) return *this;
     restore();
 
@@ -68,20 +68,18 @@ public:
 
   // Disarm the `scoped_value`, leaving the current value in place and
   // preventing any future restore.
-  void release() noexcept(std::is_nothrow_copy_constructible_v<T>) {
-    target_ = nullptr;
-  }
+  void release() noexcept { target_ = nullptr; }
 
 private:
   T* target_{};
   T old_value_;
 
-  void do_swap() noexcept(std::is_nothrow_move_constructible_v<T>) {
+  void do_swap() noexcept(std::is_nothrow_swappable_v<T>) {
     using std::swap;
     swap(*target_, old_value_);
   }
 
-  void restore() noexcept(std::is_nothrow_move_constructible_v<T>) {
+  void restore() noexcept(std::is_nothrow_swappable_v<T>) {
     if (target_) do_swap();
   }
 };
