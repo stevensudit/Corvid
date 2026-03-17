@@ -380,12 +380,13 @@ void Ipv6Addr_PosixInterop() {
   EXPECT_EQ(raw.s6_addr[15], 0x01U);
 }
 
-void IpEndpoint_Construction() {
+void NetEndpoint_Construction() {
   if (true) {
     net_endpoint ep;
     EXPECT_FALSE(ep.is_valid());
     EXPECT_FALSE(ep.is_v4());
     EXPECT_FALSE(ep.is_v6());
+    EXPECT_FALSE(ep.is_uds());
     EXPECT_EQ(ep.to_string(), "(invalid)");
   }
 
@@ -402,9 +403,33 @@ void IpEndpoint_Construction() {
     EXPECT_EQ(ep.port(), 443U);
     EXPECT_EQ(ep.v6()->to_string(), "::1");
   }
+
+  // UDS: construct from sockaddr_un directly.
+  if (true) {
+    sockaddr_un raw{};
+    raw.sun_family = AF_UNIX;
+    const std::string_view path = "/tmp/test.sock";
+    path.copy(raw.sun_path, sizeof(raw.sun_path) - 1);
+
+    net_endpoint ep{raw};
+    EXPECT_TRUE(ep.is_valid());
+    EXPECT_TRUE(ep.is_uds());
+    EXPECT_FALSE(ep.is_v4());
+    EXPECT_FALSE(ep.is_v6());
+    EXPECT_EQ(ep.uds_path(), path);
+  }
+
+  // UDS: path longer than 107 chars is silently truncated.
+  if (true) {
+    const std::string long_path(200, 'x');
+    auto ep = net_endpoint::parse("/" + long_path);
+    EXPECT_TRUE(ep.has_value());
+    EXPECT_TRUE(ep->is_uds());
+    EXPECT_EQ(ep->uds_path().size(), 107U);
+  }
 }
 
-void IpEndpoint_Parse() {
+void NetEndpoint_Parse() {
   if (true) {
     auto a = net_endpoint::parse("192.168.1.10:8080");
     EXPECT_TRUE(a.has_value());
@@ -429,9 +454,24 @@ void IpEndpoint_Parse() {
     EXPECT_FALSE(net_endpoint::parse("[2001:db8::1]:").has_value());
     EXPECT_FALSE(net_endpoint::parse("[2001:db8::1]:70000").has_value());
   }
+
+  // A leading `/` produces a UDS endpoint via `parse()`.
+  if (true) {
+    auto ep = net_endpoint::parse("/run/app.sock");
+    EXPECT_TRUE(ep.has_value());
+    EXPECT_TRUE(ep->is_uds());
+    EXPECT_EQ(ep->uds_path(), "/run/app.sock");
+  }
+
+  // The `string_view` constructor also accepts UDS paths.
+  if (true) {
+    net_endpoint ep{std::string_view{"/var/run/foo.sock"}};
+    EXPECT_TRUE(ep.is_uds());
+    EXPECT_EQ(ep.uds_path(), "/var/run/foo.sock");
+  }
 }
 
-void IpEndpoint_Comparison() {
+void NetEndpoint_Comparison() {
   net_endpoint a{ipv4_addr(10, 0, 0, 1), 80};
   net_endpoint b{ipv4_addr(10, 0, 0, 1), 81};
   net_endpoint c{ipv4_addr(10, 0, 0, 1), 80};
@@ -439,16 +479,32 @@ void IpEndpoint_Comparison() {
   EXPECT_TRUE(a == c);
   EXPECT_FALSE(a == b);
   EXPECT_TRUE(a < b);
+
+  // UDS endpoints compare by path.
+  auto u1 = net_endpoint::parse("/a.sock");
+  auto u2 = net_endpoint::parse("/b.sock");
+  auto u3 = net_endpoint::parse("/a.sock");
+  EXPECT_TRUE(u1 && u2 && u3);
+  EXPECT_TRUE(*u1 == *u3);
+  EXPECT_FALSE(*u1 == *u2);
+  EXPECT_TRUE(*u1 < *u2);
+
+  // UDS and IPv4 compare by family (AF_INET < AF_UNIX on Linux).
+  EXPECT_NE(a, *u1);
 }
 
-void IpEndpoint_Formatting() {
+void NetEndpoint_Formatting() {
   auto v4 = net_endpoint{ipv4_addr(127, 0, 0, 1), 80};
   auto v6 = net_endpoint{ipv6_addr::loopback(), 443};
   EXPECT_EQ(v4.to_string(), "127.0.0.1:80");
   EXPECT_EQ(v6.to_string(), "[::1]:443");
+
+  auto uds = net_endpoint::parse("/tmp/app.sock");
+  EXPECT_TRUE(uds.has_value());
+  EXPECT_EQ(uds->to_string(), "unix:/tmp/app.sock");
 }
 
-void IpEndpoint_PosixInterop() {
+void NetEndpoint_PosixInterop() {
   if (true) {
     net_endpoint ep{ipv4_addr(192, 168, 1, 2), 1234};
     auto raw = ep.as_sockaddr_in();
@@ -479,6 +535,28 @@ void IpEndpoint_PosixInterop() {
     auto* as_v6 = reinterpret_cast<const sockaddr_in6*>(&storage);
     EXPECT_EQ(as_v6->sin6_family, AF_INET6);
     EXPECT_EQ(ntohs(as_v6->sin6_port), 4321U);
+  }
+
+  // UDS: roundtrip through `as_sockaddr_un()` and back.
+  if (true) {
+    auto ep = net_endpoint::parse("/tmp/interop.sock");
+    EXPECT_TRUE(ep.has_value());
+
+    auto raw = ep->as_sockaddr_un();
+    EXPECT_EQ(raw.sun_family, static_cast<sa_family_t>(AF_UNIX));
+    EXPECT_EQ(std::string_view{raw.sun_path}, "/tmp/interop.sock");
+
+    net_endpoint roundtrip{raw};
+    EXPECT_EQ(roundtrip, *ep);
+
+    net_endpoint from_sockaddr{reinterpret_cast<const sockaddr&>(raw),
+        sizeof(raw)};
+    EXPECT_EQ(from_sockaddr, *ep);
+
+    EXPECT_EQ(ep->sockaddr_size(),
+        static_cast<socklen_t>(
+            offsetof(sockaddr_un, sun_path) +
+            std::strlen("/tmp/interop.sock") + 1));
   }
 }
 
@@ -1608,8 +1686,8 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     Ipv4Addr_Comparison, Ipv4Addr_Formatting, Ipv4Addr_PosixInterop,
     Ipv6Addr_Construction, Ipv6Addr_Parse, Ipv6Addr_Classification,
     Ipv6Addr_Comparison, Ipv6Addr_Formatting, Ipv6Addr_PosixInterop,
-    IpEndpoint_Construction, IpEndpoint_Parse, IpEndpoint_Comparison,
-    IpEndpoint_Formatting, IpEndpoint_PosixInterop, DnsResolve_NumericIPv4,
+    NetEndpoint_Construction, NetEndpoint_Parse, NetEndpoint_Comparison,
+    NetEndpoint_Formatting, NetEndpoint_PosixInterop, DnsResolve_NumericIPv4,
     DnsResolve_NumericIPv6, DnsResolve_Localhost, DnsResolve_FamilyFilter,
     DnsResolve_InvalidHost, DnsResolveOne_Success, DnsResolveOne_Failure,
     IoLoop_Lifecycle, IoLoop_Post, IoLoop_PreStartWorkIsQueued,

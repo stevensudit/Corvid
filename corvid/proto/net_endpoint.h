@@ -17,6 +17,7 @@
 #pragma once
 #include <cassert>
 #include <charconv>
+#include <cstring>
 #include <compare>
 #include <cstdint>
 #include <format>
@@ -29,24 +30,30 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 
 #include "ipv4_addr.h"
 #include "ipv6_addr.h"
 
 namespace corvid { inline namespace proto {
 
-// Unified IP endpoint: an IPv4 or IPv6 address paired with a port number.
+// Unified network endpoint: an IPv4/IPv6 address with port, or a Unix domain
+// socket path.
 //
 // Stores the endpoint in a `sockaddr_storage`, using `ss_family` as the tag.
 // Default-constructs to an invalid (empty) state; use `is_valid()` to check.
 //
-// Construction is available from an `ipv4_addr` or `ipv6_addr` plus a port,
-// or by parsing text in `1.2.3.4:80` (IPv4) or `[2001:db8::1]:80` (IPv6)
-// notation.
-//
+// IP construction: from an `ipv4_addr` or `ipv6_addr` plus a port, or by
+// parsing text in `1.2.3.4:80` (IPv4) or `[2001:db8::1]:80` (IPv6) notation.
 // Named factories `any_v4()` and `any_v6()` produce wildcard bind addresses.
-// On POSIX targets, interop with `sockaddr_in`, `sockaddr_in6`, and
-// `sockaddr_storage` is provided.
+//
+// UDS construction: pass a path beginning with `/` to `parse()` or the
+// `string_view` constructor. `uds_path()` retrieves the path; `to_string()`
+// formats it as `unix:<path>`. Paths longer than `sun_path` capacity
+// (107 chars) are silently truncated.
+//
+// On POSIX targets, interop with `sockaddr_in`, `sockaddr_in6`, `sockaddr_un`,
+// and `sockaddr_storage` is provided.
 class net_endpoint {
 public:
   // Default-construct to an invalid state.
@@ -83,9 +90,12 @@ public:
     return net_endpoint{ipv6_addr::any(), port};
   }
 
-  // Parse IP and port, returning nullopt on failure.
+  // Parse an IP endpoint (`1.2.3.4:80`, `[2001:db8::1]:80`) or a UDS path
+  // (any string beginning with `/`). Returns nullopt on failure.
   [[nodiscard]] static std::optional<net_endpoint> parse(std::string_view s) {
     if (s.empty()) return std::nullopt;
+
+    if (s[0] == '/') return do_create_uds(s);
 
     if (s[0] == '[') {
       const auto close = s.find(']');
@@ -111,16 +121,20 @@ public:
 
   // Return true if this endpoint holds a valid (non-default) address.
   [[nodiscard]] constexpr bool is_valid() const noexcept {
-    return family() == AF_INET || family() == AF_INET6;
+    return family() == AF_INET || family() == AF_INET6 || family() == AF_UNIX;
   }
 
-  // Return true if this endpoint holds an IPv4 or IPv6 address, respectively.
+  // Return true if this endpoint holds an IPv4, IPv6, or UDS address.
   [[nodiscard]] constexpr bool is_v4() const noexcept {
     return family() == AF_INET;
   }
 
   [[nodiscard]] constexpr bool is_v6() const noexcept {
     return family() == AF_INET6;
+  }
+
+  [[nodiscard]] constexpr bool is_uds() const noexcept {
+    return family() == AF_UNIX;
   }
 
   // Return the port number.
@@ -142,6 +156,12 @@ public:
     return ipv6_addr{as_v6().sin6_addr};
   }
 
+  // Return the UDS path, or an empty `string_view` if not a UDS endpoint.
+  [[nodiscard]] std::string_view uds_path() const noexcept {
+    if (!is_uds()) return {};
+    return as_uds().sun_path;
+  }
+
   // Three-way comparison; endpoints are equal when both address and port
   // match.
   [[nodiscard]] friend bool
@@ -160,22 +180,25 @@ public:
       if (const auto by_addr = lhs.v4()->to_uint32() <=> rhs.v4()->to_uint32();
           by_addr != 0)
         return by_addr;
-    } else {
+    } else if (lhs.is_v6()) {
       if (const auto by_addr = lhs.v6()->words() <=> rhs.v6()->words();
           by_addr != 0)
         return by_addr;
+    } else if (lhs.is_uds()) {
+      return lhs.uds_path() <=> rhs.uds_path();
     }
     // NOLINTEND(bugprone-unchecked-optional-access)
     return lhs.port() <=> rhs.port();
   }
 
-  // Format as `1.2.3.4:80` (IPv4) or `[2001:db8::1]:80` (IPv6), or
-  // `(invalid)` if default-constructed.
+  // Format as `1.2.3.4:80` (IPv4), `[2001:db8::1]:80` (IPv6),
+  // `unix:<path>` (UDS), or `(invalid)` if default-constructed.
   [[nodiscard]] std::string to_string() const {
     if (const auto addr = v4())
       return std::format("{}:{}", addr->to_string(), port());
     if (const auto addr = v6())
       return std::format("[{}]:{}", addr->to_string(), port());
+    if (is_uds()) return std::format("unix:{}", uds_path());
     return "(invalid)";
   }
 
@@ -183,12 +206,16 @@ public:
     return os << ep.to_string();
   }
 
-  // Construct from a POSIX `sockaddr_in` or `sockaddr_in6`, respectively.
+  // Construct from a POSIX `sockaddr_in`, `sockaddr_in6`, or `sockaddr_un`.
   explicit net_endpoint(const sockaddr_in& addr) noexcept {
     assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
   }
 
   explicit net_endpoint(const sockaddr_in6& addr) noexcept {
+    assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
+  }
+
+  explicit net_endpoint(const sockaddr_un& addr) noexcept {
     assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
   }
 
@@ -219,6 +246,11 @@ public:
     return as_v6();
   }
 
+  [[nodiscard]] const sockaddr_un& as_sockaddr_un() const {
+    assert(is_uds());
+    return as_uds();
+  }
+
   [[nodiscard]] constexpr const sockaddr_storage&
   as_sockaddr_storage() const noexcept {
     return storage_;
@@ -228,9 +260,12 @@ public:
     return storage_;
   }
 
-  [[nodiscard]] constexpr socklen_t sockaddr_size() const noexcept {
+  [[nodiscard]] socklen_t sockaddr_size() const noexcept {
     if (is_v4()) return sizeof(sockaddr_in);
     if (is_v6()) return sizeof(sockaddr_in6);
+    if (is_uds())
+      return static_cast<socklen_t>(
+          offsetof(sockaddr_un, sun_path) + std::strlen(as_uds().sun_path) + 1);
     return sizeof(sockaddr_storage);
   }
 
@@ -250,6 +285,21 @@ private:
     else if (addr.sa_family == AF_INET6 &&
              len >= static_cast<socklen_t>(sizeof(sockaddr_in6)))
       as_v6() = *reinterpret_cast<const sockaddr_in6*>(&addr);
+    else if (addr.sa_family == AF_UNIX &&
+             len >= static_cast<socklen_t>(sizeof(sa_family_t)))
+      std::memcpy(&as_uds(), &addr,
+          std::min(len, static_cast<socklen_t>(sizeof(sockaddr_un))));
+  }
+
+  // Create a UDS endpoint for `path`. Paths longer than `sun_path` capacity
+  // (107 chars) are silently truncated.
+  [[nodiscard]] static net_endpoint do_create_uds(std::string_view path) noexcept {
+    net_endpoint ep;
+    auto& raw = ep.as_uds();
+    raw.sun_family = AF_UNIX;
+    const auto len = path.copy(raw.sun_path, sizeof(raw.sun_path) - 1);
+    raw.sun_path[len] = '\0';
+    return ep;
   }
 
   [[nodiscard]] static constexpr std::optional<uint16_t> parse_port(
@@ -282,7 +332,18 @@ private:
     return *reinterpret_cast<const sockaddr_in6*>(&storage_);
   }
 
+  [[nodiscard]] sockaddr_un& as_uds() noexcept {
+    return *reinterpret_cast<sockaddr_un*>(&storage_);
+  }
+
+  [[nodiscard]] const sockaddr_un& as_uds() const noexcept {
+    return *reinterpret_cast<const sockaddr_un*>(&storage_);
+  }
+
 private:
+  static_assert(sizeof(sockaddr_un) <= sizeof(sockaddr_storage),
+      "`sockaddr_storage` is not large enough to hold `sockaddr_un`");
+
   sockaddr_storage storage_{};
 };
 
