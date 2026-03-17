@@ -1288,9 +1288,7 @@ void IoLoop_PostAndWait_StopRace() {
 
   for (int i = 0; i < iterations; ++i) {
     io_loop loop;
-    std::mutex blocker_mutex;
-    std::condition_variable blocker_cv;
-    bool release_blocker = false;
+    notifiable<bool> release_blocker{false};
     std::atomic_bool blocker_entered{false};
     std::atomic_bool waiter_started{false};
 
@@ -1299,8 +1297,7 @@ void IoLoop_PostAndWait_StopRace() {
 
     loop.post([&] {
       blocker_entered = true;
-      std::unique_lock lock{blocker_mutex};
-      blocker_cv.wait(lock, [&] { return release_blocker; });
+      release_blocker.wait_until_value(true);
     });
 
     while (!blocker_entered.load(std::memory_order::relaxed))
@@ -1319,11 +1316,7 @@ void IoLoop_PostAndWait_StopRace() {
       std::this_thread::yield();
 
     loop.stop();
-    {
-      std::scoped_lock lock{blocker_mutex};
-      release_blocker = true;
-    }
-    blocker_cv.notify_one();
+    release_blocker.notify_one(true);
 
     waiter.join();
     loop_thread.join();
@@ -1766,18 +1759,12 @@ void TcpConn_AsyncCbWrite_DuplicateRejected() {
   std::atomic<int> accepted{0};
   std::atomic<int> rejected{0};
   std::atomic<int> completions{0};
-  std::mutex completion_mutex;
-  std::condition_variable completion_cv;
-  bool completion_seen = false;
+  notifiable<bool> completion{false};
 
   auto try_register = [&] {
     if (conn.async_cb_write(std::string{payload}, [&](bool) {
           ++completions;
-          {
-            std::scoped_lock lock{completion_mutex};
-            completion_seen = true;
-          }
-          completion_cv.notify_one();
+          completion.notify_one(true);
         }))
       ++accepted;
     else
@@ -1793,12 +1780,7 @@ void TcpConn_AsyncCbWrite_DuplicateRejected() {
   EXPECT_EQ(rejected, 1);
 
   b.close();
-  {
-    std::unique_lock lock{completion_mutex};
-    EXPECT_TRUE(completion_cv.wait_for(lock, std::chrono::seconds{1}, [&] {
-      return completion_seen;
-    }));
-  }
+  EXPECT_TRUE(completion.wait_for_value(std::chrono::seconds{1}, true));
 
   EXPECT_EQ(completions, 1);
 

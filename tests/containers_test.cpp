@@ -2040,6 +2040,31 @@ void Notifiable_WaitFor() {
   }
 }
 
+void Notifiable_WaitUntilChanged() {
+  // `wait_until_changed` unblocks when the value changes; returns new value.
+  if (true) {
+    notifiable<int> n{0};
+    std::thread t{[&] { n.notify(42); }};
+    EXPECT_EQ(n.wait_until_changed(), 42);
+    t.join();
+  }
+  // `wait_for_changed` unblocks before deadline: returns new value.
+  if (true) {
+    notifiable<int> n{0};
+    std::thread t{[&] { n.notify(42); }};
+    auto v = n.wait_for_changed(std::chrono::seconds{5});
+    EXPECT_TRUE(v);
+    EXPECT_EQ(*v, 42);
+    t.join();
+  }
+  // `wait_for_changed` timeout: value never changes, returns nullopt.
+  if (true) {
+    notifiable<int> n{0};
+    auto v = n.wait_for_changed(std::chrono::milliseconds{1});
+    EXPECT_FALSE(v);
+  }
+}
+
 void Notifiable_Get() {
   // `get` returns snapshot without blocking.
   notifiable<int> n{42};
@@ -2059,7 +2084,8 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
     StrongType_Extended, EnumVariant_Basic, TombStone_Basic, EnumVector_Basic,
     ScopedValue_Basic, ScopeExit_Basic, Notifiable_NotifyAndWait,
-    Notifiable_ModifyAndNotify, Notifiable_WaitFor, Notifiable_Get);
+    Notifiable_ModifyAndNotify, Notifiable_WaitFor,
+    Notifiable_WaitUntilChanged, Notifiable_Get);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
