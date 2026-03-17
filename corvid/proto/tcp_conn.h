@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <deque>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -47,7 +48,9 @@ using namespace corvid::strings::no_zero_funcs;
 //  `on_drain()`    -- fired when a `send()` finishes with no outbound bytes
 //                     left pending. This includes both immediate writes and
 //                     buffered (`EPOLLOUT`-driven) drains.
-//  `on_close()`    -- fired once on EOF or I/O error; the connection is gone.
+//  `on_close()`    -- fired once when the read side closes: either peer EOF or
+//                     an I/O error. Writes may still be possible (half-close);
+//                     call `close()` or `hangup()` to shut down fully.
 struct tcp_conn_handlers {
   std::function<void(std::string&)> on_data = nullptr;
   std::function<void()> on_drain = nullptr;
@@ -629,8 +632,11 @@ private:
     bool handle_readable() {
       if (!read_open_.load(std::memory_order_relaxed)) return false;
 
-      const auto recv_buf_capacity =
-          recv_buf_capacity_.load(std::memory_order_relaxed);
+      // Defensive coding to placate whiny AIs.
+      const auto recv_buf_capacity = std::min(
+          recv_buf_capacity_.load(std::memory_order_relaxed),
+          std::numeric_limits<std::size_t>::max() / 2);
+
       no_zero::rightsize_to(recv_buf_, recv_buf_capacity,
           recv_buf_capacity * 2);
 

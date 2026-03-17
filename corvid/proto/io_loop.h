@@ -300,7 +300,14 @@ public:
 
   // Dispatch events in a loop until `stop()` is called or `run_once` returns
   // -1. `timeout_ms` is forwarded to each `epoll_wait` call.
+  //
+  // May only be called once; returns false immediately if called again.
   bool run(int timeout_ms = -1) {
+    bool expected = false;
+    if (!has_run_.compare_exchange_strong(expected, true,
+            std::memory_order_relaxed))
+      return false;
+
     const auto scope = poll_thread_scope();
     {
       std::scoped_lock lock{lifecycle_mutex_};
@@ -478,6 +485,7 @@ private:
 
   std::mutex lifecycle_mutex_;
   std::condition_variable lifecycle_cv_;
+  std::atomic_bool has_run_{false};
   std::atomic_bool running_{false};
 };
 }} // namespace corvid::proto
