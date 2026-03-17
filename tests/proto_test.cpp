@@ -1766,10 +1766,18 @@ void TcpConn_AsyncCbWrite_DuplicateRejected() {
   std::atomic<int> accepted{0};
   std::atomic<int> rejected{0};
   std::atomic<int> completions{0};
+  std::mutex completion_mutex;
+  std::condition_variable completion_cv;
+  bool completion_seen = false;
 
   auto try_register = [&] {
     if (conn.async_cb_write(std::string{payload}, [&](bool) {
           ++completions;
+          {
+            std::scoped_lock lock{completion_mutex};
+            completion_seen = true;
+          }
+          completion_cv.notify_one();
         }))
       ++accepted;
     else
@@ -1785,8 +1793,12 @@ void TcpConn_AsyncCbWrite_DuplicateRejected() {
   EXPECT_EQ(rejected, 1);
 
   b.close();
-  for (int i = 0; i < 100 && completions == 0; ++i)
-    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  {
+    std::unique_lock lock{completion_mutex};
+    EXPECT_TRUE(completion_cv.wait_for(lock, std::chrono::seconds{1}, [&] {
+      return completion_seen;
+    }));
+  }
 
   EXPECT_EQ(completions, 1);
 
@@ -2109,11 +2121,11 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IoLoop_SetWritable, IoLoop_SetReadable, IoLoop_ErrorSkipsWritable,
     IoLoop_DefaultOnError, IoLoop_IsLoopThreadIsPerLoop,
     IoLoop_WaitUntilRunning, IoLoop_WaitUntilRunning_TimesOut,
-    IoLoop_PostAndWait_StopRace,
-    TcpConn_Lifecycle, TcpConn_Receive, TcpConn_SetRecvBufSize,
-    TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
-    TcpConn_DrainAfterBufferedSend, TcpConn_DrainAfterImmediateSend,
-    TcpConn_AsyncCbRead, TcpConn_AsyncCbRead_PreservesEarlyData,
+    IoLoop_PostAndWait_StopRace, TcpConn_Lifecycle, TcpConn_Receive,
+    TcpConn_SetRecvBufSize, TcpConn_PeerClose, TcpConn_Send,
+    TcpConn_ManualClose, TcpConn_DrainAfterBufferedSend,
+    TcpConn_DrainAfterImmediateSend, TcpConn_AsyncCbRead,
+    TcpConn_AsyncCbRead_PreservesEarlyData,
     TcpConn_AsyncCbRead_DuplicateRejected, TcpConn_AsyncCbRead_PeerClose,
     TcpConn_AsyncCbWrite, TcpConn_AsyncCbWrite_Failure,
     TcpConn_AsyncCbWrite_DuplicateRejected, TcpConn_ShutdownWrite,
