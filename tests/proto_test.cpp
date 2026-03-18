@@ -16,6 +16,7 @@
 // limitations under the License.
 
 #include "../corvid/proto.h"
+#define MINITEST_SHOW_TIMERS
 #include "minitest.h"
 #include <type_traits>
 #include <atomic>
@@ -1029,6 +1030,7 @@ void IoLoop_PostAndWait_StopRace() {
 
   for (int i = 0; i < iterations; ++i) {
     epoll_loop loop;
+    loop.test_only_post_and_wait_poll_interval = std::chrono::milliseconds{5};
     notifiable<bool> release_blocker{false};
     std::atomic_bool blocker_entered{false};
     std::atomic_bool waiter_started{false};

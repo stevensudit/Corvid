@@ -202,9 +202,10 @@ public:
     // Wait for the callback to run and signal completion. To avoid deadlock,
     // we also check `running_` in the wait loop, so if the loop thread exits
     // before the callback runs, we can give up and return false.
-    using namespace std::chrono_literals;
     while (true) {
-      if (waiter->done.wait_for_value(100ms, true)) return waiter->result;
+      if (waiter->done.wait_for_value(test_only_post_and_wait_poll_interval,
+              true))
+        return waiter->result;
       // If loop exits, give up.
       if (!running_.get()) return false;
     }
@@ -302,6 +303,11 @@ public:
 
     return ok;
   }
+
+  // For tests only:
+  // Poll interval used by `post_and_wait()` while waiting for completion.
+  inline static std::chrono::milliseconds
+      test_only_post_and_wait_poll_interval{100};
 
 private:
   struct registration {
