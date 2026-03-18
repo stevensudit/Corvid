@@ -56,7 +56,7 @@ helpers cover the most common options: `set_reuse_addr`, `set_reuse_port`,
 Resolves hostnames to `net_endpoint` values via `getaddrinfo`. `find_all()`
 returns a `std::vector<net_endpoint>` with an optional address-family filter
 (`AF_UNSPEC`, `AF_INET`, or `AF_INET6`) and `max_results` cap. `find_one()`
-returns the first result as an `net_endpoint`, or a default-constructed
+returns the first result as a `net_endpoint`, or a default-constructed
 (invalid) endpoint on failure.
 
 ## Layer 2: TCP I/O Loop

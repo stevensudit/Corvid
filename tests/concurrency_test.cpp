@@ -16,6 +16,7 @@
 // limitations under the License.
 
 #include <chrono>
+#include <functional>
 #include <thread>
 
 #include "../corvid/concurrency.h"
