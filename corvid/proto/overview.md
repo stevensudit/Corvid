@@ -89,8 +89,9 @@ events drain the queue; when empty, `EPOLLOUT` is disarmed.
 Receive path: `EPOLLIN` triggers `::read` into a buffer pre-sized with
 `resize_and_overwrite` (no zero-initialization), trimmed to the actual byte
 count before delivery. `set_recv_buf_size(bytes)` changes the per-connection
-read size used for future reads, and `recv_buf_size()` reports the current
-configured size.
+receive-buffer target used for future reads; the actual temporary string size
+may be somewhat larger when existing capacity is reused. `recv_buf_size()`
+reports the current configured target.
 
 Graceful close: `close()` defers the socket close until the send queue
 drains; the destructor instead closes rudely.

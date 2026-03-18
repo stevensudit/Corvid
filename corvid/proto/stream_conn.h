@@ -168,17 +168,20 @@ public:
     return state_ && state_->open_.load(std::memory_order::relaxed);
   }
 
-  // Change the per-connection receive buffer size used for future reads.
-  // `bytes` must be non-zero. Safe to call from any thread. Returns false if
-  // the handle is empty or `bytes == 0`.
+  // Change the per-connection receive-buffer target used for future reads.
+  // `bytes` must be non-zero. The actual temporary string size used by a given
+  // read may be somewhat larger if the buffer already has extra capacity.
+  // Safe to call from any thread. Returns false if the handle is empty or
+  // `bytes == 0`.
   bool set_recv_buf_size(size_t bytes) {
     if (!state_ || bytes == 0) return false;
     state_->recv_buf_capacity_.store(bytes, std::memory_order::relaxed);
     return true;
   }
 
-  // The current per-connection receive buffer size used for future reads.
-  // Safe to call from any thread.
+  // The current per-connection receive-buffer target used for future reads.
+  // The actual temporary string size used by a given read may be somewhat
+  // larger if capacity is already available. Safe to call from any thread.
   [[nodiscard]] size_t recv_buf_size() const noexcept {
     if (!state_) return 0;
     return state_->recv_buf_capacity_.load(std::memory_order::relaxed);

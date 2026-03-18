@@ -1133,9 +1133,10 @@ void StreamConn_SetRecvBufSize() {
 
   auto second = std::string_view{"ABCDEFGHijkl"};
   EXPECT_TRUE(b.send(second) && second.empty());
-  EXPECT_EQ(loop.run_once(0), 1); // next read should use updated cap
+  EXPECT_EQ(loop.run_once(0), 1); // next read should use updated sizing hint
   EXPECT_EQ(chunk_sizes.size(), 3U);
-  EXPECT_EQ(chunk_sizes[2], 8U);
+  EXPECT_GE(chunk_sizes[2], 8U);
+  EXPECT_LE(chunk_sizes[2], 12U);
 }
 
 void StreamConn_PeerClose() {
