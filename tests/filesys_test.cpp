@@ -644,7 +644,8 @@ void NetSocket_BindListenAccept() {
   // Connect a client to the listening socket.
   net_socket client{AF_INET, SOCK_STREAM, 0};
   EXPECT_TRUE(client.is_open());
-  EXPECT_TRUE(client.connect(net_endpoint{ipv4_addr::loopback, port}));
+  EXPECT_TRUE(
+      client.connect(net_endpoint{ipv4_addr::loopback, port}).value_or(false));
 
   // Accept the connection on the listener side.
   auto result = listener.accept();

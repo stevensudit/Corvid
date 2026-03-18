@@ -33,6 +33,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
+#include "../filesys/net_socket.h"
 #include "ipv4_addr.h"
 #include "ipv6_addr.h"
 
@@ -299,16 +300,8 @@ public:
   }
 
   // Return the size of the sockaddr struct corresponding to the held endpoint.
-  [[nodiscard]] constexpr socklen_t sockaddr_size() const noexcept {
-    if (is_v4()) return sizeof(sockaddr_in);
-    if (is_v6()) return sizeof(sockaddr_in6);
-    if (is_ans())
-      return sizeof(sockaddr_un); // full buffer; no null terminator
-    if (is_uds())
-      return static_cast<socklen_t>(
-          offsetof(sockaddr_un, sun_path) + std::strlen(as_uds().sun_path) +
-          1);
-    return sizeof(sockaddr_storage);
+  [[nodiscard]] socklen_t sockaddr_size() const noexcept {
+    return net_socket::sockaddr_size(storage_);
   }
 
   // Return a pointer and length suitable for passing to POSIX socket

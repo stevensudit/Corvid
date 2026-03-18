@@ -15,12 +15,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <cstddef>
+#include <cstring>
 #include <optional>
 #include <utility>
 
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 
 #include "../enums/bool_enums.h"
 
@@ -207,21 +210,45 @@ public:
     return ::send(handle(), buf, len, flags);
   }
 
+  // Return the POSIX socket address size for `addr`. For IPv4 and IPv6,
+  // returns the fixed struct size. For UDS pathname sockets, returns only the
+  // significant portion of `sun_path` (path length + null terminator +
+  // header). For ANS (abstract name sockets, where `sun_path[0] == '\0'`),
+  // returns `sizeof(sockaddr_un)` so the full name buffer is transmitted. For
+  // unrecognized families, returns `sizeof(sockaddr_storage)`.
+  [[nodiscard]] static socklen_t sockaddr_size(
+      const sockaddr_storage& addr) noexcept {
+    if (addr.ss_family == AF_INET) return sizeof(sockaddr_in);
+    if (addr.ss_family == AF_INET6) return sizeof(sockaddr_in6);
+    if (addr.ss_family == AF_UNIX) {
+      const auto& sun = reinterpret_cast<const sockaddr_un&>(addr);
+      if (sun.sun_path[0] == '\0') return sizeof(sockaddr_un); // ANS
+      return static_cast<socklen_t>(
+          offsetof(sockaddr_un, sun_path) + std::strlen(sun.sun_path) + 1);
+    }
+    return sizeof(sockaddr_storage);
+  }
+
   // Bind the socket to a local address. Returns true on success.
   [[nodiscard]] bool bind(const sockaddr_storage& addr) noexcept {
     assert(is_open());
     return ::bind(handle(), reinterpret_cast<const sockaddr*>(&addr),
-               socklen(addr)) == 0;
+               sockaddr_size(addr)) == 0;
   }
 
-  // Initiate a connection to `addr`. For non-blocking sockets, `EINPROGRESS`
-  // is treated as success (the connection is in progress). Returns true on
-  // success or when the connection is underway.
-  [[nodiscard]] bool connect(const sockaddr_storage& addr) noexcept {
+  // Initiate a connection to `addr`. Returns `true` on immediate success,
+  // `std::nullopt` when the connection is in progress (`EINPROGRESS`), or
+  // `false` on hard failure. For non-blocking sockets, arm `EPOLLOUT` and
+  // check `SO_ERROR` on the next writable event to confirm in-progress
+  // connects.
+  [[nodiscard]] std::optional<bool> connect(
+      const sockaddr_storage& addr) noexcept {
     assert(is_open());
-    return ::connect(handle(), reinterpret_cast<const sockaddr*>(&addr),
-               socklen(addr)) == 0 ||
-           errno == EINPROGRESS;
+    if (::connect(handle(), reinterpret_cast<const sockaddr*>(&addr),
+            sockaddr_size(addr)) == 0)
+      return true;
+    if (errno == EINPROGRESS) return std::nullopt;
+    return false;
   }
 
   // Mark the socket as passive and ready to accept connections. `backlog`
@@ -252,16 +279,6 @@ public:
         &len, SOCK_CLOEXEC | SOCK_NONBLOCK);
     if (fd < 0) return std::nullopt;
     return std::pair{net_socket{os_file{fd}}, addr};
-  }
-
-private:
-  // Compute the appropriate `socklen_t` for a `sockaddr_storage` based on its
-  // address family.
-  [[nodiscard]] static socklen_t socklen(
-      const sockaddr_storage& addr) noexcept {
-    if (addr.ss_family == AF_INET) return sizeof(sockaddr_in);
-    if (addr.ss_family == AF_INET6) return sizeof(sockaddr_in6);
-    return sizeof(sockaddr_storage);
   }
 };
 

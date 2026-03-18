@@ -57,7 +57,18 @@ struct stream_conn_handlers {
   std::function<void()> on_close = nullptr;
 };
 
-// A non-blocking connected stream socket driven by an `epoll_loop`.
+// A non-blocking stream socket driven by an `epoll_loop`. Supports two
+// creation paths:
+//
+// 1. Already-connected socket (e.g., from `accept`): use the constructor
+//    directly. The socket must already be non-blocking and connected.
+//
+// 2. Async connect: use the static `stream_conn::connect()` factory. It
+//    creates the socket, optionally binds the local end, calls `connect(2)`,
+//    and registers with the loop. `h.on_drain` fires when the connection is
+//    established and writes are open; `h.on_close` fires on failure. The
+//    factory throws `std::system_error` if the socket cannot be created,
+//    bound, or if `connect(2)` fails synchronously.
 //
 // `stream_conn` is a movable handle that wraps a `shared_ptr` to internal
 // state (`state`). Note that, despite using `shared_ptr`, a `stream_conn`
@@ -138,7 +149,7 @@ public:
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
     if (recv_buf_size == 0) recv_buf_size = default_recv_buf_size;
     state_ = std::make_shared<state>(loop, std::move(sock), remote,
-        std::move(h), recv_buf_size);
+        std::move(h), recv_buf_size, /*connecting=*/false);
     loop.post([p = state_] { p->register_with_loop(); });
   }
 
@@ -162,6 +173,36 @@ public:
     catch (...) {
       // Don't let exceptions escape the destructor.
     }
+  }
+
+  // Initiate an async connection to `remote`. Creates a non-blocking socket
+  // matching `remote`'s address family, optionally binds the local end to
+  // `local` (if non-empty), then calls `connect(2)`. The socket is registered
+  // with `EPOLLOUT`. When the connection is established, `h.on_drain` fires
+  // (signaling that writes are open); if it fails, `h.on_close` fires via
+  // the normal close path.
+  //
+  // Throws `std::system_error` if the socket cannot be created, `local`
+  // cannot be bound, or `connect(2)` fails synchronously (hard error).
+  // Async failure (e.g., `ECONNREFUSED` delivered later) is reported via
+  // `h.on_close`.
+  [[nodiscard]] static stream_conn connect(epoll_loop& loop,
+      const net_endpoint& remote, stream_conn_handlers&& h = {},
+      const net_endpoint& local = net_endpoint::invalid,
+      size_t recv_buf_size = default_recv_buf_size) {
+    auto sock = make_sock_for(remote);
+    if (!sock.is_open())
+      throw std::system_error(errno, std::generic_category(), "socket");
+
+    if (local && !sock.bind(local))
+      throw std::system_error(errno, std::generic_category(), "bind");
+
+    const auto result = sock.connect(remote);
+    if (result && !*result)
+      throw std::system_error(errno, std::generic_category(), "connect");
+
+    return stream_conn{loop, std::move(sock), remote, std::move(h),
+        recv_buf_size, /*connecting=*/true};
   }
 
   // True if the connection has not yet been closed.
@@ -394,6 +435,12 @@ private:
     std::atomic_bool read_open_{true};
     std::atomic_bool write_open_{true};
 
+    // True while an async connect is in progress. Cleared by
+    // `do_finish_connect()` once `SO_ERROR` is checked. During this phase
+    // `on_writable` and `on_error` route to `do_finish_connect()` instead of
+    // the normal data paths.
+    bool connecting_ = false;
+
     // Set by `do_close()` to request a full close after pending writes drain.
     bool close_requested_ = false;
 
@@ -416,10 +463,11 @@ private:
     pending_write_op pending_write_;
 
     explicit state(epoll_loop& loop, net_socket&& sock,
-        const net_endpoint& remote, stream_conn_handlers&& h,
-        size_t rbs) noexcept
+        const net_endpoint& remote, stream_conn_handlers&& h, size_t rbs,
+        bool connecting) noexcept
         : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
-          handlers_{std::move(h)}, recv_buf_capacity_{rbs}, open_{true} {}
+          handlers_{std::move(h)}, recv_buf_capacity_{rbs}, open_{true},
+          connecting_{connecting} {}
 
     // Read interest is needed only while callback mode is always listening or
     // a one-shot read waiter is actively awaiting the next chunk.
@@ -607,17 +655,61 @@ private:
     // Register `net_socket` with the loop. Stores a shared owner in the loop's
     // registration map, keeping the state alive as long as the fd is
     // registered, even if its `stream_conn` is destructed.
+    //
+    // In connecting mode, arms `EPOLLOUT` (to detect connect completion) and
+    // suppresses `EPOLLIN` until the connect resolves. In connected mode,
+    // arms `EPOLLIN` only when an `on_data` handler is installed.
     void register_with_loop() {
       if (!open_.load(std::memory_order::relaxed)) return;
-      (void)loop_.register_socket(shared_from_this(),
-          static_cast<bool>(handlers_.on_data), false);
+      const bool want_read =
+          !connecting_ && static_cast<bool>(handlers_.on_data);
+      (void)loop_.register_socket(shared_from_this(), want_read, connecting_);
+    }
+
+    // Resolve a pending async connect by checking `SO_ERROR`. On failure,
+    // closes the connection (firing `on_close` via `do_close_now`). On
+    // success, transitions to connected state: arms reads if `on_data` is set,
+    // and either fires `on_drain` immediately (if the send queue is empty) or
+    // leaves `EPOLLOUT` armed so `do_flush_send_buf` can drain and fire it.
+    // Called from `on_writable` and `on_error` while `connecting_` is set.
+    void do_finish_connect() {
+      assert(loop_.is_loop_thread());
+      assert(connecting_);
+      connecting_ = false;
+
+      const auto err = sock().get_option<int>(SOL_SOCKET, SO_ERROR);
+      if (!err || *err != 0) {
+        do_close_now(close_mode::forceful);
+        return;
+      }
+
+      // Arm reads if an `on_data` handler is installed.
+      refresh_read_interest();
+
+      if (send_queue_.empty()) {
+        // No pending sends: disarm `EPOLLOUT` and signal that writes are open.
+        loop_.set_writable(sock(), false);
+        notify_drained();
+      }
+      // Otherwise `EPOLLOUT` is already armed; the next `on_writable` will
+      // call `do_flush_send_buf`, which fires `notify_drained` when done.
     }
 
     // `io_conn` overrides: called on the loop thread by `dispatch_event`.
     void on_readable() override { handle_readable(); }
-    void on_writable() override { do_flush_send_buf(); }
+    void on_writable() override {
+      if (connecting_) {
+        do_finish_connect();
+        return;
+      }
+      do_flush_send_buf();
+    }
     void on_error() override {
       if (!open_.load(std::memory_order::relaxed)) return;
+      if (connecting_) {
+        do_finish_connect();
+        return;
+      }
       if (read_open_.load(std::memory_order::relaxed) && wants_read_events()) {
         (void)handle_readable();
       } else if (read_open_.load(std::memory_order::relaxed)) {
@@ -887,6 +979,29 @@ private:
     };
     // NOLINTEND(readability-convert-member-functions-to-static)
   };
+
+  // Private constructor used by `stream_conn::connect()`. Identical to the
+  // public constructor but sets `connecting_` in `state` so that the first
+  // `EPOLLOUT` event triggers `do_finish_connect()` instead of a send flush.
+  explicit stream_conn(epoll_loop& loop, net_socket&& sock,
+      const net_endpoint& remote, stream_conn_handlers&& h,
+      size_t recv_buf_size, bool connecting) {
+    assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
+    if (recv_buf_size == 0) recv_buf_size = default_recv_buf_size;
+    state_ = std::make_shared<state>(loop, std::move(sock), remote,
+        std::move(h), recv_buf_size, connecting);
+    loop.post([p = state_] { p->register_with_loop(); });
+  }
+
+  // Create a non-blocking socket of the appropriate type for `ep`.
+  // Returns an empty (invalid) `net_socket` if `ep` is empty or has an
+  // unrecognized family.
+  [[nodiscard]] static net_socket make_sock_for(const net_endpoint& ep) {
+    if (ep.is_v4()) return net_socket::create_ipv4();
+    if (ep.is_v6()) return net_socket::create_ipv6();
+    if (ep.is_uds()) return net_socket::create_uds();
+    return {};
+  }
 
   // Execute the lambda `fn` on the loop thread.
   //
