@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -71,12 +72,21 @@ public:
       : bytes_{bytes} {}
 
   // Construct from a colon-hex string (e.g., "2001:db8::1").
-  // Throws `std::invalid_argument` if the string is not a valid IPv6 address.
+  //
+  // If not a valid IPv6 address, the result is `empty()`. If you need to
+  // distinguish between an invalid address and the "any" address ("::"), use
+  // `parse()` instead.
   explicit constexpr ipv6_addr(std::string_view s) {
-    auto parsed = parse(s);
-    if (!parsed) throw std::invalid_argument("Invalid IPv6 address");
-    *this = *parsed;
+    if (const auto parsed = parse(s); parsed) *this = *parsed;
   }
+
+  // Whether this address is empty, which is also the "any" address ("::").
+  [[nodiscard]] constexpr bool empty() const noexcept {
+    const auto qwords = std::bit_cast<std::array<uint64_t, 2>>(bytes_);
+    return qwords[0] == 0 && qwords[1] == 0;
+  }
+
+  [[nodiscard]] constexpr operator bool() const noexcept { return !empty(); }
 
   // Parsing.
 
@@ -113,12 +123,7 @@ public:
 
   // Classification predicates.
 
-  [[nodiscard]] constexpr bool is_any() const noexcept {
-    for (auto b : bytes_) {
-      if (b != 0) return false;
-    }
-    return true;
-  }
+  [[nodiscard]] constexpr bool is_any() const noexcept { return empty(); }
 
   [[nodiscard]] constexpr bool is_loopback() const noexcept {
     return bytes_[0] == 0 && bytes_[1] == 0 && bytes_[2] == 0 &&

@@ -73,11 +73,11 @@ public:
       : addr_{host_order} {}
 
   // Construct from a dotted-decimal string (e.g., "192.168.1.1").
-  // Throws `std::invalid_argument` if the string is not a valid IPv4 address.
+  // If not a valid IPv4 address, the result is `empty()`. If you need to
+  // distinguish between an invalid address and the "any" address ("0.0.0.0"),
+  // use `parse()` instead.
   explicit constexpr ipv4_addr(std::string_view s) {
-    const auto parsed = parse(s);
-    if (!parsed) throw std::invalid_argument("Invalid IPv4 address");
-    *this = *parsed;
+    if (const auto parsed = parse(s); parsed) *this = *parsed;
   }
 
   // Parsing.
