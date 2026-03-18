@@ -60,9 +60,8 @@ struct stream_conn_handlers {
 // A non-blocking connected stream socket driven by an `epoll_loop`.
 //
 // `stream_conn` is a movable handle that wraps a `shared_ptr` to internal
-// state
-// (`state`). Note that, despite using `shared_ptr`, a `stream_conn` fully owns
-// the `state` and removes it from the `epoll_loop` on close.
+// state (`state`). Note that, despite using `shared_ptr`, a `stream_conn`
+// fully owns the `state` and removes it from the `epoll_loop` on close.
 //
 // The state also serves as the `io_conn` registered with the loop, so there is
 // exactly ONE heap allocation per connection: no separate `io_handlers`
