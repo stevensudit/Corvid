@@ -30,35 +30,23 @@ namespace corvid { inline namespace proto {
 
 // IPv4 address, stored as a 32-bit value in host byte order.
 //
-// Default-constructs to the "any" address (0.0.0.0). Construction is
-// available from four octets (most-significant first), a host-byte-order
-// `uint32_t`, or by parsing dotted-decimal notation. On POSIX targets,
-// interop with `in_addr` is provided via the constructor and `to_in_addr()`.
+// Default-constructs to an empty state. Construction is available from four
+// octets (most-significant first), a host-byte-order `uint32_t`, or by parsing
+// dotted-decimal notation. Interop with `in_addr` is provided via the
+// constructor and `to_in_addr()`.
+//
+// Constructors do not throw: on failure, they leave it `empty()`. See
+// `parse()` for the alternative.
 //
 // All address arithmetic uses host byte order internally; network byte order
 // is only introduced at the `in_addr` boundary.
 class ipv4_addr {
 public:
-  // Named address factories.
-
-  // The "any" address (0.0.0.0): typically used to bind to all interfaces.
-  [[nodiscard]] static constexpr ipv4_addr any() noexcept {
-    return ipv4_addr{uint32_t{0}};
-  }
-
-  // The loopback address (127.0.0.1).
-  [[nodiscard]] static constexpr ipv4_addr loopback() noexcept {
-    return ipv4_addr{uint32_t{0x7f000001U}};
-  }
-
-  // The limited broadcast address (255.255.255.255).
-  [[nodiscard]] static constexpr ipv4_addr broadcast() noexcept {
-    return ipv4_addr{uint32_t{0xffffffffU}};
-  }
+  using byte_array = std::array<uint8_t, 4>;
 
   // Constructors.
 
-  // Default-constructs to the "any" address (0.0.0.0).
+  // Default-constructs to the "any" address (0.0.0.0), which is empty.
   constexpr ipv4_addr() noexcept = default;
 
   // Construct from four octets in network order (most significant first),
@@ -80,6 +68,33 @@ public:
     if (const auto parsed = parse(s); parsed) *this = *parsed;
   }
 
+  // Construct from a POSIX `in_addr` (which is in network byte order).
+  explicit ipv4_addr(const in_addr& a) noexcept : addr_{ntohl(a.s_addr)} {}
+
+  // Named address factories.
+
+  // The "any" address (0.0.0.0): typically used to bind to all interfaces.
+  [[nodiscard]] static constexpr ipv4_addr any() noexcept {
+    return ipv4_addr{uint32_t{0}};
+  }
+
+  // The loopback address (127.0.0.1).
+  [[nodiscard]] static constexpr ipv4_addr loopback() noexcept {
+    return ipv4_addr{uint32_t{0x7f000001U}};
+  }
+
+  // The limited broadcast address (255.255.255.255).
+  [[nodiscard]] static constexpr ipv4_addr broadcast() noexcept {
+    return ipv4_addr{uint32_t{0xffffffffU}};
+  }
+
+  // Whether this address is empty, which is also the "any" address
+  // ("0.0.0.0").
+  [[nodiscard]] constexpr bool empty() const noexcept { return !addr_; }
+
+  // Return whether this has a non-any address.
+  [[nodiscard]] constexpr operator bool() const noexcept { return !empty(); }
+
   // Parsing.
 
   // Parse from dotted-decimal notation (e.g., "192.168.1.1").
@@ -89,16 +104,16 @@ public:
       std::string_view s) noexcept {
     uint32_t result{};
     for (int i = 0; i < 4; ++i) {
+      // Remove leading dot, after first octet.
       if (i > 0) {
         if (s.empty() || s[0] != '.') return std::nullopt;
         s.remove_prefix(1);
       }
-      if (s.empty() || s[0] < '0' || s[0] > '9') return std::nullopt;
+      if (s.empty() || !is_digit(s[0])) return std::nullopt;
       // Reject leading zeros to avoid ambiguity.
-      if (s[0] == '0' && s.size() > 1 && s[1] >= '0' && s[1] <= '9')
-        return std::nullopt;
+      if (s[0] == '0' && s.size() > 1 && is_digit(s[1])) return std::nullopt;
       uint32_t octet{};
-      while (!s.empty() && s[0] >= '0' && s[0] <= '9') {
+      while (!s.empty() && is_digit(s[0])) {
         octet = (octet * 10) + uint32_t(s[0] - '0');
         if (octet > 255) return std::nullopt;
         s.remove_prefix(1);
@@ -112,7 +127,7 @@ public:
   // Accessors.
 
   // Return the four octets in network order (most significant first).
-  [[nodiscard]] constexpr std::array<uint8_t, 4> octets() const noexcept {
+  [[nodiscard]] constexpr byte_array octets() const noexcept {
     return {uint8_t(addr_ >> 24), uint8_t(addr_ >> 16), uint8_t(addr_ >> 8),
         uint8_t(addr_)};
   }
@@ -123,7 +138,7 @@ public:
   // Classification predicates.
 
   // True if this is the "any" address (0.0.0.0).
-  [[nodiscard]] constexpr bool is_any() const noexcept { return addr_ == 0; }
+  [[nodiscard]] constexpr bool is_any() const noexcept { return !addr_; }
 
   // True if this is in the loopback range (127.0.0.0/8).
   [[nodiscard]] constexpr bool is_loopback() const noexcept {
@@ -165,18 +180,14 @@ public:
     return os << a.to_string();
   }
 
-  // Platform-specific interop.
-  // Isolated here so that porting to a new OS only requires changes in this
-  // guarded section and the corresponding platform header include above.
-
-  // Construct from a POSIX `in_addr` (which is in network byte order).
-  explicit ipv4_addr(const in_addr& a) noexcept : addr_{ntohl(a.s_addr)} {}
-
   // Convert to a POSIX `in_addr` (network byte order).
   [[nodiscard]] in_addr to_in_addr() const noexcept {
-    in_addr a;
-    a.s_addr = htonl(addr_);
-    return a;
+    return in_addr{.s_addr = htonl(addr_)};
+  }
+
+private:
+  [[nodiscard]] static constexpr bool is_digit(char c) noexcept {
+    return c >= '0' && c <= '9';
   }
 
 private:

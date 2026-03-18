@@ -37,7 +37,7 @@ struct dns_resolver {
   //
   // Returns an empty vector on failure (e.g. unknown host) or if the resolver
   // returned only address families other than `AF_INET` / `AF_INET6`. Only
-  // `SOCK_STREAM` results are requested to avoid duplicate entries per
+  // `SOCK_STREAM` results are requested, to avoid duplicate entries per
   // address.
   [[nodiscard]] static std::vector<net_endpoint>
   find_all(const std::string& host, uint16_t port, int family = AF_UNSPEC,

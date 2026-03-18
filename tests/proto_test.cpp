@@ -652,8 +652,8 @@ void NetEndpoint_PosixInterop() {
     EXPECT_EQ(ep.uds_path().size(), 107U);
     EXPECT_EQ(ep.uds_path().substr(0, 10), name);
 
-    // Roundtrip via as_ans().
-    auto raw2 = ep.as_ans();
+    // Roundtrip via as_sockaddr_un().
+    auto raw2 = ep.as_sockaddr_un();
     net_endpoint ep2{raw2};
     EXPECT_EQ(ep2, ep);
 

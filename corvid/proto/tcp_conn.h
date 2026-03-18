@@ -130,8 +130,8 @@ public:
   // Construct a connection from `sock` (must already be non-blocking) and post
   // its registration with `loop`. `remote` records the peer address for
   // diagnostics. May be called from any thread.
-  explicit tcp_conn(io_loop& loop, net_socket&& sock, const net_endpoint& remote,
-      tcp_conn_handlers&& h = {},
+  explicit tcp_conn(io_loop& loop, net_socket&& sock,
+      const net_endpoint& remote, tcp_conn_handlers&& h = {},
       size_t recv_buf_size = default_recv_buf_size) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
     if (recv_buf_size == 0) recv_buf_size = default_recv_buf_size;
@@ -410,8 +410,8 @@ private:
     // `async_cb_write()`.
     pending_write_op pending_write_;
 
-    explicit state(io_loop& loop, net_socket&& sock, const net_endpoint& remote,
-        tcp_conn_handlers&& h, size_t rbs) noexcept
+    explicit state(io_loop& loop, net_socket&& sock,
+        const net_endpoint& remote, tcp_conn_handlers&& h, size_t rbs) noexcept
         : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
           handlers_{std::move(h)}, recv_buf_capacity_{rbs}, open_{true} {}
 
@@ -540,7 +540,7 @@ private:
         return false;
       }
       read_open_.store(false, std::memory_order::relaxed);
-      (void)loop_.set_readable(sock(), false);
+      loop_.set_readable(sock(), false);
       if (pending_read_.has_waiter()) notify_read_closed();
       maybe_finish_after_side_close();
       return true;

@@ -431,8 +431,8 @@ private:
   // Create the loop's epoll instance or throw on failure.
   static epoll create_epollfd() {
     auto f = epoll::create();
-    if (!f.is_open()) throw std::system_error(errno,
-        std::generic_category(), "epoll_create1");
+    if (!f.is_open())
+      throw std::system_error(errno, std::generic_category(), "epoll_create1");
     return f;
   }
 
