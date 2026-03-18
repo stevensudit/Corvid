@@ -771,7 +771,7 @@ void DnsResolveOne_Failure() {
   EXPECT_EQ(ep, net_endpoint{});
 }
 
-// Helper: create a connected socketpair and wrap each end in an `net_socket`.
+// Helper: create a connected socketpair and wrap each end in a `net_socket`.
 // Caller must close both sockets when done (RAII via `net_socket` destructor).
 // Plain struct (not `std::pair`) so structured bindings use direct member
 // access rather than `std::tuple_element<>::type`.
