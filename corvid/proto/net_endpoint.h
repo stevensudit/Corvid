@@ -253,7 +253,12 @@ public:
       return std::format("[{}]:{}", addr->to_string(), port());
     if (is_ans()) {
       const auto name = uds_path();
-      return std::format("unix:@{}", name.substr(0, name.find('\0')));
+      const auto null_pos = name.find('\0');
+      const auto display = name.substr(0, null_pos);
+      const auto npos = std::string_view::npos;
+      const bool has_more =
+          null_pos != npos && name.find_first_not_of('\0', null_pos) != npos;
+      return std::format("unix:@{}{}", display, has_more ? " (+)" : "");
     }
     if (is_uds()) return std::format("unix:{}", uds_path());
     return "(invalid)";

@@ -436,6 +436,7 @@ void NetEndpoint_Construction() {
     EXPECT_TRUE(ep.is_uds());
     EXPECT_FALSE(ep.is_ans());
     EXPECT_EQ(ep.uds_path().size(), 107U);
+    EXPECT_EQ(ep.uds_path()[0], 'x');
   }
 
   // ANS: construct from "@name" string.
@@ -586,12 +587,20 @@ void NetEndpoint_Formatting() {
   EXPECT_TRUE(!ans.empty());
   EXPECT_EQ(ans.to_string(), "unix:@svc");
 
+  // ANS: name without an embedded null truncates at the null, ignoring bytes
+  // after it.
+  if (true) {
+    net_endpoint ep{"@abc"};
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.to_string(), "unix:@abc");
+  }
+
   // ANS: name with an embedded null truncates at the null, ignoring bytes
   // after it. Pass a `string_view` that includes the embedded null.
   if (true) {
     net_endpoint ep{std::string_view{"@abc\0def", 8}};
     EXPECT_TRUE(ep.is_ans());
-    EXPECT_EQ(ep.to_string(), "unix:@abc");
+    EXPECT_EQ(ep.to_string(), "unix:@abc (+)");
   }
 
   // ANS: name that fills the entire 107-byte buffer with no null uses the
@@ -599,6 +608,15 @@ void NetEndpoint_Formatting() {
   if (true) {
     const std::string max_name(107, 'x');
     const std::string full_name = "@" + max_name;
+    net_endpoint ep{std::string_view{full_name}};
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.to_string(), "unix:@" + max_name);
+  }
+
+  // ANS: name longer than 107 chars is truncated to 107, ignoring the excess.
+  if (true) {
+    const std::string max_name(107, 'x');
+    const std::string full_name = "@" + max_name + "extra";
     net_endpoint ep{std::string_view{full_name}};
     EXPECT_TRUE(ep.is_ans());
     EXPECT_EQ(ep.to_string(), "unix:@" + max_name);
