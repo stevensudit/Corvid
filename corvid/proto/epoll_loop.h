@@ -99,10 +99,10 @@ public:
 
   // Create the `epoll` instance and the internal `eventfd` wakeup handle.
   // Throws `std::system_error` on failure.
-  explicit epoll_loop(std::chrono::milliseconds
-          post_and_wait_poll_interval = default_post_and_wait_poll_interval)
-      : epoll_{create_epollfd()},
-        wake_fd_{create_eventfd()},
+  explicit epoll_loop(
+      std::chrono::milliseconds post_and_wait_poll_interval =
+          default_post_and_wait_poll_interval)
+      : epoll_{create_epollfd()}, wake_fd_{create_eventfd()},
         post_and_wait_poll_interval_{post_and_wait_poll_interval} {
     // The `eventfd` is used by `post()` and `stop()` to interrupt a sleeping
     // `epoll_wait` from another thread.

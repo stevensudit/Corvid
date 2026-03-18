@@ -437,8 +437,9 @@ int main() {
     auto total_timer_elapsed_ =
         std::chrono::steady_clock::now() - total_timer_start_;
     double total_ms_ =
-        std::chrono::duration<double, std::milli>(total_timer_elapsed_).count();
-  std::printf("[TIME] Total: %.3f ms\n", total_ms_);
+        std::chrono::duration<double, std::milli>(total_timer_elapsed_)
+            .count();
+    std::printf("[TIME] Total: %.3f ms\n", total_ms_);
   }
   return exit_code;
 }
