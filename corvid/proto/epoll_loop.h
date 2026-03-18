@@ -41,7 +41,7 @@ namespace corvid { inline namespace proto {
 using namespace corvid::container::value_scoping;
 
 // Abstract base for objects registered with `epoll_loop`. Higher-level types
-// (e.g., `tcp_conn`) inherit from this and override the three event methods.
+// (e.g., `stream_conn`) inherit from this and override the three event methods.
 // The default `on_error` falls through to `on_readable` so that read-path
 // code can observe EOF and errors naturally; override to change that behavior.
 //
@@ -65,7 +65,7 @@ private:
 // `epoll`-based I/O event loop, safe for use with a background thread.
 //
 // This is an internal building block for higher-level socket types
-// (e.g., `tcp_conn`). User code drives the loop via `run()` / `run_once()` /
+// (e.g., `stream_conn`). User code drives the loop via `run()` / `run_once()` /
 // `stop()`, but never calls `epoll_ctl` directly.
 //
 // Call `register_socket()` to register an `io_conn`. Read and write readiness
@@ -376,7 +376,7 @@ private:
   make_event_mask(bool readable = false, bool writable = false) noexcept {
     // `EPOLLRDHUP` is always armed so that peer half-closes (`SHUT_WR`) are
     // detected even when `EPOLLIN` is not subscribed.
-    // This loop intentionally stays level-triggered. `tcp_conn` only arms
+    // This loop intentionally stays level-triggered. `stream_conn` only arms
     // `EPOLLOUT` while a send queue is backpressured, so LT does not create
     // steady writable wakeups, and switching to `EPOLLET` would require
     // every read/write handler to drain to `EAGAIN` to avoid missed

@@ -1069,14 +1069,14 @@ void IoLoop_PostAndWait_StopRace() {
   EXPECT_LE(callback_runs.load(), iterations);
 }
 
-void TcpConn_Lifecycle() {
+void StreamConn_Lifecycle() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   const net_endpoint remote{ipv4_addr::loopback, 9999};
   {
-    tcp_conn conn{loop, std::move(a), remote, {}};
+    stream_conn conn{loop, std::move(a), remote, {}};
     // open_ is set in the state constructor before the post fires.
     EXPECT_TRUE(conn.is_open());
     EXPECT_EQ(conn.remote_endpoint(), remote);
@@ -1087,13 +1087,13 @@ void TcpConn_Lifecycle() {
   EXPECT_EQ(loop.run_once(0), 0);
 }
 
-void TcpConn_Receive() {
+void StreamConn_Receive() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
-  tcp_conn conn{loop, std::move(a), {},
+  stream_conn conn{loop, std::move(a), {},
       {.on_data = [&](std::string& d) { received = std::move(d); }}};
   loop.run_once(0); // process posted do_open_()
 
@@ -1105,13 +1105,13 @@ void TcpConn_Receive() {
   EXPECT_EQ(received, msg);
 }
 
-void TcpConn_SetRecvBufSize() {
+void StreamConn_SetRecvBufSize() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::vector<size_t> chunk_sizes;
-  tcp_conn conn{loop, std::move(a), {},
+  stream_conn conn{loop, std::move(a), {},
       {.on_data = [&](std::string& d) { chunk_sizes.push_back(d.size()); }},
       4};
   loop.run_once(0); // process posted register_with_loop
@@ -1138,13 +1138,13 @@ void TcpConn_SetRecvBufSize() {
   EXPECT_EQ(chunk_sizes[2], 8U);
 }
 
-void TcpConn_PeerClose() {
+void StreamConn_PeerClose() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool closed = false;
-  tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  stream_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
   loop.run_once(0); // process posted do_open_()
 
   EXPECT_TRUE(b.shutdown(SHUT_WR));
@@ -1169,12 +1169,12 @@ void TcpConn_PeerClose() {
   EXPECT_FALSE(conn.is_open());
 }
 
-void TcpConn_Send() {
+void StreamConn_Send() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
-  tcp_conn conn{loop, std::move(a), {}, {}};
+  stream_conn conn{loop, std::move(a), {}, {}};
   loop.run_once(0); // process posted do_open_()
 
   conn.send(std::string{"world"});
@@ -1188,13 +1188,13 @@ void TcpConn_Send() {
   EXPECT_EQ(buf, "world");
 }
 
-void TcpConn_ManualClose() {
+void StreamConn_ManualClose() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool closed = false;
-  tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  stream_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
   loop.run_once(0); // process posted do_open_()
 
   conn.close();
@@ -1208,7 +1208,7 @@ void TcpConn_ManualClose() {
   EXPECT_EQ(loop.run_once(0), 0);
 }
 
-void TcpConn_DrainAfterBufferedSend() {
+void StreamConn_DrainAfterBufferedSend() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
@@ -1224,7 +1224,7 @@ void TcpConn_DrainAfterBufferedSend() {
   const std::string payload(256ULL * 1024ULL, 'x');
 
   int drain_count = 0;
-  tcp_conn conn{loop, std::move(a), {}, {.on_drain = [&] { ++drain_count; }}};
+  stream_conn conn{loop, std::move(a), {}, {.on_drain = [&] { ++drain_count; }}};
   loop.run_once(0); // process posted do_open_()
 
   conn.send(std::string{payload}); // copy payload into send
@@ -1249,13 +1249,13 @@ void TcpConn_DrainAfterBufferedSend() {
   EXPECT_GE(drain_count, 1);
 }
 
-void TcpConn_DrainAfterImmediateSend() {
+void StreamConn_DrainAfterImmediateSend() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   int drain_count = 0;
-  tcp_conn conn{loop, std::move(a), {}, {.on_drain = [&] { ++drain_count; }}};
+  stream_conn conn{loop, std::move(a), {}, {.on_drain = [&] { ++drain_count; }}};
   loop.run_once(0); // process posted register_with_loop
 
   conn.send(std::string{"hello"});
@@ -1268,13 +1268,13 @@ void TcpConn_DrainAfterImmediateSend() {
   EXPECT_EQ(drain_count, 1);
 }
 
-void TcpConn_AsyncCbRead() {
+void StreamConn_AsyncCbRead() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
-  tcp_conn conn{loop, std::move(a), {}, {}};
+  stream_conn conn{loop, std::move(a), {}, {}};
   loop.run_once(0); // process posted register_with_loop
 
   EXPECT_TRUE(conn.async_cb_read([&](std::string& data) {
@@ -1290,13 +1290,13 @@ void TcpConn_AsyncCbRead() {
   EXPECT_EQ(received, msg);
 }
 
-void TcpConn_AsyncCbRead_PreservesEarlyData() {
+void StreamConn_AsyncCbRead_PreservesEarlyData() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
-  tcp_conn conn{loop, std::move(a), {}, {}};
+  stream_conn conn{loop, std::move(a), {}, {}};
   loop.run_once(0); // process posted register_with_loop
 
   const std::string msg{"early-callback-read"};
@@ -1314,13 +1314,13 @@ void TcpConn_AsyncCbRead_PreservesEarlyData() {
   EXPECT_EQ(received, msg);
 }
 
-void TcpConn_AsyncCbRead_DuplicateRejected() {
+void StreamConn_AsyncCbRead_DuplicateRejected() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   int callback_count = 0;
-  tcp_conn conn{loop, std::move(a), {}, {}};
+  stream_conn conn{loop, std::move(a), {}, {}};
   loop.run_once(0); // process posted register_with_loop
 
   EXPECT_TRUE(conn.async_cb_read([&](std::string&) { ++callback_count; }));
@@ -1335,7 +1335,7 @@ void TcpConn_AsyncCbRead_DuplicateRejected() {
   EXPECT_EQ(callback_count, 1);
 }
 
-void TcpConn_AsyncCbRead_PeerClose() {
+void StreamConn_AsyncCbRead_PeerClose() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
@@ -1343,7 +1343,7 @@ void TcpConn_AsyncCbRead_PeerClose() {
   std::string received{"sentinel"};
   int callback_count = 0;
   bool closed = false;
-  tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  stream_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
   loop.run_once(0); // process posted register_with_loop
 
   EXPECT_TRUE(conn.async_cb_read([&](std::string& data) {
@@ -1366,14 +1366,14 @@ void TcpConn_AsyncCbRead_PeerClose() {
   EXPECT_FALSE(conn.is_open());
 }
 
-void TcpConn_AsyncCbWrite() {
+void StreamConn_AsyncCbWrite() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool completed = false;
   int callback_count = 0;
-  tcp_conn conn{loop, std::move(a), {}, {}};
+  stream_conn conn{loop, std::move(a), {}, {}};
   loop.run_once(0); // process posted register_with_loop
 
   EXPECT_TRUE(conn.async_cb_write(std::string{"callback-write"},
@@ -1390,14 +1390,14 @@ void TcpConn_AsyncCbWrite() {
   EXPECT_EQ(callback_count, 1);
 }
 
-void TcpConn_AsyncCbWrite_Failure() {
+void StreamConn_AsyncCbWrite_Failure() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool completed = true;
   bool closed = false;
-  tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  stream_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
   loop.run_once(0); // process posted register_with_loop
 
   b.close();
@@ -1415,13 +1415,13 @@ void TcpConn_AsyncCbWrite_Failure() {
   EXPECT_FALSE(conn.is_open());
 }
 
-void TcpConn_ShutdownWrite() {
+void StreamConn_ShutdownWrite() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
-  tcp_conn conn{loop, std::move(a), {},
+  stream_conn conn{loop, std::move(a), {},
       {.on_data = [&](std::string& d) { received = std::move(d); }}};
   loop.run_once(0); // process posted register_with_loop
 
@@ -1440,13 +1440,13 @@ void TcpConn_ShutdownWrite() {
   EXPECT_EQ(received, msg);
 }
 
-void TcpConn_ShutdownRead() {
+void StreamConn_ShutdownRead() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   int data_count = 0;
-  tcp_conn conn{loop, std::move(a), {},
+  stream_conn conn{loop, std::move(a), {},
       {.on_data = [&](std::string&) { ++data_count; }}};
   loop.run_once(0); // process posted register_with_loop
 
@@ -1468,12 +1468,12 @@ void TcpConn_ShutdownRead() {
   EXPECT_EQ(data_count, 0);
 }
 
-void TcpConn_ShutdownBothCloses() {
+void StreamConn_ShutdownBothCloses() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
-  tcp_conn conn{loop, std::move(a), {}, {}};
+  stream_conn conn{loop, std::move(a), {}, {}};
   loop.run_once(0); // process posted register_with_loop
 
   EXPECT_TRUE(conn.shutdown_write());
@@ -1487,14 +1487,14 @@ void TcpConn_ShutdownBothCloses() {
   EXPECT_FALSE(conn.can_write());
 }
 
-void TcpConn_AsyncCbWrite_DuplicateRejected() {
+void StreamConn_AsyncCbWrite_DuplicateRejected() {
   epoll_loop loop;
   auto [a, b] = make_nb_sockpair();
 
   constexpr int small_buf = 4096;
   a.set_send_buffer_size(small_buf);
 
-  tcp_conn conn{loop, std::move(a), {}, {}};
+  stream_conn conn{loop, std::move(a), {}, {}};
   std::thread loop_thread{[&] { loop.run(10); }};
   EXPECT_TRUE(loop.wait_until_running(1000));
 
@@ -1531,7 +1531,7 @@ void TcpConn_AsyncCbWrite_DuplicateRejected() {
   loop_thread.join();
 }
 
-void TcpConn_GracefulClose() {
+void StreamConn_GracefulClose() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
@@ -1542,7 +1542,7 @@ void TcpConn_GracefulClose() {
   const std::string payload(64ULL * 1024ULL, 'z');
 
   bool closed = false;
-  tcp_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  stream_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
   loop.run_once(0); // process posted do_open_()
 
   // Queue data then immediately request a close; the close must be deferred
@@ -1569,7 +1569,7 @@ void TcpConn_GracefulClose() {
   EXPECT_FALSE(conn.is_open());
 }
 
-void TcpConn_CloseThenDestructStaysGraceful() {
+void StreamConn_CloseThenDestructStaysGraceful() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
@@ -1581,7 +1581,7 @@ void TcpConn_CloseThenDestructStaysGraceful() {
 
   bool closed = false;
   {
-    tcp_conn conn{loop, std::move(a), {},
+    stream_conn conn{loop, std::move(a), {},
         {.on_close = [&] { closed = true; }}};
     loop.run_once(0); // process posted register_with_loop
 
@@ -1608,7 +1608,7 @@ void TcpConn_CloseThenDestructStaysGraceful() {
   EXPECT_FALSE(b.read(tmp));
 }
 
-void TcpConn_DestructorHangsUp() {
+void StreamConn_DestructorHangsUp() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
@@ -1620,7 +1620,7 @@ void TcpConn_DestructorHangsUp() {
 
   bool closed = false;
   {
-    tcp_conn conn{loop, std::move(a), {},
+    stream_conn conn{loop, std::move(a), {},
         {.on_close = [&] { closed = true; }}};
     loop.run_once(0); // process posted register_with_loop
     conn.send(std::string{payload});
@@ -1655,7 +1655,7 @@ void LoopTask_FireAndForget() {
 }
 
 // Verify that `async_read` delivers data to a coroutine.
-void TcpConn_AsyncRead() {
+void StreamConn_AsyncRead() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
@@ -1663,7 +1663,7 @@ void TcpConn_AsyncRead() {
   std::string received;
   bool done = false;
 
-  tcp_conn conn{loop, std::move(a), {}, {}};
+  stream_conn conn{loop, std::move(a), {}, {}};
   loop.run_once(0); // process posted register_with_loop
 
   auto coro = [&]() -> loop_task {
@@ -1683,7 +1683,7 @@ void TcpConn_AsyncRead() {
   EXPECT_EQ(received, msg);
 }
 
-void TcpConn_AsyncRead_PreservesEarlyData() {
+void StreamConn_AsyncRead_PreservesEarlyData() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
@@ -1691,7 +1691,7 @@ void TcpConn_AsyncRead_PreservesEarlyData() {
   std::string received;
   bool done = false;
 
-  tcp_conn conn{loop, std::move(a), {}, {}};
+  stream_conn conn{loop, std::move(a), {}, {}};
   loop.run_once(0); // process posted register_with_loop
 
   const std::string msg{"early-coroutine-read"};
@@ -1714,7 +1714,7 @@ void TcpConn_AsyncRead_PreservesEarlyData() {
   EXPECT_EQ(received, msg);
 }
 
-void TcpConn_AsyncRead_StopsBetweenCalls() {
+void StreamConn_AsyncRead_StopsBetweenCalls() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
@@ -1724,7 +1724,7 @@ void TcpConn_AsyncRead_StopsBetweenCalls() {
   bool first_done = false;
   bool second_done = false;
 
-  tcp_conn conn{loop, std::move(a), {}, {}};
+  stream_conn conn{loop, std::move(a), {}, {}};
   loop.run_once(0); // process posted register_with_loop
 
   auto first_coro = [&]() -> loop_task {
@@ -1763,7 +1763,7 @@ void TcpConn_AsyncRead_StopsBetweenCalls() {
 
 // Verify that `async_read` returns an empty string when the peer closes
 // the connection before data arrives.
-void TcpConn_AsyncRead_PeerClose() {
+void StreamConn_AsyncRead_PeerClose() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
@@ -1771,7 +1771,7 @@ void TcpConn_AsyncRead_PeerClose() {
   std::string received{"sentinel"};
   bool done = false;
 
-  tcp_conn conn{loop, std::move(a), {}};
+  stream_conn conn{loop, std::move(a), {}};
   loop.run_once(0); // process posted register_with_loop
 
   auto coro = [&]() -> loop_task {
@@ -1798,14 +1798,14 @@ void TcpConn_AsyncRead_PeerClose() {
 
 // Verify that `async_send` delivers bytes to the peer and suspends until
 // the queue drains.
-void TcpConn_AsyncSend() {
+void StreamConn_AsyncSend() {
   epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool sent = false;
 
-  tcp_conn conn{loop, std::move(a), {}};
+  stream_conn conn{loop, std::move(a), {}};
   loop.run_once(0); // process posted register_with_loop
 
   const std::string msg{"world"};
@@ -1841,18 +1841,18 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError,
     IoLoop_IsLoopThreadIsPerLoop, IoLoop_WaitUntilRunning,
     IoLoop_WaitUntilRunning_TimesOut, IoLoop_PostAndWait_StopRace,
-    TcpConn_Lifecycle, TcpConn_Receive, TcpConn_SetRecvBufSize,
-    TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
-    TcpConn_DrainAfterBufferedSend, TcpConn_DrainAfterImmediateSend,
-    TcpConn_AsyncCbRead, TcpConn_AsyncCbRead_PreservesEarlyData,
-    TcpConn_AsyncCbRead_DuplicateRejected, TcpConn_AsyncCbRead_PeerClose,
-    TcpConn_AsyncCbWrite, TcpConn_AsyncCbWrite_Failure,
-    TcpConn_AsyncCbWrite_DuplicateRejected, TcpConn_ShutdownWrite,
-    TcpConn_ShutdownRead, TcpConn_ShutdownBothCloses, TcpConn_GracefulClose,
-    TcpConn_CloseThenDestructStaysGraceful, TcpConn_DestructorHangsUp,
-    LoopTask_FireAndForget, TcpConn_AsyncRead,
-    TcpConn_AsyncRead_PreservesEarlyData, TcpConn_AsyncRead_StopsBetweenCalls,
-    TcpConn_AsyncRead_PeerClose, TcpConn_AsyncSend);
+    StreamConn_Lifecycle, StreamConn_Receive, StreamConn_SetRecvBufSize,
+    StreamConn_PeerClose, StreamConn_Send, StreamConn_ManualClose,
+    StreamConn_DrainAfterBufferedSend, StreamConn_DrainAfterImmediateSend,
+    StreamConn_AsyncCbRead, StreamConn_AsyncCbRead_PreservesEarlyData,
+    StreamConn_AsyncCbRead_DuplicateRejected, StreamConn_AsyncCbRead_PeerClose,
+    StreamConn_AsyncCbWrite, StreamConn_AsyncCbWrite_Failure,
+    StreamConn_AsyncCbWrite_DuplicateRejected, StreamConn_ShutdownWrite,
+    StreamConn_ShutdownRead, StreamConn_ShutdownBothCloses, StreamConn_GracefulClose,
+    StreamConn_CloseThenDestructStaysGraceful, StreamConn_DestructorHangsUp,
+    LoopTask_FireAndForget, StreamConn_AsyncRead,
+    StreamConn_AsyncRead_PreservesEarlyData, StreamConn_AsyncRead_StopsBetweenCalls,
+    StreamConn_AsyncRead_PeerClose, StreamConn_AsyncSend);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

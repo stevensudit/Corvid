@@ -38,7 +38,7 @@ namespace corvid { inline namespace proto {
 
 using namespace corvid::strings::no_zero_funcs;
 
-// User-supplied persistent callbacks for a `tcp_conn`. All fields are
+// User-supplied persistent callbacks for a `stream_conn`. All fields are
 // optional; a null handler is silently skipped when its event fires.
 //
 //  `on_data(str)`  -- fired when data arrives. `str` is the internal receive
@@ -51,16 +51,16 @@ using namespace corvid::strings::no_zero_funcs;
 //  `on_close()`    -- fired once when the read side closes: either peer EOF or
 //                     an I/O error. Writes may still be possible (half-close);
 //                     call `close()` or `hangup()` to shut down fully.
-struct tcp_conn_handlers {
+struct stream_conn_handlers {
   std::function<void(std::string&)> on_data = nullptr;
   std::function<void()> on_drain = nullptr;
   std::function<void()> on_close = nullptr;
 };
 
-// A non-blocking TCP connection driven by an `epoll_loop`.
+// A non-blocking connected stream socket driven by an `epoll_loop`.
 //
-// `tcp_conn` is a movable handle that wraps a `shared_ptr` to internal state
-// (`state`). Note that, despite using `shared_ptr`, a `tcp_conn` fully owns
+// `stream_conn` is a movable handle that wraps a `shared_ptr` to internal state
+// (`state`). Note that, despite using `shared_ptr`, a `stream_conn` fully owns
 // the `state` and removes it from the `epoll_loop` on close.
 //
 // The state also serves as the `io_conn` registered with the loop, so there is
@@ -83,7 +83,7 @@ struct tcp_conn_handlers {
 // `push_back` does not move existing elements, keeping `head_span_` (which
 // points into `front()`) valid.
 //
-// Receive path: `tcp_conn` arms `EPOLLIN` only when a persistent `on_data`
+// Receive path: `stream_conn` arms `EPOLLIN` only when a persistent `on_data`
 // handler exists or a one-shot read waiter is pending. When `EPOLLIN` fires,
 // the receive buffer is resized to `recv_buf_capacity_` bytes via
 // `resize_and_overwrite` (C++23, no zero-initialization), filled by `::read`,
@@ -96,7 +96,7 @@ struct tcp_conn_handlers {
 // closes immediately. The destructor uses `hangup()`.
 //
 // Supports three async models:
-// 1. Persistent callbacks via `tcp_conn_handlers`.
+// 1. Persistent callbacks via `stream_conn_handlers`.
 // 2. Coroutine waiters via `async_read()` / `async_send()`.
 // 3. One-shot callbacks via `async_cb_read()` / `async_cb_write()`.
 //
@@ -116,11 +116,11 @@ struct tcp_conn_handlers {
 //
 // A pending read callback completes with an empty buffer if the read side
 // closes before data arrives. The callback can distinguish that case by
-// retaining access to the `tcp_conn` and checking `can_read()` / `is_open()`.
+// retaining access to the `stream_conn` and checking `can_read()` / `is_open()`.
 // A pending write waiter completes on either success or failure: coroutine
 // sends resume, while per-call callback sends receive `cb(bool completed)`.
 //
-class tcp_conn {
+class stream_conn {
 public:
   using async_read_cb = std::function<void(std::string&)>;
   using async_write_cb = std::function<void(bool completed)>;
@@ -131,8 +131,8 @@ public:
   // Construct a connection from `sock` (must already be non-blocking) and post
   // its registration with `loop`. `remote` records the peer address for
   // diagnostics. May be called from any thread.
-  explicit tcp_conn(epoll_loop& loop, net_socket&& sock,
-      const net_endpoint& remote, tcp_conn_handlers&& h = {},
+  explicit stream_conn(epoll_loop& loop, net_socket&& sock,
+      const net_endpoint& remote, stream_conn_handlers&& h = {},
       size_t recv_buf_size = default_recv_buf_size) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
     if (recv_buf_size == 0) recv_buf_size = default_recv_buf_size;
@@ -141,15 +141,15 @@ public:
     loop.post([p = state_] { p->register_with_loop(); });
   }
 
-  tcp_conn(tcp_conn&&) noexcept = default;
-  tcp_conn(const tcp_conn&) = delete;
+  stream_conn(stream_conn&&) noexcept = default;
+  stream_conn(const stream_conn&) = delete;
 
-  tcp_conn& operator=(tcp_conn&&) noexcept = default;
-  tcp_conn& operator=(const tcp_conn&) = delete;
+  stream_conn& operator=(stream_conn&&) noexcept = default;
+  stream_conn& operator=(const stream_conn&) = delete;
 
   // Performs `hangup()` on destruction. If you want to close cleanly, you must
   // call `close()` before the instance is destructed.
-  ~tcp_conn() {
+  ~stream_conn() {
     try {
       if (!state_) return;
       if (state_->graceful_close_started_) return;
@@ -291,7 +291,7 @@ public:
   // Returns false if the connection is closed, `cb` is null, or another
   // async read waiter is already pending. If the connection closes before
   // data arrives, `cb` is invoked with an empty string; code that retains
-  // access to the `tcp_conn` can call `is_open()` to distinguish that case
+  // access to the `stream_conn` can call `is_open()` to distinguish that case
   // from real data.
   bool async_cb_read(async_read_cb cb, execution exec = execution::blocking) {
     if (!state_ || !cb) return false;
@@ -356,7 +356,7 @@ private:
 
     epoll_loop& loop_;
     net_endpoint remote_;
-    tcp_conn_handlers handlers_;
+    stream_conn_handlers handlers_;
 
     // Outbound queue. `std::deque` is used because its `push_back` does not
     // move existing elements, so `head_span_` (pointing into `front()`) stays
@@ -379,7 +379,7 @@ private:
     std::atomic<size_t> recv_buf_capacity_{default_recv_buf_size};
 
     // Cleared atomically by `do_close_now()`. Read from any thread via
-    // `tcp_conn::is_open()`.
+    // `stream_conn::is_open()`.
     std::atomic_bool open_;
 
     //  Set by `close()` to start a graceful close, preventing the destructor
@@ -412,7 +412,7 @@ private:
     pending_write_op pending_write_;
 
     explicit state(epoll_loop& loop, net_socket&& sock,
-        const net_endpoint& remote, tcp_conn_handlers&& h, size_t rbs) noexcept
+        const net_endpoint& remote, stream_conn_handlers&& h, size_t rbs) noexcept
         : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
           handlers_{std::move(h)}, recv_buf_capacity_{rbs}, open_{true} {}
 
@@ -601,7 +601,7 @@ private:
 
     // Register `net_socket` with the loop. Stores a shared owner in the loop's
     // registration map, keeping the state alive as long as the fd is
-    // registered, even if its `tcp_conn` is destructed.
+    // registered, even if its `stream_conn` is destructed.
     void register_with_loop() {
       if (!open_.load(std::memory_order::relaxed)) return;
       (void)loop_.register_socket(shared_from_this(),
@@ -797,7 +797,7 @@ private:
       notify_close_once();
     }
 
-    // Awaitable returned by `tcp_conn::async_read()`. Suspends the calling
+    // Awaitable returned by `stream_conn::async_read()`. Suspends the calling
     // coroutine until one batch of data arrives or the connection closes.
     // `await_resume()` returns the received bytes (moved out of
     // `pending_read_data_`); an empty string means the connection was already
@@ -826,7 +826,7 @@ private:
       }
     };
 
-    // Awaitable returned by `tcp_conn::async_send(std::string)`. Passes
+    // Awaitable returned by `stream_conn::async_send(std::string)`. Passes
     // ownership of `buf` to the send path and suspends the calling coroutine
     // until the send queue fully drains (or the connection closes).
     //

@@ -37,7 +37,7 @@ namespace corvid { inline namespace proto {
 //
 // Usage:
 //
-//   loop_task handle_conn(tcp_conn conn) {
+//   loop_task handle_conn(stream_conn conn) {
 //     while (conn.is_open()) {
 //       std::string data = co_await conn.async_read();
 //       if (data.empty()) break;                // connection closed
@@ -47,7 +47,7 @@ namespace corvid { inline namespace proto {
 //
 //   // Spawn from within a loop callback or `post()`'d function so that
 //   // subsequent coroutine resumptions stay on the loop thread:
-//   on_accept = [](tcp_conn conn) { handle_conn(std::move(conn)); };
+//   on_accept = [](stream_conn conn) { handle_conn(std::move(conn)); };
 //
 // NOLINTBEGIN(readability-convert-member-functions-to-static)
 struct loop_task {

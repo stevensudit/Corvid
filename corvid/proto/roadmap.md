@@ -27,9 +27,10 @@ Thin, zero-overhead C++ wrappers around POSIX and Linux networking primitives.
   returns `std::vector<net_endpoint>`; `find_one()` returns
   `net_endpoint`; both accept an optional address-family filter
 
-## Layer 2: TCP I/O Loop (epoll-based, io_uring later)
+## Layer 2: Stream I/O Loop (epoll-based, io_uring later)
 
-Non-blocking TCP I/O with an event loop. Initial implementation uses `epoll`;
+Non-blocking stream-socket I/O with an event loop. Initial implementation uses
+`epoll`;
 the interface is designed so `epoll` can later be swapped for `io_uring`
 without changing higher layers.
 
@@ -40,10 +41,11 @@ without changing higher layers.
   an abstract base with virtual `on_readable` / `on_writable` / `on_error`
   so higher-level types inherit from it directly to avoid a separate
   handler-lambda allocation
-- **[done]** `tcp_conn` -- non-blocking TCP connection driven by an `epoll_loop`;
+- **[done]** `stream_conn` -- non-blocking connected stream-socket wrapper
+  driven by an `epoll_loop`;
   movable handle owning a `shared_ptr<state>` (one heap allocation per
   connection); `send(string&&)` / `close()` are thread-safe via `post()`;
-  supports three async models: a persistent callback mode (`tcp_conn_handlers`:
+  supports three async models: a persistent callback mode (`stream_conn_handlers`:
   `on_data`, `on_drain`, `on_close`), a C++20 coroutine mode (`async_read()` /
   `async_send()`), and a one-shot callback mode (`async_cb_read()` /
   `async_cb_write()`); coroutine and one-shot waiters share the same slot per
@@ -53,16 +55,19 @@ without changing higher layers.
   `final_suspend` is `suspend_never` (self-destroying frame); enables
   `co_await conn.async_read()` / `co_await conn.async_send(buf)` patterns
 - `tcp_listener` -- binds and listens on an `net_endpoint`; produces accepted
-  `tcp_conn` instances via a callback or coroutine
+  `stream_conn` instances via a callback or coroutine
 - `tcp_client` -- initiates an outbound non-blocking `connect()` to an
-  `net_endpoint` and registers the fd with `epoll_loop`; delivers a `tcp_conn`
+  `net_endpoint` and registers the fd with `epoll_loop`; delivers a `stream_conn`
   on success via the same mechanism used by `tcp_listener`
 - **Future:** `io_uring_loop` -- `io_uring`-based event loop with the same
   interface as `epoll_loop`; higher layers unchanged
 
+If datagram support is needed later, add a separate `dgram_conn` abstraction
+on top of `epoll_loop` rather than broadening `stream_conn`.
+
 ## Layer 3: HTTP
 
-HTTP/1.1 client and server built on top of the TCP I/O loop.
+HTTP/1.1 client and server built on top of the stream I/O loop.
 
 - `http_request` -- parsed request: method, target, version, headers, body
 - `http_response` -- status line, headers, body; supports chunked transfer
@@ -82,7 +87,7 @@ WebSocket protocol built on top of the HTTP upgrade mechanism.
   Sec-WebSocket-Accept, subprotocol negotiation)
 - `ws_frame` -- encodes and decodes WebSocket frames (opcode, masking, payload
   length variants)
-- `ws_conn` -- wraps an upgraded `tcp_conn`; exposes `send_text`,
+- `ws_conn` -- wraps an upgraded `stream_conn`; exposes `send_text`,
   `send_binary`, `send_ping`, and a message-received callback
 - `ws_server` -- integrates with `http_server` to intercept upgrade requests
   and produce `ws_conn` instances
@@ -95,7 +100,7 @@ WebSocket protocol built on top of the HTTP upgrade mechanism.
 - Headers are self-contained; no source files (library remains header-only).
 - RAII throughout: no manual resource management in user code.
 - Async model: callbacks for simple cases, C++20 coroutines for sequential
-  logic; both modes are supported by `tcp_conn` and are mutually exclusive
+  logic; both modes are supported by `stream_conn` and are mutually exclusive
   per connection.
 - Linux is the target OS, but platform dependencies (`epoll`, `io_uring`,
   POSIX primitives) are isolated to dedicated headers so that porting to
