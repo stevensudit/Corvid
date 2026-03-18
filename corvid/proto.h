@@ -26,7 +26,8 @@
 //  dns_resolver - thin wrapper around `getaddrinfo` returning a list of
 //                `net_endpoint` values
 //  epoll_loop     - single-threaded epoll-based I/O event loop
-//  stream_conn - non-blocking stream connection with callback-based async I/O
+//  stream_conn - non-blocking stream connection supporting callback-based,
+//                and coroutine async I/O
 //  loop_task   - fire-and-forget coroutine return type for `epoll_loop`
 //  handlers
 #include "proto/ipv4_addr.h"
