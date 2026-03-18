@@ -28,10 +28,12 @@ using namespace corvid;
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 void Ipv4Addr_Construction() {
-  // Default construction yields the "any" address.
+  // Default construction yields the "any" address, which is also empty.
   if (true) {
     ipv4_addr a;
     EXPECT_TRUE(a.is_any());
+    EXPECT_TRUE(a.empty());
+    EXPECT_FALSE(bool(a));
     EXPECT_EQ(a.to_uint32(), 0U);
   }
 
@@ -75,6 +77,13 @@ void Ipv4Addr_Construction() {
     EXPECT_EQ(o[1], 2U);
     EXPECT_EQ(o[2], 3U);
     EXPECT_EQ(o[3], 4U);
+  }
+
+  // Non-zero address is not empty; operator bool() reflects this.
+  if (true) {
+    ipv4_addr a{1, 2, 3, 4};
+    EXPECT_FALSE(a.empty());
+    EXPECT_TRUE(bool(a));
   }
 }
 
@@ -429,7 +438,7 @@ void NetEndpoint_Construction() {
     EXPECT_EQ(ep.uds_path().size(), 107U);
   }
 
-  // ANS: construct via parse("@name").
+  // ANS: construct from "@name" string.
   if (true) {
     net_endpoint ep{"@myservice"};
     EXPECT_TRUE(!ep.empty());
@@ -481,7 +490,7 @@ void NetEndpoint_Parse() {
     EXPECT_TRUE(net_endpoint{"[2001:db8::1]:70000"}.empty());
   }
 
-  // A leading `/` produces a UDS endpoint via `parse()`.
+  // A leading `/` produces a UDS endpoint.
   if (true) {
     net_endpoint ep{"/run/app.sock"};
     EXPECT_TRUE(!ep.empty());
@@ -497,7 +506,7 @@ void NetEndpoint_Parse() {
     EXPECT_EQ(ep.uds_path(), "/var/run/foo.sock");
   }
 
-  // A leading `@` produces an ANS endpoint via `parse()`.
+  // A leading `@` produces an ANS endpoint.
   if (true) {
     net_endpoint ep{"@abstract"};
     EXPECT_TRUE(!ep.empty());
