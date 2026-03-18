@@ -557,7 +557,7 @@ void NetEndpoint_Comparison() {
   EXPECT_FALSE(u1 == u2);
   EXPECT_TRUE(u1 < u2);
 
-  // UDS and IPv4 compare by family (AF_INET < AF_UNIX on Linux).
+  // UDS and IPv4 compare by family.
   EXPECT_NE(a, u1);
 
   // ANS endpoints compare by full sun_path buffer.

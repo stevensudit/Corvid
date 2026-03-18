@@ -21,6 +21,7 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <system_error>
 #include <sys/socket.h>
 
 using namespace corvid;
