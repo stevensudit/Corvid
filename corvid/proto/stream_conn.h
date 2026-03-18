@@ -533,7 +533,7 @@ private:
           h.resume();
         });
       } else if (pending_read_.cb) {
-        auto cb = std::move(pending_read_.cb);
+        auto cb = std::exchange(pending_read_.cb, nullptr);
         cb(recv_buf_);
       } else if (handlers_.on_data) {
         handlers_.on_data(recv_buf_);
@@ -550,7 +550,7 @@ private:
         });
       } else if (pending_read_.cb) {
         recv_buf_.clear();
-        auto cb = std::move(pending_read_.cb);
+        auto cb = std::exchange(pending_read_.cb, nullptr);
         cb(recv_buf_);
       }
       refresh_read_interest();
@@ -563,7 +563,7 @@ private:
           h.resume();
         });
       if (pending_write_.cb) {
-        auto cb = std::move(pending_write_.cb);
+        auto cb = std::exchange(pending_write_.cb, nullptr);
         cb(false);
       }
     }
@@ -575,7 +575,7 @@ private:
           h.resume();
         });
       } else if (pending_write_.cb) {
-        auto cb = std::move(pending_write_.cb);
+        auto cb = std::exchange(pending_write_.cb, nullptr);
         cb(true);
       } else if (handlers_.on_drain) {
         handlers_.on_drain();
