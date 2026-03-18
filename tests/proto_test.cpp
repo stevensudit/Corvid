@@ -436,7 +436,7 @@ void NetEndpoint_Construction() {
     EXPECT_TRUE(ep.is_uds());
     EXPECT_FALSE(ep.is_ans());
     EXPECT_EQ(ep.uds_path().size(), 107U);
-    EXPECT_EQ(ep.uds_path()[0], 'x');
+    EXPECT_EQ(ep.uds_path()[0], '/');
   }
 
   // ANS: construct from "@name" string.

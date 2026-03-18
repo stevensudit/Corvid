@@ -205,7 +205,7 @@ public:
   }
 
   // Checks whether the last error was a hard error (true) or a soft error
-  // (false). Note that `errno` is only meaninful immediately after a failure
+  // (false). Note that `errno` is only meaningful immediately after a failure
   // return from a system call and is invalidated by the next system call.
   static bool is_hard_error(int err = errno) noexcept {
     return (err != EAGAIN && err != EWOULDBLOCK && err != EINTR);
