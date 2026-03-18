@@ -15,19 +15,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "containers/containers_shared.h"
-#include "containers/enum_vector.h"
-#include "containers/custom_handle.h"
-#include "containers/optional_ptr.h"
-#include "containers/opt_find.h"
-#include "containers/own_ptr.h"
-#include "containers/transparent.h"
-#include "containers/interval.h"
-#include "containers/indirect_key.h"
-#include "containers/intern.h"
-#include "containers/circular_buffer.h"
-#include "containers/strong_type.h"
-#include "containers/enum_variant.h"
-#include "containers/fixed_bitset.h"
-#include "containers/scoped_value.h"
-#include "containers/scope_exit.h"
+// Umbrella header for the Corvid filesys module.
+//
+// Includes:
+//  os_file   - RAII OS file-descriptor ownership, control, read/write
+//  event_fd  - RAII Linux eventfd handle with typed counter I/O
+//  epoll     - RAII Linux epoll handle with control and wait helpers
+//  net_socket - RAII socket handle with type-safe option methods
+#include "filesys/os_file.h"
+#include "filesys/event_fd.h"
+#include "filesys/epoll.h"
+#include "filesys/net_socket.h"

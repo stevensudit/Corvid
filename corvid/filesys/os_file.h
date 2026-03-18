@@ -25,7 +25,7 @@
 
 #include "../strings/no_zero.h"
 
-namespace corvid { inline namespace proto {
+namespace corvid { inline namespace filesys {
 
 using namespace corvid::strings::no_zero_funcs;
 
@@ -79,14 +79,14 @@ public:
   [[nodiscard]] file_handle_t handle() const noexcept { return handle_; }
 
   // Close the file. Idempotent. Returns true when the file was open and is
-  // now closed, false if it failed to be closed (likely because it already
-  // was).
+  // now closed, false if it could not be closed (likely because it already
+  // was). Note that, on failure, the file is left in a closed state to avoid
+  // potential reuse of a stale handle.
   bool close() noexcept {
-    if (handle_ == invalid_file_handle) return false;
+    if (!is_open()) return false;
     const auto old_handle = handle_;
     handle_ = invalid_file_handle;
-    if (::close(old_handle) != 0) return false;
-    return true;
+    return (::close(old_handle) == 0);
   }
 
   // Release ownership and return the handle without closing it.
@@ -100,7 +100,7 @@ public:
   // written prefix from `data` and returns true. On failure, leaves `data`
   // unchanged and returns false. A "soft" failure (e.g., EAGAIN) is treated
   // as success with no progress. Note that this call can invoke a SIGPIPE on
-  // broken pipes/sockets, so use `ip_socket::send` with MSG_NOSIGNAL instead.
+  // broken pipes/sockets, so use `net_socket::send` with MSG_NOSIGNAL instead.
   [[nodiscard]] bool write(std::string_view& data) const {
     if (data.empty()) return true;
 
@@ -138,9 +138,45 @@ public:
     return true;
   }
 
-  // Platform-specific fd control and named helpers.
-  // Isolated here so that porting to a new OS requires changes only in this
-  // guarded section and the platform header includes above.
+  // Write all of `data` to the file, retrying after partial writes and soft
+  // errors (e.g., `EINTR`). Returns true only when all bytes have been
+  // written. On hard failure, returns false with an indeterminate prefix of
+  // `data` already sent. Intended for blocking I/O; on non-blocking fds, a
+  // full kernel buffer causes a busy-loop.
+  [[nodiscard]] bool write_all(std::string_view data) const {
+    while (!data.empty())
+      if (!write(data)) return false;
+    return true;
+  }
+
+  // Read exactly `data.size()` bytes into `data`, retrying after partial
+  // reads and soft errors (e.g., `EINTR`). Size `data` with `data.resize(n)`
+  // or `no_zero::enlarge_to(data, n)` before calling.
+  //
+  // Returns true only when all bytes have been read. On EOF before
+  // completion, trims `data` to the bytes received and returns false. On hard
+  // failure, clears `data` and returns false. Intended for blocking I/O; on
+  // non-blocking fds, an empty kernel buffer causes a busy-loop.
+  [[nodiscard]] bool read_exact(std::string& data) const {
+    size_t offset = 0;
+    const size_t target = data.size();
+    while (offset < target) {
+      const ssize_t n = ::read(handle_, data.data() + offset, target - offset);
+      // On EOF, trim to bytes received and fail.
+      if (n == 0) {
+        no_zero::trim_to(data, offset);
+        return false;
+      }
+      // On hard error, clear `data` and fail.
+      if (n < 0) {
+        if (!is_hard_error()) continue;
+        data.clear();
+        return false;
+      }
+      offset += static_cast<size_t>(n);
+    }
+    return true;
+  }
 
   // Invoke `fcntl(cmd, args...)` on the handle. Returns -1 on failure.
   template<typename... Args>
@@ -160,6 +196,7 @@ public:
   }
 
   // Enable or disable non-blocking I/O via `fcntl(F_SETFL, O_NONBLOCK)`.
+  // But consider opening with `O_NONBLOCK` in the first place.
   [[nodiscard]] bool set_nonblocking(bool on = true) const noexcept {
     const auto flags = get_flags();
     if (!flags) return false;
@@ -168,7 +205,8 @@ public:
   }
 
   // Checks whether the last error was a hard error (true) or a soft error
-  // (false).
+  // (false). Note that `errno` is only meaningful immediately after a failure
+  // return from a system call and is invalidated by the next system call.
   static bool is_hard_error(int err = errno) noexcept {
     return (err != EAGAIN && err != EWOULDBLOCK && err != EINTR);
   }
@@ -176,4 +214,4 @@ public:
 private:
   file_handle_t handle_{invalid_file_handle};
 };
-}} // namespace corvid::proto
+}} // namespace corvid::filesys

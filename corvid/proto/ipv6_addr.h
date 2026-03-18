@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -23,6 +24,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #include <netinet/in.h>
 
@@ -37,24 +39,18 @@ namespace corvid { inline namespace proto {
 // colon-hex string. Comparison, classification predicates, and formatting are
 // provided.
 //
-// Platform-specific interop (`in6_addr`) is isolated in a guarded section so
-// that porting to a new OS requires changes only there.
+// Constructors do not throw: on failure, they leave it `empty()`. See
+// `parse()` for the alternative.
 class ipv6_addr {
 public:
-  // Named address factories.
-
-  [[nodiscard]] static constexpr ipv6_addr any() noexcept {
-    return ipv6_addr{};
-  }
-
-  [[nodiscard]] static constexpr ipv6_addr loopback() noexcept {
-    return ipv6_addr{uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{0},
-        uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{1}};
-  }
+  using byte_array = std::array<uint8_t, 16>;
+  using word_array = std::array<uint16_t, 8>;
+  static_assert(sizeof(in6_addr) == sizeof(byte_array));
+  static_assert(std::is_trivially_copyable_v<in6_addr>);
 
   // Constructors.
 
-  // Default-constructs to the "any" address (::).
+  // Default-constructs to the "any" address (::), which is empty.
   constexpr ipv6_addr() noexcept = default;
 
   // Construct from eight 16-bit groups in network order (most significant
@@ -67,31 +63,54 @@ public:
             uint8_t(g >> 8), uint8_t(g), uint8_t(h >> 8), uint8_t(h)} {}
 
   // Construct from the raw bytes in network order.
-  explicit constexpr ipv6_addr(std::array<uint8_t, 16> bytes) noexcept
-      : bytes_{bytes} {}
+  explicit constexpr ipv6_addr(byte_array bytes) noexcept : bytes_{bytes} {}
 
   // Construct from a colon-hex string (e.g., "2001:db8::1").
-  // Throws `std::invalid_argument` if the string is not a valid IPv6 address.
+  //
+  // If not a valid IPv6 address, the result is `empty()`. If you need to
+  // distinguish between an invalid address and the "any" address ("::"), use
+  // `parse()` instead.
   explicit constexpr ipv6_addr(std::string_view s) {
-    auto parsed = parse(s);
-    if (!parsed) throw std::invalid_argument("Invalid IPv6 address");
-    *this = *parsed;
+    if (const auto parsed = parse(s); parsed) *this = *parsed;
   }
+
+  constexpr explicit ipv6_addr(const in6_addr& a) noexcept
+      : bytes_{uint8_t(a.s6_addr[0]), uint8_t(a.s6_addr[1]),
+            uint8_t(a.s6_addr[2]), uint8_t(a.s6_addr[3]),
+            uint8_t(a.s6_addr[4]), uint8_t(a.s6_addr[5]),
+            uint8_t(a.s6_addr[6]), uint8_t(a.s6_addr[7]),
+            uint8_t(a.s6_addr[8]), uint8_t(a.s6_addr[9]),
+            uint8_t(a.s6_addr[10]), uint8_t(a.s6_addr[11]),
+            uint8_t(a.s6_addr[12]), uint8_t(a.s6_addr[13]),
+            uint8_t(a.s6_addr[14]), uint8_t(a.s6_addr[15])} {}
+
+  // Named address constants.
+  static const ipv6_addr any;
+  static const ipv6_addr loopback;
+
+  // Whether this address is empty, which is also the "any" address ("::").
+  [[nodiscard]] constexpr bool empty() const noexcept {
+    const auto qwords = std::bit_cast<std::array<uint64_t, 2>>(bytes_);
+    return qwords[0] == 0 && qwords[1] == 0;
+  }
+
+  // Return whether this has a non-any address.
+  [[nodiscard]] constexpr operator bool() const noexcept { return !empty(); }
 
   // Parsing.
 
-  // Parse from IPv6 colon-hex notation, including `::` compression and
+  // Parse from IPv6 colon-hex notation, including "::" compression and
   // IPv4-embedded tails such as `::ffff:192.168.1.1`.
   // Returns `std::nullopt` if the string is not a valid IPv6 address.
   [[nodiscard]] static constexpr std::optional<ipv6_addr> parse(
       std::string_view s) {
-    std::array<uint16_t, 8> groups{};
+    word_array groups{};
     std::size_t group_count = 0;
     std::size_t double_colon = 8;
 
-    if (!parse_groups_loop(s, groups, group_count, double_colon))
+    if (!do_parse_groups_loop(s, groups, group_count, double_colon))
       return std::nullopt;
-    if (!finalize_groups(groups, group_count, double_colon))
+    if (!do_finalize_groups(groups, group_count, double_colon))
       return std::nullopt;
 
     return ipv6_addr{groups_to_bytes(groups)};
@@ -100,33 +119,22 @@ public:
   // Accessors.
 
   // Return the 16 bytes in network order.
-  [[nodiscard]] constexpr const std::array<uint8_t, 16>&
-  bytes() const noexcept {
+  [[nodiscard]] constexpr const byte_array& bytes() const noexcept {
     return bytes_;
   }
 
   // Return the eight 16-bit groups in network order.
-  [[nodiscard]] constexpr std::array<uint16_t, 8> words() const noexcept {
+  [[nodiscard]] constexpr word_array words() const noexcept {
     return {word_at(0), word_at(1), word_at(2), word_at(3), word_at(4),
         word_at(5), word_at(6), word_at(7)};
   }
 
   // Classification predicates.
 
-  [[nodiscard]] constexpr bool is_any() const noexcept {
-    for (auto b : bytes_) {
-      if (b != 0) return false;
-    }
-    return true;
-  }
+  [[nodiscard]] constexpr bool is_any() const noexcept { return empty(); }
 
   [[nodiscard]] constexpr bool is_loopback() const noexcept {
-    return bytes_[0] == 0 && bytes_[1] == 0 && bytes_[2] == 0 &&
-           bytes_[3] == 0 && bytes_[4] == 0 && bytes_[5] == 0 &&
-           bytes_[6] == 0 && bytes_[7] == 0 && bytes_[8] == 0 &&
-           bytes_[9] == 0 && bytes_[10] == 0 && bytes_[11] == 0 &&
-           bytes_[12] == 0 && bytes_[13] == 0 && bytes_[14] == 0 &&
-           bytes_[15] == 1;
+    return *this == loopback;
   }
 
   // True if this is in ff00::/8.
@@ -157,9 +165,10 @@ public:
     std::size_t cur_start = 0;
     std::size_t cur_len = 0;
 
-    for (std::size_t i = 0; i < 8; ++i) {
-      if (groups[i] == 0) {
-        if (cur_len == 0) cur_start = i;
+    // Figure out how many empty groups to skip before we start.
+    for (std::size_t ndx = 0; ndx < 8; ++ndx) {
+      if (groups[ndx] == 0) {
+        if (cur_len == 0) cur_start = ndx;
         ++cur_len;
       } else {
         if (cur_len > best_len) {
@@ -177,14 +186,14 @@ public:
 
     std::string out;
     out.reserve(39); // Max length of an IPv6 address string.
-    for (std::size_t i = 0; i < 8; ++i) {
-      if (i == best_start) {
+    for (std::size_t ndx = 0; ndx < 8; ++ndx) {
+      if (ndx == best_start) {
         out += "::";
-        i += best_len - 1;
+        ndx += best_len - 1;
         continue;
       }
       if (!out.empty() && out.back() != ':') out += ':';
-      append_hex_group(out, groups[i]);
+      do_append_hex_group(out, groups[ndx]);
     }
     if (out.empty()) out = "::";
     return out;
@@ -194,28 +203,16 @@ public:
     return os << a.to_string();
   }
 
-  constexpr explicit ipv6_addr(const in6_addr& a) noexcept
-      : bytes_{uint8_t(a.s6_addr[0]), uint8_t(a.s6_addr[1]),
-            uint8_t(a.s6_addr[2]), uint8_t(a.s6_addr[3]),
-            uint8_t(a.s6_addr[4]), uint8_t(a.s6_addr[5]),
-            uint8_t(a.s6_addr[6]), uint8_t(a.s6_addr[7]),
-            uint8_t(a.s6_addr[8]), uint8_t(a.s6_addr[9]),
-            uint8_t(a.s6_addr[10]), uint8_t(a.s6_addr[11]),
-            uint8_t(a.s6_addr[12]), uint8_t(a.s6_addr[13]),
-            uint8_t(a.s6_addr[14]), uint8_t(a.s6_addr[15])} {}
-
   [[nodiscard]] constexpr in6_addr to_in6_addr() const noexcept {
-    in6_addr a{};
-    for (std::size_t i = 0; i < 16; ++i) a.s6_addr[i] = bytes_[i];
-    return a;
+    return std::bit_cast<in6_addr>(bytes_);
   }
 
 private:
-  // Parse the IPv4-embedded tail token (e.g., `192.168.1.1`) and append two
+  // Parse the IPv4-embedded tail token (e.g., "192.168.1.1") and append two
   // 16-bit groups to `groups`, advancing `group_count`. Returns false if
   // `group_count > 6` or the token is not a valid IPv4 address.
   [[nodiscard]] static constexpr bool
-  append_ipv4_groups(std::string_view token, std::array<uint16_t, 8>& groups,
+  do_append_ipv4_groups(std::string_view token, word_array& groups,
       std::size_t& group_count) noexcept {
     if (group_count > 6) return false;
     const auto ipv4 = ipv4_addr::parse(token);
@@ -228,12 +225,12 @@ private:
     return true;
   }
 
-  // Validate and consume the `::` that starts at `s[pos]`. Updates `pos` and
-  // `double_colon`. Returns false if `::` is malformed or a second `::`
+  // Validate and consume the "::" that starts at `s[pos]`. Updates `pos` and
+  // `double_colon`. Returns false if "::" is malformed or a second "::"
   // appears.
-  [[nodiscard]] static constexpr bool advance_double_colon(std::string_view s,
-      std::size_t& pos, std::size_t group_count,
-      std::size_t& double_colon) noexcept {
+  [[nodiscard]] static constexpr bool
+  do_advance_double_colon(std::string_view s, std::size_t& pos,
+      std::size_t group_count, std::size_t& double_colon) noexcept {
     if (pos + 1 >= s.size() || s[pos + 1] != ':' || double_colon != 8)
       return false;
     double_colon = group_count;
@@ -242,10 +239,10 @@ private:
   }
 
   // Consume the separator that follows a parsed hex group. Returns `nullopt`
-  // on error (bad char, second `::`, trailing `:`), `false` when the string
+  // on error (bad char, second "::", trailing ':'), `false` when the string
   // is exhausted (caller should break), `true` to continue parsing groups.
   [[nodiscard]] static constexpr std::optional<bool>
-  consume_separator(std::string_view s, std::size_t& pos,
+  do_consume_separator(std::string_view s, std::size_t& pos,
       std::size_t group_count, std::size_t& double_colon) noexcept {
     if (pos == s.size()) return false;
     if (s[pos] != ':') return std::nullopt;
@@ -263,8 +260,8 @@ private:
   // Parse one non-colon item (hex group or IPv4-embedded tail) at `s[pos]`,
   // append it to `groups`, then consume the following separator. Returns
   // `nullopt` on error, `false` when parsing is complete, `true` to continue.
-  [[nodiscard]] static constexpr std::optional<bool> parse_one_item(
-      std::string_view s, std::size_t& pos, std::array<uint16_t, 8>& groups,
+  [[nodiscard]] static constexpr std::optional<bool>
+  parse_one_item(std::string_view s, std::size_t& pos, word_array& groups,
       std::size_t& group_count, std::size_t& double_colon) {
     if (group_count == 8) return std::nullopt;
     auto token_end = pos;
@@ -272,27 +269,28 @@ private:
     const auto token = s.substr(pos, token_end - pos);
     if (token.contains('.')) {
       if (token_end != s.size()) return std::nullopt;
-      if (!append_ipv4_groups(token, groups, group_count)) return std::nullopt;
+      if (!do_append_ipv4_groups(token, groups, group_count))
+        return std::nullopt;
       pos = token_end;
       return false;
     }
-    const auto group = parse_group(s, pos);
+    const auto group = do_parse_group(s, pos);
     if (!group) return std::nullopt;
     groups[group_count++] = *group;
-    return consume_separator(s, pos, group_count, double_colon);
+    return do_consume_separator(s, pos, group_count, double_colon);
   }
 
-  // Scan `s` and fill `groups[0..group_count)`, recording the `::` insertion
-  // point in `double_colon` (value 8 means no `::` was seen). Returns false
+  // Scan `s` and fill `groups[0..group_count)`, recording the "::" insertion
+  // point in `double_colon` (value 8 means no "::" was seen). Returns false
   // on any syntax error.
-  [[nodiscard]] static constexpr bool parse_groups_loop(std::string_view s,
-      std::array<uint16_t, 8>& groups, std::size_t& group_count,
+  [[nodiscard]] static constexpr bool do_parse_groups_loop(std::string_view s,
+      word_array& groups, std::size_t& group_count,
       std::size_t& double_colon) {
     if (s.empty()) return false;
     std::size_t pos = 0;
     while (pos < s.size()) {
       if (s[pos] == ':') {
-        if (!advance_double_colon(s, pos, group_count, double_colon))
+        if (!do_advance_double_colon(s, pos, group_count, double_colon))
           return false;
         if (pos == s.size()) break;
         continue;
@@ -305,12 +303,11 @@ private:
     return true;
   }
 
-  // Validate the group count and expand the `::` zero-run in `groups` in
-  // place. `double_colon` is the insertion index, or 8 if no `::` was seen.
+  // Validate the group count and expand the "::" zero-run in `groups` in
+  // place. `double_colon` is the insertion index, or 8 if no "::" was seen.
   // Returns false if the total group count is inconsistent.
-  [[nodiscard]] static constexpr bool
-  finalize_groups(std::array<uint16_t, 8>& groups, std::size_t group_count,
-      std::size_t double_colon) noexcept {
+  [[nodiscard]] static constexpr bool do_finalize_groups(word_array& groups,
+      std::size_t group_count, std::size_t double_colon) noexcept {
     if (double_colon == 8) return group_count == 8;
     if (group_count == 8) return false;
     const auto zeros = 8 - group_count;
@@ -333,7 +330,7 @@ private:
   }
 
   [[nodiscard]] static constexpr std::optional<uint16_t>
-  parse_group(std::string_view s, std::size_t& pos) noexcept {
+  do_parse_group(std::string_view s, std::size_t& pos) noexcept {
     if (pos >= s.size() || !is_hex_digit(s[pos])) return std::nullopt;
     uint16_t value = 0;
     std::size_t digits = 0;
@@ -346,8 +343,8 @@ private:
     return value;
   }
 
-  [[nodiscard]] static constexpr std::array<uint8_t, 16> groups_to_bytes(
-      const std::array<uint16_t, 8>& groups) noexcept {
+  [[nodiscard]] static constexpr byte_array groups_to_bytes(
+      const word_array& groups) noexcept {
     return {uint8_t(groups[0] >> 8), uint8_t(groups[0]),
         uint8_t(groups[1] >> 8), uint8_t(groups[1]), uint8_t(groups[2] >> 8),
         uint8_t(groups[2]), uint8_t(groups[3] >> 8), uint8_t(groups[3]),
@@ -360,7 +357,7 @@ private:
     return uint16_t((uint16_t(bytes_[2 * i]) << 8) | bytes_[(2 * i) + 1]);
   }
 
-  static constexpr void append_hex_group(std::string& out, uint16_t value) {
+  static constexpr void do_append_hex_group(std::string& out, uint16_t value) {
     static constexpr char digits[] = "0123456789abcdef";
     char buffer[4];
     int len = 0;
@@ -373,7 +370,12 @@ private:
     while (len-- > 0) out += buffer[len];
   }
 
-  std::array<uint8_t, 16> bytes_{};
+private:
+  byte_array bytes_{};
 };
+
+constexpr ipv6_addr ipv6_addr::any{};
+constexpr ipv6_addr ipv6_addr::loopback{uint16_t{0}, uint16_t{0}, uint16_t{0},
+    uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{1}};
 
 }} // namespace corvid::proto

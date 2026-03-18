@@ -28,30 +28,32 @@ using namespace corvid;
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 void Ipv4Addr_Construction() {
-  // Default construction yields the "any" address.
+  // Default construction yields the "any" address, which is also empty.
   if (true) {
     ipv4_addr a;
     EXPECT_TRUE(a.is_any());
+    EXPECT_TRUE(a.empty());
+    EXPECT_FALSE(bool(a));
     EXPECT_EQ(a.to_uint32(), 0U);
   }
 
-  // Named factory: any().
+  // Named constant: any.
   if (true) {
-    auto a = ipv4_addr::any();
+    auto a = ipv4_addr::any;
     EXPECT_TRUE(a.is_any());
     EXPECT_EQ(a.to_uint32(), 0U);
   }
 
-  // Named factory: loopback().
+  // Named constant: loopback.
   if (true) {
-    auto a = ipv4_addr::loopback();
+    auto a = ipv4_addr::loopback;
     EXPECT_TRUE(a.is_loopback());
     EXPECT_EQ(a.to_uint32(), 0x7f000001U);
   }
 
-  // Named factory: broadcast().
+  // Named constant: broadcast.
   if (true) {
-    auto a = ipv4_addr::broadcast();
+    auto a = ipv4_addr::broadcast;
     EXPECT_TRUE(a.is_broadcast());
     EXPECT_EQ(a.to_uint32(), 0xffffffffU);
   }
@@ -75,6 +77,13 @@ void Ipv4Addr_Construction() {
     EXPECT_EQ(o[1], 2U);
     EXPECT_EQ(o[2], 3U);
     EXPECT_EQ(o[3], 4U);
+  }
+
+  // Non-zero address is not empty; operator bool() reflects this.
+  if (true) {
+    ipv4_addr a{1, 2, 3, 4};
+    EXPECT_FALSE(a.empty());
+    EXPECT_TRUE(bool(a));
   }
 }
 
@@ -181,13 +190,13 @@ void Ipv4Addr_Classification() {
 
   // is_broadcast().
   if (true) {
-    EXPECT_TRUE(ipv4_addr::broadcast().is_broadcast());
+    EXPECT_TRUE(ipv4_addr::broadcast.is_broadcast());
     EXPECT_FALSE(ipv4_addr(255, 255, 255, 254).is_broadcast());
   }
 
   // is_any().
   if (true) {
-    EXPECT_TRUE(ipv4_addr::any().is_any());
+    EXPECT_TRUE(ipv4_addr::any.is_any());
     EXPECT_FALSE(ipv4_addr(0, 0, 0, 1).is_any());
   }
 }
@@ -207,9 +216,9 @@ void Ipv4Addr_Comparison() {
 }
 
 void Ipv4Addr_Formatting() {
-  EXPECT_EQ(ipv4_addr::any().to_string(), "0.0.0.0");
-  EXPECT_EQ(ipv4_addr::loopback().to_string(), "127.0.0.1");
-  EXPECT_EQ(ipv4_addr::broadcast().to_string(), "255.255.255.255");
+  EXPECT_EQ(ipv4_addr::any.to_string(), "0.0.0.0");
+  EXPECT_EQ(ipv4_addr::loopback.to_string(), "127.0.0.1");
+  EXPECT_EQ(ipv4_addr::broadcast.to_string(), "255.255.255.255");
   EXPECT_EQ(ipv4_addr(192, 168, 1, 100).to_string(), "192.168.1.100");
 
   // Round-trip: parse then format.
@@ -239,12 +248,12 @@ void Ipv6Addr_Construction() {
   }
 
   if (true) {
-    auto a = ipv6_addr::any();
+    auto a = ipv6_addr::any;
     EXPECT_TRUE(a.is_any());
   }
 
   if (true) {
-    auto a = ipv6_addr::loopback();
+    auto a = ipv6_addr::loopback;
     EXPECT_TRUE(a.is_loopback());
     EXPECT_EQ(a.to_string(), "::1");
   }
@@ -322,8 +331,8 @@ void Ipv6Addr_Parse() {
 
 void Ipv6Addr_Classification() {
   if (true) {
-    EXPECT_TRUE(ipv6_addr::loopback().is_loopback());
-    EXPECT_FALSE(ipv6_addr::any().is_loopback());
+    EXPECT_TRUE(ipv6_addr::loopback.is_loopback());
+    EXPECT_FALSE(ipv6_addr::any.is_loopback());
   }
 
   if (true) {
@@ -357,8 +366,8 @@ void Ipv6Addr_Comparison() {
 }
 
 void Ipv6Addr_Formatting() {
-  EXPECT_EQ(ipv6_addr::any().to_string(), "::");
-  EXPECT_EQ(ipv6_addr::loopback().to_string(), "::1");
+  EXPECT_EQ(ipv6_addr::any.to_string(), "::");
+  EXPECT_EQ(ipv6_addr::loopback.to_string(), "::1");
   EXPECT_EQ(ipv6_addr(0x2001, 0xdb8, 0, 0, 1, 0, 0, 1).to_string(),
       "2001:db8::1:0:0:1");
   EXPECT_EQ(ipv6_addr(0x2001, 0xdb8, 0, 1, 0, 0, 0, 1).to_string(),
@@ -380,80 +389,250 @@ void Ipv6Addr_PosixInterop() {
   EXPECT_EQ(raw.s6_addr[15], 0x01U);
 }
 
-void IpEndpoint_Construction() {
+void NetEndpoint_Construction() {
   if (true) {
-    ip_endpoint ep;
-    EXPECT_FALSE(ep.is_valid());
+    net_endpoint ep;
+    EXPECT_TRUE(ep.empty());
     EXPECT_FALSE(ep.is_v4());
     EXPECT_FALSE(ep.is_v6());
+    EXPECT_FALSE(ep.is_uds());
     EXPECT_EQ(ep.to_string(), "(invalid)");
   }
 
   if (true) {
-    ip_endpoint ep{ipv4_addr(127, 0, 0, 1), 80};
+    net_endpoint ep{ipv4_addr(127, 0, 0, 1), 80};
     EXPECT_TRUE(ep.is_v4());
     EXPECT_EQ(ep.port(), 80U);
     EXPECT_EQ(ep.v4()->to_string(), "127.0.0.1");
   }
 
   if (true) {
-    ip_endpoint ep{ipv6_addr::loopback(), 443};
+    net_endpoint ep{ipv6_addr::loopback, 443};
     EXPECT_TRUE(ep.is_v6());
     EXPECT_EQ(ep.port(), 443U);
     EXPECT_EQ(ep.v6()->to_string(), "::1");
   }
+
+  // UDS: construct from sockaddr_un directly.
+  if (true) {
+    sockaddr_un raw{};
+    raw.sun_family = AF_UNIX;
+    const std::string_view path = "/tmp/test.sock";
+    path.copy(raw.sun_path, sizeof(raw.sun_path) - 1);
+
+    net_endpoint ep{raw};
+    EXPECT_FALSE(ep.empty());
+    EXPECT_TRUE(ep.is_uds());
+    EXPECT_FALSE(ep.is_v4());
+    EXPECT_FALSE(ep.is_v6());
+    EXPECT_EQ(ep.uds_path(), path);
+  }
+
+  // UDS: path longer than 107 chars is silently truncated.
+  if (true) {
+    const std::string long_path(200, 'x');
+    net_endpoint ep{"/" + long_path};
+    EXPECT_TRUE(!ep.empty());
+    EXPECT_TRUE(ep.is_uds());
+    EXPECT_FALSE(ep.is_ans());
+    EXPECT_EQ(ep.uds_path().size(), 107U);
+    EXPECT_EQ(ep.uds_path()[0], '/');
+  }
+
+  // ANS: construct from "@name" string.
+  if (true) {
+    net_endpoint ep{"@myservice"};
+    EXPECT_TRUE(!ep.empty());
+    EXPECT_TRUE(ep.is_uds());
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_FALSE(ep.is_v4());
+    EXPECT_FALSE(ep.is_v6());
+    // `uds_path()` skips the leading '\0' and returns the full 107-byte
+    // buffer.
+    EXPECT_EQ(ep.uds_path().size(), 107U);
+    EXPECT_EQ(ep.uds_path().substr(0, 9), "myservice");
+    EXPECT_EQ(ep.uds_path()[9], '\0'); // trailing bytes are zero-padding
+  }
+
+  // ANS: name longer than 107 chars is silently truncated.
+  if (true) {
+    const std::string long_name(200, 'y');
+    net_endpoint ep{"@" + long_name};
+    EXPECT_TRUE(!ep.empty());
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.uds_path().size(), 107U);
+    EXPECT_EQ(ep.uds_path()[0], 'y');
+  }
 }
 
-void IpEndpoint_Parse() {
+void NetEndpoint_Parse() {
   if (true) {
-    auto a = ip_endpoint::parse("192.168.1.10:8080");
-    EXPECT_TRUE(a.has_value());
-    EXPECT_TRUE(a->is_v4());
-    EXPECT_EQ(a->port(), 8080U);
-    EXPECT_EQ(a->v4()->to_string(), "192.168.1.10");
+    net_endpoint a{"192.168.1.10:8080"};
+    EXPECT_TRUE(!a.empty());
+    EXPECT_TRUE(a.is_v4());
+    EXPECT_EQ(a.port(), 8080U);
+    EXPECT_EQ(a.v4()->to_string(), "192.168.1.10");
 
-    auto b = ip_endpoint::parse("[2001:db8::1]:443");
-    EXPECT_TRUE(b.has_value());
-    EXPECT_TRUE(b->is_v6());
-    EXPECT_EQ(b->port(), 443U);
-    EXPECT_EQ(b->v6()->to_string(), "2001:db8::1");
+    net_endpoint b{"[2001:db8::1]:443"};
+    EXPECT_TRUE(!b.empty());
+    EXPECT_TRUE(b.is_v6());
+    EXPECT_EQ(b.port(), 443U);
+    EXPECT_EQ(b.v6()->to_string(), "2001:db8::1");
   }
 
   if (true) {
-    EXPECT_FALSE(ip_endpoint::parse("").has_value());
-    EXPECT_FALSE(ip_endpoint::parse("127.0.0.1").has_value());
-    EXPECT_FALSE(ip_endpoint::parse("127.0.0.1:").has_value());
-    EXPECT_FALSE(ip_endpoint::parse("127.0.0.1:99999").has_value());
-    EXPECT_FALSE(ip_endpoint::parse("2001:db8::1:443").has_value());
-    EXPECT_FALSE(ip_endpoint::parse("[2001:db8::1]").has_value());
-    EXPECT_FALSE(ip_endpoint::parse("[2001:db8::1]:").has_value());
-    EXPECT_FALSE(ip_endpoint::parse("[2001:db8::1]:70000").has_value());
+    EXPECT_TRUE(net_endpoint{""}.empty());
+    EXPECT_TRUE(net_endpoint{"127.0.0.1"}.empty());
+    EXPECT_TRUE(net_endpoint{"127.0.0.1:"}.empty());
+    EXPECT_TRUE(net_endpoint{"127.0.0.1:99999"}.empty());
+    EXPECT_TRUE(net_endpoint{"2001:db8::1:443"}.empty());
+    EXPECT_TRUE(net_endpoint{"[2001:db8::1]"}.empty());
+    EXPECT_TRUE(net_endpoint{"[2001:db8::1]:"}.empty());
+    EXPECT_TRUE(net_endpoint{"[2001:db8::1]:70000"}.empty());
+  }
+
+  // A leading `/` produces a UDS endpoint.
+  if (true) {
+    net_endpoint ep{"/run/app.sock"};
+    EXPECT_TRUE(!ep.empty());
+    EXPECT_TRUE(ep.is_uds());
+    EXPECT_EQ(ep.uds_path(), "/run/app.sock");
+  }
+
+  // The `string_view` constructor also accepts UDS paths.
+  if (true) {
+    net_endpoint ep{std::string_view{"/var/run/foo.sock"}};
+    EXPECT_TRUE(ep.is_uds());
+    EXPECT_FALSE(ep.is_ans());
+    EXPECT_EQ(ep.uds_path(), "/var/run/foo.sock");
+  }
+
+  // A leading `@` produces an ANS endpoint.
+  if (true) {
+    net_endpoint ep{"@abstract"};
+    EXPECT_TRUE(!ep.empty());
+    EXPECT_TRUE(ep.is_uds());
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.uds_path().size(), 107U);
+    EXPECT_EQ(ep.uds_path().substr(0, 8), "abstract");
+  }
+
+  // The `string_view` constructor also accepts ANS names.
+  if (true) {
+    net_endpoint ep{std::string_view{"@svc"}};
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.uds_path().size(), 107U);
+    EXPECT_EQ(ep.uds_path().substr(0, 3), "svc");
+  }
+
+  // An IPv4-mapped IPv6 address (e.g., `[::ffff:192.168.1.1]:80`) is stored
+  // as `AF_INET6` with no unwrapping. `to_string()` formats the address in
+  // pure colon-hex (RFC 5952), so `::ffff:192.168.1.1` appears as
+  // `::ffff:c0a8:101`.
+  if (true) {
+    net_endpoint ep{"[::ffff:192.168.1.1]:80"};
+    EXPECT_TRUE(!ep.empty());
+    EXPECT_TRUE(ep.is_v6());
+    EXPECT_FALSE(ep.is_v4());
+    EXPECT_EQ(ep.port(), 80U);
+    EXPECT_EQ(ep.to_string(), "[::ffff:c0a8:101]:80");
   }
 }
 
-void IpEndpoint_Comparison() {
-  ip_endpoint a{ipv4_addr(10, 0, 0, 1), 80};
-  ip_endpoint b{ipv4_addr(10, 0, 0, 1), 81};
-  ip_endpoint c{ipv4_addr(10, 0, 0, 1), 80};
+void NetEndpoint_Comparison() {
+  net_endpoint a{ipv4_addr(10, 0, 0, 1), 80};
+  net_endpoint b{ipv4_addr(10, 0, 0, 1), 81};
+  net_endpoint c{ipv4_addr(10, 0, 0, 1), 80};
 
   EXPECT_TRUE(a == c);
   EXPECT_FALSE(a == b);
   EXPECT_TRUE(a < b);
+
+  // UDS endpoints compare by path.
+  net_endpoint u1{"/a.sock"};
+  net_endpoint u2{"/b.sock"};
+  net_endpoint u3{"/a.sock"};
+  EXPECT_TRUE(!u1.empty() && !u2.empty() && !u3.empty());
+  EXPECT_TRUE(u1 == u3);
+  EXPECT_FALSE(u1 == u2);
+  EXPECT_TRUE(u1 < u2);
+
+  // UDS and IPv4 compare by family.
+  EXPECT_NE(a, u1);
+
+  // ANS endpoints compare by full sun_path buffer.
+  auto n1 = net_endpoint{"@same"};
+  auto n2 = net_endpoint{"@same"};
+  auto n3 = net_endpoint{"@zzz"};
+  EXPECT_TRUE(!n1.empty() && !n2.empty() && !n3.empty());
+  EXPECT_TRUE(n1 == n2);
+  EXPECT_TRUE(n1 < n3);
+
+  // ANS and regular UDS are unequal (sun_path[0] differs: '\0' vs '/').
+  EXPECT_NE(n1, u1);
 }
 
-void IpEndpoint_Formatting() {
-  auto v4 = ip_endpoint{ipv4_addr(127, 0, 0, 1), 80};
-  auto v6 = ip_endpoint{ipv6_addr::loopback(), 443};
+void NetEndpoint_Formatting() {
+  auto v4 = net_endpoint{ipv4_addr(127, 0, 0, 1), 80};
+  auto v6 = net_endpoint{ipv6_addr::loopback, 443};
   EXPECT_EQ(v4.to_string(), "127.0.0.1:80");
   EXPECT_EQ(v6.to_string(), "[::1]:443");
+
+  auto uds = net_endpoint{"/tmp/app.sock"};
+  EXPECT_TRUE(!uds.empty());
+  EXPECT_EQ(uds.to_string(), "unix:/tmp/app.sock");
+
+  // ANS: name with no embedded null truncates at trailing zeros.
+  auto ans = net_endpoint{"@svc"};
+  EXPECT_TRUE(!ans.empty());
+  EXPECT_EQ(ans.to_string(), "unix:@svc");
+
+  // ANS: name without an embedded null truncates at the null, ignoring bytes
+  // after it.
+  if (true) {
+    net_endpoint ep{"@abc"};
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.to_string(), "unix:@abc");
+  }
+
+  // ANS: name with an embedded null truncates at the null, ignoring bytes
+  // after it. Pass a `string_view` that includes the embedded null.
+  if (true) {
+    net_endpoint ep{std::string_view{"@abc\0def", 8}};
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.to_string(), "unix:@abc (+)");
+  }
+
+  // ANS: name that fills the entire 107-byte buffer with no null uses the
+  // full length. Pass a `string_view` of 108 chars (leading '@' + 107 'x').
+  if (true) {
+    const std::string max_name(107, 'x');
+    const std::string full_name = "@" + max_name;
+    net_endpoint ep{std::string_view{full_name}};
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.to_string(), "unix:@" + max_name);
+  }
+
+  // ANS: name longer than 107 chars is truncated to 107, ignoring the excess.
+  if (true) {
+    const std::string max_name(107, 'x');
+    const std::string full_name = "@" + max_name + "extra";
+    net_endpoint ep{std::string_view{full_name}};
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.to_string(), "unix:@" + max_name);
+  }
 }
 
-void IpEndpoint_PosixInterop() {
+void NetEndpoint_PosixInterop() {
   if (true) {
-    ip_endpoint ep{ipv4_addr(192, 168, 1, 2), 1234};
+    net_endpoint ep{ipv4_addr(192, 168, 1, 2), 1234};
     auto raw = ep.as_sockaddr_in();
-    ip_endpoint roundtrip{raw};
+    net_endpoint roundtrip{raw};
     EXPECT_EQ(roundtrip, ep);
+
+    net_endpoint from_sockaddr{reinterpret_cast<const sockaddr&>(raw),
+        sizeof(raw)};
+    EXPECT_EQ(from_sockaddr, ep);
 
     auto storage = ep.as_sockaddr_storage();
     auto* as_v4 = reinterpret_cast<const sockaddr_in*>(&storage);
@@ -462,505 +641,67 @@ void IpEndpoint_PosixInterop() {
   }
 
   if (true) {
-    ip_endpoint ep{ipv6_addr(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1), 4321};
+    net_endpoint ep{ipv6_addr(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1), 4321};
     auto raw = ep.as_sockaddr_in6();
-    ip_endpoint roundtrip{raw};
+    net_endpoint roundtrip{raw};
     EXPECT_EQ(roundtrip, ep);
+
+    net_endpoint from_sockaddr{reinterpret_cast<const sockaddr&>(raw),
+        sizeof(raw)};
+    EXPECT_EQ(from_sockaddr, ep);
 
     auto storage = ep.as_sockaddr_storage();
     auto* as_v6 = reinterpret_cast<const sockaddr_in6*>(&storage);
     EXPECT_EQ(as_v6->sin6_family, AF_INET6);
     EXPECT_EQ(ntohs(as_v6->sin6_port), 4321U);
   }
-}
 
-// Helper: create a non-blocking pipe and wrap each end in an `os_file`.
-std::pair<os_file, os_file> make_nb_pipe() {
-  int fds[2];
-  if (::pipe2(fds, O_CLOEXEC | O_NONBLOCK) != 0)
-    throw std::system_error(errno, std::generic_category(), "pipe2");
-  return {os_file{fds[0]}, os_file{fds[1]}};
-}
-
-void OsFile_Lifecycle() {
-  // Default-constructed file is invalid.
+  // UDS: roundtrip through `as_sockaddr_un()` and back.
   if (true) {
-    os_file f;
-    EXPECT_FALSE(f.is_open());
-    EXPECT_FALSE(static_cast<bool>(f));
-    EXPECT_EQ(f.handle(), os_file::invalid_file_handle);
-    EXPECT_FALSE(f.close());
+    net_endpoint ep{"/tmp/interop.sock"};
+    EXPECT_TRUE(!ep.empty());
+
+    auto raw = ep.as_sockaddr_un();
+    EXPECT_EQ(raw.sun_family, static_cast<sa_family_t>(AF_UNIX));
+    EXPECT_EQ(std::string_view{raw.sun_path}, "/tmp/interop.sock");
+
+    net_endpoint roundtrip{raw};
+    EXPECT_EQ(roundtrip, ep);
+
+    net_endpoint from_sockaddr{reinterpret_cast<const sockaddr&>(raw),
+        sizeof(raw)};
+    EXPECT_EQ(from_sockaddr, ep);
+
+    EXPECT_EQ(ep.sockaddr_size(),
+        static_cast<socklen_t>(
+            offsetof(sockaddr_un, sun_path) +
+            std::strlen("/tmp/interop.sock") + 1));
   }
 
-  // An adopted file handle is open; closing it twice is idempotent.
+  // ANS: build sockaddr_un manually (as the kernel would return it) and
+  // roundtrip through net_endpoint.
   if (true) {
-    auto [reader, writer] = make_nb_pipe();
-    EXPECT_TRUE(reader.is_open());
-    EXPECT_TRUE(static_cast<bool>(reader));
-    EXPECT_NE(reader.handle(), os_file::invalid_file_handle);
-    EXPECT_TRUE(reader.close());
-    EXPECT_FALSE(reader.is_open());
-    EXPECT_FALSE(reader.close());
+    sockaddr_un raw{};
+    raw.sun_family = AF_UNIX;
+    // sun_path[0] = '\0' (already from zero-init); copy name after it.
+    const std::string_view name = "myabstract";
+    name.copy(raw.sun_path + 1, sizeof(raw.sun_path) - 1);
+    // Pass sizeof(sockaddr_un) as len: full buffer is the name.
+    const socklen_t len = sizeof(sockaddr_un);
+
+    net_endpoint ep{reinterpret_cast<const sockaddr&>(raw), len};
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.uds_path().size(), 107U);
+    EXPECT_EQ(ep.uds_path().substr(0, 10), name);
+
+    // Roundtrip via as_sockaddr_un().
+    auto raw2 = ep.as_sockaddr_un();
+    net_endpoint ep2{raw2};
+    EXPECT_EQ(ep2, ep);
+
+    // sockaddr_size() for ANS is sizeof(sockaddr_un).
+    EXPECT_EQ(ep.sockaddr_size(), sizeof(sockaddr_un));
   }
-
-  // Destructor closes an open file (no crash or leak).
-  if (true) {
-    auto [reader, writer] = make_nb_pipe();
-    (void)writer;
-  }
-}
-
-void OsFile_Move() {
-  // Move constructor transfers ownership; source becomes invalid.
-  if (true) {
-    auto [reader, writer] = make_nb_pipe();
-    const auto h = reader.handle();
-    os_file moved{std::move(reader)};
-    EXPECT_FALSE(reader.is_open());
-    EXPECT_TRUE(moved.is_open());
-    EXPECT_EQ(moved.handle(), h);
-  }
-
-  // Move assignment closes the destination and transfers the source.
-  if (true) {
-    auto [reader_a, writer_a] = make_nb_pipe();
-    auto [reader_b, writer_b] = make_nb_pipe();
-    const auto h = reader_a.handle();
-    reader_b = std::move(reader_a);
-    EXPECT_FALSE(reader_a.is_open());
-    EXPECT_TRUE(reader_b.is_open());
-    EXPECT_EQ(reader_b.handle(), h);
-  }
-
-  // Self-assignment is a no-op.
-  if (true) {
-    auto [reader, writer] = make_nb_pipe();
-    const auto h = reader.handle();
-    auto* p = &reader;
-    reader = std::move(*p);
-    EXPECT_TRUE(reader.is_open());
-    EXPECT_EQ(reader.handle(), h);
-  }
-}
-
-void OsFile_ReleaseFlags() {
-  // `release()` yields the handle without closing it; file becomes invalid.
-  if (true) {
-    auto [reader, writer] = make_nb_pipe();
-    const auto h = reader.release();
-    EXPECT_NE(h, os_file::invalid_file_handle);
-    EXPECT_FALSE(reader.is_open());
-    ::close(h);
-  }
-
-  // Flag helpers round-trip non-blocking mode through `fcntl`.
-  if (true) {
-    auto [reader, writer] = make_nb_pipe();
-    auto flags = reader.get_flags();
-    EXPECT_TRUE(flags.has_value());
-    EXPECT_TRUE(*flags & O_NONBLOCK);
-
-    EXPECT_TRUE(reader.set_nonblocking(false));
-    flags = reader.get_flags();
-    EXPECT_TRUE(flags.has_value());
-    EXPECT_FALSE(*flags & O_NONBLOCK);
-
-    EXPECT_TRUE(reader.set_nonblocking(true));
-    flags = reader.get_flags();
-    EXPECT_TRUE(flags.has_value());
-    EXPECT_TRUE(*flags & O_NONBLOCK);
-  }
-}
-
-void OsFile_WriteRead() {
-  auto [reader, writer] = make_nb_pipe();
-
-  // A small write drains fully and the read side sees the same bytes.
-  auto msg = std::string_view{"hello"};
-  EXPECT_TRUE(writer.write(msg));
-  EXPECT_TRUE(msg.empty());
-
-  std::string buf;
-  no_zero::enlarge_to(buf, 16);
-  EXPECT_TRUE(reader.read(buf));
-  EXPECT_EQ(buf, "hello");
-
-  // An empty non-blocking read is a soft failure: success with no bytes read.
-  no_zero::enlarge_to(buf, 16);
-  EXPECT_TRUE(reader.read(buf));
-  EXPECT_TRUE(buf.empty());
-  EXPECT_EQ(errno, EAGAIN);
-
-  // EOF leaves the caller's buffer unchanged and returns false.
-  EXPECT_TRUE(writer.close());
-  buf = "sentinel";
-  EXPECT_FALSE(reader.read(buf));
-  EXPECT_EQ(buf, "sentinel");
-}
-
-void IpSocket_Lifecycle() {
-  // Default-constructed socket is invalid.
-  if (true) {
-    ip_socket s;
-    EXPECT_FALSE(s.is_open());
-    EXPECT_FALSE(static_cast<bool>(s));
-    EXPECT_EQ(s.handle(), ip_socket::invalid_handle);
-    EXPECT_FALSE(s.close());
-  }
-
-  // A real socket is open; closing it twice is idempotent.
-  if (true) {
-    ip_socket s{AF_INET, SOCK_STREAM, 0};
-    EXPECT_TRUE(s.is_open());
-    EXPECT_TRUE(static_cast<bool>(s));
-    EXPECT_NE(s.handle(), ip_socket::invalid_handle);
-    EXPECT_TRUE(s.close());
-    EXPECT_FALSE(s.is_open());
-    EXPECT_FALSE(s.close());
-  }
-
-  // Destructor closes an open socket (no crash or leak).
-  if (true) { ip_socket s{AF_INET, SOCK_STREAM, 0}; }
-}
-
-void EventFd_Lifecycle() {
-  // Default-constructed eventfd is invalid.
-  if (true) {
-    event_fd e;
-    EXPECT_FALSE(e.is_open());
-    EXPECT_FALSE(static_cast<bool>(e));
-    EXPECT_EQ(e.handle(), event_fd::invalid_handle);
-    EXPECT_FALSE(e.close());
-  }
-
-  // A real eventfd is open; closing it twice is idempotent.
-  if (true) {
-    event_fd e{0};
-    EXPECT_TRUE(e.is_open());
-    EXPECT_TRUE(static_cast<bool>(e));
-    EXPECT_NE(e.handle(), event_fd::invalid_handle);
-    EXPECT_TRUE(e.close());
-    EXPECT_FALSE(e.is_open());
-    EXPECT_FALSE(e.close());
-  }
-
-  // Destructor closes an open eventfd (no crash or leak).
-  if (true) { event_fd e{0}; }
-}
-
-void Epoll_Lifecycle() {
-  // Default-constructed epoll handle is invalid.
-  if (true) {
-    epoll p;
-    EXPECT_FALSE(p.is_open());
-    EXPECT_FALSE(static_cast<bool>(p));
-    EXPECT_EQ(p.handle(), epoll::invalid_handle);
-    EXPECT_FALSE(p.close());
-  }
-
-  // A real epoll instance is open; closing it twice is idempotent.
-  if (true) {
-    epoll p{epoll::default_flags};
-    EXPECT_TRUE(p.is_open());
-    EXPECT_TRUE(static_cast<bool>(p));
-    EXPECT_NE(p.handle(), epoll::invalid_handle);
-    EXPECT_TRUE(p.close());
-    EXPECT_FALSE(p.is_open());
-    EXPECT_FALSE(p.close());
-  }
-
-  // Destructor closes an open epoll fd (no crash or leak).
-  if (true) { epoll p{epoll::default_flags}; }
-}
-
-void Epoll_Move() {
-  // Move constructor transfers ownership; source becomes invalid.
-  if (true) {
-    epoll a{epoll::default_flags};
-    const auto h = a.handle();
-    epoll b{std::move(a)};
-    EXPECT_FALSE(a.is_open());
-    EXPECT_TRUE(b.is_open());
-    EXPECT_EQ(b.handle(), h);
-  }
-
-  // Move assignment closes the destination and transfers the source.
-  if (true) {
-    epoll a{epoll::default_flags};
-    epoll b{epoll::default_flags};
-    const auto h = a.handle();
-    b = std::move(a);
-    EXPECT_FALSE(a.is_open());
-    EXPECT_TRUE(b.is_open());
-    EXPECT_EQ(b.handle(), h);
-  }
-
-  // Self-assignment is a no-op.
-  if (true) {
-    epoll a{epoll::default_flags};
-    const auto h = a.handle();
-    auto* p = &a;
-    a = std::move(*p);
-    EXPECT_TRUE(a.is_open());
-    EXPECT_EQ(a.handle(), h);
-  }
-}
-
-void Epoll_Release() {
-  // `release()` yields the handle without closing it; epoll becomes invalid.
-  if (true) {
-    epoll p{epoll::default_flags};
-    const auto h = p.release();
-    EXPECT_NE(h, epoll::invalid_handle);
-    EXPECT_FALSE(p.is_open());
-    ::close(h);
-  }
-}
-
-void Epoll_ControlWait() {
-  event_fd e{0};
-  epoll p{epoll::default_flags};
-
-  epoll_event add_ev{.events = EPOLLIN,
-      .data = epoll_data_t{.fd = e.handle()}};
-  EXPECT_TRUE(p.add(e.handle(), add_ev));
-
-  EXPECT_TRUE(e.notify(3));
-
-  epoll_event events[1]{};
-  ASSERT_EQ(p.wait(events, 1, 0), 1);
-  EXPECT_EQ(events[0].data.fd, e.handle());
-  EXPECT_TRUE(events[0].events & EPOLLIN);
-
-  auto value = e.read();
-  EXPECT_TRUE(value.has_value());
-  EXPECT_EQ(*value, 3U);
-
-  epoll_event mod_ev{.events = EPOLLOUT,
-      .data = epoll_data_t{.fd = e.handle()}};
-  EXPECT_TRUE(p.modify(e.handle(), mod_ev));
-  EXPECT_TRUE(p.remove(e.handle()));
-  EXPECT_EQ(p.wait(events, 1, 0), 0);
-}
-
-void EventFd_Move() {
-  // Move constructor transfers ownership; source becomes invalid.
-  if (true) {
-    event_fd a{0};
-    const auto h = a.handle();
-    event_fd b{std::move(a)};
-    EXPECT_FALSE(a.is_open());
-    EXPECT_TRUE(b.is_open());
-    EXPECT_EQ(b.handle(), h);
-  }
-
-  // Move assignment closes the destination and transfers the source.
-  if (true) {
-    event_fd a{0};
-    event_fd b{0};
-    const auto h = a.handle();
-    b = std::move(a);
-    EXPECT_FALSE(a.is_open());
-    EXPECT_TRUE(b.is_open());
-    EXPECT_EQ(b.handle(), h);
-  }
-
-  // Self-assignment is a no-op.
-  if (true) {
-    event_fd a{0};
-    const auto h = a.handle();
-    auto* p = &a;
-    a = std::move(*p);
-    EXPECT_TRUE(a.is_open());
-    EXPECT_EQ(a.handle(), h);
-  }
-}
-
-void EventFd_Release() {
-  // `release()` yields the handle without closing it; eventfd becomes invalid.
-  if (true) {
-    event_fd e{0};
-    const auto h = e.release();
-    EXPECT_NE(h, event_fd::invalid_handle);
-    EXPECT_FALSE(e.is_open());
-    ::close(h);
-  }
-}
-
-void EventFd_NotifyRead() {
-  // Writes accumulate and a read returns the total while resetting to zero.
-  if (true) {
-    event_fd e{0};
-    EXPECT_TRUE(e.notify());
-    EXPECT_TRUE(e.notify(4));
-
-    auto value = e.read();
-    EXPECT_TRUE(value.has_value());
-    EXPECT_EQ(*value, 5U);
-  }
-
-  // The out-parameter overload returns the current counter value.
-  if (true) {
-    event_fd e{7};
-    event_fd::counter_t value = 0;
-    EXPECT_TRUE(e.read(value));
-    EXPECT_EQ(value, 7U);
-  }
-}
-
-void EventFd_NonblockingEmptyRead() {
-  // Default-created eventfds are non-blocking, so an empty read returns
-  // nullopt.
-  event_fd e{0};
-  auto value = e.read();
-  EXPECT_FALSE(value.has_value());
-  EXPECT_EQ(errno, EAGAIN);
-}
-
-void IpSocket_Move() {
-  // Move constructor transfers ownership; source becomes invalid.
-  if (true) {
-    ip_socket a{AF_INET, SOCK_STREAM, 0};
-    const auto h = a.handle();
-    ip_socket b{std::move(a)};
-    EXPECT_FALSE(a.is_open());
-    EXPECT_TRUE(b.is_open());
-    EXPECT_EQ(b.handle(), h);
-  }
-
-  // Move assignment closes the destination and transfers the source.
-  if (true) {
-    ip_socket a{AF_INET, SOCK_STREAM, 0};
-    ip_socket b{AF_INET, SOCK_STREAM, 0};
-    const auto h = a.handle();
-    b = std::move(a);
-    EXPECT_FALSE(a.is_open());
-    EXPECT_TRUE(b.is_open());
-    EXPECT_EQ(b.handle(), h);
-  }
-
-  // Self-assignment is a no-op.
-  if (true) {
-    ip_socket a{AF_INET, SOCK_STREAM, 0};
-    const auto h = a.handle();
-    // Route through a pointer to defeat -Wself-move while still exercising
-    // the self-assignment path.
-    auto* p = &a;
-    a = std::move(*p);
-    EXPECT_TRUE(a.is_open());
-    EXPECT_EQ(a.handle(), h);
-  }
-}
-
-void IpSocket_Release() {
-  // `release()` yields the handle without closing it; socket becomes invalid.
-  if (true) {
-    ip_socket s{AF_INET, SOCK_STREAM, 0};
-    const auto h = s.release();
-    EXPECT_NE(h, ip_socket::invalid_handle);
-    EXPECT_FALSE(s.is_open());
-    ::close(h);
-  }
-}
-
-void IpSocket_Options() {
-  // Named option helpers round-trip through `get_option`.
-  if (true) {
-    ip_socket s{AF_INET, SOCK_STREAM, 0};
-
-    EXPECT_TRUE(s.set_reuse_addr(true));
-    auto v = s.get_option<int>(SOL_SOCKET, SO_REUSEADDR);
-    EXPECT_TRUE(v.has_value());
-    EXPECT_NE(*v, 0);
-
-    EXPECT_TRUE(s.set_reuse_addr(false));
-    v = s.get_option<int>(SOL_SOCKET, SO_REUSEADDR);
-    EXPECT_TRUE(v.has_value());
-    EXPECT_EQ(*v, 0);
-
-    EXPECT_TRUE(s.set_reuse_port(true));
-    EXPECT_TRUE(s.set_keepalive(true));
-    EXPECT_TRUE(s.set_nodelay(true));
-  }
-
-  // Buffer size helpers: kernel may round up, so just verify >= requested.
-  if (true) {
-    ip_socket s{AF_INET, SOCK_STREAM, 0};
-    EXPECT_TRUE(s.set_recv_buffer_size(65536));
-    EXPECT_TRUE(s.set_send_buffer_size(65536));
-    auto r = s.get_option<int>(SOL_SOCKET, SO_RCVBUF);
-    EXPECT_TRUE(r.has_value());
-    EXPECT_GE(*r, 65536);
-    auto t = s.get_option<int>(SOL_SOCKET, SO_SNDBUF);
-    EXPECT_TRUE(t.has_value());
-    EXPECT_GE(*t, 65536);
-  }
-}
-
-void IpSocket_Nonblocking() {
-  if (true) {
-    ip_socket s{AF_INET, SOCK_STREAM, 0};
-
-    EXPECT_TRUE(s.set_nonblocking(true));
-    EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
-
-    EXPECT_TRUE(s.set_nonblocking(false));
-    EXPECT_FALSE(s.get_flags().value_or(0) & O_NONBLOCK);
-  }
-}
-
-void IpSocket_SendRecv() {
-  int fds[2];
-  ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
-
-  ip_socket a{os_file{fds[0]}};
-  ip_socket b{os_file{fds[1]}};
-
-  auto msg = std::string_view{"hello"};
-  EXPECT_TRUE(a.send(msg));
-  EXPECT_TRUE(msg.empty());
-
-  std::string buf(16, '\0');
-  EXPECT_TRUE(b.recv(buf));
-  EXPECT_EQ(buf, "hello");
-
-  constexpr char raw_msg[] = "raw";
-  EXPECT_EQ(a.send(raw_msg, sizeof(raw_msg) - 1), 3);
-
-  char raw_buf[8]{};
-  EXPECT_EQ(b.recv(raw_buf, sizeof(raw_buf), 0), 3);
-  const auto raw_view = std::string_view{raw_buf, 3};
-  EXPECT_EQ(raw_view, "raw");
-}
-
-void IpSocket_BindListenAccept() {
-  // Bind a listening socket to a free loopback port.
-  ip_socket listener{AF_INET, SOCK_STREAM, 0};
-  EXPECT_TRUE(listener.is_open());
-  EXPECT_TRUE(listener.set_reuse_addr());
-  EXPECT_TRUE(listener.bind(ip_endpoint{ipv4_addr::loopback(), 0}));
-  EXPECT_TRUE(listener.listen());
-
-  // Retrieve the OS-assigned port via `getsockname`.
-  sockaddr_in bound{};
-  socklen_t bound_len = sizeof(bound);
-  EXPECT_EQ(::getsockname(listener.handle(),
-                reinterpret_cast<sockaddr*>(&bound), &bound_len),
-      0);
-  const uint16_t port = ntohs(bound.sin_port);
-  EXPECT_NE(port, 0U);
-
-  // Connect a client to the listening socket.
-  ip_socket client{AF_INET, SOCK_STREAM, 0};
-  EXPECT_TRUE(client.is_open());
-  EXPECT_TRUE(client.connect(ip_endpoint{ipv4_addr::loopback(), port}));
-
-  // Accept the connection on the listener side.
-  auto result = listener.accept();
-  EXPECT_TRUE(result.has_value());
-  EXPECT_TRUE(result->first.is_open());
-  EXPECT_TRUE(result->second.is_v4());
-  EXPECT_TRUE(result->second.v4()->is_loopback());
 }
 
 void DnsResolve_NumericIPv4() {
@@ -1027,23 +768,23 @@ void DnsResolveOne_Success() {
 void DnsResolveOne_Failure() {
   // An unresolvable host returns a default-constructed (invalid) endpoint.
   const auto ep = dns_resolver::find_one("no-such-host.invalid", 80);
-  EXPECT_EQ(ep, ip_endpoint{});
+  EXPECT_EQ(ep, net_endpoint{});
 }
 
-// Helper: create a connected socketpair and wrap each end in an `ip_socket`.
-// Caller must close both sockets when done (RAII via `ip_socket` destructor).
+// Helper: create a connected socketpair and wrap each end in a `net_socket`.
+// Caller must close both sockets when done (RAII via `net_socket` destructor).
 // Plain struct (not `std::pair`) so structured bindings use direct member
 // access rather than `std::tuple_element<>::type`.
 struct sockpair_t {
-  ip_socket a;
-  ip_socket b;
+  net_socket a;
+  net_socket b;
 };
 // Make a pair of connected sockets, in non-blocking mode.
 static sockpair_t make_nb_sockpair() {
   int fds[2];
   if (::socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, fds) != 0)
     return {};
-  return {ip_socket{os_file{fds[0]}}, ip_socket{os_file{fds[1]}}};
+  return {net_socket{os_file{fds[0]}}, net_socket{os_file{fds[1]}}};
 }
 
 // Minimal `io_conn` that counts how many times each virtual is called.
@@ -1060,13 +801,13 @@ struct counting_conn: io_conn {
 
 void IoLoop_Lifecycle() {
   // Construction succeeds; an empty poll returns 0 events.
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   EXPECT_EQ(loop.run_once(0), 0);
 }
 
 void IoLoop_Post() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
 
   int fired = 0;
@@ -1079,7 +820,7 @@ void IoLoop_Post() {
 }
 
 void IoLoop_PreStartWorkIsQueued() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1107,7 +848,7 @@ void IoLoop_PreStartWorkIsQueued() {
 // `unregister_socket` stops further dispatch. Double-register and
 // double-unregister both return false.
 void IoLoop_RegisterUnregister() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1137,7 +878,7 @@ void IoLoop_RegisterUnregister() {
 // `set_writable(true)` arms `EPOLLOUT`; the kernel fires it when the kernel
 // send buffer has space, which it does immediately on a fresh socketpair.
 void IoLoop_SetWritable() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1160,7 +901,7 @@ void IoLoop_SetWritable() {
 }
 
 void IoLoop_SetReadable() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1193,7 +934,7 @@ void IoLoop_SetReadable() {
 // called but `on_writable` is skipped (the early-return path in
 // `dispatch_event`).
 void IoLoop_ErrorSkipsWritable() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1219,7 +960,7 @@ void IoLoop_DefaultOnError() {
     // on_error not overridden; default calls on_readable()
   };
 
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1233,8 +974,8 @@ void IoLoop_DefaultOnError() {
 }
 
 void IoLoop_IsLoopThreadIsPerLoop() {
-  io_loop loop_a;
-  io_loop loop_b;
+  epoll_loop loop_a;
+  epoll_loop loop_b;
   auto loop_b_scope = loop_b.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
   auto conn = std::make_shared<counting_conn>(std::move(a));
@@ -1267,7 +1008,7 @@ void IoLoop_IsLoopThreadIsPerLoop() {
 }
 
 void IoLoop_WaitUntilRunning() {
-  io_loop loop;
+  epoll_loop loop;
 
   std::thread loop_thread{[&] { loop.run(10); }};
   EXPECT_TRUE(loop.wait_until_running(1000));
@@ -1277,7 +1018,7 @@ void IoLoop_WaitUntilRunning() {
 }
 
 void IoLoop_WaitUntilRunning_TimesOut() {
-  io_loop loop;
+  epoll_loop loop;
   EXPECT_FALSE(loop.wait_until_running(10));
 }
 
@@ -1287,7 +1028,7 @@ void IoLoop_PostAndWait_StopRace() {
   std::atomic_int callback_runs{0};
 
   for (int i = 0; i < iterations; ++i) {
-    io_loop loop;
+    epoll_loop loop;
     notifiable<bool> release_blocker{false};
     std::atomic_bool blocker_entered{false};
     std::atomic_bool waiter_started{false};
@@ -1327,11 +1068,11 @@ void IoLoop_PostAndWait_StopRace() {
 }
 
 void TcpConn_Lifecycle() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
-  const ip_endpoint remote{ipv4_addr::loopback(), 9999};
+  const net_endpoint remote{ipv4_addr::loopback, 9999};
   {
     tcp_conn conn{loop, std::move(a), remote, {}};
     // open_ is set in the state constructor before the post fires.
@@ -1345,7 +1086,7 @@ void TcpConn_Lifecycle() {
 }
 
 void TcpConn_Receive() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1363,7 +1104,7 @@ void TcpConn_Receive() {
 }
 
 void TcpConn_SetRecvBufSize() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1396,7 +1137,7 @@ void TcpConn_SetRecvBufSize() {
 }
 
 void TcpConn_PeerClose() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1427,7 +1168,7 @@ void TcpConn_PeerClose() {
 }
 
 void TcpConn_Send() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1446,7 +1187,7 @@ void TcpConn_Send() {
 }
 
 void TcpConn_ManualClose() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1466,7 +1207,7 @@ void TcpConn_ManualClose() {
 }
 
 void TcpConn_DrainAfterBufferedSend() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1507,7 +1248,7 @@ void TcpConn_DrainAfterBufferedSend() {
 }
 
 void TcpConn_DrainAfterImmediateSend() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1526,7 +1267,7 @@ void TcpConn_DrainAfterImmediateSend() {
 }
 
 void TcpConn_AsyncCbRead() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1548,7 +1289,7 @@ void TcpConn_AsyncCbRead() {
 }
 
 void TcpConn_AsyncCbRead_PreservesEarlyData() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1572,7 +1313,7 @@ void TcpConn_AsyncCbRead_PreservesEarlyData() {
 }
 
 void TcpConn_AsyncCbRead_DuplicateRejected() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1593,7 +1334,7 @@ void TcpConn_AsyncCbRead_DuplicateRejected() {
 }
 
 void TcpConn_AsyncCbRead_PeerClose() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1624,7 +1365,7 @@ void TcpConn_AsyncCbRead_PeerClose() {
 }
 
 void TcpConn_AsyncCbWrite() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1648,7 +1389,7 @@ void TcpConn_AsyncCbWrite() {
 }
 
 void TcpConn_AsyncCbWrite_Failure() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1673,7 +1414,7 @@ void TcpConn_AsyncCbWrite_Failure() {
 }
 
 void TcpConn_ShutdownWrite() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1698,7 +1439,7 @@ void TcpConn_ShutdownWrite() {
 }
 
 void TcpConn_ShutdownRead() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1726,7 +1467,7 @@ void TcpConn_ShutdownRead() {
 }
 
 void TcpConn_ShutdownBothCloses() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1745,7 +1486,7 @@ void TcpConn_ShutdownBothCloses() {
 }
 
 void TcpConn_AsyncCbWrite_DuplicateRejected() {
-  io_loop loop;
+  epoll_loop loop;
   auto [a, b] = make_nb_sockpair();
 
   constexpr int small_buf = 4096;
@@ -1789,7 +1530,7 @@ void TcpConn_AsyncCbWrite_DuplicateRejected() {
 }
 
 void TcpConn_GracefulClose() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1827,7 +1568,7 @@ void TcpConn_GracefulClose() {
 }
 
 void TcpConn_CloseThenDestructStaysGraceful() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1866,7 +1607,7 @@ void TcpConn_CloseThenDestructStaysGraceful() {
 }
 
 void TcpConn_DestructorHangsUp() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1913,7 +1654,7 @@ void LoopTask_FireAndForget() {
 
 // Verify that `async_read` delivers data to a coroutine.
 void TcpConn_AsyncRead() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1941,7 +1682,7 @@ void TcpConn_AsyncRead() {
 }
 
 void TcpConn_AsyncRead_PreservesEarlyData() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1972,7 +1713,7 @@ void TcpConn_AsyncRead_PreservesEarlyData() {
 }
 
 void TcpConn_AsyncRead_StopsBetweenCalls() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -2021,7 +1762,7 @@ void TcpConn_AsyncRead_StopsBetweenCalls() {
 // Verify that `async_read` returns an empty string when the peer closes
 // the connection before data arrives.
 void TcpConn_AsyncRead_PeerClose() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -2056,7 +1797,7 @@ void TcpConn_AsyncRead_PeerClose() {
 // Verify that `async_send` delivers bytes to the peer and suspends until
 // the queue drains.
 void TcpConn_AsyncSend() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -2089,25 +1830,19 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     Ipv4Addr_Comparison, Ipv4Addr_Formatting, Ipv4Addr_PosixInterop,
     Ipv6Addr_Construction, Ipv6Addr_Parse, Ipv6Addr_Classification,
     Ipv6Addr_Comparison, Ipv6Addr_Formatting, Ipv6Addr_PosixInterop,
-    IpEndpoint_Construction, IpEndpoint_Parse, IpEndpoint_Comparison,
-    IpEndpoint_Formatting, IpEndpoint_PosixInterop, OsFile_Lifecycle,
-    OsFile_Move, OsFile_ReleaseFlags, OsFile_WriteRead, IpSocket_Lifecycle,
-    EventFd_Lifecycle, Epoll_Lifecycle, Epoll_Move, Epoll_Release,
-    Epoll_ControlWait, EventFd_Move, EventFd_Release, EventFd_NotifyRead,
-    EventFd_NonblockingEmptyRead, IpSocket_Move, IpSocket_Release,
-    IpSocket_Options, IpSocket_Nonblocking, IpSocket_SendRecv,
-    IpSocket_BindListenAccept, DnsResolve_NumericIPv4, DnsResolve_NumericIPv6,
-    DnsResolve_Localhost, DnsResolve_FamilyFilter, DnsResolve_InvalidHost,
-    DnsResolveOne_Success, DnsResolveOne_Failure, IoLoop_Lifecycle,
-    IoLoop_Post, IoLoop_PreStartWorkIsQueued, IoLoop_RegisterUnregister,
-    IoLoop_SetWritable, IoLoop_SetReadable, IoLoop_ErrorSkipsWritable,
-    IoLoop_DefaultOnError, IoLoop_IsLoopThreadIsPerLoop,
-    IoLoop_WaitUntilRunning, IoLoop_WaitUntilRunning_TimesOut,
-    IoLoop_PostAndWait_StopRace, TcpConn_Lifecycle, TcpConn_Receive,
-    TcpConn_SetRecvBufSize, TcpConn_PeerClose, TcpConn_Send,
-    TcpConn_ManualClose, TcpConn_DrainAfterBufferedSend,
-    TcpConn_DrainAfterImmediateSend, TcpConn_AsyncCbRead,
-    TcpConn_AsyncCbRead_PreservesEarlyData,
+    NetEndpoint_Construction, NetEndpoint_Parse, NetEndpoint_Comparison,
+    NetEndpoint_Formatting, NetEndpoint_PosixInterop, DnsResolve_NumericIPv4,
+    DnsResolve_NumericIPv6, DnsResolve_Localhost, DnsResolve_FamilyFilter,
+    DnsResolve_InvalidHost, DnsResolveOne_Success, DnsResolveOne_Failure,
+    IoLoop_Lifecycle, IoLoop_Post, IoLoop_PreStartWorkIsQueued,
+    IoLoop_RegisterUnregister, IoLoop_SetWritable, IoLoop_SetReadable,
+    IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError,
+    IoLoop_IsLoopThreadIsPerLoop, IoLoop_WaitUntilRunning,
+    IoLoop_WaitUntilRunning_TimesOut, IoLoop_PostAndWait_StopRace,
+    TcpConn_Lifecycle, TcpConn_Receive, TcpConn_SetRecvBufSize,
+    TcpConn_PeerClose, TcpConn_Send, TcpConn_ManualClose,
+    TcpConn_DrainAfterBufferedSend, TcpConn_DrainAfterImmediateSend,
+    TcpConn_AsyncCbRead, TcpConn_AsyncCbRead_PreservesEarlyData,
     TcpConn_AsyncCbRead_DuplicateRejected, TcpConn_AsyncCbRead_PeerClose,
     TcpConn_AsyncCbWrite, TcpConn_AsyncCbWrite_Failure,
     TcpConn_AsyncCbWrite_DuplicateRejected, TcpConn_ShutdownWrite,

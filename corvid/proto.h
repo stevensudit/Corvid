@@ -22,22 +22,17 @@
 //                formatting
 //  ipv6_addr   - IPv6 address type with construction, classification, and
 //                formatting
-//  ip_endpoint - IP address + port pair for IPv4 or IPv6
-//  epoll       - RAII Linux epoll handle with control and wait helpers
-//  event_fd    - RAII Linux eventfd handle with typed counter I/O
-//  ip_socket   - RAII socket handle with type-safe option methods
-//  dns_resolve - thin wrapper around `getaddrinfo` returning a list of
-//                `ip_endpoint` values
-//  io_loop     - single-threaded epoll-based I/O event loop
+//  net_endpoint - IP address + port pair for IPv4 or IPv6, or a UDS/ANS path
+//  dns_resolver - thin wrapper around `getaddrinfo` returning a list of
+//                `net_endpoint` values
+//  epoll_loop     - single-threaded epoll-based I/O event loop
 //  tcp_conn    - non-blocking TCP connection with callback-based async I/O
-//  loop_task   - fire-and-forget coroutine return type for `io_loop` handlers
+//  loop_task   - fire-and-forget coroutine return type for `epoll_loop`
+//  handlers
 #include "proto/ipv4_addr.h"
 #include "proto/ipv6_addr.h"
-#include "proto/ip_endpoint.h"
-#include "proto/epoll.h"
-#include "proto/event_fd.h"
-#include "proto/ip_socket.h"
-#include "proto/dns_resolve.h"
-#include "proto/io_loop.h"
+#include "proto/net_endpoint.h"
+#include "proto/dns_resolver.h"
+#include "proto/epoll_loop.h"
 #include "proto/tcp_conn.h"
 #include "proto/loop_task.h"

@@ -20,7 +20,7 @@
 
 namespace corvid { inline namespace proto {
 
-// Fire-and-forget coroutine return type for use with `io_loop`-driven code.
+// Fire-and-forget coroutine return type for use with `epoll_loop`-driven code.
 //
 // `loop_task` is the minimal coroutine machinery needed to write async I/O
 // handlers using `co_await`. The returned `loop_task` value is intentionally

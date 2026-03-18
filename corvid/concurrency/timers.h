@@ -27,9 +27,7 @@
 #include "sync_lock.h"
 #include "tombstone.h"
 
-namespace corvid::timers_ns {
-
-using namespace corvid::atomic_tomb;
+namespace corvid { inline namespace concurrency {
 
 //
 // Thread-safe timers.
@@ -347,7 +345,7 @@ public:
       }
 
       // If next time is never, we're canceled.
-      if (next_at == time_point_t::max()) event.canceled.kill();
+      if (next_at == time_point_t::max()) (void)event.canceled.kill();
 
       // If the event was canceled, don't reschedule it.
       if (event.canceled) continue;
@@ -367,7 +365,7 @@ public:
 
       // If it's not scheduled, then there's no reason to keep it.
       if (next_at <= invocation.now) {
-        event.canceled.kill();
+        (void)event.canceled.kill();
         continue;
       }
 
@@ -401,4 +399,4 @@ private:
   scheduled_queue_t scheduled_events_;
 };
 
-} // namespace corvid::timers_ns
+}} // namespace corvid::concurrency

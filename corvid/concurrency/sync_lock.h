@@ -15,12 +15,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include "containers_shared.h"
+#include "../containers/containers_shared.h"
 #include <atomic>
 #include <mutex>
 #include <cassert>
 
-namespace corvid { inline namespace container { inline namespace sync_lock {
+namespace corvid { inline namespace concurrency { inline namespace sync_lock {
 
 // Synchronization object for use with containers.
 //
@@ -184,4 +184,4 @@ private:
   mutable const synchronizer* sync_{};
 };
 
-}}} // namespace corvid::container::sync_lock
+}}} // namespace corvid::concurrency::sync_lock

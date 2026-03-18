@@ -60,4 +60,10 @@ enum class close_mode : bool { graceful = false, forceful = true };
 // immediately when they would otherwise wait.
 enum class execution : bool { nonblocking = false, blocking = true };
 
+// Whether to treat the connection as a datagram or stream.
+enum class message_style : bool { datagram = false, stream = true };
+
+// Whether to treat an eventfd as a counter (default) or a semaphore.
+enum class event_mode : bool { counter = false, semaphore = true };
+
 }}} // namespace corvid::enums::bool_enums

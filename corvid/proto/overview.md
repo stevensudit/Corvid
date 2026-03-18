@@ -26,16 +26,20 @@ multicast, private ranges, etc. Comparison operators and `std::format` /
 `std::ostream` integration are provided. On POSIX platforms each type
 interops with its corresponding `in_addr` / `in6_addr` struct.
 
-### `ip_endpoint`
+### `net_endpoint`
 
-Address + port pair in a tagged union of `sockaddr_in` and `sockaddr_in6`.
-Default-constructs to an invalid state (checkable via `is_valid()`). Parses
-`1.2.3.4:80` and `[2001:db8::1]:80` notation and formats back to the same.
-Named factories `any_v4()` and `any_v6()` produce wildcard bind addresses.
-On POSIX, interops with `sockaddr_in`, `sockaddr_in6`, and
-`sockaddr_storage`.
+ Tagged union over the concrete socket address types used by the module
+ (IPv4, IPv6, and Unix domain / abstract-namespace sockets). It
+ default-constructs to an empty state (checkable via `empty()`). For TCP/IP
+ endpoints it parses "1.2.3.4:80" and "[2001:db8::1]:80" notation and formats
+ back to the same. Unix domain endpoints are represented as path-like
+ strings, with Linux abstract-namespace sockets distinguished in their
+ textual form (for example, by a leading '@'). Named factories `any_v4()`
+ and `any_v6()` produce wildcard bind addresses for the IP variants. On
+ POSIX, `net_endpoint` interops with the corresponding `sockaddr_in`,
+ `sockaddr_in6`, Unix-domain `sockaddr` type, and `sockaddr_storage`.
 
-### `ip_socket`
+### `net_socket`
 
 RAII socket handle derived from `os_file`; movable, non-copyable; inherits
 fd-level operations directly. Type-safe
@@ -45,19 +49,19 @@ wrap `setsockopt` / `getsockopt`. Socket I/O adds `send(string_view&)` and
 helpers cover the most common options: `set_reuse_addr`, `set_reuse_port`,
 `set_nodelay`, `set_keepalive`, `set_recv_buffer_size`,
 `set_send_buffer_size`. Can adopt an existing `os_file` by move, or create a socket directly via
-`ip_socket(domain, type, protocol)`.
+`net_socket(domain, type, protocol)`.
 
 ### `dns_resolver`
 
-Resolves hostnames to `ip_endpoint` values via `getaddrinfo`. `find_all()`
-returns a `std::vector<ip_endpoint>` with an optional address-family filter
+Resolves hostnames to `net_endpoint` values via `getaddrinfo`. `find_all()`
+returns a `std::vector<net_endpoint>` with an optional address-family filter
 (`AF_UNSPEC`, `AF_INET`, or `AF_INET6`) and `max_results` cap. `find_one()`
-returns the first result as an `ip_endpoint`, or a default-constructed
+returns the first result as a `net_endpoint`, or a default-constructed
 (invalid) endpoint on failure.
 
 ## Layer 2: TCP I/O Loop
 
-### `io_loop`
+### `epoll_loop`
 
 `epoll`-based I/O event loop. `register_socket(sock, shared_ptr<io_conn>)`
 accepts a pre-built `io_conn` object (used by `tcp_conn` to eliminate a
@@ -73,7 +77,7 @@ handler-lambda allocation per connection.
 
 ### `tcp_conn`
 
-Non-blocking TCP connection driven by an `io_loop`. Implemented as a movable
+Non-blocking TCP connection driven by an `epoll_loop`. Implemented as a movable
 handle owning a `shared_ptr<state>`, where `state` inherits from `io_conn` --
 one heap allocation per connection.
 
@@ -128,7 +132,7 @@ always complete, reporting success or failure.
 
 ### `loop_task`
 
-Fire-and-forget coroutine return type for `io_loop`-driven handlers. The
+Fire-and-forget coroutine return type for `epoll_loop`-driven handlers. The
 coroutine body starts eagerly on the call site (`initial_suspend` returns
 `suspend_never`) and the frame self-destroys on completion (`final_suspend`
 returns `suspend_never`). Unhandled exceptions call `std::terminate`.
