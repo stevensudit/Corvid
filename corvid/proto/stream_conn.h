@@ -45,12 +45,14 @@ using namespace corvid::strings::no_zero_funcs;
 //                     buffer resized to the number of bytes read; the user may
 //                     `std::move` from it to steal the allocation without an
 //                     extra copy. The reference is valid only during the call.
-//  `on_drain()`    -- fired when a `send()` finishes with no outbound bytes
-//                     left pending. This includes both immediate writes and
-//                     buffered (`EPOLLOUT`-driven) drains.
-//  `on_close()`    -- fired once when the read side closes: either peer EOF or
-//                     an I/O error. Writes may still be possible (half-close);
-//                     call `close()` or `hangup()` to shut down fully.
+//  `on_drain()`    -- fired when writes become available: when a `send()`
+//                     finishes with no outbound bytes left pending (covering
+//                     both immediate writes and buffered `EPOLLOUT`-driven
+//                     drains), or when an async `connect()` succeeds.
+//  `on_close()`    -- fired once when the connection closes: peer EOF, an I/O
+//                     error, or a failed async `connect()`. For a normal close
+//                     writes may still be possible (half-close); call
+//                     `close()` or `hangup()` to shut down fully.
 struct stream_conn_handlers {
   std::function<void(std::string&)> on_data = nullptr;
   std::function<void()> on_drain = nullptr;
@@ -65,9 +67,10 @@ struct stream_conn_handlers {
 //
 // 2. Async connect: use the static `stream_conn::connect()` factory. It
 //    creates the socket, optionally binds the local end, calls `connect(2)`,
-//    and registers with the loop. `h.on_drain` fires when the connection is
-//    established and writes are open; `h.on_close` fires on failure. The
-//    factory throws `std::system_error` if the socket cannot be created,
+//    and registers with the loop. When the kernel reports the outcome,
+//    `on_writable()` or `on_error()` calls `do_finish_connect()`, which either
+//    transitions to connected state (notifying any write waiter) or closes the
+//    connection. Returns `std::nullopt` if the socket cannot be created,
 //    bound, or if `connect(2)` fails synchronously.
 //
 // `stream_conn` is a movable handle that wraps a `shared_ptr` to internal
@@ -85,22 +88,23 @@ struct stream_conn_handlers {
 //
 // Send path: `send(std::string&&)` takes ownership of the caller's string.
 // If the send queue is empty, an immediate `::write` is attempted. If all
-// bytes are written, the string is discarded and `on_drain` fires immediately
-// because no outbound bytes remain pending. Otherwise the string is pushed
-// onto `send_queue_` (a `std::deque<std::string>`) and `head_span_` is set to
-// the unsent tail; `EPOLLOUT` is armed. Subsequent `EPOLLOUT` events drive
-// `do_flush_send_buf()`. When the queue empties, `EPOLLOUT` is disarmed and
-// `on_drain` fires. `std::deque` is used instead of `std::vector` because
-// `push_back` does not move existing elements, keeping `head_span_` (which
-// points into `front()`) valid.
+// bytes are written, the string is discarded and `on_writable()` notifies any
+// pending write waiter immediately because no outbound bytes remain pending.
+// Otherwise the string is pushed onto `send_queue_` (a
+// `std::deque<std::string>`) and `head_span_` is set to the unsent tail;
+// `EPOLLOUT` is armed. Subsequent `EPOLLOUT` events drive
+// `do_flush_send_buf()` via `on_writable()`. When the queue empties,
+// `EPOLLOUT` is disarmed and `on_writable()` notifies any pending write
+// waiter. `std::deque` is used instead of `std::vector` because `push_back`
+// does not move existing elements, keeping `head_span_` (which points into
+// `front()`) valid.
 //
-// Receive path: `stream_conn` arms `EPOLLIN` only when a persistent `on_data`
-// handler exists or a one-shot read waiter is pending. When `EPOLLIN` fires,
-// the receive buffer is resized to `recv_buf_capacity_` bytes via
-// `resize_and_overwrite` (C++23, no zero-initialization), filled by `::read`,
-// then trimmed (without reallocating) to the actual count before delivery. The
-// user may `std::move` from the buffer to steal its allocation; the next read
-// reallocates if needed.
+// Receive path: `EPOLLIN` is armed while a one-shot read waiter is active or
+// a persistent `on_data` handler is installed. When `EPOLLIN` fires,
+// `on_readable()` fills the receive buffer via `resize_and_overwrite` (C++23,
+// no zero-initialization) and delivers the data to any pending read waiter.
+// The user may `std::move` from the buffer to steal its allocation; the next
+// read reallocates if needed.
 //
 // Close: `close()` is graceful. If the send queue is non-empty, the socket
 // closes only after it drains. `hangup()` discards pending outbound data and
@@ -116,9 +120,10 @@ struct stream_conn_handlers {
 //   direction.
 // - Coroutine waiters and per-call callback waiters share the same one-shot
 //   waiter slot, so they are mutually exclusive.
-// - Persistent handlers (`on_data`, `on_drain`, `on_close`) are fallback
-//   notifications used only when no one-shot waiter is pending for that
-//   direction.
+// - Persistent handlers (`on_data`, `on_drain`, `on_close`) are the fallback
+//   notification used only when no one-shot waiter is pending for that
+//   direction. `on_readable()`, `on_writable()`, and `on_error()` dispatch to
+//   whichever notification mechanism is currently registered.
 //
 // Parallel attempts fail cleanly rather than replacing an existing waiter:
 // - `async_cb_read()` / `async_cb_write()` return `false`.
@@ -178,28 +183,26 @@ public:
   // Initiate an async connection to `remote`. Creates a non-blocking socket
   // matching `remote`'s address family, optionally binds the local end to
   // `local` (if non-empty), then calls `connect(2)`. The socket is registered
-  // with `EPOLLOUT`. When the connection is established, `h.on_drain` fires
-  // (signaling that writes are open); if it fails, `h.on_close` fires via
-  // the normal close path.
+  // with `EPOLLOUT`. When the kernel reports the outcome, `on_writable()` or
+  // `on_error()` calls `do_finish_connect()`, which either transitions to
+  // connected state (notifying any pending write waiter) or closes the
+  // connection (notifying any pending read waiter and firing `on_close`).
   //
-  // Throws `std::system_error` if the socket cannot be created, `local`
-  // cannot be bound, or `connect(2)` fails synchronously (hard error).
-  // Async failure (e.g., `ECONNREFUSED` delivered later) is reported via
-  // `h.on_close`.
-  [[nodiscard]] static stream_conn connect(epoll_loop& loop,
+  // Returns `std::nullopt` if the socket cannot be created, `local` cannot be
+  // bound, or `connect(2)` fails synchronously; `errno` is set by the failing
+  // syscall. Async failure (e.g., `ECONNREFUSED` delivered later) goes through
+  // the normal close path.
+  [[nodiscard]] static std::optional<stream_conn> connect(epoll_loop& loop,
       const net_endpoint& remote, stream_conn_handlers&& h = {},
       const net_endpoint& local = net_endpoint::invalid,
       size_t recv_buf_size = default_recv_buf_size) {
     auto sock = make_sock_for(remote);
-    if (!sock.is_open())
-      throw std::system_error(errno, std::generic_category(), "socket");
+    if (!sock.is_open()) return std::nullopt;
 
-    if (local && !sock.bind(local))
-      throw std::system_error(errno, std::generic_category(), "bind");
+    if (local && !sock.bind(local)) return std::nullopt;
 
     const auto result = sock.connect(remote);
-    if (result && !*result)
-      throw std::system_error(errno, std::generic_category(), "connect");
+    if (result && !*result) return std::nullopt;
 
     return stream_conn{loop, std::move(sock), remote, std::move(h),
         recv_buf_size, /*connecting=*/true};
@@ -656,9 +659,10 @@ private:
     // registration map, keeping the state alive as long as the fd is
     // registered, even if its `stream_conn` is destructed.
     //
-    // In connecting mode, arms `EPOLLOUT` (to detect connect completion) and
-    // suppresses `EPOLLIN` until the connect resolves. In connected mode,
-    // arms `EPOLLIN` only when an `on_data` handler is installed.
+    // In connecting mode, arms `EPOLLOUT` (so the first `on_writable()` or
+    // `on_error()` can call `do_finish_connect()`) and suppresses `EPOLLIN`
+    // until the connect resolves. In connected mode, arms `EPOLLIN` only while
+    // a read waiter is active or a persistent `on_data` handler is installed.
     void register_with_loop() {
       if (!open_.load(std::memory_order::relaxed)) return;
       const bool want_read =
@@ -667,11 +671,12 @@ private:
     }
 
     // Resolve a pending async connect by checking `SO_ERROR`. On failure,
-    // closes the connection (firing `on_close` via `do_close_now`). On
-    // success, transitions to connected state: arms reads if `on_data` is set,
-    // and either fires `on_drain` immediately (if the send queue is empty) or
-    // leaves `EPOLLOUT` armed so `do_flush_send_buf` can drain and fire it.
-    // Called from `on_writable` and `on_error` while `connecting_` is set.
+    // closes the connection (which notifies any pending read waiter and fires
+    // `on_close`). On success, transitions to connected state: arms
+    // `on_readable()` if a read waiter is active, then notifies any pending
+    // write waiter immediately (if the send queue is empty) or leaves
+    // `EPOLLOUT` armed so the next `on_writable()` call can flush and notify.
+    // Called from `on_writable()` and `on_error()` while `connecting_` is set.
     void do_finish_connect() {
       assert(loop_.is_loop_thread());
       assert(connecting_);
@@ -726,7 +731,7 @@ private:
     }
 
     // Read available data into `recv_buf_` without zero-initializing it
-    // (C++23 `resize_and_overwrite`), then deliver to `on_data`.
+    // (C++23 `resize_and_overwrite`), then deliver to any pending read waiter.
     bool handle_readable() {
       if (!read_open_.load(std::memory_order::relaxed)) return false;
 
@@ -783,8 +788,7 @@ private:
       // If fully written, nothing to queue.
       if (buf_view.empty()) {
         // Let `async_send()` keep its inline-resume fast path for immediate
-        // completion; callback-based waiters and persistent handlers still
-        // notify synchronously here.
+        // completion; other write waiters are notified synchronously here.
         if (pending_write_.coro) return true;
         notify_drained();
         return true;
@@ -803,8 +807,8 @@ private:
 
     // Drain `send_queue_` as far as `::write` allows, advancing `head_span_`.
     // When a string is fully sent, `pop_front()` destroys it immediately.
-    // Disarms `EPOLLOUT` and calls `on_drain` (or `do_close_now()` if
-    // `closing_`) when the queue empties.
+    // Disarms `EPOLLOUT` and notifies any pending write waiter when the queue
+    // empties (or calls `do_close_now()` if a graceful close was requested).
     bool do_flush_send_buf() {
       // Guard against being called after `do_close_now()` (e.g., when both
       // `EPOLLIN` and `EPOLLOUT` fire in the same event and the readable
@@ -841,7 +845,7 @@ private:
         return false;
       }
 
-      // Inform the user that all outbound data has drained.
+      // Notify any pending write waiter that all outbound data has drained.
       notify_drained();
       return true;
     }
