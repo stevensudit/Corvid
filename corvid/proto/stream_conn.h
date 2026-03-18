@@ -196,7 +196,7 @@ public:
       const net_endpoint& remote, stream_conn_handlers&& h = {},
       const net_endpoint& local = net_endpoint::invalid,
       size_t recv_buf_size = default_recv_buf_size) {
-    auto sock = make_sock_for(remote);
+    auto sock = net_socket::create_for(remote);
     if (!sock.is_open()) return std::nullopt;
 
     if (local && !sock.bind(local)) return std::nullopt;
@@ -995,16 +995,6 @@ private:
     state_ = std::make_shared<state>(loop, std::move(sock), remote,
         std::move(h), recv_buf_size, connecting);
     loop.post([p = state_] { p->register_with_loop(); });
-  }
-
-  // Create a non-blocking socket of the appropriate type for `ep`.
-  // Returns an empty (invalid) `net_socket` if `ep` is empty or has an
-  // unrecognized family.
-  [[nodiscard]] static net_socket make_sock_for(const net_endpoint& ep) {
-    if (ep.is_v4()) return net_socket::create_ipv4();
-    if (ep.is_v6()) return net_socket::create_ipv6();
-    if (ep.is_uds()) return net_socket::create_uds();
-    return {};
   }
 
   // Execute the lambda `fn` on the loop thread.

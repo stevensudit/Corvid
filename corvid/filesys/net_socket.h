@@ -65,10 +65,7 @@ public:
   [[nodiscard]] static net_socket
   create_ipv4(execution exec = execution::nonblocking,
       message_style style = message_style::stream) noexcept {
-    int type = (style == message_style::stream) ? SOCK_STREAM : SOCK_DGRAM;
-    type |= SOCK_CLOEXEC;
-    if (exec == execution::nonblocking) type |= SOCK_NONBLOCK;
-    return net_socket{AF_INET, type, 0};
+    return do_create(AF_INET, exec, style);
   }
 
   // Create an IPv6 socket. Defaults to non-blocking TCP (`SOCK_STREAM |
@@ -77,10 +74,7 @@ public:
   [[nodiscard]] static net_socket
   create_ipv6(execution exec = execution::nonblocking,
       message_style style = message_style::stream) noexcept {
-    int type = (style == message_style::stream) ? SOCK_STREAM : SOCK_DGRAM;
-    type |= SOCK_CLOEXEC;
-    if (exec == execution::nonblocking) type |= SOCK_NONBLOCK;
-    return net_socket{AF_INET6, type, 0};
+    return do_create(AF_INET6, exec, style);
   }
 
   // Create a Unix domain socket. Defaults to non-blocking stream
@@ -90,10 +84,17 @@ public:
   [[nodiscard]] static net_socket
   create_uds(execution exec = execution::nonblocking,
       message_style style = message_style::stream) noexcept {
-    int type = (style == message_style::stream) ? SOCK_STREAM : SOCK_DGRAM;
-    type |= SOCK_CLOEXEC;
-    if (exec == execution::nonblocking) type |= SOCK_NONBLOCK;
-    return net_socket{AF_UNIX, type, 0};
+    return do_create(AF_UNIX, exec, style);
+  }
+
+  // Create a socket whose address family matches `addr`. The family is read
+  // from `addr.ss_family`; if it is unrecognized, the underlying `socket(2)`
+  // call will fail and the returned socket will not be open. Defaults to
+  // non-blocking stream (`SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC`).
+  [[nodiscard]] static net_socket create_for(const sockaddr_storage& addr,
+      execution exec = execution::nonblocking,
+      message_style style = message_style::stream) noexcept {
+    return do_create(addr.ss_family, exec, style);
   }
 
   // Close the socket. Idempotent. Returns true when the socket was open and
@@ -279,6 +280,15 @@ public:
         &len, SOCK_CLOEXEC | SOCK_NONBLOCK);
     if (fd < 0) return std::nullopt;
     return std::pair{net_socket{os_file{fd}}, addr};
+  }
+
+private:
+  [[nodiscard]] static net_socket
+  do_create(int domain, execution exec, message_style style) noexcept {
+    int type = (style == message_style::stream) ? SOCK_STREAM : SOCK_DGRAM;
+    type |= SOCK_CLOEXEC;
+    if (exec == execution::nonblocking) type |= SOCK_NONBLOCK;
+    return net_socket{domain, type, 0};
   }
 };
 
