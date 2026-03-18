@@ -581,11 +581,28 @@ void NetEndpoint_Formatting() {
   EXPECT_TRUE(!uds.empty());
   EXPECT_EQ(uds.to_string(), "unix:/tmp/app.sock");
 
-  // ANS: `to_string()` emits `unix:@` followed by the 107-byte name buffer.
+  // ANS: name with no embedded null truncates at trailing zeros.
   auto ans = net_endpoint{"@svc"};
   EXPECT_TRUE(!ans.empty());
-  const auto ans_str = ans.to_string();
-  EXPECT_EQ(ans_str, "unix:@svc");
+  EXPECT_EQ(ans.to_string(), "unix:@svc");
+
+  // ANS: name with an embedded null truncates at the null, ignoring bytes
+  // after it. Pass a `string_view` that includes the embedded null.
+  if (true) {
+    net_endpoint ep{std::string_view{"@abc\0def", 8}};
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.to_string(), "unix:@abc");
+  }
+
+  // ANS: name that fills the entire 107-byte buffer with no null uses the
+  // full length. Pass a `string_view` of 108 chars (leading '@' + 107 'x').
+  if (true) {
+    const std::string max_name(107, 'x');
+    const std::string full_name = "@" + max_name;
+    net_endpoint ep{std::string_view{full_name}};
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.to_string(), "unix:@" + max_name);
+  }
 }
 
 void NetEndpoint_PosixInterop() {

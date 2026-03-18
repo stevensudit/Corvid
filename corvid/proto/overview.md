@@ -28,12 +28,16 @@ interops with its corresponding `in_addr` / `in6_addr` struct.
 
 ### `net_endpoint`
 
-Address + port pair in a tagged union of `sockaddr_in` and `sockaddr_in6`.
-Default-constructs to an empty state (checkable via `empty()`). Parses
-`1.2.3.4:80` and `[2001:db8::1]:80` notation and formats back to the same.
-Named factories `any_v4()` and `any_v6()` produce wildcard bind addresses.
-On POSIX, interops with `sockaddr_in`, `sockaddr_in6`, and
-`sockaddr_storage`.
+ Tagged union over the concrete socket address types used by the module
+ (IPv4, IPv6, and Unix domain / abstract-namespace sockets). It
+ default-constructs to an empty state (checkable via `empty()`). For TCP/IP
+ endpoints it parses "1.2.3.4:80" and "[2001:db8::1]:80" notation and formats
+ back to the same. Unix domain endpoints are represented as path-like
+ strings, with Linux abstract-namespace sockets distinguished in their
+ textual form (for example, by a leading '@'). Named factories `any_v4()`
+ and `any_v6()` produce wildcard bind addresses for the IP variants. On
+ POSIX, `net_endpoint` interops with the corresponding `sockaddr_in`,
+ `sockaddr_in6`, Unix-domain `sockaddr` type, and `sockaddr_storage`.
 
 ### `net_socket`
 

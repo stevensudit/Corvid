@@ -22,7 +22,7 @@
 //                formatting
 //  ipv6_addr   - IPv6 address type with construction, classification, and
 //                formatting
-//  net_endpoint - IP address + port pair for IPv4 or IPv6
+//  net_endpoint - IP address + port pair for IPv4 or IPv6, or a UDS/ANS path
 //  dns_resolver - thin wrapper around `getaddrinfo` returning a list of
 //                `net_endpoint` values
 //  epoll_loop     - single-threaded epoll-based I/O event loop
