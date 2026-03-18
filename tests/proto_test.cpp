@@ -16,7 +16,7 @@
 // limitations under the License.
 
 #include "../corvid/proto.h"
-#define MINITEST_SHOW_TIMERS
+#define MINITEST_SHOW_TIMERS 0
 #include "minitest.h"
 #include <type_traits>
 #include <atomic>

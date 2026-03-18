@@ -393,10 +393,13 @@ auto inline stream_to_text(const auto& v) {
 
 int main() {
   using namespace minitest;
+#if defined(MINITEST_SHOW_TIMERS) && MINITEST_SHOW_TIMERS == 1
+  double total_ms_ = 0.0;
+#endif
   for (const test* t = TEST_LIST; t->name; ++t) {
     current_failed = false;
     // std::printf("Running %s\n", t->name);
-#ifdef MINITEST_SHOW_TIMERS
+#if defined(MINITEST_SHOW_TIMERS) && MINITEST_SHOW_TIMERS == 1
     auto timer_start_ = std::chrono::steady_clock::now();
 #endif
     try {
@@ -416,21 +419,27 @@ int main() {
     } else {
       // std::printf("[PASS] %s\n", t->name);
     }
-#ifdef MINITEST_SHOW_TIMERS
+#if defined(MINITEST_SHOW_TIMERS) && MINITEST_SHOW_TIMERS == 1
     {
       auto timer_elapsed_ = std::chrono::steady_clock::now() - timer_start_;
-      double ms_ = std::chrono::duration<double, std::milli>(timer_elapsed_).count();
+      double ms_ =
+          std::chrono::duration<double, std::milli>(timer_elapsed_).count();
+      total_ms_ += ms_;
       std::printf("[TIME] %s: %.3f ms\n", t->name, ms_);
     }
 #endif
   }
+  int exit_code = 0;
   if (failed_tests) {
     std::printf("%d test(s) failed\n", failed_tests);
-    return 1;
+    exit_code = 1;
+  } else {
+    std::printf("All tests passed\n");
   }
-  std::printf("All tests passed\n");
-
-  return 0;
+#if defined(MINITEST_SHOW_TIMERS) && MINITEST_SHOW_TIMERS == 1
+  std::printf("[TIME] Total: %.3f ms\n", total_ms_);
+#endif
+  return exit_code;
 }
 
 // NOLINTEND
