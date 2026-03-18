@@ -14,13 +14,15 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 #include "../corvid/proto.h"
-#include "minitest.h"
+
 #include <type_traits>
 #include <atomic>
 #include <chrono>
 #include <thread>
+
+#define MINITEST_SHOW_TIMERS 0
+#include "minitest.h"
 
 using namespace corvid;
 
@@ -1028,7 +1030,7 @@ void IoLoop_PostAndWait_StopRace() {
   std::atomic_int callback_runs{0};
 
   for (int i = 0; i < iterations; ++i) {
-    epoll_loop loop;
+    epoll_loop loop{std::chrono::milliseconds{5}};
     notifiable<bool> release_blocker{false};
     std::atomic_bool blocker_entered{false};
     std::atomic_bool waiter_started{false};

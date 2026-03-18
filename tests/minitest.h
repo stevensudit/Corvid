@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <exception>
@@ -392,9 +393,13 @@ auto inline stream_to_text(const auto& v) {
 
 int main() {
   using namespace minitest;
+  const auto total_timer_start_ = std::chrono::steady_clock::now();
   for (const test* t = TEST_LIST; t->name; ++t) {
     current_failed = false;
     // std::printf("Running %s\n", t->name);
+#if defined(MINITEST_SHOW_TIMERS) && MINITEST_SHOW_TIMERS == 1
+    auto timer_start_ = std::chrono::steady_clock::now();
+#endif
     try {
       t->func();
     }
@@ -412,14 +417,31 @@ int main() {
     } else {
       // std::printf("[PASS] %s\n", t->name);
     }
+#if defined(MINITEST_SHOW_TIMERS) && MINITEST_SHOW_TIMERS == 1
+    {
+      auto timer_elapsed_ = std::chrono::steady_clock::now() - timer_start_;
+      double ms_ =
+          std::chrono::duration<double, std::milli>(timer_elapsed_).count();
+      std::printf("[TIME] %s: %.3f ms\n", t->name, ms_);
+    }
+#endif
   }
+  int exit_code = 0;
   if (failed_tests) {
     std::printf("%d test(s) failed\n", failed_tests);
-    return 1;
+    exit_code = 1;
+  } else {
+    std::printf("All tests passed\n");
   }
-  std::printf("All tests passed\n");
-
-  return 0;
+  {
+    auto total_timer_elapsed_ =
+        std::chrono::steady_clock::now() - total_timer_start_;
+    double total_ms_ =
+        std::chrono::duration<double, std::milli>(total_timer_elapsed_)
+            .count();
+    std::printf("[TIME] Total: %.3f ms\n", total_ms_);
+  }
+  return exit_code;
 }
 
 // NOLINTEND
