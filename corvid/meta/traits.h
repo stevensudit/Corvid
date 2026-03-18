@@ -79,8 +79,7 @@ constexpr bool is_pair_convertible_v = false;
 
 template<template<typename...> typename C, typename F, typename S>
 constexpr bool is_pair_convertible_v<C<F, S>> =
-    std::is_constructible_v<std::pair<F, S>, C<F, S>> ||
-    is_tuple_v<C<F, S>>;
+    std::is_constructible_v<std::pair<F, S>, C<F, S>> || is_tuple_v<C<F, S>>;
 
 // Specialization to handle cv-qualified and reference types
 template<typename T>

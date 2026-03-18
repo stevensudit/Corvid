@@ -59,7 +59,8 @@ struct stream_conn_handlers {
 
 // A non-blocking connected stream socket driven by an `epoll_loop`.
 //
-// `stream_conn` is a movable handle that wraps a `shared_ptr` to internal state
+// `stream_conn` is a movable handle that wraps a `shared_ptr` to internal
+// state
 // (`state`). Note that, despite using `shared_ptr`, a `stream_conn` fully owns
 // the `state` and removes it from the `epoll_loop` on close.
 //
@@ -116,9 +117,10 @@ struct stream_conn_handlers {
 //
 // A pending read callback completes with an empty buffer if the read side
 // closes before data arrives. The callback can distinguish that case by
-// retaining access to the `stream_conn` and checking `can_read()` / `is_open()`.
-// A pending write waiter completes on either success or failure: coroutine
-// sends resume, while per-call callback sends receive `cb(bool completed)`.
+// retaining access to the `stream_conn` and checking `can_read()` /
+// `is_open()`. A pending write waiter completes on either success or failure:
+// coroutine sends resume, while per-call callback sends receive `cb(bool
+// completed)`.
 //
 class stream_conn {
 public:
@@ -415,7 +417,8 @@ private:
     pending_write_op pending_write_;
 
     explicit state(epoll_loop& loop, net_socket&& sock,
-        const net_endpoint& remote, stream_conn_handlers&& h, size_t rbs) noexcept
+        const net_endpoint& remote, stream_conn_handlers&& h,
+        size_t rbs) noexcept
         : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
           handlers_{std::move(h)}, recv_buf_capacity_{rbs}, open_{true} {}
 

@@ -41,9 +41,10 @@ namespace corvid { inline namespace proto {
 using namespace corvid::container::value_scoping;
 
 // Abstract base for objects registered with `epoll_loop`. Higher-level types
-// (e.g., `stream_conn`) inherit from this and override the three event methods.
-// The default `on_error` falls through to `on_readable` so that read-path
-// code can observe EOF and errors naturally; override to change that behavior.
+// (e.g., `stream_conn`) inherit from this and override the three event
+// methods. The default `on_error` falls through to `on_readable` so that
+// read-path code can observe EOF and errors naturally; override to change that
+// behavior.
 //
 // The `epoll_loop` stores a `shared_ptr<io_conn>` per registration, so the
 // object stays alive for the duration of any in-progress dispatch even if the
@@ -65,8 +66,8 @@ private:
 // `epoll`-based I/O event loop, safe for use with a background thread.
 //
 // This is an internal building block for higher-level socket types
-// (e.g., `stream_conn`). User code drives the loop via `run()` / `run_once()` /
-// `stop()`, but never calls `epoll_ctl` directly.
+// (e.g., `stream_conn`). User code drives the loop via `run()` / `run_once()`
+// / `stop()`, but never calls `epoll_ctl` directly.
 //
 // Call `register_socket()` to register an `io_conn`. Read and write readiness
 // interest can be chosen at registration time and later toggled with

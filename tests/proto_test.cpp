@@ -1145,7 +1145,8 @@ void StreamConn_PeerClose() {
   auto [a, b] = make_nb_sockpair();
 
   bool closed = false;
-  stream_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  stream_conn conn{loop, std::move(a), {},
+      {.on_close = [&] { closed = true; }}};
   loop.run_once(0); // process posted do_open_()
 
   EXPECT_TRUE(b.shutdown(SHUT_WR));
@@ -1195,7 +1196,8 @@ void StreamConn_ManualClose() {
   auto [a, b] = make_nb_sockpair();
 
   bool closed = false;
-  stream_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  stream_conn conn{loop, std::move(a), {},
+      {.on_close = [&] { closed = true; }}};
   loop.run_once(0); // process posted do_open_()
 
   conn.close();
@@ -1225,7 +1227,8 @@ void StreamConn_DrainAfterBufferedSend() {
   const std::string payload(256ULL * 1024ULL, 'x');
 
   int drain_count = 0;
-  stream_conn conn{loop, std::move(a), {}, {.on_drain = [&] { ++drain_count; }}};
+  stream_conn conn{loop, std::move(a), {},
+      {.on_drain = [&] { ++drain_count; }}};
   loop.run_once(0); // process posted do_open_()
 
   conn.send(std::string{payload}); // copy payload into send
@@ -1256,7 +1259,8 @@ void StreamConn_DrainAfterImmediateSend() {
   auto [a, b] = make_nb_sockpair();
 
   int drain_count = 0;
-  stream_conn conn{loop, std::move(a), {}, {.on_drain = [&] { ++drain_count; }}};
+  stream_conn conn{loop, std::move(a), {},
+      {.on_drain = [&] { ++drain_count; }}};
   loop.run_once(0); // process posted register_with_loop
 
   conn.send(std::string{"hello"});
@@ -1344,7 +1348,8 @@ void StreamConn_AsyncCbRead_PeerClose() {
   std::string received{"sentinel"};
   int callback_count = 0;
   bool closed = false;
-  stream_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  stream_conn conn{loop, std::move(a), {},
+      {.on_close = [&] { closed = true; }}};
   loop.run_once(0); // process posted register_with_loop
 
   EXPECT_TRUE(conn.async_cb_read([&](std::string& data) {
@@ -1398,7 +1403,8 @@ void StreamConn_AsyncCbWrite_Failure() {
 
   bool completed = true;
   bool closed = false;
-  stream_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  stream_conn conn{loop, std::move(a), {},
+      {.on_close = [&] { closed = true; }}};
   loop.run_once(0); // process posted register_with_loop
 
   b.close();
@@ -1543,7 +1549,8 @@ void StreamConn_GracefulClose() {
   const std::string payload(64ULL * 1024ULL, 'z');
 
   bool closed = false;
-  stream_conn conn{loop, std::move(a), {}, {.on_close = [&] { closed = true; }}};
+  stream_conn conn{loop, std::move(a), {},
+      {.on_close = [&] { closed = true; }}};
   loop.run_once(0); // process posted do_open_()
 
   // Queue data then immediately request a close; the close must be deferred
@@ -1849,11 +1856,12 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_AsyncCbRead_DuplicateRejected, StreamConn_AsyncCbRead_PeerClose,
     StreamConn_AsyncCbWrite, StreamConn_AsyncCbWrite_Failure,
     StreamConn_AsyncCbWrite_DuplicateRejected, StreamConn_ShutdownWrite,
-    StreamConn_ShutdownRead, StreamConn_ShutdownBothCloses, StreamConn_GracefulClose,
-    StreamConn_CloseThenDestructStaysGraceful, StreamConn_DestructorHangsUp,
-    LoopTask_FireAndForget, StreamConn_AsyncRead,
-    StreamConn_AsyncRead_PreservesEarlyData, StreamConn_AsyncRead_StopsBetweenCalls,
-    StreamConn_AsyncRead_PeerClose, StreamConn_AsyncSend);
+    StreamConn_ShutdownRead, StreamConn_ShutdownBothCloses,
+    StreamConn_GracefulClose, StreamConn_CloseThenDestructStaysGraceful,
+    StreamConn_DestructorHangsUp, LoopTask_FireAndForget, StreamConn_AsyncRead,
+    StreamConn_AsyncRead_PreservesEarlyData,
+    StreamConn_AsyncRead_StopsBetweenCalls, StreamConn_AsyncRead_PeerClose,
+    StreamConn_AsyncSend);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
