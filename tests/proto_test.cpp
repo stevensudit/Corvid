@@ -768,13 +768,13 @@ struct counting_conn: io_conn {
 
 void IoLoop_Lifecycle() {
   // Construction succeeds; an empty poll returns 0 events.
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   EXPECT_EQ(loop.run_once(0), 0);
 }
 
 void IoLoop_Post() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
 
   int fired = 0;
@@ -787,7 +787,7 @@ void IoLoop_Post() {
 }
 
 void IoLoop_PreStartWorkIsQueued() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -815,7 +815,7 @@ void IoLoop_PreStartWorkIsQueued() {
 // `unregister_socket` stops further dispatch. Double-register and
 // double-unregister both return false.
 void IoLoop_RegisterUnregister() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -845,7 +845,7 @@ void IoLoop_RegisterUnregister() {
 // `set_writable(true)` arms `EPOLLOUT`; the kernel fires it when the kernel
 // send buffer has space, which it does immediately on a fresh socketpair.
 void IoLoop_SetWritable() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -868,7 +868,7 @@ void IoLoop_SetWritable() {
 }
 
 void IoLoop_SetReadable() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -901,7 +901,7 @@ void IoLoop_SetReadable() {
 // called but `on_writable` is skipped (the early-return path in
 // `dispatch_event`).
 void IoLoop_ErrorSkipsWritable() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -927,7 +927,7 @@ void IoLoop_DefaultOnError() {
     // on_error not overridden; default calls on_readable()
   };
 
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -941,8 +941,8 @@ void IoLoop_DefaultOnError() {
 }
 
 void IoLoop_IsLoopThreadIsPerLoop() {
-  io_loop loop_a;
-  io_loop loop_b;
+  epoll_loop loop_a;
+  epoll_loop loop_b;
   auto loop_b_scope = loop_b.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
   auto conn = std::make_shared<counting_conn>(std::move(a));
@@ -975,7 +975,7 @@ void IoLoop_IsLoopThreadIsPerLoop() {
 }
 
 void IoLoop_WaitUntilRunning() {
-  io_loop loop;
+  epoll_loop loop;
 
   std::thread loop_thread{[&] { loop.run(10); }};
   EXPECT_TRUE(loop.wait_until_running(1000));
@@ -985,7 +985,7 @@ void IoLoop_WaitUntilRunning() {
 }
 
 void IoLoop_WaitUntilRunning_TimesOut() {
-  io_loop loop;
+  epoll_loop loop;
   EXPECT_FALSE(loop.wait_until_running(10));
 }
 
@@ -995,7 +995,7 @@ void IoLoop_PostAndWait_StopRace() {
   std::atomic_int callback_runs{0};
 
   for (int i = 0; i < iterations; ++i) {
-    io_loop loop;
+    epoll_loop loop;
     notifiable<bool> release_blocker{false};
     std::atomic_bool blocker_entered{false};
     std::atomic_bool waiter_started{false};
@@ -1035,7 +1035,7 @@ void IoLoop_PostAndWait_StopRace() {
 }
 
 void TcpConn_Lifecycle() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1053,7 +1053,7 @@ void TcpConn_Lifecycle() {
 }
 
 void TcpConn_Receive() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1071,7 +1071,7 @@ void TcpConn_Receive() {
 }
 
 void TcpConn_SetRecvBufSize() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1104,7 +1104,7 @@ void TcpConn_SetRecvBufSize() {
 }
 
 void TcpConn_PeerClose() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1135,7 +1135,7 @@ void TcpConn_PeerClose() {
 }
 
 void TcpConn_Send() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1154,7 +1154,7 @@ void TcpConn_Send() {
 }
 
 void TcpConn_ManualClose() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1174,7 +1174,7 @@ void TcpConn_ManualClose() {
 }
 
 void TcpConn_DrainAfterBufferedSend() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1215,7 +1215,7 @@ void TcpConn_DrainAfterBufferedSend() {
 }
 
 void TcpConn_DrainAfterImmediateSend() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1234,7 +1234,7 @@ void TcpConn_DrainAfterImmediateSend() {
 }
 
 void TcpConn_AsyncCbRead() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1256,7 +1256,7 @@ void TcpConn_AsyncCbRead() {
 }
 
 void TcpConn_AsyncCbRead_PreservesEarlyData() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1280,7 +1280,7 @@ void TcpConn_AsyncCbRead_PreservesEarlyData() {
 }
 
 void TcpConn_AsyncCbRead_DuplicateRejected() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1301,7 +1301,7 @@ void TcpConn_AsyncCbRead_DuplicateRejected() {
 }
 
 void TcpConn_AsyncCbRead_PeerClose() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1332,7 +1332,7 @@ void TcpConn_AsyncCbRead_PeerClose() {
 }
 
 void TcpConn_AsyncCbWrite() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1356,7 +1356,7 @@ void TcpConn_AsyncCbWrite() {
 }
 
 void TcpConn_AsyncCbWrite_Failure() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1381,7 +1381,7 @@ void TcpConn_AsyncCbWrite_Failure() {
 }
 
 void TcpConn_ShutdownWrite() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1406,7 +1406,7 @@ void TcpConn_ShutdownWrite() {
 }
 
 void TcpConn_ShutdownRead() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1434,7 +1434,7 @@ void TcpConn_ShutdownRead() {
 }
 
 void TcpConn_ShutdownBothCloses() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1453,7 +1453,7 @@ void TcpConn_ShutdownBothCloses() {
 }
 
 void TcpConn_AsyncCbWrite_DuplicateRejected() {
-  io_loop loop;
+  epoll_loop loop;
   auto [a, b] = make_nb_sockpair();
 
   constexpr int small_buf = 4096;
@@ -1497,7 +1497,7 @@ void TcpConn_AsyncCbWrite_DuplicateRejected() {
 }
 
 void TcpConn_GracefulClose() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1535,7 +1535,7 @@ void TcpConn_GracefulClose() {
 }
 
 void TcpConn_CloseThenDestructStaysGraceful() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1574,7 +1574,7 @@ void TcpConn_CloseThenDestructStaysGraceful() {
 }
 
 void TcpConn_DestructorHangsUp() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1621,7 +1621,7 @@ void LoopTask_FireAndForget() {
 
 // Verify that `async_read` delivers data to a coroutine.
 void TcpConn_AsyncRead() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1649,7 +1649,7 @@ void TcpConn_AsyncRead() {
 }
 
 void TcpConn_AsyncRead_PreservesEarlyData() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1680,7 +1680,7 @@ void TcpConn_AsyncRead_PreservesEarlyData() {
 }
 
 void TcpConn_AsyncRead_StopsBetweenCalls() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1729,7 +1729,7 @@ void TcpConn_AsyncRead_StopsBetweenCalls() {
 // Verify that `async_read` returns an empty string when the peer closes
 // the connection before data arrives.
 void TcpConn_AsyncRead_PeerClose() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
@@ -1764,7 +1764,7 @@ void TcpConn_AsyncRead_PeerClose() {
 // Verify that `async_send` delivers bytes to the peer and suspends until
 // the queue drains.
 void TcpConn_AsyncSend() {
-  io_loop loop;
+  epoll_loop loop;
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 

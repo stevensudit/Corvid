@@ -23,7 +23,7 @@ Thin, zero-overhead C++ wrappers around POSIX and Linux networking primitives.
   non-copyable; type-safe `set_option` / `get_option` (e.g., `SO_REUSEADDR`,
   `TCP_NODELAY`); `set_nonblocking()`, `bind()`, `connect()`, `listen()`,
   `accept()`; `set_send_buffer_size()` convenience method
-- **[done]** `dns_resolve` -- thin wrapper around `getaddrinfo`; `find_all()`
+- **[done]** `dns_resolver` -- thin wrapper around `getaddrinfo`; `find_all()`
   returns `std::vector<net_endpoint>`; `find_one()` returns
   `net_endpoint`; both accept an optional address-family filter
 
@@ -33,30 +33,32 @@ Non-blocking TCP I/O with an event loop. Initial implementation uses `epoll`;
 the interface is designed so `epoll` can later be swapped for `io_uring`
 without changing higher layers.
 
-- **[done]** `io_loop` -- `epoll`-based event loop; `register_socket` / `unregister_socket` manage fd registrations; `set_writable` toggles `EPOLLOUT`
+- **[done]** `epoll_loop` -- `epoll`-based event loop; `register_socket` / `unregister_socket` manage fd registrations; `set_writable` toggles `EPOLLOUT`
   without changing stored handlers; `post(fn)` schedules work on the loop
   thread from any thread (wakes `epoll_wait` via an internal `eventfd`);
   `run()` / `run_once(timeout_ms)` / `stop()` drive dispatch; `io_conn` is
   an abstract base with virtual `on_readable` / `on_writable` / `on_error`
   so higher-level types inherit from it directly to avoid a separate
   handler-lambda allocation
-- **[done]** `tcp_conn` -- non-blocking TCP connection driven by an `io_loop`;
+- **[done]** `tcp_conn` -- non-blocking TCP connection driven by an `epoll_loop`;
   movable handle owning a `shared_ptr<state>` (one heap allocation per
   connection); `send(string&&)` / `close()` are thread-safe via `post()`;
-  supports both a callback mode (`tcp_conn_handlers`: `on_data`, `on_drain`,
-  `on_close`) and a C++20 coroutine mode (`async_read()` / `async_send()`)
-  -- the two modes are mutually exclusive per connection
-- **[done]** `loop_task` -- fire-and-forget coroutine return type for `io_loop`
+  supports three async models: a persistent callback mode (`tcp_conn_handlers`:
+  `on_data`, `on_drain`, `on_close`), a C++20 coroutine mode (`async_read()` /
+  `async_send()`), and a one-shot callback mode (`async_cb_read()` /
+  `async_cb_write()`); coroutine and one-shot waiters share the same slot per
+  direction and are mutually exclusive with each other for that direction
+- **[done]** `loop_task` -- fire-and-forget coroutine return type for `epoll_loop`
   handlers; `initial_suspend` is `suspend_never` (eager start);
   `final_suspend` is `suspend_never` (self-destroying frame); enables
   `co_await conn.async_read()` / `co_await conn.async_send(buf)` patterns
 - `tcp_listener` -- binds and listens on an `net_endpoint`; produces accepted
   `tcp_conn` instances via a callback or coroutine
 - `tcp_client` -- initiates an outbound non-blocking `connect()` to an
-  `net_endpoint` and registers the fd with `io_loop`; delivers a `tcp_conn`
+  `net_endpoint` and registers the fd with `epoll_loop`; delivers a `tcp_conn`
   on success via the same mechanism used by `tcp_listener`
-- **Future:** replace `epoll` backend with `io_uring` (`io_uring_loop`) behind
-  the same `io_loop` interface
+- **Future:** `io_uring_loop` -- `io_uring`-based event loop with the same
+  interface as `epoll_loop`; higher layers unchanged
 
 ## Layer 3: HTTP
 

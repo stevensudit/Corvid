@@ -40,12 +40,12 @@ namespace corvid { inline namespace proto {
 
 using namespace corvid::container::value_scoping;
 
-// Abstract base for objects registered with `io_loop`. Higher-level types
+// Abstract base for objects registered with `epoll_loop`. Higher-level types
 // (e.g., `tcp_conn`) inherit from this and override the three event methods.
 // The default `on_error` falls through to `on_readable` so that read-path
 // code can observe EOF and errors naturally; override to change that behavior.
 //
-// The `io_loop` stores a `shared_ptr<io_conn>` per registration, so the
+// The `epoll_loop` stores a `shared_ptr<io_conn>` per registration, so the
 // object stays alive for the duration of any in-progress dispatch even if the
 // caller unregisters it during a callback.
 struct io_conn: std::enable_shared_from_this<io_conn> {
@@ -89,15 +89,15 @@ private:
 // are NOT inherently thread-safe, but they automatically promote a call from
 // outside the active polling thread for this loop into a `post()`.
 //
-// `io_loop` is non-copyable and non-movable.
-class io_loop {
+// `epoll_loop` is non-copyable and non-movable.
+class epoll_loop {
 public:
   // Maximum number of events retrieved per `epoll_wait` call.
   static constexpr size_t max_events = 64;
 
   // Create the `epoll` instance and the internal `eventfd` wakeup handle.
   // Throws `std::system_error` on failure.
-  io_loop() : epoll_{create_epollfd()}, wake_fd_{create_eventfd()} {
+  epoll_loop() : epoll_{create_epollfd()}, wake_fd_{create_eventfd()} {
     // The `eventfd` is used by `post()` and `stop()` to interrupt a sleeping
     // `epoll_wait` from another thread.
     epoll_event ev{.events = EPOLLIN,
@@ -107,12 +107,12 @@ public:
           "epoll_ctl wake_fd");
   }
 
-  io_loop(const io_loop&) = delete;
-  io_loop& operator=(const io_loop&) = delete;
-  io_loop(io_loop&&) = delete;
-  io_loop& operator=(io_loop&&) = delete;
+  epoll_loop(const epoll_loop&) = delete;
+  epoll_loop& operator=(const epoll_loop&) = delete;
+  epoll_loop(epoll_loop&&) = delete;
+  epoll_loop& operator=(epoll_loop&&) = delete;
 
-  ~io_loop() = default;
+  ~epoll_loop() = default;
 
   // Register `conn`.
   //
@@ -275,11 +275,11 @@ public:
     return dispatched;
   }
 
-  // Establishes the current thread as the loop thread for this `io_loop`
+  // Establishes the current thread as the loop thread for this `epoll_loop`
   // instance. Not needed when you just call `run`, but necessary if you want
   // to call `run_once`. Almost exclusively for testing purposes.
   auto poll_thread_scope() const {
-    return scoped_value<const io_loop*>{current_loop_, this};
+    return scoped_value<const epoll_loop*>{current_loop_, this};
   }
 
   // Dispatch events in a loop until `stop()` is called or `run_once` returns
@@ -447,7 +447,7 @@ private:
   const epoll epoll_;
   const event_fd wake_fd_;
 
-  inline static thread_local const io_loop* current_loop_ = nullptr;
+  inline static thread_local const epoll_loop* current_loop_ = nullptr;
 
   std::unordered_map<int, registration> registrations_;
 

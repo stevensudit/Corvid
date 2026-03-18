@@ -23,15 +23,16 @@
 //  ipv6_addr   - IPv6 address type with construction, classification, and
 //                formatting
 //  net_endpoint - IP address + port pair for IPv4 or IPv6
-//  dns_resolve - thin wrapper around `getaddrinfo` returning a list of
+//  dns_resolver - thin wrapper around `getaddrinfo` returning a list of
 //                `net_endpoint` values
-//  io_loop     - single-threaded epoll-based I/O event loop
+//  epoll_loop     - single-threaded epoll-based I/O event loop
 //  tcp_conn    - non-blocking TCP connection with callback-based async I/O
-//  loop_task   - fire-and-forget coroutine return type for `io_loop` handlers
+//  loop_task   - fire-and-forget coroutine return type for `epoll_loop`
+//  handlers
 #include "proto/ipv4_addr.h"
 #include "proto/ipv6_addr.h"
 #include "proto/net_endpoint.h"
-#include "proto/dns_resolve.h"
-#include "proto/io_loop.h"
+#include "proto/dns_resolver.h"
+#include "proto/epoll_loop.h"
 #include "proto/tcp_conn.h"
 #include "proto/loop_task.h"

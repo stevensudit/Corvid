@@ -29,7 +29,7 @@
 
 #include <unistd.h>
 
-#include "io_loop.h"
+#include "epoll_loop.h"
 #include "loop_task.h"
 #include "net_endpoint.h"
 #include "../strings/no_zero.h"
@@ -57,18 +57,18 @@ struct tcp_conn_handlers {
   std::function<void()> on_close = nullptr;
 };
 
-// A non-blocking TCP connection driven by an `io_loop`.
+// A non-blocking TCP connection driven by an `epoll_loop`.
 //
 // `tcp_conn` is a movable handle that wraps a `shared_ptr` to internal state
 // (`state`). Note that, despite using `shared_ptr`, a `tcp_conn` fully owns
-// the `state` and removes it from the `io_loop` on close.
+// the `state` and removes it from the `epoll_loop` on close.
 //
 // The state also serves as the `io_conn` registered with the loop, so there is
 // exactly ONE heap allocation per connection: no separate `io_handlers`
 // lambdas and no second `impl` object.
 //
 // Thread safety: `send()`, `close()`, `hangup()`, and the destructor are safe
-// to call from any thread. They route work to the loop via `io_loop::post()`.
+// to call from any thread. They route work to the loop via `epoll_loop::post()`.
 // All actual I/O and epoll-mask mutations run exclusively on the loop thread.
 //
 // Send path: `send(std::string&&)` takes ownership of the caller's string.
@@ -130,7 +130,7 @@ public:
   // Construct a connection from `sock` (must already be non-blocking) and post
   // its registration with `loop`. `remote` records the peer address for
   // diagnostics. May be called from any thread.
-  explicit tcp_conn(io_loop& loop, net_socket&& sock,
+  explicit tcp_conn(epoll_loop& loop, net_socket&& sock,
       const net_endpoint& remote, tcp_conn_handlers&& h = {},
       size_t recv_buf_size = default_recv_buf_size) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
@@ -353,7 +353,7 @@ private:
       }
     };
 
-    io_loop& loop_;
+    epoll_loop& loop_;
     net_endpoint remote_;
     tcp_conn_handlers handlers_;
 
@@ -410,7 +410,7 @@ private:
     // `async_cb_write()`.
     pending_write_op pending_write_;
 
-    explicit state(io_loop& loop, net_socket&& sock,
+    explicit state(epoll_loop& loop, net_socket&& sock,
         const net_endpoint& remote, tcp_conn_handlers&& h, size_t rbs) noexcept
         : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
           handlers_{std::move(h)}, recv_buf_capacity_{rbs}, open_{true} {}

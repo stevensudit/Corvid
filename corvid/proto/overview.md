@@ -57,7 +57,7 @@ returns the first result as an `net_endpoint`, or a default-constructed
 
 ## Layer 2: TCP I/O Loop
 
-### `io_loop`
+### `epoll_loop`
 
 `epoll`-based I/O event loop. `register_socket(sock, shared_ptr<io_conn>)`
 accepts a pre-built `io_conn` object (used by `tcp_conn` to eliminate a
@@ -73,7 +73,7 @@ handler-lambda allocation per connection.
 
 ### `tcp_conn`
 
-Non-blocking TCP connection driven by an `io_loop`. Implemented as a movable
+Non-blocking TCP connection driven by an `epoll_loop`. Implemented as a movable
 handle owning a `shared_ptr<state>`, where `state` inherits from `io_conn` --
 one heap allocation per connection.
 
@@ -128,7 +128,7 @@ always complete, reporting success or failure.
 
 ### `loop_task`
 
-Fire-and-forget coroutine return type for `io_loop`-driven handlers. The
+Fire-and-forget coroutine return type for `epoll_loop`-driven handlers. The
 coroutine body starts eagerly on the call site (`initial_suspend` returns
 `suspend_never`) and the frame self-destroys on completion (`final_suspend`
 returns `suspend_never`). Unhandled exceptions call `std::terminate`.

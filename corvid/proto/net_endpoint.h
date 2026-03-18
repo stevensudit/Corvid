@@ -48,7 +48,7 @@ namespace corvid { inline namespace proto {
 // IP construction: from an `ipv4_addr` or `ipv6_addr` plus a port, or by
 // parsing text in "1.2.3.4:80" (IPv4) or "[2001:db8::1]:80" (IPv6) notation,
 // where the port is mandatory but may be 0. Named factories `any_v4()` and
-// `any_v6()` produce wildcard bind addresses. You can also use `dns_resolve`.
+// `any_v6()` produce wildcard bind addresses. You can also use `dns_resolver`.
 //
 // UDS construction: from a path beginning with '/'. Afterwards, `uds_path()`
 // retrieves the path; `to_string()` formats it as "unix:<path>". Note: UDS
@@ -332,7 +332,7 @@ private:
   //   without an added null terminator (the full buffer is the name; trailing
   //   zeros from zero-initialization are significant, not padding).
   [[nodiscard]] static constexpr net_endpoint do_parse_uds(
-      std::string_view path) noexcept {
+      std::string_view path) {
     net_endpoint ep;
     auto& raw = ep.as_uds();
     raw.sun_family = AF_UNIX;
