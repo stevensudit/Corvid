@@ -374,8 +374,10 @@ void MetaTest_IsPair() {
   EXPECT_FALSE((is_pair_v<std::tuple<int, int>>));
   EXPECT_FALSE((is_pair_v<int>));
 
-  // PairConvertible concept replaces the old is_pair_like_v trait
-  // Note: std::tuple<F, S> IS convertible to std::pair<F, S> in C++
+  // PairConvertible concept replaces the old is_pair_like_v trait.
+  // Note: std::tuple<F, S> should be usable to construct std::pair<F, S>,
+  // though some standard libraries do not model that as an implicit
+  // conversion.
   EXPECT_TRUE((PairConvertible<std::pair<int, int>>));
   EXPECT_TRUE(
       (PairConvertible<std::tuple<int, int>>)); // tuple<2> is pair-convertible

@@ -1,6 +1,6 @@
 # Proto Module Overview
 
-The `corvid::proto` module provides TCP/IP networking primitives and an
+The `corvid::proto` module provides networking primitives and an
 async I/O loop with C++20 coroutine support.
 
 ## Layer 1: POSIX/Linux Primitives
@@ -59,12 +59,12 @@ returns a `std::vector<net_endpoint>` with an optional address-family filter
 returns the first result as a `net_endpoint`, or a default-constructed
 (invalid) endpoint on failure.
 
-## Layer 2: TCP I/O Loop
+## Layer 2: Stream I/O Loop
 
 ### `epoll_loop`
 
 `epoll`-based I/O event loop. `register_socket(sock, shared_ptr<io_conn>)`
-accepts a pre-built `io_conn` object (used by `tcp_conn` to eliminate a
+accepts a pre-built `io_conn` object (used by `stream_conn` to eliminate a
 separate allocation). `set_writable(sock, bool)` toggles `EPOLLOUT` without
 disturbing stored handlers -- call it only while the send buffer is
 non-empty. `post(fn)` is thread-safe: it locks a queue, pushes the callback,
@@ -75,11 +75,11 @@ then writes to an internal `eventfd` to interrupt a sleeping `epoll_wait`.
 `on_error`; higher-level types inherit from it directly to avoid a separate
 handler-lambda allocation per connection.
 
-### `tcp_conn`
+### `stream_conn`
 
-Non-blocking TCP connection driven by an `epoll_loop`. Implemented as a movable
-handle owning a `shared_ptr<state>`, where `state` inherits from `io_conn` --
-one heap allocation per connection.
+Non-blocking connected stream socket driven by an `epoll_loop`. Implemented as
+a movable handle owning a `shared_ptr<state>`, where `state` inherits from
+`io_conn` -- one heap allocation per connection.
 
 Send path: `send(string&&)` is thread-safe (posts to the loop). On the loop
 thread, `enqueue_send` attempts an immediate `::write`; any unsent tail is
@@ -89,15 +89,16 @@ events drain the queue; when empty, `EPOLLOUT` is disarmed.
 Receive path: `EPOLLIN` triggers `::read` into a buffer pre-sized with
 `resize_and_overwrite` (no zero-initialization), trimmed to the actual byte
 count before delivery. `set_recv_buf_size(bytes)` changes the per-connection
-read size used for future reads, and `recv_buf_size()` reports the current
-configured size.
+receive-buffer target used for future reads; the actual temporary string size
+may be somewhat larger when existing capacity is reused. `recv_buf_size()`
+reports the current configured target.
 
 Graceful close: `close()` defers the socket close until the send queue
 drains; the destructor instead closes rudely.
 
 Supports three async models:
 
-- **Callback mode** (`tcp_conn_handlers`): `on_data(string&)` fires on each
+- **Callback mode** (`stream_conn_handlers`): `on_data(string&)` fires on each
   read, `on_drain()` fires whenever a `send()` completes with no outbound
   bytes left pending (including immediate writes), `on_close()` fires on EOF
   or error.
@@ -126,7 +127,7 @@ one-shot waiter is pending for that direction. Parallel `async_cb_*`
 registrations fail cleanly by returning `false`; overlapping `async_read()` /
 `async_send()` calls are still programming errors. If the connection closes
 before a pending `async_cb_read()` receives data, the callback is invoked with
-an empty string; code that retains access to the `tcp_conn` can use `is_open()`
+an empty string; code that retains access to the `stream_conn` can use `is_open()`
 to detect that the empty buffer came from closure. Pending write waiters
 always complete, reporting success or failure.
 
@@ -138,7 +139,7 @@ coroutine body starts eagerly on the call site (`initial_suspend` returns
 returns `suspend_never`). Unhandled exceptions call `std::terminate`.
 
 ```cpp
-loop_task handle_conn(tcp_conn conn) {
+loop_task handle_conn(stream_conn conn) {
   while (conn.is_open()) {
     std::string data = co_await conn.async_read();
     if (data.empty()) break;
@@ -150,6 +151,7 @@ loop_task handle_conn(tcp_conn conn) {
 ## What comes next
 
 See `roadmap.md` for the full plan. The immediate next items in Layer 2 are
-`tcp_listener` (accept loop producing `tcp_conn` instances) and `tcp_client`
+`tcp_listener` (accept loop producing `stream_conn` instances) and `tcp_client`
 (outbound non-blocking `connect()`). Layer 3 adds HTTP/1.1; Layer 4 adds
-WebSockets.
+WebSockets. If datagram support is needed later, it should arrive as a
+separate `dgram_conn` abstraction built on `epoll_loop`.

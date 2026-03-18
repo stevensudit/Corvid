@@ -65,13 +65,21 @@ constexpr bool is_tuple_v = is_specialization_of_v<T, std::tuple>;
 template<typename T>
 constexpr bool is_pair_v = is_specialization_of_v<T, std::pair>;
 
-// Determine whether `T` is convertible to `std::pair`.
+// Determine whether `T` behaves like a pair.
+//
+// This intentionally accepts either:
+// - types that can be used to construct `std::pair<F, S>`, or
+// - `std::tuple<F, S>` itself.
+//
+// The explicit tuple case keeps this trait stable across standard-library
+// implementations: some do not model `std::tuple<F, S>` as implicitly
+// convertible to, or even directly constructible as, `std::pair<F, S>`.
 template<typename T>
 constexpr bool is_pair_convertible_v = false;
 
 template<template<typename...> typename C, typename F, typename S>
 constexpr bool is_pair_convertible_v<C<F, S>> =
-    std::is_convertible_v<C<F, S>, std::pair<F, S>>;
+    std::is_constructible_v<std::pair<F, S>, C<F, S>> || is_tuple_v<C<F, S>>;
 
 // Specialization to handle cv-qualified and reference types
 template<typename T>
