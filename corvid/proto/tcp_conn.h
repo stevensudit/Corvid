@@ -68,8 +68,9 @@ struct tcp_conn_handlers {
 // lambdas and no second `impl` object.
 //
 // Thread safety: `send()`, `close()`, `hangup()`, and the destructor are safe
-// to call from any thread. They route work to the loop via `epoll_loop::post()`.
-// All actual I/O and epoll-mask mutations run exclusively on the loop thread.
+// to call from any thread. They route work to the loop via
+// `epoll_loop::post()`. All actual I/O and epoll-mask mutations run
+// exclusively on the loop thread.
 //
 // Send path: `send(std::string&&)` takes ownership of the caller's string.
 // If the send queue is empty, an immediate `::write` is attempted. If all

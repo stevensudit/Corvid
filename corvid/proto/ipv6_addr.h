@@ -24,6 +24,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #include <netinet/in.h>
 
@@ -107,7 +108,7 @@ public:
     std::size_t group_count = 0;
     std::size_t double_colon = 8;
 
-    if (!do_do_parse_groups_loop(s, groups, group_count, double_colon))
+    if (!do_parse_groups_loop(s, groups, group_count, double_colon))
       return std::nullopt;
     if (!do_finalize_groups(groups, group_count, double_colon))
       return std::nullopt;
@@ -282,9 +283,9 @@ private:
   // Scan `s` and fill `groups[0..group_count)`, recording the "::" insertion
   // point in `double_colon` (value 8 means no "::" was seen). Returns false
   // on any syntax error.
-  [[nodiscard]] static constexpr bool
-  do_do_parse_groups_loop(std::string_view s, word_array& groups,
-      std::size_t& group_count, std::size_t& double_colon) {
+  [[nodiscard]] static constexpr bool do_parse_groups_loop(std::string_view s,
+      word_array& groups, std::size_t& group_count,
+      std::size_t& double_colon) {
     if (s.empty()) return false;
     std::size_t pos = 0;
     while (pos < s.size()) {

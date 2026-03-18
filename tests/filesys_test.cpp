@@ -160,7 +160,7 @@ void OsFile_WriteRead() {
   EXPECT_EQ(buf, "sentinel");
 }
 
-void IpSocket_Lifecycle() {
+void NetSocket_Lifecycle() {
   // Default-constructed socket is invalid.
   if (true) {
     net_socket s;
@@ -507,7 +507,7 @@ void EventFd_NonblockingEmptyRead() {
   EXPECT_EQ(errno, EAGAIN);
 }
 
-void IpSocket_Move() {
+void NetSocket_Move() {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
     net_socket a{AF_INET, SOCK_STREAM, 0};
@@ -542,7 +542,7 @@ void IpSocket_Move() {
   }
 }
 
-void IpSocket_Release() {
+void NetSocket_Release() {
   // `release()` yields the handle without closing it; socket becomes invalid.
   if (true) {
     net_socket s{AF_INET, SOCK_STREAM, 0};
@@ -553,7 +553,7 @@ void IpSocket_Release() {
   }
 }
 
-void IpSocket_Options() {
+void NetSocket_Options() {
   // Named option helpers round-trip through `get_option`.
   if (true) {
     net_socket s{AF_INET, SOCK_STREAM, 0};
@@ -587,7 +587,7 @@ void IpSocket_Options() {
   }
 }
 
-void IpSocket_Nonblocking() {
+void NetSocket_Nonblocking() {
   if (true) {
     net_socket s{AF_INET, SOCK_STREAM, 0};
 
@@ -599,7 +599,7 @@ void IpSocket_Nonblocking() {
   }
 }
 
-void IpSocket_SendRecv() {
+void NetSocket_SendRecv() {
   int fds[2];
   ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
 
@@ -623,7 +623,7 @@ void IpSocket_SendRecv() {
   EXPECT_EQ(raw_view, "raw");
 }
 
-void IpSocket_BindListenAccept() {
+void NetSocket_BindListenAccept() {
   // Bind a listening socket to a free loopback port.
   net_socket listener{AF_INET, SOCK_STREAM, 0};
   EXPECT_TRUE(listener.is_open());
@@ -654,7 +654,7 @@ void IpSocket_BindListenAccept() {
   EXPECT_TRUE(peer.v4()->is_loopback());
 }
 
-void IpSocket_FactoryMethods() {
+void NetSocket_FactoryMethods() {
   using namespace bool_enums;
 
   // create_ipv4 defaults to non-blocking TCP.
@@ -711,8 +711,8 @@ void IpSocket_FactoryMethods() {
 
   // create_uds with datagram style gives a SOCK_DGRAM UDS.
   if (true) {
-    auto s =
-        net_socket::create_uds(execution::nonblocking, message_style::datagram);
+    auto s = net_socket::create_uds(execution::nonblocking,
+        message_style::datagram);
     EXPECT_TRUE(s.is_open());
     auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
     EXPECT_TRUE(type.has_value());
@@ -754,13 +754,13 @@ void OsFile_WriteAllReadExact() {
 }
 
 MAKE_TEST_LIST(OsFile_Lifecycle, OsFile_Move, OsFile_ReleaseFlags,
-    OsFile_WriteRead, OsFile_WriteAllReadExact, IpSocket_Lifecycle,
+    OsFile_WriteRead, OsFile_WriteAllReadExact, NetSocket_Lifecycle,
     EventFd_Lifecycle, Epoll_Lifecycle, Epoll_Move, Epoll_Release,
     Epoll_Create, Epoll_ControlWait, Epoll_WaitArray, EventFd_Move,
     EventFd_Release, EventFd_NotifyRead, EventFd_NonblockingEmptyRead,
-    EventFd_Create, EventFd_SemaphoreMode, IpSocket_Move, IpSocket_Release,
-    IpSocket_Options, IpSocket_Nonblocking, IpSocket_SendRecv,
-    IpSocket_BindListenAccept, IpSocket_FactoryMethods);
+    EventFd_Create, EventFd_SemaphoreMode, NetSocket_Move, NetSocket_Release,
+    NetSocket_Options, NetSocket_Nonblocking, NetSocket_SendRecv,
+    NetSocket_BindListenAccept, NetSocket_FactoryMethods);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
