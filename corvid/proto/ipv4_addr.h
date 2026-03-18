@@ -188,8 +188,8 @@ private:
   uint32_t addr_{}; // Host byte order.
 };
 
-inline constexpr ipv4_addr ipv4_addr::any{uint32_t{0}};
-inline constexpr ipv4_addr ipv4_addr::loopback{uint32_t{0x7f000001U}};
-inline constexpr ipv4_addr ipv4_addr::broadcast{uint32_t{0xffffffffU}};
+constexpr ipv4_addr ipv4_addr::any{uint32_t{0}};
+constexpr ipv4_addr ipv4_addr::loopback{uint32_t{0x7f000001U}};
+constexpr ipv4_addr ipv4_addr::broadcast{uint32_t{0xffffffffU}};
 
 }} // namespace corvid::proto

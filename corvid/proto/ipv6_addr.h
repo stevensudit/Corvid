@@ -374,9 +374,8 @@ private:
   byte_array bytes_{};
 };
 
-inline constexpr ipv6_addr ipv6_addr::any{};
-inline constexpr ipv6_addr ipv6_addr::loopback{uint16_t{0}, uint16_t{0},
-    uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{0},
-    uint16_t{1}};
+constexpr ipv6_addr ipv6_addr::any{};
+constexpr ipv6_addr ipv6_addr::loopback{uint16_t{0}, uint16_t{0}, uint16_t{0},
+    uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{1}};
 
 }} // namespace corvid::proto
