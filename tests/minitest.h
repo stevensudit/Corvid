@@ -393,9 +393,7 @@ auto inline stream_to_text(const auto& v) {
 
 int main() {
   using namespace minitest;
-#if defined(MINITEST_SHOW_TIMERS) && MINITEST_SHOW_TIMERS == 1
-  double total_ms_ = 0.0;
-#endif
+  const auto total_timer_start_ = std::chrono::steady_clock::now();
   for (const test* t = TEST_LIST; t->name; ++t) {
     current_failed = false;
     // std::printf("Running %s\n", t->name);
@@ -424,7 +422,6 @@ int main() {
       auto timer_elapsed_ = std::chrono::steady_clock::now() - timer_start_;
       double ms_ =
           std::chrono::duration<double, std::milli>(timer_elapsed_).count();
-      total_ms_ += ms_;
       std::printf("[TIME] %s: %.3f ms\n", t->name, ms_);
     }
 #endif
@@ -436,9 +433,13 @@ int main() {
   } else {
     std::printf("All tests passed\n");
   }
-#if defined(MINITEST_SHOW_TIMERS) && MINITEST_SHOW_TIMERS == 1
+  {
+    auto total_timer_elapsed_ =
+        std::chrono::steady_clock::now() - total_timer_start_;
+    double total_ms_ =
+        std::chrono::duration<double, std::milli>(total_timer_elapsed_).count();
   std::printf("[TIME] Total: %.3f ms\n", total_ms_);
-#endif
+  }
   return exit_code;
 }
 

@@ -21,9 +21,8 @@
 #include <chrono>
 #include <thread>
 
-#define MINITEST_SHOW_TIMERS 1
+#define MINITEST_SHOW_TIMERS 0
 #include "minitest.h"
-#include "../corvid/containers/scoped_value.h"
 
 using namespace corvid;
 
@@ -1030,12 +1029,8 @@ void IoLoop_PostAndWait_StopRace() {
   std::atomic_int waiter_returns{0};
   std::atomic_int callback_runs{0};
 
-  const auto save_time = scoped_value{
-      epoll_loop::test_only_post_and_wait_poll_interval,
-      std::chrono::milliseconds{5}};
-
   for (int i = 0; i < iterations; ++i) {
-    epoll_loop loop;
+    epoll_loop loop{std::chrono::milliseconds{5}};
     notifiable<bool> release_blocker{false};
     std::atomic_bool blocker_entered{false};
     std::atomic_bool waiter_started{false};
