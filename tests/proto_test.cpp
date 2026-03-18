@@ -37,23 +37,23 @@ void Ipv4Addr_Construction() {
     EXPECT_EQ(a.to_uint32(), 0U);
   }
 
-  // Named factory: any().
+  // Named constant: any.
   if (true) {
-    auto a = ipv4_addr::any();
+    auto a = ipv4_addr::any;
     EXPECT_TRUE(a.is_any());
     EXPECT_EQ(a.to_uint32(), 0U);
   }
 
-  // Named factory: loopback().
+  // Named constant: loopback.
   if (true) {
-    auto a = ipv4_addr::loopback();
+    auto a = ipv4_addr::loopback;
     EXPECT_TRUE(a.is_loopback());
     EXPECT_EQ(a.to_uint32(), 0x7f000001U);
   }
 
-  // Named factory: broadcast().
+  // Named constant: broadcast.
   if (true) {
-    auto a = ipv4_addr::broadcast();
+    auto a = ipv4_addr::broadcast;
     EXPECT_TRUE(a.is_broadcast());
     EXPECT_EQ(a.to_uint32(), 0xffffffffU);
   }
@@ -190,13 +190,13 @@ void Ipv4Addr_Classification() {
 
   // is_broadcast().
   if (true) {
-    EXPECT_TRUE(ipv4_addr::broadcast().is_broadcast());
+    EXPECT_TRUE(ipv4_addr::broadcast.is_broadcast());
     EXPECT_FALSE(ipv4_addr(255, 255, 255, 254).is_broadcast());
   }
 
   // is_any().
   if (true) {
-    EXPECT_TRUE(ipv4_addr::any().is_any());
+    EXPECT_TRUE(ipv4_addr::any.is_any());
     EXPECT_FALSE(ipv4_addr(0, 0, 0, 1).is_any());
   }
 }
@@ -216,9 +216,9 @@ void Ipv4Addr_Comparison() {
 }
 
 void Ipv4Addr_Formatting() {
-  EXPECT_EQ(ipv4_addr::any().to_string(), "0.0.0.0");
-  EXPECT_EQ(ipv4_addr::loopback().to_string(), "127.0.0.1");
-  EXPECT_EQ(ipv4_addr::broadcast().to_string(), "255.255.255.255");
+  EXPECT_EQ(ipv4_addr::any.to_string(), "0.0.0.0");
+  EXPECT_EQ(ipv4_addr::loopback.to_string(), "127.0.0.1");
+  EXPECT_EQ(ipv4_addr::broadcast.to_string(), "255.255.255.255");
   EXPECT_EQ(ipv4_addr(192, 168, 1, 100).to_string(), "192.168.1.100");
 
   // Round-trip: parse then format.
@@ -248,12 +248,12 @@ void Ipv6Addr_Construction() {
   }
 
   if (true) {
-    auto a = ipv6_addr::any();
+    auto a = ipv6_addr::any;
     EXPECT_TRUE(a.is_any());
   }
 
   if (true) {
-    auto a = ipv6_addr::loopback();
+    auto a = ipv6_addr::loopback;
     EXPECT_TRUE(a.is_loopback());
     EXPECT_EQ(a.to_string(), "::1");
   }
@@ -331,8 +331,8 @@ void Ipv6Addr_Parse() {
 
 void Ipv6Addr_Classification() {
   if (true) {
-    EXPECT_TRUE(ipv6_addr::loopback().is_loopback());
-    EXPECT_FALSE(ipv6_addr::any().is_loopback());
+    EXPECT_TRUE(ipv6_addr::loopback.is_loopback());
+    EXPECT_FALSE(ipv6_addr::any.is_loopback());
   }
 
   if (true) {
@@ -366,8 +366,8 @@ void Ipv6Addr_Comparison() {
 }
 
 void Ipv6Addr_Formatting() {
-  EXPECT_EQ(ipv6_addr::any().to_string(), "::");
-  EXPECT_EQ(ipv6_addr::loopback().to_string(), "::1");
+  EXPECT_EQ(ipv6_addr::any.to_string(), "::");
+  EXPECT_EQ(ipv6_addr::loopback.to_string(), "::1");
   EXPECT_EQ(ipv6_addr(0x2001, 0xdb8, 0, 0, 1, 0, 0, 1).to_string(),
       "2001:db8::1:0:0:1");
   EXPECT_EQ(ipv6_addr(0x2001, 0xdb8, 0, 1, 0, 0, 0, 1).to_string(),
@@ -407,7 +407,7 @@ void NetEndpoint_Construction() {
   }
 
   if (true) {
-    net_endpoint ep{ipv6_addr::loopback(), 443};
+    net_endpoint ep{ipv6_addr::loopback, 443};
     EXPECT_TRUE(ep.is_v6());
     EXPECT_EQ(ep.port(), 443U);
     EXPECT_EQ(ep.v6()->to_string(), "::1");
@@ -573,7 +573,7 @@ void NetEndpoint_Comparison() {
 
 void NetEndpoint_Formatting() {
   auto v4 = net_endpoint{ipv4_addr(127, 0, 0, 1), 80};
-  auto v6 = net_endpoint{ipv6_addr::loopback(), 443};
+  auto v6 = net_endpoint{ipv6_addr::loopback, 443};
   EXPECT_EQ(v4.to_string(), "127.0.0.1:80");
   EXPECT_EQ(v6.to_string(), "[::1]:443");
 
@@ -585,9 +585,7 @@ void NetEndpoint_Formatting() {
   auto ans = net_endpoint{"@svc"};
   EXPECT_TRUE(!ans.empty());
   const auto ans_str = ans.to_string();
-  EXPECT_EQ(ans_str.size(), 6 + 107U); // "unix:@" + 107-byte name
-  EXPECT_EQ(std::string_view{ans_str}.substr(0, 9), "unix:@svc");
-  EXPECT_EQ(ans_str[9], '\0'); // first trailing zero after the name
+  EXPECT_EQ(ans_str, "unix:@svc");
 }
 
 void NetEndpoint_PosixInterop() {
@@ -1039,7 +1037,7 @@ void TcpConn_Lifecycle() {
   auto loop_scope = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
-  const net_endpoint remote{ipv4_addr::loopback(), 9999};
+  const net_endpoint remote{ipv4_addr::loopback, 9999};
   {
     tcp_conn conn{loop, std::move(a), remote, {}};
     // open_ is set in the state constructor before the post fires.

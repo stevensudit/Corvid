@@ -71,22 +71,16 @@ public:
   // Construct from a POSIX `in_addr` (which is in network byte order).
   explicit ipv4_addr(const in_addr& a) noexcept : addr_{ntohl(a.s_addr)} {}
 
-  // Named address factories.
+  // Named address constants.
 
   // The "any" address (0.0.0.0): typically used to bind to all interfaces.
-  [[nodiscard]] static constexpr ipv4_addr any() noexcept {
-    return ipv4_addr{uint32_t{0}};
-  }
+  static const ipv4_addr any;
 
   // The loopback address (127.0.0.1).
-  [[nodiscard]] static constexpr ipv4_addr loopback() noexcept {
-    return ipv4_addr{uint32_t{0x7f000001U}};
-  }
+  static const ipv4_addr loopback;
 
   // The limited broadcast address (255.255.255.255).
-  [[nodiscard]] static constexpr ipv4_addr broadcast() noexcept {
-    return ipv4_addr{uint32_t{0xffffffffU}};
-  }
+  static const ipv4_addr broadcast;
 
   // Whether this address is empty, which is also the "any" address
   // ("0.0.0.0").
@@ -193,5 +187,9 @@ private:
 private:
   uint32_t addr_{}; // Host byte order.
 };
+
+inline constexpr ipv4_addr ipv4_addr::any{uint32_t{0}};
+inline constexpr ipv4_addr ipv4_addr::loopback{uint32_t{0x7f000001U}};
+inline constexpr ipv4_addr ipv4_addr::broadcast{uint32_t{0xffffffffU}};
 
 }} // namespace corvid::proto

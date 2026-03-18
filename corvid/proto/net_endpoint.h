@@ -140,11 +140,11 @@ public:
 
   // Create wildcard bind endpoints for IPv4 or IPv6 with the given port.
   [[nodiscard]] static net_endpoint any_v4(uint16_t port = 0) noexcept {
-    return net_endpoint{ipv4_addr::any(), port};
+    return net_endpoint{ipv4_addr::any, port};
   }
 
   [[nodiscard]] static net_endpoint any_v6(uint16_t port = 0) noexcept {
-    return net_endpoint{ipv6_addr::any(), port};
+    return net_endpoint{ipv6_addr::any, port};
   }
 
   // Return whether this endpoint is empty (i.e., has no valid address).
@@ -251,7 +251,8 @@ public:
       return std::format("{}:{}", addr->to_string(), port());
     if (const auto addr = v6())
       return std::format("[{}]:{}", addr->to_string(), port());
-    if (is_ans()) return std::format("unix:@{}", uds_path());
+    if (is_ans())
+      return std::format("unix:@{}", std::string_view{uds_path().data()});
     if (is_uds()) return std::format("unix:{}", uds_path());
     return "(invalid)";
   }

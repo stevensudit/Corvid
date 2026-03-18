@@ -83,19 +83,9 @@ public:
             uint8_t(a.s6_addr[12]), uint8_t(a.s6_addr[13]),
             uint8_t(a.s6_addr[14]), uint8_t(a.s6_addr[15])} {}
 
-  // Named address factories.
-
-  [[nodiscard]] static constexpr const ipv6_addr& any() noexcept {
-    static constexpr const ipv6_addr any_addr{};
-    return any_addr;
-  }
-
-  [[nodiscard]] static constexpr const ipv6_addr& loopback() noexcept {
-    static constexpr ipv6_addr loopback_addr{uint16_t{0}, uint16_t{0},
-        uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{0},
-        uint16_t{1}};
-    return loopback_addr;
-  }
+  // Named address constants.
+  static const ipv6_addr any;
+  static const ipv6_addr loopback;
 
   // Whether this address is empty, which is also the "any" address ("::").
   [[nodiscard]] constexpr bool empty() const noexcept {
@@ -143,7 +133,7 @@ public:
   [[nodiscard]] constexpr bool is_any() const noexcept { return empty(); }
 
   [[nodiscard]] constexpr bool is_loopback() const noexcept {
-    return *this == loopback();
+    return *this == loopback;
   }
 
   // True if this is in ff00::/8.
@@ -382,5 +372,10 @@ private:
 private:
   byte_array bytes_{};
 };
+
+inline constexpr ipv6_addr ipv6_addr::any{};
+inline constexpr ipv6_addr ipv6_addr::loopback{uint16_t{0}, uint16_t{0},
+    uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{0}, uint16_t{0},
+    uint16_t{1}};
 
 }} // namespace corvid::proto
