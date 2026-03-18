@@ -20,7 +20,7 @@ CMakeLists.txt lives in `tests/` only — there is none at the project root. Bui
 
 - Run `./format_all.sh` after code changes and before `git commit`. Claude's Edit/Write tools bypass IDE save hooks, so this must be done manually.
 - When referencing code locations, use markdown link format: `[filename.ext:line](filename.ext#Lline)`
-- In comments, always wrap symbols (types, variables, functions, enums, template parameters, constants) in backticks. E.g., `` `store_id_t::invalid` ``, `` `is_alive()` ``, `` `OWN_COUNT` ``.
+- In comments, use quoting as follows: backticks for literal names (types, variables, functions, enums, template parameters, constants), single quotes for individual characters, and double quotes for strings and filenames. E.g., `` `store_id_t::invalid` ``, `` `is_alive()` ``, `` `OWN_COUNT` ``; `'@'` for the at-sign character; `"config.json"` for a filename.
 - In comments and documentation, use only plain 7-bit ASCII characters. Never use Unicode arrows (use `->` not the Unicode rightwards arrow), em dashes, curly quotes, or any other non-ASCII characters.
 - Never use a trailing underscore for private methods. If a private helper needs to be distinguished from a public function, prefix it with `do_` instead. Example: public `close()`, private `do_close()`, not `close_()`.
 

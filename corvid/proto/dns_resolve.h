@@ -60,7 +60,7 @@ struct dns_resolver {
         ai = ai->ai_next)
     {
       endpoints.emplace_back(*ai->ai_addr, ai->ai_addrlen);
-      if (!endpoints.back().is_valid()) endpoints.pop_back();
+      if (endpoints.back().empty()) endpoints.pop_back();
     }
 
     return endpoints;

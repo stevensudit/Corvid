@@ -383,7 +383,7 @@ void Ipv6Addr_PosixInterop() {
 void NetEndpoint_Construction() {
   if (true) {
     net_endpoint ep;
-    EXPECT_FALSE(ep.is_valid());
+    EXPECT_TRUE(ep.empty());
     EXPECT_FALSE(ep.is_v4());
     EXPECT_FALSE(ep.is_v6());
     EXPECT_FALSE(ep.is_uds());
@@ -412,7 +412,7 @@ void NetEndpoint_Construction() {
     path.copy(raw.sun_path, sizeof(raw.sun_path) - 1);
 
     net_endpoint ep{raw};
-    EXPECT_TRUE(ep.is_valid());
+    EXPECT_FALSE(ep.empty());
     EXPECT_TRUE(ep.is_uds());
     EXPECT_FALSE(ep.is_v4());
     EXPECT_FALSE(ep.is_v6());
@@ -422,52 +422,110 @@ void NetEndpoint_Construction() {
   // UDS: path longer than 107 chars is silently truncated.
   if (true) {
     const std::string long_path(200, 'x');
-    auto ep = net_endpoint::parse("/" + long_path);
-    EXPECT_TRUE(ep.has_value());
-    EXPECT_TRUE(ep->is_uds());
-    EXPECT_EQ(ep->uds_path().size(), 107U);
+    net_endpoint ep{"/" + long_path};
+    EXPECT_TRUE(!ep.empty());
+    EXPECT_TRUE(ep.is_uds());
+    EXPECT_FALSE(ep.is_ans());
+    EXPECT_EQ(ep.uds_path().size(), 107U);
+  }
+
+  // ANS: construct via parse("@name").
+  if (true) {
+    net_endpoint ep{"@myservice"};
+    EXPECT_TRUE(!ep.empty());
+    EXPECT_TRUE(ep.is_uds());
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_FALSE(ep.is_v4());
+    EXPECT_FALSE(ep.is_v6());
+    // `uds_path()` skips the leading '\0' and returns the full 107-byte
+    // buffer.
+    EXPECT_EQ(ep.uds_path().size(), 107U);
+    EXPECT_EQ(ep.uds_path().substr(0, 9), "myservice");
+    EXPECT_EQ(ep.uds_path()[9], '\0'); // trailing bytes are zero-padding
+  }
+
+  // ANS: name longer than 107 chars is silently truncated.
+  if (true) {
+    const std::string long_name(200, 'y');
+    net_endpoint ep{"@" + long_name};
+    EXPECT_TRUE(!ep.empty());
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.uds_path().size(), 107U);
+    EXPECT_EQ(ep.uds_path()[0], 'y');
   }
 }
 
 void NetEndpoint_Parse() {
   if (true) {
-    auto a = net_endpoint::parse("192.168.1.10:8080");
-    EXPECT_TRUE(a.has_value());
-    EXPECT_TRUE(a->is_v4());
-    EXPECT_EQ(a->port(), 8080U);
-    EXPECT_EQ(a->v4()->to_string(), "192.168.1.10");
+    net_endpoint a{"192.168.1.10:8080"};
+    EXPECT_TRUE(!a.empty());
+    EXPECT_TRUE(a.is_v4());
+    EXPECT_EQ(a.port(), 8080U);
+    EXPECT_EQ(a.v4()->to_string(), "192.168.1.10");
 
-    auto b = net_endpoint::parse("[2001:db8::1]:443");
-    EXPECT_TRUE(b.has_value());
-    EXPECT_TRUE(b->is_v6());
-    EXPECT_EQ(b->port(), 443U);
-    EXPECT_EQ(b->v6()->to_string(), "2001:db8::1");
+    net_endpoint b{"[2001:db8::1]:443"};
+    EXPECT_TRUE(!b.empty());
+    EXPECT_TRUE(b.is_v6());
+    EXPECT_EQ(b.port(), 443U);
+    EXPECT_EQ(b.v6()->to_string(), "2001:db8::1");
   }
 
   if (true) {
-    EXPECT_FALSE(net_endpoint::parse("").has_value());
-    EXPECT_FALSE(net_endpoint::parse("127.0.0.1").has_value());
-    EXPECT_FALSE(net_endpoint::parse("127.0.0.1:").has_value());
-    EXPECT_FALSE(net_endpoint::parse("127.0.0.1:99999").has_value());
-    EXPECT_FALSE(net_endpoint::parse("2001:db8::1:443").has_value());
-    EXPECT_FALSE(net_endpoint::parse("[2001:db8::1]").has_value());
-    EXPECT_FALSE(net_endpoint::parse("[2001:db8::1]:").has_value());
-    EXPECT_FALSE(net_endpoint::parse("[2001:db8::1]:70000").has_value());
+    EXPECT_TRUE(net_endpoint{""}.empty());
+    EXPECT_TRUE(net_endpoint{"127.0.0.1"}.empty());
+    EXPECT_TRUE(net_endpoint{"127.0.0.1:"}.empty());
+    EXPECT_TRUE(net_endpoint{"127.0.0.1:99999"}.empty());
+    EXPECT_TRUE(net_endpoint{"2001:db8::1:443"}.empty());
+    EXPECT_TRUE(net_endpoint{"[2001:db8::1]"}.empty());
+    EXPECT_TRUE(net_endpoint{"[2001:db8::1]:"}.empty());
+    EXPECT_TRUE(net_endpoint{"[2001:db8::1]:70000"}.empty());
   }
 
   // A leading `/` produces a UDS endpoint via `parse()`.
   if (true) {
-    auto ep = net_endpoint::parse("/run/app.sock");
-    EXPECT_TRUE(ep.has_value());
-    EXPECT_TRUE(ep->is_uds());
-    EXPECT_EQ(ep->uds_path(), "/run/app.sock");
+    net_endpoint ep{"/run/app.sock"};
+    EXPECT_TRUE(!ep.empty());
+    EXPECT_TRUE(ep.is_uds());
+    EXPECT_EQ(ep.uds_path(), "/run/app.sock");
   }
 
   // The `string_view` constructor also accepts UDS paths.
   if (true) {
     net_endpoint ep{std::string_view{"/var/run/foo.sock"}};
     EXPECT_TRUE(ep.is_uds());
+    EXPECT_FALSE(ep.is_ans());
     EXPECT_EQ(ep.uds_path(), "/var/run/foo.sock");
+  }
+
+  // A leading `@` produces an ANS endpoint via `parse()`.
+  if (true) {
+    net_endpoint ep{"@abstract"};
+    EXPECT_TRUE(!ep.empty());
+    EXPECT_TRUE(ep.is_uds());
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.uds_path().size(), 107U);
+    EXPECT_EQ(ep.uds_path().substr(0, 8), "abstract");
+  }
+
+  // The `string_view` constructor also accepts ANS names.
+  if (true) {
+    net_endpoint ep{std::string_view{"@svc"}};
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.uds_path().size(), 107U);
+    EXPECT_EQ(ep.uds_path().substr(0, 3), "svc");
+  }
+
+  // An IPv4-mapped IPv6 address (e.g., `[::ffff:192.168.1.1]:80`) is stored
+  // as `AF_INET6` with no unwrapping. `to_string()` formats the address in
+  // pure colon-hex (RFC 5952), so `::ffff:192.168.1.1` appears as
+  // `::ffff:c0a8:101`.
+  if (true) {
+    net_endpoint ep{"[::ffff:192.168.1.1]:80"};
+    EXPECT_TRUE(!ep.empty());
+    EXPECT_TRUE(ep.is_v6());
+    EXPECT_FALSE(ep.is_v4());
+    EXPECT_EQ(ep.port(), 80U);
+    EXPECT_EQ(ep.to_string(), "[::ffff:c0a8:101]:80");
   }
 }
 
@@ -481,16 +539,27 @@ void NetEndpoint_Comparison() {
   EXPECT_TRUE(a < b);
 
   // UDS endpoints compare by path.
-  auto u1 = net_endpoint::parse("/a.sock");
-  auto u2 = net_endpoint::parse("/b.sock");
-  auto u3 = net_endpoint::parse("/a.sock");
-  EXPECT_TRUE(u1 && u2 && u3);
-  EXPECT_TRUE(*u1 == *u3);
-  EXPECT_FALSE(*u1 == *u2);
-  EXPECT_TRUE(*u1 < *u2);
+  net_endpoint u1{"/a.sock"};
+  net_endpoint u2{"/b.sock"};
+  net_endpoint u3{"/a.sock"};
+  EXPECT_TRUE(!u1.empty() && !u2.empty() && !u3.empty());
+  EXPECT_TRUE(u1 == u3);
+  EXPECT_FALSE(u1 == u2);
+  EXPECT_TRUE(u1 < u2);
 
   // UDS and IPv4 compare by family (AF_INET < AF_UNIX on Linux).
-  EXPECT_NE(a, *u1);
+  EXPECT_NE(a, u1);
+
+  // ANS endpoints compare by full sun_path buffer.
+  auto n1 = net_endpoint{"@same"};
+  auto n2 = net_endpoint{"@same"};
+  auto n3 = net_endpoint{"@zzz"};
+  EXPECT_TRUE(!n1.empty() && !n2.empty() && !n3.empty());
+  EXPECT_TRUE(n1 == n2);
+  EXPECT_TRUE(n1 < n3);
+
+  // ANS and regular UDS are unequal (sun_path[0] differs: '\0' vs '/').
+  EXPECT_NE(n1, u1);
 }
 
 void NetEndpoint_Formatting() {
@@ -499,9 +568,17 @@ void NetEndpoint_Formatting() {
   EXPECT_EQ(v4.to_string(), "127.0.0.1:80");
   EXPECT_EQ(v6.to_string(), "[::1]:443");
 
-  auto uds = net_endpoint::parse("/tmp/app.sock");
-  EXPECT_TRUE(uds.has_value());
-  EXPECT_EQ(uds->to_string(), "unix:/tmp/app.sock");
+  auto uds = net_endpoint{"/tmp/app.sock"};
+  EXPECT_TRUE(!uds.empty());
+  EXPECT_EQ(uds.to_string(), "unix:/tmp/app.sock");
+
+  // ANS: `to_string()` emits `unix:@` followed by the 107-byte name buffer.
+  auto ans = net_endpoint{"@svc"};
+  EXPECT_TRUE(!ans.empty());
+  const auto ans_str = ans.to_string();
+  EXPECT_EQ(ans_str.size(), 6 + 107U); // "unix:@" + 107-byte name
+  EXPECT_EQ(std::string_view{ans_str}.substr(0, 9), "unix:@svc");
+  EXPECT_EQ(ans_str[9], '\0'); // first trailing zero after the name
 }
 
 void NetEndpoint_PosixInterop() {
@@ -539,24 +616,49 @@ void NetEndpoint_PosixInterop() {
 
   // UDS: roundtrip through `as_sockaddr_un()` and back.
   if (true) {
-    auto ep = net_endpoint::parse("/tmp/interop.sock");
-    EXPECT_TRUE(ep.has_value());
+    net_endpoint ep{"/tmp/interop.sock"};
+    EXPECT_TRUE(!ep.empty());
 
-    auto raw = ep->as_sockaddr_un();
+    auto raw = ep.as_sockaddr_un();
     EXPECT_EQ(raw.sun_family, static_cast<sa_family_t>(AF_UNIX));
     EXPECT_EQ(std::string_view{raw.sun_path}, "/tmp/interop.sock");
 
     net_endpoint roundtrip{raw};
-    EXPECT_EQ(roundtrip, *ep);
+    EXPECT_EQ(roundtrip, ep);
 
     net_endpoint from_sockaddr{reinterpret_cast<const sockaddr&>(raw),
         sizeof(raw)};
-    EXPECT_EQ(from_sockaddr, *ep);
+    EXPECT_EQ(from_sockaddr, ep);
 
-    EXPECT_EQ(ep->sockaddr_size(),
+    EXPECT_EQ(ep.sockaddr_size(),
         static_cast<socklen_t>(
             offsetof(sockaddr_un, sun_path) +
             std::strlen("/tmp/interop.sock") + 1));
+  }
+
+  // ANS: build sockaddr_un manually (as the kernel would return it) and
+  // roundtrip through net_endpoint.
+  if (true) {
+    sockaddr_un raw{};
+    raw.sun_family = AF_UNIX;
+    // sun_path[0] = '\0' (already from zero-init); copy name after it.
+    const std::string_view name = "myabstract";
+    name.copy(raw.sun_path + 1, sizeof(raw.sun_path) - 1);
+    // Pass sizeof(sockaddr_un) as len: full buffer is the name.
+    const socklen_t len = sizeof(sockaddr_un);
+
+    net_endpoint ep{reinterpret_cast<const sockaddr&>(raw), len};
+    EXPECT_TRUE(ep.is_ans());
+    EXPECT_EQ(ep.uds_path().size(), 107U);
+    EXPECT_EQ(ep.uds_path().substr(0, 10), name);
+
+    // Roundtrip via as_ans().
+    auto raw2 = ep.as_ans();
+    net_endpoint ep2{raw2};
+    EXPECT_EQ(ep2, ep);
+
+    // sockaddr_size() for ANS is sizeof(sockaddr_un).
+    EXPECT_EQ(ep.sockaddr_size(), sizeof(sockaddr_un));
   }
 }
 

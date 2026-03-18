@@ -29,7 +29,7 @@ interops with its corresponding `in_addr` / `in6_addr` struct.
 ### `net_endpoint`
 
 Address + port pair in a tagged union of `sockaddr_in` and `sockaddr_in6`.
-Default-constructs to an invalid state (checkable via `is_valid()`). Parses
+Default-constructs to an empty state (checkable via `empty()`). Parses
 `1.2.3.4:80` and `[2001:db8::1]:80` notation and formats back to the same.
 Named factories `any_v4()` and `any_v6()` produce wildcard bind addresses.
 On POSIX, interops with `sockaddr_in`, `sockaddr_in6`, and
