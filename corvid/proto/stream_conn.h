@@ -38,32 +38,40 @@ namespace corvid { inline namespace proto {
 
 using namespace corvid::strings::no_zero_funcs;
 
+class stream_conn;
+
 // User-supplied persistent callbacks for a `stream_conn`. All fields are
 // optional; a null handler is silently skipped when its event fires.
 //
-//  `on_data(str)`  -- fired when data arrives. `str` is the internal receive
-//                     buffer resized to the number of bytes read; the user may
-//                     `std::move` from it to steal the allocation without an
-//                     extra copy. The reference is valid only during the call.
-//  `on_drain()`    -- fired when writes become available: when a `send()`
-//                     finishes with no outbound bytes left pending (covering
-//                     both immediate writes and buffered `EPOLLOUT`-driven
-//                     drains), or when an async `connect()` succeeds.
-//  `on_close()`    -- fired once when the connection closes: peer EOF, an I/O
-//                     error, or a failed async `connect()`. For a normal close
-//                     writes may still be possible (half-close); call
-//                     `close()` or `hangup()` to shut down fully.
+//  `on_data(conn, str)` -- fired when data arrives. `conn` is a non-owning
+//                          reference to the connection; the user may call
+//                          `conn.send()` or other methods on it. `str` is the
+//                          internal receive buffer resized to the number of
+//                          bytes read; the user may `std::move` from it to
+//                          steal the allocation without an extra copy. Both
+//                          references are valid only during the call.
+//  `on_drain()`         -- fired when writes become available: when a `send()`
+//                          finishes with no outbound bytes left pending
+//                          (covering both immediate writes and buffered
+//                          `EPOLLOUT`-driven drains), or when an async
+//                          `connect()` succeeds.
+//  `on_close()`         -- fired once when the connection closes: peer EOF, an
+//                          I/O error, or a failed async `connect()`. For a
+//                          normal close writes may still be possible
+//                          (half-close); call `close()` or `hangup()` to shut
+//                          down fully.
 struct stream_conn_handlers {
-  std::function<void(std::string&)> on_data = nullptr;
+  std::function<void(stream_conn&, std::string&)> on_data = nullptr;
   std::function<void()> on_drain = nullptr;
   std::function<void()> on_close = nullptr;
 };
 
-// A non-blocking stream socket driven by an `epoll_loop`. Supports two
+// A non-blocking stream socket driven by an `epoll_loop`. Supports three
 // creation paths:
 //
-// 1. Already-connected socket (e.g., from `accept`): use the constructor
-//    directly. The socket must already be non-blocking and connected.
+// 1. Already-connected socket (whether from `connect` or `accept`): use the
+//    constructor directly. The socket must already be non-blocking and
+//    connected.
 //
 // 2. Async connect: use the static `stream_conn::connect()` factory. It
 //    creates the socket, optionally binds the local end, calls `connect(2)`,
@@ -73,13 +81,18 @@ struct stream_conn_handlers {
 //    connection. Returns `std::nullopt` if the socket cannot be created,
 //    bound, or if `connect(2)` fails synchronously.
 //
-// `stream_conn` is a movable handle that wraps a `shared_ptr` to internal
-// state (`state`). Note that, despite using `shared_ptr`, a `stream_conn`
+// 3. Listening: use the static `stream_conn::listen()` factory. The socket
+//    must already be bound and in listen state. `EPOLLIN` events call
+//    `accept4` in a drain loop; each accepted connection is created as
+//    self-owning in the loop with a copy of the listener's handlers. `send()`
+//    and other data-path operations are disabled on a listening `stream_conn`.
+//
+// `stream_conn` is a movable handle that wraps a `shared_ptr` to the `state`
+// object, which is shared with the `epoll_loop` that it's registered with.
+// Note that, despite being implemented with a `shared_ptr`, a `stream_conn`
 // fully owns the `state` and removes it from the `epoll_loop` on close.
 //
-// The state also serves as the `io_conn` registered with the loop, so there is
-// exactly ONE heap allocation per connection: no separate `io_handlers`
-// lambdas and no second `impl` object.
+// The state implements `io_conn`
 //
 // Thread safety: `send()`, `close()`, `hangup()`, and the destructor are safe
 // to call from any thread. They route work to the loop via
@@ -153,8 +166,9 @@ public:
       size_t recv_buf_size = default_recv_buf_size) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
     if (recv_buf_size == 0) recv_buf_size = default_recv_buf_size;
-    state_ = std::make_shared<state>(loop, std::move(sock), remote,
-        std::move(h), recv_buf_size, /*connecting=*/false);
+    state_ = std::make_shared<io_state>(loop, std::move(sock), remote,
+        std::move(h), recv_buf_size, /*connecting=*/false,
+        /*listening=*/false);
     loop.post([p = state_] { p->register_with_loop(); });
   }
 
@@ -168,7 +182,7 @@ public:
   // call `close()` before the instance is destructed.
   ~stream_conn() {
     try {
-      if (!state_) return;
+      if (!state_ || borrowed_) return;
       if (state_->graceful_close_started_) return;
       (void)state_->loop_.execute_or_post([p = std::move(state_)] {
         p->do_hangup();
@@ -179,6 +193,13 @@ public:
       // Don't let exceptions escape the destructor.
     }
   }
+
+  // Release ownership without closing the connection. After this call the
+  // handle is empty; the loop keeps the state alive until the connection
+  // closes naturally (at which point `do_close_now` unregisters it and the
+  // state is destroyed). Use this to create self-owning connections that do
+  // not need to be tracked by the caller.
+  void detach() noexcept { state_ = nullptr; }
 
   // Initiate an async connection to `remote`. Creates a non-blocking socket
   // matching `remote`'s address family, optionally binds the local end to
@@ -205,7 +226,18 @@ public:
     if (result && !*result) return std::nullopt;
 
     return stream_conn{loop, std::move(sock), remote, std::move(h),
-        recv_buf_size, /*connecting=*/true};
+        recv_buf_size, /*connecting=*/true, /*listening=*/false};
+  }
+
+  // Register a bound-and-listened socket with the loop. `EPOLLIN` events
+  // drain all pending connections via `accept4`; each calls `on_accept` to
+  // obtain handlers and creates a self-owning `stream_conn` for that peer.
+  // The socket must already be non-blocking.
+  [[nodiscard]] static stream_conn
+  listen(epoll_loop& loop, net_socket&& sock, stream_conn_handlers&& h = {}) {
+    return stream_conn{loop, std::move(sock), net_endpoint::invalid,
+        std::move(h), default_recv_buf_size, /*connecting=*/false,
+        /*listening=*/true};
   }
 
   // True if the connection has not yet been closed.
@@ -311,7 +343,7 @@ public:
   // Must be awaited from the loop thread (e.g., inside a `loop_task`
   // coroutine spawned from a loop callback or `post()`'d function).
   [[nodiscard]] auto async_read() noexcept {
-    return state::async_read_awaitable{state_.get()};
+    return io_state::async_read_awaitable{state_.get()};
   }
 
   // Return an awaitable that takes ownership of `buf`, enqueues it for
@@ -324,7 +356,7 @@ public:
   // outstanding at a time.
   // Must be awaited from the loop thread.
   [[nodiscard]] auto async_send(std::string&& buf) noexcept {
-    return state::async_send_awaitable{state_.get(), std::move(buf)};
+    return io_state::async_send_awaitable{state_.get(), std::move(buf)};
   }
 
   // Register a one-shot callback for the next chunk of readable data. Callback
@@ -377,7 +409,7 @@ public:
 private:
   // Internal state. Inherits from `io_conn` so it can be registered directly
   // with the loop.
-  struct state final: io_conn {
+  struct io_state final: io_conn {
     // One pending read completion, satisfied by either a coroutine or
     // callback.
     struct pending_read_op {
@@ -444,6 +476,9 @@ private:
     // the normal data paths.
     bool connecting_ = false;
 
+    // True for listening sockets created by `stream_conn::listen()`.
+    bool listening_ = false;
+
     // Set by `do_close()` to request a full close after pending writes drain.
     bool close_requested_ = false;
 
@@ -465,19 +500,24 @@ private:
     // `async_cb_write()`.
     pending_write_op pending_write_;
 
-    explicit state(epoll_loop& loop, net_socket&& sock,
+    explicit io_state(epoll_loop& loop, net_socket&& sock,
         const net_endpoint& remote, stream_conn_handlers&& h, size_t rbs,
-        bool connecting) noexcept
+        bool connecting, bool listening) noexcept
         : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
           handlers_{std::move(h)}, recv_buf_capacity_{rbs}, open_{true},
-          connecting_{connecting} {}
+          connecting_{connecting}, listening_{listening} {
+      // Listening sockets have no writable data path.
+      if (listening) write_open_.store(false, std::memory_order::relaxed);
+    }
 
-    // Read interest is needed only while callback mode is always listening or
-    // a one-shot read waiter is actively awaiting the next chunk.
+    // Read interest is needed while in listening mode (always), while a
+    // persistent `on_data` handler is installed, or while a one-shot read
+    // waiter is active.
     [[nodiscard]] bool wants_read_events() const noexcept {
       return open_.load(std::memory_order::relaxed) &&
-             read_open_.load(std::memory_order::relaxed) &&
-             (handlers_.on_data || pending_read_.has_waiter());
+             (listening_ ||
+                 (read_open_.load(std::memory_order::relaxed) &&
+                     (handlers_.on_data || pending_read_.has_waiter())));
     }
 
     // Apply the current read-interest policy to the loop without disturbing
@@ -536,7 +576,9 @@ private:
         auto cb = std::exchange(pending_read_.cb, nullptr);
         cb(recv_buf_);
       } else if (handlers_.on_data) {
-        handlers_.on_data(recv_buf_);
+        auto borrowed = stream_conn::borrow(
+            std::static_pointer_cast<io_state>(shared_from_this()));
+        handlers_.on_data(borrowed, recv_buf_);
       }
       refresh_read_interest();
     }
@@ -666,7 +708,7 @@ private:
     void register_with_loop() {
       if (!open_.load(std::memory_order::relaxed)) return;
       const bool want_read =
-          !connecting_ && static_cast<bool>(handlers_.on_data);
+          listening_ || (!connecting_ && static_cast<bool>(handlers_.on_data));
       (void)loop_.register_socket(shared_from_this(), want_read, connecting_);
     }
 
@@ -701,8 +743,15 @@ private:
     }
 
     // `io_conn` overrides: called on the loop thread by `dispatch_event`.
-    void on_readable() override { handle_readable(); }
+    void on_readable() override {
+      if (listening_) {
+        handle_listen();
+        return;
+      }
+      handle_readable();
+    }
     void on_writable() override {
+      if (listening_) return;
       if (connecting_) {
         do_finish_connect();
         return;
@@ -711,6 +760,10 @@ private:
     }
     void on_error() override {
       if (!open_.load(std::memory_order::relaxed)) return;
+      if (listening_) {
+        do_close_now(close_mode::forceful);
+        return;
+      }
       if (connecting_) {
         do_finish_connect();
         return;
@@ -727,6 +780,20 @@ private:
         }
       } else {
         maybe_finish_after_side_close();
+      }
+    }
+
+    // Drain all pending connections. Each accepted connection gets a copy of
+    // the listener's handlers and is immediately detached so the loop is the
+    // sole owner.
+    void handle_listen() {
+      assert(loop_.is_loop_thread());
+      while (true) {
+        auto accepted = sock().accept();
+        if (!accepted) break;
+        stream_conn conn{loop_, std::move(accepted->first),
+            net_endpoint{accepted->second}, stream_conn_handlers{handlers_}};
+        conn.detach();
       }
     }
 
@@ -907,7 +974,7 @@ private:
     // At most one `async_read` may be pending at a time. Must be awaited on
     // the loop thread.
     struct async_read_awaitable {
-      state* s_;
+      io_state* s_;
 
       // Skip suspension if the connection is already closed; there will be
       // no future `handle_readable` to resume us.
@@ -945,7 +1012,7 @@ private:
     // the loop thread.
     // NOLINTBEGIN(readability-convert-member-functions-to-static)
     struct async_send_awaitable {
-      state* s_;
+      io_state* s_;
       std::string buf_;
 
       [[nodiscard]] bool await_ready() const noexcept {
@@ -984,16 +1051,14 @@ private:
     // NOLINTEND(readability-convert-member-functions-to-static)
   };
 
-  // Private constructor used by `stream_conn::connect()`. Identical to the
-  // public constructor but sets `connecting_` in `state` so that the first
-  // `EPOLLOUT` event triggers `do_finish_connect()` instead of a send flush.
+  // Private constructor used by `connect()` and `listen()`.
   explicit stream_conn(epoll_loop& loop, net_socket&& sock,
       const net_endpoint& remote, stream_conn_handlers&& h,
-      size_t recv_buf_size, bool connecting) {
+      size_t recv_buf_size, bool connecting, bool listening) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
     if (recv_buf_size == 0) recv_buf_size = default_recv_buf_size;
-    state_ = std::make_shared<state>(loop, std::move(sock), remote,
-        std::move(h), recv_buf_size, connecting);
+    state_ = std::make_shared<io_state>(loop, std::move(sock), remote,
+        std::move(h), recv_buf_size, connecting, listening);
     loop.post([p = state_] { p->register_with_loop(); });
   }
 
@@ -1014,6 +1079,20 @@ private:
     return loop.post_and_wait(std::forward<FN>(fn));
   }
 
-  std::shared_ptr<state> state_;
+  // Create a non-owning handle whose destructor is a no-op. Used internally
+  // to pass `*this` into user callbacks without risking closure when the
+  // temporary goes out of scope.
+  [[nodiscard]] static stream_conn borrow(
+      std::shared_ptr<io_state> s) noexcept {
+    return stream_conn{std::move(s), /*borrowed=*/true};
+  }
+
+  // Private constructor for borrowed handles.
+  explicit stream_conn(std::shared_ptr<io_state> s, bool borrowed) noexcept
+      : state_{std::move(s)}, borrowed_{borrowed} {}
+
+  std::shared_ptr<io_state> state_;
+  bool borrowed_ = false;
 };
+
 }} // namespace corvid::proto

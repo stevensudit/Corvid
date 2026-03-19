@@ -1094,7 +1094,7 @@ void StreamConn_Receive() {
 
   std::string received;
   stream_conn conn{loop, std::move(a), {},
-      {.on_data = [&](std::string& d) { received = std::move(d); }}};
+      {.on_data = [&](stream_conn&, std::string& d) { received = std::move(d); }}};
   loop.run_once(0); // process posted do_open_()
 
   const std::string msg{"hello"};
@@ -1112,7 +1112,7 @@ void StreamConn_SetRecvBufSize() {
 
   std::vector<size_t> chunk_sizes;
   stream_conn conn{loop, std::move(a), {},
-      {.on_data = [&](std::string& d) { chunk_sizes.push_back(d.size()); }},
+      {.on_data = [&](stream_conn&, std::string& d) { chunk_sizes.push_back(d.size()); }},
       4};
   loop.run_once(0); // process posted register_with_loop
 
@@ -1429,7 +1429,7 @@ void StreamConn_ShutdownWrite() {
 
   std::string received;
   stream_conn conn{loop, std::move(a), {},
-      {.on_data = [&](std::string& d) { received = std::move(d); }}};
+      {.on_data = [&](stream_conn&, std::string& d) { received = std::move(d); }}};
   loop.run_once(0); // process posted register_with_loop
 
   EXPECT_TRUE(conn.can_read());
@@ -1454,7 +1454,7 @@ void StreamConn_ShutdownRead() {
 
   int data_count = 0;
   stream_conn conn{loop, std::move(a), {},
-      {.on_data = [&](std::string&) { ++data_count; }}};
+      {.on_data = [&](stream_conn&, std::string&) { ++data_count; }}};
   loop.run_once(0); // process posted register_with_loop
 
   EXPECT_TRUE(conn.can_read());
@@ -1842,45 +1842,87 @@ void StreamConn_HttpConnectGoogle() {
   if (!remote) return;
 
   epoll_loop loop;
+  std::thread loop_thread{[&] { loop.run(100); }};
+  EXPECT_TRUE(loop.wait_until_running(1000));
+
   notifiable<bool> done{false};
   std::string response;
   std::optional<stream_conn> conn_opt;
 
-  // Build the connection. The loop is not yet running, so conn_opt will be
-  // assigned before the loop thread can process any posted callbacks.
-  conn_opt = stream_conn::connect(loop, remote, {.on_drain = [&] {
-    // Connected: send a minimal HTTP/1.0 request.
-    constexpr std::string_view req =
-        "GET / HTTP/1.0\r\nHost: google.com\r\n\r\n";
-    conn_opt->async_cb_write(
-        std::string{req},
-        [&](bool ok) {
-          if (!ok) {
-            // Write failed; signal done so wait_for_value can return.
-            done.notify_one(true);
-            return;
-          }
-          // Request sent: wait for the first chunk of the reply.
-          // If the connection closes before data arrives, async_cb_read
-          // delivers an empty string, which also signals done.
-          conn_opt->async_cb_read([&](std::string& data) {
-            response = std::move(data);
-            done.notify_one(true);
-          });
-        },
-        execution::nonblocking);
-  }});
+  conn_opt = stream_conn::connect(loop, remote,
+      {.on_data =
+              [&](stream_conn&, std::string& data) {
+                // Accumulate all response chunks.
+                response.append(data);
+              },
+          .on_drain =
+              [&, sent = false]() mutable {
+                // on_drain re-fires each time the send queue empties; guard
+                // against sending the request more than once.
+                if (std::exchange(sent, true)) return;
+                constexpr std::string_view req =
+                    "GET / HTTP/1.0\r\nHost: google.com\r\n\r\n";
+                conn_opt->send(std::string{req});
+              },
+          .on_close = [&] { done.notify_one(true); }});
 
-  if (!conn_opt) return; // synchronous failure (e.g. bind rejected)
-
-  // Start the loop only after conn_opt is set so that on_drain sees a valid
-  // optional when it references conn_opt.
-  std::thread loop_thread{[&] { loop.run(100); }};
-  EXPECT_TRUE(loop.wait_until_running(1000));
+  if (!conn_opt) return;
 
   EXPECT_TRUE(done.wait_for_value(std::chrono::seconds{10}, true));
   EXPECT_FALSE(response.empty());
   EXPECT_TRUE(response.starts_with("HTTP/"));
+
+  loop.stop();
+  loop_thread.join();
+}
+
+// Verify that a client can connect to a local loopback listener and that the
+// server echoes back whatever it receives, using only persistent callbacks.
+void StreamConn_EchoServer() {
+  epoll_loop loop;
+  std::thread loop_thread{[&] { loop.run(100); }};
+  EXPECT_TRUE(loop.wait_until_running(1000));
+
+  // Bind a non-blocking listener to an OS-assigned loopback port.
+  auto listener_sock = net_socket::create_ipv4();
+  EXPECT_TRUE(listener_sock.is_open());
+  EXPECT_TRUE(listener_sock.set_reuse_addr());
+  EXPECT_TRUE(listener_sock.bind(net_endpoint{ipv4_addr::loopback, 0}));
+  EXPECT_TRUE(listener_sock.listen());
+
+  // Sniff out the port from the listener socket so we can connect to it.
+  const net_endpoint server_ep{listener_sock.handle()};
+  EXPECT_TRUE(server_ep);
+
+  // Each accepted connection is self-owning and gets a copy of the listener's
+  // handlers, so no external handle is needed.
+  auto listener = stream_conn::listen(loop, std::move(listener_sock),
+      {.on_data = [](stream_conn& conn, std::string& data) {
+        conn.send(std::move(data));
+      }});
+
+  // Connect to the server, send a message once the connection is established,
+  // and accumulate the echo in `received`.
+  constexpr std::string_view msg{"hello echo"};
+  std::string received;
+  notifiable<bool> done{false};
+  std::optional<stream_conn> client_conn;
+
+  client_conn = stream_conn::connect(loop, server_ep,
+      {.on_data =
+              [&](stream_conn&, std::string& data) {
+                received.append(data);
+                if (received.size() >= msg.size()) done.notify_one(true);
+              },
+          .on_drain =
+              [&, sent = false]() mutable {
+                if (std::exchange(sent, true)) return;
+                client_conn->send(std::string{msg});
+              }});
+  EXPECT_TRUE(client_conn.has_value());
+
+  EXPECT_TRUE(done.wait_for_value(std::chrono::seconds{5}, true));
+  EXPECT_EQ(received, std::string{msg});
 
   loop.stop();
   loop_thread.join();
@@ -1911,7 +1953,7 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_DestructorHangsUp, LoopTask_FireAndForget, StreamConn_AsyncRead,
     StreamConn_AsyncRead_PreservesEarlyData,
     StreamConn_AsyncRead_StopsBetweenCalls, StreamConn_AsyncRead_PeerClose,
-    StreamConn_AsyncSend, StreamConn_HttpConnectGoogle);
+    StreamConn_AsyncSend, StreamConn_HttpConnectGoogle, StreamConn_EchoServer);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

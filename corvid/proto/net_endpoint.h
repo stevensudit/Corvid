@@ -140,6 +140,15 @@ public:
     do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
   }
 
+  // Construct by querying the local address bound to `fd` via `getsockname`.
+  // On failure, result is `empty()`.
+  explicit net_endpoint(os_file::file_handle_t fd) noexcept {
+    sockaddr_storage addr{};
+    socklen_t len = sizeof(addr);
+    if (::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) == 0)
+      do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), len);
+  }
+
   // Create wildcard bind endpoints for IPv4 or IPv6 with the given port.
   [[nodiscard]] static net_endpoint any_v4(uint16_t port = 0) noexcept {
     return net_endpoint{ipv4_addr::any, port};
