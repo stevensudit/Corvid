@@ -15,6 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Codex note: in this sandbox, creating AF_INET/AF_INET6 sockets can fail
+// with EPERM, so the network-socket portions of this test file may fail even
+// when the code is correct in a normal local environment.
+
 #include "../corvid/filesys.h"
 #include "../corvid/proto/net_endpoint.h"
 #include "minitest.h"

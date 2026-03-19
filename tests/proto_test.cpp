@@ -14,11 +14,17 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+// Codex note: in this sandbox, creating AF_INET/AF_INET6 sockets can fail
+// with EPERM, so tests here that rely on real network sockets may fail even
+// when the code is correct in a normal local environment.
 #include "../corvid/proto.h"
 
 #include <type_traits>
 #include <atomic>
 #include <chrono>
+#include <cstring>
+#include <iostream>
 #include <thread>
 
 #define MINITEST_SHOW_TIMERS 0
@@ -784,8 +790,12 @@ struct sockpair_t {
 // Make a pair of connected sockets, in non-blocking mode.
 static sockpair_t make_nb_sockpair() {
   int fds[2];
-  if (::socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, fds) != 0)
+  if (::socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, fds) != 0) {
+    const int err = errno;
+    std::cerr << "socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK) failed: "
+              << std::strerror(err) << " (" << err << ")\n";
     return {};
+  }
   return {net_socket{os_file{fds[0]}}, net_socket{os_file{fds[1]}}};
 }
 
