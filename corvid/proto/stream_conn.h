@@ -398,8 +398,8 @@ private:
 
   // True while an async connect is in progress. Cleared by
   // `handle_connect()` once `SO_ERROR` is checked. During this phase,
-  // `on_writable` and `on_error` route to `handle_connect()` instead of
-  // the normal data paths.
+  // `on_readable`, `on_writable`, and `on_error` all route to
+  // `handle_connect()` instead of the normal data paths.
   bool connecting_ = false;
 
   // True for listening sockets created by `stream_conn_ptr::listen()`. In
@@ -439,9 +439,10 @@ private:
   // registered, even if its `stream_conn_ptr` is destructed. (However, its
   // destruction will start a forceful close.)
   //
-  // In connecting mode, arms `EPOLLOUT` (so the first `on_writable()` or
-  // `on_error()` can call `handle_connect()`) and suppresses `EPOLLIN`
-  // until the connect resolves. In connected mode, derives initial read/write
+  // In connecting mode, arms `EPOLLOUT` (so the first `on_writable()`,
+  // `on_readable()`, or `on_error()` can call `handle_connect()`) and
+  // suppresses `EPOLLIN` until the connect resolves. In connected mode,
+  // derives initial read/write
   // interest from `wants_read_events()` and `send_queue_` so that waiters or
   // queued sends registered before this call (e.g., from a coroutine that
   // created the connection and immediately awaited it in the same frame) are
@@ -460,6 +461,10 @@ private:
   void on_readable() override {
     if (listening_) {
       handle_listen();
+      return;
+    }
+    if (connecting_) {
+      handle_connect();
       return;
     }
     handle_readable();
@@ -718,7 +723,8 @@ private:
   // the connect resolved, `EPOLLOUT` stays armed; `notify_drained()` fires
   // once the queue drains.
   //
-  // Called from `on_writable()` and `on_error()` while `connecting_` is set.
+  // Called from `on_readable()`, `on_writable()`, and `on_error()` while
+  // `connecting_` is set.
   void handle_connect() {
     assert(loop_.is_loop_thread());
     assert(connecting_);
@@ -1036,7 +1042,7 @@ public:
   // call `close()` before the instance is destructed.
   ~stream_conn_ptr() {
     try {
-      if (!conn_ &&
+      if (!conn_ ||
           conn_->graceful_close_started_.load(std::memory_order::relaxed))
         return;
       (void)conn_->loop_.execute_or_post([p = std::move(conn_)] {
