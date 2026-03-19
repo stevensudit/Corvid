@@ -420,6 +420,22 @@ private:
     return std::static_pointer_cast<stream_conn>(shared_from_this());
   }
 
+  // Register `net_socket` with the loop. Stores a shared owner in the loop's
+  // registration map, keeping the state alive as long as the fd is
+  // registered, even if its `stream_conn_ptr` is destructed. (However, its
+  // destruction will start a forceful close.)
+  //
+  // In connecting mode, arms `EPOLLOUT` (so the first `on_writable()` or
+  // `on_error()` can call `handle_connect()`) and suppresses `EPOLLIN`
+  // until the connect resolves. In connected mode, arms `EPOLLIN` only while
+  // a read waiter is active or a persistent `on_data` handler is installed.
+  void register_with_loop() {
+    if (!open_.load(std::memory_order::relaxed)) return;
+    const bool want_read =
+        listening_ || (!connecting_ && static_cast<bool>(handlers_.on_data));
+    (void)loop_.register_socket(shared_from_this(), want_read, connecting_);
+  }
+
   // `io_conn` overrides: called on the loop thread by `dispatch_event`.
   void on_readable() override {
     if (listening_) {
@@ -584,11 +600,6 @@ private:
     }
   }
 
-  // Complete any pending write waiter when a graceful close drains fully.
-  void complete_pending_writes_after_drain() {
-    if (pending_write_.has_waiter()) notify_drained();
-  }
-
   // Shut down the local read side and notify any blocked read waiter.
   [[nodiscard]] bool do_shutdown_read() {
     if (!open_.load(std::memory_order::relaxed) ||
@@ -654,22 +665,6 @@ private:
       return;
     }
     maybe_finish_after_side_close(close_mode::forceful);
-  }
-
-  // Register `net_socket` with the loop. Stores a shared owner in the loop's
-  // registration map, keeping the state alive as long as the fd is
-  // registered, even if its `stream_conn_ptr` is destructed. (However, its
-  // destruction will start a forceful close.)
-  //
-  // In connecting mode, arms `EPOLLOUT` (so the first `on_writable()` or
-  // `on_error()` can call `handle_connect()`) and suppresses `EPOLLIN`
-  // until the connect resolves. In connected mode, arms `EPOLLIN` only while
-  // a read waiter is active or a persistent `on_data` handler is installed.
-  void register_with_loop() {
-    if (!open_.load(std::memory_order::relaxed)) return;
-    const bool want_read =
-        listening_ || (!connecting_ && static_cast<bool>(handlers_.on_data));
-    (void)loop_.register_socket(shared_from_this(), want_read, connecting_);
   }
 
   // Resolve a pending async connect by checking `SO_ERROR`.
@@ -833,7 +828,7 @@ private:
 
     // If we were waiting to close, do it now.
     if (close_requested_) {
-      complete_pending_writes_after_drain();
+      if (pending_write_.has_waiter()) notify_drained();
       do_close_now();
       return false;
     }
