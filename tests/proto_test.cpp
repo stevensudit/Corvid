@@ -794,6 +794,7 @@ static sockpair_t make_nb_sockpair() {
     const int err = errno;
     std::cerr << "socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK) failed: "
               << std::strerror(err) << " (" << err << ")\n";
+    ASSERT_TRUE(false);
     return {};
   }
   return {net_socket{os_file{fds[0]}}, net_socket{os_file{fds[1]}}};
