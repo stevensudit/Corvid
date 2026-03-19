@@ -140,12 +140,13 @@ public:
     do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
   }
 
-  // Construct by querying the local address bound to `fd` via `getsockname`.
+  // Construct by querying the local address bound to `sock` via `getsockname`.
   // On failure, result is `empty()`.
-  explicit net_endpoint(os_file::file_handle_t fd) noexcept {
+  explicit net_endpoint(const net_socket& sock) noexcept {
     sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
-    if (::getsockname(fd, reinterpret_cast<sockaddr*>(&addr), &len) == 0)
+    if (::getsockname(sock.handle(), reinterpret_cast<sockaddr*>(&addr),
+            &len) == 0)
       do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), len);
   }
 
