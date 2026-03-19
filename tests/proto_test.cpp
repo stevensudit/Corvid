@@ -1827,6 +1827,8 @@ void StreamConn_AsyncSend() {
   EXPECT_EQ(buf, msg);
 }
 
+// This test relies on a TCP DNS listener, which is present in all of the
+// environments that we care about.
 void StreamConn_HttpConnectDnsTcp() {
   const net_endpoint remote{ipv4_addr{127, 0, 0, 53}, 53};
   std::string query = {0x00, 0x1b, // Length prefix (27 bytes)
@@ -1860,7 +1862,7 @@ void StreamConn_HttpConnectDnsTcp() {
               },
           .on_close = [&](stream_conn&) { done.notify_one(true); }});
 
-  if (!conn_opt) return;
+  ASSERT_TRUE(conn_opt);
 
   ASSERT_TRUE(done.wait_for_value(std::chrono::seconds{2}, true));
   ASSERT_GE(response.size(), 4U);

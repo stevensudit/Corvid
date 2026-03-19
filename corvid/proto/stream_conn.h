@@ -26,8 +26,10 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include <unistd.h>
+#include <fcntl.h>
 
 #include "epoll_loop.h"
 #include "loop_task.h"
@@ -439,13 +441,16 @@ private:
   //
   // In connecting mode, arms `EPOLLOUT` (so the first `on_writable()` or
   // `on_error()` can call `handle_connect()`) and suppresses `EPOLLIN`
-  // until the connect resolves. In connected mode, arms `EPOLLIN` only while
-  // a read waiter is active or a persistent `on_data` handler is installed.
+  // until the connect resolves. In connected mode, derives initial read/write
+  // interest from `wants_read_events()` and `send_queue_` so that waiters or
+  // queued sends registered before this call (e.g., from a coroutine that
+  // created the connection and immediately awaited it in the same frame) are
+  // correctly armed.
   void register_with_loop() {
     if (!open_.load(std::memory_order::relaxed)) return;
-    const bool want_read =
-        listening_ || (!connecting_ && static_cast<bool>(handlers_.on_data));
-    (void)loop_.register_socket(shared_from_this(), want_read, connecting_);
+    const bool want_write = connecting_ || !send_queue_.empty();
+    (void)loop_.register_socket(shared_from_this(), wants_read_events(),
+        want_write);
     registered_.store(true, std::memory_order::relaxed);
   }
 
@@ -510,13 +515,17 @@ private:
   // If we're already on the loop thread and registered, runs it inline.
   // Otherwise, posts it to the queue, and either returns immediately
   // (`execution::nonblocking`) or waits for completion
-  // (`execution::blocking`). If we run synchronously, the return value of
-  // the lambda is passed through; otherwise, it's always true.
+  // (`execution::blocking`). `post_and_wait` is only used when off the loop
+  // thread AND already registered; calling it before registration would
+  // defeat the pre-registration guard, since `post_and_wait` executes inline
+  // on the loop thread. If we run synchronously, the return value of the
+  // lambda is passed through; otherwise, it's always true.
   template<typename FN>
   bool exec_lambda(execution exec, FN&& fn) {
-    if (loop_.is_loop_thread() && registered_.load(std::memory_order::relaxed))
+    const auto is_loop_thread = loop_.is_loop_thread();
+    if (is_loop_thread && registered_.load(std::memory_order::relaxed))
       return fn();
-    if (exec == execution::nonblocking) {
+    if (exec == execution::nonblocking || is_loop_thread) {
       loop_.post(std::forward<FN>(fn));
       return true;
     }
@@ -1043,7 +1052,7 @@ public:
 
   // Adopt an already-connected, non-blocking `sock` and register it with
   // `loop`. `remote` records the peer address for diagnostics. May be called
-  // from any thread. Returns an invalid handle if `sock` is not non-blocking.
+  // from any thread. Socket must be nonblocking.
   [[nodiscard]] static stream_conn_ptr adopt(epoll_loop& loop,
       net_socket&& sock, const net_endpoint& remote,
       stream_conn_handlers&& h = {},
