@@ -449,9 +449,11 @@ private:
   void register_with_loop() {
     if (!open_.load(std::memory_order::relaxed)) return;
     const bool want_write = connecting_ || !send_queue_.empty();
-    (void)loop_.register_socket(shared_from_this(), wants_read_events(),
-        want_write);
-    registered_.store(true, std::memory_order::relaxed);
+    // Suppress reads while connecting: `handle_connect()` calls
+    // `refresh_read_interest()` once `SO_ERROR` confirms success.
+    const bool want_read = !connecting_ && wants_read_events();
+    if (loop_.register_socket(shared_from_this(), want_read, want_write))
+      registered_.store(true, std::memory_order::relaxed);
   }
 
   // `io_conn` overrides: called on the loop thread by `dispatch_event`.
