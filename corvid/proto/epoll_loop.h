@@ -474,8 +474,11 @@ public:
           epoll_loop::default_post_and_wait_poll_interval)
       : loop_{post_and_wait_poll_interval},
         thread_{[this] { loop_.run(100); }} {
-    if (!loop_.wait_until_running(1000))
+    if (!loop_.wait_until_running(1000)) {
+      loop_.stop();
+      thread_.join();
       throw std::runtime_error("epoll_loop_runner failed to start");
+    }
   }
 
   epoll_loop_runner(const epoll_loop_runner&) = delete;
@@ -485,7 +488,7 @@ public:
 
   ~epoll_loop_runner() {
     loop_.stop();
-    thread_.join();
+    if (thread_.joinable()) thread_.join();
   }
 
   [[nodiscard]] epoll_loop& loop() noexcept { return loop_; }
