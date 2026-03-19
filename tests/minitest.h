@@ -1,5 +1,6 @@
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <exception>
 #include <iostream>
@@ -25,6 +26,13 @@ inline void mark_failed() {
   current_failed = true;
   just_failed = true;
 }
+
+[[noreturn]] inline void abort_failed() {
+  std::fflush(stdout);
+  std::fflush(stderr);
+  std::abort();
+}
+
 inline bool was_failed() {
   bool failed{just_failed};
   just_failed = false;
@@ -74,7 +82,7 @@ auto inline stream_to_text(const auto& v) {
       minitest::mark_failed();                                                \
       std::printf("Assertion failed at %s:%d: " fmt "\n", __FILE__, __LINE__, \
           ##__VA_ARGS__);                                                     \
-      return;                                                                 \
+      minitest::abort_failed();                                               \
     }                                                                         \
   } while (false)
 
@@ -275,13 +283,13 @@ auto inline stream_to_text(const auto& v) {
     catch (...) {                                                             \
       minitest::mark_failed();                                                \
       std::printf("Unexpected exception at %s:%d\n", __FILE__, __LINE__);     \
-      return;                                                                 \
+      minitest::abort_failed();                                               \
     }                                                                         \
     if (!caught_) {                                                           \
       minitest::mark_failed();                                                \
       std::printf("Expected exception %s not thrown at %s:%d\n", #exc,        \
           __FILE__, __LINE__);                                                \
-      return;                                                                 \
+      minitest::abort_failed();                                               \
     }                                                                         \
   } while (false);
 
