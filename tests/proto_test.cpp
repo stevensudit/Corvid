@@ -1852,7 +1852,7 @@ void StreamConn_HttpConnectGoogle() {
 
   notifiable<bool> done{false};
   std::string response;
-  std::optional<stream_conn_ptr> conn_opt;
+  stream_conn_ptr conn_opt;
 
   conn_opt = stream_conn_ptr::connect(loop, remote,
       {.on_data =
@@ -1889,29 +1889,25 @@ void StreamConn_EchoServer() {
   EXPECT_TRUE(loop.wait_until_running(1000));
 
   // Bind a non-blocking listener to an OS-assigned loopback port.
-  auto listener_sock = net_socket::create_ipv4();
-  EXPECT_TRUE(listener_sock.is_open());
-  EXPECT_TRUE(listener_sock.set_reuse_addr());
-  EXPECT_TRUE(listener_sock.bind(net_endpoint{ipv4_addr::loopback, 0}));
-  EXPECT_TRUE(listener_sock.listen());
-
-  // Sniff out the port from the listener socket so we can connect to it.
-  const net_endpoint server_ep{listener_sock.handle()};
-  EXPECT_TRUE(server_ep);
-
   // Each accepted connection is self-owning and gets a copy of the listener's
   // handlers, so no external handle is needed.
-  auto listener = stream_conn_ptr::listen(loop, std::move(listener_sock),
+  auto listener = stream_conn_ptr::listen(loop,
+      net_endpoint{ipv4_addr::loopback, 0},
       {.on_data = [](stream_conn& conn, std::string& data) {
         conn.send(std::move(data));
       }});
+  EXPECT_TRUE(listener);
+
+  // Sniff out the port from the listener socket so we can connect to it.
+  const net_endpoint server_ep = listener->local_endpoint();
+  EXPECT_TRUE(server_ep);
 
   // Connect to the server, send a message once the connection is established,
   // and accumulate the echo in `received`.
   constexpr std::string_view msg{"hello echo"};
   std::string received;
   notifiable<bool> done{false};
-  std::optional<stream_conn_ptr> client_conn;
+  stream_conn_ptr client_conn;
 
   client_conn = stream_conn_ptr::connect(loop, server_ep,
       {.on_data =
@@ -1924,7 +1920,7 @@ void StreamConn_EchoServer() {
                 if (std::exchange(sent, true)) return;
                 conn.send(std::string{msg});
               }});
-  EXPECT_TRUE(client_conn.has_value());
+  EXPECT_TRUE(client_conn);
 
   EXPECT_TRUE(done.wait_for_value(std::chrono::seconds{5}, true));
   EXPECT_EQ(received, std::string{msg});
