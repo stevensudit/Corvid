@@ -192,12 +192,13 @@ public:
   }
   // Take ownership of `buf` and start sending it. Safe to call from any
   // thread. Success does not mean that the buffer has been fully sent.
-  // Instead, send completion will be signaled through the `on_data` callback.
+  // Instead, send completion is signaled via the `on_drain` callback (for
+  // persistent handlers) or a write waiter (`async_send`/`async_cb_write`).
   bool send(std::string&& buf) {
     if (buf.empty()) return false;
     if (!open_.load(std::memory_order::relaxed)) return false;
     if (!write_open_.load(std::memory_order::relaxed)) return false;
-    return loop_.execute_or_post([p = self(), b = std::move(buf)]() mutable {
+    return execute_or_post([p = self(), b = std::move(buf)]() mutable {
       p->enqueue_send(std::move(b));
       return true;
     });
@@ -215,7 +216,7 @@ public:
   // Start a forceful close. Pending sends are discarded and SO_LINGER is
   // disabled. Safe to call from any thread.
   bool hangup() {
-    return loop_.execute_or_post([p = self()] { return p->do_hangup(); });
+    return execute_or_post([p = self()] { return p->do_hangup(); });
   }
 
   // Shut down the local read side while keeping the write side available.
@@ -386,6 +387,13 @@ private:
   std::atomic_bool read_open_{true};
   std::atomic_bool write_open_{true};
 
+  // Set to true at the start of `register_with_loop()`. Before this point,
+  // `execute_or_post` defers inline execution even on the loop thread, so
+  // that operations posted before registration (e.g., `send()` from the loop
+  // thread immediately after `adopt()`) do not attempt epoll mutations on an
+  // unregistered fd.
+  std::atomic_bool registered_{false};
+
   // True while an async connect is in progress. Cleared by
   // `handle_connect()` once `SO_ERROR` is checked. During this phase,
   // `on_writable` and `on_error` route to `handle_connect()` instead of
@@ -438,6 +446,7 @@ private:
     const bool want_read =
         listening_ || (!connecting_ && static_cast<bool>(handlers_.on_data));
     (void)loop_.register_socket(shared_from_this(), want_read, connecting_);
+    registered_.store(true, std::memory_order::relaxed);
   }
 
   // `io_conn` overrides: called on the loop thread by `dispatch_event`.
@@ -483,15 +492,30 @@ private:
     }
   }
 
+  // Run `fn` immediately if on the loop thread and already registered with the
+  // loop, otherwise post it. Mirrors `epoll_loop::execute_or_post` but guards
+  // against running inline before `register_with_loop()` has executed, which
+  // would cause silently failed attempts at epoll mutations (e.g.,
+  // `set_writable`) on an unregistered fd.
+  template<typename FN>
+  bool execute_or_post(FN&& fn) {
+    if (loop_.is_loop_thread() && registered_.load(std::memory_order::relaxed))
+      return fn();
+    loop_.post(std::forward<FN>(fn));
+    return true;
+  }
+
   // Execute the lambda `fn` on the loop thread.
   //
-  // If we're already on the loop thread, runs it inline. Otherwise, posts it
-  // to the queue, and either returns immediately (`execution::nonblocking`) or
-  // waits for completion (`execution::blocking`). If we run synchronously, the
-  // return value of the lambda is passed through; otherwise, it's always true.
+  // If we're already on the loop thread and registered, runs it inline.
+  // Otherwise, posts it to the queue, and either returns immediately
+  // (`execution::nonblocking`) or waits for completion
+  // (`execution::blocking`). If we run synchronously, the return value of
+  // the lambda is passed through; otherwise, it's always true.
   template<typename FN>
   bool exec_lambda(execution exec, FN&& fn) {
-    if (loop_.is_loop_thread()) return fn();
+    if (loop_.is_loop_thread() && registered_.load(std::memory_order::relaxed))
+      return fn();
     if (exec == execution::nonblocking) {
       loop_.post(std::forward<FN>(fn));
       return true;
@@ -1001,9 +1025,9 @@ public:
   // call `close()` before the instance is destructed.
   ~stream_conn_ptr() {
     try {
-      if (!state_) return;
-      if (state_->graceful_close_started_) return;
-      (void)state_->loop_.execute_or_post([p = std::move(state_)] {
+      if (!conn_) return;
+      if (conn_->graceful_close_started_) return;
+      (void)conn_->loop_.execute_or_post([p = std::move(conn_)] {
         p->do_hangup();
         return true;
       });
@@ -1015,7 +1039,7 @@ public:
 
   // Release ownership of the connection. The connection remains registered
   // with the loop and is responsible for itself.
-  std::shared_ptr<stream_conn> release() { return std::move(state_); }
+  std::shared_ptr<stream_conn> release() { return std::move(conn_); }
 
   // Adopt an already-connected, non-blocking `sock` and register it with
   // `loop`. `remote` records the peer address for diagnostics. May be called
@@ -1024,7 +1048,7 @@ public:
       net_socket&& sock, const net_endpoint& remote,
       stream_conn_handlers&& h = {},
       size_t recv_buf_size = stream_conn::default_recv_buf_size) {
-    if ((sock.get_flags().value_or(0) & O_NONBLOCK) == 0) return {};
+    assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
     return stream_conn_ptr{loop, std::move(sock), remote, std::move(h),
         recv_buf_size, /*connecting=*/false, /*listening=*/false};
   }
@@ -1083,31 +1107,31 @@ public:
   // socket. Safe to call from any thread. Once this is called, destructing
   // this object does not cause a forceful close.
   bool close() {
-    if (!state_) return false;
-    return state_->close();
+    if (!conn_) return false;
+    return conn_->close();
   }
 
   // Access the underlying `stream_conn` directly.
-  stream_conn* operator->() noexcept { return state_.get(); }
-  const stream_conn* operator->() const noexcept { return state_.get(); }
+  stream_conn* operator->() noexcept { return conn_.get(); }
+  const stream_conn* operator->() const noexcept { return conn_.get(); }
 
   // True if this handle is non-empty (i.e., holds a connection).
-  explicit operator bool() const noexcept { return state_ != nullptr; }
+  explicit operator bool() const noexcept { return conn_ != nullptr; }
 
 private:
-  // Private constructor used by `connect()` and `listen()`.
+  // Private constructor used by `connect()`, `listen()`, and `adopt()`.
   explicit stream_conn_ptr(epoll_loop& loop, net_socket&& sock,
       const net_endpoint& remote, stream_conn_handlers&& h,
       size_t recv_buf_size, bool connecting, bool listening) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
     if (recv_buf_size == 0) recv_buf_size = stream_conn::default_recv_buf_size;
-    state_ = std::make_shared<stream_conn>(stream_conn::allow::ctor, loop,
+    conn_ = std::make_shared<stream_conn>(stream_conn::allow::ctor, loop,
         std::move(sock), remote, std::move(h), recv_buf_size, connecting,
         listening);
-    loop.post([p = state_] { p->register_with_loop(); });
+    loop.post([p = conn_] { p->register_with_loop(); });
   }
 
-  std::shared_ptr<stream_conn> state_;
+  std::shared_ptr<stream_conn> conn_;
 };
 
 }} // namespace corvid::proto
