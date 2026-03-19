@@ -1088,9 +1088,10 @@ public:
 
     const auto result = sock.connect(remote);
     if (result && !*result) return {};
+    const auto still_connecting = !result;
 
     return stream_conn_ptr{loop, std::move(sock), remote, std::move(h),
-        recv_buf_size, /*connecting=*/true, /*listening=*/false};
+        recv_buf_size, /*connecting=*/still_connecting, /*listening=*/false};
   }
 
   // Create a non-blocking listening socket bound to `local`, register it with

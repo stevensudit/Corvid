@@ -283,7 +283,7 @@ auto inline stream_to_text(const auto& v) {
           __FILE__, __LINE__);                                                \
       return;                                                                 \
     }                                                                         \
-  } while (false)
+  } while (false);
 
 #if defined(__GNUC__) || defined(__clang__)
 // Supports 0-99 arguments

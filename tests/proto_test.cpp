@@ -1829,7 +1829,7 @@ void StreamConn_AsyncSend() {
 
 // This test relies on a TCP DNS listener, which is present in all of the
 // environments that we care about.
-void StreamConn_HttpConnectDnsTcp() {
+void StreamConn_DnsTcpConnect() {
   const net_endpoint remote{ipv4_addr{127, 0, 0, 53}, 53};
   std::string query = {0x00, 0x1b, // Length prefix (27 bytes)
       0x12, 0x34,                  // Transaction ID
@@ -1941,7 +1941,7 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_DestructorHangsUp, LoopTask_FireAndForget, StreamConn_AsyncRead,
     StreamConn_AsyncRead_PreservesEarlyData,
     StreamConn_AsyncRead_StopsBetweenCalls, StreamConn_AsyncRead_PeerClose,
-    StreamConn_AsyncSend, StreamConn_HttpConnectDnsTcp, StreamConn_EchoServer);
+    StreamConn_AsyncSend, StreamConn_DnsTcpConnect, StreamConn_EchoServer);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
