@@ -761,10 +761,14 @@ private:
         !write_open_.load(std::memory_order::relaxed))
       return false;
 
-    // If there are writes queued ahead of us, just add this to the back:
-    // `EPOLLOUT` is already armed.
-    if (!send_queue_.empty()) {
+    // If there are writes queued ahead of us, or if an async connect is still
+    // in progress (writes would fail with `ENOTCONN`), just add to the back.
+    // `EPOLLOUT` is already armed in both cases.
+    if (const auto send_queue_empty = send_queue_.empty();
+        !send_queue_empty || connecting_)
+    {
       send_queue_.push_back(std::move(buf));
+      if (send_queue_empty) head_span_ = send_queue_.front();
       return true;
     }
 

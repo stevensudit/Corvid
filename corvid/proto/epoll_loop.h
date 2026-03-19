@@ -466,7 +466,7 @@ private:
   notifiable<std::atomic_bool> running_{false};
 };
 
-// Owns a loop and a polling thread that runs `loop.run(100)`.
+// Runs an `epoll_loop` in its own background thread.
 class epoll_loop_runner {
 public:
   explicit epoll_loop_runner(
@@ -474,11 +474,8 @@ public:
           epoll_loop::default_post_and_wait_poll_interval)
       : loop_{post_and_wait_poll_interval},
         thread_{[this] { loop_.run(100); }} {
-    if (!loop_.wait_until_running(1000)) {
-      loop_.stop();
-      thread_.join();
+    if (!loop_.wait_until_running(1000))
       throw std::runtime_error("epoll_loop_runner failed to start");
-    }
   }
 
   epoll_loop_runner(const epoll_loop_runner&) = delete;

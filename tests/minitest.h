@@ -222,10 +222,24 @@ auto inline stream_to_text(const auto& v) {
     VALUE_MSG(actual_, true);                                                 \
   } while (false);
 
+#define ASSERT_TRUE(actual)                                                   \
+  do {                                                                        \
+    const bool actual_ = (actual) ? true : false;                             \
+    TEST_ASSERT_((actual_), "%s", ("(" #actual ")"));                         \
+    VALUE_MSG(actual_, true);                                                 \
+  } while (false);
+
 #define EXPECT_FALSE(actual)                                                  \
   do {                                                                        \
     const bool actual_ = (actual) ? true : false;                             \
     TEST_CHECK_((!actual_), "%s", ("!(" #actual ")"));                        \
+    VALUE_MSG(actual_, false);                                                \
+  } while (false);
+
+#define ASSERT_FALSE(actual)                                                  \
+  do {                                                                        \
+    const bool actual_ = (actual) ? true : false;                             \
+    TEST_ASSERT_((!actual_), "%s", ("!(" #actual ")"));                       \
     VALUE_MSG(actual_, false);                                                \
   } while (false);
 
@@ -238,7 +252,38 @@ auto inline stream_to_text(const auto& v) {
     VALUE_MSG(actual_, expected_);                                            \
   } while (false);
 
+#define ASSERT_NEAR(actual, expected, abs_error)                              \
+  do {                                                                        \
+    const auto& actual_ = (actual);                                           \
+    const auto& expected_ = (expected);                                       \
+    TEST_ASSERT_(std::abs(actual_ - expected_) <= abs_error, "%s",            \
+        ("std::abs(" #actual " - " #expected ") <= " #abs_error));            \
+    VALUE_MSG(actual_, expected_);                                            \
+  } while (false);
+
 #define EXPECT_THROW(call, exc) TEST_EXCEPTION((void)(call), exc)
+
+#define ASSERT_THROW(call, exc)                                               \
+  do {                                                                        \
+    bool caught_ = false;                                                     \
+    try {                                                                     \
+      (void)(call);                                                           \
+    }                                                                         \
+    catch (const exc&) {                                                      \
+      caught_ = true;                                                         \
+    }                                                                         \
+    catch (...) {                                                             \
+      minitest::mark_failed();                                                \
+      std::printf("Unexpected exception at %s:%d\n", __FILE__, __LINE__);     \
+      return;                                                                 \
+    }                                                                         \
+    if (!caught_) {                                                           \
+      minitest::mark_failed();                                                \
+      std::printf("Expected exception %s not thrown at %s:%d\n", #exc,        \
+          __FILE__, __LINE__);                                                \
+      return;                                                                 \
+    }                                                                         \
+  } while (false)
 
 #if defined(__GNUC__) || defined(__clang__)
 // Supports 0-99 arguments

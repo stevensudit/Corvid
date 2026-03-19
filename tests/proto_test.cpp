@@ -99,24 +99,24 @@ void Ipv4Addr_Parse() {
   // Valid addresses.
   if (true) {
     auto a = ipv4_addr::parse("0.0.0.0");
-    EXPECT_TRUE(a.has_value());
+    ASSERT_TRUE(a.has_value());
     EXPECT_TRUE(a->is_any());
 
     auto b = ipv4_addr::parse("127.0.0.1");
-    EXPECT_TRUE(b.has_value());
+    ASSERT_TRUE(b.has_value());
     EXPECT_TRUE(b->is_loopback());
 
     auto c = ipv4_addr::parse("255.255.255.255");
-    EXPECT_TRUE(c.has_value());
+    ASSERT_TRUE(c.has_value());
     EXPECT_TRUE(c->is_broadcast());
 
     auto d = ipv4_addr::parse("192.168.1.100");
-    EXPECT_TRUE(d.has_value());
+    ASSERT_TRUE(d.has_value());
     EXPECT_EQ(d->to_uint32(), 0xc0a80164U);
 
     // Single-digit octets.
     auto e = ipv4_addr::parse("1.2.3.4");
-    EXPECT_TRUE(e.has_value());
+    ASSERT_TRUE(e.has_value());
     EXPECT_EQ(e->to_uint32(), 0x01020304U);
   }
 
@@ -231,7 +231,7 @@ void Ipv4Addr_Formatting() {
 
   // Round-trip: parse then format.
   auto addr = ipv4_addr::parse("10.20.30.40");
-  EXPECT_TRUE(addr.has_value());
+  ASSERT_TRUE(addr.has_value());
   EXPECT_EQ(addr->to_string(), "10.20.30.40");
 }
 
@@ -284,27 +284,27 @@ void Ipv6Addr_Construction() {
 void Ipv6Addr_Parse() {
   if (true) {
     auto a = ipv6_addr::parse("::");
-    EXPECT_TRUE(a.has_value());
+    ASSERT_TRUE(a.has_value());
     EXPECT_TRUE(a->is_any());
 
     auto b = ipv6_addr::parse("::1");
-    EXPECT_TRUE(b.has_value());
+    ASSERT_TRUE(b.has_value());
     EXPECT_TRUE(b->is_loopback());
 
     auto c = ipv6_addr::parse("2001:db8::1");
-    EXPECT_TRUE(c.has_value());
+    ASSERT_TRUE(c.has_value());
     EXPECT_EQ(c->to_string(), "2001:db8::1");
 
     auto d = ipv6_addr::parse("2001:0DB8:0000:0000:0000:0000:0000:0001");
-    EXPECT_TRUE(d.has_value());
+    ASSERT_TRUE(d.has_value());
     EXPECT_EQ(d->to_string(), "2001:db8::1");
 
     auto e = ipv6_addr::parse("fe80::1234:5678");
-    EXPECT_TRUE(e.has_value());
+    ASSERT_TRUE(e.has_value());
     EXPECT_TRUE(e->is_link_local());
 
     auto f = ipv6_addr::parse("::ffff:192.168.1.1");
-    EXPECT_TRUE(f.has_value());
+    ASSERT_TRUE(f.has_value());
     auto fw = f->words();
     EXPECT_EQ(fw[4], 0U);
     EXPECT_EQ(fw[5], 0xFFFFU);
@@ -315,7 +315,7 @@ void Ipv6Addr_Parse() {
     EXPECT_EQ(fb[15], 1U);
 
     auto g = ipv6_addr::parse("2001:db8::192.0.2.33");
-    EXPECT_TRUE(g.has_value());
+    ASSERT_TRUE(g.has_value());
     auto gw = g->words();
     EXPECT_EQ(gw[6], 0xC000U);
     EXPECT_EQ(gw[7], 0x0221U);
@@ -382,7 +382,7 @@ void Ipv6Addr_Formatting() {
       "2001:db8:0:1::1");
 
   auto addr = ipv6_addr::parse("2001:db8::abcd");
-  EXPECT_TRUE(addr.has_value());
+  ASSERT_TRUE(addr.has_value());
   EXPECT_EQ(addr->to_string(), "2001:db8::abcd");
 }
 
@@ -409,14 +409,14 @@ void NetEndpoint_Construction() {
 
   if (true) {
     net_endpoint ep{ipv4_addr(127, 0, 0, 1), 80};
-    EXPECT_TRUE(ep.is_v4());
+    ASSERT_TRUE(ep.is_v4());
     EXPECT_EQ(ep.port(), 80U);
     EXPECT_EQ(ep.v4()->to_string(), "127.0.0.1");
   }
 
   if (true) {
     net_endpoint ep{ipv6_addr::loopback, 443};
-    EXPECT_TRUE(ep.is_v6());
+    ASSERT_TRUE(ep.is_v6());
     EXPECT_EQ(ep.port(), 443U);
     EXPECT_EQ(ep.v6()->to_string(), "::1");
   }
@@ -477,13 +477,13 @@ void NetEndpoint_Parse() {
   if (true) {
     net_endpoint a{"192.168.1.10:8080"};
     EXPECT_TRUE(!a.empty());
-    EXPECT_TRUE(a.is_v4());
+    ASSERT_TRUE(a.is_v4());
     EXPECT_EQ(a.port(), 8080U);
     EXPECT_EQ(a.v4()->to_string(), "192.168.1.10");
 
     net_endpoint b{"[2001:db8::1]:443"};
     EXPECT_TRUE(!b.empty());
-    EXPECT_TRUE(b.is_v6());
+    ASSERT_TRUE(b.is_v6());
     EXPECT_EQ(b.port(), 443U);
     EXPECT_EQ(b.v6()->to_string(), "2001:db8::1");
   }
@@ -839,11 +839,11 @@ void IoLoop_PreStartWorkIsQueued() {
   EXPECT_TRUE(loop.is_loop_thread());
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
-  EXPECT_TRUE(loop.register_socket(conn, false, false));
+  ASSERT_TRUE(loop.register_socket(conn, false, false));
   EXPECT_FALSE(loop.register_socket(conn, false, false));
 
   auto msg_view = std::string_view{"hi"};
-  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  ASSERT_TRUE(b.send(msg_view) && msg_view.empty());
   EXPECT_EQ(conn->readable, 0);
 
   // The first pump drains the queued registration work, but read interest is
@@ -851,7 +851,7 @@ void IoLoop_PreStartWorkIsQueued() {
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->readable, 0);
 
-  EXPECT_TRUE(loop.set_readable(conn->sock(), true));
+  ASSERT_TRUE(loop.set_readable(conn->sock(), true));
   EXPECT_EQ(loop.run_once(0), 1);
   EXPECT_EQ(conn->readable, 1);
 }
@@ -865,10 +865,10 @@ void IoLoop_RegisterUnregister() {
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
-  EXPECT_TRUE(loop.register_socket(conn));
+  ASSERT_TRUE(loop.register_socket(conn));
 
   auto msg_view = std::string_view{"hi"};
-  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  ASSERT_TRUE(b.send(msg_view) && msg_view.empty());
 
   EXPECT_EQ(loop.run_once(0), 1);
   EXPECT_EQ(conn->readable, 1);
@@ -879,7 +879,7 @@ void IoLoop_RegisterUnregister() {
   std::string buf(8, '\0');
   (void)conn->sock().read(buf);
 
-  EXPECT_TRUE(loop.unregister_socket(conn->sock()));
+  ASSERT_TRUE(loop.unregister_socket(conn->sock()));
   EXPECT_FALSE(loop.unregister_socket(conn->sock())); // already removed
 
   // No events after unregistering.
@@ -895,7 +895,7 @@ void IoLoop_SetWritable() {
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
-  EXPECT_TRUE(loop.register_socket(conn));
+  ASSERT_TRUE(loop.register_socket(conn));
 
   // `EPOLLOUT` is not initially armed; no writable event.
   EXPECT_EQ(loop.run_once(0), 0);
@@ -918,16 +918,16 @@ void IoLoop_SetReadable() {
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
-  EXPECT_TRUE(loop.register_socket(conn, false, false));
+  ASSERT_TRUE(loop.register_socket(conn, false, false));
 
   auto first = std::string_view{"hi"};
-  EXPECT_TRUE(b.send(first) && first.empty());
+  ASSERT_TRUE(b.send(first) && first.empty());
 
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->readable, 0);
   EXPECT_EQ(conn->writable, 0);
 
-  EXPECT_TRUE(loop.set_readable(conn->sock(), true));
+  ASSERT_TRUE(loop.set_readable(conn->sock(), true));
   EXPECT_EQ(loop.run_once(0), 1);
   EXPECT_EQ(conn->readable, 1);
   EXPECT_EQ(conn->writable, 0);
@@ -935,8 +935,8 @@ void IoLoop_SetReadable() {
   std::string buf(8, '\0');
   (void)conn->sock().read(buf);
 
-  EXPECT_TRUE(loop.set_readable(conn->sock(), false));
-  EXPECT_TRUE(loop.set_writable(conn->sock(), true));
+  ASSERT_TRUE(loop.set_readable(conn->sock(), false));
+  ASSERT_TRUE(loop.set_writable(conn->sock(), true));
   EXPECT_EQ(loop.run_once(0), 1);
   EXPECT_EQ(conn->readable, 1);
   EXPECT_GE(conn->writable, 1);
@@ -951,7 +951,7 @@ void IoLoop_ErrorSkipsWritable() {
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
-  EXPECT_TRUE(loop.register_socket(conn));
+  ASSERT_TRUE(loop.register_socket(conn));
   loop.set_writable(conn->sock(), true); // arm EPOLLOUT
 
   b.close(); // triggers EPOLLHUP on `a`
@@ -977,7 +977,7 @@ void IoLoop_DefaultOnError() {
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<readable_only_conn>(std::move(a));
-  EXPECT_TRUE(loop.register_socket(conn));
+  ASSERT_TRUE(loop.register_socket(conn));
 
   b.close(); // EPOLLHUP -> default on_error() -> on_readable()
   loop.run_once(0);
@@ -996,7 +996,7 @@ void IoLoop_IsLoopThreadIsPerLoop() {
   std::atomic_bool second_result{false};
 
   std::thread loop_thread{[&] { loop_a.run(10); }};
-  EXPECT_TRUE(loop_a.wait_until_running(1000));
+  ASSERT_TRUE(loop_a.wait_until_running(1000));
 
   loop_a.post([&] {
     first_result = loop_b.register_socket(conn, false, false);
@@ -1005,16 +1005,16 @@ void IoLoop_IsLoopThreadIsPerLoop() {
   });
   loop_thread.join();
 
-  EXPECT_TRUE(first_result);
-  EXPECT_TRUE(second_result);
+  ASSERT_TRUE(first_result);
+  ASSERT_TRUE(second_result);
 
   EXPECT_EQ(loop_b.run_once(0), 0);
 
   auto msg_view = std::string_view{"cross-loop"};
-  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  ASSERT_TRUE(b.send(msg_view) && msg_view.empty());
   EXPECT_EQ(loop_b.run_once(0), 0);
 
-  EXPECT_TRUE(loop_b.set_readable(conn->sock(), true));
+  ASSERT_TRUE(loop_b.set_readable(conn->sock(), true));
   EXPECT_EQ(loop_b.run_once(0), 1);
   EXPECT_EQ(conn->readable, 1);
 }
@@ -1092,7 +1092,7 @@ void StreamConn_Receive() {
 
   const std::string msg{"hello"};
   auto msg_view = std::string_view{msg};
-  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  ASSERT_TRUE(b.send(msg_view) && msg_view.empty());
 
   EXPECT_EQ(loop.run_once(0), 1); // dispatch EPOLLIN
   EXPECT_EQ(received, msg);
@@ -1113,12 +1113,12 @@ void StreamConn_SetRecvBufSize() {
   EXPECT_EQ(conn->recv_buf_size(), 4U);
 
   auto first = std::string_view{"abcd1234"};
-  EXPECT_TRUE(b.send(first) && first.empty());
+  ASSERT_TRUE(b.send(first) && first.empty());
   EXPECT_EQ(loop.run_once(0), 1); // first read capped at 4 bytes
   EXPECT_EQ(chunk_sizes.size(), 1U);
   EXPECT_EQ(chunk_sizes[0], 4U);
 
-  EXPECT_TRUE(conn->set_recv_buf_size(8));
+  ASSERT_TRUE(conn->set_recv_buf_size(8));
   EXPECT_EQ(conn->recv_buf_size(), 8U);
 
   EXPECT_EQ(loop.run_once(0), 1); // drain remaining 4 bytes
@@ -1126,7 +1126,7 @@ void StreamConn_SetRecvBufSize() {
   EXPECT_EQ(chunk_sizes[1], 4U);
 
   auto second = std::string_view{"ABCDEFGHijkl"};
-  EXPECT_TRUE(b.send(second) && second.empty());
+  ASSERT_TRUE(b.send(second) && second.empty());
   EXPECT_EQ(loop.run_once(0), 1); // next read should use updated sizing hint
   EXPECT_EQ(chunk_sizes.size(), 3U);
   EXPECT_GE(chunk_sizes[2], 8U);
@@ -1143,7 +1143,7 @@ void StreamConn_PeerClose() {
       {.on_close = [&](stream_conn&) { closed = true; }});
   loop.run_once(0); // process posted do_open_()
 
-  EXPECT_TRUE(b.shutdown(SHUT_WR));
+  ASSERT_TRUE(b.shutdown(SHUT_WR));
   loop.run_once(0); // dispatch EOF/HUP
 
   EXPECT_TRUE(closed);
@@ -1157,7 +1157,7 @@ void StreamConn_PeerClose() {
 
   std::string buf;
   no_zero::enlarge_to(buf, 32);
-  EXPECT_TRUE(b.read(buf));
+  ASSERT_TRUE(b.read(buf));
   EXPECT_EQ(buf, "still-open");
 
   conn.close();
@@ -1179,7 +1179,7 @@ void StreamConn_Send() {
   // Data written by enqueue() is now in the kernel buffer.
   std::string buf;
   no_zero::enlarge_to(buf, 16);
-  EXPECT_TRUE(b.read(buf));
+  ASSERT_TRUE(b.read(buf));
   EXPECT_EQ(buf.size(), 5U);
   EXPECT_EQ(buf, "world");
 }
@@ -1262,7 +1262,7 @@ void StreamConn_DrainAfterImmediateSend() {
 
   std::string received;
   no_zero::enlarge_to(received, 16);
-  EXPECT_TRUE(b.read(received));
+  ASSERT_TRUE(b.read(received));
   EXPECT_EQ(received, "hello");
   EXPECT_EQ(drain_count, 1);
 }
@@ -1276,13 +1276,13 @@ void StreamConn_AsyncCbRead() {
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   loop.run_once(0); // process posted register_with_loop
 
-  EXPECT_TRUE(conn->async_cb_read([&](std::string& data) {
+  ASSERT_TRUE(conn->async_cb_read([&](std::string& data) {
     received = std::move(data);
   }));
 
   const std::string msg{"callback-read"};
   auto msg_view = std::string_view{msg};
-  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  ASSERT_TRUE(b.send(msg_view) && msg_view.empty());
 
   loop.run_once(0); // dispatch EPOLLIN -> inline callback
 
@@ -1300,12 +1300,12 @@ void StreamConn_AsyncCbRead_PreservesEarlyData() {
 
   const std::string msg{"early-callback-read"};
   auto msg_view = std::string_view{msg};
-  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  ASSERT_TRUE(b.send(msg_view) && msg_view.empty());
 
   EXPECT_EQ(loop.run_once(0),
       0); // read interest is disabled; data stays queued
 
-  EXPECT_TRUE(conn->async_cb_read([&](std::string& data) {
+  ASSERT_TRUE(conn->async_cb_read([&](std::string& data) {
     received = std::move(data);
   }));
 
@@ -1322,12 +1322,12 @@ void StreamConn_AsyncCbRead_DuplicateRejected() {
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   loop.run_once(0); // process posted register_with_loop
 
-  EXPECT_TRUE(conn->async_cb_read([&](std::string&) { ++callback_count; }));
+  ASSERT_TRUE(conn->async_cb_read([&](std::string&) { ++callback_count; }));
   EXPECT_FALSE(conn->async_cb_read([&](std::string&) { ++callback_count; }));
 
   const std::string msg{"one"};
   auto msg_view = std::string_view{msg};
-  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  ASSERT_TRUE(b.send(msg_view) && msg_view.empty());
 
   loop.run_once(0); // dispatch EPOLLIN -> one callback
 
@@ -1346,7 +1346,7 @@ void StreamConn_AsyncCbRead_PeerClose() {
       {.on_close = [&](stream_conn&) { closed = true; }});
   loop.run_once(0); // process posted register_with_loop
 
-  EXPECT_TRUE(conn->async_cb_read([&](std::string& data) {
+  ASSERT_TRUE(conn->async_cb_read([&](std::string& data) {
     received = std::move(data);
     ++callback_count;
   }));
@@ -1376,7 +1376,7 @@ void StreamConn_AsyncCbWrite() {
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   loop.run_once(0); // process posted register_with_loop
 
-  EXPECT_TRUE(conn->async_cb_write(std::string{"callback-write"},
+  ASSERT_TRUE(conn->async_cb_write(std::string{"callback-write"},
       [&](bool write_completed) {
         completed = write_completed;
         ++callback_count;
@@ -1384,7 +1384,7 @@ void StreamConn_AsyncCbWrite() {
 
   std::string received;
   no_zero::enlarge_to(received, 32);
-  EXPECT_TRUE(b.read(received));
+  ASSERT_TRUE(b.read(received));
   EXPECT_EQ(received, "callback-write");
   EXPECT_TRUE(completed);
   EXPECT_EQ(callback_count, 1);
@@ -1403,7 +1403,7 @@ void StreamConn_AsyncCbWrite_Failure() {
 
   b.close();
 
-  EXPECT_TRUE(conn->async_cb_write(std::string{"boom"},
+  ASSERT_TRUE(conn->async_cb_write(std::string{"boom"},
       [&](bool write_completed) { completed = write_completed; }));
 
   EXPECT_FALSE(completed);
@@ -1430,7 +1430,7 @@ void StreamConn_ShutdownWrite() {
 
   EXPECT_TRUE(conn->can_read());
   EXPECT_TRUE(conn->can_write());
-  EXPECT_TRUE(conn->shutdown_write());
+  ASSERT_TRUE(conn->shutdown_write());
   EXPECT_TRUE(conn->is_open());
   EXPECT_TRUE(conn->can_read());
   EXPECT_FALSE(conn->can_write());
@@ -1438,7 +1438,7 @@ void StreamConn_ShutdownWrite() {
 
   const std::string msg{"inbound"};
   auto msg_view = std::string_view{msg};
-  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  ASSERT_TRUE(b.send(msg_view) && msg_view.empty());
   EXPECT_EQ(loop.run_once(0), 1);
   EXPECT_EQ(received, msg);
 }
@@ -1455,7 +1455,7 @@ void StreamConn_ShutdownRead() {
 
   EXPECT_TRUE(conn->can_read());
   EXPECT_TRUE(conn->can_write());
-  EXPECT_TRUE(conn->shutdown_read());
+  ASSERT_TRUE(conn->shutdown_read());
   EXPECT_TRUE(conn->is_open());
   EXPECT_FALSE(conn->can_read());
   EXPECT_TRUE(conn->can_write());
@@ -1466,7 +1466,7 @@ void StreamConn_ShutdownRead() {
 
   std::string buf;
   no_zero::enlarge_to(buf, 32);
-  EXPECT_TRUE(b.read(buf));
+  ASSERT_TRUE(b.read(buf));
   EXPECT_EQ(buf, "outbound");
   EXPECT_EQ(data_count, 0);
 }
@@ -1479,12 +1479,12 @@ void StreamConn_ShutdownBothCloses() {
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   loop.run_once(0); // process posted register_with_loop
 
-  EXPECT_TRUE(conn->shutdown_write());
+  ASSERT_TRUE(conn->shutdown_write());
   EXPECT_TRUE(conn->is_open());
   EXPECT_FALSE(conn->can_write());
   EXPECT_TRUE(conn->can_read());
 
-  EXPECT_TRUE(conn->shutdown_read());
+  ASSERT_TRUE(conn->shutdown_read());
   EXPECT_FALSE(conn->is_open());
   EXPECT_FALSE(conn->can_read());
   EXPECT_FALSE(conn->can_write());
@@ -1524,7 +1524,7 @@ void StreamConn_AsyncCbWrite_DuplicateRejected() {
   EXPECT_EQ(rejected, 1);
 
   b.close();
-  EXPECT_TRUE(completion.wait_for_value(std::chrono::seconds{1}, true));
+  ASSERT_TRUE(completion.wait_for_value(std::chrono::seconds{1}, true));
 
   EXPECT_EQ(completions, 1);
 }
@@ -1673,7 +1673,7 @@ void StreamConn_AsyncRead() {
 
   const std::string msg{"hello"};
   auto msg_view = std::string_view{msg};
-  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  ASSERT_TRUE(b.send(msg_view) && msg_view.empty());
 
   loop.run_once(0); // dispatch EPOLLIN -> posts resume
   loop.run_once(0); // drain post queue -> coroutine resumes
@@ -1695,7 +1695,7 @@ void StreamConn_AsyncRead_PreservesEarlyData() {
 
   const std::string msg{"early-coroutine-read"};
   auto msg_view = std::string_view{msg};
-  EXPECT_TRUE(b.send(msg_view) && msg_view.empty());
+  ASSERT_TRUE(b.send(msg_view) && msg_view.empty());
 
   EXPECT_EQ(loop.run_once(0),
       0); // data remains in kernel until a read is armed
@@ -1733,7 +1733,7 @@ void StreamConn_AsyncRead_StopsBetweenCalls() {
   first_coro();
 
   auto first_msg = std::string_view{"first"};
-  EXPECT_TRUE(b.send(first_msg) && first_msg.empty());
+  ASSERT_TRUE(b.send(first_msg) && first_msg.empty());
 
   loop.run_once(0); // deliver first read
   loop.run_once(0); // resume first coroutine
@@ -1742,7 +1742,7 @@ void StreamConn_AsyncRead_StopsBetweenCalls() {
   EXPECT_EQ(first, "first");
 
   auto second_msg = std::string_view{"second"};
-  EXPECT_TRUE(b.send(second_msg) && second_msg.empty());
+  ASSERT_TRUE(b.send(second_msg) && second_msg.empty());
 
   EXPECT_EQ(loop.run_once(0), 0); // no waiter, so second chunk stays in kernel
   EXPECT_FALSE(second_done);
@@ -1819,18 +1819,21 @@ void StreamConn_AsyncSend() {
   // run_once (for the register post). Otherwise pump the loop to drain.
   for (int i = 0; i < 4 && !sent; ++i) loop.run_once(0);
 
-  EXPECT_TRUE(sent);
+  ASSERT_TRUE(sent);
 
   std::string buf;
   no_zero::enlarge_to(buf, 16);
-  EXPECT_TRUE(b.read(buf));
+  ASSERT_TRUE(b.read(buf));
   EXPECT_EQ(buf, msg);
 }
 
-void StreamConn_HttpConnectGoogle() {
-  // Skip if DNS is unavailable (no network access).
-  const auto remote = dns_resolver::find_one("google.com", 80, AF_INET);
-  if (!remote) return;
+void StreamConn_HttpConnectDnsTcp() {
+  const net_endpoint remote{ipv4_addr{127, 0, 0, 53}, 53};
+  std::string query = {0x00, 0x1b, // Length prefix (27 bytes)
+      0x12, 0x34,                  // Transaction ID
+      0x01, 0x00,                  // Flags
+      0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 'l', 'o', 'c', 'a',
+      'l', 'h', 'o', 's', 't', 0x00, 0x00, 0x01, 0x00, 0x01};
 
   epoll_loop_runner loop;
 
@@ -1841,25 +1844,32 @@ void StreamConn_HttpConnectGoogle() {
   conn_opt = stream_conn_ptr::connect(loop, remote,
       {.on_data =
               [&](stream_conn&, std::string& data) {
-                // Accumulate all response chunks.
                 response.append(data);
+                if (response.size() < 2) return;
+
+                const auto expected_size =
+                    size_t((uint8_t(response[0]) << 8) | uint8_t(response[1]));
+                if (response.size() >= expected_size + 2)
+                  done.notify_one(true);
               },
           .on_drain =
-              [sent = false](stream_conn& conn) mutable {
-                // on_drain re-fires each time the send queue empties; guard
-                // against sending the request more than once.
+              [query = std::move(query), sent = false](
+                  stream_conn& conn) mutable {
                 if (std::exchange(sent, true)) return;
-                constexpr std::string_view req =
-                    "GET / HTTP/1.0\r\nHost: google.com\r\n\r\n";
-                conn.send(std::string{req});
+                conn.send(std::move(query));
               },
           .on_close = [&](stream_conn&) { done.notify_one(true); }});
 
   if (!conn_opt) return;
 
-  EXPECT_TRUE(done.wait_for_value(std::chrono::seconds{10}, true));
-  EXPECT_FALSE(response.empty());
-  EXPECT_TRUE(response.starts_with("HTTP/"));
+  ASSERT_TRUE(done.wait_for_value(std::chrono::seconds{2}, true));
+  ASSERT_GE(response.size(), 4U);
+
+  const auto expected_size =
+      size_t((uint8_t(response[0]) << 8) | uint8_t(response[1]));
+  EXPECT_EQ(expected_size, response.size() - 2);
+  EXPECT_EQ(uint8_t(response[2]), 0x12U);
+  EXPECT_EQ(uint8_t(response[3]), 0x34U);
 }
 
 // Verify that a client can connect to a local loopback listener and that the
@@ -1875,11 +1885,11 @@ void StreamConn_EchoServer() {
       {.on_data = [](stream_conn& conn, std::string& data) {
         conn.send(std::move(data));
       }});
-  EXPECT_TRUE(listener);
+  ASSERT_TRUE(listener);
 
   // Sniff out the port from the listener socket so we can connect to it.
   const net_endpoint server_ep = listener->local_endpoint();
-  EXPECT_TRUE(server_ep);
+  ASSERT_TRUE(server_ep);
 
   // Connect to the server, send a message once the connection is established,
   // and accumulate the echo in `received`.
@@ -1899,9 +1909,9 @@ void StreamConn_EchoServer() {
                 if (std::exchange(sent, true)) return;
                 conn.send(std::string{msg});
               }});
-  EXPECT_TRUE(client_conn);
+  ASSERT_TRUE(client_conn);
 
-  EXPECT_TRUE(done.wait_for_value(std::chrono::seconds{5}, true));
+  ASSERT_TRUE(done.wait_for_value(std::chrono::seconds{5}, true));
   EXPECT_EQ(received, std::string{msg});
 }
 
@@ -1929,7 +1939,7 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_DestructorHangsUp, LoopTask_FireAndForget, StreamConn_AsyncRead,
     StreamConn_AsyncRead_PreservesEarlyData,
     StreamConn_AsyncRead_StopsBetweenCalls, StreamConn_AsyncRead_PeerClose,
-    StreamConn_AsyncSend, StreamConn_HttpConnectGoogle, StreamConn_EchoServer);
+    StreamConn_AsyncSend, StreamConn_HttpConnectDnsTcp, StreamConn_EchoServer);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
