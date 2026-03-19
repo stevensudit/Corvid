@@ -804,13 +804,13 @@ struct counting_conn: io_conn {
 void IoLoop_Lifecycle() {
   // Construction succeeds; an empty poll returns 0 events.
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   EXPECT_EQ(loop.run_once(0), 0);
 }
 
 void IoLoop_Post() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
 
   int fired = 0;
   loop.post([&] { ++fired; });
@@ -823,7 +823,7 @@ void IoLoop_Post() {
 
 void IoLoop_PreStartWorkIsQueued() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   EXPECT_TRUE(loop.is_loop_thread());
@@ -851,7 +851,7 @@ void IoLoop_PreStartWorkIsQueued() {
 // double-unregister both return false.
 void IoLoop_RegisterUnregister() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
@@ -881,7 +881,7 @@ void IoLoop_RegisterUnregister() {
 // send buffer has space, which it does immediately on a fresh socketpair.
 void IoLoop_SetWritable() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
@@ -904,7 +904,7 @@ void IoLoop_SetWritable() {
 
 void IoLoop_SetReadable() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
@@ -937,7 +937,7 @@ void IoLoop_SetReadable() {
 // `dispatch_event`).
 void IoLoop_ErrorSkipsWritable() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
@@ -963,7 +963,7 @@ void IoLoop_DefaultOnError() {
   };
 
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   auto conn = std::make_shared<readable_only_conn>(std::move(a));
@@ -1009,36 +1009,18 @@ void IoLoop_IsLoopThreadIsPerLoop() {
   EXPECT_EQ(conn->readable, 1);
 }
 
-void IoLoop_WaitUntilRunning() {
-  epoll_loop loop;
-
-  std::thread loop_thread{[&] { loop.run(10); }};
-  EXPECT_TRUE(loop.wait_until_running(1000));
-
-  loop.stop();
-  loop_thread.join();
-}
-
-void IoLoop_WaitUntilRunning_TimesOut() {
-  epoll_loop loop;
-  EXPECT_FALSE(loop.wait_until_running(10));
-}
-
 void IoLoop_PostAndWait_StopRace() {
   constexpr int iterations = 64;
   std::atomic_int waiter_returns{0};
   std::atomic_int callback_runs{0};
 
   for (int i = 0; i < iterations; ++i) {
-    epoll_loop loop{std::chrono::milliseconds{5}};
+    epoll_loop_runner loop{std::chrono::milliseconds{5}};
     notifiable<bool> release_blocker{false};
     std::atomic_bool blocker_entered{false};
     std::atomic_bool waiter_started{false};
 
-    std::thread loop_thread{[&] { loop.run(10); }};
-    EXPECT_TRUE(loop.wait_until_running(1000));
-
-    loop.post([&] {
+    loop->post([&] {
       blocker_entered = true;
       release_blocker.wait_until_value(true);
     });
@@ -1048,7 +1030,7 @@ void IoLoop_PostAndWait_StopRace() {
 
     std::thread waiter{[&] {
       waiter_started = true;
-      const bool result = loop.post_and_wait([&] {
+      const bool result = loop->post_and_wait([&] {
         ++callback_runs;
         return true;
       });
@@ -1058,11 +1040,10 @@ void IoLoop_PostAndWait_StopRace() {
     while (!waiter_started.load(std::memory_order::relaxed))
       std::this_thread::yield();
 
-    loop.stop();
+    loop->stop();
     release_blocker.notify_one(true);
 
     waiter.join();
-    loop_thread.join();
   }
 
   EXPECT_LE(waiter_returns.load(), iterations);
@@ -1071,7 +1052,7 @@ void IoLoop_PostAndWait_StopRace() {
 
 void StreamConn_Lifecycle() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   const net_endpoint remote{ipv4_addr::loopback, 9999};
@@ -1089,7 +1070,7 @@ void StreamConn_Lifecycle() {
 
 void StreamConn_Receive() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
@@ -1109,7 +1090,7 @@ void StreamConn_Receive() {
 
 void StreamConn_SetRecvBufSize() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::vector<size_t> chunk_sizes;
@@ -1144,7 +1125,7 @@ void StreamConn_SetRecvBufSize() {
 
 void StreamConn_PeerClose() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool closed = false;
@@ -1176,7 +1157,7 @@ void StreamConn_PeerClose() {
 
 void StreamConn_Send() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
@@ -1195,7 +1176,7 @@ void StreamConn_Send() {
 
 void StreamConn_ManualClose() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool closed = false;
@@ -1216,7 +1197,7 @@ void StreamConn_ManualClose() {
 
 void StreamConn_DrainAfterBufferedSend() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   // Restrict the kernel send buffer so that a large write is partial.
@@ -1258,7 +1239,7 @@ void StreamConn_DrainAfterBufferedSend() {
 
 void StreamConn_DrainAfterImmediateSend() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   int drain_count = 0;
@@ -1278,7 +1259,7 @@ void StreamConn_DrainAfterImmediateSend() {
 
 void StreamConn_AsyncCbRead() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
@@ -1300,7 +1281,7 @@ void StreamConn_AsyncCbRead() {
 
 void StreamConn_AsyncCbRead_PreservesEarlyData() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
@@ -1324,7 +1305,7 @@ void StreamConn_AsyncCbRead_PreservesEarlyData() {
 
 void StreamConn_AsyncCbRead_DuplicateRejected() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   int callback_count = 0;
@@ -1345,7 +1326,7 @@ void StreamConn_AsyncCbRead_DuplicateRejected() {
 
 void StreamConn_AsyncCbRead_PeerClose() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received{"sentinel"};
@@ -1377,7 +1358,7 @@ void StreamConn_AsyncCbRead_PeerClose() {
 
 void StreamConn_AsyncCbWrite() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool completed = false;
@@ -1401,7 +1382,7 @@ void StreamConn_AsyncCbWrite() {
 
 void StreamConn_AsyncCbWrite_Failure() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool completed = true;
@@ -1427,7 +1408,7 @@ void StreamConn_AsyncCbWrite_Failure() {
 
 void StreamConn_ShutdownWrite() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
@@ -1454,7 +1435,7 @@ void StreamConn_ShutdownWrite() {
 
 void StreamConn_ShutdownRead() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   int data_count = 0;
@@ -1482,7 +1463,7 @@ void StreamConn_ShutdownRead() {
 
 void StreamConn_ShutdownBothCloses() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
@@ -1500,15 +1481,13 @@ void StreamConn_ShutdownBothCloses() {
 }
 
 void StreamConn_AsyncCbWrite_DuplicateRejected() {
-  epoll_loop loop;
+  epoll_loop_runner loop;
   auto [a, b] = make_nb_sockpair();
 
   constexpr int small_buf = 4096;
   a.set_send_buffer_size(small_buf);
 
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
-  std::thread loop_thread{[&] { loop.run(10); }};
-  EXPECT_TRUE(loop.wait_until_running(1000));
 
   const std::string payload(256ULL * 1024ULL, 'w');
   std::atomic<int> accepted{0};
@@ -1538,14 +1517,11 @@ void StreamConn_AsyncCbWrite_DuplicateRejected() {
   EXPECT_TRUE(completion.wait_for_value(std::chrono::seconds{1}, true));
 
   EXPECT_EQ(completions, 1);
-
-  loop.stop();
-  loop_thread.join();
 }
 
 void StreamConn_GracefulClose() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   constexpr int small_buf = 4096;
@@ -1584,7 +1560,7 @@ void StreamConn_GracefulClose() {
 
 void StreamConn_CloseThenDestructStaysGraceful() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   constexpr int small_buf = 4096;
@@ -1623,7 +1599,7 @@ void StreamConn_CloseThenDestructStaysGraceful() {
 
 void StreamConn_DestructorHangsUp() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   constexpr int small_buf = 4096;
@@ -1670,7 +1646,7 @@ void LoopTask_FireAndForget() {
 // Verify that `async_read` delivers data to a coroutine.
 void StreamConn_AsyncRead() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
@@ -1698,7 +1674,7 @@ void StreamConn_AsyncRead() {
 
 void StreamConn_AsyncRead_PreservesEarlyData() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received;
@@ -1729,7 +1705,7 @@ void StreamConn_AsyncRead_PreservesEarlyData() {
 
 void StreamConn_AsyncRead_StopsBetweenCalls() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string first;
@@ -1778,7 +1754,7 @@ void StreamConn_AsyncRead_StopsBetweenCalls() {
 // the connection before data arrives.
 void StreamConn_AsyncRead_PeerClose() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   std::string received{"sentinel"};
@@ -1813,7 +1789,7 @@ void StreamConn_AsyncRead_PeerClose() {
 // the queue drains.
 void StreamConn_AsyncSend() {
   epoll_loop loop;
-  auto loop_scope = loop.poll_thread_scope();
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
   bool sent = false;
@@ -1846,9 +1822,7 @@ void StreamConn_HttpConnectGoogle() {
   const auto remote = dns_resolver::find_one("google.com", 80, AF_INET);
   if (!remote) return;
 
-  epoll_loop loop;
-  std::thread loop_thread{[&] { loop.run(100); }};
-  EXPECT_TRUE(loop.wait_until_running(1000));
+  epoll_loop_runner loop;
 
   notifiable<bool> done{false};
   std::string response;
@@ -1876,17 +1850,12 @@ void StreamConn_HttpConnectGoogle() {
   EXPECT_TRUE(done.wait_for_value(std::chrono::seconds{10}, true));
   EXPECT_FALSE(response.empty());
   EXPECT_TRUE(response.starts_with("HTTP/"));
-
-  loop.stop();
-  loop_thread.join();
 }
 
 // Verify that a client can connect to a local loopback listener and that the
 // server echoes back whatever it receives, using only persistent callbacks.
 void StreamConn_EchoServer() {
-  epoll_loop loop;
-  std::thread loop_thread{[&] { loop.run(100); }};
-  EXPECT_TRUE(loop.wait_until_running(1000));
+  epoll_loop_runner loop;
 
   // Bind a non-blocking listener to an OS-assigned loopback port.
   // Each accepted connection is self-owning and gets a copy of the listener's
@@ -1924,9 +1893,6 @@ void StreamConn_EchoServer() {
 
   EXPECT_TRUE(done.wait_for_value(std::chrono::seconds{5}, true));
   EXPECT_EQ(received, std::string{msg});
-
-  loop.stop();
-  loop_thread.join();
 }
 
 MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
@@ -1940,8 +1906,7 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IoLoop_Lifecycle, IoLoop_Post, IoLoop_PreStartWorkIsQueued,
     IoLoop_RegisterUnregister, IoLoop_SetWritable, IoLoop_SetReadable,
     IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError,
-    IoLoop_IsLoopThreadIsPerLoop, IoLoop_WaitUntilRunning,
-    IoLoop_WaitUntilRunning_TimesOut, IoLoop_PostAndWait_StopRace,
+    IoLoop_IsLoopThreadIsPerLoop, IoLoop_PostAndWait_StopRace,
     StreamConn_Lifecycle, StreamConn_Receive, StreamConn_SetRecvBufSize,
     StreamConn_PeerClose, StreamConn_Send, StreamConn_ManualClose,
     StreamConn_DrainAfterBufferedSend, StreamConn_DrainAfterImmediateSend,

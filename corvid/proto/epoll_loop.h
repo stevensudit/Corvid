@@ -465,4 +465,38 @@ private:
   tombstone has_run_;
   notifiable<std::atomic_bool> running_{false};
 };
+
+// Owns a loop and a polling thread that runs `loop.run(100)`.
+class epoll_loop_runner {
+public:
+  explicit epoll_loop_runner(
+      std::chrono::milliseconds post_and_wait_poll_interval =
+          epoll_loop::default_post_and_wait_poll_interval)
+      : loop_{post_and_wait_poll_interval},
+        thread_{[this] { loop_.run(100); }} {
+    if (!loop_.wait_until_running(1000)) {
+      loop_.stop();
+      thread_.join();
+      throw std::runtime_error("epoll_loop_runner failed to start");
+    }
+  }
+
+  epoll_loop_runner(const epoll_loop_runner&) = delete;
+  epoll_loop_runner& operator=(const epoll_loop_runner&) = delete;
+  epoll_loop_runner(epoll_loop_runner&&) = delete;
+  epoll_loop_runner& operator=(epoll_loop_runner&&) = delete;
+
+  ~epoll_loop_runner() {
+    loop_.stop();
+    thread_.join();
+  }
+
+  [[nodiscard]] epoll_loop& loop() noexcept { return loop_; }
+  operator epoll_loop&() noexcept { return loop_; }
+  [[nodiscard]] epoll_loop* operator->() noexcept { return &loop_; }
+
+private:
+  epoll_loop loop_;
+  std::thread thread_;
+};
 }} // namespace corvid::proto
