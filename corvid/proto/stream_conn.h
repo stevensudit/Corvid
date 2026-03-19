@@ -1034,8 +1034,9 @@ public:
   // call `close()` before the instance is destructed.
   ~stream_conn_ptr() {
     try {
-      if (!conn_) return;
-      if (conn_->graceful_close_started_) return;
+      if (!conn_ &&
+          conn_->graceful_close_started_.load(std::memory_order::relaxed))
+        return;
       (void)conn_->loop_.execute_or_post([p = std::move(conn_)] {
         p->do_hangup();
         return true;
