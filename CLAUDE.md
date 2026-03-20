@@ -12,6 +12,9 @@ CMakeLists.txt lives in `tests/` only — there is none at the project root. Bui
 ./cleanbuild.sh libstdcpp              # use libstdc++ instead
 ./cleanbuild.sh tidy                   # also run clang-tidy
 
+# Build and run a single test (pass the .cpp filename as first arg)
+./cleanbuild.sh strings_test.cpp       # build + run only that target
+
 # Format all source files (required before committing)
 ./format_all.sh
 ```

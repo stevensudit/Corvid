@@ -1076,10 +1076,13 @@ public:
   // Initiate an async connection to `remote`. Creates a non-blocking socket
   // matching `remote`'s address family, optionally binds the local end to
   // `local` (if non-empty), then calls `connect(2)`. The socket is registered
-  // with `EPOLLOUT`. When the kernel reports the outcome, `on_writable()` or
-  // `on_error()` calls `handle_connect()`, which either transitions to
-  // connected state (notifying any pending write waiter) or closes the
-  // connection (notifying any pending read waiter and firing `on_close`).
+  // with `EPOLLOUT` if `connect(2)` yields `EINPROGRESS`; the first
+  // `on_writable()`, `on_readable()`, or `on_error()` then calls
+  // `handle_connect()`, which either transitions to connected state (notifying
+  // any pending write waiter) or closes the connection (notifying any pending
+  // read waiter and firing `on_close`). If `connect(2)` succeeds immediately
+  // (e.g., loopback or Unix-domain sockets), a posted task fires
+  // `notify_drained()` directly after registration.
   //
   // Returns an invalid (empty) handle if the socket cannot be created, `local`
   // cannot be bound, or `connect(2)` fails synchronously; `errno` is set by
@@ -1098,8 +1101,24 @@ public:
     if (result && !*result) return {};
     const auto still_connecting = !result;
 
-    return stream_conn_ptr{loop, std::move(sock), remote, std::move(h),
+    auto ptr = stream_conn_ptr{loop, std::move(sock), remote, std::move(h),
         recv_buf_size, /*connecting=*/still_connecting, /*listening=*/false};
+
+    // When `connect(2)` succeeds immediately, `handle_connect()` never fires
+    // via `EPOLLOUT`. Post a follow-up task to mirror its success path:
+    // `register_with_loop()` already armed `EPOLLIN` correctly; all that
+    // remains is to signal readiness via `notify_drained()` if no sends are
+    // pending (otherwise `flush_send_queue()` will call it when the queue
+    // drains, as in the normal data path).
+    if (!still_connecting) {
+      loop.post([p = ptr.conn_] {
+        if (p->open_.load(std::memory_order::relaxed) &&
+            p->send_queue_.empty())
+          p->notify_drained();
+      });
+    }
+
+    return ptr;
   }
 
   // Create a non-blocking listening socket bound to `local`, register it with
