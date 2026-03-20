@@ -17,7 +17,6 @@
 #pragma once
 #include "../containers/containers_shared.h"
 #include "../containers/scope_exit.h"
-#include "relaxed_atomic.h"
 
 #include <atomic>
 #include <chrono>
@@ -31,6 +30,15 @@ namespace corvid { inline namespace concurrency {
 inline namespace notifiable_ns {
 
 namespace details {
+// Detects a `relaxed_atomic<U>`, or any type that opts in by defining
+// `is_relaxed_atomic = std::true_type` and `value_type`. Does not require
+// including `relaxed_atomic.h`.
+template<typename T>
+concept relaxed_atomic_like = requires {
+  typename T::is_relaxed_atomic;
+  typename T::value_type;
+} && T::is_relaxed_atomic::value;
+
 // Helper: the "plain" value type for `notifiable<T>`. For a non-atomic `T`
 // this is `T` itself; for `std::atomic<U>` or `relaxed_atomic<U>` it is `U`.
 // Implemented as partial specializations rather than `std::conditional_t` to
@@ -43,18 +51,18 @@ template<typename U>
 struct notifiable_result<std::atomic<U>> {
   using type = U;
 };
-template<typename U>
-struct notifiable_result<relaxed_atomic<U>> {
-  using type = U;
+template<typename T>
+requires(relaxed_atomic_like<T>)
+struct notifiable_result<T> {
+  using type = typename T::value_type;
 };
 
-// Matches any `T` that is a specialization of `std::atomic` or
-// `relaxed_atomic`. Used to gate the lock-free `get()` overload and
+// Matches any `T` that is a specialization of `std::atomic` or provides
+// `is_relaxed_atomic`. Used to gate the lock-free `get()` overload and
 // `load_value()` path.
 template<typename T>
 concept atomic_like =
-    is_specialization_of_v<T, std::atomic> ||
-    is_specialization_of_v<T, relaxed_atomic>;
+    is_specialization_of_v<T, std::atomic> || relaxed_atomic_like<T>;
 } // namespace details
 
 // A value of type `T` guarded by a mutex and condition variable.

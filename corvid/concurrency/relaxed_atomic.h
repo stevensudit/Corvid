@@ -20,6 +20,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 namespace corvid { inline namespace concurrency {
 inline namespace relaxed_atomic_ns {
@@ -43,6 +44,7 @@ class relaxed_atomic {
 public:
   using value_type = T;
   using underlying_t = std::atomic<value_type>;
+  using is_relaxed_atomic = std::true_type;
 
   constexpr relaxed_atomic() noexcept(
       std::is_nothrow_default_constructible_v<T>)
@@ -74,9 +76,9 @@ public:
     return self.value_;
   }
 
-  // Dereference to explicitly get the underlying atomic.
-  [[nodiscard]] auto& operator*(this auto& self) noexcept {
-    return self.value_;
+  // Dereference to explicitly get value.
+  [[nodiscard]] auto operator*(this auto& self) noexcept {
+    return self.value_.load(std::memory_order::relaxed);
   }
 
   // Access underlying atomic methods.

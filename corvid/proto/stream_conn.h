@@ -32,6 +32,7 @@
 
 #include "epoll_loop.h"
 #include "net_endpoint.h"
+#include "../concurrency/relaxed_atomic.h"
 #include "../strings/no_zero.h"
 
 namespace corvid { inline namespace proto {
@@ -132,9 +133,7 @@ public:
   static constexpr size_t default_recv_buf_size = 16384;
 
   // True if the connection has not yet been closed.
-  [[nodiscard]] bool is_open() const noexcept {
-    return open_.load(std::memory_order::relaxed);
-  }
+  [[nodiscard]] bool is_open() const noexcept { return open_; }
 
   // Change the per-connection receive-buffer target used for future reads.
   // `size` must be non-zero. The actual buffer string size used by a given
@@ -142,9 +141,8 @@ public:
   // from any thread. Returns false if `size == 0`.
   [[nodiscard]] bool set_recv_buf_size(size_t size) {
     if (size == 0) return false;
-    recv_buf_capacity_.store(
-        std::min(size, std::numeric_limits<std::size_t>::max() / 2),
-        std::memory_order::relaxed);
+    recv_buf_capacity_ =
+        std::min(size, std::numeric_limits<std::size_t>::max() / 2);
     return true;
   }
 
@@ -152,21 +150,17 @@ public:
   // The actual buffer string size used by a given read may be somewhat
   // larger if more capacity is available. Safe to call from any thread.
   [[nodiscard]] size_t recv_buf_size() const noexcept {
-    return recv_buf_capacity_.load(std::memory_order::relaxed);
+    return recv_buf_capacity_;
   }
 
   // Whether the read side is still open. Safe to call from any thread. Returns
   // false if the connection is closed or the read side has been shut down.
-  [[nodiscard]] bool can_read() const noexcept {
-    return read_open_.load(std::memory_order::relaxed);
-  }
+  [[nodiscard]] bool can_read() const noexcept { return read_open_; }
 
   // Whether the write side is still open. Safe to call from any thread.
   // Returns false if the connection is closed or the write side has been shut
   // down.
-  [[nodiscard]] bool can_write() const noexcept {
-    return write_open_.load(std::memory_order::relaxed);
-  }
+  [[nodiscard]] bool can_write() const noexcept { return write_open_; }
 
   // The remote peer address supplied at construction. Safe to call from any
   // thread.
@@ -185,8 +179,8 @@ public:
   // Instead, send completion is signaled via the `on_drain` callback.
   [[nodiscard]] bool send(std::string&& buf) {
     if (buf.empty()) return false;
-    if (!open_.load(std::memory_order::relaxed)) return false;
-    if (!write_open_.load(std::memory_order::relaxed)) return false;
+    if (!open_) return false;
+    if (!write_open_) return false;
     return execute_or_post([p = self(), b = std::move(buf)]() mutable {
       return p->enqueue_send(std::move(b));
     });
@@ -209,14 +203,14 @@ public:
   // Shut down the local read side while keeping the write side available.
   // Safe to call from any thread.
   [[nodiscard]] bool shutdown_read(execution exec = execution::blocking) {
-    if (!open_.load(std::memory_order::relaxed)) return false;
+    if (!open_) return false;
     return exec_lambda(exec, [p = self()] { return p->do_shutdown_read(); });
   }
 
   // Shut down the local write side while keeping the read side available.
   // Safe to call from any thread.
   [[nodiscard]] bool shutdown_write(execution exec = execution::blocking) {
-    if (!open_.load(std::memory_order::relaxed)) return false;
+    if (!open_) return false;
     return exec_lambda(exec, [p = self()] { return p->do_shutdown_write(); });
   }
 
@@ -238,7 +232,7 @@ public:
             std::min(rbs, std::numeric_limits<std::size_t>::max() / 2)},
         open_{true}, connecting_{connecting}, listening_{listening} {
     // Listening sockets have no writable data path.
-    if (listening) write_open_.store(false, std::memory_order::relaxed);
+    if (listening) write_open_ = false;
   }
 
 private:
@@ -272,27 +266,27 @@ private:
   std::string recv_buf_;
 
   // Minimum size for `recv_buf_`.
-  std::atomic<size_t> recv_buf_capacity_{default_recv_buf_size};
+  relaxed_atomic_size_t recv_buf_capacity_{default_recv_buf_size};
 
   // Cleared atomically by `do_close_now()`. Read from any thread via
   // `is_open()`.
-  std::atomic_bool open_;
+  relaxed_atomic_bool open_;
 
   //  Set by `close()` to start a graceful close, preventing the destructor
   //  of `stream_conn_ptr` from closing forcefully.
-  std::atomic_bool graceful_close_started_{false};
+  relaxed_atomic_bool graceful_close_started_{false};
 
   // Whether the read and write sides of the socket are open (assuming `open_`
   // is true). Cleared by `do_shutdown_read()` and `do_shutdown_write()`
-  std::atomic_bool read_open_{true};
-  std::atomic_bool write_open_{true};
+  relaxed_atomic_bool read_open_{true};
+  relaxed_atomic_bool write_open_{true};
 
   // Set to true by `register_with_loop()` after successful epoll registration.
   // Before this point, `execute_or_post` defers inline execution even on the
   // loop thread, so that operations posted before registration (e.g., `send()`
   // from the loop thread immediately after `adopt()`) do not attempt epoll
   // mutations on an unregistered fd.
-  std::atomic_bool registered_{false};
+  relaxed_atomic_bool registered_{false};
 
   // True while an async connect is in progress. Cleared by
   // `handle_connect()` once `SO_ERROR` is checked. During this phase,
@@ -330,13 +324,13 @@ private:
   // `send_queue_` so that handlers or queued sends registered before this call
   // are correctly armed.
   [[nodiscard]] bool register_with_loop() {
-    if (!open_.load(std::memory_order::relaxed)) return false;
+    if (!open_) return false;
     const bool want_write = connecting_ || !send_queue_.empty();
     // Suppress reads while connecting: `handle_connect()` calls
     // `refresh_read_interest()` once `SO_ERROR` confirms success.
     const bool want_read = !connecting_ && wants_read_events();
     if (loop_.register_socket(shared_from_this(), want_read, want_write)) {
-      registered_.store(true, std::memory_order::relaxed);
+      registered_ = true;
       return true;
     }
     return do_close_now(close_mode::forceful) && false;
@@ -372,10 +366,10 @@ private:
   // there is no path forward: so a forceful close is correct.
   [[nodiscard]] bool on_error() override {
     assert(loop_.is_loop_thread());
-    if (!open_.load(std::memory_order::relaxed)) return false;
+    if (!open_) return false;
     if (listening_) return do_close_now(close_mode::forceful);
     if (connecting_) return handle_connect();
-    if (read_open_.load(std::memory_order::relaxed)) {
+    if (read_open_) {
       if (wants_read_events()) return handle_readable();
       const auto eof = sock().peek_eof();
       if (!eof.has_value() || !*eof)
@@ -393,8 +387,7 @@ private:
   // `set_writable`) on an unregistered fd.
   template<typename FN>
   [[nodiscard]] bool execute_or_post(FN&& fn) {
-    if (loop_.is_loop_thread() && registered_.load(std::memory_order::relaxed))
-      return fn();
+    if (loop_.is_loop_thread() && registered_) return fn();
     return loop_.post(std::forward<FN>(fn));
   }
 
@@ -411,34 +404,40 @@ private:
   template<typename FN>
   [[nodiscard]] bool exec_lambda(execution exec, FN&& fn) {
     const auto is_loop_thread = loop_.is_loop_thread();
-    const auto registered = registered_.load(std::memory_order::relaxed);
+    const bool registered = registered_;
     if (is_loop_thread && registered) return fn();
     if (exec == execution::nonblocking || is_loop_thread || !registered)
       return loop_.post(std::forward<FN>(fn));
     return loop_.post_and_wait(std::forward<FN>(fn));
   }
 
+  // Acquire-load `active_handlers_`, synchronizing with the release store in
+  // `async_conn_base::install_handlers()` and its destructor. Required whenever
+  // the returned pointer is dereferenced to invoke a handler.
+  [[nodiscard]] stream_conn_handlers* acquire_active_handlers() const noexcept {
+    return active_handlers_.load(std::memory_order::acquire);
+  }
+
   // Read interest is needed while in listening mode (always) or while the
   // active `on_data` handler is installed.
   [[nodiscard]] bool wants_read_events() const noexcept {
     assert(loop_.is_loop_thread());
-    if (!open_.load(std::memory_order::relaxed)) return false;
+    if (!open_) return false;
     if (listening_) return true;
-    return (read_open_.load(std::memory_order::relaxed) &&
-            !!active_handlers_.load(std::memory_order::acquire)->on_data);
+    return (read_open_ && !!acquire_active_handlers()->on_data);
   }
 
   // Returns true if `active_handlers_` has been redirected away from
   // `own_handlers_` by an `async_conn_base`.
   [[nodiscard]] bool are_handlers_external() const noexcept {
-    return active_handlers_.load(std::memory_order::acquire) != &own_handlers_;
+    return acquire_active_handlers() != &own_handlers_;
   }
 
   // Apply the current read-interest policy to the loop without disturbing
   // the always-armed error/hangup notifications.
   [[nodiscard]] bool refresh_read_interest() {
     assert(loop_.is_loop_thread());
-    if (!open_.load(std::memory_order::relaxed)) return false;
+    if (!open_) return false;
     return loop_.set_readable(sock(), wants_read_events());
   }
 
@@ -447,7 +446,7 @@ private:
     assert(loop_.is_loop_thread());
     if (close_notified_) return false;
     close_notified_ = true;
-    auto* h = active_handlers_.load(std::memory_order::acquire);
+    auto* h = acquire_active_handlers();
     if (h->on_close) return h->on_close(*this);
     return true;
   }
@@ -456,7 +455,7 @@ private:
   // `own_handlers_.on_data` or one installed by an `async_conn_base`).
   [[nodiscard]] bool notify_read_ready() {
     assert(loop_.is_loop_thread());
-    auto* h = active_handlers_.load(std::memory_order::acquire);
+    auto* h = acquire_active_handlers();
     if (h->on_data) return h->on_data(*this, recv_buf_);
     return refresh_read_interest();
   }
@@ -466,7 +465,7 @@ private:
   // data.
   [[nodiscard]] bool notify_read_closed() {
     assert(loop_.is_loop_thread());
-    auto* h = active_handlers_.load(std::memory_order::acquire);
+    auto* h = acquire_active_handlers();
     if (h->on_data) {
       recv_buf_.clear();
       return h->on_data(*this, recv_buf_);
@@ -476,7 +475,7 @@ private:
 
   // Notify that all queued outbound data has been fully drained.
   [[nodiscard]] bool notify_drained() {
-    auto* h = active_handlers_.load(std::memory_order::acquire);
+    auto* h = acquire_active_handlers();
     if (h->on_drain) return h->on_drain(*this);
     return true;
   }
@@ -484,12 +483,10 @@ private:
   // Shut down the local read side and notify any blocked read waiter.
   [[nodiscard]] bool do_shutdown_read() {
     assert(loop_.is_loop_thread());
-    if (!open_.load(std::memory_order::relaxed) ||
-        !read_open_.load(std::memory_order::relaxed))
-      return false;
+    if (!open_ || !read_open_) return false;
     if (!sock().shutdown(SHUT_RD))
       return do_close_now(close_mode::forceful) && false;
-    read_open_.store(false, std::memory_order::relaxed);
+    read_open_ = false;
     if (!loop_.set_readable(sock(), false)) return false;
     // Notify any `async_conn_base` that may have a pending read waiter.
     // `notify_read_closed()` calls `active_handlers_->on_data` with an empty
@@ -501,12 +498,10 @@ private:
   // Shut down the local write side and discard any unsent outbound data.
   [[nodiscard]] bool do_shutdown_write() {
     assert(loop_.is_loop_thread());
-    if (!open_.load(std::memory_order::relaxed) ||
-        !write_open_.load(std::memory_order::relaxed))
-      return false;
+    if (!open_ || !write_open_) return false;
     if (!sock().shutdown(SHUT_WR))
       return do_close_now(close_mode::forceful) && false;
-    write_open_.store(false, std::memory_order::relaxed);
+    write_open_ = false;
     send_queue_.clear();
     head_span_ = {};
     if (!loop_.set_writable(sock(), false)) return false;
@@ -517,9 +512,7 @@ private:
   [[nodiscard]] bool maybe_finish_after_side_close(
       close_mode mode = close_mode::graceful) {
     assert(loop_.is_loop_thread());
-    if (!read_open_.load(std::memory_order::relaxed) &&
-        !write_open_.load(std::memory_order::relaxed))
-      return do_close_now(mode) && false;
+    if (!read_open_ && !write_open_) return do_close_now(mode) && false;
     return true;
   }
 
@@ -531,7 +524,7 @@ private:
   // still open.
   [[nodiscard]] bool handle_read_eof() {
     assert(loop_.is_loop_thread());
-    read_open_.store(false, std::memory_order::relaxed);
+    read_open_ = false;
     loop_.set_readable(sock(), false);
     loop_.set_rdhup(sock(), false);
     if (are_handlers_external()) (void)notify_read_closed();
@@ -542,7 +535,7 @@ private:
     // than left half-open indefinitely. Connections that need the write side
     // after peer EOF must install an `on_close` handler and call `close()` or
     // `hangup()` only when done.
-    if (!active_handlers_.load(std::memory_order::acquire)->on_close)
+    if (!acquire_active_handlers()->on_close)
       return do_close();
     return maybe_finish_after_side_close();
   }
@@ -550,11 +543,12 @@ private:
   // Handle write failure by aborting queued sends and closing as needed.
   [[nodiscard]] bool handle_write_failure() {
     assert(loop_.is_loop_thread());
-    if (!write_open_.exchange(false, std::memory_order::relaxed)) return false;
+    if (!write_open_->exchange(false, std::memory_order::relaxed))
+      return false;
     send_queue_.clear();
     head_span_ = {};
     loop_.set_writable(sock(), false);
-    if (close_requested_ || !read_open_.load(std::memory_order::relaxed))
+    if (close_requested_ || !read_open_)
       return do_close_now(close_mode::forceful);
     return maybe_finish_after_side_close(close_mode::forceful);
   }
@@ -615,10 +609,9 @@ private:
   // Read available data into `recv_buf_` without zero-initializing it
   // (C++23 `resize_and_overwrite`), then deliver to any pending read waiter.
   [[nodiscard]] bool handle_readable() {
-    if (!read_open_.load(std::memory_order::relaxed)) return false;
+    if (!read_open_) return false;
 
-    const auto recv_buf_capacity =
-        recv_buf_capacity_.load(std::memory_order::relaxed);
+    const size_t recv_buf_capacity = recv_buf_capacity_;
     no_zero::rightsize_to(recv_buf_, recv_buf_capacity, recv_buf_capacity * 2);
 
     if (!sock().recv(recv_buf_)) {
@@ -644,9 +637,7 @@ private:
     // Their buf is our buf now.
     auto buf = std::move(their_buf);
 
-    if (!open_.load(std::memory_order::relaxed) ||
-        !write_open_.load(std::memory_order::relaxed))
-      return false;
+    if (!open_ || !write_open_) return false;
 
     // If there are sends queued ahead of us, or if an async connect is still
     // in progress (sends would fail with `ENOTCONN`), just add to the back.
@@ -684,7 +675,7 @@ private:
     // Guard against being called after `do_close_now()` (e.g., when both
     // `EPOLLIN` and `EPOLLOUT` fire in the same event and the readable
     // handler closes the connection before we get here).
-    if (!open_.load(std::memory_order::relaxed)) return false;
+    if (!open_) return false;
 
     // NOTE: It would be cool if we could gather all the buffers and write
     // them in a single call...
@@ -723,7 +714,7 @@ private:
   // first.
   [[nodiscard]] bool do_close() {
     assert(loop_.is_loop_thread());
-    if (!open_.load(std::memory_order::relaxed)) return false;
+    if (!open_) return false;
     close_requested_ = true;
     if (!send_queue_.empty()) return false;
     return do_close_now();
@@ -732,7 +723,7 @@ private:
   // Forceful close: discard pending sends and close immediately.
   [[nodiscard]] bool do_hangup() {
     assert(loop_.is_loop_thread());
-    if (!open_.load(std::memory_order::relaxed)) return false;
+    if (!open_) return false;
     // TODO: Deal with redundancy between this and do_close_now().
     send_queue_.clear();
     head_span_ = {};
@@ -745,10 +736,10 @@ private:
   // if already closed, true if this call performed the close.
   [[nodiscard]] bool do_close_now(close_mode mode = close_mode::graceful) {
     assert(loop_.is_loop_thread());
-    if (!open_.exchange(false)) return false;
+    if (!open_->exchange(false, std::memory_order::relaxed)) return false;
 
-    read_open_.store(false, std::memory_order::relaxed);
-    write_open_.store(false, std::memory_order::relaxed);
+    read_open_ = false;
+    write_open_ = false;
 
     (void)loop_.unregister_socket(sock());
     sock().close(mode);
@@ -789,9 +780,7 @@ public:
   // call `close()` before the instance is destructed.
   // NOLINTBEGIN(bugprone-exception-escape)
   ~stream_conn_ptr() {
-    if (!conn_ ||
-        conn_->graceful_close_started_.load(std::memory_order::relaxed))
-      return;
+    if (!conn_ || conn_->graceful_close_started_) return;
     (void)conn_->loop_.execute_or_post([p = std::move(conn_)] {
       return p->do_hangup();
     });
@@ -862,9 +851,7 @@ public:
     // drains, as in the normal data path).
     if (!still_connecting) {
       if (!loop.post([p = ptr.conn_] {
-            if (p->open_.load(std::memory_order::relaxed) &&
-                p->send_queue_.empty())
-              return p->notify_drained();
+            if (p->open_ && p->send_queue_.empty()) return p->notify_drained();
             return false;
           }))
         ptr.conn_.reset();
