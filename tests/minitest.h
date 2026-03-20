@@ -461,7 +461,7 @@ int main() {
     }
     catch (const assertion_failure&) {
       mark_failed();
-      std::printf("Assertion failure: %s\n", e.what());
+      std::printf("Assertion failure\n");
     }
     catch (const std::exception& e) {
       mark_failed();
