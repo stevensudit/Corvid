@@ -144,6 +144,16 @@ public:
     return execute_or_post([this, fd, on] { return do_set_readable(fd, on); });
   }
 
+  // Add or remove `EPOLLRDHUP` from the event mask for `sock` without
+  // changing the registered `io_conn`. Disarming is useful after EOF is
+  // observed on the read side to prevent repeated level-triggered wakeups.
+  // Returns false if `sock` is not registered or `epoll_ctl` fails. If
+  // executed outside of loop thread, turns into a `post()` and returns true.
+  bool set_rdhup(const net_socket& sock, bool on = true) {
+    const auto fd = sock.handle();
+    return execute_or_post([this, fd, on] { return do_set_rdhup(fd, on); });
+  }
+
   // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
@@ -356,6 +366,13 @@ private:
     return do_set_interest(fd, EPOLLOUT, on);
   }
 
+  // Add or remove `EPOLLRDHUP` from the event mask for `sock` without
+  // changing the registered `io_conn`. Returns false if `sock` is not
+  // registered or `epoll_ctl` fails.
+  bool do_set_rdhup(os_file::file_handle_t fd, bool on = true) noexcept {
+    return do_set_interest(fd, EPOLLRDHUP, on);
+  }
+
   bool do_set_interest(os_file::file_handle_t fd, uint32_t flag,
       bool on = true) noexcept {
     assert(is_loop_thread());
@@ -375,8 +392,9 @@ private:
 
   static constexpr uint32_t
   make_event_mask(bool readable = false, bool writable = false) noexcept {
-    // `EPOLLRDHUP` is always armed so that peer half-closes (`SHUT_WR`) are
-    // detected even when `EPOLLIN` is not subscribed.
+    // `EPOLLRDHUP` is armed by default so that peer half-closes (`SHUT_WR`)
+    // are detected even when `EPOLLIN` is not subscribed. It can be disarmed
+    // after EOF is observed via `set_rdhup(sock, false)`.
     // This loop intentionally stays level-triggered. `stream_conn` only arms
     // `EPOLLOUT` while a send queue is backpressured, so LT does not create
     // steady writable wakeups, and switching to `EPOLLET` would require
@@ -464,5 +482,39 @@ private:
 
   tombstone has_run_;
   notifiable<std::atomic_bool> running_{false};
+};
+
+// Runs an `epoll_loop` in its own background thread.
+class epoll_loop_runner {
+public:
+  explicit epoll_loop_runner(
+      std::chrono::milliseconds post_and_wait_poll_interval =
+          epoll_loop::default_post_and_wait_poll_interval)
+      : loop_{post_and_wait_poll_interval},
+        thread_{[this] { loop_.run(100); }} {
+    if (!loop_.wait_until_running(1000)) {
+      loop_.stop();
+      thread_.join();
+      throw std::runtime_error("epoll_loop_runner failed to start");
+    }
+  }
+
+  epoll_loop_runner(const epoll_loop_runner&) = delete;
+  epoll_loop_runner& operator=(const epoll_loop_runner&) = delete;
+  epoll_loop_runner(epoll_loop_runner&&) = delete;
+  epoll_loop_runner& operator=(epoll_loop_runner&&) = delete;
+
+  ~epoll_loop_runner() {
+    loop_.stop();
+    if (thread_.joinable()) thread_.join();
+  }
+
+  [[nodiscard]] epoll_loop& loop() noexcept { return loop_; }
+  operator epoll_loop&() noexcept { return loop_; }
+  [[nodiscard]] epoll_loop* operator->() noexcept { return &loop_; }
+
+private:
+  epoll_loop loop_;
+  std::thread thread_;
 };
 }} // namespace corvid::proto

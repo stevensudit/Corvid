@@ -66,4 +66,7 @@ enum class message_style : bool { datagram = false, stream = true };
 // Whether to treat an eventfd as a counter (default) or a semaphore.
 enum class event_mode : bool { counter = false, semaphore = true };
 
+// Whether client or server side.
+enum class connection_role : bool { client = false, server = true };
+
 }}} // namespace corvid::enums::bool_enums

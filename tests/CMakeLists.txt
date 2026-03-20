@@ -7,6 +7,7 @@ project(Corvid VERSION 1.0 LANGUAGES CXX)
 # Codex, where libstdc++ is required.
 option(USE_LIBSTDCPP "Use GNU libstdc++ instead of libc++" OFF)
 option(USE_CLANG_TIDY "Run clang-tidy analysis" OFF)
+set(TEST_NAME "" CACHE STRING "Build only the named test source file")
 
 # Set the C++ standard to C++23
 set(CMAKE_CXX_STANDARD 23)
@@ -55,6 +56,16 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/release_bin")
 
 # Source files (only in this directory)
 file(GLOB SOURCES "*.cpp")
+
+if(TEST_NAME)
+    set(FILTERED_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/${TEST_NAME}")
+    if(NOT EXISTS "${FILTERED_SOURCE}")
+        message(FATAL_ERROR "Requested test source not found: ${TEST_NAME}")
+    endif()
+
+    set(SOURCES "${FILTERED_SOURCE}")
+    message(STATUS "Building only test source: ${TEST_NAME}")
+endif()
 
 # Loop through each source file and create a separate executable
 foreach(SOURCE_FILE ${SOURCES})

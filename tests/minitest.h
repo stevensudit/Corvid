@@ -25,6 +25,11 @@ inline void mark_failed() {
   current_failed = true;
   just_failed = true;
 }
+
+struct assertion_failure final {};
+
+[[noreturn]] inline void abort_failed() { throw assertion_failure{}; }
+
 inline bool was_failed() {
   bool failed{just_failed};
   just_failed = false;
@@ -74,7 +79,7 @@ auto inline stream_to_text(const auto& v) {
       minitest::mark_failed();                                                \
       std::printf("Assertion failed at %s:%d: " fmt "\n", __FILE__, __LINE__, \
           ##__VA_ARGS__);                                                     \
-      return;                                                                 \
+      minitest::abort_failed();                                               \
     }                                                                         \
   } while (false)
 
@@ -86,6 +91,9 @@ auto inline stream_to_text(const auto& v) {
     }                                                                         \
     catch (const exc&) {                                                      \
       caught_ = true;                                                         \
+    }                                                                         \
+    catch (const minitest::assertion_failure&) {                              \
+      throw;                                                                  \
     }                                                                         \
     catch (...) {                                                             \
       minitest::mark_failed();                                                \
@@ -222,10 +230,24 @@ auto inline stream_to_text(const auto& v) {
     VALUE_MSG(actual_, true);                                                 \
   } while (false);
 
+#define ASSERT_TRUE(actual)                                                   \
+  do {                                                                        \
+    const bool actual_ = (actual) ? true : false;                             \
+    TEST_ASSERT_((actual_), "%s", ("(" #actual ")"));                         \
+    VALUE_MSG(actual_, true);                                                 \
+  } while (false);
+
 #define EXPECT_FALSE(actual)                                                  \
   do {                                                                        \
     const bool actual_ = (actual) ? true : false;                             \
     TEST_CHECK_((!actual_), "%s", ("!(" #actual ")"));                        \
+    VALUE_MSG(actual_, false);                                                \
+  } while (false);
+
+#define ASSERT_FALSE(actual)                                                  \
+  do {                                                                        \
+    const bool actual_ = (actual) ? true : false;                             \
+    TEST_ASSERT_((!actual_), "%s", ("!(" #actual ")"));                       \
     VALUE_MSG(actual_, false);                                                \
   } while (false);
 
@@ -238,7 +260,41 @@ auto inline stream_to_text(const auto& v) {
     VALUE_MSG(actual_, expected_);                                            \
   } while (false);
 
+#define ASSERT_NEAR(actual, expected, abs_error)                              \
+  do {                                                                        \
+    const auto& actual_ = (actual);                                           \
+    const auto& expected_ = (expected);                                       \
+    TEST_ASSERT_(std::abs(actual_ - expected_) <= abs_error, "%s",            \
+        ("std::abs(" #actual " - " #expected ") <= " #abs_error));            \
+    VALUE_MSG(actual_, expected_);                                            \
+  } while (false);
+
 #define EXPECT_THROW(call, exc) TEST_EXCEPTION((void)(call), exc)
+
+#define ASSERT_THROW(call, exc)                                               \
+  do {                                                                        \
+    bool caught_ = false;                                                     \
+    try {                                                                     \
+      (void)(call);                                                           \
+    }                                                                         \
+    catch (const exc&) {                                                      \
+      caught_ = true;                                                         \
+    }                                                                         \
+    catch (const minitest::assertion_failure&) {                              \
+      throw;                                                                  \
+    }                                                                         \
+    catch (...) {                                                             \
+      minitest::mark_failed();                                                \
+      std::printf("Unexpected exception at %s:%d\n", __FILE__, __LINE__);     \
+      minitest::abort_failed();                                               \
+    }                                                                         \
+    if (!caught_) {                                                           \
+      minitest::mark_failed();                                                \
+      std::printf("Expected exception %s not thrown at %s:%d\n", #exc,        \
+          __FILE__, __LINE__);                                                \
+      minitest::abort_failed();                                               \
+    }                                                                         \
+  } while (false);
 
 #if defined(__GNUC__) || defined(__clang__)
 // Supports 0-99 arguments
@@ -402,6 +458,10 @@ int main() {
 #endif
     try {
       t->func();
+    }
+    catch (const assertion_failure&) {
+      mark_failed();
+      std::printf("Assertion failure\n");
     }
     catch (const std::exception& e) {
       mark_failed();

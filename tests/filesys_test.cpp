@@ -15,6 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Codex note: in this sandbox, creating AF_INET/AF_INET6 sockets can fail
+// with EPERM, so the network-socket portions of this test file may fail even
+// when the code is correct in a normal local environment.
+
 #include "../corvid/filesys.h"
 #include "../corvid/proto/net_endpoint.h"
 #include "minitest.h"
@@ -644,7 +648,8 @@ void NetSocket_BindListenAccept() {
   // Connect a client to the listening socket.
   net_socket client{AF_INET, SOCK_STREAM, 0};
   EXPECT_TRUE(client.is_open());
-  EXPECT_TRUE(client.connect(net_endpoint{ipv4_addr::loopback, port}));
+  EXPECT_TRUE(
+      client.connect(net_endpoint{ipv4_addr::loopback, port}).value_or(false));
 
   // Accept the connection on the listener side.
   auto result = listener.accept();

@@ -63,45 +63,95 @@ returns the first result as a `net_endpoint`, or a default-constructed
 
 ### `epoll_loop`
 
-`epoll`-based I/O event loop. `register_socket(sock, shared_ptr<io_conn>)`
-accepts a pre-built `io_conn` object (used by `stream_conn` to eliminate a
-separate allocation). `set_writable(sock, bool)` toggles `EPOLLOUT` without
-disturbing stored handlers -- call it only while the send buffer is
-non-empty. `post(fn)` is thread-safe: it locks a queue, pushes the callback,
-then writes to an internal `eventfd` to interrupt a sleeping `epoll_wait`.
-`run()` / `run_once(timeout_ms)` / `stop()` drive the dispatch loop.
+`epoll`-based I/O event loop; non-copyable and non-movable. `run()` may be
+called at most once on a given instance. `epoll_loop_runner` wraps one in a
+dedicated background thread for the common case.
 
-`io_conn` is an abstract base with virtual `on_readable`, `on_writable`, and
-`on_error`; higher-level types inherit from it directly to avoid a separate
-handler-lambda allocation per connection.
+`register_socket(shared_ptr<io_conn>, readable, writable)` registers a
+connection (the `io_conn` owns its `net_socket`) with the initial read/write
+interest. `set_readable(sock, bool)` and `set_writable(sock, bool)` toggle
+`EPOLLIN` and `EPOLLOUT` without disturbing the registered `io_conn`.
+`EPOLLERR`, `EPOLLHUP`, and `EPOLLRDHUP` are always armed; the loop operates
+level-triggered. `unregister_socket(sock)` removes a registration.
 
-### `stream_conn`
+All four socket-management methods are safe to call from any thread: when
+invoked off the loop thread they automatically promote into a `post()` and
+return `true`.
 
-Non-blocking connected stream socket driven by an `epoll_loop`. Implemented as
-a movable handle owning a `shared_ptr<state>`, where `state` inherits from
-`io_conn` -- one heap allocation per connection.
+`post(fn)` is thread-safe: it locks a queue, pushes the callback, then writes
+to an internal `eventfd` to interrupt a sleeping `epoll_wait`. `post_and_wait(fn)`
+blocks the caller until `fn` runs on the loop thread, returning its result; on
+the loop thread it executes `fn` inline. `execute_or_post(fn)` runs `fn`
+inline when already on the loop thread, otherwise posts it asynchronously.
+
+`run()` / `run_once(timeout_ms)` / `stop()` drive dispatch. `stop()` and
+`wait_until_running(timeout_ms)` are thread-safe. `is_loop_thread()` returns
+true when the current thread is the active polling thread. `poll_thread_scope()`
+marks the current thread as the loop thread without entering the dispatch loop
+(primarily for testing).
+
+`io_conn` is an abstract base holding a `net_socket sock_` (passed at
+construction) with virtual `on_readable`, `on_writable`, and `on_error`; the
+default `on_error` delegates to `on_readable`. Higher-level types inherit from
+`io_conn` directly to avoid a separate handler-lambda allocation per connection.
+
+### `stream_conn` and `stream_conn_ptr`
+
+Non-blocking connected stream socket driven by an `epoll_loop`. `stream_conn`
+is the state object (inheriting from `io_conn`) that holds the socket, buffers,
+and async waiters. `stream_conn_ptr` is the move-only owning handle wrapping a
+`shared_ptr<stream_conn>`; its destructor calls `hangup()` unless `close()` was
+already called.
+
+`stream_conn_ptr` provides three static factory methods:
+
+- `adopt(loop, sock, remote, handlers, recv_buf_size)` -- adopts an
+  already-connected non-blocking socket and registers it with the loop.
+- `connect(loop, remote, handlers, local, recv_buf_size)` -- creates a
+  non-blocking socket, optionally binds `local`, calls `connect(2)`, and
+  registers with `EPOLLOUT`. When the kernel reports the outcome,
+  `handle_connect()` transitions to connected state (firing `on_drain`) or
+  closes the connection (firing `on_close`).
+- `listen(loop, local, handlers, reuse_port)` -- creates a non-blocking
+  listening socket, sets `SO_REUSEADDR`, binds, calls `listen(2)`, and
+  registers with the loop. `EPOLLIN` events drain all pending connections via
+  `accept4`; each accepted connection becomes a self-owning `stream_conn` with
+  a copy of the listener's handlers.
+
+Thread safety: `send()`, `close()`, `hangup()`, `shutdown_read()`,
+`shutdown_write()`, and the destructor of `stream_conn_ptr` are safe to call
+from any thread via `epoll_loop::execute_or_post()` or `post()`.
 
 Send path: `send(string&&)` is thread-safe (posts to the loop). On the loop
 thread, `enqueue_send` attempts an immediate `::write`; any unsent tail is
 pushed onto a `deque<string>` and `EPOLLOUT` is armed. Subsequent `EPOLLOUT`
 events drain the queue; when empty, `EPOLLOUT` is disarmed.
 
-Receive path: `EPOLLIN` triggers `::read` into a buffer pre-sized with
-`resize_and_overwrite` (no zero-initialization), trimmed to the actual byte
-count before delivery. `set_recv_buf_size(bytes)` changes the per-connection
-receive-buffer target used for future reads; the actual temporary string size
-may be somewhat larger when existing capacity is reused. `recv_buf_size()`
-reports the current configured target.
+Receive path: `EPOLLIN` is armed while a one-shot read waiter is active or a
+persistent `on_data` handler is installed. When it fires, `::read` fills a
+buffer pre-sized with `resize_and_overwrite` (no zero-initialization), trimmed
+to the actual byte count before delivery. `set_recv_buf_size(bytes)` sets the
+per-connection receive-buffer target; `recv_buf_size()` reports it.
 
-Graceful close: `close()` defers the socket close until the send queue
-drains; the destructor instead closes rudely.
+Half-close: `shutdown_read()` shuts down the local read side (notifying any
+pending read waiter). `shutdown_write()` shuts down the local write side and
+discards unsent data. `can_read()` and `can_write()` query each direction.
+`local_endpoint()` and `remote_endpoint()` return the socket addresses.
+
+Close: `close()` is graceful -- defers the socket close until the send queue
+drains. `hangup()` discards pending outbound data and closes immediately.
+The destructor of `stream_conn_ptr` calls `hangup()` unless `close()` was
+already called.
 
 Supports three async models:
 
-- **Callback mode** (`stream_conn_handlers`): `on_data(string&)` fires on each
-  read, `on_drain()` fires whenever a `send()` completes with no outbound
-  bytes left pending (including immediate writes), `on_close()` fires on EOF
-  or error.
+- **Callback mode** (`stream_conn_handlers`): `on_data(conn, string&)` fires
+  on each read; `on_drain(conn)` fires when a `send()` completes with no
+  outbound bytes left pending (including immediate writes and `EPOLLOUT`-driven
+  drains) and also when an async `connect()` succeeds; `on_close(conn)` fires
+  once on peer EOF, I/O error, or failed async connect. For a normal peer EOF,
+  writes may still be possible (half-close); call `close()` or `hangup()` to
+  shut down fully.
 
 - **Coroutine mode**: `co_await conn.async_read()` suspends until one batch
   of data arrives (or the connection closes, returning an empty string);
@@ -110,26 +160,25 @@ Supports three async models:
   to avoid use-after-free when a write error triggers `do_close_now` from
   within `await_suspend`.
 
-- **One-shot callback mode**: `async_cb_read(cb)` registers a single callback
-  for the next readable batch and invokes it inline on the loop thread with
-  the internal `string&`, preserving the same move-or-borrow semantics as
-  `on_data`. `async_cb_write(buf, cb)` sends `buf` and invokes
-  `cb(bool completed)` when the write reaches a terminal state:
-  `completed == true` means the write fully drained; `completed == false`
-  means the connection closed or failed before all bytes were sent, possibly
-  after a partial write. For each direction, at most one one-shot waiter may
-  be outstanding at a time, regardless of whether it came from the coroutine
-  or callback API.
+- **One-shot callback mode**: `async_cb_read(cb, exec)` registers a single
+  callback for the next readable batch and invokes it inline on the loop thread
+  with the internal `string&`. `async_cb_write(buf, cb, exec)` sends `buf` and
+  invokes `cb(bool completed)` when the write reaches a terminal state:
+  `completed == true` means the write fully drained; `completed == false` means
+  the connection closed or failed before all bytes were sent, possibly after a
+  partial write. The optional `exec` parameter (`execution::blocking` by
+  default) controls whether the call blocks until registration is confirmed when
+  invoked from off the loop thread.
 
 Precedence is per direction: a pending one-shot waiter consumes the next read
 or write-completion event, and the persistent handlers are used only when no
 one-shot waiter is pending for that direction. Parallel `async_cb_*`
 registrations fail cleanly by returning `false`; overlapping `async_read()` /
-`async_send()` calls are still programming errors. If the connection closes
-before a pending `async_cb_read()` receives data, the callback is invoked with
-an empty string; code that retains access to the `stream_conn` can use `is_open()`
-to detect that the empty buffer came from closure. Pending write waiters
-always complete, reporting success or failure.
+`async_send()` calls are programming errors (asserted in debug builds). If the
+connection closes before a pending `async_cb_read()` receives data, the callback
+is invoked with an empty string; code that retains access to the `stream_conn`
+can use `is_open()` to detect that the empty buffer came from closure. Pending
+write waiters always complete, reporting success or failure.
 
 ### `loop_task`
 
@@ -139,19 +188,19 @@ coroutine body starts eagerly on the call site (`initial_suspend` returns
 returns `suspend_never`). Unhandled exceptions call `std::terminate`.
 
 ```cpp
-loop_task handle_conn(stream_conn conn) {
-  while (conn.is_open()) {
-    std::string data = co_await conn.async_read();
+loop_task handle_conn(stream_conn_ptr conn) {
+  while (conn->is_open()) {
+    std::string data = co_await conn->async_read();
     if (data.empty()) break;
-    co_await conn.async_send(make_reply(data));
+    co_await conn->async_send(make_reply(data));
   }
 }
 ```
 
 ## What comes next
 
-See `roadmap.md` for the full plan. The immediate next items in Layer 2 are
-`tcp_listener` (accept loop producing `stream_conn` instances) and `tcp_client`
-(outbound non-blocking `connect()`). Layer 3 adds HTTP/1.1; Layer 4 adds
-WebSockets. If datagram support is needed later, it should arrive as a
-separate `dgram_conn` abstraction built on `epoll_loop`.
+See `roadmap.md` for the full plan. Layer 2 is complete: listening and outbound
+connection support are integrated into `stream_conn_ptr::listen()` and
+`stream_conn_ptr::connect()`. Layer 3 adds HTTP/1.1; Layer 4 adds WebSockets.
+If datagram support is needed later, it should arrive as a separate `dgram_conn`
+abstraction built on `epoll_loop`.

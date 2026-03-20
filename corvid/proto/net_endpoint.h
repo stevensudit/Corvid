@@ -33,6 +33,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
+#include "../filesys/net_socket.h"
 #include "ipv4_addr.h"
 #include "ipv6_addr.h"
 
@@ -137,6 +138,16 @@ public:
   // Only supports recognized families (AF_INET, AF_INET6, AF_UNIX).
   explicit net_endpoint(const sockaddr_storage& addr) noexcept {
     do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
+  }
+
+  // Construct by querying the local address bound to `sock` via `getsockname`.
+  // On failure, result is `empty()`.
+  explicit net_endpoint(const net_socket& sock) noexcept {
+    sockaddr_storage addr{};
+    socklen_t len = sizeof(addr);
+    if (::getsockname(sock.handle(), reinterpret_cast<sockaddr*>(&addr),
+            &len) == 0)
+      do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), len);
   }
 
   // Create wildcard bind endpoints for IPv4 or IPv6 with the given port.
@@ -299,16 +310,8 @@ public:
   }
 
   // Return the size of the sockaddr struct corresponding to the held endpoint.
-  [[nodiscard]] constexpr socklen_t sockaddr_size() const noexcept {
-    if (is_v4()) return sizeof(sockaddr_in);
-    if (is_v6()) return sizeof(sockaddr_in6);
-    if (is_ans())
-      return sizeof(sockaddr_un); // full buffer; no null terminator
-    if (is_uds())
-      return static_cast<socklen_t>(
-          offsetof(sockaddr_un, sun_path) + std::strlen(as_uds().sun_path) +
-          1);
-    return sizeof(sockaddr_storage);
+  [[nodiscard]] socklen_t sockaddr_size() const noexcept {
+    return net_socket::sockaddr_size(storage_);
   }
 
   // Return a pointer and length suitable for passing to POSIX socket
