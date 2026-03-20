@@ -1072,9 +1072,9 @@ void StreamConn_Lifecycle() {
     // open_ is set in the state constructor before the post fires.
     EXPECT_TRUE(conn->is_open());
     EXPECT_EQ(conn->remote_endpoint(), remote);
-    loop.run_once(0); // process posted do_open_()
+    loop.run_once(0); // process posted do_open()
   }
-  // destructor posted do_close_(); process it, then verify loop is clean.
+  // destructor posted do_hangup(); process it, then verify loop is clean.
   loop.run_once(0);
   EXPECT_EQ(loop.run_once(0), 0);
 }
@@ -1089,7 +1089,7 @@ void StreamConn_Receive() {
       {.on_data = [&](stream_conn&, std::string& d) {
         received = std::move(d);
       }});
-  loop.run_once(0); // process posted do_open_()
+  loop.run_once(0); // process posted do_open()
 
   const std::string msg{"hello"};
   auto msg_view = std::string_view{msg};
@@ -1142,7 +1142,7 @@ void StreamConn_PeerClose() {
   bool closed = false;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
       {.on_close = [&](stream_conn&) { closed = true; }});
-  loop.run_once(0); // process posted do_open_()
+  loop.run_once(0); // process posted do_open()
 
   ASSERT_TRUE(b.shutdown(SHUT_WR));
   loop.run_once(0); // dispatch EOF/HUP
@@ -1172,7 +1172,7 @@ void StreamConn_Send() {
   auto [a, b] = make_nb_sockpair();
 
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
-  loop.run_once(0); // process posted do_open_()
+  loop.run_once(0); // process posted do_open()
 
   conn->send(std::string{"world"});
   loop.run_once(0); // process posted enqueue() -> immediate ::write
@@ -1193,10 +1193,10 @@ void StreamConn_ManualClose() {
   bool closed = false;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
       {.on_close = [&](stream_conn&) { closed = true; }});
-  loop.run_once(0); // process posted do_open_()
+  loop.run_once(0); // process posted do_open()
 
   conn.close();
-  loop.run_once(0); // process posted do_close_() -> close_now_()
+  loop.run_once(0); // process posted do_close() -> close_now()
 
   EXPECT_FALSE(conn->is_open());
   EXPECT_TRUE(closed);
@@ -1224,7 +1224,7 @@ void StreamConn_DrainAfterBufferedSend() {
   int drain_count = 0;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
       {.on_drain = [&](stream_conn&) { ++drain_count; }});
-  loop.run_once(0); // process posted do_open_()
+  loop.run_once(0); // process posted do_open()
 
   conn->send(std::string{payload}); // copy payload into send
   // Drain by reading from `b` and running the loop until all data arrives.
@@ -1543,7 +1543,7 @@ void StreamConn_GracefulClose() {
   bool closed = false;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
       {.on_close = [&](stream_conn&) { closed = true; }});
-  loop.run_once(0); // process posted do_open_()
+  loop.run_once(0); // process posted do_open()
 
   // Queue data then immediately request a close; the close must be deferred
   // until the send queue drains.
@@ -1771,7 +1771,10 @@ void StreamConn_AsyncRead_PeerClose() {
   std::string received{"sentinel"};
   bool done = false;
 
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {});
+  // Install a no-op `on_close` to opt into half-close: without a handler the
+  // default behavior initiates a graceful close on peer EOF.
+  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_close = [](stream_conn&) {}});
   loop.run_once(0); // process posted register_with_loop
 
   auto coro = [&]() -> loop_task {

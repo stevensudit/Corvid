@@ -59,10 +59,14 @@ class stream_conn;
 //                          `EPOLLOUT`-driven drains), or when an async
 //                          `connect()` succeeds.
 //  `on_close(conn)`     -- fired once when the connection closes: peer EOF, an
-//                          I/O error, or a failed async `connect()`. For a
-//                          normal close writes may still be possible
-//                          (half-close); call `close()` or `hangup()` to shut
-//                          down fully.
+//                          I/O error, or a failed async `connect()`. If no
+//                          handler is installed, a graceful close is initiated
+//                          automatically after peer EOF so that connections
+//                          without an external owner (e.g., accepted or
+//                          released) are fully torn down rather than left
+//                          half-open indefinitely. To keep the write side open
+//                          after peer EOF, install an `on_close` handler and
+//                          call `close()` or `hangup()` only when done.
 struct stream_conn_handlers {
   std::function<void(stream_conn&, std::string&)> on_data = nullptr;
   std::function<void(stream_conn&)> on_drain = nullptr;
@@ -701,6 +705,15 @@ private:
     notify_close_once();
     if (close_requested_ && send_queue_.empty()) {
       do_close_now();
+      return;
+    }
+    // If no `on_close` handler is installed, initiate a graceful close so
+    // that connections without an external owner are fully torn down rather
+    // than left half-open indefinitely. Connections that need the write side
+    // after peer EOF must install an `on_close` handler and call `close()` or
+    // `hangup()` only when done.
+    if (!handlers_.on_close) {
+      do_close();
       return;
     }
     maybe_finish_after_side_close();
