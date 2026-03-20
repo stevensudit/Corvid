@@ -688,8 +688,15 @@ private:
   }
 
   // Handle EOF by closing the read side and finishing any pending close.
+  //
+  // Disarms both `EPOLLIN` and `EPOLLRDHUP` immediately: after EOF, the peer
+  // has done `SHUT_WR`, so `EPOLLRDHUP` would otherwise remain
+  // level-triggered and repeatedly wake the loop while the write side is
+  // still open.
   void handle_read_eof() {
     read_open_.store(false, std::memory_order::relaxed);
+    loop_.set_readable(sock(), false);
+    loop_.set_rdhup(sock(), false);
     if (pending_read_.has_waiter()) notify_read_closed();
     notify_close_once();
     if (close_requested_ && send_queue_.empty()) {

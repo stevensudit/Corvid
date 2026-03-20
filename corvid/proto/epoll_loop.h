@@ -144,6 +144,16 @@ public:
     return execute_or_post([this, fd, on] { return do_set_readable(fd, on); });
   }
 
+  // Add or remove `EPOLLRDHUP` from the event mask for `sock` without
+  // changing the registered `io_conn`. Disarming is useful after EOF is
+  // observed on the read side to prevent repeated level-triggered wakeups.
+  // Returns false if `sock` is not registered or `epoll_ctl` fails. If
+  // executed outside of loop thread, turns into a `post()` and returns true.
+  bool set_rdhup(const net_socket& sock, bool on = true) {
+    const auto fd = sock.handle();
+    return execute_or_post([this, fd, on] { return do_set_rdhup(fd, on); });
+  }
+
   // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
@@ -356,6 +366,13 @@ private:
     return do_set_interest(fd, EPOLLOUT, on);
   }
 
+  // Add or remove `EPOLLRDHUP` from the event mask for `sock` without
+  // changing the registered `io_conn`. Returns false if `sock` is not
+  // registered or `epoll_ctl` fails.
+  bool do_set_rdhup(os_file::file_handle_t fd, bool on = true) noexcept {
+    return do_set_interest(fd, EPOLLRDHUP, on);
+  }
+
   bool do_set_interest(os_file::file_handle_t fd, uint32_t flag,
       bool on = true) noexcept {
     assert(is_loop_thread());
@@ -375,8 +392,9 @@ private:
 
   static constexpr uint32_t
   make_event_mask(bool readable = false, bool writable = false) noexcept {
-    // `EPOLLRDHUP` is always armed so that peer half-closes (`SHUT_WR`) are
-    // detected even when `EPOLLIN` is not subscribed.
+    // `EPOLLRDHUP` is armed by default so that peer half-closes (`SHUT_WR`)
+    // are detected even when `EPOLLIN` is not subscribed. It can be disarmed
+    // after EOF is observed via `set_rdhup(sock, false)`.
     // This loop intentionally stays level-triggered. `stream_conn` only arms
     // `EPOLLOUT` while a send queue is backpressured, so LT does not create
     // steady writable wakeups, and switching to `EPOLLET` would require

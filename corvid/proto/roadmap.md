@@ -123,7 +123,4 @@ WebSocket protocol built on top of the HTTP upgrade mechanism.
 - Async model: callbacks for simple cases, C++20 coroutines for sequential
   logic; both modes are supported by `stream_conn` and are mutually exclusive
   per direction (read or write independently).
-- Linux is the target OS, but platform dependencies (`epoll`, `io_uring`,
-  POSIX primitives) are isolated to dedicated headers so that porting to
-  Windows (IOCP, Winsock) or macOS (kqueue) is a matter of providing
-  alternative implementations, not restructuring the library.
+- Linux is the target OS.
