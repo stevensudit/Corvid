@@ -1277,9 +1277,8 @@ void StreamConn_AsyncCbRead() {
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   loop.run_once(0); // process posted register_with_loop
 
-  ASSERT_TRUE(conn->async_cb_read([&](std::string& data) {
-    received = std::move(data);
-  }));
+  async_conn_cb cb{conn.pointer()};
+  ASSERT_TRUE(cb.read([&](std::string& data) { received = std::move(data); }));
 
   const std::string msg{"callback-read"};
   auto msg_view = std::string_view{msg};
@@ -1306,9 +1305,8 @@ void StreamConn_AsyncCbRead_PreservesEarlyData() {
   EXPECT_EQ(loop.run_once(0),
       0); // read interest is disabled; data stays queued
 
-  ASSERT_TRUE(conn->async_cb_read([&](std::string& data) {
-    received = std::move(data);
-  }));
+  async_conn_cb cb{conn.pointer()};
+  ASSERT_TRUE(cb.read([&](std::string& data) { received = std::move(data); }));
 
   EXPECT_EQ(loop.run_once(0), 1); // enabling EPOLLIN surfaces buffered data
   EXPECT_EQ(received, msg);
@@ -1323,8 +1321,9 @@ void StreamConn_AsyncCbRead_DuplicateRejected() {
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   loop.run_once(0); // process posted register_with_loop
 
-  ASSERT_TRUE(conn->async_cb_read([&](std::string&) { ++callback_count; }));
-  EXPECT_FALSE(conn->async_cb_read([&](std::string&) { ++callback_count; }));
+  async_conn_cb cb{conn.pointer()};
+  ASSERT_TRUE(cb.read([&](std::string&) { ++callback_count; }));
+  EXPECT_FALSE(cb.read([&](std::string&) { ++callback_count; }));
 
   const std::string msg{"one"};
   auto msg_view = std::string_view{msg};
@@ -1340,31 +1339,33 @@ void StreamConn_AsyncCbRead_PeerClose() {
   auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
+  // `async_conn_cb` fully takes over the handlers, so the persistent
+  // `on_close` on `own_handlers_` does not fire while the `async_conn_cb`
+  // is active. Close notification arrives via `async_conn_cb::on_close`,
+  // which fires the pending `async_cb_read` callback with an empty string.
   std::string received{"sentinel"};
   int callback_count = 0;
-  bool closed = false;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_close = [&](stream_conn&) { closed = true; }});
+  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   loop.run_once(0); // process posted register_with_loop
 
-  ASSERT_TRUE(conn->async_cb_read([&](std::string& data) {
+  async_conn_cb cb{conn.pointer()};
+  ASSERT_TRUE(cb.read([&](std::string& data) {
     received = std::move(data);
     ++callback_count;
   }));
 
   b.close();
-  loop.run_once(0); // dispatch EPOLLHUP -> close_now -> inline callback
+  loop.run_once(0); // dispatch peer close -> on_close -> cb fires with ""
 
   EXPECT_EQ(callback_count, 1);
   EXPECT_TRUE(received.empty());
-  EXPECT_TRUE(closed);
-  EXPECT_TRUE(conn->is_open());
-  EXPECT_FALSE(conn->can_read());
-  EXPECT_TRUE(conn->can_write());
+  EXPECT_TRUE(cb.is_open());
+  EXPECT_FALSE(cb.can_read());
+  EXPECT_TRUE(cb.can_write());
 
   conn.close();
   loop.run_once(0);
-  EXPECT_FALSE(conn->is_open());
+  EXPECT_FALSE(cb.is_open());
 }
 
 void StreamConn_AsyncCbWrite() {
@@ -1377,8 +1378,9 @@ void StreamConn_AsyncCbWrite() {
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   loop.run_once(0); // process posted register_with_loop
 
-  ASSERT_TRUE(conn->async_cb_write(std::string{"callback-write"},
-      [&](bool write_completed) {
+  async_conn_cb cb{conn.pointer()};
+  ASSERT_TRUE(
+      cb.write(std::string{"callback-write"}, [&](bool write_completed) {
         completed = write_completed;
         ++callback_count;
       }));
@@ -1396,25 +1398,27 @@ void StreamConn_AsyncCbWrite_Failure() {
   auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
+  // `async_conn_cb` fully takes over the handlers; the persistent `on_close`
+  // on `own_handlers_` is silenced while it is active. The write-failure
+  // callback fires synchronously when `enqueue_send` fails.
   bool completed = true;
-  bool closed = false;
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_close = [&](stream_conn&) { closed = true; }});
+  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   loop.run_once(0); // process posted register_with_loop
 
   b.close();
 
-  ASSERT_TRUE(conn->async_cb_write(std::string{"boom"},
-      [&](bool write_completed) { completed = write_completed; }));
+  async_conn_cb cb{conn.pointer()};
+  ASSERT_FALSE(cb.write(std::string{"boom"}, [&](bool write_completed) {
+    completed = write_completed;
+  }));
 
   EXPECT_FALSE(completed);
-  EXPECT_TRUE(conn->is_open());
-  EXPECT_TRUE(conn->can_read());
-  EXPECT_FALSE(conn->can_write());
+  EXPECT_TRUE(cb.is_open());
+  EXPECT_TRUE(cb.can_read());
+  EXPECT_FALSE(cb.can_write());
 
-  loop.run_once(0); // process peer-close notification
-  EXPECT_TRUE(closed);
-  EXPECT_FALSE(conn->is_open());
+  loop.run_once(0); // process peer-close notification -> full close
+  EXPECT_FALSE(cb.is_open());
 }
 
 void StreamConn_ShutdownWrite() {
@@ -1435,7 +1439,10 @@ void StreamConn_ShutdownWrite() {
   EXPECT_TRUE(conn->is_open());
   EXPECT_TRUE(conn->can_read());
   EXPECT_FALSE(conn->can_write());
-  EXPECT_FALSE(conn->async_cb_write(std::string{"nope"}, [&](bool) {}));
+  {
+    async_conn_cb cb{conn.pointer()};
+    EXPECT_FALSE(cb.write(std::string{"nope"}, [&](bool) {}));
+  }
 
   const std::string msg{"inbound"};
   auto msg_view = std::string_view{msg};
@@ -1460,7 +1467,10 @@ void StreamConn_ShutdownRead() {
   EXPECT_TRUE(conn->is_open());
   EXPECT_FALSE(conn->can_read());
   EXPECT_TRUE(conn->can_write());
-  EXPECT_FALSE(conn->async_cb_read([&](std::string&) { ++data_count; }));
+  {
+    async_conn_cb cb{conn.pointer()};
+    EXPECT_FALSE(cb.read([&](std::string&) { ++data_count; }));
+  }
 
   conn->send(std::string{"outbound"});
   loop.run_once(0);
@@ -1499,6 +1509,7 @@ void StreamConn_AsyncCbWrite_DuplicateRejected() {
   a.set_send_buffer_size(small_buf);
 
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  async_conn_cb cb{conn.pointer()};
 
   const std::string payload(256ULL * 1024ULL, 'w');
   std::atomic<int> accepted{0};
@@ -1507,7 +1518,7 @@ void StreamConn_AsyncCbWrite_DuplicateRejected() {
   notifiable<bool> completion{false};
 
   auto try_register = [&] {
-    if (conn->async_cb_write(std::string{payload}, [&](bool) {
+    if (cb.write(std::string{payload}, [&](bool) {
           ++completions;
           completion.notify_one(true);
         }))
@@ -1666,8 +1677,9 @@ void StreamConn_AsyncRead() {
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   loop.run_once(0); // process posted register_with_loop
 
+  async_conn_coro coro_conn{conn.pointer()};
   auto coro = [&]() -> loop_task {
-    received = co_await conn->async_read();
+    received = co_await coro_conn.read();
     done = true;
   };
   coro(); // starts eagerly; suspends at async_read (no data yet)
@@ -1701,8 +1713,9 @@ void StreamConn_AsyncRead_PreservesEarlyData() {
   EXPECT_EQ(loop.run_once(0),
       0); // data remains in kernel until a read is armed
 
+  async_conn_coro coro_conn{conn.pointer()};
   auto coro = [&]() -> loop_task {
-    received = co_await conn->async_read();
+    received = co_await coro_conn.read();
     done = true;
   };
   coro();
@@ -1727,8 +1740,10 @@ void StreamConn_AsyncRead_StopsBetweenCalls() {
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   loop.run_once(0); // process posted register_with_loop
 
+  async_conn_coro coro_conn{conn.pointer()};
+
   auto first_coro = [&]() -> loop_task {
-    first = co_await conn->async_read();
+    first = co_await coro_conn.read();
     first_done = true;
   };
   first_coro();
@@ -1749,7 +1764,7 @@ void StreamConn_AsyncRead_StopsBetweenCalls() {
   EXPECT_FALSE(second_done);
 
   auto second_coro = [&]() -> loop_task {
-    second = co_await conn->async_read();
+    second = co_await coro_conn.read();
     second_done = true;
   };
   second_coro();
@@ -1771,32 +1786,27 @@ void StreamConn_AsyncRead_PeerClose() {
   std::string received{"sentinel"};
   bool done = false;
 
-  // Install a no-op `on_close` to opt into half-close: without a handler the
-  // default behavior initiates a graceful close on peer EOF.
-  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_close = [](stream_conn&) {}});
+  // `async_conn_coro` installs an `on_close` handler that replicates the
+  // auto-graceful-close that `handle_read_eof` would otherwise initiate.
+  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   loop.run_once(0); // process posted register_with_loop
 
+  async_conn_coro coro_conn{conn.pointer()};
   auto coro = [&]() -> loop_task {
-    received = co_await conn->async_read();
+    received = co_await coro_conn.read();
     done = true;
   };
   coro(); // starts eagerly; suspends at async_read
 
   b.close(); // trigger EPOLLHUP/EOF on `a`
 
-  loop.run_once(0); // dispatch EPOLLHUP -> do_close_now -> posts resume
-  loop.run_once(0); // drain post queue -> coroutine resumes
+  loop.run_once(0); // dispatch EPOLLHUP -> notify_read_closed/on_close ->
+                    // posts resume + do_close
+  loop.run_once(0); // drain post queue -> coroutine resumes, do_close runs
 
   EXPECT_TRUE(done);
   EXPECT_TRUE(received.empty()); // close delivers empty data
-  EXPECT_TRUE(conn->is_open());
-  EXPECT_FALSE(conn->can_read());
-  EXPECT_TRUE(conn->can_write());
-
-  conn.close();
-  loop.run_once(0);
-  EXPECT_FALSE(conn->is_open());
+  EXPECT_FALSE(conn->is_open()); // on_close initiated a graceful close
 }
 
 // Verify that `async_send` delivers bytes to the peer and suspends until
@@ -1813,11 +1823,12 @@ void StreamConn_AsyncSend() {
 
   const std::string msg{"world"};
 
+  async_conn_coro coro_conn{conn.pointer()};
   auto coro = [&]() -> loop_task {
-    co_await conn->async_send(std::string{msg});
+    co_await coro_conn.write(std::string{msg});
     sent = true;
   };
-  coro(); // starts eagerly; write likely completes synchronously
+  coro(); // starts eagerly; write completes via posted drain
 
   // If the write was synchronous, `sent` is already true after one
   // run_once (for the register post). Otherwise pump the loop to drain.

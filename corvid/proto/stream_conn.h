@@ -18,7 +18,6 @@
 #include <atomic>
 #include <cassert>
 #include <cerrno>
-#include <coroutine>
 #include <cstddef>
 #include <deque>
 #include <functional>
@@ -32,7 +31,6 @@
 #include <fcntl.h>
 
 #include "epoll_loop.h"
-#include "loop_task.h"
 #include "net_endpoint.h"
 #include "../strings/no_zero.h"
 
@@ -122,29 +120,14 @@ struct stream_conn_handlers {
 // closes immediately. The destructor of `stream_conn_ptr` uses `hangup()`, so
 // you should call `close()` in the non-error path.
 //
-// Supports three async calling models:
-// 1. Persistent callbacks via `stream_conn_handlers`, and `send()`.
-// 2. Coroutine waiters via `async_read()` / `async_send()`.
-// 3. One-shot callbacks via `async_cb_read()` / `async_cb_write()`.
+// Supports persistent callbacks via `stream_conn_handlers`, and `send()`.
 //
-// If a coroutine waiter or one-shot callback is used, it trumps the persistent
-// callback. Parallel attempts to use waiters fail cleanly rather than
-// replacing an existing waiter:
-// - `async_cb_read()` / `async_cb_write()` return `false`.
-// - `async_read()` / `async_send()` require the caller to avoid overlap; a
-//   second concurrent wait is a programming error (asserted in debug builds).
-//
-// A pending read waiter completes with an empty buffer/string if the read
-// side closes before data arrives; call `can_read()` / `is_open()` to
-// distinguish that case from actual data. A pending write waiter completes on
-// either success or failure: a coroutine resumes with no return value (check
-// `can_write()` / `is_open()` to detect failure), while a per-call callback
-// receives `cb(bool completed)`.
+// Two additional per-call models are provided by `async_conn.h`:
+// `async_conn_cb` (one-shot callbacks) and `async_conn_coro` (coroutines).
+// Both temporarily redirect `active_handlers_` so `stream_conn` is unaware
+// of them.
 class stream_conn final: public io_conn {
 public:
-  using async_read_cb = std::function<void(std::string&)>;
-  using async_write_cb = std::function<void(bool completed)>;
-
   // Default receive-buffer capacity per connection, in bytes.
   static constexpr size_t default_recv_buf_size = 16384;
 
@@ -196,10 +179,10 @@ public:
   [[nodiscard]] net_endpoint local_endpoint() const noexcept {
     return net_endpoint{sock()};
   }
+
   // Take ownership of `buf` and start sending it. Safe to call from any
   // thread. Success does not mean that the buffer has been fully sent.
-  // Instead, send completion is signaled via the `on_drain` callback (for
-  // persistent handlers) or a write waiter (`async_send`/`async_cb_write`).
+  // Instead, send completion is signaled via the `on_drain` callback.
   bool send(std::string&& buf) {
     if (buf.empty()) return false;
     if (!open_.load(std::memory_order::relaxed)) return false;
@@ -239,82 +222,10 @@ public:
     return exec_lambda(exec, [p = self()] { return p->do_shutdown_write(); });
   }
 
-  // Return an awaitable that suspends the calling coroutine until one batch
-  // of data arrives or the connection closes. Returns the received bytes as a
-  // `std::string`; an empty string signals that the connection was already
-  // closed or closed before data arrived. The caller should check
-  // `is_open()` to distinguish a closed connection from a zero-byte read.
-  //
-  // At most one read waiter (`async_read` or `async_cb_read`) may be
-  // outstanding at a time.
-  // Must be awaited from the loop thread (e.g., inside a `loop_task`
-  // coroutine spawned from a loop callback or `post()`'d function).
-  [[nodiscard]] auto async_read() noexcept {
-    return async_read_awaitable{this};
-  }
-
-  // Return an awaitable that takes ownership of `buf`, enqueues it for
-  // sending, and suspends the calling coroutine until the send queue fully
-  // drains (or the connection closes). If `buf` is written synchronously
-  // without queuing, the coroutine resumes immediately without a loop
-  // round-trip.
-  //
-  // At most one write waiter (`async_send` or `async_cb_write`) may be
-  // outstanding at a time.
-  // Must be awaited from the loop thread.
-  [[nodiscard]] auto async_send(std::string&& buf) noexcept {
-    return async_send_awaitable{this, std::move(buf)};
-  }
-
-  // Register a one-shot callback for the next chunk of readable data. Callback
-  // delivery is asynchronous. However, when used outside the loop thread and
-  // with `execution::blocking`, this function will block until the I/O is
-  // registered, giving it a chance to fail immediately if another read
-  // waiter is pending.
-  //
-  // The callback, `cb`, is invoked inline on the loop thread with the
-  // internal receive buffer so that the caller may copy or move it.
-  //
-  // Returns false if the connection is closed, `cb` is null, or another
-  // async read waiter is already pending. If the connection closes before
-  // data arrives, `cb` is invoked with an empty string; code that retains
-  // access to the `stream_conn` can call `is_open()` to distinguish that case
-  // from real data.
-  bool async_cb_read(async_read_cb cb, execution exec = execution::blocking) {
-    if (!cb) return false;
-    if (!open_.load(std::memory_order::relaxed)) return false;
-    if (!read_open_.load(std::memory_order::relaxed)) return false;
-    return exec_lambda(exec, [p = self(), cb = std::move(cb)]() mutable {
-      return p->register_async_cb_read(std::move(cb));
-    });
-  }
-
-  // Register to write the data in `buf` and receive a one-shot callback when
-  // all data has been written. Callback delivery is asynchronous. However,
-  // when used outside the loop thread and with `execution::blocking`, this
-  // function will block until the I/O is registered, giving it a chance to
-  // fail immediately if another write waiter is pending.
-  //
-  // Takes ownership of `buf`, sends it, and invoke `cb` afterwards. When the
-  // callback gets `completed == true`, that means the buffered write fully
-  // drained; `completed == false` means the connection closed or failed before
-  // all bytes were sent, possibly after a partial write
-  //
-  // Returns false if the connection is closed, `buf` is empty, `cb` is null,
-  // or another async write waiter is already pending.
-  bool async_cb_write(std::string&& buf, async_write_cb cb,
-      execution exec = execution::blocking) {
-    if (buf.empty() || !cb) return false;
-    if (!open_.load(std::memory_order::relaxed)) return false;
-    if (!write_open_.load(std::memory_order::relaxed)) return false;
-    return exec_lambda(exec,
-        [p = self(), b = std::move(buf), cb = std::move(cb)]() mutable {
-          return p->register_async_cb_write(std::move(b), std::move(cb));
-        });
-  }
-
 private:
   enum class allow : bool { ctor };
+
+  friend class async_conn_base;
 
 public:
   // Constructor. Technically public to allow `std::make_shared<stream_conn>`
@@ -324,7 +235,7 @@ public:
       const net_endpoint& remote, stream_conn_handlers&& h, size_t rbs,
       bool connecting, bool listening) noexcept
       : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
-        handlers_{std::move(h)},
+        own_handlers_{std::move(h)}, active_handlers_{&own_handlers_},
         recv_buf_capacity_{
             std::min(rbs, std::numeric_limits<std::size_t>::max() / 2)},
         open_{true}, connecting_{connecting}, listening_{listening} {
@@ -335,33 +246,18 @@ public:
 private:
   friend class stream_conn_ptr;
 
-  // One pending read completion, satisfied by either a coroutine or
-  // callback. Normally, only `coro` or `cb` are set.
-  struct pending_read_op {
-    std::coroutine_handle<> coro;
-    async_read_cb cb;
-
-    [[nodiscard]] bool has_waiter() const noexcept {
-      assert(!coro || !cb);
-      return coro || static_cast<bool>(cb);
-    }
-  };
-
-  // One pending write completion, satisfied by either a coroutine or
-  // callback. Normally, only `coro` or `cb` are set.
-  struct pending_write_op {
-    std::coroutine_handle<> coro;
-    async_write_cb cb;
-
-    [[nodiscard]] bool has_waiter() const noexcept {
-      assert(!coro || !cb);
-      return coro || static_cast<bool>(cb);
-    }
-  };
-
   epoll_loop& loop_;
   net_endpoint remote_;
-  stream_conn_handlers handlers_;
+
+  // The connection's own persistent handlers. Never moved or destroyed while
+  // the connection is alive. `active_handlers_` always points here unless an
+  // `async_conn_base` has temporarily redirected it to its own handlers.
+  stream_conn_handlers own_handlers_;
+
+  // Atomic pointer to the currently active handlers. Normally points to
+  // `own_handlers_`. `async_conn_base::install_handlers()` atomically swaps
+  // this to its own `handlers_` member; its destructor swaps it back.
+  std::atomic<stream_conn_handlers*> active_handlers_;
 
   // Send queue.
   // TODO: Consider using an object pool owned by the loop to reduce the
@@ -419,20 +315,6 @@ private:
   // once.
   bool close_notified_ = false;
 
-  // One-shot read waiter installed by either `async_read()` or
-  // `async_cb_read()`.
-  pending_read_op pending_read_;
-
-  // Receive staging buffer filled by `handle_readable()`. Delivered directly
-  // to callback-based readers (`async_cb_read()` or `handlers_.on_data`), or
-  // moved into `pending_read_data_` to resume a coroutine waiting in
-  // `async_read()`.
-  std::string pending_read_data_;
-
-  // One-shot write waiter installed by either `async_send()` or
-  // `async_cb_write()`.
-  pending_write_op pending_write_;
-
   // Return a `shared_ptr<stream_conn>` to `*this`.
   [[nodiscard]] std::shared_ptr<stream_conn> self() {
     return std::static_pointer_cast<stream_conn>(shared_from_this());
@@ -446,11 +328,9 @@ private:
   // In connecting mode, arms `EPOLLOUT` (so the first `on_writable()`,
   // `on_readable()`, or `on_error()` can call `handle_connect()`) and
   // suppresses `EPOLLIN` until the connect resolves. In connected mode,
-  // derives initial read/write
-  // interest from `wants_read_events()` and `send_queue_` so that waiters or
-  // queued sends registered before this call (e.g., from a coroutine that
-  // created the connection and immediately awaited it in the same frame) are
-  // correctly armed.
+  // derives initial read/write interest from `wants_read_events()` and
+  // `send_queue_` so that handlers or queued sends registered before this call
+  // are correctly armed.
   void register_with_loop() {
     if (!open_.load(std::memory_order::relaxed)) return;
     const bool want_write = connecting_ || !send_queue_.empty();
@@ -465,6 +345,7 @@ private:
 
   // `io_conn` overrides: called on the loop thread by `dispatch_event`.
   void on_readable() override {
+    assert(loop_.is_loop_thread());
     if (listening_) {
       handle_listen();
       return;
@@ -477,6 +358,7 @@ private:
   }
 
   void on_writable() override {
+    assert(loop_.is_loop_thread());
     if (listening_) return;
     if (connecting_) {
       handle_connect();
@@ -486,6 +368,7 @@ private:
   }
 
   void on_error() override {
+    assert(loop_.is_loop_thread());
     if (!open_.load(std::memory_order::relaxed)) return;
     if (listening_) {
       do_close_now(close_mode::forceful);
@@ -495,15 +378,17 @@ private:
       handle_connect();
       return;
     }
-    if (read_open_.load(std::memory_order::relaxed) && wants_read_events()) {
-      (void)handle_readable();
-    } else if (read_open_.load(std::memory_order::relaxed)) {
-      char byte = '\0';
-      const ssize_t peeked = sock().recv(&byte, 1, MSG_PEEK | MSG_DONTWAIT);
-      if (peeked == 0) {
-        handle_read_eof();
-      } else if (peeked < 0 && os_file::is_hard_error()) {
-        do_close_now(close_mode::forceful);
+    if (read_open_.load(std::memory_order::relaxed)) {
+      if (wants_read_events()) {
+        (void)handle_readable();
+      } else {
+        char byte = '\0';
+        const ssize_t peeked = sock().recv(&byte, 1, MSG_PEEK | MSG_DONTWAIT);
+        if (peeked == 0) {
+          handle_read_eof();
+        } else if (peeked < 0 && os_file::is_hard_error()) {
+          do_close_now(close_mode::forceful);
+        }
       }
     } else {
       maybe_finish_after_side_close();
@@ -528,11 +413,11 @@ private:
   // If we're already on the loop thread and registered, runs it inline.
   // Otherwise, posts it to the queue, and either returns immediately
   // (`execution::nonblocking`) or waits for completion
-  // (`execution::blocking`). `post_and_wait` is only used when off the loop
-  // thread AND already registered; calling it before registration would
-  // defeat the pre-registration guard, since `post_and_wait` executes inline
-  // on the loop thread. If we run synchronously, the return value of the
-  // lambda is passed through; otherwise, it's always true.
+  // (`execution::blocking`). The blocking `post_and_wait` is only used when
+  // off the loop thread AND already registered; calling it before registration
+  // would defeat the pre-registration guard, since `post_and_wait` executes
+  // inline on the loop thread. If we run synchronously, the return value of
+  // the lambda is passed through; otherwise, it's always true.
   template<typename FN>
   bool exec_lambda(execution exec, FN&& fn) {
     const auto is_loop_thread = loop_.is_loop_thread();
@@ -545,15 +430,14 @@ private:
     return loop_.post_and_wait(std::forward<FN>(fn));
   }
 
-  // Read interest is needed while in listening mode (always), while a
-  // persistent `on_data` handler is installed, or while a one-shot read
-  // waiter is active.
+  // Read interest is needed while in listening mode (always) or while the
+  // active `on_data` handler is installed.
   [[nodiscard]] bool wants_read_events() const noexcept {
     assert(loop_.is_loop_thread());
-    return open_.load(std::memory_order::relaxed) &&
-           (listening_ ||
-               (read_open_.load(std::memory_order::relaxed) &&
-                   (handlers_.on_data || pending_read_.has_waiter())));
+    if (!open_.load(std::memory_order::relaxed)) return false;
+    if (listening_) return true;
+    return (read_open_.load(std::memory_order::relaxed) &&
+            !!active_handlers_.load(std::memory_order::acquire)->on_data);
   }
 
   // Apply the current read-interest policy to the loop without disturbing
@@ -564,94 +448,46 @@ private:
     (void)loop_.set_readable(sock(), wants_read_events());
   }
 
-  // Install a one-shot read callback if the read side is still available.
-  [[nodiscard]] bool register_async_cb_read(async_read_cb cb) {
-    assert(loop_.is_loop_thread());
-    if (!open_.load(std::memory_order::relaxed) ||
-        !read_open_.load(std::memory_order::relaxed) ||
-        pending_read_.has_waiter())
-      return false;
-    pending_read_.cb = std::move(cb);
-    refresh_read_interest();
-    return true;
-  }
-
-  // Install a one-shot write callback and enqueue the outbound payload.
-  [[nodiscard]] bool
-  register_async_cb_write(std::string&& buf, async_write_cb cb) {
-    assert(loop_.is_loop_thread());
-    if (!open_.load(std::memory_order::relaxed) ||
-        !write_open_.load(std::memory_order::relaxed) ||
-        pending_write_.has_waiter())
-      return false;
-    pending_write_.cb = std::move(cb);
-    if (enqueue_send(std::move(buf))) return true;
-    if (pending_write_.cb) {
-      auto failed_cb = std::move(pending_write_.cb);
-      failed_cb(false);
-    }
-    return true;
-  }
-
   // Deliver `on_close` at most once for the lifetime of the connection.
   void notify_close_once() {
     assert(loop_.is_loop_thread());
     if (close_notified_) return;
     close_notified_ = true;
-    if (handlers_.on_close) handlers_.on_close(*this);
+    auto* h = active_handlers_.load(std::memory_order::acquire);
+    if (h->on_close) h->on_close(*this);
   }
 
-  // Deliver newly read data to the waiting coroutine, callback, or handler.
+  // Deliver newly read data to the active `on_data` handler (which may be
+  // `own_handlers_.on_data` or one installed by an `async_conn_base`).
   void notify_read_ready() {
-    if (pending_read_.coro) {
-      pending_read_data_ = std::move(recv_buf_);
-      loop_.post([h = std::exchange(pending_read_.coro, {})] { h.resume(); });
-    } else if (pending_read_.cb) {
-      auto cb = std::exchange(pending_read_.cb, nullptr);
-      cb(recv_buf_);
-    } else if (handlers_.on_data) {
-      handlers_.on_data(*this, recv_buf_);
-    }
+    assert(loop_.is_loop_thread());
+    auto* h = active_handlers_.load(std::memory_order::acquire);
+    if (h->on_data) h->on_data(*this, recv_buf_);
     refresh_read_interest();
   }
 
-  // Report read-side closure to any pending one-shot read waiter.
+  // Report read-side closure to any active `on_data` handler. An empty
+  // `recv_buf_` signals closure to handlers that distinguish it from real
+  // data.
   void notify_read_closed() {
-    if (pending_read_.coro) {
-      pending_read_data_.clear();
-      loop_.post([h = std::exchange(pending_read_.coro, {})] { h.resume(); });
-    } else if (pending_read_.cb) {
+    assert(loop_.is_loop_thread());
+    auto* h = active_handlers_.load(std::memory_order::acquire);
+    if (h->on_data) {
       recv_buf_.clear();
-      auto cb = std::exchange(pending_read_.cb, nullptr);
-      cb(recv_buf_);
+      h->on_data(*this, recv_buf_);
     }
     refresh_read_interest();
-  }
-
-  // Fail any pending one-shot write waiter after a close or send failure.
-  void fail_pending_write_waiters() {
-    if (pending_write_.coro)
-      loop_.post([h = std::exchange(pending_write_.coro, {})] { h.resume(); });
-    if (pending_write_.cb) {
-      auto cb = std::exchange(pending_write_.cb, nullptr);
-      cb(false);
-    }
   }
 
   // Notify that all queued outbound data has been fully drained.
   void notify_drained() {
-    if (pending_write_.coro) {
-      loop_.post([h = std::exchange(pending_write_.coro, {})] { h.resume(); });
-    } else if (pending_write_.cb) {
-      auto cb = std::exchange(pending_write_.cb, nullptr);
-      cb(true);
-    } else if (handlers_.on_drain) {
-      handlers_.on_drain(*this);
-    }
+    auto* h = active_handlers_.load(std::memory_order::acquire);
+    if (h->on_drain) h->on_drain(*this);
   }
 
   // Shut down the local read side and notify any blocked read waiter.
   [[nodiscard]] bool do_shutdown_read() {
+    assert(loop_.is_loop_thread());
     if (!open_.load(std::memory_order::relaxed) ||
         !read_open_.load(std::memory_order::relaxed))
       return false;
@@ -661,13 +497,18 @@ private:
     }
     read_open_.store(false, std::memory_order::relaxed);
     loop_.set_readable(sock(), false);
-    if (pending_read_.has_waiter()) notify_read_closed();
+    // Notify any `async_conn_base` that may have a pending read waiter.
+    // `notify_read_closed()` calls `active_handlers_->on_data` with an empty
+    // buffer; persistent own handlers use `on_close` instead.
+    if (active_handlers_.load(std::memory_order::relaxed) != &own_handlers_)
+      notify_read_closed();
     maybe_finish_after_side_close();
     return true;
   }
 
   // Shut down the local write side and discard any unsent outbound data.
   [[nodiscard]] bool do_shutdown_write() {
+    assert(loop_.is_loop_thread());
     if (!open_.load(std::memory_order::relaxed) ||
         !write_open_.load(std::memory_order::relaxed))
       return false;
@@ -679,13 +520,13 @@ private:
     send_queue_.clear();
     head_span_ = {};
     loop_.set_writable(sock(), false);
-    fail_pending_write_waiters();
     maybe_finish_after_side_close();
     return true;
   }
 
   // Fully close once both local directions have been shut down.
   void maybe_finish_after_side_close(close_mode mode = close_mode::graceful) {
+    assert(loop_.is_loop_thread());
     if (!read_open_.load(std::memory_order::relaxed) &&
         !write_open_.load(std::memory_order::relaxed))
       do_close_now(mode);
@@ -698,10 +539,12 @@ private:
   // level-triggered and repeatedly wake the loop while the write side is
   // still open.
   void handle_read_eof() {
+    assert(loop_.is_loop_thread());
     read_open_.store(false, std::memory_order::relaxed);
     loop_.set_readable(sock(), false);
     loop_.set_rdhup(sock(), false);
-    if (pending_read_.has_waiter()) notify_read_closed();
+    if (active_handlers_.load(std::memory_order::acquire) != &own_handlers_)
+      notify_read_closed();
     notify_close_once();
     if (close_requested_ && send_queue_.empty()) {
       do_close_now();
@@ -712,7 +555,7 @@ private:
     // than left half-open indefinitely. Connections that need the write side
     // after peer EOF must install an `on_close` handler and call `close()` or
     // `hangup()` only when done.
-    if (!handlers_.on_close) {
+    if (!active_handlers_.load(std::memory_order::acquire)->on_close) {
       do_close();
       return;
     }
@@ -721,11 +564,11 @@ private:
 
   // Handle write failure by aborting queued sends and closing as needed.
   void handle_write_failure() {
+    assert(loop_.is_loop_thread());
     if (!write_open_.exchange(false, std::memory_order::relaxed)) return;
     send_queue_.clear();
     head_span_ = {};
     loop_.set_writable(sock(), false);
-    fail_pending_write_waiters();
     if (close_requested_ || !read_open_.load(std::memory_order::relaxed)) {
       do_close_now(close_mode::forceful);
       return;
@@ -780,7 +623,7 @@ private:
       if (!accepted) break;
       auto peer = std::make_shared<stream_conn>(allow::ctor, loop_,
           std::move(accepted->first), net_endpoint{accepted->second},
-          stream_conn_handlers{handlers_}, default_recv_buf_size,
+          stream_conn_handlers{own_handlers_}, default_recv_buf_size,
           /*connecting=*/false, /*listening=*/false);
       peer->register_with_loop();
     }
@@ -797,11 +640,11 @@ private:
 
     if (!sock().recv(recv_buf_)) {
       // Distinguish between EOF and error.
-      if (recv_buf_.empty()) {
+      if (recv_buf_.empty())
         do_close_now(close_mode::forceful);
-      } else {
+      else
         handle_read_eof();
-      }
+
       return false;
     }
 
@@ -824,8 +667,8 @@ private:
         !write_open_.load(std::memory_order::relaxed))
       return false;
 
-    // If there are writes queued ahead of us, or if an async connect is still
-    // in progress (writes would fail with `ENOTCONN`), just add to the back.
+    // If there are sends queued ahead of us, or if an async connect is still
+    // in progress (sends would fail with `ENOTCONN`), just add to the back.
     // `EPOLLOUT` is already armed in both cases.
     if (const auto send_queue_empty = send_queue_.empty();
         !send_queue_empty || connecting_)
@@ -835,23 +678,20 @@ private:
       return true;
     }
 
-    // Write as much as we can of the new buffer.
+    // Send as much as we can of the new buffer.
     auto buf_view = std::string_view{buf};
     if (!sock().send(buf_view)) {
       handle_write_failure();
       return false;
     }
 
-    // If fully written, nothing to queue.
+    // If fully sent, nothing to queue.
     if (buf_view.empty()) {
-      // Let `async_send()` keep its inline-resume fast path for immediate
-      // completion; other write waiters are notified synchronously here.
-      if (pending_write_.coro) return true;
       notify_drained();
       return true;
     }
 
-    // If we couldn't write all of it, push to queue and arm `EPOLLOUT`.
+    // If we couldn't send all of it, push to queue and arm `EPOLLOUT`.
     // Note: We don't reuse `buf_view` because, in principle, moving a string
     // could change the buffer location (such as with SSO).
     const size_t sent = buf.size() - buf_view.size();
@@ -895,9 +735,12 @@ private:
     // Queue fully drained, so no need to keep `EPOLLOUT` armed.
     loop_.set_writable(sock(), false);
 
-    // If we were waiting to close, do so now.
+    // If we were waiting to close, do so now. Notify any `async_conn_base`
+    // write waiter of the successful drain before closing; bare persistent
+    // handlers receive only `on_close`.
     if (close_requested_) {
-      if (pending_write_.has_waiter()) notify_drained();
+      if (active_handlers_.load(std::memory_order::acquire) != &own_handlers_)
+        notify_drained();
       do_close_now();
       return false;
     }
@@ -944,101 +787,13 @@ private:
     head_span_ = {};
     close_requested_ = false;
 
-    // Resume any suspended coroutines so they can observe the closed
-    // state. Both handles are posted (not resumed directly) so that any
-    // in-progress `await_suspend` on the call stack has already returned
-    // before the coroutine continues. This prevents use-after-free of the
-    // coroutine frame when `do_close_now` is triggered from within
-    // `enqueue_send` -> `await_suspend`.
-    if (pending_read_.has_waiter()) notify_read_closed();
-    fail_pending_write_waiters();
+    // `on_close` notifies any pending `async_conn_base` waiters (coro or cb).
+    // The handler is always posted-resume, never inline, so any in-progress
+    // `await_suspend` on the call stack has returned before the coroutine
+    // continues -- preventing use-after-free when `do_close_now` fires from
+    // within `enqueue_send` -> `await_suspend`.
     notify_close_once();
   }
-
-  // Awaitable returned by `async_read()`. Suspends the calling coroutine
-  // until one batch of data arrives or the connection closes. `await_resume()`
-  // returns the received bytes (moved out of `pending_read_data_`); an empty
-  // string means the connection was already closed when `co_await` was
-  // evaluated, or it closed before data arrived.
-  //
-  // At most one `async_read` may be pending at a time. Must be awaited on
-  // the loop thread.
-  struct async_read_awaitable {
-    stream_conn* s_;
-
-    // Skip suspension if the connection is already closed; there will be
-    // no future `handle_readable` to resume us.
-    [[nodiscard]] bool await_ready() const noexcept {
-      return !s_->open_.load(std::memory_order::relaxed) ||
-             !s_->read_open_.load(std::memory_order::relaxed);
-    }
-
-    void await_suspend(std::coroutine_handle<> h) const {
-      assert(!s_->pending_read_.has_waiter());
-      s_->pending_read_.coro = h;
-      s_->refresh_read_interest();
-    }
-
-    [[nodiscard]] std::string await_resume() const noexcept {
-      return std::move(s_->pending_read_data_);
-    }
-  };
-
-  // Awaitable returned by `async_send(std::string)`. Passes ownership of
-  // `buf` to the send path and suspends the calling coroutine until the send
-  // queue fully drains (or the connection closes).
-  //
-  // `pending_drain_` is set BEFORE `enqueue_send()` is called so that if
-  // `enqueue_send` triggers `do_close_now` (write error), `do_close_now`
-  // can clear the handle and post the resume before `await_suspend` returns.
-  // `await_suspend` then sees `pending_drain_` as null and returns `true`
-  // (stay suspended), which is correct: the resume was already posted.
-  //
-  // If `enqueue_send` writes all bytes synchronously (queue stays empty),
-  // `await_suspend` clears `pending_drain_` and returns `false` to cancel
-  // suspension, resuming the coroutine inline without posting.
-  //
-  // At most one `async_send` may be pending at a time. Must be awaited on
-  // the loop thread.
-  // NOLINTBEGIN(readability-convert-member-functions-to-static)
-  struct async_send_awaitable {
-    stream_conn* s_;
-    std::string buf_;
-
-    [[nodiscard]] bool await_ready() const noexcept {
-      return !s_->open_.load(std::memory_order::relaxed) ||
-             !s_->write_open_.load(std::memory_order::relaxed);
-    }
-
-    // Returns `false` to cancel suspension (immediate resume) when the
-    // write completed synchronously. Returns `true` to stay suspended in
-    // all other cases (queued for drain, or already-posted close resume).
-    bool await_suspend(std::coroutine_handle<> h) {
-      assert(!s_->pending_write_.has_waiter());
-      s_->pending_write_.coro = h;
-      s_->enqueue_send(std::move(buf_));
-
-      // Case 1: `do_close_now` fired inside `enqueue_send`; it already
-      // cleared `pending_write_.coro` and posted `h.resume()`. Stay
-      // suspended.
-      if (!s_->pending_write_.coro) return true;
-
-      // Case 2: Write completed synchronously: queue is still empty.
-      // Cancel suspension so the coroutine resumes without a round-trip
-      // through the loop.
-      if (s_->send_queue_.empty()) {
-        s_->pending_write_.coro = {};
-        return false;
-      }
-
-      // Case 3: Data was queued; `EPOLLOUT` will drive `flush_send_queue`
-      // which will post the resume when the queue drains.
-      return true;
-    }
-
-    void await_resume() noexcept {}
-  };
-  // NOLINTEND(readability-convert-member-functions-to-static)
 };
 
 // A move-only smart pointer that owns a `stream_conn`. Despite being
@@ -1075,6 +830,13 @@ public:
     catch (...) {
       // Don't let exceptions escape the destructor.
     }
+  }
+
+  // Return a const reference to the underlying `shared_ptr` without releasing
+  // ownership. The caller may copy it to extend the connection's lifetime
+  // beyond that of this `stream_conn_ptr`.
+  [[nodiscard]] const std::shared_ptr<stream_conn>& pointer() const {
+    return conn_;
   }
 
   // Release ownership of the connection. The connection remains registered

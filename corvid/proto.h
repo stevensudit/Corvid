@@ -25,15 +25,17 @@
 //  net_endpoint - IP address + port pair for IPv4 or IPv6, or a UDS/ANS path
 //  dns_resolver - thin wrapper around `getaddrinfo` returning a list of
 //                `net_endpoint` values
-//  epoll_loop     - single-threaded epoll-based I/O event loop
-//  stream_conn - non-blocking stream connection supporting callback-based,
-//                and coroutine async I/O
+//  epoll_loop  - single-threaded epoll-based I/O event loop
+//  stream_conn - non-blocking stream connection with persistent-callback
+//                async I/O
+//  async_conn  - per-call async wrappers: `async_conn_cb` (callback-based)
+//                and `async_conn_coro` (coroutine-based)
 //  loop_task   - fire-and-forget coroutine return type for `epoll_loop`
-//  handlers
 #include "proto/ipv4_addr.h"
 #include "proto/ipv6_addr.h"
 #include "proto/net_endpoint.h"
 #include "proto/dns_resolver.h"
 #include "proto/epoll_loop.h"
 #include "proto/stream_conn.h"
+#include "proto/async_conn.h"
 #include "proto/loop_task.h"
