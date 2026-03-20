@@ -1,6 +1,5 @@
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <cstdio>
 #include <exception>
 #include <iostream>
@@ -27,11 +26,9 @@ inline void mark_failed() {
   just_failed = true;
 }
 
-[[noreturn]] inline void abort_failed() {
-  std::fflush(stdout);
-  std::fflush(stderr);
-  std::abort();
-}
+struct assertion_failure final {};
+
+[[noreturn]] inline void abort_failed() { throw assertion_failure{}; }
 
 inline bool was_failed() {
   bool failed{just_failed};
@@ -94,6 +91,9 @@ auto inline stream_to_text(const auto& v) {
     }                                                                         \
     catch (const exc&) {                                                      \
       caught_ = true;                                                         \
+    }                                                                         \
+    catch (const minitest::assertion_failure&) {                              \
+      throw;                                                                  \
     }                                                                         \
     catch (...) {                                                             \
       minitest::mark_failed();                                                \
@@ -280,6 +280,9 @@ auto inline stream_to_text(const auto& v) {
     catch (const exc&) {                                                      \
       caught_ = true;                                                         \
     }                                                                         \
+    catch (const minitest::assertion_failure&) {                              \
+      throw;                                                                  \
+    }                                                                         \
     catch (...) {                                                             \
       minitest::mark_failed();                                                \
       std::printf("Unexpected exception at %s:%d\n", __FILE__, __LINE__);     \
@@ -455,6 +458,10 @@ int main() {
 #endif
     try {
       t->func();
+    }
+    catch (const assertion_failure&) {
+      mark_failed();
+      std::printf("Assertion failure: %s\n", e.what());
     }
     catch (const std::exception& e) {
       mark_failed();
