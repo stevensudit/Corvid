@@ -530,9 +530,9 @@ private:
   template<typename FN>
   bool exec_lambda(execution exec, FN&& fn) {
     const auto is_loop_thread = loop_.is_loop_thread();
-    if (is_loop_thread && registered_.load(std::memory_order::relaxed))
-      return fn();
-    if (exec == execution::nonblocking || is_loop_thread) {
+    const auto registered = registered_.load(std::memory_order::relaxed);
+    if (is_loop_thread && registered) return fn();
+    if (exec == execution::nonblocking || is_loop_thread || !registered) {
       loop_.post(std::forward<FN>(fn));
       return true;
     }
