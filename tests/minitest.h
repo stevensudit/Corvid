@@ -83,6 +83,19 @@ auto inline stream_to_text(const auto& v) {
     }                                                                         \
   } while (false)
 
+// Like TEST_ASSERT_, but prints actual/expected values before throwing.
+#define TEST_ASSERT_VALUE_(cond, actual, expected, fmt, ...)                  \
+  do {                                                                        \
+    if (!(cond)) {                                                            \
+      minitest::mark_failed();                                                \
+      std::printf("Assertion failed at %s:%d: " fmt "\n", __FILE__, __LINE__, \
+          ##__VA_ARGS__);                                                     \
+      TEST_MSG("Actual:   `%s`", minitest::stream_to_text(actual).c_str());   \
+      TEST_MSG("Expected: `%s`", minitest::stream_to_text(expected).c_str()); \
+      minitest::abort_failed();                                               \
+    }                                                                         \
+  } while (false)
+
 #define TEST_EXCEPTION(call, exc)                                             \
   do {                                                                        \
     bool caught_ = false;                                                     \
@@ -128,9 +141,8 @@ auto inline stream_to_text(const auto& v) {
   do {                                                                        \
     const auto& actual_ = (actual);                                           \
     const auto& expected_ = (expected);                                       \
-    TEST_ASSERT_((actual_ == expected_), "%s",                                \
+    TEST_ASSERT_VALUE_((actual_ == expected_), actual_, expected_, "%s",      \
         ("(" #actual " == " #expected ")"));                                  \
-    VALUE_MSG(actual_, expected_);                                            \
   } while (false);
 
 #define EXPECT_NE(actual, expected)                                           \
@@ -146,9 +158,8 @@ auto inline stream_to_text(const auto& v) {
   do {                                                                        \
     const auto& actual_ = (actual);                                           \
     const auto& expected_ = (expected);                                       \
-    TEST_ASSERT_((actual_ != expected_), "%s",                                \
+    TEST_ASSERT_VALUE_((actual_ != expected_), actual_, expected_, "%s",      \
         ("(" #actual " != " #expected ")"));                                  \
-    VALUE_MSG(actual_, expected_);                                            \
   } while (false);
 
 #define EXPECT_LT(actual, expected)                                           \
@@ -164,9 +175,8 @@ auto inline stream_to_text(const auto& v) {
   do {                                                                        \
     const auto& actual_ = (actual);                                           \
     const auto& expected_ = (expected);                                       \
-    TEST_ASSERT_((actual_ < expected_), "%s",                                 \
+    TEST_ASSERT_VALUE_((actual_ < expected_), actual_, expected_, "%s",       \
         ("(" #actual " < " #expected ")"));                                   \
-    VALUE_MSG(actual_, expected_);                                            \
   } while (false);
 
 #define EXPECT_LE(actual, expected)                                           \
@@ -182,9 +192,8 @@ auto inline stream_to_text(const auto& v) {
   do {                                                                        \
     const auto& actual_ = (actual);                                           \
     const auto& expected_ = (expected);                                       \
-    TEST_ASSERT_((actual_ <= expected_), "%s",                                \
+    TEST_ASSERT_VALUE_((actual_ <= expected_), actual_, expected_, "%s",      \
         ("(" #actual " <= " #expected ")"));                                  \
-    VALUE_MSG(actual_, expected_);                                            \
   } while (false);
 
 #define EXPECT_GT(actual, expected)                                           \
@@ -200,9 +209,8 @@ auto inline stream_to_text(const auto& v) {
   do {                                                                        \
     const auto& actual_ = (actual);                                           \
     const auto& expected_ = (expected);                                       \
-    TEST_ASSERT_((actual_ > expected_), "%s",                                 \
+    TEST_ASSERT_VALUE_((actual_ > expected_), actual_, expected_, "%s",       \
         ("(" #actual " > " #expected ")"));                                   \
-    VALUE_MSG(actual_, expected_);                                            \
   } while (false);
 
 #define EXPECT_GE(actual, expected)                                           \
@@ -218,9 +226,8 @@ auto inline stream_to_text(const auto& v) {
   do {                                                                        \
     const auto& actual_ = (actual);                                           \
     const auto& expected_ = (expected);                                       \
-    TEST_ASSERT_((actual_ >= expected_), "%s",                                \
+    TEST_ASSERT_VALUE_((actual_ >= expected_), actual_, expected_, "%s",      \
         ("(" #actual " >= " #expected ")"));                                  \
-    VALUE_MSG(actual_, expected_);                                            \
   } while (false);
 
 #define EXPECT_TRUE(actual)                                                   \
@@ -233,8 +240,7 @@ auto inline stream_to_text(const auto& v) {
 #define ASSERT_TRUE(actual)                                                   \
   do {                                                                        \
     const bool actual_ = (actual) ? true : false;                             \
-    TEST_ASSERT_((actual_), "%s", ("(" #actual ")"));                         \
-    VALUE_MSG(actual_, true);                                                 \
+    TEST_ASSERT_VALUE_((actual_), actual_, true, "%s", ("(" #actual ")"));    \
   } while (false);
 
 #define EXPECT_FALSE(actual)                                                  \
@@ -247,8 +253,7 @@ auto inline stream_to_text(const auto& v) {
 #define ASSERT_FALSE(actual)                                                  \
   do {                                                                        \
     const bool actual_ = (actual) ? true : false;                             \
-    TEST_ASSERT_((!actual_), "%s", ("!(" #actual ")"));                       \
-    VALUE_MSG(actual_, false);                                                \
+    TEST_ASSERT_VALUE_((!actual_), actual_, false, "%s", ("!(" #actual ")")); \
   } while (false);
 
 #define EXPECT_NEAR(actual, expected, abs_error)                              \
@@ -264,9 +269,9 @@ auto inline stream_to_text(const auto& v) {
   do {                                                                        \
     const auto& actual_ = (actual);                                           \
     const auto& expected_ = (expected);                                       \
-    TEST_ASSERT_(std::abs(actual_ - expected_) <= abs_error, "%s",            \
+    TEST_ASSERT_VALUE_(std::abs(actual_ - expected_) <= abs_error, actual_,   \
+        expected_, "%s",                                                      \
         ("std::abs(" #actual " - " #expected ") <= " #abs_error));            \
-    VALUE_MSG(actual_, expected_);                                            \
   } while (false);
 
 #define EXPECT_THROW(call, exc) TEST_EXCEPTION((void)(call), exc)
@@ -452,6 +457,7 @@ int main() {
   const auto total_timer_start_ = std::chrono::steady_clock::now();
   for (const test* t = TEST_LIST; t->name; ++t) {
     current_failed = false;
+    just_failed = false;
     // std::printf("Running %s\n", t->name);
 #if defined(MINITEST_SHOW_TIMERS) && MINITEST_SHOW_TIMERS == 1
     auto timer_start_ = std::chrono::steady_clock::now();

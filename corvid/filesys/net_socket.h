@@ -190,6 +190,18 @@ public:
     return ::recv(handle(), buf, len, flags);
   }
 
+  // Peek at the socket, without consuming data, to determine whether EOF has
+  // been reached. Returns `true` if the peer has closed the connection (EOF),
+  // `false` if data is available (not EOF), or `std::nullopt` on any error
+  // (hard or soft) that prevents a determination (e.g., `EAGAIN`, `EBADF`).
+  [[nodiscard]] std::optional<bool> peek_eof() const noexcept {
+    char byte;
+    const ssize_t n = recv(&byte, 1, MSG_PEEK | MSG_DONTWAIT);
+    if (n == 0) return true;
+    if (n > 0) return false;
+    return std::nullopt;
+  }
+
   // Send as much of `data` as possible on the socket. On success, removes the
   // written prefix from `data` and returns true. On failure, leaves `data`
   // unchanged and returns false. A "soft" failure (e.g., EAGAIN) is treated

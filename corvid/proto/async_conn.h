@@ -94,7 +94,7 @@ protected:
   // interest. Since `handlers_.on_data` starts null for all derived types,
   // this will disarm (or confirm already-disarmed) `EPOLLIN` until a read is
   // registered.
-  void install_handlers() {
+  bool install_handlers() {
     auto* expected = &conn_->own_handlers_;
     // Access conn_->loop_ here (friend access in member function). The
     // lambda calls the static helper, which also has friend access, rather
@@ -104,9 +104,11 @@ protected:
             std::memory_order::acq_rel, std::memory_order::acquire))
     {
       conn_.reset();
-      return;
+      return false;
     }
-    conn_->loop_.post([p = conn_] { refresh_read_interest(*p); });
+    return conn_->loop_.post([p = conn_] {
+      return refresh_read_interest(*p);
+    });
   }
 
   ~async_conn_base() {
@@ -115,14 +117,14 @@ protected:
     // exclusively while active (enforced by the CAS in `install_handlers()`).
     conn_->active_handlers_.store(&conn_->own_handlers_,
         std::memory_order::release);
-    conn_->loop_.post([p = conn_] { refresh_read_interest(*p); });
+    (void)conn_->loop_.post([p = conn_] { return refresh_read_interest(*p); });
   }
 
   // Static trampoline used by posted lambdas. Static member functions of a
   // friend class have friend access, whereas lambdas defined inside those
   // functions do not.
-  static void refresh_read_interest(stream_conn& conn) {
-    conn.refresh_read_interest();
+  static bool refresh_read_interest(stream_conn& conn) {
+    return conn.refresh_read_interest();
   }
 
   // Wrap `stream_conn::exec_lambda` for derived classes. C++ friendship is
@@ -143,8 +145,8 @@ protected:
   // to resume coroutine handles without needing direct friend access to
   // `loop_`.
   template<typename FN>
-  void post(FN&& fn) {
-    conn_->loop_.post(std::forward<FN>(fn));
+  bool post(FN&& fn) {
+    return conn_->loop_.post(std::forward<FN>(fn));
   }
 };
 
@@ -166,8 +168,8 @@ protected:
 // is closed gracefully.
 class async_conn_cb: public async_conn_base {
 public:
-  using async_read_cb = std::function<void(std::string&)>;
-  using async_write_cb = std::function<void(bool completed)>;
+  using async_read_cb = std::function<bool(std::string&)>;
+  using async_write_cb = std::function<bool(bool completed)>;
 
   explicit async_conn_cb(std::shared_ptr<stream_conn> conn)
       : async_conn_base(std::move(conn)) {
@@ -175,16 +177,18 @@ public:
     // a pending callback. EPOLLIN is armed only while a read is pending,
     // providing back-pressure otherwise.
     handlers_.on_drain = [this](stream_conn&) {
-      if (write_cb_) std::exchange(write_cb_, nullptr)(true);
+      if (!write_cb_) return false;
+      return std::exchange(write_cb_, nullptr)(true);
     };
     handlers_.on_close = [this](stream_conn& c) {
+      bool not_handled = false;
       if (read_cb_) {
         handlers_.on_data = {}; // cancel the one-shot arm
         std::string empty;
-        std::exchange(read_cb_, nullptr)(empty);
+        not_handled = !std::exchange(read_cb_, nullptr)(empty);
       }
-      if (write_cb_) std::exchange(write_cb_, nullptr)(false);
-      c.close(); // replicate the auto-close that fires when no handler exists
+      if (write_cb_) not_handled |= !std::exchange(write_cb_, nullptr)(false);
+      return c.close() && !not_handled;
     };
     install_handlers();
   }
@@ -207,8 +211,7 @@ public:
     read_cb_ = std::move(cb);
     return exec_on_loop([this]() -> bool {
       if (!conn_->is_open() || !conn_->can_read() || !read_cb_) return false;
-      arm_read_cb();
-      return true;
+      return arm_read_cb();
     });
     return true;
   }
@@ -228,7 +231,7 @@ public:
       if (conn_->is_open() && conn_->can_write() && write_cb_) {
         if (do_enqueue_send(std::move(b))) return true;
       }
-      if (write_cb_) std::exchange(write_cb_, nullptr)(false);
+      if (write_cb_) return std::exchange(write_cb_, nullptr)(false);
       return false;
     });
     return true;
@@ -242,15 +245,16 @@ private:
   // disarm. Called on the loop thread from within the `exec_on_loop` lambda
   // in `read()`. After one batch is delivered the handler clears itself so
   // that `EPOLLIN` is disarmed until the next `read()` call.
-  void arm_read_cb() {
+  bool arm_read_cb() {
     handlers_.on_data = [this](stream_conn&, std::string& d) {
       // Disarm the handler and update EPOLLIN before invoking the callback.
       handlers_.on_data = {};        // one-shot: disarm after delivery
       refresh_read_interest(*conn_); // update EPOLLIN (disarms it)
-      if (!read_cb_) return;
-      std::exchange(read_cb_, nullptr)(d);
+      if (!read_cb_) return false;
+      return std::exchange(read_cb_, nullptr)(d);
     };
-    refresh_read_interest(*conn_); // arm EPOLLIN immediately (loop thread)
+    // arm EPOLLIN immediately (loop thread)
+    return refresh_read_interest(*conn_);
   }
 };
 
@@ -283,16 +287,27 @@ public:
     // registers.
     handlers_.on_drain = [this](stream_conn&) {
       if (write_coro_)
-        post([h = std::exchange(write_coro_, {})] { h.resume(); });
+        return post([h = std::exchange(write_coro_, {})] {
+          h.resume();
+          return true;
+        });
+      return true;
     };
     handlers_.on_close = [this](stream_conn& c) {
       if (read_coro_) {
         pending_read_data_.clear();
-        post([h = std::exchange(read_coro_, {})] { h.resume(); });
+        post([h = std::exchange(read_coro_, {})] {
+          h.resume();
+          return true;
+        });
       }
       if (write_coro_)
-        post([h = std::exchange(write_coro_, {})] { h.resume(); });
-      c.close(); // replicate the auto-close that fires when no handler exists
+        post([h = std::exchange(write_coro_, {})] {
+          h.resume();
+          return true;
+        });
+      // replicate the auto-close that fires when no handler exists
+      return c.close();
     };
     install_handlers();
   }
@@ -319,15 +334,19 @@ private:
   // `EPOLLIN`. Called from `read_awaitable::await_suspend` on the loop
   // thread. After one batch is delivered the handler clears itself so that
   // `EPOLLIN` is disarmed until the next `read()` call.
-  void arm_read() {
+  bool arm_read() {
     handlers_.on_data = [this](stream_conn&, std::string& d) {
       handlers_.on_data = {};        // disarm until next read()
       refresh_read_interest(*conn_); // update EPOLLIN (disarms it)
-      if (!read_coro_) return;
+      if (!read_coro_) return false;
       pending_read_data_ = std::move(d);
-      post([h = std::exchange(read_coro_, {})] { h.resume(); });
+      return post([h = std::exchange(read_coro_, {})] {
+        h.resume();
+        return true;
+      });
     };
-    refresh_read_interest(*conn_); // arm EPOLLIN immediately (loop thread)
+    // arm EPOLLIN immediately (loop thread)
+    return refresh_read_interest(*conn_);
   }
 
   // NOLINTBEGIN(readability-convert-member-functions-to-static)
@@ -372,7 +391,10 @@ private:
         // scenario (write fails but read is still open). Resume explicitly if
         // `write_coro_` was not already cleared by `on_close`.
         if (c_->write_coro_)
-          c_->post([hh = std::exchange(c_->write_coro_, {})] { hh.resume(); });
+          return c_->post([hh = std::exchange(c_->write_coro_, {})] {
+            hh.resume();
+            return true;
+          });
       }
       return true;
     }
