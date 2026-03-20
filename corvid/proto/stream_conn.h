@@ -389,11 +389,11 @@ private:
   std::atomic_bool read_open_{true};
   std::atomic_bool write_open_{true};
 
-  // Set to true at the start of `register_with_loop()`. Before this point,
-  // `execute_or_post` defers inline execution even on the loop thread, so
-  // that operations posted before registration (e.g., `send()` from the loop
-  // thread immediately after `adopt()`) do not attempt epoll mutations on an
-  // unregistered fd.
+  // Set to true by `register_with_loop()` after successful epoll registration.
+  // Before this point, `execute_or_post` defers inline execution even on the
+  // loop thread, so that operations posted before registration (e.g., `send()`
+  // from the loop thread immediately after `adopt()`) do not attempt epoll
+  // mutations on an unregistered fd.
   std::atomic_bool registered_{false};
 
   // True while an async connect is in progress. Cleared by
@@ -455,6 +455,8 @@ private:
     const bool want_read = !connecting_ && wants_read_events();
     if (loop_.register_socket(shared_from_this(), want_read, want_write))
       registered_.store(true, std::memory_order::relaxed);
+    else
+      do_close_now(close_mode::forceful);
   }
 
   // `io_conn` overrides: called on the loop thread by `dispatch_event`.
