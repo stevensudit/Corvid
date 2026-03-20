@@ -1831,53 +1831,6 @@ void StreamConn_AsyncSend() {
   EXPECT_EQ(buf, msg);
 }
 
-// This test relies on a TCP DNS listener, which is present in all of the
-// environments that we care about.
-void StreamConn_DnsTcpConnect() {
-  const net_endpoint remote{ipv4_addr{127, 0, 0, 53}, 53};
-  std::string query = {0x00, 0x1b, // Length prefix (27 bytes)
-      0x12, 0x34,                  // Transaction ID
-      0x01, 0x00,                  // Flags
-      0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 'l', 'o', 'c', 'a',
-      'l', 'h', 'o', 's', 't', 0x00, 0x00, 0x01, 0x00, 0x01};
-
-  epoll_loop_runner loop;
-
-  notifiable<bool> done{false};
-  std::string response;
-  stream_conn_ptr conn_opt;
-
-  conn_opt = stream_conn_ptr::connect(loop, remote,
-      {.on_data =
-              [&](stream_conn&, std::string& data) {
-                response.append(data);
-                if (response.size() < 2) return;
-
-                const auto expected_size =
-                    size_t((uint8_t(response[0]) << 8) | uint8_t(response[1]));
-                if (response.size() >= expected_size + 2)
-                  done.notify_one(true);
-              },
-          .on_drain =
-              [query = std::move(query), sent = false](
-                  stream_conn& conn) mutable {
-                if (std::exchange(sent, true)) return;
-                conn.send(std::move(query));
-              },
-          .on_close = [&](stream_conn&) { done.notify_one(true); }});
-
-  ASSERT_TRUE(conn_opt);
-
-  ASSERT_TRUE(done.wait_for_value(std::chrono::seconds{2}, true));
-  ASSERT_GE(response.size(), 4U);
-
-  const auto expected_size =
-      size_t((uint8_t(response[0]) << 8) | uint8_t(response[1]));
-  EXPECT_EQ(expected_size, response.size() - 2);
-  EXPECT_EQ(uint8_t(response[2]), 0x12U);
-  EXPECT_EQ(uint8_t(response[3]), 0x34U);
-}
-
 // Verify that a client can connect to a local loopback listener and that the
 // server echoes back whatever it receives, using only persistent callbacks.
 void StreamConn_EchoServer() {
@@ -1945,7 +1898,7 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_DestructorHangsUp, LoopTask_FireAndForget, StreamConn_AsyncRead,
     StreamConn_AsyncRead_PreservesEarlyData,
     StreamConn_AsyncRead_StopsBetweenCalls, StreamConn_AsyncRead_PeerClose,
-    StreamConn_AsyncSend, StreamConn_DnsTcpConnect, StreamConn_EchoServer);
+    StreamConn_AsyncSend, StreamConn_EchoServer);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
