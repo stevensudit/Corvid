@@ -126,17 +126,21 @@ void Notifiable_WaitFor() {
 
 void Notifiable_WaitUntilChanged() {
   // `wait_until_changed` unblocks when the value changes; returns new value.
+  // Capture `old` before spawning the thread so the wait succeeds even if
+  // the thread runs before `wait_until_changed` is entered.
   if (true) {
     notifiable<int> n{0};
+    auto old = n.get();
     std::thread t{[&] { n.notify(42); }};
-    EXPECT_EQ(n.wait_until_changed(), 42);
+    EXPECT_EQ(n.wait_until_changed(old), 42);
     t.join();
   }
   // `wait_for_changed` unblocks before deadline: returns new value.
   if (true) {
     notifiable<int> n{0};
+    auto old = n.get();
     std::thread t{[&] { n.notify(42); }};
-    auto v = n.wait_for_changed(std::chrono::seconds{5});
+    auto v = n.wait_for_changed(std::chrono::seconds{5}, old);
     EXPECT_TRUE(v);
     EXPECT_EQ(*v, 42);
     t.join();
@@ -192,8 +196,9 @@ void Notifiable_Atomic() {
   // `wait_until_changed` on atomic int: returns new value.
   if (true) {
     notifiable<std::atomic<int>> n{0};
+    auto old = n.get();
     std::thread t{[&] { n.notify(42); }};
-    EXPECT_EQ(n.wait_until_changed(), 42);
+    EXPECT_EQ(n.wait_until_changed(old), 42);
     t.join();
   }
   // `modify_and_notify` on atomic int: waiter unblocks once threshold reached.
@@ -234,8 +239,9 @@ void Notifiable_Atomic() {
   // `wait_for_changed` satisfied before deadline.
   if (true) {
     notifiable<std::atomic<int>> n{0};
+    auto old = n.get();
     std::thread t{[&] { n.notify(99); }};
-    auto v = n.wait_for_changed(std::chrono::seconds{5});
+    auto v = n.wait_for_changed(std::chrono::seconds{5}, old);
     EXPECT_TRUE(v);
     EXPECT_EQ(*v, 99);
     t.join();
@@ -247,8 +253,149 @@ void Notifiable_Atomic() {
   }
 }
 
+void RelaxedAtomic_Basic() {
+  // Default-constructed value is zero-initialized.
+  relaxed_atomic<int> a;
+  EXPECT_EQ(static_cast<int>(a), 0);
+
+  // Value constructor.
+  relaxed_atomic<int> b{42};
+  EXPECT_EQ(static_cast<int>(b), 42);
+
+  // Implicit conversion reads with relaxed semantics.
+  int v = b;
+  EXPECT_EQ(v, 42);
+
+  // Assignment stores with relaxed semantics and returns the stored value.
+  int r = (b = 99);
+  EXPECT_EQ(r, 99);
+  EXPECT_EQ(static_cast<int>(b), 99);
+}
+
+void RelaxedAtomic_Arrow() {
+  // `operator->` exposes the underlying `std::atomic<T>` methods.
+  relaxed_atomic<int> a{10};
+
+  // Explicit load with acquire ordering.
+  EXPECT_EQ(a->load(std::memory_order::acquire), 10);
+
+  // Explicit store with release ordering.
+  a->store(20, std::memory_order::release);
+  EXPECT_EQ(static_cast<int>(a), 20);
+
+  // exchange.
+  int old = a->exchange(30);
+  EXPECT_EQ(old, 20);
+  EXPECT_EQ(static_cast<int>(a), 30);
+
+  // compare_exchange_strong: succeeds when expected matches.
+  int expected = 30;
+  EXPECT_TRUE(a->compare_exchange_strong(expected, 40));
+  EXPECT_EQ(static_cast<int>(a), 40);
+
+  // compare_exchange_strong: fails and updates expected when it does not
+  // match.
+  expected = 0;
+  EXPECT_FALSE(a->compare_exchange_strong(expected, 99));
+  EXPECT_EQ(expected, 40);
+}
+
+void RelaxedAtomic_Deref() {
+  // `operator*` is an alias for `underlying()`, returning a ref to the atomic.
+  relaxed_atomic<int> a{7};
+  std::atomic<int>& ref = *a;
+  EXPECT_EQ(ref.load(), 7);
+  ref.store(8);
+  EXPECT_EQ(static_cast<int>(a), 8);
+}
+
+void RelaxedAtomic_Bool() {
+  // Works for `bool` values.
+  relaxed_atomic<bool> flag{false};
+  EXPECT_FALSE(static_cast<bool>(flag));
+  flag = true;
+  EXPECT_TRUE(static_cast<bool>(flag));
+}
+
+void Notifiable_RelaxedAtomic() {
+  // `get` on `relaxed_atomic<bool>`: lock-free relaxed load.
+  if (true) {
+    notifiable<relaxed_atomic_bool> flag{false};
+    EXPECT_FALSE(flag.get());
+    flag.notify(true);
+    EXPECT_TRUE(flag.get());
+    EXPECT_TRUE(flag.get(std::memory_order::acquire));
+  }
+  // `notify` + `wait_until`: waiter unblocks when flag becomes true.
+  if (true) {
+    notifiable<relaxed_atomic_bool> flag{false};
+    std::thread t{[&] { flag.notify(true); }};
+    auto v = flag.wait_until([](const relaxed_atomic_bool& b) {
+      return b->load();
+    });
+    EXPECT_TRUE(v);
+    t.join();
+  }
+  // `wait_until_value` on `relaxed_atomic<bool>`.
+  if (true) {
+    notifiable<relaxed_atomic_bool> flag{false};
+    std::thread t{[&] { flag.notify(true); }};
+    flag.wait_until_value(true);
+    EXPECT_TRUE(flag.get());
+    t.join();
+  }
+  // `wait_until_changed` on `relaxed_atomic<int>`: returns new value.
+  if (true) {
+    notifiable<relaxed_atomic<int>> n{0};
+    auto old = n.get();
+    std::thread t{[&] { n.notify(42); }};
+    EXPECT_EQ(n.wait_until_changed(old), 42);
+    t.join();
+  }
+  // `modify_and_notify` on `relaxed_atomic<int>`.
+  if (true) {
+    notifiable<relaxed_atomic<int>> counter{0};
+    std::thread t{[&] {
+      for (int i = 0; i < 5; ++i)
+        counter.modify_and_notify([](relaxed_atomic<int>& v) { ++(*v); });
+    }};
+    auto v = counter.wait_until([](const relaxed_atomic<int>& n) {
+      return n->load() >= 5;
+    });
+    EXPECT_EQ(v, 5);
+    t.join();
+  }
+  // `wait_for` satisfied before deadline.
+  if (true) {
+    notifiable<relaxed_atomic_bool> flag{false};
+    std::thread t{[&] { flag.notify(true); }};
+    auto v = flag.wait_for(std::chrono::seconds{5},
+        [](const relaxed_atomic_bool& b) { return b->load(); });
+    EXPECT_TRUE(v);
+    EXPECT_TRUE(*v);
+    t.join();
+  }
+  // `wait_for_changed` satisfied before deadline.
+  if (true) {
+    notifiable<relaxed_atomic<int>> n{0};
+    auto old = n.get();
+    std::thread t{[&] { n.notify(99); }};
+    auto v = n.wait_for_changed(std::chrono::seconds{5}, old);
+    EXPECT_TRUE(v);
+    EXPECT_EQ(*v, 99);
+    t.join();
+  }
+  // `wait_for_changed` timeout: value never changes.
+  if (true) {
+    notifiable<relaxed_atomic<int>> n{0};
+    EXPECT_FALSE(n.wait_for_changed(std::chrono::milliseconds{1}));
+  }
+}
+
 MAKE_TEST_LIST(TombStone_Basic, TombStone_TrySet, TombStone_Kill,
     Notifiable_NotifyAndWait, Notifiable_ModifyAndNotify, Notifiable_WaitFor,
-    Notifiable_WaitUntilChanged, Notifiable_Get, Notifiable_Atomic);
+    Notifiable_WaitUntilChanged, Notifiable_Get, Notifiable_Atomic,
+    RelaxedAtomic_Basic, RelaxedAtomic_Arrow, RelaxedAtomic_Deref,
+    RelaxedAtomic_Bool, Notifiable_RelaxedAtomic);
 
 // NOLINTEND(readability-function-cognitive-complexity)

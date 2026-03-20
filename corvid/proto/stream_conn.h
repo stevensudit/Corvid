@@ -787,20 +787,16 @@ public:
 
   // Performs `hangup()` on destruction. If you want to close cleanly, you must
   // call `close()` before the instance is destructed.
+  // NOLINTBEGIN(bugprone-exception-escape)
   ~stream_conn_ptr() {
-    try {
-      if (!conn_ ||
-          conn_->graceful_close_started_.load(std::memory_order::relaxed))
-        return;
-      (void)conn_->loop_.execute_or_post([p = std::move(conn_)] {
-        return p->do_hangup();
-      });
-    } // NOLINTNEXTLINE(bugprone-empty-catch)
-    catch (...) {
-      // Don't let exceptions escape the destructor.
-      // I hate this, but LLMs insist.
-    }
+    if (!conn_ ||
+        conn_->graceful_close_started_.load(std::memory_order::relaxed))
+      return;
+    (void)conn_->loop_.execute_or_post([p = std::move(conn_)] {
+      return p->do_hangup();
+    });
   }
+  // NOLINTEND(bugprone-exception-escape)
 
   // Return a const reference to the underlying `shared_ptr` without releasing
   // ownership. The caller may copy it to extend the connection's lifetime
@@ -934,5 +930,4 @@ private:
 
   std::shared_ptr<stream_conn> conn_;
 };
-
 }} // namespace corvid::proto

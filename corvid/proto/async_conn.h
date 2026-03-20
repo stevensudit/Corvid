@@ -54,6 +54,11 @@ namespace corvid { inline namespace proto {
 //  after each pointer swap.
 class async_conn_base {
 public:
+  async_conn_base(const async_conn_base&) = delete;
+  async_conn_base(async_conn_base&&) = delete;
+  async_conn_base& operator=(const async_conn_base&) = delete;
+  async_conn_base& operator=(async_conn_base&&) = delete;
+
   // True if `install_handlers()` succeeded and this facade owns the
   // connection's handler slot. Call after construction and before any other
   // method.
@@ -76,11 +81,6 @@ protected:
   // Derived class fills these in its constructor, then calls
   // `install_handlers()`.
   stream_conn_handlers handlers_;
-
-  async_conn_base(const async_conn_base&) = delete;
-  async_conn_base(async_conn_base&&) = delete;
-  async_conn_base& operator=(const async_conn_base&) = delete;
-  async_conn_base& operator=(async_conn_base&&) = delete;
 
   // Stores `conn`. Does NOT install handlers yet; the derived class must call
   // `install_handlers()` after fully initializing `handlers_`.
@@ -111,6 +111,7 @@ protected:
     });
   }
 
+  // NOLINTBEGIN(bugprone-exception-escape)
   ~async_conn_base() {
     if (!conn_) return;
     // Restore the pointer to the connection's own handlers. We own it
@@ -119,6 +120,7 @@ protected:
         std::memory_order::release);
     (void)conn_->loop_.post([p = conn_] { return refresh_read_interest(*p); });
   }
+  // NOLINTEND(bugprone-exception-escape)
 
   // Static trampoline used by posted lambdas. Static member functions of a
   // friend class have friend access, whereas lambdas defined inside those
@@ -359,12 +361,14 @@ private:
       return !c_->conn_->is_open() || !c_->conn_->can_read();
     }
 
+    // NOLINTNEXTLINE(readability-make-member-function-const)
     void await_suspend(std::coroutine_handle<> h) {
       assert(!c_->read_coro_);
       c_->read_coro_ = h;
       c_->arm_read();
     }
 
+    // NOLINTNEXTLINE(readability-make-member-function-const)
     [[nodiscard]] std::string await_resume() noexcept {
       return std::move(c_->pending_read_data_);
     }
