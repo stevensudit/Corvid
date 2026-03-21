@@ -423,7 +423,7 @@ private:
       pending.swap(post_queue_);
     }
     if (!execute) return false;
-    for (auto& fn : pending) fn();
+    for (auto& fn : pending) (void)fn();
     return true;
   }
 
@@ -435,7 +435,7 @@ private:
   [[nodiscard]] bool dispatch_event(int fd, uint32_t ev) {
     assert(is_loop_thread());
     auto found = find_opt(registrations_, fd);
-    if (!found) return false;
+    if (!found) return true;
 
     // Keep the conn alive across the entire dispatch.
     const auto conn = found->conn;

@@ -20,6 +20,7 @@
 #include <chrono>
 #include <functional>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -95,17 +96,22 @@ public:
   static constexpr duration_t default_tick_interval{100};
 
   // Construct a timing wheel with `slot_count` slots and `tick_interval`
-  // precision, starting from `start_time`. `tick_interval` must be at least
-  // 500000ns (the minimum reliable resolution of `nanosleep` on Linux).
-  // `start_time` defaults to the current wall time; pass an explicit value
-  // for testing with a fake clock. The maximum schedulable delay is
-  // `(slot_count - 1) * tick_interval`.
+  // precision, starting from `start_time`. `slot_count` must be at least 2.
+  // `tick_interval` must be at least 500000ns (the minimum reliable resolution
+  // of `nanosleep` on Linux). `start_time` defaults to the current wall time;
+  // pass an explicit value for testing with a fake clock. The maximum
+  // schedulable delay is `(slot_count - 1) * tick_interval`.
+  // Throws `std::invalid_argument` if either constraint is violated.
   explicit timing_wheel(size_t slot_count = default_slot_count,
       duration_t tick_interval = default_tick_interval,
       time_point_t start_time = std::chrono::steady_clock::now())
       : slots_(slot_count), tick_interval_(tick_interval),
         last_tick_(start_time) {
-    assert(std::chrono::nanoseconds{tick_interval_}.count() >= 500'000);
+    if (slot_count < 2)
+      throw std::invalid_argument{"timing_wheel: slot_count must be >= 2"};
+    if (std::chrono::nanoseconds{tick_interval_}.count() < 500'000)
+      throw std::invalid_argument{
+          "timing_wheel: tick_interval must be >= 500000ns"};
   }
 
   timing_wheel(const timing_wheel&) = delete;

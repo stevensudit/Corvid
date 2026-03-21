@@ -37,6 +37,8 @@ CMakeLists.txt lives in `tests/` only — there is none at the project root. Bui
 - Use `git add .` when committing (to include any user-made changes alongside Claude's)
 - Use `git switch` instead of `git checkout`
 - PRs are squash-merged — respond to review with additional commits, not amends
+- When writing PR descriptions, verify every claim against the actual code — do not rely on general knowledge about design patterns or algorithms. For example, a "timing wheel" in this codebase is single-level; do not assume hierarchical.
+- When asked to push a branch as a new PR with an appropriate description, first review all changes and flag any errors (bugs, incorrect documentation, style violations, etc.) before writing the description and pushing.
 
 ## Testing
 

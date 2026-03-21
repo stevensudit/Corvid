@@ -215,7 +215,6 @@ public:
       if (!conn_->is_open() || !conn_->can_read() || !read_cb_) return false;
       return arm_read_cb();
     });
-    return true;
   }
 
   // Start sending the data in `buf`, invoking `cb` upon completion or failure.
@@ -236,7 +235,6 @@ public:
       if (write_cb_) return std::exchange(write_cb_, nullptr)(false);
       return false;
     });
-    return true;
   }
 
 private:
