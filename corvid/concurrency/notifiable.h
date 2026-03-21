@@ -54,7 +54,7 @@ struct notifiable_result<std::atomic<U>> {
 template<typename T>
 requires(relaxed_atomic_like<T>)
 struct notifiable_result<T> {
-  using type = typename T::value_type;
+  using type = T::value_type;
 };
 
 // Matches any `T` that is a specialization of `std::atomic` or provides
@@ -288,12 +288,10 @@ public:
   // The caller should capture `expected_old` via `get()` before starting any
   // notifying thread; see `wait_until_changed(expected_old)`.
   template<typename Rep, typename Period>
-  [[nodiscard]] std::optional<value_t>
-  wait_for_changed(
+  [[nodiscard]] std::optional<value_t> wait_for_changed(
       std::chrono::duration<Rep, Period> timeout, value_t expected_old) const {
     std::unique_lock lock{mutex_};
-    if (cv_.wait_for(
-            lock, timeout, [&] { return do_load() != expected_old; }))
+    if (cv_.wait_for(lock, timeout, [&] { return do_load() != expected_old; }))
       return do_load();
     return std::nullopt;
   }

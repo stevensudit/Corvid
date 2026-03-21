@@ -300,15 +300,6 @@ void RelaxedAtomic_Arrow() {
   EXPECT_EQ(expected, 40);
 }
 
-void RelaxedAtomic_Deref() {
-  // `operator*` is an alias for `underlying()`, returning a ref to the atomic.
-  relaxed_atomic<int> a{7};
-  std::atomic<int>& ref = *a;
-  EXPECT_EQ(ref.load(), 7);
-  ref.store(8);
-  EXPECT_EQ(static_cast<int>(a), 8);
-}
-
 void RelaxedAtomic_Bool() {
   // Works for `bool` values.
   relaxed_atomic<bool> flag{false};
@@ -357,7 +348,9 @@ void Notifiable_RelaxedAtomic() {
     notifiable<relaxed_atomic<int>> counter{0};
     std::thread t{[&] {
       for (int i = 0; i < 5; ++i)
-        counter.modify_and_notify([](relaxed_atomic<int>& v) { ++(*v); });
+        counter.modify_and_notify([](relaxed_atomic<int>& v) {
+          ++v.underlying();
+        });
     }};
     auto v = counter.wait_until([](const relaxed_atomic<int>& n) {
       return n->load() >= 5;
@@ -395,7 +388,7 @@ void Notifiable_RelaxedAtomic() {
 MAKE_TEST_LIST(TombStone_Basic, TombStone_TrySet, TombStone_Kill,
     Notifiable_NotifyAndWait, Notifiable_ModifyAndNotify, Notifiable_WaitFor,
     Notifiable_WaitUntilChanged, Notifiable_Get, Notifiable_Atomic,
-    RelaxedAtomic_Basic, RelaxedAtomic_Arrow, RelaxedAtomic_Deref,
-    RelaxedAtomic_Bool, Notifiable_RelaxedAtomic);
+    RelaxedAtomic_Basic, RelaxedAtomic_Arrow, RelaxedAtomic_Bool,
+    Notifiable_RelaxedAtomic);
 
 // NOLINTEND(readability-function-cognitive-complexity)

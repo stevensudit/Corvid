@@ -63,9 +63,9 @@ without changing higher layers.
   `can_read()` / `can_write()` query half-close state; `local_endpoint()` /
   `remote_endpoint()` return socket addresses; supports persistent callback
   mode via `stream_conn_handlers` (`on_data`, `on_drain`, `on_close`); two
-  additional per-call async models are provided by `async_conn.h`
-- **[done]** `async_conn_coro` -- now in `async_conn.h`; C++20 coroutine
-  wrapper for `stream_conn` using the `async_conn_base` handler-redirect
+  additional per-call async models are provided by `stream_async.h`
+- **[done]** `stream_async_coro` -- now in `stream_async.h`; C++20 coroutine
+  wrapper for `stream_conn` using the `stream_async_base` handler-redirect
   mechanism; `async_read()` / `async_send()` return awaitables; `EPOLLIN` is
   armed only while a read coroutine is suspended (via `handlers_.on_data`
   toggling) to prevent data loss between reads

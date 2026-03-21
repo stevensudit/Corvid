@@ -35,7 +35,7 @@ namespace corvid { inline namespace proto {
 //  Holds a `shared_ptr<stream_conn>` and a `stream_conn_handlers`. On
 //  construction of a derived class, `install_handlers()` atomically swaps the
 //  `stream_conn::active_handlers_` pointer from
-//  `&stream_conn::own_handlers_` to `&async_conn_base::handlers_`. On
+//  `&stream_conn::own_handlers_` to `&stream_async_base::handlers_`. On
 //  destruction, it is restored. The `stream_conn` therefore invokes whichever
 //  handlers are currently active without any knowledge of this class
 //  hierarchy.
@@ -52,12 +52,12 @@ namespace corvid { inline namespace proto {
 //  store on the pointer, which is lock-free and does not require the loop
 //  thread. `refresh_read_interest()` is posted to the loop asynchronously
 //  after each pointer swap.
-class async_conn_base {
+class stream_async_base {
 public:
-  async_conn_base(const async_conn_base&) = delete;
-  async_conn_base(async_conn_base&&) = delete;
-  async_conn_base& operator=(const async_conn_base&) = delete;
-  async_conn_base& operator=(async_conn_base&&) = delete;
+  stream_async_base(const stream_async_base&) = delete;
+  stream_async_base(stream_async_base&&) = delete;
+  stream_async_base& operator=(const stream_async_base&) = delete;
+  stream_async_base& operator=(stream_async_base&&) = delete;
 
   // True if `install_handlers()` succeeded and this facade owns the
   // connection's handler slot. Call after construction and before any other
@@ -84,7 +84,7 @@ protected:
 
   // Stores `conn`. Does NOT install handlers yet; the derived class must call
   // `install_handlers()` after fully initializing `handlers_`.
-  explicit async_conn_base(std::shared_ptr<stream_conn> conn)
+  explicit stream_async_base(std::shared_ptr<stream_conn> conn)
       : conn_(std::move(conn)) {}
 
   // Atomically redirect the connection's active-handler pointer from
@@ -112,7 +112,7 @@ protected:
   }
 
   // NOLINTBEGIN(bugprone-exception-escape)
-  ~async_conn_base() {
+  ~stream_async_base() {
     if (!conn_) return;
     // Restore the pointer to the connection's own handlers. We own it
     // exclusively while active (enforced by the CAS in `install_handlers()`).
@@ -158,7 +158,7 @@ protected:
 //
 // Usage:
 //
-//   async_conn_cb cb{conn_ptr.pointer()};  // or any shared_ptr<stream_conn>
+//   stream_async_cb cb{conn_ptr.pointer()};  // or any shared_ptr<stream_conn>
 //   cb.read([](std::string& data) { ... });
 //   cb.write(std::move(buf), [](bool ok) { ... });
 //   // handlers restored when cb goes out of scope
@@ -168,13 +168,13 @@ protected:
 // When the connection closes while a callback is pending, the callback is
 // invoked with an empty string (read) or `false` (write), and the connection
 // is closed gracefully.
-class async_conn_cb: public async_conn_base {
+class stream_async_cb: public stream_async_base {
 public:
   using async_read_cb = std::function<bool(std::string&)>;
   using async_write_cb = std::function<bool(bool completed)>;
 
-  explicit async_conn_cb(std::shared_ptr<stream_conn> conn)
-      : async_conn_base(std::move(conn)) {
+  explicit stream_async_cb(std::shared_ptr<stream_conn> conn)
+      : stream_async_base(std::move(conn)) {
     // `on_data` starts null; `arm_read_cb()` sets it when `read()` registers
     // a pending callback. EPOLLIN is armed only while a read is pending,
     // providing back-pressure otherwise.
@@ -265,7 +265,7 @@ private:
 //
 // Usage (inside any coroutine):
 //
-//   async_conn_coro coro{conn_ptr.pointer()};
+//   stream_async_coro coro{conn_ptr.pointer()};
 //   std::string data = co_await coro.read();
 //   if (data.empty()) return;          // connection closed
 //   co_await coro.write(std::move(data));
@@ -281,10 +281,10 @@ private:
 // At most one `read` and one `write` may be outstanding at a time.
 //
 // Non-copyable and non-movable.
-class async_conn_coro: public async_conn_base {
+class stream_async_coro: public stream_async_base {
 public:
-  explicit async_conn_coro(std::shared_ptr<stream_conn> conn)
-      : async_conn_base(std::move(conn)) {
+  explicit stream_async_coro(std::shared_ptr<stream_conn> conn)
+      : stream_async_base(std::move(conn)) {
     // `on_data` starts null; `arm_read()` sets it when a read waiter
     // registers.
     handlers_.on_drain = [this](stream_conn&) {
@@ -353,7 +353,7 @@ private:
 
   // NOLINTBEGIN(readability-convert-member-functions-to-static)
   struct read_awaitable {
-    async_conn_coro* c_;
+    stream_async_coro* c_;
 
     // Skip suspension if the connection is already closed or read side is
     // gone.
@@ -380,7 +380,7 @@ private:
   // `true` (stay suspended); the coro is resumed via a posted task in all
   // cases -- drain, close, or synchronous-write-failure half-close.
   struct write_awaitable {
-    async_conn_coro* c_;
+    stream_async_coro* c_;
     std::string buf_;
 
     [[nodiscard]] bool await_ready() const noexcept {

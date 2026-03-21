@@ -123,8 +123,8 @@ struct stream_conn_handlers {
 //
 // Supports persistent callbacks via `stream_conn_handlers`, and `send()`.
 //
-// Two additional per-call models are provided by `async_conn.h`:
-// `async_conn_cb` (one-shot callbacks) and `async_conn_coro` (coroutines).
+// Two additional per-call models are provided by `stream_async.h`:
+// `stream_async_cb` (one-shot callbacks) and `stream_async_coro` (coroutines).
 // Both temporarily redirect `active_handlers_` so `stream_conn` is unaware
 // of them.
 class stream_conn final: public io_conn {
@@ -217,7 +217,7 @@ public:
 private:
   enum class allow : bool { ctor };
 
-  friend class async_conn_base;
+  friend class stream_async_base;
 
 public:
   // Constructor. Technically public to allow `std::make_shared<stream_conn>`
@@ -243,11 +243,11 @@ private:
 
   // The connection's own persistent handlers. Never moved or destroyed while
   // the connection is alive. `active_handlers_` always points here unless an
-  // `async_conn_base` has temporarily redirected it to its own handlers.
+  // `stream_async_base` has temporarily redirected it to its own handlers.
   stream_conn_handlers own_handlers_;
 
   // Atomic pointer to the currently active handlers. Normally points to
-  // `own_handlers_`. `async_conn_base::install_handlers()` atomically swaps
+  // `own_handlers_`. `stream_async_base::install_handlers()` atomically swaps
   // this to its own `handlers_` member; its destructor swaps it back.
   std::atomic<stream_conn_handlers*> active_handlers_;
 
@@ -412,7 +412,7 @@ private:
   }
 
   // Acquire-load `active_handlers_`, synchronizing with the release store in
-  // `async_conn_base::install_handlers()` and its destructor. Required whenever
+  // `stream_async_base::install_handlers()` and its destructor. Required whenever
   // the returned pointer is dereferenced to invoke a handler.
   [[nodiscard]] stream_conn_handlers* acquire_active_handlers() const noexcept {
     return active_handlers_.load(std::memory_order::acquire);
@@ -428,7 +428,7 @@ private:
   }
 
   // Returns true if `active_handlers_` has been redirected away from
-  // `own_handlers_` by an `async_conn_base`.
+  // `own_handlers_` by an `stream_async_base`.
   [[nodiscard]] bool are_handlers_external() const noexcept {
     return acquire_active_handlers() != &own_handlers_;
   }
@@ -452,7 +452,7 @@ private:
   }
 
   // Deliver newly read data to the active `on_data` handler (which may be
-  // `own_handlers_.on_data` or one installed by an `async_conn_base`).
+  // `own_handlers_.on_data` or one installed by an `stream_async_base`).
   [[nodiscard]] bool notify_read_ready() {
     assert(loop_.is_loop_thread());
     auto* h = acquire_active_handlers();
@@ -488,7 +488,7 @@ private:
       return do_close_now(close_mode::forceful) && false;
     read_open_ = false;
     if (!loop_.set_readable(sock(), false)) return false;
-    // Notify any `async_conn_base` that may have a pending read waiter.
+    // Notify any `stream_async_base` that may have a pending read waiter.
     // `notify_read_closed()` calls `active_handlers_->on_data` with an empty
     // buffer; persistent own handlers use `on_close` instead.
     if (are_handlers_external()) (void)notify_read_closed();
@@ -698,7 +698,7 @@ private:
     if (!loop_.set_writable(sock(), false))
       return do_close_now(close_mode::forceful) && false;
 
-    // If we were waiting to close, do so now. Notify any `async_conn_base`
+    // If we were waiting to close, do so now. Notify any `stream_async_base`
     // write waiter of the successful drain before closing; bare persistent
     // handlers receive only `on_close`.
     if (close_requested_) {
@@ -748,7 +748,7 @@ private:
     head_span_ = {};
     close_requested_ = false;
 
-    // `on_close` notifies any pending `async_conn_base` waiters (coro or cb).
+    // `on_close` notifies any pending `stream_async_base` waiters (coro or cb).
     // The handler is always posted-resume, never inline, so any in-progress
     // `await_suspend` on the call stack has returned before the coroutine
     // continues -- preventing use-after-free when `do_close_now` fires from
