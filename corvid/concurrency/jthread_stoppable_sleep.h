@@ -51,8 +51,9 @@ public:
       const std::chrono::time_point<Clock, Duration>& deadline) {
     std::stop_callback on_stop{st, [this] { cv_.notify_all(); }};
     std::unique_lock lock{mutex_};
-    return cv_.wait_until(
-        lock, deadline, [&st] { return st.stop_requested(); });
+    return cv_.wait_until(lock, deadline, [&st] {
+      return st.stop_requested();
+    });
   }
 
 private:

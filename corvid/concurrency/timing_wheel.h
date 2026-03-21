@@ -229,7 +229,7 @@ public:
       timing_wheel::duration_t tick_interval =
           timing_wheel::default_tick_interval)
       : wheel_{slot_count, tick_interval},
-        thread_{[this](std::stop_token st) { run(st); }} {}
+        thread_{[this](const std::stop_token& st) { run(st); }} {}
 
   timing_wheel_runner(const timing_wheel_runner&) = delete;
   timing_wheel_runner(timing_wheel_runner&&) = delete;
@@ -244,7 +244,7 @@ public:
   [[nodiscard]] operator timing_wheel&() noexcept { return wheel_; }
 
 private:
-  void run(std::stop_token st) {
+  void run(const std::stop_token& st) {
     // Kill the wheel's tombstone immediately when a stop is requested, so
     // any in-progress `tick()` bails at the next callback boundary.
     std::stop_callback on_stop{st, [this] { (void)wheel_.stop(); }};

@@ -354,8 +354,7 @@ void TimingWheel_StopAbortsTick() {
         wheel.schedule(
             [&] {
               ++count;
-              wheel.stop(); // kills the tombstone
-              return true;
+              return wheel.stop(); // kills the tombstone
             },
             100ms),
         true);

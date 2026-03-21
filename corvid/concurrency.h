@@ -18,11 +18,12 @@
 // Umbrella header for the Corvid concurrency module.
 //
 // Includes:
-//  sync_lock       - `synchronizer`, `lock`, and `reverse_lock` attestation idiom
-//  notifiable      - value guarded by mutex and condition variable
+//  sync_lock       - `synchronizer`, `lock`, and `reverse_lock` attestation
+//  idiom notifiable      - value guarded by mutex and condition variable
 //  tombstone       - thread-safe atomic value with a final "dead" state
 //  timers          - thread-safe priority-queue timer scheduler
-//  relaxed_atomic  - `std::atomic<T>` wrapper with relaxed load/store operators
+//  relaxed_atomic  - `std::atomic<T>` wrapper with relaxed load/store
+//  operators
 #include "concurrency/sync_lock.h"
 #include "concurrency/notifiable.h"
 #include "concurrency/tombstone.h"

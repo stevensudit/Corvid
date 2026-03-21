@@ -412,9 +412,10 @@ private:
   }
 
   // Acquire-load `active_handlers_`, synchronizing with the release store in
-  // `stream_async_base::install_handlers()` and its destructor. Required whenever
-  // the returned pointer is dereferenced to invoke a handler.
-  [[nodiscard]] stream_conn_handlers* acquire_active_handlers() const noexcept {
+  // `stream_async_base::install_handlers()` and its destructor. Required
+  // whenever the returned pointer is dereferenced to invoke a handler.
+  [[nodiscard]] stream_conn_handlers*
+  acquire_active_handlers() const noexcept {
     return active_handlers_.load(std::memory_order::acquire);
   }
 
@@ -535,8 +536,7 @@ private:
     // than left half-open indefinitely. Connections that need the write side
     // after peer EOF must install an `on_close` handler and call `close()` or
     // `hangup()` only when done.
-    if (!acquire_active_handlers()->on_close)
-      return do_close();
+    if (!acquire_active_handlers()->on_close) return do_close();
     return maybe_finish_after_side_close();
   }
 
@@ -748,11 +748,11 @@ private:
     head_span_ = {};
     close_requested_ = false;
 
-    // `on_close` notifies any pending `stream_async_base` waiters (coro or cb).
-    // The handler is always posted-resume, never inline, so any in-progress
-    // `await_suspend` on the call stack has returned before the coroutine
-    // continues -- preventing use-after-free when `do_close_now` fires from
-    // within `enqueue_send` -> `await_suspend`.
+    // `on_close` notifies any pending `stream_async_base` waiters (coro or
+    // cb). The handler is always posted-resume, never inline, so any
+    // in-progress `await_suspend` on the call stack has returned before the
+    // coroutine continues -- preventing use-after-free when `do_close_now`
+    // fires from within `enqueue_send` -> `await_suspend`.
     return notify_close_once();
   }
 };

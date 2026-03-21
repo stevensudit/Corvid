@@ -503,7 +503,7 @@ public:
       std::chrono::milliseconds post_and_wait_poll_interval =
           epoll_loop::default_post_and_wait_poll_interval)
       : loop_{post_and_wait_poll_interval},
-        thread_{[this](std::stop_token st) { run(st); }} {
+        thread_{[this](const std::stop_token& st) { run(st); }} {
     if (!loop_.wait_until_running(1000)) {
       thread_.request_stop();
       throw std::runtime_error("epoll_loop_runner failed to start");
@@ -526,7 +526,7 @@ public:
   [[nodiscard]] epoll_loop* operator->() noexcept { return &loop_; }
 
 private:
-  void run(std::stop_token st) {
+  void run(const std::stop_token& st) {
     // When stop is requested, wake the `epoll_wait` so the loop can exit.
     std::stop_callback on_stop{st, [this] { (void)loop_.stop(); }};
     (void)loop_.run(100);
