@@ -492,16 +492,20 @@ private:
 };
 
 // Runs an `epoll_loop` in its own background thread.
+//
+// Shutdown ordering: call `stop()` (or destroy the runner) before destroying
+// any object that a pending `post()` callback might reference. Pending
+// callbacks in the post queue are discarded when the thread exits; they do
+// not fire after `stop()` returns.
 class epoll_loop_runner {
 public:
   explicit epoll_loop_runner(
       std::chrono::milliseconds post_and_wait_poll_interval =
           epoll_loop::default_post_and_wait_poll_interval)
       : loop_{post_and_wait_poll_interval},
-        thread_{[this] { return loop_.run(100); }} {
+        thread_{[this](std::stop_token st) { run(st); }} {
     if (!loop_.wait_until_running(1000)) {
-      (void)loop_.stop();
-      if (thread_.joinable()) thread_.join();
+      thread_.request_stop();
       throw std::runtime_error("epoll_loop_runner failed to start");
     }
   }
@@ -511,17 +515,24 @@ public:
   epoll_loop_runner(epoll_loop_runner&&) = delete;
   epoll_loop_runner& operator=(epoll_loop_runner&&) = delete;
 
-  ~epoll_loop_runner() {
-    (void)loop_.stop();
-    if (thread_.joinable()) thread_.join();
-  }
+  ~epoll_loop_runner() = default; // jthread requests stop and joins
+
+  // Signal the thread to exit. Idempotent. Also called implicitly by the
+  // destructor.
+  void stop() { thread_.request_stop(); }
 
   [[nodiscard]] epoll_loop& loop() noexcept { return loop_; }
   [[nodiscard]] operator epoll_loop&() noexcept { return loop_; }
   [[nodiscard]] epoll_loop* operator->() noexcept { return &loop_; }
 
 private:
+  void run(std::stop_token st) {
+    // When stop is requested, wake the `epoll_wait` so the loop can exit.
+    std::stop_callback on_stop{st, [this] { (void)loop_.stop(); }};
+    (void)loop_.run(100);
+  }
+
   epoll_loop loop_;
-  std::thread thread_;
+  std::jthread thread_;
 };
 }} // namespace corvid::proto

@@ -14,6 +14,12 @@ The `concurrency` module provides thread-safety primitives.
   final "dead" state; cannot be reverted.
 - `timers` -- thread-safe priority-queue timer scheduler with one-shot and
   recurring events.
+- `timing_wheel` / `timing_wheel_runner` -- O(1) schedule, 100ms-precision
+  timing wheel; callbacks own all metadata (IDs, targets, delivery channels);
+  `timing_wheel_runner` drives the wheel from its own thread.
+- `jthread_stoppable_sleep` -- interruptible deadline sleep for `std::jthread`;
+  workaround for the missing stop-token overload of
+  `std::condition_variable_any::wait_until` in libc++.
 - `relaxed_atomic<std::atomic<T>>` / `relaxed_atomic_t<T>` -- thin wrapper
   around `std::atomic<T>` whose implicit conversion and assignment operator
   both default to relaxed memory ordering.
