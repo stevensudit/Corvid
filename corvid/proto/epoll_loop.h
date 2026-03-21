@@ -54,9 +54,9 @@ struct io_conn: std::enable_shared_from_this<io_conn> {
   net_socket& sock() noexcept { return sock_; }
   const net_socket& sock() const noexcept { return sock_; }
 
-  virtual void on_readable() {}
-  virtual void on_writable() {}
-  virtual void on_error() { on_readable(); }
+  virtual bool on_readable() { return false; }
+  virtual bool on_writable() { return false; }
+  virtual bool on_error() { return on_readable(); }
   virtual ~io_conn() = default;
 
 private:
@@ -179,13 +179,12 @@ public:
   //
   // When a thread pool finishes work, it calls `post()` to bring the result
   // back to the loop thread.
-  bool post(std::function<void()> fn) {
+  [[nodiscard]] bool post(std::function<bool()> fn) {
     {
       std::scoped_lock lock{post_mutex_};
       post_queue_.push_back(std::move(fn));
     }
-    wake();
-    return true;
+    return wake();
   }
 
   // Run `fn` on the loop thread and block the caller until it returns. If
@@ -211,10 +210,12 @@ public:
     };
 
     auto waiter = std::make_shared<wait_state>(std::forward<FN>(fn));
-    post([waiter] {
-      waiter->result = waiter->fn();
-      waiter->done.notify_one(true);
-    });
+    if (!post([waiter] {
+          waiter->result = waiter->fn();
+          waiter->done.notify_one(true);
+          return true;
+        }))
+      return false;
 
     // Wait for the callback to run and signal completion. To avoid deadlock,
     // we also check `running_` in the wait loop, so if the loop thread exits
@@ -232,15 +233,14 @@ public:
   template<typename FN>
   [[nodiscard]] bool execute_or_post(FN&& fn) {
     if (is_loop_thread()) return fn();
-    post(std::forward<FN>(fn));
-    return true;
+    return post(std::forward<FN>(fn));
   }
 
   // Signal the loop to exit after the current dispatch round completes.
   // Safe to call from any thread.
-  void stop() {
+  [[nodiscard]] bool stop() {
     running_.notify(false);
-    wake();
+    return wake();
   }
 
   // Check whether the current thread is actively polling this loop.
@@ -257,11 +257,11 @@ public:
   // Wait up to `timeout_ms` milliseconds for events and dispatch ready
   // sockets. Pass -1 to block indefinitely, 0 to poll. Drains `post_queue_`
   // first. Returns the number of I/O events dispatched, or -1 on error.
-  int run_once(int timeout_ms = -1) {
+  [[nodiscard]] int run_once(int timeout_ms = -1) {
     assert(is_loop_thread());
 
     // Execute backlog of posts.
-    drain_post_queue();
+    if (!drain_post_queue()) return -1;
 
     // Poll for available events.
     epoll_event events[max_events];
@@ -276,7 +276,7 @@ public:
 
       // Drain the internal wakeup handle and skip: it carries no user event.
       if (fd == wake_fd_.handle()) {
-        (void)wake_fd_.read();
+        if (!wake_fd_.read()) return -1;
         ++woken;
         continue;
       }
@@ -285,7 +285,7 @@ public:
       // event by performing I/O. It should not block or post more work to the
       // loop until ready to handle the callback.
       ++dispatched;
-      dispatch_event(fd, events[ndx].events);
+      if (!dispatch_event(fd, events[ndx].events)) return -1;
     }
 
     assert(dispatched + woken == available);
@@ -295,7 +295,7 @@ public:
   // Establishes the current thread as the loop thread for this `epoll_loop`
   // instance. Not needed when you just call `run`, but necessary if you want
   // to call `run_once`. Almost exclusively for testing purposes.
-  auto poll_thread_scope() const {
+  [[nodiscard]] auto poll_thread_scope() const {
     return scoped_value<const epoll_loop*>{current_loop_, this};
   }
 
@@ -303,7 +303,7 @@ public:
   // -1. `timeout_ms` is forwarded to each `epoll_wait` call.
   //
   // May only be called once; returns false immediately if called again.
-  bool run(int timeout_ms = -1) {
+  [[nodiscard]] bool run(int timeout_ms = -1) {
     if (!has_run_.kill()) return false;
 
     const auto scope = poll_thread_scope();
@@ -328,8 +328,8 @@ private:
 
   // Register socket and initial interest in reading and writing. Returns
   // false if already registered or `epoll_ctl` fails.
-  bool do_register_socket(std::shared_ptr<io_conn>&& conn, bool readable,
-      bool writable) {
+  [[nodiscard]] bool do_register_socket(std::shared_ptr<io_conn>&& conn,
+      bool readable, bool writable) {
     assert(is_loop_thread());
     const int fd = conn->sock().handle();
     if (registrations_.contains(fd)) return false;
@@ -344,7 +344,7 @@ private:
 
   // Unregister `sock`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails.
-  bool do_unregister_socket(os_file::file_handle_t fd) {
+  [[nodiscard]] bool do_unregister_socket(os_file::file_handle_t fd) {
     assert(is_loop_thread());
     if (!registrations_.contains(fd)) return false;
     const bool ok = epoll_.remove(fd);
@@ -355,25 +355,31 @@ private:
   // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails.
-  bool do_set_readable(os_file::file_handle_t fd, bool on = true) noexcept {
+  [[nodiscard]] bool
+  do_set_readable(os_file::file_handle_t fd, bool on = true) noexcept {
     return do_set_interest(fd, EPOLLIN, on);
   }
 
   // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails.
-  bool do_set_writable(os_file::file_handle_t fd, bool on = true) noexcept {
+  [[nodiscard]] bool
+  do_set_writable(os_file::file_handle_t fd, bool on = true) noexcept {
     return do_set_interest(fd, EPOLLOUT, on);
   }
 
   // Add or remove `EPOLLRDHUP` from the event mask for `sock` without
   // changing the registered `io_conn`. Returns false if `sock` is not
   // registered or `epoll_ctl` fails.
-  bool do_set_rdhup(os_file::file_handle_t fd, bool on = true) noexcept {
+  [[nodiscard]] bool
+  do_set_rdhup(os_file::file_handle_t fd, bool on = true) noexcept {
     return do_set_interest(fd, EPOLLRDHUP, on);
   }
 
-  bool do_set_interest(os_file::file_handle_t fd, uint32_t flag,
+  // Add or remove `flag` from the event mask for `sock` without changing the
+  // registered `io_conn`. Returns false if `sock` is not registered or
+  // `epoll_ctl` fails.
+  [[nodiscard]] bool do_set_interest(os_file::file_handle_t fd, uint32_t flag,
       bool on = true) noexcept {
     assert(is_loop_thread());
     auto found = find_opt(registrations_, fd);
@@ -408,25 +414,28 @@ private:
   // Swap-and-drain `post_queue_` under the mutex, then invoke each callback.
   // Callbacks posted from within a drained callback land in the new
   // `post_queue_` and run on the next iteration.
-  void drain_post_queue(bool execute = true) {
+  [[nodiscard]] bool drain_post_queue(bool execute = true) {
     assert(is_loop_thread());
-    std::vector<std::function<void()>> pending;
+    std::vector<std::function<bool()>> pending;
     {
       std::scoped_lock lock{post_mutex_};
       pending.reserve(post_queue_.size());
       pending.swap(post_queue_);
     }
-    if (!execute) return;
-    for (auto& fn : pending) fn();
+    if (!execute) return false;
+    for (auto& fn : pending) (void)fn();
+    return true;
   }
 
   // Dispatch a single epoll event for `fd` with event mask `ev`. The
   // `shared_ptr<io_conn>` is copied before any virtual call so the object
   // stays alive even if a callback calls `unregister_socket()`.
-  void dispatch_event(int fd, uint32_t ev) {
+  // Dispatch a single epoll event for `fd` with event mask `ev`. Returns
+  // whether the event was dispatched.
+  [[nodiscard]] bool dispatch_event(int fd, uint32_t ev) {
     assert(is_loop_thread());
     auto found = find_opt(registrations_, fd);
-    if (!found) return;
+    if (!found) return true;
 
     // Keep the conn alive across the entire dispatch.
     const auto conn = found->conn;
@@ -441,17 +450,15 @@ private:
     // safe even if the connection was already closed.
     // `EPOLLRDHUP` indicates peer half-close; route it through the readable
     // path so `handle_readable()` can detect EOF via `::read` returning 0.
-    if (ev & (EPOLLIN | EPOLLRDHUP)) conn->on_readable();
-    if (ev & (EPOLLERR | EPOLLHUP)) {
-      conn->on_error();
-      return;
-    }
-    if (ev & EPOLLOUT) conn->on_writable();
+    if (ev & (EPOLLIN | EPOLLRDHUP)) (void)conn->on_readable();
+    if (ev & (EPOLLERR | EPOLLHUP)) return conn->on_error() || true;
+    if (ev & EPOLLOUT) (void)conn->on_writable();
+    return true;
   }
 
   // Write to `wake_fd_` to interrupt a sleeping `epoll_wait`. Idempotent and
   // safe to call from any thread.
-  void wake() { (void)wake_fd_.notify(); }
+  [[nodiscard]] bool wake() { return wake_fd_.notify(); }
 
   // Create the loop's epoll instance or throw on failure.
   static epoll create_epollfd() {
@@ -477,7 +484,7 @@ private:
   std::unordered_map<int, registration> registrations_;
 
   std::mutex post_mutex_;
-  std::vector<std::function<void()>> post_queue_;
+  std::vector<std::function<bool()>> post_queue_;
   const std::chrono::milliseconds post_and_wait_poll_interval_;
 
   tombstone has_run_;
@@ -485,16 +492,20 @@ private:
 };
 
 // Runs an `epoll_loop` in its own background thread.
+//
+// Shutdown ordering: call `stop()` (or destroy the runner) before destroying
+// any object that a pending `post()` callback might reference. Pending
+// callbacks in the post queue are discarded when the thread exits; they do
+// not fire after `stop()` returns.
 class epoll_loop_runner {
 public:
   explicit epoll_loop_runner(
       std::chrono::milliseconds post_and_wait_poll_interval =
           epoll_loop::default_post_and_wait_poll_interval)
       : loop_{post_and_wait_poll_interval},
-        thread_{[this] { loop_.run(100); }} {
+        thread_{[this](const std::stop_token& st) { run(st); }} {
     if (!loop_.wait_until_running(1000)) {
-      loop_.stop();
-      thread_.join();
+      thread_.request_stop();
       throw std::runtime_error("epoll_loop_runner failed to start");
     }
   }
@@ -504,17 +515,24 @@ public:
   epoll_loop_runner(epoll_loop_runner&&) = delete;
   epoll_loop_runner& operator=(epoll_loop_runner&&) = delete;
 
-  ~epoll_loop_runner() {
-    loop_.stop();
-    if (thread_.joinable()) thread_.join();
-  }
+  ~epoll_loop_runner() = default; // jthread requests stop and joins
+
+  // Signal the thread to exit. Idempotent. Also called implicitly by the
+  // destructor.
+  void stop() { thread_.request_stop(); }
 
   [[nodiscard]] epoll_loop& loop() noexcept { return loop_; }
-  operator epoll_loop&() noexcept { return loop_; }
+  [[nodiscard]] operator epoll_loop&() noexcept { return loop_; }
   [[nodiscard]] epoll_loop* operator->() noexcept { return &loop_; }
 
 private:
+  void run(const std::stop_token& st) {
+    // When stop is requested, wake the `epoll_wait` so the loop can exit.
+    std::stop_callback on_stop{st, [this] { (void)loop_.stop(); }};
+    (void)loop_.run(100);
+  }
+
   epoll_loop loop_;
-  std::thread thread_;
+  std::jthread thread_;
 };
 }} // namespace corvid::proto

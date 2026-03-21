@@ -30,10 +30,19 @@ namespace corvid { inline namespace concurrency {
 inline namespace notifiable_ns {
 
 namespace details {
+// Detects a `relaxed_atomic<U>`, or any type that opts in by defining
+// `is_relaxed_atomic = std::true_type` and `value_type`. Does not require
+// including `relaxed_atomic.h`.
+template<typename T>
+concept relaxed_atomic_like = requires {
+  typename T::is_relaxed_atomic;
+  typename T::value_type;
+} && T::is_relaxed_atomic::value;
+
 // Helper: the "plain" value type for `notifiable<T>`. For a non-atomic `T`
-// this is `T` itself; for `std::atomic<U>` it is `U`. Implemented as a
-// partial specialization rather than `std::conditional_t` to avoid eagerly
-// instantiating `typename T::value_type` for non-atomic types.
+// this is `T` itself; for `std::atomic<U>` or `relaxed_atomic<U>` it is `U`.
+// Implemented as partial specializations rather than `std::conditional_t` to
+// avoid eagerly instantiating `typename T::value_type` for non-atomic types.
 template<typename T>
 struct notifiable_result {
   using type = T;
@@ -42,6 +51,18 @@ template<typename U>
 struct notifiable_result<std::atomic<U>> {
   using type = U;
 };
+template<typename T>
+requires(relaxed_atomic_like<T>)
+struct notifiable_result<T> {
+  using type = T::value_type;
+};
+
+// Matches any `T` that is a specialization of `std::atomic` or provides
+// `is_relaxed_atomic`. Used to gate the lock-free `get()` overload and
+// `load_value()` path.
+template<typename T>
+concept atomic_like =
+    is_specialization_of_v<T, std::atomic> || relaxed_atomic_like<T>;
 } // namespace details
 
 // A value of type `T` guarded by a mutex and condition variable.
@@ -99,10 +120,9 @@ public:
   using value_t = details::notifiable_result<T>::type;
 
   static_assert(
-      std::copyable<T> ||
-          (is_specialization_of_v<T, std::atomic> && std::copyable<value_t>),
-      "notifiable<T> requires T to be copyable, or a std::atomic<U> where U "
-      "is copyable");
+      std::copyable<T> || (details::atomic_like<T> && std::copyable<value_t>),
+      "notifiable<T> requires T to be copyable, or a std::atomic<U> or "
+      "relaxed_atomic<U> where U is copyable");
 
   explicit notifiable(value_t initial = {}) : value_(std::move(initial)) {}
 
@@ -156,20 +176,23 @@ public:
 
   // Return a snapshot of the current value under lock.
   [[nodiscard]] T get() const
-  requires(!is_specialization_of_v<T, std::atomic>)
+  requires(!details::atomic_like<T>)
   {
     std::scoped_lock lock{mutex_};
     return value_;
   }
 
   // Return a snapshot of the current value, without locking the mutex. Only
-  // available when `T` is a specialization of `std::atomic`. Returns
-  // `T::value_type`.
+  // available when `T` is a specialization of `std::atomic` or
+  // `relaxed_atomic`. Returns the inner value type.
   [[nodiscard]] value_t
   get(std::memory_order order = std::memory_order::relaxed) const
-  requires(is_specialization_of_v<T, std::atomic>)
+  requires(details::atomic_like<T>)
   {
-    return value_.load(order);
+    if constexpr (is_specialization_of_v<T, std::atomic>)
+      return value_.load(order);
+    else
+      return value_->load(order);
   }
 
   // Block until `pred(value)` returns true; return the value at that point.
@@ -193,10 +216,28 @@ public:
   // re-evaluated on every wakeup. Subject to ABA: if the value changes and
   // then reverts before this thread is scheduled, the wakeup is suppressed and
   // the wait continues.
+  //
+  // CAUTION: captures the "before" value inside the lock, so if a notifying
+  // thread has already changed the value before this call is entered, the
+  // captured `old_value` equals the new value and the wait never unblocks. Use
+  // the `wait_until_changed(expected_old)` overload instead: capture the
+  // before-value via `get()` before starting the notifying thread, then pass
+  // it here.
   [[nodiscard]] value_t wait_until_changed() const {
     std::unique_lock lock{mutex_};
     const auto old_value = do_load();
     cv_.wait(lock, [&] { return do_load() != old_value; });
+    return do_load();
+  }
+
+  // Block until `value` differs from `expected_old`; return the new value.
+  //
+  // The caller should capture `expected_old` via `get()` before starting any
+  // notifying thread, ensuring the wait succeeds even if notification arrives
+  // before this call is entered.
+  [[nodiscard]] value_t wait_until_changed(value_t expected_old) const {
+    std::unique_lock lock{mutex_};
+    cv_.wait(lock, [&] { return do_load() != expected_old; });
     return do_load();
   }
 
@@ -227,7 +268,10 @@ public:
   // Block until `value` changes from its current state or `timeout` elapses.
   // Returns the new value if a change was observed, or `nullopt` on timeout.
   //
-  // Subject to the same ABA caveat as `wait_until_changed`.
+  // Subject to the same CAUTION as `wait_until_changed()`: if the notifying
+  // thread has already run, the internally captured `old_value` equals the new
+  // value and the call always times out. Use `wait_for_changed(timeout,
+  // expected_old)` when ordering is not guaranteed.
   template<typename Rep, typename Period>
   [[nodiscard]] std::optional<value_t>
   wait_for_changed(std::chrono::duration<Rep, Period> timeout) const {
@@ -238,10 +282,24 @@ public:
     return std::nullopt;
   }
 
-  // Read a `T` as a `value_t`. For `std::atomic<U>`, uses a `relaxed` load
-  // rather than the implicit conversion operator (which would be `seq_cst`).
-  // This is correct when called inside the mutex, which already provides the
-  // necessary ordering.
+  // Block until `value` differs from `expected_old` or `timeout` elapses.
+  // Returns the new value if a change was observed, or `nullopt` on timeout.
+  //
+  // The caller should capture `expected_old` via `get()` before starting any
+  // notifying thread; see `wait_until_changed(expected_old)`.
+  template<typename Rep, typename Period>
+  [[nodiscard]] std::optional<value_t> wait_for_changed(
+      std::chrono::duration<Rep, Period> timeout, value_t expected_old) const {
+    std::unique_lock lock{mutex_};
+    if (cv_.wait_for(lock, timeout, [&] { return do_load() != expected_old; }))
+      return do_load();
+    return std::nullopt;
+  }
+
+  // Read a `T` as a `value_t`. For `std::atomic<U>` or `relaxed_atomic<U>`,
+  // uses a `relaxed` load rather than the implicit conversion operator (which
+  // would be `seq_cst` for `std::atomic`). This is correct when called inside
+  // the mutex, which already provides the necessary ordering.
   [[nodiscard]] static value_t load_value(const T& v) {
     if constexpr (is_specialization_of_v<T, std::atomic>)
       return v.load(std::memory_order::relaxed);

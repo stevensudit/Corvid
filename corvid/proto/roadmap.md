@@ -61,13 +61,14 @@ without changing higher layers.
   `send(string&&)` / `close()` / `hangup()` / `shutdown_read()` /
   `shutdown_write()` are thread-safe via `execute_or_post()` / `post()`;
   `can_read()` / `can_write()` query half-close state; `local_endpoint()` /
-  `remote_endpoint()` return socket addresses; supports three async models: a
-  persistent callback mode (`stream_conn_handlers`: `on_data`, `on_drain`,
-  `on_close`), a C++20 coroutine mode (`async_read()` / `async_send()`), and a
-  one-shot callback mode (`async_cb_read()` / `async_cb_write()`, each with an
-  optional `execution` parameter); coroutine and one-shot waiters share the same
-  slot per direction and are mutually exclusive with each other for that
-  direction
+  `remote_endpoint()` return socket addresses; supports persistent callback
+  mode via `stream_conn_handlers` (`on_data`, `on_drain`, `on_close`); two
+  additional per-call async models are provided by `stream_async.h`
+- **[done]** `stream_async_coro` -- now in `stream_async.h`; C++20 coroutine
+  wrapper for `stream_conn` using the `stream_async_base` handler-redirect
+  mechanism; `async_read()` / `async_send()` return awaitables; `EPOLLIN` is
+  armed only while a read coroutine is suspended (via `handlers_.on_data`
+  toggling) to prevent data loss between reads
 - **[done]** `loop_task` -- fire-and-forget coroutine return type for `epoll_loop`
   handlers; `initial_suspend` is `suspend_never` (eager start);
   `final_suspend` is `suspend_never` (self-destroying frame); enables

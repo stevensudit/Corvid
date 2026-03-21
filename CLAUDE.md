@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## General
+
+If the user's intent is ever unclear, always ask before proceeding.
+
 ## Build System
 
 CMakeLists.txt lives in `tests/` only — there is none at the project root. Build directory: `tests/build/`.
@@ -26,12 +30,15 @@ CMakeLists.txt lives in `tests/` only — there is none at the project root. Bui
 - In comments, use quoting as follows: backticks for literal names (types, variables, functions, enums, template parameters, constants), single quotes for individual characters, and double quotes for strings and filenames. E.g., `` `store_id_t::invalid` ``, `` `is_alive()` ``, `` `OWN_COUNT` ``; `'@'` for the at-sign character; `"config.json"` for a filename.
 - In comments and documentation, use only plain 7-bit ASCII characters. Never use Unicode arrows (use `->` not the Unicode rightwards arrow), em dashes, curly quotes, or any other non-ASCII characters.
 - Never use a trailing underscore for private methods. If a private helper needs to be distinguished from a public function, prefix it with `do_` instead. Example: public `close()`, private `do_close()`, not `close_()`.
+- Prefer uniform initialization (`int i{4};`, `foo(int option) : option_{option}`) over function-call syntax (`: option_(option)`) or assignment syntax (`int i = 4;`). Do not use `{}` for variables that have a default constructor (clang-tidy flags this), but do use it for variables that lack one (such as `int` or `bool`).
 
 ## Git Workflow
 
 - Use `git add .` when committing (to include any user-made changes alongside Claude's)
 - Use `git switch` instead of `git checkout`
 - PRs are squash-merged — respond to review with additional commits, not amends
+- When writing PR descriptions, verify every claim against the actual code — do not rely on general knowledge about design patterns or algorithms. For example, a "timing wheel" in this codebase is single-level; do not assume hierarchical.
+- When asked to push a branch as a new PR with an appropriate description, first review all changes and flag any errors (bugs, incorrect documentation, style violations, etc.) before writing the description and pushing.
 
 ## Testing
 

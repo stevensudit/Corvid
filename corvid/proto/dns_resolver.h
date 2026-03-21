@@ -22,6 +22,7 @@
 #include <netdb.h>
 #include <sys/socket.h>
 
+#include "../strings/cstring_view.h"
 #include "net_endpoint.h"
 
 namespace corvid { inline namespace proto {
@@ -39,9 +40,8 @@ struct dns_resolver {
   // returned only address families other than `AF_INET` / `AF_INET6`. Only
   // `SOCK_STREAM` results are requested, to avoid duplicate entries per
   // address.
-  [[nodiscard]] static std::vector<net_endpoint>
-  find_all(const std::string& host, uint16_t port, int family = AF_UNSPEC,
-      size_t max_results = SIZE_MAX) {
+  [[nodiscard]] static std::vector<net_endpoint> find_all(cstring_view host,
+      uint16_t port, int family = AF_UNSPEC, size_t max_results = SIZE_MAX) {
     addrinfo hints{};
     hints.ai_family = family;
     hints.ai_socktype = SOCK_STREAM;
@@ -71,7 +71,7 @@ struct dns_resolver {
   // Returns a default-constructed (invalid) `net_endpoint` on failure or if no
   // matching address was found.
   [[nodiscard]] static net_endpoint
-  find_one(const std::string& host, uint16_t port, int family = AF_UNSPEC) {
+  find_one(cstring_view host, uint16_t port, int family = AF_UNSPEC) {
     const auto results = find_all(host, port, family, 1);
     return results.empty() ? net_endpoint{} : results.front();
   }
