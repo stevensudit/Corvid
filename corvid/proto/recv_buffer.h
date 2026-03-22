@@ -23,6 +23,7 @@
 #include <string_view>
 #include <utility>
 
+#include "../concurrency/relaxed_atomic.h"
 #include "../strings/no_zero.h"
 
 namespace corvid { inline namespace proto {
@@ -104,66 +105,77 @@ struct recv_buffer {
     return buffer.size() - end.load(std::memory_order::relaxed);
   }
 
-  // Move active bytes to front of `buffer` and optionally enlarge.
+  // Optionally compact the receive buffer and optionally resize it.
   //
-  // If `begin == end`: cheap compact (no copy), reset both to 0.
-  // Otherwise: copy or memmove active bytes to `buffer[0]`, reset `begin=0`,
-  // `end=active_len`.
+  // `target` is the parser's requested minimum capacity (0 = no request).
+  // The effective resize size is determined as follows:
+  //   - If `target` exceeds the current capacity: grow to `target`.
+  //   - If `target == 0` and the buffer has bloated beyond 2x `min_capacity`
+  //     (e.g., after a one-off large `expand_to()`): shrink back to
+  //     `min_capacity`, but only when all active data fits.
+  //   - If `target == 0` and the buffer is below `min_capacity` (e.g.,
+  //     `set_recv_buf_size` raised the target): grow to `min_capacity`.
+  //   - Otherwise: leave capacity unchanged.
   //
-  // `target == 0`: leave capacity unchanged.
-  // `target > 0`: ensure capacity meets or exceeds `target`.
-  //
-  // The reason why we want to potentially increase capacity during compaction
-  // is that the parser may determine that, even with every byte of the buffer
-  // available, the full frame still won't fit. In that case, rather than
-  // forcing the parser to store partial frames and concatenate them, we might
-  // as well.
+  // When a resize is required, active bytes are always copied to the front of
+  // the new buffer. When no resize is needed and there are no active bytes,
+  // `begin` and `end` are reset to 0 (cheap reset). When no resize is needed
+  // and active bytes remain, the memmove is skipped unless one of the
+  // following conditions holds:
+  //   - Must: write space is exhausted but `begin > 0` (bytes before the
+  //     active region can be reclaimed).
+  //   - Worth it: `begin` is past the 1/4 mark and `end` is past the 3/4
+  //     mark (a short `recv` would likely exhaust write space and force a
+  //     compaction after the next `on_data` call anyway).
+  // If neither condition holds, `begin` and `end` are left unchanged.
   //
   // Only safe when EPOLLIN is disabled and no `recv_buffer_view` is live
-  // (i.e., called from within the `resume_receive` execute_or_post
-  // lambda). Release-stores `begin = 0` and `end = active_len` after the
-  // move.
+  // (i.e., called from within the `resume_receive` execute_or_post lambda).
   void compact(size_t target = 0) {
     const size_t b = begin.load(std::memory_order::relaxed);
     const size_t e = end.load(std::memory_order::relaxed);
     assert(e >= b); // `end` can never precede `begin`
     const size_t active_len = e - b;
 
-    // TODO: Ideally, the parser will be greedy, extracting as many full frames
-    // as it can, and leaving only the last partial frame in the buffer. In
-    // that case, the active area will be small and moving it will be cheap.
-    // Still, we shouldn't compact after every parse. A better plan is to only
-    // compact when:
-    // 1. We have to: there's no space past the end but there's space in front.
-    // 2. It's worth it: if the start of the active region is past the 1/4
-    // point and the end is past the 3/4 point, it makes sense to compact now
-    // so as to avoid a short recv that forces us to compact anyhow, and then
-    // only after the parser has wasted time checking to see if a full frame is
-    // available. (Side note: If the parser checks for the frame using a
-    // prefix, it can be very cheap. If it has to search for a sentinel, that
-    // could be expensive, but there's no reason why it can't keep a high-water
-    // mark to avoid re-scanning the same data after a short recv. It just has
-    // to start where it left off, minus the length of the sentinel.)
-    // 3. When we're enlarging. No reason to move the active data to anywhere
-    // but the beginning.
+    // Determine the effective resize target.
+    const size_t configured = min_capacity;
+    const size_t current = buffer.capacity();
+    size_t new_size = current;
 
-    // TODO: !!! Move recv_buf_capacity_ out of stream_conn and into
-    // recv_buffer
+    // When no target is specified,  shrinking is possible.
+    if (target == 0) {
+      if (active_len <= configured && current > 2 * configured)
+        // shrink: all active data fits in configured
+        new_size = configured;
+      else if (current < configured)
+        // grow: `set_recv_buf_size` increased the target
+        new_size = configured;
+    } else if (target > current)
+      // grow: parser requested more capacity
+      new_size = target;
 
-    // TODO: Look at `recv_buf.recv_buf_capacity_` to detect when we've grown
-    // well beyond it and then shrink back down when the parser is done with
-    // the large frame. Otherwise, a single large frame could cause us to
-    // permanently consume much more memory than our configured target.
-    // Essentially, when `target == 0`, and we've doubled the capacity, and
-    // we're using no more than half of the buffer, go back to the normal size.
-    //
-    if (target > buffer.size()) {
+    if (new_size != current) {
+      // Resize: always move active bytes to the front of the new buffer.
       std::string new_buf;
-      no_zero::resize_to(new_buf, target);
+      no_zero::resize_to(new_buf, new_size);
       if (active_len > 0)
         std::memcpy(new_buf.data(), buffer.data() + b, active_len);
       buffer = std::move(new_buf);
+      // If we grew to meet `min_capacity`, sync it to the actual post-resize
+      // capacity, which the allocator may have rounded upward. Only overwrite
+      // if `min_capacity` is still `configured` -- a concurrent
+      // `set_recv_buf_size` call may have already updated it to a larger
+      // value.
+      if (target == 0 && new_size > current) {
+        auto expected = configured;
+        min_capacity->compare_exchange_strong(expected, buffer.capacity(),
+            std::memory_order::relaxed, std::memory_order::relaxed);
+      }
     } else if (active_len > 0) {
+      // Active bytes remain. Move them only when necessary or worth it.
+      const bool must = (e == current && b > 0);
+      const bool worth_it = (b > current / 4 && e > current / 4 * 3);
+      if (!must && !worth_it) return;
       std::memmove(buffer.data(), buffer.data() + b, active_len);
     }
 

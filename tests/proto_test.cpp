@@ -1077,6 +1077,160 @@ void IoLoop_PostAndWait_StopRace() {
   EXPECT_LE(callback_runs.load(), iterations);
 }
 
+// Helper: allocate `cap` bytes into `rb.buffer`, set `begin`/`end`, and
+// default `min_capacity` to the actual post-allocation capacity so that
+// resize logic does not fire unexpectedly in tests that do not set it.
+// Fills active region [b..e) with `ch` so moves can be verified.
+static void
+setup_rb(recv_buffer& rb, size_t cap, size_t b, size_t e, char ch = 'X') {
+  no_zero::enlarge_to(rb.buffer, cap);
+  rb.min_capacity = rb.buffer.capacity();
+  if (b < e) std::fill(rb.buffer.data() + b, rb.buffer.data() + e, ch);
+  rb.begin.store(b, std::memory_order::relaxed);
+  rb.end.store(e, std::memory_order::relaxed);
+}
+
+// When there are no active bytes, compact always resets begin and end to 0.
+void RecvBuffer_Compact_NoActiveBytes() {
+  if (true) {
+    // begin == end == 0: already at front, cheap reset is a no-op.
+    recv_buffer rb;
+    setup_rb(rb, 64, 0, 0);
+    rb.compact();
+    EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+    EXPECT_EQ(rb.end.load(std::memory_order::relaxed), 0U);
+    EXPECT_EQ(rb.write_space(), rb.buffer.capacity());
+  }
+  if (true) {
+    // begin == end > 0: cheap reset reclaims all space.
+    recv_buffer rb;
+    setup_rb(rb, 64, 40, 40);
+    rb.compact();
+    EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+    EXPECT_EQ(rb.end.load(std::memory_order::relaxed), 0U);
+    EXPECT_EQ(rb.write_space(), rb.buffer.capacity());
+  }
+}
+
+// When write space is exhausted (end == capacity) but begin > 0, compact
+// must memmove to reclaim space before the active region.
+void RecvBuffer_Compact_MustCompact() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t cap = rb.buffer.capacity();
+  const size_t b = cap / 4; // begin at 1/4 mark (not past it: worth_it false)
+  setup_rb(rb, cap, b, cap, 'A'); // end == capacity: must compact
+  rb.compact();
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), cap - b);
+  EXPECT_EQ(rb.buffer[0], 'A');
+  EXPECT_GT(rb.write_space(), 0U);
+}
+
+// When begin is past the 1/4 mark and end is past the 3/4 mark, compact
+// proactively moves bytes to avoid a short recv on the next call.
+void RecvBuffer_Compact_WorthIt() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t cap = rb.buffer.capacity();
+  const size_t b = cap / 4 + 1;     // just past 1/4 mark
+  const size_t e = cap / 4 * 3 + 1; // just past 3/4 mark
+  setup_rb(rb, cap, b, e, 'B');
+  rb.compact();
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), e - b);
+  EXPECT_EQ(rb.buffer[0], 'B');
+}
+
+// When neither "must" nor "worth it" applies, begin and end are left
+// unchanged to avoid a pointless memmove.
+void RecvBuffer_Compact_SkipsUnnecessaryMove() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t cap = rb.buffer.capacity();
+  const size_t b = cap / 4; // at the 1/4 mark, not past it: worth_it false
+  const size_t e = cap / 2; // end well before 3/4 mark, write_space > 0
+  setup_rb(rb, cap, b, e);
+  rb.compact();
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), b);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), e);
+}
+
+// When target exceeds current capacity, the buffer is grown and active bytes
+// are copied to the front of the new buffer.
+void RecvBuffer_Compact_GrowOnRequest() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t cap = rb.buffer.capacity();
+  setup_rb(rb, cap, 10, 30, 'C');
+  rb.compact(cap * 2);
+  EXPECT_GE(rb.buffer.capacity(), cap * 2);
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), 20U);
+  EXPECT_EQ(rb.buffer[0], 'C');
+}
+
+// When current capacity is below min_capacity, compact grows the buffer
+// and syncs min_capacity to the actual post-resize capacity.
+void RecvBuffer_Compact_GrowToMinCapacity() {
+  recv_buffer rb;
+  setup_rb(rb, 32, 0, 10, 'D');
+  const size_t configured = rb.buffer.capacity() * 2;
+  rb.min_capacity = configured;
+  rb.compact();
+  EXPECT_GE(rb.buffer.capacity(), configured);
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), 10U);
+  EXPECT_EQ(rb.buffer[0], 'D');
+  // min_capacity is synced to the actual post-resize capacity.
+  EXPECT_EQ(size_t(rb.min_capacity), rb.buffer.capacity());
+}
+
+// When the buffer has bloated beyond 2x min_capacity and all active data
+// fits in min_capacity, compact shrinks back to min_capacity.
+void RecvBuffer_Compact_Shrink() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t bloated_cap = rb.buffer.capacity();
+  // configured = cap/4; current = cap = 4*configured > 2*configured: bloated.
+  const size_t configured = bloated_cap / 4;
+  // Fill active region [4..4+configured) then override min_capacity.
+  setup_rb(rb, bloated_cap, 4, 4 + configured,
+      'E');                     // active_len == configured
+  rb.min_capacity = configured; // set after setup_rb, which resets it
+  rb.compact();
+  EXPECT_LT(rb.buffer.capacity(), bloated_cap);
+  EXPECT_GE(rb.buffer.capacity(), configured);
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), configured);
+  EXPECT_EQ(rb.buffer[0], 'E');
+}
+
+// Shrink is skipped when active_len exceeds min_capacity; the shrunken
+// buffer would not fit the active data.
+void RecvBuffer_Compact_ShrinkSkippedIfActiveWontFit() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t cap = rb.buffer.capacity();
+  // active_len = cap/2 > configured = cap/4: shrink condition fails.
+  setup_rb(rb, cap, 0, cap / 2);
+  rb.min_capacity = cap / 4; // set after setup_rb, which resets it
+  rb.compact();
+  EXPECT_EQ(rb.buffer.capacity(), cap); // no resize
+  // begin=0, end unchanged (no memmove: begin not past 1/4 mark).
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), cap / 2);
+}
+
+// When target > 0 but does not exceed current capacity, no resize occurs.
+void RecvBuffer_Compact_NoResizeWhenTargetFits() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t cap = rb.buffer.capacity();
+  rb.compact(cap / 2); // target <= current: no resize
+  EXPECT_EQ(rb.buffer.capacity(), cap);
+}
+
 void StreamConn_Lifecycle() {
   epoll_loop loop;
   auto this_is_the_loop_thread = loop.poll_thread_scope();
@@ -1989,10 +2143,15 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IoLoop_RegisterUnregister, IoLoop_SetWritable, IoLoop_SetReadable,
     IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError,
     IoLoop_IsLoopThreadIsPerLoop, IoLoop_PostAndWait_StopRace,
-    StreamConn_Lifecycle, StreamConn_Receive, StreamConn_SetRecvBufSize,
-    StreamConn_PeerClose, StreamConn_Send, StreamConn_ManualClose,
-    StreamConn_DrainAfterBufferedSend, StreamConn_DrainAfterImmediateSend,
-    StreamConn_AsyncCbRead, StreamConn_AsyncCbRead_PreservesEarlyData,
+    RecvBuffer_Compact_NoActiveBytes, RecvBuffer_Compact_MustCompact,
+    RecvBuffer_Compact_WorthIt, RecvBuffer_Compact_SkipsUnnecessaryMove,
+    RecvBuffer_Compact_GrowOnRequest, RecvBuffer_Compact_GrowToMinCapacity,
+    RecvBuffer_Compact_Shrink, RecvBuffer_Compact_ShrinkSkippedIfActiveWontFit,
+    RecvBuffer_Compact_NoResizeWhenTargetFits, StreamConn_Lifecycle,
+    StreamConn_Receive, StreamConn_SetRecvBufSize, StreamConn_PeerClose,
+    StreamConn_Send, StreamConn_ManualClose, StreamConn_DrainAfterBufferedSend,
+    StreamConn_DrainAfterImmediateSend, StreamConn_AsyncCbRead,
+    StreamConn_AsyncCbRead_PreservesEarlyData,
     StreamConn_AsyncCbRead_DuplicateRejected, StreamConn_AsyncCbRead_PeerClose,
     StreamConn_AsyncCbWrite, StreamConn_AsyncCbWrite_Failure,
     StreamConn_AsyncCbWrite_DuplicateRejected, StreamConn_ShutdownWrite,

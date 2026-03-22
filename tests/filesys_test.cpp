@@ -802,8 +802,8 @@ MAKE_TEST_LIST(OsFile_Lifecycle, OsFile_Move, OsFile_ReleaseFlags,
     EventFd_Release, EventFd_NotifyRead, EventFd_NonblockingEmptyRead,
     EventFd_Create, EventFd_SemaphoreMode, NetSocket_Move, NetSocket_Release,
     NetSocket_Options, NetSocket_Nonblocking, NetSocket_SendRecv,
-    NetSocket_RecvAtContract,
-    NetSocket_BindListenAccept, NetSocket_FactoryMethods);
+    NetSocket_RecvAtContract, NetSocket_BindListenAccept,
+    NetSocket_FactoryMethods);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

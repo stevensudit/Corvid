@@ -146,7 +146,7 @@ public:
   // from any thread. Returns false if `size == 0`.
   [[nodiscard]] bool set_recv_buf_size(size_t size) {
     if (size == 0) return false;
-    recv_buf.min_capacity =
+    recv_buf_.min_capacity =
         std::min(size, std::numeric_limits<std::size_t>::max() / 2);
     return true;
   }
@@ -155,7 +155,7 @@ public:
   // The actual buffer string size used by a given read may be somewhat
   // larger if more capacity is available. Safe to call from any thread.
   [[nodiscard]] size_t recv_buf_size() const noexcept {
-    return recv_buf.min_capacity;
+    return recv_buf_.min_capacity;
   }
 
   // Whether the read side is still open. Safe to call from any thread. Returns
@@ -736,22 +736,7 @@ private:
       if (!open_) return false;
       recv_buf_.view_active = false;
 
-      // Determine compact target.
-      // If the parser requested growth: grow to `new_size`.
-      // If no growth was requested but the buffer has bloated well beyond its
-      // configured size (e.g., after a one-off large expand_to()), shrink
-      // back. If `set_recv_buf_size` increased the configured size, grow.
-      const size_t configured = recv_buf_.min_capacity;
-      const size_t current = recv_buf_.buffer.size();
-      size_t target = 0;
-      if (new_size > current)
-        target = new_size;
-      else if (new_size == 0 && current > 2 * configured)
-        target = configured; // shrink: buffer bloated beyond 2x configured
-      else if (new_size == 0 && current < configured)
-        target = configured; // grow: `set_recv_buf_size` increased the target
-
-      recv_buf_.compact(target);
+      recv_buf_.compact(new_size);
 
       // If EOF arrived while a view was live, handle it now.
       if (eof_pending_) {
