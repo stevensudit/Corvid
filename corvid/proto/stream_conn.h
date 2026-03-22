@@ -439,21 +439,11 @@ private:
     return true;
   }
 
-  // TODO: !!! Replace this with a single method that takes a bool.
-
-  // Enable `EPOLLIN` (set `reads_enabled`) and propagate to the loop.
+  // Set `reads_enabled` and propagate the change to the loop.
   // Loop-thread-only.
-  [[nodiscard]] bool enable_reads() {
+  [[nodiscard]] bool set_read_enabled(bool on) {
     assert(loop_.is_loop_thread());
-    recv_buf_.reads_enabled = true;
-    return refresh_read_interest();
-  }
-
-  // Disable `EPOLLIN` (clear `reads_enabled`) and propagate to the loop.
-  // Loop-thread-only.
-  [[nodiscard]] bool disable_reads() {
-    assert(loop_.is_loop_thread());
-    recv_buf_.reads_enabled = false;
+    recv_buf_.reads_enabled = on;
     return refresh_read_interest();
   }
 
@@ -695,7 +685,7 @@ private:
     if (space == 0) {
       // Buffer full. Disable `EPOLLIN`; the view destructor calls
       // `resume_receive` which will re-enable reads after compaction.
-      if (!disable_reads()) return false;
+      if (!set_read_enabled(false)) return false;
       return true;
     }
 
@@ -728,8 +718,9 @@ private:
   // re-dispatch) back to the loop thread. Called by `recv_buffer_view`
   // destructor with the parser's requested buffer size (0 = no expansion).
   //
-  // Uses `execute_or_post` for compact/enable_reads (safe to run inline on the
-  // loop thread) but always uses `loop_.post` for `notify_read_ready` (to
+  // Uses `execute_or_post` for compaction and `set_read_enabled` (safe to run
+  // inline on the loop thread) but always uses `loop_.post` for
+  // `notify_read_ready` (to
   // prevent a re-entrant `on_data` call when the view destructs during a
   // synchronous parse on the polling thread).
   void resume_receive(size_t new_size = 0) {
