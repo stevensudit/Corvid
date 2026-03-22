@@ -146,7 +146,7 @@ public:
   // from any thread. Returns false if `size == 0`.
   [[nodiscard]] bool set_recv_buf_size(size_t size) {
     if (size == 0) return false;
-    recv_buf_capacity_ =
+    recv_buf.min_capacity =
         std::min(size, std::numeric_limits<std::size_t>::max() / 2);
     return true;
   }
@@ -155,7 +155,7 @@ public:
   // The actual buffer string size used by a given read may be somewhat
   // larger if more capacity is available. Safe to call from any thread.
   [[nodiscard]] size_t recv_buf_size() const noexcept {
-    return recv_buf_capacity_;
+    return recv_buf.min_capacity;
   }
 
   // Whether the read side is still open. Safe to call from any thread. Returns
@@ -233,9 +233,9 @@ public:
       bool connecting, bool listening) noexcept
       : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
         own_handlers_{std::move(h)}, active_handlers_{&own_handlers_},
-        recv_buf_capacity_{
-            std::min(rbs, std::numeric_limits<std::size_t>::max() / 2)},
         open_{true}, connecting_{connecting}, listening_{listening} {
+    recv_buf_.min_capacity =
+        std::min(rbs, std::numeric_limits<std::size_t>::max() / 2);
     // Listening sockets have no writable data path.
     if (listening) write_open_ = false;
   }
@@ -267,11 +267,6 @@ private:
   // Persistent receive buffer. The framework appends bytes after `end`;
   // the parser consumes bytes from `begin`.
   recv_buffer recv_buf_;
-
-  // Configured capacity for `recv_buf_`. Used by `resume_receive` to detect
-  // bloat and decide whether to shrink on compact.
-  // TODO: !!! Move this into `recv_buf` itself.
-  relaxed_atomic_size_t recv_buf_capacity_{default_recv_buf_size};
 
   // Cleared atomically by `do_close_now`. Read from any thread via
   // `is_open`.
@@ -689,9 +684,11 @@ private:
   [[nodiscard]] bool handle_readable() {
     if (!read_open_) return false;
 
-    // Initial allocation on first call.
+    // Initial allocation. Round `min_capacity` up to actual capacity at that
+    // size.
     if (recv_buf_.buffer.empty())
-      no_zero::resize_to(recv_buf_.buffer, recv_buf_capacity_);
+      recv_buf_.min_capacity =
+          no_zero::resize_to(recv_buf_.buffer, recv_buf_.min_capacity).size();
 
     const size_t space = recv_buf_.write_space();
     if (space == 0) {
@@ -744,7 +741,7 @@ private:
       // If no growth was requested but the buffer has bloated well beyond its
       // configured size (e.g., after a one-off large expand_to()), shrink
       // back. If `set_recv_buf_size` increased the configured size, grow.
-      const size_t configured = recv_buf_capacity_;
+      const size_t configured = recv_buf_.min_capacity;
       const size_t current = recv_buf_.buffer.size();
       size_t target = 0;
       if (new_size > current)

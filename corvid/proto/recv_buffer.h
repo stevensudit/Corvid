@@ -69,6 +69,15 @@ struct recv_buffer {
   // call.
   bool view_active{false};
 
+  // Minimum capacity to maintain when compacting. This is used to avoid
+  // repeatedly enlarging and shrinking the buffer when parsing frames of
+  // varying sizes. The parser can call `set_buffer_size` to request a larger
+  // buffer for the next read if it determines that the current capacity is
+  // insufficient for the next frame, and `compact` will respect that request.
+  // However, it will be shrunk down to `min_capacity` once it's no longer
+  // needed.
+  relaxed_atomic_size_t min_capacity{};
+
   // Initialize (or reinitialize) backing storage to `capacity` bytes without
   // zero-init. Resets `begin` and `end` to zero. Only safe when EPOLLIN is
   // disabled and no `recv_buffer_view` is live.
