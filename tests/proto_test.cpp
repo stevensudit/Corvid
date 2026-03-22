@@ -1133,8 +1133,8 @@ void RecvBuffer_Compact_WorthIt() {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
-  const size_t b = cap / 4 + 1;     // just past 1/4 mark
-  const size_t e = cap / 4 * 3 + 1; // just past 3/4 mark
+  const size_t b = (cap / 4) + 1;     // just past 1/4 mark
+  const size_t e = (cap / 4 * 3) + 1; // just past 3/4 mark
   setup_rb(rb, cap, b, e, 'B');
   rb.compact();
   EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);

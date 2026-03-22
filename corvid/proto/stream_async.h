@@ -26,7 +26,7 @@
 
 namespace corvid { inline namespace proto {
 
-// TODO: !!! Consider switching socket over to EPOLLONESHOT when this class is
+// TODO: Consider switching socket over to EPOLLONESHOT when this class is
 // in control.
 
 // Base class for per-call async wrappers around a `stream_conn`. These are
@@ -143,13 +143,11 @@ protected:
     return c.refresh_read_interest();
   }
 
-  // Construct an EOF `recv_buffer_view` over `c`'s `recv_buf_` (begin=end=0).
-  // The resume callback captures a `shared_ptr<stream_conn>` to keep the
-  // connection alive while the view is live. Called from `on_close` to
+  // Clear `c`'s `recv_buf_` (`begin=end=0`) and return a `recv_buffer_view`
+  // over it. The resume callback captures a `shared_ptr<stream_conn>` to keep
+  // the connection alive while the view is live. Called from `on_close` to
   // satisfy any in-flight read callback with an empty (EOF) view.
-
-  // TODO: !!! This is misnamed. It actually wiped the connection's buffer.
-  static recv_buffer_view make_eof_view_for(stream_conn& c) {
+  static recv_buffer_view make_cleared_view_for(stream_conn& c) {
     c.recv_buf_.begin.store(0, std::memory_order::relaxed);
     c.recv_buf_.end.store(0, std::memory_order::relaxed);
     return recv_buffer_view{c.recv_buf_,
@@ -224,8 +222,8 @@ public:
     handlers_.on_close = [this](stream_conn& c) {
       bool not_handled = false;
       if (read_cb_) {
-        // Deliver an EOF view (begin=end=0 over the real recv_buf_).
-        auto v = make_eof_view_for(c);
+        // Deliver an EOF view (`begin=end=0` over the real `recv_buf_`).
+        auto v = make_cleared_view_for(c);
         not_handled = !std::exchange(read_cb_, nullptr)(std::move(v));
       }
       if (write_cb_) not_handled |= !std::exchange(write_cb_, nullptr)(false);

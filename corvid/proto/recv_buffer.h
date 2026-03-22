@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <cstring>
@@ -77,7 +78,7 @@ struct recv_buffer {
   // insufficient for the next frame, and `compact` will respect that request.
   // However, it will be shrunk down to `min_capacity` once it's no longer
   // needed.
-  relaxed_atomic_size_t min_capacity{};
+  relaxed_atomic_size_t min_capacity;
 
   // Initialize (or reinitialize) backing storage to `capacity` bytes without
   // zero-init. Resets `begin` and `end` to zero. Only safe when EPOLLIN is
@@ -258,7 +259,7 @@ public:
   // Takes effect when the destructor invokes the callback.
   void expand_to(size_t n) noexcept {
     assert(buf_);
-    if (n > new_buffer_size_) new_buffer_size_ = n;
+    new_buffer_size_ = std::max(new_buffer_size_, n);
   }
 
   // Advance `begin` by `n` bytes (release-store fetch_add).
@@ -274,7 +275,7 @@ public:
     const size_t b = buf_->begin.load(std::memory_order::relaxed);
     const char* base = buf_->buffer.data() + b;
     assert(remaining.data() >= base);
-    const size_t consumed = static_cast<size_t>(remaining.data() - base);
+    const auto consumed = static_cast<size_t>(remaining.data() - base);
     if (consumed > 0) consume(consumed);
   }
 

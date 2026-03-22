@@ -307,7 +307,6 @@ private:
   // once.
   bool close_notified_ = false;
 
-  // TODO: !!! Revisit this.
   // Set by `handle_read_eof` when EOF arrives while `view_active` is true.
   // Cleared and acted on by `resume_receive` once the live view destructs,
   // preventing a second view from being created while the first is still live.
@@ -812,9 +811,7 @@ private:
     // handler closes the connection before we get here).
     if (!open_) return false;
 
-    // NOTE: It would be cool if we could gather all the buffers and write
-    // them in a single call...
-    // TODO: !!! Follow up on scatter/gather.
+    // NOTE: Scatter/gather would be nice here.
 
     // Write until we're out of data, are blocked, or fail.
     while (!send_queue_.empty()) {
