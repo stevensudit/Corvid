@@ -130,9 +130,10 @@ struct recv_buffer {
   //     compaction after the next `on_data` call anyway).
   // If neither condition holds, `begin` and `end` are left unchanged.
   //
-  // Only safe when EPOLLIN is disabled and no `recv_buffer_view` is live
-  // (i.e., called from within the `resume_receive` execute_or_post lambda).
+  // Only safe to call within the polling thread (which can't be asserted on
+  // here) and when no `recv_buffer_view` is live.
   void compact(size_t target = 0) {
+    assert(!view_active);
     const size_t b = begin.load(std::memory_order::relaxed);
     const size_t e = end.load(std::memory_order::relaxed);
     assert(e >= b); // `end` can never precede `begin`
@@ -174,6 +175,10 @@ struct recv_buffer {
       }
     } else if (active_len > 0) {
       // Active bytes remain. Move them only when necessary or worth it.
+      // Note that, by dividing before multiplying, we avoid potential overflow
+      // at the cost of a small amount of imprecision when `current` is not
+      // divisible by 4. As this is a heuristic anyway, and sizes are quite
+      // likely powers of two, this is fine.
       const bool must = (e == current && b > 0);
       const bool worth_it = (b > current / 4 && e > current / 4 * 3);
       if (!must && !worth_it) return;

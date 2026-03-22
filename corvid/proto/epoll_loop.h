@@ -143,7 +143,7 @@ public:
   // the registered `io_conn`. Returns false if `conn` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post` and returns true.
-  bool enable_reads(io_conn& conn, bool on = true) {
+  [[nodiscard]] bool enable_reads(io_conn& conn, bool on = true) {
     auto sp = conn.shared_from_this();
     return execute_or_post([this, sp = std::move(sp), on] {
       return do_enable_reads(*sp, on);
@@ -155,7 +155,7 @@ public:
   // observed on the read side to prevent repeated level-triggered wakeups.
   // Returns false if `conn` is not registered or `epoll_ctl` fails. If
   // executed outside of loop thread, turns into a `post` and returns true.
-  bool enable_rdhup(io_conn& conn, bool on = true) {
+  [[nodiscard]] bool enable_rdhup(io_conn& conn, bool on = true) {
     auto sp = conn.shared_from_this();
     return execute_or_post([this, sp = std::move(sp), on] {
       return do_enable_rdhup(*sp, on);
@@ -166,7 +166,7 @@ public:
   // the registered `io_conn`. Returns false if `conn` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post` and returns true.
-  bool enable_writes(io_conn& conn, bool on = true) {
+  [[nodiscard]] bool enable_writes(io_conn& conn, bool on = true) {
     auto sp = conn.shared_from_this();
     return execute_or_post([this, sp = std::move(sp), on] {
       return do_enable_writes(*sp, on);
@@ -176,7 +176,7 @@ public:
   // Unregister `conn`. Returns false if `conn` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post` and returns true.
-  bool unregister_socket(io_conn& conn) {
+  [[nodiscard]] bool unregister_socket(io_conn& conn) {
     auto sp = conn.shared_from_this();
     return execute_or_post([this, sp = std::move(sp)] {
       return do_unregister_socket(*sp);
@@ -186,7 +186,7 @@ public:
   // Unregister `sock`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post` and returns true.
-  bool unregister_socket(const net_socket& sock) {
+  [[nodiscard]] bool unregister_socket(const net_socket& sock) {
     const auto fd = sock.handle();
     return execute_or_post([this, fd] {
       auto found = find_opt(registrations_, fd);

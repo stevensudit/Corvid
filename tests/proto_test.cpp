@@ -914,12 +914,12 @@ void IoLoop_SetWritable() {
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->writable, 0);
 
-  loop.enable_writes(*conn, true);
+  ASSERT_TRUE(loop.enable_writes(*conn, true));
   EXPECT_GE(loop.run_once(0), 0);
   EXPECT_GE(conn->writable, 1);
 
   // Disarm; no further writable events.
-  loop.enable_writes(*conn, false);
+  ASSERT_TRUE(loop.enable_writes(*conn, false));
   const int w = conn->writable;
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->writable, w);
@@ -965,7 +965,7 @@ void IoLoop_ErrorSkipsWritable() {
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
   ASSERT_TRUE(loop.register_socket(conn));
-  loop.enable_writes(*conn, true); // arm EPOLLOUT
+  ASSERT_TRUE(loop.enable_writes(*conn, true)); // arm EPOLLOUT
 
   b.close(); // triggers EPOLLHUP on `a`
 

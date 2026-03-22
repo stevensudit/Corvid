@@ -585,8 +585,9 @@ private:
   [[nodiscard]] bool handle_read_eof() {
     assert(loop_.is_loop_thread());
     read_open_ = false;
-    loop_.enable_reads(*this, false);
-    loop_.enable_rdhup(*this, false);
+    // TODO: We can do this in one step.
+    (void)loop_.enable_reads(*this, false);
+    (void)loop_.enable_rdhup(*this, false);
     // Defer notifications: deliver any remaining buffered data and the EOF
     // signal once the live view destructs (via `resume_receive`).
     if (recv_buf_.view_active) {
@@ -607,7 +608,7 @@ private:
       return false;
     send_queue_.clear();
     head_span_ = {};
-    loop_.enable_writes(*this, false);
+    (void)loop_.enable_writes(*this, false);
     if (close_requested_ || !read_open_)
       return do_close_now(close_mode::forceful);
     return maybe_finish_after_side_close(close_mode::forceful);
@@ -717,11 +718,8 @@ private:
   // re-dispatch) back to the loop thread. Called by `recv_buffer_view`
   // destructor with the parser's requested buffer size (0 = no expansion).
   //
-  // Uses `execute_or_post` for compaction and `set_read_enabled` (safe to run
-  // inline on the loop thread) but always uses `loop_.post` for
-  // `notify_read_ready` (to
-  // prevent a re-entrant `on_data` call when the view destructs during a
-  // synchronous parse on the polling thread).
+  // Uses `execute_or_post` for compaction and `set_read_enabled`, and may call
+  // `notify_read_ready`.
   void resume_receive(size_t new_size = 0) {
     (void)execute_or_post([this, new_size]() -> bool {
       if (!open_) return false;
@@ -732,8 +730,8 @@ private:
       // If EOF arrived while a view was live, handle it now.
       if (eof_pending_) {
         if (!recv_buf_.active().empty()) {
-          // Deliver remaining buffered data first; eof_pending_ stays true
-          // so the next resume_receive fires do_eof_notifications().
+          // Deliver remaining buffered data first; `eof_pending_` stays true
+          // so the next `resume_receive` fires `do_eof_notifications()`.
           return loop_.post([this]() -> bool {
             if (!open_) return false;
             return notify_read_ready();
