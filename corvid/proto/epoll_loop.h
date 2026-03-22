@@ -150,15 +150,6 @@ public:
     });
   }
 
-  // Add or remove `EPOLLIN` from the event mask for `sock` without changing
-  // the registered `io_conn`. Returns false if `sock` is not registered or
-  // `epoll_ctl` fails. If executed outside of loop thread, turns into a
-  // `post` and returns true.
-  bool enable_reads(const net_socket& sock, bool on = true) {
-    const auto fd = sock.handle();
-    return execute_or_post([this, fd, on] { return do_enable_reads(fd, on); });
-  }
-
   // Add or remove `EPOLLRDHUP` from the event mask for `conn` without
   // changing the registered `io_conn`. Disarming is useful after EOF is
   // observed on the read side to prevent repeated level-triggered wakeups.
@@ -169,16 +160,6 @@ public:
     return execute_or_post([this, sp = std::move(sp), on] {
       return do_enable_rdhup(*sp, on);
     });
-  }
-
-  // Add or remove `EPOLLRDHUP` from the event mask for `sock` without
-  // changing the registered `io_conn`. Disarming is useful after EOF is
-  // observed on the read side to prevent repeated level-triggered wakeups.
-  // Returns false if `sock` is not registered or `epoll_ctl` fails. If
-  // executed outside of loop thread, turns into a `post` and returns true.
-  bool enable_rdhup(const net_socket& sock, bool on = true) {
-    const auto fd = sock.handle();
-    return execute_or_post([this, fd, on] { return do_enable_rdhup(fd, on); });
   }
 
   // Add or remove `EPOLLOUT` from the event mask for `conn` without changing
@@ -192,14 +173,13 @@ public:
     });
   }
 
-  // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
-  // the registered `io_conn`. Returns false if `sock` is not registered or
+  // Unregister `conn`. Returns false if `conn` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post` and returns true.
-  bool enable_writes(const net_socket& sock, bool on = true) {
-    const auto fd = sock.handle();
-    return execute_or_post([this, fd, on] {
-      return do_enable_writes(fd, on);
+  bool unregister_socket(io_conn& conn) {
+    auto sp = conn.shared_from_this();
+    return execute_or_post([this, sp = std::move(sp)] {
+      return do_unregister_socket(*sp);
     });
   }
 
@@ -208,7 +188,21 @@ public:
   // `post` and returns true.
   bool unregister_socket(const net_socket& sock) {
     const auto fd = sock.handle();
-    return execute_or_post([this, fd] { return do_unregister_socket(fd); });
+    return execute_or_post([this, fd] {
+      auto found = find_opt(registrations_, fd);
+      if (!found) return false;
+      return do_unregister_socket(**found);
+    });
+  }
+
+  // Look up `fd` in the registration table and return the owning
+  // `shared_ptr<io_conn>`, or null if not found. Must be called on the loop
+  // thread.
+  [[nodiscard]] std::shared_ptr<io_conn> find_fd(
+      os_file::file_handle_t fd) const {
+    assert(is_loop_thread());
+    auto found = find_opt(registrations_, fd);
+    return found ? *found : nullptr;
   }
 
   // Schedule `fn` to run at the top of the next `run_once` iteration,
@@ -378,10 +372,11 @@ private:
     return true;
   }
 
-  // Unregister `sock`. Returns false if `sock` is not registered or
+  // Unregister `conn`. Returns false if `conn` is not registered or
   // `epoll_ctl` fails.
-  [[nodiscard]] bool do_unregister_socket(os_file::file_handle_t fd) {
+  [[nodiscard]] bool do_unregister_socket(io_conn& conn) {
     assert(is_loop_thread());
+    const int fd = conn.sock().handle();
     if (!registrations_.erase(fd)) return false;
     return epoll_.remove(fd);
   }
@@ -392,40 +387,16 @@ private:
     return do_enable_interest(conn, EPOLLIN, on);
   }
 
-  // Add or remove `EPOLLIN` from the event mask for `sock` without changing
-  // the registered `io_conn`. Returns false if `sock` is not registered or
-  // `epoll_ctl` fails.
-  [[nodiscard]] bool
-  do_enable_reads(os_file::file_handle_t fd, bool on = true) noexcept {
-    return do_enable_interest(fd, EPOLLIN, on);
-  }
-
   // Add or remove `EPOLLOUT` from the event mask for `conn` without changing
   // the registered `io_conn`. Returns false if `epoll_ctl` fails.
   [[nodiscard]] bool do_enable_writes(io_conn& conn, bool on = true) noexcept {
     return do_enable_interest(conn, EPOLLOUT, on);
   }
 
-  // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
-  // the registered `io_conn`. Returns false if `sock` is not registered or
-  // `epoll_ctl` fails.
-  [[nodiscard]] bool
-  do_enable_writes(os_file::file_handle_t fd, bool on = true) noexcept {
-    return do_enable_interest(fd, EPOLLOUT, on);
-  }
-
   // Add or remove `EPOLLRDHUP` from the event mask for `conn` without
   // changing the registered `io_conn`. Returns false if `epoll_ctl` fails.
   [[nodiscard]] bool do_enable_rdhup(io_conn& conn, bool on = true) noexcept {
     return do_enable_interest(conn, EPOLLRDHUP, on);
-  }
-
-  // Add or remove `EPOLLRDHUP` from the event mask for `sock` without
-  // changing the registered `io_conn`. Returns false if `sock` is not
-  // registered or `epoll_ctl` fails.
-  [[nodiscard]] bool
-  do_enable_rdhup(os_file::file_handle_t fd, bool on = true) noexcept {
-    return do_enable_interest(fd, EPOLLRDHUP, on);
   }
 
   // Add or remove `flag` from the event mask for `conn` without changing the
@@ -446,17 +417,6 @@ private:
 
     events = mask;
     return true;
-  }
-
-  // Add or remove `flag` from the event mask for `sock` without changing the
-  // registered `io_conn`. Returns false if `sock` is not registered or
-  // `epoll_ctl` fails. Skips `epoll_ctl` when the mask would be unchanged.
-  [[nodiscard]] bool do_enable_interest(os_file::file_handle_t fd,
-      uint32_t flag, bool on = true) noexcept {
-    assert(is_loop_thread());
-    auto found = find_opt(registrations_, fd);
-    if (!found) return false;
-    return do_enable_interest(**found, flag, on);
   }
 
   static constexpr uint32_t
