@@ -468,7 +468,7 @@ private:
   [[nodiscard]] bool refresh_read_interest() {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
-    return loop_.set_readable(sock(), wants_read_events());
+    return loop_.set_readable(*this, wants_read_events());
   }
 
   // Deliver `on_close` at most once for the lifetime of the connection.
@@ -530,7 +530,7 @@ private:
     if (!sock().shutdown(SHUT_RD))
       return do_close_now(close_mode::forceful) && false;
     read_open_ = false;
-    if (!loop_.set_readable(sock(), false)) return false;
+    if (!loop_.set_readable(*this, false)) return false;
     // Notify any `stream_async_base` that may have a pending read waiter.
     // `notify_read_closed` calls `active_handlers_->on_data` with an empty
     // buffer; persistent own handlers use `on_close` instead. Skip if a view
@@ -550,7 +550,7 @@ private:
     write_open_ = false;
     send_queue_.clear();
     head_span_ = {};
-    if (!loop_.set_writable(sock(), false)) return false;
+    if (!loop_.set_writable(*this, false)) return false;
     return maybe_finish_after_side_close() || true;
   }
 
@@ -596,8 +596,8 @@ private:
   [[nodiscard]] bool handle_read_eof() {
     assert(loop_.is_loop_thread());
     read_open_ = false;
-    loop_.set_readable(sock(), false);
-    loop_.set_rdhup(sock(), false);
+    loop_.set_readable(*this, false);
+    loop_.set_rdhup(*this, false);
     // Defer notifications: deliver any remaining buffered data and the EOF
     // signal once the live view destructs (via `resume_receive`).
     if (recv_buf_.view_active) {
@@ -607,6 +607,7 @@ private:
     // No view active. Deliver any buffered data first, then close.
     if (!recv_buf_.active().empty())
       if (!notify_read_ready()) return false;
+
     return do_eof_notifications() && false;
   }
 
@@ -617,7 +618,7 @@ private:
       return false;
     send_queue_.clear();
     head_span_ = {};
-    loop_.set_writable(sock(), false);
+    loop_.set_writable(*this, false);
     if (close_requested_ || !read_open_)
       return do_close_now(close_mode::forceful);
     return maybe_finish_after_side_close(close_mode::forceful);
@@ -650,7 +651,7 @@ private:
 
     if (send_queue_.empty()) {
       // No pending sends: disarm `EPOLLOUT` and signal that writes are open.
-      if (!loop_.set_writable(sock(), false))
+      if (!loop_.set_writable(*this, false))
         return do_close_now(close_mode::forceful) && false;
       return notify_drained();
     }
@@ -807,7 +808,7 @@ private:
     send_queue_.push_back(std::move(buf));
     head_span_ = send_queue_.front();
     head_span_.remove_prefix(sent);
-    return loop_.set_writable(sock());
+    return loop_.set_writable(*this);
   }
 
   // Drain `send_queue_` as far as `::write` allows, advancing `head_span_`.
@@ -839,7 +840,7 @@ private:
     }
 
     // Queue fully drained, so no need to keep `EPOLLOUT` armed.
-    if (!loop_.set_writable(sock(), false))
+    if (!loop_.set_writable(*this, false))
       return do_close_now(close_mode::forceful) && false;
 
     // If we were waiting to close, do so now. Notify any `stream_async_base`
