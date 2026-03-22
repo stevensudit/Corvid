@@ -480,8 +480,9 @@ private:
     if (h->on_data) {
       recv_buf_.view_active = true;
       return h->on_data(*this,
-          recv_buffer_view{recv_buf_,
-              [sp = self()](size_t n, size_t lse) { sp->resume_receive(n, lse); }});
+          recv_buffer_view{recv_buf_, [sp = self()](size_t n, size_t lse) {
+                             sp->resume_receive(n, lse);
+                           }});
     }
     return refresh_read_interest();
   }
@@ -499,8 +500,9 @@ private:
       recv_buf_.end.store(0, std::memory_order::relaxed);
       recv_buf_.view_active = true;
       return h->on_data(*this,
-          recv_buffer_view{recv_buf_,
-              [sp = self()](size_t n, size_t lse) { sp->resume_receive(n, lse); }});
+          recv_buffer_view{recv_buf_, [sp = self()](size_t n, size_t lse) {
+                             sp->resume_receive(n, lse);
+                           }});
     }
     return refresh_read_interest();
   }
@@ -578,10 +580,10 @@ private:
   // level-triggered and repeatedly wake the loop while the write side is
   // still open.
   //
-  // If a `recv_buffer_view` is currently live (`recv_buf_.view_active` is
-  // true), sets `eof_pending_` and defers notifications until the view
-  // destructs and `resume_receive` runs. This prevents a second view from
-  // being created while the first is still live.
+  // Sets `eof_pending_` and defers notifications if a `recv_buffer_view` is
+  // live when EOF arrives, or becomes live as a result of dispatching buffered
+  // data. In both cases `resume_receive` handles the EOF once the view
+  // destructs, ensuring at most one live view at a time.
   [[nodiscard]] bool handle_read_eof() {
     assert(loop_.is_loop_thread());
     read_open_ = false;
@@ -595,8 +597,17 @@ private:
       return true;
     }
     // No view active. Deliver any buffered data first, then close.
-    if (!recv_buf_.active().empty())
+    if (!recv_buf_.active().empty()) {
       if (!notify_read_ready()) return false;
+      // An async parser may have kept the view alive past the return of
+      // `on_data`. If so, defer EOF the same way as when EOF arrives while
+      // a view is already live: `resume_receive` will handle it once the
+      // view destructs.
+      if (recv_buf_.view_active) {
+        eof_pending_ = true;
+        return true;
+      }
+    }
 
     return do_eof_notifications() && false;
   }
@@ -726,8 +737,9 @@ private:
       if (!open_) return false;
       recv_buf_.view_active = false;
 
-      // Evaluate before compaction: compaction may reset `end` to `active_len`,
-      // making a post-compact comparison against `last_seen_end` meaningless.
+      // Evaluate before compaction: compaction may reset `end` to
+      // `active_len`, making a post-compact comparison against `last_seen_end`
+      // meaningless.
       const bool unseen_bytes =
           recv_buf_.end.load(std::memory_order::acquire) > last_seen_end;
       recv_buf_.compact(new_size);

@@ -301,10 +301,10 @@ public:
   }
 
 private:
-  recv_buffer* buf_;                           // non-owning; nulled on move
+  recv_buffer* buf_;                              // non-owning; nulled on move
   std::function<void(size_t, size_t)> resume_cb_; // keeps connection alive
-  size_t new_buffer_size_{};                   // 0 = no growth; set via `expand_to`
-  mutable size_t last_seen_end_{};             // updated by `active_view`
+  size_t new_buffer_size_{};       // 0 = no growth; set via `expand_to`
+  mutable size_t last_seen_end_{}; // updated by `active_view`
 };
 
 }} // namespace corvid::proto
