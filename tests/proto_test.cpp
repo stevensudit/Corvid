@@ -1231,6 +1231,80 @@ void RecvBuffer_Compact_NoResizeWhenTargetFits() {
   EXPECT_EQ(rb.buffer.capacity(), cap);
 }
 
+// `update_active_view` advances `begin` by the number of bytes the parser
+// moved past in an `active_view` snapshot. Calling it in stages is
+// equivalent to a single `consume` for the total consumed bytes.
+void RecvBufferView_UpdateActiveView() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 5, 'X');
+
+  recv_buffer_view v{rb, [](size_t, size_t) {}};
+
+  // First look: 5 bytes available.
+  std::string_view sv = v;
+  EXPECT_EQ(sv.size(), 5U);
+
+  // Advance 2 bytes into the snapshot, then inform the view.
+  sv.remove_prefix(2);
+  v.update_active_view(sv);
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 2U);
+
+  // Second look: 3 bytes remain at the new `begin`.
+  sv = v;
+  EXPECT_EQ(sv.size(), 3U);
+  EXPECT_EQ(sv[0], 'X');
+
+  // Consume the rest.
+  sv.remove_prefix(3);
+  v.update_active_view(sv);
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 5U);
+}
+
+// The moved-from view must not fire the resume callback; only the final
+// owner fires it, exactly once. `last_seen_end_` and `new_buffer_size_` are
+// carried over by the move so the callback receives correct values.
+void RecvBufferView_MoveSemantics() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 10, 'X');
+
+  if (true) {
+    // Move construction: moved-from is null; moved-to fires resume.
+    size_t fired_new_size{};
+    size_t fired_lse{};
+    {
+      recv_buffer_view v1{rb, [&](size_t n, size_t lse) {
+        fired_new_size = n;
+        fired_lse = lse;
+      }};
+      recv_buffer_view v2{std::move(v1)}; // v1 now null
+
+      // v2 retains full buffer access.
+      EXPECT_EQ(v2.active_view().size(), 10U); // also sets last_seen_end_ = 10
+      v2.expand_to(128);
+      // v1 destructs silently; v2 destructs and fires resume(128, 10).
+    }
+    EXPECT_EQ(fired_new_size, 128U);
+    EXPECT_EQ(fired_lse, 10U);
+  }
+
+  if (true) {
+    // Move assignment: original callback of the destination is displaced
+    // without firing; only the transferred callback fires.
+    int resume_count = 0;
+    {
+      recv_buffer_view v3{rb, [&](size_t, size_t) { ++resume_count; }};
+      recv_buffer_view v4{std::move(v3)}; // v3 null, v4 owns
+      {
+        recv_buffer_view v5{rb, [&](size_t, size_t) { ++resume_count; }};
+        v5 = std::move(v4); // v5 takes v4's view; v5's own callback is dropped
+        // v4 destructs (no-op); v5 destructs, fires v3's callback once.
+      }
+      // v3 destructs (no-op).
+    }
+    EXPECT_EQ(resume_count, 1);
+  }
+}
+
 void StreamConn_Lifecycle() {
   epoll_loop loop;
   auto this_is_the_loop_thread = loop.poll_thread_scope();
@@ -1345,6 +1419,62 @@ void StreamConn_PeerClose() {
   EXPECT_TRUE(conn->close());
   EXPECT_GE(loop.run_once(0), 0);
   EXPECT_FALSE(conn->is_open());
+}
+
+// When the peer sends data and then half-closes before the receiver reads,
+// the first `handle_readable` delivers the data via `on_data`. The subsequent
+// EOF event enters `handle_read_eof` with a non-empty buffer and no live view,
+// so it must dispatch `on_data` once more with the residual bytes (at which
+// point `can_read()` is already false) before firing `on_close`.
+void StreamConn_PeerClose_WithBufferedData() {
+  epoll_loop loop;
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  int data_count = 0;
+  bool read_open_at_eof_dispatch = true;
+  std::string received;
+  bool closed = false;
+
+  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_data =
+              [&](stream_conn& c, recv_buffer_view v) {
+                std::string_view av = v;
+                // First call: consume only 2 bytes, leaving "llo" in the
+                // buffer so that `handle_read_eof` sees a non-empty buffer.
+                const size_t n = (data_count == 0) ? 2 : av.size();
+                received.append(av.data(), n);
+                v.consume(n);
+                if (data_count == 1)
+                  read_open_at_eof_dispatch = c.can_read();
+                ++data_count;
+                return true;
+              },
+       .on_close =
+              [&](stream_conn&) {
+                closed = true;
+                return true;
+              }});
+  EXPECT_GE(loop.run_once(0), 0); // process posted register_with_loop
+
+  const std::string msg{"hello"};
+  auto msg_view = std::string_view{msg};
+  ASSERT_TRUE(b.send(msg_view) && msg_view.empty());
+  ASSERT_TRUE(b.shutdown(SHUT_WR)); // send EOF after data
+
+  // First iteration: reads "hello", dispatches on_data (consumes "he").
+  EXPECT_GE(loop.run_once(0), 0);
+  EXPECT_EQ(data_count, 1);
+  EXPECT_EQ(received, "he");
+  EXPECT_FALSE(closed);
+
+  // Second iteration: EOF arrives; `handle_read_eof` finds "llo" in the
+  // buffer, dispatches on_data with residual bytes, then fires on_close.
+  EXPECT_GE(loop.run_once(0), 0);
+  EXPECT_EQ(data_count, 2);
+  EXPECT_EQ(received, "hello");
+  EXPECT_FALSE(read_open_at_eof_dispatch); // read side already closed
+  EXPECT_TRUE(closed);
 }
 
 void StreamConn_Send() {
@@ -2147,8 +2277,10 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     RecvBuffer_Compact_WorthIt, RecvBuffer_Compact_SkipsUnnecessaryMove,
     RecvBuffer_Compact_GrowOnRequest, RecvBuffer_Compact_GrowToMinCapacity,
     RecvBuffer_Compact_Shrink, RecvBuffer_Compact_ShrinkSkippedIfActiveWontFit,
-    RecvBuffer_Compact_NoResizeWhenTargetFits, StreamConn_Lifecycle,
-    StreamConn_Receive, StreamConn_SetRecvBufSize, StreamConn_PeerClose,
+    RecvBuffer_Compact_NoResizeWhenTargetFits, RecvBufferView_UpdateActiveView,
+    RecvBufferView_MoveSemantics, StreamConn_Lifecycle, StreamConn_Receive,
+    StreamConn_SetRecvBufSize, StreamConn_PeerClose,
+    StreamConn_PeerClose_WithBufferedData,
     StreamConn_Send, StreamConn_ManualClose, StreamConn_DrainAfterBufferedSend,
     StreamConn_DrainAfterImmediateSend, StreamConn_AsyncCbRead,
     StreamConn_AsyncCbRead_PreservesEarlyData,
