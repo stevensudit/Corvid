@@ -455,7 +455,7 @@ void NetEndpoint_Construction() {
     EXPECT_TRUE(ep.is_ans());
     EXPECT_FALSE(ep.is_v4());
     EXPECT_FALSE(ep.is_v6());
-    // `uds_path()` skips the leading '\0' and returns the full 107-byte
+    // `uds_path` skips the leading '\0' and returns the full 107-byte
     // buffer.
     EXPECT_EQ(ep.uds_path().size(), 107U);
     EXPECT_EQ(ep.uds_path().substr(0, 9), "myservice");
@@ -534,7 +534,7 @@ void NetEndpoint_Parse() {
   }
 
   // An IPv4-mapped IPv6 address (e.g., `[::ffff:192.168.1.1]:80`) is stored
-  // as `AF_INET6` with no unwrapping. `to_string()` formats the address in
+  // as `AF_INET6` with no unwrapping. `to_string` formats the address in
   // pure colon-hex (RFC 5952), so `::ffff:192.168.1.1` appears as
   // `::ffff:c0a8:101`.
   if (true) {
@@ -664,7 +664,7 @@ void NetEndpoint_PosixInterop() {
     EXPECT_EQ(ntohs(as_v6->sin6_port), 4321U);
   }
 
-  // UDS: roundtrip through `as_sockaddr_un()` and back.
+  // UDS: roundtrip through `as_sockaddr_un` and back.
   if (true) {
     net_endpoint ep{"/tmp/interop.sock"};
     EXPECT_TRUE(!ep.empty());
@@ -974,8 +974,8 @@ void IoLoop_ErrorSkipsWritable() {
   EXPECT_EQ(conn->writable, 0); // must not fire when error/hup is reported
 }
 
-// The default `io_conn::on_error()` implementation falls through to
-// `on_readable()`. Verify this by registering a subclass that overrides only
+// The default `io_conn::on_error` implementation falls through to
+// `on_readable`. Verify this by registering a subclass that overrides only
 // `on_readable` and confirming it is called when the peer closes.
 void IoLoop_DefaultOnError() {
   struct readable_only_conn: io_conn {
@@ -1102,8 +1102,10 @@ void StreamConn_Receive() {
 
   std::string received;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_data = [&](stream_conn&, std::string& d) {
-        received = std::move(d);
+      {.on_data = [&](stream_conn&, recv_buffer_view v) {
+        std::string_view av = v;
+        received.assign(av);
+        v.consume(av.size());
         return true;
       }});
   EXPECT_GE(loop.run_once(0), 0); // process posted do_open()
@@ -1124,8 +1126,10 @@ void StreamConn_SetRecvBufSize() {
   std::vector<size_t> chunk_sizes;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
       {.on_data =
-              [&](stream_conn&, std::string& d) {
-                chunk_sizes.push_back(d.size());
+              [&](stream_conn&, recv_buffer_view v) {
+                std::string_view av = v;
+                chunk_sizes.push_back(av.size());
+                v.consume(av.size());
                 return true;
               }},
       4);
@@ -1310,8 +1314,10 @@ void StreamConn_AsyncCbRead() {
   EXPECT_GE(loop.run_once(0), 0); // process posted register_with_loop
 
   stream_async_cb cb{conn.pointer()};
-  ASSERT_TRUE(cb.read([&](std::string& data) {
-    received = std::move(data);
+  ASSERT_TRUE(cb.read([&](recv_buffer_view v) {
+    std::string_view av = v;
+    received.assign(av);
+    v.consume(av.size());
     return true;
   }));
 
@@ -1341,8 +1347,10 @@ void StreamConn_AsyncCbRead_PreservesEarlyData() {
       0); // read interest is disabled; data stays queued
 
   stream_async_cb cb{conn.pointer()};
-  ASSERT_TRUE(cb.read([&](std::string& data) {
-    received = std::move(data);
+  ASSERT_TRUE(cb.read([&](recv_buffer_view v) {
+    std::string_view av = v;
+    received.assign(av);
+    v.consume(av.size());
     return true;
   }));
 
@@ -1360,11 +1368,13 @@ void StreamConn_AsyncCbRead_DuplicateRejected() {
   EXPECT_GE(loop.run_once(0), 0); // process posted register_with_loop
 
   stream_async_cb cb{conn.pointer()};
-  ASSERT_TRUE(cb.read([&](std::string&) {
+  ASSERT_TRUE(cb.read([&](recv_buffer_view v) {
+    v.consume(std::string_view{v}.size());
     ++callback_count;
     return true;
   }));
-  EXPECT_FALSE(cb.read([&](std::string&) {
+  EXPECT_FALSE(cb.read([&](recv_buffer_view v) {
+    v.consume(std::string_view{v}.size());
     ++callback_count;
     return true;
   }));
@@ -1386,15 +1396,18 @@ void StreamConn_AsyncCbRead_PeerClose() {
   // `stream_async_cb` fully takes over the handlers, so the persistent
   // `on_close` on `own_handlers_` does not fire while the `stream_async_cb`
   // is active. Close notification arrives via `stream_async_cb::on_close`,
-  // which fires the pending `async_cb_read` callback with an empty string.
+  // which fires the pending read callback with an empty `recv_buffer_view`
+  // (signaling EOF).
   std::string received{"sentinel"};
   int callback_count = 0;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   EXPECT_GE(loop.run_once(0), 0); // process posted register_with_loop
 
   stream_async_cb cb{conn.pointer()};
-  ASSERT_TRUE(cb.read([&](std::string& data) {
-    received = std::move(data);
+  ASSERT_TRUE(cb.read([&](recv_buffer_view v) {
+    std::string_view av = v;
+    received.assign(av);
+    v.consume(av.size());
     ++callback_count;
     return true;
   }));
@@ -1477,8 +1490,10 @@ void StreamConn_ShutdownWrite() {
 
   std::string received;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_data = [&](stream_conn&, std::string& d) {
-        received = std::move(d);
+      {.on_data = [&](stream_conn&, recv_buffer_view v) {
+        std::string_view av = v;
+        received.assign(av);
+        v.consume(av.size());
         return true;
       }});
   EXPECT_GE(loop.run_once(0), 0); // process posted register_with_loop
@@ -1508,7 +1523,8 @@ void StreamConn_ShutdownRead() {
 
   int data_count = 0;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_data = [&](stream_conn&, std::string&) {
+      {.on_data = [&](stream_conn&, recv_buffer_view v) {
+        v.consume(std::string_view{v}.size());
         ++data_count;
         return true;
       }});
@@ -1522,7 +1538,7 @@ void StreamConn_ShutdownRead() {
   EXPECT_TRUE(conn->can_write());
   {
     stream_async_cb cb{conn.pointer()};
-    EXPECT_FALSE(cb.read([&](std::string&) {
+    EXPECT_FALSE(cb.read([&](recv_buffer_view) {
       ++data_count;
       return true;
     }));
@@ -1921,8 +1937,11 @@ void StreamConn_EchoServer() {
   // handlers, so no external handle is needed.
   auto listener = stream_conn_ptr::listen(loop,
       net_endpoint{ipv4_addr::loopback, 0},
-      {.on_data = [](stream_conn& conn, std::string& data) {
-        return conn.send(std::move(data));
+      {.on_data = [](stream_conn& conn, recv_buffer_view v) {
+        std::string_view av = v;
+        bool ok = conn.send(std::string{av});
+        v.consume(av.size());
+        return ok;
       }});
   ASSERT_TRUE(listener);
 
@@ -1939,8 +1958,10 @@ void StreamConn_EchoServer() {
 
   client_conn = stream_conn_ptr::connect(loop, server_ep,
       {.on_data =
-              [&](stream_conn&, std::string& data) {
-                received.append(data);
+              [&](stream_conn&, recv_buffer_view v) {
+                std::string_view av = v;
+                received.append(av);
+                v.consume(av.size());
                 if (received.size() >= msg.size()) done.notify_one(true);
                 return true;
               },

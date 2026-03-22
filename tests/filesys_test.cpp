@@ -628,6 +628,42 @@ void NetSocket_SendRecv() {
   EXPECT_EQ(raw_view, "raw");
 }
 
+void NetSocket_RecvAtContract() {
+  int fds[2];
+  ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+  net_socket reader{os_file{fds[0]}};
+  net_socket writer{os_file{fds[1]}};
+
+  EXPECT_TRUE(reader.set_nonblocking(true));
+
+  // Soft errors trim back to the supplied offset and succeed.
+  if (true) {
+    std::string buf(8, '\0');
+    no_zero::trim_to(buf, 5);
+    EXPECT_TRUE(reader.recv_at(buf, 5));
+    EXPECT_EQ(buf.size(), 5U);
+  }
+
+  // EOF leaves the caller's string unchanged and reports failure.
+  if (true) {
+    EXPECT_TRUE(writer.close());
+    std::string buf(8, '\0');
+    EXPECT_FALSE(reader.recv_at(buf, 3));
+    EXPECT_EQ(buf.size(), 8U);
+  }
+
+  // `recv()` still clears on hard failure.
+  if (true) {
+    EXPECT_TRUE(reader.close());
+    std::string buf(8, '\0');
+    errno = 0;
+    EXPECT_FALSE(reader.recv(buf));
+    EXPECT_TRUE(buf.empty());
+    EXPECT_EQ(errno, EBADF);
+  }
+}
+
 void NetSocket_BindListenAccept() {
   // Bind a listening socket to a free loopback port.
   net_socket listener{AF_INET, SOCK_STREAM, 0};
@@ -766,6 +802,7 @@ MAKE_TEST_LIST(OsFile_Lifecycle, OsFile_Move, OsFile_ReleaseFlags,
     EventFd_Release, EventFd_NotifyRead, EventFd_NonblockingEmptyRead,
     EventFd_Create, EventFd_SemaphoreMode, NetSocket_Move, NetSocket_Release,
     NetSocket_Options, NetSocket_Nonblocking, NetSocket_SendRecv,
+    NetSocket_RecvAtContract,
     NetSocket_BindListenAccept, NetSocket_FactoryMethods);
 
 // NOLINTEND(bugprone-unchecked-optional-access)

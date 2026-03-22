@@ -26,6 +26,9 @@
 
 namespace corvid { inline namespace proto {
 
+// TODO: !!! Consider switching socket over to EPOLLONESHOT when this class is
+// in control.
+
 // Base class for per-call async wrappers around a `stream_conn`. These are
 // facades that provide alternative async interfaces (e.g., callback-based or
 // coroutine-based) by temporarily installing their own handlers into the
@@ -33,7 +36,7 @@ namespace corvid { inline namespace proto {
 // handlers are restored when the wrapper object is destroyed.
 //
 //  Holds a `shared_ptr<stream_conn>` and a `stream_conn_handlers`. On
-//  construction of a derived class, `install_handlers()` atomically swaps the
+//  construction of a derived class, `install_handlers` atomically swaps the
 //  `stream_conn::active_handlers_` pointer from
 //  `&stream_conn::own_handlers_` to `&stream_async_base::handlers_`. On
 //  destruction, it is restored. The `stream_conn` therefore invokes whichever
@@ -41,17 +44,17 @@ namespace corvid { inline namespace proto {
 //  hierarchy.
 //
 //  Derived classes must fully initialize the `handlers_` in their constructor
-//  before calling `install_handlers()`. If `install_handlers()` fails (another
-//  facade already owns the connection), `conn_` is cleared and `is_valid()`
-//  returns false. All other methods are undefined behavior if `!is_valid()`.
+//  before calling `install_handlers`. If `install_handlers` fails (another
+//  facade already owns the connection), `conn_` is cleared and `is_valid`
+//  returns false. All other methods are undefined behavior if `!is_valid`.
 //
 //  Non-copyable and non-movable: the address of `handlers_` is baked into the
 //  connection's atomic pointer, so the object must not relocate in memory.
 //
-//  Thread safety: `install_handlers()` and the destructor use an atomic CAS /
+//  Thread safety: `install_handlers` and the destructor use an atomic CAS /
 //  store on the pointer, which is lock-free and does not require the loop
-//  thread. `refresh_read_interest()` is posted to the loop asynchronously
-//  after each pointer swap.
+//  thread. `disable_reads_now` / `restore_reads` are posted to the loop
+//  asynchronously after each pointer swap.
 class stream_async_base {
 public:
   stream_async_base(const stream_async_base&) = delete;
@@ -59,7 +62,7 @@ public:
   stream_async_base& operator=(const stream_async_base&) = delete;
   stream_async_base& operator=(stream_async_base&&) = delete;
 
-  // True if `install_handlers()` succeeded and this facade owns the
+  // True if `install_handlers` succeeded and this facade owns the
   // connection's handler slot. Call after construction and before any other
   // method.
   [[nodiscard]] bool is_valid() const noexcept { return !!conn_; }
@@ -79,21 +82,21 @@ protected:
 
   // The handlers we install into the connection while this object is alive.
   // Derived class fills these in its constructor, then calls
-  // `install_handlers()`.
+  // `install_handlers`.
   stream_conn_handlers handlers_;
 
   // Stores `conn`. Does NOT install handlers yet; the derived class must call
-  // `install_handlers()` after fully initializing `handlers_`.
+  // `install_handlers` after fully initializing `handlers_`.
   explicit stream_async_base(std::shared_ptr<stream_conn> conn)
       : conn_(std::move(conn)) {}
 
   // Atomically redirect the connection's active-handler pointer from
   // `&own_handlers_` to `&handlers_`. On failure (another facade already owns
-  // the connection), clears `conn_` so that `is_valid()` returns false. On
-  // success, posts `refresh_read_interest()` to the loop to re-evaluate read
-  // interest. Since `handlers_.on_data` starts null for all derived types,
-  // this will disarm (or confirm already-disarmed) `EPOLLIN` until a read is
-  // registered.
+  // the connection), clears `conn_` so that `is_valid` returns false. On
+  // success, posts `disable_reads_now` to the loop to disarm EPOLLIN.
+  // Derived constructors set the persistent `handlers_.on_data` before calling
+  // this; `arm_read_cb` / `arm_read` later re-enable reads via
+  // `enable_reads_now`.
   bool install_handlers() {
     auto* expected = &conn_->own_handlers_;
     // Access conn_->loop_ here (friend access in member function). The
@@ -106,27 +109,50 @@ protected:
       conn_.reset();
       return false;
     }
-    return conn_->loop_.post([p = conn_] {
-      return refresh_read_interest(*p);
-    });
+    return conn_->loop_.post([p = conn_] { return disable_reads_now(*p); });
   }
 
   // NOLINTBEGIN(bugprone-exception-escape)
   ~stream_async_base() {
     if (!conn_) return;
     // Restore the pointer to the connection's own handlers. We own it
-    // exclusively while active (enforced by the CAS in `install_handlers()`).
+    // exclusively while active (enforced by the CAS in `install_handlers`).
     conn_->active_handlers_.store(&conn_->own_handlers_,
         std::memory_order::release);
-    (void)conn_->loop_.post([p = conn_] { return refresh_read_interest(*p); });
+    // Re-evaluate EPOLLIN for the restored handlers: enable reads if
+    // `own_handlers_.on_data` is set, otherwise leave disabled.
+    (void)conn_->loop_.post([p = conn_] { return restore_reads(*p); });
   }
   // NOLINTEND(bugprone-exception-escape)
 
-  // Static trampoline used by posted lambdas. Static member functions of a
-  // friend class have friend access, whereas lambdas defined inside those
-  // functions do not.
-  static bool refresh_read_interest(stream_conn& conn) {
-    return conn.refresh_read_interest();
+  // Trampolines: static member functions of a friend class have friend access
+  // to `stream_conn` private members; lambdas defined inside member functions
+  // do not inherit that access.
+
+  // Disable reads on `c`. Posted by `install_handlers` to disarm EPOLLIN.
+  static bool disable_reads_now(stream_conn& c) { return c.disable_reads(); }
+
+  // Enable reads on `c`. Called by `arm_read_cb` / `arm_read`.
+  static bool enable_reads_now(stream_conn& c) { return c.enable_reads(); }
+
+  // Re-evaluate EPOLLIN after restoring `own_handlers_`. Enables reads if
+  // `own_handlers_.on_data` is set; otherwise leaves disabled.
+  static bool restore_reads(stream_conn& c) {
+    c.recv_buf_.reads_enabled = !!c.own_handlers_.on_data;
+    return c.refresh_read_interest();
+  }
+
+  // Construct an EOF `recv_buffer_view` over `c`'s `recv_buf_` (begin=end=0).
+  // The resume callback captures a `shared_ptr<stream_conn>` to keep the
+  // connection alive while the view is live. Called from `on_close` to
+  // satisfy any in-flight read callback with an empty (EOF) view.
+
+  // TODO: !!! This is misnamed. It actually wiped the connection's buffer.
+  static recv_buffer_view make_eof_view_for(stream_conn& c) {
+    c.recv_buf_.begin.store(0, std::memory_order::relaxed);
+    c.recv_buf_.end.store(0, std::memory_order::relaxed);
+    return recv_buffer_view{c.recv_buf_,
+        [sp = c.self()](size_t n) { sp->resume_receive(n); }};
   }
 
   // Wrap `stream_conn::exec_lambda` for derived classes. C++ friendship is
@@ -143,9 +169,7 @@ protected:
     return conn_->enqueue_send(std::move(buf));
   }
 
-  // Post `fn` to the loop. Used by derived classes and their member lambdas
-  // to resume coroutine handles without needing direct friend access to
-  // `loop_`.
+  // Unconditionally post `fn` to the loop.
   template<typename FN>
   bool post(FN&& fn) {
     return conn_->loop_.post(std::forward<FN>(fn));
@@ -153,31 +177,45 @@ protected:
 };
 
 // Facade for callback-driven asynchronous I/O on a `stream_conn`. Provides
-// `read` and `write` for one-shot async I/O, and `sync_read` for blocking
-// reads from a non-loop thread.
+// `read` and `write` for one-shot async I/O.
 //
 // Usage:
 //
 //   stream_async_cb cb{conn_ptr.pointer()};  // or any shared_ptr<stream_conn>
-//   cb.read([](std::string& data) { ... });
+//   cb.read([](recv_buffer_view v) {
+//       std::string_view data = v;
+//       // Not shown: data being processed
+//       v.consume(data.size());
+//       return true;
+//   });
 //   cb.write(std::move(buf), [](bool ok) { ... });
 //   // handlers restored when cb goes out of scope
 //
 // At most one `read` and one `write` may be outstanding at a time.
 //
-// When the connection closes while a callback is pending, the callback is
-// invoked with an empty string (read) or `false` (write), and the connection
-// is closed gracefully.
+// `EPOLLIN` is gated by `recv_buffer::reads_enabled`. `on_data` is set
+// persistently in the constructor; `read` calls `enable_reads_now` to
+// arm EPOLLIN, and the delivery handler calls `disable_reads_now` to disarm
+// it after each batch, providing back-pressure until the next `read`.
+//
+// When the connection closes while a callback is pending, the read callback
+// is invoked with an empty `recv_buffer_view` (signals EOF), and the write
+// callback is invoked with `false`.
 class stream_async_cb: public stream_async_base {
 public:
-  using async_read_cb = std::function<bool(std::string&)>;
+  using async_read_cb = std::function<bool(recv_buffer_view)>;
   using async_write_cb = std::function<bool(bool completed)>;
 
   explicit stream_async_cb(std::shared_ptr<stream_conn> conn)
       : stream_async_base(std::move(conn)) {
-    // `on_data` starts null; `arm_read_cb()` sets it when `read()` registers
-    // a pending callback. EPOLLIN is armed only while a read is pending,
-    // providing back-pressure otherwise.
+    // Persistent `on_data`: deliver the pending callback and disarm EPOLLIN.
+    // EPOLLIN is re-armed by `arm_read_cb` when the next `read` call
+    // registers a callback.
+    handlers_.on_data = [this](stream_conn& c, recv_buffer_view v) -> bool {
+      if (!disable_reads_now(c)) return false;
+      if (!read_cb_) return true;
+      return std::exchange(read_cb_, nullptr)(std::move(v));
+    };
     handlers_.on_drain = [this](stream_conn&) {
       if (!write_cb_) return false;
       return std::exchange(write_cb_, nullptr)(true);
@@ -185,9 +223,9 @@ public:
     handlers_.on_close = [this](stream_conn& c) {
       bool not_handled = false;
       if (read_cb_) {
-        handlers_.on_data = {}; // cancel the one-shot arm
-        std::string empty;
-        not_handled = !std::exchange(read_cb_, nullptr)(empty);
+        // Deliver an EOF view (begin=end=0 over the real recv_buf_).
+        auto v = make_eof_view_for(c);
+        not_handled = !std::exchange(read_cb_, nullptr)(std::move(v));
       }
       if (write_cb_) not_handled |= !std::exchange(write_cb_, nullptr)(false);
       return c.close() && !not_handled;
@@ -196,11 +234,12 @@ public:
   }
 
   // Receive data once it becomes available. The callback is invoked on the
-  // loop thread with the received data; it may `std::move` from it. If the
-  // connection closes before data arrives, the callback is invoked with an
-  // empty string.
+  // loop thread with a `recv_buffer_view`; call `active_view` (or use the
+  // implicit `std::string_view` conversion) to read data, and `consume(n)` to
+  // advance the consume pointer. If the connection closes before data arrives,
+  // the callback is invoked with an empty view.
   //
-  // The read callback may call `write()` to queue a response, or call `read()`
+  // The read callback may call `write` to queue a response, or call `read`
   // again. Either way, it must not block or perform heavy work, since it's
   // running on the loop thread. If it has extended work to do, it should post
   // that work to a worker thread.
@@ -211,7 +250,10 @@ public:
     if (!cb || !conn_->is_open() || !conn_->can_read() || read_cb_)
       return false;
     read_cb_ = std::move(cb);
-    return exec_on_loop([this]() -> bool {
+    // Always post (never run inline) to guarantee ordering: the
+    // `disable_reads_now` task posted by `install_handlers` must run before
+    // `arm_read_cb` re-enables reads.
+    return post([this]() -> bool {
       if (!conn_->is_open() || !conn_->can_read() || !read_cb_) return false;
       return arm_read_cb();
     });
@@ -241,21 +283,9 @@ private:
   async_read_cb read_cb_;
   async_write_cb write_cb_;
 
-  // Set `handlers_.on_data` to deliver the pending callback once, then
-  // disarm. Called on the loop thread from within the `exec_on_loop` lambda
-  // in `read()`. After one batch is delivered the handler clears itself so
-  // that `EPOLLIN` is disarmed until the next `read()` call.
-  bool arm_read_cb() {
-    handlers_.on_data = [this](stream_conn&, std::string& d) {
-      // Disarm the handler and update EPOLLIN before invoking the callback.
-      handlers_.on_data = {};        // one-shot: disarm after delivery
-      refresh_read_interest(*conn_); // update EPOLLIN (disarms it)
-      if (!read_cb_) return false;
-      return std::exchange(read_cb_, nullptr)(d);
-    };
-    // arm EPOLLIN immediately (loop thread)
-    return refresh_read_interest(*conn_);
-  }
+  // Enable reads to arm EPOLLIN for the pending callback. Called on the loop
+  // thread from the posted lambda in `read`.
+  bool arm_read_cb() { return enable_reads_now(*conn_); }
 };
 
 // Facade for coroutine-based asynchronous I/O on a `stream_conn`. Provides
@@ -268,12 +298,12 @@ private:
 //   if (data.empty()) return;          // connection closed
 //   co_await coro.write(std::move(data));
 //
-// `EPOLLIN` is armed only while a read waiter is registered:
-// `handlers_.on_data` starts null and is set for exactly one read at a time.
-// This prevents data from being consumed by `handle_readable` without a
-// pending reader.
+// `EPOLLIN` is gated by `recv_buffer::reads_enabled`. `on_data` is set
+// persistently in the constructor; `arm_read` calls `enable_reads_now` to
+// arm EPOLLIN, and the delivery handler calls `disable_reads_now` to disarm
+// it after each batch.
 //
-// Coroutine resumption is always via `post()`, never inline, to avoid
+// Coroutine resumption is always via `post`, never inline, to avoid
 // use-after-free when `do_close_now` fires from within `await_suspend`.
 //
 // At most one `read` and one `write` may be outstanding at a time.
@@ -283,8 +313,20 @@ class stream_async_coro: public stream_async_base {
 public:
   explicit stream_async_coro(std::shared_ptr<stream_conn> conn)
       : stream_async_base(std::move(conn)) {
-    // `on_data` starts null; `arm_read()` sets it when a read waiter
+    // Persistent `on_data`: deliver data to the waiting coroutine and disarm
+    // EPOLLIN. `arm_read` re-enables reads when the next read waiter
     // registers.
+    handlers_.on_data = [this](stream_conn& c, recv_buffer_view v) -> bool {
+      if (!disable_reads_now(c)) return false;
+      if (!read_coro_) return true;
+      std::string_view av = v;
+      pending_read_data_.assign(av);
+      v.consume(av.size());
+      return post([h = std::exchange(read_coro_, {})] {
+        h.resume();
+        return true;
+      });
+    };
     handlers_.on_drain = [this](stream_conn&) {
       if (write_coro_)
         return post([h = std::exchange(write_coro_, {})] {
@@ -295,6 +337,7 @@ public:
     };
     handlers_.on_close = [this](stream_conn& c) {
       if (read_coro_) {
+        // Signal EOF: deliver an empty string via the pending coroutine.
         pending_read_data_.clear();
         post([h = std::exchange(read_coro_, {})] {
           h.resume();
@@ -306,7 +349,7 @@ public:
           h.resume();
           return true;
         });
-      // replicate the auto-close that fires when no handler exists
+      // Replicate the auto-close that fires when no handler exists.
       return c.close();
     };
     install_handlers();
@@ -330,24 +373,10 @@ private:
   std::coroutine_handle<> write_coro_;
   std::string pending_read_data_;
 
-  // Set `handlers_.on_data` to receive the next batch of data and arm
-  // `EPOLLIN`. Called from `read_awaitable::await_suspend` on the loop
-  // thread. After one batch is delivered the handler clears itself so that
-  // `EPOLLIN` is disarmed until the next `read()` call.
-  bool arm_read() {
-    handlers_.on_data = [this](stream_conn&, std::string& d) {
-      handlers_.on_data = {};        // disarm until next read()
-      refresh_read_interest(*conn_); // update EPOLLIN (disarms it)
-      if (!read_coro_) return false;
-      pending_read_data_ = std::move(d);
-      return post([h = std::exchange(read_coro_, {})] {
-        h.resume();
-        return true;
-      });
-    };
-    // arm EPOLLIN immediately (loop thread)
-    return refresh_read_interest(*conn_);
-  }
+  // Enable reads to arm EPOLLIN for the waiting coroutine. Always called via
+  // a posted lambda from `read_awaitable::await_suspend` to guarantee ordering
+  // relative to the `disable_reads_now` task posted by `install_handlers`.
+  bool arm_read() { return enable_reads_now(*conn_); }
 
   // NOLINTBEGIN(readability-convert-member-functions-to-static)
   struct read_awaitable {
@@ -363,7 +392,9 @@ private:
     void await_suspend(std::coroutine_handle<> h) {
       assert(!c_->read_coro_);
       c_->read_coro_ = h;
-      c_->arm_read();
+      // Always post arm_read() (never run inline) to guarantee ordering
+      // relative to the `disable_reads_now` task posted by install_handlers().
+      c_->post([c = c_]() -> bool { return c->arm_read(); });
     }
 
     // NOLINTNEXTLINE(readability-make-member-function-const)
@@ -372,7 +403,7 @@ private:
     }
   };
 
-  // `write_coro_` is set BEFORE `do_enqueue_send()` is called so that if
+  // `write_coro_` is set BEFORE `do_enqueue_send` is called so that if
   // `do_enqueue_send` triggers `do_close_now`, `on_close` fires and resumes
   // the coro before `await_suspend` returns. `await_suspend` always returns
   // `true` (stay suspended); the coro is resumed via a posted task in all

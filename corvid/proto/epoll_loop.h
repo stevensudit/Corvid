@@ -379,6 +379,13 @@ private:
   // Add or remove `flag` from the event mask for `sock` without changing the
   // registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails.
+  //
+  // TODO: !!! Look into how we can avoid calling epoll when this is a no-op.
+  // It means checking whether the new flag would differ from the one we have
+  // on record. We might want to consider moving the events mask into the
+  // `io_conn` subclass so we can pass the `io_conn&` to a version of this
+  // function and bypass the lookup entirely. However, we should still require
+  // being in the polling thread.
   [[nodiscard]] bool do_set_interest(os_file::file_handle_t fd, uint32_t flag,
       bool on = true) noexcept {
     assert(is_loop_thread());
