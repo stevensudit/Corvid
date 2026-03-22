@@ -192,7 +192,7 @@ public:
   }
 
   // Read up to `data.size` bytes from the socket into `data`, honoring
-  // `flags` as in POSIX `recv`.
+  // `flags` as in POSIX `::recv`.
   //
   // On success, resizes `data` to the number of bytes read and returns true. A
   // "soft" failure (e.g., EAGAIN) is treated as success with zero bytes read.
