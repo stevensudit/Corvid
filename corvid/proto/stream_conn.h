@@ -362,7 +362,7 @@ private:
   // Note: `EPOLLRDHUP` (normal peer half-close) is always armed but is routed
   // through `on_readable` by `dispatch_event`, so it never reaches here.
   //
-  // When `EPOLLHUP | `EPOLLIN`` fires in the same wakeup, `dispatch_event`
+  // When `EPOLLHUP | EPOLLIN` fires in the same wakeup, `dispatch_event`
   // calls `on_readable` first to drain any buffered data before calling
   // `on_error`. That single `recv` in `handle_readable` may not fully
   // empty the kernel receive buffer, so `peek_eof` can still return `false`

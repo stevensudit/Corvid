@@ -452,8 +452,7 @@ private:
 
   // Dispatch a single epoll event for `fd` with event mask `ev`. The
   // `shared_ptr<io_conn>` is copied before any virtual call so the object
-  // stays alive even if a callback calls `unregister_socket`.
-  // Dispatch a single epoll event for `fd` with event mask `ev`. Returns
+  // stays alive even if a callback calls `unregister_socket`. Returns
   // whether the event was dispatched.
   [[nodiscard]] bool dispatch_event(int fd, uint32_t ev) {
     assert(is_loop_thread());
