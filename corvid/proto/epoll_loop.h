@@ -75,7 +75,7 @@ private:
 //
 // Call `register_socket` to register an `io_conn`. Read and write readiness
 // interest can be chosen at registration time and later toggled with
-// `set_readable` / `set_writable` without disturbing the registered
+// `enable_reads` / `enable_writes` without disturbing the registered
 // `io_conn`. `EPOLLERR | EPOLLHUP` stay armed regardless, so sockets still
 // observe closure and error transitions even when regular reads are disarmed.
 //
@@ -90,7 +90,7 @@ private:
 // `notifiable<std::atomic_bool>`) and writes to `wake_fd_` so the loop exits
 // promptly even if blocked in `epoll_wait`.
 //
-// `register_socket`, `unregister_socket`, `set_readable`, and `set_writable`
+// `register_socket`, `unregister_socket`, `enable_reads`, and `enable_writes`
 // are NOT inherently thread-safe, but they automatically promote a call from
 // outside the active polling thread for this loop into a `post`.
 //
@@ -143,10 +143,10 @@ public:
   // the registered `io_conn`. Returns false if `conn` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post` and returns true.
-  bool set_readable(io_conn& conn, bool on = true) {
+  bool enable_reads(io_conn& conn, bool on = true) {
     auto sp = conn.shared_from_this();
     return execute_or_post([this, sp = std::move(sp), on] {
-      return do_set_readable(*sp, on);
+      return do_enable_reads(*sp, on);
     });
   }
 
@@ -154,9 +154,9 @@ public:
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post` and returns true.
-  bool set_readable(const net_socket& sock, bool on = true) {
+  bool enable_reads(const net_socket& sock, bool on = true) {
     const auto fd = sock.handle();
-    return execute_or_post([this, fd, on] { return do_set_readable(fd, on); });
+    return execute_or_post([this, fd, on] { return do_enable_reads(fd, on); });
   }
 
   // Add or remove `EPOLLRDHUP` from the event mask for `conn` without
@@ -164,10 +164,10 @@ public:
   // observed on the read side to prevent repeated level-triggered wakeups.
   // Returns false if `conn` is not registered or `epoll_ctl` fails. If
   // executed outside of loop thread, turns into a `post` and returns true.
-  bool set_rdhup(io_conn& conn, bool on = true) {
+  bool enable_rdhup(io_conn& conn, bool on = true) {
     auto sp = conn.shared_from_this();
     return execute_or_post([this, sp = std::move(sp), on] {
-      return do_set_rdhup(*sp, on);
+      return do_enable_rdhup(*sp, on);
     });
   }
 
@@ -176,19 +176,19 @@ public:
   // observed on the read side to prevent repeated level-triggered wakeups.
   // Returns false if `sock` is not registered or `epoll_ctl` fails. If
   // executed outside of loop thread, turns into a `post` and returns true.
-  bool set_rdhup(const net_socket& sock, bool on = true) {
+  bool enable_rdhup(const net_socket& sock, bool on = true) {
     const auto fd = sock.handle();
-    return execute_or_post([this, fd, on] { return do_set_rdhup(fd, on); });
+    return execute_or_post([this, fd, on] { return do_enable_rdhup(fd, on); });
   }
 
   // Add or remove `EPOLLOUT` from the event mask for `conn` without changing
   // the registered `io_conn`. Returns false if `conn` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post` and returns true.
-  bool set_writable(io_conn& conn, bool on = true) {
+  bool enable_writes(io_conn& conn, bool on = true) {
     auto sp = conn.shared_from_this();
     return execute_or_post([this, sp = std::move(sp), on] {
-      return do_set_writable(*sp, on);
+      return do_enable_writes(*sp, on);
     });
   }
 
@@ -196,9 +196,11 @@ public:
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. If executed outside of loop thread, turns into a
   // `post` and returns true.
-  bool set_writable(const net_socket& sock, bool on = true) {
+  bool enable_writes(const net_socket& sock, bool on = true) {
     const auto fd = sock.handle();
-    return execute_or_post([this, fd, on] { return do_set_writable(fd, on); });
+    return execute_or_post([this, fd, on] {
+      return do_enable_writes(fd, on);
+    });
   }
 
   // Unregister `sock`. Returns false if `sock` is not registered or
@@ -212,7 +214,7 @@ public:
   // Schedule `fn` to run at the top of the next `run_once` iteration,
   // before `epoll_wait`. Safe to call from any thread. This is the right
   // place to invoke user completion callbacks, hand work to a thread pool,
-  // or call `register_socket`/`unregister_socket`/`set_writable` from outside
+  // or call `register_socket`/`unregister_socket`/`enable_writes` from outside
   // the dispatch loop.
   //
   // When a thread pool finishes work, it calls `post` to bring the result
@@ -386,50 +388,50 @@ private:
 
   // Add or remove `EPOLLIN` from the event mask for `conn` without changing
   // the registered `io_conn`. Returns false if `epoll_ctl` fails.
-  [[nodiscard]] bool do_set_readable(io_conn& conn, bool on = true) noexcept {
-    return do_set_interest(conn, EPOLLIN, on);
+  [[nodiscard]] bool do_enable_reads(io_conn& conn, bool on = true) noexcept {
+    return do_enable_interest(conn, EPOLLIN, on);
   }
 
   // Add or remove `EPOLLIN` from the event mask for `sock` without changing
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails.
   [[nodiscard]] bool
-  do_set_readable(os_file::file_handle_t fd, bool on = true) noexcept {
-    return do_set_interest(fd, EPOLLIN, on);
+  do_enable_reads(os_file::file_handle_t fd, bool on = true) noexcept {
+    return do_enable_interest(fd, EPOLLIN, on);
   }
 
   // Add or remove `EPOLLOUT` from the event mask for `conn` without changing
   // the registered `io_conn`. Returns false if `epoll_ctl` fails.
-  [[nodiscard]] bool do_set_writable(io_conn& conn, bool on = true) noexcept {
-    return do_set_interest(conn, EPOLLOUT, on);
+  [[nodiscard]] bool do_enable_writes(io_conn& conn, bool on = true) noexcept {
+    return do_enable_interest(conn, EPOLLOUT, on);
   }
 
   // Add or remove `EPOLLOUT` from the event mask for `sock` without changing
   // the registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails.
   [[nodiscard]] bool
-  do_set_writable(os_file::file_handle_t fd, bool on = true) noexcept {
-    return do_set_interest(fd, EPOLLOUT, on);
+  do_enable_writes(os_file::file_handle_t fd, bool on = true) noexcept {
+    return do_enable_interest(fd, EPOLLOUT, on);
   }
 
   // Add or remove `EPOLLRDHUP` from the event mask for `conn` without
   // changing the registered `io_conn`. Returns false if `epoll_ctl` fails.
-  [[nodiscard]] bool do_set_rdhup(io_conn& conn, bool on = true) noexcept {
-    return do_set_interest(conn, EPOLLRDHUP, on);
+  [[nodiscard]] bool do_enable_rdhup(io_conn& conn, bool on = true) noexcept {
+    return do_enable_interest(conn, EPOLLRDHUP, on);
   }
 
   // Add or remove `EPOLLRDHUP` from the event mask for `sock` without
   // changing the registered `io_conn`. Returns false if `sock` is not
   // registered or `epoll_ctl` fails.
   [[nodiscard]] bool
-  do_set_rdhup(os_file::file_handle_t fd, bool on = true) noexcept {
-    return do_set_interest(fd, EPOLLRDHUP, on);
+  do_enable_rdhup(os_file::file_handle_t fd, bool on = true) noexcept {
+    return do_enable_interest(fd, EPOLLRDHUP, on);
   }
 
   // Add or remove `flag` from the event mask for `conn` without changing the
   // registered `io_conn`. Returns false if `epoll_ctl` fails.
   [[nodiscard]] bool
-  do_set_interest(io_conn& conn, uint32_t flag, bool on = true) noexcept {
+  do_enable_interest(io_conn& conn, uint32_t flag, bool on = true) noexcept {
     assert(is_loop_thread());
     const auto fd = conn.sock().handle();
     assert(registrations_.contains(fd));
@@ -449,19 +451,19 @@ private:
   // Add or remove `flag` from the event mask for `sock` without changing the
   // registered `io_conn`. Returns false if `sock` is not registered or
   // `epoll_ctl` fails. Skips `epoll_ctl` when the mask would be unchanged.
-  [[nodiscard]] bool do_set_interest(os_file::file_handle_t fd, uint32_t flag,
-      bool on = true) noexcept {
+  [[nodiscard]] bool do_enable_interest(os_file::file_handle_t fd,
+      uint32_t flag, bool on = true) noexcept {
     assert(is_loop_thread());
     auto found = find_opt(registrations_, fd);
     if (!found) return false;
-    return do_set_interest(**found, flag, on);
+    return do_enable_interest(**found, flag, on);
   }
 
   static constexpr uint32_t
   make_event_mask(bool readable = false, bool writable = false) noexcept {
     // `EPOLLRDHUP` is armed by default so that peer half-closes (`SHUT_WR`)
     // are detected even when `EPOLLIN` is not subscribed. It can be disarmed
-    // after EOF is observed via `set_rdhup(sock, false)`.
+    // after EOF is observed via `enable_rdhup(sock, false)`.
     // This loop intentionally stays level-triggered. `stream_conn` only arms
     // `EPOLLOUT` while a send queue is backpressured, so LT does not create
     // steady writable wakeups, and switching to `EPOLLET` would require

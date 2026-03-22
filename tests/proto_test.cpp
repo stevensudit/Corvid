@@ -864,7 +864,7 @@ void IoLoop_PreStartWorkIsQueued() {
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->readable, 0);
 
-  ASSERT_TRUE(loop.set_readable(conn->sock(), true));
+  ASSERT_TRUE(loop.enable_reads(conn->sock(), true));
   EXPECT_GE(loop.run_once(0), 0);
   EXPECT_EQ(conn->readable, 1);
 }
@@ -900,7 +900,7 @@ void IoLoop_RegisterUnregister() {
   EXPECT_EQ(conn->readable, 1);
 }
 
-// `set_writable(true)` arms `EPOLLOUT`; the kernel fires it when the kernel
+// `enable_writes(true)` arms `EPOLLOUT`; the kernel fires it when the kernel
 // send buffer has space, which it does immediately on a fresh socketpair.
 void IoLoop_SetWritable() {
   epoll_loop loop;
@@ -914,12 +914,12 @@ void IoLoop_SetWritable() {
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->writable, 0);
 
-  loop.set_writable(conn->sock(), true);
+  loop.enable_writes(conn->sock(), true);
   EXPECT_GE(loop.run_once(0), 0);
   EXPECT_GE(conn->writable, 1);
 
   // Disarm; no further writable events.
-  loop.set_writable(conn->sock(), false);
+  loop.enable_writes(conn->sock(), false);
   const int w = conn->writable;
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->writable, w);
@@ -940,7 +940,7 @@ void IoLoop_SetReadable() {
   EXPECT_EQ(conn->readable, 0);
   EXPECT_EQ(conn->writable, 0);
 
-  ASSERT_TRUE(loop.set_readable(conn->sock(), true));
+  ASSERT_TRUE(loop.enable_reads(conn->sock(), true));
   EXPECT_GE(loop.run_once(0), 0);
   EXPECT_EQ(conn->readable, 1);
   EXPECT_EQ(conn->writable, 0);
@@ -948,8 +948,8 @@ void IoLoop_SetReadable() {
   std::string buf(8, '\0');
   (void)conn->sock().read(buf);
 
-  ASSERT_TRUE(loop.set_readable(conn->sock(), false));
-  ASSERT_TRUE(loop.set_writable(conn->sock(), true));
+  ASSERT_TRUE(loop.enable_reads(conn->sock(), false));
+  ASSERT_TRUE(loop.enable_writes(conn->sock(), true));
   EXPECT_GE(loop.run_once(0), 0);
   EXPECT_EQ(conn->readable, 1);
   EXPECT_GE(conn->writable, 1);
@@ -965,7 +965,7 @@ void IoLoop_ErrorSkipsWritable() {
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
   ASSERT_TRUE(loop.register_socket(conn));
-  loop.set_writable(conn->sock(), true); // arm EPOLLOUT
+  loop.enable_writes(conn->sock(), true); // arm EPOLLOUT
 
   b.close(); // triggers EPOLLHUP on `a`
 
@@ -1030,7 +1030,7 @@ void IoLoop_IsLoopThreadIsPerLoop() {
   ASSERT_TRUE(b.send(msg_view) && msg_view.empty());
   EXPECT_EQ(loop_b.run_once(0), 0);
 
-  ASSERT_TRUE(loop_b.set_readable(conn->sock(), true));
+  ASSERT_TRUE(loop_b.enable_reads(conn->sock(), true));
   EXPECT_EQ(loop_b.run_once(0), 1);
   EXPECT_EQ(conn->readable, 1);
 }
