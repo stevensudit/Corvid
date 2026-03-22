@@ -193,27 +193,31 @@ struct recv_buffer {
 // Limited-interface token handed to the parser via the `on_data` callback.
 // At most one `recv_buffer_view` is live at a time for a given connection.
 //
-// `active_view` acquire-loads `begin` and `end` and returns a snapshot of
-// at least the currently unconsumed region. If running outside the polling
-// thread, more bytes may arrive while the view is live.
+// `active_view` acquire-loads `begin` and `end`, records the observed `end`
+// in `last_seen_end_` (so the framework can detect bytes that arrive
+// asynchronously after the last look), and returns a snapshot of at least
+// the currently unconsumed region.
 //
 // `consume(n)` advances `begin` by `n` bytes (release-store).
 //
-// The destructor calls `resume_cb_(new_buffer_size_)`, which posts all
-// recovery work (compact, re-enable reads, maybe re-dispatch) to the loop.
-// The `resume_cb_` captures a `std::shared_ptr` to the owning connection,
-// keeping the connection (and therefore this buffer) alive for the duration
-// of the view.
+// The destructor calls `resume_cb_(new_buffer_size_, last_seen_end_)`, which
+// posts all recovery work (compact, re-enable reads, maybe re-dispatch) to
+// the loop. The `resume_cb_` captures a `std::shared_ptr` to the owning
+// connection, keeping the connection (and therefore this buffer) alive for
+// the duration of the view.
 //
 // Non-copyable (one active parser at a time), movable.
 class recv_buffer_view {
 public:
   // Construct a view over `buf`. `resume_cb` is called from the destructor
-  // with the requested new buffer size (0 = no change). It should capture a
+  // with the requested new buffer size (0 = no change) and the `end` value
+  // last observed by the parser via `active_view`. It should capture a
   // `std::shared_ptr` to the owning connection to keep the connection alive
   // while this view is live.
-  recv_buffer_view(recv_buffer& buf, std::function<void(size_t)> resume_cb)
-      : buf_{&buf}, resume_cb_{std::move(resume_cb)} {}
+  recv_buffer_view(recv_buffer& buf,
+      std::function<void(size_t, size_t)> resume_cb)
+      : buf_{&buf}, resume_cb_{std::move(resume_cb)},
+        last_seen_end_{buf.end.load(std::memory_order::acquire)} {}
 
   recv_buffer_view(const recv_buffer_view&) = delete;
   recv_buffer_view& operator=(const recv_buffer_view&) = delete;
@@ -221,41 +225,48 @@ public:
   recv_buffer_view(recv_buffer_view&& o) noexcept
       : buf_{std::exchange(o.buf_, nullptr)},
         resume_cb_{std::exchange(o.resume_cb_, {})},
-        new_buffer_size_{o.new_buffer_size_} {}
+        new_buffer_size_{o.new_buffer_size_},
+        last_seen_end_{o.last_seen_end_} {}
 
   recv_buffer_view& operator=(recv_buffer_view&& o) noexcept {
     if (this != &o) {
       buf_ = std::exchange(o.buf_, nullptr);
       resume_cb_ = std::exchange(o.resume_cb_, {});
       new_buffer_size_ = o.new_buffer_size_;
+      last_seen_end_ = o.last_seen_end_;
     }
     return *this;
   }
 
-  // Destructor: calls `resume_cb_(new_buffer_size_)` to post compact /
-  // re-enable-reads / optional re-dispatch back to the loop.
+  // Destructor: calls `resume_cb_(new_buffer_size_, last_seen_end_)` to post
+  // compact / re-enable-reads / optional re-dispatch back to the loop.
   // NOLINTBEGIN(bugprone-exception-escape)
   ~recv_buffer_view() {
-    if (buf_) resume_cb_(new_buffer_size_);
+    if (buf_) resume_cb_(new_buffer_size_, last_seen_end_);
   }
   // NOLINTEND(bugprone-exception-escape)
 
   // Acquire-load `begin` and `end`; return a snapshot of at least the
-  // currently active bytes. Subsequent calls from an async parser may return
-  // a larger view as the framework appends more data.
+  // currently active bytes. Records the observed `end` in `last_seen_end_`
+  // so `resume_receive` can detect bytes that arrived after this call.
+  // Subsequent calls may return a larger view as the framework appends more.
   [[nodiscard]] std::string_view active_view() const {
     assert(buf_);
-    return buf_->active();
+    const size_t b = buf_->begin.load(std::memory_order::acquire);
+    const size_t e = buf_->end.load(std::memory_order::acquire);
+    assert(b <= e);
+    last_seen_end_ = e;
+    return {buf_->buffer.data() + b, e - b};
   }
 
   // Implicit conversion to `std::string_view`.
   operator std::string_view() const { return active_view(); }
 
   // Full capacity of the backing buffer. Use this to detect frames that
-  // cannot fit even after compaction. If the frame exceeds `buffer_size`,
+  // cannot fit even after compaction. If the frame exceeds `buffer_capacity`,
   // either copy out to your own accumulation buffer or call `expand_to`
   // before the view destructs to request enlargement.
-  [[nodiscard]] size_t buffer_size() const noexcept {
+  [[nodiscard]] size_t buffer_capacity() const noexcept {
     assert(buf_);
     return buf_->buffer.capacity();
   }
@@ -267,10 +278,15 @@ public:
     new_buffer_size_ = std::max(new_buffer_size_, n);
   }
 
-  // Advance `begin` by `n` bytes (release-store fetch_add).
+  // Advance `begin` by `n` bytes (release-store fetch_add). Clamped to
+  // `last_seen_end_` so the parser cannot consume bytes it has not yet
+  // observed via `active_view`.
   void consume(size_t n) {
     assert(buf_);
-    buf_->begin.fetch_add(n, std::memory_order::release);
+    const size_t b = buf_->begin.load(std::memory_order::relaxed);
+    assert(last_seen_end_ >= b);
+    n = std::min(n, last_seen_end_ - b);
+    if (n > 0) buf_->begin.fetch_add(n, std::memory_order::release);
   }
 
   // Wrapper for `consume`. Pass the unconsumed tail of an `active_view`
@@ -285,9 +301,10 @@ public:
   }
 
 private:
-  recv_buffer* buf_;                      // non-owning; nulled on move
-  std::function<void(size_t)> resume_cb_; // keeps connection alive
-  size_t new_buffer_size_{};              // 0 = no growth; set via `expand_to`
+  recv_buffer* buf_;                           // non-owning; nulled on move
+  std::function<void(size_t, size_t)> resume_cb_; // keeps connection alive
+  size_t new_buffer_size_{};                   // 0 = no growth; set via `expand_to`
+  mutable size_t last_seen_end_{};             // updated by `active_view`
 };
 
 }} // namespace corvid::proto

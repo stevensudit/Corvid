@@ -151,7 +151,7 @@ protected:
     c.recv_buf_.begin.store(0, std::memory_order::relaxed);
     c.recv_buf_.end.store(0, std::memory_order::relaxed);
     return recv_buffer_view{c.recv_buf_,
-        [sp = c.self()](size_t n) { sp->resume_receive(n); }};
+        [sp = c.self()](size_t n, size_t lse) { sp->resume_receive(n, lse); }};
   }
 
   // Wrap `stream_conn::exec_lambda` for derived classes. C++ friendship is
