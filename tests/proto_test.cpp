@@ -1172,7 +1172,8 @@ void StreamConn_PeerClose() {
   EXPECT_GE(loop.run_once(0), 0); // process posted do_open()
 
   ASSERT_TRUE(b.shutdown(SHUT_WR));
-  EXPECT_GE(loop.run_once(0), 0); // dispatch EOF/HUP
+
+  EXPECT_GE(loop.run_once(0), 0); // dispatch readable event with EOF (HUP)
 
   EXPECT_TRUE(closed);
 

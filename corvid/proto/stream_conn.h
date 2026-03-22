@@ -703,7 +703,7 @@ private:
 
     const size_t old_end = recv_buf_.end.load(std::memory_order::relaxed);
     if (!sock().recv_at(recv_buf_.buffer, old_end)) {
-      const bool hard_error = os_file::is_hard_error();
+      const bool hard_error = recv_buf_.buffer.size() == old_end;
       no_zero::enlarge_to_cap(recv_buf_.buffer);
       if (hard_error) return do_close_now(close_mode::forceful) && false;
 

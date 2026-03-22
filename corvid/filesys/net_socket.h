@@ -172,9 +172,12 @@ public:
   // EOF, leaves `data` unchanged and returns false. On soft error (EAGAIN),
   // trims `data` to `offset` (no new data) and returns true. On hard error,
   // returns false.
-
-  // TODO: !!! This is not following its error-handling contract. Revisit once
-  // we can compile again.
+  //
+  // Status       |  Return  | `data`
+  // Success         true      resized to offset + bytes read
+  // Soft failure    true      resized to offset (no new data)
+  // EOF             false     unchanged, so not empty
+  // Hard failure    false     resized to offset
   [[nodiscard]] bool
   recv_at(std::string& data, size_t offset, int flags = 0) const {
     if (offset >= data.size()) return true;
@@ -195,6 +198,12 @@ public:
   // "soft" failure (e.g., EAGAIN) is treated as success with zero bytes read.
   // On EOF/disconnect, leaves `data` unchanged and returns false. On hard
   // failure, clears `data` and returns false.
+  //
+  // Status       |  Return  | `data`
+  // Success         true      resized to bytes read
+  // Soft failure    true      resized to zero (no new data)
+  // EOF             false     unchanged, so not empty
+  // Hard failure    false     cleared (empty)
   [[nodiscard]] bool recv(std::string& data, int flags = 0) const {
     return recv_at(data, 0, flags);
   }

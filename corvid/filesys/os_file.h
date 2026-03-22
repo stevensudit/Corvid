@@ -208,6 +208,7 @@ public:
   // (false). Note that `errno` is only meaningful immediately after a failure
   // return from a system call and is invalidated by the next system call.
   static bool is_hard_error(int err = errno) noexcept {
+    assert(err != 0); // `errno` should only be checked after a failure return.
     return (err != EAGAIN && err != EWOULDBLOCK && err != EINTR);
   }
 
