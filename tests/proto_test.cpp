@@ -2463,6 +2463,130 @@ void StreamConnWithState_AcceptClone_Nullptr() {
   EXPECT_EQ(data_calls, 0);
 }
 
+// Single complete frame delivered in one call.
+void TerminatedTextParser_CompleteLine() {
+  terminated_text_parser::state s;
+  terminated_text_parser p{s};
+  std::string_view sv{"text\r\n"};
+  std::string_view text;
+  EXPECT_TRUE(p.parse(sv, text) == true);
+  EXPECT_EQ(text, "text");
+  EXPECT_TRUE(sv.empty()); // `sv` advanced past the frame
+}
+
+// Empty view: incomplete with zero bytes scanned.
+void TerminatedTextParser_IncompleteEmpty() {
+  terminated_text_parser::state s;
+  terminated_text_parser p{s};
+  std::string_view sv{""};
+  std::string_view text;
+  EXPECT_TRUE(p.parse(sv, text) == std::nullopt);
+  EXPECT_EQ(p.bytes_scanned(), 0U);
+}
+
+// Partial frame with no sentinel: incomplete, bytes_scanned updated.
+void TerminatedTextParser_IncompletePartial() {
+  terminated_text_parser::state s;
+  terminated_text_parser p{s};
+  std::string_view sv{"text"};
+  std::string_view text;
+  EXPECT_TRUE(p.parse(sv, text) == std::nullopt);
+  EXPECT_EQ(p.bytes_scanned(), 4U);
+}
+
+// Sentinel split across two calls: "\r" arrives first, "\n" in the next view.
+void TerminatedTextParser_SplitSentinel() {
+  terminated_text_parser::state s;
+  terminated_text_parser p{s};
+  std::string_view text;
+
+  // First call: only "\r" present -- not a complete sentinel.
+  std::string_view sv1{"text\r"};
+  EXPECT_TRUE(p.parse(sv1, text) == std::nullopt);
+  EXPECT_EQ(p.bytes_scanned(), 5U);
+
+  // Second call: the same bytes now extended with "\n".
+  std::string_view sv2{"text\r\n"};
+  EXPECT_TRUE(p.parse(sv2, text) == true);
+  EXPECT_EQ(text, "text");
+  EXPECT_TRUE(sv2.empty());
+}
+
+// Two frames in the same view: parse twice with reset() between.
+void TerminatedTextParser_MultipleFrames() {
+  terminated_text_parser::state s;
+  terminated_text_parser p{s};
+  std::string_view sv{"line1\r\nline2\r\n"};
+  std::string_view text;
+
+  EXPECT_TRUE(p.parse(sv, text) == true);
+  EXPECT_EQ(text, "line1");
+  p.reset();
+
+  EXPECT_TRUE(p.parse(sv, text) == true);
+  EXPECT_EQ(text, "line2");
+  EXPECT_TRUE(sv.empty());
+}
+
+// Bare sentinel with no preceding text: complete with empty text.
+void TerminatedTextParser_EmptyLine() {
+  terminated_text_parser::state s;
+  terminated_text_parser p{s};
+  std::string_view sv{"\r\n"};
+  std::string_view text;
+  EXPECT_TRUE(p.parse(sv, text) == true);
+  EXPECT_TRUE(text.empty());
+  EXPECT_TRUE(sv.empty());
+}
+
+// Exceeding max_length with no sentinel returns too_long.
+void TerminatedTextParser_TooLong() {
+  terminated_text_parser::state s{"\r\n", 8};
+  terminated_text_parser p{s};
+  std::string_view sv{"123456789"}; // 9 bytes, no sentinel
+  std::string_view text;
+  EXPECT_TRUE(p.parse(sv, text) == false);
+}
+
+// With max_length == 0, the same input returns incomplete (no limit enforced).
+void TerminatedTextParser_NoLimit() {
+  terminated_text_parser::state s{"\r\n", 0};
+  terminated_text_parser p{s};
+  std::string_view sv{"123456789"};
+  std::string_view text;
+  EXPECT_TRUE(p.parse(sv, text) == std::nullopt);
+}
+
+// Custom sentinel ":" extracts the text up to the first colon.
+void TerminatedTextParser_CustomSentinel() {
+  terminated_text_parser::state s{":"};
+  terminated_text_parser p{s};
+  std::string_view sv{"Content-Type: text/html"};
+  std::string_view text;
+  EXPECT_TRUE(p.parse(sv, text) == true);
+  EXPECT_EQ(text, "Content-Type");
+  EXPECT_EQ(sv, " text/html");
+}
+
+// After complete + reset(), the parser correctly handles a second frame.
+void TerminatedTextParser_Reset() {
+  terminated_text_parser::state s;
+  terminated_text_parser p{s};
+  std::string_view text;
+
+  std::string_view sv1{"first\r\n"};
+  EXPECT_TRUE(p.parse(sv1, text) == true);
+  EXPECT_EQ(text, "first");
+  p.reset();
+  EXPECT_EQ(p.bytes_scanned(), 0U);
+
+  // Confirm state is clean: a fresh incomplete call should update
+  // bytes_scanned.
+  std::string_view sv2{"second"};
+  EXPECT_TRUE(p.parse(sv2, text) == std::nullopt);
+  EXPECT_EQ(p.bytes_scanned(), 6U);
+}
+
 MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     Ipv4Addr_Comparison, Ipv4Addr_Formatting, Ipv4Addr_PosixInterop,
     Ipv6Addr_Construction, Ipv6Addr_Parse, Ipv6Addr_Classification,
@@ -2498,7 +2622,12 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_AsyncRead_StopsBetweenCalls, StreamConn_AsyncRead_PeerClose,
     StreamConn_AsyncSend, StreamConn_EchoServer, StreamConnWithState_Adopt,
     StreamConnWithState_From, StreamConnWithState_Listen,
-    StreamConnPtr_Covariance, StreamConnWithState_AcceptClone_Nullptr);
+    StreamConnPtr_Covariance, StreamConnWithState_AcceptClone_Nullptr,
+    TerminatedTextParser_CompleteLine, TerminatedTextParser_IncompleteEmpty,
+    TerminatedTextParser_IncompletePartial, TerminatedTextParser_SplitSentinel,
+    TerminatedTextParser_MultipleFrames, TerminatedTextParser_EmptyLine,
+    TerminatedTextParser_TooLong, TerminatedTextParser_NoLimit,
+    TerminatedTextParser_CustomSentinel, TerminatedTextParser_Reset);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

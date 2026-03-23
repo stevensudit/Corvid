@@ -31,6 +31,8 @@
 //  stream_async - per-call async wrappers: `stream_async_cb` (callback-based)
 //                and `stream_async_coro` (coroutine-based)
 //  loop_task   - fire-and-forget coroutine return type for `epoll_loop`
+//  terminated_text_parser - sentinel-terminated text frame parser for
+//                line-oriented protocols (HTTP, SMTP, POP3, etc.)
 #include "proto/ipv4_addr.h"
 #include "proto/ipv6_addr.h"
 #include "proto/net_endpoint.h"
@@ -39,3 +41,4 @@
 #include "proto/stream_conn.h"
 #include "proto/stream_async.h"
 #include "proto/loop_task.h"
+#include "proto/terminated_text_parser.h"

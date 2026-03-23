@@ -208,6 +208,62 @@ struct recv_buffer {
 // the duration of the view.
 //
 // Non-copyable (one active parser at a time), movable.
+//
+// Tutorial:
+//  1. The `on_data` handler receives a `recv_buffer_view` whose `active_view`
+//  method returns a `std::string_view` pointing into the buffer. This
+//  `std::string_view` is passed to the parser, along with the
+//  connection-specific state, to extract a frame.
+//
+//  2. The parser looks for a full frame in the `std::string_view`. If it finds
+//  one, it can process it and then call `consume` (or `update_active_view`)
+//  to advance the view past the parsed frame before returning and letting the
+//  `recv_buffer_view` destruct.
+//
+//  3. If processing will take a while, the parser can move the
+//  `recv_buffer_view` into a worker thread and return. So long as it retains
+//  the `recv_buffer_view`, the `std::string_view` into the buffer is valid, so
+//  there's no need to greedily copy. Alternately, if the frame is small, it
+//  could be simpler for the parser to just copy it out before returning and
+//  letting the `recv_buffer_view` destruct. Similarly, it could generate a
+//  data structure summarizing the frame and keep that.
+//
+//  As an optimization for bulk transfers, where there's not really a frame and
+//  it's not intended to all fit into memory, `try_take_full` can be used to
+//  steal the whole buffer and avoid the copy.
+//
+//  3. If the parser determines that a full frame is not yet available, it
+//  can simply return from the `on_data` handler without consuming any bytes.
+//  When more bytes arrive, another `on_data` will be triggered and it can
+//  check again.
+//
+//  4. The parser should maintain enough state to be able to pick up where
+//  it left off without repeating the work. So, for example, if it's
+//  looking for a sentinel, it should save the offset of where its last
+//  search ended. If it parsed out the length from a prefix or header, it
+//  should retain that.
+//
+//  However, it should not retain pointers into the buffer, whether
+//  directly or in the form of a `std::string_view`, as these will likely be
+//  invalidated when the `recv_buffer_view` is destructed, and the buffer is
+//  compacted or resized.
+//
+//  At a bare minimum, the parser must be idempotent, as it will see the same
+//  unconsumed bytes on each callback.
+//
+//  5. If the buffer is full but no full frame has been found, there are a
+//  few options.
+//
+//  When the protocol has a fixed maximum frame size (such as 1024 for SMTP
+//  and 8192 for HTTP), the parser should enforce this by failing, likely
+//  by closing the connection. Even if the protocol doesn't specify a limit,
+//  the parser should impose a reasonable one to defend against memory
+//  exhaustion attacks. Even for bulk transfers, there should be some sort of
+//  limit.
+//
+//  If the maximum you're willing to accept is larger than the default
+//  buffer, then you can call `expand_to` to temporarily enlarge the
+//  buffer.
 class recv_buffer_view {
 public:
   // Construct a view over `buf`. `resume_cb` is called from the destructor
