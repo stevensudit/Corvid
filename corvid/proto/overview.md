@@ -61,6 +61,43 @@ returns the first result as a `net_endpoint`, or a default-constructed
 
 ## Layer 2: Stream I/O Loop
 
+### `recv_buffer` and `recv_buffer_view`
+
+`recv_buffer` is the persistent flat receive buffer owned by each connection.
+It backs a `std::string buffer` whose `size` equals its `capacity`. Two atomic
+indexes, `begin` (release-stored by the parser via `consume`) and `end`
+(release-stored by the polling thread after each `recv`), delimit the live
+region. `reads_enabled` (loop-thread-only) gates `EPOLLIN` desire.
+`view_active` (loop-thread-only) suppresses `on_data` re-dispatch while a
+parser holds a view.
+
+`resize(capacity)` initializes or reinitializes backing storage; safe only
+when reads are disabled and no view is live. `active()` returns a
+`string_view` of the unconsumed region. `compact(target)` optionally resizes
+and/or compacts the buffer (memmove active bytes to offset 0), subject to
+hysteresis rules: it grows when the active capacity falls below
+`min_capacity`, shrinks when the buffer bloats past 2x `min_capacity` and the
+active data fits, and skips the memmove entirely when write space is still
+ample.
+
+`recv_buffer_view` is the limited-interface token handed to the parser via the
+`on_data` callback. At most one view is live at a time per connection.
+`active_view()` (or the implicit `std::string_view` conversion) returns the
+currently unconsumed region and records the observed `end` in
+`last_seen_end_`. `consume(n)` advances `begin` by `n` bytes (clamped to the
+last-seen `end`). `update_active_view(tail)` is a convenience wrapper that
+computes consumed bytes from a pointer difference. `buffer_capacity()` returns
+the backing string's full capacity. `expand_to(n)` requests buffer growth on
+the next compact. `try_take_full(out, view)` bulk-transfers the entire backing
+buffer when it is completely full, swapping ownership to the caller's string
+and resetting the connection's buffer to its previous capacity without
+zero-initialization.
+
+When the view destructs, `resume_cb_(new_buffer_size_, last_seen_end_)` is
+called; this callback captures a `shared_ptr` to the owning connection to keep
+it alive and posts compact / re-enable-reads / optional re-dispatch to the
+loop thread.
+
 ### `epoll_loop`
 
 `epoll`-based I/O event loop; non-copyable and non-movable. `run()` may be
@@ -98,10 +135,10 @@ default `on_error` delegates to `on_readable`. Higher-level types inherit from
 ### `stream_conn` and `stream_conn_ptr`
 
 Non-blocking connected stream socket driven by an `epoll_loop`. `stream_conn`
-is the state object (inheriting from `io_conn`) that holds the socket, buffers,
-and async waiters. `stream_conn_ptr` is the move-only owning handle wrapping a
-`shared_ptr<stream_conn>`; its destructor calls `hangup()` unless `close()` was
-already called.
+is the state object (inheriting from `io_conn`) that holds the socket, send
+queue, and persistent `recv_buffer`. `stream_conn_ptr` is the move-only owning
+handle wrapping a `shared_ptr<stream_conn>`; its destructor calls `hangup()`
+unless `close()` was already called.
 
 `stream_conn_ptr` provides three static factory methods:
 
@@ -110,7 +147,7 @@ already called.
 - `connect(loop, remote, handlers, local, recv_buf_size)` -- creates a
   non-blocking socket, optionally binds `local`, calls `connect(2)`, and
   registers with `EPOLLOUT`. When the kernel reports the outcome,
-  `handle_connect()` transitions to connected state (firing `on_drain`) or
+  `handle_connect` transitions to connected state (firing `on_drain`) or
   closes the connection (firing `on_close`).
 - `listen(loop, local, handlers, reuse_port)` -- creates a non-blocking
   listening socket, sets `SO_REUSEADDR`, binds, calls `listen(2)`, and
@@ -122,80 +159,106 @@ Thread safety: `send()`, `close()`, `hangup()`, `shutdown_read()`,
 `shutdown_write()`, and the destructor of `stream_conn_ptr` are safe to call
 from any thread via `epoll_loop::execute_or_post()` or `post()`.
 
-Send path: `send(string&&)` is thread-safe (posts to the loop). On the loop
-thread, `enqueue_send` attempts an immediate `::write`; any unsent tail is
-pushed onto a `deque<string>` and `EPOLLOUT` is armed. Subsequent `EPOLLOUT`
-events drain the queue; when empty, `EPOLLOUT` is disarmed.
+Send path: `send(string&&)` is thread-safe (routes via
+`execute_or_post`). On the loop thread, `enqueue_send` attempts an
+immediate `::write`; any unsent tail is pushed onto a `deque<string>` and
+`EPOLLOUT` is armed. Subsequent `EPOLLOUT` events drain the queue; when
+empty, `EPOLLOUT` is disarmed and `on_drain` fires.
 
-Receive path: `EPOLLIN` is armed while a one-shot read waiter is active or a
-persistent `on_data` handler is installed. When it fires, `::read` fills a
-buffer pre-sized with `resize_and_overwrite` (no zero-initialization), trimmed
-to the actual byte count before delivery. `set_recv_buf_size(bytes)` sets the
-per-connection receive-buffer target; `recv_buf_size()` reports it.
+Receive path: `EPOLLIN` is armed while `recv_buf_.reads_enabled` is true.
+When it fires, bytes are appended to the persistent `recv_buffer` and the
+active `on_data` handler is invoked with a `recv_buffer_view` token. The
+parser advances `begin` via `consume`; when the view destructs, compaction
+and `EPOLLIN` re-arming are posted back to the loop. `set_recv_buf_size(n)`
+adjusts the per-connection buffer target; `recv_buf_size()` reports it.
 
-Half-close: `shutdown_read()` shuts down the local read side (notifying any
-pending read waiter). `shutdown_write()` shuts down the local write side and
-discards unsent data. `can_read()` and `can_write()` query each direction.
-`local_endpoint()` and `remote_endpoint()` return the socket addresses.
+Handler dispatch: `stream_conn` holds `own_handlers_` (a
+`stream_conn_handlers` value) and an atomic pointer `active_handlers_` that
+normally points to `own_handlers_`. `stream_async_base` subclasses (see
+below) temporarily redirect `active_handlers_` to their own handler struct
+via an atomic CAS; the destructor restores the pointer. `stream_conn`
+dispatches every event through `active_handlers_` and is unaware of the
+facade hierarchy.
+
+Half-close: `shutdown_read()` shuts down the local read side. `shutdown_write()`
+shuts down the local write side and discards unsent data. `can_read()` and
+`can_write()` query each direction. `local_endpoint()` and `remote_endpoint()`
+return the socket addresses.
 
 Close: `close()` is graceful -- defers the socket close until the send queue
 drains. `hangup()` discards pending outbound data and closes immediately.
 The destructor of `stream_conn_ptr` calls `hangup()` unless `close()` was
 already called.
 
-Supports three async models:
+**Callback mode** (`stream_conn_handlers` installed at construction):
+`on_data(conn, view)` fires on each `EPOLLIN` event, delivering a
+`recv_buffer_view`; `on_drain(conn)` fires when the send queue empties (or an
+async connect succeeds); `on_close(conn)` fires once on peer EOF, I/O error,
+or failed async connect. If no `on_close` handler is installed, a graceful
+close is initiated automatically so that connections without an external owner
+are fully torn down rather than left half-open.
 
-- **Callback mode** (`stream_conn_handlers`): `on_data(conn, string&)` fires
-  on each read; `on_drain(conn)` fires when a `send()` completes with no
-  outbound bytes left pending (including immediate writes and `EPOLLOUT`-driven
-  drains) and also when an async `connect()` succeeds; `on_close(conn)` fires
-  once on peer EOF, I/O error, or failed async connect. For a normal peer EOF,
-  writes may still be possible (half-close); call `close()` or `hangup()` to
-  shut down fully.
+Two additional per-call async models are in `stream_async.h` and operate by
+temporarily redirecting `active_handlers_`.
 
-- **Coroutine mode**: `co_await conn.async_read()` suspends until one batch
-  of data arrives (or the connection closes, returning an empty string);
-  `co_await conn.async_send(buf)` enqueues `buf` and suspends until the send
-  queue drains. All coroutine resumptions are deferred through `loop_.post()`
-  to avoid use-after-free when a write error triggers `do_close_now` from
-  within `await_suspend`.
+### `stream_async_base`, `stream_async_cb`, and `stream_async_coro`
 
-- **One-shot callback mode**: `async_cb_read(cb, exec)` registers a single
-  callback for the next readable batch and invokes it inline on the loop thread
-  with the internal `string&`. `async_cb_write(buf, cb, exec)` sends `buf` and
-  invokes `cb(bool completed)` when the write reaches a terminal state:
-  `completed == true` means the write fully drained; `completed == false` means
-  the connection closed or failed before all bytes were sent, possibly after a
-  partial write. The optional `exec` parameter (`execution::blocking` by
-  default) controls whether the call blocks until registration is confirmed when
-  invoked from off the loop thread.
+These classes live in `stream_async.h` and provide alternative async interfaces
+on top of a `stream_conn` without modifying it. Each is a facade that
+temporarily installs its own `stream_conn_handlers` by atomically swapping the
+connection's `active_handlers_` pointer.
 
-Precedence is per direction: a pending one-shot waiter consumes the next read
-or write-completion event, and the persistent handlers are used only when no
-one-shot waiter is pending for that direction. Parallel `async_cb_*`
-registrations fail cleanly by returning `false`; overlapping `async_read()` /
-`async_send()` calls are programming errors (asserted in debug builds). If the
-connection closes before a pending `async_cb_read()` receives data, the callback
-is invoked with an empty string; code that retains access to the `stream_conn`
-can use `is_open()` to detect that the empty buffer came from closure. Pending
-write waiters always complete, reporting success or failure.
+`stream_async_base` is the non-copyable, non-movable base. On construction
+(via `install_handlers`) it performs a CAS on `active_handlers_`; if another
+facade already owns the slot, `conn_` is cleared and `is_valid()` returns
+false. The destructor restores `active_handlers_` and posts
+`restore_reads` to the loop. Static trampolines (`enable_reads`,
+`restore_reads`, `make_cleared_view_for`, etc.) give derived classes
+friend-level access to `stream_conn` private members without relying on
+lambda-inherited friendship.
+
+`stream_async_cb` provides one-shot callback I/O:
+
+- `read(cb)` -- registers a single callback invoked with a `recv_buffer_view`
+  on the next data arrival (or an empty view on connection close). Posts
+  `enable_reads` asynchronously to guarantee ordering after the
+  `enable_reads(false)` posted by `install_handlers`.
+- `write(buf, cb)` -- takes ownership of `buf`, enqueues it, and invokes
+  `cb(bool completed)` when the send queue drains (`true`) or the connection
+  closes before all bytes are sent (`false`).
+
+`stream_async_coro` provides coroutine I/O:
+
+- `read()` -- returns an awaitable that suspends until one batch of bytes
+  arrives; resumes with the received bytes as a `std::string` (empty on close).
+- `write(buf)` -- returns an awaitable that enqueues `buf` and suspends until
+  the send queue drains or the connection closes.
+
+Coroutine resumption is always deferred through `post()`, never inline, to
+avoid use-after-free when `do_close_now` fires from within `await_suspend`.
+The `write_awaitable` sets `write_coro_` before calling `do_enqueue_send` so
+that a synchronous write failure triggering `on_close` still resumes the
+coroutine correctly.
+
+```cpp
+// Coroutine usage example:
+loop_task handle_conn(stream_conn_ptr conn) {
+  stream_async_coro coro{conn.pointer()};
+  while (coro.is_open()) {
+    std::string data = co_await coro.read();
+    if (data.empty()) break;
+    co_await coro.write(make_reply(data));
+  }
+}
+```
 
 ### `loop_task`
 
 Fire-and-forget coroutine return type for `epoll_loop`-driven handlers. The
 coroutine body starts eagerly on the call site (`initial_suspend` returns
 `suspend_never`) and the frame self-destroys on completion (`final_suspend`
-returns `suspend_never`). Unhandled exceptions call `std::terminate`.
-
-```cpp
-loop_task handle_conn(stream_conn_ptr conn) {
-  while (conn->is_open()) {
-    std::string data = co_await conn->async_read();
-    if (data.empty()) break;
-    co_await conn->async_send(make_reply(data));
-  }
-}
-```
+returns `suspend_never`). Unhandled exceptions call `std::terminate`. See
+the `stream_async_coro` example above for typical usage.
 
 ## What comes next
 

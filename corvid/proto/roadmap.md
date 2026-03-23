@@ -52,27 +52,47 @@ without changing higher layers.
   is an abstract base with a `net_socket` member and virtual `on_readable` /
   `on_writable` / `on_error` so higher-level types inherit from it directly to
   avoid a separate handler-lambda allocation
+- **[done]** `recv_buffer` / `recv_buffer_view` -- persistent flat receive buffer
+  owned by each `stream_conn`; `recv_buffer` holds a `std::string buffer`
+  (size == capacity) with atomic `begin` / `end` indexes and loop-thread-only
+  `reads_enabled` / `view_active` flags; `compact(target)` resizes and/or
+  memmoves active bytes subject to hysteresis; `recv_buffer_view` is the
+  limited-interface token delivered to `on_data`: `active_view()` /
+  implicit-`string_view` conversion reads the unconsumed region, `consume(n)`
+  / `update_active_view(tail)` advance `begin`, `expand_to(n)` requests growth,
+  `try_take_full(out, view)` bulk-transfers a full buffer; destructor posts
+  compact / re-enable-reads / optional re-dispatch to the loop
 - **[done]** `stream_conn` / `stream_conn_ptr` -- non-blocking connected
   stream-socket wrapper driven by an `epoll_loop`; `stream_conn` is the state
-  object inheriting from `io_conn`; `stream_conn_ptr` is the move-only owning
-  handle (`shared_ptr<stream_conn>` internally; destructor calls `hangup()`);
-  three factory methods on `stream_conn_ptr`: `adopt()` for already-connected
+  object inheriting from `io_conn`, holding the send queue and a persistent
+  `recv_buffer`; `stream_conn_ptr` is the move-only owning handle
+  (`shared_ptr<stream_conn>` internally; destructor calls `hangup()`); three
+  factory methods on `stream_conn_ptr`: `adopt()` for already-connected
   sockets, `connect()` for outbound async connect, `listen()` for accept loops;
   `send(string&&)` / `close()` / `hangup()` / `shutdown_read()` /
   `shutdown_write()` are thread-safe via `execute_or_post()` / `post()`;
   `can_read()` / `can_write()` query half-close state; `local_endpoint()` /
   `remote_endpoint()` return socket addresses; supports persistent callback
-  mode via `stream_conn_handlers` (`on_data`, `on_drain`, `on_close`); two
-  additional per-call async models are provided by `stream_async.h`
-- **[done]** `stream_async_coro` -- now in `stream_async.h`; C++20 coroutine
-  wrapper for `stream_conn` using the `stream_async_base` handler-redirect
-  mechanism; `async_read()` / `async_send()` return awaitables; `EPOLLIN` is
-  armed only while a read coroutine is suspended (via `handlers_.on_data`
-  toggling) to prevent data loss between reads
+  mode via `stream_conn_handlers` (`on_data(conn, recv_buffer_view)`,
+  `on_drain`, `on_close`); holds `own_handlers_` and an atomic
+  `active_handlers_` pointer that facade classes temporarily redirect
+- **[done]** `stream_async_base` / `stream_async_cb` / `stream_async_coro` -- in
+  `stream_async.h`; facade classes that provide per-call async I/O on top of a
+  `stream_conn` by atomically swapping `active_handlers_` for the duration of
+  their lifetime; `stream_async_base` is the non-copyable, non-movable base
+  (CAS-based handler install, static trampolines for friend access);
+  `stream_async_cb` provides one-shot callback I/O: `read(cb)` delivers a
+  `recv_buffer_view` on the next arrival, `write(buf, cb)` invokes
+  `cb(bool completed)` when the queue drains or the connection closes;
+  `stream_async_coro` provides C++20 coroutine I/O: `read()` / `write(buf)`
+  return awaitables; `EPOLLIN` is gated by `reads_enabled` and armed only when
+  a waiter is registered; all coroutine resumptions are deferred through
+  `post()` to avoid use-after-free
 - **[done]** `loop_task` -- fire-and-forget coroutine return type for `epoll_loop`
   handlers; `initial_suspend` is `suspend_never` (eager start);
   `final_suspend` is `suspend_never` (self-destroying frame); enables
-  `co_await conn.async_read()` / `co_await conn.async_send(buf)` patterns
+  `co_await coro.read()` / `co_await coro.write(buf)` patterns via
+  `stream_async_coro`
 - **[done]** `tcp_listener` -- now integrated as `stream_conn_ptr::listen()`;
   creates a non-blocking listening socket, binds, and calls `listen(2)`; drains
   accepted connections via `accept4` on `EPOLLIN`, creating self-owning
@@ -122,6 +142,7 @@ WebSocket protocol built on top of the HTTP upgrade mechanism.
 - Headers are self-contained; no source files (library remains header-only).
 - RAII throughout: no manual resource management in user code.
 - Async model: callbacks for simple cases, C++20 coroutines for sequential
-  logic; both modes are supported by `stream_conn` and are mutually exclusive
-  per direction (read or write independently).
+  logic; `stream_conn` handles persistent callbacks natively; per-call
+  callback and coroutine modes are provided by `stream_async_cb` and
+  `stream_async_coro` facades that temporarily redirect the handler pointer.
 - Linux is the target OS.
