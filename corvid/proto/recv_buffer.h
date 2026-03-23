@@ -223,7 +223,7 @@ struct recv_buffer {
 //  3. If processing will take a while, the parser can move the
 //  `recv_buffer_view` into a worker thread and return. So long as it retains
 //  the `recv_buffer_view`, the `std::string_view` into the buffer is valid, so
-//  there's no need to greedily copy. Alternately, if the frame is small, it
+//  there's no need to greedily copy. Alternatively, if the frame is small, it
 //  could be simpler for the parser to just copy it out before returning and
 //  letting the `recv_buffer_view` destruct. Similarly, it could generate a
 //  data structure summarizing the frame and keep that.
@@ -232,26 +232,26 @@ struct recv_buffer {
 //  it's not intended to all fit into memory, `try_take_full` can be used to
 //  steal the whole buffer and avoid the copy.
 //
-//  3. If the parser determines that a full frame is not yet available, it
+//  4. If the parser determines that a full frame is not yet available, it
 //  can simply return from the `on_data` handler without consuming any bytes.
 //  When more bytes arrive, another `on_data` will be triggered and it can
 //  check again.
 //
-//  4. The parser should maintain enough state to be able to pick up where
+//  5. The parser should maintain enough state to be able to pick up where
 //  it left off without repeating the work. So, for example, if it's
 //  looking for a sentinel, it should save the offset of where its last
 //  search ended. If it parsed out the length from a prefix or header, it
 //  should retain that.
 //
 //  However, it should not retain pointers into the buffer, whether
-//  directly or in the form of a `std::string_view`, as these will likely be
-//  invalidated when the `recv_buffer_view` is destructed, and the buffer is
-//  compacted or resized.
+//  directly or in the form of a `std::string_view`, as these may be
+//  invalidated if the buffer is compacted or resized when the
+//  `recv_buffer_view` destructs.
 //
 //  At a bare minimum, the parser must be idempotent, as it will see the same
 //  unconsumed bytes on each callback.
 //
-//  5. If the buffer is full but no full frame has been found, there are a
+//  6. If the buffer is full but no full frame has been found, there are a
 //  few options.
 //
 //  When the protocol has a fixed maximum frame size (such as 1024 for SMTP
