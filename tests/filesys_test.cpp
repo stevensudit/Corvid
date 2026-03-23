@@ -637,10 +637,10 @@ void NetSocket_RecvAtContract() {
 
   EXPECT_TRUE(reader.set_nonblocking(true));
 
-  // Soft errors trim back to the supplied offset and succeed.
+  // Soft errors (EAGAIN on a non-blocking empty socket) trim back to the
+  // supplied offset and succeed.
   if (true) {
     std::string buf(8, '\0');
-    no_zero::trim_to(buf, 5);
     EXPECT_TRUE(reader.recv_at(buf, 5));
     EXPECT_EQ(buf.size(), 5U);
   }

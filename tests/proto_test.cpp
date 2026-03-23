@@ -1425,7 +1425,7 @@ void StreamConn_PeerClose_WithBufferedData() {
                 // First call: consume only 2 bytes, leaving "llo" in the
                 // buffer so that `handle_read_eof` sees a non-empty buffer.
                 const size_t n = (data_count == 0) ? 2 : av.size();
-                received.append(av.data(), n);
+                received.append(av.substr(0, n));
                 v.consume(n);
                 if (data_count == 1) read_open_at_eof_dispatch = c.can_read();
                 ++data_count;

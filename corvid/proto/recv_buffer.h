@@ -144,13 +144,14 @@ struct recv_buffer {
     const size_t current = buffer.capacity();
     size_t new_size = current;
 
-    // When no target is specified,  shrinking is possible.
+    // When no target is specified, shrinking is possible.
     if (target == 0) {
-      if (active_len <= configured && current > 2 * configured)
-        // shrink: all active data fits in configured
-        new_size = configured;
-      else if (current < configured)
-        // grow: `set_recv_buf_size` increased the target
+      // Resize to `configured` in two cases:
+      //   shrink: buffer bloated past 2x `min_capacity` and active data fits.
+      //   grow:   `set_recv_buf_size` raised `min_capacity` above current
+      //           capacity.
+      if ((active_len <= configured && current > 2 * configured) ||
+          current < configured)
         new_size = configured;
     } else if (target > current)
       // grow: parser requested more capacity
@@ -159,7 +160,7 @@ struct recv_buffer {
     if (new_size != current) {
       // Resize: always move active bytes to the front of the new buffer.
       std::string new_buf;
-      no_zero::resize_to(new_buf, new_size);
+      no_zero::enlarge_to_cap(no_zero::resize_to(new_buf, new_size));
       if (active_len > 0)
         std::memcpy(new_buf.data(), buffer.data() + b, active_len);
       buffer = std::move(new_buf);

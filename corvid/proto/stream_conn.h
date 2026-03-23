@@ -612,6 +612,22 @@ private:
     return do_eof_notifications() && false;
   }
 
+  // Handle a deferred EOF that arrived while a `recv_buffer_view` was live.
+  // Called from `resume_receive` after the view destructs and compaction is
+  // done. If buffered data remains, re-dispatches it first (keeping
+  // `eof_pending_` set so the next `resume_receive` call finishes the job);
+  // otherwise clears `eof_pending_` and fires `do_eof_notifications`.
+  [[nodiscard]] bool handle_deferred_eof() {
+    if (!recv_buf_.active().empty()) {
+      return loop_.post([this]() -> bool {
+        if (!open_) return false;
+        return notify_read_ready();
+      });
+    }
+    eof_pending_ = false;
+    return do_eof_notifications() && false;
+  }
+
   // Handle write failure by aborting queued sends and closing as needed.
   [[nodiscard]] bool handle_write_failure() {
     assert(loop_.is_loop_thread());
@@ -632,7 +648,7 @@ private:
   //
   // On success, transitions to connected state: arms `EPOLLIN` if a read
   // waiter or `on_data` handler is active. If no sends are queued, disarms
-  // `EPOLLOUT` and fires `notify_drained` immediately — this is how the
+  // `EPOLLOUT` and fires `notify_drained` immediately. This is how the
   // caller learns the connection is established. If sends were queued before
   // the connect resolved, `EPOLLOUT` stays armed; `notify_drained` fires
   // once the queue drains.
@@ -745,18 +761,7 @@ private:
       recv_buf_.compact(new_size);
 
       // If EOF arrived while a view was live, handle it now.
-      if (eof_pending_) {
-        if (!recv_buf_.active().empty()) {
-          // Deliver remaining buffered data first; `eof_pending_` stays true
-          // so the next `resume_receive` fires `do_eof_notifications()`.
-          return loop_.post([this]() -> bool {
-            if (!open_) return false;
-            return notify_read_ready();
-          });
-        }
-        eof_pending_ = false;
-        return do_eof_notifications() && false;
-      }
+      if (eof_pending_) return handle_deferred_eof();
 
       if (recv_buf_.write_space() == 0) {
         // Compact created no free space: the parser consumed nothing and the
@@ -924,7 +929,7 @@ private:
 // `stream_conn` API.
 class stream_conn_ptr {
 public:
-  // Default constructor — creates an empty (invalid) handle. `operator bool`
+  // Default constructor -- creates an empty (invalid) handle. `operator bool`
   // returns false.
   stream_conn_ptr() noexcept = default;
 
