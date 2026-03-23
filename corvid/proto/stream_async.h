@@ -26,7 +26,7 @@
 
 namespace corvid { inline namespace proto {
 
-// TODO: Consider switching socket over to EPOLLONESHOT when this class is
+// TODO: Consider switching socket over to `EPOLLONESHOT` when this class is
 // in control.
 
 // Base class for per-call async wrappers around a `stream_conn`. These are
@@ -93,7 +93,7 @@ protected:
   // Atomically redirect the connection's active-handler pointer from
   // `&own_handlers_` to `&handlers_`. On failure (another facade already owns
   // the connection), clears `conn_` so that `is_valid` returns false. On
-  // success, posts `enable_reads(false)` to the loop to disarm EPOLLIN.
+  // success, posts `enable_reads(false)` to the loop to disarm `EPOLLIN`.
   // Derived constructors set the persistent `handlers_.on_data` before calling
   // this; `arm_read_cb` / `arm_read` later re-enable reads via
   // `enable_reads()`.
@@ -119,7 +119,7 @@ protected:
     // exclusively while active (enforced by the CAS in `install_handlers`).
     conn_->active_handlers_.store(&conn_->own_handlers_,
         std::memory_order::release);
-    // Re-evaluate EPOLLIN for the restored handlers: enable reads if
+    // Re-evaluate `EPOLLIN` for the restored handlers: enable reads if
     // `own_handlers_.on_data` is set, otherwise leave disabled.
     (void)conn_->loop_.post([p = conn_] { return restore_reads(*p); });
   }
@@ -134,7 +134,7 @@ protected:
     return c.enable_reads(on);
   }
 
-  // Re-evaluate EPOLLIN after restoring `own_handlers_`. Enables reads if
+  // Re-evaluate `EPOLLIN` after restoring `own_handlers_`. Enables reads if
   // `own_handlers_.on_data` is set; otherwise leaves disabled.
   static bool restore_reads(stream_conn& c) {
     c.recv_buf_.reads_enabled = !!c.own_handlers_.on_data;
@@ -192,7 +192,7 @@ protected:
 //
 // `EPOLLIN` is gated by `recv_buffer::reads_enabled`. `on_data` is set
 // persistently in the constructor; `read` calls `enable_reads()` to
-// arm EPOLLIN, and the delivery handler calls `enable_reads(false)` to
+// arm `EPOLLIN`, and the delivery handler calls `enable_reads(false)` to
 // disarm it after each batch, providing back-pressure until the next `read`.
 //
 // When the connection closes while a callback is pending, the read callback
@@ -205,8 +205,8 @@ public:
 
   explicit stream_async_cb(std::shared_ptr<stream_conn> conn)
       : stream_async_base(std::move(conn)) {
-    // Persistent `on_data`: deliver the pending callback and disarm EPOLLIN.
-    // EPOLLIN is re-armed by `arm_read_cb` when the next `read` call
+    // Persistent `on_data`: deliver the pending callback and disarm `EPOLLIN`.
+    // `EPOLLIN` is re-armed by `arm_read_cb` when the next `read` call
     // registers a callback.
     handlers_.on_data = [this](stream_conn& c, recv_buffer_view v) -> bool {
       if (!enable_reads(c, false)) return false;
@@ -280,7 +280,7 @@ private:
   async_read_cb read_cb_;
   async_write_cb write_cb_;
 
-  // Enable reads to arm EPOLLIN for the pending callback. Called on the loop
+  // Enable reads to arm `EPOLLIN` for the pending callback. Called on the loop
   // thread from the posted lambda in `read`.
   bool arm_read_cb() { return enable_reads(*conn_); }
 };
@@ -297,7 +297,7 @@ private:
 //
 // `EPOLLIN` is gated by `recv_buffer::reads_enabled`. `on_data` is set
 // persistently in the constructor; `arm_read` calls `enable_reads()`
-// to arm EPOLLIN, and the delivery handler calls `enable_reads(false)` to
+// to arm `EPOLLIN`, and the delivery handler calls `enable_reads(false)` to
 // disarm it after each batch.
 //
 // Coroutine resumption is always via `post`, never inline, to avoid
@@ -311,7 +311,7 @@ public:
   explicit stream_async_coro(std::shared_ptr<stream_conn> conn)
       : stream_async_base(std::move(conn)) {
     // Persistent `on_data`: deliver data to the waiting coroutine and disarm
-    // EPOLLIN. `arm_read` re-enables reads when the next read waiter
+    // `EPOLLIN`. `arm_read` re-enables reads when the next read waiter
     // registers.
     handlers_.on_data = [this](stream_conn& c, recv_buffer_view v) -> bool {
       if (!enable_reads(c, false)) return false;
@@ -370,7 +370,7 @@ private:
   std::coroutine_handle<> write_coro_;
   std::string pending_read_data_;
 
-  // Enable reads to arm EPOLLIN for the waiting coroutine. Always called via
+  // Enable reads to arm `EPOLLIN` for the waiting coroutine. Always called via
   // a posted lambda from `read_awaitable::await_suspend` to guarantee ordering
   // relative to the `enable_reads(false)` task posted by
   // `install_handlers`.

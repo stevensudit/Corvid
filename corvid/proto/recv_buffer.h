@@ -58,7 +58,7 @@ struct recv_buffer {
   // each recv, even while a view is extant.
   std::atomic_size_t end{0};
 
-  // System of record for EPOLLIN desire. Loop-thread-only (not atomic).
+  // System of record for `EPOLLIN` desire. Loop-thread-only (not atomic).
   // Consulted by `stream_conn::wants_read_events`. May start `false` on
   // connections that should not begin reading until explicitly armed (e.g.,
   // accepted sockets that inherit a disabled-reads listener).
@@ -81,7 +81,7 @@ struct recv_buffer {
   relaxed_atomic_size_t min_capacity;
 
   // Initialize (or reinitialize) backing storage to `capacity` bytes without
-  // zero-init. Resets `begin` and `end` to zero. Only safe when EPOLLIN is
+  // zero-init. Resets `begin` and `end` to zero. Only safe when `EPOLLIN` is
   // disabled and no `recv_buffer_view` is live.
   void resize(size_t capacity) {
     assert(!reads_enabled);
@@ -218,7 +218,9 @@ public:
   recv_buffer_view(recv_buffer& buf,
       std::function<void(size_t, size_t)> resume_cb)
       : buf_{&buf}, resume_cb_{std::move(resume_cb)},
-        last_seen_end_{buf.end.load(std::memory_order::acquire)} {}
+        last_seen_end_{buf.end.load(std::memory_order::acquire)} {
+    assert(resume_cb_);
+  }
 
   recv_buffer_view(const recv_buffer_view&) = delete;
   recv_buffer_view& operator=(const recv_buffer_view&) = delete;
