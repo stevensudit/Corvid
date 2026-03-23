@@ -81,7 +81,7 @@ void FixedBitset_SetClearTest() {
     EXPECT_TRUE(b.none());
   }
 
-  // set(pos, false) clears the bit — equivalent to reset(pos).
+  // set(pos, false) clears the bit -- equivalent to reset(pos).
   if (true) {
     fixed_bitset<64> b;
     b.set(10);
@@ -307,7 +307,7 @@ void FixedBitset_WordType() {
     static_assert(sizeof(fixed_bitset<128>) == 16);
   }
 
-  // Runtime: fixed_bitset<8> — single uint8_t word.
+  // Runtime: fixed_bitset<8> -- single uint8_t word.
   if (true) {
     fixed_bitset<8> b;
     EXPECT_TRUE(b.none());
@@ -331,7 +331,7 @@ void FixedBitset_WordType() {
     EXPECT_FALSE(b.all());
   }
 
-  // Runtime: fixed_bitset<24> — three uint8_t words.
+  // Runtime: fixed_bitset<24> -- three uint8_t words.
   if (true) {
     fixed_bitset<24> b;
 
@@ -377,7 +377,7 @@ void FixedBitset_WordType() {
     EXPECT_TRUE(e.test(23));
   }
 
-  // Runtime: fixed_bitset<32> — single uint32_t word.
+  // Runtime: fixed_bitset<32> -- single uint32_t word.
   if (true) {
     fixed_bitset<32> b;
     b.set(0);
@@ -446,7 +446,7 @@ void FixedBitset_ForcedWord() {
     static_assert(sizeof(fb96x64) == 16); // 2 × uint64_t
   }
 
-  // Runtime: fixed_bitset<64, size_t, void, 8> — 8 × uint8_t, no padding.
+  // Runtime: fixed_bitset<64, size_t, void, 8> -- 8 × uint8_t, no padding.
   if (true) {
     fixed_bitset<64, size_t, void, 8> b;
     b.set(0);
@@ -473,7 +473,7 @@ void FixedBitset_ForcedWord() {
     EXPECT_TRUE(b.all());
   }
 
-  // Runtime: fixed_bitset<8, size_t, void, 64> — 1 × uint64_t, 56 pad bits.
+  // Runtime: fixed_bitset<8, size_t, void, 64> -- 1 × uint64_t, 56 pad bits.
   if (true) {
     using fb8 = fixed_bitset<8, size_t, void, 64>;
     fb8 b;
@@ -534,7 +534,7 @@ void FixedBitset_ForcedWord() {
     EXPECT_EQ(rot.array()[0] & ~uint64_t{0xFF}, uint64_t{0});
   }
 
-  // Runtime: fixed_bitset<24, size_t, void, 32> — 1 × uint32_t, 8 pad bits.
+  // Runtime: fixed_bitset<24, size_t, void, 32> -- 1 × uint32_t, 8 pad bits.
   if (true) {
     using fb24 = fixed_bitset<24, size_t, void, 32>;
     fb24 b;
@@ -637,7 +637,7 @@ void FixedBitset_Reference() {
     EXPECT_FALSE(b.test(5));
   }
 
-  // array() — mutable overload returns a reference to the underlying array.
+  // array() -- mutable overload returns a reference to the underlying array.
   if (true) {
     fixed_bitset<64> b;
     static_assert(std::is_same_v<decltype(b.array()),
@@ -650,7 +650,7 @@ void FixedBitset_Reference() {
     for (size_t i = 8; i < 64; ++i) EXPECT_FALSE(b.test(i));
   }
 
-  // array() — const overload returns a const reference to the underlying
+  // array() -- const overload returns a const reference to the underlying
   // array.
   if (true) {
     fixed_bitset<64> b;
@@ -1540,7 +1540,7 @@ void FixedBitset_Tag() {
     EXPECT_EQ(b.count(), 1U);
 
     // a and b have equal content in the overlapping bit, but are distinct
-    // objects of different types — no mixing is possible.
+    // objects of different types -- no mixing is possible.
     EXPECT_EQ(a.test(1), b.test(1));
     EXPECT_NE(a.count(), b.count());
   }
@@ -1963,7 +1963,7 @@ void FixedBitset_ArrayConstruct() {
     EXPECT_EQ(b.count(), 2U);
   }
 
-  // Multi-word: fixed_bitset<24> — three uint8_t words.
+  // Multi-word: fixed_bitset<24> -- three uint8_t words.
   if (true) {
     fixed_bitset<24> b{std::array<uint8_t, 3>{0x01, 0x02, 0x80}};
     EXPECT_TRUE(b.test(0));  // bit 0 of word 0

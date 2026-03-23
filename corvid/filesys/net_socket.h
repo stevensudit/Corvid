@@ -166,25 +166,49 @@ public:
     return set_option(SOL_SOCKET, SO_SNDBUF, bytes);
   }
 
-  // Read up to `data.size()` bytes from the socket into `data`, honoring
-  // `flags` as in POSIX `recv()`.
+  // Read up to `data.size() - offset` bytes into `data` starting at `offset`.
+  //
+  // On success, trims `data` to `offset + bytes_read` and returns true. On
+  // EOF, leaves `data` unchanged and returns false. On soft error (EAGAIN),
+  // trims `data` to `offset` (no new data) and returns true. On hard error,
+  // returns false.
+  //
+  // Status       |  Return  | `data`
+  // Success         true      resized to offset + bytes read
+  // Soft failure    true      resized to offset (no new data)
+  // EOF             false     unchanged, so not empty
+  // Hard failure    false     resized to offset
+  [[nodiscard]] bool
+  recv_at(std::string& data, size_t offset, int flags = 0) const {
+    if (offset >= data.size()) return true;
+
+    const ssize_t n =
+        ::recv(handle(), data.data() + offset, data.size() - offset, flags);
+    if (n == 0) return false;
+
+    no_zero::trim_to(data, offset + (n > 0 ? static_cast<size_t>(n) : 0));
+    if (n < 0) return !os_file::is_hard_error();
+    return true;
+  }
+
+  // Read up to `data.size` bytes from the socket into `data`, honoring
+  // `flags` as in POSIX `::recv`.
   //
   // On success, resizes `data` to the number of bytes read and returns true. A
   // "soft" failure (e.g., EAGAIN) is treated as success with zero bytes read.
   // On EOF/disconnect, leaves `data` unchanged and returns false. On hard
   // failure, clears `data` and returns false.
+  //
+  // Status       |  Return  | `data`
+  // Success         true      resized to bytes read
+  // Soft failure    true      resized to zero (no new data)
+  // EOF             false     unchanged, so not empty
+  // Hard failure    false     cleared (empty)
   [[nodiscard]] bool recv(std::string& data, int flags = 0) const {
-    if (data.empty()) return true;
-
-    const ssize_t n = ::recv(handle(), data.data(), data.size(), flags);
-    if (n == 0) return false;
-
-    no_zero::trim_to(data, n);
-    if (n < 0) return !os_file::is_hard_error();
-    return true;
+    return recv_at(data, 0, flags);
   }
 
-  // Receive raw bytes into `buf`, forwarding directly to POSIX `recv()`.
+  // Receive raw bytes into `buf`, forwarding directly to POSIX `recv`.
   [[nodiscard]] ssize_t recv(void* buf, size_t len, int flags) const noexcept {
     assert(is_open());
     return ::recv(handle(), buf, len, flags);
@@ -216,7 +240,7 @@ public:
     return true;
   }
 
-  // Send raw bytes from `buf`, forwarding to POSIX `send()`.
+  // Send raw bytes from `buf`, forwarding to POSIX `send`.
   [[nodiscard]] ssize_t
   send(const void* buf, size_t len, int flags = MSG_NOSIGNAL) const noexcept {
     assert(is_open());

@@ -1409,7 +1409,7 @@ void StableId_SmallId() {
     EXPECT_TRUE(v.is_valid(h100_new));
     EXPECT_GT(h100_new.gen(), h100.gen());
 
-    // Full again — exceeds limit.
+    // Full again -- exceeds limit.
     EXPECT_THROW(v.push_back(0), std::out_of_range);
   }
 }
@@ -1484,7 +1484,7 @@ void StableId_NoThrow() {
     EXPECT_EQ(v[id], 888);
     EXPECT_EQ(v.size(), 255U);
 
-    // Now truly full — returns invalid, does not throw.
+    // Now truly full -- returns invalid, does not throw.
     EXPECT_EQ(v.push_back(999), id_t::invalid);
     EXPECT_EQ(v.size(), 255U);
   }
@@ -1984,7 +1984,7 @@ void StableId_MaxId() {
     EXPECT_EQ(v.size(), 3U);
     EXPECT_EQ(v[id_reused], 40);
 
-    // Full again — exceeds limit.
+    // Full again -- exceeds limit.
     EXPECT_THROW(v.push_back(50), std::out_of_range);
   }
 
@@ -3985,7 +3985,7 @@ void ArchetypeScene_EraseStaged() {
     (void)s.storage<scene_sid_t{2}>().set_limit(0);
     auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
     auto id = h.id();
-    // Auto-migrate promotes to storage 2 — but storage 2 is full.
+    // Auto-migrate promotes to storage 2 -- but storage 2 is full.
     // The entity ends up in staging after remove() from storage 1 succeeds
     // but add() to storage 2 fails.
     (void)s.migrate_entity(id, scene_sid_t{2});
@@ -4006,7 +4006,7 @@ void ArchetypeScene_EraseStaged() {
 
 // archetype_scene::clear empties everything.
 void ArchetypeScene_Clear() {
-  // clear(true) — fast path: all entities gone, registry empty.
+  // clear(true) -- fast path: all entities gone, registry empty.
   if (true) {
     two_storage_scene_t s;
     (void)s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
@@ -4030,7 +4030,7 @@ void ArchetypeScene_Clear() {
     EXPECT_EQ(s.registry().size(), 0U);
   }
 
-  // clear(false) — slow path: all entities gone, registry empty.
+  // clear(false) -- slow path: all entities gone, registry empty.
   if (true) {
     two_storage_scene_t s;
     (void)s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});

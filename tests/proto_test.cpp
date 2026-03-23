@@ -455,7 +455,7 @@ void NetEndpoint_Construction() {
     EXPECT_TRUE(ep.is_ans());
     EXPECT_FALSE(ep.is_v4());
     EXPECT_FALSE(ep.is_v6());
-    // `uds_path()` skips the leading '\0' and returns the full 107-byte
+    // `uds_path` skips the leading '\0' and returns the full 107-byte
     // buffer.
     EXPECT_EQ(ep.uds_path().size(), 107U);
     EXPECT_EQ(ep.uds_path().substr(0, 9), "myservice");
@@ -534,7 +534,7 @@ void NetEndpoint_Parse() {
   }
 
   // An IPv4-mapped IPv6 address (e.g., `[::ffff:192.168.1.1]:80`) is stored
-  // as `AF_INET6` with no unwrapping. `to_string()` formats the address in
+  // as `AF_INET6` with no unwrapping. `to_string` formats the address in
   // pure colon-hex (RFC 5952), so `::ffff:192.168.1.1` appears as
   // `::ffff:c0a8:101`.
   if (true) {
@@ -664,7 +664,7 @@ void NetEndpoint_PosixInterop() {
     EXPECT_EQ(ntohs(as_v6->sin6_port), 4321U);
   }
 
-  // UDS: roundtrip through `as_sockaddr_un()` and back.
+  // UDS: roundtrip through `as_sockaddr_un` and back.
   if (true) {
     net_endpoint ep{"/tmp/interop.sock"};
     EXPECT_TRUE(!ep.empty());
@@ -864,7 +864,7 @@ void IoLoop_PreStartWorkIsQueued() {
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->readable, 0);
 
-  ASSERT_TRUE(loop.set_readable(conn->sock(), true));
+  ASSERT_TRUE(loop.enable_reads(*conn, true));
   EXPECT_GE(loop.run_once(0), 0);
   EXPECT_EQ(conn->readable, 1);
 }
@@ -900,7 +900,7 @@ void IoLoop_RegisterUnregister() {
   EXPECT_EQ(conn->readable, 1);
 }
 
-// `set_writable(true)` arms `EPOLLOUT`; the kernel fires it when the kernel
+// `enable_writes(true)` arms `EPOLLOUT`; the kernel fires it when the kernel
 // send buffer has space, which it does immediately on a fresh socketpair.
 void IoLoop_SetWritable() {
   epoll_loop loop;
@@ -914,12 +914,12 @@ void IoLoop_SetWritable() {
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->writable, 0);
 
-  loop.set_writable(conn->sock(), true);
+  ASSERT_TRUE(loop.enable_writes(*conn, true));
   EXPECT_GE(loop.run_once(0), 0);
   EXPECT_GE(conn->writable, 1);
 
   // Disarm; no further writable events.
-  loop.set_writable(conn->sock(), false);
+  ASSERT_TRUE(loop.enable_writes(*conn, false));
   const int w = conn->writable;
   EXPECT_EQ(loop.run_once(0), 0);
   EXPECT_EQ(conn->writable, w);
@@ -940,7 +940,7 @@ void IoLoop_SetReadable() {
   EXPECT_EQ(conn->readable, 0);
   EXPECT_EQ(conn->writable, 0);
 
-  ASSERT_TRUE(loop.set_readable(conn->sock(), true));
+  ASSERT_TRUE(loop.enable_reads(*conn, true));
   EXPECT_GE(loop.run_once(0), 0);
   EXPECT_EQ(conn->readable, 1);
   EXPECT_EQ(conn->writable, 0);
@@ -948,8 +948,8 @@ void IoLoop_SetReadable() {
   std::string buf(8, '\0');
   (void)conn->sock().read(buf);
 
-  ASSERT_TRUE(loop.set_readable(conn->sock(), false));
-  ASSERT_TRUE(loop.set_writable(conn->sock(), true));
+  ASSERT_TRUE(loop.enable_reads(*conn, false));
+  ASSERT_TRUE(loop.enable_writes(*conn, true));
   EXPECT_GE(loop.run_once(0), 0);
   EXPECT_EQ(conn->readable, 1);
   EXPECT_GE(conn->writable, 1);
@@ -965,7 +965,7 @@ void IoLoop_ErrorSkipsWritable() {
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
   ASSERT_TRUE(loop.register_socket(conn));
-  loop.set_writable(conn->sock(), true); // arm EPOLLOUT
+  ASSERT_TRUE(loop.enable_writes(*conn, true)); // arm EPOLLOUT
 
   b.close(); // triggers EPOLLHUP on `a`
 
@@ -974,8 +974,8 @@ void IoLoop_ErrorSkipsWritable() {
   EXPECT_EQ(conn->writable, 0); // must not fire when error/hup is reported
 }
 
-// The default `io_conn::on_error()` implementation falls through to
-// `on_readable()`. Verify this by registering a subclass that overrides only
+// The default `io_conn::on_error` implementation falls through to
+// `on_readable`. Verify this by registering a subclass that overrides only
 // `on_readable` and confirming it is called when the peer closes.
 void IoLoop_DefaultOnError() {
   struct readable_only_conn: io_conn {
@@ -1030,7 +1030,7 @@ void IoLoop_IsLoopThreadIsPerLoop() {
   ASSERT_TRUE(b.send(msg_view) && msg_view.empty());
   EXPECT_EQ(loop_b.run_once(0), 0);
 
-  ASSERT_TRUE(loop_b.set_readable(conn->sock(), true));
+  ASSERT_TRUE(loop_b.enable_reads(*conn, true));
   EXPECT_EQ(loop_b.run_once(0), 1);
   EXPECT_EQ(conn->readable, 1);
 }
@@ -1077,6 +1077,218 @@ void IoLoop_PostAndWait_StopRace() {
   EXPECT_LE(callback_runs.load(), iterations);
 }
 
+// Helper: allocate `cap` bytes into `rb.buffer`, set `begin`/`end`, and
+// default `min_capacity` to the actual post-allocation capacity so that
+// resize logic does not fire unexpectedly in tests that do not set it.
+// Fills active region [b..e) with `ch` so moves can be verified.
+static void
+setup_rb(recv_buffer& rb, size_t cap, size_t b, size_t e, char ch = 'X') {
+  no_zero::enlarge_to(rb.buffer, cap);
+  rb.min_capacity = rb.buffer.capacity();
+  if (b < e) std::fill(rb.buffer.data() + b, rb.buffer.data() + e, ch);
+  rb.begin.store(b, std::memory_order::relaxed);
+  rb.end.store(e, std::memory_order::relaxed);
+}
+
+// When there are no active bytes, compact always resets begin and end to 0.
+void RecvBuffer_Compact_NoActiveBytes() {
+  if (true) {
+    // begin == end == 0: already at front, cheap reset is a no-op.
+    recv_buffer rb;
+    setup_rb(rb, 64, 0, 0);
+    rb.compact();
+    EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+    EXPECT_EQ(rb.end.load(std::memory_order::relaxed), 0U);
+    EXPECT_EQ(rb.write_space(), rb.buffer.capacity());
+  }
+  if (true) {
+    // begin == end > 0: cheap reset reclaims all space.
+    recv_buffer rb;
+    setup_rb(rb, 64, 40, 40);
+    rb.compact();
+    EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+    EXPECT_EQ(rb.end.load(std::memory_order::relaxed), 0U);
+    EXPECT_EQ(rb.write_space(), rb.buffer.capacity());
+  }
+}
+
+// When write space is exhausted (end == capacity) but begin > 0, compact
+// must memmove to reclaim space before the active region.
+void RecvBuffer_Compact_MustCompact() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t cap = rb.buffer.capacity();
+  const size_t b = cap / 4; // begin at 1/4 mark (not past it: worth_it false)
+  setup_rb(rb, cap, b, cap, 'A'); // end == capacity: must compact
+  rb.compact();
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), cap - b);
+  EXPECT_EQ(rb.buffer[0], 'A');
+  EXPECT_GT(rb.write_space(), 0U);
+}
+
+// When begin is past the 1/4 mark and end is past the 3/4 mark, compact
+// proactively moves bytes to avoid a short recv on the next call.
+void RecvBuffer_Compact_WorthIt() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t cap = rb.buffer.capacity();
+  const size_t b = (cap / 4) + 1;     // just past 1/4 mark
+  const size_t e = (cap / 4 * 3) + 1; // just past 3/4 mark
+  setup_rb(rb, cap, b, e, 'B');
+  rb.compact();
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), e - b);
+  EXPECT_EQ(rb.buffer[0], 'B');
+}
+
+// When neither "must" nor "worth it" applies, begin and end are left
+// unchanged to avoid a pointless memmove.
+void RecvBuffer_Compact_SkipsUnnecessaryMove() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t cap = rb.buffer.capacity();
+  const size_t b = cap / 4; // at the 1/4 mark, not past it: worth_it false
+  const size_t e = cap / 2; // end well before 3/4 mark, write_space > 0
+  setup_rb(rb, cap, b, e);
+  rb.compact();
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), b);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), e);
+}
+
+// When target exceeds current capacity, the buffer is grown and active bytes
+// are copied to the front of the new buffer.
+void RecvBuffer_Compact_GrowOnRequest() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t cap = rb.buffer.capacity();
+  setup_rb(rb, cap, 10, 30, 'C');
+  rb.compact(cap * 2);
+  EXPECT_GE(rb.buffer.capacity(), cap * 2);
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), 20U);
+  EXPECT_EQ(rb.buffer[0], 'C');
+}
+
+// When current capacity is below min_capacity, compact grows the buffer
+// and syncs min_capacity to the actual post-resize capacity.
+void RecvBuffer_Compact_GrowToMinCapacity() {
+  recv_buffer rb;
+  setup_rb(rb, 32, 0, 10, 'D');
+  const size_t configured = rb.buffer.capacity() * 2;
+  rb.min_capacity = configured;
+  rb.compact();
+  EXPECT_GE(rb.buffer.capacity(), configured);
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), 10U);
+  EXPECT_EQ(rb.buffer[0], 'D');
+  // min_capacity is synced to the actual post-resize capacity.
+  EXPECT_EQ(size_t(rb.min_capacity), rb.buffer.capacity());
+}
+
+// When the buffer has bloated beyond 2x min_capacity and all active data
+// fits in min_capacity, compact shrinks back to min_capacity.
+void RecvBuffer_Compact_Shrink() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t bloated_cap = rb.buffer.capacity();
+  // configured = cap/4; current = cap = 4*configured > 2*configured: bloated.
+  const size_t configured = bloated_cap / 4;
+  // Fill active region [4..4+configured) then override min_capacity.
+  setup_rb(rb, bloated_cap, 4, 4 + configured,
+      'E');                     // active_len == configured
+  rb.min_capacity = configured; // set after setup_rb, which resets it
+  rb.compact();
+  EXPECT_LT(rb.buffer.capacity(), bloated_cap);
+  EXPECT_GE(rb.buffer.capacity(), configured);
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), configured);
+  EXPECT_EQ(rb.buffer[0], 'E');
+}
+
+// Shrink is skipped when active_len exceeds min_capacity; the shrunken
+// buffer would not fit the active data.
+void RecvBuffer_Compact_ShrinkSkippedIfActiveWontFit() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t cap = rb.buffer.capacity();
+  // active_len = cap/2 > configured = cap/4: shrink condition fails.
+  setup_rb(rb, cap, 0, cap / 2);
+  rb.min_capacity = cap / 4; // set after setup_rb, which resets it
+  rb.compact();
+  EXPECT_EQ(rb.buffer.capacity(), cap); // no resize
+  // begin=0, end unchanged (no memmove: begin not past 1/4 mark).
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), cap / 2);
+}
+
+// When target > 0 but does not exceed current capacity, no resize occurs.
+void RecvBuffer_Compact_NoResizeWhenTargetFits() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t cap = rb.buffer.capacity();
+  rb.compact(cap / 2); // target <= current: no resize
+  EXPECT_EQ(rb.buffer.capacity(), cap);
+}
+
+// `update_active_view` advances `begin` by the number of bytes the parser
+// moved past in an `active_view` snapshot. Calling it in stages is
+// equivalent to a single `consume` for the total consumed bytes.
+void RecvBufferView_UpdateActiveView() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 5, 'X');
+
+  recv_buffer_view v{rb, [](size_t, size_t) {}};
+
+  // First look: 5 bytes available.
+  std::string_view sv = v;
+  EXPECT_EQ(sv.size(), 5U);
+
+  // Advance 2 bytes into the snapshot, then inform the view.
+  sv.remove_prefix(2);
+  v.update_active_view(sv);
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 2U);
+
+  // Second look: 3 bytes remain at the new `begin`.
+  sv = v;
+  EXPECT_EQ(sv.size(), 3U);
+  EXPECT_EQ(sv[0], 'X');
+
+  // Consume the rest.
+  sv.remove_prefix(3);
+  v.update_active_view(sv);
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 5U);
+}
+
+// The moved-from view must not fire the resume callback; only the final
+// owner fires it, exactly once. `last_seen_end_` and `new_buffer_size_` are
+// carried over by the move so the callback receives correct values.
+void RecvBufferView_MoveSemantics() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 10, 'X');
+
+  if (true) {
+    // Move construction: moved-from is null; moved-to fires resume.
+    size_t fired_new_size{};
+    size_t fired_lse{};
+    {
+      recv_buffer_view v1{rb,
+          [&](size_t n, size_t lse) {
+            fired_new_size = n;
+            fired_lse = lse;
+          }};
+      recv_buffer_view v2{std::move(v1)}; // v1 now null
+
+      // v2 retains full buffer access.
+      EXPECT_EQ(v2.active_view().size(), 10U); // also sets last_seen_end_ = 10
+      v2.expand_to(128);
+      // v1 destructs silently; v2 destructs and fires resume(128, 10).
+    }
+    EXPECT_EQ(fired_new_size, 128U);
+    EXPECT_EQ(fired_lse, 10U);
+  }
+}
+
 void StreamConn_Lifecycle() {
   epoll_loop loop;
   auto this_is_the_loop_thread = loop.poll_thread_scope();
@@ -1102,8 +1314,10 @@ void StreamConn_Receive() {
 
   std::string received;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_data = [&](stream_conn&, std::string& d) {
-        received = std::move(d);
+      {.on_data = [&](stream_conn&, recv_buffer_view v) {
+        std::string_view av = v;
+        received.assign(av);
+        v.consume(av.size());
         return true;
       }});
   EXPECT_GE(loop.run_once(0), 0); // process posted do_open()
@@ -1121,11 +1335,16 @@ void StreamConn_SetRecvBufSize() {
   auto this_is_the_loop_thread = loop.poll_thread_scope();
   auto [a, b] = make_nb_sockpair();
 
-  std::vector<size_t> chunk_sizes;
+  // `recv_buf_size` is a target for future compactions; the actual per-read
+  // limit may be larger when the allocator (or SSO) provides extra capacity.
+  // Test that the getter/setter works and that all data arrives correctly.
+  std::string received;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
       {.on_data =
-              [&](stream_conn&, std::string& d) {
-                chunk_sizes.push_back(d.size());
+              [&](stream_conn&, recv_buffer_view v) {
+                std::string_view av = v;
+                received.append(av);
+                v.consume(av.size());
                 return true;
               }},
       4);
@@ -1135,23 +1354,18 @@ void StreamConn_SetRecvBufSize() {
 
   auto first = std::string_view{"abcd1234"};
   ASSERT_TRUE(b.send(first) && first.empty());
-  EXPECT_GE(loop.run_once(0), 0); // first read capped at 4 bytes
-  EXPECT_EQ(chunk_sizes.size(), 1U);
-  EXPECT_EQ(chunk_sizes[0], 4U);
+  for (int i = 0; i < 4 && received.size() < 8; ++i)
+    EXPECT_GE(loop.run_once(0), 0);
+  EXPECT_EQ(received, "abcd1234");
 
   ASSERT_TRUE(conn->set_recv_buf_size(8));
   EXPECT_EQ(conn->recv_buf_size(), 8U);
 
-  EXPECT_GE(loop.run_once(0), 0); // drain remaining 4 bytes
-  EXPECT_EQ(chunk_sizes.size(), 2U);
-  EXPECT_EQ(chunk_sizes[1], 4U);
-
   auto second = std::string_view{"ABCDEFGHijkl"};
   ASSERT_TRUE(b.send(second) && second.empty());
-  EXPECT_GE(loop.run_once(0), 0); // next read should use updated sizing hint
-  EXPECT_EQ(chunk_sizes.size(), 3U);
-  EXPECT_GE(chunk_sizes[2], 8U);
-  EXPECT_LE(chunk_sizes[2], 12U);
+  for (int i = 0; i < 4 && received.size() < 20; ++i)
+    EXPECT_GE(loop.run_once(0), 0);
+  EXPECT_EQ(received, "abcd1234ABCDEFGHijkl");
 }
 
 void StreamConn_PeerClose() {
@@ -1168,7 +1382,8 @@ void StreamConn_PeerClose() {
   EXPECT_GE(loop.run_once(0), 0); // process posted do_open()
 
   ASSERT_TRUE(b.shutdown(SHUT_WR));
-  EXPECT_GE(loop.run_once(0), 0); // dispatch EOF/HUP
+
+  EXPECT_GE(loop.run_once(0), 0); // dispatch readable event with EOF (HUP)
 
   EXPECT_TRUE(closed);
 
@@ -1186,6 +1401,61 @@ void StreamConn_PeerClose() {
   EXPECT_TRUE(conn->close());
   EXPECT_GE(loop.run_once(0), 0);
   EXPECT_FALSE(conn->is_open());
+}
+
+// When the peer sends data and then half-closes before the receiver reads,
+// the first `handle_readable` delivers the data via `on_data`. The subsequent
+// EOF event enters `handle_read_eof` with a non-empty buffer and no live view,
+// so it must dispatch `on_data` once more with the residual bytes (at which
+// point `can_read()` is already false) before firing `on_close`.
+void StreamConn_PeerClose_WithBufferedData() {
+  epoll_loop loop;
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  int data_count = 0;
+  bool read_open_at_eof_dispatch = true;
+  std::string received;
+  bool closed = false;
+
+  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_data =
+              [&](stream_conn& c, recv_buffer_view v) {
+                std::string_view av = v;
+                // First call: consume only 2 bytes, leaving "llo" in the
+                // buffer so that `handle_read_eof` sees a non-empty buffer.
+                const size_t n = (data_count == 0) ? 2 : av.size();
+                received.append(av.substr(0, n));
+                v.consume(n);
+                if (data_count == 1) read_open_at_eof_dispatch = c.can_read();
+                ++data_count;
+                return true;
+              },
+          .on_close =
+              [&](stream_conn&) {
+                closed = true;
+                return true;
+              }});
+  EXPECT_GE(loop.run_once(0), 0); // process posted register_with_loop
+
+  const std::string msg{"hello"};
+  auto msg_view = std::string_view{msg};
+  ASSERT_TRUE(b.send(msg_view) && msg_view.empty());
+  ASSERT_TRUE(b.shutdown(SHUT_WR)); // send EOF after data
+
+  // First iteration: reads "hello", dispatches on_data (consumes "he").
+  EXPECT_GE(loop.run_once(0), 0);
+  EXPECT_EQ(data_count, 1);
+  EXPECT_EQ(received, "he");
+  EXPECT_FALSE(closed);
+
+  // Second iteration: EOF arrives; `handle_read_eof` finds "llo" in the
+  // buffer, dispatches on_data with residual bytes, then fires on_close.
+  EXPECT_GE(loop.run_once(0), 0);
+  EXPECT_EQ(data_count, 2);
+  EXPECT_EQ(received, "hello");
+  EXPECT_FALSE(read_open_at_eof_dispatch); // read side already closed
+  EXPECT_TRUE(closed);
 }
 
 void StreamConn_Send() {
@@ -1310,8 +1580,10 @@ void StreamConn_AsyncCbRead() {
   EXPECT_GE(loop.run_once(0), 0); // process posted register_with_loop
 
   stream_async_cb cb{conn.pointer()};
-  ASSERT_TRUE(cb.read([&](std::string& data) {
-    received = std::move(data);
+  ASSERT_TRUE(cb.read([&](recv_buffer_view v) {
+    std::string_view av = v;
+    received.assign(av);
+    v.consume(av.size());
     return true;
   }));
 
@@ -1341,8 +1613,10 @@ void StreamConn_AsyncCbRead_PreservesEarlyData() {
       0); // read interest is disabled; data stays queued
 
   stream_async_cb cb{conn.pointer()};
-  ASSERT_TRUE(cb.read([&](std::string& data) {
-    received = std::move(data);
+  ASSERT_TRUE(cb.read([&](recv_buffer_view v) {
+    std::string_view av = v;
+    received.assign(av);
+    v.consume(av.size());
     return true;
   }));
 
@@ -1360,11 +1634,13 @@ void StreamConn_AsyncCbRead_DuplicateRejected() {
   EXPECT_GE(loop.run_once(0), 0); // process posted register_with_loop
 
   stream_async_cb cb{conn.pointer()};
-  ASSERT_TRUE(cb.read([&](std::string&) {
+  ASSERT_TRUE(cb.read([&](recv_buffer_view v) {
+    v.consume(std::string_view{v}.size());
     ++callback_count;
     return true;
   }));
-  EXPECT_FALSE(cb.read([&](std::string&) {
+  EXPECT_FALSE(cb.read([&](recv_buffer_view v) {
+    v.consume(std::string_view{v}.size());
     ++callback_count;
     return true;
   }));
@@ -1386,15 +1662,18 @@ void StreamConn_AsyncCbRead_PeerClose() {
   // `stream_async_cb` fully takes over the handlers, so the persistent
   // `on_close` on `own_handlers_` does not fire while the `stream_async_cb`
   // is active. Close notification arrives via `stream_async_cb::on_close`,
-  // which fires the pending `async_cb_read` callback with an empty string.
+  // which fires the pending read callback with an empty `recv_buffer_view`
+  // (signaling EOF).
   std::string received{"sentinel"};
   int callback_count = 0;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   EXPECT_GE(loop.run_once(0), 0); // process posted register_with_loop
 
   stream_async_cb cb{conn.pointer()};
-  ASSERT_TRUE(cb.read([&](std::string& data) {
-    received = std::move(data);
+  ASSERT_TRUE(cb.read([&](recv_buffer_view v) {
+    std::string_view av = v;
+    received.assign(av);
+    v.consume(av.size());
     ++callback_count;
     return true;
   }));
@@ -1477,8 +1756,10 @@ void StreamConn_ShutdownWrite() {
 
   std::string received;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_data = [&](stream_conn&, std::string& d) {
-        received = std::move(d);
+      {.on_data = [&](stream_conn&, recv_buffer_view v) {
+        std::string_view av = v;
+        received.assign(av);
+        v.consume(av.size());
         return true;
       }});
   EXPECT_GE(loop.run_once(0), 0); // process posted register_with_loop
@@ -1508,7 +1789,8 @@ void StreamConn_ShutdownRead() {
 
   int data_count = 0;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
-      {.on_data = [&](stream_conn&, std::string&) {
+      {.on_data = [&](stream_conn&, recv_buffer_view v) {
+        v.consume(std::string_view{v}.size());
         ++data_count;
         return true;
       }});
@@ -1522,7 +1804,7 @@ void StreamConn_ShutdownRead() {
   EXPECT_TRUE(conn->can_write());
   {
     stream_async_cb cb{conn.pointer()};
-    EXPECT_FALSE(cb.read([&](std::string&) {
+    EXPECT_FALSE(cb.read([&](recv_buffer_view) {
       ++data_count;
       return true;
     }));
@@ -1921,8 +2203,11 @@ void StreamConn_EchoServer() {
   // handlers, so no external handle is needed.
   auto listener = stream_conn_ptr::listen(loop,
       net_endpoint{ipv4_addr::loopback, 0},
-      {.on_data = [](stream_conn& conn, std::string& data) {
-        return conn.send(std::move(data));
+      {.on_data = [](stream_conn& conn, recv_buffer_view v) {
+        std::string_view av = v;
+        bool ok = conn.send(std::string{av});
+        v.consume(av.size());
+        return ok;
       }});
   ASSERT_TRUE(listener);
 
@@ -1939,8 +2224,10 @@ void StreamConn_EchoServer() {
 
   client_conn = stream_conn_ptr::connect(loop, server_ep,
       {.on_data =
-              [&](stream_conn&, std::string& data) {
-                received.append(data);
+              [&](stream_conn&, recv_buffer_view v) {
+                std::string_view av = v;
+                received.append(av);
+                v.consume(av.size());
                 if (received.size() >= msg.size()) done.notify_one(true);
                 return true;
               },
@@ -1967,10 +2254,17 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     IoLoop_RegisterUnregister, IoLoop_SetWritable, IoLoop_SetReadable,
     IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError,
     IoLoop_IsLoopThreadIsPerLoop, IoLoop_PostAndWait_StopRace,
-    StreamConn_Lifecycle, StreamConn_Receive, StreamConn_SetRecvBufSize,
-    StreamConn_PeerClose, StreamConn_Send, StreamConn_ManualClose,
-    StreamConn_DrainAfterBufferedSend, StreamConn_DrainAfterImmediateSend,
-    StreamConn_AsyncCbRead, StreamConn_AsyncCbRead_PreservesEarlyData,
+    RecvBuffer_Compact_NoActiveBytes, RecvBuffer_Compact_MustCompact,
+    RecvBuffer_Compact_WorthIt, RecvBuffer_Compact_SkipsUnnecessaryMove,
+    RecvBuffer_Compact_GrowOnRequest, RecvBuffer_Compact_GrowToMinCapacity,
+    RecvBuffer_Compact_Shrink, RecvBuffer_Compact_ShrinkSkippedIfActiveWontFit,
+    RecvBuffer_Compact_NoResizeWhenTargetFits, RecvBufferView_UpdateActiveView,
+    RecvBufferView_MoveSemantics, StreamConn_Lifecycle, StreamConn_Receive,
+    StreamConn_SetRecvBufSize, StreamConn_PeerClose,
+    StreamConn_PeerClose_WithBufferedData, StreamConn_Send,
+    StreamConn_ManualClose, StreamConn_DrainAfterBufferedSend,
+    StreamConn_DrainAfterImmediateSend, StreamConn_AsyncCbRead,
+    StreamConn_AsyncCbRead_PreservesEarlyData,
     StreamConn_AsyncCbRead_DuplicateRejected, StreamConn_AsyncCbRead_PeerClose,
     StreamConn_AsyncCbWrite, StreamConn_AsyncCbWrite_Failure,
     StreamConn_AsyncCbWrite_DuplicateRejected, StreamConn_ShutdownWrite,

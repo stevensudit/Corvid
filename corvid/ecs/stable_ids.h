@@ -48,22 +48,22 @@ namespace corvid { inline namespace ecs { inline namespace stable_id_vector {
 // `invalid` value equal to its max, as shown by `id_t`.
 //
 // Template options:
-//   T         — element type stored in the container.
-//   ID        — enum type used for IDs. Must be a sequential enum with an
+//   T         -- element type stored in the container.
+//   ID        -- enum type used for IDs. Must be a sequential enum with an
 //               `invalid` value equal to its underlying type's max (see
 //               `id_t` for an example). Defaults to `id_enums::id_t`.
-//   GEN       — when versioned (default), handles carry a generation counter
+//   GEN       -- when versioned (default), handles carry a generation counter
 //               that detects ID reuse via is_valid(handle_t). When
 //               unversioned, the gen field is elided entirely via
 //               [[no_unique_address]].
 //   REUSE_ORDER
-//             — when fifo, freed IDs are reused in FIFO order (oldest
+//             -- when fifo, freed IDs are reused in FIFO order (oldest
 //               first). When lifo (default), reuse is LIFO. FIFO increases the
 //               delay before an ID is recycled, which can make the no-gen
 //               option safer in domains with bounded handle lifetimes (e.g.
 //               per-frame ECS). The free-list next-pointer is colocated in an
 //               internal slot type and elided when FIFO is off.
-//   ALLOCATOR — allocator type for element storage. Also rebound internally
+//   ALLOCATOR -- allocator type for element storage. Also rebound internally
 //               for index and slot vectors. Defaults to `std::allocator<T>`.
 //
 // Insertion may throw `std::out_of_range` if the maximum ID value is
@@ -666,7 +666,7 @@ private:
   // the high water mark of IDs ever allocated (max(max_id()) + 1). Their size
   // is always >= `data_.size()`.
   //
-  // The free list lives in the tail of `reverse_` — the slots past
+  // The free list lives in the tail of `reverse_` -- the slots past
   // `data_.size()`. When `REUSE_ORDER` is LIFO, `alloc_id` takes the first
   // free slot. When `REUSE_ORDER` is FIFO, the free slots are threaded into
   // a singly-linked list via their `fifo_next_` fields, ordered by free time;
