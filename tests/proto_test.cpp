@@ -1272,10 +1272,11 @@ void RecvBufferView_MoveSemantics() {
     size_t fired_new_size{};
     size_t fired_lse{};
     {
-      recv_buffer_view v1{rb, [&](size_t n, size_t lse) {
-        fired_new_size = n;
-        fired_lse = lse;
-      }};
+      recv_buffer_view v1{rb,
+          [&](size_t n, size_t lse) {
+            fired_new_size = n;
+            fired_lse = lse;
+          }};
       recv_buffer_view v2{std::move(v1)}; // v1 now null
 
       // v2 retains full buffer access.
@@ -1285,23 +1286,6 @@ void RecvBufferView_MoveSemantics() {
     }
     EXPECT_EQ(fired_new_size, 128U);
     EXPECT_EQ(fired_lse, 10U);
-  }
-
-  if (true) {
-    // Move assignment: original callback of the destination is displaced
-    // without firing; only the transferred callback fires.
-    int resume_count = 0;
-    {
-      recv_buffer_view v3{rb, [&](size_t, size_t) { ++resume_count; }};
-      recv_buffer_view v4{std::move(v3)}; // v3 null, v4 owns
-      {
-        recv_buffer_view v5{rb, [&](size_t, size_t) { ++resume_count; }};
-        v5 = std::move(v4); // v5 takes v4's view; v5's own callback is dropped
-        // v4 destructs (no-op); v5 destructs, fires v3's callback once.
-      }
-      // v3 destructs (no-op).
-    }
-    EXPECT_EQ(resume_count, 1);
   }
 }
 
@@ -1445,12 +1429,11 @@ void StreamConn_PeerClose_WithBufferedData() {
                 const size_t n = (data_count == 0) ? 2 : av.size();
                 received.append(av.data(), n);
                 v.consume(n);
-                if (data_count == 1)
-                  read_open_at_eof_dispatch = c.can_read();
+                if (data_count == 1) read_open_at_eof_dispatch = c.can_read();
                 ++data_count;
                 return true;
               },
-       .on_close =
+          .on_close =
               [&](stream_conn&) {
                 closed = true;
                 return true;
@@ -2280,8 +2263,8 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     RecvBuffer_Compact_NoResizeWhenTargetFits, RecvBufferView_UpdateActiveView,
     RecvBufferView_MoveSemantics, StreamConn_Lifecycle, StreamConn_Receive,
     StreamConn_SetRecvBufSize, StreamConn_PeerClose,
-    StreamConn_PeerClose_WithBufferedData,
-    StreamConn_Send, StreamConn_ManualClose, StreamConn_DrainAfterBufferedSend,
+    StreamConn_PeerClose_WithBufferedData, StreamConn_Send,
+    StreamConn_ManualClose, StreamConn_DrainAfterBufferedSend,
     StreamConn_DrainAfterImmediateSend, StreamConn_AsyncCbRead,
     StreamConn_AsyncCbRead_PreservesEarlyData,
     StreamConn_AsyncCbRead_DuplicateRejected, StreamConn_AsyncCbRead_PeerClose,

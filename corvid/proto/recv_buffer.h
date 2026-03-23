@@ -228,15 +228,7 @@ public:
         new_buffer_size_{o.new_buffer_size_},
         last_seen_end_{o.last_seen_end_} {}
 
-  recv_buffer_view& operator=(recv_buffer_view&& o) noexcept {
-    if (this != &o) {
-      buf_ = std::exchange(o.buf_, nullptr);
-      resume_cb_ = std::exchange(o.resume_cb_, {});
-      new_buffer_size_ = o.new_buffer_size_;
-      last_seen_end_ = o.last_seen_end_;
-    }
-    return *this;
-  }
+  recv_buffer_view& operator=(recv_buffer_view&&) = delete;
 
   // Destructor: calls `resume_cb_(new_buffer_size_, last_seen_end_)` to post
   // compact / re-enable-reads / optional re-dispatch back to the loop.

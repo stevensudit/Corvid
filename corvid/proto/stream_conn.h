@@ -690,7 +690,7 @@ private:
     // size.
     if (recv_buf_.buffer.empty())
       recv_buf_.min_capacity =
-          no_zero::resize_to(recv_buf_.buffer, recv_buf_.min_capacity).size();
+          no_zero::enlarge_to(recv_buf_.buffer, recv_buf_.min_capacity).size();
 
     const size_t space = recv_buf_.write_space();
     if (space == 0) {

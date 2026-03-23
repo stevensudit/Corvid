@@ -129,8 +129,8 @@ public:
   //
   // The initial event mask always includes `EPOLLERR | EPOLLHUP`; read and
   // write readiness are controlled by `readable` and `writable`. Returns
-  // false if `sock` is already registered or `epoll_ctl` fails. If executed
-  // outside of loop thread, turns into a `post` and returns true.
+  // false if `epoll_ctl` fails. If executed outside of loop thread, turns into
+  // a `post` and returns true.
   [[nodiscard]] bool register_socket(std::shared_ptr<io_conn> conn,
       bool readable = true, bool writable = false) {
     return execute_or_post(
@@ -140,9 +140,8 @@ public:
   }
 
   // Add or remove `EPOLLIN` from the event mask for `conn` without changing
-  // the registered `io_conn`. Returns false if `conn` is not registered or
-  // `epoll_ctl` fails. If executed outside of loop thread, turns into a
-  // `post` and returns true.
+  // the registered `io_conn`. Returns false if `epoll_ctl` fails. If executed
+  // outside of loop thread, turns into a `post` and returns true.
   [[nodiscard]] bool enable_reads(io_conn& conn, bool on = true) {
     auto sp = conn.shared_from_this();
     return execute_or_post([this, sp = std::move(sp), on] {
@@ -153,8 +152,8 @@ public:
   // Add or remove `EPOLLRDHUP` from the event mask for `conn` without
   // changing the registered `io_conn`. Disarming is useful after EOF is
   // observed on the read side to prevent repeated level-triggered wakeups.
-  // Returns false if `conn` is not registered or `epoll_ctl` fails. If
-  // executed outside of loop thread, turns into a `post` and returns true.
+  // Returns false if `epoll_ctl` fails. If executed outside of loop thread,
+  // turns into a `post` and returns true.
   [[nodiscard]] bool enable_rdhup(io_conn& conn, bool on = true) {
     auto sp = conn.shared_from_this();
     return execute_or_post([this, sp = std::move(sp), on] {
@@ -163,9 +162,8 @@ public:
   }
 
   // Add or remove `EPOLLOUT` from the event mask for `conn` without changing
-  // the registered `io_conn`. Returns false if `conn` is not registered or
-  // `epoll_ctl` fails. If executed outside of loop thread, turns into a
-  // `post` and returns true.
+  // the registered `io_conn`. Returns false if `epoll_ctl` fails. If executed
+  // outside of loop thread, turns into a `post` and returns true.
   [[nodiscard]] bool enable_writes(io_conn& conn, bool on = true) {
     auto sp = conn.shared_from_this();
     return execute_or_post([this, sp = std::move(sp), on] {
