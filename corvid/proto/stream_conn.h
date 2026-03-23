@@ -702,11 +702,17 @@ private:
   [[nodiscard]] bool handle_readable() {
     if (!read_open_) return false;
 
-    // Initial allocation. Round `min_capacity` up to actual capacity at that
-    // size.
-    if (recv_buf_.buffer.empty())
-      recv_buf_.min_capacity =
-          no_zero::enlarge_to(recv_buf_.buffer, recv_buf_.min_capacity).size();
+    // Initial allocation. Round `min_capacity` up to the actual allocated
+    // capacity at that size, using a CAS so a concurrent `set_recv_buf_size`
+    // that stored a larger value is not overwritten.
+    if (recv_buf_.buffer.empty()) {
+      const size_t configured = recv_buf_.min_capacity;
+      const size_t actual =
+          no_zero::enlarge_to(recv_buf_.buffer, configured).size();
+      auto expected = configured;
+      recv_buf_.min_capacity->compare_exchange_strong(expected, actual,
+          std::memory_order::relaxed, std::memory_order::relaxed);
+    }
 
     const size_t space = recv_buf_.write_space();
     if (space == 0) {
