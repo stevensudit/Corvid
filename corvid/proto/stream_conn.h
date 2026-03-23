@@ -619,9 +619,9 @@ private:
   // otherwise clears `eof_pending_` and fires `do_eof_notifications`.
   [[nodiscard]] bool handle_deferred_eof() {
     if (!recv_buf_.active().empty()) {
-      return loop_.post([this]() -> bool {
-        if (!open_) return false;
-        return notify_read_ready();
+      return loop_.post([p = self()]() -> bool {
+        if (!p->open_) return false;
+        return p->notify_read_ready();
       });
     }
     eof_pending_ = false;
@@ -756,37 +756,37 @@ private:
   // Uses `execute_or_post` for compaction and `refresh_read_interest`, and may
   // call `notify_read_ready`.
   void resume_receive(size_t new_size = 0, size_t last_seen_end = 0) {
-    (void)execute_or_post([this, new_size, last_seen_end]() -> bool {
-      if (!open_) return false;
-      recv_buf_.view_active = false;
+    (void)execute_or_post([p = self(), new_size, last_seen_end]() -> bool {
+      if (!p->open_) return false;
+      p->recv_buf_.view_active = false;
 
       // Evaluate before compaction: compaction may reset `end` to
       // `active_len`, making a post-compact comparison against `last_seen_end`
       // meaningless.
       const bool unseen_bytes =
-          recv_buf_.end.load(std::memory_order::acquire) > last_seen_end;
-      recv_buf_.compact(new_size);
+          p->recv_buf_.end.load(std::memory_order::acquire) > last_seen_end;
+      p->recv_buf_.compact(new_size);
 
       // If EOF arrived while a view was live, handle it now.
-      if (eof_pending_) return handle_deferred_eof();
+      if (p->eof_pending_) return p->handle_deferred_eof();
 
-      if (recv_buf_.write_space() == 0) {
+      if (p->recv_buf_.write_space() == 0) {
         // Compact created no free space: the parser consumed nothing and the
         // buffer is still full. Post `on_data` again so the parser gets
         // another chance; it should call `expand_to` or start consuming.
-        return loop_.post([this]() -> bool {
-          if (!open_) return false;
-          return notify_read_ready();
+        return p->loop_.post([p]() -> bool {
+          if (!p->open_) return false;
+          return p->notify_read_ready();
         });
       }
 
       // Bytes can arrive while a view is live (`handle_readable` extends `end`
       // but skips the `on_data` dispatch). Re-dispatch now if the parser has
       // not yet seen all buffered bytes; otherwise just re-arm `EPOLLIN`.
-      if (unseen_bytes && !recv_buf_.active().empty()) {
-        return loop_.post([this]() -> bool {
-          if (!open_) return false;
-          return notify_read_ready();
+      if (unseen_bytes && !p->recv_buf_.active().empty()) {
+        return p->loop_.post([p]() -> bool {
+          if (!p->open_) return false;
+          return p->notify_read_ready();
         });
       }
 
@@ -794,7 +794,7 @@ private:
       // based on current state (`reads_enabled` and active handler presence).
       // This re-arms `EPOLLIN` for persistent handlers and leaves it off for
       // `stream_async` when no read is pending.
-      return refresh_read_interest();
+      return p->refresh_read_interest();
     });
   }
 
