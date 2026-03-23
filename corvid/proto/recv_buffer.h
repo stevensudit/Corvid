@@ -295,6 +295,32 @@ public:
     if (consumed > 0) consume(consumed);
   }
 
+  // Bulk-transfer the backing buffer when it is completely full (i.e., `end`
+  // is at the physical end of capacity). Returns `false` without modifying
+  // anything if the buffer is not full.
+  //
+  // On success, swaps the backing buffer into `out` (stealing the caller's
+  // allocation), sets `view` to the active region inside `out`, resets the
+  // backing buffer to its previous capacity (no-zero), clears both indices,
+  // and ensures `compact` will not shrink the restored buffer.
+  bool try_take_full(std::string& out, std::string_view& view) {
+    assert(buf_);
+    const size_t b = buf_->begin.load(std::memory_order::relaxed);
+    const size_t e = buf_->end.load(std::memory_order::relaxed);
+    const size_t old_cap = buf_->buffer.size();
+    if (e != old_cap) return false;
+    buf_->buffer.swap(out);
+    view = {out.data() + b, e - b};
+    buf_->buffer.clear();
+    no_zero::enlarge_to_cap(buf_->buffer);
+    const size_t new_cap = buf_->buffer.size();
+    buf_->begin.store(0, std::memory_order::relaxed);
+    buf_->end.store(0, std::memory_order::relaxed);
+    last_seen_end_ = 0;
+    new_buffer_size_ = std::max(new_buffer_size_, new_cap);
+    return true;
+  }
+
 private:
   recv_buffer* buf_;                              // non-owning; nulled on move
   std::function<void(size_t, size_t)> resume_cb_; // keeps connection alive

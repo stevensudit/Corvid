@@ -1289,6 +1289,80 @@ void RecvBufferView_MoveSemantics() {
   }
 }
 
+// try_take_full returns false and leaves everything unchanged when `end` is
+// not at the physical end of the buffer.
+void RecvBufferView_TryTakeFull_Fail() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 5, 'X');
+  const size_t cap = rb.buffer.capacity();
+
+  recv_buffer_view v{rb, [](size_t, size_t) {}};
+  std::string out;
+  std::string_view sv;
+  EXPECT_FALSE(v.try_take_full(out, sv));
+  EXPECT_TRUE(out.empty());
+  EXPECT_TRUE(sv.empty());
+  EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+  EXPECT_EQ(rb.end.load(std::memory_order::relaxed), 5U);
+  EXPECT_EQ(rb.buffer.capacity(), cap);
+}
+
+// try_take_full succeeds when `end == capacity`. The backing buffer is
+// swapped into `out`, `view` covers the active region inside `out`, and
+// indices are reset. The destructor callback receives `lse == 0`.
+void RecvBufferView_TryTakeFull_Success() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t cap = rb.buffer.capacity();
+  // Active region starts mid-buffer so the view offset is verified.
+  setup_rb(rb, cap, 10, cap, 'A');
+
+  size_t cb_lse{1}; // non-zero sentinel; confirmed reset to 0 by destructor
+  {
+    recv_buffer_view v{rb, [&](size_t, size_t lse) { cb_lse = lse; }};
+    std::string out;
+    std::string_view sv;
+    EXPECT_TRUE(v.try_take_full(out, sv));
+
+    // `out` holds the full old buffer.
+    EXPECT_EQ(out.size(), cap);
+    // `sv` covers the active portion inside `out`.
+    EXPECT_EQ(sv.data(), out.data() + 10);
+    EXPECT_EQ(sv.size(), cap - 10U);
+    EXPECT_EQ(sv[0], 'A');
+    // Backing buffer maintains the `size == capacity` invariant.
+    EXPECT_EQ(rb.buffer.size(), rb.buffer.capacity());
+    EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 0U);
+    EXPECT_EQ(rb.end.load(std::memory_order::relaxed), 0U);
+  } // destructor fires with lse == 0
+  EXPECT_EQ(cb_lse, 0U);
+}
+
+// Pre-loading `out` with a large allocation causes try_take_full to steal it
+// for the backing buffer, avoiding a reallocation on the next cycle.
+void RecvBufferView_TryTakeFull_StealAllocation() {
+  recv_buffer rb;
+  setup_rb(rb, 64, 0, 0);
+  const size_t cap = rb.buffer.capacity();
+  setup_rb(rb, cap, 0, cap, 'B');
+
+  // Give `out` a large allocation to steal.
+  std::string out;
+  no_zero::enlarge_to(out, 512);
+  const size_t big_cap = out.capacity();
+  EXPECT_GE(big_cap, 512U);
+
+  recv_buffer_view v{rb, [](size_t, size_t) {}};
+  std::string_view sv;
+  EXPECT_TRUE(v.try_take_full(out, sv));
+
+  // The internal buffer now holds the stolen large allocation.
+  EXPECT_GE(rb.buffer.capacity(), big_cap);
+  // `out` holds the data that was in the buffer.
+  EXPECT_EQ(sv.size(), cap);
+  EXPECT_EQ(sv[0], 'B');
+}
+
 void StreamConn_Lifecycle() {
   epoll_loop loop;
   auto this_is_the_loop_thread = loop.poll_thread_scope();
@@ -2259,8 +2333,10 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     RecvBuffer_Compact_GrowOnRequest, RecvBuffer_Compact_GrowToMinCapacity,
     RecvBuffer_Compact_Shrink, RecvBuffer_Compact_ShrinkSkippedIfActiveWontFit,
     RecvBuffer_Compact_NoResizeWhenTargetFits, RecvBufferView_UpdateActiveView,
-    RecvBufferView_MoveSemantics, StreamConn_Lifecycle, StreamConn_Receive,
-    StreamConn_SetRecvBufSize, StreamConn_PeerClose,
+    RecvBufferView_MoveSemantics, RecvBufferView_TryTakeFull_Fail,
+    RecvBufferView_TryTakeFull_Success,
+    RecvBufferView_TryTakeFull_StealAllocation, StreamConn_Lifecycle,
+    StreamConn_Receive, StreamConn_SetRecvBufSize, StreamConn_PeerClose,
     StreamConn_PeerClose_WithBufferedData, StreamConn_Send,
     StreamConn_ManualClose, StreamConn_DrainAfterBufferedSend,
     StreamConn_DrainAfterImmediateSend, StreamConn_AsyncCbRead,
