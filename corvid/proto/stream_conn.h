@@ -440,7 +440,7 @@ private:
 
   // Set `reads_enabled` and propagate the change to the loop.
   // Loop-thread-only.
-  [[nodiscard]] bool set_read_enabled(bool on) {
+  [[nodiscard]] bool enable_reads(bool on = true) {
     assert(loop_.is_loop_thread());
     recv_buf_.reads_enabled = on;
     return refresh_read_interest();
@@ -710,9 +710,10 @@ private:
 
     const size_t space = recv_buf_.write_space();
     if (space == 0) {
-      // Buffer full. Disable `EPOLLIN`; the view destructor calls
-      // `resume_receive` which will re-enable reads after compaction.
-      if (!set_read_enabled(false)) return false;
+      // Buffer full. Suppress `EPOLLIN` directly (without touching
+      // `reads_enabled`) so `resume_receive` can re-arm it via
+      // `refresh_read_interest` once compaction frees space.
+      if (!loop_.enable_reads(*this, false)) return false;
       return true;
     }
 
@@ -746,8 +747,8 @@ private:
   // destructor with the parser's requested buffer size (0 = no expansion) and
   // the `end` value last observed by the parser via `active_view`.
   //
-  // Uses `execute_or_post` for compaction and `set_read_enabled`, and may call
-  // `notify_read_ready`.
+  // Uses `execute_or_post` for compaction and `refresh_read_interest`, and may
+  // call `notify_read_ready`.
   void resume_receive(size_t new_size = 0, size_t last_seen_end = 0) {
     (void)execute_or_post([this, new_size, last_seen_end]() -> bool {
       if (!open_) return false;
