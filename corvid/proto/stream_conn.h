@@ -77,22 +77,23 @@ struct stream_conn_handlers {
 };
 
 // A `stream_conn` is a non-blocking stream socket driven by an `epoll_loop`.
-// Instances are created, directly or indirectly, by `stream_conn_ptr`
+// Instances are created, directly or indirectly, by `stream_conn_ptr_with`
 // factories, and registered with the loop.
 //
 // Supports three creation paths:
 //
 // 1. Already-connected socket (whether from `connect` or `accept`): use the
-//    `stream_conn_ptr` constructor directly. The socket must be non-blocking
-//    and connected.
+//    `stream_conn_ptr_with` constructor directly. The socket must be
+//    non-blocking and connected.
 //
-// 2. Async connect: use the static `stream_conn_ptr::connect` factory. It
+// 2. Async connect: use the static `stream_conn_ptr_with::connect` factory. It
 //    creates the socket, optionally binds the local end, calls `connect(2)`,
 //    and registers with the loop. When the kernel reports the outcome,
 //    `on_writable` or `on_error` transitions either to connected state
 //    (notifying any write waiter) or closes the connection.
 //
-// 3. Listening: use the static `stream_conn_ptr::listen` factory. It creates
+// 3. Listening: use the static `stream_conn_ptr_with::listen` factory. It
+// creates
 //    the socket, sets `SO_REUSEADDR`, binds, and calls `listen(2)`. `EPOLLIN`
 //    events call `accept4` in a drain loop; each accepted connection is
 //    created as a self-owning `stream_conn` in the loop, with a copy of the
@@ -123,8 +124,8 @@ struct stream_conn_handlers {
 //
 // Close: `close` is graceful. If the send queue is non-empty, the socket
 // closes only after it drains. `hangup` discards pending outbound data and
-// closes immediately. The destructor of `stream_conn_ptr` uses `hangup`, so
-// you should call `close` in the non-error path.
+// closes immediately. The destructor of `stream_conn_ptr_with` uses `hangup`,
+// so you should call `close` in the non-error path.
 //
 // Supports persistent callbacks via `stream_conn_handlers`, and `send`.
 //
@@ -193,7 +194,7 @@ public:
 
   // Start a graceful close. Drains pending sends first, then shuts down the
   // socket. Safe to call from any thread. Once this is called, destructing the
-  // owning `stream_conn_ptr` does not cause a forceful close.
+  // owning `stream_conn_ptr_with` does not cause a forceful close.
   [[nodiscard]] bool close() {
     graceful_close_started_ = true;
     return loop_.post([p = self()] { return p->do_close(); });
@@ -224,12 +225,13 @@ protected:
 
   friend class stream_async_base;
   template<typename>
-  friend class stream_conn_ptr;
+  friend class stream_conn_ptr_with;
 
 public:
   // Constructor. Technically public to allow `std::make_shared<stream_conn>`
-  // from `stream_conn_ptr` factories and `handle_listen`, but gated behind a
-  // protected type. Use `stream_conn_ptr` to construct an instance.
+  // from `stream_conn_ptr_with` factories and `handle_listen`, but gated
+  // behind a protected type. Use `stream_conn_ptr_with` to construct an
+  // instance.
   explicit stream_conn(allow, epoll_loop& loop, net_socket&& sock,
       const net_endpoint& remote, stream_conn_handlers&& h, size_t rbs,
       bool connecting, bool listening) noexcept
@@ -291,7 +293,7 @@ private:
   relaxed_atomic_bool open_;
 
   //  Set by `close` to start a graceful close, preventing the destructor
-  //  of `stream_conn_ptr` from closing forcefully.
+  //  of `stream_conn_ptr_with` from closing forcefully.
   relaxed_atomic_bool graceful_close_started_{false};
 
   // Whether the read and write sides of the socket are open (assuming `open_`
@@ -312,7 +314,7 @@ private:
   // `handle_connect` instead of the normal data paths.
   bool connecting_ = false;
 
-  // True for listening sockets created by `stream_conn_ptr::listen`. In
+  // True for listening sockets created by `stream_conn_ptr_with::listen`. In
   // this phase, `on_readable` routes to `handle_listen` to drain accepted
   // connections, `on_writable` is a no-op, and the write data path is
   // disabled.
@@ -337,8 +339,8 @@ private:
 
   // Register `net_socket` with the loop. Stores a shared owner in the loop's
   // registration map, keeping the state alive as long as the fd is
-  // registered, even if its `stream_conn_ptr` is destructed. (However, its
-  // destruction will start a forceful close.)
+  // registered, even if its `stream_conn_ptr_with` is destructed. (However,
+  // its destruction will start a forceful close.)
   //
   // In connecting mode, arms `EPOLLOUT` (so the first `on_writable`,
   // `on_readable`, or `on_error` can call `handle_connect`) and
@@ -945,44 +947,45 @@ private:
 };
 
 // A move-only smart pointer that owns a `stream_conn` (or a class derived from
-// it). Despite being implemented with a `shared_ptr`, a `stream_conn_ptr`
+// it). Despite being implemented with a `shared_ptr`, a `stream_conn_ptr_with`
 // fully owns the connection and removes it from the `epoll_loop` on
 // destruction.
 //
-// `T` defaults to `stream_conn`. Use `stream_conn_ptr<MyConn>` (where `MyConn`
-// derives from `stream_conn`) to get a typed handle whose `operator->` returns
-// `MyConn*`. A `stream_conn_ptr<Derived>` is implicitly convertible to
-// `stream_conn_ptr<Base>`, mirroring `shared_ptr` covariance.
+// `T` defaults to `stream_conn`. Use `stream_conn_ptr_with<MyConn>` (where
+// `MyConn` derives from `stream_conn`) to get a typed handle whose
+// `operator->` returns `MyConn*`. A `stream_conn_ptr_with<Derived>` is
+// implicitly convertible to `stream_conn_ptr_with<Base>`, mirroring
+// `shared_ptr` covariance.
 //
 // The public methods are factory creators (`adopt`, `connect`, `listen`),
 // `close`, `release`, `pointer`, and `operator->`.
 template<typename T = stream_conn>
-class stream_conn_ptr {
+class stream_conn_ptr_with {
   static_assert(std::derived_from<T, stream_conn>,
-      "stream_conn_ptr<T>: T must derive from stream_conn");
+      "stream_conn_ptr_with<T>: T must derive from stream_conn");
 
 public:
   // Default constructor -- creates an empty (invalid) handle. `operator bool`
   // returns false.
-  stream_conn_ptr() noexcept = default;
+  stream_conn_ptr_with() noexcept = default;
 
-  stream_conn_ptr(stream_conn_ptr&&) noexcept = default;
-  stream_conn_ptr(const stream_conn_ptr&) = delete;
+  stream_conn_ptr_with(stream_conn_ptr_with&&) noexcept = default;
+  stream_conn_ptr_with(const stream_conn_ptr_with&) = delete;
 
-  stream_conn_ptr& operator=(stream_conn_ptr&&) = default;
-  stream_conn_ptr& operator=(const stream_conn_ptr&) = delete;
+  stream_conn_ptr_with& operator=(stream_conn_ptr_with&&) = default;
+  stream_conn_ptr_with& operator=(const stream_conn_ptr_with&) = delete;
 
-  // Implicit upcast: `stream_conn_ptr<Derived>` -> `stream_conn_ptr<Base>`.
-  // Mirrors the covariance of `shared_ptr`.
+  // Implicit upcast: `stream_conn_ptr_with<Derived>` ->
+  // `stream_conn_ptr_with<Base>`. Mirrors the covariance of `shared_ptr`.
   template<typename U>
   requires std::derived_from<U, T>
-  stream_conn_ptr(stream_conn_ptr<U>&& other) noexcept
+  stream_conn_ptr_with(stream_conn_ptr_with<U>&& other) noexcept
       : conn_(std::move(other.conn_)) {}
 
   // Performs `hangup` on destruction. If you want to close cleanly, you must
   // call `close` before the instance is destructed.
   // NOLINTBEGIN(bugprone-exception-escape)
-  ~stream_conn_ptr() {
+  ~stream_conn_ptr_with() {
     if (!conn_ || conn_->graceful_close_started_) return;
     (void)conn_->loop_.execute_or_post([p = std::move(conn_)] {
       return p->do_hangup();
@@ -992,7 +995,7 @@ public:
 
   // Return a const reference to the underlying `shared_ptr` without releasing
   // ownership. The caller may copy it to extend the connection's lifetime
-  // beyond that of this `stream_conn_ptr`.
+  // beyond that of this `stream_conn_ptr_with`.
   [[nodiscard]] const std::shared_ptr<T>& pointer() const { return conn_; }
 
   // Release ownership of the connection. The connection remains registered
@@ -1002,12 +1005,12 @@ public:
   // Adopt an already-connected, non-blocking `sock` and register it with
   // `loop`. `remote` records the peer address for diagnostics. May be called
   // from any thread. Socket must be nonblocking.
-  [[nodiscard]] static stream_conn_ptr adopt(epoll_loop& loop,
+  [[nodiscard]] static stream_conn_ptr_with adopt(epoll_loop& loop,
       net_socket&& sock, const net_endpoint& remote,
       stream_conn_handlers&& h = {},
       size_t recv_buf_size = stream_conn::default_recv_buf_size) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
-    return stream_conn_ptr{loop, std::move(sock), remote, std::move(h),
+    return stream_conn_ptr_with{loop, std::move(sock), remote, std::move(h),
         recv_buf_size, /*connecting=*/false, /*listening=*/false};
   }
 
@@ -1026,7 +1029,7 @@ public:
   // cannot be bound, or `connect(2)` fails synchronously; `errno` is set by
   // the failing syscall. Async failure (e.g., `ECONNREFUSED` delivered later)
   // goes through the normal close path.
-  [[nodiscard]] static stream_conn_ptr connect(epoll_loop& loop,
+  [[nodiscard]] static stream_conn_ptr_with connect(epoll_loop& loop,
       const net_endpoint& remote, stream_conn_handlers&& h = {},
       const net_endpoint& local = net_endpoint::invalid,
       size_t recv_buf_size = stream_conn::default_recv_buf_size) {
@@ -1039,8 +1042,9 @@ public:
     if (result && !*result) return {};
     const auto still_connecting = !result;
 
-    auto ptr = stream_conn_ptr{loop, std::move(sock), remote, std::move(h),
-        recv_buf_size, /*connecting=*/still_connecting, /*listening=*/false};
+    auto ptr = stream_conn_ptr_with{loop, std::move(sock), remote,
+        std::move(h), recv_buf_size, /*connecting=*/still_connecting,
+        /*listening=*/false};
 
     // When `connect(2)` succeeds immediately, `handle_connect` never fires
     // via `EPOLLOUT`. Post a follow-up task to mirror its success path:
@@ -1066,7 +1070,7 @@ public:
   // creation, `SO_REUSEADDR`, `bind`, or `listen(2)` fails; `errno` is set by
   // the failing syscall. `reuse_port` enables `SO_REUSEPORT` for multi-process
   // load balancing.
-  [[nodiscard]] static stream_conn_ptr listen(epoll_loop& loop,
+  [[nodiscard]] static stream_conn_ptr_with listen(epoll_loop& loop,
       const net_endpoint& local, stream_conn_handlers&& h = {},
       bool reuse_port = false) {
     auto sock = net_socket::create_for(local);
@@ -1077,7 +1081,7 @@ public:
     if (!sock.bind(local)) return {};
     if (!sock.listen()) return {};
 
-    return stream_conn_ptr{loop, std::move(sock), net_endpoint::invalid,
+    return stream_conn_ptr_with{loop, std::move(sock), net_endpoint::invalid,
         std::move(h), stream_conn::default_recv_buf_size,
         /*connecting=*/false, /*listening=*/true};
   }
@@ -1101,10 +1105,10 @@ public:
 
 private:
   template<typename>
-  friend class stream_conn_ptr;
+  friend class stream_conn_ptr_with;
 
   // Private constructor used by `connect`, `listen`, and `adopt`.
-  explicit stream_conn_ptr(epoll_loop& loop, net_socket&& sock,
+  explicit stream_conn_ptr_with(epoll_loop& loop, net_socket&& sock,
       const net_endpoint& remote, stream_conn_handlers&& h,
       size_t recv_buf_size, bool connecting, bool listening) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
@@ -1119,22 +1123,29 @@ private:
   std::shared_ptr<T> conn_;
 };
 
-// Extends `stream_conn` with a typed per-connection state value. `TState` must
+// Untyped alias: the common case where no per-connection state is needed.
+// Use `stream_conn_ptr_with<MyConn>` for a typed handle to a derived class.
+using stream_conn_ptr = stream_conn_ptr_with<>;
+
+// Extends `stream_conn` with a typed per-connection state value. `STATE` must
 // be default-constructible; it is value-initialized when the connection is
 // created.
 //
-// Use `stream_conn_ptr<stream_conn_with_state<TState>>` to hold an instance.
-// In callbacks (which receive `stream_conn&`), recover the concrete type and
-// state via `stream_conn_with_state<TState>::from(conn)`.
+// Use `stream_conn_ptr_with<stream_conn_with_state<STATE>>` to hold an
+// instance. In callbacks (which receive `stream_conn&`), recover the concrete
+// type and state via `stream_conn_with_state<STATE>::from(conn)`.
 //
 // The `accept_clone` override ensures that connections accepted by a listening
-// `stream_conn_ptr<stream_conn_with_state<TState>>` also have type
-// `stream_conn_with_state<TState>` with a fresh default-constructed `TState`.
-template<typename TState>
+// `stream_conn_ptr_with<stream_conn_with_state<STATE>>` also have type
+// `stream_conn_with_state<STATE>` with a fresh default-constructed `STATE`.
+template<typename STATE>
 class stream_conn_with_state: public stream_conn {
 public:
-  // Construct via `stream_conn_ptr` factories only. Technically public because
-  // `make_shared` requires it, but gated by the protected `allow` token.
+  using state_t = STATE;
+
+  // Construct via `stream_conn_ptr_with` factories only. Technically public
+  // because `make_shared` requires it, but gated by the protected `allow`
+  // token.
   explicit stream_conn_with_state(allow a, epoll_loop& loop, net_socket&& sock,
       const net_endpoint& remote, stream_conn_handlers&& h, size_t rbs,
       bool connecting, bool listening) noexcept
@@ -1142,31 +1153,31 @@ public:
             connecting, listening) {}
 
   // Access per-connection state.
-  [[nodiscard]] TState& state() noexcept { return state_; }
-  [[nodiscard]] const TState& state() const noexcept { return state_; }
+  [[nodiscard]] state_t& state() noexcept { return state_; }
+  [[nodiscard]] const state_t& state() const noexcept { return state_; }
 
   // Debug-safe downcast from `stream_conn&` to `stream_conn_with_state&`.
   // In debug builds, asserts that `c` is actually a
-  // `stream_conn_with_state<TState>`; uses `static_cast` in release builds.
+  // `stream_conn_with_state<STATE>`; uses `static_cast` in release builds.
   [[nodiscard]] static stream_conn_with_state& from(stream_conn& c) noexcept {
     assert(dynamic_cast<stream_conn_with_state*>(&c) != nullptr);
     return static_cast<stream_conn_with_state&>(c);
   }
 
 protected:
-  // Produce a `stream_conn_with_state<TState>` for each accepted connection,
-  // with a fresh default-constructed `TState`. Returning `nullptr` skips
+  // Produce a `stream_conn_with_state<STATE>` for each accepted connection,
+  // with a fresh default-constructed `STATE`. Returning `nullptr` skips
   // registration (connection-limiting hook).
   [[nodiscard]] std::shared_ptr<stream_conn> accept_clone(net_socket&& sock,
       const net_endpoint& remote,
       stream_conn_handlers handlers) const override {
-    return std::make_shared<stream_conn_with_state<TState>>(allow::ctor, loop_,
-        std::move(sock), remote, std::move(handlers), recv_buf_size(),
+    return std::make_shared<stream_conn_with_state<state_t>>(allow::ctor,
+        loop_, std::move(sock), remote, std::move(handlers), recv_buf_size(),
         /*connecting=*/false, /*listening=*/false);
   }
 
 private:
-  TState state_{};
+  state_t state_{};
 };
 
 }} // namespace corvid::proto
