@@ -522,9 +522,9 @@ public:
   explicit epoll_loop_runner(
       std::chrono::milliseconds post_and_wait_poll_interval =
           epoll_loop::default_post_and_wait_poll_interval)
-      : loop_{post_and_wait_poll_interval},
+      : loop_{std::make_shared<epoll_loop>(post_and_wait_poll_interval)},
         thread_{[this](const std::stop_token& st) { run(st); }} {
-    if (!loop_.wait_until_running(1000)) {
+    if (!loop_->wait_until_running(1000)) {
       thread_.request_stop();
       throw std::runtime_error("epoll_loop_runner failed to start");
     }
@@ -541,18 +541,24 @@ public:
   // destructor.
   void stop() { thread_.request_stop(); }
 
-  [[nodiscard]] epoll_loop& loop() noexcept { return loop_; }
-  [[nodiscard]] operator epoll_loop&() noexcept { return loop_; }
-  [[nodiscard]] epoll_loop* operator->() noexcept { return &loop_; }
+  // Return the shared pointer to the `epoll_loop`, for use when shared
+  // ownership is needed (e.g., to initialize another object that holds a
+  // reference to this loop). For direct access, use `operator*` or
+  // `operator->` instead.
+  [[nodiscard]] const std::shared_ptr<epoll_loop>& loop() noexcept {
+    return loop_;
+  }
+  [[nodiscard]] operator epoll_loop&() noexcept { return *loop_; }
+  [[nodiscard]] epoll_loop* operator->() noexcept { return loop_.get(); }
 
 private:
   void run(const std::stop_token& st) {
     // When stop is requested, wake the `epoll_wait` so the loop can exit.
-    std::stop_callback on_stop{st, [this] { (void)loop_.stop(); }};
-    (void)loop_.run(100);
+    std::stop_callback on_stop{st, [this] { (void)loop_->stop(); }};
+    (void)loop_->run(100);
   }
 
-  epoll_loop loop_;
+  std::shared_ptr<epoll_loop> loop_;
   std::jthread thread_;
 };
 }} // namespace corvid::proto
