@@ -114,8 +114,11 @@ without changing higher layers.
   partial writes; `recv()` returns the first available chunk; `recv_exact(n)`
   loops to accumulate exactly `n` bytes; `recv_until(delim)` accumulates until
   the delimiter is found, leaving trailing bytes in an internal buffer
-- **Future:** `io_uring_loop` -- `io_uring`-based event loop with the same
-  interface as `epoll_loop`; higher layers unchanged
+- **[done]** `iouring_loop` / `iou_stream_conn` -- `io_uring`-based event loop and
+  stream connection, API-compatible with `epoll_loop` / `stream_conn`; uses
+  `IORING_OP_POLL_ADD` with `IORING_POLL_ADD_MULTI` for persistent multi-shot
+  fd readiness polling; wakeup via `eventfd`; `iouring_loop_runner` wraps the
+  loop in a background `jthread`
 - **Done:** `stream_conn` now supports a true mutual close via
   `set_mutual_close()`. When enabled, `close()` drains writes, issues
   `SHUT_WR`, then discards incoming data until peer EOF before closing.
