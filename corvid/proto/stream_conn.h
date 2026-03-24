@@ -931,7 +931,7 @@ private:
     write_open_ = false;
 
     (void)loop_.unregister_socket(sock());
-    sock().close(mode);
+    (void)sock().close(mode);
 
     send_queue_.clear();
     head_span_ = {};

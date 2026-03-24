@@ -79,8 +79,13 @@ public:
         size_t max_length = 8192) noexcept
         : sentinel_{sentinel}, max_length_{max_length} {}
 
+    [[nodiscard]] const auto& sentinel() const noexcept { return sentinel_; }
+
+    [[nodiscard]] operator bool() const noexcept { return !sentinel_.empty(); }
+    [[nodiscard]] bool operator!() const noexcept { return sentinel_.empty(); }
+
   private:
-    std::string_view sentinel_{};
+    std::string_view sentinel_;
     size_t max_length_{};
     size_t bytes_scanned_{};
   };
@@ -120,7 +125,7 @@ public:
   //     initialized. In either case, the parser cannot continue and the
   //     caller should close the connection.
   [[nodiscard]] std::optional<bool>
-  parse(std::string_view& input, std::string_view& text_out) noexcept {
+  parse(std::string_view& input, std::string_view& text_out) {
     // An empty sentinel is invalid.
     const size_t slen{state_.sentinel_.size()};
     if (slen == 0) return false;

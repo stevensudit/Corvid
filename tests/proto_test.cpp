@@ -967,7 +967,7 @@ void IoLoop_ErrorSkipsWritable() {
   ASSERT_TRUE(loop.register_socket(conn));
   ASSERT_TRUE(loop.enable_writes(*conn, true)); // arm EPOLLOUT
 
-  b.close(); // triggers EPOLLHUP on `a`
+  (void)b.close(); // triggers EPOLLHUP on `a`
 
   EXPECT_GE(loop.run_once(0), 0);
   EXPECT_EQ(conn->error, 1);
@@ -995,7 +995,7 @@ void IoLoop_DefaultOnError() {
   auto conn = std::make_shared<readable_only_conn>(std::move(a));
   ASSERT_TRUE(loop.register_socket(conn));
 
-  b.close(); // EPOLLHUP -> default on_error() -> on_readable()
+  (void)b.close(); // EPOLLHUP -> default on_error() -> on_readable()
   EXPECT_GE(loop.run_once(0), 0);
 
   EXPECT_GE(conn->readable, 1);
@@ -1585,7 +1585,7 @@ void StreamConn_DrainAfterBufferedSend() {
   // The kernel may round up, but typically honors a small value closely
   // enough to force at least one EAGAIN before the full payload drains.
   constexpr int small_buf = 4096;
-  a.set_send_buffer_size(small_buf);
+  EXPECT_TRUE(a.set_send_buffer_size(small_buf));
 
   // Payload larger than the send buffer to reliably exercise the EPOLLOUT
   // path. 256 KB is large enough on typical Linux systems.
@@ -1752,7 +1752,7 @@ void StreamConn_AsyncCbRead_PeerClose() {
     return true;
   }));
 
-  b.close();
+  (void)b.close();
   // dispatch peer close -> on_close -> cb fires with ""
   EXPECT_GE(loop.run_once(0), 0);
 
@@ -1805,7 +1805,7 @@ void StreamConn_AsyncCbWrite_Failure() {
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   EXPECT_GE(loop.run_once(0), 0); // process posted register_with_loop
 
-  b.close();
+  (void)b.close();
 
   stream_async_cb cb{conn.pointer()};
   ASSERT_FALSE(cb.write(std::string{"boom"}, [&](bool write_completed) {
@@ -1918,7 +1918,7 @@ void StreamConn_AsyncCbWrite_DuplicateRejected() {
   auto [a, b] = make_nb_sockpair();
 
   constexpr int small_buf = 4096;
-  a.set_send_buffer_size(small_buf);
+  EXPECT_TRUE(a.set_send_buffer_size(small_buf));
 
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   stream_async_cb cb{conn.pointer()};
@@ -1948,7 +1948,7 @@ void StreamConn_AsyncCbWrite_DuplicateRejected() {
   EXPECT_EQ(accepted, 1);
   EXPECT_EQ(rejected, 1);
 
-  b.close();
+  (void)b.close();
   ASSERT_TRUE(completion.wait_for_value(std::chrono::seconds{1}, true));
 
   EXPECT_EQ(completions, 1);
@@ -1960,7 +1960,7 @@ void StreamConn_GracefulClose() {
   auto [a, b] = make_nb_sockpair();
 
   constexpr int small_buf = 4096;
-  a.set_send_buffer_size(small_buf);
+  EXPECT_TRUE(a.set_send_buffer_size(small_buf));
 
   const std::string payload(64ULL * 1024ULL, 'z');
 
@@ -2002,7 +2002,7 @@ void StreamConn_CloseThenDestructStaysGraceful() {
   auto [a, b] = make_nb_sockpair();
 
   constexpr int small_buf = 4096;
-  a.set_send_buffer_size(small_buf);
+  EXPECT_TRUE(a.set_send_buffer_size(small_buf));
 
   const std::string payload(64ULL * 1024ULL, 'g');
 
@@ -2044,7 +2044,7 @@ void StreamConn_DestructorHangsUp() {
   auto [a, b] = make_nb_sockpair();
 
   constexpr int small_buf = 4096;
-  a.set_send_buffer_size(small_buf);
+  EXPECT_TRUE(a.set_send_buffer_size(small_buf));
 
   const std::string payload(256ULL * 1024ULL, 'q');
 
@@ -2221,7 +2221,7 @@ void StreamConn_AsyncRead_PeerClose() {
   };
   coro(); // starts eagerly; suspends at async_read
 
-  b.close(); // trigger EPOLLHUP/EOF on `a`
+  (void)b.close(); // trigger EPOLLHUP/EOF on `a`
 
   // dispatch EPOLLHUP -> notify_read_closed/on_close -> posts resume +
   // do_close
@@ -2418,7 +2418,7 @@ void StreamConnPtr_Covariance() {
 
   EXPECT_GE(loop.run_once(0), 0); // register_with_loop
   EXPECT_TRUE(base->close());
-  b.close();
+  (void)b.close();
   EXPECT_GE(loop.run_once(0), 0);
   EXPECT_TRUE(closed);
 }
@@ -2478,7 +2478,7 @@ void TerminatedTextParser_CompleteLine() {
 void TerminatedTextParser_IncompleteEmpty() {
   terminated_text_parser::state s;
   terminated_text_parser p{s};
-  std::string_view sv{""};
+  std::string_view sv;
   std::string_view text;
   EXPECT_TRUE(p.parse(sv, text) == std::nullopt);
   EXPECT_EQ(p.bytes_scanned(), 0U);
@@ -2587,6 +2587,88 @@ void TerminatedTextParser_Reset() {
   EXPECT_EQ(p.bytes_scanned(), 6U);
 }
 
+// `stream_sync` tests.
+
+// Verify that connecting to an invalid endpoint returns a falsy `stream_sync`.
+void StreamSync_ConnectFail() {
+  // An empty endpoint has ss_family == AF_UNSPEC; `socket(2)` will fail and
+  // the returned connection will be closed.
+  auto conn = stream_sync::connect(net_endpoint{});
+  EXPECT_FALSE(conn);
+  EXPECT_FALSE(conn.is_open());
+}
+
+// Helper: start a loopback echo server on an OS-assigned port and return its
+// endpoint. The caller must keep `listener` alive for the test duration.
+static net_endpoint
+start_echo_server(epoll_loop_runner& loop, stream_conn_ptr& listener) {
+  listener = stream_conn_ptr::listen(loop,
+      net_endpoint{ipv4_addr::loopback, 0},
+      {.on_data = [](stream_conn& conn, recv_buffer_view v) {
+        std::string_view av = v;
+        bool ok = conn.send(std::string{av});
+        v.consume(av.size());
+        return ok;
+      }});
+  if (!listener) return {};
+  return listener->local_endpoint();
+}
+
+// Verify basic send and recv_exact against an echo server.
+void StreamSync_SendRecv() {
+  epoll_loop_runner loop;
+  stream_conn_ptr listener;
+  const auto ep = start_echo_server(loop, listener);
+  ASSERT_TRUE(ep);
+
+  auto conn = stream_sync::connect(ep, std::chrono::seconds{5});
+  ASSERT_TRUE(conn);
+  EXPECT_TRUE(conn.send("hello"));
+  auto got = conn.recv_exact(5);
+  EXPECT_EQ(got, "hello");
+}
+
+// Verify that recv_until returns through the delimiter and leaves trailing
+// bytes in the internal buffer for the next recv call.
+void StreamSync_RecvUntil() {
+  epoll_loop_runner loop;
+  stream_conn_ptr listener;
+  const auto ep = start_echo_server(loop, listener);
+  ASSERT_TRUE(ep);
+
+  auto conn = stream_sync::connect(ep, std::chrono::seconds{5});
+  ASSERT_TRUE(conn);
+  EXPECT_TRUE(conn.send("line1\r\nextra"));
+
+  auto line = conn.recv_until("\r\n");
+  EXPECT_EQ(line, "line1\r\n");
+
+  // "extra" was already buffered; recv_exact should not block.
+  auto tail = conn.recv_exact(5);
+  EXPECT_EQ(tail, "extra");
+}
+
+// Verify that recv returns nullopt when the peer closes the connection.
+void StreamSync_PeerClose() {
+  epoll_loop_runner loop;
+  stream_conn_ptr listener;
+  // Server echoes nothing; it closes as soon as data arrives.
+  listener = stream_conn_ptr::listen(loop,
+      net_endpoint{ipv4_addr::loopback, 0},
+      {.on_data = [](stream_conn& conn, recv_buffer_view v) {
+        v.consume(std::string_view{v}.size());
+        return conn.close();
+      }});
+  ASSERT_TRUE(listener);
+  const auto ep = listener->local_endpoint();
+
+  auto conn = stream_sync::connect(ep, std::chrono::seconds{5});
+  ASSERT_TRUE(conn);
+  EXPECT_TRUE(conn.send("bye"));
+  // Server closes; recv should return empty once EOF is detected.
+  EXPECT_TRUE(conn.recv().empty());
+}
+
 MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     Ipv4Addr_Comparison, Ipv4Addr_Formatting, Ipv4Addr_PosixInterop,
     Ipv6Addr_Construction, Ipv6Addr_Parse, Ipv6Addr_Classification,
@@ -2627,7 +2709,9 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     TerminatedTextParser_IncompletePartial, TerminatedTextParser_SplitSentinel,
     TerminatedTextParser_MultipleFrames, TerminatedTextParser_EmptyLine,
     TerminatedTextParser_TooLong, TerminatedTextParser_NoLimit,
-    TerminatedTextParser_CustomSentinel, TerminatedTextParser_Reset);
+    TerminatedTextParser_CustomSentinel, TerminatedTextParser_Reset,
+    StreamSync_ConnectFail, StreamSync_SendRecv, StreamSync_RecvUntil,
+    StreamSync_PeerClose);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

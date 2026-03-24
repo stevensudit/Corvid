@@ -33,6 +33,7 @@
 //  loop_task   - fire-and-forget coroutine return type for `epoll_loop`
 //  terminated_text_parser - sentinel-terminated text frame parser for
 //                line-oriented protocols (HTTP, SMTP, POP3, etc.)
+//  http_server - minimal HTTP 0.9 server built on `stream_conn`
 #include "proto/ipv4_addr.h"
 #include "proto/ipv6_addr.h"
 #include "proto/net_endpoint.h"
@@ -42,3 +43,5 @@
 #include "proto/stream_async.h"
 #include "proto/loop_task.h"
 #include "proto/terminated_text_parser.h"
+#include "proto/stream_sync.h"
+#include "proto/http_server.h"

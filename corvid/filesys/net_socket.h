@@ -101,13 +101,14 @@ public:
   // is now closed, false if it could not be closed (likely because it already
   // was).
   // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
-  bool close() noexcept { return os_file::close(); }
+  [[nodiscard]] bool close() noexcept { return os_file::close(); }
 
   // Close the socket with the option to perform a forceful close (e.g., via
   // `SO_LINGER` with a zero timeout).
-  bool close(close_mode mode) noexcept {
+  [[nodiscard]] bool close(close_mode mode) noexcept {
     if (mode == close_mode::forceful && is_open())
-      set_option(SOL_SOCKET, SO_LINGER, linger{.l_onoff = 1, .l_linger = 0});
+      (void)set_option(SOL_SOCKET, SO_LINGER,
+          linger{.l_onoff = 1, .l_linger = 0});
 
     return os_file::close();
   }
@@ -116,7 +117,8 @@ public:
   // `sizeof(T)` automatically and hide the `reinterpret_cast` required by
   // the C `setsockopt` API; callers pass a typed value directly.
   template<typename T>
-  bool set_option(int level, int optname, const T& value) noexcept {
+  [[nodiscard]] bool
+  set_option(int level, int optname, const T& value) noexcept {
     assert(is_open());
     return ::setsockopt(handle(), level, optname,
                reinterpret_cast<const char*>(&value),
@@ -137,32 +139,32 @@ public:
   }
 
   // Allow reuse of a recently-freed local address (`SO_REUSEADDR`).
-  bool set_reuse_addr(bool on = true) noexcept {
+  [[nodiscard]] bool set_reuse_addr(bool on = true) noexcept {
     return set_option(SOL_SOCKET, SO_REUSEADDR, int{on});
   }
 
   // Allow multiple sockets to bind the same port (`SO_REUSEPORT`).
-  bool set_reuse_port(bool on = true) noexcept {
+  [[nodiscard]] bool set_reuse_port(bool on = true) noexcept {
     return set_option(SOL_SOCKET, SO_REUSEPORT, int{on});
   }
 
   // Disable Nagle algorithm for lower latency (`TCP_NODELAY`).
-  bool set_nodelay(bool on = true) noexcept {
+  [[nodiscard]] bool set_nodelay(bool on = true) noexcept {
     return set_option(IPPROTO_TCP, TCP_NODELAY, int{on});
   }
 
   // Enable TCP keepalive probes (`SO_KEEPALIVE`).
-  bool set_keepalive(bool on = true) noexcept {
+  [[nodiscard]] bool set_keepalive(bool on = true) noexcept {
     return set_option(SOL_SOCKET, SO_KEEPALIVE, int{on});
   }
 
   // Set receive buffer size in bytes (`SO_RCVBUF`).
-  bool set_recv_buffer_size(int bytes) noexcept {
+  [[nodiscard]] bool set_recv_buffer_size(int bytes) noexcept {
     return set_option(SOL_SOCKET, SO_RCVBUF, bytes);
   }
 
   // Set send buffer size in bytes (`SO_SNDBUF`).
-  bool set_send_buffer_size(int bytes) noexcept {
+  [[nodiscard]] bool set_send_buffer_size(int bytes) noexcept {
     return set_option(SOL_SOCKET, SO_SNDBUF, bytes);
   }
 
@@ -211,7 +213,7 @@ public:
   // Receive raw bytes into `buf`, forwarding directly to POSIX `recv`.
   [[nodiscard]] ssize_t recv(void* buf, size_t len, int flags) const noexcept {
     assert(is_open());
-    return ::recv(handle(), buf, len, flags);
+    return ::recv(handle(), buf, len, flags); // NOLINT(clang-analyzer-unix.BlockInCriticalSection)
   }
 
   // Peek at the socket, without consuming data, to determine whether EOF has
