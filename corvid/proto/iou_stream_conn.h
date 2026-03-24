@@ -19,6 +19,7 @@
 #include <cassert>
 #include <cerrno>
 #include <cstddef>
+#include <cstring>
 #include <deque>
 #include <functional>
 #include <limits>
@@ -38,14 +39,19 @@
 
 // `iou_stream_conn` is the `io_uring`-backed equivalent of `stream_conn`.
 //
-// The two types are structurally identical: the only difference is that
-// `iou_stream_conn` is registered with an `iouring_loop` (via `iou_io_conn`)
-// rather than an `epoll_loop` (via `io_conn`). All data-path logic, send/
-// receive buffering, half-close semantics, and the three-factory creation
-// model (`adopt`, `connect`, `listen`) are unchanged.
+// Established connections use `iouring_loop` completion mode:
+//   - Receives via multi-shot `IORING_OP_RECV` with `IOSQE_BUFFER_SELECT`
+//     (the kernel picks a pool buffer; `on_recv_complete` copies to the
+//     per-connection `recv_buffer` and returns the pool buffer immediately).
+//   - Sends via one-shot `IORING_OP_SEND`; `on_send_complete` handles short
+//     sends and advances the send queue.
 //
-// When `stream_async.h` support is needed, use `iou_stream_async.h` (not yet
-// provided), which mirrors `stream_async.h` with the renamed types.
+// Listener connections use poll mode (`IORING_OP_POLL_ADD`) to detect
+// incoming connections via `on_readable` -> `accept4`.
+//
+// Outbound connections use poll mode briefly (EPOLLOUT to detect connect
+// completion), then `handle_connect` cancels the poll subscription and
+// switches to completion mode.
 
 namespace corvid { inline namespace proto {
 
@@ -54,8 +60,7 @@ using namespace corvid::strings::no_zero_funcs;
 // Forward declaration.
 class iou_stream_conn;
 
-// User-supplied persistent callbacks for an `iou_stream_conn`. Identical
-// interface to `stream_conn_handlers`.
+// User-supplied persistent callbacks for an `iou_stream_conn`.
 struct iou_stream_conn_handlers {
   std::function<bool(iou_stream_conn&, recv_buffer_view)> on_data = nullptr;
   std::function<bool(iou_stream_conn&)> on_drain = nullptr;
@@ -184,47 +189,135 @@ private:
     return std::static_pointer_cast<iou_stream_conn>(shared_from_this());
   }
 
+  // -----------------------------------------------------------------------
+  // Registration.
+  // -----------------------------------------------------------------------
+
   [[nodiscard]] bool register_with_loop() {
     if (!open_) return false;
-    const bool want_write = connecting_ || !send_queue_.empty();
-    const bool want_read = !connecting_ && wants_read_events();
-    if (loop_.register_socket(shared_from_this(), want_read, want_write)) {
-      registered_ = true;
-      return true;
+    if (listening_) {
+      // Poll mode: multi-shot POLL_ADD (EPOLLIN) to detect new connections.
+      if (loop_.register_socket(shared_from_this(), /*readable=*/true,
+              /*writable=*/false))
+      {
+        registered_ = true;
+        return true;
+      }
+      return do_close_now(close_mode::forceful) && false;
     }
-    return do_close_now(close_mode::forceful) && false;
+    if (connecting_) {
+      // Poll mode briefly: EPOLLOUT fires when connect completes.
+      if (loop_.register_socket(shared_from_this(), /*readable=*/false,
+              /*writable=*/true))
+      {
+        registered_ = true;
+        return true;
+      }
+      return do_close_now(close_mode::forceful) && false;
+    }
+    // Completion mode: register without POLL_ADD, then arm multi-shot recv.
+    if (!loop_.register_conn(shared_from_this()))
+      return do_close_now(close_mode::forceful) && false;
+    registered_ = true;
+    if (wants_read_events()) {
+      if (!loop_.arm_recv(*this))
+        return do_close_now(close_mode::forceful) && false;
+    }
+    return true;
   }
 
+  // -----------------------------------------------------------------------
+  // iou_io_conn virtual overrides.
+  // -----------------------------------------------------------------------
+
+  // Poll-mode readable: only called for listener sockets (accept loop).
   [[nodiscard]] bool on_readable() override {
     assert(loop_.is_loop_thread());
     if (listening_) return handle_listen();
-    if (connecting_) return handle_connect();
-    if (close_requested_) return handle_drain_reads();
-    return handle_readable();
+    // Connecting sockets may see EPOLLIN/EPOLLRDHUP before the error fires;
+    // treat as a spurious event.
+    return true;
   }
 
+  // Poll-mode writable: only called while `connecting_` is true (EPOLLOUT
+  // signals that the async connect has finished, successfully or not).
   [[nodiscard]] bool on_writable() override {
     assert(loop_.is_loop_thread());
-    assert(!listening_);
     if (connecting_) return handle_connect();
-    return flush_send_queue();
+    return true;
   }
 
+  // Poll-mode error: for listeners and connect failures.
   [[nodiscard]] bool on_error() override {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
     if (listening_) return do_close_now(close_mode::forceful);
-    if (connecting_) return handle_connect();
-    if (read_open_) {
-      if (wants_read_events()) return handle_readable();
-      const auto eof = sock().peek_eof();
-      if (!eof.has_value() || !*eof)
-        return do_close_now(close_mode::forceful) && false;
-      return handle_read_eof();
+    if (connecting_) return handle_connect(); // SO_ERROR will be non-zero
+    return true;
+  }
+
+  // Completion-mode receive: called when a multi-shot RECV CQE arrives.
+  // `data` is valid only during this call; copy before returning.
+  [[nodiscard]] bool
+  on_recv_complete(int32_t res, const void* data, size_t len) override {
+    assert(loop_.is_loop_thread());
+    if (!open_) return true;
+
+    if (res == -ECANCELED) return true; // cancelled by cancel_recv
+    if (res == -ENOBUFS) {
+      // Pool exhausted; subscription terminated. It will be re-armed by the
+      // next refresh_read_interest call (e.g., from resume_receive).
+      return true;
+    }
+    if (res < 0) return do_close_now(close_mode::forceful) && false;
+    if (res == 0) return handle_read_eof(); // peer closed write side (EOF)
+
+    // Copy received bytes into the per-connection recv buffer.
+    ensure_recv_buf();
+    const size_t old_end = recv_buf_.end.load(std::memory_order::relaxed);
+    const size_t needed = old_end + len;
+    if (recv_buf_.buffer.size() < needed)
+      no_zero::enlarge_to(recv_buf_.buffer, needed);
+    std::memcpy(recv_buf_.buffer.data() + old_end, data, len);
+    recv_buf_.end.store(old_end + len, std::memory_order::release);
+    no_zero::enlarge_to_cap(recv_buf_.buffer);
+
+    if (recv_buf_.view_active) return true; // deliver when view is released
+    if (!recv_buf_.active().empty()) return notify_read_ready();
+    return true;
+  }
+
+  // Completion-mode send: called when a SEND CQE arrives.
+  [[nodiscard]] bool on_send_complete(int32_t res) override {
+    assert(loop_.is_loop_thread());
+    if (!open_) return false;
+
+    if (res == -ECANCELED) return true;
+    if (res < 0) return handle_write_failure() && false;
+
+    assert(res > 0);
+    head_span_.remove_prefix(static_cast<size_t>(res));
+
+    if (!head_span_.empty())
+      return do_submit_head_send(); // short send: re-submit remainder
+
+    send_queue_.pop_front();
+    if (!send_queue_.empty()) {
+      head_span_ = send_queue_.front();
+      return do_submit_head_send();
     }
 
-    return maybe_finish_after_side_close() || true;
+    // Queue drained.
+    if (close_requested_) {
+      if (are_handlers_external()) (void)notify_drained();
+      return do_finish_close();
+    }
+    return notify_drained();
   }
+
+  // -----------------------------------------------------------------------
+  // Internal helpers.
+  // -----------------------------------------------------------------------
 
   template<typename FN>
   [[nodiscard]] bool execute_or_post(FN&& fn) {
@@ -322,6 +415,8 @@ private:
     if (!sock().shutdown(SHUT_RD))
       return do_close_now(close_mode::forceful) && false;
     read_open_ = false;
+    // enable_reads(false) -> cancel_recv in completion mode, unset EPOLLIN in
+    // poll mode.
     if (!loop_.enable_reads(*this, false)) return false;
     if (are_handlers_external() && !recv_buf_.view_active)
       (void)notify_read_closed();
@@ -336,6 +431,7 @@ private:
     write_open_ = false;
     send_queue_.clear();
     head_span_ = {};
+    // enable_writes(false) is a no-op in completion mode.
     if (!loop_.enable_writes(*this, false)) return false;
     return maybe_finish_after_side_close() || true;
   }
@@ -359,9 +455,8 @@ private:
   [[nodiscard]] bool handle_read_eof() {
     assert(loop_.is_loop_thread());
     read_open_ = false;
-    // TODO: We can do this in one step.
-    (void)loop_.enable_reads(*this, false);
-    (void)loop_.enable_rdhup(*this, false);
+    (void)loop_.enable_reads(*this, false); // cancel recv / unset EPOLLIN
+    (void)loop_.enable_rdhup(*this, false); // no-op in completion mode
     if (recv_buf_.view_active) {
       eof_pending_ = true;
       return true;
@@ -373,7 +468,6 @@ private:
         return true;
       }
     }
-
     return do_eof_notifications() && false;
   }
 
@@ -394,12 +488,13 @@ private:
       return false;
     send_queue_.clear();
     head_span_ = {};
-    (void)loop_.enable_writes(*this, false);
+    (void)loop_.enable_writes(*this, false); // no-op in completion mode
     if (close_requested_ || !read_open_)
       return do_close_now(close_mode::forceful);
     return maybe_finish_after_side_close(close_mode::forceful);
   }
 
+  // Called from `on_writable()` when `connecting_` is true (EPOLLOUT fired).
   [[nodiscard]] bool handle_connect() {
     assert(loop_.is_loop_thread());
     assert(connecting_);
@@ -408,14 +503,16 @@ private:
     const auto err = sock().get_option<int>(SOL_SOCKET, SO_ERROR);
     if (!err || *err != 0) return do_close_now(close_mode::forceful) && false;
 
-    (void)refresh_read_interest();
+    // Cancel the POLL_ADD (EPOLLOUT) and switch fd_reg to completion mode.
+    (void)loop_.cancel_poll(*this);
 
-    if (send_queue_.empty()) {
-      if (!loop_.enable_writes(*this, false))
+    if (wants_read_events()) {
+      if (!loop_.arm_recv(*this))
         return do_close_now(close_mode::forceful) && false;
-      return notify_drained();
     }
-    return true;
+
+    if (!send_queue_.empty()) return do_submit_head_send();
+    return notify_drained();
   }
 
   [[nodiscard]] bool handle_listen() {
@@ -442,31 +539,31 @@ private:
         std::memory_order::relaxed, std::memory_order::relaxed);
   }
 
-  [[nodiscard]] bool handle_readable() {
-    if (!read_open_) return false;
-
-    ensure_recv_buf();
-
-    const size_t space = recv_buf_.write_space();
-    if (space == 0) {
-      if (!loop_.enable_reads(*this, false)) return false;
-      return true;
-    }
-
-    const size_t old_end = recv_buf_.end.load(std::memory_order::relaxed);
-    if (!sock().recv_at(recv_buf_.buffer, old_end)) {
-      const bool hard_error = recv_buf_.buffer.size() == old_end;
-      no_zero::enlarge_to_cap(recv_buf_.buffer);
-      if (hard_error) return do_close_now(close_mode::forceful) && false;
-      return handle_read_eof();
-    }
-
-    recv_buf_.end.store(recv_buf_.buffer.size(), std::memory_order::release);
-    no_zero::enlarge_to_cap(recv_buf_.buffer);
-
-    if (recv_buf_.view_active) return true;
-    if (!recv_buf_.active().empty()) return notify_read_ready();
+  // Submit `IORING_OP_SEND` for the head of the send queue.
+  [[nodiscard]] bool do_submit_head_send() {
+    assert(loop_.is_loop_thread());
+    assert(!send_queue_.empty());
+    if (!loop_.submit_send(*this, head_span_.data(), head_span_.size()))
+      return do_close_now(close_mode::forceful) && false;
     return true;
+  }
+
+  // Enqueue `their_buf` for sending. If no send is in flight and we are not
+  // still connecting, kick off an immediate `IORING_OP_SEND`.
+  [[nodiscard]] bool enqueue_send(std::string&& their_buf) {
+    assert(loop_.is_loop_thread());
+    auto buf = std::move(their_buf);
+
+    if (!open_ || !write_open_) return false;
+
+    const bool was_empty = send_queue_.empty();
+    send_queue_.push_back(std::move(buf));
+    if (was_empty) head_span_ = send_queue_.front();
+
+    if (connecting_) return true; // send will be submitted after connect
+    if (!was_empty) return true;  // send already in flight
+
+    return do_submit_head_send();
   }
 
   void resume_receive(size_t new_size = 0, size_t last_seen_end = 0) {
@@ -496,55 +593,6 @@ private:
 
       return p->refresh_read_interest();
     });
-  }
-
-  [[nodiscard]] bool enqueue_send(std::string&& their_buf) {
-    assert(loop_.is_loop_thread());
-    auto buf = std::move(their_buf);
-
-    if (!open_ || !write_open_) return false;
-
-    if (const auto send_queue_empty = send_queue_.empty();
-        !send_queue_empty || connecting_)
-    {
-      send_queue_.push_back(std::move(buf));
-      if (send_queue_empty) head_span_ = send_queue_.front();
-      return true;
-    }
-
-    auto buf_view = std::string_view{buf};
-    if (!sock().send(buf_view)) return handle_write_failure() && false;
-
-    if (buf_view.empty()) return notify_drained();
-
-    const size_t sent = buf.size() - buf_view.size();
-    send_queue_.push_back(std::move(buf));
-    head_span_ = send_queue_.front();
-    head_span_.remove_prefix(sent);
-    return loop_.enable_writes(*this);
-  }
-
-  [[nodiscard]] bool flush_send_queue() {
-    if (!open_) return false;
-
-    while (!send_queue_.empty()) {
-      if (!sock().send(head_span_)) return handle_write_failure() && false;
-
-      if (!head_span_.empty()) return true;
-
-      send_queue_.pop_front();
-      if (!send_queue_.empty()) head_span_ = send_queue_.front();
-    }
-
-    if (!loop_.enable_writes(*this, false))
-      return do_close_now(close_mode::forceful) && false;
-
-    if (close_requested_) {
-      if (are_handlers_external()) (void)notify_drained();
-      return do_finish_close();
-    }
-
-    return notify_drained();
   }
 
   [[nodiscard]] bool do_close() {
@@ -583,7 +631,6 @@ private:
     send_queue_.clear();
     head_span_ = {};
     close_requested_ = false;
-
     return do_close_now(close_mode::forceful);
   }
 
@@ -606,7 +653,6 @@ private:
 };
 
 // Move-only smart pointer owning an `iou_stream_conn` (or derived class).
-// API-compatible with `stream_conn_ptr_with`.
 template<typename T = iou_stream_conn>
 class iou_stream_conn_ptr_with {
   static_assert(std::derived_from<T, iou_stream_conn>,
@@ -730,7 +776,6 @@ private:
 using iou_stream_conn_ptr = iou_stream_conn_ptr_with<>;
 
 // Extends `iou_stream_conn` with a typed per-connection state value.
-// API-compatible with `stream_conn_with_state<STATE>`.
 template<typename STATE>
 class iou_stream_conn_with_state: public iou_stream_conn {
 public:

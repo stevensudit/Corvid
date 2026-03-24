@@ -52,6 +52,13 @@ inline int iou_enter(int fd, unsigned to_submit, unsigned min_complete,
       min_complete, flags, arg, argsz));
 }
 
+// `iou_register` calls `io_uring_register(2)`.
+inline int
+iou_register(int fd, unsigned opcode, void* arg, unsigned nr_args) noexcept {
+  return static_cast<int>(
+      ::syscall(__NR_io_uring_register, fd, opcode, arg, nr_args));
+}
+
 // RAII wrapper around a Linux `io_uring` instance.
 //
 // Manages the SQ/CQ ring mmaps and SQE array. Provides low-level helpers for
@@ -117,6 +124,7 @@ public:
   }
 
   [[nodiscard]] bool is_open() const noexcept { return ring_fd_.is_open(); }
+  [[nodiscard]] int handle() const noexcept { return ring_fd_.handle(); }
 
   // Get the next SQE slot. The caller fills the returned `io_uring_sqe`
   // and calls `submit()` to make it visible to the kernel. Returns `nullptr`
