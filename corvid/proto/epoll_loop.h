@@ -541,6 +541,10 @@ public:
   // destructor.
   void stop() { thread_.request_stop(); }
 
+  // Return the shared pointer to the `epoll_loop`, for use when shared
+  // ownership is needed (e.g., to initialize another object that holds a
+  // reference to this loop). For direct access, use `operator*` or
+  // `operator->` instead.
   [[nodiscard]] const std::shared_ptr<epoll_loop>& loop() noexcept {
     return loop_;
   }

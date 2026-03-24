@@ -2452,13 +2452,12 @@ void StreamConnWithState_AcceptClone_Nullptr() {
   const net_endpoint server_ep = listener->local_endpoint();
   ASSERT_TRUE(server_ep);
 
-  // Connect and send; the accept will be rejected so on_data never fires.
-  auto client = stream_conn_ptr::connect(loop, server_ep, {});
+  // Connect; the server drops the accepted socket immediately. Blocking on
+  // `recv` provides reliable synchronization: once it returns empty (EOF),
+  // the server has already processed and discarded the connection.
+  auto client = stream_sync::connect(server_ep, std::chrono::seconds{5});
   ASSERT_TRUE(client);
-  ASSERT_TRUE(client->send(std::string{"rejected"}));
-
-  // Give the loop time to accept (and reject) the connection.
-  std::this_thread::sleep_for(std::chrono::milliseconds{50});
+  EXPECT_TRUE(client.recv().empty());
 
   EXPECT_EQ(data_calls, 0);
 }

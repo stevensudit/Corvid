@@ -260,10 +260,48 @@ coroutine body starts eagerly on the call site (`initial_suspend` returns
 returns `suspend_never`). Unhandled exceptions call `std::terminate`. See
 the `stream_async_coro` example above for typical usage.
 
+### `terminated_text_parser`
+
+Incremental sentinel-terminated text frame parser for line-oriented protocols
+(HTTP, SMTP, POP3, etc.). A `state` object is stored per connection and carries
+across `on_data` calls; it holds the sentinel bytes (e.g., `"\r\n"`), a
+`max_length` limit, and the count of bytes already scanned. `parse(input,
+frame)` scans `input` for the sentinel, advances `input` past all consumed
+bytes (including the sentinel on a match), and returns `std::optional<bool>`:
+empty when more data is needed, `true` when a complete frame is found in
+`frame`, and `false` when `max_length` bytes are scanned without finding the
+sentinel. `reset()` clears `bytes_scanned` for the next frame. The parser never
+copies data; `frame` is a `string_view` into the caller's buffer.
+
+### `stream_sync`
+
+Blocking synchronous stream-socket client. Intended for tests and small tools
+that need to talk to a server without the overhead of an `epoll_loop`. Wraps a
+blocking-mode `net_socket`. An optional per-syscall timeout is set at
+construction via `SO_RCVTIMEO` / `SO_SNDTIMEO`; any error (EOF, hard error, or
+timeout) marks the connection closed and subsequent calls fail immediately.
+`send(data)` loops on partial writes. `recv()` returns whatever arrives first.
+`recv_exact(n)` loops until exactly `n` bytes are accumulated. `recv_until(delim)`
+accumulates data until the delimiter appears, leaving any trailing bytes in an
+internal buffer for the next call.
+
+## Layer 3: HTTP
+
+### `http_server`
+
+Minimal HTTP 0.9 server. Listens for TCP or UDS/ANS connections, parses each
+request line with `terminated_text_parser`, and sends a canned HTML response
+for any `GET /path` request, then closes the connection. Constructed via
+`create(loop, endpoint)`, which accepts an optional shared `epoll_loop` (or
+starts its own `epoll_loop_runner`), and a `net_endpoint` to listen on. Returns
+null if the listen socket cannot be created. Each accepted connection carries
+its own `terminated_text_parser::state` so partial request lines arriving across
+multiple `on_data` calls are handled correctly.
+
 ## What comes next
 
-See `roadmap.md` for the full plan. Layer 2 is complete: listening and outbound
-connection support are integrated into `stream_conn_ptr::listen()` and
-`stream_conn_ptr::connect()`. Layer 3 adds HTTP/1.1; Layer 4 adds WebSockets.
-If datagram support is needed later, it should arrive as a separate `dgram_conn`
-abstraction built on `epoll_loop`.
+See `roadmap.md` for the full plan. Layer 2 is complete. Layer 3 has a minimal
+HTTP 0.9 server as its starting point and will be improved incrementally to full
+HTTP/1.1, after which client and proxy support will follow. Layer 4 adds
+WebSockets. If datagram support is needed later, it should arrive as a separate
+`dgram_conn` abstraction built on `epoll_loop`.

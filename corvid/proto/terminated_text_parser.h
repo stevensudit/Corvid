@@ -47,8 +47,7 @@ namespace corvid { inline namespace proto {
 //       view.update_active_view(sv);   // sv already advanced by `parse`
 //       parser.reset();
 //     } else if (r == false) {
-//       conn.close();
-//       return true;
+//       return conn.close() || true;
 //     } else {
 //       // incomplete (nullopt)
 //       if (sv.size() == view.buffer_capacity())
@@ -81,6 +80,7 @@ public:
 
     [[nodiscard]] const auto& sentinel() const noexcept { return sentinel_; }
 
+    // Determine whether the state is valid or just zero-initialized.
     [[nodiscard]] operator bool() const noexcept { return !sentinel_.empty(); }
     [[nodiscard]] bool operator!() const noexcept { return sentinel_.empty(); }
 

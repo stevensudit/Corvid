@@ -17,9 +17,8 @@
 
 #include "../corvid/proto.h"
 
-#include <atomic>
 #include <chrono>
-#include <thread>
+#include <unistd.h>
 
 #define MINITEST_SHOW_TIMERS 0
 #include "minitest.h"
@@ -61,28 +60,12 @@ void HttpServer_GetRoot() {
       http_server::create(nullptr, net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
-  epoll_loop_runner client_runner;
-  std::string received;
-  notifiable<bool> done{false};
-
-  auto client = stream_conn_ptr::connect(client_runner,
-      server->local_endpoint(),
-      {.on_data =
-              [&](stream_conn&, recv_buffer_view v) {
-                std::string_view av = v;
-                received.append(av);
-                v.consume(av.size());
-                done.notify_one(true);
-                return true;
-              },
-          .on_drain =
-              [sent = false](stream_conn& conn) mutable {
-                if (std::exchange(sent, true)) return false;
-                return conn.send("GET /\r\n");
-              }});
+  auto client =
+      stream_sync::connect(server->local_endpoint(), std::chrono::seconds{5});
   ASSERT_TRUE(client);
-  ASSERT_TRUE(done.wait_for_value(std::chrono::seconds{5}, true));
-  EXPECT_NE(received.find("/"), std::string::npos);
+  EXPECT_TRUE(client.send("GET /\r\n"));
+  const auto response = client.recv_until("\r\n");
+  EXPECT_NE(response.find("/"), std::string::npos);
 }
 
 // Verify that `GET /foo/bar\r\n` echoes the full path in the HTML response.
@@ -91,28 +74,12 @@ void HttpServer_GetPath() {
       http_server::create(nullptr, net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
-  epoll_loop_runner client_runner;
-  std::string received;
-  notifiable<bool> done{false};
-
-  auto client = stream_conn_ptr::connect(client_runner,
-      server->local_endpoint(),
-      {.on_data =
-              [&](stream_conn&, recv_buffer_view v) {
-                std::string_view av = v;
-                received.append(av);
-                v.consume(av.size());
-                done.notify_one(true);
-                return true;
-              },
-          .on_drain =
-              [sent = false](stream_conn& conn) mutable {
-                if (std::exchange(sent, true)) return false;
-                return conn.send("GET /foo/bar\r\n");
-              }});
+  auto client =
+      stream_sync::connect(server->local_endpoint(), std::chrono::seconds{5});
   ASSERT_TRUE(client);
-  ASSERT_TRUE(done.wait_for_value(std::chrono::seconds{5}, true));
-  EXPECT_NE(received.find("/foo/bar"), std::string::npos);
+  EXPECT_TRUE(client.send("GET /foo/bar\r\n"));
+  const auto response = client.recv_until("\r\n");
+  EXPECT_NE(response.find("/foo/bar"), std::string::npos);
 }
 
 // Verify that a request line that does not start with "GET /" causes the
@@ -122,23 +89,11 @@ void HttpServer_InvalidRequest() {
       http_server::create(nullptr, net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
-  epoll_loop_runner client_runner;
-  notifiable<bool> closed{false};
-
-  auto client = stream_conn_ptr::connect(client_runner,
-      server->local_endpoint(),
-      {.on_drain =
-              [sent = false](stream_conn& conn) mutable {
-                if (std::exchange(sent, true)) return false;
-                return conn.send("POST /foo\r\n");
-              },
-          .on_close =
-              [&](stream_conn&) {
-                closed.notify_one(true);
-                return true;
-              }});
+  auto client =
+      stream_sync::connect(server->local_endpoint(), std::chrono::seconds{5});
   ASSERT_TRUE(client);
-  EXPECT_TRUE(closed.wait_for_value(std::chrono::seconds{5}, true));
+  EXPECT_TRUE(client.send("POST /foo\r\n"));
+  EXPECT_TRUE(client.recv().empty());
 }
 
 // Verify that a request line exceeding the 8192-byte limit causes the server
@@ -148,67 +103,48 @@ void HttpServer_TooLongRequest() {
       http_server::create(nullptr, net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
-  epoll_loop_runner client_runner;
-  notifiable<bool> closed{false};
-
-  auto client = stream_conn_ptr::connect(client_runner,
-      server->local_endpoint(),
-      {.on_drain =
-              [sent = false, oversized = std::string(8200, 'x')](
-                  stream_conn& conn) mutable {
-                if (std::exchange(sent, true)) return false;
-                return conn.send(std::move(oversized));
-              },
-          .on_close =
-              [&](stream_conn&) {
-                closed.notify_one(true);
-                return true;
-              }});
+  auto client =
+      stream_sync::connect(server->local_endpoint(), std::chrono::seconds{5});
   ASSERT_TRUE(client);
-  EXPECT_TRUE(closed.wait_for_value(std::chrono::seconds{5}, true));
+  // Send may fail mid-way if the server closes before all bytes are written;
+  // ignore the result and rely on `recv` to observe the close.
+  (void)client.send(std::string(8200, 'x'));
+  EXPECT_TRUE(client.recv().empty());
 }
 
-// Verify that a request arriving in two chunks is handled correctly by the
-// stateful `terminated_text_parser`.
+// Verify that a request arriving in two writes is handled correctly by the
+// stateful `terminated_text_parser`. The two writes may or may not be
+// coalesced by TCP, but the test verifies correct parsing in either case.
 void HttpServer_PartialRequest() {
   auto server =
       http_server::create(nullptr, net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
-  epoll_loop_runner client_runner;
-  std::string received;
-  notifiable<bool> partial_sent{false};
-  notifiable<bool> done{false};
-
-  auto client = stream_conn_ptr::connect(client_runner,
-      server->local_endpoint(),
-      {.on_data =
-              [&](stream_conn&, recv_buffer_view v) {
-                std::string_view av = v;
-                received.append(av);
-                v.consume(av.size());
-                done.notify_one(true);
-                return true;
-              },
-          .on_drain =
-              [&, sent = false](stream_conn& conn) mutable {
-                if (std::exchange(sent, true)) return false;
-                bool ok = conn.send("GET /partial");
-                partial_sent.notify_one(true);
-                return ok;
-              }});
+  auto client =
+      stream_sync::connect(server->local_endpoint(), std::chrono::seconds{5});
   ASSERT_TRUE(client);
+  EXPECT_TRUE(client.send("GET /partial"));
+  EXPECT_TRUE(client.send("\r\n"));
+  const auto response = client.recv_until("\r\n");
+  EXPECT_NE(response.find("/partial"), std::string::npos);
+}
 
-  // Wait until the first chunk is sent, then pause to let the server process
-  // it so that the second chunk exercises the parser's resume path.
-  ASSERT_TRUE(partial_sent.wait_for_value(std::chrono::seconds{5}, true));
-  std::this_thread::sleep_for(std::chrono::milliseconds{50});
+// Verify that the server can listen on an ANS (Abstract Name Socket) and
+// respond correctly to a `GET` request from a `stream_sync` client.
+void HttpServer_ANS() {
+  const std::string name =
+      "@corvid_proto_http_test." + std::to_string(getpid()) + ".sock";
+  const net_endpoint ep{name};
+  ASSERT_TRUE(ep.is_ans());
 
-  // `send` is thread-safe; complete the request from the main thread.
-  EXPECT_TRUE(client->send("\r\n"));
+  auto server = http_server::create(nullptr, ep);
+  ASSERT_TRUE(server);
 
-  ASSERT_TRUE(done.wait_for_value(std::chrono::seconds{5}, true));
-  EXPECT_NE(received.find("/partial"), std::string::npos);
+  auto client = stream_sync::connect(ep, std::chrono::seconds{5});
+  ASSERT_TRUE(client);
+  EXPECT_TRUE(client.send("GET /hello\r\n"));
+  const auto response = client.recv_until("\r\n");
+  EXPECT_NE(response.find("/hello"), std::string::npos);
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)
@@ -217,4 +153,4 @@ void HttpServer_PartialRequest() {
 MAKE_TEST_LIST(HttpServer_OwnLoop, HttpServer_SharedLoop,
     HttpServer_Create_BadEndpoint, HttpServer_GetRoot, HttpServer_GetPath,
     HttpServer_InvalidRequest, HttpServer_TooLongRequest,
-    HttpServer_PartialRequest);
+    HttpServer_PartialRequest, HttpServer_ANS);

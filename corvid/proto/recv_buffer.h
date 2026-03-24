@@ -357,8 +357,9 @@ public:
   //
   // On success, swaps the backing buffer into `out` (stealing the caller's
   // allocation), sets `view` to the active region inside `out`, resets the
-  // backing buffer to its previous capacity (no-zero), clears both indices,
-  // and ensures `compact` will not shrink the restored buffer.
+  // backing buffer to its previous capacity (using `no_zero` to avoid zero
+  // initialization), clears both indices, and ensures `compact` will not
+  // shrink the restored buffer.
   bool try_take_full(std::string& out, std::string_view& view) {
     assert(buf_);
     const size_t b = buf_->begin.load(std::memory_order::relaxed);

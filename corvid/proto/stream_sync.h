@@ -117,7 +117,7 @@ public:
   // than `n` on EOF/error/timeout.
   [[nodiscard]] std::string recv_exact(size_t n) {
     while (buf_.size() < n)
-      if (!do_recv()) return buf_;
+      if (!do_recv()) return std::exchange(buf_, {});
 
     std::string out = buf_.substr(0, n);
     buf_.erase(0, n);
@@ -151,8 +151,7 @@ private:
 
   // Append one chunk of data from the socket to `buf_`. Closes and returns
   // false on EOF, hard error, or timeout.
-  bool do_recv() {
-    using namespace corvid::strings::no_zero_funcs;
+  [[nodiscard]] bool do_recv() {
     static constexpr size_t chunk_size = 4096;
     const size_t old_size = buf_.size();
     no_zero::resize_to(buf_, old_size + chunk_size);

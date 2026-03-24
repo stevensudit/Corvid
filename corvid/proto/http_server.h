@@ -32,7 +32,7 @@ namespace corvid { inline namespace proto {
 //
 // Listens for TCP connections, parses each request line with
 // `terminated_text_parser`, and sends a canned HTML response for any `GET
-// /path` request, and waits for the next.
+// /path` request.
 //
 // Construct via the `create` factory, which returns a
 // `std::shared_ptr<http_server>`. Each accepted connection is owned by the
@@ -80,6 +80,11 @@ public:
     return listener_->local_endpoint();
   }
 
+  // Return a `shared_ptr<http_server>` to `*this`.
+  [[nodiscard]] std::shared_ptr<http_server> self() {
+    return std::static_pointer_cast<http_server>(shared_from_this());
+  }
+
 private:
   http_server() = default;
 
@@ -103,9 +108,11 @@ private:
     if (!*r) return conn.close() && false;
 
     // The syntax is trivial.
-    if (!simple_request.starts_with("GET /")) return conn.close() && false;
+    static constexpr std::string_view prefix{"GET /"};
+    if (!simple_request.starts_with(prefix)) return conn.close() && false;
 
-    const std::string_view path{simple_request.substr(4)};
+    // Keep the slash and anything after it as the path.
+    const std::string_view path{simple_request.substr(prefix.size() - 1)};
     // TODO: Validate the path to prevent directory traversal.
 
     // "Look up" the file.

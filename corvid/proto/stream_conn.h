@@ -93,10 +93,9 @@ struct stream_conn_handlers {
 //    (notifying any write waiter) or closes the connection.
 //
 // 3. Listening: use the static `stream_conn_ptr_with::listen` factory. It
-// creates
-//    the socket, sets `SO_REUSEADDR`, binds, and calls `listen(2)`. `EPOLLIN`
-//    events call `accept4` in a drain loop; each accepted connection is
-//    created as a self-owning `stream_conn` in the loop, with a copy of the
+//    creates the socket, sets `SO_REUSEADDR`, binds, and calls `listen(2)`.
+//    `EPOLLIN` events call `accept4` in a drain loop; each accepted connection
+//    is created as a self-owning `stream_conn` in the loop, with a copy of the
 //    listener's handlers. `send` and other data-path operations are disabled
 //    on a listening `stream_conn`.
 //
@@ -133,6 +132,10 @@ struct stream_conn_handlers {
 // `stream_async_cb` (one-shot callbacks) and `stream_async_coro` (coroutines).
 // Both temporarily redirect `active_handlers_` so `stream_conn` is unaware
 // of them.
+//
+// `stream_conn` is designed to be inherited by `stream_conn_with_state`, but
+// should otherwise be treated as `final` due to the delicacy of the
+// mechanisms.
 class stream_conn: public io_conn {
 public:
   // Default receive-buffer capacity per connection, in bytes.
@@ -1139,7 +1142,7 @@ using stream_conn_ptr = stream_conn_ptr_with<>;
 // `stream_conn_ptr_with<stream_conn_with_state<STATE>>` also have type
 // `stream_conn_with_state<STATE>` with a fresh default-constructed `STATE`.
 template<typename STATE>
-class stream_conn_with_state: public stream_conn {
+class stream_conn_with_state final: public stream_conn {
 public:
   using state_t = STATE;
 
