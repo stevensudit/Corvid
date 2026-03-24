@@ -121,10 +121,12 @@ struct stream_conn_handlers {
 // destructs. If the buffer fills up while a view is live, `EPOLLIN` is
 // disabled until the view destructs and `resume_receive` compacts it.
 //
-// Close: `close` is graceful. If the send queue is non-empty, the socket
-// closes only after it drains. `hangup` discards pending outbound data and
-// closes immediately. The destructor of `stream_conn_ptr_with` uses `hangup`,
-// so you should call `close` in the non-error path.
+// Close: `close` drains the send queue first. When `mutual_close` is false
+// (the default), the socket closes as soon as the queue empties. When true,
+// the write side is instead shut down and incoming data is discarded until the
+// peer sends EOF. `hangup` discards pending outbound data and closes
+// immediately. The destructor of `stream_conn_ptr_with` uses `hangup`, so you
+// should call `close` in the non-error path to pre-empt this..
 //
 // Supports persistent callbacks via `stream_conn_handlers`, and `send`.
 //
@@ -176,6 +178,16 @@ public:
   // down.
   [[nodiscard]] bool can_write() const noexcept { return write_open_; }
 
+  // Whether `close()` will perform a mutual close, which shuts down the write
+  // side after the send queue drains, then discards incoming data until the
+  // peer sends EOF. The alternative is closed the entire socket after the send
+  // queue drains. Defaults to false. Safe to call from any thread.
+  [[nodiscard]] bool is_mutual_close() const noexcept { return mutual_close_; }
+
+  // Set the mutual-close flag. `on` defaults to true. Call before `close()`.
+  // Safe to call from any thread.
+  void set_mutual_close(bool on = true) noexcept { mutual_close_ = on; }
+
   // The remote peer address supplied at construction. Safe to call from any
   // thread.
   [[nodiscard]] const net_endpoint& remote_endpoint() const noexcept {
@@ -200,11 +212,14 @@ public:
     });
   }
 
-  // Start a graceful close. Drains pending sends first, then shuts down the
-  // socket. Safe to call from any thread. Once this is called, destructing the
-  // owning `stream_conn_ptr_with` does not cause a forceful close.
+  // Start a close. If `mutual_close` is false (the default), drains pending
+  // sends and then closes the socket. If `mutual_close` is true, instead shuts
+  // down the write side and discards incoming data until the peer closes. Set
+  // the flag via `set_mutual_close` before calling this. Safe to call from any
+  // thread. Once called, destructing the owning `stream_conn_ptr_with` does
+  // not cause a forceful close.
   [[nodiscard]] bool close() {
-    graceful_close_started_ = true;
+    no_hangup_on_destruct_ = true;
     return loop_.post([p = self()] { return p->do_close(); });
   }
 
@@ -302,9 +317,9 @@ private:
   // `is_open`.
   relaxed_atomic_bool open_;
 
-  //  Set by `close` to start a graceful close, preventing the destructor
-  //  of `stream_conn_ptr_with` from closing forcefully.
-  relaxed_atomic_bool graceful_close_started_{false};
+  // Set by `close` to prevent the destructor of `stream_conn_ptr_with` from
+  // closing forcefully after a graceful close has been initiated.
+  relaxed_atomic_bool no_hangup_on_destruct_{false};
 
   // Whether the read and write sides of the socket are open (assuming `open_`
   // is true). Cleared by `do_shutdown_read` and `do_shutdown_write`
@@ -330,7 +345,8 @@ private:
   // disabled.
   bool listening_ = false;
 
-  // Set by `do_close` to request a full close after pending writes drain.
+  // Set by `do_close` to request a full or mutual close after pending writes
+  // drain.
   bool close_requested_ = false;
 
   // Set by `notify_close_once` to ensure `on_close` is delivered at most
@@ -341,6 +357,12 @@ private:
   // Cleared and acted on by `resume_receive` once the live view destructs,
   // preventing a second view from being created while the first is still live.
   bool eof_pending_ = false;
+
+  // When true, `close()` shuts down the write side after the send queue
+  // drains, then discards incoming data until the peer closes (mutual close).
+  // When false (the default), `close()` closes the socket immediately once
+  // the queue empties.
+  relaxed_atomic_bool mutual_close_{false};
 
   // Return a `shared_ptr<stream_conn>` to `*this`.
   [[nodiscard]] std::shared_ptr<stream_conn> self() {
@@ -376,6 +398,10 @@ private:
     assert(loop_.is_loop_thread());
     if (listening_) return handle_listen();
     if (connecting_) return handle_connect();
+    // Once `close()` is in progress, discard incoming data rather than
+    // dispatching it. For mutual close this is the read-drain loop; for
+    // non-mutual close it is belt-and-suspenders during the queue drain.
+    if (close_requested_) return handle_drain_reads();
     return handle_readable();
   }
 
@@ -723,6 +749,21 @@ private:
     return true;
   }
 
+  // Allocate `recv_buf_.buffer` on first use, recording the actual allocated
+  // capacity, which may be rounded up to capacity. Uses CAS so a concurrent
+  // `set_recv_buf_size` that stored a larger value is not overwritten. No-op
+  // if the buffer is already allocated.
+  void ensure_recv_buf() {
+    assert(loop_.is_loop_thread());
+    if (!recv_buf_.buffer.empty()) return;
+    const size_t configured = recv_buf_.min_capacity;
+    const size_t actual =
+        no_zero::enlarge_to(recv_buf_.buffer, configured).size();
+    auto expected = configured;
+    recv_buf_.min_capacity->compare_exchange_strong(expected, actual,
+        std::memory_order::relaxed, std::memory_order::relaxed);
+  }
+
   // Append incoming bytes to `recv_buf_` and dispatch to the active `on_data`
   // handler via a `recv_buffer_view`. If a view is already live
   // (`view_active` is true), just extend `end` atomically; the in-flight
@@ -731,17 +772,7 @@ private:
   [[nodiscard]] bool handle_readable() {
     if (!read_open_) return false;
 
-    // Initial allocation. Round `min_capacity` up to the actual allocated
-    // capacity at that size, using a CAS so a concurrent `set_recv_buf_size`
-    // that stored a larger value is not overwritten.
-    if (recv_buf_.buffer.empty()) {
-      const size_t configured = recv_buf_.min_capacity;
-      const size_t actual =
-          no_zero::enlarge_to(recv_buf_.buffer, configured).size();
-      auto expected = configured;
-      recv_buf_.min_capacity->compare_exchange_strong(expected, actual,
-          std::memory_order::relaxed, std::memory_order::relaxed);
-    }
+    ensure_recv_buf();
 
     const size_t space = recv_buf_.write_space();
     if (space == 0) {
@@ -902,21 +933,64 @@ private:
     // handlers receive only `on_close`.
     if (close_requested_) {
       if (are_handlers_external()) (void)notify_drained();
-      return do_close_now();
+      return do_finish_close();
     }
 
     // Notify any pending write waiter that all outbound data has drained.
     return notify_drained();
   }
 
-  // Graceful close: if data is pending let `flush_send_queue` finish
-  // first.
+  // Close after the send queue drains. If `mutual_close_` is true, instead
+  // shuts down the write side and drains reads until peer EOF.
   [[nodiscard]] bool do_close() {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
     close_requested_ = true;
-    if (!send_queue_.empty()) return false;
-    return do_close_now();
+    if (!send_queue_.empty()) return true;
+    return do_finish_close();
+  }
+
+  // Finalize a requested close after the send queue has fully drained.
+  // When `mutual_close_` is false, closes the socket immediately. When true,
+  // shuts down the write side and lets `handle_drain_reads` wait for peer EOF.
+  // `close_requested_` is left set so `on_readable` routes to
+  // `handle_drain_reads`.
+  [[nodiscard]] bool do_finish_close() {
+    assert(loop_.is_loop_thread());
+    if (!mutual_close_) return do_close_now();
+    // Shut down the write side. `send_queue_` is empty here, so
+    // `send_queue_.clear()` and `head_span_ = {}` inside `do_shutdown_write`
+    // are no-ops. EPOLLOUT was already disarmed when the queue emptied.
+    // `maybe_finish_after_side_close` sees `read_open_` still true and does
+    // nothing.
+    (void)do_shutdown_write();
+    // Arm EPOLLIN directly, bypassing `wants_read_events` (which would return
+    // false without an `on_data` handler). `on_readable` routes to
+    // `handle_drain_reads` because `close_requested_` is set.
+    return loop_.enable_reads(*this, true);
+  }
+
+  // Discard incoming data once `close()` has been requested. For mutual close,
+  // called after `SHUT_WR` with `EPOLLIN` armed; closes gracefully on peer
+  // EOF. For non-mutual close, should not actually be called.
+  [[nodiscard]] bool handle_drain_reads() {
+    assert(loop_.is_loop_thread());
+    ensure_recv_buf();
+    // Read at offset 0, overwriting the buffer and discarding the result.
+    if (!sock().recv_at(recv_buf_.buffer, 0)) {
+      // `recv_at` returns false on both EOF and hard error.
+      // Hard error: buffer trimmed to 0 by `recv_at`. EOF: buffer left at
+      // full capacity (non-empty).
+      const bool hard_error = recv_buf_.buffer.empty();
+      no_zero::enlarge_to_cap(recv_buf_.buffer);
+      if (hard_error) return do_close_now(close_mode::forceful) && false;
+      // Peer sent FIN: complete the close.
+      return do_close_now();
+    }
+    // Data received (or `EAGAIN`): discard and wait for the next `EPOLLIN`.
+    recv_buf_.end.store(0, std::memory_order::relaxed);
+    no_zero::enlarge_to_cap(recv_buf_.buffer);
+    return true;
   }
 
   // Forceful close: discard pending sends and close immediately.
@@ -996,7 +1070,7 @@ public:
   // call `close` before the instance is destructed.
   // NOLINTBEGIN(bugprone-exception-escape)
   ~stream_conn_ptr_with() {
-    if (!conn_ || conn_->graceful_close_started_) return;
+    if (!conn_ || conn_->no_hangup_on_destruct_) return;
     (void)conn_->loop_.execute_or_post([p = std::move(conn_)] {
       return p->do_hangup();
     });

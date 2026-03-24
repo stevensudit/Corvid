@@ -2038,6 +2038,48 @@ void StreamConn_CloseThenDestructStaysGraceful() {
   EXPECT_FALSE(b.read(tmp));
 }
 
+// With `mutual_close` set, `close()` shuts down writes after the send queue
+// drains, then waits for the peer to close before firing `on_close`. Incoming
+// data arriving during the drain is silently discarded.
+void StreamConn_MutualClose() {
+  epoll_loop loop;
+  auto this_is_the_loop_thread = loop.poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  bool closed = false;
+  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_close = [&](stream_conn&) {
+        closed = true;
+        return true;
+      }});
+  EXPECT_GE(loop.run_once(0), 0); // process posted register_with_loop
+
+  conn->set_mutual_close();
+  EXPECT_TRUE(conn->is_mutual_close());
+  EXPECT_TRUE(conn->close());
+  EXPECT_GE(loop.run_once(0), 0); // process do_close() -> do_finish_close()
+
+  // After close() with mutual_close, conn shuts down its write side but stays
+  // open waiting for the peer to close.
+  EXPECT_TRUE(conn->is_open());
+  EXPECT_FALSE(conn->can_write());
+  EXPECT_FALSE(closed);
+
+  // Send data from the peer; handle_drain_reads discards it.
+  auto msg = std::string_view{"some data"};
+  ASSERT_TRUE(b.send(msg) && msg.empty());
+  EXPECT_GE(loop.run_once(0), 0); // handle_drain_reads discards data
+  EXPECT_FALSE(closed);           // still waiting for peer to close
+
+  // Peer closes: handle_drain_reads sees EOF and fires do_close_now ->
+  // on_close.
+  ASSERT_TRUE(b.close());
+  EXPECT_GE(loop.run_once(0), 0);
+
+  EXPECT_TRUE(closed);
+  EXPECT_FALSE(conn->is_open());
+}
+
 void StreamConn_DestructorHangsUp() {
   epoll_loop loop;
   auto this_is_the_loop_thread = loop.poll_thread_scope();
@@ -2721,7 +2763,8 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_AsyncCbWrite_DuplicateRejected, StreamConn_ShutdownWrite,
     StreamConn_ShutdownRead, StreamConn_ShutdownBothCloses,
     StreamConn_GracefulClose, StreamConn_CloseThenDestructStaysGraceful,
-    StreamConn_DestructorHangsUp, LoopTask_FireAndForget, StreamConn_AsyncRead,
+    StreamConn_MutualClose, StreamConn_DestructorHangsUp,
+    LoopTask_FireAndForget, StreamConn_AsyncRead,
     StreamConn_AsyncRead_PreservesEarlyData,
     StreamConn_AsyncRead_StopsBetweenCalls, StreamConn_AsyncRead_PeerClose,
     StreamConn_AsyncSend, StreamConn_EchoServer, StreamConnWithState_Adopt,
