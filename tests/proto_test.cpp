@@ -2464,7 +2464,7 @@ void StreamConnWithState_AcceptClone_Nullptr() {
 
 // Single complete frame delivered in one call.
 void TerminatedTextParser_CompleteLine() {
-  terminated_text_parser::state s;
+  terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
   std::string_view sv{"text\r\n"};
   std::string_view text;
@@ -2475,7 +2475,7 @@ void TerminatedTextParser_CompleteLine() {
 
 // Empty view: incomplete with zero bytes scanned.
 void TerminatedTextParser_IncompleteEmpty() {
-  terminated_text_parser::state s;
+  terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
   std::string_view sv;
   std::string_view text;
@@ -2485,7 +2485,7 @@ void TerminatedTextParser_IncompleteEmpty() {
 
 // Partial frame with no sentinel: incomplete, bytes_scanned updated.
 void TerminatedTextParser_IncompletePartial() {
-  terminated_text_parser::state s;
+  terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
   std::string_view sv{"text"};
   std::string_view text;
@@ -2495,7 +2495,7 @@ void TerminatedTextParser_IncompletePartial() {
 
 // Sentinel split across two calls: "\r" arrives first, "\n" in the next view.
 void TerminatedTextParser_SplitSentinel() {
-  terminated_text_parser::state s;
+  terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
   std::string_view text;
 
@@ -2513,7 +2513,7 @@ void TerminatedTextParser_SplitSentinel() {
 
 // Two frames in the same view: parse twice with reset() between.
 void TerminatedTextParser_MultipleFrames() {
-  terminated_text_parser::state s;
+  terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
   std::string_view sv{"line1\r\nline2\r\n"};
   std::string_view text;
@@ -2529,7 +2529,7 @@ void TerminatedTextParser_MultipleFrames() {
 
 // Bare sentinel with no preceding text: complete with empty text.
 void TerminatedTextParser_EmptyLine() {
-  terminated_text_parser::state s;
+  terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
   std::string_view sv{"\r\n"};
   std::string_view text;
@@ -2538,13 +2538,36 @@ void TerminatedTextParser_EmptyLine() {
   EXPECT_TRUE(sv.empty());
 }
 
-// Exceeding max_length with no sentinel returns too_long.
+// Exceeding max_length with no sentinel present returns false.
 void TerminatedTextParser_TooLong() {
   terminated_text_parser::state s{"\r\n", 8};
   terminated_text_parser p{s};
   std::string_view sv{"123456789"}; // 9 bytes, no sentinel
   std::string_view text;
   EXPECT_TRUE(p.parse(sv, text) == false);
+}
+
+// Sentinel found after max_length bytes returns false; input is not modified.
+// A frame of exactly max_length bytes succeeds.
+void TerminatedTextParser_TooLong_WithSentinel() {
+  // 9 bytes before "\r\n": over the limit of 8.
+  {
+    terminated_text_parser::state s{"\r\n", 8};
+    terminated_text_parser p{s};
+    std::string_view sv{"123456789\r\n"};
+    std::string_view text;
+    EXPECT_TRUE(p.parse(sv, text) == false);
+    EXPECT_EQ(sv, "123456789\r\n"); // input not modified
+  }
+  // Exactly 8 bytes before "\r\n": at the limit, succeeds.
+  {
+    terminated_text_parser::state s{"\r\n", 8};
+    terminated_text_parser p{s};
+    std::string_view sv{"12345678\r\n"};
+    std::string_view text;
+    EXPECT_TRUE(p.parse(sv, text) == true);
+    EXPECT_EQ(text, "12345678");
+  }
 }
 
 // With max_length == 0, the same input returns incomplete (no limit enforced).
@@ -2569,7 +2592,7 @@ void TerminatedTextParser_CustomSentinel() {
 
 // After complete + reset(), the parser correctly handles a second frame.
 void TerminatedTextParser_Reset() {
-  terminated_text_parser::state s;
+  terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
   std::string_view text;
 
@@ -2707,10 +2730,10 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     TerminatedTextParser_CompleteLine, TerminatedTextParser_IncompleteEmpty,
     TerminatedTextParser_IncompletePartial, TerminatedTextParser_SplitSentinel,
     TerminatedTextParser_MultipleFrames, TerminatedTextParser_EmptyLine,
-    TerminatedTextParser_TooLong, TerminatedTextParser_NoLimit,
-    TerminatedTextParser_CustomSentinel, TerminatedTextParser_Reset,
-    StreamSync_ConnectFail, StreamSync_SendRecv, StreamSync_RecvUntil,
-    StreamSync_PeerClose);
+    TerminatedTextParser_TooLong, TerminatedTextParser_TooLong_WithSentinel,
+    TerminatedTextParser_NoLimit, TerminatedTextParser_CustomSentinel,
+    TerminatedTextParser_Reset, StreamSync_ConnectFail, StreamSync_SendRecv,
+    StreamSync_RecvUntil, StreamSync_PeerClose);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

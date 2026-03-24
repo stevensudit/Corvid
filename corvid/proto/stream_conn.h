@@ -133,9 +133,14 @@ struct stream_conn_handlers {
 // Both temporarily redirect `active_handlers_` so `stream_conn` is unaware
 // of them.
 //
-// `stream_conn` is designed to be inherited by `stream_conn_with_state`, but
-// should otherwise be treated as `final` due to the delicacy of the
-// mechanisms.
+// Forward declaration so `stream_conn` can friend it.
+template<typename STATE>
+class stream_conn_with_state;
+
+// `stream_conn` is designed to be subclassed only via
+// `stream_conn_with_state`. The `allow` token is private and only
+// `stream_conn_with_state` (and the existing infrastructure friends) can
+// access it, preventing unintended derivation.
 class stream_conn: public io_conn {
 public:
   // Default receive-buffer capacity per connection, in bytes.
@@ -223,17 +228,19 @@ public:
     return exec_lambda(exec, [p = self()] { return p->do_shutdown_write(); });
   }
 
-protected:
+private:
   enum class allow : bool { ctor };
 
   friend class stream_async_base;
   template<typename>
   friend class stream_conn_ptr_with;
+  template<typename>
+  friend class stream_conn_with_state;
 
 public:
   // Constructor. Technically public to allow `std::make_shared<stream_conn>`
   // from `stream_conn_ptr_with` factories and `handle_listen`, but gated
-  // behind a protected type. Use `stream_conn_ptr_with` to construct an
+  // behind a private type. Use `stream_conn_ptr_with` to construct an
   // instance.
   explicit stream_conn(allow, epoll_loop& loop, net_socket&& sock,
       const net_endpoint& remote, stream_conn_handlers&& h, size_t rbs,
@@ -1142,12 +1149,12 @@ using stream_conn_ptr = stream_conn_ptr_with<>;
 // `stream_conn_ptr_with<stream_conn_with_state<STATE>>` also have type
 // `stream_conn_with_state<STATE>` with a fresh default-constructed `STATE`.
 template<typename STATE>
-class stream_conn_with_state final: public stream_conn {
+class stream_conn_with_state: public stream_conn {
 public:
   using state_t = STATE;
 
   // Construct via `stream_conn_ptr_with` factories only. Technically public
-  // because `make_shared` requires it, but gated by the protected `allow`
+  // because `make_shared` requires it, but gated by the private `allow`
   // token.
   explicit stream_conn_with_state(allow a, epoll_loop& loop, net_socket&& sock,
       const net_endpoint& remote, stream_conn_handlers&& h, size_t rbs,

@@ -36,16 +36,20 @@ namespace corvid { inline namespace proto {
 //
 // Construct via the `create` factory, which returns a
 // `std::shared_ptr<http_server>`. Each accepted connection is owned by the
-// loop and carries its own `terminated_text_parser::state` so that partial
-// request lines arriving across multiple `on_data` calls are handled
-// correctly.
+// loop and carries its own `http_conn_state` so that partial request lines
+// arriving across multiple `on_data` calls are handled correctly, and so
+// that any bytes arriving after the response is queued are silently ignored
+// (avoiding the TCP RST that `shutdown_read` can trigger).
 //
 // If the `loop` argument to `create` is null, the server starts its own
 // `epoll_loop_runner` (background thread) and owns it for its lifetime.
 // Otherwise the caller supplies a shared loop and the server borrows it.
 class http_server: public std::enable_shared_from_this<http_server> {
-  using conn_t =
-      stream_conn_with_state<std::optional<terminated_text_parser::state>>;
+  struct http_conn_state {
+    terminated_text_parser::state parser_state;
+    bool done{};
+  };
+  using conn_t = stream_conn_with_state<http_conn_state>;
 
 public:
   // Create an HTTP 0.9 server listening on `endpoint`.
@@ -93,8 +97,14 @@ private:
   [[nodiscard]] static bool
   handle_data(stream_conn& conn, recv_buffer_view view) {
     auto& state = conn_t::from(conn).state();
-    if (!state) state = terminated_text_parser::state{"\r\n", 8192};
-    terminated_text_parser parser{*state};
+
+    // If we already sent a response, ignore any trailing bytes so the send
+    // queue can drain without triggering a TCP RST.
+    if (state.done) return true;
+
+    if (!state.parser_state)
+      state.parser_state = terminated_text_parser::state{"\r\n", 8192};
+    terminated_text_parser parser{state.parser_state};
 
     auto input = view.active_view();
     std::string_view simple_request;
@@ -124,10 +134,9 @@ private:
     // Send the response.
     if (!conn.send(std::move(html))) return conn.close() && false;
 
-    // Normally, we would call `view.update_active_view(input);` and
-    // `parser.reset();`, but HTTP 0.9 has no way to pipeline because it has no
-    // headers, therefore all we can do is gracefully disconnect, trusting the
-    // send queue to take care of flushing the response on the way out.
+    // Mark the connection done and queue a graceful close. Any bytes that
+    // arrive before the close completes will be silently ignored above.
+    state.done = true;
     (void)conn.close();
     return true;
   }

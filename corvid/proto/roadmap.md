@@ -116,6 +116,13 @@ without changing higher layers.
   the delimiter is found, leaving trailing bytes in an internal buffer
 - **Future:** `io_uring_loop` -- `io_uring`-based event loop with the same
   interface as `epoll_loop`; higher layers unchanged
+- **Bug?** `stream_conn` supports two ways to close a socket: graceful and
+  forceful. However, even its graceful close isn't as graceful as it could be.
+  To be properly graceful, we should write all the data out, shut just the
+  write sock of the socket down, then drain the read side until it returns
+  EOF. Essentially, this isn't really a close, as such. It's more of a way
+  to tell `flush_send_queue` to do a shutdown of writes (and not a close)
+  after it's done. 
 
 If datagram support is needed later, add a separate `dgram_conn` abstraction
 on top of `epoll_loop` rather than broadening `stream_conn`.

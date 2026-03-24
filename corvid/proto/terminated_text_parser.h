@@ -71,10 +71,16 @@ public:
   //   returned. 0 means no limit is enforced here; the caller is responsible
   //   for the full-buffer case (compare `bytes_scanned()` against
   //   `view.buffer_capacity()`).
+  //
+  // Default construction leaves the sentinel empty, which is falsy and signals
+  // that the state has not yet been configured. Assign a configured `state`
+  // to initialize it before use.
   struct state {
     friend class terminated_text_parser;
 
-    explicit state(std::string_view sentinel = "\r\n",
+    state() noexcept = default;
+
+    explicit state(std::string_view sentinel,
         size_t max_length = 8192) noexcept
         : sentinel_{sentinel}, max_length_{max_length} {}
 
@@ -149,6 +155,9 @@ public:
 
       return std::nullopt;
     }
+    // Fail if the frame content before the sentinel exceeds max_length.
+    if (state_.max_length_ > 0 && pos > state_.max_length_) return false;
+
     // Extract frame.
     text_out = input.substr(0, pos);
     input.remove_prefix(pos + slen);
