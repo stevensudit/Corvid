@@ -772,7 +772,7 @@ private:
   [[nodiscard]] bool handle_readable() {
     if (!read_open_) return false;
 
-    ensure_recv_buf();
+    if (!ensure_recv_buf()) return do_close_now(close_mode::forceful) && false;
 
     const size_t space = recv_buf_.write_space();
     if (space == 0) {
@@ -975,7 +975,7 @@ private:
   // EOF. For non-mutual close, should not actually be called.
   [[nodiscard]] bool handle_drain_reads() {
     assert(loop_.is_loop_thread());
-    ensure_recv_buf();
+    if (!ensure_recv_buf()) return do_close_now(close_mode::forceful) && false;
     // Read at offset 0, overwriting the buffer and discarding the result.
     if (!sock().recv_at(recv_buf_.buffer, 0)) {
       // `recv_at` returns false on both EOF and hard error.

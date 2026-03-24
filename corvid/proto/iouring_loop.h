@@ -40,7 +40,7 @@
 #include "../filesys/event_fd.h"
 #include "../filesys/net_socket.h"
 
-// `<linux/io_uring.h>` already included via `io_uring_ring.h`.
+// NOTICE: This is purely vibe-coded. It is not ready for production.
 
 namespace corvid { inline namespace proto {
 

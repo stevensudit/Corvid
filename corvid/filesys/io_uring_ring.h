@@ -16,6 +16,8 @@
 // limitations under the License.
 #pragma once
 
+// NOTICE: This is purely vibe-coded. It is not ready for production.
+
 // Include glibc system headers before <linux/io_uring.h> to avoid conflicts
 // between <linux/fs.h> (pulled in transitively) and glibc's <sys/stat.h>.
 #include <sys/mman.h>

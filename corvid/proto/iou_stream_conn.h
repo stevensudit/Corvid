@@ -37,6 +37,8 @@
 #include "../concurrency/relaxed_atomic.h"
 #include "../strings/no_zero.h"
 
+// NOTICE: This is purely vibe-coded. It is not ready for production.
+
 // `iou_stream_conn` is the `io_uring`-backed equivalent of `stream_conn`.
 //
 // Established connections use `iouring_loop` completion mode:
@@ -272,8 +274,11 @@ private:
     if (res < 0) return do_close_now(close_mode::forceful) && false;
     if (res == 0) return handle_read_eof(); // peer closed write side (EOF)
 
+    // TODO: !!! This is an unnecessary copy. We need to change recv_buffer to
+    // be more flexible.
+
     // Copy received bytes into the per-connection recv buffer.
-    ensure_recv_buf();
+    if (!ensure_recv_buf()) return do_close_now(close_mode::forceful) && false;
     const size_t old_end = recv_buf_.end.load(std::memory_order::relaxed);
     const size_t needed = old_end + len;
     if (recv_buf_.buffer.size() < needed)
@@ -529,14 +534,15 @@ private:
     return true;
   }
 
-  void ensure_recv_buf() {
-    if (!recv_buf_.buffer.empty()) return;
+  [[nodiscard]] bool ensure_recv_buf() {
+    if (!recv_buf_.buffer.empty()) return true;
     const size_t configured = recv_buf_.min_capacity;
     const size_t actual =
         no_zero::enlarge_to(recv_buf_.buffer, configured).size();
     auto expected = configured;
     recv_buf_.min_capacity->compare_exchange_strong(expected, actual,
         std::memory_order::relaxed, std::memory_order::relaxed);
+    return true;
   }
 
   // Submit `IORING_OP_SEND` for the head of the send queue.
