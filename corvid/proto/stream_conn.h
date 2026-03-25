@@ -207,6 +207,13 @@ public:
   // from any thread provided the connection is still alive.
   [[nodiscard]] epoll_loop& loop() noexcept { return loop_; }
 
+  // Weak reference to the loop, for use in callbacks that run on arbitrary
+  // threads at arbitrary times and need to check whether the loop is still
+  // alive before posting. This is particularly relevant for timers.
+  [[nodiscard]] std::weak_ptr<epoll_loop> weak_loop() const noexcept {
+    return weak_loop_;
+  }
+
   // Take ownership of `buf` and start sending it. Safe to call from any
   // thread. Success does not mean that the buffer has been fully sent.
   // Instead, send completion is signaled via the `on_drain` callback.
@@ -264,10 +271,12 @@ public:
   // from `stream_conn_ptr_with` factories and `handle_listen`, but gated
   // behind a private type. Use `stream_conn_ptr_with` to construct an
   // instance.
-  explicit stream_conn(allow, epoll_loop& loop, net_socket&& sock,
-      const net_endpoint& remote, stream_conn_handlers&& h, size_t rbs,
-      bool connecting, bool listening, bool mutual_close = false) noexcept
-      : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
+  explicit stream_conn(allow, std::weak_ptr<epoll_loop> loop,
+      net_socket&& sock, const net_endpoint& remote, stream_conn_handlers&& h,
+      size_t rbs, bool connecting, bool listening,
+      bool mutual_close = false) noexcept
+      : io_conn{std::move(sock)}, loop_{*loop.lock()},
+        weak_loop_{std::move(loop)}, remote_{remote},
         own_handlers_{std::move(h)}, active_handlers_{&own_handlers_},
         open_{true}, connecting_{connecting}, listening_{listening},
         mutual_close_{mutual_close} {
@@ -287,6 +296,12 @@ protected:
   // reference it in `accept_clone` overrides.
   epoll_loop& loop_;
 
+  // Weak reference to the loop. Used only in cross-thread callbacks that need
+  // a lifetime-safe handle to the loop, where a dangling `loop_` reference
+  // would be UB if the loop were destroyed while the connection is still
+  // alive.
+  std::weak_ptr<epoll_loop> weak_loop_;
+
   // Produce a new connected `stream_conn` for an accepted socket. Called by
   // `handle_listen` instead of constructing `stream_conn` directly, so derived
   // classes can override this to supply a richer concrete type. Returning
@@ -296,8 +311,8 @@ protected:
   [[nodiscard]] virtual std::shared_ptr<stream_conn>
   accept_clone(net_socket&& sock, const net_endpoint& remote,
       stream_conn_handlers handlers) const {
-    return std::make_shared<stream_conn>(allow::ctor, loop_, std::move(sock),
-        remote, std::move(handlers), recv_buf_size(),
+    return std::make_shared<stream_conn>(allow::ctor, weak_loop_,
+        std::move(sock), remote, std::move(handlers), recv_buf_size(),
         /*connecting=*/false, /*listening=*/false, mutual_close_);
   }
 
@@ -1059,6 +1074,9 @@ class stream_conn_ptr_with {
       "stream_conn_ptr_with<T>: T must derive from stream_conn");
 
 public:
+  using conn_t = T;
+  using shared_ptr_t = std::shared_ptr<conn_t>;
+
   // Default constructor -- creates an empty (invalid) handle. `operator bool`
   // returns false.
   stream_conn_ptr_with() noexcept = default;
@@ -1072,7 +1090,7 @@ public:
   // Implicit upcast: `stream_conn_ptr_with<Derived>` ->
   // `stream_conn_ptr_with<Base>`. Mirrors the covariance of `shared_ptr`.
   template<typename U>
-  requires std::derived_from<U, T>
+  requires std::derived_from<U, conn_t>
   stream_conn_ptr_with(stream_conn_ptr_with<U>&& other) noexcept
       : conn_(std::move(other.conn_)) {}
 
@@ -1090,18 +1108,18 @@ public:
   // Return a const reference to the underlying `shared_ptr` without releasing
   // ownership. The caller may copy it to extend the connection's lifetime
   // beyond that of this `stream_conn_ptr_with`.
-  [[nodiscard]] const std::shared_ptr<T>& pointer() const { return conn_; }
+  [[nodiscard]] const shared_ptr_t& pointer() const { return conn_; }
 
   // Release ownership of the connection. The connection remains registered
   // with the loop and is responsible for itself.
-  [[nodiscard]] std::shared_ptr<T> release() { return std::move(conn_); }
+  [[nodiscard]] shared_ptr_t release() { return std::move(conn_); }
 
   // Adopt an already-connected, non-blocking `sock` and register it with
   // `loop`. `remote` records the peer address for diagnostics. May be called
   // from any thread. Socket must be nonblocking.
-  [[nodiscard]] static stream_conn_ptr_with adopt(epoll_loop& loop,
-      net_socket&& sock, const net_endpoint& remote,
-      stream_conn_handlers&& h = {},
+  [[nodiscard]] static stream_conn_ptr_with<conn_t>
+  adopt(const std::shared_ptr<epoll_loop>& loop, net_socket&& sock,
+      const net_endpoint& remote, stream_conn_handlers&& h = {},
       size_t recv_buf_size = stream_conn::default_recv_buf_size) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
     return stream_conn_ptr_with{loop, std::move(sock), remote, std::move(h),
@@ -1123,8 +1141,9 @@ public:
   // cannot be bound, or `connect(2)` fails synchronously; `errno` is set by
   // the failing syscall. Async failure (e.g., `ECONNREFUSED` delivered later)
   // goes through the normal close path.
-  [[nodiscard]] static stream_conn_ptr_with connect(epoll_loop& loop,
-      const net_endpoint& remote, stream_conn_handlers&& h = {},
+  [[nodiscard]] static stream_conn_ptr_with
+  connect(const std::shared_ptr<epoll_loop>& loop, const net_endpoint& remote,
+      stream_conn_handlers&& h = {},
       const net_endpoint& local = net_endpoint::invalid,
       size_t recv_buf_size = stream_conn::default_recv_buf_size) {
     auto sock = net_socket::create_for(remote);
@@ -1147,7 +1166,7 @@ public:
     // pending (otherwise `flush_send_queue` will call it when the queue
     // drains, as in the normal data path).
     if (!still_connecting) {
-      if (!loop.post([p = ptr.conn_] {
+      if (!loop->post([p = ptr.conn_] {
             if (p->open_ && p->send_queue_.empty()) return p->notify_drained();
             return false;
           }))
@@ -1165,9 +1184,10 @@ public:
   // the failing syscall. `mutual_close` sets the mutual-close flag on the
   // listener and therefore every accepted connection. `reuse_port` enables
   // `SO_REUSEPORT` for multi-process load balancing.
-  [[nodiscard]] static stream_conn_ptr_with listen(epoll_loop& loop,
-      const net_endpoint& local, stream_conn_handlers&& h = {},
-      bool mutual_close = false, bool reuse_port = false) {
+  [[nodiscard]] static stream_conn_ptr_with
+  listen(const std::shared_ptr<epoll_loop>& loop, const net_endpoint& local,
+      stream_conn_handlers&& h = {}, bool mutual_close = false,
+      bool reuse_port = false) {
     auto sock = net_socket::create_for(local);
     if (!sock.is_open()) return {};
 
@@ -1176,8 +1196,9 @@ public:
     if (!sock.bind(local)) return {};
     if (!sock.listen()) return {};
 
-    return stream_conn_ptr_with{loop, std::move(sock), net_endpoint::invalid,
-        std::move(h), stream_conn::default_recv_buf_size,
+    return stream_conn_ptr_with{std::move(loop), std::move(sock),
+        net_endpoint::invalid, std::move(h),
+        stream_conn::default_recv_buf_size,
         /*connecting=*/false, /*listening=*/true, mutual_close};
   }
 
@@ -1190,8 +1211,10 @@ public:
   }
 
   // Access the underlying connection directly.
-  [[nodiscard]] T* operator->() noexcept { return conn_.get(); }
-  [[nodiscard]] const T* operator->() const noexcept { return conn_.get(); }
+  [[nodiscard]] conn_t* operator->() noexcept { return conn_.get(); }
+  [[nodiscard]] const conn_t* operator->() const noexcept {
+    return conn_.get();
+  }
 
   // True if this handle is non-empty (i.e., holds a connection).
   [[nodiscard]] explicit operator bool() const noexcept {
@@ -1203,20 +1226,20 @@ private:
   friend class stream_conn_ptr_with;
 
   // Private constructor used by `connect`, `listen`, and `adopt`.
-  explicit stream_conn_ptr_with(epoll_loop& loop, net_socket&& sock,
-      const net_endpoint& remote, stream_conn_handlers&& h,
+  explicit stream_conn_ptr_with(const std::shared_ptr<epoll_loop>& loop,
+      net_socket&& sock, const net_endpoint& remote, stream_conn_handlers&& h,
       size_t recv_buf_size, bool connecting, bool listening,
       bool mutual_close = false) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
     if (recv_buf_size == 0) recv_buf_size = stream_conn::default_recv_buf_size;
-    conn_ = std::make_shared<T>(stream_conn::allow::ctor, loop,
+    conn_ = std::make_shared<conn_t>(stream_conn::allow::ctor, loop,
         std::move(sock), remote, std::move(h), recv_buf_size, connecting,
         listening, mutual_close);
-    if (!loop.post([p = conn_] { return p->register_with_loop(); }))
+    if (!loop->post([p = conn_] { return p->register_with_loop(); }))
       conn_.reset();
   }
 
-  std::shared_ptr<T> conn_;
+  shared_ptr_t conn_;
 };
 
 // Untyped alias: the common case where no per-connection state is needed.
@@ -1242,11 +1265,12 @@ public:
   // Construct via `stream_conn_ptr_with` factories only. Technically public
   // because `make_shared` requires it, but gated by the private `allow`
   // token.
-  explicit stream_conn_with_state(allow a, epoll_loop& loop, net_socket&& sock,
-      const net_endpoint& remote, stream_conn_handlers&& h, size_t rbs,
-      bool connecting, bool listening, bool mutual_close = false) noexcept
-      : stream_conn(a, loop, std::move(sock), remote, std::move(h), rbs,
-            connecting, listening, mutual_close) {}
+  explicit stream_conn_with_state(allow a, std::weak_ptr<epoll_loop> loop,
+      net_socket&& sock, const net_endpoint& remote, stream_conn_handlers&& h,
+      size_t rbs, bool connecting, bool listening,
+      bool mutual_close = false) noexcept
+      : stream_conn(a, std::move(loop), std::move(sock), remote, std::move(h),
+            rbs, connecting, listening, mutual_close) {}
 
   // Access per-connection state.
   [[nodiscard]] state_t& state() noexcept { return state_; }
@@ -1268,8 +1292,9 @@ protected:
       const net_endpoint& remote,
       stream_conn_handlers handlers) const override {
     return std::make_shared<stream_conn_with_state<state_t>>(allow::ctor,
-        loop_, std::move(sock), remote, std::move(handlers), recv_buf_size(),
-        /*connecting=*/false, /*listening=*/false, mutual_close_);
+        weak_loop_, std::move(sock), remote, std::move(handlers),
+        recv_buf_size(), /*connecting=*/false, /*listening=*/false,
+        mutual_close_);
   }
 
 private:

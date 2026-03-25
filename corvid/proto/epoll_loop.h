@@ -94,29 +94,16 @@ private:
 // are NOT inherently thread-safe, but they automatically promote a call from
 // outside the active polling thread for this loop into a `post`.
 //
-// `epoll_loop` is non-copyable and non-movable.
+// `epoll_loop` is non-copyable, non-movable, and always heap-allocated via
+// `epoll_loop::make`.
 class epoll_loop {
+  enum class allow : std::uint8_t { ctor };
+
 public:
   // Maximum number of events retrieved per `epoll_wait` call.
   static constexpr size_t max_events = 64;
   static constexpr std::chrono::milliseconds
       default_post_and_wait_poll_interval{100};
-
-  // Create the `epoll` instance and the internal `eventfd` wakeup handle.
-  // Throws `std::system_error` on failure.
-  explicit epoll_loop(
-      std::chrono::milliseconds post_and_wait_poll_interval =
-          default_post_and_wait_poll_interval)
-      : epoll_{create_epollfd()}, wake_fd_{create_eventfd()},
-        post_and_wait_poll_interval_{post_and_wait_poll_interval} {
-    // The `eventfd` is used by `post` and `stop` to interrupt a sleeping
-    // `epoll_wait` from another thread.
-    epoll_event ev{.events = EPOLLIN,
-        .data = epoll_data_t{.fd = wake_fd_.handle()}};
-    if (!epoll_.add(wake_fd_.handle(), ev))
-      throw std::system_error(errno, std::generic_category(),
-          "epoll_ctl wake_fd");
-  }
 
   epoll_loop(const epoll_loop&) = delete;
   epoll_loop& operator=(const epoll_loop&) = delete;
@@ -124,6 +111,19 @@ public:
   epoll_loop& operator=(epoll_loop&&) = delete;
 
   ~epoll_loop() = default;
+
+  // Factory: create a heap-allocated `epoll_loop` managed by
+  // `std::shared_ptr`. Throws `std::system_error` in the improbable even that
+  // the underlying `epoll` or `eventfd` cannot be created.
+  //
+  // Normally, you would want to use an `epoll_loop_runner` to create an
+  // instance in a thread.
+  [[nodiscard]] static std::shared_ptr<epoll_loop> make(
+      std::chrono::milliseconds post_and_wait_poll_interval =
+          default_post_and_wait_poll_interval) {
+    return std::make_shared<epoll_loop>(allow::ctor,
+        post_and_wait_poll_interval);
+  }
 
   // Register `conn`.
   //
@@ -352,6 +352,23 @@ public:
     return ok;
   }
 
+  // Create the `epoll` instance and the internal `eventfd` wakeup handle.
+  // Throws `std::system_error` on failure. Use `make` instead of calling this
+  // directly.
+  explicit epoll_loop(allow,
+      std::chrono::milliseconds post_and_wait_poll_interval =
+          default_post_and_wait_poll_interval)
+      : epoll_{create_epollfd()}, wake_fd_{create_eventfd()},
+        post_and_wait_poll_interval_{post_and_wait_poll_interval} {
+    // The `eventfd` is used by `post` and `stop` to interrupt a sleeping
+    // `epoll_wait` from another thread.
+    epoll_event ev{.events = EPOLLIN,
+        .data = epoll_data_t{.fd = wake_fd_.handle()}};
+    if (!epoll_.add(wake_fd_.handle(), ev))
+      throw std::system_error(errno, std::generic_category(),
+          "epoll_ctl wake_fd");
+  }
+
 private:
   // Register socket and initial interest in reading and writing. Returns
   // false if already registered or `epoll_ctl` fails.
@@ -522,7 +539,7 @@ public:
   explicit epoll_loop_runner(
       std::chrono::milliseconds post_and_wait_poll_interval =
           epoll_loop::default_post_and_wait_poll_interval)
-      : loop_{std::make_shared<epoll_loop>(post_and_wait_poll_interval)},
+      : loop_{epoll_loop::make(post_and_wait_poll_interval)},
         thread_{[this](const std::stop_token& st) { run(st); }} {
     if (!loop_->wait_until_running(1000)) {
       thread_.request_stop();

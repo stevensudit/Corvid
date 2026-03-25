@@ -111,7 +111,7 @@ public:
     self->write_timeout_ = write_timeout;
 
     // Start listening.
-    self->listener_ = conn_ptr_t::listen(*self->loop_, endpoint,
+    self->listener_ = conn_ptr_t::listen(self->loop_, endpoint,
         {.on_data =
                 [self](stream_conn& conn, recv_buffer_view view) {
                   return self->handle_data(conn, std::move(view));
@@ -143,7 +143,13 @@ private:
   [[nodiscard]] static bool timeout_hangup(const timer_fuse_t& fuse) {
     auto c = fuse.get_if_armed();
     if (!c) return true;
-    return c->loop().post([fuse]() -> bool {
+    // Use `weak_loop()` rather than `loop()` because this callback runs on the
+    // timing-wheel thread. The connection is still be alive (since `c` holds a
+    // `std::shared_ptr` to it) but the loop may have already been destroyed,
+    // which would make `loop()` a dangling-reference dereference.
+    auto loop = c->weak_loop().lock();
+    if (!loop) return true;
+    return loop->post([fuse]() -> bool {
       if (auto c = fuse.get_if_armed()) return c->hangup();
       return true;
     });
