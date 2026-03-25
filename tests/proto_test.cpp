@@ -2044,9 +2044,9 @@ void StreamConn_CloseThenDestructStaysGraceful() {
   EXPECT_FALSE(b.read(tmp));
 }
 
-// With `mutual_close` set, `close()` shuts down writes after the send queue
-// drains, then waits for the peer to close before firing `on_close`. Incoming
-// data arriving during the drain is silently discarded.
+// With `coordination_policy::bilateral` set, `close()` shuts down writes after
+// the send queue drains, then waits for the peer to close before firing
+// `on_close`. Incoming data arriving during the drain is silently discarded.
 void StreamConn_MutualClose() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -2060,13 +2060,13 @@ void StreamConn_MutualClose() {
       }});
   EXPECT_GE(loop->run_once(0), 0); // process posted register_with_loop
 
-  conn->set_mutual_close();
-  EXPECT_TRUE(conn->is_mutual_close());
+  conn->set_coordination();
+  EXPECT_TRUE(conn->coordination() == coordination_policy::bilateral);
   EXPECT_TRUE(conn->close());
   EXPECT_GE(loop->run_once(0), 0); // process do_close() -> do_finish_close()
 
-  // After close() with mutual_close, conn shuts down its write side but stays
-  // open waiting for the peer to close.
+  // After close() with bilateral coordination, conn shuts down its write side
+  // but stays open waiting for the peer to close.
   EXPECT_TRUE(conn->is_open());
   EXPECT_FALSE(conn->can_write());
   EXPECT_FALSE(closed);
@@ -2086,14 +2086,15 @@ void StreamConn_MutualClose() {
   EXPECT_FALSE(conn->is_open());
 }
 
-// Verify that a listener created with `mutual_close=true` propagates the flag
-// to every accepted connection, and that the accepted connection's
-// mutual-close handshake completes correctly end to end.
+// Verify that a listener created with `coordination_policy::bilateral`
+// propagates the policy to every accepted connection, and that the accepted
+// connection's bilateral handshake completes correctly end to end.
 //
-// The critical invariant under test: with `mutual_close` set, the server's
-// `on_close` does NOT fire after `conn.close()` alone -- it fires only after
-// the peer (client) has also closed. Since the client is still open when we
-// check, the absence of `on_close` is logically guaranteed, not timing-based.
+// The critical invariant under test: with `bilateral` coordination, the
+// server's `on_close` does NOT fire after `conn.close()` alone -- it fires
+// only after the peer (client) has also closed. Since the client is still open
+// when we check, the absence of `on_close` is logically guaranteed, not
+// timing-based.
 void StreamConn_Listen_MutualClose() {
   epoll_loop_runner loop;
 
@@ -2102,15 +2103,16 @@ void StreamConn_Listen_MutualClose() {
   notifiable<bool> close_initiated{false};
   // Set in `on_close` once the server connection fully closes.
   notifiable<bool> server_closed{false};
-  // The value of `is_mutual_close()` as seen on the accepted connection inside
-  // `on_data` -- confirms the flag was copied from the listener.
-  notifiable<bool> accepted_flag{false};
+  // The `coordination_policy` as seen on the accepted connection inside
+  // `on_data` -- confirms the policy was copied from the listener.
+  notifiable<coordination_policy> accepted_policy{
+      coordination_policy::unlateral};
 
   auto listener = stream_conn_ptr::listen(loop.loop(),
       net_endpoint{ipv4_addr::loopback, 0},
       {.on_data =
               [&](stream_conn& conn, recv_buffer_view v) {
-                accepted_flag.notify_one(conn.is_mutual_close());
+                accepted_policy.notify_one(conn.coordination());
                 std::string_view av = v;
                 v.consume(av.size());
                 bool ok = conn.close();
@@ -2122,11 +2124,11 @@ void StreamConn_Listen_MutualClose() {
                 server_closed.notify_one(true);
                 return true;
               }},
-      /*mutual_close=*/true);
+      coordination_policy::bilateral);
   ASSERT_TRUE(listener);
 
-  // The listener itself must carry the flag.
-  EXPECT_TRUE(listener->is_mutual_close());
+  // The listener itself must carry the policy.
+  EXPECT_TRUE(listener->coordination() == coordination_policy::bilateral);
 
   const net_endpoint server_ep = listener->local_endpoint();
   ASSERT_TRUE(server_ep);
@@ -2140,15 +2142,14 @@ void StreamConn_Listen_MutualClose() {
   // Wait until the server has received data and called `conn.close()`.
   ASSERT_TRUE(close_initiated.wait_for_value(std::chrono::seconds{5}, true));
 
-  // The accepted connection must have inherited `mutual_close` from the
-  // listener.
-  EXPECT_TRUE(accepted_flag.get());
+  // The accepted connection must have inherited the policy from the listener.
+  EXPECT_TRUE(accepted_policy.get() == coordination_policy::bilateral);
 
   // The server shut down its write side but is waiting for the client to
   // close. The client has not closed yet, so `on_close` cannot have fired.
   EXPECT_FALSE(server_closed.get());
 
-  // Client closes, unblocking the mutual close. Server's `on_close` fires.
+  // Client closes, unblocking the bilateral close. Server's `on_close` fires.
   ASSERT_TRUE(client->close());
   ASSERT_TRUE(server_closed.wait_for_value(std::chrono::seconds{5}, true));
 }

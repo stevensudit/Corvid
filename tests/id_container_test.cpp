@@ -23,7 +23,6 @@
 #include "minitest.h"
 
 using namespace corvid;
-using namespace corvid::bool_enums;
 
 // Use entity_id_t as the test ID type: a SequentialEnum backed by size_t.
 // Aliased to eid_t to avoid collision with the POSIX ::id_t from sys/types.h.

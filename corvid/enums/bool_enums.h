@@ -47,7 +47,7 @@ enum class deallocation_policy : bool { preserve = false, release = true };
 enum class on_failure : bool { ignore = false, raise = true };
 
 // Whether the resource is owned exclusively or is shared.
-enum class ownership : bool { unique = false, shared = true };
+enum class ownership_type : bool { unique = false, shared = true };
 
 // Whether the resource should be preserved or removed immediately.
 enum class removal_mode : bool { preserve = false, remove = true };
@@ -68,5 +68,12 @@ enum class event_mode : bool { counter = false, semaphore = true };
 
 // Whether client or server side.
 enum class connection_role : bool { client = false, server = true };
+
+// Whether an operation, such as closing a connection, is unilateral or
+// bilateral.
+enum class coordination_policy : bool { unlateral = false, bilateral = true };
+
+// Whether to allow exclusive or shared access to a resource.
+enum class exclusivity : bool { exclusive = false, shared = true };
 
 }}} // namespace corvid::enums::bool_enums

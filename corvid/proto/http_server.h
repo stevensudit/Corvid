@@ -120,7 +120,7 @@ public:
                 [self](stream_conn& conn) {
                   return self->handle_drain(conn);
                 }},
-        /*mutual_close=*/true);
+        coordination_policy::bilateral);
     if (!self->listener_) return nullptr;
 
     return self;

@@ -23,7 +23,6 @@
 #include "minitest.h"
 
 using namespace corvid;
-using namespace corvid::bool_enums;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity,
 // readability-function-size)

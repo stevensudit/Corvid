@@ -23,7 +23,6 @@
 
 #include "../corvid/ecs.h"
 #include "minitest.h"
-using namespace corvid::bool_enums;
 
 using namespace std::literals;
 using namespace corvid;
