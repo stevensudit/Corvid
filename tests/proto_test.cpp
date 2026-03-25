@@ -2060,8 +2060,8 @@ void StreamConn_MutualClose() {
       }});
   EXPECT_GE(loop->run_once(0), 0); // process posted register_with_loop
 
-  conn->set_coordination();
-  EXPECT_TRUE(conn->coordination() == coordination_policy::bilateral);
+  conn->set_shutdown(coordination_policy::bilateral);
+  EXPECT_TRUE(conn->shutdown() == coordination_policy::bilateral);
   EXPECT_TRUE(conn->close());
   EXPECT_GE(loop->run_once(0), 0); // process do_close() -> do_finish_close()
 
@@ -2112,7 +2112,7 @@ void StreamConn_Listen_MutualClose() {
       net_endpoint{ipv4_addr::loopback, 0},
       {.on_data =
               [&](stream_conn& conn, recv_buffer_view v) {
-                accepted_policy.notify_one(conn.coordination());
+                accepted_policy.notify_one(conn.shutdown());
                 std::string_view av = v;
                 v.consume(av.size());
                 bool ok = conn.close();
@@ -2127,8 +2127,8 @@ void StreamConn_Listen_MutualClose() {
       coordination_policy::bilateral);
   ASSERT_TRUE(listener);
 
-  // The listener itself must carry the policy.
-  EXPECT_TRUE(listener->coordination() == coordination_policy::bilateral);
+  // The listener itself must carry the shutdown policy.
+  EXPECT_TRUE(listener->shutdown() == coordination_policy::bilateral);
 
   const net_endpoint server_ep = listener->local_endpoint();
   ASSERT_TRUE(server_ep);
@@ -2142,7 +2142,8 @@ void StreamConn_Listen_MutualClose() {
   // Wait until the server has received data and called `conn.close()`.
   ASSERT_TRUE(close_initiated.wait_for_value(std::chrono::seconds{5}, true));
 
-  // The accepted connection must have inherited the policy from the listener.
+  // The accepted connection must have inherited the shutdown policy from the
+  // listener.
   EXPECT_TRUE(accepted_policy.get() == coordination_policy::bilateral);
 
   // The server shut down its write side but is waiting for the client to
