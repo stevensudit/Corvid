@@ -81,10 +81,11 @@ private:
 //
 // `post` schedules a callback to run at the top of the next `run_once`
 // iteration. It is safe to call from any thread: it locks `post_mutex_`,
-// pushes the callback, then writes to `wake_fd_` (an `eventfd`) to interrupt
-// a sleeping `epoll_wait`. The expected pattern is that I/O callbacks fire on
-// the loop thread and handle I/O immediately, but may hand off work to a
-// thread pool, which uses `post` to deliver results back.
+// pushes the callback onto the active queue, then writes to `wake_fd_` (an
+// `eventfd`) to interrupt a sleeping `epoll_wait`. The expected pattern is
+// that I/O callbacks fire on the loop thread and handle I/O immediately, but
+// may hand off work to a thread pool, which uses `post` to deliver results
+// back.
 //
 // `stop` is also thread-safe: it sets `running_` (a
 // `notifiable<std::atomic_bool>`) and writes to `wake_fd_` so the loop exits
@@ -104,6 +105,8 @@ public:
   static constexpr size_t max_events = 64;
   static constexpr std::chrono::milliseconds
       default_post_and_wait_poll_interval{100};
+
+  using posted_fn_t = std::function<bool()>;
 
   epoll_loop(const epoll_loop&) = delete;
   epoll_loop& operator=(const epoll_loop&) = delete;
@@ -213,8 +216,10 @@ public:
   // back to the loop thread.
   [[nodiscard]] bool post(std::function<bool()> fn) {
     {
+      // This lock not only protects the current queue from concurrent posts,
+      // but also ensures that we don't post to the wrong queue during a swap.
       std::scoped_lock lock{post_mutex_};
-      post_queue_.push_back(std::move(fn));
+      active_queue_.load(std::memory_order_relaxed)->push_back(std::move(fn));
     }
     return wake();
   }
@@ -287,8 +292,8 @@ public:
   }
 
   // Wait up to `timeout_ms` milliseconds for events and dispatch ready
-  // sockets. Pass -1 to block indefinitely, 0 to poll. Drains `post_queue_`
-  // first. Returns the number of I/O events dispatched, or -1 on error.
+  // sockets. Pass -1 to block indefinitely, 0 to poll. Drains the active post
+  // queue first. Returns the number of I/O events dispatched, or -1 on error.
   [[nodiscard]] int run_once(int timeout_ms = -1) {
     assert(is_loop_thread());
 
@@ -370,6 +375,8 @@ public:
   }
 
 private:
+  using post_queue_t = std::vector<posted_fn_t>;
+
   // Register socket and initial interest in reading and writing. Returns
   // false if already registered or `epoll_ctl` fails.
   [[nodiscard]] bool do_register_socket(std::shared_ptr<io_conn>&& conn,
@@ -449,20 +456,26 @@ private:
            (writable ? uint32_t{EPOLLOUT} : uint32_t{0});
   }
 
-  // Swap-and-drain `post_queue_` under the mutex, then invoke each callback.
-  // Callbacks posted from within a drained callback land in the new
-  // `post_queue_` and run on the next iteration.
+  // Atomically redirect new posts to the idle queue, then invoke each
+  // callback in the queue that was just retired. Callbacks posted from within
+  // a drained callback land in the newly active queue and run on the next
+  // iteration. No heap allocation is needed; the two queue buffers are reused.
   [[nodiscard]] bool drain_post_queue(bool execute = true) {
     assert(is_loop_thread());
-    std::vector<std::function<bool()>> pending;
+    post_queue_t* pending;
     {
+      // Lock so nobody can post to the queue we're about to swap out.
+      // The actual swap could have been atomic without a lock.
       std::scoped_lock lock{post_mutex_};
-      pending.reserve(post_queue_.size());
-      pending.swap(post_queue_);
+      pending = active_queue_.load(std::memory_order_relaxed);
+      post_queue_t* other =
+          (pending == &post_queues_[0]) ? &post_queues_[1] : &post_queues_[0];
+      active_queue_.store(other, std::memory_order_relaxed);
     }
-    if (!execute) return false;
-    for (auto& fn : pending) (void)fn();
-    return true;
+    if (execute)
+      for (auto& fn : *pending) (void)fn();
+    pending->clear();
+    return execute;
   }
 
   // Dispatch a single epoll event for `fd` with event mask `ev`. The
@@ -521,7 +534,8 @@ private:
   std::unordered_map<int, std::shared_ptr<io_conn>> registrations_;
 
   std::mutex post_mutex_;
-  std::vector<std::function<bool()>> post_queue_;
+  post_queue_t post_queues_[2];
+  std::atomic<post_queue_t*> active_queue_{&post_queues_[0]};
   const std::chrono::milliseconds post_and_wait_poll_interval_;
 
   tombstone has_run_;

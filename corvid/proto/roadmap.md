@@ -160,3 +160,12 @@ WebSocket protocol built on top of the HTTP/1.1 upgrade mechanism.
   callback and coroutine modes are provided by `stream_async_cb` and
   `stream_async_coro` facades that temporarily redirect the handler pointer.
 - Linux is the target OS.
+
+## Notes on the post queue
+- It's tempting to go down the rabbit hole with MPSC lockless queue designs, but there's no point in this for epoll-based loops because the cost of the lock is nothing compared to the syscall overhead. For now, we've improved the design to use double-buffering so to generally avoid memory allocation at the top of each loop.
+
+## Notes on io_uring
+
+- The vibe-coding experiment yielded useful data, but not usable code. It was constrained by not being able to rely on liburing, which meant reinventing the io_uring-wrapping wheel. Still, it showed that zero-copy is going to require a different approach to buffer management, among other things. Also, we won't need timing_wheel because io_uring has that covered.
+- Maybe I need to survey the off-the-shelf alternatives. The most obvious is Asio, which offers a couroutine pattern that suits io_uring well and avoids callback hell. Seastar, underlying ScyllaDB, is also interesting. In terms of coroutine-friendly native wrappers, there's liburing4cpp, Xynet, and Condy (the hot new thing). Meta's got libunifex and Google has liburing_cpp (which mostly just proves RAII).
+- High-end performance requires a shared-nothing approach where a loop runs in its own thread on its own CPU. Interthread communication is by messages over lock-less ring buffers, to avoid any mutexes.
