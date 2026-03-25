@@ -81,7 +81,7 @@ namespace corvid { inline namespace ecs { inline namespace entity_registries {
 //              lookup. Any value >= 2 selects component mode, where
 //              `record_t` stores a `location_record{store_ids,ndx}`, where
 //              `store_ids` is a `fixed_bitset<OWN_COUNT>` presence bitmap.
-//  REUSE     - `reuse_order::fifo` (default) or `reuse_order::lifo`,
+//  REUSE     - `sequence_order::fifo` (default) or `sequence_order::lifo`,
 //              controlling whether freed IDs are reused in first-in-first-out
 //              or last-in-first-out order.
 //  A         - Allocator for the metadata type. Rebound internally for
@@ -90,13 +90,13 @@ template<typename T = void,
     sequence::SequentialEnum EID = id_enums::entity_id_t,
     sequence::SequentialEnum SID = id_enums::store_id_t,
     generation_scheme GEN = generation_scheme::versioned, size_t OWN_COUNT = 1,
-    reuse_order REUSE = reuse_order::fifo, class A = std::allocator<T>>
+    sequence_order REUSE = sequence_order::fifo, class A = std::allocator<T>>
 class entity_registry {
 public:
   static constexpr bool is_versioned_v = (GEN == generation_scheme::versioned);
   static constexpr bool is_archetype_v = (OWN_COUNT == 1);
   static constexpr bool is_component_v = !is_archetype_v;
-  static constexpr bool is_fifo_v = (REUSE == reuse_order::fifo);
+  static constexpr bool is_fifo_v = (REUSE == sequence_order::fifo);
   static constexpr bool is_lifo_v = !is_fifo_v;
   static constexpr size_t bitmap_bits_v = is_component_v ? OWN_COUNT : 1;
   // `fixed_bitset` requires `N_BITS % 8 == 0`; round up to the nearest

@@ -33,8 +33,8 @@ enum class access : bool { as_const = false, as_mutable = true };
 // memory by avoiding any versioning.
 enum class generation_scheme : bool { unversioned = false, versioned = true };
 
-// Reuse order for freed resources.
-enum class reuse_order : bool { lifo = false, fifo = true };
+// Sequence order for sequential data structures.
+enum class sequence_order : bool { lifo = false, fifo = true };
 
 // Whether to allocate eagerly (reserving capacity up front and prefilling as
 // needed) or lazily (just-in-time).

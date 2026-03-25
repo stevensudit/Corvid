@@ -82,7 +82,7 @@ namespace corvid { inline namespace ecs { inline namespace stable_id_vector {
 // obsoleted by `entity_registry` and `component_storage`.
 template<typename T, sequence::SequentialEnum ID = id_enums::id_t,
     generation_scheme GEN = generation_scheme::versioned,
-    reuse_order REUSE_ORDER = reuse_order::lifo,
+    sequence_order REUSE_ORDER = sequence_order::lifo,
     typename ALLOCATOR = std::allocator<T>>
 class stable_ids {
 public:
@@ -91,7 +91,7 @@ public:
   using allocator_type = ALLOCATOR;
 
   static constexpr bool is_versioned_v = (GEN == generation_scheme::versioned);
-  static constexpr bool is_fifo_v = (REUSE_ORDER == reuse_order::fifo);
+  static constexpr bool is_fifo_v = (REUSE_ORDER == sequence_order::fifo);
 
 private:
   using data_allocator_type = ALLOCATOR;
