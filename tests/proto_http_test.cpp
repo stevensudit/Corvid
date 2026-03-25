@@ -227,8 +227,22 @@ void HttpServer_WriteTimeout() {
               }});
   ASSERT_TRUE(client);
 
+  // Shrink the client-side receive buffer so that TCP flow control kicks in
+  // well before the 10 MB response drains, making the write-timeout path
+  // deterministic regardless of kernel autotuning. The kernel doubles the
+  // value but the resulting ~8 KB ceiling is still tiny relative to the
+  // response size.
+  EXPECT_TRUE(client->sock().set_recv_buffer_size(4096));
+
+  const auto start = std::chrono::steady_clock::now();
+
   // Allow 10x the write timeout for timing-wheel jitter and system overhead.
   ASSERT_TRUE(closed.wait_for_value(kWriteTimeout * 10, true));
+
+  // The connection must not close before the write timeout has had time to
+  // fire. If it closes immediately the write-timeout path was not exercised
+  // (e.g., the response drained before backpressure engaged).
+  EXPECT_GE(std::chrono::steady_clock::now() - start, kWriteTimeout / 2);
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)
