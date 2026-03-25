@@ -200,6 +200,11 @@ public:
     return net_endpoint{sock()};
   }
 
+  // The `epoll_loop` that drives this connection. Valid for the lifetime of
+  // the connection. Loop-thread-only for mutation operations; reads are safe
+  // from any thread provided the connection is still alive.
+  [[nodiscard]] epoll_loop& loop() noexcept { return loop_; }
+
   // Take ownership of `buf` and start sending it. Safe to call from any
   // thread. Success does not mean that the buffer has been fully sent.
   // Instead, send completion is signaled via the `on_drain` callback.
@@ -267,6 +272,11 @@ public:
         std::min(rbs, std::numeric_limits<std::size_t>::max() / 2);
     // Listening sockets have no writable data path.
     if (listening) write_open_ = false;
+  }
+
+  // Return a `shared_ptr<stream_conn>` to `*this`.
+  [[nodiscard]] std::shared_ptr<stream_conn> self() {
+    return std::static_pointer_cast<stream_conn>(shared_from_this());
   }
 
 protected:
@@ -363,11 +373,6 @@ private:
   // When false (the default), `close()` closes the socket immediately once
   // the queue empties.
   relaxed_atomic_bool mutual_close_{false};
-
-  // Return a `shared_ptr<stream_conn>` to `*this`.
-  [[nodiscard]] std::shared_ptr<stream_conn> self() {
-    return std::static_pointer_cast<stream_conn>(shared_from_this());
-  }
 
   // Register `net_socket` with the loop. Stores a shared owner in the loop's
   // registration map, keeping the state alive as long as the fd is
@@ -772,7 +777,7 @@ private:
   [[nodiscard]] bool handle_readable() {
     if (!read_open_) return false;
 
-    if (!ensure_recv_buf()) return do_close_now(close_mode::forceful) && false;
+    ensure_recv_buf();
 
     const size_t space = recv_buf_.write_space();
     if (space == 0) {
@@ -975,7 +980,7 @@ private:
   // EOF. For non-mutual close, should not actually be called.
   [[nodiscard]] bool handle_drain_reads() {
     assert(loop_.is_loop_thread());
-    if (!ensure_recv_buf()) return do_close_now(close_mode::forceful) && false;
+    ensure_recv_buf();
     // Read at offset 0, overwriting the buffer and discarding the result.
     if (!sock().recv_at(recv_buf_.buffer, 0)) {
       // `recv_at` returns false on both EOF and hard error.

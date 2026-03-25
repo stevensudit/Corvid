@@ -618,7 +618,7 @@ private:
 
   [[nodiscard]] bool handle_drain_reads() {
     assert(loop_.is_loop_thread());
-    ensure_recv_buf();
+    if (!ensure_recv_buf()) return false;
     if (!sock().recv_at(recv_buf_.buffer, 0)) {
       const bool hard_error = recv_buf_.buffer.empty();
       no_zero::enlarge_to_cap(recv_buf_.buffer);

@@ -30,3 +30,4 @@
 #include "concurrency/tombstone.h"
 #include "concurrency/timers.h"
 #include "concurrency/relaxed_atomic.h"
+#include "concurrency/timer_fuse.h"
