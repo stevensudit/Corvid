@@ -119,11 +119,11 @@ without changing higher layers.
   `IORING_OP_POLL_ADD` with `IORING_POLL_ADD_MULTI` for persistent multi-shot
   fd readiness polling; wakeup via `eventfd`; `iouring_loop_runner` wraps the
   loop in a background `jthread`
-- **Done:** `stream_conn` now supports a true mutual close via
-  `set_mutual_close()`. When enabled, `close()` drains writes, issues
-  `SHUT_WR`, then discards incoming data until peer EOF before closing.
-  Follow-on: integrate timeouts so a non-cooperative peer cannot hold the
-  drain phase open indefinitely.
+- **Done:** `stream_conn` now supports a true bilateral close via
+  `set_shutdown(coordination_policy::bilateral)`. When enabled, `close()`
+  drains writes, issues `SHUT_WR`, then discards incoming data until peer
+  EOF before closing. Follow-on: integrate timeouts so a non-cooperative
+  peer cannot hold the drain phase open indefinitely.
 
 If datagram support is needed later, add a separate `dgram_conn` abstraction
 on top of `epoll_loop` rather than broadening `stream_conn`.

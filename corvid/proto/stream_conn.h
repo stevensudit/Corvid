@@ -191,7 +191,7 @@ public:
     return shutdown_;
   }
 
-  // Set the shutdown coordination policy. `shutdown` defaults to `bilateral`.
+  // Set the shutdown coordination policy. `shutdown` defaults to `unilateral`.
   // Call before `close()`. Safe to call from any thread.
   void set_shutdown(coordination_policy shutdown) noexcept {
     shutdown_ = shutdown;
