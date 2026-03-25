@@ -17,7 +17,11 @@
 
 #include "../corvid/proto.h"
 
+#include "../corvid/concurrency/jthread_stoppable_sleep.h"
+
+#include <cerrno>
 #include <chrono>
+#include <iostream>
 #include <unistd.h>
 
 #define MINITEST_SHOW_TIMERS 0
@@ -58,7 +62,7 @@ void HttpServer_GetRoot() {
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 5s);
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
   EXPECT_TRUE(client.send("GET /\r\n"));
   const auto response = client.recv_until("\r\n");
@@ -70,7 +74,7 @@ void HttpServer_GetPath() {
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 5s);
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
   EXPECT_TRUE(client.send("GET /foo/bar\r\n"));
   const auto response = client.recv_until("\r\n");
@@ -83,7 +87,7 @@ void HttpServer_InvalidRequest() {
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 5s);
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
   EXPECT_TRUE(client.send("POST /foo\r\n"));
   EXPECT_TRUE(client.recv().empty());
@@ -95,7 +99,7 @@ void HttpServer_TooLongRequest() {
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 5s);
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
   // Send may fail mid-way if the server closes before all bytes are written;
   // ignore the result and rely on `recv` to observe the close.
@@ -110,7 +114,7 @@ void HttpServer_PartialRequest() {
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 5s);
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
   EXPECT_TRUE(client.send("GET /partial"));
   EXPECT_TRUE(client.send("\r\n"));
@@ -129,7 +133,7 @@ void HttpServer_ANS() {
   auto server = http_server::create(ep);
   ASSERT_TRUE(server);
 
-  auto client = stream_sync::connect(ep, 5s);
+  auto client = stream_sync::connect(ep, 1s);
   ASSERT_TRUE(client);
   EXPECT_TRUE(client.send("GET /hello\r\n"));
   const auto response = client.recv_until("\r\n");
@@ -151,7 +155,7 @@ void HttpServer_RequestWithinTimeout() {
       nullptr, nullptr, 5s);
   ASSERT_TRUE(server);
 
-  auto client = stream_sync::connect(server->local_endpoint(), 5s);
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
   EXPECT_TRUE(client.send("GET /\r\n"));
   const auto response = client.recv_until("\r\n");
@@ -161,15 +165,24 @@ void HttpServer_RequestWithinTimeout() {
 // Verify that an idle connection (no request sent) is forcefully closed by
 // the server after the request timeout expires.
 void HttpServer_IdleTimeout() {
-  // Use a short timeout so the test finishes quickly.
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
-      nullptr, nullptr, 200ms);
+      nullptr, nullptr, 100ms);
   ASSERT_TRUE(server);
 
-  // Connect but send nothing. The server should close after ~200 ms.
-  auto client = stream_sync::connect(server->local_endpoint(), 1s);
+  auto client = stream_sync::connect(server->local_endpoint());
   ASSERT_TRUE(client);
+
+  // Send nothing. The server should hang up after the 100ms timeout. A
+  // watchdog aborts the process if `recv()` blocks for more than 5 seconds.
+  jthread_stoppable_sleep sleep;
+  std::jthread watchdog([&sleep](std::stop_token st) {
+    if (!sleep.until(st, std::chrono::steady_clock::now() + 5s)) {
+      std::cerr << "HttpServer_IdleTimeout: recv() blocked for >5s\n";
+      std::abort();
+    }
+  });
   EXPECT_TRUE(client.recv().empty());
+  EXPECT_NE(client.errno_on_close(), EAGAIN);
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)

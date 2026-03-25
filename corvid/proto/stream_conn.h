@@ -59,7 +59,9 @@ class stream_conn;
 //                           finishes with no outbound bytes left pending
 //                           (covering both immediate writes and buffered
 //                           `EPOLLOUT`-driven drains), or when an async
-//                           `connect` succeeds.
+//                           `connect` succeeds. Also fires once on the first
+//                           writable event after `register_with_loop` for
+//                           connections that have this handler installed.
 //  `on_close(conn)`      -- fired once when the connection closes: peer EOF,
 //                           an I/O error, or a failed async `connect`. If no
 //                           handler is installed, a graceful close is
@@ -264,10 +266,11 @@ public:
   // instance.
   explicit stream_conn(allow, epoll_loop& loop, net_socket&& sock,
       const net_endpoint& remote, stream_conn_handlers&& h, size_t rbs,
-      bool connecting, bool listening) noexcept
+      bool connecting, bool listening, bool mutual_close = false) noexcept
       : io_conn{std::move(sock)}, loop_{loop}, remote_{remote},
         own_handlers_{std::move(h)}, active_handlers_{&own_handlers_},
-        open_{true}, connecting_{connecting}, listening_{listening} {
+        open_{true}, connecting_{connecting}, listening_{listening},
+        mutual_close_{mutual_close} {
     recv_buf_.min_capacity =
         std::min(rbs, std::numeric_limits<std::size_t>::max() / 2);
     // Listening sockets have no writable data path.
@@ -295,7 +298,7 @@ protected:
       stream_conn_handlers handlers) const {
     return std::make_shared<stream_conn>(allow::ctor, loop_, std::move(sock),
         remote, std::move(handlers), recv_buf_size(),
-        /*connecting=*/false, /*listening=*/false);
+        /*connecting=*/false, /*listening=*/false, mutual_close_);
   }
 
 private:
@@ -379,15 +382,17 @@ private:
   // registered, even if its `stream_conn_ptr_with` is destructed. (However,
   // its destruction will start a forceful close.)
   //
-  // In connecting mode, arms `EPOLLOUT` (so the first `on_writable`,
-  // `on_readable`, or `on_error` can call `handle_connect`) and
-  // suppresses `EPOLLIN` until the connect resolves. In connected mode,
-  // derives initial read/write interest from `wants_read_events` and
-  // `send_queue_` so that handlers or queued sends registered before this call
-  // are correctly armed.
+  // Arms `EPOLLOUT` for all data-path (non-listening) sockets and `EPOLLIN`
+  // for non-connecting sockets with read interest. Suppresses `EPOLLIN` while
+  // connecting; `handle_connect` calls `refresh_read_interest` once
+  // `SO_ERROR` confirms success.
   [[nodiscard]] bool register_with_loop() {
     if (!open_) return false;
-    const bool want_write = connecting_ || !send_queue_.empty();
+    // Arm writes for all data-path sockets: connecting sockets need `EPOLLOUT`
+    // to detect completion; sockets with pending sends need it to drain; and
+    // accepted sockets need it so `flush_send_queue` fires `notify_drained`
+    // (and thus `on_drain`) once on the first writable event.
+    const bool want_write = !listening_;
     // Suppress reads while connecting: `handle_connect` calls
     // `refresh_read_interest` once `SO_ERROR` confirms success.
     const bool want_read = !connecting_ && wants_read_events();
@@ -1157,11 +1162,12 @@ public:
   // connections via `accept4`; each creates a self-owning connection (via
   // `accept_clone`) with a copy of `h`. Returns an invalid handle if socket
   // creation, `SO_REUSEADDR`, `bind`, or `listen(2)` fails; `errno` is set by
-  // the failing syscall. `reuse_port` enables `SO_REUSEPORT` for multi-process
-  // load balancing.
+  // the failing syscall. `mutual_close` sets the mutual-close flag on the
+  // listener and therefore every accepted connection. `reuse_port` enables `SO_REUSEPORT`
+  // for multi-process load balancing.
   [[nodiscard]] static stream_conn_ptr_with listen(epoll_loop& loop,
       const net_endpoint& local, stream_conn_handlers&& h = {},
-      bool reuse_port = false) {
+      bool mutual_close = false, bool reuse_port = false) {
     auto sock = net_socket::create_for(local);
     if (!sock.is_open()) return {};
 
@@ -1172,7 +1178,7 @@ public:
 
     return stream_conn_ptr_with{loop, std::move(sock), net_endpoint::invalid,
         std::move(h), stream_conn::default_recv_buf_size,
-        /*connecting=*/false, /*listening=*/true};
+        /*connecting=*/false, /*listening=*/true, mutual_close};
   }
 
   // Start a graceful close. Drains pending sends first, then shuts down the
@@ -1199,12 +1205,13 @@ private:
   // Private constructor used by `connect`, `listen`, and `adopt`.
   explicit stream_conn_ptr_with(epoll_loop& loop, net_socket&& sock,
       const net_endpoint& remote, stream_conn_handlers&& h,
-      size_t recv_buf_size, bool connecting, bool listening) {
+      size_t recv_buf_size, bool connecting, bool listening,
+      bool mutual_close = false) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
     if (recv_buf_size == 0) recv_buf_size = stream_conn::default_recv_buf_size;
     conn_ = std::make_shared<T>(stream_conn::allow::ctor, loop,
         std::move(sock), remote, std::move(h), recv_buf_size, connecting,
-        listening);
+        listening, mutual_close);
     if (!loop.post([p = conn_] { return p->register_with_loop(); }))
       conn_.reset();
   }
@@ -1237,9 +1244,9 @@ public:
   // token.
   explicit stream_conn_with_state(allow a, epoll_loop& loop, net_socket&& sock,
       const net_endpoint& remote, stream_conn_handlers&& h, size_t rbs,
-      bool connecting, bool listening) noexcept
+      bool connecting, bool listening, bool mutual_close = false) noexcept
       : stream_conn(a, loop, std::move(sock), remote, std::move(h), rbs,
-            connecting, listening) {}
+            connecting, listening, mutual_close) {}
 
   // Access per-connection state.
   [[nodiscard]] state_t& state() noexcept { return state_; }
@@ -1262,7 +1269,7 @@ protected:
       stream_conn_handlers handlers) const override {
     return std::make_shared<stream_conn_with_state<state_t>>(allow::ctor,
         loop_, std::move(sock), remote, std::move(handlers), recv_buf_size(),
-        /*connecting=*/false, /*listening=*/false);
+        /*connecting=*/false, /*listening=*/false, mutual_close_);
   }
 
 private:

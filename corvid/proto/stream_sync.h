@@ -89,7 +89,10 @@ public:
   [[nodiscard]] bool is_open() const noexcept { return sock_.is_open(); }
   [[nodiscard]] explicit operator bool() const noexcept { return is_open(); }
 
-  [[nodiscard]] bool close() noexcept { return sock_.close(); }
+  [[nodiscard]] bool close() noexcept {
+    errno_on_close_ = errno;
+    return sock_.close();
+  }
 
   // Send all of `data`, looping on partial writes. Closes and returns false on
   // any error or timeout.
@@ -145,9 +148,12 @@ public:
     }
   }
 
+  int errno_on_close() const noexcept { return errno_on_close_; }
+
 private:
   net_socket sock_;
   std::string buf_;
+  int errno_on_close_{};
 
   // Append one chunk of data from the socket to `buf_`. Closes and returns
   // false on EOF, hard error, or timeout.

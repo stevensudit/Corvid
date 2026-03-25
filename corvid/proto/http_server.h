@@ -98,10 +98,17 @@ public:
     // Start listening.
     self->listener_ = stream_conn_ptr_with<conn_t>::listen(*self->loop_,
         endpoint,
-        {.on_data = [self](stream_conn& conn, recv_buffer_view view) {
-          return handle_data(conn, std::move(view), *self->wheel_,
-              self->request_timeout_);
-        }});
+        {.on_data =
+                [self](stream_conn& conn, recv_buffer_view view) {
+                  return handle_data(conn, std::move(view), *self->wheel_,
+                      self->request_timeout_);
+                },
+            .on_drain =
+                [self](stream_conn& conn) {
+                  return handle_drain(conn, *self->wheel_,
+                      self->request_timeout_);
+                }},
+        /*mutual_close=*/true);
     if (!self->listener_) return nullptr;
 
     return self;
@@ -122,8 +129,8 @@ private:
 
   // Arm a read timeout on `conn`. Increments `read_seq` to stale any prior
   // fuse, then schedules a `hangup` after `timeout` via the timing wheel.
-  // Called on first data and again after each parsed request so that
-  // keep-alive connections restart the clock between commands.
+  // Called on connection (via `handle_drain`) and again after each parsed
+  // request so that keep-alive connections restart the clock between commands.
   [[nodiscard]] static bool arm_read_timeout(stream_conn& conn,
       timing_wheel& wheel, std::atomic_uint64_t& read_seq,
       timing_wheel::duration_t timeout) {
@@ -139,6 +146,27 @@ private:
         });
   }
 
+  // Initialize the parser state and arm the initial read timeout for a freshly
+  // accepted connection. Safe to call multiple times; subsequent calls are
+  // no-ops. Called from `handle_drain` (first writable event, before any data)
+  // and from `handle_data` as a fallback, because `EPOLLIN` is dispatched
+  // before `EPOLLOUT` in the same wakeup, so data can arrive before
+  // `on_drain` fires.
+  [[nodiscard]] static bool ensure_initialized(stream_conn& conn,
+      http_conn_state& state, timing_wheel& wheel,
+      timing_wheel::duration_t request_timeout) {
+    if (state.parser_state) return true;
+    state.parser_state = terminated_text_parser::state{"\r\n", 8192};
+    return arm_read_timeout(conn, wheel, state.read_seq, request_timeout);
+  }
+
+  // Initialize the connection on the first writable event after accept.
+  [[nodiscard]] static bool handle_drain(stream_conn& conn,
+      timing_wheel& wheel, timing_wheel::duration_t request_timeout) {
+    auto& state = conn_t::from(conn).state();
+    return ensure_initialized(conn, state, wheel, request_timeout);
+  }
+
   // Handle incoming data for an accepted connection. Parses a single
   // `GET /path` line and sends back a canned HTML response, then closes.
   [[nodiscard]] static bool handle_data(stream_conn& conn,
@@ -150,11 +178,8 @@ private:
     // queue can drain without triggering a TCP RST.
     if (state.done) return true;
 
-    if (!state.parser_state) {
-      state.parser_state = terminated_text_parser::state{"\r\n", 8192};
-      if (!arm_read_timeout(conn, wheel, state.read_seq, request_timeout))
-        return false;
-    }
+    if (!ensure_initialized(conn, state, wheel, request_timeout)) return false;
+
     terminated_text_parser parser{state.parser_state};
 
     auto input = view.active_view();

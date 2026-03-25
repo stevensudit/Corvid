@@ -1634,16 +1634,19 @@ void StreamConn_DrainAfterImmediateSend() {
         ++drain_count;
         return true;
       }});
-  EXPECT_GE(loop.run_once(0), 0); // process posted register_with_loop
+  // `register_with_loop` arms `EPOLLOUT` for all non-listening sockets, so
+  // the first writable event fires `on_drain` even with an empty send queue.
+  EXPECT_GE(loop.run_once(0), 0); // register_with_loop + initial EPOLLOUT
+  EXPECT_EQ(drain_count, 1);      // initial drain fired
 
   EXPECT_TRUE(conn->send(std::string{"hello"}));
-  EXPECT_GE(loop.run_once(0), 0); // process posted enqueue_send()
+  EXPECT_GE(loop.run_once(0), 0); // enqueue_send() + EPOLLOUT drain
+  EXPECT_EQ(drain_count, 2);      // second drain after send queue empties
 
   std::string received;
   no_zero::enlarge_to(received, 16);
   ASSERT_TRUE(b.read(received));
   EXPECT_EQ(received, "hello");
-  EXPECT_EQ(drain_count, 1);
 }
 
 void StreamConn_AsyncCbRead() {
@@ -2080,6 +2083,72 @@ void StreamConn_MutualClose() {
 
   EXPECT_TRUE(closed);
   EXPECT_FALSE(conn->is_open());
+}
+
+// Verify that a listener created with `mutual_close=true` propagates the flag
+// to every accepted connection, and that the accepted connection's mutual-close
+// handshake completes correctly end to end.
+//
+// The critical invariant under test: with `mutual_close` set, the server's
+// `on_close` does NOT fire after `conn.close()` alone -- it fires only after
+// the peer (client) has also closed. Since the client is still open when we
+// check, the absence of `on_close` is logically guaranteed, not timing-based.
+void StreamConn_Listen_MutualClose() {
+  epoll_loop_runner loop;
+
+  // Set in `on_data` after the server calls `conn.close()`, so the test
+  // thread knows the server has initiated its half-close.
+  notifiable<bool> close_initiated{false};
+  // Set in `on_close` once the server connection fully closes.
+  notifiable<bool> server_closed{false};
+  // The value of `is_mutual_close()` as seen on the accepted connection inside
+  // `on_data` -- confirms the flag was copied from the listener.
+  notifiable<bool> accepted_flag{false};
+
+  auto listener = stream_conn_ptr::listen(loop,
+      net_endpoint{ipv4_addr::loopback, 0},
+      {.on_data =
+              [&](stream_conn& conn, recv_buffer_view v) {
+                accepted_flag.notify_one(conn.is_mutual_close());
+                std::string_view av = v;
+                v.consume(av.size());
+                bool ok = conn.close();
+                close_initiated.notify_one(true);
+                return ok;
+              },
+          .on_close =
+              [&](stream_conn&) {
+                server_closed.notify_one(true);
+                return true;
+              }},
+      /*mutual_close=*/true);
+  ASSERT_TRUE(listener);
+
+  // The listener itself must carry the flag.
+  EXPECT_TRUE(listener->is_mutual_close());
+
+  const net_endpoint server_ep = listener->local_endpoint();
+  ASSERT_TRUE(server_ep);
+
+  // Connect and send a message to trigger `on_data` on the accepted connection.
+  auto client = stream_conn_ptr::connect(loop, server_ep, {});
+  ASSERT_TRUE(client);
+  ASSERT_TRUE(client->send(std::string{"ping"}));
+
+  // Wait until the server has received data and called `conn.close()`.
+  ASSERT_TRUE(close_initiated.wait_for_value(std::chrono::seconds{5}, true));
+
+  // The accepted connection must have inherited `mutual_close` from the
+  // listener.
+  EXPECT_TRUE(accepted_flag.get());
+
+  // The server shut down its write side but is waiting for the client to close.
+  // The client has not closed yet, so `on_close` cannot have fired.
+  EXPECT_FALSE(server_closed.get());
+
+  // Client closes, unblocking the mutual close. Server's `on_close` fires.
+  ASSERT_TRUE(client->close());
+  ASSERT_TRUE(server_closed.wait_for_value(std::chrono::seconds{5}, true));
 }
 
 void StreamConn_DestructorHangsUp() {
@@ -2978,7 +3047,8 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_AsyncCbWrite_DuplicateRejected, StreamConn_ShutdownWrite,
     StreamConn_ShutdownRead, StreamConn_ShutdownBothCloses,
     StreamConn_GracefulClose, StreamConn_CloseThenDestructStaysGraceful,
-    StreamConn_MutualClose, StreamConn_DestructorHangsUp,
+    StreamConn_MutualClose, StreamConn_Listen_MutualClose,
+    StreamConn_DestructorHangsUp,
     LoopTask_FireAndForget, StreamConn_AsyncRead,
     StreamConn_AsyncRead_PreservesEarlyData,
     StreamConn_AsyncRead_StopsBetweenCalls, StreamConn_AsyncRead_PeerClose,
