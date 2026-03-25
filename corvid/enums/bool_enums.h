@@ -71,7 +71,7 @@ enum class connection_role : bool { client = false, server = true };
 
 // Whether an operation, such as closing a connection, is unilateral or
 // bilateral.
-enum class coordination_policy : bool { unlateral = false, bilateral = true };
+enum class coordination_policy : bool { unilateral = false, bilateral = true };
 
 // Whether to allow exclusive or shared access to a resource.
 enum class exclusivity : bool { exclusive = false, shared = true };

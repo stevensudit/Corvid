@@ -78,7 +78,7 @@ public:
   [[nodiscard]] resource_ptr_t get_if_armed() const {
     auto r = resource_.lock();
     if (!r) return nullptr;
-    if (seq_->load(std::memory_order_relaxed) != target_) return nullptr;
+    if (seq_->load(std::memory_order::relaxed) != target_) return nullptr;
     return r;
   }
 

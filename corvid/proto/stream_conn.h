@@ -126,7 +126,7 @@ struct stream_conn_handlers {
 // disabled until the view destructs and `resume_receive` compacts it.
 //
 // Close: `close` flushes the send queue first. When `coordination` is
-// `unlateral` (the default), the socket closes as soon as the queue empties.
+// `unilateral` (the default), the socket closes as soon as the queue empties.
 // When `bilateral`, the write side is instead shut down and incoming data is
 // discarded until the peer sends EOF. `hangup` discards pending outbound data
 // and closes
@@ -185,8 +185,8 @@ public:
 
   // The shutdown `coordination_policy` used by `close()`. `bilateral` shuts
   // down the write side after the send queue flushes, then discards incoming
-  // data until the peer sends EOF. `unlateral` (the default) closes the entire
-  // socket once the queue empties. Safe to call from any thread.
+  // data until the peer sends EOF. `unilateral` (the default) closes the
+  // entire socket once the queue empties. Safe to call from any thread.
   [[nodiscard]] coordination_policy shutdown() const noexcept {
     return shutdown_;
   }
@@ -233,7 +233,7 @@ public:
     });
   }
 
-  // Start a close. If `coordination` is `unlateral` (the default), flushes
+  // Start a close. If `coordination` is `unilateral` (the default), flushes
   // pending sends and then closes the socket. If `bilateral`, instead shuts
   // down the write side after flushing pending sends and discards incoming
   // data until the peer closes. Set the policy via `set_shutdown` before
@@ -281,7 +281,7 @@ public:
   explicit stream_conn(allow, std::weak_ptr<epoll_loop> loop,
       net_socket&& sock, const net_endpoint& remote, stream_conn_handlers&& h,
       size_t rbs, std::optional<connection_role> connection = {},
-      coordination_policy shutdown = coordination_policy::unlateral) noexcept
+      coordination_policy shutdown = coordination_policy::unilateral) noexcept
       : io_conn{std::move(sock)}, loop_{*loop.lock()},
         weak_loop_{std::move(loop)}, remote_{remote},
         own_handlers_{std::move(h)}, active_handlers_{&own_handlers_},
@@ -396,10 +396,10 @@ private:
 
   // When `bilateral`, `close()` shuts down the write side after the send
   // queue flushes, then discards incoming data until the peer closes. When
-  // `unlateral` (the default), `close()` closes the socket immediately once
+  // `unilateral` (the default), `close()` closes the socket immediately once
   // the queue empties.
   relaxed_atomic<coordination_policy> shutdown_{
-      coordination_policy::unlateral};
+      coordination_policy::unilateral};
 
   // Register `net_socket` with the loop. Stores a shared owner in the loop's
   // registration map, keeping the state alive as long as the fd is
@@ -986,13 +986,13 @@ private:
   }
 
   // Finalize a requested close after the send queue has fully flushed.
-  // When `shutdown_` is `unlateral`, closes the socket immediately. When
+  // When `shutdown_` is `unilateral`, closes the socket immediately. When
   // `bilateral`, shuts down the write side and lets `handle_drain_reads` wait
   // for peer EOF. `close_requested_` is left set so `on_readable` routes to
   // `handle_drain_reads`.
   [[nodiscard]] bool do_finish_close() {
     assert(loop_.is_loop_thread());
-    if (shutdown_ == coordination_policy::unlateral) return do_close_now();
+    if (shutdown_ == coordination_policy::unilateral) return do_close_now();
     // Shut down the write side. `send_queue_` is empty here, so
     // `send_queue_.clear()` and `head_span_ = {}` inside `do_shutdown_write`
     // are no-ops. EPOLLOUT was already disarmed when the queue emptied.
@@ -1132,7 +1132,7 @@ public:
   adopt(const std::shared_ptr<epoll_loop>& loop, net_socket&& sock,
       const net_endpoint& remote, stream_conn_handlers&& h = {},
       size_t recv_buf_size = stream_conn::default_recv_buf_size,
-      coordination_policy shutdown = coordination_policy::unlateral) {
+      coordination_policy shutdown = coordination_policy::unilateral) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
     return stream_conn_ptr_with{loop, std::move(sock), remote, std::move(h),
         recv_buf_size, {}, shutdown};
@@ -1158,7 +1158,7 @@ public:
       stream_conn_handlers&& h = {},
       const net_endpoint& local = net_endpoint::invalid,
       size_t recv_buf_size = stream_conn::default_recv_buf_size,
-      coordination_policy shutdown = coordination_policy::unlateral) {
+      coordination_policy shutdown = coordination_policy::unilateral) {
     auto sock = net_socket::create_for(remote);
     if (!sock.is_open()) return {};
 
@@ -1203,7 +1203,7 @@ public:
   [[nodiscard]] static stream_conn_ptr_with
   listen(const std::shared_ptr<epoll_loop>& loop, const net_endpoint& local,
       stream_conn_handlers&& h = {},
-      coordination_policy shutdown = coordination_policy::unlateral,
+      coordination_policy shutdown = coordination_policy::unilateral,
       bool reuse_port = false) {
     auto sock = net_socket::create_for(local);
     if (!sock.is_open()) return {};
@@ -1245,7 +1245,7 @@ private:
   explicit stream_conn_ptr_with(const std::shared_ptr<epoll_loop>& loop,
       net_socket&& sock, const net_endpoint& remote, stream_conn_handlers&& h,
       size_t recv_buf_size, std::optional<connection_role> connection = {},
-      coordination_policy shutdown = coordination_policy::unlateral) {
+      coordination_policy shutdown = coordination_policy::unilateral) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
     if (recv_buf_size == 0) recv_buf_size = stream_conn::default_recv_buf_size;
     conn_ = std::make_shared<conn_t>(stream_conn::allow::ctor, loop,
@@ -1284,7 +1284,7 @@ public:
   explicit stream_conn_with_state(allow a, std::weak_ptr<epoll_loop> loop,
       net_socket&& sock, const net_endpoint& remote, stream_conn_handlers&& h,
       size_t rbs, std::optional<connection_role> connection = {},
-      coordination_policy shutdown = coordination_policy::unlateral) noexcept
+      coordination_policy shutdown = coordination_policy::unilateral) noexcept
       : stream_conn(a, std::move(loop), std::move(sock), remote, std::move(h),
             rbs, connection, shutdown) {}
 

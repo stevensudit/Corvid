@@ -2106,7 +2106,7 @@ void StreamConn_Listen_MutualClose() {
   // The `coordination_policy` as seen on the accepted connection inside
   // `on_data` -- confirms the policy was copied from the listener.
   notifiable<coordination_policy> accepted_policy{
-      coordination_policy::unlateral};
+      coordination_policy::unilateral};
 
   auto listener = stream_conn_ptr::listen(loop.loop(),
       net_endpoint{ipv4_addr::loopback, 0},
