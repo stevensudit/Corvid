@@ -233,7 +233,7 @@ private:
 
     // The path is a length.
     const auto length = strings::parse_num<size_t>(path.substr(1), 0);
-    if (length > 10 * 1024 * 1024) return conn.close() && false;
+    if (length > 10ULL * 1024ULL * 1024ULL) return conn.close() && false;
     const auto length_text = std::to_string(length);
 
     // "Look up" the file.
