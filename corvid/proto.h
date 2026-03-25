@@ -47,5 +47,3 @@
 #include "proto/terminated_text_parser.h"
 #include "proto/stream_sync.h"
 #include "proto/http_server.h"
-#include "proto/iouring_loop.h"
-#include "proto/iou_stream_conn.h"

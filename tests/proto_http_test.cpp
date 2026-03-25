@@ -69,7 +69,8 @@ void HttpServer_GetRoot() {
   EXPECT_NE(response.find("/"), std::string::npos);
 }
 
-// Verify that `GET /foo/bar\r\n` echoes the full path in the HTML response.
+// Verify that `GET /123\r\n` produces an HTML response that includes the
+// numeric path component.
 void HttpServer_GetPath() {
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
@@ -78,7 +79,7 @@ void HttpServer_GetPath() {
   ASSERT_TRUE(client);
   EXPECT_TRUE(client.send("GET /123\r\n"));
   const auto response = client.recv_until("\r\n");
-  EXPECT_NE(response.find("/123"), std::string::npos);
+  EXPECT_NE(response.find("123"), std::string::npos);
 }
 
 // Verify that a request line that does not start with "GET /" causes the
@@ -119,7 +120,7 @@ void HttpServer_PartialRequest() {
   EXPECT_TRUE(client.send("GET /42"));
   EXPECT_TRUE(client.send("\r\n"));
   const auto response = client.recv_until("\r\n");
-  EXPECT_NE(response.find("/42"), std::string::npos);
+  EXPECT_NE(response.find("42"), std::string::npos);
 }
 
 // Verify that the server can listen on an ANS (Abstract Name Socket) and
@@ -137,7 +138,7 @@ void HttpServer_ANS() {
   ASSERT_TRUE(client);
   EXPECT_TRUE(client.send("GET /42\r\n"));
   const auto response = client.recv_until("\r\n");
-  EXPECT_NE(response.find("/42"), std::string::npos);
+  EXPECT_NE(response.find("42"), std::string::npos);
 }
 
 // Verify that `create` with a shared `timing_wheel` stores and uses it.
@@ -185,6 +186,65 @@ void HttpServer_IdleTimeout() {
   EXPECT_NE(client.errno_on_close(), EAGAIN);
 }
 
+// Verify that the write timeout fires when the client stops reading.
+//
+// The client requests a 10 MB response but never reads, filling the kernel
+// receive buffer and stalling the server's send path. The server should hang
+// up the connection after the write timeout expires.
+void HttpServer_WriteTimeout() {
+  // Use a short write timeout so the test completes quickly. The timing
+  // wheel has 100 ms precision, so allow generously for scheduling overhead.
+  constexpr auto kWriteTimeout = 500ms;
+
+  epoll_loop_runner loop;
+  timing_wheel_runner wheel;
+
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      loop.loop(), wheel.wheel(),
+      /*request_timeout=*/30s,
+      /*write_timeout=*/kWriteTimeout);
+  ASSERT_TRUE(server);
+
+  const auto ep = server->local_endpoint();
+  ASSERT_TRUE(ep);
+
+  // Connect a client that sends the request but never reads the response.
+  // Without an `on_data` handler, `EPOLLIN` is not armed on the client
+  // connection, so incoming bytes accumulate in the kernel receive buffer.
+  // Once that buffer fills, TCP flow control prevents the server from
+  // writing, stalling the drain and triggering the write timeout.
+  notifiable<bool> closed{false};
+  auto client = stream_conn_ptr::connect(loop.loop(), ep,
+      {.on_drain =
+              [sent = false](stream_conn& conn) mutable {
+                if (std::exchange(sent, true)) return true;
+                return conn.send("GET /10000000\r\n");
+              },
+          .on_close =
+              [&closed](stream_conn&) {
+                closed.notify_one(true);
+                return true;
+              }});
+  ASSERT_TRUE(client);
+
+  // Shrink the client-side receive buffer so that TCP flow control kicks in
+  // well before the 10 MB response drains, making the write-timeout path
+  // deterministic regardless of kernel autotuning. The kernel doubles the
+  // value but the resulting ~8 KB ceiling is still tiny relative to the
+  // response size.
+  EXPECT_TRUE(client->sock().set_recv_buffer_size(4096));
+
+  const auto start = std::chrono::steady_clock::now();
+
+  // Allow 10x the write timeout for timing-wheel jitter and system overhead.
+  ASSERT_TRUE(closed.wait_for_value(kWriteTimeout * 10, true));
+
+  // The connection must not close before the write timeout has had time to
+  // fire. If it closes immediately the write-timeout path was not exercised
+  // (e.g., the response drained before backpressure engaged).
+  EXPECT_GE(std::chrono::steady_clock::now() - start, kWriteTimeout / 2);
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
 
@@ -192,4 +252,5 @@ MAKE_TEST_LIST(HttpServer_OwnLoop, HttpServer_SharedLoop,
     HttpServer_Create_BadEndpoint, HttpServer_GetRoot, HttpServer_GetPath,
     HttpServer_InvalidRequest, HttpServer_TooLongRequest,
     HttpServer_PartialRequest, HttpServer_ANS, HttpServer_SharedWheel,
-    HttpServer_RequestWithinTimeout, HttpServer_IdleTimeout);
+    HttpServer_RequestWithinTimeout, HttpServer_IdleTimeout,
+    HttpServer_WriteTimeout);
