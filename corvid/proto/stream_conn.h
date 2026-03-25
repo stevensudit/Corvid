@@ -129,9 +129,8 @@ struct stream_conn_handlers {
 // `unilateral` (the default), the socket closes as soon as the queue empties.
 // When `bilateral`, the write side is instead shut down and incoming data is
 // discarded until the peer sends EOF. `hangup` discards pending outbound data
-// and closes
-// immediately. The destructor of `stream_conn_ptr_with` uses `hangup`, so you
-// should call `close` in the non-error path to pre-empt this.
+// and closes immediately. The destructor of `stream_conn_ptr_with` uses
+// `hangup`, so you should call `close` in the non-error path to pre-empt this.
 //
 // Supports persistent callbacks via `stream_conn_handlers`, and `send`.
 //

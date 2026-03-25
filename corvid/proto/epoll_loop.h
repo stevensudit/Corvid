@@ -113,7 +113,7 @@ public:
   ~epoll_loop() = default;
 
   // Factory: create a heap-allocated `epoll_loop` managed by
-  // `std::shared_ptr`. Throws `std::system_error` in the improbable even that
+  // `std::shared_ptr`. Throws `std::system_error` in the improbable event that
   // the underlying `epoll` or `eventfd` cannot be created.
   //
   // Normally, you would want to use an `epoll_loop_runner` to create an
