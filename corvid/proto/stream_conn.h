@@ -1163,8 +1163,8 @@ public:
   // `accept_clone`) with a copy of `h`. Returns an invalid handle if socket
   // creation, `SO_REUSEADDR`, `bind`, or `listen(2)` fails; `errno` is set by
   // the failing syscall. `mutual_close` sets the mutual-close flag on the
-  // listener and therefore every accepted connection. `reuse_port` enables `SO_REUSEPORT`
-  // for multi-process load balancing.
+  // listener and therefore every accepted connection. `reuse_port` enables
+  // `SO_REUSEPORT` for multi-process load balancing.
   [[nodiscard]] static stream_conn_ptr_with listen(epoll_loop& loop,
       const net_endpoint& local, stream_conn_handlers&& h = {},
       bool mutual_close = false, bool reuse_port = false) {

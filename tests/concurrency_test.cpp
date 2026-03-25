@@ -23,6 +23,7 @@
 #include "minitest.h"
 
 using namespace corvid;
+using namespace std::chrono_literals;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
@@ -111,7 +112,7 @@ void Notifiable_WaitFor() {
   if (true) {
     notifiable<bool> flag{false};
     std::thread t{[&] { flag.notify(true); }};
-    auto v = flag.wait_for(std::chrono::seconds{5}, std::identity{});
+    auto v = flag.wait_for(5s, std::identity{});
     EXPECT_TRUE(v);
     EXPECT_TRUE(*v);
     t.join();
@@ -119,7 +120,7 @@ void Notifiable_WaitFor() {
   // `wait_for` timeout: predicate never met, returns nullopt.
   if (true) {
     notifiable<bool> flag{false};
-    auto v = flag.wait_for(std::chrono::milliseconds{1}, std::identity{});
+    auto v = flag.wait_for(1ms, std::identity{});
     EXPECT_FALSE(v);
   }
 }
@@ -140,7 +141,7 @@ void Notifiable_WaitUntilChanged() {
     notifiable<int> n{0};
     auto old = n.get();
     std::thread t{[&] { n.notify(42); }};
-    auto v = n.wait_for_changed(std::chrono::seconds{5}, old);
+    auto v = n.wait_for_changed(5s, old);
     EXPECT_TRUE(v);
     EXPECT_EQ(*v, 42);
     t.join();
@@ -148,7 +149,7 @@ void Notifiable_WaitUntilChanged() {
   // `wait_for_changed` timeout: value never changes, returns nullopt.
   if (true) {
     notifiable<int> n{0};
-    auto v = n.wait_for_changed(std::chrono::milliseconds{1});
+    auto v = n.wait_for_changed(1ms);
     EXPECT_FALSE(v);
   }
 }
@@ -218,8 +219,9 @@ void Notifiable_Atomic() {
   if (true) {
     notifiable<std::atomic_bool> flag{false};
     std::thread t{[&] { flag.notify(true); }};
-    auto v = flag.wait_for(std::chrono::seconds{5},
-        [](const std::atomic_bool& b) { return b.load(); });
+    auto v = flag.wait_for(5s, [](const std::atomic_bool& b) {
+      return b.load();
+    });
     EXPECT_TRUE(v);
     EXPECT_TRUE(*v);
     t.join();
@@ -228,20 +230,20 @@ void Notifiable_Atomic() {
   if (true) {
     notifiable<std::atomic_bool> flag{false};
     std::thread t{[&] { flag.notify(true); }};
-    EXPECT_TRUE(flag.wait_for_value(std::chrono::seconds{5}, true));
+    EXPECT_TRUE(flag.wait_for_value(5s, true));
     t.join();
   }
   // `wait_for_value` timeout: predicate never met.
   if (true) {
     notifiable<std::atomic_bool> flag{false};
-    EXPECT_FALSE(flag.wait_for_value(std::chrono::milliseconds{1}, true));
+    EXPECT_FALSE(flag.wait_for_value(1ms, true));
   }
   // `wait_for_changed` satisfied before deadline.
   if (true) {
     notifiable<std::atomic<int>> n{0};
     auto old = n.get();
     std::thread t{[&] { n.notify(99); }};
-    auto v = n.wait_for_changed(std::chrono::seconds{5}, old);
+    auto v = n.wait_for_changed(5s, old);
     EXPECT_TRUE(v);
     EXPECT_EQ(*v, 99);
     t.join();
@@ -249,7 +251,7 @@ void Notifiable_Atomic() {
   // `wait_for_changed` timeout: value never changes.
   if (true) {
     notifiable<std::atomic<int>> n{0};
-    EXPECT_FALSE(n.wait_for_changed(std::chrono::milliseconds{1}));
+    EXPECT_FALSE(n.wait_for_changed(1ms));
   }
 }
 
@@ -362,8 +364,9 @@ void Notifiable_RelaxedAtomic() {
   if (true) {
     notifiable<relaxed_atomic_bool> flag{false};
     std::thread t{[&] { flag.notify(true); }};
-    auto v = flag.wait_for(std::chrono::seconds{5},
-        [](const relaxed_atomic_bool& b) { return b->load(); });
+    auto v = flag.wait_for(5s, [](const relaxed_atomic_bool& b) {
+      return b->load();
+    });
     EXPECT_TRUE(v);
     EXPECT_TRUE(*v);
     t.join();
@@ -373,7 +376,7 @@ void Notifiable_RelaxedAtomic() {
     notifiable<relaxed_atomic<int>> n{0};
     auto old = n.get();
     std::thread t{[&] { n.notify(99); }};
-    auto v = n.wait_for_changed(std::chrono::seconds{5}, old);
+    auto v = n.wait_for_changed(5s, old);
     EXPECT_TRUE(v);
     EXPECT_EQ(*v, 99);
     t.join();
@@ -381,7 +384,7 @@ void Notifiable_RelaxedAtomic() {
   // `wait_for_changed` timeout: value never changes.
   if (true) {
     notifiable<relaxed_atomic<int>> n{0};
-    EXPECT_FALSE(n.wait_for_changed(std::chrono::milliseconds{1}));
+    EXPECT_FALSE(n.wait_for_changed(1ms));
   }
 }
 

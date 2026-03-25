@@ -29,6 +29,8 @@
 
 namespace corvid { inline namespace concurrency {
 
+using namespace std::chrono_literals;
+
 // Single-level timing wheel with configurable precision (100ms by default).
 //
 // Schedules `std::function<void()>` callbacks and fires them at the
@@ -93,7 +95,7 @@ public:
   static constexpr size_t default_slot_count{600};
 
   // Default resolution: one 100ms slot per tick.
-  static constexpr duration_t default_tick_interval{100};
+  static constexpr duration_t default_tick_interval{100ms};
 
   // Construct a timing wheel with `slot_count` slots and `tick_interval`
   // precision, starting from `start_time`. `slot_count` must be at least 2.
@@ -109,7 +111,7 @@ public:
         last_tick_(start_time) {
     if (slot_count < 2)
       throw std::invalid_argument{"timing_wheel: slot_count must be >= 2"};
-    if (std::chrono::nanoseconds{tick_interval_}.count() < 500'000)
+    if (tick_interval_ < 500'000ns)
       throw std::invalid_argument{
           "timing_wheel: tick_interval must be >= 500000ns"};
   }

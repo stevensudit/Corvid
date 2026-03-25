@@ -33,6 +33,7 @@
 #include "minitest.h"
 
 using namespace corvid;
+using namespace std::chrono_literals;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
@@ -2086,8 +2087,8 @@ void StreamConn_MutualClose() {
 }
 
 // Verify that a listener created with `mutual_close=true` propagates the flag
-// to every accepted connection, and that the accepted connection's mutual-close
-// handshake completes correctly end to end.
+// to every accepted connection, and that the accepted connection's
+// mutual-close handshake completes correctly end to end.
 //
 // The critical invariant under test: with `mutual_close` set, the server's
 // `on_close` does NOT fire after `conn.close()` alone -- it fires only after
@@ -2130,7 +2131,8 @@ void StreamConn_Listen_MutualClose() {
   const net_endpoint server_ep = listener->local_endpoint();
   ASSERT_TRUE(server_ep);
 
-  // Connect and send a message to trigger `on_data` on the accepted connection.
+  // Connect and send a message to trigger `on_data` on the accepted
+  // connection.
   auto client = stream_conn_ptr::connect(loop, server_ep, {});
   ASSERT_TRUE(client);
   ASSERT_TRUE(client->send(std::string{"ping"}));
@@ -2142,8 +2144,8 @@ void StreamConn_Listen_MutualClose() {
   // listener.
   EXPECT_TRUE(accepted_flag.get());
 
-  // The server shut down its write side but is waiting for the client to close.
-  // The client has not closed yet, so `on_close` cannot have fired.
+  // The server shut down its write side but is waiting for the client to
+  // close. The client has not closed yet, so `on_close` cannot have fired.
   EXPECT_FALSE(server_closed.get());
 
   // Client closes, unblocking the mutual close. Server's `on_close` fires.
@@ -3017,6 +3019,55 @@ void IouStreamConnWithState_Adopt() {
   EXPECT_EQ(conn->state(), 42);
 }
 
+// ---------------------------------------------------------------------------
+// http_server tests
+// ---------------------------------------------------------------------------
+
+// Verify that the write timeout fires when the client stops reading.
+//
+// The client requests a 10 MB response but never reads, filling the kernel
+// receive buffer and stalling the server's send path. The server should hang
+// up the connection after the write timeout expires.
+void HttpServer_WriteTimeout() {
+  // Use a short write timeout so the test completes quickly. The timing
+  // wheel has 100 ms precision, so allow generously for scheduling overhead.
+  constexpr auto kWriteTimeout = 500ms;
+
+  epoll_loop_runner loop;
+  timing_wheel_runner wheel;
+
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      loop.loop(), wheel.wheel(),
+      /*request_timeout=*/30s,
+      /*write_timeout=*/kWriteTimeout);
+  ASSERT_TRUE(server);
+
+  const auto ep = server->local_endpoint();
+  ASSERT_TRUE(ep);
+
+  // Connect a client that sends the request but never reads the response.
+  // Without an `on_data` handler, `EPOLLIN` is not armed on the client
+  // connection, so incoming bytes accumulate in the kernel receive buffer.
+  // Once that buffer fills, TCP flow control prevents the server from
+  // writing, stalling the drain and triggering the write timeout.
+  notifiable<bool> closed{false};
+  auto client = stream_conn_ptr::connect(loop, ep,
+      {.on_drain =
+              [sent = false](stream_conn& conn) mutable {
+                if (std::exchange(sent, true)) return true;
+                return conn.send("GET /10000000\r\n");
+              },
+          .on_close =
+              [&closed](stream_conn&) {
+                closed.notify_one(true);
+                return true;
+              }});
+  ASSERT_TRUE(client);
+
+  // Allow 10x the write timeout for timing-wheel jitter and system overhead.
+  ASSERT_TRUE(closed.wait_for_value(kWriteTimeout * 10, true));
+}
+
 MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     Ipv4Addr_Comparison, Ipv4Addr_Formatting, Ipv4Addr_PosixInterop,
     Ipv6Addr_Construction, Ipv6Addr_Parse, Ipv6Addr_Classification,
@@ -3048,8 +3099,7 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_ShutdownRead, StreamConn_ShutdownBothCloses,
     StreamConn_GracefulClose, StreamConn_CloseThenDestructStaysGraceful,
     StreamConn_MutualClose, StreamConn_Listen_MutualClose,
-    StreamConn_DestructorHangsUp,
-    LoopTask_FireAndForget, StreamConn_AsyncRead,
+    StreamConn_DestructorHangsUp, LoopTask_FireAndForget, StreamConn_AsyncRead,
     StreamConn_AsyncRead_PreservesEarlyData,
     StreamConn_AsyncRead_StopsBetweenCalls, StreamConn_AsyncRead_PeerClose,
     StreamConn_AsyncSend, StreamConn_EchoServer, StreamConnWithState_Adopt,
@@ -3064,7 +3114,7 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamSync_RecvUntil, StreamSync_PeerClose, IouLoop_Lifecycle,
     IouLoop_Post, IouLoop_RegisterUnregister, IouLoop_SetWritable,
     IouLoop_SetReadable, IouLoop_ErrorSkipsWritable, IouStreamConn_EchoServer,
-    IouStreamConnWithState_Adopt);
+    IouStreamConnWithState_Adopt, HttpServer_WriteTimeout);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

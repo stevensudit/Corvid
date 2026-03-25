@@ -44,7 +44,7 @@ namespace corvid { inline namespace proto {
 //
 // Typical usage:
 //
-//   auto conn = stream_sync::connect(ep, std::chrono::seconds{5});
+//   auto conn = stream_sync::connect(ep, 5s);
 //   assert(conn);
 //   conn.send("GET / HTTP/1.0\r\n\r\n");
 //   auto headers = conn.recv_until("\r\n\r\n");
