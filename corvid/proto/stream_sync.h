@@ -148,6 +148,8 @@ public:
     }
   }
 
+  // The `errno` value from the first error that caused the connection to
+  // close. Used only in testing.
   [[nodiscard]] int errno_on_close() const noexcept { return errno_on_close_; }
 
 private:

@@ -131,7 +131,7 @@ struct stream_conn_handlers {
 // discarded until the peer sends EOF. `hangup` discards pending outbound data
 // and closes
 // immediately. The destructor of `stream_conn_ptr_with` uses `hangup`, so you
-// should call `close` in the non-error path to pre-empt this..
+// should call `close` in the non-error path to pre-empt this.
 //
 // Supports persistent callbacks via `stream_conn_handlers`, and `send`.
 //
@@ -214,9 +214,12 @@ public:
   // from any thread provided the connection is still alive.
   [[nodiscard]] epoll_loop& loop() noexcept { return loop_; }
 
-  // Weak reference to the loop, for use in callbacks that run on arbitrary
-  // threads at arbitrary times and need to check whether the loop is still
-  // alive before posting. This is particularly relevant for timers.
+  // Ok, but what if the connection is closed and the loop is destroyed, but
+  // your callback, running on an arbitrary thread, kept this instance alive
+  // through its `shared_ptr`? That's what `weak_loop` is for: it returns a
+  // weak reference to the loop that you can check before posting to avoid a
+  // dangling reference in the callback. This is what `timer_fuse` uses.Safe to
+  // call from any thread.
   [[nodiscard]] std::weak_ptr<epoll_loop> weak_loop() const noexcept {
     return weak_loop_;
   }
@@ -1247,6 +1250,7 @@ private:
       size_t recv_buf_size, std::optional<connection_role> connection = {},
       coordination_policy shutdown = coordination_policy::unilateral) {
     assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
+    assert(loop.get());
     if (recv_buf_size == 0) recv_buf_size = stream_conn::default_recv_buf_size;
     conn_ = std::make_shared<conn_t>(stream_conn::allow::ctor, loop,
         std::move(sock), remote, std::move(h), recv_buf_size, connection,
