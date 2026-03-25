@@ -148,7 +148,7 @@ public:
     }
   }
 
-  int errno_on_close() const noexcept { return errno_on_close_; }
+  [[nodiscard]] int errno_on_close() const noexcept { return errno_on_close_; }
 
 private:
   net_socket sock_;

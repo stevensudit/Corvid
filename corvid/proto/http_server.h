@@ -234,7 +234,7 @@ private:
     // Parse the path (after the leading '/') as a padding byte count, treating
     // non-numeric paths as 0. Inserting spaces before "</html>" lets callers
     // force an arbitrarily large response, which is useful for tests.
-    const size_t pad = strings::parse_num<size_t>(path.substr(1), 0);
+    const auto pad = strings::parse_num<size_t>(path.substr(1), 0);
     if (pad) {
       const auto pos = html.rfind("</html>");
       html.insert(pos, pad, ' ');

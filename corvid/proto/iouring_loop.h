@@ -117,7 +117,7 @@ public:
     bufs_mmap_size_ = data_sz;
 
     // Populate all slots and set tail = count (all buffers available).
-    const uint16_t mask = static_cast<uint16_t>(count - 1);
+    const auto mask = static_cast<uint16_t>(count - 1);
     for (uint16_t i = 0; i < static_cast<uint16_t>(count); ++i) {
       io_uring_buf& slot = ring_->bufs[i & mask];
       slot.addr = reinterpret_cast<__u64>(data(i));
@@ -137,14 +137,14 @@ public:
 
   // Pointer to the data for buffer `id`.
   [[nodiscard]] void* data(uint16_t id) const noexcept {
-    return static_cast<char*>(bufs_) + static_cast<size_t>(id) * buf_size_;
+    return static_cast<char*>(bufs_) + (static_cast<size_t>(id) * buf_size_);
   }
 
   // Return buffer `id` to the pool. The caller must have finished reading
   // `data(id)` before calling this.
   void return_buf(uint16_t id) noexcept {
     assert(is_open());
-    const uint16_t mask = static_cast<uint16_t>(count_ - 1);
+    const auto mask = static_cast<uint16_t>(count_ - 1);
     io_uring_buf& slot = ring_->bufs[ring_tail_ & mask];
     slot.addr = reinterpret_cast<__u64>(data(id));
     slot.len = static_cast<__u32>(buf_size_);
@@ -513,6 +513,7 @@ public:
 
   // Drain `post_queue_`, submit pending SQEs, wait for CQEs, and dispatch.
   // Returns the number of events dispatched, or -1 on error.
+  // NOLINTNEXTLINE(readability-function-cognitive-complexity)
   [[nodiscard]] int run_once(int timeout_ms = -1) {
     assert(is_loop_thread());
 
@@ -648,7 +649,7 @@ private:
 
   static uint64_t encode_ud(int fd, uint32_t gen, ud_type t) noexcept {
     return (static_cast<uint64_t>(static_cast<uint8_t>(t)) << 61) |
-           (static_cast<uint64_t>(gen & 0x1FFFFFFFu) << 32) |
+           (static_cast<uint64_t>(gen & 0x1FFFFFFFU) << 32) |
            static_cast<uint32_t>(fd);
   }
 
@@ -657,8 +658,8 @@ private:
   }
 
   static std::pair<int, uint32_t> decode_ud(uint64_t ud) noexcept {
-    return {static_cast<int>(ud & 0xFFFFFFFFu),
-        static_cast<uint32_t>((ud >> 32) & 0x1FFFFFFFu)};
+    return {static_cast<int>(ud & 0xFFFFFFFFU),
+        static_cast<uint32_t>((ud >> 32) & 0x1FFFFFFFU)};
   }
 
   // Keep legacy name for the poll path (used by existing helpers).

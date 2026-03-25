@@ -176,7 +176,7 @@ void HttpServer_IdleTimeout() {
   // watchdog aborts the process if `recv()` blocks for more than 5 seconds.
   jthread_stoppable_sleep sleep;
   std::jthread watchdog([&sleep](std::stop_token st) {
-    if (!sleep.until(st, std::chrono::steady_clock::now() + 5s)) {
+    if (!sleep.until(std::move(st), std::chrono::steady_clock::now() + 5s)) {
       std::cerr << "HttpServer_IdleTimeout: recv() blocked for >5s\n";
       std::abort();
     }

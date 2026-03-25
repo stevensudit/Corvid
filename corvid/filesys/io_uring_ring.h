@@ -249,9 +249,9 @@ private:
     // Size required for the SQ array component (sq_array is only present
     // without IORING_SETUP_NO_SQARRAY, which we do not set for compatibility).
     const size_t sq_ring_size =
-        p.sq_off.array + p.sq_entries * sizeof(unsigned);
+        p.sq_off.array + (p.sq_entries * sizeof(unsigned));
     const size_t cq_ring_size =
-        p.cq_off.cqes + p.cq_entries * sizeof(io_uring_cqe);
+        p.cq_off.cqes + (p.cq_entries * sizeof(io_uring_cqe));
 
     const bool single_mmap = (p.features & IORING_FEAT_SINGLE_MMAP) != 0;
     if (single_mmap) {
