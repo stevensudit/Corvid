@@ -29,6 +29,8 @@
 
 namespace corvid { inline namespace concurrency {
 
+using namespace std::chrono_literals;
+
 // Single-level timing wheel with configurable precision (100ms by default).
 //
 // Schedules `std::function<void()>` callbacks and fires them at the
@@ -93,7 +95,7 @@ public:
   static constexpr size_t default_slot_count{600};
 
   // Default resolution: one 100ms slot per tick.
-  static constexpr duration_t default_tick_interval{100};
+  static constexpr duration_t default_tick_interval{100ms};
 
   // Construct a timing wheel with `slot_count` slots and `tick_interval`
   // precision, starting from `start_time`. `slot_count` must be at least 2.
@@ -109,7 +111,7 @@ public:
         last_tick_(start_time) {
     if (slot_count < 2)
       throw std::invalid_argument{"timing_wheel: slot_count must be >= 2"};
-    if (std::chrono::nanoseconds{tick_interval_}.count() < 500'000)
+    if (tick_interval_ < 500'000ns)
       throw std::invalid_argument{
           "timing_wheel: tick_interval must be >= 500000ns"};
   }
@@ -234,7 +236,7 @@ public:
       size_t slot_count = timing_wheel::default_slot_count,
       timing_wheel::duration_t tick_interval =
           timing_wheel::default_tick_interval)
-      : wheel_{slot_count, tick_interval},
+      : wheel_{std::make_shared<timing_wheel>(slot_count, tick_interval)},
         thread_{[this](const std::stop_token& st) { run(st); }} {}
 
   timing_wheel_runner(const timing_wheel_runner&) = delete;
@@ -246,20 +248,24 @@ public:
   // Idempotent and thread-safe. Also called implicitly by the destructor.
   [[nodiscard]] bool stop() { return thread_.request_stop(); }
 
-  [[nodiscard]] timing_wheel& wheel() noexcept { return wheel_; }
-  [[nodiscard]] operator timing_wheel&() noexcept { return wheel_; }
+  // Return the shared `timing_wheel`. Multiple owners may share it; the wheel
+  // remains live until all `shared_ptr` copies are released.
+  [[nodiscard]] const std::shared_ptr<timing_wheel>& wheel() noexcept {
+    return wheel_;
+  }
+  [[nodiscard]] operator timing_wheel&() noexcept { return *wheel_; }
 
 private:
   void run(const std::stop_token& st) {
     // Kill the wheel's tombstone immediately when a stop is requested, so
     // any in-progress `tick()` bails at the next callback boundary.
-    std::stop_callback on_stop{st, [this] { (void)wheel_.stop(); }};
+    std::stop_callback on_stop{st, [this] { (void)wheel_->stop(); }};
     jthread_stoppable_sleep sleep;
-    while (!sleep.until(st, wheel_.next_tick_time()))
-      wheel_.tick(std::chrono::steady_clock::now());
+    while (!sleep.until(st, wheel_->next_tick_time()))
+      wheel_->tick(std::chrono::steady_clock::now());
   }
 
-  timing_wheel wheel_;
+  std::shared_ptr<timing_wheel> wheel_;
   std::jthread thread_;
 };
 

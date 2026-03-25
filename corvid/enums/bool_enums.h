@@ -33,8 +33,8 @@ enum class access : bool { as_const = false, as_mutable = true };
 // memory by avoiding any versioning.
 enum class generation_scheme : bool { unversioned = false, versioned = true };
 
-// Reuse order for freed resources.
-enum class reuse_order : bool { lifo = false, fifo = true };
+// Sequence order for sequential data structures.
+enum class sequence_order : bool { lifo = false, fifo = true };
 
 // Whether to allocate eagerly (reserving capacity up front and prefilling as
 // needed) or lazily (just-in-time).
@@ -47,7 +47,7 @@ enum class deallocation_policy : bool { preserve = false, release = true };
 enum class on_failure : bool { ignore = false, raise = true };
 
 // Whether the resource is owned exclusively or is shared.
-enum class ownership : bool { unique = false, shared = true };
+enum class ownership_type : bool { unique = false, shared = true };
 
 // Whether the resource should be preserved or removed immediately.
 enum class removal_mode : bool { preserve = false, remove = true };
@@ -68,5 +68,12 @@ enum class event_mode : bool { counter = false, semaphore = true };
 
 // Whether client or server side.
 enum class connection_role : bool { client = false, server = true };
+
+// Whether an operation, such as closing a connection, is unilateral or
+// bilateral.
+enum class coordination_policy : bool { unilateral = false, bilateral = true };
+
+// Whether to allow exclusive or shared access to a resource.
+enum class exclusivity : bool { exclusive = false, shared = true };
 
 }}} // namespace corvid::enums::bool_enums

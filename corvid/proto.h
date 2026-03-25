@@ -34,6 +34,8 @@
 //  terminated_text_parser - sentinel-terminated text frame parser for
 //                line-oriented protocols (HTTP, SMTP, POP3, etc.)
 //  http_server - minimal HTTP 0.9 server built on `stream_conn`
+//  iouring_loop - io_uring-based event loop, API-compatible with `epoll_loop`
+//  iou_stream_conn - io_uring-backed stream connection
 #include "proto/ipv4_addr.h"
 #include "proto/ipv6_addr.h"
 #include "proto/net_endpoint.h"
@@ -45,3 +47,5 @@
 #include "proto/terminated_text_parser.h"
 #include "proto/stream_sync.h"
 #include "proto/http_server.h"
+#include "proto/iouring_loop.h"
+#include "proto/iou_stream_conn.h"

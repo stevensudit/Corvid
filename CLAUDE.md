@@ -31,6 +31,7 @@ CMakeLists.txt lives in `tests/` only — there is none at the project root. Bui
 - In comments and documentation, use only plain 7-bit ASCII characters. Never use Unicode arrows (use `->` not the Unicode rightwards arrow), em dashes, curly quotes, or any other non-ASCII characters.
 - Never use a trailing underscore for private methods. If a private helper needs to be distinguished from a public function, prefix it with `do_` instead. Example: public `close()`, private `do_close()`, not `close_()`.
 - Prefer uniform initialization (`int i{4};`, `foo(int option) : option_{option}`) over function-call syntax (`: option_(option)`) or assignment syntax (`int i = 4;`). Do not use `{}` for variables that have a default constructor (clang-tidy flags this), but do use it for variables that lack one (such as `int` or `bool`).
+- Use `std::chrono` literal suffixes (`1s`, `500ms`, `100us`, etc.) rather than explicit constructor calls (`std::chrono::seconds{1}`). The file-level `using namespace std::chrono_literals;` already brings these in for library headers; add it in test files as needed.
 
 ## Git Workflow
 

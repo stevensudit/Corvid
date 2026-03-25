@@ -23,7 +23,6 @@
 #include "minitest.h"
 
 using namespace corvid;
-using namespace corvid::bool_enums;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity,
 // readability-function-size)
@@ -1019,7 +1018,7 @@ void EntityRegistry_FifoAdvanced() {
 void EntityRegistry_LifoAdvanced() {
   using namespace id_enums;
   using reg_t = entity_registry<int, entity_id_t, store_id_t,
-      generation_scheme::versioned, 1, reuse_order::lifo>;
+      generation_scheme::versioned, 1, sequence_order::lifo>;
   using id_t = reg_t::id_t;
 
   static_assert(!reg_t::is_fifo_v);
@@ -2314,7 +2313,7 @@ void EntityRegistry_ComponentMode_VoidMeta() {
 void EntityRegistry_ComponentMode_Lifo() {
   using namespace id_enums;
   using creg_t = entity_registry<int, entity_id_t, store_id_t,
-      generation_scheme::versioned, 64, reuse_order::lifo>;
+      generation_scheme::versioned, 64, sequence_order::lifo>;
   using id_t = creg_t::id_t;
 
   static_assert(creg_t::is_component_v);

@@ -15,6 +15,13 @@ The `concurrency` module provides thread-safety primitives.
   final "dead" state; cannot be reverted.
 - `timers` -- thread-safe priority-queue timer scheduler with one-shot and
   recurring events.
+- `timer_fuse<T>` -- copyable liveness token for per-operation timeouts on a
+  `shared_ptr`-managed resource. Each distinct timeout keeps one
+  `std::atomic_uint64_t` sequencer in the resource's state; arming a fuse
+  pre-increments it and snapshots the new value as the trigger target. Any
+  earlier fuse fizzles on mismatch. `get_if_armed` returns the live resource or
+  nullptr. `set_timeout` schedules a payload on a `timing_wheel`; `disarm`
+  increments without scheduling. Payload signature: `bool(const timer_fuse<T>&)`.
 - `timing_wheel` / `timing_wheel_runner` -- single-level, O(1) schedule,
   100ms-precision timing wheel; callbacks own all metadata (IDs, targets,
   delivery channels); `timing_wheel_runner` drives the wheel from its own

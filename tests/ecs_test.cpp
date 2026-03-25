@@ -23,7 +23,6 @@
 
 #include "../corvid/ecs.h"
 #include "minitest.h"
-using namespace corvid::bool_enums;
 
 using namespace std::literals;
 using namespace corvid;
@@ -1355,13 +1354,13 @@ constexpr auto corvid::enums::registry::enum_spec_v<small_id_t> =
 using int_stable_small_ids = stable_ids<int, small_id_t>;
 
 using int_stable_ids_fifo = stable_ids<int, int_stable_ids::id_t,
-    generation_scheme::versioned, reuse_order::fifo, std::allocator<int>>;
+    generation_scheme::versioned, sequence_order::fifo, std::allocator<int>>;
 using int_stable_ids_nogen = stable_ids<int, int_stable_ids::id_t,
-    generation_scheme::unversioned, reuse_order::lifo, std::allocator<int>>;
+    generation_scheme::unversioned, sequence_order::lifo, std::allocator<int>>;
 using int_stable_ids_fifo_nogen = stable_ids<int, int_stable_ids::id_t,
-    generation_scheme::unversioned, reuse_order::fifo, std::allocator<int>>;
+    generation_scheme::unversioned, sequence_order::fifo, std::allocator<int>>;
 using int_stable_small_ids_fifo = stable_ids<int, small_id_t,
-    generation_scheme::versioned, reuse_order::fifo, std::allocator<int>>;
+    generation_scheme::versioned, sequence_order::fifo, std::allocator<int>>;
 
 void StableId_SmallId() {
   using V = int_stable_small_ids;

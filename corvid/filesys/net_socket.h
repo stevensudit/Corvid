@@ -103,8 +103,8 @@ public:
   // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
   [[nodiscard]] bool close() noexcept { return os_file::close(); }
 
-  // Close the socket with the option to perform a forceful close (e.g., via
-  // `SO_LINGER` with a zero timeout).
+  // Close the socket. In `graceful` mode, performs a normal close (FIN/ACK).
+  // In `forceful` mode, performs a forceful close (RST).
   [[nodiscard]] bool close(close_mode mode) noexcept {
     if (mode == close_mode::forceful && is_open())
       (void)set_option(SOL_SOCKET, SO_LINGER,
@@ -213,8 +213,8 @@ public:
   // Receive raw bytes into `buf`, forwarding directly to POSIX `recv`.
   [[nodiscard]] ssize_t recv(void* buf, size_t len, int flags) const noexcept {
     assert(is_open());
-    return ::recv(handle(), buf, len,
-        flags); // NOLINT(clang-analyzer-unix.BlockInCriticalSection)
+    // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
+    return ::recv(handle(), buf, len, flags);
   }
 
   // Peek at the socket, without consuming data, to determine whether EOF has

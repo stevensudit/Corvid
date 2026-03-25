@@ -44,7 +44,7 @@ namespace corvid { inline namespace proto {
 //
 // Typical usage:
 //
-//   auto conn = stream_sync::connect(ep, std::chrono::seconds{5});
+//   auto conn = stream_sync::connect(ep, 5s);
 //   assert(conn);
 //   conn.send("GET / HTTP/1.0\r\n\r\n");
 //   auto headers = conn.recv_until("\r\n\r\n");
@@ -89,7 +89,10 @@ public:
   [[nodiscard]] bool is_open() const noexcept { return sock_.is_open(); }
   [[nodiscard]] explicit operator bool() const noexcept { return is_open(); }
 
-  [[nodiscard]] bool close() noexcept { return sock_.close(); }
+  [[nodiscard]] bool close() noexcept {
+    errno_on_close_ = errno;
+    return sock_.close();
+  }
 
   // Send all of `data`, looping on partial writes. Closes and returns false on
   // any error or timeout.
@@ -145,9 +148,14 @@ public:
     }
   }
 
+  // The `errno` value from the first error that caused the connection to
+  // close. Used only in testing.
+  [[nodiscard]] int errno_on_close() const noexcept { return errno_on_close_; }
+
 private:
   net_socket sock_;
   std::string buf_;
+  int errno_on_close_{};
 
   // Append one chunk of data from the socket to `buf_`. Closes and returns
   // false on EOF, hard error, or timeout.
