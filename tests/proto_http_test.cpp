@@ -76,9 +76,9 @@ void HttpServer_GetPath() {
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
-  EXPECT_TRUE(client.send("GET /foo/bar\r\n"));
+  EXPECT_TRUE(client.send("GET /123\r\n"));
   const auto response = client.recv_until("\r\n");
-  EXPECT_NE(response.find("/foo/bar"), std::string::npos);
+  EXPECT_NE(response.find("/123"), std::string::npos);
 }
 
 // Verify that a request line that does not start with "GET /" causes the
@@ -116,10 +116,10 @@ void HttpServer_PartialRequest() {
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
-  EXPECT_TRUE(client.send("GET /partial"));
+  EXPECT_TRUE(client.send("GET /42"));
   EXPECT_TRUE(client.send("\r\n"));
   const auto response = client.recv_until("\r\n");
-  EXPECT_NE(response.find("/partial"), std::string::npos);
+  EXPECT_NE(response.find("/42"), std::string::npos);
 }
 
 // Verify that the server can listen on an ANS (Abstract Name Socket) and
@@ -135,9 +135,9 @@ void HttpServer_ANS() {
 
   auto client = stream_sync::connect(ep, 1s);
   ASSERT_TRUE(client);
-  EXPECT_TRUE(client.send("GET /hello\r\n"));
+  EXPECT_TRUE(client.send("GET /42\r\n"));
   const auto response = client.recv_until("\r\n");
-  EXPECT_NE(response.find("/hello"), std::string::npos);
+  EXPECT_NE(response.find("/42"), std::string::npos);
 }
 
 // Verify that `create` with a shared `timing_wheel` stores and uses it.

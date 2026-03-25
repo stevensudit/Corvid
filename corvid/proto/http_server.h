@@ -231,20 +231,17 @@ private:
     // Keep the slash and anything after it as the path.
     const std::string_view path{simple_request.substr(prefix.size() - 1)};
 
+    // The path is a length.
+    const auto length = strings::parse_num<size_t>(path.substr(1), 0);
+    if (length > 10 * 1024 * 1024) return conn.close() && false;
+    const auto length_text = std::to_string(length);
+
     // "Look up" the file.
     std::string html{"<html><body><p>I am definitely, totally the file \""};
-    // TODO: This needs to be HTML-escaped, for security and such.
-    html += path;
-    html += "\".</p></body></html>\r\n";
-
-    // Parse the path (after the leading '/') as a padding byte count, treating
-    // non-numeric paths as 0. Inserting spaces before "</html>" lets callers
-    // force an arbitrarily large response, which is useful for tests.
-    const auto pad = strings::parse_num<size_t>(path.substr(1), 0);
-    if (pad) {
-      const auto pos = html.rfind("</html>");
-      html.insert(pos, pad, ' ');
-    }
+    html += length_text;
+    html += "\".</p></body>";
+    html.append(length, ' ');
+    html += "</html>\r\n";
 
     // Arm the write timeout before queueing the response. `handle_drain`
     // disarms it when the send queue empties. If the client stops reading and

@@ -217,8 +217,8 @@ public:
   // your callback, running on an arbitrary thread, kept this instance alive
   // through its `shared_ptr`? That's what `weak_loop` is for: it returns a
   // weak reference to the loop that you can check before posting to avoid a
-  // dangling reference in the callback. This is what `timer_fuse` uses.Safe to
-  // call from any thread.
+  // dangling reference in the callback. This is what `timer_fuse` uses. Safe
+  // to call from any thread.
   [[nodiscard]] std::weak_ptr<epoll_loop> weak_loop() const noexcept {
     return weak_loop_;
   }
