@@ -2,8 +2,8 @@
     "configurations": [
         {
             "name": "Linux",
-            "intelliSenseMode": "clang-x64",
-            "compilerPath": "/usr/bin/clang-22",
+            "intelliSenseMode": "linux-clang-x64",
+            "compilerPath": "/usr/bin/clang++-22",
             "cStandard": "c11",
             "cppStandard": "c++23",
             "includePath": [

@@ -29,6 +29,8 @@
 #include "../strings/cases.h"
 #include "../strings/conversion.h"
 #include "../strings/trimming.h"
+#include "../strings/token_parser.h"
+#include "../strings/enum_conversion.h"
 #include "../containers/transparent.h"
 
 namespace corvid { inline namespace proto { inline namespace http_proto {
@@ -150,27 +152,38 @@ public:
   // normalized name. Returns success. (May fail when too many fields are
   // added.)
   [[nodiscard]] bool
-  add_raw(std::string_view field_name, std::string_view value) {
+  add_raw(std::string_view field_name, std::string_view field_value) {
     const size_t ndx{entries_.size()};
-    entries_.emplace_back(field_name, std::string{value});
+    entries_.emplace_back(field_name, std::string{field_value});
     index_[std::string{field_name}].push_back(ndx);
     return true;
   }
 
-  // Add a header, normalizing `field_name` before storage. Returns success.
-  // Fails if `field_name` is empty or contains invalid characters, which
-  // merits a "400 Bad Request".
-  [[nodiscard]] bool add(std::string_view field_name, std::string_view value) {
-    if (field_name.empty()) return false;
-    const size_t ndx{entries_.size()};
+  // Return true iff `field_value` is a valid HTTP field value, per RFC 9110:
+  // SP / HTAB / VCHAR / obs-text.
+  [[nodiscard]] static bool is_valid_field_value(
+      std::string_view field_value) noexcept {
+    if (field_value.empty()) return true;
+    for (unsigned char c : field_value)
+      if (c != '\t' && (c < 0x20 || c > 0x7E) && c < 0x80) return false;
+    return true;
+  }
+
+  // Add a header, normalizing `field_name` and `field_value` before storage.
+  // Returns success. Fails if `field_name` is empty or contains invalid
+  // characters, which merits a "400 Bad Request".
+  [[nodiscard]] bool
+  add(std::string_view field_name, std::string_view field_value) {
     std::string canon{field_name};
     if (canon.empty() || !normalize(canon)) return false;
-    return add_raw(canon, value);
+    if (!is_valid_field_value(field_value)) return false;
+    return add_raw(canon, field_value);
   }
 
   // Return a `string_view` into the stored value for the first entry whose
-  // name matches `field_name`. The `field_name` is expected to be canonical.
-  // Returns `nullopt` if not found.
+  // name matches `field_name`. The `field_name` is expected to be canonical
+  // and the value is expected to be valid. Returns `nullopt` if not found, as
+  // opposed to empty if it was found with an empty value.
   [[nodiscard]] std::optional<std::string_view> get(
       std::string_view field_name) const noexcept {
     auto ids = find_opt(index_, field_name);
@@ -182,51 +195,46 @@ public:
   // The `field_name` is expected to be canonical.
   // Returns an empty string if not found.
   [[nodiscard]] std::string combine(std::string_view field_name) const {
-    const auto it = index_.find(field_name);
-    if (it == index_.end() || it->second.empty()) return {};
-    const auto& indices = it->second;
+    auto ids = find_opt(index_, field_name);
+    if (!ids || ids->empty()) return {};
     std::string result;
-    bool first{true};
-    for (const size_t index : indices) {
-      if (!first) result += ", ";
-      first = false;
-      result += entries_[index].second;
+    for (const size_t ndx : *ids) {
+      result += entries_[ndx].second;
+      result += ", ";
     }
+    if (!result.empty()) result.resize(result.size() - 2);
     return result;
   }
 
-  // Process a single header-field line. The caller is responsible for
-  // detecting the end-of-headers blank line (empty lines must not be passed
-  // here). Returns false for obs-fold, missing colon, empty or invalid field
-  // name, or unnormalizable name.
+  // Process a single header-field line, which does not include the trailing
+  // crlf. The caller is responsible for detecting the end-of-headers blank
+  // line (empty lines must not be passed here). Returns false for obs-fold,
+  // missing colon, empty or invalid field name, or unnormalizable name.
   [[nodiscard]] bool extract_line(std::string_view line) {
-    assert(!line.empty());
+    if (line.empty()) return false;
     if (line.front() == ' ' || line.front() == '\t') return false;
-    const auto colon = line.find(':');
-    if (colon == npos) return false;
-    const auto name = line.substr(0, colon);
-    const auto value = strings::trim(line.substr(colon + 1));
+    auto found = strings::token_parser::next_terminated(":", line);
+    if (!found) return false;
+    const auto name = *found;
+    const auto value = strings::trim(line);
     return add(name, value);
   }
 
   // Parse header-field lines from `header_lines` (the bytes after the first
   // request/response line and its trailing crlf). Empty lines are rejected
   // (RFC 9112 section 2.2 request-smuggling defence). Returns false if any
-  // line uses obs-fold, lacks a colon, or has an invalid field name.
+  // line uses obs-fold, lacks a colon, or either the field name or value is
+  // invalid.
   [[nodiscard]] bool extract(std::string_view header_lines) {
-    while (!header_lines.empty()) {
-      const auto eol = header_lines.find(crlf);
-      const std::string_view line{
-          eol == npos ? header_lines : header_lines.substr(0, eol)};
-      if (line.empty()) return false;
-      if (!extract_line(line)) return false;
-      if (eol == npos) break;
-      header_lines.remove_prefix(eol + 2);
-    }
+    strings::token_parser parser{crlf};
+    std::string_view line = parser.next_delimited(header_lines);
+    for (; !line.empty(); line = parser.next_delimited(header_lines))
+      if (line.empty() || !extract_line(line)) return false;
     return true;
   }
 
   // Append all headers as `"Name: value\r\n"` lines, then append `"\r\n"`.
+  // Makes no attempt to encode the field values.
   void serialize(std::string& out) const {
     for (const auto& [name, value] : entries_) {
       out += name;
@@ -294,17 +302,27 @@ struct request_header_block: http {
     headers = {};
   }
 
-  // Parse a raw request block. Leading crlf lines are skipped per RFC 9112
-  // section 2.2. `raw` may be just the request line (no crlf, no headers),
-  // the request line followed by crlf-terminated header lines, or a full
-  // block with a trailing crlf as produced by `serialize`. Returns true on
-  // success, false if the request line or any header line is malformed.
+  // Parse a raw request block. This may be the full block, with the request
+  // line and headers, up to but not including the training crlfcrlf. It could
+  // also be just the request line, in which case no attempt will be made to
+  // parse headers. This is necessary because HTTP/0.9 requests have no
+  // headers, so this will successfully parse one of those. See `http_server`
+  // for how to use this correctly.
+  //
+  // Returns true on success, false if any part is malformed. The reason for
+  // failure is stored in `target` for debugging purposes.
   [[nodiscard]] bool extract(std::string_view raw);
 
   // Serialize to `"METHOD target HTTP/1.x\r\nHeaders\r\n\r\n"`.
   // HTTP/0.9 omits the version token. Returns an empty string for
   // `http_method::invalid` or `http_version::invalid`.
   [[nodiscard]] std::string serialize() const;
+
+private:
+  bool fail(std::string failure) {
+    target = std::move(failure);
+    return false;
+  }
 };
 
 // Parsed or constructed HTTP response header block.
@@ -325,8 +343,9 @@ struct response_header_block: http {
     headers = {};
   }
 
-  // Parse a raw response header block (the bytes before the `"\r\n\r\n"`
-  // sentinel). Returns true on success, false if the status line is malformed.
+  // Parse a raw response header block (the bytes before the crlfcrlf
+  // sentinel). Returns true on success, false if any part is malformed. The
+  // reason for failure is stored in `reason` for debugging purposes.
   [[nodiscard]] bool extract(std::string_view raw);
 
   // Produce `"HTTP/1.x code reason\r\nHeaders\r\n\r\n"`.
@@ -334,73 +353,56 @@ struct response_header_block: http {
   // The caller is responsible for adding `Content-Type` and `Content-Length`
   // headers and for sending the body separately.
   [[nodiscard]] std::string serialize() const;
+
+private:
+  bool fail(std::string failure) {
+    reason = std::move(failure);
+    return false;
+  }
 };
 
 // --- implementations ---
 
 inline bool request_header_block::extract(std::string_view raw) {
   // Skip leading CRLF lines (RFC 9112 section 2.2).
-  while (raw.starts_with(crlf)) raw.remove_prefix(crlf.size());
-
-  // Find the end of the request line.
-  const auto line_end = raw.find(crlf);
-  const std::string_view request_line{
-      line_end == npos ? raw : raw.substr(0, line_end)};
-
-  // Parse method: first SP.
-  const auto sp1 = request_line.find(' ');
-  if (sp1 == npos) return false;
-
-  // Parse method token.
-  const std::string_view method_sv{request_line.substr(0, sp1)};
-  if (method_sv == "GET"sv)
-    method = http_method::GET;
-  else if (method_sv == "HEAD"sv)
-    method = http_method::HEAD;
-  else if (method_sv == "POST"sv)
-    method = http_method::POST;
-  else if (method_sv == "PUT"sv)
-    method = http_method::PUT;
-  else if (method_sv == "DELETE"sv)
-    method = http_method::DELETE;
-  else if (method_sv == "OPTIONS"sv)
-    method = http_method::OPTIONS;
-  else if (method_sv == "PATCH"sv)
-    method = http_method::PATCH;
-  else if (method_sv == "CONNECT"sv)
-    method = http_method::CONNECT;
-  else if (method_sv == "TRACE"sv)
-    method = http_method::TRACE;
-  else
-    return false;
-
-  // Parse target and version.
-  const std::string_view after_method{request_line.substr(sp1 + 1)};
-  const auto sp2 = after_method.find(' ');
-  if (sp2 == npos) {
-    // No second SP: HTTP/0.9-style, no version token.
-    target = std::string{after_method};
-    version = http_version::http_09;
-  } else {
-    target = std::string{after_method.substr(0, sp2)};
-    const std::string_view version_sv{after_method.substr(sp2 + 1)};
-    if (version_sv == "HTTP/1.1"sv)
-      version = http_version::http_11;
-    else if (version_sv == "HTTP/1.0"sv)
-      version = http_version::http_10;
-    else
-      return false;
+  for (int leading_crlfs = 0; raw.starts_with(crlf); ++leading_crlfs) {
+    if (leading_crlfs == 5) return fail("Too many leading CRLF lines.");
+    raw.remove_prefix(crlf.size());
   }
 
-  const std::string_view header_lines{
-      line_end == npos
-          ? std::string_view{}
-          : raw.substr(line_end + crlf.size())};
+  strings::token_parser crlf_parser{crlf};
+  auto request_line = crlf_parser.next_delimited(raw);
+  if (request_line.empty()) return fail("Empty request line.");
+
+  strings::token_parser space_parser{" "sv};
+  auto method_sv = space_parser.next_delimited(request_line);
+  if (method_sv.empty())
+    return fail("Malformed request line: no SP after method.");
+
+  if (!strings::extract_enum(method, method_sv) ||
+      method == http_method::invalid)
+    return fail("Invalid HTTP method");
+
+  target = std::string{space_parser.next_delimited(request_line)};
+  if (target.empty()) return fail("Malformed request line: target is empty.");
+  if (target[0] != '/')
+    return fail("Malformed request line: target must start with '/'.");
+
+  auto version_sv = request_line;
+  if (version_sv.empty())
+    version = http_version::http_09;
+  else if (!strings::convert_enum(version, version_sv) ||
+           version == http_version::invalid)
+    return fail("Invalid HTTP version");
 
   // HTTP/0.9: no headers allowed.
+  auto header_lines = raw;
   if (version == http_version::http_09) return header_lines.empty();
 
-  // HTTP/1.x: headers required.
+  // HTTP/1.x: headers required, but that requirement is enforced by
+  // `http_server`.
+  if (header_lines.empty()) return true;
+
   return headers.extract(header_lines);
 }
 

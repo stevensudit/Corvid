@@ -31,17 +31,21 @@ public:
   }
 
   // Extract the next token delimited by `separator_`, returning it (without
-  // the delimiter), and consuming it (and the delimiter) from `text. As this
-  // is a delimiter, not a terminator, the last token is returned when no more
-  // delimiters are found. An empty `std::string_view` is returned under two
-  // conditions. First, when `text` contains just a delimiter; that delimiter
-  // is consumed. Second, when `text` is empty.
-  [[nodiscard]] std::string_view next_delimited(std::string_view& text) const {
+  // the delimiter), and consuming it (and the delimiter) from `text`.
+  //
+  // As this is a delimiter, not a terminator, the last token is returned when
+  // no more delimiters are found. An empty `std::string_view` is returned
+  // under two conditions. First, when `text` contains just a delimiter; that
+  // delimiter is consumed. Second, when `text` is empty.
+  //
+  // Similar to `extract_piece`.
+  [[nodiscard]] static std::string_view
+  next_delimited(std::string_view separator, std::string_view& text) {
     // If no input, nothing to parse.
     if (text.empty()) return {};
 
     // If delimiter not found, consume the rest of the input.
-    const auto pos = text.find(separator_);
+    const auto pos = text.find(separator);
     if (pos == npos) {
       const auto token = text;
       text = {};
@@ -51,30 +55,42 @@ public:
     // Delimiter found; return the token before it and update input to after
     // it.
     const auto token = text.substr(0, pos);
-    text.remove_prefix(pos + separator_.size());
+    text.remove_prefix(pos + separator.size());
     return token;
   }
 
+  // See static method.
+  [[nodiscard]] std::string_view next_delimited(std::string_view& text) const {
+    return next_delimited(separator_, text);
+  }
+
   // Extract the next token terminated by `separator_`, returning it (without
-  // the terminator), and consuming it (and the terminator) from `text`. As
-  // this is a terminator, not a delimiter, the terminator is required; if not
-  // found, `nullopt` is returned. In contrast, if `text` contains just a
+  // the terminator), and consuming it (and the terminator) from `text`.
+  //
+  // As this is a terminator, not a delimiter, the terminator is required; if
+  // not found, `nullopt` is returned. In contrast, if `text` contains just a
   // terminator, an empty `std::string_view` is returned, and the terminator is
   // removed from `text`.
-  [[nodiscard]] std::optional<std::string_view> next_terminated(
-      std::string_view& text) const {
+  [[nodiscard]] static std::optional<std::string_view>
+  next_terminated(std::string_view separator, std::string_view& text) {
     // If no input, nothing to parse.
     if (text.empty()) return {};
 
     // If terminator not found, fail.
-    const auto pos = text.find(separator_);
+    const auto pos = text.find(separator);
     if (pos == npos) return std::nullopt;
 
     // Terminator found; return the token before it and update input to after
     // it.
     const auto token = text.substr(0, pos);
-    text.remove_prefix(pos + separator_.size());
+    text.remove_prefix(pos + separator.size());
     return token;
+  }
+
+  // See static method.
+  [[nodiscard]] std::optional<std::string_view> next_terminated(
+      std::string_view& text) const {
+    return next_terminated(separator_, text);
   }
 
 private:
