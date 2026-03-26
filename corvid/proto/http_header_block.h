@@ -81,17 +81,6 @@ struct http {
       "0123456789-!#$%&'*+.^_`|~"sv;
   static constexpr auto crlf = "\r\n"sv;
   static constexpr auto crlfcrlf = "\r\n\r\n"sv;
-  static constexpr auto version10 = "HTTP/1.0"sv;
-  static constexpr auto version11 = "HTTP/1.1"sv;
-  static constexpr auto GET = "GET"sv;
-  static constexpr auto HEAD = "HEAD"sv;
-  static constexpr auto POST = "POST"sv;
-  static constexpr auto PUT = "PUT"sv;
-  static constexpr auto DELETE = "DELETE"sv;
-  static constexpr auto OPTIONS = "OPTIONS"sv;
-  static constexpr auto PATCH = "PATCH"sv;
-  static constexpr auto CONNECT = "CONNECT"sv;
-  static constexpr auto TRACE = "TRACE"sv;
 };
 
 // Ordered multimap of HTTP header fields with O(1) average lookup.
@@ -213,6 +202,7 @@ public:
   [[nodiscard]] bool extract_line(std::string_view line) {
     if (line.empty()) return false;
     if (line.front() == ' ' || line.front() == '\t') return false;
+    // Trailing colon is required, hence it's a terminator, not a delimiter.
     auto found = strings::token_parser::next_terminated(":", line);
     if (!found) return false;
     const auto name = *found;
@@ -234,7 +224,7 @@ public:
   }
 
   // Append all headers as `"Name: value\r\n"` lines, then append `"\r\n"`.
-  // Makes no attempt to encode the field values.
+  // Makes no attempt to encode the field values or reserve adequate space.
   void serialize(std::string& out) const {
     for (const auto& [name, value] : entries_) {
       out += name;
@@ -287,7 +277,7 @@ public:
 //
 // All fields are owned values: no pointers into the recv_buffer. Obtained via
 // `extract()` after `terminated_text_parser` delivers the raw header block
-// (the bytes before the "\r\n\r\n" sentinel).
+// (the bytes before the crlfcrlf sentinel).
 struct request_header_block: http {
   http_version version{};
   http_method method{};
@@ -302,16 +292,23 @@ struct request_header_block: http {
     headers = {};
   }
 
-  // Parse a raw request block. This may be the full block, with the request
-  // line and headers, up to but not including the training crlfcrlf. It could
-  // also be just the request line, in which case no attempt will be made to
-  // parse headers. This is necessary because HTTP/0.9 requests have no
-  // headers, so this will successfully parse one of those. See `http_server`
-  // for how to use this correctly.
+  // Parse the head of a request, containing the request line and the headers.
+  // This is a "Full Request". Essentially, it is the text up to but not
+  // including the trailing crlfcrlf.
   //
-  // Returns true on success, false if any part is malformed. The reason for
-  // failure is stored in `target` for debugging purposes.
-  [[nodiscard]] bool extract(std::string_view raw);
+  // For HTTP/1.1, the headers that follow the request line are required. For
+  // HTTP/1.0, the headers can be empty, but the crlfcrlf sentinel is still
+  // required. For HTTP/0.9, headers are not allowed, and there is no crlfcrlf
+  // sentinel; it ends at the crlf of the request line.
+  //
+  // To support these variations, this method can parse just the request line,
+  // in which case no attempt will be made to parse the headers. It is up to
+  // the caller to look at both the version and the headers to decide whether
+  // the combination is valid.
+  //
+  // Returns true on success, false if any part is malformed. The reason
+  // for failure is stored in `target` for debugging purposes.
+  [[nodiscard]] bool extract(std::string_view head);
 
   // Serialize to `"METHOD target HTTP/1.x\r\nHeaders\r\n\r\n"`.
   // HTTP/0.9 omits the version token. Returns an empty string for
@@ -349,7 +346,6 @@ struct response_header_block: http {
   [[nodiscard]] bool extract(std::string_view raw);
 
   // Produce `"HTTP/1.x code reason\r\nHeaders\r\n\r\n"`.
-  // `http_09` and `invalid` versions serialize as `"HTTP/1.1"`.
   // The caller is responsible for adding `Content-Type` and `Content-Length`
   // headers and for sending the body separately.
   [[nodiscard]] std::string serialize() const;
@@ -379,7 +375,7 @@ inline bool request_header_block::extract(std::string_view raw) {
   if (method_sv.empty())
     return fail("Malformed request line: no SP after method.");
 
-  if (!strings::extract_enum(method, method_sv) ||
+  if (!strings::convert_text_enum(method, method_sv) ||
       method == http_method::invalid)
     return fail("Invalid HTTP method");
 
@@ -391,7 +387,7 @@ inline bool request_header_block::extract(std::string_view raw) {
   auto version_sv = request_line;
   if (version_sv.empty())
     version = http_version::http_09;
-  else if (!strings::convert_enum(version, version_sv) ||
+  else if (!strings::convert_text_enum(version, version_sv) ||
            version == http_version::invalid)
     return fail("Invalid HTTP version");
 

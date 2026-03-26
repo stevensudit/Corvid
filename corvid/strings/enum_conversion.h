@@ -76,6 +76,12 @@ constexpr bool convert_enum(StdEnum auto& e, std::string_view sv) {
   return details::help_extract_enum(e, sv);
 }
 
+// Convert enum from a `std::string_view` with text, not digits.
+constexpr bool convert_text_enum(StdEnum auto& e, std::string_view sv) {
+  if (sv.empty() || (sv[0] >= '0' && sv[0] <= '9')) return false;
+  return details::help_extract_enum(e, sv);
+}
+
 // Extract enum out of a `std::string_view`, setting output parameter.
 //
 // Works for unscoped and scoped enums, including bitmask and sequential.
