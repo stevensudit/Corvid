@@ -208,13 +208,13 @@ private:
     return arm_read_timeout(conn);
   }
 
-  // On first writable event after accept, initialize connection state. On
-  // subsequent calls, when the send queue fully drains after a response,
-  // disarm the write timeout.
+  // When the send queue fully drains after a response, disarm the write
+  // timeout. Also, if called before the initial request is received,
+  // initialize the parser state, arming the read timeout.
   [[nodiscard]] bool handle_drain(stream_conn& conn) const {
     auto& state = conn_t::from(conn).state();
-    if (!ensure_initialized(conn, state)) return false;
     timer_fuse_t::disarm(state.write_seq);
+    if (!ensure_initialized(conn, state)) return conn.hangup() && false;
     return true;
   }
 
@@ -224,7 +224,7 @@ private:
   [[nodiscard]] static std::string make_error_response(int code,
       std::string_view phrase, bool keep_alive = false) {
     response_head resp;
-    resp.version = http_version::http_11;
+    resp.version = http_version::http_1_1;
     resp.status_code = code;
     resp.reason = std::string{phrase};
     (void)resp.headers.add_raw("Connection",
@@ -232,25 +232,32 @@ private:
     return resp.serialize();
   }
 
+  [[nodiscard]] static bool hangup(stream_conn& conn) {
+    return conn.hangup() && false;
+  }
+
+  [[nodiscard]] bool send_error_response(stream_conn& conn, int code = 400,
+      std::string_view phrase = "Bad Request", bool keep_alive = false) const {
+    if (!arm_write_timeout(conn)) return hangup(conn);
+    if (!conn.send(make_error_response(code, phrase, keep_alive)))
+      return hangup(conn);
+    return false;
+  }
+
   // Process one parsed request and queue the appropriate response.
   // Returns true if the connection should remain open (keep-alive),
-  // false if it should be closed after the response drains.
+  // false if it should be closed after the response drains. (On severe error,
+  // the connection may already be hung up, turning the close into a no-op.)
   [[nodiscard]] bool
   dispatch_request(stream_conn& conn, const request_head& req) const {
     const bool alive = req.headers.keep_alive(req.version);
 
     // HTTP/1.1 requires a `Host` header.
-    if (req.version == http_version::http_11 && !req.headers.get("Host")) {
-      if (!arm_write_timeout(conn)) return conn.hangup() && false;
-      return conn.send(make_error_response(400, "Bad Request")) && false;
-    }
+    if (req.version == http_version::http_1_1 && !req.headers.get("Host"))
+      return send_error_response(conn, 400, "Bad Request", alive);
 
-    if (req.method != http_method::GET) {
-      if (!arm_write_timeout(conn)) return conn.hangup() && false;
-      return conn.send(
-                 make_error_response(405, "Method Not Allowed", alive)) &&
-             false;
-    }
+    if (req.method != http_method::GET)
+      return send_error_response(conn, 405, "Method Not Allowed", alive);
 
     // The path encodes the desired response body size.
     const std::string_view path =
@@ -259,11 +266,8 @@ private:
             : std::string_view{req.target};
     const auto length = strings::parse_num<size_t>(
         path.substr(path.starts_with('/') ? 1 : 0), size_t{0});
-    if (length > 10ULL * 1024ULL * 1024ULL) {
-      if (!arm_write_timeout(conn)) return conn.hangup() && false;
-      return conn.send(make_error_response(400, "Bad Request", alive)) &&
-             false;
-    }
+    if (length > 10ULL * 1024ULL * 1024ULL)
+      return send_error_response(conn, 400, "Bad Request", alive);
 
     // Build a canned HTML response body with the requested padding.
     std::string html{"<html><body><p>I am definitely, totally the file \""};
@@ -274,29 +278,21 @@ private:
 
     response_head resp;
     resp.version =
-        (req.version == http_version::http_10)
-            ? http_version::http_10
-            : http_version::http_11;
+        (req.version == http_version::http_1_0)
+            ? http_version::http_1_0
+            : http_version::http_1_1;
     resp.status_code = 200;
     resp.reason = "OK";
-    if (!resp.headers.add_raw("Connection", alive ? "keep-alive" : "close")) {
-      if (!arm_write_timeout(conn)) return conn.hangup() && false;
-      return conn.send(make_error_response(400, "Bad Request")) && false;
-    }
+    if (!resp.headers.add_raw("Connection", alive ? "keep-alive" : "close"))
+      return send_error_response(conn, 400, "Bad Request", alive);
 
     if (!resp.headers.add_raw("Content-Type", "text/html; charset=utf-8") ||
         !resp.headers.add_raw("Content-Length", std::to_string(html.size())))
-    {
-      if (!arm_write_timeout(conn)) return conn.hangup() && false;
-      return conn.send(make_error_response(400, "Bad Request")) && false;
-    }
+      return send_error_response(conn, 400, "Bad Request", alive);
 
-    if (!arm_write_timeout(conn)) return conn.hangup() && false;
-    if (!conn.send(resp.serialize())) return conn.hangup() && false;
-    // Re-arm: if the headers drained synchronously, `handle_drain` will have
-    // disarmed the timeout before the body was queued.
-    if (!arm_write_timeout(conn)) return conn.hangup() && false;
-    if (!conn.send(std::move(html))) return conn.hangup() && false;
+    if (!conn.send(resp.serialize())) return hangup(conn);
+    if (!arm_write_timeout(conn)) return hangup(conn);
+    if (!conn.send(std::move(html))) return hangup(conn);
     return alive;
   }
 

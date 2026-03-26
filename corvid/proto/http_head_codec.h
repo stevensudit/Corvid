@@ -43,7 +43,7 @@ namespace corvid { inline namespace proto { inline namespace http_proto {
 using namespace std::string_view_literals;
 
 // HTTP protocol version.
-enum class http_version : uint8_t { invalid, http_09, http_10, http_11 };
+enum class http_version : uint8_t { invalid, http_09, http_1_0, http_1_1 };
 
 // HTTP request method.
 enum class http_method : uint8_t {
@@ -283,7 +283,7 @@ public:
     const auto c = strings::as_lower(get("Connection").value_or(""sv));
     if (c == "close") return false;
     if (c == "keep-alive") return true;
-    return version == http_version::http_11;
+    return version == http_version::http_1_1;
   }
 
   // Return the `Content-Length` value, or `std::nullopt` if absent or

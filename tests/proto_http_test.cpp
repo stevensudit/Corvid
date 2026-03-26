@@ -41,7 +41,7 @@ void HttpHeaderBlock_ParseHttp11() {
   // crlfcrlf sentinel.
   ASSERT_TRUE(req.parse(
       "GET /path HTTP/1.1\r\nHost: example.com\r\nAccept: text/html"));
-  EXPECT_EQ(req.version, http_version::http_11);
+  EXPECT_EQ(req.version, http_version::http_1_1);
   EXPECT_EQ(req.method, http_method::GET);
   EXPECT_EQ(req.target, "/path");
   const auto host = req.headers.get("Host");
@@ -56,7 +56,7 @@ void HttpHeaderBlock_ParseHttp11() {
 void HttpHeaderBlock_ParseHttp10() {
   request_head req;
   ASSERT_TRUE(req.parse("POST /submit HTTP/1.0\r\n"));
-  EXPECT_EQ(req.version, http_version::http_10);
+  EXPECT_EQ(req.version, http_version::http_1_0);
   EXPECT_EQ(req.method, http_method::POST);
   EXPECT_EQ(req.target, "/submit");
 }
@@ -163,7 +163,7 @@ void HttpHeaderBlock_KeepAlive() {
 // HTTP wire format (headers only; body is sent separately).
 void HttpHeaderBlock_ResponseSerialize() {
   response_head resp;
-  resp.version = http_version::http_11;
+  resp.version = http_version::http_1_1;
   resp.status_code = 200;
   resp.reason = "OK";
   EXPECT_TRUE(resp.headers.add_raw("Connection", "close"));
@@ -187,7 +187,7 @@ void HttpHeaderBlock_ExtractLeadingCrlf() {
         req.parse("\r\n\r\nGET /path HTTP/1.1\r\nHost: example.com\r\n"));
     EXPECT_EQ(req.method, http_method::GET);
     EXPECT_EQ(req.target, "/path");
-    EXPECT_EQ(req.version, http_version::http_11);
+    EXPECT_EQ(req.version, http_version::http_1_1);
     const auto host = req.headers.get("Host");
     ASSERT_TRUE(host);
     EXPECT_EQ(*host, "example.com");
@@ -243,7 +243,7 @@ void HttpHeaderBlock_RequestSerialize() {
     // `parse` (which expects the block without the "\r\n\r\n" sentinel).
     request_head req2;
     ASSERT_TRUE(req2.parse(std::string_view{wire}.substr(0, wire.size() - 2)));
-    EXPECT_EQ(req2.version, http_version::http_11);
+    EXPECT_EQ(req2.version, http_version::http_1_1);
     EXPECT_EQ(req2.method, http_method::GET);
     EXPECT_EQ(req2.target, "/path");
     const auto host = req2.headers.get("Host");
@@ -286,7 +286,7 @@ void HttpHeaderBlock_ResponseExtract() {
     ASSERT_TRUE(resp.parse(
         "HTTP/1.1 200 OK\r\nContent-Type: "
         "text/html\r\nContent-Length: 42\r\n"));
-    EXPECT_EQ(resp.version, http_version::http_11);
+    EXPECT_EQ(resp.version, http_version::http_1_1);
     EXPECT_EQ(resp.status_code, 200);
     EXPECT_EQ(resp.reason, "OK");
     const auto content_type = resp.headers.get("Content-Type");
@@ -300,7 +300,7 @@ void HttpHeaderBlock_ResponseExtract() {
     // HTTP/1.0 with multi-word reason phrase.
     response_head resp;
     ASSERT_TRUE(resp.parse("HTTP/1.0 404 Not Found\r\n"));
-    EXPECT_EQ(resp.version, http_version::http_10);
+    EXPECT_EQ(resp.version, http_version::http_1_0);
     EXPECT_EQ(resp.status_code, 404);
     EXPECT_EQ(resp.reason, "Not Found");
   }
@@ -322,14 +322,14 @@ void HttpHeaderBlock_ResponseExtract() {
   {
     // Round-trip: build a response, serialize it, re-parse, check fields.
     response_head resp;
-    resp.version = http_version::http_11;
+    resp.version = http_version::http_1_1;
     resp.status_code = 201;
     resp.reason = "Created";
     EXPECT_TRUE(resp.headers.add_raw("Location", "/new/resource"));
     const auto wire = resp.serialize();
     response_head resp2;
     ASSERT_TRUE(resp2.parse(wire.substr(0, wire.size() - 2)));
-    EXPECT_EQ(resp2.version, http_version::http_11);
+    EXPECT_EQ(resp2.version, http_version::http_1_1);
     EXPECT_EQ(resp2.status_code, 201);
     EXPECT_EQ(resp2.reason, "Created");
     const auto location = resp2.headers.get("Location");
