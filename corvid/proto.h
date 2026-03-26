@@ -34,8 +34,8 @@
 //  terminated_text_parser - sentinel-terminated text frame parser for
 //                line-oriented protocols (HTTP, SMTP, POP3, etc.)
 //  http_header_block - HTTP/1.1 types: `http_version`/`http_method` enums,
-//                `http_headers` ordered multimap, `request_header_block` and
-//                `response_header_block` with extraction and serialization
+//                `http_headers` ordered multimap, `request_head` and
+//                `response_head` with extraction and serialization
 //  http_server - HTTP/1.1 server with keep-alive and pipelining
 //  iouring_loop - io_uring-based event loop, API-compatible with `epoll_loop`
 //  iou_stream_conn - io_uring-backed stream connection
@@ -49,5 +49,5 @@
 #include "proto/loop_task.h"
 #include "proto/terminated_text_parser.h"
 #include "proto/stream_sync.h"
-#include "proto/http_header_block.h"
+#include "proto/http_head_codec.h"
 #include "proto/http_server.h"

@@ -32,13 +32,15 @@ using namespace corvid;
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
-// `http_header_block` unit tests.
+// `http_head_codec` unit tests.
 
 // Verify that a well-formed HTTP/1.1 GET request is parsed correctly.
-void HttpHeaderBlock_ExtractHttp11() {
-  request_header_block req;
-  ASSERT_TRUE(req.extract(
-      "GET /path HTTP/1.1\r\nHost: example.com\r\nAccept: text/html\r\n"));
+void HttpHeaderBlock_ParseHttp11() {
+  request_head req;
+  // The final crlf was parsed out by `terminated_text_parser`, as part of the
+  // crlfcrlf sentinel.
+  ASSERT_TRUE(req.parse(
+      "GET /path HTTP/1.1\r\nHost: example.com\r\nAccept: text/html"));
   EXPECT_EQ(req.version, http_version::http_11);
   EXPECT_EQ(req.method, http_method::GET);
   EXPECT_EQ(req.target, "/path");
@@ -51,39 +53,39 @@ void HttpHeaderBlock_ExtractHttp11() {
 }
 
 // Verify that a well-formed HTTP/1.0 request is parsed correctly.
-void HttpHeaderBlock_ExtractHttp10() {
-  request_header_block req;
-  ASSERT_TRUE(req.extract("POST /submit HTTP/1.0\r\n"));
+void HttpHeaderBlock_ParseHttp10() {
+  request_head req;
+  ASSERT_TRUE(req.parse("POST /submit HTTP/1.0\r\n"));
   EXPECT_EQ(req.version, http_version::http_10);
   EXPECT_EQ(req.method, http_method::POST);
   EXPECT_EQ(req.target, "/submit");
 }
 
-// Verify that an unrecognized method token causes `extract` to fail.
+// Verify that an unrecognized method token causes `parse` to fail.
 void HttpHeaderBlock_UnknownMethod() {
-  request_header_block req;
-  EXPECT_FALSE(req.extract("BREW /coffee HTTP/1.1\r\n"));
+  request_head req;
+  EXPECT_FALSE(req.parse("BREW /coffee HTTP/1.1\r\n"));
 }
 
-// Verify that an unrecognized version token causes `extract` to fail.
+// Verify that an unrecognized version token causes `parse` to fail.
 void HttpHeaderBlock_InvalidVersion() {
-  request_header_block req;
-  EXPECT_FALSE(req.extract("GET / HTTP/2.0\r\n"));
+  request_head req;
+  EXPECT_FALSE(req.parse("GET / HTTP/2.0\r\n"));
 }
 
 // Verify that an HTTP/0.9-style request line (no version token) yields
 // `http_version::http_09`.
 void HttpHeaderBlock_Http09Style() {
-  request_header_block req;
-  ASSERT_TRUE(req.extract("GET /\r\n"));
+  request_head req;
+  ASSERT_TRUE(req.parse("GET /\r\n"));
   EXPECT_EQ(req.version, http_version::http_09);
   EXPECT_EQ(req.target, "/");
 }
 
 // Verify that a request line with no SP at all returns false.
 void HttpHeaderBlock_NoSp() {
-  request_header_block req;
-  EXPECT_FALSE(req.extract("GETNOSPC\r\n"));
+  request_head req;
+  EXPECT_FALSE(req.parse("GETNOSPC\r\n"));
 }
 
 // Verify that `http_headers::get()` requires the canonical key form.
@@ -123,47 +125,48 @@ void HttpHeaderBlock_HeaderGetEmptyValue() {
   EXPECT_FALSE(h.get("Missing"));
 }
 
-// Verify that `http_headers::combine()` joins multiple values with ", ".
+// Verify that `http_headers::get_combined()` joins multiple values with ", ".
 void HttpHeaderBlock_HeaderCombine() {
   http_headers h;
   EXPECT_TRUE(h.add("Accept", "text/html"));
   EXPECT_TRUE(h.add("Accept", "application/json"));
-  EXPECT_EQ(h.combine("Accept"), "text/html, application/json");
-  EXPECT_EQ(h.combine("Missing"), "");
+  EXPECT_EQ(h.get_combined("Accept"), "text/html, application/json");
+  EXPECT_EQ(h.get_combined("Missing"), "");
 }
 
 // Verify `keep_alive()` for HTTP/1.1 (default on) and HTTP/1.0 (default off).
 void HttpHeaderBlock_KeepAlive() {
   {
-    request_header_block req;
-    ASSERT_TRUE(req.extract("GET / HTTP/1.1\r\nHost: h\r\n"));
+    request_head req;
+    ASSERT_TRUE(req.parse("GET / HTTP/1.1\r\nHost: h\r\n"));
     EXPECT_TRUE(req.headers.keep_alive(req.version));
   }
   {
-    request_header_block req;
-    ASSERT_TRUE(req.extract("GET / HTTP/1.0\r\n"));
+    request_head req;
+    ASSERT_TRUE(req.parse("GET / HTTP/1.0\r\n"));
     EXPECT_FALSE(req.headers.keep_alive(req.version));
   }
   {
-    request_header_block req;
+    request_head req;
     ASSERT_TRUE(
-        req.extract("GET / HTTP/1.1\r\nHost: h\r\nConnection: close\r\n"));
+        req.parse("GET / HTTP/1.1\r\nHost: h\r\nConnection: close\r\n"));
     EXPECT_FALSE(req.headers.keep_alive(req.version));
   }
   {
-    request_header_block req;
-    ASSERT_TRUE(req.extract("GET / HTTP/1.0\r\nConnection: keep-alive\r\n"));
+    request_head req;
+    ASSERT_TRUE(req.parse("GET / HTTP/1.0\r\nConnection: keep-alive\r\n"));
     EXPECT_TRUE(req.headers.keep_alive(req.version));
   }
 }
 
-// Verify that `response_header_block::serialize()` produces the correct
+// Verify that `response_head::serialize()` produces the correct
 // HTTP wire format (headers only; body is sent separately).
 void HttpHeaderBlock_ResponseSerialize() {
-  response_header_block resp;
+  response_head resp;
+  resp.version = http_version::http_11;
   resp.status_code = 200;
   resp.reason = "OK";
-  EXPECT_TRUE(resp.headers.add("Connection", "close"));
+  EXPECT_TRUE(resp.headers.add_raw("Connection", "close"));
   EXPECT_TRUE(resp.headers.add_raw("Content-Type", "text/plain"));
   EXPECT_TRUE(resp.headers.add_raw("Content-Length", "5"));
   const auto wire = resp.serialize();
@@ -175,13 +178,13 @@ void HttpHeaderBlock_ResponseSerialize() {
   EXPECT_TRUE(wire.ends_with("\r\n\r\n"));
 }
 
-// Verify that `request_header_block::extract` skips leading CRLF lines
+// Verify that `request_head::parse` skips leading CRLF lines
 // (RFC 9112 section 2.2) and that a request that is only leading CRLFs fails.
 void HttpHeaderBlock_ExtractLeadingCrlf() {
   {
-    request_header_block req;
+    request_head req;
     ASSERT_TRUE(
-        req.extract("\r\n\r\nGET /path HTTP/1.1\r\nHost: example.com\r\n"));
+        req.parse("\r\n\r\nGET /path HTTP/1.1\r\nHost: example.com\r\n"));
     EXPECT_EQ(req.method, http_method::GET);
     EXPECT_EQ(req.target, "/path");
     EXPECT_EQ(req.version, http_version::http_11);
@@ -191,44 +194,44 @@ void HttpHeaderBlock_ExtractLeadingCrlf() {
   }
   {
     // Only CRLFs, no request line: fails.
-    request_header_block req;
-    EXPECT_FALSE(req.extract("\r\n\r\n"));
+    request_head req;
+    EXPECT_FALSE(req.parse("\r\n\r\n"));
   }
 }
 
-// Verify that malformed header-field lines cause `extract` to return false.
+// Verify that malformed header-field lines cause `parse` to return false.
 void HttpHeaderBlock_ExtractHeaderErrors() {
   {
     // Obs-fold with SP: rejected.
-    request_header_block req;
+    request_head req;
     EXPECT_FALSE(
-        req.extract("GET / HTTP/1.1\r\nHost: example.com\r\n continued\r\n"));
+        req.parse("GET / HTTP/1.1\r\nHost: example.com\r\n continued\r\n"));
   }
   {
     // Obs-fold with HTAB: rejected.
-    request_header_block req;
+    request_head req;
     EXPECT_FALSE(
-        req.extract("GET / HTTP/1.1\r\nHost: example.com\r\n\tcontinued\r\n"));
+        req.parse("GET / HTTP/1.1\r\nHost: example.com\r\n\tcontinued\r\n"));
   }
   {
     // Header line with no colon: rejected.
-    request_header_block req;
-    EXPECT_FALSE(req.extract("GET / HTTP/1.1\r\nBadHeader\r\n"));
+    request_head req;
+    EXPECT_FALSE(req.parse("GET / HTTP/1.1\r\nBadHeader\r\n"));
   }
   {
     // Invalid character (space) in field name: rejected.
-    request_header_block req;
-    EXPECT_FALSE(req.extract("GET / HTTP/1.1\r\nBad Name: value\r\n"));
+    request_head req;
+    EXPECT_FALSE(req.parse("GET / HTTP/1.1\r\nBad Name: value\r\n"));
   }
 }
 
-// Verify that `request_header_block::serialize()` produces correct wire format
-// and that a round-trip through `extract` is lossless.
+// Verify that `request_head::serialize()` produces correct wire format
+// and that a round-trip through `parse` is lossless.
 void HttpHeaderBlock_RequestSerialize() {
   {
     // HTTP/1.1 with headers.
-    request_header_block req;
-    ASSERT_TRUE(req.extract(
+    request_head req;
+    ASSERT_TRUE(req.parse(
         "GET /path HTTP/1.1\r\nHost: example.com\r\nAccept: text/html\r\n"));
     const auto wire = req.serialize();
     EXPECT_NE(wire.find("GET /path HTTP/1.1\r\n"), std::string::npos);
@@ -237,10 +240,9 @@ void HttpHeaderBlock_RequestSerialize() {
     EXPECT_TRUE(wire.ends_with("\r\n\r\n"));
 
     // Round-trip: strip the terminal "\r\n" blank line before passing to
-    // extract (which expects the block without the "\r\n\r\n" sentinel).
-    request_header_block req2;
-    ASSERT_TRUE(
-        req2.extract(std::string_view{wire}.substr(0, wire.size() - 2)));
+    // `parse` (which expects the block without the "\r\n\r\n" sentinel).
+    request_head req2;
+    ASSERT_TRUE(req2.parse(std::string_view{wire}.substr(0, wire.size() - 2)));
     EXPECT_EQ(req2.version, http_version::http_11);
     EXPECT_EQ(req2.method, http_method::GET);
     EXPECT_EQ(req2.target, "/path");
@@ -253,16 +255,16 @@ void HttpHeaderBlock_RequestSerialize() {
   }
   {
     // HTTP/1.0, no headers.
-    request_header_block req;
-    ASSERT_TRUE(req.extract("POST /submit HTTP/1.0\r\n"));
+    request_head req;
+    ASSERT_TRUE(req.parse("POST /submit HTTP/1.0\r\n"));
     const auto wire = req.serialize();
     EXPECT_NE(wire.find("POST /submit HTTP/1.0\r\n"), std::string::npos);
     EXPECT_TRUE(wire.ends_with("\r\n\r\n"));
   }
   {
     // HTTP/0.9: no version token in the output.
-    request_header_block req;
-    ASSERT_TRUE(req.extract("GET /\r\n"));
+    request_head req;
+    ASSERT_TRUE(req.parse("GET /\r\n"));
     const auto wire = req.serialize();
     EXPECT_NE(wire.find("GET /\r\n"), std::string::npos);
     EXPECT_EQ(wire.find("HTTP/"), std::string::npos);
@@ -270,18 +272,18 @@ void HttpHeaderBlock_RequestSerialize() {
   }
   {
     // invalid method: returns empty.
-    request_header_block req;
+    request_head req;
     EXPECT_TRUE(req.serialize().empty());
   }
 }
 
 // Verify that a well-formed HTTP response is parsed by
-// `response_header_block::extract()`.
+// `response_head::parse()`.
 void HttpHeaderBlock_ResponseExtract() {
   {
     // HTTP/1.1 200 with headers.
-    response_header_block resp;
-    ASSERT_TRUE(resp.extract(
+    response_head resp;
+    ASSERT_TRUE(resp.parse(
         "HTTP/1.1 200 OK\r\nContent-Type: "
         "text/html\r\nContent-Length: 42\r\n"));
     EXPECT_EQ(resp.version, http_version::http_11);
@@ -296,36 +298,38 @@ void HttpHeaderBlock_ResponseExtract() {
   }
   {
     // HTTP/1.0 with multi-word reason phrase.
-    response_header_block resp;
-    ASSERT_TRUE(resp.extract("HTTP/1.0 404 Not Found\r\n"));
+    response_head resp;
+    ASSERT_TRUE(resp.parse("HTTP/1.0 404 Not Found\r\n"));
     EXPECT_EQ(resp.version, http_version::http_10);
     EXPECT_EQ(resp.status_code, 404);
     EXPECT_EQ(resp.reason, "Not Found");
   }
   {
     // Unknown version: false.
-    response_header_block resp;
-    EXPECT_FALSE(resp.extract("HTTP/2.0 200 OK\r\n"));
+    response_head resp;
+    EXPECT_FALSE(resp.parse("HTTP/2.0 200 OK\r\n"));
   }
   {
     // No SP after version: false.
-    response_header_block resp;
-    EXPECT_FALSE(resp.extract("HTTP/1.1\r\n"));
+    response_head resp;
+    EXPECT_FALSE(resp.parse("HTTP/1.1\r\n"));
   }
   {
     // Non-numeric status code: false.
-    response_header_block resp;
-    EXPECT_FALSE(resp.extract("HTTP/1.1 abc OK\r\n"));
+    response_head resp;
+    EXPECT_FALSE(resp.parse("HTTP/1.1 abc OK\r\n"));
   }
   {
-    // Round-trip: build a response, serialize it, re-extract, check fields.
-    response_header_block resp;
+    // Round-trip: build a response, serialize it, re-parse, check fields.
+    response_head resp;
+    resp.version = http_version::http_11;
     resp.status_code = 201;
     resp.reason = "Created";
     EXPECT_TRUE(resp.headers.add_raw("Location", "/new/resource"));
     const auto wire = resp.serialize();
-    response_header_block resp2;
-    ASSERT_TRUE(resp2.extract(wire.substr(0, wire.size() - 2)));
+    response_head resp2;
+    ASSERT_TRUE(resp2.parse(wire.substr(0, wire.size() - 2)));
+    EXPECT_EQ(resp2.version, http_version::http_11);
     EXPECT_EQ(resp2.status_code, 201);
     EXPECT_EQ(resp2.reason, "Created");
     const auto location = resp2.headers.get("Location");
@@ -869,23 +873,20 @@ void HttpHeaderBlock_NormalizeEdgeCases() {
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
 
-MAKE_TEST_LIST(HttpHeaderBlock_ExtractHttp11, HttpHeaderBlock_ExtractHttp10,
+MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     HttpHeaderBlock_UnknownMethod, HttpHeaderBlock_InvalidVersion,
     HttpHeaderBlock_Http09Style, HttpHeaderBlock_NoSp,
     HttpHeaderBlock_HeaderLookupCanonical, HttpHeaderBlock_HeaderGet,
-    HttpHeaderBlock_HeaderGetEmptyValue,
-    HttpHeaderBlock_HeaderCombine, HttpHeaderBlock_KeepAlive,
-    HttpHeaderBlock_ExtractLeadingCrlf, HttpHeaderBlock_ResponseSerialize,
-    HttpHeaderBlock_ExtractHeaderErrors, HttpHeaderBlock_RequestSerialize,
-    HttpHeaderBlock_ResponseExtract, HttpServer_OwnLoop, HttpServer_SharedLoop,
-    HttpServer_Create_BadEndpoint, HttpServer_GetRoot, HttpServer_GetPath,
-    HttpServer_InvalidRequest, HttpServer_TooLongRequest,
-    HttpServer_PartialRequest, HttpServer_ANS, HttpServer_SharedWheel,
-    HttpServer_RequestWithinTimeout, HttpServer_IdleTimeout,
-    HttpServer_WriteTimeout, HttpServer_MissingHost, HttpServer_KeepAlive,
-    HttpServer_Pipeline, HttpServer_ConnectionClose,
+    HttpHeaderBlock_HeaderGetEmptyValue, HttpHeaderBlock_HeaderCombine,
+    HttpHeaderBlock_KeepAlive, HttpHeaderBlock_ExtractLeadingCrlf,
+    HttpHeaderBlock_ResponseSerialize, HttpHeaderBlock_ExtractHeaderErrors,
+    HttpHeaderBlock_RequestSerialize, HttpHeaderBlock_ResponseExtract,
+    HttpServer_OwnLoop, HttpServer_SharedLoop, HttpServer_Create_BadEndpoint,
+    HttpServer_GetRoot, HttpServer_GetPath, HttpServer_InvalidRequest,
+    HttpServer_TooLongRequest, HttpServer_PartialRequest, HttpServer_ANS,
+    HttpServer_SharedWheel, HttpServer_RequestWithinTimeout,
+    HttpServer_IdleTimeout, HttpServer_WriteTimeout, HttpServer_MissingHost,
+    HttpServer_KeepAlive, HttpServer_Pipeline, HttpServer_ConnectionClose,
     HttpServer_Http10NoKeepAlive, HttpServer_Http09, HttpServer_LeadingCrlf,
-    HttpHeaderBlock_NormalizeCasing,
-    HttpHeaderBlock_NormalizeSpecialChars,
-    HttpHeaderBlock_NormalizeInvalidChars,
-    HttpHeaderBlock_NormalizeEdgeCases);
+    HttpHeaderBlock_NormalizeCasing, HttpHeaderBlock_NormalizeSpecialChars,
+    HttpHeaderBlock_NormalizeInvalidChars, HttpHeaderBlock_NormalizeEdgeCases);

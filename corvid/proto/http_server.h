@@ -22,7 +22,7 @@
 #include <string_view>
 
 #include "epoll_loop.h"
-#include "http_header_block.h"
+#include "http_head_codec.h"
 #include "stream_conn.h"
 #include "terminated_text_parser.h"
 #include "../strings/conversion.h"
@@ -37,7 +37,7 @@ using namespace std::chrono_literals;
 // `request_line` -- seeking `"\r\n"` for the request line. Empty blocks
 //                   (leading bare CRLFs) are silently skipped per RFC 9112
 //                   section 2.2. A non-empty block is passed to
-//                   `request_header_block::extract`; HTTP/0.9 dispatches
+//                   `request_head::parse`; HTTP/0.9 dispatches
 //                   immediately, HTTP/1.x transitions to `header_lines`.
 // `header_lines` -- seeking `"\r\n"` for each header-field line. A non-empty
 //                   block is fed to `http_headers::extract_line`; an empty
@@ -49,7 +49,13 @@ using namespace std::chrono_literals;
 // `done`         -- terminal state; treated identically to `response` in
 //                   `on_data` but set after `close()` is called to signal
 //                   that no further processing should occur.
-enum class http_phase : uint8_t { request_line, header_lines, body, response, done };
+enum class http_phase : uint8_t {
+  request_line,
+  header_lines,
+  body,
+  response,
+  done
+};
 
 // HTTP/1.x server (including HTTP/0.9) built on `stream_conn`.
 //
@@ -84,7 +90,7 @@ class http_server: public std::enable_shared_from_this<http_server> {
     std::atomic_uint64_t read_seq;
     std::atomic_uint64_t write_seq;
     http_phase phase{http_phase::request_line};
-    request_header_block req; // populated across request_line / header_lines
+    request_head req; // populated across request_line / header_lines
   };
   using conn_t = stream_conn_with_state<http_conn_state>;
   using conn_ptr_t = stream_conn_ptr_with<conn_t>;
@@ -202,10 +208,9 @@ private:
     return arm_read_timeout(conn);
   }
 
-  // Initialize the connection on the first writable event after accept, or
-  // disarm the write timeout when the send queue fully drains after a
-  // response. `timer_fuse::disarm` is `++seq`, which is safe to call
-  // unconditionally -- incrementing an unarmed fuse is a no-op.
+  // On first writable event after accept, initialize connection state. On
+  // subsequent calls, when the send queue fully drains after a response,
+  // disarm the write timeout.
   [[nodiscard]] bool handle_drain(stream_conn& conn) const {
     auto& state = conn_t::from(conn).state();
     if (!ensure_initialized(conn, state)) return false;
@@ -214,16 +219,16 @@ private:
   }
 
   // Build a minimal HTTP/1.1 error response with no body. Used when the
-  // server needs to respond before a `request_header_block` is available
+  // server needs to respond before a `request_head` is available
   // (e.g., parse failure).
   [[nodiscard]] static std::string make_error_response(int code,
       std::string_view phrase, bool keep_alive = false) {
-    response_header_block resp;
+    response_head resp;
+    resp.version = http_version::http_11;
     resp.status_code = code;
     resp.reason = std::string{phrase};
-    if (!resp.headers.add_raw(
-            "Connection", keep_alive ? "keep-alive" : "close"))
-      return "HTTP/1.1 400 Bad Request\r\n\r\n";
+    (void)resp.headers.add_raw("Connection",
+        keep_alive ? "keep-alive" : "close");
     return resp.serialize();
   }
 
@@ -231,21 +236,20 @@ private:
   // Returns true if the connection should remain open (keep-alive),
   // false if it should be closed after the response drains.
   [[nodiscard]] bool
-  dispatch_request(stream_conn& conn, const request_header_block& req) const {
+  dispatch_request(stream_conn& conn, const request_head& req) const {
     const bool alive = req.headers.keep_alive(req.version);
 
     // HTTP/1.1 requires a `Host` header.
     if (req.version == http_version::http_11 && !req.headers.get("Host")) {
-      if (!arm_write_timeout(conn)) return false;
-      if (!conn.send(make_error_response(400, "Bad Request"))) return false;
-      return false;
+      if (!arm_write_timeout(conn)) return conn.hangup() && false;
+      return conn.send(make_error_response(400, "Bad Request")) && false;
     }
 
     if (req.method != http_method::GET) {
-      if (!arm_write_timeout(conn)) return false;
-      if (!conn.send(make_error_response(405, "Method Not Allowed", alive)))
-        return false;
-      return alive;
+      if (!arm_write_timeout(conn)) return conn.hangup() && false;
+      return conn.send(
+                 make_error_response(405, "Method Not Allowed", alive)) &&
+             false;
     }
 
     // The path encodes the desired response body size.
@@ -256,10 +260,9 @@ private:
     const auto length = strings::parse_num<size_t>(
         path.substr(path.starts_with('/') ? 1 : 0), size_t{0});
     if (length > 10ULL * 1024ULL * 1024ULL) {
-      if (!arm_write_timeout(conn)) return false;
-      if (!conn.send(make_error_response(400, "Bad Request", alive)))
-        return false;
-      return alive;
+      if (!arm_write_timeout(conn)) return conn.hangup() && false;
+      return conn.send(make_error_response(400, "Bad Request", alive)) &&
+             false;
     }
 
     // Build a canned HTML response body with the requested padding.
@@ -269,33 +272,31 @@ private:
     html.append(length, ' ');
     html += "</html>";
 
-    response_header_block resp;
+    response_head resp;
     resp.version =
         (req.version == http_version::http_10)
             ? http_version::http_10
             : http_version::http_11;
     resp.status_code = 200;
     resp.reason = "OK";
-    if (!resp.headers.add_raw(
-            "Connection", alive ? "keep-alive" : "close")) {
-      if (!arm_write_timeout(conn)) return false;
-      if (!conn.send(make_error_response(400, "Bad Request"))) return false;
-      return false;
+    if (!resp.headers.add_raw("Connection", alive ? "keep-alive" : "close")) {
+      if (!arm_write_timeout(conn)) return conn.hangup() && false;
+      return conn.send(make_error_response(400, "Bad Request")) && false;
     }
 
     if (!resp.headers.add_raw("Content-Type", "text/html; charset=utf-8") ||
-        !resp.headers.add_raw("Content-Length", std::to_string(html.size()))) {
-      if (!arm_write_timeout(conn)) return false;
-      if (!conn.send(make_error_response(400, "Bad Request"))) return false;
-      return false;
+        !resp.headers.add_raw("Content-Length", std::to_string(html.size())))
+    {
+      if (!arm_write_timeout(conn)) return conn.hangup() && false;
+      return conn.send(make_error_response(400, "Bad Request")) && false;
     }
 
-    if (!arm_write_timeout(conn)) return false;
-    if (!conn.send(resp.serialize())) return false;
+    if (!arm_write_timeout(conn)) return conn.hangup() && false;
+    if (!conn.send(resp.serialize())) return conn.hangup() && false;
     // Re-arm: if the headers drained synchronously, `handle_drain` will have
     // disarmed the timeout before the body was queued.
-    if (!arm_write_timeout(conn)) return false;
-    if (!conn.send(std::move(html))) return false;
+    if (!arm_write_timeout(conn)) return conn.hangup() && false;
+    if (!conn.send(std::move(html))) return conn.hangup() && false;
     return alive;
   }
 
@@ -327,9 +328,9 @@ private:
 
         if (!*r) {
           // Request line exceeded 8192-byte limit.
-          if (!arm_write_timeout(conn)) return false;
+          if (!arm_write_timeout(conn)) return conn.hangup() && false;
           if (!conn.send(make_error_response(400, "Bad Request")))
-            return false;
+            return conn.hangup() && false;
           state.phase = http_phase::response;
           return conn.close() && false;
         }
@@ -342,14 +343,14 @@ private:
         }
 
         // Extract before `recv_buffer_view` destructs (buffer may compact).
-        const bool extracted = state.req.extract(block_view);
+        const bool extracted = state.req.parse(block_view);
         view.update_active_view(input);
         parser.reset();
 
         if (!extracted) {
-          if (!arm_write_timeout(conn)) return false;
+          if (!arm_write_timeout(conn)) return conn.hangup() && false;
           if (!conn.send(make_error_response(400, "Bad Request")))
-            return false;
+            return conn.hangup() && false;
           state.phase = http_phase::response;
           return conn.close() && false;
         }
@@ -362,7 +363,7 @@ private:
             state.phase = http_phase::response;
             return conn.close();
           }
-          if (!arm_read_timeout(conn)) return false;
+          if (!arm_read_timeout(conn)) return conn.hangup() && false;
           continue;
         }
 
@@ -379,23 +380,23 @@ private:
 
         if (!*r) {
           // Header line exceeded 8192-byte limit.
-          if (!arm_write_timeout(conn)) return false;
+          if (!arm_write_timeout(conn)) return conn.hangup() && false;
           if (!conn.send(make_error_response(400, "Bad Request")))
-            return false;
+            return conn.hangup() && false;
           state.phase = http_phase::response;
           return conn.close() && false;
         }
 
         // Process before updating view (buffer may compact on update).
         const bool line_ok =
-            block_view.empty() || state.req.headers.extract_line(block_view);
+            block_view.empty() || state.req.headers.add_line(block_view);
         view.update_active_view(input);
         parser.reset();
 
         if (!line_ok) {
-          if (!arm_write_timeout(conn)) return false;
+          if (!arm_write_timeout(conn)) return conn.hangup() && false;
           if (!conn.send(make_error_response(400, "Bad Request")))
-            return false;
+            return conn.hangup() && false;
           state.phase = http_phase::response;
           return conn.close() && false;
         }
@@ -412,7 +413,7 @@ private:
         }
         // Keep-alive: re-arm read timeout, then loop to process any
         // additional pipelined requests already in the receive buffer.
-        if (!arm_read_timeout(conn)) return false;
+        if (!arm_read_timeout(conn)) return conn.hangup() && false;
         continue;
       }
 

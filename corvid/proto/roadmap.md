@@ -133,21 +133,21 @@ on top of `epoll_loop` rather than broadening `stream_conn`.
 HTTP server built incrementally from an HTTP 0.9 baseline to full HTTP/1.1,
 followed by client and proxy support.
 
-- **[done]** `http_header_block` -- HTTP/1.1 data types in `http_header_block.h`;
+- **[done]** `http_head_codec` -- HTTP/1.1 data types in `http_head_codec.h`;
   `http_version` enum (`invalid`, `http_09`, `http_10`, `http_11`); `http_method`
   enum (`invalid`, `GET`, `HEAD`, `POST`, `PUT`, `DELETE`, `OPTIONS`, `PATCH`,
   `CONNECT`, `TRACE`); `http_headers` ordered multimap with O(1) average lookup
   (insertion-order `vector` + `unordered_map` index keyed by canonical name),
   case-insensitive via title-case canonicalization (`"content-type"` ->
-  `"Content-Type"`), `add` / `get` / `has` / `combine`; `request_header_block`
+  `"Content-Type"`), `add` / `get` / `has` / `get_combined`; `request_head`
   with `extract(string_view)` static factory, `keep_alive` / `content_length` /
   `is_chunked` accessors, values stored raw (encoding decode deferred);
-  `response_header_block` with `serialize(body, content_type)` producing the
+  `response_head` with `serialize(body, content_type)` producing the
   HTTP wire format; stream operators on both enums for diagnostics
 - **[done]** `http_server` (HTTP/1.1) -- upgraded from HTTP 0.9; frame detection
   via `terminated_text_parser` (sentinel `"\r\n\r\n"`, max 8192 bytes); header
-  extraction via `request_header_block::extract`; response construction via
-  `response_header_block::serialize`; explicit `http_phase` state machine
+  extraction via `request_head::parse`; response construction via
+  `response_head::serialize`; explicit `http_phase` state machine
   (`header`, `body`, `response`, `done`); persistent connections (keep-alive by
   default for HTTP/1.1, close for HTTP/1.0); pipelining via an `on_data` parse
   loop that processes all complete header blocks already in the receive buffer,
