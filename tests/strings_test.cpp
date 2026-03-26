@@ -2482,6 +2482,47 @@ void StringUtilsTest_NoZero() {
   }
 }
 
+// Test token_parser.
+void StringUtilsTest_TokenParser() {
+  using strings::token_parser;
+
+  token_parser p{"\r\n"};
+  std::string_view input = "alpha\r\n\r\nbeta";
+
+  EXPECT_EQ(p.separator(), "\r\n");
+  EXPECT_EQ(p.next_delimited(input), "alpha");
+  EXPECT_EQ(p.next_delimited(input), "");
+  EXPECT_EQ(p.next_delimited(input), "beta");
+  EXPECT_EQ(p.next_delimited(input), "");
+  EXPECT_TRUE(input.empty());
+
+  p.separator(", ");
+  input = "one, two";
+  EXPECT_EQ(p.separator(), ", ");
+  EXPECT_EQ(p.next_delimited(input), "one");
+  EXPECT_EQ(p.next_delimited(input), "two");
+  EXPECT_TRUE(input.empty());
+
+  p.separator("\r\n");
+  input = "alpha\r\n\r\nbeta";
+
+  auto token = p.next_terminated(input);
+  ASSERT_TRUE(token.has_value());
+  EXPECT_EQ(*token, "alpha");
+
+  token = p.next_terminated(input);
+  ASSERT_TRUE(token.has_value());
+  EXPECT_EQ(*token, "");
+
+  token = p.next_terminated(input);
+  ASSERT_FALSE(token.has_value());
+  EXPECT_EQ(input, "beta");
+
+  input = {};
+  token = p.next_terminated(input);
+  ASSERT_FALSE(token.has_value());
+}
+
 MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_Split, StringUtilsTest_SplitPg, StringUtilsTest_ParseNum,
     StringUtilsTest_AddBraces, StringUtilsTest_Case, StringUtilsTest_Locate,
@@ -2492,7 +2533,8 @@ MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_AppendNum, StringUtilsTest_Append, StringUtilsTest_Edges,
     StringUtilsTest_Streams, StringUtilsTest_AppendEnum,
     StringUtilsTest_AppendStream, StringUtilsTest_AppendJson,
-    StringUtilsTest_StdFromChars, StringUtilsTest_NoZero);
+    StringUtilsTest_StdFromChars, StringUtilsTest_NoZero,
+    StringUtilsTest_TokenParser);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
