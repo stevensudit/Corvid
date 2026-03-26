@@ -25,6 +25,7 @@
 #include <unordered_map>
 #include <vector>
 
+//!!! #include "../enums.h"
 #include "../strings/cases.h"
 #include "../strings/conversion.h"
 #include "../strings/trimming.h"
@@ -44,6 +45,19 @@ using namespace std::string_view_literals;
 // correspond to the recognized version strings.
 enum class http_version : uint8_t { invalid, http_09, http_10, http_11 };
 
+}}} // namespace corvid::proto::http_proto
+
+#if 0
+template<>
+constexpr auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::http_proto::http_version> =
+    corvid::enums::make_sequence_enum_spec<
+        corvid::proto::http_proto::http_version,
+        "invalid, HTTP/0.9, HTTP/1.0, HTTP/1.1">();
+#endif
+
+namespace corvid { inline namespace proto { inline namespace http_proto {
+
 // HTTP request method.
 //
 // `invalid` (= 0) is the default-constructed value and is also used for
@@ -62,6 +76,21 @@ enum class http_method : uint8_t {
   TRACE
 };
 
+}}} // namespace corvid::proto::http_proto
+
+#if 0
+template<>
+constexpr auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::http_proto::http_method> =
+    corvid::enums::make_sequence_enum_spec<
+        corvid::proto::http_proto::http_method,
+        "invalid, GET, HEAD, POST, PUT, DELETE, OPTIONS, PATCH, CONNECT, "
+        "TRACE">();
+#endif
+
+namespace corvid { inline namespace proto { inline namespace http_proto {
+
+// Old-school struct as namespace.
 struct http {
   static constexpr auto npos = std::string_view::npos;
   static constexpr auto valid_field_name_chars =
@@ -101,33 +130,29 @@ class http_headers: http {
 public:
   // Canonicalize a header name to title-case-with-hyphens, in place.
   // Only alphanumeric characters, hyphens, and the token special characters
-  // are permitted. If any other character is found, `field_name` is left
-  // unchanged and `nullopt` is returned. Otherwise, every character is
-  // lowercased, then the first character and each character immediately
-  // following '-' is uppercased. Returns `true` iff `field_name` was changed,
-  // `false` if it was already canonical.
+  // are permitted.
+  //
+  // If any other character is found, `field_name` is left unchanged and
+  // `nullopt` is returned. Otherwise, every character is lowercased, unless
+  // it's the first character or follows a '-'.  Returns `true` iff
+  // `field_name` was changed, `false` if it was already canonical.
   static std::optional<bool> canonicalize(std::string& field_name) {
     if (field_name.find_first_not_of(http::valid_field_name_chars) != npos)
       return std::nullopt;
     bool changed{false};
     bool capitalize{true};
     for (char& c : field_name) {
-      if (c == '-') {
-        capitalize = true;
-      } else if (capitalize) {
-        char u{strings::to_upper(c)};
-        if (u != c) {
-          c = u;
-          changed = true;
-        }
-        capitalize = false;
-      } else {
-        char l{strings::to_lower(c)};
-        if (l != c) {
-          c = l;
-          changed = true;
-        }
+      // Determine the target character based on the state
+      char target = capitalize ? strings::to_upper(c) : strings::to_lower(c);
+
+      // Update 'changed' and the character if they differ
+      if (c != target) {
+        c = target;
+        changed = true;
       }
+
+      // Update state for the next character: capitalize after a hyphen
+      capitalize = (c == '-');
     }
     return changed;
   }
@@ -185,32 +210,33 @@ public:
     return result;
   }
 
-  // Parse header-field lines from `rest` (the bytes after the first
-  // request/response line and its trailing crlf). Returns false if any
-  // line uses obs-fold (starts with SP or HTAB, RFC 7230 section 3.2.6),
-  // lacks a colon, has an empty or invalid field name, or has an
-  // uncanonicalizable name.
-  [[nodiscard]] bool extract(std::string_view rest) {
-    while (!rest.empty()) {
-      const auto eol = rest.find(crlf);
-      const std::string_view line{eol == npos ? rest : rest.substr(0, eol)};
-      // RFC 9112, Section 2.2, Preventing Request Smuggling. If a recipient
-      // receives whitespace-preceded lines before the first "real" header,
-      // reject it.
+  // Process a single header-field line. The caller is responsible for
+  // detecting the end-of-headers blank line (empty lines must not be passed
+  // here). Returns false for obs-fold, missing colon, empty or invalid field
+  // name, or uncanonicalizable name.
+  [[nodiscard]] bool extract_line(std::string_view line) {
+    assert(!line.empty());
+    if (line.front() == ' ' || line.front() == '\t') return false;
+    const auto colon = line.find(':');
+    if (colon == npos) return false;
+    const auto name = line.substr(0, colon);
+    const auto value = strings::trim(line.substr(colon + 1));
+    return add_canonical(name, value);
+  }
+
+  // Parse header-field lines from `header_lines` (the bytes after the first
+  // request/response line and its trailing crlf). Empty lines are rejected
+  // (RFC 9112 section 2.2 request-smuggling defence). Returns false if any
+  // line uses obs-fold, lacks a colon, or has an invalid field name.
+  [[nodiscard]] bool extract(std::string_view header_lines) {
+    while (!header_lines.empty()) {
+      const auto eol = header_lines.find(crlf);
+      const std::string_view line{
+          eol == npos ? header_lines : header_lines.substr(0, eol)};
       if (line.empty()) return false;
-
-      // Reject obs-fold (obsolete line folding).
-      if (line.front() == ' ' || line.front() == '\t') return false;
-
-      // Split at colon and trim value.
-      const auto colon = line.find(':');
-      if (colon == npos) return false;
-      const auto name = line.substr(0, colon);
-      const auto value = strings::trim(line.substr(colon + 1));
-      if (!add_canonical(name, value)) return false;
-
+      if (!extract_line(line)) return false;
       if (eol == npos) break;
-      rest.remove_prefix(eol + 2);
+      header_lines.remove_prefix(eol + 2);
     }
     return true;
   }
@@ -282,10 +308,11 @@ struct request_header_block: http {
     headers = {};
   }
 
-  // Parse a raw header block -- the text returned by `terminated_text_parser`
-  // with sentinel crlfcrlf, which does NOT include the sentinel itself.
-  //
-  // Returns true on success, false if there are any errors.
+  // Parse a raw request block. Leading crlf lines are skipped per RFC 9112
+  // section 2.2. `raw` may be just the request line (no crlf, no headers),
+  // the request line followed by crlf-terminated header lines, or a full
+  // block with a trailing crlf as produced by `serialize`. Returns true on
+  // success, false if the request line or any header line is malformed.
   [[nodiscard]] bool extract(std::string_view raw);
 
   // Serialize to `"METHOD target HTTP/1.x\r\nHeaders\r\n\r\n"`.
@@ -326,8 +353,11 @@ struct response_header_block: http {
 // --- implementations ---
 
 inline bool request_header_block::extract(std::string_view raw) {
+  // Skip leading CRLF lines (RFC 9112 section 2.2).
+  while (raw.starts_with(crlf)) raw.remove_prefix(crlf.size());
+
   // Find the end of the request line.
-  const auto line_end = raw.find("\r\n"sv);
+  const auto line_end = raw.find(crlf);
   const std::string_view request_line{
       line_end == npos ? raw : raw.substr(0, line_end)};
 
@@ -376,11 +406,16 @@ inline bool request_header_block::extract(std::string_view raw) {
       return false;
   }
 
-  // Parse header lines (everything after the first "\r\n").
-  if (line_end != npos && !headers.extract(raw.substr(line_end + 2)))
-    return false;
+  const std::string_view header_lines{
+      line_end == npos
+          ? std::string_view{}
+          : raw.substr(line_end + crlf.size())};
 
-  return true;
+  // HTTP/0.9: no headers allowed.
+  if (version == http_version::http_09) return header_lines.empty();
+
+  // HTTP/1.x: headers required.
+  return headers.extract(header_lines);
 }
 
 inline std::string response_header_block::serialize() const {

@@ -158,6 +158,25 @@ void HttpHeaderBlock_ResponseSerialize() {
   EXPECT_TRUE(wire.ends_with("\r\n\r\n"));
 }
 
+// Verify that `request_header_block::extract` skips leading CRLF lines
+// (RFC 9112 section 2.2) and that a request that is only leading CRLFs fails.
+void HttpHeaderBlock_ExtractLeadingCrlf() {
+  {
+    request_header_block req;
+    ASSERT_TRUE(req.extract(
+        "\r\n\r\nGET /path HTTP/1.1\r\nHost: example.com\r\n"));
+    EXPECT_EQ(req.method, http_method::GET);
+    EXPECT_EQ(req.target, "/path");
+    EXPECT_EQ(req.version, http_version::http_11);
+    EXPECT_EQ(req.headers.get("Host"), "example.com");
+  }
+  {
+    // Only CRLFs, no request line: fails.
+    request_header_block req;
+    EXPECT_FALSE(req.extract("\r\n\r\n"));
+  }
+}
+
 // Verify that malformed header-field lines cause `extract` to return false.
 void HttpHeaderBlock_ExtractHeaderErrors() {
   {
@@ -285,6 +304,36 @@ void HttpHeaderBlock_ResponseExtract() {
 }
 
 // `http_server` tests.
+
+// Verify that an HTTP/0.9-style request (no version token, no headers)
+// receives a response and the server then closes the connection.
+void HttpServer_Http09() {
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  ASSERT_TRUE(server);
+
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
+  ASSERT_TRUE(client);
+  EXPECT_TRUE(client.send("GET /\r\n"));
+  const auto response = client.recv_until("\r\n\r\n");
+  EXPECT_NE(response.find("200"), std::string::npos);
+  (void)client.recv_until("</html>");
+  // HTTP/0.9 never keep-alive; server should close after the response.
+  EXPECT_TRUE(client.recv().empty());
+}
+
+// Verify that leading bare CRLFs before the request line are silently
+// skipped (RFC 9112 section 2.2) and the request is served normally.
+void HttpServer_LeadingCrlf() {
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  ASSERT_TRUE(server);
+
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
+  ASSERT_TRUE(client);
+  EXPECT_TRUE(
+      client.send("\r\n\r\nGET / HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto response = client.recv_until("\r\n\r\n");
+  EXPECT_NE(response.find("200"), std::string::npos);
+}
 
 // Verify that `create` with a null loop starts its own `epoll_loop_runner`.
 void HttpServer_OwnLoop() {
@@ -734,7 +783,8 @@ MAKE_TEST_LIST(HttpHeaderBlock_ExtractHttp11, HttpHeaderBlock_ExtractHttp10,
     HttpHeaderBlock_Http09Style, HttpHeaderBlock_NoSp,
     HttpHeaderBlock_HeaderLookupCanonical, HttpHeaderBlock_HeaderGet,
     HttpHeaderBlock_HeaderCombine, HttpHeaderBlock_KeepAlive,
-    HttpHeaderBlock_ResponseSerialize, HttpHeaderBlock_ExtractHeaderErrors,
+    HttpHeaderBlock_ExtractLeadingCrlf, HttpHeaderBlock_ResponseSerialize,
+    HttpHeaderBlock_ExtractHeaderErrors,
     HttpHeaderBlock_RequestSerialize,
     HttpHeaderBlock_ResponseExtract, HttpServer_OwnLoop,
     HttpServer_SharedLoop, HttpServer_Create_BadEndpoint, HttpServer_GetRoot,
@@ -743,7 +793,8 @@ MAKE_TEST_LIST(HttpHeaderBlock_ExtractHttp11, HttpHeaderBlock_ExtractHttp10,
     HttpServer_RequestWithinTimeout, HttpServer_IdleTimeout,
     HttpServer_WriteTimeout, HttpServer_MissingHost, HttpServer_KeepAlive,
     HttpServer_Pipeline, HttpServer_ConnectionClose,
-    HttpServer_Http10NoKeepAlive, HttpHeaderBlock_CanonicalizeCasing,
+    HttpServer_Http10NoKeepAlive, HttpServer_Http09, HttpServer_LeadingCrlf,
+    HttpHeaderBlock_CanonicalizeCasing,
     HttpHeaderBlock_CanonicalizeSpecialChars,
     HttpHeaderBlock_CanonicalizeInvalidChars,
     HttpHeaderBlock_CanonicalizeEdgeCases);

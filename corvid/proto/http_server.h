@@ -34,24 +34,30 @@ using namespace std::chrono_literals;
 
 // Connection lifecycle phase for an accepted HTTP connection.
 //
-// `header`   -- reading and parsing the request header block
-//               (`terminated_text_parser` seeking `"\r\n\r\n"`).
-// `body`     -- reading the request body; reserved for future use when
-//               `Content-Length` or chunked transfer encoding is supported.
-// `response` -- a response has been queued (or the connection is closing);
-//               incoming bytes are silently ignored so the send queue can
-//               drain without triggering a TCP RST.
-// `done`     -- terminal state; treated identically to `response` in
-//               `on_data` but set after `close()` is called to signal that
-//               no further processing should occur.
-enum class http_phase : uint8_t { header, body, response, done };
+// `request_line` -- seeking `"\r\n"` for the request line. Empty blocks
+//                   (leading bare CRLFs) are silently skipped per RFC 9112
+//                   section 2.2. A non-empty block is passed to
+//                   `request_header_block::extract`; HTTP/0.9 dispatches
+//                   immediately, HTTP/1.x transitions to `header_lines`.
+// `header_lines` -- seeking `"\r\n"` for each header-field line. A non-empty
+//                   block is fed to `http_headers::extract_line`; an empty
+//                   block (the blank-line terminator) dispatches the request.
+// `body`         -- reading the request body; reserved for future use.
+// `response`     -- a response has been queued (or the connection is closing);
+//                   incoming bytes are silently ignored so the send queue can
+//                   drain without triggering a TCP RST.
+// `done`         -- terminal state; treated identically to `response` in
+//                   `on_data` but set after `close()` is called to signal
+//                   that no further processing should occur.
+enum class http_phase : uint8_t { request_line, header_lines, body, response, done };
 
-// HTTP/1.1 server built on `stream_conn`.
+// HTTP/1.x server (including HTTP/0.9) built on `stream_conn`.
 //
-// Listens for TCP (or UDS/ANS) connections, parses each request header
-// block with `terminated_text_parser` (sentinel `"\r\n\r\n"`, max 8192
-// bytes), extracts the structured request via `request_header_block::extract`,
-// and sends an HTTP/1.1 response.
+// Listens for TCP (or UDS/ANS) connections. Parses each request in two
+// phases using `terminated_text_parser` (sentinel `"\r\n"`, max 8192 bytes
+// per line): Phase 1 reads the request line, Phase 2 reads header-field
+// lines until the blank-line terminator. HTTP/0.9 requests (no version
+// token) are dispatched after Phase 1 with no Phase 2.
 //
 // Persistent connections (keep-alive) and pipelining are supported:
 // `on_data` loops over all complete header blocks present in the receive
@@ -77,7 +83,8 @@ class http_server: public std::enable_shared_from_this<http_server> {
     terminated_text_parser::state parser_state; // falsy until initialized
     std::atomic_uint64_t read_seq;
     std::atomic_uint64_t write_seq;
-    http_phase phase{http_phase::header};
+    http_phase phase{http_phase::request_line};
+    request_header_block req; // populated across request_line / header_lines
   };
   using conn_t = stream_conn_with_state<http_conn_state>;
   using conn_ptr_t = stream_conn_ptr_with<conn_t>;
@@ -191,7 +198,7 @@ private:
   [[nodiscard]] bool
   ensure_initialized(stream_conn& conn, http_conn_state& state) const {
     if (state.parser_state) return true;
-    state.parser_state = terminated_text_parser::state{"\r\n\r\n", 8192};
+    state.parser_state = terminated_text_parser::state{"\r\n", 8192};
     return arm_read_timeout(conn);
   }
 
@@ -292,14 +299,15 @@ private:
 
   // Handle incoming data for an accepted connection.
   //
-  // Implements an explicit state machine driven by `state.phase`. In the
-  // `header` phase, `terminated_text_parser` scans for `"\r\n\r\n"`;
-  // when a complete block is found, it is extracted, dispatched, and the
-  // parser is reset. The loop continues to process any additional complete
-  // header blocks already present in the receive buffer, providing
+  // Implements an explicit state machine driven by `state.phase`. The parser
+  // always uses `"\r\n"` as its sentinel (max 8192 bytes per line). In the
+  // `request_line` phase, empty blocks (leading bare CRLFs) are skipped; a
+  // non-empty block is the request line. In the `header_lines` phase, each
+  // non-empty block is a header-field line; an empty block is the
+  // blank-line terminator that ends the header section. The loop continues
+  // to process all complete lines present in the receive buffer, providing
   // pipelining: multiple queued requests are handled in a single `on_data`
-  // call, and `stream_conn::send` FIFO ordering guarantees that responses
-  // are delivered in request order.
+  // call, and `stream_conn::send` FIFO ordering guarantees response order.
   [[nodiscard]] bool
   handle_data(stream_conn& conn, recv_buffer_view view) const {
     auto& state = conn_t::from(conn).state();
@@ -309,30 +317,34 @@ private:
 
     while (true) {
       switch (state.phase) {
-      case http_phase::header: {
+      case http_phase::request_line: {
         terminated_text_parser parser{state.parser_state};
         std::string_view block_view;
         const auto r = parser.parse(input, block_view);
-
         if (!r) return true; // incomplete; wait for more data
 
         if (!*r) {
-          // Header block exceeded 8192-byte limit.
+          // Request line exceeded 8192-byte limit.
           if (!arm_write_timeout(conn)) return false;
           if (!conn.send(make_error_response(400, "Bad Request")))
             return false;
           state.phase = http_phase::response;
           return conn.close() && false;
+        }
+
+        // Skip leading bare CRLFs (RFC 9112 section 2.2).
+        if (block_view.empty()) {
+          view.update_active_view(input);
+          parser.reset();
+          continue;
         }
 
         // Extract before `recv_buffer_view` destructs (buffer may compact).
-        request_header_block req;
-        const bool extracted = req.extract(block_view);
-        view.update_active_view(input); // advance consume pointer
+        const bool extracted = state.req.extract(block_view);
+        view.update_active_view(input);
         parser.reset();
 
         if (!extracted) {
-          // Structurally broken request line (no SP).
           if (!arm_write_timeout(conn)) return false;
           if (!conn.send(make_error_response(400, "Bad Request")))
             return false;
@@ -340,15 +352,64 @@ private:
           return conn.close() && false;
         }
 
-        const bool alive = dispatch_request(conn, req);
+        if (state.req.version == http_version::http_09) {
+          // HTTP/0.9: request line only, no headers.
+          const bool alive = dispatch_request(conn, state.req);
+          state.req.clear();
+          if (!alive) {
+            state.phase = http_phase::response;
+            return conn.close();
+          }
+          if (!arm_read_timeout(conn)) return false;
+          continue;
+        }
+
+        // HTTP/1.x: proceed to parse header-field lines.
+        state.phase = http_phase::header_lines;
+        continue;
+      }
+
+      case http_phase::header_lines: {
+        terminated_text_parser parser{state.parser_state};
+        std::string_view block_view;
+        const auto r = parser.parse(input, block_view);
+        if (!r) return true; // incomplete; wait for more data
+
+        if (!*r) {
+          // Header line exceeded 8192-byte limit.
+          if (!arm_write_timeout(conn)) return false;
+          if (!conn.send(make_error_response(400, "Bad Request")))
+            return false;
+          state.phase = http_phase::response;
+          return conn.close() && false;
+        }
+
+        // Process before updating view (buffer may compact on update).
+        const bool line_ok =
+            block_view.empty() || state.req.headers.extract_line(block_view);
+        view.update_active_view(input);
+        parser.reset();
+
+        if (!line_ok) {
+          if (!arm_write_timeout(conn)) return false;
+          if (!conn.send(make_error_response(400, "Bad Request")))
+            return false;
+          state.phase = http_phase::response;
+          return conn.close() && false;
+        }
+
+        if (!block_view.empty()) continue; // more header lines
+
+        // Blank line: end of headers; dispatch the request.
+        const bool alive = dispatch_request(conn, state.req);
+        state.req.clear();
+        state.phase = http_phase::request_line;
         if (!alive) {
           state.phase = http_phase::response;
           return conn.close();
         }
-
-        // Keep-alive: re-arm read timeout for the next request, then loop
-        // immediately to parse any additional requests already buffered
-        // (pipelining).
+        // Keep-alive: re-arm read timeout, then loop to process any
+        // additional pipelined requests already in the receive buffer.
         if (!arm_read_timeout(conn)) return false;
         continue;
       }
