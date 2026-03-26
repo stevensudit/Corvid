@@ -134,8 +134,7 @@ void HttpHeaderBlock_KeepAlive() {
   }
   {
     request_header_block req;
-    ASSERT_TRUE(
-        req.extract("GET / HTTP/1.0\r\nConnection: keep-alive\r\n"));
+    ASSERT_TRUE(req.extract("GET / HTTP/1.0\r\nConnection: keep-alive\r\n"));
     EXPECT_TRUE(req.headers.keep_alive(req.version));
   }
 }
@@ -163,8 +162,8 @@ void HttpHeaderBlock_ResponseSerialize() {
 void HttpHeaderBlock_ExtractLeadingCrlf() {
   {
     request_header_block req;
-    ASSERT_TRUE(req.extract(
-        "\r\n\r\nGET /path HTTP/1.1\r\nHost: example.com\r\n"));
+    ASSERT_TRUE(
+        req.extract("\r\n\r\nGET /path HTTP/1.1\r\nHost: example.com\r\n"));
     EXPECT_EQ(req.method, http_method::GET);
     EXPECT_EQ(req.target, "/path");
     EXPECT_EQ(req.version, http_version::http_11);
@@ -182,14 +181,14 @@ void HttpHeaderBlock_ExtractHeaderErrors() {
   {
     // Obs-fold with SP: rejected.
     request_header_block req;
-    EXPECT_FALSE(req.extract(
-        "GET / HTTP/1.1\r\nHost: example.com\r\n continued\r\n"));
+    EXPECT_FALSE(
+        req.extract("GET / HTTP/1.1\r\nHost: example.com\r\n continued\r\n"));
   }
   {
     // Obs-fold with HTAB: rejected.
     request_header_block req;
-    EXPECT_FALSE(req.extract(
-        "GET / HTTP/1.1\r\nHost: example.com\r\n\tcontinued\r\n"));
+    EXPECT_FALSE(
+        req.extract("GET / HTTP/1.1\r\nHost: example.com\r\n\tcontinued\r\n"));
   }
   {
     // Header line with no colon: rejected.
@@ -220,7 +219,8 @@ void HttpHeaderBlock_RequestSerialize() {
     // Round-trip: strip the terminal "\r\n" blank line before passing to
     // extract (which expects the block without the "\r\n\r\n" sentinel).
     request_header_block req2;
-    ASSERT_TRUE(req2.extract(std::string_view{wire}.substr(0, wire.size() - 2)));
+    ASSERT_TRUE(
+        req2.extract(std::string_view{wire}.substr(0, wire.size() - 2)));
     EXPECT_EQ(req2.version, http_version::http_11);
     EXPECT_EQ(req2.method, http_method::GET);
     EXPECT_EQ(req2.target, "/path");
@@ -258,7 +258,8 @@ void HttpHeaderBlock_ResponseExtract() {
     // HTTP/1.1 200 with headers.
     response_header_block resp;
     ASSERT_TRUE(resp.extract(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 42\r\n"));
+        "HTTP/1.1 200 OK\r\nContent-Type: "
+        "text/html\r\nContent-Length: 42\r\n"));
     EXPECT_EQ(resp.version, http_version::http_11);
     EXPECT_EQ(resp.status_code, 200);
     EXPECT_EQ(resp.reason, "OK");
@@ -650,6 +651,67 @@ void HttpServer_Http10NoKeepAlive() {
 // Verify canonicalization of valid header names: case folding and hyphen
 // word-boundary detection.
 void HttpHeaderBlock_CanonicalizeCasing() {
+  const std::vector<std::pair<std::string, std::string>> test_cases = {
+      // --- 1. Standard Normalization (Train-Case) ---
+      // Basic alphabetical case-insensitivity and hyphen-based
+      // capitalization.
+      {"content-type", "Content-Type"}, {"CONTENT-TYPE", "Content-Type"},
+      {"CoNtEnT-tYpE", "Content-Type"}, {"User-Agent", "User-Agent"},
+      {"x-request-id", "X-Request-Id"},
+
+      // --- 2. Hyphen & Symbol Trigger Logic ---
+      // Verifies that hyphens trigger uppercase, but symbols like '$' or '!'
+      // reset to lowercase.
+      {"-type", "-Type"}, // Leading hyphen triggers uppercase
+      {"type-", "Type-"}, // Trailing hyphen sets state but no char follows
+      {"x--forwarded",
+          "X--Forwarded"},    // Double hyphen; both trigger "next_upper"
+      {"$abc", "$abc"},       // Symbol resets start-of-string cap to lowercase
+      {"abc$def", "Abc$def"}, // Mid-word symbol resets to lowercase
+      {"!important-", "!important-"}, // Leading symbol kills initial cap
+      {"99problems", "99problems"},   // Number resets cap
+      {"99-problems", "99-Problems"}, // Number resets cap; hyphen re-triggers
+
+      // --- 3. Valid RFC "tchar" Tokens (Non-Alpha) ---
+      // These characters are legal in header names but should not trigger
+      // capitalization.
+      {"my_header", "My_header"}, // Underscore is a valid token
+      {"a1b2-c3", "A1b2-C3"},     // Alphanumeric mix
+      {"my.header", "My.header"}, // Period is a valid token
+      {"#tag", "#tag"},           // Hash is valid
+      {"~tilde", "~tilde"},       // Tilde is valid
+      {"**star**", "**star**"},   // Asterisks are valid
+
+      // --- 4. Invalid Characters (Should return std::nullopt / "INVALID")
+      // ---
+      // Characters strictly forbidden by RFC 9110 (delimiters and control
+      // chars).
+      {"Header Name", "INVALID"},  // Space (Illegal)
+      {"Header:Name", "INVALID"},  // Colon (Separator, not token)
+      {"Abc(Def)", "INVALID"},     // Parentheses (Delimiter)
+      {"Key/Value", "INVALID"},    // Forward slash (Delimiter)
+      {"@Home", "INVALID"},        // At-sign (Delimiter)
+      {"[bracket]", "INVALID"},    // Square brackets (Delimiter)
+      {"{brace}", "INVALID"},      // Curly braces (Delimiter)
+      {"comma,header", "INVALID"}, // Comma (Delimiter)
+      {"ctrl\nchar", "INVALID"},   // Newline (Security Risk)
+      {std::string("null\0byte", 9), "INVALID"}, // Null byte (Security Risk)
+
+      // --- 5. Edge Cases ---
+      // Minimum lengths and weird but legal "tchar" sequences.
+      {"", "INVALID"}, // Empty string is not a valid token
+      {"a", "A"},      // Single char
+      {"-", "-"},      // Only a hyphen
+      {"---", "---"},  // Multiple hyphens
+      {"123", "123"}   // Only numbers
+  };
+
+  for (const auto& [input, expected] : test_cases) {
+    std::string actual = input;
+    if (!http_headers::canonicalize(actual)) actual = "INVALID";
+    EXPECT_EQ(actual, expected);
+  }
+
   {
     // Lowercase input: changed, result is title case.
     std::string name{"content-type"};
@@ -738,10 +800,9 @@ void HttpHeaderBlock_CanonicalizeInvalidChars() {
 // Verify edge cases: empty name and single-character names.
 void HttpHeaderBlock_CanonicalizeEdgeCases() {
   {
-    // Empty string: no invalid chars, no change, returns false.
+    // Empty string: no invalid chars, no change, returns nullopt.
     std::string name;
-    EXPECT_FALSE(http_headers::canonicalize(name).value());
-    EXPECT_TRUE(name.empty());
+    EXPECT_FALSE(http_headers::canonicalize(name));
   }
   {
     // Single valid alpha: uppercased, returns true.
@@ -784,11 +845,10 @@ MAKE_TEST_LIST(HttpHeaderBlock_ExtractHttp11, HttpHeaderBlock_ExtractHttp10,
     HttpHeaderBlock_HeaderLookupCanonical, HttpHeaderBlock_HeaderGet,
     HttpHeaderBlock_HeaderCombine, HttpHeaderBlock_KeepAlive,
     HttpHeaderBlock_ExtractLeadingCrlf, HttpHeaderBlock_ResponseSerialize,
-    HttpHeaderBlock_ExtractHeaderErrors,
-    HttpHeaderBlock_RequestSerialize,
-    HttpHeaderBlock_ResponseExtract, HttpServer_OwnLoop,
-    HttpServer_SharedLoop, HttpServer_Create_BadEndpoint, HttpServer_GetRoot,
-    HttpServer_GetPath, HttpServer_InvalidRequest, HttpServer_TooLongRequest,
+    HttpHeaderBlock_ExtractHeaderErrors, HttpHeaderBlock_RequestSerialize,
+    HttpHeaderBlock_ResponseExtract, HttpServer_OwnLoop, HttpServer_SharedLoop,
+    HttpServer_Create_BadEndpoint, HttpServer_GetRoot, HttpServer_GetPath,
+    HttpServer_InvalidRequest, HttpServer_TooLongRequest,
     HttpServer_PartialRequest, HttpServer_ANS, HttpServer_SharedWheel,
     HttpServer_RequestWithinTimeout, HttpServer_IdleTimeout,
     HttpServer_WriteTimeout, HttpServer_MissingHost, HttpServer_KeepAlive,

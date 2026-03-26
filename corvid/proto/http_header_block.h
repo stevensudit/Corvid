@@ -25,7 +25,7 @@
 #include <unordered_map>
 #include <vector>
 
-//!!! #include "../enums.h"
+// #include "../enums.h" // WHY DOES THIS BREAK WHEN INCLUDED?!?!
 #include "../strings/cases.h"
 #include "../strings/conversion.h"
 #include "../strings/trimming.h"
@@ -36,13 +36,6 @@ namespace corvid { inline namespace proto { inline namespace http_proto {
 using namespace std::string_view_literals;
 
 // HTTP protocol version.
-//
-// `invalid` (= 0) is the default-constructed value. It is also returned when
-// the request line contains a version token that is not "HTTP/1.0" or
-// "HTTP/1.1" (e.g., "HTTP/2.0"). `http_09` is returned when no version
-// token is present (HTTP/0.9-style request, where the request line has only
-// method and target with no trailing version). `http_10` and `http_11`
-// correspond to the recognized version strings.
 enum class http_version : uint8_t { invalid, http_09, http_10, http_11 };
 
 }}} // namespace corvid::proto::http_proto
@@ -59,10 +52,6 @@ constexpr auto corvid::enums::registry::enum_spec_v<
 namespace corvid { inline namespace proto { inline namespace http_proto {
 
 // HTTP request method.
-//
-// `invalid` (= 0) is the default-constructed value and is also used for
-// unrecognized method tokens. The remaining enumerators are uppercase to
-// match the wire representation.
 enum class http_method : uint8_t {
   invalid,
   GET,
@@ -133,27 +122,31 @@ public:
   // are permitted.
   //
   // If any other character is found, `field_name` is left unchanged and
-  // `nullopt` is returned. Otherwise, every character is lowercased, unless
-  // it's the first character or follows a '-'.  Returns `true` iff
-  // `field_name` was changed, `false` if it was already canonical.
+  // `nullopt` is returned to signal error.
+  //
+  // Otherwise, every character is lowercased, unless it's the first character
+  // or follows a '-'. Returns `true` iff `field_name` was changed, `false` if
+  // it was already canonical.
   static std::optional<bool> canonicalize(std::string& field_name) {
+    if (field_name.empty()) return std::nullopt;
     if (field_name.find_first_not_of(http::valid_field_name_chars) != npos)
       return std::nullopt;
     bool changed{false};
     bool capitalize{true};
     for (char& c : field_name) {
-      // Determine the target character based on the state
-      char target = capitalize ? strings::to_upper(c) : strings::to_lower(c);
-
-      // Update 'changed' and the character if they differ
-      if (c != target) {
-        c = target;
-        changed = true;
+      // Capitalize the first character following the hyphen.
+      if (c == '-') {
+        capitalize = true;
+        continue;
       }
 
-      // Update state for the next character: capitalize after a hyphen
-      capitalize = (c == '-');
+      char old = c;
+      c = capitalize ? strings::to_upper(c) : strings::to_lower(c);
+
+      if (c != old) changed = true;
+      capitalize = false;
     }
+
     return changed;
   }
 
