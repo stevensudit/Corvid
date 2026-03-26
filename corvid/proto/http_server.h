@@ -221,7 +221,8 @@ private:
     response_header_block resp;
     resp.status_code = code;
     resp.reason = std::string{phrase};
-    if (!resp.headers.add("Connection", keep_alive ? "keep-alive" : "close"))
+    if (!resp.headers.add_raw(
+            "Connection", keep_alive ? "keep-alive" : "close"))
       return "HTTP/1.1 400 Bad Request\r\n\r\n";
     return resp.serialize();
   }
@@ -275,14 +276,15 @@ private:
             : http_version::http_11;
     resp.status_code = 200;
     resp.reason = "OK";
-    if (!resp.headers.add("Connection", alive ? "keep-alive" : "close")) {
+    if (!resp.headers.add_raw(
+            "Connection", alive ? "keep-alive" : "close")) {
       if (!arm_write_timeout(conn)) return false;
       if (!conn.send(make_error_response(400, "Bad Request"))) return false;
       return false;
     }
 
-    if (!resp.headers.add("Content-Type", "text/html; charset=utf-8") ||
-        !resp.headers.add("Content-Length", std::to_string(html.size()))) {
+    if (!resp.headers.add_raw("Content-Type", "text/html; charset=utf-8") ||
+        !resp.headers.add_raw("Content-Length", std::to_string(html.size()))) {
       if (!arm_write_timeout(conn)) return false;
       if (!conn.send(make_error_response(400, "Bad Request"))) return false;
       return false;

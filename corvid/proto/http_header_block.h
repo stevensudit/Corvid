@@ -25,7 +25,7 @@
 #include <unordered_map>
 #include <vector>
 
-// #include "../enums.h" // WHY DOES THIS BREAK WHEN INCLUDED?!?!
+#include "../enums.h"
 #include "../strings/cases.h"
 #include "../strings/conversion.h"
 #include "../strings/trimming.h"
@@ -37,19 +37,6 @@ using namespace std::string_view_literals;
 
 // HTTP protocol version.
 enum class http_version : uint8_t { invalid, http_09, http_10, http_11 };
-
-}}} // namespace corvid::proto::http_proto
-
-#if 0
-template<>
-constexpr auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::http_proto::http_version> =
-    corvid::enums::make_sequence_enum_spec<
-        corvid::proto::http_proto::http_version,
-        "invalid, HTTP/0.9, HTTP/1.0, HTTP/1.1">();
-#endif
-
-namespace corvid { inline namespace proto { inline namespace http_proto {
 
 // HTTP request method.
 enum class http_method : uint8_t {
@@ -67,15 +54,20 @@ enum class http_method : uint8_t {
 
 }}} // namespace corvid::proto::http_proto
 
-#if 0
 template<>
-constexpr auto corvid::enums::registry::enum_spec_v<
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::http_proto::http_version> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::proto::http_proto::http_version,
+        "invalid, HTTP/0.9, HTTP/1.0, HTTP/1.1">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
     corvid::proto::http_proto::http_method> =
-    corvid::enums::make_sequence_enum_spec<
+    corvid::enums::sequence::make_sequence_enum_spec<
         corvid::proto::http_proto::http_method,
         "invalid, GET, HEAD, POST, PUT, DELETE, OPTIONS, PATCH, CONNECT, "
         "TRACE">();
-#endif
 
 namespace corvid { inline namespace proto { inline namespace http_proto {
 
@@ -106,7 +98,7 @@ struct http {
 // canonical header names to index lists into `entries_`, enabling O(1)
 // average lookup without linear scan.
 //
-// Header names are canonicalized in the index to "Content-Type" form.
+// Header names are normalized in the index to "Content-Type" form.
 class http_headers: http {
   using kvp = std::pair<std::string, std::string>;
   using kvp_vector = std::vector<kvp>;
@@ -117,17 +109,20 @@ class http_headers: http {
   index_map index_;
 
 public:
-  // Canonicalize a header name to title-case-with-hyphens, in place.
-  // Only alphanumeric characters, hyphens, and the token special characters
-  // are permitted.
+  // Normalize a header name to Train-Case, in place. Only alphanumeric
+  // characters, hyphens, and the token special characters are permitted.
   //
   // If any other character is found, `field_name` is left unchanged and
   // `nullopt` is returned to signal error.
   //
   // Otherwise, every character is lowercased, unless it's the first character
   // or follows a '-'. Returns `true` iff `field_name` was changed, `false` if
-  // it was already canonical.
-  static std::optional<bool> canonicalize(std::string& field_name) {
+  // it was already normalized.
+  //
+  // Note: This is fully compliant with RFC 9110, but the modern practice,
+  // which is strictly required for HTTP/2.0 and HTTP/3.0, is to lowercase call
+  // field headers.
+  static std::optional<bool> normalize(std::string& field_name) {
     if (field_name.empty()) return std::nullopt;
     if (field_name.find_first_not_of(http::valid_field_name_chars) != npos)
       return std::nullopt;
@@ -150,27 +145,26 @@ public:
     return changed;
   }
 
-public:
   // Add a header, storing `field_name` as-is (no validation or
-  // canonicalization). The caller is responsible for providing a valid,
-  // canonical name. Returns success. (May fail when too many fields are
+  // normalization). The caller is responsible for providing a valid,
+  // normalized name. Returns success. (May fail when too many fields are
   // added.)
-  [[nodiscard]] bool add(std::string_view field_name, std::string_view value) {
+  [[nodiscard]] bool
+  add_raw(std::string_view field_name, std::string_view value) {
     const size_t ndx{entries_.size()};
     entries_.emplace_back(field_name, std::string{value});
     index_[std::string{field_name}].push_back(ndx);
     return true;
   }
 
-  // Add a header, canonicalizing `field_name` before storage. Returns success.
+  // Add a header, normalizing `field_name` before storage. Returns success.
   // Fails if `field_name` is empty or contains invalid characters, which
   // merits a "400 Bad Request".
-  [[nodiscard]] bool
-  add_canonical(std::string_view field_name, std::string_view value) {
+  [[nodiscard]] bool add(std::string_view field_name, std::string_view value) {
     if (field_name.empty()) return false;
     const size_t ndx{entries_.size()};
     std::string canon{field_name};
-    if (canon.empty() || !canonicalize(canon)) return false;
+    if (canon.empty() || !normalize(canon)) return false;
     entries_.emplace_back(field_name, std::string{value});
     index_[std::move(canon)].push_back(ndx);
     return true;
@@ -206,7 +200,7 @@ public:
   // Process a single header-field line. The caller is responsible for
   // detecting the end-of-headers blank line (empty lines must not be passed
   // here). Returns false for obs-fold, missing colon, empty or invalid field
-  // name, or uncanonicalizable name.
+  // name, or unnormalizable name.
   [[nodiscard]] bool extract_line(std::string_view line) {
     assert(!line.empty());
     if (line.front() == ' ' || line.front() == '\t') return false;
@@ -214,7 +208,7 @@ public:
     if (colon == npos) return false;
     const auto name = line.substr(0, colon);
     const auto value = strings::trim(line.substr(colon + 1));
-    return add_canonical(name, value);
+    return add(name, value);
   }
 
   // Parse header-field lines from `header_lines` (the bytes after the first

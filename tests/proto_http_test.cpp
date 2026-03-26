@@ -88,7 +88,7 @@ void HttpHeaderBlock_NoSp() {
 void HttpHeaderBlock_HeaderLookupCanonical() {
   http_headers h;
   // Add with mixed-case input; stored under "Content-Type".
-  EXPECT_TRUE(h.add_canonical("content-TYPE", "text/plain"));
+  EXPECT_TRUE(h.add("content-TYPE", "text/plain"));
   // Exact canonical form finds the value.
   EXPECT_EQ(h.get("Content-Type"), "text/plain");
   // Non-canonical forms do not match.
@@ -99,7 +99,7 @@ void HttpHeaderBlock_HeaderLookupCanonical() {
 // Verify that `get()` returns empty for absent or non-canonical names.
 void HttpHeaderBlock_HeaderGet() {
   http_headers h;
-  EXPECT_TRUE(h.add_canonical("Host", "localhost"));
+  EXPECT_TRUE(h.add("Host", "localhost"));
   EXPECT_FALSE(h.get("Host").empty());
   EXPECT_TRUE(h.get("host").empty());
   EXPECT_TRUE(h.get("Content-Type").empty());
@@ -108,8 +108,8 @@ void HttpHeaderBlock_HeaderGet() {
 // Verify that `http_headers::combine()` joins multiple values with ", ".
 void HttpHeaderBlock_HeaderCombine() {
   http_headers h;
-  EXPECT_TRUE(h.add_canonical("Accept", "text/html"));
-  EXPECT_TRUE(h.add_canonical("Accept", "application/json"));
+  EXPECT_TRUE(h.add("Accept", "text/html"));
+  EXPECT_TRUE(h.add("Accept", "application/json"));
   EXPECT_EQ(h.combine("Accept"), "text/html, application/json");
   EXPECT_EQ(h.combine("Missing"), "");
 }
@@ -145,9 +145,9 @@ void HttpHeaderBlock_ResponseSerialize() {
   response_header_block resp;
   resp.status_code = 200;
   resp.reason = "OK";
-  EXPECT_TRUE(resp.headers.add_canonical("Connection", "close"));
-  EXPECT_TRUE(resp.headers.add("Content-Type", "text/plain"));
-  EXPECT_TRUE(resp.headers.add("Content-Length", "5"));
+  EXPECT_TRUE(resp.headers.add("Connection", "close"));
+  EXPECT_TRUE(resp.headers.add_raw("Content-Type", "text/plain"));
+  EXPECT_TRUE(resp.headers.add_raw("Content-Length", "5"));
   const auto wire = resp.serialize();
   EXPECT_NE(wire.find("HTTP/1.1 200 OK\r\n"), std::string::npos);
   EXPECT_NE(wire.find("Connection: close\r\n"), std::string::npos);
@@ -294,7 +294,7 @@ void HttpHeaderBlock_ResponseExtract() {
     response_header_block resp;
     resp.status_code = 201;
     resp.reason = "Created";
-    EXPECT_TRUE(resp.headers.add("Location", "/new/resource"));
+    EXPECT_TRUE(resp.headers.add_raw("Location", "/new/resource"));
     const auto wire = resp.serialize();
     response_header_block resp2;
     ASSERT_TRUE(resp2.extract(wire.substr(0, wire.size() - 2)));
@@ -648,9 +648,9 @@ void HttpServer_Http10NoKeepAlive() {
   EXPECT_TRUE(client.recv().empty());
 }
 
-// Verify canonicalization of valid header names: case folding and hyphen
+// Verify normalization of valid header names: case folding and hyphen
 // word-boundary detection.
-void HttpHeaderBlock_CanonicalizeCasing() {
+void HttpHeaderBlock_NormalizeCasing() {
   const std::vector<std::pair<std::string, std::string>> test_cases = {
       // --- 1. Standard Normalization (Train-Case) ---
       // Basic alphabetical case-insensitivity and hyphen-based
@@ -708,80 +708,80 @@ void HttpHeaderBlock_CanonicalizeCasing() {
 
   for (const auto& [input, expected] : test_cases) {
     std::string actual = input;
-    if (!http_headers::canonicalize(actual)) actual = "INVALID";
+    if (!http_headers::normalize(actual)) actual = "INVALID";
     EXPECT_EQ(actual, expected);
   }
 
   {
     // Lowercase input: changed, result is title case.
     std::string name{"content-type"};
-    EXPECT_TRUE(http_headers::canonicalize(name).value());
+    EXPECT_TRUE(http_headers::normalize(name).value());
     EXPECT_EQ(name, "Content-Type");
   }
   {
     // All-caps input: changed, result is title case.
     std::string name{"ACCEPT-ENCODING"};
-    EXPECT_TRUE(http_headers::canonicalize(name).value());
+    EXPECT_TRUE(http_headers::normalize(name).value());
     EXPECT_EQ(name, "Accept-Encoding");
   }
   {
     // Mixed case: changed, result is title case.
     std::string name{"X-fOrWaRdEd-fOr"};
-    EXPECT_TRUE(http_headers::canonicalize(name).value());
+    EXPECT_TRUE(http_headers::normalize(name).value());
     EXPECT_EQ(name, "X-Forwarded-For");
   }
   {
     // Already canonical: not changed, name unchanged.
     std::string name{"Content-Type"};
-    EXPECT_FALSE(http_headers::canonicalize(name).value());
+    EXPECT_FALSE(http_headers::normalize(name).value());
     EXPECT_EQ(name, "Content-Type");
   }
   {
     // Multi-segment all-lowercase.
     std::string name{"x-forwarded-for"};
-    EXPECT_TRUE(http_headers::canonicalize(name).value());
+    EXPECT_TRUE(http_headers::normalize(name).value());
     EXPECT_EQ(name, "X-Forwarded-For");
   }
 }
 
 // Verify that valid token special characters are accepted and that names
-// containing them are canonicalized correctly.
-void HttpHeaderBlock_CanonicalizeSpecialChars() {
+// containing them are normalized correctly.
+void HttpHeaderBlock_NormalizeSpecialChars() {
   {
     // Underscore and dot are valid; alpha segments are title-cased.
     std::string name{"x-custom_header.v2"};
-    EXPECT_TRUE(http_headers::canonicalize(name).value());
+    EXPECT_TRUE(http_headers::normalize(name).value());
     EXPECT_EQ(name, "X-Custom_header.v2");
   }
   {
     // A name composed entirely of the special set "!#$%&'*+.^_`|~" is
     // valid; none are alpha so to_upper/to_lower are no-ops.
     std::string name{"!#$%&'*+.^_`|~"};
-    EXPECT_FALSE(http_headers::canonicalize(name).value());
+    EXPECT_FALSE(http_headers::normalize(name).value());
     EXPECT_EQ(name, "!#$%&'*+.^_`|~");
   }
   {
     // Hyphen triggers capitalization of the following character.
     std::string name{"a-b-c"};
-    EXPECT_TRUE(http_headers::canonicalize(name).value());
+    EXPECT_TRUE(http_headers::normalize(name).value());
     EXPECT_EQ(name, "A-B-C");
   }
   {
     // Leading hyphen: valid, first alpha after it is uppercased.
     std::string name{"-foo"};
-    EXPECT_TRUE(http_headers::canonicalize(name).value());
+    EXPECT_TRUE(http_headers::normalize(name).value());
     EXPECT_EQ(name, "-Foo");
   }
 }
 
 // Verify that names containing characters outside the allowed set are
 // rejected: `name` is cleared and false is returned.
-void HttpHeaderBlock_CanonicalizeInvalidChars() {
-  // Returns true iff `canonicalize` rejected the name (nullopt) and left it
+void HttpHeaderBlock_NormalizeInvalidChars() {
+  // Returns true iff `normalize` rejected the name (nullopt) and left it
   // unchanged.
   auto bad = [](std::string name) {
     const std::string orig{name};
-    return !http_headers::canonicalize(name) && name == orig;
+    return !http_headers::normalize(name) && name == orig;
   };
 
   EXPECT_TRUE(bad("Bad Name"));  // space
@@ -798,40 +798,40 @@ void HttpHeaderBlock_CanonicalizeInvalidChars() {
 }
 
 // Verify edge cases: empty name and single-character names.
-void HttpHeaderBlock_CanonicalizeEdgeCases() {
+void HttpHeaderBlock_NormalizeEdgeCases() {
   {
     // Empty string: no invalid chars, no change, returns nullopt.
     std::string name;
-    EXPECT_FALSE(http_headers::canonicalize(name));
+    EXPECT_FALSE(http_headers::normalize(name));
   }
   {
     // Single valid alpha: uppercased, returns true.
     std::string name{"a"};
-    EXPECT_TRUE(http_headers::canonicalize(name).value());
+    EXPECT_TRUE(http_headers::normalize(name).value());
     EXPECT_EQ(name, "A");
   }
   {
     // Single valid alpha already uppercase: no change, returns false.
     std::string name{"A"};
-    EXPECT_FALSE(http_headers::canonicalize(name).value());
+    EXPECT_FALSE(http_headers::normalize(name).value());
     EXPECT_EQ(name, "A");
   }
   {
     // Single digit: valid, no alpha casing, returns false.
     std::string name{"3"};
-    EXPECT_FALSE(http_headers::canonicalize(name).value());
+    EXPECT_FALSE(http_headers::normalize(name).value());
     EXPECT_EQ(name, "3");
   }
   {
     // Single invalid char: returns nullopt, name unchanged.
     std::string name{" "};
-    EXPECT_FALSE(http_headers::canonicalize(name));
+    EXPECT_FALSE(http_headers::normalize(name));
     EXPECT_EQ(name, " ");
   }
   {
     // Invalid char mid-name: returns nullopt, name unchanged.
     std::string name{"Content Type"};
-    EXPECT_FALSE(http_headers::canonicalize(name));
+    EXPECT_FALSE(http_headers::normalize(name));
     EXPECT_EQ(name, "Content Type");
   }
 }
@@ -854,7 +854,7 @@ MAKE_TEST_LIST(HttpHeaderBlock_ExtractHttp11, HttpHeaderBlock_ExtractHttp10,
     HttpServer_WriteTimeout, HttpServer_MissingHost, HttpServer_KeepAlive,
     HttpServer_Pipeline, HttpServer_ConnectionClose,
     HttpServer_Http10NoKeepAlive, HttpServer_Http09, HttpServer_LeadingCrlf,
-    HttpHeaderBlock_CanonicalizeCasing,
-    HttpHeaderBlock_CanonicalizeSpecialChars,
-    HttpHeaderBlock_CanonicalizeInvalidChars,
-    HttpHeaderBlock_CanonicalizeEdgeCases);
+    HttpHeaderBlock_NormalizeCasing,
+    HttpHeaderBlock_NormalizeSpecialChars,
+    HttpHeaderBlock_NormalizeInvalidChars,
+    HttpHeaderBlock_NormalizeEdgeCases);
