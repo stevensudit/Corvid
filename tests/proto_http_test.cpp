@@ -42,8 +42,12 @@ void HttpHeaderBlock_ExtractHttp11() {
   EXPECT_EQ(req.version, http_version::http_11);
   EXPECT_EQ(req.method, http_method::GET);
   EXPECT_EQ(req.target, "/path");
-  EXPECT_EQ(req.headers.get("Host"), "example.com");
-  EXPECT_EQ(req.headers.get("Accept"), "text/html");
+  const auto host = req.headers.get("Host");
+  ASSERT_TRUE(host);
+  EXPECT_EQ(*host, "example.com");
+  const auto accept = req.headers.get("Accept");
+  ASSERT_TRUE(accept);
+  EXPECT_EQ(*accept, "text/html");
 }
 
 // Verify that a well-formed HTTP/1.0 request is parsed correctly.
@@ -83,26 +87,40 @@ void HttpHeaderBlock_NoSp() {
 }
 
 // Verify that `http_headers::get()` requires the canonical key form.
-// `add_canonical` folds to canonical before indexing; lookups with
-// non-canonical names return empty.
+// `add()` folds to canonical form before indexing; lookups with
+// non-canonical names return `nullopt`.
 void HttpHeaderBlock_HeaderLookupCanonical() {
   http_headers h;
   // Add with mixed-case input; stored under "Content-Type".
   EXPECT_TRUE(h.add("content-TYPE", "text/plain"));
   // Exact canonical form finds the value.
-  EXPECT_EQ(h.get("Content-Type"), "text/plain");
+  const auto content_type = h.get("Content-Type");
+  ASSERT_TRUE(content_type);
+  EXPECT_EQ(*content_type, "text/plain");
   // Non-canonical forms do not match.
-  EXPECT_EQ(h.get("content-type"), "");
-  EXPECT_EQ(h.get("CONTENT-TYPE"), "");
+  EXPECT_FALSE(h.get("content-type"));
+  EXPECT_FALSE(h.get("CONTENT-TYPE"));
 }
 
-// Verify that `get()` returns empty for absent or non-canonical names.
+// Verify that `get()` returns `nullopt` for absent or non-canonical names.
 void HttpHeaderBlock_HeaderGet() {
   http_headers h;
   EXPECT_TRUE(h.add("Host", "localhost"));
-  EXPECT_FALSE(h.get("Host").empty());
-  EXPECT_TRUE(h.get("host").empty());
-  EXPECT_TRUE(h.get("Content-Type").empty());
+  const auto host = h.get("Host");
+  ASSERT_TRUE(host);
+  EXPECT_EQ(*host, "localhost");
+  EXPECT_FALSE(h.get("host"));
+  EXPECT_FALSE(h.get("Content-Type"));
+}
+
+// Verify that `get()` distinguishes an empty stored value from a missing one.
+void HttpHeaderBlock_HeaderGetEmptyValue() {
+  http_headers h;
+  EXPECT_TRUE(h.add_raw("X-Empty", ""));
+  const auto empty_value = h.get("X-Empty");
+  ASSERT_TRUE(empty_value);
+  EXPECT_TRUE(empty_value->empty());
+  EXPECT_FALSE(h.get("Missing"));
 }
 
 // Verify that `http_headers::combine()` joins multiple values with ", ".
@@ -167,7 +185,9 @@ void HttpHeaderBlock_ExtractLeadingCrlf() {
     EXPECT_EQ(req.method, http_method::GET);
     EXPECT_EQ(req.target, "/path");
     EXPECT_EQ(req.version, http_version::http_11);
-    EXPECT_EQ(req.headers.get("Host"), "example.com");
+    const auto host = req.headers.get("Host");
+    ASSERT_TRUE(host);
+    EXPECT_EQ(*host, "example.com");
   }
   {
     // Only CRLFs, no request line: fails.
@@ -224,8 +244,12 @@ void HttpHeaderBlock_RequestSerialize() {
     EXPECT_EQ(req2.version, http_version::http_11);
     EXPECT_EQ(req2.method, http_method::GET);
     EXPECT_EQ(req2.target, "/path");
-    EXPECT_EQ(req2.headers.get("Host"), "example.com");
-    EXPECT_EQ(req2.headers.get("Accept"), "text/html");
+    const auto host = req2.headers.get("Host");
+    ASSERT_TRUE(host);
+    EXPECT_EQ(*host, "example.com");
+    const auto accept = req2.headers.get("Accept");
+    ASSERT_TRUE(accept);
+    EXPECT_EQ(*accept, "text/html");
   }
   {
     // HTTP/1.0, no headers.
@@ -263,8 +287,12 @@ void HttpHeaderBlock_ResponseExtract() {
     EXPECT_EQ(resp.version, http_version::http_11);
     EXPECT_EQ(resp.status_code, 200);
     EXPECT_EQ(resp.reason, "OK");
-    EXPECT_EQ(resp.headers.get("Content-Type"), "text/html");
-    EXPECT_EQ(resp.headers.get("Content-Length"), "42");
+    const auto content_type = resp.headers.get("Content-Type");
+    ASSERT_TRUE(content_type);
+    EXPECT_EQ(*content_type, "text/html");
+    const auto content_length = resp.headers.get("Content-Length");
+    ASSERT_TRUE(content_length);
+    EXPECT_EQ(*content_length, "42");
   }
   {
     // HTTP/1.0 with multi-word reason phrase.
@@ -300,7 +328,9 @@ void HttpHeaderBlock_ResponseExtract() {
     ASSERT_TRUE(resp2.extract(wire.substr(0, wire.size() - 2)));
     EXPECT_EQ(resp2.status_code, 201);
     EXPECT_EQ(resp2.reason, "Created");
-    EXPECT_EQ(resp2.headers.get("Location"), "/new/resource");
+    const auto location = resp2.headers.get("Location");
+    ASSERT_TRUE(location);
+    EXPECT_EQ(*location, "/new/resource");
   }
 }
 
@@ -843,6 +873,7 @@ MAKE_TEST_LIST(HttpHeaderBlock_ExtractHttp11, HttpHeaderBlock_ExtractHttp10,
     HttpHeaderBlock_UnknownMethod, HttpHeaderBlock_InvalidVersion,
     HttpHeaderBlock_Http09Style, HttpHeaderBlock_NoSp,
     HttpHeaderBlock_HeaderLookupCanonical, HttpHeaderBlock_HeaderGet,
+    HttpHeaderBlock_HeaderGetEmptyValue,
     HttpHeaderBlock_HeaderCombine, HttpHeaderBlock_KeepAlive,
     HttpHeaderBlock_ExtractLeadingCrlf, HttpHeaderBlock_ResponseSerialize,
     HttpHeaderBlock_ExtractHeaderErrors, HttpHeaderBlock_RequestSerialize,

@@ -165,19 +165,17 @@ public:
     const size_t ndx{entries_.size()};
     std::string canon{field_name};
     if (canon.empty() || !normalize(canon)) return false;
-    entries_.emplace_back(field_name, std::string{value});
-    index_[std::move(canon)].push_back(ndx);
-    return true;
+    return add_raw(canon, value);
   }
 
   // Return a `string_view` into the stored value for the first entry whose
   // name matches `field_name`. The `field_name` is expected to be canonical.
-  // Returns an empty view if not found.
-  [[nodiscard]] std::string_view get(
+  // Returns `nullopt` if not found.
+  [[nodiscard]] std::optional<std::string_view> get(
       std::string_view field_name) const noexcept {
-    const auto it = index_.find(field_name);
-    if (it == index_.end() || it->second.empty()) return {};
-    return entries_[it->second.front()].second;
+    auto ids = find_opt(index_, field_name);
+    if (!ids || ids->empty()) return std::nullopt;
+    return entries_[ids->front()].second;
   }
 
   // Return all values for `field_name` concatenated with `", "`.
@@ -253,7 +251,7 @@ public:
   // Overridden by `"Connection: close"` or `"Connection: keep-alive"`.
   [[nodiscard]] bool keep_alive(http_version version) const noexcept {
     if (version == http_version::http_09) return false;
-    const auto c = strings::as_lower(get("Connection"));
+    const auto c = strings::as_lower(get("Connection").value_or(""sv));
     if (c == "close") return false;
     if (c == "keep-alive") return true;
     return version == http_version::http_11;
@@ -262,13 +260,14 @@ public:
   // Return the `Content-Length` value, or `nullopt` if absent or unparseable.
   [[nodiscard]] std::optional<size_t> content_length() const noexcept {
     const auto sv = get("Content-Length");
-    if (sv.empty()) return std::nullopt;
-    return strings::parse_num<size_t>(sv);
+    if (!sv) return std::nullopt;
+    return strings::parse_num<size_t>(*sv);
   }
 
   // Return true iff `"Transfer-Encoding: chunked"` is present.
   [[nodiscard]] bool is_chunked() const noexcept {
-    return strings::as_lower(get("Transfer-Encoding")) == "chunked";
+    return strings::as_lower(get("Transfer-Encoding").value_or(""sv)) ==
+           "chunked";
   }
 
   // TODO: We need some way to walk through all values for a given field name,

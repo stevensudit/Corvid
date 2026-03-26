@@ -235,7 +235,7 @@ private:
     const bool alive = req.headers.keep_alive(req.version);
 
     // HTTP/1.1 requires a `Host` header.
-    if (req.version == http_version::http_11 && req.headers.get("Host").empty()) {
+    if (req.version == http_version::http_11 && !req.headers.get("Host")) {
       if (!arm_write_timeout(conn)) return false;
       if (!conn.send(make_error_response(400, "Bad Request"))) return false;
       return false;
