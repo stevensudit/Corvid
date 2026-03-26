@@ -22,6 +22,7 @@
 #include <string_view>
 
 #include "epoll_loop.h"
+#include "http_header_block.h"
 #include "stream_conn.h"
 #include "terminated_text_parser.h"
 #include "../strings/conversion.h"
@@ -31,45 +32,52 @@ namespace corvid { inline namespace proto {
 
 using namespace std::chrono_literals;
 
-// Minimal HTTP 0.9 server, based on the part of the HTTP/1.0 spec,
-// https://datatracker.ietf.org/doc/html/rfc1945, where it covers
-// Simple-Request and Simple-Response.
+// Connection lifecycle phase for an accepted HTTP connection.
 //
-// Listens for TCP connections, parses each request line with
-// `terminated_text_parser`, and sends a canned HTML response for any `GET
-// /path` request.
+// `header`   -- reading and parsing the request header block
+//               (`terminated_text_parser` seeking `"\r\n\r\n"`).
+// `body`     -- reading the request body; reserved for future use when
+//               `Content-Length` or chunked transfer encoding is supported.
+// `response` -- a response has been queued (or the connection is closing);
+//               incoming bytes are silently ignored so the send queue can
+//               drain without triggering a TCP RST.
+// `done`     -- terminal state; treated identically to `response` in
+//               `on_data` but set after `close()` is called to signal that
+//               no further processing should occur.
+enum class http_phase : uint8_t { header, body, response, done };
+
+// HTTP/1.1 server built on `stream_conn`.
+//
+// Listens for TCP (or UDS/ANS) connections, parses each request header
+// block with `terminated_text_parser` (sentinel `"\r\n\r\n"`, max 8192
+// bytes), extracts the structured request via `request_header_block::extract`,
+// and sends an HTTP/1.1 response.
+//
+// Persistent connections (keep-alive) and pipelining are supported:
+// `on_data` loops over all complete header blocks present in the receive
+// buffer, queuing a response for each one. Because `stream_conn::send` is
+// FIFO, responses are always delivered in request order.
 //
 // Construct via the `create` factory, which returns a
-// `std::shared_ptr<http_server>`. Each accepted connection is owned by the
-// loop and carries its own `http_conn_state` so that partial request lines
-// arriving across multiple `on_data` calls are handled correctly, and so
-// that any bytes arriving after the response is queued are silently ignored
-// (avoiding the TCP RST that `shutdown_read` can trigger).
+// `std::shared_ptr<http_server>`. If the `loop` argument is null, the
+// server starts its own `epoll_loop_runner`; otherwise it shares the
+// supplied loop. If the `wheel` argument is null, the server starts its
+// own `timing_wheel_runner`; otherwise it borrows the supplied wheel.
 //
-// If the `loop` argument to `create` is null, the server starts its own
-// `epoll_loop_runner` (background thread) and owns it for its lifetime.
-// Otherwise the caller supplies a shared loop and the server borrows it.
-//
-// If the `wheel` argument to `create` is null, the server starts its own
-// `timing_wheel_runner` (background thread) and owns it for its lifetime.
-// Otherwise the caller supplies a wheel and the server borrows it.
-//
-// `request_timeout` controls how long the server waits for a complete request
-// line before forcefully closing an idle connection. After each successfully
-// parsed request the timeout is re-armed, anticipating future keep-alive
-// support. Defaults to 30 s.
+// `request_timeout` controls how long the server waits for a complete
+// request header block before forcefully closing an idle connection.
+// Re-armed after each parsed request for keep-alive connections. Defaults
+// to 30 s.
 //
 // `write_timeout` controls how long the server waits for the send queue to
-// drain after queueing a response. If the queue does not empty in time (e.g.,
-// because the client stops reading), the connection is forcefully closed via
-// `hangup`. Disarmed in `on_drain` when the queue empties normally. Defaults
-// to 5 s.
+// drain after queueing a response. Disarmed in `on_drain` when the queue
+// empties normally. Defaults to 5 s.
 class http_server: public std::enable_shared_from_this<http_server> {
   struct http_conn_state {
-    terminated_text_parser::state parser_state;
+    terminated_text_parser::state parser_state; // falsy until initialized
     std::atomic_uint64_t read_seq;
-    std::atomic_uint64_t write_seq; // stales pending write-timeout fuses
-    bool done{};
+    std::atomic_uint64_t write_seq;
+    http_phase phase{http_phase::header};
   };
   using conn_t = stream_conn_with_state<http_conn_state>;
   using conn_ptr_t = stream_conn_ptr_with<conn_t>;
@@ -81,11 +89,11 @@ public:
   using epoll_loop_ptr = std::shared_ptr<epoll_loop>;
   using timing_wheel_ptr = std::shared_ptr<timing_wheel>;
 
-  // Create an HTTP 0.9 server listening on `endpoint`.
+  // Create an HTTP/1.1 server listening on `endpoint`.
   //
-  // If `loop` is non-null, the server shares it; otherwise it constructs and
-  // owns an `epoll_loop_runner`. If `wheel` is non-null, the server borrows
-  // it; otherwise it constructs and owns a `timing_wheel_runner`.
+  // If `loop` is non-null, the server shares it; otherwise it constructs
+  // and owns an `epoll_loop_runner`. If `wheel` is non-null, the server
+  // borrows it; otherwise it constructs and owns a `timing_wheel_runner`.
   // Returns null if the listen socket cannot be created.
   [[nodiscard]] static std::shared_ptr<http_server>
   create(const net_endpoint& endpoint, epoll_loop_ptr loop = nullptr,
@@ -143,10 +151,10 @@ private:
   [[nodiscard]] static bool timeout_hangup(const timer_fuse_t& fuse) {
     auto c = fuse.get_if_armed();
     if (!c) return true;
-    // Use `weak_loop()` rather than `loop()` because this callback runs on the
-    // timing-wheel thread. The connection is still be alive (since `c` holds a
-    // `std::shared_ptr` to it) but the loop may have already been destroyed,
-    // which would make `loop()` a dangling-reference dereference.
+    // Use `weak_loop()` rather than `loop()` because this callback runs on
+    // the timing-wheel thread. The connection may still be alive (since `c`
+    // holds a `shared_ptr` to it) but the loop may have already been
+    // destroyed, making `loop()` a dangling-reference dereference.
     auto loop = c->weak_loop().lock();
     if (!loop) return true;
     return loop->post([fuse]() -> bool {
@@ -156,110 +164,205 @@ private:
   }
 
   // Arm a read timeout on `conn`. Increments `read_seq` to stale any prior
-  // fuse, then schedules a `hangup` after `timeout` via the timing wheel.
-  // Called on connection (via `handle_drain`) and again after each parsed
-  // request so that keep-alive connections restart the clock between commands.
+  // fuse, then schedules a `hangup` after `read_timeout_` via the timing
+  // wheel. Called on connection (via `handle_drain`) and again after each
+  // parsed request so that keep-alive connections restart the clock.
   [[nodiscard]] bool arm_read_timeout(stream_conn& conn) const {
     return timer_fuse_t::set_timeout(*wheel_,
         conn_t::from(conn).state().read_seq, std::weak_ptr{conn.self()},
         read_timeout_, timeout_hangup);
   }
 
-  // Arm a write timeout on `conn`. Increments `write_seq` to stale any prior
-  // fuse, then schedules a `hangup` after `timeout` via the timing wheel.
-  // Called just before queueing a response. Disarmed by `handle_drain` when
-  // the send queue empties before the deadline.
+  // Arm a write timeout on `conn`. Increments `write_seq` to stale any
+  // prior fuse, then schedules a `hangup` after `write_timeout_` via the
+  // timing wheel. Called just before queueing a response. Disarmed by
+  // `handle_drain` when the send queue empties before the deadline.
   [[nodiscard]] bool arm_write_timeout(stream_conn& conn) const {
     return timer_fuse_t::set_timeout(*wheel_,
         conn_t::from(conn).state().write_seq, std::weak_ptr{conn.self()},
         write_timeout_, timeout_hangup);
   }
 
-  // Initialize the parser state and arm the initial read timeout for a freshly
-  // accepted connection. Safe to call multiple times; subsequent calls are
-  // no-ops. Called from `handle_drain` (first writable event, before any data)
-  // and from `handle_data` as a fallback, because `EPOLLIN` is dispatched
-  // before `EPOLLOUT` in the same wakeup, so data can arrive before
-  // `on_drain` fires.
+  // Initialize the parser state and arm the initial read timeout for a
+  // freshly accepted connection. Safe to call multiple times; subsequent
+  // calls are no-ops. Called from `handle_drain` (first writable event,
+  // before any data) and from `handle_data` as a fallback, because
+  // `EPOLLIN` is dispatched before `EPOLLOUT` in the same wakeup.
   [[nodiscard]] bool
   ensure_initialized(stream_conn& conn, http_conn_state& state) const {
     if (state.parser_state) return true;
-    state.parser_state = terminated_text_parser::state{"\r\n", 8192};
+    state.parser_state = terminated_text_parser::state{"\r\n\r\n", 8192};
     return arm_read_timeout(conn);
   }
 
   // Initialize the connection on the first writable event after accept, or
   // disarm the write timeout when the send queue fully drains after a
-  // response.
+  // response. `timer_fuse::disarm` is `++seq`, which is safe to call
+  // unconditionally -- incrementing an unarmed fuse is a no-op.
   [[nodiscard]] bool handle_drain(stream_conn& conn) const {
     auto& state = conn_t::from(conn).state();
     if (!ensure_initialized(conn, state)) return false;
-    // Disarm any pending write timeout: the send queue emptied in time.
-    if (state.done) timer_fuse_t::disarm(state.write_seq);
+    timer_fuse_t::disarm(state.write_seq);
     return true;
   }
 
-  // Handle incoming data for an accepted connection. Parses a single
-  // `GET /path` line and sends back a canned HTML response, then closes.
+  // Build a minimal HTTP/1.1 error response with no body. Used when the
+  // server needs to respond before a `request_header_block` is available
+  // (e.g., parse failure).
+  [[nodiscard]] static std::string make_error_response(int code,
+      std::string_view phrase, bool keep_alive = false) {
+    response_header_block resp;
+    resp.status_code = code;
+    resp.reason = std::string{phrase};
+    if (!resp.headers.add("Connection", keep_alive ? "keep-alive" : "close"))
+      return "HTTP/1.1 400 Bad Request\r\n\r\n";
+    return resp.serialize();
+  }
+
+  // Process one parsed request and queue the appropriate response.
+  // Returns true if the connection should remain open (keep-alive),
+  // false if it should be closed after the response drains.
+  [[nodiscard]] bool
+  dispatch_request(stream_conn& conn, const request_header_block& req) const {
+    const bool alive = req.headers.keep_alive(req.version);
+
+    // HTTP/1.1 requires a `Host` header.
+    if (req.version == http_version::http_11 && req.headers.get("Host").empty()) {
+      if (!arm_write_timeout(conn)) return false;
+      if (!conn.send(make_error_response(400, "Bad Request"))) return false;
+      return false;
+    }
+
+    if (req.method != http_method::GET) {
+      if (!arm_write_timeout(conn)) return false;
+      if (!conn.send(make_error_response(405, "Method Not Allowed", alive)))
+        return false;
+      return alive;
+    }
+
+    // The path encodes the desired response body size.
+    const std::string_view path =
+        req.target.empty()
+            ? std::string_view{"/"}
+            : std::string_view{req.target};
+    const auto length = strings::parse_num<size_t>(
+        path.substr(path.starts_with('/') ? 1 : 0), size_t{0});
+    if (length > 10ULL * 1024ULL * 1024ULL) {
+      if (!arm_write_timeout(conn)) return false;
+      if (!conn.send(make_error_response(400, "Bad Request", alive)))
+        return false;
+      return alive;
+    }
+
+    // Build a canned HTML response body with the requested padding.
+    std::string html{"<html><body><p>I am definitely, totally the file \""};
+    html += std::to_string(length);
+    html += "\".</p></body>";
+    html.append(length, ' ');
+    html += "</html>";
+
+    response_header_block resp;
+    resp.version =
+        (req.version == http_version::http_10)
+            ? http_version::http_10
+            : http_version::http_11;
+    resp.status_code = 200;
+    resp.reason = "OK";
+    if (!resp.headers.add("Connection", alive ? "keep-alive" : "close")) {
+      if (!arm_write_timeout(conn)) return false;
+      if (!conn.send(make_error_response(400, "Bad Request"))) return false;
+      return false;
+    }
+
+    if (!resp.headers.add("Content-Type", "text/html; charset=utf-8") ||
+        !resp.headers.add("Content-Length", std::to_string(html.size()))) {
+      if (!arm_write_timeout(conn)) return false;
+      if (!conn.send(make_error_response(400, "Bad Request"))) return false;
+      return false;
+    }
+
+    if (!arm_write_timeout(conn)) return false;
+    if (!conn.send(resp.serialize())) return false;
+    // Re-arm: if the headers drained synchronously, `handle_drain` will have
+    // disarmed the timeout before the body was queued.
+    if (!arm_write_timeout(conn)) return false;
+    if (!conn.send(std::move(html))) return false;
+    return alive;
+  }
+
+  // Handle incoming data for an accepted connection.
+  //
+  // Implements an explicit state machine driven by `state.phase`. In the
+  // `header` phase, `terminated_text_parser` scans for `"\r\n\r\n"`;
+  // when a complete block is found, it is extracted, dispatched, and the
+  // parser is reset. The loop continues to process any additional complete
+  // header blocks already present in the receive buffer, providing
+  // pipelining: multiple queued requests are handled in a single `on_data`
+  // call, and `stream_conn::send` FIFO ordering guarantees that responses
+  // are delivered in request order.
   [[nodiscard]] bool
   handle_data(stream_conn& conn, recv_buffer_view view) const {
     auto& state = conn_t::from(conn).state();
-
-    // If we already sent a response, ignore any trailing bytes so the send
-    // queue can drain without triggering a TCP RST.
-    if (state.done) return true;
-
     if (!ensure_initialized(conn, state)) return false;
 
-    terminated_text_parser parser{state.parser_state};
-
     auto input = view.active_view();
-    std::string_view simple_request;
-    const auto r = parser.parse(input, simple_request);
 
-    // If incomplete, wait for more.
-    if (!r) return true;
+    while (true) {
+      switch (state.phase) {
+      case http_phase::header: {
+        terminated_text_parser parser{state.parser_state};
+        std::string_view block_view;
+        const auto r = parser.parse(input, block_view);
 
-    // If invalid, close the connection. Essentially, we need to find a "\r\n"
-    // sentinel before reaching the 8k line-length limit.
-    if (!*r) return conn.close() && false;
+        if (!r) return true; // incomplete; wait for more data
 
-    // The syntax is trivial.
-    static constexpr std::string_view prefix{"GET /"};
-    if (!simple_request.starts_with(prefix)) return conn.close() && false;
+        if (!*r) {
+          // Header block exceeded 8192-byte limit.
+          if (!arm_write_timeout(conn)) return false;
+          if (!conn.send(make_error_response(400, "Bad Request")))
+            return false;
+          state.phase = http_phase::response;
+          return conn.close() && false;
+        }
 
-    // Keep the slash and anything after it as the path.
-    const std::string_view path{simple_request.substr(prefix.size() - 1)};
+        // Extract before `recv_buffer_view` destructs (buffer may compact).
+        request_header_block req;
+        const bool extracted = req.extract(block_view);
+        view.update_active_view(input); // advance consume pointer
+        parser.reset();
 
-    // The path is a length.
-    const auto length = strings::parse_num<size_t>(path.substr(1), 0);
-    if (length > 10ULL * 1024ULL * 1024ULL) return conn.close() && false;
-    const auto length_text = std::to_string(length);
+        if (!extracted) {
+          // Structurally broken request line (no SP).
+          if (!arm_write_timeout(conn)) return false;
+          if (!conn.send(make_error_response(400, "Bad Request")))
+            return false;
+          state.phase = http_phase::response;
+          return conn.close() && false;
+        }
 
-    // "Look up" the file.
-    std::string html{"<html><body><p>I am definitely, totally the file \""};
-    html += length_text;
-    html += "\".</p></body>";
-    html.append(length, ' ');
-    html += "</html>\r\n";
+        const bool alive = dispatch_request(conn, req);
+        if (!alive) {
+          state.phase = http_phase::response;
+          return conn.close();
+        }
 
-    // Arm the write timeout before queueing the response. `handle_drain`
-    // disarms it when the send queue empties. If the client stops reading and
-    // the queue stalls, the fuse fires and closes the connection via `hangup`.
-    if (!arm_write_timeout(conn)) return false;
+        // Keep-alive: re-arm read timeout for the next request, then loop
+        // immediately to parse any additional requests already buffered
+        // (pipelining).
+        if (!arm_read_timeout(conn)) return false;
+        continue;
+      }
 
-    // Send the response.
-    if (!conn.send(std::move(html))) return conn.close() && false;
+      case http_phase::body:
+        // Future: accumulate request body bytes.
+        return true;
 
-    // Re-arm the read timeout for the next request (handles keep-alive
-    // connections; harmless for HTTP 0.9 since the connection closes
-    // immediately, staling the new fuse naturally).
-    if (!arm_read_timeout(conn)) return false;
-
-    // Mark the connection done and queue a graceful close. Any bytes that
-    // arrive before the close completes will be silently ignored above.
-    state.done = true;
-    return conn.close();
+      case http_phase::response:
+      case http_phase::done:
+        // Ignore trailing bytes; let the send queue drain cleanly.
+        return true;
+      }
+    }
   }
 
   std::optional<epoll_loop_runner> runner_;
@@ -270,4 +373,5 @@ private:
   duration_t write_timeout_{5s};
   conn_ptr_t listener_;
 };
+
 }} // namespace corvid::proto

@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 If the user's intent is ever unclear, always ask before proceeding.
 
+When a function can fail, always consider returning some status indication instead of being void.
+
 ## Build System
 
 CMakeLists.txt lives in `tests/` only — there is none at the project root. Build directory: `tests/build/`.

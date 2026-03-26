@@ -133,14 +133,31 @@ on top of `epoll_loop` rather than broadening `stream_conn`.
 HTTP server built incrementally from an HTTP 0.9 baseline to full HTTP/1.1,
 followed by client and proxy support.
 
-- **[done]** `http_server` (HTTP 0.9) -- minimal server that listens for TCP or
-  UDS/ANS connections, parses each request line with `terminated_text_parser`,
-  and sends a canned HTML response for any `GET /path` request, then closes the
-  connection; constructed via `create(loop, endpoint)`, which accepts an
-  optional shared `epoll_loop` or starts its own `epoll_loop_runner`
-- Improve `http_server` incrementally to full HTTP/1.1: persistent connections,
-  request/response headers, chunked transfer encoding, content negotiation,
-  and keep-alive
+- **[done]** `http_header_block` -- HTTP/1.1 data types in `http_header_block.h`;
+  `http_version` enum (`invalid`, `http_09`, `http_10`, `http_11`); `http_method`
+  enum (`invalid`, `GET`, `HEAD`, `POST`, `PUT`, `DELETE`, `OPTIONS`, `PATCH`,
+  `CONNECT`, `TRACE`); `http_headers` ordered multimap with O(1) average lookup
+  (insertion-order `vector` + `unordered_map` index keyed by canonical name),
+  case-insensitive via title-case canonicalization (`"content-type"` ->
+  `"Content-Type"`), `add` / `get` / `has` / `combine`; `request_header_block`
+  with `extract(string_view)` static factory, `keep_alive` / `content_length` /
+  `is_chunked` accessors, values stored raw (encoding decode deferred);
+  `response_header_block` with `serialize(body, content_type)` producing the
+  HTTP wire format; stream operators on both enums for diagnostics
+- **[done]** `http_server` (HTTP/1.1) -- upgraded from HTTP 0.9; frame detection
+  via `terminated_text_parser` (sentinel `"\r\n\r\n"`, max 8192 bytes); header
+  extraction via `request_header_block::extract`; response construction via
+  `response_header_block::serialize`; explicit `http_phase` state machine
+  (`header`, `body`, `response`, `done`); persistent connections (keep-alive by
+  default for HTTP/1.1, close for HTTP/1.0); pipelining via an `on_data` parse
+  loop that processes all complete header blocks already in the receive buffer,
+  relying on `stream_conn::send` FIFO ordering for response sequencing;
+  `Host` header validation for HTTP/1.1 (returns 400 if absent); `Connection`
+  header honored; `write_timeout` disarmed unconditionally in `on_drain`
+  (`timer_fuse::disarm` is always safe to call)
+- Deferred: request body reading (`Content-Length` / chunked transfer),
+  `POST` / `PUT` methods, chunked response encoding, content negotiation,
+  encoding decode (percent-hex `%20`, RFC 2047 MIME word, RFC 5987)
 - `http_client` -- HTTP/1.1 client built on `stream_conn`
 - `http_proxy` -- HTTP proxy support
 - **Future:** HTTP/2
@@ -165,7 +182,6 @@ WebSocket protocol built on top of the HTTP/1.1 upgrade mechanism.
 - It's tempting to go down the rabbit hole with MPSC lockless queue designs, but there's no point in this for epoll-based loops because the cost of the lock is nothing compared to the syscall overhead. For now, we've improved the design to use double-buffering so to generally avoid memory allocation at the top of each loop.
 
 ## Notes on io_uring
-
 - The vibe-coding experiment yielded useful data, but not usable code. It was constrained by not being able to rely on liburing, which meant reinventing the io_uring-wrapping wheel. Still, it showed that zero-copy is going to require a different approach to buffer management, among other things. Also, we won't need timing_wheel because io_uring has that covered.
 - Maybe I need to survey the off-the-shelf alternatives. The most obvious is Asio, which offers a couroutine pattern that suits io_uring well and avoids callback hell. Seastar, underlying ScyllaDB, is also interesting. In terms of coroutine-friendly native wrappers, there's liburing4cpp, Xynet, and Condy (the hot new thing). Meta's got libunifex and Google has liburing_cpp (which mostly just proves RAII).
 - High-end performance requires a shared-nothing approach where a loop runs in its own thread on its own CPU. Interthread communication is by messages over lock-less ring buffers, to avoid any mutexes.
