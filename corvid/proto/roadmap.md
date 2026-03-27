@@ -139,16 +139,16 @@ followed by client and proxy support.
   `CONNECT`, `TRACE`); `http_headers` ordered multimap with O(1) average lookup
   (insertion-order `vector` + `unordered_map` index keyed by canonical name),
   case-insensitive via title-case canonicalization (`"content-type"` ->
-  `"Content-Type"`), `add` / `get` / `has` / `get_combined`; `request_head`
-  with `extract(string_view)` static factory, `keep_alive` / `content_length` /
+  `"Content-Type"`), `add` / `get` / `get_combined`; `request_head`
+  with instance method `parse(string_view)`, `keep_alive` / `content_length` /
   `is_chunked` accessors, values stored raw (encoding decode deferred);
-  `response_head` with `serialize(body, content_type)` producing the
-  HTTP wire format; stream operators on both enums for diagnostics
+  `response_head` with `serialize()` producing the HTTP wire format;
+  stream operators on both enums for diagnostics
 - **[done]** `http_server` (HTTP/1.1) -- upgraded from HTTP 0.9; frame detection
   via `terminated_text_parser` (sentinel `"\r\n\r\n"`, max 8192 bytes); header
   extraction via `request_head::parse`; response construction via
   `response_head::serialize`; explicit `http_phase` state machine
-  (`header`, `body`, `response`, `done`); persistent connections (keep-alive by
+  (`request_line`, `header_lines`, `body`, `response`, `done`); persistent connections (keep-alive by
   default for HTTP/1.1, close for HTTP/1.0); pipelining via an `on_data` parse
   loop that processes all complete header blocks already in the receive buffer,
   relying on `stream_conn::send` FIFO ordering for response sequencing;
