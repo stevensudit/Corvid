@@ -366,6 +366,21 @@ void HttpServer_LeadingCrlf() {
   EXPECT_NE(response.find("200"), std::string::npos);
 }
 
+// Verify that more than `max_leading_crls` bare CRLFs before the request
+// line cause the server to drop the connection.
+void HttpServer_TooManyLeadingCrls() {
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  ASSERT_TRUE(server);
+
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
+  ASSERT_TRUE(client);
+  // Send 9 bare CRLFs (one more than the limit of 8) with no request line.
+  EXPECT_TRUE(client.send("\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n"));
+  // The server should close the connection without responding.
+  const auto response = client.recv_until("\r\n\r\n");
+  EXPECT_TRUE(response.empty());
+}
+
 // Verify that `create` with a null loop starts its own `epoll_loop_runner`.
 void HttpServer_OwnLoop() {
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
@@ -1240,7 +1255,8 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     HttpServer_IdleTimeout, HttpServer_WriteTimeout, HttpServer_MissingHost,
     HttpServer_KeepAlive, HttpServer_Pipeline, HttpServer_ConnectionClose,
     HttpServer_Http10NoKeepAlive, HttpServer_Http09, HttpServer_LeadingCrlf,
-    HttpHeaderBlock_NormalizeCasing, HttpHeaderBlock_NormalizeSpecialChars,
+    HttpServer_TooManyLeadingCrls, HttpHeaderBlock_NormalizeCasing,
+    HttpHeaderBlock_NormalizeSpecialChars,
     HttpHeaderBlock_NormalizeInvalidChars, HttpHeaderBlock_NormalizeEdgeCases,
     HttpHeaderBlock_IsValidFieldValue, HttpHeaderBlock_ContentLength,
     HttpHeaderBlock_IsChunked, HttpHeaderBlock_SizeAndEmpty,

@@ -91,6 +91,7 @@ class http_server: public std::enable_shared_from_this<http_server> {
     std::atomic_uint64_t write_seq;
     http_phase phase{http_phase::request_line};
     request_head req; // populated across request_line / header_lines
+    uint8_t leading_crlf_count{}; // bare CRLFs skipped before request line
   };
   using conn_t = stream_conn_with_state<http_conn_state>;
   using conn_ptr_t = stream_conn_ptr_with<conn_t>;
@@ -301,6 +302,147 @@ private:
     return keep_alive;
   }
 
+  // State-machine phase handlers for `handle_data`. Each returns `nullopt`
+  // to continue the loop, or a `bool` to return immediately from
+  // `handle_data`.
+
+  // Try to parse out just the request line, which ends at crlf. This lets
+  // us check for HTTP/0.9 instead of blocking forever on headers that might
+  // never come. Note that, while headers are technically optional for
+  // HTTP/1.0, we can at least count on the crlfcrlf sentinel.
+  [[nodiscard]] std::optional<bool> handle_request_line(stream_conn& conn,
+      http_conn_state& state, std::string_view& input,
+      recv_buffer_view& view) const {
+    terminated_text_parser parser{state.parser_state};
+    std::string_view block_view;
+    const auto r = parser.parse(input, block_view);
+    if (!r) return true; // incomplete; wait for more data
+
+    // Request line exceeded 8192-byte limit. We have no idea what version
+    // the client is trying to speak, so there's no point pretending to
+    // send a reasonable error response.
+    if (!*r) return conn.hangup() && false;
+
+    // Skip leading bare CRLFs (RFC 9112 section 2.2), up to the limit.
+    if (block_view.empty()) {
+      if (state.leading_crlf_count >= max_leading_crls)
+        return conn.hangup() && false;
+      ++state.leading_crlf_count;
+      view.update_active_view(input);
+      parser.reset();
+      return std::nullopt;
+    }
+    state.leading_crlf_count = 0;
+
+    // Extract request line.
+    const bool extracted = state.req.parse(block_view);
+    view.update_active_view(input);
+    parser.reset();
+
+    if (!extracted) {
+      // Best practice is to assume HTTP/1.1 in our error response when
+      // something goes wrong during the version parsing, or even if it's
+      // apparently HTTP/0.9 but still invalid.
+      if (state.req.version != http_version::http_1_0 &&
+          state.req.version != http_version::http_1_1)
+        state.req.version = http_version::http_1_1;
+      (void)send_error_response(conn, after_response::close,
+          state.req.version);
+      state.phase = http_phase::response;
+      return conn.close() && false;
+    }
+
+    if (state.req.version == http_version::http_0_9) {
+      // HTTP/0.9: request line only, no headers.
+      const auto keep_alive = dispatch_request(conn, state.req);
+      state.req.clear();
+      if (keep_alive == after_response::close) {
+        state.phase = http_phase::response;
+        return conn.close();
+      }
+      if (!arm_read_timeout(conn)) return conn.hangup() && false;
+      return std::nullopt;
+    }
+
+    // HTTP/1.x: proceed to parse header-field lines.
+    state.parser_state = terminated_text_parser::state{"\r\n\r\n", 8192};
+    state.phase = http_phase::header_lines;
+    return std::nullopt;
+  }
+
+  // Send a 400 error response and close the connection after a header-block
+  // parse failure (oversized block or malformed field lines).
+  [[nodiscard]] std::optional<bool>
+  reject_header_block(stream_conn& conn, http_conn_state& state) const {
+    if (!arm_write_timeout(conn)) return conn.hangup() && false;
+    if (!conn.send(response_head::make_error_response(after_response::close,
+            state.req.version)))
+      return conn.hangup() && false;
+    state.phase = http_phase::response;
+    return conn.close() && false;
+  }
+
+  // Parse or skip the header block for an incoming request. When the
+  // request has no header-field lines (blank line follows the request line
+  // immediately) the active data begins with "\r\n" rather than
+  // "...\r\n\r\n". The "\r\n\r\n" sentinel cannot match in that case, so
+  // detect it up front and skip the parser entirely.
+  //
+  // Returns `nullopt` when the block is complete and ready for dispatch,
+  // `true` to wait for more data, or `false` after an error is sent.
+  [[nodiscard]] std::optional<bool> parse_header_block(stream_conn& conn,
+      http_conn_state& state, std::string_view& input,
+      recv_buffer_view& view) const {
+    if (!input.starts_with("\r\n")) {
+      terminated_text_parser parser{state.parser_state};
+      std::string_view block_view;
+      const auto r = parser.parse(input, block_view);
+      if (!r) return true; // incomplete; wait for more data
+      if (!*r) return reject_header_block(conn, state); // oversized
+
+      // Process before updating view (buffer may compact on update).
+      const bool lines_ok = state.req.headers.add_lines(block_view);
+      view.update_active_view(input);
+      parser.reset();
+      if (!lines_ok) return reject_header_block(conn, state); // malformed
+    } else {
+      // No headers: consume the blank-line terminator and fall through
+      // to dispatch with an empty header set.
+      input.remove_prefix(2);
+      view.update_active_view(input);
+    }
+    return std::nullopt;
+  }
+
+  [[nodiscard]] std::optional<bool> handle_header_lines(stream_conn& conn,
+      http_conn_state& state, std::string_view& input,
+      recv_buffer_view& view) const {
+    const auto r = parse_header_block(conn, state, input, view);
+    if (r) return r;
+
+    // End of header block; dispatch the request.
+    const auto keep_alive = dispatch_request(conn, state.req);
+    state.req.clear();
+    // Reset sentinel for the next request line (keep-alive / pipelining).
+    state.parser_state = terminated_text_parser::state{"\r\n", 8192};
+    state.phase = http_phase::request_line;
+    if (keep_alive == after_response::close) {
+      state.phase = http_phase::response;
+      return conn.close();
+    }
+    // Keep-alive: re-arm read timeout, then loop to process any additional
+    // pipelined requests already in the receive buffer.
+    if (!arm_read_timeout(conn)) return conn.hangup() && false;
+    return std::nullopt;
+  }
+
+  // Future: accumulate request body bytes.
+  [[nodiscard]] bool handle_body(stream_conn& conn, http_conn_state&,
+      std::string_view&, recv_buffer_view&) const {
+    if (!arm_read_timeout(conn)) return conn.hangup() && false;
+    return true;
+  }
+
   // Handle incoming data for an accepted connection.
   //
   // Implements an explicit state machine driven by `state.phase`. The parser
@@ -319,134 +461,19 @@ private:
 
     auto input = view.active_view();
 
-    // State machine.
     while (true) {
       switch (state.phase) {
-        // Try to parse out just the request line, which ends at crlf. This
-        // lets us check for HTTP/0.9 instead of blocking forever on headers
-        // that might never come. Note that, while headers are technically
-        // optional for HTTP/1.0, we can at least count on the crlfcrlf
-        // sentinel.
       case http_phase::request_line: {
-        terminated_text_parser parser{state.parser_state};
-        std::string_view block_view;
-        const auto r = parser.parse(input, block_view);
-        if (!r) return true; // incomplete; wait for more data
-
-        // Request line exceeded 8192-byte limit. We have no idea what
-        // version the client is trying to speak, so there's no point
-        // pretending to send a reasonable error response.
-        if (!*r) return conn.hangup() && false;
-
-        // Skip leading bare CRLFs (RFC 9112 section 2.2).
-        // TODO: Put a limit on this, perhaps by adding a count in the state.
-        // We could also detect this by looking for leading crlf pairs and
-        // counting them. If the count exceeds a reasonable amount, fail now.
-        // Otherwise, skip past them and continue.
-        if (block_view.empty()) {
-          view.update_active_view(input);
-          parser.reset();
-          continue;
-        }
-
-        // Extract request line.
-        const bool extracted = state.req.parse(block_view);
-        view.update_active_view(input);
-        parser.reset();
-
-        if (!extracted) {
-          // Best practice is to assume HTTP/1.1 in our error response when
-          // something goes wrong during the version parsing, or even if it's
-          // apparently HTTP/0.9 but still invalid.
-          if (state.req.version != http_version::http_1_0 &&
-              state.req.version != http_version::http_1_1)
-            state.req.version = http_version::http_1_1;
-          (void)send_error_response(conn, after_response::close,
-              state.req.version);
-          state.phase = http_phase::response;
-          return conn.close() && false;
-        }
-
-        if (state.req.version == http_version::http_0_9) {
-          // HTTP/0.9: request line only, no headers.
-          const auto keep_alive = dispatch_request(conn, state.req);
-          state.req.clear();
-          if (keep_alive == after_response::close) {
-            state.phase = http_phase::response;
-            return conn.close();
-          }
-          if (!arm_read_timeout(conn)) return conn.hangup() && false;
-          continue;
-        }
-
-        // HTTP/1.x: proceed to parse header-field lines.
-        state.parser_state = terminated_text_parser::state{"\r\n\r\n", 8192};
-        state.phase = http_phase::header_lines;
+        const auto r = handle_request_line(conn, state, input, view);
+        if (r) return *r;
         continue;
       }
-
       case http_phase::header_lines: {
-        // When the request has no header-field lines (blank line follows the
-        // request line immediately) the active data begins with "\r\n"
-        // rather than "...\r\n\r\n". The "\r\n\r\n" sentinel cannot match in
-        // that case, so detect it up front and skip the parser entirely.
-        if (!input.starts_with("\r\n")) {
-          terminated_text_parser parser{state.parser_state};
-          std::string_view block_view;
-          const auto r = parser.parse(input, block_view);
-          if (!r) return true; // incomplete; wait for more data
-
-          if (!*r) {
-            // Header block exceeded 8192-byte limit.
-            if (!arm_write_timeout(conn)) return conn.hangup() && false;
-            if (!conn.send(response_head::make_error_response(
-                    after_response::close, state.req.version)))
-              return conn.hangup() && false;
-            state.phase = http_phase::response;
-            return conn.close() && false;
-          }
-
-          // Process before updating view (buffer may compact on update).
-          const bool lines_ok = state.req.headers.add_lines(block_view);
-          view.update_active_view(input);
-          parser.reset();
-
-          if (!lines_ok) {
-            if (!arm_write_timeout(conn)) return conn.hangup() && false;
-            if (!conn.send(response_head::make_error_response(
-                    after_response::close, state.req.version)))
-              return conn.hangup() && false;
-            state.phase = http_phase::response;
-            return conn.close() && false;
-          }
-        } else {
-          // No headers: consume the blank-line terminator and fall through
-          // to dispatch with an empty header set.
-          input.remove_prefix(2);
-          view.update_active_view(input);
-        }
-
-        // End of header block; dispatch the request.
-        const auto keep_alive = dispatch_request(conn, state.req);
-        state.req.clear();
-        // Reset sentinel for the next request line (keep-alive /
-        // pipelining).
-        state.parser_state = terminated_text_parser::state{"\r\n", 8192};
-        state.phase = http_phase::request_line;
-        if (keep_alive == after_response::close) {
-          state.phase = http_phase::response;
-          return conn.close();
-        }
-        // Keep-alive: re-arm read timeout, then loop to process any
-        // additional pipelined requests already in the receive buffer.
-        if (!arm_read_timeout(conn)) return conn.hangup() && false;
+        const auto r = handle_header_lines(conn, state, input, view);
+        if (r) return *r;
         continue;
       }
-
-      case http_phase::body:
-        // Future: accumulate request body bytes.
-        return true;
-
+      case http_phase::body: return handle_body(conn, state, input, view);
       case http_phase::response:
       case http_phase::done:
         // Ignore trailing bytes; let the send queue drain cleanly.
@@ -454,6 +481,9 @@ private:
       }
     }
   }
+
+  // Maximum bare CRLFs to skip before the request line (RFC 9112 §2.2).
+  static constexpr uint8_t max_leading_crls{8};
 
   std::optional<epoll_loop_runner> runner_;
   epoll_loop_ptr loop_;

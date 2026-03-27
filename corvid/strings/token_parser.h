@@ -25,7 +25,7 @@ class token_parser {
 public:
   explicit token_parser(std::string_view separator) : separator_(separator) {}
 
-  auto separator() const noexcept { return separator_; }
+  [[nodiscard]] auto separator() const noexcept { return separator_; }
   void separator(std::string_view separator) noexcept {
     separator_ = separator;
   }

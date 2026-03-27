@@ -278,7 +278,7 @@ public:
   // normalized. Returns `std::nullopt` if not found, as opposed to empty if
   // it was found with an empty value.
   [[nodiscard]] std::optional<std::string_view> get(
-      std::string_view field_name) const noexcept {
+      std::string_view field_name) const {
     assert(is_normalized(field_name));
     auto ids = find_opt(index_, field_name);
     if (!ids || ids->empty()) return std::nullopt;
@@ -358,8 +358,7 @@ public:
   // Return true iff the connection should remain open.
   // HTTP/1.1 defaults to keep-alive; HTTP/1.0 and HTTP/0.9 default to close.
   // Overridden by `"Connection: close"` or `"Connection: keep-alive"`.
-  [[nodiscard]] after_response keep_alive(
-      http_version version) const noexcept {
+  [[nodiscard]] after_response keep_alive(http_version version) const {
     if (version == http_version::http_0_9) return after_response::close;
     // If we can parse it out, use it.
     const auto c = strings::as_lower(get("Connection").value_or(""sv));
@@ -373,14 +372,14 @@ public:
 
   // Return the `Content-Length` value, or `std::nullopt` if absent or
   // unparseable.
-  [[nodiscard]] std::optional<size_t> content_length() const noexcept {
+  [[nodiscard]] std::optional<size_t> content_length() const {
     const auto sv = get("Content-Length");
     if (!sv) return std::nullopt;
     return strings::parse_num<size_t>(*sv);
   }
 
   // Return true iff `"Transfer-Encoding: chunked"` is present.
-  [[nodiscard]] bool is_chunked() const noexcept {
+  [[nodiscard]] bool is_chunked() const {
     return strings::as_lower(get("Transfer-Encoding").value_or(""sv)) ==
            "chunked";
   }
