@@ -395,7 +395,7 @@ void HttpServer_Create_BadEndpoint() {
 // Verify that `GET / HTTP/1.1` produces a 200 HTML response.
 void HttpServer_GetRoot() {
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
-      nullptr, nullptr, 100000s, 100000s);
+      nullptr, nullptr, 0s, 0s);
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);

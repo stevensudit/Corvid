@@ -160,6 +160,7 @@ private:
   // Append one chunk of data from the socket to `buf_`. Closes and returns
   // false on EOF, hard error, or timeout.
   [[nodiscard]] bool do_recv() {
+    if (!sock_.is_open()) return false;
     static constexpr size_t chunk_size = 4096;
     const size_t old_size = buf_.size();
     no_zero::resize_to(buf_, old_size + chunk_size);

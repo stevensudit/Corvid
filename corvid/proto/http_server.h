@@ -180,7 +180,10 @@ private:
   // fuse, then schedules a `hangup` after `read_timeout_` via the timing
   // wheel. Called on connection (via `handle_drain`) and again after each
   // parsed request so that keep-alive connections restart the clock.
+  // For the purpose of testing, a zero duration means "no timeout" (i.e.,
+  // don't arm a fuse at all).
   [[nodiscard]] bool arm_read_timeout(stream_conn& conn) const {
+    if (read_timeout_ == 0s) return true;
     return timer_fuse_t::set_timeout(*wheel_,
         conn_t::from(conn).state().read_seq, std::weak_ptr{conn.self()},
         read_timeout_, timeout_hangup);
@@ -190,7 +193,10 @@ private:
   // prior fuse, then schedules a `hangup` after `write_timeout_` via the
   // timing wheel. Called just before queueing a response. Disarmed by
   // `handle_drain` when the send queue empties before the deadline.
+  // For the purpose of testing, a zero duration means "no timeout" (i.e.,
+  // don't arm a fuse at all).
   [[nodiscard]] bool arm_write_timeout(stream_conn& conn) const {
+    if (write_timeout_ == 0s) return true;
     return timer_fuse_t::set_timeout(*wheel_,
         conn_t::from(conn).state().write_seq, std::weak_ptr{conn.self()},
         write_timeout_, timeout_hangup);
@@ -327,9 +333,9 @@ private:
         const auto r = parser.parse(input, block_view);
         if (!r) return true; // incomplete; wait for more data
 
-        // Request line exceeded 8192-byte limit. We have no idea what version
-        // the client is trying to speak, so there's no point pretending to
-        // send a reasonable error response.
+        // Request line exceeded 8192-byte limit. We have no idea what
+        // version the client is trying to speak, so there's no point
+        // pretending to send a reasonable error response.
         if (!*r) return conn.hangup() && false;
 
         // Skip leading bare CRLFs (RFC 9112 section 2.2).
@@ -380,41 +386,52 @@ private:
       }
 
       case http_phase::header_lines: {
-        terminated_text_parser parser{state.parser_state};
-        std::string_view block_view;
-        const auto r = parser.parse(input, block_view);
-        if (!r) return true; // incomplete; wait for more data
+        // When the request has no header-field lines (blank line follows the
+        // request line immediately) the active data begins with "\r\n"
+        // rather than "...\r\n\r\n". The "\r\n\r\n" sentinel cannot match in
+        // that case, so detect it up front and skip the parser entirely.
+        if (!input.starts_with("\r\n")) {
+          terminated_text_parser parser{state.parser_state};
+          std::string_view block_view;
+          const auto r = parser.parse(input, block_view);
+          if (!r) return true; // incomplete; wait for more data
 
-        if (!*r) {
-          // Header line exceeded 8192-byte limit.
-          if (!arm_write_timeout(conn)) return conn.hangup() && false;
-          if (!conn.send(response_head::make_error_response(
-                  after_response::close, state.req.version)))
-            return conn.hangup() && false;
-          state.phase = http_phase::response;
-          return conn.close() && false;
+          if (!*r) {
+            // Header block exceeded 8192-byte limit.
+            if (!arm_write_timeout(conn)) return conn.hangup() && false;
+            if (!conn.send(response_head::make_error_response(
+                    after_response::close, state.req.version)))
+              return conn.hangup() && false;
+            state.phase = http_phase::response;
+            return conn.close() && false;
+          }
+
+          // Process before updating view (buffer may compact on update).
+          const bool lines_ok = state.req.headers.add_lines(block_view);
+          view.update_active_view(input);
+          parser.reset();
+
+          if (!lines_ok) {
+            if (!arm_write_timeout(conn)) return conn.hangup() && false;
+            if (!conn.send(response_head::make_error_response(
+                    after_response::close, state.req.version)))
+              return conn.hangup() && false;
+            state.phase = http_phase::response;
+            return conn.close() && false;
+          }
+        } else {
+          // No headers: consume the blank-line terminator and fall through
+          // to dispatch with an empty header set.
+          input.remove_prefix(2);
+          view.update_active_view(input);
         }
 
-        // Process before updating view (buffer may compact on update).
-        const bool line_ok =
-            block_view.empty() || state.req.headers.add_line(block_view);
-        view.update_active_view(input);
-        parser.reset();
-
-        if (!line_ok) {
-          if (!arm_write_timeout(conn)) return conn.hangup() && false;
-          if (!conn.send(response_head::make_error_response(
-                  after_response::close, state.req.version)))
-            return conn.hangup() && false;
-          state.phase = http_phase::response;
-          return conn.close() && false;
-        }
-
-        if (!block_view.empty()) continue; // more header lines
-
-        // Blank line: end of headers; dispatch the request.
+        // End of header block; dispatch the request.
         const auto keep_alive = dispatch_request(conn, state.req);
         state.req.clear();
+        // Reset sentinel for the next request line (keep-alive /
+        // pipelining).
+        state.parser_state = terminated_text_parser::state{"\r\n", 8192};
         state.phase = http_phase::request_line;
         if (keep_alive == after_response::close) {
           state.phase = http_phase::response;
@@ -446,5 +463,4 @@ private:
   duration_t write_timeout_{5s};
   conn_ptr_t listener_;
 };
-
 }} // namespace corvid::proto
