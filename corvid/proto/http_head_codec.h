@@ -43,7 +43,7 @@ namespace corvid { inline namespace proto { inline namespace http_proto {
 using namespace std::string_view_literals;
 
 // HTTP protocol version.
-enum class http_version : uint8_t { invalid, http_09, http_1_0, http_1_1 };
+enum class http_version : uint8_t { invalid, http_0_9, http_1_0, http_1_1 };
 
 // HTTP request method.
 enum class http_method : uint8_t {
@@ -58,6 +58,10 @@ enum class http_method : uint8_t {
   CONNECT,
   TRACE
 };
+
+// Connection disposition: whether to keep a connection alive after responding
+// or to close it.
+enum class after_response : uint8_t { close = 0, keep_alive = 1 };
 
 }}} // namespace corvid::proto::http_proto
 
@@ -76,7 +80,77 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
         "invalid, GET, HEAD, POST, PUT, DELETE, OPTIONS, PATCH, CONNECT, "
         "TRACE">();
 
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::http_proto::after_response> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::proto::http_proto::after_response, "close, keep-alive">();
+
 namespace corvid { inline namespace proto { inline namespace http_proto {
+
+// HTTP response status code.
+enum class http_status_code : uint16_t {
+  invalid = 0,
+  CONTINUE = 100,
+  SWITCHING_PROTOCOLS = 101,
+  PROCESSING = 102,
+  EARLY_HINTS = 103,
+  OK = 200,
+  CREATED = 201,
+  ACCEPTED = 202,
+  NON_AUTHORITATIVE_INFORMATION = 203,
+  NO_CONTENT = 204,
+  RESET_CONTENT = 205,
+  PARTIAL_CONTENT = 206,
+  MULTIPLE_CHOICES = 300,
+  MOVED_PERMANENTLY = 301,
+  FOUND = 302,
+  SEE_OTHER = 303,
+  NOT_MODIFIED = 304,
+  USE_PROXY = 305,
+  TEMPORARY_REDIRECT = 307,
+  PERMANENT_REDIRECT = 308,
+  BAD_REQUEST = 400,
+  UNAUTHORIZED = 401,
+  PAYMENT_REQUIRED = 402,
+  FORBIDDEN = 403,
+  NOT_FOUND = 404,
+  METHOD_NOT_ALLOWED = 405,
+  NOT_ACCEPTABLE = 406,
+  PROXY_AUTHENTICATION_REQUIRED = 407,
+  REQUEST_TIMEOUT = 408,
+  CONFLICT = 409,
+  GONE = 410,
+  LENGTH_REQUIRED = 411,
+  PRECONDITION_FAILED = 412,
+  CONTENT_TOO_LARGE = 413,
+  URI_TOO_LONG = 414,
+  UNSUPPORTED_MEDIA_TYPE = 415,
+  RANGE_NOT_SATISFIABLE = 416,
+  EXPECTATION_FAILED = 417,
+  IM_A_TEAPOT = 418,
+  MISDIRECTED_REQUEST = 421,
+  UNPROCESSABLE_CONTENT = 422,
+  LOCKED = 423,
+  FAILED_DEPENDENCY = 424,
+  TOO_EARLY = 425,
+  UPGRADE_REQUIRED = 426,
+  PRECONDITION_REQUIRED = 428,
+  TOO_MANY_REQUESTS = 429,
+  REQUEST_HEADER_FIELDS_TOO_LARGE = 431,
+  UNAVAILABLE_FOR_LEGAL_REASONS = 451,
+  INTERNAL_SERVER_ERROR = 500,
+  NOT_IMPLEMENTED = 501,
+  BAD_GATEWAY = 502,
+  SERVICE_UNAVAILABLE = 503,
+  GATEWAY_TIMEOUT = 504,
+  HTTP_VERSION_NOT_SUPPORTED = 505,
+  VARIANT_ALSO_NEGOTIATES = 506,
+  INSUFFICIENT_STORAGE = 507,
+  LOOP_DETECTED = 508,
+  NOT_EXTENDED = 510,
+  NETWORK_AUTHENTICATION_REQUIRED = 511,
+};
 
 // Old-school struct as namespace.
 struct http {
@@ -278,12 +352,17 @@ public:
   // Return true iff the connection should remain open.
   // HTTP/1.1 defaults to keep-alive; HTTP/1.0 and HTTP/0.9 default to close.
   // Overridden by `"Connection: close"` or `"Connection: keep-alive"`.
-  [[nodiscard]] bool keep_alive(http_version version) const noexcept {
-    if (version == http_version::http_09) return false;
+  [[nodiscard]] after_response keep_alive(
+      http_version version) const noexcept {
+    if (version == http_version::http_0_9) return after_response::close;
+    // If we can parse it out, use it.
     const auto c = strings::as_lower(get("Connection").value_or(""sv));
-    if (c == "close") return false;
-    if (c == "keep-alive") return true;
-    return version == http_version::http_1_1;
+    after_response keep_alive;
+    if (strings::convert_text_enum(keep_alive, c)) return keep_alive;
+    // Otherwise, default based on version.
+    return version == http_version::http_1_1
+               ? after_response::keep_alive
+               : after_response::close;
   }
 
   // Return the `Content-Length` value, or `std::nullopt` if absent or
@@ -371,14 +450,14 @@ struct request_head: http {
 
     auto version_sv = request_line;
     if (version_sv.empty())
-      version = http_version::http_09;
+      version = http_version::http_0_9;
     else if (!strings::convert_text_enum(version, version_sv) ||
              version == http_version::invalid)
       return fail("Invalid HTTP version");
 
     // HTTP/0.9: no headers allowed.
     auto header_lines = head;
-    if (version == http_version::http_09) {
+    if (version == http_version::http_0_9) {
       if (!header_lines.empty())
         return fail("HTTP/0.9 does not allow headers");
       return true;
@@ -403,7 +482,7 @@ struct request_head: http {
     result += ' ';
     result += target;
 
-    if (version != http_version::http_09) {
+    if (version != http_version::http_0_9) {
       result += ' ';
       result += strings::enum_as_string(version);
     }
@@ -427,14 +506,14 @@ private:
 // response string to pass to `stream_conn::send()`.
 struct response_head: http {
   http_version version{};
-  int status_code{};
+  http_status_code status_code{};
   std::string reason;
   http_headers headers;
 
   // Reset to default-constructed state.
   void clear() {
     version = {};
-    status_code = 0;
+    status_code = {};
     reason.clear();
     headers = {};
   }
@@ -460,10 +539,11 @@ struct response_head: http {
     if (!status_code_sv_opt) return fail("Status code not terminated by SP");
     auto status_code_sv = *status_code_sv_opt;
 
+    // TODO: Fix.
     auto status_code_opt = strings::parse_num<int>(status_code_sv);
     if (!status_code_opt || *status_code_opt < 100 || *status_code_opt > 999)
       return fail("Invalid status code");
-    status_code = *status_code_opt;
+    status_code = static_cast<http_status_code>(*status_code_opt);
 
     reason = std::string{status_line};
 
@@ -489,7 +569,7 @@ struct response_head: http {
 
     result += strings::enum_as_string(version);
     result += ' ';
-    result += std::to_string(status_code);
+    result += std::to_string(static_cast<int>(status_code));
     result += ' ';
     result += reason;
     result += "\r\n";
@@ -498,11 +578,27 @@ struct response_head: http {
     return result;
   }
 
+  // Build a minimal HTTP/1.1 error response with no body. Used when the
+  // server needs to respond before a `request_head` is available
+  // (e.g., parse failure).
+  [[nodiscard]] static std::string
+  make_error_response(after_response keep_alive = after_response::close,
+      http_version version = http_version::http_1_1,
+      http_status_code code = http_status_code::BAD_REQUEST,
+      std::string_view phrase = "Bad Request") {
+    response_head resp;
+    resp.version = version;
+    resp.status_code = code;
+    resp.reason = std::string{phrase};
+    (void)resp.headers.add_raw("Connection",
+        strings::enum_as_string(keep_alive));
+    return resp.serialize();
+  }
+
 private:
   bool fail(std::string failure) {
     reason = std::move(failure);
     return false;
   }
 };
-
 }}} // namespace corvid::proto::http_proto

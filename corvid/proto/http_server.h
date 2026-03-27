@@ -198,9 +198,11 @@ private:
 
   // Initialize the parser state and arm the initial read timeout for a
   // freshly accepted connection. Safe to call multiple times; subsequent
-  // calls are no-ops. Called from `handle_drain` (first writable event,
-  // before any data) and from `handle_data` as a fallback, because
-  // `EPOLLIN` is dispatched before `EPOLLOUT` in the same wakeup.
+  // calls are no-ops.
+  //
+  // Called from `handle_drain` (first writable event, before any data) and
+  // from `handle_data` as a fallback, because `EPOLLIN` is dispatched before
+  // `EPOLLOUT` in the same wakeup.
   [[nodiscard]] bool
   ensure_initialized(stream_conn& conn, http_conn_state& state) const {
     if (state.parser_state) return true;
@@ -214,50 +216,46 @@ private:
   [[nodiscard]] bool handle_drain(stream_conn& conn) const {
     auto& state = conn_t::from(conn).state();
     timer_fuse_t::disarm(state.write_seq);
-    if (!ensure_initialized(conn, state)) return conn.hangup() && false;
+    if (!ensure_initialized(conn, state)) {
+      (void)hangup(conn);
+      return false;
+    }
     return true;
   }
 
-  // Build a minimal HTTP/1.1 error response with no body. Used when the
-  // server needs to respond before a `request_head` is available
-  // (e.g., parse failure).
-  [[nodiscard]] static std::string make_error_response(int code,
-      std::string_view phrase, bool keep_alive = false) {
-    response_head resp;
-    resp.version = http_version::http_1_1;
-    resp.status_code = code;
-    resp.reason = std::string{phrase};
-    (void)resp.headers.add_raw("Connection",
-        keep_alive ? "keep-alive" : "close");
-    return resp.serialize();
+  [[nodiscard]] static after_response hangup(stream_conn& conn) {
+    (void)conn.hangup();
+    return after_response::close;
   }
 
-  [[nodiscard]] static bool hangup(stream_conn& conn) {
-    return conn.hangup() && false;
-  }
-
-  [[nodiscard]] bool send_error_response(stream_conn& conn, int code = 400,
-      std::string_view phrase = "Bad Request", bool keep_alive = false) const {
+  [[nodiscard]] after_response send_error_response(stream_conn& conn,
+      after_response keep_alive = after_response::close,
+      http_version version = http_version::http_1_1,
+      http_status_code code = http_status_code::BAD_REQUEST,
+      std::string_view phrase = "Bad Request") const {
+    if (version == http_version::http_0_9) return hangup(conn);
     if (!arm_write_timeout(conn)) return hangup(conn);
-    if (!conn.send(make_error_response(code, phrase, keep_alive)))
+    if (!conn.send(response_head::make_error_response(keep_alive, version,
+            code, phrase)))
       return hangup(conn);
-    return false;
+    return keep_alive;
   }
 
   // Process one parsed request and queue the appropriate response.
-  // Returns true if the connection should remain open (keep-alive),
-  // false if it should be closed after the response drains. (On severe error,
-  // the connection may already be hung up, turning the close into a no-op.)
-  [[nodiscard]] bool
+  // Returns `after_response::keep_alive` or `after_response::close`. (On
+  // severe error, the connection may already be hung up, turning the close
+  // into a no-op.)
+  [[nodiscard]] after_response
   dispatch_request(stream_conn& conn, const request_head& req) const {
-    const bool alive = req.headers.keep_alive(req.version);
+    const after_response keep_alive = req.headers.keep_alive(req.version);
 
     // HTTP/1.1 requires a `Host` header.
     if (req.version == http_version::http_1_1 && !req.headers.get("Host"))
-      return send_error_response(conn, 400, "Bad Request", alive);
+      return send_error_response(conn, keep_alive, req.version);
 
     if (req.method != http_method::GET)
-      return send_error_response(conn, 405, "Method Not Allowed", alive);
+      return send_error_response(conn, keep_alive, req.version,
+          http_status_code::METHOD_NOT_ALLOWED, "Method Not Allowed");
 
     // The path encodes the desired response body size.
     const std::string_view path =
@@ -267,7 +265,7 @@ private:
     const auto length = strings::parse_num<size_t>(
         path.substr(path.starts_with('/') ? 1 : 0), size_t{0});
     if (length > 10ULL * 1024ULL * 1024ULL)
-      return send_error_response(conn, 400, "Bad Request", alive);
+      return send_error_response(conn, keep_alive, req.version);
 
     // Build a canned HTML response body with the requested padding.
     std::string html{"<html><body><p>I am definitely, totally the file \""};
@@ -276,24 +274,25 @@ private:
     html.append(length, ' ');
     html += "</html>";
 
-    response_head resp;
-    resp.version =
-        (req.version == http_version::http_1_0)
-            ? http_version::http_1_0
-            : http_version::http_1_1;
-    resp.status_code = 200;
-    resp.reason = "OK";
-    if (!resp.headers.add_raw("Connection", alive ? "keep-alive" : "close"))
-      return send_error_response(conn, 400, "Bad Request", alive);
+    if (req.version != http_version::http_0_9) {
+      response_head resp;
+      resp.version = req.version;
+      resp.status_code = http_status_code::OK;
+      resp.reason = "OK";
+      if (!resp.headers.add_raw("Connection",
+              strings::enum_as_string(keep_alive)))
+        return send_error_response(conn, after_response::close, req.version);
 
-    if (!resp.headers.add_raw("Content-Type", "text/html; charset=utf-8") ||
-        !resp.headers.add_raw("Content-Length", std::to_string(html.size())))
-      return send_error_response(conn, 400, "Bad Request", alive);
+      if (!resp.headers.add_raw("Content-Type", "text/html; charset=utf-8") ||
+          !resp.headers.add_raw("Content-Length", std::to_string(html.size())))
+        return send_error_response(conn, after_response::close, req.version);
 
-    if (!conn.send(resp.serialize())) return hangup(conn);
+      if (!conn.send(resp.serialize())) return hangup(conn);
+    }
+
     if (!arm_write_timeout(conn)) return hangup(conn);
     if (!conn.send(std::move(html))) return hangup(conn);
-    return alive;
+    return keep_alive;
   }
 
   // Handle incoming data for an accepted connection.
@@ -314,48 +313,59 @@ private:
 
     auto input = view.active_view();
 
+    // State machine.
     while (true) {
       switch (state.phase) {
+        // Try to parse out just the request line, which ends at crlf. This
+        // lets us check for HTTP/0.9 instead of blocking forever on headers
+        // that might never come. Note that, while headers are technically
+        // optional for HTTP/1.0, we can at least count on the crlfcrlf
+        // sentinel.
       case http_phase::request_line: {
         terminated_text_parser parser{state.parser_state};
         std::string_view block_view;
         const auto r = parser.parse(input, block_view);
         if (!r) return true; // incomplete; wait for more data
 
-        if (!*r) {
-          // Request line exceeded 8192-byte limit.
-          if (!arm_write_timeout(conn)) return conn.hangup() && false;
-          if (!conn.send(make_error_response(400, "Bad Request")))
-            return conn.hangup() && false;
-          state.phase = http_phase::response;
-          return conn.close() && false;
-        }
+        // Request line exceeded 8192-byte limit. We have no idea what version
+        // the client is trying to speak, so there's no point pretending to
+        // send a reasonable error response.
+        if (!*r) return conn.hangup() && false;
 
         // Skip leading bare CRLFs (RFC 9112 section 2.2).
+        // TODO: Put a limit on this, perhaps by adding a count in the state.
+        // We could also detect this by looking for leading crlf pairs and
+        // counting them. If the count exceeds a reasonable amount, fail now.
+        // Otherwise, skip past them and continue.
         if (block_view.empty()) {
           view.update_active_view(input);
           parser.reset();
           continue;
         }
 
-        // Extract before `recv_buffer_view` destructs (buffer may compact).
+        // Extract request line.
         const bool extracted = state.req.parse(block_view);
         view.update_active_view(input);
         parser.reset();
 
         if (!extracted) {
-          if (!arm_write_timeout(conn)) return conn.hangup() && false;
-          if (!conn.send(make_error_response(400, "Bad Request")))
-            return conn.hangup() && false;
+          // Best practice is to assume HTTP/1.1 in our error response when
+          // something goes wrong during the version parsing, or even if it's
+          // apparently HTTP/0.9 but still invalid.
+          if (state.req.version != http_version::http_1_0 &&
+              state.req.version != http_version::http_1_1)
+            state.req.version = http_version::http_1_1;
+          (void)send_error_response(conn, after_response::close,
+              state.req.version);
           state.phase = http_phase::response;
           return conn.close() && false;
         }
 
-        if (state.req.version == http_version::http_09) {
+        if (state.req.version == http_version::http_0_9) {
           // HTTP/0.9: request line only, no headers.
-          const bool alive = dispatch_request(conn, state.req);
+          const auto keep_alive = dispatch_request(conn, state.req);
           state.req.clear();
-          if (!alive) {
+          if (keep_alive == after_response::close) {
             state.phase = http_phase::response;
             return conn.close();
           }
@@ -364,6 +374,7 @@ private:
         }
 
         // HTTP/1.x: proceed to parse header-field lines.
+        state.parser_state = terminated_text_parser::state{"\r\n\r\n", 8192};
         state.phase = http_phase::header_lines;
         continue;
       }
@@ -377,7 +388,8 @@ private:
         if (!*r) {
           // Header line exceeded 8192-byte limit.
           if (!arm_write_timeout(conn)) return conn.hangup() && false;
-          if (!conn.send(make_error_response(400, "Bad Request")))
+          if (!conn.send(response_head::make_error_response(
+                  after_response::close, state.req.version)))
             return conn.hangup() && false;
           state.phase = http_phase::response;
           return conn.close() && false;
@@ -391,7 +403,8 @@ private:
 
         if (!line_ok) {
           if (!arm_write_timeout(conn)) return conn.hangup() && false;
-          if (!conn.send(make_error_response(400, "Bad Request")))
+          if (!conn.send(response_head::make_error_response(
+                  after_response::close, state.req.version)))
             return conn.hangup() && false;
           state.phase = http_phase::response;
           return conn.close() && false;
@@ -400,10 +413,10 @@ private:
         if (!block_view.empty()) continue; // more header lines
 
         // Blank line: end of headers; dispatch the request.
-        const bool alive = dispatch_request(conn, state.req);
+        const auto keep_alive = dispatch_request(conn, state.req);
         state.req.clear();
         state.phase = http_phase::request_line;
-        if (!alive) {
+        if (keep_alive == after_response::close) {
           state.phase = http_phase::response;
           return conn.close();
         }

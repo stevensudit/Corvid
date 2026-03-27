@@ -76,7 +76,4 @@ enum class coordination_policy : bool { unilateral = false, bilateral = true };
 // Whether to allow exclusive or shared access to a resource.
 enum class exclusivity : bool { exclusive = false, shared = true };
 
-// Whether to keep a connection alive after responding or to close it.
-enum class connection_disposition : bool { close = false, keep_alive = true };
-
 }}} // namespace corvid::enums::bool_enums

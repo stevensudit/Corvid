@@ -134,7 +134,7 @@ HTTP server built incrementally from an HTTP 0.9 baseline to full HTTP/1.1,
 followed by client and proxy support.
 
 - **[done]** `http_head_codec` -- HTTP/1.1 data types in `http_head_codec.h`;
-  `http_version` enum (`invalid`, `http_09`, `http_1_0`, `http_1_1`); `http_method`
+  `http_version` enum (`invalid`, `http_0_9`, `http_1_0`, `http_1_1`); `http_method`
   enum (`invalid`, `GET`, `HEAD`, `POST`, `PUT`, `DELETE`, `OPTIONS`, `PATCH`,
   `CONNECT`, `TRACE`); `http_headers` ordered multimap with O(1) average lookup
   (insertion-order `vector` + `unordered_map` index keyed by canonical name),

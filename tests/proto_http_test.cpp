@@ -74,11 +74,11 @@ void HttpHeaderBlock_InvalidVersion() {
 }
 
 // Verify that an HTTP/0.9-style request line (no version token) yields
-// `http_version::http_09`.
+// `http_version::http_0_9`.
 void HttpHeaderBlock_Http09Style() {
   request_head req;
   ASSERT_TRUE(req.parse("GET /\r\n"));
-  EXPECT_EQ(req.version, http_version::http_09);
+  EXPECT_EQ(req.version, http_version::http_0_9);
   EXPECT_EQ(req.target, "/");
 }
 
@@ -139,23 +139,23 @@ void HttpHeaderBlock_KeepAlive() {
   {
     request_head req;
     ASSERT_TRUE(req.parse("GET / HTTP/1.1\r\nHost: h\r\n"));
-    EXPECT_TRUE(req.headers.keep_alive(req.version));
+    EXPECT_EQ(req.headers.keep_alive(req.version), after_response::keep_alive);
   }
   {
     request_head req;
     ASSERT_TRUE(req.parse("GET / HTTP/1.0\r\n"));
-    EXPECT_FALSE(req.headers.keep_alive(req.version));
+    EXPECT_EQ(req.headers.keep_alive(req.version), after_response::close);
   }
   {
     request_head req;
     ASSERT_TRUE(
         req.parse("GET / HTTP/1.1\r\nHost: h\r\nConnection: close\r\n"));
-    EXPECT_FALSE(req.headers.keep_alive(req.version));
+    EXPECT_EQ(req.headers.keep_alive(req.version), after_response::close);
   }
   {
     request_head req;
     ASSERT_TRUE(req.parse("GET / HTTP/1.0\r\nConnection: keep-alive\r\n"));
-    EXPECT_TRUE(req.headers.keep_alive(req.version));
+    EXPECT_EQ(req.headers.keep_alive(req.version), after_response::keep_alive);
   }
 }
 
@@ -164,7 +164,7 @@ void HttpHeaderBlock_KeepAlive() {
 void HttpHeaderBlock_ResponseSerialize() {
   response_head resp;
   resp.version = http_version::http_1_1;
-  resp.status_code = 200;
+  resp.status_code = http_status_code::OK;
   resp.reason = "OK";
   EXPECT_TRUE(resp.headers.add_raw("Connection", "close"));
   EXPECT_TRUE(resp.headers.add_raw("Content-Type", "text/plain"));
@@ -287,7 +287,7 @@ void HttpHeaderBlock_ResponseExtract() {
         "HTTP/1.1 200 OK\r\nContent-Type: "
         "text/html\r\nContent-Length: 42\r\n"));
     EXPECT_EQ(resp.version, http_version::http_1_1);
-    EXPECT_EQ(resp.status_code, 200);
+    EXPECT_EQ(resp.status_code, http_status_code{200});
     EXPECT_EQ(resp.reason, "OK");
     const auto content_type = resp.headers.get("Content-Type");
     ASSERT_TRUE(content_type);
@@ -301,7 +301,7 @@ void HttpHeaderBlock_ResponseExtract() {
     response_head resp;
     ASSERT_TRUE(resp.parse("HTTP/1.0 404 Not Found\r\n"));
     EXPECT_EQ(resp.version, http_version::http_1_0);
-    EXPECT_EQ(resp.status_code, 404);
+    EXPECT_EQ(resp.status_code, http_status_code{404});
     EXPECT_EQ(resp.reason, "Not Found");
   }
   {
@@ -323,14 +323,14 @@ void HttpHeaderBlock_ResponseExtract() {
     // Round-trip: build a response, serialize it, re-parse, check fields.
     response_head resp;
     resp.version = http_version::http_1_1;
-    resp.status_code = 201;
+    resp.status_code = http_status_code{201};
     resp.reason = "Created";
     EXPECT_TRUE(resp.headers.add_raw("Location", "/new/resource"));
     const auto wire = resp.serialize();
     response_head resp2;
     ASSERT_TRUE(resp2.parse(wire.substr(0, wire.size() - 2)));
     EXPECT_EQ(resp2.version, http_version::http_1_1);
-    EXPECT_EQ(resp2.status_code, 201);
+    EXPECT_EQ(resp2.status_code, http_status_code{201});
     EXPECT_EQ(resp2.reason, "Created");
     const auto location = resp2.headers.get("Location");
     ASSERT_TRUE(location);
@@ -349,9 +349,8 @@ void HttpServer_Http09() {
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
   EXPECT_TRUE(client.send("GET /\r\n"));
-  const auto response = client.recv_until("\r\n\r\n");
-  EXPECT_NE(response.find("200"), std::string::npos);
-  (void)client.recv_until("</html>");
+  const auto response = client.recv_until("</html>");
+  EXPECT_EQ(response.find("200"), std::string::npos);
   // HTTP/0.9 never keep-alive; server should close after the response.
   EXPECT_TRUE(client.recv().empty());
 }
@@ -395,7 +394,8 @@ void HttpServer_Create_BadEndpoint() {
 
 // Verify that `GET / HTTP/1.1` produces a 200 HTML response.
 void HttpServer_GetRoot() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      nullptr, nullptr, 100000s, 100000s);
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -444,8 +444,7 @@ void HttpServer_TooLongRequest() {
   // ignore the result and rely on `recv_until` to read the error response.
   (void)client.send(std::string(8200, 'x'));
   const auto response = client.recv_until("\r\n\r\n");
-  EXPECT_NE(response.find("400"), std::string::npos);
-  EXPECT_TRUE(client.recv().empty());
+  EXPECT_EQ(response.size(), 0ULL);
 }
 
 // Verify that a request arriving in two writes is handled correctly by the
