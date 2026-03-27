@@ -869,6 +869,365 @@ void HttpHeaderBlock_NormalizeEdgeCases() {
   }
 }
 
+// Verify `is_valid_field_value`: empty and printable are accepted; control
+// characters and DEL are rejected; obs-text bytes (>= 0x80) are accepted.
+void HttpHeaderBlock_IsValidFieldValue() {
+  EXPECT_TRUE(http_headers::is_valid_field_value(""));
+  EXPECT_TRUE(http_headers::is_valid_field_value("text/html; charset=utf-8"));
+  EXPECT_TRUE(http_headers::is_valid_field_value(" padded value "));
+  EXPECT_TRUE(http_headers::is_valid_field_value("value\twith\ttab"));
+  // obs-text (>= 0x80): valid per RFC 9110 field-value grammar.
+  EXPECT_TRUE(http_headers::is_valid_field_value("\x80\xff"));
+  // Null byte: invalid.
+  EXPECT_FALSE(
+      http_headers::is_valid_field_value(std::string_view("a\0b", 3)));
+  // CR and LF: invalid.
+  EXPECT_FALSE(http_headers::is_valid_field_value("bad\rvalue"));
+  EXPECT_FALSE(http_headers::is_valid_field_value("bad\nvalue"));
+  // DEL (0x7F): invalid.
+  EXPECT_FALSE(http_headers::is_valid_field_value("bad\x7fvalue"));
+  // Other control chars (< 0x20, not HTAB): invalid.
+  EXPECT_FALSE(http_headers::is_valid_field_value("bad\x01value"));
+}
+
+// Verify `content_length()`: returns the numeric value when present and
+// parseable, and `nullopt` when absent or non-numeric.
+void HttpHeaderBlock_ContentLength() {
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Content-Length", "42"));
+    const auto cl = h.content_length();
+    ASSERT_TRUE(cl);
+    EXPECT_EQ(*cl, 42ULL);
+  }
+  {
+    // Absent: nullopt.
+    http_headers h;
+    EXPECT_FALSE(h.content_length());
+  }
+  {
+    // Non-numeric: nullopt.
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Content-Length", "abc"));
+    EXPECT_FALSE(h.content_length());
+  }
+  {
+    // Zero is a valid value.
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Content-Length", "0"));
+    const auto cl = h.content_length();
+    ASSERT_TRUE(cl);
+    EXPECT_EQ(*cl, 0ULL);
+  }
+}
+
+// Verify `is_chunked()`: true iff `Transfer-Encoding: chunked` (case-
+// insensitive value), false otherwise.
+void HttpHeaderBlock_IsChunked() {
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Transfer-Encoding", "chunked"));
+    EXPECT_TRUE(h.is_chunked());
+  }
+  {
+    // Mixed case value still matches.
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Transfer-Encoding", "Chunked"));
+    EXPECT_TRUE(h.is_chunked());
+  }
+  {
+    // Different value: false.
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Transfer-Encoding", "identity"));
+    EXPECT_FALSE(h.is_chunked());
+  }
+  {
+    // Absent: false.
+    http_headers h;
+    EXPECT_FALSE(h.is_chunked());
+  }
+}
+
+// Verify `empty()`, `size()`, and ordered iteration.
+void HttpHeaderBlock_SizeAndEmpty() {
+  http_headers h;
+  EXPECT_TRUE(h.empty());
+  EXPECT_EQ(h.size(), 0ULL);
+
+  EXPECT_TRUE(h.add_raw("Host", "example.com"));
+  EXPECT_FALSE(h.empty());
+  EXPECT_EQ(h.size(), 1ULL);
+
+  EXPECT_TRUE(h.add_raw("Accept", "text/html"));
+  EXPECT_EQ(h.size(), 2ULL);
+
+  // Iteration visits fields in insertion order.
+  auto it = h.begin();
+  EXPECT_EQ(it->name, "Host");
+  ++it;
+  EXPECT_EQ(it->name, "Accept");
+  ++it;
+  EXPECT_TRUE(it == h.end());
+}
+
+// Verify 3-arg `add_raw`: `field_name` is the index key (canonical form);
+// `raw_field_name` is the wire name stored in the entry.
+void HttpHeaderBlock_AddRawWithRawName() {
+  http_headers h;
+  // Index key is canonical "Content-Type"; wire name is lowercase.
+  EXPECT_TRUE(h.add_raw("Content-Type", "text/html", "content-type"));
+
+  // `get()` looks up via canonical index key.
+  const auto ct = h.get("Content-Type");
+  ASSERT_TRUE(ct);
+  EXPECT_EQ(*ct, "text/html");
+
+  // Non-canonical name is not in the index.
+  EXPECT_FALSE(h.get("content-type"));
+
+  // `serialize()` writes the raw (wire) name, not the canonical key.
+  std::string out;
+  h.serialize(out);
+  EXPECT_NE(out.find("content-type: text/html\r\n"), std::string::npos);
+  EXPECT_EQ(out.find("Content-Type"), std::string::npos);
+}
+
+// Verify that `get()` returns only the first value when a field name appears
+// multiple times (use `get_combined()` for all values).
+void HttpHeaderBlock_GetReturnsFirst() {
+  http_headers h;
+  EXPECT_TRUE(h.add("Accept", "text/html"));
+  EXPECT_TRUE(h.add("Accept", "application/json"));
+  EXPECT_TRUE(h.add("Accept", "image/webp"));
+
+  const auto first = h.get("Accept");
+  ASSERT_TRUE(first);
+  EXPECT_EQ(*first, "text/html");
+
+  // `get_combined()` joins all three.
+  EXPECT_EQ(h.get_combined("Accept"),
+      "text/html, application/json, image/webp");
+}
+
+// Verify `keep_alive()` for HTTP/0.9: always `close`, regardless of any
+// `Connection` header (HTTP/0.9 headers don't exist, but guard against it).
+void HttpHeaderBlock_KeepAliveHttp09() {
+  http_headers h;
+  EXPECT_EQ(h.keep_alive(http_version::http_0_9), after_response::close);
+
+  // Even if a `Connection: keep-alive` header were somehow present,
+  // HTTP/0.9 must still return `close`.
+  EXPECT_TRUE(h.add_raw("Connection", "keep-alive"));
+  EXPECT_EQ(h.keep_alive(http_version::http_0_9), after_response::close);
+}
+
+// Verify that an HTTP/0.9 request line with trailing header text causes
+// `request_head::parse` to fail (HTTP/0.9 does not allow headers).
+void HttpHeaderBlock_Http09WithHeaders() {
+  request_head req;
+  EXPECT_FALSE(req.parse("GET /\r\nHost: example.com\r\n"));
+}
+
+// Verify that more than five consecutive leading CRLFs cause `parse` to fail
+// (RFC 9112 section 2.2 imposes a limit).
+void HttpHeaderBlock_TooManyLeadingCrlfs() {
+  {
+    // Exactly 5 leading CRLFs: should still parse successfully.
+    request_head req;
+    EXPECT_TRUE(req.parse("\r\n\r\n\r\n\r\n\r\nGET / HTTP/1.1\r\n"));
+    EXPECT_EQ(req.method, http_method::GET);
+  }
+  {
+    // Six leading CRLFs: parse fails.
+    request_head req;
+    EXPECT_FALSE(req.parse("\r\n\r\n\r\n\r\n\r\n\r\nGET / HTTP/1.1\r\n"));
+  }
+}
+
+// Verify that a target not starting with `'/'` causes `parse` to fail.
+void HttpHeaderBlock_TargetNotPath() {
+  {
+    // Absolute URI form (HTTP/1.1 proxies): not accepted by this parser.
+    request_head req;
+    EXPECT_FALSE(req.parse("GET http://example.com/ HTTP/1.1\r\n"));
+  }
+  {
+    // Authority form.
+    request_head req;
+    EXPECT_FALSE(req.parse("CONNECT example.com:443 HTTP/1.1\r\n"));
+  }
+}
+
+// Verify that `request_head::clear()` restores default-constructed state so
+// the object can be reused for a second request.
+void HttpHeaderBlock_ClearRequest() {
+  request_head req;
+  ASSERT_TRUE(req.parse(
+      "GET /path HTTP/1.1\r\nHost: example.com\r\nAccept: text/html\r\n"));
+  EXPECT_EQ(req.method, http_method::GET);
+  EXPECT_FALSE(req.headers.empty());
+
+  req.clear();
+  EXPECT_EQ(req.version, http_version{});
+  EXPECT_EQ(req.method, http_method{});
+  EXPECT_TRUE(req.target.empty());
+  EXPECT_TRUE(req.headers.empty());
+}
+
+// Verify that `response_head::clear()` restores default-constructed state.
+void HttpHeaderBlock_ClearResponse() {
+  response_head resp;
+  resp.version = http_version::http_1_1;
+  resp.status_code = http_status_code::OK;
+  resp.reason = "OK";
+  EXPECT_TRUE(resp.headers.add_raw("Content-Length", "0"));
+
+  resp.clear();
+  EXPECT_EQ(resp.version, http_version{});
+  EXPECT_EQ(resp.status_code, http_status_code{});
+  EXPECT_TRUE(resp.reason.empty());
+  EXPECT_TRUE(resp.headers.empty());
+}
+
+// Verify that `response_head::serialize()` returns an empty string when the
+// version is `http_version::invalid`.
+void HttpHeaderBlock_ResponseSerializeInvalid() {
+  response_head resp;
+  // Default-constructed version is `invalid`.
+  EXPECT_TRUE(resp.serialize().empty());
+
+  // Explicitly set to invalid.
+  resp.version = http_version::invalid;
+  resp.status_code = http_status_code::OK;
+  resp.reason = "OK";
+  EXPECT_TRUE(resp.serialize().empty());
+}
+
+// Verify `make_error_response()` with default and custom arguments.
+void HttpHeaderBlock_MakeErrorResponse() {
+  {
+    // Defaults: HTTP/1.1 400 Bad Request, Connection: close.
+    const auto wire = response_head::make_error_response();
+    EXPECT_NE(wire.find("HTTP/1.1"), std::string::npos);
+    EXPECT_NE(wire.find("400"), std::string::npos);
+    EXPECT_NE(wire.find("Bad Request"), std::string::npos);
+    EXPECT_NE(wire.find("Connection: close"), std::string::npos);
+    EXPECT_TRUE(wire.ends_with("\r\n\r\n"));
+  }
+  {
+    // Custom: HTTP/1.0 405 Method Not Allowed, Connection: keep-alive.
+    const auto wire = response_head::make_error_response(
+        after_response::keep_alive, http_version::http_1_0,
+        http_status_code::METHOD_NOT_ALLOWED, "Method Not Allowed");
+    EXPECT_NE(wire.find("HTTP/1.0"), std::string::npos);
+    EXPECT_NE(wire.find("405"), std::string::npos);
+    EXPECT_NE(wire.find("Method Not Allowed"), std::string::npos);
+    EXPECT_NE(wire.find("Connection: keep-alive"), std::string::npos);
+  }
+}
+
+// Verify `response_head::parse()` edge cases: empty reason phrase (trailing
+// space after status code with no text) succeeds; missing space after status
+// code fails.
+void HttpHeaderBlock_ResponseParseEdgeCases() {
+  {
+    // Empty reason: status line is "HTTP/1.1 204 ", reason is "".
+    response_head resp;
+    ASSERT_TRUE(resp.parse("HTTP/1.1 204 "));
+    EXPECT_EQ(resp.version, http_version::http_1_1);
+    EXPECT_EQ(resp.status_code, http_status_code::NO_CONTENT);
+    EXPECT_TRUE(resp.reason.empty());
+  }
+  {
+    // No SP after status code: fails.
+    response_head resp;
+    EXPECT_FALSE(resp.parse("HTTP/1.1 200\r\n"));
+  }
+  {
+    // Status code below 100: fails.
+    response_head resp;
+    EXPECT_FALSE(resp.parse("HTTP/1.1 99 Too Low\r\n"));
+  }
+  {
+    // Status code above 999: fails.
+    response_head resp;
+    EXPECT_FALSE(resp.parse("HTTP/1.1 1000 Too High\r\n"));
+  }
+}
+
+// Verify that a path encoding a body size exceeding 10 MB yields a 400.
+void HttpServer_BodyTooLarge() {
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      nullptr, nullptr, 0s, 0s);
+  ASSERT_TRUE(server);
+
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
+  ASSERT_TRUE(client);
+  // 10 * 1024 * 1024 + 1 = 10485761, just over the 10 MB limit.
+  EXPECT_TRUE(
+      client.send("GET /10485761 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  const auto response = client.recv_until("\r\n\r\n");
+  EXPECT_NE(response.find("400"), std::string::npos);
+}
+
+// Verify that a header block exceeding the 8192-byte limit yields a 400
+// response and the server closes the connection.
+void HttpServer_TooLongHeaders() {
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      nullptr, nullptr, 0s, 0s);
+  ASSERT_TRUE(server);
+
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
+  ASSERT_TRUE(client);
+  // The header block (everything between the request line and \r\n\r\n)
+  // must exceed 8192 bytes. "X-Pad: " (7) + 8192 'a' + "\r\n" (2) = 8201.
+  const std::string long_header = "X-Pad: " + std::string(8192, 'a') + "\r\n";
+  EXPECT_TRUE(client.send("GET / HTTP/1.1\r\n" + long_header + "\r\n"));
+  const auto response = client.recv_until("\r\n\r\n");
+  EXPECT_NE(response.find("400"), std::string::npos);
+  EXPECT_TRUE(client.recv().empty()); // server closes after error
+}
+
+// Verify that a request line with an unrecognized method yields a 400
+// response and the server closes the connection.
+void HttpServer_MalformedRequestLine() {
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      nullptr, nullptr, 0s, 0s);
+  ASSERT_TRUE(server);
+
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
+  ASSERT_TRUE(client);
+  EXPECT_TRUE(client.send("BREW /coffee HTTP/1.1\r\n\r\n"));
+  const auto response = client.recv_until("\r\n\r\n");
+  EXPECT_NE(response.find("400"), std::string::npos);
+  EXPECT_TRUE(client.recv().empty()); // server closes after error
+}
+
+// Verify that an HTTP/1.0 request with `Connection: keep-alive` keeps the
+// connection open for a second request.
+void HttpServer_Http10KeepAlive() {
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      nullptr, nullptr, 0s, 0s);
+  ASSERT_TRUE(server);
+
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
+  ASSERT_TRUE(client);
+
+  EXPECT_TRUE(
+      client.send("GET /5 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"));
+  const auto r1 = client.recv_until("\r\n\r\n");
+  EXPECT_NE(r1.find("200"), std::string::npos);
+  EXPECT_NE(r1.find("Connection: keep-alive"), std::string::npos);
+  (void)client.recv_until("</html>");
+
+  // Connection is still open; second request succeeds.
+  EXPECT_TRUE(
+      client.send("GET /10 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"));
+  const auto r2 = client.recv_until("\r\n\r\n");
+  EXPECT_NE(r2.find("200"), std::string::npos);
+  (void)client.recv_until("</html>");
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
 
@@ -888,4 +1247,14 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     HttpServer_KeepAlive, HttpServer_Pipeline, HttpServer_ConnectionClose,
     HttpServer_Http10NoKeepAlive, HttpServer_Http09, HttpServer_LeadingCrlf,
     HttpHeaderBlock_NormalizeCasing, HttpHeaderBlock_NormalizeSpecialChars,
-    HttpHeaderBlock_NormalizeInvalidChars, HttpHeaderBlock_NormalizeEdgeCases);
+    HttpHeaderBlock_NormalizeInvalidChars, HttpHeaderBlock_NormalizeEdgeCases,
+    HttpHeaderBlock_IsValidFieldValue, HttpHeaderBlock_ContentLength,
+    HttpHeaderBlock_IsChunked, HttpHeaderBlock_SizeAndEmpty,
+    HttpHeaderBlock_AddRawWithRawName, HttpHeaderBlock_GetReturnsFirst,
+    HttpHeaderBlock_KeepAliveHttp09, HttpHeaderBlock_Http09WithHeaders,
+    HttpHeaderBlock_TooManyLeadingCrlfs, HttpHeaderBlock_TargetNotPath,
+    HttpHeaderBlock_ClearRequest, HttpHeaderBlock_ClearResponse,
+    HttpHeaderBlock_ResponseSerializeInvalid,
+    HttpHeaderBlock_MakeErrorResponse, HttpHeaderBlock_ResponseParseEdgeCases,
+    HttpServer_BodyTooLarge, HttpServer_TooLongHeaders,
+    HttpServer_MalformedRequestLine, HttpServer_Http10KeepAlive);
