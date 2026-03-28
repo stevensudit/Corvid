@@ -1539,9 +1539,8 @@ void HttpHeaderBlock_SetRawAndRemove() {
     EXPECT_EQ(*it, "image/webp");
     ++it;
     EXPECT_TRUE(it == r.end());
-    const auto accept = h.get("Accept");
-    ASSERT_TRUE(accept);
-    EXPECT_EQ(*accept, "text/html, image/webp");
+    const auto accept = h.get_combined("Accept");
+    EXPECT_EQ(accept, "text/html, image/webp");
   }
   // remove_key: all entries for field gone; other fields unaffected.
   {
