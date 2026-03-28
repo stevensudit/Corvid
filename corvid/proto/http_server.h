@@ -260,7 +260,7 @@ private:
 
     // HTTP/1.1 requires a `Host` header.
     if (req.version == http_version::http_1_1 && !req.headers.get("Host"))
-      return send_error_response(conn, keep_alive, req.version);
+      return send_error_response(conn, after_response::close, req.version);
 
     if (req.method != http_method::GET)
       return send_error_response(conn, keep_alive, req.version,

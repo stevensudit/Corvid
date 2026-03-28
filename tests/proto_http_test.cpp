@@ -582,7 +582,7 @@ void HttpServer_IdleTimeout() {
 void HttpServer_WriteTimeout() {
   // Use a short write timeout so the test completes quickly. The timing
   // wheel has 100 ms precision, so allow generously for scheduling overhead.
-  constexpr auto kWriteTimeout = 500ms;
+  constexpr auto kWriteTimeout = 300ms;
 
   epoll_loop_runner loop;
   timing_wheel_runner wheel;
