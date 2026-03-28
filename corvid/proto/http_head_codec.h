@@ -287,6 +287,8 @@ public:
     [[nodiscard]] iterator end() const noexcept {
       return {entries_, indices_->end(), indices_->end()};
     }
+    // Note that these do not account for tombstones, so the actual count could
+    // be lower.
     [[nodiscard]] bool empty() const noexcept { return indices_->empty(); }
     [[nodiscard]] size_t size() const noexcept { return indices_->size(); }
 
