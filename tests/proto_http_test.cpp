@@ -1529,10 +1529,19 @@ void HttpHeaderBlock_SetRawAndRemove() {
     EXPECT_TRUE(h.add_raw("Accept", "application/json"));
     EXPECT_TRUE(h.add_raw("Accept", "image/webp"));
     const auto r = h.get_values("Accept");
-    std::vector<size_t> to_remove;
     for (auto it = r.begin(); it != r.end(); ++it)
       if (*it == "application/json") it.tombstone();
-    // TODO: Check for results.
+    auto it = r.begin();
+    ASSERT_TRUE(it != r.end());
+    EXPECT_EQ(*it, "text/html");
+    ++it;
+    ASSERT_TRUE(it != r.end());
+    EXPECT_EQ(*it, "image/webp");
+    ++it;
+    EXPECT_TRUE(it == r.end());
+    const auto accept = h.get("Accept");
+    ASSERT_TRUE(accept);
+    EXPECT_EQ(*accept, "text/html, image/webp");
   }
   // remove_key: all entries for field gone; other fields unaffected.
   {
