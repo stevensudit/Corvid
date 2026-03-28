@@ -471,9 +471,11 @@ public:
   // lacks a colon, or either the field name or value is invalid.
   [[nodiscard]] bool add_lines(std::string_view header_lines) {
     strings::token_parser parser{crlf};
-    std::string_view line = parser.next_delimited(header_lines);
-    for (; !line.empty(); line = parser.next_delimited(header_lines))
-      if (line.empty() || !add_line(line)) return false;
+    std::string_view line;
+    do {
+      line = parser.next_delimited(header_lines);
+      if (!add_line(line)) return false;
+    } while (!header_lines.empty());
     return true;
   }
 

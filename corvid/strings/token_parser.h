@@ -42,7 +42,7 @@ public:
   [[nodiscard]] static std::string_view
   next_delimited(std::string_view separator, std::string_view& text) {
     // If no input, nothing to parse.
-    if (text.empty()) return {};
+    if (text.empty() || separator.empty()) return {};
 
     // If delimiter not found, consume the rest of the input.
     const auto pos = text.find(separator);
@@ -74,7 +74,7 @@ public:
   [[nodiscard]] static std::optional<std::string_view>
   next_terminated(std::string_view separator, std::string_view& text) {
     // If no input, nothing to parse.
-    if (text.empty()) return {};
+    if (text.empty() || separator.empty()) return {};
 
     // If terminator not found, fail.
     const auto pos = text.find(separator);

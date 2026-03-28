@@ -478,7 +478,7 @@ void HttpServer_InvalidRequest() {
 }
 
 // Verify that a request line exceeding the 8192-byte limit causes the server
-// to send a 400 response and then close the connection.
+// to hang up immediately without sending any response.
 void HttpServer_TooLongRequest() {
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
