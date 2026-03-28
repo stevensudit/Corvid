@@ -610,26 +610,26 @@ private:
   }
 
   // This can be a list of compression types, none of which we support, but
-  // "chunked" must always be the last encoding applied, if present.
+  // "chunked" must always be the last encoding applied, if present. Multiple
+  // `Transfer-Encoding` fields are treated as a single concatenated list, so
+  // only the last token of the last field determines whether chunked is
+  // active.
   void do_extract_transfer_encoding(http_headers& headers) {
     std::string t;
     for (const auto& val : headers.get_values("Transfer-Encoding")) {
       if (val.empty()) continue;
       const auto encodings = strings::split(val, ",");
       if (encodings.empty()) continue;
-      // TODO: Consider scanning all but last for an inappropriate "chunked".
       auto v = strings::trim(encodings.back());
       if (v.empty()) continue;
       t = v;
-      strings::to_lower(t);
-      transfer_encoding_value te{};
-      if (strings::convert_text_enum(te, t) &&
-          te == transfer_encoding_value::chunked)
-      {
-        transfer_encoding = te;
-        return;
-      }
     }
+    if (t.empty()) return;
+    strings::to_lower(t);
+    transfer_encoding_value te{};
+    if (strings::convert_text_enum(te, t) &&
+        te == transfer_encoding_value::chunked)
+      transfer_encoding = te;
   }
 
   void do_extract_upgrade(http_headers& headers) {

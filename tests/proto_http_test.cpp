@@ -853,7 +853,7 @@ void HttpHeaderBlock_NormalizeSpecialChars() {
 }
 
 // Verify that names containing characters outside the allowed set are
-// rejected: `name` is cleared and false is returned.
+// rejected: `std::nullopt` is returned and `name` is left unchanged.
 void HttpHeaderBlock_NormalizeInvalidChars() {
   // Returns true iff `normalize` rejected the name (nullopt) and left it
   // unchanged.
@@ -972,8 +972,9 @@ void HttpHeaderBlock_ContentLength() {
   }
 }
 
-// Verify `transfer_encoding` in `http_options`: `chunked` or `identity` when
-// recognized (case-insensitive), `std::nullopt` when absent.
+// Verify `transfer_encoding` in `http_options`: `chunked` when recognized
+// (case-insensitive) as the last token of the last field, `std::nullopt`
+// otherwise.
 void HttpHeaderBlock_IsChunked() {
   {
     http_headers h;
@@ -1005,6 +1006,25 @@ void HttpHeaderBlock_IsChunked() {
     // `chunked` does not work before other encodings.
     http_headers h;
     EXPECT_TRUE(h.add_raw("Transfer-Encoding", "chunked, gzip"));
+    http_options opts;
+    opts.extract(h);
+    EXPECT_FALSE(opts.transfer_encoding);
+  }
+  {
+    // Multiple fields: last token of last field is `chunked`.
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Transfer-Encoding", "gzip"));
+    EXPECT_TRUE(h.add_raw("Transfer-Encoding", "chunked"));
+    http_options opts;
+    opts.extract(h);
+    ASSERT_TRUE(opts.transfer_encoding);
+    EXPECT_EQ(*opts.transfer_encoding, transfer_encoding_value::chunked);
+  }
+  {
+    // Multiple fields: a later field appends after `chunked` -- not chunked.
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Transfer-Encoding", "gzip, chunked"));
+    EXPECT_TRUE(h.add_raw("Transfer-Encoding", "deflate"));
     http_options opts;
     opts.extract(h);
     EXPECT_FALSE(opts.transfer_encoding);
