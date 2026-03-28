@@ -26,7 +26,7 @@ inline namespace cvt_enum {
 
 namespace details {
 constexpr bool
-help_extract_enum(bitmask::BitmaskEnum auto& e, std::string_view& sv) {
+help_extract_bitmask(bitmask::BitmaskEnum auto& e, std::string_view& sv) {
   using E = std::remove_cvref_t<decltype(e)>;
   E ev{};
   bool succeeded{};
@@ -40,7 +40,48 @@ help_extract_enum(bitmask::BitmaskEnum auto& e, std::string_view& sv) {
   }
   return succeeded;
 }
+
+constexpr bool help_extract_enum(StdEnum auto& e, std::string_view sv) {
+  using E = std::remove_cvref_t<decltype(e)>;
+  e = {};
+  if (sv.empty()) return false;
+  bool succeeded{};
+  if constexpr (bitmask::BitmaskEnum<E>)
+    succeeded = details::help_extract_bitmask(e, sv);
+  else if constexpr (ScopedEnum<E>)
+    succeeded = registry::enum_spec_v<E>.lookup(e, sv);
+  else
+    succeeded = registry::details::lookup_helper_wrapper(e, sv);
+
+  return succeeded;
+}
+
 } // namespace details
+
+// Convert enum from a `std::string_view`.
+//
+// Works for unscoped and scoped enums, including bitmask and sequential.
+// Correctly round-trips with `enum_as_string`.
+//
+// In general, expects a single value, which may be numeric or named. This must
+// not be padded with spaces and/or terminated with a comma, period, or
+// semicolon. For BitMaskEnum, instead of a single value, it expects one or
+// more values separated by plus signs.
+//
+// When clipping is enabled, if numerical value is out of range, then it fails.
+//
+// On success, sets output value and returns true.
+// On failure, clears output value and returns false.
+constexpr bool convert_enum(StdEnum auto& e, std::string_view sv) {
+  return details::help_extract_enum(e, sv);
+}
+
+// Convert enum from a `std::string_view` with text, not digits.
+constexpr bool convert_text_enum(StdEnum auto& e, std::string_view sv) {
+  e = {};
+  if (sv.empty() || (sv[0] >= '0' && sv[0] <= '9')) return false;
+  return details::help_extract_enum(e, sv);
+}
 
 // Extract enum out of a `std::string_view`, setting output parameter.
 //
@@ -48,38 +89,25 @@ help_extract_enum(bitmask::BitmaskEnum auto& e, std::string_view& sv) {
 // Correctly round-trips with `enum_as_string`.
 //
 // In general, expects a single value, which may be numeric or named. This may
-// be padded with spaces and/or terminated with  a comma, period, or semicolon.
+// be padded with spaces and/or terminated with a comma, period, or semicolon.
 // For BitMaskEnum, instead of a single value, it expects one or more values
 // separated by plus signs.
 //
-// When clipping is enabled, if the value is out of range, then it fails.
+// When clipping is enabled, if numerical value is out of range, then it fails.
 //
 // On success, sets output value, removes parsed characters from the string
 // view, and returns true.
 //
-// On failure, leaves the parameters unchanged and returns false.
+// On failure, clears output value, leaves parsed characters in the string
+// view, and returns false.
 constexpr bool extract_enum(StdEnum auto& e, std::string_view& sv) {
   using E = std::remove_cvref_t<decltype(e)>;
   e = E{};
-  auto save_sv = sv;
-  auto whole = trim(extract_piece(sv, ",.;"));
-  if (whole.empty()) {
-    sv = save_sv;
-    return false;
-  }
-  bool succeeded;
-  if constexpr (bitmask::BitmaskEnum<E>)
-    succeeded = details::help_extract_enum(e, whole);
-  else if constexpr (ScopedEnum<E>)
-    succeeded = registry::enum_spec_v<E>.lookup(e, whole);
-  else
-    succeeded = registry::details::lookup_helper_wrapper(e, whole);
-
-  if (!succeeded) {
-    sv = save_sv;
-    return false;
-  }
-
+  auto new_sv = sv;
+  auto whole = trim(extract_piece(new_sv, ",.;"));
+  if (whole.empty()) return false;
+  if (!details::help_extract_enum(e, whole)) return false;
+  sv = new_sv;
   return true;
 }
 

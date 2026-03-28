@@ -17,7 +17,7 @@
 #pragma once
 #include "./meta_shared.h"
 
-namespace corvid { inline namespace meta { inline namespace enums {
+namespace corvid { inline namespace meta { inline namespace enum_utils {
 
 // Enums
 
@@ -69,4 +69,4 @@ PRAGMA_CLANG_DIAG(pop);
   return pow2(n) - 1;
 }
 
-}}} // namespace corvid::meta::enums
+}}} // namespace corvid::meta::enum_utils

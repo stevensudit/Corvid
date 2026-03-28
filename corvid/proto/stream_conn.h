@@ -995,12 +995,16 @@ private:
   [[nodiscard]] bool do_finish_close() {
     assert(loop_.is_loop_thread());
     if (shutdown_ == coordination_policy::unilateral) return do_close_now();
-    // Shut down the write side. `send_queue_` is empty here, so
-    // `send_queue_.clear()` and `head_span_ = {}` inside `do_shutdown_write`
-    // are no-ops. EPOLLOUT was already disarmed when the queue emptied.
-    // `maybe_finish_after_side_close` sees `read_open_` still true and does
-    // nothing.
+    // Shut down the write side. When called from the server-initiated-close
+    // path, `read_open_` is still true so `maybe_finish_after_side_close`
+    // inside `do_shutdown_write` is a no-op. When called from the
+    // peer-closed-first path (EOF received before `close()`), `read_open_` is
+    // already false, so `do_shutdown_write` calls `do_close_now` via
+    // `maybe_finish_after_side_close`, setting `open_` to false.
     (void)do_shutdown_write();
+    // Guard: if `do_shutdown_write` triggered `do_close_now`, the socket is
+    // already unregistered; calling `enable_reads` on it would assert.
+    if (!open_) return false;
     // Arm EPOLLIN directly, bypassing `wants_read_events` (which would return
     // false without an `on_data` handler). `on_readable` routes to
     // `handle_drain_reads` because `close_requested_` is set.

@@ -32,9 +32,11 @@ template<typename T, typename Tuple>
 inline constexpr bool tuple_contains_v = tuple_contains<T, Tuple>::value;
 
 // True if `Storage::tuple_t` contains every type in `Cs...`.
+// NOLINTBEGIN(readability-redundant-typename)
 template<typename Storage, typename... Cs>
 inline constexpr bool has_all_components_v =
     (tuple_contains_v<Cs, typename Storage::tuple_t> && ...);
+// NOLINTEND(readability-redundant-typename)
 
 // Always-false helper for `static_assert` in templates, avoiding reliance on
 // `sizeof(C) == 0` which requires `C` to be a complete type.
@@ -65,9 +67,11 @@ inline constexpr size_t find_component_storage_index_v =
 
 // Number of storages in `Storages...` whose `component_t == C`.
 template<typename C, typename... Storages>
+// NOLINTBEGIN(readability-redundant-typename)
 inline constexpr size_t component_match_count_v =
     (static_cast<size_t>(std::is_same_v<C, typename Storages::component_t>) +
         ...);
+// NOLINTEND(readability-redundant-typename)
 
 // 0-based index into `Storages...` of the first storage with `tag_t == TAG`.
 // Fails to compile if no storage matches.
@@ -92,9 +96,11 @@ inline constexpr size_t find_storage_by_tag_index_v =
     find_storage_by_tag_impl<TAG, 0, Storages...>::value;
 
 // Number of storages in `Storages...` whose `tag_t == C`.
+// NOLINTBEGIN(readability-redundant-typename)
 template<typename C, typename... Storages>
 inline constexpr size_t tag_match_count_v =
     (static_cast<size_t>(std::is_same_v<C, typename Storages::tag_t>) + ...);
+// NOLINTEND(readability-redundant-typename)
 
 // 0-based index into `Storages...` for selector `C`. Resolution order:
 //   1. If exactly one storage has `component_t == C`, use it.
