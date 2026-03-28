@@ -367,11 +367,10 @@ public:
   // normalized field name and a valid field value. Fails if too many fields
   // are added.
   [[nodiscard]] bool add_raw(std::string_view field_name,
-      std::string_view field_value, std::string_view raw_field_name = {}) {
+      std::string field_value, std::string_view raw_field_name = {}) {
     assert(is_normalized(field_name) && is_valid_field_value(field_value));
     if (raw_field_name.empty()) raw_field_name = field_name;
-    entries_.push_back(
-        {std::string{raw_field_name}, std::string{field_value}});
+    entries_.push_back({std::string{raw_field_name}, std::move(field_value)});
     index_[std::string{field_name}].push_back(entries_.size() - 1);
     return true;
   }
@@ -404,7 +403,7 @@ public:
     std::string normal_field_name{field_name};
     if (!normalize(normal_field_name)) return false;
     if (!is_valid_field_value(field_value)) return false;
-    return add_raw(normal_field_name, field_value, field_name);
+    return add_raw(normal_field_name, std::string{field_value}, field_name);
   }
 
   // Return a `string_view` into the field value for the field line whose
@@ -414,9 +413,10 @@ public:
   [[nodiscard]] std::optional<std::string_view> get(
       std::string_view field_name) const {
     assert(is_normalized(field_name));
-    auto ids = find_opt(index_, field_name);
-    if (!ids || ids->empty()) return std::nullopt;
-    return entries_[ids->front()].value;
+    if (auto ids = find_opt(index_, field_name); ids)
+      for (size_t ndx : *ids)
+        if (!entries_[ndx].name.empty()) return entries_[ndx].value;
+    return std::nullopt;
   }
 
   // Return all values for `field_name`, concatenated with `", "`. The
@@ -429,6 +429,7 @@ public:
     std::string result;
     result.reserve(128);
     for (const size_t ndx : *ids) {
+      if (entries_[ndx].name.empty()) continue;
       result += entries_[ndx].value;
       result += ", ";
     }
@@ -665,10 +666,10 @@ struct request_head: head_base {
   // Reset to default-constructed state.
   void clear() {
     version = {};
-    method = {};
-    target.clear();
     headers = {};
     options = {};
+    method = {};
+    target.clear();
   }
 
   // Parse the head of a request, containing the request line and the
@@ -780,10 +781,10 @@ struct response_head: head_base {
   // Reset to default-constructed state.
   void clear() {
     version = {};
-    status_code = {};
-    reason.clear();
     headers = {};
     options = {};
+    status_code = {};
+    reason.clear();
   }
 
   // Parse a response head (the bytes before the crlfcrlf
