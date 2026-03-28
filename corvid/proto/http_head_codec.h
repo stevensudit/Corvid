@@ -267,12 +267,12 @@ public:
     private:
       friend class value_range;
       field_line_vector* entries_{};
-      index_vector::const_iterator it_{};
-      index_vector::const_iterator end_{};
+      index_vector::const_iterator it_;
+      index_vector::const_iterator end_;
 
       iterator(field_line_vector* entries, index_vector::const_iterator it,
           index_vector::const_iterator end) noexcept
-          : entries_{entries}, it_{std::move(it)}, end_{std::move(end)} {
+          : entries_{entries}, it_{it}, end_{end} {
         skip_tombstones();
       }
 
@@ -570,9 +570,10 @@ struct http_options {
 
 private:
   void do_extract_connection(http_headers& headers) {
-    bool has_close{}, has_keep_alive{};
+    bool has_close{};
+    bool has_keep_alive{};
     std::string t;
-    for (auto val : headers.get_values("Connection")) {
+    for (const auto& val : headers.get_values("Connection")) {
       for (auto token : strings::split(val, ",")) {
         t = strings::trim(token);
         strings::to_lower(t);
@@ -612,7 +613,7 @@ private:
   // "chunked" must always be the last encoding applied, if present.
   void do_extract_transfer_encoding(http_headers& headers) {
     std::string t;
-    for (auto val : headers.get_values("Transfer-Encoding")) {
+    for (const auto& val : headers.get_values("Transfer-Encoding")) {
       if (val.empty()) continue;
       const auto encodings = strings::split(val, ",");
       if (encodings.empty()) continue;
@@ -633,7 +634,7 @@ private:
 
   void do_extract_upgrade(http_headers& headers) {
     std::string t;
-    for (auto val : headers.get_values("Upgrade")) {
+    for (const auto& val : headers.get_values("Upgrade")) {
       for (auto token : strings::split(val, ",")) {
         auto v = strings::trim(token);
         if (v.empty()) continue;
