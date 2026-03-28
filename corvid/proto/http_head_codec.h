@@ -855,6 +855,7 @@ struct response_head: head_base {
     resp.status_code = code;
     resp.reason = std::string{phrase};
     resp.options.connection = keep_alive;
+    resp.options.content_length = 0;
     return resp.serialize();
   }
 

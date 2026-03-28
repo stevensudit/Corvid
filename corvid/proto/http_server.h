@@ -39,9 +39,11 @@ using namespace std::chrono_literals;
 //                   section 2.2. A non-empty block is passed to
 //                   `request_head::parse`; HTTP/0.9 dispatches
 //                   immediately, HTTP/1.x transitions to `header_lines`.
-// `header_lines` -- seeking `"\r\n"` for each header-field line. A non-empty
-//                   block is fed to `http_headers::extract_line`; an empty
-//                   block (the blank-line terminator) dispatches the request.
+// `header_lines` -- seeking `"\r\n\r\n"` for the entire header block. A
+//                   non-empty block is fed to `http_headers::add_lines`; if
+//                   the input starts with `"\r\n"` (blank line immediately
+//                   after the request line, no headers), the terminator is
+//                   consumed directly and the request is dispatched.
 // `body`         -- reading the request body; reserved for future use.
 // `response`     -- a response has been queued (or the connection is closing);
 //                   incoming bytes are silently ignored so the send queue can
@@ -443,15 +445,16 @@ private:
 
   // Handle incoming data for an accepted connection.
   //
-  // Implements an explicit state machine driven by `state.phase`. The parser
-  // always uses `"\r\n"` as its sentinel (max 8192 bytes per line). In the
-  // `request_line` phase, empty blocks (leading bare CRLFs) are skipped; a
-  // non-empty block is the request line. In the `header_lines` phase, each
-  // non-empty block is a header-field line; an empty block is the
-  // blank-line terminator that ends the header section. The loop continues
-  // to process all complete lines present in the receive buffer, providing
-  // pipelining: multiple queued requests are handled in a single `on_data`
-  // call, and `stream_conn::send` FIFO ordering guarantees response order.
+  // Implements an explicit state machine driven by `state.phase`. In the
+  // `request_line` phase the parser uses `"\r\n"` as its sentinel; empty
+  // blocks (leading bare CRLFs) are skipped and a non-empty block is the
+  // request line. In the `header_lines` phase the parser uses `"\r\n\r\n"`
+  // as its sentinel so the entire header block is read at once; if the input
+  // starts with `"\r\n"` (no headers) the terminator is consumed directly.
+  // The loop continues to process all complete blocks present in the receive
+  // buffer, providing pipelining: multiple queued requests are handled in a
+  // single `on_data` call, and `stream_conn::send` FIFO ordering guarantees
+  // response order.
   [[nodiscard]] bool
   handle_data(stream_conn& conn, recv_buffer_view view) const {
     auto& state = conn_t::from(conn).state();
