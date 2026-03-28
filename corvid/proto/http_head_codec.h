@@ -29,6 +29,7 @@
 #include "../strings/cases.h"
 #include "../strings/conversion.h"
 #include "../strings/trimming.h"
+#include "../strings/splitting.h"
 #include "../strings/token_parser.h"
 #include "../strings/enum_conversion.h"
 #include "../containers/transparent.h"
@@ -62,6 +63,23 @@ enum class http_method : uint8_t {
 // Connection disposition: whether to keep a connection alive after responding
 // or to close it.
 enum class after_response : uint8_t { close = 0, keep_alive = 1 };
+
+// Canonical media type from a `Content-Type` header field.
+// `unknown`: header present but value not recognized.
+enum class content_type_t : uint8_t {
+  unknown,
+  text_html,
+  text_plain,
+  application_json
+};
+
+// Transfer encoding from a `Transfer-Encoding` header field.
+// `unknown`: header present but value not recognized.
+enum class transfer_encoding_t : uint8_t { unknown, identity, chunked };
+
+// Upgrade protocol from an `Upgrade` header field.
+// `unknown`: header present but value not recognized.
+enum class upgrade_t : uint8_t { unknown, websocket };
 
 // HTTP response status code.
 enum class http_status_code : uint16_t {
@@ -156,6 +174,26 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
     corvid::enums::sequence::make_sequence_enum_spec<
         corvid::proto::http_proto::http_status_code, "invalid">();
 
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::http_proto::content_type_t> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::proto::http_proto::content_type_t,
+        "unknown, text/html, text/plain, application/json">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::http_proto::transfer_encoding_t> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::proto::http_proto::transfer_encoding_t,
+        "unknown, identity, chunked">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::http_proto::upgrade_t> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::proto::http_proto::upgrade_t, "unknown, websocket">();
+
 namespace corvid { inline namespace proto { inline namespace http_proto {
 
 // Old-school struct as namespace.
@@ -187,6 +225,83 @@ class http_headers: http {
   index_map index_;
 
 public:
+  // A lazy, non-owning view over all field values for a given field name,
+  // returned by `get_values`. Iterates in insertion order.
+  class value_range {
+  public:
+    class iterator {
+    public:
+      using iterator_category = std::forward_iterator_tag;
+      using value_type = std::string_view;
+      using difference_type = std::ptrdiff_t;
+      using reference = std::string_view;
+      using pointer = void;
+
+      [[nodiscard]] const std::string& operator*() const noexcept {
+        return (*entries_)[*it_].value;
+      }
+      [[nodiscard]] const std::string& get_value() const noexcept {
+        return (*entries_)[*it_].value;
+      }
+      [[nodiscard]] const std::string& get_name() const noexcept {
+        return (*entries_)[*it_].name;
+      }
+      // Replace the value of the entry this iterator points at.
+      void set(std::string value) {
+        (*entries_)[*it_].value = std::move(value);
+      }
+      void tombstone() { (*entries_)[*it_].name.clear(); }
+
+      iterator& operator++() noexcept {
+        ++it_;
+        skip_tombstones();
+        return *this;
+      }
+      iterator operator++(int) noexcept {
+        auto t = *this;
+        ++(*this);
+        return t;
+      }
+      [[nodiscard]] bool operator==(const iterator&) const noexcept = default;
+
+    private:
+      friend class value_range;
+      field_line_vector* entries_{};
+      index_vector::const_iterator it_{};
+      index_vector::const_iterator end_{};
+
+      iterator(field_line_vector* entries, index_vector::const_iterator it,
+          index_vector::const_iterator end) noexcept
+          : entries_{entries}, it_{std::move(it)}, end_{std::move(end)} {
+        skip_tombstones();
+      }
+
+      void skip_tombstones() noexcept {
+        while (it_ != end_ && (*entries_)[*it_].name.empty()) ++it_;
+      }
+    };
+
+    [[nodiscard]] iterator begin() const noexcept {
+      return {entries_, indices_->begin(), indices_->end()};
+    }
+    [[nodiscard]] iterator end() const noexcept {
+      return {entries_, indices_->end(), indices_->end()};
+    }
+    [[nodiscard]] bool empty() const noexcept { return indices_->empty(); }
+    [[nodiscard]] size_t size() const noexcept { return indices_->size(); }
+
+  private:
+    friend class http_headers;
+    static inline const index_vector empty_{};
+
+    field_line_vector* entries_;
+    const index_vector* indices_;
+
+    value_range(field_line_vector& entries,
+        const index_vector& indices) noexcept
+        : entries_{&entries}, indices_{&indices} {}
+  };
+
   // Normalize a field name to Train-Case, in place. Only alphanumeric
   // characters, hyphens, and the token special characters are permitted.
   //
@@ -261,6 +376,25 @@ public:
     return true;
   }
 
+  // Set `field_name` to a single `field_value`, replacing all existing
+  // entries for that field. If the field already exists, the first entry is
+  // updated in place (preserving its position and normalizing its name);
+  // any additional entries are tombstoned. Returns true in this case.
+  // If no entry exists, a new one is appended and false is returned.
+  // The caller is responsible for providing a valid, normalized field name
+  // and a valid field value.
+  [[nodiscard]] bool
+  reset_raw(std::string_view field_name, std::string field_value) {
+    assert(is_normalized(field_name) && is_valid_field_value(field_value));
+    auto ids = find_opt(index_, field_name);
+    if (!ids) return add_raw(field_name, std::move(field_value)) && false;
+    entries_[ids->front()].name = std::string{field_name};
+    entries_[ids->front()].value = std::move(field_value);
+    for (size_t i = 1; i < ids->size(); ++i) entries_[(*ids)[i]].name.clear();
+    ids->resize(1);
+    return true;
+  }
+
   // Add a field line from parts, performing normalization and validation.
   // Returns false if the line is malformed, or if either the field name or
   // value is invalid. Fails if either parameter is invalid, which merits a
@@ -302,6 +436,16 @@ public:
     return result;
   }
 
+  // Return a non-allocating range over all values for `field_name` in
+  // insertion order. The `field_name` is expected to be normalized.
+  // Returns an empty range if not found.
+  [[nodiscard]] value_range get_values(std::string_view field_name) {
+    assert(is_normalized(field_name));
+    auto ids = find_opt(index_, field_name);
+    const auto& ref = ids ? *ids : value_range::empty_;
+    return {entries_, ref};
+  }
+
   // Add a field line by parsing `line`, which does not include the trailing
   // crlf. Must not be empty: the caller is responsible for detecting the
   // end-of-headers blank line. The field name is required to be non-empty
@@ -333,11 +477,12 @@ public:
   }
 
   // Serialize all headers into wire format, which is the block of text after
-  // the request/status line.
+  // the request/status line. Tombstoned entries (empty name) are skipped.
   //
   // Makes no attempt to encode the field values or reserve adequate space.
   void serialize(std::string& out) const {
     for (const auto& [name, value] : entries_) {
+      if (name.empty()) continue; // tombstoned by `remove_key`
       out += name;
       out += ':';
       if (!value.empty()) {
@@ -355,39 +500,148 @@ public:
   [[nodiscard]] bool empty() const noexcept { return entries_.empty(); }
   [[nodiscard]] size_t size() const noexcept { return entries_.size(); }
 
-  // Return true iff the connection should remain open.
-  // HTTP/1.1 defaults to keep-alive; HTTP/1.0 and HTTP/0.9 default to close.
-  // Overridden by `"Connection: close"` or `"Connection: keep-alive"`.
-  [[nodiscard]] after_response keep_alive(http_version version) const {
+  // Tombstone all entries for the normalized `field_name` and remove it
+  // from the index entirely.
+  void remove_key(std::string_view field_name) {
+    assert(is_normalized(field_name));
+    auto it = index_.find(std::string{field_name});
+    if (it == index_.end()) return;
+    for (size_t ndx : it->second) entries_[ndx].name.clear();
+    index_.erase(it);
+  }
+};
+
+// Parsed representation of key HTTP header fields. Populated from an
+// `http_headers` instance after parsing via `extract`, and written back
+// before serialization via `apply`.
+//
+// `std::nullopt` means the corresponding header was absent. For enum fields,
+// `unknown` means the header was present but the value was not recognized.
+struct http_options {
+  std::optional<after_response> connection;
+  std::optional<size_t> content_length;
+  std::optional<content_type_t> content_type;
+  std::optional<transfer_encoding_t> transfer_encoding;
+  std::optional<upgrade_t> upgrade;
+
+  // Populate all fields by parsing `headers`. Call after headers are parsed.
+  void extract(http_headers& headers) {
+    do_extract_connection(headers);
+    do_extract_content_length(headers);
+    do_extract_content_type(headers);
+    do_extract_transfer_encoding(headers);
+    do_extract_upgrade(headers);
+  }
+
+  // Write non-null values into `headers`, replacing existing entries.
+  // Enum fields set to `unknown` are not written. Call before serializing.
+  void apply(http_headers& headers) const {
+    if (connection)
+      (void)headers.reset_raw("Connection",
+          strings::enum_as_string(*connection));
+    if (content_length)
+      (void)headers.reset_raw("Content-Length",
+          std::to_string(*content_length));
+    if (content_type && *content_type != content_type_t::unknown)
+      (void)headers.reset_raw("Content-Type",
+          strings::enum_as_string(*content_type));
+    if (transfer_encoding &&
+        *transfer_encoding != transfer_encoding_t::unknown)
+      (void)headers.reset_raw("Transfer-Encoding",
+          strings::enum_as_string(*transfer_encoding));
+    if (upgrade && *upgrade != upgrade_t::unknown)
+      (void)headers.reset_raw("Upgrade", strings::enum_as_string(*upgrade));
+  }
+
+  // Return the resolved connection disposition, applying the HTTP version
+  // default when `connection` is `std::nullopt`. HTTP/0.9 always returns
+  // `close` regardless of any `Connection` header.
+  [[nodiscard]] after_response keep_alive(
+      http_version version) const noexcept {
     if (version == http_version::http_0_9) return after_response::close;
-    // If we can parse it out, use it.
-    const auto c = strings::as_lower(get("Connection").value_or(""sv));
-    after_response keep_alive;
-    if (strings::convert_text_enum(keep_alive, c)) return keep_alive;
-    // Otherwise, default based on version.
+    if (connection) return *connection;
     return version == http_version::http_1_1
                ? after_response::keep_alive
                : after_response::close;
   }
 
-  // Return the `Content-Length` value, or `std::nullopt` if absent or
-  // unparseable.
-  [[nodiscard]] std::optional<size_t> content_length() const {
-    const auto sv = get("Content-Length");
-    if (!sv) return std::nullopt;
-    return strings::parse_num<size_t>(*sv);
+private:
+  void do_extract_connection(http_headers& headers) {
+    bool has_close{}, has_keep_alive{};
+    std::string t;
+    for (auto val : headers.get_values("Connection")) {
+      for (auto token : strings::split(val, ",")) {
+        t = strings::trim(token);
+        strings::to_lower(t);
+        after_response ar{};
+        if (strings::convert_text_enum(ar, t)) {
+          if (ar == after_response::close)
+            has_close = true;
+          else if (ar == after_response::keep_alive)
+            has_keep_alive = true;
+        }
+      }
+    }
+    if (has_close)
+      connection = after_response::close;
+    else if (has_keep_alive)
+      connection = after_response::keep_alive;
   }
 
-  // Return true iff `"Transfer-Encoding: chunked"` is present.
-  [[nodiscard]] bool is_chunked() const {
-    return strings::as_lower(get("Transfer-Encoding").value_or(""sv)) ==
-           "chunked";
+  void do_extract_content_length(const http_headers& headers) {
+    const auto sv = headers.get("Content-Length");
+    if (sv) content_length = strings::parse_num<size_t>(*sv);
   }
 
-  // TODO: Need ways to remove individual lines.
-  // TODO: We need some way to walk through all values for a given field
-  // name, but this can probably wait for the next version, which links the
-  // entries into a list while storing just the head in the index.
+  void do_extract_content_type(const http_headers& headers) {
+    const auto sv = headers.get("Content-Type");
+    if (!sv) return;
+    // Strip parameters (e.g., `"; charset=utf-8"`) before matching.
+    const auto media_type = strings::trim(strings::split(*sv, ";").front());
+    content_type_t ct{};
+    content_type =
+        strings::convert_text_enum(ct, strings::as_lower(media_type))
+            ? ct
+            : content_type_t::unknown;
+  }
+
+  // This can be a list of compression types, none of which we support, but
+  // "chunked" must always be the last encoding applied, if present.
+  void do_extract_transfer_encoding(http_headers& headers) {
+    std::string t;
+    for (auto val : headers.get_values("Transfer-Encoding")) {
+      if (val.empty()) continue;
+      const auto encodings = strings::split(val, ",");
+      if (encodings.empty()) continue;
+      // TODO: Consider scanning all but last for an inappropriate "chunked".
+      auto v = strings::trim(encodings.back());
+      if (v.empty()) continue;
+      t = v;
+      strings::to_lower(t);
+      transfer_encoding_t te{};
+      if (strings::convert_text_enum(te, t) &&
+          te == transfer_encoding_t::chunked)
+      {
+        transfer_encoding = te;
+        return;
+      }
+    }
+  }
+
+  void do_extract_upgrade(http_headers& headers) {
+    std::string t;
+    for (auto val : headers.get_values("Upgrade")) {
+      for (auto token : strings::split(val, ",")) {
+        auto v = strings::trim(token);
+        if (v.empty()) continue;
+        t = v;
+        strings::to_lower(t);
+        upgrade_t up{};
+        (void)strings::convert_text_enum(up, t);
+        if (up == upgrade_t::websocket || !upgrade) upgrade = up;
+      }
+    }
+  }
 };
 
 // HTTP request head, consisting of the request line and the header fields.
@@ -400,6 +654,7 @@ struct request_head: http {
   http_method method{};
   std::string target;
   http_headers headers;
+  http_options options;
 
   // Reset to default-constructed state.
   void clear() {
@@ -407,6 +662,7 @@ struct request_head: http {
     method = {};
     target.clear();
     headers = {};
+    options = {};
   }
 
   // Parse the head of a request, containing the request line and the
@@ -474,15 +730,17 @@ struct request_head: http {
 
     if (!headers.add_lines(header_lines))
       return fail("Malformed header lines");
+    options.extract(headers);
     return true;
   }
 
   // Serialize to `"METHOD target HTTP/1.x\r\nHeaders\r\n\r\n"`.
   // HTTP/0.9 omits the version token. Returns an empty string for
   // `http_version::invalid`.
-  [[nodiscard]] std::string serialize() const {
+  [[nodiscard]] std::string serialize() {
     std::string result;
     if (version == http_version::invalid) return result;
+    options.apply(headers);
     result += strings::enum_as_string(method);
     result += ' ';
     result += target;
@@ -514,6 +772,7 @@ struct response_head: http {
   http_status_code status_code{};
   std::string reason;
   http_headers headers;
+  http_options options;
 
   // Reset to default-constructed state.
   void clear() {
@@ -521,6 +780,7 @@ struct response_head: http {
     status_code = {};
     reason.clear();
     headers = {};
+    options = {};
   }
 
   // Parse a response head (the bytes before the crlfcrlf
@@ -556,14 +816,16 @@ struct response_head: http {
 
     if (!headers.add_lines(header_lines))
       return fail("Malformed header lines");
+    options.extract(headers);
     return true;
   }
 
   // Serialize to `"HTTP/1.x code reason\r\nHeaders\r\n\r\n"`.
   // Returns an empty string for `http_version::invalid`.
-  [[nodiscard]] std::string serialize() const {
+  [[nodiscard]] std::string serialize() {
     std::string result;
     if (version == http_version::invalid) return result;
+    options.apply(headers);
 
     result += strings::enum_as_string(version);
     result += ' ';
@@ -588,8 +850,7 @@ struct response_head: http {
     resp.version = version;
     resp.status_code = code;
     resp.reason = std::string{phrase};
-    (void)resp.headers.add_raw("Connection",
-        strings::enum_as_string(keep_alive));
+    resp.options.connection = keep_alive;
     return resp.serialize();
   }
 

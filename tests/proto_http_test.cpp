@@ -136,23 +136,56 @@ void HttpHeaderBlock_KeepAlive() {
   {
     request_head req;
     ASSERT_TRUE(req.parse("GET / HTTP/1.1\r\nHost: h\r\n"));
-    EXPECT_EQ(req.headers.keep_alive(req.version), after_response::keep_alive);
+    EXPECT_EQ(req.options.keep_alive(req.version), after_response::keep_alive);
   }
   {
     request_head req;
     ASSERT_TRUE(req.parse("GET / HTTP/1.0\r\n"));
-    EXPECT_EQ(req.headers.keep_alive(req.version), after_response::close);
+    EXPECT_EQ(req.options.keep_alive(req.version), after_response::close);
   }
   {
     request_head req;
     ASSERT_TRUE(
         req.parse("GET / HTTP/1.1\r\nHost: h\r\nConnection: close\r\n"));
-    EXPECT_EQ(req.headers.keep_alive(req.version), after_response::close);
+    EXPECT_EQ(req.options.keep_alive(req.version), after_response::close);
   }
   {
     request_head req;
     ASSERT_TRUE(req.parse("GET / HTTP/1.0\r\nConnection: keep-alive\r\n"));
-    EXPECT_EQ(req.headers.keep_alive(req.version), after_response::keep_alive);
+    EXPECT_EQ(req.options.keep_alive(req.version), after_response::keep_alive);
+  }
+}
+
+// Verify `keep_alive()` parses `Connection` as a comma-separated token list,
+// with `"close"` taking precedence over `"keep-alive"`.
+void HttpHeaderBlock_KeepAliveTokenList() {
+  // Token list containing `"close"` among other tokens -> close.
+  {
+    request_head req;
+    ASSERT_TRUE(req.parse(
+        "GET / HTTP/1.1\r\nHost: h\r\nConnection: keep-alive, close\r\n"));
+    EXPECT_EQ(req.options.keep_alive(req.version), after_response::close);
+  }
+  // Token list with only `"close"` and an unrelated token -> close.
+  {
+    request_head req;
+    ASSERT_TRUE(req.parse(
+        "GET / HTTP/1.1\r\nHost: h\r\nConnection: close, upgrade\r\n"));
+    EXPECT_EQ(req.options.keep_alive(req.version), after_response::close);
+  }
+  // Token list with `"keep-alive"` and an unrelated token -> keep-alive.
+  {
+    request_head req;
+    ASSERT_TRUE(req.parse(
+        "GET / HTTP/1.1\r\nHost: h\r\nConnection: keep-alive, upgrade\r\n"));
+    EXPECT_EQ(req.options.keep_alive(req.version), after_response::keep_alive);
+  }
+  // Case-insensitive: `"Close"` -> close.
+  {
+    request_head req;
+    ASSERT_TRUE(
+        req.parse("GET / HTTP/1.1\r\nHost: h\r\nConnection: Close\r\n"));
+    EXPECT_EQ(req.options.keep_alive(req.version), after_response::close);
   }
 }
 
@@ -902,61 +935,86 @@ void HttpHeaderBlock_IsValidFieldValue() {
   EXPECT_FALSE(http_headers::is_valid_field_value("bad\x01value"));
 }
 
-// Verify `content_length()`: returns the numeric value when present and
-// parseable, and `nullopt` when absent or non-numeric.
+// Verify `content_length` in `http_options`: set when present and parseable,
+// `std::nullopt` when absent or non-numeric.
 void HttpHeaderBlock_ContentLength() {
   {
     http_headers h;
     EXPECT_TRUE(h.add_raw("Content-Length", "42"));
-    const auto cl = h.content_length();
-    ASSERT_TRUE(cl);
-    EXPECT_EQ(*cl, 42ULL);
+    http_options opts;
+    opts.extract(h);
+    ASSERT_TRUE(opts.content_length);
+    EXPECT_EQ(*opts.content_length, 42ULL);
   }
   {
     // Absent: nullopt.
     http_headers h;
-    EXPECT_FALSE(h.content_length());
+    http_options opts;
+    opts.extract(h);
+    EXPECT_FALSE(opts.content_length);
   }
   {
     // Non-numeric: nullopt.
     http_headers h;
     EXPECT_TRUE(h.add_raw("Content-Length", "abc"));
-    EXPECT_FALSE(h.content_length());
+    http_options opts;
+    opts.extract(h);
+    EXPECT_FALSE(opts.content_length);
   }
   {
     // Zero is a valid value.
     http_headers h;
     EXPECT_TRUE(h.add_raw("Content-Length", "0"));
-    const auto cl = h.content_length();
-    ASSERT_TRUE(cl);
-    EXPECT_EQ(*cl, 0ULL);
+    http_options opts;
+    opts.extract(h);
+    ASSERT_TRUE(opts.content_length);
+    EXPECT_EQ(*opts.content_length, 0ULL);
   }
 }
 
-// Verify `is_chunked()`: true iff `Transfer-Encoding: chunked` (case-
-// insensitive value), false otherwise.
+// Verify `transfer_encoding` in `http_options`: `chunked` or `identity` when
+// recognized (case-insensitive), `std::nullopt` when absent.
 void HttpHeaderBlock_IsChunked() {
   {
     http_headers h;
     EXPECT_TRUE(h.add_raw("Transfer-Encoding", "chunked"));
-    EXPECT_TRUE(h.is_chunked());
+    http_options opts;
+    opts.extract(h);
+    ASSERT_TRUE(opts.transfer_encoding);
+    EXPECT_EQ(*opts.transfer_encoding, transfer_encoding_t::chunked);
   }
   {
     // Mixed case value still matches.
     http_headers h;
     EXPECT_TRUE(h.add_raw("Transfer-Encoding", "Chunked"));
-    EXPECT_TRUE(h.is_chunked());
+    http_options opts;
+    opts.extract(h);
+    ASSERT_TRUE(opts.transfer_encoding);
+    EXPECT_EQ(*opts.transfer_encoding, transfer_encoding_t::chunked);
   }
   {
-    // Different value: false.
+    // `chunked` works as the last.
     http_headers h;
-    EXPECT_TRUE(h.add_raw("Transfer-Encoding", "identity"));
-    EXPECT_FALSE(h.is_chunked());
+    EXPECT_TRUE(h.add_raw("Transfer-Encoding", "gzip,   chUnKed  "));
+    http_options opts;
+    opts.extract(h);
+    ASSERT_TRUE(opts.transfer_encoding);
+    EXPECT_EQ(*opts.transfer_encoding, transfer_encoding_t::chunked);
   }
   {
-    // Absent: false.
+    // `chunked` does not work before other encodings.
     http_headers h;
-    EXPECT_FALSE(h.is_chunked());
+    EXPECT_TRUE(h.add_raw("Transfer-Encoding", "chunked, gzip"));
+    http_options opts;
+    opts.extract(h);
+    EXPECT_FALSE(opts.transfer_encoding);
+  }
+  {
+    // Absent: nullopt.
+    http_headers h;
+    http_options opts;
+    opts.extract(h);
+    EXPECT_FALSE(opts.transfer_encoding);
   }
 }
 
@@ -1021,13 +1079,18 @@ void HttpHeaderBlock_GetReturnsFirst() {
 // Verify `keep_alive()` for HTTP/0.9: always `close`, regardless of any
 // `Connection` header (HTTP/0.9 headers don't exist, but guard against it).
 void HttpHeaderBlock_KeepAliveHttp09() {
+  // HTTP/0.9 always yields `close` regardless of any `Connection` header.
   http_headers h;
-  EXPECT_EQ(h.keep_alive(http_version::http_0_9), after_response::close);
+  http_options opts;
+  opts.extract(h);
+  EXPECT_EQ(opts.keep_alive(http_version::http_0_9), after_response::close);
 
   // Even if a `Connection: keep-alive` header were somehow present,
   // HTTP/0.9 must still return `close`.
   EXPECT_TRUE(h.add_raw("Connection", "keep-alive"));
-  EXPECT_EQ(h.keep_alive(http_version::http_0_9), after_response::close);
+  opts = {};
+  opts.extract(h);
+  EXPECT_EQ(opts.keep_alive(http_version::http_0_9), after_response::close);
 }
 
 // Verify that an HTTP/0.9 request line with trailing header text causes
@@ -1237,6 +1300,244 @@ void HttpServer_Http10KeepAlive() {
   (void)client.recv_until("</html>");
 }
 
+// Verify `http_options::extract` for `content_type` and `upgrade`, and
+// `http_options::apply` writing values back into headers.
+void HttpHeaderBlock_HttpOptionsExtractApply() {
+  // content_type: recognized media type, parameters stripped.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Content-Type", "text/html; charset=utf-8"));
+    http_options opts;
+    opts.extract(h);
+    ASSERT_TRUE(opts.content_type);
+    EXPECT_EQ(*opts.content_type, content_type_t::text_html);
+  }
+  // content_type: exact match without parameters.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Content-Type", "application/json"));
+    http_options opts;
+    opts.extract(h);
+    ASSERT_TRUE(opts.content_type);
+    EXPECT_EQ(*opts.content_type, content_type_t::application_json);
+  }
+  // content_type: unrecognized -> `unknown`.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Content-Type", "application/octet-stream"));
+    http_options opts;
+    opts.extract(h);
+    ASSERT_TRUE(opts.content_type);
+    EXPECT_EQ(*opts.content_type, content_type_t::unknown);
+  }
+  // content_type: absent -> nullopt.
+  {
+    http_headers h;
+    http_options opts;
+    opts.extract(h);
+    EXPECT_FALSE(opts.content_type);
+  }
+  // upgrade: websocket recognized.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Upgrade", "websocket"));
+    http_options opts;
+    opts.extract(h);
+    ASSERT_TRUE(opts.upgrade);
+    EXPECT_EQ(*opts.upgrade, upgrade_t::websocket);
+  }
+  // upgrade: unrecognized token -> `unknown`.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Upgrade", "h2c"));
+    http_options opts;
+    opts.extract(h);
+    ASSERT_TRUE(opts.upgrade);
+    EXPECT_EQ(*opts.upgrade, upgrade_t::unknown);
+  }
+  // upgrade: websocket wins in a token list.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Upgrade", "h2c, websocket"));
+    http_options opts;
+    opts.extract(h);
+    ASSERT_TRUE(opts.upgrade);
+    EXPECT_EQ(*opts.upgrade, upgrade_t::websocket);
+  }
+  // apply: writes known values into headers, updating existing entries.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Content-Length", "0"));
+    http_options opts;
+    opts.content_length = 42;
+    opts.content_type = content_type_t::text_plain;
+    opts.connection = after_response::keep_alive;
+    opts.apply(h);
+    const auto cl = h.get("Content-Length");
+    ASSERT_TRUE(cl);
+    EXPECT_EQ(*cl, "42");
+    const auto ct = h.get("Content-Type");
+    ASSERT_TRUE(ct);
+    EXPECT_EQ(*ct, "text/plain");
+    const auto conn = h.get("Connection");
+    ASSERT_TRUE(conn);
+    EXPECT_EQ(*conn, "keep-alive");
+  }
+  // apply: `unknown` enum values and nullopt are not written.
+  {
+    http_headers h;
+    http_options opts;
+    opts.content_type = content_type_t::unknown;
+    opts.apply(h);
+    EXPECT_FALSE(h.get("Content-Type"));
+  }
+}
+
+// Verify `get_values()`: iteration over all values for a field, `size()`,
+// `empty()`, and `iterator::index()`.
+void HttpHeaderBlock_GetValues() {
+  // Empty range when field not found.
+  {
+    http_headers h;
+    const auto r = h.get_values("Accept");
+    EXPECT_TRUE(r.empty());
+    EXPECT_EQ(r.size(), 0ULL);
+    EXPECT_TRUE(r.begin() == r.end());
+  }
+  // Single entry: correct value and non-empty range.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Accept", "text/html"));
+    const auto r = h.get_values("Accept");
+    EXPECT_FALSE(r.empty());
+    EXPECT_EQ(r.size(), 1ULL);
+    auto it = r.begin();
+    EXPECT_EQ(*it, "text/html");
+    ++it;
+    EXPECT_TRUE(it == r.end());
+  }
+  // Multiple entries for the same field: returned in insertion order.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Accept", "text/html"));
+    EXPECT_TRUE(h.add_raw("Host", "example.com")); // interleaved
+    EXPECT_TRUE(h.add_raw("Accept", "application/json"));
+    const auto r = h.get_values("Accept");
+    EXPECT_EQ(r.size(), 2ULL);
+    auto it = r.begin();
+    EXPECT_EQ(*it, "text/html");
+    ++it;
+    EXPECT_EQ(*it, "application/json");
+    ++it;
+    EXPECT_TRUE(it == r.end());
+  }
+  // `iterator::set()` replaces the value in place.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Accept", "text/html"));
+    EXPECT_TRUE(h.add_raw("Accept", "application/json"));
+    auto r = h.get_values("Accept");
+    for (auto it = r.begin(); it != r.end(); ++it)
+      if (*it == "text/html") it.set("text/plain");
+    auto it = r.begin();
+    EXPECT_EQ(*it, "text/plain");
+    ++it;
+    EXPECT_EQ(*it, "application/json");
+  }
+}
+
+// Verify `reset_raw()` upsert, `remove_entry()`, and `remove_key()`.
+void HttpHeaderBlock_SetRawAndRemove() {
+  // reset_raw adds when field is absent.
+  {
+    http_headers h;
+    (void)h.reset_raw("Connection", "close");
+    const auto v = h.get("Connection");
+    ASSERT_TRUE(v);
+    EXPECT_EQ(*v, "close");
+  }
+  // reset_raw updates when one entry exists.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Connection", "keep-alive"));
+    (void)h.reset_raw("Connection", "close");
+    const auto v = h.get("Connection");
+    ASSERT_TRUE(v);
+    EXPECT_EQ(*v, "close");
+  }
+  // reset_raw reduces multiple entries to one.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Accept", "text/html"));
+    EXPECT_TRUE(h.add_raw("Accept", "application/json"));
+    EXPECT_EQ(h.get_values("Accept").size(), 2ULL);
+    (void)h.reset_raw("Accept", "text/plain");
+    const auto v = h.get("Accept");
+    ASSERT_TRUE(v);
+    EXPECT_EQ(*v, "text/plain");
+    EXPECT_EQ(h.get_values("Accept").size(), 1ULL);
+  }
+  // reset_raw does not affect other fields.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Host", "example.com"));
+    EXPECT_TRUE(h.add_raw("Accept", "text/html"));
+    (void)h.reset_raw("Accept", "application/json");
+    const auto host = h.get("Host");
+    ASSERT_TRUE(host);
+    EXPECT_EQ(*host, "example.com");
+    const auto accept = h.get("Accept");
+    ASSERT_TRUE(accept);
+    EXPECT_EQ(*accept, "application/json");
+  }
+  // remove_entry: entry gone; other fields unaffected.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Host", "example.com"));
+    EXPECT_TRUE(h.add_raw("Accept", "text/html"));
+    h.remove_key("Accept");
+    EXPECT_FALSE(h.get("Accept"));
+    EXPECT_TRUE(h.get_values("Accept").empty());
+    const auto host = h.get("Host");
+    ASSERT_TRUE(host);
+    EXPECT_EQ(*host, "example.com");
+  }
+  // remove_entry
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Accept", "text/html"));
+    EXPECT_TRUE(h.add_raw("Accept", "application/json"));
+    EXPECT_TRUE(h.add_raw("Accept", "image/webp"));
+    const auto r = h.get_values("Accept");
+    std::vector<size_t> to_remove;
+    for (auto it = r.begin(); it != r.end(); ++it)
+      if (*it == "application/json") it.tombstone();
+    // TODO: Check for results.
+  }
+  // remove_key: all entries for field gone; other fields unaffected.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Host", "example.com"));
+    EXPECT_TRUE(h.add_raw("Accept", "text/html"));
+    EXPECT_TRUE(h.add_raw("Accept", "application/json"));
+    h.remove_key("Accept");
+    EXPECT_FALSE(h.get("Accept"));
+    EXPECT_TRUE(h.get_values("Accept").empty());
+    const auto host = h.get("Host");
+    ASSERT_TRUE(host);
+    EXPECT_EQ(*host, "example.com");
+  }
+  // remove_key on absent field is a no-op.
+  {
+    http_headers h;
+    EXPECT_TRUE(h.add_raw("Host", "example.com"));
+    h.remove_key("Accept");
+    const auto host = h.get("Host");
+    ASSERT_TRUE(host);
+    EXPECT_EQ(*host, "example.com");
+  }
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
 
@@ -1245,26 +1546,28 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     HttpHeaderBlock_Http09Style, HttpHeaderBlock_NoSp,
     HttpHeaderBlock_HeaderLookupCanonical, HttpHeaderBlock_HeaderGet,
     HttpHeaderBlock_HeaderGetEmptyValue, HttpHeaderBlock_HeaderCombine,
-    HttpHeaderBlock_KeepAlive, HttpHeaderBlock_ExtractLeadingCrlf,
-    HttpHeaderBlock_ResponseSerialize, HttpHeaderBlock_ExtractHeaderErrors,
-    HttpHeaderBlock_RequestSerialize, HttpHeaderBlock_ResponseExtract,
-    HttpServer_OwnLoop, HttpServer_SharedLoop, HttpServer_Create_BadEndpoint,
-    HttpServer_GetRoot, HttpServer_GetPath, HttpServer_InvalidRequest,
-    HttpServer_TooLongRequest, HttpServer_PartialRequest, HttpServer_ANS,
-    HttpServer_SharedWheel, HttpServer_RequestWithinTimeout,
-    HttpServer_IdleTimeout, HttpServer_WriteTimeout, HttpServer_MissingHost,
-    HttpServer_KeepAlive, HttpServer_Pipeline, HttpServer_ConnectionClose,
+    HttpHeaderBlock_KeepAlive, HttpHeaderBlock_KeepAliveTokenList,
+    HttpHeaderBlock_ExtractLeadingCrlf, HttpHeaderBlock_ResponseSerialize,
+    HttpHeaderBlock_ExtractHeaderErrors, HttpHeaderBlock_RequestSerialize,
+    HttpHeaderBlock_ResponseExtract, HttpServer_OwnLoop, HttpServer_SharedLoop,
+    HttpServer_Create_BadEndpoint, HttpServer_GetRoot, HttpServer_GetPath,
+    HttpServer_InvalidRequest, HttpServer_TooLongRequest,
+    HttpServer_PartialRequest, HttpServer_ANS, HttpServer_SharedWheel,
+    HttpServer_RequestWithinTimeout, HttpServer_IdleTimeout,
+    HttpServer_WriteTimeout, HttpServer_MissingHost, HttpServer_KeepAlive,
+    HttpServer_Pipeline, HttpServer_ConnectionClose,
     HttpServer_Http10NoKeepAlive, HttpServer_Http09, HttpServer_LeadingCrlf,
     HttpServer_TooManyLeadingCrls, HttpHeaderBlock_NormalizeCasing,
     HttpHeaderBlock_NormalizeSpecialChars,
     HttpHeaderBlock_NormalizeInvalidChars, HttpHeaderBlock_NormalizeEdgeCases,
     HttpHeaderBlock_IsValidFieldValue, HttpHeaderBlock_ContentLength,
-    HttpHeaderBlock_IsChunked, HttpHeaderBlock_SizeAndEmpty,
-    HttpHeaderBlock_AddRawWithRawName, HttpHeaderBlock_GetReturnsFirst,
-    HttpHeaderBlock_KeepAliveHttp09, HttpHeaderBlock_Http09WithHeaders,
-    HttpHeaderBlock_TooManyLeadingCrlfs, HttpHeaderBlock_TargetNotPath,
-    HttpHeaderBlock_ClearRequest, HttpHeaderBlock_ClearResponse,
-    HttpHeaderBlock_ResponseSerializeInvalid,
+    HttpHeaderBlock_IsChunked, HttpHeaderBlock_HttpOptionsExtractApply,
+    HttpHeaderBlock_SizeAndEmpty, HttpHeaderBlock_AddRawWithRawName,
+    HttpHeaderBlock_GetReturnsFirst, HttpHeaderBlock_KeepAliveHttp09,
+    HttpHeaderBlock_Http09WithHeaders, HttpHeaderBlock_TooManyLeadingCrlfs,
+    HttpHeaderBlock_TargetNotPath, HttpHeaderBlock_ClearRequest,
+    HttpHeaderBlock_ClearResponse, HttpHeaderBlock_ResponseSerializeInvalid,
     HttpHeaderBlock_MakeErrorResponse, HttpHeaderBlock_ResponseParseEdgeCases,
     HttpServer_BodyTooLarge, HttpServer_TooLongHeaders,
-    HttpServer_MalformedRequestLine, HttpServer_Http10KeepAlive);
+    HttpServer_MalformedRequestLine, HttpServer_Http10KeepAlive,
+    HttpHeaderBlock_GetValues, HttpHeaderBlock_SetRawAndRemove);

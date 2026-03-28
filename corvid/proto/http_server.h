@@ -254,7 +254,7 @@ private:
   // into a no-op.)
   [[nodiscard]] after_response
   dispatch_request(stream_conn& conn, const request_head& req) const {
-    const after_response keep_alive = req.headers.keep_alive(req.version);
+    const after_response keep_alive = req.options.keep_alive(req.version);
 
     // HTTP/1.1 requires a `Host` header.
     if (req.version == http_version::http_1_1 && !req.headers.get("Host"))
@@ -286,12 +286,9 @@ private:
       resp.version = req.version;
       resp.status_code = http_status_code::OK;
       resp.reason = "OK";
-      if (!resp.headers.add_raw("Connection",
-              strings::enum_as_string(keep_alive)))
-        return send_error_response(conn, after_response::close, req.version);
-
-      if (!resp.headers.add_raw("Content-Type", "text/html; charset=utf-8") ||
-          !resp.headers.add_raw("Content-Length", std::to_string(html.size())))
+      resp.options.connection = keep_alive;
+      resp.options.content_length = html.size();
+      if (!resp.headers.add_raw("Content-Type", "text/html; charset=utf-8"))
         return send_error_response(conn, after_response::close, req.version);
 
       if (!conn.send(resp.serialize())) return hangup(conn);
@@ -405,6 +402,7 @@ private:
       view.update_active_view(input);
       parser.reset();
       if (!lines_ok) return reject_header_block(conn, state); // malformed
+      state.req.options.extract(state.req.headers);
     } else {
       // No headers: consume the blank-line terminator and fall through
       // to dispatch with an empty header set.

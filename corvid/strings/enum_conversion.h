@@ -43,7 +43,7 @@ help_extract_bitmask(bitmask::BitmaskEnum auto& e, std::string_view& sv) {
 
 constexpr bool help_extract_enum(StdEnum auto& e, std::string_view sv) {
   using E = std::remove_cvref_t<decltype(e)>;
-  e = E{};
+  e = {};
   if (sv.empty()) return false;
   bool succeeded{};
   if constexpr (bitmask::BitmaskEnum<E>)
@@ -78,6 +78,7 @@ constexpr bool convert_enum(StdEnum auto& e, std::string_view sv) {
 
 // Convert enum from a `std::string_view` with text, not digits.
 constexpr bool convert_text_enum(StdEnum auto& e, std::string_view sv) {
+  e = {};
   if (sv.empty() || (sv[0] >= '0' && sv[0] <= '9')) return false;
   return details::help_extract_enum(e, sv);
 }
