@@ -66,7 +66,7 @@ enum class after_response : uint8_t { close = 0, keep_alive = 1 };
 
 // Canonical media type from a `Content-Type` header field.
 // `unknown`: header present but value not recognized.
-enum class content_type_t : uint8_t {
+enum class content_type_value : uint8_t {
   unknown,
   text_html,
   text_plain,
@@ -75,11 +75,11 @@ enum class content_type_t : uint8_t {
 
 // Transfer encoding from a `Transfer-Encoding` header field.
 // `unknown`: header present but value not recognized.
-enum class transfer_encoding_t : uint8_t { unknown, identity, chunked };
+enum class transfer_encoding_value : uint8_t { unknown, identity, chunked };
 
 // Upgrade protocol from an `Upgrade` header field.
 // `unknown`: header present but value not recognized.
-enum class upgrade_t : uint8_t { unknown, websocket };
+enum class upgrade_value : uint8_t { unknown, websocket };
 
 // HTTP response status code.
 enum class http_status_code : uint16_t {
@@ -176,28 +176,28 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
 
 template<>
 constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::http_proto::content_type_t> =
+    corvid::proto::http_proto::content_type_value> =
     corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::http_proto::content_type_t,
+        corvid::proto::http_proto::content_type_value,
         "unknown, text/html, text/plain, application/json">();
 
 template<>
 constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::http_proto::transfer_encoding_t> =
+    corvid::proto::http_proto::transfer_encoding_value> =
     corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::http_proto::transfer_encoding_t,
+        corvid::proto::http_proto::transfer_encoding_value,
         "unknown, identity, chunked">();
 
 template<>
 constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::http_proto::upgrade_t> =
+    corvid::proto::http_proto::upgrade_value> =
     corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::http_proto::upgrade_t, "unknown, websocket">();
+        corvid::proto::http_proto::upgrade_value, "unknown, websocket">();
 
 namespace corvid { inline namespace proto { inline namespace http_proto {
 
 // Old-school struct as namespace.
-struct http {
+struct http_constants {
   static constexpr auto valid_field_name_chars =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
       "0123456789-!#$%&'*+.^_`|~"sv;
@@ -212,7 +212,7 @@ struct http {
 // average lookup without linear scan.
 //
 // Field names are normalized in the index to "Content-Type" form.
-class http_headers: http {
+class http_headers: http_constants {
   struct field_line {
     std::string name;
     std::string value;
@@ -317,7 +317,7 @@ public:
   // all field names.
   static std::optional<bool> normalize(std::string& field_name) {
     if (field_name.empty() ||
-        (field_name.find_first_not_of(http::valid_field_name_chars) !=
+        (field_name.find_first_not_of(http_headers::valid_field_name_chars) !=
             std::string_view::npos))
       return std::nullopt;
     bool changed{false};
@@ -520,9 +520,9 @@ public:
 struct http_options {
   std::optional<after_response> connection;
   std::optional<size_t> content_length;
-  std::optional<content_type_t> content_type;
-  std::optional<transfer_encoding_t> transfer_encoding;
-  std::optional<upgrade_t> upgrade;
+  std::optional<content_type_value> content_type;
+  std::optional<transfer_encoding_value> transfer_encoding;
+  std::optional<upgrade_value> upgrade;
 
   // Populate all fields by parsing `headers`. Call after headers are parsed.
   void extract(http_headers& headers) {
@@ -542,14 +542,14 @@ struct http_options {
     if (content_length)
       (void)headers.reset_raw("Content-Length",
           std::to_string(*content_length));
-    if (content_type && *content_type != content_type_t::unknown)
+    if (content_type && *content_type != content_type_value::unknown)
       (void)headers.reset_raw("Content-Type",
           strings::enum_as_string(*content_type));
     if (transfer_encoding &&
-        *transfer_encoding != transfer_encoding_t::unknown)
+        *transfer_encoding != transfer_encoding_value::unknown)
       (void)headers.reset_raw("Transfer-Encoding",
           strings::enum_as_string(*transfer_encoding));
-    if (upgrade && *upgrade != upgrade_t::unknown)
+    if (upgrade && *upgrade != upgrade_value::unknown)
       (void)headers.reset_raw("Upgrade", strings::enum_as_string(*upgrade));
   }
 
@@ -598,11 +598,11 @@ private:
     if (!sv) return;
     // Strip parameters (e.g., `"; charset=utf-8"`) before matching.
     const auto media_type = strings::trim(strings::split(*sv, ";").front());
-    content_type_t ct{};
+    content_type_value ct{};
     content_type =
         strings::convert_text_enum(ct, strings::as_lower(media_type))
             ? ct
-            : content_type_t::unknown;
+            : content_type_value::unknown;
   }
 
   // This can be a list of compression types, none of which we support, but
@@ -618,9 +618,9 @@ private:
       if (v.empty()) continue;
       t = v;
       strings::to_lower(t);
-      transfer_encoding_t te{};
+      transfer_encoding_value te{};
       if (strings::convert_text_enum(te, t) &&
-          te == transfer_encoding_t::chunked)
+          te == transfer_encoding_value::chunked)
       {
         transfer_encoding = te;
         return;
@@ -636,12 +636,21 @@ private:
         if (v.empty()) continue;
         t = v;
         strings::to_lower(t);
-        upgrade_t up{};
+        upgrade_value up{};
         (void)strings::convert_text_enum(up, t);
-        if (up == upgrade_t::websocket || !upgrade) upgrade = up;
+        if (up == upgrade_value::websocket || !upgrade) upgrade = up;
       }
     }
   }
+};
+
+// Shared base for `request_head` and `response_head`. Holds the fields common
+// to both: the HTTP version, the parsed header fields, and the extracted
+// options.
+struct head_base: http_constants {
+  http_version version{};
+  http_headers headers;
+  http_options options;
 };
 
 // HTTP request head, consisting of the request line and the header fields.
@@ -649,12 +658,9 @@ private:
 //
 // Obtained via `parse` after `terminated_text_parser` delivers the head (the
 // bytes before the crlfcrlf sentinel).
-struct request_head: http {
-  http_version version{};
+struct request_head: head_base {
   http_method method{};
   std::string target;
-  http_headers headers;
-  http_options options;
 
   // Reset to default-constructed state.
   void clear() {
@@ -767,12 +773,9 @@ private:
 //
 // Populate the fields and call `serialize()` to produce the wire-format
 // response string to pass to `stream_conn::send()`.
-struct response_head: http {
-  http_version version{};
+struct response_head: head_base {
   http_status_code status_code{};
   std::string reason;
-  http_headers headers;
-  http_options options;
 
   // Reset to default-constructed state.
   void clear() {

@@ -981,7 +981,7 @@ void HttpHeaderBlock_IsChunked() {
     http_options opts;
     opts.extract(h);
     ASSERT_TRUE(opts.transfer_encoding);
-    EXPECT_EQ(*opts.transfer_encoding, transfer_encoding_t::chunked);
+    EXPECT_EQ(*opts.transfer_encoding, transfer_encoding_value::chunked);
   }
   {
     // Mixed case value still matches.
@@ -990,7 +990,7 @@ void HttpHeaderBlock_IsChunked() {
     http_options opts;
     opts.extract(h);
     ASSERT_TRUE(opts.transfer_encoding);
-    EXPECT_EQ(*opts.transfer_encoding, transfer_encoding_t::chunked);
+    EXPECT_EQ(*opts.transfer_encoding, transfer_encoding_value::chunked);
   }
   {
     // `chunked` works as the last.
@@ -999,7 +999,7 @@ void HttpHeaderBlock_IsChunked() {
     http_options opts;
     opts.extract(h);
     ASSERT_TRUE(opts.transfer_encoding);
-    EXPECT_EQ(*opts.transfer_encoding, transfer_encoding_t::chunked);
+    EXPECT_EQ(*opts.transfer_encoding, transfer_encoding_value::chunked);
   }
   {
     // `chunked` does not work before other encodings.
@@ -1310,7 +1310,7 @@ void HttpHeaderBlock_HttpOptionsExtractApply() {
     http_options opts;
     opts.extract(h);
     ASSERT_TRUE(opts.content_type);
-    EXPECT_EQ(*opts.content_type, content_type_t::text_html);
+    EXPECT_EQ(*opts.content_type, content_type_value::text_html);
   }
   // content_type: exact match without parameters.
   {
@@ -1319,7 +1319,7 @@ void HttpHeaderBlock_HttpOptionsExtractApply() {
     http_options opts;
     opts.extract(h);
     ASSERT_TRUE(opts.content_type);
-    EXPECT_EQ(*opts.content_type, content_type_t::application_json);
+    EXPECT_EQ(*opts.content_type, content_type_value::application_json);
   }
   // content_type: unrecognized -> `unknown`.
   {
@@ -1328,7 +1328,7 @@ void HttpHeaderBlock_HttpOptionsExtractApply() {
     http_options opts;
     opts.extract(h);
     ASSERT_TRUE(opts.content_type);
-    EXPECT_EQ(*opts.content_type, content_type_t::unknown);
+    EXPECT_EQ(*opts.content_type, content_type_value::unknown);
   }
   // content_type: absent -> nullopt.
   {
@@ -1344,7 +1344,7 @@ void HttpHeaderBlock_HttpOptionsExtractApply() {
     http_options opts;
     opts.extract(h);
     ASSERT_TRUE(opts.upgrade);
-    EXPECT_EQ(*opts.upgrade, upgrade_t::websocket);
+    EXPECT_EQ(*opts.upgrade, upgrade_value::websocket);
   }
   // upgrade: unrecognized token -> `unknown`.
   {
@@ -1353,7 +1353,7 @@ void HttpHeaderBlock_HttpOptionsExtractApply() {
     http_options opts;
     opts.extract(h);
     ASSERT_TRUE(opts.upgrade);
-    EXPECT_EQ(*opts.upgrade, upgrade_t::unknown);
+    EXPECT_EQ(*opts.upgrade, upgrade_value::unknown);
   }
   // upgrade: websocket wins in a token list.
   {
@@ -1362,7 +1362,7 @@ void HttpHeaderBlock_HttpOptionsExtractApply() {
     http_options opts;
     opts.extract(h);
     ASSERT_TRUE(opts.upgrade);
-    EXPECT_EQ(*opts.upgrade, upgrade_t::websocket);
+    EXPECT_EQ(*opts.upgrade, upgrade_value::websocket);
   }
   // apply: writes known values into headers, updating existing entries.
   {
@@ -1370,7 +1370,7 @@ void HttpHeaderBlock_HttpOptionsExtractApply() {
     EXPECT_TRUE(h.add_raw("Content-Length", "0"));
     http_options opts;
     opts.content_length = 42;
-    opts.content_type = content_type_t::text_plain;
+    opts.content_type = content_type_value::text_plain;
     opts.connection = after_response::keep_alive;
     opts.apply(h);
     const auto cl = h.get("Content-Length");
@@ -1387,7 +1387,7 @@ void HttpHeaderBlock_HttpOptionsExtractApply() {
   {
     http_headers h;
     http_options opts;
-    opts.content_type = content_type_t::unknown;
+    opts.content_type = content_type_value::unknown;
     opts.apply(h);
     EXPECT_FALSE(h.get("Content-Type"));
   }
