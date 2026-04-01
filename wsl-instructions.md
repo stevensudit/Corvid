@@ -1,4 +1,4 @@
-1. Install WSL 2 with Jammy, and do the usual `apt update` and `apt upgrade`.
+1. Install WSL 2 with Noble Numbat, and do the usual `apt update` and `apt upgrade`.
 2. Install VSCode on Windows, including [WSL support](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-wsl).
 3. All steps below are in WSL. First, install `gh` and link it to your account.
 ```
