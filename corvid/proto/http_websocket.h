@@ -359,11 +359,12 @@ public:
   // to the start of a buffer of at least `header_length_for(payload_len,
   // mask.has_value())` bytes. Returns a wrapper for the built header.
   [[nodiscard]] static ws_frame_wrapper<access::as_mutable>
-  build(char* const header, ws_opcode opcode, size_t payload_len,
+  // NOLINTNEXTLINE(readability-non-const-parameter)
+  build(char* header, ws_opcode opcode, size_t payload_len,
       std::optional<uint32_t> mask) noexcept {
     assert(header);
-    return build(*reinterpret_cast<ws_frame_header*>(header), opcode,
-        payload_len, mask);
+    auto& header_ref = *reinterpret_cast<ws_frame_header*>(header);
+    return build(header_ref, opcode, payload_len, mask);
   }
 
   // Builds header into the frame, leaving its `size` the header length and its
