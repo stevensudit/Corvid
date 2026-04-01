@@ -567,6 +567,18 @@ public:
     }
   }
 
+  ~epoll_loop_runner() {
+    thread_.request_stop();
+    if (!thread_.joinable()) return;
+    // `http_server` can be destroyed from the loop thread when a callback's
+    // temporary `shared_ptr` is the final owner. libc++ throws on self-join,
+    // so detach in that narrow case after requesting stop.
+    if (thread_.get_id() == std::this_thread::get_id())
+      thread_.detach();
+    else
+      thread_.join();
+  }
+
   epoll_loop_runner(const epoll_loop_runner&) = delete;
   epoll_loop_runner& operator=(const epoll_loop_runner&) = delete;
   epoll_loop_runner(epoll_loop_runner&&) = delete;
