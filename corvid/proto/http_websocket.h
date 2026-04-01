@@ -63,20 +63,23 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
 
 namespace corvid { inline namespace proto {
 
-// Wire-format WebSocket frame header.
+// Wire-format WebSocket frame header. This is similar to `sockaddr_storage`,
+// in that it is a fixed-size structure capable of holding the largest possible
+// header.
 //
 // Memory layout at the front matches the on-wire representation:
 //   `opcode`           -- byte 0: FIN|RSV1-3|opcode (cast directly from wire)
-//   `variable_section` -- bytes 1..N (at most 13): MASK(1)|len7(7), optional
-//                         2- or 8-byte extended length, optional 4-byte
-//                         mask
+//   `variable_section` -- bytes 1..N (at most 13): MASK(1)|len7(7),
+//                         optional 2- or 8-byte extended length, optional
+//                         4-byte mask
 struct ws_frame_header {
   ws_opcode opcode{};             // byte 0 on the wire
   uint8_t variable_section[13]{}; // bytes 1-13; only `length-1` bytes valid
 };
 
 // Lightweight, non-owning wrapper around `ws_frame_header` for parsing and
-// updating fields. Used as `ws_frame_lens` or `ws_frame_view`.
+// updating fields, along with related utilities. Used as `ws_frame_lens` or
+// `ws_frame_view`.
 template<access ACCESS = access::as_mutable>
 class ws_frame_wrapper {
 public:
@@ -85,18 +88,40 @@ public:
       std::conditional_t<mutable_v, ws_frame_header, const ws_frame_header>;
   using char_ptr_t = std::conditional_t<mutable_v, char*, const char*>;
 
+  template<access>
+  friend class ws_frame_wrapper;
+
   ws_frame_wrapper() = default;
 
+  // Const-safe copy constructor.
+  template<access OTHER_ACCESS>
+  ws_frame_wrapper(const ws_frame_wrapper<OTHER_ACCESS>& other) noexcept
+  requires(ACCESS == OTHER_ACCESS ||
+              (ACCESS == access::as_const &&
+                  OTHER_ACCESS == access::as_mutable))
+      : header_{other.header_}, header_length_{other.header_length_},
+        payload_length_{other.payload_length_}, mask_{other.mask_} {}
+
+  // Construct over `header`. Initialize with length of `header` or the full
+  // buffer it's at the front of, then use `is_complete` before `parse`.
   explicit ws_frame_wrapper(header_t& header, size_t header_length = 0)
       : header_{&header}, header_length_{header_length} {}
 
-  explicit ws_frame_wrapper(char_ptr_t data, size_t header_length = 0)
-      : header_{reinterpret_cast<header_t*>(data)},
+  // Construct over `frame`. Initialize with length of `frame`, then use
+  // `is_complete` before `parse`.
+  explicit ws_frame_wrapper(char_ptr_t frame, size_t header_length = 0)
+      : header_{reinterpret_cast<header_t*>(frame)},
         header_length_{header_length} {}
 
-  // Calculates the total number of bytes needed to encode `payload_length`,
-  // including the initial length byte and any extended length bytes, but
-  // excluding the opcode byte and mask key.
+  // Construct over `frame`. Use `is_complete` before `parse`.
+  explicit ws_frame_wrapper(std::string& frame)
+      : header_{reinterpret_cast<header_t*>(frame.data())},
+        header_length_{frame.size()} {}
+
+  // Calculate the total number of bytes required for a header that encodes
+  // `payload_length`, including the opcode, initial length byte, and any
+  // extended length bytes, as well as the mask key. Suitable for sizing a
+  // buffer before `build`ing a header and payload in it.
   static size_t
   header_length_for(size_t payload_len, size_t is_mask = false) noexcept {
     size_t mask_len = is_mask ? 4 : 0;
@@ -105,7 +130,8 @@ public:
     return 10 + mask_len;
   }
 
-  // Extract the length byte.
+  // Extract the length byte, excluding the `is_final` bit. This is generally
+  // not the length; use `payload_length` for that.
   [[nodiscard]] uint8_t length_byte() const noexcept {
     return header_->variable_section[0] & uint8_t{0x7F};
   }
@@ -132,7 +158,9 @@ public:
     return header_->variable_section;
   }
 
-  // Whether the variable section has a mask.
+  // Whether the variable section has a mask. Note that there's a distinction
+  // between having a mask of 0 and not having a mask, per RFC 6455
+  // section 5.2.
   [[nodiscard]] bool is_masked() const noexcept {
     return (header_->variable_section[0] & 0x80U) != 0;
   }
@@ -145,10 +173,12 @@ public:
     return bitmask::has(header_->opcode, ws_opcode::fin);
   }
 
-  // Determine whether the header is complete, given that the buffer is of
-  // `buffer_length`. If it is, it can be parsed. Sets `header_length` in the
-  // process. Does not read past `buffer_length`.
-  [[nodiscard]] bool is_complete(size_t buffer_length) noexcept {
+  // Determine whether the header is complete. Interprets `header_length` as
+  // `buffer_length` and probes the start of the header buffer up to that
+  // point. In the process, sets `header_length`. If the header is complete
+  // then it can be parsed.
+  [[nodiscard]] bool is_complete() noexcept {
+    const size_t buffer_length = header_length_;
     if (buffer_length >= 14) return true; // max header size is 14 bytes
 
     // Must have at least opcode and first length byte.
@@ -228,53 +258,56 @@ public:
   }
 
   // Copy header to the provided `ws_frame_header` object.
-  bool copy_to(char* header) const {
-    assert(header);
+  [[nodiscard]] bool copy_to(char* header) const {
     if (header_length_ == 0) return false;
     std::memcpy(header, header_, header_length_);
     return true;
   }
 
-  // Copy `payload` into `frame` (at the payload area after the header),
-  // applying the mask in the same pass. Uses `memcpy` when unmasked. Returns
-  // false if `frame.size() < total_length()` or
-  // `payload.size() != payload_length()`.
+  // Copy `src` to `dst`, applying the mask. Uses `memcpy` when unmasked.
+  // Works correctly even if `dst` is `src.data()` (in-place masking). `dst`
+  // must point to a buffer of at least `src.size()` bytes.
   [[nodiscard]] bool
-  mask_payload_copy(std::string& frame, std::string_view payload) noexcept {
-    assert(reinterpret_cast<const char*>(&header()) == frame.data());
-    if (frame.size() < total_length()) return false;
-    if (payload.size() != payload_length()) return false;
-
-    auto* p = reinterpret_cast<uint8_t*>(frame.data() + header_length());
-    const auto* src = reinterpret_cast<const uint8_t*>(payload.data());
-    size_t n = payload_length();
+  mask_payload_copy(char* dst, std::string_view src) noexcept {
+    auto* p = reinterpret_cast<uint8_t*>(dst);
+    const auto* s = reinterpret_cast<const uint8_t*>(src.data());
+    size_t n = src.size();
 
     const auto key = mask_key();
-    if (!key) {
-      std::memcpy(p, src, n);
-      return true;
-    }
+    if (!key) return std::memcpy(p, s, n) || true;
 
     const uint32_t key32 = ntoh32(key);
     const uint64_t key64 =
         static_cast<uint64_t>(key32) | (static_cast<uint64_t>(key32) << 32);
 
+    // Godbolt confirms that Clang does an amazing job with this: 256 bits per
+    // loop.
     while (n >= sizeof(uint64_t)) {
       uint64_t chunk{};
-      std::memcpy(&chunk, src, sizeof(chunk));
+      std::memcpy(&chunk, s, sizeof(chunk));
       chunk ^= key64;
       std::memcpy(p, &chunk, sizeof(chunk));
       p += sizeof(uint64_t);
-      src += sizeof(uint64_t);
+      s += sizeof(uint64_t);
       n -= sizeof(uint64_t);
     }
 
     if (n != 0) {
       uint8_t mask[sizeof(uint64_t)];
       std::memcpy(mask, &key64, sizeof(mask));
-      for (size_t i = 0; i < n; ++i) p[i] = src[i] ^ mask[i];
+      for (size_t i = 0; i < n; ++i) p[i] = s[i] ^ mask[i];
     }
     return true;
+  }
+
+  // Copy `payload` into `frame` (at the payload area after the header),
+  // applying the mask in the same pass. Returns false if the sizes are wrong.
+  [[nodiscard]] bool
+  mask_payload_copy(std::string& frame, std::string_view payload) noexcept {
+    assert(reinterpret_cast<const char*>(&header()) == frame.data());
+    if (frame.size() < total_length()) return false;
+    if (payload.size() != payload_length()) return false;
+    return mask_payload_copy(frame.data() + header_length(), payload);
   }
 
   // Mask/unmask the payload bytes already in `frame`. This instance should
@@ -325,8 +358,8 @@ public:
   // Build header in-place at the provided `header` pointer, which should point
   // to the start of a buffer of at least `header_length_for(payload_len,
   // mask.has_value())` bytes. Returns a wrapper for the built header.
-  [[nodiscard]] static ws_frame_wrapper<access::as_mutable> build(char* header,
-      ws_opcode opcode, size_t payload_len,
+  [[nodiscard]] static ws_frame_wrapper<access::as_mutable>
+  build(char* const header, ws_opcode opcode, size_t payload_len,
       std::optional<uint32_t> mask) noexcept {
     assert(header);
     return build(*reinterpret_cast<ws_frame_header*>(header), opcode,
@@ -337,12 +370,11 @@ public:
   // `capacity` the total frame length. To complete this frame, use
   // `mask_payload_copy`.
   [[nodiscard]]
-  static ws_frame_wrapper<access::as_mutable>
-  build(std::string& frame, ws_opcode opcode, size_t payload_len,
-      std::optional<uint32_t> mask) noexcept {
+  static ws_frame_wrapper<access::as_mutable> build(std::string& frame,
+      ws_opcode opcode, size_t payload_len, std::optional<uint32_t> mask) {
     assert(!frame.empty());
     const size_t header_len =
-        ws_frame_lens::header_length_for(payload_len, mask.has_value());
+        ws_frame_wrapper::header_length_for(payload_len, mask.has_value());
     frame.reserve(header_len + payload_len);
     no_zero::resize_to(frame, header_len);
     return build(frame.data(), opcode, payload_len, mask);
@@ -369,8 +401,8 @@ struct ws_frame_codec {
   // must read at least `payload_length` more bytes to get the whole frame.
   [[nodiscard]] static std::optional<ws_frame_view> parse_header(
       std::string_view data) noexcept {
-    ws_frame_view hdr{data.data()};
-    if (!hdr.is_complete(data.size()) || !hdr.parse()) return std::nullopt;
+    ws_frame_view hdr{data.data(), data.size()};
+    if (!hdr.is_complete() || !hdr.parse()) return std::nullopt;
     return hdr;
   }
 

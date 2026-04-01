@@ -28,6 +28,8 @@
 #include "minitest.h"
 
 using namespace corvid;
+using namespace std::string_literals;
+using namespace std::chrono_literals;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
@@ -378,7 +380,7 @@ void HttpServer_Http09() {
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
-  EXPECT_TRUE(client.send("GET /\r\n"));
+  EXPECT_TRUE(client.send("GET /\r\n"s));
   const auto response = client.recv_until("</html>");
   EXPECT_EQ(response.find("200"), std::string::npos);
   // HTTP/0.9 never keep-alive; server should close after the response.
@@ -394,7 +396,7 @@ void HttpServer_LeadingCrlf() {
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
   EXPECT_TRUE(
-      client.send("\r\n\r\nGET / HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+      client.send("\r\n\r\nGET / HTTP/1.1\r\nHost: localhost\r\n\r\n"s));
   const auto response = client.recv_until("\r\n\r\n");
   EXPECT_NE(response.find("200"), std::string::npos);
 }
@@ -408,7 +410,7 @@ void HttpServer_TooManyLeadingCrls() {
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
   // Send 9 bare CRLFs (one more than the limit of 8) with no request line.
-  EXPECT_TRUE(client.send("\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n"));
+  EXPECT_TRUE(client.send("\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n"s));
   // The server should close the connection without responding.
   const auto response = client.recv_until("\r\n\r\n");
   EXPECT_TRUE(response.empty());
@@ -445,7 +447,7 @@ void HttpServer_GetRoot() {
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
-  EXPECT_TRUE(client.send("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  EXPECT_TRUE(client.send("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"s));
   const auto response = client.recv_until("\r\n\r\n");
   EXPECT_NE(response.find("200"), std::string::npos);
 }
@@ -458,7 +460,7 @@ void HttpServer_GetPath() {
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
-  EXPECT_TRUE(client.send("GET /123 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  EXPECT_TRUE(client.send("GET /123 HTTP/1.1\r\nHost: localhost\r\n\r\n"s));
   const auto response = client.recv_until("\r\n\r\n");
   EXPECT_NE(response.find("200"), std::string::npos);
   const auto body = client.recv_until("</html>");
@@ -472,7 +474,7 @@ void HttpServer_InvalidRequest() {
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
-  EXPECT_TRUE(client.send("POST /foo HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  EXPECT_TRUE(client.send("POST /foo HTTP/1.1\r\nHost: localhost\r\n\r\n"s));
   const auto response = client.recv_until("\r\n\r\n");
   EXPECT_NE(response.find("405"), std::string::npos);
 }
@@ -501,8 +503,8 @@ void HttpServer_PartialRequest() {
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
-  EXPECT_TRUE(client.send("GET /42 HTTP/1.1\r\nHost: localhost"));
-  EXPECT_TRUE(client.send("\r\n\r\n"));
+  EXPECT_TRUE(client.send("GET /42 HTTP/1.1\r\nHost: localhost"s));
+  EXPECT_TRUE(client.send("\r\n\r\n"s));
   const auto response = client.recv_until("\r\n\r\n");
   EXPECT_NE(response.find("200"), std::string::npos);
   const auto body = client.recv_until("</html>");
@@ -522,7 +524,7 @@ void HttpServer_ANS() {
 
   auto client = stream_sync::connect(ep, 1s);
   ASSERT_TRUE(client);
-  EXPECT_TRUE(client.send("GET /42 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  EXPECT_TRUE(client.send("GET /42 HTTP/1.1\r\nHost: localhost\r\n\r\n"s));
   const auto response = client.recv_until("\r\n\r\n");
   EXPECT_NE(response.find("200"), std::string::npos);
   const auto body = client.recv_until("</html>");
@@ -546,7 +548,7 @@ void HttpServer_RequestWithinTimeout() {
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
-  EXPECT_TRUE(client.send("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  EXPECT_TRUE(client.send("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"s));
   const auto response = client.recv_until("\r\n\r\n");
   EXPECT_NE(response.find("200"), std::string::npos);
 }
@@ -607,7 +609,7 @@ void HttpServer_WriteTimeout() {
               [sent = false](stream_conn& conn) mutable {
                 if (std::exchange(sent, true)) return true;
                 return conn.send(
-                    "GET /10000000 HTTP/1.1\r\nHost: localhost\r\n\r\n");
+                    "GET /10000000 HTTP/1.1\r\nHost: localhost\r\n\r\n"s);
               },
           .on_close =
               [&closed](stream_conn&) {
@@ -642,7 +644,7 @@ void HttpServer_MissingHost() {
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
-  EXPECT_TRUE(client.send("GET / HTTP/1.1\r\n\r\n"));
+  EXPECT_TRUE(client.send("GET / HTTP/1.1\r\n\r\n"s));
   const auto response = client.recv_until("\r\n\r\n");
   EXPECT_NE(response.find("400"), std::string::npos);
   // Server closes after the error response.
@@ -658,12 +660,12 @@ void HttpServer_KeepAlive() {
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
 
-  EXPECT_TRUE(client.send("GET /10 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  EXPECT_TRUE(client.send("GET /10 HTTP/1.1\r\nHost: localhost\r\n\r\n"s));
   const auto r1 = client.recv_until("\r\n\r\n");
   EXPECT_NE(r1.find("200"), std::string::npos);
   (void)client.recv_until("</html>");
 
-  EXPECT_TRUE(client.send("GET /20 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+  EXPECT_TRUE(client.send("GET /20 HTTP/1.1\r\nHost: localhost\r\n\r\n"s));
   const auto r2 = client.recv_until("\r\n\r\n");
   EXPECT_NE(r2.find("200"), std::string::npos);
   (void)client.recv_until("</html>");
@@ -680,8 +682,7 @@ void HttpServer_Pipeline() {
 
   // Send both requests before reading any response.
   EXPECT_TRUE(client.send(
-      "GET /10 HTTP/1.1\r\nHost: localhost\r\n\r\n"
-      "GET /20 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+      "GET /10 HTTP/1.1\r\nHost: localhost\r\n\r\nGET /20 HTTP/1.1\r\nHost: localhost\r\n\r\n"s));
 
   const auto r1 = client.recv_until("\r\n\r\n");
   EXPECT_NE(r1.find("200"), std::string::npos);
@@ -701,7 +702,7 @@ void HttpServer_ConnectionClose() {
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
   EXPECT_TRUE(client.send(
-      "GET /5 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
+      "GET /5 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"s));
   const auto response = client.recv_until("\r\n\r\n");
   EXPECT_NE(response.find("200"), std::string::npos);
   EXPECT_NE(response.find("Connection: close"), std::string::npos);
@@ -718,7 +719,7 @@ void HttpServer_Http10NoKeepAlive() {
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
-  EXPECT_TRUE(client.send("GET /5 HTTP/1.0\r\n\r\n"));
+  EXPECT_TRUE(client.send("GET /5 HTTP/1.0\r\n\r\n"s));
   const auto response = client.recv_until("\r\n\r\n");
   EXPECT_NE(response.find("200"), std::string::npos);
   (void)client.recv_until("</html>");
@@ -1257,7 +1258,7 @@ void HttpServer_BodyTooLarge() {
   ASSERT_TRUE(client);
   // 10 * 1024 * 1024 + 1 = 10485761, just over the 10 MB limit.
   EXPECT_TRUE(
-      client.send("GET /10485761 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+      client.send("GET /10485761 HTTP/1.1\r\nHost: localhost\r\n\r\n"s));
   const auto response = client.recv_until("\r\n\r\n");
   EXPECT_NE(response.find("400"), std::string::npos);
 }
@@ -1274,7 +1275,7 @@ void HttpServer_TooLongHeaders() {
   // The header block (everything between the request line and \r\n\r\n)
   // must exceed 8192 bytes. "X-Pad: " (7) + 8192 'a' + "\r\n" (2) = 8201.
   const std::string long_header = "X-Pad: " + std::string(8192, 'a') + "\r\n";
-  EXPECT_TRUE(client.send("GET / HTTP/1.1\r\n" + long_header + "\r\n"));
+  EXPECT_TRUE(client.send("GET / HTTP/1.1\r\n" + long_header + "\r\n"s));
   const auto response = client.recv_until("\r\n\r\n");
   EXPECT_NE(response.find("400"), std::string::npos);
   EXPECT_TRUE(client.recv().empty()); // server closes after error
@@ -1289,7 +1290,7 @@ void HttpServer_MalformedRequestLine() {
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
-  EXPECT_TRUE(client.send("BREW /coffee HTTP/1.1\r\n\r\n"));
+  EXPECT_TRUE(client.send("BREW /coffee HTTP/1.1\r\n\r\n"s));
   const auto response = client.recv_until("\r\n\r\n");
   EXPECT_NE(response.find("400"), std::string::npos);
   EXPECT_TRUE(client.recv().empty()); // server closes after error
@@ -1306,7 +1307,7 @@ void HttpServer_Http10KeepAlive() {
   ASSERT_TRUE(client);
 
   EXPECT_TRUE(
-      client.send("GET /5 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"));
+      client.send("GET /5 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"s));
   const auto r1 = client.recv_until("\r\n\r\n");
   EXPECT_NE(r1.find("200"), std::string::npos);
   EXPECT_NE(r1.find("Connection: keep-alive"), std::string::npos);
@@ -1314,7 +1315,7 @@ void HttpServer_Http10KeepAlive() {
 
   // Connection is still open; second request succeeds.
   EXPECT_TRUE(
-      client.send("GET /10 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"));
+      client.send("GET /10 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"s));
   const auto r2 = client.recv_until("\r\n\r\n");
   EXPECT_NE(r2.find("200"), std::string::npos);
   (void)client.recv_until("</html>");
@@ -1326,7 +1327,7 @@ void HttpHeaderBlock_HttpOptionsExtractApply() {
   // content_type: recognized media type, parameters stripped.
   {
     http_headers h;
-    EXPECT_TRUE(h.add_raw("Content-Type", "text/html; charset=utf-8"));
+    EXPECT_TRUE(h.add_raw("Content-Type", "text/html; charset=utf-8"s));
     http_options opts;
     opts.extract(h);
     ASSERT_TRUE(opts.content_type);
