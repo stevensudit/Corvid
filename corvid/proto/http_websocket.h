@@ -126,6 +126,12 @@ public:
     return header_->variable_section;
   }
 
+  [[nodiscard]] uint8_t* variable_section() noexcept
+  requires mutable_v
+  {
+    return header_->variable_section;
+  }
+
   // Whether the variable section has a mask.
   [[nodiscard]] bool is_masked() const noexcept {
     return (header_->variable_section[0] & 0x80U) != 0;
@@ -225,11 +231,63 @@ public:
   bool copy_to(char* header) const {
     assert(header);
     if (header_length_ == 0) return false;
-    memcpy(header, header_, header_length_);
+    std::memcpy(header, header_, header_length_);
     return true;
   }
 
-  // Fill header fields and return wrapper for it.
+  // Copy `payload` into `frame` (at the payload area after the header),
+  // applying the mask in the same pass. Uses `memcpy` when unmasked. Returns
+  // false if `frame.size() < total_length()` or
+  // `payload.size() != payload_length()`.
+  [[nodiscard]] bool
+  mask_payload_copy(std::string& frame, std::string_view payload) noexcept {
+    assert(reinterpret_cast<const char*>(&header()) == frame.data());
+    if (frame.size() < total_length()) return false;
+    if (payload.size() != payload_length()) return false;
+
+    auto* p = reinterpret_cast<uint8_t*>(frame.data() + header_length());
+    const auto* src = reinterpret_cast<const uint8_t*>(payload.data());
+    size_t n = payload_length();
+
+    const auto key = mask_key();
+    if (!key) {
+      std::memcpy(p, src, n);
+      return true;
+    }
+
+    const uint32_t key32 = ntoh32(key);
+    const uint64_t key64 =
+        static_cast<uint64_t>(key32) | (static_cast<uint64_t>(key32) << 32);
+
+    while (n >= sizeof(uint64_t)) {
+      uint64_t chunk{};
+      std::memcpy(&chunk, src, sizeof(chunk));
+      chunk ^= key64;
+      std::memcpy(p, &chunk, sizeof(chunk));
+      p += sizeof(uint64_t);
+      src += sizeof(uint64_t);
+      n -= sizeof(uint64_t);
+    }
+
+    if (n != 0) {
+      uint8_t mask[sizeof(uint64_t)];
+      std::memcpy(mask, &key64, sizeof(mask));
+      for (size_t i = 0; i < n; ++i) p[i] = src[i] ^ mask[i];
+    }
+    return true;
+  }
+
+  // Mask/unmask the payload bytes already in `frame`. This instance should
+  // point into the front of that frame.
+  [[nodiscard]] bool mask_payload(std::string& frame) noexcept {
+    if (!mask_key()) return true;
+    if (frame.size() < total_length()) return false;
+    const std::string_view payload{frame.data() + header_length(),
+        payload_length()};
+    return mask_payload_copy(frame, payload);
+  }
+
+  // Build header into `header`and return wrapper for it.
   static ws_frame_wrapper<access::as_mutable> build(ws_frame_header& header,
       ws_opcode opcode, size_t payload_len,
       std::optional<uint32_t> mask) noexcept {
@@ -243,28 +301,31 @@ public:
       vs[0] = mask_bit | static_cast<uint8_t>(payload_len);
       lens.header_length_ = 2;
     } else if (payload_len <= 0xFFFF) {
-      //   vs[0] = static_cast<char>(mask_bit | 126);
+      vs[0] = static_cast<char>(mask_bit | 126);
       auto v = static_cast<uint16_t>(payload_len);
       v = hton16(v);
-      //     std::memcpy(vs + 1, &v, sizeof(v));
+      std::memcpy(vs + 1, &v, sizeof(v));
       lens.header_length_ = 4;
     } else {
-      //     vs[0] = static_cast<char>(mask_bit | 127);
+      vs[0] = static_cast<char>(mask_bit | 127);
       auto v = static_cast<uint64_t>(payload_len);
       v = hton64(v);
-      //    std::memcpy(vs + 1, &v, sizeof(v));
+      std::memcpy(vs + 1, &v, sizeof(v));
       lens.header_length_ = 10;
     }
 
     if (mask) {
       uint32_t be_mask = hton32(*mask);
-      //   std::memcpy(vs + lens.header_length_, &be_mask, sizeof(be_mask));
+      std::memcpy(vs + lens.header_length_, &be_mask, sizeof(be_mask));
       lens.header_length_ += 4;
     }
     return lens;
   }
 
-  static ws_frame_wrapper<access::as_mutable> build(char* header,
+  // Build header in-place at the provided `header` pointer, which should point
+  // to the start of a buffer of at least `header_length_for(payload_len,
+  // mask.has_value())` bytes. Returns a wrapper for the built header.
+  [[nodiscard]] static ws_frame_wrapper<access::as_mutable> build(char* header,
       ws_opcode opcode, size_t payload_len,
       std::optional<uint32_t> mask) noexcept {
     assert(header);
@@ -272,7 +333,20 @@ public:
         payload_len, mask);
   }
 
-  // TODO: Move mask/unmask here.
+  // Builds header into the frame, leaving its `size` the header length and its
+  // `capacity` the total frame length. To complete this frame, use
+  // `mask_payload_copy`.
+  [[nodiscard]]
+  static ws_frame_wrapper<access::as_mutable>
+  build(std::string& frame, ws_opcode opcode, size_t payload_len,
+      std::optional<uint32_t> mask) noexcept {
+    assert(!frame.empty());
+    const size_t header_len =
+        ws_frame_lens::header_length_for(payload_len, mask.has_value());
+    frame.reserve(header_len + payload_len);
+    no_zero::resize_to(frame, header_len);
+    return build(frame.data(), opcode, payload_len, mask);
+  }
 
 private:
   header_t* header_{};
@@ -300,50 +374,34 @@ struct ws_frame_codec {
     return hdr;
   }
 
-  // XOR-mask/unmask `payload` in place using the masking key from `header`.
-  // No-op when `!header.is_masked()`.
-  // TODO: Change it to use a 64-bit key, and unmask the remaining 7 bytes as a
-  // special case.
-  static void
-  mask_payload(std::string& frame, const ws_frame_lens& hdr) noexcept {
-    const auto key = hdr.mask_key();
-    if (!key) return;
-    const uint32_t key32 = ntoh32(key);
-
-    auto* p = reinterpret_cast<uint8_t*>(frame.data() + hdr.header_length());
-    size_t n = hdr.payload_length();
-    while (n >= sizeof(uint32_t)) {
-      uint32_t chunk{};
-      std::memcpy(&chunk, p, sizeof(chunk));
-      chunk ^= key32;
-      std::memcpy(p, &chunk, sizeof(chunk));
-      p += sizeof(uint32_t);
-      n -= sizeof(uint32_t);
-    }
-
-    if (n != 0) {
-      uint8_t mask[sizeof(uint32_t)];
-      std::memcpy(mask, &key32, sizeof(mask));
-      for (size_t i = 0; i < n; ++i) p[i] ^= mask[i];
-    }
-  }
-
   // Serialize a complete WebSocket frame into a new string. `opcode`
   // carries both the FIN flag and the opcode nibble (e.g.,
   // `ws_opcode::fin | ws_opcode::text`). If `mask` is non-null, the MASK
   // bit is set and the payload is masked (required for client -> server).
+  //
+  // TODO: This is my re-write of Claude multi-copy solution. Once it's
+  // working, the next steps are:
+  // 1. Expose a function to condition a string with a header, based on the
+  // opcode and length. It's reserved for the header plus payload but the size
+  // is set to the header.
+  // 2. The caller uses `no_zero::resize_to` and fills the string.
+  // 3. Finally, they call `mask_payload` to apply the mask in-place if needed.
   [[nodiscard]] static std::string serialize_frame(ws_opcode opcode,
       std::string_view payload, std::optional<uint32_t> mask = std::nullopt) {
-    size_t header_len =
+    // Pre-allocate buffer and size to header.
+    const size_t header_len =
         ws_frame_lens::header_length_for(payload.size(), mask.has_value());
     std::string buffer;
-    buffer.reserve(header_len);
+    buffer.reserve(header_len + payload.size());
+
+    // Build header in-place at the front of the buffer.
     no_zero::resize_to(buffer, header_len);
     auto hdr =
         ws_frame_lens::build(buffer.data(), opcode, payload.size(), mask);
-    buffer += payload;
-    mask_payload(buffer, hdr);
 
+    // Expand to full frame size, then copy and optionally mask the payload.
+    no_zero::resize_to(buffer, hdr.total_length());
+    if (!hdr.mask_payload_copy(buffer, payload)) buffer.clear();
     return buffer;
   }
 
@@ -650,7 +708,7 @@ private:
 
   http_transaction::send_fn websocket_send_;
   http_websocket websocket_{[this](std::string&& frame) {
-    if (!websocket_send_) return false;
+    if (!websocket_send_)               return false;
     return websocket_send_(std::move(frame));
   }};
   std::string pending_response_;
