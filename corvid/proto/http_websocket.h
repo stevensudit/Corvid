@@ -118,6 +118,12 @@ public:
       : header_{reinterpret_cast<header_t*>(frame.data())},
         header_length_{frame.size()} {}
 
+  // Construct over `frame`. Use `is_complete` before `parse`.
+  explicit ws_frame_wrapper(std::string_view frame) noexcept
+  requires(ACCESS == access::as_const)
+      : header_{reinterpret_cast<header_t*>(frame.data())},
+        header_length_{frame.size()} {}
+
   // Calculate the total number of bytes required for a header that encodes
   // `payload_length`, including the opcode, initial length byte, and any
   // extended length bytes, as well as the mask key. Suitable for sizing a
@@ -265,7 +271,7 @@ public:
   }
 
   // Copy `src` to `dst`, applying the mask. Uses `memcpy` when unmasked.
-  // Works correctly even if `dst` is `src.data()` (in-place masking). `dst`
+  // Works correctly even if `dst` is `src.data()` for in-place masking. `dst`
   // must point to a buffer of at least `src.size()` bytes.
   [[nodiscard]] bool
   mask_payload_copy(char* dst, std::string_view src) noexcept {
@@ -280,8 +286,8 @@ public:
     const uint64_t key64 =
         static_cast<uint64_t>(key32) | (static_cast<uint64_t>(key32) << 32);
 
-    // Godbolt confirms that Clang does an amazing job with this: 256 bits per
-    // loop.
+    // Godbolt confirms that Clang does an amazing job with this. For the main
+    // loop, it XORs 256 bits at a time.
     while (n >= sizeof(uint64_t)) {
       uint64_t chunk{};
       std::memcpy(&chunk, s, sizeof(chunk));
@@ -421,21 +427,13 @@ struct ws_frame_codec {
   // 3. Finally, they call `mask_payload` to apply the mask in-place if needed.
   [[nodiscard]] static std::string serialize_frame(ws_opcode opcode,
       std::string_view payload, std::optional<uint32_t> mask = std::nullopt) {
-    // Pre-allocate buffer and size to header.
-    const size_t header_len =
-        ws_frame_lens::header_length_for(payload.size(), mask.has_value());
-    std::string buffer;
-    buffer.reserve(header_len + payload.size());
-
-    // Build header in-place at the front of the buffer.
-    no_zero::resize_to(buffer, header_len);
-    auto hdr =
-        ws_frame_lens::build(buffer.data(), opcode, payload.size(), mask);
+    std::string frame;
+    auto hdr = ws_frame_lens::build(frame, opcode, payload.size(), mask);
 
     // Expand to full frame size, then copy and optionally mask the payload.
-    no_zero::resize_to(buffer, hdr.total_length());
-    if (!hdr.mask_payload_copy(buffer, payload)) buffer.clear();
-    return buffer;
+    no_zero::resize_to(frame, hdr.total_length());
+    if (!hdr.mask_payload_copy(frame, payload)) frame.clear();
+    return frame;
   }
 
   // Compute the `Sec-WebSocket-Accept` value per RFC 6455 section 4.2.2:
