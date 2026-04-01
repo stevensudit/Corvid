@@ -19,6 +19,7 @@
 
 #include "../corvid/concurrency/jthread_stoppable_sleep.h"
 
+#include <charconv>
 #include <cerrno>
 #include <chrono>
 #include <iostream>
@@ -370,12 +371,92 @@ void HttpHeaderBlock_ResponseExtract() {
   }
 }
 
+// Simple padded-page transaction used by `make_test_server`. Responds to GET
+// requests with an HTML body that embeds the request path followed by N space
+// characters, where N is the leading decimal number in the path (e.g.,
+// `"/42"` -> 42 spaces). Returns 400 when the count exceeds 10 MB, and 405
+// for non-GET methods.
+struct padded_page_transaction: public http_transaction {
+  static constexpr size_t max_pad{10ULL * 1024 * 1024};
+
+  explicit padded_page_transaction(request_head&& req)
+      : http_transaction{std::move(req)} {}
+
+  [[nodiscard]] stream_claim handle_drain(send_fn& send) override {
+    const auto& req = request_headers;
+
+    if (req.method != http_method::GET) {
+      close_after = after_response::close;
+      (void)send(response_head::make_error_response(close_after, req.version,
+          http_status_code::METHOD_NOT_ALLOWED, "Method Not Allowed"));
+      return stream_claim::release;
+    }
+
+    const size_t pad_count = parse_pad_count(req.target);
+    if (pad_count > max_pad) {
+      close_after = after_response::close;
+      (void)send(response_head::make_error_response(close_after, req.version,
+          http_status_code::BAD_REQUEST, "Bad Request"));
+      return stream_claim::release;
+    }
+
+    std::string body;
+    body.reserve(req.target.size() + pad_count + 27);
+    body += "<html><body>";
+    body += req.target;
+    body.append(pad_count, ' ');
+    body += "</body></html>";
+
+    if (req.version == http_version::http_0_9) {
+      (void)send(std::move(body));
+      return stream_claim::release;
+    }
+
+    response_headers.version = req.version;
+    response_headers.status_code = http_status_code::OK;
+    response_headers.reason = "OK";
+    response_headers.options.content_type = content_type_value::text_html;
+    response_headers.options.content_length = body.size();
+    response_headers.options.connection = close_after;
+
+    (void)send(response_headers.serialize());
+    (void)send(std::move(body));
+    return stream_claim::release;
+  }
+
+private:
+  [[nodiscard]] static size_t parse_pad_count(std::string_view target) {
+    const auto pos = target.find_first_of("0123456789");
+    if (pos == std::string_view::npos) return 0;
+    size_t count{};
+    (void)std::from_chars(target.data() + pos, target.data() + target.size(),
+        count);
+    return count;
+  }
+};
+
+// Creates an `http_server` with `padded_page_transaction` registered as the
+// `"/"` catch-all route. Forwards all arguments to `http_server::create`.
+[[nodiscard]] static http_server::http_server_ptr make_test_server(
+    const net_endpoint& endpoint, http_server::epoll_loop_ptr loop = nullptr,
+    http_server::timing_wheel_ptr wheel = nullptr,
+    http_server::duration_t request_timeout = 30s,
+    http_server::duration_t write_timeout = 5s) {
+  auto server = http_server::create(endpoint, std::move(loop),
+      std::move(wheel), request_timeout, write_timeout);
+  if (server)
+    server->add_route("/", [](request_head&& req) -> transaction_ptr {
+      return std::make_shared<padded_page_transaction>(std::move(req));
+    });
+  return server;
+}
+
 // `http_server` tests.
 
 // Verify that an HTTP/0.9-style request (no version token, no headers)
 // receives a response and the server then closes the connection.
 void HttpServer_Http09() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -390,7 +471,7 @@ void HttpServer_Http09() {
 // Verify that leading bare CRLFs before the request line are silently
 // skipped (RFC 9112 section 2.2) and the request is served normally.
 void HttpServer_LeadingCrlf() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -404,7 +485,7 @@ void HttpServer_LeadingCrlf() {
 // Verify that more than `max_leading_crls` bare CRLFs before the request
 // line cause the server to drop the connection.
 void HttpServer_TooManyLeadingCrls() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -418,7 +499,7 @@ void HttpServer_TooManyLeadingCrls() {
 
 // Verify that `create` with a null loop starts its own `epoll_loop_runner`.
 void HttpServer_OwnLoop() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
   EXPECT_TRUE(server->local_endpoint());
 }
@@ -427,7 +508,7 @@ void HttpServer_OwnLoop() {
 void HttpServer_SharedLoop() {
   epoll_loop_runner runner;
   auto server =
-      http_server::create(net_endpoint{ipv4_addr::loopback, 0}, runner.loop());
+      make_test_server(net_endpoint{ipv4_addr::loopback, 0}, runner.loop());
   ASSERT_TRUE(server);
   EXPECT_TRUE(server->local_endpoint());
 }
@@ -435,14 +516,14 @@ void HttpServer_SharedLoop() {
 // Verify that `create` returns null when the listen socket cannot be created
 // (e.g., an invalid endpoint).
 void HttpServer_Create_BadEndpoint() {
-  auto server = http_server::create(net_endpoint{});
+  auto server = make_test_server(net_endpoint{});
   EXPECT_FALSE(server);
 }
 
 // Verify that `GET / HTTP/1.1` produces a 200 HTML response.
 void HttpServer_GetRoot() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
-      nullptr, nullptr, 0s, 0s);
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
+      nullptr, 0s, 0s);
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -455,7 +536,7 @@ void HttpServer_GetRoot() {
 // Verify that `GET /123 HTTP/1.1` produces an HTML response that includes
 // the numeric path component.
 void HttpServer_GetPath() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -469,7 +550,7 @@ void HttpServer_GetPath() {
 
 // Verify that a POST request yields a 405 response (not a silent close).
 void HttpServer_InvalidRequest() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -482,7 +563,7 @@ void HttpServer_InvalidRequest() {
 // Verify that a request line exceeding the 8192-byte limit causes the server
 // to hang up immediately without sending any response.
 void HttpServer_TooLongRequest() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -498,7 +579,7 @@ void HttpServer_TooLongRequest() {
 // stateful `terminated_text_parser`. The two writes may or may not be
 // coalesced by TCP, but the test verifies correct parsing in either case.
 void HttpServer_PartialRequest() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -519,7 +600,7 @@ void HttpServer_ANS() {
   const net_endpoint ep{name};
   ASSERT_TRUE(ep.is_ans());
 
-  auto server = http_server::create(ep);
+  auto server = make_test_server(ep);
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(ep, 1s);
@@ -534,16 +615,16 @@ void HttpServer_ANS() {
 // Verify that `create` with a shared `timing_wheel` stores and uses it.
 void HttpServer_SharedWheel() {
   timing_wheel_runner wheel;
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
-      nullptr, wheel.wheel());
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
+      wheel.wheel());
   ASSERT_TRUE(server);
   EXPECT_TRUE(server->local_endpoint());
 }
 
 // Verify that a normal GET request is served within the timeout window.
 void HttpServer_RequestWithinTimeout() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
-      nullptr, nullptr, 5s);
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
+      nullptr, 5s);
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -556,8 +637,8 @@ void HttpServer_RequestWithinTimeout() {
 // Verify that an idle connection (no request sent) is forcefully closed by
 // the server after the request timeout expires.
 void HttpServer_IdleTimeout() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
-      nullptr, nullptr, 100ms);
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
+      nullptr, 100ms);
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint());
@@ -589,7 +670,7 @@ void HttpServer_WriteTimeout() {
   epoll_loop_runner loop;
   timing_wheel_runner wheel;
 
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0},
       loop.loop(), wheel.wheel(),
       /*request_timeout=*/30s,
       /*write_timeout=*/kWriteTimeout);
@@ -639,7 +720,7 @@ void HttpServer_WriteTimeout() {
 // Verify that an HTTP/1.1 request without a `Host` header receives a 400
 // response, and the server then closes the connection.
 void HttpServer_MissingHost() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -654,7 +735,7 @@ void HttpServer_MissingHost() {
 // Verify that a keep-alive connection accepts a second request after the
 // first response is received.
 void HttpServer_KeepAlive() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -674,7 +755,7 @@ void HttpServer_KeepAlive() {
 // Verify that two requests sent back-to-back (before any response is read)
 // are both served in order -- the pipelining property.
 void HttpServer_Pipeline() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -696,7 +777,7 @@ void HttpServer_Pipeline() {
 // Verify that `Connection: close` causes the server to close the connection
 // after the response.
 void HttpServer_ConnectionClose() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -714,7 +795,7 @@ void HttpServer_ConnectionClose() {
 // Verify that an HTTP/1.0 request (no `Host` header) receives a 200
 // response and the server closes the connection (HTTP/1.0 default is close).
 void HttpServer_Http10NoKeepAlive() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -1250,8 +1331,8 @@ void HttpHeaderBlock_ResponseParseEdgeCases() {
 
 // Verify that a path encoding a body size exceeding 10 MB yields a 400.
 void HttpServer_BodyTooLarge() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
-      nullptr, nullptr, 0s, 0s);
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
+      nullptr, 0s, 0s);
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -1266,8 +1347,8 @@ void HttpServer_BodyTooLarge() {
 // Verify that a header block exceeding the 8192-byte limit yields a 400
 // response and the server closes the connection.
 void HttpServer_TooLongHeaders() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
-      nullptr, nullptr, 0s, 0s);
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
+      nullptr, 0s, 0s);
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -1284,8 +1365,8 @@ void HttpServer_TooLongHeaders() {
 // Verify that a request line with an unrecognized method yields a 400
 // response and the server closes the connection.
 void HttpServer_MalformedRequestLine() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
-      nullptr, nullptr, 0s, 0s);
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
+      nullptr, 0s, 0s);
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -1299,8 +1380,8 @@ void HttpServer_MalformedRequestLine() {
 // Verify that an HTTP/1.0 request with `Connection: keep-alive` keeps the
 // connection open for a second request.
 void HttpServer_Http10KeepAlive() {
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
-      nullptr, nullptr, 0s, 0s);
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
+      nullptr, 0s, 0s);
   ASSERT_TRUE(server);
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
