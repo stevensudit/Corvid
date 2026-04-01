@@ -18,15 +18,21 @@
 #include <atomic>
 #include <chrono>
 #include <cerrno>
+#include <format>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <unordered_map>
 #include <vector>
 
+#include <pthread.h>
+
+#include "../concurrency/jthread_stoppable_sleep.h"
 #include "../concurrency/notifiable.h"
 #include "../concurrency/tombstone.h"
 #include "../containers/scoped_value.h"
@@ -98,7 +104,7 @@ private:
 // `epoll_loop` is non-copyable, non-movable, and always heap-allocated via
 // `epoll_loop::make`.
 class epoll_loop {
-  enum class allow : std::uint8_t { ctor };
+  enum class allow : bool { ctor };
 
 public:
   // Maximum number of events retrieved per `epoll_wait` call.
@@ -566,8 +572,6 @@ public:
   epoll_loop_runner(epoll_loop_runner&&) = delete;
   epoll_loop_runner& operator=(epoll_loop_runner&&) = delete;
 
-  ~epoll_loop_runner() = default; // jthread requests stop and joins
-
   // Signal the thread to exit. Idempotent. Also called implicitly by the
   // destructor.
   void stop() { thread_.request_stop(); }
@@ -584,6 +588,8 @@ public:
 
 private:
   void run(const std::stop_token& st) {
+    jthread_stoppable_sleep::set_thread_name("epoll");
+
     // When stop is requested, wake the `epoll_wait` so the loop can exit.
     std::stop_callback on_stop{st, [this] { (void)loop_->stop(); }};
     (void)loop_->run(100);

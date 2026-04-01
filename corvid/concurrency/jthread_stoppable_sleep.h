@@ -56,9 +56,18 @@ public:
     });
   }
 
+  static void set_thread_name(std::string_view name) {
+    static std::atomic_int thread_count;
+    const int n = ++thread_count;
+    std::string label = std::to_string(n);
+    label += '-';
+    label += name;
+    if (label.size() > 15) label.resize(15);
+    (void)::pthread_setname_np(::pthread_self(), label.c_str());
+  }
+
 private:
   std::mutex mutex_;
   std::condition_variable cv_;
 };
-
 }} // namespace corvid::concurrency

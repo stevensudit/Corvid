@@ -114,16 +114,17 @@ without changing higher layers.
   partial writes; `recv()` returns the first available chunk; `recv_exact(n)`
   loops to accumulate exactly `n` bytes; `recv_until(delim)` accumulates until
   the delimiter is found, leaving trailing bytes in an internal buffer
-- **[done]** `iouring_loop` / `iou_stream_conn` -- `io_uring`-based event loop and
-  stream connection, API-compatible with `epoll_loop` / `stream_conn`; uses
-  `IORING_OP_POLL_ADD` with `IORING_POLL_ADD_MULTI` for persistent multi-shot
-  fd readiness polling; wakeup via `eventfd`; `iouring_loop_runner` wraps the
-  loop in a background `jthread`
-- **Done:** `stream_conn` now supports a true bilateral close via
-  `set_shutdown(coordination_policy::bilateral)`. When enabled, `close()`
-  drains writes, issues `SHUT_WR`, then discards incoming data until peer
-  EOF before closing. Follow-on: integrate timeouts so a non-cooperative
-  peer cannot hold the drain phase open indefinitely.
+- **[removed]** `iouring_loop` / `iou_stream_conn` -- an `io_uring`-based event
+  loop and stream connection were prototyped (using `IORING_OP_POLL_ADD` with
+  `IORING_POLL_ADD_MULTI` for persistent multi-shot fd readiness polling) but
+  removed after the experiment revealed that zero-copy requires a different
+  buffer-management model and that avoiding `liburing` meant reinventing too
+  much plumbing. See the io_uring notes below.
+- **[done]** bilateral close -- `stream_conn` supports
+  `set_shutdown(coordination_policy::bilateral)`; `close()` drains writes,
+  issues `SHUT_WR`, then discards incoming data until peer EOF before closing.
+  Timeouts against a non-cooperative peer are handled at the application layer
+  via `timer_fuse` (see `http_server`).
 
 If datagram support is needed later, add a separate `dgram_conn` abstraction
 on top of `epoll_loop` rather than broadening `stream_conn`.
@@ -133,28 +134,37 @@ on top of `epoll_loop` rather than broadening `stream_conn`.
 HTTP server built incrementally from an HTTP 0.9 baseline to full HTTP/1.1,
 followed by client and proxy support.
 
-- **[done]** `http_head_codec` -- HTTP/1.1 data types in `http_head_codec.h`;
-  `http_version` enum (`invalid`, `http_0_9`, `http_1_0`, `http_1_1`); `http_method`
-  enum (`invalid`, `GET`, `HEAD`, `POST`, `PUT`, `DELETE`, `OPTIONS`, `PATCH`,
-  `CONNECT`, `TRACE`); `http_headers` ordered multimap with O(1) average lookup
-  (insertion-order `vector` + `unordered_map` index keyed by canonical name),
-  case-insensitive via title-case canonicalization (`"content-type"` ->
-  `"Content-Type"`), `add` / `get` / `get_combined`; `request_head`
-  with instance method `parse(string_view)`, `keep_alive` / `content_length` /
-  `is_chunked` accessors, values stored raw (encoding decode deferred);
-  `response_head` with `serialize()` producing the HTTP wire format;
-  stream operators on both enums for diagnostics
-- **[done]** `http_server` (HTTP/1.1) -- upgraded from HTTP 0.9; frame detection
-  via `terminated_text_parser` (sentinel `"\r\n\r\n"`, max 8192 bytes); header
-  extraction via `request_head::parse`; response construction via
-  `response_head::serialize`; explicit `http_phase` state machine
-  (`request_line`, `header_lines`, `body`, `response`, `done`); persistent connections (keep-alive by
-  default for HTTP/1.1, close for HTTP/1.0); pipelining via an `on_data` parse
-  loop that processes all complete header blocks already in the receive buffer,
-  relying on `stream_conn::send` FIFO ordering for response sequencing;
-  `Host` header validation for HTTP/1.1 (returns 400 if absent); `Connection`
-  header honored; `write_timeout` disarmed unconditionally in `on_drain`
-  (`timer_fuse::disarm` is always safe to call)
+- **[done]** `http_head_codec` -- HTTP/1.x data types in `http_head_codec.h`;
+  `http_version` enum (`invalid`, `http_0_9`, `http_1_0`, `http_1_1`);
+  `http_method` enum (`GET`, `HEAD`, `POST`, `PUT`, `DELETE`, `OPTIONS`,
+  `PATCH`, `CONNECT`, `TRACE`); `after_response` enum (`close`, `keep_alive`);
+  `http_status_code` enum (full range); `content_type_value`,
+  `transfer_encoding_value`, `upgrade_value` enums for decoded header fields;
+  `http_headers` ordered multimap with O(1) average lookup (insertion-order
+  `vector` + `unordered_map` index keyed by canonical name), case-insensitive
+  via title-case canonicalization, `add` / `add_raw` / `get` / `get_combined`;
+  `request_options` / `response_options` structs with `keep_alive`,
+  `content_length`, `is_chunked`, `connection`, `upgrade` accessors parsed from
+  headers; `request_head` with `parse(string_view)` (populates method, target,
+  version, headers, and options); `response_head` with `serialize()` producing
+  the full HTTP wire format and `make_error_response()` static factory; stream
+  operators on enums for diagnostics
+- **[done]** `http_server` (HTTP/1.1) -- two-phase request parsing via
+  `terminated_text_parser`: Phase 1 seeks `"\r\n"` for the request line (max
+  8192 bytes), Phase 2 seeks `"\r\n\r\n"` for header fields; HTTP/0.9 requests
+  (no version token) dispatch after Phase 1 only; leading bare CRLFs silently
+  skipped per RFC 9112 section 2.2; explicit `http_phase` state machine
+  (`request_line`, `header_lines`, `body`, `response`, `done`); persistent
+  connections (keep-alive by default for HTTP/1.1, close for HTTP/1.0);
+  pipelining via an `on_data` parse loop that processes all complete header
+  blocks in the receive buffer, relying on `stream_conn::send` FIFO ordering
+  for response sequencing; `Host` header validation for HTTP/1.1 (returns 400
+  if absent); `Connection` header honored; `request_timeout` (default 30 s) and
+  `write_timeout` (default 5 s) enforced via `timer_fuse` / `timing_wheel`
+  (from `corvid::concurrency`); connection state carried in
+  `stream_conn_with_state<http_conn_state>` to avoid separate allocations;
+  `create(endpoint, loop, wheel, ...)` factory shares or constructs the loop
+  and wheel
 - Deferred: request body reading (`Content-Length` / chunked transfer),
   `POST` / `PUT` methods, chunked response encoding, content negotiation,
   encoding decode (percent-hex `%20`, RFC 2047 MIME word, RFC 5987)
@@ -182,6 +192,13 @@ WebSocket protocol built on top of the HTTP/1.1 upgrade mechanism.
 - It's tempting to go down the rabbit hole with MPSC lockless queue designs, but there's no point in this for epoll-based loops because the cost of the lock is nothing compared to the syscall overhead. For now, we've improved the design to use double-buffering so to generally avoid memory allocation at the top of each loop.
 
 ## Notes on io_uring
-- The vibe-coding experiment yielded useful data, but not usable code. It was constrained by not being able to rely on liburing, which meant reinventing the io_uring-wrapping wheel. Still, it showed that zero-copy is going to require a different approach to buffer management, among other things. Also, we won't need timing_wheel because io_uring has that covered.
-- Maybe I need to survey the off-the-shelf alternatives. The most obvious is Asio, which offers a couroutine pattern that suits io_uring well and avoids callback hell. Seastar, underlying ScyllaDB, is also interesting. In terms of coroutine-friendly native wrappers, there's liburing4cpp, Xynet, and Condy (the hot new thing). Meta's got libunifex and Google has liburing_cpp (which mostly just proves RAII).
-- High-end performance requires a shared-nothing approach where a loop runs in its own thread on its own CPU. Interthread communication is by messages over lock-less ring buffers, to avoid any mutexes.
+- The vibe-coding experiment yielded useful data but not usable code. Without
+  `liburing`, too much plumbing had to be reinvented, and the prototype made
+  clear that zero-copy requires a fundamentally different buffer-management
+  model. The experiment also showed that `io_uring` has built-in timeout
+  support, which would eliminate the need for a separate timing wheel.
+- If io_uring support is revived, the right approach is to evaluate off-the-shelf
+  wrappers (Asio, liburing4cpp, Xynet, Condy) rather than building from scratch.
+  Seastar (underlying ScyllaDB) and Meta's libunifex are also worth surveying.
+- High-end performance requires a shared-nothing design: each loop pinned to its
+  own CPU core, with interthread communication over lock-free ring buffers.

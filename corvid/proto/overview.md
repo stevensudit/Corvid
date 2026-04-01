@@ -287,21 +287,84 @@ internal buffer for the next call.
 
 ## Layer 3: HTTP
 
+### `http_head_codec`
+
+HTTP/1.x data types and codec. All types are in `corvid::proto::http_proto`.
+
+Enums: `http_version` (`invalid`, `http_0_9`, `http_1_0`, `http_1_1`);
+`http_method` (`GET`, `HEAD`, `POST`, `PUT`, `DELETE`, `OPTIONS`, `PATCH`,
+`CONNECT`, `TRACE`); `after_response` (`close`, `keep_alive`);
+`http_status_code` (full 1xx-5xx range); `content_type_value` (`text_html`,
+`text_plain`, `application_json`); `transfer_encoding_value` (`identity`,
+`chunked`); `upgrade_value` (`websocket`). All enums have stream operators.
+
+`http_headers` is an ordered multimap with O(1) average lookup. It stores
+fields in insertion order (a `vector`) and indexes them by canonical
+title-case name (an `unordered_map`). `add(name, value)` normalizes the name
+to title case, drops unknown fields into an `others` bucket, and returns false
+on duplicate detected-header fields. `add_raw(name, value)` bypasses
+normalization. `get(name)` returns the first value for a canonical name.
+`get_combined(name)` returns all values joined by `", "`.
+
+`request_options` and `response_options` carry decoded semantic fields parsed
+from the header collection: `connection` (`after_response`), `content_length`
+(`optional<size_t>`), `transfer_encoding` (`transfer_encoding_value`),
+`upgrade` (`upgrade_value`), and the `keep_alive(version)` helper that
+derives the keep-alive disposition from the `Connection` header and version.
+
+`request_head` parses a raw HTTP request head (request line + header fields)
+via `parse(string_view)`. Populates `method`, `target`, `version`, `headers`,
+and `options`. `clear()` resets all fields for reuse across keep-alive
+requests.
+
+`response_head` builds and serializes a response head. `serialize()` produces
+the full status line + header fields as a `string` ready to write to the wire.
+`make_error_response(keep_alive, version, code, phrase)` is a static factory
+that returns a complete serialized error response.
+
 ### `http_server`
 
-Minimal HTTP 0.9 server. Listens for TCP or UDS/ANS connections, parses each
-request line with `terminated_text_parser`, and sends a canned HTML response
-for any `GET /path` request, then closes the connection. Constructed via
-`create(loop, endpoint)`, which accepts an optional shared `epoll_loop` (or
-starts its own `epoll_loop_runner`), and a `net_endpoint` to listen on. Returns
-null if the listen socket cannot be created. Each accepted connection carries
-its own `terminated_text_parser::state` so partial request lines arriving across
-multiple `on_data` calls are handled correctly.
+HTTP/1.1 server (with HTTP/0.9 and HTTP/1.0 fallback) built on `stream_conn`.
+Constructed via `create(endpoint, loop, wheel, request_timeout, write_timeout)`.
+If `loop` is null the server starts its own `epoll_loop_runner`; if `wheel` is
+null it starts its own `timing_wheel_runner` (from `corvid::concurrency`).
+Returns null if the listen socket cannot be bound.
+
+Connection state is held in `stream_conn_with_state<http_conn_state>`, which
+bundles a `terminated_text_parser::state`, sequencing counters for
+`timer_fuse`, the current `http_phase`, a reusable `request_head`, and a
+leading-CRLF count.
+
+Request parsing uses two phases of `terminated_text_parser`:
+
+- Phase 1 (`request_line`): seeks `"\r\n"` (max 8192 bytes). Leading bare
+  CRLFs are silently discarded per RFC 9112 section 2.2. HTTP/0.9 requests
+  (no version token) are dispatched immediately after this phase.
+- Phase 2 (`header_lines`): seeks `"\r\n\r\n"` for the complete header block.
+  A blank line immediately after the request line (no headers) is also
+  accepted.
+
+`on_data` loops over all complete header blocks already in the receive buffer,
+queuing a response for each. Because `stream_conn::send` is FIFO, responses
+are delivered in request order (pipelining).
+
+Persistent connections: keep-alive by default for HTTP/1.1; close by default
+for HTTP/1.0; never for HTTP/0.9. The `Connection` header is honored.
+
+Validation: HTTP/1.1 requests without a `Host` header receive a 400 response.
+Unsupported methods receive a 405 response. The path encodes an optional
+response body padding size for testing.
+
+Timeouts: `request_timeout` (default 30 s) is armed after each accepted
+connection and re-armed after each parsed request on keep-alive connections. If
+the deadline expires before a complete request arrives, `timer_fuse` posts a
+`hangup` to the loop. `write_timeout` (default 5 s) is armed before each
+response is queued and disarmed in `on_drain` when the send queue empties.
 
 ## What comes next
 
-See `roadmap.md` for the full plan. Layer 2 is complete. Layer 3 has a minimal
-HTTP 0.9 server as its starting point and will be improved incrementally to full
-HTTP/1.1, after which client and proxy support will follow. Layer 4 adds
-WebSockets. If datagram support is needed later, it should arrive as a separate
-`dgram_conn` abstraction built on `epoll_loop`.
+See `roadmap.md` for the full plan. Layer 3 has a complete HTTP/1.1 server;
+remaining work includes request body reading, `POST`/`PUT` support, chunked
+transfer encoding, and an HTTP client and proxy. Layer 4 adds WebSockets. If
+datagram support is needed later, it should arrive as a separate `dgram_conn`
+abstraction built on `epoll_loop`.

@@ -28,12 +28,12 @@
 #include <string>
 #include <string_view>
 
-#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 
 #include "../filesys/net_socket.h"
+#include "endian.h"
 #include "ipv4_addr.h"
 #include "ipv6_addr.h"
 
@@ -99,14 +99,14 @@ public:
   explicit net_endpoint(ipv4_addr addr, uint16_t port) noexcept {
     auto& raw = as_v4();
     raw.sin_family = AF_INET;
-    raw.sin_port = htons(port);
+    raw.sin_port = hton16(port);
     raw.sin_addr = addr.to_in_addr();
   }
 
   explicit net_endpoint(ipv6_addr addr, uint16_t port) noexcept {
     auto& raw = as_v6();
     raw.sin6_family = AF_INET6;
-    raw.sin6_port = htons(port);
+    raw.sin6_port = hton16(port);
     raw.sin6_addr = addr.to_in6_addr();
   }
 
@@ -190,8 +190,8 @@ public:
 
   // Return the port number. For UDS/ANS (or `empty()`), returns 0.
   [[nodiscard]] constexpr uint16_t port() const noexcept {
-    if (is_v4()) return ntohs(as_v4().sin_port);
-    if (is_v6()) return ntohs(as_v6().sin6_port);
+    if (is_v4()) return ntoh16(as_v4().sin_port);
+    if (is_v6()) return ntoh16(as_v6().sin6_port);
     return 0;
   }
 

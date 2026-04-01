@@ -257,6 +257,8 @@ public:
 
 private:
   void run(const std::stop_token& st) {
+    jthread_stoppable_sleep::set_thread_name("wheel");
+
     // Kill the wheel's tombstone immediately when a stop is requested, so
     // any in-progress `tick()` bails at the next callback boundary.
     std::stop_callback on_stop{st, [this] { (void)wheel_->stop(); }};

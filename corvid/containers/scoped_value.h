@@ -25,6 +25,16 @@ namespace corvid { inline namespace container {
 inline namespace value_scoping {
 
 // RAII helper for temporarily changing a value and restoring it on scope exit.
+//
+// Example:
+//  void foo() {
+//     int x = 1;
+//     {
+//       scoped_value sv{x, 2}; // x is now 2
+//       // do work with x == 2
+//     } // x is automatically restored to 1 here
+//     // do work with x == 1
+//  }
 template<typename T>
 class [[nodiscard]] scoped_value {
 public:
