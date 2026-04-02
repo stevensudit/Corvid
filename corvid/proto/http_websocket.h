@@ -486,38 +486,23 @@ public:
   // Returns false on a protocol error (bad opcode, oversized frame, etc.);
   // the caller should treat false as a cue to close the connection.
   [[nodiscard]] bool feed(recv_buffer_view& view) {
-    // Here's how it should work: We call `ws_frame_codec::parse_header` on the
-    // front of the view. If it returns `nullopt`, we need more data, so we
-    // return true and wait for more. Once we get the frame header, we know how
-    // many bytes the payload is, so we check if we have enough bytes in the
-    // view for the whole frame. If not, we look at `buffer_capacity` to see if
-    // what we want will even fit. If it will, just return true and wait for
-    // more. If it won't, call `expand_to` on the view, and return true.
-    //
-    // Once we have a complete frame, we extract it to `recv_frame_`, unmasking
-    // along the way (in other words, we copy it by calling
-    // `mask_payload_copy(char*, std::string_view)` after `no_zero:resize_to`).
-    // If `is_final`, then we're done with this frame, so we can send it off
-    // with dispatch_frame. If not, we save the opcode in `fragment_opcode_`,
-    // return true, and wait for more partial frames.
-    //
-    // This means that, when a frame comes in, we check to see if `recv_frame_`
-    // is non-empty. If it's not empty, we compare the opcode in
-    // `fragment_opcode_` to make sure it's a continuation of the previous one.
-    // If not, we fail and return false.
-    //
-    // If it is, we treat the continuation frame much as we did the initial
-    // one, except that when it comes time to extract the payload, we append it
-    // to `recv_frame_` instead of replacing it. If this continuation frame
-    // `is_final`, then we dispatch the merged frame and clear `recv_frame_`
-    // and `fragment_opcode_`. Otherwise, we wait again, although we do impose
-    // a 16 MiB limit on the size of `recv_frame_` to avoid memory exhaustion.
-    //
-    // Note that, since we move the `recv_frame_` into the parameter when we
-    // dispatch, we automatically clear the buffer for next time.
+    while (true) {
+      const std::string_view data = view.active_view();
 
-    (void)view;
-    return false;
+      // Try to parse the frame header from the front of the view.
+      auto hdr_opt = ws_frame_codec::parse_header(data);
+      if (!hdr_opt) return true; // need more data
+
+      auto& hdr = *hdr_opt;
+      const size_t total = hdr.total_length();
+      if (data.size() < total) {
+        // Payload not yet fully arrived; expand if it won't fit.
+        if (total > view.buffer_capacity()) view.expand_to(total);
+        return true;
+      }
+
+      if (!do_feed_frame(view, hdr, data)) return false;
+    }
   }
 
   // Send a text message frame (FIN set, text opcode).
@@ -547,6 +532,65 @@ public:
   }
 
 private:
+  // Process one complete frame (header already parsed, full payload present in
+  // `data`). Validates fragmentation, accumulates payload, consumes bytes, and
+  // dispatches when the message is complete.
+  [[nodiscard]] bool do_feed_frame(recv_buffer_view& view, ws_frame_view& hdr,
+      std::string_view data) {
+    const auto opcode_bits =
+        static_cast<ws_opcode>(static_cast<uint8_t>(hdr.opcode()) & 0x0FU);
+    const bool is_fin = hdr.is_final();
+
+    // A non-default `fragment_opcode_` means we are mid-message.
+    const bool in_fragment = (fragment_opcode_ != ws_opcode{});
+
+    // Validate fragmentation state per RFC 6455 section 5.4.
+    if (in_fragment) {
+      // Only continuation frames are valid while assembling a message.
+      if (opcode_bits != ws_opcode::continuation) return false;
+    } else {
+      // A continuation frame is invalid when no message is in progress.
+      if (opcode_bits == ws_opcode::continuation) return false;
+    }
+
+    // View of the (possibly masked) payload in the receive buffer.
+    const std::string_view payload_sv{
+        data.data() + hdr.header_length(), hdr.payload_length()};
+
+    // Accumulate the (unmasked) payload into `recv_frame_`.
+    if (in_fragment) {
+      // Enforce a 16 MiB limit to prevent memory exhaustion.
+      constexpr size_t max_assembled{size_t{16} * 1024 * 1024};
+      if (recv_frame_.size() + hdr.payload_length() > max_assembled)
+        return false;
+      const size_t old_size = recv_frame_.size();
+      no_zero::resize_to(recv_frame_, old_size + hdr.payload_length());
+      if (!payload_sv.empty())
+        if (!hdr.mask_payload_copy(recv_frame_.data() + old_size, payload_sv))
+          return false;
+    } else {
+      // First (or only) frame of a message.
+      no_zero::resize_to(recv_frame_, hdr.payload_length());
+      if (!payload_sv.empty())
+        if (!hdr.mask_payload_copy(recv_frame_.data(), payload_sv)) return false;
+      // Save opcode so continuations can be validated and the assembled
+      // message dispatched with the correct type.
+      if (!is_fin) fragment_opcode_ = opcode_bits;
+    }
+
+    view.consume(hdr.total_length());
+
+    if (is_fin) {
+      // Dispatch the complete (possibly reassembled) message. Moving
+      // `recv_frame_` clears it automatically for the next message.
+      const ws_opcode dispatch_opcode =
+          in_fragment ? fragment_opcode_ : opcode_bits;
+      fragment_opcode_ = {};
+      return dispatch_frame(hdr, dispatch_opcode, std::move(recv_frame_));
+    }
+    return true;
+  }
+
   [[nodiscard]] bool dispatch_frame(const ws_frame_view& hdr,
       ws_opcode opcode_bits, std::string payload) {
     if (opcode_bits == ws_opcode::text || opcode_bits == ws_opcode::binary) {
