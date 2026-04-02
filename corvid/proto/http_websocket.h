@@ -418,13 +418,6 @@ struct ws_frame_codec {
   // `ws_opcode::fin | ws_opcode::text`). If `mask` is non-null, the MASK
   // bit is set and the payload is masked (required for client -> server).
   //
-  // TODO: This is my re-write of Claude multi-copy solution. Once it's
-  // working, the next steps are:
-  // 1. Expose a function to condition a string with a header, based on the
-  // opcode and length. It's reserved for the header plus payload but the size
-  // is set to the header.
-  // 2. The caller uses `no_zero::resize_to` and fills the string.
-  // 3. Finally, they call `mask_payload` to apply the mask in-place if needed.
   [[nodiscard]] static std::string serialize_frame(ws_opcode opcode,
       std::string_view payload, std::optional<uint32_t> mask = std::nullopt) {
     std::string frame;
@@ -456,7 +449,7 @@ private:
     return base_64::encode(std::span<const uint8_t>{raw});
   }
 };
-#if 0
+#if 1
 // Callback-driven WebSocket message pump.
 //
 // Attach to a connection after the upgrade handshake completes. Feed raw
@@ -468,8 +461,7 @@ private:
 // `send_fn`.
 //
 // Designed to be orthogonal to `http_transaction` so it can be reused on
-// the client side (set `is_server = false` to skip unmasking server frames
-// and mask outgoing client frames).
+// the client side (set `is_server = false`).
 class http_websocket {
 public:
   using message_fn =
@@ -485,50 +477,47 @@ public:
   // code (1000 = normal); `reason` is the optional UTF-8 reason string.
   close_fn on_close;
 
-  // `send` is called for each outbound frame. `is_server` should be true for
-  // server-side instances and false for client-side instances.
   explicit http_websocket(http_transaction::send_fn send,
-      bool is_server = true)
-      : send_{std::move(send)}, is_server_{is_server} {}
+      connection_role role = connection_role::server)
+      : send_{std::move(send)}, is_server_{role == connection_role::server} {}
 
-  // Feed raw received bytes. Accumulates partial frames in `recv_buf_`,
+  // Feed raw received bytes. Accumulates partial frames in `recv_frame_`,
   // reassembles complete frames, defragments messages, and fires callbacks.
   // Returns false on a protocol error (bad opcode, oversized frame, etc.);
   // the caller should treat false as a cue to close the connection.
   [[nodiscard]] bool feed(recv_buffer_view& view) {
-    const std::string_view chunk = view.active_view();
-    recv_buf_.append(chunk);
-    view.consume(chunk.size());
+    // Here's how it should work: We call `ws_frame_codec::parse_header` on the
+    // front of the view. If it returns `nullopt`, we need more data, so we
+    // return true and wait for more. Once we get the frame header, we know how
+    // many bytes the payload is, so we check if we have enough bytes in the
+    // view for the whole frame. If not, we look at `buffer_capacity` to see if
+    // what we want will even fit. If it will, just return true and wait for
+    // more. If it won't, call `expand_to` on the view, and return true.
+    //
+    // Once we have a complete frame, we extract it to `recv_frame_`, unmasking
+    // along the way (in other words, we copy it by calling
+    // `mask_payload_copy(char*, std::string_view)` after `no_zero:resize_to`).
+    // If `is_final`, then we're done with this frame, so we can send it off
+    // with dispatch_frame. If not, we save the opcode in `fragment_opcode_`,
+    // return true, and wait for more partial frames.
+    //
+    // This means that, when a frame comes in, we check to see if `recv_frame_`
+    // is non-empty. If it's not empty, we compare the opcode in
+    // `fragment_opcode_` to make sure it's a continuation of the previous one.
+    // If not, we fail and return false.
+    //
+    // If it is, we treat the continuation frame much as we did the initial
+    // one, except that when it comes time to extract the payload, we append it
+    // to `recv_frame_` instead of replacing it. If this continuation frame
+    // `is_final`, then we dispatch the merged frame and clear `recv_frame_`
+    // and `fragment_opcode_`. Otherwise, we wait again, although we do impose
+    // a 16 MiB limit on the size of `recv_frame_` to avoid memory exhaustion.
+    //
+    // Note that, since we move the `recv_frame_` into the parameter when we
+    // dispatch, we automatically clear the buffer for next time.
 
-    while (true) {
-      auto hdr_opt = ws_frame_codec::parse_header(recv_buf_);
-      if (!hdr_opt) break; // need more data
-
-      const ws_frame_header_old& hdr = *hdr_opt;
-      const uint64_t payload_len = hdr.payload_length();
-
-      // Reject unreasonably large frames (16 MiB limit).
-      if (payload_len > 16ULL * 1024ULL * 1024ULL) return false;
-
-      const size_t frame_end =
-          static_cast<size_t>(hdr.length) + static_cast<size_t>(payload_len);
-      if (recv_buf_.size() < frame_end) break; // incomplete payload
-
-      // Extract and unmask payload.
-      std::string payload{recv_buf_.data() + hdr.length,
-          static_cast<size_t>(payload_len)};
-      if (is_server_) ws_frame_codec::unmask(payload, hdr);
-
-      // Consume the frame from the accumulation buffer.
-      recv_buf_.erase(0, frame_end);
-
-      // Dispatch by opcode (ignoring the flag bits for classification).
-      const auto opcode_bits =
-          hdr.opcode & ws_opcode{static_cast<uint8_t>(0x0F)};
-
-      if (!dispatch_frame(hdr, opcode_bits, std::move(payload))) return false;
-    }
-    return true;
+    (void)view;
+    return false;
   }
 
   // Send a text message frame (FIN set, text opcode).
@@ -558,10 +547,10 @@ public:
   }
 
 private:
-  [[nodiscard]] bool dispatch_frame(const ws_frame_header_old& hdr,
+  [[nodiscard]] bool dispatch_frame(const ws_frame_view& hdr,
       ws_opcode opcode_bits, std::string payload) {
     if (opcode_bits == ws_opcode::text || opcode_bits == ws_opcode::binary) {
-      const bool is_fin = !!(hdr.opcode & ws_opcode::fin);
+      const bool is_fin = hdr.is_final();
       if (!in_fragment_) {
         fragment_opcode_ = opcode_bits;
         fragment_buf_ = std::move(payload);
@@ -578,7 +567,7 @@ private:
     } else if (opcode_bits == ws_opcode::continuation) {
       if (!in_fragment_) return false; // unexpected continuation
       fragment_buf_ += payload;
-      const bool is_fin = !!(hdr.opcode & ws_opcode::fin);
+      const bool is_fin = hdr.is_final();
       if (is_fin) {
         if (on_message) on_message(*this, fragment_buf_, fragment_opcode_);
         fragment_buf_.clear();
@@ -604,22 +593,26 @@ private:
   }
 
   [[nodiscard]] bool do_send(ws_opcode opcode, std::string_view payload) {
-    const uint8_t* mask = is_server_ ? nullptr : default_mask_.data();
+    // TODO: Do something smarter with the mask. We shouldn't hardcode it on
+    // the client side.
+    const std::optional<uint32_t> mask =
+        is_server_ ? std::nullopt : std::optional<uint32_t>(0x12345678);
     std::string frame = ws_frame_codec::serialize_frame(opcode, payload, mask);
+    if (!send_) return false;
+    return send_(std::move(frame));
+  }
+
+  [[nodiscard]] bool do_send(std::string&& frame) {
     if (!send_) return false;
     return send_(std::move(frame));
   }
 
   http_transaction::send_fn send_;
   bool is_server_;
-  std::string recv_buf_;
+  std::string recv_frame_;
   std::string fragment_buf_;
   ws_opcode fragment_opcode_{};
   bool in_fragment_{};
-
-  // Default client-side masking key (all zeros -- callers may override by
-  // wrapping `do_send` with a PRNG key; this is sufficient for testing).
-  static constexpr std::array<uint8_t, 4> default_mask_{0, 0, 0, 0};
 };
 
 // HTTP transaction that performs the WebSocket upgrade handshake and then
@@ -739,7 +732,7 @@ private:
 
   http_transaction::send_fn websocket_send_;
   http_websocket websocket_{[this](std::string&& frame) {
-    if (!websocket_send_)               return false;
+    if (!websocket_send_) return false;
     return websocket_send_(std::move(frame));
   }};
   std::string pending_response_;
