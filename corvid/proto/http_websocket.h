@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -486,10 +487,14 @@ public:
   using close_fn =
       std::function<void(http_websocket&, uint16_t, std::string_view)>;
 
+  // Sanity check limit on frame size, whether a fragment or complete.
   static constexpr size_t max_frame_size{size_t{16} * 1024 * 1024};
 
-  // Called when a complete (possibly reassembled) text or binary message
-  // arrives. `opcode` is `text` or `binary` (the fragment opcode).
+  // Error value for feed(std::string_view&).
+  static constexpr size_t insatiable = std::numeric_limits<size_t>::max();
+
+  // Called when a text or binary message arrives. Return false to indicate
+  // failure.
   message_fn on_message;
 
   // Called when a close frame is received. `code` is the 2-byte status
@@ -508,29 +513,43 @@ public:
   [[nodiscard]] bool feed(recv_buffer_view& view) {
     // Loop until we run out of frame fragments.
     while (true) {
-      const std::string_view data = view.active_view();
+      std::string_view data = view.active_view();
+      size_t needed = feed(data);
+      view.update_active_view(data);
 
-      // Try to parse the frame header from the front of the view.
+      if (needed == insatiable) return false;
+      if (needed > view.buffer_capacity()) view.expand_to(needed);
+      return true;
+    }
+  }
+
+  // Accumulates fragmented frames in `recv_frame_`, reassembles complete
+  // frames, defragments messages, and fires callbacks. Returns false on a
+  // protocol error (bad frame_control, oversized frame, etc.); the caller
+  // should treat false as a cue to close the connection.
+  [[nodiscard]] size_t feed(std::string_view& data) {
+    // Loop over all frames in `data`.
+    while (true) {
+      if (data.empty()) break;
+
       auto hdr_opt = ws_frame_codec::parse_header(data);
-      if (!hdr_opt) return true; // need more data
+      if (!hdr_opt) return 2;
 
-      // Wait for more bytes if the payload isn't all here. If necessary, we
-      // expand the buffer to fit the rest of the frame.
+      // If more bytes needed, wait for them.
       auto& hdr = *hdr_opt;
       const size_t total = hdr.total_length();
       if (data.size() < total) {
-        if (total > max_frame_size) return false; // frame too large
-        if (total > view.buffer_capacity()) view.expand_to(total);
-        return true;
+        if (total > max_frame_size) return insatiable;
+        return total - data.size();
       }
 
-      // We have the payload. If this is FIN, we dispatch. If not, we
-      // accumulate.
       auto payload = data.substr(hdr.header_length(), hdr.payload_length());
       bool processed = do_process_payload(hdr, payload);
-      view.consume(hdr.total_length());
-      if (!processed) return false;
+      if (!processed) return insatiable;
+
+      data.remove_prefix(total);
     }
+    return 0;
   }
 
   // Send a text message frame (FIN set, text opcode).

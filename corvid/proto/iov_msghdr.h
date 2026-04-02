@@ -29,6 +29,8 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 
+#include "../filesys/net_socket.h"
+
 namespace corvid { inline namespace proto {
 
 // Scatter/gather socket I/O support using `msghdr` and `sendmsg`. Wraps the
