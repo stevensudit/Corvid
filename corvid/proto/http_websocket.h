@@ -200,7 +200,8 @@ public:
   // Determine whether the header is complete. Interprets `header_length` as
   // `buffer_length` and probes the start of the buffer up to that point. In
   // the process, sets `header_length` correctly. If the header is complete
-  // then it can be parsed.
+  // then it can be parsed. If it's incomplete, then `header_length` is the
+  // estimated number of bytes needed to complete it.
   [[nodiscard]] bool is_complete() noexcept {
     const size_t buffer_length = header_length_;
     if (buffer_length >= 14) return true; // max header size is 14 bytes
@@ -564,11 +565,10 @@ public:
     while (true) {
       if (data.empty()) break;
 
-      auto hdr_opt = ws_frame_codec::parse_header(data);
-      if (!hdr_opt) return 2;
+      ws_frame_view hdr{data.data(), data.size()};
+      if (!hdr.is_complete()) return hdr.total_length();
+      if (!hdr.parse()) return sizeof(ws_frame_header);
 
-      // If more bytes needed, wait for them.
-      auto& hdr = *hdr_opt;
       const size_t total = hdr.total_length();
       if (data.size() < total) {
         if (total > max_frame_size) return insatiable;
@@ -705,7 +705,7 @@ private:
     }
 
     // Decode close code and reason.
-    uint16_t code{1000};
+    uint16_t code{};
     std::string_view reason{};
     if (payload.size() >= 2) {
       code = (static_cast<uint16_t>(static_cast<uint8_t>(payload[0])) << 8) |
@@ -783,7 +783,10 @@ private:
     // If it's not the final frame of the message, we have to wait for more
     // fragments.
     // TODO: We should allow the user to disable this check so that they can
-    // see each fragment as it arrives.
+    // see each fragment as it arrives. We'll also need to adjust the logic for
+    // the dispatch code being sent. We would need to set the FIN bit for the
+    // last fragment, merging in the opcode. This means the handler has to know
+    // to mask the FIN bit instead of doing direct comparisons to BIN or TXT.
     if (!is_fin) return true;
 
     // Dispatch the message payload. This moves `message_` and clears it out.
