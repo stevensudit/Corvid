@@ -2152,6 +2152,80 @@ void WebSocketTransaction_MakeFactory() {
   EXPECT_EQ(tx->handle_data(view), stream_claim::claim);
 }
 
+// Semi-integration test: `http_server` with `http_websocket_transaction` as
+// the route handler; client uses `stream_sync` for I/O and `http_websocket`
+// for WebSocket framing.
+//
+// Flow:
+//   1. Server registers an echo handler under `"/ws"`.
+//   2. Client sends an HTTP/1.1 upgrade request and receives 101.
+//   3. Client sends a masked text frame; server echoes it back unmasked.
+//   4. Client decodes the echo and verifies the payload.
+void HttpServer_WebSocket() {
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  ASSERT_TRUE(server);
+  server->add_route("/ws",
+      http_websocket_transaction::make_factory(
+          [](http_websocket_transaction& tx) {
+            tx.websocket().on_message =
+                [](http_websocket& ws, std::string&& p, ws_frame_control) {
+                  return ws.send_text(p);
+                };
+          }));
+
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
+  ASSERT_TRUE(client);
+
+  // Send a valid HTTP/1.1 WebSocket upgrade request. The RFC 6455 test-vector
+  // key produces accept value `s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`.
+  ASSERT_TRUE(client.send(
+      "GET /ws HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Upgrade: websocket\r\n"
+      "Connection: Upgrade\r\n"
+      "Sec-Websocket-Version: 13\r\n"
+      "Sec-Websocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+      "\r\n"));
+
+  // Receive and verify the 101 Switching Protocols response.
+  const auto resp_wire = client.recv_until("\r\n\r\n");
+  ASSERT_FALSE(resp_wire.empty());
+  auto resp_head_wire = std::string_view{resp_wire};
+  ASSERT_GE(resp_head_wire.size(), 2U);
+  resp_head_wire.remove_suffix(2);
+  response_head resp;
+  ASSERT_TRUE(resp.parse(resp_head_wire));
+  EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+  const auto accept = resp.headers.get("Sec-Websocket-Accept");
+  ASSERT_TRUE(accept);
+  EXPECT_EQ(*accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+
+  // Build a client-side WebSocket pump that writes through `client`.
+  std::string got_msg;
+  ws_frame_control got_op{};
+  http_transaction::send_fn client_send{[&](std::string&& frame) {
+    return client.send(frame);
+  }};
+  http_websocket ws_client{std::move(client_send), connection_role::client};
+  ws_client.on_message =
+      [&](http_websocket&, std::string&& p, ws_frame_control op) {
+        got_msg = std::move(p);
+        got_op = op;
+        return true;
+      };
+
+  // Send a masked text frame; server echoes it back unmasked.
+  ASSERT_TRUE(ws_client.send_text("hello"));
+
+  // On loopback, the echo arrives in a single recv.
+  const auto echo = client.recv();
+  ASSERT_FALSE(echo.empty());
+  std::string_view echo_sv{echo};
+  EXPECT_EQ(ws_client.feed(echo_sv), 0ULL);
+  EXPECT_EQ(got_msg, "hello");
+  EXPECT_EQ(got_op, ws_frame_control::text);
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
 
@@ -2198,4 +2272,5 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     WebSocketTransaction_MissingConnection, WebSocketTransaction_WrongVersion,
     WebSocketTransaction_MissingKey, WebSocketTransaction_BadRequestDrain,
     WebSocketTransaction_FeedAfterUpgrade,
-    WebSocketTransaction_FeedProtocolError, WebSocketTransaction_MakeFactory);
+    WebSocketTransaction_FeedProtocolError, WebSocketTransaction_MakeFactory,
+    HttpServer_WebSocket);
