@@ -615,15 +615,16 @@ public:
     // Moreover, we stop listening for non-control frames.
     sent_close_ = true;
 
-    // If this is our response to the other side's close frame, we should close
-    // the connection.
-    if (received_close_) {
-      // TODO: Do something here to close the connection with FIN/ACK but
-      // without flushing the write queue.
-      return true;
-    }
-
+    // If this is our response to the other side's close frame, the handshake
+    // is complete. `dispatch_close` will set `received_close_` on return,
+    // making `close_pending` true, which signals the transaction to close.
     return true;
+  }
+
+  // True once both sides have exchanged close frames. The transaction should
+  // shut down the connection gracefully when this becomes true.
+  [[nodiscard]] bool close_pending() const noexcept {
+    return sent_close_ && received_close_;
   }
 
   // Send a ping frame (FIN set, ping opcode).
@@ -683,6 +684,13 @@ public:
   }
 
 private:
+  // Signal an immediate RST by invoking the send function with an empty
+  // string, then return false so callers can propagate the error.
+  bool do_hangup() {
+    if (send_) (void)send_(std::string{});
+    return false;
+  }
+
   std::string generate_client_key() {
     std::array<uint8_t, 16> raw_bytes;
     for (size_t i = 0; i < 4; ++i) {
@@ -693,18 +701,10 @@ private:
   }
 
   [[nodiscard]] bool dispatch_close(std::string_view payload) {
-    // If we somehow receive more than one, ignore it.
+    // Ignore duplicate close frames.
     if (received_close_) return true;
-    received_close_ = true;
 
-    // If we've already sent a close frame, we should close immediately.
-    if (sent_close_) {
-      // TODO: Do something here to close the connection with FIN/ACK but
-      // without flushing the write queue.
-      return false;
-    }
-
-    // Decode close code and reason.
+    // Decode close code and reason first, regardless of other state.
     uint16_t code{};
     std::string_view reason{};
     if (payload.size() >= 2) {
@@ -713,13 +713,19 @@ private:
       reason = {payload.data() + 2, payload.size() - 2};
     }
 
-    // Give the user a chance to do any cleanup or last-minute sending.
+    // Notify user of the close. The guard above ensures this fires at most
+    // once.
     if (on_close) on_close(*this, code, reason);
 
-    // Send a close frame in response.
-    if (!send_close(code, reason)) return false;
+    // Echo the close frame back unless we already sent one.
+    if (!sent_close_) {
+      if (!send_close(code, reason)) return do_hangup();
+    }
 
-    // TODO: This has to actually close.
+    // Mark close as received. If `sent_close_` is already true,
+    // `close_pending` becomes true, signaling that the connection should shut
+    // down.
+    received_close_ = true;
     return false;
   }
 
@@ -733,7 +739,8 @@ private:
 
     // Sniff frame and reject obvious defects.
     const auto frame_control = hdr.frame_control();
-    if (bitmask::has(frame_control, ws_frame_control::rsvd)) return false;
+    if (bitmask::has(frame_control, ws_frame_control::rsvd))
+      return do_hangup();
     const auto opcode = hdr.opcode();
     const auto is_fin = hdr.is_final();
 
@@ -755,8 +762,9 @@ private:
     // `fragment_opcode_`. Subsequent fragments must have the continuation
     // opcode.
     const bool in_fragment = (fragment_opcode_ != ws_frame_control{});
-    if (in_fragment && opcode != ws_frame_control::continuation) return false;
-    if (!in_fragment && opcode == ws_frame_control::continuation) return false;
+    if ((in_fragment && opcode != ws_frame_control::continuation) ||
+        (!in_fragment && opcode == ws_frame_control::continuation))
+      return do_hangup();
 
     // Accumulate the (unmasked) payloads into `message_`. Note that it's
     // always legal for a payload to be empty.
@@ -770,14 +778,14 @@ private:
     }
 
     // Sanity check on size, applied to each fragment and the combined message.
-    if (message_.size() + payload.size() > max_frame_size) return false;
+    if (message_.size() + payload.size() > max_frame_size) return do_hangup();
 
     // Append the unmasked payload to `message_`.
     if (!payload.empty()) {
       const size_t old_size = message_.size();
       no_zero::resize_to(message_, old_size + payload.size());
       if (!hdr.mask_payload_copy(message_.data() + old_size, payload))
-        return false;
+        return do_hangup();
     }
 
     // If it's not the final frame of the message, we have to wait for more
@@ -800,7 +808,7 @@ private:
   [[nodiscard]] bool
   handle_control_frame(ws_frame_view& hdr, std::string_view payload) {
     const auto opcode = hdr.opcode();
-    if (!hdr.is_final() || payload.size() > 125) return false;
+    if (!hdr.is_final() || payload.size() > 125) return do_hangup();
 
     // Unmask the payload before inspection.
     if (hdr.is_masked() && !payload.empty()) {
@@ -811,7 +819,7 @@ private:
 
     // Handle the control frame.
     if (opcode == ws_frame_control::close) {
-      if (payload.size() == 1) return false;
+      if (payload.size() == 1) return do_hangup();
       return dispatch_close(payload);
     }
     if (opcode == ws_frame_control::ping) { return send_pong(payload); }
@@ -821,7 +829,7 @@ private:
       // payload for comparison.
       return true;
     }
-    return false;
+    return do_hangup();
   }
 
   [[nodiscard]] bool
