@@ -1694,7 +1694,7 @@ void WebSocket_AcceptKey() {
 void WebSocket_FrameCodec_RoundTrip() {
   const std::string payload{"hello"};
   const auto frame = ws_frame_codec::serialize_frame(
-      ws_opcode::fin | ws_opcode::text, payload);
+      ws_frame_control::fin | ws_frame_control::text, payload);
 
   ASSERT_GE(frame.size(), 7ULL);
   const auto hdr_opt = ws_frame_codec::parse_header(frame);
@@ -1714,35 +1714,38 @@ void WebSocket_FrameCodec_RoundTrip() {
 // Server pump receives a single unmasked text frame.
 void WebSocket_Feed_SingleText() {
   std::string got_msg;
-  ws_opcode got_op{};
+  ws_frame_control got_op{};
   http_websocket ws{[](std::string&&) { return true; }};
-  ws.on_message = [&](http_websocket&, std::string_view p, ws_opcode op) {
-    got_msg = p;
-    got_op = op;
-  };
+  ws.on_message =
+      [&](http_websocket&, std::string_view p, ws_frame_control op) {
+        got_msg = p;
+        got_op = op;
+      };
   const auto frame = ws_frame_codec::serialize_frame(
-      ws_opcode::fin | ws_opcode::text, "hello");
+      ws_frame_control::fin | ws_frame_control::text, "hello");
   ws_buf rbuf;
   EXPECT_TRUE(rbuf.feed(ws, frame));
   EXPECT_EQ(got_msg, "hello");
-  EXPECT_EQ(got_op, ws_opcode::text);
+  EXPECT_EQ(got_op, ws_frame_control::text);
 }
 
 // Server pump receives a masked binary frame and correctly unmasks it.
 void WebSocket_Feed_MaskedBinary() {
   std::string got_msg;
-  ws_opcode got_op{};
+  ws_frame_control got_op{};
   http_websocket ws{[](std::string&&) { return true; }};
-  ws.on_message = [&](http_websocket&, std::string_view p, ws_opcode op) {
-    got_msg = p;
-    got_op = op;
-  };
+  ws.on_message =
+      [&](http_websocket&, std::string_view p, ws_frame_control op) {
+        got_msg = p;
+        got_op = op;
+      };
   const auto frame = ws_frame_codec::serialize_frame(
-      ws_opcode::fin | ws_opcode::binary, "world", uint32_t{0xDEADBEEF});
+      ws_frame_control::fin | ws_frame_control::binary, "world",
+      uint32_t{0xDEADBEEF});
   ws_buf rbuf;
   EXPECT_TRUE(rbuf.feed(ws, frame));
   EXPECT_EQ(got_msg, "world");
-  EXPECT_EQ(got_op, ws_opcode::binary);
+  EXPECT_EQ(got_op, ws_frame_control::binary);
 }
 
 // Server auto-pongs a ping frame and does not fire on_message.
@@ -1753,20 +1756,20 @@ void WebSocket_Feed_Ping() {
     sent_frame = std::move(f);
     return true;
   }};
-  ws.on_message = [&](http_websocket&, std::string_view, ws_opcode) {
+  ws.on_message = [&](http_websocket&, std::string_view, ws_frame_control) {
     msg_fired = true;
   };
   const auto frame = ws_frame_codec::serialize_frame(
-      ws_opcode::fin | ws_opcode::ping, "ping-payload");
+      ws_frame_control::fin | ws_frame_control::ping, "ping-payload");
   ws_buf rbuf;
   EXPECT_TRUE(rbuf.feed(ws, frame));
   EXPECT_FALSE(msg_fired);
   ASSERT_FALSE(sent_frame.empty());
   const auto hdr_opt = ws_frame_codec::parse_header(sent_frame);
   ASSERT_TRUE(hdr_opt);
-  const auto pong_op =
-      static_cast<ws_opcode>(static_cast<uint8_t>(hdr_opt->opcode()) & 0x0FU);
-  EXPECT_EQ(pong_op, ws_opcode::pong);
+  const auto pong_op = static_cast<ws_frame_control>(
+      static_cast<uint8_t>(hdr_opt->opcode()) & 0x0FU);
+  EXPECT_EQ(pong_op, ws_frame_control::pong);
   // Pong body must echo the ping payload.
   EXPECT_EQ(hdr_opt->payload_length(), 12ULL);
 }
@@ -1785,8 +1788,8 @@ void WebSocket_Feed_Close() {
   body.push_back(static_cast<char>(1001 >> 8));
   body.push_back(static_cast<char>(1001 & 0xFF));
   body += "going away";
-  const auto frame =
-      ws_frame_codec::serialize_frame(ws_opcode::fin | ws_opcode::close, body);
+  const auto frame = ws_frame_codec::serialize_frame(
+      ws_frame_control::fin | ws_frame_control::close, body);
   ws_buf rbuf;
   EXPECT_TRUE(rbuf.feed(ws, frame));
   EXPECT_EQ(got_code, uint16_t{1001});
@@ -1796,41 +1799,42 @@ void WebSocket_Feed_Close() {
 // Three-frame fragmented message is assembled and delivered exactly once.
 void WebSocket_Feed_Fragmented() {
   std::string got_msg;
-  ws_opcode got_op{};
+  ws_frame_control got_op{};
   int msg_count{};
   http_websocket ws{[](std::string&&) { return true; }};
-  ws.on_message = [&](http_websocket&, std::string_view p, ws_opcode op) {
-    got_msg = p;
-    got_op = op;
-    ++msg_count;
-  };
+  ws.on_message =
+      [&](http_websocket&, std::string_view p, ws_frame_control op) {
+        got_msg = p;
+        got_op = op;
+        ++msg_count;
+      };
   ws_buf rbuf;
   // Fragment 1: FIN=0, text opcode, "hel".
-  EXPECT_TRUE(
-      rbuf.feed(ws, ws_frame_codec::serialize_frame(ws_opcode::text, "hel")));
+  EXPECT_TRUE(rbuf.feed(ws,
+      ws_frame_codec::serialize_frame(ws_frame_control::text, "hel")));
   EXPECT_EQ(msg_count, 0);
   // Fragment 2: FIN=0, continuation, "lo ".
   EXPECT_TRUE(rbuf.feed(ws,
-      ws_frame_codec::serialize_frame(ws_opcode::continuation, "lo ")));
+      ws_frame_codec::serialize_frame(ws_frame_control::continuation, "lo ")));
   EXPECT_EQ(msg_count, 0);
   // Fragment 3: FIN=1, continuation, "world" -> dispatch.
   EXPECT_TRUE(rbuf.feed(ws,
-      ws_frame_codec::serialize_frame(ws_opcode::fin | ws_opcode::continuation,
-          "world")));
+      ws_frame_codec::serialize_frame(
+          ws_frame_control::fin | ws_frame_control::continuation, "world")));
   EXPECT_EQ(msg_count, 1);
   EXPECT_EQ(got_msg, "hello world");
-  EXPECT_EQ(got_op, ws_opcode::text);
+  EXPECT_EQ(got_op, ws_frame_control::text);
 }
 
 // Feeding only the header bytes of a frame returns true (awaiting payload).
 void WebSocket_Feed_PartialFrame() {
   bool msg_fired{};
   http_websocket ws{[](std::string&&) { return true; }};
-  ws.on_message = [&](http_websocket&, std::string_view, ws_opcode) {
+  ws.on_message = [&](http_websocket&, std::string_view, ws_frame_control) {
     msg_fired = true;
   };
   const auto frame = ws_frame_codec::serialize_frame(
-      ws_opcode::fin | ws_opcode::text, "Hello");
+      ws_frame_control::fin | ws_frame_control::text, "Hello");
   // Place only the 2-byte header in the buffer, leaving the payload absent.
   recv_buffer buf;
   buf.reads_enabled = false;
@@ -1848,13 +1852,14 @@ void WebSocket_Feed_PartialFrame() {
 void WebSocket_Feed_MultipleFrames() {
   std::vector<std::string> msgs;
   http_websocket ws{[](std::string&&) { return true; }};
-  ws.on_message = [&](http_websocket&, std::string_view p, ws_opcode) {
+  ws.on_message = [&](http_websocket&, std::string_view p, ws_frame_control) {
     msgs.emplace_back(p);
   };
   const std::string both =
-      ws_frame_codec::serialize_frame(ws_opcode::fin | ws_opcode::text,
-          "foo") +
-      ws_frame_codec::serialize_frame(ws_opcode::fin | ws_opcode::text, "bar");
+      ws_frame_codec::serialize_frame(
+          ws_frame_control::fin | ws_frame_control::text, "foo") +
+      ws_frame_codec::serialize_frame(
+          ws_frame_control::fin | ws_frame_control::text, "bar");
   ws_buf rbuf;
   EXPECT_TRUE(rbuf.feed(ws, both));
   ASSERT_EQ(msgs.size(), 2ULL);
@@ -1867,8 +1872,8 @@ void WebSocket_Feed_BadContinuation() {
   http_websocket ws{[](std::string&&) { return true; }};
   ws_buf rbuf;
   EXPECT_FALSE(rbuf.feed(ws,
-      ws_frame_codec::serialize_frame(ws_opcode::fin | ws_opcode::continuation,
-          "data")));
+      ws_frame_codec::serialize_frame(
+          ws_frame_control::fin | ws_frame_control::continuation, "data")));
 }
 
 // A non-continuation data frame arriving mid-fragment is a protocol error.
@@ -1876,10 +1881,10 @@ void WebSocket_Feed_InterleavedData() {
   http_websocket ws{[](std::string&&) { return true; }};
   ws_buf rbuf;
   EXPECT_TRUE(rbuf.feed(ws,
-      ws_frame_codec::serialize_frame(ws_opcode::text, "start")));
+      ws_frame_codec::serialize_frame(ws_frame_control::text, "start")));
   EXPECT_FALSE(rbuf.feed(ws,
-      ws_frame_codec::serialize_frame(ws_opcode::fin | ws_opcode::text,
-          "bad")));
+      ws_frame_codec::serialize_frame(
+          ws_frame_control::fin | ws_frame_control::text, "bad")));
 }
 
 // A frame larger than the buffer capacity triggers expand_to.
@@ -1888,7 +1893,7 @@ void WebSocket_Feed_ExpandBuffer() {
   // Payload of 100 bytes: header=2, total=102, comfortably exceeds any SSO
   // capacity that a 10-byte resize could produce.
   const auto frame = ws_frame_codec::serialize_frame(
-      ws_opcode::fin | ws_opcode::text, std::string(100, 'x'));
+      ws_frame_control::fin | ws_frame_control::text, std::string(100, 'x'));
   ws_buf rbuf{10};
   EXPECT_TRUE(rbuf.feed(ws, frame));
   EXPECT_GT(rbuf.expand_requested, 0ULL);
