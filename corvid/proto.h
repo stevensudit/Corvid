@@ -55,4 +55,5 @@
 #include "proto/sha-1.h"
 #include "proto/http_transaction.h"
 #include "proto/http_websocket.h"
+#include "proto/http_websocket_transaction.h"
 #include "proto/http_server.h"
