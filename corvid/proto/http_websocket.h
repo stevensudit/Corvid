@@ -51,8 +51,9 @@ enum class ws_frame_control : uint8_t {
   close = 0x08,
   ping = 0x09,
   pong = 0x0A,
+  control = 0x08, // mask for control frames
   // 0x0B-0x0F: reserved control frames
-  opcode = 0x0FU, // mask for the low 4 bits of byte 0
+  opcode = 0x0FU, // mask for opcode nibble
   rsv3 = 0x10,
   rsv2 = 0x20,
   rsv1 = 0x40,
@@ -553,14 +554,28 @@ public:
     return do_send(ws_frame_control::fin | ws_frame_control::close, body);
   }
 
-  // Send a pong frame.
+private:
   [[nodiscard]] bool send_pong(std::string_view payload = {}) {
     return do_send(ws_frame_control::fin | ws_frame_control::pong, payload);
   }
 
-private:
+  [[nodiscard]] bool dispatch_close(std::string_view payload) {
+    uint16_t code{1000};
+    std::string_view reason{};
+    if (payload.size() >= 2) {
+      code = (static_cast<uint16_t>(static_cast<uint8_t>(payload[0])) << 8) |
+             static_cast<uint8_t>(payload[1]);
+      reason = {payload.data() + 2, payload.size() - 2};
+    }
+    if (on_close) on_close(*this, code, reason);
+    return true;
+  }
+
   // Process payload. Validates fragmentation, accumulates payload, consumes
   // bytes, and dispatches when the message is complete.
+  //
+  // TODO: Consider enabling the ability to see partial fragments as they
+  // arrive, e.g., for streaming large messages.
   [[nodiscard]] bool
   do_process_payload(ws_frame_view& hdr, std::string_view payload) {
     const auto frame_control = hdr.frame_control();
@@ -568,26 +583,8 @@ private:
     const auto opcode = hdr.opcode();
     const bool is_fin = hdr.is_final();
 
-// Handle control frames first.
-#if 0
-    if (opcode == ws_frame_control::ping) {
-      // Auto-pong with the ping payload (RFC 6455 section 5.5.2).
-      // TODO: Ensure that it's not fragmented and immediately send a pong with
-      // the same payload. And its payload must be <= 125 bytes.
-      return true;
-    }
-    if (opcode == ws_frame_control::pong) {
-      // TODO: Ensure that it's not fragmented and check against outstanding
-      // pings. And its payload must be <= 125 bytes.
-      return true;
-    }
-    if (opcode == ws_frame_control::close) {
-      // TODO: Handle this correctly. It can't be fragmented, and the payload
-      // must be either 0, or between 2 and 125 bytes (inclusive), as the first
-      // two bytes, if present, are the status code.
-      return false;
-    }
-#endif
+    if (bitmask::has(frame_control, ws_frame_control::control))
+      return handle_control_frame(hdr, payload);
 
     // We store the opcode of the initial frame in `fragment_opcode_`, so if
     // it's not 0, we're expecting a continuation. Therefore, we validate
@@ -618,66 +615,39 @@ private:
       return false;
 
     // If it's not the final fragment, we have to wait for more.
+    // TODO: We should allow the user to disable this check so that they can
+    // see each fragment as it arrives.
     if (!is_fin) return true;
 
     // Dispatch the complete (possibly reassembled) message. Moving
     // `recv_frame_` clears it automatically for the next message.
     const ws_frame_control dispatch_opcode =
         in_fragment ? fragment_opcode_ : opcode;
-    fragment_opcode_ = {};
-    if (!dispatch_frame(hdr, dispatch_opcode, std::move(recv_frame_)))
-      return false;
+    if (is_fin) fragment_opcode_ = {};
 
-    // `dispatch_frame` sets `fragment_opcode_` as part of its own state
-    // machine; reset it so our in-fragment check stays consistent.
-    fragment_opcode_ = {};
-    return true;
+    return dispatch_frame(std::move(recv_frame_), dispatch_opcode);
   }
 
-  [[nodiscard]] bool dispatch_frame(const ws_frame_view& hdr,
-      ws_frame_control opcode_bits, std::string payload) {
-    if (opcode_bits == ws_frame_control::text ||
-        opcode_bits == ws_frame_control::binary)
-    {
-      const bool is_fin = hdr.is_final();
-      if (!in_fragment_) {
-        fragment_opcode_ = opcode_bits;
-        fragment_buf_ = std::move(payload);
-      } else {
-        fragment_buf_ += payload;
-      }
-      if (is_fin) {
-        if (on_message) on_message(*this, fragment_buf_, fragment_opcode_);
-        fragment_buf_.clear();
-        in_fragment_ = false;
-      } else {
-        in_fragment_ = true;
-      }
-    } else if (opcode_bits == ws_frame_control::continuation) {
-      if (!in_fragment_) return false; // unexpected continuation
-      fragment_buf_ += payload;
-      const bool is_fin = hdr.is_final();
-      if (is_fin) {
-        if (on_message) on_message(*this, fragment_buf_, fragment_opcode_);
-        fragment_buf_.clear();
-        in_fragment_ = false;
-      }
-    } else if (opcode_bits == ws_frame_control::ping) {
-      // Auto-pong with the ping payload (RFC 6455 section 5.5.2).
-      (void)send_pong(payload);
-    } else if (opcode_bits == ws_frame_control::close) {
-      uint16_t code{1000};
-      std::string_view reason{};
-      if (payload.size() >= 2) {
-        code = (static_cast<uint16_t>(static_cast<uint8_t>(payload[0])) << 8) |
-               static_cast<uint8_t>(payload[1]);
-        reason = {payload.data() + 2, payload.size() - 2};
-      }
-      if (on_close) on_close(*this, code, reason);
-    } else {
-      // Unknown/reserved opcode.
-      return false;
+  [[nodiscard]] bool
+  handle_control_frame(ws_frame_view& hdr, std::string_view payload) {
+    const auto opcode = hdr.opcode();
+    if (!hdr.is_final() || payload.size() > 125) return false;
+    if (opcode == ws_frame_control::close) {
+      if (payload.size() == 1) return false;
+      return dispatch_close(payload);
     }
+    if (opcode == ws_frame_control::ping) { return send_pong(payload); }
+    if (opcode == ws_frame_control::pong) {
+      // TODO: Compare payload against outstanding pings, if any and reset
+      // timeout.
+      return true;
+    }
+    return false;
+  }
+
+  [[nodiscard]] bool
+  dispatch_frame(std::string&& payload, ws_frame_control opcode_bits) {
+    if (on_message) on_message(*this, std::move(payload), opcode_bits);
     return true;
   }
 
@@ -698,11 +668,9 @@ private:
   }
 
   http_transaction::send_fn send_;
-  bool is_server_;
+  bool is_server_{};
   std::string recv_frame_;
-  std::string fragment_buf_;
   ws_frame_control fragment_opcode_{};
-  bool in_fragment_{};
 };
 
 // HTTP transaction that performs the WebSocket upgrade handshake and then
@@ -828,5 +796,4 @@ private:
   std::string pending_response_;
   bool upgraded_{};
 };
-
 }} // namespace corvid::proto
