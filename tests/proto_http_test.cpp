@@ -1649,6 +1649,291 @@ void HttpHeaderBlock_SetRawAndRemove() {
   }
 }
 
+// `ws_frame_codec` and `http_websocket` unit tests.
+
+namespace {
+
+// Holds a `recv_buffer` and exposes a `feed` method. On each call, the
+// given bytes are placed at the front of the buffer and a fresh
+// `recv_buffer_view` is built over them. `expand_requested` is set to
+// the value passed to `expand_to` (if any) after the view destructs.
+struct ws_buf {
+  recv_buffer buf;
+  size_t expand_requested{};
+
+  ws_buf(const ws_buf&) = delete;
+  ws_buf& operator=(const ws_buf&) = delete;
+
+  explicit ws_buf(size_t cap = 65536) {
+    buf.reads_enabled = false;
+    buf.resize(cap);
+  }
+
+  [[nodiscard]] bool feed(http_websocket& ws, std::string_view frame) {
+    const size_t n = std::min(frame.size(), buf.buffer.size());
+    std::memcpy(buf.buffer.data(), frame.data(), n);
+    buf.begin.store(0, std::memory_order::relaxed);
+    buf.end.store(n, std::memory_order::relaxed);
+    expand_requested = 0;
+    recv_buffer_view view{buf,
+        [this](size_t new_size, size_t) { expand_requested = new_size; }};
+    return ws.feed(view);
+  }
+};
+
+} // namespace
+
+// RFC 6455 section 1.3: known input -> known accept key.
+void WebSocket_AcceptKey() {
+  const auto key =
+      ws_frame_codec::compute_accept_key("dGhlIHNhbXBsZSBub25jZQ==");
+  EXPECT_EQ(key, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+}
+
+// Serialize an unmasked text frame and verify the parsed header fields.
+void WebSocket_FrameCodec_RoundTrip() {
+  const std::string payload{"hello"};
+  const auto frame = ws_frame_codec::serialize_frame(
+      ws_opcode::fin | ws_opcode::text, payload);
+
+  ASSERT_GE(frame.size(), 7ULL);
+  const auto hdr_opt = ws_frame_codec::parse_header(frame);
+  ASSERT_TRUE(hdr_opt);
+  const auto& hdr = *hdr_opt;
+  EXPECT_TRUE(hdr.is_final());
+  EXPECT_FALSE(hdr.is_masked());
+  EXPECT_EQ(hdr.header_length(), 2ULL);
+  EXPECT_EQ(hdr.payload_length(), 5ULL);
+  EXPECT_EQ(hdr.total_length(), 7ULL);
+
+  const std::string_view extracted{frame.data() + hdr.header_length(),
+      hdr.payload_length()};
+  EXPECT_EQ(extracted, payload);
+}
+
+// Server pump receives a single unmasked text frame.
+void WebSocket_Feed_SingleText() {
+  std::string got_msg;
+  ws_opcode got_op{};
+  http_websocket ws{[](std::string&&) { return true; }};
+  ws.on_message = [&](http_websocket&, std::string_view p, ws_opcode op) {
+    got_msg = p;
+    got_op = op;
+  };
+  const auto frame = ws_frame_codec::serialize_frame(
+      ws_opcode::fin | ws_opcode::text, "hello");
+  ws_buf rbuf;
+  EXPECT_TRUE(rbuf.feed(ws, frame));
+  EXPECT_EQ(got_msg, "hello");
+  EXPECT_EQ(got_op, ws_opcode::text);
+}
+
+// Server pump receives a masked binary frame and correctly unmasks it.
+void WebSocket_Feed_MaskedBinary() {
+  std::string got_msg;
+  ws_opcode got_op{};
+  http_websocket ws{[](std::string&&) { return true; }};
+  ws.on_message = [&](http_websocket&, std::string_view p, ws_opcode op) {
+    got_msg = p;
+    got_op = op;
+  };
+  const auto frame = ws_frame_codec::serialize_frame(
+      ws_opcode::fin | ws_opcode::binary, "world", uint32_t{0xDEADBEEF});
+  ws_buf rbuf;
+  EXPECT_TRUE(rbuf.feed(ws, frame));
+  EXPECT_EQ(got_msg, "world");
+  EXPECT_EQ(got_op, ws_opcode::binary);
+}
+
+// Server auto-pongs a ping frame and does not fire on_message.
+void WebSocket_Feed_Ping() {
+  std::string sent_frame;
+  bool msg_fired{};
+  http_websocket ws{[&](std::string&& f) {
+    sent_frame = std::move(f);
+    return true;
+  }};
+  ws.on_message = [&](http_websocket&, std::string_view, ws_opcode) {
+    msg_fired = true;
+  };
+  const auto frame = ws_frame_codec::serialize_frame(
+      ws_opcode::fin | ws_opcode::ping, "ping-payload");
+  ws_buf rbuf;
+  EXPECT_TRUE(rbuf.feed(ws, frame));
+  EXPECT_FALSE(msg_fired);
+  ASSERT_FALSE(sent_frame.empty());
+  const auto hdr_opt = ws_frame_codec::parse_header(sent_frame);
+  ASSERT_TRUE(hdr_opt);
+  const auto pong_op =
+      static_cast<ws_opcode>(static_cast<uint8_t>(hdr_opt->opcode()) & 0x0FU);
+  EXPECT_EQ(pong_op, ws_opcode::pong);
+  // Pong body must echo the ping payload.
+  EXPECT_EQ(hdr_opt->payload_length(), 12ULL);
+}
+
+// Server fires on_close with the correct status code and reason string.
+void WebSocket_Feed_Close() {
+  uint16_t got_code{};
+  std::string got_reason;
+  http_websocket ws{[](std::string&&) { return true; }};
+  ws.on_close = [&](http_websocket&, uint16_t code, std::string_view reason) {
+    got_code = code;
+    got_reason = reason;
+  };
+  // Encode code 1001 as big-endian two bytes followed by the reason string.
+  std::string body;
+  body.push_back(static_cast<char>(1001 >> 8));
+  body.push_back(static_cast<char>(1001 & 0xFF));
+  body += "going away";
+  const auto frame =
+      ws_frame_codec::serialize_frame(ws_opcode::fin | ws_opcode::close, body);
+  ws_buf rbuf;
+  EXPECT_TRUE(rbuf.feed(ws, frame));
+  EXPECT_EQ(got_code, uint16_t{1001});
+  EXPECT_EQ(got_reason, "going away");
+}
+
+// Three-frame fragmented message is assembled and delivered exactly once.
+void WebSocket_Feed_Fragmented() {
+  std::string got_msg;
+  ws_opcode got_op{};
+  int msg_count{};
+  http_websocket ws{[](std::string&&) { return true; }};
+  ws.on_message = [&](http_websocket&, std::string_view p, ws_opcode op) {
+    got_msg = p;
+    got_op = op;
+    ++msg_count;
+  };
+  ws_buf rbuf;
+  // Fragment 1: FIN=0, text opcode, "hel".
+  EXPECT_TRUE(
+      rbuf.feed(ws, ws_frame_codec::serialize_frame(ws_opcode::text, "hel")));
+  EXPECT_EQ(msg_count, 0);
+  // Fragment 2: FIN=0, continuation, "lo ".
+  EXPECT_TRUE(rbuf.feed(ws,
+      ws_frame_codec::serialize_frame(ws_opcode::continuation, "lo ")));
+  EXPECT_EQ(msg_count, 0);
+  // Fragment 3: FIN=1, continuation, "world" -> dispatch.
+  EXPECT_TRUE(rbuf.feed(ws,
+      ws_frame_codec::serialize_frame(ws_opcode::fin | ws_opcode::continuation,
+          "world")));
+  EXPECT_EQ(msg_count, 1);
+  EXPECT_EQ(got_msg, "hello world");
+  EXPECT_EQ(got_op, ws_opcode::text);
+}
+
+// Feeding only the header bytes of a frame returns true (awaiting payload).
+void WebSocket_Feed_PartialFrame() {
+  bool msg_fired{};
+  http_websocket ws{[](std::string&&) { return true; }};
+  ws.on_message = [&](http_websocket&, std::string_view, ws_opcode) {
+    msg_fired = true;
+  };
+  const auto frame = ws_frame_codec::serialize_frame(
+      ws_opcode::fin | ws_opcode::text, "Hello");
+  // Place only the 2-byte header in the buffer, leaving the payload absent.
+  recv_buffer buf;
+  buf.reads_enabled = false;
+  buf.resize(65536);
+  std::memcpy(buf.buffer.data(), frame.data(), 2);
+  buf.end.store(2, std::memory_order::relaxed);
+  {
+    recv_buffer_view view{buf, [](size_t, size_t) {}};
+    EXPECT_TRUE(ws.feed(view));
+  }
+  EXPECT_FALSE(msg_fired);
+}
+
+// Two complete frames in one buffer each fire on_message.
+void WebSocket_Feed_MultipleFrames() {
+  std::vector<std::string> msgs;
+  http_websocket ws{[](std::string&&) { return true; }};
+  ws.on_message = [&](http_websocket&, std::string_view p, ws_opcode) {
+    msgs.emplace_back(p);
+  };
+  const std::string both =
+      ws_frame_codec::serialize_frame(ws_opcode::fin | ws_opcode::text,
+          "foo") +
+      ws_frame_codec::serialize_frame(ws_opcode::fin | ws_opcode::text, "bar");
+  ws_buf rbuf;
+  EXPECT_TRUE(rbuf.feed(ws, both));
+  ASSERT_EQ(msgs.size(), 2ULL);
+  EXPECT_EQ(msgs[0], "foo");
+  EXPECT_EQ(msgs[1], "bar");
+}
+
+// A continuation frame without a prior start fragment is a protocol error.
+void WebSocket_Feed_BadContinuation() {
+  http_websocket ws{[](std::string&&) { return true; }};
+  ws_buf rbuf;
+  EXPECT_FALSE(rbuf.feed(ws,
+      ws_frame_codec::serialize_frame(ws_opcode::fin | ws_opcode::continuation,
+          "data")));
+}
+
+// A non-continuation data frame arriving mid-fragment is a protocol error.
+void WebSocket_Feed_InterleavedData() {
+  http_websocket ws{[](std::string&&) { return true; }};
+  ws_buf rbuf;
+  EXPECT_TRUE(rbuf.feed(ws,
+      ws_frame_codec::serialize_frame(ws_opcode::text, "start")));
+  EXPECT_FALSE(rbuf.feed(ws,
+      ws_frame_codec::serialize_frame(ws_opcode::fin | ws_opcode::text,
+          "bad")));
+}
+
+// A frame larger than the buffer capacity triggers expand_to.
+void WebSocket_Feed_ExpandBuffer() {
+  http_websocket ws{[](std::string&&) { return true; }};
+  // Payload of 100 bytes: header=2, total=102, comfortably exceeds any SSO
+  // capacity that a 10-byte resize could produce.
+  const auto frame = ws_frame_codec::serialize_frame(
+      ws_opcode::fin | ws_opcode::text, std::string(100, 'x'));
+  ws_buf rbuf{10};
+  EXPECT_TRUE(rbuf.feed(ws, frame));
+  EXPECT_GT(rbuf.expand_requested, 0ULL);
+}
+
+// Server pump sends unmasked frames.
+void WebSocket_Send_Server() {
+  std::string sent;
+  http_websocket ws{[&](std::string&& f) {
+    sent = std::move(f);
+    return true;
+  }};
+  EXPECT_TRUE(ws.send_text("hi"));
+  ASSERT_FALSE(sent.empty());
+  const auto hdr_opt = ws_frame_codec::parse_header(sent);
+  ASSERT_TRUE(hdr_opt);
+  EXPECT_FALSE(hdr_opt->is_masked());
+  EXPECT_EQ(hdr_opt->payload_length(), 2ULL);
+  // Payload is plaintext; verify it directly.
+  const std::string_view pl{sent.data() + hdr_opt->header_length(), 2};
+  EXPECT_EQ(pl, "hi");
+}
+
+// Client pump sends masked frames; payload round-trips via unmask.
+void WebSocket_Send_Client() {
+  std::string sent;
+  http_websocket ws{
+      [&](std::string&& f) {
+        sent = std::move(f);
+        return true;
+      },
+      connection_role::client};
+  EXPECT_TRUE(ws.send_text("hi"));
+  ASSERT_FALSE(sent.empty());
+  auto hdr_opt = ws_frame_codec::parse_header(sent);
+  ASSERT_TRUE(hdr_opt);
+  auto& hdr = *hdr_opt;
+  EXPECT_TRUE(hdr.is_masked());
+  EXPECT_EQ(hdr.payload_length(), 2ULL);
+  char unmasked[2]{};
+  EXPECT_TRUE(hdr.mask_payload_copy(unmasked,
+      {sent.data() + hdr.header_length(), hdr.payload_length()}));
+  EXPECT_EQ(std::string_view(unmasked, 2), "hi");
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
 
@@ -1681,4 +1966,10 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     HttpHeaderBlock_MakeErrorResponse, HttpHeaderBlock_ResponseParseEdgeCases,
     HttpServer_BodyTooLarge, HttpServer_TooLongHeaders,
     HttpServer_MalformedRequestLine, HttpServer_Http10KeepAlive,
-    HttpHeaderBlock_GetValues, HttpHeaderBlock_SetRawAndRemove);
+    HttpHeaderBlock_GetValues, HttpHeaderBlock_SetRawAndRemove,
+    WebSocket_AcceptKey, WebSocket_FrameCodec_RoundTrip,
+    WebSocket_Feed_SingleText, WebSocket_Feed_MaskedBinary,
+    WebSocket_Feed_Ping, WebSocket_Feed_Close, WebSocket_Feed_Fragmented,
+    WebSocket_Feed_PartialFrame, WebSocket_Feed_MultipleFrames,
+    WebSocket_Feed_BadContinuation, WebSocket_Feed_InterleavedData,
+    WebSocket_Feed_ExpandBuffer, WebSocket_Send_Server, WebSocket_Send_Client);

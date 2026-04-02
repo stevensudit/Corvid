@@ -354,8 +354,9 @@ public:
     }
 
     if (mask) {
-      uint32_t be_mask = hton32(*mask);
-      std::memcpy(vs + lens.header_length_, &be_mask, sizeof(be_mask));
+      lens.mask_ = *mask;
+      uint32_t be_mask = hton32(lens.mask_);
+      std::memcpy(vs + lens.header_length_ - 1, &be_mask, sizeof(be_mask));
       lens.header_length_ += 4;
     }
     return lens;
@@ -379,7 +380,6 @@ public:
   [[nodiscard]]
   static ws_frame_wrapper<access::as_mutable> build(std::string& frame,
       ws_opcode opcode, size_t payload_len, std::optional<uint32_t> mask) {
-    assert(!frame.empty());
     const size_t header_len =
         ws_frame_wrapper::header_length_for(payload_len, mask.has_value());
     frame.reserve(header_len + payload_len);
@@ -554,8 +554,8 @@ private:
     }
 
     // View of the (possibly masked) payload in the receive buffer.
-    const std::string_view payload_sv{
-        data.data() + hdr.header_length(), hdr.payload_length()};
+    const std::string_view payload_sv{data.data() + hdr.header_length(),
+        hdr.payload_length()};
 
     // Accumulate the (unmasked) payload into `recv_frame_`.
     if (in_fragment) {
@@ -565,14 +565,15 @@ private:
         return false;
       const size_t old_size = recv_frame_.size();
       no_zero::resize_to(recv_frame_, old_size + hdr.payload_length());
-      if (!payload_sv.empty())
-        if (!hdr.mask_payload_copy(recv_frame_.data() + old_size, payload_sv))
-          return false;
+      if (!payload_sv.empty() &&
+          !hdr.mask_payload_copy(recv_frame_.data() + old_size, payload_sv))
+        return false;
     } else {
       // First (or only) frame of a message.
       no_zero::resize_to(recv_frame_, hdr.payload_length());
-      if (!payload_sv.empty())
-        if (!hdr.mask_payload_copy(recv_frame_.data(), payload_sv)) return false;
+      if (!payload_sv.empty() &&
+          !hdr.mask_payload_copy(recv_frame_.data(), payload_sv))
+        return false;
       // Save opcode so continuations can be validated and the assembled
       // message dispatched with the correct type.
       if (!is_fin) fragment_opcode_ = opcode_bits;
@@ -586,7 +587,12 @@ private:
       const ws_opcode dispatch_opcode =
           in_fragment ? fragment_opcode_ : opcode_bits;
       fragment_opcode_ = {};
-      return dispatch_frame(hdr, dispatch_opcode, std::move(recv_frame_));
+      if (!dispatch_frame(hdr, dispatch_opcode, std::move(recv_frame_)))
+        return false;
+      // `dispatch_frame` sets `fragment_opcode_` as part of its own state
+      // machine; reset it so our in-fragment check stays consistent.
+      fragment_opcode_ = {};
+      return true;
     }
     return true;
   }
