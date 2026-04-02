@@ -2226,6 +2226,136 @@ void HttpServer_WebSocket() {
   EXPECT_EQ(got_op, ws_frame_control::text);
 }
 
+// Semi-integration test exercising four frame-sequence scenarios against a
+// live `http_server` with an `http_websocket_transaction` echo route.
+//
+// The upgrade request is built with `generate_upgrade_request` so the
+// random client key and its derived accept value are both verified.
+//
+// Scenarios:
+//   1. Single text frame echoed back.
+//   2. Two-fragment message ("hel" + "lo") reassembled to "hello".
+//   3. Three-fragment message interleaved with a ping (triggers auto-pong)
+//      and a client-originated pong (silently absorbed); reassembled echo
+//      returned after the pong.
+//   4. Close frame (code 1001): server mirrors the code; `on_close` fires.
+void HttpServer_WebSocket_Frames() {
+  // Server echoes text messages and mirrors close frames.
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  ASSERT_TRUE(server);
+  server->add_route("/ws",
+      http_websocket_transaction::make_factory(
+          [](http_websocket_transaction& tx) {
+            tx.websocket().on_message =
+                [](http_websocket& ws, std::string&& p, ws_frame_control) {
+                  return ws.send_text(p);
+                };
+            tx.websocket().on_close =
+                [](http_websocket& ws, uint16_t code, std::string_view) {
+                  (void)ws.send_close(code);
+                };
+          }));
+
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
+  ASSERT_TRUE(client);
+
+  // Build the upgrade request via `generate_upgrade_request`; the method
+  // returns the `request_head` and stores the expected accept key.
+  std::string accept_key;
+  http_transaction::send_fn client_send{[&](std::string&& frame) {
+    return client.send(frame);
+  }};
+  http_websocket ws_client{std::move(client_send), connection_role::client};
+
+  std::string got_msg;
+  ws_frame_control got_op{};
+  uint16_t got_close_code{};
+  ws_client.on_message =
+      [&](http_websocket&, std::string&& p, ws_frame_control op) {
+        got_msg = std::move(p);
+        got_op = op;
+        return true;
+      };
+  ws_client.on_close = [&](http_websocket&, uint16_t code, std::string_view) {
+    got_close_code = code;
+  };
+
+  auto req = ws_client.generate_upgrade_request("/ws", accept_key);
+  (void)req.headers.add_raw("Host", "localhost");
+  ASSERT_TRUE(client.send(req.serialize()));
+
+  // Verify the response.
+  const auto resp_wire = client.recv_until("\r\n\r\n");
+  ASSERT_FALSE(resp_wire.empty());
+  auto resp_head_wire = std::string_view{resp_wire};
+  ASSERT_GE(resp_head_wire.size(), 2U);
+  resp_head_wire.remove_suffix(2);
+  response_head resp;
+  ASSERT_TRUE(resp.parse(resp_head_wire));
+  EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+  const auto accept = resp.headers.get("Sec-Websocket-Accept");
+  ASSERT_TRUE(accept);
+  EXPECT_EQ(*accept, accept_key);
+
+  // Receive chunks from the socket and feed them through `ws_client` until
+  // `on_message` fires.  Handles both single-recv and split-recv delivery.
+  const auto recv_msg = [&]() {
+    got_msg.clear();
+    while (got_msg.empty()) {
+      auto chunk = client.recv();
+      if (chunk.empty()) break;
+      std::string_view sv{chunk};
+      (void)ws_client.feed(sv);
+    }
+  };
+
+  // Case 1: single text frame.
+  ASSERT_TRUE(ws_client.send_text("hello"));
+  recv_msg();
+  EXPECT_EQ(got_msg, "hello");
+  EXPECT_EQ(got_op, ws_frame_control::text);
+
+  // Case 2: two-fragment text message.
+  //   Fragment 1: FIN=0, text opcode, "hel"
+  //   Fragment 2: FIN=1, continuation, "lo"
+  //   -> server reassembles and echoes "hello"
+  ASSERT_TRUE(ws_client.send_frame(ws_frame_control::text, "hel"));
+  ASSERT_TRUE(ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::continuation, "lo"));
+  recv_msg();
+  EXPECT_EQ(got_msg, "hello");
+
+  // Case 3: three fragments interleaved with a ping and a pong.
+  //   FIN=0 text       "foo"     -> accumulate
+  //   FIN=1 ping       "payload" -> server auto-pongs to client
+  //   FIN=0 cont       "bar"     -> accumulate
+  //   FIN=1 pong       "payload" -> silently absorbed by server
+  //   FIN=1 cont       "baz"     -> assemble "foobarbaz", echo
+  //
+  // `recv_msg` feeds chunks until `on_message` fires, transparently
+  // consuming any pong frames that arrive before the echo.
+  ASSERT_TRUE(ws_client.send_frame(ws_frame_control::text, "foo"));
+  ASSERT_TRUE(ws_client.send_ping("payload"));
+  ASSERT_TRUE(ws_client.send_frame(ws_frame_control::continuation, "bar"));
+  ASSERT_TRUE(ws_client.send_pong("payload"));
+  ASSERT_TRUE(ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::continuation, "baz"));
+  recv_msg();
+  EXPECT_EQ(got_msg, "foobarbaz");
+
+  // Case 4: close frame (code 1001).
+  //   Client sends close; server `on_close` mirrors the code back.
+  //   Client feeds received data until its `on_close` fires.
+  ASSERT_TRUE(ws_client.send_close(1001, "done"));
+  while (got_close_code == 0) {
+    auto chunk = client.recv();
+    if (chunk.empty()) break;
+    std::string_view sv{chunk};
+    (void)ws_client.feed(sv);
+  }
+  EXPECT_EQ(got_close_code, uint16_t{1001});
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
 
@@ -2273,4 +2403,4 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     WebSocketTransaction_MissingKey, WebSocketTransaction_BadRequestDrain,
     WebSocketTransaction_FeedAfterUpgrade,
     WebSocketTransaction_FeedProtocolError, WebSocketTransaction_MakeFactory,
-    HttpServer_WebSocket);
+    HttpServer_WebSocket, HttpServer_WebSocket_Frames);

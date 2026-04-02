@@ -574,6 +574,27 @@ public:
     return do_send(ws_frame_control::fin | ws_frame_control::close, body);
   }
 
+  // Send a ping frame (FIN set, ping opcode).
+  [[nodiscard]] bool send_ping(std::string_view payload = {}) {
+    return do_send(ws_frame_control::fin | ws_frame_control::ping, payload);
+  }
+
+  // Send a pong frame (FIN set, pong opcode). Normally sent automatically in
+  // response to a ping; also usable for unsolicited keepalive pongs.
+  [[nodiscard]] bool send_pong(std::string_view payload = {}) {
+    return do_send(ws_frame_control::fin | ws_frame_control::pong, payload);
+  }
+
+  // Send an arbitrary frame. `frame_control` encodes both the FIN flag and
+  // the opcode nibble. Masking is applied automatically for client-side
+  // connections. Use this for fragmented messages: omit
+  // `ws_frame_control::fin` on all but the last fragment, use
+  // `ws_frame_control::continuation` on all but the first.
+  [[nodiscard]] bool
+  send_frame(ws_frame_control frame_control, std::string_view payload) {
+    return do_send(frame_control, payload);
+  }
+
   // Generate a WebSocket upgrade request for the given `path`, returning the
   // request head and the `Sec-WebSocket-Accept` value that the server should
   // respond with.
@@ -602,10 +623,6 @@ private:
       std::memcpy(&raw_bytes[i * 4], &val, 4);
     }
     return base_64::encode(raw_bytes);
-  }
-
-  [[nodiscard]] bool send_pong(std::string_view payload = {}) {
-    return do_send(ws_frame_control::fin | ws_frame_control::pong, payload);
   }
 
   [[nodiscard]] bool dispatch_close(std::string_view payload) {
@@ -679,6 +696,13 @@ private:
   handle_control_frame(ws_frame_view& hdr, std::string_view payload) {
     const auto opcode = hdr.opcode();
     if (!hdr.is_final() || payload.size() > 125) return false;
+    // Unmask the payload before inspection.
+    std::string unmasked;
+    if (hdr.is_masked() && !payload.empty()) {
+      unmasked.resize(payload.size());
+      (void)hdr.mask_payload_copy(unmasked.data(), payload);
+      payload = unmasked;
+    }
     if (opcode == ws_frame_control::close) {
       if (payload.size() == 1) return false;
       return dispatch_close(payload);
