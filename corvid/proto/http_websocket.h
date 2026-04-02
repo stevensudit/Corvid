@@ -482,7 +482,7 @@ private:
 class http_websocket {
 public:
   using message_fn =
-      std::function<void(http_websocket&, std::string_view, ws_frame_control)>;
+      std::function<bool(http_websocket&, std::string&&, ws_frame_control)>;
   using close_fn =
       std::function<void(http_websocket&, uint16_t, std::string_view)>;
 
@@ -573,9 +573,6 @@ private:
 
   // Process payload. Validates fragmentation, accumulates payload, consumes
   // bytes, and dispatches when the message is complete.
-  //
-  // TODO: Consider enabling the ability to see partial fragments as they
-  // arrive, e.g., for streaming large messages.
   [[nodiscard]] bool
   do_process_payload(ws_frame_view& hdr, std::string_view payload) {
     const auto frame_control = hdr.frame_control();
@@ -647,8 +644,11 @@ private:
 
   [[nodiscard]] bool
   dispatch_frame(std::string&& payload, ws_frame_control opcode_bits) {
-    if (on_message) on_message(*this, std::move(payload), opcode_bits);
-    return true;
+    bool success = true;
+    if (on_message)
+      success = on_message(*this, std::move(payload), opcode_bits);
+    payload.clear();
+    return success;
   }
 
   [[nodiscard]] bool

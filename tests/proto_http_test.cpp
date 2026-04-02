@@ -1716,11 +1716,11 @@ void WebSocket_Feed_SingleText() {
   std::string got_msg;
   ws_frame_control got_op{};
   http_websocket ws{[](std::string&&) { return true; }};
-  ws.on_message =
-      [&](http_websocket&, std::string_view p, ws_frame_control op) {
-        got_msg = p;
-        got_op = op;
-      };
+  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
+    got_msg = std::move(p);
+    got_op = op;
+    return true;
+  };
   const auto frame = ws_frame_codec::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "hello");
   ws_buf rbuf;
@@ -1734,11 +1734,11 @@ void WebSocket_Feed_MaskedBinary() {
   std::string got_msg;
   ws_frame_control got_op{};
   http_websocket ws{[](std::string&&) { return true; }};
-  ws.on_message =
-      [&](http_websocket&, std::string_view p, ws_frame_control op) {
-        got_msg = p;
-        got_op = op;
-      };
+  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
+    got_msg = std::move(p);
+    got_op = op;
+    return true;
+  };
   const auto frame = ws_frame_codec::serialize_frame(
       ws_frame_control::fin | ws_frame_control::binary, "world",
       uint32_t{0xDEADBEEF});
@@ -1756,8 +1756,9 @@ void WebSocket_Feed_Ping() {
     sent_frame = std::move(f);
     return true;
   }};
-  ws.on_message = [&](http_websocket&, std::string_view, ws_frame_control) {
+  ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
     msg_fired = true;
+    return true;
   };
   const auto frame = ws_frame_codec::serialize_frame(
       ws_frame_control::fin | ws_frame_control::ping, "ping-payload");
@@ -1802,12 +1803,12 @@ void WebSocket_Feed_Fragmented() {
   ws_frame_control got_op{};
   int msg_count{};
   http_websocket ws{[](std::string&&) { return true; }};
-  ws.on_message =
-      [&](http_websocket&, std::string_view p, ws_frame_control op) {
-        got_msg = p;
-        got_op = op;
-        ++msg_count;
-      };
+  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
+    got_msg = std::move(p);
+    got_op = op;
+    ++msg_count;
+    return true;
+  };
   ws_buf rbuf;
   // Fragment 1: FIN=0, text opcode, "hel".
   EXPECT_TRUE(rbuf.feed(ws,
@@ -1830,8 +1831,9 @@ void WebSocket_Feed_Fragmented() {
 void WebSocket_Feed_PartialFrame() {
   bool msg_fired{};
   http_websocket ws{[](std::string&&) { return true; }};
-  ws.on_message = [&](http_websocket&, std::string_view, ws_frame_control) {
+  ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
     msg_fired = true;
+    return true;
   };
   const auto frame = ws_frame_codec::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "Hello");
@@ -1852,8 +1854,9 @@ void WebSocket_Feed_PartialFrame() {
 void WebSocket_Feed_MultipleFrames() {
   std::vector<std::string> msgs;
   http_websocket ws{[](std::string&&) { return true; }};
-  ws.on_message = [&](http_websocket&, std::string_view p, ws_frame_control) {
-    msgs.emplace_back(p);
+  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control) {
+    msgs.emplace_back(std::move(p));
+    return true;
   };
   const std::string both =
       ws_frame_codec::serialize_frame(
