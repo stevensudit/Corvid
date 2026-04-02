@@ -433,7 +433,7 @@ struct ws_frame_codec {
   // carries both the FIN flag and the opcode nibble (e.g.,
   // `ws_frame_control::fin | ws_frame_control::text`). If `mask` is present,
   // the MASK bit is set in the length byte and the payload is masked (required
-  // for client -> server, although the mask key is allowed to be zero).
+  // for client -> server).
   [[nodiscard]] static std::string
   serialize_frame(ws_frame_control frame_control, std::string_view payload,
       std::optional<uint32_t> mask = std::nullopt) {
@@ -672,8 +672,7 @@ private:
 
   [[nodiscard]] bool
   do_send(ws_frame_control opcode, std::string_view payload) {
-    // TODO: Do something smarter with the mask. We shouldn't hardcode it on
-    // the client side.
+    // TODO: Replace the hardcoded mask with a random one.
     const std::optional<uint32_t> mask =
         is_server_ ? std::nullopt : std::optional<uint32_t>(0x12345678);
     std::string frame = ws_frame_codec::serialize_frame(opcode, payload, mask);
@@ -729,19 +728,22 @@ public:
   }
 
   // The WebSocket output never completes via send-queue drain; return
-  // `claim` unconditionally.
+  // `claim` unconditionally. Calls `on_drain`, if set, in order to offer flow
+  // control.
   [[nodiscard]] stream_claim handle_drain(send_fn& send) override {
     if (!websocket_send_) websocket_send_ = send;
     if (!pending_response_.empty()) {
       if (!send(std::move(pending_response_))) return stream_claim::release;
       pending_response_.clear();
     }
+    if (on_drain) return on_drain(*this, send);
     return upgraded_ ? stream_claim::claim : stream_claim::release;
   }
 
   // Build a `transaction_factory` that constructs an
   // `http_websocket_transaction` for each matching request and then calls
-  // `configure` on it so the caller can install `on_message` / `on_close`.
+  // `configure` on it so the caller can install `on_message` / `on_close`, and
+  // perhaps `on_drain`.
   [[nodiscard]] static transaction_factory make_factory(
       std::function<void(http_websocket_transaction&)> configure = {}) {
     return [configure = std::move(configure)](
