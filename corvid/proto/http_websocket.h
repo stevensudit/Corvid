@@ -598,41 +598,39 @@ private:
 
     // Accumulate the (unmasked) payload into `recv_frame_`. Note that it's
     // always legal for a payload to be empty.
-    if (in_fragment) {
-      if (recv_frame_.size() + hdr.payload_length() > max_frame_size)
-        return false;
 
-      const size_t old_size = recv_frame_.size();
-      no_zero::resize_to(recv_frame_, old_size + hdr.payload_length());
-      if (!payload.empty() &&
-          !hdr.mask_payload_copy(recv_frame_.data() + old_size, payload))
-        return false;
-    } else {
-      // First (or only) frame of a message.
-      no_zero::resize_to(recv_frame_, hdr.payload_length());
-      if (!payload.empty() &&
-          !hdr.mask_payload_copy(recv_frame_.data(), payload))
-        return false;
-
+    // Handle initial (or only) fragment of a message.
+    if (!in_fragment) {
       // Save opcode so continuations can be validated and the assembled
       // message dispatched with the correct type.
       if (!is_fin) fragment_opcode_ = opcode;
+      recv_frame_.clear();
     }
 
-    if (is_fin) {
-      // Dispatch the complete (possibly reassembled) message. Moving
-      // `recv_frame_` clears it automatically for the next message.
-      const ws_frame_control dispatch_opcode =
-          in_fragment ? fragment_opcode_ : opcode;
-      fragment_opcode_ = {};
-      if (!dispatch_frame(hdr, dispatch_opcode, std::move(recv_frame_)))
-        return false;
+    // Sanity check.
+    if (recv_frame_.size() + payload.size() > max_frame_size) return false;
 
-      // `dispatch_frame` sets `fragment_opcode_` as part of its own state
-      // machine; reset it so our in-fragment check stays consistent.
-      fragment_opcode_ = {};
-      return true;
-    }
+    // Append the unmasked payload to `recv_frame_`. It is allowed to be empty.
+    const size_t old_size = recv_frame_.size();
+    no_zero::resize_to(recv_frame_, old_size + payload.size());
+    if (!payload.empty() &&
+        !hdr.mask_payload_copy(recv_frame_.data() + old_size, payload))
+      return false;
+
+    // If it's not the final fragment, we have to wait for more.
+    if (!is_fin) return true;
+
+    // Dispatch the complete (possibly reassembled) message. Moving
+    // `recv_frame_` clears it automatically for the next message.
+    const ws_frame_control dispatch_opcode =
+        in_fragment ? fragment_opcode_ : opcode;
+    fragment_opcode_ = {};
+    if (!dispatch_frame(hdr, dispatch_opcode, std::move(recv_frame_)))
+      return false;
+
+    // `dispatch_frame` sets `fragment_opcode_` as part of its own state
+    // machine; reset it so our in-fragment check stays consistent.
+    fragment_opcode_ = {};
     return true;
   }
 
