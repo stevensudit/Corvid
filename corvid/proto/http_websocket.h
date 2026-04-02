@@ -23,6 +23,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <random>
 #include <string>
 #include <string_view>
 
@@ -672,9 +673,8 @@ private:
 
   [[nodiscard]] bool
   do_send(ws_frame_control opcode, std::string_view payload) {
-    // TODO: Replace the hardcoded mask with a random one.
-    const std::optional<uint32_t> mask =
-        is_server_ ? std::nullopt : std::optional<uint32_t>(0x12345678);
+    std::optional<uint32_t> mask;
+    if (!is_server_) mask.emplace(rd_());
     std::string frame = ws_frame_codec::serialize_frame(opcode, payload, mask);
     if (!send_) return false;
     return send_(std::move(frame));
@@ -689,6 +689,7 @@ private:
   bool is_server_{};
   std::string recv_frame_;
   ws_frame_control fragment_opcode_{};
+  std::random_device rd_;
 };
 
 // HTTP transaction that performs the WebSocket upgrade handshake and then
@@ -775,7 +776,7 @@ private:
     const auto key_hdr = request_headers.headers.get("Sec-Websocket-Key");
     if (!key_hdr || key_hdr->empty()) return send_bad_request(view);
 
-    const std::string accept = ws_frame_codec::compute_accept_key(*key_hdr);
+    const auto accept = ws_frame_codec::compute_accept_key(*key_hdr);
     if (accept.empty()) return send_bad_request(view);
 
     // Build 101 Switching Protocols response.
@@ -789,13 +790,12 @@ private:
       return stream_claim::release;
     if (!resp.headers.add_raw("Sec-Websocket-Accept", accept))
       return stream_claim::release;
+    // TODO: Question this.
     // Consume any leftover data already in the buffer (upgrade response
     // has no HTTP body; any subsequent bytes are WebSocket frames, handled
     // on the next `handle_data` call).
-    {
-      const std::string_view remaining = view.active_view();
-      view.consume(remaining.size());
-    }
+    view.consume(view.active_view().size());
+
     pending_response_ = resp.serialize();
     upgraded_ = true;
     return stream_claim::claim;
