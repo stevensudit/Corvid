@@ -2250,10 +2250,6 @@ void HttpServer_WebSocket_Frames() {
                 [](http_websocket& ws, std::string&& p, ws_frame_control) {
                   return ws.send_text(p);
                 };
-            tx.websocket().on_close =
-                [](http_websocket& ws, uint16_t code, std::string_view) {
-                  (void)ws.send_close(code);
-                };
           }));
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
