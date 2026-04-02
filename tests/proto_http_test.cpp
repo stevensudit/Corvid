@@ -1934,6 +1934,224 @@ void WebSocket_Send_Client() {
   EXPECT_EQ(std::string_view(unmasked, 2), "hi");
 }
 
+// `http_websocket_transaction` unit tests.
+
+// Load `data` into `buf` and return a live view with a no-op resume callback.
+// `buf` must outlive the returned view.
+[[nodiscard]] recv_buffer_view
+wstx_make_view(recv_buffer& buf, std::string_view data = {}) {
+  buf.reads_enabled = false;
+  buf.resize(std::max(data.size() + 1, size_t{256}));
+  if (!data.empty()) std::memcpy(buf.buffer.data(), data.data(), data.size());
+  buf.end.store(data.size(), std::memory_order::relaxed);
+  buf.begin.store(0, std::memory_order::relaxed);
+  return recv_buffer_view{buf, [](size_t, size_t) {}};
+}
+
+// Build a well-formed WebSocket upgrade `request_head` without parsing.
+[[nodiscard]] request_head wstx_make_upgrade_req(
+    std::string* accept_key_ptr = nullptr) {
+  http_websocket hws{[](std::string&&) { return true; }};
+  std::string accept_key;
+  request_head req = hws.generate_upgrade_request("/ws", accept_key);
+  if (accept_key_ptr) *accept_key_ptr = std::move(accept_key);
+  return req;
+}
+
+// Valid upgrade handshake: `handle_data` returns `claim`.
+void WebSocketTransaction_UpgradeSuccess() {
+  auto tx =
+      std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
+  recv_buffer buf;
+  auto view = wstx_make_view(buf);
+  EXPECT_EQ(tx->handle_data(view), stream_claim::claim);
+}
+
+// After upgrade, `handle_drain` sends the 101 response and returns `claim`.
+void WebSocketTransaction_DrainSendsResponse() {
+  std::string expected_accept_key;
+  auto tx = std::make_shared<http_websocket_transaction>(
+      wstx_make_upgrade_req(&expected_accept_key));
+  recv_buffer buf;
+  {
+    auto view = wstx_make_view(buf);
+    ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
+  }
+
+  std::string sent;
+  http_transaction::send_fn send_fn{[&](std::string&& data) {
+    sent = std::move(data);
+    return true;
+  }};
+  EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
+  ASSERT_FALSE(sent.empty());
+
+  // `parse()` expects the wire text without the trailing blank-line CRLF.
+  response_head resp;
+  ASSERT_TRUE(resp.parse(sent.substr(0, sent.size() - 2)));
+  EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+
+  const auto accept = resp.headers.get("Sec-Websocket-Accept");
+  ASSERT_TRUE(accept);
+  EXPECT_EQ(*accept, expected_accept_key);
+}
+
+// `handle_drain` before `handle_data` has been called returns `release`.
+void WebSocketTransaction_DrainBeforeUpgrade() {
+  auto tx =
+      std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
+  http_transaction::send_fn send_fn{[](std::string&&) { return true; }};
+  EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::release);
+}
+
+// Non-GET method: `handle_data` returns `release`.
+void WebSocketTransaction_BadMethod() {
+  auto req = wstx_make_upgrade_req();
+  req.method = http_method::POST;
+  auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
+  recv_buffer buf;
+  auto view = wstx_make_view(buf);
+  EXPECT_EQ(tx->handle_data(view), stream_claim::release);
+}
+
+// No `Upgrade` option: `handle_data` returns `release`.
+void WebSocketTransaction_MissingUpgrade() {
+  auto req = wstx_make_upgrade_req();
+  req.options.upgrade = std::nullopt;
+  auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
+  recv_buffer buf;
+  auto view = wstx_make_view(buf);
+  EXPECT_EQ(tx->handle_data(view), stream_claim::release);
+}
+
+// Missing `Connection` header: `handle_data` returns `release`.
+void WebSocketTransaction_MissingConnection() {
+  auto req = wstx_make_upgrade_req();
+  req.headers.remove_key("Connection");
+  auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
+  recv_buffer buf;
+  auto view = wstx_make_view(buf);
+  EXPECT_EQ(tx->handle_data(view), stream_claim::release);
+}
+
+// Wrong `Sec-Websocket-Version`: `handle_data` returns `release`.
+void WebSocketTransaction_WrongVersion() {
+  auto req = wstx_make_upgrade_req();
+  req.headers.remove_key("Sec-Websocket-Version");
+  (void)req.headers.add_raw("Sec-Websocket-Version", "8");
+  auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
+  recv_buffer buf;
+  auto view = wstx_make_view(buf);
+  EXPECT_EQ(tx->handle_data(view), stream_claim::release);
+}
+
+// Missing `Sec-Websocket-Key`: `handle_data` returns `release`.
+void WebSocketTransaction_MissingKey() {
+  auto req = wstx_make_upgrade_req();
+  req.headers.remove_key("Sec-Websocket-Key");
+  auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
+  recv_buffer buf;
+  auto view = wstx_make_view(buf);
+  EXPECT_EQ(tx->handle_data(view), stream_claim::release);
+}
+
+// After a rejected upgrade, `handle_drain` sends the 400 error and returns
+// `release`.
+void WebSocketTransaction_BadRequestDrain() {
+  auto req = wstx_make_upgrade_req();
+  req.method = http_method::POST;
+  auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
+  recv_buffer buf;
+  {
+    auto view = wstx_make_view(buf);
+    ASSERT_EQ(tx->handle_data(view), stream_claim::release);
+  }
+
+  std::string sent;
+  http_transaction::send_fn send_fn{[&](std::string&& data) {
+    sent = std::move(data);
+    return true;
+  }};
+  EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::release);
+  ASSERT_FALSE(sent.empty());
+
+  response_head resp;
+  ASSERT_TRUE(resp.parse(sent.substr(0, sent.size() - 2)));
+  EXPECT_EQ(resp.status_code, http_status_code::BAD_REQUEST);
+}
+
+// After upgrade, a text frame fires `on_message` and `handle_data` returns
+// `claim`.
+void WebSocketTransaction_FeedAfterUpgrade() {
+  auto tx =
+      std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
+
+  std::string got_msg;
+  ws_frame_control got_op{};
+  tx->websocket().on_message =
+      [&](http_websocket&, std::string&& p, ws_frame_control op) {
+        got_msg = std::move(p);
+        got_op = op;
+        return true;
+      };
+  recv_buffer buf;
+  {
+    auto view = wstx_make_view(buf);
+    ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
+  }
+  http_transaction::send_fn send_fn{[](std::string&&) { return true; }};
+  ASSERT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
+
+  const auto frame = ws_frame_codec::serialize_frame(
+      ws_frame_control::fin | ws_frame_control::text, "hello");
+  auto view2 = wstx_make_view(buf, frame);
+  EXPECT_EQ(tx->handle_data(view2), stream_claim::claim);
+  EXPECT_EQ(got_msg, "hello");
+  EXPECT_EQ(got_op, ws_frame_control::text);
+}
+
+// After upgrade, a protocol-error frame causes `handle_data` to return
+// `release`.
+void WebSocketTransaction_FeedProtocolError() {
+  auto tx =
+      std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
+  recv_buffer buf;
+  {
+    auto view = wstx_make_view(buf);
+    ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
+  }
+  http_transaction::send_fn send_fn{[](std::string&&) { return true; }};
+  ASSERT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
+
+  // A continuation frame with no prior start fragment is a protocol error.
+  const auto frame = ws_frame_codec::serialize_frame(
+      ws_frame_control::fin | ws_frame_control::continuation, "data");
+  auto view2 = wstx_make_view(buf, frame);
+  EXPECT_EQ(tx->handle_data(view2), stream_claim::release);
+}
+
+// `make_factory` creates an `http_websocket_transaction` and invokes the
+// configure callback.
+void WebSocketTransaction_MakeFactory() {
+  bool configured{};
+  auto factory = http_websocket_transaction::make_factory(
+      [&](http_websocket_transaction& wstx) {
+        wstx.websocket().on_message =
+            [](http_websocket&, std::string&&, ws_frame_control) {
+              return true;
+            };
+        configured = true;
+      });
+
+  auto tx = factory(wstx_make_upgrade_req());
+  ASSERT_TRUE(tx);
+  EXPECT_TRUE(configured);
+
+  recv_buffer buf;
+  auto view = wstx_make_view(buf);
+  EXPECT_EQ(tx->handle_data(view), stream_claim::claim);
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
 
@@ -1972,4 +2190,12 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     WebSocket_Feed_Ping, WebSocket_Feed_Close, WebSocket_Feed_Fragmented,
     WebSocket_Feed_PartialFrame, WebSocket_Feed_MultipleFrames,
     WebSocket_Feed_BadContinuation, WebSocket_Feed_InterleavedData,
-    WebSocket_Send_Server, WebSocket_Send_Client);
+    WebSocket_Send_Server, WebSocket_Send_Client,
+    WebSocketTransaction_UpgradeSuccess,
+    WebSocketTransaction_DrainSendsResponse,
+    WebSocketTransaction_DrainBeforeUpgrade, WebSocketTransaction_BadMethod,
+    WebSocketTransaction_MissingUpgrade,
+    WebSocketTransaction_MissingConnection, WebSocketTransaction_WrongVersion,
+    WebSocketTransaction_MissingKey, WebSocketTransaction_BadRequestDrain,
+    WebSocketTransaction_FeedAfterUpgrade,
+    WebSocketTransaction_FeedProtocolError, WebSocketTransaction_MakeFactory);

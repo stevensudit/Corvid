@@ -454,14 +454,14 @@ struct ws_frame_codec {
   [[nodiscard]] static std::string compute_accept_key(
       std::string_view client_key) {
     if (client_key.empty()) return {};
-    const std::string input = std::string{client_key} + std::string{ws_guid_};
+    const std::string input = std::string{client_key} + std::string{ws_guid};
     return encode_digest(sha_1::digest(input));
   }
 
-private:
-  static constexpr std::string_view ws_guid_ =
+  static constexpr std::string_view ws_guid =
       "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
+private:
   // Convert the 20-byte SHA-1 digest to bytes before Base64-encoding it.
   [[nodiscard]] static std::string encode_digest(const sha_1::digest_t& h) {
     const auto raw = sha_1::bytes(h);
@@ -574,7 +574,36 @@ public:
     return do_send(ws_frame_control::fin | ws_frame_control::close, body);
   }
 
+  // Generate a WebSocket upgrade request for the given `path`, returning the
+  // request head and the `Sec-WebSocket-Accept` value that the server should
+  // respond with.
+  [[nodiscard]] request_head
+  generate_upgrade_request(std::string_view path, std::string& accept_key) {
+    const auto client_key = generate_client_key();
+    accept_key = ws_frame_codec::compute_accept_key(client_key);
+
+    request_head req;
+    req.method = http_method::GET;
+    req.version = http_version::http_1_1;
+    req.target = path;
+    req.options.upgrade = upgrade_value::websocket;
+    (void)req.headers.add_raw("Connection", "Upgrade");
+    (void)req.headers.add_raw("Sec-Websocket-Version", "13");
+    (void)req.headers.add_raw("Sec-Websocket-Key", client_key);
+
+    return req;
+  }
+
 private:
+  std::string generate_client_key() {
+    std::array<uint8_t, 16> raw_bytes;
+    for (size_t i = 0; i < 4; ++i) {
+      uint32_t val = rd_();
+      std::memcpy(&raw_bytes[i * 4], &val, 4);
+    }
+    return base_64::encode(raw_bytes);
+  }
+
   [[nodiscard]] bool send_pong(std::string_view payload = {}) {
     return do_send(ws_frame_control::fin | ws_frame_control::pong, payload);
   }
@@ -691,6 +720,7 @@ private:
   bool is_server_{};
   std::string recv_frame_;
   ws_frame_control fragment_opcode_{};
+  // TODO: Consider wrapping this in a generator.
   std::random_device rd_;
 };
 
