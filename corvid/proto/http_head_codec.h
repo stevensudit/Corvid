@@ -538,7 +538,7 @@ struct http_options {
     do_extract_upgrade(headers);
     // If the `Connection` header did not explicitly specify "Upgrade", then
     // any `Upgrade` header is ignored, per RFC 9112 section 6.7.1.
-    if (!has_upgrade) upgrade = upgrade_value::unknown;
+    if (!has_upgrade) upgrade.reset();
   }
 
   // Write non-null values into `headers`, replacing existing entries.

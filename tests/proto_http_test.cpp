@@ -575,20 +575,12 @@ void HttpServer_RouteBasePath() {
     std::string_view base_path;
   };
 
-  constexpr test_case cases[]{{"/", "/"},
-      {"/ws", "/ws"},
-      {"/ws/", "/ws"},
-      {"/ws/chat", "/ws"},
-      {"/ws?token=abc", "/ws"},
-      {"/ws#frag", "/ws"},
-      {"/ws/chat?token=abc#frag", "/ws"},
-      {"/?token=abc", "/"},
-      {"/#frag", "/"},
-      {"?token=abc", ""},
-      {"#frag", ""},
-      {"", ""}};
+  constexpr test_case cases[]{{"/", "/"}, {"/ws", "/ws"}, {"/ws/", "/ws"},
+      {"/ws/chat", "/ws"}, {"/ws?token=abc", "/ws"}, {"/ws#frag", "/ws"},
+      {"/ws/chat?token=abc#frag", "/ws"}, {"/?token=abc", "/"},
+      {"/#frag", "/"}, {"?token=abc", ""}, {"#frag", ""}, {"", ""}};
 
-  for (const auto& tc: cases)
+  for (const auto& tc : cases)
     EXPECT_EQ(http_server::route_base_path(tc.target), tc.base_path);
 }
 
@@ -2279,8 +2271,9 @@ void WebSocketTransaction_FeedAfterUpgrade() {
   EXPECT_EQ(got_op, ws_frame_control::text);
 }
 
-// After upgrade, a protocol-error frame causes `handle_data` to return
-// `release`.
+// After upgrade, a protocol-error frame causes `handle_data` to keep the
+// stream claimed, latch close-pending, and let `handle_drain` begin graceful
+// shutdown.
 void WebSocketTransaction_FeedProtocolError() {
   auto tx =
       std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
@@ -2296,7 +2289,9 @@ void WebSocketTransaction_FeedProtocolError() {
   const auto frame = ws_frame_codec::serialize_frame(
       ws_frame_control::fin | ws_frame_control::continuation, "data", 0);
   auto view2 = wstx_make_view(buf, frame);
-  EXPECT_EQ(tx->handle_data(view2), stream_claim::release);
+  EXPECT_EQ(tx->handle_data(view2), stream_claim::claim);
+  EXPECT_TRUE(tx->websocket().is_close_pending());
+  EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::release);
 }
 
 // `make_factory` creates an `http_websocket_transaction` and invokes the
@@ -2464,7 +2459,7 @@ void HttpServer_WebSocket_Keepalive() {
   // scope. Without this, the 4th ping timer fires while `server` (captured
   // raw in the send_fn lambda) has already been destroyed, causing UB.
   EXPECT_TRUE(ws_client.send_close(1000, ""));
-  while (!ws_client.close_pending()) {
+  while (!ws_client.is_close_pending()) {
     auto chunk = client.recv();
     if (chunk.empty()) break;
     std::string_view sv{chunk};
@@ -2812,12 +2807,11 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     HttpHeaderBlock_ExtractHeaderErrors, HttpHeaderBlock_RequestSerialize,
     HttpHeaderBlock_ResponseExtract, HttpServer_OwnLoop, HttpServer_SharedLoop,
     HttpServer_Create_BadEndpoint, HttpServer_GetRoot, HttpServer_GetPath,
-    HttpServer_RouteBasePath,
-    HttpServer_InvalidRequest, HttpServer_TooLongRequest,
-    HttpServer_PartialRequest, HttpServer_ANS, HttpServer_SharedWheel,
-    HttpServer_RequestWithinTimeout, HttpServer_IdleTimeout,
-    HttpServer_WriteTimeout, HttpServer_MissingHost, HttpServer_KeepAlive,
-    HttpServer_Pipeline, HttpServer_ConnectionClose,
+    HttpServer_RouteBasePath, HttpServer_InvalidRequest,
+    HttpServer_TooLongRequest, HttpServer_PartialRequest, HttpServer_ANS,
+    HttpServer_SharedWheel, HttpServer_RequestWithinTimeout,
+    HttpServer_IdleTimeout, HttpServer_WriteTimeout, HttpServer_MissingHost,
+    HttpServer_KeepAlive, HttpServer_Pipeline, HttpServer_ConnectionClose,
     HttpServer_Http10NoKeepAlive, HttpServer_Http09, HttpServer_LeadingCrlf,
     HttpServer_TooManyLeadingCrls, HttpHeaderBlock_NormalizeCasing,
     HttpHeaderBlock_NormalizeSpecialChars,
@@ -2849,5 +2843,4 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     WebSocketTransaction_FeedProtocolError, WebSocketTransaction_MakeFactory,
     WebSocket_PingCounter, HttpServer_WebSocket_Keepalive,
     HttpServer_WebSocket_KeepaliveTimeout, HttpServer_WebSocket,
-    HttpServer_WebSocket_QueryAndFragmentRoute,
-    HttpServer_WebSocket_Frames);
+    HttpServer_WebSocket_QueryAndFragmentRoute, HttpServer_WebSocket_Frames);

@@ -64,7 +64,14 @@ public:
 
   [[nodiscard]] stream_claim handle_data(recv_buffer_view& view) override {
     if (!upgraded_) return do_upgrade(view);
-    if (!websocket_.feed(view)) return stream_claim::release;
+
+    // If we're shutting down, stop listening. The HTTP server will eventually
+    // drain the input or shut the connection.
+    if (websocket_.is_close_pending()) return stream_claim::claim;
+
+    // Forward the receive buffer to the WebSocket pump.
+    if (!websocket_.feed(view)) (void)websocket_.set_close_pending();
+
     return stream_claim::claim;
   }
 
@@ -80,7 +87,7 @@ public:
       if (!do_arm_ping_interval()) return stream_claim::release;
     }
     // If the close handshake is complete, shut down gracefully after flush.
-    if (websocket_.close_pending()) {
+    if (websocket_.is_close_pending()) {
       close_after = after_response::close;
       return stream_claim::release;
     }

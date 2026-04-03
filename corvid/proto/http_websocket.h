@@ -647,9 +647,18 @@ public:
   }
 
   // True once both sides have exchanged close frames. The transaction should
-  // shut down the connection gracefully when this becomes true.
-  [[nodiscard]] bool close_pending() const noexcept {
+  // shut down the connection gracefully when this becomes true. Note that this
+  // state is simulated by `set_close_pending`, to gracefully handle errors.
+  [[nodiscard]] bool is_close_pending() const noexcept {
     return sent_close_ && received_close_;
+  }
+
+  // Pretend that we've sent and received close frames, thus triggering
+  // `close_pending`.
+  [[nodiscard]] bool set_close_pending() noexcept {
+    sent_close_ = true;
+    received_close_ = true;
+    return false;
   }
 
   // True if `send_ping` has been called and the matching pong has not yet
