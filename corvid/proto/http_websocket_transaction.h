@@ -29,27 +29,22 @@ namespace corvid { inline namespace proto {
 
 using namespace std::chrono_literals;
 
-// HTTP transaction that performs the WebSocket upgrade handshake and then
-// delegates all subsequent data flow to an `http_websocket` instance.
+// HTTP transaction that turns an HTTP request into a long-lived WebSocket
+// session.
 //
-// `handle_data` (first call):
-//   Validates the upgrade request, sends a `101 Switching Protocols`
-//   response, and returns `stream_claim::claim` to hold the input stream
-//   permanently. On validation failure, sends `400 Bad Request` and
-//   returns `stream_claim::release`.
+// Its job is to validate and acknowledge the upgrade, then keep ownership of
+// the connection while `http_websocket` takes over frame parsing and emission.
+// From the HTTP server's perspective, this transaction stops being a
+// request/response exchange and becomes the connection's steady-state owner.
 //
-// `handle_data` (subsequent calls):
-//   Forwards the receive buffer to `websocket_.feed()`. Returns `claim`
-//   normally; returns `release` if `feed` returns false (protocol error
-//   or close frame received).
+// The read side remains claimed across the lifetime of the WebSocket so the
+// server does not resume normal HTTP parsing on this socket. The write side is
+// likewise held until the transaction has finished any staged handshake output
+// and the WebSocket close path has run to completion.
 //
-// `handle_drain`:
-//   Returns `stream_claim::claim` unconditionally. The WebSocket output
-//   stream stays alive until the close handshake completes (handled via
-//   `send_close` inside `on_close`), not merely until the send queue drains.
-//
-// After upgrade, `http_phase` never returns to `request_line`; the pipeline
-// is permanently fixed on this transaction until the connection closes.
+// Invalid upgrade attempts are rejected as ordinary HTTP errors. Once the
+// upgrade succeeds, protocol problems are handled as WebSocket shutdown rather
+// than by dropping back into HTTP semantics.
 class http_websocket_transaction final: public http_transaction {
 public:
   using duration_t = timing_wheel::duration_t;
@@ -174,6 +169,7 @@ private:
 
   [[nodiscard]] stream_claim send_bad_request(recv_buffer_view& view) {
     view.consume(view.active_view().size());
+    close_after = after_response::close;
     pending_response_ = response_head::make_error_response(
         after_response::close, request_headers.version,
         http_status_code::BAD_REQUEST, "Bad Request");
