@@ -136,7 +136,6 @@ struct http_transaction
   // Default: invoke `on_drain` if set, else return `release`.
   [[nodiscard]] virtual stream_claim handle_drain(send_fn& send) {
     if (on_drain) return on_drain(*this, send);
-    // TODO: We should return some sort of headers and fail.
     close_after = after_response::close;
     return stream_claim::release;
   }
