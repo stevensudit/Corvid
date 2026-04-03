@@ -109,6 +109,45 @@ void HttpHeaderBlock_HeaderLookupCanonical() {
   EXPECT_EQ(*content_type, "text/plain");
 }
 
+// ASCII and fully contained multibyte sequences leave the validator complete.
+void Utf8Checker_Complete() {
+  utf8_checker v;
+  EXPECT_EQ(v.state(), utf8_checker::validation::complete);
+  EXPECT_EQ(v.validate("hello"), utf8_checker::validation::complete);
+  EXPECT_EQ(v.validate("\xE2\x82\xAC"), utf8_checker::validation::complete);
+  EXPECT_TRUE(v.is_complete());
+}
+
+// A split multibyte sequence transitions to incomplete, then back to complete.
+void Utf8Checker_IncompleteThenComplete() {
+  utf8_checker v;
+  EXPECT_EQ(v.validate("\xF0\x9F"), utf8_checker::validation::incomplete);
+  EXPECT_TRUE(v.is_incomplete());
+  EXPECT_EQ(v.validate("\x98\x80"), utf8_checker::validation::complete);
+  EXPECT_TRUE(v.is_complete());
+}
+
+// Invalid leading and continuation bytes move the validator to sticky invalid.
+void Utf8Checker_InvalidSticky() {
+  utf8_checker v;
+  EXPECT_EQ(v.validate("\x80"), utf8_checker::validation::failed);
+  EXPECT_TRUE(v.is_failed());
+  EXPECT_EQ(v.validate("abc"), utf8_checker::validation::failed);
+  EXPECT_TRUE(v.is_failed());
+}
+
+// Reject overlongs, surrogate code points, and code points past U+10FFFF.
+void Utf8Checker_RejectsInvalidSequences() {
+  utf8_checker v;
+  EXPECT_EQ(v.validate("\xE0\x80\x80"), utf8_checker::validation::failed);
+
+  v.reset();
+  EXPECT_EQ(v.validate("\xED\xA0\x80"), utf8_checker::validation::failed);
+
+  v.reset();
+  EXPECT_EQ(v.validate("\xF4\x90\x80\x80"), utf8_checker::validation::failed);
+}
+
 // Verify that `get()` returns `nullopt` for absent or non-canonical names.
 void HttpHeaderBlock_HeaderGet() {
   http_headers h;
@@ -2023,10 +2062,11 @@ void WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth() {
   size_t resume_new_size{};
   size_t resume_last_seen_end{};
   {
-    recv_buffer_view view{rb, [&](size_t n, size_t lse) {
-      resume_new_size = n;
-      resume_last_seen_end = lse;
-    }};
+    recv_buffer_view view{rb,
+        [&](size_t n, size_t lse) {
+          resume_new_size = n;
+          resume_last_seen_end = lse;
+        }};
     http_websocket ws{[](std::string&&) { return true; }};
     EXPECT_TRUE(ws.feed(view));
   }
@@ -2832,7 +2872,9 @@ void HttpServer_WebSocket_Frames() {
 MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     HttpHeaderBlock_UnknownMethod, HttpHeaderBlock_InvalidVersion,
     HttpHeaderBlock_Http09Style, HttpHeaderBlock_NoSp,
-    HttpHeaderBlock_HeaderLookupCanonical, HttpHeaderBlock_HeaderGet,
+    HttpHeaderBlock_HeaderLookupCanonical, Utf8Checker_Complete,
+    Utf8Checker_IncompleteThenComplete, Utf8Checker_InvalidSticky,
+    Utf8Checker_RejectsInvalidSequences, HttpHeaderBlock_HeaderGet,
     HttpHeaderBlock_HeaderGetEmptyValue, HttpHeaderBlock_HeaderCombine,
     HttpHeaderBlock_KeepAlive, HttpHeaderBlock_KeepAliveTokenList,
     HttpHeaderBlock_ExtractLeadingCrlf, HttpHeaderBlock_ResponseSerialize,

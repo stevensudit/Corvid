@@ -235,6 +235,10 @@ public:
     // issues. They don't actually generate a call to a function.
 
     // Decode length.
+    // TODO: We must reject non-minimal length encodings. Also, the high bit
+    // (of the 64-bit value) must be cleared. This is irrelevant in practice
+    // because we'd absolutely reject it for excessive length. Parser failure
+    // should generate a 1002 close frame.
     if (lb <= 125)
       payload_length_ = lb;
     else if (lb == 126) {
@@ -618,12 +622,15 @@ public:
         payload);
   }
 
-  // Send a close frame, updating state.
+  // Send a close frame, updating state. The `reason`, if provided, must be
+  // valid UTF-8. If you send a `reason`that's not hardcoded, you are
+  // responsible for it being valid.
   [[nodiscard]] bool
   send_close(uint16_t code = 1000, std::string_view reason = {}) {
     // Payload is optional.
     std::string payload;
     if (code != 0 || !reason.empty()) {
+      // TODO: As an assert, we should check that `reason` is valid UTF-8.
       payload.reserve(2 + reason.size());
       payload.push_back(static_cast<char>(code >> 8));
       payload.push_back(static_cast<char>(code & 0xFF));
@@ -770,6 +777,8 @@ private:
       code = (static_cast<uint16_t>(static_cast<uint8_t>(payload[0])) << 8) |
              static_cast<uint8_t>(payload[1]);
       reason = {payload.data() + 2, payload.size() - 2};
+      // TODO: We're expected to validate that the reason is valid UTF-8 and
+      // fail with a 1007 close if it's not.
     }
 
     // Notify user of the close. The guard above ensures this fires at most
@@ -876,6 +885,12 @@ private:
     // If this is the final fragment, reset `fragment_opcode_` to indicate that
     // we're not in a fragmented message anymore.
     if (is_fin) fragment_opcode_ = {};
+
+    // TODO: If this is a text message, we need to validate that the UTF-8 is
+    // well-formed before dispatching, and fail with a 1007 close if it's not.
+    // The tricky part is that, if we're sending fragments, we need to maintain
+    // state across fragments, because a code point could be split across
+    // frames.
 
     // Dispatch the payload. This moves `message_` and clears it out.
     return dispatch_message(std::move(message_), data_opcode);

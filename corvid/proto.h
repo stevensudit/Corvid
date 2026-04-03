@@ -51,6 +51,7 @@
 #include "proto/terminated_text_parser.h"
 #include "proto/stream_sync.h"
 #include "proto/base-64.h"
+#include "proto/utf8-checker.h"
 #include "proto/http_head_codec.h"
 #include "proto/sha-1.h"
 #include "proto/http_transaction.h"

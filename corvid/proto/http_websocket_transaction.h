@@ -149,6 +149,7 @@ private:
   // `handle_data` invocation.
   [[nodiscard]] stream_claim do_upgrade(recv_buffer_view& view) {
     // Validate upgrade request.
+    // TODO: Require HTTP/1.1 for WebSockets.
     if (request_headers.method != http_method::GET)
       return send_bad_request(view);
     if (request_headers.options.upgrade != upgrade_value::websocket)
@@ -156,6 +157,9 @@ private:
 
     const auto version_hdr =
         request_headers.headers.get("Sec-Websocket-Version");
+    // TODO: In theory, we should respond with a 426 Upgrade Required and a
+    // list of supported versions if the version is not supported. In practice,
+    // everyone uses 13.
     if (!version_hdr || *version_hdr != "13") return send_bad_request(view);
 
     const auto key_hdr = request_headers.headers.get("Sec-Websocket-Key");
