@@ -17,11 +17,11 @@
 #pragma once
 #include <atomic>
 #include <compare>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 #include "epoll_loop.h"
 #include "http_head_codec.h"
@@ -31,6 +31,7 @@
 #include "../containers/opt_find.h"
 #include "../concurrency/timer_fuse.h"
 #include "../containers/scoped_value.h"
+#include "../containers/hash_combiner.h"
 
 namespace corvid { inline namespace proto {
 
@@ -83,19 +84,28 @@ struct host_path_key {
   }
 };
 
-struct transparent_less_host_path {
+// Enable transparent hashing and equality for `host_path`.
+struct transparent_hash_equal_host_path {
   using is_transparent = void;
+
+  [[nodiscard]] size_t operator()(const auto& value) const noexcept {
+    auto view = static_cast<host_path>(value);
+    return corvid::hash_combiners::combined_hash(view.hostname,
+        view.base_path);
+  }
 
   [[nodiscard]] constexpr bool
   operator()(const auto& lhs, const auto& rhs) const noexcept {
     auto lhs_view = static_cast<host_path>(lhs);
     auto rhs_view = static_cast<host_path>(rhs);
-    return lhs_view < rhs_view;
+    return lhs_view == rhs_view;
   }
 };
 
-using route_map_t =
-    std::map<host_path_key, transaction_factory, transparent_less_host_path>;
+// Ideally, this should be a trie to allow longest-prefix matching, but a
+// single-level solution works for now.
+using route_map_t = std::unordered_map<host_path_key, transaction_factory,
+    transparent_hash_equal_host_path, transparent_hash_equal_host_path>;
 
 // HTTP/1.x server (including HTTP/0.9) built on `stream_conn` and
 // `epoll_loop`, with `timing_wheel`-driven timeouts.
@@ -396,8 +406,7 @@ private:
     if (sep == std::string_view::npos) sep = 1;
     base_path = base_path.substr(0, sep);
 
-    const transaction_factory* factory =
-        find_route({std::string{hostname}, std::string{base_path}});
+    const transaction_factory* factory = find_route({hostname, base_path});
     if (!factory)
       return send_error_response(conn, keep_alive, state.req.version,
           http_status_code::NOT_FOUND, "Not Found");
