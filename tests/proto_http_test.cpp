@@ -2324,7 +2324,7 @@ void HttpServer_WebSocket_Keepalive() {
     return client.send(f);
   }};
   http_websocket ws_client{std::move(send_fn), connection_role::client};
-  auto req = ws_client.generate_upgrade_request("/ws/", accept_key);
+  auto req = ws_client.generate_upgrade_request("/ws", accept_key);
   (void)req.headers.add_raw("Host", "localhost");
   ASSERT_TRUE(client.send(req.serialize()));
 
@@ -2409,7 +2409,7 @@ void HttpServer_WebSocket_KeepaliveTimeout() {
     return client.send(f);
   }};
   http_websocket ws_client{std::move(send_fn), connection_role::client};
-  auto req = ws_client.generate_upgrade_request("/ws/", accept_key);
+  auto req = ws_client.generate_upgrade_request("/ws", accept_key);
   (void)req.headers.add_raw("Host", "localhost");
   ASSERT_TRUE(client.send(req.serialize()));
 
@@ -2582,7 +2582,7 @@ void HttpServer_WebSocket_Frames() {
   // Build the upgrade request via `generate_upgrade_request`; the method
   // returns the `request_head` and stores the expected accept key.
   std::string accept_key;
-  auto req = ws_client.generate_upgrade_request("/ws/", accept_key);
+  auto req = ws_client.generate_upgrade_request("/ws", accept_key);
   (void)req.headers.add_raw("Host", "localhost");
   ASSERT_TRUE(client.send(req.serialize()));
 

@@ -404,13 +404,13 @@ private:
           state.req.version);
 
     // Build the route key from the `Host` header and the leading path
-    // component of the request target (e.g., "/api" from "/api/v2" or "/api/",
-    // and "/" from "/" or "/api").
+    // component of the request target (e.g., "/api" from "/api/v2", "/api/",
+    // or "/api"; and "/" from "/").
     auto host_opt = state.req.headers.get("Host");
     std::string_view hostname = host_opt ? *host_opt : std::string_view{};
     std::string_view base_path = state.req.target;
     auto sep = base_path.find('/', 1);
-    if (sep == std::string_view::npos) sep = 1;
+    if (sep == std::string_view::npos) sep = base_path.size();
     base_path = base_path.substr(0, sep);
 
     const transaction_factory* factory = find_route({hostname, base_path});
@@ -519,7 +519,7 @@ private:
 
     // Skip leading bare CRLFs (RFC 9112 section 2.2), up to the limit.
     if (block_view.empty()) {
-      if (++state.leading_crlf_count >= max_leading_crls)
+      if (++state.leading_crlf_count > max_leading_crls)
         return conn.hangup() && false;
 
       view.update_active_view(input);
