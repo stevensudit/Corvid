@@ -19,6 +19,11 @@
 #include <condition_variable>
 #include <mutex>
 #include <stop_token>
+#include <string_view>
+#include <string>
+#include <atomic>
+#include <thread>
+#include <pthread.h>
 
 namespace corvid { inline namespace concurrency {
 

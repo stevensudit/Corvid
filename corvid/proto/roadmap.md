@@ -202,8 +202,10 @@ WebSocket protocol built on top of the HTTP/1.1 upgrade mechanism.
   and `decode(string_view)` (returns `string`); used for `Sec-WebSocket-Key`
   generation and `Sec-WebSocket-Accept` computation
 - **[done]** `sha-1.h` -- SHA-1 digest for WebSocket accept-key computation;
-  `sha_1::digest(string_view)` returns a 20-byte `array<uint8_t,20>`; suitable
-  only for non-security-critical protocol work (RFC 6455 handshake)
+  `sha_1::digest(string_view)` returns `digest_t`
+  (`array<uint32_t,5>`), and `sha_1::bytes(digest_t)` converts it to the raw
+  20-byte `array<uint8_t,20>`; suitable only for non-security-critical
+  protocol work (RFC 6455 handshake)
 - **[done]** `http_websocket` -- callback-driven WebSocket message pump (in
   `http_websocket.h`); `ws_frame_control` bitmask enum (opcodes + `fin` bit);
   `ws_frame_header_storage` fixed-size wire-format header storage;

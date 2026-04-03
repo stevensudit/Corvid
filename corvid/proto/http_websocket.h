@@ -778,10 +778,14 @@ private:
       return do_hangup();
 
     // Clients must send masked frames and servers must not.
-    if (is_server_ && !hdr.is_masked())
-      return send_close(1002, "The client sent an unmasked frame.") && false;
-    else if (!is_server_ && hdr.is_masked())
-      return send_close(1002, "The server sent a masked frame.") && false;
+    if ((is_server_ && !hdr.is_masked()) || (!is_server_ && hdr.is_masked())) {
+      // We want to fail with a close frame, instead of hanging up, so pretend
+      // that we received their close frame already.
+      received_close_ = true;
+      if (!send_close(1002, "Frame violates masking requirements"))
+        return do_hangup();
+      return false;
+    }
 
     // Control frames are handled internally.
     if (bitmask::has(frame_control, ws_frame_control::control))
