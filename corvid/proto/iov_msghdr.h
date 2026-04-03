@@ -251,6 +251,7 @@ private:
     segments_.clear();
     first_index_ = 0;
     size_ = 0;
+    last_op_ = {};
     return true;
   }
 

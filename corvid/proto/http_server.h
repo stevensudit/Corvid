@@ -669,7 +669,7 @@ private:
     // how much it consumes via `recv_buffer_view`.
     const stream_claim sc = reader->handle_data(view);
 
-    // If the transaction has relased the input stream, we transition back to
+    // If the transaction has released the input stream, we transition back to
     // `request_line` phase to parse the next request.
     input = {};
     if (sc == stream_claim::release) {
