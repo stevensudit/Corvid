@@ -162,12 +162,10 @@ private:
     resp.version = request_headers.version;
     resp.status_code = http_status_code::SWITCHING_PROTOCOLS;
     resp.reason = "Switching Protocols";
-    if (!resp.headers.add_raw("Upgrade", "websocket"))
-      return stream_claim::release;
-    if (!resp.headers.add_raw("Connection", "Upgrade"))
-      return stream_claim::release;
+    if (!resp.headers.add_raw("Upgrade", "websocket")) return do_fail_badly();
+    if (!resp.headers.add_raw("Connection", "Upgrade")) return do_fail_badly();
     if (!resp.headers.add_raw("Sec-Websocket-Accept", accept))
-      return stream_claim::release;
+      return do_fail_badly();
 
     pending_response_ = resp.serialize();
     upgraded_ = true;
@@ -179,6 +177,18 @@ private:
     pending_response_ = response_head::make_error_response(
         after_response::close, request_headers.version,
         http_status_code::BAD_REQUEST, "Bad Request");
+    return stream_claim::release;
+  }
+
+  // Fail the transaction without attempting to fabricate an HTTP error
+  // response. If we already have a send function, use an empty send to force
+  // a hangup; otherwise mark the transaction to close once released.
+  //
+  // Used during the upgrade handshake when we may not have a send function
+  // yet.
+  [[nodiscard]] stream_claim do_fail_badly() {
+    if (websocket_send_) (void)websocket_send_(std::string{});
+    close_after = after_response::close;
     return stream_claim::release;
   }
 
