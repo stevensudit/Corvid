@@ -45,6 +45,18 @@ using namespace std::chrono_literals;
 // Invalid upgrade attempts are rejected as ordinary HTTP errors. Once the
 // upgrade succeeds, protocol problems are handled as WebSocket shutdown rather
 // than by dropping back into HTTP semantics.
+//
+// Typical use is to install WebSocket callbacks directly onto the
+// `http_websocket` in the `configure` function passed to `make_factory()`:
+//
+//   auto factory = http_websocket_transaction::make_factory(
+//       [](http_websocket_transaction& tx) {
+//         tx.websocket().on_message =
+//             [](http_websocket&, std::string&& msg, ws_frame_control) {
+//               return true;
+//             };
+//         return true;
+//       });
 class http_websocket_transaction final: public http_transaction {
 public:
   using duration_t = timing_wheel::duration_t;
