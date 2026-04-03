@@ -928,7 +928,8 @@ private:
   std::optional<uint32_t> pending_ping_;
 
   // Random generator for client keys and masks.
-  // TODO: Consider wrapping this in a generator.
+  // The RFC does not allow predictable client keys or masks, so we MUST use a
+  // non-deterministic generator.
   std::random_device rd_;
 };
 }} // namespace corvid::proto
