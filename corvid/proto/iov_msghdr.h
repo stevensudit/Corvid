@@ -33,6 +33,9 @@
 
 namespace corvid { inline namespace proto {
 
+// Fwd.
+struct iov_msghdr_test;
+
 // Scatter/gather socket I/O support using `msghdr` and `sendmsg`. Wraps the
 // `msghdr` and the `iovec` array. Use `iov_msghdr_sender` for sending and
 // `iov_msghdr_receiver` for receiving.
@@ -218,6 +221,8 @@ public:
   [[nodiscard]] const auto& last_op() const noexcept { return last_op_; }
 
 private:
+  friend struct iov_msghdr_test;
+
   // Point header at the active segments.
   bool update_iov() {
     if (first_index_ >= segments_.size()) {
@@ -291,7 +296,7 @@ private:
   // last segment when the transfer ends exactly on a segment boundary.
   [[nodiscard]] bool do_update_results() noexcept {
     const size_t transferred = last_op_.transferred;
-    if (transferred > size()) return do_set_last(npos, npos, npos);
+    if (transferred > size()) return do_set_fail();
     if (transferred == 0) return do_set_last(0, 0, 0);
 
     size_t remaining = transferred;

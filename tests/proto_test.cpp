@@ -33,6 +33,20 @@
 using namespace corvid;
 using namespace std::chrono_literals;
 
+namespace corvid { inline namespace proto {
+struct iov_msghdr_test {
+  template<bool Sender>
+  static auto oversize_update() {
+    proto::iov_msghdr<Sender> io;
+    std::string buf = "abc";
+    [[maybe_unused]] const bool appended = io.append(buf.data(), buf.size());
+
+    io.last_op_.transferred = io.size() + 1;
+    return std::pair{io.do_update_results(), io.last_op_};
+  }
+};
+}} // namespace corvid::proto
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
@@ -2908,6 +2922,25 @@ void Base64_RoundTrip_AllBytes() {
   EXPECT_EQ(decoded, all_bytes);
 }
 
+void IovMsghdr_OversizeTransferIsHardFailure() {
+  if (true) {
+    const auto [ok, op] = corvid::proto::iov_msghdr_test::oversize_update<true>();
+    EXPECT_FALSE(ok);
+    EXPECT_EQ(op.transferred, proto::iov_msghdr_sender::npos);
+    EXPECT_EQ(op.index, proto::iov_msghdr_sender::npos);
+    EXPECT_EQ(op.offset, proto::iov_msghdr_sender::npos);
+  }
+
+  if (true) {
+    const auto [ok, op] =
+        corvid::proto::iov_msghdr_test::oversize_update<false>();
+    EXPECT_FALSE(ok);
+    EXPECT_EQ(op.transferred, proto::iov_msghdr_receiver::npos);
+    EXPECT_EQ(op.index, proto::iov_msghdr_receiver::npos);
+    EXPECT_EQ(op.offset, proto::iov_msghdr_receiver::npos);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // http_server tests
 // ---------------------------------------------------------------------------
@@ -2950,6 +2983,7 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_AsyncSend, StreamConn_EchoServer, StreamConnWithState_Adopt,
     StreamConnWithState_From, StreamConnWithState_Listen,
     StreamConnPtr_Covariance, StreamConnWithState_AcceptClone_Nullptr,
+    IovMsghdr_OversizeTransferIsHardFailure,
     TerminatedTextParser_CompleteLine, TerminatedTextParser_IncompleteEmpty,
     TerminatedTextParser_IncompletePartial, TerminatedTextParser_SplitSentinel,
     TerminatedTextParser_MultipleFrames, TerminatedTextParser_EmptyLine,
