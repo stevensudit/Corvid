@@ -62,6 +62,13 @@ without changing higher layers.
   / `update_active_view(tail)` advance `begin`, `expand_to(n)` requests growth,
   `try_take_full(out, view)` bulk-transfers a full buffer; destructor posts
   compact / re-enable-reads / optional re-dispatch to the loop
+- **[done]** `iov_msghdr` -- scatter/gather socket I/O via `sendmsg` /
+  `recvmsg`; template `iov_msghdr<SENDER>` with `iov_msghdr_sender` and
+  `iov_msghdr_receiver` aliases; segment list backed by a `vector<iovec>` with
+  the `msghdr` kept in sync; `append(iovec)` / `set(span<iovec>)` / `clear()`
+  to manage segments; `send(net_socket)` / `recv(net_socket)` perform the
+  syscall and return an `op_results` with total byte count and segment-level
+  position; used internally by `stream_conn` for zero-copy multi-buffer sends
 - **[done]** `stream_conn` / `stream_conn_ptr` -- non-blocking connected
   stream-socket wrapper driven by an `epoll_loop`; `stream_conn` is the state
   object inheriting from `io_conn`, holding the send queue and a persistent
@@ -69,7 +76,9 @@ without changing higher layers.
   (`shared_ptr<stream_conn>` internally; destructor calls `hangup()`); three
   factory methods on `stream_conn_ptr`: `adopt()` for already-connected
   sockets, `connect()` for outbound async connect, `listen()` for accept loops;
-  `send(string&&)` / `close()` / `hangup()` / `shutdown_read()` /
+  `send(Bufs&&...)` variadic template accepts one or more `string` buffers and
+  enqueues them atomically; internally uses `iov_msghdr_sender` for
+  scatter/gather writes; `close()` / `hangup()` / `shutdown_read()` /
   `shutdown_write()` are thread-safe via `execute_or_post()` / `post()`;
   `can_read()` / `can_write()` query half-close state; `local_endpoint()` /
   `remote_endpoint()` return socket addresses; supports persistent callback
@@ -149,6 +158,14 @@ followed by client and proxy support.
   version, headers, and options); `response_head` with `serialize()` producing
   the full HTTP wire format and `make_error_response()` static factory; stream
   operators on enums for diagnostics
+- **[done]** `http_transaction` -- base class for HTTP/1.x request-response
+  transactions (in `http_transaction.h`); `handle_data(recv_buffer_view&)` and
+  `handle_drain(send_fn&)` virtual methods return `stream_claim` to retain or
+  release the read/write stream; intrusive `next` pointer for pipeline queuing
+  managed by `transaction_queue`; `close_after` flag controls keep-alive
+  disposition; optional `on_data` / `on_drain` callbacks used as defaults;
+  `transaction_factory` type alias (`function<shared_ptr<http_transaction>
+  (request_head&&)>`) for route handler factories
 - **[done]** `http_server` (HTTP/1.1) -- two-phase request parsing via
   `terminated_text_parser`: Phase 1 seeks `"\r\n"` for the request line (max
   8192 bytes), Phase 2 seeks `"\r\n\r\n"` for header fields; HTTP/0.9 requests
@@ -163,8 +180,9 @@ followed by client and proxy support.
   `write_timeout` (default 5 s) enforced via `timer_fuse` / `timing_wheel`
   (from `corvid::concurrency`); connection state carried in
   `stream_conn_with_state<http_conn_state>` to avoid separate allocations;
-  `create(endpoint, loop, wheel, ...)` factory shares or constructs the loop
-  and wheel
+  routing via `add_route(host_path_key, transaction_factory)` registered in an
+  `unordered_map` with transparent `host_path` lookup (exact match, then
+  hostname-wildcard, then path-wildcard, then catch-all `"/"`)
 - Deferred: request body reading (`Content-Length` / chunked transfer),
   `POST` / `PUT` methods, chunked response encoding, content negotiation,
   encoding decode (percent-hex `%20`, RFC 2047 MIME word, RFC 5987)
@@ -175,6 +193,41 @@ followed by client and proxy support.
 ## Layer 4: WebSockets
 
 WebSocket protocol built on top of the HTTP/1.1 upgrade mechanism.
+
+- **[done]** `endian.h` -- `hton16` / `hton32` / `hton64` / `hton128` and
+  their `ntoh` inverses; implemented via `std::byteswap` on little-endian hosts
+  and as identity on big-endian; used by `ws_frame_header_storage` for
+  network-byte-order payload length fields
+- **[done]** `base-64.h` -- RFC 4648 Base64 encode/decode; `encode(span<uint8_t>)`
+  and `decode(string_view)` (returns `string`); used for `Sec-WebSocket-Key`
+  generation and `Sec-WebSocket-Accept` computation
+- **[done]** `sha-1.h` -- SHA-1 digest for WebSocket accept-key computation;
+  `sha_1::digest(string_view)` returns a 20-byte `array<uint8_t,20>`; suitable
+  only for non-security-critical protocol work (RFC 6455 handshake)
+- **[done]** `http_websocket` -- callback-driven WebSocket message pump (in
+  `http_websocket.h`); `ws_frame_control` bitmask enum (opcodes + `fin` bit);
+  `ws_frame_header_storage` fixed-size wire-format header storage;
+  `ws_frame_wrapper<ACCESS>` typed view over header storage with
+  `header_length` / `payload_length` / `total_length` / `is_masked` accessors
+  and `mask_payload_copy`; `ws_frame_codec` stateless codec with
+  `parse_header`, `serialize_frame`, and `compute_accept_key`; `http_websocket`
+  session class runs client or server side; `feed(recv_buffer_view&)` reassembles
+  fragmented messages and fires `on_message(pump, payload, opcode)` and
+  `on_close(pump, code, reason)`; `send_text` / `send_binary` / `send_close` /
+  `send_ping` / `send_pong`; optional `deliver_fragments` mode fires per-frame;
+  client-side masking uses `std::random_device` (RFC 6455 section 5.3);
+  16 MiB per-frame size limit; `close_pending()` signals completed close
+  handshake
+- **[done]** `http_websocket_transaction` -- `http_transaction` subclass (in
+  `http_websocket_transaction.h`) that performs the RFC 6455 upgrade handshake
+  and delegates subsequent I/O to `http_websocket`; validates `Upgrade:
+  websocket`, `Connection: Upgrade`, `Sec-WebSocket-Version: 13`, and
+  `Sec-WebSocket-Key`; sends `101 Switching Protocols` with computed
+  `Sec-WebSocket-Accept`; returns `stream_claim::claim` permanently from both
+  `handle_data` and `handle_drain` until the close handshake completes;
+  optional ping/pong keepalive via `enable_keepalive(loop, wheel,
+  ping_interval, pong_timeout)` using `timer_fuse`; `make_factory(configure_fn)`
+  builds a `transaction_factory` suitable for `http_server::add_route`
 
 ## Design Principles
 
