@@ -655,18 +655,12 @@ private:
   [[nodiscard]] bool handle_body(stream_conn& conn, std::string_view& input,
       recv_buffer_view& view) const {
     auto& state = conn_t::from(conn).state();
-    // TODO: Is this logically possible?
-    if (!state.pipeline.get_reader()) {
-      // Defensive recovery: no active reader.
-      state.parser_state = terminated_text_parser::state{"\r\n", 8192};
-      state.phase = http_phase::request_line;
-      input = view.active_view();
-      return arm_read_timeout(conn);
-    }
+    auto* reader = state.pipeline.get_reader().get();
+    assert(reader);
 
     // Deliver the full available buffer to the transaction; it controls
     // how much it consumes via `recv_buffer_view`.
-    const stream_claim sc = state.pipeline.get_reader()->handle_data(view);
+    const stream_claim sc = reader->handle_data(view);
 
     // If the transaction has relased the input stream, we transition back to
     // `request_line` phase to parse the next request.
