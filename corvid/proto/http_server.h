@@ -412,9 +412,8 @@ private:
           http_status_code::NOT_FOUND, "Not Found");
 
     // Call transaction factory with the request head.
+    // Don't trust the factory to move the request head out of the state.
     auto tx = (*factory)(std::move(state.req));
-    // TODO: Why doesn't the move clear the rhs of a request already? Do we
-    // need to implement move ctor/assign with exchange ops?
     state.req.clear();
 
     // Enqueue transaction into pipeline.
