@@ -1986,14 +1986,14 @@ void WebSocket_Feed_PartialFrame() {
   buf = frame;
   buf.resize(6);
   wire = buf;
-  EXPECT_EQ(ws.feed(wire), frame_size - 6ULL);
+  EXPECT_EQ(ws.feed(wire), frame_size);
   EXPECT_FALSE(msg_fired);
 
   // With 8, it knows it only has a partial payload.
   buf = frame;
   buf.resize(8);
   wire = buf;
-  EXPECT_EQ(ws.feed(wire), frame_size - 8ULL);
+  EXPECT_EQ(ws.feed(wire), frame_size);
   EXPECT_FALSE(msg_fired);
 
   // With the whole thing it works.
@@ -2001,6 +2001,38 @@ void WebSocket_Feed_PartialFrame() {
   wire = buf;
   EXPECT_EQ(ws.feed(wire), 0ULL);
   EXPECT_TRUE(msg_fired);
+}
+
+// `feed(recv_buffer_view&)` requests growth to the full frame size when a
+// frame prefix fills the buffer but the completed frame would not fit after
+// compaction.
+void WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth() {
+  recv_buffer rb;
+  rb.buffer.resize(256);
+  const size_t capacity = rb.buffer.capacity();
+  rb.min_capacity = capacity;
+  rb.begin.store(0, std::memory_order::relaxed);
+  rb.end.store(capacity, std::memory_order::relaxed);
+
+  const auto frame = ws_frame_codec::serialize_frame(
+      ws_frame_control::fin | ws_frame_control::text,
+      std::string(capacity, 'x'));
+  ASSERT_GT(frame.size(), capacity);
+  std::memcpy(rb.buffer.data(), frame.data(), capacity);
+
+  size_t resume_new_size{};
+  size_t resume_last_seen_end{};
+  {
+    recv_buffer_view view{rb, [&](size_t n, size_t lse) {
+      resume_new_size = n;
+      resume_last_seen_end = lse;
+    }};
+    http_websocket ws{[](std::string&&) { return true; }};
+    EXPECT_TRUE(ws.feed(view));
+  }
+
+  EXPECT_EQ(resume_new_size, frame.size());
+  EXPECT_EQ(resume_last_seen_end, capacity);
 }
 
 // Two complete frames in one buffer each fire on_message.
@@ -2831,6 +2863,7 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     WebSocket_Feed_SingleText, WebSocket_Feed_MaskedBinary,
     WebSocket_Feed_Ping, WebSocket_Feed_Close, WebSocket_Feed_Fragmented,
     WebSocket_Feed_FragmentedDelivery, WebSocket_Feed_PartialFrame,
+    WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth,
     WebSocket_Feed_MultipleFrames, WebSocket_Feed_BadContinuation,
     WebSocket_Feed_InterleavedData, WebSocket_Send_Server,
     WebSocket_Send_Client, WebSocketTransaction_UpgradeSuccess,

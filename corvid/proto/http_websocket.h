@@ -565,10 +565,9 @@ public:
       view.update_active_view(data);
 
       if (needed == insatiable) return false;
-      // `needed` is only a lower bound used when the active frame would not
-      // fit in the current receive buffer capacity. In practice that only
-      // matters near the end of the buffer, and the string's geometric growth
-      // avoids churn from tiny header-estimate differences.
+      // `needed` is the total bytes required for the active header or frame
+      // to fit after compaction. If it exceeds the current capacity, request
+      // growth before the view destructs and `resume_receive` compacts.
       if (needed > view.buffer_capacity()) view.expand_to(needed);
       return true;
     }
@@ -577,22 +576,25 @@ public:
   // Accumulates fragmented messages across frames in `message_` and fires
   // callbacks, while handling control frames. On success, consumes frames from
   // the front of `data`, updating it. Once it's done, `data` will have had all
-  // complete frames removed from the front. Returns the number of bytes needed
-  // in order to extract the next complete frame, or `insatiable` on a protocol
-  // error.
+  // complete frames removed from the front. Returns the total bytes required
+  // for the next incomplete header or frame to fit in the receive buffer after
+  // compaction, or `insatiable` on a protocol error.
   [[nodiscard]] size_t feed(std::string_view& data) {
     // Loop over all frames in `data`.
     while (true) {
       if (data.empty()) break;
 
+      // Try to parse the header. If we can't, then return a lowball estimate
+      // and wait for more.
       ws_frame_view hdr{data.data(), data.size()};
       if (!hdr.is_complete()) return hdr.total_length();
       if (!hdr.parse()) return sizeof(ws_frame_header);
 
+      // Now that we know the entire frame size, demand that exact amount.
       const size_t total = hdr.total_length();
       if (data.size() < total) {
         if (total > max_frame_size) return insatiable;
-        return total - data.size();
+        return total;
       }
 
       // Extract and process payload of frame.
