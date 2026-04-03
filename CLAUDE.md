@@ -8,6 +8,8 @@ If the user's intent is ever unclear, always ask before proceeding.
 
 When a function can fail, always consider returning some status indication instead of being void.
 
+Before discarding a `[[nodiscard]]` return value with `(void)`, first consider whether the failure case should be detected and acted upon. Voiding out a nodiscard result to silence a warning is a last resort; the preferred response is to propagate, log, or handle the error appropriately.
+
 ## Build System
 
 CMakeLists.txt lives in `tests/` only — there is none at the project root. Build directory: `tests/build/`.

@@ -530,6 +530,10 @@ public:
   // Called when a close frame is received.
   close_fn on_close;
 
+  // Called when a pong is received whose payload matches the most recently
+  // sent ping counter. Not called for unmatched or unsolicited pongs.
+  std::function<bool(http_websocket&)> on_pong;
+
   // Construct with a `send_fn`, in either client or server mode.
   explicit http_websocket(http_transaction::send_fn send,
       connection_role role = connection_role::server)
@@ -621,17 +625,37 @@ public:
     return true;
   }
 
+  // True while either side has initiated the close handshake.
+  [[nodiscard]] bool is_closing() const noexcept {
+    return sent_close_ || received_close_;
+  }
+
   // True once both sides have exchanged close frames. The transaction should
   // shut down the connection gracefully when this becomes true.
   [[nodiscard]] bool close_pending() const noexcept {
     return sent_close_ && received_close_;
   }
 
-  // Send a ping frame (FIN set, ping opcode).
-  // TODO: Add mechanism to increment a counter and use it as the payload,
-  // while storing it for comparison with incoming pongs.
-  [[nodiscard]] bool send_ping(std::string_view payload = {}) {
-    return send_frame(ws_frame_control::fin | ws_frame_control::ping, payload);
+  // True if `send_ping` has been called and the matching pong has not yet
+  // arrived.
+  [[nodiscard]] bool ping_pending() const noexcept {
+    return pending_ping_.has_value();
+  }
+
+  // Send a ping frame (FIN set, ping opcode). The payload is a 4-byte
+  // big-endian representation of an auto-incrementing counter. The counter
+  // value is stored in `pending_ping_` for comparison with incoming pongs.
+  // Calling `send_ping` while a ping is already outstanding replaces the
+  // stored counter; only the most recent ping is tracked (RFC 6455 allows
+  // the peer to reply to only the most recent ping).
+  [[nodiscard]] bool send_ping() {
+    ++ping_seq_;
+    pending_ping_ = ping_seq_;
+    const uint32_t be_ping_seq = hton32(ping_seq_);
+    char payload[sizeof(be_ping_seq)];
+    std::memcpy(payload, &be_ping_seq, sizeof(be_ping_seq));
+    return send_frame(ws_frame_control::fin | ws_frame_control::ping,
+        {payload, sizeof(payload)});
   }
 
   // Send a pong frame (FIN set, pong opcode). Normally sent automatically in
@@ -824,11 +848,18 @@ private:
     }
     if (opcode == ws_frame_control::ping) { return send_pong(payload); }
     if (opcode == ws_frame_control::pong) {
-      // TODO: Compare payload against outstanding pings, if any, and reset
-      // timeout. We also need to expose a `send_ping` method that stores the
-      // payload for comparison.
+      // If not the pong we're looking for, just ignore it.
+      if (!pending_ping_ || payload.size() != 4) return true;
+      uint32_t received;
+      std::memcpy(&received, payload.data(), sizeof(received));
+      received = ntoh32(received);
+      if (received == *pending_ping_) {
+        pending_ping_.reset();
+        if (on_pong) return on_pong(*this);
+      }
       return true;
     }
+    // Unknown control opcode.
     return do_hangup();
   }
 
@@ -866,6 +897,14 @@ private:
 
   // Whether we've sent a close frame, which means we should stop sending.
   bool sent_close_{false};
+
+  // Auto-incrementing counter for outgoing pings. Each call to `send_ping`
+  // increments this and stores the new value in `pending_ping_`.
+  uint32_t ping_seq_{};
+
+  // The counter value of the most recently sent ping, if a pong is still
+  // expected. Reset to `nullopt` when a matching pong arrives.
+  std::optional<uint32_t> pending_ping_;
 
   // Random generator for client keys and masks.
   // TODO: Consider wrapping this in a generator.

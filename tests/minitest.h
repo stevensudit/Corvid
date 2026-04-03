@@ -146,7 +146,8 @@ auto inline stream_to_text(const auto& v) {
       std::printf("Assertion failed at %s:%d: " fmt "\n", __FILE__, __LINE__, \
           ##__VA_ARGS__);                                                     \
       TEST_MSG("Actual:     `%s`", minitest::stream_to_text(actual).c_str()); \
-      TEST_MSG("Unexpected: `%s`", minitest::stream_to_text(expected).c_str()); \
+      TEST_MSG("Unexpected: `%s`",                                            \
+          minitest::stream_to_text(expected).c_str());                        \
       minitest::abort_failed();                                               \
     }                                                                         \
   } while (false)

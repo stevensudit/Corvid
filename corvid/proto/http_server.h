@@ -238,6 +238,12 @@ public:
     return listener_->local_endpoint();
   }
 
+  // Return the shared epoll loop used by this server.
+  [[nodiscard]] epoll_loop_ptr loop() const { return loop_; }
+
+  // Return the shared timing wheel used by this server.
+  [[nodiscard]] timing_wheel_ptr wheel() const { return wheel_; }
+
   // Return a `std::shared_ptr` to `*this`.
   [[nodiscard]] http_server_ptr self() {
     return std::static_pointer_cast<http_server>(shared_from_this());

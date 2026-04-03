@@ -70,26 +70,9 @@ private:
   size_t seed_ = 0;
 };
 
-// Return `seed` after mixing in a precomputed hash value.
-[[nodiscard]] constexpr size_t
-combine_hash(size_t seed, size_t hash) noexcept {
-  auto combiner = hash_combiner{seed};
-  combiner.combine_hash(hash);
-  return combiner.value();
-}
-
-// Return `seed` after hashing and combining one value.
-template<typename T>
-[[nodiscard]] constexpr size_t combine_hash(size_t seed,
-    const T& value) noexcept(noexcept(std::hash<T>{}(value))) {
-  auto combiner = hash_combiner{seed};
-  combiner.combine(value);
-  return combiner.value();
-}
-
 // Hash several values as an ordered tuple-like sequence.
 //
-// This is a compact helper for simple compound keys:
+// Usage:
 //
 //   return combined_hash(key.name, key.index, key.kind);
 template<typename... Ts>

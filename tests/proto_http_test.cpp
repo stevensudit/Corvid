@@ -1738,7 +1738,8 @@ void WebSocket_Feed_Ping() {
         return true;
       },
       connection_role::client};
-  EXPECT_TRUE(ws_client.send_ping("ping-payload"));
+  EXPECT_TRUE(ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::ping, "ping-payload"));
   std::string_view wire{received_frame};
 
   EXPECT_EQ(ws_server.feed(wire), 0U);
@@ -2166,6 +2167,7 @@ void WebSocketTransaction_MakeFactory() {
               return true;
             };
         configured = true;
+        return true;
       });
 
   auto tx = factory(wstx_make_upgrade_req());
@@ -2175,6 +2177,228 @@ void WebSocketTransaction_MakeFactory() {
   recv_buffer buf;
   auto view = wstx_make_view(buf);
   EXPECT_EQ(tx->handle_data(view), stream_claim::claim);
+}
+
+// Verify `send_ping` uses an auto-incrementing 4-byte counter payload and that
+// a matching pong fires `on_pong` while a mismatched pong does not.
+void WebSocket_PingCounter() {
+  using namespace std::chrono_literals;
+
+  std::string sent_frame;
+  http_websocket ws{
+      [&](std::string&& f) {
+        sent_frame = std::move(f);
+        return true;
+      },
+      connection_role::server};
+
+  bool pong_fired{};
+  ws.on_pong = [&](http_websocket&) {
+    pong_fired = true;
+    return true;
+  };
+
+  // First ping: counter becomes 1, payload is {0,0,0,1}.
+  EXPECT_FALSE(ws.ping_pending());
+  ASSERT_TRUE(ws.send_ping());
+  EXPECT_TRUE(ws.ping_pending());
+  ASSERT_FALSE(sent_frame.empty());
+
+  const auto hdr1 = ws_frame_codec::parse_header(sent_frame);
+  ASSERT_TRUE(hdr1);
+  EXPECT_EQ(hdr1->opcode(), ws_frame_control::ping);
+  EXPECT_EQ(hdr1->payload_length(), 4ULL);
+  // Payload encodes counter value 1 big-endian.
+  std::string_view p1 =
+      std::string_view{sent_frame}.substr(hdr1->header_length(), 4);
+  EXPECT_EQ(static_cast<uint8_t>(p1[3]), 1U);
+
+  // Feed a masked pong with a wrong payload: `on_pong` must not fire.
+  // Server-mode ws requires masked client frames (RFC 6455 section 5.3).
+  std::string bad_pong = ws_frame_codec::serialize_frame(
+      ws_frame_control::fin | ws_frame_control::pong, "xxxx", 0x12345678U);
+  std::string_view bad_sv{bad_pong};
+  EXPECT_NE(ws.feed(bad_sv), http_websocket::insatiable);
+  EXPECT_FALSE(pong_fired);
+  EXPECT_TRUE(ws.ping_pending()); // still pending
+
+  // Feed a masked pong with the correct 4-byte counter payload.
+  std::string good_pong = ws_frame_codec::serialize_frame(
+      ws_frame_control::fin | ws_frame_control::pong, p1.substr(0, 4),
+      0x12345678U);
+  std::string_view good_sv{good_pong};
+  EXPECT_NE(ws.feed(good_sv), http_websocket::insatiable);
+  EXPECT_TRUE(pong_fired);
+  EXPECT_FALSE(ws.ping_pending());
+
+  // Second ping: counter becomes 2.
+  pong_fired = false;
+  ASSERT_TRUE(ws.send_ping());
+  const auto hdr2 = ws_frame_codec::parse_header(sent_frame);
+  ASSERT_TRUE(hdr2);
+  std::string_view p2 =
+      std::string_view{sent_frame}.substr(hdr2->header_length(), 4);
+  EXPECT_EQ(static_cast<uint8_t>(p2[3]), 2U);
+}
+
+// Verify that a live WebSocket server sends periodic pings when keepalive is
+// enabled and that a client responding with matching pongs keeps the
+// connection open. Uses 100 ms intervals so the test runs quickly.
+void HttpServer_WebSocket_Keepalive() {
+  using namespace std::chrono_literals;
+
+  epoll_loop_runner loop_runner;
+  timing_wheel_runner wheel_runner;
+
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      loop_runner.loop(), wheel_runner.wheel(),
+      /*request_timeout=*/0s, /*write_timeout=*/0s);
+  ASSERT_TRUE(server);
+
+  server->add_route({"", "/ws"},
+      http_websocket_transaction::make_factory(
+          [&](http_websocket_transaction& tx) {
+            return tx.enable_keepalive(server->loop(), server->wheel(), 100ms,
+                100ms);
+          }));
+
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
+  ASSERT_TRUE(client);
+
+  // Perform WebSocket upgrade.
+  std::string accept_key;
+  http_transaction::send_fn send_fn{[&](std::string&& f) {
+    return client.send(f);
+  }};
+  http_websocket ws_client{std::move(send_fn), connection_role::client};
+  auto req = ws_client.generate_upgrade_request("/ws/", accept_key);
+  (void)req.headers.add_raw("Host", "localhost");
+  ASSERT_TRUE(client.send(req.serialize()));
+
+  const auto resp_wire = client.recv_until("\r\n\r\n");
+  ASSERT_FALSE(resp_wire.empty());
+  auto resp_sv = std::string_view{resp_wire};
+  resp_sv.remove_suffix(2);
+  response_head resp;
+  ASSERT_TRUE(resp.parse(resp_sv));
+  EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+
+  // Respond to several pings from the server; verify connection stays open.
+  int pings_answered{};
+  bool got_close{};
+  ws_client.on_close = [&](http_websocket&, uint16_t, std::string_view) {
+    got_close = true;
+  };
+
+  // Loop: receive frames from server, answer pings, stop after 3 answers.
+  // Each recv() blocks for up to the connect timeout (1 s); pings arrive
+  // every 100 ms so each iteration completes quickly.
+  while (pings_answered < 3 && !got_close) {
+    auto chunk = client.recv();
+    if (chunk.empty()) break;
+    std::string_view sv{chunk};
+    while (!sv.empty()) {
+      ws_frame_view hdr{sv.data(), sv.size()};
+      if (!hdr.is_complete() || !hdr.parse()) break;
+      if (hdr.opcode() == ws_frame_control::ping) {
+        // Echo the payload back as a pong.
+        std::string_view payload =
+            sv.substr(hdr.header_length(), hdr.payload_length());
+        EXPECT_TRUE(ws_client.send_pong(payload));
+        ++pings_answered;
+      }
+      sv.remove_prefix(hdr.total_length());
+    }
+  }
+
+  EXPECT_GE(pings_answered, 3);
+  EXPECT_FALSE(got_close);
+
+  // Clean close: client initiates, waits for server echo so the connection
+  // is fully torn down before the test's `server` shared_ptr goes out of
+  // scope. Without this, the 4th ping timer fires while `server` (captured
+  // raw in the send_fn lambda) has already been destroyed, causing UB.
+  EXPECT_TRUE(ws_client.send_close(1000, ""));
+  while (!ws_client.close_pending()) {
+    auto chunk = client.recv();
+    if (chunk.empty()) break;
+    std::string_view sv{chunk};
+    (void)ws_client.feed(sv);
+  }
+}
+
+// Verify that the server closes the connection with code 1001 when the client
+// ignores pings and the pong timeout expires.
+void HttpServer_WebSocket_KeepaliveTimeout() {
+  using namespace std::chrono_literals;
+
+  epoll_loop_runner loop_runner;
+  timing_wheel_runner wheel_runner;
+
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      loop_runner.loop(), wheel_runner.wheel(),
+      /*request_timeout=*/0s, /*write_timeout=*/0s);
+  ASSERT_TRUE(server);
+
+  server->add_route({"", "/ws"},
+      http_websocket_transaction::make_factory(
+          [&](http_websocket_transaction& tx) {
+            return tx.enable_keepalive(server->loop(), server->wheel(), 100ms,
+                100ms);
+          }));
+
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
+  ASSERT_TRUE(client);
+
+  // Perform WebSocket upgrade.
+  std::string accept_key;
+  http_transaction::send_fn send_fn{[&](std::string&& f) {
+    return client.send(f);
+  }};
+  http_websocket ws_client{std::move(send_fn), connection_role::client};
+  auto req = ws_client.generate_upgrade_request("/ws/", accept_key);
+  (void)req.headers.add_raw("Host", "localhost");
+  ASSERT_TRUE(client.send(req.serialize()));
+
+  const auto resp_wire = client.recv_until("\r\n\r\n");
+  ASSERT_FALSE(resp_wire.empty());
+  auto resp_sv = std::string_view{resp_wire};
+  resp_sv.remove_suffix(2);
+  response_head resp;
+  ASSERT_TRUE(resp.parse(resp_sv));
+  EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+
+  // Do not respond to pings; wait for the server to close with code 1001.
+  // The close arrives ~200 ms after upgrade (100 ms ping + 100 ms pong
+  // timeout). The connect timeout (1 s) gives enough headroom.
+  //
+  // Note: do NOT call ws_client.feed() here -- that would auto-pong every
+  // ping, defeating the purpose of this test. Parse frames manually and
+  // discard pings without replying.
+  uint16_t got_close_code{};
+  while (got_close_code == 0) {
+    auto chunk = client.recv();
+    if (chunk.empty()) break; // recv() timed out or EOF
+    std::string_view sv{chunk};
+    while (!sv.empty()) {
+      ws_frame_view hdr{sv.data(), sv.size()};
+      if (!hdr.is_complete() || !hdr.parse()) break;
+      if (hdr.opcode() == ws_frame_control::close) {
+        std::string_view payload =
+            sv.substr(hdr.header_length(), hdr.payload_length());
+        got_close_code =
+            (payload.size() >= 2)
+                ? static_cast<uint16_t>(
+                      (static_cast<uint8_t>(payload[0]) << 8) |
+                      static_cast<uint8_t>(payload[1]))
+                : 1000U;
+      }
+      // Pings are intentionally ignored (no pong sent).
+      sv.remove_prefix(hdr.total_length());
+    }
+  }
+
+  EXPECT_EQ(got_close_code, 1001U);
 }
 
 // Semi-integration test: `http_server` with `http_websocket_transaction` as
@@ -2196,6 +2420,7 @@ void HttpServer_WebSocket() {
                 [](http_websocket& ws, std::string&& p, ws_frame_control) {
                   return ws.send_text(p);
                 };
+            return true;
           }));
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
@@ -2277,6 +2502,7 @@ void HttpServer_WebSocket_Frames() {
                 [](http_websocket& ws, std::string&& p, ws_frame_control) {
                   return ws.send_text(p);
                 };
+            return true;
           }));
 
   auto client = stream_sync::connect(web_server->local_endpoint(), 1s);
@@ -2358,7 +2584,8 @@ void HttpServer_WebSocket_Frames() {
   // `recv_msg` feeds chunks until `on_message` fires, transparently
   // consuming any pong frames that arrive before the echo.
   ASSERT_TRUE(ws_client.send_frame(ws_frame_control::text, "foo"));
-  ASSERT_TRUE(ws_client.send_ping("payload"));
+  ASSERT_TRUE(ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::ping, "payload"));
   ASSERT_TRUE(ws_client.send_frame(ws_frame_control::continuation, "bar"));
   ASSERT_TRUE(ws_client.send_pong("payload"));
   ASSERT_TRUE(ws_client.send_frame(
@@ -2426,4 +2653,6 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     WebSocketTransaction_MissingKey, WebSocketTransaction_BadRequestDrain,
     WebSocketTransaction_FeedAfterUpgrade,
     WebSocketTransaction_FeedProtocolError, WebSocketTransaction_MakeFactory,
-    HttpServer_WebSocket, HttpServer_WebSocket_Frames);
+    WebSocket_PingCounter, HttpServer_WebSocket_Keepalive,
+    HttpServer_WebSocket_KeepaliveTimeout, HttpServer_WebSocket,
+    HttpServer_WebSocket_Frames);
