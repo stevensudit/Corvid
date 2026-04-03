@@ -2808,6 +2808,78 @@ void StreamSync_PeerClose() {
 }
 
 // ---------------------------------------------------------------------------
+// base_64 tests
+// ---------------------------------------------------------------------------
+
+// RFC 4648 test vectors: encode produces the canonical Base64 output.
+void Base64_Encode_KnownVectors() {
+  EXPECT_EQ(base_64::encode(""), "");
+  EXPECT_EQ(base_64::encode("f"), "Zg==");
+  EXPECT_EQ(base_64::encode("fo"), "Zm8=");
+  EXPECT_EQ(base_64::encode("foo"), "Zm9v");
+  EXPECT_EQ(base_64::encode("foob"), "Zm9vYg==");
+  EXPECT_EQ(base_64::encode("fooba"), "Zm9vYmE=");
+  EXPECT_EQ(base_64::encode("foobar"), "Zm9vYmFy");
+}
+
+// decode returns empty vector for empty input.
+void Base64_Decode_Empty() {
+  auto result = base_64::decode("");
+  EXPECT_TRUE(result.empty());
+}
+
+// RFC 4648 test vectors: decode recovers the original bytes.
+void Base64_Decode_KnownVectors() {
+  auto check = [](std::string_view encoded, std::string_view expected) {
+    auto result = base_64::decode(encoded);
+    EXPECT_EQ(std::string(result.begin(), result.end()), std::string(expected));
+  };
+  check("Zg==", "f");
+  check("Zm8=", "fo");
+  check("Zm9v", "foo");
+  check("Zm9vYg==", "foob");
+  check("Zm9vYmE=", "fooba");
+  check("Zm9vYmFy", "foobar");
+}
+
+// decode rejects input whose length is not a multiple of 4.
+void Base64_Decode_InvalidLength() {
+  EXPECT_TRUE(base_64::decode("Zg").empty());
+  EXPECT_TRUE(base_64::decode("Zm8").empty());
+  EXPECT_TRUE(base_64::decode("Zm9vY").empty());
+}
+
+// decode rejects input containing characters outside the Base64 alphabet.
+void Base64_Decode_InvalidChar() {
+  EXPECT_TRUE(base_64::decode("Zg=!").empty());
+  EXPECT_TRUE(base_64::decode("Z!==").empty());
+  EXPECT_TRUE(base_64::decode("!g==").empty());
+}
+
+// encode then decode returns the original bytes (round-trip), exercising all
+// three remainder cases (0, 1, and 2 leftover bytes before padding).
+void Base64_RoundTrip_Short() {
+  for (const std::string_view sv : {"", "A", "AB", "ABC", "ABCD"}) {
+    const std::string encoded = base_64::encode(sv);
+    const auto decoded = base_64::decode(encoded);
+    EXPECT_EQ(std::string(decoded.begin(), decoded.end()), std::string(sv));
+  }
+}
+
+// Round-trip across all 256 byte values to confirm the decode table is
+// the exact inverse of the encode alphabet.
+void Base64_RoundTrip_AllBytes() {
+  std::vector<uint8_t> all_bytes(256);
+  for (size_t i{}; i < 256; ++i) all_bytes[i] = uint8_t(i);
+
+  const std::string encoded = base_64::encode(
+      std::span<const uint8_t>{all_bytes.data(), all_bytes.size()});
+  const auto decoded = base_64::decode(encoded);
+
+  EXPECT_EQ(decoded, all_bytes);
+}
+
+// ---------------------------------------------------------------------------
 // http_server tests
 // ---------------------------------------------------------------------------
 
@@ -2854,7 +2926,10 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     TerminatedTextParser_TooLong, TerminatedTextParser_TooLong_WithSentinel,
     TerminatedTextParser_NoLimit, TerminatedTextParser_CustomSentinel,
     TerminatedTextParser_Reset, StreamSync_ConnectFail, StreamSync_SendRecv,
-    StreamSync_RecvUntil, StreamSync_PeerClose);
+    StreamSync_RecvUntil, StreamSync_PeerClose, Base64_Encode_KnownVectors,
+    Base64_Decode_Empty, Base64_Decode_KnownVectors,
+    Base64_Decode_InvalidLength, Base64_Decode_InvalidChar,
+    Base64_RoundTrip_Short, Base64_RoundTrip_AllBytes);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)
