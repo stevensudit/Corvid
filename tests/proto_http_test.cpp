@@ -1826,6 +1826,59 @@ void WebSocket_Feed_Fragmented() {
   EXPECT_EQ(got_op, ws_frame_control::text);
 }
 
+// Three-frame fragmented message with deliver_fragments=true fires on_message
+// once per frame. Non-final frames carry the data opcode without the fin bit;
+// the final frame carries opcode|fin.
+void WebSocket_Feed_FragmentedDelivery() {
+  struct Call {
+    std::string payload;
+    ws_frame_control op{};
+  };
+  std::vector<Call> calls;
+  http_websocket ws{[](std::string&&) { return true; }};
+  ws.deliver_fragments = true;
+  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
+    calls.push_back({std::move(p), op});
+    return true;
+  };
+  std::string received_frame;
+  http_websocket ws_client{
+      [&](std::string&& frame) {
+        received_frame = std::move(frame);
+        return true;
+      },
+      connection_role::client};
+  std::string_view wire;
+
+  // Fragment 1: FIN=0, text opcode, "hel".
+  EXPECT_TRUE(ws_client.send_frame(ws_frame_control::text, "hel"));
+  wire = received_frame;
+  EXPECT_EQ(ws.feed(wire), 0U);
+  EXPECT_EQ(wire.size(), 0U);
+  ASSERT_EQ(calls.size(), 1U);
+  EXPECT_EQ(calls[0].payload, "hel");
+  EXPECT_EQ(calls[0].op, ws_frame_control::text);
+
+  // Fragment 2: FIN=0, continuation, "lo ".
+  EXPECT_TRUE(ws_client.send_frame(ws_frame_control::continuation, "lo "));
+  wire = received_frame;
+  EXPECT_EQ(ws.feed(wire), 0U);
+  EXPECT_EQ(wire.size(), 0U);
+  ASSERT_EQ(calls.size(), 2U);
+  EXPECT_EQ(calls[1].payload, "lo ");
+  EXPECT_EQ(calls[1].op, ws_frame_control::text);
+
+  // Fragment 3: FIN=1, continuation, "world" -> dispatched with fin bit.
+  EXPECT_TRUE(ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::continuation, "world"));
+  wire = received_frame;
+  EXPECT_EQ(ws.feed(wire), 0U);
+  EXPECT_EQ(wire.size(), 0U);
+  ASSERT_EQ(calls.size(), 3U);
+  EXPECT_EQ(calls[2].payload, "world");
+  EXPECT_EQ(calls[2].op, ws_frame_control::fin | ws_frame_control::text);
+}
+
 // Feeding only the header bytes of a frame returns true (awaiting payload).
 void WebSocket_Feed_PartialFrame() {
   bool msg_fired{};
@@ -2642,6 +2695,7 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     WebSocket_AcceptKey, WebSocket_FrameCodec_RoundTrip,
     WebSocket_Feed_SingleText, WebSocket_Feed_MaskedBinary,
     WebSocket_Feed_Ping, WebSocket_Feed_Close, WebSocket_Feed_Fragmented,
+    WebSocket_Feed_FragmentedDelivery,
     WebSocket_Feed_PartialFrame, WebSocket_Feed_MultipleFrames,
     WebSocket_Feed_BadContinuation, WebSocket_Feed_InterleavedData,
     WebSocket_Send_Server, WebSocket_Send_Client,

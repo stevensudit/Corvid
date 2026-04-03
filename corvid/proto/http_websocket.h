@@ -100,10 +100,6 @@ public:
       std::conditional_t<mutable_v, ws_frame_header, const ws_frame_header>;
   using char_ptr_t = std::conditional_t<mutable_v, char*, const char*>;
 
-  // TODO: Why do we have this?
-  template<access>
-  friend class ws_frame_wrapper;
-
   ws_frame_wrapper() = default;
 
   // Const-safe copy constructor.
@@ -506,8 +502,17 @@ private:
 // `send_pong`.
 class http_websocket {
 public:
-  // Notification with the payload of the message, and its opcode. This payload
-  // may have been fragmented across multiple frames.
+  // Notification with the payload of the message, and its opcode.
+  //
+  // When `deliver_fragments` is false (default), this fires once per complete
+  // message. The opcode argument is `text` or `binary`; the `fin` bit is
+  // never set.
+  //
+  // When `deliver_fragments` is true, this fires once per arriving frame.
+  // Non-final fragments receive the data opcode (`text` or `binary` -- never
+  // `continuation`; the initial opcode is propagated for continuations). The
+  // final fragment receives `opcode | ws_frame_control::fin` so the handler
+  // can detect it by testing `bitmask::has(op, ws_frame_control::fin)`.
   using message_fn =
       std::function<bool(http_websocket&, std::string&&, ws_frame_control)>;
 
@@ -533,6 +538,12 @@ public:
   // Called when a pong is received whose payload matches the most recently
   // sent ping counter. Not called for unmatched or unsolicited pongs.
   std::function<bool(http_websocket&)> on_pong;
+
+  // When true, `on_message` is fired once per arriving frame fragment rather
+  // than once per fully assembled message. Non-final fragments receive the
+  // data opcode without the `fin` bit; the final fragment receives
+  // `opcode | ws_frame_control::fin`. Defaults to false.
+  bool deliver_fragments{false};
 
   // Construct with a `send_fn`, in either client or server mode.
   explicit http_websocket(http_transaction::send_fn send,
@@ -765,8 +776,6 @@ private:
     const auto frame_control = hdr.frame_control();
     if (bitmask::has(frame_control, ws_frame_control::rsvd))
       return do_hangup();
-    const auto opcode = hdr.opcode();
-    const auto is_fin = hdr.is_final();
 
     // Clients must send masked frames and servers must not.
     if (is_server_ && !hdr.is_masked())
@@ -781,6 +790,16 @@ private:
     // Once we've received a close frame, discard all further non-control
     // frames. We might be waiting for their close frame at this point.
     if (received_close_) return false;
+
+    return handle_data_frame(hdr, payload);
+  }
+
+  // Accumulate and dispatch a data frame. Called by `handle_payload` after
+  // control frames and protocol errors have been filtered out.
+  [[nodiscard]] bool
+  handle_data_frame(ws_frame_view& hdr, std::string_view payload) {
+    const auto opcode = hdr.opcode();
+    const auto is_fin = hdr.is_final();
 
     // We store the initial opcode of a fragmented message in
     // `fragment_opcode_`. Subsequent fragments must have the continuation
@@ -812,21 +831,23 @@ private:
         return do_hangup();
     }
 
-    // If it's not the final frame of the message, we have to wait for more
-    // fragments.
-    // TODO: We should allow the user to disable this check so that they can
-    // see each fragment as it arrives. We'll also need to adjust the logic for
-    // the dispatch code being sent. We would need to set the FIN bit for the
-    // last fragment, merging in the opcode. This means the handler has to know
-    // to mask the FIN bit instead of doing direct comparisons to BIN or TXT.
-    if (!is_fin) return true;
+    // Determine the data opcode for this frame. Continuation frames carry
+    // `ws_frame_control::continuation`, so use the saved initial opcode
+    // instead.
+    ws_frame_control data_opcode = in_fragment ? fragment_opcode_ : opcode;
 
-    // Dispatch the message payload. This moves `message_` and clears it out.
-    const ws_frame_control dispatch_opcode =
-        in_fragment ? fragment_opcode_ : opcode;
+    // When delivering fragments, mark FIN.
+    if (is_fin && deliver_fragments) data_opcode |= ws_frame_control::fin;
+
+    // When not, delay delivery until the final fragment.
+    if (!is_fin && !deliver_fragments) return true;
+
+    // If this is the final fragment, reset `fragment_opcode_` to indicate that
+    // we're not in a fragmented message anymore.
     if (is_fin) fragment_opcode_ = {};
 
-    return dispatch_message(std::move(message_), dispatch_opcode);
+    // Dispatch the payload. This moves `message_` and clears it out.
+    return dispatch_message(std::move(message_), data_opcode);
   }
 
   [[nodiscard]] bool
