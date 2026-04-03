@@ -16,7 +16,6 @@
 // limitations under the License.
 
 #include "../corvid/proto.h"
-
 #include "../corvid/concurrency/jthread_stoppable_sleep.h"
 
 #include <charconv>

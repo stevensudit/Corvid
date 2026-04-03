@@ -121,8 +121,6 @@ struct http_transaction
   // Default: invoke `on_data` if set, else return `release`.
   [[nodiscard]] virtual stream_claim handle_data(recv_buffer_view& view) {
     if (on_data) return on_data(*this, view);
-    // TODO: If the header indicates that there's a body, we should just fail
-    // here.
     return stream_claim::release;
   }
 
