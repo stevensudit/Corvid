@@ -154,7 +154,7 @@ public:
   //
   // Applies the previous operation's results before starting a new one,
   // pointing the effective start of the segments past the sent bytes. This
-  // gives the caller a chance to first decomission buffers that have been
+  // gives the caller a chance to first decommission buffers that have been
   // drained.
   //
   // Status       |  Return  | `index`/`offset`         | `transferred`

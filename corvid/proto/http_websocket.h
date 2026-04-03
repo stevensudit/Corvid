@@ -805,7 +805,6 @@ private:
     if ((is_server_ && !hdr.is_masked()) || (!is_server_ && hdr.is_masked())) {
       // We want to fail with a close frame, instead of hanging up, so pretend
       // that we received their close frame already.
-      received_close_ = true;
       return do_fail("Protocol failure: Frame violates masking requirements");
     }
 
