@@ -685,7 +685,6 @@ private:
     return true;
   }
 
-  // TODO: Check if this is still accurate.
   // Handle incoming data for an accepted connection.
   //
   // Implements an explicit state machine driven by `state.phase`. In the

@@ -127,11 +127,6 @@ private:
       return stream_claim::release;
     if (!resp.headers.add_raw("Sec-Websocket-Accept", accept))
       return stream_claim::release;
-    // TODO: Question this.
-    // Consume any leftover data already in the buffer (upgrade response
-    // has no HTTP body; any subsequent bytes are WebSocket frames, handled
-    // on the next `handle_data` call).
-    view.consume(view.active_view().size());
 
     pending_response_ = resp.serialize();
     upgraded_ = true;
