@@ -737,12 +737,16 @@ public:
 private:
   // Signal an immediate RST by invoking the send function with an empty
   // string, then return false so callers can propagate the error.
-  //
-  // TODO: Consider whether some of the places where we could this should
-  // instead call `send_close(1002, "Protocol violation")`, only calling here
-  // if that fails.
   bool do_hangup() {
     if (send_) (void)send_(std::string{});
+    return false;
+  }
+
+  // Fail the connection with a protocol-error close frame when possible,
+  // falling back to an immediate hangup if sending the close fails.
+  bool do_fail(std::string_view reason = "Protocol error") {
+    if (received_close_) return false;
+    if (!send_close(1002, reason)) return do_hangup();
     return false;
   }
 
@@ -795,16 +799,14 @@ private:
     // Sniff frame and reject obvious defects.
     const auto frame_control = hdr.frame_control();
     if (bitmask::has(frame_control, ws_frame_control::rsvd))
-      return do_hangup();
+      return do_fail("Protocol failure: Reserved bits are unsupported");
 
     // Clients must send masked frames and servers must not.
     if ((is_server_ && !hdr.is_masked()) || (!is_server_ && hdr.is_masked())) {
       // We want to fail with a close frame, instead of hanging up, so pretend
       // that we received their close frame already.
       received_close_ = true;
-      if (!send_close(1002, "Frame violates masking requirements"))
-        return do_hangup();
-      return false;
+      return do_fail("Protocol failure: Frame violates masking requirements");
     }
 
     // Control frames are handled internally.
@@ -831,7 +833,7 @@ private:
     const bool in_fragment = (fragment_opcode_ != ws_frame_control{});
     if ((in_fragment && opcode != ws_frame_control::continuation) ||
         (!in_fragment && opcode == ws_frame_control::continuation))
-      return do_hangup();
+      return do_fail("Protocol failure: Invalid fragmentation");
 
     // Accumulate the (unmasked) payloads into `message_`. Note that it's
     // always legal for a payload to be empty.
@@ -842,7 +844,7 @@ private:
       // that's a fatal protocol error.
       if (bitmask::has(opcode, ws_frame_control::text) ==
           bitmask::has(opcode, ws_frame_control::binary))
-        return do_hangup();
+        return do_fail("Protocol failure: Invalid data opcode");
 
       // Save opcode so continuations can be validated and the assembled
       // message dispatched with the correct type.
@@ -883,7 +885,10 @@ private:
   [[nodiscard]] bool
   handle_control_frame(ws_frame_view& hdr, std::string_view payload) {
     const auto opcode = hdr.opcode();
-    if (!hdr.is_final() || payload.size() > 125) return do_hangup();
+    if (!hdr.is_final())
+      return do_fail("Protocol failure: Control frames must not fragment");
+    if (payload.size() > 125)
+      return do_fail("Protocol failure: Control frame payload too large");
 
     // Unmask the payload before inspection.
     if (hdr.is_masked() && !payload.empty()) {
@@ -894,7 +899,8 @@ private:
 
     // Handle the control frame.
     if (opcode == ws_frame_control::close) {
-      if (payload.size() == 1) return do_hangup();
+      if (payload.size() == 1)
+        return do_fail("Protocol failure: Close payload is truncated");
       return dispatch_close(payload);
     }
     if (opcode == ws_frame_control::ping) { return send_pong(payload); }
@@ -911,7 +917,7 @@ private:
       return true;
     }
     // Unknown control opcode.
-    return do_hangup();
+    return do_fail("Protocol failure: Unknown control opcode");
   }
 
   [[nodiscard]] bool
