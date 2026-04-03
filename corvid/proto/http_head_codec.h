@@ -531,11 +531,14 @@ struct http_options {
 
   // Populate all fields by parsing `headers`. Call after headers are parsed.
   void extract(http_headers& headers) {
-    do_extract_connection(headers);
+    bool has_upgrade = do_extract_connection(headers);
     do_extract_content_length(headers);
     do_extract_content_type(headers);
     do_extract_transfer_encoding(headers);
     do_extract_upgrade(headers);
+    // If the `Connection` header did not explicitly specify "Upgrade", then
+    // any `Upgrade` header is ignored, per RFC 9112 section 6.7.1.
+    if (!has_upgrade) upgrade = upgrade_value::unknown;
   }
 
   // Write non-null values into `headers`, replacing existing entries.
@@ -571,9 +574,10 @@ struct http_options {
   }
 
 private:
-  void do_extract_connection(http_headers& headers) {
+  bool do_extract_connection(http_headers& headers) {
     bool has_close{};
     bool has_keep_alive{};
+    bool has_upgrade{};
     std::string t;
     for (const auto& val : headers.get_values("Connection")) {
       for (auto token : strings::split(val, ",")) {
@@ -586,12 +590,17 @@ private:
           else if (ar == after_response::keep_alive)
             has_keep_alive = true;
         }
+        if (t == "upgrade") {
+          has_keep_alive = true;
+          has_upgrade = true;
+        }
       }
     }
     if (has_close)
       connection = after_response::close;
     else if (has_keep_alive)
       connection = after_response::keep_alive;
+    return has_upgrade;
   }
 
   void do_extract_content_length(const http_headers& headers) {

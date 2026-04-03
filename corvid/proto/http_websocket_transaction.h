@@ -25,9 +25,9 @@
 #include "http_websocket.h"
 #include "../concurrency/timer_fuse.h"
 
-using namespace std::chrono_literals;
-
 namespace corvid { inline namespace proto {
+
+using namespace std::chrono_literals;
 
 // HTTP transaction that performs the WebSocket upgrade handshake and then
 // delegates all subsequent data flow to an `http_websocket` instance.
@@ -138,10 +138,6 @@ private:
     if (request_headers.method != http_method::GET)
       return send_bad_request(view);
     if (request_headers.options.upgrade != upgrade_value::websocket)
-      return send_bad_request(view);
-
-    const auto conn_hdr = request_headers.headers.get("Connection");
-    if (!conn_hdr || !conn_hdr->contains("Upgrade"))
       return send_bad_request(view);
 
     const auto version_hdr =
