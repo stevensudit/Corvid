@@ -21,6 +21,7 @@
 #include <charconv>
 #include <cerrno>
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <unistd.h>
 
@@ -30,6 +31,11 @@
 using namespace corvid;
 using namespace std::string_literals;
 using namespace std::chrono_literals;
+
+bool is_codex() {
+  const char* value = std::getenv("CODEX_SANDBOX_NETWORK_DISABLED");
+  return value && std::string_view{value} == "1";
+}
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
@@ -455,6 +461,8 @@ private:
 // Verify that an HTTP/0.9-style request (no version token, no headers)
 // receives a response and the server then closes the connection.
 void HttpServer_Http09() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
@@ -470,6 +478,8 @@ void HttpServer_Http09() {
 // Verify that leading bare CRLFs before the request line are silently
 // skipped (RFC 9112 section 2.2) and the request is served normally.
 void HttpServer_LeadingCrlf() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
@@ -484,6 +494,8 @@ void HttpServer_LeadingCrlf() {
 // Verify that more than `max_leading_crls` bare CRLFs before the request
 // line cause the server to drop the connection.
 void HttpServer_TooManyLeadingCrls() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
@@ -498,6 +510,8 @@ void HttpServer_TooManyLeadingCrls() {
 
 // Verify that `create` with a null loop starts its own `epoll_loop_runner`.
 void HttpServer_OwnLoop() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
   EXPECT_TRUE(server->local_endpoint());
@@ -505,6 +519,8 @@ void HttpServer_OwnLoop() {
 
 // Verify that `create` with a shared loop stores and uses it.
 void HttpServer_SharedLoop() {
+  if (is_codex()) return;
+
   epoll_loop_runner runner;
   auto server =
       make_test_server(net_endpoint{ipv4_addr::loopback, 0}, runner.loop());
@@ -521,6 +537,8 @@ void HttpServer_Create_BadEndpoint() {
 
 // Verify that `GET / HTTP/1.1` produces a 200 HTML response.
 void HttpServer_GetRoot() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
       nullptr, 0s, 0s);
   ASSERT_TRUE(server);
@@ -535,6 +553,8 @@ void HttpServer_GetRoot() {
 // Verify that `GET /123 HTTP/1.1` produces an HTML response that includes
 // the numeric path component.
 void HttpServer_GetPath() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
@@ -574,6 +594,8 @@ void HttpServer_RouteBasePath() {
 
 // Verify that a POST request yields a 405 response (not a silent close).
 void HttpServer_InvalidRequest() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
@@ -587,6 +609,8 @@ void HttpServer_InvalidRequest() {
 // Verify that a request line exceeding the 8192-byte limit causes the server
 // to hang up immediately without sending any response.
 void HttpServer_TooLongRequest() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
@@ -603,6 +627,8 @@ void HttpServer_TooLongRequest() {
 // stateful `terminated_text_parser`. The two writes may or may not be
 // coalesced by TCP, but the test verifies correct parsing in either case.
 void HttpServer_PartialRequest() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
@@ -619,6 +645,8 @@ void HttpServer_PartialRequest() {
 // Verify that the server can listen on an ANS (Abstract Name Socket) and
 // respond correctly to a `GET` request from a `stream_sync` client.
 void HttpServer_ANS() {
+  if (is_codex()) return;
+
   const std::string name =
       "@corvid_proto_http_test." + std::to_string(getpid()) + ".sock";
   const net_endpoint ep{name};
@@ -638,6 +666,8 @@ void HttpServer_ANS() {
 
 // Verify that `create` with a shared `timing_wheel` stores and uses it.
 void HttpServer_SharedWheel() {
+  if (is_codex()) return;
+
   timing_wheel_runner wheel;
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
       wheel.wheel());
@@ -647,6 +677,8 @@ void HttpServer_SharedWheel() {
 
 // Verify that a normal GET request is served within the timeout window.
 void HttpServer_RequestWithinTimeout() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
       nullptr, 5s);
   ASSERT_TRUE(server);
@@ -661,6 +693,8 @@ void HttpServer_RequestWithinTimeout() {
 // Verify that an idle connection (no request sent) is forcefully closed by
 // the server after the request timeout expires.
 void HttpServer_IdleTimeout() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
       nullptr, 100ms);
   ASSERT_TRUE(server);
@@ -687,6 +721,8 @@ void HttpServer_IdleTimeout() {
 // receive buffer and stalling the server's send path. The server should hang
 // up the connection after the write timeout expires.
 void HttpServer_WriteTimeout() {
+  if (is_codex()) return;
+
   // Use a short write timeout so the test completes quickly. The timing
   // wheel has 100 ms precision, so allow generously for scheduling overhead.
   constexpr auto kWriteTimeout = 300ms;
@@ -744,6 +780,8 @@ void HttpServer_WriteTimeout() {
 // Verify that an HTTP/1.1 request without a `Host` header receives a 400
 // response, and the server then closes the connection.
 void HttpServer_MissingHost() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
@@ -759,6 +797,8 @@ void HttpServer_MissingHost() {
 // Verify that a keep-alive connection accepts a second request after the
 // first response is received.
 void HttpServer_KeepAlive() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
@@ -779,6 +819,8 @@ void HttpServer_KeepAlive() {
 // Verify that two requests sent back-to-back (before any response is read)
 // are both served in order -- the pipelining property.
 void HttpServer_Pipeline() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
@@ -802,6 +844,8 @@ void HttpServer_Pipeline() {
 // Verify that `Connection: close` causes the server to close the connection
 // after the response.
 void HttpServer_ConnectionClose() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
@@ -820,6 +864,8 @@ void HttpServer_ConnectionClose() {
 // Verify that an HTTP/1.0 request (no `Host` header) receives a 200
 // response and the server closes the connection (HTTP/1.0 default is close).
 void HttpServer_Http10NoKeepAlive() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
 
@@ -1356,6 +1402,8 @@ void HttpHeaderBlock_ResponseParseEdgeCases() {
 
 // Verify that a path encoding a body size exceeding 10 MB yields a 400.
 void HttpServer_BodyTooLarge() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
       nullptr, 0s, 0s);
   ASSERT_TRUE(server);
@@ -1372,6 +1420,8 @@ void HttpServer_BodyTooLarge() {
 // Verify that a header block exceeding the 8192-byte limit yields a 400
 // response and the server closes the connection.
 void HttpServer_TooLongHeaders() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
       nullptr, 0s, 0s);
   ASSERT_TRUE(server);
@@ -1390,6 +1440,8 @@ void HttpServer_TooLongHeaders() {
 // Verify that a request line with an unrecognized method yields a 400
 // response and the server closes the connection.
 void HttpServer_MalformedRequestLine() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
       nullptr, 0s, 0s);
   ASSERT_TRUE(server);
@@ -1405,6 +1457,8 @@ void HttpServer_MalformedRequestLine() {
 // Verify that an HTTP/1.0 request with `Connection: keep-alive` keeps the
 // connection open for a second request.
 void HttpServer_Http10KeepAlive() {
+  if (is_codex()) return;
+
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
       nullptr, 0s, 0s);
   ASSERT_TRUE(server);
@@ -2334,6 +2388,8 @@ void WebSocket_PingCounter() {
 // enabled and that a client responding with matching pongs keeps the
 // connection open. Uses 100 ms intervals so the test runs quickly.
 void HttpServer_WebSocket_Keepalive() {
+  if (is_codex()) return;
+
   using namespace std::chrono_literals;
 
   epoll_loop_runner loop_runner;
@@ -2419,6 +2475,8 @@ void HttpServer_WebSocket_Keepalive() {
 // Verify that the server closes the connection with code 1001 when the client
 // ignores pings and the pong timeout expires.
 void HttpServer_WebSocket_KeepaliveTimeout() {
+  if (is_codex()) return;
+
   using namespace std::chrono_literals;
 
   epoll_loop_runner loop_runner;
@@ -2500,6 +2558,8 @@ void HttpServer_WebSocket_KeepaliveTimeout() {
 //   3. Client sends a masked text frame; server echoes it back unmasked.
 //   4. Client decodes the echo and verifies the payload.
 void HttpServer_WebSocket() {
+  if (is_codex()) return;
+
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
   server->add_route({"", "/ws"},
@@ -2568,6 +2628,8 @@ void HttpServer_WebSocket() {
 // Query strings and fragments must not affect route matching; only the target
 // path determines the registered `base_path`.
 void HttpServer_WebSocket_QueryAndFragmentRoute() {
+  if (is_codex()) return;
+
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
   server->add_route({"", "/ws"},
@@ -2619,6 +2681,8 @@ void HttpServer_WebSocket_QueryAndFragmentRoute() {
 //      returned after the pong.
 //   4. Close frame (code 1001): server mirrors the code; `on_close` fires.
 void HttpServer_WebSocket_Frames() {
+  if (is_codex()) return;
+
   // Server echoes text messages and mirrors close frames.
   auto web_server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(web_server);
