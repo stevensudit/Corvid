@@ -80,14 +80,13 @@ namespace corvid { inline namespace proto {
 //
 // Memory layout at the front matches the on-wire representation:
 //   `frame_control`    -- byte 0: FIN|RSV1-3|opcode
-//   `variable_section` -- bytes 1..N (at most 13): MASK(1)|len7(7),
-//                         optional 2- or 8-byte extended length, optional
-//                         4-byte mask
+//   `payload_length`   -- byte 1: MASK(1)|len7(7)
+//   `variable_section` -- bytes 2..N (at most 12): optional 2- or 8-byte
+//                         extended length, optional 4-byte mask key
 struct ws_frame_header {
   ws_frame_control frame_control{}; // byte 0 on the wire
-  // TODO: Consider moving the size byte out into a separate field, since it's
-  // not at all variable.
-  uint8_t variable_section[13]{}; // bytes 1-13; only `length-1` bytes valid
+  uint8_t payload_size_flags{};     // byte 1 on the wire: MASK(1)|len7(7)
+  uint8_t variable_section[12]{};   // bytes 2-13; only `length-2` bytes valid
 };
 
 // Lightweight, non-owning wrapper around `ws_frame_header` for parsing and
@@ -149,10 +148,11 @@ public:
     return 10 + mask_len;
   }
 
-  // Extract the length byte, excluding the `MASK` bit. This is not
-  // generally the length; use `payload_length` for that.
-  [[nodiscard]] uint8_t length_byte() const noexcept {
-    return header_->variable_section[0] & uint8_t{0x7F};
+  // Extract the payload size flags byte, excluding the `MASK` bit. While it is
+  // used to determine the payload length, it is generally not the actual
+  // value: use `payload_length` for that.
+  [[nodiscard]] uint8_t payload_size_flags() const noexcept {
+    return header_->payload_size_flags & uint8_t{0x7F};
   }
 
   // Frame control byte, the first byte of the header.
@@ -191,7 +191,7 @@ public:
   // between having a mask of 0 and not having a mask, per RFC 6455
   // section 5.2.
   [[nodiscard]] bool is_masked() const noexcept {
-    return (header_->variable_section[0] & 0x80U) != 0;
+    return (header_->payload_size_flags & 0x80U) != 0;
   }
 
   // Mask key, or 0 if `!is_masked()`.
@@ -216,7 +216,7 @@ public:
 
     // If `lb` == 126, need 2 more bytes for extended length;
     // if 127, need 8 more.
-    const auto lb = length_byte();
+    const auto lb = payload_size_flags();
     if (lb == 126)
       header_length_ += 2;
     else if (lb == 127)
@@ -231,7 +231,7 @@ public:
   // advance, but does require that `is_complete` would have returned true.
   [[nodiscard]] bool parse() noexcept {
     assert(is_complete());
-    const auto lb = length_byte();
+    const auto lb = payload_size_flags();
     const auto* vs = header_->variable_section;
     header_length_ = 2;
 
@@ -243,12 +243,12 @@ public:
       payload_length_ = lb;
     else if (lb == 126) {
       uint16_t v{};
-      std::memcpy(&v, vs + 1, sizeof(v));
+      std::memcpy(&v, vs, sizeof(v));
       payload_length_ = ntoh16(v);
       header_length_ += 2;
     } else {
       uint64_t v{};
-      std::memcpy(&v, vs + 1, sizeof(v));
+      std::memcpy(&v, vs, sizeof(v));
       payload_length_ = ntoh64(v);
       header_length_ += 8;
     }
@@ -256,7 +256,7 @@ public:
     // Decode mask.
     mask_ = 0;
     if (is_masked()) {
-      std::memcpy(&mask_, vs + header_length_ - 1, sizeof(mask_));
+      std::memcpy(&mask_, vs + header_length_ - 2, sizeof(mask_));
       mask_ = ntoh32(mask_);
       header_length_ += 4;
     }
@@ -374,19 +374,19 @@ public:
 
     // Encode length.
     if (payload_len < 126) {
-      vs[0] = mask_bit | static_cast<uint8_t>(payload_len);
+      header.payload_size_flags = mask_bit | static_cast<uint8_t>(payload_len);
       lens.header_length_ = 2;
     } else if (payload_len <= 0xFFFF) {
-      vs[0] = static_cast<char>(mask_bit | 126);
+      header.payload_size_flags = mask_bit | 126;
       auto v = static_cast<uint16_t>(payload_len);
       v = hton16(v);
-      std::memcpy(vs + 1, &v, sizeof(v));
+      std::memcpy(vs, &v, sizeof(v));
       lens.header_length_ = 4;
     } else {
-      vs[0] = static_cast<char>(mask_bit | 127);
+      header.payload_size_flags = mask_bit | 127;
       auto v = static_cast<uint64_t>(payload_len);
       v = hton64(v);
-      std::memcpy(vs + 1, &v, sizeof(v));
+      std::memcpy(vs, &v, sizeof(v));
       lens.header_length_ = 10;
     }
 
@@ -394,7 +394,7 @@ public:
     if (mask) {
       lens.mask_ = *mask;
       uint32_t be_mask = hton32(lens.mask_);
-      std::memcpy(vs + lens.header_length_ - 1, &be_mask, sizeof(be_mask));
+      std::memcpy(vs + lens.header_length_ - 2, &be_mask, sizeof(be_mask));
       lens.header_length_ += 4;
     }
     return lens;
