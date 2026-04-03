@@ -246,8 +246,8 @@ private:
 
   // Consume up to the position, making it the new start of the active
   // region. Use with return value from `offset_to_coordinates` to skip past
-  // a linear offset. When position is past the end, clears and returns
-  // false.
+  // a linear offset. When position is past the end, clears and returns true
+  // (a complete consume is success). Returns false only on hard error.
   [[nodiscard]] bool do_consume() noexcept {
     if (segments_.empty() || last_op_.transferred == npos) return false;
     if (!last_op_.transferred) return true;
@@ -260,7 +260,7 @@ private:
     last_op_ = {};
 
     // If past the last segment, trim.
-    if (actual_index >= segments_.size()) return do_clear() && false;
+    if (actual_index >= segments_.size()) return do_clear();
 
     // Subtract bytes from all segments being skipped over. Note that we only
     // look at the lengths; we do not dereference the buffers because they may

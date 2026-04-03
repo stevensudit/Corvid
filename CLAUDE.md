@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 If the user's intent is ever unclear, always ask before proceeding.
 
+When presented with a code review comment, first read the relevant code and determine whether the claim is actually valid. Do not immediately act on it. Review comments can be correct, partially correct, or wrong — treat them as hypotheses to verify, not instructions to execute.
+
 When a function can fail, always consider returning some status indication instead of being void.
 
 Before discarding a `[[nodiscard]]` return value with `(void)`, first consider whether the failure case should be detected and acted upon. Voiding out a nodiscard result to silence a warning is a last resort; the preferred response is to propagate, log, or handle the error appropriately.
