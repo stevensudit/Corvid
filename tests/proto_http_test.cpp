@@ -1439,9 +1439,10 @@ void HttpHeaderBlock_HttpOptionsExtractApply() {
     opts.extract(h);
     EXPECT_FALSE(opts.content_type);
   }
-  // upgrade: websocket recognized.
+  // upgrade: websocket recognized, only when Connection is Upgrade
   {
     http_headers h;
+    EXPECT_TRUE(h.add_raw("Connection", "Upgrade"));
     EXPECT_TRUE(h.add_raw("Upgrade", "websocket"));
     http_options opts;
     opts.extract(h);
@@ -1451,6 +1452,7 @@ void HttpHeaderBlock_HttpOptionsExtractApply() {
   // upgrade: unrecognized token -> `unknown`.
   {
     http_headers h;
+    EXPECT_TRUE(h.add_raw("Connection", "Upgrade"));
     EXPECT_TRUE(h.add_raw("Upgrade", "h2c"));
     http_options opts;
     opts.extract(h);
@@ -1460,6 +1462,7 @@ void HttpHeaderBlock_HttpOptionsExtractApply() {
   // upgrade: websocket wins in a token list.
   {
     http_headers h;
+    EXPECT_TRUE(h.add_raw("Connection", "Upgrade"));
     EXPECT_TRUE(h.add_raw("Upgrade", "h2c, websocket"));
     http_options opts;
     opts.extract(h);
@@ -2037,6 +2040,11 @@ wstx_make_view(recv_buffer& buf, std::string_view data = {}) {
   return req;
 }
 
+void wstx_reextract_options(request_head& req) {
+  req.options = {};
+  req.options.extract(req.headers);
+}
+
 // Valid upgrade handshake: `handle_data` returns `claim`.
 void WebSocketTransaction_UpgradeSuccess() {
   auto tx =
@@ -2107,6 +2115,7 @@ void WebSocketTransaction_MissingUpgrade() {
 void WebSocketTransaction_MissingConnection() {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Connection");
+  wstx_reextract_options(req);
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
   recv_buffer buf;
   auto view = wstx_make_view(buf);
@@ -2118,6 +2127,7 @@ void WebSocketTransaction_WrongVersion() {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Sec-Websocket-Version");
   (void)req.headers.add_raw("Sec-Websocket-Version", "8");
+  wstx_reextract_options(req);
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
   recv_buffer buf;
   auto view = wstx_make_view(buf);
@@ -2128,6 +2138,7 @@ void WebSocketTransaction_WrongVersion() {
 void WebSocketTransaction_MissingKey() {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Sec-Websocket-Key");
+  wstx_reextract_options(req);
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
   recv_buffer buf;
   auto view = wstx_make_view(buf);

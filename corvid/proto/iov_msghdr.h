@@ -91,31 +91,36 @@ public:
     update_iov();
   }
 
-  // Append a segment.
-  void append(iovec iov) {
+  // Append a segment. Returns whether the segment was added: empty ones are
+  // not.
+  [[nodiscard]] bool append(iovec iov) {
+    if (iov.iov_len == 0) return false;
     segments_.push_back(iov);
     size_ += iov.iov_len;
     update_iov();
+    return true;
   }
 
-  void append(const void* data, size_t size)
+  [[nodiscard]] bool append(const void* data, size_t size)
   requires is_sender
   {
-    append(iovec{const_cast<void*>(data), size});
+    return append(iovec{const_cast<void*>(data), size});
   }
 
-  void append(void* data, size_t size) { append(iovec{data, size}); }
+  [[nodiscard]] bool append(void* data, size_t size) {
+    return append(iovec{data, size});
+  }
 
-  void append(std::string_view data)
+  [[nodiscard]] bool append(std::string_view data)
   requires is_sender
   {
-    append(data.data(), data.size());
+    return append(data.data(), data.size());
   }
 
   template<class T, size_t Extent>
   requires(sizeof(T) == 1)
-  void append(std::span<T, Extent> data) {
-    append(data.data(), data.size_bytes());
+  [[nodiscard]] bool append(std::span<T, Extent> data) {
+    return append(data.data(), data.size_bytes());
   }
 
   [[nodiscard]] bool empty() const noexcept { return size_ == 0; }

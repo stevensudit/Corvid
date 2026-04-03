@@ -1648,6 +1648,35 @@ void StreamConn_DrainAfterImmediateSend() {
   EXPECT_EQ(received, "hello");
 }
 
+void StreamConn_SendRejectsOnlyEmptyBuffers() {
+  auto loop = epoll_loop::make();
+  auto this_is_the_loop_thread = loop->poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  int drain_count = 0;
+  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_drain = [&](stream_conn&) {
+        ++drain_count;
+        return true;
+      }});
+  EXPECT_GE(loop->run_once(0), 0); // register_with_loop + initial EPOLLOUT
+  EXPECT_EQ(drain_count, 1);
+
+  EXPECT_FALSE(conn->send(std::string{}));
+  EXPECT_FALSE(conn->send(std::string{}, std::string{}));
+  EXPECT_GE(loop->run_once(0), 0);
+  EXPECT_EQ(drain_count, 1);
+
+  EXPECT_TRUE(conn->send(std::string{}, std::string{"hello"}, std::string{}));
+  EXPECT_GE(loop->run_once(0), 0);
+  EXPECT_EQ(drain_count, 2);
+
+  std::string received;
+  no_zero::enlarge_to(received, 16);
+  ASSERT_TRUE(b.read(received));
+  EXPECT_EQ(received, "hello");
+}
+
 void StreamConn_AsyncCbRead() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -2906,7 +2935,8 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_Receive, StreamConn_SetRecvBufSize, StreamConn_PeerClose,
     StreamConn_PeerClose_WithBufferedData, StreamConn_Send,
     StreamConn_ManualClose, StreamConn_DrainAfterBufferedSend,
-    StreamConn_DrainAfterImmediateSend, StreamConn_AsyncCbRead,
+    StreamConn_DrainAfterImmediateSend, StreamConn_SendRejectsOnlyEmptyBuffers,
+    StreamConn_AsyncCbRead,
     StreamConn_AsyncCbRead_PreservesEarlyData,
     StreamConn_AsyncCbRead_DuplicateRejected, StreamConn_AsyncCbRead_PeerClose,
     StreamConn_AsyncCbWrite, StreamConn_AsyncCbWrite_Failure,

@@ -231,6 +231,7 @@ public:
   requires(std::same_as<std::remove_cvref_t<Bufs>, std::string> && ...)
   [[nodiscard]] bool send(Bufs&&... bufs) {
     if (!open_ || !write_open_) return false;
+    if (((bufs.empty() ? 0U : 1U) + ...) == 0) return false;
     return execute_or_post(
         [p = self(),
             t = std::make_tuple(std::forward<Bufs>(bufs)...)]() mutable {
@@ -913,11 +914,15 @@ private:
     assert(loop_.is_loop_thread());
     if (!open_ || !write_open_) return false;
 
-    // Append each buffer to queue and sender; sender segments point into
-    // the stored strings.
-    ((send_queue_.push_back(std::forward<Bufs>(bufs)),
-         iov_sender_.append(send_queue_.back())),
-        ...);
+    // Append each non-empty buffer to queue and sender; sender segments point
+    // into the stored strings.
+    bool appended =
+        ((bufs.empty()
+                 ? false
+                 : (send_queue_.push_back(std::forward<Bufs>(bufs)),
+                       (void)iov_sender_.append(send_queue_.back()), true)) ||
+            ...);
+    if (!appended) return false;
 
     // If an async connect is still in progress, sends would fail with
     // `ENOTCONN`. `EPOLLOUT` is already armed; wait for connect resolution.
