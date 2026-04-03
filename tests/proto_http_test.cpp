@@ -547,6 +547,31 @@ void HttpServer_GetPath() {
   EXPECT_NE(body.find("123"), std::string::npos);
 }
 
+// Verify that `route_base_path` extracts the leading path component from the
+// request target path and ignores any query or fragment suffix.
+void HttpServer_RouteBasePath() {
+  struct test_case {
+    std::string_view target;
+    std::string_view base_path;
+  };
+
+  constexpr test_case cases[]{{"/", "/"},
+      {"/ws", "/ws"},
+      {"/ws/", "/ws"},
+      {"/ws/chat", "/ws"},
+      {"/ws?token=abc", "/ws"},
+      {"/ws#frag", "/ws"},
+      {"/ws/chat?token=abc#frag", "/ws"},
+      {"/?token=abc", "/"},
+      {"/#frag", "/"},
+      {"?token=abc", ""},
+      {"#frag", ""},
+      {"", ""}};
+
+  for (const auto& tc: cases)
+    EXPECT_EQ(http_server::route_base_path(tc.target), tc.base_path);
+}
+
 // Verify that a POST request yields a 405 response (not a silent close).
 void HttpServer_InvalidRequest() {
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
@@ -2540,6 +2565,46 @@ void HttpServer_WebSocket() {
   EXPECT_EQ(got_op, ws_frame_control::text);
 }
 
+// Query strings and fragments must not affect route matching; only the target
+// path determines the registered `base_path`.
+void HttpServer_WebSocket_QueryAndFragmentRoute() {
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  ASSERT_TRUE(server);
+  server->add_route({"", "/ws"},
+      http_websocket_transaction::make_factory(
+          [](http_websocket_transaction& tx) {
+            tx.websocket().on_message =
+                [](http_websocket& ws, std::string&& p, ws_frame_control) {
+                  return ws.send_text(p);
+                };
+            return true;
+          }));
+
+  auto client = stream_sync::connect(server->local_endpoint(), 1s);
+  ASSERT_TRUE(client);
+
+  ASSERT_TRUE(client.send(
+      "GET /ws?token=abc#frag HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Upgrade: websocket\r\n"
+      "Connection: Upgrade\r\n"
+      "Sec-Websocket-Version: 13\r\n"
+      "Sec-Websocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+      "\r\n"));
+
+  const auto resp_wire = client.recv_until("\r\n\r\n");
+  ASSERT_FALSE(resp_wire.empty());
+  auto resp_head_wire = std::string_view{resp_wire};
+  ASSERT_GE(resp_head_wire.size(), 2U);
+  resp_head_wire.remove_suffix(2);
+  response_head resp;
+  ASSERT_TRUE(resp.parse(resp_head_wire));
+  EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+  const auto accept = resp.headers.get("Sec-Websocket-Accept");
+  ASSERT_TRUE(accept);
+  EXPECT_EQ(*accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+}
+
 // Semi-integration test exercising four frame-sequence scenarios against a
 // live `http_server` with an `http_websocket_transaction` echo route.
 //
@@ -2683,6 +2748,7 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     HttpHeaderBlock_ExtractHeaderErrors, HttpHeaderBlock_RequestSerialize,
     HttpHeaderBlock_ResponseExtract, HttpServer_OwnLoop, HttpServer_SharedLoop,
     HttpServer_Create_BadEndpoint, HttpServer_GetRoot, HttpServer_GetPath,
+    HttpServer_RouteBasePath,
     HttpServer_InvalidRequest, HttpServer_TooLongRequest,
     HttpServer_PartialRequest, HttpServer_ANS, HttpServer_SharedWheel,
     HttpServer_RequestWithinTimeout, HttpServer_IdleTimeout,
@@ -2719,4 +2785,5 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     WebSocketTransaction_FeedProtocolError, WebSocketTransaction_MakeFactory,
     WebSocket_PingCounter, HttpServer_WebSocket_Keepalive,
     HttpServer_WebSocket_KeepaliveTimeout, HttpServer_WebSocket,
+    HttpServer_WebSocket_QueryAndFragmentRoute,
     HttpServer_WebSocket_Frames);

@@ -260,6 +260,14 @@ public:
     routes_[std::move(key)] = std::move(factory);
   }
 
+  // Extract the leading path component from a request target after removing
+  // any query or fragment suffix (e.g., `"/api"` from `"/api/v1?x=1#y"`).
+  [[nodiscard]] static std::string_view route_base_path(
+      std::string_view target) {
+    target = target.substr(0, target.find_first_of("?#"));
+    return target.substr(0, target.find('/', 1));
+  }
+
   http_server(allow) {};
 
 private:
@@ -404,14 +412,12 @@ private:
           state.req.version);
 
     // Build the route key from the `Host` header and the leading path
-    // component of the request target (e.g., "/api" from "/api/v2", "/api/",
-    // or "/api"; and "/" from "/").
+    // component of the request target path, ignoring any query or fragment
+    // suffix (e.g., "/api" from "/api/v2?x=1#y", "/api/", or "/api"; and
+    // "/" from "/").
     auto host_opt = state.req.headers.get("Host");
     std::string_view hostname = host_opt ? *host_opt : std::string_view{};
-    std::string_view base_path = state.req.target;
-    auto sep = base_path.find('/', 1);
-    if (sep == std::string_view::npos) sep = base_path.size();
-    base_path = base_path.substr(0, sep);
+    std::string_view base_path = route_base_path(state.req.target);
 
     const transaction_factory* factory = find_route({hostname, base_path});
     if (!factory)
