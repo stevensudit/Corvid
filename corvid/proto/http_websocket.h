@@ -471,6 +471,7 @@ struct ws_frame_codec {
   [[nodiscard]] static std::string compute_accept_key(
       std::string_view client_key) {
     if (client_key.empty()) return {};
+    if (base_64::decode(client_key).size() != 16) return {};
     const std::string input = std::string{client_key} + std::string{ws_guid};
     return encode_digest(sha_1::digest(input));
   }
@@ -564,6 +565,10 @@ public:
       view.update_active_view(data);
 
       if (needed == insatiable) return false;
+      // `needed` is only a lower bound used when the active frame would not
+      // fit in the current receive buffer capacity. In practice that only
+      // matters near the end of the buffer, and the string's geometric growth
+      // avoids churn from tiny header-estimate differences.
       if (needed > view.buffer_capacity()) view.expand_to(needed);
       return true;
     }
