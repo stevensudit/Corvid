@@ -737,6 +737,10 @@ public:
 private:
   // Signal an immediate RST by invoking the send function with an empty
   // string, then return false so callers can propagate the error.
+  //
+  // TODO: Consider whether some of the places where we could this should
+  // instead call `send_close(1002, "Protocol violation")`, only calling here
+  // if that fails.
   bool do_hangup() {
     if (send_) (void)send_(std::string{});
     return false;
@@ -834,6 +838,12 @@ private:
 
     // Handle initial (or only) fragment of a message.
     if (!in_fragment) {
+      // The initial message but be text or binary. If it's both or neither,
+      // that's a fatal protocol error.
+      if (bitmask::has(opcode, ws_frame_control::text) ==
+          bitmask::has(opcode, ws_frame_control::binary))
+        return do_hangup();
+
       // Save opcode so continuations can be validated and the assembled
       // message dispatched with the correct type.
       if (!is_fin) fragment_opcode_ = opcode;
