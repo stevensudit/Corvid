@@ -79,7 +79,8 @@ struct http_transaction
   // `view.update_active_view()` to consume bytes.
   using data_fn =
       std::function<stream_claim(http_transaction&, recv_buffer_view&)>;
-  using drain_fn = std::function<stream_claim(http_transaction&, send_fn&)>;
+  using drain_fn =
+      std::function<stream_claim(http_transaction&, const send_fn&)>;
 
   explicit http_transaction(request_head&& req)
       : request_headers{std::move(req)} {}
@@ -134,7 +135,7 @@ struct http_transaction
   // until the entire response is sent, at which point it returns `release`.
   //
   // Default: invoke `on_drain` if set, else return `release`.
-  [[nodiscard]] virtual stream_claim handle_drain(send_fn& send) {
+  [[nodiscard]] virtual stream_claim handle_drain(const send_fn& send) {
     if (on_drain) return on_drain(*this, send);
     close_after = after_response::close;
     return stream_claim::release;

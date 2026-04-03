@@ -381,7 +381,7 @@ struct padded_page_transaction: public http_transaction {
   explicit padded_page_transaction(request_head&& req)
       : http_transaction{std::move(req)} {}
 
-  [[nodiscard]] stream_claim handle_drain(send_fn& send) override {
+  [[nodiscard]] stream_claim handle_drain(const send_fn& send) override {
     const auto& req = request_headers;
 
     if (req.method != http_method::GET) {

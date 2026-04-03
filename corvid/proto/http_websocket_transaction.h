@@ -71,7 +71,7 @@ public:
   // The WebSocket output never completes via send-queue drain; return
   // `claim` unconditionally. Calls `on_drain`, if set, in order to offer flow
   // control. Returns `release` once the close handshake is complete.
-  [[nodiscard]] stream_claim handle_drain(send_fn& send) override {
+  [[nodiscard]] stream_claim handle_drain(const send_fn& send) override {
     if (!websocket_send_) websocket_send_ = send;
     if (!pending_response_.empty()) {
       if (!send(std::move(pending_response_))) return stream_claim::release;
