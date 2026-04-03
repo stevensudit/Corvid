@@ -82,11 +82,7 @@ struct http_transaction
   using drain_fn = std::function<stream_claim(http_transaction&, send_fn&)>;
 
   explicit http_transaction(request_head&& req)
-      : request_headers{std::move(req)} {
-    // TODO: Figure out why this fails. It's supposed to be a failsafe, and it
-    // does look like we use make_shared correctly.
-    //   assert(!weak_from_this().expired());
-  }
+      : request_headers{std::move(req)} {}
 
   virtual ~http_transaction() = default;
 

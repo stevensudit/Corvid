@@ -445,7 +445,7 @@ private:
   auto server = http_server::create(endpoint, std::move(loop),
       std::move(wheel), request_timeout, write_timeout);
   if (server)
-    server->add_route("/", [](request_head&& req) -> transaction_ptr {
+    server->add_route({"", "/"}, [](request_head&& req) -> transaction_ptr {
       return std::make_shared<padded_page_transaction>(std::move(req));
     });
   return server;
@@ -2190,7 +2190,7 @@ void WebSocketTransaction_MakeFactory() {
 void HttpServer_WebSocket() {
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
   ASSERT_TRUE(server);
-  server->add_route("/ws",
+  server->add_route({"", "/ws"},
       http_websocket_transaction::make_factory(
           [](http_websocket_transaction& tx) {
             tx.websocket().on_message =
@@ -2205,7 +2205,7 @@ void HttpServer_WebSocket() {
   // Send a valid HTTP/1.1 WebSocket upgrade request. The RFC 6455 test-vector
   // key produces accept value `s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`.
   ASSERT_TRUE(client.send(
-      "GET /ws HTTP/1.1\r\n"
+      "GET /ws/ HTTP/1.1\r\n"
       "Host: localhost\r\n"
       "Upgrade: websocket\r\n"
       "Connection: Upgrade\r\n"
@@ -2271,7 +2271,7 @@ void HttpServer_WebSocket_Frames() {
   ASSERT_TRUE(web_server);
 
   // Register a WebSocket echo server.
-  web_server->add_route("/ws",
+  web_server->add_route({"", "/ws"},
       http_websocket_transaction::make_factory(
           [](http_websocket_transaction& tx) {
             tx.websocket().on_message =
@@ -2304,7 +2304,7 @@ void HttpServer_WebSocket_Frames() {
   // Build the upgrade request via `generate_upgrade_request`; the method
   // returns the `request_head` and stores the expected accept key.
   std::string accept_key;
-  auto req = ws_client.generate_upgrade_request("/ws", accept_key);
+  auto req = ws_client.generate_upgrade_request("/ws/", accept_key);
   (void)req.headers.add_raw("Host", "localhost");
   ASSERT_TRUE(client.send(req.serialize()));
 

@@ -53,6 +53,15 @@ The root `TODO` file tracks enhancement requests and design decisions. When enco
 
 Corvid is a **header-only C++23 library** (no external dependencies beyond libc++). All headers live under `corvid/`.
 
+## Reuse Library Utilities
+
+Corvid provides many utilities that replace direct calls on standard types. Always search the library before reaching for `std::string`, `std::string_view`, or container member functions directly. Examples:
+
+- Map/set lookup: prefer `find_opt` (returns `std::optional`) over `find` + end-check.
+- String searching and splitting: prefer the parsers and locators in `corvid/strings/` over `std::string::find`, `substr`, etc.
+
+When writing new code in `corvid/proto/` or elsewhere in the library, scan the relevant headers first to avoid reimplementing what already exists.
+
 ## Non-Obvious Locations
 
 - `npos` / base string position types: `corvid/strings/string_base.h`

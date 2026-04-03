@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <atomic>
+#include <compare>
 #include <map>
 #include <memory>
 #include <optional>
@@ -27,6 +28,7 @@
 #include "http_transaction.h"
 #include "stream_conn.h"
 #include "terminated_text_parser.h"
+#include "../containers/opt_find.h"
 #include "../concurrency/timer_fuse.h"
 #include "../containers/scoped_value.h"
 
@@ -61,6 +63,39 @@ enum class http_phase : uint8_t {
   response,
   done
 };
+
+struct host_path {
+  std::string_view hostname;
+  std::string_view base_path;
+  auto operator<=>(const host_path&) const = default;
+};
+
+// Key for `http_server` route registration. `hostname` is matched against the
+// `Host` request header; an empty `hostname` matches any host. `base_path` is
+// the leading path component extracted from the request target (e.g., `"/api"`
+// from `"/api/v2"`) and must be at least `"/"`.
+struct host_path_key {
+  std::string hostname;
+  std::string base_path;
+  auto operator<=>(const host_path_key&) const = default;
+  [[nodiscard]] constexpr operator host_path() const noexcept {
+    return {hostname, base_path};
+  }
+};
+
+struct transparent_less_host_path {
+  using is_transparent = void;
+
+  [[nodiscard]] constexpr bool
+  operator()(const auto& lhs, const auto& rhs) const noexcept {
+    auto lhs_view = static_cast<host_path>(lhs);
+    auto rhs_view = static_cast<host_path>(rhs);
+    return lhs_view < rhs_view;
+  }
+};
+
+using route_map_t =
+    std::map<host_path_key, transaction_factory, transparent_less_host_path>;
 
 // HTTP/1.x server (including HTTP/0.9) built on `stream_conn` and
 // `epoll_loop`, with `timing_wheel`-driven timeouts.
@@ -197,13 +232,15 @@ public:
     return std::static_pointer_cast<http_server>(shared_from_this());
   }
 
-  // Register `factory` for the top-level virtual folder identified by
-  // `folder`. Dispatch extracts the leading path component (e.g., `"/api"`
-  // from `"/api/v2"`) and looks it up directly. Use `"/"` as a fallback
-  // for unmatched paths; use `""` as an ultimate catch-all. Replaces any
-  // existing registration for the same folder.
-  void add_route(std::string folder, transaction_factory factory) {
-    routes_[std::move(folder)] = std::move(factory);
+  // Register `factory` for the route identified by `key`. The `hostname`
+  // field is matched against the `Host` request header (empty matches any
+  // host). The `base_path` field is the leading path component (e.g.,
+  // `"/api"` from `"/api/v2"`); `"/"` acts as a host-scoped catch-all for
+  // unmatched paths. Replaces any existing registration for the same key.
+  void add_route(host_path_key key, transaction_factory factory) {
+    assert(key.base_path.starts_with("/"));
+    assert(key.base_path.size() == 1 || !key.base_path.ends_with("/"));
+    routes_[std::move(key)] = std::move(factory);
   }
 
   http_server(allow) {};
@@ -309,22 +346,30 @@ private:
     return keep_alive;
   }
 
-  // Find the registered route for `target`'s top-level virtual folder.
-  // Extracts the leading path component (e.g., `"/api"` from `"/api/v2"`)
-  // and looks it up directly. Falls back to `"/"` and then `""` when no
-  // exact match exists. Returns a pointer to the factory, or nullptr.
+  // Find the registered route for `key`. Extracts the `base_path` from
+  // `key.base_path` directly and performs a prioritized lookup:
+  //   1. `{hostname, base_path}` -- exact host + folder
+  //   2. `{hostname, "/"}` -- host-specific catch-all
+  //   3. `{"", base_path}` -- any-host folder match
+  //   4. `{"", "/"}` -- any-host catch-all
+  // Returns a pointer to the factory, or nullptr.
   [[nodiscard]] const transaction_factory* find_route(
-      std::string_view target) const {
-    // TODO: Rewrite completely to support host/folder as key.
-    auto sep = target.find('/', 1);
-    auto folder =
-        (sep != std::string_view::npos) ? target.substr(0, sep) : target;
-    if (auto it = routes_.find(std::string{folder}); it != routes_.end())
-      return &it->second;
-    if (folder != "/") {
-      if (auto it = routes_.find("/"); it != routes_.end()) return &it->second;
+      const host_path& key) const {
+    // Try for exact host and folder match first.
+    if (auto f = find_opt(routes_, key)) return f;
+    // If not already trying for root path, try now.
+    if (key.base_path != "/")
+      if (auto f = find_opt(routes_, host_path{key.hostname, "/"})) return f;
+
+    // If hostname not empty, perhaps paths under an empty host were
+    // registered, as a catch-all.
+    if (!key.hostname.empty()) {
+      // First try folder match with catch-all host.
+      if (auto f = find_opt(routes_, host_path{"", key.base_path})) return f;
+      // If not already trying for root path, try now.
+      if (key.base_path != "/")
+        if (auto f = find_opt(routes_, host_path{"", "/"})) return f;
     }
-    if (auto it = routes_.find(""); it != routes_.end()) return &it->second;
     return nullptr;
   }
 
@@ -341,8 +386,18 @@ private:
       return send_error_response(conn, after_response::close,
           state.req.version);
 
-    // TODO: We will use the host header as the first half of the route key.
-    const transaction_factory* factory = find_route(state.req.target);
+    // Build the route key from the `Host` header and the leading path
+    // component of the request target (e.g., "/api" from "/api/v2" or "/api/",
+    // and "/" from "/" or "/api").
+    auto host_opt = state.req.headers.get("Host");
+    std::string_view hostname = host_opt ? *host_opt : std::string_view{};
+    std::string_view base_path = state.req.target;
+    auto sep = base_path.find('/', 1);
+    if (sep == std::string_view::npos) sep = 1;
+    base_path = base_path.substr(0, sep);
+
+    const transaction_factory* factory =
+        find_route({std::string{hostname}, std::string{base_path}});
     if (!factory)
       return send_error_response(conn, keep_alive, state.req.version,
           http_status_code::NOT_FOUND, "Not Found");
@@ -673,6 +728,6 @@ private:
   duration_t read_timeout_{30s};
   duration_t write_timeout_{5s};
   conn_ptr_t listener_;
-  std::map<std::string, transaction_factory> routes_;
+  route_map_t routes_;
 };
 }} // namespace corvid::proto

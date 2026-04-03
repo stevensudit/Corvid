@@ -602,9 +602,19 @@ private:
   void run(const std::stop_token& st) {
     jthread_stoppable_sleep::set_thread_name("epoll");
 
+    // Hold a local `shared_ptr` so the loop outlives this function even if
+    // every external owner (e.g., `http_server::loop_` and
+    // `epoll_loop_runner::loop_`) is dropped by a callback running on this
+    // thread. Without it, destroying the last external owner inside a callback
+    // (self-join path) calls `epoll_loop::~epoll_loop` while `run` is still on
+    // the call stack, causing use-after-free in `dispatch_event`.
+    auto loop = loop_;
+
     // When stop is requested, wake the `epoll_wait` so the loop can exit.
-    std::stop_callback on_stop{st, [this] { (void)loop_->stop(); }};
-    (void)loop_->run(100);
+    // Capture `loop` by value so the lambda does not reference `this` (the
+    // runner), which may already be in its destructor when stop fires.
+    std::stop_callback on_stop{st, [loop] { (void)loop->stop(); }};
+    (void)loop->run(100);
   }
 
   std::shared_ptr<epoll_loop> loop_;
