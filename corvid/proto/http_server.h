@@ -152,6 +152,7 @@ class http_server: public std::enable_shared_from_this<http_server> {
 
     terminated_text_parser::state parser_state; // falsy until initialized
 
+    // Pipeline of transactions for this connection.
     transaction_queue pipeline;
 
     request_head req; // populated across request_line / header_lines
@@ -711,7 +712,10 @@ private:
       }
       case http_phase::body: return handle_body(conn, input, view);
       case http_phase::response:
-      // TODO: Why are these the same!?
+      // Both phases arrive here only after `enter_close_phase` has called
+      // `conn.close()`. The write side drains via `on_drain`/`handle_drain`,
+      // which is independent of this read path. Nothing useful can be done
+      // with incoming bytes, so we drop them and let the queue finish.
       case http_phase::done:
         // Ignore trailing bytes; let the send queue drain cleanly.
         return true;
