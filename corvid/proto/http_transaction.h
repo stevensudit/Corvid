@@ -52,8 +52,8 @@ using transaction_ptr = std::shared_ptr<http_transaction>;
 //
 //   `handle_data(recv_buffer_view)` is called by `http_server` to offer data
 //       for the transaction to read. The first call happens immediately after
-//       the transaction is initalized with `request_headers`. This is the
-//       transactiion's chance to examine the headers and decide whether it
+//       the transaction is initialized with `request_headers`. This is the
+//       transaction's chance to examine the headers and decide whether it
 //       needs to consume a body from the receive buffer. Returns `claim` to
 //       keep receiving data, `release` when done.
 //
