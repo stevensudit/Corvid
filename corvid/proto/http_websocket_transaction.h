@@ -62,6 +62,18 @@ public:
   using duration_t = timing_wheel::duration_t;
   using configure_fn = std::function<bool(http_websocket_transaction&)>;
 
+  // Called during the upgrade handshake when the client offers subprotocols
+  // via `Sec-WebSocket-Protocol`. Receives the raw header value (a
+  // comma-separated list of client-proposed names). Return the chosen
+  // protocol to include it in the 101 response, or an empty string to
+  // accept without naming a subprotocol. Not called if the client did not
+  // send the header.
+  using protocol_fn = std::function<std::string(std::string_view)>;
+
+  // Called when the client offers subprotocols.
+  protocol_fn on_protocol;
+
+public:
   explicit http_websocket_transaction(request_head&& req)
       : http_transaction{std::move(req)} {}
 
@@ -131,7 +143,8 @@ public:
   // Build a `transaction_factory` that constructs an
   // `http_websocket_transaction` for each matching request and then calls
   // `configure` on it so the caller can install `on_message` / `on_close`, and
-  // perhaps `on_drain`.
+  // perhaps `on_drain`. You can also set `on_protocol` directly on the
+  // transaction in `configure` to handle subprotocol negotiation.
   [[nodiscard]] static transaction_factory make_factory(
       configure_fn configure = {}) {
     return [configure = std::move(configure)](
@@ -168,9 +181,14 @@ private:
     const auto accept = ws_frame_codec::compute_accept_key(*key_hdr);
     if (accept.empty()) return send_bad_request(view);
 
-    // TODO: We may wish to check "Sec-WebSocket-Protocol", passing it to a
-    // callback that can return a value that we include in the same header of
-    // the response.
+    // If a subprotocol callback is set and the client offered protocols,
+    // call it and capture the result for the response.
+    std::string protocol;
+    if (on_protocol) {
+      const auto proto_hdr =
+          request_headers.headers.get("Sec-Websocket-Protocol");
+      if (proto_hdr) protocol = on_protocol(*proto_hdr);
+    }
 
     // Build 101 Switching Protocols response.
     response_head resp;
@@ -181,6 +199,9 @@ private:
     if (!resp.headers.add_raw("Connection", "Upgrade")) return do_fail_badly();
     if (!resp.headers.add_raw("Sec-Websocket-Accept", accept))
       return do_fail_badly();
+    if (!protocol.empty())
+      if (!resp.headers.add_raw("Sec-Websocket-Protocol", protocol))
+        return do_fail_badly();
 
     pending_response_ = resp.serialize();
     upgraded_ = true;

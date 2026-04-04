@@ -2875,7 +2875,8 @@ void Base64_Decode_Empty() {
 void Base64_Decode_KnownVectors() {
   auto check = [](std::string_view encoded, std::string_view expected) {
     auto result = base_64::decode(encoded);
-    EXPECT_EQ(std::string(result.begin(), result.end()), std::string(expected));
+    EXPECT_EQ(std::string(result.begin(), result.end()),
+        std::string(expected));
   };
   check("Zg==", "f");
   check("Zm8=", "fo");
@@ -2924,7 +2925,8 @@ void Base64_RoundTrip_AllBytes() {
 
 void IovMsghdr_OversizeTransferIsHardFailure() {
   if (true) {
-    const auto [ok, op] = corvid::proto::iov_msghdr_test::oversize_update<true>();
+    const auto [ok, op] =
+        corvid::proto::iov_msghdr_test::oversize_update<true>();
     EXPECT_FALSE(ok);
     EXPECT_EQ(op.transferred, proto::iov_msghdr_sender::npos);
     EXPECT_EQ(op.index, proto::iov_msghdr_sender::npos);
@@ -2969,8 +2971,7 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_PeerClose_WithBufferedData, StreamConn_Send,
     StreamConn_ManualClose, StreamConn_DrainAfterBufferedSend,
     StreamConn_DrainAfterImmediateSend, StreamConn_SendRejectsOnlyEmptyBuffers,
-    StreamConn_AsyncCbRead,
-    StreamConn_AsyncCbRead_PreservesEarlyData,
+    StreamConn_AsyncCbRead, StreamConn_AsyncCbRead_PreservesEarlyData,
     StreamConn_AsyncCbRead_DuplicateRejected, StreamConn_AsyncCbRead_PeerClose,
     StreamConn_AsyncCbWrite, StreamConn_AsyncCbWrite_Failure,
     StreamConn_AsyncCbWrite_DuplicateRejected, StreamConn_ShutdownWrite,
@@ -2983,8 +2984,8 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_AsyncSend, StreamConn_EchoServer, StreamConnWithState_Adopt,
     StreamConnWithState_From, StreamConnWithState_Listen,
     StreamConnPtr_Covariance, StreamConnWithState_AcceptClone_Nullptr,
-    IovMsghdr_OversizeTransferIsHardFailure,
-    TerminatedTextParser_CompleteLine, TerminatedTextParser_IncompleteEmpty,
+    IovMsghdr_OversizeTransferIsHardFailure, TerminatedTextParser_CompleteLine,
+    TerminatedTextParser_IncompleteEmpty,
     TerminatedTextParser_IncompletePartial, TerminatedTextParser_SplitSentinel,
     TerminatedTextParser_MultipleFrames, TerminatedTextParser_EmptyLine,
     TerminatedTextParser_TooLong, TerminatedTextParser_TooLong_WithSentinel,

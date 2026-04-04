@@ -1963,6 +1963,77 @@ void ScopeExit_Basic() {
   }
 }
 
+void HashCombiner_Basic() {
+  // Default seed is zero; explicit seed is respected.
+  if (true) {
+    hash_combiner h;
+    EXPECT_EQ(h.value(), 0u);
+    EXPECT_EQ(static_cast<size_t>(h), 0u);
+  }
+  if (true) {
+    hash_combiner h{42u};
+    EXPECT_EQ(h.value(), 42u);
+  }
+
+  // Combining a non-zero hash into seed 0 must produce a non-zero result.
+  if (true) {
+    hash_combiner h;
+    h.combine_hash(1u);
+    EXPECT_NE(h.value(), 0u);
+  }
+
+  // `combine` hashes a typed value and folds it in.
+  if (true) {
+    hash_combiner h;
+    h.combine(123);
+    EXPECT_NE(h.value(), 0u);
+  }
+
+  // Order of combination must matter.
+  if (true) {
+    hash_combiner h1;
+    h1.combine(1);
+    h1.combine(2);
+
+    hash_combiner h2;
+    h2.combine(2);
+    h2.combine(1);
+
+    EXPECT_NE(h1.value(), h2.value());
+  }
+
+  // `combine_all` must be equivalent to sequential `combine` calls.
+  if (true) {
+    hash_combiner h1;
+    h1.combine_all(1, 2, 3);
+
+    hash_combiner h2;
+    h2.combine(1);
+    h2.combine(2);
+    h2.combine(3);
+
+    EXPECT_EQ(h1.value(), h2.value());
+  }
+
+  // `combined_hash` must match building a combiner manually.
+  if (true) {
+    auto expected = combined_hash(std::string{"hello"}, 42, true);
+
+    hash_combiner h;
+    h.combine(std::string{"hello"});
+    h.combine(42);
+    h.combine(true);
+
+    EXPECT_EQ(expected, h.value());
+  }
+
+  // Different argument values or orderings must produce different results.
+  if (true) {
+    EXPECT_NE(combined_hash(1, 2), combined_hash(2, 1));
+    EXPECT_NE(combined_hash(1, 2), combined_hash(1, 3));
+  }
+}
+
 MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
     FindOptTest_Maps, FindOptTest_Sets, FindOptTest_Vectors,
@@ -1973,7 +2044,7 @@ MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
     InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
     CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
     StrongType_Extended, EnumVariant_Basic, EnumVector_Basic,
-    ScopedValue_Basic, ScopeExit_Basic);
+    ScopedValue_Basic, ScopeExit_Basic, HashCombiner_Basic);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

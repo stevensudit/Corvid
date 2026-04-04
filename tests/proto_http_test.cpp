@@ -2611,6 +2611,78 @@ void WebSocketTransaction_FeedProtocolError() {
   EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::release);
 }
 
+// When `on_protocol` is set and the client offers subprotocols, the chosen
+// protocol appears in the 101 response. When the client offers no protocols,
+// the callback is not invoked and the response has no protocol header.
+void WebSocketTransaction_SubprotocolNegotiation() {
+  // Case 1: client offers "chat, superchat"; callback picks "chat".
+  {
+    auto req = wstx_make_upgrade_req();
+    (void)req.headers.add_raw("Sec-Websocket-Protocol", "chat, superchat");
+    auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
+
+    bool called{};
+    tx->on_protocol = [&](std::string_view offered) -> std::string {
+      called = true;
+      EXPECT_EQ(offered, "chat, superchat");
+      return "chat";
+    };
+
+    recv_buffer buf;
+    {
+      auto view = wstx_make_view(buf);
+      ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
+    }
+
+    std::string sent;
+    http_transaction::send_fn send_fn{[&](std::string&& data) {
+      sent = std::move(data);
+      return true;
+    }};
+    ASSERT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
+    EXPECT_TRUE(called);
+
+    response_head resp;
+    ASSERT_TRUE(resp.parse(sent.substr(0, sent.size() - 2)));
+    EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+    const auto proto = resp.headers.get("Sec-Websocket-Protocol");
+    ASSERT_TRUE(proto);
+    EXPECT_EQ(*proto, "chat");
+  }
+
+  // Case 2: client sends no protocol header; callback is not invoked and the
+  // response has no `Sec-Websocket-Protocol` header.
+  {
+    auto tx =
+        std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
+
+    bool called{};
+    tx->on_protocol = [&](std::string_view) -> std::string {
+      called = true;
+      return "chat";
+    };
+
+    recv_buffer buf;
+    {
+      auto view = wstx_make_view(buf);
+      ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
+    }
+
+    std::string sent;
+    http_transaction::send_fn send_fn{[&](std::string&& data) {
+      sent = std::move(data);
+      return true;
+    }};
+    ASSERT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
+    EXPECT_FALSE(called);
+
+    response_head resp;
+    ASSERT_TRUE(resp.parse(sent.substr(0, sent.size() - 2)));
+    EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+    EXPECT_FALSE(resp.headers.get("Sec-Websocket-Protocol"));
+  }
+}
+
 // `make_factory` creates an `http_websocket_transaction` and invokes the
 // configure callback.
 void WebSocketTransaction_MakeFactory() {
@@ -3167,7 +3239,9 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     WebSocketTransaction_MissingConnection, WebSocketTransaction_WrongVersion,
     WebSocketTransaction_MissingKey, WebSocketTransaction_BadRequestDrain,
     WebSocketTransaction_FeedAfterUpgrade,
-    WebSocketTransaction_FeedProtocolError, WebSocketTransaction_MakeFactory,
-    WebSocket_PingCounter, HttpServer_WebSocket_Keepalive,
-    HttpServer_WebSocket_KeepaliveTimeout, HttpServer_WebSocket,
-    HttpServer_WebSocket_QueryAndFragmentRoute, HttpServer_WebSocket_Frames);
+    WebSocketTransaction_FeedProtocolError,
+    WebSocketTransaction_SubprotocolNegotiation,
+    WebSocketTransaction_MakeFactory, WebSocket_PingCounter,
+    HttpServer_WebSocket_Keepalive, HttpServer_WebSocket_KeepaliveTimeout,
+    HttpServer_WebSocket, HttpServer_WebSocket_QueryAndFragmentRoute,
+    HttpServer_WebSocket_Frames);
