@@ -1791,7 +1791,7 @@ void WebSocket_FrameCodec_RoundTrip() {
   EXPECT_EQ(extracted, payload);
 }
 
-// Server pump receives a single unmasked text frame.
+// Client pump receives a single unmasked text frame from the server.
 void WebSocket_Feed_SingleText() {
   std::string got_msg;
   ws_frame_control got_op{};
