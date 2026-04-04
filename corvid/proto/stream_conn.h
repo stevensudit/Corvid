@@ -224,11 +224,12 @@ public:
     return weak_loop_;
   }
 
-  // Take ownership of one or more buffers and start sending them. Safe to
-  // call from any thread. Success does not mean that the buffers have been
-  // fully sent; send completion is signaled via the `on_drain` callback.
+  // Take ownership of one or more `std::string` rvalues and start sending
+  // them. Safe to call from any thread. Success does not mean that the
+  // buffers have been fully sent; send completion is signaled via the
+  // `on_drain` callback.
   template<typename... Bufs>
-  requires(std::same_as<std::remove_cvref_t<Bufs>, std::string> && ...)
+  requires(std::same_as<Bufs, std::string> && ...)
   [[nodiscard]] bool send(Bufs&&... bufs) {
     if (!open_ || !write_open_) return false;
     if (((bufs.empty() ? 0U : 1U) + ...) == 0) return false;
@@ -909,7 +910,7 @@ private:
   // remains after the flush; `flush_send_queue` disarms it once the queue
   // empties.
   template<typename... Bufs>
-  requires(std::same_as<std::remove_cvref_t<Bufs>, std::string> && ...)
+  requires(std::same_as<Bufs, std::string> && ...)
   [[nodiscard]] bool enqueue_send(Bufs&&... bufs) {
     assert(loop_.is_loop_thread());
     if (!open_ || !write_open_) return false;
