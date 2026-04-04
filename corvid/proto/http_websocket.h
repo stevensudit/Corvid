@@ -22,11 +22,13 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <random>
 #include <string>
 #include <string_view>
 
+#include "../containers/scoped_value.h"
 #include "../enums/bool_enums.h"
 #include "../enums/bitmask_enum.h"
 #include "base-64.h"
@@ -362,7 +364,7 @@ public:
     return mask_payload_copy(frame, payload);
   }
 
-  // Build header into `header`and return wrapper for it.
+  // Build header into `header` and return wrapper for it.
   static ws_frame_wrapper<access::as_mutable> build(ws_frame_header& header,
       ws_frame_control frame_control, size_t payload_len,
       std::optional<uint32_t> mask) noexcept {
@@ -521,8 +523,8 @@ public:
   using message_fn =
       std::function<bool(http_websocket&, std::string&&, ws_frame_control)>;
 
-  // Notification of the receipt of a close frame, with the status code and
-  // optional reason. After this returns, a close frame is returned
+  // Notification of the receipt of a valid close frame, with the status code
+  // and optional reason. After this returns, a close frame response is sent
   // automatically, so this is the last chance to send out data or do other
   // cleanup. Callback will not fire if the connection is closed uncleanly.
   using close_fn =
@@ -537,7 +539,7 @@ public:
   // Called when a text or binary message arrives.
   message_fn on_message;
 
-  // Called when a close frame is received.
+  // Called when a valid close frame is received.
   close_fn on_close;
 
   // Called when a pong is received whose payload matches the most recently
@@ -637,7 +639,7 @@ public:
   }
 
   // Send a close frame, updating state. The `reason`, if provided, must be
-  // valid UTF-8. If you send a `reason`that's not hardcoded, you are
+  // valid UTF-8. If you send a `reason` that's not hardcoded, you are
   // responsible for it being valid.
   [[nodiscard]] bool
   send_close(uint16_t code = 1000, std::string_view reason = {}) {
@@ -1006,7 +1008,7 @@ private:
   [[nodiscard]] static uint32_t generate_random() {
     static std::mutex mtx;
     static std::random_device rd;
-    std::lock_guard<std::mutex> lock(mtx);
+    std::scoped_lock lock(mtx);
     return rd();
   }
 

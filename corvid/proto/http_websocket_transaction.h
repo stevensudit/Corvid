@@ -169,7 +169,7 @@ private:
     if (accept.empty()) return send_bad_request(view);
 
     // TODO: We may wish to check "Sec-WebSocket-Protocol", passing it to a
-    // callback that can retrun a value that we include in the same header of
+    // callback that can return a value that we include in the same header of
     // the response.
 
     // Build 101 Switching Protocols response.
