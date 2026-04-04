@@ -726,7 +726,7 @@ public:
   send_frame(ws_frame_control frame_control, std::string_view payload) {
     if (sent_close_) return false;
     std::optional<uint32_t> mask;
-    if (!is_server_) mask.emplace(rd_());
+    if (!is_server_) mask.emplace(generate_random());
     std::string frame =
         ws_frame_codec::serialize_frame(frame_control, payload, mask);
     return send_frame(std::move(frame));
@@ -741,7 +741,7 @@ public:
   // Generate a WebSocket upgrade request for the given `path`, returning the
   // request head and the `Sec-WebSocket-Accept` value that the server should
   // respond with. You may need to add "Host" or other headers.
-  [[nodiscard]] request_head
+  [[nodiscard]] static request_head
   generate_upgrade_request(std::string_view path, std::string& accept_key) {
     const auto client_key = generate_client_key();
     accept_key = ws_frame_codec::compute_accept_key(client_key);
@@ -786,10 +786,10 @@ public:
   }
 
 private:
-  [[nodiscard]] std::string generate_client_key() {
+  [[nodiscard]] static std::string generate_client_key() {
     std::array<uint8_t, 16> raw_bytes;
     for (size_t i = 0; i < 4; ++i) {
-      uint32_t val = rd_();
+      uint32_t val = generate_random();
       std::memcpy(&raw_bytes[i * 4], &val, 4);
     }
     return base_64::encode(raw_bytes);
@@ -916,7 +916,10 @@ private:
 
     // If this is the final fragment, reset fragment state now that validation
     // has passed and we're done with this message.
-    if (is_fin) reset_fragment_state();
+    if (is_fin) {
+      message_opcode_ = {};
+      text_utf8_checker_.reset();
+    }
 
     // Dispatch the payload. This moves `message_` and clears it out.
     return dispatch_message(std::move(message_), data_opcode);
@@ -997,9 +1000,14 @@ private:
     return true;
   }
 
-  void reset_fragment_state() noexcept {
-    message_opcode_ = {};
-    text_utf8_checker_.reset();
+  // The RFC does not permit an RNG, but `std::random_device` is expensive.
+  // This lets us share an instance across clients while avoiding instantiating
+  // it at all on servers.
+  [[nodiscard]] static uint32_t generate_random() {
+    static std::mutex mtx;
+    static std::random_device rd;
+    std::lock_guard<std::mutex> lock(mtx);
+    return rd();
   }
 
   // Callback for sending frames through provided mechanism.
@@ -1036,10 +1044,5 @@ private:
   // The counter value of the most recently sent ping, if a pong is still
   // expected. Reset to `nullopt` when a matching pong arrives.
   std::optional<uint32_t> pending_ping_;
-
-  // Random generator for client keys and masks.
-  // The RFC does not allow predictable client keys or masks, so we MUST use a
-  // non-deterministic generator.
-  std::random_device rd_;
 };
 }} // namespace corvid::proto
