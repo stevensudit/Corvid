@@ -635,7 +635,7 @@ public:
     // Payload is optional.
     std::string payload;
     if (code != 0 || !reason.empty()) {
-      // TODO: As an assert, we should check that `reason` is valid UTF-8.
+      assert(utf8_checker::is_valid(reason));
       payload.reserve(2 + reason.size());
       payload.push_back(static_cast<char>(code >> 8));
       payload.push_back(static_cast<char>(code & 0xFF));
@@ -655,8 +655,8 @@ public:
     return true;
   }
 
-  // True while either side has initiated the close handshake.
-  [[nodiscard]] bool is_closing() const noexcept {
+  // True once either side has initiated the close handshake.
+  [[nodiscard]] bool is_close_started() const noexcept {
     return sent_close_ || received_close_;
   }
 
@@ -746,26 +746,34 @@ public:
     return req;
   }
 
-private:
   // Signal an immediate RST by invoking the send function with an empty
   // string, then return false so callers can propagate the error.
-  bool do_hangup() {
+  [[nodiscard]] bool hangup() {
     if (send_) (void)send_(std::string{});
     return false;
   }
 
-  // Fail the connection with a protocol-error close frame when possible,
-  // falling back to an immediate hangup if sending the close fails.
-  bool do_fail(std::string_view reason) { return do_fail(1002, reason); }
-
-  bool
-  do_fail(uint16_t code = 1002, std::string_view reason = "Protocol error") {
+  // Fail the connection with close frame when possible, falling back to an
+  // immediate hangup if sending the close fails.
+  [[nodiscard]] bool
+  fail(uint16_t code = 1000, std::string_view reason = "Error") {
     if (received_close_) return false;
-    if (!send_close(code, reason)) return do_hangup();
+    if (!send_close(code, reason)) return hangup();
     return false;
   }
 
-  std::string generate_client_key() {
+  // Fail with protocol error.
+  [[nodiscard]] bool fail_proto(std::string_view reason) {
+    std::string full_reason;
+    static constexpr std::string_view prefix = "Protocol failure: ";
+    full_reason.reserve(prefix.size() + reason.size());
+    full_reason += prefix;
+    full_reason += reason;
+    return fail(1002, full_reason);
+  }
+
+private:
+  [[nodiscard]] std::string generate_client_key() {
     std::array<uint8_t, 16> raw_bytes;
     for (size_t i = 0; i < 4; ++i) {
       uint32_t val = rd_();
@@ -786,7 +794,7 @@ private:
              static_cast<uint8_t>(payload[1]);
       reason = {payload.data() + 2, payload.size() - 2};
       if (validate_utf8 && !utf8_checker::is_valid(reason))
-        return do_fail(1007, "Invalid UTF-8 in close reason");
+        return fail(1007, "Invalid UTF-8 in close reason");
     }
 
     // Notify user of the close. The guard above ensures this fires at most
@@ -795,7 +803,7 @@ private:
 
     // Echo the close frame back unless we already sent one.
     if (!sent_close_) {
-      if (!send_close(code, reason)) return do_hangup();
+      if (!send_close(code, reason)) return hangup();
     }
 
     // Mark close as received. If `sent_close_` is already true,
@@ -816,13 +824,13 @@ private:
     // Sniff frame and reject obvious defects.
     const auto frame_control = hdr.frame_control();
     if (bitmask::has(frame_control, ws_frame_control::rsvd))
-      return do_fail("Protocol failure: Reserved bits are unsupported");
+      return fail_proto("Reserved bits are unsupported");
 
     // Clients must send masked frames and servers must not.
     if ((is_server_ && !hdr.is_masked()) || (!is_server_ && hdr.is_masked())) {
       // We want to fail with a close frame, instead of hanging up, so pretend
       // that we received their close frame already.
-      return do_fail("Protocol failure: Frame violates masking requirements");
+      return fail_proto("Frame violates masking requirements");
     }
 
     // Control frames are handled internally.
@@ -848,7 +856,7 @@ private:
     const bool in_fragment = (message_opcode_ != ws_frame_control{});
     if ((in_fragment && opcode != ws_frame_control::continuation) ||
         (!in_fragment && opcode == ws_frame_control::continuation))
-      return do_fail("Protocol failure: Invalid fragmentation");
+      return fail_proto("Invalid fragmentation");
 
     // Accumulate the (unmasked) payloads into `message_`. Note that it's
     // always legal for a payload to be empty.
@@ -859,7 +867,7 @@ private:
       // that's a fatal protocol error.
       if (bitmask::has(opcode, ws_frame_control::text) ==
           bitmask::has(opcode, ws_frame_control::binary))
-        return do_fail("Protocol failure: Invalid data opcode");
+        return fail_proto("Invalid data opcode");
 
       // Save opcode so continuations can be validated and the assembled
       // message dispatched with the correct type.
@@ -868,14 +876,14 @@ private:
     }
 
     // Sanity check on size, applied to each fragment and the combined message.
-    if (message_.size() + payload.size() > max_frame_size) return do_hangup();
+    if (message_.size() + payload.size() > max_frame_size) return hangup();
 
     // Append the unmasked payload to `message_`.
     if (!payload.empty()) {
       const size_t old_size = message_.size();
       no_zero::resize_to(message_, old_size + payload.size());
       if (!hdr.mask_payload_copy(message_.data() + old_size, payload))
-        return do_hangup();
+        return hangup();
     }
 
     // Determine the data opcode for this frame. Continuation frames carry
@@ -903,10 +911,9 @@ private:
   [[nodiscard]] bool
   handle_control_frame(ws_frame_view& hdr, std::string_view payload) {
     const auto opcode = hdr.opcode();
-    if (!hdr.is_final())
-      return do_fail("Protocol failure: Control frames must not fragment");
+    if (!hdr.is_final()) return fail_proto("Control frames must not fragment");
     if (payload.size() > 125)
-      return do_fail("Protocol failure: Control frame payload too large");
+      return fail_proto("Control frame payload too large");
 
     // Unmask the payload before inspection.
     if (hdr.is_masked() && !payload.empty()) {
@@ -917,8 +924,7 @@ private:
 
     // Handle the control frame.
     if (opcode == ws_frame_control::close) {
-      if (payload.size() == 1)
-        return do_fail("Protocol failure: Close payload is truncated");
+      if (payload.size() == 1) return fail_proto("Close payload is truncated");
       return dispatch_close(payload);
     }
     if (opcode == ws_frame_control::ping) { return send_pong(payload); }
@@ -935,7 +941,7 @@ private:
       return true;
     }
     // Unknown control opcode.
-    return do_fail("Protocol failure: Unknown control opcode");
+    return fail_proto("Unknown control opcode");
   }
 
   [[nodiscard]] bool
@@ -956,7 +962,7 @@ private:
     // In the simple case, we can validate the whole thing all at once.
     if (!deliver_fragments) {
       if (utf8_checker::is_valid(message_)) return true;
-      return do_fail(1007, "Invalid UTF-8 in text message");
+      return fail(1007, "Invalid UTF-8 in text message");
     }
 
     // For fragments, the best we can do is detect when the message goes off
@@ -965,9 +971,9 @@ private:
         std::string_view{message_}.substr(message_.size() - payload.size());
     const auto state = text_utf8_checker_.validate(unmasked);
     if (state == utf8_checker::validation::failed)
-      return do_fail(1007, "Invalid UTF-8 in text message");
+      return fail(1007, "Invalid UTF-8 in text message");
     if (is_fin && state != utf8_checker::validation::complete)
-      return do_fail(1007, "Text message ended mid-code-point");
+      return fail(1007, "Text message ended mid-code-point");
 
     return true;
   }

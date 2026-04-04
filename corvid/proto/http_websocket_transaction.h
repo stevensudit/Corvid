@@ -248,7 +248,7 @@ private:
   // Called on the loop thread when `ping_interval_` has elapsed: send a ping
   // and arm the pong-wait timer.
   [[nodiscard]] bool do_ping_interval_fire() {
-    if (websocket_.is_closing()) return false;
+    if (websocket_.is_close_started()) return false;
     if (!websocket_.send_ping()) return false;
     return do_arm_pong_timeout();
   }
@@ -256,7 +256,7 @@ private:
   // Called on the loop thread when `pong_timeout_` expires without a
   // matching pong: begin a graceful close.
   [[nodiscard]] bool do_pong_timeout_fire() {
-    if (websocket_.is_closing()) return false;
+    if (websocket_.is_close_started()) return false;
     return websocket_.send_close(1001, "Keepalive pong not received.");
   }
 
