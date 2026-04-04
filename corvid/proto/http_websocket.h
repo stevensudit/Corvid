@@ -604,16 +604,13 @@ public:
       // and wait for more.
       ws_frame_view hdr{data.data(), data.size()};
       if (!hdr.is_complete()) return hdr.total_length();
-      if (!hdr.parse()) return sizeof(ws_frame_header);
+      if (!hdr.parse()) return fail_insatiable(1002, "Malformed frame header");
 
       // Now that we know the entire frame size, demand that exact amount.
       const size_t total = hdr.total_length();
       if (data.size() < total) {
-        if (total > max_frame_size) {
-          (void)fail(1009, "Frame size exceeds limit");
-          (void)hangup();
-          return insatiable;
-        }
+        if (total > max_frame_size)
+          return fail_insatiable(1009, "Frame size exceeds limit");
         return total;
       }
 
@@ -785,6 +782,13 @@ public:
     full_reason += reason;
     assert(full_reason.size() <= 123); // 125 minus 2 for the code
     return fail(1002, full_reason);
+  }
+
+  [[nodiscard]] size_t
+  fail_insatiable(uint16_t code = 1000, std::string_view reason = "Error") {
+    (void)fail(code, reason);
+    (void)hangup();
+    return insatiable;
   }
 
 private:
@@ -1002,9 +1006,10 @@ private:
     return true;
   }
 
-  // The RFC does not permit an RNG, but `std::random_device` is expensive.
-  // This lets us share an instance across clients while avoiding instantiating
-  // it at all on servers.
+  // The RFC has strict requirements for mask key generation and
+  // `std::random_device` fulfills them. However, it is expensive even to
+  // default-construct. Instead, we share an instance an instance across
+  // clients, without ever instantiating it on servers.
   [[nodiscard]] static uint32_t generate_random() {
     static std::mutex mtx;
     static std::random_device rd;
