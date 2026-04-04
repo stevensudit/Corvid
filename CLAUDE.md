@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 If the user's intent is ever unclear, always ask before proceeding.
 
+When asked to fix a bug, first write a unit test that reproduces the bug. Apply the fix only after the test is in place, then confirm the test passes. This ensures the fix is correct and the test serves as a regression guard going forward.
+
 When presented with a code review comment, first read the relevant code and determine whether the claim is actually valid. Do not immediately act on it. Review comments can be correct, partially correct, or wrong — treat them as hypotheses to verify, not instructions to execute.
 
 When a function can fail, always consider returning some status indication instead of being void.

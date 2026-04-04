@@ -34,6 +34,7 @@
 #include "sha-1.h"
 #include "http_head_codec.h"
 #include "http_transaction.h"
+#include "utf8-checker.h"
 
 namespace corvid { inline namespace proto {
 
@@ -550,6 +551,10 @@ public:
   // `opcode | ws_frame_control::fin`. Defaults to false.
   bool deliver_fragments{false};
 
+  // When true, incoming text frames are validated as UTF-8. If invalid, the
+  // connection is closed with a 1007 close frame. Defaults to true.
+  bool validate_utf8{true};
+
   // Construct with a `send_fn`, in either client or server mode.
   explicit http_websocket(http_transaction::send_fn send,
       connection_role role = connection_role::server)
@@ -751,9 +756,12 @@ private:
 
   // Fail the connection with a protocol-error close frame when possible,
   // falling back to an immediate hangup if sending the close fails.
-  bool do_fail(std::string_view reason = "Protocol error") {
+  bool do_fail(std::string_view reason) { return do_fail(1002, reason); }
+
+  bool
+  do_fail(uint16_t code = 1002, std::string_view reason = "Protocol error") {
     if (received_close_) return false;
-    if (!send_close(1002, reason)) return do_hangup();
+    if (!send_close(code, reason)) return do_hangup();
     return false;
   }
 
@@ -777,8 +785,8 @@ private:
       code = (static_cast<uint16_t>(static_cast<uint8_t>(payload[0])) << 8) |
              static_cast<uint8_t>(payload[1]);
       reason = {payload.data() + 2, payload.size() - 2};
-      // TODO: We're expected to validate that the reason is valid UTF-8 and
-      // fail with a 1007 close if it's not.
+      if (validate_utf8 && !utf8_checker::is_valid(reason))
+        return do_fail(1007, "Invalid UTF-8 in close reason");
     }
 
     // Notify user of the close. The guard above ensures this fires at most
@@ -835,10 +843,9 @@ private:
     const auto opcode = hdr.opcode();
     const auto is_fin = hdr.is_final();
 
-    // We store the initial opcode of a fragmented message in
-    // `fragment_opcode_`. Subsequent fragments must have the continuation
-    // opcode.
-    const bool in_fragment = (fragment_opcode_ != ws_frame_control{});
+    // We store the opcode of the message, which is in the initial fragment.
+    // Subsequent fragments must have the continuation opcode.
+    const bool in_fragment = (message_opcode_ != ws_frame_control{});
     if ((in_fragment && opcode != ws_frame_control::continuation) ||
         (!in_fragment && opcode == ws_frame_control::continuation))
       return do_fail("Protocol failure: Invalid fragmentation");
@@ -856,7 +863,7 @@ private:
 
       // Save opcode so continuations can be validated and the assembled
       // message dispatched with the correct type.
-      if (!is_fin) fragment_opcode_ = opcode;
+      if (!is_fin) message_opcode_ = opcode;
       message_.clear();
     }
 
@@ -872,9 +879,8 @@ private:
     }
 
     // Determine the data opcode for this frame. Continuation frames carry
-    // `ws_frame_control::continuation`, so use the saved initial opcode
-    // instead.
-    ws_frame_control data_opcode = in_fragment ? fragment_opcode_ : opcode;
+    // `ws_frame_control::continuation`, so use the message opcode instead.
+    ws_frame_control data_opcode = in_fragment ? message_opcode_ : opcode;
 
     // When delivering fragments, mark FIN.
     if (is_fin && deliver_fragments) data_opcode |= ws_frame_control::fin;
@@ -882,15 +888,13 @@ private:
     // When not, delay delivery until the final fragment.
     if (!is_fin && !deliver_fragments) return true;
 
-    // If this is the final fragment, reset `fragment_opcode_` to indicate that
-    // we're not in a fragmented message anymore.
-    if (is_fin) fragment_opcode_ = {};
+    // Text messages must be valid UTF-8.
+    if (validate_utf8 && bitmask::has(data_opcode, ws_frame_control::text))
+      if (!validate_text_utf8(payload, is_fin)) return false;
 
-    // TODO: If this is a text message, we need to validate that the UTF-8 is
-    // well-formed before dispatching, and fail with a 1007 close if it's not.
-    // The tricky part is that, if we're sending fragments, we need to maintain
-    // state across fragments, because a code point could be split across
-    // frames.
+    // If this is the final fragment, reset fragment state now that validation
+    // has passed and we're done with this message.
+    if (is_fin) reset_fragment_state();
 
     // Dispatch the payload. This moves `message_` and clears it out.
     return dispatch_message(std::move(message_), data_opcode);
@@ -945,15 +949,46 @@ private:
     return success;
   }
 
+  [[nodiscard]] bool
+  validate_text_utf8(std::string_view payload, bool is_fin) {
+    if (payload.empty()) return true;
+
+    // In the simple case, we can validate the whole thing all at once.
+    if (!deliver_fragments) {
+      if (utf8_checker::is_valid(message_)) return true;
+      return do_fail(1007, "Invalid UTF-8 in text message");
+    }
+
+    // For fragments, the best we can do is detect when the message goes off
+    // the rails, because a code point can be split across frames.
+    const auto unmasked =
+        std::string_view{message_}.substr(message_.size() - payload.size());
+    const auto state = text_utf8_checker_.validate(unmasked);
+    if (state == utf8_checker::validation::failed)
+      return do_fail(1007, "Invalid UTF-8 in text message");
+    if (is_fin && state != utf8_checker::validation::complete)
+      return do_fail(1007, "Text message ended mid-code-point");
+
+    return true;
+  }
+
+  void reset_fragment_state() noexcept {
+    message_opcode_ = {};
+    text_utf8_checker_.reset();
+  }
+
   // Callback for sending frames through provided mechanism.
   http_transaction::send_fn send_;
 
   // Whether acting as server or client.
   const bool is_server_{};
 
+  // Per-message state.
   // Opcode of the initial frame in the current fragmented message, or 0 if not
-  // in a fragmented message.
-  ws_frame_control fragment_opcode_{};
+  // in a fragmented message, as well as UTF-8 validation state for text
+  // messages.
+  ws_frame_control message_opcode_{};
+  utf8_checker text_utf8_checker_;
 
   // Accumulates payload of fragmented messages until the final fragment
   // arrives and the message can be dispatched.

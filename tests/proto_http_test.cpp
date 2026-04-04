@@ -1811,6 +1811,37 @@ void WebSocket_Feed_SingleText() {
   EXPECT_EQ(got_op, ws_frame_control::text);
 }
 
+// Invalid UTF-8 in a text frame fails the connection with close code 1007.
+void WebSocket_Feed_SingleTextInvalidUtf8() {
+  std::string sent_frame;
+  http_websocket ws{[&](std::string&& f) {
+    sent_frame = std::move(f);
+    return true;
+  }};
+  bool msg_fired{};
+  ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
+    msg_fired = true;
+    return true;
+  };
+
+  std::string wire_frame = ws_frame_codec::serialize_frame(
+      ws_frame_control::fin | ws_frame_control::text, "\x80", 0x12345678U);
+  std::string_view wire{wire_frame};
+  EXPECT_EQ(ws.feed(wire), http_websocket::insatiable);
+  EXPECT_FALSE(msg_fired);
+
+  const auto hdr = ws_frame_codec::parse_header(sent_frame);
+  ASSERT_TRUE(hdr);
+  EXPECT_EQ(hdr->opcode(), ws_frame_control::close);
+  const std::string_view payload = std::string_view{sent_frame}.substr(
+      hdr->header_length(), hdr->payload_length());
+  ASSERT_GE(payload.size(), 2U);
+  const uint16_t code =
+      (static_cast<uint8_t>(payload[0]) << 8) |
+      static_cast<uint8_t>(payload[1]);
+  EXPECT_EQ(code, uint16_t{1007});
+}
+
 // Server pump receives a masked binary frame and correctly unmasks it.
 void WebSocket_Feed_MaskedBinary() {
   std::string got_msg;
@@ -1891,6 +1922,42 @@ void WebSocket_Feed_Close() {
   EXPECT_EQ(ws_server.feed(wire), ws_server.insatiable);
   EXPECT_EQ(got_code, uint16_t{1001});
   EXPECT_EQ(got_reason, "going away");
+}
+
+// Invalid UTF-8 in a close reason fails the connection with 1007.
+void WebSocket_Feed_CloseInvalidUtf8Reason() {
+  std::string sent_frame;
+  bool close_fired{};
+  http_websocket ws_server{[&](std::string&& f) {
+    sent_frame = std::move(f);
+    return true;
+  }};
+  ws_server.on_close = [&](http_websocket&, uint16_t, std::string_view) {
+    close_fired = true;
+  };
+  std::string received_frame;
+  http_websocket ws_client{
+      [&](std::string&& frame) {
+        received_frame = std::move(frame);
+        return true;
+      },
+      connection_role::client};
+  EXPECT_TRUE(ws_client.send_close(1000, "\x80"));
+  std::string_view wire{received_frame};
+
+  EXPECT_EQ(ws_server.feed(wire), http_websocket::insatiable);
+  EXPECT_FALSE(close_fired);
+
+  const auto hdr = ws_frame_codec::parse_header(sent_frame);
+  ASSERT_TRUE(hdr);
+  EXPECT_EQ(hdr->opcode(), ws_frame_control::close);
+  const std::string_view payload = std::string_view{sent_frame}.substr(
+      hdr->header_length(), hdr->payload_length());
+  ASSERT_GE(payload.size(), 2U);
+  const uint16_t code =
+      (static_cast<uint8_t>(payload[0]) << 8) |
+      static_cast<uint8_t>(payload[1]);
+  EXPECT_EQ(code, uint16_t{1007});
 }
 
 // Three-frame fragmented message is assembled and delivered exactly once.
@@ -1990,6 +2057,82 @@ void WebSocket_Feed_FragmentedDelivery() {
   ASSERT_EQ(calls.size(), 3U);
   EXPECT_EQ(calls[2].payload, "world");
   EXPECT_EQ(calls[2].op, ws_frame_control::fin | ws_frame_control::text);
+}
+
+// In fragment-delivery mode, a code point split across frames is accepted.
+void WebSocket_Feed_FragmentedDeliverySplitUtf8() {
+  struct Call {
+    std::string payload;
+    ws_frame_control op{};
+  };
+  std::vector<Call> calls;
+  http_websocket ws{[](std::string&&) { return true; }};
+  ws.deliver_fragments = true;
+  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
+    calls.push_back({std::move(p), op});
+    return true;
+  };
+  std::string received_frame;
+  http_websocket ws_client{
+      [&](std::string&& frame) {
+        received_frame = std::move(frame);
+        return true;
+      },
+      connection_role::client};
+  std::string_view wire;
+
+  EXPECT_TRUE(ws_client.send_frame(ws_frame_control::text, "\xF0\x9F"));
+  wire = received_frame;
+  EXPECT_EQ(ws.feed(wire), 0U);
+
+  EXPECT_TRUE(ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::continuation, "\x98\x80"));
+  wire = received_frame;
+  EXPECT_EQ(ws.feed(wire), 0U);
+
+  ASSERT_EQ(calls.size(), 2U);
+  EXPECT_EQ(calls[0].payload, "\xF0\x9F");
+  EXPECT_EQ(calls[0].op, ws_frame_control::text);
+  EXPECT_EQ(calls[1].payload, "\x98\x80");
+  EXPECT_EQ(calls[1].op, ws_frame_control::fin | ws_frame_control::text);
+}
+
+// In fragment-delivery mode, invalid UTF-8 across frames fails with 1007.
+void WebSocket_Feed_FragmentedDeliveryInvalidUtf8() {
+  std::string sent_frame;
+  http_websocket ws{[&](std::string&& f) {
+    sent_frame = std::move(f);
+    return true;
+  }};
+  ws.deliver_fragments = true;
+  std::string received_frame;
+  http_websocket ws_client{
+      [&](std::string&& frame) {
+        received_frame = std::move(frame);
+        return true;
+      },
+      connection_role::client};
+  std::string_view wire;
+
+  EXPECT_TRUE(ws_client.send_frame(ws_frame_control::text, "\xF0"));
+  wire = received_frame;
+  EXPECT_EQ(ws.feed(wire), 0U);
+
+  EXPECT_TRUE(ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::continuation, "A"));
+  wire = received_frame;
+  EXPECT_EQ(ws.feed(wire), http_websocket::insatiable);
+
+  const auto hdr = ws_frame_codec::parse_header(sent_frame);
+  ASSERT_TRUE(hdr);
+  EXPECT_EQ(hdr->opcode(), ws_frame_control::close);
+  const std::string_view payload = std::string_view{sent_frame}.substr(
+      hdr->header_length(), hdr->payload_length());
+  ASSERT_GE(payload.size(), 2U);
+  const uint16_t code =
+      (static_cast<uint8_t>(payload[0]) << 8) |
+      static_cast<uint8_t>(payload[1]);
+  EXPECT_EQ(code, uint16_t{1007});
 }
 
 // Feeding only the header bytes of a frame returns true (awaiting payload).
@@ -2902,9 +3045,12 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     HttpServer_MalformedRequestLine, HttpServer_Http10KeepAlive,
     HttpHeaderBlock_GetValues, HttpHeaderBlock_SetRawAndRemove,
     WebSocket_AcceptKey, WebSocket_FrameCodec_RoundTrip,
-    WebSocket_Feed_SingleText, WebSocket_Feed_MaskedBinary,
-    WebSocket_Feed_Ping, WebSocket_Feed_Close, WebSocket_Feed_Fragmented,
-    WebSocket_Feed_FragmentedDelivery, WebSocket_Feed_PartialFrame,
+    WebSocket_Feed_SingleText, WebSocket_Feed_SingleTextInvalidUtf8,
+    WebSocket_Feed_MaskedBinary, WebSocket_Feed_Ping, WebSocket_Feed_Close,
+    WebSocket_Feed_CloseInvalidUtf8Reason, WebSocket_Feed_Fragmented,
+    WebSocket_Feed_FragmentedDelivery,
+    WebSocket_Feed_FragmentedDeliverySplitUtf8,
+    WebSocket_Feed_FragmentedDeliveryInvalidUtf8, WebSocket_Feed_PartialFrame,
     WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth,
     WebSocket_Feed_MultipleFrames, WebSocket_Feed_BadContinuation,
     WebSocket_Feed_InterleavedData, WebSocket_Send_Server,

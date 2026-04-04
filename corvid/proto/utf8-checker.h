@@ -22,15 +22,23 @@ namespace corvid { inline namespace proto {
 
 // Incremental UTF-8 validator.
 //
-// Feed one chunk after another via `consume`. The validator preserves only the
-// carry state needed to span chunk boundaries. Once `failed`, it remains so
-// until `reset` is called.
+// Use `is_valid`, or feed one chunk after another via `consume`. The validator
+// preserves only the carry state needed to span chunk boundaries. Once
+// `failed`, it remains so until `reset` is called. It is optimized for the
+// most common case, which is 7-bit ASCII.
 class utf8_checker {
 public:
   // Result of incremental UTF-8 validation.
   enum class validation : uint8_t { complete, incomplete, failed };
 
-  [[nodiscard]] validation validate(std::string_view input) noexcept {
+  [[nodiscard]] static constexpr bool is_valid(
+      std::string_view input) noexcept {
+    utf8_checker checker;
+    return checker.validate(input) == validation::complete;
+  }
+
+  [[nodiscard]] constexpr validation validate(
+      std::string_view input) noexcept {
     if (state_ == validation::failed) return state_;
 
     for (unsigned char byte : input) {
@@ -43,26 +51,26 @@ public:
     return state_;
   }
 
-  void reset() noexcept {
+  void constexpr reset() noexcept {
     state_ = validation::complete;
     remaining_ = 0;
     min_cont_ = 0x80;
     max_cont_ = 0xBF;
   }
 
-  [[nodiscard]] validation state() const noexcept { return state_; }
-  [[nodiscard]] bool is_complete() const noexcept {
+  [[nodiscard]] constexpr validation state() const noexcept { return state_; }
+  [[nodiscard]] constexpr bool is_complete() const noexcept {
     return state_ == validation::complete;
   }
-  [[nodiscard]] bool is_incomplete() const noexcept {
+  [[nodiscard]] constexpr bool is_incomplete() const noexcept {
     return state_ == validation::incomplete;
   }
-  [[nodiscard]] bool is_failed() const noexcept {
+  [[nodiscard]] constexpr bool is_failed() const noexcept {
     return state_ == validation::failed;
   }
 
 private:
-  [[nodiscard]] bool consume_lead_byte(uint8_t byte) noexcept {
+  [[nodiscard]] constexpr bool consume_lead_byte(uint8_t byte) noexcept {
     if (byte <= 0x7F) return true;
     if (byte >= 0xC2 && byte <= 0xDF) {
       remaining_ = 1;
@@ -104,7 +112,7 @@ private:
     return false;
   }
 
-  [[nodiscard]] bool consume_continuation(uint8_t byte) noexcept {
+  [[nodiscard]] constexpr bool consume_continuation(uint8_t byte) noexcept {
     if (byte < min_cont_ || byte > max_cont_) {
       state_ = validation::failed;
       return false;
