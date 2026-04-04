@@ -209,7 +209,6 @@ public:
 
     // Mask takes 4 more bytes after the length bytes.
     if (is_masked()) header_length_ += 4;
-    if (buffer_length < header_length_) return false;
 
     // If `lb` == 126, need 2 more bytes for extended length;
     // if 127, need 8 more.
@@ -782,6 +781,7 @@ public:
     full_reason.reserve(prefix.size() + reason.size());
     full_reason += prefix;
     full_reason += reason;
+    assert(full_reason.size() <= 123); // 125 minus 2 for the code
     return fail(1002, full_reason);
   }
 
@@ -806,6 +806,10 @@ private:
       code = (static_cast<uint16_t>(static_cast<uint8_t>(payload[0])) << 8) |
              static_cast<uint8_t>(payload[1]);
       reason = {payload.data() + 2, payload.size() - 2};
+      // Validate close code and reason, closing in a different way if invalid.
+      if (code < 1000 || (code >= 1004 && code <= 1006) ||
+          (code >= 1015 && code < 3000) || code > 4999)
+        return fail(1002, "Protocol failure: invalid close code");
       if (!utf8_checker::is_valid(reason))
         return fail(1007, "Invalid UTF-8 in close reason");
     }
@@ -840,11 +844,8 @@ private:
       return fail_proto("Reserved bits are unsupported");
 
     // Clients must send masked frames and servers must not.
-    if ((is_server_ && !hdr.is_masked()) || (!is_server_ && hdr.is_masked())) {
-      // We want to fail with a close frame, instead of hanging up, so pretend
-      // that we received their close frame already.
+    if ((is_server_ && !hdr.is_masked()) || (!is_server_ && hdr.is_masked()))
       return fail_proto("Frame violates masking requirements");
-    }
 
     // Control frames are handled internally.
     if (bitmask::has(frame_control, ws_frame_control::control))
@@ -975,7 +976,7 @@ private:
   validate_text_utf8(std::string_view payload, bool is_fin) {
     // In the simple case, we can validate the whole thing all at once.
     if (!deliver_fragments) {
-      if (payload.empty()) return true;
+      if (message_.empty()) return true;
       if (utf8_checker::is_valid(message_)) return true;
       return fail(1007, "Invalid UTF-8 in text message");
     }

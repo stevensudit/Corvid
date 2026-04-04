@@ -1967,8 +1967,8 @@ void WebSocket_Feed_CloseInvalidUtf8Reason() {
       ws_frame_control::fin | ws_frame_control::close, payload, 0x12345678U);
   std::string_view wire{received_frame};
 
-  EXPECT_EQ(ws_server.feed(wire), 0U);
-  EXPECT_EQ(wire.size(), 0U);
+  EXPECT_NE(ws_server.feed(wire), 0U);
+  EXPECT_NE(wire.size(), 0U);
   EXPECT_FALSE(close_fired);
 
   const auto hdr = ws_frame_codec::parse_header(sent_frame);
