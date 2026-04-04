@@ -610,8 +610,7 @@ public:
       if (data.size() < total) {
         if (total > max_frame_size) {
           (void)fail(1009, "Frame size exceeds limit");
-          (void)set_close_pending();
-          // TODO: Determine whether we should instead do a hard reset here.
+          (void)hangup();
           return insatiable;
         }
         return total;
@@ -807,10 +806,8 @@ private:
       code = (static_cast<uint16_t>(static_cast<uint8_t>(payload[0])) << 8) |
              static_cast<uint8_t>(payload[1]);
       reason = {payload.data() + 2, payload.size() - 2};
-      if (!utf8_checker::is_valid(reason)) {
-        (void)fail(1007, "Invalid UTF-8 in close reason");
-        return set_close_pending() || true;
-      }
+      if (!utf8_checker::is_valid(reason))
+        return fail(1007, "Invalid UTF-8 in close reason");
     }
 
     // Notify user of the close. The guard above ensures this fires at most
