@@ -806,7 +806,7 @@ private:
         (void)fail(1007, "Invalid UTF-8 in close reason");
         // Do not wait for it to respond: we already know it wants to close.
         received_close_ = true;
-        return false;
+        return true;
       }
     }
 
@@ -823,7 +823,7 @@ private:
     // `close_pending` becomes true, signaling that the connection should shut
     // down.
     received_close_ = true;
-    return false;
+    return true;
   }
 
   // Process the payload of a received frame. Accumulates payloads from the

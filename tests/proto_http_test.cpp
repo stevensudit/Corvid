@@ -1942,7 +1942,8 @@ void WebSocket_Feed_Close() {
   EXPECT_TRUE(ws_client.send_close(1001, "going away"));
   std::string_view wire{received_frame};
 
-  EXPECT_EQ(ws_server.feed(wire), ws_server.insatiable);
+  EXPECT_EQ(ws_server.feed(wire), 0U);
+  EXPECT_EQ(wire.size(), 0U);
   EXPECT_EQ(got_code, uint16_t{1001});
   EXPECT_EQ(got_reason, "going away");
 }
@@ -1966,7 +1967,8 @@ void WebSocket_Feed_CloseInvalidUtf8Reason() {
       ws_frame_control::fin | ws_frame_control::close, payload, 0x12345678U);
   std::string_view wire{received_frame};
 
-  EXPECT_EQ(ws_server.feed(wire), http_websocket::insatiable);
+  EXPECT_EQ(ws_server.feed(wire), 0U);
+  EXPECT_EQ(wire.size(), 0U);
   EXPECT_FALSE(close_fired);
 
   const auto hdr = ws_frame_codec::parse_header(sent_frame);
