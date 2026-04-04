@@ -608,7 +608,12 @@ public:
       // Now that we know the entire frame size, demand that exact amount.
       const size_t total = hdr.total_length();
       if (data.size() < total) {
-        if (total > max_frame_size) return insatiable;
+        if (total > max_frame_size) {
+          (void)fail(1009, "Frame size exceeds limit");
+          (void)set_close_pending();
+          // TODO: Determine whether we should instead do a hard reset here.
+          return insatiable;
+        }
         return total;
       }
 
@@ -669,15 +674,15 @@ public:
     return sent_close_ || received_close_;
   }
 
-  // True once both sides have exchanged close frames. The transaction should
-  // shut down the connection gracefully when this becomes true. Note that this
-  // state is simulated by `set_close_pending`, to gracefully handle errors.
+  // True once both sides have exchanged close frames (or we pretended that
+  // they have). The transaction should shut down the connection gracefully
+  // when this becomes true.
   [[nodiscard]] bool is_close_pending() const noexcept {
     return sent_close_ && received_close_;
   }
 
   // Pretend that we've sent and received close frames, thus triggering
-  // `close_pending`.
+  // `is_close_pending`.
   [[nodiscard]] bool set_close_pending() noexcept {
     sent_close_ = true;
     received_close_ = true;
@@ -804,9 +809,7 @@ private:
       reason = {payload.data() + 2, payload.size() - 2};
       if (!utf8_checker::is_valid(reason)) {
         (void)fail(1007, "Invalid UTF-8 in close reason");
-        // Do not wait for it to respond: we already know it wants to close.
-        received_close_ = true;
-        return true;
+        return set_close_pending() || true;
       }
     }
 

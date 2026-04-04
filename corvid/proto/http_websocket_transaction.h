@@ -149,7 +149,8 @@ private:
   // `handle_data` invocation.
   [[nodiscard]] stream_claim do_upgrade(recv_buffer_view& view) {
     // Validate upgrade request.
-    // TODO: Require HTTP/1.1 for WebSockets.
+    if (request_headers.version != http_version::http_1_1)
+      return send_bad_request(view);
     if (request_headers.method != http_method::GET)
       return send_bad_request(view);
     if (request_headers.options.upgrade != upgrade_value::websocket)
@@ -161,12 +162,15 @@ private:
     // list of supported versions if the version is not supported. In practice,
     // everyone uses 13.
     if (!version_hdr || *version_hdr != "13") return send_bad_request(view);
-
     const auto key_hdr = request_headers.headers.get("Sec-Websocket-Key");
     if (!key_hdr || key_hdr->empty()) return send_bad_request(view);
 
     const auto accept = ws_frame_codec::compute_accept_key(*key_hdr);
     if (accept.empty()) return send_bad_request(view);
+
+    // TODO: We may wish to check "Sec-WebSocket-Protocol", passing it to a
+    // callback that can retrun a value that we include in the same header of
+    // the response.
 
     // Build 101 Switching Protocols response.
     response_head resp;
