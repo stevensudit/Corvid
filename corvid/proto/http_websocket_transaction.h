@@ -171,10 +171,8 @@ private:
 
     const auto version_hdr =
         request_headers.headers.get("Sec-Websocket-Version");
-    // TODO: In theory, we should respond with a 426 Upgrade Required and a
-    // list of supported versions if the version is not supported. In practice,
-    // everyone uses 13.
-    if (!version_hdr || *version_hdr != "13") return send_bad_request(view);
+    if (!version_hdr || *version_hdr != "13")
+      return send_upgrade_required(view);
     const auto key_hdr = request_headers.headers.get("Sec-Websocket-Key");
     if (!key_hdr || key_hdr->empty()) return send_bad_request(view);
 
@@ -206,6 +204,24 @@ private:
     pending_response_ = resp.serialize();
     upgraded_ = true;
     return stream_claim::claim;
+  }
+
+  // Send a 426 Upgrade Required response advertising WebSocket version 13,
+  // then release without closing. The connection stays open so the client can
+  // retry with the correct version.
+  [[nodiscard]] stream_claim send_upgrade_required(recv_buffer_view& view) {
+    view.consume(view.active_view().size());
+    response_head resp;
+    resp.version = request_headers.version;
+    resp.status_code = http_status_code::UPGRADE_REQUIRED;
+    resp.reason = "Upgrade Required";
+    resp.options.upgrade = upgrade_value::websocket;
+    resp.options.content_length = 0;
+    if (!resp.headers.add_raw("Connection", "Upgrade")) return do_fail_badly();
+    if (!resp.headers.add_raw("Sec-Websocket-Version", "13"))
+      return do_fail_badly();
+    pending_response_ = resp.serialize();
+    return stream_claim::release;
   }
 
   [[nodiscard]] stream_claim send_bad_request(recv_buffer_view& view) {

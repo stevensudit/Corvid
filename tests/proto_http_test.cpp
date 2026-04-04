@@ -2363,6 +2363,57 @@ void WebSocket_Feed_InterleavedData() {
   EXPECT_EQ(ws.feed(wire), -1ULL);
 }
 
+// Data frame received after we sent a close is silently discarded.
+// `on_message` must not fire and `feed` must succeed (not return `insatiable`).
+void WebSocket_Feed_DataAfterSentClose() {
+  bool msg_fired{};
+  http_websocket ws{[](std::string&&) { return true; }};
+  ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
+    msg_fired = true;
+    return true;
+  };
+  ASSERT_TRUE(ws.send_close(1000));
+  ASSERT_TRUE(ws.is_close_started());
+
+  // Peer sends a text frame after we've already sent our close.
+  const std::string frame = ws_frame_codec::serialize_frame(
+      ws_frame_control::fin | ws_frame_control::text, "late", 0);
+  std::string_view wire{frame};
+  EXPECT_EQ(ws.feed(wire), 0U);
+  EXPECT_EQ(wire.size(), 0U);
+  EXPECT_FALSE(msg_fired);
+}
+
+// Data frame received after we received a close is silently discarded.
+// `on_message` must not fire and `feed` must succeed (not return `insatiable`).
+void WebSocket_Feed_DataAfterReceivedClose() {
+  bool msg_fired{};
+  std::string sent_frame;
+  http_websocket ws{[&](std::string&& f) {
+    sent_frame = std::move(f);
+    return true;
+  }};
+  ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
+    msg_fired = true;
+    return true;
+  };
+
+  // Feed an inbound close from a masked client frame.
+  std::string close_frame = ws_frame_codec::serialize_frame(
+      ws_frame_control::fin | ws_frame_control::close, {}, 0x12345678U);
+  std::string_view wire{close_frame};
+  ASSERT_EQ(ws.feed(wire), 0U);
+  ASSERT_TRUE(ws.is_close_started());
+
+  // Peer sends a text frame after their own close frame.
+  const std::string frame = ws_frame_codec::serialize_frame(
+      ws_frame_control::fin | ws_frame_control::text, "late", 0x12345678U);
+  wire = frame;
+  EXPECT_EQ(ws.feed(wire), 0U);
+  EXPECT_EQ(wire.size(), 0U);
+  EXPECT_FALSE(msg_fired);
+}
+
 // Server pump sends unmasked frames.
 void WebSocket_Send_Server() {
   std::string sent;
@@ -2515,7 +2566,6 @@ void WebSocketTransaction_WrongVersion() {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Sec-Websocket-Version");
   (void)req.headers.add_raw("Sec-Websocket-Version", "8");
-  wstx_reextract_options(req);
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
   recv_buffer buf;
   auto view = wstx_make_view(buf);
@@ -2526,11 +2576,54 @@ void WebSocketTransaction_WrongVersion() {
 void WebSocketTransaction_MissingKey() {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Sec-Websocket-Key");
-  wstx_reextract_options(req);
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
   recv_buffer buf;
   auto view = wstx_make_view(buf);
   EXPECT_EQ(tx->handle_data(view), stream_claim::release);
+}
+
+// Wrong `Sec-Websocket-Version`: drain sends 426 with the required headers and
+// `close_after` stays `keep_alive` so the connection remains open for retry.
+void WebSocketTransaction_UpgradeRequiredDrain() {
+  auto req = wstx_make_upgrade_req();
+  req.headers.remove_key("Sec-Websocket-Version");
+  (void)req.headers.add_raw("Sec-Websocket-Version", "8");
+  // Do not call wstx_reextract_options: `Sec-Websocket-Version` is read
+  // directly from headers (not stored in options), so no re-extraction is
+  // needed, and re-extracting would clobber `options.upgrade` since
+  // `generate_upgrade_request` sets it directly without a header.
+  auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
+  recv_buffer buf;
+  {
+    auto view = wstx_make_view(buf);
+    ASSERT_EQ(tx->handle_data(view), stream_claim::release);
+  }
+
+  std::string sent;
+  http_transaction::send_fn send_fn{[&](std::string&& data) {
+    sent = std::move(data);
+    return true;
+  }};
+  EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::release);
+  ASSERT_FALSE(sent.empty());
+
+  response_head resp;
+  ASSERT_TRUE(resp.parse(sent.substr(0, sent.size() - 2)));
+  EXPECT_EQ(resp.status_code, http_status_code::UPGRADE_REQUIRED);
+
+  const auto upgrade = resp.headers.get("Upgrade");
+  ASSERT_TRUE(upgrade);
+  EXPECT_EQ(*upgrade, "websocket");
+
+  const auto connection = resp.headers.get("Connection");
+  ASSERT_TRUE(connection);
+  EXPECT_EQ(*connection, "Upgrade");
+
+  const auto version = resp.headers.get("Sec-Websocket-Version");
+  ASSERT_TRUE(version);
+  EXPECT_EQ(*version, "13");
+
+  EXPECT_EQ(tx->close_after, after_response::keep_alive);
 }
 
 // After a rejected upgrade, `handle_drain` sends the 400 error and returns
@@ -2726,9 +2819,9 @@ void WebSocket_PingCounter() {
   };
 
   // First ping: counter becomes 1, payload is {0,0,0,1}.
-  EXPECT_FALSE(ws.ping_pending());
+  EXPECT_FALSE(ws.pong_pending());
   ASSERT_TRUE(ws.send_ping());
-  EXPECT_TRUE(ws.ping_pending());
+  EXPECT_TRUE(ws.pong_pending());
   ASSERT_FALSE(sent_frame.empty());
 
   const auto hdr1 = ws_frame_codec::parse_header(sent_frame);
@@ -2747,7 +2840,7 @@ void WebSocket_PingCounter() {
   std::string_view bad_sv{bad_pong};
   EXPECT_NE(ws.feed(bad_sv), http_websocket::insatiable);
   EXPECT_FALSE(pong_fired);
-  EXPECT_TRUE(ws.ping_pending()); // still pending
+  EXPECT_TRUE(ws.pong_pending()); // still pending
 
   // Feed a masked pong with the correct 4-byte counter payload.
   std::string good_pong = ws_frame_codec::serialize_frame(
@@ -2756,7 +2849,7 @@ void WebSocket_PingCounter() {
   std::string_view good_sv{good_pong};
   EXPECT_NE(ws.feed(good_sv), http_websocket::insatiable);
   EXPECT_TRUE(pong_fired);
-  EXPECT_FALSE(ws.ping_pending());
+  EXPECT_FALSE(ws.pong_pending());
 
   // Second ping: counter becomes 2.
   pong_fired = false;
@@ -3231,13 +3324,15 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     WebSocket_Feed_PartialFrame,
     WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth,
     WebSocket_Feed_MultipleFrames, WebSocket_Feed_BadContinuation,
-    WebSocket_Feed_InterleavedData, WebSocket_Send_Server,
+    WebSocket_Feed_InterleavedData, WebSocket_Feed_DataAfterSentClose,
+    WebSocket_Feed_DataAfterReceivedClose, WebSocket_Send_Server,
     WebSocket_Send_Client, WebSocketTransaction_UpgradeSuccess,
     WebSocketTransaction_DrainSendsResponse,
     WebSocketTransaction_DrainBeforeUpgrade, WebSocketTransaction_BadMethod,
     WebSocketTransaction_MissingUpgrade,
     WebSocketTransaction_MissingConnection, WebSocketTransaction_WrongVersion,
-    WebSocketTransaction_MissingKey, WebSocketTransaction_BadRequestDrain,
+    WebSocketTransaction_MissingKey, WebSocketTransaction_UpgradeRequiredDrain,
+    WebSocketTransaction_BadRequestDrain,
     WebSocketTransaction_FeedAfterUpgrade,
     WebSocketTransaction_FeedProtocolError,
     WebSocketTransaction_SubprotocolNegotiation,

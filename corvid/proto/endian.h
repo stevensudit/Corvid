@@ -33,39 +33,35 @@ namespace corvid { inline namespace proto {
 
 inline uint16_t hton16(uint16_t v) noexcept {
   if constexpr (std::endian::native == std::endian::big) return v;
-  return __builtin_bswap16(v);
+  return std::byteswap(v);
 }
 inline uint16_t ntoh16(uint16_t v) noexcept {
   if constexpr (std::endian::native == std::endian::big) return v;
-  return __builtin_bswap16(v);
+  return std::byteswap(v);
 }
 inline uint32_t hton32(uint32_t v) noexcept {
   if constexpr (std::endian::native == std::endian::big) return v;
-  return __builtin_bswap32(v);
+  return std::byteswap(v);
 }
 inline uint32_t ntoh32(uint32_t v) noexcept {
   if constexpr (std::endian::native == std::endian::big) return v;
-  return __builtin_bswap32(v);
+  return std::byteswap(v);
 }
 inline uint64_t hton64(uint64_t v) noexcept {
   if constexpr (std::endian::native == std::endian::big) return v;
-  return __builtin_bswap64(v);
+  return std::byteswap(v);
 }
 inline uint64_t ntoh64(uint64_t v) noexcept {
   if constexpr (std::endian::native == std::endian::big) return v;
-  return __builtin_bswap64(v);
+  return std::byteswap(v);
 }
 inline __uint128_t hton128(__uint128_t v) noexcept {
   if constexpr (std::endian::native == std::endian::big) return v;
-  const uint64_t lo = __builtin_bswap64(static_cast<uint64_t>(v));
-  const uint64_t hi = __builtin_bswap64(static_cast<uint64_t>(v >> 64));
-  return (static_cast<__uint128_t>(lo) << 64) | hi;
+  return std::byteswap(v);
 }
 inline __uint128_t ntoh128(__uint128_t v) noexcept {
   if constexpr (std::endian::native == std::endian::big) return v;
-  const uint64_t lo = __builtin_bswap64(static_cast<uint64_t>(v));
-  const uint64_t hi = __builtin_bswap64(static_cast<uint64_t>(v >> 64));
-  return (static_cast<__uint128_t>(lo) << 64) | hi;
+  return std::byteswap(v);
 }
 
 }} // namespace corvid::proto

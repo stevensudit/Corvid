@@ -688,19 +688,19 @@ public:
 
   // True if `send_ping` has been called and the matching pong has not yet
   // arrived.
-  [[nodiscard]] bool ping_pending() const noexcept {
-    return pending_ping_.has_value();
+  [[nodiscard]] bool pong_pending() const noexcept {
+    return pending_pong_.has_value();
   }
 
   // Send a ping frame (FIN set, ping opcode). The payload is a 4-byte
   // big-endian representation of an auto-incrementing counter. The counter
-  // value is stored in `pending_ping_` for comparison with incoming pongs.
+  // value is stored in `pending_pong_` for comparison with incoming pongs.
   // Calling `send_ping` while a ping is already outstanding replaces the
   // stored counter; only the most recent ping is tracked (RFC 6455 allows
   // the peer to reply to only the most recent ping).
   [[nodiscard]] bool send_ping() {
     ++ping_seq_;
-    pending_ping_ = ping_seq_;
+    pending_pong_ = ping_seq_;
     const uint32_t be_ping_seq = hton32(ping_seq_);
     char payload[sizeof(be_ping_seq)];
     std::memcpy(payload, &be_ping_seq, sizeof(be_ping_seq));
@@ -825,9 +825,8 @@ private:
     if (on_close) on_close(*this, code, reason);
 
     // Echo the close frame back unless we already sent one.
-    if (!sent_close_) {
+    if (!sent_close_)
       if (!send_close(code, reason)) return hangup();
-    }
 
     // Mark close as received. If `sent_close_` is already true,
     // `close_pending` becomes true, signaling that the connection should shut
@@ -857,9 +856,8 @@ private:
     if (bitmask::has(frame_control, ws_frame_control::control))
       return handle_control_frame(hdr, payload);
 
-    // Once we've received a close frame, discard all further non-control
-    // frames. We might be waiting for their close frame at this point.
-    if (received_close_) return false;
+    // Discard data frames once either side has started the close handshake.
+    if (is_close_started()) return true;
 
     return handle_data_frame(hdr, payload);
   }
@@ -955,12 +953,12 @@ private:
 
     if (opcode == ws_frame_control::pong) {
       // If not the pong we're looking for, just ignore it.
-      if (!pending_ping_ || payload.size() != 4) return true;
+      if (!pending_pong_ || payload.size() != 4) return true;
       uint32_t received;
       std::memcpy(&received, payload.data(), sizeof(received));
       received = ntoh32(received);
-      if (received == *pending_ping_) {
-        pending_ping_.reset();
+      if (received == *pending_pong_) {
+        pending_pong_.reset();
         if (on_pong) return on_pong(*this);
       }
       return true;
@@ -1050,6 +1048,6 @@ private:
 
   // The counter value of the most recently sent ping, if a pong is still
   // expected. Reset to `nullopt` when a matching pong arrives.
-  std::optional<uint32_t> pending_ping_;
+  std::optional<uint32_t> pending_pong_;
 };
 }} // namespace corvid::proto
