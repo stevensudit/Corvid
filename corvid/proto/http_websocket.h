@@ -548,11 +548,17 @@ public:
   // When true, `on_message` is fired once per arriving frame fragment rather
   // than once per fully assembled message. Non-final fragments receive the
   // data opcode without the `fin` bit; the final fragment receives
-  // `opcode | ws_frame_control::fin`. Defaults to false.
+  // `opcode | ws_frame_control::fin`.
+  //
+  // Note: This is a configuration option, so set it at the start.
   bool deliver_fragments{false};
 
   // When true, incoming text frames are validated as UTF-8. If invalid, the
-  // connection is closed with a 1007 close frame. Defaults to true.
+  // connection is closed with a 1007 close frame. Even when false, we do check
+  // the close frame reason, since it's a one-time cost and the alternative is
+  // worse.
+  //
+  // Note: This is a configuration option, so set it at the start.
   bool validate_utf8{true};
 
   // Construct with a `send_fn`, in either client or server mode.
@@ -796,8 +802,12 @@ private:
       code = (static_cast<uint16_t>(static_cast<uint8_t>(payload[0])) << 8) |
              static_cast<uint8_t>(payload[1]);
       reason = {payload.data() + 2, payload.size() - 2};
-      if (validate_utf8 && !utf8_checker::is_valid(reason))
-        return fail(1007, "Invalid UTF-8 in close reason");
+      if (!utf8_checker::is_valid(reason)) {
+        (void)fail(1007, "Invalid UTF-8 in close reason");
+        // Do not wait for it to respond: we already know it wants to close.
+        received_close_ = true;
+        return false;
+      }
     }
 
     // Notify user of the close. The guard above ensures this fires at most
@@ -963,23 +973,24 @@ private:
 
   [[nodiscard]] bool
   validate_text_utf8(std::string_view payload, bool is_fin) {
-    assert(validate_utf8);
-    if (payload.empty()) return true;
-
     // In the simple case, we can validate the whole thing all at once.
     if (!deliver_fragments) {
+      if (payload.empty()) return true;
       if (utf8_checker::is_valid(message_)) return true;
       return fail(1007, "Invalid UTF-8 in text message");
     }
 
     // For fragments, the best we can do is detect when the message goes off
     // the rails, because a code point can be split across frames.
-    const auto unmasked =
-        std::string_view{message_}.substr(message_.size() - payload.size());
-    const auto state = text_utf8_checker_.validate(unmasked);
-    if (state == utf8_checker::validation::failed)
+    auto validated = text_utf8_checker_.state();
+    if (!payload.empty()) {
+      const auto unmasked =
+          std::string_view{message_}.substr(message_.size() - payload.size());
+      validated = text_utf8_checker_.validate(unmasked);
+    }
+    if (validated == utf8_checker::validation::failed)
       return fail(1007, "Invalid UTF-8 in text message");
-    if (is_fin && state != utf8_checker::validation::complete)
+    if (is_fin && validated != utf8_checker::validation::complete)
       return fail(1007, "Text message ended mid-code-point");
 
     return true;
