@@ -235,22 +235,22 @@ public:
     // Note: These are casting `memcpy` operations, to avoid strict-aliasing
     // issues. They don't actually generate a call to a function.
 
-    // Decode length.
-    // TODO: We must reject non-minimal length encodings. Also, the high bit
-    // (of the 64-bit value) must be cleared. This is irrelevant in practice
-    // because we'd absolutely reject it for excessive length. Parser failure
-    // should generate a 1002 close frame.
+    // Decode length, rejecting non-minimal encodings.
     if (lb <= 125)
       payload_length_ = lb;
     else if (lb == 126) {
       uint16_t v{};
       std::memcpy(&v, vs, sizeof(v));
-      payload_length_ = ntoh16(v);
+      v = ntoh16(v);
+      if (v <= 125) return false;
+      payload_length_ = v;
       header_length_ += 2;
     } else {
       uint64_t v{};
       std::memcpy(&v, vs, sizeof(v));
-      payload_length_ = ntoh64(v);
+      v = ntoh64(v);
+      if (v <= 0xFFFFULL || v > 0x7FFFFFFFFFFFFFFFULL) return false;
+      payload_length_ = v;
       header_length_ += 8;
     }
 
@@ -642,6 +642,9 @@ public:
       payload.append(reason);
     }
 
+    // Control frames must be small.
+    if (payload.size() > 125) return false;
+
     if (!send_frame(ws_frame_control::fin | ws_frame_control::close, payload))
       return false;
 
@@ -927,7 +930,9 @@ private:
       if (payload.size() == 1) return fail_proto("Close payload is truncated");
       return dispatch_close(payload);
     }
+
     if (opcode == ws_frame_control::ping) { return send_pong(payload); }
+
     if (opcode == ws_frame_control::pong) {
       // If not the pong we're looking for, just ignore it.
       if (!pending_ping_ || payload.size() != 4) return true;
@@ -940,6 +945,7 @@ private:
       }
       return true;
     }
+
     // Unknown control opcode.
     return fail_proto("Unknown control opcode");
   }
@@ -957,6 +963,7 @@ private:
 
   [[nodiscard]] bool
   validate_text_utf8(std::string_view payload, bool is_fin) {
+    assert(validate_utf8);
     if (payload.empty()) return true;
 
     // In the simple case, we can validate the whole thing all at once.
