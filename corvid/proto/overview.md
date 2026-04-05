@@ -171,11 +171,13 @@ Thread safety: `send()`, `close()`, `hangup()`, `shutdown_read()`,
 from any thread via `epoll_loop::execute_or_post()` or `post()`.
 
 Send path: `send(Bufs&&...)` is a variadic template (one or more `string`
-arguments) and is thread-safe via `execute_or_post`. On the loop thread,
-`enqueue_send` appends all buffers to `send_queue_` and attempts an immediate
-`sendmsg` via `iov_msghdr_sender`; any unsent tail stays in the queue and
-`EPOLLOUT` is armed. Subsequent `EPOLLOUT` events drain the queue; when
-empty, `EPOLLOUT` is disarmed and `on_drain` fires.
+arguments) and is thread-safe via `execute_or_post`. It returns false
+immediately if all buffers are empty. On the loop thread, `enqueue_send`
+skips empty buffers individually and appends each non-empty buffer to
+`send_queue_`, then attempts an immediate `sendmsg` via `iov_msghdr_sender`;
+any unsent tail stays in the queue and `EPOLLOUT` is armed. Subsequent
+`EPOLLOUT` events drain the queue; when empty, `EPOLLOUT` is disarmed and
+`on_drain` fires.
 
 Receive path: `EPOLLIN` is armed while `recv_buf_.reads_enabled` is true.
 When it fires, bytes are appended to the persistent `recv_buffer` and the

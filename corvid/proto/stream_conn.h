@@ -225,7 +225,11 @@ public:
   }
 
   // Take ownership of one or more `std::string` rvalues and start sending
-  // them. Safe to call from any thread. Success does not mean that the
+  // them. There must be at least one non-empty buffer. Returns false if either
+  // of these conditions is not met, or if we are unable to write to this
+  // socket.
+  //
+  // Safe to call from any thread. Success does not mean that the
   // buffers have been fully sent; send completion is signaled via the
   // `on_drain` callback.
   template<typename... Bufs>

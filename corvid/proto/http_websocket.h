@@ -334,17 +334,19 @@ public:
       return true;
     }
 
-    // Duplicate key into 64 bits, for efficiency.
-    const uint32_t key32 = ntoh32(key);
-    const uint64_t key64 =
-        static_cast<uint64_t>(key32) | (static_cast<uint64_t>(key32) << 32);
+    // Duplicate key into 64 bits, for efficiency. Convert to network byte
+    // order first so the bytes are laid out in frame order (RFC 6455 applies
+    // masking-key-octet-j in wire sequence, not as a host-order integer).
+    const uint32_t key_be = hton32(key);
+    const uint64_t keybe_64 =
+        static_cast<uint64_t>(key_be) | (static_cast<uint64_t>(key_be) << 32);
 
     // Godbolt confirms that Clang does an amazing job with this. For the main
     // loop, it XORs 256 bits at a time.
     while (n >= sizeof(uint64_t)) {
       uint64_t chunk{};
       std::memcpy(&chunk, s, sizeof(chunk));
-      chunk ^= key64;
+      chunk ^= keybe_64;
       std::memcpy(p, &chunk, sizeof(chunk));
       p += sizeof(uint64_t);
       s += sizeof(uint64_t);
@@ -354,7 +356,7 @@ public:
     // Handle the stragglers with a bytewise loop.
     if (n != 0) {
       uint8_t mask[sizeof(uint64_t)];
-      std::memcpy(mask, &key64, sizeof(mask));
+      std::memcpy(mask, &keybe_64, sizeof(mask));
       for (size_t i = 0; i < n; ++i) p[i] = s[i] ^ mask[i];
     }
     return true;

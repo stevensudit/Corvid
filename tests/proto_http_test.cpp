@@ -2549,6 +2549,58 @@ void WebSocket_FrameWrapper_MaskPayloadInPlace() {
       payload);
 }
 
+// Verify that `mask_payload_copy` applies the mask in RFC 6455 byte order:
+// each payload byte is XOR'd with masking-key-octet-(i mod 4), where the
+// octets are taken in frame (network) order, not as a 32-bit integer.
+//
+// Uses the concrete example from RFC 6455 Section 5.7:
+//   masking key bytes: 0x37 0xfa 0x21 0x3d
+//   payload:           "Hello"
+//   masked:            0x7f 0x9f 0x4d 0x51 0x58
+//
+// The second case ("Hello, World!") exercises both the 8-byte-at-a-time main
+// loop and the trailing straggler loop.
+void WebSocket_FrameWrapper_MaskPayloadCopyByteOrder() {
+  // `build` stores mask_ in host order and writes hton32(mask_) to the frame.
+  // To get frame bytes [0x37, 0xfa, 0x21, 0x3d] on a little-endian host,
+  // hton32(mask_val) must equal 0x3d21fa37, so mask_val = 0x37fa213d.
+  const uint32_t mask_val = 0x37FA213D;
+
+  // Short payload: exercises only the straggler loop (n < 8).
+  {
+    const std::string_view payload = "Hello";
+    const std::string expected{"\x7f\x9f\x4d\x51\x58", 5};
+
+    std::string frame;
+    auto lens = ws_frame_lens::build(
+        frame, ws_frame_control::fin | ws_frame_control::text,
+        payload.size(), mask_val);
+    ASSERT_EQ(lens.mask_key(), mask_val);
+
+    std::string dst(payload.size(), '\0');
+    ASSERT_TRUE(lens.mask_payload_copy(dst.data(), payload));
+    EXPECT_EQ(dst, expected);
+  }
+
+  // Longer payload: exercises the 8-byte main loop plus the straggler (13
+  // bytes = 8 + 5).
+  {
+    const std::string_view payload = "Hello, World!";
+    const std::string expected{
+        "\x7f\x9f\x4d\x51\x58\xd6\x01\x6a\x58\x88\x4d\x59\x16", 13};
+
+    std::string frame;
+    auto lens = ws_frame_lens::build(
+        frame, ws_frame_control::fin | ws_frame_control::text,
+        payload.size(), mask_val);
+    ASSERT_EQ(lens.mask_key(), mask_val);
+
+    std::string dst(payload.size(), '\0');
+    ASSERT_TRUE(lens.mask_payload_copy(dst.data(), payload));
+    EXPECT_EQ(dst, expected);
+  }
+}
+
 // `send_binary` sends a FIN+binary frame with the correct opcode.
 void WebSocket_Send_Binary() {
   std::string sent;
@@ -3562,7 +3614,8 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     WebSocket_Feed_DataAfterSentClose, WebSocket_Feed_DataAfterReceivedClose,
     WebSocket_Send_Server, WebSocket_Send_Client,
     WebSocket_FrameWrapper_HeaderAndViews, WebSocket_FrameWrapper_CopyTo,
-    WebSocket_FrameWrapper_MaskPayloadInPlace, WebSocket_Send_Binary,
+    WebSocket_FrameWrapper_MaskPayloadInPlace,
+    WebSocket_FrameWrapper_MaskPayloadCopyByteOrder, WebSocket_Send_Binary,
     WebSocket_Send_Pong_Direct, WebSocket_Send_Frame_Prebuilt,
     WebSocket_Hangup, WebSocket_Fail, WebSocketTransaction_UpgradeSuccess,
     WebSocketTransaction_DrainSendsResponse,

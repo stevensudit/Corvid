@@ -76,8 +76,9 @@ without changing higher layers.
   (`shared_ptr<stream_conn>` internally; destructor calls `hangup()`); three
   factory methods on `stream_conn_ptr`: `adopt()` for already-connected
   sockets, `connect()` for outbound async connect, `listen()` for accept loops;
-  `send(Bufs&&...)` variadic template accepts one or more `string` buffers and
-  enqueues them atomically; internally uses `iov_msghdr_sender` for
+  `send(Bufs&&...)` variadic template accepts one or more `string` buffers,
+  skips any empty ones, and returns false if all are empty; non-empty buffers
+  are enqueued atomically; internally uses `iov_msghdr_sender` for
   scatter/gather writes; `close()` / `hangup()` / `shutdown_read()` /
   `shutdown_write()` are thread-safe via `execute_or_post()` / `post()`;
   `can_read()` / `can_write()` query half-close state; `local_endpoint()` /
