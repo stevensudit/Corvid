@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 If the user's intent is ever unclear, always ask before proceeding.
 
-When asked to fix a bug, first write a unit test that reproduces the bug. Apply the fix only after the test is in place, then confirm the test passes. This ensures the fix is correct and the test serves as a regression guard going forward.
+When asked to fix a bug, first write a unit test that reproduces the bug. Apply the fix only after the test is in place, then confirm the test passes. This ensures the fix is correct and the test serves as a regression guard going forward. Exception: if the only way to reproduce the bug requires a full integration test (live server, real timers, network I/O), skip the test — integration tests can run for minutes, and the executables in the test suite must each complete in a second or two.
 
 When presented with a code review comment, first read the relevant code and determine whether the claim is actually valid. Do not immediately act on it. Review comments can be correct, partially correct, or wrong — treat them as hypotheses to verify, not instructions to execute.
 

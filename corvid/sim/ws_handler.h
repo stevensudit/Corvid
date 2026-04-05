@@ -118,8 +118,11 @@ private:
   }
 
   // Called on the loop thread: send the tick message and re-arm for the next.
+  // If a fragmented send is in progress, defer this tick by re-arming with
+  // the same counter so the sequence has no gaps.
   [[nodiscard]] bool do_tick_fire(uint64_t tick_n) {
     if (websocket().is_close_started()) return true;
+    if (websocket().is_send_in_fragment()) return do_arm_tick(tick_n);
     auto payload = std::format(R"({{"type":"tick","tick":{}}})", tick_n);
     if (!websocket().send_text(payload)) return false;
     return do_arm_tick(tick_n + 1);
