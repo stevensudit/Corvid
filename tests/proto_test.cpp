@@ -1691,6 +1691,27 @@ void StreamConn_SendRejectsOnlyEmptyBuffers() {
   EXPECT_EQ(received, "hello");
 }
 
+// Verify that sending multiple non-empty buffers in a single call delivers all
+// of them, not just the first. Regression test for the OR-fold short-circuit
+// bug in `enqueue_send`, where buffers after the first were silently dropped.
+void StreamConn_SendMultipleBuffers() {
+  auto loop = epoll_loop::make();
+  auto this_is_the_loop_thread = loop->poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  EXPECT_GE(loop->run_once(0), 0); // process posted do_open()
+
+  EXPECT_TRUE(conn->send(std::string{"hello"}, std::string{" "},
+      std::string{"world"}));
+  EXPECT_GE(loop->run_once(0), 0); // enqueue_send() -> immediate flush
+
+  std::string received;
+  no_zero::enlarge_to(received, 32);
+  ASSERT_TRUE(b.read(received));
+  EXPECT_EQ(received, "hello world");
+}
+
 void StreamConn_AsyncCbRead() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -2971,7 +2992,8 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_PeerClose_WithBufferedData, StreamConn_Send,
     StreamConn_ManualClose, StreamConn_DrainAfterBufferedSend,
     StreamConn_DrainAfterImmediateSend, StreamConn_SendRejectsOnlyEmptyBuffers,
-    StreamConn_AsyncCbRead, StreamConn_AsyncCbRead_PreservesEarlyData,
+    StreamConn_SendMultipleBuffers, StreamConn_AsyncCbRead,
+    StreamConn_AsyncCbRead_PreservesEarlyData,
     StreamConn_AsyncCbRead_DuplicateRejected, StreamConn_AsyncCbRead_PeerClose,
     StreamConn_AsyncCbWrite, StreamConn_AsyncCbWrite_Failure,
     StreamConn_AsyncCbWrite_DuplicateRejected, StreamConn_ShutdownWrite,

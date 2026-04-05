@@ -917,12 +917,11 @@ private:
 
     // Append each non-empty buffer to queue and sender; sender segments point
     // into the stored strings.
-    bool appended =
-        ((bufs.empty()
-                 ? false
-                 : (send_queue_.push_back(std::forward<Bufs>(bufs)),
-                       (void)iov_sender_.append(send_queue_.back()), true)) ||
-            ...);
+    bool appended{};
+    ((!bufs.empty() &&
+         (send_queue_.push_back(std::forward<Bufs>(bufs)),
+             (void)iov_sender_.append(send_queue_.back()), (appended = true))),
+        ...);
     if (!appended) return false;
 
     // If an async connect is still in progress, sends would fail with
