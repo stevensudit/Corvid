@@ -31,37 +31,25 @@ namespace corvid { inline namespace proto {
 // identical in implementation; both names are provided so that call
 // sites read naturally.
 
-inline uint16_t hton16(uint16_t v) noexcept {
+inline auto swap_always(auto v) noexcept { return std::byteswap(v); }
+
+inline auto swap_not_big(auto v) noexcept {
   if constexpr (std::endian::native == std::endian::big) return v;
-  return std::byteswap(v);
+  return swap_always(v);
 }
-inline uint16_t ntoh16(uint16_t v) noexcept {
-  if constexpr (std::endian::native == std::endian::big) return v;
-  return std::byteswap(v);
+
+inline auto swap_not_little(auto v) noexcept {
+  if constexpr (std::endian::native == std::endian::little) return v;
+  return swap_always(v);
 }
-inline uint32_t hton32(uint32_t v) noexcept {
-  if constexpr (std::endian::native == std::endian::big) return v;
-  return std::byteswap(v);
-}
-inline uint32_t ntoh32(uint32_t v) noexcept {
-  if constexpr (std::endian::native == std::endian::big) return v;
-  return std::byteswap(v);
-}
-inline uint64_t hton64(uint64_t v) noexcept {
-  if constexpr (std::endian::native == std::endian::big) return v;
-  return std::byteswap(v);
-}
-inline uint64_t ntoh64(uint64_t v) noexcept {
-  if constexpr (std::endian::native == std::endian::big) return v;
-  return std::byteswap(v);
-}
-inline __uint128_t hton128(__uint128_t v) noexcept {
-  if constexpr (std::endian::native == std::endian::big) return v;
-  return std::byteswap(v);
-}
-inline __uint128_t ntoh128(__uint128_t v) noexcept {
-  if constexpr (std::endian::native == std::endian::big) return v;
-  return std::byteswap(v);
-}
+
+inline uint16_t hton16(uint16_t v) noexcept { return swap_not_big(v); }
+inline uint16_t ntoh16(uint16_t v) noexcept { return swap_not_big(v); }
+inline uint32_t hton32(uint32_t v) noexcept { return swap_not_big(v); }
+inline uint32_t ntoh32(uint32_t v) noexcept { return swap_not_big(v); }
+inline uint64_t hton64(uint64_t v) noexcept { return swap_not_big(v); }
+inline uint64_t ntoh64(uint64_t v) noexcept { return swap_not_big(v); }
+inline __uint128_t hton128(__uint128_t v) noexcept { return swap_not_big(v); }
+inline __uint128_t ntoh128(__uint128_t v) noexcept { return swap_not_big(v); }
 
 }} // namespace corvid::proto

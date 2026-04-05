@@ -42,11 +42,23 @@ namespace corvid { inline namespace proto {
 
 using namespace bool_enums;
 
+// A note on naming:
+//
+// A frame is a header with a payload. Control frames are always short and
+// complete, and are generally handled automatically. Data frames contain a
+// message as their payload, and may either consist of a single frame (of
+// arbitrary size) or be fragmented across multiple frames.
+
 // WebSocket frame header byte encoding (RFC 6455 section 5.2).
 //
 // This isn't given a proper name in the spec, but the low half is referred to
 // as the opcode, while the only allowed bit in the high half is FIN. The MASK
 // flag isn't here: it's the high bit of the length byte that follows.
+//
+// There are multiple ways to model this. One would be to use a sequential enum
+// for the opcodes and treat FIN as a special case. That's not the approach
+// taken here, though. We treat the whole thing as a bitmask, naming invidiual
+// bits, specific values, and masks.
 enum class ws_frame_control : uint8_t {
   continuation = 0x00,
   text = 0x01,
@@ -89,12 +101,12 @@ namespace corvid { inline namespace proto {
 struct ws_frame_header {
   ws_frame_control frame_control{}; // byte 0 on the wire
   uint8_t payload_size_flags{};     // byte 1 on the wire: MASK(1)|len7(7)
-  uint8_t variable_section[12]{};   // bytes 2-13; only `length-2` bytes valid
+  uint8_t variable_section[12]{};   // bytes 2-13
 };
 
 // Lightweight, non-owning wrapper around `ws_frame_header` for parsing and
 // updating fields, along with related utilities. Used as `ws_frame_lens` or
-// `ws_frame_view`.
+// `ws_frame_view`, depending on mutability.
 template<access ACCESS = access::as_mutable>
 class ws_frame_wrapper {
 public:
@@ -138,7 +150,7 @@ public:
 
   // Calculate the total number of bytes required for a header that encodes
   // `payload_length`. Suitable for sizing a buffer before `build`ing a header
-  // and payload in it.
+  // and payload into it.
   static size_t
   header_length_for(size_t payload_len, bool is_mask = false) noexcept {
     size_t mask_len = is_mask ? 4 : 0;
@@ -148,7 +160,7 @@ public:
   }
 
   // Extract the payload size flags byte, excluding the `MASK` bit. While it is
-  // used to determine the payload length, it is generally not the actual
+  // used to determine the payload length, it is not generally the actual
   // value: use `payload_length` for that.
   [[nodiscard]] uint8_t payload_size_flags() const noexcept {
     return header_->payload_size_flags & uint8_t{0x7F};
@@ -186,9 +198,8 @@ public:
     return header_->variable_section;
   }
 
-  // Whether the variable section has a mask. Note that there's a distinction
-  // between having a mask of 0 and not having a mask, per RFC 6455
-  // section 5.2.
+  // Whether the variable section has a mask key. Note that there's a
+  // wire-format distinction between having a mask of 0 and not having a mask.
   [[nodiscard]] bool is_masked() const noexcept {
     return (header_->payload_size_flags & 0x80U) != 0;
   }
@@ -196,11 +207,12 @@ public:
   // Mask key, or 0 if `!is_masked()`.
   [[nodiscard]] uint32_t mask_key() const noexcept { return mask_; }
 
-  // Determine whether the header is complete. Interprets `header_length` as
-  // `buffer_length` and probes the start of the buffer up to that point. In
-  // the process, sets `header_length` correctly. If the header is complete
-  // then it can be parsed. If it's incomplete, then `header_length` is the
-  // estimated number of bytes needed to complete it.
+  // Determine whether the header is complete. Interprets initial
+  // `header_length` as `buffer_length` and probes the front of the buffer up
+  // to that point. In the process, sets `header_length` correctly.
+  //
+  // If the header is complete, then it can be parsed. If it's incomplete, then
+  // `header_length` is the estimated number of bytes needed to complete it.
   [[nodiscard]] bool is_complete() noexcept {
     const size_t buffer_length = header_length_;
     if (buffer_length >= 14) return true; // max header size is 14 bytes
@@ -224,17 +236,15 @@ public:
     return true;
   }
 
-  // Extract the payload length, header length and mask (if any), making them
-  // available as properties. Does not depend upon `header_length` being set in
-  // advance, but does require that `is_complete` would have returned true.
+  // Parse a complete header to extract the payload length, header length and
+  // mask (if any), making them available as properties. Does not depend upon
+  // `header_length` being set in advance, but does require that `is_complete`
+  // would have returned true. May fail if the header is semantically invalid.
   [[nodiscard]] bool parse() noexcept {
     assert(is_complete());
     const auto lb = payload_size_flags();
     const auto* vs = header_->variable_section;
     header_length_ = 2;
-
-    // Note: These are casting `memcpy` operations, to avoid strict-aliasing
-    // issues. They don't actually generate a call to a function.
 
     // Decode length, rejecting non-minimal encodings.
     if (lb <= 125)
@@ -266,7 +276,8 @@ public:
     return true;
   }
 
-  // Header buffer.
+  // Header buffer. (May include start of the payload, as the struct is the
+  // maximal size.)
   [[nodiscard]] const ws_frame_header& header() const noexcept {
     return *header_;
   }
@@ -287,8 +298,14 @@ public:
   }
 
   // Header buffer as a string view.
-  [[nodiscard]] std::string_view view() const noexcept {
+  [[nodiscard]] std::string_view header_view() const noexcept {
     return {reinterpret_cast<const char*>(header_), header_length_};
+  }
+
+  // Payload buffer as a string view.
+  [[nodiscard]] std::string_view payload_view() const noexcept {
+    return {reinterpret_cast<const char*>(header_) + header_length_,
+        payload_length_};
   }
 
   // Copy header to the start of the provided buffer, which must be of at least
@@ -302,16 +319,15 @@ public:
   // Copy `src` to `dst`, applying the mask key from the header. Uses `memcpy`
   // when it's effectively zero. Works correctly even if `dst` is `src.data()`
   // for in-place masking. `dst` must point to a buffer of at least
-  // `src.size()` bytes. This operation is useful on both the client and server
-  // side.
+  // `src.size()` bytes. This operation is suitable for both masking and
+  // unmasking
   [[nodiscard]] bool
   mask_payload_copy(char* dst, std::string_view src) noexcept {
     auto* p = reinterpret_cast<uint8_t*>(dst);
     const auto* s = reinterpret_cast<const uint8_t*>(src.data());
     size_t n = src.size();
 
-    // Whether there wasn't a mask key or it was zero, there's no XORing to
-    // do, so just copy if necessary.
+    // If there wasn't a mask key or it was zero, there's no XORing.
     const auto key = mask_key();
     if (!key) {
       if (p != s) std::memcpy(p, s, n);
@@ -345,7 +361,7 @@ public:
   }
 
   // Copy `payload` into `frame`, starting right after the header and applying
-  // the mask in the same pass. This operation is useful on the client side.
+  // the mask in the same pass. This operation is suitable for masking.
   [[nodiscard]] bool
   mask_payload_copy(std::string& frame, std::string_view payload) noexcept {
     assert(reinterpret_cast<const char*>(&header()) == frame.data());
@@ -357,14 +373,13 @@ public:
   // Mask/unmask the payload bytes already in `frame`. This instance should
   // point into the front of that frame.
   [[nodiscard]] bool mask_payload(std::string& frame) noexcept {
-    if (!mask_key()) return true;
+    if (!mask_key() || *mask_key() == 0) return true;
     if (frame.size() < total_length()) return false;
-    const std::string_view payload{frame.data() + header_length(),
-        payload_length()};
-    return mask_payload_copy(frame, payload);
+    return mask_payload_copy(frame, payload_view());
   }
 
-  // Build header into `header` and return wrapper for it.
+  // Build header into `header` and return wrapper for it. Does not write past
+  // the end of the actual header size.
   static ws_frame_wrapper<access::as_mutable> build(ws_frame_header& header,
       ws_frame_control frame_control, size_t payload_len,
       std::optional<uint32_t> mask) noexcept {
@@ -486,7 +501,6 @@ struct ws_frame_codec {
   static constexpr std::string_view ws_guid =
       "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-private:
   // Convert the 20-byte SHA-1 digest to bytes before Base64-encoding it.
   [[nodiscard]] static std::string encode_digest(const sha_1::digest_t& h) {
     const auto raw = sha_1::bytes(h);
@@ -496,30 +510,29 @@ private:
 
 // Callback-driven WebSocket message pump.
 //
-// This is the state machine capable of running either the client or server
+// This is a state machine capable of running either the client or server
 // side of a WebSocket connection.
 //
 // Attach to a connection after the upgrade handshake completes, injecting a
 // `send_fn` to handle outbound frames.
 //
 // Incoming frames are fed via `feed(recv_buffer_view&)`, which reassembles
-// messages from fragments, and fires `on_message` / `on_close`.
+// messages from fragments and fires `on_message` / `on_close` / `on_pong`.
 //
-// Send outbound messages via `send_text`, `send_binary`, `send_close`, and
-// `send_pong`.
+// Send outbound messages via `send_text`, `send_binary`, `send_close`,
+// `send_pong`, and `send_frame`.
 class http_websocket {
 public:
   // Notification with the payload of the message, and its opcode.
   //
   // When `deliver_fragments` is false (default), this fires once per complete
-  // message. The opcode argument is `text` or `binary`; the `fin` bit is
+  // message. The opcode argument is `text` or `binary`, and the FIN bit is
   // never set.
   //
   // When `deliver_fragments` is true, this fires once per arriving frame.
-  // Non-final fragments receive the data opcode (`text` or `binary` -- never
+  // Non-final fragments receive the data opcode (`text` or `binary`, never
   // `continuation`; the initial opcode is propagated for continuations). The
-  // final fragment receives `opcode | ws_frame_control::fin` so the handler
-  // can detect it by testing `bitmask::has(op, ws_frame_control::fin)`.
+  // final fragment receives `opcode | ws_frame_control::fin`.
   using message_fn =
       std::function<bool(http_websocket&, std::string&&, ws_frame_control)>;
 
@@ -529,6 +542,10 @@ public:
   // cleanup. Callback will not fire if the connection is closed uncleanly.
   using close_fn =
       std::function<void(http_websocket&, uint16_t, std::string_view)>;
+
+  // Notification of pong receipt. Not called for unmatched or unsolicited
+  // pongs. Used to reset ping timeout timers.
+  using pong_fn = std::function<bool(http_websocket&)>;
 
   // Sanity check limit on frame size, whether a fragment or complete.
   static constexpr size_t max_frame_size{size_t{16} * 1024 * 1024};
@@ -542,66 +559,64 @@ public:
   // Called when a valid close frame is received.
   close_fn on_close;
 
-  // Called when a pong is received whose payload matches the most recently
-  // sent ping counter. Not called for unmatched or unsolicited pongs.
-  std::function<bool(http_websocket&)> on_pong;
+  // Called when a matching pong is received.
+  pong_fn on_pong;
 
   // When true, `on_message` is fired once per arriving frame fragment rather
-  // than once per fully assembled message. Non-final fragments receive the
-  // data opcode without the `fin` bit; the final fragment receives
-  // `opcode | ws_frame_control::fin`.
+  // than once per fully assembled message. All fragments receive the data
+  // opcode, but the final one sees the FIN bit as well.
   //
   // Note: This is a configuration option, so set it at the start.
   bool deliver_fragments{false};
 
   // When true, incoming text frames are validated as UTF-8. If invalid, the
   // connection is closed with a 1007 close frame. Even when false, we do check
-  // the close frame reason, since it's a one-time cost and the alternative is
-  // worse.
+  // the close frame reason, since it's a one-time cost.
   //
   // Note: This is a configuration option, so set it at the start.
   bool validate_utf8{true};
 
-  // Construct with a `send_fn`, in either client or server mode.
+  // Construct with a `send_fn`, in either client or server mode. Then
+  // configure using public fields.
   explicit http_websocket(http_transaction::send_fn send,
       connection_role role = connection_role::server)
       : send_{std::move(send)}, is_server_{role == connection_role::server} {}
 
   // Feed raw received bytes from `handle_data`. Accumulates fragmented
-  // messages across frames in `message_` and fires callbacks, while handling
+  // messages across frames into `message_` and fires callbacks, while handling
   // control frames. On success, consumes frames from the front of `view`,
   // updating it. Returns false on a protocol error (bad frame_control,
   // oversized frame, etc.); the caller should treat false as a cue to close
   // the connection.
   [[nodiscard]] bool feed(recv_buffer_view& view) {
-    // Loop until we run out of frame fragments.
-    while (true) {
-      std::string_view data = view.active_view();
-      size_t needed = feed(data);
-      view.update_active_view(data);
+    std::string_view data = view.active_view();
 
-      if (needed == insatiable) return false;
-      // `needed` is the total bytes required for the active header or frame
-      // to fit after compaction. If it exceeds the current capacity, request
-      // growth before the view destructs and `resume_receive` compacts.
-      if (needed > view.buffer_capacity()) view.expand_to(needed);
-      return true;
-    }
+    // Consume all complete frames.
+    size_t needed = feed(data);
+    view.update_active_view(data);
+    if (needed == insatiable) return false;
+
+    // `needed` is the total bytes required for the active header or frame
+    // to fit after compaction. If it exceeds the current capacity, request
+    // growth before the view destructs and `resume_receive` compacts. Without
+    // this, the buffer could not fit the full frame and we'd be stuck.
+    if (needed > view.buffer_capacity()) view.expand_to(needed);
+
+    return true;
   }
 
-  // Accumulates fragmented messages across frames in `message_` and fires
+  // Accumulates (potentially-fragmented) messages across data frames and fires
   // callbacks, while handling control frames. On success, consumes frames from
   // the front of `data`, updating it. Once it's done, `data` will have had all
   // complete frames removed from the front. Returns the total bytes required
   // for the next incomplete header or frame to fit in the receive buffer after
-  // compaction, or `insatiable` on a protocol error.
+  // compaction, or `insatiable` to initiate shutdown.
   [[nodiscard]] size_t feed(std::string_view& data) {
     // Loop over all frames in `data`.
     while (true) {
       if (data.empty()) break;
 
-      // Try to parse the header. If we can't, then return a lowball estimate
-      // and wait for more.
+      // Try to parse the header. If it's incomplete, ask for more.
       ws_frame_view hdr{data.data(), data.size()};
       if (!hdr.is_complete()) return hdr.total_length();
       if (!hdr.parse()) return fail_insatiable(1002, "Malformed frame header");
@@ -615,8 +630,7 @@ public:
       }
 
       // Extract and process payload of frame.
-      auto payload = data.substr(hdr.header_length(), hdr.payload_length());
-      bool processed = handle_payload(hdr, payload);
+      bool processed = handle_payload(hdr);
       if (!processed) return insatiable;
 
       data.remove_prefix(total);
@@ -636,8 +650,8 @@ public:
   }
 
   // Send a close frame, updating state. The `reason`, if provided, must be
-  // valid UTF-8. If you send a `reason` that's not hardcoded, you are
-  // responsible for it being valid.
+  // valid UTF-8 and short. If you send a `reason` that's not hardcoded, you
+  // are responsible for it being valid.
   [[nodiscard]] bool
   send_close(uint16_t code = 1000, std::string_view reason = {}) {
     // Payload is optional.
@@ -699,8 +713,7 @@ public:
   // stored counter; only the most recent ping is tracked (RFC 6455 allows
   // the peer to reply to only the most recent ping).
   [[nodiscard]] bool send_ping() {
-    ++ping_seq_;
-    pending_pong_ = ping_seq_;
+    pending_pong_ = ++ping_seq_;
     const uint32_t be_ping_seq = hton32(ping_seq_);
     char payload[sizeof(be_ping_seq)];
     std::memcpy(payload, &be_ping_seq, sizeof(be_ping_seq));
@@ -708,8 +721,8 @@ public:
         {payload, sizeof(payload)});
   }
 
-  // Send a pong frame (FIN set, pong opcode). Normally sent automatically in
-  // response to a ping; also usable for unsolicited keepalive pongs.
+  // Send a pong frame. Normally sent automatically in response to a ping; also
+  // usable for unsolicited keepalive pongs.
   [[nodiscard]] bool send_pong(std::string_view payload = {}) {
     // Always allow sending a pong, even after we've sent a close frame.
     scoped_value guard{sent_close_, false};
@@ -723,6 +736,11 @@ public:
   // first.
   [[nodiscard]] bool
   send_frame(ws_frame_control frame_control, std::string_view payload) {
+    // TODO: As an architectural optimization, consider building the frame
+    // header separately, and modifying `send_fn` to take a header and payload,
+    // so we can avoid an extra copy. This might not be worth it, though. And
+    // if the payload is big, then the caller could compose thir own frame to
+    // avoid a copy.
     if (sent_close_) return false;
     std::optional<uint32_t> mask;
     if (!is_server_) mask.emplace(generate_random());
@@ -776,7 +794,7 @@ public:
   // Fail with protocol error.
   [[nodiscard]] bool fail_proto(std::string_view reason) {
     std::string full_reason;
-    static constexpr std::string_view prefix = "Protocol failure: ";
+    static constexpr auto prefix = "Protocol failure: "sv;
     full_reason.reserve(prefix.size() + reason.size());
     full_reason += prefix;
     full_reason += reason;
@@ -809,8 +827,8 @@ private:
     uint16_t code{};
     std::string_view reason{};
     if (payload.size() >= 2) {
-      code = (static_cast<uint16_t>(static_cast<uint8_t>(payload[0])) << 8) |
-             static_cast<uint8_t>(payload[1]);
+      std::memcpy(&code, payload.data(), sizeof(code));
+      code = ntoh16(code);
       reason = {payload.data() + 2, payload.size() - 2};
       // Validate close code and reason, closing in a different way if invalid.
       if (code < 1000 || (code >= 1004 && code <= 1006) ||
@@ -820,8 +838,7 @@ private:
         return fail(1007, "Invalid UTF-8 in close reason");
     }
 
-    // Notify user of the close. The guard above ensures this fires at most
-    // once.
+    // Notify user, to allow last-minute sends or cleanup.
     if (on_close) on_close(*this, code, reason);
 
     // Echo the close frame back unless we already sent one.
@@ -839,10 +856,7 @@ private:
   // frames of a fragmented message and dispatches it to the user as a complete
   // message once the final fragment arrives. Returns false on a protocol
   // error, true on success. Handles control frames and state transitions.
-  [[nodiscard]] bool
-  handle_payload(ws_frame_view& hdr, std::string_view payload) {
-    assert(hdr.payload_length() == payload.size());
-
+  [[nodiscard]] bool handle_payload(ws_frame_view& hdr) {
     // Sniff frame and reject obvious defects.
     const auto frame_control = hdr.frame_control();
     if (bitmask::has(frame_control, ws_frame_control::rsvd))
@@ -854,18 +868,17 @@ private:
 
     // Control frames are handled internally.
     if (bitmask::has(frame_control, ws_frame_control::control))
-      return handle_control_frame(hdr, payload);
+      return handle_control_frame(hdr);
 
     // Discard data frames once either side has started the close handshake.
     if (is_close_started()) return true;
 
-    return handle_data_frame(hdr, payload);
+    return handle_data_frame(hdr);
   }
 
-  // Accumulate and dispatch a data frame. Called by `handle_payload` after
-  // control frames and protocol errors have been filtered out.
-  [[nodiscard]] bool
-  handle_data_frame(ws_frame_view& hdr, std::string_view payload) {
+  // Accumulate and dispatch a data frame.
+  [[nodiscard]] bool handle_data_frame(ws_frame_view& hdr) {
+    auto payload = hdr.payload_view();
     const auto opcode = hdr.opcode();
     const auto is_fin = hdr.is_final();
 
@@ -929,8 +942,8 @@ private:
     return dispatch_message(std::move(message_), data_opcode);
   }
 
-  [[nodiscard]] bool
-  handle_control_frame(ws_frame_view& hdr, std::string_view payload) {
+  [[nodiscard]] bool handle_control_frame(ws_frame_view& hdr) {
+    auto payload = hdr.payload_view();
     const auto opcode = hdr.opcode();
     if (!hdr.is_final()) return fail_proto("Control frames must not fragment");
     if (payload.size() > 125)
@@ -974,7 +987,7 @@ private:
     if (on_message)
       success = on_message(*this, std::move(payload), opcode_bits);
 
-    // Clear in case it wasn't moved out.
+    // Clear, in case it wasn't moved out.
     payload.clear();
     return success;
   }
@@ -991,11 +1004,10 @@ private:
     // For fragments, the best we can do is detect when the message goes off
     // the rails, because a code point can be split across frames.
     auto validated = text_utf8_checker_.state();
-    if (!payload.empty()) {
-      const auto unmasked =
-          std::string_view{message_}.substr(message_.size() - payload.size());
-      validated = text_utf8_checker_.validate(unmasked);
-    }
+    if (!payload.empty())
+      validated = text_utf8_checker_.validate(
+          std::string_view{message_}.substr(message_.size() - payload.size()));
+
     if (validated == utf8_checker::validation::failed)
       return fail(1007, "Invalid UTF-8 in text message");
     if (is_fin && validated != utf8_checker::validation::complete)

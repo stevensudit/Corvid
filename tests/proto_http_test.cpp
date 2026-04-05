@@ -2339,6 +2339,33 @@ void WebSocket_Feed_MultipleFrames() {
   EXPECT_EQ(msgs[1], "bar");
 }
 
+// Two complete frames in one `recv_buffer_view` call: both must be delivered.
+// This exercises `feed(recv_buffer_view&)` specifically, not the
+// `feed(std::string_view&)` overload.
+void WebSocket_Feed_MultipleFramesViaView() {
+  std::vector<std::string> msgs;
+  http_websocket ws{[](std::string&&) { return true; }};
+  ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control) {
+    msgs.emplace_back(std::move(p));
+    return true;
+  };
+  const std::string both =
+      ws_frame_codec::serialize_frame(
+          ws_frame_control::fin | ws_frame_control::text, "foo", 0) +
+      ws_frame_codec::serialize_frame(
+          ws_frame_control::fin | ws_frame_control::text, "bar", 0);
+  recv_buffer buf;
+  buf.reads_enabled = false;
+  buf.resize(both.size() + 1);
+  std::memcpy(buf.buffer.data(), both.data(), both.size());
+  buf.end.store(both.size(), std::memory_order::relaxed);
+  recv_buffer_view view{buf, [](size_t, size_t) {}};
+  EXPECT_TRUE(ws.feed(view));
+  ASSERT_EQ(msgs.size(), 2ULL);
+  EXPECT_EQ(msgs[0], "foo");
+  EXPECT_EQ(msgs[1], "bar");
+}
+
 // A continuation frame without a prior start fragment is a protocol error.
 void WebSocket_Feed_BadContinuation() {
   http_websocket ws{[](std::string&&) { return true; }};
@@ -2364,7 +2391,8 @@ void WebSocket_Feed_InterleavedData() {
 }
 
 // Data frame received after we sent a close is silently discarded.
-// `on_message` must not fire and `feed` must succeed (not return `insatiable`).
+// `on_message` must not fire and `feed` must succeed (not return
+// `insatiable`).
 void WebSocket_Feed_DataAfterSentClose() {
   bool msg_fired{};
   http_websocket ws{[](std::string&&) { return true; }};
@@ -2385,7 +2413,8 @@ void WebSocket_Feed_DataAfterSentClose() {
 }
 
 // Data frame received after we received a close is silently discarded.
-// `on_message` must not fire and `feed` must succeed (not return `insatiable`).
+// `on_message` must not fire and `feed` must succeed (not return
+// `insatiable`).
 void WebSocket_Feed_DataAfterReceivedClose() {
   bool msg_fired{};
   std::string sent_frame;
@@ -3323,10 +3352,11 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     WebSocket_Feed_FragmentedDeliveryInvalidUtf8Disabled,
     WebSocket_Feed_PartialFrame,
     WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth,
-    WebSocket_Feed_MultipleFrames, WebSocket_Feed_BadContinuation,
-    WebSocket_Feed_InterleavedData, WebSocket_Feed_DataAfterSentClose,
-    WebSocket_Feed_DataAfterReceivedClose, WebSocket_Send_Server,
-    WebSocket_Send_Client, WebSocketTransaction_UpgradeSuccess,
+    WebSocket_Feed_MultipleFrames, WebSocket_Feed_MultipleFramesViaView,
+    WebSocket_Feed_BadContinuation, WebSocket_Feed_InterleavedData,
+    WebSocket_Feed_DataAfterSentClose, WebSocket_Feed_DataAfterReceivedClose,
+    WebSocket_Send_Server, WebSocket_Send_Client,
+    WebSocketTransaction_UpgradeSuccess,
     WebSocketTransaction_DrainSendsResponse,
     WebSocketTransaction_DrainBeforeUpgrade, WebSocketTransaction_BadMethod,
     WebSocketTransaction_MissingUpgrade,
