@@ -580,9 +580,10 @@ public:
 
   // Construct with a `send_fn`, in either client or server mode. Then
   // configure using public fields.
-  explicit http_websocket(http_transaction::send_fn send,
+  explicit http_websocket(http_transaction::send_fn send_cb,
       connection_role role = connection_role::server)
-      : send_{std::move(send)}, is_server_{role == connection_role::server} {}
+      : send_cb_{std::move(send_cb)},
+        is_server_{role == connection_role::server} {}
 
   // Feed raw received bytes from `handle_data`. Accumulates fragmented
   // messages across frames into `message_` and fires callbacks, while handling
@@ -731,6 +732,15 @@ public:
     return send_frame(ws_frame_control::fin | ws_frame_control::pong, payload);
   }
 
+  // True while the sender is mid-fragmented-message: a data frame without FIN
+  // has been sent but the final fragment has not yet been sent. Control frames
+  // (ping, pong, close) may be sent freely during this window; other data
+  // frames must not be until fragmentation is complete. This is relevant
+  // mostly to timed callbacks.
+  [[nodiscard]] bool is_send_in_fragment() const noexcept {
+    return send_in_fragment_;
+  }
+
   // Send a frame. `frame_control` encodes both the FIN flag and the opcode
   // nibble. Masking is applied automatically for client-side connections. To
   // use this for fragmented messages: omit `ws_frame_control::fin` on all but
@@ -738,12 +748,18 @@ public:
   // first.
   [[nodiscard]] bool
   send_frame(ws_frame_control frame_control, std::string_view payload) {
-    // TODO: As an architectural optimization, consider building the frame
-    // header separately, and modifying `send_fn` to take a header and payload,
-    // so we can avoid an extra copy. This might not be worth it, though. And
-    // if the payload is big, then the caller could compose their own frame to
-    // avoid a copy.
+    // TODO: A version that took a `std::string&&` for the payload could mask
+    // in-place, build the headers in a local string, and then use
+    // `any_strings` to gather them without copying them into a single buffer,
+    // much less making multiple syscalls. Perhaps we should offer this as an
+    // option, as it might be worth it for large payloads. Then again, nothing
+    // stops the user from building the payload on a header in a frame string,
+    // at least so long as they know its length in advance.
     if (sent_close_) return false;
+    // Track outgoing fragment state. Control frames (opcode bit 0x08 set) are
+    // allowed mid-fragment per RFC 6455 and do not change fragment state.
+    if (!bitmask::has(frame_control, ws_frame_control::control))
+      send_in_fragment_ = !bitmask::has(frame_control, ws_frame_control::fin);
     std::optional<uint32_t> mask;
     if (!is_server_) mask.emplace(generate_random());
     std::string frame =
@@ -753,8 +769,8 @@ public:
 
   // Send a serialized frame.
   [[nodiscard]] bool send_frame(std::string&& frame) {
-    if (sent_close_ || !send_) return false;
-    return send_(std::move(frame));
+    if (sent_close_ || !send_cb_) return false;
+    return send_cb_(std::move(frame));
   }
 
   // Generate a WebSocket upgrade request for the given `path`, returning the
@@ -777,10 +793,10 @@ public:
     return req;
   }
 
-  // Signal an immediate RST by invoking the send function with an empty
-  // string, then return false so callers can propagate the error.
+  // Signal an immediate RST by invoking the send function with `monostate`,
+  // then return false so callers can propagate the error.
   [[nodiscard]] bool hangup() {
-    if (send_) (void)send_(std::string{});
+    if (send_cb_) (void)send_cb_(std::monostate{});
     return false;
   }
 
@@ -1033,7 +1049,7 @@ private:
   }
 
   // Callback for sending frames through provided mechanism.
-  http_transaction::send_fn send_;
+  http_transaction::send_fn send_cb_;
 
   // Whether acting as server or client.
   const bool is_server_{};
@@ -1058,6 +1074,10 @@ private:
 
   // Whether we've sent a close frame, which means we should stop sending.
   bool sent_close_{false};
+
+  // True while we are mid-fragmented-send: a data frame without FIN has been
+  // sent but the matching final fragment has not yet been sent.
+  bool send_in_fragment_{false};
 
   // Auto-incrementing counter for outgoing pings. Each call to `send_ping`
   // increments this and stores the new value in `pending_ping_`.

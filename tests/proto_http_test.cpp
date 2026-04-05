@@ -426,21 +426,22 @@ struct padded_page_transaction: public http_transaction {
   explicit padded_page_transaction(request_head&& req)
       : http_transaction{std::move(req)} {}
 
-  [[nodiscard]] stream_claim handle_drain(const send_fn& send) override {
+  [[nodiscard]] stream_claim handle_drain(const send_fn& send_cb) override {
     const auto& req = request_headers;
 
     if (req.method != http_method::GET) {
       close_after = after_response::close;
-      (void)send(response_head::make_error_response(close_after, req.version,
-          http_status_code::METHOD_NOT_ALLOWED, "Method Not Allowed"));
+      (void)send_cb(response_head::make_error_response(close_after,
+          req.version, http_status_code::METHOD_NOT_ALLOWED,
+          "Method Not Allowed"));
       return stream_claim::release;
     }
 
     const size_t pad_count = parse_pad_count(req.target);
     if (pad_count > max_pad) {
       close_after = after_response::close;
-      (void)send(response_head::make_error_response(close_after, req.version,
-          http_status_code::BAD_REQUEST, "Bad Request"));
+      (void)send_cb(response_head::make_error_response(close_after,
+          req.version, http_status_code::BAD_REQUEST, "Bad Request"));
       return stream_claim::release;
     }
 
@@ -452,7 +453,7 @@ struct padded_page_transaction: public http_transaction {
     body += "</body></html>";
 
     if (req.version == http_version::http_0_9) {
-      (void)send(std::move(body));
+      (void)send_cb(std::move(body));
       return stream_claim::release;
     }
 
@@ -463,8 +464,8 @@ struct padded_page_transaction: public http_transaction {
     response_headers.options.content_length = body.size();
     response_headers.options.connection = close_after;
 
-    (void)send(response_headers.serialize());
-    (void)send(std::move(body));
+    (void)send_cb(response_headers.serialize());
+    (void)send_cb(std::move(body));
     return stream_claim::release;
   }
 
@@ -486,11 +487,13 @@ private:
     http_server::timing_wheel_ptr wheel = nullptr,
     http_server::duration_t request_timeout = 30s,
     http_server::duration_t write_timeout = 5s) {
-  return http_server::create(endpoint,
+  return http_server::create(
+      endpoint,
       [](http_server& s) {
-        return s.add_route({"", "/"}, [](request_head&& req) -> transaction_ptr {
-          return std::make_shared<padded_page_transaction>(std::move(req));
-        });
+        return s.add_route({"", "/"},
+            [](request_head&& req) -> transaction_ptr {
+              return std::make_shared<padded_page_transaction>(std::move(req));
+            });
       },
       std::move(loop), std::move(wheel), request_timeout, write_timeout);
 }
@@ -1795,7 +1798,7 @@ void WebSocket_FrameCodec_RoundTrip() {
 void WebSocket_Feed_SingleText() {
   std::string got_msg;
   ws_frame_control got_op{};
-  http_websocket ws{[](std::string&&) { return true; },
+  http_websocket ws{[](any_strings&&) { return true; },
       connection_role::client};
   ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
     got_msg = std::move(p);
@@ -1814,8 +1817,8 @@ void WebSocket_Feed_SingleText() {
 // Invalid UTF-8 in a text frame fails the connection with close code 1007.
 void WebSocket_Feed_SingleTextInvalidUtf8() {
   std::string sent_frame;
-  http_websocket ws{[&](std::string&& f) {
-    sent_frame = std::move(f);
+  http_websocket ws{[&](any_strings&& f) {
+    sent_frame = std::get<std::string>(std::move(f));
     return true;
   }};
   bool msg_fired{};
@@ -1848,7 +1851,7 @@ void WebSocket_Feed_SingleTextInvalidUtf8Disabled() {
   std::string got_msg;
   ws_frame_control got_op{};
   bool msg_fired{};
-  http_websocket ws{[](std::string&&) { return true; }};
+  http_websocket ws{[](any_strings&&) { return true; }};
   ws.validate_utf8 = false;
   ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
     got_msg = std::move(p);
@@ -1870,7 +1873,7 @@ void WebSocket_Feed_SingleTextInvalidUtf8Disabled() {
 void WebSocket_Feed_MaskedBinary() {
   std::string got_msg;
   ws_frame_control got_op{};
-  http_websocket ws{[](std::string&&) { return true; }};
+  http_websocket ws{[](any_strings&&) { return true; }};
   ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
     got_msg = std::move(p);
     got_op = op;
@@ -1890,8 +1893,8 @@ void WebSocket_Feed_MaskedBinary() {
 void WebSocket_Feed_Ping() {
   std::string sent_frame;
   bool msg_fired{};
-  http_websocket ws_server{[&](std::string&& f) {
-    sent_frame = std::move(f);
+  http_websocket ws_server{[&](any_strings&& f) {
+    sent_frame = std::get<std::string>(std::move(f));
     return true;
   }};
   ws_server.on_message =
@@ -1901,8 +1904,8 @@ void WebSocket_Feed_Ping() {
       };
   std::string received_frame;
   http_websocket ws_client{
-      [&](std::string&& frame) {
-        received_frame = std::move(frame);
+      [&](any_strings&& frame) {
+        received_frame = std::get<std::string>(std::move(frame));
         return true;
       },
       connection_role::client};
@@ -1928,7 +1931,7 @@ void WebSocket_Feed_Ping() {
 void WebSocket_Feed_Close() {
   uint16_t got_code{};
   std::string got_reason;
-  http_websocket ws_server{[](std::string&&) { return true; }};
+  http_websocket ws_server{[](any_strings&&) { return true; }};
   ws_server.on_close =
       [&](http_websocket&, uint16_t code, std::string_view reason) {
         got_code = code;
@@ -1936,8 +1939,8 @@ void WebSocket_Feed_Close() {
       };
   std::string received_frame;
   http_websocket ws_client{
-      [&](std::string&& frame) {
-        received_frame = std::move(frame);
+      [&](any_strings&& frame) {
+        received_frame = std::get<std::string>(std::move(frame));
         return true;
       },
       connection_role::client};
@@ -1954,8 +1957,8 @@ void WebSocket_Feed_Close() {
 void WebSocket_Feed_CloseInvalidUtf8Reason() {
   std::string sent_frame;
   bool close_fired{};
-  http_websocket ws_server{[&](std::string&& f) {
-    sent_frame = std::move(f);
+  http_websocket ws_server{[&](any_strings&& f) {
+    sent_frame = std::get<std::string>(std::move(f));
     return true;
   }};
   ws_server.on_close = [&](http_websocket&, uint16_t, std::string_view) {
@@ -1991,7 +1994,7 @@ void WebSocket_Feed_Fragmented() {
   std::string got_msg;
   ws_frame_control got_op{};
   int msg_count{};
-  http_websocket ws{[](std::string&&) { return true; }};
+  http_websocket ws{[](any_strings&&) { return true; }};
   ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
     got_msg = std::move(p);
     got_op = op;
@@ -2000,8 +2003,8 @@ void WebSocket_Feed_Fragmented() {
   };
   std::string received_frame;
   http_websocket ws_client{
-      [&](std::string&& frame) {
-        received_frame = std::move(frame);
+      [&](any_strings&& frame) {
+        received_frame = std::get<std::string>(std::move(frame));
         return true;
       },
       connection_role::client};
@@ -2041,7 +2044,7 @@ void WebSocket_Feed_FragmentedDelivery() {
     ws_frame_control op{};
   };
   std::vector<Call> calls;
-  http_websocket ws{[](std::string&&) { return true; }};
+  http_websocket ws{[](any_strings&&) { return true; }};
   ws.deliver_fragments = true;
   ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
     calls.push_back({std::move(p), op});
@@ -2049,8 +2052,8 @@ void WebSocket_Feed_FragmentedDelivery() {
   };
   std::string received_frame;
   http_websocket ws_client{
-      [&](std::string&& frame) {
-        received_frame = std::move(frame);
+      [&](any_strings&& frame) {
+        received_frame = std::get<std::string>(std::move(frame));
         return true;
       },
       connection_role::client};
@@ -2092,7 +2095,7 @@ void WebSocket_Feed_FragmentedDeliverySplitUtf8() {
     ws_frame_control op{};
   };
   std::vector<Call> calls;
-  http_websocket ws{[](std::string&&) { return true; }};
+  http_websocket ws{[](any_strings&&) { return true; }};
   ws.deliver_fragments = true;
   ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
     calls.push_back({std::move(p), op});
@@ -2100,8 +2103,8 @@ void WebSocket_Feed_FragmentedDeliverySplitUtf8() {
   };
   std::string received_frame;
   http_websocket ws_client{
-      [&](std::string&& frame) {
-        received_frame = std::move(frame);
+      [&](any_strings&& frame) {
+        received_frame = std::get<std::string>(std::move(frame));
         return true;
       },
       connection_role::client};
@@ -2126,15 +2129,15 @@ void WebSocket_Feed_FragmentedDeliverySplitUtf8() {
 // In fragment-delivery mode, invalid UTF-8 across frames fails with 1007.
 void WebSocket_Feed_FragmentedDeliveryInvalidUtf8() {
   std::string sent_frame;
-  http_websocket ws{[&](std::string&& f) {
-    sent_frame = std::move(f);
+  http_websocket ws{[&](any_strings&& f) {
+    sent_frame = std::get<std::string>(std::move(f));
     return true;
   }};
   ws.deliver_fragments = true;
   std::string received_frame;
   http_websocket ws_client{
-      [&](std::string&& frame) {
-        received_frame = std::move(frame);
+      [&](any_strings&& frame) {
+        received_frame = std::get<std::string>(std::move(frame));
         return true;
       },
       connection_role::client};
@@ -2166,15 +2169,15 @@ void WebSocket_Feed_FragmentedDeliveryInvalidUtf8() {
 // mid-code-point.
 void WebSocket_Feed_FragmentedDeliveryInvalidUtf8EmptyFinal() {
   std::string sent_frame;
-  http_websocket ws{[&](std::string&& f) {
-    sent_frame = std::move(f);
+  http_websocket ws{[&](any_strings&& f) {
+    sent_frame = std::get<std::string>(std::move(f));
     return true;
   }};
   ws.deliver_fragments = true;
   std::string received_frame;
   http_websocket ws_client{
-      [&](std::string&& frame) {
-        received_frame = std::move(frame);
+      [&](any_strings&& frame) {
+        received_frame = std::get<std::string>(std::move(frame));
         return true;
       },
       connection_role::client};
@@ -2209,7 +2212,7 @@ void WebSocket_Feed_FragmentedDeliveryInvalidUtf8Disabled() {
     ws_frame_control op{};
   };
   std::vector<Call> calls;
-  http_websocket ws{[](std::string&&) { return true; }};
+  http_websocket ws{[](any_strings&&) { return true; }};
   ws.deliver_fragments = true;
   ws.validate_utf8 = false;
   ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control op) {
@@ -2218,8 +2221,8 @@ void WebSocket_Feed_FragmentedDeliveryInvalidUtf8Disabled() {
   };
   std::string received_frame;
   http_websocket ws_client{
-      [&](std::string&& frame) {
-        received_frame = std::move(frame);
+      [&](any_strings&& frame) {
+        received_frame = std::get<std::string>(std::move(frame));
         return true;
       },
       connection_role::client};
@@ -2244,7 +2247,7 @@ void WebSocket_Feed_FragmentedDeliveryInvalidUtf8Disabled() {
 // Feeding only the header bytes of a frame returns true (awaiting payload).
 void WebSocket_Feed_PartialFrame() {
   bool msg_fired{};
-  http_websocket ws{[](std::string&&) { return true; }};
+  http_websocket ws{[](any_strings&&) { return true; }};
   ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
     msg_fired = true;
     return true;
@@ -2316,7 +2319,7 @@ void WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth() {
           resume_new_size = n;
           resume_last_seen_end = lse;
         }};
-    http_websocket ws{[](std::string&&) { return true; }};
+    http_websocket ws{[](any_strings&&) { return true; }};
     EXPECT_TRUE(ws.feed(view));
   }
 
@@ -2327,7 +2330,7 @@ void WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth() {
 // Two complete frames in one buffer each fire on_message.
 void WebSocket_Feed_MultipleFrames() {
   std::vector<std::string> msgs;
-  http_websocket ws{[](std::string&&) { return true; }};
+  http_websocket ws{[](any_strings&&) { return true; }};
   ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control) {
     msgs.emplace_back(std::move(p));
     return true;
@@ -2349,7 +2352,7 @@ void WebSocket_Feed_MultipleFrames() {
 // `feed(std::string_view&)` overload.
 void WebSocket_Feed_MultipleFramesViaView() {
   std::vector<std::string> msgs;
-  http_websocket ws{[](std::string&&) { return true; }};
+  http_websocket ws{[](any_strings&&) { return true; }};
   ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control) {
     msgs.emplace_back(std::move(p));
     return true;
@@ -2373,7 +2376,7 @@ void WebSocket_Feed_MultipleFramesViaView() {
 
 // A continuation frame without a prior start fragment is a protocol error.
 void WebSocket_Feed_BadContinuation() {
-  http_websocket ws{[](std::string&&) { return true; }};
+  http_websocket ws{[](any_strings&&) { return true; }};
   std::string buf = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::continuation, "data");
   std::string_view wire{buf};
@@ -2382,7 +2385,7 @@ void WebSocket_Feed_BadContinuation() {
 
 // A non-continuation data frame arriving mid-fragment is a protocol error.
 void WebSocket_Feed_InterleavedData() {
-  http_websocket ws{[](std::string&&) { return true; }};
+  http_websocket ws{[](any_strings&&) { return true; }};
   std::string buf =
       ws_frame_lens::serialize_frame(ws_frame_control::text, "start", 0);
   std::string_view wire{buf};
@@ -2400,7 +2403,7 @@ void WebSocket_Feed_InterleavedData() {
 // `insatiable`).
 void WebSocket_Feed_DataAfterSentClose() {
   bool msg_fired{};
-  http_websocket ws{[](std::string&&) { return true; }};
+  http_websocket ws{[](any_strings&&) { return true; }};
   ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
     msg_fired = true;
     return true;
@@ -2423,8 +2426,8 @@ void WebSocket_Feed_DataAfterSentClose() {
 void WebSocket_Feed_DataAfterReceivedClose() {
   bool msg_fired{};
   std::string sent_frame;
-  http_websocket ws{[&](std::string&& f) {
-    sent_frame = std::move(f);
+  http_websocket ws{[&](any_strings&& f) {
+    sent_frame = std::get<std::string>(std::move(f));
     return true;
   }};
   ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
@@ -2451,8 +2454,8 @@ void WebSocket_Feed_DataAfterReceivedClose() {
 // Server pump sends unmasked frames.
 void WebSocket_Send_Server() {
   std::string sent;
-  http_websocket ws{[&](std::string&& f) {
-    sent = std::move(f);
+  http_websocket ws{[&](any_strings&& f) {
+    sent = std::get<std::string>(std::move(f));
     return true;
   }};
   EXPECT_TRUE(ws.send_text("hi"));
@@ -2471,8 +2474,8 @@ void WebSocket_Send_Server() {
 void WebSocket_Send_Client() {
   std::string sent;
   http_websocket ws{
-      [&](std::string&& f) {
-        sent = std::move(f);
+      [&](any_strings&& f) {
+        sent = std::get<std::string>(std::move(f));
         return true;
       },
       connection_role::client};
@@ -2610,8 +2613,8 @@ void WebSocket_FrameWrapper_MaskPayloadCopyByteOrder() {
 // `send_binary` sends a FIN+binary frame with the correct opcode.
 void WebSocket_Send_Binary() {
   std::string sent;
-  http_websocket ws{[&](std::string&& f) {
-    sent = std::move(f);
+  http_websocket ws{[&](any_strings&& f) {
+    sent = std::get<std::string>(std::move(f));
     return true;
   }};
   EXPECT_TRUE(ws.send_binary("data"));
@@ -2629,8 +2632,8 @@ void WebSocket_Send_Binary() {
 // block outbound data.
 void WebSocket_Send_Pong_Direct() {
   std::string sent;
-  http_websocket ws{[&](std::string&& f) {
-    sent = std::move(f);
+  http_websocket ws{[&](any_strings&& f) {
+    sent = std::get<std::string>(std::move(f));
     return true;
   }};
   ASSERT_TRUE(ws.send_close(1000));
@@ -2648,8 +2651,8 @@ void WebSocket_Send_Pong_Direct() {
 // send callback.
 void WebSocket_Send_Frame_Prebuilt() {
   std::string sent;
-  http_websocket ws{[&](std::string&& f) {
-    sent = std::move(f);
+  http_websocket ws{[&](any_strings&& f) {
+    sent = std::get<std::string>(std::move(f));
     return true;
   }};
   std::string frame = ws_frame_lens::serialize_frame(
@@ -2662,18 +2665,18 @@ void WebSocket_Send_Frame_Prebuilt() {
   EXPECT_EQ(hdr.payload_length(), 3ULL);
 }
 
-// `hangup` invokes the send callback with an empty string to signal RST.
+// `hangup` invokes the send callback with `std::monostate` to signal RST.
 void WebSocket_Hangup() {
   bool called{};
-  std::string sent{"initial"};
-  http_websocket ws{[&](std::string&& f) {
+  bool got_monostate{};
+  http_websocket ws{[&](any_strings&& f) {
     called = true;
-    sent = std::move(f);
+    got_monostate = std::holds_alternative<std::monostate>(f);
     return true;
   }};
   EXPECT_FALSE(ws.hangup());
   EXPECT_TRUE(called);
-  EXPECT_TRUE(sent.empty());
+  EXPECT_TRUE(got_monostate);
 }
 
 // `fail` sends a close frame and returns false. `fail_proto` wraps `fail` with
@@ -2683,8 +2686,8 @@ void WebSocket_Fail() {
   // `fail` with no prior close sends a close frame.
   {
     std::string sent;
-    http_websocket ws{[&](std::string&& f) {
-      sent = std::move(f);
+    http_websocket ws{[&](any_strings&& f) {
+      sent = std::get<std::string>(std::move(f));
       return true;
     }};
     EXPECT_FALSE(ws.fail(1001, "bye"));
@@ -2697,8 +2700,8 @@ void WebSocket_Fail() {
   // `fail_proto` sends close code 1002 with a prefixed reason string.
   {
     std::string sent;
-    http_websocket ws{[&](std::string&& f) {
-      sent = std::move(f);
+    http_websocket ws{[&](any_strings&& f) {
+      sent = std::get<std::string>(std::move(f));
       return true;
     }};
     EXPECT_FALSE(ws.fail_proto("test reason"));
@@ -2717,7 +2720,7 @@ void WebSocket_Fail() {
 
   // `fail_insatiable` returns `insatiable`.
   {
-    http_websocket ws{[](std::string&&) { return true; }};
+    http_websocket ws{[](any_strings&&) { return true; }};
     EXPECT_EQ(ws.fail_insatiable(1000, "error"), http_websocket::insatiable);
   }
 }
@@ -2739,7 +2742,7 @@ wstx_make_view(recv_buffer& buf, std::string_view data = {}) {
 // Build a well-formed WebSocket upgrade `request_head` without parsing.
 [[nodiscard]] request_head wstx_make_upgrade_req(
     std::string* accept_key_ptr = nullptr) {
-  http_websocket hws{[](std::string&&) { return true; }};
+  http_websocket hws{[](any_strings&&) { return true; }};
   std::string accept_key;
   request_head req =
       http_websocket::generate_upgrade_request("/ws", accept_key);
@@ -2770,7 +2773,7 @@ void WebSocketTransaction_OnDrain() {
     ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
   }
 
-  http_transaction::send_fn send_fn{[](std::string&&) { return true; }};
+  http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
   // First drain flushes the 101 response, then falls through to `on_drain`.
   EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
   EXPECT_EQ(drain_count, 1);
@@ -2801,8 +2804,8 @@ void WebSocketTransaction_DrainSendsResponse() {
   }
 
   std::string sent;
-  http_transaction::send_fn send_fn{[&](std::string&& data) {
-    sent = std::move(data);
+  http_transaction::send_fn send_fn{[&](any_strings&& data) {
+    sent = std::get<std::string>(std::move(data));
     return true;
   }};
   EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
@@ -2822,7 +2825,7 @@ void WebSocketTransaction_DrainSendsResponse() {
 void WebSocketTransaction_DrainBeforeUpgrade() {
   auto tx =
       std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
-  http_transaction::send_fn send_fn{[](std::string&&) { return true; }};
+  http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
   EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::release);
 }
 
@@ -2896,8 +2899,8 @@ void WebSocketTransaction_UpgradeRequiredDrain() {
   }
 
   std::string sent;
-  http_transaction::send_fn send_fn{[&](std::string&& data) {
-    sent = std::move(data);
+  http_transaction::send_fn send_fn{[&](any_strings&& data) {
+    sent = std::get<std::string>(std::move(data));
     return true;
   }};
   EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::release);
@@ -2935,8 +2938,8 @@ void WebSocketTransaction_BadRequestDrain() {
   }
 
   std::string sent;
-  http_transaction::send_fn send_fn{[&](std::string&& data) {
-    sent = std::move(data);
+  http_transaction::send_fn send_fn{[&](any_strings&& data) {
+    sent = std::get<std::string>(std::move(data));
     return true;
   }};
   EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::release);
@@ -2966,7 +2969,7 @@ void WebSocketTransaction_FeedAfterUpgrade() {
     auto view = wstx_make_view(buf);
     ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
   }
-  http_transaction::send_fn send_fn{[](std::string&&) { return true; }};
+  http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
   ASSERT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
 
   const auto frame = ws_frame_lens::serialize_frame(
@@ -2988,7 +2991,7 @@ void WebSocketTransaction_FeedProtocolError() {
     auto view = wstx_make_view(buf);
     ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
   }
-  http_transaction::send_fn send_fn{[](std::string&&) { return true; }};
+  http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
   ASSERT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
 
   // A continuation frame with no prior start fragment is a protocol error.
@@ -3024,8 +3027,8 @@ void WebSocketTransaction_SubprotocolNegotiation() {
     }
 
     std::string sent;
-    http_transaction::send_fn send_fn{[&](std::string&& data) {
-      sent = std::move(data);
+    http_transaction::send_fn send_fn{[&](any_strings&& data) {
+      sent = std::get<std::string>(std::move(data));
       return true;
     }};
     ASSERT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
@@ -3058,8 +3061,8 @@ void WebSocketTransaction_SubprotocolNegotiation() {
     }
 
     std::string sent;
-    http_transaction::send_fn send_fn{[&](std::string&& data) {
-      sent = std::move(data);
+    http_transaction::send_fn send_fn{[&](any_strings&& data) {
+      sent = std::get<std::string>(std::move(data));
       return true;
     }};
     ASSERT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
@@ -3102,8 +3105,8 @@ void WebSocket_PingCounter() {
 
   std::string sent_frame;
   http_websocket ws{
-      [&](std::string&& f) {
-        sent_frame = std::move(f);
+      [&](any_strings&& f) {
+        sent_frame = std::get<std::string>(std::move(f));
         return true;
       },
       connection_role::server};
@@ -3170,7 +3173,8 @@ void HttpServer_WebSocket_Keepalive() {
   epoll_loop_runner loop_runner;
   timing_wheel_runner wheel_runner;
 
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+  auto server = http_server::create(
+      net_endpoint{ipv4_addr::loopback, 0},
       [](http_server& s) {
         return s.add_route({"", "/ws"},
             http_websocket_transaction::make_factory(
@@ -3188,8 +3192,8 @@ void HttpServer_WebSocket_Keepalive() {
 
   // Perform WebSocket upgrade.
   std::string accept_key;
-  http_transaction::send_fn send_fn{[&](std::string&& f) {
-    return client.send(f);
+  http_transaction::send_fn send_fn{[&](any_strings&& f) {
+    return client.send(std::get<std::string>(f));
   }};
   http_websocket ws_client{std::move(send_fn), connection_role::client};
   auto req = http_websocket::generate_upgrade_request("/ws", accept_key);
@@ -3258,7 +3262,8 @@ void HttpServer_WebSocket_KeepaliveTimeout() {
   epoll_loop_runner loop_runner;
   timing_wheel_runner wheel_runner;
 
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+  auto server = http_server::create(
+      net_endpoint{ipv4_addr::loopback, 0},
       [](http_server& s) {
         return s.add_route({"", "/ws"},
             http_websocket_transaction::make_factory(
@@ -3276,8 +3281,8 @@ void HttpServer_WebSocket_KeepaliveTimeout() {
 
   // Perform WebSocket upgrade.
   std::string accept_key;
-  http_transaction::send_fn send_fn{[&](std::string&& f) {
-    return client.send(f);
+  http_transaction::send_fn send_fn{[&](any_strings&& f) {
+    return client.send(std::get<std::string>(f));
   }};
   http_websocket ws_client{std::move(send_fn), connection_role::client};
   auto req = http_websocket::generate_upgrade_request("/ws", accept_key);
@@ -3343,9 +3348,8 @@ void HttpServer_WebSocket() {
             http_websocket_transaction::make_factory(
                 [](http_websocket_transaction& tx) {
                   tx.websocket().on_message =
-                      [](http_websocket& ws, std::string&& p, ws_frame_control) {
-                        return ws.send_text(p);
-                      };
+                      [](http_websocket& ws, std::string&& p,
+                          ws_frame_control) { return ws.send_text(p); };
                   return true;
                 }));
       });
@@ -3381,8 +3385,8 @@ void HttpServer_WebSocket() {
   // Build a client-side WebSocket pump that writes through `client`.
   std::string got_msg;
   ws_frame_control got_op{};
-  http_transaction::send_fn client_send{[&](std::string&& frame) {
-    return client.send(frame);
+  http_transaction::send_fn client_send{[&](any_strings&& frame) {
+    return client.send(std::get<std::string>(frame));
   }};
   http_websocket ws_client{std::move(client_send), connection_role::client};
   ws_client.on_message =
@@ -3415,9 +3419,8 @@ void HttpServer_WebSocket_QueryAndFragmentRoute() {
             http_websocket_transaction::make_factory(
                 [](http_websocket_transaction& tx) {
                   tx.websocket().on_message =
-                      [](http_websocket& ws, std::string&& p, ws_frame_control) {
-                        return ws.send_text(p);
-                      };
+                      [](http_websocket& ws, std::string&& p,
+                          ws_frame_control) { return ws.send_text(p); };
                   return true;
                 }));
       });
@@ -3471,9 +3474,8 @@ void HttpServer_WebSocket_Frames() {
             http_websocket_transaction::make_factory(
                 [](http_websocket_transaction& tx) {
                   tx.websocket().on_message =
-                      [](http_websocket& ws, std::string&& p, ws_frame_control) {
-                        return ws.send_text(p);
-                      };
+                      [](http_websocket& ws, std::string&& p,
+                          ws_frame_control) { return ws.send_text(p); };
                   return true;
                 }));
       });
@@ -3482,8 +3484,8 @@ void HttpServer_WebSocket_Frames() {
   auto client = stream_sync::connect(web_server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
 
-  http_transaction::send_fn client_send{[&](std::string&& frame) {
-    return client.send(frame);
+  http_transaction::send_fn client_send{[&](any_strings&& frame) {
+    return client.send(std::get<std::string>(frame));
   }};
   http_websocket ws_client{std::move(client_send), connection_role::client};
 

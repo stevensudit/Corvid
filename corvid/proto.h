@@ -58,3 +58,4 @@
 #include "proto/http_websocket.h"
 #include "proto/http_websocket_transaction.h"
 #include "proto/http_server.h"
+#include "proto/http_file_transaction.h"

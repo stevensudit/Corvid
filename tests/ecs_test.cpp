@@ -6277,6 +6277,77 @@ void ArchetypeScene_ForEach() {
   }
 }
 
+void ArchetypeScene_TryGetComponent() {
+  // Returns non-null for a component the entity's archetype has.
+  if (true) {
+    three_storage_scene_t s;
+    auto h =
+        s.store_new_entity<scene_sid_t{1}>({}, Position{3.f, 0.f}, Velocity{});
+    auto* pos = s.try_get_component<Position>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    EXPECT_EQ(pos->x, 3.f);
+  }
+
+  // Returns null for a component the entity's archetype lacks.
+  if (true) {
+    three_storage_scene_t s;
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
+    EXPECT_TRUE(s.try_get_component<Health>(h.id()) == nullptr);
+  }
+
+  // Works across all three storage archetypes.
+  if (true) {
+    three_storage_scene_t s;
+    auto h1 =
+        s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f}, Velocity{});
+    auto h2 = s.store_new_entity<scene_sid_t{2}>({}, Position{2.f, 0.f},
+        Velocity{}, Health{});
+    auto h3 = s.store_new_entity<scene_sid_t{3}>({}, Health{99});
+
+    // arch_pv_t: Position yes, Health no.
+    EXPECT_TRUE(s.try_get_component<Position>(h1.id()) != nullptr);
+    EXPECT_TRUE(s.try_get_component<Health>(h1.id()) == nullptr);
+
+    // arch_pvh_t: Position yes, Health yes.
+    EXPECT_TRUE(s.try_get_component<Position>(h2.id()) != nullptr);
+    EXPECT_TRUE(s.try_get_component<Health>(h2.id()) != nullptr);
+    EXPECT_EQ(s.try_get_component<Health>(h2.id())->hp, 100);
+
+    // arch_h_t: Health yes, Velocity no.
+    EXPECT_EQ(s.try_get_component<Health>(h3.id())->hp, 99);
+    EXPECT_TRUE(s.try_get_component<Velocity>(h3.id()) == nullptr);
+  }
+
+  // Returns null for an invalid entity ID.
+  if (true) {
+    three_storage_scene_t s;
+    EXPECT_TRUE(
+        s.try_get_component<Position>(scene_reg_t::id_t::invalid) == nullptr);
+  }
+
+  // On a const scene returns `const C*`; pointer is still non-null and
+  // readable.
+  if (true) {
+    three_storage_scene_t s;
+    auto h =
+        s.store_new_entity<scene_sid_t{1}>({}, Position{7.f, 0.f}, Velocity{});
+    const auto& cs = s;
+    const Position* pos = cs.try_get_component<Position>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    EXPECT_EQ(pos->x, 7.f);
+  }
+
+  // Mutation through the returned pointer is reflected in the stored data.
+  if (true) {
+    three_storage_scene_t s;
+    auto h =
+        s.store_new_entity<scene_sid_t{1}>({}, Position{0.f, 0.f}, Velocity{});
+    s.try_get_component<Position>(h.id())->x = 42.f;
+    EXPECT_EQ(s.storage<scene_sid_t{1}>()[h.id()].component<Position>().x,
+        42.f);
+  }
+}
+
 void ComponentScene_StageNewEntity() {
   // stage_new_entity() creates a staged entity and returns its handle.
   if (true) {
@@ -7501,8 +7572,9 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ArchetypeScene_StorageTypeAccess, ArchetypeScene_CreateHandleId,
     ArchetypeScene_AddNewRuntime, ArchetypeScene_StoreEntity,
     ArchetypeScene_EntityLifecycle, ArchetypeScene_MigrateEdgeCases,
-    ArchetypeScene_ForEach, ComponentIndex_Flat, ComponentIndex_Sorted,
-    ComponentIndex_Paged, ComponentStorage_Basic, ComponentStorage_MultiStore,
+    ArchetypeScene_ForEach, ArchetypeScene_TryGetComponent,
+    ComponentIndex_Flat, ComponentIndex_Sorted, ComponentIndex_Paged,
+    ComponentStorage_Basic, ComponentStorage_MultiStore,
     ComponentStorage_Remove, ComponentStorage_Erase, ComponentStorage_EraseIf,
     ComponentStorage_Iterator, ComponentStorage_IndexVariants,
     ComponentStorage_AddNew, ComponentStorage_SwapMoveReserve,
