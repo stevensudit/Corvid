@@ -17,6 +17,7 @@
 #pragma once
 
 #include <atomic>
+#include <cmath>
 #include <format>
 #include <iostream>
 #include <memory>
@@ -35,7 +36,8 @@ using namespace std::chrono_literals;
 // Protocol:
 //   Client sends: {"type":"hello","client":"browser"}
 //   Server replies: {"type":"hello_ack","message":"connected"}
-//   Server then sends once per second: {"type":"tick","tick":N}
+//   Server then sends at 20 Hz: {"type":"snapshot","entities":[...]}
+//   Server also sends at 1 Hz: {"type":"tick","tick":N}
 //
 // Keepalive (20s ping / 5s pong timeout) is enabled so that browser pong
 // replies reset the HTTP server's 30s read timeout; the constraint
@@ -103,7 +105,7 @@ private:
     auto wheel = keepalive_wheel_.lock();
     if (!wheel) return true;
     return fuse_t::set_timeout(*wheel, tick_seq_,
-        std::weak_ptr<http_transaction>{shared_from_this()}, 1000ms,
+        std::weak_ptr<http_transaction>{shared_from_this()}, 50ms,
         [loop_w = keepalive_loop_, tick_n](const fuse_t& fuse) -> bool {
           auto tx = fuse.get_if_armed();
           auto loop = loop_w.lock();
@@ -117,14 +119,55 @@ private:
         });
   }
 
-  // Called on the loop thread: send the tick message and re-arm for the next.
-  // If a fragmented send is in progress, defer this tick by re-arming with
-  // the same counter so the sequence has no gaps.
+  // Called on the loop thread: send a snapshot message (20 Hz) and, once per
+  // 20 frames, a tick message (1 Hz). Re-arms for the next 50 ms interval.
+  // If a fragmented send is in progress, defer by re-arming with the same
+  // counter so the sequence has no gaps.
+  //
+  // Five entities orbit the canvas center (320, 240) at varying radii,
+  // angular speeds (radians per 50 ms frame), and initial phases, so no two
+  // are ever in the same position or in sync.
   [[nodiscard]] bool do_tick_fire(uint64_t tick_n) {
     if (websocket().is_close_started()) return true;
     if (websocket().is_send_in_fragment()) return do_arm_tick(tick_n);
-    auto payload = std::format(R"({{"type":"tick","tick":{}}})", tick_n);
-    if (!websocket().send_text(payload)) return false;
+
+    struct orbit {
+      int id;
+      double radius;
+      double speed; // rad/frame (frame = 50 ms)
+      double phase; // initial angle (rad)
+    };
+    static constexpr orbit orbits[] = {
+        {1, 80.0, 0.05, 0.00},
+        {2, 140.0, 0.035, 1.05},
+        {3, 200.0, 0.025, 2.09},
+        {4, 80.0, -0.065, 0.52},
+        {5, 170.0, -0.04, 3.67},
+    };
+
+    const double cx = 320.0;
+    const double cy = 240.0;
+    auto t = static_cast<double>(tick_n);
+
+    std::string entities;
+    for (const auto& o : orbits) {
+      double angle = o.phase + (o.speed * t);
+      double x = cx + (o.radius * std::cos(angle));
+      double y = cy + (o.radius * std::sin(angle));
+      if (!entities.empty()) entities += ',';
+      entities +=
+          std::format(R"({{"id":{},"x":{:.1f},"y":{:.1f}}})", o.id, x, y);
+    }
+    auto snapshot =
+        std::format(R"({{"type":"snapshot","entities":[{}]}})", entities);
+    if (!websocket().send_text(snapshot)) return false;
+
+    if (tick_n % 20 == 0) {
+      auto tick_msg =
+          std::format(R"({{"type":"tick","tick":{}}})", tick_n / 20);
+      if (!websocket().send_text(tick_msg)) return false;
+    }
+
     return do_arm_tick(tick_n + 1);
   }
 };

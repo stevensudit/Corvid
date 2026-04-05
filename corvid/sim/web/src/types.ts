@@ -15,5 +15,17 @@ export interface TickMsg {
   tick: number;
 }
 
-export type ServerMsg = HelloAckMsg | TickMsg;
+export interface SnapshotEntity {
+  id: number
+  x: number
+  y: number
+}
+
+export interface SnapshotMsg {
+  type: 'snapshot'
+  entities: SnapshotEntity[]
+}
+
+
+export type ServerMsg = HelloAckMsg | TickMsg | SnapshotMsg;
 export type ClientMsg = HelloMsg;
