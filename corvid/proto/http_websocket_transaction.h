@@ -172,7 +172,7 @@ private:
     const auto version_hdr =
         request_headers.headers.get("Sec-Websocket-Version");
     if (!version_hdr || *version_hdr != "13")
-      return send_upgrade_required(view);
+      return send_upgrade_required();
     const auto key_hdr = request_headers.headers.get("Sec-Websocket-Key");
     if (!key_hdr || key_hdr->empty()) return send_bad_request(view);
 
@@ -209,8 +209,7 @@ private:
   // Send a 426 Upgrade Required response advertising WebSocket version 13,
   // then release without closing. The connection stays open so the client can
   // retry with the correct version.
-  [[nodiscard]] stream_claim send_upgrade_required(recv_buffer_view& view) {
-    view.consume(view.active_view().size());
+  [[nodiscard]] stream_claim send_upgrade_required() {
     response_head resp;
     resp.version = request_headers.version;
     resp.status_code = http_status_code::UPGRADE_REQUIRED;
