@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include "containers/containers_shared.h"
+#include "containers/hash_combiner.h"
 #include "containers/enum_vector.h"
 #include "containers/custom_handle.h"
 #include "containers/optional_ptr.h"

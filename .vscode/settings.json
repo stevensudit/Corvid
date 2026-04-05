@@ -1,10 +1,10 @@
 {
     "editor.formatOnSave": true,
     "[cpp]": {
-        "editor.defaultFormatter": "ms-vscode.cpptools"
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
     },
     "[c]": {
-        "editor.defaultFormatter": "ms-vscode.cpptools"
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
     },
     "C_Cpp.default.enableIntelliSense": true,
     "files.associations": {
@@ -132,5 +132,19 @@
     "lldb.showDisassembly": "auto",
     "lldb.dereferencePointers": true,
     "lldb.consoleMode": "commands",
-    "cmake.ignoreCMakeListsMissing": true
+    "cmake.ignoreCMakeListsMissing": true,
+    "files.watcherExclude": {
+        "**/.git/**": true,
+        "**/build/**": true,
+        "**/out/**": true,
+        "**/node_modules/**": true,
+        "**/.cache/**": true,
+        "**/CMakeFiles/**": true,
+        "**/*.o": true,
+        "**/*.obj": true
+    },
+    "search.exclude": {
+        "**/build/**": true,
+        "**/out/**": true
+    }
 }

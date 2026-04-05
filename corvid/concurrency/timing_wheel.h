@@ -239,6 +239,17 @@ public:
       : wheel_{std::make_shared<timing_wheel>(slot_count, tick_interval)},
         thread_{[this](const std::stop_token& st) { run(st); }} {}
 
+  ~timing_wheel_runner() {
+    thread_.request_stop();
+    if (!thread_.joinable()) return;
+    // `http_server` may drop its last reference from within the wheel thread
+    // while a timeout callback holds the final owner. Avoid libc++ self-join.
+    if (thread_.get_id() == std::this_thread::get_id())
+      thread_.detach();
+    else
+      thread_.join();
+  }
+
   timing_wheel_runner(const timing_wheel_runner&) = delete;
   timing_wheel_runner(timing_wheel_runner&&) = delete;
   timing_wheel_runner& operator=(const timing_wheel_runner&) = delete;
@@ -257,6 +268,8 @@ public:
 
 private:
   void run(const std::stop_token& st) {
+    jthread_stoppable_sleep::set_thread_name("wheel");
+
     // Kill the wheel's tombstone immediately when a stop is requested, so
     // any in-progress `tick()` bails at the next callback boundary.
     std::stop_callback on_stop{st, [this] { (void)wheel_->stop(); }};

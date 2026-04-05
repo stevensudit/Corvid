@@ -18,15 +18,21 @@
 #include <atomic>
 #include <chrono>
 #include <cerrno>
+#include <format>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <unordered_map>
 #include <vector>
 
+#include <pthread.h>
+
+#include "../concurrency/jthread_stoppable_sleep.h"
 #include "../concurrency/notifiable.h"
 #include "../concurrency/tombstone.h"
 #include "../containers/scoped_value.h"
@@ -98,7 +104,7 @@ private:
 // `epoll_loop` is non-copyable, non-movable, and always heap-allocated via
 // `epoll_loop::make`.
 class epoll_loop {
-  enum class allow : std::uint8_t { ctor };
+  enum class allow : bool { ctor };
 
 public:
   // Maximum number of events retrieved per `epoll_wait` call.
@@ -561,12 +567,22 @@ public:
     }
   }
 
+  ~epoll_loop_runner() {
+    thread_.request_stop();
+    if (!thread_.joinable()) return;
+    // `http_server` can be destroyed from the loop thread when a callback's
+    // temporary `shared_ptr` is the final owner. libc++ throws on self-join,
+    // so detach in that narrow case after requesting stop.
+    if (thread_.get_id() == std::this_thread::get_id())
+      thread_.detach();
+    else
+      thread_.join();
+  }
+
   epoll_loop_runner(const epoll_loop_runner&) = delete;
   epoll_loop_runner& operator=(const epoll_loop_runner&) = delete;
   epoll_loop_runner(epoll_loop_runner&&) = delete;
   epoll_loop_runner& operator=(epoll_loop_runner&&) = delete;
-
-  ~epoll_loop_runner() = default; // jthread requests stop and joins
 
   // Signal the thread to exit. Idempotent. Also called implicitly by the
   // destructor.
@@ -584,9 +600,21 @@ public:
 
 private:
   void run(const std::stop_token& st) {
+    jthread_stoppable_sleep::set_thread_name("epoll");
+
+    // Hold a local `shared_ptr` so the loop outlives this function even if
+    // every external owner (e.g., `http_server::loop_` and
+    // `epoll_loop_runner::loop_`) is dropped by a callback running on this
+    // thread. Without it, destroying the last external owner inside a callback
+    // (self-join path) calls `epoll_loop::~epoll_loop` while `run` is still on
+    // the call stack, causing use-after-free in `dispatch_event`.
+    auto loop = loop_;
+
     // When stop is requested, wake the `epoll_wait` so the loop can exit.
-    std::stop_callback on_stop{st, [this] { (void)loop_->stop(); }};
-    (void)loop_->run(100);
+    // Capture `loop` by value so the lambda does not reference `this` (the
+    // runner), which may already be in its destructor when stop fires.
+    std::stop_callback on_stop{st, [loop] { (void)loop->stop(); }};
+    (void)loop->run(100);
   }
 
   std::shared_ptr<epoll_loop> loop_;

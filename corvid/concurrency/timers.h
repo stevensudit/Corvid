@@ -109,7 +109,7 @@ using clock_callback_t = std::function<time_point_t()>;
 //
 // Set `canceled` to true to prevent the event from firing again.
 class timer_event final {
-  enum class allow : std::uint8_t { ctor };
+  enum class allow : bool { ctor };
 
 public:
   // Effectively private: can only be constructed through `make` factory
@@ -214,7 +214,7 @@ class timers final: public std::enable_shared_from_this<timers> {
     }
   };
   using scheduled_queue_t = std::priority_queue<scheduled_event>;
-  enum class allow : std::uint8_t { ctor };
+  enum class allow : bool { ctor };
 
 public:
   // Effectively private: can only be constructed through `make` factory

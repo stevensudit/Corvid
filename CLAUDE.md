@@ -6,7 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 If the user's intent is ever unclear, always ask before proceeding.
 
+When asked to fix a bug, first write a unit test that reproduces the bug. Apply the fix only after the test is in place, then confirm the test passes. This ensures the fix is correct and the test serves as a regression guard going forward.
+
+When presented with a code review comment, first read the relevant code and determine whether the claim is actually valid. Do not immediately act on it. Review comments can be correct, partially correct, or wrong — treat them as hypotheses to verify, not instructions to execute.
+
 When a function can fail, always consider returning some status indication instead of being void.
+
+Before discarding a `[[nodiscard]]` return value with `(void)`, first consider whether the failure case should be detected and acted upon. Voiding out a nodiscard result to silence a warning is a last resort; the preferred response is to propagate, log, or handle the error appropriately.
 
 ## Build System
 
@@ -52,6 +58,15 @@ Framework: custom minitest (`tests/minitest.h`). All classes have test coverage 
 The root `TODO` file tracks enhancement requests and design decisions. When encountering TODO comments in code that represent enhancements (not immediate work), move them there. Rewrite positional references ("below", "above") to name the specific function or class.
 
 Corvid is a **header-only C++23 library** (no external dependencies beyond libc++). All headers live under `corvid/`.
+
+## Reuse Library Utilities
+
+Corvid provides many utilities that replace direct calls on standard types. Always search the library before reaching for `std::string`, `std::string_view`, or container member functions directly. Examples:
+
+- Map/set lookup: prefer `find_opt` (returns `std::optional`) over `find` + end-check.
+- String searching and splitting: prefer the parsers and locators in `corvid/strings/` over `std::string::find`, `substr`, etc.
+
+When writing new code in `corvid/proto/` or elsewhere in the library, scan the relevant headers first to avoid reimplementing what already exists.
 
 ## Non-Obvious Locations
 

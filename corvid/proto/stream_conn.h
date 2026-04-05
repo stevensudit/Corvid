@@ -32,6 +32,7 @@
 #include <fcntl.h>
 
 #include "epoll_loop.h"
+#include "iov_msghdr.h"
 #include "net_endpoint.h"
 #include "recv_buffer.h"
 #include "../concurrency/relaxed_atomic.h"
@@ -223,16 +224,26 @@ public:
     return weak_loop_;
   }
 
-  // Take ownership of `buf` and start sending it. Safe to call from any
-  // thread. Success does not mean that the buffer has been fully sent.
-  // Instead, send completion is signaled via the `on_drain` callback.
-  [[nodiscard]] bool send(std::string&& buf) {
-    if (buf.empty()) return false;
-    if (!open_) return false;
-    if (!write_open_) return false;
-    return execute_or_post([p = self(), b = std::move(buf)]() mutable {
-      return p->enqueue_send(std::move(b));
-    });
+  // Take ownership of one or more `std::string` rvalues and start sending
+  // them. There must be at least one non-empty buffer. Returns false if either
+  // of these conditions is not met, or if we are unable to write to this
+  // socket.
+  //
+  // Safe to call from any thread. Success does not mean that the
+  // buffers have been fully sent; send completion is signaled via the
+  // `on_drain` callback.
+  template<typename... Bufs>
+  requires(std::same_as<Bufs, std::string> && ...)
+  [[nodiscard]] bool send(Bufs&&... bufs) {
+    if (!open_ || !write_open_) return false;
+    if (((bufs.empty() ? 0U : 1U) + ...) == 0) return false;
+    return execute_or_post(
+        [p = self(),
+            t = std::make_tuple(std::forward<Bufs>(bufs)...)]() mutable {
+          return std::apply(
+              [&p](auto&&... b) { return p->enqueue_send(std::move(b)...); },
+              t);
+        });
   }
 
   // Start a close. If `coordination` is `unilateral` (the default), flushes
@@ -283,7 +294,7 @@ public:
   explicit stream_conn(allow, std::weak_ptr<epoll_loop> loop,
       net_socket&& sock, const net_endpoint& remote, stream_conn_handlers&& h,
       size_t rbs, std::optional<connection_role> connection = {},
-      coordination_policy shutdown = coordination_policy::unilateral) noexcept
+      coordination_policy shutdown = coordination_policy::unilateral)
       : io_conn{std::move(sock)}, loop_{*loop.lock()},
         weak_loop_{std::move(loop)}, remote_{remote},
         own_handlers_{std::move(h)}, active_handlers_{&own_handlers_},
@@ -344,8 +355,10 @@ private:
   // overhead of empty deques.
   std::deque<std::string> send_queue_;
 
-  // Unsent tail of `send_queue_.front`. Empty iff `send_queue_` is empty.
-  std::string_view head_span_;
+  // Scatter/gather sender mirroring `send_queue_`. Each active segment
+  // points into the corresponding string in `send_queue_`. Empty iff
+  // `send_queue_` is empty.
+  iov_msghdr_sender iov_sender_;
 
   // Persistent receive buffer. The framework appends bytes after `end`;
   // the parser consumes bytes from `begin`.
@@ -632,7 +645,7 @@ private:
       return do_close_now(close_mode::forceful) && false;
     write_open_ = false;
     send_queue_.clear();
-    head_span_ = {};
+    iov_sender_.clear();
     if (!loop_.enable_writes(*this, false)) return false;
     return maybe_finish_after_side_close() || true;
   }
@@ -726,7 +739,7 @@ private:
     if (!write_open_->exchange(false, std::memory_order::relaxed))
       return false;
     send_queue_.clear();
-    head_span_ = {};
+    iov_sender_.clear();
     (void)loop_.enable_writes(*this, false);
     if (close_requested_ || !read_open_)
       return do_close_now(close_mode::forceful);
@@ -894,73 +907,65 @@ private:
     });
   }
 
-  // Enqueue `their_buf` for sending. Attempts an immediate `::send` when the
-  // queue is empty; if any bytes remain (partial write or EAGAIN) they are
-  // pushed onto `send_queue_` and tracked by `head_span_`. `EPOLLOUT` is
-  // armed when the queue becomes non-empty; `flush_send_queue` flushes it
-  // on subsequent `EPOLLOUT` events.
-  [[nodiscard]] bool enqueue_send(std::string&& their_buf) {
+  // Enqueue one or more buffers for sending by appending each to
+  // `send_queue_` and `iov_sender_`, then flushing immediately. If the
+  // socket is still connecting, defers until `EPOLLOUT` fires; otherwise
+  // calls `flush_send_queue` directly. `EPOLLOUT` is armed when data
+  // remains after the flush; `flush_send_queue` disarms it once the queue
+  // empties.
+  template<typename... Bufs>
+  requires(std::same_as<Bufs, std::string> && ...)
+  [[nodiscard]] bool enqueue_send(Bufs&&... bufs) {
     assert(loop_.is_loop_thread());
-    // Their buf is our buf now.
-    auto buf = std::move(their_buf);
-
     if (!open_ || !write_open_) return false;
 
-    // If there are sends queued ahead of us, or if an async connect is still
-    // in progress (sends would fail with `ENOTCONN`), just add to the back.
-    // `EPOLLOUT` is already armed in both cases.
-    if (const auto send_queue_empty = send_queue_.empty();
-        !send_queue_empty || connecting_)
-    {
-      send_queue_.push_back(std::move(buf));
-      if (send_queue_empty) head_span_ = send_queue_.front();
-      return true;
-    }
+    // Append each non-empty buffer to queue and sender; sender segments point
+    // into the stored strings.
+    bool appended{};
+    ((!bufs.empty() &&
+         (send_queue_.push_back(std::forward<Bufs>(bufs)),
+             (void)iov_sender_.append(send_queue_.back()), (appended = true))),
+        ...);
+    if (!appended) return false;
 
-    // Send as much as we can of the new buffer.
-    auto buf_view = std::string_view{buf};
-    if (!sock().send(buf_view)) return handle_write_failure() && false;
+    // If an async connect is still in progress, sends would fail with
+    // `ENOTCONN`. `EPOLLOUT` is already armed; wait for connect resolution.
+    if (connecting_) return true;
 
-    // If fully sent, nothing to queue.
-    if (buf_view.empty()) return notify_drained();
-
-    // If we couldn't send all of it, push to queue and arm `EPOLLOUT`.
-    // Note: We don't reuse `buf_view` because, in principle, moving a string
-    // could change the buffer location (such as with SSO).
-    const size_t sent = buf.size() - buf_view.size();
-    send_queue_.push_back(std::move(buf));
-    head_span_ = send_queue_.front();
-    head_span_.remove_prefix(sent);
-    return loop_.enable_writes(*this);
+    return flush_send_queue();
   }
 
-  // Drain `send_queue_` as far as `::write` allows, advancing `head_span_`.
-  // When a string is fully sent, `pop_front` destroys it immediately.
-  // Disarms `EPOLLOUT` and notifies any pending write waiter when the queue
-  // empties (or calls `do_close_now` if a graceful close was requested).
+  // Drain `send_queue_` with a single scatter/gather `sendmsg`. Retires
+  // fully consumed strings via `last_op().index`, then compacts `iov_sender_`.
+  // Arms `EPOLLOUT` and returns when data remains; disarms it and notifies
+  // (or closes) when the queue empties. Guard against being called after
+  // `do_close_now` (e.g., when both `EPOLLIN` and `EPOLLOUT` fire in the same
+  // event and the readable handler closes the connection before we get here).
   [[nodiscard]] bool flush_send_queue() {
-    // Guard against being called after `do_close_now` (e.g., when both
-    // `EPOLLIN` and `EPOLLOUT` fire in the same event and the readable
-    // handler closes the connection before we get here).
     if (!open_) return false;
 
-    // NOTE: Scatter/gather would be nice here.
+    if (!send_queue_.empty()) {
+      // Single scatter/gather send across all queued buffers.
+      if (!iov_sender_.send(sock())) return handle_write_failure() && false;
 
-    // Write until we're out of data, are blocked, or fail.
-    while (!send_queue_.empty()) {
-      // If we can't write at all, close immediately.
-      if (!sock().send(head_span_)) return handle_write_failure() && false;
+      const auto& op = iov_sender_.last_op();
 
-      // If we weren't able to write the whole buffer, try later; keep
-      // `EPOLLOUT` armed.
-      if (!head_span_.empty()) return true;
+      // Soft failure (EAGAIN): nothing sent; arm `EPOLLOUT` and try later.
+      if (!op.transferred) return loop_.enable_writes(*this);
 
-      // If all gone, move on to the next string in the queue.
-      send_queue_.pop_front();
-      if (!send_queue_.empty()) head_span_ = send_queue_.front();
+      // Retire all fully consumed strings. `op.index` is the count of
+      // segments (relative to the current front) that were completely sent.
+      for (size_t i{}; i < op.index; ++i) send_queue_.pop_front();
+
+      // Clean up dead segments from `iov_sender_` if there is enough slack.
+      iov_sender_.compact();
+
+      // Partial send: the front string still has unsent data; the sender
+      // will trim it internally on the next call. Arm `EPOLLOUT`.
+      if (!send_queue_.empty()) return loop_.enable_writes(*this);
     }
 
-    // Queue fully flushed, so no need to keep `EPOLLOUT` armed.
+    // Queue fully flushed; disarm `EPOLLOUT`.
     if (!loop_.enable_writes(*this, false))
       return do_close_now(close_mode::forceful) && false;
 
@@ -1040,7 +1045,7 @@ private:
     if (!open_) return false;
     // TODO: Deal with redundancy between this and do_close_now().
     send_queue_.clear();
-    head_span_ = {};
+    iov_sender_.clear();
     close_requested_ = false;
 
     return do_close_now(close_mode::forceful);
@@ -1059,7 +1064,7 @@ private:
     (void)sock().close(mode);
 
     send_queue_.clear();
-    head_span_ = {};
+    iov_sender_.clear();
     close_requested_ = false;
 
     // `on_close` notifies any pending `stream_async_base` waiters (coro or
@@ -1291,7 +1296,7 @@ public:
   explicit stream_conn_with_state(allow a, std::weak_ptr<epoll_loop> loop,
       net_socket&& sock, const net_endpoint& remote, stream_conn_handlers&& h,
       size_t rbs, std::optional<connection_role> connection = {},
-      coordination_policy shutdown = coordination_policy::unilateral) noexcept
+      coordination_policy shutdown = coordination_policy::unilateral)
       : stream_conn(a, std::move(loop), std::move(sock), remote, std::move(h),
             rbs, connection, shutdown) {}
 

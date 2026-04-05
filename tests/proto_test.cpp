@@ -33,6 +33,20 @@
 using namespace corvid;
 using namespace std::chrono_literals;
 
+namespace corvid { inline namespace proto {
+struct iov_msghdr_test {
+  template<bool Sender>
+  static auto oversize_update() {
+    proto::iov_msghdr<Sender> io;
+    std::string buf = "abc";
+    [[maybe_unused]] const bool appended = io.append(buf.data(), buf.size());
+
+    io.last_op_.transferred = io.size() + 1;
+    return std::pair{io.do_update_results(), io.last_op_};
+  }
+};
+}} // namespace corvid::proto
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
@@ -1648,6 +1662,56 @@ void StreamConn_DrainAfterImmediateSend() {
   EXPECT_EQ(received, "hello");
 }
 
+void StreamConn_SendRejectsOnlyEmptyBuffers() {
+  auto loop = epoll_loop::make();
+  auto this_is_the_loop_thread = loop->poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  int drain_count = 0;
+  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
+      {.on_drain = [&](stream_conn&) {
+        ++drain_count;
+        return true;
+      }});
+  EXPECT_GE(loop->run_once(0), 0); // register_with_loop + initial EPOLLOUT
+  EXPECT_EQ(drain_count, 1);
+
+  EXPECT_FALSE(conn->send(std::string{}));
+  EXPECT_FALSE(conn->send(std::string{}, std::string{}));
+  EXPECT_GE(loop->run_once(0), 0);
+  EXPECT_EQ(drain_count, 1);
+
+  EXPECT_TRUE(conn->send(std::string{}, std::string{"hello"}, std::string{}));
+  EXPECT_GE(loop->run_once(0), 0);
+  EXPECT_EQ(drain_count, 2);
+
+  std::string received;
+  no_zero::enlarge_to(received, 16);
+  ASSERT_TRUE(b.read(received));
+  EXPECT_EQ(received, "hello");
+}
+
+// Verify that sending multiple non-empty buffers in a single call delivers all
+// of them, not just the first. Regression test for the OR-fold short-circuit
+// bug in `enqueue_send`, where buffers after the first were silently dropped.
+void StreamConn_SendMultipleBuffers() {
+  auto loop = epoll_loop::make();
+  auto this_is_the_loop_thread = loop->poll_thread_scope();
+  auto [a, b] = make_nb_sockpair();
+
+  auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
+  EXPECT_GE(loop->run_once(0), 0); // process posted do_open()
+
+  EXPECT_TRUE(conn->send(std::string{"hello"}, std::string{" "},
+      std::string{"world"}));
+  EXPECT_GE(loop->run_once(0), 0); // enqueue_send() -> immediate flush
+
+  std::string received;
+  no_zero::enlarge_to(received, 32);
+  ASSERT_TRUE(b.read(received));
+  EXPECT_EQ(received, "hello world");
+}
+
 void StreamConn_AsyncCbRead() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -2808,6 +2872,99 @@ void StreamSync_PeerClose() {
 }
 
 // ---------------------------------------------------------------------------
+// base_64 tests
+// ---------------------------------------------------------------------------
+
+// RFC 4648 test vectors: encode produces the canonical Base64 output.
+void Base64_Encode_KnownVectors() {
+  EXPECT_EQ(base_64::encode(""), "");
+  EXPECT_EQ(base_64::encode("f"), "Zg==");
+  EXPECT_EQ(base_64::encode("fo"), "Zm8=");
+  EXPECT_EQ(base_64::encode("foo"), "Zm9v");
+  EXPECT_EQ(base_64::encode("foob"), "Zm9vYg==");
+  EXPECT_EQ(base_64::encode("fooba"), "Zm9vYmE=");
+  EXPECT_EQ(base_64::encode("foobar"), "Zm9vYmFy");
+}
+
+// decode returns empty vector for empty input.
+void Base64_Decode_Empty() {
+  auto result = base_64::decode("");
+  EXPECT_TRUE(result.empty());
+}
+
+// RFC 4648 test vectors: decode recovers the original bytes.
+void Base64_Decode_KnownVectors() {
+  auto check = [](std::string_view encoded, std::string_view expected) {
+    auto result = base_64::decode(encoded);
+    EXPECT_EQ(std::string(result.begin(), result.end()),
+        std::string(expected));
+  };
+  check("Zg==", "f");
+  check("Zm8=", "fo");
+  check("Zm9v", "foo");
+  check("Zm9vYg==", "foob");
+  check("Zm9vYmE=", "fooba");
+  check("Zm9vYmFy", "foobar");
+}
+
+// decode rejects input whose length is not a multiple of 4.
+void Base64_Decode_InvalidLength() {
+  EXPECT_TRUE(base_64::decode("Zg").empty());
+  EXPECT_TRUE(base_64::decode("Zm8").empty());
+  EXPECT_TRUE(base_64::decode("Zm9vY").empty());
+}
+
+// decode rejects input containing characters outside the Base64 alphabet.
+void Base64_Decode_InvalidChar() {
+  EXPECT_TRUE(base_64::decode("Zg=!").empty());
+  EXPECT_TRUE(base_64::decode("Z!==").empty());
+  EXPECT_TRUE(base_64::decode("!g==").empty());
+}
+
+// encode then decode returns the original bytes (round-trip), exercising all
+// three remainder cases (0, 1, and 2 leftover bytes before padding).
+void Base64_RoundTrip_Short() {
+  for (const std::string_view sv : {"", "A", "AB", "ABC", "ABCD"}) {
+    const std::string encoded = base_64::encode(sv);
+    const auto decoded = base_64::decode(encoded);
+    EXPECT_EQ(std::string(decoded.begin(), decoded.end()), std::string(sv));
+  }
+}
+
+// Round-trip across all 256 byte values to confirm the decode table is
+// the exact inverse of the encode alphabet.
+void Base64_RoundTrip_AllBytes() {
+  std::vector<uint8_t> all_bytes(256);
+  for (size_t i{}; i < 256; ++i) all_bytes[i] = uint8_t(i);
+
+  const std::string encoded = base_64::encode(
+      std::span<const uint8_t>{all_bytes.data(), all_bytes.size()});
+  const auto decoded = base_64::decode(encoded);
+
+  EXPECT_EQ(decoded, all_bytes);
+}
+
+void IovMsghdr_OversizeTransferIsHardFailure() {
+  if (true) {
+    const auto [ok, op] =
+        corvid::proto::iov_msghdr_test::oversize_update<true>();
+    EXPECT_FALSE(ok);
+    EXPECT_EQ(op.transferred, proto::iov_msghdr_sender::npos);
+    EXPECT_EQ(op.index, proto::iov_msghdr_sender::npos);
+    EXPECT_EQ(op.offset, proto::iov_msghdr_sender::npos);
+  }
+
+  if (true) {
+    const auto [ok, op] =
+        corvid::proto::iov_msghdr_test::oversize_update<false>();
+    EXPECT_FALSE(ok);
+    EXPECT_EQ(op.transferred, proto::iov_msghdr_receiver::npos);
+    EXPECT_EQ(op.index, proto::iov_msghdr_receiver::npos);
+    EXPECT_EQ(op.offset, proto::iov_msghdr_receiver::npos);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // http_server tests
 // ---------------------------------------------------------------------------
 
@@ -2834,7 +2991,8 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_Receive, StreamConn_SetRecvBufSize, StreamConn_PeerClose,
     StreamConn_PeerClose_WithBufferedData, StreamConn_Send,
     StreamConn_ManualClose, StreamConn_DrainAfterBufferedSend,
-    StreamConn_DrainAfterImmediateSend, StreamConn_AsyncCbRead,
+    StreamConn_DrainAfterImmediateSend, StreamConn_SendRejectsOnlyEmptyBuffers,
+    StreamConn_SendMultipleBuffers, StreamConn_AsyncCbRead,
     StreamConn_AsyncCbRead_PreservesEarlyData,
     StreamConn_AsyncCbRead_DuplicateRejected, StreamConn_AsyncCbRead_PeerClose,
     StreamConn_AsyncCbWrite, StreamConn_AsyncCbWrite_Failure,
@@ -2848,13 +3006,17 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     StreamConn_AsyncSend, StreamConn_EchoServer, StreamConnWithState_Adopt,
     StreamConnWithState_From, StreamConnWithState_Listen,
     StreamConnPtr_Covariance, StreamConnWithState_AcceptClone_Nullptr,
-    TerminatedTextParser_CompleteLine, TerminatedTextParser_IncompleteEmpty,
+    IovMsghdr_OversizeTransferIsHardFailure, TerminatedTextParser_CompleteLine,
+    TerminatedTextParser_IncompleteEmpty,
     TerminatedTextParser_IncompletePartial, TerminatedTextParser_SplitSentinel,
     TerminatedTextParser_MultipleFrames, TerminatedTextParser_EmptyLine,
     TerminatedTextParser_TooLong, TerminatedTextParser_TooLong_WithSentinel,
     TerminatedTextParser_NoLimit, TerminatedTextParser_CustomSentinel,
     TerminatedTextParser_Reset, StreamSync_ConnectFail, StreamSync_SendRecv,
-    StreamSync_RecvUntil, StreamSync_PeerClose);
+    StreamSync_RecvUntil, StreamSync_PeerClose, Base64_Encode_KnownVectors,
+    Base64_Decode_Empty, Base64_Decode_KnownVectors,
+    Base64_Decode_InvalidLength, Base64_Decode_InvalidChar,
+    Base64_RoundTrip_Short, Base64_RoundTrip_AllBytes);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

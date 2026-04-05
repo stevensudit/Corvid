@@ -204,11 +204,15 @@ public:
     return set_flags(new_flags);
   }
 
-  // Checks whether the last error was a hard error (true) or a soft error
-  // (false). Note that `errno` is only meaningful immediately after a failure
+  // Check whether the last error was a hard error (true) or a soft error
+  // (false). A soft error represents flow control conditions that are expected
+  // to occur in normal operation and can be retried, while a hard error is an
+  // actual failure that should be handled as such.
+  //
+  // Note that `errno` is only meaningful immediately after a failure
   // return from a system call and is invalidated by the next system call.
   static bool is_hard_error(int err = errno) noexcept {
-    assert(err != 0); // `errno` should only be checked after a failure return.
+    assert(err != 0);
     return (err != EAGAIN && err != EWOULDBLOCK && err != EINTR);
   }
 

@@ -132,6 +132,17 @@ construction) with virtual `on_readable`, `on_writable`, and `on_error`; the
 default `on_error` delegates to `on_readable`. Higher-level types inherit from
 `io_conn` directly to avoid a separate handler-lambda allocation per connection.
 
+### `iov_msghdr`
+
+Scatter/gather socket I/O built on POSIX `sendmsg` / `recvmsg`. The template
+`iov_msghdr<SENDER>` holds a `vector<iovec>` and a `msghdr` kept in sync.
+`iov_msghdr_sender` and `iov_msghdr_receiver` are the two specializations.
+`append(iovec)` / `set(span<iovec>)` / `clear()` manage the segment list.
+`send(net_socket)` / `recv(net_socket)` perform the syscall and return an
+`op_results` with total byte count plus segment-level index and offset for
+partial progress tracking. Used by `stream_conn` to send multiple queued
+buffers in a single syscall.
+
 ### `stream_conn` and `stream_conn_ptr`
 
 Non-blocking connected stream socket driven by an `epoll_loop`. `stream_conn`
@@ -159,11 +170,14 @@ Thread safety: `send()`, `close()`, `hangup()`, `shutdown_read()`,
 `shutdown_write()`, and the destructor of `stream_conn_ptr` are safe to call
 from any thread via `epoll_loop::execute_or_post()` or `post()`.
 
-Send path: `send(string&&)` is thread-safe (routes via
-`execute_or_post`). On the loop thread, `enqueue_send` attempts an
-immediate `::write`; any unsent tail is pushed onto a `deque<string>` and
-`EPOLLOUT` is armed. Subsequent `EPOLLOUT` events drain the queue; when
-empty, `EPOLLOUT` is disarmed and `on_drain` fires.
+Send path: `send(Bufs&&...)` is a variadic template (one or more `string`
+arguments) and is thread-safe via `execute_or_post`. It returns false
+immediately if all buffers are empty. On the loop thread, `enqueue_send`
+skips empty buffers individually and appends each non-empty buffer to
+`send_queue_`, then attempts an immediate `sendmsg` via `iov_msghdr_sender`;
+any unsent tail stays in the queue and `EPOLLOUT` is armed. Subsequent
+`EPOLLOUT` events drain the queue; when empty, `EPOLLOUT` is disarmed and
+`on_drain` fires.
 
 Receive path: `EPOLLIN` is armed while `recv_buf_.reads_enabled` is true.
 When it fires, bytes are appended to the persistent `recv_buffer` and the
@@ -287,21 +301,155 @@ internal buffer for the next call.
 
 ## Layer 3: HTTP
 
+### `http_head_codec`
+
+HTTP/1.x data types and codec. All types are in `corvid::proto::http_proto`.
+
+Enums: `http_version` (`invalid`, `http_0_9`, `http_1_0`, `http_1_1`);
+`http_method` (`GET`, `HEAD`, `POST`, `PUT`, `DELETE`, `OPTIONS`, `PATCH`,
+`CONNECT`, `TRACE`); `after_response` (`close`, `keep_alive`);
+`http_status_code` (full 1xx-5xx range); `content_type_value` (`text_html`,
+`text_plain`, `application_json`); `transfer_encoding_value` (`identity`,
+`chunked`); `upgrade_value` (`websocket`). All enums have stream operators.
+
+`http_headers` is an ordered multimap with O(1) average lookup. It stores
+fields in insertion order (a `vector`) and indexes them by canonical
+title-case name (an `unordered_map`). `add(name, value)` normalizes the name
+to title case, drops unknown fields into an `others` bucket, and returns false
+on duplicate detected-header fields. `add_raw(name, value)` bypasses
+normalization. `get(name)` returns the first value for a canonical name.
+`get_combined(name)` returns all values joined by `", "`.
+
+`request_options` and `response_options` carry decoded semantic fields parsed
+from the header collection: `connection` (`after_response`), `content_length`
+(`optional<size_t>`), `transfer_encoding` (`transfer_encoding_value`),
+`upgrade` (`upgrade_value`), and the `keep_alive(version)` helper that
+derives the keep-alive disposition from the `Connection` header and version.
+
+`request_head` parses a raw HTTP request head (request line + header fields)
+via `parse(string_view)`. Populates `method`, `target`, `version`, `headers`,
+and `options`. `clear()` resets all fields for reuse across keep-alive
+requests.
+
+`response_head` builds and serializes a response head. `serialize()` produces
+the full status line + header fields as a `string` ready to write to the wire.
+`make_error_response(keep_alive, version, code, phrase)` is a static factory
+that returns a complete serialized error response.
+
 ### `http_server`
 
-Minimal HTTP 0.9 server. Listens for TCP or UDS/ANS connections, parses each
-request line with `terminated_text_parser`, and sends a canned HTML response
-for any `GET /path` request, then closes the connection. Constructed via
-`create(loop, endpoint)`, which accepts an optional shared `epoll_loop` (or
-starts its own `epoll_loop_runner`), and a `net_endpoint` to listen on. Returns
-null if the listen socket cannot be created. Each accepted connection carries
-its own `terminated_text_parser::state` so partial request lines arriving across
-multiple `on_data` calls are handled correctly.
+HTTP/1.1 server (with HTTP/0.9 and HTTP/1.0 fallback) built on `stream_conn`.
+Constructed via `create(endpoint, loop, wheel, request_timeout, write_timeout)`.
+If `loop` is null the server starts its own `epoll_loop_runner`; if `wheel` is
+null it starts its own `timing_wheel_runner` (from `corvid::concurrency`).
+Returns null if the listen socket cannot be bound.
+
+Connection state is held in `stream_conn_with_state<http_conn_state>`, which
+bundles a `terminated_text_parser::state`, sequencing counters for
+`timer_fuse`, the current `http_phase`, a reusable `request_head`, and a
+leading-CRLF count.
+
+Request parsing uses two phases of `terminated_text_parser`:
+
+- Phase 1 (`request_line`): seeks `"\r\n"` (max 8192 bytes). Leading bare
+  CRLFs are silently discarded per RFC 9112 section 2.2. HTTP/0.9 requests
+  (no version token) are dispatched immediately after this phase.
+- Phase 2 (`header_lines`): seeks `"\r\n\r\n"` for the complete header block.
+  A blank line immediately after the request line (no headers) is also
+  accepted.
+
+`on_data` loops over all complete header blocks already in the receive buffer,
+queuing a response for each. Because `stream_conn::send` is FIFO, responses
+are delivered in request order (pipelining).
+
+Persistent connections: keep-alive by default for HTTP/1.1; close by default
+for HTTP/1.0; never for HTTP/0.9. The `Connection` header is honored.
+
+Validation: HTTP/1.1 requests without a `Host` header receive a 400 response.
+Unsupported methods receive a 405 response. The path encodes an optional
+response body padding size for testing.
+
+Timeouts: `request_timeout` (default 30 s) is armed after each accepted
+connection and re-armed after each parsed request on keep-alive connections. If
+the deadline expires before a complete request arrives, `timer_fuse` posts a
+`hangup` to the loop. `write_timeout` (default 5 s) is armed before each
+response is queued and disarmed in `on_drain` when the send queue empties.
+
+## Layer 4: WebSockets
+
+### `http_websocket`
+
+Full RFC 6455 WebSocket implementation.
+
+`ws_frame_control` is a bitmask enum encoding both the opcode nibble (`text`,
+`binary`, `continuation`, `close`, `ping`, `pong`) and the `fin` bit.
+
+`ws_frame_wrapper` bundles both frame parsing and the static frame helpers.
+Parse frame headers by constructing a `ws_frame_view`, calling
+`is_complete()`, then `parse()`. `ws_frame_view::serialize_frame(
+frame_control, payload, mask)` builds a complete frame string.
+`ws_frame_view::compute_accept_key(client_key)` produces the
+`Sec-WebSocket-Accept` value using SHA-1 + Base64.
+
+`http_websocket` is the callback-driven message pump. Construct with a `send_fn`
+and a `connection_role` (`server` or `client`). Install callbacks before handing
+the pump to the server:
+
+- `on_message(pump, payload, opcode)` -- fires once per complete message (or
+  once per fragment when `deliver_fragments` is true).
+- `on_close(pump, code, reason)` -- fires on receipt of a close frame; a
+  matching close frame is sent automatically.
+- `on_pong(pump)` -- fires when a pong matching the most recent ping arrives.
+
+`feed(recv_buffer_view&)` drives the receive side. Returns `false` on a
+protocol error (oversized frame, bad opcode, etc.). Send methods: `send_text`,
+`send_binary`, `send_close`, `send_ping`, `send_pong`. Client-side frames are
+masked using `std::random_device` as required by RFC 6455 section 5.3.
+
+### `http_websocket_transaction`
+
+`http_transaction` subclass that performs the RFC 6455 upgrade handshake and
+then delegates all subsequent I/O to an `http_websocket` instance.
+
+On the first `handle_data` call it validates the upgrade request (`Upgrade:
+websocket`, `Connection: Upgrade`, `Sec-WebSocket-Version: 13`,
+`Sec-WebSocket-Key`) and sends `101 Switching Protocols`. On failure it sends
+`400 Bad Request`. After upgrade, `handle_data` feeds bytes to `websocket_.feed`
+and `handle_drain` holds `stream_claim::claim` until the close handshake
+completes.
+
+`enable_keepalive(loop, wheel, ping_interval, pong_timeout)` arms periodic
+pings after the upgrade response is sent. A missing pong within `pong_timeout`
+triggers a graceful `close` frame.
+
+`make_factory(configure_fn)` returns a `transaction_factory` ready for
+`http_server::add_route`. The `configure` callback receives the newly created
+transaction and installs `on_message` / `on_close` handlers:
+
+```cpp
+server->add_route({"", "/ws"},
+    http_websocket_transaction::make_factory([&](auto& tx) {
+      tx.websocket().on_message = [](auto& ws, std::string&& msg, auto op) {
+        return ws.send_text(msg); // echo
+      };
+      return tx.enable_keepalive(loop, wheel);
+    }));
+```
+
+### Support headers
+
+`base-64.h` provides RFC 4648 Base64 `encode` / `decode`.
+`sha-1.h` provides `sha_1::digest` plus `sha_1::bytes` for the WebSocket
+accept-key (protocol use only, not for security).
+`endian.h` provides `hton16/32/64/128` and `ntoh16/32/64/128` built on
+`std::byteswap`.
 
 ## What comes next
 
-See `roadmap.md` for the full plan. Layer 2 is complete. Layer 3 has a minimal
-HTTP 0.9 server as its starting point and will be improved incrementally to full
-HTTP/1.1, after which client and proxy support will follow. Layer 4 adds
-WebSockets. If datagram support is needed later, it should arrive as a separate
-`dgram_conn` abstraction built on `epoll_loop`.
+See `roadmap.md` for the full plan. Layer 3 has a complete HTTP/1.1 server with
+routing and transaction pipelining; remaining work includes request body
+reading, `POST`/`PUT` support, chunked transfer encoding, and an HTTP client
+and proxy. Layer 4 has initial WebSocket server support; remaining work includes
+WebSocket client mode and subprotocol negotiation. If datagram support is
+needed later, it should arrive as a separate `dgram_conn` abstraction built on
+`epoll_loop`.

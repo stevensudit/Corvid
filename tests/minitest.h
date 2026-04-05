@@ -128,6 +128,30 @@ auto inline stream_to_text(const auto& v) {
         __FUNCTION__);                                                        \
   }
 
+// Like VALUE_MSG, but for NE checks: labels the second value "Unexpected".
+#define VALUE_NE_MSG(actual, expected)                                        \
+  if (minitest::was_failed()) {                                               \
+    TEST_MSG("Actual:     `%s`", minitest::stream_to_text(actual).c_str());   \
+    TEST_MSG("Unexpected: `%s`", minitest::stream_to_text(expected).c_str()); \
+    TEST_MSG("File: %s Line: %d Function: %s", __FILE__, __LINE__,            \
+        __FUNCTION__);                                                        \
+  }
+
+// Like TEST_ASSERT_VALUE_, but for NE checks: labels the second value
+// "Unexpected".
+#define TEST_ASSERT_VALUE_NE_(cond, actual, expected, fmt, ...)               \
+  do {                                                                        \
+    if (!(cond)) {                                                            \
+      minitest::mark_failed();                                                \
+      std::printf("Assertion failed at %s:%d: " fmt "\n", __FILE__, __LINE__, \
+          ##__VA_ARGS__);                                                     \
+      TEST_MSG("Actual:     `%s`", minitest::stream_to_text(actual).c_str()); \
+      TEST_MSG("Unexpected: `%s`",                                            \
+          minitest::stream_to_text(expected).c_str());                        \
+      minitest::abort_failed();                                               \
+    }                                                                         \
+  } while (false)
+
 #define EXPECT_EQ(actual, expected)                                           \
   do {                                                                        \
     const auto& actual_ = (actual);                                           \
@@ -151,14 +175,14 @@ auto inline stream_to_text(const auto& v) {
     const auto& expected_ = (expected);                                       \
     TEST_CHECK_((actual_ != expected_), "%s",                                 \
         ("(" #actual " != " #expected ")"));                                  \
-    VALUE_MSG(actual_, expected_);                                            \
+    VALUE_NE_MSG(actual_, expected_);                                         \
   } while (false);
 
 #define ASSERT_NE(actual, expected)                                           \
   do {                                                                        \
     const auto& actual_ = (actual);                                           \
     const auto& expected_ = (expected);                                       \
-    TEST_ASSERT_VALUE_((actual_ != expected_), actual_, expected_, "%s",      \
+    TEST_ASSERT_VALUE_NE_((actual_ != expected_), actual_, expected_, "%s",   \
         ("(" #actual " != " #expected ")"));                                  \
   } while (false);
 

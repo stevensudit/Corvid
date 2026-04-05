@@ -217,6 +217,13 @@ public:
     return ::recv(handle(), buf, len, flags);
   }
 
+  // Receive a message into `msg`, forwarding directly to POSIX `recvmsg`. See
+  // "iov_msghdr.h".
+  [[nodiscard]] ssize_t recv(msghdr& msg, int flags = 0) const noexcept {
+    assert(is_open());
+    return ::recvmsg(handle(), &msg, flags);
+  }
+
   // Peek at the socket, without consuming data, to determine whether EOF has
   // been reached. Returns `true` if the peer has closed the connection (EOF),
   // `false` if data is available (not EOF), or `std::nullopt` on any error
@@ -248,6 +255,14 @@ public:
   send(const void* buf, size_t len, int flags = MSG_NOSIGNAL) const noexcept {
     assert(is_open());
     return ::send(handle(), buf, len, flags);
+  }
+
+  // Send a message described by `msg`, forwarding to POSIX `sendmsg`. See
+  // "iov_msghdr.h".
+  [[nodiscard]] ssize_t
+  send(msghdr& msg, int flags = MSG_NOSIGNAL) const noexcept {
+    assert(is_open());
+    return ::sendmsg(handle(), &msg, flags);
   }
 
   // Return the POSIX socket address size for `addr`. For IPv4 and IPv6,

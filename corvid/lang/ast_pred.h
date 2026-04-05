@@ -115,7 +115,7 @@ concept node_ptr_type =
 // Construct using `make` factory function.
 struct node: public std::enable_shared_from_this<node> {
 protected:
-  enum class allow : std::uint8_t { ctor };
+  enum class allow : bool { ctor };
 
 public:
   explicit node(allow, operation op) : op{op} {}

@@ -1,0 +1,20 @@
+CompileFlags:
+  Compiler: /usr/bin/clang++-22
+
+---
+If:
+  PathMatch: [.*\.cpp, .*\.cc, .*\.cxx, .*\.hpp, .*\.hh, .*\.hxx, .*\.h]
+CompileFlags:
+  Add: [-xc++, -std=c++23, -stdlib=libc++, -D_LIBCPP_NO_ABI_TAG, -Wall, -Wextra, -Werror, -Wno-unused-variable]
+
+---
+If:
+  PathMatch: .*\.c
+CompileFlags:
+  Compiler: /usr/bin/clang-22
+  Add: [-xc, -std=c17]
+
+---
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None
