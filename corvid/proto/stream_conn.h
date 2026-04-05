@@ -115,10 +115,11 @@ struct stream_conn_handlers {
 //
 // Send path: `send(std::string&&)` and its variants take ownership of the
 // caller's string(s). An immediate `::sendmsg` gather is attempted. Strings
-// whose bytes were fully written are discarded. If none are left,
-// `on_writable`. `EPOLLOUT` is armed so that subsequent `EPOLLOUT` events
-// flush the send queue. When the queue empties, `EPOLLOUT` is disarmed and
-// `on_writable` notifies any pending write waiter.
+// whose bytes were fully written are discarded. If that immediate write drains
+// all outbound data, `on_writable` notifies any pending write waiter.
+// Otherwise, `EPOLLOUT` is armed so that subsequent `EPOLLOUT` events flush
+// the remaining send queue. When the queue later empties, `EPOLLOUT` is
+// disarmed and `on_writable` notifies any pending write waiter.
 //
 // Receive path: `EPOLLIN` is armed while `recv_buf_.reads_enabled` is true.
 // When `EPOLLIN` fires, `on_readable` appends bytes to the persistent

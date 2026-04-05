@@ -23,8 +23,11 @@
 #include "http_head_codec.h"
 #include "recv_buffer.h"
 #include "stream_conn.h"
+#include "../strings/any_strings.h"
 
 namespace corvid { inline namespace proto {
+
+using namespace corvid::strings::any_strings_types;
 
 // Whether a transaction retains its claim on a pipeline stream.
 //

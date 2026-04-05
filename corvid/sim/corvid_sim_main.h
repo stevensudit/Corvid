@@ -23,6 +23,8 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <string_view>
+#include <pthread.h>
 
 #include "../proto.h"
 #include "ws_handler.h"
@@ -89,7 +91,8 @@ int main(int argc, char** argv) {
                       std::move(req), cache);
                 }))
           return false;
-        return s.add_route({"", "/ws"}, make_ws_factory(s.loop(), s.wheel()));
+        return s.add_route({"", "/ws"},
+            sim_ws_transaction::make_factory(s.loop(), s.wheel()));
       });
 
   if (!server) {

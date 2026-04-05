@@ -57,7 +57,7 @@ using namespace std::chrono_literals;
 //             };
 //         return true;
 //       });
-class http_websocket_transaction final: public http_transaction {
+class http_websocket_transaction: public http_transaction {
 public:
   using duration_t = timing_wheel::duration_t;
   using configure_fn = std::function<bool(http_websocket_transaction&)>;
@@ -307,11 +307,15 @@ private:
   std::string pending_response_;
   bool upgraded_{};
 
-  std::weak_ptr<epoll_loop> keepalive_loop_;
-  std::weak_ptr<timing_wheel> keepalive_wheel_;
   duration_t ping_interval_{30s};
   duration_t pong_timeout_{10s};
   std::atomic_uint64_t ping_interval_seq_;
   std::atomic_uint64_t pong_wait_seq_;
+
+protected:
+  // Exposed as `protected` so derived classes can schedule their own timer
+  // callbacks on the same loop and wheel without storing redundant copies.
+  std::weak_ptr<epoll_loop> keepalive_loop_;
+  std::weak_ptr<timing_wheel> keepalive_wheel_;
 };
 }} // namespace corvid::proto

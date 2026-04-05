@@ -23,104 +23,107 @@
 
 #include "../proto/http_websocket_transaction.h"
 
-// WebSocket handler for the CorvidSim /ws route.
+namespace corvid { inline namespace proto {
+
+using namespace std::chrono_literals;
+
+// WebSocket transaction for the CorvidSim `/ws` route.
 //
-// Provides `make_ws_factory(loop, wheel)`, which returns a
-// `transaction_factory` suitable for use with `http_server::add_route`.
+// Inherits from `http_websocket_transaction` and wires up all callbacks in the
+// constructor so behaviour lives in named private methods rather than lambdas.
 //
 // Protocol:
 //   Client sends: {"type":"hello","client":"browser"}
 //   Server replies: {"type":"hello_ack","message":"connected"}
 //   Server then sends once per second: {"type":"tick","tick":N}
 //
+// Keepalive (20s ping / 5s pong timeout) is enabled so that browser pong
+// replies reset the HTTP server's 30s read timeout; the constraint
+// ping_interval (20s) + pong_timeout (5s) = 25s < read_timeout (30s) is
+// satisfied.
+//
 // Tick scheduling follows the same `timer_fuse` double-check pattern used by
-// `http_websocket_transaction::do_arm_ping_interval`: the wheel-thread
-// callback only calls `loop->post()`, and the loop-thread callback performs
-// the definitive liveness check before sending and re-arming.
-namespace corvid { inline namespace proto {
-
-using namespace std::chrono_literals;
-
-// Forward declaration: `arm_tick`'s fire lambda calls `arm_tick` recursively,
-// so the definition below must be preceded by a declaration.
-[[nodiscard]] inline bool arm_tick(std::weak_ptr<epoll_loop>,
-    std::weak_ptr<timing_wheel>, std::weak_ptr<http_transaction>,
-    std::shared_ptr<std::atomic_uint64_t>, uint64_t);
-
-// Schedule a tick to be sent after 1 second on the connection identified by
-// `tx_w`. On fire, posts to the event loop thread, sends the tick JSON, then
-// re-arms for the next tick. Stops automatically when the connection is
-// destroyed (fuse fizzles) or when `is_close_started()` is true.
-//
-// `tick_seq` is the per-connection sequencer held as a `shared_ptr` so that
-// every lambda copy keeps the underlying `atomic_uint64_t` alive (required
-// because `timer_fuse` stores a raw pointer to it).
-[[nodiscard]] inline bool arm_tick(std::weak_ptr<epoll_loop> loop_w,
-    std::weak_ptr<timing_wheel> wheel_w, std::weak_ptr<http_transaction> tx_w,
-    std::shared_ptr<std::atomic_uint64_t> tick_seq, uint64_t tick_n) {
-  using fuse_t = timer_fuse<http_transaction>;
-  auto wheel = wheel_w.lock();
-  if (!wheel) return true;
-  return fuse_t::set_timeout(*wheel, *tick_seq, tx_w, 1000ms,
-      [loop_w, wheel_w, tick_seq, tick_n](const fuse_t& fuse) -> bool {
-        // Wheel thread: pre-check only.
-        auto tx = fuse.get_if_armed();
-        auto loop = loop_w.lock();
-        if (!tx || !loop) return true;
-        return loop->post([fuse, loop_w, wheel_w, tick_seq, tick_n]() -> bool {
-          // Loop thread: definitive check, send, re-arm.
-          auto tx = fuse.get_if_armed();
-          if (!tx) return true;
-          auto wstx = std::static_pointer_cast<http_websocket_transaction>(tx);
-          if (wstx->websocket().is_close_started()) return true;
-          auto payload = std::format(R"({{"type":"tick","tick":{}}})", tick_n);
-          if (!wstx->websocket().send_text(payload)) return false;
-          return arm_tick(loop_w, wheel_w, tx, tick_seq, tick_n + 1);
-        });
-      });
-}
-
-// Returns a `transaction_factory` for the `/ws` route.
-//
-// Each accepted WebSocket connection receives `on_message` and `on_close`
-// callbacks. On a `hello` message, the server replies with `hello_ack` and
-// arms the 1-second recurring tick timer for that connection.
-[[nodiscard]] inline transaction_factory make_ws_factory(
-    std::shared_ptr<epoll_loop> loop, std::shared_ptr<timing_wheel> wheel) {
-  return http_websocket_transaction::make_factory(
-      [loop = std::move(loop), wheel = std::move(wheel)](
-          http_websocket_transaction& tx) -> bool {
-        std::cout << "WebSocket client connected\n";
-
-        tx.websocket().on_close =
-            [](http_websocket&, uint16_t, std::string_view) {
-              std::cout << "WebSocket client disconnected\n";
-            };
-
-        // Per-connection tick sequencer. Held as `shared_ptr` so every lambda
-        // copy keeps the `atomic_uint64_t` alive (see `arm_tick` comment).
-        auto tick_seq = std::make_shared<std::atomic_uint64_t>(0);
-
-        tx.websocket().on_message =
-            [loop_w = std::weak_ptr{loop}, wheel_w = std::weak_ptr{wheel},
-                tx_w = std::weak_ptr<http_transaction>{tx.shared_from_this()},
-                tick_seq](http_websocket& ws, std::string&& msg,
-                ws_frame_control) -> bool {
-          // No JSON parser: detect `hello` by searching the raw string.
-          // Accept both compact and spaced key/value.
-          const bool is_hello =
-              msg.find(R"("type":"hello")") != std::string::npos ||
-              msg.find(R"("type": "hello")") != std::string::npos;
-          if (!is_hello) return true;
-
-          if (!ws.send_text(R"({"type":"hello_ack","message":"connected"})"))
-            return false;
-
-          return arm_tick(loop_w, wheel_w, tx_w, tick_seq, 1);
+// the base class: the wheel-thread callback only calls `loop->post()`, and the
+// loop-thread callback performs the definitive liveness check before sending
+// and re-arming. `tick_seq_` is a plain member (like `ping_interval_seq_` in
+// the base) because `timer_fuse::get_if_armed` locks the `weak_ptr` before
+// dereferencing the sequencer, so the sequencer is never accessed after the
+// transaction is destroyed.
+class sim_ws_transaction final: public http_websocket_transaction {
+public:
+  sim_ws_transaction(request_head&& req,
+      const std::shared_ptr<epoll_loop>& loop,
+      const std::shared_ptr<timing_wheel>& wheel)
+      : http_websocket_transaction{std::move(req)} {
+    websocket().on_message =
+        [this](http_websocket& ws, std::string&& msg, ws_frame_control) {
+          return do_message(ws, std::move(msg));
         };
+    websocket().on_close = [](http_websocket&, uint16_t, std::string_view) {
+      do_close();
+    };
+    // `enable_keepalive` stores weak_ptrs and sets `on_pong`; it always
+    // returns `true`, so voiding the result is safe here.
+    (void)enable_keepalive(loop, wheel, 20s, 5s);
+    std::cout << "WebSocket client connected\n";
+  }
 
-        return true;
-      });
-}
+  // Returns a `transaction_factory` for use with `http_server::add_route`.
+  [[nodiscard]] static transaction_factory make_factory(
+      std::shared_ptr<epoll_loop> loop, std::shared_ptr<timing_wheel> wheel) {
+    return [loop = std::move(loop), wheel = std::move(wheel)](
+               request_head&& req) -> transaction_ptr {
+      return std::make_shared<sim_ws_transaction>(std::move(req), loop, wheel);
+    };
+  }
+
+private:
+  using fuse_t = timer_fuse<http_transaction>;
+
+  std::atomic_uint64_t tick_seq_;
+
+  // Handle an incoming text frame. Detects `hello` by searching the raw JSON
+  // string (no parser needed for these fixed message shapes), replies with
+  // `hello_ack`, then arms the tick timer.
+  [[nodiscard]] bool do_message(http_websocket& ws, std::string&& msg) {
+    if (!msg.contains(R"("type":"hello")") &&
+        !msg.contains(R"("type": "hello")"))
+      return true;
+    if (!ws.send_text(R"({"type":"hello_ack","message":"connected"})"))
+      return false;
+    return do_arm_tick(1);
+  }
+
+  static void do_close() { std::cout << "WebSocket client disconnected\n"; }
+
+  // Schedule the next tick. Uses the `timer_fuse` double-check pattern:
+  // the wheel-thread callback pre-checks liveness and posts to the loop
+  // thread, which performs the definitive check and calls `do_tick_fire`.
+  [[nodiscard]] bool do_arm_tick(uint64_t tick_n) {
+    auto wheel = keepalive_wheel_.lock();
+    if (!wheel) return true;
+    return fuse_t::set_timeout(*wheel, tick_seq_,
+        std::weak_ptr<http_transaction>{shared_from_this()}, 1000ms,
+        [loop_w = keepalive_loop_, tick_n](const fuse_t& fuse) -> bool {
+          auto tx = fuse.get_if_armed();
+          auto loop = loop_w.lock();
+          if (!tx || !loop) return true;
+          return loop->post([fuse, tick_n]() -> bool {
+            auto tx = fuse.get_if_armed();
+            if (!tx) return true;
+            return std::static_pointer_cast<sim_ws_transaction>(tx)
+                ->do_tick_fire(tick_n);
+          });
+        });
+  }
+
+  // Called on the loop thread: send the tick message and re-arm for the next.
+  [[nodiscard]] bool do_tick_fire(uint64_t tick_n) {
+    if (websocket().is_close_started()) return true;
+    auto payload = std::format(R"({{"type":"tick","tick":{}}})", tick_n);
+    if (!websocket().send_text(payload)) return false;
+    return do_arm_tick(tick_n + 1);
+  }
+};
 
 }} // namespace corvid::proto
