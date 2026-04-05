@@ -18,6 +18,7 @@
 
 #include <atomic>
 #include <charconv>
+#include <numbers>
 #include <cmath>
 #include <format>
 #include <iostream>
@@ -25,6 +26,7 @@
 #include <vector>
 
 #include "../proto/http_websocket_transaction.h"
+#include "sim_world.h"
 
 namespace corvid { inline namespace proto {
 
@@ -70,6 +72,16 @@ public:
     // `enable_keepalive` stores weak_ptrs and sets `on_pong`; it always
     // returns `true`, so voiding the result is safe here.
     (void)enable_keepalive(loop, wheel, 20s, 5s);
+
+    // Populate the world with five entities at the origin, evenly fanned
+    // around the full circle at the same speed.
+    constexpr int kCount = 5000;
+    constexpr float kSpeed = 40.0;
+    constexpr float kStep = 2.0 * std::numbers::pi / kCount;
+    for (int i = 0; i < kCount; ++i)
+      (void)world_.spawn(sim::Position{0.0, 0.0},
+          sim::Velocity::from_polar(kSpeed, i * kStep));
+
     std::cout << "WebSocket client connected\n";
   }
 
@@ -85,66 +97,55 @@ public:
 private:
   using fuse_t = timer_fuse<http_transaction>;
 
-  // A user-spawned entity orbiting the canvas centre.
-  //
-  // The click coordinates become the entity's initial position, so the dot
-  // appears exactly under the cursor at spawn and then sweeps in a circle.
-  struct dynamic_orbit {
-    int id;
-    double radius;
-    double speed;   // rad/frame (frame = 50 ms)
-    double phase;   // initial angle (rad) so position at birth == click point
-    uint64_t birth; // tick_n when spawned
-  };
-
-  std::atomic_uint64_t tick_seq_;
-  uint64_t current_tick_{0};  // updated each frame; loop-thread only
-  int next_id_{6};            // ids 1-5 reserved for static orbits
-  std::vector<dynamic_orbit> spawned_;
+  std::atomic<tick_t> tick_seq_; // Uses for sequencing tick timers
+  tick_t current_tick_{0};       // updated each frame; loop-thread only
+  sim::sim_world world_;         // all simulation entity state
 
   // Handle an incoming text frame. Dispatches on `"type"` by substring search
   // (no parser needed for these fixed message shapes).
   [[nodiscard]] bool do_message(http_websocket& ws, std::string&& msg) {
     if (msg.contains(R"("type":"hello")") ||
-        msg.contains(R"("type": "hello")")) {
+        msg.contains(R"("type": "hello")"))
+    {
       if (!ws.send_text(R"({"type":"hello_ack","message":"connected"})"))
         return false;
       return do_arm_tick(1);
     }
     if (msg.contains(R"("type":"spawn")") ||
-        msg.contains(R"("type": "spawn")")) {
+        msg.contains(R"("type": "spawn")"))
+    {
       return do_spawn(msg);
     }
     return true;
   }
 
-  // Parse a `spawn` message and add a new orbiting entity.
+  // Parse a `spawn` message and add a new entity at the click position.
   //
-  // The click point becomes the entity's position at birth: radius and phase
-  // are derived from the click's distance and angle to the canvas centre
-  // (320, 240), so the dot appears exactly under the cursor at spawn.
+  // The entity travels in a straight line; velocity is set perpendicular to
+  // the vector from the canvas centre to the click point (tangential), with
+  // a fixed speed of 40 pixels per frame. If the click is exactly on-centre,
+  // the entity moves rightward.
   [[nodiscard]] bool do_spawn(std::string_view msg) {
     auto x = parse_coord(msg, R"("x":)");
     auto y = parse_coord(msg, R"("y":)");
     if (!x || !y) return true; // malformed, ignore
-    constexpr double kCx = 320.0;
-    constexpr double kCy = 240.0;
-    double dx = *x - kCx;
-    double dy = *y - kCy;
-    double radius = std::sqrt((dx * dx) + (dy * dy));
-    double phase = std::atan2(dy, dx);
-    spawned_.push_back({next_id_++, radius, 0.04, phase, current_tick_});
+    float r = std::sqrt((*x * *x) + (*y * *y));
+    constexpr float speed = 40.0;
+    sim::Velocity vel =
+        (r > 0.0) ? sim::Velocity{-speed * *y / r, speed * *x / r}
+                  : sim::Velocity{speed, 0.0};
+    (void)world_.spawn(sim::Position{*x, *y}, vel);
     return true;
   }
 
   // Find `key` in `msg` and parse the number that follows it.
-  [[nodiscard]] static std::optional<double> parse_coord(
-      std::string_view msg, std::string_view key) {
+  [[nodiscard]] static std::optional<float>
+  parse_coord(std::string_view msg, std::string_view key) {
     auto pos = msg.find(key);
     if (pos == std::string_view::npos) return std::nullopt;
     pos += key.size();
     while (pos < msg.size() && msg[pos] == ' ') ++pos;
-    double val{};
+    float val{};
     auto [ptr, ec] =
         std::from_chars(msg.data() + pos, msg.data() + msg.size(), val);
     if (ec != std::errc{}) return std::nullopt;
@@ -156,7 +157,7 @@ private:
   // Schedule the next tick. Uses the `timer_fuse` double-check pattern:
   // the wheel-thread callback pre-checks liveness and posts to the loop
   // thread, which performs the definitive check and calls `do_tick_fire`.
-  [[nodiscard]] bool do_arm_tick(uint64_t tick_n) {
+  [[nodiscard]] bool do_arm_tick(tick_t tick_n) {
     auto wheel = keepalive_wheel_.lock();
     if (!wheel) return true;
     return fuse_t::set_timeout(*wheel, tick_seq_,
@@ -174,59 +175,28 @@ private:
         });
   }
 
-  // Called on the loop thread: send a snapshot message (20 Hz) and, once per
-  // 20 frames, a tick message (1 Hz). Re-arms for the next 50 ms interval.
-  // If a fragmented send is in progress, defer by re-arming with the same
-  // counter so the sequence has no gaps.
-  //
-  // Five entities orbit the canvas center (320, 240) at varying radii,
-  // angular speeds (radians per 50 ms frame), and initial phases, so no two
-  // are ever in the same position or in sync.
-  [[nodiscard]] bool do_tick_fire(uint64_t tick_n) {
+  // Called on the loop thread: advance the simulation one frame, send a
+  // snapshot message (20 Hz) and, once per 20 frames, a tick message (1 Hz).
+  // Re-arms for the next 50 ms interval. If a fragmented send is in progress,
+  // defers by re-arming with the same counter so the sequence has no gaps.
+  [[nodiscard]] bool do_tick_fire(tick_t tick_n) {
     if (websocket().is_close_started()) return true;
     if (websocket().is_send_in_fragment()) return do_arm_tick(tick_n);
 
-    current_tick_ = tick_n;
+    current_tick_ = world_.tick();
 
-    struct orbit {
-      int id;
-      double radius;
-      double speed; // rad/frame (frame = 50 ms)
-      double phase; // initial angle (rad)
-    };
-    static constexpr orbit orbits[] = {
-        {1, 80.0, 0.05, 0.00},
-        {2, 140.0, 0.035, 1.05},
-        {3, 200.0, 0.025, 2.09},
-        {4, 80.0, -0.065, 0.52},
-        {5, 170.0, -0.04, 3.67},
-    };
-
-    const double cx = 320.0;
-    const double cy = 240.0;
-    auto t = static_cast<double>(tick_n);
-
+    auto snaps = world_.snapshot();
     std::string entities;
-    for (const auto& o : orbits) {
-      double angle = o.phase + (o.speed * t);
-      double x = cx + (o.radius * std::cos(angle));
-      double y = cy + (o.radius * std::sin(angle));
+    entities.reserve(snaps.size() * 40);
+    for (const auto& e : snaps) {
       if (!entities.empty()) entities += ',';
-      entities +=
-          std::format(R"({{"id":{},"x":{:.1f},"y":{:.1f}}})", o.id, x, y);
-    }
-    for (const auto& s : spawned_) {
-      double angle = s.phase + (s.speed * static_cast<double>(tick_n - s.birth));
-      double x = cx + (s.radius * std::cos(angle));
-      double y = cy + (s.radius * std::sin(angle));
-      if (!entities.empty()) entities += ',';
-      entities +=
-          std::format(R"({{"id":{},"x":{:.1f},"y":{:.1f}}})", s.id, x, y);
+      entities += std::format(R"({{"id":{},"x":{:.1f},"y":{:.1f}}})",
+          static_cast<std::size_t>(e.id), e.pos.x, e.pos.y);
     }
 
-    auto snapshot =
+    auto snap_msg =
         std::format(R"({{"type":"snapshot","entities":[{}]}})", entities);
-    if (!websocket().send_text(snapshot)) return false;
+    if (!websocket().send_text(snap_msg)) return false;
 
     if (tick_n % 20 == 0) {
       auto tick_msg =

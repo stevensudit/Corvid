@@ -29,6 +29,30 @@
 #include "../proto.h"
 #include "ws_handler.h"
 
+// Blocks SIGINT and SIGTERM on all threads (including those spawned after
+// construction) so that `sigwait` can intercept them cleanly. Must be
+// constructed before any threads are created.
+class signal_waiter {
+public:
+  signal_waiter() {
+    sigemptyset(&mask_);
+    sigaddset(&mask_, SIGINT);
+    sigaddset(&mask_, SIGTERM);
+    pthread_sigmask(SIG_BLOCK, &mask_, nullptr);
+  }
+
+  // Block until one of the registered signals is delivered. Returns the
+  // signal number.
+  [[nodiscard]] int wait() const {
+    int sig{};
+    sigwait(&mask_, &sig);
+    return sig;
+  }
+
+private:
+  sigset_t mask_{};
+};
+
 using namespace corvid::proto;
 
 int main(int argc, char** argv) {
@@ -39,8 +63,9 @@ int main(int argc, char** argv) {
     if (std::string_view{argv[i]} == "-testonly") return 0;
   }
 
-  // Default web root: walk up from the executable until a `corvid/sim/web/dist`
-  // subdirectory is found. This works regardless of build output location.
+  // Default web root: walk up from the executable until a
+  // `corvid/sim/web/dist` subdirectory is found. This works regardless of
+  // build output location.
   std::filesystem::path web_root;
   if (argc > 1) {
     web_root = argv[1];
@@ -73,12 +98,7 @@ int main(int argc, char** argv) {
   std::cout << "Loaded " << cache->size() << " file(s) from " << web_root
             << "\n";
 
-  // Block SIGINT/SIGTERM on all threads so `sigwait` can intercept them.
-  sigset_t mask;
-  sigemptyset(&mask);
-  sigaddset(&mask, SIGINT);
-  sigaddset(&mask, SIGTERM);
-  pthread_sigmask(SIG_BLOCK, &mask, nullptr);
+  signal_waiter signals;
 
   // Create server (owns its own loop and timing wheel). The cache shared_ptr
   // is captured by the factory lambda and passed into each transaction, which
@@ -102,8 +122,7 @@ int main(int argc, char** argv) {
 
   std::cout << "Listening on http://" << server->local_endpoint() << "/\n";
 
-  int sig{};
-  sigwait(&mask, &sig);
+  (void)signals.wait();
   std::cout << "\nShutting down\n";
   return 0;
 }

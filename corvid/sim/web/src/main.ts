@@ -20,6 +20,33 @@ const maybeCtx = canvas.getContext('2d')
 if (!maybeCtx) throw new Error('Could not get 2D canvas context')
 const ctx: CanvasRenderingContext2D = maybeCtx
 
+// --- World / canvas coordinate mapping ---
+//
+// The server simulation runs in a 1920x1080 world space. The canvas is sized
+// to the same 16:9 aspect ratio so the mapping is a uniform scale with no
+// letterboxing needed.
+const WORLD_W = 1920
+const WORLD_H = 1080
+
+function worldToCanvas(wx: number, wy: number): [number, number] {
+  return [
+    (wx + WORLD_W / 2) * canvas.width / WORLD_W,
+    (wy + WORLD_H / 2) * canvas.height / WORLD_H,
+  ]
+}
+
+function canvasToWorld(cx: number, cy: number): [number, number] {
+  return [
+    (cx - canvas.width / 2) * WORLD_W / canvas.width,
+    (cy - canvas.height / 2) * WORLD_H / canvas.height,
+  ]
+}
+
+// --- FPS tracking ---
+
+let fps = 0
+let lastFrameTime = 0
+
 // --- Interpolation state ---
 
 const SNAPSHOT_INTERVAL_MS = 50 // matches server 20 Hz rate
@@ -40,16 +67,40 @@ function renderInterpolated(): void {
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   for (const e of currEntities) {
     const prev = prevById.get(e.id)
-    const x = prev ? lerp(prev.x, e.x, t) : e.x
-    const y = prev ? lerp(prev.y, e.y, t) : e.y
+    const wx = prev ? lerp(prev.x, e.x, t) : e.x
+    const wy = prev ? lerp(prev.y, e.y, t) : e.y
+    const [x, y] = worldToCanvas(wx, wy)
     ctx.beginPath()
     ctx.arc(x, y, 5, 0, Math.PI * 2)
     ctx.fill()
   }
 }
 
-function frame(): void {
+function drawFps(): void {
+  ctx.save()
+  const label = `${fps.toFixed(1)} FPS`
+  ctx.font = '14px monospace'
+  const pad = 6
+  const w = ctx.measureText(label).width + pad * 2
+  const h = 20
+  const x = canvas.width - w - 4
+  const y = canvas.height - 4 - h
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'
+  ctx.fillRect(x, y, w, h)
+  ctx.fillStyle = 'white'
+  ctx.fillText(label, x + pad, y + 14)
+  ctx.restore()
+}
+
+function frame(now: number): void {
+  if (lastFrameTime !== 0) {
+    const dt = now - lastFrameTime
+    fps = fps * 0.9 + (1000 / dt) * 0.1
+  }
+  lastFrameTime = now
+
   renderInterpolated()
+  drawFps()
   requestAnimationFrame(frame)
 }
 
@@ -144,10 +195,9 @@ ws.onerror = () => {
 canvas.addEventListener('click', (e: MouseEvent) => {
   if (ws.readyState !== WebSocket.OPEN) return
   const rect = canvas.getBoundingClientRect()
-  const scaleX = canvas.width / rect.width
-  const scaleY = canvas.height / rect.height
-  const x = Math.round((e.clientX - rect.left) * scaleX)
-  const y = Math.round((e.clientY - rect.top) * scaleY)
+  const cssX = (e.clientX - rect.left) * (canvas.width / rect.width)
+  const cssY = (e.clientY - rect.top) * (canvas.height / rect.height)
+  const [x, y] = canvasToWorld(cssX, cssY).map(Math.round) as [number, number]
   const msg: ClientMsg = { type: 'spawn', x, y }
   ws.send(JSON.stringify(msg))
 })
