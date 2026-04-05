@@ -1022,8 +1022,8 @@ private:
 
   // The RFC has strict requirements for mask key generation and
   // `std::random_device` fulfills them. However, it is expensive even to
-  // default-construct. Instead, we share an instance an instance across
-  // clients, without ever instantiating it on servers.
+  // default-construct. Instead, we share an instance across clients, without
+  // ever instantiating it on servers.
   [[nodiscard]] static uint32_t generate_random() {
     static std::mutex mtx;
     static std::random_device rd;
