@@ -40,6 +40,7 @@
 
 namespace corvid { inline namespace proto {
 
+using namespace std::string_literals;
 using namespace bool_enums;
 
 // A note on naming:
