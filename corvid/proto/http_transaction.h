@@ -41,7 +41,7 @@ using transaction_ptr = std::shared_ptr<http_transaction>;
 //
 // Constructed (always via `std::make_shared`) by a `transaction_factory`
 // when a matching route is found in `http_server`. Holds the parsed
-// `request_head` and a mutable `response_head` populate, as well as
+// `request_head` and a mutable `response_head` to populate, as well as
 // `close_after`. Writes are accomplished through the `send_fn` callback passed
 // in `handle_drain`.
 //
