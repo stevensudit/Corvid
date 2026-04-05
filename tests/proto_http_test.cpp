@@ -2483,6 +2483,183 @@ void WebSocket_Send_Client() {
   EXPECT_EQ(std::string_view(unmasked, 2), "hi");
 }
 
+// `header()`, `header_view()`, and `payload_view()` return correctly bounded
+// views after `parse`.
+void WebSocket_FrameWrapper_HeaderAndViews() {
+  const auto frame = ws_frame_codec::serialize_frame(
+      ws_frame_control::fin | ws_frame_control::text, "abc");
+  ws_frame_view hdr{frame.data(), frame.size()};
+  ASSERT_TRUE(hdr.is_complete() && hdr.parse());
+
+  // `header_view` covers exactly the header bytes and begins at `header()`.
+  EXPECT_EQ(hdr.header_view().size(), hdr.header_length());
+  EXPECT_EQ(hdr.header_view().data(),
+      reinterpret_cast<const char*>(&hdr.header()));
+
+  // `payload_view` covers the payload bytes immediately after the header.
+  EXPECT_EQ(hdr.payload_view().size(), hdr.payload_length());
+  EXPECT_EQ(hdr.payload_view(), "abc");
+}
+
+// `copy_to` copies the header bytes into a caller-supplied buffer.
+void WebSocket_FrameWrapper_CopyTo() {
+  const auto frame = ws_frame_codec::serialize_frame(
+      ws_frame_control::fin | ws_frame_control::binary, "xy");
+  ws_frame_view hdr{frame.data(), frame.size()};
+  ASSERT_TRUE(hdr.is_complete() && hdr.parse());
+
+  char buf[14]{};
+  EXPECT_TRUE(hdr.copy_to(buf));
+  EXPECT_EQ(std::memcmp(buf, frame.data(), hdr.header_length()), 0);
+
+  // A default-constructed (null) wrapper has no header to copy.
+  ws_frame_view empty{};
+  char buf2[14]{};
+  EXPECT_FALSE(empty.copy_to(buf2));
+}
+
+// `mask_payload` unmasks the payload bytes of a masked frame in-place,
+// exercising `mask_key()` and the mutable `variable_section()` accessor.
+void WebSocket_FrameWrapper_MaskPayloadInPlace() {
+  const std::string payload{"hello"};
+  const uint32_t key = 0xDEADBEEF;
+  std::string frame = ws_frame_codec::serialize_frame(
+      ws_frame_control::fin | ws_frame_control::text, payload, key);
+
+  ws_frame_lens lens{frame};
+  ASSERT_TRUE(lens.is_complete() && lens.parse());
+  EXPECT_TRUE(lens.is_masked());
+  EXPECT_NE(lens.mask_key(), 0U);
+
+  // The mutable `variable_section()` pointer falls right after the two fixed
+  // header bytes.
+  EXPECT_EQ(reinterpret_cast<const char*>(lens.variable_section()),
+      frame.data() + 2);
+
+  // In-place unmask: payload must round-trip back to the original.
+  EXPECT_TRUE(lens.mask_payload(frame));
+  const std::string_view unmasked{frame.data() + lens.header_length(),
+      lens.payload_length()};
+  EXPECT_EQ(unmasked, payload);
+
+  // Applying `mask_payload` again re-masks; the round-trip is symmetric.
+  EXPECT_TRUE(lens.mask_payload(frame));
+  EXPECT_NE(std::string_view(frame.data() + lens.header_length(),
+                lens.payload_length()),
+      payload);
+}
+
+// `send_binary` sends a FIN+binary frame with the correct opcode.
+void WebSocket_Send_Binary() {
+  std::string sent;
+  http_websocket ws{[&](std::string&& f) {
+    sent = std::move(f);
+    return true;
+  }};
+  EXPECT_TRUE(ws.send_binary("data"));
+  ASSERT_FALSE(sent.empty());
+  const auto hdr_opt = ws_frame_codec::parse_header(sent);
+  ASSERT_TRUE(hdr_opt);
+  EXPECT_TRUE(hdr_opt->is_final());
+  EXPECT_EQ(hdr_opt->opcode(), ws_frame_control::binary);
+  EXPECT_EQ(hdr_opt->payload_length(), 4ULL);
+  EXPECT_EQ(std::string_view(sent.data() + hdr_opt->header_length(), 4),
+      "data");
+}
+
+// `send_pong` sends a FIN+pong frame even after `send_close` would otherwise
+// block outbound data.
+void WebSocket_Send_Pong_Direct() {
+  std::string sent;
+  http_websocket ws{[&](std::string&& f) {
+    sent = std::move(f);
+    return true;
+  }};
+  ASSERT_TRUE(ws.send_close(1000));
+  EXPECT_TRUE(ws.send_pong("echo"));
+  const auto hdr_opt = ws_frame_codec::parse_header(sent);
+  ASSERT_TRUE(hdr_opt);
+  EXPECT_EQ(hdr_opt->opcode(), ws_frame_control::pong);
+  EXPECT_EQ(std::string_view(sent.data() + hdr_opt->header_length(),
+                hdr_opt->payload_length()),
+      "echo");
+}
+
+// `send_frame(std::string&&)` delivers a pre-serialized frame directly to the
+// send callback.
+void WebSocket_Send_Frame_Prebuilt() {
+  std::string sent;
+  http_websocket ws{[&](std::string&& f) {
+    sent = std::move(f);
+    return true;
+  }};
+  std::string frame = ws_frame_codec::serialize_frame(
+      ws_frame_control::fin | ws_frame_control::text, "pre");
+  EXPECT_TRUE(ws.send_frame(std::move(frame)));
+  const auto hdr_opt = ws_frame_codec::parse_header(sent);
+  ASSERT_TRUE(hdr_opt);
+  EXPECT_EQ(hdr_opt->opcode(), ws_frame_control::text);
+  EXPECT_EQ(hdr_opt->payload_length(), 3ULL);
+}
+
+// `hangup` invokes the send callback with an empty string to signal RST.
+void WebSocket_Hangup() {
+  bool called{};
+  std::string sent{"initial"};
+  http_websocket ws{[&](std::string&& f) {
+    called = true;
+    sent = std::move(f);
+    return true;
+  }};
+  EXPECT_FALSE(ws.hangup());
+  EXPECT_TRUE(called);
+  EXPECT_TRUE(sent.empty());
+}
+
+// `fail` sends a close frame and returns false. `fail_proto` wraps `fail` with
+// code 1002 and a "Protocol failure: " prefix. `fail_insatiable` sends close
+// and hangup then returns `insatiable`.
+void WebSocket_Fail() {
+  // `fail` with no prior close sends a close frame.
+  {
+    std::string sent;
+    http_websocket ws{[&](std::string&& f) {
+      sent = std::move(f);
+      return true;
+    }};
+    EXPECT_FALSE(ws.fail(1001, "bye"));
+    const auto hdr_opt = ws_frame_codec::parse_header(sent);
+    ASSERT_TRUE(hdr_opt);
+    EXPECT_EQ(hdr_opt->opcode(), ws_frame_control::close);
+  }
+
+  // `fail_proto` sends close code 1002 with a prefixed reason string.
+  {
+    std::string sent;
+    http_websocket ws{[&](std::string&& f) {
+      sent = std::move(f);
+      return true;
+    }};
+    EXPECT_FALSE(ws.fail_proto("test reason"));
+    const auto hdr_opt = ws_frame_codec::parse_header(sent);
+    ASSERT_TRUE(hdr_opt);
+    EXPECT_EQ(hdr_opt->opcode(), ws_frame_control::close);
+    const std::string_view close_pl{sent.data() + hdr_opt->header_length(),
+        hdr_opt->payload_length()};
+    ASSERT_GE(close_pl.size(), 2U);
+    const uint16_t code =
+        (static_cast<uint8_t>(close_pl[0]) << 8) |
+        static_cast<uint8_t>(close_pl[1]);
+    EXPECT_EQ(code, uint16_t{1002});
+  }
+
+  // `fail_insatiable` returns `insatiable`.
+  {
+    http_websocket ws{[](std::string&&) { return true; }};
+    EXPECT_EQ(ws.fail_insatiable(1000, "error"), http_websocket::insatiable);
+  }
+}
+
 // `http_websocket_transaction` unit tests.
 
 // Load `data` into `buf` and return a live view with a no-op resume callback.
@@ -2511,6 +2688,34 @@ wstx_make_view(recv_buffer& buf, std::string_view data = {}) {
 void wstx_reextract_options(request_head& req) {
   req.options = {};
   req.options.extract(req.headers);
+}
+
+// `on_drain` callback on `http_websocket_transaction` is invoked from
+// `handle_drain` after the upgrade response is flushed.
+void WebSocketTransaction_OnDrain() {
+  auto tx =
+      std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
+
+  int drain_count{};
+  tx->on_drain = [&](http_transaction&, const http_transaction::send_fn&) {
+    ++drain_count;
+    return stream_claim::claim;
+  };
+
+  recv_buffer buf;
+  {
+    auto view = wstx_make_view(buf);
+    ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
+  }
+
+  http_transaction::send_fn send_fn{[](std::string&&) { return true; }};
+  // First drain flushes the 101 response, then falls through to `on_drain`.
+  EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
+  EXPECT_EQ(drain_count, 1);
+
+  // Subsequent drains with no pending response also route through `on_drain`.
+  EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
+  EXPECT_EQ(drain_count, 2);
 }
 
 // Valid upgrade handshake: `handle_data` returns `claim`.
@@ -3356,7 +3561,10 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     WebSocket_Feed_BadContinuation, WebSocket_Feed_InterleavedData,
     WebSocket_Feed_DataAfterSentClose, WebSocket_Feed_DataAfterReceivedClose,
     WebSocket_Send_Server, WebSocket_Send_Client,
-    WebSocketTransaction_UpgradeSuccess,
+    WebSocket_FrameWrapper_HeaderAndViews, WebSocket_FrameWrapper_CopyTo,
+    WebSocket_FrameWrapper_MaskPayloadInPlace, WebSocket_Send_Binary,
+    WebSocket_Send_Pong_Direct, WebSocket_Send_Frame_Prebuilt,
+    WebSocket_Hangup, WebSocket_Fail, WebSocketTransaction_UpgradeSuccess,
     WebSocketTransaction_DrainSendsResponse,
     WebSocketTransaction_DrainBeforeUpgrade, WebSocketTransaction_BadMethod,
     WebSocketTransaction_MissingUpgrade,
@@ -3366,7 +3574,7 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     WebSocketTransaction_FeedAfterUpgrade,
     WebSocketTransaction_FeedProtocolError,
     WebSocketTransaction_SubprotocolNegotiation,
-    WebSocketTransaction_MakeFactory, WebSocket_PingCounter,
-    HttpServer_WebSocket_Keepalive, HttpServer_WebSocket_KeepaliveTimeout,
-    HttpServer_WebSocket, HttpServer_WebSocket_QueryAndFragmentRoute,
-    HttpServer_WebSocket_Frames);
+    WebSocketTransaction_MakeFactory, WebSocketTransaction_OnDrain,
+    WebSocket_PingCounter, HttpServer_WebSocket_Keepalive,
+    HttpServer_WebSocket_KeepaliveTimeout, HttpServer_WebSocket,
+    HttpServer_WebSocket_QueryAndFragmentRoute, HttpServer_WebSocket_Frames);

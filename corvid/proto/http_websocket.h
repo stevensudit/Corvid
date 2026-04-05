@@ -57,7 +57,7 @@ using namespace bool_enums;
 //
 // There are multiple ways to model this. One would be to use a sequential enum
 // for the opcodes and treat FIN as a special case. That's not the approach
-// taken here, though. We treat the whole thing as a bitmask, naming invidiual
+// taken here, though. We treat the whole thing as a bitmask, naming individual
 // bits, specific values, and masks.
 enum class ws_frame_control : uint8_t {
   continuation = 0x00,
@@ -373,7 +373,7 @@ public:
   // Mask/unmask the payload bytes already in `frame`. This instance should
   // point into the front of that frame.
   [[nodiscard]] bool mask_payload(std::string& frame) noexcept {
-    if (!mask_key() || *mask_key() == 0) return true;
+    if (!mask_key()) return true;
     if (frame.size() < total_length()) return false;
     return mask_payload_copy(frame, payload_view());
   }
@@ -739,7 +739,7 @@ public:
     // TODO: As an architectural optimization, consider building the frame
     // header separately, and modifying `send_fn` to take a header and payload,
     // so we can avoid an extra copy. This might not be worth it, though. And
-    // if the payload is big, then the caller could compose thir own frame to
+    // if the payload is big, then the caller could compose their own frame to
     // avoid a copy.
     if (sent_close_) return false;
     std::optional<uint32_t> mask;
