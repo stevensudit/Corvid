@@ -939,8 +939,11 @@ private:
       text_utf8_checker_.reset();
     }
 
-    // Dispatch the payload. This moves `message_` and clears it out.
-    return dispatch_message(std::move(message_), data_opcode);
+    // Dispatch the payload. Explicitly clear `message_` in case the callback
+    // doesn't move it out.
+    bool success = dispatch_message(std::move(message_), data_opcode);
+    message_.clear();
+    return success;
   }
 
   [[nodiscard]] bool handle_control_frame(ws_frame_view& hdr) {

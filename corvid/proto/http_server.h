@@ -426,12 +426,13 @@ private:
 
     // Call transaction factory with the request head.
     // Don't trust the factory to move the request head out of the state.
+    const http_version req_version = state.req.version;
     auto tx = (*factory)(std::move(state.req));
     state.req.clear();
 
     // Enqueue transaction into pipeline.
     if (!tx)
-      return send_error_response(conn, keep_alive, http_version::http_1_1,
+      return send_error_response(conn, keep_alive, req_version,
           http_status_code::SERVICE_UNAVAILABLE, "Service Unavailable");
 
     // Propagate the connection-close policy from the request headers; factory
