@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <numbers>
@@ -64,14 +65,93 @@ struct Velocity {
   }
 };
 
+// --- Path geometry ---
+
+// Authored path: a sequence of joints and a road half-width in world-space
+// pixels. Processed into a `baked_path` before use at runtime.
+struct path {
+  struct joint {
+    Position p;
+  };
+
+  std::vector<joint> joints;
+  float width{40.F};
+};
+
+// Runtime-ready path: pre-computed segments with cumulative distances,
+// produced once from a `path` by `bake_path()`.
+struct baked_path {
+  struct segment {
+    Position front;
+    Position back;
+    float length;           // Euclidean distance from `front` to `back`.
+    float cumulative_start; // Sum of lengths of all preceding segments.
+  };
+
+  std::vector<segment> segments;
+  float total_length{};
+  float width{};
+
+  // Map a distance traveled (`progress`) along `bp` to a world-space
+  // `Position`. `progress` is clamped to `[0, total_length]`. Returns the
+  // origin if `bp` has no segments.
+  Position position_from_progress(float progress) const {
+    if (segments.empty()) return {};
+    progress = std::clamp(progress, 0.F, total_length);
+    // Find the last segment whose cumulative_start <= progress.
+    auto it = std::ranges::upper_bound(segments, progress, {},
+        &baked_path::segment::cumulative_start);
+    if (it != segments.begin()) --it;
+    const auto& seg = *it;
+    const float t =
+        (seg.length > 0.F)
+            ? ((progress - seg.cumulative_start) / seg.length)
+            : 0.F;
+    return {(seg.front.x + ((seg.back.x - seg.front.x) * t)),
+        (seg.front.y + ((seg.back.y - seg.front.y) * t))};
+  }
+
+  // Convert an authored `path` into a `baked_path`. Requires at least two
+  // joints; returns an empty `baked_path` if the input is degenerate.
+  static baked_path from_path(const path& p) {
+    if (p.joints.size() < 2) return {};
+    baked_path bp;
+    bp.width = p.width;
+    bp.segments.reserve(p.joints.size() - 1);
+    float cumulative{};
+    for (std::size_t i = 0; i + 1 < p.joints.size(); ++i) {
+      const Position& front = p.joints[i].p;
+      const Position& back = p.joints[i + 1].p;
+      const float dx = back.x - front.x;
+      const float dy = back.y - front.y;
+      const float len = std::hypot(dx, dy);
+      bp.segments.push_back({front, back, len, cumulative});
+      cumulative += len;
+    }
+    bp.total_length = cumulative;
+    return bp;
+  }
+};
+
+// Path-following component. Stored alongside `Position` in the enemy
+// archetype. Each tick, `progress` advances by `speed`; the entity's
+// `Position` is re-derived from the baked path geometry.
+struct PathFollower {
+  uint8_t path_id{}; // Index into `sim_world::paths_`.
+  float progress{};  // Distance traveled along the path so far.
+  float speed{};     // Distance per tick.
+};
+
 // ECS types for the simulation world.
 //
 // Registry metadata (`uint64_t`) stores each entity's last-change tick count,
 // enabling delta snapshots without a separate dirty set.
 //
 // Storage layout (store_id assignment is positional, 1-based):
-//   `p_sid`  = 1  -> `arch_p_t`  : background / retired entities (Position)
-//   `pv_sid` = 2  -> `arch_pv_t` : moving entities (Position + Velocity)
+//   `p_sid`      = 1  -> `arch_p_t`      : background / retired (Position)
+//   `pv_sid`     = 2  -> `arch_pv_t`     : moving entities (Position +
+//   Velocity) `enemy_sid`  = 3  -> `arch_enemy_t`  : path-following enemies
+//   (Position + PathFollower)
 //
 // Background storage comes first so that retiring a mobile entity is a
 // natural `archetype_scene::migrate_entity` call rather than erase+re-add.
@@ -81,7 +161,10 @@ using world_sid_t = world_reg_t::store_id_t;
 using arch_p_t = archetype_storage<world_reg_t, std::tuple<Position>>;
 using arch_pv_t =
     archetype_storage<world_reg_t, std::tuple<Position, Velocity>>;
-using world_scene_t = archetype_scene<world_reg_t, arch_p_t, arch_pv_t>;
+using arch_enemy_t =
+    archetype_storage<world_reg_t, std::tuple<Position, PathFollower>>;
+using world_scene_t =
+    archetype_scene<world_reg_t, arch_p_t, arch_pv_t, arch_enemy_t>;
 
 // Simulation world: encapsulates all ECS entity state for the game.
 //
@@ -97,6 +180,7 @@ public:
 
   static constexpr world_sid_t p_sid{1};
   static constexpr world_sid_t pv_sid{2};
+  static constexpr world_sid_t enemy_sid{3};
 
   static constexpr float world_width = 1920.0;
   static constexpr float world_height = 1080.0;
@@ -119,6 +203,30 @@ public:
     return scene_.store_new_entity<p_sid>(tick_n_, pos);
   }
 
+  // Bake and store a path. Returns the index used as `PathFollower::path_id`.
+  // The index is stable for the lifetime of the world.
+  [[nodiscard]] uint8_t add_path(const path& p) {
+    paths_.push_back(baked_path::from_path(p));
+    return static_cast<uint8_t>(paths_.size() - 1);
+  }
+
+  // Return a pointer to the baked path at `id`, or `nullptr` if out of range.
+  [[nodiscard]] const baked_path* get_path(uint8_t id) const {
+    if (id >= paths_.size()) return nullptr;
+    return &paths_[id];
+  }
+
+  // Spawn a path-following enemy. Initial position is derived from `progress`
+  // on the named path. Returns a handle for later `despawn()`.
+  [[nodiscard]] handle_t
+  spawn_enemy(uint8_t path_id, float speed, float progress = 0.F) {
+    Position pos{};
+    if (path_id < paths_.size())
+      pos = paths_[path_id].position_from_progress(progress);
+    return scene_.store_new_entity<enemy_sid>(tick_n_, pos,
+        PathFollower{path_id, progress, speed});
+  }
+
   // Returns true if the handle refers to a live entity.
   [[nodiscard]] bool is_alive(handle_t h) const {
     return scene_.registry().is_valid(h);
@@ -138,6 +246,8 @@ public:
   // effects are needed, to avoid the allocation.
   [[nodiscard]] tick_t tick(std::vector<entity_id_t>* out = nullptr) {
     ++tick_n_;
+
+    // Advance velocity-driven entities.
     scene_.for_each<Position, Velocity>([&](auto id, auto comps) {
       auto& [pos, vel] = comps;
 
@@ -151,12 +261,42 @@ public:
       if (out) out->push_back(id);
       return true;
     });
+
+    // Advance path-following enemies. Collect entities that reached the end
+    // so they can be despawned after iteration.
+    std::vector<entity_id_t> finished;
+    scene_.for_each<Position, PathFollower>([&](auto id, auto comps) {
+      auto& [pos, pf] = comps;
+      pf.progress += pf.speed;
+      // TODO: Speed can be negative, so we need to collect entities that
+      // exited front and back, separately. Why separately? So that we can
+      // count them against the score. Note that we also have to be careful
+      // here to deal with the possibility of a non-enemy that follows the
+      // track and therefore doesn't count against the score. Not sure how best
+      // to do this, but I imagine a component value that's constant and
+      // therefore takes up no space.
+      if (pf.path_id < paths_.size()) {
+        const auto& bp = paths_[pf.path_id];
+        if (pf.progress >= bp.total_length) {
+          finished.push_back(id);
+        } else {
+          pos = bp.position_from_progress(pf.progress);
+          scene_.registry()[id] = tick_n_;
+          if (out) out->push_back(id);
+        }
+      }
+      return true;
+    });
+    // IDs were collected from an active iteration, so erase_entity will not
+    // fail; the return value is voided intentionally.
+    for (auto id : finished) (void)scene_.erase_entity(id);
+
     return tick_n_;
   }
 
   // Return snapshots for every entity whose last-change tick is >=
-  // `since_tick`. Pass 0 (the default) to return all entities. Visits both
-  // `p_sid` and `pv_sid` storages since both carry `Position`.
+  // `since_tick`. Pass 0 (the default) to return all entities. Visits all
+  // storages that carry `Position` (`p_sid`, `pv_sid`, `enemy_sid`).
   [[nodiscard]] std::vector<entity_snapshot> snapshot(
       tick_t since_tick = 0) const {
     std::vector<entity_snapshot> result;
@@ -188,6 +328,7 @@ public:
 private:
   world_scene_t scene_;
   tick_t tick_n_{0};
+  std::vector<baked_path> paths_;
 
   // Clamp `pos` to `[-limit/2, +limit/2]` and, if it was out of range, negate
   // `vel` so the entity bounces off that boundary wall.

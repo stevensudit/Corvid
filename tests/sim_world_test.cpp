@@ -94,9 +94,10 @@ void SimWorld_TickNullOut() {
 // Entities bounce off the left/top boundary.
 void SimWorld_BounceMinEdge() {
   sim_world w;
-  const double half_w = sim_world::world_width * 0.5;
-  const double half_h = sim_world::world_height * 0.5;
-  (void)w.spawn(Position{-half_w + 0.5, -half_h + 0.5}, Velocity{-2.0, -2.0});
+  const float half_w = sim_world::world_width * 0.5F;
+  const float half_h = sim_world::world_height * 0.5F;
+  (void)w.spawn(Position{-half_w + 0.5F, -half_h + 0.5F},
+      Velocity{-2.0F, -2.0F});
   (void)w.tick();
 
   auto snaps = w.snapshot();
@@ -108,9 +109,9 @@ void SimWorld_BounceMinEdge() {
 // Entities bounce off the right/bottom boundary.
 void SimWorld_BounceMaxEdge() {
   sim_world w;
-  const double half_w = sim_world::world_width * 0.5;
-  const double half_h = sim_world::world_height * 0.5;
-  (void)w.spawn(Position{half_w - 0.5, half_h - 0.5}, Velocity{2.0, 2.0});
+  const float half_w = sim_world::world_width * 0.5F;
+  const float half_h = sim_world::world_height * 0.5F;
+  (void)w.spawn(Position{half_w - 0.5F, half_h - 0.5F}, Velocity{2.0F, 2.0F});
   (void)w.tick();
 
   auto snaps = w.snapshot();
@@ -209,10 +210,125 @@ void SimWorld_BackgroundNotInDeltaAfterTick() {
   EXPECT_EQ(w.snapshot(1).size(), 0U);
 }
 
+// --- Path geometry tests ---
+
+// bake_path with two joints produces one segment with the correct length.
+void BakePath_TwoJoints() {
+  path p;
+  p.joints = {{{0.F, 0.F}}, {{3.F, 4.F}}};
+  const auto bp = baked_path::from_path(p);
+  ASSERT_EQ(bp.segments.size(), 1U);
+  EXPECT_NEAR(bp.segments[0].cumulative_start, 0.0, 1e-6);
+  EXPECT_NEAR(bp.segments[0].length, 5.0, 1e-6);
+  EXPECT_NEAR(bp.total_length, 5.0, 1e-6);
+}
+
+// bake_path with three joints produces two segments with correct cumulative
+// distances.
+void BakePath_ThreeJoints() {
+  path p;
+  p.joints = {{{0.F, 0.F}}, {{3.F, 4.F}}, {{6.F, 8.F}}};
+  const auto bp = baked_path::from_path(p);
+  ASSERT_EQ(bp.segments.size(), 2U);
+  EXPECT_NEAR(bp.segments[0].cumulative_start, 0.0, 1e-6);
+  EXPECT_NEAR(bp.segments[0].length, 5.0, 1e-6);
+  EXPECT_NEAR(bp.segments[1].cumulative_start, 5.0, 1e-6);
+  EXPECT_NEAR(bp.segments[1].length, 5.0, 1e-6);
+  EXPECT_NEAR(bp.total_length, 10.0, 1e-6);
+}
+
+// bake_path with fewer than two joints returns an empty baked_path.
+void BakePath_Degenerate() {
+  path p;
+  p.joints = {{{0.F, 0.F}}};
+  const auto bp = baked_path::from_path(p);
+  EXPECT_TRUE(bp.segments.empty());
+  EXPECT_NEAR(bp.total_length, 0.0, 1e-6);
+}
+
+// path_position at progress 0 returns the first joint; at total_length
+// returns the last joint.
+void PathPosition_Endpoints() {
+  path p;
+  p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
+  const auto bp = baked_path::from_path(p);
+
+  const auto start = bp.position_from_progress(0.F);
+  EXPECT_NEAR(start.x, 0.0, 1e-6);
+  EXPECT_NEAR(start.y, 0.0, 1e-6);
+
+  const auto end = bp.position_from_progress(bp.total_length);
+  EXPECT_NEAR(end.x, 10.0, 1e-6);
+  EXPECT_NEAR(end.y, 0.0, 1e-6);
+}
+
+// path_position at the midpoint returns the correctly interpolated position.
+void PathPosition_Midpoint() {
+  path p;
+  p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
+  const auto bp = baked_path::from_path(p);
+
+  const auto mid = bp.position_from_progress(5.F);
+  EXPECT_NEAR(mid.x, 5.0, 1e-6);
+  EXPECT_NEAR(mid.y, 0.0, 1e-6);
+}
+
+// Spawning an enemy and ticking once advances its position by `speed`.
+void SimWorld_EnemyAdvancesOnTick() {
+  sim_world w;
+  path p;
+  p.joints = {{{0.F, 0.F}}, {{100.F, 0.F}}};
+  const auto pid = w.add_path(p);
+
+  auto h = w.spawn_enemy(pid, 10.F);
+  EXPECT_TRUE(w.is_alive(h));
+
+  (void)w.tick();
+
+  const auto snaps = w.snapshot();
+  ASSERT_EQ(snaps.size(), 1U);
+  EXPECT_NEAR(snaps[0].pos.x, 10.0, 1e-5);
+  EXPECT_NEAR(snaps[0].pos.y, 0.0, 1e-5);
+}
+
+// An enemy that reaches the end of the path is despawned automatically.
+void SimWorld_EnemyDespawnsAtEnd() {
+  sim_world w;
+  path p;
+  p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
+  const auto pid = w.add_path(p);
+
+  // Start near the end; one tick will push progress past total_length.
+  auto h = w.spawn_enemy(pid, 5.F, 8.F);
+  EXPECT_EQ(w.size(), 1U);
+
+  (void)w.tick();
+
+  EXPECT_EQ(w.size(), 0U);
+  EXPECT_FALSE(w.is_alive(h));
+}
+
+// get_path returns nullptr for an out-of-range index.
+void SimWorld_GetPathOutOfRange() {
+  sim_world w;
+  EXPECT_TRUE(w.get_path(0) == nullptr);
+
+  path p;
+  p.joints = {{{0.F, 0.F}}, {{1.F, 0.F}}};
+  (void)w.add_path(p);
+
+  EXPECT_TRUE(w.get_path(0) != nullptr);
+  EXPECT_TRUE(w.get_path(1) == nullptr);
+}
+
 // NOLINTEND(readability-function-cognitive-complexity)
 
 MAKE_TEST_LIST(SimWorld_SpawnDespawn, SimWorld_DespawnStale, SimWorld_Tick,
     SimWorld_TickOutParam, SimWorld_TickNullOut, SimWorld_BounceMinEdge,
     SimWorld_BounceMaxEdge, SimWorld_SnapshotAll, SimWorld_SnapshotSince,
     SimWorld_SnapshotByIds, SimWorld_SnapshotByIdsSkipsDead,
-    SimWorld_Background, SimWorld_BackgroundNotInDeltaAfterTick)
+    SimWorld_Background, SimWorld_BackgroundNotInDeltaAfterTick,
+    BakePath_TwoJoints, BakePath_ThreeJoints, BakePath_Degenerate,
+    PathPosition_Endpoints, PathPosition_Midpoint,
+    SimWorld_EnemyAdvancesOnTick, SimWorld_EnemyDespawnsAtEnd,
+    SimWorld_GetPathOutOfRange)
