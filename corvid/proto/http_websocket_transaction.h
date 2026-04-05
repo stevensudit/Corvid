@@ -176,7 +176,7 @@ private:
     const auto key_hdr = request_headers.headers.get("Sec-Websocket-Key");
     if (!key_hdr || key_hdr->empty()) return send_bad_request(view);
 
-    const auto accept = ws_frame_codec::compute_accept_key(*key_hdr);
+    const auto accept = ws_frame_view::compute_accept_key(*key_hdr);
     if (accept.empty()) return send_bad_request(view);
 
     // If a subprotocol callback is set and the client offered protocols,

@@ -212,9 +212,10 @@ WebSocket protocol built on top of the HTTP/1.1 upgrade mechanism.
   `ws_frame_header_storage` fixed-size wire-format header storage;
   `ws_frame_wrapper<ACCESS>` typed view over header storage with
   `header_length` / `payload_length` / `total_length` / `is_masked` accessors
-  and `mask_payload_copy`; `ws_frame_codec` stateless codec with
-  `parse_header`, `serialize_frame`, and `compute_accept_key`; `http_websocket`
-  session class runs client or server side; `feed(recv_buffer_view&)` reassembles
+  and `mask_payload_copy`; static frame helpers on `ws_frame_wrapper` with
+  `serialize_frame` and `compute_accept_key`, plus direct parsing through
+  `ws_frame_view::is_complete()` and `parse()`; `http_websocket` session class
+  runs client or server side; `feed(recv_buffer_view&)` reassembles
   fragmented messages and fires `on_message(pump, payload, opcode)` and
   `on_close(pump, code, reason)`; `send_text` / `send_binary` / `send_close` /
   `send_ping` / `send_pong`; optional `deliver_fragments` mode fires per-frame;

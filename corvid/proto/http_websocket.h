@@ -148,6 +148,15 @@ public:
       : header_{reinterpret_cast<header_t*>(frame.data())},
         header_length_{frame.size()} {}
 
+  // Reset, as on error.
+  [[nodiscard]] bool reset() noexcept {
+    header_ = nullptr;
+    header_length_ = 0;
+    payload_length_ = 0;
+    mask_ = 0;
+    return false;
+  }
+
   // Calculate the total number of bytes required for a header that encodes
   // `payload_length`. Suitable for sizing a buffer before `build`ing a header
   // and payload into it.
@@ -382,10 +391,11 @@ public:
 
   // Build header into `header` and return wrapper for it. Does not write past
   // the end of the actual header size.
-  static ws_frame_wrapper<access::as_mutable> build(ws_frame_header& header,
-      ws_frame_control frame_control, size_t payload_len,
-      std::optional<uint32_t> mask) noexcept {
-    ws_frame_wrapper<access::as_mutable> lens{header};
+  static auto build(ws_frame_header& header, ws_frame_control frame_control,
+      size_t payload_len, std::optional<uint32_t> mask) noexcept
+  requires mutable_v
+  {
+    ws_frame_wrapper lens{header};
     lens.frame_control() = frame_control;
     uint8_t mask_bit = mask ? uint8_t{0x80} : uint8_t{0};
     auto vs = lens.variable_section();
@@ -422,10 +432,12 @@ public:
   // Build header in-place at the provided `header` pointer, which should point
   // to the start of a buffer of at least `header_length_for(payload_len,
   // mask.has_value())` bytes. Returns a wrapper for the built header.
-  [[nodiscard]] static ws_frame_wrapper<access::as_mutable>
+  [[nodiscard]] static auto
   // NOLINTNEXTLINE(readability-non-const-parameter)
   build(char* header, ws_frame_control frame_control, size_t payload_len,
-      std::optional<uint32_t> mask) noexcept {
+      std::optional<uint32_t> mask) noexcept
+  requires mutable_v
+  {
     assert(header);
     auto& header_ref = *reinterpret_cast<ws_frame_header*>(header);
     return build(header_ref, frame_control, payload_len, mask);
@@ -435,41 +447,15 @@ public:
   // `capacity` the total frame length. To complete this frame, use
   // `mask_payload_copy`.
   [[nodiscard]]
-  static ws_frame_wrapper<access::as_mutable>
-  build(std::string& frame, ws_frame_control frame_control, size_t payload_len,
-      std::optional<uint32_t> mask) {
+  static auto build(std::string& frame, ws_frame_control frame_control,
+      size_t payload_len, std::optional<uint32_t> mask)
+  requires mutable_v
+  {
     const size_t header_len =
         ws_frame_wrapper::header_length_for(payload_len, mask.has_value());
     frame.reserve(header_len + payload_len);
     no_zero::resize_to(frame, header_len);
     return build(frame.data(), frame_control, payload_len, mask);
-  }
-
-private:
-  header_t* header_{};
-  size_t header_length_{};
-  size_t payload_length_{};
-  uint32_t mask_{};
-};
-
-// Read-only view.
-using ws_frame_view = ws_frame_wrapper<access::as_const>;
-
-// Mutable lens.
-using ws_frame_lens = ws_frame_wrapper<access::as_mutable>;
-
-// Stateless WebSocket frame codec. All members are static.
-struct ws_frame_codec {
-  // Parse the frame header at the start of `data`. Returns `nullopt` if
-  // more bytes are needed for the header. On success, the returned
-  // `ws_frame_view` has `header_length`, `payload_length`, and `total_length`
-  // filled. The caller must then read `payload_length` more bytes to get the
-  // whole frame.
-  [[nodiscard]] static std::optional<ws_frame_view> parse_header(
-      std::string_view data) noexcept {
-    ws_frame_view hdr{data.data(), data.size()};
-    if (!hdr.is_complete() || !hdr.parse()) return std::nullopt;
-    return hdr;
   }
 
   // Serialize a complete WebSocket frame into a new string. `frame_control`
@@ -478,10 +464,11 @@ struct ws_frame_codec {
   // for client -> server).
   [[nodiscard]] static std::string
   serialize_frame(ws_frame_control frame_control, std::string_view payload,
-      std::optional<uint32_t> mask = std::nullopt) {
+      std::optional<uint32_t> mask = std::nullopt)
+  requires mutable_v
+  {
     std::string frame;
-    auto hdr =
-        ws_frame_lens::build(frame, frame_control, payload.size(), mask);
+    auto hdr = build(frame, frame_control, payload.size(), mask);
 
     // Expand to full frame size, then copy and optionally mask the payload.
     no_zero::resize_to(frame, hdr.total_length());
@@ -508,7 +495,19 @@ struct ws_frame_codec {
     const auto raw = sha_1::bytes(h);
     return base_64::encode(std::span<const uint8_t>{raw});
   }
+
+private:
+  header_t* header_{};
+  size_t header_length_{};
+  size_t payload_length_{};
+  uint32_t mask_{};
 };
+
+// Read-only view.
+using ws_frame_view = ws_frame_wrapper<access::as_const>;
+
+// Mutable lens.
+using ws_frame_lens = ws_frame_wrapper<access::as_mutable>;
 
 // Callback-driven WebSocket message pump.
 //
@@ -619,7 +618,7 @@ public:
       if (data.empty()) break;
 
       // Try to parse the header. If it's incomplete, ask for more.
-      ws_frame_view hdr{data.data(), data.size()};
+      ws_frame_view hdr{data};
       if (!hdr.is_complete()) return hdr.total_length();
       if (!hdr.parse()) return fail_insatiable(1002, "Malformed frame header");
 
@@ -747,7 +746,7 @@ public:
     std::optional<uint32_t> mask;
     if (!is_server_) mask.emplace(generate_random());
     std::string frame =
-        ws_frame_codec::serialize_frame(frame_control, payload, mask);
+        ws_frame_lens::serialize_frame(frame_control, payload, mask);
     return send_frame(std::move(frame));
   }
 
@@ -763,7 +762,7 @@ public:
   [[nodiscard]] static request_head
   generate_upgrade_request(std::string_view path, std::string& accept_key) {
     const auto client_key = generate_client_key();
-    accept_key = ws_frame_codec::compute_accept_key(client_key);
+    accept_key = ws_frame_view::compute_accept_key(client_key);
 
     request_head req;
     req.method = http_method::GET;

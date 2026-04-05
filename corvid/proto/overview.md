@@ -384,10 +384,12 @@ Full RFC 6455 WebSocket implementation.
 `ws_frame_control` is a bitmask enum encoding both the opcode nibble (`text`,
 `binary`, `continuation`, `close`, `ping`, `pong`) and the `fin` bit.
 
-`ws_frame_codec` is a stateless codec. `parse_header(data)` returns a
-`ws_frame_view` once enough bytes are present. `serialize_frame(frame_control,
-payload, mask)` builds a complete frame string. `compute_accept_key(client_key)`
-produces the `Sec-WebSocket-Accept` value using SHA-1 + Base64.
+`ws_frame_wrapper` bundles both frame parsing and the static frame helpers.
+Parse frame headers by constructing a `ws_frame_view`, calling
+`is_complete()`, then `parse()`. `ws_frame_view::serialize_frame(
+frame_control, payload, mask)` builds a complete frame string.
+`ws_frame_view::compute_accept_key(client_key)` produces the
+`Sec-WebSocket-Accept` value using SHA-1 + Base64.
 
 `http_websocket` is the callback-driven message pump. Construct with a `send_fn`
 and a `connection_role` (`server` or `client`). Install callbacks before handing
