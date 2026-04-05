@@ -27,5 +27,11 @@ export interface SnapshotMsg {
 }
 
 
+export interface SpawnMsg {
+  type: 'spawn'
+  x: number
+  y: number
+}
+
 export type ServerMsg = HelloAckMsg | TickMsg | SnapshotMsg;
-export type ClientMsg = HelloMsg;
+export type ClientMsg = HelloMsg | SpawnMsg;

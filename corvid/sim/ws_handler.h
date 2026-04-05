@@ -17,10 +17,12 @@
 #pragma once
 
 #include <atomic>
+#include <charconv>
 #include <cmath>
 #include <format>
 #include <iostream>
 #include <memory>
+#include <vector>
 
 #include "../proto/http_websocket_transaction.h"
 
@@ -36,6 +38,7 @@ using namespace std::chrono_literals;
 // Protocol:
 //   Client sends: {"type":"hello","client":"browser"}
 //   Server replies: {"type":"hello_ack","message":"connected"}
+//   Client sends: {"type":"spawn","x":N,"y":N}
 //   Server then sends at 20 Hz: {"type":"snapshot","entities":[...]}
 //   Server also sends at 1 Hz: {"type":"tick","tick":N}
 //
@@ -82,18 +85,70 @@ public:
 private:
   using fuse_t = timer_fuse<http_transaction>;
 
-  std::atomic_uint64_t tick_seq_;
+  // A user-spawned entity orbiting the canvas centre.
+  //
+  // The click coordinates become the entity's initial position, so the dot
+  // appears exactly under the cursor at spawn and then sweeps in a circle.
+  struct dynamic_orbit {
+    int id;
+    double radius;
+    double speed;   // rad/frame (frame = 50 ms)
+    double phase;   // initial angle (rad) so position at birth == click point
+    uint64_t birth; // tick_n when spawned
+  };
 
-  // Handle an incoming text frame. Detects `hello` by searching the raw JSON
-  // string (no parser needed for these fixed message shapes), replies with
-  // `hello_ack`, then arms the tick timer.
+  std::atomic_uint64_t tick_seq_;
+  uint64_t current_tick_{0};  // updated each frame; loop-thread only
+  int next_id_{6};            // ids 1-5 reserved for static orbits
+  std::vector<dynamic_orbit> spawned_;
+
+  // Handle an incoming text frame. Dispatches on `"type"` by substring search
+  // (no parser needed for these fixed message shapes).
   [[nodiscard]] bool do_message(http_websocket& ws, std::string&& msg) {
-    if (!msg.contains(R"("type":"hello")") &&
-        !msg.contains(R"("type": "hello")"))
-      return true;
-    if (!ws.send_text(R"({"type":"hello_ack","message":"connected"})"))
-      return false;
-    return do_arm_tick(1);
+    if (msg.contains(R"("type":"hello")") ||
+        msg.contains(R"("type": "hello")")) {
+      if (!ws.send_text(R"({"type":"hello_ack","message":"connected"})"))
+        return false;
+      return do_arm_tick(1);
+    }
+    if (msg.contains(R"("type":"spawn")") ||
+        msg.contains(R"("type": "spawn")")) {
+      return do_spawn(msg);
+    }
+    return true;
+  }
+
+  // Parse a `spawn` message and add a new orbiting entity.
+  //
+  // The click point becomes the entity's position at birth: radius and phase
+  // are derived from the click's distance and angle to the canvas centre
+  // (320, 240), so the dot appears exactly under the cursor at spawn.
+  [[nodiscard]] bool do_spawn(std::string_view msg) {
+    auto x = parse_coord(msg, R"("x":)");
+    auto y = parse_coord(msg, R"("y":)");
+    if (!x || !y) return true; // malformed, ignore
+    constexpr double kCx = 320.0;
+    constexpr double kCy = 240.0;
+    double dx = *x - kCx;
+    double dy = *y - kCy;
+    double radius = std::sqrt((dx * dx) + (dy * dy));
+    double phase = std::atan2(dy, dx);
+    spawned_.push_back({next_id_++, radius, 0.04, phase, current_tick_});
+    return true;
+  }
+
+  // Find `key` in `msg` and parse the number that follows it.
+  [[nodiscard]] static std::optional<double> parse_coord(
+      std::string_view msg, std::string_view key) {
+    auto pos = msg.find(key);
+    if (pos == std::string_view::npos) return std::nullopt;
+    pos += key.size();
+    while (pos < msg.size() && msg[pos] == ' ') ++pos;
+    double val{};
+    auto [ptr, ec] =
+        std::from_chars(msg.data() + pos, msg.data() + msg.size(), val);
+    if (ec != std::errc{}) return std::nullopt;
+    return val;
   }
 
   static void do_close() { std::cout << "WebSocket client disconnected\n"; }
@@ -131,6 +186,8 @@ private:
     if (websocket().is_close_started()) return true;
     if (websocket().is_send_in_fragment()) return do_arm_tick(tick_n);
 
+    current_tick_ = tick_n;
+
     struct orbit {
       int id;
       double radius;
@@ -158,6 +215,15 @@ private:
       entities +=
           std::format(R"({{"id":{},"x":{:.1f},"y":{:.1f}}})", o.id, x, y);
     }
+    for (const auto& s : spawned_) {
+      double angle = s.phase + (s.speed * static_cast<double>(tick_n - s.birth));
+      double x = cx + (s.radius * std::cos(angle));
+      double y = cy + (s.radius * std::sin(angle));
+      if (!entities.empty()) entities += ',';
+      entities +=
+          std::format(R"({{"id":{},"x":{:.1f},"y":{:.1f}}})", s.id, x, y);
+    }
+
     auto snapshot =
         std::format(R"({{"type":"snapshot","entities":[{}]}})", entities);
     if (!websocket().send_text(snapshot)) return false;
