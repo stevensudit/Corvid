@@ -178,16 +178,23 @@ public:
   using http_server_ptr = std::shared_ptr<http_server>;
   using epoll_loop_ptr = std::shared_ptr<epoll_loop>;
   using timing_wheel_ptr = std::shared_ptr<timing_wheel>;
+  using configure_fn = std::function<bool(http_server&)>;
 
   // Create an HTTP/1.1 server listening on `endpoint`.
+  //
+  // `configure` is called after the loop and wheel are ready but before the
+  // server begins accepting connections. Route registration via `add_route`
+  // must occur inside this callback; calling `add_route` after `create`
+  // returns is not safe because the server is already live.
   //
   // If `loop` is non-null, the server shares it; otherwise it constructs
   // and owns an `epoll_loop_runner`. If `wheel` is non-null, the server shares
   // it; otherwise it constructs and owns a `timing_wheel_runner`. Returns null
   // if the listen socket cannot be created.
   [[nodiscard]] static http_server_ptr create(const net_endpoint& endpoint,
-      epoll_loop_ptr loop = nullptr, timing_wheel_ptr wheel = nullptr,
-      duration_t request_timeout = 30s, duration_t write_timeout = 5s) {
+      const configure_fn& configure, epoll_loop_ptr loop = nullptr,
+      timing_wheel_ptr wheel = nullptr, duration_t request_timeout = 30s,
+      duration_t write_timeout = 5s) {
     auto self = std::make_shared<http_server>(allow::ctor);
 
     // Get an epoll loop.
@@ -206,6 +213,12 @@ public:
 
     self->read_timeout_ = request_timeout;
     self->write_timeout_ = write_timeout;
+
+    // Register routes before accepting any connections.
+    if (configure)
+      if (!configure(*self)) return nullptr;
+
+    self->configured_ = true;
 
     // Start listening. Use `weak_ptr` to avoid a reference cycle:
     // `http_server` owns the loop, which owns the listener registration, which
@@ -254,10 +267,17 @@ public:
   // host). The `base_path` field is the leading path component (e.g.,
   // `"/api"` from `"/api/v2"`); `"/"` acts as a host-scoped catch-all for
   // unmatched paths. Replaces any existing registration for the same key.
-  void add_route(host_path_key key, transaction_factory factory) {
+  //
+  // Must be called only from within the `configure` callback passed to
+  // `create`; returns `false` if the server has already started accepting
+  // connections.
+  [[nodiscard]] bool
+  add_route(host_path_key key, transaction_factory factory) {
+    if (configured_) return false;
     assert(key.base_path.starts_with("/"));
     assert(key.base_path.size() == 1 || !key.base_path.ends_with("/"));
     routes_[std::move(key)] = std::move(factory);
+    return true;
   }
 
   // Extract the leading path component from a request target after removing
@@ -739,6 +759,7 @@ private:
   // Maximum bare CRLFs to skip before the request line (RFC 9112 §2.2).
   static constexpr uint8_t max_leading_crls{8};
 
+  relaxed_atomic_bool configured_{false};
   std::optional<epoll_loop_runner> runner_;
   epoll_loop_ptr loop_;
   std::optional<timing_wheel_runner> wheel_runner_;

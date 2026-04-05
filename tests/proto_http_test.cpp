@@ -486,13 +486,13 @@ private:
     http_server::timing_wheel_ptr wheel = nullptr,
     http_server::duration_t request_timeout = 30s,
     http_server::duration_t write_timeout = 5s) {
-  auto server = http_server::create(endpoint, std::move(loop),
-      std::move(wheel), request_timeout, write_timeout);
-  if (server)
-    server->add_route({"", "/"}, [](request_head&& req) -> transaction_ptr {
-      return std::make_shared<padded_page_transaction>(std::move(req));
-    });
-  return server;
+  return http_server::create(endpoint,
+      [](http_server& s) {
+        return s.add_route({"", "/"}, [](request_head&& req) -> transaction_ptr {
+          return std::make_shared<padded_page_transaction>(std::move(req));
+        });
+      },
+      std::move(loop), std::move(wheel), request_timeout, write_timeout);
 }
 
 // `http_server` tests.
@@ -3171,16 +3171,17 @@ void HttpServer_WebSocket_Keepalive() {
   timing_wheel_runner wheel_runner;
 
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      [](http_server& s) {
+        return s.add_route({"", "/ws"},
+            http_websocket_transaction::make_factory(
+                [loop = s.loop(), wheel = s.wheel()](
+                    http_websocket_transaction& tx) {
+                  return tx.enable_keepalive(loop, wheel, 100ms, 100ms);
+                }));
+      },
       loop_runner.loop(), wheel_runner.wheel(),
       /*request_timeout=*/0s, /*write_timeout=*/0s);
   ASSERT_TRUE(server);
-
-  server->add_route({"", "/ws"},
-      http_websocket_transaction::make_factory(
-          [&](http_websocket_transaction& tx) {
-            return tx.enable_keepalive(server->loop(), server->wheel(), 100ms,
-                100ms);
-          }));
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
@@ -3258,16 +3259,17 @@ void HttpServer_WebSocket_KeepaliveTimeout() {
   timing_wheel_runner wheel_runner;
 
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      [](http_server& s) {
+        return s.add_route({"", "/ws"},
+            http_websocket_transaction::make_factory(
+                [loop = s.loop(), wheel = s.wheel()](
+                    http_websocket_transaction& tx) {
+                  return tx.enable_keepalive(loop, wheel, 100ms, 100ms);
+                }));
+      },
       loop_runner.loop(), wheel_runner.wheel(),
       /*request_timeout=*/0s, /*write_timeout=*/0s);
   ASSERT_TRUE(server);
-
-  server->add_route({"", "/ws"},
-      http_websocket_transaction::make_factory(
-          [&](http_websocket_transaction& tx) {
-            return tx.enable_keepalive(server->loop(), server->wheel(), 100ms,
-                100ms);
-          }));
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
@@ -3335,17 +3337,19 @@ void HttpServer_WebSocket_KeepaliveTimeout() {
 void HttpServer_WebSocket() {
   if (is_codex()) return;
 
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      [](http_server& s) {
+        return s.add_route({"", "/ws"},
+            http_websocket_transaction::make_factory(
+                [](http_websocket_transaction& tx) {
+                  tx.websocket().on_message =
+                      [](http_websocket& ws, std::string&& p, ws_frame_control) {
+                        return ws.send_text(p);
+                      };
+                  return true;
+                }));
+      });
   ASSERT_TRUE(server);
-  server->add_route({"", "/ws"},
-      http_websocket_transaction::make_factory(
-          [](http_websocket_transaction& tx) {
-            tx.websocket().on_message =
-                [](http_websocket& ws, std::string&& p, ws_frame_control) {
-                  return ws.send_text(p);
-                };
-            return true;
-          }));
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
@@ -3405,17 +3409,19 @@ void HttpServer_WebSocket() {
 void HttpServer_WebSocket_QueryAndFragmentRoute() {
   if (is_codex()) return;
 
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      [](http_server& s) {
+        return s.add_route({"", "/ws"},
+            http_websocket_transaction::make_factory(
+                [](http_websocket_transaction& tx) {
+                  tx.websocket().on_message =
+                      [](http_websocket& ws, std::string&& p, ws_frame_control) {
+                        return ws.send_text(p);
+                      };
+                  return true;
+                }));
+      });
   ASSERT_TRUE(server);
-  server->add_route({"", "/ws"},
-      http_websocket_transaction::make_factory(
-          [](http_websocket_transaction& tx) {
-            tx.websocket().on_message =
-                [](http_websocket& ws, std::string&& p, ws_frame_control) {
-                  return ws.send_text(p);
-                };
-            return true;
-          }));
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
@@ -3459,19 +3465,19 @@ void HttpServer_WebSocket_Frames() {
   if (is_codex()) return;
 
   // Server echoes text messages and mirrors close frames.
-  auto web_server = http_server::create(net_endpoint{ipv4_addr::loopback, 0});
+  auto web_server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
+      [](http_server& s) {
+        return s.add_route({"", "/ws"},
+            http_websocket_transaction::make_factory(
+                [](http_websocket_transaction& tx) {
+                  tx.websocket().on_message =
+                      [](http_websocket& ws, std::string&& p, ws_frame_control) {
+                        return ws.send_text(p);
+                      };
+                  return true;
+                }));
+      });
   ASSERT_TRUE(web_server);
-
-  // Register a WebSocket echo server.
-  web_server->add_route({"", "/ws"},
-      http_websocket_transaction::make_factory(
-          [](http_websocket_transaction& tx) {
-            tx.websocket().on_message =
-                [](http_websocket& ws, std::string&& p, ws_frame_control) {
-                  return ws.send_text(p);
-                };
-            return true;
-          }));
 
   auto client = stream_sync::connect(web_server->local_endpoint(), 1s);
   ASSERT_TRUE(client);
