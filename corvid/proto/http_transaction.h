@@ -18,6 +18,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "http_head_codec.h"
 #include "recv_buffer.h"
@@ -68,9 +69,9 @@ using transaction_ptr = std::shared_ptr<http_transaction>;
 // class for stateful behavior, or install callbacks for simple handlers.
 struct http_transaction
     : public std::enable_shared_from_this<http_transaction> {
-  // Callback to allow sends, resetting the write timer. Calling it with an
-  // empty string signals failure and hangs up the connection.
-  using send_fn = std::function<bool(std::string&&)>;
+  // Callback to allow sends, resetting the write timer. Calling it with
+  // `std::monostate` signals failure and hangs up the connection.
+  using send_fn = std::function<bool(any_strings&&)>;
 
   // Callback types for the optional `on_data` / `on_drain` hooks.
   //
@@ -135,8 +136,8 @@ struct http_transaction
   // until the entire response is sent, at which point it returns `release`.
   //
   // Default: invoke `on_drain` if set, else return `release`.
-  [[nodiscard]] virtual stream_claim handle_drain(const send_fn& send) {
-    if (on_drain) return on_drain(*this, send);
+  [[nodiscard]] virtual stream_claim handle_drain(const send_fn& send_cb) {
+    if (on_drain) return on_drain(*this, send_cb);
     close_after = after_response::close;
     return stream_claim::release;
   }

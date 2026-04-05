@@ -114,7 +114,7 @@ for file in "$buildDir"/*; do
   # Check if the file is an executable and a regular file (not a directory or symlink)
   if [[ -x "$file" && -f "$file" && "$file" != *"CMakeCXXCompilerId"* ]]; then
     echo "$file..."
-    "$file"
+    "$file" -testonly
     echo "."
   fi
 done

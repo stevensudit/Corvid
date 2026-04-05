@@ -59,6 +59,28 @@ public:
     return token;
   }
 
+  // Overload for `char` separator; skips empty-separator check and uses the
+  // `char` overload of `find` for efficiency.
+  [[nodiscard]] static std::string_view
+  next_delimited(char separator, std::string_view& text) {
+    // If no input, nothing to parse.
+    if (text.empty()) return {};
+
+    // If delimiter not found, consume the rest of the input.
+    const auto pos = text.find(separator);
+    if (pos == npos) {
+      const auto token = text;
+      text = {};
+      return token;
+    }
+
+    // Delimiter found; return the token before it and update input to after
+    // it.
+    const auto token = text.substr(0, pos);
+    text.remove_prefix(pos + 1);
+    return token;
+  }
+
   // See static method.
   [[nodiscard]] std::string_view next_delimited(std::string_view& text) const {
     return next_delimited(separator_, text);
@@ -84,6 +106,24 @@ public:
     // it.
     const auto token = text.substr(0, pos);
     text.remove_prefix(pos + separator.size());
+    return token;
+  }
+
+  // Overload for `char` separator; skips empty-separator check and uses the
+  // `char` overload of `find` for efficiency.
+  [[nodiscard]] static std::optional<std::string_view>
+  next_terminated(char separator, std::string_view& text) {
+    // If no input, nothing to parse.
+    if (text.empty()) return {};
+
+    // If terminator not found, fail.
+    const auto pos = text.find(separator);
+    if (pos == npos) return std::nullopt;
+
+    // Terminator found; return the token before it and update input to after
+    // it.
+    const auto token = text.substr(0, pos);
+    text.remove_prefix(pos + 1);
     return token;
   }
 

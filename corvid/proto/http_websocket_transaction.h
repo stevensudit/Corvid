@@ -97,10 +97,10 @@ public:
   // The WebSocket output never completes via send-queue drain; return
   // `claim` unconditionally. Calls `on_drain`, if set, in order to offer flow
   // control. Returns `release` once the close handshake is complete.
-  [[nodiscard]] stream_claim handle_drain(const send_fn& send) override {
-    if (!websocket_send_) websocket_send_ = send;
+  [[nodiscard]] stream_claim handle_drain(const send_fn& send_cb) override {
+    if (!websocket_send_cb_) websocket_send_cb_ = send_cb;
     if (!pending_response_.empty()) {
-      if (!send(std::move(pending_response_))) return stream_claim::release;
+      if (!send_cb(std::move(pending_response_))) return stream_claim::release;
       pending_response_.clear();
       // Start keepalive cycle after the upgrade response is sent.
       if (!do_arm_ping_interval()) return stream_claim::release;
@@ -110,7 +110,7 @@ public:
       close_after = after_response::close;
       return stream_claim::release;
     }
-    if (on_drain) return on_drain(*this, send);
+    if (on_drain) return on_drain(*this, send_cb);
     return upgraded_ ? stream_claim::claim : stream_claim::release;
   }
 
@@ -171,8 +171,7 @@ private:
 
     const auto version_hdr =
         request_headers.headers.get("Sec-Websocket-Version");
-    if (!version_hdr || *version_hdr != "13")
-      return send_upgrade_required();
+    if (!version_hdr || *version_hdr != "13") return send_upgrade_required();
     const auto key_hdr = request_headers.headers.get("Sec-Websocket-Key");
     if (!key_hdr || key_hdr->empty()) return send_bad_request(view);
 
@@ -239,7 +238,7 @@ private:
   // Used during the upgrade handshake when we may not have a send function
   // yet.
   [[nodiscard]] stream_claim do_fail_badly() {
-    if (websocket_send_) (void)websocket_send_(std::string{});
+    if (websocket_send_cb_) (void)websocket_send_cb_(std::monostate{});
     close_after = after_response::close;
     return stream_claim::release;
   }
@@ -300,10 +299,10 @@ private:
     return websocket_.send_close(1001, "Keepalive pong not received.");
   }
 
-  http_transaction::send_fn websocket_send_;
-  http_websocket websocket_{[this](std::string&& frame) {
-    if (!websocket_send_) return false;
-    return websocket_send_(std::move(frame));
+  http_transaction::send_fn websocket_send_cb_;
+  http_websocket websocket_{[this](any_strings&& frame) {
+    if (!websocket_send_cb_) return false;
+    return websocket_send_cb_(std::move(frame));
   }};
   std::string pending_response_;
   bool upgraded_{};
