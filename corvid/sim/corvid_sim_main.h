@@ -25,6 +25,7 @@
 #include <memory>
 
 #include "../proto.h"
+#include "ws_handler.h"
 
 using namespace corvid::proto;
 
@@ -82,11 +83,13 @@ int main(int argc, char** argv) {
   // holds its own reference to keep the cache alive.
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 8080},
       [cache](http_server& s) {
-        return s.add_route({"", "/"},
-            [cache](request_head&& req) -> transaction_ptr {
-              return std::make_shared<static_file_transaction>(std::move(req),
-                  cache);
-            });
+        if (!s.add_route({"", "/"},
+                [cache](request_head&& req) -> transaction_ptr {
+                  return std::make_shared<static_file_transaction>(
+                      std::move(req), cache);
+                }))
+          return false;
+        return s.add_route({"", "/ws"}, make_ws_factory(s.loop(), s.wheel()));
       });
 
   if (!server) {
