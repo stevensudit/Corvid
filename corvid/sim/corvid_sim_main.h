@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
     if (std::string_view{argv[i]} == "-testonly") return 0;
   }
 
-  // Default web root: walk up from the executable until a `corvid/sim/web`
+  // Default web root: walk up from the executable until a `corvid/sim/web/dist`
   // subdirectory is found. This works regardless of build output location.
   std::filesystem::path web_root;
   if (argc > 1) {
@@ -54,7 +54,7 @@ int main(int argc, char** argv) {
     for (auto dir = exe.parent_path(); dir != dir.parent_path();
         dir = dir.parent_path())
     {
-      auto candidate = dir / "corvid/sim/web";
+      auto candidate = dir / "corvid/sim/web/dist";
       std::error_code dir_ec;
       if (std::filesystem::is_directory(candidate, dir_ec)) {
         web_root = std::move(candidate);

@@ -56,4 +56,5 @@ tidy.log
 # npm
 corvid/sim/web/assets/
 corvid/sim/web/node_modules/
+corvid/sim/web/dist/
 corvid/sim/web/**/*.js

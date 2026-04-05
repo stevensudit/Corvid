@@ -22,6 +22,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <variant>
 
 #include "epoll_loop.h"
 #include "http_head_codec.h"
