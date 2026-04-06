@@ -28,7 +28,7 @@ using namespace corvid::sim;
 
 // Spawn, size, and despawn round-trip.
 void SimWorld_SpawnDespawn() {
-  sim_world w;
+  SimWorld w;
   EXPECT_EQ(w.size(), 0U);
 
   auto h = w.spawn(Position{10.0, 20.0}, Velocity{1.0, 2.0});
@@ -48,7 +48,7 @@ void SimWorld_SpawnDespawn() {
 
 // Despawning a stale handle returns false without crashing.
 void SimWorld_DespawnStale() {
-  sim_world w;
+  SimWorld w;
   auto h = w.spawn(Position{}, Velocity{});
   EXPECT_TRUE(w.despawn(h));
   EXPECT_FALSE(w.despawn(h)); // second call: handle is dead
@@ -56,7 +56,7 @@ void SimWorld_DespawnStale() {
 
 // tick() advances position by velocity.
 void SimWorld_Tick() {
-  sim_world w;
+  SimWorld w;
   auto h = w.spawn(Position{100.0, 200.0}, Velocity{3.0, -5.0});
   (void)w.tick();
 
@@ -69,11 +69,11 @@ void SimWorld_Tick() {
 
 // tick() with a non-null out-vector appends changed entity IDs.
 void SimWorld_TickOutParam() {
-  sim_world w;
+  SimWorld w;
   auto h1 = w.spawn(Position{100.0, 100.0}, Velocity{1.0, 0.0});
   auto h2 = w.spawn(Position{200.0, 200.0}, Velocity{0.0, 1.0});
 
-  std::vector<sim_world::entity_id_t> changed;
+  std::vector<SimWorld::EntityId> changed;
   (void)w.tick(&changed);
 
   EXPECT_EQ(changed.size(), 2U);
@@ -83,7 +83,7 @@ void SimWorld_TickOutParam() {
 
 // tick() with nullptr out-param does not allocate (just advance state).
 void SimWorld_TickNullOut() {
-  sim_world w;
+  SimWorld w;
   (void)w.spawn(Position{50.0, 50.0}, Velocity{1.0, 1.0});
   (void)w.tick(nullptr); // must not crash
   auto snaps = w.snapshot();
@@ -93,9 +93,9 @@ void SimWorld_TickNullOut() {
 
 // Entities bounce off the left/top boundary.
 void SimWorld_BounceMinEdge() {
-  sim_world w;
-  const float half_w = sim_world::world_width * 0.5F;
-  const float half_h = sim_world::world_height * 0.5F;
+  SimWorld w;
+  const float half_w = SimWorld::world_width * 0.5F;
+  const float half_h = SimWorld::world_height * 0.5F;
   (void)w.spawn(Position{-half_w + 0.5F, -half_h + 0.5F},
       Velocity{-2.0F, -2.0F});
   (void)w.tick();
@@ -108,9 +108,9 @@ void SimWorld_BounceMinEdge() {
 
 // Entities bounce off the right/bottom boundary.
 void SimWorld_BounceMaxEdge() {
-  sim_world w;
-  const float half_w = sim_world::world_width * 0.5F;
-  const float half_h = sim_world::world_height * 0.5F;
+  SimWorld w;
+  const float half_w = SimWorld::world_width * 0.5F;
+  const float half_h = SimWorld::world_height * 0.5F;
   (void)w.spawn(Position{half_w - 0.5F, half_h - 0.5F}, Velocity{2.0F, 2.0F});
   (void)w.tick();
 
@@ -122,7 +122,7 @@ void SimWorld_BounceMaxEdge() {
 
 // snapshot() with default since_tick returns all entities.
 void SimWorld_SnapshotAll() {
-  sim_world w;
+  SimWorld w;
   (void)w.spawn(Position{1.0, 2.0}, Velocity{});
   (void)w.spawn(Position{3.0, 4.0}, Velocity{});
 
@@ -132,7 +132,7 @@ void SimWorld_SnapshotAll() {
 
 // snapshot(since_tick) returns only entities changed at or after that tick.
 void SimWorld_SnapshotSince() {
-  sim_world w;
+  SimWorld w;
   // Spawn two entities before any tick (their last-change tick = 0).
   (void)w.spawn(Position{10.0, 10.0}, Velocity{1.0, 0.0});
   (void)w.spawn(Position{20.0, 20.0}, Velocity{1.0, 0.0});
@@ -156,12 +156,12 @@ void SimWorld_SnapshotSince() {
 
 // snapshot(ids) returns only the requested entities.
 void SimWorld_SnapshotByIds() {
-  sim_world w;
+  SimWorld w;
   auto h1 = w.spawn(Position{1.0, 1.0}, Velocity{});
   auto h2 = w.spawn(Position{2.0, 2.0}, Velocity{});
   auto h3 = w.spawn(Position{3.0, 3.0}, Velocity{});
 
-  std::vector<sim_world::entity_id_t> ids{h1.id(), h3.id()};
+  std::vector<SimWorld::EntityId> ids{h1.id(), h3.id()};
   auto snaps = w.snapshot(ids);
   ASSERT_EQ(snaps.size(), 2U);
   // The results should be for h1 and h3, not h2.
@@ -172,19 +172,19 @@ void SimWorld_SnapshotByIds() {
 
 // snapshot(ids) silently skips dead entity IDs.
 void SimWorld_SnapshotByIdsSkipsDead() {
-  sim_world w;
+  SimWorld w;
   auto h = w.spawn(Position{5.0, 5.0}, Velocity{});
   auto dead_id = h.id();
   EXPECT_TRUE(w.despawn(h));
 
-  std::vector<sim_world::entity_id_t> ids{dead_id};
+  std::vector<SimWorld::EntityId> ids{dead_id};
   auto snaps = w.snapshot(ids);
   EXPECT_EQ(snaps.size(), 0U);
 }
 
 // spawn_background adds a P-only entity visible in snapshots.
 void SimWorld_Background() {
-  sim_world w;
+  SimWorld w;
   auto hb = w.spawn_background(Position{50.0, 60.0});
   EXPECT_TRUE(w.is_alive(hb));
   EXPECT_EQ(w.size(), 1U);
@@ -204,7 +204,7 @@ void SimWorld_Background() {
 // Background entity is excluded from snapshot(since_tick) after a tick
 // because its metadata was never updated beyond its spawn tick (0).
 void SimWorld_BackgroundNotInDeltaAfterTick() {
-  sim_world w;
+  SimWorld w;
   (void)w.spawn_background(Position{50.0, 60.0});
   (void)w.tick(); // tick 1; background entity metadata stays at 0
   EXPECT_EQ(w.snapshot(1).size(), 0U);
@@ -214,9 +214,9 @@ void SimWorld_BackgroundNotInDeltaAfterTick() {
 
 // bake_path with two joints produces one segment with the correct length.
 void BakePath_TwoJoints() {
-  path_joints p;
+  PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{3.F, 4.F}}};
-  const auto bp = segmented_path::from_joints(p);
+  const auto bp = SegmentedPath::from_joints(p);
   ASSERT_EQ(bp.segments.size(), 1U);
   EXPECT_NEAR(bp.segments[0].cumulative_start, 0.0, 1e-6);
   EXPECT_NEAR(bp.segments[0].length, 5.0, 1e-6);
@@ -226,9 +226,9 @@ void BakePath_TwoJoints() {
 // bake_path with three joints produces two segments with correct cumulative
 // distances.
 void BakePath_ThreeJoints() {
-  path_joints p;
+  PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{3.F, 4.F}}, {{6.F, 8.F}}};
-  const auto bp = segmented_path::from_joints(p);
+  const auto bp = SegmentedPath::from_joints(p);
   ASSERT_EQ(bp.segments.size(), 2U);
   EXPECT_NEAR(bp.segments[0].cumulative_start, 0.0, 1e-6);
   EXPECT_NEAR(bp.segments[0].length, 5.0, 1e-6);
@@ -239,9 +239,9 @@ void BakePath_ThreeJoints() {
 
 // bake_path with fewer than two joints returns an empty baked_path.
 void BakePath_Degenerate() {
-  path_joints p;
+  PathJoints p;
   p.joints = {{{0.F, 0.F}}};
-  const auto bp = segmented_path::from_joints(p);
+  const auto bp = SegmentedPath::from_joints(p);
   EXPECT_TRUE(bp.segments.empty());
   EXPECT_NEAR(bp.total_length, 0.0, 1e-6);
 }
@@ -249,9 +249,9 @@ void BakePath_Degenerate() {
 // path_position at progress 0 returns the first joint; at total_length
 // returns the last joint.
 void PathPosition_Endpoints() {
-  path_joints p;
+  PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
-  const auto bp = segmented_path::from_joints(p);
+  const auto bp = SegmentedPath::from_joints(p);
 
   const auto start = bp.position_from_progress(0.F);
   EXPECT_NEAR(start.x, 0.0, 1e-6);
@@ -264,9 +264,9 @@ void PathPosition_Endpoints() {
 
 // path_position at the midpoint returns the correctly interpolated position.
 void PathPosition_Midpoint() {
-  path_joints p;
+  PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
-  const auto bp = segmented_path::from_joints(p);
+  const auto bp = SegmentedPath::from_joints(p);
 
   const auto mid = bp.position_from_progress(5.F);
   EXPECT_NEAR(mid.x, 5.0, 1e-6);
@@ -275,8 +275,8 @@ void PathPosition_Midpoint() {
 
 // Spawning an enemy and ticking once advances its position by `speed`.
 void SimWorld_EnemyAdvancesOnTick() {
-  sim_world w;
-  path_joints p;
+  SimWorld w;
+  PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{100.F, 0.F}}};
   const auto pid = w.add_path(p);
 
@@ -293,8 +293,8 @@ void SimWorld_EnemyAdvancesOnTick() {
 
 // An enemy that reaches the end of the path is despawned automatically.
 void SimWorld_EnemyDespawnsAtEnd() {
-  sim_world w;
-  path_joints p;
+  SimWorld w;
+  PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
   const auto pid = w.add_path(p);
 
@@ -310,15 +310,15 @@ void SimWorld_EnemyDespawnsAtEnd() {
 
 // get_path returns nullptr for an out-of-range index.
 void SimWorld_GetPathOutOfRange() {
-  sim_world w;
-  EXPECT_TRUE(w.get_path(path_id_t{0}) == nullptr);
+  SimWorld w;
+  EXPECT_TRUE(w.get_path(PathId{0}) == nullptr);
 
-  path_joints p;
+  PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{1.F, 0.F}}};
   (void)w.add_path(p);
 
-  EXPECT_TRUE(w.get_path(path_id_t{0}) != nullptr);
-  EXPECT_TRUE(w.get_path(path_id_t{1}) == nullptr);
+  EXPECT_TRUE(w.get_path(PathId{0}) != nullptr);
+  EXPECT_TRUE(w.get_path(PathId{1}) == nullptr);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)

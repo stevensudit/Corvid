@@ -84,10 +84,10 @@ public:
 
     // Populate the tracking path with an axis-aligned square spiral starting
     // at the center and stepping outwards.
-    path_joints p;
+    PathJoints p;
     p.joints.push_back({Position{0.0, 0.0}});
     constexpr float kStepSize = 80.0;
-    constexpr float kAspect = sim_world::world_width / sim_world::world_height;
+    constexpr float kAspect = SimWorld::world_width / SimWorld::world_height;
     constexpr float kXStepSize = kStepSize * kAspect;
     float x = 0.0;
     float y = 0.0;
@@ -125,9 +125,9 @@ public:
 private:
   using fuse_t = timer_fuse<http_transaction>;
 
-  std::atomic<tick_t> tick_seq_; // Uses for sequencing tick timers
-  tick_t current_tick_{0};       // updated each frame; loop-thread only
-  sim_world world_;              // all simulation entity state
+  std::atomic<Tick> tick_seq_; // Uses for sequencing tick timers
+  Tick current_tick_{0};       // updated each frame; loop-thread only
+  SimWorld world_;             // all simulation entity state
 
   // Handle an incoming text frame. Dispatches on `"type"` by substring search
   // (no parser needed for these fixed message shapes).
@@ -188,7 +188,7 @@ private:
   // Schedule the next tick. Uses the `timer_fuse` double-check pattern:
   // the wheel-thread callback pre-checks liveness and posts to the loop
   // thread, which performs the definitive check and calls `do_tick_fire`.
-  [[nodiscard]] bool do_arm_tick(tick_t tick_n) {
+  [[nodiscard]] bool do_arm_tick(Tick tick_n) {
     auto wheel = keepalive_wheel_.lock();
     if (!wheel) return true;
     return fuse_t::set_timeout(*wheel, tick_seq_,
@@ -210,7 +210,7 @@ private:
   // snapshot message (20 Hz) and, once per 20 frames, a tick message (1 Hz).
   // Re-arms for the next 50 ms interval. If a fragmented send is in progress,
   // defers by re-arming with the same counter so the sequence has no gaps.
-  [[nodiscard]] bool do_tick_fire(tick_t tick_n) {
+  [[nodiscard]] bool do_tick_fire(Tick tick_n) {
     if (websocket().is_close_started()) return true;
     if (websocket().is_send_in_fragment()) return do_arm_tick(tick_n);
 
@@ -249,6 +249,8 @@ private:
           std::format(R"({{"type":"tick","tick":{}}})", tick_n / 20);
       if (!websocket().send_text(tick_msg)) return false;
     }
+
+    if (tick_n % 40 == 0) { (void)world_.spawn_enemy(PathId{0}, 20.F); }
 
     return do_arm_tick(tick_n + 1);
   }
