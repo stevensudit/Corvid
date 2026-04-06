@@ -26,7 +26,7 @@
 #include <vector>
 
 #include "../proto/http_websocket_transaction.h"
-#include "sim_world.h"
+#include "sim_game.h"
 
 namespace corvid { inline namespace proto {
 
@@ -56,11 +56,11 @@ using namespace std::chrono_literals;
 // the base) because `timer_fuse::get_if_armed` locks the `weak_ptr` before
 // dereferencing the sequencer, so the sequencer is never accessed after the
 // transaction is destroyed.
-class sim_ws_handler final: public http_websocket_transaction {
+class SimWsHandler final: public http_websocket_transaction {
 public:
-  // Construct and initialize a new transaction, with its own `sim_world` and
+  // Construct and initialize a new transaction, with its own `SimGame` and
   // tick timer.
-  sim_ws_handler(request_head&& req, const std::shared_ptr<epoll_loop>& loop,
+  SimWsHandler(request_head&& req, const std::shared_ptr<epoll_loop>& loop,
       const std::shared_ptr<timing_wheel>& wheel)
       : http_websocket_transaction{std::move(req)} {
     // Register methods as callbacks.
@@ -72,43 +72,8 @@ public:
       do_close();
     };
     (void)enable_keepalive(loop, wheel, 20s, 5s);
-
-    // As an optical dial tone, populate the world with entities bouncing
-    // around.
-    constexpr int kCount = 100;
-    constexpr float kSpeed = 40.0;
-    constexpr float kStep = 2.0 * std::numbers::pi / kCount;
-    for (int i = 0; i < kCount; ++i)
-      (void)world_.spawn(Position{0.0, 0.0},
-          Velocity::from_polar(kSpeed, static_cast<float>(i) * kStep));
-
-    // Populate the tracking path with an axis-aligned square spiral starting
-    // at the center and stepping outwards.
-    PathJoints p;
-    p.joints.push_back({Position{0.0, 0.0}});
-    constexpr float kStepSize = 80.0;
-    constexpr float kAspect = SimWorld::world_width / SimWorld::world_height;
-    constexpr float kXStepSize = kStepSize * kAspect;
-    float x = 0.0;
-    float y = 0.0;
-    float x_run = kXStepSize;
-    float y_run = kStepSize;
-    for (int i = 0; i < 100; ++i) {
-      x += x_run;
-      p.joints.push_back({Position{x, y}});
-      y += y_run;
-      p.joints.push_back({Position{x, y}});
-      x_run += kXStepSize;
-      x -= x_run;
-      p.joints.push_back({Position{x, y}});
-      y_run += kStepSize;
-      y -= y_run;
-      p.joints.push_back({Position{x, y}});
-      x_run += kXStepSize;
-      y_run += kStepSize;
-    }
-    (void)world_.add_path(p);
-
+    game_.load_level();
+    game_.start_wave();
     std::cout << "WebSocket client connected\n";
   }
 
@@ -118,16 +83,16 @@ public:
     // Factory factory.
     return [loop = std::move(loop), wheel = std::move(wheel)](
                request_head&& req) -> transaction_ptr {
-      return std::make_shared<sim_ws_handler>(std::move(req), loop, wheel);
+      return std::make_shared<SimWsHandler>(std::move(req), loop, wheel);
     };
   }
 
 private:
-  using fuse_t = timer_fuse<http_transaction>;
+  using Fuse = timer_fuse<http_transaction>;
 
   std::atomic<Tick> tick_seq_; // Uses for sequencing tick timers
   Tick current_tick_{0};       // updated each frame; loop-thread only
-  SimWorld world_;             // all simulation entity state
+  SimGame game_;               // all simulation entity state
 
   // Handle an incoming text frame. Dispatches on `"type"` by substring search
   // (no parser needed for these fixed message shapes).
@@ -155,8 +120,8 @@ private:
     // Aim new point based on its angle from the center, with a fixed speed.
     const auto [length, direction] = cartesian_to_polar(pos->x, pos->y);
     const auto vel = Velocity::from_polar(40.0, direction);
-
-    (void)world_.spawn(*pos, vel);
+    (void)vel;
+    //!!! (void)world_.spawn(*pos, vel);
     return true;
   }
 
@@ -191,16 +156,16 @@ private:
   [[nodiscard]] bool do_arm_tick(Tick tick_n) {
     auto wheel = keepalive_wheel_.lock();
     if (!wheel) return true;
-    return fuse_t::set_timeout(*wheel, tick_seq_,
+    return Fuse::set_timeout(*wheel, tick_seq_,
         std::weak_ptr<http_transaction>{shared_from_this()}, 50ms,
-        [loop_w = keepalive_loop_, tick_n](const fuse_t& fuse) -> bool {
+        [loop_w = keepalive_loop_, tick_n](const Fuse& fuse) -> bool {
           auto tx = fuse.get_if_armed();
           auto loop = loop_w.lock();
           if (!tx || !loop) return true;
           return loop->post([fuse, tick_n]() -> bool {
             auto tx = fuse.get_if_armed();
             if (!tx) return true;
-            return std::static_pointer_cast<sim_ws_handler>(tx)->do_tick_fire(
+            return std::static_pointer_cast<SimWsHandler>(tx)->do_tick_fire(
                 tick_n);
           });
         });
@@ -214,10 +179,12 @@ private:
     if (websocket().is_close_started()) return true;
     if (websocket().is_send_in_fragment()) return do_arm_tick(tick_n);
 
-    current_tick_ = world_.tick();
+    current_tick_ = game_.step();
 
-    const auto snaps = world_.snapshot();
-    const auto paths = world_.path_snapshot();
+    auto snap = game_.snapshot();
+
+    const auto snaps = snap.entities;
+    const auto paths = snap.path_points;
     std::string entities;
     entities.reserve(snaps.size() * 40);
     for (const auto& e : snaps) {
@@ -249,8 +216,6 @@ private:
           std::format(R"({{"type":"tick","tick":{}}})", tick_n / 20);
       if (!websocket().send_text(tick_msg)) return false;
     }
-
-    if (tick_n % 40 == 0) { (void)world_.spawn_enemy(PathId{0}, 20.F); }
 
     return do_arm_tick(tick_n + 1);
   }

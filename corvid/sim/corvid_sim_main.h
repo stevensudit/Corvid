@@ -112,7 +112,7 @@ int do_main(int argc, char** argv) {
                 }))
           return false;
         return s.add_route({"", "/ws"},
-            sim_ws_handler::make_factory(s.loop(), s.wheel()));
+            SimWsHandler::make_factory(s.loop(), s.wheel()));
       });
 
   if (!server) {

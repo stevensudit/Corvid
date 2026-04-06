@@ -231,6 +231,12 @@ public:
     Position pos;
   };
 
+  void clear() {
+    scene_.clear();
+    paths_.clear();
+    tick_n_ = 0;
+  }
+
   // Spawn a moving entity with the given initial position and velocity.
   // Returns a handle for later `despawn()`. The entity's last-change tick
   // is set to the current tick count.
