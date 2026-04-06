@@ -145,6 +145,15 @@ struct segmented_path {
     sp.total_length = cumulative;
     return sp;
   }
+
+  [[nodiscard]] path_joints to_joints() const {
+    path_joints pj;
+    pj.width = width;
+    pj.joints.reserve(segments.size() + 1);
+    for (const auto& seg : segments) pj.joints.push_back({seg.front});
+    if (!segments.empty()) { pj.joints.push_back({segments.back().back}); }
+    return pj;
+  }
 };
 
 // Path-following component. Stored alongside `Position` in the enemy
@@ -210,11 +219,6 @@ public:
     Position pos;
   };
 
-  struct authored_path_snapshot {
-    std::vector<Position> joints;
-    float width{};
-  };
-
   // Spawn a moving entity with the given initial position and velocity.
   // Returns a handle for later `despawn()`. The entity's last-change tick
   // is set to the current tick count.
@@ -230,15 +234,8 @@ public:
   // Bake and store a path. Returns the index used as `PathFollower::path_id`.
   // The index is stable for the lifetime of the world.
   [[nodiscard]] uint8_t add_path(const path_joints& p) {
-    authored_paths_.push_back(p);
     paths_.push_back(segmented_path::from_joints(p));
     return static_cast<uint8_t>(paths_.size() - 1);
-  }
-
-  // Return the authored path at `id`, or `nullptr` if out of range.
-  [[nodiscard]] const path_joints* get_authored_path(uint8_t id) const {
-    if (id >= authored_paths_.size()) return nullptr;
-    return &authored_paths_[id];
   }
 
   // Return a pointer to the baked path at `id`, or `nullptr` if out of range.
@@ -249,17 +246,10 @@ public:
 
   // Return snapshots for all authored paths so the client can render the
   // original joints while runtime movement follows the baked geometry.
-  [[nodiscard]] std::vector<authored_path_snapshot> path_snapshot() const {
-    std::vector<authored_path_snapshot> result;
-    result.reserve(authored_paths_.size());
-
-    for (const auto& p : authored_paths_) {
-      authored_path_snapshot snap;
-      snap.width = p.width;
-      snap.joints.reserve(p.joints.size());
-      for (const auto& joint : p.joints) snap.joints.push_back(joint.p);
-      result.push_back(std::move(snap));
-    }
+  [[nodiscard]] std::vector<path_joints> path_snapshot() const {
+    std::vector<path_joints> result;
+    result.reserve(paths_.size() + 1);
+    for (const auto& p : paths_) result.push_back(p.to_joints());
     return result;
   }
 
@@ -267,10 +257,8 @@ public:
   // on the named path. Returns a handle for later `despawn()`.
   [[nodiscard]] handle_t
   spawn_enemy(uint8_t path_id, float speed, float progress = 0.F) {
-    Position pos{};
-    if (path_id < paths_.size())
-      pos = paths_[path_id].position_from_progress(progress);
-
+    if (path_id >= paths_.size()) return {};
+    const auto pos = paths_[path_id].position_from_progress(progress);
     return scene_.store_new_entity<enemy_sid>(tick_n_, pos,
         PathFollower{path_id, progress, speed});
   }
@@ -298,12 +286,28 @@ public:
     // Advance velocity-driven entities.
     scene_.for_each<Position, Velocity>([&](auto id, auto comps) {
       auto& [pos, vel] = comps;
+      // Skip over currently immobile entities.
+      if (vel.vx == 0.F && vel.vy == 0.F) return true;
+
+      // TODO: Consider refactoring the increment and bounce into a single
+      // method that does both. For that matter, the current algorithm is
+      // wrong: an entity hitting a boundary shouldn't be clipped to the
+      // boundary and its velocity reversed. Rather, part of its movement
+      // should be reflected back. So, for example, if dx is 20 and the entity
+      // is 5 pixels from the right edge, it should spend 5 of those 20 moving
+      // to the right, and then 15 moving back. Its velocity should be reversed
+      // starting at the edge. The only reason the current algorithm works at
+      // all is that velocities are small. The algorithm is also bad in a
+      // different way, which is that it measures position from the center, not
+      // a bounding box, so the balls enter the boundary before reversing. Even
+      // then, a square bounding box would be hit-detected prematurely if the
+      // entity is moving at a diagonal.
 
       pos.x += vel.vx;
       pos.y += vel.vy;
 
-      apply_boundary(pos.x, vel.vx, world_width);
-      apply_boundary(pos.y, vel.vy, world_height);
+      bounce_from_boundary(pos.x, vel.vx, world_width);
+      bounce_from_boundary(pos.y, vel.vy, world_height);
 
       scene_.registry()[id] = tick_n_;
       if (out) out->push_back(id);
@@ -316,23 +320,28 @@ public:
     scene_.for_each<Position, PathFollower>([&](auto id, auto comps) {
       auto& [pos, pf] = comps;
       pf.progress += pf.speed;
+
+      // TODO: Is this even possible?
+      if (pf.path_id >= paths_.size()) return true;
+
       // TODO: Speed can be negative, so we need to collect entities that
       // exited front and back, separately. Why separately? So that we can
       // count them against the score. Note that we also have to be careful
       // here to deal with the possibility of a non-enemy that follows the
-      // track and therefore doesn't count against the score. Not sure how best
-      // to do this, but I imagine a component value that's constant and
-      // therefore takes up no space.
-      if (pf.path_id < paths_.size()) {
-        const auto& bp = paths_[pf.path_id];
-        if (pf.progress >= bp.total_length) {
-          finished.push_back(id);
-        } else {
-          pos = bp.position_from_progress(pf.progress);
-          scene_.registry()[id] = tick_n_;
-          if (out) out->push_back(id);
-        }
+      // track and therefore doesn't count against the score. The easy way is
+      // to iterate through the entities and ask which archetype they are. This
+      // might be possible with ducktyping is enemies have a component that the
+      // player doesn't, such as an enemy type that defines how to draw them.
+      const auto& sp = paths_[pf.path_id];
+      if (pf.progress >= sp.total_length) {
+        finished.push_back(id);
+        return true;
       }
+
+      pos = sp.position_from_progress(pf.progress);
+      scene_.registry()[id] = tick_n_;
+
+      if (out) out->push_back(id);
       return true;
     });
     // IDs were collected from an active iteration, so erase_entity will not
@@ -342,7 +351,7 @@ public:
     return tick_n_;
   }
 
-  // Return snapshots for every entity whose last-change tick is >=
+  // Return snapshots for every entity whose that has changed since
   // `since_tick`. Pass 0 (the default) to return all entities. Visits all
   // storages that carry `Position` (`p_sid`, `pv_sid`, `enemy_sid`).
   [[nodiscard]] std::vector<entity_snapshot> snapshot(
@@ -376,13 +385,15 @@ public:
 private:
   world_scene_t scene_;
   tick_t tick_n_{0};
-  std::vector<path_joints> authored_paths_;
   std::vector<segmented_path> paths_;
 
   // Clamp `pos` to `[-limit/2, +limit/2]` and, if it was out of range, negate
   // `vel` so the entity bounces off that boundary wall.
-  static void apply_boundary(float& pos, float& vel, float limit) {
-    const float half = limit * 0.5F;
+  // TODO: Is there an off-by-one error here? If the world is 1920 wide, the
+  // actual range isn't [-960, +960], it's [-960, +960). Do we need to deal
+  // with this? It depends on how the client scales it, right?
+  static void bounce_from_boundary(float& pos, float& vel, float limit) {
+    const float half = limit / 2.F;
     if (pos < -half) {
       pos = -half;
       vel = -vel;

@@ -71,7 +71,6 @@ public:
     websocket().on_close = [](http_websocket&, uint16_t, std::string_view) {
       do_close();
     };
-    // `enable_keepalive` stores weak_ptrs and sets `on_pong`.
     (void)enable_keepalive(loop, wheel, 20s, 5s);
 
     // As an optical dial tone, populate the world with entities bouncing
@@ -83,19 +82,30 @@ public:
       (void)world_.spawn(Position{0.0, 0.0},
           Velocity::from_polar(kSpeed, static_cast<float>(i) * kStep));
 
-    // Populate the tracking path with a square spiral starting at the center
-    // and stepping outwards.
+    // Populate the tracking path with an axis-aligned square spiral starting
+    // at the center and stepping outwards.
     path_joints p;
-    float step = 20.0;
+    p.joints.push_back({Position{0.0, 0.0}});
+    constexpr float kStepSize = 80.0;
+    constexpr float kAspect = sim_world::world_width / sim_world::world_height;
+    constexpr float kXStepSize = kStepSize * kAspect;
+    float x = 0.0;
+    float y = 0.0;
+    float x_run = kXStepSize;
+    float y_run = kStepSize;
     for (int i = 0; i < 100; ++i) {
-      p.joints.push_back({Position{step, 0.0}});
-      step += 20.0;
-      p.joints.push_back({Position{0.0, step}});
-      step += 20.0;
-      p.joints.push_back({Position{-step, 0.0}});
-      step += 20.0;
-      p.joints.push_back({Position{0.0, -step}});
-      step += 20.0;
+      x += x_run;
+      p.joints.push_back({Position{x, y}});
+      y += y_run;
+      p.joints.push_back({Position{x, y}});
+      x_run += kXStepSize;
+      x -= x_run;
+      p.joints.push_back({Position{x, y}});
+      y_run += kStepSize;
+      y -= y_run;
+      p.joints.push_back({Position{x, y}});
+      x_run += kXStepSize;
+      y_run += kStepSize;
     }
     (void)world_.add_path(p);
 
@@ -206,8 +216,8 @@ private:
 
     current_tick_ = world_.tick();
 
-    auto snaps = world_.snapshot();
-    auto paths = world_.path_snapshot();
+    const auto snaps = world_.snapshot();
+    const auto paths = world_.path_snapshot();
     std::string entities;
     entities.reserve(snaps.size() * 40);
     for (const auto& e : snaps) {
@@ -224,7 +234,7 @@ private:
       for (const auto& joint : path.joints) {
         if (!joints.empty()) joints += ',';
         joints +=
-            std::format(R"({{"x":{:.1f},"y":{:.1f}}})", joint.x, joint.y);
+            std::format(R"({{"x":{:.1f},"y":{:.1f}}})", joint.p.x, joint.p.y);
       }
       path_json = std::format("[{}]", joints);
     }
