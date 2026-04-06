@@ -80,7 +80,7 @@ public:
     constexpr float kStep = 2.0 * std::numbers::pi / kCount;
     for (int i = 0; i < kCount; ++i)
       (void)world_.spawn(sim::Position{0.0, 0.0},
-          sim::Velocity::from_polar(kSpeed, i * kStep));
+          sim::Velocity::from_polar(kSpeed, static_cast<float>(i) * kStep));
 
     std::cout << "WebSocket client connected\n";
   }

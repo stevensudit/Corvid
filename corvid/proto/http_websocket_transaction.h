@@ -147,6 +147,10 @@ public:
   // transaction in `configure` to handle subprotocol negotiation.
   [[nodiscard]] static transaction_factory make_factory(
       configure_fn configure = {}) {
+    // False positive: the analyzer sees libc++ allocate storage for the
+    // captured `std::function`, but misses that the route map later destroys
+    // the returned factory and frees that storage with the server.
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
     return [configure = std::move(configure)](
                request_head&& req) -> std::shared_ptr<http_transaction> {
       auto tx = std::make_shared<http_websocket_transaction>(std::move(req));

@@ -55,7 +55,7 @@ private:
 
 using namespace corvid::proto;
 
-int main(int argc, char** argv) {
+int do_main(int argc, char** argv) {
   // If invoked with "-testonly" (e.g., by the CI build script), skip the
   // server entirely and exit cleanly. This lets the test runner include
   // `corvid_sim` in its sweep without blocking on a live server.
@@ -125,4 +125,14 @@ int main(int argc, char** argv) {
   (void)signals.wait();
   std::cout << "\nShutting down\n";
   return 0;
+}
+
+int main(int argc, char** argv) {
+  try {
+    return do_main(argc, argv);
+  }
+  catch (const std::exception& e) {
+    std::cerr << "Fatal error: " << e.what() << "\n";
+    return 1;
+  }
 }

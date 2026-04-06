@@ -95,7 +95,7 @@ struct baked_path {
   // Map a distance traveled (`progress`) along `bp` to a world-space
   // `Position`. `progress` is clamped to `[0, total_length]`. Returns the
   // origin if `bp` has no segments.
-  Position position_from_progress(float progress) const {
+  [[nodiscard]] Position position_from_progress(float progress) const {
     if (segments.empty()) return {};
     progress = std::clamp(progress, 0.F, total_length);
     // Find the last segment whose cumulative_start <= progress.

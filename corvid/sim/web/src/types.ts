@@ -21,11 +21,16 @@ export interface SnapshotEntity {
   y: number
 }
 
+interface PathPoint {
+  x: number
+  y: number
+}
+
 export interface SnapshotMsg {
   type: 'snapshot'
   entities: SnapshotEntity[]
+  path: PathPoint[]
 }
-
 
 export interface SpawnMsg {
   type: 'spawn'
