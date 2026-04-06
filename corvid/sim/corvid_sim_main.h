@@ -27,7 +27,7 @@
 #include <pthread.h>
 
 #include "../proto.h"
-#include "ws_handler.h"
+#include "sim_ws_handler.h"
 
 // Blocks SIGINT and SIGTERM on all threads (including those spawned after
 // construction) so that `sigwait` can intercept them cleanly. Must be
@@ -112,7 +112,7 @@ int do_main(int argc, char** argv) {
                 }))
           return false;
         return s.add_route({"", "/ws"},
-            sim_ws_transaction::make_factory(s.loop(), s.wheel()));
+            sim_ws_handler::make_factory(s.loop(), s.wheel()));
       });
 
   if (!server) {

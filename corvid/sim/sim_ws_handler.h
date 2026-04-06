@@ -35,7 +35,7 @@ using namespace std::chrono_literals;
 // WebSocket transaction for the CorvidSim `/ws` route.
 //
 // Inherits from `http_websocket_transaction` and wires up all callbacks in the
-// constructor so behaviour lives in named private methods rather than lambdas.
+// constructor so behavior lives in named private methods rather than lambdas.
 //
 // Protocol:
 //   Client sends: {"type":"hello","client":"browser"}
@@ -56,12 +56,14 @@ using namespace std::chrono_literals;
 // the base) because `timer_fuse::get_if_armed` locks the `weak_ptr` before
 // dereferencing the sequencer, so the sequencer is never accessed after the
 // transaction is destroyed.
-class sim_ws_transaction final: public http_websocket_transaction {
+class sim_ws_handler final: public http_websocket_transaction {
 public:
-  sim_ws_transaction(request_head&& req,
-      const std::shared_ptr<epoll_loop>& loop,
+  // Construct and initialize a new transaction, with its own `sim_world` and
+  // tick timer.
+  sim_ws_handler(request_head&& req, const std::shared_ptr<epoll_loop>& loop,
       const std::shared_ptr<timing_wheel>& wheel)
       : http_websocket_transaction{std::move(req)} {
+    // Register methods as callbacks.
     websocket().on_message =
         [this](http_websocket& ws, std::string&& msg, ws_frame_control) {
           return do_message(ws, std::move(msg));
@@ -69,18 +71,33 @@ public:
     websocket().on_close = [](http_websocket&, uint16_t, std::string_view) {
       do_close();
     };
-    // `enable_keepalive` stores weak_ptrs and sets `on_pong`; it always
-    // returns `true`, so voiding the result is safe here.
+    // `enable_keepalive` stores weak_ptrs and sets `on_pong`.
     (void)enable_keepalive(loop, wheel, 20s, 5s);
 
-    // Populate the world with five entities at the origin, evenly fanned
-    // around the full circle at the same speed.
-    constexpr int kCount = 5000;
+    // As an optical dial tone, populate the world with entities bouncing
+    // around.
+    constexpr int kCount = 100;
     constexpr float kSpeed = 40.0;
     constexpr float kStep = 2.0 * std::numbers::pi / kCount;
     for (int i = 0; i < kCount; ++i)
-      (void)world_.spawn(sim::Position{0.0, 0.0},
-          sim::Velocity::from_polar(kSpeed, static_cast<float>(i) * kStep));
+      (void)world_.spawn(Position{0.0, 0.0},
+          Velocity::from_polar(kSpeed, static_cast<float>(i) * kStep));
+
+    // Populate the tracking path with a square spiral starting at the center
+    // and stepping outwards.
+    path_joints p;
+    float step = 20.0;
+    for (int i = 0; i < 100; ++i) {
+      p.joints.push_back({Position{step, 0.0}});
+      step += 20.0;
+      p.joints.push_back({Position{0.0, step}});
+      step += 20.0;
+      p.joints.push_back({Position{-step, 0.0}});
+      step += 20.0;
+      p.joints.push_back({Position{0.0, -step}});
+      step += 20.0;
+    }
+    (void)world_.add_path(p);
 
     std::cout << "WebSocket client connected\n";
   }
@@ -88,9 +105,10 @@ public:
   // Returns a `transaction_factory` for use with `http_server::add_route`.
   [[nodiscard]] static transaction_factory make_factory(
       std::shared_ptr<epoll_loop> loop, std::shared_ptr<timing_wheel> wheel) {
+    // Factory factory.
     return [loop = std::move(loop), wheel = std::move(wheel)](
                request_head&& req) -> transaction_ptr {
-      return std::make_shared<sim_ws_transaction>(std::move(req), loop, wheel);
+      return std::make_shared<sim_ws_handler>(std::move(req), loop, wheel);
     };
   }
 
@@ -99,7 +117,7 @@ private:
 
   std::atomic<tick_t> tick_seq_; // Uses for sequencing tick timers
   tick_t current_tick_{0};       // updated each frame; loop-thread only
-  sim::sim_world world_;         // all simulation entity state
+  sim_world world_;              // all simulation entity state
 
   // Handle an incoming text frame. Dispatches on `"type"` by substring search
   // (no parser needed for these fixed message shapes).
@@ -120,22 +138,25 @@ private:
   }
 
   // Parse a `spawn` message and add a new entity at the click position.
-  //
-  // The entity travels in a straight line; velocity is set perpendicular to
-  // the vector from the canvas centre to the click point (tangential), with
-  // a fixed speed of 40 pixels per frame. If the click is exactly on-centre,
-  // the entity moves rightward.
   [[nodiscard]] bool do_spawn(std::string_view msg) {
-    auto x = parse_coord(msg, R"("x":)");
-    auto y = parse_coord(msg, R"("y":)");
-    if (!x || !y) return true; // malformed, ignore
-    float r = std::sqrt((*x * *x) + (*y * *y));
-    constexpr float speed = 40.0;
-    sim::Velocity vel =
-        (r > 0.0) ? sim::Velocity{-speed * *y / r, speed * *x / r}
-                  : sim::Velocity{speed, 0.0};
-    (void)world_.spawn(sim::Position{*x, *y}, vel);
+    const auto pos = parse_position(msg);
+    if (!pos) return true; // malformed, ignore
+
+    // Aim new point based on its angle from the center, with a fixed speed.
+    const auto [length, direction] = cartesian_to_polar(pos->x, pos->y);
+    const auto vel = Velocity::from_polar(40.0, direction);
+
+    (void)world_.spawn(*pos, vel);
     return true;
+  }
+
+  // Parse an `{x, y}` position from the fixed message shape used by the sim.
+  [[nodiscard]] static std::optional<Position> parse_position(
+      std::string_view msg) {
+    const auto ox = parse_coord(msg, R"("x":)");
+    const auto oy = parse_coord(msg, R"("y":)");
+    if (!ox || !oy) return std::nullopt;
+    return Position{*ox, *oy};
   }
 
   // Find `key` in `msg` and parse the number that follows it.
@@ -169,8 +190,8 @@ private:
           return loop->post([fuse, tick_n]() -> bool {
             auto tx = fuse.get_if_armed();
             if (!tx) return true;
-            return std::static_pointer_cast<sim_ws_transaction>(tx)
-                ->do_tick_fire(tick_n);
+            return std::static_pointer_cast<sim_ws_handler>(tx)->do_tick_fire(
+                tick_n);
           });
         });
   }
@@ -186,6 +207,7 @@ private:
     current_tick_ = world_.tick();
 
     auto snaps = world_.snapshot();
+    auto paths = world_.path_snapshot();
     std::string entities;
     entities.reserve(snaps.size() * 40);
     for (const auto& e : snaps) {
@@ -194,8 +216,22 @@ private:
           static_cast<std::size_t>(e.id), e.pos.x, e.pos.y);
     }
 
-    auto snap_msg =
-        std::format(R"({{"type":"snapshot","entities":[{}]}})", entities);
+    std::string path_json = "[]";
+    if (!paths.empty()) {
+      const auto& path = paths.front();
+      std::string joints;
+      joints.reserve(path.joints.size() * 24);
+      for (const auto& joint : path.joints) {
+        if (!joints.empty()) joints += ',';
+        joints +=
+            std::format(R"({{"x":{:.1f},"y":{:.1f}}})", joint.x, joint.y);
+      }
+      path_json = std::format("[{}]", joints);
+    }
+
+    auto snap_msg = std::format(
+        R"({{"type":"snapshot","entities":[{}],"path":{}}})", entities,
+        path_json);
     if (!websocket().send_text(snap_msg)) return false;
 
     if (tick_n % 20 == 0) {

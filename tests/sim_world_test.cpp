@@ -214,9 +214,9 @@ void SimWorld_BackgroundNotInDeltaAfterTick() {
 
 // bake_path with two joints produces one segment with the correct length.
 void BakePath_TwoJoints() {
-  path p;
+  path_joints p;
   p.joints = {{{0.F, 0.F}}, {{3.F, 4.F}}};
-  const auto bp = baked_path::from_path(p);
+  const auto bp = segmented_path::from_joints(p);
   ASSERT_EQ(bp.segments.size(), 1U);
   EXPECT_NEAR(bp.segments[0].cumulative_start, 0.0, 1e-6);
   EXPECT_NEAR(bp.segments[0].length, 5.0, 1e-6);
@@ -226,9 +226,9 @@ void BakePath_TwoJoints() {
 // bake_path with three joints produces two segments with correct cumulative
 // distances.
 void BakePath_ThreeJoints() {
-  path p;
+  path_joints p;
   p.joints = {{{0.F, 0.F}}, {{3.F, 4.F}}, {{6.F, 8.F}}};
-  const auto bp = baked_path::from_path(p);
+  const auto bp = segmented_path::from_joints(p);
   ASSERT_EQ(bp.segments.size(), 2U);
   EXPECT_NEAR(bp.segments[0].cumulative_start, 0.0, 1e-6);
   EXPECT_NEAR(bp.segments[0].length, 5.0, 1e-6);
@@ -239,9 +239,9 @@ void BakePath_ThreeJoints() {
 
 // bake_path with fewer than two joints returns an empty baked_path.
 void BakePath_Degenerate() {
-  path p;
+  path_joints p;
   p.joints = {{{0.F, 0.F}}};
-  const auto bp = baked_path::from_path(p);
+  const auto bp = segmented_path::from_joints(p);
   EXPECT_TRUE(bp.segments.empty());
   EXPECT_NEAR(bp.total_length, 0.0, 1e-6);
 }
@@ -249,9 +249,9 @@ void BakePath_Degenerate() {
 // path_position at progress 0 returns the first joint; at total_length
 // returns the last joint.
 void PathPosition_Endpoints() {
-  path p;
+  path_joints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
-  const auto bp = baked_path::from_path(p);
+  const auto bp = segmented_path::from_joints(p);
 
   const auto start = bp.position_from_progress(0.F);
   EXPECT_NEAR(start.x, 0.0, 1e-6);
@@ -264,9 +264,9 @@ void PathPosition_Endpoints() {
 
 // path_position at the midpoint returns the correctly interpolated position.
 void PathPosition_Midpoint() {
-  path p;
+  path_joints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
-  const auto bp = baked_path::from_path(p);
+  const auto bp = segmented_path::from_joints(p);
 
   const auto mid = bp.position_from_progress(5.F);
   EXPECT_NEAR(mid.x, 5.0, 1e-6);
@@ -276,7 +276,7 @@ void PathPosition_Midpoint() {
 // Spawning an enemy and ticking once advances its position by `speed`.
 void SimWorld_EnemyAdvancesOnTick() {
   sim_world w;
-  path p;
+  path_joints p;
   p.joints = {{{0.F, 0.F}}, {{100.F, 0.F}}};
   const auto pid = w.add_path(p);
 
@@ -294,7 +294,7 @@ void SimWorld_EnemyAdvancesOnTick() {
 // An enemy that reaches the end of the path is despawned automatically.
 void SimWorld_EnemyDespawnsAtEnd() {
   sim_world w;
-  path p;
+  path_joints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
   const auto pid = w.add_path(p);
 
@@ -313,7 +313,7 @@ void SimWorld_GetPathOutOfRange() {
   sim_world w;
   EXPECT_TRUE(w.get_path(0) == nullptr);
 
-  path p;
+  path_joints p;
   p.joints = {{{0.F, 0.F}}, {{1.F, 0.F}}};
   (void)w.add_path(p);
 

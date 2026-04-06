@@ -55,6 +55,7 @@ let prevEntities: SnapshotEntity[] = []
 let currEntities: SnapshotEntity[] = []
 let prevById = new Map<number, SnapshotEntity>()
 let lastSnapshotTime = 0
+let pathPoints: Array<{ x: number; y: number }> = []
 
 // Linear interpolation calculator
 function lerp(a: number, b: number, t: number): number {
@@ -65,6 +66,20 @@ function renderInterpolated(): void {
   const t = Math.min((performance.now() - lastSnapshotTime) / SNAPSHOT_INTERVAL_MS, 1)
 
   ctx.clearRect(0, 0, canvas.width, canvas.height)
+  if (pathPoints.length > 1) {
+    ctx.save()
+    ctx.strokeStyle = '#3b82f6'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    const [startX, startY] = worldToCanvas(pathPoints[0].x, pathPoints[0].y)
+    ctx.moveTo(startX, startY)
+    for (const point of pathPoints.slice(1)) {
+      const [x, y] = worldToCanvas(point.x, point.y)
+      ctx.lineTo(x, y)
+    }
+    ctx.stroke()
+    ctx.restore()
+  }
   for (const e of currEntities) {
     const prev = prevById.get(e.id)
     const wx = prev ? lerp(prev.x, e.x, t) : e.x
@@ -126,6 +141,7 @@ function isServerMsg(value: unknown): value is ServerMsg {
     case 'snapshot':
       return (
         Array.isArray(v.entities) &&
+        Array.isArray(v.path) &&
         v.entities.every(
           (e) =>
             typeof e === 'object' &&
@@ -133,6 +149,13 @@ function isServerMsg(value: unknown): value is ServerMsg {
             typeof (e as Record<string, unknown>).id === 'number' &&
             typeof (e as Record<string, unknown>).x === 'number' &&
             typeof (e as Record<string, unknown>).y === 'number',
+        ) &&
+        v.path.every(
+          (p) =>
+            typeof p === 'object' &&
+            p !== null &&
+            typeof (p as Record<string, unknown>).x === 'number' &&
+            typeof (p as Record<string, unknown>).y === 'number',
         )
       )
     default:
@@ -177,6 +200,7 @@ ws.onmessage = (event: MessageEvent<string>) => {
       prevEntities = currEntities
       prevById = new Map(prevEntities.map((e) => [e.id, e]))
       currEntities = parsed.entities
+      pathPoints = parsed.path
       lastSnapshotTime = performance.now()
       break
   }

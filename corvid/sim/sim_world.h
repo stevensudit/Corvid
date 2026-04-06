@@ -26,21 +26,27 @@
 
 namespace corvid { inline namespace sim {
 
-// Convert Euclidean vector (x, y) to polar form (length, direction).
-// `direction` is in radians,
-inline std::pair<float, float> cartesian_to_polar(float x, float y) {
+// Convert Cartesian coordinates (x, y) to a Euclidean vector, in polar form
+// (length, direction). `direction` is in radians,
+[[nodiscard]] constexpr std::pair<float, float>
+cartesian_to_polar(float x, float y) noexcept {
   float length = std::sqrt((x * x) + (y * y));
   float direction = std::atan2(y, x);
   return {length, direction};
 }
 
-// Convert a Euclidean vector in polar form to Cartesian form. `direction` is
-// in radians.
-inline std::pair<float, float>
-polar_to_cartesian(float length, float direction) {
+// Convert a Euclidean vector, in polar form, to Cartesian coordinates.
+// `direction` is in radians.
+[[nodiscard]] constexpr std::pair<float, float>
+polar_to_cartesian(float length, float direction) noexcept {
   float x = length * std::cos(direction);
   float y = length * std::sin(direction);
   return {x, y};
+}
+
+// Linear interpolation calculator
+[[nodiscard]] constexpr float lerp(float a, float b, float t) noexcept {
+  return a + ((b - a) * t);
 }
 
 // 2D Cartesian position component, in world-space pixels.
@@ -67,9 +73,10 @@ struct Velocity {
 
 // --- Path geometry ---
 
-// Authored path: a sequence of joints and a road half-width in world-space
-// pixels. Processed into a `baked_path` before use at runtime.
-struct path {
+// `path_joints` defines a path in terms of the coordinates of its joints. This
+// is the authored path, a compact format suitable for defining the path, but
+// not ideal for runtime use, which is why it's converted to `segmented_path`.
+struct path_joints {
   struct joint {
     Position p;
   };
@@ -78,9 +85,11 @@ struct path {
   float width{40.F};
 };
 
-// Runtime-ready path: pre-computed segments with cumulative distances,
-// produced once from a `path` by `bake_path()`.
-struct baked_path {
+// `segmented_path` is built from a `path_joints` and consists of pre-computed
+// segments with cumulative distances, enabling efficient runtime mapping from
+// distance traveled to world position. Essentially, it's an indexed vertex
+// buffer for the path geometry.
+struct segmented_path {
   struct segment {
     Position front;
     Position back;
@@ -92,50 +101,55 @@ struct baked_path {
   float total_length{};
   float width{};
 
-  // Map a distance traveled (`progress`) along `bp` to a world-space
-  // `Position`. `progress` is clamped to `[0, total_length]`. Returns the
-  // origin if `bp` has no segments.
+  // Map a distance traveled (`progress`) to a world-space `Position`.
+  // `progress` is clamped to `[0, total_length]`. Returns the origin if
+  // `segments` is empty.
   [[nodiscard]] Position position_from_progress(float progress) const {
     if (segments.empty()) return {};
     progress = std::clamp(progress, 0.F, total_length);
+
     // Find the last segment whose cumulative_start <= progress.
     auto it = std::ranges::upper_bound(segments, progress, {},
-        &baked_path::segment::cumulative_start);
+        &segmented_path::segment::cumulative_start);
     if (it != segments.begin()) --it;
     const auto& seg = *it;
-    const float t =
-        (seg.length > 0.F)
-            ? ((progress - seg.cumulative_start) / seg.length)
-            : 0.F;
-    return {(seg.front.x + ((seg.back.x - seg.front.x) * t)),
-        (seg.front.y + ((seg.back.y - seg.front.y) * t))};
+
+    // Calculate the interpolation factor `t` along this segment, then lerp the
+    // front and back positions to get the world position.
+    float t = 0.F;
+    if (seg.length > 0.F) t = (progress - seg.cumulative_start) / seg.length;
+
+    return {lerp(seg.front.x, seg.back.x, t),
+        lerp(seg.front.y, seg.back.y, t)};
   }
 
-  // Convert an authored `path` into a `baked_path`. Requires at least two
-  // joints; returns an empty `baked_path` if the input is degenerate.
-  static baked_path from_path(const path& p) {
+  // Convert authored `path_joints` into a `segmented_path`. Requires at
+  // least two joints; returns an empty `segmented_path` if the input is
+  // degenerate.
+  static segmented_path from_joints(const path_joints& p) {
     if (p.joints.size() < 2) return {};
-    baked_path bp;
-    bp.width = p.width;
-    bp.segments.reserve(p.joints.size() - 1);
+    segmented_path sp;
+    sp.width = p.width;
+    sp.segments.reserve(p.joints.size() - 1);
     float cumulative{};
+
     for (std::size_t i = 0; i + 1 < p.joints.size(); ++i) {
       const Position& front = p.joints[i].p;
       const Position& back = p.joints[i + 1].p;
       const float dx = back.x - front.x;
       const float dy = back.y - front.y;
       const float len = std::hypot(dx, dy);
-      bp.segments.push_back({front, back, len, cumulative});
+      sp.segments.push_back({front, back, len, cumulative});
       cumulative += len;
     }
-    bp.total_length = cumulative;
-    return bp;
+    sp.total_length = cumulative;
+    return sp;
   }
 };
 
 // Path-following component. Stored alongside `Position` in the enemy
 // archetype. Each tick, `progress` advances by `speed`; the entity's
-// `Position` is re-derived from the baked path geometry.
+// `Position` is re-derived from the segmented path geometry.
 struct PathFollower {
   uint8_t path_id{}; // Index into `sim_world::paths_`.
   float progress{};  // Distance traveled along the path so far.
@@ -148,10 +162,14 @@ struct PathFollower {
 // enabling delta snapshots without a separate dirty set.
 //
 // Storage layout (store_id assignment is positional, 1-based):
-//   `p_sid`      = 1  -> `arch_p_t`      : background / retired (Position)
-//   `pv_sid`     = 2  -> `arch_pv_t`     : moving entities (Position +
-//   Velocity) `enemy_sid`  = 3  -> `arch_enemy_t`  : path-following enemies
-//   (Position + PathFollower)
+//   `p_sid`      = 1  -> `arch_p_t`      : background / destructible / retired
+//                                          (Position)
+
+//   `pv_sid`     = 2  -> `arch_pv_t`     : moving entities
+//                                          (Position + Velocity)
+
+//   `enemy_sid`  = 3  -> `arch_enemy_t`  : path-following enemies
+//                                          (Position + PathFollower)
 //
 // Background storage comes first so that retiring a mobile entity is a
 // natural `archetype_scene::migrate_entity` call rather than erase+re-add.
@@ -185,10 +203,16 @@ public:
   static constexpr float world_width = 1920.0;
   static constexpr float world_height = 1080.0;
 
-  // State snapshot for a single entity.
+  // State snapshot for a single entity. This is the serialization format for
+  // the entity state sent to clients.
   struct entity_snapshot {
     entity_id_t id;
     Position pos;
+  };
+
+  struct authored_path_snapshot {
+    std::vector<Position> joints;
+    float width{};
   };
 
   // Spawn a moving entity with the given initial position and velocity.
@@ -205,15 +229,38 @@ public:
 
   // Bake and store a path. Returns the index used as `PathFollower::path_id`.
   // The index is stable for the lifetime of the world.
-  [[nodiscard]] uint8_t add_path(const path& p) {
-    paths_.push_back(baked_path::from_path(p));
+  [[nodiscard]] uint8_t add_path(const path_joints& p) {
+    authored_paths_.push_back(p);
+    paths_.push_back(segmented_path::from_joints(p));
     return static_cast<uint8_t>(paths_.size() - 1);
   }
 
+  // Return the authored path at `id`, or `nullptr` if out of range.
+  [[nodiscard]] const path_joints* get_authored_path(uint8_t id) const {
+    if (id >= authored_paths_.size()) return nullptr;
+    return &authored_paths_[id];
+  }
+
   // Return a pointer to the baked path at `id`, or `nullptr` if out of range.
-  [[nodiscard]] const baked_path* get_path(uint8_t id) const {
+  [[nodiscard]] const segmented_path* get_path(uint8_t id) const {
     if (id >= paths_.size()) return nullptr;
     return &paths_[id];
+  }
+
+  // Return snapshots for all authored paths so the client can render the
+  // original joints while runtime movement follows the baked geometry.
+  [[nodiscard]] std::vector<authored_path_snapshot> path_snapshot() const {
+    std::vector<authored_path_snapshot> result;
+    result.reserve(authored_paths_.size());
+
+    for (const auto& p : authored_paths_) {
+      authored_path_snapshot snap;
+      snap.width = p.width;
+      snap.joints.reserve(p.joints.size());
+      for (const auto& joint : p.joints) snap.joints.push_back(joint.p);
+      result.push_back(std::move(snap));
+    }
+    return result;
   }
 
   // Spawn a path-following enemy. Initial position is derived from `progress`
@@ -223,6 +270,7 @@ public:
     Position pos{};
     if (path_id < paths_.size())
       pos = paths_[path_id].position_from_progress(progress);
+
     return scene_.store_new_entity<enemy_sid>(tick_n_, pos,
         PathFollower{path_id, progress, speed});
   }
@@ -328,7 +376,8 @@ public:
 private:
   world_scene_t scene_;
   tick_t tick_n_{0};
-  std::vector<baked_path> paths_;
+  std::vector<path_joints> authored_paths_;
+  std::vector<segmented_path> paths_;
 
   // Clamp `pos` to `[-limit/2, +limit/2]` and, if it was out of range, negate
   // `vel` so the entity bounces off that boundary wall.
