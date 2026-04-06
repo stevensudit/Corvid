@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 
+#include <type_traits>
 #include <vector>
 
 #include "../enums/sequence_enum.h"
@@ -31,7 +32,7 @@ class enum_vector {
 public:
   using value_type = T;
   using allocator_type = Allocator;
-  using size_type = std::size_t;
+  using size_type = std::underlying_type_t<E>;
   using difference_type = std::ptrdiff_t;
   using reference = value_type&;
   using const_reference = const value_type&;
@@ -102,7 +103,7 @@ public:
   // Additional methods.
 
   [[nodiscard]] enum_t size_as_enum() const noexcept {
-    return enum_t{data_.size()};
+    return enum_t{static_cast<size_type>(data_.size())};
   }
 
   // Access underlying type.

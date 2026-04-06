@@ -26,6 +26,18 @@
 
 namespace corvid { inline namespace sim {
 
+// ID of path.
+enum class path_id_t : uint8_t { invalid = 255 };
+
+}} // namespace corvid::sim
+
+template<>
+constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::path_id_t> =
+    corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::path_id_t,
+        "">();
+
+namespace corvid { inline namespace sim {
+
 // Convert Cartesian coordinates (x, y) to a Euclidean vector, in polar form
 // (length, direction). `direction` is in radians,
 [[nodiscard]] constexpr std::pair<float, float>
@@ -160,9 +172,9 @@ struct segmented_path {
 // archetype. Each tick, `progress` advances by `speed`; the entity's
 // `Position` is re-derived from the segmented path geometry.
 struct PathFollower {
-  uint8_t path_id{}; // Index into `sim_world::paths_`.
-  float progress{};  // Distance traveled along the path so far.
-  float speed{};     // Distance per tick.
+  path_id_t path_id{}; // Index into `sim_world::paths_`.
+  float progress{};    // Distance traveled along the path so far.
+  float speed{};       // Distance per tick.
 };
 
 // ECS types for the simulation world.
@@ -233,15 +245,16 @@ public:
 
   // Bake and store a path. Returns the index used as `PathFollower::path_id`.
   // The index is stable for the lifetime of the world.
-  [[nodiscard]] uint8_t add_path(const path_joints& p) {
-    paths_.push_back(segmented_path::from_joints(p));
-    return static_cast<uint8_t>(paths_.size() - 1);
+  [[nodiscard]] path_id_t add_path(const path_joints& p) {
+    if (!paths_.push_back(segmented_path::from_joints(p)))
+      return path_id_t::invalid;
+    return paths_.size_as_enum() - 1;
   }
 
   // Return a pointer to the baked path at `id`, or `nullptr` if out of range.
-  [[nodiscard]] const segmented_path* get_path(uint8_t id) const {
-    if (id >= paths_.size()) return nullptr;
-    return &paths_[id];
+  [[nodiscard]] const segmented_path* get_path(path_id_t path_id) const {
+    if (*path_id >= paths_.size()) return nullptr;
+    return &paths_[path_id];
   }
 
   // Return snapshots for all authored paths so the client can render the
@@ -256,8 +269,8 @@ public:
   // Spawn a path-following enemy. Initial position is derived from `progress`
   // on the named path. Returns a handle for later `despawn()`.
   [[nodiscard]] handle_t
-  spawn_enemy(uint8_t path_id, float speed, float progress = 0.F) {
-    if (path_id >= paths_.size()) return {};
+  spawn_enemy(path_id_t path_id, float speed, float progress = 0.F) {
+    if (static_cast<uint8_t>(path_id) >= paths_.size()) return {};
     const auto pos = paths_[path_id].position_from_progress(progress);
     return scene_.store_new_entity<enemy_sid>(tick_n_, pos,
         PathFollower{path_id, progress, speed});
@@ -322,7 +335,7 @@ public:
       pf.progress += pf.speed;
 
       // TODO: Is this even possible?
-      if (pf.path_id >= paths_.size()) return true;
+      if (pf.path_id >= paths_.size_as_enum()) return true;
 
       // TODO: Speed can be negative, so we need to collect entities that
       // exited front and back, separately. Why separately? So that we can
@@ -385,7 +398,7 @@ public:
 private:
   world_scene_t scene_;
   tick_t tick_n_{0};
-  std::vector<segmented_path> paths_;
+  id_container<segmented_path, path_id_t> paths_;
 
   // Clamp `pos` to `[-limit/2, +limit/2]` and, if it was out of range, negate
   // `vel` so the entity bounces off that boundary wall.

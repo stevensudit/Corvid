@@ -311,14 +311,14 @@ void SimWorld_EnemyDespawnsAtEnd() {
 // get_path returns nullptr for an out-of-range index.
 void SimWorld_GetPathOutOfRange() {
   sim_world w;
-  EXPECT_TRUE(w.get_path(0) == nullptr);
+  EXPECT_TRUE(w.get_path(path_id_t{0}) == nullptr);
 
   path_joints p;
   p.joints = {{{0.F, 0.F}}, {{1.F, 0.F}}};
   (void)w.add_path(p);
 
-  EXPECT_TRUE(w.get_path(0) != nullptr);
-  EXPECT_TRUE(w.get_path(1) == nullptr);
+  EXPECT_TRUE(w.get_path(path_id_t{0}) != nullptr);
+  EXPECT_TRUE(w.get_path(path_id_t{1}) == nullptr);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)
