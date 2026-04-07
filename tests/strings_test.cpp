@@ -2544,38 +2544,36 @@ void StringUtilsTest_TokenParser() {
   EXPECT_EQ(input, "three");
 }
 
-// Test any_strings, make_string_vector, and make_any_strings.
+// Test any_strings, strings::as_vector, and strings::as_any.
 void StringUtilsTest_AnyStrings() {
   using strings::any_strings;
-  using strings::make_any_strings;
-  using strings::make_string_vector;
 
-  // make_string_vector: zero, one, and multiple strings.
-  auto v0 = make_string_vector();
+  // strings::as_vector: zero, one, and multiple strings.
+  auto v0 = strings::as_vector();
   EXPECT_TRUE(v0.empty());
 
-  auto v1 = make_string_vector(std::string{"hello"});
+  auto v1 = strings::as_vector(std::string{"hello"});
   ASSERT_EQ(v1.size(), 1u);
   EXPECT_EQ(v1[0], "hello");
 
   auto v2 =
-      make_string_vector(std::string{"a"}, std::string{"b"}, std::string{"c"});
+      strings::as_vector(std::string{"a"}, std::string{"b"}, std::string{"c"});
   ASSERT_EQ(v2.size(), 3u);
   EXPECT_EQ(v2[0], "a");
   EXPECT_EQ(v2[1], "b");
   EXPECT_EQ(v2[2], "c");
 
-  // make_any_strings: zero args -> monostate.
-  auto a0 = make_any_strings();
+  // strings::as_any: zero args -> monostate.
+  auto a0 = strings::as_any();
   EXPECT_TRUE(std::holds_alternative<std::monostate>(a0));
 
-  // make_any_strings: one arg -> string.
-  auto a1 = make_any_strings(std::string{"hello"});
+  // strings::as_any: one arg -> string.
+  auto a1 = strings::as_any(std::string{"hello"});
   ASSERT_TRUE(std::holds_alternative<std::string>(a1));
   EXPECT_EQ(std::get<std::string>(a1), "hello");
 
-  // make_any_strings: multiple args -> vector.
-  auto a2 = make_any_strings(std::string{"x"}, std::string{"y"});
+  // strings::as_any: multiple args -> vector.
+  auto a2 = strings::as_any(std::string{"x"}, std::string{"y"});
   ASSERT_TRUE(std::holds_alternative<std::vector<std::string>>(a2));
   const auto& sv = std::get<std::vector<std::string>>(a2);
   ASSERT_EQ(sv.size(), 2u);

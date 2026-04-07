@@ -125,7 +125,7 @@ private:
     const auto [length, direction] = convert::CartesianToPolar(pos->x, pos->y);
     const auto vel = Velocity::fromPolar(40.0, direction);
     (void)vel;
-    //!!! (void)world_.spawn(*pos, vel);
+    (void)game_;
     return true;
   }
 
