@@ -17,6 +17,10 @@
 #pragma once
 #include <sys/types.h>
 
+#include <string>
+#include <string_view>
+#include <utility>
+
 #include "sim_world.h"
 
 // SimGame: encapsulates the game rules and flow, using SimWorld for state and
@@ -55,6 +59,22 @@ enum class WaveTick : uint32_t {
   invalid = std::numeric_limits<uint32_t>::max()
 };
 
+enum class UiCanvasEvent : uint8_t {
+  click,
+  dblclick,
+  contextmenu,
+  dragstart,
+  dragmove,
+  dragend,
+};
+
+enum class UiMouseButton : uint8_t {
+  left,
+  middle,
+  right,
+  other,
+};
+
 }} // namespace corvid::sim
 
 template<>
@@ -79,6 +99,32 @@ struct EnemySpawn {
 struct WaveDefinition {
   std::vector<EnemySpawn> enemies;
   int resourceInflux = 0; // Resources rewarded at start of wave
+};
+
+struct UiCanvasInput {
+  uint64_t seq{};
+  UiCanvasEvent event{UiCanvasEvent::click};
+  UiMouseButton button{UiMouseButton::left};
+  uint32_t buttons{};
+  float x{};
+  float y{};
+  float canvasX{};
+  float canvasY{};
+  bool shift{};
+  bool ctrl{};
+  bool alt{};
+  bool meta{};
+};
+
+struct UiActionField {
+  std::string key;
+  std::string value;
+};
+
+struct UiActionInput {
+  uint64_t seq{};
+  std::string action;
+  std::vector<UiActionField> fields;
 };
 
 // Game simulation.
@@ -134,6 +180,19 @@ public:
     phase_ = GamePhase::wave;
     waveTick = {};
     nextSpawnIndex_ = 0;
+  }
+
+  void handle_ui_canvas(const UiCanvasInput& input) {
+    // Canvas gestures are intentionally semantic transport only for now; game
+    // rules can opt into specific events as tower placement/tooling is added.
+    (void)input;
+  }
+
+  void handle_ui_action(const UiActionInput& input) {
+    if (input.action == "start_wave") {
+      start_wave();
+      return;
+    }
   }
 
   void placeTower(/* later */);

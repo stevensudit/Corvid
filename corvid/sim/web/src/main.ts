@@ -30,6 +30,25 @@ interface RenderEntityUpsert {
   app: RenderAppearance
 }
 
+interface CanvasPointerState {
+  button: number
+  buttons: number
+  dragging: boolean
+}
+
+interface CanvasPointerSample {
+  button: number
+  buttons: number
+  canvasX: number
+  canvasY: number
+  worldX: number
+  worldY: number
+  shift: boolean
+  ctrl: boolean
+  alt: boolean
+  meta: boolean
+}
+
 const DEFAULT_RENDER_APPEARANCE: RenderAppearance = {
   glyph: '?',
   scale: 1,
@@ -100,6 +119,25 @@ function canvasToWorld(cx: number, cy: number): [number, number] {
   ]
 }
 
+function eventToCanvasSample(event: MouseEvent): CanvasPointerSample {
+  const rect = foregroundCanvas.getBoundingClientRect()
+  const canvasX = (event.clientX - rect.left) * (foregroundCanvas.width / rect.width)
+  const canvasY = (event.clientY - rect.top) * (foregroundCanvas.height / rect.height)
+  const [worldX, worldY] = canvasToWorld(canvasX, canvasY)
+  return {
+    button: event.button,
+    buttons: event.buttons,
+    canvasX: Math.round(canvasX),
+    canvasY: Math.round(canvasY),
+    worldX: Math.round(worldX),
+    worldY: Math.round(worldY),
+    shift: event.shiftKey,
+    ctrl: event.ctrlKey,
+    alt: event.altKey,
+    meta: event.metaKey,
+  }
+}
+
 // --- FPS tracking ---
 
 let fps = 0
@@ -122,6 +160,10 @@ const glyphFontSizeCache = new Map<string, number>()
 // paying per-frame draw costs or maintaining an eviction policy.
 const entitySpriteCache = new Map<string, SpriteCacheEntry>()
 const FPS_OVERLAY_INTERVAL_MS = 100
+let nextClientSeq = 1
+let canvasPointerState: CanvasPointerState | null = null
+let pendingDragMove: CanvasPointerSample | null = null
+let dragMoveFrameRequested = false
 
 // Linear interpolation calculator
 function lerp(a: number, b: number, t: number): number {
@@ -380,6 +422,75 @@ function invalidateHud(): void {
   hudDirty = true
 }
 
+function buttonNameFromNumber(button: number): 'left' | 'middle' | 'right' | 'other' {
+  switch (button) {
+    case 0:
+      return 'left'
+    case 1:
+      return 'middle'
+    case 2:
+      return 'right'
+    default:
+      return 'other'
+  }
+}
+
+function sendClientMsg(msg: ClientMsg): void {
+  if (ws.readyState !== WebSocket.OPEN) return
+  ws.send(JSON.stringify(msg))
+}
+
+function sendCanvasMsg(eventName: 'click' | 'dblclick' | 'contextmenu' | 'dragstart' | 'dragmove' | 'dragend', sample: CanvasPointerSample): void {
+  sendClientMsg({
+    type: 'ui_canvas',
+    seq: nextClientSeq++,
+    event: eventName,
+    button: buttonNameFromNumber(sample.button),
+    buttons: sample.buttons,
+    x: sample.worldX,
+    y: sample.worldY,
+    canvasX: sample.canvasX,
+    canvasY: sample.canvasY,
+    shift: sample.shift,
+    ctrl: sample.ctrl,
+    alt: sample.alt,
+    meta: sample.meta,
+  })
+}
+
+function flushPendingDragMove(): void {
+  dragMoveFrameRequested = false
+  if (!pendingDragMove) return
+  sendCanvasMsg('dragmove', pendingDragMove)
+  pendingDragMove = null
+}
+
+function scheduleDragMoveFlush(): void {
+  if (dragMoveFrameRequested) return
+  dragMoveFrameRequested = true
+  requestAnimationFrame(() => {
+    flushPendingDragMove()
+  })
+}
+
+function formDataToFields(formData: FormData): Record<string, string> | undefined {
+  const fields: Record<string, string> = {}
+  for (const [key, value] of formData.entries()) {
+    if (typeof value === 'string') fields[key] = value
+  }
+  return Object.keys(fields).length === 0 ? undefined : fields
+}
+
+function sendUiAction(action: string, fields?: Record<string, string>): void {
+  const msg: ClientMsg = {
+    type: 'ui_action',
+    seq: nextClientSeq++,
+    action,
+  }
+  if (fields && Object.keys(fields).length > 0) msg.fields = fields
+  sendClientMsg(msg)
+}
+
 function isPoint(value: unknown): value is { x: number; y: number } {
   return (
     typeof value === 'object' &&
@@ -508,7 +619,7 @@ ws.onopen = () => {
   statusEl.textContent = 'connected'
   log('Connected')
   const hello: ClientMsg = { type: 'hello', client: 'browser' }
-  ws.send(JSON.stringify(hello))
+  sendClientMsg(hello)
 }
 
 ws.onmessage = (event: MessageEvent<string>) => {
@@ -549,14 +660,80 @@ ws.onerror = () => {
   log('WebSocket error')
 }
 
-foregroundCanvas.addEventListener('click', (e: MouseEvent) => {
-  if (ws.readyState !== WebSocket.OPEN) return
-  const rect = foregroundCanvas.getBoundingClientRect()
-  const cssX = (e.clientX - rect.left) * (foregroundCanvas.width / rect.width)
-  const cssY = (e.clientY - rect.top) * (foregroundCanvas.height / rect.height)
-  const [x, y] = canvasToWorld(cssX, cssY).map(Math.round) as [number, number]
-  const msg: ClientMsg = { type: 'spawn', x, y }
-  ws.send(JSON.stringify(msg))
+foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
+  const sample = eventToCanvasSample(event)
+  canvasPointerState = {
+    button: sample.button,
+    buttons: sample.buttons,
+    dragging: false,
+  }
+
+  if (sample.button !== 2) sendCanvasMsg('click', sample)
+})
+
+foregroundCanvas.addEventListener('mousemove', (event: MouseEvent) => {
+  if (!canvasPointerState) return
+  const sample = eventToCanvasSample(event)
+
+  if (!canvasPointerState.dragging) {
+    canvasPointerState.dragging = true
+    canvasPointerState.buttons = sample.buttons
+    sendCanvasMsg('dragstart', sample)
+    return
+  }
+
+  canvasPointerState.buttons = sample.buttons
+  pendingDragMove = sample
+  scheduleDragMoveFlush()
+})
+
+window.addEventListener('mouseup', (event: MouseEvent) => {
+  if (!canvasPointerState) return
+  const sample = eventToCanvasSample(event)
+  const wasDragging = canvasPointerState.dragging
+  canvasPointerState = null
+  flushPendingDragMove()
+  if (wasDragging) sendCanvasMsg('dragend', sample)
+})
+
+foregroundCanvas.addEventListener('contextmenu', (event: MouseEvent) => {
+  event.preventDefault()
+  sendCanvasMsg('contextmenu', eventToCanvasSample(event))
+})
+
+foregroundCanvas.addEventListener('dblclick', (event: MouseEvent) => {
+  sendCanvasMsg('dblclick', eventToCanvasSample(event))
+})
+
+document.addEventListener('click', (event: MouseEvent) => {
+  const target = event.target
+  if (!(target instanceof Element)) return
+
+  const actionEl = target.closest<HTMLElement>('[data-action]')
+  if (!actionEl || actionEl instanceof HTMLFormElement) return
+
+  const action = actionEl.dataset.action
+  if (!action) return
+
+  if (actionEl.contains(foregroundCanvas)) return
+
+  const form = actionEl.closest('form')
+  const fields = form ? formDataToFields(new FormData(form)) : undefined
+  if (actionEl instanceof HTMLButtonElement || actionEl instanceof HTMLInputElement) {
+    event.preventDefault()
+  }
+  sendUiAction(action, fields)
+})
+
+document.addEventListener('submit', (event: SubmitEvent) => {
+  const target = event.target
+  if (!(target instanceof HTMLFormElement)) return
+
+  const action = target.dataset.action
+  if (!action) return
+
+  event.preventDefault()
+  sendUiAction(action, formDataToFields(new FormData(target)))
 })
 
 requestAnimationFrame(frame)

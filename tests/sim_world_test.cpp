@@ -499,6 +499,39 @@ void SimGame_LoadMapInitialSnapshotAndState() {
   EXPECT_TRUE(delta.erased.empty());
 }
 
+void SimGame_HandleUiActionStartWaveTransitionsToWavePhase() {
+  SimGame game;
+  game.loadMap();
+
+  game.handle_ui_action(
+      UiActionInput{.seq = 1, .action = "start_wave", .fields = {}});
+
+  const auto delta = extractGameDelta(game);
+  EXPECT_EQ(delta.phase, std::string_view{"wave"});
+  EXPECT_EQ(delta.waveTick, 0U);
+}
+
+void SimGame_HandleUiCanvasDoesNotChangeStateYet() {
+  SimGame game;
+  game.loadMap();
+  const auto before = extractGameDelta(game);
+
+  game.handle_ui_canvas(UiCanvasInput{.seq = 1,
+      .event = UiCanvasEvent::click,
+      .button = UiMouseButton::left,
+      .buttons = 1,
+      .x = 10.F,
+      .y = 20.F,
+      .canvasX = 100.F,
+      .canvasY = 200.F});
+
+  const auto after = extractGameDelta(game);
+  EXPECT_EQ(before.phase, std::string_view{"build"});
+  EXPECT_EQ(after.phase, std::string_view{"build"});
+  EXPECT_TRUE(after.upserts.empty());
+  EXPECT_TRUE(after.erased.empty());
+}
+
 void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
   SimGame game;
   game.loadMap();
@@ -595,6 +628,8 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_TickMovesMover,
     SimWorld_ResolveEscapeesVisitsEscapedEnemy,
     SimWorld_ResolveEscapeesCanLeaveEnemyAlive, SimWorld_GetPathOutOfRange,
     SimGame_LoadMapInitialSnapshotAndState,
+    SimGame_HandleUiActionStartWaveTransitionsToWavePhase,
+    SimGame_HandleUiCanvasDoesNotChangeStateYet,
     SimGame_StartWaveSpawnsFirstEnemyOnFirstStep,
     SimGame_ExtractDeltaConsumesWorldUpdatesButNotState,
     SimGame_ExtractFullIncludesPathsAndState)

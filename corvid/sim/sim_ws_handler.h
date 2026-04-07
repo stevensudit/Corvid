@@ -17,19 +17,15 @@
 #pragma once
 
 #include <atomic>
-#include <charconv>
-#include <cmath>
 #include <format>
 #include <iostream>
 #include <memory>
-#include <numbers>
-#include <optional>
 #include <vector>
 
 #include "../proto/http_websocket_transaction.h"
 #include "../strings/any_strings.h"
 #include "sim_game.h"
-#include "sim_world.h"
+#include "sim_json_parse.h"
 
 namespace corvid { inline namespace proto {
 
@@ -43,7 +39,7 @@ using namespace std::chrono_literals;
 // Protocol:
 //   Client sends: {"type":"hello","client":"browser"}
 //   Server replies: {"type":"hello_ack","message":"connected"}
-//   Client sends: {"type":"spawn","x":N,"y":N}
+//   Client sends: {"type":"ui_canvas",...} or {"type":"ui_action",...}
 //   Server then sends at 20 Hz: {"type":"world_delta",...}
 //
 // Keepalive (20s ping / 5s pong timeout) is enabled so that browser pong
@@ -75,7 +71,6 @@ public:
     };
     (void)enable_keepalive(loop, wheel, 20s, 5s);
     game_.loadMap();
-    game_.start_wave();
     std::cout << "WebSocket client connected\n";
   }
 
@@ -99,58 +94,35 @@ private:
   size_t buffer_high_watermark_ = 16ULL * 1024; // try to avoid resizes
   size_t erased_ids_high_watermark = 64;        // ditto for erased ID vector
 
-  // Handle an incoming text frame. Dispatches on `"type"` by substring search
-  // (no parser needed for these fixed message shapes).
+  // Handle an incoming text frame by classifying and forwarding the message.
   [[nodiscard]] bool do_message(http_websocket& ws, std::string&& msg) {
-    if (msg.contains(R"("type":"hello")") ||
-        msg.contains(R"("type": "hello")"))
-    {
-      if (!ws.send_text(R"({"type":"hello_ack","message":"connected"})"))
-        return false;
-      return do_arm_tick();
-    }
-    if (msg.contains(R"("type":"spawn")") ||
-        msg.contains(R"("type": "spawn")"))
-    {
-      return do_spawn(msg);
+    switch (classify_sim_client_message(msg)) {
+      case SimClientMessageKind::hello:
+        if (!ws.send_text(R"({"type":"hello_ack","message":"connected"})"))
+          return false;
+        return do_arm_tick();
+      case SimClientMessageKind::ui_canvas:
+        return do_ui_canvas(msg);
+      case SimClientMessageKind::ui_action:
+        return do_ui_action(msg);
+      case SimClientMessageKind::unknown:
+        break;
     }
     return true;
   }
 
-  // Parse a `spawn` message and add a new entity at the click position.
-  [[nodiscard]] bool do_spawn(std::string_view msg) {
-    const auto pos = parse_position(msg);
-    if (!pos) return true; // malformed, ignore
-
-    // Aim new point based on its angle from the center, with a fixed speed.
-    const auto [length, direction] = convert::CartesianToPolar(pos->x, pos->y);
-    const auto vel = Velocity::fromPolar(40.0, direction);
-    (void)vel;
-    (void)game_;
+  [[nodiscard]] bool do_ui_canvas(std::string_view msg) {
+    const auto input = parse_ui_canvas_message(msg);
+    if (!input) return true; // malformed, ignore
+    game_.handle_ui_canvas(*input);
     return true;
   }
 
-  // Parse an `{x, y}` position from the fixed message shape used by the sim.
-  [[nodiscard]] static std::optional<Position> parse_position(
-      std::string_view msg) {
-    const auto ox = parse_coord(msg, R"("x":)");
-    const auto oy = parse_coord(msg, R"("y":)");
-    if (!ox || !oy) return std::nullopt;
-    return Position{*ox, *oy};
-  }
-
-  // Find `key` in `msg` and parse the number that follows it.
-  [[nodiscard]] static std::optional<float>
-  parse_coord(std::string_view msg, std::string_view key) {
-    auto pos = msg.find(key);
-    if (pos == std::string_view::npos) return std::nullopt;
-    pos += key.size();
-    while (pos < msg.size() && msg[pos] == ' ') ++pos;
-    float val{};
-    auto [ptr, ec] =
-        std::from_chars(msg.data() + pos, msg.data() + msg.size(), val);
-    if (ec != std::errc{}) return std::nullopt;
-    return val;
+  [[nodiscard]] bool do_ui_action(std::string_view msg) {
+    const auto input = parse_ui_action_message(msg);
+    if (!input) return true; // malformed, ignore
+    game_.handle_ui_action(*input);
+    return true;
   }
 
   static void do_close() { std::cout << "WebSocket client disconnected\n"; }

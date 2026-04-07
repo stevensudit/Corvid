@@ -10,6 +10,16 @@ export interface HelloAckMsg {
   message: string;
 }
 
+export type UiCanvasEvent =
+  | 'click'
+  | 'dblclick'
+  | 'contextmenu'
+  | 'dragstart'
+  | 'dragmove'
+  | 'dragend'
+
+export type UiButton = 'left' | 'middle' | 'right' | 'other'
+
 export interface EntityPosition {
   id: number
   x: number
@@ -42,10 +52,27 @@ interface PathPoint {
   y: number
 }
 
-export interface SpawnMsg {
-  type: 'spawn'
+export interface UiCanvasMsg {
+  type: 'ui_canvas'
+  seq: number
+  event: UiCanvasEvent
+  button: UiButton
+  buttons: number
   x: number
   y: number
+  canvasX: number
+  canvasY: number
+  shift: boolean
+  ctrl: boolean
+  alt: boolean
+  meta: boolean
+}
+
+export interface UiActionMsg {
+  type: 'ui_action'
+  seq: number
+  action: string
+  fields?: Record<string, string>
 }
 
 export interface WorldDelta {
@@ -65,4 +92,4 @@ export interface WorldSnapshot {
 }
 
 export type ServerMsg = HelloAckMsg | WorldDelta | WorldSnapshot;
-export type ClientMsg = HelloMsg | SpawnMsg;
+export type ClientMsg = HelloMsg | UiCanvasMsg | UiActionMsg;
