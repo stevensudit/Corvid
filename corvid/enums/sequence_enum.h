@@ -331,14 +331,14 @@ struct sequence_enum_names_spec
     return do_seq_append(target, v, names);
   }
 
-  std::string_view as_view(E v) const noexcept {
+  [[nodiscard]] constexpr std::string_view as_view(E v) const noexcept {
     auto n = as_underlying(v);
     size_t ofs = n - *min_value<E>();
     if (ofs < names.size() && names[ofs].size()) return names[ofs];
     return std::string_view{"(unknown)"};
   }
 
-  bool lookup(E& v, std::string_view sv) const {
+  [[nodiscard]] bool lookup(E& v, std::string_view sv) const {
     if (sv.empty()) return false;
     if (registry::details::lookup_helper(v, sv)) {
       if constexpr (seq_actually_wrap_v<E>)
