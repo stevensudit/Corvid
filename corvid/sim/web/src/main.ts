@@ -1,6 +1,4 @@
-import type { ServerMsg, ClientMsg, EntityPosition, SnapshotMsg, WorldDelta } from './types.js'
-
-type IncomingServerMsg = ServerMsg | SnapshotMsg
+import type { ServerMsg, ClientMsg, EntityPosition, WorldDelta } from './types.js'
 
 // --- DOM setup ---
 
@@ -173,10 +171,6 @@ function isPoint(value: unknown): value is { x: number; y: number } {
   )
 }
 
-function snapshotPathsToPoints(paths: Array<{ points: Array<{ x: number; y: number }> }>): Array<{ x: number; y: number }> {
-  return paths[0]?.points ?? []
-}
-
 function getDeltaPhase(delta: WorldDelta): string {
   const maybePhase = (delta as WorldDelta & { phase?: unknown }).phase
   if (typeof maybePhase === 'string') return maybePhase
@@ -211,7 +205,7 @@ function applyWorldDelta(delta: WorldDelta): void {
 
 // --- Message validation ---
 
-function isServerMsg(value: unknown): value is IncomingServerMsg {
+function isServerMsg(value: unknown): value is ServerMsg {
   if (!value || typeof value !== 'object') return false
   const v = value as Record<string, unknown>
   if (typeof v.type !== 'string') return false
@@ -221,27 +215,6 @@ function isServerMsg(value: unknown): value is IncomingServerMsg {
       return typeof v.message === 'string'
     case 'tick':
       return typeof v.tick === 'number'
-    case 'snapshot':
-      return (
-        Array.isArray(v.entities) &&
-        Array.isArray(v.paths) &&
-        v.entities.every(
-          (e) =>
-            typeof e === 'object' &&
-            e !== null &&
-            typeof (e as Record<string, unknown>).id === 'number' &&
-            typeof (e as Record<string, unknown>).x === 'number' &&
-            typeof (e as Record<string, unknown>).y === 'number',
-        ) &&
-        v.paths.every(
-          (path) =>
-            typeof path === 'object' &&
-            path !== null &&
-            (path as Record<string, unknown>).type === 'path' &&
-            Array.isArray((path as Record<string, unknown>).points) &&
-            ((path as Record<string, unknown>).points as unknown[]).every(isPoint),
-        )
-      )
     case 'world_delta':
       return (
         typeof v.tick === 'number' &&
@@ -303,13 +276,6 @@ ws.onmessage = (event: MessageEvent<string>) => {
       break
     case 'tick':
       tickEl.textContent = String(parsed.tick)
-      break
-    case 'snapshot':
-      prevEntities = currEntities
-      prevById = new Map(prevEntities.map((e) => [e.id, e]))
-      currEntities = parsed.entities
-      drawBackground(snapshotPathsToPoints(parsed.paths))
-      lastSnapshotTime = performance.now()
       break
     case 'world_delta':
       applyWorldDelta(parsed)

@@ -202,32 +202,6 @@ struct SegmentedPath {
 using Tick = uint64_t;
 constexpr Tick invalidTick = std::numeric_limits<Tick>::max();
 
-// `Shape` is not a component, but entities may reference it to define an
-// aspect of their appearance. For now, we keep it simple by allowing a shape
-// and/or a Unicode character. This would allow, for example, a numerial "1"
-// inside a square.
-//
-// This is a placeholder.
-struct Shape {
-  int shape_id{};
-  int shape{};     // when it's made of a shape that the client knows about
-  char32_t logo{}; // when it uses an alphabetical character for display
-};
-
-// `Skin` is likewise not a component, and it builds upon `Shape`. A particular
-// object can be defined by a list of skins for its various manifestations.
-// It's possible that we might refactor all of this into a plain JSON file
-// that's sent to the client, keeping only the properties that need to be
-// tracked for gameplay, such as size and perhaps rotation.
-//
-// This is a placeholder.
-struct Skin {
-  int shape_id{};
-  uint32_t color{};
-  int size{};
-  int orientation{};
-};
-
 // TODO: We likely want to break out the physics-relevant properties into
 // components. We already have Position and Velocity (as well as PathFollower,
 // which is a type of velocity). We may need a Shape component which has the
@@ -252,22 +226,45 @@ struct PathFollower {
   float speed{};    // Distance per tick.
 };
 
-// Placed tower component. Stored alongside `Position` in the tower archetype.
+// Appearance component. Controls rendering on client side, but has no effect
+// on physics or game logic.
+struct Appearance {
+  char32_t glyph{};      // a Unicode character to display, if any.
+  float scale{1.F};      // multiplier on the base size of the shape, if any.
+  uint32_t fg_color{};   // RGB color, if any.
+  uint32_t bg_color{};   // RGB color, if any.
+  uint32_t glow_color{}; // RGB color for glow effect, if any.
+  Tick effect_expiry{invalidTick}; // When glow effect expires.
+};
+
+// Defensive tower component. Stored alongside `Position` in the tower
+// archetype.
 //
 // Note that towers sitting in the catalog or being dragged and dropped into
 // place are not entities, just client-side UI ephemera. Only once a tower is
 // placed does it become part of the world.
-struct Defender {
+struct Tower {
   int tower_type{};
-  float tower_radius{};
-  float lever_multiplier{};
+  float attack_radius{};
+  float attack_damage{}; // Per-attack damage.
+  Tick cooldown{};       // Cooldown for this sort of tower, in ticks.
+  Tick next_attack{};    // Tick when the next attack can occur.
+};
+
+// Enemy invader component. Stored alongside `Position` and `PathFollower` in
+// the enemy archetype.
+struct Invader {
+  float health{};
+  float radius{}; // Distinct from appearance: this is used for hit detection.
+  int bounty{1};  // Resources awarded to the player for killing this enemy.
 };
 
 // Bullet component. Stored alongside `Position` and `Velocity` in the bullet
 // archetype.
 struct Bullet {
   int bullet_type{};
-  Tick lifetime{};
+  float damage{};
+  Tick expiration{};
 };
 
 // ECS types for the simulation world.
@@ -285,10 +282,11 @@ struct Bullet {
 //                                           (Position + Velocity)
 //
 //   `sidEnemy`   = 3  -> `arch_enemy_t`   : path-following enemies
-//                                           (Position + PathFollower)
+//                                           (Position + Appearance +
+//                                           PathFollower + Invader)
 //
 //   `sidTower`   = 4  -> `arch_tower_t`   : placed towers
-//                                          (Position + PlacedTower)
+//                                          (Position + Appearance + Tower)
 //
 //   `sidBullet`  = 5  -> `arch_bullet_t`  : bullets
 //                                           (Position + Velocity + Bullet)
@@ -299,9 +297,10 @@ using WorldReg = entity_registry<Tick>;
 using WorldSid = WorldReg::store_id_t;
 using ArchP = archetype_storage<WorldReg, std::tuple<Position>>;
 using ArchPV = archetype_storage<WorldReg, std::tuple<Position, Velocity>>;
-using ArchEnemy =
-    archetype_storage<WorldReg, std::tuple<Position, PathFollower>>;
-using ArchTower = archetype_storage<WorldReg, std::tuple<Position, Defender>>;
+using ArchEnemy = archetype_storage<WorldReg,
+    std::tuple<Position, Appearance, PathFollower, Invader>>;
+using ArchTower =
+    archetype_storage<WorldReg, std::tuple<Position, Appearance, Tower>>;
 using ArchBullet =
     archetype_storage<WorldReg, std::tuple<Position, Velocity, Bullet>>;
 using WorldScene =
@@ -370,8 +369,8 @@ public:
     if (pathId >= paths_.size_as_enum()) return {};
     const auto pos =
         paths_[pathId].calculatePositionFromProgress(progress, progress);
-    return scene_.store_new_entity<sidEnemy>(tick_, pos,
-        PathFollower{pathId, progress, speed});
+    return scene_.store_new_entity<sidEnemy>(tick_, pos, Appearance{},
+        PathFollower{pathId, progress, speed}, Invader{});
   }
 
   // Advance one simulation frame. Sets each changed entity's registry metadata

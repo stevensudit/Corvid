@@ -44,7 +44,7 @@ using namespace std::chrono_literals;
 //   Client sends: {"type":"hello","client":"browser"}
 //   Server replies: {"type":"hello_ack","message":"connected"}
 //   Client sends: {"type":"spawn","x":N,"y":N}
-//   Server then sends at 20 Hz: {"type":"snapshot","entities":[...]}
+//   Server then sends at 20 Hz: {"type":"world_delta",...}
 //   Server also sends at 1 Hz: {"type":"tick","tick":N}
 //
 // Keepalive (20s ping / 5s pong timeout) is enabled so that browser pong

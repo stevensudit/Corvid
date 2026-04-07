@@ -26,17 +26,6 @@ interface PathPoint {
   y: number
 }
 
-interface Path {
-  type: 'path'
-  points: PathPoint[]
-}
-
-export interface SnapshotMsg {
-  type: 'snapshot'
-  entities: EntityPosition[]
-  paths: Path[]
-}
-
 export interface SpawnMsg {
   type: 'spawn'
   x: number
