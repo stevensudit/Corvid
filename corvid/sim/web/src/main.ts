@@ -2,15 +2,27 @@ import type {
   ClientMsg,
   EntityAppearance,
   EntityPosition,
-  EntityRender,
   EntityUpsert,
   ServerMsg,
   WorldDelta,
 } from './types.js'
 
+interface RenderColor {
+  css: string
+  alpha: number
+}
+
+interface RenderAppearance {
+  glyph: string
+  scale: number
+  fg: RenderColor
+  bg: RenderColor
+  glow: RenderColor
+}
+
 interface RenderEntityUpsert {
   pos: EntityPosition
-  app: EntityRender
+  app: RenderAppearance
 }
 
 // --- DOM setup ---
@@ -122,27 +134,25 @@ function renderInterpolated(): void {
   }
 }
 
-function packedRgbaToCss(color: number): string {
+function packedRgbaToRenderColor(color: number): RenderColor {
   const r = (color >>> 24) & 0xff
   const g = (color >>> 16) & 0xff
   const b = (color >>> 8) & 0xff
   const a = (color & 0xff) / 255
-  return `rgba(${r}, ${g}, ${b}, ${a})`
+  return {
+    css: `rgba(${r}, ${g}, ${b}, ${a})`,
+    alpha: a,
+  }
 }
 
-function cssRgbaAlpha(color: string): number {
-  const match = /^rgba\(\d+, \d+, \d+, ([0-9.]+)\)$/.exec(color)
-  return match ? Number(match[1]) : 1
+function isTransparent(color: RenderColor): boolean {
+  return color.alpha === 0
 }
 
-function isTransparent(color: string): boolean {
-  return cssRgbaAlpha(color) === 0
-}
-
-function drawFilledCircle(x: number, y: number, radius: number, color: string): void {
+function drawFilledCircle(x: number, y: number, radius: number, color: RenderColor): void {
   if (radius <= 0 || isTransparent(color)) return
 
-  fgCtx.fillStyle = color
+  fgCtx.fillStyle = color.css
   fgCtx.beginPath()
   fgCtx.arc(x, y, radius, 0, Math.PI * 2)
   fgCtx.fill()
@@ -168,13 +178,13 @@ function getGlyphFontSize(glyph: string, radius: number): number {
   return fontSize
 }
 
-function drawGlyphInCircle(glyph: string, x: number, y: number, radius: number, color: string): void {
+function drawGlyphInCircle(glyph: string, x: number, y: number, radius: number, color: RenderColor): void {
   if (!glyph || radius <= 0 || isTransparent(color)) return
 
   const fontSize = getGlyphFontSize(glyph, radius)
 
   fgCtx.save()
-  fgCtx.fillStyle = color
+  fgCtx.fillStyle = color.css
   fgCtx.font = `${fontSize}px monospace`
   fgCtx.textAlign = 'center'
   fgCtx.textBaseline = 'middle'
@@ -182,13 +192,13 @@ function drawGlyphInCircle(glyph: string, x: number, y: number, radius: number, 
   fgCtx.restore()
 }
 
-function appearanceToRender(app: EntityAppearance): EntityRender {
+function appearanceToRender(app: EntityAppearance): RenderAppearance {
   return {
     glyph: String.fromCodePoint(app.glyph),
     scale: app.scale,
-    fg: packedRgbaToCss(app.fg),
-    bg: packedRgbaToCss(app.bg),
-    glow: packedRgbaToCss(app.glow),
+    fg: packedRgbaToRenderColor(app.fg),
+    bg: packedRgbaToRenderColor(app.bg),
+    glow: packedRgbaToRenderColor(app.glow),
   }
 }
 
