@@ -44,6 +44,43 @@ struct GameDelta {
   std::string_view phase;
 };
 
+struct EntitySnapshot {
+  SimWorld::EntityId id;
+  Position pos;
+};
+
+struct GameSnapshot {
+  std::vector<EntitySnapshot> entities;
+  std::vector<PathJoints> path_points;
+};
+
+[[nodiscard]] std::vector<EntitySnapshot> snapshot(SimWorld& world) {
+  std::vector<EntitySnapshot> snaps;
+  (void)world.markAllDirty();
+  (void)world.extractUpdatedEntities(
+      [&snaps](SimWorld::EntityId id, const Position& pos) {
+        const auto it = std::ranges::find(snaps, id, &EntitySnapshot::id);
+        if (it == snaps.end())
+          snaps.push_back({id, pos});
+        else
+          it->pos = pos;
+      },
+      [](SimWorld::EntityId) {});
+  return snaps;
+}
+
+[[nodiscard]] std::vector<EntitySnapshot>
+snapshot(SimWorld& world, const std::vector<SimWorld::EntityId>& ids) {
+  const auto all = snapshot(world);
+  std::vector<EntitySnapshot> filtered;
+  filtered.reserve(ids.size());
+  std::ranges::copy_if(all, std::back_inserter(filtered),
+      [&ids](const EntitySnapshot& snap) {
+        return std::ranges::find(ids, snap.id) != ids.end();
+      });
+  return filtered;
+}
+
 [[nodiscard]] WorldDelta extractWorldDelta(SimWorld& world) {
   WorldDelta delta;
   (void)world.extractUpdatedEntities(
@@ -52,6 +89,26 @@ struct GameDelta {
       },
       [&delta](SimWorld::EntityId id) { delta.erased.push_back(id); });
   return delta;
+}
+
+[[nodiscard]] GameSnapshot snapshot(SimGame& game) {
+  GameSnapshot snap;
+  std::vector<PathJoints> pathsById;
+
+  (void)game.extractFull(
+      [&pathsById](PathId pathId, const Position& pos) {
+        const auto ndx = static_cast<size_t>(*pathId);
+        if (pathsById.size() <= ndx) pathsById.resize(ndx + 1);
+        pathsById[ndx].joints.push_back({pos});
+      },
+      [&snap](SimWorld::EntityId id, const Position& pos) {
+        snap.entities.push_back({id, pos});
+      },
+      [](SimWorld::EntityId) {},
+      [](size_t, Tick, int, int, std::string_view) {});
+
+  snap.path_points = std::move(pathsById);
+  return snap;
 }
 
 [[nodiscard]] GameDelta extractGameDelta(SimGame& game) {
@@ -73,14 +130,16 @@ struct GameDelta {
 }
 
 [[nodiscard]] bool containsId(const auto& entries, SimWorld::EntityId id) {
-  return std::ranges::any_of(entries,
-      [id](const auto& entry) { return entry.first == id; });
+  return std::ranges::any_of(entries, [id](const auto& entry) {
+    return entry.first == id;
+  });
 }
 
-[[nodiscard]] const Position* findPosition(
-    const auto& entries, SimWorld::EntityId id) {
-  const auto it = std::ranges::find_if(
-      entries, [id](const auto& entry) { return entry.first == id; });
+[[nodiscard]] const Position*
+findPosition(const auto& entries, SimWorld::EntityId id) {
+  const auto it = std::ranges::find_if(entries, [id](const auto& entry) {
+    return entry.first == id;
+  });
   return it == entries.end() ? nullptr : &it->second;
 }
 
@@ -97,12 +156,13 @@ void SimWorld_SpawnAndSnapshot() {
 
   EXPECT_EQ(w.size(), 2U);
 
-  const auto all = w.snapshot();
+  const auto all = snapshot(w);
   ASSERT_EQ(all.size(), 2U);
-  EXPECT_EQ(w.snapshot(std::vector<SimWorld::EntityId>{mover.id()}).size(), 1U);
-  EXPECT_EQ(w.snapshot(
-                std::vector<SimWorld::EntityId>{mover.id(), background.id()})
-                .size(),
+  EXPECT_EQ(snapshot(w, std::vector<SimWorld::EntityId>{mover.id()}).size(),
+      1U);
+  EXPECT_EQ(
+      snapshot(w, std::vector<SimWorld::EntityId>{mover.id(), background.id()})
+          .size(),
       2U);
 }
 
@@ -112,7 +172,7 @@ void SimWorld_TickMovesMover() {
 
   EXPECT_EQ(w.tick(), 1U);
 
-  const auto snaps = w.snapshot();
+  const auto snaps = snapshot(w);
   ASSERT_EQ(snaps.size(), 1U);
   EXPECT_EQ(snaps[0].id, mover.id());
   EXPECT_NEAR(snaps[0].pos.x, 103.0, 1e-6);
@@ -143,12 +203,12 @@ void SimWorld_BounceMinEdge() {
   SimWorld w;
   const float half_w = SimWorld::widthOfWorld * 0.5F;
   const float half_h = SimWorld::heightOfWorld * 0.5F;
-  const auto mover = w.spawnMover(
-      Position{-half_w + 0.5F, -half_h + 0.5F}, Velocity{-2.F, -2.F});
+  const auto mover = w.spawnMover(Position{-half_w + 0.5F, -half_h + 0.5F},
+      Velocity{-2.F, -2.F});
 
   (void)w.tick();
 
-  const auto snaps = w.snapshot(std::vector<SimWorld::EntityId>{mover.id()});
+  const auto snaps = snapshot(w, std::vector<SimWorld::EntityId>{mover.id()});
   ASSERT_EQ(snaps.size(), 1U);
   EXPECT_EQ(snaps[0].id, mover.id());
   EXPECT_GE(snaps[0].pos.x, -half_w);
@@ -159,12 +219,12 @@ void SimWorld_BounceMaxEdge() {
   SimWorld w;
   const float half_w = SimWorld::widthOfWorld * 0.5F;
   const float half_h = SimWorld::heightOfWorld * 0.5F;
-  const auto mover = w.spawnMover(
-      Position{half_w - 0.5F, half_h - 0.5F}, Velocity{2.F, 2.F});
+  const auto mover =
+      w.spawnMover(Position{half_w - 0.5F, half_h - 0.5F}, Velocity{2.F, 2.F});
 
   (void)w.tick();
 
-  const auto snaps = w.snapshot(std::vector<SimWorld::EntityId>{mover.id()});
+  const auto snaps = snapshot(w, std::vector<SimWorld::EntityId>{mover.id()});
   ASSERT_EQ(snaps.size(), 1U);
   EXPECT_EQ(snaps[0].id, mover.id());
   EXPECT_LE(snaps[0].pos.x, half_w);
@@ -176,13 +236,22 @@ void SimWorld_SnapshotSinceTracksChanges() {
   (void)w.spawnMover(Position{10.F, 10.F}, Velocity{1.F, 0.F});
   (void)w.spawnBackground(Position{20.F, 20.F});
 
-  EXPECT_EQ(w.snapshot(0).size(), 2U);
-  EXPECT_EQ(w.snapshot(1).size(), 0U);
+  const auto initial = snapshot(w);
+  EXPECT_EQ(initial.size(), 2U);
+
+  const auto unchanged = extractWorldDelta(w);
+  EXPECT_TRUE(unchanged.upserts.empty());
+  EXPECT_TRUE(unchanged.erased.empty());
 
   (void)w.tick();
 
-  EXPECT_EQ(w.snapshot(1).size(), 1U);
-  EXPECT_EQ(w.snapshot(2).size(), 0U);
+  const auto moved = extractWorldDelta(w);
+  EXPECT_EQ(moved.upserts.size(), 1U);
+  EXPECT_TRUE(moved.erased.empty());
+
+  const auto stable = extractWorldDelta(w);
+  EXPECT_TRUE(stable.upserts.empty());
+  EXPECT_TRUE(stable.erased.empty());
 }
 
 void SimWorld_BackgroundDoesNotAppearAsChangedAfterTick() {
@@ -191,11 +260,10 @@ void SimWorld_BackgroundDoesNotAppearAsChangedAfterTick() {
 
   (void)w.tick();
 
-  const auto snaps = w.snapshot();
+  const auto snaps = snapshot(w);
   ASSERT_EQ(snaps.size(), 1U);
   EXPECT_NEAR(snaps[0].pos.x, 50.0, 1e-6);
   EXPECT_NEAR(snaps[0].pos.y, 60.0, 1e-6);
-  EXPECT_EQ(w.snapshot(1).size(), 0U);
 
   const auto delta = extractWorldDelta(w);
   EXPECT_TRUE(delta.upserts.empty());
@@ -275,14 +343,11 @@ void SimWorld_EnemyAdvancesOnTick() {
 
   (void)w.tick();
 
-  const auto snaps = w.snapshot();
-  ASSERT_EQ(snaps.size(), 1U);
-  EXPECT_EQ(snaps[0].id, enemy.id());
-  EXPECT_NEAR(snaps[0].pos.x, 10.0, 1e-5);
-  EXPECT_NEAR(snaps[0].pos.y, 0.0, 1e-5);
-
   const auto delta = extractWorldDelta(w);
   EXPECT_TRUE(containsId(delta.upserts, enemy.id()));
+  ASSERT_EQ(delta.upserts.size(), 1U);
+  EXPECT_NEAR(delta.upserts[0].second.x, 10.0, 1e-5);
+  EXPECT_NEAR(delta.upserts[0].second.y, 0.0, 1e-5);
 }
 
 void SimWorld_ResolveEscapeesVisitsEscapedEnemy() {
@@ -296,28 +361,27 @@ void SimWorld_ResolveEscapeesVisitsEscapedEnemy() {
   EXPECT_EQ(w.size(), 1U);
 
   size_t resolved = 0;
-  (void)w.resolveEscapees([&](SimWorld::EntityId id, const Position& pos,
-                               const PathFollower& pf) {
-    ++resolved;
-    EXPECT_EQ(id, enemy.id());
-    EXPECT_NEAR(pos.x, 8.0, 1e-6);
-    EXPECT_NEAR(pos.y, 0.0, 1e-6);
-    EXPECT_NEAR(pf.progress, 13.0, 1e-6);
-    EXPECT_NEAR(pf.speed, 5.0, 1e-6);
-    return true;
-  });
+  (void)w.resolveEscapees(
+      [&](SimWorld::EntityId id, const Position& pos, const PathFollower& pf) {
+        ++resolved;
+        EXPECT_EQ(id, enemy.id());
+        EXPECT_NEAR(pos.x, 8.0, 1e-6);
+        EXPECT_NEAR(pos.y, 0.0, 1e-6);
+        EXPECT_NEAR(pf.progress, 13.0, 1e-6);
+        EXPECT_NEAR(pf.speed, 5.0, 1e-6);
+        return true;
+      });
 
   EXPECT_EQ(resolved, 1U);
-  EXPECT_EQ(w.size(), 1U);
+  EXPECT_EQ(w.size(), 0U);
 
   const auto delta = extractWorldDelta(w);
-  EXPECT_TRUE(containsId(delta.upserts, enemy.id()));
-  EXPECT_TRUE(delta.erased.empty());
+  EXPECT_TRUE(delta.upserts.empty());
+  EXPECT_EQ(delta.erased.size(), 1U);
+  EXPECT_EQ(delta.erased[0], enemy.id());
 
-  const auto snaps = w.snapshot();
-  ASSERT_EQ(snaps.size(), 1U);
-  EXPECT_EQ(snaps[0].id, enemy.id());
-  EXPECT_NEAR(snaps[0].pos.x, 8.0, 1e-6);
+  const auto snaps = snapshot(w);
+  EXPECT_TRUE(snaps.empty());
 }
 
 void SimWorld_ResolveEscapeesCanLeaveEnemyAlive() {
@@ -330,17 +394,17 @@ void SimWorld_ResolveEscapeesCanLeaveEnemyAlive() {
   (void)w.tick();
 
   size_t resolved = 0;
-  (void)w.resolveEscapees([&](SimWorld::EntityId id, const Position&,
-                               const PathFollower&) {
-    ++resolved;
-    EXPECT_EQ(id, enemy.id());
-    return false;
-  });
+  (void)w.resolveEscapees(
+      [&](SimWorld::EntityId id, const Position&, const PathFollower&) {
+        ++resolved;
+        EXPECT_EQ(id, enemy.id());
+        return false;
+      });
 
   EXPECT_EQ(resolved, 1U);
   EXPECT_EQ(w.size(), 1U);
 
-  const auto snaps = w.snapshot();
+  const auto snaps = snapshot(w);
   ASSERT_EQ(snaps.size(), 1U);
   EXPECT_EQ(snaps[0].id, enemy.id());
   EXPECT_NEAR(snaps[0].pos.x, 8.0, 1e-6);
@@ -362,7 +426,7 @@ void SimGame_LoadMapInitialSnapshotAndState() {
   SimGame game;
   game.loadMap();
 
-  const auto snap = game.snapshot();
+  const auto snap = snapshot(game);
   ASSERT_EQ(snap.entities.size(), 0U);
   ASSERT_EQ(snap.path_points.size(), 1U);
   EXPECT_EQ(snap.path_points[0].joints.front().p.x, 0.F);
@@ -386,7 +450,7 @@ void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
 
   EXPECT_EQ(game.step(), 1U);
 
-  const auto snap = game.snapshot();
+  const auto snap = snapshot(game);
   ASSERT_EQ(snap.entities.size(), 1U);
   EXPECT_NEAR(snap.entities[0].pos.x, 0.0, 1e-6);
   EXPECT_NEAR(snap.entities[0].pos.y, 0.0, 1e-6);
@@ -442,7 +506,8 @@ void SimGame_ExtractFullIncludesPathsAndState() {
       [&upserts](SimWorld::EntityId, const Position&) { ++upserts; },
       [&erased](SimWorld::EntityId) { ++erased; },
       [&currentWave, &waveTick, &lives, &resources, &phase](size_t wave,
-          Tick tick, int newLives, int newResources, std::string_view newPhase) {
+          Tick tick, int newLives, int newResources,
+          std::string_view newPhase) {
         currentWave = wave;
         waveTick = tick;
         lives = newLives;

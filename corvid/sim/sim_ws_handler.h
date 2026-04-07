@@ -122,7 +122,7 @@ private:
     if (!pos) return true; // malformed, ignore
 
     // Aim new point based on its angle from the center, with a fixed speed.
-    const auto [length, direction] = convertCartesianToPolar(pos->x, pos->y);
+    const auto [length, direction] = convert::CartesianToPolar(pos->x, pos->y);
     const auto vel = Velocity::fromPolar(40.0, direction);
     (void)vel;
     //!!! (void)world_.spawn(*pos, vel);

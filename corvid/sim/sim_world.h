@@ -184,6 +184,7 @@ struct SegmentedPath {
 };
 
 using Tick = uint64_t;
+constexpr Tick invalidTick = std::numeric_limits<Tick>::max();
 
 // `Shape` is not a component, but entities may reference it to define an
 // aspect of their appearance. For now, we keep it simple by allowing a shape
@@ -311,14 +312,6 @@ public:
   static constexpr float widthOfWorld = 1920.F;
   static constexpr float heightOfWorld = 1080.F;
 
-  // State snapshot for a single entity. This is the serialization format for
-  // the entity state sent to clients.
-  // !!!KILLME
-  struct EntitySnapshot {
-    EntityId id;
-    Position pos;
-  };
-
   void clear() {
     scene_.clear();
     paths_.clear();
@@ -329,12 +322,16 @@ public:
   // Returns a handle for later `despawn()`. The entity's last-change tick
   // is set to the current tick count.
   [[nodiscard]] Handle spawnMover(Position pos, Velocity vel) {
-    return scene_.store_new_entity<sidPosVel>(tick_, pos, vel);
+    auto h = scene_.store_new_entity<sidPosVel>({invalidTick}, pos, vel);
+    if (h) (void)markDirty(h.id());
+    return h;
   }
 
   // Spawn an immobile entity. Returns a handle for later `despawn()`.
   [[nodiscard]] Handle spawnBackground(Position pos) {
-    return scene_.store_new_entity<sidPos>(tick_, pos);
+    auto h = scene_.store_new_entity<sidPos>(invalidTick, pos);
+    if (h) (void)markDirty(h.id());
+    return h;
   }
 
   // Bake and store a path. Returns the index used as `path_follower::path_id`.
@@ -435,7 +432,21 @@ public:
   // Mark all entities dirty, to force a full snapshot.
   [[nodiscard]] bool markAllDirty() {
     scene_.registry().for_each([&](auto id, auto&) {
-      markDirty(id);
+      const auto loc = scene_.registry().get_location(id);
+      if (loc.store_id == sidStaging) return true;
+
+#if 1
+      (void)markDirty(id);
+#else
+
+      if (scene_.registry()[id] != tick_) {
+        (void)markDirty(id);
+        return true;
+      }
+
+      if (std::ranges::find(updatedEntities_, id) == updatedEntities_.end())
+        updatedEntities_.push_back(id);
+#endif
       return true;
     });
     return true;
@@ -498,8 +509,6 @@ private:
 
       bounce_from_boundary(pos.x, vel.vx, widthOfWorld);
       bounce_from_boundary(pos.y, vel.vy, heightOfWorld);
-
-      updatedEntities_.push_back(id);
       return true;
     });
 

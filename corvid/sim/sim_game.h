@@ -41,10 +41,6 @@ namespace corvid { inline namespace sim {
 // Snapshot of the game state for sending to clients. Contains all information
 // needed to render the current state of the world, but no information about
 // the rules or game flow.
-struct GameSnapshot {
-  std::vector<SimWorld::EntitySnapshot> entities;
-  std::vector<PathJoints> path_points;
-};
 
 enum class GamePhase : uint8_t {
   invalid,
