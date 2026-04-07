@@ -57,6 +57,18 @@ const bgCtx: CanvasRenderingContext2D = maybeBgCtx
 const maybeFgCtx = foregroundCanvas.getContext('2d')
 if (!maybeFgCtx) throw new Error('Could not get 2D foreground canvas context')
 const fgCtx: CanvasRenderingContext2D = maybeFgCtx
+const hudCanvas = document.createElement('canvas')
+hudCanvas.width = foregroundCanvas.width
+hudCanvas.height = foregroundCanvas.height
+const maybeHudCtx = hudCanvas.getContext('2d')
+if (!maybeHudCtx) throw new Error('Could not get 2D HUD canvas context')
+const hudCtx: CanvasRenderingContext2D = maybeHudCtx
+const fpsCanvas = document.createElement('canvas')
+fpsCanvas.width = foregroundCanvas.width
+fpsCanvas.height = foregroundCanvas.height
+const maybeFpsCtx = fpsCanvas.getContext('2d')
+if (!maybeFpsCtx) throw new Error('Could not get 2D FPS canvas context')
+const fpsCtx: CanvasRenderingContext2D = maybeFpsCtx
 
 // --- World / canvas coordinate mapping ---
 //
@@ -94,11 +106,14 @@ let currSnapshotTime = 0
 let snapshotIntervalMs = 50
 let lives = 0
 let resources = 0
+let lastFpsOverlayUpdateTime = 0
+let hudDirty = true
 const glyphFontSizeCache = new Map<string, number>()
 // Entity appearances come from a small, mostly fixed set of tower/enemy visuals,
 // so we memoize prerendered sprites for the lifetime of the page instead of
 // paying per-frame draw costs or maintaining an eviction policy.
 const entitySpriteCache = new Map<string, SpriteCacheEntry>()
+const FPS_OVERLAY_INTERVAL_MS = 100
 
 // Linear interpolation calculator
 function lerp(a: number, b: number, t: number): number {
@@ -138,6 +153,22 @@ function renderInterpolated(): void {
     const radius = 5 * lerp(prevApp.scale, e.app.scale, t)
     drawEntitySprite(x, y, radius, e.app)
   }
+}
+
+function updateHudOverlay(): void {
+  if (!hudDirty) return
+
+  hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height)
+  drawHud(hudCtx)
+  hudDirty = false
+}
+
+function updateFpsOverlay(now: number): void {
+  if (now - lastFpsOverlayUpdateTime < FPS_OVERLAY_INTERVAL_MS) return
+
+  fpsCtx.clearRect(0, 0, fpsCanvas.width, fpsCanvas.height)
+  drawFps(fpsCtx)
+  lastFpsOverlayUpdateTime = now
 }
 
 function packedRgbaToRenderColor(color: number): RenderColor {
@@ -277,38 +308,38 @@ function upsertToRenderEntity(upsert: EntityUpsert): RenderEntityUpsert {
   }
 }
 
-function drawFps(): void {
-  fgCtx.save()
+function drawFps(ctx: CanvasRenderingContext2D): void {
+  ctx.save()
   const label = `${fps.toFixed(1)} FPS`
-  fgCtx.font = '14px monospace'
+  ctx.font = '14px monospace'
   const pad = 6
-  const w = fgCtx.measureText(label).width + pad * 2
+  const w = ctx.measureText(label).width + pad * 2
   const h = 20
-  const x = foregroundCanvas.width - w - 4
-  const y = foregroundCanvas.height - 4 - h
-  fgCtx.fillStyle = 'rgba(0,0,0,0.5)'
-  fgCtx.fillRect(x, y, w, h)
-  fgCtx.fillStyle = 'white'
-  fgCtx.fillText(label, x + pad, y + 14)
-  fgCtx.restore()
+  const x = fpsCanvas.width - w - 4
+  const y = fpsCanvas.height - 4 - h
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'
+  ctx.fillRect(x, y, w, h)
+  ctx.fillStyle = 'white'
+  ctx.fillText(label, x + pad, y + 14)
+  ctx.restore()
 }
 
-function drawHud(): void {
-  fgCtx.save()
-  fgCtx.font = '20px monospace'
-  fgCtx.textBaseline = 'top'
+function drawHud(ctx: CanvasRenderingContext2D): void {
+  ctx.save()
+  ctx.font = '20px monospace'
+  ctx.textBaseline = 'top'
 
   const livesLabel = `${lives}❤️`
   const resourcesLabel = `$${resources}`
   const pad = 4
   const barHeight = 24
 
-  fgCtx.fillStyle = 'rgba(0,0,0,0.55)'
-  fgCtx.fillRect(0, 0, foregroundCanvas.width, barHeight)
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'
+  ctx.fillRect(0, 0, hudCanvas.width, barHeight)
 
-  fgCtx.fillStyle = 'white'
-  fgCtx.fillText(`${livesLabel}   ${resourcesLabel}`, pad, pad)
-  fgCtx.restore()
+  ctx.fillStyle = 'white'
+  ctx.fillText(`${livesLabel}   ${resourcesLabel}`, pad, pad)
+  ctx.restore()
 }
 
 function frame(now: number): void {
@@ -319,8 +350,10 @@ function frame(now: number): void {
   lastFrameTime = now
 
   renderInterpolated()
-  drawHud()
-  drawFps()
+  updateHudOverlay()
+  updateFpsOverlay(now)
+  fgCtx.drawImage(hudCanvas, 0, 0)
+  fgCtx.drawImage(fpsCanvas, 0, 0)
   requestAnimationFrame(frame)
 }
 
@@ -333,6 +366,10 @@ function log(line: string): void {
 
 function setTextIfElement(el: HTMLElement | null, value: string): void {
   if (el) el.textContent = value
+}
+
+function invalidateHud(): void {
+  hudDirty = true
 }
 
 function isPoint(value: unknown): value is { x: number; y: number } {
@@ -408,6 +445,7 @@ function applyWorldDelta(delta: WorldDelta): void {
   tickEl.textContent = String(delta.tick)
   lives = delta.lives
   resources = delta.resources
+  invalidateHud()
   setTextIfElement(livesEl, String(delta.lives))
   setTextIfElement(resourcesEl, String(delta.resources))
   setTextIfElement(phaseEl, getDeltaPhase(delta))
