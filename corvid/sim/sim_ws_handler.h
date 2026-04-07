@@ -231,14 +231,24 @@ private:
 
     (void)game_.extractDelta(
         // Upserts.
-        [&it, &wrote_any_upsert](SimWorld::EntityId entityId,
+        [&it, &wrote_any_upsert,
+            current_tick = current_tick_](SimWorld::EntityId entityId,
             const Position& pos, const Appearance& app) {
           if (wrote_any_upsert) it = std::format_to(it, ",");
           wrote_any_upsert = true;
+          if (app.modified + 1 != current_tick) {
+            it = std::format_to(it,
+                R"({{"pos":{{"id":{},"x":{:.1f},"y":{:.1f}}}}})", *entityId,
+                pos.x, pos.y);
+            return true;
+          }
+
+          const auto glow_color =
+              app.effect_expiry <= current_tick ? 0U : app.glow_color;
           it = std::format_to(it,
               R"({{"pos":{{"id":{},"x":{:.1f},"y":{:.1f}}},"app":{{"glyph":{},"scale":{:.3f},"fg":{},"bg":{},"glow":{}}}}})",
               *entityId, pos.x, pos.y, static_cast<uint32_t>(app.glyph),
-              app.scale, app.fg_color, app.bg_color, app.glow_color);
+              app.scale, app.fg_color, app.bg_color, glow_color);
           return true;
         },
         // Erasures.
