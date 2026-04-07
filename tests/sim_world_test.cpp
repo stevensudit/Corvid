@@ -15,221 +15,211 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
 #include <cstddef>
+#include <string_view>
+#include <utility>
 #include <vector>
 
-#include "../corvid/sim/sim_world.h"
+#include "../corvid/sim/sim_game.h"
 #include "minitest.h"
 
 using namespace corvid;
 using namespace corvid::sim;
 
+namespace {
+
+struct WorldDelta {
+  std::vector<std::pair<SimWorld::EntityId, Position>> upserts;
+  std::vector<SimWorld::EntityId> erased;
+};
+
+struct GameDelta {
+  std::vector<std::pair<SimWorld::EntityId, Position>> upserts;
+  std::vector<SimWorld::EntityId> erased;
+  size_t currentWave{};
+  Tick waveTick{};
+  int lives{};
+  int resources{};
+  std::string_view phase;
+};
+
+[[nodiscard]] WorldDelta extractWorldDelta(SimWorld& world) {
+  WorldDelta delta;
+  (void)world.extractUpdatedEntities(
+      [&delta](SimWorld::EntityId id, const Position& pos) {
+        delta.upserts.emplace_back(id, pos);
+      },
+      [&delta](SimWorld::EntityId id) { delta.erased.push_back(id); });
+  return delta;
+}
+
+[[nodiscard]] GameDelta extractGameDelta(SimGame& game) {
+  GameDelta delta;
+  (void)game.extractDelta(
+      [&delta](SimWorld::EntityId id, const Position& pos) {
+        delta.upserts.emplace_back(id, pos);
+      },
+      [&delta](SimWorld::EntityId id) { delta.erased.push_back(id); },
+      [&delta](size_t currentWave, Tick waveTick, int lives, int resources,
+          std::string_view phase) {
+        delta.currentWave = currentWave;
+        delta.waveTick = waveTick;
+        delta.lives = lives;
+        delta.resources = resources;
+        delta.phase = phase;
+      });
+  return delta;
+}
+
+[[nodiscard]] bool containsId(const auto& entries, SimWorld::EntityId id) {
+  return std::ranges::any_of(entries,
+      [id](const auto& entry) { return entry.first == id; });
+}
+
+[[nodiscard]] const Position* findPosition(
+    const auto& entries, SimWorld::EntityId id) {
+  const auto it = std::ranges::find_if(
+      entries, [id](const auto& entry) { return entry.first == id; });
+  return it == entries.end() ? nullptr : &it->second;
+}
+
+} // namespace
+
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
-// Spawn, size, and despawn round-trip.
-void SimWorld_SpawnDespawn() {
+void SimWorld_SpawnAndSnapshot() {
   SimWorld w;
   EXPECT_EQ(w.size(), 0U);
 
-  auto h = w.spawnMover(Position{10.0, 20.0}, Velocity{1.0, 2.0});
-  EXPECT_TRUE(w.is_alive(h));
-  EXPECT_EQ(w.size(), 1U);
+  const auto mover = w.spawnMover(Position{10.F, 20.F}, Velocity{1.F, 2.F});
+  const auto background = w.spawnBackground(Position{30.F, 40.F});
 
-  auto h2 = w.spawnMover(Position{30.0, 40.0}, Velocity{-1.0, 0.0});
   EXPECT_EQ(w.size(), 2U);
 
-  EXPECT_TRUE(w.despawn(h));
-  EXPECT_EQ(w.size(), 1U);
-  EXPECT_FALSE(w.is_alive(h)); // handle is invalidated on success
-
-  EXPECT_TRUE(w.despawn(h2));
-  EXPECT_EQ(w.size(), 0U);
+  const auto all = w.snapshot();
+  ASSERT_EQ(all.size(), 2U);
+  EXPECT_EQ(w.snapshot(std::vector<SimWorld::EntityId>{mover.id()}).size(), 1U);
+  EXPECT_EQ(w.snapshot(
+                std::vector<SimWorld::EntityId>{mover.id(), background.id()})
+                .size(),
+      2U);
 }
 
-// Despawning a stale handle returns false without crashing.
-void SimWorld_DespawnStale() {
+void SimWorld_TickMovesMover() {
   SimWorld w;
-  auto h = w.spawnMover(Position{}, Velocity{});
-  EXPECT_TRUE(w.despawn(h));
-  EXPECT_FALSE(w.despawn(h)); // second call: handle is dead
-}
+  const auto mover = w.spawnMover(Position{100.F, 200.F}, Velocity{3.F, -5.F});
 
-// tick() advances position by velocity.
-void SimWorld_Tick() {
-  SimWorld w;
-  auto h = w.spawnMover(Position{100.0, 200.0}, Velocity{3.0, -5.0});
-  (void)w.tick();
+  EXPECT_EQ(w.tick(), 1U);
 
-  auto snaps = w.snapshot();
+  const auto snaps = w.snapshot();
   ASSERT_EQ(snaps.size(), 1U);
-  EXPECT_NEAR(snaps[0].pos.x, 103.0, 1e-9);
-  EXPECT_NEAR(snaps[0].pos.y, 195.0, 1e-9);
-  (void)h;
+  EXPECT_EQ(snaps[0].id, mover.id());
+  EXPECT_NEAR(snaps[0].pos.x, 103.0, 1e-6);
+  EXPECT_NEAR(snaps[0].pos.y, 195.0, 1e-6);
 }
 
-// tick() with a non-null out-vector appends changed entity IDs.
-void SimWorld_TickOutParam() {
+void SimWorld_ExtractUpdatedEntitiesReportsMovedMoverOncePerExtraction() {
   SimWorld w;
-  auto h1 = w.spawnMover(Position{100.0, 100.0}, Velocity{1.0, 0.0});
-  auto h2 = w.spawnMover(Position{200.0, 200.0}, Velocity{0.0, 1.0});
+  const auto mover = w.spawnMover(Position{0.F, 0.F}, Velocity{2.F, 3.F});
 
-  std::vector<SimWorld::EntityId> changed;
   (void)w.tick();
+  const auto delta = extractWorldDelta(w);
 
-  EXPECT_EQ(changed.size(), 2U);
-  (void)h1;
-  (void)h2;
+  EXPECT_TRUE(containsId(delta.upserts, mover.id()));
+  EXPECT_TRUE(delta.erased.empty());
+
+  const auto* pos = findPosition(delta.upserts, mover.id());
+  ASSERT_TRUE(pos != nullptr);
+  EXPECT_NEAR(pos->x, 2.0, 1e-6);
+  EXPECT_NEAR(pos->y, 3.0, 1e-6);
+
+  const auto empty_delta = extractWorldDelta(w);
+  EXPECT_TRUE(empty_delta.upserts.empty());
+  EXPECT_TRUE(empty_delta.erased.empty());
 }
 
-// tick() with nullptr out-param does not allocate (just advance state).
-void SimWorld_TickNullOut() {
-  SimWorld w;
-  (void)w.spawnMover(Position{50.0, 50.0}, Velocity{1.0, 1.0});
-  (void)w.tick(); // must not crash
-  auto snaps = w.snapshot();
-  ASSERT_EQ(snaps.size(), 1U);
-  EXPECT_NEAR(snaps[0].pos.x, 51.0, 1e-9);
-}
-
-// Entities bounce off the left/top boundary.
 void SimWorld_BounceMinEdge() {
   SimWorld w;
   const float half_w = SimWorld::widthOfWorld * 0.5F;
   const float half_h = SimWorld::heightOfWorld * 0.5F;
-  (void)w.spawnMover(Position{-half_w + 0.5F, -half_h + 0.5F},
-      Velocity{-2.0F, -2.0F});
+  const auto mover = w.spawnMover(
+      Position{-half_w + 0.5F, -half_h + 0.5F}, Velocity{-2.F, -2.F});
+
   (void)w.tick();
 
-  auto snaps = w.snapshot();
+  const auto snaps = w.snapshot(std::vector<SimWorld::EntityId>{mover.id()});
   ASSERT_EQ(snaps.size(), 1U);
+  EXPECT_EQ(snaps[0].id, mover.id());
   EXPECT_GE(snaps[0].pos.x, -half_w);
   EXPECT_GE(snaps[0].pos.y, -half_h);
 }
 
-// Entities bounce off the right/bottom boundary.
 void SimWorld_BounceMaxEdge() {
   SimWorld w;
   const float half_w = SimWorld::widthOfWorld * 0.5F;
   const float half_h = SimWorld::heightOfWorld * 0.5F;
-  (void)w.spawnMover(Position{half_w - 0.5F, half_h - 0.5F},
-      Velocity{2.0F, 2.0F});
+  const auto mover = w.spawnMover(
+      Position{half_w - 0.5F, half_h - 0.5F}, Velocity{2.F, 2.F});
+
   (void)w.tick();
 
-  auto snaps = w.snapshot();
+  const auto snaps = w.snapshot(std::vector<SimWorld::EntityId>{mover.id()});
   ASSERT_EQ(snaps.size(), 1U);
+  EXPECT_EQ(snaps[0].id, mover.id());
   EXPECT_LE(snaps[0].pos.x, half_w);
   EXPECT_LE(snaps[0].pos.y, half_h);
 }
 
-// snapshot() with default since_tick returns all entities.
-void SimWorld_SnapshotAll() {
+void SimWorld_SnapshotSinceTracksChanges() {
   SimWorld w;
-  (void)w.spawnMover(Position{1.0, 2.0}, Velocity{});
-  (void)w.spawnMover(Position{3.0, 4.0}, Velocity{});
+  (void)w.spawnMover(Position{10.F, 10.F}, Velocity{1.F, 0.F});
+  (void)w.spawnBackground(Position{20.F, 20.F});
 
-  auto snaps = w.snapshot();
-  EXPECT_EQ(snaps.size(), 2U);
-}
-
-// snapshot(since_tick) returns only entities changed at or after that tick.
-void SimWorld_SnapshotSince() {
-  SimWorld w;
-  // Spawn two entities before any tick (their last-change tick = 0).
-  (void)w.spawnMover(Position{10.0, 10.0}, Velocity{1.0, 0.0});
-  (void)w.spawnMover(Position{20.0, 20.0}, Velocity{1.0, 0.0});
-
-  (void)w.tick(); // tick 1: both entities move, metadata set to 1
-
-  // Everything changed at tick 1 or later -> 2 results.
-  EXPECT_EQ(w.snapshot(1).size(), 2U);
-
-  // Nothing changed at tick 2 or later -> 0 results.
-  EXPECT_EQ(w.snapshot(2).size(), 0U);
-
-  (void)w.tick(); // tick 2: both entities move again, metadata set to 2
-
-  // Now both qualify for since_tick=2.
-  EXPECT_EQ(w.snapshot(2).size(), 2U);
-
-  // Still nothing at tick 3.
-  EXPECT_EQ(w.snapshot(3).size(), 0U);
-}
-
-// snapshot(ids) returns only the requested entities.
-void SimWorld_SnapshotByIds() {
-  SimWorld w;
-  auto h1 = w.spawnMover(Position{1.0, 1.0}, Velocity{});
-  auto h2 = w.spawnMover(Position{2.0, 2.0}, Velocity{});
-  auto h3 = w.spawnMover(Position{3.0, 3.0}, Velocity{});
-
-  std::vector<SimWorld::EntityId> ids{h1.id(), h3.id()};
-  auto snaps = w.snapshot(ids);
-  ASSERT_EQ(snaps.size(), 2U);
-  // The results should be for h1 and h3, not h2.
-  EXPECT_EQ(snaps[0].id, h1.id());
-  EXPECT_EQ(snaps[1].id, h3.id());
-  (void)h2;
-}
-
-// snapshot(ids) silently skips dead entity IDs.
-void SimWorld_SnapshotByIdsSkipsDead() {
-  SimWorld w;
-  auto h = w.spawnMover(Position{5.0, 5.0}, Velocity{});
-  auto dead_id = h.id();
-  EXPECT_TRUE(w.despawn(h));
-
-  std::vector<SimWorld::EntityId> ids{dead_id};
-  auto snaps = w.snapshot(ids);
-  EXPECT_EQ(snaps.size(), 0U);
-}
-
-// spawn_background adds a P-only entity visible in snapshots.
-void SimWorld_Background() {
-  SimWorld w;
-  auto hb = w.spawnBackground(Position{50.0, 60.0});
-  EXPECT_TRUE(w.is_alive(hb));
-  EXPECT_EQ(w.size(), 1U);
-
-  auto snaps = w.snapshot();
-  ASSERT_EQ(snaps.size(), 1U);
-  EXPECT_NEAR(snaps[0].pos.x, 50.0, 1e-9);
-  EXPECT_NEAR(snaps[0].pos.y, 60.0, 1e-9);
-
-  // Background entity does not move on tick.
-  (void)w.tick();
-  snaps = w.snapshot();
-  ASSERT_EQ(snaps.size(), 1U);
-  EXPECT_NEAR(snaps[0].pos.x, 50.0, 1e-9);
-}
-
-// Background entity is excluded from snapshot(since_tick) after a tick
-// because its metadata was never updated beyond its spawn tick (0).
-void SimWorld_BackgroundNotInDeltaAfterTick() {
-  SimWorld w;
-  (void)w.spawnBackground(Position{50.0, 60.0});
-  (void)w.tick(); // tick 1; background entity metadata stays at 0
+  EXPECT_EQ(w.snapshot(0).size(), 2U);
   EXPECT_EQ(w.snapshot(1).size(), 0U);
+
+  (void)w.tick();
+
+  EXPECT_EQ(w.snapshot(1).size(), 1U);
+  EXPECT_EQ(w.snapshot(2).size(), 0U);
 }
 
-// --- Path geometry tests ---
+void SimWorld_BackgroundDoesNotAppearAsChangedAfterTick() {
+  SimWorld w;
+  (void)w.spawnBackground(Position{50.F, 60.F});
 
-// bake_path with two joints produces one segment with the correct length.
+  (void)w.tick();
+
+  const auto snaps = w.snapshot();
+  ASSERT_EQ(snaps.size(), 1U);
+  EXPECT_NEAR(snaps[0].pos.x, 50.0, 1e-6);
+  EXPECT_NEAR(snaps[0].pos.y, 60.0, 1e-6);
+  EXPECT_EQ(w.snapshot(1).size(), 0U);
+
+  const auto delta = extractWorldDelta(w);
+  EXPECT_TRUE(delta.upserts.empty());
+  EXPECT_TRUE(delta.erased.empty());
+}
+
 void BakePath_TwoJoints() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{3.F, 4.F}}};
+
   const auto bp = SegmentedPath::fromJoints(p);
+
   ASSERT_EQ(bp.segments.size(), 1U);
   EXPECT_NEAR(bp.segments[0].cumulativeStart, 0.0, 1e-6);
   EXPECT_NEAR(bp.segments[0].length, 5.0, 1e-6);
   EXPECT_NEAR(bp.totalLength, 5.0, 1e-6);
 }
 
-// bake_path with three joints produces two segments with correct cumulative
-// distances.
 void BakePath_ThreeJoints() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{3.F, 4.F}}, {{6.F, 8.F}}};
+
   const auto bp = SegmentedPath::fromJoints(p);
+
   ASSERT_EQ(bp.segments.size(), 2U);
   EXPECT_NEAR(bp.segments[0].cumulativeStart, 0.0, 1e-6);
   EXPECT_NEAR(bp.segments[0].length, 5.0, 1e-6);
@@ -238,78 +228,124 @@ void BakePath_ThreeJoints() {
   EXPECT_NEAR(bp.totalLength, 10.0, 1e-6);
 }
 
-// bake_path with fewer than two joints returns an empty baked_path.
 void BakePath_Degenerate() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}};
+
   const auto bp = SegmentedPath::fromJoints(p);
+
   EXPECT_TRUE(bp.segments.empty());
   EXPECT_NEAR(bp.totalLength, 0.0, 1e-6);
 }
 
-// path_position at progress 0 returns the first joint; at total_length
-// returns the last joint.
 void PathPosition_Endpoints() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
   const auto bp = SegmentedPath::fromJoints(p);
 
   const auto start = bp.calculatePositionFromProgress(0.F);
+  const auto end = bp.calculatePositionFromProgress(bp.totalLength);
+
   EXPECT_NEAR(start.x, 0.0, 1e-6);
   EXPECT_NEAR(start.y, 0.0, 1e-6);
-
-  const auto end = bp.calculatePositionFromProgress(bp.totalLength);
   EXPECT_NEAR(end.x, 10.0, 1e-6);
   EXPECT_NEAR(end.y, 0.0, 1e-6);
 }
 
-// path_position at the midpoint returns the correctly interpolated position.
 void PathPosition_Midpoint() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
   const auto bp = SegmentedPath::fromJoints(p);
 
   const auto mid = bp.calculatePositionFromProgress(5.F);
+
   EXPECT_NEAR(mid.x, 5.0, 1e-6);
   EXPECT_NEAR(mid.y, 0.0, 1e-6);
 }
 
-// Spawning an enemy and ticking once advances its position by `speed`.
 void SimWorld_EnemyAdvancesOnTick() {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{100.F, 0.F}}};
   const auto pid = w.addPath(p);
+  const auto enemy = w.spawnEnemy(pid, 10.F);
 
-  auto h = w.spawnEnemy(pid, 10.F);
-  EXPECT_TRUE(w.is_alive(h));
+  EXPECT_TRUE(static_cast<bool>(enemy));
+  EXPECT_EQ(w.size(), 1U);
 
   (void)w.tick();
 
   const auto snaps = w.snapshot();
   ASSERT_EQ(snaps.size(), 1U);
+  EXPECT_EQ(snaps[0].id, enemy.id());
   EXPECT_NEAR(snaps[0].pos.x, 10.0, 1e-5);
   EXPECT_NEAR(snaps[0].pos.y, 0.0, 1e-5);
+
+  const auto delta = extractWorldDelta(w);
+  EXPECT_TRUE(containsId(delta.upserts, enemy.id()));
 }
 
-// An enemy that reaches the end of the path is despawned automatically.
-void SimWorld_EnemyDespawnsAtEnd() {
+void SimWorld_ResolveEscapeesVisitsEscapedEnemy() {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
   const auto pid = w.addPath(p);
+  const auto enemy = w.spawnEnemy(pid, 5.F, 8.F);
 
-  // Start near the end; one tick will push progress past total_length.
-  auto h = w.spawnEnemy(pid, 5.F, 8.F);
+  (void)w.tick();
   EXPECT_EQ(w.size(), 1U);
+
+  size_t resolved = 0;
+  (void)w.resolveEscapees([&](SimWorld::EntityId id, const Position& pos,
+                               const PathFollower& pf) {
+    ++resolved;
+    EXPECT_EQ(id, enemy.id());
+    EXPECT_NEAR(pos.x, 8.0, 1e-6);
+    EXPECT_NEAR(pos.y, 0.0, 1e-6);
+    EXPECT_NEAR(pf.progress, 13.0, 1e-6);
+    EXPECT_NEAR(pf.speed, 5.0, 1e-6);
+    return true;
+  });
+
+  EXPECT_EQ(resolved, 1U);
+  EXPECT_EQ(w.size(), 1U);
+
+  const auto delta = extractWorldDelta(w);
+  EXPECT_TRUE(containsId(delta.upserts, enemy.id()));
+  EXPECT_TRUE(delta.erased.empty());
+
+  const auto snaps = w.snapshot();
+  ASSERT_EQ(snaps.size(), 1U);
+  EXPECT_EQ(snaps[0].id, enemy.id());
+  EXPECT_NEAR(snaps[0].pos.x, 8.0, 1e-6);
+}
+
+void SimWorld_ResolveEscapeesCanLeaveEnemyAlive() {
+  SimWorld w;
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
+  const auto pid = w.addPath(p);
+  const auto enemy = w.spawnEnemy(pid, 5.F, 8.F);
 
   (void)w.tick();
 
-  EXPECT_EQ(w.size(), 0U);
-  EXPECT_FALSE(w.is_alive(h));
+  size_t resolved = 0;
+  (void)w.resolveEscapees([&](SimWorld::EntityId id, const Position&,
+                               const PathFollower&) {
+    ++resolved;
+    EXPECT_EQ(id, enemy.id());
+    return false;
+  });
+
+  EXPECT_EQ(resolved, 1U);
+  EXPECT_EQ(w.size(), 1U);
+
+  const auto snaps = w.snapshot();
+  ASSERT_EQ(snaps.size(), 1U);
+  EXPECT_EQ(snaps[0].id, enemy.id());
+  EXPECT_NEAR(snaps[0].pos.x, 8.0, 1e-6);
 }
 
-// get_path returns nullptr for an out-of-range index.
 void SimWorld_GetPathOutOfRange() {
   SimWorld w;
   EXPECT_TRUE(w.getPath(PathId{0}) == nullptr);
@@ -322,14 +358,120 @@ void SimWorld_GetPathOutOfRange() {
   EXPECT_TRUE(w.getPath(PathId{1}) == nullptr);
 }
 
+void SimGame_LoadMapInitialSnapshotAndState() {
+  SimGame game;
+  game.loadMap();
+
+  const auto snap = game.snapshot();
+  ASSERT_EQ(snap.entities.size(), 0U);
+  ASSERT_EQ(snap.path_points.size(), 1U);
+  EXPECT_EQ(snap.path_points[0].joints.front().p.x, 0.F);
+  EXPECT_EQ(snap.path_points[0].joints.front().p.y, 0.F);
+  EXPECT_GT(snap.path_points[0].joints.size(), 2U);
+
+  const auto delta = extractGameDelta(game);
+  EXPECT_EQ(delta.currentWave, 0U);
+  EXPECT_EQ(delta.waveTick, 0U);
+  EXPECT_EQ(delta.lives, 20);
+  EXPECT_EQ(delta.resources, 100);
+  EXPECT_EQ(delta.phase, std::string_view{"build"});
+  EXPECT_TRUE(delta.upserts.empty());
+  EXPECT_TRUE(delta.erased.empty());
+}
+
+void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
+  SimGame game;
+  game.loadMap();
+  game.start_wave();
+
+  EXPECT_EQ(game.step(), 1U);
+
+  const auto snap = game.snapshot();
+  ASSERT_EQ(snap.entities.size(), 1U);
+  EXPECT_NEAR(snap.entities[0].pos.x, 0.0, 1e-6);
+  EXPECT_NEAR(snap.entities[0].pos.y, 0.0, 1e-6);
+
+  const auto delta = extractGameDelta(game);
+  EXPECT_EQ(delta.currentWave, 0U);
+  EXPECT_EQ(delta.waveTick, 1U);
+  EXPECT_EQ(delta.lives, 20);
+  EXPECT_EQ(delta.resources, 100);
+  EXPECT_EQ(delta.phase, std::string_view{"wave"});
+}
+
+void SimGame_ExtractDeltaConsumesWorldUpdatesButNotState() {
+  SimGame game;
+  game.loadMap();
+  game.start_wave();
+
+  (void)game.step();
+  (void)game.step();
+
+  const auto delta = extractGameDelta(game);
+  EXPECT_TRUE(!delta.upserts.empty());
+  EXPECT_EQ(delta.erased.size(), 0U);
+  EXPECT_EQ(delta.waveTick, 2U);
+  EXPECT_EQ(delta.phase, std::string_view{"wave"});
+
+  const auto* pos = findPosition(delta.upserts, delta.upserts.front().first);
+  ASSERT_TRUE(pos != nullptr);
+  EXPECT_GT(pos->x, 0.F);
+
+  const auto empty_world_delta = extractGameDelta(game);
+  EXPECT_TRUE(empty_world_delta.upserts.empty());
+  EXPECT_TRUE(empty_world_delta.erased.empty());
+  EXPECT_EQ(empty_world_delta.waveTick, 2U);
+  EXPECT_EQ(empty_world_delta.phase, std::string_view{"wave"});
+}
+
+void SimGame_ExtractFullIncludesPathsAndState() {
+  SimGame game;
+  game.loadMap();
+
+  size_t path_points = 0;
+  size_t upserts = 0;
+  size_t erased = 0;
+  size_t currentWave = 99;
+  Tick waveTick = 99;
+  int lives = -1;
+  int resources = -1;
+  std::string_view phase = "unknown";
+
+  (void)game.extractFull(
+      [&path_points](PathId, const Position&) { ++path_points; },
+      [&upserts](SimWorld::EntityId, const Position&) { ++upserts; },
+      [&erased](SimWorld::EntityId) { ++erased; },
+      [&currentWave, &waveTick, &lives, &resources, &phase](size_t wave,
+          Tick tick, int newLives, int newResources, std::string_view newPhase) {
+        currentWave = wave;
+        waveTick = tick;
+        lives = newLives;
+        resources = newResources;
+        phase = newPhase;
+      });
+
+  EXPECT_GT(path_points, 0U);
+  EXPECT_EQ(upserts, 0U);
+  EXPECT_EQ(erased, 0U);
+  EXPECT_EQ(currentWave, 0U);
+  EXPECT_EQ(waveTick, 0U);
+  EXPECT_EQ(lives, 20);
+  EXPECT_EQ(resources, 100);
+  EXPECT_EQ(phase, std::string_view{"build"});
+}
+
 // NOLINTEND(readability-function-cognitive-complexity)
 
-MAKE_TEST_LIST(SimWorld_SpawnDespawn, SimWorld_DespawnStale, SimWorld_Tick,
-    SimWorld_TickOutParam, SimWorld_TickNullOut, SimWorld_BounceMinEdge,
-    SimWorld_BounceMaxEdge, SimWorld_SnapshotAll, SimWorld_SnapshotSince,
-    SimWorld_SnapshotByIds, SimWorld_SnapshotByIdsSkipsDead,
-    SimWorld_Background, SimWorld_BackgroundNotInDeltaAfterTick,
-    BakePath_TwoJoints, BakePath_ThreeJoints, BakePath_Degenerate,
-    PathPosition_Endpoints, PathPosition_Midpoint,
-    SimWorld_EnemyAdvancesOnTick, SimWorld_EnemyDespawnsAtEnd,
-    SimWorld_GetPathOutOfRange)
+MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_TickMovesMover,
+    SimWorld_ExtractUpdatedEntitiesReportsMovedMoverOncePerExtraction,
+    SimWorld_BounceMinEdge, SimWorld_BounceMaxEdge,
+    SimWorld_SnapshotSinceTracksChanges,
+    SimWorld_BackgroundDoesNotAppearAsChangedAfterTick, BakePath_TwoJoints,
+    BakePath_ThreeJoints, BakePath_Degenerate, PathPosition_Endpoints,
+    PathPosition_Midpoint, SimWorld_EnemyAdvancesOnTick,
+    SimWorld_ResolveEscapeesVisitsEscapedEnemy,
+    SimWorld_ResolveEscapeesCanLeaveEnemyAlive, SimWorld_GetPathOutOfRange,
+    SimGame_LoadMapInitialSnapshotAndState,
+    SimGame_StartWaveSpawnsFirstEnemyOnFirstStep,
+    SimGame_ExtractDeltaConsumesWorldUpdatesButNotState,
+    SimGame_ExtractFullIncludesPathsAndState)

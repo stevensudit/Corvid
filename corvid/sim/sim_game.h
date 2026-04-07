@@ -53,6 +53,15 @@ enum class GamePhase : uint8_t {
   victory,   // All waves completed with lives remaining
 };
 
+}} // namespace corvid::sim
+
+template<>
+constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::GamePhase> =
+    corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::GamePhase,
+        "build, wave, game_over, victory">();
+
+namespace corvid { inline namespace sim {
+
 // Enemy spawn definition for a wave.
 struct EnemySpawn {
   Tick startTicks;
@@ -154,7 +163,8 @@ public:
   [[nodiscard]] bool
   extractDelta(auto&& cbUpserts, auto&& cbErased, auto&& cbState) {
     (void)world_.extractUpdatedEntities(cbUpserts, cbErased);
-    (void)cbState(currentWave, waveTick, lives_, resources_, phase_name(phase_));
+    (void)cbState(currentWave, waveTick, lives_, resources_,
+        phase_name(phase_));
 
     return true;
   }

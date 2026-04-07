@@ -26,30 +26,29 @@ namespace corvid::strings { inline namespace any_strings_types {
 using any_strings =
     std::variant<std::monostate, std::string, std::vector<std::string>>;
 
-// `make_string_vector`: Efficiently fill a vector with strings by moving them
+// `as_vector`: Efficiently fill a vector with strings by moving them
 // in. If no parameters, returns an empty vector.
 template<typename... Strings>
 requires(std::same_as<Strings, std::string> && ...)
-[[nodiscard]] inline std::vector<std::string>
-make_string_vector(Strings&&... strings) {
+[[nodiscard]] inline std::vector<std::string> as_vector(Strings&&... strings) {
   auto result = std::vector<std::string>{};
   result.reserve(sizeof...(Strings));
   (result.emplace_back(std::move(strings)), ...);
   return result;
 }
 
-// `make_any_strings`: Make an `any_strings` out of the parameters, moving them
+// `as_any`: Make an `any_strings` out of the parameters, moving them
 // in. If no parameters, returns `std::monostate`.
 template<typename... Strings>
 requires(std::same_as<Strings, std::string> && ...)
-[[nodiscard]] inline any_strings make_any_strings(Strings&&... strings) {
+[[nodiscard]] inline any_strings as_any(Strings&&... strings) {
   if constexpr (sizeof...(Strings) == 0) {
     return std::monostate{};
   } else if constexpr (sizeof...(Strings) == 1) {
     return any_strings{std::in_place_type<std::string>, std::move(strings)...};
   } else {
     return any_strings{std::in_place_type<std::vector<std::string>>,
-        make_string_vector(std::move(strings)...)};
+        as_vector(std::move(strings)...)};
   }
 }
 

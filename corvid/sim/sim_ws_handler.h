@@ -187,51 +187,13 @@ private:
     if (!send_game_state()) return false;
     send_strategy_ = update_strategy::incremental;
     return do_arm_tick(tick_n + 1);
-#if 0
-    auto snap = game_.snapshot();
-
-    const auto snaps = snap.entities;
-    const auto paths = snap.path_points;
-    std::string entities;
-    entities.reserve(snaps.size() * 40);
-    for (const auto& e : snaps) {
-      if (!entities.empty()) entities += ',';
-      entities += std::format(R"({{"id":{},"x":{:.1f},"y":{:.1f}}})",
-          static_cast<std::size_t>(e.id), e.pos.x, e.pos.y);
-    }
-
-    std::string path_json = "[]";
-    if (!paths.empty()) {
-      const auto& path = paths.front();
-      std::string joints;
-      joints.reserve(path.joints.size() * 24);
-      for (const auto& joint : path.joints) {
-        if (!joints.empty()) joints += ',';
-        joints +=
-            std::format(R"({{"x":{:.1f},"y":{:.1f}}})", joint.p.x, joint.p.y);
-      }
-      path_json = std::format("[{}]", joints);
-    }
-
-    auto snap_msg = std::format(
-        R"({{"type":"snapshot","entities":[{}],"path":{}}})", entities,
-        path_json);
-    if (!websocket().send_text(snap_msg)) return false;
-
-    if (tick_n % 20 == 0) {
-      auto tick_msg =
-          std::format(R"({{"type":"tick","tick":{}}})", tick_n / 20);
-      if (!websocket().send_text(tick_msg)) return false;
-    }
-
-    return do_arm_tick(tick_n + 1);
-#endif
   }
 
   [[nodiscard]] bool send_game_state() {
     std::string buf;
     buf.reserve(16ULL * 1024);
     auto it = std::back_inserter(buf);
+    // State to allow comma delimiter management in callbacks.
     bool wrote_any_path = false;
     bool wrote_any_joint = false;
     bool wrote_any_upsert = false;
@@ -255,14 +217,16 @@ private:
 
     std::vector<SimWorld::EntityId> erasedIds;
     erasedIds.reserve(64);
-    it = std::format_to(it, R"({{"type":"world_delta","tick":{}, "upserts":[)",
-        current_tick_);
 
+    // Display state.
     size_t current_wave{};
     Tick wave_tick{};
     int lives_count{};
     int resources_count{};
     std::string_view phase{};
+
+    it = std::format_to(it, R"({{"type":"world_delta","tick":{}, "upserts":[)",
+        current_tick_);
 
     (void)game_.extractDelta(
         // Upserts.
@@ -271,7 +235,7 @@ private:
           if (wrote_any_upsert) it = std::format_to(it, ",");
           wrote_any_upsert = true;
           it = std::format_to(it, R"({{"id":{},"x":{:.1f},"y":{:.1f}}})",
-              static_cast<std::size_t>(entityId), pos.x, pos.y);
+              *entityId, pos.x, pos.y);
           return true;
         },
         // Erasures.
@@ -302,17 +266,15 @@ private:
 
     if (send_strategy_ == update_strategy::full) buf += "}";
 
-    std::cout << buf << '\n';
-
     std::string header_buf;
     (void)ws_frame_lens::build(header_buf,
         ws_frame_control::text | ws_frame_control::fin, buf.size(),
         std::nullopt);
 
-    auto buffers =
-        strings::make_any_strings(std::move(header_buf), std::move(buf));
+    if (!websocket().send_frame(
+            strings::as_vector(std::move(header_buf), std::move(buf))))
+      return false;
 
-    if (!websocket().send_frame(std::move(buffers))) return false;
     return true;
   }
 };
