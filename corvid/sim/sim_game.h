@@ -50,6 +50,11 @@ enum class GamePhase : uint8_t {
   victory,   // All waves completed with lives remaining
 };
 
+// Tick from start of wave.
+enum class WaveTick : uint64_t {
+  invalid = std::numeric_limits<uint64_t>::max()
+};
+
 }} // namespace corvid::sim
 
 template<>
@@ -57,11 +62,16 @@ constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::GamePhase> =
     corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::GamePhase,
         "invalid, build, wave, game_over, victory">();
 
+template<>
+constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::WaveTick> =
+    corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::WaveTick,
+        "">();
+
 namespace corvid { inline namespace sim {
 
 // Enemy spawn definition for a wave.
 struct EnemySpawn {
-  Tick startTicks;
+  WaveTick startTicks;
   int enemyType;
 };
 
@@ -88,14 +98,14 @@ public:
     phase_ = GamePhase::build;
     waves_.clear();
     currentWave_ = 0;
-    waveTick = 0;
+    waveTick = {};
     nextSpawnIndex_ = 0;
     lives_ = 20;
     resources_ = 100;
   }
 
   // Advance the simulation one tick. Returns the new tick count.
-  Tick step() {
+  WorldTick step() {
     const auto tick = world_.tick();
     if (phase_ == GamePhase::wave) {
       ++waveTick;
@@ -122,7 +132,7 @@ public:
   void start_wave() {
     if (phase_ != GamePhase::build) return;
     phase_ = GamePhase::wave;
-    waveTick = 0;
+    waveTick = {};
     nextSpawnIndex_ = 0;
   }
 
@@ -206,7 +216,8 @@ private:
     (void)world_.addPath(p);
 
     WaveDefinition wave;
-    for (uint64_t i = 0; i < 20; ++i) wave.enemies.push_back({i * 20, 0});
+    for (uint64_t i = 0; i < 20; ++i)
+      wave.enemies.push_back({WaveTick{i * 20}, 0});
 
     waves_.push_back(std::move(wave));
   }
@@ -219,7 +230,7 @@ private:
   // Tick counter for the current wave, used to trigger spawns at the right
   // times. This is reset with each wave, so it is not the same tick counter as
   // the world's, and may not even run at the same speed.
-  Tick waveTick{};
+  WaveTick waveTick{};
 
   // Wave definitions for the current map.
   std::vector<WaveDefinition> waves_;

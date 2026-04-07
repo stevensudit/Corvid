@@ -49,11 +49,21 @@ enum class PathId : uint16_t {
   invalid = std::numeric_limits<uint16_t>::max()
 };
 
+// Tick for world state.
+enum class WorldTick : uint64_t {
+  invalid = std::numeric_limits<uint64_t>::max()
+};
+
 }} // namespace corvid::sim
 
 template<>
 constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::PathId> =
     corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::PathId,
+        "">();
+
+template<>
+constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::WorldTick> =
+    corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::WorldTick,
         "">();
 
 namespace corvid { inline namespace sim {
@@ -234,7 +244,7 @@ struct Appearance {
   uint32_t fg_color{};   // RGB color, if any.
   uint32_t bg_color{};   // RGB color, if any.
   uint32_t glow_color{}; // RGB color for glow effect, if any.
-  Tick effect_expiry{invalidTick}; // When glow effect expires.
+  WorldTick effect_expiry{WorldTick::invalid}; // When glow effect expires.
 };
 
 // Defensive tower component. Stored alongside `Position` in the tower
@@ -246,9 +256,9 @@ struct Appearance {
 struct Tower {
   int tower_type{};
   float attack_radius{};
-  float attack_damage{}; // Per-attack damage.
-  Tick cooldown{};       // Cooldown for this sort of tower, in ticks.
-  Tick next_attack{};    // Tick when the next attack can occur.
+  float attack_damage{};   // Per-attack damage.
+  WorldTick cooldown{};    // Cooldown for this sort of tower, in ticks.
+  WorldTick next_attack{}; // Tick when the next attack can occur.
 };
 
 // Enemy invader component. Stored alongside `Position` and `PathFollower` in
@@ -264,7 +274,7 @@ struct Invader {
 struct Bullet {
   int bullet_type{};
   float damage{};
-  Tick expiration{};
+  WorldTick expiration{};
 };
 
 // ECS types for the simulation world.
@@ -293,7 +303,7 @@ struct Bullet {
 //
 // Background storage comes first so that retiring a mobile entity is a
 // natural `archetype_scene::migrate_entity` call rather than erase + re-add.
-using WorldReg = entity_registry<Tick>;
+using WorldReg = entity_registry<WorldTick>;
 using WorldSid = WorldReg::store_id_t;
 using ArchP = archetype_storage<WorldReg, std::tuple<Position>>;
 using ArchPV = archetype_storage<WorldReg, std::tuple<Position, Velocity>>;
@@ -329,21 +339,22 @@ public:
   void clear() {
     scene_.clear();
     paths_.clear();
-    tick_ = 0;
+    tick_ = {};
   }
 
   // Spawn a moving entity with the given initial position and velocity.
   // Returns a handle for later `despawn()`. The entity's last-change tick
   // is set to the current tick count.
   [[nodiscard]] Handle spawnMover(Position pos, Velocity vel) {
-    auto h = scene_.store_new_entity<sidPosVel>({invalidTick}, pos, vel);
+    auto h =
+        scene_.store_new_entity<sidPosVel>({WorldTick::invalid}, pos, vel);
     if (h) (void)markDirty(h.id());
     return h;
   }
 
   // Spawn an immobile entity. Returns a handle for later `despawn()`.
   [[nodiscard]] Handle spawnBackground(Position pos) {
-    auto h = scene_.store_new_entity<sidPos>(invalidTick, pos);
+    auto h = scene_.store_new_entity<sidPos>({WorldTick::invalid}, pos);
     if (h) (void)markDirty(h.id());
     return h;
   }
@@ -367,7 +378,7 @@ public:
   [[nodiscard]] Handle
   spawnEnemy(PathId pathId, float speed, float progress = 0.F) {
     if (pathId >= paths_.size_as_enum()) return {};
-    Appearance app{U'U', 2.F, 0xFFFFFFFF, 0xFF, 0, invalidTick};
+    Appearance app{U'U', 2.F, 0xFFFFFFFF, 0xFF, 0, WorldTick::invalid};
     const auto pos =
         paths_[pathId].calculatePositionFromProgress(progress, progress);
     return scene_.store_new_entity<sidEnemy>(tick_, pos, app,
@@ -376,7 +387,7 @@ public:
 
   // Advance one simulation frame. Sets each changed entity's registry metadata
   // to the new tick count and tracks changed entities for callbacks.
-  [[nodiscard]] Tick tick() {
+  [[nodiscard]] WorldTick tick() {
     ++tick_;
 
     (void)updateMovers();
@@ -463,7 +474,7 @@ public:
 
 private:
   WorldScene scene_;
-  Tick tick_{0};
+  WorldTick tick_{};
   id_container<SegmentedPath, PathId> paths_;
 
   std::vector<EntityId> updatedEntities_;

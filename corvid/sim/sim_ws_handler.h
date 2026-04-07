@@ -93,9 +93,9 @@ public:
 private:
   using Fuse = timer_fuse<http_transaction>;
 
-  std::atomic<Tick> tick_seq_{0}; // Uses for sequencing tick timers
-  Tick current_tick_{0};          // updated each frame; loop-thread only
-  SimGame game_;                  // all simulation entity state
+  std::atomic<uint64_t> tick_seq_{}; // Uses for sequencing tick timers
+  WorldTick current_tick_{};         // updated each frame; loop-thread only
+  SimGame game_;                     // all simulation entity state
   update_strategy send_strategy_{update_strategy::full};
 
   // Handle an incoming text frame. Dispatches on `"type"` by substring search
@@ -221,13 +221,13 @@ private:
 
     // Display state.
     size_t current_wave{};
-    Tick wave_tick{};
+    WaveTick wave_tick{};
     int lives_count{};
     int resources_count{};
     std::string_view phase{};
 
     it = std::format_to(it, R"({{"type":"world_delta","tick":{}, "upserts":[)",
-        current_tick_);
+        *current_tick_);
 
     (void)game_.extractDelta(
         // Upserts.
@@ -265,7 +265,7 @@ private:
     }
     it = std::format_to(it,
         R"(],"currentWave":{},"waveTick":{},"lives":{},"resources":{},"phase":"{}"}})",
-        current_wave, wave_tick, lives_count, resources_count, phase);
+        current_wave, *wave_tick, lives_count, resources_count, phase);
 
     if (send_strategy_ == update_strategy::full) buf += "}";
 
