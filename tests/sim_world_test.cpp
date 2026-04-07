@@ -436,6 +436,34 @@ void SimWorld_GetPathOutOfRange() {
   EXPECT_TRUE(w.getPath(PathId{1}) == nullptr);
 }
 
+void SimWorld_ObtainPathIncludesTerminalJoint() {
+  SimWorld w;
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}, {{10.F, 5.F}}};
+  const auto pid = w.addPath(p);
+
+  std::vector<Position> points;
+  (void)w.obtainPath([&points](PathId, const Position& pos) {
+    points.push_back(pos);
+    return true;
+  }, pid);
+
+  ASSERT_EQ(points.size(), 3U);
+  EXPECT_NEAR(points[0].x, 0.0, 1e-6);
+  EXPECT_NEAR(points[0].y, 0.0, 1e-6);
+  EXPECT_NEAR(points[1].x, 10.0, 1e-6);
+  EXPECT_NEAR(points[1].y, 0.0, 1e-6);
+  EXPECT_NEAR(points[2].x, 10.0, 1e-6);
+  EXPECT_NEAR(points[2].y, 5.0, 1e-6);
+}
+
+void SimWorld_FromJointsThrowsWhenJointIsOutOfBounds() {
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{SimWorld::widthOfWorld / 2.F + 1.F, 0.F}}};
+
+  EXPECT_THROW(SegmentedPath::fromJoints(p), std::runtime_error);
+}
+
 void SimGame_LoadMapInitialSnapshotAndState() {
   SimGame game;
   game.loadMap();

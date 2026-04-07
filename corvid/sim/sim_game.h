@@ -176,6 +176,8 @@ private:
     // For now, a hardcoded spiral.
     PathJoints p;
     p.joints.push_back({Position{0.0, 0.0}});
+    constexpr float kHalfWidth = SimWorld::widthOfWorld / 2.F;
+    constexpr float kHalfHeight = SimWorld::heightOfWorld / 2.F;
     constexpr float kStepSize = 80.0;
     constexpr float kAspect = SimWorld::widthOfWorld / SimWorld::heightOfWorld;
     constexpr float kXStepSize = kStepSize * kAspect;
@@ -183,24 +185,28 @@ private:
     float y = 0.0;
     float x_run = kXStepSize;
     float y_run = kStepSize;
-    for (int i = 0; i < 100; ++i) {
-      x += x_run;
+    auto append_segment = [&](float dx, float dy) {
+      x = std::clamp(x + dx, -kHalfWidth, kHalfWidth);
+      y = std::clamp(y + dy, -kHalfHeight, kHalfHeight);
       p.joints.push_back({Position{x, y}});
-      y += y_run;
-      p.joints.push_back({Position{x, y}});
+      return x > -kHalfWidth && x < kHalfWidth && y > -kHalfHeight &&
+             y < kHalfHeight;
+    };
+
+    while (true) {
+      if (!append_segment(x_run, 0.F)) break;
+      if (!append_segment(0.F, y_run)) break;
       x_run += kXStepSize;
-      x -= x_run;
-      p.joints.push_back({Position{x, y}});
+      if (!append_segment(-x_run, 0.F)) break;
       y_run += kStepSize;
-      y -= y_run;
-      p.joints.push_back({Position{x, y}});
+      if (!append_segment(0.F, -y_run)) break;
       x_run += kXStepSize;
       y_run += kStepSize;
     }
     (void)world_.addPath(p);
 
     WaveDefinition wave;
-    for (uint64_t i = 0; i < 200; ++i) wave.enemies.push_back({i * 20, 0});
+    for (uint64_t i = 0; i < 20; ++i) wave.enemies.push_back({i * 20, 0});
 
     waves_.push_back(std::move(wave));
   }

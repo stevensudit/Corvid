@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdint>
 #include <numbers>
+#include <stdexcept>
 #include <vector>
 
 #include "../ecs.h"
@@ -168,6 +169,16 @@ struct SegmentedPath {
     sp.width = p.width;
     sp.segments.reserve(p.joints.size() - 1);
     float cumulative{};
+    constexpr float half_w = 1920.F / 2.F;
+    constexpr float half_h = 1080.F / 2.F;
+
+    for (const auto& joint : p.joints) {
+      const auto& pos = joint.p;
+      // Check for configuration errors.
+      if (pos.x < -half_w || pos.x > half_w || pos.y < -half_h ||
+          pos.y > half_h)
+        throw std::runtime_error("Path joint lies outside the world bounds");
+    }
 
     for (std::size_t i = 0; i + 1 < p.joints.size(); ++i) {
       const Position& front = p.joints[i].p;
@@ -400,6 +411,8 @@ public:
     if (pathId >= paths_.size_as_enum()) return false;
     const auto& sp = paths_[pathId];
     for (const auto& seg : sp.segments) cbPath(pathId, Position{seg.front});
+    if (!sp.segments.empty())
+      cbPath(pathId, Position{sp.segments.back().back});
     return true;
   }
 
