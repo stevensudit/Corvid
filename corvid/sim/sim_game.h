@@ -167,7 +167,7 @@ private:
     for (; nextSpawnIndex_ < enemies.size(); ++nextSpawnIndex_) {
       const auto& enemy_def = enemies[nextSpawnIndex_];
       if (enemy_def.startTicks > waveTick) break;
-      (void)world_.spawnEnemy(PathId{0}, 20.F, 0.F);
+      (void)world_.spawnEnemy(PathId{0}, 100.F, 0.F);
     }
   }
 
@@ -200,7 +200,7 @@ private:
     (void)world_.addPath(p);
 
     WaveDefinition wave;
-    for (uint64_t i = 0; i < 20; ++i) wave.enemies.push_back({i * 20, 0});
+    for (uint64_t i = 0; i < 200; ++i) wave.enemies.push_back({i * 20, 0});
 
     waves_.push_back(std::move(wave));
   }

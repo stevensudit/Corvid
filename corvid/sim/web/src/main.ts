@@ -61,6 +61,8 @@ let currEntities: EntityPosition[] = []
 let prevById = new Map<number, EntityPosition>()
 let lastSnapshotTime = 0
 let pathPoints: Array<{ x: number; y: number }> = []
+let lives = 0
+let resources = 0
 
 // Linear interpolation calculator
 function lerp(a: number, b: number, t: number): number {
@@ -112,6 +114,24 @@ function drawFps(): void {
   ctx.restore()
 }
 
+function drawHud(): void {
+  ctx.save()
+  ctx.font = '20px monospace'
+  ctx.textBaseline = 'top'
+
+  const livesLabel = `${lives}❤️`
+  const resourcesLabel = `$${resources}`
+  const pad = 4
+  const barHeight = 24
+
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'
+  ctx.fillRect(0, 0, canvas.width, barHeight)
+
+  ctx.fillStyle = 'white'
+  ctx.fillText(`${livesLabel}   ${resourcesLabel}`, pad, pad)
+  ctx.restore()
+}
+
 function frame(now: number): void {
   if (lastFrameTime !== 0) {
     const dt = now - lastFrameTime
@@ -120,6 +140,7 @@ function frame(now: number): void {
   lastFrameTime = now
 
   renderInterpolated()
+  drawHud()
   drawFps()
   requestAnimationFrame(frame)
 }
@@ -173,6 +194,8 @@ function applyWorldDelta(delta: WorldDelta): void {
 
   finishSnapshotUpdate(nextEntities)
   tickEl.textContent = String(delta.tick)
+  lives = delta.lives
+  resources = delta.resources
   setTextIfElement(livesEl, String(delta.lives))
   setTextIfElement(resourcesEl, String(delta.resources))
   setTextIfElement(phaseEl, getDeltaPhase(delta))
