@@ -12,6 +12,11 @@ interface RenderColor {
   alpha: number
 }
 
+interface SpriteCacheEntry {
+  canvas: HTMLCanvasElement
+  offset: number
+}
+
 interface RenderAppearance {
   glyph: string
   scale: number
@@ -90,6 +95,10 @@ let snapshotIntervalMs = 50
 let lives = 0
 let resources = 0
 const glyphFontSizeCache = new Map<string, number>()
+// Entity appearances come from a small, mostly fixed set of tower/enemy visuals,
+// so we memoize prerendered sprites for the lifetime of the page instead of
+// paying per-frame draw costs or maintaining an eviction policy.
+const entitySpriteCache = new Map<string, SpriteCacheEntry>()
 
 // Linear interpolation calculator
 function lerp(a: number, b: number, t: number): number {
@@ -127,10 +136,7 @@ function renderInterpolated(): void {
     const wy = prevPos ? lerp(prevPos.y, e.pos.y, t) : e.pos.y
     const [x, y] = worldToCanvas(wx, wy)
     const radius = 5 * lerp(prevApp.scale, e.app.scale, t)
-
-    if (e.app.glow.alpha !== 0) drawFilledCircle(x, y, radius * 1.5, e.app.glow)
-    if (e.app.bg.alpha !== 0) drawFilledCircle(x, y, radius, e.app.bg)
-    if (e.app.fg.alpha !== 0) drawGlyphInCircle(e.app.glyph, x, y, radius, e.app.fg)
+    drawEntitySprite(x, y, radius, e.app)
   }
 }
 
@@ -149,13 +155,19 @@ function isTransparent(color: RenderColor): boolean {
   return color.alpha === 0
 }
 
-function drawFilledCircle(x: number, y: number, radius: number, color: RenderColor): void {
+function drawFilledCircleOnContext(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  color: RenderColor,
+): void {
   if (radius <= 0 || isTransparent(color)) return
 
-  fgCtx.fillStyle = color.css
-  fgCtx.beginPath()
-  fgCtx.arc(x, y, radius, 0, Math.PI * 2)
-  fgCtx.fill()
+  ctx.fillStyle = color.css
+  ctx.beginPath()
+  ctx.arc(x, y, radius, 0, Math.PI * 2)
+  ctx.fill()
 }
 
 function getGlyphFontSize(glyph: string, radius: number): number {
@@ -178,18 +190,74 @@ function getGlyphFontSize(glyph: string, radius: number): number {
   return fontSize
 }
 
-function drawGlyphInCircle(glyph: string, x: number, y: number, radius: number, color: RenderColor): void {
+function drawGlyphOnContext(
+  ctx: CanvasRenderingContext2D,
+  glyph: string,
+  x: number,
+  y: number,
+  radius: number,
+  color: RenderColor,
+): void {
   if (!glyph || radius <= 0 || isTransparent(color)) return
 
   const fontSize = getGlyphFontSize(glyph, radius)
 
-  fgCtx.save()
-  fgCtx.fillStyle = color.css
-  fgCtx.font = `${fontSize}px monospace`
-  fgCtx.textAlign = 'center'
-  fgCtx.textBaseline = 'middle'
-  fgCtx.fillText(glyph, x, y)
-  fgCtx.restore()
+  ctx.save()
+  ctx.fillStyle = color.css
+  ctx.font = `${fontSize}px monospace`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(glyph, x, y)
+  ctx.restore()
+}
+
+function getSpriteCacheKey(app: RenderAppearance, radius: number): string {
+  const roundedRadius = Math.max(1, Math.round(radius))
+  return [
+    app.glyph,
+    roundedRadius,
+    app.fg.css,
+    app.bg.css,
+    app.glow.css,
+  ].join('|')
+}
+
+function getEntitySprite(app: RenderAppearance, radius: number): SpriteCacheEntry | null {
+  const roundedRadius = Math.max(1, Math.round(radius))
+  if (roundedRadius <= 0) return null
+
+  const cacheKey = getSpriteCacheKey(app, roundedRadius)
+  const cachedSprite = entitySpriteCache.get(cacheKey)
+  if (cachedSprite) return cachedSprite
+
+  // Cache misses only happen the first time we see a visual variant for this
+  // appearance/radius bucket. After that, renderInterpolated() can reuse the
+  // offscreen canvas with a single drawImage() blit.
+  const glowRadius = app.glow.alpha !== 0 ? roundedRadius * 1.5 : 0
+  const extent = Math.max(glowRadius, roundedRadius)
+  const pad = 2
+  const offset = Math.ceil(extent + pad)
+  const size = offset * 2
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+
+  const spriteCtx = canvas.getContext('2d')
+  if (!spriteCtx) return null
+
+  if (app.glow.alpha !== 0) drawFilledCircleOnContext(spriteCtx, offset, offset, glowRadius, app.glow)
+  if (app.bg.alpha !== 0) drawFilledCircleOnContext(spriteCtx, offset, offset, roundedRadius, app.bg)
+  if (app.fg.alpha !== 0) drawGlyphOnContext(spriteCtx, app.glyph, offset, offset, roundedRadius, app.fg)
+
+  const sprite = { canvas, offset }
+  entitySpriteCache.set(cacheKey, sprite)
+  return sprite
+}
+
+function drawEntitySprite(x: number, y: number, radius: number, app: RenderAppearance): void {
+  const sprite = getEntitySprite(app, radius)
+  if (!sprite) return
+  fgCtx.drawImage(sprite.canvas, x - sprite.offset, y - sprite.offset)
 }
 
 function appearanceToRender(app: EntityAppearance): RenderAppearance {
