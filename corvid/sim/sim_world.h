@@ -287,10 +287,11 @@ struct Bullet {
 //   `sidStaging` = 0                      : staging storage, used as tombstone
 //
 //   `sidPos`     = 1  -> `arch_p_t`       : background / destructible entities
-//                                           (Position)
+//                                           (Position + Appearance)
 //
 //   `sidPosVel`  = 2  -> `arch_pv_t`      : moving entities
-//                                           (Position + Velocity)
+//                                           (Position + Velocity +
+//                                           Appearance)
 //
 //   `sidEnemy`   = 3  -> `arch_enemy_t`   : path-following enemies
 //                                           (Position + Appearance +
@@ -306,8 +307,9 @@ struct Bullet {
 // natural `archetype_scene::migrate_entity` call rather than erase + re-add.
 using WorldReg = entity_registry<WorldTick>;
 using WorldSid = WorldReg::store_id_t;
-using ArchP = archetype_storage<WorldReg, std::tuple<Position>>;
-using ArchPV = archetype_storage<WorldReg, std::tuple<Position, Velocity>>;
+using ArchP = archetype_storage<WorldReg, std::tuple<Position, Appearance>>;
+using ArchPV =
+    archetype_storage<WorldReg, std::tuple<Position, Velocity, Appearance>>;
 using ArchEnemy = archetype_storage<WorldReg,
     std::tuple<Position, Appearance, PathFollower, Invader>>;
 using ArchTower =
@@ -347,15 +349,16 @@ public:
   // Returns a handle for later `despawn()`. The entity's last-change tick
   // is set to the current tick count.
   [[nodiscard]] Handle spawnMover(Position pos, Velocity vel) {
-    auto h =
-        scene_.store_new_entity<sidPosVel>({WorldTick::invalid}, pos, vel);
+    auto h = scene_.store_new_entity<sidPosVel>({WorldTick::invalid}, pos, vel,
+        Appearance{.modified = tick_});
     if (h) (void)markDirty(h.id());
     return h;
   }
 
   // Spawn an immobile entity. Returns a handle for later `despawn()`.
   [[nodiscard]] Handle spawnBackground(Position pos) {
-    auto h = scene_.store_new_entity<sidPos>({WorldTick::invalid}, pos);
+    auto h = scene_.store_new_entity<sidPos>(
+        {WorldTick::invalid}, pos, Appearance{.modified = tick_});
     if (h) (void)markDirty(h.id());
     return h;
   }
