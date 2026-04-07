@@ -486,8 +486,6 @@ function isServerMsg(value: unknown): value is ServerMsg {
   switch (v.type) {
     case 'hello_ack':
       return typeof v.message === 'string'
-    case 'tick':
-      return typeof v.tick === 'number'
     case 'world_delta':
       return isWorldDelta(v)
     case 'world_snapshot':
@@ -530,9 +528,6 @@ ws.onmessage = (event: MessageEvent<string>) => {
   switch (parsed.type) {
     case 'hello_ack':
       log(`Server says: ${parsed.message}`)
-      break
-    case 'tick':
-      tickEl.textContent = String(parsed.tick)
       break
     case 'world_delta':
       applyWorldDelta(parsed)

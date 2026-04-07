@@ -10,11 +10,6 @@ export interface HelloAckMsg {
   message: string;
 }
 
-export interface TickMsg {
-  type: 'tick';
-  tick: number;
-}
-
 export interface EntityPosition {
   id: number
   x: number
@@ -69,5 +64,5 @@ export interface WorldSnapshot {
   delta: WorldDelta
 }
 
-export type ServerMsg = HelloAckMsg | TickMsg | WorldDelta | WorldSnapshot;
+export type ServerMsg = HelloAckMsg | WorldDelta | WorldSnapshot;
 export type ClientMsg = HelloMsg | SpawnMsg;

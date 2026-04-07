@@ -45,7 +45,6 @@ using namespace std::chrono_literals;
 //   Server replies: {"type":"hello_ack","message":"connected"}
 //   Client sends: {"type":"spawn","x":N,"y":N}
 //   Server then sends at 20 Hz: {"type":"world_delta",...}
-//   Server also sends at 1 Hz: {"type":"tick","tick":N}
 //
 // Keepalive (20s ping / 5s pong timeout) is enabled so that browser pong
 // replies reset the HTTP server's 30s read timeout; the constraint
@@ -93,9 +92,9 @@ public:
 private:
   using Fuse = timer_fuse<http_transaction>;
 
-  std::atomic<uint64_t> tick_seq_{}; // Uses for sequencing tick timers
-  WorldTick current_tick_{};         // updated each frame; loop-thread only
-  SimGame game_;                     // all simulation entity state
+  std::atomic<uint64_t> tick_seq_; // Uses for sequencing tick timers
+  WorldTick current_tick_{};       // updated each frame; loop-thread only
+  SimGame game_;                   // all simulation entity state
   update_strategy send_strategy_{update_strategy::full};
 
   // Handle an incoming text frame. Dispatches on `"type"` by substring search
@@ -106,7 +105,7 @@ private:
     {
       if (!ws.send_text(R"({"type":"hello_ack","message":"connected"})"))
         return false;
-      return do_arm_tick(1);
+      return do_arm_tick();
     }
     if (msg.contains(R"("type":"spawn")") ||
         msg.contains(R"("type": "spawn")"))
@@ -157,37 +156,33 @@ private:
   // Schedule the next tick. Uses the `timer_fuse` double-check pattern:
   // the wheel-thread callback pre-checks liveness and posts to the loop
   // thread, which performs the definitive check and calls `do_tick_fire`.
-  [[nodiscard]] bool do_arm_tick(Tick tick_n) {
+  [[nodiscard]] bool do_arm_tick() {
     auto wheel = keepalive_wheel_.lock();
     if (!wheel) return true;
     return Fuse::set_timeout(*wheel, tick_seq_,
         std::weak_ptr<http_transaction>{shared_from_this()}, 50ms,
-        [loop_w = keepalive_loop_, tick_n](const Fuse& fuse) -> bool {
+        [loop_w = keepalive_loop_](const Fuse& fuse) -> bool {
           auto tx = fuse.get_if_armed();
           auto loop = loop_w.lock();
           if (!tx || !loop) return true;
-          return loop->post([fuse, tick_n]() -> bool {
+          return loop->post([fuse]() -> bool {
             auto tx = fuse.get_if_armed();
             if (!tx) return true;
-            return std::static_pointer_cast<SimWsHandler>(tx)->do_tick_fire(
-                tick_n);
+            return std::static_pointer_cast<SimWsHandler>(tx)->do_tick_fire();
           });
         });
   }
 
-  // Called on the loop thread: advance the simulation one frame, send a
-  // world update message (20 Hz) and, once per 20 frames, a tick message
-  // (1 Hz).
-  // Re-arms for the next 50 ms interval. If a fragmented send is in progress,
-  // defers by re-arming with the same counter so the sequence has no gaps.
-  [[nodiscard]] bool do_tick_fire(Tick tick_n) {
+  // Called on the loop thread: advance the simulation one frame and send a
+  // world update message at 20 Hz. Re-arms for the next 50 ms interval.
+  [[nodiscard]] bool do_tick_fire() {
     if (websocket().is_close_started()) return true;
-    if (websocket().is_send_in_fragment()) return do_arm_tick(tick_n);
+    if (websocket().is_send_in_fragment()) return do_arm_tick();
 
     current_tick_ = game_.step();
     if (!send_game_state()) return false;
     send_strategy_ = update_strategy::incremental;
-    return do_arm_tick(tick_n + 1);
+    return do_arm_tick();
   }
 
   [[nodiscard]] bool send_game_state() {
@@ -244,7 +239,7 @@ private:
           }
 
           const auto glow_color =
-              app.effect_expiry <= current_tick ? 0U : app.glow_color;
+              app.effect_expiry < current_tick ? 0U : app.glow_color;
           it = std::format_to(it,
               R"({{"pos":{{"id":{},"x":{:.1f},"y":{:.1f}}},"app":{{"glyph":{},"scale":{:.3f},"fg":{},"bg":{},"glow":{}}}}})",
               *entityId, pos.x, pos.y, static_cast<uint32_t>(app.glyph),
