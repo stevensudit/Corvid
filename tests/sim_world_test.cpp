@@ -81,6 +81,18 @@ snapshot(SimWorld& world, const std::vector<SimWorld::EntityId>& ids) {
   return filtered;
 }
 
+[[nodiscard]] std::vector<EntitySnapshot> filterSnapshot(
+    const std::vector<EntitySnapshot>& all,
+    const std::vector<SimWorld::EntityId>& ids) {
+  std::vector<EntitySnapshot> filtered;
+  filtered.reserve(ids.size());
+  std::ranges::copy_if(all, std::back_inserter(filtered),
+      [&ids](const EntitySnapshot& snap) {
+        return std::ranges::find(ids, snap.id) != ids.end();
+      });
+  return filtered;
+}
+
 [[nodiscard]] WorldDelta extractWorldDelta(SimWorld& world) {
   WorldDelta delta;
   (void)world.extractUpdatedEntities(
@@ -158,10 +170,12 @@ void SimWorld_SpawnAndSnapshot() {
 
   const auto all = snapshot(w);
   ASSERT_EQ(all.size(), 2U);
-  EXPECT_EQ(snapshot(w, std::vector<SimWorld::EntityId>{mover.id()}).size(),
+  EXPECT_EQ(filterSnapshot(all, std::vector<SimWorld::EntityId>{mover.id()})
+                .size(),
       1U);
   EXPECT_EQ(
-      snapshot(w, std::vector<SimWorld::EntityId>{mover.id(), background.id()})
+      filterSnapshot(
+          all, std::vector<SimWorld::EntityId>{mover.id(), background.id()})
           .size(),
       2U);
 }
@@ -451,9 +465,7 @@ void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
   EXPECT_EQ(game.step(), 1U);
 
   const auto snap = snapshot(game);
-  ASSERT_EQ(snap.entities.size(), 1U);
-  EXPECT_NEAR(snap.entities[0].pos.x, 0.0, 1e-6);
-  EXPECT_NEAR(snap.entities[0].pos.y, 0.0, 1e-6);
+  EXPECT_TRUE(snap.entities.empty());
 
   const auto delta = extractGameDelta(game);
   EXPECT_EQ(delta.currentWave, 0U);
@@ -461,6 +473,8 @@ void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
   EXPECT_EQ(delta.lives, 20);
   EXPECT_EQ(delta.resources, 100);
   EXPECT_EQ(delta.phase, std::string_view{"wave"});
+  EXPECT_TRUE(delta.upserts.empty());
+  EXPECT_TRUE(delta.erased.empty());
 }
 
 void SimGame_ExtractDeltaConsumesWorldUpdatesButNotState() {

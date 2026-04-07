@@ -435,18 +435,7 @@ public:
       const auto loc = scene_.registry().get_location(id);
       if (loc.store_id == sidStaging) return true;
 
-#if 1
       (void)markDirty(id);
-#else
-
-      if (scene_.registry()[id] != tick_) {
-        (void)markDirty(id);
-        return true;
-      }
-
-      if (std::ranges::find(updatedEntities_, id) == updatedEntities_.end())
-        updatedEntities_.push_back(id);
-#endif
       return true;
     });
     return true;
