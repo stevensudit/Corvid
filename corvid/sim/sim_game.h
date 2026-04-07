@@ -55,14 +55,14 @@ enum class GamePhase : uint8_t {
 
 // Enemy spawn definition for a wave.
 struct EnemySpawn {
-  Tick start_delay;
-  int enemy_type;
+  Tick startTicks;
+  int enemyType;
 };
 
 // All of the enemy spawns for a wave.
 struct WaveDefinition {
   std::vector<EnemySpawn> enemies;
-  int resource_influx = 0; // Resources rewarded at start of wave
+  int resourceInflux = 0; // Resources rewarded at start of wave
 };
 
 // Game simulation.
@@ -70,32 +70,43 @@ class SimGame {
 public:
   explicit SimGame() = default;
 
+  [[nodiscard]] static constexpr std::string_view phase_name(GamePhase phase) {
+    switch (phase) {
+    case GamePhase::build: return "build";
+    case GamePhase::wave: return "wave";
+    case GamePhase::game_over: return "game_over";
+    case GamePhase::victory: return "victory";
+    }
+    return "unknown";
+  }
+
   // Load the chosen map, resetting all game state.
-  void load_map() {
+  void loadMap() {
     // TODO: Have multiple maps.
-    do_load_map_1();
+    doLoadMap1();
   }
 
   // Resets all map information.
-  void reset_map() {
+  void resetMap() {
     world_.clear();
     phase_ = GamePhase::build;
     waves_.clear();
-    current_wave = 0;
-    wave_tick_ = 0;
-    next_spawn_index_ = 0;
+    currentWave = 0;
+    waveTick = 0;
+    nextSpawnIndex = 0;
     lives_ = 20;
     resources_ = 100;
   }
 
   // Advance the simulation one tick. Returns the new tick count.
   Tick step() {
+    const auto tick = world_.tick();
     if (phase_ == GamePhase::wave) {
-      ++wave_tick_;
+      ++waveTick;
       spawn_pending_wave_enemies();
 
       auto lives = lives_;
-      (void)world_.resolve_escapes(
+      (void)world_.resolveEscapees(
           [&lives](SimWorld::EntityId, const Position&, const PathFollower&) {
             --lives;
             // TODO: Treat front-escapees different from rear-escapees, and
@@ -108,7 +119,6 @@ public:
       if (lives_ <= 0) phase_ = GamePhase::game_over;
     }
 
-    const auto tick = world_.tick();
     return tick;
   }
 
@@ -116,11 +126,11 @@ public:
   void start_wave() {
     if (phase_ != GamePhase::build) return;
     phase_ = GamePhase::wave;
-    wave_tick_ = 0;
-    next_spawn_index_ = 0;
+    waveTick = 0;
+    nextSpawnIndex = 0;
   }
 
-  void place_tower(/* later */);
+  void placeTower(/* later */);
 
   // Get a snapshot of the current game state for sending to clients.
   [[nodiscard]] GameSnapshot snapshot() const {
@@ -130,25 +140,55 @@ public:
     return snap;
   }
 
+  // Extract a snapshot of the paths by calling `cbPath(pathId, Position)` for
+  // all joints of all paths.
+  [[nodiscard]] bool extractPaths(auto&& cbPath) const {
+    (void)world_.obtainPaths(cbPath);
+    return true;
+  }
+
+  // Extract a delta of the game state. The `cbUpserts(EntityId, Position)` and
+  // `cbErased(EntityId)` callbacks will be interleaved. The
+  // `cbState(currentWave, waveTick, lives, resources)` callback is invoked
+  // last.
+  [[nodiscard]] bool
+  extractDelta(auto&& cbUpserts, auto&& cbErased, auto&& cbState) {
+    (void)world_.extractUpdatedEntities(cbUpserts, cbErased);
+    (void)cbState(currentWave, waveTick, lives_, resources_, phase_name(phase_));
+
+    return true;
+  }
+
+  // Extract a full snapshot of the game state. The `cbPath` callback will be
+  // invoked first, with `cbUpserts` and `cbErased` invoked afterwards and
+  // interleaved. The `cbState` callback is invoked last.
+  [[nodiscard]] bool extractFull(auto&& cbPath, auto&& cbUpserts,
+      auto&& cbErased, auto&& cbState) {
+    (void)extractPaths(cbPath);
+    // TODO: Call markDirty on all.
+    (void)extractDelta(cbUpserts, cbErased, cbState);
+    return true;
+  }
+
 private:
   // Spawn all the enemies slated for this wave tick.
   void spawn_pending_wave_enemies() {
-    const auto& wave = waves_[current_wave];
+    const auto& wave = waves_[currentWave];
     const auto& enemies = wave.enemies;
-    for (; next_spawn_index_ < enemies.size(); ++next_spawn_index_) {
-      const auto& enemy_def = enemies[next_spawn_index_];
-      if (enemy_def.start_delay > wave_tick_) break;
-      (void)world_.spawn_enemy(PathId{0}, 20.F, 0.F);
+    for (; nextSpawnIndex < enemies.size(); ++nextSpawnIndex) {
+      const auto& enemy_def = enemies[nextSpawnIndex];
+      if (enemy_def.startTicks > waveTick) break;
+      (void)world_.spawnEnemy(PathId{0}, 20.F, 0.F);
     }
   }
 
-  void do_load_map_1() {
-    reset_map();
+  void doLoadMap1() {
+    resetMap();
     // For now, a hardcoded spiral.
     PathJoints p;
     p.joints.push_back({Position{0.0, 0.0}});
     constexpr float kStepSize = 80.0;
-    constexpr float kAspect = SimWorld::world_width / SimWorld::world_height;
+    constexpr float kAspect = SimWorld::widthOfWorld / SimWorld::heightOfWorld;
     constexpr float kXStepSize = kStepSize * kAspect;
     float x = 0.0;
     float y = 0.0;
@@ -168,7 +208,7 @@ private:
       x_run += kXStepSize;
       y_run += kStepSize;
     }
-    (void)world_.add_path(p);
+    (void)world_.addPath(p);
 
     WaveDefinition wave;
     for (uint64_t i = 0; i < 20; ++i) wave.enemies.push_back({i * 20, 0});
@@ -184,17 +224,17 @@ private:
   // Tick counter for the current wave, used to trigger spawns at the right
   // times. This is reset with each wave, so it is not the same tick counter as
   // the world's, and may not even run at the same speed.
-  Tick wave_tick_ = 0;
+  Tick waveTick = 0;
 
   // Wave definitions for the current map.
   std::vector<WaveDefinition> waves_;
 
   // Current wave.
-  size_t current_wave = 0;
+  size_t currentWave = 0;
 
   // Index of the next spawn in the current `WaveDefinition`, which is checked
   // against `wave_tick_`.
-  size_t next_spawn_index_ = 0;
+  size_t nextSpawnIndex = 0;
 
   int lives_ = 20;
   int resources_ = 100;

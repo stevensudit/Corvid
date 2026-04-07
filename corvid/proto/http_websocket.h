@@ -768,7 +768,7 @@ public:
   }
 
   // Send a serialized frame.
-  [[nodiscard]] bool send_frame(std::string&& frame) {
+  [[nodiscard]] bool send_frame(any_strings&& frame) {
     if (sent_close_ || !send_cb_) return false;
     return send_cb_(std::move(frame));
   }

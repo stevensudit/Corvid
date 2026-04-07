@@ -76,4 +76,7 @@ enum class coordination_policy : bool { unilateral = false, bilateral = true };
 // Whether to allow exclusive or shared access to a resource.
 enum class exclusivity : bool { exclusive = false, shared = true };
 
+// Whether to perform a full update or an incremental update.
+enum class update_strategy : bool { full = false, incremental = true };
+
 }}} // namespace corvid::enums::bool_enums

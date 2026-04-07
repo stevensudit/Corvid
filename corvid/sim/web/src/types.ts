@@ -15,7 +15,7 @@ export interface TickMsg {
   tick: number;
 }
 
-export interface SnapshotEntity {
+export interface EntityPosition {
   id: number
   x: number
   y: number
@@ -26,10 +26,15 @@ interface PathPoint {
   y: number
 }
 
+interface Path {
+  type: 'path'
+  points: PathPoint[]
+}
+
 export interface SnapshotMsg {
   type: 'snapshot'
-  entities: SnapshotEntity[]
-  path: PathPoint[]
+  entities: EntityPosition[]
+  paths: Path[]
 }
 
 export interface SpawnMsg {
@@ -38,5 +43,21 @@ export interface SpawnMsg {
   y: number
 }
 
-export type ServerMsg = HelloAckMsg | TickMsg | SnapshotMsg;
+export interface WorldDelta {
+  type: 'world_delta'
+  tick: number
+  upserts: EntityPosition[]
+  erased: number[]
+  lives: number
+  resources: number
+  phase: string
+}
+
+export interface WorldSnapshot {
+  type: 'world_snapshot'
+  paths: PathPoint[]
+  delta: WorldDelta
+}
+
+export type ServerMsg = HelloAckMsg | TickMsg | WorldDelta | WorldSnapshot;
 export type ClientMsg = HelloMsg | SpawnMsg;

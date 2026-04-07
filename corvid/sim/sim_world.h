@@ -46,7 +46,7 @@ namespace corvid { inline namespace sim {
 // Convert Cartesian coordinates (x, y) to a Euclidean vector, in polar form
 // (length, direction). `direction` is in radians,
 [[nodiscard]] constexpr std::pair<float, float>
-cartesian_to_polar(float x, float y) noexcept {
+convertCartesianToPolar(float x, float y) noexcept {
   float length = std::sqrt((x * x) + (y * y));
   float direction = std::atan2(y, x);
   return {length, direction};
@@ -55,7 +55,7 @@ cartesian_to_polar(float x, float y) noexcept {
 // Convert a Euclidean vector, in polar form, to Cartesian coordinates.
 // `direction` is in radians.
 [[nodiscard]] constexpr std::pair<float, float>
-polar_to_cartesian(float length, float direction) noexcept {
+convertPolarToCartesian(float length, float direction) noexcept {
   float x = length * std::cos(direction);
   float y = length * std::sin(direction);
   return {x, y};
@@ -71,8 +71,8 @@ struct Position {
   float x{};
   float y{};
 
-  static Position from_polar(float radius, float angle) {
-    auto [x, y] = polar_to_cartesian(radius, angle);
+  static Position fromPolar(float radius, float angle) {
+    auto [x, y] = convertPolarToCartesian(radius, angle);
     return {x, y};
   }
 };
@@ -82,8 +82,8 @@ struct Velocity {
   float vx{};
   float vy{};
 
-  [[nodiscard]] static Velocity from_polar(float speed, float angle) {
-    auto [vx, vy] = polar_to_cartesian(speed, angle);
+  [[nodiscard]] static Velocity fromPolar(float speed, float angle) {
+    auto [vx, vy] = convertPolarToCartesian(speed, angle);
     return {vx, vy};
   }
 };
@@ -110,31 +110,31 @@ struct SegmentedPath {
   struct Segment {
     Position front;
     Position back;
-    float length;           // Euclidean distance from `front` to `back`.
-    float cumulative_start; // Sum of lengths of all preceding segments.
+    float length;          // Euclidean distance from `front` to `back`.
+    float cumulativeStart; // Sum of lengths of all preceding segments.
   };
 
   std::vector<Segment> segments;
-  float total_length{};
+  float totalLength{};
   float width{};
 
   // Map a distance traveled (`progress`) to a world-space `Position`.
-  // `progress` is clamped to `[0, total_length]`. Returns the origin if
+  // `progress` is clamped to `[0, totalLength]`. Returns the origin if
   // `segments` is empty.
-  [[nodiscard]] Position position_from_progress(float progress) const {
+  [[nodiscard]] Position calculatePositionFromProgress(float progress) const {
     if (segments.empty()) return {};
-    progress = std::clamp(progress, 0.F, total_length);
+    progress = std::clamp(progress, 0.F, totalLength);
 
-    // Find the last segment whose cumulative_start <= progress.
+    // Find the last segment whose cumulativeStart <= progress.
     auto it = std::ranges::upper_bound(segments, progress, {},
-        &SegmentedPath::Segment::cumulative_start);
+        &SegmentedPath::Segment::cumulativeStart);
     if (it != segments.begin()) --it;
     const auto& seg = *it;
 
     // Calculate the interpolation factor `t` along this segment, then lerp the
     // front and back positions to get the world position.
     float t = 0.F;
-    if (seg.length > 0.F) t = (progress - seg.cumulative_start) / seg.length;
+    if (seg.length > 0.F) t = (progress - seg.cumulativeStart) / seg.length;
 
     return {lerp(seg.front.x, seg.back.x, t),
         lerp(seg.front.y, seg.back.y, t)};
@@ -143,7 +143,7 @@ struct SegmentedPath {
   // Convert authored `PathJoints` into a `SegmentedPath`. Requires at
   // least two joints; returns an empty `SegmentedPath` if the input is
   // degenerate.
-  static SegmentedPath from_joints(const PathJoints& p) {
+  static SegmentedPath fromJoints(const PathJoints& p) {
     if (p.joints.size() < 2) return {};
     SegmentedPath sp;
     sp.width = p.width;
@@ -159,11 +159,11 @@ struct SegmentedPath {
       sp.segments.push_back({front, back, len, cumulative});
       cumulative += len;
     }
-    sp.total_length = cumulative;
+    sp.totalLength = cumulative;
     return sp;
   }
 
-  [[nodiscard]] PathJoints to_joints() const {
+  [[nodiscard]] PathJoints toJoints() const {
     PathJoints pj;
     pj.width = width;
     pj.joints.reserve(segments.size() + 1);
@@ -177,7 +177,7 @@ struct SegmentedPath {
 // archetype. Each tick, `progress` advances by `speed`; the entity's
 // `Position` is re-derived from the segmented path geometry.
 struct PathFollower {
-  PathId path_id{}; // Index into `sim_world::paths_`.
+  PathId pathId{};  // Index into `sim_world::paths_`.
   float progress{}; // Distance traveled along the path so far.
   float speed{};    // Distance per tick.
 };
@@ -188,14 +188,16 @@ struct PathFollower {
 // enabling delta snapshots without a separate dirty set.
 //
 // Storage layout (store_id assignment is positional, 1-based):
-//   `p_sid`      = 1  -> `arch_p_t`      : background / destructible / retired
-//                                          (Position)
-
-//   `pv_sid`     = 2  -> `arch_pv_t`     : moving entities
-//                                          (Position + Velocity)
-
-//   `enemy_sid`  = 3  -> `arch_enemy_t`  : path-following enemies
-//                                          (Position + PathFollower)
+//   `sidStaging`  = 0                     : staging storage, used as tombstone
+//
+//   `sidPos`      = 1  -> `arch_p_t`      : background / destructible entities
+//                                           (Position)
+//
+//   `sidPosVel`     = 2  -> `arch_pv_t`   : moving entities
+//                                           (Position + Velocity)
+//
+//   `sidEnemy`   = 3  -> `arch_enemy_t`   : path-following enemies
+//                                           (Position + PathFollower)
 //
 // Background storage comes first so that retiring a mobile entity is a
 // natural `archetype_scene::migrate_entity` call rather than erase+re-add.
@@ -210,26 +212,27 @@ using WorldScene = archetype_scene<WorldReg, ArchP, ArchPV, ArchEnemy>;
 
 // Simulation world: encapsulates all ECS entity state for the game.
 //
-// Background entities (Position only) live in `p_sid`. Moving entities
-// (Position + Velocity) live in `pv_sid`. Each `tick()` advances positions by
-// velocity and bounces off the world boundary. The registry metadata records
-// the tick count at each entity's last state change so callers can request
-// delta snapshots starting from any past tick.
+// Background entities (Position only) live in `sidPos`. Moving entities
+// (Position + Velocity) live in `sidPosVel`. Each `tick()` advances positions
+// by velocity and bounces off the world boundary. The registry metadata
+// records the tick count at each entity's last state change so callers can
+// request delta snapshots starting from any past tick.
 class SimWorld {
 public:
   using EntityId = WorldReg::id_t;
   using Handle = WorldReg::handle_t;
 
-  static constexpr WorldSid staging_sid{0};
-  static constexpr WorldSid p_sid{1};
-  static constexpr WorldSid pv_sid{2};
-  static constexpr WorldSid enemy_sid{3};
+  static constexpr WorldSid sidStaging{0};
+  static constexpr WorldSid sidPos{1};
+  static constexpr WorldSid sidPosVel{2};
+  static constexpr WorldSid sidEnemy{3};
 
-  static constexpr float world_width = 1920.0;
-  static constexpr float world_height = 1080.0;
+  static constexpr float widthOfWorld = 1920.F;
+  static constexpr float heightOfWorld = 1080.F;
 
   // State snapshot for a single entity. This is the serialization format for
   // the entity state sent to clients.
+  // !!!KILLME
   struct EntitySnapshot {
     EntityId id;
     Position pos;
@@ -238,84 +241,77 @@ public:
   void clear() {
     scene_.clear();
     paths_.clear();
-    tick_n_ = 0;
+    tick_ = 0;
   }
 
   // Spawn a moving entity with the given initial position and velocity.
   // Returns a handle for later `despawn()`. The entity's last-change tick
   // is set to the current tick count.
-  [[nodiscard]] Handle spawn(Position pos, Velocity vel) {
-    return scene_.store_new_entity<pv_sid>(tick_n_, pos, vel);
+  [[nodiscard]] Handle spawnMover(Position pos, Velocity vel) {
+    return scene_.store_new_entity<sidPosVel>(tick_, pos, vel);
   }
 
   // Spawn an immobile entity. Returns a handle for later `despawn()`.
-  [[nodiscard]] Handle spawn_background(Position pos) {
-    return scene_.store_new_entity<p_sid>(tick_n_, pos);
+  [[nodiscard]] Handle spawnBackground(Position pos) {
+    return scene_.store_new_entity<sidPos>(tick_, pos);
   }
 
   // Bake and store a path. Returns the index used as `path_follower::path_id`.
   // The index is stable for the lifetime of the world.
-  [[nodiscard]] PathId add_path(const PathJoints& p) {
-    if (!paths_.push_back(SegmentedPath::from_joints(p)))
+  [[nodiscard]] PathId addPath(const PathJoints& p) {
+    if (!paths_.push_back(SegmentedPath::fromJoints(p)))
       return PathId::invalid;
     return paths_.size_as_enum() - 1;
   }
 
   // Return a pointer to the baked path at `id`, or `nullptr` if out of range.
-  [[nodiscard]] const SegmentedPath* get_path(PathId path_id) const {
-    if (path_id >= paths_.size_as_enum()) return nullptr;
-    return &paths_[path_id];
+  [[nodiscard]] const SegmentedPath* getPath(PathId pathId) const {
+    if (pathId >= paths_.size_as_enum()) return nullptr;
+    return &paths_[pathId];
   }
 
   // Return snapshots for all authored paths so the client can render the
   // original joints while runtime movement follows the baked geometry.
+  //!!! KILLME
   [[nodiscard]] std::vector<PathJoints> path_snapshot() const {
     std::vector<PathJoints> result;
     result.reserve(paths_.size() + 1);
-    for (const auto& p : paths_) result.push_back(p.to_joints());
+    for (const auto& p : paths_) result.push_back(p.toJoints());
     return result;
   }
 
   // Spawn a path-following enemy. Initial position is derived from `progress`
   // on the named path. Returns a handle for later `despawn()`.
   [[nodiscard]] Handle
-  spawn_enemy(PathId path_id, float speed, float progress = 0.F) {
-    if (path_id >= paths_.size_as_enum()) return {};
-    const auto pos = paths_[path_id].position_from_progress(progress);
-    return scene_.store_new_entity<enemy_sid>(tick_n_, pos,
-        PathFollower{path_id, progress, speed});
+  spawnEnemy(PathId pathId, float speed, float progress = 0.F) {
+    if (pathId >= paths_.size_as_enum()) return {};
+    const auto pos = paths_[pathId].calculatePositionFromProgress(progress);
+    return scene_.store_new_entity<sidEnemy>(tick_, pos,
+        PathFollower{pathId, progress, speed});
   }
-
-  // Returns true if the handle refers to a live entity.
-  [[nodiscard]] bool is_alive(Handle h) const {
-    return scene_.registry().is_valid(h);
-  }
-
-  // Erase an entity by handle. Invalidates the handle. Returns false if the
-  // handle is no longer valid (entity already dead).
-  bool despawn(Handle& h) { return scene_.erase_entity(h); }
 
   // Advance one simulation frame. Sets each changed entity's registry metadata
   // to the new tick count and tracks changed entities for callbacks.
   [[nodiscard]] Tick tick() {
-    ++tick_n_;
+    ++tick_;
 
-    (void)tick_movers();
-    (void)tick_path_followers();
+    (void)updateMovers();
+    (void)updatePathFollowers();
 
-    return tick_n_;
+    return tick_;
   }
 
   // Return snapshots for every entity whose that has changed since
   // `since_tick`. Pass 0 (the default) to return all entities. Visits all
-  // storages that carry `Position` (`p_sid`, `pv_sid`, `enemy_sid`).
+  // storages that carry `Position` (`sidPos`, `sidPosVel`, `sidEnemy`).
+  //!!! KILLME
   [[nodiscard]] std::vector<EntitySnapshot> snapshot(
-      Tick since_tick = 0) const {
+      Tick tickSince = 0) const {
     std::vector<EntitySnapshot> result;
     result.reserve(scene_.size());
     scene_.for_each<Position>([&](auto id, auto comps) {
       auto& [pos] = comps;
-      if (scene_.registry()[id] >= since_tick) result.push_back({id, pos});
+      if (scene_.registry()[id] >= tickSince) result.push_back({id, pos});
       return true;
     });
     return result;
@@ -323,6 +319,7 @@ public:
 
   // Return snapshots for a specific list of entity IDs. Invalid or dead IDs
   // are silently skipped.
+  //!!! KILLME
   [[nodiscard]] std::vector<EntitySnapshot> snapshot(
       const std::vector<EntityId>& ids) const {
     std::vector<EntitySnapshot> result;
@@ -337,64 +334,93 @@ public:
   // Total number of entities in all storages (does not count staged entities).
   [[nodiscard]] std::size_t size() const { return scene_.size(); }
 
-  // List of entities that have escaped the path.
-  [[nodiscard]] auto& path_escapees() const { return path_escapees_; }
-
-  // Resolve path escapees by calling `cb` on each one, where `cb` is of the
-  // shape:
-  // `std::function<bool(EntityId, const Position&, constPathFollower&)`
+  // Destructively extract upserts and erasures.
   //
-  // Destructively iterates through the list of path escapees.  If `cb` returns
-  // true, the escapee is erased; if false, it's left alive, so the caller
-  // ought to have done something with it, such as migrating it to a different
-  // path. Note that you must not modify `path_escapees_` in the process.
-  [[nodiscard]] bool resolve_escapes(auto&& cb) {
-    for (auto id : path_escapees_) {
+  // Call back `cbUpserts(EntityId, Position)` for each changed entity that has
+  // a `Position` and has changed since the last tick, and `cbErased(EntityId)`
+  // for each entity that has been erased since the last tick. These calls will
+  // be interleaved.
+  [[nodiscard]] bool
+  extractUpdatedEntities(auto&& cbUpserts, auto&& cbErased) {
+    for (auto id : updatedEntities_)
+      if (const auto* pos = scene_.try_get_component<Position>(id))
+        (void)cbUpserts(id, *pos);
+      else {
+        // TODO: Ensure that this entity is in staging. If so, erase it.
+        (void)cbErased(id);
+      }
+
+    updatedEntities_.clear();
+    return true;
+  }
+
+  // Call back `extractPath(pathId, Position)` for all joints of the path
+  // identified by `pathId`.
+  [[nodiscard]] bool obtainPath(auto&& cbPath, PathId pathId) const {
+    if (pathId >= paths_.size_as_enum()) return false;
+    const auto& sp = paths_[pathId];
+    for (const auto& seg : sp.segments) cbPath(pathId, Position{seg.front});
+    return true;
+  }
+
+  // Call back `cbPath(pathId, Position)` for all joints of all paths.
+  [[nodiscard]] bool obtainPaths(auto&& cbPath) const {
+    for (PathId pathId{0}; pathId < paths_.size_as_enum(); ++pathId)
+      if (!obtainPath(cbPath, pathId)) return false;
+    return true;
+  }
+
+  // Resolve path escapees by calling `cbEscapee(EntityId, const Position&,
+  // const PathFollower&)` for each.
+  //
+  // Destructively iterates through the list of path escapees. If `cbEscapee`
+  // returns true, the escapee is erased; if false, it's left alive, so the
+  // caller ought to have done something with it, such as migrating it to a
+  // different path.
+  [[nodiscard]] bool resolveEscapees(auto&& cbEscapee) {
+    for (auto id : pathEscapees_) {
       if (!scene_.registry().is_valid(id)) continue;
       auto [pos, pf] = scene_.try_get_components<Position, PathFollower>(id);
       if (!pos || !pf) continue;
-      if (!cb(id, *pos, *pf)) continue;
-      (void)erase_entity(id);
+      if (!cbEscapee(id, *pos, *pf)) continue;
+      (void)tombstoneEntity(id);
     }
-    path_escapees_.clear();
+    pathEscapees_.clear();
     return true;
   }
 
 private:
   WorldScene scene_;
-  Tick tick_n_{0};
+  Tick tick_{0};
   id_container<SegmentedPath, PathId> paths_;
 
-  std::vector<EntityId> updated_entities_;
-  std::vector<EntityId> path_escapees_;
+  std::vector<EntityId> updatedEntities_;
+  std::vector<EntityId> pathEscapees_;
 
   // Marks an entity as dirty so that it will be included in the next delta
   // snapshot.
-  bool mark_dirty(EntityId id) {
+  bool markDirty(EntityId id) {
     // If it's been deleted, it's already dirty.
     if (!scene_.registry().is_valid(id)) return false;
     auto& last_updated = scene_.registry()[id];
-    if (last_updated != tick_n_) {
-      last_updated = tick_n_;
-      updated_entities_.push_back(id);
+    if (last_updated != tick_) {
+      last_updated = tick_;
+      updatedEntities_.push_back(id);
       return true;
     }
     return false;
   }
 
-  // Logically erases an entity, adding it to the dirty list. Actually, it's
-  // tombstoned into staging.
-  bool erase_entity(EntityId id) {
+  // Logically erases an entity, adding it to the dirty list.
+  bool tombstoneEntity(EntityId id) {
     // Can't kill the dead.
     if (!scene_.registry().is_valid(id)) return false;
-    (void)mark_dirty(id);
-    // We don't actually erase it yet, just migrate it to staging so that we
-    // can erase it as part of the snapshot process.
-    return scene_.migrate_entity(id, staging_sid);
+    (void)markDirty(id);
+    return scene_.migrate_entity(id, sidStaging);
   }
 
   // Advance velocity-driven entities.
-  [[nodiscard]] bool tick_movers() {
+  [[nodiscard]] bool updateMovers() {
     scene_.for_each<Position, Velocity>([&](auto id, auto comps) {
       auto& [pos, vel] = comps;
       // Skip over currently immobile entities.
@@ -413,15 +439,15 @@ private:
       // a bounding box, so the balls enter the boundary before reversing. Even
       // then, a square bounding box would be hit-detected prematurely if the
       // entity is moving at a diagonal.
-      (void)mark_dirty(id);
+      (void)markDirty(id);
 
       pos.x += vel.vx;
       pos.y += vel.vy;
 
-      bounce_from_boundary(pos.x, vel.vx, world_width);
-      bounce_from_boundary(pos.y, vel.vy, world_height);
+      bounce_from_boundary(pos.x, vel.vx, widthOfWorld);
+      bounce_from_boundary(pos.y, vel.vy, heightOfWorld);
 
-      updated_entities_.push_back(id);
+      updatedEntities_.push_back(id);
       return true;
     });
 
@@ -430,23 +456,24 @@ private:
 
   // Advance path-following enemies. Collect entities that changed, as well as
   // those that escaped the path.
-  [[nodiscard]] bool tick_path_followers() {
+  [[nodiscard]] bool updatePathFollowers() {
     scene_.for_each<Position, PathFollower>([&](auto id, auto comps) {
       auto& [pos, pf] = comps;
-      assert(pf.path_id < paths_.size_as_enum());
+      assert(pf.pathId < paths_.size_as_enum());
       if (pf.speed == 0.F) return true;
 
-      (void)mark_dirty(id);
+      (void)markDirty(id);
 
       pf.progress += pf.speed;
+      const auto& sp = paths_[pf.pathId];
 
-      const auto& sp = paths_[pf.path_id];
-      if (pf.progress >= sp.total_length || pf.progress < 0.F) {
-        path_escapees_.push_back(id);
+      // Collect escapees.
+      if (pf.progress >= sp.totalLength || pf.progress < 0.F) {
+        pathEscapees_.push_back(id);
         return true;
       }
 
-      pos = sp.position_from_progress(pf.progress);
+      pos = sp.calculatePositionFromProgress(pf.progress);
       return true;
     });
 

@@ -1,4 +1,6 @@
-import type { ServerMsg, ClientMsg, SnapshotEntity } from './types.js'
+import type { ServerMsg, ClientMsg, EntityPosition, SnapshotMsg, WorldDelta } from './types.js'
+
+type IncomingServerMsg = ServerMsg | SnapshotMsg
 
 // --- DOM setup ---
 
@@ -15,6 +17,9 @@ const statusEl = requireEl('status', HTMLElement)
 const tickEl = requireEl('tick', HTMLElement)
 const logEl = requireEl('log', HTMLElement)
 const canvas = requireEl('canvas', HTMLCanvasElement)
+const livesEl = document.getElementById('lives')
+const resourcesEl = document.getElementById('resources')
+const phaseEl = document.getElementById('phase')
 
 const maybeCtx = canvas.getContext('2d')
 if (!maybeCtx) throw new Error('Could not get 2D canvas context')
@@ -51,9 +56,9 @@ let lastFrameTime = 0
 
 const SNAPSHOT_INTERVAL_MS = 50 // matches server 20 Hz rate
 
-let prevEntities: SnapshotEntity[] = []
-let currEntities: SnapshotEntity[] = []
-let prevById = new Map<number, SnapshotEntity>()
+let prevEntities: EntityPosition[] = []
+let currEntities: EntityPosition[] = []
+let prevById = new Map<number, EntityPosition>()
 let lastSnapshotTime = 0
 let pathPoints: Array<{ x: number; y: number }> = []
 
@@ -126,9 +131,56 @@ function log(line: string): void {
   logEl.scrollTop = logEl.scrollHeight
 }
 
+function setTextIfElement(el: HTMLElement | null, value: string): void {
+  if (el) el.textContent = value
+}
+
+function isPoint(value: unknown): value is { x: number; y: number } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).x === 'number' &&
+    typeof (value as Record<string, unknown>).y === 'number'
+  )
+}
+
+function snapshotPathsToPoints(paths: Array<{ points: Array<{ x: number; y: number }> }>): Array<{ x: number; y: number }> {
+  return paths[0]?.points ?? []
+}
+
+function getDeltaPhase(delta: WorldDelta): string {
+  const maybePhase = (delta as WorldDelta & { phase?: unknown }).phase
+  if (typeof maybePhase === 'string') return maybePhase
+  return delta.phase
+}
+
+function beginSnapshotUpdate(): Map<number, EntityPosition> {
+  prevEntities = currEntities
+  prevById = new Map(prevEntities.map((e) => [e.id, e]))
+  return new Map(currEntities.map((e) => [e.id, e]))
+}
+
+function finishSnapshotUpdate(nextEntities: Map<number, EntityPosition>): void {
+  currEntities = [...nextEntities.values()]
+  lastSnapshotTime = performance.now()
+}
+
+function applyWorldDelta(delta: WorldDelta): void {
+  const nextEntities = beginSnapshotUpdate()
+
+  for (const entity of delta.upserts) nextEntities.set(entity.id, entity)
+  for (const entityId of delta.erased) nextEntities.delete(entityId)
+
+  finishSnapshotUpdate(nextEntities)
+  tickEl.textContent = String(delta.tick)
+  setTextIfElement(livesEl, String(delta.lives))
+  setTextIfElement(resourcesEl, String(delta.resources))
+  setTextIfElement(phaseEl, getDeltaPhase(delta))
+}
+
 // --- Message validation ---
 
-function isServerMsg(value: unknown): value is ServerMsg {
+function isServerMsg(value: unknown): value is IncomingServerMsg {
   if (!value || typeof value !== 'object') return false
   const v = value as Record<string, unknown>
   if (typeof v.type !== 'string') return false
@@ -141,7 +193,7 @@ function isServerMsg(value: unknown): value is ServerMsg {
     case 'snapshot':
       return (
         Array.isArray(v.entities) &&
-        Array.isArray(v.path) &&
+        Array.isArray(v.paths) &&
         v.entities.every(
           (e) =>
             typeof e === 'object' &&
@@ -150,13 +202,38 @@ function isServerMsg(value: unknown): value is ServerMsg {
             typeof (e as Record<string, unknown>).x === 'number' &&
             typeof (e as Record<string, unknown>).y === 'number',
         ) &&
-        v.path.every(
-          (p) =>
-            typeof p === 'object' &&
-            p !== null &&
-            typeof (p as Record<string, unknown>).x === 'number' &&
-            typeof (p as Record<string, unknown>).y === 'number',
+        v.paths.every(
+          (path) =>
+            typeof path === 'object' &&
+            path !== null &&
+            (path as Record<string, unknown>).type === 'path' &&
+            Array.isArray((path as Record<string, unknown>).points) &&
+            ((path as Record<string, unknown>).points as unknown[]).every(isPoint),
         )
+      )
+    case 'world_delta':
+      return (
+        typeof v.tick === 'number' &&
+        Array.isArray(v.upserts) &&
+        Array.isArray(v.erased) &&
+        typeof v.lives === 'number' &&
+        typeof v.resources === 'number' &&
+        typeof v.phase === 'string' &&
+        v.upserts.every(
+          (e) =>
+            typeof e === 'object' &&
+            e !== null &&
+            typeof (e as Record<string, unknown>).id === 'number' &&
+            typeof (e as Record<string, unknown>).x === 'number' &&
+            typeof (e as Record<string, unknown>).y === 'number',
+        ) &&
+        v.erased.every((id) => typeof id === 'number')
+      )
+    case 'world_snapshot':
+      return (
+        Array.isArray(v.paths) &&
+        v.paths.every(isPoint) &&
+        isServerMsg(v.delta)
       )
     default:
       return false
@@ -200,8 +277,15 @@ ws.onmessage = (event: MessageEvent<string>) => {
       prevEntities = currEntities
       prevById = new Map(prevEntities.map((e) => [e.id, e]))
       currEntities = parsed.entities
-      pathPoints = parsed.path
+      pathPoints = snapshotPathsToPoints(parsed.paths)
       lastSnapshotTime = performance.now()
+      break
+    case 'world_delta':
+      applyWorldDelta(parsed)
+      break
+    case 'world_snapshot':
+      pathPoints = parsed.paths
+      applyWorldDelta(parsed.delta)
       break
   }
 }
