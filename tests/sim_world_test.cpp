@@ -81,8 +81,8 @@ snapshot(SimWorld& world, const std::vector<SimWorld::EntityId>& ids) {
   return filtered;
 }
 
-[[nodiscard]] std::vector<EntitySnapshot> filterSnapshot(
-    const std::vector<EntitySnapshot>& all,
+[[nodiscard]] std::vector<EntitySnapshot>
+filterSnapshot(const std::vector<EntitySnapshot>& all,
     const std::vector<SimWorld::EntityId>& ids) {
   std::vector<EntitySnapshot> filtered;
   filtered.reserve(ids.size());
@@ -170,12 +170,12 @@ void SimWorld_SpawnAndSnapshot() {
 
   const auto all = snapshot(w);
   ASSERT_EQ(all.size(), 2U);
-  EXPECT_EQ(filterSnapshot(all, std::vector<SimWorld::EntityId>{mover.id()})
-                .size(),
+  EXPECT_EQ(
+      filterSnapshot(all, std::vector<SimWorld::EntityId>{mover.id()}).size(),
       1U);
   EXPECT_EQ(
-      filterSnapshot(
-          all, std::vector<SimWorld::EntityId>{mover.id(), background.id()})
+      filterSnapshot(all,
+          std::vector<SimWorld::EntityId>{mover.id(), background.id()})
           .size(),
       2U);
 }
@@ -455,10 +455,12 @@ void SimWorld_ObtainPathIncludesTerminalJoint() {
   const auto pid = w.addPath(p);
 
   std::vector<Position> points;
-  (void)w.obtainPath([&points](PathId, const Position& pos) {
-    points.push_back(pos);
-    return true;
-  }, pid);
+  (void)w.obtainPath(
+      [&points](PathId, const Position& pos) {
+        points.push_back(pos);
+        return true;
+      },
+      pid);
 
   ASSERT_EQ(points.size(), 3U);
   EXPECT_NEAR(points[0].x, 0.0, 1e-6);

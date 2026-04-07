@@ -2109,7 +2109,9 @@ void EntityRegistry_ForEach() {
     auto cnt = r.for_each([&](auto id, const auto& rec) {
       ids.push_back(id);
       EXPECT_TRUE(rec.location.contains(
-          id == id0 ? store_id_t{} : id == id1 ? store_id_t{1} : store_id_t{2}));
+          id == id0   ? store_id_t{}
+          : id == id1 ? store_id_t{1}
+                      : store_id_t{2}));
       return id != id1;
     });
 
@@ -2131,7 +2133,8 @@ void EntityRegistry_ForEach() {
     auto cnt = cr.for_each([&](auto id, const auto& rec) {
       static_assert(std::is_const_v<std::remove_reference_t<decltype(rec)>>);
       sum += rec.metadata;
-      EXPECT_TRUE(rec.location.contains(id == id0 ? store_id_t{1} : store_id_t{}));
+      EXPECT_TRUE(
+          rec.location.contains(id == id0 ? store_id_t{1} : store_id_t{}));
       EXPECT_TRUE(id == id0 || id == id1);
       return true;
     });
@@ -7720,8 +7723,7 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ChunkedArchetypeStorage_ChunkBoundary, ChunkedArchetypeStorage_At,
     ChunkedArchetypeStorage_RemoveIf, ChunkedArchetypeStorage_SwapAndMove,
     StableId_Basic, StableId_SmallId, StableId_NoThrow, StableId_Fifo,
-    StableId_NoGen, StableId_FifoNoGen, StableId_MaxId,
-    EntityRegistry_ForEach,
+    StableId_NoGen, StableId_FifoNoGen, StableId_MaxId, EntityRegistry_ForEach,
     StableId_ReservePrefill, MonoArchetypeStorage_Basic,
     MonoArchetypeStorage_Handle, MonoArchetypeStorage_Remove,
     MonoArchetypeStorage_RemoveAll, MonoArchetypeStorage_Erase,

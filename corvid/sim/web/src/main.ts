@@ -16,14 +16,19 @@ function requireEl<T extends HTMLElement>(
 const statusEl = requireEl('status', HTMLElement)
 const tickEl = requireEl('tick', HTMLElement)
 const logEl = requireEl('log', HTMLElement)
-const canvas = requireEl('canvas', HTMLCanvasElement)
+const backgroundCanvas = requireEl('background-canvas', HTMLCanvasElement)
+const foregroundCanvas = requireEl('foreground-canvas', HTMLCanvasElement)
 const livesEl = document.getElementById('lives')
 const resourcesEl = document.getElementById('resources')
 const phaseEl = document.getElementById('phase')
 
-const maybeCtx = canvas.getContext('2d')
-if (!maybeCtx) throw new Error('Could not get 2D canvas context')
-const ctx: CanvasRenderingContext2D = maybeCtx
+const maybeBgCtx = backgroundCanvas.getContext('2d')
+if (!maybeBgCtx) throw new Error('Could not get 2D background canvas context')
+const bgCtx: CanvasRenderingContext2D = maybeBgCtx
+
+const maybeFgCtx = foregroundCanvas.getContext('2d')
+if (!maybeFgCtx) throw new Error('Could not get 2D foreground canvas context')
+const fgCtx: CanvasRenderingContext2D = maybeFgCtx
 
 // --- World / canvas coordinate mapping ---
 //
@@ -35,15 +40,15 @@ const WORLD_H = 1080
 
 function worldToCanvas(wx: number, wy: number): [number, number] {
   return [
-    (wx + WORLD_W / 2) * canvas.width / WORLD_W,
-    (wy + WORLD_H / 2) * canvas.height / WORLD_H,
+    (wx + WORLD_W / 2) * foregroundCanvas.width / WORLD_W,
+    (wy + WORLD_H / 2) * foregroundCanvas.height / WORLD_H,
   ]
 }
 
 function canvasToWorld(cx: number, cy: number): [number, number] {
   return [
-    (cx - canvas.width / 2) * WORLD_W / canvas.width,
-    (cy - canvas.height / 2) * WORLD_H / canvas.height,
+    (cx - foregroundCanvas.width / 2) * WORLD_W / foregroundCanvas.width,
+    (cy - foregroundCanvas.height / 2) * WORLD_H / foregroundCanvas.height,
   ]
 }
 
@@ -60,7 +65,6 @@ let prevEntities: EntityPosition[] = []
 let currEntities: EntityPosition[] = []
 let prevById = new Map<number, EntityPosition>()
 let lastSnapshotTime = 0
-let pathPoints: Array<{ x: number; y: number }> = []
 let lives = 0
 let resources = 0
 
@@ -69,67 +73,71 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
 }
 
+function drawBackground(pathPoints: Array<{ x: number; y: number }>): void {
+  bgCtx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height)
+  if (pathPoints.length <= 1) return
+
+  bgCtx.save()
+  bgCtx.strokeStyle = '#3b82f6'
+  bgCtx.lineWidth = 2
+  bgCtx.beginPath()
+  const [startX, startY] = worldToCanvas(pathPoints[0].x, pathPoints[0].y)
+  bgCtx.moveTo(startX, startY)
+  for (const point of pathPoints.slice(1)) {
+    const [x, y] = worldToCanvas(point.x, point.y)
+    bgCtx.lineTo(x, y)
+  }
+  bgCtx.stroke()
+  bgCtx.restore()
+}
+
 function renderInterpolated(): void {
   const t = Math.min((performance.now() - lastSnapshotTime) / SNAPSHOT_INTERVAL_MS, 1)
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height)
-  if (pathPoints.length > 1) {
-    ctx.save()
-    ctx.strokeStyle = '#3b82f6'
-    ctx.lineWidth = 2
-    ctx.beginPath()
-    const [startX, startY] = worldToCanvas(pathPoints[0].x, pathPoints[0].y)
-    ctx.moveTo(startX, startY)
-    for (const point of pathPoints.slice(1)) {
-      const [x, y] = worldToCanvas(point.x, point.y)
-      ctx.lineTo(x, y)
-    }
-    ctx.stroke()
-    ctx.restore()
-  }
+  fgCtx.clearRect(0, 0, foregroundCanvas.width, foregroundCanvas.height)
   for (const e of currEntities) {
     const prev = prevById.get(e.id)
     const wx = prev ? lerp(prev.x, e.x, t) : e.x
     const wy = prev ? lerp(prev.y, e.y, t) : e.y
     const [x, y] = worldToCanvas(wx, wy)
-    ctx.beginPath()
-    ctx.arc(x, y, 5, 0, Math.PI * 2)
-    ctx.fill()
+    fgCtx.beginPath()
+    fgCtx.arc(x, y, 5, 0, Math.PI * 2)
+    fgCtx.fill()
   }
 }
 
 function drawFps(): void {
-  ctx.save()
+  fgCtx.save()
   const label = `${fps.toFixed(1)} FPS`
-  ctx.font = '14px monospace'
+  fgCtx.font = '14px monospace'
   const pad = 6
-  const w = ctx.measureText(label).width + pad * 2
+  const w = fgCtx.measureText(label).width + pad * 2
   const h = 20
-  const x = canvas.width - w - 4
-  const y = canvas.height - 4 - h
-  ctx.fillStyle = 'rgba(0,0,0,0.5)'
-  ctx.fillRect(x, y, w, h)
-  ctx.fillStyle = 'white'
-  ctx.fillText(label, x + pad, y + 14)
-  ctx.restore()
+  const x = foregroundCanvas.width - w - 4
+  const y = foregroundCanvas.height - 4 - h
+  fgCtx.fillStyle = 'rgba(0,0,0,0.5)'
+  fgCtx.fillRect(x, y, w, h)
+  fgCtx.fillStyle = 'white'
+  fgCtx.fillText(label, x + pad, y + 14)
+  fgCtx.restore()
 }
 
 function drawHud(): void {
-  ctx.save()
-  ctx.font = '20px monospace'
-  ctx.textBaseline = 'top'
+  fgCtx.save()
+  fgCtx.font = '20px monospace'
+  fgCtx.textBaseline = 'top'
 
   const livesLabel = `${lives}❤️`
   const resourcesLabel = `$${resources}`
   const pad = 4
   const barHeight = 24
 
-  ctx.fillStyle = 'rgba(0,0,0,0.55)'
-  ctx.fillRect(0, 0, canvas.width, barHeight)
+  fgCtx.fillStyle = 'rgba(0,0,0,0.55)'
+  fgCtx.fillRect(0, 0, foregroundCanvas.width, barHeight)
 
-  ctx.fillStyle = 'white'
-  ctx.fillText(`${livesLabel}   ${resourcesLabel}`, pad, pad)
-  ctx.restore()
+  fgCtx.fillStyle = 'white'
+  fgCtx.fillText(`${livesLabel}   ${resourcesLabel}`, pad, pad)
+  fgCtx.restore()
 }
 
 function frame(now: number): void {
@@ -300,14 +308,14 @@ ws.onmessage = (event: MessageEvent<string>) => {
       prevEntities = currEntities
       prevById = new Map(prevEntities.map((e) => [e.id, e]))
       currEntities = parsed.entities
-      pathPoints = snapshotPathsToPoints(parsed.paths)
+      drawBackground(snapshotPathsToPoints(parsed.paths))
       lastSnapshotTime = performance.now()
       break
     case 'world_delta':
       applyWorldDelta(parsed)
       break
     case 'world_snapshot':
-      pathPoints = parsed.paths
+      drawBackground(parsed.paths)
       applyWorldDelta(parsed.delta)
       break
   }
@@ -323,11 +331,11 @@ ws.onerror = () => {
   log('WebSocket error')
 }
 
-canvas.addEventListener('click', (e: MouseEvent) => {
+foregroundCanvas.addEventListener('click', (e: MouseEvent) => {
   if (ws.readyState !== WebSocket.OPEN) return
-  const rect = canvas.getBoundingClientRect()
-  const cssX = (e.clientX - rect.left) * (canvas.width / rect.width)
-  const cssY = (e.clientY - rect.top) * (canvas.height / rect.height)
+  const rect = foregroundCanvas.getBoundingClientRect()
+  const cssX = (e.clientX - rect.left) * (foregroundCanvas.width / rect.width)
+  const cssY = (e.clientY - rect.top) * (foregroundCanvas.height / rect.height)
   const [x, y] = canvasToWorld(cssX, cssY).map(Math.round) as [number, number]
   const msg: ClientMsg = { type: 'spawn', x, y }
   ws.send(JSON.stringify(msg))

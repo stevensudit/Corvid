@@ -32,9 +32,9 @@
 // - Put all of the shapes and skins into a raw JSON file and serve it up. The
 //   C++ code never reads it, but does reference IDs defined in it.
 // - The shapes could, in principle, reference sprites, which are likewise
-//   served up as one of more PNG files. Again, only the client has to care
-//   about how to render, while the server focuses on geometry and logic, such
-//   as hit boxes.
+//   served up as one or more PNG files. Again, only the client has to care
+//   about how to render, while the server focuses on physics, geometry, and
+//   logic.
 // - The definitions of enemies, towers, maps, and waves are kept in plain CSV
 //   files, which we can parse with nothing more than a comma splitter. These
 //   are deserialized into C++ structs at startup. We do not serve the CSV
@@ -143,8 +143,8 @@ struct SegmentedPath {
   // first so fast-moving entities visibly take corners instead of cutting
   // across them between updates. `progress` is clamped to `[0, totalLength]`.
   // Returns the origin if `segments` is empty.
-  [[nodiscard]] Position calculatePositionFromProgress(float progress,
-      float previousProgress) const {
+  [[nodiscard]] Position
+  calculatePositionFromProgress(float progress, float previousProgress) const {
     if (segments.empty()) return {};
     progress = std::clamp(progress, 0.F, totalLength);
 
@@ -257,7 +257,7 @@ struct PathFollower {
 // Note that towers sitting in the catalog or being dragged and dropped into
 // place are not entities, just client-side UI ephemera. Only once a tower is
 // placed does it become part of the world.
-struct PlacedTower {
+struct Defender {
   int tower_type{};
   float tower_radius{};
   float lever_multiplier{};
@@ -301,8 +301,7 @@ using ArchP = archetype_storage<WorldReg, std::tuple<Position>>;
 using ArchPV = archetype_storage<WorldReg, std::tuple<Position, Velocity>>;
 using ArchEnemy =
     archetype_storage<WorldReg, std::tuple<Position, PathFollower>>;
-using ArchTower =
-    archetype_storage<WorldReg, std::tuple<Position, PlacedTower>>;
+using ArchTower = archetype_storage<WorldReg, std::tuple<Position, Defender>>;
 using ArchBullet =
     archetype_storage<WorldReg, std::tuple<Position, Velocity, Bullet>>;
 using WorldScene =
