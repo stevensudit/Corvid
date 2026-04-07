@@ -288,6 +288,12 @@ template<std::integral T>
   return static_cast<T>(v);
 }
 
+// Look up exact string_view for value, or "(unknown)" if not found or empty.
+template<SequentialEnum E>
+[[nodiscard]] constexpr std::string_view enum_as_view(E v) noexcept {
+  return registry::enum_spec_v<std::decay_t<E>>.as_view(v);
+}
+
 // Length of range.
 template<SequentialEnum E>
 [[nodiscard]] constexpr auto range_length() noexcept {
@@ -321,8 +327,15 @@ struct sequence_enum_names_spec
   constexpr sequence_enum_names_spec(std::array<std::string_view, N> name_list)
       : names(name_list) {}
 
-  auto& append(AppendTarget auto& target, E v) const {
+  constexpr auto& append(AppendTarget auto& target, E v) const {
     return do_seq_append(target, v, names);
+  }
+
+  std::string_view as_view(E v) const noexcept {
+    auto n = as_underlying(v);
+    size_t ofs = n - *min_value<E>();
+    if (ofs < names.size() && names[ofs].size()) return names[ofs];
+    return std::string_view{"(unknown)"};
   }
 
   bool lookup(E& v, std::string_view sv) const {

@@ -568,7 +568,7 @@ public:
   // One particularly obvious use case is to erase all entries that aren't in
   // any valid store. The ID is passed so you can cascade deletion to the
   // appropriate storage(s).
-  size_type erase_if(auto pred) {
+  size_type erase_if(auto&& pred) {
     size_type cnt{};
     const auto id_end = records_.size_as_enum();
     for (id_t id{}; id < id_end; ++id) {
@@ -578,6 +578,21 @@ public:
         do_erase(id);
         ++cnt;
       }
+    }
+    return cnt;
+  }
+
+  // Call a function for each living record, as `func(id, rec)`, where `id` is
+  // the entity ID and `rec` is the `record_t&`. The callback may return
+  // `false` to stop iteration early. Returns count visited.
+  size_type for_each(auto&& func) const {
+    size_type cnt{};
+    const auto id_end = records_.size_as_enum();
+    for (id_t id{}; id < id_end; ++id) {
+      const auto& rec = records_[id];
+      if (!is_alive(id)) continue;
+      if (!func(id, rec)) break;
+      ++cnt;
     }
     return cnt;
   }

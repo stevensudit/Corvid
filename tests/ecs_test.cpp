@@ -2064,6 +2064,93 @@ void StableId_MaxId() {
   }
 }
 
+void EntityRegistry_ForEach() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using id_t = reg_t::id_t;
+  using loc_t = reg_t::location_t;
+
+  const loc_t staging{store_id_t{}};
+  const loc_t in_store1{store_id_t{1}, 7U};
+  const loc_t in_store2{store_id_t{2}, 9U};
+
+  // for_each visits only live records in ID order and returns the visit count.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(in_store1, 20);
+    auto id2 = r.create_id(in_store2, 30);
+    EXPECT_TRUE(r.erase(id1));
+
+    std::vector<id_t> ids;
+    std::vector<int> metadata;
+    auto cnt = r.for_each([&](auto id, const auto& rec) {
+      ids.push_back(id);
+      metadata.push_back(rec.metadata);
+      return true;
+    });
+
+    EXPECT_EQ(cnt, 2U);
+    EXPECT_EQ(ids.size(), 2U);
+    EXPECT_EQ(ids[0], id0);
+    EXPECT_EQ(ids[1], id2);
+    EXPECT_EQ(metadata[0], 10);
+    EXPECT_EQ(metadata[1], 30);
+  }
+
+  // Returning false stops iteration early; the stop record is still observed.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(in_store1, 20);
+    auto id2 = r.create_id(in_store2, 30);
+
+    std::vector<id_t> ids;
+    auto cnt = r.for_each([&](auto id, const auto& rec) {
+      ids.push_back(id);
+      EXPECT_TRUE(rec.location.contains(
+          id == id0 ? store_id_t{} : id == id1 ? store_id_t{1} : store_id_t{2}));
+      return id != id1;
+    });
+
+    EXPECT_EQ(cnt, 1U);
+    EXPECT_EQ(ids.size(), 2U);
+    EXPECT_EQ(ids[0], id0);
+    EXPECT_EQ(ids[1], id1);
+    EXPECT_NE(ids[1], id2);
+  }
+
+  // for_each on a const registry yields const records and visits all live IDs.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create_id(in_store1, 10);
+    auto id1 = r.create_id(staging, 20);
+    const reg_t& cr = r;
+
+    int sum = 0;
+    auto cnt = cr.for_each([&](auto id, const auto& rec) {
+      static_assert(std::is_const_v<std::remove_reference_t<decltype(rec)>>);
+      sum += rec.metadata;
+      EXPECT_TRUE(rec.location.contains(id == id0 ? store_id_t{1} : store_id_t{}));
+      EXPECT_TRUE(id == id0 || id == id1);
+      return true;
+    });
+
+    EXPECT_EQ(cnt, 2U);
+    EXPECT_EQ(sum, 30);
+  }
+
+  // Empty registry: callback is never called.
+  if (true) {
+    reg_t r;
+    auto cnt = r.for_each([&](auto, const auto&) {
+      EXPECT_TRUE(false);
+      return true;
+    });
+    EXPECT_EQ(cnt, 0U);
+  }
+}
+
 void MonoArchetypeStorage_Basic() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -7634,6 +7721,7 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ChunkedArchetypeStorage_RemoveIf, ChunkedArchetypeStorage_SwapAndMove,
     StableId_Basic, StableId_SmallId, StableId_NoThrow, StableId_Fifo,
     StableId_NoGen, StableId_FifoNoGen, StableId_MaxId,
+    EntityRegistry_ForEach,
     StableId_ReservePrefill, MonoArchetypeStorage_Basic,
     MonoArchetypeStorage_Handle, MonoArchetypeStorage_Remove,
     MonoArchetypeStorage_RemoveAll, MonoArchetypeStorage_Erase,

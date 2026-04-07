@@ -27,6 +27,20 @@
 // SimWorld: authoritative server-side world state and logic for the CorvidSim
 // game. Owns the entities and the physics, but not the rules or the game flow.
 
+// Architectural Notes:
+// - Put all of the shapes and skins into a raw JSON file and serve it up. The
+//   C++ code never reads it, but does reference IDs defined in it.
+// - The shapes could, in principle, reference sprites, which are likewise
+//   served up as one of more PNG files. Again, only the client has to care
+//   about how to render, while the server focuses on geometry and logic, such
+//   as hit boxes.
+// - The definitions of enemies, towers, maps, and waves are kept in plain CSV
+//   files, which we can parse with nothing more than a comma splitter. These
+//   are deserialized into C++ structs at startup. We do not serve the CSV
+//   files.
+// - To aid this, we might change the default web server to skip over anything
+//   with a leading dot, allowing us to store ".game-definitions.csv" even if
+//   CSV files were enabled.
 namespace corvid { inline namespace sim {
 
 // ID of path.
@@ -43,25 +57,30 @@ constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::PathId> =
 
 namespace corvid { inline namespace sim {
 
-// Convert Cartesian coordinates (x, y) to a Euclidean vector, in polar form
-// (length, direction). `direction` is in radians,
+// Conversions between Cartesian coordinates (x, y) and Euclidean vectors in
+// polar form (length, direction). Direction is in radians, with 0 along the
+// positive x-axis and increasing counter-clockwise.
+namespace convert {
+// Convert Cartesian coordinates Euclidean vector,
 [[nodiscard]] constexpr std::pair<float, float>
-convertCartesianToPolar(float x, float y) noexcept {
+CartesianToPolar(float x, float y) noexcept {
   float length = std::sqrt((x * x) + (y * y));
   float direction = std::atan2(y, x);
   return {length, direction};
 }
 
-// Convert a Euclidean vector, in polar form, to Cartesian coordinates.
-// `direction` is in radians.
+// Convert a Euclidean vector to Cartesian coordinates.
 [[nodiscard]] constexpr std::pair<float, float>
-convertPolarToCartesian(float length, float direction) noexcept {
+PolarToCartesian(float length, float direction) noexcept {
   float x = length * std::cos(direction);
   float y = length * std::sin(direction);
   return {x, y};
 }
+} // namespace convert
 
-// Linear interpolation calculator
+// Linear interpolation, where t is the interpolation factor in [0,1]. Returns
+// a when t=0 and b when t=1. Can also be used for extrapolation when t is
+// outside [0,1].
 [[nodiscard]] constexpr float lerp(float a, float b, float t) noexcept {
   return a + ((b - a) * t);
 }
@@ -72,7 +91,7 @@ struct Position {
   float y{};
 
   static Position fromPolar(float radius, float angle) {
-    auto [x, y] = convertPolarToCartesian(radius, angle);
+    auto [x, y] = convert::PolarToCartesian(radius, angle);
     return {x, y};
   }
 };
@@ -83,7 +102,7 @@ struct Velocity {
   float vy{};
 
   [[nodiscard]] static Velocity fromPolar(float speed, float angle) {
-    auto [vx, vy] = convertPolarToCartesian(speed, angle);
+    auto [vx, vy] = convert::PolarToCartesian(speed, angle);
     return {vx, vy};
   }
 };
@@ -162,16 +181,50 @@ struct SegmentedPath {
     sp.totalLength = cumulative;
     return sp;
   }
-
-  [[nodiscard]] PathJoints toJoints() const {
-    PathJoints pj;
-    pj.width = width;
-    pj.joints.reserve(segments.size() + 1);
-    for (const auto& seg : segments) pj.joints.push_back({seg.front});
-    if (!segments.empty()) { pj.joints.push_back({segments.back().back}); }
-    return pj;
-  }
 };
+
+using Tick = uint64_t;
+
+// `Shape` is not a component, but entities may reference it to define an
+// aspect of their appearance. For now, we keep it simple by allowing a shape
+// and/or a Unicode character. This would allow, for example, a numerial "1"
+// inside a square.
+//
+// This is a placeholder.
+struct Shape {
+  int shape_id{};
+  int shape{};     // when it's made of a shape that the client knows about
+  char32_t logo{}; // when it uses an alphabetical character for display
+};
+
+// `Skin` is likewise not a component, and it builds upon `Shape`. A particular
+// object can be defined by a list of skins for its various manifestations.
+// It's possible that we might refactor all of this into a plain JSON file
+// that's sent to the client, keeping only the properties that need to be
+// tracked for gameplay, such as size and perhaps rotation.
+//
+// This is a placeholder.
+struct Skin {
+  int shape_id{};
+  uint32_t color{};
+  int size{};
+  int orientation{};
+};
+
+// TODO: We likely want to break out the physics-relevant properties into
+// components. We already have Position and Velocity (as well as PathFollower,
+// which is a type of velocity). We may need a Shape component which has the
+// geometric type (square, circle, etc), its scale, radius, length, width,
+// etc., and local basis (orientation). This can be used to compute the
+// bounding box (which could be AABB (axis-aligned bounding box) or OBB
+// (oriented bounding box) or even a circle collider (super-fast for towers))
+// for collision detection and hit box purposes. We may also need an Aura for
+// field effects. Rendering cares about the origin/anchor point of the shape,
+// which may not be the center. Towers may have an Aura (radius, damage,
+// dmgtype) or ProjectileRange (), or both. We could use Components for Hitbox,
+// Hurtbox, Attack (dmg, knockback, statusEffect), Expiry (ttl in ticks).
+// For circle hitboxes, collision is trivial: when the distance between centers
+// is less than the sum of the radii, they collide.
 
 // Path-following component. Stored alongside `Position` in the enemy
 // archetype. Each tick, `progress` advances by `speed`; the entity's
@@ -182,38 +235,66 @@ struct PathFollower {
   float speed{};    // Distance per tick.
 };
 
+// Placed tower component. Stored alongside `Position` in the tower archetype.
+//
+// Note that towers sitting in the catalog or being dragged and dropped into
+// place are not entities, just client-side UI ephemera. Only once a tower is
+// placed does it become part of the world.
+struct PlacedTower {
+  int tower_type{};
+  float tower_radius{};
+  float lever_multiplier{};
+};
+
+// Bullet component. Stored alongside `Position` and `Velocity` in the bullet
+// archetype.
+struct Bullet {
+  int bullet_type{};
+  Tick lifetime{};
+};
+
 // ECS types for the simulation world.
 //
 // Registry metadata (`uint64_t`) stores each entity's last-change tick count,
 // enabling delta snapshots without a separate dirty set.
 //
 // Storage layout (store_id assignment is positional, 1-based):
-//   `sidStaging`  = 0                     : staging storage, used as tombstone
+//   `sidStaging` = 0                      : staging storage, used as tombstone
 //
-//   `sidPos`      = 1  -> `arch_p_t`      : background / destructible entities
+//   `sidPos`     = 1  -> `arch_p_t`       : background / destructible entities
 //                                           (Position)
 //
-//   `sidPosVel`     = 2  -> `arch_pv_t`   : moving entities
+//   `sidPosVel`  = 2  -> `arch_pv_t`      : moving entities
 //                                           (Position + Velocity)
 //
 //   `sidEnemy`   = 3  -> `arch_enemy_t`   : path-following enemies
 //                                           (Position + PathFollower)
 //
+//   `sidTower`   = 4  -> `arch_tower_t`   : placed towers
+//                                          (Position + PlacedTower)
+//
+//   `sidBullet`  = 5  -> `arch_bullet_t`  : bullets
+//                                           (Position + Velocity + Bullet)
+//
 // Background storage comes first so that retiring a mobile entity is a
-// natural `archetype_scene::migrate_entity` call rather than erase+re-add.
-using Tick = uint64_t;
+// natural `archetype_scene::migrate_entity` call rather than erase + re-add.
 using WorldReg = entity_registry<Tick>;
 using WorldSid = WorldReg::store_id_t;
 using ArchP = archetype_storage<WorldReg, std::tuple<Position>>;
 using ArchPV = archetype_storage<WorldReg, std::tuple<Position, Velocity>>;
 using ArchEnemy =
     archetype_storage<WorldReg, std::tuple<Position, PathFollower>>;
-using WorldScene = archetype_scene<WorldReg, ArchP, ArchPV, ArchEnemy>;
+using ArchTower =
+    archetype_storage<WorldReg, std::tuple<Position, PlacedTower>>;
+using ArchBullet =
+    archetype_storage<WorldReg, std::tuple<Position, Velocity, Bullet>>;
+using WorldScene =
+    archetype_scene<WorldReg, ArchP, ArchPV, ArchEnemy, ArchTower, ArchBullet>;
 
-// Simulation world: encapsulates all ECS entity state for the game.
+// Simulation world: encapsulates all ECS entity state for the game and
+// provides physics.
 //
-// Background entities (Position only) live in `sidPos`. Moving entities
-// (Position + Velocity) live in `sidPosVel`. Each `tick()` advances positions
+// Each `tick()` advances `Position` components based on
 // by velocity and bounces off the world boundary. The registry metadata
 // records the tick count at each entity's last state change so callers can
 // request delta snapshots starting from any past tick.
@@ -226,7 +307,7 @@ public:
   static constexpr WorldSid sidPos{1};
   static constexpr WorldSid sidPosVel{2};
   static constexpr WorldSid sidEnemy{3};
-
+  static constexpr WorldSid sidTower{4};
   static constexpr float widthOfWorld = 1920.F;
   static constexpr float heightOfWorld = 1080.F;
 
@@ -270,16 +351,6 @@ public:
     return &paths_[pathId];
   }
 
-  // Return snapshots for all authored paths so the client can render the
-  // original joints while runtime movement follows the baked geometry.
-  //!!! KILLME
-  [[nodiscard]] std::vector<PathJoints> path_snapshot() const {
-    std::vector<PathJoints> result;
-    result.reserve(paths_.size() + 1);
-    for (const auto& p : paths_) result.push_back(p.toJoints());
-    return result;
-  }
-
   // Spawn a path-following enemy. Initial position is derived from `progress`
   // on the named path. Returns a handle for later `despawn()`.
   [[nodiscard]] Handle
@@ -301,36 +372,6 @@ public:
     return tick_;
   }
 
-  // Return snapshots for every entity whose that has changed since
-  // `since_tick`. Pass 0 (the default) to return all entities. Visits all
-  // storages that carry `Position` (`sidPos`, `sidPosVel`, `sidEnemy`).
-  //!!! KILLME
-  [[nodiscard]] std::vector<EntitySnapshot> snapshot(
-      Tick tickSince = 0) const {
-    std::vector<EntitySnapshot> result;
-    result.reserve(scene_.size());
-    scene_.for_each<Position>([&](auto id, auto comps) {
-      auto& [pos] = comps;
-      if (scene_.registry()[id] >= tickSince) result.push_back({id, pos});
-      return true;
-    });
-    return result;
-  }
-
-  // Return snapshots for a specific list of entity IDs. Invalid or dead IDs
-  // are silently skipped.
-  //!!! KILLME
-  [[nodiscard]] std::vector<EntitySnapshot> snapshot(
-      const std::vector<EntityId>& ids) const {
-    std::vector<EntitySnapshot> result;
-    result.reserve(ids.size());
-    for (auto id : ids) {
-      if (const auto* pos = scene_.try_get_component<Position>(id))
-        result.push_back({id, *pos});
-    }
-    return result;
-  }
-
   // Total number of entities in all storages (does not count staged entities).
   [[nodiscard]] std::size_t size() const { return scene_.size(); }
 
@@ -342,12 +383,14 @@ public:
   // be interleaved.
   [[nodiscard]] bool
   extractUpdatedEntities(auto&& cbUpserts, auto&& cbErased) {
+    auto& reg = scene_.registry();
     for (auto id : updatedEntities_)
       if (const auto* pos = scene_.try_get_component<Position>(id))
         (void)cbUpserts(id, *pos);
       else {
-        // TODO: Ensure that this entity is in staging. If so, erase it.
+        if (reg.get_location(id).store_id != sidStaging) continue;
         (void)cbErased(id);
+        (void)scene_.erase_entity(id);
       }
 
     updatedEntities_.clear();
@@ -389,6 +432,15 @@ public:
     return true;
   }
 
+  // Mark all entities dirty, to force a full snapshot.
+  [[nodiscard]] bool markAllDirty() {
+    scene_.registry().for_each([&](auto id, auto&) {
+      markDirty(id);
+      return true;
+    });
+    return true;
+  }
+
 private:
   WorldScene scene_;
   Tick tick_{0};
@@ -399,7 +451,7 @@ private:
 
   // Marks an entity as dirty so that it will be included in the next delta
   // snapshot.
-  bool markDirty(EntityId id) {
+  [[nodiscard]] bool markDirty(EntityId id) {
     // If it's been deleted, it's already dirty.
     if (!scene_.registry().is_valid(id)) return false;
     auto& last_updated = scene_.registry()[id];
@@ -412,11 +464,11 @@ private:
   }
 
   // Logically erases an entity, adding it to the dirty list.
-  bool tombstoneEntity(EntityId id) {
+  [[nodiscard]] bool tombstoneEntity(EntityId id) {
     // Can't kill the dead.
     if (!scene_.registry().is_valid(id)) return false;
     (void)markDirty(id);
-    return scene_.migrate_entity(id, sidStaging);
+    return scene_.remove_entity(id);
   }
 
   // Advance velocity-driven entities.

@@ -876,11 +876,22 @@ void SequentialEnumTest_Int64() {
   }
 }
 
+void SequentialEnumTest_AsView() {
+  if (true) {
+    EXPECT_EQ(enum_as_view(e0_3(0)), "a");
+    EXPECT_EQ(enum_as_view(e0_3(1)), "(unknown)");
+    EXPECT_EQ(enum_as_view(e0_3(2)), "c");
+    EXPECT_EQ(enum_as_view(e0_3(3)), "(unknown)");
+    EXPECT_EQ(enum_as_view(e0_3(4)), "(unknown)");
+  }
+}
+
 MAKE_TEST_LIST(SequentialEnumTest_Registry, SequentialEnumTest_Ops,
     SequentialEnumTest_MakeSafely, SequentialEnumTest_SafeOps,
     SequentialEnumTest_SubtleBugRepro, SequentialEnumTest_StreamingOut,
     SequentialEnumTest_Missing, SequentialEnumTest_Intervals,
-    SequentialEnumTest_ExtractEnum, SequentialEnumTest_Int64);
+    SequentialEnumTest_ExtractEnum, SequentialEnumTest_Int64,
+    SequentialEnumTest_AsView);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

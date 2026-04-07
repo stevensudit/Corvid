@@ -47,6 +47,7 @@ struct GameSnapshot {
 };
 
 enum class GamePhase : uint8_t {
+  invalid,
   build,     // Tower building
   wave,      // Active wave with enemies spawning and moving
   game_over, // Player has no lives left
@@ -58,7 +59,7 @@ enum class GamePhase : uint8_t {
 template<>
 constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::GamePhase> =
     corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::GamePhase,
-        "build, wave, game_over, victory">();
+        "invalid, build, wave, game_over, victory">();
 
 namespace corvid { inline namespace sim {
 
@@ -79,16 +80,6 @@ class SimGame {
 public:
   explicit SimGame() = default;
 
-  [[nodiscard]] static constexpr std::string_view phase_name(GamePhase phase) {
-    switch (phase) {
-    case GamePhase::build: return "build";
-    case GamePhase::wave: return "wave";
-    case GamePhase::game_over: return "game_over";
-    case GamePhase::victory: return "victory";
-    }
-    return "unknown";
-  }
-
   // Load the chosen map, resetting all game state.
   void loadMap() {
     // TODO: Have multiple maps.
@@ -100,9 +91,9 @@ public:
     world_.clear();
     phase_ = GamePhase::build;
     waves_.clear();
-    currentWave = 0;
+    currentWave_ = 0;
     waveTick = 0;
-    nextSpawnIndex = 0;
+    nextSpawnIndex_ = 0;
     lives_ = 20;
     resources_ = 100;
   }
@@ -136,18 +127,10 @@ public:
     if (phase_ != GamePhase::build) return;
     phase_ = GamePhase::wave;
     waveTick = 0;
-    nextSpawnIndex = 0;
+    nextSpawnIndex_ = 0;
   }
 
   void placeTower(/* later */);
-
-  // Get a snapshot of the current game state for sending to clients.
-  [[nodiscard]] GameSnapshot snapshot() const {
-    GameSnapshot snap;
-    snap.entities = world_.snapshot();
-    snap.path_points = world_.path_snapshot();
-    return snap;
-  }
 
   // Extract a snapshot of the paths by calling `cbPath(pathId, Position)` for
   // all joints of all paths.
@@ -163,8 +146,8 @@ public:
   [[nodiscard]] bool
   extractDelta(auto&& cbUpserts, auto&& cbErased, auto&& cbState) {
     (void)world_.extractUpdatedEntities(cbUpserts, cbErased);
-    (void)cbState(currentWave, waveTick, lives_, resources_,
-        phase_name(phase_));
+    (void)cbState(currentWave_, waveTick, lives_, resources_,
+        sequence::enum_as_view(phase_));
 
     return true;
   }
@@ -175,7 +158,7 @@ public:
   [[nodiscard]] bool extractFull(auto&& cbPath, auto&& cbUpserts,
       auto&& cbErased, auto&& cbState) {
     (void)extractPaths(cbPath);
-    // TODO: Call markDirty on all.
+    (void)world_.markAllDirty();
     (void)extractDelta(cbUpserts, cbErased, cbState);
     return true;
   }
@@ -183,10 +166,10 @@ public:
 private:
   // Spawn all the enemies slated for this wave tick.
   void spawn_pending_wave_enemies() {
-    const auto& wave = waves_[currentWave];
+    const auto& wave = waves_[currentWave_];
     const auto& enemies = wave.enemies;
-    for (; nextSpawnIndex < enemies.size(); ++nextSpawnIndex) {
-      const auto& enemy_def = enemies[nextSpawnIndex];
+    for (; nextSpawnIndex_ < enemies.size(); ++nextSpawnIndex_) {
+      const auto& enemy_def = enemies[nextSpawnIndex_];
       if (enemy_def.startTicks > waveTick) break;
       (void)world_.spawnEnemy(PathId{0}, 20.F, 0.F);
     }
@@ -234,19 +217,19 @@ private:
   // Tick counter for the current wave, used to trigger spawns at the right
   // times. This is reset with each wave, so it is not the same tick counter as
   // the world's, and may not even run at the same speed.
-  Tick waveTick = 0;
+  Tick waveTick{};
 
   // Wave definitions for the current map.
   std::vector<WaveDefinition> waves_;
 
   // Current wave.
-  size_t currentWave = 0;
+  size_t currentWave_{};
 
   // Index of the next spawn in the current `WaveDefinition`, which is checked
   // against `wave_tick_`.
-  size_t nextSpawnIndex = 0;
+  size_t nextSpawnIndex_{};
 
-  int lives_ = 20;
-  int resources_ = 100;
+  int lives_{20};
+  int resources_{100};
 };
 }} // namespace corvid::sim
