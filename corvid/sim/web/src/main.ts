@@ -30,6 +30,14 @@ interface RenderEntityUpsert {
   app: RenderAppearance
 }
 
+const DEFAULT_RENDER_APPEARANCE: RenderAppearance = {
+  glyph: '?',
+  scale: 1,
+  fg: { css: 'rgba(255, 255, 255, 1)', alpha: 1 },
+  bg: { css: 'rgba(0, 0, 0, 1)', alpha: 1 },
+  glow: { css: 'rgba(0, 0, 0, 0)', alpha: 0 },
+}
+
 // --- DOM setup ---
 
 function requireEl<T extends HTMLElement>(
@@ -301,10 +309,10 @@ function appearanceToRender(app: EntityAppearance): RenderAppearance {
   }
 }
 
-function upsertToRenderEntity(upsert: EntityUpsert): RenderEntityUpsert {
+function upsertToRenderEntity(upsert: EntityUpsert, prevApp?: RenderAppearance): RenderEntityUpsert {
   return {
     pos: upsert.pos,
-    app: appearanceToRender(upsert.app),
+    app: upsert.app ? appearanceToRender(upsert.app) : (prevApp ?? DEFAULT_RENDER_APPEARANCE),
   }
 }
 
@@ -404,11 +412,12 @@ function isEntityAppearance(value: unknown): value is EntityAppearance {
 }
 
 function isEntityUpsert(value: unknown): value is EntityUpsert {
+  const maybeApp = (value as Record<string, unknown>).app
   return (
     typeof value === 'object' &&
     value !== null &&
     isEntityPosition((value as Record<string, unknown>).pos) &&
-    isEntityAppearance((value as Record<string, unknown>).app)
+    (maybeApp === undefined || isEntityAppearance(maybeApp))
   )
 }
 
@@ -431,8 +440,8 @@ function applyWorldDelta(delta: WorldDelta): void {
   prevRenderStateById.clear()
 
   for (const entity of delta.upserts) {
-    const nextEntity = upsertToRenderEntity(entity)
     const prevEntity = currEntitiesById.get(entity.pos.id)
+    const nextEntity = upsertToRenderEntity(entity, prevEntity?.app)
     if (prevEntity) prevRenderStateById.set(entity.pos.id, prevEntity)
     currEntitiesById.set(entity.pos.id, nextEntity)
   }

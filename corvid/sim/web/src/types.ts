@@ -31,7 +31,7 @@ export interface EntityAppearance {
 
 export interface EntityUpsert {
   pos: EntityPosition
-  app: EntityAppearance
+  app?: EntityAppearance
 }
 
 export interface EntityRender {
