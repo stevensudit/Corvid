@@ -70,10 +70,8 @@ let lastFrameTime = 0
 
 // --- Interpolation state ---
 
-let prevEntities: RenderEntityUpsert[] = []
-let currEntities: RenderEntityUpsert[] = []
-let prevPositionsById = new Map<number, EntityPosition>()
-let prevAppearancesById = new Map<number, EntityRender>()
+const currEntitiesById = new Map<number, RenderEntityUpsert>()
+const prevRenderStateById = new Map<number, RenderEntityUpsert>()
 let prevSnapshotTime = 0
 let currSnapshotTime = 0
 let snapshotIntervalMs = 50
@@ -108,9 +106,10 @@ function renderInterpolated(): void {
   const t = Math.min((performance.now() - currSnapshotTime) / interval, 1)
 
   fgCtx.clearRect(0, 0, foregroundCanvas.width, foregroundCanvas.height)
-  for (const e of currEntities) {
-    const prevPos = prevPositionsById.get(e.pos.id)
-    const prevApp = prevAppearancesById.get(e.pos.id) ?? e.app
+  for (const e of currEntitiesById.values()) {
+    const prevState = prevRenderStateById.get(e.pos.id)
+    const prevPos = prevState?.pos
+    const prevApp = prevState?.app ?? e.app
     const wx = prevPos ? lerp(prevPos.x, e.pos.x, t) : e.pos.x
     const wy = prevPos ? lerp(prevPos.y, e.pos.y, t) : e.pos.y
     const [x, y] = worldToCanvas(wx, wy)
@@ -291,16 +290,7 @@ function getDeltaPhase(delta: WorldDelta): string {
   return delta.phase
 }
 
-function beginSnapshotUpdate(): Map<number, RenderEntityUpsert> {
-  prevEntities = currEntities
-  prevPositionsById = new Map(prevEntities.map((e) => [e.pos.id, e.pos]))
-  prevAppearancesById = new Map(prevEntities.map((e) => [e.pos.id, e.app]))
-  return new Map(currEntities.map((e) => [e.pos.id, e]))
-}
-
-function finishSnapshotUpdate(nextEntities: Map<number, RenderEntityUpsert>): void {
-  currEntities = [...nextEntities.values()]
-
+function finishSnapshotUpdate(): void {
   prevSnapshotTime = currSnapshotTime
   currSnapshotTime = performance.now()
 
@@ -310,13 +300,20 @@ function finishSnapshotUpdate(nextEntities: Map<number, RenderEntityUpsert>): vo
 }
 
 function applyWorldDelta(delta: WorldDelta): void {
-  const nextEntities = beginSnapshotUpdate()
+  prevRenderStateById.clear()
 
-  for (const entity of delta.upserts)
-    nextEntities.set(entity.pos.id, upsertToRenderEntity(entity))
-  for (const entityId of delta.erased) nextEntities.delete(entityId)
+  for (const entity of delta.upserts) {
+    const nextEntity = upsertToRenderEntity(entity)
+    const prevEntity = currEntitiesById.get(entity.pos.id)
+    if (prevEntity) prevRenderStateById.set(entity.pos.id, prevEntity)
+    currEntitiesById.set(entity.pos.id, nextEntity)
+  }
+  for (const entityId of delta.erased) {
+    currEntitiesById.delete(entityId)
+    prevRenderStateById.delete(entityId)
+  }
 
-  finishSnapshotUpdate(nextEntities)
+  finishSnapshotUpdate()
   tickEl.textContent = String(delta.tick)
   lives = delta.lives
   resources = delta.resources
