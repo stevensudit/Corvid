@@ -164,8 +164,15 @@ public:
   [[nodiscard]] bool extractFull(auto&& cbPath, auto&& cbUpserts,
       auto&& cbErased, auto&& cbState) {
     (void)extractPaths(cbPath);
-    (void)world_.markAllDirty();
+    (void)markAllDirty();
     (void)extractDelta(cbUpserts, cbErased, cbState);
+    return true;
+  }
+
+  // See underlying method.
+  [[nodiscard]]
+  bool markAllDirty(update_strategy strategy = update_strategy::incremental) {
+    (void)world_.markAllDirty(strategy);
     return true;
   }
 

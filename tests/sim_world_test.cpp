@@ -184,7 +184,7 @@ void SimWorld_TickMovesMover() {
   SimWorld w;
   const auto mover = w.spawnMover(Position{100.F, 200.F}, Velocity{3.F, -5.F});
 
-  EXPECT_EQ(w.tick(), 1U);
+  EXPECT_EQ(*w.tick(), 1U);
 
   const auto snaps = snapshot(w);
   ASSERT_EQ(snaps.size(), 1U);
@@ -504,7 +504,7 @@ void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
   game.loadMap();
   game.start_wave();
 
-  EXPECT_EQ(game.step(), 1U);
+  EXPECT_EQ(*game.step(), 1U);
 
   const auto snap = snapshot(game);
   EXPECT_TRUE(snap.entities.empty());

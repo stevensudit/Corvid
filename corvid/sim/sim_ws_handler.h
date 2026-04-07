@@ -96,6 +96,8 @@ private:
   WorldTick current_tick_{};       // updated each frame; loop-thread only
   SimGame game_;                   // all simulation entity state
   update_strategy send_strategy_{update_strategy::full};
+  size_t buffer_high_watermark_ = 16ULL * 1024; // try to avoid resizes
+  size_t erased_ids_high_watermark = 64;        // ditto for erased ID vector
 
   // Handle an incoming text frame. Dispatches on `"type"` by substring search
   // (no parser needed for these fixed message shapes).
@@ -185,9 +187,11 @@ private:
     return do_arm_tick();
   }
 
+  // Stream snapshot of game state to the client as JSON. Uses deltas when
+  // possible.
   [[nodiscard]] bool send_game_state() {
     std::string buf;
-    buf.reserve(16ULL * 1024);
+    buf.reserve(buffer_high_watermark_);
     auto it = std::back_inserter(buf);
     // State to allow comma delimiter management in callbacks.
     bool wrote_any_path = false;
@@ -197,6 +201,7 @@ private:
 
     // If full send, wrap in `world_snapshot` envelope and include paths.
     if (send_strategy_ == update_strategy::full) {
+      (void)game_.markAllDirty(update_strategy::full);
       it = std::format_to(it, R"({{"type":"world_snapshot","paths":[)");
       (void)game_.extractPaths(
           [&it, &wrote_any_path, &wrote_any_joint](auto, const Position& pos) {
@@ -212,7 +217,7 @@ private:
     }
 
     std::vector<SimWorld::EntityId> erasedIds;
-    erasedIds.reserve(64);
+    erasedIds.reserve(erased_ids_high_watermark);
 
     // Display state.
     size_t current_wave{};
@@ -262,6 +267,8 @@ private:
           return true;
         });
 
+    // Mostly, the future is predicted by the past.
+    erased_ids_high_watermark = erasedIds.size();
     it = std::format_to(it, R"(],"erased":[)");
     for (auto entityId : erasedIds) {
       if (wrote_any_erased) it = std::format_to(it, ",");
@@ -278,6 +285,9 @@ private:
     (void)ws_frame_lens::build(header_buf,
         ws_frame_control::text | ws_frame_control::fin, buf.size(),
         std::nullopt);
+
+    // The past predicts the future, mostly.
+    buffer_high_watermark_ = buf.size();
 
     if (!websocket().send_frame(
             strings::as_vector(std::move(header_buf), std::move(buf))))

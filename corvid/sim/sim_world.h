@@ -473,13 +473,20 @@ public:
     return true;
   }
 
-  // Mark all entities dirty, to force a full snapshot.
-  [[nodiscard]] bool markAllDirty() {
+  // Mark all entities dirty. When `update_strategy::incremental`, does not
+  // mark appearances, just entities. When `update_strategy::full`, also marks
+  // appearances dirty by updating their `modified` field.
+  [[nodiscard]] bool markAllDirty(
+      update_strategy strategy = update_strategy::incremental) {
     scene_.registry().for_each([&](auto id, auto&) {
       const auto loc = scene_.registry().get_location(id);
       if (loc.store_id == sidStaging) return true;
 
       (void)markDirty(id);
+      if (strategy == update_strategy::incremental) return true;
+
+      if (auto app = scene_.try_get_component<Appearance>(id))
+        app->modified = tick_;
       return true;
     });
     return true;
