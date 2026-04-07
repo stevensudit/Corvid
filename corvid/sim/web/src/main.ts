@@ -77,6 +77,7 @@ let currSnapshotTime = 0
 let snapshotIntervalMs = 50
 let lives = 0
 let resources = 0
+const glyphFontSizeCache = new Map<string, number>()
 
 // Linear interpolation calculator
 function lerp(a: number, b: number, t: number): number {
@@ -147,10 +148,13 @@ function drawFilledCircle(x: number, y: number, radius: number, color: string): 
   fgCtx.fill()
 }
 
-function drawGlyphInCircle(glyph: string, x: number, y: number, radius: number, color: string): void {
-  if (!glyph || radius <= 0 || isTransparent(color)) return
+function getGlyphFontSize(glyph: string, radius: number): number {
+  const roundedRadius = Math.max(1, Math.round(radius))
+  const cacheKey = `${glyph}:${roundedRadius}`
+  const cachedFontSize = glyphFontSizeCache.get(cacheKey)
+  if (cachedFontSize !== undefined) return cachedFontSize
 
-  const maxBox = radius * Math.sqrt(2)
+  const maxBox = roundedRadius * Math.sqrt(2)
   let fontSize = maxBox
   fgCtx.font = `${fontSize}px monospace`
 
@@ -159,6 +163,15 @@ function drawGlyphInCircle(glyph: string, x: number, y: number, radius: number, 
   const height = (metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent) || fontSize
   const scale = Math.min(maxBox / width, maxBox / height, 1) * 0.9
   fontSize *= scale
+
+  glyphFontSizeCache.set(cacheKey, fontSize)
+  return fontSize
+}
+
+function drawGlyphInCircle(glyph: string, x: number, y: number, radius: number, color: string): void {
+  if (!glyph || radius <= 0 || isTransparent(color)) return
+
+  const fontSize = getGlyphFontSize(glyph, radius)
 
   fgCtx.save()
   fgCtx.fillStyle = color
