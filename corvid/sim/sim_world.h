@@ -24,6 +24,9 @@
 
 #include "../ecs.h"
 
+// SimWorld: authoritative server-side world state and logic for the CorvidSim
+// game. Owns the entities and the physics, but not the rules or the game flow.
+
 namespace corvid { inline namespace sim {
 
 // ID of path.
@@ -217,6 +220,7 @@ public:
   using EntityId = WorldReg::id_t;
   using Handle = WorldReg::handle_t;
 
+  static constexpr WorldSid staging_sid{0};
   static constexpr WorldSid p_sid{1};
   static constexpr WorldSid pv_sid{2};
   static constexpr WorldSid enemy_sid{3};
@@ -291,81 +295,13 @@ public:
   // handle is no longer valid (entity already dead).
   bool despawn(Handle& h) { return scene_.erase_entity(h); }
 
-  // Advance one simulation frame. For every PV entity: add velocity to
-  // position, then bounce off the world boundary by reversing the relevant
-  // velocity component and clamping the position. Sets each moved entity's
-  // registry metadata to the new tick count.
-  //
-  // If `out` is non-null, the IDs of all entities whose state changed are
-  // appended to `*out`. Pass `nullptr` (the default) when only the side
-  // effects are needed, to avoid the allocation.
-  [[nodiscard]] Tick tick(std::vector<EntityId>* out = nullptr) {
+  // Advance one simulation frame. Sets each changed entity's registry metadata
+  // to the new tick count and tracks changed entities for callbacks.
+  [[nodiscard]] Tick tick() {
     ++tick_n_;
 
-    // Advance velocity-driven entities.
-    scene_.for_each<Position, Velocity>([&](auto id, auto comps) {
-      auto& [pos, vel] = comps;
-      // Skip over currently immobile entities.
-      if (vel.vx == 0.F && vel.vy == 0.F) return true;
-
-      // TODO: Consider refactoring the increment and bounce into a single
-      // method that does both. For that matter, the current algorithm is
-      // wrong: an entity hitting a boundary shouldn't be clipped to the
-      // boundary and its velocity reversed. Rather, part of its movement
-      // should be reflected back. So, for example, if dx is 20 and the entity
-      // is 5 pixels from the right edge, it should spend 5 of those 20 moving
-      // to the right, and then 15 moving back. Its velocity should be reversed
-      // starting at the edge. The only reason the current algorithm works at
-      // all is that velocities are small. The algorithm is also bad in a
-      // different way, which is that it measures position from the center, not
-      // a bounding box, so the balls enter the boundary before reversing. Even
-      // then, a square bounding box would be hit-detected prematurely if the
-      // entity is moving at a diagonal.
-
-      pos.x += vel.vx;
-      pos.y += vel.vy;
-
-      bounce_from_boundary(pos.x, vel.vx, world_width);
-      bounce_from_boundary(pos.y, vel.vy, world_height);
-
-      scene_.registry()[id] = tick_n_;
-      if (out) out->push_back(id);
-      return true;
-    });
-
-    // Advance path-following enemies. Collect entities that reached the end
-    // so they can be despawned after iteration.
-    std::vector<EntityId> finished;
-    scene_.for_each<Position, PathFollower>([&](auto id, auto comps) {
-      auto& [pos, pf] = comps;
-      pf.progress += pf.speed;
-
-      // TODO: Is this even possible?
-      if (pf.path_id >= paths_.size_as_enum()) return true;
-
-      // TODO: Speed can be negative, so we need to collect entities that
-      // exited front and back, separately. Why separately? So that we can
-      // count them against the score. Note that we also have to be careful
-      // here to deal with the possibility of a non-enemy that follows the
-      // track and therefore doesn't count against the score. The easy way is
-      // to iterate through the entities and ask which archetype they are. This
-      // might be possible with ducktyping is enemies have a component that the
-      // player doesn't, such as an enemy type that defines how to draw them.
-      const auto& sp = paths_[pf.path_id];
-      if (pf.progress >= sp.total_length) {
-        finished.push_back(id);
-        return true;
-      }
-
-      pos = sp.position_from_progress(pf.progress);
-      scene_.registry()[id] = tick_n_;
-
-      if (out) out->push_back(id);
-      return true;
-    });
-    // IDs were collected from an active iteration, so erase_entity will not
-    // fail; the return value is voided intentionally.
-    for (auto id : finished) (void)scene_.erase_entity(id);
+    (void)tick_movers();
+    (void)tick_path_followers();
 
     return tick_n_;
   }
@@ -401,10 +337,121 @@ public:
   // Total number of entities in all storages (does not count staged entities).
   [[nodiscard]] std::size_t size() const { return scene_.size(); }
 
+  // List of entities that have escaped the path.
+  [[nodiscard]] auto& path_escapees() const { return path_escapees_; }
+
+  // Resolve path escapees by calling `cb` on each one, where `cb` is of the
+  // shape:
+  // `std::function<bool(EntityId, const Position&, constPathFollower&)`
+  //
+  // Destructively iterates through the list of path escapees.  If `cb` returns
+  // true, the escapee is erased; if false, it's left alive, so the caller
+  // ought to have done something with it, such as migrating it to a different
+  // path. Note that you must not modify `path_escapees_` in the process.
+  [[nodiscard]] bool resolve_escapes(auto&& cb) {
+    for (auto id : path_escapees_) {
+      if (!scene_.registry().is_valid(id)) continue;
+      auto [pos, pf] = scene_.try_get_components<Position, PathFollower>(id);
+      if (!pos || !pf) continue;
+      if (!cb(id, *pos, *pf)) continue;
+      (void)erase_entity(id);
+    }
+    path_escapees_.clear();
+    return true;
+  }
+
 private:
   WorldScene scene_;
   Tick tick_n_{0};
   id_container<SegmentedPath, PathId> paths_;
+
+  std::vector<EntityId> updated_entities_;
+  std::vector<EntityId> path_escapees_;
+
+  // Marks an entity as dirty so that it will be included in the next delta
+  // snapshot.
+  bool mark_dirty(EntityId id) {
+    // If it's been deleted, it's already dirty.
+    if (!scene_.registry().is_valid(id)) return false;
+    auto& last_updated = scene_.registry()[id];
+    if (last_updated != tick_n_) {
+      last_updated = tick_n_;
+      updated_entities_.push_back(id);
+      return true;
+    }
+    return false;
+  }
+
+  // Logically erases an entity, adding it to the dirty list. Actually, it's
+  // tombstoned into staging.
+  bool erase_entity(EntityId id) {
+    // Can't kill the dead.
+    if (!scene_.registry().is_valid(id)) return false;
+    (void)mark_dirty(id);
+    // We don't actually erase it yet, just migrate it to staging so that we
+    // can erase it as part of the snapshot process.
+    return scene_.migrate_entity(id, staging_sid);
+  }
+
+  // Advance velocity-driven entities.
+  [[nodiscard]] bool tick_movers() {
+    scene_.for_each<Position, Velocity>([&](auto id, auto comps) {
+      auto& [pos, vel] = comps;
+      // Skip over currently immobile entities.
+      if (vel.vx == 0.F && vel.vy == 0.F) return true;
+
+      // TODO: Consider refactoring the increment and bounce into a single
+      // method that does both. For that matter, the current algorithm is
+      // wrong: an entity hitting a boundary shouldn't be clipped to the
+      // boundary and its velocity reversed. Rather, part of its movement
+      // should be reflected back. So, for example, if dx is 20 and the entity
+      // is 5 pixels from the right edge, it should spend 5 of those 20 moving
+      // to the right, and then 15 moving back. Its velocity should be reversed
+      // starting at the edge. The only reason the current algorithm works at
+      // all is that velocities are small. The algorithm is also bad in a
+      // different way, which is that it measures position from the center, not
+      // a bounding box, so the balls enter the boundary before reversing. Even
+      // then, a square bounding box would be hit-detected prematurely if the
+      // entity is moving at a diagonal.
+      (void)mark_dirty(id);
+
+      pos.x += vel.vx;
+      pos.y += vel.vy;
+
+      bounce_from_boundary(pos.x, vel.vx, world_width);
+      bounce_from_boundary(pos.y, vel.vy, world_height);
+
+      updated_entities_.push_back(id);
+      return true;
+    });
+
+    return true;
+  }
+
+  // Advance path-following enemies. Collect entities that changed, as well as
+  // those that escaped the path.
+  [[nodiscard]] bool tick_path_followers() {
+    scene_.for_each<Position, PathFollower>([&](auto id, auto comps) {
+      auto& [pos, pf] = comps;
+      assert(pf.path_id < paths_.size_as_enum());
+      if (pf.speed == 0.F) return true;
+
+      (void)mark_dirty(id);
+
+      pf.progress += pf.speed;
+
+      const auto& sp = paths_[pf.path_id];
+      if (pf.progress >= sp.total_length || pf.progress < 0.F) {
+        path_escapees_.push_back(id);
+        return true;
+      }
+
+      pos = sp.position_from_progress(pf.progress);
+      return true;
+    });
+
+    return true;
+  }
 
   // Clamp `pos` to `[-limit/2, +limit/2]` and, if it was out of range, negate
   // `vel` so the entity bounces off that boundary wall.

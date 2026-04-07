@@ -72,7 +72,7 @@ public:
       do_close();
     };
     (void)enable_keepalive(loop, wheel, 20s, 5s);
-    game_.load_level();
+    game_.load_map();
     game_.start_wave();
     std::cout << "WebSocket client connected\n";
   }

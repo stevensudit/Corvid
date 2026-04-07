@@ -505,6 +505,41 @@ public:
     return found;
   }
 
+  // Return a tuple of pointers to the components `Cs` for entity `id`, with
+  // the value being `nullptr` if the entity is invalid, in staging, or its
+  // archetype does not contain `C`. Deduces `const` from the scene: on a
+  // `const` scene returns `const C*`.
+  template<typename... Cs>
+  [[nodiscard]] auto try_get_components(this auto& self, id_t id) noexcept
+      -> std::tuple<std::conditional_t<
+          std::is_const_v<std::remove_reference_t<decltype(self)>>, const Cs*,
+          Cs*>...> {
+    using self_t = std::remove_reference_t<decltype(self)>;
+    using result_t = std::tuple<
+        std::conditional_t<std::is_const_v<self_t>, const Cs*, Cs*>...>;
+
+    const result_t missing{static_cast<
+        std::conditional_t<std::is_const_v<self_t>, const Cs*, Cs*>>(
+        nullptr)...};
+    if (!self.registry_.is_valid(id)) return missing;
+
+    auto loc = self.registry_.get_location(id);
+    result_t found = missing;
+    [&]<size_t... Is>(std::index_sequence<Is...>) {
+      (
+          [&](auto& storage) {
+            if constexpr (has_all_components_v<
+                              std::remove_cvref_t<decltype(storage)>, Cs...>)
+            {
+              if (*loc.store_id == Is)
+                found = std::tuple{&storage[id].template component<Cs>()...};
+            }
+          }(std::get<Is>(self.storages_)),
+          ...);
+    }(storage_indices());
+    return found;
+  }
+
   // Erase all entities in all storages and in staging. After this call the
   // registry and all storages are empty. When `policy` is release, uses the
   // fast path that drops storage vectors and resets the registry wholesale,

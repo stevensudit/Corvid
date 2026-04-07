@@ -6348,6 +6348,81 @@ void ArchetypeScene_TryGetComponent() {
   }
 }
 
+void ArchetypeScene_TryGetComponents() {
+  // Returns non-null pointers for all requested components when the archetype
+  // contains them.
+  if (true) {
+    three_storage_scene_t s;
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{2.f, 3.f},
+        Velocity{4.f, 5.f}, Health{77});
+    auto [pos, vel, hp] =
+        s.try_get_components<Position, Velocity, Health>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    ASSERT_TRUE(vel != nullptr);
+    ASSERT_TRUE(hp != nullptr);
+    EXPECT_EQ(pos->x, 2.f);
+    EXPECT_EQ(vel->vx, 4.f);
+    EXPECT_EQ(hp->hp, 77);
+  }
+
+  // Returns all null pointers when any requested component is missing from
+  // the entity's archetype.
+  if (true) {
+    three_storage_scene_t s;
+    auto h =
+        s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f}, Velocity{});
+    auto [pos, hp] = s.try_get_components<Position, Health>(h.id());
+    EXPECT_TRUE(pos == nullptr);
+    EXPECT_TRUE(hp == nullptr);
+  }
+
+  // Returns all null pointers for a staged entity and for an invalid ID.
+  if (true) {
+    three_storage_scene_t s;
+    auto staged = s.stage_new_entity().id();
+    auto [staged_pos, staged_vel] =
+        s.try_get_components<Position, Velocity>(staged);
+    EXPECT_TRUE(staged_pos == nullptr);
+    EXPECT_TRUE(staged_vel == nullptr);
+
+    auto [bad_pos, bad_vel] =
+        s.try_get_components<Position, Velocity>(scene_reg_t::id_t::invalid);
+    EXPECT_TRUE(bad_pos == nullptr);
+    EXPECT_TRUE(bad_vel == nullptr);
+  }
+
+  // On a const scene returns const-qualified pointers.
+  if (true) {
+    three_storage_scene_t s;
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{7.f, 8.f},
+        Velocity{9.f, 10.f}, Health{});
+    const auto& cs = s;
+    auto [pos, vel] = cs.try_get_components<Position, Velocity>(h.id());
+    static_assert(std::is_same_v<decltype(pos), const Position*>);
+    static_assert(std::is_same_v<decltype(vel), const Velocity*>);
+    ASSERT_TRUE(pos != nullptr);
+    ASSERT_TRUE(vel != nullptr);
+    EXPECT_EQ(pos->x, 7.f);
+    EXPECT_EQ(vel->vx, 9.f);
+  }
+
+  // Mutation through returned pointers updates stored data.
+  if (true) {
+    three_storage_scene_t s;
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{0.f, 0.f},
+        Velocity{1.f, 2.f}, Health{});
+    auto [pos, vel] = s.try_get_components<Position, Velocity>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    ASSERT_TRUE(vel != nullptr);
+    pos->x = 42.f;
+    vel->vx = 24.f;
+    EXPECT_EQ(s.storage<scene_sid_t{2}>()[h.id()].component<Position>().x,
+        42.f);
+    EXPECT_EQ(s.storage<scene_sid_t{2}>()[h.id()].component<Velocity>().vx,
+        24.f);
+  }
+}
+
 void ComponentScene_StageNewEntity() {
   // stage_new_entity() creates a staged entity and returns its handle.
   if (true) {
@@ -7573,9 +7648,10 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ArchetypeScene_AddNewRuntime, ArchetypeScene_StoreEntity,
     ArchetypeScene_EntityLifecycle, ArchetypeScene_MigrateEdgeCases,
     ArchetypeScene_ForEach, ArchetypeScene_TryGetComponent,
-    ComponentIndex_Flat, ComponentIndex_Sorted, ComponentIndex_Paged,
-    ComponentStorage_Basic, ComponentStorage_MultiStore,
-    ComponentStorage_Remove, ComponentStorage_Erase, ComponentStorage_EraseIf,
+    ArchetypeScene_TryGetComponents, ComponentIndex_Flat,
+    ComponentIndex_Sorted, ComponentIndex_Paged, ComponentStorage_Basic,
+    ComponentStorage_MultiStore, ComponentStorage_Remove,
+    ComponentStorage_Erase, ComponentStorage_EraseIf,
     ComponentStorage_Iterator, ComponentStorage_IndexVariants,
     ComponentStorage_AddNew, ComponentStorage_SwapMoveReserve,
     ComponentStorage_At, ComponentScene_Basic, ComponentScene_StoreEntity,
