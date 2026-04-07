@@ -50,8 +50,8 @@ enum class PathId : uint16_t {
 };
 
 // Tick for world state.
-enum class WorldTick : uint64_t {
-  invalid = std::numeric_limits<uint64_t>::max()
+enum class WorldTick : uint32_t {
+  invalid = std::numeric_limits<uint32_t>::max()
 };
 
 }} // namespace corvid::sim
@@ -245,6 +245,7 @@ struct Appearance {
   uint32_t bg_color{};   // RGB color, if any.
   uint32_t glow_color{}; // RGB color for glow effect, if any.
   WorldTick effect_expiry{WorldTick::invalid}; // When glow effect expires.
+  WorldTick modified{}; // Tick when this entity was last modified
 };
 
 // Defensive tower component. Stored alongside `Position` in the tower
@@ -378,11 +379,23 @@ public:
   [[nodiscard]] Handle
   spawnEnemy(PathId pathId, float speed, float progress = 0.F) {
     if (pathId >= paths_.size_as_enum()) return {};
-    Appearance app{U'U', 2.F, 0xFFFFFFFF, 0xFF, 0, WorldTick::invalid};
+    Appearance app{U'U', 2.F, 0xFFFFFFFF, 0xFF, 0, WorldTick::invalid, tick_};
     const auto pos =
         paths_[pathId].calculatePositionFromProgress(progress, progress);
     return scene_.store_new_entity<sidEnemy>(tick_, pos, app,
         PathFollower{pathId, progress, speed}, Invader{});
+  }
+
+  // Update entity appearance.
+  [[nodiscard]] bool updateAppearance(EntityId id, const Appearance& newApp) {
+    auto& reg = scene_.registry();
+    if (!reg.is_valid(id)) return false;
+    auto* app = scene_.try_get_component<Appearance>(id);
+    if (!app) return false;
+    *app = newApp;
+    app->modified = tick_;
+    (void)markDirty(id);
+    return true;
   }
 
   // Advance one simulation frame. Sets each changed entity's registry metadata

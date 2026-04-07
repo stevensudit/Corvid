@@ -51,8 +51,8 @@ enum class GamePhase : uint8_t {
 };
 
 // Tick from start of wave.
-enum class WaveTick : uint64_t {
-  invalid = std::numeric_limits<uint64_t>::max()
+enum class WaveTick : uint32_t {
+  invalid = std::numeric_limits<uint32_t>::max()
 };
 
 }} // namespace corvid::sim
@@ -216,7 +216,7 @@ private:
     (void)world_.addPath(p);
 
     WaveDefinition wave;
-    for (uint64_t i = 0; i < 20; ++i)
+    for (uint32_t i = 0; i < 20; ++i)
       wave.enemies.push_back({WaveTick{i * 20}, 0});
 
     waves_.push_back(std::move(wave));
