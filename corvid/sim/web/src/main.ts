@@ -128,9 +128,9 @@ function renderInterpolated(): void {
     const [x, y] = worldToCanvas(wx, wy)
     const radius = 5 * lerp(prevApp.scale, e.app.scale, t)
 
-    drawFilledCircle(x, y, radius * 1.5, e.app.glow)
-    drawFilledCircle(x, y, radius, e.app.bg)
-    drawGlyphInCircle(e.app.glyph, x, y, radius, e.app.fg)
+    if (e.app.glow.alpha !== 0) drawFilledCircle(x, y, radius * 1.5, e.app.glow)
+    if (e.app.bg.alpha !== 0) drawFilledCircle(x, y, radius, e.app.bg)
+    if (e.app.fg.alpha !== 0) drawGlyphInCircle(e.app.glyph, x, y, radius, e.app.fg)
   }
 }
 
