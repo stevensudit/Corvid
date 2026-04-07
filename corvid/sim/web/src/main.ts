@@ -70,13 +70,13 @@ let lastFrameTime = 0
 
 // --- Interpolation state ---
 
-const SNAPSHOT_INTERVAL_MS = 50 // matches server 20 Hz rate
-
 let prevEntities: RenderEntityUpsert[] = []
 let currEntities: RenderEntityUpsert[] = []
 let prevPositionsById = new Map<number, EntityPosition>()
 let prevAppearancesById = new Map<number, EntityRender>()
-let lastSnapshotTime = 0
+let prevSnapshotTime = 0
+let currSnapshotTime = 0
+let snapshotIntervalMs = 50
 let lives = 0
 let resources = 0
 
@@ -104,7 +104,8 @@ function drawBackground(pathPoints: Array<{ x: number; y: number }>): void {
 }
 
 function renderInterpolated(): void {
-  const t = Math.min((performance.now() - lastSnapshotTime) / SNAPSHOT_INTERVAL_MS, 1)
+  const interval = Math.max(snapshotIntervalMs, 1)
+  const t = Math.min((performance.now() - currSnapshotTime) / interval, 1)
 
   fgCtx.clearRect(0, 0, foregroundCanvas.width, foregroundCanvas.height)
   for (const e of currEntities) {
@@ -299,7 +300,13 @@ function beginSnapshotUpdate(): Map<number, RenderEntityUpsert> {
 
 function finishSnapshotUpdate(nextEntities: Map<number, RenderEntityUpsert>): void {
   currEntities = [...nextEntities.values()]
-  lastSnapshotTime = performance.now()
+
+  prevSnapshotTime = currSnapshotTime
+  currSnapshotTime = performance.now()
+
+  if (prevSnapshotTime !== 0) {
+    snapshotIntervalMs = currSnapshotTime - prevSnapshotTime
+  }
 }
 
 function applyWorldDelta(delta: WorldDelta): void {
