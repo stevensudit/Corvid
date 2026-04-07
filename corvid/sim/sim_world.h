@@ -389,22 +389,24 @@ public:
 
   // Destructively extract upserts and erasures.
   //
-  // Call back `cbUpserts(EntityId, Position)` for each changed entity that has
-  // a `Position` and has changed since the last tick, and `cbErased(EntityId)`
-  // for each entity that has been erased since the last tick. These calls will
-  // be interleaved.
+  // Call back `cbUpserts(EntityId, Position, Appearance)` for each changed
+  // entity that has a `Position` and `Appearance` and has changed since the
+  // last tick, and `cbErased(EntityId)` for each entity that has been erased
+  // since the last tick. These calls will be interleaved.
   [[nodiscard]] bool
   extractUpdatedEntities(auto&& cbUpserts, auto&& cbErased) {
     auto& reg = scene_.registry();
-    for (auto id : updatedEntities_)
-      if (const auto* pos = scene_.try_get_component<Position>(id))
-        (void)cbUpserts(id, *pos);
-      else {
+    for (auto id : updatedEntities_) {
+      const auto [pos, app] =
+          scene_.try_get_components<Position, Appearance>(id);
+      if (pos && app) {
+        (void)cbUpserts(id, *pos, *app);
+      } else {
         if (reg.get_location(id).store_id != sidStaging) continue;
         (void)cbErased(id);
         (void)scene_.erase_entity(id);
       }
-
+    }
     updatedEntities_.clear();
     return true;
   }

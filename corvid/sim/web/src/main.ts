@@ -1,4 +1,11 @@
-import type { ServerMsg, ClientMsg, EntityPosition, WorldDelta } from './types.js'
+import type {
+  ClientMsg,
+  EntityAppearance,
+  EntityPosition,
+  EntityUpsert,
+  ServerMsg,
+  WorldDelta,
+} from './types.js'
 
 // --- DOM setup ---
 
@@ -59,9 +66,10 @@ let lastFrameTime = 0
 
 const SNAPSHOT_INTERVAL_MS = 50 // matches server 20 Hz rate
 
-let prevEntities: EntityPosition[] = []
-let currEntities: EntityPosition[] = []
-let prevById = new Map<number, EntityPosition>()
+let prevEntities: EntityUpsert[] = []
+let currEntities: EntityUpsert[] = []
+let prevPositionsById = new Map<number, EntityPosition>()
+let prevAppearancesById = new Map<number, EntityAppearance>()
 let lastSnapshotTime = 0
 let lives = 0
 let resources = 0
@@ -94,14 +102,21 @@ function renderInterpolated(): void {
 
   fgCtx.clearRect(0, 0, foregroundCanvas.width, foregroundCanvas.height)
   for (const e of currEntities) {
-    const prev = prevById.get(e.id)
-    const wx = prev ? lerp(prev.x, e.x, t) : e.x
-    const wy = prev ? lerp(prev.y, e.y, t) : e.y
+    const prevPos = prevPositionsById.get(e.pos.id)
+    const prevApp = prevAppearancesById.get(e.pos.id) ?? e.app
+    const wx = prevPos ? lerp(prevPos.x, e.pos.x, t) : e.pos.x
+    const wy = prevPos ? lerp(prevPos.y, e.pos.y, t) : e.pos.y
     const [x, y] = worldToCanvas(wx, wy)
+
+    fgCtx.fillStyle = colorToCss(e.app.fg)
     fgCtx.beginPath()
-    fgCtx.arc(x, y, 5, 0, Math.PI * 2)
+    fgCtx.arc(x, y, 5 * lerp(prevApp.scale, e.app.scale, t), 0, Math.PI * 2)
     fgCtx.fill()
   }
+}
+
+function colorToCss(color: number): string {
+  return `#${(color & 0xffffff).toString(16).padStart(6, '0')}`
 }
 
 function drawFps(): void {
@@ -171,19 +186,51 @@ function isPoint(value: unknown): value is { x: number; y: number } {
   )
 }
 
+function isEntityPosition(value: unknown): value is EntityPosition {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).id === 'number' &&
+    typeof (value as Record<string, unknown>).x === 'number' &&
+    typeof (value as Record<string, unknown>).y === 'number'
+  )
+}
+
+function isEntityAppearance(value: unknown): value is EntityAppearance {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).glyph === 'number' &&
+    typeof (value as Record<string, unknown>).scale === 'number' &&
+    typeof (value as Record<string, unknown>).fg === 'number' &&
+    typeof (value as Record<string, unknown>).bg === 'number' &&
+    typeof (value as Record<string, unknown>).glow === 'number'
+  )
+}
+
+function isEntityUpsert(value: unknown): value is EntityUpsert {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    isEntityPosition((value as Record<string, unknown>).pos) &&
+    isEntityAppearance((value as Record<string, unknown>).app)
+  )
+}
+
 function getDeltaPhase(delta: WorldDelta): string {
   const maybePhase = (delta as WorldDelta & { phase?: unknown }).phase
   if (typeof maybePhase === 'string') return maybePhase
   return delta.phase
 }
 
-function beginSnapshotUpdate(): Map<number, EntityPosition> {
+function beginSnapshotUpdate(): Map<number, EntityUpsert> {
   prevEntities = currEntities
-  prevById = new Map(prevEntities.map((e) => [e.id, e]))
-  return new Map(currEntities.map((e) => [e.id, e]))
+  prevPositionsById = new Map(prevEntities.map((e) => [e.pos.id, e.pos]))
+  prevAppearancesById = new Map(prevEntities.map((e) => [e.pos.id, e.app]))
+  return new Map(currEntities.map((e) => [e.pos.id, e]))
 }
 
-function finishSnapshotUpdate(nextEntities: Map<number, EntityPosition>): void {
+function finishSnapshotUpdate(nextEntities: Map<number, EntityUpsert>): void {
   currEntities = [...nextEntities.values()]
   lastSnapshotTime = performance.now()
 }
@@ -191,7 +238,7 @@ function finishSnapshotUpdate(nextEntities: Map<number, EntityPosition>): void {
 function applyWorldDelta(delta: WorldDelta): void {
   const nextEntities = beginSnapshotUpdate()
 
-  for (const entity of delta.upserts) nextEntities.set(entity.id, entity)
+  for (const entity of delta.upserts) nextEntities.set(entity.pos.id, entity)
   for (const entityId of delta.erased) nextEntities.delete(entityId)
 
   finishSnapshotUpdate(nextEntities)
@@ -205,6 +252,22 @@ function applyWorldDelta(delta: WorldDelta): void {
 
 // --- Message validation ---
 
+function isWorldDelta(value: unknown): value is WorldDelta {
+  if (!value || typeof value !== 'object') return false
+  const v = value as Record<string, unknown>
+
+  return (
+    typeof v.tick === 'number' &&
+    Array.isArray(v.upserts) &&
+    Array.isArray(v.erased) &&
+    typeof v.lives === 'number' &&
+    typeof v.resources === 'number' &&
+    typeof v.phase === 'string' &&
+    v.upserts.every(isEntityUpsert) &&
+    v.erased.every((id) => typeof id === 'number')
+  )
+}
+
 function isServerMsg(value: unknown): value is ServerMsg {
   if (!value || typeof value !== 'object') return false
   const v = value as Record<string, unknown>
@@ -216,28 +279,12 @@ function isServerMsg(value: unknown): value is ServerMsg {
     case 'tick':
       return typeof v.tick === 'number'
     case 'world_delta':
-      return (
-        typeof v.tick === 'number' &&
-        Array.isArray(v.upserts) &&
-        Array.isArray(v.erased) &&
-        typeof v.lives === 'number' &&
-        typeof v.resources === 'number' &&
-        typeof v.phase === 'string' &&
-        v.upserts.every(
-          (e) =>
-            typeof e === 'object' &&
-            e !== null &&
-            typeof (e as Record<string, unknown>).id === 'number' &&
-            typeof (e as Record<string, unknown>).x === 'number' &&
-            typeof (e as Record<string, unknown>).y === 'number',
-        ) &&
-        v.erased.every((id) => typeof id === 'number')
-      )
+      return isWorldDelta(v)
     case 'world_snapshot':
       return (
         Array.isArray(v.paths) &&
         v.paths.every(isPoint) &&
-        isServerMsg(v.delta)
+        isWorldDelta(v.delta)
       )
     default:
       return false

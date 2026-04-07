@@ -135,8 +135,8 @@ public:
     return true;
   }
 
-  // Extract a delta of the game state. The `cbUpserts(EntityId, Position)` and
-  // `cbErased(EntityId)` callbacks will be interleaved. The
+  // Extract a delta of the game state. The `cbUpserts(EntityId, Position,
+  // Appearance)` and `cbErased(EntityId)` callbacks will be interleaved. The
   // `cbState(currentWave, waveTick, lives, resources)` callback is invoked
   // last.
   [[nodiscard]] bool

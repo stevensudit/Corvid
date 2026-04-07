@@ -58,7 +58,7 @@ struct GameSnapshot {
   std::vector<EntitySnapshot> snaps;
   (void)world.markAllDirty();
   (void)world.extractUpdatedEntities(
-      [&snaps](SimWorld::EntityId id, const Position& pos) {
+      [&snaps](SimWorld::EntityId id, const Position& pos, const Appearance&) {
         const auto it = std::ranges::find(snaps, id, &EntitySnapshot::id);
         if (it == snaps.end())
           snaps.push_back({id, pos});
@@ -96,7 +96,7 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
 [[nodiscard]] WorldDelta extractWorldDelta(SimWorld& world) {
   WorldDelta delta;
   (void)world.extractUpdatedEntities(
-      [&delta](SimWorld::EntityId id, const Position& pos) {
+      [&delta](SimWorld::EntityId id, const Position& pos, const Appearance&) {
         delta.upserts.emplace_back(id, pos);
       },
       [&delta](SimWorld::EntityId id) { delta.erased.push_back(id); });
@@ -113,7 +113,7 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
         if (pathsById.size() <= ndx) pathsById.resize(ndx + 1);
         pathsById[ndx].joints.push_back({pos});
       },
-      [&snap](SimWorld::EntityId id, const Position& pos) {
+      [&snap](SimWorld::EntityId id, const Position& pos, const Appearance&) {
         snap.entities.push_back({id, pos});
       },
       [](SimWorld::EntityId) {},
@@ -126,7 +126,7 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
 [[nodiscard]] GameDelta extractGameDelta(SimGame& game) {
   GameDelta delta;
   (void)game.extractDelta(
-      [&delta](SimWorld::EntityId id, const Position& pos) {
+      [&delta](SimWorld::EntityId id, const Position& pos, const Appearance&) {
         delta.upserts.emplace_back(id, pos);
       },
       [&delta](SimWorld::EntityId id) { delta.erased.push_back(id); },
@@ -559,7 +559,9 @@ void SimGame_ExtractFullIncludesPathsAndState() {
 
   (void)game.extractFull(
       [&path_points](PathId, const Position&) { ++path_points; },
-      [&upserts](SimWorld::EntityId, const Position&) { ++upserts; },
+      [&upserts](SimWorld::EntityId, const Position&, const Appearance&) {
+        ++upserts;
+      },
       [&erased](SimWorld::EntityId) { ++erased; },
       [&currentWave, &waveTick, &lives, &resources, &phase](size_t wave,
           Tick tick, int newLives, int newResources,

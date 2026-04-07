@@ -21,6 +21,19 @@ export interface EntityPosition {
   y: number
 }
 
+export interface EntityAppearance {
+  glyph: number
+  scale: number
+  fg: number
+  bg: number
+  glow: number
+}
+
+export interface EntityUpsert {
+  pos: EntityPosition
+  app: EntityAppearance
+}
+
 interface PathPoint {
   x: number
   y: number
@@ -35,7 +48,7 @@ export interface SpawnMsg {
 export interface WorldDelta {
   type: 'world_delta'
   tick: number
-  upserts: EntityPosition[]
+  upserts: EntityUpsert[]
   erased: number[]
   lives: number
   resources: number

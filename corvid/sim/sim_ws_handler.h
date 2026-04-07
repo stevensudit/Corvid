@@ -18,11 +18,11 @@
 
 #include <atomic>
 #include <charconv>
-#include <numbers>
 #include <cmath>
 #include <format>
 #include <iostream>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <vector>
 
@@ -176,7 +176,8 @@ private:
   }
 
   // Called on the loop thread: advance the simulation one frame, send a
-  // snapshot message (20 Hz) and, once per 20 frames, a tick message (1 Hz).
+  // world update message (20 Hz) and, once per 20 frames, a tick message
+  // (1 Hz).
   // Re-arms for the next 50 ms interval. If a fragmented send is in progress,
   // defers by re-arming with the same counter so the sequence has no gaps.
   [[nodiscard]] bool do_tick_fire(Tick tick_n) {
@@ -231,11 +232,13 @@ private:
     (void)game_.extractDelta(
         // Upserts.
         [&it, &wrote_any_upsert](SimWorld::EntityId entityId,
-            const Position& pos) {
+            const Position& pos, const Appearance& app) {
           if (wrote_any_upsert) it = std::format_to(it, ",");
           wrote_any_upsert = true;
-          it = std::format_to(it, R"({{"id":{},"x":{:.1f},"y":{:.1f}}})",
-              *entityId, pos.x, pos.y);
+          it = std::format_to(it,
+              R"({{"pos":{{"id":{},"x":{:.1f},"y":{:.1f}}},"app":{{"glyph":{},"scale":{:.3f},"fg":{},"bg":{},"glow":{}}}}})",
+              *entityId, pos.x, pos.y, static_cast<uint32_t>(app.glyph),
+              app.scale, app.fg_color, app.bg_color, app.glow_color);
           return true;
         },
         // Erasures.
