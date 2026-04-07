@@ -2,10 +2,16 @@ import type {
   ClientMsg,
   EntityAppearance,
   EntityPosition,
+  EntityRender,
   EntityUpsert,
   ServerMsg,
   WorldDelta,
 } from './types.js'
+
+interface RenderEntityUpsert {
+  pos: EntityPosition
+  app: EntityRender
+}
 
 // --- DOM setup ---
 
@@ -66,10 +72,10 @@ let lastFrameTime = 0
 
 const SNAPSHOT_INTERVAL_MS = 50 // matches server 20 Hz rate
 
-let prevEntities: EntityUpsert[] = []
-let currEntities: EntityUpsert[] = []
+let prevEntities: RenderEntityUpsert[] = []
+let currEntities: RenderEntityUpsert[] = []
 let prevPositionsById = new Map<number, EntityPosition>()
-let prevAppearancesById = new Map<number, EntityAppearance>()
+let prevAppearancesById = new Map<number, EntityRender>()
 let lastSnapshotTime = 0
 let lives = 0
 let resources = 0
@@ -107,16 +113,77 @@ function renderInterpolated(): void {
     const wx = prevPos ? lerp(prevPos.x, e.pos.x, t) : e.pos.x
     const wy = prevPos ? lerp(prevPos.y, e.pos.y, t) : e.pos.y
     const [x, y] = worldToCanvas(wx, wy)
+    const radius = 5 * lerp(prevApp.scale, e.app.scale, t)
 
-    fgCtx.fillStyle = colorToCss(e.app.fg)
-    fgCtx.beginPath()
-    fgCtx.arc(x, y, 5 * lerp(prevApp.scale, e.app.scale, t), 0, Math.PI * 2)
-    fgCtx.fill()
+    drawFilledCircle(x, y, radius * 1.5, e.app.glow)
+    drawFilledCircle(x, y, radius, e.app.bg)
+    drawGlyphInCircle(e.app.glyph, x, y, radius, e.app.fg)
   }
 }
 
-function colorToCss(color: number): string {
-  return `#${(color & 0xffffff).toString(16).padStart(6, '0')}`
+function packedRgbaToCss(color: number): string {
+  const r = (color >>> 24) & 0xff
+  const g = (color >>> 16) & 0xff
+  const b = (color >>> 8) & 0xff
+  const a = (color & 0xff) / 255
+  return `rgba(${r}, ${g}, ${b}, ${a})`
+}
+
+function cssRgbaAlpha(color: string): number {
+  const match = /^rgba\(\d+, \d+, \d+, ([0-9.]+)\)$/.exec(color)
+  return match ? Number(match[1]) : 1
+}
+
+function isTransparent(color: string): boolean {
+  return cssRgbaAlpha(color) === 0
+}
+
+function drawFilledCircle(x: number, y: number, radius: number, color: string): void {
+  if (radius <= 0 || isTransparent(color)) return
+
+  fgCtx.fillStyle = color
+  fgCtx.beginPath()
+  fgCtx.arc(x, y, radius, 0, Math.PI * 2)
+  fgCtx.fill()
+}
+
+function drawGlyphInCircle(glyph: string, x: number, y: number, radius: number, color: string): void {
+  if (!glyph || radius <= 0 || isTransparent(color)) return
+
+  const maxBox = radius * Math.sqrt(2)
+  let fontSize = maxBox
+  fgCtx.font = `${fontSize}px monospace`
+
+  const metrics = fgCtx.measureText(glyph)
+  const width = metrics.width || 1
+  const height = (metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent) || fontSize
+  const scale = Math.min(maxBox / width, maxBox / height, 1) * 0.9
+  fontSize *= scale
+
+  fgCtx.save()
+  fgCtx.fillStyle = color
+  fgCtx.font = `${fontSize}px monospace`
+  fgCtx.textAlign = 'center'
+  fgCtx.textBaseline = 'middle'
+  fgCtx.fillText(glyph, x, y)
+  fgCtx.restore()
+}
+
+function appearanceToRender(app: EntityAppearance): EntityRender {
+  return {
+    glyph: String.fromCodePoint(app.glyph),
+    scale: app.scale,
+    fg: packedRgbaToCss(app.fg),
+    bg: packedRgbaToCss(app.bg),
+    glow: packedRgbaToCss(app.glow),
+  }
+}
+
+function upsertToRenderEntity(upsert: EntityUpsert): RenderEntityUpsert {
+  return {
+    pos: upsert.pos,
+    app: appearanceToRender(upsert.app),
+  }
 }
 
 function drawFps(): void {
@@ -223,14 +290,14 @@ function getDeltaPhase(delta: WorldDelta): string {
   return delta.phase
 }
 
-function beginSnapshotUpdate(): Map<number, EntityUpsert> {
+function beginSnapshotUpdate(): Map<number, RenderEntityUpsert> {
   prevEntities = currEntities
   prevPositionsById = new Map(prevEntities.map((e) => [e.pos.id, e.pos]))
   prevAppearancesById = new Map(prevEntities.map((e) => [e.pos.id, e.app]))
   return new Map(currEntities.map((e) => [e.pos.id, e]))
 }
 
-function finishSnapshotUpdate(nextEntities: Map<number, EntityUpsert>): void {
+function finishSnapshotUpdate(nextEntities: Map<number, RenderEntityUpsert>): void {
   currEntities = [...nextEntities.values()]
   lastSnapshotTime = performance.now()
 }
@@ -238,7 +305,8 @@ function finishSnapshotUpdate(nextEntities: Map<number, EntityUpsert>): void {
 function applyWorldDelta(delta: WorldDelta): void {
   const nextEntities = beginSnapshotUpdate()
 
-  for (const entity of delta.upserts) nextEntities.set(entity.pos.id, entity)
+  for (const entity of delta.upserts)
+    nextEntities.set(entity.pos.id, upsertToRenderEntity(entity))
   for (const entityId of delta.erased) nextEntities.delete(entityId)
 
   finishSnapshotUpdate(nextEntities)

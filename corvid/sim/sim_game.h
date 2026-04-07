@@ -167,7 +167,7 @@ private:
     for (; nextSpawnIndex_ < enemies.size(); ++nextSpawnIndex_) {
       const auto& enemy_def = enemies[nextSpawnIndex_];
       if (enemy_def.startTicks > waveTick) break;
-      (void)world_.spawnEnemy(PathId{0}, 100.F, 0.F);
+      (void)world_.spawnEnemy(PathId{0}, 20.F, 0.F);
     }
   }
 

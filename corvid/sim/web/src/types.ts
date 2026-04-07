@@ -34,6 +34,14 @@ export interface EntityUpsert {
   app: EntityAppearance
 }
 
+export interface EntityRender {
+  glyph: string
+  scale: number
+  fg: string // CSS rgba(...), unpacked from a packed RGBA number
+  bg: string // CSS rgba(...), unpacked from a packed RGBA number
+  glow: string // CSS rgba(...), unpacked from a packed RGBA number
+}
+
 interface PathPoint {
   x: number
   y: number

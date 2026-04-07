@@ -473,7 +473,7 @@ void SimWorld_ObtainPathIncludesTerminalJoint() {
 
 void SimWorld_FromJointsThrowsWhenJointIsOutOfBounds() {
   PathJoints p;
-  p.joints = {{{0.F, 0.F}}, {{SimWorld::widthOfWorld / 2.F + 1.F, 0.F}}};
+  p.joints = {{{0.F, 0.F}}, {{(SimWorld::widthOfWorld / 2.F) + 1.F, 0.F}}};
 
   EXPECT_THROW(SegmentedPath::fromJoints(p), std::runtime_error);
 }

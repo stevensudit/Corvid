@@ -367,9 +367,10 @@ public:
   [[nodiscard]] Handle
   spawnEnemy(PathId pathId, float speed, float progress = 0.F) {
     if (pathId >= paths_.size_as_enum()) return {};
+    Appearance app{U'U', 2.F, 0xFFFFFFFF, 0xFF, 0, invalidTick};
     const auto pos =
         paths_[pathId].calculatePositionFromProgress(progress, progress);
-    return scene_.store_new_entity<sidEnemy>(tick_, pos, Appearance{},
+    return scene_.store_new_entity<sidEnemy>(tick_, pos, app,
         PathFollower{pathId, progress, speed}, Invader{});
   }
 
