@@ -139,9 +139,12 @@ struct SegmentedPath {
   float width{};
 
   // Map a distance traveled (`progress`) to a world-space `Position`.
-  // `progress` is clamped to `[0, totalLength]`. Returns the origin if
-  // `segments` is empty.
-  [[nodiscard]] Position calculatePositionFromProgress(float progress) const {
+  // If `previousProgress` was on an earlier segment, emit the joint position
+  // first so fast-moving entities visibly take corners instead of cutting
+  // across them between updates. `progress` is clamped to `[0, totalLength]`.
+  // Returns the origin if `segments` is empty.
+  [[nodiscard]] Position calculatePositionFromProgress(float progress,
+      float previousProgress) const {
     if (segments.empty()) return {};
     progress = std::clamp(progress, 0.F, totalLength);
 
@@ -150,6 +153,8 @@ struct SegmentedPath {
         &SegmentedPath::Segment::cumulativeStart);
     if (it != segments.begin()) --it;
     const auto& seg = *it;
+
+    if (previousProgress < seg.cumulativeStart) return seg.front;
 
     // Calculate the interpolation factor `t` along this segment, then lerp the
     // front and back positions to get the world position.
@@ -364,7 +369,8 @@ public:
   [[nodiscard]] Handle
   spawnEnemy(PathId pathId, float speed, float progress = 0.F) {
     if (pathId >= paths_.size_as_enum()) return {};
-    const auto pos = paths_[pathId].calculatePositionFromProgress(progress);
+    const auto pos =
+        paths_[pathId].calculatePositionFromProgress(progress, progress);
     return scene_.store_new_entity<sidEnemy>(tick_, pos,
         PathFollower{pathId, progress, speed});
   }
@@ -527,6 +533,7 @@ private:
 
       (void)markDirty(id);
 
+      const float previousProgress = pf.progress;
       pf.progress += pf.speed;
       const auto& sp = paths_[pf.pathId];
 
@@ -536,7 +543,7 @@ private:
         return true;
       }
 
-      pos = sp.calculatePositionFromProgress(pf.progress);
+      pos = sp.calculatePositionFromProgress(pf.progress, previousProgress);
       return true;
     });
 

@@ -325,8 +325,9 @@ void PathPosition_Endpoints() {
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
   const auto bp = SegmentedPath::fromJoints(p);
 
-  const auto start = bp.calculatePositionFromProgress(0.F);
-  const auto end = bp.calculatePositionFromProgress(bp.totalLength);
+  const auto start = bp.calculatePositionFromProgress(0.F, 0.F);
+  const auto end =
+      bp.calculatePositionFromProgress(bp.totalLength, bp.totalLength);
 
   EXPECT_NEAR(start.x, 0.0, 1e-6);
   EXPECT_NEAR(start.y, 0.0, 1e-6);
@@ -339,10 +340,21 @@ void PathPosition_Midpoint() {
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
   const auto bp = SegmentedPath::fromJoints(p);
 
-  const auto mid = bp.calculatePositionFromProgress(5.F);
+  const auto mid = bp.calculatePositionFromProgress(5.F, 5.F);
 
   EXPECT_NEAR(mid.x, 5.0, 1e-6);
   EXPECT_NEAR(mid.y, 0.0, 1e-6);
+}
+
+void PathPosition_CrossingSegmentBoundaryEmitsJoint() {
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}, {{10.F, 10.F}}};
+  const auto bp = SegmentedPath::fromJoints(p);
+
+  const auto corner = bp.calculatePositionFromProgress(12.F, 8.F);
+
+  EXPECT_NEAR(corner.x, 10.0, 1e-6);
+  EXPECT_NEAR(corner.y, 0.0, 1e-6);
 }
 
 void SimWorld_EnemyAdvancesOnTick() {
