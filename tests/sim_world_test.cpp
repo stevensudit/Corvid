@@ -38,7 +38,7 @@ struct GameDelta {
   std::vector<std::pair<SimWorld::EntityId, Position>> upserts;
   std::vector<SimWorld::EntityId> erased;
   size_t currentWave{};
-  Tick waveTick{};
+  WaveTick waveTick{};
   int lives{};
   int resources{};
   std::string_view phase;
@@ -117,7 +117,7 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
         snap.entities.push_back({id, pos});
       },
       [](SimWorld::EntityId) {},
-      [](size_t, Tick, int, int, std::string_view) {});
+      [](size_t, WaveTick, int, int, std::string_view) {});
 
   snap.path_points = std::move(pathsById);
   return snap;
@@ -130,7 +130,7 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
         delta.upserts.emplace_back(id, pos);
       },
       [&delta](SimWorld::EntityId id) { delta.erased.push_back(id); },
-      [&delta](size_t currentWave, Tick waveTick, int lives, int resources,
+      [&delta](size_t currentWave, WaveTick waveTick, int lives, int resources,
           std::string_view phase) {
         delta.currentWave = currentWave;
         delta.waveTick = waveTick;
@@ -491,7 +491,7 @@ void SimGame_LoadMapInitialSnapshotAndState() {
 
   const auto delta = extractGameDelta(game);
   EXPECT_EQ(delta.currentWave, 0U);
-  EXPECT_EQ(delta.waveTick, 0U);
+  EXPECT_EQ(delta.waveTick, WaveTick{});
   EXPECT_EQ(delta.lives, 20);
   EXPECT_EQ(delta.resources, 100);
   EXPECT_EQ(delta.phase, std::string_view{"build"});
@@ -508,7 +508,7 @@ void SimGame_HandleUiActionStartWaveTransitionsToWavePhase() {
 
   const auto delta = extractGameDelta(game);
   EXPECT_EQ(delta.phase, std::string_view{"wave"});
-  EXPECT_EQ(delta.waveTick, 0U);
+  EXPECT_EQ(delta.waveTick, WaveTick{0});
 }
 
 void SimGame_HandleUiCanvasDoesNotChangeStateYet() {
@@ -544,7 +544,7 @@ void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
 
   const auto delta = extractGameDelta(game);
   EXPECT_EQ(delta.currentWave, 0U);
-  EXPECT_EQ(delta.waveTick, 1U);
+  EXPECT_EQ(delta.waveTick, WaveTick{1});
   EXPECT_EQ(delta.lives, 20);
   EXPECT_EQ(delta.resources, 100);
   EXPECT_EQ(delta.phase, std::string_view{"wave"});
@@ -563,7 +563,7 @@ void SimGame_ExtractDeltaConsumesWorldUpdatesButNotState() {
   const auto delta = extractGameDelta(game);
   EXPECT_TRUE(!delta.upserts.empty());
   EXPECT_EQ(delta.erased.size(), 0U);
-  EXPECT_EQ(delta.waveTick, 2U);
+  EXPECT_EQ(delta.waveTick, WaveTick{2});
   EXPECT_EQ(delta.phase, std::string_view{"wave"});
 
   const auto* pos = findPosition(delta.upserts, delta.upserts.front().first);
@@ -573,7 +573,7 @@ void SimGame_ExtractDeltaConsumesWorldUpdatesButNotState() {
   const auto empty_world_delta = extractGameDelta(game);
   EXPECT_TRUE(empty_world_delta.upserts.empty());
   EXPECT_TRUE(empty_world_delta.erased.empty());
-  EXPECT_EQ(empty_world_delta.waveTick, 2U);
+  EXPECT_EQ(empty_world_delta.waveTick, WaveTick{2});
   EXPECT_EQ(empty_world_delta.phase, std::string_view{"wave"});
 }
 
@@ -585,7 +585,7 @@ void SimGame_ExtractFullIncludesPathsAndState() {
   size_t upserts = 0;
   size_t erased = 0;
   size_t currentWave = 99;
-  Tick waveTick = 99;
+  WaveTick waveTick{99};
   int lives = -1;
   int resources = -1;
   std::string_view phase = "unknown";
@@ -597,7 +597,7 @@ void SimGame_ExtractFullIncludesPathsAndState() {
       },
       [&erased](SimWorld::EntityId) { ++erased; },
       [&currentWave, &waveTick, &lives, &resources, &phase](size_t wave,
-          Tick tick, int newLives, int newResources,
+          WaveTick tick, int newLives, int newResources,
           std::string_view newPhase) {
         currentWave = wave;
         waveTick = tick;
@@ -610,7 +610,7 @@ void SimGame_ExtractFullIncludesPathsAndState() {
   EXPECT_EQ(upserts, 0U);
   EXPECT_EQ(erased, 0U);
   EXPECT_EQ(currentWave, 0U);
-  EXPECT_EQ(waveTick, 0U);
+  EXPECT_EQ(waveTick, WaveTick{0});
   EXPECT_EQ(lives, 20);
   EXPECT_EQ(resources, 100);
   EXPECT_EQ(phase, std::string_view{"build"});

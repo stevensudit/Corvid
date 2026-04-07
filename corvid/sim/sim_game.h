@@ -144,7 +144,7 @@ public:
     phase_ = GamePhase::build;
     waves_.clear();
     currentWave_ = 0;
-    waveTick = {};
+    waveTick_ = {};
     nextSpawnIndex_ = 0;
     lives_ = 20;
     resources_ = 100;
@@ -154,7 +154,7 @@ public:
   WorldTick step() {
     const auto tick = world_.tick();
     if (phase_ == GamePhase::wave) {
-      ++waveTick;
+      ++waveTick_;
       spawn_pending_wave_enemies();
 
       auto lives = lives_;
@@ -178,13 +178,14 @@ public:
   void start_wave() {
     if (phase_ != GamePhase::build) return;
     phase_ = GamePhase::wave;
-    waveTick = {};
+    waveTick_ = {};
     nextSpawnIndex_ = 0;
   }
 
   void handle_ui_canvas(const UiCanvasInput& input) {
     // Canvas gestures are intentionally semantic transport only for now; game
     // rules can opt into specific events as tower placement/tooling is added.
+    (void)phase_; // !!! To disable a warning for now.
     (void)input;
   }
 
@@ -211,7 +212,7 @@ public:
   [[nodiscard]] bool
   extractDelta(auto&& cbUpserts, auto&& cbErased, auto&& cbState) {
     (void)world_.extractUpdatedEntities(cbUpserts, cbErased);
-    (void)cbState(currentWave_, waveTick, lives_, resources_,
+    (void)cbState(currentWave_, waveTick_, lives_, resources_,
         sequence::enum_as_view(phase_));
 
     return true;
@@ -242,7 +243,7 @@ private:
     const auto& enemies = wave.enemies;
     for (; nextSpawnIndex_ < enemies.size(); ++nextSpawnIndex_) {
       const auto& enemy_def = enemies[nextSpawnIndex_];
-      if (enemy_def.startTicks > waveTick) break;
+      if (enemy_def.startTicks > waveTick_) break;
       (void)world_.spawnEnemy(PathId{0}, 20.F, 0.F);
     }
   }
@@ -296,7 +297,7 @@ private:
   // Tick counter for the current wave, used to trigger spawns at the right
   // times. This is reset with each wave, so it is not the same tick counter as
   // the world's, and may not even run at the same speed.
-  WaveTick waveTick{};
+  WaveTick waveTick_{};
 
   // Wave definitions for the current map.
   std::vector<WaveDefinition> waves_;

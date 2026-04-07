@@ -39,8 +39,8 @@ namespace detail {
 
 [[nodiscard]] inline std::size_t
 skip_json_ws(std::string_view msg, std::size_t pos) {
-  while (pos < msg.size() &&
-         std::isspace(static_cast<unsigned char>(msg[pos])))
+  while (
+      pos < msg.size() && std::isspace(static_cast<unsigned char>(msg[pos])))
     ++pos;
   return pos;
 }
@@ -118,8 +118,8 @@ parse_json_bool(std::string_view msg, std::string_view key) {
   return std::nullopt;
 }
 
-[[nodiscard]] inline std::vector<UiActionField>
-parse_json_fields(std::string_view msg) {
+[[nodiscard]] inline std::vector<UiActionField> parse_json_fields(
+    std::string_view msg) {
   const auto start = find_json_value_pos(msg, "fields");
   if (!start || *start >= msg.size() || msg[*start] != '{') return {};
 
@@ -129,13 +129,13 @@ parse_json_fields(std::string_view msg) {
     pos = skip_json_ws(msg, pos);
     if (pos >= msg.size() || msg[pos] == '}') break;
 
-    const auto key = parse_json_string_token(msg, pos);
+    auto key = parse_json_string_token(msg, pos);
     if (!key) return {};
     pos = msg.find(':', pos);
     if (pos == std::string_view::npos) return {};
     pos = skip_json_ws(msg, pos + 1);
 
-    const auto value = parse_json_string_token(msg, pos);
+    auto value = parse_json_string_token(msg, pos);
     if (!value) return {};
     fields.push_back({std::move(*key), std::move(*value)});
 
@@ -148,10 +148,9 @@ parse_json_fields(std::string_view msg) {
 
 } // namespace detail
 
-[[nodiscard]] inline SimClientMessageKind
-classify_sim_client_message(std::string_view msg) {
-  if (msg.contains(R"("type":"hello")") ||
-      msg.contains(R"("type": "hello")"))
+[[nodiscard]] inline SimClientMessageKind classify_sim_client_message(
+    std::string_view msg) {
+  if (msg.contains(R"("type":"hello")") || msg.contains(R"("type": "hello")"))
     return SimClientMessageKind::hello;
   if (msg.contains(R"("type":"ui_canvas")") ||
       msg.contains(R"("type": "ui_canvas")"))
@@ -162,8 +161,8 @@ classify_sim_client_message(std::string_view msg) {
   return SimClientMessageKind::unknown;
 }
 
-[[nodiscard]] inline std::optional<UiCanvasInput>
-parse_ui_canvas_message(std::string_view msg) {
+[[nodiscard]] inline std::optional<UiCanvasInput> parse_ui_canvas_message(
+    std::string_view msg) {
   UiCanvasInput input;
   const auto seq = detail::parse_json_unsigned<uint64_t>(msg, "seq");
   const auto event = detail::parse_json_string_field(msg, "event");
@@ -221,11 +220,11 @@ parse_ui_canvas_message(std::string_view msg) {
   return input;
 }
 
-[[nodiscard]] inline std::optional<UiActionInput>
-parse_ui_action_message(std::string_view msg) {
+[[nodiscard]] inline std::optional<UiActionInput> parse_ui_action_message(
+    std::string_view msg) {
   UiActionInput input;
   const auto seq = detail::parse_json_unsigned<uint64_t>(msg, "seq");
-  const auto action = detail::parse_json_string_field(msg, "action");
+  auto action = detail::parse_json_string_field(msg, "action");
   if (!seq || !action) return std::nullopt;
 
   input.seq = *seq;
