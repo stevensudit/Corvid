@@ -694,6 +694,7 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   EXPECT_TRUE(state.body.contains(R"("x":10.0)"));
   EXPECT_TRUE(state.body.contains(R"("scale":4.000)"));
   EXPECT_FALSE(state.body.contains(R"("vfx")"));
+  EXPECT_FALSE(state.body.contains(R"("flashExpiryMs")"));
   EXPECT_FALSE(state.body.contains(R"("modified")"));
   EXPECT_FALSE(state.body.contains(R"("flash_expiry")"));
   EXPECT_FALSE(state.body.contains(R"("glow")"));
@@ -735,6 +736,24 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
     ++count;
   }
   EXPECT_EQ(count, 1U);
+}
+
+void SimJson_FlashExpiryDelayMsUsesCurrentTickRelativeTiming() {
+  VisualEffects fx{
+      .modified = WorldTick{12},
+      .selection_color = 0,
+      .range_radius = 0.F,
+      .range_color = 0,
+      .flash_color = 0xFF0000FF,
+      .flash_expiry = WorldTick{15},
+  };
+
+  EXPECT_EQ(flash_expiry_delay_ms(fx, WorldTick{10}), 250U);
+  EXPECT_EQ(flash_expiry_delay_ms(fx, WorldTick{15}), 0U);
+  EXPECT_EQ(flash_expiry_delay_ms(fx, WorldTick{16}), 0U);
+
+  fx.flash_color = 0;
+  EXPECT_EQ(flash_expiry_delay_ms(fx, WorldTick{10}), 0U);
 }
 
 void SimJson_BuildWorldSnapshotJsonShape() {
@@ -796,4 +815,5 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_TickMovesMover,
     SimGame_ExtractFullIncludesPathsAndState, SimJson_ParseUiCanvasMessage,
     SimJson_ParseUiActionMessageFields, SimJson_BuildHelloAckJson,
     SimJson_BuildWorldDeltaJsonShapeAndFormatting,
+    SimJson_FlashExpiryDelayMsUsesCurrentTickRelativeTiming,
     SimJson_BuildWorldSnapshotJsonShape)

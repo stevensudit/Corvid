@@ -38,6 +38,7 @@ export interface EntityVisualEffects {
   rangeRadius: number
   range: number
   flash: number
+  flashExpiryMs: number
 }
 
 interface PathPoint {

@@ -16,6 +16,8 @@
 // limitations under the License.
 #pragma once
 
+#include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -24,6 +26,21 @@
 #include "sim_game.h"
 
 namespace corvid { inline namespace sim {
+
+[[nodiscard]] inline uint32_t
+flash_expiry_delay_ms(const VisualEffects& effects, WorldTick current_tick) {
+  if (effects.flash_color == 0 || effects.flash_expiry == WorldTick::invalid ||
+      effects.flash_expiry < current_tick)
+    return 0;
+
+  constexpr uint64_t ms_per_tick = 50;
+  const auto ticks_until_expiry =
+      static_cast<uint64_t>(*effects.flash_expiry) -
+      static_cast<uint64_t>(*current_tick);
+  const auto expiry_delay_ms = ticks_until_expiry * ms_per_tick;
+  return static_cast<uint32_t>(std::min(expiry_delay_ms,
+      static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())));
+}
 
 struct sim_game_state_json {
   std::string body;
@@ -98,7 +115,9 @@ struct sim_game_state_json {
                   .member(json_trusted{"rangeRadius"}, effects.range_radius,
                       std::chars_format::fixed, 3)
                   .member(json_trusted{"range"}, effects.range_color)
-                  .member(json_trusted{"flash"}, effects.flash_color);
+                  .member(json_trusted{"flash"}, effects.flash_color)
+                  .member(json_trusted{"flashExpiryMs"},
+                      flash_expiry_delay_ms(effects, current_tick));
             }
 
             return true;

@@ -30,6 +30,7 @@ interface RenderVisualEffects {
   rangeRadius: number
   range: RenderColor
   flash: RenderColor
+  flashExpiry: number
 }
 
 interface RenderEntityUpsert {
@@ -64,11 +65,17 @@ const DEFAULT_RENDER_APPEARANCE: RenderAppearance = {
   bg: { css: 'rgba(0, 0, 0, 1)', alpha: 1 },
 }
 
+const TRANSPARENT_RENDER_COLOR: RenderColor = {
+  css: 'rgba(0, 0, 0, 0)',
+  alpha: 0,
+}
+
 const DEFAULT_RENDER_VISUAL_EFFECTS: RenderVisualEffects = {
-  selection: { css: 'rgba(0, 0, 0, 0)', alpha: 0 },
+  selection: TRANSPARENT_RENDER_COLOR,
   rangeRadius: 0,
-  range: { css: 'rgba(0, 0, 0, 0)', alpha: 0 },
-  flash: { css: 'rgba(0, 0, 0, 0)', alpha: 0 },
+  range: TRANSPARENT_RENDER_COLOR,
+  flash: TRANSPARENT_RENDER_COLOR,
+  flashExpiry: 0,
 }
 
 // --- DOM setup ---
@@ -419,6 +426,14 @@ function drawFlashOverlay(
   fx: RenderVisualEffects,
   now: number,
 ): void {
+  if (fx.flashExpiry == 0) return
+
+  if (now >= fx.flashExpiry) {
+    fx.flash = TRANSPARENT_RENDER_COLOR
+    fx.flashExpiry = 0
+    return
+  }
+
   if (radius <= 0 || isTransparent(fx.flash) || !isFlashVisible(now)) return
 
   fgCtx.save()
@@ -449,24 +464,29 @@ function appearanceToRender(app: EntityAppearance): RenderAppearance {
   }
 }
 
-function visualEffectsToRender(fx: EntityVisualEffects): RenderVisualEffects {
+function visualEffectsToRender(
+  fx: EntityVisualEffects,
+  now: number,
+): RenderVisualEffects {
   return {
     selection: packedRgbaToRenderColor(fx.selection),
     rangeRadius: fx.rangeRadius,
     range: packedRgbaToRenderColor(fx.range),
     flash: packedRgbaToRenderColor(fx.flash),
+    flashExpiry: fx.flashExpiryMs <= 0 ? 0 : now + fx.flashExpiryMs,
   }
 }
 
 function upsertToRenderEntity(
   upsert: EntityUpsert,
+  now: number,
   prevApp?: RenderAppearance,
   prevFx?: RenderVisualEffects,
 ): RenderEntityUpsert {
   return {
     pos: upsert.pos,
     app: upsert.app ? appearanceToRender(upsert.app) : (prevApp ?? DEFAULT_RENDER_APPEARANCE),
-    fx: upsert.vfx ? visualEffectsToRender(upsert.vfx) : (prevFx ?? DEFAULT_RENDER_VISUAL_EFFECTS),
+    fx: upsert.vfx ? visualEffectsToRender(upsert.vfx, now) : (prevFx ?? DEFAULT_RENDER_VISUAL_EFFECTS),
   }
 }
 
@@ -640,7 +660,8 @@ function isEntityVisualEffects(value: unknown): value is EntityVisualEffects {
     typeof (value as Record<string, unknown>).selection === 'number' &&
     typeof (value as Record<string, unknown>).rangeRadius === 'number' &&
     typeof (value as Record<string, unknown>).range === 'number' &&
-    typeof (value as Record<string, unknown>).flash === 'number'
+    typeof (value as Record<string, unknown>).flash === 'number' &&
+    typeof (value as Record<string, unknown>).flashExpiryMs === 'number'
   )
 }
 
@@ -672,11 +693,13 @@ function finishSnapshotUpdate(): void {
 }
 
 function applyWorldDelta(delta: WorldDelta): void {
+  const now = performance.now()
   prevRenderStateById.clear()
 
   for (const entity of delta.upserts) {
     const prevEntity = currEntitiesById.get(entity.pos.id)
-    const nextEntity = upsertToRenderEntity(entity, prevEntity?.app, prevEntity?.fx)
+    const nextEntity =
+      upsertToRenderEntity(entity, now, prevEntity?.app, prevEntity?.fx)
     if (prevEntity) prevRenderStateById.set(entity.pos.id, prevEntity)
     currEntitiesById.set(entity.pos.id, nextEntity)
   }
