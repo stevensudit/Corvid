@@ -439,46 +439,50 @@ public:
     return h;
   }
 
-  // Update entity appearance for the next streamed tick.
-  [[nodiscard]] bool updateAppearance(EntityId id, const Appearance& newApp) {
-    auto& reg = scene_.registry();
-    if (!reg.is_valid(id)) return false;
+  // Obtain a pointer to the `Appearance` for the entity. It is already marked
+  // dirty and `modified`, so the caller only needs to change the other fields.
+  [[nodiscard]] Appearance* changeAppearance(EntityId id) {
     auto* app = scene_.try_get_component<Appearance>(id);
-    if (!app) return false;
-    *app = newApp;
+    if (!app) return nullptr;
     app->modified = nextSyncTick();
     (void)markDirty(id);
-    return true;
+    return app;
   }
 
-  // Update entity visual effects for the next streamed tick.
-  [[nodiscard]] bool
-  updateVisualEffects(EntityId id, const VisualEffects& newEffects) {
-    auto& reg = scene_.registry();
-    if (!reg.is_valid(id)) return false;
+  // Obtain a pointer to the `VisualEffects` for the entity. It is already
+  // marked dirty and `modified`, so the caller only needs to change the other
+  // fields.
+  [[nodiscard]] VisualEffects* changeVisualEffects(EntityId id) {
     auto* effects = scene_.try_get_component<VisualEffects>(id);
-    if (!effects) return false;
-    *effects = newEffects;
+    if (!effects) return nullptr;
     effects->modified = nextSyncTick();
     (void)markDirty(id);
-    return true;
+    return effects;
   }
 
   // Trigger or replace a flashing overlay for an entity that carries visual
   // effects. The flash remains active until a later update or expiry clears
   // it.
-  [[nodiscard]] bool
-  flashEntity(EntityId id, uint32_t color, WorldTick duration) {
-    auto& reg = scene_.registry();
-    if (!reg.is_valid(id)) return false;
-    auto* effects = scene_.try_get_component<VisualEffects>(id);
+  [[nodiscard]] bool flashEntity(EntityId id, uint32_t color,
+      WorldTick duration = WorldTick{20}) {
+    auto* effects = changeVisualEffects(id);
     if (!effects) return false;
-
     effects->flash_color = color;
     effects->flash_expiry = WorldTick{*tick_ + *duration};
-    effects->modified = nextSyncTick();
-    (void)markDirty(id);
     return true;
+  }
+
+  // Return a generation-versioned handle for `id`, suitable for storage across
+  // ticks, or whenever there is a risk of the underlying entity going away.
+  // Use `getId` to get the ID back, just in time.
+  [[nodiscard]] Handle getHandle(EntityId id) const {
+    return scene_.registry().get_handle(id);
+  }
+
+  // Return the entity ID for `handle`, or `EntityId::invalid` if the handle is
+  // invalid.
+  [[nodiscard]] EntityId getId(Handle h) const {
+    return scene_.registry().id_from_handle(h);
   }
 
   [[nodiscard]] EntityId findEntityAt(const Position& pos) const {
@@ -486,13 +490,30 @@ public:
     scene_.for_each<Position, Appearance>([&](auto id, auto comps) {
       const auto& [epos, app] = comps;
       const auto radius = app.radius;
-      if (std::abs(epos.x - pos.x) < radius &&
-          std::abs(epos.y - pos.y) < radius)
-      {
-        found_id = id;
-        return false;
-      }
-      return true;
+      // If point outside of bounding box, keep searching.
+      if (std::abs(epos.x - pos.x) >= radius ||
+          std::abs(epos.y - pos.y) >= radius)
+        return true;
+
+      found_id = id;
+      return false;
+    });
+
+    return found_id;
+  }
+
+  [[nodiscard]] EntityId findTowerAt(const Position& pos) const {
+    EntityId found_id = EntityId::invalid;
+    scene_.for_each<Position, Appearance, Tower>([&](auto id, auto comps) {
+      const auto& [epos, app, _] = comps;
+      const auto radius = app.radius;
+      // If point outside of bounding box, keep searching.
+      if (std::abs(epos.x - pos.x) >= radius ||
+          std::abs(epos.y - pos.y) >= radius)
+        return true;
+
+      found_id = id;
+      return false;
     });
 
     return found_id;

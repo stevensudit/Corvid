@@ -388,9 +388,8 @@ function drawRangeCircle(
   if (fx.rangeRadius <= 0 || isTransparent(fx.range)) return
 
   const radius = worldLengthToCanvas(fx.rangeRadius)
-  const lineWidth = Math.max(2, radius * 0.03)
   fgCtx.save()
-  drawStrokedCircleOnContext(fgCtx, x, y, radius, fx.range, lineWidth)
+  drawFilledCircleOnContext(fgCtx, x, y, radius, fx.range)
   fgCtx.restore()
 }
 

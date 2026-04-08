@@ -200,10 +200,21 @@ public:
     if (input.event == UiCanvasEvent::click &&
         input.button == UiMouseButton::left)
     {
-      auto id = world_.findEntityAt({input.x, input.y});
-      if (id != SimWorld::EntityId::invalid)
-        (void)world_.updateVisualEffects(id,
-            VisualEffects{.selection_color = 0xFFFF00FF});
+      // Deselect the previously selected tower, if it still exists.
+      if (auto* fx = world_.changeVisualEffects(world_.getId(selected_tower_)))
+      {
+        fx->range_radius = 0.F;
+        fx->range_color = 0;
+        selected_tower_ = {};
+      }
+
+      selected_tower_ =
+          world_.getHandle(world_.findTowerAt({input.x, input.y}));
+      if (auto* fx = world_.changeVisualEffects(selected_tower_.id())) {
+        // TODO: These should actually come from the tower's stats.
+        fx->range_radius = 100.F;
+        fx->range_color = 0xFFFF007F;
+      }
     }
 
     // Place tower on double-click.
@@ -337,5 +348,10 @@ private:
 
   int lives_{20};
   int resources_{100};
+
+  // Handle to the currently selected tower, used to clear its range circle
+  // when deselected. A default-constructed handle is invalid and indicates no
+  // selection.
+  SimWorld::Handle selected_tower_;
 };
 }} // namespace corvid::sim

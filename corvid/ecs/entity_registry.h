@@ -434,6 +434,12 @@ public:
     return true;
   }
 
+  // Get ID from handle, but returns `id_t::invalid` if the handle is invalid.
+  [[nodiscard]] id_t id_from_handle(handle_t handle) const {
+    if (!is_valid(handle)) return id_t::invalid;
+    return handle.id();
+  }
+
   // Get location for ID. Must be valid.
   //
   // Returns `location_t` in archetype mode, and `store_id_set_t` in component
