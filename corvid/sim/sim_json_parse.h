@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "../proto/json_parser.h"
+#include "../strings/enum_conversion.h"
 #include "sim_game.h"
 
 namespace corvid { inline namespace sim {
@@ -33,21 +34,25 @@ enum class SimClientMessageKind : uint8_t {
   ui_action,
 };
 
+}} // namespace corvid::sim
+
+template<>
+constexpr auto
+    corvid::enums::registry::enum_spec_v<corvid::sim::SimClientMessageKind> =
+        corvid::enums::sequence::make_sequence_enum_spec<
+            corvid::sim::SimClientMessageKind,
+            "unknown, hello, ui_canvas, ui_action">();
+
+namespace corvid { inline namespace sim {
 namespace detail {
 
-[[nodiscard]] constexpr bool decode_json_string_field(json_object_view obj,
+[[nodiscard]] constexpr bool decodeJsonStringField(json_object_view obj,
     std::string_view key, std::string& out) {
   const auto value = obj.find(key);
   return value && value.decode_string(out);
 }
 
-template<typename T>
-[[nodiscard]] constexpr std::optional<T>
-get_json_number(json_object_view obj, std::string_view key) {
-  return obj.get_number<T>(key);
-}
-
-[[nodiscard]] constexpr std::vector<UiActionField> parse_json_fields(
+[[nodiscard]] constexpr std::vector<UiActionField> parseActionFields(
     json_object_view obj) {
   std::vector<UiActionField> fields;
   const auto fields_obj = obj.get_object("fields");
@@ -68,7 +73,7 @@ get_json_number(json_object_view obj, std::string_view key) {
 } // namespace detail
 
 [[nodiscard]] constexpr std::optional<json_object_view>
-parse_sim_client_message_root(std::string_view msg) {
+parseSimClientMessageRoot(std::string_view msg) {
   json_value_view root;
   if (!parse_json(msg, root)) return std::nullopt;
   const auto obj = root.as_object();
@@ -76,38 +81,31 @@ parse_sim_client_message_root(std::string_view msg) {
   return obj;
 }
 
-[[nodiscard]] constexpr SimClientMessageKind classify_sim_client_message(
+[[nodiscard]] constexpr SimClientMessageKind classifySimClientMessage(
     json_object_view msg) {
-  if (!msg) return SimClientMessageKind::unknown;
-
+  SimClientMessageKind kind{};
   std::string type;
-  if (!detail::decode_json_string_field(msg, "type", type))
-    return SimClientMessageKind::unknown;
-
-  if (type == "hello") return SimClientMessageKind::hello;
-  if (type == "ui_canvas") return SimClientMessageKind::ui_canvas;
-  if (type == "ui_action") return SimClientMessageKind::ui_action;
-  return SimClientMessageKind::unknown;
+  if (!msg || !detail::decodeJsonStringField(msg, "type", type)) return kind;
+  (void)strings::convert_text_enum(kind, type);
+  return kind;
 }
 
-[[nodiscard]] constexpr SimClientMessageKind classify_sim_client_message(
+[[nodiscard]] constexpr SimClientMessageKind classifySimClientMessage(
     std::string_view msg) {
-  const auto root = parse_sim_client_message_root(msg);
-  return root ? classify_sim_client_message(*root)
-              : SimClientMessageKind::unknown;
+  return classifySimClientMessage(parseSimClientMessageRoot(msg).value_or({}));
 }
 
-[[nodiscard]] constexpr std::optional<UiCanvasInput> parse_ui_canvas_message(
+[[nodiscard]] constexpr std::optional<UiCanvasInput> parseUiCanvasMessage(
     json_object_view msg) {
   if (!msg) return std::nullopt;
 
   UiCanvasInput input;
-  const auto seq = detail::get_json_number<uint64_t>(msg, "seq");
-  const auto buttons = detail::get_json_number<uint32_t>(msg, "buttons");
-  const auto x = detail::get_json_number<float>(msg, "x");
-  const auto y = detail::get_json_number<float>(msg, "y");
-  const auto canvas_x = detail::get_json_number<float>(msg, "canvasX");
-  const auto canvas_y = detail::get_json_number<float>(msg, "canvasY");
+  const auto seq = msg.get_number<uint64_t>("seq");
+  const auto buttons = msg.get_number<uint32_t>("buttons");
+  const auto x = msg.get_number<float>("x");
+  const auto y = msg.get_number<float>("y");
+  const auto canvas_x = msg.get_number<float>("canvasX");
+  const auto canvas_y = msg.get_number<float>("canvasY");
   const auto shift = msg.get_bool("shift");
   const auto ctrl = msg.get_bool("ctrl");
   const auto alt = msg.get_bool("alt");
@@ -117,8 +115,8 @@ parse_sim_client_message_root(std::string_view msg) {
   std::string button;
   if (!seq || !buttons || !x || !y || !canvas_x || !canvas_y || !shift ||
       !ctrl || !alt || !meta ||
-      !detail::decode_json_string_field(msg, "event", event) ||
-      !detail::decode_json_string_field(msg, "button", button))
+      !detail::decodeJsonStringField(msg, "event", event) ||
+      !detail::decodeJsonStringField(msg, "button", button))
     return std::nullopt;
 
   input.seq = *seq;
@@ -163,8 +161,8 @@ parse_sim_client_message_root(std::string_view msg) {
 
 [[nodiscard]] constexpr std::optional<UiCanvasInput> parse_ui_canvas_message(
     std::string_view msg) {
-  const auto root = parse_sim_client_message_root(msg);
-  return root ? parse_ui_canvas_message(*root) : std::nullopt;
+  const auto root = parseSimClientMessageRoot(msg);
+  return root ? parseUiCanvasMessage(*root) : std::nullopt;
 }
 
 [[nodiscard]] constexpr std::optional<UiActionInput> parse_ui_action_message(
@@ -172,18 +170,18 @@ parse_sim_client_message_root(std::string_view msg) {
   if (!msg) return std::nullopt;
 
   UiActionInput input;
-  const auto seq = detail::get_json_number<uint64_t>(msg, "seq");
-  if (!seq || !detail::decode_json_string_field(msg, "action", input.action))
+  const auto seq = msg.get_number<uint64_t>("seq");
+  if (!seq || !detail::decodeJsonStringField(msg, "action", input.action))
     return std::nullopt;
 
   input.seq = *seq;
-  input.fields = detail::parse_json_fields(msg);
+  input.fields = detail::parseActionFields(msg);
   return input;
 }
 
 [[nodiscard]] constexpr std::optional<UiActionInput> parse_ui_action_message(
     std::string_view msg) {
-  const auto root = parse_sim_client_message_root(msg);
+  const auto root = parseSimClientMessageRoot(msg);
   return root ? parse_ui_action_message(*root) : std::nullopt;
 }
 }} // namespace corvid::sim

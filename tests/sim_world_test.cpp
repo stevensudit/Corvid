@@ -620,7 +620,7 @@ void SimGame_ExtractFullIncludesPathsAndState() {
 }
 
 void SimJson_ParseUiCanvasMessage() {
-  const auto msg = parse_sim_client_message_root(R"({
+  const auto msg = parseSimClientMessageRoot(R"({
     "type": "ui_canvas",
     "seq": 42,
     "event": "dragmove",
@@ -637,10 +637,9 @@ void SimJson_ParseUiCanvasMessage() {
   })");
 
   ASSERT_TRUE(msg.has_value());
-  EXPECT_EQ(classify_sim_client_message(*msg),
-      SimClientMessageKind::ui_canvas);
+  EXPECT_EQ(classifySimClientMessage(*msg), SimClientMessageKind::ui_canvas);
 
-  const auto input = parse_ui_canvas_message(*msg);
+  const auto input = parseUiCanvasMessage(*msg);
   ASSERT_TRUE(input.has_value());
   EXPECT_EQ(input->seq, 42U);
   EXPECT_EQ(input->event, UiCanvasEvent::dragmove);
@@ -723,7 +722,8 @@ void SimJson_BuildWorldSnapshotJsonShape() {
   game.loadMap();
 
   sim_game_state_json state;
-  (void)build_sim_game_state_json(state, game, WorldTick{}, update_strategy::full);
+  (void)build_sim_game_state_json(state, game, WorldTick{},
+      update_strategy::full);
   EXPECT_TRUE(state.body.contains(R"("type":"world_snapshot")"));
   EXPECT_TRUE(state.body.contains(R"("x":0.0)"));
 

@@ -94,10 +94,10 @@ private:
 
   // Handle an incoming text frame by classifying and forwarding the message.
   [[nodiscard]] bool do_message(http_websocket& ws, std::string&& msg) {
-    const auto root = parse_sim_client_message_root(msg);
+    const auto root = parseSimClientMessageRoot(msg);
     if (!root) return true; // malformed, ignore
 
-    switch (classify_sim_client_message(*root)) {
+    switch (classifySimClientMessage(*root)) {
     case SimClientMessageKind::hello:
       if (!ws.send_text(build_sim_hello_ack_json())) return false;
       return do_arm_tick();
@@ -109,7 +109,7 @@ private:
   }
 
   [[nodiscard]] bool do_ui_canvas(json_object_view msg) {
-    const auto input = parse_ui_canvas_message(msg);
+    const auto input = parseUiCanvasMessage(msg);
     if (!input) return true; // malformed, ignore
     game_.handle_ui_canvas(*input);
     return true;

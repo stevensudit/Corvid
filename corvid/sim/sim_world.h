@@ -357,8 +357,8 @@ public:
 
   // Spawn an immobile entity. Returns a handle for later `despawn()`.
   [[nodiscard]] Handle spawnBackground(Position pos) {
-    auto h = scene_.store_new_entity<sidPos>(
-        {WorldTick::invalid}, pos, Appearance{.modified = tick_});
+    auto h = scene_.store_new_entity<sidPos>({WorldTick::invalid}, pos,
+        Appearance{.modified = tick_});
     if (h) (void)markDirty(h.id());
     return h;
   }

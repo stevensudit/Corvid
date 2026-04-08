@@ -127,10 +127,10 @@ public:
   }
 
   [[nodiscard]] constexpr explicit operator bool() const noexcept {
-    return kind_ != json_kind::invalid;
+    return !empty();
   }
   [[nodiscard]] constexpr bool empty() const noexcept {
-    return kind_ == json_kind::invalid;
+    return is(json_kind::invalid);
   }
   [[nodiscard]] constexpr json_kind kind() const noexcept { return kind_; }
   [[nodiscard]] constexpr std::string_view source() const noexcept {

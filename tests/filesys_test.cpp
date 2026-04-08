@@ -736,8 +736,8 @@ void NetSocket_FactoryMethods() {
   // create_ipv4 with blocking + datagram gives a blocking UDP socket.
   if (true) {
     if (!is_codex()) {
-      auto s =
-          net_socket::create_ipv4(execution::blocking, message_style::datagram);
+      auto s = net_socket::create_ipv4(execution::blocking,
+          message_style::datagram);
       EXPECT_TRUE(s.is_open());
       EXPECT_FALSE(s.get_flags().value_or(0) & O_NONBLOCK);
       auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
