@@ -23,7 +23,7 @@
 #include "minitest.h"
 
 using namespace corvid;
-
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 void JsonParser_ParseScalarsAndKinds() {
   json_value_view value;
 
@@ -145,8 +145,8 @@ void JsonWriter_FormatsFloatsAndRoundTrips() {
 
   {
     auto root = writer.object();
-    root->member("x", 20.0f, std::chars_format::fixed, 1)
-        .member("scale", 2.0f, std::chars_format::fixed, 3);
+    root->member("x", 20.0F, std::chars_format::fixed, 1)
+        .member("scale", 2.0F, std::chars_format::fixed, 3);
     {
       auto items = root->member_array("items");
       items->value(1).value("two");
@@ -234,3 +234,4 @@ MAKE_TEST_LIST(JsonParser_ParseScalarsAndKinds,
     JsonParser_RejectsInvalidJson, JsonParser_RespectsDepthLimit,
     JsonWriter_EscapesAndTrustedStrings, JsonWriter_FormatsFloatsAndRoundTrips,
     JsonWriter_WritesToOstreamTargets, JsonWriter_ScopedContainersAutoClose);
+// NOLINTEND(readability-function-cognitive-complexity)

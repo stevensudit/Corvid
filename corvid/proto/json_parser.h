@@ -278,7 +278,7 @@ public:
     return source_;
   }
 
-  [[nodiscard]] constexpr iterator begin() const noexcept;
+  [[nodiscard]] constexpr iterator begin() const;
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   [[nodiscard]] constexpr iterator end() const noexcept { return {}; }
 
@@ -354,7 +354,7 @@ public:
     return source_;
   }
 
-  [[nodiscard]] constexpr iterator begin() const noexcept;
+  [[nodiscard]] constexpr iterator begin() const;
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   [[nodiscard]] constexpr iterator end() const noexcept { return {}; }
 
@@ -630,6 +630,46 @@ constexpr bool parse_literal(json_cursor& c, std::string_view literal,
   return true;
 }
 
+constexpr bool consume_digits(json_cursor& c) {
+  if (c.at_end() || !is_digit(*c)) return false;
+  do {
+    ++c;
+  } while (!c.at_end() && is_digit(*c));
+  return true;
+}
+
+constexpr bool parse_number_integer_part(json_cursor& c, json_error* err) {
+  if (*c == '0') {
+    ++c;
+    if (!c.at_end() && is_digit(*c))
+      return json_error::fail(err, json_errc::invalid_number, c.pos);
+    return true;
+  }
+
+  if (!consume_digits(c))
+    return json_error::fail(err, json_errc::invalid_number, c.pos);
+  return true;
+}
+
+constexpr bool parse_number_fraction_part(json_cursor& c, json_error* err) {
+  if (c.at_end() || *c != '.') return true;
+
+  ++c;
+  if (!consume_digits(c))
+    return json_error::fail(err, json_errc::invalid_number, c.pos);
+  return true;
+}
+
+constexpr bool parse_number_exponent_part(json_cursor& c, json_error* err) {
+  if (c.at_end() || (*c != 'e' && *c != 'E')) return true;
+
+  ++c;
+  if (!c.at_end() && (*c == '+' || *c == '-')) ++c;
+  if (!consume_digits(c))
+    return json_error::fail(err, json_errc::invalid_number, c.pos);
+  return true;
+}
+
 constexpr bool
 parse_number(json_cursor& c, json_value_view& out, json_error* err) {
   const auto start = c.pos;
@@ -637,30 +677,9 @@ parse_number(json_cursor& c, json_value_view& out, json_error* err) {
   if (c.at_end())
     return json_error::fail(err, json_errc::invalid_number, start);
 
-  if (*c == '0') {
-    ++c;
-    if (!c.at_end() && is_digit(*c))
-      return json_error::fail(err, json_errc::invalid_number, c.pos);
-  } else if (is_digit(*c)) {
-    while (!c.at_end() && is_digit(*c)) ++c;
-  } else {
-    return json_error::fail(err, json_errc::invalid_number, c.pos);
-  }
-
-  if (!c.at_end() && *c == '.') {
-    ++c;
-    if (c.at_end() || !is_digit(*c))
-      return json_error::fail(err, json_errc::invalid_number, c.pos);
-    while (!c.at_end() && is_digit(*c)) ++c;
-  }
-
-  if (!c.at_end() && (*c == 'e' || *c == 'E')) {
-    ++c;
-    if (!c.at_end() && (*c == '+' || *c == '-')) ++c;
-    if (c.at_end() || !is_digit(*c))
-      return json_error::fail(err, json_errc::invalid_number, c.pos);
-    while (!c.at_end() && is_digit(*c)) ++c;
-  }
+  if (!parse_number_integer_part(c, err)) return false;
+  if (!parse_number_fraction_part(c, err)) return false;
+  if (!parse_number_exponent_part(c, err)) return false;
 
   out = json_value_view{c.substr(start, c.pos - start), json_kind::number};
   return true;
@@ -895,7 +914,7 @@ constexpr json_array_view json_value_view::as_array() const noexcept {
   return is_array() ? json_array_view{source_} : json_array_view{};
 }
 
-constexpr json_array_view::iterator json_array_view::begin() const noexcept {
+constexpr json_array_view::iterator json_array_view::begin() const {
   if (source_.size() < 2 || source_.front() != '[' || source_.back() != ']')
     return {};
   return iterator{this, 1};
@@ -946,7 +965,7 @@ constexpr json_array_view::iterator& json_array_view::iterator::operator++() {
   return *this;
 }
 
-constexpr json_object_view::iterator json_object_view::begin() const noexcept {
+constexpr json_object_view::iterator json_object_view::begin() const {
   if (source_.size() < 2 || source_.front() != '{' || source_.back() != '}')
     return {};
   return iterator{this, 1};
@@ -1074,7 +1093,7 @@ class json_writer {
   };
 
   template<typename Begin, typename End>
-  [[nodiscard]] constexpr auto scoped(Begin&& begin, End&& end) noexcept {
+  [[nodiscard]] constexpr auto scoped(Begin&& begin, End&& end) {
     return scoped_writer<std::decay_t<Begin>, std::decay_t<End>>{*this,
         std::forward<Begin>(begin), std::forward<End>(end)};
   }
@@ -1113,19 +1132,19 @@ public:
 
   [[nodiscard]] constexpr Target& target() noexcept { return target_; }
 
-  [[nodiscard]] constexpr auto object() noexcept {
+  [[nodiscard]] constexpr auto object() {
     return scoped([](json_writer& writer) { writer.begin_object(); },
         [](json_writer& writer) { writer.end_object(); });
   }
 
-  [[nodiscard]] constexpr auto array() noexcept {
+  [[nodiscard]] constexpr auto array() {
     return scoped([](json_writer& writer) { writer.begin_array(); },
         [](json_writer& writer) { writer.end_array(); });
   }
 
   template<StringViewConvertible S>
   requires(!SameAs<json_trusted, S>)
-  [[nodiscard]] constexpr auto member_object(const S& key_text) noexcept {
+  [[nodiscard]] constexpr auto member_object(const S& key_text) {
     key(key_text);
     return object();
   }
@@ -1137,7 +1156,7 @@ public:
 
   template<StringViewConvertible S>
   requires(!SameAs<json_trusted, S>)
-  [[nodiscard]] constexpr auto member_array(const S& key_text) noexcept {
+  [[nodiscard]] constexpr auto member_array(const S& key_text) {
     key(key_text);
     return array();
   }
