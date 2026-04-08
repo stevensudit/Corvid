@@ -20,7 +20,7 @@ interface SpriteCacheEntry {
 
 interface RenderAppearance {
   glyph: string
-  scale: number
+  radius: number
   fg: RenderColor
   bg: RenderColor
 }
@@ -60,7 +60,7 @@ interface CanvasPointerSample {
 
 const DEFAULT_RENDER_APPEARANCE: RenderAppearance = {
   glyph: '?',
-  scale: 1,
+  radius: 5,
   fg: { css: 'rgba(255, 255, 255, 1)', alpha: 1 },
   bg: { css: 'rgba(0, 0, 0, 1)', alpha: 1 },
 }
@@ -225,7 +225,7 @@ function renderInterpolated(now: number): void {
     const wx = prevPos ? lerp(prevPos.x, e.pos.x, t) : e.pos.x
     const wy = prevPos ? lerp(prevPos.y, e.pos.y, t) : e.pos.y
     const [x, y] = worldToCanvas(wx, wy)
-    const radius = 5 * lerp(prevApp.scale, e.app.scale, t)
+    const radius = worldLengthToCanvas(lerp(prevApp.radius, e.app.radius, t))
     drawEntity(x, y, radius, e.app, e.fx, now)
   }
 }
@@ -458,7 +458,7 @@ function drawEntity(
 function appearanceToRender(app: EntityAppearance): RenderAppearance {
   return {
     glyph: app.glyph === 0 ? '' : String.fromCodePoint(app.glyph),
-    scale: app.scale,
+    radius: app.radius,
     fg: packedRgbaToRenderColor(app.fg),
     bg: packedRgbaToRenderColor(app.bg),
   }
@@ -647,7 +647,7 @@ function isEntityAppearance(value: unknown): value is EntityAppearance {
     typeof value === 'object' &&
     value !== null &&
     typeof (value as Record<string, unknown>).glyph === 'number' &&
-    typeof (value as Record<string, unknown>).scale === 'number' &&
+    typeof (value as Record<string, unknown>).radius === 'number' &&
     typeof (value as Record<string, unknown>).fg === 'number' &&
     typeof (value as Record<string, unknown>).bg === 'number'
   )

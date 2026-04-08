@@ -103,7 +103,7 @@ struct sim_game_state_json {
               entity->member_object(json_trusted{"app"})
                   ->member(json_trusted{"glyph"},
                       static_cast<uint32_t>(app.glyph))
-                  .member(json_trusted{"scale"}, app.scale,
+                  .member(json_trusted{"radius"}, app.radius,
                       std::chars_format::fixed, 3)
                   .member(json_trusted{"fg"}, app.fg_color)
                   .member(json_trusted{"bg"}, app.bg_color);

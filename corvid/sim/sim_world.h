@@ -215,7 +215,7 @@ constexpr Tick invalidTick = std::numeric_limits<Tick>::max();
 // TODO: We likely want to break out the physics-relevant properties into
 // components. We already have Position and Velocity (as well as PathFollower,
 // which is a type of velocity). We may need a Shape component which has the
-// geometric type (square, circle, etc), its scale, radius, length, width,
+// geometric type (square, circle, etc), its size, radius, length, width,
 // etc., and local basis (orientation). This can be used to compute the
 // bounding box (which could be AABB (axis-aligned bounding box) or OBB
 // (oriented bounding box) or even a circle collider (super-fast for towers))
@@ -241,7 +241,7 @@ struct PathFollower {
 struct Appearance {
   WorldTick modified{WorldTick::invalid}; // Tick when last modified.
   char32_t glyph{};    // a Unicode character to display, if any.
-  float scale{1.F};    // multiplier on the base size of the shape, if any.
+  float radius{5.F};   // world-space radius of the rendered shape.
   uint32_t fg_color{}; // RGBA.
   uint32_t bg_color{}; // RGBA.
 };
@@ -364,7 +364,7 @@ public:
   [[nodiscard]] Handle spawnMover(Position pos, Velocity vel) {
     Appearance app{.modified = nextSyncTick(),
         .glyph = U'M',
-        .scale = 1.F,
+        .radius = 5.F,
         .fg_color = 0xFFFFFFFF,
         .bg_color = 0xFF};
     auto h = scene_.store_new_entity<sidPosVel>({WorldTick::invalid}, pos, vel,
@@ -377,7 +377,7 @@ public:
   [[nodiscard]] Handle spawnBackground(Position pos) {
     Appearance app{.modified = nextSyncTick(),
         .glyph = U'B',
-        .scale = 1.F,
+        .radius = 5.F,
         .fg_color = 0xFFFFFFFF,
         .bg_color = 0xFF};
     auto h = scene_.store_new_entity<sidPos>({WorldTick::invalid}, pos, app);
@@ -394,7 +394,7 @@ public:
         .next_attack = tick_};
     Appearance app{.modified = nextSyncTick(),
         .glyph = U'T',
-        .scale = 4.F,
+        .radius = 20.F,
         .fg_color = 0xFFFFFFFF,
         .bg_color = 0xFF};
     VisualEffects fx;
@@ -427,7 +427,7 @@ public:
     // appearance must replicate on the current tick rather than the next one.
     Appearance app{.modified = tick_,
         .glyph = U'U',
-        .scale = 2.F,
+        .radius = 10.F,
         .fg_color = 0xFFFFFFFF,
         .bg_color = 0xFF};
     VisualEffects fx{};
@@ -479,6 +479,23 @@ public:
     effects->modified = nextSyncTick();
     (void)markDirty(id);
     return true;
+  }
+
+  [[nodiscard]] EntityId findEntityAt(const Position& pos) const {
+    EntityId found_id = EntityId::invalid;
+    scene_.for_each<Position, Appearance>([&](auto id, auto comps) {
+      const auto& [epos, app] = comps;
+      const auto radius = app.radius;
+      if (std::abs(epos.x - pos.x) < radius &&
+          std::abs(epos.y - pos.y) < radius)
+      {
+        found_id = id;
+        return false;
+      }
+      return true;
+    });
+
+    return found_id;
   }
 
   // Advance one simulation frame. Sets each changed entity's registry metadata

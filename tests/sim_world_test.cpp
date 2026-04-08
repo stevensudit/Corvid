@@ -518,7 +518,7 @@ void SimGame_HandleUiCanvasSpawnsTowerButKeepsBuildPhase() {
   const auto before = extractGameDelta(game);
 
   game.handleUiCanvas(UiCanvasInput{.seq = 1,
-      .event = UiCanvasEvent::click,
+      .event = UiCanvasEvent::dblclick,
       .button = UiMouseButton::left,
       .buttons = 1,
       .x = 10.F,
@@ -679,7 +679,7 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   SimGame game;
   game.loadMap();
   game.handleUiCanvas(UiCanvasInput{.seq = 1,
-      .event = UiCanvasEvent::click,
+      .event = UiCanvasEvent::dblclick,
       .button = UiMouseButton::left,
       .buttons = 1,
       .x = 10.F,
@@ -692,7 +692,7 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   (void)build_sim_game_state_json(state, game, tick);
   EXPECT_TRUE(state.body_highwater >= state.body.size());
   EXPECT_TRUE(state.body.contains(R"("x":10.0)"));
-  EXPECT_TRUE(state.body.contains(R"("scale":4.000)"));
+  EXPECT_TRUE(state.body.contains(R"("radius":20.000)"));
   EXPECT_FALSE(state.body.contains(R"("vfx")"));
   EXPECT_FALSE(state.body.contains(R"("flashExpiryMs")"));
   EXPECT_FALSE(state.body.contains(R"("modified")"));
@@ -728,7 +728,7 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
     const auto app = entry.get_object("app");
     ASSERT_TRUE(app);
     ASSERT_TRUE(app.get_number<uint32_t>("glyph").has_value());
-    ASSERT_TRUE(app.get_number<float>("scale").has_value());
+    ASSERT_TRUE(app.get_number<float>("radius").has_value());
     ASSERT_TRUE(!app.get_number<uint32_t>("modified").has_value());
 
     const auto vfx = entry.get_object("vfx");

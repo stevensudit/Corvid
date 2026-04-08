@@ -196,11 +196,22 @@ public:
   }
 
   void handleUiCanvas(const UiCanvasInput& input) {
-    // Canvas gestures are intentionally semantic transport only for now; game
-    // rules can opt into specific events as tower placement/tooling is added.
-    (void)phase_; // !!! To disable a warning for now.
+    // Select tower on click.
+    if (input.event == UiCanvasEvent::click &&
+        input.button == UiMouseButton::left)
+    {
+      auto id = world_.findEntityAt({input.x, input.y});
+      if (id != SimWorld::EntityId::invalid)
+        (void)world_.updateVisualEffects(id,
+            VisualEffects{.selection_color = 0xFFFF00FF});
+    }
 
-    (void)world_.spawnTower({input.x, input.y});
+    // Place tower on double-click.
+    if (input.event == UiCanvasEvent::dblclick &&
+        input.button == UiMouseButton::left)
+    {
+      (void)world_.spawnTower({input.x, input.y});
+    }
   }
 
   void handle_UiAction(const UiActionInput& input) {

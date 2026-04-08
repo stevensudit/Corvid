@@ -28,7 +28,7 @@ export interface EntityPosition {
 
 export interface EntityAppearance {
   glyph: number
-  scale: number
+  radius: number
   fg: number
   bg: number
 }
