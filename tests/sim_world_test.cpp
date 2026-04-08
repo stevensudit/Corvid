@@ -17,11 +17,14 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 #include "../corvid/sim/sim_game.h"
+#include "../corvid/sim/sim_json_parse.h"
+#include "../corvid/sim/sim_json_wire.h"
 #include "minitest.h"
 
 using namespace corvid;
@@ -616,6 +619,144 @@ void SimGame_ExtractFullIncludesPathsAndState() {
   EXPECT_EQ(phase, std::string_view{"build"});
 }
 
+void SimJson_ParseUiCanvasMessage() {
+  const auto msg = parse_sim_client_message_root(R"({
+    "type": "ui_canvas",
+    "seq": 42,
+    "event": "dragmove",
+    "button": "right",
+    "buttons": 2,
+    "x": 10.5,
+    "y": -3.25,
+    "canvasX": 100.0,
+    "canvasY": 200.5,
+    "shift": true,
+    "ctrl": false,
+    "alt": true,
+    "meta": false
+  })");
+
+  ASSERT_TRUE(msg.has_value());
+  EXPECT_EQ(classify_sim_client_message(*msg),
+      SimClientMessageKind::ui_canvas);
+
+  const auto input = parse_ui_canvas_message(*msg);
+  ASSERT_TRUE(input.has_value());
+  EXPECT_EQ(input->seq, 42U);
+  EXPECT_EQ(input->event, UiCanvasEvent::dragmove);
+  EXPECT_EQ(input->button, UiMouseButton::right);
+  EXPECT_EQ(input->buttons, 2U);
+  EXPECT_NEAR(input->x, 10.5, 1e-6);
+  EXPECT_NEAR(input->y, -3.25, 1e-6);
+  EXPECT_NEAR(input->canvasX, 100.0, 1e-6);
+  EXPECT_NEAR(input->canvasY, 200.5, 1e-6);
+  EXPECT_TRUE(input->shift);
+  EXPECT_FALSE(input->ctrl);
+  EXPECT_TRUE(input->alt);
+  EXPECT_FALSE(input->meta);
+}
+
+void SimJson_ParseUiActionMessageFields() {
+  const auto input = parse_ui_action_message(
+      R"({"type":"ui_action","seq":7,"action":"start_wave","fields":{"tower\/kind":"ice","note":"line\nbreak"}})");
+
+  ASSERT_TRUE(input.has_value());
+  EXPECT_EQ(input->seq, 7U);
+  EXPECT_EQ(input->action, "start_wave");
+  ASSERT_EQ(input->fields.size(), 2U);
+  EXPECT_EQ(input->fields[0].key, "tower/kind");
+  EXPECT_EQ(input->fields[0].value, "ice");
+  EXPECT_EQ(input->fields[1].key, "note");
+  EXPECT_EQ(input->fields[1].value, std::string("line\nbreak"));
+}
+
+void SimJson_BuildHelloAckJson() {
+  EXPECT_EQ(build_sim_hello_ack_json(),
+      std::string(R"({"type":"hello_ack","message":"connected"})"));
+}
+
+void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
+  SimGame game;
+  game.loadMap();
+  game.start_wave();
+  (void)game.step();
+  const auto tick = game.step();
+
+  sim_game_state_json state;
+  (void)build_sim_game_state_json(state, game, tick);
+  EXPECT_TRUE(state.body_highwater >= state.body.size());
+  EXPECT_TRUE(state.body.contains(R"("x":20.0)"));
+  EXPECT_TRUE(state.body.contains(R"("scale":2.000)"));
+
+  json_value_view root;
+  ASSERT_TRUE(parse_json(state.body, root));
+  const auto obj = root.as_object();
+  ASSERT_TRUE(obj);
+  const auto tick_value = obj.get_number<uint32_t>("tick");
+  const auto wave_tick_value = obj.get_number<uint32_t>("waveTick");
+  const auto phase_value = obj.get_string_view_if_plain("phase");
+  ASSERT_TRUE(tick_value.has_value());
+  ASSERT_TRUE(wave_tick_value.has_value());
+  ASSERT_TRUE(phase_value.has_value());
+  EXPECT_EQ(*tick_value, 2U);
+  EXPECT_EQ(*wave_tick_value, 2U);
+  EXPECT_EQ(*phase_value, std::string_view{"wave"});
+
+  const auto upserts = obj.get_array("upserts");
+  ASSERT_TRUE(upserts);
+  size_t count = 0;
+  for (const auto item : upserts) {
+    const auto entry = item.as_object();
+    ASSERT_TRUE(entry);
+    const auto pos = entry.get_object("pos");
+    ASSERT_TRUE(pos);
+    const auto x = pos.get_number<float>("x");
+    ASSERT_TRUE(x.has_value());
+    EXPECT_NEAR(*x, 20.0, 1e-6);
+    ++count;
+  }
+  EXPECT_EQ(count, 1U);
+}
+
+void SimJson_BuildWorldSnapshotJsonShape() {
+  SimGame game;
+  game.loadMap();
+
+  sim_game_state_json state;
+  (void)build_sim_game_state_json(state, game, WorldTick{}, update_strategy::full);
+  EXPECT_TRUE(state.body.contains(R"("type":"world_snapshot")"));
+  EXPECT_TRUE(state.body.contains(R"("x":0.0)"));
+
+  json_value_view root;
+  ASSERT_TRUE(parse_json(state.body, root));
+  const auto obj = root.as_object();
+  ASSERT_TRUE(obj);
+  const auto root_type = obj.get_string_view_if_plain("type");
+  ASSERT_TRUE(root_type.has_value());
+  EXPECT_EQ(*root_type, std::string_view{"world_snapshot"});
+
+  const auto paths = obj.get_array("paths");
+  ASSERT_TRUE(paths);
+  size_t path_points = 0;
+  for (const auto point : paths) {
+    const auto entry = point.as_object();
+    ASSERT_TRUE(entry);
+    ASSERT_TRUE(entry.get_number<float>("x").has_value());
+    ASSERT_TRUE(entry.get_number<float>("y").has_value());
+    ++path_points;
+  }
+  EXPECT_GT(path_points, 0U);
+
+  const auto delta = obj.get_object("delta");
+  ASSERT_TRUE(delta);
+  const auto delta_type = delta.get_string_view_if_plain("type");
+  const auto delta_phase = delta.get_string_view_if_plain("phase");
+  ASSERT_TRUE(delta_type.has_value());
+  EXPECT_EQ(*delta_type, std::string_view{"world_delta"});
+  ASSERT_TRUE(delta_phase.has_value());
+  EXPECT_EQ(*delta_phase, std::string_view{"build"});
+}
+
 // NOLINTEND(readability-function-cognitive-complexity)
 
 MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_TickMovesMover,
@@ -632,4 +773,7 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_TickMovesMover,
     SimGame_HandleUiCanvasDoesNotChangeStateYet,
     SimGame_StartWaveSpawnsFirstEnemyOnFirstStep,
     SimGame_ExtractDeltaConsumesWorldUpdatesButNotState,
-    SimGame_ExtractFullIncludesPathsAndState)
+    SimGame_ExtractFullIncludesPathsAndState, SimJson_ParseUiCanvasMessage,
+    SimJson_ParseUiActionMessageFields, SimJson_BuildHelloAckJson,
+    SimJson_BuildWorldDeltaJsonShapeAndFormatting,
+    SimJson_BuildWorldSnapshotJsonShape)

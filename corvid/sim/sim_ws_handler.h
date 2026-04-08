@@ -17,15 +17,14 @@
 #pragma once
 
 #include <atomic>
-#include <format>
 #include <iostream>
 #include <memory>
-#include <vector>
 
 #include "../proto/http_websocket_transaction.h"
 #include "../strings/any_strings.h"
 #include "sim_game.h"
 #include "sim_json_parse.h"
+#include "sim_json_wire.h"
 
 namespace corvid { inline namespace proto {
 
@@ -91,34 +90,32 @@ private:
   WorldTick current_tick_{};       // updated each frame; loop-thread only
   SimGame game_;                   // all simulation entity state
   update_strategy send_strategy_{update_strategy::full};
-  size_t buffer_high_watermark_ = 16ULL * 1024; // try to avoid resizes
-  size_t erased_ids_high_watermark = 64;        // ditto for erased ID vector
+  sim_game_state_json json_buffer_; // persistent buffer and high-watermark
 
   // Handle an incoming text frame by classifying and forwarding the message.
   [[nodiscard]] bool do_message(http_websocket& ws, std::string&& msg) {
-    switch (classify_sim_client_message(msg)) {
-      case SimClientMessageKind::hello:
-        if (!ws.send_text(R"({"type":"hello_ack","message":"connected"})"))
-          return false;
-        return do_arm_tick();
-      case SimClientMessageKind::ui_canvas:
-        return do_ui_canvas(msg);
-      case SimClientMessageKind::ui_action:
-        return do_ui_action(msg);
-      case SimClientMessageKind::unknown:
-        break;
+    const auto root = parse_sim_client_message_root(msg);
+    if (!root) return true; // malformed, ignore
+
+    switch (classify_sim_client_message(*root)) {
+    case SimClientMessageKind::hello:
+      if (!ws.send_text(build_sim_hello_ack_json())) return false;
+      return do_arm_tick();
+    case SimClientMessageKind::ui_canvas: return do_ui_canvas(*root);
+    case SimClientMessageKind::ui_action: return do_ui_action(*root);
+    case SimClientMessageKind::unknown: break;
     }
     return true;
   }
 
-  [[nodiscard]] bool do_ui_canvas(std::string_view msg) {
+  [[nodiscard]] bool do_ui_canvas(json_object_view msg) {
     const auto input = parse_ui_canvas_message(msg);
     if (!input) return true; // malformed, ignore
     game_.handle_ui_canvas(*input);
     return true;
   }
 
-  [[nodiscard]] bool do_ui_action(std::string_view msg) {
+  [[nodiscard]] bool do_ui_action(json_object_view msg) {
     const auto input = parse_ui_action_message(msg);
     if (!input) return true; // malformed, ignore
     game_.handle_ui_action(*input);
@@ -162,107 +159,16 @@ private:
   // Stream snapshot of game state to the client as JSON. Uses deltas when
   // possible.
   [[nodiscard]] bool send_game_state() {
-    std::string buf;
-    buf.reserve(buffer_high_watermark_);
-    auto it = std::back_inserter(buf);
-    // State to allow comma delimiter management in callbacks.
-    bool wrote_any_path = false;
-    bool wrote_any_joint = false;
-    bool wrote_any_upsert = false;
-    bool wrote_any_erased = false;
-
-    // If full send, wrap in `world_snapshot` envelope and include paths.
-    if (send_strategy_ == update_strategy::full) {
-      (void)game_.markAllDirty(update_strategy::full);
-      it = std::format_to(it, R"({{"type":"world_snapshot","paths":[)");
-      (void)game_.extractPaths(
-          [&it, &wrote_any_path, &wrote_any_joint](auto, const Position& pos) {
-            if (wrote_any_joint) it = std::format_to(it, ",");
-            wrote_any_path = true;
-            wrote_any_joint = true;
-            it = std::format_to(it, R"({{"x":{:.1f},"y":{:.1f}}})", pos.x,
-                pos.y);
-            return true;
-          });
-      buf += R"(],"delta":)";
-      it = std::back_inserter(buf);
-    }
-
-    std::vector<SimWorld::EntityId> erasedIds;
-    erasedIds.reserve(erased_ids_high_watermark);
-
-    // Display state.
-    size_t current_wave{};
-    WaveTick wave_tick{};
-    int lives_count{};
-    int resources_count{};
-    std::string_view phase{};
-
-    it = std::format_to(it, R"({{"type":"world_delta","tick":{}, "upserts":[)",
-        *current_tick_);
-
-    (void)game_.extractDelta(
-        // Upserts.
-        [&it, &wrote_any_upsert,
-            current_tick = current_tick_](SimWorld::EntityId entityId,
-            const Position& pos, const Appearance& app) {
-          if (wrote_any_upsert) it = std::format_to(it, ",");
-          wrote_any_upsert = true;
-          if (app.modified + 1 != current_tick) {
-            it = std::format_to(it,
-                R"({{"pos":{{"id":{},"x":{:.1f},"y":{:.1f}}}}})", *entityId,
-                pos.x, pos.y);
-            return true;
-          }
-
-          const auto glow_color =
-              app.effect_expiry < current_tick ? 0U : app.glow_color;
-          it = std::format_to(it,
-              R"({{"pos":{{"id":{},"x":{:.1f},"y":{:.1f}}},"app":{{"glyph":{},"scale":{:.3f},"fg":{},"bg":{},"glow":{}}}}})",
-              *entityId, pos.x, pos.y, static_cast<uint32_t>(app.glyph),
-              app.scale, app.fg_color, app.bg_color, glow_color);
-          return true;
-        },
-        // Erasures.
-        [&erasedIds](SimWorld::EntityId entityId) {
-          erasedIds.push_back(entityId);
-          return true;
-        },
-        [&current_wave, &wave_tick, &lives_count, &resources_count,
-            &phase](auto currentWave, auto waveTick, auto lives,
-            auto resources, auto currentPhase) {
-          current_wave = currentWave;
-          wave_tick = waveTick;
-          lives_count = lives;
-          resources_count = resources;
-          phase = currentPhase;
-          return true;
-        });
-
-    // Mostly, the future is predicted by the past.
-    erased_ids_high_watermark = erasedIds.size();
-    it = std::format_to(it, R"(],"erased":[)");
-    for (auto entityId : erasedIds) {
-      if (wrote_any_erased) it = std::format_to(it, ",");
-      wrote_any_erased = true;
-      it = std::format_to(it, R"({})", *entityId);
-    }
-    it = std::format_to(it,
-        R"(],"currentWave":{},"waveTick":{},"lives":{},"resources":{},"phase":"{}"}})",
-        current_wave, *wave_tick, lives_count, resources_count, phase);
-
-    if (send_strategy_ == update_strategy::full) buf += "}";
+    (void)build_sim_game_state_json(json_buffer_, game_, current_tick_,
+        send_strategy_);
 
     std::string header_buf;
     (void)ws_frame_lens::build(header_buf,
-        ws_frame_control::text | ws_frame_control::fin, buf.size(),
-        std::nullopt);
+        ws_frame_control::text | ws_frame_control::fin,
+        json_buffer_.body.size(), std::nullopt);
 
-    // The past predicts the future, mostly.
-    buffer_high_watermark_ = buf.size();
-
-    if (!websocket().send_frame(
-            strings::as_vector(std::move(header_buf), std::move(buf))))
+    if (!websocket().send_frame(strings::as_vector(std::move(header_buf),
+            std::move(json_buffer_.body))))
       return false;
 
     return true;
