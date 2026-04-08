@@ -184,7 +184,7 @@ public:
     if (!is_number()) return std::nullopt;
     T value{};
     // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
-    auto [ptr, ec] = strings::std_from_chars(source_.data(),
+    auto [ptr, ec] = std::from_chars(source_.data(),
         source_.data() + source_.size(), value);
     if (ec != std::errc{} || ptr != source_.data() + source_.size())
       return std::nullopt;
@@ -632,9 +632,7 @@ constexpr bool parse_literal(json_cursor& c, std::string_view literal,
 
 constexpr bool consume_digits(json_cursor& c) {
   if (c.at_end() || !is_digit(*c)) return false;
-  do {
-    ++c;
-  } while (!c.at_end() && is_digit(*c));
+  do { ++c; } while (!c.at_end() && is_digit(*c));
   return true;
 }
 

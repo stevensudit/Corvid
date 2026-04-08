@@ -21,67 +21,6 @@
 
 namespace corvid::strings { inline namespace conversion {
 
-inline namespace cvt_fix_from_chars {
-
-#if __cpp_lib_to_chars < 202306L
-
-// Ugly workaround for the fact that `std::from_chars` is not available in
-// libstdc++. Does not honor `fmt`.
-template<typename T>
-std::from_chars_result std_from_chars(const char* first, const char* last,
-    T& value, std::chars_format fmt = std::chars_format::general) {
-  // Format isn't supported.
-  (void)fmt;
-
-  // Default to failure.
-  std::from_chars_result result{.ptr = first,
-      .ec = std::errc::invalid_argument};
-
-  // Sanity check.
-  static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>,
-      "Unsupported type. Only float and double are supported.");
-  if (!first || !last || first >= last) return result;
-
-  // Copy into buffer and use that.
-  char buffer[128];
-  const std::string_view view(first, last);
-  const auto copied = std::min(view.size(), sizeof(buffer) - 1);
-  view.copy(buffer, copied);
-  buffer[copied] = '\0';
-
-  // Assume failure.
-  result.ec = std::errc::result_out_of_range;
-  char* endptr = buffer;
-  T parsed_value{};
-  errno = 0;
-
-  // Select the correct parsing function based on the type `T`.
-  if constexpr (std::is_same_v<T, float>) {
-    parsed_value = std::strtof(buffer, &endptr);
-  } else if constexpr (std::is_same_v<T, double>) {
-    parsed_value = std::strtod(buffer, &endptr);
-  }
-  if (errno == ERANGE) return result;
-
-  result.ptr = first + (endptr - buffer);
-  result.ec = {};
-  value = parsed_value;
-
-  return result;
-}
-#else
-
-// Passthrough for conforming implementations, such as gcc.
-template<typename T>
-std::from_chars_result std_from_chars(const char* first, const char* last,
-    T& value, std::chars_format fmt = std::chars_format::general) {
-  return std::from_chars(first, last, value, fmt);
-}
-
-#endif
-
-} // namespace cvt_fix_from_chars
-
 //
 // Numerical conversions
 //
@@ -209,7 +148,7 @@ template<std::chars_format fmt = std::chars_format::general>
 constexpr bool extract_num(std::floating_point auto& t, std::string_view& sv) {
   const auto save_sv = sv;
   sv = trim_left(sv);
-  auto [ptr, ec] = std_from_chars(sv.data(), sv.data() + sv.size(), t, fmt);
+  auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), t, fmt);
   sv.remove_prefix(ptr - sv.data());
   if (ec == std::errc{}) return true;
   sv = save_sv;

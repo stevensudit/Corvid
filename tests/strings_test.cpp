@@ -1999,122 +1999,120 @@ void StringUtilsTest_AppendJson() {
 }
 
 void StringUtilsTest_StdFromChars() {
-  // Test std_from_chars directly for float.
+  // Test std::from_chars directly for float.
   if (true) {
     float value{};
     std::string_view sv;
 
     // Basic positive float.
     sv = "3.14";
-    auto result =
-        strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    auto result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_TRUE(value > 3.13f && value < 3.15f);
     EXPECT_EQ(result.ptr, sv.data() + sv.size());
 
     // Basic negative float.
     sv = "-2.5";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_EQ(value, -2.5f);
     EXPECT_EQ(result.ptr, sv.data() + sv.size());
 
     // Integer parsed as float.
     sv = "42";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_EQ(value, 42.0f);
 
     // Zero.
     sv = "0.0";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_EQ(value, 0.0f);
 
     // Negative zero.
     sv = "-0.0";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     // Negative zero should be equal to positive zero.
     EXPECT_EQ(value, 0.0f);
 
     // Scientific notation.
     sv = "1.5e3";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_EQ(value, 1500.0f);
 
     // Negative exponent.
     sv = "1.5e-2";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_TRUE(value > 0.014f && value < 0.016f);
 
     // Large positive exponent.
     sv = "1e30";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_TRUE(value > 9e29f);
 
     // Very small positive number.
     sv = "1e-30";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_TRUE(value > 0.0f && value < 1e-29f);
 
     // Partial parse (stops at non-numeric).
     sv = "3.14abc";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_TRUE(value > 3.13f && value < 3.15f);
     EXPECT_EQ(result.ptr, sv.data() + 4); // Stops at 'a'.
   }
-  // Test std_from_chars directly for double.
+  // Test std::from_chars directly for double.
   if (true) {
     double value{};
     std::string_view sv;
 
     // Basic positive double.
     sv = "3.141592653589793";
-    auto result =
-        strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    auto result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_TRUE(value > 3.14159265358979 && value < 3.14159265358980);
     EXPECT_EQ(result.ptr, sv.data() + sv.size());
 
     // Basic negative double.
     sv = "-2.718281828";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_TRUE(value < -2.71828182 && value > -2.71828183);
 
     // Large double.
     sv = "1.7976931348623157e308";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_TRUE(value > 1e307);
 
     // Small positive double.
     sv = "2.2250738585072014e-308";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_TRUE(value > 0.0 && value < 1e-307);
 
     // Scientific notation with capital E.
     sv = "1.5E10";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_EQ(value, 1.5e10);
 
     // Leading decimal point.
     sv = ".5";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_EQ(value, 0.5);
 
     // Trailing decimal point.
     sv = "5.";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_EQ(value, 5.0);
   }
@@ -2125,17 +2123,12 @@ void StringUtilsTest_StdFromChars() {
 
     // Empty string - properly returns error.
     sv = "";
-    auto result =
-        strings::std_from_chars(sv.data(), sv.data() + sv.size(), fvalue);
-    EXPECT_NE(result.ec, std::errc{});
-
-    // Null first pointer - properly returns error.
-    result = strings::std_from_chars(nullptr, sv.data(), fvalue);
+    auto result = std::from_chars(sv.data(), sv.data() + sv.size(), fvalue);
     EXPECT_NE(result.ec, std::errc{});
 
     // first >= last - properly returns error.
     sv = "123";
-    result = strings::std_from_chars(sv.data() + 2, sv.data(), fvalue);
+    result = std::from_chars(sv.data() + 2, sv.data(), fvalue);
     EXPECT_NE(result.ec, std::errc{});
 
     // Note: Invalid input like "abc" is handled by strtof/strtod which returns
@@ -2143,12 +2136,12 @@ void StringUtilsTest_StdFromChars() {
     // this as an error (it sets value to 0.0 and returns success with ptr at
     // start). This is a known limitation of the fallback implementation.
     sv = "abc";
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), fvalue);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), fvalue);
     // Fallback returns success with value 0 and ptr at start (no chars
     // consumed).
     EXPECT_EQ(result.ptr, sv.data());
   }
-  // Test extract_num float wrappers (which use std_from_chars internally).
+  // Test extract_num float wrappers (which use std::from_chars internally).
   if (true) {
     std::string_view sv;
     float f{};
@@ -2165,7 +2158,7 @@ void StringUtilsTest_StdFromChars() {
     EXPECT_TRUE(f > 6e23f);
     EXPECT_TRUE(sv.empty());
 
-    // Note: The fallback std_from_chars implementation has a limitation where
+    // Note: The fallback std::from_chars implementation has a limitation where
     // invalid input like "xyz" returns success with value 0.0 and ptr at
     // start. The extract_num wrapper checks for character consumption, so it
     // may still fail in some cases.
@@ -2214,7 +2207,7 @@ void StringUtilsTest_StdFromChars() {
     val = strings::parse_num<double>("xyz"sv, -999.0);
     EXPECT_EQ(val, -999.0);
   }
-  // Test edge cases for buffer handling in std_from_chars fallback.
+  // Test edge cases for buffer handling in std::from_chars fallback.
   if (true) {
     double value{};
 
@@ -2222,8 +2215,7 @@ void StringUtilsTest_StdFromChars() {
     std::string long_num = "1.";
     long_num.append(125, '0');
     std::string_view sv = long_num;
-    auto result =
-        strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    auto result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_EQ(value, 1.0);
 
@@ -2231,7 +2223,7 @@ void StringUtilsTest_StdFromChars() {
     long_num = "1.";
     long_num.append(200, '0');
     sv = long_num;
-    result = strings::std_from_chars(sv.data(), sv.data() + sv.size(), value);
+    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
     EXPECT_EQ(result.ec, std::errc{});
     EXPECT_EQ(value, 1.0);
   }
