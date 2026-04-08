@@ -111,14 +111,14 @@ private:
   [[nodiscard]] bool do_ui_canvas(json_object_view msg) {
     const auto input = parseUiCanvasMessage(msg);
     if (!input) return true; // malformed, ignore
-    game_.handle_ui_canvas(*input);
+    game_.handleUiCanvas(*input);
     return true;
   }
 
   [[nodiscard]] bool do_ui_action(json_object_view msg) {
     const auto input = parseUiActionMessage(msg);
     if (!input) return true; // malformed, ignore
-    game_.handle_ui_action(*input);
+    game_.handle_UiAction(*input);
     return true;
   }
 

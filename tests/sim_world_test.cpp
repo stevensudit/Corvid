@@ -506,7 +506,7 @@ void SimGame_HandleUiActionStartWaveTransitionsToWavePhase() {
   SimGame game;
   game.loadMap();
 
-  game.handle_ui_action(
+  game.handle_UiAction(
       UiActionInput{.seq = 1, .action = "start_wave", .fields = {}});
 
   const auto delta = extractGameDelta(game);
@@ -519,7 +519,7 @@ void SimGame_HandleUiCanvasDoesNotChangeStateYet() {
   game.loadMap();
   const auto before = extractGameDelta(game);
 
-  game.handle_ui_canvas(UiCanvasInput{.seq = 1,
+  game.handleUiCanvas(UiCanvasInput{.seq = 1,
       .event = UiCanvasEvent::click,
       .button = UiMouseButton::left,
       .buttons = 1,

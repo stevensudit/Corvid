@@ -168,7 +168,7 @@ public:
     const auto tick = world_.tick();
     if (phase_ == GamePhase::wave) {
       ++waveTick_;
-      spawn_pending_wave_enemies();
+      spawnPendingWaveEnemies();
 
       auto lives = lives_;
       (void)world_.resolveEscapees(
@@ -195,14 +195,15 @@ public:
     nextSpawnIndex_ = 0;
   }
 
-  void handle_ui_canvas(const UiCanvasInput& input) {
+  void handleUiCanvas(const UiCanvasInput& input) {
     // Canvas gestures are intentionally semantic transport only for now; game
     // rules can opt into specific events as tower placement/tooling is added.
     (void)phase_; // !!! To disable a warning for now.
-    (void)input;
+
+    (void)world_.spawnTower({input.x, input.y});
   }
 
-  void handle_ui_action(const UiActionInput& input) {
+  void handle_UiAction(const UiActionInput& input) {
     if (input.action == "start_wave") {
       start_wave();
       return;
@@ -251,7 +252,7 @@ public:
 
 private:
   // Spawn all the enemies slated for this wave tick.
-  void spawn_pending_wave_enemies() {
+  void spawnPendingWaveEnemies() {
     const auto& wave = waves_[currentWave_];
     const auto& enemies = wave.enemies;
     for (; nextSpawnIndex_ < enemies.size(); ++nextSpawnIndex_) {

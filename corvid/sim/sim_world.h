@@ -286,21 +286,21 @@ struct Bullet {
 // Storage layout (store_id assignment is positional, 1-based):
 //   `sidStaging` = 0                      : staging storage, used as tombstone
 //
-//   `sidPos`     = 1  -> `arch_p_t`       : background / destructible entities
+//   `sidPos`     = 1  -> `ArchP`          : background / destructible entities
 //                                           (Position + Appearance)
 //
-//   `sidPosVel`  = 2  -> `arch_pv_t`      : moving entities
+//   `sidPosVel`  = 2  -> `ArchPV`         : moving entities
 //                                           (Position + Velocity +
 //                                           Appearance)
 //
-//   `sidEnemy`   = 3  -> `arch_enemy_t`   : path-following enemies
+//   `sidEnemy`   = 3  -> `ArchEnemy`      : path-following enemies
 //                                           (Position + Appearance +
 //                                           PathFollower + Invader)
 //
-//   `sidTower`   = 4  -> `arch_tower_t`   : placed towers
+//   `sidTower`   = 4  -> `ArchTower`      : placed towers
 //                                          (Position + Appearance + Tower)
 //
-//   `sidBullet`  = 5  -> `arch_bullet_t`  : bullets
+//   `sidBullet`  = 5  -> `ArchBullet`     : bullets
 //                                           (Position + Velocity + Bullet)
 //
 // Background storage comes first so that retiring a mobile entity is a
@@ -349,8 +349,9 @@ public:
   // Returns a handle for later `despawn()`. The entity's last-change tick
   // is set to the current tick count.
   [[nodiscard]] Handle spawnMover(Position pos, Velocity vel) {
+    Appearance app{U'M', 1.F, 0xFFFFFFFF, 0xFF, 0, WorldTick::invalid, tick_};
     auto h = scene_.store_new_entity<sidPosVel>({WorldTick::invalid}, pos, vel,
-        Appearance{.modified = tick_});
+        app);
     if (h) (void)markDirty(h.id());
     return h;
   }
@@ -359,6 +360,20 @@ public:
   [[nodiscard]] Handle spawnBackground(Position pos) {
     auto h = scene_.store_new_entity<sidPos>({WorldTick::invalid}, pos,
         Appearance{.modified = tick_});
+    if (h) (void)markDirty(h.id());
+    return h;
+  }
+
+  // Spawn an immobile entity. Returns a handle for later `despawn()`.
+  [[nodiscard]] Handle spawnTower(Position pos) {
+    Tower tower{.tower_type = 1,
+        .attack_radius = 100.F,
+        .attack_damage = 10.F,
+        .cooldown = {},
+        .next_attack = tick_};
+    Appearance app{U'T', 4.F, 0xFFFFFFFF, 0xFF, 0, WorldTick::invalid, tick_};
+    auto h = scene_.store_new_entity<sidTower>({WorldTick::invalid}, pos, app,
+        tower);
     if (h) (void)markDirty(h.id());
     return h;
   }
