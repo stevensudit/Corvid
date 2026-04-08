@@ -364,12 +364,24 @@ public:
   // Convenience typed getters layered on top of `find`.
   [[nodiscard]] constexpr std::optional<bool> get_bool(
       std::string_view key) const;
+  [[nodiscard]] constexpr bool
+  parse_bool(std::string_view key, bool& out) const;
 
   template<typename T>
   requires(std::integral<T> || std::floating_point<T>)
   [[nodiscard]] constexpr std::optional<T>
   get_number(std::string_view key) const {
     return find(key).template as_number<T>();
+  }
+
+  template<typename T>
+  requires(std::integral<T> || std::floating_point<T>)
+  [[nodiscard]] constexpr bool
+  parse_number(std::string_view key, T& out) const {
+    auto opt = get_number<T>(key);
+    if (!opt) return false;
+    out = *opt;
+    return true;
   }
 
   // If the value for `key` is a plain JSON string, returns the inner
@@ -1010,6 +1022,14 @@ constexpr json_value_view json_object_view::find(std::string_view key) const {
 constexpr std::optional<bool> json_object_view::get_bool(
     std::string_view key) const {
   return find(key).as_bool();
+}
+
+constexpr bool
+json_object_view::parse_bool(std::string_view key, bool& out) const {
+  auto found = find(key).as_bool();
+  if (!found) return false;
+  out = *found;
+  return true;
 }
 
 template<AppendTarget Target>

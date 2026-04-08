@@ -116,7 +116,7 @@ private:
   }
 
   [[nodiscard]] bool do_ui_action(json_object_view msg) {
-    const auto input = parse_ui_action_message(msg);
+    const auto input = parseUiActionMessage(msg);
     if (!input) return true; // malformed, ignore
     game_.handle_ui_action(*input);
     return true;

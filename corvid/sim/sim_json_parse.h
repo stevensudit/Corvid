@@ -46,10 +46,17 @@ constexpr auto
 namespace corvid { inline namespace sim {
 namespace detail {
 
-[[nodiscard]] constexpr bool decodeJsonStringField(json_object_view obj,
-    std::string_view key, std::string& out) {
+[[nodiscard]] constexpr bool
+decodeString(json_object_view obj, std::string_view key, std::string& out) {
   const auto value = obj.find(key);
   return value && value.decode_string(out);
+}
+
+[[nodiscard]] constexpr std::string
+decodeString(json_object_view obj, std::string_view key) {
+  std::string str;
+  (void)decodeString(obj, key, str);
+  return str;
 }
 
 [[nodiscard]] constexpr std::vector<UiActionField> parseActionFields(
@@ -84,9 +91,7 @@ parseSimClientMessageRoot(std::string_view msg) {
 [[nodiscard]] constexpr SimClientMessageKind classifySimClientMessage(
     json_object_view msg) {
   SimClientMessageKind kind{};
-  std::string type;
-  if (!msg || !detail::decodeJsonStringField(msg, "type", type)) return kind;
-  (void)strings::convert_text_enum(kind, type);
+  (void)strings::convert_text_enum(kind, detail::decodeString(msg, "type"));
   return kind;
 }
 
@@ -100,78 +105,41 @@ parseSimClientMessageRoot(std::string_view msg) {
   if (!msg) return std::nullopt;
 
   UiCanvasInput input;
-  const auto seq = msg.get_number<uint64_t>("seq");
-  const auto buttons = msg.get_number<uint32_t>("buttons");
-  const auto x = msg.get_number<float>("x");
-  const auto y = msg.get_number<float>("y");
-  const auto canvas_x = msg.get_number<float>("canvasX");
-  const auto canvas_y = msg.get_number<float>("canvasY");
-  const auto shift = msg.get_bool("shift");
-  const auto ctrl = msg.get_bool("ctrl");
-  const auto alt = msg.get_bool("alt");
-  const auto meta = msg.get_bool("meta");
-
-  std::string event;
-  std::string button;
-  if (!seq || !buttons || !x || !y || !canvas_x || !canvas_y || !shift ||
-      !ctrl || !alt || !meta ||
-      !detail::decodeJsonStringField(msg, "event", event) ||
-      !detail::decodeJsonStringField(msg, "button", button))
+  if (!msg.parse_number<uint64_t>("seq", input.seq) ||
+      !msg.parse_number<uint32_t>("buttons", input.buttons) ||
+      !msg.parse_number<float>("x", input.x) ||
+      !msg.parse_number<float>("y", input.y) ||
+      !msg.parse_number<float>("canvasX", input.canvasX) ||
+      !msg.parse_number<float>("canvasY", input.canvasY) ||
+      !msg.parse_bool("shift", input.shift) ||
+      !msg.parse_bool("ctrl", input.ctrl) ||
+      !msg.parse_bool("alt", input.alt) || !msg.parse_bool("meta", input.meta))
     return std::nullopt;
 
-  input.seq = *seq;
-  input.buttons = *buttons;
-  input.x = *x;
-  input.y = *y;
-  input.canvasX = *canvas_x;
-  input.canvasY = *canvas_y;
-  input.shift = *shift;
-  input.ctrl = *ctrl;
-  input.alt = *alt;
-  input.meta = *meta;
-
-  if (event == "click")
-    input.event = UiCanvasEvent::click;
-  else if (event == "dblclick")
-    input.event = UiCanvasEvent::dblclick;
-  else if (event == "contextmenu")
-    input.event = UiCanvasEvent::contextmenu;
-  else if (event == "dragstart")
-    input.event = UiCanvasEvent::dragstart;
-  else if (event == "dragmove")
-    input.event = UiCanvasEvent::dragmove;
-  else if (event == "dragend")
-    input.event = UiCanvasEvent::dragend;
-  else
+  if (!strings::convert_text_enum(input.event,
+          detail::decodeString(msg, "event")))
     return std::nullopt;
 
-  if (button == "left")
-    input.button = UiMouseButton::left;
-  else if (button == "middle")
-    input.button = UiMouseButton::middle;
-  else if (button == "right")
-    input.button = UiMouseButton::right;
-  else if (button == "other")
-    input.button = UiMouseButton::other;
-  else
+  if (!strings::convert_text_enum(input.button,
+          detail::decodeString(msg, "button")))
     return std::nullopt;
 
   return input;
 }
 
-[[nodiscard]] constexpr std::optional<UiCanvasInput> parse_ui_canvas_message(
+[[nodiscard]] constexpr std::optional<UiCanvasInput> parseUiCanvasMessage(
     std::string_view msg) {
   const auto root = parseSimClientMessageRoot(msg);
   return root ? parseUiCanvasMessage(*root) : std::nullopt;
 }
 
-[[nodiscard]] constexpr std::optional<UiActionInput> parse_ui_action_message(
+[[nodiscard]] constexpr std::optional<UiActionInput> parseUiActionMessage(
     json_object_view msg) {
   if (!msg) return std::nullopt;
 
   UiActionInput input;
   const auto seq = msg.get_number<uint64_t>("seq");
-  if (!seq || !detail::decodeJsonStringField(msg, "action", input.action))
+  if (!seq || !detail::decodeString(msg, "action", input.action))
     return std::nullopt;
 
   input.seq = *seq;
@@ -179,9 +147,9 @@ parseSimClientMessageRoot(std::string_view msg) {
   return input;
 }
 
-[[nodiscard]] constexpr std::optional<UiActionInput> parse_ui_action_message(
+[[nodiscard]] constexpr std::optional<UiActionInput> parseUiActionMessage(
     std::string_view msg) {
   const auto root = parseSimClientMessageRoot(msg);
-  return root ? parse_ui_action_message(*root) : std::nullopt;
+  return root ? parseUiActionMessage(*root) : std::nullopt;
 }
 }} // namespace corvid::sim

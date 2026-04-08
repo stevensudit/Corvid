@@ -656,7 +656,7 @@ void SimJson_ParseUiCanvasMessage() {
 }
 
 void SimJson_ParseUiActionMessageFields() {
-  const auto input = parse_ui_action_message(
+  const auto input = parseUiActionMessage(
       R"({"type":"ui_action","seq":7,"action":"start_wave","fields":{"tower\/kind":"ice","note":"line\nbreak"}})");
 
   ASSERT_TRUE(input.has_value());

@@ -87,6 +87,19 @@ constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::WaveTick> =
     corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::WaveTick,
         "">();
 
+template<>
+constexpr auto
+    corvid::enums::registry::enum_spec_v<corvid::sim::UiCanvasEvent> =
+        corvid::enums::sequence::make_sequence_enum_spec<
+            corvid::sim::UiCanvasEvent,
+            "click, dblclick, contextmenu, dragstart, dragmove, dragend">();
+
+template<>
+constexpr auto
+    corvid::enums::registry::enum_spec_v<corvid::sim::UiMouseButton> =
+        corvid::enums::sequence::make_sequence_enum_spec<
+            corvid::sim::UiMouseButton, "left, middle, right, other">();
+
 namespace corvid { inline namespace sim {
 
 // Enemy spawn definition for a wave.
