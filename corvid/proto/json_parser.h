@@ -171,6 +171,7 @@ public:
   [[nodiscard]] std::optional<T> as_number() const noexcept {
     if (!is_number()) return std::nullopt;
     T value{};
+    // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
     auto [ptr, ec] = std::from_chars(source_.data(),
         source_.data() + source_.size(), value);
     if (ec != std::errc{} || ptr != source_.data() + source_.size())
@@ -179,9 +180,10 @@ public:
   }
 
   template<std::floating_point T>
-  [[nodiscard]] std::optional<T> as_number() const noexcept {
+  [[nodiscard]] std::optional<T> as_number() const {
     if (!is_number()) return std::nullopt;
     T value{};
+    // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
     auto [ptr, ec] = strings::std_from_chars(source_.data(),
         source_.data() + source_.size(), value);
     if (ec != std::errc{} || ptr != source_.data() + source_.size())
@@ -192,8 +194,7 @@ public:
   // If this is a plain JSON string (properly quoted and containing no escape
   // sequences), returns the inner `std::string_view`, which may be empty.
   // Otherwise, returns `std::nullopt`.
-  [[nodiscard]] std::optional<std::string_view>
-  string_view_if_plain() const noexcept {
+  [[nodiscard]] std::optional<std::string_view> string_view_if_plain() const {
     if (!is_string() || source_.size() < 2) return std::nullopt;
     auto inner = source_.substr(1, source_.size() - 2);
     if (inner.contains('\\')) return std::nullopt;
@@ -249,8 +250,7 @@ public:
   private:
     friend class json_array_view;
 
-    constexpr explicit iterator(const json_array_view* owner,
-        size_t pos) noexcept
+    constexpr explicit iterator(const json_array_view* owner, size_t pos)
         : owner_{owner}, pos_{pos} {
       load_current();
     }
@@ -326,8 +326,7 @@ public:
   private:
     friend class json_object_view;
 
-    constexpr explicit iterator(const json_object_view* owner,
-        size_t pos) noexcept
+    constexpr explicit iterator(const json_object_view* owner, size_t pos)
         : owner_{owner}, pos_{pos} {
       load_current();
     }
@@ -469,8 +468,7 @@ struct json_cursor {
 
   constexpr char next() noexcept { return input[pos++]; }
 
-  [[nodiscard]] constexpr auto
-  substr(size_t pos, size_t count = npos) const noexcept {
+  [[nodiscard]] constexpr auto substr(size_t pos, size_t count = npos) const {
     return input.substr(pos, count);
   }
 
@@ -1043,8 +1041,7 @@ class json_writer {
   template<typename Begin, typename End>
   class scoped_writer {
   public:
-    constexpr scoped_writer(json_writer& writer, Begin&& begin,
-        End&& end) noexcept
+    constexpr scoped_writer(json_writer& writer, Begin&& begin, End&& end)
         : writer_{&writer}, end_{std::forward<End>(end)} {
       std::forward<Begin>(begin)(*writer_);
     }
@@ -1054,6 +1051,7 @@ class json_writer {
     scoped_writer& operator=(const scoped_writer&) = delete;
     scoped_writer& operator=(scoped_writer&&) = delete;
 
+    // NOLINTNEXTLINE(bugprone-exception-escape)
     constexpr ~scoped_writer() { end_(*writer_); }
 
     [[nodiscard]] constexpr json_writer* operator->() noexcept {
@@ -1132,7 +1130,7 @@ public:
     return object();
   }
 
-  [[nodiscard]] constexpr auto member_object(json_trusted key_text) noexcept {
+  [[nodiscard]] constexpr auto member_object(json_trusted key_text) {
     key(key_text);
     return object();
   }
@@ -1144,7 +1142,7 @@ public:
     return array();
   }
 
-  [[nodiscard]] constexpr auto member_array(json_trusted key_text) noexcept {
+  [[nodiscard]] constexpr auto member_array(json_trusted key_text) {
     key(key_text);
     return array();
   }
