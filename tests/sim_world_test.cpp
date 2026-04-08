@@ -61,7 +61,8 @@ struct GameSnapshot {
   std::vector<EntitySnapshot> snaps;
   (void)world.markAllDirty();
   (void)world.extractUpdatedEntities(
-      [&snaps](SimWorld::EntityId id, const Position& pos, const Appearance&) {
+      [&snaps](SimWorld::EntityId id, const Position& pos, const Appearance&,
+          const VisualEffects&) {
         const auto it = std::ranges::find(snaps, id, &EntitySnapshot::id);
         if (it == snaps.end())
           snaps.push_back({id, pos});
@@ -99,9 +100,8 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
 [[nodiscard]] WorldDelta extractWorldDelta(SimWorld& world) {
   WorldDelta delta;
   (void)world.extractUpdatedEntities(
-      [&delta](SimWorld::EntityId id, const Position& pos, const Appearance&) {
-        delta.upserts.emplace_back(id, pos);
-      },
+      [&delta](SimWorld::EntityId id, const Position& pos, const Appearance&,
+          const VisualEffects&) { delta.upserts.emplace_back(id, pos); },
       [&delta](SimWorld::EntityId id) { delta.erased.push_back(id); });
   return delta;
 }
@@ -116,9 +116,8 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
         if (pathsById.size() <= ndx) pathsById.resize(ndx + 1);
         pathsById[ndx].joints.push_back({pos});
       },
-      [&snap](SimWorld::EntityId id, const Position& pos, const Appearance&) {
-        snap.entities.push_back({id, pos});
-      },
+      [&snap](SimWorld::EntityId id, const Position& pos, const Appearance&,
+          const VisualEffects&) { snap.entities.push_back({id, pos}); },
       [](SimWorld::EntityId) {},
       [](size_t, WaveTick, int, int, std::string_view) {});
 
@@ -129,9 +128,8 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
 [[nodiscard]] GameDelta extractGameDelta(SimGame& game) {
   GameDelta delta;
   (void)game.extractDelta(
-      [&delta](SimWorld::EntityId id, const Position& pos, const Appearance&) {
-        delta.upserts.emplace_back(id, pos);
-      },
+      [&delta](SimWorld::EntityId id, const Position& pos, const Appearance&,
+          const VisualEffects&) { delta.upserts.emplace_back(id, pos); },
       [&delta](SimWorld::EntityId id) { delta.erased.push_back(id); },
       [&delta](size_t currentWave, WaveTick waveTick, int lives, int resources,
           std::string_view phase) {
@@ -374,7 +372,7 @@ void SimWorld_EnemyAdvancesOnTick() {
 
   const auto delta = extractWorldDelta(w);
   EXPECT_TRUE(containsId(delta.upserts, enemy.id()));
-  ASSERT_EQ(delta.upserts.size(), 1U);
+  ASSERT_EQ(delta.upserts.size(), 2U);
   EXPECT_NEAR(delta.upserts[0].second.x, 10.0, 1e-5);
   EXPECT_NEAR(delta.upserts[0].second.y, 0.0, 1e-5);
 }
@@ -514,7 +512,7 @@ void SimGame_HandleUiActionStartWaveTransitionsToWavePhase() {
   EXPECT_EQ(delta.waveTick, WaveTick{0});
 }
 
-void SimGame_HandleUiCanvasDoesNotChangeStateYet() {
+void SimGame_HandleUiCanvasSpawnsTowerButKeepsBuildPhase() {
   SimGame game;
   game.loadMap();
   const auto before = extractGameDelta(game);
@@ -531,7 +529,9 @@ void SimGame_HandleUiCanvasDoesNotChangeStateYet() {
   const auto after = extractGameDelta(game);
   EXPECT_EQ(before.phase, std::string_view{"build"});
   EXPECT_EQ(after.phase, std::string_view{"build"});
-  EXPECT_TRUE(after.upserts.empty());
+  ASSERT_EQ(after.upserts.size(), 1U);
+  EXPECT_NEAR(after.upserts[0].second.x, 10.0, 1e-6);
+  EXPECT_NEAR(after.upserts[0].second.y, 20.0, 1e-6);
   EXPECT_TRUE(after.erased.empty());
 }
 
@@ -543,7 +543,9 @@ void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
   EXPECT_EQ(*game.step(), 1U);
 
   const auto snap = snapshot(game);
-  EXPECT_TRUE(snap.entities.empty());
+  ASSERT_EQ(snap.entities.size(), 1U);
+  EXPECT_NEAR(snap.entities[0].pos.x, 0.0, 1e-6);
+  EXPECT_NEAR(snap.entities[0].pos.y, 0.0, 1e-6);
 
   const auto delta = extractGameDelta(game);
   EXPECT_EQ(delta.currentWave, 0U);
@@ -595,9 +597,8 @@ void SimGame_ExtractFullIncludesPathsAndState() {
 
   (void)game.extractFull(
       [&path_points](PathId, const Position&) { ++path_points; },
-      [&upserts](SimWorld::EntityId, const Position&, const Appearance&) {
-        ++upserts;
-      },
+      [&upserts](SimWorld::EntityId, const Position&, const Appearance&,
+          const VisualEffects&) { ++upserts; },
       [&erased](SimWorld::EntityId) { ++erased; },
       [&currentWave, &waveTick, &lives, &resources, &phase](size_t wave,
           WaveTick tick, int newLives, int newResources,
@@ -677,15 +678,25 @@ void SimJson_BuildHelloAckJson() {
 void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   SimGame game;
   game.loadMap();
-  game.start_wave();
-  (void)game.step();
+  game.handleUiCanvas(UiCanvasInput{.seq = 1,
+      .event = UiCanvasEvent::click,
+      .button = UiMouseButton::left,
+      .buttons = 1,
+      .x = 10.F,
+      .y = 20.F,
+      .canvasX = 100.F,
+      .canvasY = 200.F});
   const auto tick = game.step();
 
   sim_game_state_json state;
   (void)build_sim_game_state_json(state, game, tick);
   EXPECT_TRUE(state.body_highwater >= state.body.size());
-  EXPECT_TRUE(state.body.contains(R"("x":20.0)"));
-  EXPECT_TRUE(state.body.contains(R"("scale":2.000)"));
+  EXPECT_TRUE(state.body.contains(R"("x":10.0)"));
+  EXPECT_TRUE(state.body.contains(R"("scale":4.000)"));
+  EXPECT_FALSE(state.body.contains(R"("vfx")"));
+  EXPECT_FALSE(state.body.contains(R"("modified")"));
+  EXPECT_FALSE(state.body.contains(R"("flash_expiry")"));
+  EXPECT_FALSE(state.body.contains(R"("glow")"));
 
   json_value_view root;
   ASSERT_TRUE(parse_json(state.body, root));
@@ -697,9 +708,9 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   ASSERT_TRUE(tick_value.has_value());
   ASSERT_TRUE(wave_tick_value.has_value());
   ASSERT_TRUE(phase_value.has_value());
-  EXPECT_EQ(*tick_value, 2U);
-  EXPECT_EQ(*wave_tick_value, 2U);
-  EXPECT_EQ(*phase_value, std::string_view{"wave"});
+  EXPECT_EQ(*tick_value, 1U);
+  EXPECT_EQ(*wave_tick_value, 0U);
+  EXPECT_EQ(*phase_value, std::string_view{"build"});
 
   const auto upserts = obj.get_array("upserts");
   ASSERT_TRUE(upserts);
@@ -711,7 +722,16 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
     ASSERT_TRUE(pos);
     const auto x = pos.get_number<float>("x");
     ASSERT_TRUE(x.has_value());
-    EXPECT_NEAR(*x, 20.0, 1e-6);
+    EXPECT_NEAR(*x, 10.0, 1e-6);
+
+    const auto app = entry.get_object("app");
+    ASSERT_TRUE(app);
+    ASSERT_TRUE(app.get_number<uint32_t>("glyph").has_value());
+    ASSERT_TRUE(app.get_number<float>("scale").has_value());
+    ASSERT_TRUE(!app.get_number<uint32_t>("modified").has_value());
+
+    const auto vfx = entry.get_object("vfx");
+    EXPECT_TRUE(!vfx);
     ++count;
   }
   EXPECT_EQ(count, 1U);
@@ -770,7 +790,7 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_TickMovesMover,
     SimWorld_ResolveEscapeesCanLeaveEnemyAlive, SimWorld_GetPathOutOfRange,
     SimGame_LoadMapInitialSnapshotAndState,
     SimGame_HandleUiActionStartWaveTransitionsToWavePhase,
-    SimGame_HandleUiCanvasDoesNotChangeStateYet,
+    SimGame_HandleUiCanvasSpawnsTowerButKeepsBuildPhase,
     SimGame_StartWaveSpawnsFirstEnemyOnFirstStep,
     SimGame_ExtractDeltaConsumesWorldUpdatesButNotState,
     SimGame_ExtractFullIncludesPathsAndState, SimJson_ParseUiCanvasMessage,

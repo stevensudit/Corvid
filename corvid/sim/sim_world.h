@@ -239,13 +239,22 @@ struct PathFollower {
 // Appearance component. Controls rendering on client side, but has no effect
 // on physics or game logic.
 struct Appearance {
-  char32_t glyph{};      // a Unicode character to display, if any.
-  float scale{1.F};      // multiplier on the base size of the shape, if any.
-  uint32_t fg_color{};   // RGB color, if any.
-  uint32_t bg_color{};   // RGB color, if any.
-  uint32_t glow_color{}; // RGB color for glow effect, if any.
-  WorldTick effect_expiry{WorldTick::invalid}; // When glow effect expires.
-  WorldTick modified{}; // Tick when this entity was last modified
+  WorldTick modified{WorldTick::invalid}; // Tick when last modified.
+  char32_t glyph{};    // a Unicode character to display, if any.
+  float scale{1.F};    // multiplier on the base size of the shape, if any.
+  uint32_t fg_color{}; // RGBA.
+  uint32_t bg_color{}; // RGBA.
+};
+
+// Visual effects component. Controls transient overlays on the client side,
+// but has no effect on physics or game logic.
+struct VisualEffects {
+  WorldTick modified{WorldTick::invalid}; // Tick when last modified.
+  uint32_t selection_color{};             // RGBA.
+  float range_radius{};
+  uint32_t range_color{}; // RGBA.
+  uint32_t flash_color{}; // RGBA.
+  WorldTick flash_expiry{WorldTick::invalid};
 };
 
 // Defensive tower component. Stored alongside `Position` in the tower
@@ -295,10 +304,12 @@ struct Bullet {
 //
 //   `sidEnemy`   = 3  -> `ArchEnemy`      : path-following enemies
 //                                           (Position + Appearance +
-//                                           PathFollower + Invader)
+//                                           VisualEffects + PathFollower +
+//                                           Invader)
 //
 //   `sidTower`   = 4  -> `ArchTower`      : placed towers
-//                                          (Position + Appearance + Tower)
+//                                          (Position + Appearance +
+//                                          VisualEffects + Tower)
 //
 //   `sidBullet`  = 5  -> `ArchBullet`     : bullets
 //                                           (Position + Velocity + Bullet)
@@ -311,9 +322,9 @@ using ArchP = archetype_storage<WorldReg, std::tuple<Position, Appearance>>;
 using ArchPV =
     archetype_storage<WorldReg, std::tuple<Position, Velocity, Appearance>>;
 using ArchEnemy = archetype_storage<WorldReg,
-    std::tuple<Position, Appearance, PathFollower, Invader>>;
-using ArchTower =
-    archetype_storage<WorldReg, std::tuple<Position, Appearance, Tower>>;
+    std::tuple<Position, Appearance, VisualEffects, PathFollower, Invader>>;
+using ArchTower = archetype_storage<WorldReg,
+    std::tuple<Position, Appearance, VisualEffects, Tower>>;
 using ArchBullet =
     archetype_storage<WorldReg, std::tuple<Position, Velocity, Bullet>>;
 using WorldScene =
@@ -342,6 +353,8 @@ public:
   void clear() {
     scene_.clear();
     paths_.clear();
+    updatedEntities_.clear();
+    pathEscapees_.clear();
     tick_ = {};
   }
 
@@ -349,7 +362,11 @@ public:
   // Returns a handle for later `despawn()`. The entity's last-change tick
   // is set to the current tick count.
   [[nodiscard]] Handle spawnMover(Position pos, Velocity vel) {
-    Appearance app{U'M', 1.F, 0xFFFFFFFF, 0xFF, 0, WorldTick::invalid, tick_};
+    Appearance app{.modified = nextSyncTick(),
+        .glyph = U'M',
+        .scale = 1.F,
+        .fg_color = 0xFFFFFFFF,
+        .bg_color = 0xFF};
     auto h = scene_.store_new_entity<sidPosVel>({WorldTick::invalid}, pos, vel,
         app);
     if (h) (void)markDirty(h.id());
@@ -358,8 +375,12 @@ public:
 
   // Spawn an immobile entity. Returns a handle for later `despawn()`.
   [[nodiscard]] Handle spawnBackground(Position pos) {
-    auto h = scene_.store_new_entity<sidPos>({WorldTick::invalid}, pos,
-        Appearance{.modified = tick_});
+    Appearance app{.modified = nextSyncTick(),
+        .glyph = U'B',
+        .scale = 1.F,
+        .fg_color = 0xFFFFFFFF,
+        .bg_color = 0xFF};
+    auto h = scene_.store_new_entity<sidPos>({WorldTick::invalid}, pos, app);
     if (h) (void)markDirty(h.id());
     return h;
   }
@@ -371,9 +392,14 @@ public:
         .attack_damage = 10.F,
         .cooldown = {},
         .next_attack = tick_};
-    Appearance app{U'T', 4.F, 0xFFFFFFFF, 0xFF, 0, WorldTick::invalid, tick_};
+    Appearance app{.modified = nextSyncTick(),
+        .glyph = U'T',
+        .scale = 4.F,
+        .fg_color = 0xFFFFFFFF,
+        .bg_color = 0xFF};
+    VisualEffects fx;
     auto h = scene_.store_new_entity<sidTower>({WorldTick::invalid}, pos, app,
-        tower);
+        fx, tower);
     if (h) (void)markDirty(h.id());
     return h;
   }
@@ -397,21 +423,60 @@ public:
   [[nodiscard]] Handle
   spawnEnemy(PathId pathId, float speed, float progress = 0.F) {
     if (pathId >= paths_.size_as_enum()) return {};
-    Appearance app{U'U', 2.F, 0xFFFFFFFF, 0xFF, 0, WorldTick::invalid, tick_};
+    // Enemies are only spawned during the active world step, so their
+    // appearance must replicate on the current tick rather than the next one.
+    Appearance app{.modified = tick_,
+        .glyph = U'U',
+        .scale = 2.F,
+        .fg_color = 0xFFFFFFFF,
+        .bg_color = 0xFF};
+    VisualEffects fx{};
     const auto pos =
         paths_[pathId].calculatePositionFromProgress(progress, progress);
-    return scene_.store_new_entity<sidEnemy>(tick_, pos, app,
-        PathFollower{pathId, progress, speed}, Invader{});
+    auto h = scene_.store_new_entity<sidEnemy>({WorldTick::invalid}, pos, app,
+        fx, PathFollower{pathId, progress, speed}, Invader{});
+    if (h) (void)markDirty(h.id());
+    return h;
   }
 
-  // Update entity appearance.
+  // Update entity appearance for the next streamed tick.
   [[nodiscard]] bool updateAppearance(EntityId id, const Appearance& newApp) {
     auto& reg = scene_.registry();
     if (!reg.is_valid(id)) return false;
     auto* app = scene_.try_get_component<Appearance>(id);
     if (!app) return false;
     *app = newApp;
-    app->modified = tick_;
+    app->modified = nextSyncTick();
+    (void)markDirty(id);
+    return true;
+  }
+
+  // Update entity visual effects for the next streamed tick.
+  [[nodiscard]] bool
+  updateVisualEffects(EntityId id, const VisualEffects& newEffects) {
+    auto& reg = scene_.registry();
+    if (!reg.is_valid(id)) return false;
+    auto* effects = scene_.try_get_component<VisualEffects>(id);
+    if (!effects) return false;
+    *effects = newEffects;
+    effects->modified = nextSyncTick();
+    (void)markDirty(id);
+    return true;
+  }
+
+  // Trigger or replace a flashing overlay for an entity that carries visual
+  // effects. The flash remains active until a later update or expiry clears
+  // it.
+  [[nodiscard]] bool
+  flashEntity(EntityId id, uint32_t color, WorldTick duration) {
+    auto& reg = scene_.registry();
+    if (!reg.is_valid(id)) return false;
+    auto* effects = scene_.try_get_component<VisualEffects>(id);
+    if (!effects) return false;
+
+    effects->flash_color = color;
+    effects->flash_expiry = WorldTick{*tick_ + *duration};
+    effects->modified = nextSyncTick();
     (void)markDirty(id);
     return true;
   }
@@ -432,18 +497,25 @@ public:
 
   // Destructively extract upserts and erasures.
   //
-  // Call back `cbUpserts(EntityId, Position, Appearance)` for each changed
-  // entity that has a `Position` and `Appearance` and has changed since the
-  // last tick, and `cbErased(EntityId)` for each entity that has been erased
-  // since the last tick. These calls will be interleaved.
+  // Call back `cbUpserts(EntityId, Position, Appearance, VisualEffects)` for
+  // each changed entity that has a `Position` and `Appearance` and has changed
+  // since the last tick, and `cbErased(EntityId)` for each entity that has
+  // been erased since the last tick. The visual effects pointer is null for
+  // archetypes that do not carry that component. These calls will be
+  // interleaved.
   [[nodiscard]] bool
   extractUpdatedEntities(auto&& cbUpserts, auto&& cbErased) {
+    static constexpr VisualEffects nfx;
     auto& reg = scene_.registry();
     for (auto id : updatedEntities_) {
+      if (!reg.is_valid(id)) continue;
       const auto [pos, app] =
           scene_.try_get_components<Position, Appearance>(id);
       if (pos && app) {
-        (void)cbUpserts(id, *pos, *app);
+        const auto* fx = &nfx;
+        auto maybeFx = scene_.try_get_component<VisualEffects>(id);
+        if (maybeFx) fx = maybeFx;
+        (void)cbUpserts(id, *pos, *app, *fx);
       } else {
         if (reg.get_location(id).store_id != sidStaging) continue;
         (void)cbErased(id);
@@ -493,7 +565,8 @@ public:
 
   // Mark all entities dirty. When `update_strategy::incremental`, does not
   // mark appearances, just entities. When `update_strategy::full`, also marks
-  // appearances dirty by updating their `modified` field.
+  // appearance and visual-effect components dirty by updating their
+  // `modified` field.
   [[nodiscard]] bool markAllDirty(
       update_strategy strategy = update_strategy::incremental) {
     scene_.registry().for_each([&](auto id, auto&) {
@@ -505,6 +578,8 @@ public:
 
       if (auto app = scene_.try_get_component<Appearance>(id))
         app->modified = tick_;
+      if (auto effects = scene_.try_get_component<VisualEffects>(id))
+        effects->modified = tick_;
       return true;
     });
     return true;
@@ -517,6 +592,14 @@ private:
 
   std::vector<EntityId> updatedEntities_;
   std::vector<EntityId> pathEscapees_;
+
+  // Return the tick count for the next snapshot, which is after the next call
+  // to `tick()`. This is the tick that should be used for any changes that
+  // need to be included in the next snapshot, such as newly spawned entities
+  // or appearance updates.
+  [[nodiscard]] WorldTick nextSyncTick() const {
+    return WorldTick{*tick_ + 1U};
+  }
 
   // Marks an entity as dirty so that it will be included in the next delta
   // snapshot.
@@ -598,6 +681,10 @@ private:
     });
 
     return true;
+  }
+
+  [[nodiscard]] static constexpr bool isVisibleColor(uint32_t color) noexcept {
+    return (color & 0xFFU) != 0U;
   }
 
   // Clamp `pos` to `[-limit/2, +limit/2]` and, if it was out of range, negate

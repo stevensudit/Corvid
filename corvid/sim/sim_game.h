@@ -220,9 +220,9 @@ public:
   }
 
   // Extract a delta of the game state. The `cbUpserts(EntityId, Position,
-  // Appearance)` and `cbErased(EntityId)` callbacks will be interleaved. The
-  // `cbState(currentWave, waveTick, lives, resources)` callback is invoked
-  // last.
+  // Appearance, VisualEffects)` and `cbErased(EntityId)` callbacks will be
+  // interleaved. The `cbState(currentWave, waveTick, lives, resources)`
+  // callback is invoked last.
   [[nodiscard]] bool
   extractDelta(auto&& cbUpserts, auto&& cbErased, auto&& cbState) {
     (void)world_.extractUpdatedEntities(cbUpserts, cbErased);
@@ -234,7 +234,8 @@ public:
 
   // Extract a full snapshot of the game state. The `cbPath` callback will be
   // invoked first, with `cbUpserts` and `cbErased` invoked afterwards and
-  // interleaved. The `cbState` callback is invoked last.
+  // interleaved. `cbUpserts` receives an optional `VisualEffects` pointer. The
+  // `cbState` callback is invoked last.
   [[nodiscard]] bool extractFull(auto&& cbPath, auto&& cbUpserts,
       auto&& cbErased, auto&& cbState) {
     (void)extractPaths(cbPath);

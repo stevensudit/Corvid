@@ -97,7 +97,8 @@ parseSimClientMessageRoot(std::string_view msg) {
 
 [[nodiscard]] constexpr SimClientMessageKind classifySimClientMessage(
     std::string_view msg) {
-  return classifySimClientMessage(parseSimClientMessageRoot(msg).value_or({}));
+  return classifySimClientMessage(
+      parseSimClientMessageRoot(msg).value_or(json_object_view{}));
 }
 
 [[nodiscard]] constexpr std::optional<UiCanvasInput> parseUiCanvasMessage(

@@ -3,6 +3,7 @@ import type {
   EntityAppearance,
   EntityPosition,
   EntityUpsert,
+  EntityVisualEffects,
   ServerMsg,
   WorldDelta,
 } from './types.js'
@@ -22,12 +23,19 @@ interface RenderAppearance {
   scale: number
   fg: RenderColor
   bg: RenderColor
-  glow: RenderColor
+}
+
+interface RenderVisualEffects {
+  selection: RenderColor
+  rangeRadius: number
+  range: RenderColor
+  flash: RenderColor
 }
 
 interface RenderEntityUpsert {
   pos: EntityPosition
   app: RenderAppearance
+  fx: RenderVisualEffects
 }
 
 interface CanvasPointerState {
@@ -54,7 +62,13 @@ const DEFAULT_RENDER_APPEARANCE: RenderAppearance = {
   scale: 1,
   fg: { css: 'rgba(255, 255, 255, 1)', alpha: 1 },
   bg: { css: 'rgba(0, 0, 0, 1)', alpha: 1 },
-  glow: { css: 'rgba(0, 0, 0, 0)', alpha: 0 },
+}
+
+const DEFAULT_RENDER_VISUAL_EFFECTS: RenderVisualEffects = {
+  selection: { css: 'rgba(0, 0, 0, 0)', alpha: 0 },
+  rangeRadius: 0,
+  range: { css: 'rgba(0, 0, 0, 0)', alpha: 0 },
+  flash: { css: 'rgba(0, 0, 0, 0)', alpha: 0 },
 }
 
 // --- DOM setup ---
@@ -117,6 +131,10 @@ function canvasToWorld(cx: number, cy: number): [number, number] {
     (cx - foregroundCanvas.width / 2) * WORLD_W / foregroundCanvas.width,
     (cy - foregroundCanvas.height / 2) * WORLD_H / foregroundCanvas.height,
   ]
+}
+
+function worldLengthToCanvas(length: number): number {
+  return length * foregroundCanvas.width / WORLD_W
 }
 
 function eventToCanvasSample(event: MouseEvent): CanvasPointerSample {
@@ -188,9 +206,9 @@ function drawBackground(pathPoints: Array<{ x: number; y: number }>): void {
   bgCtx.restore()
 }
 
-function renderInterpolated(): void {
+function renderInterpolated(now: number): void {
   const interval = Math.max(snapshotIntervalMs, 1)
-  const t = Math.min((performance.now() - currSnapshotTime) / interval, 1)
+  const t = Math.min((now - currSnapshotTime) / interval, 1)
 
   fgCtx.clearRect(0, 0, foregroundCanvas.width, foregroundCanvas.height)
   for (const e of currEntitiesById.values()) {
@@ -201,7 +219,7 @@ function renderInterpolated(): void {
     const wy = prevPos ? lerp(prevPos.y, e.pos.y, t) : e.pos.y
     const [x, y] = worldToCanvas(wx, wy)
     const radius = 5 * lerp(prevApp.scale, e.app.scale, t)
-    drawEntitySprite(x, y, radius, e.app)
+    drawEntity(x, y, radius, e.app, e.fx, now)
   }
 }
 
@@ -249,6 +267,23 @@ function drawFilledCircleOnContext(
   ctx.beginPath()
   ctx.arc(x, y, radius, 0, Math.PI * 2)
   ctx.fill()
+}
+
+function drawStrokedCircleOnContext(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  color: RenderColor,
+  lineWidth: number,
+): void {
+  if (radius <= 0 || lineWidth <= 0 || isTransparent(color)) return
+
+  ctx.strokeStyle = color.css
+  ctx.lineWidth = lineWidth
+  ctx.beginPath()
+  ctx.arc(x, y, radius, 0, Math.PI * 2)
+  ctx.stroke()
 }
 
 function getGlyphFontSize(glyph: string, radius: number): number {
@@ -299,7 +334,6 @@ function getSpriteCacheKey(app: RenderAppearance, radius: number): string {
     roundedRadius,
     app.fg.css,
     app.bg.css,
-    app.glow.css,
   ].join('|')
 }
 
@@ -314,8 +348,7 @@ function getEntitySprite(app: RenderAppearance, radius: number): SpriteCacheEntr
   // Cache misses only happen the first time we see a visual variant for this
   // appearance/radius bucket. After that, renderInterpolated() can reuse the
   // offscreen canvas with a single drawImage() blit.
-  const glowRadius = app.glow.alpha !== 0 ? roundedRadius * 1.5 : 0
-  const extent = Math.max(glowRadius, roundedRadius)
+  const extent = roundedRadius
   const pad = 2
   const offset = Math.ceil(extent + pad)
   const size = offset * 2
@@ -326,7 +359,6 @@ function getEntitySprite(app: RenderAppearance, radius: number): SpriteCacheEntr
   const spriteCtx = canvas.getContext('2d')
   if (!spriteCtx) return null
 
-  if (app.glow.alpha !== 0) drawFilledCircleOnContext(spriteCtx, offset, offset, glowRadius, app.glow)
   if (app.bg.alpha !== 0) drawFilledCircleOnContext(spriteCtx, offset, offset, roundedRadius, app.bg)
   if (app.fg.alpha !== 0) drawGlyphOnContext(spriteCtx, app.glyph, offset, offset, roundedRadius, app.fg)
 
@@ -341,20 +373,100 @@ function drawEntitySprite(x: number, y: number, radius: number, app: RenderAppea
   fgCtx.drawImage(sprite.canvas, x - sprite.offset, y - sprite.offset)
 }
 
+function drawRangeCircle(
+  x: number,
+  y: number,
+  fx: RenderVisualEffects,
+): void {
+  if (fx.rangeRadius <= 0 || isTransparent(fx.range)) return
+
+  const radius = worldLengthToCanvas(fx.rangeRadius)
+  const lineWidth = Math.max(2, radius * 0.03)
+  fgCtx.save()
+  drawStrokedCircleOnContext(fgCtx, x, y, radius, fx.range, lineWidth)
+  fgCtx.restore()
+}
+
+function drawSelectionOutline(
+  x: number,
+  y: number,
+  radius: number,
+  fx: RenderVisualEffects,
+): void {
+  if (radius <= 0 || isTransparent(fx.selection)) return
+
+  const lineWidth = Math.max(3, radius * 0.35)
+  fgCtx.save()
+  drawStrokedCircleOnContext(
+    fgCtx,
+    x,
+    y,
+    radius + lineWidth * 0.5,
+    fx.selection,
+    lineWidth,
+  )
+  fgCtx.restore()
+}
+
+function isFlashVisible(now: number): boolean {
+  return Math.floor(now / 125) % 2 === 0
+}
+
+function drawFlashOverlay(
+  x: number,
+  y: number,
+  radius: number,
+  fx: RenderVisualEffects,
+  now: number,
+): void {
+  if (radius <= 0 || isTransparent(fx.flash) || !isFlashVisible(now)) return
+
+  fgCtx.save()
+  drawFilledCircleOnContext(fgCtx, x, y, radius, fx.flash)
+  fgCtx.restore()
+}
+
+function drawEntity(
+  x: number,
+  y: number,
+  radius: number,
+  app: RenderAppearance,
+  fx: RenderVisualEffects,
+  now: number,
+): void {
+  drawRangeCircle(x, y, fx)
+  drawEntitySprite(x, y, radius, app)
+  drawSelectionOutline(x, y, radius, fx)
+  drawFlashOverlay(x, y, radius, fx, now)
+}
+
 function appearanceToRender(app: EntityAppearance): RenderAppearance {
   return {
-    glyph: String.fromCodePoint(app.glyph),
+    glyph: app.glyph === 0 ? '' : String.fromCodePoint(app.glyph),
     scale: app.scale,
     fg: packedRgbaToRenderColor(app.fg),
     bg: packedRgbaToRenderColor(app.bg),
-    glow: packedRgbaToRenderColor(app.glow),
   }
 }
 
-function upsertToRenderEntity(upsert: EntityUpsert, prevApp?: RenderAppearance): RenderEntityUpsert {
+function visualEffectsToRender(fx: EntityVisualEffects): RenderVisualEffects {
+  return {
+    selection: packedRgbaToRenderColor(fx.selection),
+    rangeRadius: fx.rangeRadius,
+    range: packedRgbaToRenderColor(fx.range),
+    flash: packedRgbaToRenderColor(fx.flash),
+  }
+}
+
+function upsertToRenderEntity(
+  upsert: EntityUpsert,
+  prevApp?: RenderAppearance,
+  prevFx?: RenderVisualEffects,
+): RenderEntityUpsert {
   return {
     pos: upsert.pos,
     app: upsert.app ? appearanceToRender(upsert.app) : (prevApp ?? DEFAULT_RENDER_APPEARANCE),
+    fx: upsert.vfx ? visualEffectsToRender(upsert.vfx) : (prevFx ?? DEFAULT_RENDER_VISUAL_EFFECTS),
   }
 }
 
@@ -379,7 +491,7 @@ function drawHud(ctx: CanvasRenderingContext2D): void {
   ctx.font = '20px monospace'
   ctx.textBaseline = 'top'
 
-  const livesLabel = `${lives}❤️`
+  const livesLabel = `${lives.toString().padStart(4, ' ')}❤️`;
   const resourcesLabel = `$${resources}`
   const pad = 4
   const barHeight = 24
@@ -399,7 +511,7 @@ function frame(now: number): void {
   }
   lastFrameTime = now
 
-  renderInterpolated()
+  renderInterpolated(now)
   updateHudOverlay()
   updateFpsOverlay(now)
   fgCtx.drawImage(hudCanvas, 0, 0)
@@ -517,18 +629,30 @@ function isEntityAppearance(value: unknown): value is EntityAppearance {
     typeof (value as Record<string, unknown>).glyph === 'number' &&
     typeof (value as Record<string, unknown>).scale === 'number' &&
     typeof (value as Record<string, unknown>).fg === 'number' &&
-    typeof (value as Record<string, unknown>).bg === 'number' &&
-    typeof (value as Record<string, unknown>).glow === 'number'
+    typeof (value as Record<string, unknown>).bg === 'number'
+  )
+}
+
+function isEntityVisualEffects(value: unknown): value is EntityVisualEffects {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).selection === 'number' &&
+    typeof (value as Record<string, unknown>).rangeRadius === 'number' &&
+    typeof (value as Record<string, unknown>).range === 'number' &&
+    typeof (value as Record<string, unknown>).flash === 'number'
   )
 }
 
 function isEntityUpsert(value: unknown): value is EntityUpsert {
   const maybeApp = (value as Record<string, unknown>).app
+  const maybeVfx = (value as Record<string, unknown>).vfx
   return (
     typeof value === 'object' &&
     value !== null &&
     isEntityPosition((value as Record<string, unknown>).pos) &&
-    (maybeApp === undefined || isEntityAppearance(maybeApp))
+    (maybeApp === undefined || isEntityAppearance(maybeApp)) &&
+    (maybeVfx === undefined || isEntityVisualEffects(maybeVfx))
   )
 }
 
@@ -552,7 +676,7 @@ function applyWorldDelta(delta: WorldDelta): void {
 
   for (const entity of delta.upserts) {
     const prevEntity = currEntitiesById.get(entity.pos.id)
-    const nextEntity = upsertToRenderEntity(entity, prevEntity?.app)
+    const nextEntity = upsertToRenderEntity(entity, prevEntity?.app, prevEntity?.fx)
     if (prevEntity) prevRenderStateById.set(entity.pos.id, prevEntity)
     currEntitiesById.set(entity.pos.id, nextEntity)
   }

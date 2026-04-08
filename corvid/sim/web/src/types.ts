@@ -31,25 +31,24 @@ export interface EntityAppearance {
   scale: number
   fg: number
   bg: number
-  glow: number
 }
 
-export interface EntityUpsert {
-  pos: EntityPosition
-  app?: EntityAppearance
-}
-
-export interface EntityRender {
-  glyph: string
-  scale: number
-  fg: string // CSS rgba(...), unpacked from a packed RGBA number
-  bg: string // CSS rgba(...), unpacked from a packed RGBA number
-  glow: string // CSS rgba(...), unpacked from a packed RGBA number
+export interface EntityVisualEffects {
+  selection: number
+  rangeRadius: number
+  range: number
+  flash: number
 }
 
 interface PathPoint {
   x: number
   y: number
+}
+
+export interface EntityUpsert {
+  pos: EntityPosition
+  app?: EntityAppearance
+  vfx?: EntityVisualEffects
 }
 
 export interface UiCanvasMsg {

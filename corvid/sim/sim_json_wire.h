@@ -61,73 +61,77 @@ struct sim_game_state_json {
   int resources_count{};
   std::string_view phase{};
 
-  auto write_delta =
-      [&writer, &game, &result, current_tick, &current_wave, &wave_tick,
-          &lives_count, &resources_count,
-          &phase](json_writer<std::string>& target) {
-        target.member(json_trusted{"type"}, json_trusted{"world_delta"})
-            .member(json_trusted{"tick"}, *current_tick);
+  auto write_delta = [&writer, &game, &result, current_tick, &current_wave,
+                         &wave_tick, &lives_count, &resources_count,
+                         &phase](json_writer<std::string>& target) {
+    target.member(json_trusted{"type"}, json_trusted{"world_delta"})
+        .member(json_trusted{"tick"}, *current_tick);
 
-        if (auto upserts = target.member_array(json_trusted{"upserts"})) {
-          (void)game.extractDelta(
-              [&writer, current_tick](SimWorld::EntityId entity_id,
-                  const Position& pos, const Appearance& app) {
-                auto entity = writer.object();
+    if (auto upserts = target.member_array(json_trusted{"upserts"})) {
+      (void)game.extractDelta(
+          [&writer, current_tick](SimWorld::EntityId entity_id,
+              const Position& pos, const Appearance& app,
+              const VisualEffects& effects) {
+            auto entity = writer.object();
 
-                if (auto position =
-                        entity->member_object(json_trusted{"pos"})) {
-                  position->member(json_trusted{"id"}, *entity_id)
-                      .member(json_trusted{"x"}, pos.x,
-                          std::chars_format::fixed, 1)
-                      .member(json_trusted{"y"}, pos.y,
-                          std::chars_format::fixed, 1);
-                }
+            if (auto position = entity->member_object(json_trusted{"pos"})) {
+              position->member(json_trusted{"id"}, *entity_id)
+                  .member(json_trusted{"x"}, pos.x, std::chars_format::fixed,
+                      1)
+                  .member(json_trusted{"y"}, pos.y, std::chars_format::fixed,
+                      1);
+            }
 
-                if (app.modified + 1 == current_tick) {
-                  const auto glow_color =
-                      app.effect_expiry < current_tick ? 0U : app.glow_color;
-                  entity->member_object(json_trusted{"app"})
-                      ->member(json_trusted{"glyph"},
-                          static_cast<uint32_t>(app.glyph))
-                      .member(json_trusted{"scale"}, app.scale,
-                          std::chars_format::fixed, 3)
-                      .member(json_trusted{"fg"}, app.fg_color)
-                      .member(json_trusted{"bg"}, app.bg_color)
-                      .member(json_trusted{"glow"}, glow_color);
-                }
+            if (app.modified == current_tick) {
+              entity->member_object(json_trusted{"app"})
+                  ->member(json_trusted{"glyph"},
+                      static_cast<uint32_t>(app.glyph))
+                  .member(json_trusted{"scale"}, app.scale,
+                      std::chars_format::fixed, 3)
+                  .member(json_trusted{"fg"}, app.fg_color)
+                  .member(json_trusted{"bg"}, app.bg_color);
+            }
 
-                return true;
-              },
-              [&result](SimWorld::EntityId entity_id) {
-                result.erased_ids.push_back(entity_id);
-                return true;
-              },
-              [&current_wave, &wave_tick, &lives_count, &resources_count,
-                  &phase](auto new_current_wave, auto new_wave_tick,
-                  auto new_lives, auto new_resources, auto new_phase) {
-                current_wave = new_current_wave;
-                wave_tick = new_wave_tick;
-                lives_count = new_lives;
-                resources_count = new_resources;
-                phase = new_phase;
-                return true;
-              });
-        }
+            if (effects.modified == current_tick) {
+              entity->member_object(json_trusted{"vfx"})
+                  ->member(json_trusted{"selection"}, effects.selection_color)
+                  .member(json_trusted{"rangeRadius"}, effects.range_radius,
+                      std::chars_format::fixed, 3)
+                  .member(json_trusted{"range"}, effects.range_color)
+                  .member(json_trusted{"flash"}, effects.flash_color);
+            }
 
-        result.erased_ids_highwater =
-            std::max(result.erased_ids.size(), result.erased_ids_highwater);
+            return true;
+          },
+          [&result](SimWorld::EntityId entity_id) {
+            result.erased_ids.push_back(entity_id);
+            return true;
+          },
+          [&current_wave, &wave_tick, &lives_count, &resources_count,
+              &phase](auto new_current_wave, auto new_wave_tick,
+              auto new_lives, auto new_resources, auto new_phase) {
+            current_wave = new_current_wave;
+            wave_tick = new_wave_tick;
+            lives_count = new_lives;
+            resources_count = new_resources;
+            phase = new_phase;
+            return true;
+          });
+    }
 
-        if (auto erased = target.member_array(json_trusted{"erased"})) {
-          for (const auto entity_id : result.erased_ids)
-            erased->value(*entity_id);
-        }
+    result.erased_ids_highwater =
+        std::max(result.erased_ids.size(), result.erased_ids_highwater);
 
-        target.member(json_trusted{"currentWave"}, current_wave)
-            .member(json_trusted{"waveTick"}, *wave_tick)
-            .member(json_trusted{"lives"}, lives_count)
-            .member(json_trusted{"resources"}, resources_count)
-            .member(json_trusted{"phase"}, json_trusted{phase});
-      };
+    if (auto erased = target.member_array(json_trusted{"erased"})) {
+      for (const auto entity_id : result.erased_ids) erased->value(*entity_id);
+    }
+
+    target.member(json_trusted{"currentWave"}, current_wave)
+        .member(json_trusted{"waveTick"}, *wave_tick)
+        .member(json_trusted{"lives"}, lives_count)
+        .member(json_trusted{"resources"}, resources_count)
+        .member(json_trusted{"phase"}, json_trusted{phase});
+  };
 
   if (send_strategy == update_strategy::full) {
     auto snapshot = writer.object();
