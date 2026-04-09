@@ -502,6 +502,10 @@ public:
     return found_id;
   }
 
+  [[nodiscard]] auto getTower(EntityId id) {
+    return scene_.storage<sidTower>()[id].components();
+  }
+
   [[nodiscard]] EntityId findTowerAt(const Position& pos) const {
     EntityId found_id = EntityId::invalid;
     scene_.for_each<Position, Appearance, Tower>([&](auto id, auto comps) {
