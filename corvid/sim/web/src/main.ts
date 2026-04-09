@@ -31,6 +31,7 @@ interface RenderVisualEffects {
   range: RenderColor
   flash: RenderColor
   flashExpiry: number
+  flashStartedAt: number
 }
 
 interface RenderEntityUpsert {
@@ -76,6 +77,7 @@ const DEFAULT_RENDER_VISUAL_EFFECTS: RenderVisualEffects = {
   range: TRANSPARENT_RENDER_COLOR,
   flash: TRANSPARENT_RENDER_COLOR,
   flashExpiry: 0,
+  flashStartedAt: 0,
 }
 
 // --- DOM setup ---
@@ -163,6 +165,18 @@ function eventToCanvasSample(event: MouseEvent): CanvasPointerSample {
   }
 }
 
+function withPointerButton(
+  sample: CanvasPointerSample,
+  button: number,
+  buttons = sample.buttons,
+): CanvasPointerSample {
+  return {
+    ...sample,
+    button,
+    buttons,
+  }
+}
+
 // --- FPS tracking ---
 
 let fps = 0
@@ -185,6 +199,7 @@ const glyphFontSizeCache = new Map<string, number>()
 // paying per-frame draw costs or maintaining an eviction policy.
 const entitySpriteCache = new Map<string, SpriteCacheEntry>()
 const FPS_OVERLAY_INTERVAL_MS = 100
+const FLASH_FLICKER_INTERVAL_MS = 62.5
 let nextClientSeq = 1
 let canvasPointerState: CanvasPointerState | null = null
 let pendingDragMove: CanvasPointerSample | null = null
@@ -414,8 +429,9 @@ function drawSelectionOutline(
   fgCtx.restore()
 }
 
-function isFlashVisible(now: number): boolean {
-  return Math.floor(now / 125) % 2 === 0
+function isFlashVisible(fx: RenderVisualEffects, now: number): boolean {
+  const elapsed = Math.max(now - fx.flashStartedAt, 0)
+  return Math.floor(elapsed / FLASH_FLICKER_INTERVAL_MS) % 2 === 0
 }
 
 function drawFlashOverlay(
@@ -433,7 +449,7 @@ function drawFlashOverlay(
     return
   }
 
-  if (radius <= 0 || isTransparent(fx.flash) || !isFlashVisible(now)) return
+  if (radius <= 0 || isTransparent(fx.flash) || !isFlashVisible(fx, now)) return
 
   fgCtx.save()
   drawFilledCircleOnContext(fgCtx, x, y, radius, fx.flash)
@@ -466,13 +482,26 @@ function appearanceToRender(app: EntityAppearance): RenderAppearance {
 function visualEffectsToRender(
   fx: EntityVisualEffects,
   now: number,
+  prevFx?: RenderVisualEffects,
 ): RenderVisualEffects {
+  const flash = packedRgbaToRenderColor(fx.flash)
+  const flashExpiry = fx.flashExpiryMs <= 0 ? 0 : now + fx.flashExpiryMs
+  const keepExistingFlashPhase =
+    prevFx !== undefined &&
+    prevFx.flashExpiry > now &&
+    prevFx.flash.css === flash.css &&
+    flashExpiry > 0 &&
+    flashExpiry <= prevFx.flashExpiry
+
   return {
     selection: packedRgbaToRenderColor(fx.selection),
     rangeRadius: fx.rangeRadius,
     range: packedRgbaToRenderColor(fx.range),
-    flash: packedRgbaToRenderColor(fx.flash),
-    flashExpiry: fx.flashExpiryMs <= 0 ? 0 : now + fx.flashExpiryMs,
+    flash,
+    flashExpiry,
+    flashStartedAt: flashExpiry > 0
+      ? (keepExistingFlashPhase ? prevFx.flashStartedAt : now)
+      : 0,
   }
 }
 
@@ -485,7 +514,9 @@ function upsertToRenderEntity(
   return {
     pos: upsert.pos,
     app: upsert.app ? appearanceToRender(upsert.app) : (prevApp ?? DEFAULT_RENDER_APPEARANCE),
-    fx: upsert.vfx ? visualEffectsToRender(upsert.vfx, now) : (prevFx ?? DEFAULT_RENDER_VISUAL_EFFECTS),
+    fx: upsert.vfx
+      ? visualEffectsToRender(upsert.vfx, now, prevFx)
+      : (prevFx ?? DEFAULT_RENDER_VISUAL_EFFECTS),
   }
 }
 
@@ -840,22 +871,28 @@ foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
 foregroundCanvas.addEventListener('mousemove', (event: MouseEvent) => {
   if (!canvasPointerState) return
   const sample = eventToCanvasSample(event)
+  canvasPointerState.buttons = sample.buttons
+
+  if (canvasPointerState.button !== 0) return
+
+  const dragSample = withPointerButton(sample, canvasPointerState.button)
 
   if (!canvasPointerState.dragging) {
     canvasPointerState.dragging = true
-    canvasPointerState.buttons = sample.buttons
-    sendCanvasMsg('dragstart', sample)
+    sendCanvasMsg('dragstart', dragSample)
     return
   }
 
-  canvasPointerState.buttons = sample.buttons
-  pendingDragMove = sample
+  pendingDragMove = dragSample
   scheduleDragMoveFlush()
 })
 
 window.addEventListener('mouseup', (event: MouseEvent) => {
   if (!canvasPointerState) return
-  const sample = eventToCanvasSample(event)
+  const sample = withPointerButton(
+    eventToCanvasSample(event),
+    canvasPointerState.button,
+  )
   const wasDragging = canvasPointerState.dragging
   canvasPointerState = null
   flushPendingDragMove()
@@ -864,7 +901,7 @@ window.addEventListener('mouseup', (event: MouseEvent) => {
 
 foregroundCanvas.addEventListener('contextmenu', (event: MouseEvent) => {
   event.preventDefault()
-  sendCanvasMsg('contextmenu', eventToCanvasSample(event))
+  sendCanvasMsg('click', withPointerButton(eventToCanvasSample(event), 2, 2))
 })
 
 foregroundCanvas.addEventListener('dblclick', (event: MouseEvent) => {

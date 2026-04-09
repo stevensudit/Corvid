@@ -230,6 +230,13 @@ public:
     {
       (void)world_.spawnTower({input.x, input.y});
     }
+
+    if (input.event == UiCanvasEvent::click &&
+        input.button == UiMouseButton::right)
+    {
+      (void)world_.flashEntity(world_.findEntityAt({input.x, input.y}),
+          0xFF7F7FAF, WorldTick{5});
+    }
   }
 
   void handle_UiAction(const UiActionInput& input) {

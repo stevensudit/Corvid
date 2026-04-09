@@ -754,6 +754,63 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   EXPECT_EQ(count, 1U);
 }
 
+void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
+  SimGame game;
+  game.loadMap();
+  game.handleUiCanvas(UiCanvasInput{.seq = 1,
+      .event = UiCanvasEvent::dblclick,
+      .button = UiMouseButton::left,
+      .buttons = 1,
+      .x = 10.F,
+      .y = 20.F,
+      .canvasX = 100.F,
+      .canvasY = 200.F});
+
+  sim_game_state_json initial_state;
+  (void)build_sim_game_state_json(initial_state, game);
+
+  game.handleUiCanvas(UiCanvasInput{.seq = 2,
+      .event = UiCanvasEvent::click,
+      .button = UiMouseButton::right,
+      .buttons = 2,
+      .x = 10.F,
+      .y = 20.F,
+      .canvasX = 100.F,
+      .canvasY = 200.F});
+
+  sim_game_state_json state;
+  (void)build_sim_game_state_json(state, game);
+
+  json_value_view root;
+  ASSERT_TRUE(parse_json(state.body, root));
+  const auto obj = root.as_object();
+  ASSERT_TRUE(obj);
+
+  const auto upserts = obj.get_array("upserts");
+  ASSERT_TRUE(upserts);
+  size_t count = 0;
+  for (const auto item : upserts) {
+    const auto entry = item.as_object();
+    ASSERT_TRUE(entry);
+    const auto pos = entry.get_object("pos");
+    ASSERT_TRUE(pos);
+    const auto x = pos.get_number<float>("x");
+    ASSERT_TRUE(x.has_value());
+    EXPECT_NEAR(*x, 10.0, 1e-6);
+
+    const auto vfx = entry.get_object("vfx");
+    ASSERT_TRUE(vfx);
+    const auto flash = vfx.get_number<uint32_t>("flash");
+    const auto flash_expiry_ms = vfx.get_number<uint32_t>("flashExpiryMs");
+    ASSERT_TRUE(flash.has_value());
+    ASSERT_TRUE(flash_expiry_ms.has_value());
+    EXPECT_EQ(*flash, 0xFFFF007FU);
+    EXPECT_EQ(*flash_expiry_ms, 20000U);
+    ++count;
+  }
+  EXPECT_EQ(count, 1U);
+}
+
 void SimJson_FlashExpiryDelayMsUsesCurrentTickRelativeTiming() {
   VisualEffects fx{
       .modified = WorldTick{12},
@@ -830,5 +887,6 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_TickMovesMover,
     SimGame_ExtractFullIncludesPathsAndState, SimJson_ParseUiCanvasMessage,
     SimJson_ParseUiActionMessageFields, SimJson_BuildHelloAckJson,
     SimJson_BuildWorldDeltaJsonShapeAndFormatting,
+    SimJson_BuildWorldDeltaIncludesFlashVisualEffects,
     SimJson_FlashExpiryDelayMsUsesCurrentTickRelativeTiming,
     SimJson_BuildWorldSnapshotJsonShape)

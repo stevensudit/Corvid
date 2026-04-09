@@ -689,8 +689,8 @@ private:
       pos.x += vel.vx;
       pos.y += vel.vy;
 
-      bounce_from_boundary(pos.x, vel.vx, widthOfWorld);
-      bounce_from_boundary(pos.y, vel.vy, heightOfWorld);
+      bounceFromBoundary(pos.x, vel.vx, widthOfWorld);
+      bounceFromBoundary(pos.y, vel.vy, heightOfWorld);
       return true;
     });
 
@@ -733,7 +733,7 @@ private:
   // TODO: Is there an off-by-one error here? If the world is 1920 wide, the
   // actual range isn't [-960, +960], it's [-960, +960). Do we need to deal
   // with this? It depends on how the client scales it, right?
-  static void bounce_from_boundary(float& pos, float& vel, float limit) {
+  static void bounceFromBoundary(float& pos, float& vel, float limit) {
     const float half = limit / 2.F;
     if (pos < -half) {
       pos = -half;
