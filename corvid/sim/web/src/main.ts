@@ -691,6 +691,25 @@ function finishSnapshotUpdate(): void {
   }
 }
 
+function resetClientWorldState(): void {
+  currEntitiesById.clear()
+  prevRenderStateById.clear()
+  glyphFontSizeCache.clear()
+  entitySpriteCache.clear()
+  prevSnapshotTime = 0
+  currSnapshotTime = 0
+  snapshotIntervalMs = 50
+  lives = 0
+  resources = 0
+  lastFpsOverlayUpdateTime = 0
+  hudDirty = true
+
+  bgCtx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height)
+  fgCtx.clearRect(0, 0, foregroundCanvas.width, foregroundCanvas.height)
+  hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height)
+  fpsCtx.clearRect(0, 0, fpsCanvas.width, fpsCanvas.height)
+}
+
 function applyWorldDelta(delta: WorldDelta): void {
   const now = performance.now()
   prevRenderStateById.clear()
@@ -790,6 +809,7 @@ ws.onmessage = (event: MessageEvent<string>) => {
       applyWorldDelta(parsed)
       break
     case 'world_snapshot':
+      resetClientWorldState()
       drawBackground(parsed.paths)
       applyWorldDelta(parsed.delta)
       break
