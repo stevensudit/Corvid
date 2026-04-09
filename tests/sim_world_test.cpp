@@ -185,9 +185,10 @@ void SimWorld_TickMovesMover() {
   SimWorld w;
   const auto mover = w.spawnMover(Position{100.F, 200.F}, Velocity{3.F, -5.F});
 
-  EXPECT_EQ(*w.tick(), 1U);
+  (void)w.next();
 
   const auto snaps = snapshot(w);
+  EXPECT_EQ(*w.tick(), 1U);
   ASSERT_EQ(snaps.size(), 1U);
   EXPECT_EQ(snaps[0].id, mover.id());
   EXPECT_NEAR(snaps[0].pos.x, 103.0, 1e-6);
@@ -198,6 +199,7 @@ void SimWorld_ExtractUpdatedEntitiesReportsMovedMoverOncePerExtraction() {
   SimWorld w;
   const auto mover = w.spawnMover(Position{0.F, 0.F}, Velocity{2.F, 3.F});
 
+  (void)w.next();
   (void)w.tick();
   const auto delta = extractWorldDelta(w);
 
@@ -221,9 +223,10 @@ void SimWorld_BounceMinEdge() {
   const auto mover = w.spawnMover(Position{-half_w + 0.5F, -half_h + 0.5F},
       Velocity{-2.F, -2.F});
 
-  (void)w.tick();
+  (void)w.next();
 
   const auto snaps = snapshot(w, std::vector<SimWorld::EntityId>{mover.id()});
+  (void)w.tick();
   ASSERT_EQ(snaps.size(), 1U);
   EXPECT_EQ(snaps[0].id, mover.id());
   EXPECT_GE(snaps[0].pos.x, -half_w);
@@ -237,9 +240,10 @@ void SimWorld_BounceMaxEdge() {
   const auto mover =
       w.spawnMover(Position{half_w - 0.5F, half_h - 0.5F}, Velocity{2.F, 2.F});
 
-  (void)w.tick();
+  (void)w.next();
 
   const auto snaps = snapshot(w, std::vector<SimWorld::EntityId>{mover.id()});
+  (void)w.tick();
   ASSERT_EQ(snaps.size(), 1U);
   EXPECT_EQ(snaps[0].id, mover.id());
   EXPECT_LE(snaps[0].pos.x, half_w);
@@ -251,18 +255,24 @@ void SimWorld_SnapshotSinceTracksChanges() {
   (void)w.spawnMover(Position{10.F, 10.F}, Velocity{1.F, 0.F});
   (void)w.spawnBackground(Position{20.F, 20.F});
 
-  const auto initial = snapshot(w);
-  EXPECT_EQ(initial.size(), 2U);
+  // Drain the spawn-time dirty list; both entities visible at tick_=0.
+  const auto initial = extractWorldDelta(w);
+  EXPECT_EQ(initial.upserts.size(), 2U);
 
   const auto unchanged = extractWorldDelta(w);
   EXPECT_TRUE(unchanged.upserts.empty());
   EXPECT_TRUE(unchanged.erased.empty());
 
+  // Advance tick first so next() physics runs at a new tick value and can
+  // re-mark the mover (last_updated=0 != tick_=1).
   (void)w.tick();
+  (void)w.next();
 
   const auto moved = extractWorldDelta(w);
   EXPECT_EQ(moved.upserts.size(), 1U);
   EXPECT_TRUE(moved.erased.empty());
+
+  (void)w.tick();
 
   const auto stable = extractWorldDelta(w);
   EXPECT_TRUE(stable.upserts.empty());
@@ -273,9 +283,10 @@ void SimWorld_BackgroundDoesNotAppearAsChangedAfterTick() {
   SimWorld w;
   (void)w.spawnBackground(Position{50.F, 60.F});
 
-  (void)w.tick();
+  (void)w.next();
 
   const auto snaps = snapshot(w);
+  (void)w.tick();
   ASSERT_EQ(snaps.size(), 1U);
   EXPECT_NEAR(snaps[0].pos.x, 50.0, 1e-6);
   EXPECT_NEAR(snaps[0].pos.y, 60.0, 1e-6);
@@ -368,11 +379,12 @@ void SimWorld_EnemyAdvancesOnTick() {
   EXPECT_TRUE(static_cast<bool>(enemy));
   EXPECT_EQ(w.size(), 1U);
 
+  (void)w.next();
   (void)w.tick();
 
   const auto delta = extractWorldDelta(w);
   EXPECT_TRUE(containsId(delta.upserts, enemy.id()));
-  ASSERT_EQ(delta.upserts.size(), 2U);
+  ASSERT_EQ(delta.upserts.size(), 1U);
   EXPECT_NEAR(delta.upserts[0].second.x, 10.0, 1e-5);
   EXPECT_NEAR(delta.upserts[0].second.y, 0.0, 1e-5);
 }
@@ -384,7 +396,7 @@ void SimWorld_ResolveEscapeesVisitsEscapedEnemy() {
   const auto pid = w.addPath(p);
   const auto enemy = w.spawnEnemy(pid, 5.F, 8.F);
 
-  (void)w.tick();
+  (void)w.next();
   EXPECT_EQ(w.size(), 1U);
 
   size_t resolved = 0;
@@ -409,6 +421,7 @@ void SimWorld_ResolveEscapeesVisitsEscapedEnemy() {
 
   const auto snaps = snapshot(w);
   EXPECT_TRUE(snaps.empty());
+  (void)w.tick();
 }
 
 void SimWorld_ResolveEscapeesCanLeaveEnemyAlive() {
@@ -418,7 +431,7 @@ void SimWorld_ResolveEscapeesCanLeaveEnemyAlive() {
   const auto pid = w.addPath(p);
   const auto enemy = w.spawnEnemy(pid, 5.F, 8.F);
 
-  (void)w.tick();
+  (void)w.next();
 
   size_t resolved = 0;
   (void)w.resolveEscapees(
@@ -435,6 +448,7 @@ void SimWorld_ResolveEscapeesCanLeaveEnemyAlive() {
   ASSERT_EQ(snaps.size(), 1U);
   EXPECT_EQ(snaps[0].id, enemy.id());
   EXPECT_NEAR(snaps[0].pos.x, 8.0, 1e-6);
+  (void)w.tick();
 }
 
 void SimWorld_GetPathOutOfRange() {
@@ -540,9 +554,10 @@ void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
   game.loadMap();
   game.start_wave();
 
-  EXPECT_EQ(*game.step(), 1U);
+  (void)game.next();
 
   const auto snap = snapshot(game);
+  EXPECT_EQ(*game.tick(), 1U);
   ASSERT_EQ(snap.entities.size(), 1U);
   EXPECT_NEAR(snap.entities[0].pos.x, 0.0, 1e-6);
   EXPECT_NEAR(snap.entities[0].pos.y, 0.0, 1e-6);
@@ -562,8 +577,10 @@ void SimGame_ExtractDeltaConsumesWorldUpdatesButNotState() {
   game.loadMap();
   game.start_wave();
 
-  (void)game.step();
-  (void)game.step();
+  (void)game.next();
+  (void)game.tick();
+  (void)game.next();
+  (void)game.tick();
 
   const auto delta = extractGameDelta(game);
   EXPECT_TRUE(!delta.upserts.empty());
@@ -686,11 +703,10 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
       .y = 20.F,
       .canvasX = 100.F,
       .canvasY = 200.F});
-  const auto tick = game.step();
+  (void)game.next();
 
   sim_game_state_json state;
-  (void)build_sim_game_state_json(state, game, tick);
-  EXPECT_TRUE(state.body_highwater >= state.body.size());
+  (void)build_sim_game_state_json(state, game);
   EXPECT_TRUE(state.body.contains(R"("x":10.0)"));
   EXPECT_TRUE(state.body.contains(R"("radius":20.000)"));
   EXPECT_FALSE(state.body.contains(R"("vfx")"));
@@ -709,7 +725,7 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   ASSERT_TRUE(tick_value.has_value());
   ASSERT_TRUE(wave_tick_value.has_value());
   ASSERT_TRUE(phase_value.has_value());
-  EXPECT_EQ(*tick_value, 1U);
+  EXPECT_EQ(*tick_value, 0U);
   EXPECT_EQ(*wave_tick_value, 0U);
   EXPECT_EQ(*phase_value, std::string_view{"build"});
 
@@ -761,8 +777,7 @@ void SimJson_BuildWorldSnapshotJsonShape() {
   game.loadMap();
 
   sim_game_state_json state;
-  (void)build_sim_game_state_json(state, game, WorldTick{},
-      update_strategy::full);
+  (void)build_sim_game_state_json(state, game, update_strategy::full);
   EXPECT_TRUE(state.body.contains(R"("type":"world_snapshot")"));
   EXPECT_TRUE(state.body.contains(R"("x":0.0)"));
 

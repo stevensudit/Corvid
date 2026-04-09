@@ -150,17 +150,17 @@ private:
     if (websocket().is_close_started()) return true;
     if (websocket().is_send_in_fragment()) return do_arm_tick();
 
-    current_tick_ = game_.step();
+    (void)game_.next();
     if (!send_game_state()) return false;
     send_strategy_ = update_strategy::incremental;
+    current_tick_ = game_.tick();
     return do_arm_tick();
   }
 
   // Stream snapshot of game state to the client as JSON. Uses deltas when
   // possible.
   [[nodiscard]] bool send_game_state() {
-    (void)build_sim_game_state_json(json_buffer_, game_, current_tick_,
-        send_strategy_);
+    (void)build_sim_game_state_json(json_buffer_, game_, send_strategy_);
 
     std::string header_buf;
     (void)ws_frame_lens::build(header_buf,

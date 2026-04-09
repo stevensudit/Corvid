@@ -362,7 +362,7 @@ public:
   // Returns a handle for later `despawn()`. The entity's last-change tick
   // is set to the current tick count.
   [[nodiscard]] Handle spawnMover(Position pos, Velocity vel) {
-    Appearance app{.modified = nextSyncTick(),
+    Appearance app{.modified = tick_,
         .glyph = U'M',
         .radius = 5.F,
         .fg_color = 0xFFFFFFFF,
@@ -375,7 +375,7 @@ public:
 
   // Spawn an immobile entity. Returns a handle for later `despawn()`.
   [[nodiscard]] Handle spawnBackground(Position pos) {
-    Appearance app{.modified = nextSyncTick(),
+    Appearance app{.modified = tick_,
         .glyph = U'B',
         .radius = 5.F,
         .fg_color = 0xFFFFFFFF,
@@ -392,7 +392,7 @@ public:
         .attack_damage = 10.F,
         .cooldown = {},
         .next_attack = tick_};
-    Appearance app{.modified = nextSyncTick(),
+    Appearance app{.modified = tick_,
         .glyph = U'T',
         .radius = 20.F,
         .fg_color = 0xFFFFFFFF,
@@ -444,7 +444,7 @@ public:
   [[nodiscard]] Appearance* changeAppearance(EntityId id) {
     auto* app = scene_.try_get_component<Appearance>(id);
     if (!app) return nullptr;
-    app->modified = nextSyncTick();
+    app->modified = tick_;
     (void)markDirty(id);
     return app;
   }
@@ -455,7 +455,7 @@ public:
   [[nodiscard]] VisualEffects* changeVisualEffects(EntityId id) {
     auto* effects = scene_.try_get_component<VisualEffects>(id);
     if (!effects) return nullptr;
-    effects->modified = nextSyncTick();
+    effects->modified = tick_;
     (void)markDirty(id);
     return effects;
   }
@@ -523,16 +523,22 @@ public:
     return found_id;
   }
 
-  // Advance one simulation frame. Sets each changed entity's registry metadata
-  // to the new tick count and tracks changed entities for callbacks.
-  [[nodiscard]] WorldTick tick() {
-    ++tick_;
-
+  // Run all physics for the current tick without advancing the counter. Call
+  // `tick()` once all game logic for this frame is complete, including
+  // streaming the state to clients.
+  [[nodiscard]] bool next() {
     (void)updateMovers();
     (void)updatePathFollowers();
-
-    return tick_;
+    return true;
   }
+
+  // Advance the tick counter and return the new value. Call this at the end
+  // of each frame, after `next()`, all game-level logic, and streaming have
+  // run.
+  [[nodiscard]] WorldTick tick() { return ++tick_; }
+
+  // Return the current tick counter without advancing it.
+  [[nodiscard]] WorldTick currentTick() const { return tick_; }
 
   // Total number of entities in all storages (does not count staged entities).
   [[nodiscard]] std::size_t size() const { return scene_.size(); }
@@ -605,10 +611,11 @@ public:
     return true;
   }
 
-  // Mark all entities dirty. When `update_strategy::incremental`, does not
-  // mark appearances, just entities. When `update_strategy::full`, also marks
-  // appearance and visual-effect components dirty by updating their
-  // `modified` field.
+  // Mark all entities dirty. When `update_strategy::incremental`, marks
+  // entities for extraction only. When `update_strategy::full`, also stamps
+  // `Appearance` and `VisualEffects` `modified` fields with `tick_` so the
+  // next extraction includes them. Must be called before `tick()` so
+  // `markDirty`'s deduplication check (`last_updated == tick_`) is valid.
   [[nodiscard]] bool markAllDirty(
       update_strategy strategy = update_strategy::incremental) {
     scene_.registry().for_each([&](auto id, auto&) {
@@ -634,14 +641,6 @@ private:
 
   std::vector<EntityId> updatedEntities_;
   std::vector<EntityId> pathEscapees_;
-
-  // Return the tick count for the next snapshot, which is after the next call
-  // to `tick()`. This is the tick that should be used for any changes that
-  // need to be included in the next snapshot, such as newly spawned entities
-  // or appearance updates.
-  [[nodiscard]] WorldTick nextSyncTick() const {
-    return WorldTick{*tick_ + 1U};
-  }
 
   // Marks an entity as dirty so that it will be included in the next delta
   // snapshot.

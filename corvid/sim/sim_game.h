@@ -163,9 +163,10 @@ public:
     resources_ = 100;
   }
 
-  // Advance the simulation one tick. Returns the new tick count.
-  WorldTick step() {
-    const auto tick = world_.tick();
+  // Run all physics and game logic for the current tick, without advancing the
+  // counter. Call `tick()` after streaming the state to clients.
+  [[nodiscard]] bool next() {
+    (void)world_.next();
     if (phase_ == GamePhase::wave) {
       ++waveTick_;
       spawnPendingWaveEnemies();
@@ -183,9 +184,15 @@ public:
 
       if (lives_ <= 0) phase_ = GamePhase::game_over;
     }
-
-    return tick;
+    return true;
   }
+
+  // Advance the tick counter and return the new value. Call this at the end
+  // of each frame, after `next()` and streaming.
+  [[nodiscard]] WorldTick tick() { return world_.tick(); }
+
+  // Return the current tick counter without advancing it.
+  [[nodiscard]] WorldTick currentTick() const { return world_.currentTick(); }
 
   // Player action: start the next wave.
   void start_wave() {
@@ -267,8 +274,8 @@ public:
   }
 
   // See underlying method.
-  [[nodiscard]]
-  bool markAllDirty(update_strategy strategy = update_strategy::incremental) {
+  [[nodiscard]] bool markAllDirty(
+      update_strategy strategy = update_strategy::incremental) {
     (void)world_.markAllDirty(strategy);
     return true;
   }

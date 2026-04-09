@@ -42,9 +42,29 @@ flash_expiry_delay_ms(const VisualEffects& effects, WorldTick current_tick) {
       static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())));
 }
 
+// Reusable state, to avoid repeated allocations.
 struct sim_game_state_json {
   std::string body;
   std::vector<SimWorld::EntityId> erased_ids;
+
+  // Clear the body and erased IDs, updating highwater marks for future
+  // reserve.
+  [[nodiscard]] bool clear() {
+    body_highwater = std::max(body.size(), body_highwater);
+    erased_ids_highwater = std::max(erased_ids.size(), erased_ids_highwater);
+    body.clear();
+    erased_ids.clear();
+    return true;
+  }
+
+  [[nodiscard]] bool reset() {
+    (void)clear();
+    body.reserve(body_highwater);
+    erased_ids.reserve(erased_ids_highwater);
+    return true;
+  }
+
+private:
   size_t body_highwater{16ULL * 1024};
   size_t erased_ids_highwater{64};
 };
@@ -59,18 +79,14 @@ struct sim_game_state_json {
   return body;
 }
 
-[[nodiscard]] inline bool build_sim_game_state_json(
-    sim_game_state_json& result, SimGame& game, WorldTick current_tick,
+[[nodiscard]] inline bool
+build_sim_game_state_json(sim_game_state_json& result, SimGame& game,
     update_strategy send_strategy = update_strategy::incremental) {
-  result.body.clear();
-  result.body.reserve(result.body_highwater);
-
+  (void)result.reset();
+  const auto current_tick = game.currentTick();
   json_writer writer{result.body};
   if (send_strategy == update_strategy::full)
     (void)game.markAllDirty(update_strategy::full);
-
-  result.erased_ids.clear();
-  result.erased_ids.reserve(result.erased_ids_highwater);
 
   size_t current_wave{};
   WaveTick wave_tick{};
@@ -138,9 +154,6 @@ struct sim_game_state_json {
           });
     }
 
-    result.erased_ids_highwater =
-        std::max(result.erased_ids.size(), result.erased_ids_highwater);
-
     if (auto erased = target.member_array(json_trusted{"erased"})) {
       for (const auto entity_id : result.erased_ids) erased->value(*entity_id);
     }
@@ -167,7 +180,6 @@ struct sim_game_state_json {
   } else
     write_delta(*writer.object());
 
-  result.body_highwater = std::max(result.body.size(), result.body_highwater);
   return true;
 }
 
