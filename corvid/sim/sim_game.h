@@ -75,6 +75,8 @@ enum class UiMouseButton : uint8_t {
   other,
 };
 
+enum class TargetMode : uint8_t { first, last, closest, strongest, weakest };
+
 }} // namespace corvid::sim
 
 template<>
@@ -99,6 +101,11 @@ constexpr auto
     corvid::enums::registry::enum_spec_v<corvid::sim::UiMouseButton> =
         corvid::enums::sequence::make_sequence_enum_spec<
             corvid::sim::UiMouseButton, "left, middle, right, other">();
+
+template<>
+constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::TargetMode> =
+    corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::TargetMode,
+        "first, last, closest, strongest, weakest">();
 
 namespace corvid { inline namespace sim {
 
@@ -217,10 +224,12 @@ public:
 
       selected_tower_ =
           world_.getHandle(world_.findTowerAt({input.x, input.y}));
-      if (auto* fx = world_.changeVisualEffects(selected_tower_.id())) {
-        // TODO: These should actually come from the tower's stats.
-        fx->range_radius = 100.F;
-        fx->range_color = 0xFFFF007F;
+      if (selected_tower_.id() != SimWorld::EntityId::invalid) {
+        auto [pos, app, fx, tower] = world_.getTower(selected_tower_.id());
+        fx.range_radius = tower.attack_radius;
+        fx.range_color = 0xFFFF007F;
+        fx.modified = world_.currentTick();
+        (void)world_.markDirty(selected_tower_.id());
       }
     }
 

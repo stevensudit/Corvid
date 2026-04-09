@@ -266,6 +266,7 @@ struct VisualEffects {
 struct Tower {
   int tower_type{};
   float attack_radius{};
+  uint32_t range_color{};  // RGBA.
   float attack_damage{};   // Per-attack damage.
   WorldTick cooldown{};    // Cooldown for this sort of tower, in ticks.
   WorldTick next_attack{}; // Tick when the next attack can occur.
@@ -389,6 +390,7 @@ public:
   [[nodiscard]] Handle spawnTower(Position pos) {
     Tower tower{.tower_type = 1,
         .attack_radius = 100.F,
+        .range_color = 0xFFFF007F,
         .attack_damage = 10.F,
         .cooldown = {},
         .next_attack = tick_};
@@ -529,6 +531,7 @@ public:
   [[nodiscard]] bool next() {
     (void)updateMovers();
     (void)updatePathFollowers();
+    (void)towersAttack();
     return true;
   }
 
@@ -611,6 +614,20 @@ public:
     return true;
   }
 
+  // Marks an entity as dirty so that it will be included in the next delta
+  // snapshot.
+  [[nodiscard]] bool markDirty(EntityId id) {
+    // If it's been deleted, it's already dirty.
+    if (!scene_.registry().is_valid(id)) return false;
+    auto& last_updated = scene_.registry()[id];
+    if (last_updated != tick_) {
+      last_updated = tick_;
+      updatedEntities_.push_back(id);
+      return true;
+    }
+    return false;
+  }
+
   // Mark all entities dirty. When `update_strategy::incremental`, marks
   // entities for extraction only. When `update_strategy::full`, also stamps
   // `Appearance` and `VisualEffects` `modified` fields with `tick_` so the
@@ -634,6 +651,19 @@ public:
     return true;
   }
 
+  static constexpr float
+  distanceSquared(const Position& a, const Position& b) {
+    const float dx = a.x - b.x;
+    const float dy = a.y - b.y;
+    return (dx * dx) + (dy * dy);
+  }
+
+  static constexpr bool circlesOverlap(const Position& posA, float radiusA,
+      const Position& posB, float radiusB) {
+    const float r = radiusA + radiusB;
+    return distanceSquared(posA, posB) <= r * r;
+  }
+
 private:
   WorldScene scene_;
   WorldTick tick_{};
@@ -641,20 +671,6 @@ private:
 
   std::vector<EntityId> updatedEntities_;
   std::vector<EntityId> pathEscapees_;
-
-  // Marks an entity as dirty so that it will be included in the next delta
-  // snapshot.
-  [[nodiscard]] bool markDirty(EntityId id) {
-    // If it's been deleted, it's already dirty.
-    if (!scene_.registry().is_valid(id)) return false;
-    auto& last_updated = scene_.registry()[id];
-    if (last_updated != tick_) {
-      last_updated = tick_;
-      updatedEntities_.push_back(id);
-      return true;
-    }
-    return false;
-  }
 
   // Logically erases an entity, adding it to the dirty list.
   [[nodiscard]] bool tombstoneEntity(EntityId id) {
@@ -720,6 +736,14 @@ private:
       pos = sp.calculatePositionFromProgress(pf.progress, previousProgress);
       return true;
     });
+
+    return true;
+  }
+
+  [[nodiscard]] bool towersAttack() {
+    // Range over all towers. For each tower, range over all enemies and check
+    // for hits. If an enemy is in range and the tower is off cooldown, apply
+    // damage and trigger a flash on both.
 
     return true;
   }

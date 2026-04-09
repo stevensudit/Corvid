@@ -489,9 +489,7 @@ function visualEffectsToRender(
   const keepExistingFlashPhase =
     prevFx !== undefined &&
     prevFx.flashExpiry > now &&
-    prevFx.flash.css === flash.css &&
-    flashExpiry > 0 &&
-    flashExpiry <= prevFx.flashExpiry
+    flashExpiry > 0
 
   return {
     selection: packedRgbaToRenderColor(fx.selection),
