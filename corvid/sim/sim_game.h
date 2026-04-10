@@ -309,16 +309,17 @@ private:
     const auto& wave = waves_[currentWave_];
     const auto& enemies = wave.enemies;
     for (; nextSpawnIndex_ < enemies.size(); ++nextSpawnIndex_) {
-      const auto& enemy_def = enemies[nextSpawnIndex_];
-      if (enemy_def.startTicks > waveTick_) break;
-      auto h = world_.spawnEntity(enemy_def.label);
+      const auto& enemyDef = enemies[nextSpawnIndex_];
+      if (enemyDef.startTicks > waveTick_) break;
+      auto h = world_.spawnEntity(enemyDef.label);
       if (!h) continue;
 
       // Set placement-specific fields not encoded in the template.
       auto [pos, pat] = world_.try_get_components<Position, Pathing>(h.id());
       if (pos) {
-        pat->pathId = enemy_def.pathId;
+        pat->pathId = enemyDef.pathId;
         const auto* path = world_.getPath(pat->pathId);
+        assert(path);
         *pos = path->calculatePositionFromProgress(0.F, 0.F);
       }
     }
