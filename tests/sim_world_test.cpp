@@ -205,7 +205,7 @@ void SimWorld_NextMovesInvaderAlpha() {
   EXPECT_EQ(*w.tick(), 1U);
   ASSERT_EQ(snaps.size(), 1U);
   EXPECT_EQ(snaps[0].id, invader.id());
-  EXPECT_NEAR(snaps[0].pos.x, 100.0, 1e-6);
+  EXPECT_NEAR(snaps[0].pos.x, 50.0, 1e-6);
   EXPECT_NEAR(snaps[0].pos.y, 0.0, 1e-6);
 }
 
@@ -225,7 +225,7 @@ void SimWorld_ExtractUpdatedEntitiesReportsMovedInvaderOncePerExtraction() {
 
   const auto* pos = findPosition(delta.upserts, invader.id());
   ASSERT_TRUE(pos != nullptr);
-  EXPECT_NEAR(pos->x, 100.0, 1e-6);
+  EXPECT_NEAR(pos->x, 50.0, 1e-6);
   EXPECT_NEAR(pos->y, 0.0, 1e-6);
 
   const auto empty_delta = extractWorldDelta(w);
@@ -261,7 +261,7 @@ void SimWorld_TowerInRangeFlashesItselfAndInvader() {
   ASSERT_TRUE(invader_it != delta.upserts.end());
   EXPECT_EQ(invader_it->fx.flashColor, 0xFF7F7FFFU);
   EXPECT_EQ(invader_it->fx.flashExpiry, WorldTick{6});
-  EXPECT_NEAR(invader_it->pos.x, 100.0, 1e-6);
+  EXPECT_NEAR(invader_it->pos.x, 50.0, 1e-6);
 }
 
 void SimWorld_SnapshotSinceTracksChanges() {
@@ -407,7 +407,7 @@ void SimWorld_EnemyAdvancesOnTick() {
   const auto delta = extractWorldDelta(w);
   EXPECT_TRUE(containsId(delta.upserts, enemy.id()));
   ASSERT_EQ(delta.upserts.size(), 1U);
-  EXPECT_NEAR(delta.upserts[0].pos.x, 0.0, 1e-5);
+  EXPECT_NEAR(delta.upserts[0].pos.x, 50.0, 1e-5);
   EXPECT_NEAR(delta.upserts[0].pos.y, 0.0, 1e-5);
 }
 
@@ -428,8 +428,8 @@ void SimWorld_ResolveEscapeesVisitsEscapedEnemy() {
         EXPECT_EQ(id, enemy.id());
         EXPECT_NEAR(pos.x, 8.0, 1e-6);
         EXPECT_NEAR(pos.y, 0.0, 1e-6);
-        EXPECT_NEAR(pf.progress, 108.0, 1e-6);
-        EXPECT_NEAR(pf.speed, 100.0, 1e-6);
+        EXPECT_NEAR(pf.progress, 58.0, 1e-6);
+        EXPECT_NEAR(pf.speed, 50.0, 1e-6);
         return true;
       });
 
