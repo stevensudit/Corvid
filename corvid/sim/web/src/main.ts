@@ -102,6 +102,10 @@ function requireEl<T extends HTMLElement>(
 const statusEl = requireEl('status', HTMLElement)
 const tickEl = requireEl('tick', HTMLElement)
 const logEl = requireEl('log', HTMLElement)
+const viewportShell = requireEl('viewport-shell', HTMLElement)
+const viewportHost = requireEl('viewport-host', HTMLElement)
+const viewportFrame = requireEl('viewport-frame', HTMLElement)
+const fullscreenToggle = requireEl('fullscreen-toggle', HTMLButtonElement)
 const backgroundCanvas = requireEl('background-canvas', HTMLCanvasElement)
 const foregroundCanvas = requireEl('foreground-canvas', HTMLCanvasElement)
 const overlayCanvas = requireEl('overlay-canvas', HTMLCanvasElement)
@@ -138,6 +142,89 @@ const fpsCtx: CanvasRenderingContext2D = maybeFpsCtx
 // letterboxing needed.
 const WORLD_W = 1920
 const WORLD_H = 1080
+const DEFAULT_CANVAS_W = 960
+const DEFAULT_CANVAS_H = 540
+const DEFAULT_OVERLAY_W = 280
+const OVERLAY_WIDTH_RATIO = DEFAULT_OVERLAY_W / DEFAULT_CANVAS_W
+
+function setCanvasSize(
+  canvas: HTMLCanvasElement,
+  cssWidth: number,
+  cssHeight: number,
+  pixelWidth: number,
+  pixelHeight: number,
+): void {
+  canvas.style.width = `${cssWidth}px`
+  canvas.style.height = `${cssHeight}px`
+  if (canvas.width !== pixelWidth) canvas.width = pixelWidth
+  if (canvas.height !== pixelHeight) canvas.height = pixelHeight
+}
+
+function fitCanvasRect(availableWidth: number, availableHeight: number): [number, number] {
+  const aspect = WORLD_W / WORLD_H
+  let width = Math.max(1, Math.floor(availableWidth))
+  let height = Math.max(1, Math.floor(width / aspect))
+
+  if (height > availableHeight) {
+    height = Math.max(1, Math.floor(availableHeight))
+    width = Math.max(1, Math.floor(height * aspect))
+  }
+
+  return [width, height]
+}
+
+function updateFullscreenButtonLabel(): void {
+  fullscreenToggle.textContent = document.fullscreenElement === viewportShell
+    ? 'Exit Fullscreen'
+    : 'Expand View'
+}
+
+let currentPathPoints: Array<{ x: number; y: number }> = []
+
+function resizeViewport(): void {
+  const isFullscreen = document.fullscreenElement === viewportShell
+  const availableWidth = isFullscreen
+    ? viewportHost.clientWidth
+    : Math.min(viewportHost.clientWidth, DEFAULT_CANVAS_W)
+  const availableHeight = isFullscreen
+    ? viewportHost.clientHeight
+    : DEFAULT_CANVAS_H
+  const [cssWidth, cssHeight] = fitCanvasRect(availableWidth, availableHeight)
+  const deviceScale = window.devicePixelRatio || 1
+  const pixelWidth = Math.max(1, Math.round(cssWidth * deviceScale))
+  const pixelHeight = Math.max(1, Math.round(cssHeight * deviceScale))
+  const overlayCssWidth = Math.max(
+    1,
+    Math.min(
+      cssWidth,
+      Math.max(
+        Math.min(220, cssWidth),
+        Math.min(Math.round(cssWidth * 0.4), Math.round(cssWidth * OVERLAY_WIDTH_RATIO)),
+      ),
+    ),
+  )
+  const overlayPixelWidth = Math.max(1, Math.round(overlayCssWidth * deviceScale))
+  const canvasSizeChanged =
+    backgroundCanvas.width !== pixelWidth ||
+    backgroundCanvas.height !== pixelHeight
+
+  viewportFrame.style.width = `${cssWidth}px`
+  viewportFrame.style.height = `${cssHeight}px`
+
+  setCanvasSize(backgroundCanvas, cssWidth, cssHeight, pixelWidth, pixelHeight)
+  setCanvasSize(foregroundCanvas, cssWidth, cssHeight, pixelWidth, pixelHeight)
+  setCanvasSize(overlayCanvas, overlayCssWidth, cssHeight, overlayPixelWidth, pixelHeight)
+  setCanvasSize(hudCanvas, cssWidth, cssHeight, pixelWidth, pixelHeight)
+  setCanvasSize(fpsCanvas, cssWidth, cssHeight, pixelWidth, pixelHeight)
+
+  if (canvasSizeChanged) {
+    glyphFontSizeCache.clear()
+    entitySpriteCache.clear()
+  }
+  if (currentPathPoints.length > 1) drawBackground(currentPathPoints)
+  invalidateHud()
+  invalidateSidePanel()
+}
 
 function worldToCanvas(wx: number, wy: number): [number, number] {
   return [
@@ -229,6 +316,7 @@ function lerp(a: number, b: number, t: number): number {
 }
 
 function drawBackground(pathPoints: Array<{ x: number; y: number }>): void {
+  currentPathPoints = pathPoints
   bgCtx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height)
   if (pathPoints.length <= 1) return
 
@@ -356,6 +444,10 @@ function getGlyphFontSize(glyph: string, radius: number): number {
   return fontSize
 }
 
+function getEntityBorderWidth(radius: number): number {
+  return Math.max(1, radius * 0.18)
+}
+
 function drawGlyphOnContext(
   ctx: CanvasRenderingContext2D,
   glyph: string,
@@ -410,6 +502,16 @@ function getEntitySprite(app: RenderAppearance, radius: number): SpriteCacheEntr
   if (!spriteCtx) return null
 
   if (app.bg.alpha !== 0) drawFilledCircleOnContext(spriteCtx, offset, offset, roundedRadius, app.bg)
+  if (app.fg.alpha !== 0) {
+    drawStrokedCircleOnContext(
+      spriteCtx,
+      offset,
+      offset,
+      Math.max(roundedRadius - getEntityBorderWidth(roundedRadius) * 0.5, 0),
+      app.fg,
+      getEntityBorderWidth(roundedRadius),
+    )
+  }
   if (app.fg.alpha !== 0) drawGlyphOnContext(spriteCtx, app.glyph, offset, offset, roundedRadius, app.fg)
 
   const sprite = { canvas, offset }
@@ -581,8 +683,12 @@ function drawHud(ctx: CanvasRenderingContext2D): void {
 }
 
 function panelSideFromCanvasX(canvasX: number): PanelSide | null {
-  if (canvasX <= SIDE_PANEL_TRIGGER_PX) return 'left'
-  if (canvasX >= foregroundCanvas.width - SIDE_PANEL_TRIGGER_PX) return 'right'
+  const cssWidth = foregroundCanvas.clientWidth
+  const triggerPx = cssWidth > 0
+    ? SIDE_PANEL_TRIGGER_PX * (foregroundCanvas.width / cssWidth)
+    : SIDE_PANEL_TRIGGER_PX
+  if (canvasX <= triggerPx) return 'left'
+  if (canvasX >= foregroundCanvas.width - triggerPx) return 'right'
   return null
 }
 
@@ -702,36 +808,48 @@ function drawSidePanel(ctx: CanvasRenderingContext2D, panel: SidePanelModel): vo
   const y = 0
   const width = overlayCanvas.width
   const height = overlayCanvas.height
-  const textX = x + SIDE_PANEL_TEXT_MARGIN
-  const textWidth = width - SIDE_PANEL_TEXT_MARGIN * 2
+  const panelScale = Math.min(
+    foregroundCanvas.width / DEFAULT_CANVAS_W,
+    foregroundCanvas.height / DEFAULT_CANVAS_H,
+  )
+  const cornerRadius = SIDE_PANEL_RADIUS * panelScale
+  const textMargin = SIDE_PANEL_TEXT_MARGIN * panelScale
+  const titleFontSize = 24 * panelScale
+  const bodyFontSize = 16 * panelScale
+  const lineHeight = SIDE_PANEL_LINE_HEIGHT * panelScale
+  const titleTop = 20 * panelScale
+  const dividerY = 56 * panelScale
+  const bodyTop = 74 * panelScale
+  const textX = x + textMargin
+  const textWidth = width - textMargin * 2
 
   ctx.save()
-  drawRoundedPanelPath(ctx, x, y, width, height, SIDE_PANEL_RADIUS)
+  drawRoundedPanelPath(ctx, x, y, width, height, cornerRadius)
   const gradient = ctx.createLinearGradient(x, y, x + width, y + height)
   gradient.addColorStop(0, 'rgba(12, 18, 26, 0.92)')
   gradient.addColorStop(1, 'rgba(18, 27, 39, 0.84)')
   ctx.fillStyle = gradient
   ctx.fill()
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)'
-  ctx.lineWidth = 1.5
+  ctx.lineWidth = Math.max(1, 1.5 * panelScale)
   ctx.stroke()
 
   ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
-  ctx.font = 'bold 24px monospace'
+  ctx.font = `bold ${titleFontSize}px monospace`
   ctx.textBaseline = 'top'
-  ctx.fillText(panel.title, textX, y + 20, textWidth)
+  ctx.fillText(panel.title, textX, y + titleTop, textWidth)
 
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'
   ctx.beginPath()
-  ctx.moveTo(textX, y + 56)
-  ctx.lineTo(textX + textWidth, y + 56)
+  ctx.moveTo(textX, y + dividerY)
+  ctx.lineTo(textX + textWidth, y + dividerY)
   ctx.stroke()
 
-  ctx.font = '16px monospace'
-  let lineY = y + 74
+  ctx.font = `${bodyFontSize}px monospace`
+  let lineY = y + bodyTop
   for (const line of panel.lines) {
     if (line.length === 0) {
-      lineY += SIDE_PANEL_LINE_HEIGHT * 0.65
+      lineY += lineHeight * 0.65
       continue
     }
     ctx.fillStyle = line.startsWith('Left click') || line.startsWith('Double click') ||
@@ -741,7 +859,7 @@ function drawSidePanel(ctx: CanvasRenderingContext2D, panel: SidePanelModel): vo
     const wrappedLines = wrapPanelText(ctx, line, textWidth)
     for (const wrappedLine of wrappedLines) {
       ctx.fillText(wrappedLine, textX, lineY, textWidth)
-      lineY += SIDE_PANEL_LINE_HEIGHT
+      lineY += lineHeight
     }
   }
   ctx.restore()
@@ -759,9 +877,11 @@ function updateSidePanelOverlay(): void {
   }
 
   overlayCanvas.style.display = 'block'
+  const foregroundCssWidth = foregroundCanvas.clientWidth
+  const overlayCssWidth = overlayCanvas.clientWidth
   overlayCanvas.style.left = panel.side === 'left'
     ? '0'
-    : `${foregroundCanvas.width - overlayCanvas.width}px`
+    : `${Math.max(foregroundCssWidth - overlayCssWidth, 0)}px`
   overlayCanvas.style.right = ''
   drawSidePanel(overlayCtx, panel)
   sidePanelDirty = false
@@ -937,6 +1057,7 @@ function finishSnapshotUpdate(): void {
 }
 
 function resetClientWorldState(): void {
+  currentPathPoints = []
   currEntitiesById.clear()
   prevRenderStateById.clear()
   glyphFontSizeCache.clear()
@@ -1076,6 +1197,34 @@ ws.onerror = () => {
   log('WebSocket error')
 }
 
+fullscreenToggle.addEventListener('click', async () => {
+  try {
+    if (document.fullscreenElement === viewportShell) {
+      await document.exitFullscreen()
+      return
+    }
+    await viewportShell.requestFullscreen()
+  } catch {
+    log('Could not change fullscreen state')
+  }
+})
+
+document.addEventListener('fullscreenchange', () => {
+  updateFullscreenButtonLabel()
+  resizeViewport()
+})
+
+window.addEventListener('resize', () => {
+  resizeViewport()
+})
+
+if (typeof ResizeObserver !== 'undefined') {
+  const resizeObserver = new ResizeObserver(() => {
+    resizeViewport()
+  })
+  resizeObserver.observe(viewportHost)
+}
+
 foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   const sample = eventToCanvasSample(event)
   updateEdgeHover(sample)
@@ -1179,4 +1328,6 @@ document.addEventListener('submit', (event: SubmitEvent) => {
   sendUiAction(action, formDataToFields(new FormData(target)))
 })
 
+updateFullscreenButtonLabel()
+resizeViewport()
 requestAnimationFrame(frame)
