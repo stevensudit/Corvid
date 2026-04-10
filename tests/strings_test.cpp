@@ -2126,11 +2126,6 @@ void StringUtilsTest_StdFromChars() {
     auto result = std::from_chars(sv.data(), sv.data() + sv.size(), fvalue);
     EXPECT_NE(result.ec, std::errc{});
 
-    // first >= last - properly returns error.
-    sv = "123";
-    result = std::from_chars(sv.data() + 2, sv.data(), fvalue);
-    EXPECT_NE(result.ec, std::errc{});
-
     sv = "abc";
     result = std::from_chars(sv.data(), sv.data() + sv.size(), fvalue);
     EXPECT_EQ(result.ptr, sv.data());

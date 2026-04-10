@@ -589,7 +589,7 @@ public:
   }
 
   // Call a function for each living record, as `func(id, rec)`, where `id` is
-  // the entity ID and `rec` is the `record_t&`. The callback may return
+  // the entity ID and `rec` is the `const record_t&`. The callback may return
   // `false` to stop iteration early. Returns count visited.
   size_type for_each(auto&& func) const {
     size_type cnt{};
