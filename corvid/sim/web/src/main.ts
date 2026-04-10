@@ -59,6 +59,14 @@ interface CanvasPointerSample {
   meta: boolean
 }
 
+type PanelSide = 'left' | 'right'
+
+interface SidePanelModel {
+  side: PanelSide
+  title: string
+  lines: string[]
+}
+
 const DEFAULT_RENDER_APPEARANCE: RenderAppearance = {
   glyph: '?',
   radius: 5,
@@ -96,6 +104,7 @@ const tickEl = requireEl('tick', HTMLElement)
 const logEl = requireEl('log', HTMLElement)
 const backgroundCanvas = requireEl('background-canvas', HTMLCanvasElement)
 const foregroundCanvas = requireEl('foreground-canvas', HTMLCanvasElement)
+const overlayCanvas = requireEl('overlay-canvas', HTMLCanvasElement)
 const livesEl = document.getElementById('lives')
 const resourcesEl = document.getElementById('resources')
 const phaseEl = document.getElementById('phase')
@@ -107,6 +116,9 @@ const bgCtx: CanvasRenderingContext2D = maybeBgCtx
 const maybeFgCtx = foregroundCanvas.getContext('2d')
 if (!maybeFgCtx) throw new Error('Could not get 2D foreground canvas context')
 const fgCtx: CanvasRenderingContext2D = maybeFgCtx
+const maybeOverlayCtx = overlayCanvas.getContext('2d')
+if (!maybeOverlayCtx) throw new Error('Could not get 2D overlay canvas context')
+const overlayCtx: CanvasRenderingContext2D = maybeOverlayCtx
 const hudCanvas = document.createElement('canvas')
 hudCanvas.width = foregroundCanvas.width
 hudCanvas.height = foregroundCanvas.height
@@ -119,7 +131,6 @@ fpsCanvas.height = foregroundCanvas.height
 const maybeFpsCtx = fpsCanvas.getContext('2d')
 if (!maybeFpsCtx) throw new Error('Could not get 2D FPS canvas context')
 const fpsCtx: CanvasRenderingContext2D = maybeFpsCtx
-
 // --- World / canvas coordinate mapping ---
 //
 // The server simulation runs in a 1920x1080 world space. The canvas is sized
@@ -204,6 +215,13 @@ let nextClientSeq = 1
 let canvasPointerState: CanvasPointerState | null = null
 let pendingDragMove: CanvasPointerSample | null = null
 let dragMoveFrameRequested = false
+let sidePanelDirty = true
+let edgeHoverSide: PanelSide | null = null
+
+const SIDE_PANEL_TRIGGER_PX = 48
+const SIDE_PANEL_RADIUS = 18
+const SIDE_PANEL_LINE_HEIGHT = 22
+const SIDE_PANEL_TEXT_MARGIN = 28
 
 // Linear interpolation calculator
 function lerp(a: number, b: number, t: number): number {
@@ -259,6 +277,16 @@ function updateFpsOverlay(now: number): void {
   fpsCtx.clearRect(0, 0, fpsCanvas.width, fpsCanvas.height)
   drawFps(fpsCtx)
   lastFpsOverlayUpdateTime = now
+}
+
+function invalidateSidePanel(): void {
+  sidePanelDirty = true
+}
+
+function setEdgeHoverSide(nextSide: PanelSide | null): void {
+  if (edgeHoverSide === nextSide) return
+  edgeHoverSide = nextSide
+  invalidateSidePanel()
 }
 
 function packedRgbaToRenderColor(color: number): RenderColor {
@@ -552,6 +580,193 @@ function drawHud(ctx: CanvasRenderingContext2D): void {
   ctx.restore()
 }
 
+function panelSideFromCanvasX(canvasX: number): PanelSide | null {
+  if (canvasX <= SIDE_PANEL_TRIGGER_PX) return 'left'
+  if (canvasX >= foregroundCanvas.width - SIDE_PANEL_TRIGGER_PX) return 'right'
+  return null
+}
+
+function updateEdgeHover(sample: CanvasPointerSample): void {
+  setEdgeHoverSide(panelSideFromCanvasX(sample.canvasX))
+}
+
+function findSelectedTower(): RenderEntityUpsert | null {
+  for (const entity of currEntitiesById.values()) {
+    if (!isTransparent(entity.fx.selection) || entity.fx.rangeRadius > 0) {
+      return entity
+    }
+  }
+  return null
+}
+
+function formatPanelNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+function wrapPanelText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string[] {
+  if (text.length === 0) return ['']
+
+  const words = text.split(/\s+/)
+  const lines: string[] = []
+  let currentLine = ''
+
+  for (const word of words) {
+    const candidate = currentLine.length === 0 ? word : `${currentLine} ${word}`
+    if (ctx.measureText(candidate).width <= maxWidth || currentLine.length === 0) {
+      currentLine = candidate
+      continue
+    }
+
+    lines.push(currentLine)
+    currentLine = word
+  }
+
+  if (currentLine.length > 0) lines.push(currentLine)
+  return lines
+}
+
+function getSelectedTowerPanelModel(): SidePanelModel | null {
+  const selectedTower = findSelectedTower()
+  if (!selectedTower) return null
+
+  const defaultSide: PanelSide = selectedTower.pos.x <= 0 ? 'right' : 'left'
+  const side: PanelSide = edgeHoverSide ?? defaultSide
+  return {
+    side,
+    title: 'Tower Selected',
+    lines: [
+      `Entity #${selectedTower.pos.id}`,
+      `World ${formatPanelNumber(selectedTower.pos.x)}, ${formatPanelNumber(selectedTower.pos.y)}`,
+      `Glyph ${selectedTower.app.glyph || '?'}`,
+      `Body radius ${formatPanelNumber(selectedTower.app.radius)}`,
+      `Attack radius ${formatPanelNumber(selectedTower.fx.rangeRadius)}`,
+      '',
+      `Phase ${phaseEl?.textContent ?? '--'}`,
+      `Resources $${resources}`,
+      'Left click empty space to dismiss',
+    ],
+  }
+}
+
+function getHoverPanelModel(): SidePanelModel | null {
+  if (!edgeHoverSide) return null
+
+  return {
+    side: edgeHoverSide,
+    title: 'Build Panel',
+    lines: [
+      `Phase ${phaseEl?.textContent ?? '--'}`,
+      `Lives ${lives}`,
+      `Resources $${resources}`,
+      '',
+      'Double click to place a tower',
+      'Left click to select a tower',
+      'Right click to flash an entity',
+      'Use Start Wave to begin the next push',
+    ],
+  }
+}
+
+function getSidePanelModel(): SidePanelModel | null {
+  return getSelectedTowerPanelModel() ?? getHoverPanelModel()
+}
+
+function drawRoundedPanelPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+): void {
+  const r = Math.min(radius, width / 2, height / 2)
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.lineTo(x + width - r, y)
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r)
+  ctx.lineTo(x + width, y + height - r)
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height)
+  ctx.lineTo(x + r, y + height)
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r)
+  ctx.lineTo(x, y + r)
+  ctx.quadraticCurveTo(x, y, x + r, y)
+  ctx.closePath()
+}
+
+function drawSidePanel(ctx: CanvasRenderingContext2D, panel: SidePanelModel): void {
+  const x = 0
+  const y = 0
+  const width = overlayCanvas.width
+  const height = overlayCanvas.height
+  const textX = x + SIDE_PANEL_TEXT_MARGIN
+  const textWidth = width - SIDE_PANEL_TEXT_MARGIN * 2
+
+  ctx.save()
+  drawRoundedPanelPath(ctx, x, y, width, height, SIDE_PANEL_RADIUS)
+  const gradient = ctx.createLinearGradient(x, y, x + width, y + height)
+  gradient.addColorStop(0, 'rgba(12, 18, 26, 0.92)')
+  gradient.addColorStop(1, 'rgba(18, 27, 39, 0.84)')
+  ctx.fillStyle = gradient
+  ctx.fill()
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)'
+  ctx.lineWidth = 1.5
+  ctx.stroke()
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
+  ctx.font = 'bold 24px monospace'
+  ctx.textBaseline = 'top'
+  ctx.fillText(panel.title, textX, y + 20, textWidth)
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'
+  ctx.beginPath()
+  ctx.moveTo(textX, y + 56)
+  ctx.lineTo(textX + textWidth, y + 56)
+  ctx.stroke()
+
+  ctx.font = '16px monospace'
+  let lineY = y + 74
+  for (const line of panel.lines) {
+    if (line.length === 0) {
+      lineY += SIDE_PANEL_LINE_HEIGHT * 0.65
+      continue
+    }
+    ctx.fillStyle = line.startsWith('Left click') || line.startsWith('Double click') ||
+        line.startsWith('Right click') || line.startsWith('Use Start Wave')
+      ? 'rgba(181, 201, 224, 0.92)'
+      : 'rgba(255, 255, 255, 0.92)'
+    const wrappedLines = wrapPanelText(ctx, line, textWidth)
+    for (const wrappedLine of wrappedLines) {
+      ctx.fillText(wrappedLine, textX, lineY, textWidth)
+      lineY += SIDE_PANEL_LINE_HEIGHT
+    }
+  }
+  ctx.restore()
+}
+
+function updateSidePanelOverlay(): void {
+  if (!sidePanelDirty) return
+
+  const panel = getSidePanelModel()
+  overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
+  if (!panel) {
+    overlayCanvas.style.display = 'none'
+    sidePanelDirty = false
+    return
+  }
+
+  overlayCanvas.style.display = 'block'
+  overlayCanvas.style.left = panel.side === 'left'
+    ? '0'
+    : `${foregroundCanvas.width - overlayCanvas.width}px`
+  overlayCanvas.style.right = ''
+  drawSidePanel(overlayCtx, panel)
+  sidePanelDirty = false
+}
+
 function frame(now: number): void {
   if (lastFrameTime !== 0) {
     const dt = now - lastFrameTime
@@ -562,6 +777,7 @@ function frame(now: number): void {
   renderInterpolated(now)
   updateHudOverlay()
   updateFpsOverlay(now)
+  updateSidePanelOverlay()
   fgCtx.drawImage(hudCanvas, 0, 0)
   fgCtx.drawImage(fpsCanvas, 0, 0)
   requestAnimationFrame(frame)
@@ -732,9 +948,13 @@ function resetClientWorldState(): void {
   resources = 0
   lastFpsOverlayUpdateTime = 0
   hudDirty = true
+  sidePanelDirty = true
+  edgeHoverSide = null
 
   bgCtx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height)
   fgCtx.clearRect(0, 0, foregroundCanvas.width, foregroundCanvas.height)
+  overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
+  overlayCanvas.style.display = 'none'
   hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height)
   fpsCtx.clearRect(0, 0, fpsCanvas.width, fpsCanvas.height)
 }
@@ -760,6 +980,7 @@ function applyWorldDelta(delta: WorldDelta): void {
   lives = delta.lives
   resources = delta.resources
   invalidateHud()
+  invalidateSidePanel()
   setTextIfElement(livesEl, String(delta.lives))
   setTextIfElement(resourcesEl, String(delta.resources))
   setTextIfElement(phaseEl, getDeltaPhase(delta))
@@ -857,6 +1078,7 @@ ws.onerror = () => {
 
 foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   const sample = eventToCanvasSample(event)
+  updateEdgeHover(sample)
   canvasPointerState = {
     button: sample.button,
     buttons: sample.buttons,
@@ -867,8 +1089,9 @@ foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
 })
 
 foregroundCanvas.addEventListener('mousemove', (event: MouseEvent) => {
-  if (!canvasPointerState) return
   const sample = eventToCanvasSample(event)
+  updateEdgeHover(sample)
+  if (!canvasPointerState) return
   canvasPointerState.buttons = sample.buttons
 
   if (canvasPointerState.button !== 0) return
@@ -885,6 +1108,21 @@ foregroundCanvas.addEventListener('mousemove', (event: MouseEvent) => {
   scheduleDragMoveFlush()
 })
 
+foregroundCanvas.addEventListener('mouseleave', (event: MouseEvent) => {
+  if (event.relatedTarget === overlayCanvas) return
+  setEdgeHoverSide(null)
+})
+
+overlayCanvas.addEventListener('mouseenter', () => {
+  const panel = getSidePanelModel()
+  if (panel) setEdgeHoverSide(panel.side)
+})
+
+overlayCanvas.addEventListener('mouseleave', () => {
+  if (findSelectedTower()) return
+  setEdgeHoverSide(null)
+})
+
 window.addEventListener('mouseup', (event: MouseEvent) => {
   if (!canvasPointerState) return
   const sample = withPointerButton(
@@ -899,11 +1137,15 @@ window.addEventListener('mouseup', (event: MouseEvent) => {
 
 foregroundCanvas.addEventListener('contextmenu', (event: MouseEvent) => {
   event.preventDefault()
-  sendCanvasMsg('click', withPointerButton(eventToCanvasSample(event), 2, 2))
+  const sample = eventToCanvasSample(event)
+  updateEdgeHover(sample)
+  sendCanvasMsg('click', withPointerButton(sample, 2, 2))
 })
 
 foregroundCanvas.addEventListener('dblclick', (event: MouseEvent) => {
-  sendCanvasMsg('dblclick', eventToCanvasSample(event))
+  const sample = eventToCanvasSample(event)
+  updateEdgeHover(sample)
+  sendCanvasMsg('dblclick', sample)
 })
 
 document.addEventListener('click', (event: MouseEvent) => {
