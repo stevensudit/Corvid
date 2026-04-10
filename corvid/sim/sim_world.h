@@ -241,10 +241,10 @@ struct Pathing {
 // TODO: Add field for sprite selection.
 struct Appearance {
   WorldTick modified{WorldTick::invalid}; // Tick when last modified.
-  char32_t glyph{};    // a Unicode character to display, if any.
-  float radius{5.F};   // world-space radius of the rendered shape.
-  uint32_t fg_color{}; // RGBA.
-  uint32_t bg_color{}; // RGBA.
+  char32_t glyph{};   // a Unicode character to display, if any.
+  float radius{5.F};  // world-space radius of the rendered shape.
+  uint32_t fgColor{}; // RGBA.
+  uint32_t bgColor{}; // RGBA.
 };
 
 // Health component. Applies to both defenders and invaders. The two health
@@ -252,8 +252,8 @@ struct Appearance {
 // `regen` is server-side only.
 struct Health {
   WorldTick modified{WorldTick::invalid}; // Tick when last modified.
-  float current_health{};
-  float max_health{};
+  float currentHealth{};
+  float maxHealth{};
   float regen{}; // Regeneration or bleed per tick.
 };
 
@@ -261,44 +261,44 @@ struct Health {
 // but has no effect on physics or game logic.
 struct VisualEffects {
   WorldTick modified{WorldTick::invalid}; // Tick when last modified.
-  uint32_t selection_color{};             // RGBA.
-  float range_radius{};
-  uint32_t range_color{}; // RGBA.
-  uint32_t flash_color{}; // RGBA.
-  WorldTick flash_expiry{WorldTick::invalid};
+  uint32_t selectionColor{};              // RGBA.
+  float rangeRadius{};
+  uint32_t rangeColor{}; // RGBA.
+  uint32_t flashColor{}; // RGBA.
+  WorldTick flashExpiry{WorldTick::invalid};
 };
 
 // Defensive tower component, common across all defenders.
 struct Defender {
-  int defender_type{};       // Eventually an enum.
-  float hit_circle_radius{}; // Hit detection, as opposed to appearance.
-  float attack_radius{};
-  uint32_t range_color{}; // RGBA.
-  float attack_damage{};  // Interpretation depends on the tower type.
+  int defenderType{};      // Eventually an enum.
+  float hitCircleRadius{}; // Hit detection, as opposed to appearance.
+  float attackRadius{};
+  uint32_t rangeColor{}; // RGBA.
+  float attackDamage{};  // Interpretation depends on the tower type.
   WorldTick cooldown{};
-  WorldTick next_attack{}; // Updated when the tower attacks.
+  WorldTick nextAttack{}; // Updated when the tower attacks.
 };
 
 // Stats for defenders, shown when selecting a defender.
 struct DefenderStats {
-  float total_damage_dealt{};
-  float total_damage_taken{};
-  float total_kills{};
+  float totalDamageDealt{};
+  float totalDamageTaken{};
+  float totalKills{};
 };
 
 // Area-of-effect component for defenders that have an attack that hits an area
 // rather than a single target.
 struct DefenderAoe {
-  int damage_type{}; // Eventually an enum.
+  int damageType{}; // Eventually an enum.
 };
 
 // Hitscan component for defenders that have an attack that hits a single
 // target instantly, rather than spawning a projectile that travels to the
 // target.
 struct DefenderHitscan {
-  uint32_t beam_color{}; // RGBA.
-  WorldTick beam_duration{};
-  int beam_type{}; // Eventually an enum.
+  uint32_t beamColor{}; // RGBA.
+  WorldTick beamDuration{};
+  int beamType{}; // Eventually an enum.
 };
 
 // Projectile component for `DefenderShooter`. Used as part of its own
@@ -307,12 +307,12 @@ struct DefenderHitscan {
 // its final moment.
 struct DefenderBullet {
   float speed{};
-  float direct_damage{};
-  float damage_over_time{};
-  float splash_radius{};
-  float direct_damage_type{}; // Eventually an enum.
-  float dot_damage_type{};    // Eventually an enum.
-  int projectile_type{};      // Eventually an enum.
+  float directDamage{};
+  float damageOverTime{};
+  float splashRadius{};
+  float directDamageType{}; // Eventually an enum.
+  float dotDamageType{};    // Eventually an enum.
+  int projectileType{};     // Eventually an enum.
   WorldTick expiry{};
 };
 
@@ -321,14 +321,14 @@ struct DefenderBullet {
 // tower's attack, but with their own position and velocity.
 struct DefenderShooter {
   DefenderBullet bullet_template{};
-  float fire_rate{}; // Shots per tick.
-  int spread{};      // Eventually an enum.
+  float fireRate{}; // Shots per tick.
+  int spread{};     // Eventually an enum.
 };
 
 // Invader component, shared across all invaders.
 struct Invader {
-  int invader_type{};        // Eventually an enum.
-  float hit_circle_radius{}; // Hit detection, as opposed to appearance.
+  int invaderType{};       // Eventually an enum.
+  float hitCircleRadius{}; // Hit detection, as opposed to appearance.
   int bounty{10}; // Resources awarded to the player for killing this enemy.
 };
 
@@ -378,7 +378,7 @@ using WorldScene = archetype_scene<WorldReg, ArchInvaderAlpha, ArchDefenderAoe,
 // Simulation world: encapsulates all ECS entity state for the game and
 // provides physics.
 //
-// Each `tick()` advances `Position` components based by velocity and bounces
+// Each `tick()` advances `Position` components based on velocity and bounces
 // off the world boundary. The registry metadata records the tick count at each
 // entity's last state change so callers can request delta snapshots starting
 // from any past tick.
@@ -408,18 +408,16 @@ public:
     Appearance app{.modified = tick_,
         .glyph = U'\u03B1', // Greek alpha
         .radius = 30.F,
-        .fg_color = 0xFFFFFFFF,
-        .bg_color = 0x000000FF};
+        .fgColor = 0xFFFFFFFF,
+        .bgColor = 0x000000FF};
     VisualEffects fx{.modified = tick_,
-        .flash_color = 0xFF7F7FFF,
-        .flash_expiry = WorldTick{5}};
+        .flashColor = 0xFF7F7FFF,
+        .flashExpiry = WorldTick{5}};
     Pathing pathing{.path_id = pathId, .progress = progress, .speed = 50.F};
-    Invader invader{.invader_type = 1,
-        .hit_circle_radius = 30.F,
-        .bounty = 10};
+    Invader invader{.invaderType = 1, .hitCircleRadius = 30.F, .bounty = 10};
     Health health{.modified = tick_,
-        .current_health = 100.F,
-        .max_health = 100.F,
+        .currentHealth = 100.F,
+        .maxHealth = 100.F,
         .regen = 10.F};
     const auto pos =
         paths_[pathId].calculatePositionFromProgress(progress, progress);
@@ -431,26 +429,26 @@ public:
 
   // Spawn an AOE defender.
   [[nodiscard]] Handle spawnDefenderAoe(Position pos) {
-    Defender defender{.defender_type = 1,
-        .hit_circle_radius = 30.F,
-        .attack_radius = 100.F,
-        .range_color = 0xFFFF0000,
-        .attack_damage = 5.F,
+    Defender defender{.defenderType = 1,
+        .hitCircleRadius = 30.F,
+        .attackRadius = 100.F,
+        .rangeColor = 0xFFFF0000,
+        .attackDamage = 5.F,
         .cooldown = WorldTick{20},
-        .next_attack = WorldTick{0}};
+        .nextAttack = WorldTick{0}};
     Appearance app{.modified = tick_,
         .glyph = U'A',
         .radius = 30.F,
-        .fg_color = 0xFFFFFFFF,
-        .bg_color = 0x7F7FFFFF};
+        .fgColor = 0xFFFFFFFF,
+        .bgColor = 0x7F7FFFFF};
     VisualEffects fx{.modified = tick_,
-        .flash_color = 0xFF7F7FFF,
-        .flash_expiry = WorldTick{5}};
+        .flashColor = 0xFF7F7FFF,
+        .flashExpiry = WorldTick{5}};
     Health health{.modified = tick_,
-        .current_health = 100.F,
-        .max_health = 100.F,
+        .currentHealth = 100.F,
+        .maxHealth = 100.F,
         .regen = 0.F};
-    DefenderAoe defenderAoe{.damage_type = 1};
+    DefenderAoe defenderAoe{.damageType = 1};
     DefenderStats defenderStats{};
     auto h = scene_.store_new_entity<sidDefenderAoe>({WorldTick::invalid}, pos,
         app, fx, defender, defenderStats, health, defenderAoe);
@@ -461,35 +459,35 @@ public:
   // Spawn a shooter defender.
   [[nodiscard]] Handle spawnDefenderShooter(Position pos) {
     DefenderBullet bullet_template{.speed = 200.F,
-        .direct_damage = 20.F,
-        .damage_over_time = 0.F,
-        .splash_radius = 0.F,
-        .direct_damage_type = 1,
-        .dot_damage_type = 0,
-        .projectile_type = 1,
+        .directDamage = 20.F,
+        .damageOverTime = 0.F,
+        .splashRadius = 0.F,
+        .directDamageType = 1,
+        .dotDamageType = 0,
+        .projectileType = 1,
         .expiry = WorldTick{20}};
-    Defender defender{.defender_type = 1,
-        .hit_circle_radius = 20.F,
-        .attack_radius = 100.F,
-        .range_color = 0xFFFF0000,
-        .attack_damage = 5.F,
+    Defender defender{.defenderType = 1,
+        .hitCircleRadius = 20.F,
+        .attackRadius = 100.F,
+        .rangeColor = 0xFFFF0000,
+        .attackDamage = 5.F,
         .cooldown = WorldTick{20},
-        .next_attack = WorldTick{0}};
+        .nextAttack = WorldTick{0}};
     Appearance app{.modified = tick_,
         .glyph = U'S',
         .radius = 20.F,
-        .fg_color = 0xFFFFFFFF,
-        .bg_color = 0x7FFF7FFF};
+        .fgColor = 0xFFFFFFFF,
+        .bgColor = 0x7FFF7FFF};
     VisualEffects fx{.modified = tick_,
-        .flash_color = 0xFF7F7FFF,
-        .flash_expiry = WorldTick{5}};
+        .flashColor = 0xFF7F7FFF,
+        .flashExpiry = WorldTick{5}};
     Health health{.modified = tick_,
-        .current_health = 100.F,
-        .max_health = 100.F,
+        .currentHealth = 100.F,
+        .maxHealth = 100.F,
         .regen = 0.F};
     DefenderStats defenderStats{};
     DefenderShooter defenderShooter{.bullet_template = bullet_template,
-        .fire_rate = 1.F,
+        .fireRate = 1.F,
         .spread = 0};
     auto h = scene_.store_new_entity<sidDefenderShooter>({WorldTick::invalid},
         pos, app, fx, defender, defenderStats, health, defenderShooter);
@@ -539,8 +537,8 @@ public:
       WorldTick duration = WorldTick{20}) {
     auto* effects = changeVisualEffects(id);
     if (!effects) return false;
-    effects->flash_color = color;
-    effects->flash_expiry = WorldTick{*tick_ + *duration};
+    effects->flashColor = color;
+    effects->flashExpiry = WorldTick{*tick_ + *duration};
     return true;
   }
 
@@ -817,12 +815,12 @@ private:
     // damage and trigger a flash on both.
     scene_.for_each<Position, Defender>([&](auto towerId, auto towerComps) {
       auto& [towerPos, tower] = towerComps;
-      if (tick_ < tower.next_attack) return true;
+      if (tick_ < tower.nextAttack) return true;
 
       scene_.for_each<Position, Invader>([&](auto enemyId, auto enemyComps) {
         auto& [enemyPos, invader] = enemyComps;
-        if (!circlesOverlap(towerPos, tower.attack_radius, enemyPos,
-                invader.hit_circle_radius))
+        if (!circlesOverlap(towerPos, tower.attackRadius, enemyPos,
+                invader.hitCircleRadius))
           return true;
 
         (void)flashEntity(towerId, 0xFFFFFFFF, WorldTick{5});

@@ -217,11 +217,9 @@ public:
       // Deselect the previously selected tower, if it still exists.
       if (auto* fx = world_.changeVisualEffects(world_.getId(selected_tower_)))
       {
-        fx->selection_color = 0;
-        fx->range_radius = 0.F;
-        fx->range_color = 0;
-        fx->modified = world_.currentTick();
-        (void)world_.markDirty(world_.getId(selected_tower_));
+        fx->selectionColor = 0;
+        fx->rangeRadius = 0.F;
+        fx->rangeColor = 0;
         selected_tower_ = {};
       }
 
@@ -230,9 +228,9 @@ public:
       if (selected_tower_.id() != SimWorld::EntityId::invalid) {
         auto [pos, app, fx, tower] = world_.getTower(selected_tower_.id());
         if (pos) {
-          fx->selection_color = 0xFFF2B63FU;
-          fx->range_radius = tower->attack_radius;
-          fx->range_color = 0xFFFF007F;
+          fx->selectionColor = 0xFFF2B63FU;
+          fx->rangeRadius = tower->attackRadius;
+          fx->rangeColor = 0xFFFF007F;
           fx->modified = world_.currentTick();
           (void)world_.markDirty(selected_tower_.id());
         }
@@ -254,7 +252,7 @@ public:
     }
   }
 
-  void handle_UiAction(const UiActionInput& input) {
+  void handleUiAction(const UiActionInput& input) {
     if (input.action == "start_wave") {
       start_wave();
       return;

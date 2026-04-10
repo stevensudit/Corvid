@@ -182,8 +182,8 @@ void SimWorld_SpawnAndSnapshot() {
 
   const auto all = snapshot(w);
   ASSERT_EQ(all.size(), 2U);
-  EXPECT_EQ(
-      filterSnapshot(all, std::vector<SimWorld::EntityId>{invader.id()}).size(),
+  EXPECT_EQ(filterSnapshot(all, std::vector<SimWorld::EntityId>{invader.id()})
+                .size(),
       1U);
   EXPECT_EQ(
       filterSnapshot(all,
@@ -250,17 +250,17 @@ void SimWorld_TowerInRangeFlashesItselfAndInvader() {
   EXPECT_TRUE(containsId(delta.upserts, tower.id()));
   EXPECT_TRUE(containsId(delta.upserts, invader.id()));
 
-  const auto tower_it = std::ranges::find(delta.upserts, tower.id(),
-      &WorldDelta::Upsert::id);
+  const auto tower_it =
+      std::ranges::find(delta.upserts, tower.id(), &WorldDelta::Upsert::id);
   ASSERT_TRUE(tower_it != delta.upserts.end());
-  EXPECT_EQ(tower_it->fx.flash_color, 0xFFFFFFFFU);
-  EXPECT_EQ(tower_it->fx.flash_expiry, WorldTick{6});
+  EXPECT_EQ(tower_it->fx.flashColor, 0xFFFFFFFFU);
+  EXPECT_EQ(tower_it->fx.flashExpiry, WorldTick{6});
 
-  const auto invader_it = std::ranges::find(delta.upserts, invader.id(),
-      &WorldDelta::Upsert::id);
+  const auto invader_it =
+      std::ranges::find(delta.upserts, invader.id(), &WorldDelta::Upsert::id);
   ASSERT_TRUE(invader_it != delta.upserts.end());
-  EXPECT_EQ(invader_it->fx.flash_color, 0xFF7F7FFFU);
-  EXPECT_EQ(invader_it->fx.flash_expiry, WorldTick{6});
+  EXPECT_EQ(invader_it->fx.flashColor, 0xFF7F7FFFU);
+  EXPECT_EQ(invader_it->fx.flashExpiry, WorldTick{6});
   EXPECT_NEAR(invader_it->pos.x, 100.0, 1e-6);
 }
 
@@ -540,7 +540,7 @@ void SimGame_HandleUiActionStartWaveTransitionsToWavePhase() {
   SimGame game;
   game.loadMap();
 
-  game.handle_UiAction(
+  game.handleUiAction(
       UiActionInput{.seq = 1, .action = "start_wave", .fields = {}});
 
   const auto delta = extractGameDelta(game);
@@ -703,8 +703,8 @@ void SimJson_ParseUiActionMessageFields() {
   EXPECT_EQ(input->seq, 7U);
   EXPECT_EQ(input->action, "start_wave");
   ASSERT_EQ(input->fields.size(), 2U);
-  const auto tower_kind = std::ranges::find(input->fields, "tower/kind",
-      &UiActionField::key);
+  const auto tower_kind =
+      std::ranges::find(input->fields, "tower/kind", &UiActionField::key);
   ASSERT_TRUE(tower_kind != input->fields.end());
   EXPECT_EQ(tower_kind->value, "ice");
 
@@ -715,7 +715,7 @@ void SimJson_ParseUiActionMessageFields() {
 }
 
 void SimJson_BuildHelloAckJson() {
-  EXPECT_EQ(build_sim_hello_ack_json(),
+  EXPECT_EQ(buildSimHelloAckJson(),
       std::string(R"({"type":"hello_ack","message":"connected"})"));
 }
 
@@ -732,8 +732,8 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
       .canvasY = 200.F});
   (void)game.next();
 
-  sim_game_state_json state;
-  (void)build_sim_game_state_json(state, game);
+  SimGameStateJson state;
+  (void)buildSimGameStateJson(state, game);
   EXPECT_TRUE(state.body.contains(R"("x":10.0)"));
   EXPECT_TRUE(state.body.contains(R"("radius":30.000)"));
   EXPECT_TRUE(state.body.contains(R"("vfx")"));
@@ -798,8 +798,8 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
       .canvasX = 100.F,
       .canvasY = 200.F});
 
-  sim_game_state_json initial_state;
-  (void)build_sim_game_state_json(initial_state, game);
+  SimGameStateJson initial_state;
+  (void)buildSimGameStateJson(initial_state, game);
   (void)game.tick();
 
   game.handleUiCanvas(UiCanvasInput{.seq = 2,
@@ -811,8 +811,8 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
       .canvasX = 100.F,
       .canvasY = 200.F});
 
-  sim_game_state_json state;
-  (void)build_sim_game_state_json(state, game);
+  SimGameStateJson state;
+  (void)buildSimGameStateJson(state, game);
 
   json_value_view root;
   ASSERT_TRUE(parse_json(state.body, root));
@@ -847,27 +847,27 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
 void SimJson_FlashExpiryDelayMsUsesCurrentTickRelativeTiming() {
   VisualEffects fx{
       .modified = WorldTick{12},
-      .selection_color = 0,
-      .range_radius = 0.F,
-      .range_color = 0,
-      .flash_color = 0xFF0000FF,
-      .flash_expiry = WorldTick{15},
+      .selectionColor = 0,
+      .rangeRadius = 0.F,
+      .rangeColor = 0,
+      .flashColor = 0xFF0000FF,
+      .flashExpiry = WorldTick{15},
   };
 
-  EXPECT_EQ(flash_expiry_delay_ms(fx, WorldTick{10}), 250U);
-  EXPECT_EQ(flash_expiry_delay_ms(fx, WorldTick{15}), 0U);
-  EXPECT_EQ(flash_expiry_delay_ms(fx, WorldTick{16}), 0U);
+  EXPECT_EQ(flashExpiryDelayMs(fx, WorldTick{10}), 250U);
+  EXPECT_EQ(flashExpiryDelayMs(fx, WorldTick{15}), 0U);
+  EXPECT_EQ(flashExpiryDelayMs(fx, WorldTick{16}), 0U);
 
-  fx.flash_color = 0;
-  EXPECT_EQ(flash_expiry_delay_ms(fx, WorldTick{10}), 0U);
+  fx.flashColor = 0;
+  EXPECT_EQ(flashExpiryDelayMs(fx, WorldTick{10}), 0U);
 }
 
 void SimJson_BuildWorldSnapshotJsonShape() {
   SimGame game;
   game.loadMap();
 
-  sim_game_state_json state;
-  (void)build_sim_game_state_json(state, game, update_strategy::full);
+  SimGameStateJson state;
+  (void)buildSimGameStateJson(state, game, update_strategy::full);
   EXPECT_TRUE(state.body.contains(R"("type":"world_snapshot")"));
   EXPECT_TRUE(state.body.contains(R"("x":0.0)"));
 
@@ -910,8 +910,7 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
     SimWorld_DefenderDoesNotAppearAsChangedAfterTick, BakePath_TwoJoints,
     BakePath_ThreeJoints, BakePath_Degenerate, PathPosition_Endpoints,
     PathPosition_Midpoint, PathPosition_CrossingSegmentBoundaryEmitsJoint,
-    SimWorld_EnemyAdvancesOnTick,
-    SimWorld_ResolveEscapeesVisitsEscapedEnemy,
+    SimWorld_EnemyAdvancesOnTick, SimWorld_ResolveEscapeesVisitsEscapedEnemy,
     SimWorld_ResolveEscapeesCanLeaveEnemyAlive, SimWorld_GetPathOutOfRange,
     SimWorld_ObtainPathIncludesTerminalJoint,
     SimWorld_FromJointsThrowsWhenJointIsOutOfBounds,

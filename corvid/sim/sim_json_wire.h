@@ -28,48 +28,33 @@
 namespace corvid { inline namespace sim {
 
 [[nodiscard]] inline uint32_t
-flash_expiry_delay_ms(const VisualEffects& effects, WorldTick current_tick) {
-  if (effects.flash_color == 0 || effects.flash_expiry == WorldTick::invalid ||
-      effects.flash_expiry < current_tick)
+flashExpiryDelayMs(const VisualEffects& effects, WorldTick current_tick) {
+  // If not flashing, nothing to do.
+  if (effects.flashColor == 0 || effects.flashExpiry == WorldTick::invalid ||
+      effects.flashExpiry < current_tick)
     return 0;
 
-  constexpr uint64_t ms_per_tick = 50;
-  const auto ticks_until_expiry =
-      static_cast<uint64_t>(*effects.flash_expiry) -
-      static_cast<uint64_t>(*current_tick);
+  // Calculate milliseconds until expiry, capping at max uint32_t.
+  constexpr uint32_t ms_per_tick = 50;
+  const auto ticks_until_expiry = *effects.flashExpiry - *current_tick;
   const auto expiry_delay_ms = ticks_until_expiry * ms_per_tick;
-  return static_cast<uint32_t>(std::min(expiry_delay_ms,
-      static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())));
+  return std::min(expiry_delay_ms, std::numeric_limits<uint32_t>::max());
 }
 
 // Reusable state, to avoid repeated allocations.
-struct sim_game_state_json {
+struct SimGameStateJson {
   std::string body;
   std::vector<SimWorld::EntityId> erased_ids;
 
-  // Clear the body and erased IDs, updating highwater marks for future
-  // reserve.
+  // Clear the body and erased IDs. These fields retain their allocations.
   [[nodiscard]] bool clear() {
-    body_highwater = std::max(body.size(), body_highwater);
-    erased_ids_highwater = std::max(erased_ids.size(), erased_ids_highwater);
     body.clear();
     erased_ids.clear();
     return true;
   }
-
-  [[nodiscard]] bool reset() {
-    (void)clear();
-    body.reserve(body_highwater);
-    erased_ids.reserve(erased_ids_highwater);
-    return true;
-  }
-
-private:
-  size_t body_highwater{16ULL * 1024};
-  size_t erased_ids_highwater{64};
 };
 
-[[nodiscard]] inline std::string build_sim_hello_ack_json(
+[[nodiscard]] inline std::string buildSimHelloAckJson(
     std::string_view message = "connected") {
   std::string body;
   json_writer{body}
@@ -79,10 +64,10 @@ private:
   return body;
 }
 
-[[nodiscard]] inline bool
-build_sim_game_state_json(sim_game_state_json& result, SimGame& game,
+[[nodiscard]] inline bool buildSimGameStateJson(SimGameStateJson& result,
+    SimGame& game,
     update_strategy send_strategy = update_strategy::incremental) {
-  (void)result.reset();
+  (void)result.clear();
   const auto current_tick = game.currentTick();
   json_writer writer{result.body};
   if (send_strategy == update_strategy::full)
@@ -121,19 +106,19 @@ build_sim_game_state_json(sim_game_state_json& result, SimGame& game,
                       static_cast<uint32_t>(app.glyph))
                   .member(json_trusted{"radius"}, app.radius,
                       std::chars_format::fixed, 3)
-                  .member(json_trusted{"fg"}, app.fg_color)
-                  .member(json_trusted{"bg"}, app.bg_color);
+                  .member(json_trusted{"fg"}, app.fgColor)
+                  .member(json_trusted{"bg"}, app.bgColor);
             }
 
             if (effects.modified == current_tick) {
               entity->member_object(json_trusted{"vfx"})
-                  ->member(json_trusted{"selection"}, effects.selection_color)
-                  .member(json_trusted{"rangeRadius"}, effects.range_radius,
+                  ->member(json_trusted{"selection"}, effects.selectionColor)
+                  .member(json_trusted{"rangeRadius"}, effects.rangeRadius,
                       std::chars_format::fixed, 3)
-                  .member(json_trusted{"range"}, effects.range_color)
-                  .member(json_trusted{"flash"}, effects.flash_color)
+                  .member(json_trusted{"range"}, effects.rangeColor)
+                  .member(json_trusted{"flash"}, effects.flashColor)
                   .member(json_trusted{"flashExpiryMs"},
-                      flash_expiry_delay_ms(effects, current_tick));
+                      flashExpiryDelayMs(effects, current_tick));
             }
 
             return true;
