@@ -272,6 +272,17 @@ struct Tower {
   WorldTick next_attack{}; // Tick when the next attack can occur.
 };
 
+// TODO: Standardize on Defender and Invader as the two sides, rather than
+// Tower and Enemy. Defender is more general and can apply to both towers and
+// bullets, while Enemy is more specific and only applies to the path-following
+// invaders. We may want to add a separate archetype for non-path-following
+// enemies, such as flying ones.
+
+// TODO: Rename Tower to DefenderAoe.  Add DefenderHitscan, which is similar
+// except that it has a beam_color and beam_duration. Add DefenderProjective,
+// which has a projectile_speed and projectile_damage, which is used to spawn a
+// bullet.
+
 // Enemy invader component. Stored alongside `Position` and `PathFollower` in
 // the enemy archetype.
 struct Invader {
@@ -744,6 +755,34 @@ private:
     // Range over all towers. For each tower, range over all enemies and check
     // for hits. If an enemy is in range and the tower is off cooldown, apply
     // damage and trigger a flash on both.
+    scene_.for_each<Position, Tower>([&](auto towerId, auto towerComps) {
+      auto& [towerPos, tower] = towerComps;
+      if (tick_ < tower.next_attack) return true;
+
+      scene_.for_each<Position, Invader>([&](auto enemyId, auto enemyComps) {
+        auto& [enemyPos, invader] = enemyComps;
+        if (!circlesOverlap(towerPos, tower.attack_radius, enemyPos,
+                invader.radius))
+          return true;
+
+        (void)flashEntity(towerId, 0xFFFFFFFF, WorldTick{5});
+        (void)flashEntity(enemyId, 0xFF7F7FFF, WorldTick{5});
+        return true;
+#if 0
+        invader.health -= tower.attack_damage;
+        tower.next_attack = WorldTick{*tick_ + *tower.cooldown};
+        (void)flashEntity(towerId, 0xFFFFFFFF);
+        if (invader.health <= 0.F) {
+          (void)tombstoneEntity(enemyId);
+        } else {
+          (void)flashEntity(enemyId, 0xFF0000FF);
+        }
+        return false; // Stop after first hit per tower per tick.
+#endif
+      });
+
+      return true;
+    });
 
     return true;
   }
