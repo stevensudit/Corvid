@@ -112,14 +112,14 @@ namespace corvid { inline namespace sim {
 // Enemy spawn definition for a wave.
 struct EnemySpawn {
   WaveTick startTicks;
-  std::string
-      label; // matches a label registered with `SimWorld::registerEntity`
+  std::string label; // matches a label in `SimWorld::registerEntity`
+  PathId pathId{};
 };
 
 // All of the enemy spawns for a wave.
 struct WaveDefinition {
   std::vector<EnemySpawn> enemies;
-  int resourceInflux = 0; // Resources rewarded at start of wave
+  int resourceInflux{}; // Resources rewarded at start of wave
 };
 
 struct UiCanvasInput {
@@ -313,12 +313,13 @@ private:
       if (enemy_def.startTicks > waveTick_) break;
       auto h = world_.spawnEntity(enemy_def.label);
       if (!h) continue;
+
       // Set placement-specific fields not encoded in the template.
-      if (auto* pat = world_.try_get_component<Pathing>(h.id())) {
-        pat->path_id = PathId{0};
-        if (auto* pos = world_.try_get_component<Position>(h.id()))
-          if (const auto* path = world_.getPath(PathId{0}))
-            *pos = path->calculatePositionFromProgress(0.F, 0.F);
+      auto [pos, pat] = world_.try_get_components<Position, Pathing>(h.id());
+      if (pos) {
+        pat->pathId = enemy_def.pathId;
+        const auto* path = world_.getPath(pat->pathId);
+        *pos = path->calculatePositionFromProgress(0.F, 0.F);
       }
     }
   }
@@ -338,7 +339,7 @@ private:
           .bgColor = 0x000000FF};
       std::get<std::optional<VisualEffects>>(tpl) = VisualEffects{};
       std::get<std::optional<Pathing>>(tpl) =
-          Pathing{.path_id = PathId::invalid, .progress = 0.F, .speed = 50.F};
+          Pathing{.pathId = PathId::invalid, .progress = 0.F, .speed = 50.F};
       std::get<std::optional<Invader>>(tpl) =
           Invader{.invaderType = 1, .hitCircleRadius = 30.F, .bounty = 10};
       std::get<std::optional<Health>>(tpl) =
@@ -413,8 +414,8 @@ private:
   GamePhase phase_ = GamePhase::build;
 
   // Tick counter for the current wave, used to trigger spawns at the right
-  // times. This is reset with each wave, so it is not the same tick counter as
-  // the world's, and may not even run at the same speed.
+  // times. This is reset with each wave, so it is not the same tick counter
+  // as the world's, and may not even run at the same speed.
   WaveTick waveTick_{};
 
   // Wave definitions for the current map.
@@ -423,16 +424,16 @@ private:
   // Current wave.
   size_t currentWave_{};
 
-  // Index of the next spawn in the current `WaveDefinition`, which is checked
-  // against `wave_tick_`.
+  // Index of the next spawn in the current `WaveDefinition`, which is
+  // checked against `wave_tick_`.
   size_t nextSpawnIndex_{};
 
   int lives_{20};
   int resources_{100};
 
   // Handle to the currently selected tower, used to clear its range circle
-  // when deselected. A default-constructed handle is invalid and indicates no
-  // selection.
+  // when deselected. A default-constructed handle is invalid and indicates
+  // no selection.
   SimWorld::Handle selected_tower_;
 };
 }} // namespace corvid::sim

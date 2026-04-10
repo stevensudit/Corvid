@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "../containers/transparent.h"
+#include "../containers/opt_find.h"
 
 #include "../ecs.h"
 
@@ -235,7 +236,7 @@ constexpr Tick invalidTick = std::numeric_limits<Tick>::max();
 // also apply to defenders. On each tick, `progress` advances by `speed`; the
 // entity's `Position` is re-derived from the segmented path geometry.
 struct Pathing {
-  PathId path_id{}; // Index into `sim_world::paths_`.
+  PathId pathId{};  // Index into `sim_world::paths_`.
   float progress{}; // Distance traveled along the path so far.
   float speed{};    // Distance per tick.
 };
@@ -420,22 +421,18 @@ public:
   // its handle. Returns an invalid handle if the label is unknown or the
   // template bitmap does not match any archetype.
   [[nodiscard]] Handle spawnEntity(std::string_view label) {
-    auto it = entity_templates_.find(label);
-    if (it == entity_templates_.end()) return {};
+    auto megatuple = find_opt(entity_templates_, label);
+    if (!megatuple) return {};
     auto h =
-        scene_.store_new_entity_from_mega({WorldTick::invalid}, it->second);
+        scene_.store_new_entity_from_mega({WorldTick::invalid}, *megatuple);
     if (!h) return {};
     // Stamp the current tick into modification-tracking fields.
-    if (auto* app = scene_.try_get_component<Appearance>(h.id()))
-      app->modified = tick_;
-    if (auto* fx = scene_.try_get_component<VisualEffects>(h.id())) {
-      fx->modified = tick_;
-      // In templates, `flashExpiry` encodes TTL (ticks). Convert to absolute.
-      if (fx->flashColor != 0 && fx->flashExpiry != WorldTick{})
-        fx->flashExpiry = WorldTick{*tick_ + *fx->flashExpiry};
-    }
-    if (auto* hp = scene_.try_get_component<Health>(h.id()))
-      hp->modified = tick_;
+    auto [app, fx, hp] =
+        scene_.try_get_some_components<Appearance, VisualEffects, Health>(
+            h.id());
+    if (app) app->modified = tick_;
+    if (fx) fx->modified = tick_;
+    if (hp) hp->modified = tick_;
     (void)markDirty(h.id());
     return h;
   }
@@ -447,7 +444,14 @@ public:
     return scene_.try_get_component<C>(id);
   }
 
-  // Bake and store a path. Returns the index used as `path_follower::path_id`.
+  // Return a tuple of pointers to components `Cs...` for entity `id`, or a
+  // tuple of `nullptr`s if the entity does not carry all of those components.
+  template<typename... Cs>
+  [[nodiscard]] auto try_get_components(EntityId id) noexcept {
+    return scene_.try_get_components<Cs...>(id);
+  }
+
+  // Bake and store a path. Returns the index used as `path_follower::pathId`.
   // The index is stable for the lifetime of the world.
   [[nodiscard]] PathId addPath(const PathJoints& p) {
     if (!paths_.push_back(SegmentedPath::fromJoints(p)))
@@ -742,14 +746,14 @@ private:
   [[nodiscard]] bool updatePathFollowers() {
     scene_.for_each<Position, Pathing>([&](auto id, auto comps) {
       auto& [pos, pf] = comps;
-      assert(pf.path_id < paths_.size_as_enum());
+      assert(pf.pathId < paths_.size_as_enum());
       if (pf.speed == 0.F) return true;
 
       (void)markDirty(id);
 
       const float previousProgress = pf.progress;
       pf.progress += pf.speed;
-      const auto& sp = paths_[pf.path_id];
+      const auto& sp = paths_[pf.pathId];
 
       // Collect escapees.
       if (pf.progress >= sp.totalLength || pf.progress < 0.F) {

@@ -525,6 +525,15 @@ public:
   // Return a pointer to component `C` for entity `id`, or `nullptr` if the
   // entity is invalid, in staging, or its archetype does not contain `C`.
   // Deduces `const` from the scene: on a `const` scene returns `const C*`.
+  //
+  // Performance: O(S) in the number of storages, but with a very small
+  // constant. The implementation is a fold over a compile-time
+  // `std::index_sequence` that expands to S comparisons of `store_id` against
+  // a compile-time constant, with `if constexpr` eliding the body for any
+  // storage whose `tuple_t` does not contain `C`. In practice, with a small
+  // number of archetypes and an optimizing compiler, this collapses to one or
+  // two branches. The registry lookup (`is_valid` + `get_location`) is O(1)
+  // and runs unconditionally.
   template<typename C>
   [[nodiscard]] auto
   try_get_component(this auto& self, id_t id) noexcept -> std::conditional_t<
@@ -553,6 +562,14 @@ public:
   // the value being `nullptr` if the entity is invalid, in staging, or its
   // archetype does not contain `C`. Deduces `const` from the scene: on a
   // `const` scene returns `const C*`.
+  //
+  // Performance: same O(S) fold as `try_get_component`, but requires that
+  // every requested component `C` in `Cs...` be present in the same storage
+  // (the `has_all_components_v` guard). When a storage matches, all C
+  // pointers are extracted in a single `storage[id]` row access. Compared to
+  // calling `try_get_component` once per component, this avoids repeating the
+  // registry lookup and the S-way fold for each component, making it
+  // preferable when fetching two or more components at once.
   template<typename... Cs>
   [[nodiscard]] auto try_get_components(this auto& self, id_t id) noexcept
       -> std::tuple<std::conditional_t<
@@ -577,6 +594,56 @@ public:
             {
               if (*loc.store_id == Is)
                 found = std::tuple{&storage[id].template component<Cs>()...};
+            }
+          }(std::get<Is>(self.storages_)),
+          ...);
+    }(storage_indices());
+    return found;
+  }
+
+  // Return a tuple of pointers to the components `Cs` for entity `id`.
+  // Unlike `try_get_components`, this does not require all `Cs` to be present
+  // in the same archetype: each pointer is set independently based on whether
+  // the entity's archetype contains that component, and may be `nullptr` even
+  // when others are non-null. Returns all `nullptr`s if the entity is invalid
+  // or in staging. Deduces `const` from the scene: on a `const` scene returns
+  // `const C*` for each element.
+  //
+  // Performance: O(S) in the number of storages (one registry lookup + one
+  // fold to identify the storage), then O(N) in `sizeof...(Cs)` to populate
+  // the result from a single row access. Prefer this over N separate
+  // `try_get_component` calls when the components may or may not all be
+  // present and the single-lookup savings matter.
+  template<typename... Cs>
+  [[nodiscard]] auto try_get_some_components(this auto& self, id_t id) noexcept
+      -> std::tuple<std::conditional_t<
+          std::is_const_v<std::remove_reference_t<decltype(self)>>, const Cs*,
+          Cs*>...> {
+    using self_t = std::remove_reference_t<decltype(self)>;
+    using result_t = std::tuple<
+        std::conditional_t<std::is_const_v<self_t>, const Cs*, Cs*>...>;
+
+    const result_t missing{static_cast<
+        std::conditional_t<std::is_const_v<self_t>, const Cs*, Cs*>>(
+        nullptr)...};
+    if (!self.registry_.is_valid(id)) return missing;
+
+    auto loc = self.registry_.get_location(id);
+    result_t found = missing;
+    [&]<size_t... Is>(std::index_sequence<Is...>) {
+      (
+          [&](auto& storage) {
+            if (*loc.store_id == Is) {
+              using storage_t = std::remove_cvref_t<decltype(storage)>;
+              auto row = storage[id];
+              found = result_t{
+                  [&]() -> std::conditional_t<std::is_const_v<self_t>,
+                            const Cs*, Cs*> {
+                    if constexpr (has_all_components_v<storage_t, Cs>)
+                      return &row.template component<Cs>();
+                    else
+                      return nullptr;
+                  }()...};
             }
           }(std::get<Is>(self.storages_)),
           ...);

@@ -6713,6 +6713,86 @@ void ArchetypeScene_MegaTuple() {
   }
 }
 
+void ArchetypeScene_TryGetSomeComponents() {
+  // All requested components present: all pointers non-null with correct
+  // values.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{1.f, 2.f},
+        Velocity{3.f, 4.f}, Health{77});
+    auto [pos, vel, hp] =
+        s.try_get_some_components<Position, Velocity, Health>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    ASSERT_TRUE(vel != nullptr);
+    ASSERT_TRUE(hp != nullptr);
+    EXPECT_EQ(pos->x, 1.f);
+    EXPECT_EQ(vel->vx, 3.f);
+    EXPECT_EQ(hp->hp, 77);
+  }
+
+  // Entity in arch_pv_t: Position and Velocity are non-null, Health is null.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{5.f, 6.f},
+        Velocity{7.f, 8.f});
+    auto [pos, vel, hp] =
+        s.try_get_some_components<Position, Velocity, Health>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    ASSERT_TRUE(vel != nullptr);
+    EXPECT_TRUE(hp == nullptr);
+    EXPECT_EQ(pos->x, 5.f);
+    EXPECT_EQ(vel->vx, 7.f);
+  }
+
+  // Invalid entity ID: all pointers null.
+  if (true) {
+    two_storage_scene_t s;
+    auto [pos, vel, hp] =
+        s.try_get_some_components<Position, Velocity, Health>(
+            scene_reg_t::id_t::invalid);
+    EXPECT_TRUE(pos == nullptr);
+    EXPECT_TRUE(vel == nullptr);
+    EXPECT_TRUE(hp == nullptr);
+  }
+
+  // Staged entity: all pointers null.
+  if (true) {
+    two_storage_scene_t s;
+    auto id = s.stage_new_entity().id();
+    auto [pos, vel] = s.try_get_some_components<Position, Velocity>(id);
+    EXPECT_TRUE(pos == nullptr);
+    EXPECT_TRUE(vel == nullptr);
+  }
+
+  // Mutation through returned pointers updates stored data.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{}, Velocity{},
+        Health{10});
+    auto [pos, hp] = s.try_get_some_components<Position, Health>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    ASSERT_TRUE(hp != nullptr);
+    pos->x = 99.f;
+    hp->hp = 42;
+    EXPECT_EQ(s.storage<scene_sid_t{2}>()[h.id()].component<Position>().x,
+        99.f);
+    EXPECT_EQ(s.storage<scene_sid_t{2}>()[h.id()].component<Health>().hp, 42);
+  }
+
+  // On a const scene, returned pointers are const-qualified.
+  if (true) {
+    two_storage_scene_t s;
+    auto h =
+        s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f}, Velocity{});
+    const auto& cs = s;
+    auto [pos, vel] = cs.try_get_some_components<Position, Velocity>(h.id());
+    static_assert(std::is_same_v<decltype(pos), const Position*>);
+    static_assert(std::is_same_v<decltype(vel), const Velocity*>);
+    ASSERT_TRUE(pos != nullptr);
+    EXPECT_EQ(pos->x, 1.f);
+  }
+}
+
 void ComponentScene_StageNewEntity() {
   // stage_new_entity() creates a staged entity and returns its handle.
   if (true) {
@@ -7939,9 +8019,9 @@ MAKE_TEST_LIST(EcsMeta_TupleUnion, EcsMeta_TupleIndex, EcsMeta_WrapOptionals,
     ArchetypeScene_AddNewRuntime, ArchetypeScene_StoreEntity,
     ArchetypeScene_EntityLifecycle, ArchetypeScene_MigrateEdgeCases,
     ArchetypeScene_ForEach, ArchetypeScene_TryGetComponent,
-    ArchetypeScene_TryGetComponents, ArchetypeScene_MegaTuple,
-    ComponentIndex_Flat, ComponentIndex_Sorted, ComponentIndex_Paged,
-    ComponentStorage_Basic, ComponentStorage_MultiStore,
+    ArchetypeScene_TryGetComponents, ArchetypeScene_TryGetSomeComponents,
+    ArchetypeScene_MegaTuple, ComponentIndex_Flat, ComponentIndex_Sorted,
+    ComponentIndex_Paged, ComponentStorage_Basic, ComponentStorage_MultiStore,
     ComponentStorage_Remove, ComponentStorage_Erase, ComponentStorage_EraseIf,
     ComponentStorage_Iterator, ComponentStorage_IndexVariants,
     ComponentStorage_AddNew, ComponentStorage_SwapMoveReserve,

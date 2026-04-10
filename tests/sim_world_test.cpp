@@ -176,7 +176,7 @@ spawnInvaderAlpha(SimWorld& w, PathId pid, float progress = 0.F) {
       .bgColor = 0x000000FF};
   std::get<std::optional<VisualEffects>>(tpl) = VisualEffects{};
   std::get<std::optional<Pathing>>(tpl) =
-      Pathing{.path_id = PathId::invalid, .progress = 0.F, .speed = 50.F};
+      Pathing{.pathId = PathId::invalid, .progress = 0.F, .speed = 50.F};
   std::get<std::optional<Invader>>(tpl) =
       Invader{.invaderType = 1, .hitCircleRadius = 30.F, .bounty = 10};
   std::get<std::optional<Health>>(tpl) =
@@ -185,7 +185,7 @@ spawnInvaderAlpha(SimWorld& w, PathId pid, float progress = 0.F) {
   auto h = w.spawnEntity("InvaderAlphaBasic");
   if (!h) return h;
   if (auto* pat = w.try_get_component<Pathing>(h.id())) {
-    pat->path_id = pid;
+    pat->pathId = pid;
     pat->progress = progress;
     if (auto* pos = w.try_get_component<Position>(h.id()))
       if (const auto* path = w.getPath(pid))
