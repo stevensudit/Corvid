@@ -407,15 +407,15 @@ public:
     if (pathId >= paths_.size_as_enum()) return {};
     Appearance app{.modified = tick_,
         .glyph = U'\u03B1', // Greek alpha
-        .radius = 10.F,
+        .radius = 30.F,
         .fg_color = 0xFFFFFFFF,
         .bg_color = 0x000000FF};
     VisualEffects fx{.modified = tick_,
         .flash_color = 0xFF7F7FFF,
         .flash_expiry = WorldTick{5}};
-    Pathing pathing{.path_id = pathId, .progress = progress, .speed = 100.F};
+    Pathing pathing{.path_id = pathId, .progress = progress, .speed = 50.F};
     Invader invader{.invader_type = 1,
-        .hit_circle_radius = 10.F,
+        .hit_circle_radius = 30.F,
         .bounty = 10};
     Health health{.modified = tick_,
         .current_health = 100.F,
