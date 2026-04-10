@@ -21,7 +21,11 @@
 #include <cstdint>
 #include <numbers>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <vector>
+
+#include "../containers/transparent.h"
 
 #include "../ecs.h"
 
@@ -403,96 +407,44 @@ public:
     tick_ = {};
   }
 
-  [[nodiscard]] Handle spawnInvaderAlpha(PathId pathId, float progress = 0.F) {
-    if (pathId >= paths_.size_as_enum()) return {};
-    Appearance app{.modified = tick_,
-        .glyph = U'\u03B1', // Greek alpha
-        .radius = 30.F,
-        .fgColor = 0xFFFFFFFF,
-        .bgColor = 0x000000FF};
-    VisualEffects fx{.modified = tick_,
-        .flashColor = 0xFF7F7FFF,
-        .flashExpiry = WorldTick{5}};
-    Pathing pathing{.path_id = pathId, .progress = progress, .speed = 50.F};
-    Invader invader{.invaderType = 1, .hitCircleRadius = 30.F, .bounty = 10};
-    Health health{.modified = tick_,
-        .currentHealth = 100.F,
-        .maxHealth = 100.F,
-        .regen = 10.F};
-    const auto pos =
-        paths_[pathId].calculatePositionFromProgress(progress, progress);
-    auto h = scene_.store_new_entity<sidInvaderAlpha>({WorldTick::invalid},
-        pos, app, fx, pathing, invader, health);
-    if (h) (void)markDirty(h.id());
+  // Register a named entity type from a `megatuple_t` template. The set of
+  // optionals that have values must exactly match one archetype's components.
+  // Templates survive `clear()` and are only replaced by calling this method
+  // again with the same label.
+  void registerEntity(std::string label, WorldScene::megatuple_t tpl) {
+    entity_templates_.insert_or_assign(std::move(label), std::move(tpl));
+  }
+
+  // Spawn an entity by label. Looks up the pre-registered template, stamps
+  // `tick_` into any `modified` fields, marks the entity dirty, and returns
+  // its handle. Returns an invalid handle if the label is unknown or the
+  // template bitmap does not match any archetype.
+  [[nodiscard]] Handle spawnEntity(std::string_view label) {
+    auto it = entity_templates_.find(label);
+    if (it == entity_templates_.end()) return {};
+    auto h =
+        scene_.store_new_entity_from_mega({WorldTick::invalid}, it->second);
+    if (!h) return {};
+    // Stamp the current tick into modification-tracking fields.
+    if (auto* app = scene_.try_get_component<Appearance>(h.id()))
+      app->modified = tick_;
+    if (auto* fx = scene_.try_get_component<VisualEffects>(h.id())) {
+      fx->modified = tick_;
+      // In templates, `flashExpiry` encodes TTL (ticks). Convert to absolute.
+      if (fx->flashColor != 0 && fx->flashExpiry != WorldTick{})
+        fx->flashExpiry = WorldTick{*tick_ + *fx->flashExpiry};
+    }
+    if (auto* hp = scene_.try_get_component<Health>(h.id()))
+      hp->modified = tick_;
+    (void)markDirty(h.id());
     return h;
   }
 
-  // Spawn an AOE defender.
-  [[nodiscard]] Handle spawnDefenderAoe(Position pos) {
-    Defender defender{.defenderType = 1,
-        .hitCircleRadius = 30.F,
-        .attackRadius = 100.F,
-        .rangeColor = 0xFFFF0000,
-        .attackDamage = 5.F,
-        .cooldown = WorldTick{20},
-        .nextAttack = WorldTick{0}};
-    Appearance app{.modified = tick_,
-        .glyph = U'A',
-        .radius = 30.F,
-        .fgColor = 0xFFFFFFFF,
-        .bgColor = 0x7F7FFFFF};
-    VisualEffects fx{.modified = tick_,
-        .flashColor = 0xFF7F7FFF,
-        .flashExpiry = WorldTick{5}};
-    Health health{.modified = tick_,
-        .currentHealth = 100.F,
-        .maxHealth = 100.F,
-        .regen = 0.F};
-    DefenderAoe defenderAoe{.damageType = 1};
-    DefenderStats defenderStats{};
-    auto h = scene_.store_new_entity<sidDefenderAoe>({WorldTick::invalid}, pos,
-        app, fx, defender, defenderStats, health, defenderAoe);
-    if (h) (void)markDirty(h.id());
-    return h;
-  }
-
-  // Spawn a shooter defender.
-  [[nodiscard]] Handle spawnDefenderShooter(Position pos) {
-    DefenderBullet bullet_template{.speed = 200.F,
-        .directDamage = 20.F,
-        .damageOverTime = 0.F,
-        .splashRadius = 0.F,
-        .directDamageType = 1,
-        .dotDamageType = 0,
-        .projectileType = 1,
-        .expiry = WorldTick{20}};
-    Defender defender{.defenderType = 1,
-        .hitCircleRadius = 20.F,
-        .attackRadius = 100.F,
-        .rangeColor = 0xFFFF0000,
-        .attackDamage = 5.F,
-        .cooldown = WorldTick{20},
-        .nextAttack = WorldTick{0}};
-    Appearance app{.modified = tick_,
-        .glyph = U'S',
-        .radius = 20.F,
-        .fgColor = 0xFFFFFFFF,
-        .bgColor = 0x7FFF7FFF};
-    VisualEffects fx{.modified = tick_,
-        .flashColor = 0xFF7F7FFF,
-        .flashExpiry = WorldTick{5}};
-    Health health{.modified = tick_,
-        .currentHealth = 100.F,
-        .maxHealth = 100.F,
-        .regen = 0.F};
-    DefenderStats defenderStats{};
-    DefenderShooter defenderShooter{.bullet_template = bullet_template,
-        .fireRate = 1.F,
-        .spread = 0};
-    auto h = scene_.store_new_entity<sidDefenderShooter>({WorldTick::invalid},
-        pos, app, fx, defender, defenderStats, health, defenderShooter);
-    if (h) (void)markDirty(h.id());
-    return h;
+  // Return a pointer to component `C` for entity `id`, or `nullptr` if the
+  // entity does not carry that component.
+  template<typename C>
+  [[nodiscard]] C* try_get_component(EntityId id) noexcept {
+    return scene_.try_get_component<C>(id);
   }
 
   // Bake and store a path. Returns the index used as `path_follower::path_id`.
@@ -740,6 +692,9 @@ private:
 
   std::vector<EntityId> updatedEntities_;
   std::vector<EntityId> pathEscapees_;
+
+  // Entity type definitions: label -> component template. Survives `clear()`.
+  string_unordered_map<WorldScene::megatuple_t> entity_templates_;
 
   // Logically erases an entity, adding it to the dirty list.
   [[nodiscard]] bool tombstoneEntity(EntityId id) {

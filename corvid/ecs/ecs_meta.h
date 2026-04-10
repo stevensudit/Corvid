@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 
+#include <optional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -144,5 +145,63 @@ template<typename C, typename SrcTuple>
   else
     return C{};
 }
+
+// Helper: append T to Tuple only if T is not already present.
+template<typename T, typename Tuple>
+struct tuple_append_unique;
+template<typename T, typename... Ts>
+struct tuple_append_unique<T, std::tuple<Ts...>> {
+  using type = std::conditional_t<(std::is_same_v<T, Ts> || ...),
+      std::tuple<Ts...>, std::tuple<Ts..., T>>;
+};
+
+// Recursively accumulate types from SrcTuples into AccTuple, skipping
+// duplicates. Handles both type-list and empty-tuple cases.
+template<typename AccTuple, typename... SrcTuples>
+struct tuple_union_impl {
+  using type = AccTuple;
+};
+template<typename AccTuple, typename Head, typename... Tail, typename... Rest>
+struct tuple_union_impl<AccTuple, std::tuple<Head, Tail...>, Rest...> {
+  using type = typename tuple_union_impl<
+      typename tuple_append_unique<Head, AccTuple>::type, std::tuple<Tail...>,
+      Rest...>::type;
+};
+template<typename AccTuple, typename... Rest>
+struct tuple_union_impl<AccTuple, std::tuple<>, Rest...> {
+  using type = typename tuple_union_impl<AccTuple, Rest...>::type;
+};
+
+// Deduplicated union of component types across all `Tuples`. For example,
+// `tuple_union_t<tuple<A,B,C>, tuple<A,D,E>>` yields `tuple<A,B,C,D,E>`.
+template<typename... Tuples>
+using tuple_union_t = typename tuple_union_impl<std::tuple<>, Tuples...>::type;
+
+// 0-based index of T in Tuple. Fails to compile if T is not present.
+template<typename T, typename Tuple, size_t I = 0>
+struct tuple_index_impl;
+template<typename T, size_t I>
+struct tuple_index_impl<T, std::tuple<>, I> {
+  static_assert(dependent_false_v<T>, "type not found in tuple");
+};
+template<typename T, typename Head, typename... Tail, size_t I>
+struct tuple_index_impl<T, std::tuple<Head, Tail...>, I>
+    : std::conditional_t<std::is_same_v<T, Head>,
+          std::integral_constant<size_t, I>,
+          tuple_index_impl<T, std::tuple<Tail...>, I + 1>> {};
+
+template<typename T, typename Tuple>
+inline constexpr size_t tuple_index_v = tuple_index_impl<T, Tuple>::value;
+
+// Transform `std::tuple<C0, C1, ...>` to
+// `std::tuple<std::optional<C0>, std::optional<C1>, ...>`.
+template<typename Tuple>
+struct wrap_optionals;
+template<typename... Cs>
+struct wrap_optionals<std::tuple<Cs...>> {
+  using type = std::tuple<std::optional<Cs>...>;
+};
+template<typename Tuple>
+using wrap_optionals_t = typename wrap_optionals<Tuple>::type;
 
 }}} // namespace corvid::ecs::ecs_metas

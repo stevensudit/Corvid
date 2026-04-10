@@ -112,7 +112,8 @@ namespace corvid { inline namespace sim {
 // Enemy spawn definition for a wave.
 struct EnemySpawn {
   WaveTick startTicks;
-  int enemyType;
+  std::string
+      label; // matches a label registered with `SimWorld::registerEntity`
 };
 
 // All of the enemy spawns for a wave.
@@ -241,7 +242,9 @@ public:
     if (input.event == UiCanvasEvent::dblclick &&
         input.button == UiMouseButton::left)
     {
-      (void)world_.spawnDefenderAoe({input.x, input.y});
+      auto h = world_.spawnEntity("DefenderAoeBasic");
+      if (auto* pos = world_.try_get_component<Position>(h.id()))
+        *pos = {input.x, input.y};
     }
 
     if (input.event == UiCanvasEvent::click &&
@@ -308,12 +311,63 @@ private:
     for (; nextSpawnIndex_ < enemies.size(); ++nextSpawnIndex_) {
       const auto& enemy_def = enemies[nextSpawnIndex_];
       if (enemy_def.startTicks > waveTick_) break;
-      (void)world_.spawnInvaderAlpha(PathId{0});
+      auto h = world_.spawnEntity(enemy_def.label);
+      if (!h) continue;
+      // Set placement-specific fields not encoded in the template.
+      if (auto* pat = world_.try_get_component<Pathing>(h.id())) {
+        pat->path_id = PathId{0};
+        if (auto* pos = world_.try_get_component<Position>(h.id()))
+          if (const auto* path = world_.getPath(PathId{0}))
+            *pos = path->calculatePositionFromProgress(0.F, 0.F);
+      }
     }
   }
 
   void doLoadMap1() {
     resetMap();
+
+    // Register entity types available on this map. This is the single site
+    // that will later be replaced by CSV/JSON parsing.
+    {
+      WorldScene::megatuple_t tpl{};
+      std::get<std::optional<Position>>(tpl) = Position{};
+      std::get<std::optional<Appearance>>(
+          tpl) = Appearance{.glyph = U'\u03B1', // Greek alpha
+          .radius = 30.F,
+          .fgColor = 0xFFFFFFFF,
+          .bgColor = 0x000000FF};
+      std::get<std::optional<VisualEffects>>(tpl) = VisualEffects{};
+      std::get<std::optional<Pathing>>(tpl) =
+          Pathing{.path_id = PathId::invalid, .progress = 0.F, .speed = 50.F};
+      std::get<std::optional<Invader>>(tpl) =
+          Invader{.invaderType = 1, .hitCircleRadius = 30.F, .bounty = 10};
+      std::get<std::optional<Health>>(tpl) =
+          Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 10.F};
+      world_.registerEntity("InvaderAlphaBasic", tpl);
+    }
+    {
+      WorldScene::megatuple_t tpl{};
+      std::get<std::optional<Position>>(tpl) = Position{};
+      std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'A',
+          .radius = 30.F,
+          .fgColor = 0xFFFFFFFF,
+          .bgColor = 0x7F7FFFFF};
+      std::get<std::optional<VisualEffects>>(tpl) =
+          VisualEffects{.flashColor = 0xFF7F7FFF, .flashExpiry = WorldTick{5}};
+      std::get<std::optional<Defender>>(tpl) = Defender{.defenderType = 1,
+          .hitCircleRadius = 30.F,
+          .attackRadius = 100.F,
+          .rangeColor = 0xFFFF0000,
+          .attackDamage = 5.F,
+          .cooldown = WorldTick{20},
+          .nextAttack = WorldTick{0}};
+      std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
+      std::get<std::optional<Health>>(tpl) =
+          Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 0.F};
+      std::get<std::optional<DefenderAoe>>(tpl) = DefenderAoe{.damageType = 1};
+      world_.registerEntity("DefenderAoeBasic", tpl);
+    }
+
     // For now, a hardcoded spiral.
     PathJoints p;
     p.joints.push_back({Position{0.0, 0.0}});
@@ -348,7 +402,7 @@ private:
 
     WaveDefinition wave;
     for (uint32_t i = 0; i < 20; ++i)
-      wave.enemies.push_back({WaveTick{i * 20}, 0});
+      wave.enemies.push_back({WaveTick{i * 20}, "InvaderAlphaBasic"});
 
     waves_.push_back(std::move(wave));
   }

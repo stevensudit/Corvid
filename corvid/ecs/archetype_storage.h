@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <span>
 #include <type_traits>
 #include <tuple>
@@ -160,6 +161,16 @@ public:
         },
         components_);
     return static_cast<size_type>(min_cap);
+  }
+
+  // Create a new entity by extracting this archetype's components from `mega`,
+  // a `megatuple_t` (tuple of optionals). Each `optional<C>` for a component
+  // `C` in this archetype must have a value; the caller is responsible for
+  // ensuring the bitmap matches before calling.
+  template<typename MegaTuple>
+  [[nodiscard]] handle_t
+  add_new_from_mega(const metadata_t& metadata, const MegaTuple& mega) {
+    return this->add_new(metadata, *std::get<std::optional<Cs>>(mega)...);
   }
 
 private:

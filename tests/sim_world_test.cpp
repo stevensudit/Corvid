@@ -163,6 +163,64 @@ findPosition(const auto& entries, SimWorld::EntityId id) {
     return &it->second;
 }
 
+// Test helpers that register the entity type on demand (idempotent) and spawn
+// with placement applied, matching the old `spawnInvaderAlpha` /
+// `spawnDefenderAoe` behavior.
+[[nodiscard]] SimWorld::Handle
+spawnInvaderAlpha(SimWorld& w, PathId pid, float progress = 0.F) {
+  WorldScene::megatuple_t tpl{};
+  std::get<std::optional<Position>>(tpl) = Position{};
+  std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'\u03B1',
+      .radius = 30.F,
+      .fgColor = 0xFFFFFFFF,
+      .bgColor = 0x000000FF};
+  std::get<std::optional<VisualEffects>>(tpl) = VisualEffects{};
+  std::get<std::optional<Pathing>>(tpl) =
+      Pathing{.path_id = PathId::invalid, .progress = 0.F, .speed = 50.F};
+  std::get<std::optional<Invader>>(tpl) =
+      Invader{.invaderType = 1, .hitCircleRadius = 30.F, .bounty = 10};
+  std::get<std::optional<Health>>(tpl) =
+      Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 10.F};
+  w.registerEntity("InvaderAlphaBasic", tpl);
+  auto h = w.spawnEntity("InvaderAlphaBasic");
+  if (!h) return h;
+  if (auto* pat = w.try_get_component<Pathing>(h.id())) {
+    pat->path_id = pid;
+    pat->progress = progress;
+    if (auto* pos = w.try_get_component<Position>(h.id()))
+      if (const auto* path = w.getPath(pid))
+        *pos = path->calculatePositionFromProgress(progress, progress);
+  }
+  return h;
+}
+
+[[nodiscard]] SimWorld::Handle
+spawnDefenderAoe(SimWorld& w, Position spawn_pos) {
+  WorldScene::megatuple_t tpl{};
+  std::get<std::optional<Position>>(tpl) = Position{};
+  std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'A',
+      .radius = 30.F,
+      .fgColor = 0xFFFFFFFF,
+      .bgColor = 0x7F7FFFFF};
+  std::get<std::optional<VisualEffects>>(tpl) = VisualEffects{};
+  std::get<std::optional<Defender>>(tpl) = Defender{.defenderType = 1,
+      .hitCircleRadius = 30.F,
+      .attackRadius = 100.F,
+      .rangeColor = 0xFFFF0000,
+      .attackDamage = 5.F,
+      .cooldown = WorldTick{20},
+      .nextAttack = WorldTick{0}};
+  std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
+  std::get<std::optional<Health>>(tpl) =
+      Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 0.F};
+  std::get<std::optional<DefenderAoe>>(tpl) = DefenderAoe{.damageType = 1};
+  w.registerEntity("DefenderAoeBasic", tpl);
+  auto h = w.spawnEntity("DefenderAoeBasic");
+  if (!h) return h;
+  if (auto* pos = w.try_get_component<Position>(h.id())) *pos = spawn_pos;
+  return h;
+}
+
 } // namespace
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
@@ -175,8 +233,8 @@ void SimWorld_SpawnAndSnapshot() {
   p.joints = {{{0.F, 0.F}}, {{200.F, 0.F}}};
   const auto pid = w.addPath(p);
 
-  const auto invader = w.spawnInvaderAlpha(pid);
-  const auto defender = w.spawnDefenderAoe(Position{30.F, 40.F});
+  const auto invader = spawnInvaderAlpha(w, pid);
+  const auto defender = spawnDefenderAoe(w, Position{30.F, 40.F});
 
   EXPECT_EQ(w.size(), 2U);
 
@@ -197,7 +255,7 @@ void SimWorld_NextMovesInvaderAlpha() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{200.F, 0.F}}};
   const auto pid = w.addPath(p);
-  const auto invader = w.spawnInvaderAlpha(pid);
+  const auto invader = spawnInvaderAlpha(w, pid);
 
   (void)w.next();
 
@@ -214,7 +272,7 @@ void SimWorld_ExtractUpdatedEntitiesReportsMovedInvaderOncePerExtraction() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{300.F, 0.F}}};
   const auto pid = w.addPath(p);
-  const auto invader = w.spawnInvaderAlpha(pid);
+  const auto invader = spawnInvaderAlpha(w, pid);
 
   (void)w.next();
   (void)w.tick();
@@ -238,8 +296,8 @@ void SimWorld_TowerInRangeFlashesItselfAndInvader() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
   const auto pid = w.addPath(p);
-  const auto tower = w.spawnDefenderAoe({0.F, 0.F});
-  const auto invader = w.spawnInvaderAlpha(pid);
+  const auto tower = spawnDefenderAoe(w, {0.F, 0.F});
+  const auto invader = spawnInvaderAlpha(w, pid);
 
   (void)extractWorldDelta(w);
   (void)w.tick();
@@ -269,8 +327,8 @@ void SimWorld_SnapshotSinceTracksChanges() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
   const auto pid = w.addPath(p);
-  const auto invader = w.spawnInvaderAlpha(pid);
-  (void)w.spawnDefenderAoe(Position{500.F, 500.F});
+  const auto invader = spawnInvaderAlpha(w, pid);
+  (void)spawnDefenderAoe(w, Position{500.F, 500.F});
 
   // Drain the spawn-time dirty list; both entities visible at tick_=0.
   const auto initial = extractWorldDelta(w);
@@ -299,7 +357,7 @@ void SimWorld_SnapshotSinceTracksChanges() {
 
 void SimWorld_DefenderDoesNotAppearAsChangedAfterTick() {
   SimWorld w;
-  const auto defender = w.spawnDefenderAoe(Position{50.F, 60.F});
+  const auto defender = spawnDefenderAoe(w, Position{50.F, 60.F});
 
   const auto initial = extractWorldDelta(w);
   ASSERT_EQ(initial.upserts.size(), 1U);
@@ -396,7 +454,7 @@ void SimWorld_EnemyAdvancesOnTick() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{100.F, 0.F}}};
   const auto pid = w.addPath(p);
-  const auto enemy = w.spawnInvaderAlpha(pid);
+  const auto enemy = spawnInvaderAlpha(w, pid);
 
   EXPECT_TRUE(static_cast<bool>(enemy));
   EXPECT_EQ(w.size(), 1U);
@@ -416,7 +474,7 @@ void SimWorld_ResolveEscapeesVisitsEscapedEnemy() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
   const auto pid = w.addPath(p);
-  const auto enemy = w.spawnInvaderAlpha(pid, 8.F);
+  const auto enemy = spawnInvaderAlpha(w, pid, 8.F);
 
   (void)w.next();
   EXPECT_EQ(w.size(), 1U);
@@ -451,7 +509,7 @@ void SimWorld_ResolveEscapeesCanLeaveEnemyAlive() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
   const auto pid = w.addPath(p);
-  const auto enemy = w.spawnInvaderAlpha(pid, 8.F);
+  const auto enemy = spawnInvaderAlpha(w, pid, 8.F);
 
   (void)w.next();
 

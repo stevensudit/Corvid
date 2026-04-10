@@ -16,7 +16,9 @@
 // limitations under the License.
 #pragma once
 
+#include <array>
 #include <cstddef>
+#include <optional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -103,6 +105,22 @@ public:
   static_assert(storage_count_v < *store_id_t::invalid,
       "too many storage_ts: store_id_t would overflow into the invalid "
       "sentinel");
+
+  // Deduplicated union of all component types across all storages.
+  using component_union_t = tuple_union_t<typename STORES::tuple_t...>;
+
+  // `megatuple_t`: one `optional<C>` per unique component type in the scene.
+  // Setting an optional encodes component presence; the pattern of set
+  // optionals uniquely identifies the archetype, eliminating the need for an
+  // explicit `store_id_t` at the call site of `store_new_entity_from_mega`.
+  using megatuple_t = wrap_optionals_t<component_union_t>;
+
+  // One bit per unique component type; supports scenes with up to 64 distinct
+  // component types.
+  using bitmap_t = uint64_t;
+  static_assert(std::tuple_size_v<component_union_t> <= 64,
+      "megatuple_t has more than 64 unique component types; bitmap_t too "
+      "narrow");
 
   // Type of the storage with the given `store_id`.
   template<store_id_t SID>
@@ -191,6 +209,32 @@ public:
               std::forward<decltype(cs)>(cs)...);
         },
         std::forward<T>(obj));
+  }
+
+  // Create a new entity from a `megatuple_t`. The set of optionals that have
+  // values must exactly match the component set of one of this scene's
+  // archetypes, as determined by a linear search of the compile-time bitmap
+  // table. Returns a valid handle on success, or an invalid handle if no
+  // archetype matches the bitmap, the registry refused creation, or the
+  // storage limit would be exceeded.
+  //
+  // Note: It's tempting to sort the array and do a binary search, but given
+  // the numbers, it's not likely to be measurably faster, and might even be
+  // slower.
+  [[nodiscard]] handle_t store_new_entity_from_mega(const metadata_t& metadata,
+      const megatuple_t& tpl) {
+    const bitmap_t bm = bitmap_of(tpl);
+    for (const auto& [arch_bm, sid] : bitmap_table_v) {
+      if (arch_bm == bm) {
+        return dispatch_storage<handle_t>(
+            sid,
+            [&](auto& s) -> handle_t {
+              return s.add_new_from_mega(metadata, tpl);
+            },
+            handle_t{});
+      }
+    }
+    return handle_t{};
   }
 
   // Insert an already-staged entity into a storage selected at runtime by
@@ -568,6 +612,39 @@ public:
   }
 
 private:
+  // Bit index of component type C in `component_union_t` / `megatuple_t`.
+  template<typename C>
+  static constexpr size_t component_bit_v =
+      tuple_index_v<C, component_union_t>;
+
+  // Compile-time bitmap for archetype `Store`: bit j is set if component j
+  // (in `component_union_t` order) is in `Store::tuple_t`.
+  template<typename Store>
+  static constexpr bitmap_t arch_bitmap_for() {
+    return []<typename... Cs>(std::tuple<Cs...>*) -> bitmap_t {
+      return ((bitmap_t{1} << component_bit_v<Cs>) | ...);
+    }(static_cast<typename Store::tuple_t*>(nullptr));
+  }
+
+  // Compile-time table mapping each archetype's component bitmap to its SID.
+  // Entries are in storage order (SID 1, 2, ..., `storage_count_v`).
+  static constexpr std::array<std::pair<bitmap_t, store_id_t>, storage_count_v>
+      bitmap_table_v = []<size_t... Is>(std::index_sequence<Is...>) {
+        return std::array{std::pair{
+            arch_bitmap_for<std::tuple_element_t<Is, std::tuple<STORES...>>>(),
+            store_id_t{Is + 1}}...};
+      }(std::index_sequence_for<STORES...>{});
+
+  // Compute the runtime bitmap of a `megatuple_t`: bit j is set if the jth
+  // optional has a value.
+  [[nodiscard]] static bitmap_t bitmap_of(const megatuple_t& tpl) noexcept {
+    return [&]<size_t... Is>(std::index_sequence<Is...>) -> bitmap_t {
+      return (
+          (std::get<Is>(tpl).has_value() ? (bitmap_t{1} << Is) : bitmap_t{}) |
+          ...);
+    }(std::make_index_sequence<std::tuple_size_v<megatuple_t>>{});
+  }
+
   // Count how many storages expose a `tuple_t` equal to `T`.
   template<typename T>
   static constexpr size_t count_stores_with_tuple_v =
