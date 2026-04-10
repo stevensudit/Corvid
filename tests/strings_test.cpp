@@ -2134,6 +2134,7 @@ void StringUtilsTest_StdFromChars() {
     sv = "abc";
     result = std::from_chars(sv.data(), sv.data() + sv.size(), fvalue);
     EXPECT_EQ(result.ptr, sv.data());
+    EXPECT_EQ(result.ec, std::errc::invalid_argument);
   }
   // Test extract_num float wrappers (which use std::from_chars internally).
   if (true) {
@@ -2151,11 +2152,6 @@ void StringUtilsTest_StdFromChars() {
     EXPECT_TRUE(strings::extract_num(f, sv));
     EXPECT_TRUE(f > 6e23f);
     EXPECT_TRUE(sv.empty());
-
-    // Note: The fallback std::from_chars implementation has a limitation where
-    // invalid input like "xyz" returns success with value 0.0 and ptr at
-    // start. The extract_num wrapper checks for character consumption, so it
-    // may still fail in some cases.
   }
   // Test parse_num float wrappers.
   if (true) {
