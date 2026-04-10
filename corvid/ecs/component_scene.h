@@ -385,7 +385,7 @@ private:
   // Build the union of all storage bits whose `component_t == C`. Used by
   // `for_all` to detect multi-storage presence for a shared component type.
   template<typename C>
-  [[nodiscard]] static constexpr registry_t::store_id_set_t
+  [[nodiscard]] static consteval registry_t::store_id_set_t
   make_union_mask_for() noexcept {
     typename registry_t::store_id_set_t mask{};
     [&]<size_t... Is>(std::index_sequence<Is...>) {
@@ -453,7 +453,7 @@ private:
   // then `tag_t` fallback). The storage at tuple index `I+1` invariantly
   // holds `store_id_t{I+1}` (established by `make_storages`).
   template<typename... Cs>
-  [[nodiscard]] static constexpr registry_t::store_id_set_t
+  [[nodiscard]] static consteval registry_t::store_id_set_t
   make_target_mask() noexcept {
     typename registry_t::store_id_set_t mask{};
     auto set_one = [&]<typename C>() {

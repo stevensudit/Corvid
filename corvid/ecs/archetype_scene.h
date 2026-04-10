@@ -687,7 +687,7 @@ private:
   // Compile-time bitmap for archetype `Store`: bit j is set if component j
   // (in `component_union_t` order) is in `Store::tuple_t`.
   template<typename Store>
-  static constexpr bitmap_t arch_bitmap_for() {
+  static consteval bitmap_t arch_bitmap_for() {
     return []<typename... Cs>(std::tuple<Cs...>*) -> bitmap_t {
       return ((bitmap_t{1} << component_bit_v<Cs>) | ...);
     }(static_cast<typename Store::tuple_t*>(nullptr));
@@ -696,7 +696,7 @@ private:
   // Compile-time table mapping each archetype's component bitmap to its SID.
   // Entries are in storage order (SID 1, 2, ..., `storage_count_v`).
   static constexpr std::array<std::pair<bitmap_t, store_id_t>, storage_count_v>
-      bitmap_table_v = []<size_t... Is>(std::index_sequence<Is...>) {
+      bitmap_table_v = []<size_t... Is>(std::index_sequence<Is...>) consteval {
         return std::array{std::pair{
             arch_bitmap_for<std::tuple_element_t<Is, std::tuple<STORES...>>>(),
             store_id_t{Is + 1}}...};
@@ -721,7 +721,7 @@ private:
   // Caller must ensure exactly one match (guarded by
   // `count_stores_with_tuple_v`).
   template<typename T, size_t... Is>
-  static constexpr store_id_t
+  static consteval store_id_t
   find_sid_for_tuple(std::index_sequence<Is...>) noexcept {
     store_id_t result = store_id_t::invalid;
     (void)((std::is_same_v<T, typename std::tuple_element_t<Is,
@@ -734,14 +734,14 @@ private:
 
   // Produces `std::index_sequence<Offset, Offset+1, ..., Offset+N-1>`.
   template<size_t Offset, size_t... Is>
-  static constexpr auto make_offset_sequence(std::index_sequence<Is...>)
+  static consteval auto make_offset_sequence(std::index_sequence<Is...>)
       -> std::index_sequence<(Is + Offset)...> {
     return {};
   }
 
   // Index sequence spanning all real storages: 1, 2, ..., `storage_count_v`.
   // Matches `store_id_t` values and tuple indices directly (monostate at 0).
-  static constexpr auto storage_indices() {
+  static consteval auto storage_indices() {
     return make_offset_sequence<1>(
         std::make_index_sequence<storage_count_v>{});
   }
