@@ -46,6 +46,20 @@ interface PathPoint {
   y: number
 }
 
+interface MapDesign {
+  backgroundSprite: string
+  foregroundSprite: string
+  paths: PathPoint[]
+}
+
+export interface DefenderMenuItem {
+  entityName: string
+  displayName: string
+  flavorText: string
+  resourceCost: number
+  appearance: EntityAppearance
+}
+
 export interface EntityUpsert {
   pos: EntityPosition
   app?: EntityAppearance
@@ -87,7 +101,8 @@ export interface WorldDelta {
 
 export interface WorldSnapshot {
   type: 'world_snapshot'
-  paths: PathPoint[]
+  mapDesign: MapDesign
+  defenderMenu: DefenderMenuItem[]
   delta: WorldDelta
 }
 

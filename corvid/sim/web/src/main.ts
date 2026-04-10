@@ -1135,12 +1135,19 @@ function isServerMsg(value: unknown): value is ServerMsg {
       return typeof v.message === 'string'
     case 'world_delta':
       return isWorldDelta(v)
-    case 'world_snapshot':
+    case 'world_snapshot': {
+      const md = v.mapDesign as Record<string, unknown> | undefined
       return (
-        Array.isArray(v.paths) &&
-        v.paths.every(isPoint) &&
+        !!md &&
+        typeof md === 'object' &&
+        typeof md.backgroundSprite === 'string' &&
+        typeof md.foregroundSprite === 'string' &&
+        Array.isArray(md.paths) &&
+        md.paths.every(isPoint) &&
+        Array.isArray(v.defenderMenu) &&
         isWorldDelta(v.delta)
       )
+    }
     default:
       return false
   }
@@ -1181,7 +1188,7 @@ ws.onmessage = (event: MessageEvent<string>) => {
       break
     case 'world_snapshot':
       resetClientWorldState()
-      drawBackground(parsed.paths)
+      drawBackground(parsed.mapDesign.paths)
       applyWorldDelta(parsed.delta)
       break
   }

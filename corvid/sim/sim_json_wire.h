@@ -153,14 +153,43 @@ struct SimGameStateJson {
   if (send_strategy == update_strategy::full) {
     auto snapshot = writer.object();
     snapshot->member(json_trusted{"type"}, json_trusted{"world_snapshot"});
-    if (auto paths = snapshot->member_array(json_trusted{"paths"})) {
-      (void)game.extractPaths([&writer](auto, const Position& pos) {
-        auto path = writer.object();
-        path->member(json_trusted{"x"}, pos.x, std::chars_format::fixed, 1)
-            .member(json_trusted{"y"}, pos.y, std::chars_format::fixed, 1);
-        return true;
-      });
+
+    // Map design: sprite filenames + path joints.
+    if (auto map_design = snapshot->member_object(json_trusted{"mapDesign"})) {
+      const auto& md = game.mapDesign();
+      map_design
+          ->member(json_trusted{"backgroundSprite"}, md.backgroundSpriteFile)
+          .member(json_trusted{"foregroundSprite"}, md.foregroundSpriteFile);
+      if (auto paths = map_design->member_array(json_trusted{"paths"})) {
+        (void)game.extractPaths([&writer](auto, const Position& pos) {
+          auto path = writer.object();
+          path->member(json_trusted{"x"}, pos.x, std::chars_format::fixed, 1)
+              .member(json_trusted{"y"}, pos.y, std::chars_format::fixed, 1);
+          return true;
+        });
+      }
     }
+
+    // Defender build menu (purchasable defenders, in menu order).
+    if (auto menu = snapshot->member_array(json_trusted{"defenderMenu"})) {
+      for (const auto& entry : game.mapDesign().defenderMenu) {
+        auto item = writer.object();
+        item->member(json_trusted{"entityName"}, entry.entityName)
+            .member(json_trusted{"displayName"}, entry.displayName)
+            .member(json_trusted{"flavorText"}, entry.flavorText)
+            .member(json_trusted{"resourceCost"}, entry.resourceCost,
+                std::chars_format::fixed, 1);
+        if (auto app = item->member_object(json_trusted{"appearance"})) {
+          app->member(json_trusted{"glyph"},
+                 static_cast<uint32_t>(entry.appearance.glyph))
+              .member(json_trusted{"radius"}, entry.appearance.radius,
+                  std::chars_format::fixed, 3)
+              .member(json_trusted{"fg"}, entry.appearance.fgColor)
+              .member(json_trusted{"bg"}, entry.appearance.bgColor);
+        }
+      }
+    }
+
     write_delta(*snapshot->member_object(json_trusted{"delta"}));
   } else
     write_delta(*writer.object());

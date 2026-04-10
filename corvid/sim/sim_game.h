@@ -122,6 +122,47 @@ struct WaveDefinition {
   int resourceInflux{}; // Resources rewarded at start of wave
 };
 
+// Full definition of one entity type, combining display metadata with the
+// component template used to register and spawn it.
+struct EntityDefinition {
+  std::string entityName;
+  std::string displayName;
+  int menuOrder{}; // Display order.
+  std::string flavorText;
+  // NaN means "not for sale" (all invaders default to this).
+  float resourceCost{std::numeric_limits<float>::quiet_NaN()};
+  WorldScene::megatuple_t megatuple;
+};
+
+// Keyed by `entityName` for O(1) lookup.
+using EntityDefinitions = string_unordered_map<EntityDefinition>;
+
+// One entry in the build menu streamed to the client. Already sorted by
+// `menuOrder` before streaming; `menuOrder` itself is not streamed.
+struct DefenderMenuEntry {
+  std::string entityName;
+  std::string displayName;
+  int menuOrder{};
+  std::string flavorText;
+  float resourceCost{};
+  Appearance appearance; // extracted from megatuple at build time
+};
+
+// Sorted by `menuOrder`, filtered to purchasable defenders only.
+using DefenderMenu = std::vector<DefenderMenuEntry>;
+
+// Everything needed to play one map: paths, sprites, entity definitions,
+// derived defender menu, and wave schedule. Self-contained so that
+// `SimGame` can hold multiple `MapDesign`s in future.
+struct MapDesign {
+  std::vector<PathJoints> paths;
+  std::string backgroundSpriteFile;
+  std::string foregroundSpriteFile;
+  EntityDefinitions entityDefs;
+  DefenderMenu defenderMenu;
+  std::vector<WaveDefinition> waves;
+};
+
 struct UiCanvasInput {
   uint64_t seq{};
   UiCanvasEvent event{UiCanvasEvent::click};
@@ -156,14 +197,14 @@ public:
   // Load the chosen map, resetting all game state.
   void loadMap() {
     // TODO: Have multiple maps.
-    doLoadMap1();
+    (void)doLoadMap1();
   }
 
   // Resets all map information.
   void resetMap() {
     world_.clear();
     phase_ = GamePhase::build;
-    waves_.clear();
+    mapDesign_ = {};
     currentWave_ = 0;
     waveTick_ = {};
     nextSpawnIndex_ = 0;
@@ -264,6 +305,9 @@ public:
 
   void placeTower(/* later */);
 
+  // Access the current map design (for streaming and inspection).
+  [[nodiscard]] const MapDesign& mapDesign() const { return mapDesign_; }
+
   // Extract a snapshot of the paths by calling `cbPath(pathId, Position)` for
   // all joints of all paths.
   [[nodiscard]] bool extractPaths(auto&& cbPath) const {
@@ -304,9 +348,41 @@ public:
   }
 
 private:
+  // Register all entities and build the defender menu from
+  // `mapDesign_.entityDefs`.
+  [[nodiscard]] bool processEntityDefs() {
+    auto& defs = mapDesign_.entityDefs;
+    auto& menu = mapDesign_.defenderMenu;
+    menu.clear();
+    for (const auto& [name, def] : defs) {
+      world_.registerEntity(def.entityName, def.megatuple);
+      if (!std::isnan(def.resourceCost)) {
+        const auto& app_opt =
+            std::get<std::optional<Appearance>>(def.megatuple);
+        menu.push_back({.entityName = def.entityName,
+            .displayName = def.displayName,
+            .menuOrder = def.menuOrder,
+            .flavorText = def.flavorText,
+            .resourceCost = def.resourceCost,
+            .appearance = *app_opt});
+      }
+    }
+    std::ranges::sort(menu,
+        [](const DefenderMenuEntry& a, const DefenderMenuEntry& b) {
+          return a.menuOrder < b.menuOrder;
+        });
+    return true;
+  }
+
+  // Add each `PathJoints` from `mapDesign_.paths` to the world.
+  [[nodiscard]] bool processPaths() {
+    for (const auto& pj : mapDesign_.paths) (void)world_.addPath(pj);
+    return true;
+  }
+
   // Spawn all the enemies slated for this wave tick.
   void spawnPendingWaveEnemies() {
-    const auto& wave = waves_[currentWave_];
+    const auto& wave = mapDesign_.waves[currentWave_];
     const auto& enemies = wave.enemies;
     for (; nextSpawnIndex_ < enemies.size(); ++nextSpawnIndex_) {
       const auto& enemyDef = enemies[nextSpawnIndex_];
@@ -325,13 +401,16 @@ private:
     }
   }
 
-  void doLoadMap1() {
+  [[nodiscard]] bool doLoadMap1() {
     resetMap();
 
-    // Register entity types available on this map. This is the single site
-    // that will later be replaced by CSV/JSON parsing.
+    // Entity definitions. This is the single site that will later be replaced
+    // by CSV/JSON parsing.
     {
-      WorldScene::megatuple_t tpl{};
+      EntityDefinition def;
+      def.entityName = "InvaderAlphaBasic";
+      // `resourceCost` stays NaN (not for sale).
+      auto& tpl = def.megatuple;
       std::get<std::optional<Position>>(tpl) = Position{};
       std::get<std::optional<Appearance>>(
           tpl) = Appearance{.glyph = U'\u03B1', // Greek alpha
@@ -345,10 +424,16 @@ private:
           Invader{.invaderType = 1, .hitCircleRadius = 30.F, .bounty = 10};
       std::get<std::optional<Health>>(tpl) =
           Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 10.F};
-      world_.registerEntity("InvaderAlphaBasic", tpl);
+      mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
     }
     {
-      WorldScene::megatuple_t tpl{};
+      EntityDefinition def;
+      def.entityName = "DefenderAoeBasic";
+      def.displayName = "AoE Defender";
+      def.menuOrder = 1;
+      def.flavorText = "Damages all enemies in range.";
+      def.resourceCost = 50.F;
+      auto& tpl = def.megatuple;
       std::get<std::optional<Position>>(tpl) = Position{};
       std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'A',
           .radius = 30.F,
@@ -367,46 +452,52 @@ private:
       std::get<std::optional<Health>>(tpl) =
           Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 0.F};
       std::get<std::optional<DefenderAoe>>(tpl) = DefenderAoe{.damageType = 1};
-      world_.registerEntity("DefenderAoeBasic", tpl);
+      mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
     }
 
-    // For now, a hardcoded spiral.
-    PathJoints p;
-    p.joints.push_back({Position{0.0, 0.0}});
-    constexpr float kHalfWidth = SimWorld::widthOfWorld / 2.F;
-    constexpr float kHalfHeight = SimWorld::heightOfWorld / 2.F;
-    constexpr float kStepSize = 80.0;
-    constexpr float kAspect = SimWorld::widthOfWorld / SimWorld::heightOfWorld;
-    constexpr float kXStepSize = kStepSize * kAspect;
-    float x = 0.0;
-    float y = 0.0;
-    float x_run = kXStepSize;
-    float y_run = kStepSize;
-    auto append_segment = [&](float dx, float dy) {
-      x = std::clamp(x + dx, -kHalfWidth, kHalfWidth);
-      y = std::clamp(y + dy, -kHalfHeight, kHalfHeight);
-      p.joints.push_back({Position{x, y}});
-      return x > -kHalfWidth && x < kHalfWidth && y > -kHalfHeight &&
-             y < kHalfHeight;
-    };
-
-    while (true) {
-      if (!append_segment(x_run, 0.F)) break;
-      if (!append_segment(0.F, y_run)) break;
-      x_run += kXStepSize;
-      if (!append_segment(-x_run, 0.F)) break;
-      y_run += kStepSize;
-      if (!append_segment(0.F, -y_run)) break;
-      x_run += kXStepSize;
-      y_run += kStepSize;
+    // Path geometry (sprite files empty until sprites are added).
+    {
+      PathJoints p;
+      p.joints.push_back({Position{0.0, 0.0}});
+      constexpr float kHalfWidth = SimWorld::widthOfWorld / 2.F;
+      constexpr float kHalfHeight = SimWorld::heightOfWorld / 2.F;
+      constexpr float kStepSize = 80.0;
+      constexpr float kAspect =
+          SimWorld::widthOfWorld / SimWorld::heightOfWorld;
+      constexpr float kXStepSize = kStepSize * kAspect;
+      float x = 0.0;
+      float y = 0.0;
+      float x_run = kXStepSize;
+      float y_run = kStepSize;
+      auto append_segment = [&](float dx, float dy) {
+        x = std::clamp(x + dx, -kHalfWidth, kHalfWidth);
+        y = std::clamp(y + dy, -kHalfHeight, kHalfHeight);
+        p.joints.push_back({Position{x, y}});
+        return x > -kHalfWidth && x < kHalfWidth && y > -kHalfHeight &&
+               y < kHalfHeight;
+      };
+      while (true) {
+        if (!append_segment(x_run, 0.F)) break;
+        if (!append_segment(0.F, y_run)) break;
+        x_run += kXStepSize;
+        if (!append_segment(-x_run, 0.F)) break;
+        y_run += kStepSize;
+        if (!append_segment(0.F, -y_run)) break;
+        x_run += kXStepSize;
+        y_run += kStepSize;
+      }
+      mapDesign_.paths.push_back(std::move(p));
     }
-    (void)world_.addPath(p);
 
-    WaveDefinition wave;
-    for (uint32_t i = 0; i < 20; ++i)
-      wave.enemies.push_back({WaveTick{i * 20}, "InvaderAlphaBasic"});
+    // Wave definitions.
+    {
+      WaveDefinition wave;
+      for (uint32_t i = 0; i < 20; ++i)
+        wave.enemies.push_back({WaveTick{i * 20}, "InvaderAlphaBasic"});
+      mapDesign_.waves.push_back(std::move(wave));
+    }
 
-    waves_.push_back(std::move(wave));
+    return processEntityDefs() && processPaths();
   }
 
 private:
@@ -419,8 +510,8 @@ private:
   // as the world's, and may not even run at the same speed.
   WaveTick waveTick_{};
 
-  // Wave definitions for the current map.
-  std::vector<WaveDefinition> waves_;
+  // All design-time data for the currently loaded map.
+  MapDesign mapDesign_;
 
   // Current wave.
   size_t currentWave_{};

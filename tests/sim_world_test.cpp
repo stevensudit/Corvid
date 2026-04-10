@@ -937,7 +937,9 @@ void SimJson_BuildWorldSnapshotJsonShape() {
   ASSERT_TRUE(root_type.has_value());
   EXPECT_EQ(*root_type, std::string_view{"world_snapshot"});
 
-  const auto paths = obj.get_array("paths");
+  const auto map_design = obj.get_object("mapDesign");
+  ASSERT_TRUE(map_design);
+  const auto paths = map_design.get_array("paths");
   ASSERT_TRUE(paths);
   size_t path_points = 0;
   for (const auto point : paths) {
