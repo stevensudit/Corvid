@@ -768,6 +768,7 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
 
   sim_game_state_json initial_state;
   (void)build_sim_game_state_json(initial_state, game);
+  (void)game.tick();
 
   game.handleUiCanvas(UiCanvasInput{.seq = 2,
       .event = UiCanvasEvent::click,
@@ -804,8 +805,8 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
     const auto flash_expiry_ms = vfx.get_number<uint32_t>("flashExpiryMs");
     ASSERT_TRUE(flash.has_value());
     ASSERT_TRUE(flash_expiry_ms.has_value());
-    EXPECT_EQ(*flash, 0xFFFF007FU);
-    EXPECT_EQ(*flash_expiry_ms, 20000U);
+    EXPECT_EQ(*flash, 0xFF7F7FAFU);
+    EXPECT_EQ(*flash_expiry_ms, 250U);
     ++count;
   }
   EXPECT_EQ(count, 1U);

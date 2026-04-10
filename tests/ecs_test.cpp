@@ -2115,7 +2115,7 @@ void EntityRegistry_ForEach() {
       return id != id1;
     });
 
-    EXPECT_EQ(cnt, 1U);
+    EXPECT_EQ(cnt, 2U);
     EXPECT_EQ(ids.size(), 2U);
     EXPECT_EQ(ids[0], id0);
     EXPECT_EQ(ids[1], id1);

@@ -581,8 +581,8 @@ public:
       auto& rec = records_[id];
       if (!is_alive(id)) continue;
       if (pred(id, rec)) {
-        do_erase(id);
         ++cnt;
+        do_erase(id);
       }
     }
     return cnt;
@@ -597,8 +597,8 @@ public:
     for (id_t id{}; id < id_end; ++id) {
       const auto& rec = records_[id];
       if (!is_alive(id)) continue;
-      if (!func(id, rec)) break;
       ++cnt;
+      if (!func(id, rec)) break;
     }
     return cnt;
   }

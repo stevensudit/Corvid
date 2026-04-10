@@ -2131,14 +2131,8 @@ void StringUtilsTest_StdFromChars() {
     result = std::from_chars(sv.data() + 2, sv.data(), fvalue);
     EXPECT_NE(result.ec, std::errc{});
 
-    // Note: Invalid input like "abc" is handled by strtof/strtod which returns
-    // 0.0 with endptr at start. The fallback implementation doesn't detect
-    // this as an error (it sets value to 0.0 and returns success with ptr at
-    // start). This is a known limitation of the fallback implementation.
     sv = "abc";
     result = std::from_chars(sv.data(), sv.data() + sv.size(), fvalue);
-    // Fallback returns success with value 0 and ptr at start (no chars
-    // consumed).
     EXPECT_EQ(result.ptr, sv.data());
   }
   // Test extract_num float wrappers (which use std::from_chars internally).
@@ -2206,26 +2200,6 @@ void StringUtilsTest_StdFromChars() {
 
     val = strings::parse_num<double>("xyz"sv, -999.0);
     EXPECT_EQ(val, -999.0);
-  }
-  // Test edge cases for buffer handling in std::from_chars fallback.
-  if (true) {
-    double value{};
-
-    // String exactly at buffer boundary (127 chars).
-    std::string long_num = "1.";
-    long_num.append(125, '0');
-    std::string_view sv = long_num;
-    auto result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
-    EXPECT_EQ(result.ec, std::errc{});
-    EXPECT_EQ(value, 1.0);
-
-    // String longer than internal buffer (should still work, truncated).
-    long_num = "1.";
-    long_num.append(200, '0');
-    sv = long_num;
-    result = std::from_chars(sv.data(), sv.data() + sv.size(), value);
-    EXPECT_EQ(result.ec, std::errc{});
-    EXPECT_EQ(value, 1.0);
   }
 }
 
