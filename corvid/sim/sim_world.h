@@ -227,23 +227,34 @@ constexpr Tick invalidTick = std::numeric_limits<Tick>::max();
 // For circle hitboxes, collision is trivial: when the distance between centers
 // is less than the sum of the radii, they collide.
 
-// Path-following component. Stored alongside `Position` in the enemy
-// archetype. Each tick, `progress` advances by `speed`; the entity's
-// `Position` is re-derived from the segmented path geometry.
-struct PathFollower {
-  PathId pathId{};  // Index into `sim_world::paths_`.
+// Path-following component. Typically part of an invader archetype, but may
+// also apply to defenders. On each tick, `progress` advances by `speed`; the
+// entity's `Position` is re-derived from the segmented path geometry.
+struct Pathing {
+  PathId path_id{}; // Index into `sim_world::paths_`.
   float progress{}; // Distance traveled along the path so far.
   float speed{};    // Distance per tick.
 };
 
 // Appearance component. Controls rendering on client side, but has no effect
 // on physics or game logic.
+// TODO: Add field for sprite selection.
 struct Appearance {
   WorldTick modified{WorldTick::invalid}; // Tick when last modified.
   char32_t glyph{};    // a Unicode character to display, if any.
   float radius{5.F};   // world-space radius of the rendered shape.
   uint32_t fg_color{}; // RGBA.
   uint32_t bg_color{}; // RGBA.
+};
+
+// Health component. Applies to both defenders and invaders. The two health
+// fields are streamed to the client in order to render health bars. The
+// `regen` is server-side only.
+struct Health {
+  WorldTick modified{WorldTick::invalid}; // Tick when last modified.
+  float current_health{};
+  float max_health{};
+  float regen{}; // Regeneration or bleed per tick.
 };
 
 // Visual effects component. Controls transient overlays on the client side,
@@ -257,46 +268,68 @@ struct VisualEffects {
   WorldTick flash_expiry{WorldTick::invalid};
 };
 
-// Defensive tower component. Stored alongside `Position` in the tower
-// archetype.
-//
-// Note that towers sitting in the catalog or being dragged and dropped into
-// place are not entities, just client-side UI ephemera. Only once a tower is
-// placed does it become part of the world.
-struct Tower {
-  int tower_type{};
+// Defensive tower component, common across all defenders.
+struct Defender {
+  int defender_type{};       // Eventually an enum.
+  float hit_circle_radius{}; // Hit detection, as opposed to appearance.
   float attack_radius{};
-  uint32_t range_color{};  // RGBA.
-  float attack_damage{};   // Per-attack damage.
-  WorldTick cooldown{};    // Cooldown for this sort of tower, in ticks.
-  WorldTick next_attack{}; // Tick when the next attack can occur.
+  uint32_t range_color{}; // RGBA.
+  float attack_damage{};  // Interpretation depends on the tower type.
+  WorldTick cooldown{};
+  WorldTick next_attack{}; // Updated when the tower attacks.
 };
 
-// TODO: Standardize on Defender and Invader as the two sides, rather than
-// Tower and Enemy. Defender is more general and can apply to both towers and
-// bullets, while Enemy is more specific and only applies to the path-following
-// invaders. We may want to add a separate archetype for non-path-following
-// enemies, such as flying ones.
+// Stats for defenders, shown when selecting a defender.
+struct DefenderStats {
+  float total_damage_dealt{};
+  float total_damage_taken{};
+  float total_kills{};
+};
 
-// TODO: Rename Tower to DefenderAoe.  Add DefenderHitscan, which is similar
-// except that it has a beam_color and beam_duration. Add DefenderProjective,
-// which has a projectile_speed and projectile_damage, which is used to spawn a
-// bullet.
+// Area-of-effect component for defenders that have an attack that hits an area
+// rather than a single target.
+struct DefenderAoe {
+  int damage_type{}; // Eventually an enum.
+};
 
-// Enemy invader component. Stored alongside `Position` and `PathFollower` in
-// the enemy archetype.
+// Hitscan component for defenders that have an attack that hits a single
+// target instantly, rather than spawning a projectile that travels to the
+// target.
+struct DefenderHitscan {
+  uint32_t beam_color{}; // RGBA.
+  WorldTick beam_duration{};
+  int beam_type{}; // Eventually an enum.
+};
+
+// Projectile component for `DefenderShooter`. Used as part of its own
+// archetype, and also as the `bullet_template`. As a template, the `expiry`
+// field stores the TTL. Once instantiated, added to the current tick to gets
+// its final moment.
+struct DefenderBullet {
+  float speed{};
+  float direct_damage{};
+  float damage_over_time{};
+  float splash_radius{};
+  float direct_damage_type{}; // Eventually an enum.
+  float dot_damage_type{};    // Eventually an enum.
+  int projectile_type{};      // Eventually an enum.
+  WorldTick expiry{};
+};
+
+// Shooter component for defenders that spawn projectiles. The
+// `bullet_template` is used to spawn bullets with the same properties as the
+// tower's attack, but with their own position and velocity.
+struct DefenderShooter {
+  DefenderBullet bullet_template{};
+  float fire_rate{}; // Shots per tick.
+  int spread{};      // Eventually an enum.
+};
+
+// Invader component, shared across all invaders.
 struct Invader {
-  float health{};
-  float radius{}; // Distinct from appearance: this is used for hit detection.
-  int bounty{1};  // Resources awarded to the player for killing this enemy.
-};
-
-// Bullet component. Stored alongside `Position` and `Velocity` in the bullet
-// archetype.
-struct Bullet {
-  int bullet_type{};
-  float damage{};
-  WorldTick expiration{};
+  int invader_type{};        // Eventually an enum.
+  float hit_circle_radius{}; // Hit detection, as opposed to appearance.
+  int bounty{10}; // Resources awarded to the player for killing this enemy.
 };
 
 // ECS types for the simulation world.
@@ -305,60 +338,60 @@ struct Bullet {
 // enabling delta snapshots without a separate dirty set.
 //
 // Storage layout (store_id assignment is positional, 1-based):
-//   `sidStaging` = 0                      : staging storage, used as tombstone
+//   `sidStaging`         = 0 -> staging storage, used as tombstone
 //
-//   `sidPos`     = 1  -> `ArchP`          : background / destructible entities
-//                                           (Position + Appearance)
+//   `sidInvaderAlpha`    = 1 -> `ArchInvaderAlpha`
+//                               alpha invaders
+//                               (Position + Appearance + VisualEffects +
+//                               Pathing + Invader + Health)
 //
-//   `sidPosVel`  = 2  -> `ArchPV`         : moving entities
-//                                           (Position + Velocity +
-//                                           Appearance)
+//   `sidDefenderAoe`     = 2 -> `ArchDefenderAoe`
+//                               area-of-effect defenders
+//                               (Position + Appearance + VisualEffects +
+//                               Defender + DefenderStats + Health +
+//                               DefenderAoe)
 //
-//   `sidEnemy`   = 3  -> `ArchEnemy`      : path-following enemies
-//                                           (Position + Appearance +
-//                                           VisualEffects + PathFollower +
-//                                           Invader)
+//   `sidBullet`          = 3 -> `ArchBullet`
+//                               spawned projectiles
+//                               (Position + Velocity + DefenderBullet)
 //
-//   `sidTower`   = 4  -> `ArchTower`      : placed towers
-//                                          (Position + Appearance +
-//                                          VisualEffects + Tower)
-//
-//   `sidBullet`  = 5  -> `ArchBullet`     : bullets
-//                                           (Position + Velocity + Bullet)
-//
-// Background storage comes first so that retiring a mobile entity is a
-// natural `archetype_scene::migrate_entity` call rather than erase + re-add.
+//   `sidDefenderShooter` = 4 -> `ArchDefenderShooter`
+//                               projectile-firing defenders
+//                               (Position + Appearance + VisualEffects +
+//                               Defender + DefenderStats + Health +
+//                               DefenderShooter)
 using WorldReg = entity_registry<WorldTick>;
 using WorldSid = WorldReg::store_id_t;
-using ArchP = archetype_storage<WorldReg, std::tuple<Position, Appearance>>;
-using ArchPV =
-    archetype_storage<WorldReg, std::tuple<Position, Velocity, Appearance>>;
-using ArchEnemy = archetype_storage<WorldReg,
-    std::tuple<Position, Appearance, VisualEffects, PathFollower, Invader>>;
-using ArchTower = archetype_storage<WorldReg,
-    std::tuple<Position, Appearance, VisualEffects, Tower>>;
-using ArchBullet =
-    archetype_storage<WorldReg, std::tuple<Position, Velocity, Bullet>>;
-using WorldScene =
-    archetype_scene<WorldReg, ArchP, ArchPV, ArchEnemy, ArchTower, ArchBullet>;
+using ArchInvaderAlpha = archetype_storage<WorldReg,
+    std::tuple<Position, Appearance, VisualEffects, Pathing, Invader, Health>>;
+using ArchDefenderAoe = archetype_storage<WorldReg,
+    std::tuple<Position, Appearance, VisualEffects, Defender, DefenderStats,
+        Health, DefenderAoe>>;
+using ArchBullet = archetype_storage<WorldReg,
+    std::tuple<Position, Velocity, DefenderBullet>>;
+using ArchDefenderShooter = archetype_storage<WorldReg,
+    std::tuple<Position, Appearance, VisualEffects, Defender, DefenderStats,
+        Health, DefenderShooter>>;
+using WorldScene = archetype_scene<WorldReg, ArchInvaderAlpha, ArchDefenderAoe,
+    ArchBullet, ArchDefenderShooter>;
 
 // Simulation world: encapsulates all ECS entity state for the game and
 // provides physics.
 //
-// Each `tick()` advances `Position` components based on
-// by velocity and bounces off the world boundary. The registry metadata
-// records the tick count at each entity's last state change so callers can
-// request delta snapshots starting from any past tick.
+// Each `tick()` advances `Position` components based by velocity and bounces
+// off the world boundary. The registry metadata records the tick count at each
+// entity's last state change so callers can request delta snapshots starting
+// from any past tick.
 class SimWorld {
 public:
   using EntityId = WorldReg::id_t;
   using Handle = WorldReg::handle_t;
 
   static constexpr WorldSid sidStaging{0};
-  static constexpr WorldSid sidPos{1};
-  static constexpr WorldSid sidPosVel{2};
-  static constexpr WorldSid sidEnemy{3};
-  static constexpr WorldSid sidTower{4};
+  static constexpr WorldSid sidInvaderAlpha{1};
+  static constexpr WorldSid sidDefenderAoe{2};
+  static constexpr WorldSid sidBullet{3};
+  static constexpr WorldSid sidDefenderShooter{4};
   static constexpr float widthOfWorld = 1920.F;
   static constexpr float heightOfWorld = 1080.F;
 
@@ -370,49 +403,96 @@ public:
     tick_ = {};
   }
 
-  // Spawn a moving entity with the given initial position and velocity.
-  // Returns a handle for later `despawn()`. The entity's last-change tick
-  // is set to the current tick count.
-  [[nodiscard]] Handle spawnMover(Position pos, Velocity vel) {
+  [[nodiscard]] Handle spawnInvaderAlpha(PathId pathId, float progress = 0.F) {
+    if (pathId >= paths_.size_as_enum()) return {};
     Appearance app{.modified = tick_,
-        .glyph = U'M',
-        .radius = 5.F,
+        .glyph = U'\u03B1', // Greek alpha
+        .radius = 10.F,
         .fg_color = 0xFFFFFFFF,
-        .bg_color = 0xFF};
-    auto h = scene_.store_new_entity<sidPosVel>({WorldTick::invalid}, pos, vel,
-        app);
+        .bg_color = 0x000000FF};
+    VisualEffects fx{.modified = tick_,
+        .flash_color = 0xFF7F7FFF,
+        .flash_expiry = WorldTick{5}};
+    Pathing pathing{.path_id = pathId, .progress = progress, .speed = 100.F};
+    Invader invader{.invader_type = 1,
+        .hit_circle_radius = 10.F,
+        .bounty = 10};
+    Health health{.modified = tick_,
+        .current_health = 100.F,
+        .max_health = 100.F,
+        .regen = 10.F};
+    const auto pos =
+        paths_[pathId].calculatePositionFromProgress(progress, progress);
+    auto h = scene_.store_new_entity<sidInvaderAlpha>({WorldTick::invalid},
+        pos, app, fx, pathing, invader, health);
     if (h) (void)markDirty(h.id());
     return h;
   }
 
-  // Spawn an immobile entity. Returns a handle for later `despawn()`.
-  [[nodiscard]] Handle spawnBackground(Position pos) {
-    Appearance app{.modified = tick_,
-        .glyph = U'B',
-        .radius = 5.F,
-        .fg_color = 0xFFFFFFFF,
-        .bg_color = 0xFF};
-    auto h = scene_.store_new_entity<sidPos>({WorldTick::invalid}, pos, app);
-    if (h) (void)markDirty(h.id());
-    return h;
-  }
-
-  // Spawn an immobile entity. Returns a handle for later `despawn()`.
-  [[nodiscard]] Handle spawnTower(Position pos) {
-    Tower tower{.tower_type = 1,
+  // Spawn an AOE defender.
+  [[nodiscard]] Handle spawnDefenderAoe(Position pos) {
+    Defender defender{.defender_type = 1,
+        .hit_circle_radius = 30.F,
         .attack_radius = 100.F,
-        .range_color = 0xFFFF007F,
-        .attack_damage = 10.F,
-        .cooldown = {},
-        .next_attack = tick_};
+        .range_color = 0xFFFF0000,
+        .attack_damage = 5.F,
+        .cooldown = WorldTick{20},
+        .next_attack = WorldTick{0}};
     Appearance app{.modified = tick_,
-        .glyph = U'T',
+        .glyph = U'A',
+        .radius = 30.F,
+        .fg_color = 0xFFFFFFFF,
+        .bg_color = 0x7F7FFFFF};
+    VisualEffects fx{.modified = tick_,
+        .flash_color = 0xFF7F7FFF,
+        .flash_expiry = WorldTick{5}};
+    Health health{.modified = tick_,
+        .current_health = 100.F,
+        .max_health = 100.F,
+        .regen = 0.F};
+    DefenderAoe defenderAoe{.damage_type = 1};
+    DefenderStats defenderStats{};
+    auto h = scene_.store_new_entity<sidDefenderAoe>({WorldTick::invalid}, pos,
+        app, fx, defender, defenderStats, health, defenderAoe);
+    if (h) (void)markDirty(h.id());
+    return h;
+  }
+
+  // Spawn a shooter defender.
+  [[nodiscard]] Handle spawnDefenderShooter(Position pos) {
+    DefenderBullet bullet_template{.speed = 200.F,
+        .direct_damage = 20.F,
+        .damage_over_time = 0.F,
+        .splash_radius = 0.F,
+        .direct_damage_type = 1,
+        .dot_damage_type = 0,
+        .projectile_type = 1,
+        .expiry = WorldTick{20}};
+    Defender defender{.defender_type = 1,
+        .hit_circle_radius = 20.F,
+        .attack_radius = 100.F,
+        .range_color = 0xFFFF0000,
+        .attack_damage = 5.F,
+        .cooldown = WorldTick{20},
+        .next_attack = WorldTick{0}};
+    Appearance app{.modified = tick_,
+        .glyph = U'S',
         .radius = 20.F,
         .fg_color = 0xFFFFFFFF,
-        .bg_color = 0xFF};
-    VisualEffects fx;
-    auto h = scene_.store_new_entity<sidTower>({WorldTick::invalid}, pos, app,
-        fx, tower);
+        .bg_color = 0x7FFF7FFF};
+    VisualEffects fx{.modified = tick_,
+        .flash_color = 0xFF7F7FFF,
+        .flash_expiry = WorldTick{5}};
+    Health health{.modified = tick_,
+        .current_health = 100.F,
+        .max_health = 100.F,
+        .regen = 0.F};
+    DefenderStats defenderStats{};
+    DefenderShooter defenderShooter{.bullet_template = bullet_template,
+        .fire_rate = 1.F,
+        .spread = 0};
+    auto h = scene_.store_new_entity<sidDefenderShooter>({WorldTick::invalid},
+        pos, app, fx, defender, defenderStats, health, defenderShooter);
     if (h) (void)markDirty(h.id());
     return h;
   }
@@ -429,27 +509,6 @@ public:
   [[nodiscard]] const SegmentedPath* getPath(PathId pathId) const {
     if (pathId >= paths_.size_as_enum()) return nullptr;
     return &paths_[pathId];
-  }
-
-  // Spawn a path-following enemy. Initial position is derived from `progress`
-  // on the named path. Returns a handle for later `despawn()`.
-  [[nodiscard]] Handle
-  spawnEnemy(PathId pathId, float speed, float progress = 0.F) {
-    if (pathId >= paths_.size_as_enum()) return {};
-    // Enemies are only spawned during the active world step, so their
-    // appearance must replicate on the current tick rather than the next one.
-    Appearance app{.modified = tick_,
-        .glyph = U'U',
-        .radius = 10.F,
-        .fg_color = 0xFFFFFFFF,
-        .bg_color = 0xFF};
-    VisualEffects fx{};
-    const auto pos =
-        paths_[pathId].calculatePositionFromProgress(progress, progress);
-    auto h = scene_.store_new_entity<sidEnemy>({WorldTick::invalid}, pos, app,
-        fx, PathFollower{pathId, progress, speed}, Invader{});
-    if (h) (void)markDirty(h.id());
-    return h;
   }
 
   // Obtain a pointer to the `Appearance` for the entity. It is already marked
@@ -516,12 +575,13 @@ public:
   }
 
   [[nodiscard]] auto getTower(EntityId id) {
-    return scene_.storage<sidTower>()[id].components();
+    return scene_
+        .try_get_components<Position, Appearance, VisualEffects, Defender>(id);
   }
 
   [[nodiscard]] EntityId findTowerAt(const Position& pos) const {
     EntityId found_id = EntityId::invalid;
-    scene_.for_each<Position, Appearance, Tower>([&](auto id, auto comps) {
+    scene_.for_each<Position, Appearance, Defender>([&](auto id, auto comps) {
       const auto& [epos, app, _] = comps;
       const auto radius = app.radius;
       // If point outside of bounding box, keep searching.
@@ -607,7 +667,7 @@ public:
   }
 
   // Resolve path escapees by calling `cbEscapee(EntityId, const Position&,
-  // const PathFollower&)` for each.
+  // const Pathing&)` for each.
   //
   // Destructively iterates through the list of path escapees. If `cbEscapee`
   // returns true, the escapee is erased; if false, it's left alive, so the
@@ -616,7 +676,7 @@ public:
   [[nodiscard]] bool resolveEscapees(auto&& cbEscapee) {
     for (auto id : pathEscapees_) {
       if (!scene_.registry().is_valid(id)) continue;
-      auto [pos, pf] = scene_.try_get_components<Position, PathFollower>(id);
+      auto [pos, pf] = scene_.try_get_components<Position, Pathing>(id);
       if (!pos || !pf) continue;
       if (!cbEscapee(id, *pos, *pf)) continue;
       (void)tombstoneEntity(id);
@@ -727,16 +787,16 @@ private:
   // Advance path-following enemies. Collect entities that changed, as well as
   // those that escaped the path.
   [[nodiscard]] bool updatePathFollowers() {
-    scene_.for_each<Position, PathFollower>([&](auto id, auto comps) {
+    scene_.for_each<Position, Pathing>([&](auto id, auto comps) {
       auto& [pos, pf] = comps;
-      assert(pf.pathId < paths_.size_as_enum());
+      assert(pf.path_id < paths_.size_as_enum());
       if (pf.speed == 0.F) return true;
 
       (void)markDirty(id);
 
       const float previousProgress = pf.progress;
       pf.progress += pf.speed;
-      const auto& sp = paths_[pf.pathId];
+      const auto& sp = paths_[pf.path_id];
 
       // Collect escapees.
       if (pf.progress >= sp.totalLength || pf.progress < 0.F) {
@@ -755,14 +815,14 @@ private:
     // Range over all towers. For each tower, range over all enemies and check
     // for hits. If an enemy is in range and the tower is off cooldown, apply
     // damage and trigger a flash on both.
-    scene_.for_each<Position, Tower>([&](auto towerId, auto towerComps) {
+    scene_.for_each<Position, Defender>([&](auto towerId, auto towerComps) {
       auto& [towerPos, tower] = towerComps;
       if (tick_ < tower.next_attack) return true;
 
       scene_.for_each<Position, Invader>([&](auto enemyId, auto enemyComps) {
         auto& [enemyPos, invader] = enemyComps;
         if (!circlesOverlap(towerPos, tower.attack_radius, enemyPos,
-                invader.radius))
+                invader.hit_circle_radius))
           return true;
 
         (void)flashEntity(towerId, 0xFFFFFFFF, WorldTick{5});

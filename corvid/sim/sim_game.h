@@ -180,7 +180,7 @@ public:
 
       auto lives = lives_;
       (void)world_.resolveEscapees(
-          [&lives](SimWorld::EntityId, const Position&, const PathFollower&) {
+          [&lives](SimWorld::EntityId, const Position&, const Pathing&) {
             --lives;
             // TODO: Treat front-escapees different from rear-escapees, and
             // treat different enemies differently in terms of how many lives
@@ -226,10 +226,12 @@ public:
           world_.getHandle(world_.findTowerAt({input.x, input.y}));
       if (selected_tower_.id() != SimWorld::EntityId::invalid) {
         auto [pos, app, fx, tower] = world_.getTower(selected_tower_.id());
-        fx.range_radius = tower.attack_radius;
-        fx.range_color = 0xFFFF007F;
-        fx.modified = world_.currentTick();
-        (void)world_.markDirty(selected_tower_.id());
+        if (pos) {
+          fx->range_radius = tower->attack_radius;
+          fx->range_color = 0xFFFF007F;
+          fx->modified = world_.currentTick();
+          (void)world_.markDirty(selected_tower_.id());
+        }
       }
     }
 
@@ -237,7 +239,7 @@ public:
     if (input.event == UiCanvasEvent::dblclick &&
         input.button == UiMouseButton::left)
     {
-      (void)world_.spawnTower({input.x, input.y});
+      (void)world_.spawnDefenderAoe({input.x, input.y});
     }
 
     if (input.event == UiCanvasEvent::click &&
@@ -304,7 +306,7 @@ private:
     for (; nextSpawnIndex_ < enemies.size(); ++nextSpawnIndex_) {
       const auto& enemy_def = enemies[nextSpawnIndex_];
       if (enemy_def.startTicks > waveTick_) break;
-      (void)world_.spawnEnemy(PathId{0}, 20.F, 0.F);
+      (void)world_.spawnInvaderAlpha(PathId{0});
     }
   }
 
