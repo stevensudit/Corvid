@@ -299,6 +299,21 @@ timeout) marks the connection closed and subsequent calls fail immediately.
 accumulates data until the delimiter appears, leaving any trailing bytes in an
 internal buffer for the next call.
 
+### `json_parser`
+
+Strict header-only JSON parser and writer. `parse_json(string_view, value,
+error, options)` validates a full JSON document and returns a non-owning
+`json_value_view` over the root. `json_value_view` exposes `kind()` plus typed
+accessors for booleans, numbers, strings, arrays, and objects; string decoding
+is lazy via `decode_string`, and plain unescaped strings can be borrowed with
+`string_view_if_plain()`. `json_object_view` and `json_array_view` are
+lightweight iterable facades over validated object and array values.
+
+`json_writer` appends compact JSON directly to a `std::string` or
+`std::ostream`, manages commas and nesting for arrays/objects, escapes strings
+by default, and also supports `json_trusted` for already-safe literals
+that can skip the escape scan.
+
 ## Layer 3: HTTP
 
 ### `http_head_codec`

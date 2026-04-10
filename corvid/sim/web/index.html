@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CorvidSim</title>
+  <script type="module" src="/src/main.ts"></script>
+</head>
+
+<body>
+  <h1>CorvidSim</h1>
+  <p>Status: <span id="status">disconnected</span></p>
+  <p>Latest tick: <span id="tick">--</span></p>
+  <p>
+    Lives: <span id="lives">--</span>
+    Resources: <span id="resources">--</span>
+    Phase: <span id="phase">--</span>
+  </p>
+  <p>
+    <button type="button" data-action="start_wave">Start Wave</button>
+  </p>
+  <div
+    style="position:relative;width:960px;height:540px;border:1px solid gray"
+  >
+    <canvas
+      id="background-canvas"
+      width="960"
+      height="540"
+      style="position:absolute;inset:0"
+    ></canvas>
+    <canvas
+      id="foreground-canvas"
+      width="960"
+      height="540"
+      style="position:absolute;inset:0"
+    ></canvas>
+  </div>
+  <h2>Log</h2>
+  <pre id="log" style="height:200px;overflow-y:auto;border:1px solid #ccc;padding:4px"></pre>
+</body>
+
+</html>

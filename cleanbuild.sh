@@ -6,7 +6,7 @@ set -e
 # Choose which standard library to use. Optionally pass a test source filename
 # first to build and run a matching unit test, then pass "libstdcpp" or
 # "libcxx" to override the default. Add "tidy" to run clang-tidy during the
-# build. Outside of Codex, the default is libc++.
+# build. The default is `libcxx`.
 
 choice=""
 use_tidy=false
@@ -40,11 +40,7 @@ for arg in "$@"; do
 done
 
 if [[ -z "$choice" ]]; then
-  if [[ -n "$CODEX_PROXY_CERT" ]]; then
-    choice="libstdcpp"
-  else
-    choice="libcxx"
-  fi
+  choice="libcxx"
 fi
 
 if [[ "$choice" == "libstdcpp" ]]; then
@@ -114,7 +110,7 @@ for file in "$buildDir"/*; do
   # Check if the file is an executable and a regular file (not a directory or symlink)
   if [[ -x "$file" && -f "$file" && "$file" != *"CMakeCXXCompilerId"* ]]; then
     echo "$file..."
-    "$file"
+    "$file" -testonly
     echo "."
   fi
 done

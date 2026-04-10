@@ -22,6 +22,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <variant>
 
 #include "epoll_loop.h"
 #include "http_head_codec.h"
@@ -145,7 +146,7 @@ class http_server: public std::enable_shared_from_this<http_server> {
     // Note: Ordering was chosen to improve packing, not based on logic.
 
     // Send callback bound for use with transaction `handle_drain`.
-    http_transaction::send_fn send_fn;
+    http_transaction::send_fn send_cb;
 
     std::atomic_uint64_t read_seq;  // Identifies read timeout fuse.
     std::atomic_uint64_t write_seq; // Identifies write timeout fuse.
@@ -344,9 +345,10 @@ private:
     auto& state = conn_t::from(conn).state();
     if (state.parser_state) return true;
     state.parser_state = terminated_text_parser::state{"\r\n", 8192};
-    state.send_fn = [this, &conn](std::string&& buf) -> bool {
-      if (buf.empty() || !arm_write_timeout(conn) ||
-          !conn.send(std::move(buf)))
+    state.send_cb = [this, &conn](any_strings&& bufs) -> bool {
+      bool is_hangup = std::holds_alternative<std::monostate>(bufs);
+      if (is_hangup || !arm_write_timeout(conn) ||
+          !conn.send_any(std::move(bufs)))
       {
         (void)hangup(conn);
         return false;
@@ -504,7 +506,7 @@ private:
 
     // If active writer transaction claims the write stream, it is still
     // producing output.
-    if (writer->handle_drain(state.send_fn) == stream_claim::claim)
+    if (writer->handle_drain(state.send_cb) == stream_claim::claim)
       return true;
 
     // The transaction can decide to gently close the connection after its

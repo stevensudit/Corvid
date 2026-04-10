@@ -23,12 +23,19 @@
 #include "../corvid/proto/net_endpoint.h"
 #include "minitest.h"
 
+#include <cstdlib>
 #include <fcntl.h>
+#include <string_view>
 #include <unistd.h>
 #include <system_error>
 #include <sys/socket.h>
 
 using namespace corvid;
+
+bool is_codex() {
+  const char* value = std::getenv("CODEX_SANDBOX_NETWORK_DISABLED");
+  return value && std::string_view{value} == "1";
+}
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
@@ -166,6 +173,8 @@ void OsFile_WriteRead() {
 }
 
 void NetSocket_Lifecycle() {
+  if (is_codex()) return;
+
   // Default-constructed socket is invalid.
   if (true) {
     net_socket s;
@@ -513,6 +522,8 @@ void EventFd_NonblockingEmptyRead() {
 }
 
 void NetSocket_Move() {
+  if (is_codex()) return;
+
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
     net_socket a{AF_INET, SOCK_STREAM, 0};
@@ -548,6 +559,8 @@ void NetSocket_Move() {
 }
 
 void NetSocket_Release() {
+  if (is_codex()) return;
+
   // `release()` yields the handle without closing it; socket becomes invalid.
   if (true) {
     net_socket s{AF_INET, SOCK_STREAM, 0};
@@ -559,6 +572,8 @@ void NetSocket_Release() {
 }
 
 void NetSocket_Options() {
+  if (is_codex()) return;
+
   // Named option helpers round-trip through `get_option`.
   if (true) {
     net_socket s{AF_INET, SOCK_STREAM, 0};
@@ -593,6 +608,8 @@ void NetSocket_Options() {
 }
 
 void NetSocket_Nonblocking() {
+  if (is_codex()) return;
+
   if (true) {
     net_socket s{AF_INET, SOCK_STREAM, 0};
 
@@ -665,6 +682,8 @@ void NetSocket_RecvAtContract() {
 }
 
 void NetSocket_BindListenAccept() {
+  if (is_codex()) return;
+
   // Bind a listening socket to a free loopback port.
   net_socket listener{AF_INET, SOCK_STREAM, 0};
   EXPECT_TRUE(listener.is_open());
@@ -701,41 +720,47 @@ void NetSocket_FactoryMethods() {
 
   // create_ipv4 defaults to non-blocking TCP.
   if (true) {
-    auto s = net_socket::create_ipv4();
-    EXPECT_TRUE(s.is_open());
-    EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
-    auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
-    EXPECT_TRUE(dom.has_value());
-    EXPECT_EQ(*dom, AF_INET);
-    auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
-    EXPECT_TRUE(type.has_value());
-    EXPECT_EQ(*type, SOCK_STREAM);
+    if (!is_codex()) {
+      auto s = net_socket::create_ipv4();
+      EXPECT_TRUE(s.is_open());
+      EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
+      auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
+      EXPECT_TRUE(dom.has_value());
+      EXPECT_EQ(*dom, AF_INET);
+      auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
+      EXPECT_TRUE(type.has_value());
+      EXPECT_EQ(*type, SOCK_STREAM);
+    }
   }
 
   // create_ipv4 with blocking + datagram gives a blocking UDP socket.
   if (true) {
-    auto s =
-        net_socket::create_ipv4(execution::blocking, message_style::datagram);
-    EXPECT_TRUE(s.is_open());
-    EXPECT_FALSE(s.get_flags().value_or(0) & O_NONBLOCK);
-    auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
-    EXPECT_EQ(*dom, AF_INET);
-    auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
-    EXPECT_TRUE(type.has_value());
-    EXPECT_EQ(*type, SOCK_DGRAM);
+    if (!is_codex()) {
+      auto s = net_socket::create_ipv4(execution::blocking,
+          message_style::datagram);
+      EXPECT_TRUE(s.is_open());
+      EXPECT_FALSE(s.get_flags().value_or(0) & O_NONBLOCK);
+      auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
+      EXPECT_EQ(*dom, AF_INET);
+      auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
+      EXPECT_TRUE(type.has_value());
+      EXPECT_EQ(*type, SOCK_DGRAM);
+    }
   }
 
   // create_ipv6 defaults to non-blocking TCP.
   if (true) {
-    auto s = net_socket::create_ipv6();
-    EXPECT_TRUE(s.is_open());
-    EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
-    auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
-    EXPECT_TRUE(dom.has_value());
-    EXPECT_EQ(*dom, AF_INET6);
-    auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
-    EXPECT_TRUE(type.has_value());
-    EXPECT_EQ(*type, SOCK_STREAM);
+    if (!is_codex()) {
+      auto s = net_socket::create_ipv6();
+      EXPECT_TRUE(s.is_open());
+      EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
+      auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
+      EXPECT_TRUE(dom.has_value());
+      EXPECT_EQ(*dom, AF_INET6);
+      auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
+      EXPECT_TRUE(type.has_value());
+      EXPECT_EQ(*type, SOCK_STREAM);
+    }
   }
 
   // create_uds defaults to non-blocking stream.

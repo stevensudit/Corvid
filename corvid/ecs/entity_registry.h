@@ -434,6 +434,12 @@ public:
     return true;
   }
 
+  // Get ID from handle, but returns `id_t::invalid` if the handle is invalid.
+  [[nodiscard]] id_t id_from_handle(handle_t handle) const {
+    if (!is_valid(handle)) return id_t::invalid;
+    return handle.id();
+  }
+
   // Get location for ID. Must be valid.
   //
   // Returns `location_t` in archetype mode, and `store_id_set_t` in component
@@ -568,16 +574,31 @@ public:
   // One particularly obvious use case is to erase all entries that aren't in
   // any valid store. The ID is passed so you can cascade deletion to the
   // appropriate storage(s).
-  size_type erase_if(auto pred) {
+  size_type erase_if(auto&& pred) {
     size_type cnt{};
     const auto id_end = records_.size_as_enum();
     for (id_t id{}; id < id_end; ++id) {
       auto& rec = records_[id];
       if (!is_alive(id)) continue;
       if (pred(id, rec)) {
-        do_erase(id);
         ++cnt;
+        do_erase(id);
       }
+    }
+    return cnt;
+  }
+
+  // Call a function for each living record, as `func(id, rec)`, where `id` is
+  // the entity ID and `rec` is the `const record_t&`. The callback may return
+  // `false` to stop iteration early. Returns count visited.
+  size_type for_each(auto&& func) const {
+    size_type cnt{};
+    const auto id_end = records_.size_as_enum();
+    for (id_t id{}; id < id_end; ++id) {
+      const auto& rec = records_[id];
+      if (!is_alive(id)) continue;
+      ++cnt;
+      if (!func(id, rec)) break;
     }
     return cnt;
   }

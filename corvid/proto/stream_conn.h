@@ -27,6 +27,8 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
+#include <vector>
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -37,11 +39,13 @@
 #include "recv_buffer.h"
 #include "../concurrency/relaxed_atomic.h"
 #include "../enums/bool_enums.h"
+#include "../strings/any_strings.h"
 #include "../strings/no_zero.h"
 
 namespace corvid { inline namespace proto {
 
 using namespace corvid::strings::no_zero_funcs;
+using namespace corvid::strings::any_strings_types;
 
 // Forward declaration for `stream_conn_handlers`.
 class stream_conn;
@@ -109,14 +113,13 @@ struct stream_conn_handlers {
 // `epoll_loop::post`. All actual I/O and epoll-mask mutations run
 // exclusively on the loop thread.
 //
-// Send path: `send(std::string&&)` takes ownership of the caller's string.
-// If the send queue is empty, an immediate `::write` is attempted. If all
-// bytes are written, the string is discarded and `on_writable` notifies any
-// pending write waiter immediately because no outbound bytes remain pending.
-// Otherwise the remainder of the string is added to the send queue and
-// `EPOLLOUT` is armed so that subsequent `EPOLLOUT` events flush the send
-// queue. When the queue empties, `EPOLLOUT` is disarmed and `on_writable`
-// notifies any pending write waiter.
+// Send path: `send(std::string&&)` and its variants take ownership of the
+// caller's string(s). An immediate `::sendmsg` gather is attempted. Strings
+// whose bytes were fully written are discarded. If that immediate write drains
+// all outbound data, `on_writable` notifies any pending write waiter.
+// Otherwise, `EPOLLOUT` is armed so that subsequent `EPOLLOUT` events flush
+// the remaining send queue. When the queue later empties, `EPOLLOUT` is
+// disarmed and `on_writable` notifies any pending write waiter.
 //
 // Receive path: `EPOLLIN` is armed while `recv_buf_.reads_enabled` is true.
 // When `EPOLLIN` fires, `on_readable` appends bytes to the persistent
@@ -229,9 +232,8 @@ public:
   // of these conditions is not met, or if we are unable to write to this
   // socket.
   //
-  // Safe to call from any thread. Success does not mean that the
-  // buffers have been fully sent; send completion is signaled via the
-  // `on_drain` callback.
+  // Safe to call from any thread. Success does not mean that the buffers have
+  // been fully sent; send completion is signaled via the `on_drain` callback.
   template<typename... Bufs>
   requires(std::same_as<Bufs, std::string> && ...)
   [[nodiscard]] bool send(Bufs&&... bufs) {
@@ -244,6 +246,54 @@ public:
               [&p](auto&&... b) { return p->enqueue_send(std::move(b)...); },
               t);
         });
+  }
+
+  // Take ownership of a vector of `std::string` values and start sending them.
+  // There must be at least one non-empty buffer. Returns false if either of
+  // these conditions is not met, or if we are unable to write to this socket.
+  //
+  // Safe to call from any thread. Success does not mean that the buffers have
+  // been fully sent; send completion is signaled via the `on_drain` callback.
+  [[nodiscard]] bool send_vector(std::vector<std::string>&& bufs) {
+    if (!open_ || !write_open_) return false;
+    bool any{};
+    for (const auto& b : bufs)
+      if (!b.empty()) {
+        any = true;
+        break;
+      }
+    if (!any) return false;
+    return execute_or_post([p = self(), bufs = std::move(bufs)]() mutable {
+      return p->enqueue_send_vector(std::move(bufs));
+    });
+  }
+
+  // Take ownership of an `any_strings` (a single string or a vector of
+  // strings) and start sending. There must be at least one non-empty buffer.
+  // Returns false if either of these conditions is not met, or if we are
+  // unable to write to this socket.
+  //
+  // Safe to call from any thread. Success does not mean that the buffers have
+  // been fully sent; send completion is signaled via the `on_drain` callback.
+  [[nodiscard]] bool send_any(any_strings&& strings) {
+    if (!open_ || !write_open_) return false;
+    bool any = std::visit(
+        [](const auto& v) {
+          using T = std::decay_t<decltype(v)>;
+          if constexpr (std::is_same_v<T, std::string>)
+            return !v.empty();
+          else if constexpr (std::is_same_v<T, std::vector<std::string>>) {
+            for (const auto& b : v)
+              if (!b.empty()) return true;
+            return false;
+          } else
+            return false;
+        },
+        strings);
+    if (!any) return false;
+    return execute_or_post([p = self(), s = std::move(strings)]() mutable {
+      return p->enqueue_send_any(std::move(s));
+    });
   }
 
   // Start a close. If `coordination` is `unilateral` (the default), flushes
@@ -927,11 +977,54 @@ private:
              (void)iov_sender_.append(send_queue_.back()), (appended = true))),
         ...);
     if (!appended) return false;
+    return flush_send_queue();
+  }
 
-    // If an async connect is still in progress, sends would fail with
-    // `ENOTCONN`. `EPOLLOUT` is already armed; wait for connect resolution.
-    if (connecting_) return true;
+  // Enqueue a vector of buffers for sending, then flush. Follows the same
+  // rules as `enqueue_send`.
+  [[nodiscard]] bool enqueue_send_vector(std::vector<std::string>&& bufs) {
+    assert(loop_.is_loop_thread());
+    if (!open_ || !write_open_) return false;
 
+    bool appended{};
+    for (auto& b : bufs) {
+      if (b.empty()) continue;
+      send_queue_.push_back(std::move(b));
+      (void)iov_sender_.append(send_queue_.back());
+      appended = true;
+    }
+    if (!appended) return false;
+    return flush_send_queue();
+  }
+
+  // Enqueue an `any_strings` for sending, then flush. Follows the same rules
+  // as `enqueue_send`.
+  [[nodiscard]] bool enqueue_send_any(any_strings&& strings) {
+    assert(loop_.is_loop_thread());
+    if (!open_ || !write_open_) return false;
+
+    bool appended{};
+    std::visit(
+        [&](auto&& v) {
+          using T = std::decay_t<decltype(v)>;
+          if constexpr (std::is_same_v<T, std::string>) {
+            if (v.empty()) return;
+            send_queue_.push_back(std::forward<decltype(v)>(v));
+            (void)iov_sender_.append(send_queue_.back());
+            appended = true;
+          } else if constexpr (std::is_same_v<T, std::vector<std::string>>) {
+            for (auto& b : v) {
+              if (b.empty()) continue;
+              send_queue_.push_back(std::move(b));
+              (void)iov_sender_.append(send_queue_.back());
+              appended = true;
+            }
+          } else {
+            // Nothing to enqueue.
+          }
+        },
+        std::forward<any_strings>(strings));
+    if (!appended) return false;
     return flush_send_queue();
   }
 
@@ -942,6 +1035,9 @@ private:
   // `do_close_now` (e.g., when both `EPOLLIN` and `EPOLLOUT` fire in the same
   // event and the readable handler closes the connection before we get here).
   [[nodiscard]] bool flush_send_queue() {
+    // If an async connect is still in progress, sends would fail with
+    // `ENOTCONN`. `EPOLLOUT` is already armed; wait for connect resolution.
+    if (connecting_) return true;
     if (!open_) return false;
 
     if (!send_queue_.empty()) {
@@ -992,8 +1088,8 @@ private:
     return do_finish_close();
   }
 
-  // Finalize a requested close after the send queue has fully flushed.
-  // When `shutdown_` is `unilateral`, closes the socket immediately. When
+  // Finalize a requested close after the send queue has fully flushed. When
+  // `shutdown_` is `unilateral`, closes the socket immediately. When
   // `bilateral`, shuts down the write side and lets `handle_drain_reads` wait
   // for peer EOF. `close_requested_` is left set so `on_readable` routes to
   // `handle_drain_reads`.

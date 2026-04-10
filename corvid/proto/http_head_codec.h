@@ -458,7 +458,7 @@ public:
   [[nodiscard]] bool add_line(std::string_view line) {
     if (line.empty()) return false;
     if (line.front() == ' ' || line.front() == '\t') return false;
-    auto found = strings::token_parser::next_terminated(":", line);
+    auto found = strings::token_parser::next_terminated(':', line);
     if (!found) return false;
     const auto name = *found;
     const auto value = strings::trim(line);

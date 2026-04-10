@@ -2064,6 +2064,96 @@ void StableId_MaxId() {
   }
 }
 
+void EntityRegistry_ForEach() {
+  using namespace id_enums;
+  using reg_t = entity_registry<int>;
+  using id_t = reg_t::id_t;
+  using loc_t = reg_t::location_t;
+
+  const loc_t staging{store_id_t{}};
+  const loc_t in_store1{store_id_t{1}, 7U};
+  const loc_t in_store2{store_id_t{2}, 9U};
+
+  // for_each visits only live records in ID order and returns the visit count.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(in_store1, 20);
+    auto id2 = r.create_id(in_store2, 30);
+    EXPECT_TRUE(r.erase(id1));
+
+    std::vector<id_t> ids;
+    std::vector<int> metadata;
+    auto cnt = r.for_each([&](auto id, const auto& rec) {
+      ids.push_back(id);
+      metadata.push_back(rec.metadata);
+      return true;
+    });
+
+    EXPECT_EQ(cnt, 2U);
+    EXPECT_EQ(ids.size(), 2U);
+    EXPECT_EQ(ids[0], id0);
+    EXPECT_EQ(ids[1], id2);
+    EXPECT_EQ(metadata[0], 10);
+    EXPECT_EQ(metadata[1], 30);
+  }
+
+  // Returning false stops iteration early; the stop record is still observed.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create_id(staging, 10);
+    auto id1 = r.create_id(in_store1, 20);
+    auto id2 = r.create_id(in_store2, 30);
+
+    std::vector<id_t> ids;
+    auto cnt = r.for_each([&](auto id, const auto& rec) {
+      ids.push_back(id);
+      EXPECT_TRUE(rec.location.contains(
+          id == id0   ? store_id_t{}
+          : id == id1 ? store_id_t{1}
+                      : store_id_t{2}));
+      return id != id1;
+    });
+
+    EXPECT_EQ(cnt, 2U);
+    EXPECT_EQ(ids.size(), 2U);
+    EXPECT_EQ(ids[0], id0);
+    EXPECT_EQ(ids[1], id1);
+    EXPECT_NE(ids[1], id2);
+  }
+
+  // for_each on a const registry yields const records and visits all live IDs.
+  if (true) {
+    reg_t r;
+    auto id0 = r.create_id(in_store1, 10);
+    auto id1 = r.create_id(staging, 20);
+    const reg_t& cr = r;
+
+    int sum = 0;
+    auto cnt = cr.for_each([&](auto id, const auto& rec) {
+      static_assert(std::is_const_v<std::remove_reference_t<decltype(rec)>>);
+      sum += rec.metadata;
+      EXPECT_TRUE(
+          rec.location.contains(id == id0 ? store_id_t{1} : store_id_t{}));
+      EXPECT_TRUE(id == id0 || id == id1);
+      return true;
+    });
+
+    EXPECT_EQ(cnt, 2U);
+    EXPECT_EQ(sum, 30);
+  }
+
+  // Empty registry: callback is never called.
+  if (true) {
+    reg_t r;
+    auto cnt = r.for_each([&](auto, const auto&) {
+      EXPECT_TRUE(false);
+      return true;
+    });
+    EXPECT_EQ(cnt, 0U);
+  }
+}
+
 void MonoArchetypeStorage_Basic() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -6277,6 +6367,152 @@ void ArchetypeScene_ForEach() {
   }
 }
 
+void ArchetypeScene_TryGetComponent() {
+  // Returns non-null for a component the entity's archetype has.
+  if (true) {
+    three_storage_scene_t s;
+    auto h =
+        s.store_new_entity<scene_sid_t{1}>({}, Position{3.f, 0.f}, Velocity{});
+    auto* pos = s.try_get_component<Position>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    EXPECT_EQ(pos->x, 3.f);
+  }
+
+  // Returns null for a component the entity's archetype lacks.
+  if (true) {
+    three_storage_scene_t s;
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{}, Velocity{});
+    EXPECT_TRUE(s.try_get_component<Health>(h.id()) == nullptr);
+  }
+
+  // Works across all three storage archetypes.
+  if (true) {
+    three_storage_scene_t s;
+    auto h1 =
+        s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f}, Velocity{});
+    auto h2 = s.store_new_entity<scene_sid_t{2}>({}, Position{2.f, 0.f},
+        Velocity{}, Health{});
+    auto h3 = s.store_new_entity<scene_sid_t{3}>({}, Health{99});
+
+    // arch_pv_t: Position yes, Health no.
+    EXPECT_TRUE(s.try_get_component<Position>(h1.id()) != nullptr);
+    EXPECT_TRUE(s.try_get_component<Health>(h1.id()) == nullptr);
+
+    // arch_pvh_t: Position yes, Health yes.
+    EXPECT_TRUE(s.try_get_component<Position>(h2.id()) != nullptr);
+    EXPECT_TRUE(s.try_get_component<Health>(h2.id()) != nullptr);
+    EXPECT_EQ(s.try_get_component<Health>(h2.id())->hp, 100);
+
+    // arch_h_t: Health yes, Velocity no.
+    EXPECT_EQ(s.try_get_component<Health>(h3.id())->hp, 99);
+    EXPECT_TRUE(s.try_get_component<Velocity>(h3.id()) == nullptr);
+  }
+
+  // Returns null for an invalid entity ID.
+  if (true) {
+    three_storage_scene_t s;
+    EXPECT_TRUE(
+        s.try_get_component<Position>(scene_reg_t::id_t::invalid) == nullptr);
+  }
+
+  // On a const scene returns `const C*`; pointer is still non-null and
+  // readable.
+  if (true) {
+    three_storage_scene_t s;
+    auto h =
+        s.store_new_entity<scene_sid_t{1}>({}, Position{7.f, 0.f}, Velocity{});
+    const auto& cs = s;
+    const Position* pos = cs.try_get_component<Position>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    EXPECT_EQ(pos->x, 7.f);
+  }
+
+  // Mutation through the returned pointer is reflected in the stored data.
+  if (true) {
+    three_storage_scene_t s;
+    auto h =
+        s.store_new_entity<scene_sid_t{1}>({}, Position{0.f, 0.f}, Velocity{});
+    s.try_get_component<Position>(h.id())->x = 42.f;
+    EXPECT_EQ(s.storage<scene_sid_t{1}>()[h.id()].component<Position>().x,
+        42.f);
+  }
+}
+
+void ArchetypeScene_TryGetComponents() {
+  // Returns non-null pointers for all requested components when the archetype
+  // contains them.
+  if (true) {
+    three_storage_scene_t s;
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{2.f, 3.f},
+        Velocity{4.f, 5.f}, Health{77});
+    auto [pos, vel, hp] =
+        s.try_get_components<Position, Velocity, Health>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    ASSERT_TRUE(vel != nullptr);
+    ASSERT_TRUE(hp != nullptr);
+    EXPECT_EQ(pos->x, 2.f);
+    EXPECT_EQ(vel->vx, 4.f);
+    EXPECT_EQ(hp->hp, 77);
+  }
+
+  // Returns all null pointers when any requested component is missing from
+  // the entity's archetype.
+  if (true) {
+    three_storage_scene_t s;
+    auto h =
+        s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f}, Velocity{});
+    auto [pos, hp] = s.try_get_components<Position, Health>(h.id());
+    EXPECT_TRUE(pos == nullptr);
+    EXPECT_TRUE(hp == nullptr);
+  }
+
+  // Returns all null pointers for a staged entity and for an invalid ID.
+  if (true) {
+    three_storage_scene_t s;
+    auto staged = s.stage_new_entity().id();
+    auto [staged_pos, staged_vel] =
+        s.try_get_components<Position, Velocity>(staged);
+    EXPECT_TRUE(staged_pos == nullptr);
+    EXPECT_TRUE(staged_vel == nullptr);
+
+    auto [bad_pos, bad_vel] =
+        s.try_get_components<Position, Velocity>(scene_reg_t::id_t::invalid);
+    EXPECT_TRUE(bad_pos == nullptr);
+    EXPECT_TRUE(bad_vel == nullptr);
+  }
+
+  // On a const scene returns const-qualified pointers.
+  if (true) {
+    three_storage_scene_t s;
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{7.f, 8.f},
+        Velocity{9.f, 10.f}, Health{});
+    const auto& cs = s;
+    auto [pos, vel] = cs.try_get_components<Position, Velocity>(h.id());
+    static_assert(std::is_same_v<decltype(pos), const Position*>);
+    static_assert(std::is_same_v<decltype(vel), const Velocity*>);
+    ASSERT_TRUE(pos != nullptr);
+    ASSERT_TRUE(vel != nullptr);
+    EXPECT_EQ(pos->x, 7.f);
+    EXPECT_EQ(vel->vx, 9.f);
+  }
+
+  // Mutation through returned pointers updates stored data.
+  if (true) {
+    three_storage_scene_t s;
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{0.f, 0.f},
+        Velocity{1.f, 2.f}, Health{});
+    auto [pos, vel] = s.try_get_components<Position, Velocity>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    ASSERT_TRUE(vel != nullptr);
+    pos->x = 42.f;
+    vel->vx = 24.f;
+    EXPECT_EQ(s.storage<scene_sid_t{2}>()[h.id()].component<Position>().x,
+        42.f);
+    EXPECT_EQ(s.storage<scene_sid_t{2}>()[h.id()].component<Velocity>().vx,
+        24.f);
+  }
+}
+
 void ComponentScene_StageNewEntity() {
   // stage_new_entity() creates a staged entity and returns its handle.
   if (true) {
@@ -7487,7 +7723,7 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ChunkedArchetypeStorage_ChunkBoundary, ChunkedArchetypeStorage_At,
     ChunkedArchetypeStorage_RemoveIf, ChunkedArchetypeStorage_SwapAndMove,
     StableId_Basic, StableId_SmallId, StableId_NoThrow, StableId_Fifo,
-    StableId_NoGen, StableId_FifoNoGen, StableId_MaxId,
+    StableId_NoGen, StableId_FifoNoGen, StableId_MaxId, EntityRegistry_ForEach,
     StableId_ReservePrefill, MonoArchetypeStorage_Basic,
     MonoArchetypeStorage_Handle, MonoArchetypeStorage_Remove,
     MonoArchetypeStorage_RemoveAll, MonoArchetypeStorage_Erase,
@@ -7501,9 +7737,11 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ArchetypeScene_StorageTypeAccess, ArchetypeScene_CreateHandleId,
     ArchetypeScene_AddNewRuntime, ArchetypeScene_StoreEntity,
     ArchetypeScene_EntityLifecycle, ArchetypeScene_MigrateEdgeCases,
-    ArchetypeScene_ForEach, ComponentIndex_Flat, ComponentIndex_Sorted,
-    ComponentIndex_Paged, ComponentStorage_Basic, ComponentStorage_MultiStore,
-    ComponentStorage_Remove, ComponentStorage_Erase, ComponentStorage_EraseIf,
+    ArchetypeScene_ForEach, ArchetypeScene_TryGetComponent,
+    ArchetypeScene_TryGetComponents, ComponentIndex_Flat,
+    ComponentIndex_Sorted, ComponentIndex_Paged, ComponentStorage_Basic,
+    ComponentStorage_MultiStore, ComponentStorage_Remove,
+    ComponentStorage_Erase, ComponentStorage_EraseIf,
     ComponentStorage_Iterator, ComponentStorage_IndexVariants,
     ComponentStorage_AddNew, ComponentStorage_SwapMoveReserve,
     ComponentStorage_At, ComponentScene_Basic, ComponentScene_StoreEntity,

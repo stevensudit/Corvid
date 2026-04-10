@@ -31,6 +31,8 @@
 //  stream_async - per-call async wrappers: `stream_async_cb` (callback-based)
 //                and `stream_async_coro` (coroutine-based)
 //  loop_task   - fire-and-forget coroutine return type for `epoll_loop`
+//  json_parser - strict header-only JSON parser and writer with non-owning
+//                views
 //  terminated_text_parser - sentinel-terminated text frame parser for
 //                line-oriented protocols (HTTP, SMTP, POP3, etc.)
 //  http_header_block - HTTP/1.1 types: `http_version`/`http_method` enums,
@@ -48,6 +50,7 @@
 #include "proto/stream_conn.h"
 #include "proto/stream_async.h"
 #include "proto/loop_task.h"
+#include "proto/json_parser.h"
 #include "proto/terminated_text_parser.h"
 #include "proto/stream_sync.h"
 #include "proto/base-64.h"
@@ -58,3 +61,4 @@
 #include "proto/http_websocket.h"
 #include "proto/http_websocket_transaction.h"
 #include "proto/http_server.h"
+#include "proto/http_file_transaction.h"
