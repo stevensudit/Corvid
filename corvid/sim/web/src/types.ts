@@ -50,6 +50,7 @@ interface PathPoint {
 interface MapDesign {
   backgroundSprite: string
   foregroundSprite: string
+  pathWidth: number
   paths: PathPoint[]
 }
 

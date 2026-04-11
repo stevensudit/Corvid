@@ -180,7 +180,10 @@ struct SimGameStateJson {
       const auto& md = game.mapDesign();
       map_design
           ->member(json_trusted{"backgroundSprite"}, md.backgroundSpriteFile)
-          .member(json_trusted{"foregroundSprite"}, md.foregroundSpriteFile);
+          .member(json_trusted{"foregroundSprite"}, md.foregroundSpriteFile)
+          .member(json_trusted{"pathWidth"},
+              md.paths.empty() ? 40.F : md.paths.front().width,
+              std::chars_format::fixed, 1);
       if (auto paths = map_design->member_array(json_trusted{"paths"})) {
         (void)game.extractPaths([&writer](auto, const Position& pos) {
           auto path = writer.object();

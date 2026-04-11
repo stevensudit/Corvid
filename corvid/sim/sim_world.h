@@ -40,10 +40,10 @@
 //   served up as one or more PNG files. Again, only the client has to care
 //   about how to render, while the server focuses on physics, geometry, and
 //   logic.
-// - The definitions of enemies, towers, maps, and waves are kept in plain CSV
-//   files, which we can parse with nothing more than a comma splitter. These
-//   are deserialized into C++ structs at startup. We do not serve the CSV
-//   files.
+// - The definitions of invaders, defenders, maps, and waves are kept in plain
+//   CSV files, which we can parse with nothing more than a comma splitter.
+//   These are deserialized into C++ structs at startup. We do not serve the
+//   CSV files.
 // - To aid this, we might change the default web server to skip over anything
 //   with a leading dot, allowing us to store ".game-definitions.csv" even if
 //   CSV files were enabled.
@@ -223,14 +223,14 @@ constexpr Tick invalidTick = std::numeric_limits<Tick>::max();
 // geometric type (square, circle, etc), its size, radius, length, width,
 // etc., and local basis (orientation). This can be used to compute the
 // bounding box (which could be AABB (axis-aligned bounding box) or OBB
-// (oriented bounding box) or even a circle collider (super-fast for towers))
-// for collision detection and hit box purposes. We may also need an Aura for
-// field effects. Rendering cares about the origin/anchor point of the shape,
-// which may not be the center. Towers may have an Aura (radius, damage,
-// dmgtype) or ProjectileRange (), or both. We could use Components for Hitbox,
-// Hurtbox, Attack (dmg, knockback, statusEffect), Expiry (ttl in ticks).
-// For circle hitboxes, collision is trivial: when the distance between centers
-// is less than the sum of the radii, they collide.
+// (oriented bounding box) or even a circle collider (super-fast for
+// defenders)) for collision detection and hit box purposes. We may also need
+// an Aura for field effects. Rendering cares about the origin/anchor point of
+// the shape, which may not be the center. Defenders may have an Aura (radius,
+// damage, dmgtype) or ProjectileRange (), or both. We could use Components for
+// Hitbox, Hurtbox, Attack (dmg, knockback, statusEffect), Expiry (ttl in
+// ticks). For circle hitboxes, collision is trivial: when the distance between
+// centers is less than the sum of the radii, they collide.
 
 // Path-following component. Typically part of an invader archetype, but may
 // also apply to defenders. On each tick, `progress` advances by `speed`; the
@@ -274,15 +274,15 @@ struct VisualEffects {
   WorldTick flashExpiry{WorldTick::invalid};
 };
 
-// Defensive tower component, common across all defenders.
+// Defensive component, common across all defenders.
 struct Defender {
   int defenderType{};      // Eventually an enum.
   float hitCircleRadius{}; // Hit detection, as opposed to appearance.
   float attackRadius{};
   uint32_t rangeColor{}; // RGBA.
-  float attackDamage{};  // Interpretation depends on the tower type.
+  float attackDamage{};  // Interpretation depends on the defender type.
   WorldTick cooldown{};
-  WorldTick nextAttack{}; // Updated when the tower attacks.
+  WorldTick nextAttack{}; // Updated when the defender attacks.
 };
 
 // Stats for defenders, shown when selecting a defender.
@@ -324,7 +324,7 @@ struct DefenderBullet {
 
 // Shooter component for defenders that spawn projectiles. The
 // `bullet_template` is used to spawn bullets with the same properties as the
-// tower's attack, but with their own position and velocity.
+// defender's attack, but with their own position and velocity.
 struct DefenderShooter {
   DefenderBullet bullet_template{};
   float fireRate{}; // Shots per tick.
@@ -335,7 +335,7 @@ struct DefenderShooter {
 struct Invader {
   int invaderType{};       // Eventually an enum.
   float hitCircleRadius{}; // Hit detection, as opposed to appearance.
-  int bounty{10}; // Resources awarded to the player for killing this enemy.
+  int bounty{10}; // Resources awarded to the player for killing this invader.
 };
 
 // ECS types for the simulation world.
@@ -529,12 +529,12 @@ public:
     return found_id;
   }
 
-  [[nodiscard]] auto getTower(EntityId id) {
+  [[nodiscard]] auto getDefender(EntityId id) {
     return scene_
         .try_get_components<Position, Appearance, VisualEffects, Defender>(id);
   }
 
-  [[nodiscard]] EntityId findTowerAt(const Position& pos) const {
+  [[nodiscard]] EntityId findDefenderAt(const Position& pos) const {
     EntityId found_id = EntityId::invalid;
     scene_.for_each<Position, Appearance, Defender>([&](auto id, auto comps) {
       const auto& [epos, app, _] = comps;
@@ -555,8 +555,8 @@ public:
   doesTowerOverlapExisting(const Position& pos, float radius) const {
     bool overlaps = false;
     scene_.for_each<Position, Appearance, Defender>([&](auto, auto comps) {
-      const auto& [tower_pos, tower_app, _] = comps;
-      if (!circlesOverlap(pos, radius, tower_pos, tower_app.radius))
+      const auto& [defender_pos, defender_app, _] = comps;
+      if (!circlesOverlap(pos, radius, defender_pos, defender_app.radius))
         return true;
       overlaps = true;
       return false;
@@ -595,7 +595,7 @@ public:
   [[nodiscard]] bool next() {
     (void)updateMovers();
     (void)updatePathFollowers();
-    (void)towersAttack();
+    (void)defendersAttack();
     return true;
   }
 
@@ -824,38 +824,40 @@ private:
     return true;
   }
 
-  [[nodiscard]] bool towersAttack() {
-    // Range over all towers. For each tower, range over all enemies and check
-    // for hits. If an enemy is in range and the tower is off cooldown, apply
-    // damage and trigger a flash on both.
-    scene_.for_each<Position, Defender>([&](auto towerId, auto towerComps) {
-      auto& [towerPos, tower] = towerComps;
-      if (tick_ < tower.nextAttack) return true;
+  [[nodiscard]] bool defendersAttack() {
+    // Range over all defenders. For each defender, range over all enemies and
+    // check for hits. If an enemy is in range and the defender is off
+    // cooldown, apply damage and trigger a flash on both.
+    scene_.for_each<Position, Defender>(
+        [&](auto defenderId, auto defenderComps) {
+          auto& [defenderPos, defender] = defenderComps;
+          if (tick_ < defender.nextAttack) return true;
 
-      scene_.for_each<Position, Invader>([&](auto enemyId, auto enemyComps) {
-        auto& [enemyPos, invader] = enemyComps;
-        if (!circlesOverlap(towerPos, tower.attackRadius, enemyPos,
-                invader.hitCircleRadius))
-          return true;
+          scene_.for_each<Position, Invader>(
+              [&](auto enemyId, auto enemyComps) {
+                auto& [enemyPos, invader] = enemyComps;
+                if (!circlesOverlap(defenderPos, defender.attackRadius,
+                        enemyPos, invader.hitCircleRadius))
+                  return true;
 
-        (void)flashEntity(towerId, 0xFFFFFFFF, WorldTick{5});
-        (void)flashEntity(enemyId, 0xFF7F7FFF, WorldTick{5});
-        return true;
+                (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
+                (void)flashEntity(enemyId, 0xFF7F7FFF, WorldTick{5});
+                return true;
 #if 0
-        invader.health -= tower.attack_damage;
-        tower.next_attack = WorldTick{*tick_ + *tower.cooldown};
-        (void)flashEntity(towerId, 0xFFFFFFFF);
+        invader.health -= defender.attackDamage;
+        defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
+        (void)flashEntity(defenderId, 0xFFFFFFFF);
         if (invader.health <= 0.F) {
           (void)tombstoneEntity(enemyId);
         } else {
           (void)flashEntity(enemyId, 0xFF0000FF);
         }
-        return false; // Stop after first hit per tower per tick.
+        return false; // Stop after first hit per defender per tick.
 #endif
-      });
+              });
 
-      return true;
-    });
+          return true;
+        });
 
     return true;
   }

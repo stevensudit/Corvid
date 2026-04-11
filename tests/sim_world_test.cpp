@@ -296,7 +296,7 @@ void SimWorld_TowerInRangeFlashesItselfAndInvader() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
   const auto pid = w.addPath(p);
-  const auto tower = spawnDefenderAoe(w, {0.F, 0.F});
+  const auto defender = spawnDefenderAoe(w, {0.F, 0.F});
   const auto invader = spawnInvaderAlpha(w, pid);
 
   (void)extractWorldDelta(w);
@@ -305,14 +305,14 @@ void SimWorld_TowerInRangeFlashesItselfAndInvader() {
 
   const auto delta = extractWorldDelta(w);
   ASSERT_EQ(delta.upserts.size(), 2U);
-  EXPECT_TRUE(containsId(delta.upserts, tower.id()));
+  EXPECT_TRUE(containsId(delta.upserts, defender.id()));
   EXPECT_TRUE(containsId(delta.upserts, invader.id()));
 
-  const auto tower_it =
-      std::ranges::find(delta.upserts, tower.id(), &WorldDelta::Upsert::id);
-  ASSERT_TRUE(tower_it != delta.upserts.end());
-  EXPECT_EQ(tower_it->fx.flashColor, 0xFFFFFFFFU);
-  EXPECT_EQ(tower_it->fx.flashExpiry, WorldTick{6});
+  const auto defender_it =
+      std::ranges::find(delta.upserts, defender.id(), &WorldDelta::Upsert::id);
+  ASSERT_TRUE(defender_it != delta.upserts.end());
+  EXPECT_EQ(defender_it->fx.flashColor, 0xFFFFFFFFU);
+  EXPECT_EQ(defender_it->fx.flashExpiry, WorldTick{6});
 
   const auto invader_it =
       std::ranges::find(delta.upserts, invader.id(), &WorldDelta::Upsert::id);
@@ -827,16 +827,16 @@ void SimJson_ParseUiCanvasMessage() {
 
 void SimJson_ParseUiActionMessageFields() {
   const auto input = parseUiActionMessage(
-      R"({"type":"ui_action","seq":7,"action":"start_wave","fields":{"tower\/kind":"ice","note":"line\nbreak"}})");
+      R"({"type":"ui_action","seq":7,"action":"start_wave","fields":{"defender/kind":"ice","note":"line\nbreak"}})");
 
   ASSERT_TRUE(input.has_value());
   EXPECT_EQ(input->seq, 7U);
   EXPECT_EQ(input->action, "start_wave");
   ASSERT_EQ(input->fields.size(), 2U);
-  const auto tower_kind =
-      std::ranges::find(input->fields, "tower/kind", &UiActionField::key);
-  ASSERT_TRUE(tower_kind != input->fields.end());
-  EXPECT_EQ(tower_kind->value, "ice");
+  const auto defender_kind =
+      std::ranges::find(input->fields, "defender/kind", &UiActionField::key);
+  ASSERT_TRUE(defender_kind != input->fields.end());
+  EXPECT_EQ(defender_kind->value, "ice");
 
   const auto note =
       std::ranges::find(input->fields, "note", &UiActionField::key);

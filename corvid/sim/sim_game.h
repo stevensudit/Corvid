@@ -36,8 +36,8 @@ namespace corvid { inline namespace sim {
 // - The player selects a map and faces subsequent waves until the end of the
 // game run. The run ends with defeat or victory. Potentially, runs could be
 // grouped into campaigns or other higher-level structures.
-// - A player's towers, score, lives, and resources persist throughout the game
-// run, albeit with modifications from wave to wave.
+// - A player's defenders, score, lives, and resources persist throughout the
+// game run, albeit with modifications from wave to wave.
 // - A wave is a collection of enemy spawns. At the end of the wave, the player
 // gets a chance to build or upgrade before the next wave starts.
 // - Within a wave, spawns are enemies that appear on the track at fixed times
@@ -49,7 +49,7 @@ namespace corvid { inline namespace sim {
 
 enum class GamePhase : uint8_t {
   invalid,
-  build,     // Tower building
+  build,     // Defender building
   wave,      // Active wave with enemies spawning and moving
   game_over, // Player has no lives left
   victory,   // All waves completed with lives remaining
@@ -295,29 +295,31 @@ public:
       return std::nullopt;
     }
 
-    // Select tower on click.
+    // Select defender on click.
     if (input.event == UiCanvasEvent::click &&
         input.button == UiMouseButton::left)
     {
-      // Deselect the previously selected tower, if it still exists.
-      if (auto* fx = world_.changeVisualEffects(world_.getId(selected_tower_)))
+      // Deselect the previously selected defender, if it still exists.
+      if (auto* fx =
+              world_.changeVisualEffects(world_.getId(selected_defender_)))
       {
         fx->selectionColor = 0;
         fx->rangeRadius = 0.F;
         fx->rangeColor = 0;
-        selected_tower_ = {};
+        selected_defender_ = {};
       }
 
-      selected_tower_ =
-          world_.getHandle(world_.findTowerAt({input.x, input.y}));
-      if (selected_tower_.id() != SimWorld::EntityId::invalid) {
-        auto [pos, app, fx, tower] = world_.getTower(selected_tower_.id());
+      selected_defender_ =
+          world_.getHandle(world_.findDefenderAt({input.x, input.y}));
+      if (selected_defender_.id() != SimWorld::EntityId::invalid) {
+        auto [pos, app, fx, defender] =
+            world_.getDefender(selected_defender_.id());
         if (pos) {
           fx->selectionColor = 0xFFF2B63FU;
-          fx->rangeRadius = tower->attackRadius;
+          fx->rangeRadius = defender->attackRadius;
           fx->rangeColor = 0xFFFF007F;
           fx->modified = world_.currentTick();
-          (void)world_.markDirty(selected_tower_.id());
+          (void)world_.markDirty(selected_defender_.id());
         }
       }
     }
@@ -629,9 +631,9 @@ private:
   int lives_{20};
   int resources_{100};
 
-  // Handle to the currently selected tower, used to clear its range circle
+  // Handle to the currently selected defender, used to clear its range circle
   // when deselected. A default-constructed handle is invalid and indicates
   // no selection.
-  SimWorld::Handle selected_tower_;
+  SimWorld::Handle selected_defender_;
 };
 }} // namespace corvid::sim

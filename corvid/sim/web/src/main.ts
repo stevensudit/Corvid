@@ -330,8 +330,9 @@ let lives = 0
 let resources = 0
 let lastFpsOverlayUpdateTime = 0
 let hudDirty = true
+let currentPathWidth = 40
 const glyphFontSizeCache = new Map<string, number>()
-// Entity appearances come from a small, mostly fixed set of tower/enemy visuals,
+// Entity appearances come from a small, mostly fixed set of defender/enemy visuals,
 // so we memoize prerendered sprites for the lifetime of the page instead of
 // paying per-frame draw costs or maintaining an eviction policy.
 const entitySpriteCache = new Map<string, SpriteCacheEntry>()
@@ -368,14 +369,20 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
 }
 
-function drawBackground(pathPoints: Array<{ x: number; y: number }>): void {
+function drawBackground(
+  pathPoints: Array<{ x: number; y: number }>,
+  pathWidth = currentPathWidth,
+): void {
   currentPathPoints = pathPoints
+  currentPathWidth = pathWidth
   bgCtx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height)
   if (pathPoints.length <= 1) return
 
   bgCtx.save()
   bgCtx.strokeStyle = '#3b82f6'
-  bgCtx.lineWidth = 2
+  bgCtx.lineWidth = Math.max(2, worldLengthToCanvas(pathWidth))
+  bgCtx.lineCap = 'round'
+  bgCtx.lineJoin = 'round'
   bgCtx.beginPath()
   const [startX, startY] = worldToCanvas(pathPoints[0].x, pathPoints[0].y)
   bgCtx.moveTo(startX, startY)
@@ -855,9 +862,9 @@ function panelSideFromCanvasX(canvasX: number): PanelSide | null {
   const cssWidth = foregroundCanvas.clientWidth
   const triggerCssPx = cssWidth > 0
     ? Math.max(
-        SIDE_PANEL_TRIGGER_MIN_PX,
-        Math.min(SIDE_PANEL_TRIGGER_MAX_PX, cssWidth * SIDE_PANEL_TRIGGER_RATIO),
-      )
+      SIDE_PANEL_TRIGGER_MIN_PX,
+      Math.min(SIDE_PANEL_TRIGGER_MAX_PX, cssWidth * SIDE_PANEL_TRIGGER_RATIO),
+    )
     : SIDE_PANEL_TRIGGER_MIN_PX
   const triggerPx = cssWidth > 0
     ? triggerCssPx * (foregroundCanvas.width / cssWidth)
@@ -1031,7 +1038,7 @@ function drawSidePanel(ctx: CanvasRenderingContext2D, panel: SidePanelModel): vo
       continue
     }
     ctx.fillStyle = line.startsWith('Left click') || line.startsWith('Double click') ||
-        line.startsWith('Right click') || line.startsWith('Use Start Wave')
+      line.startsWith('Right click') || line.startsWith('Use Start Wave')
       ? 'rgba(181, 201, 224, 0.92)'
       : 'rgba(255, 255, 255, 0.92)'
     const wrappedLines = wrapPanelText(ctx, line, textWidth)
@@ -1440,6 +1447,7 @@ function finishSnapshotUpdate(): void {
 
 function resetClientWorldState(): void {
   currentPathPoints = []
+  currentPathWidth = 40
   currEntitiesById.clear()
   prevRenderStateById.clear()
   glyphFontSizeCache.clear()
@@ -1551,6 +1559,7 @@ function isServerMsg(value: unknown): value is ServerMsg {
         typeof md === 'object' &&
         typeof md.backgroundSprite === 'string' &&
         typeof md.foregroundSprite === 'string' &&
+        typeof md.pathWidth === 'number' &&
         Array.isArray(md.paths) &&
         md.paths.every(isPoint) &&
         Array.isArray(v.defenderMenu) &&
@@ -1601,7 +1610,7 @@ ws.onmessage = (event: MessageEvent<string>) => {
     case 'world_snapshot':
       resetClientWorldState()
       defenderMenuItems = parsed.defenderMenu
-      drawBackground(parsed.mapDesign.paths)
+      drawBackground(parsed.mapDesign.paths, parsed.mapDesign.pathWidth)
       applyWorldDelta(parsed.delta)
       break
   }
@@ -1747,10 +1756,10 @@ window.addEventListener('mouseup', (event: MouseEvent) => {
       const ovRect = overlayCanvas.getBoundingClientRect()
       const overOverlay =
         event.clientX >= ovRect.left && event.clientX <= ovRect.right &&
-        event.clientY >= ovRect.top  && event.clientY <= ovRect.bottom
+        event.clientY >= ovRect.top && event.clientY <= ovRect.bottom
       const overFg =
         event.clientX >= fgRect.left && event.clientX <= fgRect.right &&
-        event.clientY >= fgRect.top  && event.clientY <= fgRect.bottom
+        event.clientY >= fgRect.top && event.clientY <= fgRect.bottom
       if (overFg && !overOverlay) {
         sendPlacementPreview('dragend', ghostStateToSample(ghostState, event), ghostState.entityName)
         ghostState.pending = true
@@ -1782,7 +1791,7 @@ foregroundCanvas.addEventListener('contextmenu', (event: MouseEvent) => {
   const sample = eventToCanvasSample(event)
   if (ghostState?.pending) {
     if (!ghostState.placeable) return
-    // Right-click while ghost is pending: place the tower.
+    // Right-click while ghost is pending: place the defender.
     const entityName = ghostState.entityName
     const ghostSample = ghostStateToSample(ghostState, event, 2, 2)
     ghostState = null
