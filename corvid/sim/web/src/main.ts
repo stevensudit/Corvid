@@ -1248,8 +1248,7 @@ function updateSidePanelOverlay(): void {
   overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
 
   const panel = getSidePanelModel()
-  const showBuildMenu =
-    defenderMenuItems.length > 0 && currentPhase === 'build' && !menuDragActive
+  const showBuildMenu = shouldShowBuildMenu()
 
   if (panel) {
     drawSidePanel(overlayCtx, panel)
@@ -1258,6 +1257,15 @@ function updateSidePanelOverlay(): void {
   }
 
   sidePanelDirty = false
+}
+
+function shouldShowBuildMenu(): boolean {
+  return (
+    getSidePanelModel() === null &&
+    defenderMenuItems.length > 0 &&
+    currentPhase === 'build' &&
+    !menuDragActive
+  )
 }
 
 function frame(now: number): void {
@@ -1935,8 +1943,8 @@ window.addEventListener('mousemove', (event: MouseEvent) => {
 // Overlay mousedown: select a build menu cell and arm a drag (ghost appears on
 // first mousemove so it never flashes at the canvas origin).
 overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
-  if (event.button !== 0 || defenderMenuItems.length === 0) return
-  if (currentPhase !== 'build') return
+  if (event.button !== 0) return
+  if (!shouldShowBuildMenu()) return
   event.preventDefault()
 
   const panelScale = Math.min(
