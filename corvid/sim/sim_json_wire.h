@@ -64,6 +64,25 @@ struct SimGameStateJson {
   return body;
 }
 
+[[nodiscard]] inline std::string buildSimUiResponseJson(
+    const UiResponse& response) {
+  std::string body;
+  json_writer writer{body};
+  auto root = writer.object();
+  root->member(json_trusted{"type"}, json_trusted{"ui_response"})
+      .member(json_trusted{"seq"}, response.seq)
+      .member(json_trusted{"ok"}, response.ok)
+      .member(json_trusted{"response"}, response.response);
+  if (!response.reason.empty())
+    root->member(json_trusted{"reason"}, response.reason);
+  if (!response.fields.empty()) {
+    auto fields = root->member_object(json_trusted{"fields"});
+    for (const auto& field : response.fields)
+      fields->member(field.key, field.value);
+  }
+  return body;
+}
+
 [[nodiscard]] inline bool buildSimGameStateJson(SimGameStateJson& result,
     SimGame& game,
     update_strategy send_strategy = update_strategy::incremental) {

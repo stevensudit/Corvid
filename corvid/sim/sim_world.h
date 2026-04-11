@@ -551,6 +551,44 @@ public:
     return found_id;
   }
 
+  [[nodiscard]] bool
+  doesTowerOverlapExisting(const Position& pos, float radius) const {
+    bool overlaps = false;
+    scene_.for_each<Position, Appearance, Defender>([&](auto, auto comps) {
+      const auto& [tower_pos, tower_app, _] = comps;
+      if (!circlesOverlap(pos, radius, tower_pos, tower_app.radius))
+        return true;
+      overlaps = true;
+      return false;
+    });
+    return overlaps;
+  }
+
+  [[nodiscard]] bool
+  doesTowerTouchPath(const Position& pos, float radius) const {
+    for (const auto& path : paths_) {
+      const float expanded_radius = radius + (path.width * 0.5F);
+      const float expanded_radius_sq = expanded_radius * expanded_radius;
+      for (const auto& seg : path.segments) {
+        if (distanceSquaredToSegment(pos, seg.front, seg.back) <=
+            expanded_radius_sq)
+          return true;
+      }
+    }
+    return false;
+  }
+
+  [[nodiscard]] bool
+  isTowerPlacementBlocked(const Position& pos, float radius) const {
+    constexpr float half_w = widthOfWorld * 0.5F;
+    constexpr float half_h = heightOfWorld * 0.5F;
+    if (pos.x - radius < -half_w || pos.x + radius > half_w ||
+        pos.y - radius < -half_h || pos.y + radius > half_h)
+      return true;
+    return doesTowerOverlapExisting(pos, radius) ||
+           doesTowerTouchPath(pos, radius);
+  }
+
   // Run all physics for the current tick without advancing the counter. Call
   // `tick()` once all game logic for this frame is complete, including
   // streaming the state to clients.
@@ -688,6 +726,23 @@ public:
       const Position& posB, float radiusB) {
     const float r = radiusA + radiusB;
     return distanceSquared(posA, posB) <= r * r;
+  }
+
+  static constexpr float distanceSquaredToSegment(const Position& point,
+      const Position& segA, const Position& segB) {
+    const float dx = segB.x - segA.x;
+    const float dy = segB.y - segA.y;
+    const float len_sq = (dx * dx) + (dy * dy);
+    if (len_sq <= 0.F) return distanceSquared(point, segA);
+
+    const float t = std::clamp(
+        (((point.x - segA.x) * dx) + ((point.y - segA.y) * dy)) / len_sq, 0.F,
+        1.F);
+    const Position projection{
+        segA.x + (dx * t),
+        segA.y + (dy * t),
+    };
+    return distanceSquared(point, projection);
   }
 
 private:

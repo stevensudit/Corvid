@@ -598,7 +598,7 @@ void SimGame_HandleUiActionStartWaveTransitionsToWavePhase() {
   SimGame game;
   game.loadMap();
 
-  game.handleUiAction(
+  (void)game.handleUiAction(
       UiActionInput{.seq = 1, .action = "start_wave", .fields = {}});
 
   const auto delta = extractGameDelta(game);
@@ -611,12 +611,12 @@ void SimGame_HandleUiCanvasSpawnsTowerButKeepsBuildPhase() {
   game.loadMap();
   const auto before = extractGameDelta(game);
 
-  game.handleUiCanvas(UiCanvasInput{.seq = 1,
+  (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
       .event = UiCanvasEvent::click,
       .button = UiMouseButton::left,
       .buttons = 1,
-      .x = 10.F,
-      .y = 20.F,
+      .x = 200.F,
+      .y = 0.F,
       .canvasX = 100.F,
       .canvasY = 200.F,
       .command = "spawn",
@@ -626,8 +626,8 @@ void SimGame_HandleUiCanvasSpawnsTowerButKeepsBuildPhase() {
   EXPECT_EQ(before.phase, std::string_view{"build"});
   EXPECT_EQ(after.phase, std::string_view{"build"});
   ASSERT_EQ(after.upserts.size(), 1U);
-  EXPECT_NEAR(after.upserts[0].second.x, 10.0, 1e-6);
-  EXPECT_NEAR(after.upserts[0].second.y, 20.0, 1e-6);
+  EXPECT_NEAR(after.upserts[0].second.x, 200.0, 1e-6);
+  EXPECT_NEAR(after.upserts[0].second.y, 0.0, 1e-6);
   EXPECT_TRUE(after.erased.empty());
 }
 
@@ -635,12 +635,12 @@ void SimGame_HandleUiCanvasRightClickSpawnPlacesTower() {
   SimGame game;
   game.loadMap();
 
-  game.handleUiCanvas(UiCanvasInput{.seq = 1,
+  (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
       .event = UiCanvasEvent::click,
       .button = UiMouseButton::right,
       .buttons = 2,
-      .x = 15.F,
-      .y = 25.F,
+      .x = 200.F,
+      .y = 0.F,
       .canvasX = 120.F,
       .canvasY = 210.F,
       .command = "spawn",
@@ -649,9 +649,56 @@ void SimGame_HandleUiCanvasRightClickSpawnPlacesTower() {
   const auto after = extractGameDelta(game);
   EXPECT_EQ(after.phase, std::string_view{"build"});
   ASSERT_EQ(after.upserts.size(), 1U);
-  EXPECT_NEAR(after.upserts[0].second.x, 15.0, 1e-6);
-  EXPECT_NEAR(after.upserts[0].second.y, 25.0, 1e-6);
+  EXPECT_NEAR(after.upserts[0].second.x, 200.0, 1e-6);
+  EXPECT_NEAR(after.upserts[0].second.y, 0.0, 1e-6);
   EXPECT_TRUE(after.erased.empty());
+}
+
+void SimGame_HandleUiCanvasPlacingResponseRejectsPathOverlap() {
+  SimGame game;
+  game.loadMap();
+
+  const auto response = game.handleUiCanvas(UiCanvasInput{.seq = 7,
+      .event = UiCanvasEvent::dragmove,
+      .button = UiMouseButton::left,
+      .buttons = 1,
+      .x = 10.F,
+      .y = 20.F,
+      .canvasX = 100.F,
+      .canvasY = 200.F,
+      .command = "placing",
+      .parameters = {"DefenderAoeBasic"}});
+
+  ASSERT_TRUE(response.has_value());
+  EXPECT_EQ(response->seq, 7U);
+  EXPECT_EQ(response->response, std::string_view{"placement"});
+  EXPECT_FALSE(response->ok);
+  EXPECT_EQ(response->reason, std::string_view{"blocked"});
+  ASSERT_EQ(response->fields.size(), 1U);
+  EXPECT_EQ(response->fields[0].key, std::string_view{"valid"});
+  EXPECT_EQ(response->fields[0].value, std::string_view{"false"});
+}
+
+void SimGame_HandleUiCanvasRejectsBlockedTowerSpawn() {
+  SimGame game;
+  game.loadMap();
+
+  const auto response = game.handleUiCanvas(UiCanvasInput{.seq = 1,
+      .event = UiCanvasEvent::click,
+      .button = UiMouseButton::right,
+      .buttons = 2,
+      .x = 10.F,
+      .y = 20.F,
+      .canvasX = 100.F,
+      .canvasY = 200.F,
+      .command = "spawn",
+      .parameters = {"DefenderAoeBasic"}});
+
+  const auto delta = extractGameDelta(game);
+  EXPECT_TRUE(delta.upserts.empty());
+  ASSERT_TRUE(response.has_value());
+  EXPECT_EQ(response->response, std::string_view{"placement"});
+  EXPECT_FALSE(response->ok);
 }
 
 void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
@@ -805,12 +852,12 @@ void SimJson_BuildHelloAckJson() {
 void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   SimGame game;
   game.loadMap();
-  game.handleUiCanvas(UiCanvasInput{.seq = 1,
+  (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
       .event = UiCanvasEvent::click,
       .button = UiMouseButton::left,
       .buttons = 1,
-      .x = 10.F,
-      .y = 20.F,
+      .x = 200.F,
+      .y = 0.F,
       .canvasX = 100.F,
       .canvasY = 200.F,
       .command = "spawn",
@@ -819,7 +866,7 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
 
   SimGameStateJson state;
   (void)buildSimGameStateJson(state, game);
-  EXPECT_TRUE(state.body.contains(R"("x":10.0)"));
+  EXPECT_TRUE(state.body.contains(R"("x":200.0)"));
   EXPECT_TRUE(state.body.contains(R"("radius":30.000)"));
   EXPECT_TRUE(state.body.contains(R"("vfx")"));
   EXPECT_TRUE(state.body.contains(R"("flashExpiryMs":250)"));
@@ -851,7 +898,7 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
     ASSERT_TRUE(pos);
     const auto x = pos.get_number<float>("x");
     ASSERT_TRUE(x.has_value());
-    EXPECT_NEAR(*x, 10.0, 1e-6);
+    EXPECT_NEAR(*x, 200.0, 1e-6);
 
     const auto app = entry.get_object("app");
     ASSERT_TRUE(app);
@@ -874,12 +921,12 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
 void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
   SimGame game;
   game.loadMap();
-  game.handleUiCanvas(UiCanvasInput{.seq = 1,
+  (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
       .event = UiCanvasEvent::click,
       .button = UiMouseButton::left,
       .buttons = 1,
-      .x = 10.F,
-      .y = 20.F,
+      .x = 200.F,
+      .y = 0.F,
       .canvasX = 100.F,
       .canvasY = 200.F,
       .command = "spawn",
@@ -889,12 +936,12 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
   (void)buildSimGameStateJson(initial_state, game);
   (void)game.tick();
 
-  game.handleUiCanvas(UiCanvasInput{.seq = 2,
+  (void)game.handleUiCanvas(UiCanvasInput{.seq = 2,
       .event = UiCanvasEvent::click,
       .button = UiMouseButton::right,
       .buttons = 2,
-      .x = 10.F,
-      .y = 20.F,
+      .x = 200.F,
+      .y = 0.F,
       .canvasX = 100.F,
       .canvasY = 200.F,
       .command{},
@@ -918,7 +965,7 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
     ASSERT_TRUE(pos);
     const auto x = pos.get_number<float>("x");
     ASSERT_TRUE(x.has_value());
-    EXPECT_NEAR(*x, 10.0, 1e-6);
+    EXPECT_NEAR(*x, 200.0, 1e-6);
 
     const auto vfx = entry.get_object("vfx");
     ASSERT_TRUE(vfx);
@@ -1009,6 +1056,8 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
     SimGame_HandleUiActionStartWaveTransitionsToWavePhase,
     SimGame_HandleUiCanvasSpawnsTowerButKeepsBuildPhase,
     SimGame_HandleUiCanvasRightClickSpawnPlacesTower,
+    SimGame_HandleUiCanvasPlacingResponseRejectsPathOverlap,
+    SimGame_HandleUiCanvasRejectsBlockedTowerSpawn,
     SimGame_StartWaveSpawnsFirstEnemyOnFirstStep,
     SimGame_ExtractDeltaConsumesWorldUpdatesButNotState,
     SimGame_ExtractFullIncludesPathsAndState, SimJson_ParseUiCanvasMessage,

@@ -15,6 +15,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <optional>
 #include <sys/types.h>
 
 #include <string>
@@ -163,6 +164,9 @@ struct MapDesign {
   std::vector<WaveDefinition> waves;
 };
 
+// Input from the UI canvas, such as mouse clicks and drags.
+// Includes `command` and `parameters` for when the mouse location is paired
+// with an action.
 struct UiCanvasInput {
   uint64_t seq{};
   UiCanvasEvent event{UiCanvasEvent::click};
@@ -180,14 +184,28 @@ struct UiCanvasInput {
   std::vector<std::string> parameters;
 };
 
+// Input from the UI for actions, such as form submissions.
 struct UiActionField {
   std::string key;
   std::string value;
 };
 
+// Represents an action input from the UI, such as a button click. Can include
+// related data, such as form fields.
 struct UiActionInput {
   uint64_t seq{};
   std::string action;
+  std::vector<UiActionField> fields;
+};
+
+// Represents a response to a UI action, including success status and related
+// data. Note all actions require a corresponding response, but those that do
+// will use the same sequence number.
+struct UiResponse {
+  uint64_t seq{};
+  bool ok{};
+  std::string response;
+  std::string reason;
   std::vector<UiActionField> fields;
 };
 
@@ -253,17 +271,28 @@ public:
     nextSpawnIndex_ = 0;
   }
 
-  void handleUiCanvas(const UiCanvasInput& input) {
-    // Explicit spawn command from the web build menu. The button is part of
-    // the UX contract, not the simulation command, so accept whichever button
-    // the client uses for confirmation.
+  [[nodiscard]] std::optional<UiResponse> handleUiCanvas(
+      const UiCanvasInput& input) {
+    // When dragging ghost, show indicator of validity.
+    if (input.command == "placing" && !input.parameters.empty() &&
+        (input.event == UiCanvasEvent::dragstart ||
+            input.event == UiCanvasEvent::dragmove ||
+            input.event == UiCanvasEvent::dragend))
+      return makePlacementValidationResponse(input.seq,
+          canPlaceEntity(input.parameters[0], {input.x, input.y}));
+
+    // Explicit spawn from right-clicking after placing a defender.
     if (input.event == UiCanvasEvent::click && input.command == "spawn" &&
         !input.parameters.empty() && phase_ == GamePhase::build)
     {
-      auto h = world_.spawnEntity(input.parameters[0]);
-      auto* pos = world_.try_get_component<Position>(h.id());
-      *pos = {input.x, input.y};
-      return;
+      const auto& entityName = input.parameters[0];
+      if (!canPlaceEntity(entityName, {input.x, input.y}))
+        return makePlacementValidationResponse(input.seq, false);
+
+      auto h = world_.spawnEntity(entityName);
+      if (!h) return makePlacementValidationResponse(input.seq, false);
+      *world_.try_get_component<Position>(h.id()) = {input.x, input.y};
+      return std::nullopt;
     }
 
     // Select tower on click.
@@ -299,13 +328,23 @@ public:
       (void)world_.flashEntity(world_.findEntityAt({input.x, input.y}),
           0xFF7F7FAF, WorldTick{5});
     }
+    return std::nullopt;
   }
 
-  void handleUiAction(const UiActionInput& input) {
+  [[nodiscard]] std::optional<UiResponse> handleUiAction(
+      const UiActionInput& input) {
     if (input.action == "start_wave") {
+      if (phase_ != GamePhase::build) {
+        return UiResponse{.seq = input.seq,
+            .ok = false,
+            .response = "action",
+            .reason = "phase_mismatch",
+            .fields = {}};
+      }
       start_wave();
-      return;
+      return std::nullopt;
     }
+    return std::nullopt;
   }
 
   void placeTower(/* later */);
@@ -322,7 +361,7 @@ public:
 
   // Extract a delta of the game state. The `cbUpserts(EntityId, Position,
   // Appearance, VisualEffects)` and `cbErased(EntityId)` callbacks will be
-  // interleaved. The `cbState(currentWave, waveTick, lives, resources)`
+  // interleaved. The `cbState(currentWave, waveTick, lives, resources, phase)`
   // callback is invoked last.
   [[nodiscard]] bool
   extractDelta(auto&& cbUpserts, auto&& cbErased, auto&& cbState) {
@@ -353,6 +392,33 @@ public:
   }
 
 private:
+  [[nodiscard]] static UiResponse
+  makePlacementValidationResponse(uint64_t seq, bool valid) {
+    return UiResponse{.seq = seq,
+        .ok = valid,
+        .response = "placement",
+        .reason = valid ? "" : "blocked",
+        .fields = {{"valid", valid ? "true" : "false"}}};
+  }
+
+  [[nodiscard]] bool
+  canPlaceEntity(std::string_view entity_name, const Position& pos) const {
+    if (phase_ != GamePhase::build) return false;
+    const auto def = find_opt(mapDesign_.entityDefs, entity_name);
+    if (!def) return false;
+    const auto& app_opt = std::get<std::optional<Appearance>>(def->megatuple);
+    if (!app_opt) return false;
+    return !world_.isTowerPlacementBlocked(pos, app_opt->radius);
+  }
+
+  [[nodiscard]] UiResponse buildPlacementResponse(
+      const UiCanvasInput& input) const {
+    const bool valid =
+        !input.parameters.empty() &&
+        canPlaceEntity(input.parameters[0], {input.x, input.y});
+    return makePlacementValidationResponse(input.seq, valid);
+  }
+
   // Register all entities and build the defender menu from
   // `mapDesign_.entityDefs`.
   [[nodiscard]] bool processEntityDefs() {

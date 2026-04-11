@@ -92,6 +92,15 @@ export interface UiActionMsg {
   fields?: Record<string, string>
 }
 
+export interface UiResponseMsg {
+  type: 'ui_response'
+  seq: number
+  ok: boolean
+  response: string
+  reason?: string
+  fields?: Record<string, string>
+}
+
 export interface WorldDelta {
   type: 'world_delta'
   tick: number
@@ -109,5 +118,5 @@ export interface WorldSnapshot {
   delta: WorldDelta
 }
 
-export type ServerMsg = HelloAckMsg | WorldDelta | WorldSnapshot;
+export type ServerMsg = HelloAckMsg | UiResponseMsg | WorldDelta | WorldSnapshot;
 export type ClientMsg = HelloMsg | UiCanvasMsg | UiActionMsg;

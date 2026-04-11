@@ -6,6 +6,7 @@ import type {
   EntityUpsert,
   EntityVisualEffects,
   ServerMsg,
+  UiResponseMsg,
   UiCanvasMsg,
   WorldDelta,
 } from './types.js'
@@ -36,6 +37,9 @@ interface GhostState {
   appearance: RenderAppearance
   attackRadius: number  // world units, from Appearance.attackRadius
   pending: boolean      // true = dropped on map, awaiting confirmation click
+  placeable: boolean
+  placementSeq: number
+  placementResponseSeq: number
 }
 
 interface RenderVisualEffects {
@@ -286,6 +290,27 @@ function withPointerButton(
     ...sample,
     button,
     buttons,
+  }
+}
+
+function ghostStateToSample(
+  ghost: GhostState,
+  event: MouseEvent,
+  button = event.button,
+  buttons = event.buttons,
+): CanvasPointerSample {
+  const [canvasX, canvasY] = worldToCanvas(ghost.worldX, ghost.worldY)
+  return {
+    button,
+    buttons,
+    canvasX: Math.round(canvasX),
+    canvasY: Math.round(canvasY),
+    worldX: Math.round(ghost.worldX),
+    worldY: Math.round(ghost.worldY),
+    shift: event.shiftKey,
+    ctrl: event.ctrlKey,
+    alt: event.altKey,
+    meta: event.metaKey,
   }
 }
 
@@ -894,8 +919,7 @@ function getSelectedTowerPanelModel(): SidePanelModel | null {
   const selectedTower = findSelectedTower()
   if (!selectedTower) return null
 
-  const defaultSide: PanelSide = selectedTower.pos.x <= 0 ? 'right' : 'left'
-  const side: PanelSide = edgeHoverSide ?? defaultSide
+  const side: PanelSide = selectedTower.pos.x <= 0 ? 'right' : 'left'
   return {
     side,
     title: 'Tower Selected',
@@ -1123,6 +1147,7 @@ function drawGhost(): void {
   const [x, y] = worldToCanvas(ghostState.worldX, ghostState.worldY)
   const radius = worldLengthToCanvas(ghostState.appearance.radius)
   const attackPx = worldLengthToCanvas(ghostState.attackRadius)
+  const isPlaceable = ghostState.placeable
 
   fgCtx.save()
   fgCtx.globalAlpha = ghostState.pending ? 0.85 : 0.55
@@ -1154,12 +1179,22 @@ function drawGhost(): void {
   if (attackPx > 0) {
     fgCtx.globalAlpha = ghostState.pending ? 0.55 : 0.35
     const rangeColor: RenderColor = {
-      css: ghostState.pending
-        ? 'rgba(255, 0, 127, 0.6)'
-        : 'rgba(255, 255, 100, 0.4)',
-      alpha: ghostState.pending ? 0.6 : 0.4,
+      css: isPlaceable
+        ? 'rgba(72, 159, 255, 0.45)'
+        : 'rgba(255, 76, 76, 0.45)',
+      alpha: 0.45,
     }
     drawFilledCircleOnContext(fgCtx, x, y, attackPx, rangeColor)
+    drawStrokedCircleOnContext(
+      fgCtx,
+      x,
+      y,
+      attackPx,
+      isPlaceable
+        ? { css: 'rgba(72, 159, 255, 0.85)', alpha: 0.85 }
+        : { css: 'rgba(255, 76, 76, 0.85)', alpha: 0.85 },
+      Math.max(2, radius * 0.08),
+    )
   }
 
   if (ghostState.pending) {
@@ -1170,7 +1205,9 @@ function drawGhost(): void {
       x,
       y,
       radius + lineWidth * 0.5,
-      { css: 'rgba(255, 242, 63, 0.9)', alpha: 0.9 },
+      isPlaceable
+        ? { css: 'rgba(255, 242, 63, 0.9)', alpha: 0.9 }
+        : { css: 'rgba(255, 76, 76, 0.9)', alpha: 0.9 },
       lineWidth,
     )
   }
@@ -1250,10 +1287,11 @@ function sendCanvasMsg(
   sample: CanvasPointerSample,
   command?: string,
   parameters?: string[],
-): void {
+): number {
+  const seq = nextClientSeq++
   const msg: UiCanvasMsg = {
     type: 'ui_canvas',
-    seq: nextClientSeq++,
+    seq,
     event: eventName,
     button: buttonNameFromNumber(sample.button),
     buttons: sample.buttons,
@@ -1269,6 +1307,7 @@ function sendCanvasMsg(
   if (command) msg.command = command
   if (parameters?.length) msg.parameters = parameters
   sendClientMsg(msg)
+  return seq
 }
 
 function flushPendingDragMove(): void {
@@ -1276,6 +1315,16 @@ function flushPendingDragMove(): void {
   if (!pendingDragMove) return
   sendCanvasMsg('dragmove', pendingDragMove)
   pendingDragMove = null
+}
+
+function sendPlacementPreview(
+  eventName: 'dragstart' | 'dragmove' | 'dragend',
+  sample: CanvasPointerSample,
+  entityName: string,
+): void {
+  if (!ghostState) return
+  ghostState.placementSeq =
+    sendCanvasMsg(eventName, sample, 'placing', [entityName])
 }
 
 function scheduleDragMoveFlush(): void {
@@ -1355,6 +1404,22 @@ function isEntityUpsert(value: unknown): value is EntityUpsert {
     isEntityPosition((value as Record<string, unknown>).pos) &&
     (maybeApp === undefined || isEntityAppearance(maybeApp)) &&
     (maybeVfx === undefined || isEntityVisualEffects(maybeVfx))
+  )
+}
+
+function isUiResponseMsg(value: unknown): value is UiResponseMsg {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as Record<string, unknown>).type === 'ui_response' &&
+    typeof (value as Record<string, unknown>).seq === 'number' &&
+    typeof (value as Record<string, unknown>).ok === 'boolean' &&
+    typeof (value as Record<string, unknown>).response === 'string' &&
+    ((value as Record<string, unknown>).reason === undefined ||
+      typeof (value as Record<string, unknown>).reason === 'string') &&
+    ((value as Record<string, unknown>).fields === undefined ||
+      (typeof (value as Record<string, unknown>).fields === 'object' &&
+        (value as Record<string, unknown>).fields !== null))
   )
 }
 
@@ -1438,6 +1503,17 @@ function applyWorldDelta(delta: WorldDelta): void {
   setTextIfElement(phaseEl, currentPhase)
 }
 
+function applyUiResponse(response: UiResponseMsg): void {
+  if (
+    response.response === 'placement' &&
+    ghostState &&
+    response.seq > ghostState.placementResponseSeq
+  ) {
+    ghostState.placeable = response.fields?.valid === 'true'
+    ghostState.placementResponseSeq = response.seq
+  }
+}
+
 // --- Message validation ---
 
 function isWorldDelta(value: unknown): value is WorldDelta {
@@ -1464,6 +1540,8 @@ function isServerMsg(value: unknown): value is ServerMsg {
   switch (v.type) {
     case 'hello_ack':
       return typeof v.message === 'string'
+    case 'ui_response':
+      return isUiResponseMsg(v)
     case 'world_delta':
       return isWorldDelta(v)
     case 'world_snapshot': {
@@ -1513,6 +1591,9 @@ ws.onmessage = (event: MessageEvent<string>) => {
   switch (parsed.type) {
     case 'hello_ack':
       log(`Server says: ${parsed.message}`)
+      break
+    case 'ui_response':
+      applyUiResponse(parsed)
       break
     case 'world_delta':
       applyWorldDelta(parsed)
@@ -1580,6 +1661,7 @@ foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
       menuDragActive = true
       mouseOverOverlay = false
       overlayStayOpen = false
+      sendPlacementPreview('dragstart', sample, ghostState.entityName)
     } else {
       ghostState = null
       clearMenuSelection()
@@ -1670,6 +1752,7 @@ window.addEventListener('mouseup', (event: MouseEvent) => {
         event.clientX >= fgRect.left && event.clientX <= fgRect.right &&
         event.clientY >= fgRect.top  && event.clientY <= fgRect.bottom
       if (overFg && !overOverlay) {
+        sendPlacementPreview('dragend', ghostStateToSample(ghostState, event), ghostState.entityName)
         ghostState.pending = true
         mouseOverOverlay = false
         overlayStayOpen = false
@@ -1698,15 +1781,17 @@ foregroundCanvas.addEventListener('contextmenu', (event: MouseEvent) => {
   event.preventDefault()
   const sample = eventToCanvasSample(event)
   if (ghostState?.pending) {
+    if (!ghostState.placeable) return
     // Right-click while ghost is pending: place the tower.
     const entityName = ghostState.entityName
+    const ghostSample = ghostStateToSample(ghostState, event, 2, 2)
     ghostState = null
     clearMenuSelection()
     menuDragActive = false
     mouseOverOverlay = false
     overlayStayOpen = false
     invalidateSidePanel()
-    sendCanvasMsg('click', sample, 'spawn', [entityName])
+    sendCanvasMsg('click', ghostSample, 'spawn', [entityName])
     return
   }
   updateEdgeHover(sample)
@@ -1797,6 +1882,7 @@ window.addEventListener('mousemove', (event: MouseEvent) => {
   const [worldX, worldY] = canvasToWorld(canvasX, canvasY)
   ghostState.worldX = worldX
   ghostState.worldY = worldY
+  sendPlacementPreview('dragmove', eventToCanvasSample(event), ghostState.entityName)
 })
 
 // Overlay mousedown: select a build menu cell and arm a drag (ghost appears on
@@ -1854,7 +1940,12 @@ overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
     appearance: appearanceToRender(item.appearance),
     attackRadius: item.appearance.attackRadius,
     pending: false,
+    placeable: true,
+    placementSeq: 0,
+    placementResponseSeq: 0,
   }
+  const sample = eventToCanvasSample(event)
+  sendPlacementPreview('dragstart', sample, item.entityName)
   clearMenuSelection()
   invalidateSidePanel()
 })
