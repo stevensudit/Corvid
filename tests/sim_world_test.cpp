@@ -291,7 +291,7 @@ void SimWorld_ExtractUpdatedEntitiesReportsMovedInvaderOncePerExtraction() {
   EXPECT_TRUE(empty_delta.erased.empty());
 }
 
-void SimWorld_TowerInRangeFlashesItselfAndInvader() {
+void SimWorld_DefenderInRangeFlashesItselfAndInvader() {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -606,7 +606,7 @@ void SimGame_HandleUiActionStartWaveTransitionsToWavePhase() {
   EXPECT_EQ(delta.waveTick, WaveTick{0});
 }
 
-void SimGame_HandleUiCanvasSpawnsTowerButKeepsBuildPhase() {
+void SimGame_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase() {
   SimGame game;
   game.loadMap();
   const auto before = extractGameDelta(game);
@@ -631,7 +631,7 @@ void SimGame_HandleUiCanvasSpawnsTowerButKeepsBuildPhase() {
   EXPECT_TRUE(after.erased.empty());
 }
 
-void SimGame_HandleUiCanvasRightClickSpawnPlacesTower() {
+void SimGame_HandleUiCanvasRightClickSpawnPlacesDefender() {
   SimGame game;
   game.loadMap();
 
@@ -679,7 +679,7 @@ void SimGame_HandleUiCanvasPlacingResponseRejectsPathOverlap() {
   EXPECT_EQ(response->fields[0].value, std::string_view{"false"});
 }
 
-void SimGame_HandleUiCanvasRejectsBlockedTowerSpawn() {
+void SimGame_HandleUiCanvasRejectsBlockedDefenderSpawn() {
   SimGame game;
   game.loadMap();
 
@@ -1043,7 +1043,7 @@ void SimJson_BuildWorldSnapshotJsonShape() {
 
 MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
     SimWorld_ExtractUpdatedEntitiesReportsMovedInvaderOncePerExtraction,
-    SimWorld_TowerInRangeFlashesItselfAndInvader,
+    SimWorld_DefenderInRangeFlashesItselfAndInvader,
     SimWorld_SnapshotSinceTracksChanges,
     SimWorld_DefenderDoesNotAppearAsChangedAfterTick, BakePath_TwoJoints,
     BakePath_ThreeJoints, BakePath_Degenerate, PathPosition_Endpoints,
@@ -1054,10 +1054,10 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
     SimWorld_FromJointsThrowsWhenJointIsOutOfBounds,
     SimGame_LoadMapInitialSnapshotAndState,
     SimGame_HandleUiActionStartWaveTransitionsToWavePhase,
-    SimGame_HandleUiCanvasSpawnsTowerButKeepsBuildPhase,
-    SimGame_HandleUiCanvasRightClickSpawnPlacesTower,
+    SimGame_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase,
+    SimGame_HandleUiCanvasRightClickSpawnPlacesDefender,
     SimGame_HandleUiCanvasPlacingResponseRejectsPathOverlap,
-    SimGame_HandleUiCanvasRejectsBlockedTowerSpawn,
+    SimGame_HandleUiCanvasRejectsBlockedDefenderSpawn,
     SimGame_StartWaveSpawnsFirstEnemyOnFirstStep,
     SimGame_ExtractDeltaConsumesWorldUpdatesButNotState,
     SimGame_ExtractFullIncludesPathsAndState, SimJson_ParseUiCanvasMessage,

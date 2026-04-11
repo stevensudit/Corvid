@@ -534,12 +534,13 @@ public:
         .try_get_components<Position, Appearance, VisualEffects, Defender>(id);
   }
 
+  // Find entity of defender at the given position, if any. Uses simple
+  // bounding box.
   [[nodiscard]] EntityId findDefenderAt(const Position& pos) const {
-    EntityId found_id = EntityId::invalid;
+    auto found_id = EntityId::invalid;
     scene_.for_each<Position, Appearance, Defender>([&](auto id, auto comps) {
       const auto& [epos, app, _] = comps;
       const auto radius = app.radius;
-      // If point outside of bounding box, keep searching.
       if (std::abs(epos.x - pos.x) >= radius ||
           std::abs(epos.y - pos.y) >= radius)
         return true;
@@ -552,7 +553,7 @@ public:
   }
 
   [[nodiscard]] bool
-  doesTowerOverlapExisting(const Position& pos, float radius) const {
+  doesOveralapDefenders(const Position& pos, float radius) const {
     bool overlaps = false;
     scene_.for_each<Position, Appearance, Defender>([&](auto, auto comps) {
       const auto& [defender_pos, defender_app, _] = comps;
@@ -565,7 +566,7 @@ public:
   }
 
   [[nodiscard]] bool
-  doesTowerTouchPath(const Position& pos, float radius) const {
+  doDefendersTouch(const Position& pos, float radius) const {
     for (const auto& path : paths_) {
       const float expanded_radius = radius + (path.width * 0.5F);
       const float expanded_radius_sq = expanded_radius * expanded_radius;
@@ -579,14 +580,13 @@ public:
   }
 
   [[nodiscard]] bool
-  isTowerPlacementBlocked(const Position& pos, float radius) const {
+  isDefenderPlacementBlocked(const Position& pos, float radius) const {
     constexpr float half_w = widthOfWorld * 0.5F;
     constexpr float half_h = heightOfWorld * 0.5F;
     if (pos.x - radius < -half_w || pos.x + radius > half_w ||
         pos.y - radius < -half_h || pos.y + radius > half_h)
       return true;
-    return doesTowerOverlapExisting(pos, radius) ||
-           doesTowerTouchPath(pos, radius);
+    return doesOveralapDefenders(pos, radius) || doDefendersTouch(pos, radius);
   }
 
   // Run all physics for the current tick without advancing the counter. Call

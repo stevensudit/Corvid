@@ -349,8 +349,6 @@ public:
     return std::nullopt;
   }
 
-  void placeTower(/* later */);
-
   // Access the current map design (for streaming and inspection).
   [[nodiscard]] const MapDesign& mapDesign() const { return mapDesign_; }
 
@@ -410,7 +408,7 @@ private:
     if (!def) return false;
     const auto& app_opt = std::get<std::optional<Appearance>>(def->megatuple);
     if (!app_opt) return false;
-    return !world_.isTowerPlacementBlocked(pos, app_opt->radius);
+    return !world_.isDefenderPlacementBlocked(pos, app_opt->radius);
   }
 
   [[nodiscard]] UiResponse buildPlacementResponse(

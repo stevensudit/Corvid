@@ -108,11 +108,7 @@ eponymous browser-based tower defense game.
 - Tower damage is disabled (`#if 0` in `towersAttack`); needs cooldown, health
   reduction, bounty award, and tombstoning.
 - Only one hardcoded map and one wave; need data-driven map/wave loading.
-- `placeTower()` in `SimGame` is a stub; spending resources and enforcing build
-  slots is not implemented.
 - No victory condition when all waves clear with lives remaining.
-- Enemy variety (`enemyType` field exists but all enemies share the same speed
-  and appearance).
 - `sidBullet` archetype exists but no projectile-firing tower type is wired up.
 - Web asset pipeline (Vite/TypeScript) must be built separately (`npm run
   build` in `web/`) before the C++ server can serve the dist files.

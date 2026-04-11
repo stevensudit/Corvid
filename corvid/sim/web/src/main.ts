@@ -892,7 +892,7 @@ function findSelectedDefender(): RenderEntityUpsert | null {
   return null
 }
 
-function findTowerAtWorld(worldX: number, worldY: number): RenderEntityUpsert | null {
+function findDefenderAtWorld(worldX: number, worldY: number): RenderEntityUpsert | null {
   const hitPos = { x: worldX, y: worldY }
   for (const entity of currEntitiesById.values()) {
     if (entity.app.attackRadius <= 0) continue
@@ -971,7 +971,7 @@ function getPendingGhostPanelModel(): SidePanelModel | null {
   const side: PanelSide = ghostCanvasX < foregroundCanvas.width / 2 ? 'right' : 'left'
   return {
     side,
-    title: 'Place Tower',
+    title: 'Place Defender',
     lines: [
       ghostState.displayName,
       '',
@@ -1737,7 +1737,7 @@ foregroundCanvas.addEventListener('dblclick', (event: MouseEvent) => {
     !menuDragActive &&
     currentPhase === 'build' &&
     defenderMenuItems.length > 0 &&
-    findTowerAtWorld(sample.worldX, sample.worldY) === null
+    findDefenderAtWorld(sample.worldX, sample.worldY) === null
   ) {
     edgeHoverSide = currentPanelSide
     mouseOverOverlay = true
