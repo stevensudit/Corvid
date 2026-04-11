@@ -131,8 +131,9 @@
     #overlay-canvas {
       position: absolute;
       top: 0;
-      display: none;
-      pointer-events: auto;
+      pointer-events: none;
+      visibility: hidden;
+      transition: transform 220ms ease;
     }
 
     #log {

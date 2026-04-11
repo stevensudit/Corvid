@@ -459,6 +459,40 @@ private:
       std::get<std::optional<DefenderAoe>>(tpl) = DefenderAoe{.damageType = 1};
       mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
     }
+    {
+      EntityDefinition def;
+      def.entityName = "DefenderShooterBasic";
+      def.displayName = "Shooter";
+      def.menuOrder = 2;
+      def.flavorText = "Fires projectiles at a single target.";
+      def.resourceCost = 75.F;
+      auto& tpl = def.megatuple;
+      std::get<std::optional<Position>>(tpl) = Position{};
+      std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'S',
+          .radius = 25.F,
+          .fgColor = 0xFFFFFFFF,
+          .bgColor = 0x7FFF7F3F,
+          .attackRadius = 150.F};
+      std::get<std::optional<VisualEffects>>(tpl) =
+          VisualEffects{.flashColor = 0xFF7FFF7F, .flashExpiry = WorldTick{5}};
+      std::get<std::optional<Defender>>(tpl) = Defender{.defenderType = 2,
+          .hitCircleRadius = 25.F,
+          .attackRadius = 150.F,
+          .rangeColor = 0xFF00FF00,
+          .attackDamage = 15.F,
+          .cooldown = WorldTick{30},
+          .nextAttack = WorldTick{0}};
+      std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
+      std::get<std::optional<Health>>(tpl) =
+          Health{.currentHealth = 80.F, .maxHealth = 80.F, .regen = 0.F};
+      std::get<std::optional<DefenderShooter>>(tpl) = DefenderShooter{
+          .bullet_template = DefenderBullet{.speed = 200.F,
+              .directDamage = 15.F,
+              .projectileType = 1,
+              .expiry = WorldTick{60}},
+          .fireRate = 0.033F};
+      mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
+    }
 
     // Path geometry (sprite files empty until sprites are added).
     {
