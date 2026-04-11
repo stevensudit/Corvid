@@ -246,10 +246,11 @@ struct Pathing {
 // TODO: Add field for sprite selection.
 struct Appearance {
   WorldTick modified{WorldTick::invalid}; // Tick when last modified.
-  char32_t glyph{};   // a Unicode character to display, if any.
-  float radius{5.F};  // world-space radius of the rendered shape.
-  uint32_t fgColor{}; // RGBA.
-  uint32_t bgColor{}; // RGBA.
+  char32_t glyph{};     // A Unicode character to display, if any.
+  float radius{5.F};    // World-space radius of the rendered shape.
+  uint32_t fgColor{};   // RGBA.
+  uint32_t bgColor{};   // RGBA.
+  float attackRadius{}; // Display-only (world units).
 };
 
 // Health component. Applies to both defenders and invaders. The two health

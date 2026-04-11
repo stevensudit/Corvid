@@ -1,10 +1,12 @@
 import type {
   ClientMsg,
+  DefenderMenuItem,
   EntityAppearance,
   EntityPosition,
   EntityUpsert,
   EntityVisualEffects,
   ServerMsg,
+  UiCanvasMsg,
   WorldDelta,
 } from './types.js'
 
@@ -23,6 +25,16 @@ interface RenderAppearance {
   radius: number
   fg: RenderColor
   bg: RenderColor
+  attackRadius: number
+}
+
+interface GhostState {
+  worldX: number
+  worldY: number
+  entityName: string
+  appearance: RenderAppearance
+  attackRadius: number  // world units, from Appearance.attackRadius
+  pending: boolean      // true = dropped on map, awaiting confirmation click
 }
 
 interface RenderVisualEffects {
@@ -72,6 +84,7 @@ const DEFAULT_RENDER_APPEARANCE: RenderAppearance = {
   radius: 5,
   fg: { css: 'rgba(255, 255, 255, 1)', alpha: 1 },
   bg: { css: 'rgba(0, 0, 0, 1)', alpha: 1 },
+  attackRadius: 0,
 }
 
 const TRANSPARENT_RENDER_COLOR: RenderColor = {
@@ -304,8 +317,17 @@ let pendingDragMove: CanvasPointerSample | null = null
 let dragMoveFrameRequested = false
 let sidePanelDirty = true
 let edgeHoverSide: PanelSide | null = null
+let defenderMenuItems: DefenderMenuItem[] = []
+let selectedMenuIndex: number | null = null
+let menuScrollOffset = 0
+let ghostState: GhostState | null = null
+let menuDragActive = false
+let pendingMenuDragItem: DefenderMenuItem | null = null
+let currentPhase = 'build'
 
 const SIDE_PANEL_TRIGGER_PX = 48
+const MENU_COLS = 2
+const MENU_VISIBLE_ROWS = 4
 const SIDE_PANEL_RADIUS = 18
 const SIDE_PANEL_LINE_HEIGHT = 22
 const SIDE_PANEL_TEXT_MARGIN = 28
@@ -349,6 +371,7 @@ function renderInterpolated(now: number): void {
     const radius = worldLengthToCanvas(lerp(prevApp.radius, e.app.radius, t))
     drawEntity(x, y, radius, e.app, e.fx, now)
   }
+  drawGhost()
 }
 
 function updateHudOverlay(): void {
@@ -606,6 +629,7 @@ function appearanceToRender(app: EntityAppearance): RenderAppearance {
     radius: app.radius,
     fg: packedRgbaToRenderColor(app.fg),
     bg: packedRgbaToRenderColor(app.bg),
+    attackRadius: app.attackRadius,
   }
 }
 
@@ -693,6 +717,10 @@ function panelSideFromCanvasX(canvasX: number): PanelSide | null {
 }
 
 function updateEdgeHover(sample: CanvasPointerSample): void {
+  if (menuDragActive || ghostState || currentPhase !== 'build') {
+    setEdgeHoverSide(null)
+    return
+  }
   setEdgeHoverSide(panelSideFromCanvasX(sample.canvasX))
 }
 
@@ -758,27 +786,23 @@ function getSelectedTowerPanelModel(): SidePanelModel | null {
   }
 }
 
-function getHoverPanelModel(): SidePanelModel | null {
-  if (!edgeHoverSide) return null
-
+function getPendingGhostPanelModel(): SidePanelModel | null {
+  if (!ghostState?.pending) return null
   return {
-    side: edgeHoverSide,
-    title: 'Build Panel',
+    side: 'right',
+    title: 'Place Tower',
     lines: [
-      `Phase ${phaseEl?.textContent ?? '--'}`,
-      `Lives ${lives}`,
-      `Resources $${resources}`,
+      ghostState.entityName,
       '',
-      'Double click to place a tower',
-      'Left click to select a tower',
-      'Right click to flash an entity',
-      'Use Start Wave to begin the next push',
+      'Double-click to place',
+      'Left-click to move',
+      'Right-click to cancel',
     ],
   }
 }
 
 function getSidePanelModel(): SidePanelModel | null {
-  return getSelectedTowerPanelModel() ?? getHoverPanelModel()
+  return getPendingGhostPanelModel() ?? getSelectedTowerPanelModel()
 }
 
 function drawRoundedPanelPath(
@@ -865,12 +889,184 @@ function drawSidePanel(ctx: CanvasRenderingContext2D, panel: SidePanelModel): vo
   ctx.restore()
 }
 
+function drawBuildMenu(ctx: CanvasRenderingContext2D): void {
+  const panelScale = Math.min(
+    foregroundCanvas.width / DEFAULT_CANVAS_W,
+    foregroundCanvas.height / DEFAULT_CANVAS_H,
+  )
+  const width = overlayCanvas.width
+  const height = overlayCanvas.height
+  const cornerRadius = SIDE_PANEL_RADIUS * panelScale
+  const titleFontSize = 24 * panelScale
+  const titleTop = 20 * panelScale
+  const dividerY = 56 * panelScale
+  const bodyTop = 70 * panelScale
+  const textMargin = SIDE_PANEL_TEXT_MARGIN * panelScale
+  const textWidth = width - textMargin * 2
+
+  ctx.save()
+  drawRoundedPanelPath(ctx, 0, 0, width, height, cornerRadius)
+  const gradient = ctx.createLinearGradient(0, 0, width, height)
+  gradient.addColorStop(0, 'rgba(12, 18, 26, 0.92)')
+  gradient.addColorStop(1, 'rgba(18, 27, 39, 0.84)')
+  ctx.fillStyle = gradient
+  ctx.fill()
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)'
+  ctx.lineWidth = Math.max(1, 1.5 * panelScale)
+  ctx.stroke()
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
+  ctx.font = `bold ${titleFontSize}px monospace`
+  ctx.textBaseline = 'top'
+  ctx.fillText('Build Menu', textMargin, titleTop, textWidth)
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'
+  ctx.beginPath()
+  ctx.moveTo(textMargin, dividerY)
+  ctx.lineTo(textMargin + textWidth, dividerY)
+  ctx.stroke()
+
+  const cellSize = Math.floor((width - 2) / MENU_COLS)
+  const startIndex = menuScrollOffset * MENU_COLS
+  const visibleItems = defenderMenuItems.slice(
+    startIndex,
+    startIndex + MENU_VISIBLE_ROWS * MENU_COLS,
+  )
+
+  for (let i = 0; i < visibleItems.length; i++) {
+    const item = visibleItems[i]
+    const col = i % MENU_COLS
+    const row = Math.floor(i / MENU_COLS)
+    const cellX = 1 + col * cellSize
+    const cellY = bodyTop + row * cellSize
+    const isSelected = (startIndex + i) === selectedMenuIndex
+
+    ctx.fillStyle = isSelected
+      ? 'rgba(255, 242, 182, 0.18)'
+      : 'rgba(255, 255, 255, 0.06)'
+    ctx.fillRect(cellX, cellY, cellSize, cellSize)
+
+    if (isSelected) {
+      ctx.strokeStyle = 'rgba(255, 242, 63, 0.85)'
+      ctx.lineWidth = 2 * panelScale
+      ctx.strokeRect(cellX + 1, cellY + 1, cellSize - 2, cellSize - 2)
+    }
+
+    const app = appearanceToRender(item.appearance)
+    const circleX = cellX + cellSize / 2
+    const circleY = cellY + cellSize * 0.40
+    const circleR = Math.min(
+      worldLengthToCanvas(app.radius) * 2,
+      cellSize * 0.30,
+    )
+
+    if (app.bg.alpha !== 0) drawFilledCircleOnContext(ctx, circleX, circleY, circleR, app.bg)
+    if (app.fg.alpha !== 0) {
+      drawStrokedCircleOnContext(
+        ctx,
+        circleX,
+        circleY,
+        Math.max(circleR - getEntityBorderWidth(circleR) * 0.5, 0),
+        app.fg,
+        getEntityBorderWidth(circleR),
+      )
+    }
+    if (app.glyph && app.fg.alpha !== 0) {
+      drawGlyphOnContext(ctx, app.glyph, circleX, circleY, circleR, app.fg)
+    }
+
+    const nameFontSize = Math.max(9, 11 * panelScale)
+    ctx.font = `${nameFontSize}px monospace`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'alphabetic'
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
+    ctx.fillText(item.displayName, circleX, cellY + cellSize * 0.76, cellSize - 4)
+    ctx.fillStyle = 'rgba(181, 201, 224, 0.85)'
+    ctx.fillText(`$${item.resourceCost}`, circleX, cellY + cellSize * 0.92, cellSize - 4)
+  }
+
+  ctx.restore()
+}
+
+function drawGhost(): void {
+  if (!ghostState) return
+  const [x, y] = worldToCanvas(ghostState.worldX, ghostState.worldY)
+  const radius = worldLengthToCanvas(ghostState.appearance.radius)
+  const attackPx = worldLengthToCanvas(ghostState.attackRadius)
+
+  fgCtx.save()
+  fgCtx.globalAlpha = ghostState.pending ? 0.85 : 0.55
+
+  if (ghostState.appearance.bg.alpha !== 0) {
+    drawFilledCircleOnContext(fgCtx, x, y, radius, ghostState.appearance.bg)
+  }
+  if (ghostState.appearance.fg.alpha !== 0) {
+    drawStrokedCircleOnContext(
+      fgCtx,
+      x,
+      y,
+      Math.max(radius - getEntityBorderWidth(radius) * 0.5, 0),
+      ghostState.appearance.fg,
+      getEntityBorderWidth(radius),
+    )
+    if (ghostState.appearance.glyph) {
+      drawGlyphOnContext(
+        fgCtx,
+        ghostState.appearance.glyph,
+        x,
+        y,
+        radius,
+        ghostState.appearance.fg,
+      )
+    }
+  }
+
+  if (attackPx > 0) {
+    fgCtx.globalAlpha = ghostState.pending ? 0.55 : 0.35
+    const rangeColor: RenderColor = {
+      css: ghostState.pending
+        ? 'rgba(255, 0, 127, 0.6)'
+        : 'rgba(255, 255, 100, 0.4)',
+      alpha: ghostState.pending ? 0.6 : 0.4,
+    }
+    drawFilledCircleOnContext(fgCtx, x, y, attackPx, rangeColor)
+  }
+
+  if (ghostState.pending) {
+    fgCtx.globalAlpha = 0.9
+    const lineWidth = Math.max(3, radius * 0.35)
+    drawStrokedCircleOnContext(
+      fgCtx,
+      x,
+      y,
+      radius + lineWidth * 0.5,
+      { css: 'rgba(255, 242, 63, 0.9)', alpha: 0.9 },
+      lineWidth,
+    )
+  }
+
+  fgCtx.restore()
+}
+
 function updateSidePanelOverlay(): void {
   if (!sidePanelDirty) return
 
+  // Hide everything while a drag is actively in progress.
+  if (menuDragActive) {
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
+    overlayCanvas.style.display = 'none'
+    sidePanelDirty = false
+    return
+  }
+
   const panel = getSidePanelModel()
+  const showBuildMenu =
+    edgeHoverSide !== null &&
+    defenderMenuItems.length > 0 &&
+    currentPhase === 'build'
   overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
-  if (!panel) {
+
+  if (!panel && !showBuildMenu) {
     overlayCanvas.style.display = 'none'
     sidePanelDirty = false
     return
@@ -879,11 +1075,17 @@ function updateSidePanelOverlay(): void {
   overlayCanvas.style.display = 'block'
   const foregroundCssWidth = foregroundCanvas.clientWidth
   const overlayCssWidth = overlayCanvas.clientWidth
-  overlayCanvas.style.left = panel.side === 'left'
+  const side: PanelSide = edgeHoverSide ?? (panel?.side ?? 'right')
+  overlayCanvas.style.left = side === 'left'
     ? '0'
     : `${Math.max(foregroundCssWidth - overlayCssWidth, 0)}px`
   overlayCanvas.style.right = ''
-  drawSidePanel(overlayCtx, panel)
+
+  if (panel) {
+    drawSidePanel(overlayCtx, panel)
+  } else {
+    drawBuildMenu(overlayCtx)
+  }
   sidePanelDirty = false
 }
 
@@ -936,8 +1138,13 @@ function sendClientMsg(msg: ClientMsg): void {
   ws.send(JSON.stringify(msg))
 }
 
-function sendCanvasMsg(eventName: 'click' | 'dblclick' | 'contextmenu' | 'dragstart' | 'dragmove' | 'dragend', sample: CanvasPointerSample): void {
-  sendClientMsg({
+function sendCanvasMsg(
+  eventName: 'click' | 'dblclick' | 'contextmenu' | 'dragstart' | 'dragmove' | 'dragend',
+  sample: CanvasPointerSample,
+  command?: string,
+  parameters?: string[],
+): void {
+  const msg: UiCanvasMsg = {
     type: 'ui_canvas',
     seq: nextClientSeq++,
     event: eventName,
@@ -951,7 +1158,10 @@ function sendCanvasMsg(eventName: 'click' | 'dblclick' | 'contextmenu' | 'dragst
     ctrl: sample.ctrl,
     alt: sample.alt,
     meta: sample.meta,
-  })
+  }
+  if (command) msg.command = command
+  if (parameters?.length) msg.parameters = parameters
+  sendClientMsg(msg)
 }
 
 function flushPendingDragMove(): void {
@@ -1071,6 +1281,13 @@ function resetClientWorldState(): void {
   hudDirty = true
   sidePanelDirty = true
   edgeHoverSide = null
+  defenderMenuItems = []
+  selectedMenuIndex = null
+  menuScrollOffset = 0
+  ghostState = null
+  menuDragActive = false
+  pendingMenuDragItem = null
+  currentPhase = 'build'
 
   bgCtx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height)
   fgCtx.clearRect(0, 0, foregroundCanvas.width, foregroundCanvas.height)
@@ -1104,7 +1321,8 @@ function applyWorldDelta(delta: WorldDelta): void {
   invalidateSidePanel()
   setTextIfElement(livesEl, String(delta.lives))
   setTextIfElement(resourcesEl, String(delta.resources))
-  setTextIfElement(phaseEl, getDeltaPhase(delta))
+  currentPhase = getDeltaPhase(delta)
+  setTextIfElement(phaseEl, currentPhase)
 }
 
 // --- Message validation ---
@@ -1188,6 +1406,7 @@ ws.onmessage = (event: MessageEvent<string>) => {
       break
     case 'world_snapshot':
       resetClientWorldState()
+      defenderMenuItems = parsed.defenderMenu
       drawBackground(parsed.mapDesign.paths)
       applyWorldDelta(parsed.delta)
       break
@@ -1235,6 +1454,15 @@ if (typeof ResizeObserver !== 'undefined') {
 foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   const sample = eventToCanvasSample(event)
   updateEdgeHover(sample)
+
+  // Left-click with a pending ghost: pick it up and resume dragging.
+  if (event.button === 0 && ghostState?.pending) {
+    ghostState.pending = false
+    menuDragActive = true
+    invalidateSidePanel()
+    return
+  }
+
   canvasPointerState = {
     button: sample.button,
     buttons: sample.buttons,
@@ -1270,8 +1498,8 @@ foregroundCanvas.addEventListener('mouseleave', (event: MouseEvent) => {
 })
 
 overlayCanvas.addEventListener('mouseenter', () => {
-  const panel = getSidePanelModel()
-  if (panel) setEdgeHoverSide(panel.side)
+  if (menuDragActive || ghostState || currentPhase !== 'build') return
+  if (edgeHoverSide === null) setEdgeHoverSide('right')
 })
 
 overlayCanvas.addEventListener('mouseleave', () => {
@@ -1280,6 +1508,29 @@ overlayCanvas.addEventListener('mouseleave', () => {
 })
 
 window.addEventListener('mouseup', (event: MouseEvent) => {
+  // Handle menu drag commit/cancel.
+  if (menuDragActive) {
+    menuDragActive = false
+    pendingMenuDragItem = null
+    if (ghostState) {
+      const fgRect = foregroundCanvas.getBoundingClientRect()
+      const ovRect = overlayCanvas.getBoundingClientRect()
+      const overOverlay =
+        event.clientX >= ovRect.left && event.clientX <= ovRect.right &&
+        event.clientY >= ovRect.top  && event.clientY <= ovRect.bottom
+      const overFg =
+        event.clientX >= fgRect.left && event.clientX <= fgRect.right &&
+        event.clientY >= fgRect.top  && event.clientY <= fgRect.bottom
+      if (overFg && !overOverlay) {
+        ghostState.pending = true
+      } else {
+        ghostState = null
+      }
+    }
+    invalidateSidePanel()
+    return
+  }
+
   if (!canvasPointerState) return
   const sample = withPointerButton(
     eventToCanvasSample(event),
@@ -1291,18 +1542,29 @@ window.addEventListener('mouseup', (event: MouseEvent) => {
   if (wasDragging) sendCanvasMsg('dragend', sample)
 })
 
+foregroundCanvas.addEventListener('dblclick', (event: MouseEvent) => {
+  if (!ghostState?.pending) return
+  const sample = eventToCanvasSample(event)
+  const entityName = ghostState.entityName
+  ghostState = null
+  menuDragActive = false
+  invalidateSidePanel()
+  sendCanvasMsg('click', sample, 'spawn', [entityName])
+})
+
 foregroundCanvas.addEventListener('contextmenu', (event: MouseEvent) => {
   event.preventDefault()
+  if (ghostState) {
+    ghostState = null
+    menuDragActive = false
+    invalidateSidePanel()
+    return
+  }
   const sample = eventToCanvasSample(event)
   updateEdgeHover(sample)
   sendCanvasMsg('click', withPointerButton(sample, 2, 2))
 })
 
-foregroundCanvas.addEventListener('dblclick', (event: MouseEvent) => {
-  const sample = eventToCanvasSample(event)
-  updateEdgeHover(sample)
-  sendCanvasMsg('dblclick', sample)
-})
 
 document.addEventListener('click', (event: MouseEvent) => {
   const target = event.target
@@ -1334,6 +1596,84 @@ document.addEventListener('submit', (event: SubmitEvent) => {
   event.preventDefault()
   sendUiAction(action, formDataToFields(new FormData(target)))
 })
+
+// Cancel ghost on right-click outside the foreground canvas.
+document.addEventListener('contextmenu', (event: MouseEvent) => {
+  if (ghostState && event.target !== foregroundCanvas) {
+    event.preventDefault()
+    ghostState = null
+    menuDragActive = false
+    pendingMenuDragItem = null
+    invalidateSidePanel()
+  }
+})
+
+// Track ghost position globally during a menu drag. The ghost is created here
+// on the first move so it never appears at the canvas origin.
+window.addEventListener('mousemove', (event: MouseEvent) => {
+  if (!menuDragActive) return
+  const rect = foregroundCanvas.getBoundingClientRect()
+  const canvasX = (event.clientX - rect.left) * (foregroundCanvas.width / rect.width)
+  const canvasY = (event.clientY - rect.top) * (foregroundCanvas.height / rect.height)
+  const [worldX, worldY] = canvasToWorld(canvasX, canvasY)
+  if (!ghostState && pendingMenuDragItem) {
+    const item = pendingMenuDragItem
+    ghostState = {
+      worldX,
+      worldY,
+      entityName: item.entityName,
+      appearance: appearanceToRender(item.appearance),
+      attackRadius: item.appearance.attackRadius,
+      pending: false,
+    }
+  } else if (ghostState) {
+    ghostState.worldX = worldX
+    ghostState.worldY = worldY
+  }
+})
+
+// Overlay mousedown: select a build menu cell and arm a drag (ghost appears on
+// first mousemove so it never flashes at the canvas origin).
+overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
+  if (event.button !== 0 || defenderMenuItems.length === 0) return
+  if (currentPhase !== 'build') return
+  event.preventDefault()
+
+  const panelScale = Math.min(
+    foregroundCanvas.width / DEFAULT_CANVAS_W,
+    foregroundCanvas.height / DEFAULT_CANVAS_H,
+  )
+  const cellSize = Math.floor((overlayCanvas.width - 2) / MENU_COLS)
+  const bodyTop = 70 * panelScale
+  const rect = overlayCanvas.getBoundingClientRect()
+  const localX = (event.clientX - rect.left) * (overlayCanvas.width / rect.width)
+  const localY = (event.clientY - rect.top) * (overlayCanvas.height / rect.height)
+
+  if (localY < bodyTop) return
+  const col = Math.floor(localX / cellSize)
+  const row = Math.floor((localY - bodyTop) / cellSize)
+  if (col < 0 || col >= MENU_COLS) return
+
+  const index = menuScrollOffset * MENU_COLS + row * MENU_COLS + col
+  if (index >= defenderMenuItems.length) return
+
+  selectedMenuIndex = index
+  pendingMenuDragItem = defenderMenuItems[index]
+  menuDragActive = true
+  ghostState = null  // created on first mousemove
+  invalidateSidePanel()
+})
+
+// Scroll the build menu with the mouse wheel.
+overlayCanvas.addEventListener('wheel', (event: WheelEvent) => {
+  event.preventDefault()
+  if (defenderMenuItems.length === 0) return
+  const totalRows = Math.ceil(defenderMenuItems.length / MENU_COLS)
+  const maxScroll = Math.max(0, totalRows - MENU_VISIBLE_ROWS)
+  menuScrollOffset = Math.max(0, Math.min(maxScroll,
+    menuScrollOffset + (event.deltaY > 0 ? 1 : -1)))
+  invalidateSidePanel()
+}, { passive: false })
 
 updateFullscreenButtonLabel()
 resizeViewport()

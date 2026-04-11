@@ -107,7 +107,9 @@ struct SimGameStateJson {
                   .member(json_trusted{"radius"}, app.radius,
                       std::chars_format::fixed, 3)
                   .member(json_trusted{"fg"}, app.fgColor)
-                  .member(json_trusted{"bg"}, app.bgColor);
+                  .member(json_trusted{"bg"}, app.bgColor)
+                  .member(json_trusted{"attackRadius"}, app.attackRadius,
+                      std::chars_format::fixed, 1);
             }
 
             if (effects.modified == current_tick) {
@@ -185,7 +187,9 @@ struct SimGameStateJson {
               .member(json_trusted{"radius"}, entry.appearance.radius,
                   std::chars_format::fixed, 3)
               .member(json_trusted{"fg"}, entry.appearance.fgColor)
-              .member(json_trusted{"bg"}, entry.appearance.bgColor);
+              .member(json_trusted{"bg"}, entry.appearance.bgColor)
+              .member(json_trusted{"attackRadius"},
+                  entry.appearance.attackRadius, std::chars_format::fixed, 1);
         }
       }
     }

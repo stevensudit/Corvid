@@ -612,13 +612,15 @@ void SimGame_HandleUiCanvasSpawnsTowerButKeepsBuildPhase() {
   const auto before = extractGameDelta(game);
 
   game.handleUiCanvas(UiCanvasInput{.seq = 1,
-      .event = UiCanvasEvent::dblclick,
+      .event = UiCanvasEvent::click,
       .button = UiMouseButton::left,
       .buttons = 1,
       .x = 10.F,
       .y = 20.F,
       .canvasX = 100.F,
-      .canvasY = 200.F});
+      .canvasY = 200.F,
+      .command = "spawn",
+      .parameters = {"DefenderAoeBasic"}});
 
   const auto after = extractGameDelta(game);
   EXPECT_EQ(before.phase, std::string_view{"build"});
@@ -781,13 +783,15 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   SimGame game;
   game.loadMap();
   game.handleUiCanvas(UiCanvasInput{.seq = 1,
-      .event = UiCanvasEvent::dblclick,
+      .event = UiCanvasEvent::click,
       .button = UiMouseButton::left,
       .buttons = 1,
       .x = 10.F,
       .y = 20.F,
       .canvasX = 100.F,
-      .canvasY = 200.F});
+      .canvasY = 200.F,
+      .command = "spawn",
+      .parameters = {"DefenderAoeBasic"}});
   (void)game.next();
 
   SimGameStateJson state;
@@ -848,13 +852,15 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
   SimGame game;
   game.loadMap();
   game.handleUiCanvas(UiCanvasInput{.seq = 1,
-      .event = UiCanvasEvent::dblclick,
+      .event = UiCanvasEvent::click,
       .button = UiMouseButton::left,
       .buttons = 1,
       .x = 10.F,
       .y = 20.F,
       .canvasX = 100.F,
-      .canvasY = 200.F});
+      .canvasY = 200.F,
+      .command = "spawn",
+      .parameters = {"DefenderAoeBasic"}});
 
   SimGameStateJson initial_state;
   (void)buildSimGameStateJson(initial_state, game);
@@ -867,7 +873,9 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
       .x = 10.F,
       .y = 20.F,
       .canvasX = 100.F,
-      .canvasY = 200.F});
+      .canvasY = 200.F,
+      .command{},
+      .parameters{}});
 
   SimGameStateJson state;
   (void)buildSimGameStateJson(state, game);

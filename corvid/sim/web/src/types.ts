@@ -31,6 +31,7 @@ export interface EntityAppearance {
   radius: number
   fg: number
   bg: number
+  attackRadius: number
 }
 
 export interface EntityVisualEffects {
@@ -80,6 +81,8 @@ export interface UiCanvasMsg {
   ctrl: boolean
   alt: boolean
   meta: boolean
+  command?: string
+  parameters?: string[]
 }
 
 export interface UiActionMsg {

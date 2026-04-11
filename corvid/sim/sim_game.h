@@ -176,6 +176,8 @@ struct UiCanvasInput {
   bool ctrl{};
   bool alt{};
   bool meta{};
+  std::string command;
+  std::vector<std::string> parameters;
 };
 
 struct UiActionField {
@@ -252,6 +254,17 @@ public:
   }
 
   void handleUiCanvas(const UiCanvasInput& input) {
+    // Spawn command from build menu confirmation double-click.
+    if (input.event == UiCanvasEvent::click &&
+        input.button == UiMouseButton::left && input.command == "spawn" &&
+        !input.parameters.empty() && phase_ == GamePhase::build)
+    {
+      auto h = world_.spawnEntity(input.parameters[0]);
+      auto* pos = world_.try_get_component<Position>(h.id());
+      *pos = {input.x, input.y};
+      return;
+    }
+
     // Select tower on click.
     if (input.event == UiCanvasEvent::click &&
         input.button == UiMouseButton::left)
@@ -277,15 +290,6 @@ public:
           (void)world_.markDirty(selected_tower_.id());
         }
       }
-    }
-
-    // Place tower on double-click.
-    if (input.event == UiCanvasEvent::dblclick &&
-        input.button == UiMouseButton::left)
-    {
-      auto h = world_.spawnEntity("DefenderAoeBasic");
-      if (auto* pos = world_.try_get_component<Position>(h.id()))
-        *pos = {input.x, input.y};
     }
 
     if (input.event == UiCanvasEvent::click &&
@@ -438,7 +442,8 @@ private:
       std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'A',
           .radius = 30.F,
           .fgColor = 0xFFFFFFFF,
-          .bgColor = 0x7F7FFFFF};
+          .bgColor = 0x7F7FFFFF,
+          .attackRadius = 100.F};
       std::get<std::optional<VisualEffects>>(tpl) =
           VisualEffects{.flashColor = 0xFF7F7FFF, .flashExpiry = WorldTick{5}};
       std::get<std::optional<Defender>>(tpl) = Defender{.defenderType = 1,
