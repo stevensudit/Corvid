@@ -327,6 +327,7 @@ let currentPhase = 'build'
 let mouseOverOverlay = false
 let overlayStayOpen = false
 let currentPanelSide: PanelSide = 'right'
+let overlaySideSwapFrame = 0
 
 const SIDE_PANEL_TRIGGER_RATIO = 0.25
 const SIDE_PANEL_TRIGGER_MIN_PX = 72
@@ -401,7 +402,9 @@ const PANEL_PEEK_PX = 18
 type OverlayLevel = 'hidden' | 'peek' | 'open'
 
 function hasPinnedOpenPanel(): boolean {
-  return ghostState?.pending === true || overlayStayOpen
+  return ghostState?.pending === true ||
+    findSelectedTower() !== null ||
+    overlayStayOpen
 }
 
 function getTargetSide(): PanelSide {
@@ -438,10 +441,26 @@ function isPointerOverPeekActivation(event: MouseEvent): boolean {
   return bounds !== null && isPointInRect(event.clientX, event.clientY, bounds)
 }
 
+function getOverlayTransform(
+  side: PanelSide,
+  level: OverlayLevel,
+): string {
+  if (side === 'right') {
+    if (level === 'hidden') return 'translateX(100%)'
+    if (level === 'peek') return `translateX(calc(100% - ${PANEL_PEEK_PX}px))`
+    return 'translateX(0)'
+  }
+
+  if (level === 'hidden') return 'translateX(-100%)'
+  if (level === 'peek') return `translateX(calc(-100% + ${PANEL_PEEK_PX}px))`
+  return 'translateX(0)'
+}
+
 function applyOverlayPosition(): void {
   const level = getOverlayLevel()
   const targetSide = getTargetSide()
   const sideChanged = targetSide !== currentPanelSide
+  const transitionMs = menuDragActive ? 100 : 220
 
   // Update the side whenever the panel is not fully open, so hovering the left
   // edge correctly switches to the left panel. When fully open, keep the current
@@ -455,17 +474,22 @@ function applyOverlayPosition(): void {
     : Math.max(foregroundCssWidth - overlayCssWidth, 0)
   overlayCanvas.style.left = `${leftPx}px`
   overlayCanvas.style.right = ''
-  const transitionMs = sideChanged ? 0 : (menuDragActive ? 100 : 220)
-  overlayCanvas.style.transitionDuration = `${transitionMs}ms`
+  if (overlaySideSwapFrame !== 0) {
+    cancelAnimationFrame(overlaySideSwapFrame)
+    overlaySideSwapFrame = 0
+  }
 
-  if (currentPanelSide === 'right') {
-    if (level === 'hidden') overlayCanvas.style.transform = 'translateX(100%)'
-    else if (level === 'peek') overlayCanvas.style.transform = `translateX(calc(100% - ${PANEL_PEEK_PX}px))`
-    else overlayCanvas.style.transform = 'translateX(0)'
+  if (sideChanged && level !== 'hidden') {
+    overlayCanvas.style.transitionDuration = '0ms'
+    overlayCanvas.style.transform = getOverlayTransform(currentPanelSide, 'hidden')
+    overlaySideSwapFrame = requestAnimationFrame(() => {
+      overlaySideSwapFrame = 0
+      overlayCanvas.style.transitionDuration = `${transitionMs}ms`
+      overlayCanvas.style.transform = getOverlayTransform(currentPanelSide, level)
+    })
   } else {
-    if (level === 'hidden') overlayCanvas.style.transform = 'translateX(-100%)'
-    else if (level === 'peek') overlayCanvas.style.transform = `translateX(calc(-100% + ${PANEL_PEEK_PX}px))`
-    else overlayCanvas.style.transform = 'translateX(0)'
+    overlayCanvas.style.transitionDuration = `${transitionMs}ms`
+    overlayCanvas.style.transform = getOverlayTransform(currentPanelSide, level)
   }
 
   // pointer-events: none when hidden so the off-screen canvas doesn't eat clicks.
@@ -1365,6 +1389,10 @@ function resetClientWorldState(): void {
   mouseOverOverlay = false
   overlayStayOpen = false
   currentPanelSide = 'right'
+  if (overlaySideSwapFrame !== 0) {
+    cancelAnimationFrame(overlaySideSwapFrame)
+    overlaySideSwapFrame = 0
+  }
 
   bgCtx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height)
   fgCtx.clearRect(0, 0, foregroundCanvas.width, foregroundCanvas.height)
