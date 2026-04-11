@@ -254,9 +254,10 @@ public:
   }
 
   void handleUiCanvas(const UiCanvasInput& input) {
-    // Spawn command from build menu confirmation double-click.
-    if (input.event == UiCanvasEvent::click &&
-        input.button == UiMouseButton::left && input.command == "spawn" &&
+    // Explicit spawn command from the web build menu. The button is part of
+    // the UX contract, not the simulation command, so accept whichever button
+    // the client uses for confirmation.
+    if (input.event == UiCanvasEvent::click && input.command == "spawn" &&
         !input.parameters.empty() && phase_ == GamePhase::build)
     {
       auto h = world_.spawnEntity(input.parameters[0]);

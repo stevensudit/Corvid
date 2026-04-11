@@ -325,9 +325,12 @@ let ghostState: GhostState | null = null
 let menuDragActive = false
 let currentPhase = 'build'
 let mouseOverOverlay = false
+let overlayStayOpen = false
 let currentPanelSide: PanelSide = 'right'
 
-const SIDE_PANEL_TRIGGER_PX = 48
+const SIDE_PANEL_TRIGGER_RATIO = 0.25
+const SIDE_PANEL_TRIGGER_MIN_PX = 72
+const SIDE_PANEL_TRIGGER_MAX_PX = 180
 const MENU_COLS = 2
 const MENU_VISIBLE_ROWS = 4
 const SIDE_PANEL_RADIUS = 18
@@ -393,32 +396,57 @@ function updateFpsOverlay(now: number): void {
 }
 
 // How far the panel peeks out from the edge (CSS pixels).
-const PANEL_PEEK_PX = 10
+const PANEL_PEEK_PX = 18
 
 type OverlayLevel = 'hidden' | 'peek' | 'open'
 
+function hasPinnedOpenPanel(): boolean {
+  return ghostState?.pending === true || overlayStayOpen
+}
+
 function getTargetSide(): PanelSide {
-  // Auto-panel side takes priority; otherwise follow whichever edge is hovered.
+  // A pinned panel (like pending placement) owns the side. Otherwise follow
+  // the current edge hover so the peek/open transition stays on one edge.
   return getSidePanelModel()?.side ?? edgeHoverSide ?? currentPanelSide
 }
 
 function getOverlayLevel(): OverlayLevel {
   if (menuDragActive) return 'hidden'
-  const hasAutoPanel = getSidePanelModel() !== null
+  const hasPanelContent = getSidePanelModel() !== null
   const hasBuildMenu = currentPhase === 'build' && defenderMenuItems.length > 0
-  if (!hasAutoPanel && !hasBuildMenu) return 'hidden'
-  if (mouseOverOverlay || hasAutoPanel) return 'open'
+  if (!hasPanelContent && !hasBuildMenu) return 'hidden'
+  if (hasPinnedOpenPanel() || mouseOverOverlay) return 'open'
   if (edgeHoverSide !== null) return 'peek'
   return 'hidden'
 }
 
+function getOverlayPeekActivationBounds(): DOMRect | null {
+  if (getOverlayLevel() !== 'peek') return null
+  const rect = overlayCanvas.getBoundingClientRect()
+  if (currentPanelSide === 'left') {
+    return new DOMRect(rect.right - PANEL_PEEK_PX, rect.top, PANEL_PEEK_PX, rect.height)
+  }
+  return new DOMRect(rect.left, rect.top, PANEL_PEEK_PX, rect.height)
+}
+
+function isPointInRect(x: number, y: number, rect: DOMRect): boolean {
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+}
+
+function isPointerOverPeekActivation(event: MouseEvent): boolean {
+  const bounds = getOverlayPeekActivationBounds()
+  return bounds !== null && isPointInRect(event.clientX, event.clientY, bounds)
+}
+
 function applyOverlayPosition(): void {
   const level = getOverlayLevel()
+  const targetSide = getTargetSide()
+  const sideChanged = targetSide !== currentPanelSide
 
   // Update the side whenever the panel is not fully open, so hovering the left
   // edge correctly switches to the left panel. When fully open, keep the current
   // side so the panel never jumps mid-flight.
-  if (level !== 'open') currentPanelSide = getTargetSide()
+  if (level !== 'open' || hasPinnedOpenPanel()) currentPanelSide = targetSide
 
   const foregroundCssWidth = foregroundCanvas.clientWidth
   const overlayCssWidth = overlayCanvas.clientWidth
@@ -427,6 +455,8 @@ function applyOverlayPosition(): void {
     : Math.max(foregroundCssWidth - overlayCssWidth, 0)
   overlayCanvas.style.left = `${leftPx}px`
   overlayCanvas.style.right = ''
+  const transitionMs = sideChanged ? 0 : (menuDragActive ? 100 : 220)
+  overlayCanvas.style.transitionDuration = `${transitionMs}ms`
 
   if (currentPanelSide === 'right') {
     if (level === 'hidden') overlayCanvas.style.transform = 'translateX(100%)'
@@ -452,6 +482,10 @@ function setEdgeHoverSide(nextSide: PanelSide | null): void {
   if (edgeHoverSide === nextSide) return
   edgeHoverSide = nextSide
   invalidateSidePanel()
+}
+
+function clearMenuSelection(): void {
+  selectedMenuIndex = null
 }
 
 function packedRgbaToRenderColor(color: number): RenderColor {
@@ -762,15 +796,22 @@ function drawHud(ctx: CanvasRenderingContext2D): void {
 
 function panelSideFromCanvasX(canvasX: number): PanelSide | null {
   const cssWidth = foregroundCanvas.clientWidth
+  const triggerCssPx = cssWidth > 0
+    ? Math.max(
+        SIDE_PANEL_TRIGGER_MIN_PX,
+        Math.min(SIDE_PANEL_TRIGGER_MAX_PX, cssWidth * SIDE_PANEL_TRIGGER_RATIO),
+      )
+    : SIDE_PANEL_TRIGGER_MIN_PX
   const triggerPx = cssWidth > 0
-    ? SIDE_PANEL_TRIGGER_PX * (foregroundCanvas.width / cssWidth)
-    : SIDE_PANEL_TRIGGER_PX
+    ? triggerCssPx * (foregroundCanvas.width / cssWidth)
+    : triggerCssPx
   if (canvasX <= triggerPx) return 'left'
   if (canvasX >= foregroundCanvas.width - triggerPx) return 'right'
   return null
 }
 
 function updateEdgeHover(sample: CanvasPointerSample): void {
+  overlayStayOpen = false
   if (menuDragActive || ghostState || currentPhase !== 'build') {
     setEdgeHoverSide(null)
     return
@@ -852,8 +893,8 @@ function getPendingGhostPanelModel(): SidePanelModel | null {
       ghostState.displayName,
       '',
       'Right-click to place',
-      'Left-click to move',
-      'Click outside to cancel',
+      'Left-click ghost to move',
+      'Any other click cancels',
     ],
   }
 }
@@ -1322,6 +1363,7 @@ function resetClientWorldState(): void {
   menuDragActive = false
   currentPhase = 'build'
   mouseOverOverlay = false
+  overlayStayOpen = false
   currentPanelSide = 'right'
 
   bgCtx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height)
@@ -1490,8 +1532,8 @@ foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   const sample = eventToCanvasSample(event)
   updateEdgeHover(sample)
 
-  // While a ghost is pending, left-click either picks it up (on the ghost) or
-  // cancels it (anywhere else on the canvas).
+  // While a ghost is pending, left-click on the ghost picks it back up and
+  // any other non-right click cancels placement.
   if (event.button === 0 && ghostState?.pending) {
     const [gx, gy] = worldToCanvas(ghostState.worldX, ghostState.worldY)
     const hitRadius = worldLengthToCanvas(ghostState.appearance.radius) * 2
@@ -1500,8 +1542,12 @@ foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
     if (dx * dx + dy * dy <= hitRadius * hitRadius) {
       ghostState.pending = false
       menuDragActive = true
+      mouseOverOverlay = false
+      overlayStayOpen = false
     } else {
       ghostState = null
+      clearMenuSelection()
+      overlayStayOpen = false
     }
     invalidateSidePanel()
     return
@@ -1544,27 +1590,30 @@ foregroundCanvas.addEventListener('mouseleave', () => {
 })
 
 overlayCanvas.addEventListener('mouseenter', () => {
-  mouseOverOverlay = true
+  if (getOverlayLevel() !== 'peek') mouseOverOverlay = true
+  overlayStayOpen = false
+  applyOverlayPosition()
+})
+
+overlayCanvas.addEventListener('mousemove', (event: MouseEvent) => {
+  const shouldOpen = getOverlayLevel() !== 'peek' || isPointerOverPeekActivation(event)
+  if (mouseOverOverlay === shouldOpen) return
+  mouseOverOverlay = shouldOpen
+  if (shouldOpen) overlayStayOpen = false
   applyOverlayPosition()
 })
 
 overlayCanvas.addEventListener('mouseleave', (event: MouseEvent) => {
   mouseOverOverlay = false
-  // Only close the panel when the mouse re-enters the foreground canvas
-  // (i.e. moves away from the edge, back into the game area). Leaving to
-  // anywhere else (outside the viewport, browser chrome) keeps it open.
   const toFg = event.relatedTarget === foregroundCanvas
-  if (toFg && !findSelectedTower() && !ghostState?.pending) {
-    setEdgeHoverSide(null)
+  if (toFg) {
+    overlayStayOpen = false
+    if (!ghostState?.pending) setEdgeHoverSide(currentPanelSide)
   } else {
-    // Mouse left to somewhere other than the fg canvas interior (outside the
-    // viewport, browser chrome, etc.). Keep the panel peeking so it does not
-    // vanish when the user moves the cursor slightly off the page. If the side
-    // was only determined by an auto-panel (edgeHoverSide is null), anchor it
-    // to the current panel side so the peek position is correct.
+    overlayStayOpen = true
     if (edgeHoverSide === null) edgeHoverSide = currentPanelSide
-    applyOverlayPosition()
   }
+  invalidateSidePanel()
 })
 
 window.addEventListener('mouseup', (event: MouseEvent) => {
@@ -1582,8 +1631,12 @@ window.addEventListener('mouseup', (event: MouseEvent) => {
         event.clientY >= fgRect.top  && event.clientY <= fgRect.bottom
       if (overFg && !overOverlay) {
         ghostState.pending = true
+        mouseOverOverlay = false
+        overlayStayOpen = false
       } else {
         ghostState = null
+        clearMenuSelection()
+        overlayStayOpen = false
       }
     }
     invalidateSidePanel()
@@ -1608,7 +1661,10 @@ foregroundCanvas.addEventListener('contextmenu', (event: MouseEvent) => {
     // Right-click while ghost is pending: place the tower.
     const entityName = ghostState.entityName
     ghostState = null
+    clearMenuSelection()
     menuDragActive = false
+    mouseOverOverlay = false
+    overlayStayOpen = false
     invalidateSidePanel()
     sendCanvasMsg('click', sample, 'spawn', [entityName])
     return
@@ -1651,12 +1707,45 @@ document.addEventListener('submit', (event: SubmitEvent) => {
 
 // Cancel ghost on right-click outside the foreground canvas.
 document.addEventListener('contextmenu', (event: MouseEvent) => {
-  if (ghostState && event.target !== foregroundCanvas) {
+  if (event.defaultPrevented || !ghostState) return
+
+  const fgRect = foregroundCanvas.getBoundingClientRect()
+  const insideFg = isPointInRect(event.clientX, event.clientY, fgRect)
+  if (ghostState.pending && insideFg) {
+    const sample = eventToCanvasSample(event)
+    const entityName = ghostState.entityName
     event.preventDefault()
     ghostState = null
+    clearMenuSelection()
     menuDragActive = false
+    mouseOverOverlay = false
+    overlayStayOpen = false
+    invalidateSidePanel()
+    sendCanvasMsg('click', sample, 'spawn', [entityName])
+    return
+  }
+
+  if (event.target !== foregroundCanvas) {
+    event.preventDefault()
+    ghostState = null
+    clearMenuSelection()
+    menuDragActive = false
+    mouseOverOverlay = false
+    overlayStayOpen = false
     invalidateSidePanel()
   }
+})
+
+// Any non-right-click outside the canvas cancels pending placement.
+document.addEventListener('mousedown', (event: MouseEvent) => {
+  if (event.button === 2 || !ghostState?.pending) return
+  if (event.target === foregroundCanvas) return
+  ghostState = null
+  clearMenuSelection()
+  menuDragActive = false
+  mouseOverOverlay = false
+  overlayStayOpen = false
+  invalidateSidePanel()
 })
 
 // Track ghost world position globally during a menu drag.
@@ -1707,6 +1796,8 @@ overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
 
   selectedMenuIndex = index
   menuDragActive = true
+  mouseOverOverlay = false
+  overlayStayOpen = false
 
   // Create the ghost immediately at the current mouse position so it appears
   // as soon as the mouse enters the foreground canvas, with no lag.
@@ -1724,6 +1815,7 @@ overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
     attackRadius: item.appearance.attackRadius,
     pending: false,
   }
+  clearMenuSelection()
   invalidateSidePanel()
 })
 

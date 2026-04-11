@@ -631,6 +631,29 @@ void SimGame_HandleUiCanvasSpawnsTowerButKeepsBuildPhase() {
   EXPECT_TRUE(after.erased.empty());
 }
 
+void SimGame_HandleUiCanvasRightClickSpawnPlacesTower() {
+  SimGame game;
+  game.loadMap();
+
+  game.handleUiCanvas(UiCanvasInput{.seq = 1,
+      .event = UiCanvasEvent::click,
+      .button = UiMouseButton::right,
+      .buttons = 2,
+      .x = 15.F,
+      .y = 25.F,
+      .canvasX = 120.F,
+      .canvasY = 210.F,
+      .command = "spawn",
+      .parameters = {"DefenderAoeBasic"}});
+
+  const auto after = extractGameDelta(game);
+  EXPECT_EQ(after.phase, std::string_view{"build"});
+  ASSERT_EQ(after.upserts.size(), 1U);
+  EXPECT_NEAR(after.upserts[0].second.x, 15.0, 1e-6);
+  EXPECT_NEAR(after.upserts[0].second.y, 25.0, 1e-6);
+  EXPECT_TRUE(after.erased.empty());
+}
+
 void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
   SimGame game;
   game.loadMap();
@@ -985,6 +1008,7 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
     SimGame_LoadMapInitialSnapshotAndState,
     SimGame_HandleUiActionStartWaveTransitionsToWavePhase,
     SimGame_HandleUiCanvasSpawnsTowerButKeepsBuildPhase,
+    SimGame_HandleUiCanvasRightClickSpawnPlacesTower,
     SimGame_StartWaveSpawnsFirstEnemyOnFirstStep,
     SimGame_ExtractDeltaConsumesWorldUpdatesButNotState,
     SimGame_ExtractFullIncludesPathsAndState, SimJson_ParseUiCanvasMessage,
