@@ -441,6 +441,14 @@ function isPointerOverPeekActivation(event: MouseEvent): boolean {
   return bounds !== null && isPointInRect(event.clientX, event.clientY, bounds)
 }
 
+function didExitCanvasViaPanelEdge(event: MouseEvent): boolean {
+  const rect = foregroundCanvas.getBoundingClientRect()
+  return (
+    (edgeHoverSide === 'left' && event.clientX <= rect.left) ||
+    (edgeHoverSide === 'right' && event.clientX >= rect.right)
+  )
+}
+
 function getOverlayTransform(
   side: PanelSide,
   level: OverlayLevel,
@@ -1610,11 +1618,15 @@ foregroundCanvas.addEventListener('mousemove', (event: MouseEvent) => {
   scheduleDragMoveFlush()
 })
 
-foregroundCanvas.addEventListener('mouseleave', () => {
-  // Do NOT clear edgeHoverSide here — moving off the canvas edge (e.g. towards
-  // the panel or outside the viewport) should keep the panel visible. Only
-  // moving to the canvas interior clears it (handled in updateEdgeHover via
-  // mousemove). The overlay's own mouseleave handler clears it when appropriate.
+foregroundCanvas.addEventListener('mouseleave', (event: MouseEvent) => {
+  // Fast motion can skip the overlay's peek strip entirely. If the pointer
+  // leaves through the active panel edge, open the panel as though the user
+  // had crossed onto the peeking portion.
+  if (didExitCanvasViaPanelEdge(event)) {
+    mouseOverOverlay = true
+    overlayStayOpen = true
+    applyOverlayPosition()
+  }
 })
 
 overlayCanvas.addEventListener('mouseenter', () => {
