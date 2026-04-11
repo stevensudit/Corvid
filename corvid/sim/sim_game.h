@@ -569,7 +569,7 @@ private:
       p.joints.push_back({Position{0.0, 0.0}});
       constexpr float kHalfWidth = SimWorld::widthOfWorld / 2.F;
       constexpr float kHalfHeight = SimWorld::heightOfWorld / 2.F;
-      constexpr float kStepSize = 80.0;
+      constexpr float kStepSize = 120.0;
       constexpr float kAspect =
           SimWorld::widthOfWorld / SimWorld::heightOfWorld;
       constexpr float kXStepSize = kStepSize * kAspect;

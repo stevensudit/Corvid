@@ -435,7 +435,7 @@ type OverlayLevel = 'hidden' | 'peek' | 'open'
 
 function hasPinnedOpenPanel(): boolean {
   return ghostState?.pending === true ||
-    findSelectedTower() !== null ||
+    findSelectedDefender() !== null ||
     overlayStayOpen
 }
 
@@ -883,13 +883,33 @@ function updateEdgeHover(sample: CanvasPointerSample): void {
   setEdgeHoverSide(panelSideFromCanvasX(sample.canvasX))
 }
 
-function findSelectedTower(): RenderEntityUpsert | null {
+function findSelectedDefender(): RenderEntityUpsert | null {
   for (const entity of currEntitiesById.values()) {
     if (!isTransparent(entity.fx.selection) || entity.fx.rangeRadius > 0) {
       return entity
     }
   }
   return null
+}
+
+function findTowerAtWorld(worldX: number, worldY: number): RenderEntityUpsert | null {
+  const hitPos = { x: worldX, y: worldY }
+  for (const entity of currEntitiesById.values()) {
+    if (entity.app.attackRadius <= 0) continue
+    if (SimWorldDistanceSquared(entity.pos, hitPos) <= entity.app.radius * entity.app.radius) {
+      return entity
+    }
+  }
+  return null
+}
+
+function SimWorldDistanceSquared(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): number {
+  const dx = a.x - b.x
+  const dy = a.y - b.y
+  return dx * dx + dy * dy
 }
 
 function formatPanelNumber(value: number): string {
@@ -922,20 +942,20 @@ function wrapPanelText(
   return lines
 }
 
-function getSelectedTowerPanelModel(): SidePanelModel | null {
-  const selectedTower = findSelectedTower()
-  if (!selectedTower) return null
+function getSelectedDefenderPanelModel(): SidePanelModel | null {
+  const selectedDefender = findSelectedDefender()
+  if (!selectedDefender) return null
 
-  const side: PanelSide = selectedTower.pos.x <= 0 ? 'right' : 'left'
+  const side: PanelSide = selectedDefender.pos.x <= 0 ? 'right' : 'left'
   return {
     side,
-    title: 'Tower Selected',
+    title: 'Defender Selected',
     lines: [
-      `Entity #${selectedTower.pos.id}`,
-      `World ${formatPanelNumber(selectedTower.pos.x)}, ${formatPanelNumber(selectedTower.pos.y)}`,
-      `Glyph ${selectedTower.app.glyph || '?'}`,
-      `Body radius ${formatPanelNumber(selectedTower.app.radius)}`,
-      `Attack radius ${formatPanelNumber(selectedTower.fx.rangeRadius)}`,
+      `Entity #${selectedDefender.pos.id}`,
+      `World ${formatPanelNumber(selectedDefender.pos.x)}, ${formatPanelNumber(selectedDefender.pos.y)}`,
+      `Glyph ${selectedDefender.app.glyph || '?'}`,
+      `Body radius ${formatPanelNumber(selectedDefender.app.radius)}`,
+      `Attack radius ${formatPanelNumber(selectedDefender.fx.rangeRadius)}`,
       '',
       `Phase ${phaseEl?.textContent ?? '--'}`,
       `Resources $${resources}`,
@@ -963,7 +983,7 @@ function getPendingGhostPanelModel(): SidePanelModel | null {
 }
 
 function getSidePanelModel(): SidePanelModel | null {
-  return getPendingGhostPanelModel() ?? getSelectedTowerPanelModel()
+  return getPendingGhostPanelModel() ?? getSelectedDefenderPanelModel()
 }
 
 function drawRoundedPanelPath(
@@ -1079,7 +1099,7 @@ function drawBuildMenu(ctx: CanvasRenderingContext2D): void {
   ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
   ctx.font = `bold ${titleFontSize}px monospace`
   ctx.textBaseline = 'top'
-  ctx.fillText('Build Menu', textMargin, titleTop, textWidth)
+  ctx.fillText('Select Defender', textMargin, titleTop, textWidth)
 
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'
   ctx.beginPath()
@@ -1187,7 +1207,7 @@ function drawGhost(): void {
     fgCtx.globalAlpha = ghostState.pending ? 0.55 : 0.35
     const rangeColor: RenderColor = {
       css: isPlaceable
-        ? 'rgba(72, 159, 255, 0.45)'
+        ? 'rgba(255, 242, 63, 0.28)'
         : 'rgba(255, 76, 76, 0.45)',
       alpha: 0.45,
     }
@@ -1198,7 +1218,7 @@ function drawGhost(): void {
       y,
       attackPx,
       isPlaceable
-        ? { css: 'rgba(72, 159, 255, 0.85)', alpha: 0.85 }
+        ? { css: 'rgba(255, 242, 63, 0.85)', alpha: 0.85 }
         : { css: 'rgba(255, 76, 76, 0.85)', alpha: 0.85 },
       Math.max(2, radius * 0.08),
     )
@@ -1707,6 +1727,24 @@ foregroundCanvas.addEventListener('mousemove', (event: MouseEvent) => {
 
   pendingDragMove = dragSample
   scheduleDragMoveFlush()
+})
+
+foregroundCanvas.addEventListener('dblclick', (event: MouseEvent) => {
+  const sample = eventToCanvasSample(event)
+  if (
+    event.button === 0 &&
+    !ghostState &&
+    !menuDragActive &&
+    currentPhase === 'build' &&
+    defenderMenuItems.length > 0 &&
+    findTowerAtWorld(sample.worldX, sample.worldY) === null
+  ) {
+    edgeHoverSide = currentPanelSide
+    mouseOverOverlay = true
+    overlayStayOpen = false
+    invalidateSidePanel()
+  }
+  sendCanvasMsg('dblclick', sample)
 })
 
 foregroundCanvas.addEventListener('mouseleave', (event: MouseEvent) => {
