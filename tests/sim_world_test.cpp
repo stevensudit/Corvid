@@ -972,7 +972,8 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   EXPECT_TRUE(state.body.contains(R"("flashExpiryMs":250)"));
   EXPECT_TRUE(state.body.contains(R"("uiState")"));
   EXPECT_TRUE(state.body.contains(R"("spawnAllowed":true)"));
-  EXPECT_TRUE(state.body.contains(R"("selectedDefender":{"x":300.0,"y":100.0})"));
+  EXPECT_FALSE(state.body.contains(R"("selectedDefender")"));
+  EXPECT_FALSE(state.body.contains(R"("defenderSummary")"));
   EXPECT_FALSE(state.body.contains(R"("modified")"));
   EXPECT_FALSE(state.body.contains(R"("flash_expiry")"));
   EXPECT_FALSE(state.body.contains(R"("glow")"));
@@ -1042,8 +1043,8 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
 
   (void)game.handleUiCanvas(UiCanvasInput{.seq = 2,
       .event = UiCanvasEvent::click,
-      .button = UiMouseButton::right,
-      .buttons = 2,
+      .button = UiMouseButton::left,
+      .buttons = 1,
       .x = 300.F,
       .y = 100.F,
       .canvasX = 100.F,
@@ -1078,8 +1079,8 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
     const auto flash_expiry_ms = vfx.get_number<uint32_t>("flashExpiryMs");
     ASSERT_TRUE(flash.has_value());
     ASSERT_TRUE(flash_expiry_ms.has_value());
-    EXPECT_EQ(*flash, 0xFF7F7FAFU);
-    EXPECT_EQ(*flash_expiry_ms, 250U);
+    EXPECT_EQ(*flash, 0xFF7F7FFFU);
+    EXPECT_EQ(*flash_expiry_ms, 200U);
     ++count;
   }
   EXPECT_EQ(count, 1U);
