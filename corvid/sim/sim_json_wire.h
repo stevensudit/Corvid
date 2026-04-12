@@ -82,8 +82,8 @@ struct SimGameStateJson {
 
   auto write_delta = [&writer, &game, &result, current_tick, &current_wave,
                          &wave_tick, &lives_count, &resources_count, &phase,
-                         &ui_state, send_strategy](
-                        json_writer<std::string>& target) {
+                         &ui_state,
+                         send_strategy](json_writer<std::string>& target) {
     target.member(json_trusted{"type"}, json_trusted{"world_delta"})
         .member(json_trusted{"tick"}, *current_tick);
 
@@ -131,8 +131,8 @@ struct SimGameStateJson {
             result.erased_ids.push_back(entity_id);
             return true;
           },
-          [&current_wave, &wave_tick, &lives_count, &resources_count,
-              &phase, &ui_state](auto new_current_wave, auto new_wave_tick,
+          [&current_wave, &wave_tick, &lives_count, &resources_count, &phase,
+              &ui_state](auto new_current_wave, auto new_wave_tick,
               auto new_lives, auto new_resources, auto new_phase,
               const UiState& new_ui_state) {
             current_wave = new_current_wave;
@@ -161,8 +161,8 @@ struct SimGameStateJson {
             *ui_state.placementAllowed);
       if (ui_state.spawnAllowed.has_value())
         ui->member(json_trusted{"spawnAllowed"}, *ui_state.spawnAllowed);
-      const bool include_summary = ui_state.defenderSelected &&
-          ui_state.defenderSummary.has_value() &&
+      const bool include_summary =
+          ui_state.defenderSelected && ui_state.defenderSummary.has_value() &&
           (send_strategy == update_strategy::full ||
               ui_state.defenderSummary->modified == current_tick);
       if (include_summary) {
@@ -181,7 +181,8 @@ struct SimGameStateJson {
               .member(json_trusted{"fg"}, summary.appearance.fgColor)
               .member(json_trusted{"bg"}, summary.appearance.bgColor)
               .member(json_trusted{"attackRadius"},
-                  summary.appearance.attackRadius, std::chars_format::fixed, 1);
+                  summary.appearance.attackRadius, std::chars_format::fixed,
+                  1);
         }
       }
     }

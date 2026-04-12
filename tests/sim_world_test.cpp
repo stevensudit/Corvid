@@ -681,6 +681,39 @@ void SimGame_HandleUiCanvasRightClickSpawnPlacesDefender() {
   EXPECT_TRUE(after.erased.empty());
 }
 
+void SimGame_HandleUiCanvasSpawnsShooterDefender() {
+  SimGame game;
+  (void)game.loadMap();
+  const auto before = extractGameDelta(game);
+
+  (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
+      .event = UiCanvasEvent::click,
+      .button = UiMouseButton::right,
+      .buttons = 2,
+      .x = 300.F,
+      .y = 100.F,
+      .canvasX = 100.F,
+      .canvasY = 200.F,
+      .command = "spawn",
+      .parameters = {"DefenderShooterBasic"}});
+
+  const auto pending = extractGameDelta(game);
+  EXPECT_TRUE(pending.upserts.empty());
+  EXPECT_FALSE(pending.spawnAllowed.has_value());
+
+  (void)game.next();
+
+  const auto after = extractGameDelta(game);
+  EXPECT_EQ(before.phase, std::string_view{"build"});
+  EXPECT_EQ(after.phase, std::string_view{"build"});
+  ASSERT_TRUE(after.spawnAllowed.has_value());
+  EXPECT_TRUE(*after.spawnAllowed);
+  ASSERT_EQ(after.upserts.size(), 1U);
+  EXPECT_NEAR(after.upserts[0].second.x, 300.0, 1e-6);
+  EXPECT_NEAR(after.upserts[0].second.y, 100.0, 1e-6);
+  EXPECT_TRUE(after.erased.empty());
+}
+
 void SimGame_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick() {
   SimGame game;
   (void)game.loadMap();
@@ -1091,6 +1124,7 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
     SimGame_HandleUiActionStartWaveTransitionsToWavePhase,
     SimGame_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase,
     SimGame_HandleUiCanvasRightClickSpawnPlacesDefender,
+    SimGame_HandleUiCanvasSpawnsShooterDefender,
     SimGame_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick,
     SimGame_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick,
     SimGame_StartWaveSpawnsFirstEnemyOnFirstStep,

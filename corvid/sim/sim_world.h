@@ -605,7 +605,7 @@ public:
 
   [[nodiscard]] bool
   isDefenderPlacementBlocked(const Position& pos, float radius) const {
-    return isInBounds(pos, radius) || doesOveralapDefenders(pos, radius) ||
+    return !isInBounds(pos, radius) || doesOveralapDefenders(pos, radius) ||
            doesTouchPath(pos, radius);
   }
 

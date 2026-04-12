@@ -274,6 +274,7 @@ public:
 
   // Record most recent action intent from the UI canvas.
   [[nodiscard]] bool handleUiCanvas(const UiCanvasInput& input) {
+    // Drag a defender ghost.
     if (input.command == "placing") {
       if (input.parameters.empty() ||
           (input.event != UiCanvasEvent::dragstart &&
@@ -285,6 +286,7 @@ public:
       return true;
     }
 
+    // Click to spawn a defender.
     if (input.command == "spawn") {
       if (input.event != UiCanvasEvent::click || input.parameters.empty())
         return false;
@@ -293,6 +295,7 @@ public:
       return true;
     }
 
+    // Click to select a defender.
     if (input.button == UiMouseButton::left &&
         input.event == UiCanvasEvent::click)
     {
@@ -300,12 +303,7 @@ public:
       return true;
     }
 
-    if (input.button == UiMouseButton::right &&
-        input.event == UiCanvasEvent::click)
-      return world_.flashEntity(world_.findEntityAt({input.x, input.y}),
-          0xFF7F7FAF, WorldTick{5});
-
-    return false;
+    return true;
   }
 
   // Record most recent action intent from the UI action buttons.
