@@ -112,7 +112,7 @@ public:
   // `megatuple_t`: one `optional<C>` per unique component type in the scene.
   // Setting an optional encodes component presence; the pattern of set
   // optionals uniquely identifies the archetype, eliminating the need for an
-  // explicit `store_id_t` at the call site of `store_new_entity_from_mega`.
+  // explicit `store_id_t`.
   using megatuple_t = wrap_optionals_t<component_union_t>;
 
   // One bit per unique component type; supports scenes with up to 64 distinct

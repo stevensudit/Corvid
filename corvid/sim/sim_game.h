@@ -30,29 +30,13 @@
 
 namespace corvid { inline namespace sim {
 
-// Concepts:
-// - A map is a persistent layout defined by a collection of paths and build
-// slots, as well as resources, background graphics, and other metadata.
-// - The player selects a map and faces subsequent waves until the end of the
-// game run. The run ends with defeat or victory. Potentially, runs could be
-// grouped into campaigns or other higher-level structures.
-// - A player's defenders, score, lives, and resources persist throughout the
-// game run, albeit with modifications from wave to wave.
-// - A wave is a collection of enemy spawns. At the end of the wave, the player
-// gets a chance to build or upgrade before the next wave starts.
-// - Within a wave, spawns are enemies that appear on the track at fixed times
-// from the start of the wave.
-
-// Snapshot of the game state for sending to clients. Contains all information
-// needed to render the current state of the world, but no information about
-// the rules or game flow.
-
+// Different phases of the game.
 enum class GamePhase : uint8_t {
   invalid,
   build,     // Defender building
   wave,      // Active wave with enemies spawning and moving
   game_over, // Player has no lives left
-  victory,   // All waves completed with lives remaining
+  victory    // All waves completed with lives remaining
 };
 
 // Tick from start of wave.
@@ -60,22 +44,20 @@ enum class WaveTick : uint32_t {
   invalid = std::numeric_limits<uint32_t>::max()
 };
 
+// Mouse click events.
 enum class UiCanvasEvent : uint8_t {
   click,
   dblclick,
   contextmenu,
   dragstart,
   dragmove,
-  dragend,
+  dragend
 };
 
-enum class UiMouseButton : uint8_t {
-  left,
-  middle,
-  right,
-  other,
-};
+// Mouse buttons.
+enum class UiMouseButton : uint8_t { left, middle, right, other };
 
+// Targeting modes for defenders.
 enum class TargetMode : uint8_t { first, last, closest, strongest, weakest };
 
 }} // namespace corvid::sim
@@ -119,42 +101,44 @@ struct EnemySpawn {
 
 // All of the enemy spawns for a wave.
 struct WaveDefinition {
-  std::vector<EnemySpawn> enemies;
-  int resourceInflux{}; // Resources rewarded at start of wave
+  std::vector<EnemySpawn> enemies; // Sorted by `startTicks`
+  int resourceInflux{};            // Resources rewarded at start of wave
 };
 
 // Full definition of one entity type, combining display metadata with the
 // component template used to register and spawn it.
 struct EntityDefinition {
-  std::string entityName;
-  std::string displayName;
-  int menuOrder{}; // Display order.
-  std::string flavorText;
+  std::string entityName;  // Unique identifier.
+  std::string displayName; // Human-readable name.
+  int menuOrder{};         // Display order.
+  std::string flavorText;  // Description of its capabilities.
   // NaN means "not for sale" (all invaders default to this).
   float resourceCost{std::numeric_limits<float>::quiet_NaN()};
-  WorldScene::megatuple_t megatuple;
+  WorldScene::megatuple_t megatuple; // Component template.
 };
 
-// Keyed by `entityName` for O(1) lookup.
+// Collection of `EntityDefinition`s, keyed by `entityName`.
 using EntityDefinitions = string_unordered_map<EntityDefinition>;
 
-// One entry in the build menu streamed to the client. Already sorted by
-// `menuOrder` before streaming; `menuOrder` itself is not streamed.
-struct DefenderMenuEntry {
+// Human-focused summary of a defender, used for both the build menu and the
+// selected tab.
+struct DefenderSummary {
+  WorldTick modified{WorldTick::invalid}; // Not used for menu items
   std::string entityName;
   std::string displayName;
-  int menuOrder{};
+  int menuOrder{}; // Used for menu items.
   std::string flavorText;
   float resourceCost{};
   Appearance appearance; // extracted from megatuple at build time
 };
 
-// Sorted by `menuOrder`, filtered to purchasable defenders only.
-using DefenderMenu = std::vector<DefenderMenuEntry>;
+// Menu of available defenders. Sorted by `menuOrder`, filtered to purchasable
+// defenders only. Note that these are not indexed by `entityTemplateIndex`.
+using DefenderMenu = std::vector<DefenderSummary>;
 
 // Everything needed to play one map: paths, sprites, entity definitions,
 // derived defender menu, and wave schedule. Self-contained so that
-// `SimGame` can hold multiple `MapDesign`s in future.
+// `SimGame` can hold multiple `MapDesign`s, all read in from map files.
 struct MapDesign {
   std::vector<PathJoints> paths;
   std::string backgroundSpriteFile;
@@ -164,9 +148,8 @@ struct MapDesign {
   std::vector<WaveDefinition> waves;
 };
 
-// Input from the UI canvas, such as mouse clicks and drags.
-// Includes `command` and `parameters` for when the mouse location is paired
-// with an action.
+// Input from the UI canvas, such as mouse clicks and drags. Includes `command`
+// and `parameters` for when the mouse location is paired with an action.
 struct UiCanvasInput {
   uint64_t seq{};
   UiCanvasEvent event{UiCanvasEvent::click};
@@ -182,6 +165,13 @@ struct UiCanvasInput {
   bool meta{};
   std::string command;
   std::vector<std::string> parameters;
+
+  // Convenience accessor for the first parameter.
+  [[nodiscard]] std::string_view parameter() const {
+    std::string_view found;
+    if (!parameters.empty()) found = parameters[0];
+    return found;
+  }
 };
 
 // Input from the UI for actions, such as form submissions.
@@ -190,38 +180,37 @@ struct UiActionField {
   std::string value;
 };
 
-// Represents an action input from the UI, such as a button click. Can include
-// related data, such as form fields.
+// Represents an action input from the UI, such as pressing a button. Can
+// include related data, such as form fields.
 struct UiActionInput {
   uint64_t seq{};
   std::string action;
   std::vector<UiActionField> fields;
 };
 
-// Represents a response to a UI action, including success status and related
-// data. Note all actions require a corresponding response, but those that do
-// will use the same sequence number.
-struct UiResponse {
-  uint64_t seq{};
-  bool ok{};
-  std::string response;
-  std::string reason;
-  std::vector<UiActionField> fields;
+// Current state of the UI, for inclusion in a `WorldDelta` to the client.
+struct UiState {
+  std::optional<bool> placementAllowed;
+  std::optional<bool> spawnAllowed;
+  bool defenderSelected{};
+  std::optional<DefenderSummary> defenderSummary;
 };
 
 // Game simulation.
 class SimGame {
 public:
-  explicit SimGame() = default;
+  explicit SimGame() { (void)resetMap(); }
 
   // Load the chosen map, resetting all game state.
-  void loadMap() {
+  [[nodiscard]] bool loadMap() {
+    (void)resetMap();
     // TODO: Have multiple maps.
     (void)doLoadMap1();
+    return true;
   }
 
   // Resets all map information.
-  void resetMap() {
+  [[nodiscard]] bool resetMap() {
     world_.clear();
     phase_ = GamePhase::build;
     mapDesign_ = {};
@@ -230,12 +219,22 @@ public:
     nextSpawnIndex_ = 0;
     lives_ = 20;
     resources_ = 100;
+    uiState_ = {};
+    pendingPlacementIntent_.reset();
+    pendingSpawnIntent_.reset();
+    pendingSelectIntent_.reset();
+    pendingActionIntent_.reset();
+    selectedDefender_ = {};
+    return true;
   }
 
   // Run all physics and game logic for the current tick, without advancing the
-  // counter. Call `tick()` after streaming the state to clients.
+  // counter. To advance the counter, call `tick()` after streaming the state
+  // to clients.
   [[nodiscard]] bool next() {
+    (void)evaluatePendingUiIntents();
     (void)world_.next();
+
     if (phase_ == GamePhase::wave) {
       ++waveTick_;
       spawnPendingWaveEnemies();
@@ -244,7 +243,7 @@ public:
       (void)world_.resolveEscapees(
           [&lives](SimWorld::EntityId, const Position&, const Pathing&) {
             --lives;
-            // TODO: Treat front-escapees different from rear-escapees, and
+            // TODO: Treat front-escapees differently from rear-escapees, and
             // treat different enemies differently in terms of how many lives
             // they consume.
             return true;
@@ -253,6 +252,7 @@ public:
 
       if (lives_ <= 0) phase_ = GamePhase::game_over;
     }
+    (void)refreshSelectedDefenderState();
     return true;
   }
 
@@ -264,118 +264,93 @@ public:
   [[nodiscard]] WorldTick currentTick() const { return world_.currentTick(); }
 
   // Player action: start the next wave.
-  void start_wave() {
-    if (phase_ != GamePhase::build) return;
+  [[nodiscard]] bool start_wave() {
+    if (phase_ != GamePhase::build) return false;
     phase_ = GamePhase::wave;
     waveTick_ = {};
     nextSpawnIndex_ = 0;
+    return true;
   }
 
-  [[nodiscard]] std::optional<UiResponse> handleUiCanvas(
-      const UiCanvasInput& input) {
-    // When dragging ghost, show indicator of validity.
-    if (input.command == "placing" && !input.parameters.empty() &&
-        (input.event == UiCanvasEvent::dragstart ||
-            input.event == UiCanvasEvent::dragmove ||
-            input.event == UiCanvasEvent::dragend))
-      return makePlacementValidationResponse(input.seq,
-          canPlaceEntity(input.parameters[0], {input.x, input.y}));
+  // Record most recent action intent from the UI canvas.
+  [[nodiscard]] bool handleUiCanvas(const UiCanvasInput& input) {
+    if (input.command == "placing") {
+      if (input.parameters.empty() ||
+          (input.event != UiCanvasEvent::dragstart &&
+              input.event != UiCanvasEvent::dragmove &&
+              input.event != UiCanvasEvent::dragend))
+        return false;
 
-    // Explicit spawn from right-clicking after placing a defender.
-    if (input.event == UiCanvasEvent::click && input.command == "spawn" &&
-        !input.parameters.empty() && phase_ == GamePhase::build)
-    {
-      const auto& entityName = input.parameters[0];
-      if (!canPlaceEntity(entityName, {input.x, input.y}))
-        return makePlacementValidationResponse(input.seq, false);
-
-      auto h = world_.spawnEntity(entityName);
-      if (!h) return makePlacementValidationResponse(input.seq, false);
-      *world_.try_get_component<Position>(h.id()) = {input.x, input.y};
-      return std::nullopt;
+      pendingPlacementIntent_ = input;
+      return true;
     }
 
-    // Select defender on click.
-    if (input.event == UiCanvasEvent::click &&
-        input.button == UiMouseButton::left)
-    {
-      // Deselect the previously selected defender, if it still exists.
-      if (auto* fx =
-              world_.changeVisualEffects(world_.getId(selected_defender_)))
-      {
-        fx->selectionColor = 0;
-        fx->rangeRadius = 0.F;
-        fx->rangeColor = 0;
-        selected_defender_ = {};
-      }
+    if (input.command == "spawn") {
+      if (input.event != UiCanvasEvent::click || input.parameters.empty())
+        return false;
 
-      selected_defender_ =
-          world_.getHandle(world_.findDefenderAt({input.x, input.y}));
-      if (selected_defender_.id() != SimWorld::EntityId::invalid) {
-        auto [pos, app, fx, defender] =
-            world_.getDefender(selected_defender_.id());
-        if (pos) {
-          fx->selectionColor = 0xFFF2B63FU;
-          fx->rangeRadius = defender->attackRadius;
-          fx->rangeColor = 0xFFFF007F;
-          fx->modified = world_.currentTick();
-          (void)world_.markDirty(selected_defender_.id());
-        }
-      }
+      pendingSpawnIntent_ = input;
+      return true;
     }
 
-    if (input.event == UiCanvasEvent::click &&
-        input.button == UiMouseButton::right)
+    if (input.button == UiMouseButton::left &&
+        input.event == UiCanvasEvent::click)
     {
-      (void)world_.flashEntity(world_.findEntityAt({input.x, input.y}),
+      pendingSelectIntent_ = input;
+      return true;
+    }
+
+    if (input.button == UiMouseButton::right &&
+        input.event == UiCanvasEvent::click)
+      return world_.flashEntity(world_.findEntityAt({input.x, input.y}),
           0xFF7F7FAF, WorldTick{5});
-    }
-    return std::nullopt;
+
+    return false;
   }
 
-  [[nodiscard]] std::optional<UiResponse> handleUiAction(
-      const UiActionInput& input) {
-    if (input.action == "start_wave") {
-      if (phase_ != GamePhase::build) {
-        return UiResponse{.seq = input.seq,
-            .ok = false,
-            .response = "action",
-            .reason = "phase_mismatch",
-            .fields = {}};
-      }
-      start_wave();
-      return std::nullopt;
-    }
-    return std::nullopt;
+  // Record most recent action intent from the UI action buttons.
+  [[nodiscard]] bool handleUiAction(const UiActionInput& input) {
+    pendingActionIntent_ = input;
+    return true;
   }
 
   // Access the current map design (for streaming and inspection).
   [[nodiscard]] const MapDesign& mapDesign() const { return mapDesign_; }
+  [[nodiscard]] const UiState& uiState() const { return uiState_; }
 
-  // Extract a snapshot of the paths by calling `cbPath(pathId, Position)` for
-  // all joints of all paths.
+  // Extract a snapshot of the paths for `WorldSnapshot`, calling back
+  // `cbPath(PathId, Position)` for each joint.
   [[nodiscard]] bool extractPaths(auto&& cbPath) const {
     (void)world_.obtainPaths(cbPath);
     return true;
   }
 
-  // Extract a delta of the game state. The `cbUpserts(EntityId, Position,
-  // Appearance, VisualEffects)` and `cbErased(EntityId)` callbacks will be
-  // interleaved. The `cbState(currentWave, waveTick, lives, resources, phase)`
+  // Destructively extract a delta of the game state, for `WorldDelta`. The
+  // `cbUpserts(EntityId, Position, Appearance, VisualEffects)` and
+  // `cbErased(EntityId)` callbacks will be interleaved. The
+  // `cbState(currentWave, waveTick, lives, resources, phase, uiState)`
   // callback is invoked last.
   [[nodiscard]] bool
   extractDelta(auto&& cbUpserts, auto&& cbErased, auto&& cbState) {
+    // Clear the selected defender if it is no longer valid.
+    if (world_.getId(selectedDefender_) == SimWorld::EntityId::invalid)
+      (void)clearSelectedDefender();
+
     (void)world_.extractUpdatedEntities(cbUpserts, cbErased);
     (void)cbState(currentWave_, waveTick_, lives_, resources_,
-        sequence::enum_as_view(phase_));
+        sequence::enum_as_view(phase_), uiState_);
+
+    uiState_.placementAllowed.reset();
+    uiState_.spawnAllowed.reset();
 
     return true;
   }
 
-  // Extract a full snapshot of the game state. The `cbPath` callback will be
-  // invoked first, with `cbUpserts` and `cbErased` invoked afterwards and
-  // interleaved. `cbUpserts` receives an optional `VisualEffects` pointer. The
-  // `cbState` callback is invoked last.
+  // Destructively extract a full snapshot of the game state. The `cbPath`
+  // callback will be invoked first, with `cbUpserts(EntityId, Position,
+  // Appearance, VisualEffects)` and `cbErased(EntityId)` invoked afterwards,
+  // and interleaved. The `cbState(currentWave, waveTick, lives, resources,
+  // phase, uiState)` callback is invoked last.
   [[nodiscard]] bool extractFull(auto&& cbPath, auto&& cbUpserts,
       auto&& cbErased, auto&& cbState) {
     (void)extractPaths(cbPath);
@@ -392,61 +367,162 @@ public:
   }
 
 private:
-  [[nodiscard]] static UiResponse
-  makePlacementValidationResponse(uint64_t seq, bool valid) {
-    return UiResponse{.seq = seq,
-        .ok = valid,
-        .response = "placement",
-        .reason = valid ? "" : "blocked",
-        .fields = {{"valid", valid ? "true" : "false"}}};
-  }
-
+  // Determine whether an entity can be placed at a given position. We do not
+  // allow placement over a path or on top of another defender.
   [[nodiscard]] bool
-  canPlaceEntity(std::string_view entity_name, const Position& pos) const {
+  canPlaceDefender(std::string_view entityName, const Position& pos) const {
     if (phase_ != GamePhase::build) return false;
-    const auto def = find_opt(mapDesign_.entityDefs, entity_name);
+    const auto def = findEntityDef(entityName);
     if (!def) return false;
+    // Look up initial defender radius.
     const auto& app_opt = std::get<std::optional<Appearance>>(def->megatuple);
     if (!app_opt) return false;
     return !world_.isDefenderPlacementBlocked(pos, app_opt->radius);
   }
 
-  [[nodiscard]] UiResponse buildPlacementResponse(
-      const UiCanvasInput& input) const {
-    const bool valid =
-        !input.parameters.empty() &&
-        canPlaceEntity(input.parameters[0], {input.x, input.y});
-    return makePlacementValidationResponse(input.seq, valid);
+  // Find `EntityDefinition` by name.
+  [[nodiscard]] const EntityDefinition* findEntityDef(
+      std::string_view entityName) const {
+    return find_opt(mapDesign_.entityDefs, entityName);
+  }
+
+  // Build `DefenderSummary` for a selected defender by entity name.
+  [[nodiscard]] std::optional<DefenderSummary> buildSelectedDefenderSummary(
+      std::string_view entityName) const {
+    const auto* def = findEntityDef(entityName);
+    if (!def) return std::nullopt;
+    const auto& app_opt = std::get<std::optional<Appearance>>(def->megatuple);
+    if (!app_opt || std::isnan(def->resourceCost)) return std::nullopt;
+    return DefenderSummary{.modified = world_.currentTick(),
+        .entityName = def->entityName,
+        .displayName = def->displayName,
+        .flavorText = def->flavorText,
+        .resourceCost = def->resourceCost,
+        .appearance = *app_opt};
+  }
+
+  // Build `DefenderSummary` for a selected defender by `Defender` component.
+  [[nodiscard]] std::optional<DefenderSummary> buildSelectedDefenderSummary(
+      const Defender& defender) const {
+    return buildSelectedDefenderSummary(
+        world_.getEntityTemplateLabel(defender.entityTemplateIndex));
+  }
+
+  // Apply pending UI intents such as placement, spawn, selection, and actions.
+  [[nodiscard]] bool evaluatePendingUiIntents() {
+    if (pendingPlacementIntent_) {
+      const auto& input = *pendingPlacementIntent_;
+      uiState_.placementAllowed =
+          canPlaceDefender(input.parameter(), {input.x, input.y});
+      pendingPlacementIntent_.reset();
+    }
+
+    if (pendingSpawnIntent_) {
+      const auto& input = *pendingSpawnIntent_;
+      const auto parameter = input.parameter();
+      bool spawnAllowed = canPlaceDefender(parameter, {input.x, input.y});
+      if (spawnAllowed) {
+        auto h = world_.spawnEntity(parameter);
+        if (h)
+          *world_.try_get_component<Position>(h.id()) = {input.x, input.y};
+        else
+          spawnAllowed = false;
+      }
+      uiState_.spawnAllowed = spawnAllowed;
+      pendingSpawnIntent_.reset();
+    }
+
+    if (pendingSelectIntent_) {
+      const auto& input = *pendingSelectIntent_;
+      (void)selectDefenderAt({input.x, input.y});
+      pendingSelectIntent_.reset();
+    }
+
+    if (pendingActionIntent_) {
+      const auto& input = *pendingActionIntent_;
+      if (input.action == "start_wave" && phase_ == GamePhase::build)
+        (void)start_wave();
+      pendingActionIntent_.reset();
+    }
+    return true;
+  }
+
+  // Attempt to select a defender at the given position. Unselects the current
+  // selection, regardless.
+  [[nodiscard]] bool selectDefenderAt(const Position& targetPos) {
+    (void)clearSelectedDefender();
+    auto selected = world_.getHandle(world_.findDefenderAt(targetPos));
+    const auto selectedId = world_.getId(selected);
+    const auto& [pos, _, fx, defender] = world_.getDefender(selectedId);
+    if (!pos || !defender || !fx) return false;
+
+    // Add selection visual effects.
+    fx->selectionColor = 0xFFF2B63FU;
+    fx->rangeRadius = defender->attackRadius;
+    fx->rangeColor = 0xFFFF007F;
+    fx->modified = world_.currentTick();
+    (void)world_.markDirty(selectedId);
+
+    selectedDefender_ = selected;
+    uiState_.defenderSelected = true;
+    uiState_.defenderSummary = buildSelectedDefenderSummary(*defender);
+    return true;
+  }
+
+  // Ensure that the selected defender is valid.
+  [[nodiscard]] bool refreshSelectedDefenderState() {
+    const auto selectedId = world_.getId(selectedDefender_);
+    if (selectedId == SimWorld::EntityId::invalid)
+      return clearSelectedDefender();
+
+    const auto& [pos, _, fx, defender] = world_.getDefender(selectedId);
+    if (!pos || !defender || !fx) return clearSelectedDefender();
+
+    uiState_.defenderSelected = true;
+    return true;
+  }
+
+  // Clear the currently selected defender.
+  [[nodiscard]] bool clearSelectedDefender() {
+    if (auto* fx = world_.changeVisualEffects(world_.getId(selectedDefender_)))
+    {
+      fx->selectionColor = 0;
+      fx->rangeRadius = 0.F;
+      fx->rangeColor = 0;
+    }
+    selectedDefender_ = {};
+    uiState_.defenderSelected = false;
+    uiState_.defenderSummary.reset();
+    return true;
   }
 
   // Register all entities and build the defender menu from
   // `mapDesign_.entityDefs`.
-  [[nodiscard]] bool processEntityDefs() {
+  [[nodiscard]] bool registerEntityDefs() {
     auto& defs = mapDesign_.entityDefs;
     auto& menu = mapDesign_.defenderMenu;
     menu.clear();
+
     for (const auto& [name, def] : defs) {
-      world_.registerEntity(def.entityName, def.megatuple);
-      if (!std::isnan(def.resourceCost)) {
-        const auto& app_opt =
-            std::get<std::optional<Appearance>>(def.megatuple);
-        menu.push_back({.entityName = def.entityName,
-            .displayName = def.displayName,
-            .menuOrder = def.menuOrder,
-            .flavorText = def.flavorText,
-            .resourceCost = def.resourceCost,
-            .appearance = *app_opt});
-      }
+      if (!world_.registerEntity(def.entityName, def.megatuple)) continue;
+      if (std::isnan(def.resourceCost)) continue;
+      const auto& app_opt = std::get<std::optional<Appearance>>(def.megatuple);
+      menu.push_back({.entityName = def.entityName,
+          .displayName = def.displayName,
+          .menuOrder = def.menuOrder,
+          .flavorText = def.flavorText,
+          .resourceCost = def.resourceCost,
+          .appearance = *app_opt});
     }
     std::ranges::sort(menu,
-        [](const DefenderMenuEntry& a, const DefenderMenuEntry& b) {
+        [](const DefenderSummary& a, const DefenderSummary& b) {
           return a.menuOrder < b.menuOrder;
         });
     return true;
   }
 
   // Add each `PathJoints` from `mapDesign_.paths` to the world.
-  [[nodiscard]] bool processPaths() {
+  [[nodiscard]] bool registerPaths() {
     for (const auto& pj : mapDesign_.paths) (void)world_.addPath(pj);
     return true;
   }
@@ -463,20 +539,20 @@ private:
 
       // Set placement-specific fields not encoded in the template.
       auto [pos, pat] = world_.try_get_components<Position, Pathing>(h.id());
-      if (pos) {
-        pat->pathId = enemyDef.pathId;
-        const auto* path = world_.getPath(pat->pathId);
-        assert(path);
-        *pos = path->calculatePositionFromProgress(0.F, 0.F);
-      }
+      assert(pos);
+      pat->pathId = enemyDef.pathId;
+      const auto* path = world_.getPath(pat->pathId);
+      assert(path);
+      *pos = path->calculatePositionFromProgress(0.F, 0.F);
     }
   }
 
+  // Ugly placeholder for map loading.
   [[nodiscard]] bool doLoadMap1() {
-    resetMap();
+    (void)resetMap();
 
-    // Entity definitions. This is the single site that will later be replaced
-    // by CSV/JSON parsing.
+    // Entity definitions. This is the single site that will later be
+    // replaced by CSV/JSON parsing.
     {
       EntityDefinition def;
       def.entityName = "InvaderAlphaBasic";
@@ -492,7 +568,7 @@ private:
       std::get<std::optional<Pathing>>(tpl) =
           Pathing{.pathId = PathId::invalid, .progress = 0.F, .speed = 50.F};
       std::get<std::optional<Invader>>(tpl) =
-          Invader{.invaderType = 1, .hitCircleRadius = 30.F, .bounty = 10};
+          Invader{.hitCircleRadius = 30.F, .bounty = 10};
       std::get<std::optional<Health>>(tpl) =
           Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 10.F};
       mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
@@ -513,8 +589,8 @@ private:
           .attackRadius = 100.F};
       std::get<std::optional<VisualEffects>>(tpl) =
           VisualEffects{.flashColor = 0xFF7F7FFF, .flashExpiry = WorldTick{5}};
-      std::get<std::optional<Defender>>(tpl) = Defender{.defenderType = 1,
-          .hitCircleRadius = 30.F,
+      std::get<std::optional<Defender>>(
+          tpl) = Defender{.hitCircleRadius = 30.F,
           .attackRadius = 100.F,
           .rangeColor = 0xFFFF0000,
           .attackDamage = 5.F,
@@ -542,8 +618,8 @@ private:
           .attackRadius = 150.F};
       std::get<std::optional<VisualEffects>>(tpl) =
           VisualEffects{.flashColor = 0xFF7FFF7F, .flashExpiry = WorldTick{5}};
-      std::get<std::optional<Defender>>(tpl) = Defender{.defenderType = 2,
-          .hitCircleRadius = 25.F,
+      std::get<std::optional<Defender>>(
+          tpl) = Defender{.hitCircleRadius = 25.F,
           .attackRadius = 150.F,
           .rangeColor = 0xFF00FF00,
           .attackDamage = 15.F,
@@ -553,7 +629,7 @@ private:
       std::get<std::optional<Health>>(tpl) =
           Health{.currentHealth = 80.F, .maxHealth = 80.F, .regen = 0.F};
       std::get<std::optional<DefenderShooter>>(tpl) = DefenderShooter{
-          .bullet_template = DefenderBullet{.speed = 200.F,
+          .bulletTemplate = DefenderBullet{.speed = 200.F,
               .directDamage = 15.F,
               .projectileType = 1,
               .expiry = WorldTick{60}},
@@ -603,7 +679,7 @@ private:
       mapDesign_.waves.push_back(std::move(wave));
     }
 
-    return processEntityDefs() && processPaths();
+    return registerEntityDefs() && registerPaths();
   }
 
 private:
@@ -628,10 +704,15 @@ private:
 
   int lives_{20};
   int resources_{100};
+  UiState uiState_;
 
-  // Handle to the currently selected defender, used to clear its range circle
-  // when deselected. A default-constructed handle is invalid and indicates
-  // no selection.
-  SimWorld::Handle selected_defender_;
+  std::optional<UiCanvasInput> pendingPlacementIntent_;
+  std::optional<UiCanvasInput> pendingSpawnIntent_;
+  std::optional<UiCanvasInput> pendingSelectIntent_;
+  std::optional<UiActionInput> pendingActionIntent_;
+
+  // Handle to the currently selected defender, used to clear its range
+  // circle when deselected.
+  SimWorld::Handle selectedDefender_;
 };
 }} // namespace corvid::sim

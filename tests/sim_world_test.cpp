@@ -52,6 +52,10 @@ struct GameDelta {
   int lives{};
   int resources{};
   std::string_view phase;
+  std::optional<bool> placementAllowed;
+  std::optional<bool> spawnAllowed;
+  bool defenderSelected{};
+  std::optional<DefenderSummary> defenderSummary;
 };
 
 struct EntitySnapshot {
@@ -116,7 +120,7 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
       [&snap](SimWorld::EntityId id, const Position& pos, const Appearance&,
           const VisualEffects&) { snap.entities.push_back({id, pos}); },
       [](SimWorld::EntityId) {},
-      [](size_t, WaveTick, int, int, std::string_view) {});
+      [](size_t, WaveTick, int, int, std::string_view, const UiState&) {});
 
   snap.path_points = std::move(pathsById);
   return snap;
@@ -129,12 +133,16 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
           const VisualEffects&) { delta.upserts.emplace_back(id, pos); },
       [&delta](SimWorld::EntityId id) { delta.erased.push_back(id); },
       [&delta](size_t currentWave, WaveTick waveTick, int lives, int resources,
-          std::string_view phase) {
+          std::string_view phase, const UiState& uiState) {
         delta.currentWave = currentWave;
         delta.waveTick = waveTick;
         delta.lives = lives;
         delta.resources = resources;
         delta.phase = phase;
+        delta.placementAllowed = uiState.placementAllowed;
+        delta.spawnAllowed = uiState.spawnAllowed;
+        delta.defenderSelected = uiState.defenderSelected;
+        delta.defenderSummary = uiState.defenderSummary;
       });
   return delta;
 }
@@ -178,10 +186,10 @@ spawnInvaderAlpha(SimWorld& w, PathId pid, float progress = 0.F) {
   std::get<std::optional<Pathing>>(tpl) =
       Pathing{.pathId = PathId::invalid, .progress = 0.F, .speed = 50.F};
   std::get<std::optional<Invader>>(tpl) =
-      Invader{.invaderType = 1, .hitCircleRadius = 30.F, .bounty = 10};
+      Invader{.hitCircleRadius = 30.F, .bounty = 10};
   std::get<std::optional<Health>>(tpl) =
       Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 10.F};
-  w.registerEntity("InvaderAlphaBasic", tpl);
+  (void)w.registerEntity("InvaderAlphaBasic", tpl);
   auto h = w.spawnEntity("InvaderAlphaBasic");
   if (!h) return h;
   if (auto* pat = w.try_get_component<Pathing>(h.id())) {
@@ -203,8 +211,7 @@ spawnDefenderAoe(SimWorld& w, Position spawn_pos) {
       .fgColor = 0xFFFFFFFF,
       .bgColor = 0x7F7FFFFF};
   std::get<std::optional<VisualEffects>>(tpl) = VisualEffects{};
-  std::get<std::optional<Defender>>(tpl) = Defender{.defenderType = 1,
-      .hitCircleRadius = 30.F,
+  std::get<std::optional<Defender>>(tpl) = Defender{.hitCircleRadius = 30.F,
       .attackRadius = 100.F,
       .rangeColor = 0xFFFF0000,
       .attackDamage = 5.F,
@@ -214,7 +221,7 @@ spawnDefenderAoe(SimWorld& w, Position spawn_pos) {
   std::get<std::optional<Health>>(tpl) =
       Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 0.F};
   std::get<std::optional<DefenderAoe>>(tpl) = DefenderAoe{.damageType = 1};
-  w.registerEntity("DefenderAoeBasic", tpl);
+  (void)w.registerEntity("DefenderAoeBasic", tpl);
   auto h = w.spawnEntity("DefenderAoeBasic");
   if (!h) return h;
   if (auto* pos = w.try_get_component<Position>(h.id())) *pos = spawn_pos;
@@ -575,13 +582,13 @@ void SimWorld_FromJointsThrowsWhenJointIsOutOfBounds() {
 
 void SimGame_LoadMapInitialSnapshotAndState() {
   SimGame game;
-  game.loadMap();
+  (void)game.loadMap();
 
   const auto snap = snapshot(game);
   ASSERT_EQ(snap.entities.size(), 0U);
   ASSERT_EQ(snap.path_points.size(), 1U);
-  EXPECT_EQ(snap.path_points[0].joints.front().p.x, 0.F);
-  EXPECT_EQ(snap.path_points[0].joints.front().p.y, 0.F);
+  EXPECT_EQ(snap.path_points[0].joints.front().pos.x, 0.F);
+  EXPECT_EQ(snap.path_points[0].joints.front().pos.y, 0.F);
   EXPECT_GT(snap.path_points[0].joints.size(), 2U);
 
   const auto delta = extractGameDelta(game);
@@ -596,69 +603,89 @@ void SimGame_LoadMapInitialSnapshotAndState() {
 
 void SimGame_HandleUiActionStartWaveTransitionsToWavePhase() {
   SimGame game;
-  game.loadMap();
+  (void)game.loadMap();
 
   (void)game.handleUiAction(
       UiActionInput{.seq = 1, .action = "start_wave", .fields = {}});
 
+  const auto before = extractGameDelta(game);
+  EXPECT_EQ(before.phase, std::string_view{"build"});
+
+  (void)game.next();
+
   const auto delta = extractGameDelta(game);
   EXPECT_EQ(delta.phase, std::string_view{"wave"});
-  EXPECT_EQ(delta.waveTick, WaveTick{0});
+  EXPECT_EQ(delta.waveTick, WaveTick{1});
 }
 
 void SimGame_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase() {
   SimGame game;
-  game.loadMap();
+  (void)game.loadMap();
   const auto before = extractGameDelta(game);
 
   (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
       .event = UiCanvasEvent::click,
       .button = UiMouseButton::left,
       .buttons = 1,
-      .x = 200.F,
-      .y = 0.F,
+      .x = 300.F,
+      .y = 100.F,
       .canvasX = 100.F,
       .canvasY = 200.F,
       .command = "spawn",
       .parameters = {"DefenderAoeBasic"}});
 
+  const auto pending = extractGameDelta(game);
+  EXPECT_TRUE(pending.upserts.empty());
+  EXPECT_FALSE(pending.spawnAllowed.has_value());
+
+  (void)game.next();
+
   const auto after = extractGameDelta(game);
   EXPECT_EQ(before.phase, std::string_view{"build"});
   EXPECT_EQ(after.phase, std::string_view{"build"});
+  ASSERT_TRUE(after.spawnAllowed.has_value());
+  EXPECT_TRUE(*after.spawnAllowed);
   ASSERT_EQ(after.upserts.size(), 1U);
-  EXPECT_NEAR(after.upserts[0].second.x, 200.0, 1e-6);
-  EXPECT_NEAR(after.upserts[0].second.y, 0.0, 1e-6);
+  EXPECT_NEAR(after.upserts[0].second.x, 300.0, 1e-6);
+  EXPECT_NEAR(after.upserts[0].second.y, 100.0, 1e-6);
   EXPECT_TRUE(after.erased.empty());
 }
 
 void SimGame_HandleUiCanvasRightClickSpawnPlacesDefender() {
   SimGame game;
-  game.loadMap();
+  (void)game.loadMap();
 
   (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
       .event = UiCanvasEvent::click,
       .button = UiMouseButton::right,
       .buttons = 2,
-      .x = 200.F,
-      .y = 0.F,
+      .x = 300.F,
+      .y = 100.F,
       .canvasX = 120.F,
       .canvasY = 210.F,
       .command = "spawn",
       .parameters = {"DefenderAoeBasic"}});
 
+  const auto pending = extractGameDelta(game);
+  EXPECT_TRUE(pending.upserts.empty());
+
+  (void)game.next();
+
   const auto after = extractGameDelta(game);
   EXPECT_EQ(after.phase, std::string_view{"build"});
+  ASSERT_TRUE(after.spawnAllowed.has_value());
+  EXPECT_TRUE(*after.spawnAllowed);
   ASSERT_EQ(after.upserts.size(), 1U);
-  EXPECT_NEAR(after.upserts[0].second.x, 200.0, 1e-6);
-  EXPECT_NEAR(after.upserts[0].second.y, 0.0, 1e-6);
+  EXPECT_NEAR(after.upserts[0].second.x, 300.0, 1e-6);
+  EXPECT_NEAR(after.upserts[0].second.y, 100.0, 1e-6);
   EXPECT_TRUE(after.erased.empty());
 }
 
-void SimGame_HandleUiCanvasPlacingResponseRejectsPathOverlap() {
+void SimGame_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick() {
   SimGame game;
-  game.loadMap();
+  (void)game.loadMap();
 
-  const auto response = game.handleUiCanvas(UiCanvasInput{.seq = 7,
+  (void)game.handleUiCanvas(UiCanvasInput{.seq = 7,
       .event = UiCanvasEvent::dragmove,
       .button = UiMouseButton::left,
       .buttons = 1,
@@ -669,21 +696,21 @@ void SimGame_HandleUiCanvasPlacingResponseRejectsPathOverlap() {
       .command = "placing",
       .parameters = {"DefenderAoeBasic"}});
 
-  ASSERT_TRUE(response.has_value());
-  EXPECT_EQ(response->seq, 7U);
-  EXPECT_EQ(response->response, std::string_view{"placement"});
-  EXPECT_FALSE(response->ok);
-  EXPECT_EQ(response->reason, std::string_view{"blocked"});
-  ASSERT_EQ(response->fields.size(), 1U);
-  EXPECT_EQ(response->fields[0].key, std::string_view{"valid"});
-  EXPECT_EQ(response->fields[0].value, std::string_view{"false"});
+  const auto pending = extractGameDelta(game);
+  EXPECT_FALSE(pending.placementAllowed.has_value());
+
+  (void)game.next();
+
+  const auto delta = extractGameDelta(game);
+  ASSERT_TRUE(delta.placementAllowed.has_value());
+  EXPECT_FALSE(*delta.placementAllowed);
 }
 
-void SimGame_HandleUiCanvasRejectsBlockedDefenderSpawn() {
+void SimGame_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick() {
   SimGame game;
-  game.loadMap();
+  (void)game.loadMap();
 
-  const auto response = game.handleUiCanvas(UiCanvasInput{.seq = 1,
+  (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
       .event = UiCanvasEvent::click,
       .button = UiMouseButton::right,
       .buttons = 2,
@@ -694,17 +721,18 @@ void SimGame_HandleUiCanvasRejectsBlockedDefenderSpawn() {
       .command = "spawn",
       .parameters = {"DefenderAoeBasic"}});
 
+  (void)game.next();
+
   const auto delta = extractGameDelta(game);
   EXPECT_TRUE(delta.upserts.empty());
-  ASSERT_TRUE(response.has_value());
-  EXPECT_EQ(response->response, std::string_view{"placement"});
-  EXPECT_FALSE(response->ok);
+  ASSERT_TRUE(delta.spawnAllowed.has_value());
+  EXPECT_FALSE(*delta.spawnAllowed);
 }
 
 void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
   SimGame game;
-  game.loadMap();
-  game.start_wave();
+  (void)game.loadMap();
+  (void)game.start_wave();
 
   (void)game.next();
 
@@ -726,8 +754,8 @@ void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
 
 void SimGame_ExtractDeltaConsumesWorldUpdatesButNotState() {
   SimGame game;
-  game.loadMap();
-  game.start_wave();
+  (void)game.loadMap();
+  (void)game.start_wave();
 
   (void)game.next();
   (void)game.tick();
@@ -753,7 +781,7 @@ void SimGame_ExtractDeltaConsumesWorldUpdatesButNotState() {
 
 void SimGame_ExtractFullIncludesPathsAndState() {
   SimGame game;
-  game.loadMap();
+  (void)game.loadMap();
 
   size_t path_points = 0;
   size_t upserts = 0;
@@ -763,20 +791,22 @@ void SimGame_ExtractFullIncludesPathsAndState() {
   int lives = -1;
   int resources = -1;
   std::string_view phase = "unknown";
+  UiState uiState;
 
   (void)game.extractFull(
       [&path_points](PathId, const Position&) { ++path_points; },
       [&upserts](SimWorld::EntityId, const Position&, const Appearance&,
           const VisualEffects&) { ++upserts; },
       [&erased](SimWorld::EntityId) { ++erased; },
-      [&currentWave, &waveTick, &lives, &resources, &phase](size_t wave,
-          WaveTick tick, int newLives, int newResources,
-          std::string_view newPhase) {
+      [&currentWave, &waveTick, &lives, &resources, &phase,
+          &uiState](size_t wave, WaveTick tick, int newLives, int newResources,
+          std::string_view newPhase, const UiState& newUiState) {
         currentWave = wave;
         waveTick = tick;
         lives = newLives;
         resources = newResources;
         phase = newPhase;
+        uiState = newUiState;
       });
 
   EXPECT_GT(path_points, 0U);
@@ -787,6 +817,7 @@ void SimGame_ExtractFullIncludesPathsAndState() {
   EXPECT_EQ(lives, 20);
   EXPECT_EQ(resources, 100);
   EXPECT_EQ(phase, std::string_view{"build"});
+  EXPECT_FALSE(uiState.defenderSelected);
 }
 
 void SimJson_ParseUiCanvasMessage() {
@@ -851,13 +882,13 @@ void SimJson_BuildHelloAckJson() {
 
 void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   SimGame game;
-  game.loadMap();
+  (void)game.loadMap();
   (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
       .event = UiCanvasEvent::click,
       .button = UiMouseButton::left,
       .buttons = 1,
-      .x = 200.F,
-      .y = 0.F,
+      .x = 300.F,
+      .y = 100.F,
       .canvasX = 100.F,
       .canvasY = 200.F,
       .command = "spawn",
@@ -866,10 +897,12 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
 
   SimGameStateJson state;
   (void)buildSimGameStateJson(state, game);
-  EXPECT_TRUE(state.body.contains(R"("x":200.0)"));
+  EXPECT_TRUE(state.body.contains(R"("x":300.0)"));
   EXPECT_TRUE(state.body.contains(R"("radius":30.000)"));
   EXPECT_TRUE(state.body.contains(R"("vfx")"));
   EXPECT_TRUE(state.body.contains(R"("flashExpiryMs":250)"));
+  EXPECT_TRUE(state.body.contains(R"("uiState")"));
+  EXPECT_TRUE(state.body.contains(R"("spawnAllowed":true)"));
   EXPECT_FALSE(state.body.contains(R"("modified")"));
   EXPECT_FALSE(state.body.contains(R"("flash_expiry")"));
   EXPECT_FALSE(state.body.contains(R"("glow")"));
@@ -898,7 +931,7 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
     ASSERT_TRUE(pos);
     const auto x = pos.get_number<float>("x");
     ASSERT_TRUE(x.has_value());
-    EXPECT_NEAR(*x, 200.0, 1e-6);
+    EXPECT_NEAR(*x, 300.0, 1e-6);
 
     const auto app = entry.get_object("app");
     ASSERT_TRUE(app);
@@ -920,17 +953,18 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
 
 void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
   SimGame game;
-  game.loadMap();
+  (void)game.loadMap();
   (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
       .event = UiCanvasEvent::click,
       .button = UiMouseButton::left,
       .buttons = 1,
-      .x = 200.F,
-      .y = 0.F,
+      .x = 300.F,
+      .y = 100.F,
       .canvasX = 100.F,
       .canvasY = 200.F,
       .command = "spawn",
       .parameters = {"DefenderAoeBasic"}});
+  (void)game.next();
 
   SimGameStateJson initial_state;
   (void)buildSimGameStateJson(initial_state, game);
@@ -940,12 +974,13 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
       .event = UiCanvasEvent::click,
       .button = UiMouseButton::right,
       .buttons = 2,
-      .x = 200.F,
-      .y = 0.F,
+      .x = 300.F,
+      .y = 100.F,
       .canvasX = 100.F,
       .canvasY = 200.F,
       .command{},
       .parameters{}});
+  (void)game.next();
 
   SimGameStateJson state;
   (void)buildSimGameStateJson(state, game);
@@ -965,7 +1000,7 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
     ASSERT_TRUE(pos);
     const auto x = pos.get_number<float>("x");
     ASSERT_TRUE(x.has_value());
-    EXPECT_NEAR(*x, 200.0, 1e-6);
+    EXPECT_NEAR(*x, 300.0, 1e-6);
 
     const auto vfx = entry.get_object("vfx");
     ASSERT_TRUE(vfx);
@@ -1000,7 +1035,7 @@ void SimJson_FlashExpiryDelayMsUsesCurrentTickRelativeTiming() {
 
 void SimJson_BuildWorldSnapshotJsonShape() {
   SimGame game;
-  game.loadMap();
+  (void)game.loadMap();
 
   SimGameStateJson state;
   (void)buildSimGameStateJson(state, game, update_strategy::full);
@@ -1056,8 +1091,8 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
     SimGame_HandleUiActionStartWaveTransitionsToWavePhase,
     SimGame_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase,
     SimGame_HandleUiCanvasRightClickSpawnPlacesDefender,
-    SimGame_HandleUiCanvasPlacingResponseRejectsPathOverlap,
-    SimGame_HandleUiCanvasRejectsBlockedDefenderSpawn,
+    SimGame_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick,
+    SimGame_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick,
     SimGame_StartWaveSpawnsFirstEnemyOnFirstStep,
     SimGame_ExtractDeltaConsumesWorldUpdatesButNotState,
     SimGame_ExtractFullIncludesPathsAndState, SimJson_ParseUiCanvasMessage,

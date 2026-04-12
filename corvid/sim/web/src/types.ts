@@ -62,6 +62,13 @@ export interface DefenderMenuItem {
   appearance: EntityAppearance
 }
 
+export interface UiState {
+  placementAllowed?: boolean
+  spawnAllowed?: boolean
+  defenderSelected: boolean
+  defenderSummary?: DefenderMenuItem
+}
+
 export interface EntityUpsert {
   pos: EntityPosition
   app?: EntityAppearance
@@ -93,15 +100,6 @@ export interface UiActionMsg {
   fields?: Record<string, string>
 }
 
-export interface UiResponseMsg {
-  type: 'ui_response'
-  seq: number
-  ok: boolean
-  response: string
-  reason?: string
-  fields?: Record<string, string>
-}
-
 export interface WorldDelta {
   type: 'world_delta'
   tick: number
@@ -110,6 +108,7 @@ export interface WorldDelta {
   lives: number
   resources: number
   phase: string
+  uiState: UiState
 }
 
 export interface WorldSnapshot {
@@ -119,5 +118,5 @@ export interface WorldSnapshot {
   delta: WorldDelta
 }
 
-export type ServerMsg = HelloAckMsg | UiResponseMsg | WorldDelta | WorldSnapshot;
+export type ServerMsg = HelloAckMsg | WorldDelta | WorldSnapshot;
 export type ClientMsg = HelloMsg | UiCanvasMsg | UiActionMsg;

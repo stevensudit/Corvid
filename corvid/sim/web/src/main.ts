@@ -6,8 +6,8 @@ import type {
   EntityUpsert,
   EntityVisualEffects,
   ServerMsg,
-  UiResponseMsg,
   UiCanvasMsg,
+  UiState,
   WorldDelta,
 } from './types.js'
 
@@ -38,8 +38,7 @@ interface GhostState {
   attackRadius: number  // world units, from Appearance.attackRadius
   pending: boolean      // true = dropped on map, awaiting confirmation click
   placeable: boolean
-  placementSeq: number
-  placementResponseSeq: number
+  spawnPending: boolean
 }
 
 interface RenderVisualEffects {
@@ -354,6 +353,8 @@ let mouseOverOverlay = false
 let overlayStayOpen = false
 let currentPanelSide: PanelSide = 'right'
 let overlaySideSwapFrame = 0
+let selectedDefenderSummary: DefenderMenuItem | null = null
+let defenderSelected = false
 
 const SIDE_PANEL_TRIGGER_RATIO = 0.25
 const SIDE_PANEL_TRIGGER_MIN_PX = 72
@@ -435,7 +436,7 @@ type OverlayLevel = 'hidden' | 'peek' | 'open'
 
 function hasPinnedOpenPanel(): boolean {
   return ghostState?.pending === true ||
-    findSelectedDefender() !== null ||
+    defenderSelected ||
     overlayStayOpen
 }
 
@@ -883,15 +884,6 @@ function updateEdgeHover(sample: CanvasPointerSample): void {
   setEdgeHoverSide(panelSideFromCanvasX(sample.canvasX))
 }
 
-function findSelectedDefender(): RenderEntityUpsert | null {
-  for (const entity of currEntitiesById.values()) {
-    if (!isTransparent(entity.fx.selection) || entity.fx.rangeRadius > 0) {
-      return entity
-    }
-  }
-  return null
-}
-
 function findDefenderAtWorld(worldX: number, worldY: number): RenderEntityUpsert | null {
   const hitPos = { x: worldX, y: worldY }
   for (const entity of currEntitiesById.values()) {
@@ -943,19 +935,18 @@ function wrapPanelText(
 }
 
 function getSelectedDefenderPanelModel(): SidePanelModel | null {
-  const selectedDefender = findSelectedDefender()
-  if (!selectedDefender) return null
+  if (!defenderSelected || !selectedDefenderSummary) return null
 
-  const side: PanelSide = selectedDefender.pos.x <= 0 ? 'right' : 'left'
   return {
-    side,
+    side: currentPanelSide,
     title: 'Defender Selected',
     lines: [
-      `Entity #${selectedDefender.pos.id}`,
-      `World ${formatPanelNumber(selectedDefender.pos.x)}, ${formatPanelNumber(selectedDefender.pos.y)}`,
-      `Glyph ${selectedDefender.app.glyph || '?'}`,
-      `Body radius ${formatPanelNumber(selectedDefender.app.radius)}`,
-      `Attack radius ${formatPanelNumber(selectedDefender.fx.rangeRadius)}`,
+      selectedDefenderSummary.displayName,
+      selectedDefenderSummary.flavorText,
+      '',
+      `Glyph ${selectedDefenderSummary.appearance.glyph === 0 ? '?' : String.fromCodePoint(selectedDefenderSummary.appearance.glyph)}`,
+      `Body radius ${formatPanelNumber(selectedDefenderSummary.appearance.radius)}`,
+      `Attack radius ${formatPanelNumber(selectedDefenderSummary.appearance.attackRadius)}`,
       '',
       `Phase ${phaseEl?.textContent ?? '--'}`,
       `Resources $${resources}`,
@@ -1358,8 +1349,7 @@ function sendPlacementPreview(
   entityName: string,
 ): void {
   if (!ghostState) return
-  ghostState.placementSeq =
-    sendCanvasMsg(eventName, sample, 'placing', [entityName])
+  sendCanvasMsg(eventName, sample, 'placing', [entityName])
 }
 
 function scheduleDragMoveFlush(): void {
@@ -1442,19 +1432,27 @@ function isEntityUpsert(value: unknown): value is EntityUpsert {
   )
 }
 
-function isUiResponseMsg(value: unknown): value is UiResponseMsg {
+function isDefenderMenuItem(value: unknown): value is DefenderMenuItem {
   return (
     typeof value === 'object' &&
     value !== null &&
-    (value as Record<string, unknown>).type === 'ui_response' &&
-    typeof (value as Record<string, unknown>).seq === 'number' &&
-    typeof (value as Record<string, unknown>).ok === 'boolean' &&
-    typeof (value as Record<string, unknown>).response === 'string' &&
-    ((value as Record<string, unknown>).reason === undefined ||
-      typeof (value as Record<string, unknown>).reason === 'string') &&
-    ((value as Record<string, unknown>).fields === undefined ||
-      (typeof (value as Record<string, unknown>).fields === 'object' &&
-        (value as Record<string, unknown>).fields !== null))
+    typeof (value as Record<string, unknown>).entityName === 'string' &&
+    typeof (value as Record<string, unknown>).displayName === 'string' &&
+    typeof (value as Record<string, unknown>).flavorText === 'string' &&
+    typeof (value as Record<string, unknown>).resourceCost === 'number' &&
+    isEntityAppearance((value as Record<string, unknown>).appearance)
+  )
+}
+
+function isUiState(value: unknown): value is UiState {
+  const v = value as Record<string, unknown>
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof v.defenderSelected === 'boolean' &&
+    (v.placementAllowed === undefined || typeof v.placementAllowed === 'boolean') &&
+    (v.spawnAllowed === undefined || typeof v.spawnAllowed === 'boolean') &&
+    (v.defenderSummary === undefined || isDefenderMenuItem(v.defenderSummary))
   )
 }
 
@@ -1462,6 +1460,29 @@ function getDeltaPhase(delta: WorldDelta): string {
   const maybePhase = (delta as WorldDelta & { phase?: unknown }).phase
   if (typeof maybePhase === 'string') return maybePhase
   return delta.phase
+}
+
+function applyUiState(uiState: UiState): void {
+  if (uiState.placementAllowed !== undefined && ghostState) {
+    ghostState.placeable = uiState.placementAllowed
+  }
+
+  if (uiState.spawnAllowed !== undefined && ghostState?.spawnPending) {
+    ghostState.spawnPending = false
+    if (uiState.spawnAllowed) {
+      ghostState = null
+      clearMenuSelection()
+      mouseOverOverlay = false
+      overlayStayOpen = false
+    }
+  }
+
+  defenderSelected = uiState.defenderSelected
+  if (!defenderSelected) {
+    selectedDefenderSummary = null
+  } else if (uiState.defenderSummary) {
+    selectedDefenderSummary = uiState.defenderSummary
+  }
 }
 
 function finishSnapshotUpdate(): void {
@@ -1498,6 +1519,8 @@ function resetClientWorldState(): void {
   mouseOverOverlay = false
   overlayStayOpen = false
   currentPanelSide = 'right'
+  selectedDefenderSummary = null
+  defenderSelected = false
   if (overlaySideSwapFrame !== 0) {
     cancelAnimationFrame(overlaySideSwapFrame)
     overlaySideSwapFrame = 0
@@ -1531,23 +1554,13 @@ function applyWorldDelta(delta: WorldDelta): void {
   tickEl.textContent = String(delta.tick)
   lives = delta.lives
   resources = delta.resources
+  applyUiState(delta.uiState)
   invalidateHud()
   invalidateSidePanel()
   setTextIfElement(livesEl, String(delta.lives))
   setTextIfElement(resourcesEl, String(delta.resources))
   currentPhase = getDeltaPhase(delta)
   setTextIfElement(phaseEl, currentPhase)
-}
-
-function applyUiResponse(response: UiResponseMsg): void {
-  if (
-    response.response === 'placement' &&
-    ghostState &&
-    response.seq > ghostState.placementResponseSeq
-  ) {
-    ghostState.placeable = response.fields?.valid === 'true'
-    ghostState.placementResponseSeq = response.seq
-  }
 }
 
 // --- Message validation ---
@@ -1563,6 +1576,7 @@ function isWorldDelta(value: unknown): value is WorldDelta {
     typeof v.lives === 'number' &&
     typeof v.resources === 'number' &&
     typeof v.phase === 'string' &&
+    isUiState(v.uiState) &&
     v.upserts.every(isEntityUpsert) &&
     v.erased.every((id) => typeof id === 'number')
   )
@@ -1576,8 +1590,6 @@ function isServerMsg(value: unknown): value is ServerMsg {
   switch (v.type) {
     case 'hello_ack':
       return typeof v.message === 'string'
-    case 'ui_response':
-      return isUiResponseMsg(v)
     case 'world_delta':
       return isWorldDelta(v)
     case 'world_snapshot': {
@@ -1591,6 +1603,7 @@ function isServerMsg(value: unknown): value is ServerMsg {
         Array.isArray(md.paths) &&
         md.paths.every(isPoint) &&
         Array.isArray(v.defenderMenu) &&
+        v.defenderMenu.every(isDefenderMenuItem) &&
         isWorldDelta(v.delta)
       )
     }
@@ -1628,9 +1641,6 @@ ws.onmessage = (event: MessageEvent<string>) => {
   switch (parsed.type) {
     case 'hello_ack':
       log(`Server says: ${parsed.message}`)
-      break
-    case 'ui_response':
-      applyUiResponse(parsed)
       break
     case 'world_delta':
       applyWorldDelta(parsed)
@@ -1836,16 +1846,11 @@ foregroundCanvas.addEventListener('contextmenu', (event: MouseEvent) => {
   event.preventDefault()
   const sample = eventToCanvasSample(event)
   if (ghostState?.pending) {
-    if (!ghostState.placeable) return
+    if (!ghostState.placeable || ghostState.spawnPending) return
     // Right-click while ghost is pending: place the defender.
     const entityName = ghostState.entityName
     const ghostSample = ghostStateToSample(ghostState, event, 2, 2)
-    ghostState = null
-    clearMenuSelection()
-    menuDragActive = false
-    mouseOverOverlay = false
-    overlayStayOpen = false
-    invalidateSidePanel()
+    ghostState.spawnPending = true
     sendCanvasMsg('click', ghostSample, 'spawn', [entityName])
     return
   }
@@ -1895,12 +1900,7 @@ document.addEventListener('contextmenu', (event: MouseEvent) => {
     const sample = eventToCanvasSample(event)
     const entityName = ghostState.entityName
     event.preventDefault()
-    ghostState = null
-    clearMenuSelection()
-    menuDragActive = false
-    mouseOverOverlay = false
-    overlayStayOpen = false
-    invalidateSidePanel()
+    ghostState.spawnPending = true
     sendCanvasMsg('click', sample, 'spawn', [entityName])
     return
   }
@@ -1996,8 +1996,7 @@ overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
     attackRadius: item.appearance.attackRadius,
     pending: false,
     placeable: true,
-    placementSeq: 0,
-    placementResponseSeq: 0,
+    spawnPending: false,
   }
   const sample = eventToCanvasSample(event)
   sendPlacementPreview('dragstart', sample, item.entityName)

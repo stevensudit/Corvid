@@ -64,25 +64,6 @@ struct SimGameStateJson {
   return body;
 }
 
-[[nodiscard]] inline std::string buildSimUiResponseJson(
-    const UiResponse& response) {
-  std::string body;
-  json_writer writer{body};
-  auto root = writer.object();
-  root->member(json_trusted{"type"}, json_trusted{"ui_response"})
-      .member(json_trusted{"seq"}, response.seq)
-      .member(json_trusted{"ok"}, response.ok)
-      .member(json_trusted{"response"}, response.response);
-  if (!response.reason.empty())
-    root->member(json_trusted{"reason"}, response.reason);
-  if (!response.fields.empty()) {
-    auto fields = root->member_object(json_trusted{"fields"});
-    for (const auto& field : response.fields)
-      fields->member(field.key, field.value);
-  }
-  return body;
-}
-
 [[nodiscard]] inline bool buildSimGameStateJson(SimGameStateJson& result,
     SimGame& game,
     update_strategy send_strategy = update_strategy::incremental) {
@@ -97,10 +78,12 @@ struct SimGameStateJson {
   int lives_count{};
   int resources_count{};
   std::string_view phase{};
+  UiState ui_state;
 
   auto write_delta = [&writer, &game, &result, current_tick, &current_wave,
-                         &wave_tick, &lives_count, &resources_count,
-                         &phase](json_writer<std::string>& target) {
+                         &wave_tick, &lives_count, &resources_count, &phase,
+                         &ui_state, send_strategy](
+                        json_writer<std::string>& target) {
     target.member(json_trusted{"type"}, json_trusted{"world_delta"})
         .member(json_trusted{"tick"}, *current_tick);
 
@@ -149,13 +132,15 @@ struct SimGameStateJson {
             return true;
           },
           [&current_wave, &wave_tick, &lives_count, &resources_count,
-              &phase](auto new_current_wave, auto new_wave_tick,
-              auto new_lives, auto new_resources, auto new_phase) {
+              &phase, &ui_state](auto new_current_wave, auto new_wave_tick,
+              auto new_lives, auto new_resources, auto new_phase,
+              const UiState& new_ui_state) {
             current_wave = new_current_wave;
             wave_tick = new_wave_tick;
             lives_count = new_lives;
             resources_count = new_resources;
             phase = new_phase;
+            ui_state = new_ui_state;
             return true;
           });
     }
@@ -169,6 +154,37 @@ struct SimGameStateJson {
         .member(json_trusted{"lives"}, lives_count)
         .member(json_trusted{"resources"}, resources_count)
         .member(json_trusted{"phase"}, json_trusted{phase});
+    if (auto ui = target.member_object(json_trusted{"uiState"})) {
+      ui->member(json_trusted{"defenderSelected"}, ui_state.defenderSelected);
+      if (ui_state.placementAllowed.has_value())
+        ui->member(json_trusted{"placementAllowed"},
+            *ui_state.placementAllowed);
+      if (ui_state.spawnAllowed.has_value())
+        ui->member(json_trusted{"spawnAllowed"}, *ui_state.spawnAllowed);
+      const bool include_summary = ui_state.defenderSelected &&
+          ui_state.defenderSummary.has_value() &&
+          (send_strategy == update_strategy::full ||
+              ui_state.defenderSummary->modified == current_tick);
+      if (include_summary) {
+        const auto& summary = *ui_state.defenderSummary;
+        auto defender = ui->member_object(json_trusted{"defenderSummary"});
+        defender->member(json_trusted{"entityName"}, summary.entityName)
+            .member(json_trusted{"displayName"}, summary.displayName)
+            .member(json_trusted{"flavorText"}, summary.flavorText)
+            .member(json_trusted{"resourceCost"}, summary.resourceCost,
+                std::chars_format::fixed, 1);
+        if (auto app = defender->member_object(json_trusted{"appearance"})) {
+          app->member(json_trusted{"glyph"},
+                 static_cast<uint32_t>(summary.appearance.glyph))
+              .member(json_trusted{"radius"}, summary.appearance.radius,
+                  std::chars_format::fixed, 3)
+              .member(json_trusted{"fg"}, summary.appearance.fgColor)
+              .member(json_trusted{"bg"}, summary.appearance.bgColor)
+              .member(json_trusted{"attackRadius"},
+                  summary.appearance.attackRadius, std::chars_format::fixed, 1);
+        }
+      }
+    }
   };
 
   if (send_strategy == update_strategy::full) {
