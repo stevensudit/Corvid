@@ -192,7 +192,7 @@ struct UiActionInput {
 struct UiState {
   std::optional<bool> placementAllowed;
   std::optional<bool> spawnAllowed;
-  bool defenderSelected{};
+  std::optional<Position> selectedDefender;
   std::optional<DefenderSummary> defenderSummary;
 };
 
@@ -462,7 +462,7 @@ private:
     (void)world_.markDirty(selectedId);
 
     selectedDefender_ = selected;
-    uiState_.defenderSelected = true;
+    uiState_.selectedDefender = *pos;
     uiState_.defenderSummary = buildSelectedDefenderSummary(*defender);
     return true;
   }
@@ -476,7 +476,7 @@ private:
     const auto& [pos, _, fx, defender] = world_.getDefender(selectedId);
     if (!pos || !defender || !fx) return clearSelectedDefender();
 
-    uiState_.defenderSelected = true;
+    uiState_.selectedDefender = *pos;
     return true;
   }
 
@@ -489,7 +489,7 @@ private:
       fx->rangeColor = 0;
     }
     selectedDefender_ = {};
-    uiState_.defenderSelected = false;
+    uiState_.selectedDefender.reset();
     uiState_.defenderSummary.reset();
     return true;
   }

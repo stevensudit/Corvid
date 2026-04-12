@@ -20,6 +20,11 @@ export type UiCanvasEvent =
 
 export type UiButton = 'left' | 'middle' | 'right' | 'other'
 
+export interface Position {
+  x: number
+  y: number
+}
+
 export interface EntityPosition {
   id: number
   x: number
@@ -65,7 +70,7 @@ export interface DefenderMenuItem {
 export interface UiState {
   placementAllowed?: boolean
   spawnAllowed?: boolean
-  defenderSelected: boolean
+  selectedDefender?: Position
   defenderSummary?: DefenderMenuItem
 }
 

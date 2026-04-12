@@ -155,14 +155,23 @@ struct SimGameStateJson {
         .member(json_trusted{"resources"}, resources_count)
         .member(json_trusted{"phase"}, json_trusted{phase});
     if (auto ui = target.member_object(json_trusted{"uiState"})) {
-      ui->member(json_trusted{"defenderSelected"}, ui_state.defenderSelected);
+      if (ui_state.selectedDefender.has_value()) {
+        const auto& selected = *ui_state.selectedDefender;
+        if (auto pos = ui->member_object(json_trusted{"selectedDefender"})) {
+          pos->member(json_trusted{"x"}, selected.x, std::chars_format::fixed,
+                 1)
+              .member(json_trusted{"y"}, selected.y, std::chars_format::fixed,
+                  1);
+        }
+      }
       if (ui_state.placementAllowed.has_value())
         ui->member(json_trusted{"placementAllowed"},
             *ui_state.placementAllowed);
       if (ui_state.spawnAllowed.has_value())
         ui->member(json_trusted{"spawnAllowed"}, *ui_state.spawnAllowed);
       const bool include_summary =
-          ui_state.defenderSelected && ui_state.defenderSummary.has_value() &&
+          ui_state.selectedDefender.has_value() &&
+          ui_state.defenderSummary.has_value() &&
           (send_strategy == update_strategy::full ||
               ui_state.defenderSummary->modified == current_tick);
       if (include_summary) {

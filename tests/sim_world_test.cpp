@@ -54,7 +54,7 @@ struct GameDelta {
   std::string_view phase;
   std::optional<bool> placementAllowed;
   std::optional<bool> spawnAllowed;
-  bool defenderSelected{};
+  std::optional<Position> selectedDefender;
   std::optional<DefenderSummary> defenderSummary;
 };
 
@@ -141,7 +141,7 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
         delta.phase = phase;
         delta.placementAllowed = uiState.placementAllowed;
         delta.spawnAllowed = uiState.spawnAllowed;
-        delta.defenderSelected = uiState.defenderSelected;
+        delta.selectedDefender = uiState.selectedDefender;
         delta.defenderSummary = uiState.defenderSummary;
       });
   return delta;
@@ -681,6 +681,42 @@ void SimGame_HandleUiCanvasRightClickSpawnPlacesDefender() {
   EXPECT_TRUE(after.erased.empty());
 }
 
+void SimGame_HandleUiCanvasSelectingDefenderReportsSelectedPosition() {
+  SimGame game;
+  (void)game.loadMap();
+
+  (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
+      .event = UiCanvasEvent::click,
+      .button = UiMouseButton::right,
+      .buttons = 2,
+      .x = 300.F,
+      .y = 100.F,
+      .canvasX = 120.F,
+      .canvasY = 210.F,
+      .command = "spawn",
+      .parameters = {"DefenderAoeBasic"}});
+  (void)game.next();
+  (void)extractGameDelta(game);
+
+  (void)game.handleUiCanvas(UiCanvasInput{.seq = 2,
+      .event = UiCanvasEvent::click,
+      .button = UiMouseButton::left,
+      .buttons = 1,
+      .x = 300.F,
+      .y = 100.F,
+      .canvasX = 120.F,
+      .canvasY = 210.F,
+      .command{},
+      .parameters{}});
+  (void)game.next();
+
+  const auto delta = extractGameDelta(game);
+  ASSERT_TRUE(delta.selectedDefender.has_value());
+  EXPECT_NEAR(delta.selectedDefender->x, 300.0, 1e-6);
+  EXPECT_NEAR(delta.selectedDefender->y, 100.0, 1e-6);
+  ASSERT_TRUE(delta.defenderSummary.has_value());
+}
+
 void SimGame_HandleUiCanvasSpawnsShooterDefender() {
   SimGame game;
   (void)game.loadMap();
@@ -850,7 +886,7 @@ void SimGame_ExtractFullIncludesPathsAndState() {
   EXPECT_EQ(lives, 20);
   EXPECT_EQ(resources, 100);
   EXPECT_EQ(phase, std::string_view{"build"});
-  EXPECT_FALSE(uiState.defenderSelected);
+  EXPECT_FALSE(uiState.selectedDefender.has_value());
 }
 
 void SimJson_ParseUiCanvasMessage() {
@@ -936,6 +972,7 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   EXPECT_TRUE(state.body.contains(R"("flashExpiryMs":250)"));
   EXPECT_TRUE(state.body.contains(R"("uiState")"));
   EXPECT_TRUE(state.body.contains(R"("spawnAllowed":true)"));
+  EXPECT_TRUE(state.body.contains(R"("selectedDefender":{"x":300.0,"y":100.0})"));
   EXPECT_FALSE(state.body.contains(R"("modified")"));
   EXPECT_FALSE(state.body.contains(R"("flash_expiry")"));
   EXPECT_FALSE(state.body.contains(R"("glow")"));

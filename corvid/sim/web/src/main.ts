@@ -5,6 +5,7 @@ import type {
   EntityPosition,
   EntityUpsert,
   EntityVisualEffects,
+  Position,
   ServerMsg,
   UiCanvasMsg,
   UiState,
@@ -354,7 +355,7 @@ let overlayStayOpen = false
 let currentPanelSide: PanelSide = 'right'
 let overlaySideSwapFrame = 0
 let selectedDefenderSummary: DefenderMenuItem | null = null
-let defenderSelected = false
+let selectedDefenderPosition: Position | null = null
 
 const SIDE_PANEL_TRIGGER_RATIO = 0.25
 const SIDE_PANEL_TRIGGER_MIN_PX = 72
@@ -436,7 +437,7 @@ type OverlayLevel = 'hidden' | 'peek' | 'open'
 
 function hasPinnedOpenPanel(): boolean {
   return ghostState?.pending === true ||
-    defenderSelected ||
+    selectedDefenderPosition !== null ||
     overlayStayOpen
 }
 
@@ -908,6 +909,10 @@ function formatPanelNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
 }
 
+function getOppositePanelSideForCanvasX(canvasX: number): PanelSide {
+  return canvasX < foregroundCanvas.width / 2 ? 'right' : 'left'
+}
+
 function wrapPanelText(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -935,10 +940,14 @@ function wrapPanelText(
 }
 
 function getSelectedDefenderPanelModel(): SidePanelModel | null {
-  if (!defenderSelected || !selectedDefenderSummary) return null
+  if (!selectedDefenderPosition || !selectedDefenderSummary) return null
+
+  const side = getOppositePanelSideForCanvasX(
+    worldToCanvas(selectedDefenderPosition.x, selectedDefenderPosition.y)[0],
+  )
 
   return {
-    side: currentPanelSide,
+    side,
     title: 'Defender Selected',
     lines: [
       selectedDefenderSummary.displayName,
@@ -957,9 +966,8 @@ function getSelectedDefenderPanelModel(): SidePanelModel | null {
 
 function getPendingGhostPanelModel(): SidePanelModel | null {
   if (!ghostState?.pending) return null
-  // Put the panel on whichever side the ghost is NOT on.
   const [ghostCanvasX] = worldToCanvas(ghostState.worldX, ghostState.worldY)
-  const side: PanelSide = ghostCanvasX < foregroundCanvas.width / 2 ? 'right' : 'left'
+  const side = getOppositePanelSideForCanvasX(ghostCanvasX)
   return {
     side,
     title: 'Place Defender',
@@ -1449,7 +1457,7 @@ function isUiState(value: unknown): value is UiState {
   return (
     typeof value === 'object' &&
     value !== null &&
-    typeof v.defenderSelected === 'boolean' &&
+    (v.selectedDefender === undefined || isPoint(v.selectedDefender)) &&
     (v.placementAllowed === undefined || typeof v.placementAllowed === 'boolean') &&
     (v.spawnAllowed === undefined || typeof v.spawnAllowed === 'boolean') &&
     (v.defenderSummary === undefined || isDefenderMenuItem(v.defenderSummary))
@@ -1477,8 +1485,8 @@ function applyUiState(uiState: UiState): void {
     }
   }
 
-  defenderSelected = uiState.defenderSelected
-  if (!defenderSelected) {
+  selectedDefenderPosition = uiState.selectedDefender ?? null
+  if (!selectedDefenderPosition) {
     selectedDefenderSummary = null
   } else if (uiState.defenderSummary) {
     selectedDefenderSummary = uiState.defenderSummary
@@ -1520,7 +1528,7 @@ function resetClientWorldState(): void {
   overlayStayOpen = false
   currentPanelSide = 'right'
   selectedDefenderSummary = null
-  defenderSelected = false
+  selectedDefenderPosition = null
   if (overlaySideSwapFrame !== 0) {
     cancelAnimationFrame(overlaySideSwapFrame)
     overlaySideSwapFrame = 0
