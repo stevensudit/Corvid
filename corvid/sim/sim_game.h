@@ -57,9 +57,6 @@ enum class UiCanvasEvent : uint8_t {
 // Mouse buttons.
 enum class UiMouseButton : uint8_t { left, middle, right, other };
 
-// Targeting modes for defenders.
-enum class TargetMode : uint8_t { first, last, closest, strongest, weakest };
-
 }} // namespace corvid::sim
 
 template<>
@@ -84,11 +81,6 @@ constexpr auto
     corvid::enums::registry::enum_spec_v<corvid::sim::UiMouseButton> =
         corvid::enums::sequence::make_sequence_enum_spec<
             corvid::sim::UiMouseButton, "left, middle, right, other">();
-
-template<>
-constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::TargetMode> =
-    corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::TargetMode,
-        "first, last, closest, strongest, weakest">();
 
 namespace corvid { inline namespace sim {
 
@@ -249,6 +241,16 @@ public:
             return true;
           });
       lives_ = lives;
+
+      auto resources = resources_;
+      (void)world_.resolveKills(
+          [&resources](SimWorld::EntityId, const Position&,
+              const Invader& inv) {
+            resources += inv.bounty;
+            // TODO: Spawn a transient death animation at `pos`.
+            return true;
+          });
+      resources_ = resources;
 
       if (lives_ <= 0) phase_ = GamePhase::game_over;
     }
@@ -632,6 +634,38 @@ private:
               .projectileType = 1,
               .expiry = WorldTick{60}},
           .fireRate = 0.033F};
+      mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
+    }
+    {
+      EntityDefinition def;
+      def.entityName = "DefenderHitscanBasic";
+      def.displayName = "Laser";
+      def.menuOrder = 3;
+      def.flavorText =
+          "Instantly damages a single target with an infrared laser beam.";
+      def.resourceCost = 100.F;
+      auto& tpl = def.megatuple;
+      std::get<std::optional<Position>>(tpl) = Position{};
+      std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'L',
+          .radius = 25.F,
+          .fgColor = 0xFFFFFFFF,
+          .bgColor = 0x7FFF3F3F,
+          .attackRadius = 200.F};
+      std::get<std::optional<VisualEffects>>(tpl) =
+          VisualEffects{.flashColor = 0xFFFF4040, .flashExpiry = WorldTick{3}};
+      std::get<std::optional<Defender>>(
+          tpl) = Defender{.hitCircleRadius = 25.F,
+          .attackRadius = 200.F,
+          .rangeColor = 0xFFFF0000,
+          .attackDamage = 30.F,
+          .cooldown = WorldTick{45},
+          .nextAttack = WorldTick{0}};
+      std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
+      std::get<std::optional<Health>>(tpl) =
+          Health{.currentHealth = 75.F, .maxHealth = 75.F, .regen = 0.F};
+      std::get<std::optional<DefenderHitscan>>(
+          tpl) = DefenderHitscan{.beamColor = 0xFFFF4040,
+          .beamDuration = WorldTick{3}};
       mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
     }
 

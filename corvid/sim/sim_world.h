@@ -60,6 +60,9 @@ enum class WorldTick : uint32_t {
   invalid = std::numeric_limits<uint32_t>::max()
 };
 
+// Targeting modes for defenders.
+enum class TargetMode : uint8_t { first, last, closest, strongest, weakest };
+
 }} // namespace corvid::sim
 
 template<>
@@ -71,6 +74,11 @@ template<>
 constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::WorldTick> =
     corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::WorldTick,
         "">();
+
+template<>
+constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::TargetMode> =
+    corvid::enums::sequence::make_sequence_enum_spec<corvid::sim::TargetMode,
+        "first, last, closest, strongest, weakest">();
 
 namespace corvid { inline namespace sim {
 
@@ -169,11 +177,22 @@ struct SegmentedPath {
     Position back;
     float length;          // Euclidean distance from `front` to `back`.
     float cumulativeStart; // Sum of lengths of all preceding segments.
+    float angle{};         // Direction from `front` to `back`, in radians.
   };
 
   std::vector<Segment> segments;
   float totalLength{};
   float width{};
+
+  // Return the segment that contains `progress`, clamping `progress` to
+  // `[0, totalLength]` in place. Assumes `segments` is non-empty.
+  [[nodiscard]] const Segment& segmentAtProgress(float& progress) const {
+    progress = std::clamp(progress, 0.F, totalLength);
+    auto it = std::ranges::upper_bound(segments, progress, {},
+        &Segment::cumulativeStart);
+    if (it != segments.begin()) --it;
+    return *it;
+  }
 
   // Map a distance traveled (`progress`) to a world-space `Position`.
   // `progress` is clamped to `[0, totalLength]`.
@@ -181,13 +200,7 @@ struct SegmentedPath {
   [[nodiscard]] Position
   calculatePositionFromProgress(float progress, float previousProgress) const {
     if (segments.empty()) return {};
-    progress = std::clamp(progress, 0.F, totalLength);
-
-    // Find the last segment whose cumulativeStart <= progress.
-    auto it = std::ranges::upper_bound(segments, progress, {},
-        &SegmentedPath::Segment::cumulativeStart);
-    if (it != segments.begin()) --it;
-    const auto& seg = *it;
+    const auto& seg = segmentAtProgress(progress);
 
     // If `previousProgress` was on an earlier segment, emit the joint position
     // first, so that fast-moving entities visibly take corners instead of
@@ -201,6 +214,13 @@ struct SegmentedPath {
 
     return {lerp(seg.front.x, seg.back.x, t),
         lerp(seg.front.y, seg.back.y, t)};
+  }
+
+  // Return the direction angle (radians) of the segment containing
+  // `progress`. Returns `NaN` if `segments` is empty.
+  [[nodiscard]] float angleAtProgress(float progress) const {
+    if (segments.empty()) return std::numeric_limits<float>::quiet_NaN();
+    return segmentAtProgress(progress).angle;
   }
 
   // Convert authored `PathJoints` into a `SegmentedPath`.
@@ -221,7 +241,9 @@ struct SegmentedPath {
       const float dx = back.x - front.x;
       const float dy = back.y - front.y;
       const float len = std::hypot(dx, dy);
-      sp.segments.push_back({front, back, len, cumulative});
+      assert(len != 0.F);
+      const float angle = std::atan2(dy, dx);
+      sp.segments.push_back({front, back, len, cumulative, angle});
       cumulative += len;
     }
     sp.totalLength = cumulative;
@@ -281,6 +303,7 @@ struct Defender {
   float attackDamage{};  // Interpretation depends on the defender type.
   WorldTick cooldown{};
   WorldTick nextAttack{}; // Updated when the defender attacks.
+  TargetMode targetMode{TargetMode::first};
 };
 
 // Stats for defenders, shown when selecting a defender.
@@ -359,11 +382,17 @@ struct Invader {
 //                               spawned projectiles
 //                               (Position + Velocity + DefenderBullet)
 //
-//   `sidDefenderShooter` = 4 -> `ArchDefenderShooter`
-//                               projectile-firing defenders
-//                               (Position + Appearance + VisualEffects +
-//                               Defender + DefenderStats + Health +
-//                               DefenderShooter)
+//   `sidDefenderShooter`  = 4 -> `ArchDefenderShooter`
+//                                projectile-firing defenders
+//                                (Position + Appearance + VisualEffects +
+//                                Defender + DefenderStats + Health +
+//                                DefenderShooter)
+//
+//   `sidDefenderHitscan`  = 5 -> `ArchDefenderHitscan`
+//                                instant-hit single-target defenders
+//                                (Position + Appearance + VisualEffects +
+//                                Defender + DefenderStats + Health +
+//                                DefenderHitscan)
 using WorldReg = entity_registry<WorldTick>;
 using WorldSid = WorldReg::store_id_t;
 using ArchInvaderAlpha = archetype_storage<WorldReg,
@@ -376,8 +405,11 @@ using ArchBullet = archetype_storage<WorldReg,
 using ArchDefenderShooter = archetype_storage<WorldReg,
     std::tuple<Position, Appearance, VisualEffects, Defender, DefenderStats,
         Health, DefenderShooter>>;
+using ArchDefenderHitscan = archetype_storage<WorldReg,
+    std::tuple<Position, Appearance, VisualEffects, Defender, DefenderStats,
+        Health, DefenderHitscan>>;
 using WorldScene = archetype_scene<WorldReg, ArchInvaderAlpha, ArchDefenderAoe,
-    ArchBullet, ArchDefenderShooter>;
+    ArchBullet, ArchDefenderShooter, ArchDefenderHitscan>;
 
 // Simulation world: encapsulates all ECS entity state for the game and
 // provides physics.
@@ -396,12 +428,14 @@ public:
   static constexpr WorldSid sidDefenderAoe{2};
   static constexpr WorldSid sidBullet{3};
   static constexpr WorldSid sidDefenderShooter{4};
+  static constexpr WorldSid sidDefenderHitscan{5};
 
   void clear() {
     scene_.clear();
     paths_.clear();
     updatedEntities_.clear();
     pathEscapees_.clear();
+    pendingKills_.clear();
     entityTemplates_.clear();
     entityTemplateLabels_.clear();
     tick_ = {};
@@ -699,6 +733,24 @@ public:
     return true;
   }
 
+  // Resolve pending kills by calling `cbKill(EntityId, const Position&, const
+  // Invader&)` for each. If `cbKill` returns true the entity is tombstoned;
+  // if false it is left alive so the caller can migrate it (e.g. to a
+  // transient death animation).
+  //
+  // Destructively iterates the pending-kills list.
+  [[nodiscard]] bool resolveKills(auto&& cbKill) {
+    for (auto id : pendingKills_) {
+      if (!scene_.registry().is_valid(id)) continue;
+      auto [pos, inv] = scene_.try_get_components<Position, Invader>(id);
+      if (!pos || !inv) continue;
+      if (!cbKill(id, *pos, *inv)) continue;
+      (void)tombstoneEntity(id);
+    }
+    pendingKills_.clear();
+    return true;
+  }
+
   // Marks an entity as dirty so that it will be included in the next delta
   // snapshot.
   [[nodiscard]] bool markDirty(EntityId id) {
@@ -773,6 +825,7 @@ private:
 
   std::vector<EntityId> updatedEntities_;
   std::vector<EntityId> pathEscapees_;
+  std::vector<EntityId> pendingKills_;
 
   // Entity type definitions: label -> component template.
   string_unordered_map<WorldScene::megatuple_t> entityTemplates_;
@@ -849,40 +902,239 @@ private:
     return true;
   }
 
-  [[nodiscard]] bool defendersAttack() {
-    // Range over all defenders. For each defender, range over all enemies
-    // and check for hits. If an enemy is in range and the defender is off
-    // cooldown, apply damage and trigger a flash on both.
-    scene_.for_each<Position, Defender>(
-        [&](auto defenderId, auto defenderComps) {
-          auto& [defenderPos, defender] = defenderComps;
-          if (tick_ < defender.nextAttack) return true;
+  // Candidate invader collected during target search.
+  struct InvaderCandidate {
+    EntityId id;
+    float progress{};      // Distance along path; used by `first` and `last`.
+    float currentHealth{}; // Used by `strongest` and `weakest`.
+    float distSq{};        // Squared distance to defender; used by `closest`.
+  };
 
-          scene_.for_each<Position, Invader>(
-              [&](auto enemyId, auto enemyComps) {
-                auto& [enemyPos, invader] = enemyComps;
-                if (!circlesOverlap(defenderPos, defender.attackRadius,
-                        enemyPos, invader.hitCircleRadius))
-                  return true;
+  // Collect all invaders whose hit circle overlaps the defender's attack
+  // circle, recording the fields needed for target selection. Clears
+  // `candidates` first so the caller can reuse its allocation. Returns the
+  // number of candidates found.
+  [[nodiscard]] size_t collectCandidates(const Position& defenderPos,
+      float attackRadius, std::vector<InvaderCandidate>& candidates) {
+    candidates.clear();
+    scene_.for_each<Position, Invader, Pathing, Health>(
+        [&](auto enemyId, auto comps) {
+          const auto& [enemyPos, invader, pf, hp] = comps;
+          const float dSq = distanceSquared(defenderPos, enemyPos);
+          const float r = attackRadius + invader.hitCircleRadius;
+          if (dSq > r * r) return true;
 
-                (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
-                (void)flashEntity(enemyId, 0xFF7F7FFF, WorldTick{5});
-                return true;
-#if 0
-        invader.health -= defender.attackDamage;
-        defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
-        (void)flashEntity(defenderId, 0xFFFFFFFF);
-        if (invader.health <= 0.F) {
-          (void)tombstoneEntity(enemyId);
-        } else {
-          (void)flashEntity(enemyId, 0xFF0000FF);
-        }
-        return false; // Stop after first hit per defender per tick.
-#endif
-              });
-
+          candidates.push_back({enemyId, pf.progress, hp.currentHealth, dSq});
           return true;
         });
+    return candidates.size();
+  }
+
+  // Return the id of the best candidate according to `mode`.
+  [[nodiscard]] static EntityId selectTarget(
+      const std::vector<InvaderCandidate>& candidates, TargetMode mode) {
+    if (candidates.empty()) return EntityId::invalid;
+    auto it = candidates.cbegin();
+    switch (mode) {
+    case TargetMode::first:
+      it = std::ranges::max_element(candidates, {},
+          &InvaderCandidate::progress);
+      break;
+    case TargetMode::last:
+      it = std::ranges::min_element(candidates, {},
+          &InvaderCandidate::progress);
+      break;
+    case TargetMode::closest:
+      it = std::ranges::min_element(candidates, {}, &InvaderCandidate::distSq);
+      break;
+    case TargetMode::strongest:
+      it = std::ranges::max_element(candidates, {},
+          &InvaderCandidate::currentHealth);
+      break;
+    case TargetMode::weakest:
+      it = std::ranges::min_element(candidates, {},
+          &InvaderCandidate::currentHealth);
+      break;
+    }
+    return it->id;
+  }
+
+  // Damage every candidate. Those whose health drops to zero are added to
+  // `pendingKills_` for `SimGame` to resolve (bounty, death animation, etc.).
+  // Then put the defender on cooldown.
+  [[nodiscard]] bool attackWithAoe(EntityId defenderId, Defender& defender,
+      const std::vector<InvaderCandidate>& candidates, const DefenderAoe&) {
+    for (const auto& cand : candidates) {
+      auto* hp = scene_.try_get_component<Health>(cand.id);
+      if (!hp) continue;
+      hp->modified = tick_;
+      hp->currentHealth -= defender.attackDamage;
+      (void)markDirty(cand.id);
+      if (hp->currentHealth <= 0.F)
+        pendingKills_.push_back(cand.id);
+      else
+        (void)flashEntity(cand.id, 0xFF7F7FFF, WorldTick{5});
+    }
+    defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
+    (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
+    return true;
+  }
+
+  // Solve for the earliest positive intercept time `t`, given the defender
+  // position `D`, the target position `T` moving at (`tvx`, `tvy`), and a
+  // bullet at `bulletSpeed`. Returns `NaN` if no positive solution exists (the
+  // bullet can never catch the target on its current heading).
+  //
+  // Derivation: `|T + V_t*t - D|^2 = (bulletSpeed*t)^2`, expanded as a
+  // quadratic in `t` with:
+  // a` = `|V_t|^2 - bulletSpeed^2`, `b` = `2*(T-D).V_t`, c = `|T-D|^2`.
+  //
+  // The smallest positive root is the intercept time.
+  [[nodiscard]] static float computeInterceptTime(const Position& defenderPos,
+      const Position& targetPos, float tvx, float tvy, float bulletSpeed) {
+    constexpr float nan = std::numeric_limits<float>::quiet_NaN();
+    const float dx = targetPos.x - defenderPos.x;
+    const float dy = targetPos.y - defenderPos.y;
+    const float a = (tvx * tvx) + (tvy * tvy) - (bulletSpeed * bulletSpeed);
+    const float b = 2.F * ((dx * tvx) + (dy * tvy));
+    const float c = (dx * dx) + (dy * dy);
+
+    // Degenerate: target and bullet at the same speed. Linear in `t`.
+    if (std::abs(a) < 1e-4F) return (b < -1e-4F) ? (-c / b) : nan;
+
+    const float disc = (b * b) - (4.F * a * c);
+    if (disc < 0.F) return nan; // No real solution.
+
+    const float sq = std::sqrt(disc);
+    const float t1 = (-b + sq) / (2.F * a);
+    const float t2 = (-b - sq) / (2.F * a);
+
+    // Return the smallest positive root, or `NaN` if neither qualifies.
+    if (t1 > 0.F && (t2 <= 0.F || t1 < t2)) return t1;
+    if (t2 > 0.F) return t2;
+    return nan;
+  }
+
+  // Spawn a bullet aimed at the predicted intercept position of the best
+  // single target, then put the defender on cooldown. If the intercept
+  // calculation determines the bullet can never reach the target, does not
+  // fire and does not start the cooldown.
+  [[nodiscard]] bool attackWithShooter(EntityId defenderId, Defender& defender,
+      const Position& defenderPos,
+      const std::vector<InvaderCandidate>& candidates,
+      const DefenderShooter& shooter) {
+    const auto targetId = selectTarget(candidates, defender.targetMode);
+    if (targetId == EntityId::invalid) return false;
+
+    const auto [targetPos, targetPathing] =
+        scene_.try_get_components<Position, Pathing>(targetId);
+    if (!targetPos) return false;
+
+    // Compute the target's current velocity from its path segment and speed.
+    float tvx{};
+    float tvy{};
+    if (const auto* path = getPath(targetPathing->pathId)) {
+      const float angle = path->angleAtProgress(targetPathing->progress);
+      tvx = targetPathing->speed * std::cos(angle);
+      tvy = targetPathing->speed * std::sin(angle);
+    }
+
+    const float t = computeInterceptTime(defenderPos, *targetPos, tvx, tvy,
+        shooter.bulletTemplate.speed);
+    // TODO: Right now, if the "best" target is outrunning the bullet, we
+    // simply do not fire. A smarter algorithm would remove the bad target and
+    // try again.
+    if (std::isnan(t)) return false; // Target is outrunning the bullet.
+
+    const Position aimPos{targetPos->x + (tvx * t), targetPos->y + (tvy * t)};
+
+    const float adx = aimPos.x - defenderPos.x;
+    const float ady = aimPos.y - defenderPos.y;
+    const float dist = std::sqrt((adx * adx) + (ady * ady));
+
+    Velocity vel{};
+    if (dist > 0.F) {
+      vel.vx = (adx / dist) * shooter.bulletTemplate.speed;
+      vel.vy = (ady / dist) * shooter.bulletTemplate.speed;
+    }
+
+    // `bulletTemplate.expiry` stores TTL; convert to an absolute tick.
+    auto bullet = shooter.bulletTemplate;
+    bullet.expiry = WorldTick{*tick_ + *shooter.bulletTemplate.expiry};
+
+    (void)spawnBullet(defenderPos, vel, bullet);
+    defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
+    (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
+    return true;
+  }
+
+  // Spawn a bullet entity directly, bypassing the label-based template
+  // system by using the template in the defender itself
+  [[nodiscard]] Handle spawnBullet(const Position& pos, const Velocity& vel,
+      const DefenderBullet& bullet) {
+    // TODO: This is dumb. We shouldn't create a fake megatuple just to spawn
+    // the bullet.
+    WorldScene::megatuple_t tpl{};
+    std::get<std::optional<Position>>(tpl) = pos;
+    std::get<std::optional<Velocity>>(tpl) = vel;
+    std::get<std::optional<DefenderBullet>>(tpl) = bullet;
+    auto h = scene_.store_new_entity_from_mega({tick_}, tpl);
+    if (h) (void)markDirty(h.id());
+    return h;
+  }
+
+  // Apply hitscan damage to the best single target instantly, using
+  // `hitscan.beamColor` and `hitscan.beamDuration` for the flash on both
+  // defender and target. Puts the defender on cooldown.
+  // TODO: Spawn a transient beam line from the defender to the target.
+  [[nodiscard]] bool attackWithHitscan(EntityId defenderId, Defender& defender,
+      const std::vector<InvaderCandidate>& candidates,
+      const DefenderHitscan& hitscan) {
+    const auto targetId = selectTarget(candidates, defender.targetMode);
+    if (targetId == EntityId::invalid) return false;
+
+    auto* hp = scene_.try_get_component<Health>(targetId);
+    if (!hp) return false;
+
+    hp->modified = tick_;
+    hp->currentHealth -= defender.attackDamage;
+    (void)markDirty(targetId);
+    if (hp->currentHealth <= 0.F)
+      pendingKills_.push_back(targetId);
+    else
+      (void)flashEntity(targetId, hitscan.beamColor, hitscan.beamDuration);
+
+    defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
+    (void)flashEntity(defenderId, hitscan.beamColor, hitscan.beamDuration);
+    return true;
+  }
+
+  // For each defender that is off cooldown and has targets in range, dispatch
+  // to the appropriate attack handler based on the defender's attack type.
+  // Cooldown is only reset when the defender actually fires.
+  [[nodiscard]] bool defendersAttack() {
+    std::vector<InvaderCandidate> candidates;
+    scene_.for_each<Position,
+        Defender>([&](auto defenderId, auto defenderComps) {
+      auto& [defenderPos, defender] = defenderComps;
+      if (tick_ < defender.nextAttack) return true;
+
+      if (!collectCandidates(defenderPos, defender.attackRadius, candidates))
+        return true;
+
+      auto comp = scene_.try_get_some_components<DefenderAoe, DefenderShooter,
+          DefenderHitscan>(defenderId);
+      auto [aoe, shooter, hitscan] = comp;
+      if (aoe)
+        (void)attackWithAoe(defenderId, defender, candidates, *aoe);
+      else if (shooter)
+        (void)attackWithShooter(defenderId, defender, defenderPos, candidates,
+            *shooter);
+      else if (hitscan)
+        (void)attackWithHitscan(defenderId, defender, candidates, *hitscan);
+
+      return true;
+    });
 
     return true;
   }

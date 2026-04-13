@@ -558,10 +558,13 @@ public:
     return found;
   }
 
-  // Return a tuple of pointers to the components `Cs` for entity `id`, with
-  // the value being `nullptr` if the entity is invalid, in staging, or its
-  // archetype does not contain `C`. Deduces `const` from the scene: on a
-  // `const` scene returns `const C*`.
+  // Return a tuple of pointers to the components `Cs` for entity `id`.
+  // Because all `Cs...` must reside in the same archetype (enforced by the
+  // `has_all_components_v` guard below), the result is all-or-nothing: either
+  // every pointer is non-null (the entity's archetype contains all of `Cs...`)
+  // or every pointer is null (the entity is invalid, in staging, or its
+  // archetype is missing at least one of `Cs...`). Deduces `const` from the
+  // scene: on a `const` scene returns `const C*`.
   //
   // Performance: same O(S) fold as `try_get_component`, but requires that
   // every requested component `C` in `Cs...` be present in the same storage
