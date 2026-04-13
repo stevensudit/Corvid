@@ -289,8 +289,8 @@ struct VisualEffects {
   WorldTick modified{WorldTick::invalid}; // Tick when last modified.
   uint32_t selectionColor{};              // RGBA.
   float rangeRadius{};
-  uint32_t rangeColor{};    // RGBA.
-  uint32_t flashColor{};    // RGBA.
+  uint32_t rangeColor{}; // RGBA.
+  uint32_t flashColor{}; // RGBA.
   WorldTick flashExpiry{WorldTick::invalid};
   uint32_t cooldownColor{}; // RGBA. Active from fire time until `nextAttack`.
   WorldTick cooldownExpiry{WorldTick::invalid};
@@ -560,8 +560,8 @@ public:
 
   // Set a cooldown overlay on a defender. `absoluteExpiry` is an absolute tick
   // (typically `defender.nextAttack`) at which the overlay clears.
-  [[nodiscard]] bool setCooldown(EntityId id, uint32_t color,
-      WorldTick absoluteExpiry) {
+  [[nodiscard]] bool
+  setCooldown(EntityId id, uint32_t color, WorldTick absoluteExpiry) {
     auto* effects = changeVisualEffects(id);
     if (!effects) return false;
     effects->cooldownColor = color;
@@ -981,7 +981,8 @@ private:
     for (const auto& cand : candidates) {
       auto* hp = scene_.try_get_component<Health>(cand.id);
       if (!hp) continue;
-      const float actualDamage = std::min(defender.attackDamage, cand.currentHealth);
+      const float actualDamage =
+          std::min(defender.attackDamage, cand.currentHealth);
       hp->modified = tick_;
       hp->currentHealth -= defender.attackDamage;
       (void)markDirty(cand.id);
@@ -1116,7 +1117,8 @@ private:
     auto* hp = scene_.try_get_component<Health>(targetId);
     if (!hp) return false;
 
-    const float actualDamage = std::min(defender.attackDamage, hp->currentHealth);
+    const float actualDamage =
+        std::min(defender.attackDamage, hp->currentHealth);
     hp->modified = tick_;
     hp->currentHealth -= defender.attackDamage;
     (void)markDirty(targetId);
@@ -1144,20 +1146,21 @@ private:
           auto& [defenderPos, defender, stats] = defenderComps;
           if (tick_ < defender.nextAttack) return true;
 
-          if (!collectCandidates(defenderPos, defender.attackRadius, candidates))
+          if (!collectCandidates(defenderPos, defender.attackRadius,
+                  candidates))
             return true;
 
-          auto [aoe, shooter, hitscan] =
-              scene_.try_get_some_components<DefenderAoe, DefenderShooter,
-                  DefenderHitscan>(defenderId);
+          auto [aoe, shooter,
+              hitscan] = scene_.try_get_some_components<DefenderAoe,
+              DefenderShooter, DefenderHitscan>(defenderId);
           if (aoe)
             (void)attackWithAoe(defenderId, defender, stats, candidates, *aoe);
           else if (shooter)
             (void)attackWithShooter(defenderId, defender, defenderPos,
                 candidates, *shooter);
           else if (hitscan)
-            (void)attackWithHitscan(
-                defenderId, defender, stats, candidates, *hitscan);
+            (void)attackWithHitscan(defenderId, defender, stats, candidates,
+                *hitscan);
 
           return true;
         });

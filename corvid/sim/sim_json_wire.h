@@ -42,14 +42,14 @@ tickExpiryDelayMs(uint32_t color, WorldTick expiry, WorldTick current_tick) {
 
 [[nodiscard]] inline uint32_t
 flashExpiryDelayMs(const VisualEffects& effects, WorldTick current_tick) {
-  return tickExpiryDelayMs(
-      effects.flashColor, effects.flashExpiry, current_tick);
+  return tickExpiryDelayMs(effects.flashColor, effects.flashExpiry,
+      current_tick);
 }
 
 [[nodiscard]] inline uint32_t
 cooldownExpiryDelayMs(const VisualEffects& effects, WorldTick current_tick) {
-  return tickExpiryDelayMs(
-      effects.cooldownColor, effects.cooldownExpiry, current_tick);
+  return tickExpiryDelayMs(effects.cooldownColor, effects.cooldownExpiry,
+      current_tick);
 }
 
 // Reusable state, to avoid repeated allocations.
@@ -207,8 +207,9 @@ struct SimGameStateJson {
                   summary.appearance.attackRadius, std::chars_format::fixed,
                   1);
         }
-        defender->member(json_trusted{"totalDamageDealt"},
-                    summary.totalDamageDealt, std::chars_format::fixed, 1)
+        defender
+            ->member(json_trusted{"totalDamageDealt"},
+                summary.totalDamageDealt, std::chars_format::fixed, 1)
             .member(json_trusted{"totalKills"}, summary.totalKills,
                 std::chars_format::fixed, 0);
       }

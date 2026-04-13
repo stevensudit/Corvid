@@ -146,6 +146,19 @@
       background: rgba(7, 12, 20, 0.78);
     }
 
+    .metrics-strip {
+      display: grid;
+      gap: 6px;
+      padding: 12px 14px;
+      border: 1px solid rgba(148, 163, 184, 0.26);
+      border-radius: 16px;
+      background: rgba(7, 12, 20, 0.78);
+    }
+
+    .metrics-strip p {
+      margin: 0;
+    }
+
     @media (max-width: 900px) {
       body {
         padding: 16px;
@@ -167,12 +180,6 @@
 
     <section class="status-grid">
       <p>Status: <span id="status">disconnected</span></p>
-      <p>Latest tick: <span id="tick">--</span></p>
-      <p>
-        Lives: <span id="lives">--</span>
-        Resources: <span id="resources">--</span>
-        Phase: <span id="phase">--</span>
-      </p>
       <div class="control-row">
         <button type="button" data-action="start_wave">Start Wave</button>
       </div>
@@ -201,6 +208,12 @@
           ></canvas>
         </div>
       </div>
+    </section>
+
+    <section class="metrics-strip" aria-label="Client metrics">
+      <p>Latest tick: <span id="tick">--</span></p>
+      <p>Measured tick rate: <span id="tick-rate">--</span></p>
+      <p>Avg frame size: <span id="frame-size">--</span></p>
     </section>
 
     <section class="status-grid">

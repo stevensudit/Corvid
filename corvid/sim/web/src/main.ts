@@ -90,6 +90,11 @@ interface CanvasPointerSample {
 
 type PanelSide = 'left' | 'right'
 
+interface TickRateSample {
+  timeMs: number
+  tick: number
+}
+
 // Textual content and attachment side for the overlay panel renderer.
 interface SidePanelModel {
   side: PanelSide
@@ -136,6 +141,8 @@ function requireEl<T extends HTMLElement>(
 
 const statusEl = requireEl('status', HTMLElement)
 const tickEl = requireEl('tick', HTMLElement)
+const tickRateEl = requireEl('tick-rate', HTMLElement)
+const frameSizeEl = requireEl('frame-size', HTMLElement)
 const logEl = requireEl('log', HTMLElement)
 const viewportShell = requireEl('viewport-shell', HTMLElement)
 const viewportHost = requireEl('viewport-host', HTMLElement)
@@ -144,9 +151,6 @@ const fullscreenToggle = requireEl('fullscreen-toggle', HTMLButtonElement)
 const backgroundCanvas = requireEl('background-canvas', HTMLCanvasElement)
 const foregroundCanvas = requireEl('foreground-canvas', HTMLCanvasElement)
 const overlayCanvas = requireEl('overlay-canvas', HTMLCanvasElement)
-const livesEl = document.getElementById('lives')
-const resourcesEl = document.getElementById('resources')
-const phaseEl = document.getElementById('phase')
 
 const maybeBgCtx = backgroundCanvas.getContext('2d')
 if (!maybeBgCtx) throw new Error('Could not get 2D background canvas context')
@@ -368,6 +372,9 @@ let currSnapshotTime = 0
 let snapshotIntervalMs = 50
 let lives = 0
 let resources = 0
+let latestTick: number | null = null
+let measuredTickRate = 0
+let averageFrameBytes = 0
 let lastFpsOverlayUpdateTime = 0
 let hudDirty = true
 let currentPathWidth = 40
@@ -397,6 +404,10 @@ let currentPanelSide: PanelSide = 'right'
 let overlaySideSwapFrame = 0
 let selectedDefenderSummary: DefenderMenuItem | null = null
 let selectedDefenderPosition: Position | null = null
+const RECENT_TICK_TIMES_MAX = 60
+const RECENT_FRAME_SIZES_MAX = 60
+const recentTickSamples: TickRateSample[] = []
+const recentFrameSizes: number[] = []
 
 const SIDE_PANEL_TRIGGER_RATIO = 0.25
 const SIDE_PANEL_TRIGGER_MIN_PX = 72
@@ -1516,9 +1527,47 @@ function log(line: string): void {
   logEl.scrollTop = logEl.scrollHeight
 }
 
-// Set text content on an element when it exists.
-function setTextIfElement(el: HTMLElement | null, value: string): void {
-  if (el) el.textContent = value
+function updateMetricsDisplay(): void {
+  tickEl.textContent = latestTick !== null ? String(latestTick) : '--'
+  tickRateEl.textContent = measuredTickRate > 0
+    ? `${measuredTickRate.toFixed(1)} Hz`
+    : '--'
+  frameSizeEl.textContent = averageFrameBytes > 0
+    ? `${Math.round(averageFrameBytes).toLocaleString()} B`
+    : '--'
+}
+
+function pushRecentSample<T>(samples: T[], value: T, maxSize: number): void {
+  samples.push(value)
+  if (samples.length > maxSize) samples.shift()
+}
+
+function updateMeasuredTickRate(now: number, tick: number): void {
+  pushRecentSample(recentTickSamples, { timeMs: now, tick }, RECENT_TICK_TIMES_MAX)
+  if (recentTickSamples.length < 2) {
+    measuredTickRate = 0
+    updateMetricsDisplay()
+    return
+  }
+
+  const first = recentTickSamples[0]
+  const last = recentTickSamples[recentTickSamples.length - 1]
+  const elapsedMs = last.timeMs - first.timeMs
+  const elapsedTicks = last.tick - first.tick
+  measuredTickRate = elapsedMs > 0 && elapsedTicks >= 0
+    ? (elapsedTicks * 1000) / elapsedMs
+    : 0
+  updateMetricsDisplay()
+}
+
+function measureFrameSizeBytes(data: string): number {
+  return new TextEncoder().encode(data).length
+}
+
+function updateAverageFrameSize(frameBytes: number): void {
+  pushRecentSample(recentFrameSizes, frameBytes, RECENT_FRAME_SIZES_MAX)
+  averageFrameBytes = recentFrameSizes.reduce((sum, value) => sum + value, 0) / recentFrameSizes.length
+  updateMetricsDisplay()
 }
 
 // Mark the HUD overlay for regeneration on the next frame.
@@ -1770,6 +1819,11 @@ function resetClientWorldState(): void {
   snapshotIntervalMs = 50
   lives = 0
   resources = 0
+  latestTick = null
+  measuredTickRate = 0
+  averageFrameBytes = 0
+  recentTickSamples.length = 0
+  recentFrameSizes.length = 0
   lastFpsOverlayUpdateTime = 0
   hudDirty = true
   sidePanelDirty = true
@@ -1796,6 +1850,7 @@ function resetClientWorldState(): void {
   hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height)
   fpsCtx.clearRect(0, 0, fpsCanvas.width, fpsCanvas.height)
   applyOverlayPosition()
+  updateMetricsDisplay()
 }
 
 // Apply an incremental world update from the server and invalidate derived
@@ -1820,16 +1875,14 @@ function applyWorldDelta(delta: WorldDelta): void {
   }
 
   finishSnapshotUpdate()
-  tickEl.textContent = String(delta.tick)
+  latestTick = delta.tick
+  updateMeasuredTickRate(now, delta.tick)
   lives = delta.lives
   resources = delta.resources
   applyUiState(delta.uiState)
   invalidateHud()
   invalidateSidePanel()
-  setTextIfElement(livesEl, String(delta.lives))
-  setTextIfElement(resourcesEl, String(delta.resources))
   currentPhase = getDeltaPhase(delta)
-  setTextIfElement(phaseEl, currentPhase)
 }
 
 // --- Message validation ---
@@ -1919,9 +1972,11 @@ ws.onmessage = (event: MessageEvent<string>) => {
       log(`Server says: ${parsed.message}`)
       break
     case 'world_delta':
+      updateAverageFrameSize(measureFrameSizeBytes(event.data))
       applyWorldDelta(parsed)
       break
     case 'world_snapshot':
+      updateAverageFrameSize(measureFrameSizeBytes(event.data))
       resetClientWorldState()
       defenderMenuItems = parsed.defenderMenu
       drawBackground(parsed.mapDesign.paths, parsed.mapDesign.pathWidth)

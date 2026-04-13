@@ -17,6 +17,8 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
+#include <cstddef>
 #include <iostream>
 #include <memory>
 
@@ -85,12 +87,21 @@ public:
 
 private:
   using Fuse = timer_fuse<http_transaction>;
+  using clock_t = std::chrono::steady_clock;
 
   std::atomic<uint64_t> tick_seq_; // Uses for sequencing tick timers
   WorldTick current_tick_{};       // updated each frame; loop-thread only
   SimGame game_;                   // all simulation entity state
   update_strategy send_strategy_{update_strategy::full};
   SimGameStateJson json_buffer_; // persistent buffer and high-watermark
+
+  // "Temporary" diagnostics.
+  clock_t::time_point last_tick_fire_time_{};
+  clock_t::time_point stats_window_start_{};
+  size_t tick_fires_in_window_{};
+  double interval_sum_ms_{};
+  size_t payload_bytes_in_window_{};
+  size_t last_payload_bytes_{};
 
   // Handle an incoming text frame by classifying and forwarding the message.
   [[nodiscard]] bool do_message(http_websocket& ws, std::string&& msg) {
@@ -148,10 +159,24 @@ private:
     if (websocket().is_close_started()) return true;
     if (websocket().is_send_in_fragment()) return do_arm_tick();
 
+    // "Temporary" diagnostics.
+    const auto now = clock_t::now();
+    if (stats_window_start_ == clock_t::time_point{})
+      stats_window_start_ = now;
+    if (last_tick_fire_time_ != clock_t::time_point{}) {
+      interval_sum_ms_ +=
+          std::chrono::duration<double, std::milli>(now - last_tick_fire_time_)
+              .count();
+    }
+    last_tick_fire_time_ = now;
+
     (void)game_.next();
     if (!send_game_state()) return false;
+    payload_bytes_in_window_ += last_payload_bytes_;
+    ++tick_fires_in_window_;
     send_strategy_ = update_strategy::incremental;
     current_tick_ = game_.tick();
+    maybe_log_tick_stats(now);
     return do_arm_tick();
   }
 
@@ -159,6 +184,7 @@ private:
   // possible.
   [[nodiscard]] bool send_game_state() {
     (void)buildSimGameStateJson(json_buffer_, game_, send_strategy_);
+    last_payload_bytes_ = json_buffer_.body.size();
 
     std::string header_buf;
     (void)ws_frame_lens::build(header_buf,
@@ -170,6 +196,38 @@ private:
       return false;
 
     return true;
+  }
+
+  // "Temporary" diagnostics.
+  void maybe_log_tick_stats(clock_t::time_point now) {
+    constexpr size_t stats_window_ticks = 20;
+    if (tick_fires_in_window_ < stats_window_ticks) return;
+
+    const auto elapsed_ms =
+        std::chrono::duration<double, std::milli>(now - stats_window_start_)
+            .count();
+    const double measured_hz =
+        elapsed_ms > 0.0 && tick_fires_in_window_ > 1
+            ? ((tick_fires_in_window_ - 1) * 1000.0) / elapsed_ms
+            : 0.0;
+    const double avg_interval_ms =
+        tick_fires_in_window_ > 1
+            ? interval_sum_ms_ / static_cast<double>(tick_fires_in_window_ - 1)
+            : 0.0;
+    const double avg_payload_bytes =
+        tick_fires_in_window_ > 0
+            ? static_cast<double>(payload_bytes_in_window_) /
+                  static_cast<double>(tick_fires_in_window_)
+            : 0.0;
+
+    std::cout << "Sim tick stats: tick=" << *current_tick_ << " measured_hz="
+              << measured_hz << " avg_interval_ms=" << avg_interval_ms
+              << " avg_payload_bytes=" << avg_payload_bytes << '\n';
+
+    stats_window_start_ = {};
+    tick_fires_in_window_ = 0;
+    interval_sum_ms_ = 0.0;
+    payload_bytes_in_window_ = 0;
   }
 };
 }} // namespace corvid::proto
