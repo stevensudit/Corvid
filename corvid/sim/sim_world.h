@@ -995,7 +995,7 @@ private:
     }
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
     (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
-    (void)setCooldown(defenderId, 0x7F000000U, defender.nextAttack);
+    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack);
     return true;
   }
 
@@ -1084,7 +1084,7 @@ private:
     (void)spawnBullet(defenderPos, vel, bullet);
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
     (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
-    (void)setCooldown(defenderId, 0x7F000000U, defender.nextAttack);
+    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack);
     return true;
   }
 
@@ -1130,7 +1130,7 @@ private:
 
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
     (void)flashEntity(defenderId, hitscan.beamColor, hitscan.beamDuration);
-    (void)setCooldown(defenderId, 0x7F000000U, defender.nextAttack);
+    (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack);
     return true;
   }
 
