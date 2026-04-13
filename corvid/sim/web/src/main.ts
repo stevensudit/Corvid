@@ -12,24 +12,29 @@ import type {
   WorldDelta,
 } from './types.js'
 
+// Canvas-friendly color representation derived from packed RGBA wire values.
 interface RenderColor {
   css: string
   alpha: number
 }
 
+// Cached offscreen sprite bitmap plus the origin offset needed to center it.
 interface SpriteCacheEntry {
   canvas: HTMLCanvasElement
   offset: number
 }
 
+// Client-side appearance data derived from `EntityAppearance` and normalized
+// for rendering entities and menu items.
 interface RenderAppearance {
   glyph: string
-  radius: number
+  radius: number // Radius of entity
   fg: RenderColor
   bg: RenderColor
-  attackRadius: number
+  attackRadius: number // Radius of attack
 }
 
+// Local placement-preview state for a defender being dragged or staged to spawn.
 interface GhostState {
   worldX: number
   worldY: number
@@ -38,10 +43,11 @@ interface GhostState {
   appearance: RenderAppearance
   attackRadius: number  // world units, from Appearance.attackRadius
   pending: boolean      // true = dropped on map, awaiting confirmation click
-  placeable: boolean
-  spawnPending: boolean
+  placeable: boolean    // true = can be placed at the current position
+  spawnPending: boolean // true = dropped and clicked, awaiting server confirmation
 }
 
+// Client-side visual effects derived from `EntityVisualEffects`.
 interface RenderVisualEffects {
   selection: RenderColor
   rangeRadius: number
@@ -51,18 +57,22 @@ interface RenderVisualEffects {
   flashStartedAt: number
 }
 
+// Fully materialized render snapshot for one entity id, derived from
+// `EntityUpsert`.
 interface RenderEntityUpsert {
   pos: EntityPosition
   app: RenderAppearance
   fx: RenderVisualEffects
 }
 
+// Pointer bookkeeping for an in-progress foreground-canvas interaction.
 interface CanvasPointerState {
   button: number
   buttons: number
   dragging: boolean
 }
 
+// Mouse event sample expressed in both canvas-space and world-space coordinates.
 interface CanvasPointerSample {
   button: number
   buttons: number
@@ -78,6 +88,7 @@ interface CanvasPointerSample {
 
 type PanelSide = 'left' | 'right'
 
+// Textual content and attachment side for the overlay panel renderer.
 interface SidePanelModel {
   side: PanelSide
   title: string
@@ -108,6 +119,8 @@ const DEFAULT_RENDER_VISUAL_EFFECTS: RenderVisualEffects = {
 
 // --- DOM setup ---
 
+// Look up a required DOM node and fail fast if the page shape does not match
+// what this client expects.
 function requireEl<T extends HTMLElement>(
   id: string,
   type: abstract new (...args: any[]) => T,
@@ -141,6 +154,8 @@ const fgCtx: CanvasRenderingContext2D = maybeFgCtx
 const maybeOverlayCtx = overlayCanvas.getContext('2d')
 if (!maybeOverlayCtx) throw new Error('Could not get 2D overlay canvas context')
 const overlayCtx: CanvasRenderingContext2D = maybeOverlayCtx
+// HUD and FPS are composited from offscreen canvases so they can redraw at
+// their own cadence without forcing the world layer to rebuild extra state.
 const hudCanvas = document.createElement('canvas')
 hudCanvas.width = foregroundCanvas.width
 hudCanvas.height = foregroundCanvas.height
@@ -165,6 +180,7 @@ const DEFAULT_CANVAS_H = 540
 const DEFAULT_OVERLAY_W = 280
 const OVERLAY_WIDTH_RATIO = DEFAULT_OVERLAY_W / DEFAULT_CANVAS_W
 
+// Keep a canvas element's CSS box and backing pixel buffer in sync.
 function setCanvasSize(
   canvas: HTMLCanvasElement,
   cssWidth: number,
@@ -178,6 +194,7 @@ function setCanvasSize(
   if (canvas.height !== pixelHeight) canvas.height = pixelHeight
 }
 
+// Fit the fixed-aspect simulation viewport inside the available host area.
 function fitCanvasRect(availableWidth: number, availableHeight: number): [number, number] {
   const aspect = WORLD_W / WORLD_H
   let width = Math.max(1, Math.floor(availableWidth))
@@ -191,6 +208,7 @@ function fitCanvasRect(availableWidth: number, availableHeight: number): [number
   return [width, height]
 }
 
+// Reflect the browser fullscreen state in the button label.
 function updateFullscreenButtonLabel(): void {
   fullscreenToggle.textContent = document.fullscreenElement === viewportShell
     ? 'Exit Fullscreen'
@@ -199,6 +217,8 @@ function updateFullscreenButtonLabel(): void {
 
 let currentPathPoints: Array<{ x: number; y: number }> = []
 
+// Recompute every canvas size when the viewport host or fullscreen state
+// changes, then invalidate cached overlay/HUD rendering.
 function resizeViewport(): void {
   const isFullscreen = document.fullscreenElement === viewportShell
   const availableWidth = isFullscreen
@@ -244,6 +264,7 @@ function resizeViewport(): void {
   invalidateSidePanel()
 }
 
+// Convert world-space coordinates from the simulation into canvas pixels.
 function worldToCanvas(wx: number, wy: number): [number, number] {
   return [
     (wx + WORLD_W / 2) * foregroundCanvas.width / WORLD_W,
@@ -251,6 +272,7 @@ function worldToCanvas(wx: number, wy: number): [number, number] {
   ]
 }
 
+// Convert canvas pixels back into simulation world coordinates.
 function canvasToWorld(cx: number, cy: number): [number, number] {
   return [
     (cx - foregroundCanvas.width / 2) * WORLD_W / foregroundCanvas.width,
@@ -258,10 +280,13 @@ function canvasToWorld(cx: number, cy: number): [number, number] {
   ]
 }
 
+// Convert a world-space distance into the current canvas scale.
 function worldLengthToCanvas(length: number): number {
   return length * foregroundCanvas.width / WORLD_W
 }
 
+// Sample a mouse event once and package both canvas-space and world-space
+// coordinates for downstream input handling and server messages.
 function eventToCanvasSample(event: MouseEvent): CanvasPointerSample {
   const rect = foregroundCanvas.getBoundingClientRect()
   const canvasX = (event.clientX - rect.left) * (foregroundCanvas.width / rect.width)
@@ -281,6 +306,8 @@ function eventToCanvasSample(event: MouseEvent): CanvasPointerSample {
   }
 }
 
+// Reuse an existing pointer sample while overriding button bookkeeping for
+// synthesized drag events.
 function withPointerButton(
   sample: CanvasPointerSample,
   button: number,
@@ -293,6 +320,8 @@ function withPointerButton(
   }
 }
 
+// Build a pointer sample from the ghost's current world position instead of the
+// literal mouse location.
 function ghostStateToSample(
   ghost: GhostState,
   event: MouseEvent,
@@ -321,6 +350,13 @@ let lastFrameTime = 0
 
 // --- Interpolation state ---
 
+// The server streams discrete snapshots. We retain both the last committed
+// render state and the newest one so each animation frame can blend between
+// them instead of stepping entity motion every network tick.
+// `currEntitiesById` holds the latest authoritative render state for every
+// entity we know about. `prevRenderStateById` only keeps the immediately prior
+// render state for entities touched by the most recent delta, which is enough
+// to interpolate from the old snapshot toward the new one.
 const currEntitiesById = new Map<number, RenderEntityUpsert>()
 const prevRenderStateById = new Map<number, RenderEntityUpsert>()
 let prevSnapshotTime = 0
@@ -332,8 +368,9 @@ let lastFpsOverlayUpdateTime = 0
 let hudDirty = true
 let currentPathWidth = 40
 const glyphFontSizeCache = new Map<string, number>()
-// Entity appearances come from a small, mostly fixed set of defender/enemy visuals,
-// so we memoize prerendered sprites for the lifetime of the page instead of
+// Entity appearances come from a small, mostly fixed set of defender/enemy
+// visuals, so we memoize prerendered sprites across frames and world updates.
+// The cache is cleared when a resize changes the render scale, rather than
 // paying per-frame draw costs or maintaining an eviction policy.
 const entitySpriteCache = new Map<string, SpriteCacheEntry>()
 const FPS_OVERLAY_INTERVAL_MS = 100
@@ -366,11 +403,12 @@ const SIDE_PANEL_RADIUS = 18
 const SIDE_PANEL_LINE_HEIGHT = 22
 const SIDE_PANEL_TEXT_MARGIN = 28
 
-// Linear interpolation calculator
+// Interpolate linearly between two numeric values.
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
 }
 
+// Draw the static path layer onto the background canvas.
 function drawBackground(
   pathPoints: Array<{ x: number; y: number }>,
   pathWidth = currentPathWidth,
@@ -396,6 +434,8 @@ function drawBackground(
   bgCtx.restore()
 }
 
+// Render a frame by interpolating entity positions between the previous and
+// current snapshots, then drawing any active placement ghost on top.
 function renderInterpolated(now: number): void {
   const interval = Math.max(snapshotIntervalMs, 1)
   const t = Math.min((now - currSnapshotTime) / interval, 1)
@@ -414,6 +454,7 @@ function renderInterpolated(now: number): void {
   drawGhost()
 }
 
+// Rebuild the cached HUD overlay only when marked dirty.
 function updateHudOverlay(): void {
   if (!hudDirty) return
 
@@ -422,6 +463,7 @@ function updateHudOverlay(): void {
   hudDirty = false
 }
 
+// Refresh the FPS overlay at a throttled cadence instead of every frame.
 function updateFpsOverlay(now: number): void {
   if (now - lastFpsOverlayUpdateTime < FPS_OVERLAY_INTERVAL_MS) return
 
@@ -435,19 +477,25 @@ const PANEL_PEEK_PX = 18
 
 type OverlayLevel = 'hidden' | 'peek' | 'open'
 
+// Report whether overlay content should remain open even without direct hover.
 function hasPinnedOpenPanel(): boolean {
   return ghostState?.pending === true ||
     selectedDefenderPosition !== null ||
     overlayStayOpen
 }
 
+// Choose which screen edge the overlay should currently attach to.
 function getTargetSide(): PanelSide {
   // A pinned panel (like pending placement) owns the side. Otherwise follow
   // the current edge hover so the peek/open transition stays on one edge.
   return getSidePanelModel()?.side ?? edgeHoverSide ?? currentPanelSide
 }
 
+// Decide whether the overlay is hidden, peeking, or fully open.
 function getOverlayLevel(): OverlayLevel {
+  // The overlay behaves like a tiny state machine:
+  // hidden when irrelevant, peek when edge-hovering, and open when hovered or
+  // when a pinned interaction (selected defender / pending placement) owns it.
   if (menuDragActive) return 'hidden'
   const hasPanelContent = getSidePanelModel() !== null
   const hasBuildMenu = currentPhase === 'build' && defenderMenuItems.length > 0
@@ -457,6 +505,7 @@ function getOverlayLevel(): OverlayLevel {
   return 'hidden'
 }
 
+// Return the narrow strip that can turn a peeking panel into a fully open one.
 function getOverlayPeekActivationBounds(): DOMRect | null {
   if (getOverlayLevel() !== 'peek') return null
   const rect = overlayCanvas.getBoundingClientRect()
@@ -466,15 +515,19 @@ function getOverlayPeekActivationBounds(): DOMRect | null {
   return new DOMRect(rect.left, rect.top, PANEL_PEEK_PX, rect.height)
 }
 
+// Test whether a screen-space point lies inside a rectangle.
 function isPointInRect(x: number, y: number, rect: DOMRect): boolean {
   return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
 }
 
+// Check whether the pointer is inside the visible "peek" activation strip.
 function isPointerOverPeekActivation(event: MouseEvent): boolean {
   const bounds = getOverlayPeekActivationBounds()
   return bounds !== null && isPointInRect(event.clientX, event.clientY, bounds)
 }
 
+// Detect whether the cursor left the foreground canvas through the edge that
+// currently owns the overlay.
 function didExitCanvasViaPanelEdge(event: MouseEvent): boolean {
   const rect = foregroundCanvas.getBoundingClientRect()
   return (
@@ -483,6 +536,7 @@ function didExitCanvasViaPanelEdge(event: MouseEvent): boolean {
   )
 }
 
+// Compute the CSS transform that positions the overlay for a given side/state.
 function getOverlayTransform(
   side: PanelSide,
   level: OverlayLevel,
@@ -498,6 +552,8 @@ function getOverlayTransform(
   return 'translateX(0)'
 }
 
+// Apply the current overlay state to the DOM, including side swaps and
+// transition timing.
 function applyOverlayPosition(): void {
   const level = getOverlayLevel()
   const targetSide = getTargetSide()
@@ -524,6 +580,8 @@ function applyOverlayPosition(): void {
   if (sideChanged && level !== 'hidden') {
     overlayCanvas.style.transitionDuration = '0ms'
     overlayCanvas.style.transform = getOverlayTransform(currentPanelSide, 'hidden')
+    // Wait one frame so the browser commits the off-screen position before
+    // animating the overlay back in on its new side.
     overlaySideSwapFrame = requestAnimationFrame(() => {
       overlaySideSwapFrame = 0
       overlayCanvas.style.transitionDuration = `${transitionMs}ms`
@@ -539,21 +597,26 @@ function applyOverlayPosition(): void {
   overlayCanvas.style.visibility = 'visible'
 }
 
+// Mark the overlay canvas dirty and immediately re-evaluate its DOM position.
 function invalidateSidePanel(): void {
   sidePanelDirty = true
   applyOverlayPosition()
 }
 
+// Update which screen edge is currently hover-armed for the side panel.
 function setEdgeHoverSide(nextSide: PanelSide | null): void {
   if (edgeHoverSide === nextSide) return
   edgeHoverSide = nextSide
   invalidateSidePanel()
 }
 
+// Clear the currently highlighted build-menu cell.
 function clearMenuSelection(): void {
   selectedMenuIndex = null
 }
 
+// Convert packed RGBA integers from the wire format into canvas-friendly color
+// objects.
 function packedRgbaToRenderColor(color: number): RenderColor {
   const r = (color >>> 24) & 0xff
   const g = (color >>> 16) & 0xff
@@ -565,10 +628,12 @@ function packedRgbaToRenderColor(color: number): RenderColor {
   }
 }
 
+// Report whether a render color is fully transparent.
 function isTransparent(color: RenderColor): boolean {
   return color.alpha === 0
 }
 
+// Draw a filled circle if its radius and alpha make it visible.
 function drawFilledCircleOnContext(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -584,6 +649,7 @@ function drawFilledCircleOnContext(
   ctx.fill()
 }
 
+// Draw a stroked circle if its radius, width, and alpha make it visible.
 function drawStrokedCircleOnContext(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -601,6 +667,7 @@ function drawStrokedCircleOnContext(
   ctx.stroke()
 }
 
+// Pick a glyph font size that fits inside a circular defender/enemy body.
 function getGlyphFontSize(glyph: string, radius: number): number {
   const roundedRadius = Math.max(1, Math.round(radius))
   const cacheKey = `${glyph}:${roundedRadius}`
@@ -621,10 +688,12 @@ function getGlyphFontSize(glyph: string, radius: number): number {
   return fontSize
 }
 
+// Choose a border width proportional to sprite size while remaining legible.
 function getEntityBorderWidth(radius: number): number {
   return Math.max(1, radius * 0.18)
 }
 
+// Draw a centered glyph into a circular sprite or menu icon.
 function drawGlyphOnContext(
   ctx: CanvasRenderingContext2D,
   glyph: string,
@@ -646,6 +715,7 @@ function drawGlyphOnContext(
   ctx.restore()
 }
 
+// Create a stable cache key for prerendered sprite variants.
 function getSpriteCacheKey(app: RenderAppearance, radius: number): string {
   const roundedRadius = Math.max(1, Math.round(radius))
   return [
@@ -656,6 +726,7 @@ function getSpriteCacheKey(app: RenderAppearance, radius: number): string {
   ].join('|')
 }
 
+// Fetch or build an offscreen sprite canvas for a particular appearance/size.
 function getEntitySprite(app: RenderAppearance, radius: number): SpriteCacheEntry | null {
   const roundedRadius = Math.max(1, Math.round(radius))
   if (roundedRadius <= 0) return null
@@ -696,12 +767,14 @@ function getEntitySprite(app: RenderAppearance, radius: number): SpriteCacheEntr
   return sprite
 }
 
+// Blit a prerendered entity sprite onto the foreground canvas.
 function drawEntitySprite(x: number, y: number, radius: number, app: RenderAppearance): void {
   const sprite = getEntitySprite(app, radius)
   if (!sprite) return
   fgCtx.drawImage(sprite.canvas, x - sprite.offset, y - sprite.offset)
 }
 
+// Draw the semi-transparent attack range for a selected defender.
 function drawRangeCircle(
   x: number,
   y: number,
@@ -715,6 +788,7 @@ function drawRangeCircle(
   fgCtx.restore()
 }
 
+// Draw the selection ring that highlights the active defender.
 function drawSelectionOutline(
   x: number,
   y: number,
@@ -736,11 +810,13 @@ function drawSelectionOutline(
   fgCtx.restore()
 }
 
+// Determine whether a flashing effect should currently be visible.
 function isFlashVisible(fx: RenderVisualEffects, now: number): boolean {
   const elapsed = Math.max(now - fx.flashStartedAt, 0)
   return Math.floor(elapsed / FLASH_FLICKER_INTERVAL_MS) % 2 === 0
 }
 
+// Draw a transient flash overlay and expire it locally once its timer ends.
 function drawFlashOverlay(
   x: number,
   y: number,
@@ -763,6 +839,7 @@ function drawFlashOverlay(
   fgCtx.restore()
 }
 
+// Draw one entity and all of its client-side visual effects.
 function drawEntity(
   x: number,
   y: number,
@@ -777,6 +854,7 @@ function drawEntity(
   drawFlashOverlay(x, y, radius, fx, now)
 }
 
+// Convert wire-format appearance data into client render state.
 function appearanceToRender(app: EntityAppearance): RenderAppearance {
   return {
     glyph: app.glyph === 0 ? '' : String.fromCodePoint(app.glyph),
@@ -787,6 +865,8 @@ function appearanceToRender(app: EntityAppearance): RenderAppearance {
   }
 }
 
+// Convert wire-format visual effects into client render state, preserving flash
+// phase across repeated delta updates when appropriate.
 function visualEffectsToRender(
   fx: EntityVisualEffects,
   now: number,
@@ -805,12 +885,16 @@ function visualEffectsToRender(
     range: packedRgbaToRenderColor(fx.range),
     flash,
     flashExpiry,
+    // Preserve the original flash phase while the server keeps extending the
+    // effect, so flicker timing does not restart on every delta packet.
     flashStartedAt: flashExpiry > 0
       ? (keepExistingFlashPhase ? prevFx.flashStartedAt : now)
       : 0,
   }
 }
 
+// Merge a server upsert with previously known appearance/effect state so
+// partial updates remain renderable.
 function upsertToRenderEntity(
   upsert: EntityUpsert,
   now: number,
@@ -826,6 +910,7 @@ function upsertToRenderEntity(
   }
 }
 
+// Draw the small FPS meter in the lower-right corner.
 function drawFps(ctx: CanvasRenderingContext2D): void {
   ctx.save()
   const label = `${fps.toFixed(1)} FPS`
@@ -842,6 +927,7 @@ function drawFps(ctx: CanvasRenderingContext2D): void {
   ctx.restore()
 }
 
+// Draw the top HUD bar that displays lives and resources.
 function drawHud(ctx: CanvasRenderingContext2D): void {
   ctx.save()
   ctx.font = '20px monospace'
@@ -860,7 +946,12 @@ function drawHud(ctx: CanvasRenderingContext2D): void {
   ctx.restore()
 }
 
+// Decide whether the pointer is close enough to the left or right edge to arm
+// the build menu panel.
 function panelSideFromCanvasX(canvasX: number): PanelSide | null {
+  // Trigger zones scale with the viewport, but stay clamped so the edge-hover
+  // affordance is still reachable on tiny windows and not overly eager on wide
+  // monitors.
   const cssWidth = foregroundCanvas.clientWidth
   const triggerCssPx = cssWidth > 0
     ? Math.max(
@@ -876,6 +967,7 @@ function panelSideFromCanvasX(canvasX: number): PanelSide | null {
   return null
 }
 
+// Update edge-hover state based on the current pointer sample.
 function updateEdgeHover(sample: CanvasPointerSample): void {
   overlayStayOpen = false
   if (menuDragActive || ghostState || currentPhase !== 'build') {
@@ -885,6 +977,7 @@ function updateEdgeHover(sample: CanvasPointerSample): void {
   setEdgeHoverSide(panelSideFromCanvasX(sample.canvasX))
 }
 
+// Hit-test defender bodies in world space using the current render snapshot.
 function findDefenderAtWorld(worldX: number, worldY: number): RenderEntityUpsert | null {
   const hitPos = { x: worldX, y: worldY }
   for (const entity of currEntitiesById.values()) {
@@ -896,6 +989,7 @@ function findDefenderAtWorld(worldX: number, worldY: number): RenderEntityUpsert
   return null
 }
 
+// Compute squared distance without paying for a square root.
 function SimWorldDistanceSquared(
   a: { x: number; y: number },
   b: { x: number; y: number },
@@ -905,14 +999,18 @@ function SimWorldDistanceSquared(
   return dx * dx + dy * dy
 }
 
+// Format panel numbers without trailing decimals for integer values.
 function formatPanelNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
 }
 
+// Place side panels on the opposite half of the screen from the subject they
+// describe.
 function getOppositePanelSideForCanvasX(canvasX: number): PanelSide {
   return canvasX < foregroundCanvas.width / 2 ? 'right' : 'left'
 }
 
+// Wrap panel body text to the available width using the current canvas font.
 function wrapPanelText(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -939,9 +1037,12 @@ function wrapPanelText(
   return lines
 }
 
+// Build the overlay model for the currently selected defender, if any.
 function getSelectedDefenderPanelModel(): SidePanelModel | null {
   if (!selectedDefenderPosition || !selectedDefenderSummary) return null
 
+  // Put the panel opposite the selected unit so it reads like an inspector
+  // without covering the thing the user just clicked.
   const side = getOppositePanelSideForCanvasX(
     worldToCanvas(selectedDefenderPosition.x, selectedDefenderPosition.y)[0],
   )
@@ -964,6 +1065,7 @@ function getSelectedDefenderPanelModel(): SidePanelModel | null {
   }
 }
 
+// Build the overlay model for a dropped-but-not-yet-confirmed placement ghost.
 function getPendingGhostPanelModel(): SidePanelModel | null {
   if (!ghostState?.pending) return null
   const [ghostCanvasX] = worldToCanvas(ghostState.worldX, ghostState.worldY)
@@ -981,10 +1083,12 @@ function getPendingGhostPanelModel(): SidePanelModel | null {
   }
 }
 
+// Choose the highest-priority pinned side panel to display, if any.
 function getSidePanelModel(): SidePanelModel | null {
   return getPendingGhostPanelModel() ?? getSelectedDefenderPanelModel()
 }
 
+// Trace a rounded-rectangle path used by both panel and build-menu backdrops.
 function drawRoundedPanelPath(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -1007,6 +1111,7 @@ function drawRoundedPanelPath(
   ctx.closePath()
 }
 
+// Draw a textual side panel such as defender inspection or pending placement.
 function drawSidePanel(ctx: CanvasRenderingContext2D, panel: SidePanelModel): void {
   const x = 0
   const y = 0
@@ -1069,6 +1174,7 @@ function drawSidePanel(ctx: CanvasRenderingContext2D, panel: SidePanelModel): vo
   ctx.restore()
 }
 
+// Draw the build-menu overlay grid containing available defender types.
 function drawBuildMenu(ctx: CanvasRenderingContext2D): void {
   const panelScale = Math.min(
     foregroundCanvas.width / DEFAULT_CANVAS_W,
@@ -1168,6 +1274,7 @@ function drawBuildMenu(ctx: CanvasRenderingContext2D): void {
   ctx.restore()
 }
 
+// Draw the draggable or pending placement ghost on top of the world layer.
 function drawGhost(): void {
   if (!ghostState) return
   const [x, y] = worldToCanvas(ghostState.worldX, ghostState.worldY)
@@ -1241,6 +1348,7 @@ function drawGhost(): void {
   fgCtx.restore()
 }
 
+// Redraw the overlay canvas when its contents have changed.
 function updateSidePanelOverlay(): void {
   if (!sidePanelDirty) return
 
@@ -1249,6 +1357,8 @@ function updateSidePanelOverlay(): void {
   const panel = getSidePanelModel()
   const showBuildMenu = shouldShowBuildMenu()
 
+  // The overlay only ever shows one mode at a time: pinned side panel wins,
+  // otherwise the build menu can occupy the same canvas.
   if (panel) {
     drawSidePanel(overlayCtx, panel)
   } else if (showBuildMenu) {
@@ -1258,6 +1368,7 @@ function updateSidePanelOverlay(): void {
   sidePanelDirty = false
 }
 
+// Report whether the build-menu overlay should be visible right now.
 function shouldShowBuildMenu(): boolean {
   return (
     getSidePanelModel() === null &&
@@ -1267,6 +1378,8 @@ function shouldShowBuildMenu(): boolean {
   )
 }
 
+// Main animation loop: update time-derived overlays, render the world, and
+// composite the cached layers.
 function frame(now: number): void {
   if (lastFrameTime !== 0) {
     const dt = now - lastFrameTime
@@ -1285,19 +1398,23 @@ function frame(now: number): void {
 
 // --- Logging ---
 
+// Append a line to the on-page debug log.
 function log(line: string): void {
   logEl.textContent += line + '\n'
   logEl.scrollTop = logEl.scrollHeight
 }
 
+// Set text content on an element when it exists.
 function setTextIfElement(el: HTMLElement | null, value: string): void {
   if (el) el.textContent = value
 }
 
+// Mark the HUD overlay for regeneration on the next frame.
 function invalidateHud(): void {
   hudDirty = true
 }
 
+// Translate DOM mouse button codes into the wire-format button names.
 function buttonNameFromNumber(button: number): 'left' | 'middle' | 'right' | 'other' {
   switch (button) {
     case 0:
@@ -1311,11 +1428,14 @@ function buttonNameFromNumber(button: number): 'left' | 'middle' | 'right' | 'ot
   }
 }
 
+// Send a client message if the websocket is currently connected.
 function sendClientMsg(msg: ClientMsg): void {
   if (ws.readyState !== WebSocket.OPEN) return
   ws.send(JSON.stringify(msg))
 }
 
+// Serialize a canvas interaction into the websocket protocol and return its
+// client sequence number.
 function sendCanvasMsg(
   eventName: 'click' | 'dblclick' | 'contextmenu' | 'dragstart' | 'dragmove' | 'dragend',
   sample: CanvasPointerSample,
@@ -1344,6 +1464,7 @@ function sendCanvasMsg(
   return seq
 }
 
+// Send the most recent coalesced drag-move sample, if one is pending.
 function flushPendingDragMove(): void {
   dragMoveFrameRequested = false
   if (!pendingDragMove) return
@@ -1351,6 +1472,7 @@ function flushPendingDragMove(): void {
   pendingDragMove = null
 }
 
+// Send a placement-preview event for the current ghost entity.
 function sendPlacementPreview(
   eventName: 'dragstart' | 'dragmove' | 'dragend',
   sample: CanvasPointerSample,
@@ -1360,14 +1482,18 @@ function sendPlacementPreview(
   sendCanvasMsg(eventName, sample, 'placing', [entityName])
 }
 
+// Coalesce drag-move websocket traffic to at most once per animation frame.
 function scheduleDragMoveFlush(): void {
   if (dragMoveFrameRequested) return
   dragMoveFrameRequested = true
+  // Push at most one drag update per animation frame even if the pointer is
+  // moving faster than the display refresh rate.
   requestAnimationFrame(() => {
     flushPendingDragMove()
   })
 }
 
+// Convert submitted form data into the string-only field map used by UI actions.
 function formDataToFields(formData: FormData): Record<string, string> | undefined {
   const fields: Record<string, string> = {}
   for (const [key, value] of formData.entries()) {
@@ -1376,6 +1502,7 @@ function formDataToFields(formData: FormData): Record<string, string> | undefine
   return Object.keys(fields).length === 0 ? undefined : fields
 }
 
+// Send a generic UI action such as pressing a control button.
 function sendUiAction(action: string, fields?: Record<string, string>): void {
   const msg: ClientMsg = {
     type: 'ui_action',
@@ -1386,6 +1513,7 @@ function sendUiAction(action: string, fields?: Record<string, string>): void {
   sendClientMsg(msg)
 }
 
+// Narrow an unknown value to a simple `{x, y}` point.
 function isPoint(value: unknown): value is { x: number; y: number } {
   return (
     typeof value === 'object' &&
@@ -1395,6 +1523,7 @@ function isPoint(value: unknown): value is { x: number; y: number } {
   )
 }
 
+// Narrow an unknown value to the entity-position wire type.
 function isEntityPosition(value: unknown): value is EntityPosition {
   return (
     typeof value === 'object' &&
@@ -1405,6 +1534,7 @@ function isEntityPosition(value: unknown): value is EntityPosition {
   )
 }
 
+// Narrow an unknown value to the entity-appearance wire type.
 function isEntityAppearance(value: unknown): value is EntityAppearance {
   return (
     typeof value === 'object' &&
@@ -1416,6 +1546,7 @@ function isEntityAppearance(value: unknown): value is EntityAppearance {
   )
 }
 
+// Narrow an unknown value to the entity-visual-effects wire type.
 function isEntityVisualEffects(value: unknown): value is EntityVisualEffects {
   return (
     typeof value === 'object' &&
@@ -1428,6 +1559,7 @@ function isEntityVisualEffects(value: unknown): value is EntityVisualEffects {
   )
 }
 
+// Narrow an unknown value to an entity upsert payload.
 function isEntityUpsert(value: unknown): value is EntityUpsert {
   const maybeApp = (value as Record<string, unknown>).app
   const maybeVfx = (value as Record<string, unknown>).vfx
@@ -1440,6 +1572,7 @@ function isEntityUpsert(value: unknown): value is EntityUpsert {
   )
 }
 
+// Narrow an unknown value to a defender menu entry.
 function isDefenderMenuItem(value: unknown): value is DefenderMenuItem {
   return (
     typeof value === 'object' &&
@@ -1452,6 +1585,7 @@ function isDefenderMenuItem(value: unknown): value is DefenderMenuItem {
   )
 }
 
+// Narrow an unknown value to the UI-state payload carried inside world deltas.
 function isUiState(value: unknown): value is UiState {
   const v = value as Record<string, unknown>
   return (
@@ -1464,18 +1598,23 @@ function isUiState(value: unknown): value is UiState {
   )
 }
 
+// Read the phase string from a delta, tolerating older payload shapes.
 function getDeltaPhase(delta: WorldDelta): string {
   const maybePhase = (delta as WorldDelta & { phase?: unknown }).phase
   if (typeof maybePhase === 'string') return maybePhase
   return delta.phase
 }
 
+// Apply server-provided UI state to client-side selection and placement state.
 function applyUiState(uiState: UiState): void {
   if (uiState.placementAllowed !== undefined && ghostState) {
     ghostState.placeable = uiState.placementAllowed
   }
 
   if (uiState.spawnAllowed !== undefined && ghostState?.spawnPending) {
+    // Spawn requests are optimistic on the client: we keep the ghost in a
+    // temporary "awaiting verdict" state until the server confirms whether the
+    // placement was legal.
     ghostState.spawnPending = false
     if (uiState.spawnAllowed) {
       ghostState = null
@@ -1493,6 +1632,7 @@ function applyUiState(uiState: UiState): void {
   }
 }
 
+// Advance snapshot timing bookkeeping after consuming a world update.
 function finishSnapshotUpdate(): void {
   prevSnapshotTime = currSnapshotTime
   currSnapshotTime = performance.now()
@@ -1502,6 +1642,8 @@ function finishSnapshotUpdate(): void {
   }
 }
 
+// Reset all client-side world, overlay, and interpolation state after a fresh
+// snapshot (as opposed to delta) replaces the current session state.
 function resetClientWorldState(): void {
   currentPathPoints = []
   currentPathWidth = 40
@@ -1542,10 +1684,15 @@ function resetClientWorldState(): void {
   applyOverlayPosition()
 }
 
+// Apply an incremental world update from the server and invalidate derived
+// overlays that depend on the new state.
 function applyWorldDelta(delta: WorldDelta): void {
   const now = performance.now()
   prevRenderStateById.clear()
 
+  // Delta updates rewrite the current authoritative render state in-place while
+  // preserving the previous render copy for interpolation during the next
+  // animation frames.
   for (const entity of delta.upserts) {
     const prevEntity = currEntitiesById.get(entity.pos.id)
     const nextEntity =
@@ -1573,6 +1720,7 @@ function applyWorldDelta(delta: WorldDelta): void {
 
 // --- Message validation ---
 
+// Narrow an unknown payload to the `world_delta` message shape.
 function isWorldDelta(value: unknown): value is WorldDelta {
   if (!value || typeof value !== 'object') return false
   const v = value as Record<string, unknown>
@@ -1586,15 +1734,19 @@ function isWorldDelta(value: unknown): value is WorldDelta {
     typeof v.phase === 'string' &&
     isUiState(v.uiState) &&
     v.upserts.every(isEntityUpsert) &&
+    // Erase entries are just numeric entity ids.
     v.erased.every((id) => typeof id === 'number')
   )
 }
 
+// Narrow an unknown websocket payload to one of the supported server messages.
 function isServerMsg(value: unknown): value is ServerMsg {
   if (!value || typeof value !== 'object') return false
   const v = value as Record<string, unknown>
   if (typeof v.type !== 'string') return false
 
+  // Validate websocket payloads at the edge so the rest of the file can treat
+  // incoming messages as strongly typed data instead of defensive blobs.
   switch (v.type) {
     case 'hello_ack':
       return typeof v.message === 'string'
@@ -1625,6 +1777,7 @@ function isServerMsg(value: unknown): value is ServerMsg {
 const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
 const ws = new WebSocket(`${protocol}://${location.host}/ws`)
 
+// Announce a fresh websocket connection and send the browser hello packet.
 ws.onopen = () => {
   statusEl.textContent = 'connected'
   log('Connected')
@@ -1632,6 +1785,7 @@ ws.onopen = () => {
   sendClientMsg(hello)
 }
 
+// Parse, validate, and dispatch every inbound websocket message.
 ws.onmessage = (event: MessageEvent<string>) => {
   let parsed: unknown
   try {
@@ -1662,16 +1816,19 @@ ws.onmessage = (event: MessageEvent<string>) => {
   }
 }
 
+// Reflect websocket shutdown in the visible connection status.
 ws.onclose = () => {
   statusEl.textContent = 'disconnected'
   log('Disconnected')
 }
 
+// Surface websocket transport errors in the small on-page status UI.
 ws.onerror = () => {
   statusEl.textContent = 'error'
   log('WebSocket error')
 }
 
+// Toggle fullscreen mode for the viewport shell.
 fullscreenToggle.addEventListener('click', async () => {
   try {
     if (document.fullscreenElement === viewportShell) {
@@ -1684,25 +1841,44 @@ fullscreenToggle.addEventListener('click', async () => {
   }
 })
 
+// Recompute labels and canvas sizing after fullscreen transitions.
 document.addEventListener('fullscreenchange', () => {
   updateFullscreenButtonLabel()
   resizeViewport()
 })
 
+// Resize canvases when the browser window changes size.
 window.addEventListener('resize', () => {
   resizeViewport()
 })
 
 if (typeof ResizeObserver !== 'undefined') {
+  // Resize canvases when the host element changes size for reasons other than
+  // the global window, such as layout changes.
   const resizeObserver = new ResizeObserver(() => {
     resizeViewport()
   })
   resizeObserver.observe(viewportHost)
 }
 
+// Start clicks, ghost pickup/cancel, and drag tracking on the foreground world.
 foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   const sample = eventToCanvasSample(event)
   updateEdgeHover(sample)
+
+  // A transient build panel opened from the background should collapse when
+  // the user clicks empty world space again.
+  if (
+    event.button === 0 &&
+    !ghostState &&
+    !menuDragActive &&
+    selectedDefenderPosition === null &&
+    findDefenderAtWorld(sample.worldX, sample.worldY) === null
+  ) {
+    mouseOverOverlay = false
+    overlayStayOpen = false
+    setEdgeHoverSide(null)
+  }
 
   // While a ghost is pending, left-click on the ghost picks it back up and
   // any other non-right click cancels placement.
@@ -1735,6 +1911,8 @@ foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   if (sample.button !== 2) sendCanvasMsg('click', sample)
 })
 
+// Convert foreground pointer motion into either edge-hover updates or drag
+// preview traffic.
 foregroundCanvas.addEventListener('mousemove', (event: MouseEvent) => {
   const sample = eventToCanvasSample(event)
   updateEdgeHover(sample)
@@ -1755,6 +1933,8 @@ foregroundCanvas.addEventListener('mousemove', (event: MouseEvent) => {
   scheduleDragMoveFlush()
 })
 
+// Open the build menu directly from empty build space on double-click, then
+// still forward the gesture to the server.
 foregroundCanvas.addEventListener('dblclick', (event: MouseEvent) => {
   const sample = eventToCanvasSample(event)
   if (
@@ -1765,6 +1945,8 @@ foregroundCanvas.addEventListener('dblclick', (event: MouseEvent) => {
     defenderMenuItems.length > 0 &&
     findDefenderAtWorld(sample.worldX, sample.worldY) === null
   ) {
+    // Double-clicking empty build space is a shortcut to fully open the menu
+    // on the current side without requiring an edge-hover first.
     edgeHoverSide = currentPanelSide
     mouseOverOverlay = true
     overlayStayOpen = false
@@ -1773,6 +1955,7 @@ foregroundCanvas.addEventListener('dblclick', (event: MouseEvent) => {
   sendCanvasMsg('dblclick', sample)
 })
 
+// Keep the overlay open when the pointer leaves through the armed panel edge.
 foregroundCanvas.addEventListener('mouseleave', (event: MouseEvent) => {
   // Fast motion can skip the overlay's peek strip entirely. If the pointer
   // leaves through the active panel edge, open the panel as though the user
@@ -1784,12 +1967,15 @@ foregroundCanvas.addEventListener('mouseleave', (event: MouseEvent) => {
   }
 })
 
+// Mark the overlay as hovered once the pointer enters its visible area.
 overlayCanvas.addEventListener('mouseenter', () => {
   if (getOverlayLevel() !== 'peek') mouseOverOverlay = true
   overlayStayOpen = false
   applyOverlayPosition()
 })
 
+// Promote a peeking overlay to fully open only while the pointer is over the
+// visible activation strip.
 overlayCanvas.addEventListener('mousemove', (event: MouseEvent) => {
   const shouldOpen = getOverlayLevel() !== 'peek' || isPointerOverPeekActivation(event)
   if (mouseOverOverlay === shouldOpen) return
@@ -1798,6 +1984,8 @@ overlayCanvas.addEventListener('mousemove', (event: MouseEvent) => {
   applyOverlayPosition()
 })
 
+// Decide whether leaving the overlay should keep it latched open or hand hover
+// control back to the foreground canvas.
 overlayCanvas.addEventListener('mouseleave', (event: MouseEvent) => {
   mouseOverOverlay = false
   const toFg = event.relatedTarget === foregroundCanvas
@@ -1811,6 +1999,7 @@ overlayCanvas.addEventListener('mouseleave', (event: MouseEvent) => {
   invalidateSidePanel()
 })
 
+// Finish menu drags and normal canvas drags when the mouse button is released.
 window.addEventListener('mouseup', (event: MouseEvent) => {
   // Handle menu drag commit/cancel.
   if (menuDragActive) {
@@ -1825,6 +2014,8 @@ window.addEventListener('mouseup', (event: MouseEvent) => {
         event.clientX >= fgRect.left && event.clientX <= fgRect.right &&
         event.clientY >= fgRect.top && event.clientY <= fgRect.bottom
       if (overFg && !overOverlay) {
+        // Dropping onto the playfield creates a pending ghost first; a later
+        // right-click turns that preview into an actual spawn command.
         sendPlacementPreview('dragend', ghostStateToSample(ghostState, event), ghostState.entityName)
         ghostState.pending = true
         mouseOverOverlay = false
@@ -1850,6 +2041,8 @@ window.addEventListener('mouseup', (event: MouseEvent) => {
   if (wasDragging) sendCanvasMsg('dragend', sample)
 })
 
+// Use right-click on the foreground canvas for placement confirmation or to
+// forward a normal context-style click to the server.
 foregroundCanvas.addEventListener('contextmenu', (event: MouseEvent) => {
   event.preventDefault()
   const sample = eventToCanvasSample(event)
@@ -1867,6 +2060,7 @@ foregroundCanvas.addEventListener('contextmenu', (event: MouseEvent) => {
 })
 
 
+// Convert DOM controls carrying `data-action` into protocol-level UI actions.
 document.addEventListener('click', (event: MouseEvent) => {
   const target = event.target
   if (!(target instanceof Element)) return
@@ -1887,6 +2081,8 @@ document.addEventListener('click', (event: MouseEvent) => {
   sendUiAction(action, fields)
 })
 
+// Convert form submissions carrying `data-action` into protocol-level UI
+// actions instead of letting the browser navigate away.
 document.addEventListener('submit', (event: SubmitEvent) => {
   const target = event.target
   if (!(target instanceof HTMLFormElement)) return
@@ -2023,6 +2219,8 @@ overlayCanvas.addEventListener('wheel', (event: WheelEvent) => {
   invalidateSidePanel()
 }, { passive: false })
 
+// Bring the UI into sync with the current DOM/layout state before the first
+// animation frame.
 updateFullscreenButtonLabel()
 resizeViewport()
 requestAnimationFrame(frame)

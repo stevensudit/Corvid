@@ -373,9 +373,9 @@ private:
     const auto def = findEntityDef(entityName);
     if (!def) return false;
     // Look up initial defender radius.
-    const auto& app_opt = std::get<std::optional<Appearance>>(def->megatuple);
-    if (!app_opt) return false;
-    return !world_.isDefenderPlacementBlocked(pos, app_opt->radius);
+    const auto& def_opt = std::get<std::optional<Defender>>(def->megatuple);
+    if (!def_opt) return false;
+    return !world_.isDefenderPlacementBlocked(pos, def_opt->hitCircleRadius);
   }
 
   // Find `EntityDefinition` by name.
