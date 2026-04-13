@@ -1106,6 +1106,29 @@ function drawRoundedPanelPath(
   ctx.closePath()
 }
 
+// Reinforce the bottom outer corner stroke that sits flush against the viewport
+// edge, where antialiasing can otherwise leave a tiny visible notch.
+function strokeAttachedBottomCorner(
+  ctx: CanvasRenderingContext2D,
+  side: PanelSide,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+): void {
+  const r = Math.min(radius, width / 2, height / 2)
+  const cx = side === 'left' ? x + r : x + width - r
+  const cy = y + height - r
+  ctx.beginPath()
+  if (side === 'left') {
+    ctx.arc(cx, cy, r, Math.PI, Math.PI / 2, true)
+  } else {
+    ctx.arc(cx, cy, r, Math.PI / 2, 0, true)
+  }
+  ctx.stroke()
+}
+
 // Draw a textual side panel such as defender inspection or pending placement.
 function drawSidePanel(ctx: CanvasRenderingContext2D, panel: SidePanelModel): void {
   const width = overlayCanvas.width
@@ -1167,6 +1190,7 @@ function drawSidePanel(ctx: CanvasRenderingContext2D, panel: SidePanelModel): vo
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
   ctx.stroke()
+  strokeAttachedBottomCorner(ctx, panel.side, x, y, panelWidth, panelHeight, cornerRadius)
 
   ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
   ctx.font = `bold ${titleFontSize}px monospace`
@@ -1254,6 +1278,7 @@ function drawBuildMenu(ctx: CanvasRenderingContext2D): void {
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
   ctx.stroke()
+  strokeAttachedBottomCorner(ctx, currentPanelSide, x, y, panelWidth, panelHeight, cornerRadius)
 
   ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
   ctx.font = `bold ${titleFontSize}px monospace`
