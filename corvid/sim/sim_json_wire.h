@@ -194,8 +194,7 @@ struct SimGameStateJson {
         defender->member(json_trusted{"entityName"}, summary.entityName)
             .member(json_trusted{"displayName"}, summary.displayName)
             .member(json_trusted{"flavorText"}, summary.flavorText)
-            .member(json_trusted{"resourceCost"}, summary.resourceCost,
-                std::chars_format::fixed, 1);
+            .member(json_trusted{"resourceCost"}, summary.resourceCost);
         if (auto app = defender->member_object(json_trusted{"appearance"})) {
           app->member(json_trusted{"glyph"},
                  static_cast<uint32_t>(summary.appearance.glyph))
@@ -246,8 +245,7 @@ struct SimGameStateJson {
         item->member(json_trusted{"entityName"}, entry.entityName)
             .member(json_trusted{"displayName"}, entry.displayName)
             .member(json_trusted{"flavorText"}, entry.flavorText)
-            .member(json_trusted{"resourceCost"}, entry.resourceCost,
-                std::chars_format::fixed, 1);
+            .member(json_trusted{"resourceCost"}, entry.resourceCost);
         if (auto app = item->member_object(json_trusted{"appearance"})) {
           app->member(json_trusted{"glyph"},
                  static_cast<uint32_t>(entry.appearance.glyph))

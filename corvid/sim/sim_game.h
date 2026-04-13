@@ -104,8 +104,8 @@ struct EntityDefinition {
   std::string displayName; // Human-readable name.
   int menuOrder{};         // Display order.
   std::string flavorText;  // Description of its capabilities.
-  // NaN means "not for sale" (all invaders default to this).
-  float resourceCost{std::numeric_limits<float>::quiet_NaN()};
+  // `max()` means "not for sale" (all invaders default to this).
+  uint32_t resourceCost{std::numeric_limits<uint32_t>::max()};
   WorldScene::megatuple_t megatuple; // Component template.
 };
 
@@ -120,7 +120,7 @@ struct DefenderSummary {
   std::string displayName;
   int menuOrder{}; // Used for menu items.
   std::string flavorText;
-  float resourceCost{};
+  uint32_t resourceCost{};
   Appearance appearance;    // Extracted from megatuple at build time.
   float totalDamageDealt{}; // Live stats; only valid for selected defenders.
   float totalKills{};
@@ -212,7 +212,7 @@ public:
     waveTick_ = {};
     nextSpawnIndex_ = 0;
     lives_ = 20;
-    resources_ = 100;
+    resources_ = 1000;
     uiState_ = {};
     pendingPlacementIntent_.reset();
     pendingSpawnIntent_.reset();
@@ -254,7 +254,21 @@ public:
           });
       resources_ = resources;
 
-      if (lives_ <= 0) phase_ = GamePhase::game_over;
+      if (lives_ <= 0) {
+        phase_ = GamePhase::game_over;
+      } else {
+        // Wave is over when all enemies have been spawned and none remain.
+        const auto& wave = mapDesign_.waves[currentWave_];
+        if (nextSpawnIndex_ >= wave.enemies.size() &&
+            !world_.hasActiveInvaders())
+        {
+          ++currentWave_;
+          phase_ =
+              (currentWave_ >= mapDesign_.waves.size())
+                  ? GamePhase::victory
+                  : GamePhase::build;
+        }
+      }
     }
     (void)refreshSelectedDefenderState();
     return true;
@@ -270,6 +284,7 @@ public:
   // Player action: start the next wave.
   [[nodiscard]] bool start_wave() {
     if (phase_ != GamePhase::build) return false;
+    resources_ += mapDesign_.waves[currentWave_].resourceInflux;
     phase_ = GamePhase::wave;
     waveTick_ = {};
     nextSpawnIndex_ = 0;
@@ -369,38 +384,52 @@ public:
   }
 
 private:
-  // Determine whether an entity can be placed at a given position. We do not
-  // allow placement over a path or on top of another defender.
-  [[nodiscard]] bool
-  canPlaceDefender(std::string_view entityName, const Position& pos) const {
-    if (phase_ != GamePhase::build) return false;
-    const auto def = findEntityDef(entityName);
-    if (!def) return false;
-    // Look up initial defender radius.
-    const auto& def_opt = std::get<std::optional<Defender>>(def->megatuple);
-    if (!def_opt) return false;
-    return !world_.isDefenderPlacementBlocked(pos, def_opt->hitCircleRadius);
-  }
-
   // Find `EntityDefinition` by name.
   [[nodiscard]] const EntityDefinition* findEntityDef(
       std::string_view entityName) const {
     return find_opt(mapDesign_.entityDefs, entityName);
   }
 
-  // Build `DefenderSummary` for a selected defender by entity name.
+  // Determine whether an entity can be placed at a given position. We do not
+  // allow placement over a path or on top of another defender.
+  [[nodiscard]] bool
+  canPlaceDefender(const EntityDefinition* def, const Position& pos) const {
+    if (!def) return false;
+    if (phase_ != GamePhase::build) return false;
+    // Reject if the player cannot afford this defender.
+    if (resources_ < def->resourceCost) return false;
+    // Look up initial defender radius.
+    const auto& def_opt = std::get<std::optional<Defender>>(def->megatuple);
+    assert(def_opt);
+    return !world_.isDefenderPlacementBlocked(pos, def_opt->hitCircleRadius);
+  }
+
+  // Determine whether a named entity can be placed at a given position.
+  [[nodiscard]] bool
+  canPlaceDefender(std::string_view entityName, const Position& pos) const {
+    return canPlaceDefender(findEntityDef(entityName), pos);
+  }
+
+  // Build `DefenderSummary` for a selected defender by entity definition.
   [[nodiscard]] std::optional<DefenderSummary> buildSelectedDefenderSummary(
-      std::string_view entityName) const {
-    const auto* def = findEntityDef(entityName);
+      const EntityDefinition* def) const {
     if (!def) return std::nullopt;
     const auto& app_opt = std::get<std::optional<Appearance>>(def->megatuple);
-    if (!app_opt || std::isnan(def->resourceCost)) return std::nullopt;
+    assert(app_opt);
+    if (def->resourceCost == std::numeric_limits<uint32_t>::max())
+      return std::nullopt;
     return DefenderSummary{.modified = world_.currentTick(),
         .entityName = def->entityName,
         .displayName = def->displayName,
         .flavorText = def->flavorText,
         .resourceCost = def->resourceCost,
         .appearance = *app_opt};
+  }
+
+  // Build `DefenderSummary` for a selected defender by entity name.
+  [[nodiscard]] std::optional<DefenderSummary> buildSelectedDefenderSummary(
+      std::string_view entityName) const {
+    return buildSelectedDefenderSummary(findEntityDef(entityName));
   }
 
   // Build `DefenderSummary` for a selected defender by `Defender` component.
@@ -422,12 +451,15 @@ private:
     if (pendingSpawnIntent_) {
       const auto& input = *pendingSpawnIntent_;
       const auto parameter = input.parameter();
-      bool spawnAllowed = canPlaceDefender(parameter, {input.x, input.y});
+      auto def = findEntityDef(parameter);
+      auto pos = Position{input.x, input.y};
+      bool spawnAllowed = canPlaceDefender(def, pos);
       if (spawnAllowed) {
-        auto h = world_.spawnEntity(parameter);
-        if (h)
-          *world_.try_get_component<Position>(h.id()) = {input.x, input.y};
-        else
+        auto h = world_.spawnEntity(&def->megatuple);
+        if (h) {
+          *world_.try_get_component<Position>(h.id()) = pos;
+          if (def) resources_ -= def->resourceCost;
+        } else
           spawnAllowed = false;
       }
       uiState_.spawnAllowed = spawnAllowed;
@@ -521,8 +553,10 @@ private:
     menu.clear();
 
     for (const auto& [name, def] : defs) {
-      if (!world_.registerEntity(def.entityName, def.megatuple)) continue;
-      if (std::isnan(def.resourceCost)) continue;
+      if (!world_.registerEntity(def.entityName, def.megatuple))
+        throw std::runtime_error(
+            "Failed to register entity: " + def.entityName);
+      if (def.resourceCost == std::numeric_limits<uint32_t>::max()) continue;
       const auto& app_opt = std::get<std::optional<Appearance>>(def.megatuple);
       menu.push_back({.entityName = def.entityName,
           .displayName = def.displayName,
@@ -573,7 +607,7 @@ private:
     {
       EntityDefinition def;
       def.entityName = "InvaderAlphaBasic";
-      // `resourceCost` stays NaN (not for sale).
+      // `resourceCost` stays `max()` (not for sale).
       auto& tpl = def.megatuple;
       std::get<std::optional<Position>>(tpl) = Position{};
       std::get<std::optional<Appearance>>(
@@ -596,7 +630,7 @@ private:
       def.displayName = "AoE Defender";
       def.menuOrder = 1;
       def.flavorText = "Damages all enemies in range.";
-      def.resourceCost = 50.F;
+      def.resourceCost = 50U;
       auto& tpl = def.megatuple;
       std::get<std::optional<Position>>(tpl) = Position{};
       std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'A',
@@ -625,7 +659,7 @@ private:
       def.displayName = "Shooter";
       def.menuOrder = 2;
       def.flavorText = "Fires projectiles at a single target.";
-      def.resourceCost = 75.F;
+      def.resourceCost = 75U;
       auto& tpl = def.megatuple;
       std::get<std::optional<Position>>(tpl) = Position{};
       std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'S',
@@ -660,7 +694,7 @@ private:
       def.menuOrder = 3;
       def.flavorText =
           "Instantly damages a single target with an infrared laser beam.";
-      def.resourceCost = 100.F;
+      def.resourceCost = 100U;
       auto& tpl = def.megatuple;
       std::get<std::optional<Position>>(tpl) = Position{};
       std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'L',
@@ -675,7 +709,7 @@ private:
           .attackRadius = 200.F,
           .rangeColor = 0xFFFF0000,
           .attackDamage = 30.F,
-          .cooldown = WorldTick{45},
+          .cooldown = WorldTick{25},
           .nextAttack = WorldTick{0}};
       std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
       std::get<std::optional<Health>>(tpl) =
@@ -723,8 +757,23 @@ private:
     // Wave definitions.
     {
       WaveDefinition wave;
+      wave.resourceInflux = 0; // Starting resources come from resetMap.
       for (uint32_t i = 0; i < 20; ++i)
         wave.enemies.push_back({WaveTick{i * 20}, "InvaderAlphaBasic"});
+      mapDesign_.waves.push_back(std::move(wave));
+    }
+    {
+      WaveDefinition wave;
+      wave.resourceInflux = 150; // Bonus resources at the start of wave 2.
+      for (uint32_t i = 0; i < 35; ++i)
+        wave.enemies.push_back({WaveTick{i * 15}, "InvaderAlphaBasic"});
+      mapDesign_.waves.push_back(std::move(wave));
+    }
+    {
+      WaveDefinition wave;
+      wave.resourceInflux = 250; // Bonus resources at the start of wave 3.
+      for (uint32_t i = 0; i < 45; ++i)
+        wave.enemies.push_back({WaveTick{i * 10}, "InvaderAlphaBasic"});
       mapDesign_.waves.push_back(std::move(wave));
     }
 
@@ -751,8 +800,8 @@ private:
   // checked against `wave_tick_`.
   size_t nextSpawnIndex_{};
 
-  int lives_{20};
-  int resources_{100};
+  int16_t lives_{20};
+  uint32_t resources_{100};
   UiState uiState_;
 
   std::optional<UiCanvasInput> pendingPlacementIntent_;

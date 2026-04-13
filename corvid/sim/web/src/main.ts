@@ -372,6 +372,7 @@ let currSnapshotTime = 0
 let snapshotIntervalMs = 50
 let lives = 0
 let resources = 0
+let currentWave = 0
 let latestTick: number | null = null
 let measuredTickRate = 0
 let averageFrameBytes = 0
@@ -968,7 +969,20 @@ function drawFps(ctx: CanvasRenderingContext2D): void {
   ctx.restore()
 }
 
-// Draw the top HUD bar that displays lives and resources.
+// Return the wave-status text for the center of the HUD based on phase.
+// `currentWave` is 0-based; wave numbers shown to the player are 1-based.
+function getWaveStatusText(): string {
+  const waveNum = currentWave + 1
+  switch (currentPhase) {
+    case 'build':    return `Prepare for Wave ${waveNum}`
+    case 'wave':     return `Wave ${waveNum}`
+    case 'game_over': return 'Game Over'
+    case 'victory':  return 'Invaders Thwarted!'
+    default:         return ''
+  }
+}
+
+// Draw the top HUD bar that displays lives, resources, and wave status.
 function drawHud(ctx: CanvasRenderingContext2D): void {
   ctx.save()
   ctx.font = '20px monospace'
@@ -983,7 +997,15 @@ function drawHud(ctx: CanvasRenderingContext2D): void {
   ctx.fillRect(0, 0, hudCanvas.width, barHeight)
 
   ctx.fillStyle = 'white'
+  ctx.textAlign = 'left'
   ctx.fillText(`${livesLabel}   ${resourcesLabel}`, pad, pad)
+
+  const centerText = getWaveStatusText()
+  if (centerText) {
+    ctx.textAlign = 'center'
+    ctx.fillText(centerText, hudCanvas.width / 2, pad)
+  }
+
   ctx.restore()
 }
 
@@ -1819,6 +1841,7 @@ function resetClientWorldState(): void {
   snapshotIntervalMs = 50
   lives = 0
   resources = 0
+  currentWave = 0
   latestTick = null
   measuredTickRate = 0
   averageFrameBytes = 0
@@ -1877,6 +1900,7 @@ function applyWorldDelta(delta: WorldDelta): void {
   finishSnapshotUpdate()
   latestTick = delta.tick
   updateMeasuredTickRate(now, delta.tick)
+  currentWave = delta.currentWave
   lives = delta.lives
   resources = delta.resources
   applyUiState(delta.uiState)
@@ -1894,6 +1918,7 @@ function isWorldDelta(value: unknown): value is WorldDelta {
 
   return (
     typeof v.tick === 'number' &&
+    typeof v.currentWave === 'number' &&
     Array.isArray(v.upserts) &&
     Array.isArray(v.erased) &&
     typeof v.lives === 'number' &&

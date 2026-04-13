@@ -190,8 +190,11 @@ public:
   //
   // If `loop` is non-null, the server shares it; otherwise it constructs
   // and owns an `epoll_loop_runner`. If `wheel` is non-null, the server shares
-  // it; otherwise it constructs and owns a `timing_wheel_runner`. Returns null
-  // if the listen socket cannot be created.
+  // it; otherwise it constructs and owns a `timing_wheel_runner`.
+  //
+  // Throws `std::invalid_argument` if `request_timeout` or `write_timeout`
+  // exceeds the supplied wheel's schedulable range. Returns null if the
+  // listen socket cannot be created.
   [[nodiscard]] static http_server_ptr create(const net_endpoint& endpoint,
       const configure_fn& configure, epoll_loop_ptr loop = nullptr,
       timing_wheel_ptr wheel = nullptr, duration_t request_timeout = 30s,
@@ -211,6 +214,20 @@ public:
       self->wheel_ = self->wheel_runner_->wheel();
     } else
       self->wheel_ = std::move(wheel);
+
+    const auto max_delay = self->wheel_->max_delay();
+    if (request_timeout > 0s && request_timeout > max_delay) {
+      throw std::invalid_argument{std::format(
+          "http_server: request_timeout {}ms exceeds timing "
+          "wheel max delay {}ms",
+          request_timeout.count(), max_delay.count())};
+    }
+    if (write_timeout > 0s && write_timeout > max_delay) {
+      throw std::invalid_argument{std::format(
+          "http_server: write_timeout {}ms exceeds timing "
+          "wheel max delay {}ms",
+          write_timeout.count(), max_delay.count())};
+    }
 
     self->read_timeout_ = request_timeout;
     self->write_timeout_ = write_timeout;

@@ -82,9 +82,9 @@ constexpr auto corvid::enums::registry::enum_spec_v<corvid::sim::TargetMode> =
 
 namespace corvid { inline namespace sim {
 
-// Conversions between Cartesian coordinates (x, y) and Euclidean vectors in
-// polar form (length, direction). Direction is in radians, with 0 along the
-// positive x-axis and increasing counter-clockwise.
+// Conversions between Cartesian coordinates (x, y), and Euclidean vectors
+// represented in polar form (length, direction). Direction is in radians, with
+// 0 along the positive x-axis and increasing counter-clockwise.
 namespace convert {
 // Convert Cartesian coordinates to a Euclidean vector.
 [[nodiscard]] constexpr std::pair<float, float>
@@ -103,9 +103,9 @@ PolarToCartesian(float length, float direction) noexcept {
 }
 } // namespace convert
 
-// Linear interpolation, where t is the interpolation factor in [0,1]. Returns
-// a when t=0 and b when t=1. Can also be used for extrapolation when t is
-// outside this range.
+// Linear interpolation, where `t` is the interpolation factor in `[0,1]`.
+// Returns a when `t==0` and b when `t==1`. Can also be used for extrapolation
+// when `t` is outside this range.
 [[nodiscard]] constexpr float lerp(float a, float b, float t) noexcept {
   return a + ((b - a) * t);
 }
@@ -132,24 +132,49 @@ struct Velocity {
   }
 };
 
+// Boundaries of the simulation world, where `(0,0)` is the center.
 struct SimWorldBounds {
+  using WorldReg = entity_registry<WorldTick>;
+  using WorldSid = WorldReg::store_id_t;
+  using EntityId = WorldReg::id_t;
+  using Handle = WorldReg::handle_t;
   static constexpr float widthOfWorld = 1920.F;
   static constexpr float heightOfWorld = 1080.F;
   static constexpr float half_w = widthOfWorld * 0.5F;
   static constexpr float half_h = heightOfWorld * 0.5F;
 
-  // Is the position within the bounds of the world.
+  // Whether the position is within the bounds of the world.
   [[nodiscard]] static constexpr bool isInBounds(const Position& pos) {
     return pos.x >= -half_w && pos.x <= half_w && pos.y >= -half_h &&
            pos.y <= half_h;
   }
 
-  // Is the position within the bounds of the world, taking a radius into
-  // account.
+  // Whether a radius around the position is within the bounds of the world.
   [[nodiscard]] static constexpr bool
   isInBounds(const Position& pos, float radius) {
     return pos.x - radius >= -half_w && pos.x + radius <= half_w &&
            pos.y - radius >= -half_h && pos.y + radius <= half_h;
+  }
+
+  // Clamp `pos` to `[-limit/2, +limit/2]` and, if it was out of range,
+  // negate `vel` so the entity bounces off that boundary wall. Return whether
+  // it was in bounds.
+  // TODO: Is there an off-by-one error here? If the world is 1920 wide, the
+  // actual range isn't [-960, +960], it's [-960, +960). Do we need to deal
+  // with this? It depends on how the client scales it, right?
+  [[nodiscard]] constexpr static bool
+  bounceFromBoundary(float& pos, float& vel, float limit) {
+    const float half = limit / 2.F;
+    if (pos < -half) {
+      pos = -half;
+      vel = -vel;
+      return false;
+    } else if (pos > half) {
+      pos = half;
+      vel = -vel;
+      return false;
+    }
+    return true;
   }
 };
 
@@ -168,10 +193,10 @@ struct PathJoints {
 };
 
 // `SegmentedPath` is built from a `PathJoints` and consists of pre-computed
-// segments with cumulative distances, enabling efficient runtime mapping from
-// distance traveled to world position. Essentially, it's an indexed vertex
-// buffer for the path geometry.
-struct SegmentedPath {
+// segments with cumulative distances and angles, enabling efficient runtime
+// mapping from distance traveled to world position. Essentially, it's an
+// indexed vertex buffer for the path geometry.
+struct SegmentedPath: private SimWorldBounds {
   struct Segment {
     Position front;
     Position back;
@@ -185,8 +210,9 @@ struct SegmentedPath {
   float width{};
 
   // Return the segment that contains `progress`, clamping `progress` to
-  // `[0, totalLength]` in place. Assumes `segments` is non-empty.
+  // `[0, totalLength]` in place.
   [[nodiscard]] const Segment& segmentAtProgress(float& progress) const {
+    assert(segments.size());
     progress = std::clamp(progress, 0.F, totalLength);
     auto it = std::ranges::upper_bound(segments, progress, {},
         &Segment::cumulativeStart);
@@ -194,12 +220,10 @@ struct SegmentedPath {
     return *it;
   }
 
-  // Map a distance traveled (`progress`) to a world-space `Position`.
+  // Map `progress`, a distance traveled, to a world-space `Position`.
   // `progress` is clamped to `[0, totalLength]`.
-  // Returns the origin if `segments` is empty.
   [[nodiscard]] Position
   calculatePositionFromProgress(float progress, float previousProgress) const {
-    if (segments.empty()) return {};
     const auto& seg = segmentAtProgress(progress);
 
     // If `previousProgress` was on an earlier segment, emit the joint position
@@ -217,32 +241,33 @@ struct SegmentedPath {
   }
 
   // Return the direction angle (radians) of the segment containing
-  // `progress`. Returns `NaN` if `segments` is empty.
+  // `progress`.
   [[nodiscard]] float angleAtProgress(float progress) const {
-    if (segments.empty()) return std::numeric_limits<float>::quiet_NaN();
+    assert(segments.size());
     return segmentAtProgress(progress).angle;
   }
 
   // Convert authored `PathJoints` into a `SegmentedPath`.
   [[nodiscard]] static SegmentedPath fromJoints(const PathJoints& p) {
-    if (p.joints.size() < 2) return {};
+    assert(p.joints.size() >= 2);
+
     SegmentedPath sp;
     sp.width = p.width;
     sp.segments.reserve(p.joints.size() - 1);
     float cumulative{};
 
-    for (const auto& joint : p.joints)
-      if (!SimWorldBounds::isInBounds(joint.pos))
-        throw std::runtime_error("Path joint lies outside the world bounds");
-
     for (std::size_t i = 0; i + 1 < p.joints.size(); ++i) {
       const Position& front = p.joints[i].pos;
       const Position& back = p.joints[i + 1].pos;
+      assert(isInBounds(front));
+      assert(isInBounds(back));
+
       const float dx = back.x - front.x;
       const float dy = back.y - front.y;
       const float len = std::hypot(dx, dy);
       assert(len != 0.F);
       const float angle = std::atan2(dy, dx);
+
       sp.segments.push_back({front, back, len, cumulative, angle});
       cumulative += len;
     }
@@ -252,8 +277,9 @@ struct SegmentedPath {
 };
 
 // Path-following component. Typically part of an invader archetype, but may
-// also apply to defenders. On each tick, `progress` advances by `speed`; the
-// entity's `Position` is re-derived from the segmented path geometry.
+// in principle apply to defenders. On each tick, `progress` advances by
+// `speed`; the entity's `Position` is re-derived from the segmented path
+// geometry.
 struct Pathing {
   PathId pathId{};  // Index into `sim_world::paths_`.
   float progress{}; // Distance traveled along the path so far.
@@ -288,7 +314,7 @@ struct Health {
 struct VisualEffects {
   WorldTick modified{WorldTick::invalid}; // Tick when last modified.
   uint32_t selectionColor{};              // RGBA.
-  float rangeRadius{};
+  float rangeRadius{}; // Does not affect physics or game logic; display-only.
   uint32_t rangeColor{}; // RGBA.
   uint32_t flashColor{}; // RGBA.
   WorldTick flashExpiry{WorldTick::invalid};
@@ -300,11 +326,11 @@ struct VisualEffects {
 struct Defender {
   uint16_t entityTemplateIndex{std::numeric_limits<uint16_t>::max()};
   float hitCircleRadius{}; // Hit detection, as opposed to appearance.
-  float attackRadius{};
-  uint32_t rangeColor{}; // RGBA.
-  float attackDamage{};  // Interpretation depends on the defender type.
-  WorldTick cooldown{};
-  WorldTick nextAttack{}; // Updated when the defender attacks.
+  float attackRadius{};    // Used for physics and game logic.
+  uint32_t rangeColor{};   // RGBA.
+  float attackDamage{};    // Interpretation depends on the defender type.
+  WorldTick cooldown{};    // Time between attacks.
+  WorldTick nextAttack{};  // Updated when the defender attacks.
   TargetMode targetMode{TargetMode::first};
 };
 
@@ -335,14 +361,15 @@ struct DefenderHitscan {
 // field stores the TTL. Once instantiated, added to the current tick to gets
 // its final moment.
 struct DefenderBullet {
+  SimWorldBounds::EntityId shooterId{SimWorldBounds::EntityId::invalid};
   float speed{};
-  float directDamage{};
-  float damageOverTime{};
-  float splashRadius{};
+  float directDamage{};     // Damage upon impact.
+  float damageOverTime{};   // Damage applied over time.
+  float splashRadius{};     // Radius for area-of-effect damage.
   float directDamageType{}; // Eventually an enum.
   float dotDamageType{};    // Eventually an enum.
   int projectileType{};     // Eventually an enum.
-  WorldTick expiry{};
+  WorldTick expiry{};       // Expiration tick of the projectile.
 };
 
 // Shooter component for defenders that spawn projectiles. The
@@ -357,8 +384,8 @@ struct DefenderShooter {
 // Invader component, shared across all invaders.
 struct Invader {
   uint16_t entityTemplateIndex{std::numeric_limits<uint16_t>::max()};
-  float hitCircleRadius{}; // Hit detection, as opposed to appearance.
-  int bounty{10}; // Resources awarded to the player for killing this invader.
+  float hitCircleRadius{}; // Hit detection, used for physics and game logic.
+  uint32_t bounty{10};     // Resources awarded for killing this invader.
 };
 
 // ECS types for the simulation world.
@@ -395,8 +422,7 @@ struct Invader {
 //                                (Position + Appearance + VisualEffects +
 //                                Defender + DefenderStats + Health +
 //                                DefenderHitscan)
-using WorldReg = entity_registry<WorldTick>;
-using WorldSid = WorldReg::store_id_t;
+using WorldReg = SimWorldBounds::WorldReg;
 using ArchInvaderAlpha = archetype_storage<WorldReg,
     std::tuple<Position, Appearance, VisualEffects, Pathing, Invader, Health>>;
 using ArchDefenderAoe = archetype_storage<WorldReg,
@@ -422,9 +448,6 @@ using WorldScene = archetype_scene<WorldReg, ArchInvaderAlpha, ArchDefenderAoe,
 // starting from any past tick.
 class SimWorld: public SimWorldBounds {
 public:
-  using EntityId = WorldReg::id_t;
-  using Handle = WorldReg::handle_t;
-
   static constexpr WorldSid sidStaging{0};
   static constexpr WorldSid sidInvaderAlpha{1};
   static constexpr WorldSid sidDefenderAoe{2};
@@ -432,6 +455,7 @@ public:
   static constexpr WorldSid sidDefenderShooter{4};
   static constexpr WorldSid sidDefenderHitscan{5};
 
+  // Clear state.
   void clear() {
     scene_.clear();
     paths_.clear();
@@ -459,19 +483,21 @@ public:
         static_cast<uint16_t>(entityTemplateLabels_.size() - 1);
 
     // Store index in component.
-    auto& defender = std::get<std::optional<Defender>>(value);
-    if (defender) defender->entityTemplateIndex = entityTemplateIndex;
-    auto& invader = std::get<std::optional<Invader>>(value);
-    if (invader) invader->entityTemplateIndex = entityTemplateIndex;
+    if (auto& defender = std::get<std::optional<Defender>>(value); defender)
+      defender->entityTemplateIndex = entityTemplateIndex;
+    else if (auto& invader = std::get<std::optional<Invader>>(value); invader)
+      invader->entityTemplateIndex = entityTemplateIndex;
     return true;
   }
 
-  // Spawn an entity by label. Looks up the pre-registered template, stamps
-  // `tick_` into any `modified` fields, marks the entity dirty, and returns
-  // its handle. Returns an invalid handle if the label is unknown or the
-  // template bitmap does not match any archetype.
+  // Spawn an entity by label. Looks up the pre-registered template.
   [[nodiscard]] Handle spawnEntity(std::string_view label) {
-    auto megatuple = find_opt(entityTemplates_, label);
+    return spawnEntity(find_opt(entityTemplates_, label));
+  }
+
+  // Spawn an entity by definition. Stamps `tick_` into any `modified` fields,
+  // marks the entity dirty, and returns its handle.
+  [[nodiscard]] Handle spawnEntity(const WorldScene::megatuple_t* megatuple) {
     if (!megatuple) return {};
     auto h =
         scene_.store_new_entity_from_mega({WorldTick::invalid}, *megatuple);
@@ -582,11 +608,29 @@ public:
     return scene_.registry().id_from_handle(h);
   }
 
-  // Find an entity at a given position, if any. Uses simple bounding box.
+  // Find an entity at a given position, if any. Uses simple bounding box,
+  // suitable for UI, not hit detection.
   [[nodiscard]] EntityId findEntityAt(const Position& pos) const {
     EntityId found_id = EntityId::invalid;
     scene_.for_each<Position, Appearance>([&](auto id, auto comps) {
       const auto& [epos, app] = comps;
+      if (std::abs(epos.x - pos.x) >= app.radius ||
+          std::abs(epos.y - pos.y) >= app.radius)
+        return true;
+
+      found_id = id;
+      return false;
+    });
+
+    return found_id;
+  }
+
+  // Find ID of the defender at the given position, if any. Uses simple
+  // bounding box, suitable for UI, not hit detection.
+  [[nodiscard]] EntityId findDefenderAt(const Position& pos) const {
+    auto found_id = EntityId::invalid;
+    scene_.for_each<Position, Appearance, Defender>([&](auto id, auto comps) {
+      const auto& [epos, app, _] = comps;
       if (std::abs(epos.x - pos.x) >= app.radius ||
           std::abs(epos.y - pos.y) >= app.radius)
         return true;
@@ -604,25 +648,8 @@ public:
         .try_get_components<Position, Appearance, VisualEffects, Defender>(id);
   }
 
-  // Find ID of the defender at the given position, if any. Uses simple
-  // bounding box.
-  [[nodiscard]] EntityId findDefenderAt(const Position& pos) const {
-    auto found_id = EntityId::invalid;
-    scene_.for_each<Position, Appearance, Defender>([&](auto id, auto comps) {
-      const auto& [epos, app, _] = comps;
-      if (std::abs(epos.x - pos.x) >= app.radius ||
-          std::abs(epos.y - pos.y) >= app.radius)
-        return true;
-
-      found_id = id;
-      return false;
-    });
-
-    return found_id;
-  }
-
   // Check if an object at `pos` with a given `radius` overlaps any
-  // defenders. Uses for placement.
+  // defenders. Used for placement.
   [[nodiscard]] bool
   doesOveralapDefenders(const Position& pos, float radius) const {
     bool overlaps = false;
@@ -630,6 +657,7 @@ public:
       const auto& [defender_pos, defender_app, _] = comps;
       if (!circlesOverlap(pos, radius, defender_pos, defender_app.radius))
         return true;
+
       overlaps = true;
       return false;
     });
@@ -641,15 +669,15 @@ public:
     for (const auto& path : paths_) {
       const float expanded_radius = radius + (path.width * 0.5F);
       const float expanded_radius_sq = expanded_radius * expanded_radius;
-      for (const auto& seg : path.segments) {
+      for (const auto& seg : path.segments)
         if (distanceSquaredToSegment(pos, seg.front, seg.back) <=
             expanded_radius_sq)
           return true;
-      }
     }
     return false;
   }
 
+  // Whether defender placement at `pos` with a given `radius` is blocked.
   [[nodiscard]] bool
   isDefenderPlacementBlocked(const Position& pos, float radius) const {
     return !isInBounds(pos, radius) || doesOveralapDefenders(pos, radius) ||
@@ -662,7 +690,9 @@ public:
   [[nodiscard]] bool next() {
     (void)updateMovers();
     (void)updatePathFollowers();
+    // TODO: Add regen.
     (void)defendersAttack();
+
     return true;
   }
 
@@ -678,29 +708,37 @@ public:
   // entities).
   [[nodiscard]] std::size_t size() const { return scene_.size(); }
 
+  // Whether any invader entities are currently active (i.e. not yet
+  // tombstoned). Call after `resolveEscapees` and `resolveKills` so that
+  // entities removed this tick are not counted.
+  [[nodiscard]] bool hasActiveInvaders() const {
+    bool found = false;
+    scene_.for_each<Invader>([&found](auto, auto) {
+      found = true;
+      return false; // Stop on first match.
+    });
+    return found;
+  }
+
   // Destructively extract upserts and erasures.
   //
   // Call back `cbUpserts(EntityId, Position, Appearance, VisualEffects)` for
   // each changed entity that has a `Position` and `Appearance` and has
   // changed since the last tick, and `cbErased(EntityId)` for each entity
   // that has been erased since the last tick. The visual effects pointer is
-  // null for archetypes that do not carry that component. These calls will
+  // null for archetypes that do not carry that component. These callbacks will
   // be interleaved.
   [[nodiscard]] bool
   extractUpdatedEntities(auto&& cbUpserts, auto&& cbErased) {
     static constexpr VisualEffects nfx;
     auto& reg = scene_.registry();
     for (auto id : updatedEntities_) {
-      if (!reg.is_valid(id)) continue;
-      const auto [pos, app] =
-          scene_.try_get_components<Position, Appearance>(id);
+      const auto [pos, app, fx] =
+          scene_.try_get_some_components<Position, Appearance, VisualEffects>(
+              id);
       if (pos && app) {
-        const auto* fx = &nfx;
-        auto maybeFx = scene_.try_get_component<VisualEffects>(id);
-        if (maybeFx) fx = maybeFx;
-        (void)cbUpserts(id, *pos, *app, *fx);
-      } else {
-        if (reg.get_location(id).store_id != sidStaging) continue;
+        (void)cbUpserts(id, *pos, *app, fx ? *fx : nfx);
+      } else if (reg.get_location(id).store_id == sidStaging) {
         (void)cbErased(id);
         (void)scene_.erase_entity(id);
       }
@@ -712,18 +750,17 @@ public:
   // Call back `cbPath(PathId, Position)` for all joints of the path
   // identified by `pathId`.
   [[nodiscard]] bool obtainPath(auto&& cbPath, PathId pathId) const {
-    if (pathId >= paths_.size_as_enum()) return false;
+    assert(pathId < paths_.size_as_enum());
     const auto& sp = paths_[pathId];
-    for (const auto& seg : sp.segments) cbPath(pathId, Position{seg.front});
-    if (!sp.segments.empty())
-      cbPath(pathId, Position{sp.segments.back().back});
+    for (const auto& seg : sp.segments) cbPath(pathId, seg.front);
+    if (!sp.segments.empty()) cbPath(pathId, sp.segments.back().back);
     return true;
   }
 
   // Call back `cbPath(PathId, Position)` for all joints of all paths.
   [[nodiscard]] bool obtainPaths(auto&& cbPath) const {
     for (PathId pathId{0}; pathId < paths_.size_as_enum(); ++pathId)
-      if (!obtainPath(cbPath, pathId)) return false;
+      (void)obtainPath(cbPath, pathId);
     return true;
   }
 
@@ -738,36 +775,30 @@ public:
     for (auto id : pathEscapees_) {
       if (!scene_.registry().is_valid(id)) continue;
       auto [pos, pf] = scene_.try_get_components<Position, Pathing>(id);
-      if (!pos || !pf) continue;
-      if (!cbEscapee(id, *pos, *pf)) continue;
-      (void)tombstoneEntity(id);
+      if (pos && cbEscapee(id, *pos, *pf)) (void)tombstoneEntity(id);
     }
     pathEscapees_.clear();
     return true;
   }
 
   // Resolve pending kills by calling `cbKill(EntityId, const Position&, const
-  // Invader&)` for each. If `cbKill` returns true the entity is tombstoned;
-  // if false it is left alive so the caller can migrate it (e.g. to a
+  // Invader&)` for each. If `cbKill` returns true, the entity is tombstoned;
+  // if false, it is left alive so the caller can migrate it (e.g. to a
   // transient death animation).
   //
   // Destructively iterates the pending-kills list.
   [[nodiscard]] bool resolveKills(auto&& cbKill) {
     for (auto id : pendingKills_) {
-      if (!scene_.registry().is_valid(id)) continue;
       auto [pos, inv] = scene_.try_get_components<Position, Invader>(id);
-      if (!pos || !inv) continue;
-      if (!cbKill(id, *pos, *inv)) continue;
-      (void)tombstoneEntity(id);
+      if (pos && cbKill(id, *pos, *inv)) (void)tombstoneEntity(id);
     }
     pendingKills_.clear();
     return true;
   }
 
-  // Marks an entity as dirty so that it will be included in the next delta
+  // Mark an entity as dirty so that it will be included in the next delta
   // snapshot.
   [[nodiscard]] bool markDirty(EntityId id) {
-    // If it's been deleted, it's already dirty.
     if (!scene_.registry().is_valid(id)) return false;
     auto& last_updated = scene_.registry()[id];
     if (last_updated != tick_) {
@@ -779,10 +810,10 @@ public:
   }
 
   // Mark all entities dirty. When `update_strategy::incremental`, marks
-  // entities for extraction only. When `update_strategy::full`, also stamps
-  // `Appearance` and `VisualEffects` `modified` fields with `tick_` so the
-  // next extraction includes them. Must be called before `tick()` so
-  // `markDirty`'s deduplication check (`last_updated == tick_`) is valid.
+  // entities only. When `update_strategy::full`, also stamps `Appearance` and
+  // `VisualEffects` `modified` fields with `tick_` so the next extraction
+  // includes them. Must be called before `tick()` so `markDirty`'s
+  // deduplication check (`last_updated == tick_`) is valid.
   [[nodiscard]] bool markAllDirty(
       update_strategy strategy = update_strategy::incremental) {
     scene_.registry().for_each([&](auto id, auto&) {
@@ -792,15 +823,16 @@ public:
       (void)markDirty(id);
       if (strategy == update_strategy::incremental) return true;
 
-      if (auto app = scene_.try_get_component<Appearance>(id))
-        app->modified = tick_;
-      if (auto effects = scene_.try_get_component<VisualEffects>(id))
-        effects->modified = tick_;
+      auto [app, fx] =
+          scene_.try_get_some_components<Appearance, VisualEffects>(id);
+      if (app) app->modified = tick_;
+      if (fx) fx->modified = tick_;
       return true;
     });
     return true;
   }
 
+  // Calculate squared distance between two positions.
   static constexpr float
   distanceSquared(const Position& a, const Position& b) {
     const float dx = a.x - b.x;
@@ -808,12 +840,15 @@ public:
     return (dx * dx) + (dy * dy);
   }
 
+  // Determine if two circles overlap.
   static constexpr bool circlesOverlap(const Position& posA, float radiusA,
       const Position& posB, float radiusB) {
     const float r = radiusA + radiusB;
     return distanceSquared(posA, posB) <= r * r;
   }
 
+  // Calculate the squared distance from a point to the closest point on a line
+  // segment.
   static constexpr float distanceSquaredToSegment(const Position& point,
       const Position& segA, const Position& segB) {
     const float dx = segB.x - segA.x;
@@ -847,9 +882,9 @@ private:
   // components as `entityTemplateIndex_`.
   std::vector<std::string> entityTemplateLabels_;
 
-  // Logically erases an entity, adding it to the dirty list.
+  // Move an entity to staging to tombstone it, adding it to the dirty list so
+  // that it will show up as a deletion.
   [[nodiscard]] bool tombstoneEntity(EntityId id) {
-    // Can't kill the dead.
     if (!scene_.registry().is_valid(id)) return false;
     (void)markDirty(id);
     return scene_.remove_entity(id);
@@ -880,8 +915,8 @@ private:
       pos.x += vel.vx;
       pos.y += vel.vy;
 
-      bounceFromBoundary(pos.x, vel.vx, widthOfWorld);
-      bounceFromBoundary(pos.y, vel.vy, heightOfWorld);
+      (void)bounceFromBoundary(pos.x, vel.vx, widthOfWorld);
+      (void)bounceFromBoundary(pos.y, vel.vy, heightOfWorld);
       return true;
     });
 
@@ -1170,22 +1205,6 @@ private:
 
   [[nodiscard]] static constexpr bool isVisibleColor(uint32_t color) noexcept {
     return (color & 0xFFU) != 0U;
-  }
-
-  // Clamp `pos` to `[-limit/2, +limit/2]` and, if it was out of range,
-  // negate `vel` so the entity bounces off that boundary wall.
-  // TODO: Is there an off-by-one error here? If the world is 1920 wide, the
-  // actual range isn't [-960, +960], it's [-960, +960). Do we need to deal
-  // with this? It depends on how the client scales it, right?
-  static void bounceFromBoundary(float& pos, float& vel, float limit) {
-    const float half = limit / 2.F;
-    if (pos < -half) {
-      pos = -half;
-      vel = -vel;
-    } else if (pos > half) {
-      pos = half;
-      vel = -vel;
-    }
   }
 };
 }} // namespace corvid::sim

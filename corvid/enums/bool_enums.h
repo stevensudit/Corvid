@@ -79,4 +79,8 @@ enum class exclusivity : bool { exclusive = false, shared = true };
 // Whether to perform a full update or an incremental update.
 enum class update_strategy : bool { full = false, incremental = true };
 
+// Whether the text is already validated as correct (`trusted`) or needs
+// validation and possible encoding (`untrusted`).
+enum class text_validation : bool { untrusted = false, trusted = true };
+
 }}} // namespace corvid::enums::bool_enums

@@ -29,12 +29,14 @@
 #include <utility>
 #include <vector>
 
+#include "../enums/bool_enums.h"
 #include "../strings/concat_join.h"
 #include "../strings/conversion.h"
 #include "../strings/trimming.h"
 
 // Strict JSON parser, non-owning value views, and compact JSON writer.
 namespace corvid { inline namespace proto { inline namespace json {
+using namespace corvid::enums::bool_enums;
 
 size_t npos = std::string_view::npos;
 
@@ -1058,10 +1060,12 @@ class json_writer {
   template<typename Begin, typename End>
   class scoped_writer {
   public:
-    constexpr scoped_writer(json_writer& writer, Begin&& begin, End&& end)
+    constexpr explicit scoped_writer(json_writer& writer, Begin&& begin,
+        End&& end)
         : writer_{&writer}, end_{std::forward<End>(end)} {
       std::forward<Begin>(begin)(*writer_);
     }
+    constexpr explicit scoped_writer(json_writer&&, Begin&&, End&&) = delete;
 
     scoped_writer(const scoped_writer&) = delete;
     scoped_writer(const scoped_writer&&) = delete;
@@ -1127,6 +1131,7 @@ class json_writer {
 
 public:
   explicit constexpr json_writer(Target& target) : target_{target} {}
+  explicit constexpr json_writer(Target&& target) = delete;
 
   [[nodiscard]] constexpr Target& target() noexcept { return target_; }
 
@@ -1168,12 +1173,12 @@ public:
   template<StringViewConvertible S>
   requires(!SameAs<json_trusted, S>)
   constexpr json_writer& key(const S& key_text) {
-    write_key(std::string_view{key_text}, false);
+    write_key(std::string_view{key_text}, text_validation::untrusted);
     return *this;
   }
 
   constexpr json_writer& key(json_trusted key_text) {
-    write_key(key_text.value, true);
+    write_key(key_text.value, text_validation::trusted);
     return *this;
   }
 
@@ -1210,13 +1215,13 @@ public:
   requires(!SameAs<json_trusted, S>)
   constexpr json_writer& value(const S& s) {
     before_value();
-    write_quoted(std::string_view{s}, false);
+    write_quoted(std::string_view{s}, text_validation::untrusted);
     return *this;
   }
 
   constexpr json_writer& value(json_trusted s) {
     before_value();
-    write_quoted(s.value, true);
+    write_quoted(s.value, text_validation::trusted);
     return *this;
   }
 
@@ -1283,22 +1288,24 @@ private:
   }
 
   // Emit an escaped or trusted object key followed by `:`.
-  constexpr void write_key(std::string_view key_text, bool trusted) {
+  constexpr void write_key(std::string_view key_text,
+      text_validation validated = text_validation::untrusted) {
     if (stack_.empty()) return;
     auto& top = stack_.back();
     if (top.kind != frame_kind::object || top.expect_value) return;
 
     if (!top.first) strings::append(target_, ',');
     top.first = false;
-    write_quoted(key_text, trusted);
+    write_quoted(key_text, validated);
     strings::append(target_, ':');
     top.expect_value = true;
   }
 
   // Emit one quoted JSON string, escaping unless explicitly trusted.
-  constexpr void write_quoted(std::string_view text, bool trusted) {
+  constexpr void write_quoted(std::string_view text,
+      text_validation validated = text_validation::untrusted) {
     strings::append(target_, '"');
-    if (trusted)
+    if (validated == text_validation::trusted)
       strings::append(target_, text);
     else
       strings::append_escaped(target_, text);

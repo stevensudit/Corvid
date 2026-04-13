@@ -114,6 +114,7 @@ export interface WorldDelta {
   tick: number
   upserts: EntityUpsert[]
   erased: number[]
+  currentWave: number
   lives: number
   resources: number
   phase: string

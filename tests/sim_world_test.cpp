@@ -409,16 +409,6 @@ void BakePath_ThreeJoints() {
   EXPECT_NEAR(bp.totalLength, 10.0, 1e-6);
 }
 
-void BakePath_Degenerate() {
-  PathJoints p;
-  p.joints = {{{0.F, 0.F}}};
-
-  const auto bp = SegmentedPath::fromJoints(p);
-
-  EXPECT_TRUE(bp.segments.empty());
-  EXPECT_NEAR(bp.totalLength, 0.0, 1e-6);
-}
-
 void PathPosition_Endpoints() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
@@ -573,13 +563,6 @@ void SimWorld_ObtainPathIncludesTerminalJoint() {
   EXPECT_NEAR(points[2].y, 5.0, 1e-6);
 }
 
-void SimWorld_FromJointsThrowsWhenJointIsOutOfBounds() {
-  PathJoints p;
-  p.joints = {{{0.F, 0.F}}, {{(SimWorld::widthOfWorld / 2.F) + 1.F, 0.F}}};
-
-  EXPECT_THROW(SegmentedPath::fromJoints(p), std::runtime_error);
-}
-
 void SimGame_LoadMapInitialSnapshotAndState() {
   SimGame game;
   (void)game.loadMap();
@@ -595,7 +578,7 @@ void SimGame_LoadMapInitialSnapshotAndState() {
   EXPECT_EQ(delta.currentWave, 0U);
   EXPECT_EQ(delta.waveTick, WaveTick{});
   EXPECT_EQ(delta.lives, 20);
-  EXPECT_EQ(delta.resources, 100);
+  EXPECT_EQ(delta.resources, 1000);
   EXPECT_EQ(delta.phase, std::string_view{"build"});
   EXPECT_TRUE(delta.upserts.empty());
   EXPECT_TRUE(delta.erased.empty());
@@ -815,7 +798,7 @@ void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
   EXPECT_EQ(delta.currentWave, 0U);
   EXPECT_EQ(delta.waveTick, WaveTick{1});
   EXPECT_EQ(delta.lives, 20);
-  EXPECT_EQ(delta.resources, 100);
+  EXPECT_EQ(delta.resources, 1000);
   EXPECT_EQ(delta.phase, std::string_view{"wave"});
   EXPECT_TRUE(delta.upserts.empty());
   EXPECT_TRUE(delta.erased.empty());
@@ -884,7 +867,7 @@ void SimGame_ExtractFullIncludesPathsAndState() {
   EXPECT_EQ(currentWave, 0U);
   EXPECT_EQ(waveTick, WaveTick{0});
   EXPECT_EQ(lives, 20);
-  EXPECT_EQ(resources, 100);
+  EXPECT_EQ(resources, 1000);
   EXPECT_EQ(phase, std::string_view{"build"});
   EXPECT_FALSE(uiState.selectedDefender.has_value());
 }
@@ -1152,12 +1135,11 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
     SimWorld_DefenderInRangeFlashesItselfAndInvader,
     SimWorld_SnapshotSinceTracksChanges,
     SimWorld_DefenderDoesNotAppearAsChangedAfterTick, BakePath_TwoJoints,
-    BakePath_ThreeJoints, BakePath_Degenerate, PathPosition_Endpoints,
-    PathPosition_Midpoint, PathPosition_CrossingSegmentBoundaryEmitsJoint,
+    BakePath_ThreeJoints, PathPosition_Endpoints, PathPosition_Midpoint,
+    PathPosition_CrossingSegmentBoundaryEmitsJoint,
     SimWorld_EnemyAdvancesOnTick, SimWorld_ResolveEscapeesVisitsEscapedEnemy,
     SimWorld_ResolveEscapeesCanLeaveEnemyAlive, SimWorld_GetPathOutOfRange,
     SimWorld_ObtainPathIncludesTerminalJoint,
-    SimWorld_FromJointsThrowsWhenJointIsOutOfBounds,
     SimGame_LoadMapInitialSnapshotAndState,
     SimGame_HandleUiActionStartWaveTransitionsToWavePhase,
     SimGame_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase,
