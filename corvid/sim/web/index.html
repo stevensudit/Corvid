@@ -5,39 +5,209 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CorvidSim</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Iosevka", "SFMono-Regular", "Consolas", monospace;
+      background:
+        radial-gradient(circle at top, rgba(59, 130, 246, 0.2), transparent 40%),
+        linear-gradient(180deg, #0b1220 0%, #09111c 100%);
+      color: #e5eefc;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 24px;
+      background: transparent;
+    }
+
+    .sim-app {
+      display: grid;
+      gap: 16px;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+
+    .sim-heading {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .sim-heading h1,
+    .sim-heading h2,
+    p {
+      margin: 0;
+    }
+
+    .status-grid {
+      display: grid;
+      gap: 8px;
+    }
+
+    .control-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+
+    button {
+      border: 1px solid rgba(191, 219, 254, 0.35);
+      background: rgba(15, 23, 42, 0.88);
+      color: inherit;
+      border-radius: 999px;
+      padding: 10px 16px;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    button:hover {
+      background: rgba(30, 41, 59, 0.96);
+    }
+
+    .viewport-shell {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.26);
+      border-radius: 24px;
+      background: rgba(9, 16, 28, 0.76);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.3);
+    }
+
+    .viewport-shell:fullscreen {
+      width: 100%;
+      height: 100%;
+      max-width: none;
+      margin: 0;
+      border-radius: 0;
+      padding: 20px;
+      background: rgba(5, 10, 18, 0.98);
+    }
+
+    .viewport-toolbar {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .viewport-host {
+      width: 100%;
+      min-height: 540px;
+      display: grid;
+      place-items: center;
+    }
+
+    .viewport-frame {
+      position: relative;
+      width: 960px;
+      height: 540px;
+      max-width: 100%;
+      border: 1px solid rgba(148, 163, 184, 0.5);
+      border-radius: 18px;
+      overflow: hidden;
+      background:
+        linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(12, 18, 26, 0.94));
+    }
+
+    canvas {
+      display: block;
+    }
+
+    #background-canvas,
+    #foreground-canvas {
+      position: absolute;
+      inset: 0;
+    }
+
+    #overlay-canvas {
+      position: absolute;
+      top: 0;
+      pointer-events: none;
+      visibility: hidden;
+      transition: transform 220ms ease;
+    }
+
+    #log {
+      height: 200px;
+      overflow-y: auto;
+      border: 1px solid rgba(148, 163, 184, 0.26);
+      border-radius: 16px;
+      padding: 12px;
+      margin: 0;
+      background: rgba(7, 12, 20, 0.78);
+    }
+
+    @media (max-width: 900px) {
+      body {
+        padding: 16px;
+      }
+
+      .viewport-host {
+        min-height: min(540px, 55vh);
+      }
+    }
+  </style>
   <script type="module" src="/src/main.ts"></script>
 </head>
 
 <body>
-  <h1>CorvidSim</h1>
-  <p>Status: <span id="status">disconnected</span></p>
-  <p>Latest tick: <span id="tick">--</span></p>
-  <p>
-    Lives: <span id="lives">--</span>
-    Resources: <span id="resources">--</span>
-    Phase: <span id="phase">--</span>
-  </p>
-  <p>
-    <button type="button" data-action="start_wave">Start Wave</button>
-  </p>
-  <div
-    style="position:relative;width:960px;height:540px;border:1px solid gray"
-  >
-    <canvas
-      id="background-canvas"
-      width="960"
-      height="540"
-      style="position:absolute;inset:0"
-    ></canvas>
-    <canvas
-      id="foreground-canvas"
-      width="960"
-      height="540"
-      style="position:absolute;inset:0"
-    ></canvas>
-  </div>
-  <h2>Log</h2>
-  <pre id="log" style="height:200px;overflow-y:auto;border:1px solid #ccc;padding:4px"></pre>
+  <main class="sim-app">
+    <section class="sim-heading">
+      <h1>CorvidSim</h1>
+    </section>
+
+    <section class="status-grid">
+      <p>Status: <span id="status">disconnected</span></p>
+      <p>Latest tick: <span id="tick">--</span></p>
+      <p>
+        Lives: <span id="lives">--</span>
+        Resources: <span id="resources">--</span>
+        Phase: <span id="phase">--</span>
+      </p>
+      <div class="control-row">
+        <button type="button" data-action="start_wave">Start Wave</button>
+      </div>
+    </section>
+
+    <section id="viewport-shell" class="viewport-shell">
+      <div class="viewport-toolbar">
+        <button id="fullscreen-toggle" type="button">Expand View</button>
+      </div>
+      <div id="viewport-host" class="viewport-host">
+        <div id="viewport-frame" class="viewport-frame">
+          <canvas
+            id="background-canvas"
+            width="960"
+            height="540"
+          ></canvas>
+          <canvas
+            id="foreground-canvas"
+            width="960"
+            height="540"
+          ></canvas>
+          <canvas
+            id="overlay-canvas"
+            width="280"
+            height="540"
+          ></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="status-grid">
+      <h2>Log</h2>
+      <pre id="log"></pre>
+    </section>
+  </main>
 </body>
 
 </html>

@@ -69,7 +69,7 @@ public:
       do_close();
     };
     (void)enable_keepalive(loop, wheel, 20s, 5s);
-    game_.loadMap();
+    (void)game_.loadMap();
     std::cout << "WebSocket client connected\n";
   }
 
@@ -90,7 +90,7 @@ private:
   WorldTick current_tick_{};       // updated each frame; loop-thread only
   SimGame game_;                   // all simulation entity state
   update_strategy send_strategy_{update_strategy::full};
-  sim_game_state_json json_buffer_; // persistent buffer and high-watermark
+  SimGameStateJson json_buffer_; // persistent buffer and high-watermark
 
   // Handle an incoming text frame by classifying and forwarding the message.
   [[nodiscard]] bool do_message(http_websocket& ws, std::string&& msg) {
@@ -99,7 +99,7 @@ private:
 
     switch (classifySimClientMessage(*root)) {
     case SimClientMessageKind::hello:
-      if (!ws.send_text(build_sim_hello_ack_json())) return false;
+      if (!ws.send_text(buildSimHelloAckJson())) return false;
       return do_arm_tick();
     case SimClientMessageKind::ui_canvas: return do_ui_canvas(*root);
     case SimClientMessageKind::ui_action: return do_ui_action(*root);
@@ -111,15 +111,13 @@ private:
   [[nodiscard]] bool do_ui_canvas(json_object_view msg) {
     const auto input = parseUiCanvasMessage(msg);
     if (!input) return true; // malformed, ignore
-    game_.handleUiCanvas(*input);
-    return true;
+    return game_.handleUiCanvas(*input);
   }
 
   [[nodiscard]] bool do_ui_action(json_object_view msg) {
     const auto input = parseUiActionMessage(msg);
     if (!input) return true; // malformed, ignore
-    game_.handle_UiAction(*input);
-    return true;
+    return game_.handleUiAction(*input);
   }
 
   static void do_close() { std::cout << "WebSocket client disconnected\n"; }
@@ -160,7 +158,7 @@ private:
   // Stream snapshot of game state to the client as JSON. Uses deltas when
   // possible.
   [[nodiscard]] bool send_game_state() {
-    (void)build_sim_game_state_json(json_buffer_, game_, send_strategy_);
+    (void)buildSimGameStateJson(json_buffer_, game_, send_strategy_);
 
     std::string header_buf;
     (void)ws_frame_lens::build(header_buf,

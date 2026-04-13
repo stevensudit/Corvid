@@ -125,6 +125,18 @@ parseSimClientMessageRoot(std::string_view msg) {
           detail::decodeString(msg, "button")))
     return std::nullopt;
 
+  // Optional; missing or non-string is silently treated as empty.
+  (void)detail::decodeString(msg, "command", input.command);
+
+  // Optional array of string parameters; missing or malformed entries silently
+  // omitted.
+  if (const auto params = msg.get_array("parameters")) {
+    std::string param;
+    for (const auto elem : params) {
+      if (elem.decode_string(param)) input.parameters.push_back(param);
+    }
+  }
+
   return input;
 }
 

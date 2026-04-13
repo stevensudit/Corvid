@@ -28,48 +28,33 @@
 namespace corvid { inline namespace sim {
 
 [[nodiscard]] inline uint32_t
-flash_expiry_delay_ms(const VisualEffects& effects, WorldTick current_tick) {
-  if (effects.flash_color == 0 || effects.flash_expiry == WorldTick::invalid ||
-      effects.flash_expiry < current_tick)
+flashExpiryDelayMs(const VisualEffects& effects, WorldTick current_tick) {
+  // If not flashing, nothing to do.
+  if (effects.flashColor == 0 || effects.flashExpiry == WorldTick::invalid ||
+      effects.flashExpiry < current_tick)
     return 0;
 
-  constexpr uint64_t ms_per_tick = 50;
-  const auto ticks_until_expiry =
-      static_cast<uint64_t>(*effects.flash_expiry) -
-      static_cast<uint64_t>(*current_tick);
+  // Calculate milliseconds until expiry, capping at max uint32_t.
+  constexpr uint32_t ms_per_tick = 50;
+  const auto ticks_until_expiry = *effects.flashExpiry - *current_tick;
   const auto expiry_delay_ms = ticks_until_expiry * ms_per_tick;
-  return static_cast<uint32_t>(std::min(expiry_delay_ms,
-      static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())));
+  return std::min(expiry_delay_ms, std::numeric_limits<uint32_t>::max());
 }
 
 // Reusable state, to avoid repeated allocations.
-struct sim_game_state_json {
+struct SimGameStateJson {
   std::string body;
   std::vector<SimWorld::EntityId> erased_ids;
 
-  // Clear the body and erased IDs, updating highwater marks for future
-  // reserve.
+  // Clear the body and erased IDs. These fields retain their allocations.
   [[nodiscard]] bool clear() {
-    body_highwater = std::max(body.size(), body_highwater);
-    erased_ids_highwater = std::max(erased_ids.size(), erased_ids_highwater);
     body.clear();
     erased_ids.clear();
     return true;
   }
-
-  [[nodiscard]] bool reset() {
-    (void)clear();
-    body.reserve(body_highwater);
-    erased_ids.reserve(erased_ids_highwater);
-    return true;
-  }
-
-private:
-  size_t body_highwater{16ULL * 1024};
-  size_t erased_ids_highwater{64};
 };
 
-[[nodiscard]] inline std::string build_sim_hello_ack_json(
+[[nodiscard]] inline std::string buildSimHelloAckJson(
     std::string_view message = "connected") {
   std::string body;
   json_writer{body}
@@ -79,10 +64,10 @@ private:
   return body;
 }
 
-[[nodiscard]] inline bool
-build_sim_game_state_json(sim_game_state_json& result, SimGame& game,
+[[nodiscard]] inline bool buildSimGameStateJson(SimGameStateJson& result,
+    SimGame& game,
     update_strategy send_strategy = update_strategy::incremental) {
-  (void)result.reset();
+  (void)result.clear();
   const auto current_tick = game.currentTick();
   json_writer writer{result.body};
   if (send_strategy == update_strategy::full)
@@ -93,10 +78,12 @@ build_sim_game_state_json(sim_game_state_json& result, SimGame& game,
   int lives_count{};
   int resources_count{};
   std::string_view phase{};
+  UiState ui_state;
 
   auto write_delta = [&writer, &game, &result, current_tick, &current_wave,
-                         &wave_tick, &lives_count, &resources_count,
-                         &phase](json_writer<std::string>& target) {
+                         &wave_tick, &lives_count, &resources_count, &phase,
+                         &ui_state,
+                         send_strategy](json_writer<std::string>& target) {
     target.member(json_trusted{"type"}, json_trusted{"world_delta"})
         .member(json_trusted{"tick"}, *current_tick);
 
@@ -121,19 +108,21 @@ build_sim_game_state_json(sim_game_state_json& result, SimGame& game,
                       static_cast<uint32_t>(app.glyph))
                   .member(json_trusted{"radius"}, app.radius,
                       std::chars_format::fixed, 3)
-                  .member(json_trusted{"fg"}, app.fg_color)
-                  .member(json_trusted{"bg"}, app.bg_color);
+                  .member(json_trusted{"fg"}, app.fgColor)
+                  .member(json_trusted{"bg"}, app.bgColor)
+                  .member(json_trusted{"attackRadius"}, app.attackRadius,
+                      std::chars_format::fixed, 1);
             }
 
             if (effects.modified == current_tick) {
               entity->member_object(json_trusted{"vfx"})
-                  ->member(json_trusted{"selection"}, effects.selection_color)
-                  .member(json_trusted{"rangeRadius"}, effects.range_radius,
+                  ->member(json_trusted{"selection"}, effects.selectionColor)
+                  .member(json_trusted{"rangeRadius"}, effects.rangeRadius,
                       std::chars_format::fixed, 3)
-                  .member(json_trusted{"range"}, effects.range_color)
-                  .member(json_trusted{"flash"}, effects.flash_color)
+                  .member(json_trusted{"range"}, effects.rangeColor)
+                  .member(json_trusted{"flash"}, effects.flashColor)
                   .member(json_trusted{"flashExpiryMs"},
-                      flash_expiry_delay_ms(effects, current_tick));
+                      flashExpiryDelayMs(effects, current_tick));
             }
 
             return true;
@@ -142,14 +131,16 @@ build_sim_game_state_json(sim_game_state_json& result, SimGame& game,
             result.erased_ids.push_back(entity_id);
             return true;
           },
-          [&current_wave, &wave_tick, &lives_count, &resources_count,
-              &phase](auto new_current_wave, auto new_wave_tick,
-              auto new_lives, auto new_resources, auto new_phase) {
+          [&current_wave, &wave_tick, &lives_count, &resources_count, &phase,
+              &ui_state](auto new_current_wave, auto new_wave_tick,
+              auto new_lives, auto new_resources, auto new_phase,
+              const UiState& new_ui_state) {
             current_wave = new_current_wave;
             wave_tick = new_wave_tick;
             lives_count = new_lives;
             resources_count = new_resources;
             phase = new_phase;
+            ui_state = new_ui_state;
             return true;
           });
     }
@@ -163,19 +154,94 @@ build_sim_game_state_json(sim_game_state_json& result, SimGame& game,
         .member(json_trusted{"lives"}, lives_count)
         .member(json_trusted{"resources"}, resources_count)
         .member(json_trusted{"phase"}, json_trusted{phase});
+    if (auto ui = target.member_object(json_trusted{"uiState"})) {
+      if (ui_state.selectedDefender.has_value()) {
+        const auto& selected = *ui_state.selectedDefender;
+        if (auto pos = ui->member_object(json_trusted{"selectedDefender"})) {
+          pos->member(json_trusted{"x"}, selected.x, std::chars_format::fixed,
+                 1)
+              .member(json_trusted{"y"}, selected.y, std::chars_format::fixed,
+                  1);
+        }
+      }
+      if (ui_state.placementAllowed.has_value())
+        ui->member(json_trusted{"placementAllowed"},
+            *ui_state.placementAllowed);
+      if (ui_state.spawnAllowed.has_value())
+        ui->member(json_trusted{"spawnAllowed"}, *ui_state.spawnAllowed);
+      const bool include_summary =
+          ui_state.selectedDefender.has_value() &&
+          ui_state.defenderSummary.has_value() &&
+          (send_strategy == update_strategy::full ||
+              ui_state.defenderSummary->modified == current_tick);
+      if (include_summary) {
+        const auto& summary = *ui_state.defenderSummary;
+        auto defender = ui->member_object(json_trusted{"defenderSummary"});
+        defender->member(json_trusted{"entityName"}, summary.entityName)
+            .member(json_trusted{"displayName"}, summary.displayName)
+            .member(json_trusted{"flavorText"}, summary.flavorText)
+            .member(json_trusted{"resourceCost"}, summary.resourceCost,
+                std::chars_format::fixed, 1);
+        if (auto app = defender->member_object(json_trusted{"appearance"})) {
+          app->member(json_trusted{"glyph"},
+                 static_cast<uint32_t>(summary.appearance.glyph))
+              .member(json_trusted{"radius"}, summary.appearance.radius,
+                  std::chars_format::fixed, 3)
+              .member(json_trusted{"fg"}, summary.appearance.fgColor)
+              .member(json_trusted{"bg"}, summary.appearance.bgColor)
+              .member(json_trusted{"attackRadius"},
+                  summary.appearance.attackRadius, std::chars_format::fixed,
+                  1);
+        }
+      }
+    }
   };
 
   if (send_strategy == update_strategy::full) {
     auto snapshot = writer.object();
     snapshot->member(json_trusted{"type"}, json_trusted{"world_snapshot"});
-    if (auto paths = snapshot->member_array(json_trusted{"paths"})) {
-      (void)game.extractPaths([&writer](auto, const Position& pos) {
-        auto path = writer.object();
-        path->member(json_trusted{"x"}, pos.x, std::chars_format::fixed, 1)
-            .member(json_trusted{"y"}, pos.y, std::chars_format::fixed, 1);
-        return true;
-      });
+
+    // Map design: sprite filenames + path joints.
+    if (auto map_design = snapshot->member_object(json_trusted{"mapDesign"})) {
+      const auto& md = game.mapDesign();
+      map_design
+          ->member(json_trusted{"backgroundSprite"}, md.backgroundSpriteFile)
+          .member(json_trusted{"foregroundSprite"}, md.foregroundSpriteFile)
+          .member(json_trusted{"pathWidth"},
+              md.paths.empty() ? 40.F : md.paths.front().width,
+              std::chars_format::fixed, 1);
+      if (auto paths = map_design->member_array(json_trusted{"paths"})) {
+        (void)game.extractPaths([&writer](auto, const Position& pos) {
+          auto path = writer.object();
+          path->member(json_trusted{"x"}, pos.x, std::chars_format::fixed, 1)
+              .member(json_trusted{"y"}, pos.y, std::chars_format::fixed, 1);
+          return true;
+        });
+      }
     }
+
+    // Defender build menu (purchasable defenders, in menu order).
+    if (auto menu = snapshot->member_array(json_trusted{"defenderMenu"})) {
+      for (const auto& entry : game.mapDesign().defenderMenu) {
+        auto item = writer.object();
+        item->member(json_trusted{"entityName"}, entry.entityName)
+            .member(json_trusted{"displayName"}, entry.displayName)
+            .member(json_trusted{"flavorText"}, entry.flavorText)
+            .member(json_trusted{"resourceCost"}, entry.resourceCost,
+                std::chars_format::fixed, 1);
+        if (auto app = item->member_object(json_trusted{"appearance"})) {
+          app->member(json_trusted{"glyph"},
+                 static_cast<uint32_t>(entry.appearance.glyph))
+              .member(json_trusted{"radius"}, entry.appearance.radius,
+                  std::chars_format::fixed, 3)
+              .member(json_trusted{"fg"}, entry.appearance.fgColor)
+              .member(json_trusted{"bg"}, entry.appearance.bgColor)
+              .member(json_trusted{"attackRadius"},
+                  entry.appearance.attackRadius, std::chars_format::fixed, 1);
+        }
+      }
+    }
+
     write_delta(*snapshot->member_object(json_trusted{"delta"}));
   } else
     write_delta(*writer.object());

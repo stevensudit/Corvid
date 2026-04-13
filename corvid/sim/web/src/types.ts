@@ -20,6 +20,11 @@ export type UiCanvasEvent =
 
 export type UiButton = 'left' | 'middle' | 'right' | 'other'
 
+export interface Position {
+  x: number
+  y: number
+}
+
 export interface EntityPosition {
   id: number
   x: number
@@ -31,6 +36,7 @@ export interface EntityAppearance {
   radius: number
   fg: number
   bg: number
+  attackRadius: number
 }
 
 export interface EntityVisualEffects {
@@ -44,6 +50,28 @@ export interface EntityVisualEffects {
 interface PathPoint {
   x: number
   y: number
+}
+
+interface MapDesign {
+  backgroundSprite: string
+  foregroundSprite: string
+  pathWidth: number
+  paths: PathPoint[]
+}
+
+export interface DefenderMenuItem {
+  entityName: string
+  displayName: string
+  flavorText: string
+  resourceCost: number
+  appearance: EntityAppearance
+}
+
+export interface UiState {
+  placementAllowed?: boolean
+  spawnAllowed?: boolean
+  selectedDefender?: Position
+  defenderSummary?: DefenderMenuItem
 }
 
 export interface EntityUpsert {
@@ -66,6 +94,8 @@ export interface UiCanvasMsg {
   ctrl: boolean
   alt: boolean
   meta: boolean
+  command?: string
+  parameters?: string[]
 }
 
 export interface UiActionMsg {
@@ -83,11 +113,13 @@ export interface WorldDelta {
   lives: number
   resources: number
   phase: string
+  uiState: UiState
 }
 
 export interface WorldSnapshot {
   type: 'world_snapshot'
-  paths: PathPoint[]
+  mapDesign: MapDesign
+  defenderMenu: DefenderMenuItem[]
   delta: WorldDelta
 }
 

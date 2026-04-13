@@ -3772,6 +3772,78 @@ using two_storage_scene_t =
 using three_storage_scene_t =
     archetype_scene<scene_reg_t, arch_pv_t, arch_pvh_t, arch_h_t>;
 
+// Compile-time checks for `tuple_union_t`, `tuple_index_v`, and
+// `wrap_optionals_t` from `ecs_meta.h`.
+void EcsMeta_TupleUnion() {
+  // Deduplication: overlapping types appear only once, in first-seen order.
+  if (true) {
+    using u = tuple_union_t<std::tuple<Position, Velocity>,
+        std::tuple<Velocity, Health>>;
+    static_assert(std::is_same_v<u, std::tuple<Position, Velocity, Health>>);
+    static_assert(std::tuple_size_v<u> == 3);
+  }
+
+  // Fully overlapping tuples collapse to a single copy of each type.
+  if (true) {
+    using u = tuple_union_t<std::tuple<Position, Velocity>,
+        std::tuple<Position, Velocity>>;
+    static_assert(std::is_same_v<u, std::tuple<Position, Velocity>>);
+    static_assert(std::tuple_size_v<u> == 2);
+  }
+
+  // A single input tuple is passed through unchanged.
+  if (true) {
+    using u = tuple_union_t<std::tuple<Health>>;
+    static_assert(std::is_same_v<u, std::tuple<Health>>);
+  }
+
+  // An empty pack produces an empty tuple.
+  if (true) {
+    using u = tuple_union_t<>;
+    static_assert(std::is_same_v<u, std::tuple<>>);
+  }
+
+  // Three-way union: types from all three tuples, no duplicates.
+  if (true) {
+    using u = tuple_union_t<std::tuple<Position>, std::tuple<Velocity>,
+        std::tuple<Health>>;
+    static_assert(std::is_same_v<u, std::tuple<Position, Velocity, Health>>);
+  }
+}
+
+void EcsMeta_TupleIndex() {
+  // `tuple_index_v` returns the 0-based position of each type in a tuple.
+  if (true) {
+    using t = std::tuple<Position, Velocity, Health>;
+    static_assert(tuple_index_v<Position, t> == 0);
+    static_assert(tuple_index_v<Velocity, t> == 1);
+    static_assert(tuple_index_v<Health, t> == 2);
+  }
+
+  // Works correctly for a single-element tuple.
+  if (true) { static_assert(tuple_index_v<Health, std::tuple<Health>> == 0); }
+}
+
+void EcsMeta_WrapOptionals() {
+  // `wrap_optionals_t` transforms each element type to `std::optional<T>`.
+  if (true) {
+    using wrapped = wrap_optionals_t<std::tuple<Position, Velocity, Health>>;
+    static_assert(std::is_same_v<std::tuple_element_t<0, wrapped>,
+        std::optional<Position>>);
+    static_assert(std::is_same_v<std::tuple_element_t<1, wrapped>,
+        std::optional<Velocity>>);
+    static_assert(std::is_same_v<std::tuple_element_t<2, wrapped>,
+        std::optional<Health>>);
+    static_assert(std::tuple_size_v<wrapped> == 3);
+  }
+
+  // An empty tuple wraps to an empty tuple of optionals.
+  if (true) {
+    using wrapped = wrap_optionals_t<std::tuple<>>;
+    static_assert(std::is_same_v<wrapped, std::tuple<>>);
+  }
+}
+
 // Basic construction, type queries, storage access.
 void ArchetypeScene_Basic() {
   // Default construction: empty, zero size.
@@ -6513,6 +6585,214 @@ void ArchetypeScene_TryGetComponents() {
   }
 }
 
+void ArchetypeScene_MegaTuple() {
+  // `component_union_t` is the deduplicated union of all archetype component
+  // types. For `two_storage_scene_t` (arch_pv_t: {Position, Velocity} and
+  // arch_pvh_t: {Position, Velocity, Health}), the union is
+  // {Position, Velocity, Health}.
+  if (true) {
+    using cu = two_storage_scene_t::component_union_t;
+    static_assert(std::is_same_v<cu, std::tuple<Position, Velocity, Health>>);
+    static_assert(std::tuple_size_v<cu> == 3);
+  }
+
+  // `megatuple_t` wraps each component in `std::optional`.
+  if (true) {
+    using mt = two_storage_scene_t::megatuple_t;
+    static_assert(
+        std::is_same_v<std::tuple_element_t<0, mt>, std::optional<Position>>);
+    static_assert(
+        std::is_same_v<std::tuple_element_t<1, mt>, std::optional<Velocity>>);
+    static_assert(
+        std::is_same_v<std::tuple_element_t<2, mt>, std::optional<Health>>);
+    static_assert(std::tuple_size_v<mt> == 3);
+  }
+
+  // `bitmap_t` is `uint64_t`.
+  if (true) {
+    static_assert(std::is_same_v<two_storage_scene_t::bitmap_t, uint64_t>);
+  }
+
+  // Setting Position and Velocity optionals routes to arch_pv_t (SID 1).
+  if (true) {
+    two_storage_scene_t s;
+    two_storage_scene_t::megatuple_t tpl{};
+    std::get<std::optional<Position>>(tpl) = Position{1.f, 2.f};
+    std::get<std::optional<Velocity>>(tpl) = Velocity{3.f, 4.f};
+    auto h = s.store_new_entity_from_mega({}, tpl);
+    EXPECT_TRUE(h);
+    EXPECT_TRUE(s.storage<scene_sid_t{1}>().contains(h.id()));
+    EXPECT_FALSE(s.storage<scene_sid_t{2}>().contains(h.id()));
+    auto* pos = s.try_get_component<Position>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    EXPECT_EQ(pos->x, 1.f);
+    EXPECT_EQ(pos->y, 2.f);
+    auto* vel = s.try_get_component<Velocity>(h.id());
+    ASSERT_TRUE(vel != nullptr);
+    EXPECT_EQ(vel->vx, 3.f);
+    EXPECT_EQ(vel->vy, 4.f);
+    // Health is not in arch_pv_t; try_get_component returns null.
+    EXPECT_TRUE(s.try_get_component<Health>(h.id()) == nullptr);
+  }
+
+  // Setting all three optionals routes to arch_pvh_t (SID 2).
+  if (true) {
+    two_storage_scene_t s;
+    two_storage_scene_t::megatuple_t tpl{};
+    std::get<std::optional<Position>>(tpl) = Position{5.f, 6.f};
+    std::get<std::optional<Velocity>>(tpl) = Velocity{7.f, 8.f};
+    std::get<std::optional<Health>>(tpl) = Health{42};
+    auto h = s.store_new_entity_from_mega({}, tpl);
+    EXPECT_TRUE(h);
+    EXPECT_FALSE(s.storage<scene_sid_t{1}>().contains(h.id()));
+    EXPECT_TRUE(s.storage<scene_sid_t{2}>().contains(h.id()));
+    auto* hp = s.try_get_component<Health>(h.id());
+    ASSERT_TRUE(hp != nullptr);
+    EXPECT_EQ(hp->hp, 42);
+    auto* pos = s.try_get_component<Position>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    EXPECT_EQ(pos->x, 5.f);
+  }
+
+  // No optionals set: bitmap matches no archetype; returns invalid handle and
+  // leaves the registry and storages empty.
+  if (true) {
+    two_storage_scene_t s;
+    two_storage_scene_t::megatuple_t tpl{};
+    auto h = s.store_new_entity_from_mega({}, tpl);
+    EXPECT_FALSE(h);
+    EXPECT_EQ(s.size(), 0U);
+    EXPECT_EQ(s.registry().size(), 0U);
+  }
+
+  // Partial bitmap with no match (Health-only is not an archetype in
+  // `two_storage_scene_t`); returns invalid handle.
+  if (true) {
+    two_storage_scene_t s;
+    two_storage_scene_t::megatuple_t tpl{};
+    std::get<std::optional<Health>>(tpl) = Health{99};
+    auto h = s.store_new_entity_from_mega({}, tpl);
+    EXPECT_FALSE(h);
+    EXPECT_EQ(s.size(), 0U);
+  }
+
+  // `three_storage_scene_t` adds arch_h_t (Health-only). Setting only Health
+  // routes to arch_h_t (SID 3).
+  if (true) {
+    three_storage_scene_t s;
+    three_storage_scene_t::megatuple_t tpl{};
+    std::get<std::optional<Health>>(tpl) = Health{55};
+    auto h = s.store_new_entity_from_mega({}, tpl);
+    EXPECT_TRUE(h);
+    EXPECT_FALSE(s.storage<scene_sid_t{1}>().contains(h.id()));
+    EXPECT_FALSE(s.storage<scene_sid_t{2}>().contains(h.id()));
+    EXPECT_TRUE(s.storage<scene_sid_t{3}>().contains(h.id()));
+    auto* hp = s.try_get_component<Health>(h.id());
+    ASSERT_TRUE(hp != nullptr);
+    EXPECT_EQ(hp->hp, 55);
+  }
+
+  // Multiple entities from different mega-tuples coexist in their respective
+  // storages.
+  if (true) {
+    two_storage_scene_t s;
+    two_storage_scene_t::megatuple_t pv_tpl{};
+    std::get<std::optional<Position>>(pv_tpl) = Position{};
+    std::get<std::optional<Velocity>>(pv_tpl) = Velocity{};
+    two_storage_scene_t::megatuple_t pvh_tpl{};
+    std::get<std::optional<Position>>(pvh_tpl) = Position{};
+    std::get<std::optional<Velocity>>(pvh_tpl) = Velocity{};
+    std::get<std::optional<Health>>(pvh_tpl) = Health{};
+    auto h1 = s.store_new_entity_from_mega({}, pv_tpl);
+    auto h2 = s.store_new_entity_from_mega({}, pvh_tpl);
+    EXPECT_TRUE(h1);
+    EXPECT_TRUE(h2);
+    EXPECT_EQ(s.size(), 2U);
+    EXPECT_EQ(s.storage<scene_sid_t{1}>().size(), 1U);
+    EXPECT_EQ(s.storage<scene_sid_t{2}>().size(), 1U);
+  }
+}
+
+void ArchetypeScene_TryGetSomeComponents() {
+  // All requested components present: all pointers non-null with correct
+  // values.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{1.f, 2.f},
+        Velocity{3.f, 4.f}, Health{77});
+    auto [pos, vel, hp] =
+        s.try_get_some_components<Position, Velocity, Health>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    ASSERT_TRUE(vel != nullptr);
+    ASSERT_TRUE(hp != nullptr);
+    EXPECT_EQ(pos->x, 1.f);
+    EXPECT_EQ(vel->vx, 3.f);
+    EXPECT_EQ(hp->hp, 77);
+  }
+
+  // Entity in arch_pv_t: Position and Velocity are non-null, Health is null.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.store_new_entity<scene_sid_t{1}>({}, Position{5.f, 6.f},
+        Velocity{7.f, 8.f});
+    auto [pos, vel, hp] =
+        s.try_get_some_components<Position, Velocity, Health>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    ASSERT_TRUE(vel != nullptr);
+    EXPECT_TRUE(hp == nullptr);
+    EXPECT_EQ(pos->x, 5.f);
+    EXPECT_EQ(vel->vx, 7.f);
+  }
+
+  // Invalid entity ID: all pointers null.
+  if (true) {
+    two_storage_scene_t s;
+    auto [pos, vel, hp] =
+        s.try_get_some_components<Position, Velocity, Health>(
+            scene_reg_t::id_t::invalid);
+    EXPECT_TRUE(pos == nullptr);
+    EXPECT_TRUE(vel == nullptr);
+    EXPECT_TRUE(hp == nullptr);
+  }
+
+  // Staged entity: all pointers null.
+  if (true) {
+    two_storage_scene_t s;
+    auto id = s.stage_new_entity().id();
+    auto [pos, vel] = s.try_get_some_components<Position, Velocity>(id);
+    EXPECT_TRUE(pos == nullptr);
+    EXPECT_TRUE(vel == nullptr);
+  }
+
+  // Mutation through returned pointers updates stored data.
+  if (true) {
+    two_storage_scene_t s;
+    auto h = s.store_new_entity<scene_sid_t{2}>({}, Position{}, Velocity{},
+        Health{10});
+    auto [pos, hp] = s.try_get_some_components<Position, Health>(h.id());
+    ASSERT_TRUE(pos != nullptr);
+    ASSERT_TRUE(hp != nullptr);
+    pos->x = 99.f;
+    hp->hp = 42;
+    EXPECT_EQ(s.storage<scene_sid_t{2}>()[h.id()].component<Position>().x,
+        99.f);
+    EXPECT_EQ(s.storage<scene_sid_t{2}>()[h.id()].component<Health>().hp, 42);
+  }
+
+  // On a const scene, returned pointers are const-qualified.
+  if (true) {
+    two_storage_scene_t s;
+    auto h =
+        s.store_new_entity<scene_sid_t{1}>({}, Position{1.f, 0.f}, Velocity{});
+    const auto& cs = s;
+    auto [pos, vel] = cs.try_get_some_components<Position, Velocity>(h.id());
+    static_assert(std::is_same_v<decltype(pos), const Position*>);
+    static_assert(std::is_same_v<decltype(vel), const Velocity*>);
+    ASSERT_TRUE(pos != nullptr);
+    EXPECT_EQ(pos->x, 1.f);
+  }
+}
+
 void ComponentScene_StageNewEntity() {
   // stage_new_entity() creates a staged entity and returns its handle.
   if (true) {
@@ -7711,8 +7991,9 @@ void ComponentStorage_At() {
   }
 }
 
-MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
-    ArchetypeStorage_Add, ArchetypeStorage_Remove, ArchetypeStorage_Erase,
+MAKE_TEST_LIST(EcsMeta_TupleUnion, EcsMeta_TupleIndex, EcsMeta_WrapOptionals,
+    ArchetypeStorage_Basic, ArchetypeStorage_Registry, ArchetypeStorage_Add,
+    ArchetypeStorage_Remove, ArchetypeStorage_Erase,
     ArchetypeStorage_RowAccess, ArchetypeStorage_ComponentAccess,
     ArchetypeStorage_Limit, ArchetypeStorage_SwapAndMove,
     ArchetypeStorage_Iterator, ArchetypeStorage_EraseIf, ArchetypeStorage_At,
@@ -7738,10 +8019,10 @@ MAKE_TEST_LIST(ArchetypeStorage_Basic, ArchetypeStorage_Registry,
     ArchetypeScene_AddNewRuntime, ArchetypeScene_StoreEntity,
     ArchetypeScene_EntityLifecycle, ArchetypeScene_MigrateEdgeCases,
     ArchetypeScene_ForEach, ArchetypeScene_TryGetComponent,
-    ArchetypeScene_TryGetComponents, ComponentIndex_Flat,
-    ComponentIndex_Sorted, ComponentIndex_Paged, ComponentStorage_Basic,
-    ComponentStorage_MultiStore, ComponentStorage_Remove,
-    ComponentStorage_Erase, ComponentStorage_EraseIf,
+    ArchetypeScene_TryGetComponents, ArchetypeScene_TryGetSomeComponents,
+    ArchetypeScene_MegaTuple, ComponentIndex_Flat, ComponentIndex_Sorted,
+    ComponentIndex_Paged, ComponentStorage_Basic, ComponentStorage_MultiStore,
+    ComponentStorage_Remove, ComponentStorage_Erase, ComponentStorage_EraseIf,
     ComponentStorage_Iterator, ComponentStorage_IndexVariants,
     ComponentStorage_AddNew, ComponentStorage_SwapMoveReserve,
     ComponentStorage_At, ComponentScene_Basic, ComponentScene_StoreEntity,

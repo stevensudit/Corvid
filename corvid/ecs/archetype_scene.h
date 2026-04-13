@@ -16,7 +16,9 @@
 // limitations under the License.
 #pragma once
 
+#include <array>
 #include <cstddef>
+#include <optional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -103,6 +105,22 @@ public:
   static_assert(storage_count_v < *store_id_t::invalid,
       "too many storage_ts: store_id_t would overflow into the invalid "
       "sentinel");
+
+  // Deduplicated union of all component types across all storages.
+  using component_union_t = tuple_union_t<typename STORES::tuple_t...>;
+
+  // `megatuple_t`: one `optional<C>` per unique component type in the scene.
+  // Setting an optional encodes component presence; the pattern of set
+  // optionals uniquely identifies the archetype, eliminating the need for an
+  // explicit `store_id_t`.
+  using megatuple_t = wrap_optionals_t<component_union_t>;
+
+  // One bit per unique component type; supports scenes with up to 64 distinct
+  // component types.
+  using bitmap_t = uint64_t;
+  static_assert(std::tuple_size_v<component_union_t> <= 64,
+      "megatuple_t has more than 64 unique component types; bitmap_t too "
+      "narrow");
 
   // Type of the storage with the given `store_id`.
   template<store_id_t SID>
@@ -191,6 +209,32 @@ public:
               std::forward<decltype(cs)>(cs)...);
         },
         std::forward<T>(obj));
+  }
+
+  // Create a new entity from a `megatuple_t`. The set of optionals that have
+  // values must exactly match the component set of one of this scene's
+  // archetypes, as determined by a linear search of the compile-time bitmap
+  // table. Returns a valid handle on success, or an invalid handle if no
+  // archetype matches the bitmap, the registry refused creation, or the
+  // storage limit would be exceeded.
+  //
+  // Note: It's tempting to sort the array and do a binary search, but given
+  // the numbers, it's not likely to be measurably faster, and might even be
+  // slower.
+  [[nodiscard]] handle_t store_new_entity_from_mega(const metadata_t& metadata,
+      const megatuple_t& tpl) {
+    const bitmap_t bm = bitmap_of(tpl);
+    for (const auto& [arch_bm, sid] : bitmap_table_v) {
+      if (arch_bm == bm) {
+        return dispatch_storage<handle_t>(
+            sid,
+            [&](auto& s) -> handle_t {
+              return s.add_new_from_mega(metadata, tpl);
+            },
+            handle_t{});
+      }
+    }
+    return handle_t{};
   }
 
   // Insert an already-staged entity into a storage selected at runtime by
@@ -481,6 +525,15 @@ public:
   // Return a pointer to component `C` for entity `id`, or `nullptr` if the
   // entity is invalid, in staging, or its archetype does not contain `C`.
   // Deduces `const` from the scene: on a `const` scene returns `const C*`.
+  //
+  // Performance: O(S) in the number of storages, but with a very small
+  // constant. The implementation is a fold over a compile-time
+  // `std::index_sequence` that expands to S comparisons of `store_id` against
+  // a compile-time constant, with `if constexpr` eliding the body for any
+  // storage whose `tuple_t` does not contain `C`. In practice, with a small
+  // number of archetypes and an optimizing compiler, this collapses to one or
+  // two branches. The registry lookup (`is_valid` + `get_location`) is O(1)
+  // and runs unconditionally.
   template<typename C>
   [[nodiscard]] auto
   try_get_component(this auto& self, id_t id) noexcept -> std::conditional_t<
@@ -509,6 +562,14 @@ public:
   // the value being `nullptr` if the entity is invalid, in staging, or its
   // archetype does not contain `C`. Deduces `const` from the scene: on a
   // `const` scene returns `const C*`.
+  //
+  // Performance: same O(S) fold as `try_get_component`, but requires that
+  // every requested component `C` in `Cs...` be present in the same storage
+  // (the `has_all_components_v` guard). When a storage matches, all C
+  // pointers are extracted in a single `storage[id]` row access. Compared to
+  // calling `try_get_component` once per component, this avoids repeating the
+  // registry lookup and the S-way fold for each component, making it
+  // preferable when fetching two or more components at once.
   template<typename... Cs>
   [[nodiscard]] auto try_get_components(this auto& self, id_t id) noexcept
       -> std::tuple<std::conditional_t<
@@ -533,6 +594,56 @@ public:
             {
               if (*loc.store_id == Is)
                 found = std::tuple{&storage[id].template component<Cs>()...};
+            }
+          }(std::get<Is>(self.storages_)),
+          ...);
+    }(storage_indices());
+    return found;
+  }
+
+  // Return a tuple of pointers to the components `Cs` for entity `id`.
+  // Unlike `try_get_components`, this does not require all `Cs` to be present
+  // in the same archetype: each pointer is set independently based on whether
+  // the entity's archetype contains that component, and may be `nullptr` even
+  // when others are non-null. Returns all `nullptr`s if the entity is invalid
+  // or in staging. Deduces `const` from the scene: on a `const` scene returns
+  // `const C*` for each element.
+  //
+  // Performance: O(S) in the number of storages (one registry lookup + one
+  // fold to identify the storage), then O(N) in `sizeof...(Cs)` to populate
+  // the result from a single row access. Prefer this over N separate
+  // `try_get_component` calls when the components may or may not all be
+  // present and the single-lookup savings matter.
+  template<typename... Cs>
+  [[nodiscard]] auto try_get_some_components(this auto& self, id_t id) noexcept
+      -> std::tuple<std::conditional_t<
+          std::is_const_v<std::remove_reference_t<decltype(self)>>, const Cs*,
+          Cs*>...> {
+    using self_t = std::remove_reference_t<decltype(self)>;
+    using result_t = std::tuple<
+        std::conditional_t<std::is_const_v<self_t>, const Cs*, Cs*>...>;
+
+    const result_t missing{static_cast<
+        std::conditional_t<std::is_const_v<self_t>, const Cs*, Cs*>>(
+        nullptr)...};
+    if (!self.registry_.is_valid(id)) return missing;
+
+    auto loc = self.registry_.get_location(id);
+    result_t found = missing;
+    [&]<size_t... Is>(std::index_sequence<Is...>) {
+      (
+          [&](auto& storage) {
+            if (*loc.store_id == Is) {
+              using storage_t = std::remove_cvref_t<decltype(storage)>;
+              auto row = storage[id];
+              found = result_t{
+                  [&]() -> std::conditional_t<std::is_const_v<self_t>,
+                            const Cs*, Cs*> {
+                    if constexpr (has_all_components_v<storage_t, Cs>)
+                      return &row.template component<Cs>();
+                    else
+                      return nullptr;
+                  }()...};
             }
           }(std::get<Is>(self.storages_)),
           ...);
@@ -568,6 +679,39 @@ public:
   }
 
 private:
+  // Bit index of component type C in `component_union_t` / `megatuple_t`.
+  template<typename C>
+  static constexpr size_t component_bit_v =
+      tuple_index_v<C, component_union_t>;
+
+  // Compile-time bitmap for archetype `Store`: bit j is set if component j
+  // (in `component_union_t` order) is in `Store::tuple_t`.
+  template<typename Store>
+  static consteval bitmap_t arch_bitmap_for() {
+    return []<typename... Cs>(std::tuple<Cs...>*) -> bitmap_t {
+      return ((bitmap_t{1} << component_bit_v<Cs>) | ...);
+    }(static_cast<typename Store::tuple_t*>(nullptr));
+  }
+
+  // Compile-time table mapping each archetype's component bitmap to its SID.
+  // Entries are in storage order (SID 1, 2, ..., `storage_count_v`).
+  static constexpr std::array<std::pair<bitmap_t, store_id_t>, storage_count_v>
+      bitmap_table_v = []<size_t... Is>(std::index_sequence<Is...>) consteval {
+        return std::array{std::pair{
+            arch_bitmap_for<std::tuple_element_t<Is, std::tuple<STORES...>>>(),
+            store_id_t{Is + 1}}...};
+      }(std::index_sequence_for<STORES...>{});
+
+  // Compute the runtime bitmap of a `megatuple_t`: bit j is set if the jth
+  // optional has a value.
+  [[nodiscard]] static bitmap_t bitmap_of(const megatuple_t& tpl) noexcept {
+    return [&]<size_t... Is>(std::index_sequence<Is...>) -> bitmap_t {
+      return (
+          (std::get<Is>(tpl).has_value() ? (bitmap_t{1} << Is) : bitmap_t{}) |
+          ...);
+    }(std::make_index_sequence<std::tuple_size_v<megatuple_t>>{});
+  }
+
   // Count how many storages expose a `tuple_t` equal to `T`.
   template<typename T>
   static constexpr size_t count_stores_with_tuple_v =
@@ -577,7 +721,7 @@ private:
   // Caller must ensure exactly one match (guarded by
   // `count_stores_with_tuple_v`).
   template<typename T, size_t... Is>
-  static constexpr store_id_t
+  static consteval store_id_t
   find_sid_for_tuple(std::index_sequence<Is...>) noexcept {
     store_id_t result = store_id_t::invalid;
     (void)((std::is_same_v<T, typename std::tuple_element_t<Is,
@@ -590,14 +734,14 @@ private:
 
   // Produces `std::index_sequence<Offset, Offset+1, ..., Offset+N-1>`.
   template<size_t Offset, size_t... Is>
-  static constexpr auto make_offset_sequence(std::index_sequence<Is...>)
+  static consteval auto make_offset_sequence(std::index_sequence<Is...>)
       -> std::index_sequence<(Is + Offset)...> {
     return {};
   }
 
   // Index sequence spanning all real storages: 1, 2, ..., `storage_count_v`.
   // Matches `store_id_t` values and tuple indices directly (monostate at 0).
-  static constexpr auto storage_indices() {
+  static consteval auto storage_indices() {
     return make_offset_sequence<1>(
         std::make_index_sequence<storage_count_v>{});
   }
