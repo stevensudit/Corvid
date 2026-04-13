@@ -1049,17 +1049,12 @@ function getSelectedDefenderPanelModel(): SidePanelModel | null {
 
   return {
     side,
-    title: 'Defender Selected',
+    title: selectedDefenderSummary.displayName,
     lines: [
-      selectedDefenderSummary.displayName,
       selectedDefenderSummary.flavorText,
       '',
-      `Glyph ${selectedDefenderSummary.appearance.glyph === 0 ? '?' : String.fromCodePoint(selectedDefenderSummary.appearance.glyph)}`,
       `Body radius ${formatPanelNumber(selectedDefenderSummary.appearance.radius)}`,
       `Attack radius ${formatPanelNumber(selectedDefenderSummary.appearance.attackRadius)}`,
-      '',
-      `Phase ${phaseEl?.textContent ?? '--'}`,
-      `Resources $${resources}`,
       'Left click empty space to dismiss',
     ],
   }
@@ -1113,14 +1108,18 @@ function drawRoundedPanelPath(
 
 // Draw a textual side panel such as defender inspection or pending placement.
 function drawSidePanel(ctx: CanvasRenderingContext2D, panel: SidePanelModel): void {
-  const x = 0
-  const y = 0
   const width = overlayCanvas.width
   const height = overlayCanvas.height
   const panelScale = Math.min(
     foregroundCanvas.width / DEFAULT_CANVAS_W,
     foregroundCanvas.height / DEFAULT_CANVAS_H,
   )
+  const panelBorderWidth = Math.max(2, 2.5 * panelScale)
+  const panelInset = panelBorderWidth * 0.5
+  const x = panelInset
+  const y = panelInset
+  const panelWidth = Math.max(width - panelBorderWidth, 1)
+  const panelHeight = Math.max(height - panelBorderWidth, 1)
   const cornerRadius = SIDE_PANEL_RADIUS * panelScale
   const textMargin = SIDE_PANEL_TEXT_MARGIN * panelScale
   const titleFontSize = 24 * panelScale
@@ -1130,17 +1129,43 @@ function drawSidePanel(ctx: CanvasRenderingContext2D, panel: SidePanelModel): vo
   const dividerY = 56 * panelScale
   const bodyTop = 74 * panelScale
   const textX = x + textMargin
-  const textWidth = width - textMargin * 2
+  const textWidth = panelWidth - textMargin * 2
 
   ctx.save()
-  drawRoundedPanelPath(ctx, x, y, width, height, cornerRadius)
-  const gradient = ctx.createLinearGradient(x, y, x + width, y + height)
+  drawRoundedPanelPath(ctx, x, y, panelWidth, panelHeight, cornerRadius)
+  const gradient = ctx.createLinearGradient(x, y, x + panelWidth, y + panelHeight)
   gradient.addColorStop(0, 'rgba(12, 18, 26, 0.92)')
   gradient.addColorStop(1, 'rgba(18, 27, 39, 0.84)')
   ctx.fillStyle = gradient
   ctx.fill()
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)'
-  ctx.lineWidth = Math.max(1, 1.5 * panelScale)
+
+  // Fill the tiny attached bottom-corner gap that results from insetting the
+  // shell for stroke rendering while still keeping the panel visually flush
+  // against the viewport edge.
+  ctx.fillStyle = 'rgba(18, 27, 39, 0.84)'
+  if (panel.side === 'left') {
+    ctx.beginPath()
+    ctx.moveTo(0, height)
+    ctx.lineTo(0, height - cornerRadius - panelInset)
+    ctx.lineTo(x + panelBorderWidth, height - cornerRadius - panelInset)
+    ctx.lineTo(x + panelBorderWidth, height)
+    ctx.closePath()
+    ctx.fill()
+  } else {
+    ctx.beginPath()
+    ctx.moveTo(width, height)
+    ctx.lineTo(width, height - cornerRadius - panelInset)
+    ctx.lineTo(width - x - panelBorderWidth, height - cornerRadius - panelInset)
+    ctx.lineTo(width - x - panelBorderWidth, height)
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  drawRoundedPanelPath(ctx, x, y, panelWidth, panelHeight, cornerRadius)
+  ctx.strokeStyle = 'rgba(255, 242, 63, 0.85)'
+  ctx.lineWidth = panelBorderWidth
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
   ctx.stroke()
 
   ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
@@ -1182,34 +1207,63 @@ function drawBuildMenu(ctx: CanvasRenderingContext2D): void {
   )
   const width = overlayCanvas.width
   const height = overlayCanvas.height
+  const panelBorderWidth = Math.max(2, 2.5 * panelScale)
+  const panelInset = panelBorderWidth * 0.5
+  const x = panelInset
+  const y = panelInset
+  const panelWidth = Math.max(width - panelBorderWidth, 1)
+  const panelHeight = Math.max(height - panelBorderWidth, 1)
   const cornerRadius = SIDE_PANEL_RADIUS * panelScale
   const titleFontSize = 24 * panelScale
   const titleTop = 20 * panelScale
   const dividerY = 56 * panelScale
   const bodyTop = 70 * panelScale
   const textMargin = SIDE_PANEL_TEXT_MARGIN * panelScale
-  const textWidth = width - textMargin * 2
+  const textWidth = panelWidth - textMargin * 2
 
   ctx.save()
-  drawRoundedPanelPath(ctx, 0, 0, width, height, cornerRadius)
-  const gradient = ctx.createLinearGradient(0, 0, width, height)
+  drawRoundedPanelPath(ctx, x, y, panelWidth, panelHeight, cornerRadius)
+  const gradient = ctx.createLinearGradient(x, y, x + panelWidth, y + panelHeight)
   gradient.addColorStop(0, 'rgba(12, 18, 26, 0.92)')
   gradient.addColorStop(1, 'rgba(18, 27, 39, 0.84)')
   ctx.fillStyle = gradient
   ctx.fill()
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)'
-  ctx.lineWidth = Math.max(1, 1.5 * panelScale)
+
+  ctx.fillStyle = 'rgba(18, 27, 39, 0.84)'
+  if (currentPanelSide === 'left') {
+    ctx.beginPath()
+    ctx.moveTo(0, height)
+    ctx.lineTo(0, height - cornerRadius - panelInset)
+    ctx.lineTo(x + panelBorderWidth, height - cornerRadius - panelInset)
+    ctx.lineTo(x + panelBorderWidth, height)
+    ctx.closePath()
+    ctx.fill()
+  } else {
+    ctx.beginPath()
+    ctx.moveTo(width, height)
+    ctx.lineTo(width, height - cornerRadius - panelInset)
+    ctx.lineTo(width - x - panelBorderWidth, height - cornerRadius - panelInset)
+    ctx.lineTo(width - x - panelBorderWidth, height)
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  drawRoundedPanelPath(ctx, x, y, panelWidth, panelHeight, cornerRadius)
+  ctx.strokeStyle = 'rgba(255, 242, 63, 0.85)'
+  ctx.lineWidth = panelBorderWidth
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
   ctx.stroke()
 
   ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
   ctx.font = `bold ${titleFontSize}px monospace`
   ctx.textBaseline = 'top'
-  ctx.fillText('Select Defender', textMargin, titleTop, textWidth)
+  ctx.fillText('Select Defender', x + textMargin, y + titleTop, textWidth)
 
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'
   ctx.beginPath()
-  ctx.moveTo(textMargin, dividerY)
-  ctx.lineTo(textMargin + textWidth, dividerY)
+  ctx.moveTo(x + textMargin, y + dividerY)
+  ctx.lineTo(x + textMargin + textWidth, y + dividerY)
   ctx.stroke()
 
   const cellSize = Math.floor((width - 2) / MENU_COLS)
@@ -1223,8 +1277,8 @@ function drawBuildMenu(ctx: CanvasRenderingContext2D): void {
     const item = visibleItems[i]
     const col = i % MENU_COLS
     const row = Math.floor(i / MENU_COLS)
-    const cellX = 1 + col * cellSize
-    const cellY = bodyTop + row * cellSize
+    const cellX = x + 1 + col * cellSize
+    const cellY = y + bodyTop + row * cellSize
     const isSelected = (startIndex + i) === selectedMenuIndex
 
     ctx.fillStyle = isSelected
