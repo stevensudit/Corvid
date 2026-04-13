@@ -193,6 +193,10 @@ struct SimGameStateJson {
                   summary.appearance.attackRadius, std::chars_format::fixed,
                   1);
         }
+        defender->member(json_trusted{"totalDamageDealt"},
+                    summary.totalDamageDealt, std::chars_format::fixed, 1)
+            .member(json_trusted{"totalKills"}, summary.totalKills,
+                std::chars_format::fixed, 0);
       }
     }
   };

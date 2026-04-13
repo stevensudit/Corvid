@@ -1047,17 +1047,20 @@ function getSelectedDefenderPanelModel(): SidePanelModel | null {
     worldToCanvas(selectedDefenderPosition.x, selectedDefenderPosition.y)[0],
   )
 
-  return {
-    side,
-    title: selectedDefenderSummary.displayName,
-    lines: [
-      selectedDefenderSummary.flavorText,
-      '',
-      `Body radius ${formatPanelNumber(selectedDefenderSummary.appearance.radius)}`,
-      `Attack radius ${formatPanelNumber(selectedDefenderSummary.appearance.attackRadius)}`,
-      'Left click empty space to dismiss',
-    ],
+  const lines: string[] = [
+    selectedDefenderSummary.flavorText,
+    '',
+    `Body radius ${formatPanelNumber(selectedDefenderSummary.appearance.radius)}`,
+    `Attack radius ${formatPanelNumber(selectedDefenderSummary.appearance.attackRadius)}`,
+  ]
+  if (selectedDefenderSummary.totalDamageDealt !== undefined) {
+    lines.push('')
+    lines.push(`Damage dealt: ${formatPanelNumber(selectedDefenderSummary.totalDamageDealt)}`)
+    lines.push(`Kills: ${selectedDefenderSummary.totalKills ?? 0}`)
   }
+  lines.push('Left click empty space to dismiss')
+
+  return { side, title: selectedDefenderSummary.displayName, lines }
 }
 
 // Build the overlay model for a dropped-but-not-yet-confirmed placement ghost.

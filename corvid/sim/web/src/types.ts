@@ -65,6 +65,8 @@ export interface DefenderMenuItem {
   flavorText: string
   resourceCost: number
   appearance: EntityAppearance
+  totalDamageDealt?: number  // Only present on selected-defender summaries.
+  totalKills?: number
 }
 
 export interface UiState {

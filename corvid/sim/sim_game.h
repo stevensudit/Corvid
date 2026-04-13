@@ -121,7 +121,9 @@ struct DefenderSummary {
   int menuOrder{}; // Used for menu items.
   std::string flavorText;
   float resourceCost{};
-  Appearance appearance; // extracted from megatuple at build time
+  Appearance appearance;    // Extracted from megatuple at build time.
+  float totalDamageDealt{}; // Live stats; only valid for selected defenders.
+  float totalKills{};
 };
 
 // Menu of available defenders. Sorted by `menuOrder`, filtered to purchasable
@@ -469,7 +471,7 @@ private:
     return true;
   }
 
-  // Ensure that the selected defender is valid.
+  // Ensure that the selected defender has the correct values.
   [[nodiscard]] bool refreshSelectedDefenderState() {
     const auto selectedId = world_.getId(selectedDefender_);
     if (selectedId == SimWorld::EntityId::invalid)
@@ -479,6 +481,21 @@ private:
     if (!pos || !defender || !fx) return clearSelectedDefender();
 
     uiState_.selectedDefender = *pos;
+
+    // Refresh live stats into the summary, stamping `modified` only when
+    // the values actually change so the wire layer sends it selectively.
+    if (uiState_.defenderSummary) {
+      auto& summary = *uiState_.defenderSummary;
+      const auto* stats = world_.try_get_component<DefenderStats>(selectedId);
+      assert(stats);
+      if (stats->totalDamageDealt != summary.totalDamageDealt ||
+          stats->totalKills != summary.totalKills)
+      {
+        summary.totalDamageDealt = stats->totalDamageDealt;
+        summary.totalKills = stats->totalKills;
+        summary.modified = world_.currentTick();
+      }
+    }
     return true;
   }
 
@@ -570,7 +587,7 @@ private:
       std::get<std::optional<Invader>>(tpl) =
           Invader{.hitCircleRadius = 30.F, .bounty = 10};
       std::get<std::optional<Health>>(tpl) =
-          Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 10.F};
+          Health{.currentHealth = 10.F, .maxHealth = 100.F, .regen = 10.F};
       mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
     }
     {

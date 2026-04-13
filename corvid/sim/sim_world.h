@@ -963,17 +963,22 @@ private:
   // `pendingKills_` for `SimGame` to resolve (bounty, death animation, etc.).
   // Then put the defender on cooldown.
   [[nodiscard]] bool attackWithAoe(EntityId defenderId, Defender& defender,
-      const std::vector<InvaderCandidate>& candidates, const DefenderAoe&) {
+      DefenderStats& stats, const std::vector<InvaderCandidate>& candidates,
+      const DefenderAoe&) {
     for (const auto& cand : candidates) {
       auto* hp = scene_.try_get_component<Health>(cand.id);
       if (!hp) continue;
+      const float actualDamage = std::min(defender.attackDamage, cand.currentHealth);
       hp->modified = tick_;
       hp->currentHealth -= defender.attackDamage;
       (void)markDirty(cand.id);
-      if (hp->currentHealth <= 0.F)
+      if (hp->currentHealth <= 0.F) {
         pendingKills_.push_back(cand.id);
-      else
+        stats.totalKills += 1.F;
+      } else {
         (void)flashEntity(cand.id, 0xFF7F7FFF, WorldTick{5});
+      }
+      stats.totalDamageDealt += actualDamage;
     }
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
     (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
@@ -1088,7 +1093,7 @@ private:
   // defender and target. Puts the defender on cooldown.
   // TODO: Spawn a transient beam line from the defender to the target.
   [[nodiscard]] bool attackWithHitscan(EntityId defenderId, Defender& defender,
-      const std::vector<InvaderCandidate>& candidates,
+      DefenderStats& stats, const std::vector<InvaderCandidate>& candidates,
       const DefenderHitscan& hitscan) {
     const auto targetId = selectTarget(candidates, defender.targetMode);
     if (targetId == EntityId::invalid) return false;
@@ -1096,13 +1101,17 @@ private:
     auto* hp = scene_.try_get_component<Health>(targetId);
     if (!hp) return false;
 
+    const float actualDamage = std::min(defender.attackDamage, hp->currentHealth);
     hp->modified = tick_;
     hp->currentHealth -= defender.attackDamage;
     (void)markDirty(targetId);
-    if (hp->currentHealth <= 0.F)
+    if (hp->currentHealth <= 0.F) {
       pendingKills_.push_back(targetId);
-    else
+      stats.totalKills += 1.F;
+    } else {
       (void)flashEntity(targetId, hitscan.beamColor, hitscan.beamDuration);
+    }
+    stats.totalDamageDealt += actualDamage;
 
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
     (void)flashEntity(defenderId, hitscan.beamColor, hitscan.beamDuration);
@@ -1114,27 +1123,28 @@ private:
   // Cooldown is only reset when the defender actually fires.
   [[nodiscard]] bool defendersAttack() {
     std::vector<InvaderCandidate> candidates;
-    scene_.for_each<Position,
-        Defender>([&](auto defenderId, auto defenderComps) {
-      auto& [defenderPos, defender] = defenderComps;
-      if (tick_ < defender.nextAttack) return true;
+    scene_.for_each<Position, Defender, DefenderStats>(
+        [&](auto defenderId, auto defenderComps) {
+          auto& [defenderPos, defender, stats] = defenderComps;
+          if (tick_ < defender.nextAttack) return true;
 
-      if (!collectCandidates(defenderPos, defender.attackRadius, candidates))
-        return true;
+          if (!collectCandidates(defenderPos, defender.attackRadius, candidates))
+            return true;
 
-      auto comp = scene_.try_get_some_components<DefenderAoe, DefenderShooter,
-          DefenderHitscan>(defenderId);
-      auto [aoe, shooter, hitscan] = comp;
-      if (aoe)
-        (void)attackWithAoe(defenderId, defender, candidates, *aoe);
-      else if (shooter)
-        (void)attackWithShooter(defenderId, defender, defenderPos, candidates,
-            *shooter);
-      else if (hitscan)
-        (void)attackWithHitscan(defenderId, defender, candidates, *hitscan);
+          auto [aoe, shooter, hitscan] =
+              scene_.try_get_some_components<DefenderAoe, DefenderShooter,
+                  DefenderHitscan>(defenderId);
+          if (aoe)
+            (void)attackWithAoe(defenderId, defender, stats, candidates, *aoe);
+          else if (shooter)
+            (void)attackWithShooter(defenderId, defender, defenderPos,
+                candidates, *shooter);
+          else if (hitscan)
+            (void)attackWithHitscan(
+                defenderId, defender, stats, candidates, *hitscan);
 
-      return true;
-    });
+          return true;
+        });
 
     return true;
   }
