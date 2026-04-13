@@ -27,18 +27,29 @@
 
 namespace corvid { inline namespace sim {
 
+// Calculate milliseconds until a tick-based expiry, capping at max uint32_t.
+// Returns 0 if the color is unset or the expiry has already passed.
 [[nodiscard]] inline uint32_t
-flashExpiryDelayMs(const VisualEffects& effects, WorldTick current_tick) {
-  // If not flashing, nothing to do.
-  if (effects.flashColor == 0 || effects.flashExpiry == WorldTick::invalid ||
-      effects.flashExpiry < current_tick)
+tickExpiryDelayMs(uint32_t color, WorldTick expiry, WorldTick current_tick) {
+  if (color == 0 || expiry == WorldTick::invalid || expiry < current_tick)
     return 0;
 
-  // Calculate milliseconds until expiry, capping at max uint32_t.
   constexpr uint32_t ms_per_tick = 50;
-  const auto ticks_until_expiry = *effects.flashExpiry - *current_tick;
+  const auto ticks_until_expiry = *expiry - *current_tick;
   const auto expiry_delay_ms = ticks_until_expiry * ms_per_tick;
   return std::min(expiry_delay_ms, std::numeric_limits<uint32_t>::max());
+}
+
+[[nodiscard]] inline uint32_t
+flashExpiryDelayMs(const VisualEffects& effects, WorldTick current_tick) {
+  return tickExpiryDelayMs(
+      effects.flashColor, effects.flashExpiry, current_tick);
+}
+
+[[nodiscard]] inline uint32_t
+cooldownExpiryDelayMs(const VisualEffects& effects, WorldTick current_tick) {
+  return tickExpiryDelayMs(
+      effects.cooldownColor, effects.cooldownExpiry, current_tick);
 }
 
 // Reusable state, to avoid repeated allocations.
@@ -122,7 +133,10 @@ struct SimGameStateJson {
                   .member(json_trusted{"range"}, effects.rangeColor)
                   .member(json_trusted{"flash"}, effects.flashColor)
                   .member(json_trusted{"flashExpiryMs"},
-                      flashExpiryDelayMs(effects, current_tick));
+                      flashExpiryDelayMs(effects, current_tick))
+                  .member(json_trusted{"cooldown"}, effects.cooldownColor)
+                  .member(json_trusted{"cooldownExpiryMs"},
+                      cooldownExpiryDelayMs(effects, current_tick));
             }
 
             return true;

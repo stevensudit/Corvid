@@ -289,9 +289,11 @@ struct VisualEffects {
   WorldTick modified{WorldTick::invalid}; // Tick when last modified.
   uint32_t selectionColor{};              // RGBA.
   float rangeRadius{};
-  uint32_t rangeColor{}; // RGBA.
-  uint32_t flashColor{}; // RGBA.
+  uint32_t rangeColor{};    // RGBA.
+  uint32_t flashColor{};    // RGBA.
   WorldTick flashExpiry{WorldTick::invalid};
+  uint32_t cooldownColor{}; // RGBA. Active from fire time until `nextAttack`.
+  WorldTick cooldownExpiry{WorldTick::invalid};
 };
 
 // Defensive component, common across all defenders.
@@ -553,6 +555,17 @@ public:
     if (!effects) return false;
     effects->flashColor = color;
     effects->flashExpiry = WorldTick{*tick_ + *duration};
+    return true;
+  }
+
+  // Set a cooldown overlay on a defender. `absoluteExpiry` is an absolute tick
+  // (typically `defender.nextAttack`) at which the overlay clears.
+  [[nodiscard]] bool setCooldown(EntityId id, uint32_t color,
+      WorldTick absoluteExpiry) {
+    auto* effects = changeVisualEffects(id);
+    if (!effects) return false;
+    effects->cooldownColor = color;
+    effects->cooldownExpiry = absoluteExpiry;
     return true;
   }
 
@@ -982,6 +995,7 @@ private:
     }
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
     (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
+    (void)setCooldown(defenderId, 0x7F000000U, defender.nextAttack);
     return true;
   }
 
@@ -1070,6 +1084,7 @@ private:
     (void)spawnBullet(defenderPos, vel, bullet);
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
     (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
+    (void)setCooldown(defenderId, 0x7F000000U, defender.nextAttack);
     return true;
   }
 
@@ -1115,6 +1130,7 @@ private:
 
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
     (void)flashEntity(defenderId, hitscan.beamColor, hitscan.beamDuration);
+    (void)setCooldown(defenderId, 0x7F000000U, defender.nextAttack);
     return true;
   }
 

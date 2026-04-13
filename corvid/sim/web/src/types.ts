@@ -45,6 +45,8 @@ export interface EntityVisualEffects {
   range: number
   flash: number
   flashExpiryMs: number
+  cooldown: number
+  cooldownExpiryMs: number
 }
 
 interface PathPoint {

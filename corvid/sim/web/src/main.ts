@@ -55,6 +55,8 @@ interface RenderVisualEffects {
   flash: RenderColor
   flashExpiry: number
   flashStartedAt: number
+  cooldown: RenderColor
+  cooldownExpiry: number
 }
 
 // Fully materialized render snapshot for one entity id, derived from
@@ -115,6 +117,8 @@ const DEFAULT_RENDER_VISUAL_EFFECTS: RenderVisualEffects = {
   flash: TRANSPARENT_RENDER_COLOR,
   flashExpiry: 0,
   flashStartedAt: 0,
+  cooldown: TRANSPARENT_RENDER_COLOR,
+  cooldownExpiry: 0,
 }
 
 // --- DOM setup ---
@@ -839,6 +843,29 @@ function drawFlashOverlay(
   fgCtx.restore()
 }
 
+// Draw a steady cooldown overlay and clear it locally once its timer ends.
+function drawCooldownOverlay(
+  x: number,
+  y: number,
+  radius: number,
+  fx: RenderVisualEffects,
+  now: number,
+): void {
+  if (fx.cooldownExpiry == 0) return
+
+  if (now >= fx.cooldownExpiry) {
+    fx.cooldown = TRANSPARENT_RENDER_COLOR
+    fx.cooldownExpiry = 0
+    return
+  }
+
+  if (radius <= 0 || isTransparent(fx.cooldown)) return
+
+  fgCtx.save()
+  drawFilledCircleOnContext(fgCtx, x, y, radius, fx.cooldown)
+  fgCtx.restore()
+}
+
 // Draw one entity and all of its client-side visual effects.
 function drawEntity(
   x: number,
@@ -851,6 +878,7 @@ function drawEntity(
   drawRangeCircle(x, y, fx)
   drawEntitySprite(x, y, radius, app)
   drawSelectionOutline(x, y, radius, fx)
+  drawCooldownOverlay(x, y, radius, fx, now)
   drawFlashOverlay(x, y, radius, fx, now)
 }
 
@@ -890,6 +918,8 @@ function visualEffectsToRender(
     flashStartedAt: flashExpiry > 0
       ? (keepExistingFlashPhase ? prevFx.flashStartedAt : now)
       : 0,
+    cooldown: packedRgbaToRenderColor(fx.cooldown),
+    cooldownExpiry: fx.cooldownExpiryMs <= 0 ? 0 : now + fx.cooldownExpiryMs,
   }
 }
 
@@ -1637,7 +1667,9 @@ function isEntityVisualEffects(value: unknown): value is EntityVisualEffects {
     typeof (value as Record<string, unknown>).rangeRadius === 'number' &&
     typeof (value as Record<string, unknown>).range === 'number' &&
     typeof (value as Record<string, unknown>).flash === 'number' &&
-    typeof (value as Record<string, unknown>).flashExpiryMs === 'number'
+    typeof (value as Record<string, unknown>).flashExpiryMs === 'number' &&
+    typeof (value as Record<string, unknown>).cooldown === 'number' &&
+    typeof (value as Record<string, unknown>).cooldownExpiryMs === 'number'
   )
 }
 
