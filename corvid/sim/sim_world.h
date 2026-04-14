@@ -490,15 +490,31 @@ public:
     return true;
   }
 
+  // Look up a registered entity template by label.
+  [[nodiscard]] auto findEntityTemplate(std::string_view label) const {
+    return find_opt(entityTemplates_, label);
+  }
+
   // Spawn an entity by label. Looks up the pre-registered template.
   [[nodiscard]] Handle spawnEntity(std::string_view label) {
-    return spawnEntity(find_opt(entityTemplates_, label));
+    return spawnEntity(findEntityTemplate(label));
+  }
+
+  // Assert helper for validating entity template indices.
+  template<typename Component>
+  [[nodiscard]] bool
+  hasValidEntityTemplateIndex(const WorldScene::megatuple_t& megatuple) const {
+    const auto& component = std::get<std::optional<Component>>(megatuple);
+    if (!component) return true;
+    return component->entityTemplateIndex < entityTemplateLabels_.size();
   }
 
   // Spawn an entity by definition. Stamps `tick_` into any `modified` fields,
   // marks the entity dirty, and returns its handle.
   [[nodiscard]] Handle spawnEntity(const WorldScene::megatuple_t* megatuple) {
     if (!megatuple) return {};
+    assert(hasValidEntityTemplateIndex<Defender>(*megatuple));
+    assert(hasValidEntityTemplateIndex<Invader>(*megatuple));
     auto h =
         scene_.store_new_entity_from_mega({WorldTick::invalid}, *megatuple);
     if (!h) return {};

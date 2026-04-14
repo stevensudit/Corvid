@@ -497,7 +497,9 @@ private:
       auto pos = Position{input.x, input.y};
       bool spawnAllowed = canPlaceDefender(def, pos);
       if (spawnAllowed) {
-        auto h = world_.spawnEntity(&def->megatuple);
+        // We need to spawn the entity using the registered template label, not
+        // the map definition.
+        auto h = world_.spawnEntity(parameter);
         if (h) {
           *world_.try_get_component<Position>(h.id()) = pos;
           if (def) resources_ -= def->resourceCost;

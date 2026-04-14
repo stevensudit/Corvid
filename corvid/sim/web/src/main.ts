@@ -42,6 +42,7 @@ interface GhostState {
   displayName: string
   appearance: RenderAppearance
   attackRadius: number  // world units, from Appearance.attackRadius
+  confirmCommand: 'spawn' | 'moving'
   pending: boolean      // true = dropped on map, awaiting confirmation click
   placeable: boolean    // true = can be placed at the current position
   spawnPending: boolean // true = dropped and clicked, awaiting server confirmation
@@ -1104,7 +1105,11 @@ function wrapPanelText(
 
 // Build the overlay model for the currently selected defender, if any.
 function getSelectedDefenderPanelModel(): SidePanelModel | null {
-  if (!selectedDefenderPosition || !selectedDefenderSummary) return null
+  if (!selectedDefenderPosition) return null
+
+  const selectedEntity =
+    findDefenderAtWorld(selectedDefenderPosition.x, selectedDefenderPosition.y)
+  if (!selectedDefenderSummary && selectedEntity === null) return null
 
   // Put the panel opposite the selected unit so it reads like an inspector
   // without covering the thing the user just clicked.
@@ -1112,13 +1117,20 @@ function getSelectedDefenderPanelModel(): SidePanelModel | null {
     worldToCanvas(selectedDefenderPosition.x, selectedDefenderPosition.y)[0],
   )
 
-  const lines: string[] = [
-    selectedDefenderSummary.flavorText,
-    '',
-    `Body radius ${formatPanelNumber(selectedDefenderSummary.appearance.radius)}`,
-    `Attack radius ${formatPanelNumber(selectedDefenderSummary.appearance.attackRadius)}`,
-  ]
-  if (selectedDefenderSummary.totalDamageDealt !== undefined) {
+  const bodyRadius = selectedDefenderSummary?.appearance.radius ??
+    selectedEntity?.app.radius ?? 0
+  const attackRadius = selectedDefenderSummary?.appearance.attackRadius ??
+    selectedEntity?.app.attackRadius ?? 0
+
+  const lines: string[] = []
+  if (selectedDefenderSummary?.flavorText) {
+    lines.push(selectedDefenderSummary.flavorText, '')
+  }
+  lines.push(
+    `Body radius ${formatPanelNumber(bodyRadius)}`,
+    `Attack radius ${formatPanelNumber(attackRadius)}`,
+  )
+  if (selectedDefenderSummary?.totalDamageDealt !== undefined) {
     lines.push('')
     lines.push(`Damage dealt: ${formatPanelNumber(selectedDefenderSummary.totalDamageDealt)}`)
     lines.push(`Kills: ${selectedDefenderSummary.totalKills ?? 0}`)
@@ -1127,7 +1139,11 @@ function getSelectedDefenderPanelModel(): SidePanelModel | null {
   if (currentPhase === 'build') lines.push('Drag to reposition')
   lines.push('Left click empty space to dismiss')
 
-  return { side, title: selectedDefenderSummary.displayName, lines }
+  return {
+    side,
+    title: selectedDefenderSummary?.displayName ?? 'Selected Defender',
+    lines,
+  }
 }
 
 // Build the overlay model for a dropped-but-not-yet-confirmed placement ghost.
@@ -1135,13 +1151,14 @@ function getPendingGhostPanelModel(): SidePanelModel | null {
   if (!ghostState?.pending) return null
   const [ghostCanvasX] = worldToCanvas(ghostState.worldX, ghostState.worldY)
   const side = getOppositePanelSideForCanvasX(ghostCanvasX)
+  const isMoveGhost = ghostState.confirmCommand === 'moving'
   return {
     side,
-    title: 'Place Defender',
+    title: isMoveGhost ? 'Move Defender' : 'Place Defender',
     lines: [
       ghostState.displayName,
       '',
-      'Right-click to place',
+      isMoveGhost ? 'Right-click to confirm move' : 'Right-click to place',
       'Left-click ghost to move',
       'Any other click cancels',
     ],
@@ -1521,6 +1538,7 @@ function updateSidePanelOverlay(): void {
 function shouldShowBuildMenu(): boolean {
   return (
     getSidePanelModel() === null &&
+    selectedDefenderPosition === null &&
     defenderMenuItems.length > 0 &&
     currentPhase === 'build' &&
     !menuDragActive
@@ -2126,6 +2144,38 @@ foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   if (sample.button !== 2) sendCanvasMsg('click', sample)
 })
 
+// Arm a potential move-drag when the user presses a defender through the
+// overlay canvas. This mirrors the foreground-canvas path so defenders remain
+// movable even while the build menu panel is open above them.
+function armOverlayDefenderInteraction(sample: CanvasPointerSample): boolean {
+  if (ghostState || menuDragActive || currentPhase !== 'build') return false
+
+  const clickedDefender = findDefenderAtWorld(sample.worldX, sample.worldY)
+  if (clickedDefender === null) return false
+
+  let isMoveDrag = false
+  if (selectedDefenderPosition !== null && !ghostState) {
+    const selectedEntity =
+      findDefenderAtWorld(selectedDefenderPosition.x, selectedDefenderPosition.y)
+    if (selectedEntity !== null && clickedDefender.pos.id === selectedEntity.pos.id) {
+      isMoveDrag = true
+    }
+  }
+
+  canvasPointerState = {
+    button: sample.button,
+    buttons: sample.buttons,
+    dragging: false,
+    isMoveDrag,
+  }
+  sendCanvasMsg('click', sample)
+  mouseOverOverlay = false
+  overlayStayOpen = false
+  setEdgeHoverSide(null)
+  invalidateSidePanel()
+  return true
+}
+
 // Convert foreground pointer motion into either edge-hover updates or drag
 // preview traffic.
 foregroundCanvas.addEventListener('mousemove', (event: MouseEvent) => {
@@ -2154,6 +2204,7 @@ foregroundCanvas.addEventListener('mousemove', (event: MouseEvent) => {
           displayName: selectedDefenderSummary.displayName,
           appearance: selectedEntity.app,
           attackRadius: selectedDefenderSummary.appearance.attackRadius,
+          confirmCommand: 'moving',
           pending: false,
           placeable: true,
           spawnPending: false,
@@ -2248,8 +2299,22 @@ window.addEventListener('mouseup', (event: MouseEvent) => {
   if (moveDragActive) {
     moveDragActive = false
     if (ghostState) {
-      sendCanvasMsg('dragend', eventToCanvasSample(event), 'moving')
-      ghostState = null
+      const fgRect = foregroundCanvas.getBoundingClientRect()
+      const ovRect = overlayCanvas.getBoundingClientRect()
+      const overOverlay =
+        event.clientX >= ovRect.left && event.clientX <= ovRect.right &&
+        event.clientY >= ovRect.top && event.clientY <= ovRect.bottom
+      const overFg =
+        event.clientX >= fgRect.left && event.clientX <= fgRect.right &&
+        event.clientY >= fgRect.top && event.clientY <= fgRect.bottom
+      if (overFg && !overOverlay) {
+        sendCanvasMsg('dragmove', ghostStateToSample(ghostState, event), 'moving')
+        ghostState.pending = true
+        mouseOverOverlay = false
+        overlayStayOpen = false
+      } else {
+        ghostState = null
+      }
     }
     canvasPointerState = null
     invalidateSidePanel()
@@ -2303,9 +2368,15 @@ foregroundCanvas.addEventListener('contextmenu', (event: MouseEvent) => {
   const sample = eventToCanvasSample(event)
   if (ghostState?.pending) {
     if (!ghostState.placeable || ghostState.spawnPending) return
+    const ghostSample = ghostStateToSample(ghostState, event, 2, 2)
+    if (ghostState.confirmCommand === 'moving') {
+      sendCanvasMsg('dragend', ghostSample, 'moving')
+      ghostState = null
+      invalidateSidePanel()
+      return
+    }
     // Right-click while ghost is pending: place the defender.
     const entityName = ghostState.entityName
-    const ghostSample = ghostStateToSample(ghostState, event, 2, 2)
     ghostState.spawnPending = true
     sendCanvasMsg('click', ghostSample, 'spawn', [entityName])
     return
@@ -2356,9 +2427,15 @@ document.addEventListener('contextmenu', (event: MouseEvent) => {
   const fgRect = foregroundCanvas.getBoundingClientRect()
   const insideFg = isPointInRect(event.clientX, event.clientY, fgRect)
   if (ghostState.pending && insideFg) {
-    const sample = eventToCanvasSample(event)
-    const entityName = ghostState.entityName
     event.preventDefault()
+    const sample = ghostStateToSample(ghostState, event, 2, 2)
+    if (ghostState.confirmCommand === 'moving') {
+      sendCanvasMsg('dragend', sample, 'moving')
+      ghostState = null
+      invalidateSidePanel()
+      return
+    }
+    const entityName = ghostState.entityName
     ghostState.spawnPending = true
     sendCanvasMsg('click', sample, 'spawn', [entityName])
     return
@@ -2389,7 +2466,7 @@ document.addEventListener('mousedown', (event: MouseEvent) => {
 
 // Track ghost world position globally during a menu drag or a move drag.
 window.addEventListener('mousemove', (event: MouseEvent) => {
-  if (!ghostState) return
+  if (!ghostState || (!menuDragActive && !moveDragActive)) return
   const rect = foregroundCanvas.getBoundingClientRect()
   const canvasX = (event.clientX - rect.left) * (foregroundCanvas.width / rect.width)
   const canvasY = (event.clientY - rect.top) * (foregroundCanvas.height / rect.height)
@@ -2411,16 +2488,10 @@ overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   // When the build menu is open, a click whose world-space coordinates land on
   // a defender should select that defender rather than interact with the menu.
   // This handles the case where a placed defender sits behind the overlay panel.
-  if (!ghostState && !menuDragActive && currentPhase === 'build') {
-    const sample = eventToCanvasSample(event)
-    if (findDefenderAtWorld(sample.worldX, sample.worldY) !== null) {
-      event.preventDefault()
-      sendCanvasMsg('click', sample)
-      mouseOverOverlay = false
-      overlayStayOpen = false
-      invalidateSidePanel()
-      return
-    }
+  const sample = eventToCanvasSample(event)
+  if (armOverlayDefenderInteraction(sample)) {
+    event.preventDefault()
+    return
   }
 
   if (!shouldShowBuildMenu()) return
@@ -2473,11 +2544,11 @@ overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
     displayName: item.displayName,
     appearance: appearanceToRender(item.appearance),
     attackRadius: item.appearance.attackRadius,
+    confirmCommand: 'spawn',
     pending: false,
     placeable: true,
     spawnPending: false,
   }
-  const sample = eventToCanvasSample(event)
   sendPlacementPreview('dragstart', sample, item.entityName)
   clearMenuSelection()
   invalidateSidePanel()
