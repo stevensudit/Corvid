@@ -47,6 +47,8 @@ struct WorldDelta {
 struct GameDelta {
   std::vector<std::pair<SimWorld::EntityId, Position>> upserts;
   std::vector<SimWorld::EntityId> erased;
+  std::vector<TransientExplosion> transientExplosions;
+  std::vector<TransientBeam> transientBeams;
   size_t currentWave{};
   WaveTick waveTick{};
   int lives{};
@@ -120,6 +122,8 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
       [&snap](SimWorld::EntityId id, const Position& pos, const Appearance&,
           const VisualEffects&) { snap.entities.push_back({id, pos}); },
       [](SimWorld::EntityId) {},
+      [](const TransientExplosion&) {},
+      [](const TransientBeam&) {},
       [](size_t, WaveTick, int, int, std::string_view, const UiState&) {});
 
   snap.path_points = std::move(pathsById);
@@ -132,6 +136,12 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
       [&delta](SimWorld::EntityId id, const Position& pos, const Appearance&,
           const VisualEffects&) { delta.upserts.emplace_back(id, pos); },
       [&delta](SimWorld::EntityId id) { delta.erased.push_back(id); },
+      [&delta](const TransientExplosion& transient) {
+        delta.transientExplosions.push_back(transient);
+      },
+      [&delta](const TransientBeam& transient) {
+        delta.transientBeams.push_back(transient);
+      },
       [&delta](size_t currentWave, WaveTick waveTick, int lives, int resources,
           std::string_view phase, const UiState& uiState) {
         delta.currentWave = currentWave;
@@ -850,6 +860,8 @@ void SimGame_ExtractFullIncludesPathsAndState() {
       [&upserts](SimWorld::EntityId, const Position&, const Appearance&,
           const VisualEffects&) { ++upserts; },
       [&erased](SimWorld::EntityId) { ++erased; },
+      [](const TransientExplosion&) {},
+      [](const TransientBeam&) {},
       [&currentWave, &waveTick, &lives, &resources, &phase,
           &uiState](size_t wave, WaveTick tick, int newLives, int newResources,
           std::string_view newPhase, const UiState& newUiState) {

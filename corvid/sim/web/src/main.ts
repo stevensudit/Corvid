@@ -7,6 +7,8 @@ import type {
   EntityVisualEffects,
   Position,
   ServerMsg,
+  TransientBeam,
+  TransientExplosion,
   UiCanvasMsg,
   UiState,
   WorldDelta,
@@ -66,6 +68,29 @@ interface RenderEntityUpsert {
   pos: EntityPosition
   app: RenderAppearance
   fx: RenderVisualEffects
+}
+
+interface RenderTransientExplosion {
+  x: number
+  y: number
+  expiry: number
+  primary: RenderColor
+  secondary: RenderColor
+  radius: number
+  startedAt: number
+}
+
+interface RenderTransientBeam {
+  x: number
+  y: number
+  expiry: number
+  primary: RenderColor
+  secondary: RenderColor
+  targetX: number
+  targetY: number
+  startDistance: number
+  lineWidth: number
+  startedAt: number
 }
 
 // Pointer bookkeeping for an in-progress foreground-canvas interaction.
@@ -401,6 +426,8 @@ let menuScrollOffset = 0
 let ghostState: GhostState | null = null
 let menuDragActive = false
 let moveDragActive = false // true while dragging a selected defender to reposition it
+const transientExplosionsByPos = new Map<string, RenderTransientExplosion>()
+const transientBeamsByPos = new Map<string, RenderTransientBeam>()
 let currentPhase = 'build'
 let mouseOverOverlay = false
 let overlayStayOpen = false
@@ -470,6 +497,7 @@ function renderInterpolated(now: number): void {
     const radius = worldLengthToCanvas(lerp(prevApp.radius, e.app.radius, t))
     drawEntity(x, y, radius, e.app, e.fx, now)
   }
+  drawTransientDisplays(now)
   drawGhost()
 }
 
@@ -858,6 +886,75 @@ function drawFlashOverlay(
   fgCtx.restore()
 }
 
+function transientDisplayKey(x: number, y: number): string {
+  return `${x},${y}`
+}
+
+function isTransientFlashPrimary(now: number, startedAt: number): boolean {
+  const elapsed = Math.max(now - startedAt, 0)
+  return Math.floor(elapsed / FLASH_FLICKER_INTERVAL_MS) % 2 === 0
+}
+
+function drawExplosionTransient(transient: RenderTransientExplosion, now: number): void {
+  const [x, y] = worldToCanvas(transient.x, transient.y)
+  const radius = worldLengthToCanvas(transient.radius)
+  const color = isTransientFlashPrimary(now, transient.startedAt)
+    ? transient.primary
+    : transient.secondary
+  if (radius <= 0 || isTransparent(color)) return
+
+  fgCtx.save()
+  drawFilledCircleOnContext(fgCtx, x, y, radius, color)
+  drawStrokedCircleOnContext(fgCtx, x, y, radius, transient.secondary, Math.max(2, radius * 0.15))
+  fgCtx.restore()
+}
+
+function drawBeamTransient(transient: RenderTransientBeam, now: number): void {
+  const dx = transient.targetX - transient.x
+  const dy = transient.targetY - transient.y
+  const length = Math.sqrt((dx * dx) + (dy * dy))
+  if (length <= 0) return
+
+  const ux = dx / length
+  const uy = dy / length
+  const startX = transient.x + ux * transient.startDistance
+  const startY = transient.y + uy * transient.startDistance
+  const [canvasStartX, canvasStartY] = worldToCanvas(startX, startY)
+  const [canvasTargetX, canvasTargetY] =
+    worldToCanvas(transient.targetX, transient.targetY)
+  const color = isTransientFlashPrimary(now, transient.startedAt)
+    ? transient.primary
+    : transient.secondary
+  if (isTransparent(color)) return
+
+  fgCtx.save()
+  fgCtx.strokeStyle = color.css
+  fgCtx.lineWidth = Math.max(2, worldLengthToCanvas(transient.lineWidth))
+  fgCtx.lineCap = 'round'
+  fgCtx.beginPath()
+  fgCtx.moveTo(canvasStartX, canvasStartY)
+  fgCtx.lineTo(canvasTargetX, canvasTargetY)
+  fgCtx.stroke()
+  fgCtx.restore()
+}
+
+function drawTransientDisplays(now: number): void {
+  for (const [key, transient] of transientExplosionsByPos) {
+    if (now >= transient.expiry) {
+      transientExplosionsByPos.delete(key)
+      continue
+    }
+    drawExplosionTransient(transient, now)
+  }
+  for (const [key, transient] of transientBeamsByPos) {
+    if (now >= transient.expiry) {
+      transientBeamsByPos.delete(key)
+      continue
+    }
+    drawBeamTransient(transient, now)
+  }
+}
+
 // Draw a steady cooldown overlay and clear it locally once its timer ends.
 function drawCooldownOverlay(
   x: number,
@@ -935,6 +1032,39 @@ function visualEffectsToRender(
       : 0,
     cooldown: packedRgbaToRenderColor(fx.cooldown),
     cooldownExpiry: fx.cooldownExpiryMs <= 0 ? 0 : now + fx.cooldownExpiryMs,
+  }
+}
+
+function explosionToRender(
+  transient: TransientExplosion,
+  now: number,
+): RenderTransientExplosion {
+  return {
+    x: transient.x,
+    y: transient.y,
+    expiry: transient.expiryMs <= 0 ? 0 : now + transient.expiryMs,
+    primary: packedRgbaToRenderColor(transient.primaryColor),
+    secondary: packedRgbaToRenderColor(transient.secondaryColor),
+    radius: transient.radius,
+    startedAt: now,
+  }
+}
+
+function beamToRender(
+  transient: TransientBeam,
+  now: number,
+): RenderTransientBeam {
+  return {
+    x: transient.x,
+    y: transient.y,
+    expiry: transient.expiryMs <= 0 ? 0 : now + transient.expiryMs,
+    primary: packedRgbaToRenderColor(transient.primaryColor),
+    secondary: packedRgbaToRenderColor(transient.secondaryColor),
+    targetX: transient.targetX,
+    targetY: transient.targetY,
+    startDistance: transient.startDistance,
+    lineWidth: transient.lineWidth,
+    startedAt: now,
   }
 }
 
@@ -1779,6 +1909,35 @@ function isEntityUpsert(value: unknown): value is EntityUpsert {
   )
 }
 
+function isTransientExplosion(value: unknown): value is TransientExplosion {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).x === 'number' &&
+    typeof (value as Record<string, unknown>).y === 'number' &&
+    typeof (value as Record<string, unknown>).expiryMs === 'number' &&
+    typeof (value as Record<string, unknown>).primaryColor === 'number' &&
+    typeof (value as Record<string, unknown>).secondaryColor === 'number' &&
+    typeof (value as Record<string, unknown>).radius === 'number'
+  )
+}
+
+function isTransientBeam(value: unknown): value is TransientBeam {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).x === 'number' &&
+    typeof (value as Record<string, unknown>).y === 'number' &&
+    typeof (value as Record<string, unknown>).expiryMs === 'number' &&
+    typeof (value as Record<string, unknown>).primaryColor === 'number' &&
+    typeof (value as Record<string, unknown>).secondaryColor === 'number' &&
+    typeof (value as Record<string, unknown>).targetX === 'number' &&
+    typeof (value as Record<string, unknown>).targetY === 'number' &&
+    typeof (value as Record<string, unknown>).startDistance === 'number' &&
+    typeof (value as Record<string, unknown>).lineWidth === 'number'
+  )
+}
+
 // Narrow an unknown value to a defender menu entry.
 function isDefenderMenuItem(value: unknown): value is DefenderMenuItem {
   return (
@@ -1877,6 +2036,8 @@ function resetClientWorldState(): void {
   selectedMenuIndex = null
   menuScrollOffset = 0
   ghostState = null
+  transientExplosionsByPos.clear()
+  transientBeamsByPos.clear()
   menuDragActive = false
   currentPhase = 'build'
   mouseOverOverlay = false
@@ -1918,6 +2079,14 @@ function applyWorldDelta(delta: WorldDelta): void {
     currEntitiesById.delete(entityId)
     prevRenderStateById.delete(entityId)
   }
+  for (const transient of delta.transientExplosions) {
+    const rendered = explosionToRender(transient, now)
+    transientExplosionsByPos.set(transientDisplayKey(transient.x, transient.y), rendered)
+  }
+  for (const transient of delta.transientBeams) {
+    const rendered = beamToRender(transient, now)
+    transientBeamsByPos.set(transientDisplayKey(transient.x, transient.y), rendered)
+  }
 
   finishSnapshotUpdate()
   latestTick = delta.tick
@@ -1943,11 +2112,15 @@ function isWorldDelta(value: unknown): value is WorldDelta {
     typeof v.currentWave === 'number' &&
     Array.isArray(v.upserts) &&
     Array.isArray(v.erased) &&
+    Array.isArray(v.transientExplosions) &&
+    Array.isArray(v.transientBeams) &&
     typeof v.lives === 'number' &&
     typeof v.resources === 'number' &&
     typeof v.phase === 'string' &&
     isUiState(v.uiState) &&
     v.upserts.every(isEntityUpsert) &&
+    v.transientExplosions.every(isTransientExplosion) &&
+    v.transientBeams.every(isTransientBeam) &&
     // Erase entries are just numeric entity ids.
     v.erased.every((id) => typeof id === 'number')
   )

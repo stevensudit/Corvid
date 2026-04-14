@@ -250,7 +250,6 @@ public:
           [&resources](SimWorld::EntityId, const Position&,
               const Invader& inv) {
             resources += inv.bounty;
-            // TODO: Spawn a transient death animation at `pos`.
             return true;
           });
       resources_ = resources;
@@ -356,16 +355,20 @@ public:
 
   // Destructively extract a delta of the game state, for `WorldDelta`. The
   // `cbUpserts(EntityId, Position, Appearance, VisualEffects)` and
-  // `cbErased(EntityId)` callbacks will be interleaved. The
+  // `cbErased(EntityId)` callbacks will be interleaved.
+  // `cbExplosion(TransientExplosion)` and `cbBeam(TransientBeam)` are invoked
+  // for each fire-and-forget transient emitted this frame. The
   // `cbState(currentWave, waveTick, lives, resources, phase, uiState)`
   // callback is invoked last.
-  [[nodiscard]] bool
-  extractDelta(auto&& cbUpserts, auto&& cbErased, auto&& cbState) {
+  [[nodiscard]] bool extractDelta(auto&& cbUpserts, auto&& cbErased,
+      auto&& cbExplosion, auto&& cbBeam, auto&& cbState) {
     // Clear the selected defender if it is no longer valid.
     if (world_.getId(selectedDefender_) == SimWorld::EntityId::invalid)
       (void)clearSelectedDefender();
 
     (void)world_.extractUpdatedEntities(cbUpserts, cbErased);
+    (void)world_.extractTransientExplosions(cbExplosion);
+    (void)world_.extractTransientBeams(cbBeam);
     (void)cbState(currentWave_, waveTick_, lives_, resources_,
         sequence::enum_as_view(phase_), uiState_);
 
@@ -378,13 +381,15 @@ public:
   // Destructively extract a full snapshot of the game state. The `cbPath`
   // callback will be invoked first, with `cbUpserts(EntityId, Position,
   // Appearance, VisualEffects)` and `cbErased(EntityId)` invoked afterwards,
-  // and interleaved. The `cbState(currentWave, waveTick, lives, resources,
+  // and interleaved. `cbExplosion(TransientExplosion)` and
+  // `cbBeam(TransientBeam)` are invoked for each fire-and-forget transient
+  // emitted this frame. The `cbState(currentWave, waveTick, lives, resources,
   // phase, uiState)` callback is invoked last.
   [[nodiscard]] bool extractFull(auto&& cbPath, auto&& cbUpserts,
-      auto&& cbErased, auto&& cbState) {
+      auto&& cbErased, auto&& cbExplosion, auto&& cbBeam, auto&& cbState) {
     (void)extractPaths(cbPath);
     (void)markAllDirty();
-    (void)extractDelta(cbUpserts, cbErased, cbState);
+    (void)extractDelta(cbUpserts, cbErased, cbExplosion, cbBeam, cbState);
     return true;
   }
 
@@ -760,12 +765,15 @@ private:
           .attackDamage = 30.F,
           .cooldown = WorldTick{25},
           .nextAttack = WorldTick{0}};
-      std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
+      std::get<std::optional<DefenderStats>>(tpl).emplace();
       std::get<std::optional<Health>>(tpl) =
           Health{.currentHealth = 75.F, .maxHealth = 75.F, .regen = 0.F};
-      std::get<std::optional<DefenderHitscan>>(
-          tpl) = DefenderHitscan{.beamColor = 0xFFFF4040,
-          .beamDuration = WorldTick{3}};
+      std::get<std::optional<DefenderHitscan>>(tpl).emplace(TransientBeam{
+          .startDistance = 25.F,
+          .expiry = WorldTick{3},
+          .primaryColor = 0xFFFF4040,
+          .secondaryColor = 0xFFFFD080,
+          .lineWidth = 8.F});
       mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
     }
 

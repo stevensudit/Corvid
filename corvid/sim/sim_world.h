@@ -322,6 +322,33 @@ struct VisualEffects {
   WorldTick cooldownExpiry{WorldTick::invalid};
 };
 
+// Fire-and-forget, display-only explosion streamed once to the client.
+// `expiry` is absolute for emitted instances; when embedded as a template it
+// stores the desired duration to add to the current tick.
+struct TransientExplosion {
+  float x{};
+  float y{};
+  WorldTick expiry{WorldTick::invalid};
+  uint32_t primaryColor{};
+  uint32_t secondaryColor{};
+  float radius{};
+};
+
+// Fire-and-forget, display-only beam streamed once to the client.
+// `expiry` is absolute for emitted instances; when embedded as a template it
+// stores the desired duration to add to the current tick.
+struct TransientBeam {
+  float x{};
+  float y{};
+  float startDistance{};
+  WorldTick expiry{WorldTick::invalid};
+  uint32_t primaryColor{};
+  uint32_t secondaryColor{};
+  float targetX{};
+  float targetY{};
+  float lineWidth{};
+};
+
 // Defensive component, common across all defenders.
 struct Defender {
   uint16_t entityTemplateIndex{std::numeric_limits<uint16_t>::max()};
@@ -351,9 +378,7 @@ struct DefenderAoe {
 // target instantly, rather than spawning a projectile that travels to the
 // target.
 struct DefenderHitscan {
-  uint32_t beamColor{}; // RGBA.
-  WorldTick beamDuration{};
-  int beamType{}; // Eventually an enum.
+  TransientBeam transientTemplate{};
 };
 
 // Projectile component for `DefenderShooter`. Used as part of its own
@@ -462,6 +487,8 @@ public:
     updatedEntities_.clear();
     pathEscapees_.clear();
     pendingKills_.clear();
+    pendingTransientExplosions_.clear();
+    pendingTransientBeams_.clear();
     entityTemplates_.clear();
     entityTemplateLabels_.clear();
     tick_ = {};
@@ -769,6 +796,23 @@ public:
     return true;
   }
 
+  // Destructively extract fire-and-forget transient beams emitted this
+  // frame, calling `cbBeam(TransientBeam)` for each.
+  [[nodiscard]] bool extractTransientBeams(auto&& cbBeam) {
+    for (const auto& beam : pendingTransientBeams_) (void)cbBeam(beam);
+    pendingTransientBeams_.clear();
+    return true;
+  }
+
+  // Destructively extract fire-and-forget transient explosions emitted this
+  // frame, calling `cbExplosion(TransientExplosion)` for each.
+  [[nodiscard]] bool extractTransientExplosions(auto&& cbExplosion) {
+    for (const auto& explosion : pendingTransientExplosions_)
+      (void)cbExplosion(explosion);
+    pendingTransientExplosions_.clear();
+    return true;
+  }
+
   // Call back `cbPath(PathId, Position)` for all joints of the path
   // identified by `pathId`.
   [[nodiscard]] bool obtainPath(auto&& cbPath, PathId pathId) const {
@@ -812,7 +856,16 @@ public:
   [[nodiscard]] bool resolveKills(auto&& cbKill) {
     for (auto id : pendingKills_) {
       auto [pos, inv] = scene_.try_get_components<Position, Invader>(id);
-      if (pos && cbKill(id, *pos, *inv)) (void)tombstoneEntity(id);
+      if (pos && cbKill(id, *pos, *inv)) {
+        pendingTransientExplosions_.emplace_back(TransientExplosion{
+            .x = pos->x,
+            .y = pos->y,
+            .expiry = WorldTick{*tick_ + 6},
+            .primaryColor = 0xFFB040E6U,
+            .secondaryColor = 0xFFFFD080U,
+            .radius = inv->hitCircleRadius});
+        (void)tombstoneEntity(id);
+      }
     }
     pendingKills_.clear();
     return true;
@@ -896,6 +949,8 @@ private:
   std::vector<EntityId> updatedEntities_;
   std::vector<EntityId> pathEscapees_;
   std::vector<EntityId> pendingKills_;
+  std::vector<TransientExplosion> pendingTransientExplosions_;
+  std::vector<TransientBeam> pendingTransientBeams_;
 
   // Entity type definitions: label -> component template.
   string_unordered_map<WorldScene::megatuple_t> entityTemplates_;
@@ -1161,10 +1216,9 @@ private:
     return h;
   }
 
-  // Apply hitscan damage to the best single target instantly, using
-  // `hitscan.beamColor` and `hitscan.beamDuration` for the flash on both
-  // defender and target. Puts the defender on cooldown.
-  // TODO: Spawn a transient beam line from the defender to the target.
+  // Apply hitscan damage to the best single target instantly and emit a
+  // transient beam copy from the stored template. Puts the defender on
+  // cooldown.
   [[nodiscard]] bool attackWithHitscan(EntityId defenderId, Defender& defender,
       DefenderStats& stats, const std::vector<InvaderCandidate>& candidates,
       const DefenderHitscan& hitscan) {
@@ -1182,13 +1236,25 @@ private:
     if (hp->currentHealth <= 0.F) {
       pendingKills_.push_back(targetId);
       stats.totalKills += 1.F;
-    } else {
-      (void)flashEntity(targetId, hitscan.beamColor, hitscan.beamDuration);
     }
     stats.totalDamageDealt += actualDamage;
 
+    const auto* defenderPos = scene_.try_get_component<Position>(defenderId);
+    const auto* targetPos = scene_.try_get_component<Position>(targetId);
+    if (!defenderPos || !targetPos) return false;
+
+    pendingTransientBeams_.emplace_back(TransientBeam{.x = defenderPos->x,
+        .y = defenderPos->y,
+        .startDistance = hitscan.transientTemplate.startDistance,
+        .expiry = WorldTick{*tick_ + *hitscan.transientTemplate.expiry},
+        .primaryColor = hitscan.transientTemplate.primaryColor,
+        .secondaryColor = hitscan.transientTemplate.secondaryColor,
+        .targetX = targetPos->x,
+        .targetY = targetPos->y,
+        .lineWidth = hitscan.transientTemplate.lineWidth});
+
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
-    (void)flashEntity(defenderId, hitscan.beamColor, hitscan.beamDuration);
+    (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
     (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack);
     return true;
   }

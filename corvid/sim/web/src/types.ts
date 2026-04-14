@@ -49,6 +49,27 @@ export interface EntityVisualEffects {
   cooldownExpiryMs: number
 }
 
+export interface TransientExplosion {
+  x: number
+  y: number
+  expiryMs: number
+  primaryColor: number
+  secondaryColor: number
+  radius: number
+}
+
+export interface TransientBeam {
+  x: number
+  y: number
+  expiryMs: number
+  primaryColor: number
+  secondaryColor: number
+  targetX: number
+  targetY: number
+  startDistance: number
+  lineWidth: number
+}
+
 interface PathPoint {
   x: number
   y: number
@@ -114,6 +135,8 @@ export interface WorldDelta {
   tick: number
   upserts: EntityUpsert[]
   erased: number[]
+  transientExplosions: TransientExplosion[]
+  transientBeams: TransientBeam[]
   currentWave: number
   lives: number
   resources: number

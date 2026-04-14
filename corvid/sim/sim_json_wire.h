@@ -28,16 +28,23 @@
 namespace corvid { inline namespace sim {
 
 // Calculate milliseconds until a tick-based expiry, capping at max uint32_t.
-// Returns 0 if the color is unset or the expiry has already passed.
+// Returns 0 if the expiry has already passed.
 [[nodiscard]] inline uint32_t
-tickExpiryDelayMs(uint32_t color, WorldTick expiry, WorldTick current_tick) {
-  if (color == 0 || expiry == WorldTick::invalid || expiry < current_tick)
-    return 0;
+tickExpiryDelayMs(WorldTick expiry, WorldTick current_tick) {
+  if (expiry == WorldTick::invalid || expiry < current_tick) return 0;
 
   constexpr uint32_t ms_per_tick = 50;
   const auto ticks_until_expiry = *expiry - *current_tick;
   const auto expiry_delay_ms = ticks_until_expiry * ms_per_tick;
   return std::min(expiry_delay_ms, std::numeric_limits<uint32_t>::max());
+}
+
+// Calculate milliseconds until a tick-based expiry, capping at max uint32_t.
+// Returns 0 if the color is unset or the expiry has already passed.
+[[nodiscard]] inline uint32_t
+tickExpiryDelayMs(uint32_t color, WorldTick expiry, WorldTick current_tick) {
+  if (color == 0) return 0;
+  return tickExpiryDelayMs(expiry, current_tick);
 }
 
 [[nodiscard]] inline uint32_t
@@ -56,11 +63,15 @@ cooldownExpiryDelayMs(const VisualEffects& effects, WorldTick current_tick) {
 struct SimGameStateJson {
   std::string body;
   std::vector<SimWorld::EntityId> erased_ids;
+  std::vector<TransientExplosion> transient_explosions;
+  std::vector<TransientBeam> transient_beams;
 
   // Clear the body and erased IDs. These fields retain their allocations.
   [[nodiscard]] bool clear() {
     body.clear();
     erased_ids.clear();
+    transient_explosions.clear();
+    transient_beams.clear();
     return true;
   }
 };
@@ -93,8 +104,8 @@ struct SimGameStateJson {
 
   auto write_delta = [&writer, &game, &result, current_tick, &current_wave,
                          &wave_tick, &lives_count, &resources_count, &phase,
-                         &ui_state, send_strategy](
-                         json_writer<std::string>& target) {
+                         &ui_state,
+                         send_strategy](json_writer<std::string>& target) {
     target.member(json_trusted{"type"}, json_trusted{"world_delta"})
         .member(json_trusted{"tick"}, *current_tick);
 
@@ -145,6 +156,14 @@ struct SimGameStateJson {
             result.erased_ids.push_back(entity_id);
             return true;
           },
+          [&result](const TransientExplosion& explosion) {
+            result.transient_explosions.push_back(explosion);
+            return true;
+          },
+          [&result](const TransientBeam& beam) {
+            result.transient_beams.push_back(beam);
+            return true;
+          },
           [&current_wave, &wave_tick, &lives_count, &resources_count, &phase,
               &ui_state](auto new_current_wave, auto new_wave_tick,
               auto new_lives, auto new_resources, auto new_phase,
@@ -161,6 +180,42 @@ struct SimGameStateJson {
 
     if (auto erased = target.member_array(json_trusted{"erased"})) {
       for (const auto entity_id : result.erased_ids) erased->value(*entity_id);
+    }
+    if (auto explosions =
+            target.member_array(json_trusted{"transientExplosions"}))
+    {
+      for (const auto& explosion : result.transient_explosions) {
+        explosions->object()
+            ->member(json_trusted{"x"}, explosion.x, std::chars_format::fixed,
+                1)
+            .member(json_trusted{"y"}, explosion.y, std::chars_format::fixed,
+                1)
+            .member(json_trusted{"expiryMs"},
+                tickExpiryDelayMs(explosion.expiry, current_tick))
+            .member(json_trusted{"primaryColor"}, explosion.primaryColor)
+            .member(json_trusted{"secondaryColor"}, explosion.secondaryColor)
+            .member(json_trusted{"radius"}, explosion.radius,
+                std::chars_format::fixed, 1);
+      }
+    }
+    if (auto beams = target.member_array(json_trusted{"transientBeams"})) {
+      for (const auto& beam : result.transient_beams) {
+        beams->object()
+            ->member(json_trusted{"x"}, beam.x, std::chars_format::fixed, 1)
+            .member(json_trusted{"y"}, beam.y, std::chars_format::fixed, 1)
+            .member(json_trusted{"expiryMs"},
+                tickExpiryDelayMs(beam.expiry, current_tick))
+            .member(json_trusted{"primaryColor"}, beam.primaryColor)
+            .member(json_trusted{"secondaryColor"}, beam.secondaryColor)
+            .member(json_trusted{"targetX"}, beam.targetX,
+                std::chars_format::fixed, 1)
+            .member(json_trusted{"targetY"}, beam.targetY,
+                std::chars_format::fixed, 1)
+            .member(json_trusted{"startDistance"}, beam.startDistance,
+                std::chars_format::fixed, 1)
+            .member(json_trusted{"lineWidth"}, beam.lineWidth,
+                std::chars_format::fixed, 1);
+      }
     }
 
     target.member(json_trusted{"currentWave"}, current_wave)
