@@ -1090,6 +1090,15 @@ private:
   [[nodiscard]] bool attackWithAoe(EntityId defenderId, Defender& defender,
       DefenderStats& stats, const std::vector<InvaderCandidate>& candidates,
       const DefenderAoe&) {
+    const auto* defenderPos = scene_.try_get_component<Position>(defenderId);
+    assert(defenderPos);
+    pendingTransientExplosions_.emplace_back(TransientExplosion{
+        .x = defenderPos->x,
+        .y = defenderPos->y,
+        .expiry = WorldTick{*tick_ + 1},
+        .primaryColor = withAlpha(defender.rangeColor, 0x30U),
+        .secondaryColor = withAlpha(defender.rangeColor, 0x10U),
+        .radius = defender.attackRadius});
     for (const auto& cand : candidates) {
       auto* hp = scene_.try_get_component<Health>(cand.id);
       if (!hp) continue;
@@ -1293,6 +1302,11 @@ private:
 
   [[nodiscard]] static constexpr bool isVisibleColor(uint32_t color) noexcept {
     return (color & 0xFFU) != 0U;
+  }
+
+  [[nodiscard]] static constexpr uint32_t
+  withAlpha(uint32_t color, uint8_t alpha) noexcept {
+    return (color & 0xFFFFFF00U) | alpha;
   }
 };
 }} // namespace corvid::sim

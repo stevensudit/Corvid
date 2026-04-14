@@ -51,8 +51,8 @@ struct GameDelta {
   std::vector<TransientBeam> transientBeams;
   size_t currentWave{};
   WaveTick waveTick{};
-  int lives{};
-  int resources{};
+  uint16_t lives{};
+  uint16_t resources{};
   std::string_view phase;
   std::optional<bool> placementAllowed;
   std::optional<bool> spawnAllowed;
@@ -109,6 +109,16 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
   return delta;
 }
 
+[[nodiscard]] std::vector<TransientExplosion> extractTransientExplosions(
+    SimWorld& world) {
+  std::vector<TransientExplosion> explosions;
+  (void)world.extractTransientExplosions(
+      [&explosions](const TransientExplosion& transient) {
+        explosions.push_back(transient);
+      });
+  return explosions;
+}
+
 [[nodiscard]] GameSnapshot snapshot(SimGame& game) {
   GameSnapshot snap;
   std::vector<PathJoints> pathsById;
@@ -121,8 +131,7 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
       },
       [&snap](SimWorld::EntityId id, const Position& pos, const Appearance&,
           const VisualEffects&) { snap.entities.push_back({id, pos}); },
-      [](SimWorld::EntityId) {},
-      [](const TransientExplosion&) {},
+      [](SimWorld::EntityId) {}, [](const TransientExplosion&) {},
       [](const TransientBeam&) {},
       [](size_t, WaveTick, int, int, std::string_view, const UiState&) {});
 
@@ -337,6 +346,33 @@ void SimWorld_DefenderInRangeFlashesItselfAndInvader() {
   EXPECT_EQ(invader_it->fx.flashColor, 0xFF7F7FFFU);
   EXPECT_EQ(invader_it->fx.flashExpiry, WorldTick{6});
   EXPECT_NEAR(invader_it->pos.x, 50.0, 1e-6);
+}
+
+void SimWorld_DefenderAoeAttackEmitsPulseExplosion() {
+  SimWorld w;
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
+  const auto pid = w.addPath(p);
+  const auto defender = spawnDefenderAoe(w, {0.F, 0.F});
+  (void)spawnInvaderAlpha(w, pid);
+
+  (void)extractWorldDelta(w);
+  (void)w.tick();
+  (void)w.next();
+
+  const auto explosions = extractTransientExplosions(w);
+  ASSERT_EQ(explosions.size(), 1U);
+  EXPECT_NEAR(explosions[0].x, 0.0, 1e-6);
+  EXPECT_NEAR(explosions[0].y, 0.0, 1e-6);
+  EXPECT_EQ(explosions[0].expiry, WorldTick{2});
+  EXPECT_EQ(explosions[0].primaryColor, 0xFFFF0030U);
+  EXPECT_EQ(explosions[0].secondaryColor, 0xFFFF0010U);
+  EXPECT_NEAR(explosions[0].radius, 100.0, 1e-6);
+
+  const auto drained = extractTransientExplosions(w);
+  EXPECT_TRUE(drained.empty());
+
+  EXPECT_TRUE(w.try_get_component<Position>(defender.id()) != nullptr);
 }
 
 void SimWorld_SnapshotSinceTracksChanges() {
@@ -860,8 +896,7 @@ void SimGame_ExtractFullIncludesPathsAndState() {
       [&upserts](SimWorld::EntityId, const Position&, const Appearance&,
           const VisualEffects&) { ++upserts; },
       [&erased](SimWorld::EntityId) { ++erased; },
-      [](const TransientExplosion&) {},
-      [](const TransientBeam&) {},
+      [](const TransientExplosion&) {}, [](const TransientBeam&) {},
       [&currentWave, &waveTick, &lives, &resources, &phase,
           &uiState](size_t wave, WaveTick tick, int newLives, int newResources,
           std::string_view newPhase, const UiState& newUiState) {
@@ -1145,6 +1180,7 @@ void SimJson_BuildWorldSnapshotJsonShape() {
 MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
     SimWorld_ExtractUpdatedEntitiesReportsMovedInvaderOncePerExtraction,
     SimWorld_DefenderInRangeFlashesItselfAndInvader,
+    SimWorld_DefenderAoeAttackEmitsPulseExplosion,
     SimWorld_SnapshotSinceTracksChanges,
     SimWorld_DefenderDoesNotAppearAsChangedAfterTick, BakePath_TwoJoints,
     BakePath_ThreeJoints, PathPosition_Endpoints, PathPosition_Midpoint,
