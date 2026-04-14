@@ -72,6 +72,7 @@ interface CanvasPointerState {
   button: number
   buttons: number
   dragging: boolean
+  isMoveDrag: boolean // true when the drag started on the selected defender
 }
 
 // Mouse event sample expressed in both canvas-space and world-space coordinates.
@@ -398,6 +399,7 @@ let selectedMenuIndex: number | null = null
 let menuScrollOffset = 0
 let ghostState: GhostState | null = null
 let menuDragActive = false
+let moveDragActive = false // true while dragging a selected defender to reposition it
 let currentPhase = 'build'
 let mouseOverOverlay = false
 let overlayStayOpen = false
@@ -974,11 +976,11 @@ function drawFps(ctx: CanvasRenderingContext2D): void {
 function getWaveStatusText(): string {
   const waveNum = currentWave + 1
   switch (currentPhase) {
-    case 'build':    return `Prepare for Wave ${waveNum}`
-    case 'wave':     return `Wave ${waveNum}`
+    case 'build': return `Prepare for Wave ${waveNum}`
+    case 'wave': return `Wave ${waveNum}`
     case 'game_over': return 'Game Over'
-    case 'victory':  return 'Invaders Thwarted!'
-    default:         return ''
+    case 'victory': return 'Invaders Thwarted!'
+    default: return ''
   }
 }
 
@@ -1121,6 +1123,8 @@ function getSelectedDefenderPanelModel(): SidePanelModel | null {
     lines.push(`Damage dealt: ${formatPanelNumber(selectedDefenderSummary.totalDamageDealt)}`)
     lines.push(`Kills: ${selectedDefenderSummary.totalKills ?? 0}`)
   }
+  lines.push('')
+  if (currentPhase === 'build') lines.push('Drag to reposition')
   lines.push('Left click empty space to dismiss')
 
   return { side, title: selectedDefenderSummary.displayName, lines }
@@ -2060,14 +2064,16 @@ foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   const sample = eventToCanvasSample(event)
   updateEdgeHover(sample)
 
-  // A transient build panel opened from the background should collapse when
-  // the user clicks empty world space again.
+  // Collapse the build-menu overlay whenever the user left-clicks on the
+  // canvas without a selection already active. This covers both empty-space
+  // clicks AND clicks on an unselected defender — in the latter case the
+  // overlay will reopen with the defender panel once the server confirms the
+  // selection, so the build menu must not be visible in the interim.
   if (
     event.button === 0 &&
     !ghostState &&
     !menuDragActive &&
-    selectedDefenderPosition === null &&
-    findDefenderAtWorld(sample.worldX, sample.worldY) === null
+    selectedDefenderPosition === null
   ) {
     mouseOverOverlay = false
     overlayStayOpen = false
@@ -2096,10 +2102,25 @@ foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
     return
   }
 
+  // Detect whether this left-click starts on the currently selected defender
+  // so that a subsequent drag relocates it rather than sending a generic drag.
+  let isMoveDrag = false
+  if (event.button === 0 && currentPhase === 'build' &&
+    selectedDefenderPosition !== null && !ghostState) {
+    const clickedDefender = findDefenderAtWorld(sample.worldX, sample.worldY)
+    if (clickedDefender !== null) {
+      const selectedEntity =
+        findDefenderAtWorld(selectedDefenderPosition.x, selectedDefenderPosition.y)
+      if (selectedEntity !== null && clickedDefender.pos.id === selectedEntity.pos.id)
+        isMoveDrag = true
+    }
+  }
+
   canvasPointerState = {
     button: sample.button,
     buttons: sample.buttons,
     dragging: false,
+    isMoveDrag,
   }
 
   if (sample.button !== 2) sendCanvasMsg('click', sample)
@@ -2119,12 +2140,40 @@ foregroundCanvas.addEventListener('mousemove', (event: MouseEvent) => {
 
   if (!canvasPointerState.dragging) {
     canvasPointerState.dragging = true
+    if (canvasPointerState.isMoveDrag &&
+      selectedDefenderPosition !== null && selectedDefenderSummary !== null) {
+      // Start a move drag: create a ghost representing the defender being
+      // relocated and send a "moving" dragstart so the server can validate.
+      const selectedEntity =
+        findDefenderAtWorld(selectedDefenderPosition.x, selectedDefenderPosition.y)
+      if (selectedEntity !== null) {
+        ghostState = {
+          worldX: dragSample.worldX,
+          worldY: dragSample.worldY,
+          entityName: selectedDefenderSummary.entityName,
+          displayName: selectedDefenderSummary.displayName,
+          appearance: selectedEntity.app,
+          attackRadius: selectedDefenderSummary.appearance.attackRadius,
+          pending: false,
+          placeable: true,
+          spawnPending: false,
+        }
+        moveDragActive = true
+        sendCanvasMsg('dragstart', dragSample, 'moving')
+        invalidateSidePanel()
+        return
+      }
+    }
     sendCanvasMsg('dragstart', dragSample)
     return
   }
 
-  pendingDragMove = dragSample
-  scheduleDragMoveFlush()
+  // Do not send a generic dragmove while a move-drag is in progress; the
+  // global window mousemove handler sends "moving" dragmove events instead.
+  if (!moveDragActive) {
+    pendingDragMove = dragSample
+    scheduleDragMoveFlush()
+  }
 })
 
 // Open the build menu directly from empty build space on double-click, then
@@ -2195,6 +2244,18 @@ overlayCanvas.addEventListener('mouseleave', (event: MouseEvent) => {
 
 // Finish menu drags and normal canvas drags when the mouse button is released.
 window.addEventListener('mouseup', (event: MouseEvent) => {
+  // Commit or cancel a move drag (relocating a placed defender).
+  if (moveDragActive) {
+    moveDragActive = false
+    if (ghostState) {
+      sendCanvasMsg('dragend', eventToCanvasSample(event), 'moving')
+      ghostState = null
+    }
+    canvasPointerState = null
+    invalidateSidePanel()
+    return
+  }
+
   // Handle menu drag commit/cancel.
   if (menuDragActive) {
     menuDragActive = false
@@ -2326,22 +2387,42 @@ document.addEventListener('mousedown', (event: MouseEvent) => {
   invalidateSidePanel()
 })
 
-// Track ghost world position globally during a menu drag.
+// Track ghost world position globally during a menu drag or a move drag.
 window.addEventListener('mousemove', (event: MouseEvent) => {
-  if (!menuDragActive || !ghostState) return
+  if (!ghostState) return
   const rect = foregroundCanvas.getBoundingClientRect()
   const canvasX = (event.clientX - rect.left) * (foregroundCanvas.width / rect.width)
   const canvasY = (event.clientY - rect.top) * (foregroundCanvas.height / rect.height)
   const [worldX, worldY] = canvasToWorld(canvasX, canvasY)
   ghostState.worldX = worldX
   ghostState.worldY = worldY
-  sendPlacementPreview('dragmove', eventToCanvasSample(event), ghostState.entityName)
+  if (menuDragActive) {
+    sendPlacementPreview('dragmove', eventToCanvasSample(event), ghostState.entityName)
+  } else if (moveDragActive) {
+    sendCanvasMsg('dragmove', eventToCanvasSample(event), 'moving')
+  }
 })
 
 // Overlay mousedown: select a build menu cell and arm a drag (ghost appears on
 // first mousemove so it never flashes at the canvas origin).
 overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   if (event.button !== 0) return
+
+  // When the build menu is open, a click whose world-space coordinates land on
+  // a defender should select that defender rather than interact with the menu.
+  // This handles the case where a placed defender sits behind the overlay panel.
+  if (!ghostState && !menuDragActive && currentPhase === 'build') {
+    const sample = eventToCanvasSample(event)
+    if (findDefenderAtWorld(sample.worldX, sample.worldY) !== null) {
+      event.preventDefault()
+      sendCanvasMsg('click', sample)
+      mouseOverOverlay = false
+      overlayStayOpen = false
+      invalidateSidePanel()
+      return
+    }
+  }
+
   if (!shouldShowBuildMenu()) return
   event.preventDefault()
 

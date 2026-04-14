@@ -649,11 +649,14 @@ public:
   }
 
   // Check if an object at `pos` with a given `radius` overlaps any
-  // defenders. Used for placement.
-  [[nodiscard]] bool
-  doesOveralapDefenders(const Position& pos, float radius) const {
+  // defenders. Used for placement. Skips the entity with `excludeId` (pass
+  // `EntityId::invalid` to skip no entity; used when moving a placed
+  // defender so it can partially overlap its own footprint).
+  [[nodiscard]] bool doesOveralapDefenders(const Position& pos, float radius,
+      EntityId excludeId = EntityId::invalid) const {
     bool overlaps = false;
-    scene_.for_each<Position, Appearance, Defender>([&](auto, auto comps) {
+    scene_.for_each<Position, Appearance, Defender>([&](auto id, auto comps) {
+      if (id == excludeId) return true;
       const auto& [defender_pos, defender_app, _] = comps;
       if (!circlesOverlap(pos, radius, defender_pos, defender_app.radius))
         return true;
@@ -678,9 +681,12 @@ public:
   }
 
   // Whether defender placement at `pos` with a given `radius` is blocked.
-  [[nodiscard]] bool
-  isDefenderPlacementBlocked(const Position& pos, float radius) const {
-    return !isInBounds(pos, radius) || doesOveralapDefenders(pos, radius) ||
+  // Pass `excludeId` when relocating an already-placed defender so its own
+  // footprint does not veto the destination.
+  [[nodiscard]] bool isDefenderPlacementBlocked(const Position& pos,
+      float radius, EntityId excludeId = EntityId::invalid) const {
+    return !isInBounds(pos, radius) ||
+           doesOveralapDefenders(pos, radius, excludeId) ||
            doesTouchPath(pos, radius);
   }
 

@@ -218,6 +218,7 @@ public:
     pendingSpawnIntent_.reset();
     pendingSelectIntent_.reset();
     pendingActionIntent_.reset();
+    pendingMoveIntent_.reset();
     selectedDefender_ = {};
     return true;
   }
@@ -302,6 +303,17 @@ public:
         return false;
 
       pendingPlacementIntent_ = input;
+      return true;
+    }
+
+    // Drag the selected defender to a new position.
+    if (input.command == "moving") {
+      if (input.event != UiCanvasEvent::dragstart &&
+          input.event != UiCanvasEvent::dragmove &&
+          input.event != UiCanvasEvent::dragend)
+        return false;
+
+      pendingMoveIntent_ = input;
       return true;
     }
 
@@ -410,6 +422,36 @@ private:
     return canPlaceDefender(findEntityDef(entityName), pos);
   }
 
+  // Apply a move-drag intent: validate placement and, on dragend, relocate
+  // the selected defender.
+  [[nodiscard]] bool applyMoveIntent(const UiCanvasInput& input) {
+    const auto newPos = Position{input.x, input.y};
+    const bool valid = canMoveDefender(newPos);
+    uiState_.placementAllowed = valid;
+    if (!valid || input.event != UiCanvasEvent::dragend) return true;
+    const auto selectedId = world_.getId(selectedDefender_);
+    if (selectedId == SimWorld::EntityId::invalid) return true;
+    if (auto* pos = world_.try_get_component<Position>(selectedId)) {
+      *pos = newPos;
+      (void)world_.markDirty(selectedId);
+      uiState_.selectedDefender = newPos;
+    }
+    return true;
+  }
+
+  // Determine whether the currently selected defender can be moved to `pos`.
+  // No resource check: relocation is free. The defender's own footprint is
+  // excluded from the overlap test so it can be "placed" at its origin.
+  [[nodiscard]] bool canMoveDefender(const Position& pos) {
+    if (phase_ != GamePhase::build) return false;
+    const auto selectedId = world_.getId(selectedDefender_);
+    if (selectedId == SimWorld::EntityId::invalid) return false;
+    const auto& [_pos, _app, _fx, defender] = world_.getDefender(selectedId);
+    if (!defender) return false;
+    return !world_.isDefenderPlacementBlocked(pos, defender->hitCircleRadius,
+        selectedId);
+  }
+
   // Build `DefenderSummary` for a selected defender by entity definition.
   [[nodiscard]] std::optional<DefenderSummary> buildSelectedDefenderSummary(
       const EntityDefinition* def) const {
@@ -470,6 +512,11 @@ private:
       const auto& input = *pendingSelectIntent_;
       (void)selectDefenderAt({input.x, input.y});
       pendingSelectIntent_.reset();
+    }
+
+    if (pendingMoveIntent_) {
+      (void)applyMoveIntent(*pendingMoveIntent_);
+      pendingMoveIntent_.reset();
     }
 
     if (pendingActionIntent_) {
@@ -808,6 +855,7 @@ private:
   std::optional<UiCanvasInput> pendingSpawnIntent_;
   std::optional<UiCanvasInput> pendingSelectIntent_;
   std::optional<UiActionInput> pendingActionIntent_;
+  std::optional<UiCanvasInput> pendingMoveIntent_;
 
   // Handle to the currently selected defender, used to clear its range
   // circle when deselected.
