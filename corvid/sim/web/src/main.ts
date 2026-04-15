@@ -394,6 +394,9 @@ let lastFrameTime = 0
 // to interpolate from the old snapshot toward the new one.
 const currEntitiesById = new Map<number, RenderEntityUpsert>()
 const prevRenderStateById = new Map<number, RenderEntityUpsert>()
+// Tracks entity IDs known to be bullets (glyph '*'=42 or '.'=46), so erasure
+// logging can identify bullet deaths without needing the appearance data.
+const bulletEntityIds = new Set<number>()
 let prevSnapshotTime = 0
 let currSnapshotTime = 0
 let snapshotIntervalMs = 50
@@ -2070,12 +2073,25 @@ function applyWorldDelta(delta: WorldDelta): void {
   // animation frames.
   for (const entity of delta.upserts) {
     const prevEntity = currEntitiesById.get(entity.pos.id)
+    if (!prevEntity && entity.app) {
+      const g = entity.app.glyph
+      if (g === 42 || g === 46) {
+        // '*' (42) or '.' (46) -- this is a bullet.
+        const { id, x, y } = entity.pos
+        log(`tick ${delta.tick}: bullet id=${id} glyph=${String.fromCodePoint(g)} (${x},${y}) r=${entity.app.radius}`)
+        bulletEntityIds.add(id)
+      }
+    }
     const nextEntity =
       upsertToRenderEntity(entity, now, prevEntity?.app, prevEntity?.fx)
     if (prevEntity) prevRenderStateById.set(entity.pos.id, prevEntity)
     currEntitiesById.set(entity.pos.id, nextEntity)
   }
   for (const entityId of delta.erased) {
+    if (bulletEntityIds.has(entityId)) {
+      log(`tick ${delta.tick}: bullet erased id=${entityId}`)
+      bulletEntityIds.delete(entityId)
+    }
     currEntitiesById.delete(entityId)
     prevRenderStateById.delete(entityId)
   }

@@ -968,13 +968,13 @@ private:
       return Appearance{.glyph = U'*',
           .radius = 8.F,
           .fgColor = 0xFFFFFFFFU,
-          .bgColor = 0xFFFFA020U,
+          .bgColor = 0xFFA020FFU,
           .attackRadius = 0.F};
     default:
       return Appearance{.glyph = U'.',
           .radius = 6.F,
           .fgColor = 0xFFFFFFFFU,
-          .bgColor = 0xFFC0C0C0U,
+          .bgColor = 0xC0C0C0FFU,
           .attackRadius = 0.F};
     }
   }
@@ -1405,7 +1405,15 @@ private:
     std::get<std::optional<Appearance>>(tpl) = appearanceForProjectile(bullet);
     std::get<std::optional<DefenderBullet>>(tpl) = bullet;
     auto h = scene_.store_new_entity_from_mega({WorldTick::invalid}, tpl);
-    if (h) (void)markDirty(h.id());
+    if (h) {
+      // Stamp `modified` so the wire serializer includes the appearance on the
+      // first delta sent to clients. Without this, `app.modified` stays at
+      // `WorldTick::invalid` and the serializer silently omits the `app` block,
+      // leaving clients with no appearance data for bullets.
+      if (auto* app = scene_.try_get_component<Appearance>(h.id()))
+        app->modified = tick_;
+      (void)markDirty(h.id());
+    }
     return h;
   }
 

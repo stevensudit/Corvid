@@ -675,7 +675,7 @@ private:
       std::get<std::optional<Invader>>(tpl) =
           Invader{.hitCircleRadius = 30.F, .bounty = 10};
       std::get<std::optional<Health>>(tpl) =
-          Health{.currentHealth = 10.F, .maxHealth = 100.F, .regen = 10.F};
+          Health{.currentHealth = 50.F, .maxHealth = 50.F, .regen = 10.F};
       mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
     }
     {
@@ -697,7 +697,7 @@ private:
       std::get<std::optional<Defender>>(
           tpl) = Defender{.hitCircleRadius = 30.F,
           .attackRadius = 100.F,
-          .rangeColor = 0xFFFF0000,
+          .rangeColor = 0xFFFF00FF,
           .attackDamage = 5.F,
           .cooldown = WorldTick{20},
           .nextAttack = WorldTick{0}};
@@ -719,14 +719,14 @@ private:
       std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'S',
           .radius = 25.F,
           .fgColor = 0xFFFFFFFF,
-          .bgColor = 0x7FFF7F3F,
+          .bgColor = 0x107F50FF,
           .attackRadius = 150.F};
       std::get<std::optional<VisualEffects>>(tpl) =
           VisualEffects{.flashColor = 0xFF7FFF7F, .flashExpiry = WorldTick{5}};
       std::get<std::optional<Defender>>(
           tpl) = Defender{.hitCircleRadius = 25.F,
           .attackRadius = 150.F,
-          .rangeColor = 0xFF00FF00,
+          .rangeColor = 0xFF00FFFF,
           .attackDamage = 15.F,
           .cooldown = WorldTick{30},
           .nextAttack = WorldTick{0}};
@@ -735,10 +735,10 @@ private:
           Health{.currentHealth = 80.F, .maxHealth = 80.F, .regen = 0.F};
       std::get<std::optional<DefenderShooter>>(tpl) = DefenderShooter{
           .bulletTemplate = DefenderBullet{.hitCircleRadius = 8.F,
-              .speed = 200.F,
-              .directDamage = 15.F,
+              .speed = 100.F,
+              .directDamage = 25.F,
               .projectileType = 1,
-              .expiry = WorldTick{60}},
+              .expiry = WorldTick{5}},
           .fireRate = 0.033F};
       mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
     }
@@ -755,14 +755,14 @@ private:
       std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'L',
           .radius = 25.F,
           .fgColor = 0xFFFFFFFF,
-          .bgColor = 0x7FFF3F3F,
+          .bgColor = 0x7F7F3FFF,
           .attackRadius = 200.F};
       std::get<std::optional<VisualEffects>>(tpl) =
           VisualEffects{.flashColor = 0xFFFF4040, .flashExpiry = WorldTick{3}};
       std::get<std::optional<Defender>>(
           tpl) = Defender{.hitCircleRadius = 25.F,
           .attackRadius = 200.F,
-          .rangeColor = 0xFFFF0000,
+          .rangeColor = 0xFFFF00FF,
           .attackDamage = 30.F,
           .cooldown = WorldTick{25},
           .nextAttack = WorldTick{0}};
