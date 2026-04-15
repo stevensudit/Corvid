@@ -37,6 +37,7 @@ export interface EntityAppearance {
   fg: number
   bg: number
   attackRadius: number
+  trailColor?: number
 }
 
 export interface EntityVisualEffects {

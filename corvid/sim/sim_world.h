@@ -292,11 +292,12 @@ struct Pathing {
 // TODO: Add field for sprite selection.
 struct Appearance {
   WorldTick modified{WorldTick::invalid}; // Tick when last modified.
-  char32_t glyph{};     // A Unicode character to display, if any.
-  float radius{5.F};    // World-space radius of the rendered shape.
-  uint32_t fgColor{};   // RGBA.
-  uint32_t bgColor{};   // RGBA.
-  float attackRadius{}; // Display-only (world units).
+  char32_t glyph{};      // A Unicode character to display, if any.
+  float radius{5.F};     // World-space radius of the rendered shape.
+  uint32_t fgColor{};    // RGBA.
+  uint32_t bgColor{};    // RGBA.
+  float attackRadius{};  // Display-only (world units).
+  uint32_t trailColor{}; // RGBA.
 };
 
 // Health component. Applies to both defenders and invaders. The two health
@@ -969,13 +970,15 @@ private:
           .radius = 8.F,
           .fgColor = 0xFFFFFFFFU,
           .bgColor = 0xFFA020FFU,
-          .attackRadius = 0.F};
+          .attackRadius = 0.F,
+          .trailColor = 0xFFA020FFU};
     default:
       return Appearance{.glyph = U'.',
           .radius = 6.F,
           .fgColor = 0xFFFFFFFFU,
           .bgColor = 0xC0C0C0FFU,
-          .attackRadius = 0.F};
+          .attackRadius = 0.F,
+          .trailColor = 0xC0C0C0FFU};
     }
   }
 
@@ -1406,10 +1409,6 @@ private:
     std::get<std::optional<DefenderBullet>>(tpl) = bullet;
     auto h = scene_.store_new_entity_from_mega({WorldTick::invalid}, tpl);
     if (h) {
-      // Stamp `modified` so the wire serializer includes the appearance on the
-      // first delta sent to clients. Without this, `app.modified` stays at
-      // `WorldTick::invalid` and the serializer silently omits the `app` block,
-      // leaving clients with no appearance data for bullets.
       if (auto* app = scene_.try_get_component<Appearance>(h.id()))
         app->modified = tick_;
       (void)markDirty(h.id());

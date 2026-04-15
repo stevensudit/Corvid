@@ -133,7 +133,8 @@ struct SimGameStateJson {
                   .member(json_trusted{"fg"}, app.fgColor)
                   .member(json_trusted{"bg"}, app.bgColor)
                   .member(json_trusted{"attackRadius"}, app.attackRadius,
-                      std::chars_format::fixed, 1);
+                      std::chars_format::fixed, 1)
+                  .member(json_trusted{"trailColor"}, app.trailColor);
             }
 
             if (effects.modified == current_tick) {

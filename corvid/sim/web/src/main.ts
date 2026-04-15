@@ -34,6 +34,7 @@ interface RenderAppearance {
   fg: RenderColor
   bg: RenderColor
   attackRadius: number // Radius of attack
+  trail: RenderColor  // Transparent = no trail; otherwise drawn prev->curr tick.
 }
 
 // Local placement-preview state for a defender being dragged or staged to spawn.
@@ -129,17 +130,18 @@ interface SidePanelModel {
   lines: string[]
 }
 
+const TRANSPARENT_RENDER_COLOR: RenderColor = {
+  css: 'rgba(0, 0, 0, 0)',
+  alpha: 0,
+}
+
 const DEFAULT_RENDER_APPEARANCE: RenderAppearance = {
   glyph: '?',
   radius: 5,
   fg: { css: 'rgba(255, 255, 255, 1)', alpha: 1 },
   bg: { css: 'rgba(0, 0, 0, 1)', alpha: 1 },
   attackRadius: 0,
-}
-
-const TRANSPARENT_RENDER_COLOR: RenderColor = {
-  css: 'rgba(0, 0, 0, 0)',
-  alpha: 0,
+  trail: TRANSPARENT_RENDER_COLOR,
 }
 
 const DEFAULT_RENDER_VISUAL_EFFECTS: RenderVisualEffects = {
@@ -394,9 +396,6 @@ let lastFrameTime = 0
 // to interpolate from the old snapshot toward the new one.
 const currEntitiesById = new Map<number, RenderEntityUpsert>()
 const prevRenderStateById = new Map<number, RenderEntityUpsert>()
-// Tracks entity IDs known to be bullets (glyph '*'=42 or '.'=46), so erasure
-// logging can identify bullet deaths without needing the appearance data.
-const bulletEntityIds = new Set<number>()
 let prevSnapshotTime = 0
 let currSnapshotTime = 0
 let snapshotIntervalMs = 50
@@ -498,6 +497,10 @@ function renderInterpolated(now: number): void {
     const wy = prevPos ? lerp(prevPos.y, e.pos.y, t) : e.pos.y
     const [x, y] = worldToCanvas(wx, wy)
     const radius = worldLengthToCanvas(lerp(prevApp.radius, e.app.radius, t))
+    if (prevPos && !isTransparent(e.app.trail)) {
+      const [px, py] = worldToCanvas(prevPos.x, prevPos.y)
+      drawTrail(px, py, x, y, radius, e.app.trail)
+    }
     drawEntity(x, y, radius, e.app, e.fx, now)
   }
   drawTransientDisplays(now)
@@ -981,6 +984,32 @@ function drawCooldownOverlay(
   fgCtx.restore()
 }
 
+// Draw a motion trail as a gradient line from `(x1,y1)` to `(x2,y2)`.
+// The tail end `(x1,y1)` is transparent; the head `(x2,y2)` is fully opaque.
+// `lineWidth` should be the entity's canvas-pixel radius.
+function drawTrail(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  lineWidth: number,
+  color: RenderColor,
+): void {
+  if (isTransparent(color)) return
+  const grad = fgCtx.createLinearGradient(x1, y1, x2, y2)
+  grad.addColorStop(0, `rgba(0,0,0,0)`)
+  grad.addColorStop(1, color.css)
+  fgCtx.save()
+  fgCtx.strokeStyle = grad
+  fgCtx.lineWidth = Math.max(1, lineWidth)
+  fgCtx.lineCap = 'round'
+  fgCtx.beginPath()
+  fgCtx.moveTo(x1, y1)
+  fgCtx.lineTo(x2, y2)
+  fgCtx.stroke()
+  fgCtx.restore()
+}
+
 // Draw one entity and all of its client-side visual effects.
 function drawEntity(
   x: number,
@@ -1005,6 +1034,7 @@ function appearanceToRender(app: EntityAppearance): RenderAppearance {
     fg: packedRgbaToRenderColor(app.fg),
     bg: packedRgbaToRenderColor(app.bg),
     attackRadius: app.attackRadius,
+    trail: app.trailColor ? packedRgbaToRenderColor(app.trailColor) : TRANSPARENT_RENDER_COLOR,
   }
 }
 
@@ -2073,25 +2103,12 @@ function applyWorldDelta(delta: WorldDelta): void {
   // animation frames.
   for (const entity of delta.upserts) {
     const prevEntity = currEntitiesById.get(entity.pos.id)
-    if (!prevEntity && entity.app) {
-      const g = entity.app.glyph
-      if (g === 42 || g === 46) {
-        // '*' (42) or '.' (46) -- this is a bullet.
-        const { id, x, y } = entity.pos
-        log(`tick ${delta.tick}: bullet id=${id} glyph=${String.fromCodePoint(g)} (${x},${y}) r=${entity.app.radius}`)
-        bulletEntityIds.add(id)
-      }
-    }
     const nextEntity =
       upsertToRenderEntity(entity, now, prevEntity?.app, prevEntity?.fx)
     if (prevEntity) prevRenderStateById.set(entity.pos.id, prevEntity)
     currEntitiesById.set(entity.pos.id, nextEntity)
   }
   for (const entityId of delta.erased) {
-    if (bulletEntityIds.has(entityId)) {
-      log(`tick ${delta.tick}: bullet erased id=${entityId}`)
-      bulletEntityIds.delete(entityId)
-    }
     currEntitiesById.delete(entityId)
     prevRenderStateById.delete(entityId)
   }
