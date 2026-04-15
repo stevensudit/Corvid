@@ -354,7 +354,7 @@ public:
   }
 
   // Destructively extract a delta of the game state, for `WorldDelta`. The
-  // `cbUpserts(EntityId, Position, Appearance, VisualEffects)` and
+  // `cbUpserts(EntityId, Position, Appearance, VisualEffects, Health)` and
   // `cbErased(EntityId)` callbacks will be interleaved.
   // `cbExplosion(TransientExplosion)` and `cbBeam(TransientBeam)` are invoked
   // for each fire-and-forget transient emitted this frame. The
@@ -380,8 +380,8 @@ public:
 
   // Destructively extract a full snapshot of the game state. The `cbPath`
   // callback will be invoked first, with `cbUpserts(EntityId, Position,
-  // Appearance, VisualEffects)` and `cbErased(EntityId)` invoked afterwards,
-  // and interleaved. `cbExplosion(TransientExplosion)` and
+  // Appearance, VisualEffects, Health)` and `cbErased(EntityId)` invoked
+  // afterwards, and interleaved. `cbExplosion(TransientExplosion)` and
   // `cbBeam(TransientBeam)` are invoked for each fire-and-forget transient
   // emitted this frame. The `cbState(currentWave, waveTick, lives, resources,
   // phase, uiState)` callback is invoked last.

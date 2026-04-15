@@ -96,8 +96,8 @@ private:
   SimGameStateJson json_buffer_; // persistent buffer and high-watermark
 
   // "Temporary" diagnostics.
-  clock_t::time_point last_tick_fire_time_{};
-  clock_t::time_point stats_window_start_{};
+  clock_t::time_point last_tick_fire_time_;
+  clock_t::time_point stats_window_start_;
   size_t tick_fires_in_window_{};
   double interval_sum_ms_{};
   size_t payload_bytes_in_window_{};
@@ -208,7 +208,8 @@ private:
             .count();
     const double measured_hz =
         elapsed_ms > 0.0 && tick_fires_in_window_ > 1
-            ? ((tick_fires_in_window_ - 1) * 1000.0) / elapsed_ms
+            ? (static_cast<double>(tick_fires_in_window_ - 1) * 1000.0) /
+                  elapsed_ms
             : 0.0;
     const double avg_interval_ms =
         tick_fires_in_window_ > 1

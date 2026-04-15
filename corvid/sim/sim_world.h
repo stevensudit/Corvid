@@ -774,22 +774,22 @@ public:
 
   // Destructively extract upserts and erasures.
   //
-  // Call back `cbUpserts(EntityId, Position, Appearance, VisualEffects)` for
-  // each changed entity that has a `Position` and `Appearance` and has
-  // changed since the last tick, and `cbErased(EntityId)` for each entity
-  // that has been erased since the last tick. The visual effects pointer is
-  // null for archetypes that do not carry that component. These callbacks will
-  // be interleaved.
+  // Call back `cbUpserts(EntityId, Position, Appearance, VisualEffects,
+  // Health)` for each changed entity that has a `Position` and `Appearance`
+  // and has changed since the last tick, and `cbErased(EntityId)` for each
+  // entity that has been erased since the last tick. The visual effects
+  // pointer is null for archetypes that do not carry that component. These
+  // callbacks will be interleaved.
   [[nodiscard]] bool
   extractUpdatedEntities(auto&& cbUpserts, auto&& cbErased) {
     static constexpr VisualEffects nfx;
+    static constexpr Health nhp;
     auto& reg = scene_.registry();
     for (auto id : updatedEntities_) {
-      const auto [pos, app, fx] =
-          scene_.try_get_some_components<Position, Appearance, VisualEffects>(
-              id);
+      const auto [pos, app, fx, hp] = scene_.try_get_some_components<Position,
+          Appearance, VisualEffects, Health>(id);
       if (pos && app) {
-        (void)cbUpserts(id, *pos, *app, fx ? *fx : nfx);
+        (void)cbUpserts(id, *pos, *app, fx ? *fx : nfx, hp ? *hp : nhp);
       } else if (reg.get_location(id).store_id == sidStaging) {
         (void)cbErased(id);
         (void)scene_.erase_entity(id);
@@ -901,10 +901,12 @@ public:
       (void)markDirty(id);
       if (strategy == update_strategy::incremental) return true;
 
-      auto [app, fx] =
-          scene_.try_get_some_components<Appearance, VisualEffects>(id);
+      auto [app, fx, hp] =
+          scene_.try_get_some_components<Appearance, VisualEffects, Health>(
+              id);
       if (app) app->modified = tick_;
       if (fx) fx->modified = tick_;
+      if (hp) hp->modified = tick_;
       return true;
     });
     return true;

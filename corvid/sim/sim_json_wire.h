@@ -113,7 +113,7 @@ struct SimGameStateJson {
       (void)game.extractDelta(
           [&writer, current_tick](SimWorld::EntityId entity_id,
               const Position& pos, const Appearance& app,
-              const VisualEffects& effects) {
+              const VisualEffects& effects, const Health& hp) {
             auto entity = writer.object();
 
             if (auto position = entity->member_object(json_trusted{"pos"})) {
@@ -149,6 +149,14 @@ struct SimGameStateJson {
                   .member(json_trusted{"cooldown"}, effects.cooldownColor)
                   .member(json_trusted{"cooldownExpiryMs"},
                       cooldownExpiryDelayMs(effects, current_tick));
+            }
+
+            if (hp.modified == current_tick) {
+              entity->member_object(json_trusted{"health"})
+                  ->member(json_trusted{"current"}, hp.currentHealth,
+                      std::chars_format::fixed, 1)
+                  .member(json_trusted{"max"}, hp.maxHealth,
+                      std::chars_format::fixed, 1);
             }
 
             return true;

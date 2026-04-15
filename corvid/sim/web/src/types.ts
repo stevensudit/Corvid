@@ -40,6 +40,11 @@ export interface EntityAppearance {
   trailColor?: number
 }
 
+export interface EntityHealth {
+  current: number
+  max: number
+}
+
 export interface EntityVisualEffects {
   selection: number
   rangeRadius: number
@@ -104,6 +109,7 @@ export interface EntityUpsert {
   pos: EntityPosition
   app?: EntityAppearance
   vfx?: EntityVisualEffects
+  health?: EntityHealth
 }
 
 export interface UiCanvasMsg {

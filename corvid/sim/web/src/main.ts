@@ -2,6 +2,7 @@ import type {
   ClientMsg,
   DefenderMenuItem,
   EntityAppearance,
+  EntityHealth,
   EntityPosition,
   EntityUpsert,
   EntityVisualEffects,
@@ -69,6 +70,7 @@ interface RenderEntityUpsert {
   pos: EntityPosition
   app: RenderAppearance
   fx: RenderVisualEffects
+  healthFraction: number  // 1.0 = full health or no health component
 }
 
 interface RenderTransientExplosion {
@@ -501,7 +503,7 @@ function renderInterpolated(now: number): void {
       const [px, py] = worldToCanvas(prevPos.x, prevPos.y)
       drawTrail(px, py, x, y, radius, e.app.trail)
     }
-    drawEntity(x, y, radius, e.app, e.fx, now)
+    drawEntity(x, y, radius, e.app, e.fx, now, e.healthFraction)
   }
   drawTransientDisplays(now)
   drawGhost()
@@ -803,16 +805,6 @@ function getEntitySprite(app: RenderAppearance, radius: number): SpriteCacheEntr
   if (!spriteCtx) return null
 
   if (app.bg.alpha !== 0) drawFilledCircleOnContext(spriteCtx, offset, offset, roundedRadius, app.bg)
-  if (app.fg.alpha !== 0) {
-    drawStrokedCircleOnContext(
-      spriteCtx,
-      offset,
-      offset,
-      Math.max(roundedRadius - getEntityBorderWidth(roundedRadius) * 0.5, 0),
-      app.fg,
-      getEntityBorderWidth(roundedRadius),
-    )
-  }
   if (app.fg.alpha !== 0) drawGlyphOnContext(spriteCtx, app.glyph, offset, offset, roundedRadius, app.fg)
 
   const sprite = { canvas, offset }
@@ -1010,6 +1002,32 @@ function drawTrail(
   fgCtx.restore()
 }
 
+// Draw the fg border as a partial arc proportional to health: full circle at
+// 1.0, clockwise arc from the top at intermediate values, nothing at 0.
+function drawHealthArc(
+  x: number,
+  y: number,
+  radius: number,
+  color: RenderColor,
+  healthFraction: number,
+): void {
+  if (radius <= 0 || isTransparent(color) || healthFraction <= 0) return
+
+  const lineWidth = getEntityBorderWidth(radius)
+  const arcRadius = Math.max(radius - lineWidth * 0.5, 0)
+  const startAngle = -Math.PI / 2
+  const endAngle = startAngle + Math.min(healthFraction, 1) * 2 * Math.PI
+
+  fgCtx.save()
+  fgCtx.strokeStyle = color.css
+  fgCtx.lineWidth = lineWidth
+  fgCtx.lineCap = 'round'
+  fgCtx.beginPath()
+  fgCtx.arc(x, y, arcRadius, startAngle, endAngle)
+  fgCtx.stroke()
+  fgCtx.restore()
+}
+
 // Draw one entity and all of its client-side visual effects.
 function drawEntity(
   x: number,
@@ -1018,9 +1036,11 @@ function drawEntity(
   app: RenderAppearance,
   fx: RenderVisualEffects,
   now: number,
+  healthFraction: number,
 ): void {
   drawRangeCircle(x, y, fx)
   drawEntitySprite(x, y, radius, app)
+  drawHealthArc(x, y, radius, app.fg, healthFraction)
   drawSelectionOutline(x, y, radius, fx)
   drawCooldownOverlay(x, y, radius, fx, now)
   drawFlashOverlay(x, y, radius, fx, now)
@@ -1103,11 +1123,16 @@ function beamToRender(
 
 // Merge a server upsert with previously known appearance/effect state so
 // partial updates remain renderable.
+function healthToFraction(health: EntityHealth): number {
+  return health.max > 0 ? Math.min(health.current / health.max, 1) : 1
+}
+
 function upsertToRenderEntity(
   upsert: EntityUpsert,
   now: number,
   prevApp?: RenderAppearance,
   prevFx?: RenderVisualEffects,
+  prevHealthFraction?: number,
 ): RenderEntityUpsert {
   return {
     pos: upsert.pos,
@@ -1115,6 +1140,9 @@ function upsertToRenderEntity(
     fx: upsert.vfx
       ? visualEffectsToRender(upsert.vfx, now, prevFx)
       : (prevFx ?? DEFAULT_RENDER_VISUAL_EFFECTS),
+    healthFraction: upsert.health
+      ? healthToFraction(upsert.health)
+      : (prevHealthFraction ?? 1),
   }
 }
 
@@ -2104,7 +2132,7 @@ function applyWorldDelta(delta: WorldDelta): void {
   for (const entity of delta.upserts) {
     const prevEntity = currEntitiesById.get(entity.pos.id)
     const nextEntity =
-      upsertToRenderEntity(entity, now, prevEntity?.app, prevEntity?.fx)
+      upsertToRenderEntity(entity, now, prevEntity?.app, prevEntity?.fx, prevEntity?.healthFraction)
     if (prevEntity) prevRenderStateById.set(entity.pos.id, prevEntity)
     currEntitiesById.set(entity.pos.id, nextEntity)
   }
