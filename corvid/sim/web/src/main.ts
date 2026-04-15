@@ -62,6 +62,7 @@ interface RenderVisualEffects {
   flashStartedAt: number
   cooldown: RenderColor
   cooldownExpiry: number
+  cooldownDuration: number
 }
 
 // Fully materialized render snapshot for one entity id, derived from
@@ -155,6 +156,7 @@ const DEFAULT_RENDER_VISUAL_EFFECTS: RenderVisualEffects = {
   flashStartedAt: 0,
   cooldown: TRANSPARENT_RENDER_COLOR,
   cooldownExpiry: 0,
+  cooldownDuration: 0,
 }
 
 // --- DOM setup ---
@@ -971,8 +973,19 @@ function drawCooldownOverlay(
 
   if (radius <= 0 || isTransparent(fx.cooldown)) return
 
+  const fractionRemaining = fx.cooldownDuration > 0
+    ? Math.max(0, Math.min(1, (fx.cooldownExpiry - now) / fx.cooldownDuration))
+    : 1
+  const startAngle = -Math.PI / 2
+  const endAngle = startAngle + fractionRemaining * 2 * Math.PI
+
   fgCtx.save()
-  drawFilledCircleOnContext(fgCtx, x, y, radius, fx.cooldown)
+  fgCtx.fillStyle = fx.cooldown.css
+  fgCtx.beginPath()
+  fgCtx.moveTo(x, y)
+  fgCtx.arc(x, y, radius, startAngle, endAngle, true)
+  fgCtx.closePath()
+  fgCtx.fill()
   fgCtx.restore()
 }
 
@@ -1085,6 +1098,7 @@ function visualEffectsToRender(
       : 0,
     cooldown: packedRgbaToRenderColor(fx.cooldown),
     cooldownExpiry: fx.cooldownExpiryMs <= 0 ? 0 : now + fx.cooldownExpiryMs,
+    cooldownDuration: fx.cooldownDurationMs,
   }
 }
 

@@ -964,8 +964,8 @@ private:
   // components as `entityTemplateIndex_`.
   std::vector<std::string> entityTemplateLabels_;
 
-  [[nodiscard]] static const Appearance&
-  appearanceForProjectile(const DefenderBullet& bullet) {
+  [[nodiscard]] static const Appearance& appearanceForProjectile(
+      const DefenderBullet& bullet) {
     static constexpr Appearance kType1{.glyph = U'*',
         .radius = 8.F,
         .fgColor = 0xFFFFFFFFU,

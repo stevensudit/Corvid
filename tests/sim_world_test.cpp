@@ -130,7 +130,9 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
         pathsById[ndx].joints.push_back({pos});
       },
       [&snap](SimWorld::EntityId id, const Position& pos, const Appearance&,
-          const VisualEffects&, const Health&) { snap.entities.push_back({id, pos}); },
+          const VisualEffects&, const Health&) {
+        snap.entities.push_back({id, pos});
+      },
       [](SimWorld::EntityId) {}, [](const TransientExplosion&) {},
       [](const TransientBeam&) {},
       [](size_t, WaveTick, int, int, std::string_view, const UiState&) {});
@@ -143,7 +145,9 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
   GameDelta delta;
   (void)game.extractDelta(
       [&delta](SimWorld::EntityId id, const Position& pos, const Appearance&,
-          const VisualEffects&, const Health&) { delta.upserts.emplace_back(id, pos); },
+          const VisualEffects&, const Health&) {
+        delta.upserts.emplace_back(id, pos);
+      },
       [&delta](SimWorld::EntityId id) { delta.erased.push_back(id); },
       [&delta](const TransientExplosion& transient) {
         delta.transientExplosions.push_back(transient);

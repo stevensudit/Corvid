@@ -96,7 +96,7 @@
 
     .viewport-toolbar {
       display: flex;
-      justify-content: flex-end;
+      justify-content: space-between;
     }
 
     .viewport-host {
@@ -180,13 +180,11 @@
 
     <section class="status-grid">
       <p>Status: <span id="status">disconnected</span></p>
-      <div class="control-row">
-        <button type="button" data-action="start_wave">Start Wave</button>
-      </div>
     </section>
 
     <section id="viewport-shell" class="viewport-shell">
       <div class="viewport-toolbar">
+        <button type="button" data-action="start_wave">Start Wave</button>
         <button id="fullscreen-toggle" type="button">Expand View</button>
       </div>
       <div id="viewport-host" class="viewport-host">

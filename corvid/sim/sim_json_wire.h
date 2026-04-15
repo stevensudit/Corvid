@@ -148,6 +148,8 @@ struct SimGameStateJson {
                       flashExpiryDelayMs(effects, current_tick))
                   .member(json_trusted{"cooldown"}, effects.cooldownColor)
                   .member(json_trusted{"cooldownExpiryMs"},
+                      cooldownExpiryDelayMs(effects, current_tick))
+                  .member(json_trusted{"cooldownDurationMs"},
                       cooldownExpiryDelayMs(effects, current_tick));
             }
 
