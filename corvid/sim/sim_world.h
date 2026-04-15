@@ -387,6 +387,7 @@ struct DefenderHitscan {
 // its final moment.
 struct DefenderBullet {
   SimWorldBounds::EntityId shooterId{SimWorldBounds::EntityId::invalid};
+  float hitCircleRadius{}; // Hit detection, used for physics and game logic.
   float speed{};
   float directDamage{};     // Damage upon impact.
   float damageOverTime{};   // Damage applied over time.
@@ -454,7 +455,7 @@ using ArchDefenderAoe = archetype_storage<WorldReg,
     std::tuple<Position, Appearance, VisualEffects, Defender, DefenderStats,
         Health, DefenderAoe>>;
 using ArchBullet = archetype_storage<WorldReg,
-    std::tuple<Position, Velocity, DefenderBullet>>;
+    std::tuple<Position, Velocity, Appearance, DefenderBullet>>;
 using ArchDefenderShooter = archetype_storage<WorldReg,
     std::tuple<Position, Appearance, VisualEffects, Defender, DefenderStats,
         Health, DefenderShooter>>;
@@ -739,6 +740,7 @@ public:
   [[nodiscard]] bool next() {
     (void)updateMovers();
     (void)updatePathFollowers();
+    (void)updateProjectiles();
     // TODO: Add regen.
     (void)defendersAttack();
 
@@ -959,6 +961,24 @@ private:
   // components as `entityTemplateIndex_`.
   std::vector<std::string> entityTemplateLabels_;
 
+  [[nodiscard]] static Appearance appearanceForProjectile(
+      const DefenderBullet& bullet) {
+    switch (bullet.projectileType) {
+    case 1:
+      return Appearance{.glyph = U'*',
+          .radius = 8.F,
+          .fgColor = 0xFFFFFFFFU,
+          .bgColor = 0xFFFFA020U,
+          .attackRadius = 0.F};
+    default:
+      return Appearance{.glyph = U'.',
+          .radius = 6.F,
+          .fgColor = 0xFFFFFFFFU,
+          .bgColor = 0xFFC0C0C0U,
+          .attackRadius = 0.F};
+    }
+  }
+
   // Move an entity to staging to tombstone it, adding it to the dirty list so
   // that it will show up as a deletion.
   [[nodiscard]] bool tombstoneEntity(EntityId id) {
@@ -997,6 +1017,168 @@ private:
       return true;
     });
 
+    return true;
+  }
+
+  // Apply projectile damage to one invader and credit the originating
+  // defender's live stats. Shared by both direct-hit and splash-hit
+  // resolution.
+  // TODO: This will need to be expanded to handle different damage types, as
+  // well as applying a lingering damage-over-time effect.
+  [[nodiscard]] bool applyProjectileDamage(EntityId targetId, float damage,
+      DefenderStats& shooterStats, uint32_t flashColor) {
+    auto* hp = scene_.try_get_component<Health>(targetId);
+    if (!hp || hp->currentHealth <= 0.F || damage <= 0.F) return false;
+
+    // Apply damage.
+    const float actualDamage = std::min(damage, hp->currentHealth);
+    hp->modified = tick_;
+    hp->currentHealth -= actualDamage;
+    shooterStats.totalDamageDealt += actualDamage;
+    (void)markDirty(targetId);
+
+    // Check for death.
+    if (hp->currentHealth <= 0.F) {
+      pendingKills_.push_back(targetId);
+      shooterStats.totalKills += 1.F;
+    } else
+      (void)flashEntity(targetId, flashColor, WorldTick{5});
+
+    return true;
+  }
+
+  // Project `point` onto the swept segment from `start` to `end` and return
+  // its squared travel distance from `start`. Used to choose the first
+  // invader a projectile encounters during this frame.
+  [[nodiscard]] static float calculateSweepDistance(const Position& start,
+      const Position& end, const Position& point) {
+    const float dx = end.x - start.x;
+    const float dy = end.y - start.y;
+    const float lenSq = (dx * dx) + (dy * dy);
+    if (lenSq <= 0.F) return 0.F;
+
+    // Clamp the projected point to the segment so the returned value stays
+    // within this frame's swept path.
+    const float t = std::clamp(
+        (((point.x - start.x) * dx) + ((point.y - start.y) * dy)) / lenSq, 0.F,
+        1.F);
+    return t * lenSq;
+  }
+
+  // Find the first invader, if any, struck by this projectile along its swept
+  // path. Returns {targetId, impactPos}; an invalid `targetId` means no hit.
+  [[nodiscard]] std::pair<EntityId, Position>
+  findFirstProjectileHit(const Position& bulletPos, const Velocity& vel,
+      const DefenderBullet& bullet) {
+    const Position previousPos{bulletPos.x - vel.vx, bulletPos.y - vel.vy};
+
+    EntityId targetId = EntityId::invalid;
+    Position impactPos = bulletPos;
+    float bestTravel = std::numeric_limits<float>::max();
+    scene_.for_each<Position, Invader>([&](auto enemyId, auto comps) {
+      const auto& [enemyPos, invader] = comps;
+      const float r = bullet.hitCircleRadius + invader.hitCircleRadius;
+      // Skip if it misses.
+      if (distanceSquaredToSegment(enemyPos, previousPos, bulletPos) > r * r)
+        return true;
+
+      // Keep closest hit.
+      const float travel =
+          calculateSweepDistance(previousPos, bulletPos, enemyPos);
+      if (travel < bestTravel) {
+        bestTravel = travel;
+        targetId = enemyId;
+        impactPos = enemyPos;
+      }
+      return true;
+    });
+
+    return {targetId, impactPos};
+  }
+
+  // Apply splash damage around a detonation point.
+  [[nodiscard]] bool applySplashProjectileDamage(const Position& center,
+      const DefenderBullet& bullet, DefenderStats& shooterStats) {
+    scene_.for_each<Position, Invader>([&](auto enemyId, auto enemyComps) {
+      const auto& [enemyPos, invader] = enemyComps;
+      if (!circlesOverlap(center, bullet.splashRadius, enemyPos,
+              invader.hitCircleRadius))
+        return true;
+      (void)applyProjectileDamage(enemyId, bullet.directDamage, shooterStats,
+          0xFFFFA040U);
+      return true;
+    });
+    return true;
+  }
+
+  // Emit the explosion visual for a detonating projectile.
+  [[nodiscard]] bool
+  emitProjectileExplosion(const Position& pos, const DefenderBullet& bullet) {
+    pendingTransientExplosions_.emplace_back(TransientExplosion{.x = pos.x,
+        .y = pos.y,
+        .expiry = WorldTick{*tick_ + 3},
+        .primaryColor = 0xFFFFA040U,
+        .secondaryColor = 0x80FF6020U,
+        .radius =
+            std::max(bullet.splashRadius, bullet.hitCircleRadius * 2.F)});
+    return true;
+  }
+
+  // Resolve a confirmed projectile hit by applying its damage policy and
+  // emitting the impact visual. Structural erasure is handled by the caller
+  // after projectile iteration completes.
+  [[nodiscard]] bool resolveProjectileHit(EntityId targetId,
+      const Position& impactPos, const DefenderBullet& bullet) {
+    auto shooterStats =
+        scene_.try_get_component<DefenderStats>(bullet.shooterId);
+    assert(shooterStats);
+    if (bullet.directDamage > 0.F)
+      (void)applyProjectileDamage(targetId, bullet.directDamage, *shooterStats,
+          0xFFFFA040U);
+    if (bullet.splashRadius > 0.F)
+      (void)applySplashProjectileDamage(impactPos, bullet, *shooterStats);
+    (void)emitProjectileExplosion(impactPos, bullet);
+    return true;
+  }
+
+  // Resolve an explosive projectile that expired in flight: apply splash
+  // damage and emit the detonation visual. No-op if the bullet has no splash
+  // radius.
+  [[nodiscard]] bool
+  resolveExpiredProjectile(const Position& pos, const DefenderBullet& bullet) {
+    if (bullet.splashRadius <= 0.F) return true;
+    auto shooterStats =
+        scene_.try_get_component<DefenderStats>(bullet.shooterId);
+    assert(shooterStats);
+    (void)applySplashProjectileDamage(pos, bullet, *shooterStats);
+    (void)emitProjectileExplosion(pos, bullet);
+    return true;
+  }
+
+  // Resolve projectile lifecycle after movement: expire old bullets, detect
+  // hits along their swept paths, and queue bullets for erasure when done.
+  [[nodiscard]] bool updateProjectiles() {
+    std::vector<EntityId> expiredBullets;
+    scene_.for_each<Position, Velocity, DefenderBullet>(
+        [&](auto bulletId, auto comps) {
+          auto& [bulletPos, vel, bullet] = comps;
+          if (bullet.expiry <= tick_) {
+            (void)resolveExpiredProjectile(bulletPos, bullet);
+            expiredBullets.push_back(bulletId);
+            return true;
+          }
+          // Check whether the projectile hits an invader along its path.
+          if (auto [targetId, impactPos] =
+                  findFirstProjectileHit(bulletPos, vel, bullet);
+              targetId != EntityId::invalid)
+          {
+            (void)resolveProjectileHit(targetId, impactPos, bullet);
+            expiredBullets.push_back(bulletId);
+          }
+          return true;
+        });
+
+    for (auto bulletId : expiredBullets) (void)tombstoneEntity(bulletId);
     return true;
   }
 
@@ -1201,6 +1383,7 @@ private:
 
     // `bulletTemplate.expiry` stores TTL; convert to an absolute tick.
     auto bullet = shooter.bulletTemplate;
+    bullet.shooterId = defenderId;
     bullet.expiry = WorldTick{*tick_ + *shooter.bulletTemplate.expiry};
 
     (void)spawnBullet(defenderPos, vel, bullet);
@@ -1219,8 +1402,9 @@ private:
     WorldScene::megatuple_t tpl{};
     std::get<std::optional<Position>>(tpl) = pos;
     std::get<std::optional<Velocity>>(tpl) = vel;
+    std::get<std::optional<Appearance>>(tpl) = appearanceForProjectile(bullet);
     std::get<std::optional<DefenderBullet>>(tpl) = bullet;
-    auto h = scene_.store_new_entity_from_mega({tick_}, tpl);
+    auto h = scene_.store_new_entity_from_mega({WorldTick::invalid}, tpl);
     if (h) (void)markDirty(h.id());
     return h;
   }

@@ -734,7 +734,8 @@ private:
       std::get<std::optional<Health>>(tpl) =
           Health{.currentHealth = 80.F, .maxHealth = 80.F, .regen = 0.F};
       std::get<std::optional<DefenderShooter>>(tpl) = DefenderShooter{
-          .bulletTemplate = DefenderBullet{.speed = 200.F,
+          .bulletTemplate = DefenderBullet{.hitCircleRadius = 8.F,
+              .speed = 200.F,
               .directDamage = 15.F,
               .projectileType = 1,
               .expiry = WorldTick{60}},

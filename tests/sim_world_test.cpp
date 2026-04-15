@@ -101,9 +101,9 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
 [[nodiscard]] WorldDelta extractWorldDelta(SimWorld& world) {
   WorldDelta delta;
   (void)world.extractUpdatedEntities(
-      [&delta](SimWorld::EntityId id, const Position& pos, const Appearance&,
-          const VisualEffects& fx) {
-        delta.upserts.push_back({id, pos, {}, fx});
+      [&delta](SimWorld::EntityId id, const Position& pos,
+          const Appearance& app, const VisualEffects& fx) {
+        delta.upserts.push_back({id, pos, app, fx});
       },
       [&delta](SimWorld::EntityId id) { delta.erased.push_back(id); });
   return delta;
@@ -170,8 +170,10 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
   return std::ranges::any_of(entries, [id](const auto& entry) {
     if constexpr (requires { entry.id; })
       return entry.id == id;
-    else
+    else if constexpr (requires { entry.first; })
       return entry.first == id;
+    else
+      return entry == id;
   });
 }
 
@@ -195,20 +197,22 @@ findPosition(const auto& entries, SimWorld::EntityId id) {
 // `spawnDefenderAoe` behavior.
 [[nodiscard]] SimWorld::Handle
 spawnInvaderAlpha(SimWorld& w, PathId pid, float progress = 0.F) {
-  WorldScene::megatuple_t tpl{};
-  std::get<std::optional<Position>>(tpl) = Position{};
-  std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'\u03B1',
-      .radius = 30.F,
-      .fgColor = 0xFFFFFFFF,
-      .bgColor = 0x000000FF};
-  std::get<std::optional<VisualEffects>>(tpl) = VisualEffects{};
-  std::get<std::optional<Pathing>>(tpl) =
-      Pathing{.pathId = PathId::invalid, .progress = 0.F, .speed = 50.F};
-  std::get<std::optional<Invader>>(tpl) =
-      Invader{.hitCircleRadius = 30.F, .bounty = 10};
-  std::get<std::optional<Health>>(tpl) =
-      Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 10.F};
-  (void)w.registerEntity("InvaderAlphaBasic", tpl);
+  if (!w.findEntityTemplate("InvaderAlphaBasic")) {
+    WorldScene::megatuple_t tpl{};
+    std::get<std::optional<Position>>(tpl) = Position{};
+    std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'\u03B1',
+        .radius = 30.F,
+        .fgColor = 0xFFFFFFFF,
+        .bgColor = 0x000000FF};
+    std::get<std::optional<VisualEffects>>(tpl) = VisualEffects{};
+    std::get<std::optional<Pathing>>(tpl) =
+        Pathing{.pathId = PathId::invalid, .progress = 0.F, .speed = 50.F};
+    std::get<std::optional<Invader>>(tpl) =
+        Invader{.hitCircleRadius = 30.F, .bounty = 10};
+    std::get<std::optional<Health>>(tpl) =
+        Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 10.F};
+    (void)w.registerEntity("InvaderAlphaBasic", tpl);
+  }
   auto h = w.spawnEntity("InvaderAlphaBasic");
   if (!h) return h;
   if (auto* pat = w.try_get_component<Pathing>(h.id())) {
@@ -223,25 +227,62 @@ spawnInvaderAlpha(SimWorld& w, PathId pid, float progress = 0.F) {
 
 [[nodiscard]] SimWorld::Handle
 spawnDefenderAoe(SimWorld& w, Position spawn_pos) {
-  WorldScene::megatuple_t tpl{};
-  std::get<std::optional<Position>>(tpl) = Position{};
-  std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'A',
-      .radius = 30.F,
-      .fgColor = 0xFFFFFFFF,
-      .bgColor = 0x7F7FFFFF};
-  std::get<std::optional<VisualEffects>>(tpl) = VisualEffects{};
-  std::get<std::optional<Defender>>(tpl) = Defender{.hitCircleRadius = 30.F,
-      .attackRadius = 100.F,
-      .rangeColor = 0xFFFF0000,
-      .attackDamage = 5.F,
-      .cooldown = WorldTick{20},
-      .nextAttack = WorldTick{0}};
-  std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
-  std::get<std::optional<Health>>(tpl) =
-      Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 0.F};
-  std::get<std::optional<DefenderAoe>>(tpl) = DefenderAoe{.damageType = 1};
-  (void)w.registerEntity("DefenderAoeBasic", tpl);
+  if (!w.findEntityTemplate("DefenderAoeBasic")) {
+    WorldScene::megatuple_t tpl{};
+    std::get<std::optional<Position>>(tpl) = Position{};
+    std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'A',
+        .radius = 30.F,
+        .fgColor = 0xFFFFFFFF,
+        .bgColor = 0x7F7FFFFF};
+    std::get<std::optional<VisualEffects>>(tpl) = VisualEffects{};
+    std::get<std::optional<Defender>>(tpl) = Defender{.hitCircleRadius = 30.F,
+        .attackRadius = 100.F,
+        .rangeColor = 0xFFFF0000,
+        .attackDamage = 5.F,
+        .cooldown = WorldTick{20},
+        .nextAttack = WorldTick{0}};
+    std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
+    std::get<std::optional<Health>>(tpl) =
+        Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 0.F};
+    std::get<std::optional<DefenderAoe>>(tpl) = DefenderAoe{.damageType = 1};
+    (void)w.registerEntity("DefenderAoeBasic", tpl);
+  }
   auto h = w.spawnEntity("DefenderAoeBasic");
+  if (!h) return h;
+  if (auto* pos = w.try_get_component<Position>(h.id())) *pos = spawn_pos;
+  return h;
+}
+
+[[nodiscard]] SimWorld::Handle
+spawnDefenderShooter(SimWorld& w, Position spawn_pos) {
+  if (!w.findEntityTemplate("DefenderShooterBasic")) {
+    WorldScene::megatuple_t tpl{};
+    std::get<std::optional<Position>>(tpl) = Position{};
+    std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'S',
+        .radius = 25.F,
+        .fgColor = 0xFFFFFFFF,
+        .bgColor = 0x7FFF7F3F,
+        .attackRadius = 150.F};
+    std::get<std::optional<VisualEffects>>(tpl) = VisualEffects{};
+    std::get<std::optional<Defender>>(tpl) = Defender{.hitCircleRadius = 25.F,
+        .attackRadius = 150.F,
+        .rangeColor = 0xFF00FF00,
+        .attackDamage = 15.F,
+        .cooldown = WorldTick{30},
+        .nextAttack = WorldTick{0}};
+    std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
+    std::get<std::optional<Health>>(tpl) =
+        Health{.currentHealth = 80.F, .maxHealth = 80.F, .regen = 0.F};
+    std::get<std::optional<DefenderShooter>>(tpl) = DefenderShooter{
+        .bulletTemplate = DefenderBullet{.hitCircleRadius = 8.F,
+            .speed = 200.F,
+            .directDamage = 15.F,
+            .projectileType = 1,
+            .expiry = WorldTick{60}},
+        .fireRate = 0.033F};
+    (void)w.registerEntity("DefenderShooterBasic", tpl);
+  }
+  auto h = w.spawnEntity("DefenderShooterBasic");
   if (!h) return h;
   if (auto* pos = w.try_get_component<Position>(h.id())) *pos = spawn_pos;
   return h;
@@ -373,6 +414,139 @@ void SimWorld_DefenderAoeAttackEmitsPulseExplosion() {
   EXPECT_TRUE(drained.empty());
 
   EXPECT_TRUE(w.try_get_component<Position>(defender.id()) != nullptr);
+}
+
+void SimWorld_DefenderShooterSpawnsVisibleBullet() {
+  SimWorld w;
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
+  const auto pid = w.addPath(p);
+  const auto defender = spawnDefenderShooter(w, {0.F, 0.F});
+  (void)spawnInvaderAlpha(w, pid);
+
+  (void)extractWorldDelta(w);
+  (void)w.next();
+
+  const auto delta = extractWorldDelta(w);
+  ASSERT_EQ(delta.upserts.size(), 1U);
+  const auto bulletIt = std::ranges::find_if(delta.upserts,
+      [&](const WorldDelta::Upsert& upsert) {
+        return upsert.id != defender.id() && upsert.app.glyph == U'*';
+      });
+  ASSERT_TRUE(bulletIt != delta.upserts.end());
+  EXPECT_TRUE(bulletIt->app.glyph == U'*');
+  EXPECT_NEAR(bulletIt->app.radius, 8.0, 1e-6);
+  EXPECT_NEAR(bulletIt->pos.x, 0.0, 1e-6);
+  EXPECT_NEAR(bulletIt->pos.y, 0.0, 1e-6);
+}
+
+void SimWorld_DefenderShooterBulletHitsInvaderOnNextStep() {
+  SimWorld w;
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
+  const auto pid = w.addPath(p);
+  const auto defender = spawnDefenderShooter(w, {0.F, 0.F});
+  const auto invader = spawnInvaderAlpha(w, pid);
+
+  (void)extractWorldDelta(w);
+  (void)w.next();
+  const auto bulletSpawnDelta = extractWorldDelta(w);
+  const auto bulletIt = std::ranges::find_if(bulletSpawnDelta.upserts,
+      [&](const WorldDelta::Upsert& upsert) {
+        return upsert.id != defender.id() && upsert.id != invader.id();
+      });
+  ASSERT_TRUE(bulletIt != bulletSpawnDelta.upserts.end());
+  const auto bulletId = bulletIt->id;
+  (void)w.tick();
+
+  (void)w.next();
+
+  const auto delta = extractWorldDelta(w);
+  EXPECT_TRUE(containsId(delta.upserts, invader.id()));
+  EXPECT_TRUE(containsId(delta.erased, bulletId));
+
+  const auto* hp = w.try_get_component<Health>(invader.id());
+  ASSERT_TRUE(hp != nullptr);
+  EXPECT_NEAR(hp->currentHealth, 85.0, 1e-6);
+
+  const auto* stats = w.try_get_component<DefenderStats>(defender.id());
+  ASSERT_TRUE(stats != nullptr);
+  EXPECT_NEAR(stats->totalDamageDealt, 15.0, 1e-6);
+
+  const auto explosions = extractTransientExplosions(w);
+  ASSERT_EQ(explosions.size(), 1U);
+  EXPECT_NEAR(explosions[0].x, 100.0, 1e-6);
+  EXPECT_NEAR(explosions[0].y, 0.0, 1e-6);
+}
+
+void SimWorld_DefenderShooterBulletHitsFirstInvaderAlongPath() {
+  SimWorld w;
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
+  const auto pid = w.addPath(p);
+  const auto defender = spawnDefenderShooter(w, {0.F, 0.F});
+  const auto nearInvader = spawnInvaderAlpha(w, pid, 0.F);
+  const auto farInvader = spawnInvaderAlpha(w, pid, 100.F);
+
+  (void)extractWorldDelta(w);
+  (void)w.next();
+  (void)extractWorldDelta(w);
+  (void)w.tick();
+
+  (void)w.next();
+
+  const auto* nearHp = w.try_get_component<Health>(nearInvader.id());
+  const auto* farHp = w.try_get_component<Health>(farInvader.id());
+  ASSERT_TRUE(nearHp != nullptr);
+  ASSERT_TRUE(farHp != nullptr);
+  EXPECT_NEAR(nearHp->currentHealth, 85.0, 1e-6);
+  EXPECT_NEAR(farHp->currentHealth, 100.0, 1e-6);
+
+  const auto* stats = w.try_get_component<DefenderStats>(defender.id());
+  ASSERT_TRUE(stats != nullptr);
+  EXPECT_NEAR(stats->totalDamageDealt, 15.0, 1e-6);
+}
+
+void SimWorld_ExplosiveBulletDetonatesOnExpiry() {
+  SimWorld w;
+  PathJoints p;
+  p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
+  const auto pid = w.addPath(p);
+  const auto defender = spawnDefenderShooter(w, {0.F, 0.F});
+  const auto invader = spawnInvaderAlpha(w, pid, 50.F);
+  auto* shooter = w.try_get_component<DefenderShooter>(defender.id());
+  ASSERT_TRUE(shooter != nullptr);
+  shooter->bulletTemplate.splashRadius = 250.F;
+  shooter->bulletTemplate.expiry = WorldTick{1};
+
+  (void)extractWorldDelta(w);
+  (void)w.next();
+  const auto bulletSpawnDelta = extractWorldDelta(w);
+  const auto bulletIt = std::ranges::find_if(bulletSpawnDelta.upserts,
+      [&](const WorldDelta::Upsert& upsert) {
+        return upsert.id != defender.id() && upsert.id != invader.id();
+      });
+  ASSERT_TRUE(bulletIt != bulletSpawnDelta.upserts.end());
+  const auto bulletId = bulletIt->id;
+  (void)w.tick();
+  (void)w.next();
+
+  const auto delta = extractWorldDelta(w);
+  EXPECT_TRUE(containsId(delta.erased, bulletId));
+
+  const auto* hp = w.try_get_component<Health>(invader.id());
+  ASSERT_TRUE(hp != nullptr);
+  EXPECT_NEAR(hp->currentHealth, 85.0, 1e-6);
+
+  const auto* stats = w.try_get_component<DefenderStats>(defender.id());
+  ASSERT_TRUE(stats != nullptr);
+  EXPECT_NEAR(stats->totalDamageDealt, 15.0, 1e-6);
+
+  const auto explosions = extractTransientExplosions(w);
+  ASSERT_EQ(explosions.size(), 1U);
+  EXPECT_NEAR(explosions[0].x, 200.0, 1e-6);
+  EXPECT_NEAR(explosions[0].y, 0.0, 1e-6);
+  EXPECT_NEAR(explosions[0].radius, 250.0, 1e-6);
 }
 
 void SimWorld_SnapshotSinceTracksChanges() {
@@ -1181,6 +1355,10 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
     SimWorld_ExtractUpdatedEntitiesReportsMovedInvaderOncePerExtraction,
     SimWorld_DefenderInRangeFlashesItselfAndInvader,
     SimWorld_DefenderAoeAttackEmitsPulseExplosion,
+    SimWorld_DefenderShooterSpawnsVisibleBullet,
+    SimWorld_DefenderShooterBulletHitsInvaderOnNextStep,
+    SimWorld_DefenderShooterBulletHitsFirstInvaderAlongPath,
+    SimWorld_ExplosiveBulletDetonatesOnExpiry,
     SimWorld_SnapshotSinceTracksChanges,
     SimWorld_DefenderDoesNotAppearAsChangedAfterTick, BakePath_TwoJoints,
     BakePath_ThreeJoints, PathPosition_Endpoints, PathPosition_Midpoint,
