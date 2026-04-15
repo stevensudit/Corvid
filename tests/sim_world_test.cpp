@@ -75,7 +75,7 @@ struct GameSnapshot {
   (void)world.markAllDirty();
   (void)world.extractUpdatedEntities(
       [&snaps](SimWorld::EntityId id, const Position& pos, const Appearance&,
-          const VisualEffects&) {
+          const VisualEffects&, const Health&) {
         const auto it = std::ranges::find(snaps, id, &EntitySnapshot::id);
         if (it == snaps.end())
           snaps.push_back({id, pos});
@@ -102,7 +102,7 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
   WorldDelta delta;
   (void)world.extractUpdatedEntities(
       [&delta](SimWorld::EntityId id, const Position& pos,
-          const Appearance& app, const VisualEffects& fx) {
+          const Appearance& app, const VisualEffects& fx, const Health&) {
         delta.upserts.push_back({id, pos, app, fx});
       },
       [&delta](SimWorld::EntityId id) { delta.erased.push_back(id); });
@@ -130,7 +130,7 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
         pathsById[ndx].joints.push_back({pos});
       },
       [&snap](SimWorld::EntityId id, const Position& pos, const Appearance&,
-          const VisualEffects&) { snap.entities.push_back({id, pos}); },
+          const VisualEffects&, const Health&) { snap.entities.push_back({id, pos}); },
       [](SimWorld::EntityId) {}, [](const TransientExplosion&) {},
       [](const TransientBeam&) {},
       [](size_t, WaveTick, int, int, std::string_view, const UiState&) {});
@@ -143,7 +143,7 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
   GameDelta delta;
   (void)game.extractDelta(
       [&delta](SimWorld::EntityId id, const Position& pos, const Appearance&,
-          const VisualEffects&) { delta.upserts.emplace_back(id, pos); },
+          const VisualEffects&, const Health&) { delta.upserts.emplace_back(id, pos); },
       [&delta](SimWorld::EntityId id) { delta.erased.push_back(id); },
       [&delta](const TransientExplosion& transient) {
         delta.transientExplosions.push_back(transient);
@@ -1068,7 +1068,7 @@ void SimGame_ExtractFullIncludesPathsAndState() {
   (void)game.extractFull(
       [&path_points](PathId, const Position&) { ++path_points; },
       [&upserts](SimWorld::EntityId, const Position&, const Appearance&,
-          const VisualEffects&) { ++upserts; },
+          const VisualEffects&, const Health&) { ++upserts; },
       [&erased](SimWorld::EntityId) { ++erased; },
       [](const TransientExplosion&) {}, [](const TransientBeam&) {},
       [&currentWave, &waveTick, &lives, &resources, &phase,

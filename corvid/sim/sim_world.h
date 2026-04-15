@@ -964,23 +964,23 @@ private:
   // components as `entityTemplateIndex_`.
   std::vector<std::string> entityTemplateLabels_;
 
-  [[nodiscard]] static Appearance appearanceForProjectile(
-      const DefenderBullet& bullet) {
+  [[nodiscard]] static const Appearance&
+  appearanceForProjectile(const DefenderBullet& bullet) {
+    static constexpr Appearance kType1{.glyph = U'*',
+        .radius = 8.F,
+        .fgColor = 0xFFFFFFFFU,
+        .bgColor = 0xFFA020FFU,
+        .attackRadius = 0.F,
+        .trailColor = 0xFFA020FFU};
+    static constexpr Appearance kDefault{.glyph = U'.',
+        .radius = 6.F,
+        .fgColor = 0xFFFFFFFFU,
+        .bgColor = 0xC0C0C0FFU,
+        .attackRadius = 0.F,
+        .trailColor = 0xC0C0C0FFU};
     switch (bullet.projectileType) {
-    case 1:
-      return Appearance{.glyph = U'*',
-          .radius = 8.F,
-          .fgColor = 0xFFFFFFFFU,
-          .bgColor = 0xFFA020FFU,
-          .attackRadius = 0.F,
-          .trailColor = 0xFFA020FFU};
-    default:
-      return Appearance{.glyph = U'.',
-          .radius = 6.F,
-          .fgColor = 0xFFFFFFFFU,
-          .bgColor = 0xC0C0C0FFU,
-          .attackRadius = 0.F,
-          .trailColor = 0xC0C0C0FFU};
+    case 1: return kType1;
+    default: return kDefault;
     }
   }
 
@@ -1402,14 +1402,8 @@ private:
   // system by using the template in the defender itself
   [[nodiscard]] Handle spawnBullet(const Position& pos, const Velocity& vel,
       const DefenderBullet& bullet) {
-    // TODO: This is dumb. We shouldn't create a fake megatuple just to spawn
-    // the bullet.
-    WorldScene::megatuple_t tpl{};
-    std::get<std::optional<Position>>(tpl) = pos;
-    std::get<std::optional<Velocity>>(tpl) = vel;
-    std::get<std::optional<Appearance>>(tpl) = appearanceForProjectile(bullet);
-    std::get<std::optional<DefenderBullet>>(tpl) = bullet;
-    auto h = scene_.store_new_entity_from_mega({WorldTick::invalid}, tpl);
+    auto h = scene_.store_new_entity({WorldTick::invalid},
+        std::tuple{pos, vel, appearanceForProjectile(bullet), bullet});
     if (h) {
       if (auto* app = scene_.try_get_component<Appearance>(h.id()))
         app->modified = tick_;
