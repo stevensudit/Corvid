@@ -20,6 +20,7 @@
 #include <fstream>
 #include <map>
 #include <optional>
+#include <sstream>
 #include <sys/types.h>
 
 #include <algorithm>
@@ -220,6 +221,12 @@ public:
     (void)resetMap();
     if (!doLoadMaps()) return false;
     return selectMap(loadedMaps_.begin()->first);
+  }
+
+  // Human-readable CSV dump of the currently selected map's invader and
+  // defender definitions.
+  [[nodiscard]] std::string buildCurrentMapEntityCsvReport() const {
+    return buildMapEntityCsvReport(mapDesign_);
   }
 
   // Resets all map information.
@@ -732,6 +739,9 @@ private:
   [[nodiscard]] static bool
   loadMapFromJson(const std::filesystem::path& file, MapDesign& out);
 
+  [[nodiscard]] static std::string buildMapEntityCsvReport(
+      const MapDesign& design);
+
   // Load all `.json` files from the maps directory into `loadedMaps_`.
   [[nodiscard]] bool doLoadMaps() {
     loadedMaps_.clear();
@@ -748,6 +758,7 @@ private:
         std::cerr << "Failed to load map: " << entry.path() << "\n";
         continue;
       }
+      std::cout << buildMapEntityCsvReport(design);
       loadedMaps_.emplace(entry.path().stem().string(), std::move(design));
     }
     return !loadedMaps_.empty();
@@ -1042,6 +1053,62 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
   }
 
   return true;
+}
+
+[[nodiscard]] inline std::string SimGame::buildMapEntityCsvReport(
+    const MapDesign& design) {
+  auto csv_escape = [](std::string_view value) {
+    std::string out;
+    out.reserve(value.size() + 2);
+    const bool needs_quotes =
+        value.contains(',') || value.contains('"') || value.contains('\n');
+    if (!needs_quotes) return std::string{value};
+    out.push_back('"');
+    for (const char ch : value) {
+      if (ch == '"') out.push_back('"');
+      out.push_back(ch);
+    }
+    out.push_back('"');
+    return out;
+  };
+
+  std::vector<const EntityDefinition*> invaders;
+  std::vector<const EntityDefinition*> defenders;
+  for (const auto& [_, def] : design.entityDefs)
+    if (std::get<std::optional<Defender>>(def.megatuple))
+      defenders.push_back(&def);
+    else if (std::get<std::optional<Invader>>(def.megatuple))
+      invaders.push_back(&def);
+
+  auto by_name = [](const EntityDefinition* lhs, const EntityDefinition* rhs) {
+    return lhs->entityName < rhs->entityName;
+  };
+  std::ranges::sort(invaders, by_name);
+  std::ranges::sort(defenders, by_name);
+
+  std::ostringstream oss;
+  oss << "entityName,Radius,Speed,Radius,Health,Regen,Bounty\n";
+  for (const auto* def : invaders) {
+    const auto& pathing = std::get<std::optional<Pathing>>(def->megatuple);
+    const auto& invader = std::get<std::optional<Invader>>(def->megatuple);
+    const auto& app = std::get<std::optional<Appearance>>(def->megatuple);
+    const auto& health = std::get<std::optional<Health>>(def->megatuple);
+    oss << csv_escape(def->entityName) << ',' << invader->hitCircleRadius
+        << ',' << pathing->speed << ',' << app->radius << ','
+        << health->currentHealth << ',' << health->regen << ','
+        << invader->bounty << '\n';
+  }
+
+  oss << "\nentityName,resourceCost,radius,attackRadius,attackDamage,"
+         "cooldown\n";
+  for (const auto* def : defenders) {
+    const auto& defender = std::get<std::optional<Defender>>(def->megatuple);
+    const auto& app = std::get<std::optional<Appearance>>(def->megatuple);
+    oss << csv_escape(def->entityName) << ',' << def->resourceCost << ','
+        << app->radius << ',' << defender->attackRadius << ','
+        << defender->attackDamage << ',' << *defender->cooldown << '\n';
+  }
+  return oss.str();
 }
 
 }} // namespace corvid::sim

@@ -1408,6 +1408,22 @@ void SimJson_BuildWorldSnapshotJsonShape() {
   EXPECT_EQ(*delta_phase, std::string_view{"build"});
 }
 
+void SimGame_BuildCurrentMapEntityCsvReport() {
+  SimGame game;
+  ASSERT_TRUE(game.loadMap());
+
+  const auto csv = game.buildCurrentMapEntityCsvReport();
+  EXPECT_TRUE(
+      csv.contains("entityName,Radius,Speed,Radius,Health,Regen,Bounty\n"));
+  EXPECT_TRUE(csv.contains("InvaderAlphaBasic,30,50,30,50,10,10\n"));
+  EXPECT_TRUE(csv.contains("InvaderBetaBasic,40,30,40,120,12,25\n"));
+  EXPECT_TRUE(csv.contains(
+      "\nentityName,resourceCost,radius,attackRadius,"
+      "attackDamage,cooldown\n"));
+  EXPECT_TRUE(csv.contains("DefenderAoeBasic,50,30,100,6,20\n"));
+  EXPECT_TRUE(csv.contains("DefenderHitscanBasic,100,25,200,30,25\n"));
+}
+
 // NOLINTEND(readability-function-cognitive-complexity)
 
 MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
@@ -1441,4 +1457,5 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
     SimJson_BuildWorldDeltaJsonShapeAndFormatting,
     SimJson_BuildWorldDeltaIncludesFlashVisualEffects,
     SimJson_FlashExpiryDelayMsUsesCurrentTickRelativeTiming,
-    SimJson_BuildWorldSnapshotJsonShape)
+    SimJson_BuildWorldSnapshotJsonShape,
+    SimGame_BuildCurrentMapEntityCsvReport)
