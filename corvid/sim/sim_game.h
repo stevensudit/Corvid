@@ -247,7 +247,8 @@ public:
   // to clients.
   [[nodiscard]] bool next() {
     (void)evaluatePendingUiIntents();
-    (void)world_.next();
+    if (phase_ == GamePhase::build || phase_ == GamePhase::wave)
+      (void)world_.next();
 
     if (phase_ == GamePhase::wave) {
       ++waveTick_;
@@ -264,6 +265,12 @@ public:
           });
       lives_ = lives;
 
+      if (lives_ <= 0) {
+        phase_ = GamePhase::game_over;
+        (void)refreshSelectedDefenderState();
+        return true;
+      }
+
       auto resources = resources_;
       (void)world_.resolveKills(
           [&resources](SimWorld::EntityId, const Position&,
@@ -273,20 +280,16 @@ public:
           });
       resources_ = resources;
 
-      if (lives_ <= 0) {
-        phase_ = GamePhase::game_over;
-      } else {
-        // Wave is over when all enemies have been spawned and none remain.
-        const auto& wave = mapDesign_.waves[currentWave_];
-        if (nextSpawnIndex_ >= wave.enemies.size() &&
-            !world_.hasActiveInvaders())
-        {
-          ++currentWave_;
-          phase_ =
-              (currentWave_ >= mapDesign_.waves.size())
-                  ? GamePhase::victory
-                  : GamePhase::build;
-        }
+      // Wave is over when all enemies have been spawned and none remain.
+      const auto& wave = mapDesign_.waves[currentWave_];
+      if (nextSpawnIndex_ >= wave.enemies.size() &&
+          !world_.hasActiveInvaders())
+      {
+        ++currentWave_;
+        phase_ =
+            (currentWave_ >= mapDesign_.waves.size())
+                ? GamePhase::victory
+                : GamePhase::build;
       }
     }
     (void)refreshSelectedDefenderState();

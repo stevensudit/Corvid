@@ -1055,6 +1055,61 @@ void SimGame_ExtractDeltaConsumesWorldUpdatesButNotState() {
   EXPECT_EQ(empty_world_delta.phase, std::string_view{"wave"});
 }
 
+void SimGame_ReachesGameOverAsSoonAsLivesAreExhausted() {
+  SimGame game;
+  (void)game.loadMap();
+  (void)game.start_wave();
+
+  bool sawZeroLives = false;
+  for (int i = 0; i < 2000; ++i) {
+    (void)game.next();
+    const auto delta = extractGameDelta(game);
+    if (delta.lives <= 0) {
+      sawZeroLives = true;
+      EXPECT_EQ(delta.phase, std::string_view{"game_over"});
+      break;
+    }
+    (void)game.tick();
+  }
+
+  EXPECT_TRUE(sawZeroLives);
+}
+
+void SimGame_GameOverFreezesRemainingInvaders() {
+  SimGame game;
+  (void)game.loadMap();
+  (void)game.start_wave();
+
+  GameDelta terminalDelta;
+  GameSnapshot terminalSnapshot;
+  bool reachedGameOver = false;
+  for (int i = 0; i < 2000; ++i) {
+    (void)game.next();
+    terminalDelta = extractGameDelta(game);
+    if (terminalDelta.phase == std::string_view{"game_over"}) {
+      terminalSnapshot = snapshot(game);
+      reachedGameOver = true;
+      break;
+    }
+    (void)game.tick();
+  }
+
+  ASSERT_TRUE(reachedGameOver);
+
+  (void)game.tick();
+  (void)game.next();
+
+  const auto afterSnapshot = snapshot(game);
+  ASSERT_EQ(afterSnapshot.entities.size(), terminalSnapshot.entities.size());
+  for (size_t i = 0; i < terminalSnapshot.entities.size(); ++i) {
+    EXPECT_EQ(afterSnapshot.entities[i].id, terminalSnapshot.entities[i].id);
+    EXPECT_NEAR(afterSnapshot.entities[i].pos.x,
+        terminalSnapshot.entities[i].pos.x, 1e-6);
+    EXPECT_NEAR(afterSnapshot.entities[i].pos.y,
+        terminalSnapshot.entities[i].pos.y, 1e-6);
+  }
+}
+
 void SimGame_ExtractFullIncludesPathsAndState() {
   SimGame game;
   (void)game.loadMap();
@@ -1379,6 +1434,8 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
     SimGame_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick,
     SimGame_StartWaveSpawnsFirstEnemyOnFirstStep,
     SimGame_ExtractDeltaConsumesWorldUpdatesButNotState,
+    SimGame_ReachesGameOverAsSoonAsLivesAreExhausted,
+    SimGame_GameOverFreezesRemainingInvaders,
     SimGame_ExtractFullIncludesPathsAndState, SimJson_ParseUiCanvasMessage,
     SimJson_ParseUiActionMessageFields, SimJson_BuildHelloAckJson,
     SimJson_BuildWorldDeltaJsonShapeAndFormatting,
