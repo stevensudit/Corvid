@@ -336,7 +336,7 @@ function eventToCanvasSample(event: MouseEvent): CanvasPointerSample {
   const canvasX = (event.clientX - rect.left) * (foregroundCanvas.width / rect.width)
   const canvasY = (event.clientY - rect.top) * (foregroundCanvas.height / rect.height)
   const [worldX, worldY] = canvasToWorld(canvasX, canvasY)
-  return {
+  const sample = {
     button: event.button,
     buttons: event.buttons,
     canvasX: Math.round(canvasX),
@@ -348,6 +348,8 @@ function eventToCanvasSample(event: MouseEvent): CanvasPointerSample {
     alt: event.altKey,
     meta: event.metaKey,
   }
+  rememberPointerSample(sample)
+  return sample
 }
 
 // Reuse an existing pointer sample while overriding button bookkeeping for
@@ -447,6 +449,7 @@ let currentPanelSide: PanelSide = 'right'
 let overlaySideSwapFrame = 0
 let selectedDefenderSummary: DefenderMenuItem | null = null
 let selectedDefenderPosition: Position | null = null
+let lastPointerSample: CanvasPointerSample | null = null
 const RECENT_TICK_TIMES_MAX = 60
 const RECENT_FRAME_SIZES_MAX = 60
 const recentTickSamples: TickRateSample[] = []
@@ -676,6 +679,87 @@ function setEdgeHoverSide(nextSide: PanelSide | null): void {
 // Clear the currently highlighted build-menu cell.
 function clearMenuSelection(): void {
   selectedMenuIndex = null
+}
+
+// Return the most recent pointer sample, or the viewport center if the user
+// has not moved the mouse over the simulation yet.
+function getPointerAnchorSample(): CanvasPointerSample {
+  if (lastPointerSample) return lastPointerSample
+  const canvasX = Math.round(foregroundCanvas.width / 2)
+  const canvasY = Math.round(foregroundCanvas.height / 2)
+  const [worldX, worldY] = canvasToWorld(canvasX, canvasY)
+  return {
+    button: 0,
+    buttons: 0,
+    canvasX,
+    canvasY,
+    worldX: Math.round(worldX),
+    worldY: Math.round(worldY),
+    shift: false,
+    ctrl: false,
+    alt: false,
+    meta: false,
+  }
+}
+
+// Keep the most recent pointer anchor in sync for keyboard-driven actions.
+function rememberPointerSample(sample: CanvasPointerSample): void {
+  lastPointerSample = sample
+}
+
+// Keyboard-opened menus should appear on the opposite side from the cursor,
+// matching the hover-open behavior used elsewhere in the UI.
+function getKeyboardMenuSide(): PanelSide {
+  return getOppositePanelSideForCanvasX(getPointerAnchorSample().canvasX)
+}
+
+// Return the build menu to its top-level category grid.
+function resetBuildMenuToTopLevel(): void {
+  selectedCategory = null
+  selectedMenuIndex = null
+  hoveredMenuIndex = null
+  menuScrollOffset = 0
+}
+
+// Open the build menu as a latched overlay on the side opposite the cursor.
+function openBuildMenuFromKeyboard(): void {
+  if (currentPhase !== 'build' || defenderMenuItems.length === 0 || ghostState || menuDragActive) return
+  edgeHoverSide = getKeyboardMenuSide()
+  mouseOverOverlay = true
+  overlayStayOpen = true
+  invalidateSidePanel()
+}
+
+// Hide the build menu overlay without affecting pinned inspector panels.
+function closeBuildMenuFromKeyboard(): void {
+  if (getSidePanelModel() !== null) return
+  mouseOverOverlay = false
+  overlayStayOpen = false
+  setEdgeHoverSide(null)
+}
+
+// Create the same pending placement ghost that results from dragging a menu
+// item onto the map and releasing it under the cursor.
+function dropDefenderGhostAtPointer(item: DefenderMenuItem): void {
+  const sample = getPointerAnchorSample()
+  ghostState = {
+    worldX: sample.worldX,
+    worldY: sample.worldY,
+    entityName: item.entityName,
+    displayName: item.displayName,
+    appearance: appearanceToRender(item.appearance),
+    attackRadius: item.appearance.attackRadius,
+    confirmCommand: 'spawn',
+    pending: true,
+    placeable: true,
+    spawnPending: false,
+  }
+  clearMenuSelection()
+  mouseOverOverlay = false
+  overlayStayOpen = false
+  sendPlacementPreview('dragstart', sample, item.entityName)
+  sendPlacementPreview('dragend', sample, item.entityName)
+  invalidateSidePanel()
 }
 
 // Convert packed RGBA integers from the wire format into canvas-friendly color
@@ -1555,6 +1639,20 @@ function currentMenuItems(): (CategoryItem | DefenderMenuItem)[] {
   return categoryItems
 }
 
+// Convert a physical key press into the glyph-like hotkey string used by menu
+// items. Plain letters normalize to uppercase so visible glyphs like "A"
+// still match the common unshifted "a" key press.
+function normalizeMenuHotkey(key: string): string | null {
+  if ([...key].length !== 1) return null
+  const upper = key.toLocaleUpperCase()
+  return [...upper].length === 1 ? upper : key
+}
+
+// Check whether a menu item's glyph matches the provided keyboard hotkey.
+function menuGlyphMatchesHotkey(glyph: number, hotkey: string): boolean {
+  return String.fromCodePoint(glyph) === hotkey
+}
+
 // Draw one item cell (shared by both category and defender levels).
 function drawMenuCell(
   ctx: CanvasRenderingContext2D,
@@ -2172,7 +2270,7 @@ function applyUiState(uiState: UiState): void {
     ghostState.spawnPending = false
     if (uiState.spawnAllowed) {
       ghostState = null
-      clearMenuSelection()
+      resetBuildMenuToTopLevel()
       mouseOverOverlay = false
       overlayStayOpen = false
     }
@@ -2227,6 +2325,7 @@ function resetClientWorldState(): void {
   hoveredMenuIndex = null
   menuScrollOffset = 0
   ghostState = null
+  lastPointerSample = null
   transientExplosionsByPos.clear()
   transientBeamsByPos.clear()
   menuDragActive = false
@@ -3002,15 +3101,39 @@ overlayCanvas.addEventListener('mouseleave', () => {
 // Glyph hotkeys navigate the two-level build menu during the build phase.
 document.addEventListener('keydown', (event: KeyboardEvent) => {
   if (currentPhase !== 'build' || menuDragActive) return
-  if (!shouldShowBuildMenu()) return
+  if (event.ctrlKey || event.altKey || event.metaKey) return
 
-  const cp = event.key.codePointAt(0)
-  if (cp === undefined) return
+  if (event.key === 'Tab') {
+    if (getSidePanelModel() === null && defenderMenuItems.length === 0) return
+    event.preventDefault()
+    if (getSidePanelModel() === null) {
+      if (selectedCategory !== null) {
+        resetBuildMenuToTopLevel()
+        openBuildMenuFromKeyboard()
+      } else if (getOverlayLevel() !== 'hidden') {
+        closeBuildMenuFromKeyboard()
+      } else {
+        openBuildMenuFromKeyboard()
+      }
+    } else {
+      mouseOverOverlay = true
+      overlayStayOpen = true
+      invalidateSidePanel()
+    }
+    return
+  }
+
+  if (ghostState || selectedDefenderPosition !== null || defenderMenuItems.length === 0) return
+  openBuildMenuFromKeyboard()
+
+  const hotkey = normalizeMenuHotkey(event.key)
+  if (hotkey === null) return
 
   if (selectedCategory === null) {
     // Top level: navigate into the category whose glyph matches.
-    const cat = categoryItems.find(c => c.appearance.glyph === cp)
+    const cat = categoryItems.find(c => menuGlyphMatchesHotkey(c.appearance.glyph, hotkey))
     if (cat) {
+      event.preventDefault()
       selectedCategory = cat.name
       selectedMenuIndex = null
       menuScrollOffset = 0
@@ -3018,13 +3141,12 @@ document.addEventListener('keydown', (event: KeyboardEvent) => {
       invalidateSidePanel()
     }
   } else {
-    // Defender level: select the first defender whose glyph matches.
+    // Defender level: spawn the same pending ghost produced by a mouse drop.
     const defenders = currentMenuItems() as DefenderMenuItem[]
-    const match = defenders.find(d => d.appearance.glyph === cp)
+    const match = defenders.find(d => menuGlyphMatchesHotkey(d.appearance.glyph, hotkey))
     if (match) {
-      const index = defenders.indexOf(match)
-      selectedMenuIndex = index
-      invalidateSidePanel()
+      event.preventDefault()
+      dropDefenderGhostAtPointer(match)
     }
   }
 })
