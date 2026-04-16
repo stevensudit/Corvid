@@ -1007,13 +1007,13 @@ function drawCooldownOverlay(
     ? Math.max(0, Math.min(1, (fx.cooldownExpiry - now) / fx.cooldownDuration))
     : 1
   const startAngle = -Math.PI / 2
-  const endAngle = startAngle + fractionRemaining * 2 * Math.PI
+  const endAngle = startAngle - fractionRemaining * 2 * Math.PI
 
   fgCtx.save()
   fgCtx.fillStyle = fx.cooldown.css
   fgCtx.beginPath()
   fgCtx.moveTo(x, y)
-  fgCtx.arc(x, y, radius, startAngle, endAngle, false)
+  fgCtx.arc(x, y, radius, startAngle, endAngle, true)
   fgCtx.closePath()
   fgCtx.fill()
   fgCtx.restore()
