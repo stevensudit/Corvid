@@ -2478,10 +2478,15 @@ foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
     const dy = sample.canvasY - gy
     if (dx * dx + dy * dy <= hitRadius * hitRadius) {
       ghostState.pending = false
-      menuDragActive = true
       mouseOverOverlay = false
       overlayStayOpen = false
-      sendPlacementPreview('dragstart', sample, ghostState.entityName)
+      if (ghostState.confirmCommand === 'moving') {
+        moveDragActive = true
+        sendCanvasMsg('dragstart', ghostStateToSample(ghostState, event), 'moving')
+      } else {
+        menuDragActive = true
+        sendPlacementPreview('dragstart', sample, ghostState.entityName)
+      }
     } else {
       ghostState = null
       clearMenuSelection()
