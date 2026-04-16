@@ -75,6 +75,8 @@ export interface TransientBeam {
   targetY: number
   startDistance: number
   lineWidth: number
+  halfAngleDeg: number
+  coneRadius: number
 }
 
 interface PathPoint {
@@ -89,9 +91,17 @@ interface MapDesign {
   paths: PathPoint[]
 }
 
+export interface CategoryItem {
+  name: string
+  displayName: string
+  flavorText: string
+  appearance: EntityAppearance
+}
+
 export interface DefenderMenuItem {
   entityName: string
   displayName: string
+  category: string
   flavorText: string
   resourceCost: number
   appearance: EntityAppearance
@@ -156,6 +166,7 @@ export interface WorldSnapshot {
   type: 'world_snapshot'
   mapDesign: MapDesign
   defenderMenu: DefenderMenuItem[]
+  categories: CategoryItem[]
   delta: WorldDelta
 }
 

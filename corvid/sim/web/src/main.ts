@@ -1,4 +1,5 @@
 import type {
+  CategoryItem,
   ClientMsg,
   DefenderMenuItem,
   EntityAppearance,
@@ -95,6 +96,8 @@ interface RenderTransientBeam {
   startDistance: number
   lineWidth: number
   startedAt: number
+  halfAngleDeg: number
+  coneRadius: number
 }
 
 // Pointer bookkeeping for an in-progress foreground-canvas interaction.
@@ -426,8 +429,11 @@ let pendingDragMove: CanvasPointerSample | null = null
 let dragMoveFrameRequested = false
 let sidePanelDirty = true
 let edgeHoverSide: PanelSide | null = null
+let categoryItems: CategoryItem[] = []
 let defenderMenuItems: DefenderMenuItem[] = []
+let selectedCategory: string | null = null
 let selectedMenuIndex: number | null = null
+let hoveredMenuIndex: number | null = null
 let menuScrollOffset = 0
 let ghostState: GhostState | null = null
 let menuDragActive = false
@@ -919,23 +925,47 @@ function drawBeamTransient(transient: RenderTransientBeam, now: number): void {
   const uy = dy / length
   const startX = transient.x + ux * transient.startDistance
   const startY = transient.y + uy * transient.startDistance
-  const [canvasStartX, canvasStartY] = worldToCanvas(startX, startY)
-  const [canvasTargetX, canvasTargetY] =
-    worldToCanvas(transient.targetX, transient.targetY)
-  const color = isTransientFlashPrimary(now, transient.startedAt)
-    ? transient.primary
-    : transient.secondary
-  if (isTransparent(color)) return
 
-  fgCtx.save()
-  fgCtx.strokeStyle = color.css
-  fgCtx.lineWidth = Math.max(2, worldLengthToCanvas(transient.lineWidth))
-  fgCtx.lineCap = 'round'
-  fgCtx.beginPath()
-  fgCtx.moveTo(canvasStartX, canvasStartY)
-  fgCtx.lineTo(canvasTargetX, canvasTargetY)
-  fgCtx.stroke()
-  fgCtx.restore()
+  if (transient.halfAngleDeg > 0) {
+    // Cone mode: filled wedge fading linearly from opaque to transparent.
+    if (isTransparent(transient.primary)) return
+    const duration = transient.expiry - transient.startedAt
+    if (duration <= 0) return
+    const progress = Math.max(0, Math.min(1, (now - transient.startedAt) / duration))
+    const [cx, cy] = worldToCanvas(startX, startY)
+    const coneR = worldLengthToCanvas(transient.coneRadius)
+    const angle = Math.atan2(uy, ux)
+    const half = transient.halfAngleDeg * Math.PI / 180
+
+    fgCtx.save()
+    fgCtx.globalAlpha = 1 - progress
+    fgCtx.fillStyle = transient.primary.css
+    fgCtx.beginPath()
+    fgCtx.moveTo(cx, cy)
+    fgCtx.arc(cx, cy, coneR, angle - half, angle + half)
+    fgCtx.closePath()
+    fgCtx.fill()
+    fgCtx.restore()
+  } else {
+    // Line mode: flickering stroke between primary and secondary colours.
+    const [canvasStartX, canvasStartY] = worldToCanvas(startX, startY)
+    const [canvasTargetX, canvasTargetY] =
+      worldToCanvas(transient.targetX, transient.targetY)
+    const color = isTransientFlashPrimary(now, transient.startedAt)
+      ? transient.primary
+      : transient.secondary
+    if (isTransparent(color)) return
+
+    fgCtx.save()
+    fgCtx.strokeStyle = color.css
+    fgCtx.lineWidth = Math.max(2, worldLengthToCanvas(transient.lineWidth))
+    fgCtx.lineCap = 'round'
+    fgCtx.beginPath()
+    fgCtx.moveTo(canvasStartX, canvasStartY)
+    fgCtx.lineTo(canvasTargetX, canvasTargetY)
+    fgCtx.stroke()
+    fgCtx.restore()
+  }
 }
 
 function drawTransientDisplays(now: number): void {
@@ -983,7 +1013,7 @@ function drawCooldownOverlay(
   fgCtx.fillStyle = fx.cooldown.css
   fgCtx.beginPath()
   fgCtx.moveTo(x, y)
-  fgCtx.arc(x, y, radius, startAngle, endAngle, true)
+  fgCtx.arc(x, y, radius, startAngle, endAngle, false)
   fgCtx.closePath()
   fgCtx.fill()
   fgCtx.restore()
@@ -1132,6 +1162,8 @@ function beamToRender(
     startDistance: transient.startDistance,
     lineWidth: transient.lineWidth,
     startedAt: now,
+    halfAngleDeg: transient.halfAngleDeg,
+    coneRadius: transient.coneRadius,
   }
 }
 
@@ -1515,7 +1547,75 @@ function drawSidePanel(ctx: CanvasRenderingContext2D, panel: SidePanelModel): vo
   ctx.restore()
 }
 
-// Draw the build-menu overlay grid containing available defender types.
+// Return the items for the current menu level: category items at top level,
+// filtered defender items at the defender level.
+function currentMenuItems(): (CategoryItem | DefenderMenuItem)[] {
+  if (selectedCategory !== null)
+    return defenderMenuItems.filter(item => item.category === selectedCategory)
+  return categoryItems
+}
+
+// Draw one item cell (shared by both category and defender levels).
+function drawMenuCell(
+  ctx: CanvasRenderingContext2D,
+  item: CategoryItem | DefenderMenuItem,
+  cellX: number,
+  cellY: number,
+  cellSize: number,
+  isSelected: boolean,
+  isHovered: boolean,
+  panelScale: number,
+): void {
+  ctx.fillStyle = isSelected
+    ? 'rgba(255, 242, 182, 0.18)'
+    : isHovered
+      ? 'rgba(255, 255, 255, 0.10)'
+      : 'rgba(255, 255, 255, 0.06)'
+  ctx.fillRect(cellX, cellY, cellSize, cellSize)
+
+  if (isSelected) {
+    ctx.strokeStyle = 'rgba(255, 242, 63, 0.85)'
+    ctx.lineWidth = 2 * panelScale
+    ctx.strokeRect(cellX + 1, cellY + 1, cellSize - 2, cellSize - 2)
+  }
+
+  const app = appearanceToRender(item.appearance)
+  const circleX = cellX + cellSize / 2
+  const circleY = cellY + cellSize * 0.40
+  const circleR = Math.min(worldLengthToCanvas(app.radius) * 2, cellSize * 0.30)
+
+  if (app.bg.alpha !== 0) drawFilledCircleOnContext(ctx, circleX, circleY, circleR, app.bg)
+  if (app.fg.alpha !== 0) {
+    drawStrokedCircleOnContext(
+      ctx, circleX, circleY,
+      Math.max(circleR - getEntityBorderWidth(circleR) * 0.5, 0),
+      app.fg, getEntityBorderWidth(circleR),
+    )
+  }
+  if (app.glyph && app.fg.alpha !== 0) {
+    drawGlyphOnContext(ctx, app.glyph, circleX, circleY, circleR, app.fg)
+  }
+
+  const nameFontSize = Math.max(9, 11 * panelScale)
+  ctx.font = `${nameFontSize}px monospace`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
+  ctx.fillText(item.displayName, circleX, cellY + cellSize * 0.76, cellSize - 4)
+
+  // Bottom line: cost for defenders, chevron for categories.
+  ctx.fillStyle = 'rgba(181, 201, 224, 0.85)'
+  const isDefender = 'resourceCost' in item
+  ctx.fillText(
+    isDefender ? `$${(item as DefenderMenuItem).resourceCost}` : '>',
+    circleX,
+    cellY + cellSize * 0.92,
+    cellSize - 4,
+  )
+}
+
+// Draw the build-menu overlay grid with a two-level nested layout:
+// top level shows categories; clicking a category shows its defenders.
 function drawBuildMenu(ctx: CanvasRenderingContext2D): void {
   const panelScale = Math.min(
     foregroundCanvas.width / DEFAULT_CANVAS_W,
@@ -1532,8 +1632,10 @@ function drawBuildMenu(ctx: CanvasRenderingContext2D): void {
   const cornerRadius = SIDE_PANEL_RADIUS * panelScale
   const titleFontSize = 24 * panelScale
   const titleTop = 20 * panelScale
+  const backFontSize = Math.max(9, 13 * panelScale)
   const dividerY = 56 * panelScale
   const bodyTop = 70 * panelScale
+  const infoBoxHeight = Math.max(28, 32 * panelScale)
   const textMargin = SIDE_PANEL_TEXT_MARGIN * panelScale
   const textWidth = panelWidth - textMargin * 2
 
@@ -1572,10 +1674,26 @@ function drawBuildMenu(ctx: CanvasRenderingContext2D): void {
   ctx.stroke()
   strokeAttachedBottomCorner(ctx, currentPanelSide, x, y, panelWidth, panelHeight, cornerRadius)
 
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
-  ctx.font = `bold ${titleFontSize}px monospace`
+  // Title line: "< Back" link at defender level, category/title text.
   ctx.textBaseline = 'top'
-  ctx.fillText('Select Defender', x + textMargin, y + titleTop, textWidth)
+  if (selectedCategory !== null) {
+    ctx.font = `${backFontSize}px monospace`
+    ctx.fillStyle = 'rgba(181, 201, 224, 0.85)'
+    ctx.textAlign = 'left'
+    ctx.fillText('< Back', x + textMargin, y + titleTop + (titleFontSize - backFontSize) * 0.5)
+
+    const cat = categoryItems.find(c => c.name === selectedCategory)
+    const titleLabel = cat ? cat.displayName : selectedCategory
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
+    ctx.font = `bold ${titleFontSize}px monospace`
+    ctx.textAlign = 'right'
+    ctx.fillText(titleLabel, x + panelWidth - textMargin, y + titleTop, textWidth * 0.6)
+  } else {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
+    ctx.font = `bold ${titleFontSize}px monospace`
+    ctx.textAlign = 'left'
+    ctx.fillText('Select Type', x + textMargin, y + titleTop, textWidth)
+  }
 
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'
   ctx.beginPath()
@@ -1583,12 +1701,10 @@ function drawBuildMenu(ctx: CanvasRenderingContext2D): void {
   ctx.lineTo(x + textMargin + textWidth, y + dividerY)
   ctx.stroke()
 
+  const items = currentMenuItems()
   const cellSize = Math.floor((width - 2) / MENU_COLS)
   const startIndex = menuScrollOffset * MENU_COLS
-  const visibleItems = defenderMenuItems.slice(
-    startIndex,
-    startIndex + MENU_VISIBLE_ROWS * MENU_COLS,
-  )
+  const visibleItems = items.slice(startIndex, startIndex + MENU_VISIBLE_ROWS * MENU_COLS)
 
   for (let i = 0; i < visibleItems.length; i++) {
     const item = visibleItems[i]
@@ -1596,50 +1712,34 @@ function drawBuildMenu(ctx: CanvasRenderingContext2D): void {
     const row = Math.floor(i / MENU_COLS)
     const cellX = x + 1 + col * cellSize
     const cellY = y + bodyTop + row * cellSize
-    const isSelected = (startIndex + i) === selectedMenuIndex
-
-    ctx.fillStyle = isSelected
-      ? 'rgba(255, 242, 182, 0.18)'
-      : 'rgba(255, 255, 255, 0.06)'
-    ctx.fillRect(cellX, cellY, cellSize, cellSize)
-
-    if (isSelected) {
-      ctx.strokeStyle = 'rgba(255, 242, 63, 0.85)'
-      ctx.lineWidth = 2 * panelScale
-      ctx.strokeRect(cellX + 1, cellY + 1, cellSize - 2, cellSize - 2)
-    }
-
-    const app = appearanceToRender(item.appearance)
-    const circleX = cellX + cellSize / 2
-    const circleY = cellY + cellSize * 0.40
-    const circleR = Math.min(
-      worldLengthToCanvas(app.radius) * 2,
-      cellSize * 0.30,
+    const absIndex = startIndex + i
+    drawMenuCell(
+      ctx, item, cellX, cellY, cellSize,
+      absIndex === selectedMenuIndex,
+      absIndex === hoveredMenuIndex,
+      panelScale,
     )
+  }
 
-    if (app.bg.alpha !== 0) drawFilledCircleOnContext(ctx, circleX, circleY, circleR, app.bg)
-    if (app.fg.alpha !== 0) {
-      drawStrokedCircleOnContext(
-        ctx,
-        circleX,
-        circleY,
-        Math.max(circleR - getEntityBorderWidth(circleR) * 0.5, 0),
-        app.fg,
-        getEntityBorderWidth(circleR),
-      )
-    }
-    if (app.glyph && app.fg.alpha !== 0) {
-      drawGlyphOnContext(ctx, app.glyph, circleX, circleY, circleR, app.fg)
-    }
-
-    const nameFontSize = Math.max(9, 11 * panelScale)
-    ctx.font = `${nameFontSize}px monospace`
+  // Info box: flavor text of the hovered item.
+  const hoveredItem = hoveredMenuIndex !== null ? items[hoveredMenuIndex] : null
+  const flavorText = hoveredItem ? hoveredItem.flavorText : ''
+  if (flavorText) {
+    const infoY = y + panelHeight - infoBoxHeight
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'
+    ctx.fillRect(x + 1, infoY, panelWidth - 2, infoBoxHeight)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(x + textMargin, infoY)
+    ctx.lineTo(x + textMargin + textWidth, infoY)
+    ctx.stroke()
+    const infoFontSize = Math.max(9, 11 * panelScale)
+    ctx.font = `${infoFontSize}px monospace`
     ctx.textAlign = 'center'
-    ctx.textBaseline = 'alphabetic'
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
-    ctx.fillText(item.displayName, circleX, cellY + cellSize * 0.76, cellSize - 4)
-    ctx.fillStyle = 'rgba(181, 201, 224, 0.85)'
-    ctx.fillText(`$${item.resourceCost}`, circleX, cellY + cellSize * 0.92, cellSize - 4)
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = 'rgba(200, 220, 255, 0.90)'
+    ctx.fillText(flavorText, x + panelWidth / 2, infoY + infoBoxHeight / 2, textWidth)
   }
 
   ctx.restore()
@@ -2013,6 +2113,18 @@ function isTransientBeam(value: unknown): value is TransientBeam {
   )
 }
 
+// Narrow an unknown value to a category menu entry.
+function isCategoryItem(value: unknown): value is CategoryItem {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).name === 'string' &&
+    typeof (value as Record<string, unknown>).displayName === 'string' &&
+    typeof (value as Record<string, unknown>).flavorText === 'string' &&
+    isEntityAppearance((value as Record<string, unknown>).appearance)
+  )
+}
+
 // Narrow an unknown value to a defender menu entry.
 function isDefenderMenuItem(value: unknown): value is DefenderMenuItem {
   return (
@@ -2020,6 +2132,7 @@ function isDefenderMenuItem(value: unknown): value is DefenderMenuItem {
     value !== null &&
     typeof (value as Record<string, unknown>).entityName === 'string' &&
     typeof (value as Record<string, unknown>).displayName === 'string' &&
+    typeof (value as Record<string, unknown>).category === 'string' &&
     typeof (value as Record<string, unknown>).flavorText === 'string' &&
     typeof (value as Record<string, unknown>).resourceCost === 'number' &&
     isEntityAppearance((value as Record<string, unknown>).appearance)
@@ -2107,8 +2220,11 @@ function resetClientWorldState(): void {
   hudDirty = true
   sidePanelDirty = true
   edgeHoverSide = null
+  categoryItems = []
   defenderMenuItems = []
+  selectedCategory = null
   selectedMenuIndex = null
+  hoveredMenuIndex = null
   menuScrollOffset = 0
   ghostState = null
   transientExplosionsByPos.clear()
@@ -2173,6 +2289,10 @@ function applyWorldDelta(delta: WorldDelta): void {
   invalidateHud()
   invalidateSidePanel()
   currentPhase = getDeltaPhase(delta)
+  if (currentPhase !== 'build') {
+    selectedCategory = null
+    hoveredMenuIndex = null
+  }
 }
 
 // --- Message validation ---
@@ -2226,6 +2346,8 @@ function isServerMsg(value: unknown): value is ServerMsg {
         md.paths.every(isPoint) &&
         Array.isArray(v.defenderMenu) &&
         v.defenderMenu.every(isDefenderMenuItem) &&
+        Array.isArray(v.categories) &&
+        v.categories.every(isCategoryItem) &&
         isWorldDelta(v.delta)
       )
     }
@@ -2273,6 +2395,7 @@ ws.onmessage = (event: MessageEvent<string>) => {
     case 'world_snapshot':
       updateAverageFrameSize(measureFrameSizeBytes(event.data))
       resetClientWorldState()
+      categoryItems = parsed.categories
       defenderMenuItems = parsed.defenderMenu
       drawBackground(parsed.mapDesign.paths, parsed.mapDesign.pathWidth)
       applyWorldDelta(parsed.delta)
@@ -2733,16 +2856,16 @@ window.addEventListener('mousemove', (event: MouseEvent) => {
 overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   if (event.button !== 0) return
 
-  // When the build menu is open, a click whose world-space coordinates land on
-  // a defender should select that defender rather than interact with the menu.
-  // This handles the case where a placed defender sits behind the overlay panel.
   const sample = eventToCanvasSample(event)
-  if (armOverlayDefenderInteraction(sample)) {
-    event.preventDefault()
+
+  // When the build menu is not visible, allow a click whose world-space
+  // coordinates land on a defender to route to that defender instead.
+  // If the build menu IS visible it occupies the entire overlay canvas, so
+  // clicks must never pass through to defenders behind the panel.
+  if (!shouldShowBuildMenu()) {
+    if (armOverlayDefenderInteraction(sample)) event.preventDefault()
     return
   }
-
-  if (!shouldShowBuildMenu()) return
   event.preventDefault()
 
   const panelScale = Math.min(
@@ -2756,7 +2879,15 @@ overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   const localY = (event.clientY - rect.top) * (overlayCanvas.height / rect.height)
 
   if (localY < bodyTop) {
-    // Click above grid area (title bar) — deselect.
+    // Click in title area. If at defender level and left half, go back.
+    if (selectedCategory !== null && localX < overlayCanvas.width * 0.5) {
+      selectedCategory = null
+      selectedMenuIndex = null
+      menuScrollOffset = 0
+      hoveredMenuIndex = null
+      invalidateSidePanel()
+      return
+    }
     selectedMenuIndex = null
     invalidateSidePanel()
     return
@@ -2765,14 +2896,27 @@ overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   const row = Math.floor((localY - bodyTop) / cellSize)
   if (col < 0 || col >= MENU_COLS) return
 
+  const items = currentMenuItems()
   const index = menuScrollOffset * MENU_COLS + row * MENU_COLS + col
-  if (index >= defenderMenuItems.length) {
+  if (index >= items.length) {
     // Click below last populated cell — deselect.
     selectedMenuIndex = null
     invalidateSidePanel()
     return
   }
 
+  if (selectedCategory === null) {
+    // Top level: navigate into the tapped category.
+    const cat = items[index] as CategoryItem
+    selectedCategory = cat.name
+    selectedMenuIndex = null
+    menuScrollOffset = 0
+    hoveredMenuIndex = null
+    invalidateSidePanel()
+    return
+  }
+
+  // Defender level: arm ghost drag.
   selectedMenuIndex = index
   menuDragActive = true
   mouseOverOverlay = false
@@ -2780,7 +2924,7 @@ overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
 
   // Create the ghost immediately at the current mouse position so it appears
   // as soon as the mouse enters the foreground canvas, with no lag.
-  const item = defenderMenuItems[index]
+  const item = items[index] as DefenderMenuItem
   const fgRect = foregroundCanvas.getBoundingClientRect()
   const fgCanvasX = (event.clientX - fgRect.left) * (foregroundCanvas.width / fgRect.width)
   const fgCanvasY = (event.clientY - fgRect.top) * (foregroundCanvas.height / fgRect.height)
@@ -2805,13 +2949,80 @@ overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
 // Scroll the build menu with the mouse wheel.
 overlayCanvas.addEventListener('wheel', (event: WheelEvent) => {
   event.preventDefault()
-  if (defenderMenuItems.length === 0) return
-  const totalRows = Math.ceil(defenderMenuItems.length / MENU_COLS)
+  const items = currentMenuItems()
+  if (items.length === 0) return
+  const totalRows = Math.ceil(items.length / MENU_COLS)
   const maxScroll = Math.max(0, totalRows - MENU_VISIBLE_ROWS)
   menuScrollOffset = Math.max(0, Math.min(maxScroll,
     menuScrollOffset + (event.deltaY > 0 ? 1 : -1)))
   invalidateSidePanel()
 }, { passive: false })
+
+// Track hovered menu cell for flavor-text info box.
+overlayCanvas.addEventListener('mousemove', (event: MouseEvent) => {
+  if (!shouldShowBuildMenu()) return
+  const panelScale = Math.min(
+    foregroundCanvas.width / DEFAULT_CANVAS_W,
+    foregroundCanvas.height / DEFAULT_CANVAS_H,
+  )
+  const cellSize = Math.floor((overlayCanvas.width - 2) / MENU_COLS)
+  const bodyTop = 70 * panelScale
+  const rect = overlayCanvas.getBoundingClientRect()
+  const localX = (event.clientX - rect.left) * (overlayCanvas.width / rect.width)
+  const localY = (event.clientY - rect.top) * (overlayCanvas.height / rect.height)
+
+  let newHovered: number | null = null
+  if (localY >= bodyTop) {
+    const col = Math.floor(localX / cellSize)
+    const row = Math.floor((localY - bodyTop) / cellSize)
+    if (col >= 0 && col < MENU_COLS) {
+      const index = menuScrollOffset * MENU_COLS + row * MENU_COLS + col
+      const items = currentMenuItems()
+      if (index < items.length) newHovered = index
+    }
+  }
+  if (newHovered !== hoveredMenuIndex) {
+    hoveredMenuIndex = newHovered
+    invalidateSidePanel()
+  }
+})
+
+overlayCanvas.addEventListener('mouseleave', () => {
+  if (hoveredMenuIndex !== null) {
+    hoveredMenuIndex = null
+    invalidateSidePanel()
+  }
+})
+
+// Glyph hotkeys navigate the two-level build menu during the build phase.
+document.addEventListener('keydown', (event: KeyboardEvent) => {
+  if (currentPhase !== 'build' || menuDragActive) return
+  if (!shouldShowBuildMenu()) return
+
+  const cp = event.key.codePointAt(0)
+  if (cp === undefined) return
+
+  if (selectedCategory === null) {
+    // Top level: navigate into the category whose glyph matches.
+    const cat = categoryItems.find(c => c.appearance.glyph === cp)
+    if (cat) {
+      selectedCategory = cat.name
+      selectedMenuIndex = null
+      menuScrollOffset = 0
+      hoveredMenuIndex = null
+      invalidateSidePanel()
+    }
+  } else {
+    // Defender level: select the first defender whose glyph matches.
+    const defenders = currentMenuItems() as DefenderMenuItem[]
+    const match = defenders.find(d => d.appearance.glyph === cp)
+    if (match) {
+      const index = defenders.indexOf(match)
+      selectedMenuIndex = index
+      invalidateSidePanel()
+    }
+  }
+})
 
 // Bring the UI into sync with the current DOM/layout state before the first
 // animation frame.

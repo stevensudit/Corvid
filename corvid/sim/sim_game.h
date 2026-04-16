@@ -15,13 +15,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <charconv>
+#include <filesystem>
+#include <fstream>
+#include <map>
 #include <optional>
 #include <sys/types.h>
 
+#include <algorithm>
+#include <iostream>
 #include <string>
 #include <string_view>
 #include <utility>
 
+#include "../proto/json_parser.h"
 #include "sim_world.h"
 
 // SimGame: encapsulates the game rules and flow, using SimWorld for state and
@@ -97,12 +104,23 @@ struct WaveDefinition {
   int resourceInflux{};            // Resources rewarded at start of wave
 };
 
+// Top-level category in the build menu. Each category has its own `Appearance`
+// (including the glyph that doubles as a hotkey) and a `flavorText` shown when
+// hovering over the category cell.
+struct CategoryDefinition {
+  std::string name; // Matches the `category` field on `EntityDefinition`.
+  std::string displayName; // Human-readable label.
+  std::string flavorText;  // Shown in the info box on hover.
+  Appearance appearance;   // Glyph, radius, and colors for the category cell.
+};
+
 // Full definition of one entity type, combining display metadata with the
 // component template used to register and spawn it.
 struct EntityDefinition {
   std::string entityName;  // Unique identifier.
   std::string displayName; // Human-readable name.
-  int menuOrder{};         // Display order.
+  int menuOrder{};         // Display order within the category.
+  std::string category;    // Top-level menu category (e.g., "area", "laser").
   std::string flavorText;  // Description of its capabilities.
   // `max()` means "not for sale" (all invaders default to this).
   uint32_t resourceCost{std::numeric_limits<uint32_t>::max()};
@@ -119,6 +137,7 @@ struct DefenderSummary {
   std::string entityName;
   std::string displayName;
   int menuOrder{}; // Used for menu items.
+  std::string category;
   std::string flavorText;
   uint32_t resourceCost{};
   Appearance appearance;    // Extracted from megatuple at build time.
@@ -134,6 +153,7 @@ using DefenderMenu = std::vector<DefenderSummary>;
 // derived defender menu, and wave schedule. Self-contained so that
 // `SimGame` can hold multiple `MapDesign`s, all read in from map files.
 struct MapDesign {
+  std::vector<CategoryDefinition> categories; // Top-level menu categories.
   std::vector<PathJoints> paths;
   std::string backgroundSpriteFile;
   std::string foregroundSpriteFile;
@@ -195,12 +215,11 @@ class SimGame {
 public:
   explicit SimGame() { (void)resetMap(); }
 
-  // Load the chosen map, resetting all game state.
+  // Load all maps from the maps directory and activate the first one.
   [[nodiscard]] bool loadMap() {
     (void)resetMap();
-    // TODO: Have multiple maps.
-    (void)doLoadMap1();
-    return true;
+    if (!doLoadMaps()) return false;
+    return selectMap(loadedMaps_.begin()->first);
   }
 
   // Resets all map information.
@@ -468,6 +487,7 @@ private:
     return DefenderSummary{.modified = world_.currentTick(),
         .entityName = def->entityName,
         .displayName = def->displayName,
+        .category = def->category,
         .flavorText = def->flavorText,
         .resourceCost = def->resourceCost,
         .appearance = *app_opt};
@@ -615,6 +635,7 @@ private:
       menu.push_back({.entityName = def.entityName,
           .displayName = def.displayName,
           .menuOrder = def.menuOrder,
+          .category = def.category,
           .flavorText = def.flavorText,
           .resourceCost = def.resourceCost,
           .appearance = *app_opt});
@@ -652,192 +673,6 @@ private:
     }
   }
 
-  // Ugly placeholder for map loading.
-  [[nodiscard]] bool doLoadMap1() {
-    (void)resetMap();
-
-    // Entity definitions. This is the single site that will later be
-    // replaced by CSV/JSON parsing.
-    {
-      EntityDefinition def;
-      def.entityName = "InvaderAlphaBasic";
-      // `resourceCost` stays `max()` (not for sale).
-      auto& tpl = def.megatuple;
-      std::get<std::optional<Position>>(tpl) = Position{};
-      std::get<std::optional<Appearance>>(
-          tpl) = Appearance{.glyph = U'\u03B1', // Greek alpha
-          .radius = 30.F,
-          .fgColor = 0xFFFFFFFF,
-          .bgColor = 0x000000FF};
-      std::get<std::optional<VisualEffects>>(tpl) = VisualEffects{};
-      std::get<std::optional<Pathing>>(tpl) =
-          Pathing{.pathId = PathId::invalid, .progress = 0.F, .speed = 50.F};
-      std::get<std::optional<Invader>>(tpl) =
-          Invader{.hitCircleRadius = 30.F, .bounty = 10};
-      std::get<std::optional<Health>>(tpl) =
-          Health{.currentHealth = 50.F, .maxHealth = 50.F, .regen = 10.F};
-      mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
-    }
-    {
-      EntityDefinition def;
-      def.entityName = "DefenderAoeBasic";
-      def.displayName = "AoE Defender";
-      def.menuOrder = 1;
-      def.flavorText = "Damages all enemies in range.";
-      def.resourceCost = 50U;
-      auto& tpl = def.megatuple;
-      std::get<std::optional<Position>>(tpl) = Position{};
-      std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'A',
-          .radius = 30.F,
-          .fgColor = 0xFFFFFFFF,
-          .bgColor = 0x7F7FFFFF,
-          .attackRadius = 100.F};
-      std::get<std::optional<VisualEffects>>(tpl) =
-          VisualEffects{.flashColor = 0xFF7F7FFF, .flashExpiry = WorldTick{5}};
-      std::get<std::optional<Defender>>(
-          tpl) = Defender{.hitCircleRadius = 30.F,
-          .attackRadius = 100.F,
-          .rangeColor = 0xFFFF00FF,
-          .attackDamage = 5.F,
-          .cooldown = WorldTick{20},
-          .nextAttack = WorldTick{0}};
-      std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
-      std::get<std::optional<Health>>(tpl) =
-          Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 0.F};
-      std::get<std::optional<DefenderAoe>>(tpl) = DefenderAoe{.damageType = 1};
-      mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
-    }
-    {
-      EntityDefinition def;
-      def.entityName = "DefenderShooterBasic";
-      def.displayName = "Shooter";
-      def.menuOrder = 2;
-      def.flavorText = "Fires projectiles at a single target.";
-      def.resourceCost = 75U;
-      auto& tpl = def.megatuple;
-      std::get<std::optional<Position>>(tpl) = Position{};
-      std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'S',
-          .radius = 25.F,
-          .fgColor = 0xFFFFFFFF,
-          .bgColor = 0x107F50FF,
-          .attackRadius = 150.F};
-      std::get<std::optional<VisualEffects>>(tpl) =
-          VisualEffects{.flashColor = 0xFF7FFF7F, .flashExpiry = WorldTick{5}};
-      std::get<std::optional<Defender>>(
-          tpl) = Defender{.hitCircleRadius = 25.F,
-          .attackRadius = 150.F,
-          .rangeColor = 0xFF00FFFF,
-          .attackDamage = 15.F,
-          .cooldown = WorldTick{30},
-          .nextAttack = WorldTick{0}};
-      std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
-      std::get<std::optional<Health>>(tpl) =
-          Health{.currentHealth = 80.F, .maxHealth = 80.F, .regen = 0.F};
-      std::get<std::optional<DefenderShooter>>(tpl) = DefenderShooter{
-          .bulletTemplate = DefenderBullet{.hitCircleRadius = 8.F,
-              .speed = 100.F,
-              .directDamage = 25.F,
-              .projectileType = 1,
-              .expiry = WorldTick{5}},
-          .fireRate = 0.033F};
-      mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
-    }
-    {
-      EntityDefinition def;
-      def.entityName = "DefenderHitscanBasic";
-      def.displayName = "Laser";
-      def.menuOrder = 3;
-      def.flavorText =
-          "Instantly damages a single target with an infrared laser beam.";
-      def.resourceCost = 100U;
-      auto& tpl = def.megatuple;
-      std::get<std::optional<Position>>(tpl) = Position{};
-      std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'L',
-          .radius = 25.F,
-          .fgColor = 0xFFFFFFFF,
-          .bgColor = 0x7F7F3FFF,
-          .attackRadius = 200.F};
-      std::get<std::optional<VisualEffects>>(tpl) =
-          VisualEffects{.flashColor = 0xFFFF4040, .flashExpiry = WorldTick{3}};
-      std::get<std::optional<Defender>>(
-          tpl) = Defender{.hitCircleRadius = 25.F,
-          .attackRadius = 200.F,
-          .rangeColor = 0xFFFF00FF,
-          .attackDamage = 30.F,
-          .cooldown = WorldTick{25},
-          .nextAttack = WorldTick{0}};
-      std::get<std::optional<DefenderStats>>(tpl).emplace();
-      std::get<std::optional<Health>>(tpl) =
-          Health{.currentHealth = 75.F, .maxHealth = 75.F, .regen = 0.F};
-      std::get<std::optional<DefenderHitscan>>(tpl).emplace(TransientBeam{
-          .startDistance = 25.F,
-          .expiry = WorldTick{3},
-          .primaryColor = 0xFFFF4040,
-          .secondaryColor = 0xFFFFD080,
-          .lineWidth = 8.F});
-      mapDesign_.entityDefs.try_emplace(def.entityName, std::move(def));
-    }
-
-    // Path geometry (sprite files empty until sprites are added).
-    {
-      PathJoints p;
-      p.joints.push_back({Position{0.0, 0.0}});
-      constexpr float kHalfWidth = SimWorld::widthOfWorld / 2.F;
-      constexpr float kHalfHeight = SimWorld::heightOfWorld / 2.F;
-      constexpr float kStepSize = 120.0;
-      constexpr float kAspect =
-          SimWorld::widthOfWorld / SimWorld::heightOfWorld;
-      constexpr float kXStepSize = kStepSize * kAspect;
-      float x = 0.0;
-      float y = 0.0;
-      float x_run = kXStepSize;
-      float y_run = kStepSize;
-      auto append_segment = [&](float dx, float dy) {
-        x = std::clamp(x + dx, -kHalfWidth, kHalfWidth);
-        y = std::clamp(y + dy, -kHalfHeight, kHalfHeight);
-        p.joints.push_back({Position{x, y}});
-        return x > -kHalfWidth && x < kHalfWidth && y > -kHalfHeight &&
-               y < kHalfHeight;
-      };
-      while (true) {
-        if (!append_segment(x_run, 0.F)) break;
-        if (!append_segment(0.F, y_run)) break;
-        x_run += kXStepSize;
-        if (!append_segment(-x_run, 0.F)) break;
-        y_run += kStepSize;
-        if (!append_segment(0.F, -y_run)) break;
-        x_run += kXStepSize;
-        y_run += kStepSize;
-      }
-      mapDesign_.paths.push_back(std::move(p));
-    }
-
-    // Wave definitions.
-    {
-      WaveDefinition wave;
-      wave.resourceInflux = 0; // Starting resources come from resetMap.
-      for (uint32_t i = 0; i < 20; ++i)
-        wave.enemies.push_back({WaveTick{i * 20}, "InvaderAlphaBasic"});
-      mapDesign_.waves.push_back(std::move(wave));
-    }
-    {
-      WaveDefinition wave;
-      wave.resourceInflux = 150; // Bonus resources at the start of wave 2.
-      for (uint32_t i = 0; i < 35; ++i)
-        wave.enemies.push_back({WaveTick{i * 15}, "InvaderAlphaBasic"});
-      mapDesign_.waves.push_back(std::move(wave));
-    }
-    {
-      WaveDefinition wave;
-      wave.resourceInflux = 250; // Bonus resources at the start of wave 3.
-      for (uint32_t i = 0; i < 45; ++i)
-        wave.enemies.push_back({WaveTick{i * 10}, "InvaderAlphaBasic"});
-      mapDesign_.waves.push_back(std::move(wave));
-    }
-
-    return registerEntityDefs() && registerPaths();
-  }
-
 private:
   SimWorld world_;
 
@@ -850,6 +685,10 @@ private:
 
   // All design-time data for the currently loaded map.
   MapDesign mapDesign_;
+
+  // All maps loaded from disk, keyed by stem filename (e.g., "map1").
+  // Sorted alphabetically so the first entry is deterministic.
+  std::map<std::string, MapDesign> loadedMaps_;
 
   // Current wave.
   size_t currentWave_{};
@@ -871,5 +710,335 @@ private:
   // Handle to the currently selected defender, used to clear its range
   // circle when deselected.
   SimWorld::Handle selectedDefender_;
+
+  // Walk up from the executable to find the `corvid/sim/maps` directory.
+  [[nodiscard]] static std::filesystem::path findSimMapsDir() {
+    std::error_code ec;
+    auto exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (ec) return {};
+    for (auto dir = exe.parent_path(); dir != dir.parent_path();
+        dir = dir.parent_path())
+    {
+      auto candidate = dir / "corvid/sim/maps";
+      if (std::filesystem::is_directory(candidate, ec)) return candidate;
+    }
+    return {};
+  }
+
+  // Parse a single map JSON file into `out`. Returns false on any error.
+  [[nodiscard]] static bool
+  loadMapFromJson(const std::filesystem::path& file, MapDesign& out);
+
+  // Load all `.json` files from the maps directory into `loadedMaps_`.
+  [[nodiscard]] bool doLoadMaps() {
+    loadedMaps_.clear();
+    const auto dir = findSimMapsDir();
+    if (dir.empty()) {
+      std::cerr << "Maps directory not found\n";
+      return false;
+    }
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+      if (entry.path().extension() != ".json") continue;
+      MapDesign design;
+      if (!loadMapFromJson(entry.path(), design)) {
+        std::cerr << "Failed to load map: " << entry.path() << "\n";
+        continue;
+      }
+      loadedMaps_.emplace(entry.path().stem().string(), std::move(design));
+    }
+    return !loadedMaps_.empty();
+  }
+
+  // Copy the named map into `mapDesign_` and register its entities and paths.
+  [[nodiscard]] bool selectMap(std::string_view name) {
+    auto it = loadedMaps_.find(std::string{name});
+    if (it == loadedMaps_.end()) return false;
+    mapDesign_ = it->second;
+    return registerEntityDefs() && registerPaths();
+  }
 };
+
+// Parse a single map JSON file into `out`. The caller is responsible for
+// calling `registerEntityDefs()` and `registerPaths()` afterward.
+[[nodiscard]] inline bool
+SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
+  // Slurp the file.
+  std::ifstream ifs{file};
+  if (!ifs.is_open()) {
+    std::cerr << "Cannot open map file: " << file << "\n";
+    return false;
+  }
+  const std::string content{std::istreambuf_iterator<char>(ifs),
+      std::istreambuf_iterator<char>()};
+
+  // Parse top-level object.
+  json_value_view root;
+  if (!parse_json(content, root) || !root.is_object()) {
+    std::cerr << "JSON parse error in: " << file << "\n";
+    return false;
+  }
+  const auto obj = root.as_object();
+
+  // Decode an optional string key into `result` (unchanged if absent).
+  auto opt_str =
+      [](json_object_view o, std::string_view key, std::string& result) {
+        if (const auto v = o.find(key)) (void)v.decode_string(result);
+      };
+
+  // Parse a color value from `key` into `result`. Accepts a "0xRRGGBBAA"
+  // hex string or a plain decimal integer. Returns false if key is absent or
+  // the value cannot be parsed; `result` is unchanged on failure.
+  auto parse_color =
+      [](json_object_view o, std::string_view key, uint32_t& result) -> bool {
+    const auto v = o.find(key);
+    if (!v) return false;
+    if (const auto sv = v.string_view_if_plain()) {
+      auto s = *sv;
+      if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        s.remove_prefix(2);
+        uint32_t parsed{};
+        auto [ptr, ec] =
+            std::from_chars(s.data(), s.data() + s.size(), parsed, 16);
+        if (ec == std::errc{} && ptr == s.data() + s.size()) {
+          result = parsed;
+          return true;
+        }
+        return false;
+      }
+    }
+    if (const auto n = v.as_number<uint32_t>()) {
+      result = *n;
+      return true;
+    }
+    return false;
+  };
+
+  // Parse "categories" array.
+  if (const auto cats = obj.get_array("categories")) {
+    for (const auto elem : cats) {
+      if (!elem.is_object()) continue;
+      const auto co = elem.as_object();
+      CategoryDefinition cat;
+      opt_str(co, "name", cat.name);
+      if (cat.name.empty()) continue;
+      opt_str(co, "displayName", cat.displayName);
+      opt_str(co, "flavorText", cat.flavorText);
+      if (const auto app = co.get_object("appearance")) {
+        uint32_t glyph{};
+        (void)app.parse_number("glyph", glyph);
+        cat.appearance.glyph = static_cast<char32_t>(glyph);
+        (void)app.parse_number("radius", cat.appearance.radius);
+        (void)parse_color(app, "fgColor", cat.appearance.fgColor);
+        (void)parse_color(app, "bgColor", cat.appearance.bgColor);
+        if (const auto v = app.get_number<float>("attackRadius"))
+          cat.appearance.attackRadius = *v;
+      }
+      out.categories.push_back(std::move(cat));
+    }
+  }
+
+  // Parse "entities" array.
+  if (const auto ents = obj.get_array("entities")) {
+    for (const auto elem : ents) {
+      if (!elem.is_object()) continue;
+      const auto eo = elem.as_object();
+
+      EntityDefinition def;
+      opt_str(eo, "entityName", def.entityName);
+      if (def.entityName.empty()) continue;
+      opt_str(eo, "displayName", def.displayName);
+      opt_str(eo, "category", def.category);
+      opt_str(eo, "flavorText", def.flavorText);
+      if (const auto v = eo.get_number<int>("menuOrder")) def.menuOrder = *v;
+      // Absent `resourceCost` leaves the default `max()` = not for sale.
+      if (const auto v = eo.get_number<uint32_t>("resourceCost"))
+        def.resourceCost = *v;
+
+      auto& tpl = def.megatuple;
+
+      // Position (always present when the entity has world placement).
+      if (eo.find("position"))
+        std::get<std::optional<Position>>(tpl) = Position{};
+
+      // Appearance.
+      if (const auto app = eo.get_object("appearance")) {
+        Appearance a;
+        uint32_t glyph{};
+        (void)app.parse_number("glyph", glyph);
+        a.glyph = static_cast<char32_t>(glyph);
+        (void)app.parse_number("radius", a.radius);
+        (void)parse_color(app, "fgColor", a.fgColor);
+        (void)parse_color(app, "bgColor", a.bgColor);
+        if (const auto v = app.get_number<float>("attackRadius"))
+          a.attackRadius = *v;
+        std::get<std::optional<Appearance>>(tpl) = a;
+      }
+
+      // VisualEffects (key presence required; value may be empty `{}`).
+      if (eo.find("visualEffects")) {
+        VisualEffects vfx;
+        if (const auto vo = eo.get_object("visualEffects")) {
+          (void)parse_color(vo, "flashColor", vfx.flashColor);
+          if (const auto v = vo.get_number<uint32_t>("flashExpiry"))
+            vfx.flashExpiry = WorldTick{*v};
+        }
+        std::get<std::optional<VisualEffects>>(tpl) = vfx;
+      }
+
+      // Pathing (invaders only).
+      if (const auto po = eo.get_object("pathing")) {
+        Pathing p{.pathId = PathId::invalid};
+        if (const auto v = po.get_number<float>("speed")) p.speed = *v;
+        std::get<std::optional<Pathing>>(tpl) = p;
+      }
+
+      // Invader component.
+      if (const auto io = eo.get_object("invader")) {
+        Invader inv;
+        if (const auto v = io.get_number<float>("hitCircleRadius"))
+          inv.hitCircleRadius = *v;
+        if (const auto v = io.get_number<uint32_t>("bounty")) inv.bounty = *v;
+        std::get<std::optional<Invader>>(tpl) = inv;
+      }
+
+      // Health.
+      if (const auto ho = eo.get_object("health")) {
+        Health h;
+        if (const auto v = ho.get_number<float>("currentHealth"))
+          h.currentHealth = *v;
+        if (const auto v = ho.get_number<float>("maxHealth")) h.maxHealth = *v;
+        if (const auto v = ho.get_number<float>("regen")) h.regen = *v;
+        std::get<std::optional<Health>>(tpl) = h;
+      }
+
+      // Defender base component.
+      if (const auto dfo = eo.get_object("defender")) {
+        Defender d;
+        if (const auto v = dfo.get_number<float>("hitCircleRadius"))
+          d.hitCircleRadius = *v;
+        if (const auto v = dfo.get_number<float>("attackRadius"))
+          d.attackRadius = *v;
+        (void)parse_color(dfo, "rangeColor", d.rangeColor);
+        if (const auto v = dfo.get_number<float>("attackDamage"))
+          d.attackDamage = *v;
+        if (const auto v = dfo.get_number<uint32_t>("cooldown"))
+          d.cooldown = WorldTick{*v};
+        std::get<std::optional<Defender>>(tpl) = d;
+      }
+
+      // DefenderStats (key presence is sufficient; value is empty `{}`).
+      if (eo.find("defenderStats"))
+        std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
+
+      // Area-of-effect attack.
+      if (const auto ao = eo.get_object("defenderAoe")) {
+        DefenderAoe a;
+        if (const auto v = ao.get_number<int>("damageType")) a.damageType = *v;
+        std::get<std::optional<DefenderAoe>>(tpl) = a;
+      }
+
+      // Projectile attack.
+      if (const auto so = eo.get_object("defenderShooter")) {
+        DefenderShooter s;
+        if (const auto v = so.get_number<float>("fireRate")) s.fireRate = *v;
+        if (const auto bo = so.get_object("bullet")) {
+          if (const auto v = bo.get_number<float>("hitCircleRadius"))
+            s.bulletTemplate.hitCircleRadius = *v;
+          if (const auto v = bo.get_number<float>("speed"))
+            s.bulletTemplate.speed = *v;
+          if (const auto v = bo.get_number<float>("directDamage"))
+            s.bulletTemplate.directDamage = *v;
+          if (const auto v = bo.get_number<int>("projectileType"))
+            s.bulletTemplate.projectileType = *v;
+          if (const auto v = bo.get_number<uint32_t>("expiry"))
+            s.bulletTemplate.expiry = WorldTick{*v};
+        }
+        if (const auto mo = so.get_object("muzzleFlash")) {
+          if (const auto v = mo.get_number<float>("startDistance"))
+            s.muzzleFlashTemplate.startDistance = *v;
+          if (const auto v = mo.get_number<uint32_t>("expiry"))
+            s.muzzleFlashTemplate.expiry = WorldTick{*v};
+          (void)parse_color(mo, "primaryColor",
+              s.muzzleFlashTemplate.primaryColor);
+          if (const auto v = mo.get_number<float>("halfAngleDeg"))
+            s.muzzleFlashTemplate.halfAngleDeg = *v;
+          if (const auto v = mo.get_number<float>("coneRadius"))
+            s.muzzleFlashTemplate.coneRadius = *v;
+        }
+        std::get<std::optional<DefenderShooter>>(tpl) = s;
+      }
+
+      // Hitscan (instant-beam) attack.
+      if (const auto hso = eo.get_object("defenderHitscan")) {
+        TransientBeam beam;
+        if (const auto v = hso.get_number<float>("startDistance"))
+          beam.startDistance = *v;
+        if (const auto v = hso.get_number<uint32_t>("expiry"))
+          beam.expiry = WorldTick{*v};
+        (void)parse_color(hso, "primaryColor", beam.primaryColor);
+        (void)parse_color(hso, "secondaryColor", beam.secondaryColor);
+        if (const auto v = hso.get_number<float>("lineWidth"))
+          beam.lineWidth = *v;
+        std::get<std::optional<DefenderHitscan>>(tpl).emplace(beam);
+      }
+
+      const auto def_name = def.entityName;
+      out.entityDefs.try_emplace(def_name, std::move(def));
+    }
+  }
+
+  // Parse "paths" array.
+  if (const auto paths = obj.get_array("paths")) {
+    for (const auto elem : paths) {
+      if (!elem.is_object()) continue;
+      const auto po = elem.as_object();
+      PathJoints pj;
+      if (const auto v = po.get_number<float>("width")) pj.width = *v;
+      if (const auto joints = po.get_array("joints")) {
+        for (const auto jelem : joints) {
+          if (!jelem.is_object()) continue;
+          const auto jo = jelem.as_object();
+          Position pos;
+          if (const auto v = jo.get_number<float>("x")) pos.x = *v;
+          if (const auto v = jo.get_number<float>("y")) pos.y = *v;
+          pj.joints.push_back({pos});
+        }
+      }
+      out.paths.push_back(std::move(pj));
+    }
+  }
+
+  // Parse "waves" array.
+  if (const auto waves = obj.get_array("waves")) {
+    for (const auto elem : waves) {
+      if (!elem.is_object()) continue;
+      const auto wo = elem.as_object();
+      WaveDefinition wave;
+      if (const auto v = wo.get_number<int>("resourceInflux"))
+        wave.resourceInflux = *v;
+      if (const auto enemies = wo.get_array("enemies")) {
+        for (const auto eelem : enemies) {
+          if (!eelem.is_object()) continue;
+          const auto eo2 = eelem.as_object();
+          EnemySpawn spawn;
+          if (const auto v = eo2.get_number<uint32_t>("tick"))
+            spawn.startTicks = WaveTick{*v};
+          opt_str(eo2, "label", spawn.label);
+          if (const auto v = eo2.get_number<uint32_t>("pathId"))
+            spawn.pathId = static_cast<PathId>(*v);
+          wave.enemies.push_back(std::move(spawn));
+        }
+      }
+      std::ranges::sort(wave.enemies,
+          [](const EnemySpawn& a, const EnemySpawn& b) {
+            return a.startTicks < b.startTicks;
+          });
+      out.waves.push_back(std::move(wave));
+    }
+  }
+
+  return true;
+}
+
 }} // namespace corvid::sim

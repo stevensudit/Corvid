@@ -344,10 +344,12 @@ struct TransientBeam {
   float startDistance{};
   WorldTick expiry{WorldTick::invalid};
   uint32_t primaryColor{};
-  uint32_t secondaryColor{};
+  uint32_t secondaryColor{}; // Not used in wedge mode
   float targetX{};
   float targetY{};
   float lineWidth{};
+  float halfAngleDeg{}; // When > 0, render as wedge
+  float coneRadius{};
 };
 
 // Defensive component, common across all defenders.
@@ -401,11 +403,15 @@ struct DefenderBullet {
 
 // Shooter component for defenders that spawn projectiles. The
 // `bulletTemplate` is used to spawn bullets with the same properties as the
-// defender's attack, but with their own position and velocity.
+// defender's attack, but with their own position and velocity. When
+// `muzzleFlashTemplate.primaryColor` is set, a transient beam is emitted
+// toward `aimPos` on each shot, guaranteeing a visible effect even if the
+// bullet hits within a single tick.
 struct DefenderShooter {
   DefenderBullet bulletTemplate{};
-  float fireRate{}; // Shots per tick.
-  int spread{};     // Eventually an enum.
+  TransientBeam muzzleFlashTemplate{}; // Template; `expiry` stores TTL.
+  float fireRate{};                    // Shots per tick.
+  int spread{};                        // Eventually an enum.
 };
 
 // Invader component, shared across all invaders.
@@ -1122,10 +1128,10 @@ private:
     pendingTransientExplosions_.emplace_back(TransientExplosion{.x = pos.x,
         .y = pos.y,
         .expiry = WorldTick{*tick_ + 3},
-        .primaryColor = 0xFFFFA040U,
-        .secondaryColor = 0x80FF6020U,
+        .primaryColor = 0xFFFF80FFU,
+        .secondaryColor = 0xFF8020C0U,
         .radius =
-            std::max(bullet.splashRadius, bullet.hitCircleRadius * 2.F)});
+            std::max(bullet.splashRadius, bullet.hitCircleRadius * 3.F)});
     return true;
   }
 
@@ -1392,6 +1398,19 @@ private:
     bullet.expiry = WorldTick{*tick_ + *shooter.bulletTemplate.expiry};
 
     (void)spawnBullet(defenderPos, vel, bullet);
+    if (shooter.muzzleFlashTemplate.primaryColor != 0) {
+      pendingTransientBeams_.emplace_back(TransientBeam{.x = defenderPos.x,
+          .y = defenderPos.y,
+          .startDistance = shooter.muzzleFlashTemplate.startDistance,
+          .expiry = WorldTick{*tick_ + *shooter.muzzleFlashTemplate.expiry},
+          .primaryColor = shooter.muzzleFlashTemplate.primaryColor,
+          .secondaryColor = shooter.muzzleFlashTemplate.secondaryColor,
+          .targetX = aimPos.x,
+          .targetY = aimPos.y,
+          .lineWidth = shooter.muzzleFlashTemplate.lineWidth,
+          .halfAngleDeg = shooter.muzzleFlashTemplate.halfAngleDeg,
+          .coneRadius = shooter.muzzleFlashTemplate.coneRadius});
+    }
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};
     (void)flashEntity(defenderId, 0xFFFFFFFF, WorldTick{5});
     (void)setCooldown(defenderId, 0x0000007FU, defender.nextAttack);

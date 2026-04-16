@@ -225,6 +225,10 @@ struct SimGameStateJson {
             .member(json_trusted{"startDistance"}, beam.startDistance,
                 std::chars_format::fixed, 1)
             .member(json_trusted{"lineWidth"}, beam.lineWidth,
+                std::chars_format::fixed, 1)
+            .member(json_trusted{"halfAngleDeg"}, beam.halfAngleDeg,
+                std::chars_format::fixed, 1)
+            .member(json_trusted{"coneRadius"}, beam.coneRadius,
                 std::chars_format::fixed, 1);
       }
     }
@@ -259,6 +263,7 @@ struct SimGameStateJson {
         auto defender = ui->member_object(json_trusted{"defenderSummary"});
         defender->member(json_trusted{"entityName"}, summary.entityName)
             .member(json_trusted{"displayName"}, summary.displayName)
+            .member(json_trusted{"category"}, summary.category)
             .member(json_trusted{"flavorText"}, summary.flavorText)
             .member(json_trusted{"resourceCost"}, summary.resourceCost);
         if (auto app = defender->member_object(json_trusted{"appearance"})) {
@@ -310,6 +315,7 @@ struct SimGameStateJson {
         auto item = writer.object();
         item->member(json_trusted{"entityName"}, entry.entityName)
             .member(json_trusted{"displayName"}, entry.displayName)
+            .member(json_trusted{"category"}, entry.category)
             .member(json_trusted{"flavorText"}, entry.flavorText)
             .member(json_trusted{"resourceCost"}, entry.resourceCost);
         if (auto app = item->member_object(json_trusted{"appearance"})) {
@@ -321,6 +327,26 @@ struct SimGameStateJson {
               .member(json_trusted{"bg"}, entry.appearance.bgColor)
               .member(json_trusted{"attackRadius"},
                   entry.appearance.attackRadius, std::chars_format::fixed, 1);
+        }
+      }
+    }
+
+    // Category definitions for the top-level build menu.
+    if (auto cats = snapshot->member_array(json_trusted{"categories"})) {
+      for (const auto& cat : game.mapDesign().categories) {
+        auto item = writer.object();
+        item->member(json_trusted{"name"}, cat.name)
+            .member(json_trusted{"displayName"}, cat.displayName)
+            .member(json_trusted{"flavorText"}, cat.flavorText);
+        if (auto app = item->member_object(json_trusted{"appearance"})) {
+          app->member(json_trusted{"glyph"},
+                 static_cast<uint32_t>(cat.appearance.glyph))
+              .member(json_trusted{"radius"}, cat.appearance.radius,
+                  std::chars_format::fixed, 3)
+              .member(json_trusted{"fg"}, cat.appearance.fgColor)
+              .member(json_trusted{"bg"}, cat.appearance.bgColor)
+              .member(json_trusted{"attackRadius"},
+                  cat.appearance.attackRadius, std::chars_format::fixed, 1);
         }
       }
     }
