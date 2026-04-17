@@ -25,6 +25,10 @@ export interface Position {
   y: number
 }
 
+export interface Circle extends Position {
+  radius: number
+}
+
 export interface EntityPosition {
   id: number
   x: number
@@ -57,23 +61,18 @@ export interface EntityVisualEffects {
 }
 
 export interface TransientExplosion {
-  x: number
-  y: number
+  circle: Circle
   expiryTick: number
   primaryColor: number
   secondaryColor: number
-  radius: number
 }
 
 export interface TransientBeam {
-  x: number
-  y: number
+  circle: Circle
   expiryTick: number
   primaryColor: number
   secondaryColor: number
-  targetX: number
-  targetY: number
-  startDistance: number
+  targetPos: Position
   lineWidth: number
   halfAngleDeg: number
   coneRadius: number

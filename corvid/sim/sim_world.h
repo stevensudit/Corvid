@@ -132,6 +132,11 @@ struct Velocity {
   }
 };
 
+// Circular hitbox, defined by a center position and a radius.
+struct Circle: public Position {
+  float radius{};
+};
+
 // Boundaries of the simulation world, where `(0,0)` is the center.
 struct SimWorldBounds {
   using WorldReg = entity_registry<WorldTick>;
@@ -327,26 +332,21 @@ struct VisualEffects {
 // `expiry` is absolute for emitted instances; when embedded as a template it
 // stores the desired duration to add to the current tick.
 struct TransientExplosion {
-  float x{};
-  float y{};
   WorldTick expiry{WorldTick::invalid};
+  Circle circle{};
   uint32_t primaryColor{};
   uint32_t secondaryColor{};
-  float radius{};
 };
 
 // Fire-and-forget, display-only beam streamed once to the client.
 // `expiry` is absolute for emitted instances; when embedded as a template it
 // stores the desired duration to add to the current tick.
 struct TransientBeam {
-  float x{};
-  float y{};
-  float startDistance{};
+  Circle circle{};
   WorldTick expiry{WorldTick::invalid};
   uint32_t primaryColor{};
   uint32_t secondaryColor{}; // Not used in wedge mode
-  float targetX{};
-  float targetY{};
+  Position targetPos{};
   float lineWidth{};
   float halfAngleDeg{}; // When > 0, render as wedge
   float coneRadius{};
@@ -389,6 +389,7 @@ struct DefenderHitscan {
 // field stores the TTL. Once instantiated, added to the current tick to gets
 // its final moment.
 struct DefenderBullet {
+  WorldTick expiry{}; // Expiration tick of the projectile.
   SimWorldBounds::EntityId shooterId{SimWorldBounds::EntityId::invalid};
   float hitCircleRadius{}; // Hit detection, used for physics and game logic.
   float speed{};
@@ -398,7 +399,6 @@ struct DefenderBullet {
   float directDamageType{}; // Eventually an enum.
   float dotDamageType{};    // Eventually an enum.
   int projectileType{};     // Eventually an enum.
-  WorldTick expiry{};       // Expiration tick of the projectile.
 };
 
 // Shooter component for defenders that spawn projectiles. The
@@ -867,12 +867,10 @@ public:
       auto [pos, inv] = scene_.try_get_components<Position, Invader>(id);
       if (pos && cbKill(id, *pos, *inv)) {
         pendingTransientExplosions_.emplace_back(TransientExplosion{
-            .x = pos->x,
-            .y = pos->y,
             .expiry = WorldTick{*tick_ + 6},
+            .circle = Circle{Position{pos->x, pos->y}, inv->hitCircleRadius},
             .primaryColor = 0xFFB040E6U,
-            .secondaryColor = 0xFFFFD080U,
-            .radius = inv->hitCircleRadius});
+            .secondaryColor = 0xFFFFD080U});
         (void)tombstoneEntity(id);
       }
     }
@@ -1125,13 +1123,12 @@ private:
   // Emit the explosion visual for a detonating projectile.
   [[nodiscard]] bool
   emitProjectileExplosion(const Position& pos, const DefenderBullet& bullet) {
-    pendingTransientExplosions_.emplace_back(TransientExplosion{.x = pos.x,
-        .y = pos.y,
+    pendingTransientExplosions_.emplace_back(TransientExplosion{
         .expiry = WorldTick{*tick_ + 3},
+        .circle = Circle{Position{pos.x, pos.y},
+            std::max(bullet.splashRadius, bullet.hitCircleRadius * 3.F)},
         .primaryColor = 0xFFFF80FFU,
-        .secondaryColor = 0xFF8020C0U,
-        .radius =
-            std::max(bullet.splashRadius, bullet.hitCircleRadius * 3.F)});
+        .secondaryColor = 0xFF8020C0U});
     return true;
   }
 
@@ -1286,12 +1283,11 @@ private:
     const auto* defenderPos = scene_.try_get_component<Position>(defenderId);
     assert(defenderPos);
     pendingTransientExplosions_.emplace_back(TransientExplosion{
-        .x = defenderPos->x,
-        .y = defenderPos->y,
         .expiry = WorldTick{*tick_ + 1},
+        .circle = Circle{
+            Position{defenderPos->x, defenderPos->y}, defender.attackRadius},
         .primaryColor = withAlpha(defender.rangeColor, 0x30U),
-        .secondaryColor = withAlpha(defender.rangeColor, 0x10U),
-        .radius = defender.attackRadius});
+        .secondaryColor = withAlpha(defender.rangeColor, 0x10U)});
     for (const auto& cand : candidates) {
       auto* hp = scene_.try_get_component<Health>(cand.id);
       if (!hp) continue;
@@ -1399,14 +1395,13 @@ private:
 
     (void)spawnBullet(defenderPos, vel, bullet);
     if (shooter.muzzleFlashTemplate.primaryColor != 0) {
-      pendingTransientBeams_.emplace_back(TransientBeam{.x = defenderPos.x,
-          .y = defenderPos.y,
-          .startDistance = shooter.muzzleFlashTemplate.startDistance,
+      pendingTransientBeams_.emplace_back(TransientBeam{
+          .circle = Circle{Position{defenderPos.x, defenderPos.y},
+              shooter.muzzleFlashTemplate.circle.radius},
           .expiry = WorldTick{*tick_ + *shooter.muzzleFlashTemplate.expiry},
           .primaryColor = shooter.muzzleFlashTemplate.primaryColor,
           .secondaryColor = shooter.muzzleFlashTemplate.secondaryColor,
-          .targetX = aimPos.x,
-          .targetY = aimPos.y,
+          .targetPos = aimPos,
           .lineWidth = shooter.muzzleFlashTemplate.lineWidth,
           .halfAngleDeg = shooter.muzzleFlashTemplate.halfAngleDeg,
           .coneRadius = shooter.muzzleFlashTemplate.coneRadius});
@@ -1458,14 +1453,13 @@ private:
     const auto* targetPos = scene_.try_get_component<Position>(targetId);
     if (!defenderPos || !targetPos) return false;
 
-    pendingTransientBeams_.emplace_back(TransientBeam{.x = defenderPos->x,
-        .y = defenderPos->y,
-        .startDistance = hitscan.transientTemplate.startDistance,
+    pendingTransientBeams_.emplace_back(TransientBeam{
+        .circle = Circle{Position{defenderPos->x, defenderPos->y},
+            hitscan.transientTemplate.circle.radius},
         .expiry = WorldTick{*tick_ + *hitscan.transientTemplate.expiry},
         .primaryColor = hitscan.transientTemplate.primaryColor,
         .secondaryColor = hitscan.transientTemplate.secondaryColor,
-        .targetX = targetPos->x,
-        .targetY = targetPos->y,
+        .targetPos = *targetPos,
         .lineWidth = hitscan.transientTemplate.lineWidth});
 
     defender.nextAttack = WorldTick{*tick_ + *defender.cooldown};

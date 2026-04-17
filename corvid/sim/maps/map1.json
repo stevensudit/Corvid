@@ -231,7 +231,7 @@
           "expiry": 5
         },
         "muzzleFlash": {
-          "startDistance": 25.0,
+          "radius": 25.0,
           "expiry": 3,
           "primaryColor": "0xFFFFC0FF",
           "halfAngleDeg": 25.0,
@@ -281,7 +281,7 @@
           "expiry": 20
         },
         "muzzleFlash": {
-          "startDistance": 25.0,
+          "radius": 25.0,
           "expiry": 3,
           "primaryColor": "0xFFFFC0FF",
           "halfAngleDeg": 15.0,
@@ -322,7 +322,7 @@
         "regen": 0.0
       },
       "defenderHitscan": {
-        "startDistance": 25.0,
+        "radius": 25.0,
         "expiry": 3,
         "primaryColor": "0xFFFF4040",
         "secondaryColor": "0xFFFFD080",
@@ -362,7 +362,7 @@
         "regen": 0.0
       },
       "defenderHitscan": {
-        "startDistance": 40.0,
+        "radius": 40.0,
         "expiry": 3,
         "primaryColor": "0xFFFF4040",
         "secondaryColor": "0xFFFFD080",
@@ -402,7 +402,7 @@
         "regen": 0.0
       },
       "defenderHitscan": {
-        "startDistance": 25.0,
+        "radius": 25.0,
         "expiry": 3,
         "primaryColor": "0xFFFF4040",
         "secondaryColor": "0xFFFFD080",

@@ -105,10 +105,9 @@ eponymous browser-based tower defense game.
 ---
 
 ## Known gaps / next steps
-- Tower damage is disabled (`#if 0` in `towersAttack`); needs cooldown, health
-  reduction, bounty award, and tombstoning.
-- Only one hardcoded map and one wave; need data-driven map/wave loading.
-- No victory condition when all waves clear with lives remaining.
-- `sidBullet` archetype exists but no projectile-firing tower type is wired up.
 - Web asset pipeline (Vite/TypeScript) must be built separately (`npm run
   build` in `web/`) before the C++ server can serve the dist files.
+- No support for the idea of rotation speed limits.
+- Health regeneration not implemented.
+- No support for defenders taking damage.
+- No support for DoT and for various damage types, much less armor/resistance.

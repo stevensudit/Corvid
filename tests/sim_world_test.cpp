@@ -284,13 +284,14 @@ spawnDefenderShooter(SimWorld& w, Position spawn_pos) {
     std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
     std::get<std::optional<Health>>(tpl) =
         Health{.currentHealth = 80.F, .maxHealth = 80.F, .regen = 0.F};
-    std::get<std::optional<DefenderShooter>>(tpl) = DefenderShooter{
-        .bulletTemplate = DefenderBullet{.hitCircleRadius = 8.F,
+    std::get<std::optional<DefenderShooter>>(tpl) =
+        DefenderShooter{.bulletTemplate = DefenderBullet{.expiry =
+                WorldTick{60},
+            .hitCircleRadius = 8.F,
             .speed = 200.F,
             .directDamage = 15.F,
-            .projectileType = 1,
-            .expiry = WorldTick{60}},
-        .fireRate = 0.033F};
+            .projectileType = 1},
+            .fireRate = 0.033F};
     (void)w.registerEntity("DefenderShooterBasic", tpl);
   }
   auto h = w.spawnEntity("DefenderShooterBasic");
@@ -414,12 +415,12 @@ void SimWorld_DefenderAoeAttackEmitsPulseExplosion() {
 
   const auto explosions = extractTransientExplosions(w);
   ASSERT_EQ(explosions.size(), 1U);
-  EXPECT_NEAR(explosions[0].x, 0.0, 1e-6);
-  EXPECT_NEAR(explosions[0].y, 0.0, 1e-6);
+  EXPECT_NEAR(explosions[0].circle.x, 0.0, 1e-6);
+  EXPECT_NEAR(explosions[0].circle.y, 0.0, 1e-6);
   EXPECT_EQ(explosions[0].expiry, WorldTick{2});
   EXPECT_EQ(explosions[0].primaryColor, 0xFFFF0030U);
   EXPECT_EQ(explosions[0].secondaryColor, 0xFFFF0010U);
-  EXPECT_NEAR(explosions[0].radius, 100.0, 1e-6);
+  EXPECT_NEAR(explosions[0].circle.radius, 100.0, 1e-6);
 
   const auto drained = extractTransientExplosions(w);
   EXPECT_TRUE(drained.empty());
@@ -486,8 +487,8 @@ void SimWorld_DefenderShooterBulletHitsInvaderOnNextStep() {
 
   const auto explosions = extractTransientExplosions(w);
   ASSERT_EQ(explosions.size(), 1U);
-  EXPECT_NEAR(explosions[0].x, 100.0, 1e-6);
-  EXPECT_NEAR(explosions[0].y, 0.0, 1e-6);
+  EXPECT_NEAR(explosions[0].circle.x, 100.0, 1e-6);
+  EXPECT_NEAR(explosions[0].circle.y, 0.0, 1e-6);
 }
 
 void SimWorld_DefenderShooterBulletHitsFirstInvaderAlongPath() {
@@ -555,9 +556,9 @@ void SimWorld_ExplosiveBulletDetonatesOnExpiry() {
 
   const auto explosions = extractTransientExplosions(w);
   ASSERT_EQ(explosions.size(), 1U);
-  EXPECT_NEAR(explosions[0].x, 200.0, 1e-6);
-  EXPECT_NEAR(explosions[0].y, 0.0, 1e-6);
-  EXPECT_NEAR(explosions[0].radius, 250.0, 1e-6);
+  EXPECT_NEAR(explosions[0].circle.x, 200.0, 1e-6);
+  EXPECT_NEAR(explosions[0].circle.y, 0.0, 1e-6);
+  EXPECT_NEAR(explosions[0].circle.radius, 250.0, 1e-6);
 }
 
 void SimWorld_SnapshotSinceTracksChanges() {

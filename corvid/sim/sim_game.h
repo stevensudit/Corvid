@@ -976,8 +976,8 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
             s.bulletTemplate.expiry = WorldTick{*v};
         }
         if (const auto mo = so.get_object("muzzleFlash")) {
-          if (const auto v = mo.get_number<float>("startDistance"))
-            s.muzzleFlashTemplate.startDistance = *v;
+          if (const auto v = mo.get_number<float>("radius"))
+            s.muzzleFlashTemplate.circle.radius = *v;
           if (const auto v = mo.get_number<uint32_t>("expiry"))
             s.muzzleFlashTemplate.expiry = WorldTick{*v};
           (void)parse_color(mo, "primaryColor",
@@ -993,8 +993,8 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
       // Hitscan (instant-beam) attack.
       if (const auto hso = eo.get_object("defenderHitscan")) {
         TransientBeam beam;
-        if (const auto v = hso.get_number<float>("startDistance"))
-          beam.startDistance = *v;
+        if (const auto v = hso.get_number<float>("radius"))
+          beam.circle.radius = *v;
         if (const auto v = hso.get_number<uint32_t>("expiry"))
           beam.expiry = WorldTick{*v};
         (void)parse_color(hso, "primaryColor", beam.primaryColor);

@@ -1,5 +1,6 @@
 import type {
   CategoryItem,
+  Circle,
   ClientMsg,
   DefenderMenuItem,
   EntityAppearance,
@@ -41,12 +42,10 @@ interface RenderAppearance {
 
 // Local placement-preview state for a defender being dragged or staged to spawn.
 interface GhostState {
-  worldX: number
-  worldY: number
   entityName: string
   displayName: string
   appearance: RenderAppearance
-  attackRadius: number  // world units, from Appearance.attackRadius
+  worldCircle: Circle
   confirmCommand: 'spawn' | 'moving'
   pending: boolean      // true = dropped on map, awaiting confirmation click
   placeable: boolean    // true = can be placed at the current position
@@ -76,24 +75,19 @@ interface RenderEntityUpsert {
 }
 
 interface RenderTransientExplosion {
-  x: number
-  y: number
+  circle: Circle
   expiry: number
   primary: RenderColor
   secondary: RenderColor
-  radius: number
   startedAt: number
 }
 
 interface RenderTransientBeam {
-  x: number
-  y: number
+  circle: Circle
   expiry: number
   primary: RenderColor
   secondary: RenderColor
-  targetX: number
-  targetY: number
-  startDistance: number
+  targetPos: Position
   lineWidth: number
   startedAt: number
   halfAngleDeg: number
@@ -374,14 +368,14 @@ function ghostStateToSample(
   button = event.button,
   buttons = event.buttons,
 ): CanvasPointerSample {
-  const [canvasX, canvasY] = worldToCanvas(ghost.worldX, ghost.worldY)
+  const [canvasX, canvasY] = worldToCanvas(ghost.worldCircle.x, ghost.worldCircle.y)
   return {
     button,
     buttons,
     canvasX: Math.round(canvasX),
     canvasY: Math.round(canvasY),
-    worldX: Math.round(ghost.worldX),
-    worldY: Math.round(ghost.worldY),
+    worldX: Math.round(ghost.worldCircle.x),
+    worldY: Math.round(ghost.worldCircle.y),
     shift: event.shiftKey,
     ctrl: event.ctrlKey,
     alt: event.altKey,
@@ -743,12 +737,14 @@ function closeBuildMenuFromKeyboard(): void {
 function dropDefenderGhostAtPointer(item: DefenderMenuItem): void {
   const sample = getPointerAnchorSample()
   ghostState = {
-    worldX: sample.worldX,
-    worldY: sample.worldY,
     entityName: item.entityName,
     displayName: item.displayName,
     appearance: appearanceToRender(item.appearance),
-    attackRadius: item.appearance.attackRadius,
+    worldCircle: {
+      x: sample.worldX,
+      y: sample.worldY,
+      radius: item.appearance.attackRadius,
+    },
     confirmCommand: 'spawn',
     pending: true,
     placeable: true,
@@ -986,8 +982,8 @@ function isTransientFlashPrimary(now: number, startedAt: number): boolean {
 }
 
 function drawExplosionTransient(transient: RenderTransientExplosion, now: number): void {
-  const [x, y] = worldToCanvas(transient.x, transient.y)
-  const radius = worldLengthToCanvas(transient.radius)
+  const [x, y] = worldToCanvas(transient.circle.x, transient.circle.y)
+  const radius = worldLengthToCanvas(transient.circle.radius)
   const color = isTransientFlashPrimary(now, transient.startedAt)
     ? transient.primary
     : transient.secondary
@@ -1000,15 +996,15 @@ function drawExplosionTransient(transient: RenderTransientExplosion, now: number
 }
 
 function drawBeamTransient(transient: RenderTransientBeam, now: number): void {
-  const dx = transient.targetX - transient.x
-  const dy = transient.targetY - transient.y
+  const dx = transient.targetPos.x - transient.circle.x
+  const dy = transient.targetPos.y - transient.circle.y
   const length = Math.sqrt((dx * dx) + (dy * dy))
   if (length <= 0) return
 
   const ux = dx / length
   const uy = dy / length
-  const startX = transient.x + ux * transient.startDistance
-  const startY = transient.y + uy * transient.startDistance
+  const startX = transient.circle.x + ux * transient.circle.radius
+  const startY = transient.circle.y + uy * transient.circle.radius
 
   if (transient.halfAngleDeg > 0) {
     // Cone mode: filled wedge fading linearly from opaque to transparent.
@@ -1034,7 +1030,7 @@ function drawBeamTransient(transient: RenderTransientBeam, now: number): void {
     // Line mode: flickering stroke between primary and secondary colours.
     const [canvasStartX, canvasStartY] = worldToCanvas(startX, startY)
     const [canvasTargetX, canvasTargetY] =
-      worldToCanvas(transient.targetX, transient.targetY)
+      worldToCanvas(transient.targetPos.x, transient.targetPos.y)
     const color = isTransientFlashPrimary(now, transient.startedAt)
       ? transient.primary
       : transient.secondary
@@ -1228,12 +1224,10 @@ function explosionToRender(
   currentTick: number,
 ): RenderTransientExplosion {
   return {
-    x: transient.x,
-    y: transient.y,
+    circle: transient.circle,
     expiry: tickExpiryToWallMs(transient.expiryTick, currentTick, now),
     primary: packedRgbaToRenderColor(transient.primaryColor),
     secondary: packedRgbaToRenderColor(transient.secondaryColor),
-    radius: transient.radius,
     startedAt: now,
   }
 }
@@ -1244,14 +1238,11 @@ function beamToRender(
   currentTick: number,
 ): RenderTransientBeam {
   return {
-    x: transient.x,
-    y: transient.y,
+    circle: transient.circle,
     expiry: tickExpiryToWallMs(transient.expiryTick, currentTick, now),
     primary: packedRgbaToRenderColor(transient.primaryColor),
     secondary: packedRgbaToRenderColor(transient.secondaryColor),
-    targetX: transient.targetX,
-    targetY: transient.targetY,
-    startDistance: transient.startDistance,
+    targetPos: transient.targetPos,
     lineWidth: transient.lineWidth,
     startedAt: now,
     halfAngleDeg: transient.halfAngleDeg,
@@ -1479,7 +1470,7 @@ function getSelectedDefenderPanelModel(): SidePanelModel | null {
 // Build the overlay model for a dropped-but-not-yet-confirmed placement ghost.
 function getPendingGhostPanelModel(): SidePanelModel | null {
   if (!ghostState?.pending) return null
-  const [ghostCanvasX] = worldToCanvas(ghostState.worldX, ghostState.worldY)
+  const [ghostCanvasX] = worldToCanvas(ghostState.worldCircle.x, ghostState.worldCircle.y)
   const side = getOppositePanelSideForCanvasX(ghostCanvasX)
   const isMoveGhost = ghostState.confirmCommand === 'moving'
   return {
@@ -1855,9 +1846,9 @@ function drawBuildMenu(ctx: CanvasRenderingContext2D): void {
 // Draw the draggable or pending placement ghost on top of the world layer.
 function drawGhost(): void {
   if (!ghostState) return
-  const [x, y] = worldToCanvas(ghostState.worldX, ghostState.worldY)
+  const [x, y] = worldToCanvas(ghostState.worldCircle.x, ghostState.worldCircle.y)
   const radius = worldLengthToCanvas(ghostState.appearance.radius)
-  const attackPx = worldLengthToCanvas(ghostState.attackRadius)
+  const attackPx = worldLengthToCanvas(ghostState.worldCircle.radius)
   const isPlaceable = ghostState.placeable
 
   fgCtx.save()
@@ -2195,12 +2186,14 @@ function isTransientExplosion(value: unknown): value is TransientExplosion {
   return (
     typeof value === 'object' &&
     value !== null &&
-    typeof (value as Record<string, unknown>).x === 'number' &&
-    typeof (value as Record<string, unknown>).y === 'number' &&
+    typeof (value as Record<string, unknown>).circle === 'object' &&
+    (value as Record<string, unknown>).circle !== null &&
+    typeof ((value as Record<string, unknown>).circle as Record<string, unknown>).x === 'number' &&
+    typeof ((value as Record<string, unknown>).circle as Record<string, unknown>).y === 'number' &&
+    typeof ((value as Record<string, unknown>).circle as Record<string, unknown>).radius === 'number' &&
     typeof (value as Record<string, unknown>).expiryTick === 'number' &&
     typeof (value as Record<string, unknown>).primaryColor === 'number' &&
-    typeof (value as Record<string, unknown>).secondaryColor === 'number' &&
-    typeof (value as Record<string, unknown>).radius === 'number'
+    typeof (value as Record<string, unknown>).secondaryColor === 'number'
   )
 }
 
@@ -2208,14 +2201,18 @@ function isTransientBeam(value: unknown): value is TransientBeam {
   return (
     typeof value === 'object' &&
     value !== null &&
-    typeof (value as Record<string, unknown>).x === 'number' &&
-    typeof (value as Record<string, unknown>).y === 'number' &&
+    typeof (value as Record<string, unknown>).circle === 'object' &&
+    (value as Record<string, unknown>).circle !== null &&
+    typeof ((value as Record<string, unknown>).circle as Record<string, unknown>).x === 'number' &&
+    typeof ((value as Record<string, unknown>).circle as Record<string, unknown>).y === 'number' &&
+    typeof ((value as Record<string, unknown>).circle as Record<string, unknown>).radius === 'number' &&
     typeof (value as Record<string, unknown>).expiryTick === 'number' &&
     typeof (value as Record<string, unknown>).primaryColor === 'number' &&
     typeof (value as Record<string, unknown>).secondaryColor === 'number' &&
-    typeof (value as Record<string, unknown>).targetX === 'number' &&
-    typeof (value as Record<string, unknown>).targetY === 'number' &&
-    typeof (value as Record<string, unknown>).startDistance === 'number' &&
+    typeof (value as Record<string, unknown>).targetPos === 'object' &&
+    (value as Record<string, unknown>).targetPos !== null &&
+    typeof ((value as Record<string, unknown>).targetPos as Record<string, unknown>).x === 'number' &&
+    typeof ((value as Record<string, unknown>).targetPos as Record<string, unknown>).y === 'number' &&
     typeof (value as Record<string, unknown>).lineWidth === 'number'
   )
 }
@@ -2380,11 +2377,13 @@ function applyWorldDelta(delta: WorldDelta): void {
   }
   for (const transient of delta.transientExplosions) {
     const rendered = explosionToRender(transient, now, delta.tick)
-    transientExplosionsByPos.set(transientDisplayKey(transient.x, transient.y), rendered)
+    transientExplosionsByPos.set(
+      transientDisplayKey(transient.circle.x, transient.circle.y), rendered)
   }
   for (const transient of delta.transientBeams) {
     const rendered = beamToRender(transient, now, delta.tick)
-    transientBeamsByPos.set(transientDisplayKey(transient.x, transient.y), rendered)
+    transientBeamsByPos.set(
+      transientDisplayKey(transient.circle.x, transient.circle.y), rendered)
   }
 
   finishSnapshotUpdate()
@@ -2580,7 +2579,7 @@ foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   // While a ghost is pending, left-click on the ghost picks it back up and
   // any other non-right click cancels placement.
   if (event.button === 0 && ghostState?.pending) {
-    const [gx, gy] = worldToCanvas(ghostState.worldX, ghostState.worldY)
+    const [gx, gy] = worldToCanvas(ghostState.worldCircle.x, ghostState.worldCircle.y)
     const hitRadius = worldLengthToCanvas(ghostState.appearance.radius) * 2
     const dx = sample.canvasX - gx
     const dy = sample.canvasY - gy
@@ -2682,12 +2681,14 @@ foregroundCanvas.addEventListener('mousemove', (event: MouseEvent) => {
         findDefenderAtWorld(selectedDefenderPosition.x, selectedDefenderPosition.y)
       if (selectedEntity !== null) {
         ghostState = {
-          worldX: dragSample.worldX,
-          worldY: dragSample.worldY,
           entityName: selectedDefenderSummary.entityName,
           displayName: selectedDefenderSummary.displayName,
           appearance: selectedEntity.app,
-          attackRadius: selectedDefenderSummary.appearance.attackRadius,
+          worldCircle: {
+            x: dragSample.worldX,
+            y: dragSample.worldY,
+            radius: selectedDefenderSummary.appearance.attackRadius,
+          },
           confirmCommand: 'moving',
           pending: false,
           placeable: true,
@@ -2955,8 +2956,8 @@ window.addEventListener('mousemove', (event: MouseEvent) => {
   const canvasX = (event.clientX - rect.left) * (foregroundCanvas.width / rect.width)
   const canvasY = (event.clientY - rect.top) * (foregroundCanvas.height / rect.height)
   const [worldX, worldY] = canvasToWorld(canvasX, canvasY)
-  ghostState.worldX = worldX
-  ghostState.worldY = worldY
+  ghostState.worldCircle.x = worldX
+  ghostState.worldCircle.y = worldY
   if (menuDragActive) {
     sendPlacementPreview('dragmove', eventToCanvasSample(event), ghostState.entityName)
   } else if (moveDragActive) {
@@ -3043,12 +3044,14 @@ overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   const fgCanvasY = (event.clientY - fgRect.top) * (foregroundCanvas.height / fgRect.height)
   const [worldX, worldY] = canvasToWorld(fgCanvasX, fgCanvasY)
   ghostState = {
-    worldX,
-    worldY,
     entityName: item.entityName,
     displayName: item.displayName,
     appearance: appearanceToRender(item.appearance),
-    attackRadius: item.appearance.attackRadius,
+    worldCircle: {
+      x: worldX,
+      y: worldY,
+      radius: item.appearance.attackRadius,
+    },
     confirmCommand: 'spawn',
     pending: false,
     placeable: true,

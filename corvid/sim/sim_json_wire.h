@@ -189,38 +189,45 @@ struct SimGameStateJson {
     {
       for (const auto& explosion : result.transient_explosions) {
         explosions->object()
-            ->member(json_trusted{"x"}, explosion.x, std::chars_format::fixed,
-                1)
-            .member(json_trusted{"y"}, explosion.y, std::chars_format::fixed,
-                1)
+            ->member(json_trusted{"x"}, explosion.circle.x,
+                std::chars_format::fixed, 1)
+            .member(json_trusted{"y"}, explosion.circle.y,
+                std::chars_format::fixed, 1)
             .member(json_trusted{"expiryTick"},
                 tickExpiryTick(explosion.expiry))
             .member(json_trusted{"primaryColor"}, explosion.primaryColor)
             .member(json_trusted{"secondaryColor"}, explosion.secondaryColor)
-            .member(json_trusted{"radius"}, explosion.radius,
+            .member(json_trusted{"radius"}, explosion.circle.radius,
                 std::chars_format::fixed, 1);
       }
     }
     if (auto beams = target.member_array(json_trusted{"transientBeams"})) {
       for (const auto& beam : result.transient_beams) {
-        beams->object()
-            ->member(json_trusted{"x"}, beam.x, std::chars_format::fixed, 1)
-            .member(json_trusted{"y"}, beam.y, std::chars_format::fixed, 1)
+        auto beam_json = beams->object();
+        beam_json
+            ->member(json_trusted{"x"}, beam.circle.x,
+                std::chars_format::fixed, 1)
+            .member(json_trusted{"y"}, beam.circle.y,
+                std::chars_format::fixed, 1)
+            .member(json_trusted{"radius"}, beam.circle.radius,
+                std::chars_format::fixed, 1)
             .member(json_trusted{"expiryTick"}, tickExpiryTick(beam.expiry))
             .member(json_trusted{"primaryColor"}, beam.primaryColor)
             .member(json_trusted{"secondaryColor"}, beam.secondaryColor)
-            .member(json_trusted{"targetX"}, beam.targetX,
-                std::chars_format::fixed, 1)
-            .member(json_trusted{"targetY"}, beam.targetY,
-                std::chars_format::fixed, 1)
-            .member(json_trusted{"startDistance"}, beam.startDistance,
-                std::chars_format::fixed, 1)
             .member(json_trusted{"lineWidth"}, beam.lineWidth,
                 std::chars_format::fixed, 1)
             .member(json_trusted{"halfAngleDeg"}, beam.halfAngleDeg,
                 std::chars_format::fixed, 1)
             .member(json_trusted{"coneRadius"}, beam.coneRadius,
                 std::chars_format::fixed, 1);
+        if (auto target_pos = beam_json->member_object(json_trusted{"targetPos"}))
+        {
+          target_pos
+              ->member(json_trusted{"x"}, beam.targetPos.x,
+                  std::chars_format::fixed, 1)
+              .member(json_trusted{"y"}, beam.targetPos.y,
+                  std::chars_format::fixed, 1);
+        }
       }
     }
 
