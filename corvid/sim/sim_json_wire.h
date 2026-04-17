@@ -88,14 +88,13 @@ struct SimGameStateJson {
     (void)game.markAllDirty(update_strategy::full);
 
   size_t current_wave{};
-  WaveTick wave_tick{};
   int lives_count{};
   int resources_count{};
   std::string_view phase{};
   UiState ui_state;
 
   auto write_delta = [&writer, &game, &result, current_tick, &current_wave,
-                         &wave_tick, &lives_count, &resources_count, &phase,
+                         &lives_count, &resources_count, &phase,
                          &ui_state,
                          send_strategy](json_writer<std::string>& target) {
     target.member(json_trusted{"type"}, json_trusted{"world_delta"})
@@ -167,12 +166,11 @@ struct SimGameStateJson {
             result.transient_beams.push_back(beam);
             return true;
           },
-          [&current_wave, &wave_tick, &lives_count, &resources_count, &phase,
-              &ui_state](auto new_current_wave, auto new_wave_tick,
+          [&current_wave, &lives_count, &resources_count, &phase,
+              &ui_state](auto new_current_wave, auto /*new_wave_tick*/,
               auto new_lives, auto new_resources, auto new_phase,
               const UiState& new_ui_state) {
             current_wave = new_current_wave;
-            wave_tick = new_wave_tick;
             lives_count = new_lives;
             resources_count = new_resources;
             phase = new_phase;
@@ -240,7 +238,6 @@ struct SimGameStateJson {
     }
 
     target.member(json_trusted{"currentWave"}, current_wave)
-        .member(json_trusted{"waveTick"}, *wave_tick)
         .member(json_trusted{"lives"}, lives_count)
         .member(json_trusted{"resources"}, resources_count)
         .member(json_trusted{"phase"}, json_trusted{phase});

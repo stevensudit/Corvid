@@ -472,6 +472,31 @@ using ArchDefenderHitscan = archetype_storage<WorldReg,
 using WorldScene = archetype_scene<WorldReg, ArchInvaderAlpha, ArchDefenderAoe,
     ArchBullet, ArchDefenderShooter, ArchDefenderHitscan>;
 
+// Per-map entity template storage. The map is keyed by label, but we also keep
+// a list of labels separately so that this index can be stored in the ECS,
+// avoiding strings. This is particularly relevant for projectiles, which need
+// to know which defender spawned them in order to get full credit for their
+// kills.
+struct EntityTemplateStore {
+  string_unordered_map<WorldScene::megatuple_t> templates;
+  std::vector<std::string> labels;
+
+  [[nodiscard]] bool
+  registerEntity(std::string label, WorldScene::megatuple_t tpl) {
+    auto [it, inserted] =
+        templates.insert_or_assign(std::move(label), std::move(tpl));
+    if (!inserted) return false;
+    auto& [key, value] = *it;
+    labels.push_back(key);
+    auto idx = static_cast<uint16_t>(labels.size() - 1);
+    if (auto& defender = std::get<std::optional<Defender>>(value); defender)
+      defender->entityTemplateIndex = idx;
+    else if (auto& invader = std::get<std::optional<Invader>>(value); invader)
+      invader->entityTemplateIndex = idx;
+    return true;
+  }
+};
+
 // Simulation world: encapsulates all ECS entity state for the game and
 // provides physics.
 //
@@ -497,37 +522,19 @@ public:
     pendingKills_.clear();
     pendingTransientExplosions_.clear();
     pendingTransientBeams_.clear();
-    entityTemplates_.clear();
-    entityTemplateLabels_.clear();
+    entityTemplateStore_ = nullptr;
     tick_ = {};
   }
 
-  // Register a named entity type from a `megatuple_t` template. The set of
-  // optionals that have values must exactly match one archetype's
-  // components.
-  [[nodiscard]] bool
-  registerEntity(std::string label, WorldScene::megatuple_t tpl) {
-    auto [it, inserted] =
-        entityTemplates_.insert_or_assign(std::move(label), std::move(tpl));
-    if (!inserted) return false;
-
-    // Track index for cheap lookup.
-    auto& [key, value] = *it;
-    entityTemplateLabels_.push_back(key);
-    auto entityTemplateIndex =
-        static_cast<uint16_t>(entityTemplateLabels_.size() - 1);
-
-    // Store index in component.
-    if (auto& defender = std::get<std::optional<Defender>>(value); defender)
-      defender->entityTemplateIndex = entityTemplateIndex;
-    else if (auto& invader = std::get<std::optional<Invader>>(value); invader)
-      invader->entityTemplateIndex = entityTemplateIndex;
-    return true;
+  // Point this world at a map's entity template store.
+  // Used primarily for testing.
+  void setEntityTemplateStore(const EntityTemplateStore* store) {
+    entityTemplateStore_ = store;
   }
 
   // Look up a registered entity template by label.
   [[nodiscard]] auto findEntityTemplate(std::string_view label) const {
-    return find_opt(entityTemplates_, label);
+    return find_opt(entityTemplateStore_->templates, label);
   }
 
   // Spawn an entity by label. Looks up the pre-registered template.
@@ -535,13 +542,15 @@ public:
     return spawnEntity(findEntityTemplate(label));
   }
 
-  // Assert helper for validating entity template indices.
+  // Assert helper for validating entity template indices. It returns true if
+  // the component isn't present, as a convenience for assertions.
   template<typename Component>
   [[nodiscard]] bool
   hasValidEntityTemplateIndex(const WorldScene::megatuple_t& megatuple) const {
     const auto& component = std::get<std::optional<Component>>(megatuple);
     if (!component) return true;
-    return component->entityTemplateIndex < entityTemplateLabels_.size();
+    return component->entityTemplateIndex <
+           entityTemplateStore_->labels.size();
   }
 
   // Spawn an entity by definition. Stamps `tick_` into any `modified` fields,
@@ -597,8 +606,8 @@ public:
   // Get the label for an entity template by its index.
   [[nodiscard]] std::string_view getEntityTemplateLabel(
       uint16_t entityTemplateIndex) const {
-    if (entityTemplateIndex >= entityTemplateLabels_.size()) return {};
-    return entityTemplateLabels_[entityTemplateIndex];
+    if (entityTemplateIndex >= entityTemplateStore_->labels.size()) return {};
+    return entityTemplateStore_->labels[entityTemplateIndex];
   }
 
   // Obtain a pointer to the `Appearance` for the entity. It is already
@@ -961,12 +970,7 @@ private:
   std::vector<TransientExplosion> pendingTransientExplosions_;
   std::vector<TransientBeam> pendingTransientBeams_;
 
-  // Entity type definitions: label -> component template.
-  string_unordered_map<WorldScene::megatuple_t> entityTemplates_;
-
-  // List of entity labels. The index is used in the `Defender` or `Invader`
-  // components as `entityTemplateIndex_`.
-  std::vector<std::string> entityTemplateLabels_;
+  const EntityTemplateStore* entityTemplateStore_{};
 
   [[nodiscard]] static const Appearance& appearanceForProjectile(
       const DefenderBullet& bullet) {

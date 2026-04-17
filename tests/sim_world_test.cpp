@@ -203,12 +203,19 @@ findPosition(const auto& entries, SimWorld::EntityId id) {
     return &it->second;
 }
 
+// Shared template store for all test helpers. Populated lazily, once per
+// label, across all test cases.
+EntityTemplateStore testStore;
+
+// Set the world's template store and ensure the world points at `testStore`.
+void ensureTestStore(SimWorld& w) { w.setEntityTemplateStore(&testStore); }
+
 // Test helpers that register the entity type on demand (idempotent) and spawn
-// with placement applied, matching the old `spawnInvaderAlpha` /
-// `spawnDefenderAoe` behavior.
+// with placement applied.
 [[nodiscard]] SimWorld::Handle
 spawnInvaderAlpha(SimWorld& w, PathId pid, float progress = 0.F) {
-  if (!w.findEntityTemplate("InvaderAlphaBasic")) {
+  ensureTestStore(w);
+  if (!testStore.templates.contains("InvaderAlphaBasic")) {
     WorldScene::megatuple_t tpl{};
     std::get<std::optional<Position>>(tpl) = Position{};
     std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'\u03B1',
@@ -222,7 +229,7 @@ spawnInvaderAlpha(SimWorld& w, PathId pid, float progress = 0.F) {
         Invader{.hitCircleRadius = 30.F, .bounty = 10};
     std::get<std::optional<Health>>(tpl) =
         Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 10.F};
-    (void)w.registerEntity("InvaderAlphaBasic", tpl);
+    (void)testStore.registerEntity("InvaderAlphaBasic", tpl);
   }
   auto h = w.spawnEntity("InvaderAlphaBasic");
   if (!h) return h;
@@ -238,7 +245,8 @@ spawnInvaderAlpha(SimWorld& w, PathId pid, float progress = 0.F) {
 
 [[nodiscard]] SimWorld::Handle
 spawnDefenderAoe(SimWorld& w, Position spawn_pos) {
-  if (!w.findEntityTemplate("DefenderAoeBasic")) {
+  ensureTestStore(w);
+  if (!testStore.templates.contains("DefenderAoeBasic")) {
     WorldScene::megatuple_t tpl{};
     std::get<std::optional<Position>>(tpl) = Position{};
     std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'A',
@@ -256,7 +264,7 @@ spawnDefenderAoe(SimWorld& w, Position spawn_pos) {
     std::get<std::optional<Health>>(tpl) =
         Health{.currentHealth = 100.F, .maxHealth = 100.F, .regen = 0.F};
     std::get<std::optional<DefenderAoe>>(tpl) = DefenderAoe{.damageType = 1};
-    (void)w.registerEntity("DefenderAoeBasic", tpl);
+    (void)testStore.registerEntity("DefenderAoeBasic", tpl);
   }
   auto h = w.spawnEntity("DefenderAoeBasic");
   if (!h) return h;
@@ -266,7 +274,8 @@ spawnDefenderAoe(SimWorld& w, Position spawn_pos) {
 
 [[nodiscard]] SimWorld::Handle
 spawnDefenderShooter(SimWorld& w, Position spawn_pos) {
-  if (!w.findEntityTemplate("DefenderShooterBasic")) {
+  ensureTestStore(w);
+  if (!testStore.templates.contains("DefenderShooterBasic")) {
     WorldScene::megatuple_t tpl{};
     std::get<std::optional<Position>>(tpl) = Position{};
     std::get<std::optional<Appearance>>(tpl) = Appearance{.glyph = U'S',
@@ -291,7 +300,7 @@ spawnDefenderShooter(SimWorld& w, Position spawn_pos) {
             .directDamage = 15.F,
             .projectileType = 1},
         .fireRate = 0.033F};
-    (void)w.registerEntity("DefenderShooterBasic", tpl);
+    (void)testStore.registerEntity("DefenderShooterBasic", tpl);
   }
   auto h = w.spawnEntity("DefenderShooterBasic");
   if (!h) return h;
@@ -1253,13 +1262,10 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   const auto obj = root.as_object();
   ASSERT_TRUE(obj);
   const auto tick_value = obj.get_number<uint32_t>("tick");
-  const auto wave_tick_value = obj.get_number<uint32_t>("waveTick");
   const auto phase_value = obj.get_string_view_if_plain("phase");
   ASSERT_TRUE(tick_value.has_value());
-  ASSERT_TRUE(wave_tick_value.has_value());
   ASSERT_TRUE(phase_value.has_value());
   EXPECT_EQ(*tick_value, 0U);
-  EXPECT_EQ(*wave_tick_value, 0U);
   EXPECT_EQ(*phase_value, std::string_view{"build"});
 
   const auto upserts = obj.get_array("upserts");

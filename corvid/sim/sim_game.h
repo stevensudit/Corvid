@@ -102,7 +102,7 @@ struct EnemySpawn {
 // All of the enemy spawns for a wave.
 struct WaveDefinition {
   std::vector<EnemySpawn> enemies; // Sorted by `startTicks`
-  int resourceInflux{};            // Resources rewarded at start of wave
+  uint32_t resourceInflux{};       // Resources rewarded at start of wave
 };
 
 // Top-level category in the build menu. Each category has its own `Appearance`
@@ -159,6 +159,7 @@ struct MapDesign {
   std::string backgroundSpriteFile;
   std::string foregroundSpriteFile;
   EntityDefinitions entityDefs;
+  EntityTemplateStore entityTemplateStore;
   DefenderMenu defenderMenu;
   std::vector<WaveDefinition> waves;
 };
@@ -219,21 +220,21 @@ public:
   // Load all maps from the maps directory and activate the first one.
   [[nodiscard]] bool loadMap() {
     (void)resetMap();
-    if (!doLoadMaps()) return false;
-    return selectMap(loadedMaps_.begin()->first);
+    if (loadedMaps().empty()) return false;
+    return selectMap(loadedMaps().begin()->first);
   }
 
   // Human-readable CSV dump of the currently selected map's invader and
   // defender definitions.
   [[nodiscard]] std::string buildCurrentMapEntityCsvReport() const {
-    return buildMapEntityCsvReport(mapDesign_);
+    return buildMapEntityCsvReport(*mapDesign_);
   }
 
   // Resets all map information.
   [[nodiscard]] bool resetMap() {
     world_.clear();
     phase_ = GamePhase::build;
-    mapDesign_ = {};
+    mapDesign_ = nullptr;
     currentWave_ = 0;
     waveTick_ = {};
     nextSpawnIndex_ = 0;
@@ -274,6 +275,7 @@ public:
 
       if (lives_ <= 0) {
         phase_ = GamePhase::game_over;
+        lives_ = 0;
         (void)refreshSelectedDefenderState();
         return true;
       }
@@ -288,13 +290,13 @@ public:
       resources_ = resources;
 
       // Wave is over when all enemies have been spawned and none remain.
-      const auto& wave = mapDesign_.waves[currentWave_];
+      const auto& wave = mapDesign_->waves[currentWave_];
       if (nextSpawnIndex_ >= wave.enemies.size() &&
           !world_.hasActiveInvaders())
       {
         ++currentWave_;
         phase_ =
-            (currentWave_ >= mapDesign_.waves.size())
+            (currentWave_ >= mapDesign_->waves.size())
                 ? GamePhase::victory
                 : GamePhase::build;
       }
@@ -313,7 +315,7 @@ public:
   // Player action: start the next wave.
   [[nodiscard]] bool start_wave() {
     if (phase_ != GamePhase::build) return false;
-    resources_ += mapDesign_.waves[currentWave_].resourceInflux;
+    resources_ += mapDesign_->waves[currentWave_].resourceInflux;
     phase_ = GamePhase::wave;
     waveTick_ = {};
     nextSpawnIndex_ = 0;
@@ -372,7 +374,7 @@ public:
   }
 
   // Access the current map design (for streaming and inspection).
-  [[nodiscard]] const MapDesign& mapDesign() const { return mapDesign_; }
+  [[nodiscard]] const MapDesign& mapDesign() const { return *mapDesign_; }
   [[nodiscard]] const UiState& uiState() const { return uiState_; }
 
   // Extract a snapshot of the paths for `WorldSnapshot`, calling back
@@ -433,7 +435,7 @@ private:
   // Find `EntityDefinition` by name.
   [[nodiscard]] const EntityDefinition* findEntityDef(
       std::string_view entityName) const {
-    return find_opt(mapDesign_.entityDefs, entityName);
+    return find_opt(mapDesign_->entityDefs, entityName);
   }
 
   // Determine whether an entity can be placed at a given position. We do not
@@ -629,21 +631,18 @@ private:
     return true;
   }
 
-  // Register all entities and build the defender menu from
-  // `mapDesign_.entityDefs`.
-  [[nodiscard]] bool registerEntityDefs() {
-    auto& defs = mapDesign_.entityDefs;
-    auto& menu = mapDesign_.defenderMenu;
-    menu.clear();
-
-    for (const auto& [name, def] : defs) {
-      if (!world_.registerEntity(def.entityName, def.megatuple))
+  // Populate `entityTemplateStore` and `defenderMenu` from `entityDefs`.
+  // Called once per map at load time, before the map enters the singleton.
+  static void finalizeMapDesign(MapDesign& design) {
+    for (const auto& [name, def] : design.entityDefs) {
+      if (!design.entityTemplateStore.registerEntity(def.entityName,
+              def.megatuple))
         throw std::runtime_error(
             "Failed to register entity: " + def.entityName);
       if (def.resourceCost == std::numeric_limits<uint32_t>::max()) continue;
       const auto& app_opt = std::get<std::optional<Appearance>>(def.megatuple);
       assert(app_opt);
-      menu.push_back({.entityName = def.entityName,
+      design.defenderMenu.push_back({.entityName = def.entityName,
           .displayName = def.displayName,
           .menuOrder = def.menuOrder,
           .category = def.category,
@@ -651,22 +650,22 @@ private:
           .resourceCost = def.resourceCost,
           .appearance = *app_opt});
     }
-    std::ranges::sort(menu,
+    std::ranges::sort(design.defenderMenu,
         [](const DefenderSummary& a, const DefenderSummary& b) {
           return a.menuOrder < b.menuOrder;
         });
-    return true;
   }
 
-  // Add each `PathJoints` from `mapDesign_.paths` to the world.
+  // Add each `PathJoints` from `mapDesign_->paths` to the world. Previous
+  // paths must first be cleared by `resetMap`.
   [[nodiscard]] bool registerPaths() {
-    for (const auto& pj : mapDesign_.paths) (void)world_.addPath(pj);
+    for (const auto& pj : mapDesign_->paths) (void)world_.addPath(pj);
     return true;
   }
 
   // Spawn all the enemies slated for this wave tick.
   void spawnPendingWaveEnemies() {
-    const auto& wave = mapDesign_.waves[currentWave_];
+    const auto& wave = mapDesign_->waves[currentWave_];
     const auto& enemies = wave.enemies;
     for (; nextSpawnIndex_ < enemies.size(); ++nextSpawnIndex_) {
       const auto& enemyDef = enemies[nextSpawnIndex_];
@@ -695,11 +694,7 @@ private:
   WaveTick waveTick_{};
 
   // All design-time data for the currently loaded map.
-  MapDesign mapDesign_;
-
-  // All maps loaded from disk, keyed by stem filename (e.g., "map1").
-  // Sorted alphabetically so the first entry is deterministic.
-  std::map<std::string, MapDesign> loadedMaps_;
+  const MapDesign* mapDesign_{};
 
   // Current wave.
   size_t currentWave_{};
@@ -747,13 +742,14 @@ private:
     return std::getenv("CORVID_SUPPRESS_MAP_ENTITY_CSV") == nullptr;
   }
 
-  // Load all `.json` files from the maps directory into `loadedMaps_`.
-  [[nodiscard]] bool doLoadMaps() {
-    loadedMaps_.clear();
+  // Load all `.json` files from the maps directory and return them keyed by
+  // stem filename (e.g., "map1"), sorted alphabetically.
+  [[nodiscard]] static string_map<MapDesign> doLoadMaps() {
+    string_map<MapDesign> maps;
     const auto dir = findSimMapsDir();
     if (dir.empty()) {
       std::cerr << "Maps directory not found\n";
-      return false;
+      return maps;
     }
     std::error_code ec;
     for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
@@ -763,19 +759,28 @@ private:
         std::cerr << "Failed to load map: " << entry.path() << "\n";
         continue;
       }
+      finalizeMapDesign(design);
       if (shouldEmitMapEntityCsvReport())
         std::cout << buildMapEntityCsvReport(design);
-      loadedMaps_.emplace(entry.path().stem().string(), std::move(design));
+      maps.emplace(entry.path().stem().string(), std::move(design));
     }
-    return !loadedMaps_.empty();
+    return maps;
+  }
+
+  // All maps loaded from disk, keyed by stem filename (e.g., "map1").
+  // Sorted alphabetically so the first entry is deterministic.
+  [[nodiscard]] static const string_map<MapDesign>& loadedMaps() {
+    static const auto maps = doLoadMaps();
+    return maps;
   }
 
   // Copy the named map into `mapDesign_` and register its entities and paths.
   [[nodiscard]] bool selectMap(std::string_view name) {
-    auto it = loadedMaps_.find(std::string{name});
-    if (it == loadedMaps_.end()) return false;
-    mapDesign_ = it->second;
-    return registerEntityDefs() && registerPaths();
+    auto found = find_opt(loadedMaps(), name);
+    if (!found) return false;
+    mapDesign_ = found;
+    world_.setEntityTemplateStore(&mapDesign_->entityTemplateStore);
+    return registerPaths();
   }
 };
 
