@@ -162,8 +162,8 @@ filterSnapshot(const std::vector<EntitySnapshot>& all,
       [&delta](const TransientBeam& transient) {
         delta.transientBeams.push_back(transient);
       },
-      [&delta](size_t currentWave, WaveTick waveTick, int lives, int resources,
-          std::string_view phase, const UiState& uiState) {
+      [&delta](size_t currentWave, WaveTick waveTick, uint16_t lives,
+          uint16_t resources, std::string_view phase, const UiState& uiState) {
         delta.currentWave = currentWave;
         delta.waveTick = waveTick;
         delta.lives = lives;
@@ -1068,7 +1068,7 @@ void SimGame_ReachesGameOverAsSoonAsLivesAreExhausted() {
   (void)game.start_wave();
 
   bool sawZeroLives = false;
-  for (int i = 0; i < 2000; ++i) {
+  for (uint16_t i = 0; i < 2000; ++i) {
     (void)game.next();
     const auto delta = extractGameDelta(game);
     if (delta.lives <= 0) {
@@ -1126,8 +1126,8 @@ void SimGame_ExtractFullIncludesPathsAndState() {
   size_t erased = 0;
   size_t currentWave = 99;
   WaveTick waveTick{99};
-  int lives = -1;
-  int resources = -1;
+  uint16_t lives = -1;
+  uint16_t resources = -1;
   std::string_view phase = "unknown";
   UiState uiState;
 
@@ -1137,8 +1137,8 @@ void SimGame_ExtractFullIncludesPathsAndState() {
           const VisualEffects&, const Health&) { ++upserts; },
       [&erased](SimWorld::EntityId) { ++erased; },
       [](const TransientExplosion&) {}, [](const TransientBeam&) {},
-      [&currentWave, &waveTick, &lives, &resources, &phase,
-          &uiState](size_t wave, WaveTick tick, int newLives, int newResources,
+      [&currentWave, &waveTick, &lives, &resources, &phase, &uiState](
+          size_t wave, WaveTick tick, uint16_t newLives, uint16_t newResources,
           std::string_view newPhase, const UiState& newUiState) {
         currentWave = wave;
         waveTick = tick;

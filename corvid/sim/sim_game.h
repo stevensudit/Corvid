@@ -446,7 +446,7 @@ private:
     if (resources_ < def->resourceCost) return false;
     // Look up initial defender radius.
     const auto& def_opt = std::get<std::optional<Defender>>(def->megatuple);
-    assert(def_opt);
+    if (!def_opt) return false;
     return !world_.isDefenderPlacementBlocked(pos, def_opt->hitCircleRadius);
   }
 
