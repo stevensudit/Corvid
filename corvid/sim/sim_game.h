@@ -642,6 +642,7 @@ private:
             "Failed to register entity: " + def.entityName);
       if (def.resourceCost == std::numeric_limits<uint32_t>::max()) continue;
       const auto& app_opt = std::get<std::optional<Appearance>>(def.megatuple);
+      assert(app_opt);
       menu.push_back({.entityName = def.entityName,
           .displayName = def.displayName,
           .menuOrder = def.menuOrder,
@@ -742,6 +743,10 @@ private:
   [[nodiscard]] static std::string buildMapEntityCsvReport(
       const MapDesign& design);
 
+  [[nodiscard]] static bool shouldEmitMapEntityCsvReport() {
+    return std::getenv("CORVID_SUPPRESS_MAP_ENTITY_CSV") == nullptr;
+  }
+
   // Load all `.json` files from the maps directory into `loadedMaps_`.
   [[nodiscard]] bool doLoadMaps() {
     loadedMaps_.clear();
@@ -758,7 +763,8 @@ private:
         std::cerr << "Failed to load map: " << entry.path() << "\n";
         continue;
       }
-      std::cout << buildMapEntityCsvReport(design);
+      if (shouldEmitMapEntityCsvReport())
+        std::cout << buildMapEntityCsvReport(design);
       loadedMaps_.emplace(entry.path().stem().string(), std::move(design));
     }
     return !loadedMaps_.empty();
@@ -775,6 +781,7 @@ private:
 
 // Parse a single map JSON file into `out`. The caller is responsible for
 // calling `registerEntityDefs()` and `registerPaths()` afterward.
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 [[nodiscard]] inline bool
 SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
   // Slurp the file.
@@ -1054,6 +1061,7 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
 
   return true;
 }
+// NOLINTEND(readability-function-cognitive-complexity)
 
 [[nodiscard]] inline std::string SimGame::buildMapEntityCsvReport(
     const MapDesign& design) {
@@ -1093,6 +1101,7 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
     const auto& invader = std::get<std::optional<Invader>>(def->megatuple);
     const auto& app = std::get<std::optional<Appearance>>(def->megatuple);
     const auto& health = std::get<std::optional<Health>>(def->megatuple);
+    assert(pathing && invader && app && health);
     oss << csv_escape(def->entityName) << ',' << invader->hitCircleRadius
         << ',' << pathing->speed << ',' << app->radius << ','
         << health->currentHealth << ',' << health->regen << ','
@@ -1104,6 +1113,7 @@ SimGame::loadMapFromJson(const std::filesystem::path& file, MapDesign& out) {
   for (const auto* def : defenders) {
     const auto& defender = std::get<std::optional<Defender>>(def->megatuple);
     const auto& app = std::get<std::optional<Appearance>>(def->megatuple);
+    assert(defender && app);
     oss << csv_escape(def->entityName) << ',' << def->resourceCost << ','
         << app->radius << ',' << defender->attackRadius << ','
         << defender->attackDamage << ',' << *defender->cooldown << '\n';

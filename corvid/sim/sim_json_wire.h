@@ -86,6 +86,7 @@ struct SimGameStateJson {
   return body;
 }
 
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 [[nodiscard]] inline bool buildSimGameStateJson(SimGameStateJson& result,
     SimGame& game,
     update_strategy send_strategy = update_strategy::incremental) {
@@ -357,5 +358,6 @@ struct SimGameStateJson {
 
   return true;
 }
+// NOLINTEND(readability-function-cognitive-complexity)
 
 }} // namespace corvid::sim

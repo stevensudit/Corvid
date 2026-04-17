@@ -16,6 +16,7 @@
 // limitations under the License.
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstddef>
 #include <string>
 #include <string_view>
@@ -31,6 +32,12 @@ using namespace corvid;
 using namespace corvid::sim;
 
 namespace {
+
+// NOLINTBEGIN(bugprone-throwing-static-initialization)
+const bool kSuppressMapEntityCsv = [] {
+  return setenv("CORVID_SUPPRESS_MAP_ENTITY_CSV", "1", 1) == 0;
+}();
+// NOLINTEND(bugprone-throwing-static-initialization)
 
 struct WorldDelta {
   struct Upsert {
@@ -938,7 +945,7 @@ void SimGame_HandleUiCanvasSpawnsShooterDefender() {
       .canvasX = 100.F,
       .canvasY = 200.F,
       .command = "spawn",
-      .parameters = {"DefenderShooterBasic"}});
+      .parameters = {"DefenderShooterPistol"}});
 
   const auto pending = extractGameDelta(game);
   EXPECT_TRUE(pending.upserts.empty());

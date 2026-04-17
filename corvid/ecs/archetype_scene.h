@@ -693,7 +693,7 @@ private:
   static consteval bitmap_t arch_bitmap_for() {
     return []<typename... Cs>(std::tuple<Cs...>*) -> bitmap_t {
       return ((bitmap_t{1} << component_bit_v<Cs>) | ...);
-    }(static_cast<typename Store::tuple_t*>(nullptr));
+    }(static_cast<Store::tuple_t*>(nullptr));
   }
 
   // Compile-time table mapping each archetype's component bitmap to its SID.

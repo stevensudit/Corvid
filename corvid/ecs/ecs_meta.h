@@ -163,19 +163,19 @@ struct tuple_union_impl {
 };
 template<typename AccTuple, typename Head, typename... Tail, typename... Rest>
 struct tuple_union_impl<AccTuple, std::tuple<Head, Tail...>, Rest...> {
-  using type = typename tuple_union_impl<
-      typename tuple_append_unique<Head, AccTuple>::type, std::tuple<Tail...>,
-      Rest...>::type;
+  using type =
+      tuple_union_impl<typename tuple_append_unique<Head, AccTuple>::type,
+          std::tuple<Tail...>, Rest...>::type;
 };
 template<typename AccTuple, typename... Rest>
 struct tuple_union_impl<AccTuple, std::tuple<>, Rest...> {
-  using type = typename tuple_union_impl<AccTuple, Rest...>::type;
+  using type = tuple_union_impl<AccTuple, Rest...>::type;
 };
 
 // Deduplicated union of component types across all `Tuples`. For example,
 // `tuple_union_t<tuple<A,B,C>, tuple<A,D,E>>` yields `tuple<A,B,C,D,E>`.
 template<typename... Tuples>
-using tuple_union_t = typename tuple_union_impl<std::tuple<>, Tuples...>::type;
+using tuple_union_t = tuple_union_impl<std::tuple<>, Tuples...>::type;
 
 // 0-based index of T in Tuple. Fails to compile if T is not present.
 template<typename T, typename Tuple, size_t I = 0>
@@ -202,6 +202,6 @@ struct wrap_optionals<std::tuple<Cs...>> {
   using type = std::tuple<std::optional<Cs>...>;
 };
 template<typename Tuple>
-using wrap_optionals_t = typename wrap_optionals<Tuple>::type;
+using wrap_optionals_t = wrap_optionals<Tuple>::type;
 
 }}} // namespace corvid::ecs::ecs_metas
