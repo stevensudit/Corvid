@@ -50,16 +50,16 @@ export interface EntityVisualEffects {
   rangeRadius: number
   range: number
   flash: number
-  flashExpiryMs: number
+  flashExpiryTick: number
   cooldown: number
-  cooldownExpiryMs: number
-  cooldownDurationMs: number
+  cooldownExpiryTick: number
+  cooldownDurationTick: number
 }
 
 export interface TransientExplosion {
   x: number
   y: number
-  expiryMs: number
+  expiryTick: number
   primaryColor: number
   secondaryColor: number
   radius: number
@@ -68,7 +68,7 @@ export interface TransientExplosion {
 export interface TransientBeam {
   x: number
   y: number
-  expiryMs: number
+  expiryTick: number
   primaryColor: number
   secondaryColor: number
   targetX: number

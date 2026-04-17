@@ -27,36 +27,27 @@
 
 namespace corvid { inline namespace sim {
 
-// Calculate milliseconds until a tick-based expiry, capping at max uint32_t.
-// Returns 0 if the expiry has already passed.
-[[nodiscard]] inline uint32_t
-tickExpiryDelayMs(WorldTick expiry, WorldTick current_tick) {
-  if (expiry == WorldTick::invalid || expiry < current_tick) return 0;
-
-  constexpr uint32_t ms_per_tick = 50;
-  const auto ticks_until_expiry = *expiry - *current_tick;
-  const auto expiry_delay_ms = ticks_until_expiry * ms_per_tick;
-  return std::min(expiry_delay_ms, std::numeric_limits<uint32_t>::max());
+// Return the absolute world tick of an expiry as a uint32_t.
+// Returns 0 if `expiry` is invalid (i.e. no expiry is set).
+[[nodiscard]] inline uint32_t tickExpiryTick(WorldTick expiry) {
+  if (expiry == WorldTick::invalid) return 0;
+  return *expiry;
 }
 
-// Calculate milliseconds until a tick-based expiry, capping at max uint32_t.
-// Returns 0 if the color is unset or the expiry has already passed.
+// Returns 0 if the color is unset; otherwise returns the absolute expiry tick.
 [[nodiscard]] inline uint32_t
-tickExpiryDelayMs(uint32_t color, WorldTick expiry, WorldTick current_tick) {
+tickExpiryTick(uint32_t color, WorldTick expiry) {
   if (color == 0) return 0;
-  return tickExpiryDelayMs(expiry, current_tick);
+  return tickExpiryTick(expiry);
 }
 
-[[nodiscard]] inline uint32_t
-flashExpiryDelayMs(const VisualEffects& effects, WorldTick current_tick) {
-  return tickExpiryDelayMs(effects.flashColor, effects.flashExpiry,
-      current_tick);
+[[nodiscard]] inline uint32_t flashExpiryTick(const VisualEffects& effects) {
+  return tickExpiryTick(effects.flashColor, effects.flashExpiry);
 }
 
-[[nodiscard]] inline uint32_t
-cooldownExpiryDelayMs(const VisualEffects& effects, WorldTick current_tick) {
-  return tickExpiryDelayMs(effects.cooldownColor, effects.cooldownExpiry,
-      current_tick);
+[[nodiscard]] inline uint32_t cooldownExpiryTick(
+    const VisualEffects& effects) {
+  return tickExpiryTick(effects.cooldownColor, effects.cooldownExpiry);
 }
 
 // Reusable state, to avoid repeated allocations.
@@ -145,13 +136,13 @@ struct SimGameStateJson {
                       std::chars_format::fixed, 3)
                   .member(json_trusted{"range"}, effects.rangeColor)
                   .member(json_trusted{"flash"}, effects.flashColor)
-                  .member(json_trusted{"flashExpiryMs"},
-                      flashExpiryDelayMs(effects, current_tick))
+                  .member(json_trusted{"flashExpiryTick"},
+                      flashExpiryTick(effects))
                   .member(json_trusted{"cooldown"}, effects.cooldownColor)
-                  .member(json_trusted{"cooldownExpiryMs"},
-                      cooldownExpiryDelayMs(effects, current_tick))
-                  .member(json_trusted{"cooldownDurationMs"},
-                      cooldownExpiryDelayMs(effects, current_tick));
+                  .member(json_trusted{"cooldownExpiryTick"},
+                      cooldownExpiryTick(effects))
+                  .member(json_trusted{"cooldownDurationTick"},
+                      cooldownExpiryTick(effects));
             }
 
             if (hp.modified == current_tick) {
@@ -202,8 +193,8 @@ struct SimGameStateJson {
                 1)
             .member(json_trusted{"y"}, explosion.y, std::chars_format::fixed,
                 1)
-            .member(json_trusted{"expiryMs"},
-                tickExpiryDelayMs(explosion.expiry, current_tick))
+            .member(json_trusted{"expiryTick"},
+                tickExpiryTick(explosion.expiry))
             .member(json_trusted{"primaryColor"}, explosion.primaryColor)
             .member(json_trusted{"secondaryColor"}, explosion.secondaryColor)
             .member(json_trusted{"radius"}, explosion.radius,
@@ -215,8 +206,7 @@ struct SimGameStateJson {
         beams->object()
             ->member(json_trusted{"x"}, beam.x, std::chars_format::fixed, 1)
             .member(json_trusted{"y"}, beam.y, std::chars_format::fixed, 1)
-            .member(json_trusted{"expiryMs"},
-                tickExpiryDelayMs(beam.expiry, current_tick))
+            .member(json_trusted{"expiryTick"}, tickExpiryTick(beam.expiry))
             .member(json_trusted{"primaryColor"}, beam.primaryColor)
             .member(json_trusted{"secondaryColor"}, beam.secondaryColor)
             .member(json_trusted{"targetX"}, beam.targetX,

@@ -1239,7 +1239,7 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   EXPECT_TRUE(state.body.contains(R"("x":300.0)"));
   EXPECT_TRUE(state.body.contains(R"("radius":30.000)"));
   EXPECT_TRUE(state.body.contains(R"("vfx")"));
-  EXPECT_TRUE(state.body.contains(R"("flashExpiryMs":250)"));
+  EXPECT_TRUE(state.body.contains(R"("flashExpiryTick":5)"));
   EXPECT_TRUE(state.body.contains(R"("uiState")"));
   EXPECT_TRUE(state.body.contains(R"("spawnAllowed":true)"));
   EXPECT_FALSE(state.body.contains(R"("selectedDefender")"));
@@ -1286,7 +1286,7 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
     ASSERT_TRUE(vfx.get_number<float>("rangeRadius").has_value());
     ASSERT_TRUE(vfx.get_number<uint32_t>("range").has_value());
     ASSERT_TRUE(vfx.get_number<uint32_t>("flash").has_value());
-    ASSERT_TRUE(vfx.get_number<uint32_t>("flashExpiryMs").has_value());
+    ASSERT_TRUE(vfx.get_number<uint32_t>("flashExpiryTick").has_value());
     ++count;
   }
   EXPECT_EQ(count, 1U);
@@ -1346,17 +1346,17 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
     const auto vfx = entry.get_object("vfx");
     ASSERT_TRUE(vfx);
     const auto flash = vfx.get_number<uint32_t>("flash");
-    const auto flash_expiry_ms = vfx.get_number<uint32_t>("flashExpiryMs");
+    const auto flash_expiry_tick = vfx.get_number<uint32_t>("flashExpiryTick");
     ASSERT_TRUE(flash.has_value());
-    ASSERT_TRUE(flash_expiry_ms.has_value());
+    ASSERT_TRUE(flash_expiry_tick.has_value());
     EXPECT_EQ(*flash, 0xFF7F7FFFU);
-    EXPECT_EQ(*flash_expiry_ms, 200U);
+    EXPECT_EQ(*flash_expiry_tick, 5U);
     ++count;
   }
   EXPECT_EQ(count, 1U);
 }
 
-void SimJson_FlashExpiryDelayMsUsesCurrentTickRelativeTiming() {
+void SimJson_FlashExpiryTickReturnsAbsoluteTick() {
   VisualEffects fx{
       .modified = WorldTick{12},
       .selectionColor = 0,
@@ -1366,12 +1366,10 @@ void SimJson_FlashExpiryDelayMsUsesCurrentTickRelativeTiming() {
       .flashExpiry = WorldTick{15},
   };
 
-  EXPECT_EQ(flashExpiryDelayMs(fx, WorldTick{10}), 250U);
-  EXPECT_EQ(flashExpiryDelayMs(fx, WorldTick{15}), 0U);
-  EXPECT_EQ(flashExpiryDelayMs(fx, WorldTick{16}), 0U);
+  EXPECT_EQ(flashExpiryTick(fx), 15U);
 
   fx.flashColor = 0;
-  EXPECT_EQ(flashExpiryDelayMs(fx, WorldTick{10}), 0U);
+  EXPECT_EQ(flashExpiryTick(fx), 0U);
 }
 
 void SimJson_BuildWorldSnapshotJsonShape() {
@@ -1463,6 +1461,6 @@ MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
     SimJson_ParseUiActionMessageFields, SimJson_BuildHelloAckJson,
     SimJson_BuildWorldDeltaJsonShapeAndFormatting,
     SimJson_BuildWorldDeltaIncludesFlashVisualEffects,
-    SimJson_FlashExpiryDelayMsUsesCurrentTickRelativeTiming,
+    SimJson_FlashExpiryTickReturnsAbsoluteTick,
     SimJson_BuildWorldSnapshotJsonShape,
     SimGame_BuildCurrentMapEntityCsvReport)

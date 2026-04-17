@@ -1187,13 +1187,19 @@ function appearanceToRender(app: EntityAppearance): RenderAppearance {
 
 // Convert wire-format visual effects into client render state, preserving flash
 // phase across repeated delta updates when appropriate.
+function tickExpiryToWallMs(expiryTick: number, currentTick: number, now: number): number {
+  if (expiryTick <= 0) return 0
+  return now + Math.max(0, expiryTick - currentTick) * 50
+}
+
 function visualEffectsToRender(
   fx: EntityVisualEffects,
   now: number,
+  currentTick: number,
   prevFx?: RenderVisualEffects,
 ): RenderVisualEffects {
   const flash = packedRgbaToRenderColor(fx.flash)
-  const flashExpiry = fx.flashExpiryMs <= 0 ? 0 : now + fx.flashExpiryMs
+  const flashExpiry = tickExpiryToWallMs(fx.flashExpiryTick, currentTick, now)
   const keepExistingFlashPhase =
     prevFx !== undefined &&
     prevFx.flashExpiry > now &&
@@ -1211,19 +1217,20 @@ function visualEffectsToRender(
       ? (keepExistingFlashPhase ? prevFx.flashStartedAt : now)
       : 0,
     cooldown: packedRgbaToRenderColor(fx.cooldown),
-    cooldownExpiry: fx.cooldownExpiryMs <= 0 ? 0 : now + fx.cooldownExpiryMs,
-    cooldownDuration: fx.cooldownDurationMs,
+    cooldownExpiry: tickExpiryToWallMs(fx.cooldownExpiryTick, currentTick, now),
+    cooldownDuration: Math.max(0, fx.cooldownDurationTick - currentTick) * 50,
   }
 }
 
 function explosionToRender(
   transient: TransientExplosion,
   now: number,
+  currentTick: number,
 ): RenderTransientExplosion {
   return {
     x: transient.x,
     y: transient.y,
-    expiry: transient.expiryMs <= 0 ? 0 : now + transient.expiryMs,
+    expiry: tickExpiryToWallMs(transient.expiryTick, currentTick, now),
     primary: packedRgbaToRenderColor(transient.primaryColor),
     secondary: packedRgbaToRenderColor(transient.secondaryColor),
     radius: transient.radius,
@@ -1234,11 +1241,12 @@ function explosionToRender(
 function beamToRender(
   transient: TransientBeam,
   now: number,
+  currentTick: number,
 ): RenderTransientBeam {
   return {
     x: transient.x,
     y: transient.y,
-    expiry: transient.expiryMs <= 0 ? 0 : now + transient.expiryMs,
+    expiry: tickExpiryToWallMs(transient.expiryTick, currentTick, now),
     primary: packedRgbaToRenderColor(transient.primaryColor),
     secondary: packedRgbaToRenderColor(transient.secondaryColor),
     targetX: transient.targetX,
@@ -1260,6 +1268,7 @@ function healthToFraction(health: EntityHealth): number {
 function upsertToRenderEntity(
   upsert: EntityUpsert,
   now: number,
+  currentTick: number,
   prevApp?: RenderAppearance,
   prevFx?: RenderVisualEffects,
   prevHealthFraction?: number,
@@ -1268,7 +1277,7 @@ function upsertToRenderEntity(
     pos: upsert.pos,
     app: upsert.app ? appearanceToRender(upsert.app) : (prevApp ?? DEFAULT_RENDER_APPEARANCE),
     fx: upsert.vfx
-      ? visualEffectsToRender(upsert.vfx, now, prevFx)
+      ? visualEffectsToRender(upsert.vfx, now, currentTick, prevFx)
       : (prevFx ?? DEFAULT_RENDER_VISUAL_EFFECTS),
     healthFraction: upsert.health
       ? healthToFraction(upsert.health)
@@ -2163,9 +2172,9 @@ function isEntityVisualEffects(value: unknown): value is EntityVisualEffects {
     typeof (value as Record<string, unknown>).rangeRadius === 'number' &&
     typeof (value as Record<string, unknown>).range === 'number' &&
     typeof (value as Record<string, unknown>).flash === 'number' &&
-    typeof (value as Record<string, unknown>).flashExpiryMs === 'number' &&
+    typeof (value as Record<string, unknown>).flashExpiryTick === 'number' &&
     typeof (value as Record<string, unknown>).cooldown === 'number' &&
-    typeof (value as Record<string, unknown>).cooldownExpiryMs === 'number'
+    typeof (value as Record<string, unknown>).cooldownExpiryTick === 'number'
   )
 }
 
@@ -2188,7 +2197,7 @@ function isTransientExplosion(value: unknown): value is TransientExplosion {
     value !== null &&
     typeof (value as Record<string, unknown>).x === 'number' &&
     typeof (value as Record<string, unknown>).y === 'number' &&
-    typeof (value as Record<string, unknown>).expiryMs === 'number' &&
+    typeof (value as Record<string, unknown>).expiryTick === 'number' &&
     typeof (value as Record<string, unknown>).primaryColor === 'number' &&
     typeof (value as Record<string, unknown>).secondaryColor === 'number' &&
     typeof (value as Record<string, unknown>).radius === 'number'
@@ -2201,7 +2210,7 @@ function isTransientBeam(value: unknown): value is TransientBeam {
     value !== null &&
     typeof (value as Record<string, unknown>).x === 'number' &&
     typeof (value as Record<string, unknown>).y === 'number' &&
-    typeof (value as Record<string, unknown>).expiryMs === 'number' &&
+    typeof (value as Record<string, unknown>).expiryTick === 'number' &&
     typeof (value as Record<string, unknown>).primaryColor === 'number' &&
     typeof (value as Record<string, unknown>).secondaryColor === 'number' &&
     typeof (value as Record<string, unknown>).targetX === 'number' &&
@@ -2361,7 +2370,7 @@ function applyWorldDelta(delta: WorldDelta): void {
   for (const entity of delta.upserts) {
     const prevEntity = currEntitiesById.get(entity.pos.id)
     const nextEntity =
-      upsertToRenderEntity(entity, now, prevEntity?.app, prevEntity?.fx, prevEntity?.healthFraction)
+      upsertToRenderEntity(entity, now, delta.tick, prevEntity?.app, prevEntity?.fx, prevEntity?.healthFraction)
     if (prevEntity) prevRenderStateById.set(entity.pos.id, prevEntity)
     currEntitiesById.set(entity.pos.id, nextEntity)
   }
@@ -2370,11 +2379,11 @@ function applyWorldDelta(delta: WorldDelta): void {
     prevRenderStateById.delete(entityId)
   }
   for (const transient of delta.transientExplosions) {
-    const rendered = explosionToRender(transient, now)
+    const rendered = explosionToRender(transient, now, delta.tick)
     transientExplosionsByPos.set(transientDisplayKey(transient.x, transient.y), rendered)
   }
   for (const transient of delta.transientBeams) {
-    const rendered = beamToRender(transient, now)
+    const rendered = beamToRender(transient, now, delta.tick)
     transientBeamsByPos.set(transientDisplayKey(transient.x, transient.y), rendered)
   }
 
