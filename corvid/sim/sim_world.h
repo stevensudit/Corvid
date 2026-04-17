@@ -1284,8 +1284,8 @@ private:
     assert(defenderPos);
     pendingTransientExplosions_.emplace_back(TransientExplosion{
         .expiry = WorldTick{*tick_ + 1},
-        .circle = Circle{
-            Position{defenderPos->x, defenderPos->y}, defender.attackRadius},
+        .circle = Circle{Position{defenderPos->x, defenderPos->y},
+            defender.attackRadius},
         .primaryColor = withAlpha(defender.rangeColor, 0x30U),
         .secondaryColor = withAlpha(defender.rangeColor, 0x10U)});
     for (const auto& cand : candidates) {

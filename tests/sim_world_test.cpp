@@ -284,14 +284,13 @@ spawnDefenderShooter(SimWorld& w, Position spawn_pos) {
     std::get<std::optional<DefenderStats>>(tpl) = DefenderStats{};
     std::get<std::optional<Health>>(tpl) =
         Health{.currentHealth = 80.F, .maxHealth = 80.F, .regen = 0.F};
-    std::get<std::optional<DefenderShooter>>(tpl) =
-        DefenderShooter{.bulletTemplate = DefenderBullet{.expiry =
-                WorldTick{60},
+    std::get<std::optional<DefenderShooter>>(tpl) = DefenderShooter{
+        .bulletTemplate = DefenderBullet{.expiry = WorldTick{60},
             .hitCircleRadius = 8.F,
             .speed = 200.F,
             .directDamage = 15.F,
             .projectileType = 1},
-            .fireRate = 0.033F};
+        .fireRate = 0.033F};
     (void)w.registerEntity("DefenderShooterBasic", tpl);
   }
   auto h = w.spawnEntity("DefenderShooterBasic");

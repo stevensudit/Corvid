@@ -188,30 +188,37 @@ struct SimGameStateJson {
             target.member_array(json_trusted{"transientExplosions"}))
     {
       for (const auto& explosion : result.transient_explosions) {
-        explosions->object()
-            ->member(json_trusted{"x"}, explosion.circle.x,
-                std::chars_format::fixed, 1)
-            .member(json_trusted{"y"}, explosion.circle.y,
-                std::chars_format::fixed, 1)
-            .member(json_trusted{"expiryTick"},
+        auto exp_json = explosions->object();
+        if (auto circle = exp_json->member_object(json_trusted{"circle"})) {
+          circle
+              ->member(json_trusted{"x"}, explosion.circle.x,
+                  std::chars_format::fixed, 1)
+              .member(json_trusted{"y"}, explosion.circle.y,
+                  std::chars_format::fixed, 1)
+              .member(json_trusted{"radius"}, explosion.circle.radius,
+                  std::chars_format::fixed, 1);
+        }
+        exp_json
+            ->member(json_trusted{"expiryTick"},
                 tickExpiryTick(explosion.expiry))
             .member(json_trusted{"primaryColor"}, explosion.primaryColor)
-            .member(json_trusted{"secondaryColor"}, explosion.secondaryColor)
-            .member(json_trusted{"radius"}, explosion.circle.radius,
-                std::chars_format::fixed, 1);
+            .member(json_trusted{"secondaryColor"}, explosion.secondaryColor);
       }
     }
     if (auto beams = target.member_array(json_trusted{"transientBeams"})) {
       for (const auto& beam : result.transient_beams) {
         auto beam_json = beams->object();
+        if (auto circle = beam_json->member_object(json_trusted{"circle"})) {
+          circle
+              ->member(json_trusted{"x"}, beam.circle.x,
+                  std::chars_format::fixed, 1)
+              .member(json_trusted{"y"}, beam.circle.y,
+                  std::chars_format::fixed, 1)
+              .member(json_trusted{"radius"}, beam.circle.radius,
+                  std::chars_format::fixed, 1);
+        }
         beam_json
-            ->member(json_trusted{"x"}, beam.circle.x,
-                std::chars_format::fixed, 1)
-            .member(json_trusted{"y"}, beam.circle.y,
-                std::chars_format::fixed, 1)
-            .member(json_trusted{"radius"}, beam.circle.radius,
-                std::chars_format::fixed, 1)
-            .member(json_trusted{"expiryTick"}, tickExpiryTick(beam.expiry))
+            ->member(json_trusted{"expiryTick"}, tickExpiryTick(beam.expiry))
             .member(json_trusted{"primaryColor"}, beam.primaryColor)
             .member(json_trusted{"secondaryColor"}, beam.secondaryColor)
             .member(json_trusted{"lineWidth"}, beam.lineWidth,
@@ -220,7 +227,8 @@ struct SimGameStateJson {
                 std::chars_format::fixed, 1)
             .member(json_trusted{"coneRadius"}, beam.coneRadius,
                 std::chars_format::fixed, 1);
-        if (auto target_pos = beam_json->member_object(json_trusted{"targetPos"}))
+        if (auto target_pos =
+                beam_json->member_object(json_trusted{"targetPos"}))
         {
           target_pos
               ->member(json_trusted{"x"}, beam.targetPos.x,
