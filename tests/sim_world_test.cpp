@@ -34,7 +34,7 @@ using namespace corvid::sim;
 namespace {
 
 // NOLINTBEGIN(bugprone-throwing-static-initialization)
-const bool kSuppressMapEntityCsv = [] {
+[[maybe_unused]] const bool kSuppressMapEntityCsv = [] {
   return setenv("CORVID_SUPPRESS_MAP_ENTITY_CSV", "1", 1) == 0;
 }();
 // NOLINTEND(bugprone-throwing-static-initialization)

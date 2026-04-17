@@ -122,13 +122,15 @@ private:
   [[nodiscard]] bool do_ui_canvas(json_object_view msg) {
     const auto input = parseUiCanvasMessage(msg);
     if (!input) return true; // malformed, ignore
-    return game_.handleUiCanvas(*input);
+    (void)game_.handleUiCanvas(*input);
+    return true;
   }
 
   [[nodiscard]] bool do_ui_action(json_object_view msg) {
     const auto input = parseUiActionMessage(msg);
     if (!input) return true; // malformed, ignore
-    return game_.handleUiAction(*input);
+    (void)game_.handleUiAction(*input);
+    return true;
   }
 
   static void do_close() { std::cout << "WebSocket client disconnected\n"; }
