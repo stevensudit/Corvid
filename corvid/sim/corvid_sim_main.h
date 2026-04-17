@@ -54,6 +54,7 @@ private:
 };
 
 using namespace corvid::proto;
+using namespace corvid::concurrency;
 
 int do_main(int argc, char** argv) {
   // If invoked with "-testonly" (e.g., by the CI build script), skip the
@@ -100,10 +101,22 @@ int do_main(int argc, char** argv) {
 
   signal_waiter signals;
 
-  // Create server (owns its own loop and timing wheel). The cache shared_ptr
-  // is captured by the factory lambda and passed into each transaction, which
-  // holds its own reference to keep the cache alive.
-  auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 8080},
+  epoll_loop_runner loop;
+  // Run the server and sim on a 50ms wheel so the world loop can achieve its
+  // intended 20 Hz cadence. Use 1200 slots so the wheel still spans nearly
+  // 60 seconds, which keeps the HTTP server's default 30s request timeout
+  // within range.
+  timing_wheel_runner wheel{1200, 50ms};
+
+  http_server::duration_t request_timeout = 30s;
+  http_server::duration_t write_timeout = 5s;
+
+  // Create server using the same explicit loop and 50ms timing wheel that the
+  // sim WebSocket route will use. The cache shared_ptr is captured by the
+  // factory lambda and passed into each transaction, which holds its own
+  // reference to keep the cache alive.
+  auto server = http_server::create(
+      net_endpoint{ipv4_addr::loopback, 8080},
       [cache](http_server& s) {
         if (!s.add_route({"", "/"},
                 [cache](request_head&& req) -> transaction_ptr {
@@ -113,7 +126,8 @@ int do_main(int argc, char** argv) {
           return false;
         return s.add_route({"", "/ws"},
             SimWsHandler::make_factory(s.loop(), s.wheel()));
-      });
+      },
+      loop.loop(), wheel.wheel(), request_timeout, write_timeout);
 
   if (!server) {
     std::cerr << "Failed to create HTTP server\n";

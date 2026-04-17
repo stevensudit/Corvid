@@ -1,30 +1,58 @@
 import type {
+  CategoryItem,
+  Circle,
   ClientMsg,
+  DefenderMenuItem,
   EntityAppearance,
+  EntityHealth,
   EntityPosition,
   EntityUpsert,
   EntityVisualEffects,
+  Position,
   ServerMsg,
+  TransientBeam,
+  TransientExplosion,
+  UiCanvasMsg,
+  UiState,
   WorldDelta,
 } from './types.js'
 
+// Canvas-friendly color representation derived from packed RGBA wire values.
 interface RenderColor {
   css: string
   alpha: number
 }
 
+// Cached offscreen sprite bitmap plus the origin offset needed to center it.
 interface SpriteCacheEntry {
   canvas: HTMLCanvasElement
   offset: number
 }
 
+// Client-side appearance data derived from `EntityAppearance` and normalized
+// for rendering entities and menu items.
 interface RenderAppearance {
   glyph: string
-  radius: number
+  radius: number // Radius of entity
   fg: RenderColor
   bg: RenderColor
+  attackRadius: number // Radius of attack
+  trail: RenderColor  // Transparent = no trail; otherwise drawn prev->curr tick.
 }
 
+// Local placement-preview state for a defender being dragged or staged to spawn.
+interface GhostState {
+  entityName: string
+  displayName: string
+  appearance: RenderAppearance
+  worldCircle: Circle
+  confirmCommand: 'spawn' | 'moving'
+  pending: boolean      // true = dropped on map, awaiting confirmation click
+  placeable: boolean    // true = can be placed at the current position
+  spawnPending: boolean // true = dropped and clicked, awaiting server confirmation
+}
+
+// Client-side visual effects derived from `EntityVisualEffects`.
 interface RenderVisualEffects {
   selection: RenderColor
   rangeRadius: number
@@ -32,20 +60,49 @@ interface RenderVisualEffects {
   flash: RenderColor
   flashExpiry: number
   flashStartedAt: number
+  cooldown: RenderColor
+  cooldownExpiry: number
+  cooldownDuration: number
 }
 
+// Fully materialized render snapshot for one entity id, derived from
+// `EntityUpsert`.
 interface RenderEntityUpsert {
   pos: EntityPosition
   app: RenderAppearance
   fx: RenderVisualEffects
+  healthFraction: number  // 1.0 = full health or no health component
 }
 
+interface RenderTransientExplosion {
+  circle: Circle
+  expiry: number
+  primary: RenderColor
+  secondary: RenderColor
+  startedAt: number
+}
+
+interface RenderTransientBeam {
+  circle: Circle
+  expiry: number
+  primary: RenderColor
+  secondary: RenderColor
+  targetPos: Position
+  lineWidth: number
+  startedAt: number
+  halfAngleDeg: number
+  coneRadius: number
+}
+
+// Pointer bookkeeping for an in-progress foreground-canvas interaction.
 interface CanvasPointerState {
   button: number
   buttons: number
   dragging: boolean
+  isMoveDrag: boolean // true when the drag started on the selected defender
 }
 
+// Mouse event sample expressed in both canvas-space and world-space coordinates.
 interface CanvasPointerSample {
   button: number
   buttons: number
@@ -59,16 +116,32 @@ interface CanvasPointerSample {
   meta: boolean
 }
 
-const DEFAULT_RENDER_APPEARANCE: RenderAppearance = {
-  glyph: '?',
-  radius: 5,
-  fg: { css: 'rgba(255, 255, 255, 1)', alpha: 1 },
-  bg: { css: 'rgba(0, 0, 0, 1)', alpha: 1 },
+type PanelSide = 'left' | 'right'
+
+interface TickRateSample {
+  timeMs: number
+  tick: number
+}
+
+// Textual content and attachment side for the overlay panel renderer.
+interface SidePanelModel {
+  side: PanelSide
+  title: string
+  lines: string[]
 }
 
 const TRANSPARENT_RENDER_COLOR: RenderColor = {
   css: 'rgba(0, 0, 0, 0)',
   alpha: 0,
+}
+
+const DEFAULT_RENDER_APPEARANCE: RenderAppearance = {
+  glyph: '?',
+  radius: 5,
+  fg: { css: 'rgba(255, 255, 255, 1)', alpha: 1 },
+  bg: { css: 'rgba(0, 0, 0, 1)', alpha: 1 },
+  attackRadius: 0,
+  trail: TRANSPARENT_RENDER_COLOR,
 }
 
 const DEFAULT_RENDER_VISUAL_EFFECTS: RenderVisualEffects = {
@@ -78,10 +151,15 @@ const DEFAULT_RENDER_VISUAL_EFFECTS: RenderVisualEffects = {
   flash: TRANSPARENT_RENDER_COLOR,
   flashExpiry: 0,
   flashStartedAt: 0,
+  cooldown: TRANSPARENT_RENDER_COLOR,
+  cooldownExpiry: 0,
+  cooldownDuration: 0,
 }
 
 // --- DOM setup ---
 
+// Look up a required DOM node and fail fast if the page shape does not match
+// what this client expects.
 function requireEl<T extends HTMLElement>(
   id: string,
   type: abstract new (...args: any[]) => T,
@@ -93,12 +171,16 @@ function requireEl<T extends HTMLElement>(
 
 const statusEl = requireEl('status', HTMLElement)
 const tickEl = requireEl('tick', HTMLElement)
+const tickRateEl = requireEl('tick-rate', HTMLElement)
+const frameSizeEl = requireEl('frame-size', HTMLElement)
 const logEl = requireEl('log', HTMLElement)
+const viewportShell = requireEl('viewport-shell', HTMLElement)
+const viewportHost = requireEl('viewport-host', HTMLElement)
+const viewportFrame = requireEl('viewport-frame', HTMLElement)
+const fullscreenToggle = requireEl('fullscreen-toggle', HTMLButtonElement)
 const backgroundCanvas = requireEl('background-canvas', HTMLCanvasElement)
 const foregroundCanvas = requireEl('foreground-canvas', HTMLCanvasElement)
-const livesEl = document.getElementById('lives')
-const resourcesEl = document.getElementById('resources')
-const phaseEl = document.getElementById('phase')
+const overlayCanvas = requireEl('overlay-canvas', HTMLCanvasElement)
 
 const maybeBgCtx = backgroundCanvas.getContext('2d')
 if (!maybeBgCtx) throw new Error('Could not get 2D background canvas context')
@@ -107,6 +189,11 @@ const bgCtx: CanvasRenderingContext2D = maybeBgCtx
 const maybeFgCtx = foregroundCanvas.getContext('2d')
 if (!maybeFgCtx) throw new Error('Could not get 2D foreground canvas context')
 const fgCtx: CanvasRenderingContext2D = maybeFgCtx
+const maybeOverlayCtx = overlayCanvas.getContext('2d')
+if (!maybeOverlayCtx) throw new Error('Could not get 2D overlay canvas context')
+const overlayCtx: CanvasRenderingContext2D = maybeOverlayCtx
+// HUD and FPS are composited from offscreen canvases so they can redraw at
+// their own cadence without forcing the world layer to rebuild extra state.
 const hudCanvas = document.createElement('canvas')
 hudCanvas.width = foregroundCanvas.width
 hudCanvas.height = foregroundCanvas.height
@@ -119,7 +206,6 @@ fpsCanvas.height = foregroundCanvas.height
 const maybeFpsCtx = fpsCanvas.getContext('2d')
 if (!maybeFpsCtx) throw new Error('Could not get 2D FPS canvas context')
 const fpsCtx: CanvasRenderingContext2D = maybeFpsCtx
-
 // --- World / canvas coordinate mapping ---
 //
 // The server simulation runs in a 1920x1080 world space. The canvas is sized
@@ -127,7 +213,96 @@ const fpsCtx: CanvasRenderingContext2D = maybeFpsCtx
 // letterboxing needed.
 const WORLD_W = 1920
 const WORLD_H = 1080
+const DEFAULT_CANVAS_W = 960
+const DEFAULT_CANVAS_H = 540
+const DEFAULT_OVERLAY_W = 280
+const OVERLAY_WIDTH_RATIO = DEFAULT_OVERLAY_W / DEFAULT_CANVAS_W
 
+// Keep a canvas element's CSS box and backing pixel buffer in sync.
+function setCanvasSize(
+  canvas: HTMLCanvasElement,
+  cssWidth: number,
+  cssHeight: number,
+  pixelWidth: number,
+  pixelHeight: number,
+): void {
+  canvas.style.width = `${cssWidth}px`
+  canvas.style.height = `${cssHeight}px`
+  if (canvas.width !== pixelWidth) canvas.width = pixelWidth
+  if (canvas.height !== pixelHeight) canvas.height = pixelHeight
+}
+
+// Fit the fixed-aspect simulation viewport inside the available host area.
+function fitCanvasRect(availableWidth: number, availableHeight: number): [number, number] {
+  const aspect = WORLD_W / WORLD_H
+  let width = Math.max(1, Math.floor(availableWidth))
+  let height = Math.max(1, Math.floor(width / aspect))
+
+  if (height > availableHeight) {
+    height = Math.max(1, Math.floor(availableHeight))
+    width = Math.max(1, Math.floor(height * aspect))
+  }
+
+  return [width, height]
+}
+
+// Reflect the browser fullscreen state in the button label.
+function updateFullscreenButtonLabel(): void {
+  fullscreenToggle.textContent = document.fullscreenElement === viewportShell
+    ? 'Exit Fullscreen'
+    : 'Expand View'
+}
+
+let currentPathPoints: Array<{ x: number; y: number }> = []
+
+// Recompute every canvas size when the viewport host or fullscreen state
+// changes, then invalidate cached overlay/HUD rendering.
+function resizeViewport(): void {
+  const isFullscreen = document.fullscreenElement === viewportShell
+  const availableWidth = isFullscreen
+    ? viewportHost.clientWidth
+    : Math.min(viewportHost.clientWidth, DEFAULT_CANVAS_W)
+  const availableHeight = isFullscreen
+    ? viewportHost.clientHeight
+    : DEFAULT_CANVAS_H
+  const [cssWidth, cssHeight] = fitCanvasRect(availableWidth, availableHeight)
+  const deviceScale = window.devicePixelRatio || 1
+  const pixelWidth = Math.max(1, Math.round(cssWidth * deviceScale))
+  const pixelHeight = Math.max(1, Math.round(cssHeight * deviceScale))
+  const overlayCssWidth = Math.max(
+    1,
+    Math.min(
+      cssWidth,
+      Math.max(
+        Math.min(220, cssWidth),
+        Math.min(Math.round(cssWidth * 0.4), Math.round(cssWidth * OVERLAY_WIDTH_RATIO)),
+      ),
+    ),
+  )
+  const overlayPixelWidth = Math.max(1, Math.round(overlayCssWidth * deviceScale))
+  const canvasSizeChanged =
+    backgroundCanvas.width !== pixelWidth ||
+    backgroundCanvas.height !== pixelHeight
+
+  viewportFrame.style.width = `${cssWidth}px`
+  viewportFrame.style.height = `${cssHeight}px`
+
+  setCanvasSize(backgroundCanvas, cssWidth, cssHeight, pixelWidth, pixelHeight)
+  setCanvasSize(foregroundCanvas, cssWidth, cssHeight, pixelWidth, pixelHeight)
+  setCanvasSize(overlayCanvas, overlayCssWidth, cssHeight, overlayPixelWidth, pixelHeight)
+  setCanvasSize(hudCanvas, cssWidth, cssHeight, pixelWidth, pixelHeight)
+  setCanvasSize(fpsCanvas, cssWidth, cssHeight, pixelWidth, pixelHeight)
+
+  if (canvasSizeChanged) {
+    glyphFontSizeCache.clear()
+    entitySpriteCache.clear()
+  }
+  if (currentPathPoints.length > 1) drawBackground(currentPathPoints)
+  invalidateHud()
+  invalidateSidePanel()
+}
+
+// Convert world-space coordinates from the simulation into canvas pixels.
 function worldToCanvas(wx: number, wy: number): [number, number] {
   return [
     (wx + WORLD_W / 2) * foregroundCanvas.width / WORLD_W,
@@ -135,6 +310,7 @@ function worldToCanvas(wx: number, wy: number): [number, number] {
   ]
 }
 
+// Convert canvas pixels back into simulation world coordinates.
 function canvasToWorld(cx: number, cy: number): [number, number] {
   return [
     (cx - foregroundCanvas.width / 2) * WORLD_W / foregroundCanvas.width,
@@ -142,16 +318,19 @@ function canvasToWorld(cx: number, cy: number): [number, number] {
   ]
 }
 
+// Convert a world-space distance into the current canvas scale.
 function worldLengthToCanvas(length: number): number {
   return length * foregroundCanvas.width / WORLD_W
 }
 
+// Sample a mouse event once and package both canvas-space and world-space
+// coordinates for downstream input handling and server messages.
 function eventToCanvasSample(event: MouseEvent): CanvasPointerSample {
   const rect = foregroundCanvas.getBoundingClientRect()
   const canvasX = (event.clientX - rect.left) * (foregroundCanvas.width / rect.width)
   const canvasY = (event.clientY - rect.top) * (foregroundCanvas.height / rect.height)
   const [worldX, worldY] = canvasToWorld(canvasX, canvasY)
-  return {
+  const sample = {
     button: event.button,
     buttons: event.buttons,
     canvasX: Math.round(canvasX),
@@ -163,8 +342,12 @@ function eventToCanvasSample(event: MouseEvent): CanvasPointerSample {
     alt: event.altKey,
     meta: event.metaKey,
   }
+  rememberPointerSample(sample)
+  return sample
 }
 
+// Reuse an existing pointer sample while overriding button bookkeeping for
+// synthesized drag events.
 function withPointerButton(
   sample: CanvasPointerSample,
   button: number,
@@ -177,6 +360,29 @@ function withPointerButton(
   }
 }
 
+// Build a pointer sample from the ghost's current world position instead of the
+// literal mouse location.
+function ghostStateToSample(
+  ghost: GhostState,
+  event: MouseEvent,
+  button = event.button,
+  buttons = event.buttons,
+): CanvasPointerSample {
+  const [canvasX, canvasY] = worldToCanvas(ghost.worldCircle.x, ghost.worldCircle.y)
+  return {
+    button,
+    buttons,
+    canvasX: Math.round(canvasX),
+    canvasY: Math.round(canvasY),
+    worldX: Math.round(ghost.worldCircle.x),
+    worldY: Math.round(ghost.worldCircle.y),
+    shift: event.shiftKey,
+    ctrl: event.ctrlKey,
+    alt: event.altKey,
+    meta: event.metaKey,
+  }
+}
+
 // --- FPS tracking ---
 
 let fps = 0
@@ -184,6 +390,13 @@ let lastFrameTime = 0
 
 // --- Interpolation state ---
 
+// The server streams discrete snapshots. We retain both the last committed
+// render state and the newest one so each animation frame can blend between
+// them instead of stepping entity motion every network tick.
+// `currEntitiesById` holds the latest authoritative render state for every
+// entity we know about. `prevRenderStateById` only keeps the immediately prior
+// render state for entities touched by the most recent delta, which is enough
+// to interpolate from the old snapshot toward the new one.
 const currEntitiesById = new Map<number, RenderEntityUpsert>()
 const prevRenderStateById = new Map<number, RenderEntityUpsert>()
 let prevSnapshotTime = 0
@@ -191,11 +404,17 @@ let currSnapshotTime = 0
 let snapshotIntervalMs = 50
 let lives = 0
 let resources = 0
+let currentWave = 0
+let latestTick: number | null = null
+let measuredTickRate = 0
+let averageFrameBytes = 0
 let lastFpsOverlayUpdateTime = 0
 let hudDirty = true
+let currentPathWidth = 40
 const glyphFontSizeCache = new Map<string, number>()
-// Entity appearances come from a small, mostly fixed set of tower/enemy visuals,
-// so we memoize prerendered sprites for the lifetime of the page instead of
+// Entity appearances come from a small, mostly fixed set of defender/enemy
+// visuals, so we memoize prerendered sprites across frames and world updates.
+// The cache is cleared when a resize changes the render scale, rather than
 // paying per-frame draw costs or maintaining an eviction policy.
 const entitySpriteCache = new Map<string, SpriteCacheEntry>()
 const FPS_OVERLAY_INTERVAL_MS = 100
@@ -204,19 +423,61 @@ let nextClientSeq = 1
 let canvasPointerState: CanvasPointerState | null = null
 let pendingDragMove: CanvasPointerSample | null = null
 let dragMoveFrameRequested = false
+let sidePanelDirty = true
+let edgeHoverSide: PanelSide | null = null
+let categoryItems: CategoryItem[] = []
+let defenderMenuItems: DefenderMenuItem[] = []
+let selectedCategory: string | null = null
+let selectedMenuIndex: number | null = null
+let hoveredMenuIndex: number | null = null
+let menuScrollOffset = 0
+let ghostState: GhostState | null = null
+let menuDragActive = false
+let moveDragActive = false // true while dragging a selected defender to reposition it
+const transientExplosionsByPos = new Map<string, RenderTransientExplosion>()
+const transientBeamsByPos = new Map<string, RenderTransientBeam>()
+let currentPhase = 'build'
+let mouseOverOverlay = false
+let overlayStayOpen = false
+let currentPanelSide: PanelSide = 'right'
+let overlaySideSwapFrame = 0
+let selectedDefenderSummary: DefenderMenuItem | null = null
+let selectedDefenderPosition: Position | null = null
+let lastPointerSample: CanvasPointerSample | null = null
+const RECENT_TICK_TIMES_MAX = 60
+const RECENT_FRAME_SIZES_MAX = 60
+const recentTickSamples: TickRateSample[] = []
+const recentFrameSizes: number[] = []
 
-// Linear interpolation calculator
+const SIDE_PANEL_TRIGGER_RATIO = 0.25
+const SIDE_PANEL_TRIGGER_MIN_PX = 72
+const SIDE_PANEL_TRIGGER_MAX_PX = 180
+const MENU_COLS = 2
+const MENU_VISIBLE_ROWS = 4
+const SIDE_PANEL_RADIUS = 18
+const SIDE_PANEL_LINE_HEIGHT = 22
+const SIDE_PANEL_TEXT_MARGIN = 28
+
+// Interpolate linearly between two numeric values.
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
 }
 
-function drawBackground(pathPoints: Array<{ x: number; y: number }>): void {
+// Draw the static path layer onto the background canvas.
+function drawBackground(
+  pathPoints: Array<{ x: number; y: number }>,
+  pathWidth = currentPathWidth,
+): void {
+  currentPathPoints = pathPoints
+  currentPathWidth = pathWidth
   bgCtx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height)
   if (pathPoints.length <= 1) return
 
   bgCtx.save()
   bgCtx.strokeStyle = '#3b82f6'
-  bgCtx.lineWidth = 2
+  bgCtx.lineWidth = Math.max(2, worldLengthToCanvas(pathWidth))
+  bgCtx.lineCap = 'round'
+  bgCtx.lineJoin = 'round'
   bgCtx.beginPath()
   const [startX, startY] = worldToCanvas(pathPoints[0].x, pathPoints[0].y)
   bgCtx.moveTo(startX, startY)
@@ -228,6 +489,8 @@ function drawBackground(pathPoints: Array<{ x: number; y: number }>): void {
   bgCtx.restore()
 }
 
+// Render a frame by interpolating entity positions between the previous and
+// current snapshots, then drawing any active placement ghost on top.
 function renderInterpolated(now: number): void {
   const interval = Math.max(snapshotIntervalMs, 1)
   const t = Math.min((now - currSnapshotTime) / interval, 1)
@@ -241,10 +504,17 @@ function renderInterpolated(now: number): void {
     const wy = prevPos ? lerp(prevPos.y, e.pos.y, t) : e.pos.y
     const [x, y] = worldToCanvas(wx, wy)
     const radius = worldLengthToCanvas(lerp(prevApp.radius, e.app.radius, t))
-    drawEntity(x, y, radius, e.app, e.fx, now)
+    if (prevPos && !isTransparent(e.app.trail)) {
+      const [px, py] = worldToCanvas(prevPos.x, prevPos.y)
+      drawTrail(px, py, x, y, radius, e.app.trail)
+    }
+    drawEntity(x, y, radius, e.app, e.fx, now, e.healthFraction)
   }
+  drawTransientDisplays(now)
+  drawGhost()
 }
 
+// Rebuild the cached HUD overlay only when marked dirty.
 function updateHudOverlay(): void {
   if (!hudDirty) return
 
@@ -253,6 +523,7 @@ function updateHudOverlay(): void {
   hudDirty = false
 }
 
+// Refresh the FPS overlay at a throttled cadence instead of every frame.
 function updateFpsOverlay(now: number): void {
   if (now - lastFpsOverlayUpdateTime < FPS_OVERLAY_INTERVAL_MS) return
 
@@ -261,6 +532,234 @@ function updateFpsOverlay(now: number): void {
   lastFpsOverlayUpdateTime = now
 }
 
+// How far the panel peeks out from the edge (CSS pixels).
+const PANEL_PEEK_PX = 18
+
+type OverlayLevel = 'hidden' | 'peek' | 'open'
+
+// Report whether overlay content should remain open even without direct hover.
+function hasPinnedOpenPanel(): boolean {
+  return ghostState?.pending === true ||
+    selectedDefenderPosition !== null ||
+    overlayStayOpen
+}
+
+// Choose which screen edge the overlay should currently attach to.
+function getTargetSide(): PanelSide {
+  // A pinned panel (like pending placement) owns the side. Otherwise follow
+  // the current edge hover so the peek/open transition stays on one edge.
+  return getSidePanelModel()?.side ?? edgeHoverSide ?? currentPanelSide
+}
+
+// Decide whether the overlay is hidden, peeking, or fully open.
+function getOverlayLevel(): OverlayLevel {
+  // The overlay behaves like a tiny state machine:
+  // hidden when irrelevant, peek when edge-hovering, and open when hovered or
+  // when a pinned interaction (selected defender / pending placement) owns it.
+  if (menuDragActive) return 'hidden'
+  const hasPanelContent = getSidePanelModel() !== null
+  const hasBuildMenu = currentPhase === 'build' && defenderMenuItems.length > 0
+  if (!hasPanelContent && !hasBuildMenu) return 'hidden'
+  if (hasPinnedOpenPanel() || mouseOverOverlay) return 'open'
+  if (edgeHoverSide !== null) return 'peek'
+  return 'hidden'
+}
+
+// Return the narrow strip that can turn a peeking panel into a fully open one.
+function getOverlayPeekActivationBounds(): DOMRect | null {
+  if (getOverlayLevel() !== 'peek') return null
+  const rect = overlayCanvas.getBoundingClientRect()
+  if (currentPanelSide === 'left') {
+    return new DOMRect(rect.right - PANEL_PEEK_PX, rect.top, PANEL_PEEK_PX, rect.height)
+  }
+  return new DOMRect(rect.left, rect.top, PANEL_PEEK_PX, rect.height)
+}
+
+// Test whether a screen-space point lies inside a rectangle.
+function isPointInRect(x: number, y: number, rect: DOMRect): boolean {
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+}
+
+// Check whether the pointer is inside the visible "peek" activation strip.
+function isPointerOverPeekActivation(event: MouseEvent): boolean {
+  const bounds = getOverlayPeekActivationBounds()
+  return bounds !== null && isPointInRect(event.clientX, event.clientY, bounds)
+}
+
+// Detect whether the cursor left the foreground canvas through the edge that
+// currently owns the overlay.
+function didExitCanvasViaPanelEdge(event: MouseEvent): boolean {
+  const rect = foregroundCanvas.getBoundingClientRect()
+  return (
+    (edgeHoverSide === 'left' && event.clientX <= rect.left) ||
+    (edgeHoverSide === 'right' && event.clientX >= rect.right)
+  )
+}
+
+// Compute the CSS transform that positions the overlay for a given side/state.
+function getOverlayTransform(
+  side: PanelSide,
+  level: OverlayLevel,
+): string {
+  if (side === 'right') {
+    if (level === 'hidden') return 'translateX(100%)'
+    if (level === 'peek') return `translateX(calc(100% - ${PANEL_PEEK_PX}px))`
+    return 'translateX(0)'
+  }
+
+  if (level === 'hidden') return 'translateX(-100%)'
+  if (level === 'peek') return `translateX(calc(-100% + ${PANEL_PEEK_PX}px))`
+  return 'translateX(0)'
+}
+
+// Apply the current overlay state to the DOM, including side swaps and
+// transition timing.
+function applyOverlayPosition(): void {
+  const level = getOverlayLevel()
+  const targetSide = getTargetSide()
+  const sideChanged = targetSide !== currentPanelSide
+  const transitionMs = menuDragActive ? 100 : 220
+
+  // Update the side whenever the panel is not fully open, so hovering the left
+  // edge correctly switches to the left panel. When fully open, keep the current
+  // side so the panel never jumps mid-flight.
+  if (level !== 'open' || hasPinnedOpenPanel()) currentPanelSide = targetSide
+
+  const foregroundCssWidth = foregroundCanvas.clientWidth
+  const overlayCssWidth = overlayCanvas.clientWidth
+  const leftPx = currentPanelSide === 'left'
+    ? 0
+    : Math.max(foregroundCssWidth - overlayCssWidth, 0)
+  overlayCanvas.style.left = `${leftPx}px`
+  overlayCanvas.style.right = ''
+  if (overlaySideSwapFrame !== 0) {
+    cancelAnimationFrame(overlaySideSwapFrame)
+    overlaySideSwapFrame = 0
+  }
+
+  if (sideChanged && level !== 'hidden') {
+    overlayCanvas.style.transitionDuration = '0ms'
+    overlayCanvas.style.transform = getOverlayTransform(currentPanelSide, 'hidden')
+    // Wait one frame so the browser commits the off-screen position before
+    // animating the overlay back in on its new side.
+    overlaySideSwapFrame = requestAnimationFrame(() => {
+      overlaySideSwapFrame = 0
+      overlayCanvas.style.transitionDuration = `${transitionMs}ms`
+      overlayCanvas.style.transform = getOverlayTransform(currentPanelSide, level)
+    })
+  } else {
+    overlayCanvas.style.transitionDuration = `${transitionMs}ms`
+    overlayCanvas.style.transform = getOverlayTransform(currentPanelSide, level)
+  }
+
+  // pointer-events: none when hidden so the off-screen canvas doesn't eat clicks.
+  overlayCanvas.style.pointerEvents = level === 'hidden' ? 'none' : 'auto'
+  overlayCanvas.style.visibility = 'visible'
+}
+
+// Mark the overlay canvas dirty and immediately re-evaluate its DOM position.
+function invalidateSidePanel(): void {
+  sidePanelDirty = true
+  applyOverlayPosition()
+}
+
+// Update which screen edge is currently hover-armed for the side panel.
+function setEdgeHoverSide(nextSide: PanelSide | null): void {
+  if (edgeHoverSide === nextSide) return
+  edgeHoverSide = nextSide
+  invalidateSidePanel()
+}
+
+// Clear the currently highlighted build-menu cell.
+function clearMenuSelection(): void {
+  selectedMenuIndex = null
+}
+
+// Return the most recent pointer sample, or the viewport center if the user
+// has not moved the mouse over the simulation yet.
+function getPointerAnchorSample(): CanvasPointerSample {
+  if (lastPointerSample) return lastPointerSample
+  const canvasX = Math.round(foregroundCanvas.width / 2)
+  const canvasY = Math.round(foregroundCanvas.height / 2)
+  const [worldX, worldY] = canvasToWorld(canvasX, canvasY)
+  return {
+    button: 0,
+    buttons: 0,
+    canvasX,
+    canvasY,
+    worldX: Math.round(worldX),
+    worldY: Math.round(worldY),
+    shift: false,
+    ctrl: false,
+    alt: false,
+    meta: false,
+  }
+}
+
+// Keep the most recent pointer anchor in sync for keyboard-driven actions.
+function rememberPointerSample(sample: CanvasPointerSample): void {
+  lastPointerSample = sample
+}
+
+// Keyboard-opened menus should appear on the opposite side from the cursor,
+// matching the hover-open behavior used elsewhere in the UI.
+function getKeyboardMenuSide(): PanelSide {
+  return getOppositePanelSideForCanvasX(getPointerAnchorSample().canvasX)
+}
+
+// Return the build menu to its top-level category grid.
+function resetBuildMenuToTopLevel(): void {
+  selectedCategory = null
+  selectedMenuIndex = null
+  hoveredMenuIndex = null
+  menuScrollOffset = 0
+}
+
+// Open the build menu as a latched overlay on the side opposite the cursor.
+function openBuildMenuFromKeyboard(): void {
+  if (currentPhase !== 'build' || defenderMenuItems.length === 0 || ghostState || menuDragActive) return
+  edgeHoverSide = getKeyboardMenuSide()
+  mouseOverOverlay = true
+  overlayStayOpen = true
+  invalidateSidePanel()
+}
+
+// Hide the build menu overlay without affecting pinned inspector panels.
+function closeBuildMenuFromKeyboard(): void {
+  if (getSidePanelModel() !== null) return
+  mouseOverOverlay = false
+  overlayStayOpen = false
+  setEdgeHoverSide(null)
+}
+
+// Create the same pending placement ghost that results from dragging a menu
+// item onto the map and releasing it under the cursor.
+function dropDefenderGhostAtPointer(item: DefenderMenuItem): void {
+  const sample = getPointerAnchorSample()
+  ghostState = {
+    entityName: item.entityName,
+    displayName: item.displayName,
+    appearance: appearanceToRender(item.appearance),
+    worldCircle: {
+      x: sample.worldX,
+      y: sample.worldY,
+      radius: item.appearance.attackRadius,
+    },
+    confirmCommand: 'spawn',
+    pending: true,
+    placeable: true,
+    spawnPending: false,
+  }
+  clearMenuSelection()
+  mouseOverOverlay = false
+  overlayStayOpen = false
+  sendPlacementPreview('dragstart', sample, item.entityName)
+  sendPlacementPreview('dragend', sample, item.entityName)
+  invalidateSidePanel()
+}
+
+// Convert packed RGBA integers from the wire format into canvas-friendly color
+// objects.
 function packedRgbaToRenderColor(color: number): RenderColor {
   const r = (color >>> 24) & 0xff
   const g = (color >>> 16) & 0xff
@@ -272,10 +771,12 @@ function packedRgbaToRenderColor(color: number): RenderColor {
   }
 }
 
+// Report whether a render color is fully transparent.
 function isTransparent(color: RenderColor): boolean {
   return color.alpha === 0
 }
 
+// Draw a filled circle if its radius and alpha make it visible.
 function drawFilledCircleOnContext(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -291,6 +792,7 @@ function drawFilledCircleOnContext(
   ctx.fill()
 }
 
+// Draw a stroked circle if its radius, width, and alpha make it visible.
 function drawStrokedCircleOnContext(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -308,6 +810,7 @@ function drawStrokedCircleOnContext(
   ctx.stroke()
 }
 
+// Pick a glyph font size that fits inside a circular defender/enemy body.
 function getGlyphFontSize(glyph: string, radius: number): number {
   const roundedRadius = Math.max(1, Math.round(radius))
   const cacheKey = `${glyph}:${roundedRadius}`
@@ -328,6 +831,12 @@ function getGlyphFontSize(glyph: string, radius: number): number {
   return fontSize
 }
 
+// Choose a border width proportional to sprite size while remaining legible.
+function getEntityBorderWidth(radius: number): number {
+  return Math.max(1, radius * 0.18)
+}
+
+// Draw a centered glyph into a circular sprite or menu icon.
 function drawGlyphOnContext(
   ctx: CanvasRenderingContext2D,
   glyph: string,
@@ -349,6 +858,7 @@ function drawGlyphOnContext(
   ctx.restore()
 }
 
+// Create a stable cache key for prerendered sprite variants.
 function getSpriteCacheKey(app: RenderAppearance, radius: number): string {
   const roundedRadius = Math.max(1, Math.round(radius))
   return [
@@ -359,6 +869,7 @@ function getSpriteCacheKey(app: RenderAppearance, radius: number): string {
   ].join('|')
 }
 
+// Fetch or build an offscreen sprite canvas for a particular appearance/size.
 function getEntitySprite(app: RenderAppearance, radius: number): SpriteCacheEntry | null {
   const roundedRadius = Math.max(1, Math.round(radius))
   if (roundedRadius <= 0) return null
@@ -389,12 +900,14 @@ function getEntitySprite(app: RenderAppearance, radius: number): SpriteCacheEntr
   return sprite
 }
 
+// Blit a prerendered entity sprite onto the foreground canvas.
 function drawEntitySprite(x: number, y: number, radius: number, app: RenderAppearance): void {
   const sprite = getEntitySprite(app, radius)
   if (!sprite) return
   fgCtx.drawImage(sprite.canvas, x - sprite.offset, y - sprite.offset)
 }
 
+// Draw the semi-transparent attack range for a selected defender.
 function drawRangeCircle(
   x: number,
   y: number,
@@ -408,6 +921,7 @@ function drawRangeCircle(
   fgCtx.restore()
 }
 
+// Draw the selection ring that highlights the active defender.
 function drawSelectionOutline(
   x: number,
   y: number,
@@ -429,11 +943,13 @@ function drawSelectionOutline(
   fgCtx.restore()
 }
 
+// Determine whether a flashing effect should currently be visible.
 function isFlashVisible(fx: RenderVisualEffects, now: number): boolean {
   const elapsed = Math.max(now - fx.flashStartedAt, 0)
   return Math.floor(elapsed / FLASH_FLICKER_INTERVAL_MS) % 2 === 0
 }
 
+// Draw a transient flash overlay and expire it locally once its timer ends.
 function drawFlashOverlay(
   x: number,
   y: number,
@@ -456,6 +972,186 @@ function drawFlashOverlay(
   fgCtx.restore()
 }
 
+function transientDisplayKey(x: number, y: number): string {
+  return `${x},${y}`
+}
+
+function isTransientFlashPrimary(now: number, startedAt: number): boolean {
+  const elapsed = Math.max(now - startedAt, 0)
+  return Math.floor(elapsed / FLASH_FLICKER_INTERVAL_MS) % 2 === 0
+}
+
+function drawExplosionTransient(transient: RenderTransientExplosion, now: number): void {
+  const [x, y] = worldToCanvas(transient.circle.x, transient.circle.y)
+  const radius = worldLengthToCanvas(transient.circle.radius)
+  const color = isTransientFlashPrimary(now, transient.startedAt)
+    ? transient.primary
+    : transient.secondary
+  if (radius <= 0 || isTransparent(color)) return
+
+  fgCtx.save()
+  drawFilledCircleOnContext(fgCtx, x, y, radius, color)
+  drawStrokedCircleOnContext(fgCtx, x, y, radius, transient.secondary, Math.max(2, radius * 0.15))
+  fgCtx.restore()
+}
+
+function drawBeamTransient(transient: RenderTransientBeam, now: number): void {
+  const dx = transient.targetPos.x - transient.circle.x
+  const dy = transient.targetPos.y - transient.circle.y
+  const length = Math.sqrt((dx * dx) + (dy * dy))
+  if (length <= 0) return
+
+  const ux = dx / length
+  const uy = dy / length
+  const startX = transient.circle.x + ux * transient.circle.radius
+  const startY = transient.circle.y + uy * transient.circle.radius
+
+  if (transient.halfAngleDeg > 0) {
+    // Cone mode: filled wedge fading linearly from opaque to transparent.
+    if (isTransparent(transient.primary)) return
+    const duration = transient.expiry - transient.startedAt
+    if (duration <= 0) return
+    const progress = Math.max(0, Math.min(1, (now - transient.startedAt) / duration))
+    const [cx, cy] = worldToCanvas(startX, startY)
+    const coneR = worldLengthToCanvas(transient.coneRadius)
+    const angle = Math.atan2(uy, ux)
+    const half = transient.halfAngleDeg * Math.PI / 180
+
+    fgCtx.save()
+    fgCtx.globalAlpha = 1 - progress
+    fgCtx.fillStyle = transient.primary.css
+    fgCtx.beginPath()
+    fgCtx.moveTo(cx, cy)
+    fgCtx.arc(cx, cy, coneR, angle - half, angle + half)
+    fgCtx.closePath()
+    fgCtx.fill()
+    fgCtx.restore()
+  } else {
+    // Line mode: flickering stroke between primary and secondary colours.
+    const [canvasStartX, canvasStartY] = worldToCanvas(startX, startY)
+    const [canvasTargetX, canvasTargetY] =
+      worldToCanvas(transient.targetPos.x, transient.targetPos.y)
+    const color = isTransientFlashPrimary(now, transient.startedAt)
+      ? transient.primary
+      : transient.secondary
+    if (isTransparent(color)) return
+
+    fgCtx.save()
+    fgCtx.strokeStyle = color.css
+    fgCtx.lineWidth = Math.max(2, worldLengthToCanvas(transient.lineWidth))
+    fgCtx.lineCap = 'round'
+    fgCtx.beginPath()
+    fgCtx.moveTo(canvasStartX, canvasStartY)
+    fgCtx.lineTo(canvasTargetX, canvasTargetY)
+    fgCtx.stroke()
+    fgCtx.restore()
+  }
+}
+
+function drawTransientDisplays(now: number): void {
+  for (const [key, transient] of transientExplosionsByPos) {
+    if (now >= transient.expiry) {
+      transientExplosionsByPos.delete(key)
+      continue
+    }
+    drawExplosionTransient(transient, now)
+  }
+  for (const [key, transient] of transientBeamsByPos) {
+    if (now >= transient.expiry) {
+      transientBeamsByPos.delete(key)
+      continue
+    }
+    drawBeamTransient(transient, now)
+  }
+}
+
+// Draw a steady cooldown overlay and clear it locally once its timer ends.
+function drawCooldownOverlay(
+  x: number,
+  y: number,
+  radius: number,
+  fx: RenderVisualEffects,
+  now: number,
+): void {
+  if (fx.cooldownExpiry == 0) return
+
+  if (now >= fx.cooldownExpiry) {
+    fx.cooldown = TRANSPARENT_RENDER_COLOR
+    fx.cooldownExpiry = 0
+    return
+  }
+
+  if (radius <= 0 || isTransparent(fx.cooldown)) return
+
+  const fractionRemaining = fx.cooldownDuration > 0
+    ? Math.max(0, Math.min(1, (fx.cooldownExpiry - now) / fx.cooldownDuration))
+    : 1
+  const startAngle = -Math.PI / 2
+  const endAngle = startAngle - fractionRemaining * 2 * Math.PI
+
+  fgCtx.save()
+  fgCtx.fillStyle = fx.cooldown.css
+  fgCtx.beginPath()
+  fgCtx.moveTo(x, y)
+  fgCtx.arc(x, y, radius, startAngle, endAngle, true)
+  fgCtx.closePath()
+  fgCtx.fill()
+  fgCtx.restore()
+}
+
+// Draw a motion trail as a gradient line from `(x1,y1)` to `(x2,y2)`.
+// The tail end `(x1,y1)` is transparent; the head `(x2,y2)` is fully opaque.
+// `lineWidth` should be the entity's canvas-pixel radius.
+function drawTrail(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  lineWidth: number,
+  color: RenderColor,
+): void {
+  if (isTransparent(color)) return
+  const grad = fgCtx.createLinearGradient(x1, y1, x2, y2)
+  grad.addColorStop(0, `rgba(0,0,0,0)`)
+  grad.addColorStop(1, color.css)
+  fgCtx.save()
+  fgCtx.strokeStyle = grad
+  fgCtx.lineWidth = Math.max(1, lineWidth)
+  fgCtx.lineCap = 'round'
+  fgCtx.beginPath()
+  fgCtx.moveTo(x1, y1)
+  fgCtx.lineTo(x2, y2)
+  fgCtx.stroke()
+  fgCtx.restore()
+}
+
+// Draw the fg border as a partial arc proportional to health: full circle at
+// 1.0, clockwise arc from the top at intermediate values, nothing at 0.
+function drawHealthArc(
+  x: number,
+  y: number,
+  radius: number,
+  color: RenderColor,
+  healthFraction: number,
+): void {
+  if (radius <= 0 || isTransparent(color) || healthFraction <= 0) return
+
+  const lineWidth = getEntityBorderWidth(radius)
+  const arcRadius = Math.max(radius - lineWidth * 0.5, 0)
+  const startAngle = -Math.PI / 2
+  const endAngle = startAngle + Math.min(healthFraction, 1) * 2 * Math.PI
+
+  fgCtx.save()
+  fgCtx.strokeStyle = color.css
+  fgCtx.lineWidth = lineWidth
+  fgCtx.lineCap = 'round'
+  fgCtx.beginPath()
+  fgCtx.arc(x, y, arcRadius, startAngle, endAngle)
+  fgCtx.stroke()
+  fgCtx.restore()
+}
+
+// Draw one entity and all of its client-side visual effects.
 function drawEntity(
   x: number,
   y: number,
@@ -463,29 +1159,43 @@ function drawEntity(
   app: RenderAppearance,
   fx: RenderVisualEffects,
   now: number,
+  healthFraction: number,
 ): void {
   drawRangeCircle(x, y, fx)
   drawEntitySprite(x, y, radius, app)
+  drawHealthArc(x, y, radius, app.fg, healthFraction)
   drawSelectionOutline(x, y, radius, fx)
+  drawCooldownOverlay(x, y, radius, fx, now)
   drawFlashOverlay(x, y, radius, fx, now)
 }
 
+// Convert wire-format appearance data into client render state.
 function appearanceToRender(app: EntityAppearance): RenderAppearance {
   return {
     glyph: app.glyph === 0 ? '' : String.fromCodePoint(app.glyph),
     radius: app.radius,
     fg: packedRgbaToRenderColor(app.fg),
     bg: packedRgbaToRenderColor(app.bg),
+    attackRadius: app.attackRadius,
+    trail: app.trailColor ? packedRgbaToRenderColor(app.trailColor) : TRANSPARENT_RENDER_COLOR,
   }
+}
+
+// Convert wire-format visual effects into client render state, preserving flash
+// phase across repeated delta updates when appropriate.
+function tickExpiryToWallMs(expiryTick: number, currentTick: number, now: number): number {
+  if (expiryTick <= 0) return 0
+  return now + Math.max(0, expiryTick - currentTick) * 50
 }
 
 function visualEffectsToRender(
   fx: EntityVisualEffects,
   now: number,
+  currentTick: number,
   prevFx?: RenderVisualEffects,
 ): RenderVisualEffects {
   const flash = packedRgbaToRenderColor(fx.flash)
-  const flashExpiry = fx.flashExpiryMs <= 0 ? 0 : now + fx.flashExpiryMs
+  const flashExpiry = tickExpiryToWallMs(fx.flashExpiryTick, currentTick, now)
   const keepExistingFlashPhase =
     prevFx !== undefined &&
     prevFx.flashExpiry > now &&
@@ -497,27 +1207,76 @@ function visualEffectsToRender(
     range: packedRgbaToRenderColor(fx.range),
     flash,
     flashExpiry,
+    // Preserve the original flash phase while the server keeps extending the
+    // effect, so flicker timing does not restart on every delta packet.
     flashStartedAt: flashExpiry > 0
       ? (keepExistingFlashPhase ? prevFx.flashStartedAt : now)
       : 0,
+    cooldown: packedRgbaToRenderColor(fx.cooldown),
+    cooldownExpiry: tickExpiryToWallMs(fx.cooldownExpiryTick, currentTick, now),
+    cooldownDuration: Math.max(0, fx.cooldownDurationTick - currentTick) * 50,
   }
+}
+
+function explosionToRender(
+  transient: TransientExplosion,
+  now: number,
+  currentTick: number,
+): RenderTransientExplosion {
+  return {
+    circle: transient.circle,
+    expiry: tickExpiryToWallMs(transient.expiryTick, currentTick, now),
+    primary: packedRgbaToRenderColor(transient.primaryColor),
+    secondary: packedRgbaToRenderColor(transient.secondaryColor),
+    startedAt: now,
+  }
+}
+
+function beamToRender(
+  transient: TransientBeam,
+  now: number,
+  currentTick: number,
+): RenderTransientBeam {
+  return {
+    circle: transient.circle,
+    expiry: tickExpiryToWallMs(transient.expiryTick, currentTick, now),
+    primary: packedRgbaToRenderColor(transient.primaryColor),
+    secondary: packedRgbaToRenderColor(transient.secondaryColor),
+    targetPos: transient.targetPos,
+    lineWidth: transient.lineWidth,
+    startedAt: now,
+    halfAngleDeg: transient.halfAngleDeg,
+    coneRadius: transient.coneRadius,
+  }
+}
+
+// Merge a server upsert with previously known appearance/effect state so
+// partial updates remain renderable.
+function healthToFraction(health: EntityHealth): number {
+  return health.max > 0 ? Math.min(health.current / health.max, 1) : 1
 }
 
 function upsertToRenderEntity(
   upsert: EntityUpsert,
   now: number,
+  currentTick: number,
   prevApp?: RenderAppearance,
   prevFx?: RenderVisualEffects,
+  prevHealthFraction?: number,
 ): RenderEntityUpsert {
   return {
     pos: upsert.pos,
     app: upsert.app ? appearanceToRender(upsert.app) : (prevApp ?? DEFAULT_RENDER_APPEARANCE),
     fx: upsert.vfx
-      ? visualEffectsToRender(upsert.vfx, now, prevFx)
+      ? visualEffectsToRender(upsert.vfx, now, currentTick, prevFx)
       : (prevFx ?? DEFAULT_RENDER_VISUAL_EFFECTS),
+    healthFraction: upsert.health
+      ? healthToFraction(upsert.health)
+      : (prevHealthFraction ?? 1),
   }
 }
 
+// Draw the small FPS meter in the lower-right corner.
 function drawFps(ctx: CanvasRenderingContext2D): void {
   ctx.save()
   const label = `${fps.toFixed(1)} FPS`
@@ -534,6 +1293,20 @@ function drawFps(ctx: CanvasRenderingContext2D): void {
   ctx.restore()
 }
 
+// Return the wave-status text for the center of the HUD based on phase.
+// `currentWave` is 0-based; wave numbers shown to the player are 1-based.
+function getWaveStatusText(): string {
+  const waveNum = currentWave + 1
+  switch (currentPhase) {
+    case 'build': return `Prepare for Wave ${waveNum}`
+    case 'wave': return `Wave ${waveNum}`
+    case 'game_over': return 'Game Over'
+    case 'victory': return 'Invaders Thwarted!'
+    default: return ''
+  }
+}
+
+// Draw the top HUD bar that displays lives, resources, and wave status.
 function drawHud(ctx: CanvasRenderingContext2D): void {
   ctx.save()
   ctx.font = '20px monospace'
@@ -548,10 +1321,635 @@ function drawHud(ctx: CanvasRenderingContext2D): void {
   ctx.fillRect(0, 0, hudCanvas.width, barHeight)
 
   ctx.fillStyle = 'white'
+  ctx.textAlign = 'left'
   ctx.fillText(`${livesLabel}   ${resourcesLabel}`, pad, pad)
+
+  const centerText = getWaveStatusText()
+  if (centerText) {
+    ctx.textAlign = 'center'
+    ctx.fillText(centerText, hudCanvas.width / 2, pad)
+  }
+
   ctx.restore()
 }
 
+// Decide whether the pointer is close enough to the left or right edge to arm
+// the build menu panel.
+function panelSideFromCanvasX(canvasX: number): PanelSide | null {
+  // Trigger zones scale with the viewport, but stay clamped so the edge-hover
+  // affordance is still reachable on tiny windows and not overly eager on wide
+  // monitors.
+  const cssWidth = foregroundCanvas.clientWidth
+  const triggerCssPx = cssWidth > 0
+    ? Math.max(
+      SIDE_PANEL_TRIGGER_MIN_PX,
+      Math.min(SIDE_PANEL_TRIGGER_MAX_PX, cssWidth * SIDE_PANEL_TRIGGER_RATIO),
+    )
+    : SIDE_PANEL_TRIGGER_MIN_PX
+  const triggerPx = cssWidth > 0
+    ? triggerCssPx * (foregroundCanvas.width / cssWidth)
+    : triggerCssPx
+  if (canvasX <= triggerPx) return 'left'
+  if (canvasX >= foregroundCanvas.width - triggerPx) return 'right'
+  return null
+}
+
+// Update edge-hover state based on the current pointer sample.
+function updateEdgeHover(sample: CanvasPointerSample): void {
+  overlayStayOpen = false
+  if (menuDragActive || ghostState || currentPhase !== 'build') {
+    setEdgeHoverSide(null)
+    return
+  }
+  setEdgeHoverSide(panelSideFromCanvasX(sample.canvasX))
+}
+
+// Hit-test defender bodies in world space using the current render snapshot.
+function findDefenderAtWorld(worldX: number, worldY: number): RenderEntityUpsert | null {
+  const hitPos = { x: worldX, y: worldY }
+  for (const entity of currEntitiesById.values()) {
+    if (entity.app.attackRadius <= 0) continue
+    if (SimWorldDistanceSquared(entity.pos, hitPos) <= entity.app.radius * entity.app.radius) {
+      return entity
+    }
+  }
+  return null
+}
+
+// Compute squared distance without paying for a square root.
+function SimWorldDistanceSquared(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): number {
+  const dx = a.x - b.x
+  const dy = a.y - b.y
+  return dx * dx + dy * dy
+}
+
+// Format panel numbers without trailing decimals for integer values.
+function formatPanelNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+// Place side panels on the opposite half of the screen from the subject they
+// describe.
+function getOppositePanelSideForCanvasX(canvasX: number): PanelSide {
+  return canvasX < foregroundCanvas.width / 2 ? 'right' : 'left'
+}
+
+// Wrap panel body text to the available width using the current canvas font.
+function wrapPanelText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string[] {
+  if (text.length === 0) return ['']
+
+  const words = text.split(/\s+/)
+  const lines: string[] = []
+  let currentLine = ''
+
+  for (const word of words) {
+    const candidate = currentLine.length === 0 ? word : `${currentLine} ${word}`
+    if (ctx.measureText(candidate).width <= maxWidth || currentLine.length === 0) {
+      currentLine = candidate
+      continue
+    }
+
+    lines.push(currentLine)
+    currentLine = word
+  }
+
+  if (currentLine.length > 0) lines.push(currentLine)
+  return lines
+}
+
+// Build the overlay model for the currently selected defender, if any.
+function getSelectedDefenderPanelModel(): SidePanelModel | null {
+  if (!selectedDefenderPosition) return null
+
+  const selectedEntity =
+    findDefenderAtWorld(selectedDefenderPosition.x, selectedDefenderPosition.y)
+  if (!selectedDefenderSummary && selectedEntity === null) return null
+
+  // Put the panel opposite the selected unit so it reads like an inspector
+  // without covering the thing the user just clicked.
+  const side = getOppositePanelSideForCanvasX(
+    worldToCanvas(selectedDefenderPosition.x, selectedDefenderPosition.y)[0],
+  )
+
+  const bodyRadius = selectedDefenderSummary?.appearance.radius ??
+    selectedEntity?.app.radius ?? 0
+  const attackRadius = selectedDefenderSummary?.appearance.attackRadius ??
+    selectedEntity?.app.attackRadius ?? 0
+
+  const lines: string[] = []
+  if (selectedDefenderSummary?.flavorText) {
+    lines.push(selectedDefenderSummary.flavorText, '')
+  }
+  lines.push(
+    `Body radius ${formatPanelNumber(bodyRadius)}`,
+    `Attack radius ${formatPanelNumber(attackRadius)}`,
+  )
+  if (selectedDefenderSummary?.totalDamageDealt !== undefined) {
+    lines.push('')
+    lines.push(`Damage dealt: ${formatPanelNumber(selectedDefenderSummary.totalDamageDealt)}`)
+    lines.push(`Kills: ${selectedDefenderSummary.totalKills ?? 0}`)
+  }
+  lines.push('')
+  if (currentPhase === 'build') lines.push('Drag to reposition')
+  lines.push('Left click empty space to dismiss')
+
+  return {
+    side,
+    title: selectedDefenderSummary?.displayName ?? 'Selected Defender',
+    lines,
+  }
+}
+
+// Build the overlay model for a dropped-but-not-yet-confirmed placement ghost.
+function getPendingGhostPanelModel(): SidePanelModel | null {
+  if (!ghostState?.pending) return null
+  const [ghostCanvasX] = worldToCanvas(ghostState.worldCircle.x, ghostState.worldCircle.y)
+  const side = getOppositePanelSideForCanvasX(ghostCanvasX)
+  const isMoveGhost = ghostState.confirmCommand === 'moving'
+  return {
+    side,
+    title: isMoveGhost ? 'Move Defender' : 'Place Defender',
+    lines: [
+      ghostState.displayName,
+      '',
+      isMoveGhost ? 'Right-click to confirm move' : 'Right-click to place',
+      'Left-click ghost to move',
+      'Any other click cancels',
+    ],
+  }
+}
+
+// Choose the highest-priority pinned side panel to display, if any.
+function getSidePanelModel(): SidePanelModel | null {
+  return getPendingGhostPanelModel() ?? getSelectedDefenderPanelModel()
+}
+
+// Trace a rounded-rectangle path used by both panel and build-menu backdrops.
+function drawRoundedPanelPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+): void {
+  const r = Math.min(radius, width / 2, height / 2)
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.lineTo(x + width - r, y)
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r)
+  ctx.lineTo(x + width, y + height - r)
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height)
+  ctx.lineTo(x + r, y + height)
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r)
+  ctx.lineTo(x, y + r)
+  ctx.quadraticCurveTo(x, y, x + r, y)
+  ctx.closePath()
+}
+
+// Reinforce the bottom outer corner stroke that sits flush against the viewport
+// edge, where antialiasing can otherwise leave a tiny visible notch.
+function strokeAttachedBottomCorner(
+  ctx: CanvasRenderingContext2D,
+  side: PanelSide,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+): void {
+  const r = Math.min(radius, width / 2, height / 2)
+  const cx = side === 'left' ? x + r : x + width - r
+  const cy = y + height - r
+  ctx.beginPath()
+  if (side === 'left') {
+    ctx.arc(cx, cy, r, Math.PI, Math.PI / 2, true)
+  } else {
+    ctx.arc(cx, cy, r, Math.PI / 2, 0, true)
+  }
+  ctx.stroke()
+}
+
+// Draw a textual side panel such as defender inspection or pending placement.
+function drawSidePanel(ctx: CanvasRenderingContext2D, panel: SidePanelModel): void {
+  const width = overlayCanvas.width
+  const height = overlayCanvas.height
+  const panelScale = Math.min(
+    foregroundCanvas.width / DEFAULT_CANVAS_W,
+    foregroundCanvas.height / DEFAULT_CANVAS_H,
+  )
+  const panelBorderWidth = Math.max(2, 2.5 * panelScale)
+  const panelInset = panelBorderWidth * 0.5
+  const x = panelInset
+  const y = panelInset
+  const panelWidth = Math.max(width - panelBorderWidth, 1)
+  const panelHeight = Math.max(height - panelBorderWidth, 1)
+  const cornerRadius = SIDE_PANEL_RADIUS * panelScale
+  const textMargin = SIDE_PANEL_TEXT_MARGIN * panelScale
+  const titleFontSize = 24 * panelScale
+  const bodyFontSize = 16 * panelScale
+  const lineHeight = SIDE_PANEL_LINE_HEIGHT * panelScale
+  const titleTop = 20 * panelScale
+  const dividerY = 56 * panelScale
+  const bodyTop = 74 * panelScale
+  const textX = x + textMargin
+  const textWidth = panelWidth - textMargin * 2
+
+  ctx.save()
+  drawRoundedPanelPath(ctx, x, y, panelWidth, panelHeight, cornerRadius)
+  const gradient = ctx.createLinearGradient(x, y, x + panelWidth, y + panelHeight)
+  gradient.addColorStop(0, 'rgba(12, 18, 26, 0.92)')
+  gradient.addColorStop(1, 'rgba(18, 27, 39, 0.84)')
+  ctx.fillStyle = gradient
+  ctx.fill()
+
+  // Fill the tiny attached bottom-corner gap that results from insetting the
+  // shell for stroke rendering while still keeping the panel visually flush
+  // against the viewport edge.
+  ctx.fillStyle = 'rgba(18, 27, 39, 0.84)'
+  if (panel.side === 'left') {
+    ctx.beginPath()
+    ctx.moveTo(0, height)
+    ctx.lineTo(0, height - cornerRadius - panelInset)
+    ctx.lineTo(x + panelBorderWidth, height - cornerRadius - panelInset)
+    ctx.lineTo(x + panelBorderWidth, height)
+    ctx.closePath()
+    ctx.fill()
+  } else {
+    ctx.beginPath()
+    ctx.moveTo(width, height)
+    ctx.lineTo(width, height - cornerRadius - panelInset)
+    ctx.lineTo(width - x - panelBorderWidth, height - cornerRadius - panelInset)
+    ctx.lineTo(width - x - panelBorderWidth, height)
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  drawRoundedPanelPath(ctx, x, y, panelWidth, panelHeight, cornerRadius)
+  ctx.strokeStyle = 'rgba(255, 242, 63, 0.85)'
+  ctx.lineWidth = panelBorderWidth
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  ctx.stroke()
+  strokeAttachedBottomCorner(ctx, panel.side, x, y, panelWidth, panelHeight, cornerRadius)
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
+  ctx.font = `bold ${titleFontSize}px monospace`
+  ctx.textBaseline = 'top'
+  ctx.fillText(panel.title, textX, y + titleTop, textWidth)
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'
+  ctx.beginPath()
+  ctx.moveTo(textX, y + dividerY)
+  ctx.lineTo(textX + textWidth, y + dividerY)
+  ctx.stroke()
+
+  ctx.font = `${bodyFontSize}px monospace`
+  let lineY = y + bodyTop
+  for (const line of panel.lines) {
+    if (line.length === 0) {
+      lineY += lineHeight * 0.65
+      continue
+    }
+    ctx.fillStyle = line.startsWith('Left click') || line.startsWith('Double click') ||
+      line.startsWith('Right click') || line.startsWith('Use Start Wave')
+      ? 'rgba(181, 201, 224, 0.92)'
+      : 'rgba(255, 255, 255, 0.92)'
+    const wrappedLines = wrapPanelText(ctx, line, textWidth)
+    for (const wrappedLine of wrappedLines) {
+      ctx.fillText(wrappedLine, textX, lineY, textWidth)
+      lineY += lineHeight
+    }
+  }
+  ctx.restore()
+}
+
+// Return the items for the current menu level: category items at top level,
+// filtered defender items at the defender level.
+function currentMenuItems(): (CategoryItem | DefenderMenuItem)[] {
+  if (selectedCategory !== null)
+    return defenderMenuItems.filter(item => item.category === selectedCategory)
+  return categoryItems
+}
+
+// Convert a physical key press into the glyph-like hotkey string used by menu
+// items. Plain letters normalize to uppercase so visible glyphs like "A"
+// still match the common unshifted "a" key press.
+function normalizeMenuHotkey(key: string): string | null {
+  if ([...key].length !== 1) return null
+  const upper = key.toLocaleUpperCase()
+  return [...upper].length === 1 ? upper : key
+}
+
+// Check whether a menu item's glyph matches the provided keyboard hotkey.
+function menuGlyphMatchesHotkey(glyph: number, hotkey: string): boolean {
+  return String.fromCodePoint(glyph) === hotkey
+}
+
+// Draw one item cell (shared by both category and defender levels).
+function drawMenuCell(
+  ctx: CanvasRenderingContext2D,
+  item: CategoryItem | DefenderMenuItem,
+  cellX: number,
+  cellY: number,
+  cellSize: number,
+  isSelected: boolean,
+  isHovered: boolean,
+  panelScale: number,
+): void {
+  ctx.fillStyle = isSelected
+    ? 'rgba(255, 242, 182, 0.18)'
+    : isHovered
+      ? 'rgba(255, 255, 255, 0.10)'
+      : 'rgba(255, 255, 255, 0.06)'
+  ctx.fillRect(cellX, cellY, cellSize, cellSize)
+
+  if (isSelected) {
+    ctx.strokeStyle = 'rgba(255, 242, 63, 0.85)'
+    ctx.lineWidth = 2 * panelScale
+    ctx.strokeRect(cellX + 1, cellY + 1, cellSize - 2, cellSize - 2)
+  }
+
+  const app = appearanceToRender(item.appearance)
+  const circleX = cellX + cellSize / 2
+  const circleY = cellY + cellSize * 0.40
+  const circleR = Math.min(worldLengthToCanvas(app.radius) * 2, cellSize * 0.30)
+
+  if (app.bg.alpha !== 0) drawFilledCircleOnContext(ctx, circleX, circleY, circleR, app.bg)
+  if (app.fg.alpha !== 0) {
+    drawStrokedCircleOnContext(
+      ctx, circleX, circleY,
+      Math.max(circleR - getEntityBorderWidth(circleR) * 0.5, 0),
+      app.fg, getEntityBorderWidth(circleR),
+    )
+  }
+  if (app.glyph && app.fg.alpha !== 0) {
+    drawGlyphOnContext(ctx, app.glyph, circleX, circleY, circleR, app.fg)
+  }
+
+  const nameFontSize = Math.max(9, 11 * panelScale)
+  ctx.font = `${nameFontSize}px monospace`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
+  ctx.fillText(item.displayName, circleX, cellY + cellSize * 0.76, cellSize - 4)
+
+  // Bottom line: cost for defenders, chevron for categories.
+  ctx.fillStyle = 'rgba(181, 201, 224, 0.85)'
+  const isDefender = 'resourceCost' in item
+  ctx.fillText(
+    isDefender ? `$${(item as DefenderMenuItem).resourceCost}` : '>',
+    circleX,
+    cellY + cellSize * 0.92,
+    cellSize - 4,
+  )
+}
+
+// Draw the build-menu overlay grid with a two-level nested layout:
+// top level shows categories; clicking a category shows its defenders.
+function drawBuildMenu(ctx: CanvasRenderingContext2D): void {
+  const panelScale = Math.min(
+    foregroundCanvas.width / DEFAULT_CANVAS_W,
+    foregroundCanvas.height / DEFAULT_CANVAS_H,
+  )
+  const width = overlayCanvas.width
+  const height = overlayCanvas.height
+  const panelBorderWidth = Math.max(2, 2.5 * panelScale)
+  const panelInset = panelBorderWidth * 0.5
+  const x = panelInset
+  const y = panelInset
+  const panelWidth = Math.max(width - panelBorderWidth, 1)
+  const panelHeight = Math.max(height - panelBorderWidth, 1)
+  const cornerRadius = SIDE_PANEL_RADIUS * panelScale
+  const titleFontSize = 24 * panelScale
+  const titleTop = 20 * panelScale
+  const backFontSize = Math.max(9, 13 * panelScale)
+  const dividerY = 56 * panelScale
+  const bodyTop = 70 * panelScale
+  const infoBoxHeight = Math.max(28, 32 * panelScale)
+  const textMargin = SIDE_PANEL_TEXT_MARGIN * panelScale
+  const textWidth = panelWidth - textMargin * 2
+
+  ctx.save()
+  drawRoundedPanelPath(ctx, x, y, panelWidth, panelHeight, cornerRadius)
+  const gradient = ctx.createLinearGradient(x, y, x + panelWidth, y + panelHeight)
+  gradient.addColorStop(0, 'rgba(12, 18, 26, 0.92)')
+  gradient.addColorStop(1, 'rgba(18, 27, 39, 0.84)')
+  ctx.fillStyle = gradient
+  ctx.fill()
+
+  ctx.fillStyle = 'rgba(18, 27, 39, 0.84)'
+  if (currentPanelSide === 'left') {
+    ctx.beginPath()
+    ctx.moveTo(0, height)
+    ctx.lineTo(0, height - cornerRadius - panelInset)
+    ctx.lineTo(x + panelBorderWidth, height - cornerRadius - panelInset)
+    ctx.lineTo(x + panelBorderWidth, height)
+    ctx.closePath()
+    ctx.fill()
+  } else {
+    ctx.beginPath()
+    ctx.moveTo(width, height)
+    ctx.lineTo(width, height - cornerRadius - panelInset)
+    ctx.lineTo(width - x - panelBorderWidth, height - cornerRadius - panelInset)
+    ctx.lineTo(width - x - panelBorderWidth, height)
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  drawRoundedPanelPath(ctx, x, y, panelWidth, panelHeight, cornerRadius)
+  ctx.strokeStyle = 'rgba(255, 242, 63, 0.85)'
+  ctx.lineWidth = panelBorderWidth
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  ctx.stroke()
+  strokeAttachedBottomCorner(ctx, currentPanelSide, x, y, panelWidth, panelHeight, cornerRadius)
+
+  // Title line: "< Back" link at defender level, category/title text.
+  ctx.textBaseline = 'top'
+  if (selectedCategory !== null) {
+    ctx.font = `${backFontSize}px monospace`
+    ctx.fillStyle = 'rgba(181, 201, 224, 0.85)'
+    ctx.textAlign = 'left'
+    ctx.fillText('< Back', x + textMargin, y + titleTop + (titleFontSize - backFontSize) * 0.5)
+
+    const cat = categoryItems.find(c => c.name === selectedCategory)
+    const titleLabel = cat ? cat.displayName : selectedCategory
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
+    ctx.font = `bold ${titleFontSize}px monospace`
+    ctx.textAlign = 'right'
+    ctx.fillText(titleLabel, x + panelWidth - textMargin, y + titleTop, textWidth * 0.6)
+  } else {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.96)'
+    ctx.font = `bold ${titleFontSize}px monospace`
+    ctx.textAlign = 'left'
+    ctx.fillText('Select Type', x + textMargin, y + titleTop, textWidth)
+  }
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'
+  ctx.beginPath()
+  ctx.moveTo(x + textMargin, y + dividerY)
+  ctx.lineTo(x + textMargin + textWidth, y + dividerY)
+  ctx.stroke()
+
+  const items = currentMenuItems()
+  const cellSize = Math.floor((width - 2) / MENU_COLS)
+  const startIndex = menuScrollOffset * MENU_COLS
+  const visibleItems = items.slice(startIndex, startIndex + MENU_VISIBLE_ROWS * MENU_COLS)
+
+  for (let i = 0; i < visibleItems.length; i++) {
+    const item = visibleItems[i]
+    const col = i % MENU_COLS
+    const row = Math.floor(i / MENU_COLS)
+    const cellX = x + 1 + col * cellSize
+    const cellY = y + bodyTop + row * cellSize
+    const absIndex = startIndex + i
+    drawMenuCell(
+      ctx, item, cellX, cellY, cellSize,
+      absIndex === selectedMenuIndex,
+      absIndex === hoveredMenuIndex,
+      panelScale,
+    )
+  }
+
+  // Info box: flavor text of the hovered item.
+  const hoveredItem = hoveredMenuIndex !== null ? items[hoveredMenuIndex] : null
+  const flavorText = hoveredItem ? hoveredItem.flavorText : ''
+  if (flavorText) {
+    const infoY = y + panelHeight - infoBoxHeight
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'
+    ctx.fillRect(x + 1, infoY, panelWidth - 2, infoBoxHeight)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(x + textMargin, infoY)
+    ctx.lineTo(x + textMargin + textWidth, infoY)
+    ctx.stroke()
+    const infoFontSize = Math.max(9, 11 * panelScale)
+    ctx.font = `${infoFontSize}px monospace`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = 'rgba(200, 220, 255, 0.90)'
+    ctx.fillText(flavorText, x + panelWidth / 2, infoY + infoBoxHeight / 2, textWidth)
+  }
+
+  ctx.restore()
+}
+
+// Draw the draggable or pending placement ghost on top of the world layer.
+function drawGhost(): void {
+  if (!ghostState) return
+  const [x, y] = worldToCanvas(ghostState.worldCircle.x, ghostState.worldCircle.y)
+  const radius = worldLengthToCanvas(ghostState.appearance.radius)
+  const attackPx = worldLengthToCanvas(ghostState.worldCircle.radius)
+  const isPlaceable = ghostState.placeable
+
+  fgCtx.save()
+  fgCtx.globalAlpha = ghostState.pending ? 0.85 : 0.55
+
+  if (ghostState.appearance.bg.alpha !== 0) {
+    drawFilledCircleOnContext(fgCtx, x, y, radius, ghostState.appearance.bg)
+  }
+  if (ghostState.appearance.fg.alpha !== 0) {
+    drawStrokedCircleOnContext(
+      fgCtx,
+      x,
+      y,
+      Math.max(radius - getEntityBorderWidth(radius) * 0.5, 0),
+      ghostState.appearance.fg,
+      getEntityBorderWidth(radius),
+    )
+    if (ghostState.appearance.glyph) {
+      drawGlyphOnContext(
+        fgCtx,
+        ghostState.appearance.glyph,
+        x,
+        y,
+        radius,
+        ghostState.appearance.fg,
+      )
+    }
+  }
+
+  if (attackPx > 0) {
+    fgCtx.globalAlpha = ghostState.pending ? 0.55 : 0.35
+    const rangeColor: RenderColor = {
+      css: isPlaceable
+        ? 'rgba(255, 242, 63, 0.28)'
+        : 'rgba(255, 76, 76, 0.45)',
+      alpha: 0.45,
+    }
+    drawFilledCircleOnContext(fgCtx, x, y, attackPx, rangeColor)
+    drawStrokedCircleOnContext(
+      fgCtx,
+      x,
+      y,
+      attackPx,
+      isPlaceable
+        ? { css: 'rgba(255, 242, 63, 0.85)', alpha: 0.85 }
+        : { css: 'rgba(255, 76, 76, 0.85)', alpha: 0.85 },
+      Math.max(2, radius * 0.08),
+    )
+  }
+
+  if (ghostState.pending) {
+    fgCtx.globalAlpha = 0.9
+    const lineWidth = Math.max(3, radius * 0.35)
+    drawStrokedCircleOnContext(
+      fgCtx,
+      x,
+      y,
+      radius + lineWidth * 0.5,
+      isPlaceable
+        ? { css: 'rgba(255, 242, 63, 0.9)', alpha: 0.9 }
+        : { css: 'rgba(255, 76, 76, 0.9)', alpha: 0.9 },
+      lineWidth,
+    )
+  }
+
+  fgCtx.restore()
+}
+
+// Redraw the overlay canvas when its contents have changed.
+function updateSidePanelOverlay(): void {
+  if (!sidePanelDirty) return
+
+  overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
+
+  const panel = getSidePanelModel()
+  const showBuildMenu = shouldShowBuildMenu()
+
+  // The overlay only ever shows one mode at a time: pinned side panel wins,
+  // otherwise the build menu can occupy the same canvas.
+  if (panel) {
+    drawSidePanel(overlayCtx, panel)
+  } else if (showBuildMenu) {
+    drawBuildMenu(overlayCtx)
+  }
+
+  sidePanelDirty = false
+}
+
+// Report whether the build-menu overlay should be visible right now.
+function shouldShowBuildMenu(): boolean {
+  return (
+    getSidePanelModel() === null &&
+    selectedDefenderPosition === null &&
+    defenderMenuItems.length > 0 &&
+    currentPhase === 'build' &&
+    !menuDragActive
+  )
+}
+
+// Main animation loop: update time-derived overlays, render the world, and
+// composite the cached layers.
 function frame(now: number): void {
   if (lastFrameTime !== 0) {
     const dt = now - lastFrameTime
@@ -562,6 +1960,7 @@ function frame(now: number): void {
   renderInterpolated(now)
   updateHudOverlay()
   updateFpsOverlay(now)
+  updateSidePanelOverlay()
   fgCtx.drawImage(hudCanvas, 0, 0)
   fgCtx.drawImage(fpsCanvas, 0, 0)
   requestAnimationFrame(frame)
@@ -569,19 +1968,61 @@ function frame(now: number): void {
 
 // --- Logging ---
 
+// Append a line to the on-page debug log.
 function log(line: string): void {
   logEl.textContent += line + '\n'
   logEl.scrollTop = logEl.scrollHeight
 }
 
-function setTextIfElement(el: HTMLElement | null, value: string): void {
-  if (el) el.textContent = value
+function updateMetricsDisplay(): void {
+  tickEl.textContent = latestTick !== null ? String(latestTick) : '--'
+  tickRateEl.textContent = measuredTickRate > 0
+    ? `${measuredTickRate.toFixed(1)} Hz`
+    : '--'
+  frameSizeEl.textContent = averageFrameBytes > 0
+    ? `${Math.round(averageFrameBytes).toLocaleString()} B`
+    : '--'
 }
 
+function pushRecentSample<T>(samples: T[], value: T, maxSize: number): void {
+  samples.push(value)
+  if (samples.length > maxSize) samples.shift()
+}
+
+function updateMeasuredTickRate(now: number, tick: number): void {
+  pushRecentSample(recentTickSamples, { timeMs: now, tick }, RECENT_TICK_TIMES_MAX)
+  if (recentTickSamples.length < 2) {
+    measuredTickRate = 0
+    updateMetricsDisplay()
+    return
+  }
+
+  const first = recentTickSamples[0]
+  const last = recentTickSamples[recentTickSamples.length - 1]
+  const elapsedMs = last.timeMs - first.timeMs
+  const elapsedTicks = last.tick - first.tick
+  measuredTickRate = elapsedMs > 0 && elapsedTicks >= 0
+    ? (elapsedTicks * 1000) / elapsedMs
+    : 0
+  updateMetricsDisplay()
+}
+
+function measureFrameSizeBytes(data: string): number {
+  return new TextEncoder().encode(data).length
+}
+
+function updateAverageFrameSize(frameBytes: number): void {
+  pushRecentSample(recentFrameSizes, frameBytes, RECENT_FRAME_SIZES_MAX)
+  averageFrameBytes = recentFrameSizes.reduce((sum, value) => sum + value, 0) / recentFrameSizes.length
+  updateMetricsDisplay()
+}
+
+// Mark the HUD overlay for regeneration on the next frame.
 function invalidateHud(): void {
   hudDirty = true
 }
 
+// Translate DOM mouse button codes into the wire-format button names.
 function buttonNameFromNumber(button: number): 'left' | 'middle' | 'right' | 'other' {
   switch (button) {
     case 0:
@@ -595,15 +2036,24 @@ function buttonNameFromNumber(button: number): 'left' | 'middle' | 'right' | 'ot
   }
 }
 
+// Send a client message if the websocket is currently connected.
 function sendClientMsg(msg: ClientMsg): void {
   if (ws.readyState !== WebSocket.OPEN) return
   ws.send(JSON.stringify(msg))
 }
 
-function sendCanvasMsg(eventName: 'click' | 'dblclick' | 'contextmenu' | 'dragstart' | 'dragmove' | 'dragend', sample: CanvasPointerSample): void {
-  sendClientMsg({
+// Serialize a canvas interaction into the websocket protocol and return its
+// client sequence number.
+function sendCanvasMsg(
+  eventName: 'click' | 'dblclick' | 'contextmenu' | 'dragstart' | 'dragmove' | 'dragend',
+  sample: CanvasPointerSample,
+  command?: string,
+  parameters?: string[],
+): number {
+  const seq = nextClientSeq++
+  const msg: UiCanvasMsg = {
     type: 'ui_canvas',
-    seq: nextClientSeq++,
+    seq,
     event: eventName,
     button: buttonNameFromNumber(sample.button),
     buttons: sample.buttons,
@@ -615,9 +2065,14 @@ function sendCanvasMsg(eventName: 'click' | 'dblclick' | 'contextmenu' | 'dragst
     ctrl: sample.ctrl,
     alt: sample.alt,
     meta: sample.meta,
-  })
+  }
+  if (command) msg.command = command
+  if (parameters?.length) msg.parameters = parameters
+  sendClientMsg(msg)
+  return seq
 }
 
+// Send the most recent coalesced drag-move sample, if one is pending.
 function flushPendingDragMove(): void {
   dragMoveFrameRequested = false
   if (!pendingDragMove) return
@@ -625,14 +2080,28 @@ function flushPendingDragMove(): void {
   pendingDragMove = null
 }
 
+// Send a placement-preview event for the current ghost entity.
+function sendPlacementPreview(
+  eventName: 'dragstart' | 'dragmove' | 'dragend',
+  sample: CanvasPointerSample,
+  entityName: string,
+): void {
+  if (!ghostState) return
+  sendCanvasMsg(eventName, sample, 'placing', [entityName])
+}
+
+// Coalesce drag-move websocket traffic to at most once per animation frame.
 function scheduleDragMoveFlush(): void {
   if (dragMoveFrameRequested) return
   dragMoveFrameRequested = true
+  // Push at most one drag update per animation frame even if the pointer is
+  // moving faster than the display refresh rate.
   requestAnimationFrame(() => {
     flushPendingDragMove()
   })
 }
 
+// Convert submitted form data into the string-only field map used by UI actions.
 function formDataToFields(formData: FormData): Record<string, string> | undefined {
   const fields: Record<string, string> = {}
   for (const [key, value] of formData.entries()) {
@@ -641,6 +2110,7 @@ function formDataToFields(formData: FormData): Record<string, string> | undefine
   return Object.keys(fields).length === 0 ? undefined : fields
 }
 
+// Send a generic UI action such as pressing a control button.
 function sendUiAction(action: string, fields?: Record<string, string>): void {
   const msg: ClientMsg = {
     type: 'ui_action',
@@ -651,6 +2121,7 @@ function sendUiAction(action: string, fields?: Record<string, string>): void {
   sendClientMsg(msg)
 }
 
+// Narrow an unknown value to a simple `{x, y}` point.
 function isPoint(value: unknown): value is { x: number; y: number } {
   return (
     typeof value === 'object' &&
@@ -660,6 +2131,7 @@ function isPoint(value: unknown): value is { x: number; y: number } {
   )
 }
 
+// Narrow an unknown value to the entity-position wire type.
 function isEntityPosition(value: unknown): value is EntityPosition {
   return (
     typeof value === 'object' &&
@@ -670,6 +2142,7 @@ function isEntityPosition(value: unknown): value is EntityPosition {
   )
 }
 
+// Narrow an unknown value to the entity-appearance wire type.
 function isEntityAppearance(value: unknown): value is EntityAppearance {
   return (
     typeof value === 'object' &&
@@ -681,6 +2154,7 @@ function isEntityAppearance(value: unknown): value is EntityAppearance {
   )
 }
 
+// Narrow an unknown value to the entity-visual-effects wire type.
 function isEntityVisualEffects(value: unknown): value is EntityVisualEffects {
   return (
     typeof value === 'object' &&
@@ -689,10 +2163,13 @@ function isEntityVisualEffects(value: unknown): value is EntityVisualEffects {
     typeof (value as Record<string, unknown>).rangeRadius === 'number' &&
     typeof (value as Record<string, unknown>).range === 'number' &&
     typeof (value as Record<string, unknown>).flash === 'number' &&
-    typeof (value as Record<string, unknown>).flashExpiryMs === 'number'
+    typeof (value as Record<string, unknown>).flashExpiryTick === 'number' &&
+    typeof (value as Record<string, unknown>).cooldown === 'number' &&
+    typeof (value as Record<string, unknown>).cooldownExpiryTick === 'number'
   )
 }
 
+// Narrow an unknown value to an entity upsert payload.
 function isEntityUpsert(value: unknown): value is EntityUpsert {
   const maybeApp = (value as Record<string, unknown>).app
   const maybeVfx = (value as Record<string, unknown>).vfx
@@ -705,12 +2182,115 @@ function isEntityUpsert(value: unknown): value is EntityUpsert {
   )
 }
 
+function isTransientExplosion(value: unknown): value is TransientExplosion {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).circle === 'object' &&
+    (value as Record<string, unknown>).circle !== null &&
+    typeof ((value as Record<string, unknown>).circle as Record<string, unknown>).x === 'number' &&
+    typeof ((value as Record<string, unknown>).circle as Record<string, unknown>).y === 'number' &&
+    typeof ((value as Record<string, unknown>).circle as Record<string, unknown>).radius === 'number' &&
+    typeof (value as Record<string, unknown>).expiryTick === 'number' &&
+    typeof (value as Record<string, unknown>).primaryColor === 'number' &&
+    typeof (value as Record<string, unknown>).secondaryColor === 'number'
+  )
+}
+
+function isTransientBeam(value: unknown): value is TransientBeam {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).circle === 'object' &&
+    (value as Record<string, unknown>).circle !== null &&
+    typeof ((value as Record<string, unknown>).circle as Record<string, unknown>).x === 'number' &&
+    typeof ((value as Record<string, unknown>).circle as Record<string, unknown>).y === 'number' &&
+    typeof ((value as Record<string, unknown>).circle as Record<string, unknown>).radius === 'number' &&
+    typeof (value as Record<string, unknown>).expiryTick === 'number' &&
+    typeof (value as Record<string, unknown>).primaryColor === 'number' &&
+    typeof (value as Record<string, unknown>).secondaryColor === 'number' &&
+    typeof (value as Record<string, unknown>).targetPos === 'object' &&
+    (value as Record<string, unknown>).targetPos !== null &&
+    typeof ((value as Record<string, unknown>).targetPos as Record<string, unknown>).x === 'number' &&
+    typeof ((value as Record<string, unknown>).targetPos as Record<string, unknown>).y === 'number' &&
+    typeof (value as Record<string, unknown>).lineWidth === 'number'
+  )
+}
+
+// Narrow an unknown value to a category menu entry.
+function isCategoryItem(value: unknown): value is CategoryItem {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).name === 'string' &&
+    typeof (value as Record<string, unknown>).displayName === 'string' &&
+    typeof (value as Record<string, unknown>).flavorText === 'string' &&
+    isEntityAppearance((value as Record<string, unknown>).appearance)
+  )
+}
+
+// Narrow an unknown value to a defender menu entry.
+function isDefenderMenuItem(value: unknown): value is DefenderMenuItem {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).entityName === 'string' &&
+    typeof (value as Record<string, unknown>).displayName === 'string' &&
+    typeof (value as Record<string, unknown>).category === 'string' &&
+    typeof (value as Record<string, unknown>).flavorText === 'string' &&
+    typeof (value as Record<string, unknown>).resourceCost === 'number' &&
+    isEntityAppearance((value as Record<string, unknown>).appearance)
+  )
+}
+
+// Narrow an unknown value to the UI-state payload carried inside world deltas.
+function isUiState(value: unknown): value is UiState {
+  const v = value as Record<string, unknown>
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (v.selectedDefender === undefined || isPoint(v.selectedDefender)) &&
+    (v.placementAllowed === undefined || typeof v.placementAllowed === 'boolean') &&
+    (v.spawnAllowed === undefined || typeof v.spawnAllowed === 'boolean') &&
+    (v.defenderSummary === undefined || isDefenderMenuItem(v.defenderSummary))
+  )
+}
+
+// Read the phase string from a delta, tolerating older payload shapes.
 function getDeltaPhase(delta: WorldDelta): string {
   const maybePhase = (delta as WorldDelta & { phase?: unknown }).phase
   if (typeof maybePhase === 'string') return maybePhase
   return delta.phase
 }
 
+// Apply server-provided UI state to client-side selection and placement state.
+function applyUiState(uiState: UiState): void {
+  if (uiState.placementAllowed !== undefined && ghostState) {
+    ghostState.placeable = uiState.placementAllowed
+  }
+
+  if (uiState.spawnAllowed !== undefined && ghostState?.spawnPending) {
+    // Spawn requests are optimistic on the client: we keep the ghost in a
+    // temporary "awaiting verdict" state until the server confirms whether the
+    // placement was legal.
+    ghostState.spawnPending = false
+    if (uiState.spawnAllowed) {
+      ghostState = null
+      resetBuildMenuToTopLevel()
+      mouseOverOverlay = false
+      overlayStayOpen = false
+    }
+  }
+
+  selectedDefenderPosition = uiState.selectedDefender ?? null
+  if (!selectedDefenderPosition) {
+    selectedDefenderSummary = null
+  } else if (uiState.defenderSummary) {
+    selectedDefenderSummary = uiState.defenderSummary
+  }
+}
+
+// Advance snapshot timing bookkeeping after consuming a world update.
 function finishSnapshotUpdate(): void {
   prevSnapshotTime = currSnapshotTime
   currSnapshotTime = performance.now()
@@ -720,7 +2300,11 @@ function finishSnapshotUpdate(): void {
   }
 }
 
+// Reset all client-side world, overlay, and interpolation state after a fresh
+// snapshot (as opposed to delta) replaces the current session state.
 function resetClientWorldState(): void {
+  currentPathPoints = []
+  currentPathWidth = 40
   currEntitiesById.clear()
   prevRenderStateById.clear()
   glyphFontSizeCache.clear()
@@ -730,23 +2314,60 @@ function resetClientWorldState(): void {
   snapshotIntervalMs = 50
   lives = 0
   resources = 0
+  currentWave = 0
+  latestTick = null
+  measuredTickRate = 0
+  averageFrameBytes = 0
+  recentTickSamples.length = 0
+  recentFrameSizes.length = 0
   lastFpsOverlayUpdateTime = 0
   hudDirty = true
+  sidePanelDirty = true
+  edgeHoverSide = null
+  categoryItems = []
+  defenderMenuItems = []
+  selectedCategory = null
+  selectedMenuIndex = null
+  hoveredMenuIndex = null
+  menuScrollOffset = 0
+  ghostState = null
+  lastPointerSample = null
+  transientExplosionsByPos.clear()
+  transientBeamsByPos.clear()
+  menuDragActive = false
+  currentPhase = 'build'
+  mouseOverOverlay = false
+  overlayStayOpen = false
+  currentPanelSide = 'right'
+  selectedDefenderSummary = null
+  selectedDefenderPosition = null
+  if (overlaySideSwapFrame !== 0) {
+    cancelAnimationFrame(overlaySideSwapFrame)
+    overlaySideSwapFrame = 0
+  }
 
   bgCtx.clearRect(0, 0, backgroundCanvas.width, backgroundCanvas.height)
   fgCtx.clearRect(0, 0, foregroundCanvas.width, foregroundCanvas.height)
+  overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
   hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height)
   fpsCtx.clearRect(0, 0, fpsCanvas.width, fpsCanvas.height)
+  applyOverlayPosition()
+  updateMetricsDisplay()
 }
 
+// Apply an incremental world update from the server and invalidate derived
+// overlays that depend on the new state.
 function applyWorldDelta(delta: WorldDelta): void {
   const now = performance.now()
   prevRenderStateById.clear()
 
+  // Delta updates rewrite the current authoritative render state in-place while
+  // preserving the previous render copy for interpolation during the next
+  // animation frames.
   for (const entity of delta.upserts) {
     const prevEntity = currEntitiesById.get(entity.pos.id)
     const nextEntity =
-      upsertToRenderEntity(entity, now, prevEntity?.app, prevEntity?.fx)
+      upsertToRenderEntity(entity, now, delta.tick, prevEntity?.app, prevEntity?.fx, prevEntity?.healthFraction)
     if (prevEntity) prevRenderStateById.set(entity.pos.id, prevEntity)
     currEntitiesById.set(entity.pos.id, nextEntity)
   }
@@ -754,51 +2375,89 @@ function applyWorldDelta(delta: WorldDelta): void {
     currEntitiesById.delete(entityId)
     prevRenderStateById.delete(entityId)
   }
+  for (const transient of delta.transientExplosions) {
+    const rendered = explosionToRender(transient, now, delta.tick)
+    transientExplosionsByPos.set(
+      transientDisplayKey(transient.circle.x, transient.circle.y), rendered)
+  }
+  for (const transient of delta.transientBeams) {
+    const rendered = beamToRender(transient, now, delta.tick)
+    transientBeamsByPos.set(
+      transientDisplayKey(transient.circle.x, transient.circle.y), rendered)
+  }
 
   finishSnapshotUpdate()
-  tickEl.textContent = String(delta.tick)
+  latestTick = delta.tick
+  updateMeasuredTickRate(now, delta.tick)
+  currentWave = delta.currentWave
   lives = delta.lives
   resources = delta.resources
+  applyUiState(delta.uiState)
   invalidateHud()
-  setTextIfElement(livesEl, String(delta.lives))
-  setTextIfElement(resourcesEl, String(delta.resources))
-  setTextIfElement(phaseEl, getDeltaPhase(delta))
+  invalidateSidePanel()
+  currentPhase = getDeltaPhase(delta)
+  if (currentPhase !== 'build') {
+    selectedCategory = null
+    hoveredMenuIndex = null
+  }
 }
 
 // --- Message validation ---
 
+// Narrow an unknown payload to the `world_delta` message shape.
 function isWorldDelta(value: unknown): value is WorldDelta {
   if (!value || typeof value !== 'object') return false
   const v = value as Record<string, unknown>
 
   return (
     typeof v.tick === 'number' &&
+    typeof v.currentWave === 'number' &&
     Array.isArray(v.upserts) &&
     Array.isArray(v.erased) &&
+    Array.isArray(v.transientExplosions) &&
+    Array.isArray(v.transientBeams) &&
     typeof v.lives === 'number' &&
     typeof v.resources === 'number' &&
     typeof v.phase === 'string' &&
+    isUiState(v.uiState) &&
     v.upserts.every(isEntityUpsert) &&
+    v.transientExplosions.every(isTransientExplosion) &&
+    v.transientBeams.every(isTransientBeam) &&
+    // Erase entries are just numeric entity ids.
     v.erased.every((id) => typeof id === 'number')
   )
 }
 
+// Narrow an unknown websocket payload to one of the supported server messages.
 function isServerMsg(value: unknown): value is ServerMsg {
   if (!value || typeof value !== 'object') return false
   const v = value as Record<string, unknown>
   if (typeof v.type !== 'string') return false
 
+  // Validate websocket payloads at the edge so the rest of the file can treat
+  // incoming messages as strongly typed data instead of defensive blobs.
   switch (v.type) {
     case 'hello_ack':
       return typeof v.message === 'string'
     case 'world_delta':
       return isWorldDelta(v)
-    case 'world_snapshot':
+    case 'world_snapshot': {
+      const md = v.mapDesign as Record<string, unknown> | undefined
       return (
-        Array.isArray(v.paths) &&
-        v.paths.every(isPoint) &&
+        !!md &&
+        typeof md === 'object' &&
+        typeof md.backgroundSprite === 'string' &&
+        typeof md.foregroundSprite === 'string' &&
+        typeof md.pathWidth === 'number' &&
+        Array.isArray(md.paths) &&
+        md.paths.every(isPoint) &&
+        Array.isArray(v.defenderMenu) &&
+        v.defenderMenu.every(isDefenderMenuItem) &&
+        Array.isArray(v.categories) &&
+        v.categories.every(isCategoryItem) &&
         isWorldDelta(v.delta)
       )
+    }
     default:
       return false
   }
@@ -809,6 +2468,7 @@ function isServerMsg(value: unknown): value is ServerMsg {
 const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
 const ws = new WebSocket(`${protocol}://${location.host}/ws`)
 
+// Announce a fresh websocket connection and send the browser hello packet.
 ws.onopen = () => {
   statusEl.textContent = 'connected'
   log('Connected')
@@ -816,6 +2476,7 @@ ws.onopen = () => {
   sendClientMsg(hello)
 }
 
+// Parse, validate, and dispatch every inbound websocket message.
 ws.onmessage = (event: MessageEvent<string>) => {
   let parsed: unknown
   try {
@@ -835,40 +2496,175 @@ ws.onmessage = (event: MessageEvent<string>) => {
       log(`Server says: ${parsed.message}`)
       break
     case 'world_delta':
+      updateAverageFrameSize(measureFrameSizeBytes(event.data))
       applyWorldDelta(parsed)
       break
     case 'world_snapshot':
+      updateAverageFrameSize(measureFrameSizeBytes(event.data))
       resetClientWorldState()
-      drawBackground(parsed.paths)
+      categoryItems = parsed.categories
+      defenderMenuItems = parsed.defenderMenu
+      drawBackground(parsed.mapDesign.paths, parsed.mapDesign.pathWidth)
       applyWorldDelta(parsed.delta)
       break
   }
 }
 
+// Reflect websocket shutdown in the visible connection status.
 ws.onclose = () => {
   statusEl.textContent = 'disconnected'
   log('Disconnected')
 }
 
+// Surface websocket transport errors in the small on-page status UI.
 ws.onerror = () => {
   statusEl.textContent = 'error'
   log('WebSocket error')
 }
 
+// Toggle fullscreen mode for the viewport shell.
+fullscreenToggle.addEventListener('click', async () => {
+  try {
+    if (document.fullscreenElement === viewportShell) {
+      await document.exitFullscreen()
+      return
+    }
+    await viewportShell.requestFullscreen()
+  } catch {
+    log('Could not change fullscreen state')
+  }
+})
+
+// Recompute labels and canvas sizing after fullscreen transitions.
+document.addEventListener('fullscreenchange', () => {
+  updateFullscreenButtonLabel()
+  resizeViewport()
+})
+
+// Resize canvases when the browser window changes size.
+window.addEventListener('resize', () => {
+  resizeViewport()
+})
+
+if (typeof ResizeObserver !== 'undefined') {
+  // Resize canvases when the host element changes size for reasons other than
+  // the global window, such as layout changes.
+  const resizeObserver = new ResizeObserver(() => {
+    resizeViewport()
+  })
+  resizeObserver.observe(viewportHost)
+}
+
+// Start clicks, ghost pickup/cancel, and drag tracking on the foreground world.
 foregroundCanvas.addEventListener('mousedown', (event: MouseEvent) => {
   const sample = eventToCanvasSample(event)
+  updateEdgeHover(sample)
+
+  // Collapse the build-menu overlay whenever the user left-clicks on the
+  // canvas without a selection already active. This covers both empty-space
+  // clicks AND clicks on an unselected defender — in the latter case the
+  // overlay will reopen with the defender panel once the server confirms the
+  // selection, so the build menu must not be visible in the interim.
+  if (
+    event.button === 0 &&
+    !ghostState &&
+    !menuDragActive &&
+    selectedDefenderPosition === null
+  ) {
+    mouseOverOverlay = false
+    overlayStayOpen = false
+    setEdgeHoverSide(null)
+  }
+
+  // While a ghost is pending, left-click on the ghost picks it back up and
+  // any other non-right click cancels placement.
+  if (event.button === 0 && ghostState?.pending) {
+    const [gx, gy] = worldToCanvas(ghostState.worldCircle.x, ghostState.worldCircle.y)
+    const hitRadius = worldLengthToCanvas(ghostState.appearance.radius) * 2
+    const dx = sample.canvasX - gx
+    const dy = sample.canvasY - gy
+    if (dx * dx + dy * dy <= hitRadius * hitRadius) {
+      ghostState.pending = false
+      mouseOverOverlay = false
+      overlayStayOpen = false
+      if (ghostState.confirmCommand === 'moving') {
+        moveDragActive = true
+        sendCanvasMsg('dragstart', ghostStateToSample(ghostState, event), 'moving')
+      } else {
+        menuDragActive = true
+        sendPlacementPreview('dragstart', sample, ghostState.entityName)
+      }
+    } else {
+      ghostState = null
+      clearMenuSelection()
+      overlayStayOpen = false
+    }
+    invalidateSidePanel()
+    return
+  }
+
+  // Detect whether this left-click starts on the currently selected defender
+  // so that a subsequent drag relocates it rather than sending a generic drag.
+  let isMoveDrag = false
+  if (event.button === 0 && currentPhase === 'build' &&
+    selectedDefenderPosition !== null && !ghostState) {
+    const clickedDefender = findDefenderAtWorld(sample.worldX, sample.worldY)
+    if (clickedDefender !== null) {
+      const selectedEntity =
+        findDefenderAtWorld(selectedDefenderPosition.x, selectedDefenderPosition.y)
+      if (selectedEntity !== null && clickedDefender.pos.id === selectedEntity.pos.id)
+        isMoveDrag = true
+    }
+  }
+
   canvasPointerState = {
     button: sample.button,
     buttons: sample.buttons,
     dragging: false,
+    isMoveDrag,
   }
 
   if (sample.button !== 2) sendCanvasMsg('click', sample)
 })
 
+// Arm a potential move-drag when the user presses a defender through the
+// overlay canvas. This mirrors the foreground-canvas path so defenders remain
+// movable even while the build menu panel is open above them.
+function armOverlayDefenderInteraction(sample: CanvasPointerSample): boolean {
+  if (ghostState || menuDragActive || currentPhase !== 'build') return false
+
+  const clickedDefender = findDefenderAtWorld(sample.worldX, sample.worldY)
+  if (clickedDefender === null) return false
+
+  let isMoveDrag = false
+  if (selectedDefenderPosition !== null && !ghostState) {
+    const selectedEntity =
+      findDefenderAtWorld(selectedDefenderPosition.x, selectedDefenderPosition.y)
+    if (selectedEntity !== null && clickedDefender.pos.id === selectedEntity.pos.id) {
+      isMoveDrag = true
+    }
+  }
+
+  canvasPointerState = {
+    button: sample.button,
+    buttons: sample.buttons,
+    dragging: false,
+    isMoveDrag,
+  }
+  sendCanvasMsg('click', sample)
+  mouseOverOverlay = false
+  overlayStayOpen = false
+  setEdgeHoverSide(null)
+  invalidateSidePanel()
+  return true
+}
+
+// Convert foreground pointer motion into either edge-hover updates or drag
+// preview traffic.
 foregroundCanvas.addEventListener('mousemove', (event: MouseEvent) => {
-  if (!canvasPointerState) return
   const sample = eventToCanvasSample(event)
+  updateEdgeHover(sample)
+  if (!canvasPointerState) return
   canvasPointerState.buttons = sample.buttons
 
   if (canvasPointerState.button !== 0) return
@@ -877,15 +2673,168 @@ foregroundCanvas.addEventListener('mousemove', (event: MouseEvent) => {
 
   if (!canvasPointerState.dragging) {
     canvasPointerState.dragging = true
+    if (canvasPointerState.isMoveDrag &&
+      selectedDefenderPosition !== null && selectedDefenderSummary !== null) {
+      // Start a move drag: create a ghost representing the defender being
+      // relocated and send a "moving" dragstart so the server can validate.
+      const selectedEntity =
+        findDefenderAtWorld(selectedDefenderPosition.x, selectedDefenderPosition.y)
+      if (selectedEntity !== null) {
+        ghostState = {
+          entityName: selectedDefenderSummary.entityName,
+          displayName: selectedDefenderSummary.displayName,
+          appearance: selectedEntity.app,
+          worldCircle: {
+            x: dragSample.worldX,
+            y: dragSample.worldY,
+            radius: selectedDefenderSummary.appearance.attackRadius,
+          },
+          confirmCommand: 'moving',
+          pending: false,
+          placeable: true,
+          spawnPending: false,
+        }
+        moveDragActive = true
+        sendCanvasMsg('dragstart', dragSample, 'moving')
+        invalidateSidePanel()
+        return
+      }
+    }
     sendCanvasMsg('dragstart', dragSample)
     return
   }
 
-  pendingDragMove = dragSample
-  scheduleDragMoveFlush()
+  // Do not send a generic dragmove while a move-drag is in progress; the
+  // global window mousemove handler sends "moving" dragmove events instead.
+  if (!moveDragActive) {
+    pendingDragMove = dragSample
+    scheduleDragMoveFlush()
+  }
 })
 
+// Open the build menu directly from empty build space on double-click, then
+// still forward the gesture to the server.
+foregroundCanvas.addEventListener('dblclick', (event: MouseEvent) => {
+  const sample = eventToCanvasSample(event)
+  if (
+    event.button === 0 &&
+    !ghostState &&
+    !menuDragActive &&
+    currentPhase === 'build' &&
+    defenderMenuItems.length > 0 &&
+    findDefenderAtWorld(sample.worldX, sample.worldY) === null
+  ) {
+    // Double-clicking empty build space is a shortcut to fully open the menu
+    // on the current side without requiring an edge-hover first.
+    edgeHoverSide = currentPanelSide
+    mouseOverOverlay = true
+    overlayStayOpen = false
+    invalidateSidePanel()
+  }
+  sendCanvasMsg('dblclick', sample)
+})
+
+// Keep the overlay open when the pointer leaves through the armed panel edge.
+foregroundCanvas.addEventListener('mouseleave', (event: MouseEvent) => {
+  // Fast motion can skip the overlay's peek strip entirely. If the pointer
+  // leaves through the active panel edge, open the panel as though the user
+  // had crossed onto the peeking portion.
+  if (didExitCanvasViaPanelEdge(event)) {
+    mouseOverOverlay = true
+    overlayStayOpen = true
+    applyOverlayPosition()
+  }
+})
+
+// Mark the overlay as hovered once the pointer enters its visible area.
+overlayCanvas.addEventListener('mouseenter', () => {
+  if (getOverlayLevel() !== 'peek') mouseOverOverlay = true
+  overlayStayOpen = false
+  applyOverlayPosition()
+})
+
+// Promote a peeking overlay to fully open only while the pointer is over the
+// visible activation strip.
+overlayCanvas.addEventListener('mousemove', (event: MouseEvent) => {
+  const shouldOpen = getOverlayLevel() !== 'peek' || isPointerOverPeekActivation(event)
+  if (mouseOverOverlay === shouldOpen) return
+  mouseOverOverlay = shouldOpen
+  if (shouldOpen) overlayStayOpen = false
+  applyOverlayPosition()
+})
+
+// Decide whether leaving the overlay should keep it latched open or hand hover
+// control back to the foreground canvas.
+overlayCanvas.addEventListener('mouseleave', (event: MouseEvent) => {
+  mouseOverOverlay = false
+  const toFg = event.relatedTarget === foregroundCanvas
+  if (toFg) {
+    overlayStayOpen = false
+    if (!ghostState?.pending) setEdgeHoverSide(currentPanelSide)
+  } else {
+    overlayStayOpen = true
+    if (edgeHoverSide === null) edgeHoverSide = currentPanelSide
+  }
+  invalidateSidePanel()
+})
+
+// Finish menu drags and normal canvas drags when the mouse button is released.
 window.addEventListener('mouseup', (event: MouseEvent) => {
+  // Commit or cancel a move drag (relocating a placed defender).
+  if (moveDragActive) {
+    moveDragActive = false
+    if (ghostState) {
+      const fgRect = foregroundCanvas.getBoundingClientRect()
+      const ovRect = overlayCanvas.getBoundingClientRect()
+      const overOverlay =
+        event.clientX >= ovRect.left && event.clientX <= ovRect.right &&
+        event.clientY >= ovRect.top && event.clientY <= ovRect.bottom
+      const overFg =
+        event.clientX >= fgRect.left && event.clientX <= fgRect.right &&
+        event.clientY >= fgRect.top && event.clientY <= fgRect.bottom
+      if (overFg && !overOverlay) {
+        sendCanvasMsg('dragmove', ghostStateToSample(ghostState, event), 'moving')
+        ghostState.pending = true
+        mouseOverOverlay = false
+        overlayStayOpen = false
+      } else {
+        ghostState = null
+      }
+    }
+    canvasPointerState = null
+    invalidateSidePanel()
+    return
+  }
+
+  // Handle menu drag commit/cancel.
+  if (menuDragActive) {
+    menuDragActive = false
+    if (ghostState) {
+      const fgRect = foregroundCanvas.getBoundingClientRect()
+      const ovRect = overlayCanvas.getBoundingClientRect()
+      const overOverlay =
+        event.clientX >= ovRect.left && event.clientX <= ovRect.right &&
+        event.clientY >= ovRect.top && event.clientY <= ovRect.bottom
+      const overFg =
+        event.clientX >= fgRect.left && event.clientX <= fgRect.right &&
+        event.clientY >= fgRect.top && event.clientY <= fgRect.bottom
+      if (overFg && !overOverlay) {
+        // Dropping onto the playfield creates a pending ghost first; a later
+        // right-click turns that preview into an actual spawn command.
+        sendPlacementPreview('dragend', ghostStateToSample(ghostState, event), ghostState.entityName)
+        ghostState.pending = true
+        mouseOverOverlay = false
+        overlayStayOpen = false
+      } else {
+        ghostState = null
+        clearMenuSelection()
+        overlayStayOpen = false
+      }
+    }
+    invalidateSidePanel()
+    return
+  }
+
   if (!canvasPointerState) return
   const sample = withPointerButton(
     eventToCanvasSample(event),
@@ -897,15 +2846,32 @@ window.addEventListener('mouseup', (event: MouseEvent) => {
   if (wasDragging) sendCanvasMsg('dragend', sample)
 })
 
+// Use right-click on the foreground canvas for placement confirmation or to
+// forward a normal context-style click to the server.
 foregroundCanvas.addEventListener('contextmenu', (event: MouseEvent) => {
   event.preventDefault()
-  sendCanvasMsg('click', withPointerButton(eventToCanvasSample(event), 2, 2))
+  const sample = eventToCanvasSample(event)
+  if (ghostState?.pending) {
+    if (!ghostState.placeable || ghostState.spawnPending) return
+    const ghostSample = ghostStateToSample(ghostState, event, 2, 2)
+    if (ghostState.confirmCommand === 'moving') {
+      sendCanvasMsg('dragend', ghostSample, 'moving')
+      ghostState = null
+      invalidateSidePanel()
+      return
+    }
+    // Right-click while ghost is pending: place the defender.
+    const entityName = ghostState.entityName
+    ghostState.spawnPending = true
+    sendCanvasMsg('click', ghostSample, 'spawn', [entityName])
+    return
+  }
+  updateEdgeHover(sample)
+  sendCanvasMsg('click', withPointerButton(sample, 2, 2))
 })
 
-foregroundCanvas.addEventListener('dblclick', (event: MouseEvent) => {
-  sendCanvasMsg('dblclick', eventToCanvasSample(event))
-})
 
+// Convert DOM controls carrying `data-action` into protocol-level UI actions.
 document.addEventListener('click', (event: MouseEvent) => {
   const target = event.target
   if (!(target instanceof Element)) return
@@ -926,6 +2892,8 @@ document.addEventListener('click', (event: MouseEvent) => {
   sendUiAction(action, fields)
 })
 
+// Convert form submissions carrying `data-action` into protocol-level UI
+// actions instead of letting the browser navigate away.
 document.addEventListener('submit', (event: SubmitEvent) => {
   const target = event.target
   if (!(target instanceof HTMLFormElement)) return
@@ -937,4 +2905,266 @@ document.addEventListener('submit', (event: SubmitEvent) => {
   sendUiAction(action, formDataToFields(new FormData(target)))
 })
 
+// Cancel ghost on right-click outside the foreground canvas.
+document.addEventListener('contextmenu', (event: MouseEvent) => {
+  if (event.defaultPrevented || !ghostState) return
+
+  const fgRect = foregroundCanvas.getBoundingClientRect()
+  const insideFg = isPointInRect(event.clientX, event.clientY, fgRect)
+  if (ghostState.pending && insideFg) {
+    event.preventDefault()
+    const sample = ghostStateToSample(ghostState, event, 2, 2)
+    if (ghostState.confirmCommand === 'moving') {
+      sendCanvasMsg('dragend', sample, 'moving')
+      ghostState = null
+      invalidateSidePanel()
+      return
+    }
+    const entityName = ghostState.entityName
+    ghostState.spawnPending = true
+    sendCanvasMsg('click', sample, 'spawn', [entityName])
+    return
+  }
+
+  if (event.target !== foregroundCanvas) {
+    event.preventDefault()
+    ghostState = null
+    clearMenuSelection()
+    menuDragActive = false
+    mouseOverOverlay = false
+    overlayStayOpen = false
+    invalidateSidePanel()
+  }
+})
+
+// Any non-right-click outside the canvas cancels pending placement.
+document.addEventListener('mousedown', (event: MouseEvent) => {
+  if (event.button === 2 || !ghostState?.pending) return
+  if (event.target === foregroundCanvas) return
+  ghostState = null
+  clearMenuSelection()
+  menuDragActive = false
+  mouseOverOverlay = false
+  overlayStayOpen = false
+  invalidateSidePanel()
+})
+
+// Track ghost world position globally during a menu drag or a move drag.
+window.addEventListener('mousemove', (event: MouseEvent) => {
+  if (!ghostState || (!menuDragActive && !moveDragActive)) return
+  const rect = foregroundCanvas.getBoundingClientRect()
+  const canvasX = (event.clientX - rect.left) * (foregroundCanvas.width / rect.width)
+  const canvasY = (event.clientY - rect.top) * (foregroundCanvas.height / rect.height)
+  const [worldX, worldY] = canvasToWorld(canvasX, canvasY)
+  ghostState.worldCircle.x = worldX
+  ghostState.worldCircle.y = worldY
+  if (menuDragActive) {
+    sendPlacementPreview('dragmove', eventToCanvasSample(event), ghostState.entityName)
+  } else if (moveDragActive) {
+    sendCanvasMsg('dragmove', eventToCanvasSample(event), 'moving')
+  }
+})
+
+// Overlay mousedown: select a build menu cell and arm a drag (ghost appears on
+// first mousemove so it never flashes at the canvas origin).
+overlayCanvas.addEventListener('mousedown', (event: MouseEvent) => {
+  if (event.button !== 0) return
+
+  const sample = eventToCanvasSample(event)
+
+  // When the build menu is not visible, allow a click whose world-space
+  // coordinates land on a defender to route to that defender instead.
+  // If the build menu IS visible it occupies the entire overlay canvas, so
+  // clicks must never pass through to defenders behind the panel.
+  if (!shouldShowBuildMenu()) {
+    if (armOverlayDefenderInteraction(sample)) event.preventDefault()
+    return
+  }
+  event.preventDefault()
+
+  const panelScale = Math.min(
+    foregroundCanvas.width / DEFAULT_CANVAS_W,
+    foregroundCanvas.height / DEFAULT_CANVAS_H,
+  )
+  const cellSize = Math.floor((overlayCanvas.width - 2) / MENU_COLS)
+  const bodyTop = 70 * panelScale
+  const rect = overlayCanvas.getBoundingClientRect()
+  const localX = (event.clientX - rect.left) * (overlayCanvas.width / rect.width)
+  const localY = (event.clientY - rect.top) * (overlayCanvas.height / rect.height)
+
+  if (localY < bodyTop) {
+    // Click in title area. If at defender level and left half, go back.
+    if (selectedCategory !== null && localX < overlayCanvas.width * 0.5) {
+      selectedCategory = null
+      selectedMenuIndex = null
+      menuScrollOffset = 0
+      hoveredMenuIndex = null
+      invalidateSidePanel()
+      return
+    }
+    selectedMenuIndex = null
+    invalidateSidePanel()
+    return
+  }
+  const col = Math.floor(localX / cellSize)
+  const row = Math.floor((localY - bodyTop) / cellSize)
+  if (col < 0 || col >= MENU_COLS) return
+
+  const items = currentMenuItems()
+  const index = menuScrollOffset * MENU_COLS + row * MENU_COLS + col
+  if (index >= items.length) {
+    // Click below last populated cell — deselect.
+    selectedMenuIndex = null
+    invalidateSidePanel()
+    return
+  }
+
+  if (selectedCategory === null) {
+    // Top level: navigate into the tapped category.
+    const cat = items[index] as CategoryItem
+    selectedCategory = cat.name
+    selectedMenuIndex = null
+    menuScrollOffset = 0
+    hoveredMenuIndex = null
+    invalidateSidePanel()
+    return
+  }
+
+  // Defender level: arm ghost drag.
+  selectedMenuIndex = index
+  menuDragActive = true
+  mouseOverOverlay = false
+  overlayStayOpen = false
+
+  // Create the ghost immediately at the current mouse position so it appears
+  // as soon as the mouse enters the foreground canvas, with no lag.
+  const item = items[index] as DefenderMenuItem
+  const fgRect = foregroundCanvas.getBoundingClientRect()
+  const fgCanvasX = (event.clientX - fgRect.left) * (foregroundCanvas.width / fgRect.width)
+  const fgCanvasY = (event.clientY - fgRect.top) * (foregroundCanvas.height / fgRect.height)
+  const [worldX, worldY] = canvasToWorld(fgCanvasX, fgCanvasY)
+  ghostState = {
+    entityName: item.entityName,
+    displayName: item.displayName,
+    appearance: appearanceToRender(item.appearance),
+    worldCircle: {
+      x: worldX,
+      y: worldY,
+      radius: item.appearance.attackRadius,
+    },
+    confirmCommand: 'spawn',
+    pending: false,
+    placeable: true,
+    spawnPending: false,
+  }
+  sendPlacementPreview('dragstart', sample, item.entityName)
+  clearMenuSelection()
+  invalidateSidePanel()
+})
+
+// Scroll the build menu with the mouse wheel.
+overlayCanvas.addEventListener('wheel', (event: WheelEvent) => {
+  event.preventDefault()
+  const items = currentMenuItems()
+  if (items.length === 0) return
+  const totalRows = Math.ceil(items.length / MENU_COLS)
+  const maxScroll = Math.max(0, totalRows - MENU_VISIBLE_ROWS)
+  menuScrollOffset = Math.max(0, Math.min(maxScroll,
+    menuScrollOffset + (event.deltaY > 0 ? 1 : -1)))
+  invalidateSidePanel()
+}, { passive: false })
+
+// Track hovered menu cell for flavor-text info box.
+overlayCanvas.addEventListener('mousemove', (event: MouseEvent) => {
+  if (!shouldShowBuildMenu()) return
+  const panelScale = Math.min(
+    foregroundCanvas.width / DEFAULT_CANVAS_W,
+    foregroundCanvas.height / DEFAULT_CANVAS_H,
+  )
+  const cellSize = Math.floor((overlayCanvas.width - 2) / MENU_COLS)
+  const bodyTop = 70 * panelScale
+  const rect = overlayCanvas.getBoundingClientRect()
+  const localX = (event.clientX - rect.left) * (overlayCanvas.width / rect.width)
+  const localY = (event.clientY - rect.top) * (overlayCanvas.height / rect.height)
+
+  let newHovered: number | null = null
+  if (localY >= bodyTop) {
+    const col = Math.floor(localX / cellSize)
+    const row = Math.floor((localY - bodyTop) / cellSize)
+    if (col >= 0 && col < MENU_COLS) {
+      const index = menuScrollOffset * MENU_COLS + row * MENU_COLS + col
+      const items = currentMenuItems()
+      if (index < items.length) newHovered = index
+    }
+  }
+  if (newHovered !== hoveredMenuIndex) {
+    hoveredMenuIndex = newHovered
+    invalidateSidePanel()
+  }
+})
+
+overlayCanvas.addEventListener('mouseleave', () => {
+  if (hoveredMenuIndex !== null) {
+    hoveredMenuIndex = null
+    invalidateSidePanel()
+  }
+})
+
+// Glyph hotkeys navigate the two-level build menu during the build phase.
+document.addEventListener('keydown', (event: KeyboardEvent) => {
+  if (currentPhase !== 'build' || menuDragActive) return
+  if (event.ctrlKey || event.altKey || event.metaKey) return
+
+  if (event.key === 'Tab') {
+    if (getSidePanelModel() === null && defenderMenuItems.length === 0) return
+    event.preventDefault()
+    if (getSidePanelModel() === null) {
+      if (selectedCategory !== null) {
+        resetBuildMenuToTopLevel()
+        openBuildMenuFromKeyboard()
+      } else if (getOverlayLevel() !== 'hidden') {
+        closeBuildMenuFromKeyboard()
+      } else {
+        openBuildMenuFromKeyboard()
+      }
+    } else {
+      mouseOverOverlay = true
+      overlayStayOpen = true
+      invalidateSidePanel()
+    }
+    return
+  }
+
+  if (ghostState || selectedDefenderPosition !== null || defenderMenuItems.length === 0) return
+  openBuildMenuFromKeyboard()
+
+  const hotkey = normalizeMenuHotkey(event.key)
+  if (hotkey === null) return
+
+  if (selectedCategory === null) {
+    // Top level: navigate into the category whose glyph matches.
+    const cat = categoryItems.find(c => menuGlyphMatchesHotkey(c.appearance.glyph, hotkey))
+    if (cat) {
+      event.preventDefault()
+      selectedCategory = cat.name
+      selectedMenuIndex = null
+      menuScrollOffset = 0
+      hoveredMenuIndex = null
+      invalidateSidePanel()
+    }
+  } else {
+    // Defender level: spawn the same pending ghost produced by a mouse drop.
+    const defenders = currentMenuItems() as DefenderMenuItem[]
+    const match = defenders.find(d => menuGlyphMatchesHotkey(d.appearance.glyph, hotkey))
+    if (match) {
+      event.preventDefault()
+      dropDefenderGhostAtPointer(match)
+    }
+  }
+})
+
+// Bring the UI into sync with the current DOM/layout state before the first
+// animation frame.
+updateFullscreenButtonLabel()
+resizeViewport()
 requestAnimationFrame(frame)

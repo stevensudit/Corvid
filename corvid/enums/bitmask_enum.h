@@ -604,7 +604,7 @@ consteval auto make_bitmask_enum_spec() {
 // hex, in combination with the known part of the value, if any.
 template<ScopedEnum E, strings::fixed_string bit_names,
     wrapclip bitclip = wrapclip{}>
-[[nodiscard]] constexpr auto make_bitmask_enum_values_spec() {
+[[nodiscard]] consteval auto make_bitmask_enum_values_spec() {
   constexpr auto name_array = strings::fixed_split<bit_names>();
   constexpr auto trimmed_names =
       strings::fixed_split_trim<bit_names, " -?*">();

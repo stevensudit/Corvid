@@ -20,6 +20,15 @@ export type UiCanvasEvent =
 
 export type UiButton = 'left' | 'middle' | 'right' | 'other'
 
+export interface Position {
+  x: number
+  y: number
+}
+
+export interface Circle extends Position {
+  radius: number
+}
+
 export interface EntityPosition {
   id: number
   x: number
@@ -31,6 +40,13 @@ export interface EntityAppearance {
   radius: number
   fg: number
   bg: number
+  attackRadius: number
+  trailColor?: number
+}
+
+export interface EntityHealth {
+  current: number
+  max: number
 }
 
 export interface EntityVisualEffects {
@@ -38,7 +54,28 @@ export interface EntityVisualEffects {
   rangeRadius: number
   range: number
   flash: number
-  flashExpiryMs: number
+  flashExpiryTick: number
+  cooldown: number
+  cooldownExpiryTick: number
+  cooldownDurationTick: number
+}
+
+export interface TransientExplosion {
+  circle: Circle
+  expiryTick: number
+  primaryColor: number
+  secondaryColor: number
+}
+
+export interface TransientBeam {
+  circle: Circle
+  expiryTick: number
+  primaryColor: number
+  secondaryColor: number
+  targetPos: Position
+  lineWidth: number
+  halfAngleDeg: number
+  coneRadius: number
 }
 
 interface PathPoint {
@@ -46,10 +83,43 @@ interface PathPoint {
   y: number
 }
 
+interface MapDesign {
+  backgroundSprite: string
+  foregroundSprite: string
+  pathWidth: number
+  paths: PathPoint[]
+}
+
+export interface CategoryItem {
+  name: string
+  displayName: string
+  flavorText: string
+  appearance: EntityAppearance
+}
+
+export interface DefenderMenuItem {
+  entityName: string
+  displayName: string
+  category: string
+  flavorText: string
+  resourceCost: number
+  appearance: EntityAppearance
+  totalDamageDealt?: number  // Only present on selected-defender summaries.
+  totalKills?: number
+}
+
+export interface UiState {
+  placementAllowed?: boolean
+  spawnAllowed?: boolean
+  selectedDefender?: Position
+  defenderSummary?: DefenderMenuItem
+}
+
 export interface EntityUpsert {
   pos: EntityPosition
   app?: EntityAppearance
   vfx?: EntityVisualEffects
+  health?: EntityHealth
 }
 
 export interface UiCanvasMsg {
@@ -66,6 +136,8 @@ export interface UiCanvasMsg {
   ctrl: boolean
   alt: boolean
   meta: boolean
+  command?: string
+  parameters?: string[]
 }
 
 export interface UiActionMsg {
@@ -80,14 +152,20 @@ export interface WorldDelta {
   tick: number
   upserts: EntityUpsert[]
   erased: number[]
+  transientExplosions: TransientExplosion[]
+  transientBeams: TransientBeam[]
+  currentWave: number
   lives: number
   resources: number
   phase: string
+  uiState: UiState
 }
 
 export interface WorldSnapshot {
   type: 'world_snapshot'
-  paths: PathPoint[]
+  mapDesign: MapDesign
+  defenderMenu: DefenderMenuItem[]
+  categories: CategoryItem[]
   delta: WorldDelta
 }
 

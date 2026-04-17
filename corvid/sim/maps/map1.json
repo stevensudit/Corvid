@@ -1,0 +1,1009 @@
+{
+  "categories": [
+    {
+      "name": "area",
+      "displayName": "Area",
+      "flavorText": "Damages all enemies within a radius.",
+      "appearance": {
+        "glyph": 65,
+        "radius": 28.0,
+        "fgColor": "0xFFFFFFFF",
+        "bgColor": "0x7F7FFFFF"
+      }
+    },
+    {
+      "name": "shooter",
+      "displayName": "Shooter",
+      "flavorText": "Fires projectiles at individual targets.",
+      "appearance": {
+        "glyph": 83,
+        "radius": 28.0,
+        "fgColor": "0xFFFFFFFF",
+        "bgColor": "0x107F50FF"
+      }
+    },
+    {
+      "name": "laser",
+      "displayName": "Laser",
+      "flavorText": "Instantly damages a single target with a beam.",
+      "appearance": {
+        "glyph": 76,
+        "radius": 28.0,
+        "fgColor": "0xFFFFFFFF",
+        "bgColor": "0x7F7F3FFF"
+      }
+    }
+  ],
+  "entities": [
+    {
+      "entityName": "InvaderAlphaBasic",
+      "position": {},
+      "appearance": {
+        "glyph": 945,
+        "radius": 30.0,
+        "fgColor": "0xFFFFFFFF",
+        "bgColor": "0x000000FF"
+      },
+      "visualEffects": {},
+      "pathing": {
+        "speed": 50.0
+      },
+      "invader": {
+        "hitCircleRadius": 30.0,
+        "bounty": 10
+      },
+      "health": {
+        "currentHealth": 50.0,
+        "maxHealth": 50.0,
+        "regen": 10.0
+      }
+    },
+    {
+      "entityName": "InvaderBetaBasic",
+      "position": {},
+      "appearance": {
+        "glyph": 946,
+        "radius": 40.0,
+        "fgColor": "0xFFFFFFFF",
+        "bgColor": "0x000000FF"
+      },
+      "visualEffects": {},
+      "pathing": {
+        "speed": 30.0
+      },
+      "invader": {
+        "hitCircleRadius": 40.0,
+        "bounty": 25
+      },
+      "health": {
+        "currentHealth": 120.0,
+        "maxHealth": 120.0,
+        "regen": 12.0
+      }
+    },
+    {
+      "entityName": "DefenderAoeBasic",
+      "displayName": "Basic Area",
+      "category": "area",
+      "menuOrder": 1,
+      "flavorText": "Damages all enemies in range.",
+      "resourceCost": 50,
+      "position": {},
+      "appearance": {
+        "glyph": 66,
+        "radius": 30.0,
+        "fgColor": "0xFFFFFFFF",
+        "bgColor": "0x7F7FFFFF",
+        "attackRadius": 100.0
+      },
+      "visualEffects": {
+        "flashColor": "0xFF7F7FFF",
+        "flashExpiry": 5
+      },
+      "defender": {
+        "hitCircleRadius": 30.0,
+        "attackRadius": 100.0,
+        "rangeColor": "0xFFFF00FF",
+        "attackDamage": 6.0,
+        "cooldown": 20
+      },
+      "defenderStats": {},
+      "health": {
+        "currentHealth": 100.0,
+        "maxHealth": 100.0,
+        "regen": 0.0
+      },
+      "defenderAoe": {
+        "damageType": 1
+      }
+    },
+    {
+      "entityName": "DefenderAoeFlasher",
+      "displayName": "Flasher",
+      "category": "area",
+      "menuOrder": 2,
+      "flavorText": "Wide range, short cooldown, low damage.",
+      "resourceCost": 75,
+      "position": {},
+      "appearance": {
+        "glyph": 70,
+        "radius": 30.0,
+        "fgColor": "0xFFFFFFFF",
+        "bgColor": "0x7F7FFFFF",
+        "attackRadius": 160.0
+      },
+      "visualEffects": {
+        "flashColor": "0xFF7F7FFF",
+        "flashExpiry": 5
+      },
+      "defender": {
+        "hitCircleRadius": 30.0,
+        "attackRadius": 160.0,
+        "rangeColor": "0xFFFF00FF",
+        "attackDamage": 3.0,
+        "cooldown": 10
+      },
+      "defenderStats": {},
+      "health": {
+        "currentHealth": 100.0,
+        "maxHealth": 100.0,
+        "regen": 0.0
+      },
+      "defenderAoe": {
+        "damageType": 1
+      }
+    },
+    {
+      "entityName": "DefenderAoeMine",
+      "displayName": "Mine",
+      "category": "area",
+      "menuOrder": 3,
+      "flavorText": "Medium range, high cooldown, high damage.",
+      "resourceCost": 100,
+      "position": {},
+      "appearance": {
+        "glyph": 77,
+        "radius": 20.0,
+        "fgColor": "0xFFFFFFFF",
+        "bgColor": "0x7F7FFFFF",
+        "attackRadius": 120.0
+      },
+      "visualEffects": {
+        "flashColor": "0xFF7F7FFF",
+        "flashExpiry": 5
+      },
+      "defender": {
+        "hitCircleRadius": 20.0,
+        "attackRadius": 120.0,
+        "rangeColor": "0xFFFF00FF",
+        "attackDamage": 12.0,
+        "cooldown": 20
+      },
+      "defenderStats": {},
+      "health": {
+        "currentHealth": 100.0,
+        "maxHealth": 100.0,
+        "regen": 0.0
+      },
+      "defenderAoe": {
+        "damageType": 1
+      }
+    },
+    {
+      "entityName": "DefenderShooterPistol",
+      "displayName": "Pistol",
+      "category": "shooter",
+      "menuOrder": 1,
+      "flavorText": "Fires projectiles at a single target.",
+      "resourceCost": 75,
+      "position": {},
+      "appearance": {
+        "glyph": 80,
+        "radius": 25.0,
+        "fgColor": "0xFFFFFFFF",
+        "bgColor": "0x107F50FF",
+        "attackRadius": 150.0
+      },
+      "visualEffects": {
+        "flashColor": "0xFF7FFF7F",
+        "flashExpiry": 5
+      },
+      "defender": {
+        "hitCircleRadius": 25.0,
+        "attackRadius": 150.0,
+        "rangeColor": "0xFF00FFFF",
+        "attackDamage": 15.0,
+        "cooldown": 30
+      },
+      "defenderStats": {},
+      "health": {
+        "currentHealth": 80.0,
+        "maxHealth": 80.0,
+        "regen": 0.0
+      },
+      "defenderShooter": {
+        "fireRate": 0.033,
+        "bullet": {
+          "hitCircleRadius": 8.0,
+          "speed": 100.0,
+          "directDamage": 25.0,
+          "projectileType": 1,
+          "expiry": 5
+        },
+        "muzzleFlash": {
+          "radius": 25.0,
+          "expiry": 3,
+          "primaryColor": "0xFFFFC0FF",
+          "halfAngleDeg": 25.0,
+          "coneRadius": 50.0
+        }
+      }
+    },
+    {
+      "entityName": "DefenderShooterSniper",
+      "displayName": "Sniper",
+      "category": "shooter",
+      "menuOrder": 2,
+      "flavorText": "Long range, slow fire rate, big damage.",
+      "resourceCost": 100,
+      "position": {},
+      "appearance": {
+        "glyph": 83,
+        "radius": 20.0,
+        "fgColor": "0xFFFFFFFF",
+        "bgColor": "0x107F50FF",
+        "attackRadius": 450.0
+      },
+      "visualEffects": {
+        "flashColor": "0xFF7FFF7F",
+        "flashExpiry": 5
+      },
+      "defender": {
+        "hitCircleRadius": 20.0,
+        "attackRadius": 450.0,
+        "rangeColor": "0xFF00FFFF",
+        "attackDamage": 200.0,
+        "cooldown": 120
+      },
+      "defenderStats": {},
+      "health": {
+        "currentHealth": 80.0,
+        "maxHealth": 80.0,
+        "regen": 0.0
+      },
+      "defenderShooter": {
+        "fireRate": 0.033,
+        "bullet": {
+          "hitCircleRadius": 8.0,
+          "speed": 100.0,
+          "directDamage": 25.0,
+          "projectileType": 1,
+          "expiry": 20
+        },
+        "muzzleFlash": {
+          "radius": 25.0,
+          "expiry": 3,
+          "primaryColor": "0xFFFFC0FF",
+          "halfAngleDeg": 15.0,
+          "coneRadius": 75.0
+        }
+      }
+    },
+    {
+      "entityName": "DefenderHitscanBasic",
+      "displayName": "Basic Laser",
+      "category": "laser",
+      "menuOrder": 1,
+      "flavorText": "Instantly damages a single target with a laser beam.",
+      "resourceCost": 100,
+      "position": {},
+      "appearance": {
+        "glyph": 76,
+        "radius": 25.0,
+        "fgColor": "0xFFFFFFFF",
+        "bgColor": "0x7F7F3FFF",
+        "attackRadius": 200.0
+      },
+      "visualEffects": {
+        "flashColor": "0xFFFF4040",
+        "flashExpiry": 3
+      },
+      "defender": {
+        "hitCircleRadius": 25.0,
+        "attackRadius": 200.0,
+        "rangeColor": "0xFFFF00FF",
+        "attackDamage": 30.0,
+        "cooldown": 25
+      },
+      "defenderStats": {},
+      "health": {
+        "currentHealth": 75.0,
+        "maxHealth": 75.0,
+        "regen": 0.0
+      },
+      "defenderHitscan": {
+        "radius": 25.0,
+        "expiry": 3,
+        "primaryColor": "0xFFFF4040",
+        "secondaryColor": "0xFFFFD080",
+        "lineWidth": 8.0
+      }
+    },
+    {
+      "entityName": "DefenderHitscanZapper",
+      "displayName": "Zapper",
+      "category": "laser",
+      "menuOrder": 2,
+      "flavorText": "Short range, fast fire rate, small damage.",
+      "resourceCost": 100,
+      "position": {},
+      "appearance": {
+        "glyph": 90,
+        "radius": 40.0,
+        "fgColor": "0xFFFFFFFF",
+        "bgColor": "0x7F7F3FFF",
+        "attackRadius": 100.0
+      },
+      "visualEffects": {
+        "flashColor": "0xFFFF4040",
+        "flashExpiry": 3
+      },
+      "defender": {
+        "hitCircleRadius": 40.0,
+        "attackRadius": 100.0,
+        "rangeColor": "0xFFFF00FF",
+        "attackDamage": 15.0,
+        "cooldown": 5
+      },
+      "defenderStats": {},
+      "health": {
+        "currentHealth": 75.0,
+        "maxHealth": 75.0,
+        "regen": 0.0
+      },
+      "defenderHitscan": {
+        "radius": 40.0,
+        "expiry": 3,
+        "primaryColor": "0xFFFF4040",
+        "secondaryColor": "0xFFFFD080",
+        "lineWidth": 8.0
+      }
+    },
+    {
+      "entityName": "DefenderHitscanCannon",
+      "displayName": "Pulse Cannon",
+      "category": "laser",
+      "menuOrder": 3,
+      "flavorText": "Long range, slow fire rate, big damage.",
+      "resourceCost": 100,
+      "position": {},
+      "appearance": {
+        "glyph": 67,
+        "radius": 25.0,
+        "fgColor": "0xFFFFFFFF",
+        "bgColor": "0x7F7F3FFF",
+        "attackRadius": 250.0
+      },
+      "visualEffects": {
+        "flashColor": "0xFFFF4040",
+        "flashExpiry": 3
+      },
+      "defender": {
+        "hitCircleRadius": 25.0,
+        "attackRadius": 250.0,
+        "rangeColor": "0xFFFF00FF",
+        "attackDamage": 60.0,
+        "cooldown": 15
+      },
+      "defenderStats": {},
+      "health": {
+        "currentHealth": 75.0,
+        "maxHealth": 75.0,
+        "regen": 0.0
+      },
+      "defenderHitscan": {
+        "radius": 25.0,
+        "expiry": 3,
+        "primaryColor": "0xFFFF4040",
+        "secondaryColor": "0xFFFFD080",
+        "lineWidth": 8.0
+      }
+    }
+  ],
+  "paths": [
+    {
+      "width": 40.0,
+      "joints": [
+        {
+          "x": 0.00,
+          "y": 0.00
+        },
+        {
+          "x": 213.33,
+          "y": 0.00
+        },
+        {
+          "x": 213.33,
+          "y": 120.00
+        },
+        {
+          "x": -213.33,
+          "y": 120.00
+        },
+        {
+          "x": -213.33,
+          "y": -120.00
+        },
+        {
+          "x": 426.67,
+          "y": -120.00
+        },
+        {
+          "x": 426.67,
+          "y": 240.00
+        },
+        {
+          "x": -426.67,
+          "y": 240.00
+        },
+        {
+          "x": -426.67,
+          "y": -240.00
+        },
+        {
+          "x": 640.00,
+          "y": -240.00
+        },
+        {
+          "x": 640.00,
+          "y": 360.00
+        },
+        {
+          "x": -640.00,
+          "y": 360.00
+        },
+        {
+          "x": -640.00,
+          "y": -360.00
+        },
+        {
+          "x": 853.33,
+          "y": -360.00
+        },
+        {
+          "x": 853.33,
+          "y": 480.00
+        },
+        {
+          "x": -853.33,
+          "y": 480.00
+        },
+        {
+          "x": -853.33,
+          "y": -480.00
+        },
+        {
+          "x": 960.00,
+          "y": -480.00
+        }
+      ]
+    }
+  ],
+  "waves": [
+    {
+      "resourceInflux": 0,
+      "enemies": [
+        {
+          "tick": 0,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 20,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 40,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 60,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 80,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 100,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 120,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 140,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 160,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 180,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 200,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 220,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 240,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 260,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 280,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 300,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 320,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 340,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 360,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 380,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        }
+      ]
+    },
+    {
+      "resourceInflux": 150,
+      "enemies": [
+        {
+          "tick": 0,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 15,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 30,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 45,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 60,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 75,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 90,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 105,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 120,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 135,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 150,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 165,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 180,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 195,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 210,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 225,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 240,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 255,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 270,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 285,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 300,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 315,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 330,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 345,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 360,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 375,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 390,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 405,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 420,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 435,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 450,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 465,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 480,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 495,
+          "label": "InvaderBetaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 510,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        }
+      ]
+    },
+    {
+      "resourceInflux": 250,
+      "enemies": [
+        {
+          "tick": 0,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 10,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 20,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 30,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 40,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 50,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 60,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 70,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 80,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 90,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 100,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 110,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 120,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 130,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 140,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 150,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 160,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 170,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 180,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 190,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 200,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 210,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 220,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 230,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 240,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 250,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 260,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 270,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 280,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 290,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 300,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 310,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 320,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 330,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 340,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 350,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 360,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 370,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 380,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 390,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 400,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 410,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 420,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 430,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        },
+        {
+          "tick": 440,
+          "label": "InvaderAlphaBasic",
+          "pathId": 0
+        }
+      ]
+    }
+  ]
+}

@@ -371,7 +371,7 @@ struct sequence_enum_names_spec
 // printed.
 template<ScopedEnum E, strings::fixed_string names,
     wrapclip wrapseq = wrapclip{}, E minseq = E{}>
-[[nodiscard]] constexpr auto make_sequence_enum_spec() {
+[[nodiscard]] consteval auto make_sequence_enum_spec() {
   constexpr auto name_array = strings::fixed_split_trim<names, " -?*">();
   constexpr auto name_count = name_array.size();
   constexpr auto maxseq = E{as_underlying(minseq) + name_count - 1};
@@ -389,7 +389,7 @@ template<ScopedEnum E, strings::fixed_string names,
 //
 // The numerical value is printed.
 template<ScopedEnum E, E maxseq, E minseq = E{}, wrapclip wrapseq = wrapclip{}>
-[[nodiscard]] constexpr auto make_sequence_enum_spec() {
+[[nodiscard]] consteval auto make_sequence_enum_spec() {
   return sequence_enum_spec<E, maxseq, minseq, wrapseq>{};
 }
 

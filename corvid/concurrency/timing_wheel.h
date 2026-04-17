@@ -91,7 +91,7 @@ public:
   // All slots in the wheel, indexed by the tick position.
   using slots_t = std::vector<slot_t>;
 
-  // Default slot count covers ~60 s at 100ms per slot.
+  // Default slot count covers ~60s at 100ms per slot.
   static constexpr size_t default_slot_count{600};
 
   // Default resolution: one 100ms slot per tick.
@@ -121,6 +121,12 @@ public:
   timing_wheel& operator=(const timing_wheel&) = delete;
   timing_wheel& operator=(timing_wheel&&) = delete;
 
+  // Return the maximum delay this wheel can schedule. Attempts to schedule a
+  // delay beyond this value will fail; they will not be capped.
+  [[nodiscard]] duration_t max_delay() const noexcept {
+    return tick_interval_ * static_cast<int>(slots_.size() - 1);
+  }
+
   // Schedule `callback` to fire after `delay`. Thread-safe.
   //
   // Returns false if `delay` exceeds `(slot_count - 1) * tick_interval`;
@@ -131,9 +137,7 @@ public:
   // firing time is rounded to the next slot boundary after that, and only
   // occurs after all previous callbacks have fired.
   [[nodiscard]] bool schedule(eventfn callback, duration_t delay) {
-    const auto max_delay =
-        tick_interval_ * static_cast<int>(slots_.size() - 1);
-    if (delay > max_delay) return false;
+    if (delay > max_delay()) return false;
     delay = std::max(delay, tick_interval_);
     const auto ticks_ahead = static_cast<size_t>(delay / tick_interval_);
 
