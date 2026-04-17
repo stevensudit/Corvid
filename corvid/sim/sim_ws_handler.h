@@ -71,7 +71,7 @@ public:
       do_close();
     };
     (void)enable_keepalive(loop, wheel, 20s, 5s);
-    (void)game_.loadMap();
+    if (!game_.loadMap()) throw std::runtime_error("Failed to load map");
     std::cout << "WebSocket client connected\n";
   }
 
