@@ -35,6 +35,7 @@
 #include "../concurrency/jthread_stoppable_sleep.h"
 #include "../concurrency/notifiable.h"
 #include "../concurrency/tombstone.h"
+#include "../concurrency/relaxed_atomic.h"
 #include "../containers/scoped_value.h"
 #include "../containers/scope_exit.h"
 #include "../containers/opt_find.h"
@@ -221,12 +222,10 @@ public:
   // When a thread pool finishes work, it calls `post` to bring the result
   // back to the loop thread.
   [[nodiscard]] bool post(std::function<bool()> fn) {
-    {
-      // This lock not only protects the current queue from concurrent posts,
-      // but also ensures that we don't post to the wrong queue during a swap.
-      std::scoped_lock lock{post_mutex_};
-      active_queue_.load(std::memory_order_relaxed)->push_back(std::move(fn));
-    }
+    // This lock not only protects the current queue from concurrent posts,
+    // but also ensures that we don't post to the wrong queue during a swap.
+    if (std::scoped_lock lock{post_mutex_}; true)
+      (*active_queue_)->push_back(std::move(fn));
     return wake();
   }
 
@@ -473,10 +472,10 @@ private:
       // Lock so nobody can post to the queue we're about to swap out.
       // The actual swap could have been atomic without a lock.
       std::scoped_lock lock{post_mutex_};
-      pending = active_queue_.load(std::memory_order_relaxed);
+      pending = active_queue_;
       post_queue_t* other =
           (pending == &post_queues_[0]) ? &post_queues_[1] : &post_queues_[0];
-      active_queue_.store(other, std::memory_order_relaxed);
+      active_queue_ = other;
     }
     if (execute)
       for (auto& fn : *pending) (void)fn();
@@ -541,7 +540,7 @@ private:
 
   std::mutex post_mutex_;
   post_queue_t post_queues_[2];
-  std::atomic<post_queue_t*> active_queue_{&post_queues_[0]};
+  relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
   const std::chrono::milliseconds post_and_wait_poll_interval_;
 
   tombstone has_run_;

@@ -26,6 +26,7 @@
 
 #include "../../concurrency/jthread_stoppable_sleep.h"
 #include "../../concurrency/notifiable.h"
+#include "../../concurrency/relaxed_atomic.h"
 #include "../../containers/scope_exit.h"
 #include "../../containers/scoped_value.h"
 #include "iou_wrap.h"
@@ -53,10 +54,21 @@ using namespace std::chrono_literals;
 //
 // `stop()` is safe to call from any thread.
 //
-// `iou_loop` is non-copyable and non-movable: the ring contains kernel-mapped
-// memory with self-referential pointers.
-class iou_loop: std::enable_shared_from_this<iou_loop> {
+// `iou_basic_loop` is non-copyable and non-movable: the ring contains
+// kernel-mapped memory with self-referential pointers.
+//
+// The `RING_SIZE` template parameter controls the number of SQE slots, where
+// there are 2X CQE slots. The `SLOT_COUNT` controls the maximum number of
+// in-flight operations, which must be less than or equal to the number of CQE
+// slots.
+template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
+class iou_basic_loop
+    : std::enable_shared_from_this<iou_basic_loop<RING_SIZE, SLOT_COUNT>> {
   enum class allow : bool { ctor };
+  static_assert((RING_SIZE & (RING_SIZE - 1)) == 0,
+      "RING_SIZE must be a power of two");
+  static_assert(SLOT_COUNT <= RING_SIZE * 2,
+      "SLOT_COUNT must be less than or equal to the number of CQE slots");
 
 public:
   using duration_t = std::chrono::milliseconds;
@@ -73,24 +85,24 @@ public:
   // Construct a loop with `ring_size` SQE slots (must be a power of two).
   // Throws `std::system_error` if the ring or wakeup `eventfd` cannot be
   // created.
-  explicit iou_loop(allow, unsigned ring_size = 256,
+  explicit iou_basic_loop(allow,
       duration_t post_and_wait_poll_interval =
           default_post_and_wait_poll_interval)
-      : ring_{ring_size}, wake_fd_{event_fd::create()},
+      : ring_{RING_SIZE}, wake_fd_{event_fd::create()},
         post_and_wait_poll_interval_{post_and_wait_poll_interval} {}
 
-  ~iou_loop() = default;
+  ~iou_basic_loop() = default;
 
-  iou_loop(const iou_loop&) = delete;
-  iou_loop& operator=(const iou_loop&) = delete;
-  iou_loop(iou_loop&&) = delete;
-  iou_loop& operator=(iou_loop&&) = delete;
+  iou_basic_loop(const iou_basic_loop&) = delete;
+  iou_basic_loop& operator=(const iou_basic_loop&) = delete;
+  iou_basic_loop(iou_basic_loop&&) = delete;
+  iou_basic_loop& operator=(iou_basic_loop&&) = delete;
 
-  // Create a heap-allocated `iou_loop` managed by `std::shared_ptr`.
-  [[nodiscard]] static std::shared_ptr<iou_loop> make(unsigned ring_size = 256,
+  // Create a heap-allocated `iou_basic_loop` managed by `std::shared_ptr`.
+  [[nodiscard]] static std::shared_ptr<iou_basic_loop> make(
       duration_t post_and_wait_poll_interval =
           default_post_and_wait_poll_interval) {
-    return std::make_shared<iou_loop>(allow::ctor, ring_size,
+    return std::make_shared<iou_basic_loop>(allow::ctor,
         post_and_wait_poll_interval);
   }
 
@@ -103,17 +115,15 @@ public:
   // for its lifetime. `run()` does this internally; call it manually before
   // using `run_once()` directly (e.g., in tests).
   [[nodiscard]] auto poll_thread_scope() const {
-    return scoped_value<const iou_loop*>{current_loop_, this};
+    return scoped_value<const iou_basic_loop*>{current_loop_, this};
   }
 
   // Schedule `fn` to run on the loop thread at the top of the next
   // `run_once`. Safe to call from any thread. Writes to the internal
   // `eventfd` to wake the loop if it is blocked waiting for CQEs.
   [[nodiscard]] bool post(posted_fn_t fn) {
-    {
-      std::scoped_lock lock{post_mutex_};
-      active_queue_.load(std::memory_order_relaxed)->push_back(std::move(fn));
-    }
+    if (std::scoped_lock lock{post_mutex_}; true)
+      (*active_queue_)->push_back(std::move(fn));
     return do_wake();
   }
 
@@ -167,11 +177,11 @@ public:
 
   // Run the loop on the calling thread until `stop()` is called.
   void run() {
-    stop_.store(false, std::memory_order_relaxed);
+    stop_.store(false, std::memory_order::relaxed);
     const auto scope = poll_thread_scope();
     running_.notify(true);
     scope_exit on_exit{[&] { running_.notify(false); }};
-    while (!stop_.load(std::memory_order_acquire))
+    while (!stop_.load(std::memory_order::acquire))
       (void)run_once(default_run_once_timeout);
   }
 
@@ -203,7 +213,7 @@ public:
   // Signal the loop to exit after the current `run_once` returns. Writes to
   // the `eventfd` to interrupt a sleeping wait. Safe to call from any thread.
   void stop() noexcept {
-    stop_.store(true, std::memory_order_release);
+    stop_.store(true, std::memory_order::release);
     (void)do_wake();
   }
 
@@ -241,12 +251,11 @@ private:
   void do_drain_post_queue() {
     assert(is_loop_thread());
     post_queue_t* pending;
-    {
-      std::scoped_lock lock{post_mutex_};
-      pending = active_queue_.load(std::memory_order_relaxed);
+    if (std::scoped_lock lock{post_mutex_}; true) {
+      pending = active_queue_;
       post_queue_t* other =
           (pending == &post_queues_[0]) ? &post_queues_[1] : &post_queues_[0];
-      active_queue_.store(other, std::memory_order_relaxed);
+      active_queue_ = other;
     }
     for (auto& fn : *pending) fn();
     pending->clear();
@@ -269,6 +278,8 @@ private:
 
   [[nodiscard]] bool do_wake() noexcept { return wake_fd_.notify(); }
 
+  using post_queue_t = std::vector<posted_fn_t>;
+
   // Members are declared in initialization order.
 
   iou_ring ring_;
@@ -279,37 +290,42 @@ private:
   char wake_tag_{};
   bool wake_poll_armed_{false};
 
-  inline static thread_local const iou_loop* current_loop_{nullptr};
+  inline static thread_local const iou_basic_loop* current_loop_{nullptr};
 
   std::atomic_bool stop_{false};
   notifiable<std::atomic_bool> running_{false};
 
   std::mutex post_mutex_;
-  using post_queue_t = std::vector<posted_fn_t>;
   post_queue_t post_queues_[2];
-  std::atomic<post_queue_t*> active_queue_{&post_queues_[0]};
+  relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
 
   const std::chrono::milliseconds post_and_wait_poll_interval_;
 };
 
-// Runs an `iou_loop` in its own background thread.
+// Alias for the common case of default template parameters.
+using iou_loop = iou_basic_loop<>;
+
+// Runs an `iou_basic_loop` in its own background thread.
 //
 // Shutdown ordering: call `stop` (or destroy the runner) before destroying
 // any object that a pending `post` callback might reference.
-class iou_loop_runner {
+template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
+class iou_basic_loop_runner {
 public:
-  explicit iou_loop_runner(unsigned ring_size = 256,
+  using loop_t = iou_basic_loop<RING_SIZE, SLOT_COUNT>;
+
+  explicit iou_basic_loop_runner(
       std::chrono::milliseconds post_and_wait_poll_interval =
-          iou_loop::default_post_and_wait_poll_interval)
-      : loop_{iou_loop::make(ring_size, post_and_wait_poll_interval)},
+          loop_t::default_post_and_wait_poll_interval)
+      : loop_{loop_t::make(post_and_wait_poll_interval)},
         thread_{[this](const std::stop_token& st) { run(st); }} {
     if (!loop_->wait_until_running(1000)) {
       thread_.request_stop();
-      throw std::runtime_error("iou_loop_runner failed to start");
+      throw std::runtime_error("iou_basic_loop_runner failed to start");
     }
   }
 
-  ~iou_loop_runner() {
+  ~iou_basic_loop_runner() {
     thread_.request_stop();
     if (!thread_.joinable()) return;
     // If the last shared_ptr owner is a callback on the loop thread, the
@@ -320,19 +336,19 @@ public:
       thread_.join();
   }
 
-  iou_loop_runner(const iou_loop_runner&) = delete;
-  iou_loop_runner& operator=(const iou_loop_runner&) = delete;
-  iou_loop_runner(iou_loop_runner&&) = delete;
-  iou_loop_runner& operator=(iou_loop_runner&&) = delete;
+  iou_basic_loop_runner(const iou_basic_loop_runner&) = delete;
+  iou_basic_loop_runner& operator=(const iou_basic_loop_runner&) = delete;
+  iou_basic_loop_runner(iou_basic_loop_runner&&) = delete;
+  iou_basic_loop_runner& operator=(iou_basic_loop_runner&&) = delete;
 
   // Signal the loop thread to exit. Idempotent. Also called by the destructor.
   void stop() { thread_.request_stop(); }
 
-  [[nodiscard]] const std::shared_ptr<iou_loop>& loop() noexcept {
+  [[nodiscard]] const std::shared_ptr<loop_t>& loop() noexcept {
     return loop_;
   }
-  [[nodiscard]] operator iou_loop&() noexcept { return *loop_; }
-  [[nodiscard]] iou_loop* operator->() noexcept { return loop_.get(); }
+  [[nodiscard]] operator loop_t&() noexcept { return *loop_; }
+  [[nodiscard]] loop_t* operator->() noexcept { return loop_.get(); }
 
 private:
   void run(const std::stop_token& st) {
@@ -344,8 +360,11 @@ private:
     loop->run();
   }
 
-  std::shared_ptr<iou_loop> loop_;
+  std::shared_ptr<loop_t> loop_;
   std::jthread thread_;
 };
+
+// Alias for the common case of default template parameters.
+using iou_loop_runner = iou_basic_loop_runner<>;
 
 }}} // namespace corvid::proto::iouring
