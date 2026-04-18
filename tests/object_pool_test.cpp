@@ -251,12 +251,13 @@ void ObjectPool_DetachAndReattach() {
     EXPECT_TRUE(h);
     int* item = h.get();
 
-    auto detached = pool.detach(h);
+    auto detached = pool.detach(std::move(h));
     EXPECT_FALSE(h);
     EXPECT_EQ(detached, item);
     EXPECT_FALSE(pool.borrow()); // detached slot is still out of the pool
 
-    auto h2 = pool.reattach(detached);
+    // NOLINTNEXTLINE(performance-move-const-arg)
+    auto h2 = pool.reattach(std::move(detached));
     EXPECT_TRUE(h2);
     EXPECT_EQ(h2.get(), item);
 
@@ -268,7 +269,8 @@ void ObjectPool_DetachAndReattach() {
   if (true) {
     object_pool<int, 1> pool;
     int outside{};
-    auto h = pool.reattach(&outside);
+    // NOLINTNEXTLINE(performance-move-const-arg)
+    auto h = pool.reattach(std::move(&outside));
     EXPECT_FALSE(h);
   }
 }

@@ -29,6 +29,7 @@
 #include "../../concurrency/relaxed_atomic.h"
 #include "../../containers/scope_exit.h"
 #include "../../containers/scoped_value.h"
+#include "../../containers/object_pool.h"
 #include "iou_wrap.h"
 
 namespace corvid { inline namespace proto { inline namespace iouring {
@@ -64,12 +65,6 @@ using namespace std::chrono_literals;
 template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
 class iou_basic_loop
     : std::enable_shared_from_this<iou_basic_loop<RING_SIZE, SLOT_COUNT>> {
-  enum class allow : bool { ctor };
-  static_assert((RING_SIZE & (RING_SIZE - 1)) == 0,
-      "RING_SIZE must be a power of two");
-  static_assert(SLOT_COUNT <= RING_SIZE * 2,
-      "SLOT_COUNT must be less than or equal to the number of CQE slots");
-
 public:
   using duration_t = std::chrono::milliseconds;
 
@@ -82,6 +77,15 @@ public:
   // Callback scheduled via `post` to run on the loop thread.
   using posted_fn_t = std::function<bool()>;
 
+private:
+  enum class allow : bool { ctor };
+  static_assert((RING_SIZE & (RING_SIZE - 1)) == 0,
+      "RING_SIZE must be a power of two");
+  static_assert(SLOT_COUNT <= RING_SIZE * 2,
+      "SLOT_COUNT must be less than or equal to the number of CQE slots");
+  using completion_cb_pool_t = object_pool<completion_fn, SLOT_COUNT>;
+
+public:
   // Construct a loop with `ring_size` SQE slots (must be a power of two).
   // Throws `std::system_error` if the ring or wakeup `eventfd` cannot be
   // created.
@@ -203,10 +207,11 @@ public:
       if (cqe.get_data_ptr() == &wake_tag_) {
         (void)wake_fd_.read();
         wake_poll_armed_ = false;
-      } else if (cqe.dispatch<completion_fn>())
+      } else if (do_dispatch(cqe))
         ++dispatched;
       return true;
     });
+    (void)total;
     return dispatched;
   }
 
@@ -226,23 +231,26 @@ public:
 private:
   // Get an SQE, prepare it via `prep`, attach `cb` as user data, and submit.
   // Returns false if the SQ is full.
-  template<typename Prep>
-  [[nodiscard]] bool do_submit(Prep prep, completion_fn cb) {
+  [[nodiscard]] bool do_submit(auto&& prep, completion_fn&& cb) {
     auto sqe = ring_.next_sqe();
     if (!sqe) return false;
     prep(sqe);
-    sqe.set_data_pointer(new completion_fn(std::move(cb)));
-    return ring_.submit().ok(1);
+    // Use a pool to persist `cb`. If we submit successfully, we detach to take
+    // full ownership.
+    auto borrowed_cb = completion_cb_pool_.borrow();
+    if (!borrowed_cb) return sqe.prep_nop() && false;
+    *borrowed_cb = std::move(cb);
+    sqe.set_data_pointer(borrowed_cb.get());
+    if (!ring_.submit().ok(1)) return sqe.prep_nop() && false;
+    return completion_cb_pool_.detach(std::move(borrowed_cb)) || true;
   }
 
-  static bool do_dispatch(iou_cqe cqe) noexcept {
-    bool ok{};
-    auto* cb = cqe.get_data_ptr<completion_fn>();
-    if (cb) {
-      ok = (*cb)(iou_res{cqe.res()});
-      delete cb;
-    }
-    return ok;
+  bool do_dispatch(iou_cqe cqe) noexcept {
+    auto* raw_cb = cqe.get_data_ptr<completion_fn>();
+    if (!raw_cb) return false;
+    auto cb = completion_cb_pool_.reattach(std::move(raw_cb));
+    if (!cb) return false;
+    return (cb.value())(iou_res{cqe.res()});
   }
 
   // Atomically swap out the active post queue, then execute and clear it
@@ -298,6 +306,7 @@ private:
   std::mutex post_mutex_;
   post_queue_t post_queues_[2];
   relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
+  completion_cb_pool_t completion_cb_pool_;
 
   const std::chrono::milliseconds post_and_wait_poll_interval_;
 };

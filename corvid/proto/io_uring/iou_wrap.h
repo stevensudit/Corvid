@@ -76,22 +76,29 @@ public:
 
   [[nodiscard]] bool ok() const noexcept { return sqe_; }
 
-  void prep_nop() noexcept { io_uring_prep_nop(sqe_); }
+  bool prep_nop() noexcept {
+    io_uring_prep_nop(sqe_);
+    return true;
+  }
 
-  void prep_poll_oneshot(int fd, short poll_mask = POLLIN) noexcept {
+  bool prep_poll_oneshot(int fd, short poll_mask = POLLIN) noexcept {
     io_uring_prep_poll_add(sqe_, fd, poll_mask);
+    return true;
   }
 
-  void prep_poll_multishot(int fd, short poll_mask = POLLIN) noexcept {
+  bool prep_poll_multishot(int fd, short poll_mask = POLLIN) noexcept {
     io_uring_prep_poll_multishot(sqe_, fd, poll_mask);
+    return true;
   }
 
-  void set_data_pointer(void* data) noexcept {
+  bool set_data_pointer(void* data) noexcept {
     io_uring_sqe_set_data(sqe_, data);
+    return true;
   }
 
-  void set_data_int(uint64_t data) noexcept {
+  bool set_data_int(uint64_t data) noexcept {
     io_uring_sqe_set_data64(sqe_, data);
+    return true;
   }
 
 private:
@@ -126,18 +133,6 @@ public:
 
   [[nodiscard]] uint64_t get_data_int() const noexcept {
     return io_uring_cqe_get_data64(cqe_);
-  }
-
-  // TODO: This goes away.
-  template<typename T = std::function<bool(iou_res)>>
-  [[nodiscard]] bool dispatch() const noexcept {
-    bool ok{};
-    auto* cb = get_data_ptr<T>();
-    if (cb) {
-      ok = (*cb)(res());
-      delete cb;
-    }
-    return ok;
   }
 
 private:

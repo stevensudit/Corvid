@@ -163,7 +163,7 @@ public:
   // necessary, as when it must be `void*`. Once you call this, you become
   // fully responsible for using `reattach` to return the item to the pool.
   // Otherwise, it will leak, eventually leading to a lack of available slots.
-  [[nodiscard]] T* detach(borrowed& h) noexcept {
+  [[nodiscard]] T* detach(borrowed&& h) noexcept {
     assert(h.pool_ == this);
     h.pool_ = nullptr;
     return std::exchange(h.item_, nullptr);
@@ -171,11 +171,13 @@ public:
 
   // Reattach item to a new handle. Useful after `detach()`. Returns empty if
   // the item is not from this pool, which "should never happen", so check the
-  // results.
-  [[nodiscard]] borrowed reattach(T* item) noexcept {
+  // results. Nulls out the input.
+  // NOLINTBEGIN(performance-move-const-arg)
+  [[nodiscard]] borrowed reattach(T*&& item) noexcept {
     if (!is_in_pool(item)) return {};
-    return {this, item};
+    return {this, std::exchange(item, nullptr)};
   }
+  // NOLINTEND(performance-move-const-arg)
 
 private:
   [[nodiscard]] index_t slot_from_item(const T* item) const noexcept {
