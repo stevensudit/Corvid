@@ -15,11 +15,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include <cstddef>
 #include <liburing.h>
 
+#include <cstddef>
 #include <chrono>
 #include <system_error>
+
+#include <poll.h>
 
 #include "../../filesys/event_fd.h"
 
@@ -38,7 +40,7 @@ public:
   [[nodiscard]] operator bool() const noexcept { return ok(); }
   [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
-  [[nodiscard]] bool ok() const noexcept { return res_ >= 0; }
+  [[nodiscard]] bool ok(int32_t r = 0) const noexcept { return res_ >= r; }
   [[nodiscard]] int32_t value() const noexcept { return res_; }
   [[nodiscard]] int err() const noexcept { return -res_; }
 
@@ -58,11 +60,70 @@ private:
   int32_t res_;
 };
 
+// Completion queue event. Wrapper for `io_uring_cqe*`.
+class iou_cqe {
+public:
+  using ptr_t = io_uring_cqe*;
+
+  iou_cqe() = default;
+  explicit iou_cqe(ptr_t cqe) : cqe_(cqe) {}
+
+  [[nodiscard]] operator bool() const noexcept { return cqe_ != nullptr; }
+  [[nodiscard]] bool operator!() const noexcept { return cqe_ == nullptr; }
+
+  [[nodiscard]] ptr_t get() const noexcept { return cqe_; }
+  [[nodiscard]] ptr_t* get_ptr() noexcept { return &cqe_; }
+
+  [[nodiscard]] bool ok() const noexcept { return cqe_ != nullptr; }
+
+  [[nodiscard]] int32_t res() const noexcept { return cqe_->res; }
+  [[nodiscard]] uint64_t user_data() const noexcept { return cqe_->user_data; }
+  [[nodiscard]] uint32_t flags() const noexcept { return cqe_->flags; }
+
+  template<typename T = void>
+  [[nodiscard]] T* get_data() const noexcept {
+    return static_cast<T*>(io_uring_cqe_get_data(cqe_));
+  }
+
+private:
+  ptr_t cqe_{};
+};
+
+// Submission queue event. Wrapper for `io_uring_sqe*`.
+class iou_sqe {
+public:
+  using ptr_t = io_uring_sqe*;
+
+  iou_sqe() = default;
+  explicit iou_sqe(ptr_t sqe) : sqe_(sqe) {}
+
+  [[nodiscard]] operator bool() const noexcept { return sqe_ != nullptr; }
+  [[nodiscard]] bool operator!() const noexcept { return sqe_ == nullptr; }
+
+  [[nodiscard]] ptr_t get() const noexcept { return sqe_; }
+  [[nodiscard]] ptr_t* get_ptr() noexcept { return &sqe_; }
+
+  void prep_poll_oneshot(int fd, short poll_mask = POLLIN) noexcept {
+    io_uring_prep_poll_add(sqe_, fd, poll_mask);
+  }
+
+  void prep_poll_multishot(int fd, short poll_mask = POLLIN) noexcept {
+    io_uring_prep_poll_multishot(sqe_, fd, poll_mask);
+  }
+
+  void prep_nop() noexcept { io_uring_prep_nop(sqe_); }
+
+  void set_data(void* data) noexcept { io_uring_sqe_set_data(sqe_, data); }
+
+private:
+  ptr_t sqe_{};
+};
+
 // Wrapper over `io_uring`.
 class iou_ring {
 public:
   using duration_t = std::chrono::milliseconds;
-  using cqe_ptr = io_uring_cqe*;
+  using cqe_rawptr = io_uring_cqe*;
 
   // Construct and initialize an io_uring with the given `ring_size` and
   // `flags`.
@@ -92,10 +153,11 @@ public:
   }
 
   // Wait for a CQE to become available, with an optional timeout.
-  [[nodiscard]] iou_res
-  wait_cqe_timeout(cqe_ptr& cqe, duration_t timeout = {}) {
+  // (We do not return the CQE pointer, even though it's filled.)
+  [[nodiscard]] iou_res wait_cqe_timeout(duration_t timeout = {}) {
+    iou_cqe cqe;
     auto ts = to_timespec(timeout);
-    return iou_res(io_uring_wait_cqe_timeout(&ring_, &cqe, &ts));
+    return iou_res{io_uring_wait_cqe_timeout(&ring_, cqe.get_ptr(), &ts)};
   }
 
   // Loop over available CQEs, calling `fn` on each. Advances the CQ head by
@@ -104,15 +166,19 @@ public:
   // number of CQEs processed.
   [[nodiscard]] size_t for_each_cqe(auto&& fn) {
     size_t count{};
-    cqe_ptr cqe;
+    iou_cqe::ptr_t cqe;
     unsigned head;
     io_uring_for_each_cqe(&ring_, head, cqe) {
-      (void)fn(cqe);
+      (void)fn(iou_cqe{cqe});
       ++count;
     }
-    io_uring_cq_advance(&ring_, head);
+    io_uring_cq_advance(&ring_, count);
     return count;
   }
+
+  iou_res submit() noexcept { return iou_res{io_uring_submit(&ring_)}; }
+
+  iou_sqe get_sqe() noexcept { return iou_sqe{io_uring_get_sqe(&ring_)}; }
 
 private:
   io_uring ring_{};

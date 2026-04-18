@@ -24,8 +24,6 @@
 #include <thread>
 #include <vector>
 
-#include <poll.h>
-
 #include "../../concurrency/jthread_stoppable_sleep.h"
 #include "../../concurrency/notifiable.h"
 #include "../../containers/scope_exit.h"
@@ -177,24 +175,22 @@ public:
       (void)run_once(default_run_once_timeout);
   }
 
-  // Process one batch of completions, waiting up to `timeout` for the first.
-  // Drains the post queue first, then arms the wake poll if needed. Returns
-  // the number of user completions dispatched (internal wakeups excluded).
-  // Returns 0 on timeout or signal. Must be called on the loop thread.
+  // Process one batch of completions, waiting up to `timeout`. Drains the post
+  // queue first, then arms the wake poll if needed. Returns the number of user
+  // completions dispatched (internal wakeups excluded). Returns 0 on timeout
+  // or signal. Must be called on the loop thread.
   [[nodiscard]] size_t run_once(duration_t timeout = {}) {
     assert(is_loop_thread());
     do_drain_post_queue();
-    if (!wake_poll_armed_) do_arm_wake_poll();
+    ensure_wake_poll_armed();
 
-    iou_ring::cqe_ptr cqe{nullptr};
-    auto res = ring_.wait_cqe_timeout(cqe, timeout);
+    auto res = ring_.wait_cqe_timeout(timeout);
     if (res.is_soft_error()) return 0;
-    res.throw_if_error("io_uring_wait_cqe_timeout");
+    res.throw_if_error("wait_cqe_timeout");
 
-    unsigned head;
     size_t dispatched{};
-    size_t total = ring_.for_each_cqe([&](iou_ring::cqe_ptr cqe) {
-      if (io_uring_cqe_get_data(cqe) == &wake_tag_) {
+    size_t total = ring_.for_each_cqe([&](iou_cqe cqe) {
+      if (cqe.get_data() == &wake_tag_) {
         (void)wake_fd_.read();
         wake_poll_armed_ = false;
       } else {
@@ -216,8 +212,7 @@ public:
   // Submit a no-op that completes immediately with `res` == 0. Useful for
   // verifying ring plumbing. Returns false if the SQ is full.
   [[nodiscard]] bool submit_nop(completion_fn cb) {
-    return do_submit([](io_uring_sqe* sqe) { io_uring_prep_nop(sqe); },
-        std::move(cb));
+    return do_submit([](iou_sqe sqe) { sqe.prep_nop(); }, std::move(cb));
   }
 
 private:
@@ -225,19 +220,21 @@ private:
   // Returns false if the SQ is full.
   template<typename Prep>
   [[nodiscard]] bool do_submit(Prep prep, completion_fn cb) {
-    io_uring_sqe* sqe = io_uring_get_sqe(ring_.get_ptr());
+    auto sqe = ring_.get_sqe();
     if (!sqe) return false;
     prep(sqe);
-    io_uring_sqe_set_data(sqe, new completion_fn(std::move(cb)));
-    return io_uring_submit(ring_.get_ptr()) > 0;
+    sqe.set_data(new completion_fn(std::move(cb)));
+    return ring_.submit().ok(1);
   }
 
-  void do_dispatch(iou_ring::cqe_ptr cqe) noexcept {
-    auto* cb = static_cast<completion_fn*>(io_uring_cqe_get_data(cqe));
+  static bool do_dispatch(iou_cqe cqe) noexcept {
+    bool ok{};
+    auto* cb = cqe.get_data<completion_fn>();
     if (cb) {
-      (*cb)(iou_res{cqe->res});
+      ok = (*cb)(iou_res{cqe.res()});
       delete cb;
     }
+    return ok;
   }
 
   // Atomically swap out the active post queue, then execute and clear it
@@ -263,12 +260,13 @@ private:
   // rearmed after each wakeup. If the SQ is full, `wake_poll_armed_` stays
   // false; the 10ms fallback timeout in `run()` covers this case, and the
   // arm is retried on the next `run_once` iteration.
-  void do_arm_wake_poll() {
-    io_uring_sqe* sqe = io_uring_get_sqe(ring_.get_ptr());
+  void ensure_wake_poll_armed() {
+    if (wake_poll_armed_) return;
+    auto sqe = ring_.get_sqe();
     if (!sqe) return;
-    io_uring_prep_poll_add(sqe, wake_fd_.handle(), POLLIN);
-    io_uring_sqe_set_data(sqe, &wake_tag_);
-    if (io_uring_submit(ring_.get_ptr()) > 0) wake_poll_armed_ = true;
+    sqe.prep_poll_oneshot(wake_fd_.handle(), POLLIN);
+    sqe.set_data(&wake_tag_);
+    if (ring_.submit().ok(1)) wake_poll_armed_ = true;
   }
 
   [[nodiscard]] bool do_wake() noexcept { return wake_fd_.notify(); }
