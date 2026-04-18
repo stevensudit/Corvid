@@ -32,8 +32,8 @@ namespace corvid { inline namespace proto { inline namespace iouring {
 // Pool of pre-registered fixed I/O buffers backed by a single 2 MB huge page.
 //
 // The entire 2 MB block is registered with the kernel as one entry in the
-// io_uring fixed-buffer table (`buf_index` = 0). The kernel pins these pages
-// once at registration time via `register_with`, avoiding per-operation
+// `io_uring` fixed-buffer table (`buf_index` = 0). The kernel pins these pages
+// once at registration time, via `register_with`, avoiding per-operation
 // pinning overhead.
 //
 // Internally the memory is managed by a three-tier slab allocator with O(1)
@@ -46,10 +46,9 @@ namespace corvid { inline namespace proto { inline namespace iouring {
 // `alloc_write` is unconstrained (it may use any available memory, including
 // the write reserve).
 //
-// `iou_dma_buf_pool` is non-copyable and non-movable: the token's `pool_`
-// pointer must remain valid for its lifetime. Always own the pool as a member
-// of a heap-allocated object (e.g., `iou_basic_loop`).
-class iou_dma_buf_pool {
+// `iou_buf_pool` is non-copyable and non-movable. The pool must outlive
+// all uses of the memory it manages, and the `buffer` objects it hands out.
+class iou_buf_pool {
 private:
   static constexpr size_t HUGE_PAGE_SIZE = 2UL * 1024 * 1024; // 2 MB
   static constexpr size_t SMALL_SIZE = 4UL * 1024;            // 4 KB
@@ -75,21 +74,34 @@ public:
   // the pool on destruction or `reset()`. `buf_index()` is always 0;
   // `offset()` gives the byte distance from the huge page base for
   // file-offset SQE fields.
-  class token {
+  //
+  // For read buffers, the `read_span` is initially empty, and `update()` sets
+  // its length to the byte count on completion. The `active_span` starts off
+  // as the full buffer, but after `update`, it is the remainder of the buffer.
+  // This allows doing another read to fill the tail of the buffer.
+  //
+  // For write buffers, the `write_span` starts off as the full buffer, but
+  // `update_write_span` sets its length to the payload size. The `active_span`
+  // is the payload portion. After a write, `write_span` becomes the unsent
+  // tail, if any. This allows doing another write to send the rest of the
+  // buffer.
+  class buffer {
   public:
-    token() = default;
-    ~token() { reset(); }
+    buffer() = default;
+    ~buffer() { reset(); }
 
-    token(token&& o) noexcept
+    buffer(buffer&& o) noexcept
         : pool_{std::exchange(o.pool_, nullptr)},
-          full_span_{std::exchange(o.full_span_, {})}, res_{o.res_},
+          full_span_{std::exchange(o.full_span_, {})},
+          active_span_{std::exchange(o.active_span_, {})}, res_{o.res_},
           is_read_{o.is_read_} {}
 
-    token& operator=(token&& o) noexcept {
+    buffer& operator=(buffer&& o) noexcept {
       if (this != &o) {
         reset();
         pool_ = std::exchange(o.pool_, nullptr);
         full_span_ = std::exchange(o.full_span_, {});
+        active_span_ = std::exchange(o.active_span_, {});
         res_ = o.res_;
         is_read_ = o.is_read_;
       }
@@ -99,10 +111,10 @@ public:
     // Copyable enough to satisfy `std::function`, but throws if you actually
     // try to copy it. This will no longer be necessary once
     // `std::move_only_function` becomes available.
-    token(const token&) {
-      throw std::logic_error("iou_dma_buf_pool::token is not copyable");
+    buffer(const buffer&) {
+      throw std::logic_error("iou_buf_pool::buffer is not copyable");
     }
-    token& operator=(const token&) = delete;
+    buffer& operator=(const buffer&) = delete;
 
     [[nodiscard]] explicit operator bool() const noexcept { return res_; }
 
@@ -114,17 +126,18 @@ public:
     // portion.
     [[nodiscard]] std::span<std::byte> write_span() noexcept {
       assert(!is_read_);
-      return full_span_.first(res_.bytes());
+      return active_span_;
     }
 
     // After filling the start of the buffer with the payload, call this to
     // update the span to point to just that portion.
-    [[nodiscard]] token& update_write_span(
+    [[nodiscard]] buffer& update_write_span(
         std::span<std::byte> payload) noexcept {
       assert(!is_read_);
       assert(payload.data() == full_span_.data());
       assert(payload.size() <= full_span_.size());
       res_ = iou_res{static_cast<int32_t>(payload.size())};
+      active_span_ = payload;
       return *this;
     }
 
@@ -147,7 +160,7 @@ public:
     // Update with the result of completion. On error, the span becomes
     // effectively empty; on success, the span is updated to the byte count.
     // Returns self for chaining.
-    [[nodiscard]] token& update(iou_res res) noexcept {
+    [[nodiscard]] buffer& update(iou_res res) noexcept {
       res_ = res;
       return *this;
     }
@@ -169,7 +182,7 @@ public:
       return static_cast<uint64_t>(full_span_.data() - pool_->base_);
     }
 
-    // Return the allocation to the pool immediately; token becomes empty.
+    // Return the allocation to the pool immediately; buffer becomes empty.
     void reset() noexcept {
       if (!pool_) return;
       pool_->do_return(full_span_, is_read_);
@@ -179,9 +192,9 @@ public:
     }
 
   private:
-    friend class iou_dma_buf_pool;
+    friend class iou_buf_pool;
 
-    token(iou_dma_buf_pool* pool, std::span<std::byte> span,
+    buffer(iou_buf_pool* pool, std::span<std::byte> span,
         bool is_read) noexcept
         : pool_{pool}, full_span_{span}, is_read_{is_read} {
       if (is_read_)
@@ -190,8 +203,9 @@ public:
         res_ = iou_res{static_cast<int32_t>(span.size())};
     }
 
-    iou_dma_buf_pool* pool_{};
+    iou_buf_pool* pool_{};
     std::span<std::byte> full_span_;
+    std::span<std::byte> active_span_;
     iou_res res_;
     bool is_read_{};
   };
@@ -199,7 +213,7 @@ public:
   // Allocate and warm the 2 MB backing store. Falls back to a plain
   // `MAP_ANONYMOUS` mapping if `MAP_HUGETLB` is unavailable (e.g., WSL2
   // without huge pages configured). Throws `std::system_error` on failure.
-  iou_dma_buf_pool() {
+  iou_buf_pool() {
     void* p = ::mmap(nullptr, HUGE_PAGE_SIZE, PROT_READ | PROT_WRITE,
         MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE, -1, 0);
     // Retry without huge pages.
@@ -216,29 +230,29 @@ public:
     do_init_free_lists();
   }
 
-  ~iou_dma_buf_pool() {
+  ~iou_buf_pool() {
     if (base_) ::munmap(base_, HUGE_PAGE_SIZE);
   }
 
-  iou_dma_buf_pool(const iou_dma_buf_pool&) = delete;
-  iou_dma_buf_pool& operator=(const iou_dma_buf_pool&) = delete;
-  iou_dma_buf_pool(iou_dma_buf_pool&&) = delete;
-  iou_dma_buf_pool& operator=(iou_dma_buf_pool&&) = delete;
+  iou_buf_pool(const iou_buf_pool&) = delete;
+  iou_buf_pool& operator=(const iou_buf_pool&) = delete;
+  iou_buf_pool(iou_buf_pool&&) = delete;
+  iou_buf_pool& operator=(iou_buf_pool&&) = delete;
 
   // Register the 2 MB block as a single fixed buffer (index 0) with `ring`.
-  // Must be called exactly once before any token is used in an I/O
+  // Must be called exactly once before any buffer is used in an I/O
   // submission. Returns false (and sets `errno`) on failure.
   [[nodiscard]] bool register_with(iou_ring& ring) noexcept {
     iovec iov{base_, HUGE_PAGE_SIZE};
     return ring.register_buffers(&iov, 1);
   }
 
-  // Borrow a slab for an incoming read. Returns an empty token if:
+  // Borrow a slab for an incoming read. Returns an empty buffer if:
   //   - the pool has fewer than WRITE_RESERVE bytes free after this alloc,
   //   or
   //   - in-flight read bytes would exceed READ_THROTTLE.
   // Thread-safe.
-  [[nodiscard]] token alloc_read(block_size sz = block_size::small) noexcept {
+  [[nodiscard]] buffer alloc_read(block_size sz = block_size::small) noexcept {
     std::lock_guard lock{mutex_};
     const auto len = static_cast<size_t>(sz);
     if (available_bytes_ < WRITE_RESERVE + len) return {};
@@ -254,9 +268,10 @@ public:
   }
 
   // Borrow a slab for an outgoing write. Not subject to read backpressure;
-  // may draw from the write reserve. Returns an empty token if fully
+  // may draw from the write reserve. Returns an empty buffer if fully
   // exhausted. Thread-safe.
-  [[nodiscard]] token alloc_write(block_size sz = block_size::small) noexcept {
+  [[nodiscard]] buffer alloc_write(
+      block_size sz = block_size::small) noexcept {
     std::lock_guard lock{mutex_};
     const auto len = static_cast<size_t>(sz);
     void* p = do_alloc_block(len);
@@ -272,11 +287,11 @@ public:
     return available_bytes_;
   }
 
-  // Access the full span of the buffer for a token. This is a backdoor for
+  // Access the full span of the buffer for a buffer. This is a backdoor for
   // `iou_loop`.
-  [[nodiscard]] std::span<std::byte> access_full_span(token& tok) noexcept {
-    assert(tok.pool_ == this);
-    return tok.full_span_;
+  [[nodiscard]] std::span<std::byte> access_full_span(buffer& buf) noexcept {
+    assert(buf.pool_ == this);
+    return buf.full_span_;
   }
 
 private:

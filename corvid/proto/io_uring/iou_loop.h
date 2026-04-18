@@ -71,7 +71,7 @@ class iou_basic_loop
     : std::enable_shared_from_this<iou_basic_loop<RING_SIZE, SLOT_COUNT>> {
 public:
   using duration_t = std::chrono::milliseconds;
-  using block_size = iou_dma_buf_pool::block_size;
+  using block_size = iou_buf_pool::block_size;
 
   static constexpr duration_t default_run_once_timeout{10};
   static constexpr duration_t default_post_and_wait_poll_interval{100};
@@ -82,10 +82,10 @@ public:
   // Callback scheduled via `post` to run on the loop thread.
   using posted_fn_t = std::function<bool()>;
 
-  using buf_pool_t = iou_dma_buf_pool;
+  using buf_pool_t = iou_buf_pool;
 
   // RAII handle to a registered buffer slot. See `iou_dma_buf_pool::token`.
-  using token = iou_dma_buf_pool::token;
+  using token = iou_buf_pool::buffer;
 
   // Completion callback for `submit_recv_fixed`: receives the filled buffer
   // token and the byte count. The token is returned to the pool when the
