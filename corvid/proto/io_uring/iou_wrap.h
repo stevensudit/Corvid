@@ -91,6 +91,34 @@ public:
     return true;
   }
 
+  bool prep_recv(int fd, void* buf, size_t len, int flags = 0) noexcept {
+    io_uring_prep_recv(sqe_, fd, buf, len, flags);
+    return true;
+  }
+
+  bool prep_send(int fd, const void* buf, size_t len, int flags = 0) noexcept {
+    io_uring_prep_send(sqe_, fd, buf, len, flags);
+    return true;
+  }
+
+  // Read into a pre-registered fixed buffer. `buf_index` is the slot index
+  // from `io_uring_register_buffers`. For sockets, `offset` is ignored.
+  bool prep_read_fixed(int fd, void* buf, size_t len, size_t buf_index,
+      uint64_t offset = 0) noexcept {
+    io_uring_prep_read_fixed(sqe_, fd, buf, static_cast<unsigned>(len),
+        static_cast<off_t>(offset), static_cast<int>(buf_index));
+    return true;
+  }
+
+  // Write from a pre-registered fixed buffer. `buf_index` is the slot index
+  // from `io_uring_register_buffers`. For sockets, `offset` is ignored.
+  bool prep_write_fixed(int fd, const void* buf, size_t len, size_t buf_index,
+      uint64_t offset = 0) noexcept {
+    io_uring_prep_write_fixed(sqe_, fd, buf, static_cast<unsigned>(len),
+        static_cast<off_t>(offset), static_cast<int>(buf_index));
+    return true;
+  }
+
   bool set_data_pointer(void* data) noexcept {
     io_uring_sqe_set_data(sqe_, data);
     return true;
@@ -202,6 +230,16 @@ public:
   // Submit filled SQEs to the kernel. Returns an `iou_res` with the number of
   // SQEs submitted, or an error. An `ok(n)` on the result is a good idea.
   iou_res submit() noexcept { return iou_res{io_uring_submit(&ring_)}; }
+
+  // Register a fixed buffer table with the kernel. `iovecs` points to an
+  // array of `count` `iovec` entries describing the pre-allocated buffers.
+  // Each entry's `iov_base`/`iov_len` defines one registered slot used by
+  // `read_fixed`/`write_fixed`. Returns false (with `errno` set) on failure.
+  [[nodiscard]] bool
+  register_buffers(const iovec* iovecs, size_t count) noexcept {
+    return io_uring_register_buffers(&ring_, iovecs,
+               static_cast<unsigned>(count)) == 0;
+  }
 
 private:
   io_uring ring_{};

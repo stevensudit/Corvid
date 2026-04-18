@@ -18,7 +18,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <string_view>
 #include <thread>
+#include <sys/socket.h>
 
 #define MINITEST_SHOW_TIMERS 0
 #include "minitest.h"
@@ -123,12 +125,109 @@ void IouLoop_PostAndWait() {
 
     const bool ok = runner->post_and_wait([&] {
       ran.store(true, std::memory_order::relaxed);
+      return true;
     });
     EXPECT_TRUE(ok);
     EXPECT_TRUE(ran.load());
   }
 }
 
+void IouLoop_RecvSend() {
+  // Submit a recv and a send over a Unix socket pair; confirm the payload
+  // arrives and the byte counts are correct.
+  if (true) {
+    int raw_sv[2];
+    EXPECT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, raw_sv), 0);
+    os_file send_sock{raw_sv[0]};
+    os_file recv_sock{raw_sv[1]};
+
+    iou_loop_runner runner;
+    std::atomic_bool received{false};
+    std::atomic<int32_t> recv_result{-1};
+    std::atomic<int32_t> send_result{-1};
+
+    constexpr std::string_view msg{"hello"};
+    std::array<std::byte, 16> buf{};
+
+    const bool ok = runner->post_and_wait([&] {
+      bool r = runner->submit_recv(recv_sock, buf, [&](iou_res res) {
+        recv_result.store(res.value(), std::memory_order::relaxed);
+        received.store(true, std::memory_order::release);
+        return true;
+      });
+      if (!r) return false;
+      return runner->submit_send(send_sock, std::as_bytes(std::span{msg}),
+          [&](iou_res res) {
+            send_result.store(res.value(), std::memory_order::relaxed);
+            return true;
+          });
+    });
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(
+        WaitFor([&] { return received.load(std::memory_order::acquire); }));
+
+    EXPECT_EQ(recv_result.load(), static_cast<int32_t>(msg.size()));
+    EXPECT_EQ(send_result.load(), static_cast<int32_t>(msg.size()));
+    EXPECT_EQ(
+        std::string_view(reinterpret_cast<const char*>(buf.data()), msg.size()),
+        msg);
+  }
+}
+
+void IouLoop_RecvSendFixed() {
+  // Submit a recv_fixed and a send_fixed over a Unix socket pair using
+  // registered buffers; confirm the payload arrives and byte counts match.
+  if (true) {
+    int sv[2];
+    EXPECT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, sv), 0);
+
+    iou_loop_runner runner;
+    std::atomic_bool received{false};
+    std::atomic<int32_t> recv_n{-1};
+    std::atomic<int32_t> send_n{-1};
+    std::string payload;
+
+    constexpr std::string_view msg{"hello-fixed"};
+
+    const bool ok = runner->post_and_wait([&] {
+      // Submit recv_fixed on sv[1]; the loop picks a buffer from its pool.
+      bool r = runner->submit_recv_fixed(sv[1],
+          [&](iou_loop::token tok, iou_res res) mutable {
+            recv_n.store(res.value(), std::memory_order::relaxed);
+            if (res) {
+              auto data = tok.span(static_cast<size_t>(res.value()));
+              payload.assign(reinterpret_cast<const char*>(data.data()),
+                  data.size());
+            }
+            received.store(true, std::memory_order::release);
+            return true;
+          });
+      if (!r) return false;
+
+      // Allocate a send buffer, fill it, submit send_fixed on sv[0].
+      auto tok = runner->alloc_buf();
+      if (!tok) return false;
+      std::memcpy(tok.span().data(), msg.data(), msg.size());
+      return runner->submit_send_fixed(sv[0], std::move(tok), msg.size(),
+          [&](iou_res res) {
+            send_n.store(res.value(), std::memory_order::relaxed);
+            return true;
+          });
+    });
+    EXPECT_TRUE(ok);
+    EXPECT_TRUE(
+        WaitFor([&] { return received.load(std::memory_order::acquire); }));
+
+    EXPECT_EQ(recv_n.load(), static_cast<int32_t>(msg.size()));
+    EXPECT_EQ(send_n.load(), static_cast<int32_t>(msg.size()));
+    EXPECT_EQ(payload, msg);
+
+    close(sv[0]);
+    close(sv[1]);
+  }
+}
+
 // NOLINTEND(readability-function-cognitive-complexity)
 MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
-    IouLoop_StopFromThread, IouLoop_PostFromThread, IouLoop_PostAndWait)
+    IouLoop_StopFromThread, IouLoop_PostFromThread, IouLoop_PostAndWait,
+    IouLoop_RecvSend, IouLoop_RecvSendFixed)
