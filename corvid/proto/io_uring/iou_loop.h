@@ -17,6 +17,7 @@
 #pragma once
 #include <atomic>
 #include <cassert>
+#include <concepts>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -237,8 +238,7 @@ public:
   // from any thread.
   [[nodiscard]] bool submit_nop(completion_fn cb) {
     return execute_or_post([this, cb = std::move(cb)]() mutable -> bool {
-      return do_submit(
-          [](iou_sqe sqe) { sqe.prep_nop(); }, std::move(cb));
+      return do_submit([](iou_sqe sqe) { sqe.prep_nop(); }, std::move(cb));
     });
   }
 
@@ -336,10 +336,11 @@ public:
 private:
   // Get an SQE, prepare it via `prep`, attach `cb` as user data, and submit.
   // Returns false if the SQ is full.
-  [[nodiscard]] bool do_submit(auto&& prep, completion_fn&& cb) {
+  [[nodiscard]] bool
+  do_submit(std::invocable<iou_sqe> auto&& prep, completion_fn&& cb) {
     auto sqe = ring_.next_sqe();
     if (!sqe) return false;
-    prep(sqe);
+    std::forward<decltype(prep)>(prep)(sqe);
     // Use a pool to persist `cb`. If we submit successfully, we detach to take
     // full ownership.
     auto borrowed_cb = completion_cb_pool_.borrow();
