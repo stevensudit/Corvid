@@ -534,7 +534,7 @@ private:
   const epoll epoll_;
   const event_fd wake_fd_;
 
-  inline static thread_local const epoll_loop* current_loop_ = nullptr;
+  inline static thread_local const epoll_loop* current_loop_{};
 
   std::unordered_map<int, std::shared_ptr<io_conn>> registrations_;
 
@@ -544,7 +544,7 @@ private:
   const std::chrono::milliseconds post_and_wait_poll_interval_;
 
   tombstone has_run_;
-  notifiable<std::atomic_bool> running_{false};
+  notifiable<std::atomic_bool> running_;
 };
 
 // Runs an `epoll_loop` in its own background thread.

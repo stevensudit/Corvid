@@ -204,10 +204,9 @@ public:
 
     size_t dispatched{};
     size_t total = ring_.for_each_cqe([&](iou_cqe cqe) {
-      if (cqe.get_data_ptr() == &wake_tag_) {
-        (void)wake_fd_.read();
-        wake_poll_armed_ = false;
-      } else if (do_dispatch(cqe))
+      if (cqe.get_data_ptr() == &wake_tag_)
+        disarm_wake_poll();
+      else if (do_dispatch(cqe))
         ++dispatched;
       return true;
     });
@@ -275,13 +274,21 @@ private:
   // rearmed after each wakeup. If the SQ is full, `wake_poll_armed_` stays
   // false; the 10ms fallback timeout in `run()` covers this case, and the
   // arm is retried on the next `run_once` iteration.
-  void ensure_wake_poll_armed() {
-    if (wake_poll_armed_) return;
+  bool ensure_wake_poll_armed() {
+    if (wake_poll_armed_) return true;
     auto sqe = ring_.next_sqe();
-    if (!sqe) return;
+    if (!sqe) return false;
     sqe.prep_poll_oneshot(wake_fd_.handle(), POLLIN);
     sqe.set_data_pointer(&wake_tag_);
     if (ring_.submit().ok(1)) wake_poll_armed_ = true;
+    return true;
+  }
+
+  // Consume the wakeup signal and disarm the wake poll.
+  bool disarm_wake_poll() {
+    (void)wake_fd_.read();
+    wake_poll_armed_ = false;
+    return true;
   }
 
   [[nodiscard]] bool do_wake() noexcept { return wake_fd_.notify(); }
@@ -291,22 +298,23 @@ private:
   // Members are declared in initialization order.
 
   iou_ring ring_;
-  event_fd wake_fd_;
 
   // `&wake_tag_` is the SQE user-data sentinel for the wake-poll CQE,
-  // distinct from any heap-allocated `completion_fn*`.
+  // distinct from any `completion_fn*`.
+  event_fd wake_fd_;
   char wake_tag_{};
-  bool wake_poll_armed_{false};
+  bool wake_poll_armed_{};
 
-  inline static thread_local const iou_basic_loop* current_loop_{nullptr};
+  completion_cb_pool_t completion_cb_pool_;
 
-  std::atomic_bool stop_{false};
-  notifiable<std::atomic_bool> running_{false};
+  inline static thread_local const iou_basic_loop* current_loop_{};
+
+  std::atomic_bool stop_;
+  notifiable<std::atomic_bool> running_;
 
   std::mutex post_mutex_;
   post_queue_t post_queues_[2];
   relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
-  completion_cb_pool_t completion_cb_pool_;
 
   const std::chrono::milliseconds post_and_wait_poll_interval_;
 };
@@ -330,7 +338,7 @@ public:
         thread_{[this](const std::stop_token& st) { run(st); }} {
     if (!loop_->wait_until_running(1000)) {
       thread_.request_stop();
-      throw std::runtime_error("iou_basic_loop_runner failed to start");
+      throw std::runtime_error("iou_loop_runner failed to start");
     }
   }
 
