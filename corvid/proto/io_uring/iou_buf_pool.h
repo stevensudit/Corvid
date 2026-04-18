@@ -50,18 +50,24 @@ namespace corvid { inline namespace proto { inline namespace iouring {
 // pointer must remain valid for its lifetime. Always own the pool as a member
 // of a heap-allocated object (e.g., `iou_basic_loop`).
 class iou_dma_buf_pool {
-public:
+private:
   static constexpr size_t HUGE_PAGE_SIZE = 2UL * 1024 * 1024; // 2 MB
   static constexpr size_t SMALL_SIZE = 4UL * 1024;            // 4 KB
   static constexpr size_t MEDIUM_SIZE = 16UL * 1024;          // 16 KB
   static constexpr size_t LARGE_SIZE = 64UL * 1024;           // 64 KB
-
-private:
-  static constexpr size_t READ_THROTTLE = 1536UL * 1024; // 1.5 MB
-  static constexpr size_t WRITE_RESERVE = 512UL * 1024;  // 512 KB
+  static constexpr size_t READ_THROTTLE = 1536UL * 1024;      // 1.5 MB
+  static constexpr size_t WRITE_RESERVE = 512UL * 1024;       // 512 KB
 
   struct free_node {
     free_node* next;
+  };
+
+public:
+  // NOLINTNEXTLINE(performance-enum-size)
+  enum class block_size : size_t {
+    small = 4UL * 1024,
+    medium = 16UL * 1024,
+    large = 64UL * 1024
   };
 
 public:
@@ -177,31 +183,32 @@ public:
   //   - the pool has fewer than WRITE_RESERVE bytes free after this alloc, or
   //   - in-flight read bytes would exceed READ_THROTTLE.
   // Thread-safe.
-  [[nodiscard]] token alloc_read(size_t sz = SMALL_SIZE) noexcept {
-    assert(is_valid_size(sz));
+  [[nodiscard]] token alloc_read(block_size sz = block_size::small) noexcept {
     std::lock_guard lock{mutex_};
-    if (available_bytes_ < WRITE_RESERVE + sz) return {};
-    if (in_flight_read_bytes_.load(std::memory_order::relaxed) + sz >
+    const auto len = static_cast<size_t>(sz);
+    if (available_bytes_ < WRITE_RESERVE + len) return {};
+    if (in_flight_read_bytes_.load(std::memory_order::relaxed) + len >
         READ_THROTTLE)
       return {};
-    void* p = do_alloc_block(sz);
+    void* p = do_alloc_block(len);
     if (!p) return {};
-    available_bytes_ -= sz;
-    std::span<std::byte> s{static_cast<std::byte*>(p), sz};
-    in_flight_read_bytes_.fetch_add(sz, std::memory_order::relaxed);
+    available_bytes_ -= len;
+    std::span<std::byte> s{static_cast<std::byte*>(p), len};
+    in_flight_read_bytes_.fetch_add(len, std::memory_order::relaxed);
     return {this, s, true};
   }
 
   // Borrow a slab for an outgoing write. Not subject to read backpressure;
   // may draw from the write reserve. Returns an empty token if fully
   // exhausted. Thread-safe.
-  [[nodiscard]] token alloc_write(size_t sz = SMALL_SIZE) noexcept {
-    assert(is_valid_size(sz));
+  [[nodiscard]] token alloc_write(block_size sz = block_size::small) noexcept {
     std::lock_guard lock{mutex_};
-    void* p = do_alloc_block(sz);
+    const auto len = static_cast<size_t>(sz);
+    void* p = do_alloc_block(len);
     if (!p) return {};
-    available_bytes_ -= sz;
-    return {this, std::span<std::byte>{static_cast<std::byte*>(p), sz}, false};
+    available_bytes_ -= len;
+    return {this, std::span<std::byte>{static_cast<std::byte*>(p), len},
+        false};
   }
 
   // Total free bytes currently in the pool. Thread-safe.
@@ -223,7 +230,7 @@ private:
   }
 
   // Pop one node from `head`. Returns nullptr if the list is empty.
-  static void* do_pop(free_node*& head) noexcept {
+  [[nodiscard]] static void* do_pop(free_node*& head) noexcept {
     if (!head) return nullptr;
     free_node* p = head;
     head = p->next;
@@ -238,7 +245,7 @@ private:
   }
 
   // Split one large block into four medium blocks.
-  bool do_split_large_to_medium() noexcept {
+  [[nodiscard]] bool do_split_large_to_medium() noexcept {
     void* p = do_pop(large_head_);
     if (!p) return false;
     auto* base = static_cast<std::byte*>(p);
@@ -248,7 +255,7 @@ private:
   }
 
   // Split one medium block into four small blocks.
-  bool do_split_medium_to_small() noexcept {
+  [[nodiscard]] bool do_split_medium_to_small() noexcept {
     void* p = do_pop(medium_head_);
     if (!p) return false;
     auto* base = static_cast<std::byte*>(p);
@@ -259,8 +266,7 @@ private:
 
   // Allocate one block of `sz` bytes. Caller holds `mutex_`. Returns `nullptr`
   // if the pool is exhausted for that size class.
-  void* do_alloc_block(size_t sz) noexcept {
-    assert(is_valid_size(sz));
+  [[nodiscard]] void* do_alloc_block(size_t sz) noexcept {
     if (sz <= SMALL_SIZE) {
       if (!small_head_) {
         if (!medium_head_ && !do_split_large_to_medium()) return nullptr;
@@ -289,10 +295,6 @@ private:
     }
     if (is_read)
       in_flight_read_bytes_.fetch_sub(s.size(), std::memory_order::relaxed);
-  }
-
-  [[nodiscard]] static bool is_valid_size(size_t sz) noexcept {
-    return sz == SMALL_SIZE || sz == MEDIUM_SIZE || sz == LARGE_SIZE;
   }
 
   std::byte* base_{};

@@ -70,6 +70,7 @@ class iou_basic_loop
     : std::enable_shared_from_this<iou_basic_loop<RING_SIZE, SLOT_COUNT>> {
 public:
   using duration_t = std::chrono::milliseconds;
+  using block_size = iou_dma_buf_pool::block_size;
 
   static constexpr duration_t default_run_once_timeout{10};
   static constexpr duration_t default_post_and_wait_poll_interval{100};
@@ -232,23 +233,25 @@ public:
   }
 
   // Submit a no-op that completes immediately with `res` == 0. Useful for
-  // verifying ring plumbing. Returns false if the SQ is full.
+  // verifying ring plumbing. Returns false if the SQ is full. May be called
+  // from any thread.
   [[nodiscard]] bool submit_nop(completion_fn cb) {
-    return do_submit([](iou_sqe sqe) { sqe.prep_nop(); }, std::move(cb));
+    return execute_or_post([this, cb = std::move(cb)]() mutable -> bool {
+      return do_submit(
+          [](iou_sqe sqe) { sqe.prep_nop(); }, std::move(cb));
+    });
   }
 
   // Submit an async recv on `file` into `buf`. The completion callback
-  // receives the byte count (>= 0) or a negated errno. The buffer must remain
-  // valid until the callback fires. Since the callback only provides an
-  // `iou_res`, you will need to bind your buffer and other state into it. May
-  // be called from any thread.
+  // receives only the `iou_res`, so in order to know where to read from you
+  // will need to bind `buf` and any other necessary state into the callback.
+  // The buffer must remain valid until the callback fires. May be called from
+  // any thread.
   [[nodiscard]] bool submit_recv(const os_file& file, std::span<std::byte> buf,
       completion_fn cb, int flags = 0) {
-    const auto fd = file.handle();
-    auto* data = buf.data();
-    const auto len = buf.size();
     return execute_or_post(
-        [this, fd, data, len, flags, cb = std::move(cb)]() mutable -> bool {
+        [this, fd = file.handle(), data = buf.data(), len = buf.size(), flags,
+            cb = std::move(cb)]() mutable -> bool {
           return do_submit(
               [fd, data, len, flags](iou_sqe sqe) {
                 sqe.prep_recv(fd, data, len, flags);
@@ -257,18 +260,15 @@ public:
         });
   }
 
-  // Submit an async send of `buf` on `file`. The completion callback receives
-  // the byte count (>= 0) or a negated errno. The buffer must remain valid
-  // until the callback fires. Since the callback only provides an
-  // `iou_res`, you will need to bind your buffer and other state into it. May
-  // be called from any thread.
+  // Submit an async send of `buf` on `file`.  The completion callback receives
+  // only the `iou_res`, so in order to know what was sent, you will need to
+  // bind `buf` and any other necessary state into the callback. The buffer
+  // must remain valid until the callback fires. May be called from any thread.
   [[nodiscard]] bool submit_send(const os_file& file,
       std::span<const std::byte> buf, completion_fn cb, int flags = 0) {
-    const auto fd = file.handle();
-    const void* data = buf.data();
-    const auto len = buf.size();
     return execute_or_post(
-        [this, fd, data, len, flags, cb = std::move(cb)]() mutable -> bool {
+        [this, fd = file.handle(), data = buf.data(), len = buf.size(), flags,
+            cb = std::move(cb)]() mutable -> bool {
           return do_submit(
               [fd, data, len, flags](iou_sqe sqe) {
                 sqe.prep_send(fd, data, len, flags);
@@ -277,13 +277,11 @@ public:
         });
   }
 
-  // Allocate a registered buffer slot from the pool for the purpose of writing
-  // to it. The size must be one of the three available ones: SMALL_SIZE,
-  // MEDIUM_SIZE, or LARGE_SIZE. Returns an empty token if the pool is
-  // exhausted. Fill the token's span, then pass it to `submit_send_fixed`. May
-  // be called from any thread.
-  [[nodiscard]] token alloc_buf(
-      size_t sz = iou_dma_buf_pool::SMALL_SIZE) noexcept {
+  // Acquire a registered buffer slot from the pool for the purpose of writing
+  // to it. Returns an empty token if the pool is exhausted. Fill the token's
+  // span, then pass it to `submit_send_fixed`. May be called from any thread.
+  [[nodiscard]] token acquire_write_buffer(
+      block_size sz = block_size::small) noexcept {
     return buf_pool_.alloc_write(sz);
   }
 
@@ -291,41 +289,47 @@ public:
   // buffer; the callback receives `(token, iou_res)` where `iou_res` is the
   // byte count. Read from `tok.span(res.value())` then let `tok` destruct to
   // return the slot to the pool. Returns false if no buffer is available or
-  // the SQ is full. Must be called from the loop thread.
-  [[nodiscard]] bool submit_recv_fixed(int fd, recv_completion_fn cb) {
-    auto tok = buf_pool_.alloc_read();
+  // the SQ is full. May be called from any thread.
+  [[nodiscard]] bool submit_recv_fixed(const os_file& file,
+      recv_completion_fn cb, block_size sz = block_size::small) {
+    auto tok = buf_pool_.alloc_read(sz);
     if (!tok) return false;
-    void* ptr = tok.data();
-    const size_t sz = tok.size();
-    const size_t idx = tok.buf_index();
     // `std::function` requires a copyable callable, so the move-only `token`
     // is held in a `shared_ptr` to keep the lambda copyable.
     auto tok_sp = std::make_shared<token>(std::move(tok));
-    return do_submit(
-        [fd, ptr, sz, idx](iou_sqe sqe) {
-          sqe.prep_read_fixed(fd, ptr, sz, idx);
-        },
-        [tok_sp, cb = std::move(cb)](iou_res res) mutable -> bool {
-          return cb(std::move(*tok_sp), res);
+    return execute_or_post(
+        [this, fd = file.handle(), ptr = tok_sp->data(),
+            len = static_cast<size_t>(sz), ndx = tok_sp->buf_index(), tok_sp,
+            cb = std::move(cb)]() mutable -> bool {
+          return do_submit(
+              [fd, ptr, len, ndx](iou_sqe sqe) {
+                sqe.prep_read_fixed(fd, ptr, len, ndx);
+              },
+              [tok_sp, cb = std::move(cb)](iou_res res) mutable -> bool {
+                return cb(std::move(*tok_sp), res);
+              });
         });
   }
 
   // Submit a zero-copy send from a pre-filled registered buffer. `tok` must
   // come from `alloc_buf()` and be filled with `len` bytes of payload.
   // The buffer is returned to the pool before the completion callback fires.
-  // Returns false if the SQ is full. Must be called from the loop thread.
-  [[nodiscard]] bool
-  submit_send_fixed(int fd, token tok, size_t len, completion_fn cb) {
-    void* ptr = tok.data();
-    const size_t idx = tok.buf_index();
+  // Returns false if the SQ is full. May be called from any thread.
+  [[nodiscard]] bool submit_send_fixed(const os_file& file, token tok,
+      size_t len, completion_fn cb) {
     auto tok_sp = std::make_shared<token>(std::move(tok));
-    return do_submit(
-        [fd, ptr, len, idx](iou_sqe sqe) {
-          sqe.prep_write_fixed(fd, ptr, len, idx);
-        },
-        [tok_sp, cb = std::move(cb)](iou_res res) mutable -> bool {
-          tok_sp->reset();
-          return cb(res);
+    return execute_or_post(
+        [this, fd = file.handle(), ptr = tok_sp->data(), len,
+            ndx = tok_sp->buf_index(), tok_sp,
+            cb = std::move(cb)]() mutable -> bool {
+          return do_submit(
+              [fd, ptr, len, ndx](iou_sqe sqe) {
+                sqe.prep_write_fixed(fd, ptr, len, ndx);
+              },
+              [tok_sp, cb = std::move(cb)](iou_res res) mutable -> bool {
+                tok_sp->reset();
+                return cb(res);
+              });
         });
   }
 

@@ -47,12 +47,10 @@ void IouLoop_NopCompletion() {
     std::atomic_bool fired{false};
     std::atomic<int32_t> result{-999};
 
-    const bool submitted = runner->post_and_wait([&] {
-      return runner->submit_nop([&](iou_res res) {
-        result.store(res.value(), std::memory_order::relaxed);
-        fired.store(true, std::memory_order::release);
-        return true;
-      });
+    const bool submitted = runner->submit_nop([&](iou_res res) {
+      result.store(res.value(), std::memory_order::relaxed);
+      fired.store(true, std::memory_order::release);
+      return true;
     });
     EXPECT_TRUE(submitted);
     EXPECT_TRUE(
@@ -67,16 +65,13 @@ void IouLoop_MultipleNops() {
     iou_loop_runner runner;
     std::atomic<int> count{0};
 
-    const bool submitted = runner->post_and_wait([&] {
-      for (int i = 0; i < 4; ++i) {
-        const bool ok = runner->submit_nop([&](iou_res) {
-          count.fetch_add(1, std::memory_order::relaxed);
-          return true;
-        });
-        if (!ok) return false;
-      }
-      return true;
-    });
+    bool submitted = true;
+    for (int i = 0; i < 4; ++i) {
+      submitted = submitted && runner->submit_nop([&](iou_res) {
+        count.fetch_add(1, std::memory_order::relaxed);
+        return true;
+      });
+    }
     EXPECT_TRUE(submitted);
     EXPECT_TRUE(
         WaitFor([&] { return count.load(std::memory_order::acquire) == 4; }));
@@ -168,8 +163,8 @@ void IouLoop_RecvSend() {
 
     EXPECT_EQ(recv_result.load(), static_cast<int32_t>(msg.size()));
     EXPECT_EQ(send_result.load(), static_cast<int32_t>(msg.size()));
-    EXPECT_EQ(
-        std::string_view(reinterpret_cast<const char*>(buf.data()), msg.size()),
+    EXPECT_EQ(std::string_view(reinterpret_cast<const char*>(buf.data()),
+                  msg.size()),
         msg);
   }
 }
@@ -178,8 +173,10 @@ void IouLoop_RecvSendFixed() {
   // Submit a recv_fixed and a send_fixed over a Unix socket pair using
   // registered buffers; confirm the payload arrives and byte counts match.
   if (true) {
-    int sv[2];
-    EXPECT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, sv), 0);
+    int raw_sv[2];
+    EXPECT_EQ(socketpair(AF_UNIX, SOCK_STREAM, 0, raw_sv), 0);
+    os_file send_sock{raw_sv[0]};
+    os_file recv_sock{raw_sv[1]};
 
     iou_loop_runner runner;
     std::atomic_bool received{false};
@@ -189,32 +186,31 @@ void IouLoop_RecvSendFixed() {
 
     constexpr std::string_view msg{"hello-fixed"};
 
-    const bool ok = runner->post_and_wait([&] {
-      // Submit recv_fixed on sv[1]; the loop picks a buffer from its pool.
-      bool r = runner->submit_recv_fixed(sv[1],
-          [&](iou_loop::token tok, iou_res res) mutable {
-            recv_n.store(res.value(), std::memory_order::relaxed);
-            if (res) {
-              auto data = tok.span(static_cast<size_t>(res.value()));
-              payload.assign(reinterpret_cast<const char*>(data.data()),
-                  data.size());
-            }
-            received.store(true, std::memory_order::release);
-            return true;
-          });
-      if (!r) return false;
+    const bool recv_ok = runner->submit_recv_fixed(recv_sock,
+        [&](iou_loop::token tok, iou_res res) mutable {
+          recv_n.store(res.value(), std::memory_order::relaxed);
+          if (res) {
+            auto data = tok.span(static_cast<size_t>(res.value()));
+            payload.assign(reinterpret_cast<const char*>(data.data()),
+                data.size());
+          }
+          received.store(true, std::memory_order::release);
+          return true;
+        });
+    EXPECT_TRUE(recv_ok);
 
-      // Allocate a send buffer, fill it, submit send_fixed on sv[0].
-      auto tok = runner->alloc_buf();
-      if (!tok) return false;
-      std::memcpy(tok.span().data(), msg.data(), msg.size());
-      return runner->submit_send_fixed(sv[0], std::move(tok), msg.size(),
-          [&](iou_res res) {
-            send_n.store(res.value(), std::memory_order::relaxed);
-            return true;
-          });
-    });
-    EXPECT_TRUE(ok);
+    auto tok = runner->acquire_write_buffer();
+    EXPECT_TRUE(tok);
+    if (!tok) return;
+
+    std::memcpy(tok.span().data(), msg.data(), msg.size());
+
+    const bool send_ok = runner->submit_send_fixed(send_sock, std::move(tok),
+        msg.size(), [&](iou_res res) {
+          send_n.store(res.value(), std::memory_order::relaxed);
+          return true;
+        });
+    EXPECT_TRUE(send_ok);
     EXPECT_TRUE(
         WaitFor([&] { return received.load(std::memory_order::acquire); }));
 
@@ -222,8 +218,8 @@ void IouLoop_RecvSendFixed() {
     EXPECT_EQ(send_n.load(), static_cast<int32_t>(msg.size()));
     EXPECT_EQ(payload, msg);
 
-    close(sv[0]);
-    close(sv[1]);
+    close(send_sock.handle());
+    close(recv_sock.handle());
   }
 }
 
