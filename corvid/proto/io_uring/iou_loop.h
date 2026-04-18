@@ -286,18 +286,17 @@ public:
   }
 
   // Submit a zero-copy recv into a registered buffer. The loop allocates the
-  // buffer; the callback receives `(token, iou_res)` where `iou_res` is the
-  // byte count. Read from `tok.span(res.value())` then let `tok` destruct to
-  // return the slot to the pool. Returns false if no buffer is available or
-  // the SQ is full. May be called from any thread.
+  // buffer; the callback receives `(token)`. Check `tok.result` and read from
+  // `tok.read_span`. Returns false if no buffer is available or the SQ is
+  // full. May be called from any thread.
   [[nodiscard]] bool submit_recv_fixed(const os_file& file,
       recv_completion_fn cb, block_size sz = block_size::small) {
     auto tok = buf_pool_.alloc_read(sz);
-    if (!tok) return false;
+    auto span = buf_pool_.access_full_span(tok);
     return execute_or_post(
-        [this, fd = file.handle(), ptr = tok.data(),
-            len = static_cast<size_t>(sz), ndx = tok.buf_index(),
-            tok = std::move(tok), cb = std::move(cb)]() mutable -> bool {
+        [this, fd = file.handle(), ptr = span.data(), len = span.size(),
+            ndx = tok.buf_index(), tok = std::move(tok),
+            cb = std::move(cb)]() mutable -> bool {
           return do_submit(
               [fd, ptr, len, ndx](iou_sqe sqe) {
                 sqe.prep_read_fixed(fd, ptr, len, ndx);
@@ -308,13 +307,13 @@ public:
   }
 
   // Submit a zero-copy send from a pre-filled registered buffer. `tok` must
-  // come from `alloc_buf()` and be filled with `len` bytes of payload.
-  // The buffer is returned to the pool before the completion callback fires.
+  // come from `alloc_buf()` and updated with the payload size.
   // Returns false if the SQ is full. May be called from any thread.
-  [[nodiscard]] bool submit_send_fixed(const os_file& file, token tok,
-      size_t len, completion_fn cb) {
+  [[nodiscard]] bool
+  submit_send_fixed(const os_file& file, token tok, completion_fn cb) {
+    auto span = tok.write_span();
     return execute_or_post(
-        [this, fd = file.handle(), ptr = tok.data(), len,
+        [this, fd = file.handle(), ptr = span.data(), len = span.size(),
             ndx = tok.buf_index(), tok = std::move(tok),
             cb = std::move(cb)]() mutable -> bool {
           return do_submit(
@@ -323,8 +322,11 @@ public:
               },
               [tok = std::move(tok), cb = std::move(cb)](
                   iou_res res) mutable -> bool {
+                auto ok = cb(res);
+                // TODO: No, we need to be able to retry, and that means
+                // passing the whole token by ref.
                 tok.reset();
-                return cb(res);
+                return ok;
               });
         });
   }

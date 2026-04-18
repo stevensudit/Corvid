@@ -35,7 +35,7 @@ namespace corvid { inline namespace proto { inline namespace iouring {
 // value.
 class iou_res {
 public:
-  explicit iou_res(int res) : res_(res) {}
+  explicit iou_res(int res = 0) : res_(res) {}
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
   [[nodiscard]] bool operator!() const noexcept { return !ok(); }
@@ -43,6 +43,9 @@ public:
   [[nodiscard]] bool ok(int r = 0) const noexcept { return res_ >= r; }
   [[nodiscard]] int value() const noexcept { return res_; }
   [[nodiscard]] int err() const noexcept { return -res_; }
+  [[nodiscard]] size_t bytes() const noexcept {
+    return static_cast<size_t>(res_);
+  }
 
   // True if the result is a "soft" error that can be retried.
   [[nodiscard]] bool is_soft_error() const {
