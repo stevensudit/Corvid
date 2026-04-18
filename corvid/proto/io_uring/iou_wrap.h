@@ -25,13 +25,13 @@
 
 #include "../../filesys/event_fd.h"
 
-namespace corvid { inline namespace proto { inline namespace iouring {
-
-// Wrapper around io_uring's C API, with the primary goal of adding C++
+// Wrapper around `io_uring`'s C API, with the primary goal of adding C++
 // conveniences.
 
-// Wrapper for `int` results from io_uring operations, where `res` >= 0 is a
-// byte count (or 0 for ops with no data) and `res` < 0 is a negated errno
+namespace corvid { inline namespace proto { inline namespace iouring {
+
+// Wrapper for `int` results from `io_uring` operations, where `res` >= 0 is a
+// byte count (or 0 for ops with no data) and `res` < 0 is a negated `errno`
 // value.
 class iou_res {
 public:
@@ -40,56 +40,27 @@ public:
   [[nodiscard]] operator bool() const noexcept { return ok(); }
   [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
-  [[nodiscard]] bool ok(int32_t r = 0) const noexcept { return res_ >= r; }
-  [[nodiscard]] int32_t value() const noexcept { return res_; }
+  [[nodiscard]] bool ok(int r = 0) const noexcept { return res_ >= r; }
+  [[nodiscard]] int value() const noexcept { return res_; }
   [[nodiscard]] int err() const noexcept { return -res_; }
 
-  // True if the result is a "soft" error that may be expected to succeed on
-  // retry.
+  // True if the result is a "soft" error that can be retried.
   [[nodiscard]] bool is_soft_error() const {
     return res_ == -ETIME || res_ == -EINTR;
   }
 
-  void throw_if_error(const std::string& context) const {
-    if (ok()) return;
+  void throw_if_error(const std::string& context, int r = 0) const {
+    if (ok(r)) return;
     throw std::system_error(err(), std::system_category(),
         "io_uring error in " + context);
   }
 
 private:
-  int32_t res_;
+  int res_;
 };
 
-// Completion queue event. Wrapper for `io_uring_cqe*`.
-class iou_cqe {
-public:
-  using ptr_t = io_uring_cqe*;
-
-  iou_cqe() = default;
-  explicit iou_cqe(ptr_t cqe) : cqe_(cqe) {}
-
-  [[nodiscard]] operator bool() const noexcept { return cqe_ != nullptr; }
-  [[nodiscard]] bool operator!() const noexcept { return cqe_ == nullptr; }
-
-  [[nodiscard]] ptr_t get() const noexcept { return cqe_; }
-  [[nodiscard]] ptr_t* get_ptr() noexcept { return &cqe_; }
-
-  [[nodiscard]] bool ok() const noexcept { return cqe_ != nullptr; }
-
-  [[nodiscard]] int32_t res() const noexcept { return cqe_->res; }
-  [[nodiscard]] uint64_t user_data() const noexcept { return cqe_->user_data; }
-  [[nodiscard]] uint32_t flags() const noexcept { return cqe_->flags; }
-
-  template<typename T = void>
-  [[nodiscard]] T* get_data() const noexcept {
-    return static_cast<T*>(io_uring_cqe_get_data(cqe_));
-  }
-
-private:
-  ptr_t cqe_{};
-};
-
-// Submission queue event. Wrapper for `io_uring_sqe*`.
+// Submission queue event. Wrapper for `io_uring_sqe*`, without adding
+// ownership.
 class iou_sqe {
 public:
   using ptr_t = io_uring_sqe*;
@@ -97,11 +68,15 @@ public:
   iou_sqe() = default;
   explicit iou_sqe(ptr_t sqe) : sqe_(sqe) {}
 
-  [[nodiscard]] operator bool() const noexcept { return sqe_ != nullptr; }
-  [[nodiscard]] bool operator!() const noexcept { return sqe_ == nullptr; }
+  [[nodiscard]] operator bool() const noexcept { return ok(); }
+  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
 
-  [[nodiscard]] ptr_t get() const noexcept { return sqe_; }
-  [[nodiscard]] ptr_t* get_ptr() noexcept { return &sqe_; }
+  [[nodiscard]] ptr_t value() const noexcept { return sqe_; }
+  [[nodiscard]] ptr_t* pointer() noexcept { return &sqe_; }
+
+  [[nodiscard]] bool ok() const noexcept { return sqe_; }
+
+  void prep_nop() noexcept { io_uring_prep_nop(sqe_); }
 
   void prep_poll_oneshot(int fd, short poll_mask = POLLIN) noexcept {
     io_uring_prep_poll_add(sqe_, fd, poll_mask);
@@ -111,27 +86,77 @@ public:
     io_uring_prep_poll_multishot(sqe_, fd, poll_mask);
   }
 
-  void prep_nop() noexcept { io_uring_prep_nop(sqe_); }
+  void set_data_pointer(void* data) noexcept {
+    io_uring_sqe_set_data(sqe_, data);
+  }
 
-  void set_data(void* data) noexcept { io_uring_sqe_set_data(sqe_, data); }
+  void set_data_int(uint64_t data) noexcept {
+    io_uring_sqe_set_data64(sqe_, data);
+  }
 
 private:
   ptr_t sqe_{};
 };
 
-// Wrapper over `io_uring`.
+// Completion queue event. Wrapper for `io_uring_cqe*`, without adding
+// ownership.
+class iou_cqe {
+public:
+  using ptr_t = io_uring_cqe*;
+
+  iou_cqe() = default;
+  explicit iou_cqe(ptr_t cqe) : cqe_(cqe) {}
+
+  [[nodiscard]] operator bool() const noexcept { return ok(); }
+  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
+
+  [[nodiscard]] ptr_t value() const noexcept { return cqe_; }
+  [[nodiscard]] ptr_t* pointer() noexcept { return &cqe_; }
+
+  [[nodiscard]] bool ok() const noexcept { return cqe_; }
+
+  [[nodiscard]] iou_res res() const noexcept { return iou_res{cqe_->res}; }
+  [[nodiscard]] uint64_t user_data() const noexcept { return cqe_->user_data; }
+  [[nodiscard]] uint32_t flags() const noexcept { return cqe_->flags; }
+
+  template<typename T = void>
+  [[nodiscard]] T* get_data_ptr() const noexcept {
+    return static_cast<T*>(io_uring_cqe_get_data(cqe_));
+  }
+
+  [[nodiscard]] uint64_t get_data_int() const noexcept {
+    return io_uring_cqe_get_data64(cqe_);
+  }
+
+  // TODO: This goes away.
+  template<typename T = std::function<bool(iou_res)>>
+  [[nodiscard]] bool dispatch() const noexcept {
+    bool ok{};
+    auto* cb = get_data_ptr<T>();
+    if (cb) {
+      ok = (*cb)(res());
+      delete cb;
+    }
+    return ok;
+  }
+
+private:
+  ptr_t cqe_{};
+};
+
+// Wrapper over `io_uring`. Non-movable and non-copyable, and has ownership.
 class iou_ring {
 public:
+  using ptr_t = io_uring*;
   using duration_t = std::chrono::milliseconds;
-  using cqe_rawptr = io_uring_cqe*;
 
   // Construct and initialize an io_uring with the given `ring_size` and
   // `flags`.
   explicit iou_ring(size_t ring_size = 256, int flags = 0) {
     iou_res res{io_uring_queue_init(ring_size, &ring_, flags)};
-    if (!res)
-      throw std::system_error(res.err(), std::system_category(),
-          "io_uring_queue_init");
+    if (res) return;
+    throw std::system_error(res.err(), std::system_category(),
+        "io_uring_queue_init");
   }
 
   iou_ring(const iou_ring&) = delete;
@@ -141,8 +166,8 @@ public:
 
   ~iou_ring() { io_uring_queue_exit(&ring_); }
 
-  io_uring* get_ptr() noexcept { return &ring_; }
-  operator io_uring*() noexcept { return &ring_; }
+  ptr_t get_ptr() noexcept { return &ring_; }
+  operator ptr_t() noexcept { return &ring_; }
 
   // Timespec from `std::chrono` duration.
   static constexpr __kernel_timespec to_timespec(duration_t timeout) {
@@ -153,11 +178,10 @@ public:
   }
 
   // Wait for a CQE to become available, with an optional timeout.
-  // (We do not return the CQE pointer, even though it's filled.)
   [[nodiscard]] iou_res wait_cqe_timeout(duration_t timeout = {}) {
-    iou_cqe cqe;
+    iou_cqe cqe; // Not returned.
     auto ts = to_timespec(timeout);
-    return iou_res{io_uring_wait_cqe_timeout(&ring_, cqe.get_ptr(), &ts)};
+    return iou_res{io_uring_wait_cqe_timeout(&ring_, cqe.pointer(), &ts)};
   }
 
   // Loop over available CQEs, calling `fn` on each. Advances the CQ head by
@@ -176,9 +200,13 @@ public:
     return count;
   }
 
-  iou_res submit() noexcept { return iou_res{io_uring_submit(&ring_)}; }
+  // Get the next SQE to fill, or null if the SQ is full. The caller must later
+  // call `submit()`.
+  iou_sqe next_sqe() noexcept { return iou_sqe{io_uring_get_sqe(&ring_)}; }
 
-  iou_sqe get_sqe() noexcept { return iou_sqe{io_uring_get_sqe(&ring_)}; }
+  // Submit filled SQEs to the kernel. Returns an `iou_res` with the number of
+  // SQEs submitted, or an error. An `ok(n)` on the result is a good idea.
+  iou_res submit() noexcept { return iou_res{io_uring_submit(&ring_)}; }
 
 private:
   io_uring ring_{};

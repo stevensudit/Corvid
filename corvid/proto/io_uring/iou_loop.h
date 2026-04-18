@@ -190,13 +190,11 @@ public:
 
     size_t dispatched{};
     size_t total = ring_.for_each_cqe([&](iou_cqe cqe) {
-      if (cqe.get_data() == &wake_tag_) {
+      if (cqe.get_data_ptr() == &wake_tag_) {
         (void)wake_fd_.read();
         wake_poll_armed_ = false;
-      } else {
-        do_dispatch(cqe);
+      } else if (cqe.dispatch<completion_fn>())
         ++dispatched;
-      }
       return true;
     });
     return dispatched;
@@ -220,16 +218,16 @@ private:
   // Returns false if the SQ is full.
   template<typename Prep>
   [[nodiscard]] bool do_submit(Prep prep, completion_fn cb) {
-    auto sqe = ring_.get_sqe();
+    auto sqe = ring_.next_sqe();
     if (!sqe) return false;
     prep(sqe);
-    sqe.set_data(new completion_fn(std::move(cb)));
+    sqe.set_data_pointer(new completion_fn(std::move(cb)));
     return ring_.submit().ok(1);
   }
 
   static bool do_dispatch(iou_cqe cqe) noexcept {
     bool ok{};
-    auto* cb = cqe.get_data<completion_fn>();
+    auto* cb = cqe.get_data_ptr<completion_fn>();
     if (cb) {
       ok = (*cb)(iou_res{cqe.res()});
       delete cb;
@@ -262,10 +260,10 @@ private:
   // arm is retried on the next `run_once` iteration.
   void ensure_wake_poll_armed() {
     if (wake_poll_armed_) return;
-    auto sqe = ring_.get_sqe();
+    auto sqe = ring_.next_sqe();
     if (!sqe) return;
     sqe.prep_poll_oneshot(wake_fd_.handle(), POLLIN);
-    sqe.set_data(&wake_tag_);
+    sqe.set_data_pointer(&wake_tag_);
     if (ring_.submit().ok(1)) wake_poll_armed_ = true;
   }
 

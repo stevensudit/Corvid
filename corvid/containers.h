@@ -32,3 +32,4 @@
 #include "containers/fixed_bitset.h"
 #include "containers/scoped_value.h"
 #include "containers/scope_exit.h"
+#include "containers/object_pool.h"
