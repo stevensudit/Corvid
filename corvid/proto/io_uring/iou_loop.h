@@ -294,20 +294,16 @@ public:
       recv_completion_fn cb, block_size sz = block_size::small) {
     auto tok = buf_pool_.alloc_read(sz);
     if (!tok) return false;
-    // `std::function` requires a copyable callable, so the move-only `token`
-    // is held in a `shared_ptr` to keep the lambda copyable.
-    auto tok_sp = std::make_shared<token>(std::move(tok));
     return execute_or_post(
-        [this, fd = file.handle(), ptr = tok_sp->data(),
-            len = static_cast<size_t>(sz), ndx = tok_sp->buf_index(), tok_sp,
-            cb = std::move(cb)]() mutable -> bool {
+        [this, fd = file.handle(), ptr = tok.data(),
+            len = static_cast<size_t>(sz), ndx = tok.buf_index(),
+            tok = std::move(tok), cb = std::move(cb)]() mutable -> bool {
           return do_submit(
               [fd, ptr, len, ndx](iou_sqe sqe) {
                 sqe.prep_read_fixed(fd, ptr, len, ndx);
               },
-              [tok_sp, cb = std::move(cb)](iou_res res) mutable -> bool {
-                return cb(std::move(*tok_sp), res);
-              });
+              [tok = std::move(tok), cb = std::move(cb)](iou_res res) mutable
+                  -> bool { return cb(std::move(tok), res); });
         });
   }
 
@@ -317,17 +313,17 @@ public:
   // Returns false if the SQ is full. May be called from any thread.
   [[nodiscard]] bool submit_send_fixed(const os_file& file, token tok,
       size_t len, completion_fn cb) {
-    auto tok_sp = std::make_shared<token>(std::move(tok));
     return execute_or_post(
-        [this, fd = file.handle(), ptr = tok_sp->data(), len,
-            ndx = tok_sp->buf_index(), tok_sp,
+        [this, fd = file.handle(), ptr = tok.data(), len,
+            ndx = tok.buf_index(), tok = std::move(tok),
             cb = std::move(cb)]() mutable -> bool {
           return do_submit(
               [fd, ptr, len, ndx](iou_sqe sqe) {
                 sqe.prep_write_fixed(fd, ptr, len, ndx);
               },
-              [tok_sp, cb = std::move(cb)](iou_res res) mutable -> bool {
-                tok_sp->reset();
+              [tok = std::move(tok), cb = std::move(cb)](
+                  iou_res res) mutable -> bool {
+                tok.reset();
                 return cb(res);
               });
         });

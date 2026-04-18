@@ -94,7 +94,12 @@ public:
       return *this;
     }
 
-    token(const token&) = delete;
+    // Copyable enough to satisfy `std::function`, but won't compile if you
+    // actually try to copy it. This will no longer be necessary once
+    // `std::move_only_function` is actually available.
+    token(const token&) {
+      throw std::logic_error("iou_dma_buf_pool::token is not copyable");
+    }
     token& operator=(const token&) = delete;
 
     [[nodiscard]] explicit operator bool() const noexcept { return pool_; }
