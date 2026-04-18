@@ -1,0 +1,3 @@
+- The initial goal is to set up something akin to an epoll loop, only taking full advantage of io_uring. This means being completion-oriented, using scatter/gather over 0-copy buffers. I think the first step is an "iou_loop.h", as well as the related buffer pool (for registered fixed buffers) and op slab.
+- liburing will be used instead of directly targeting io_uring functions in the kernel. However, while it's not concealed, it is nonetheless wrapped fully by my own classes.
+- For now, we accept a 10ms tick latency in the I/O loop, but when time permits, we'll switch to `IORING_OP_POLL_ADD` on an eventfd. We don't want to go with `IORING_OP_MSG_RING` because that's based on one ring per thread.
