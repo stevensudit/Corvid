@@ -250,22 +250,32 @@ public:
 #pragma endregion
 #pragma region Submit and buffer APIs
 
-  // Submit an async accept on `file`. `endpoint_target` receives the
-  // peer address on completion and must remain valid until the CQE fires.
-  //
-  // May be called from any thread.
-  [[nodiscard]] bool submit_accept(const os_file& file,
-      net_endpoint_target& endpoint_target, completion_fn cb,
+  // Submit an async accept on `file`. May be called from any thread.
+  [[nodiscard]] bool submit_accept(const os_file& file, completion_fn cb,
       int flags = SOCK_NONBLOCK | SOCK_CLOEXEC) {
     return execute_or_post(
-        [this, fd = file.handle(), &endpoint_target, flags,
+        [this, fd = file.handle(), flags,
             cb = std::move(cb)]() mutable -> bool {
           return do_submit(
-              [fd, &endpoint_target, flags](iou_sqe sqe) {
-                sqe.prep_accept(fd, endpoint_target, flags);
-              },
+              [fd, flags](iou_sqe sqe) { sqe.prep_accept(fd, flags); },
               std::move(cb));
         });
+  }
+
+  // Submit a multishot async accept on `file`. The callback fires for every
+  // accepted connection without re-arming; it is released only when the
+  // operation terminates (error or cancel). May be called from any thread.
+  //
+  // As with any multishot operation, the persisted callback takes up a slot in
+  // the `completion_cb_pool_t` for the duration.
+  [[nodiscard]] bool submit_accept_multishot(const os_file& file,
+      completion_fn cb, int flags = SOCK_NONBLOCK | SOCK_CLOEXEC) {
+    return execute_or_post([this, fd = file.handle(), flags,
+                               cb = std::move(cb)]() mutable -> bool {
+      return do_submit(
+          [fd, flags](iou_sqe sqe) { sqe.prep_accept_multishot(fd, flags); },
+          std::move(cb));
+    });
   }
 
   // Submit an async connect on `file` to `endpoint`. `endpoint` must remain
@@ -471,14 +481,20 @@ private:
     return completion_cb_pool_.detach(std::move(borrowed_cb)) || true;
   }
 
-  // Dispatch a CQE to its callback, which must be looked up from a `void*` to
-  // ` completion_fn` in the pool. Callback is released after execution.
+  // Dispatch a CQE to its callback. For multishot operations,
+  // `IORING_CQE_F_MORE` indicates more CQEs will follow; the callback is
+  // retained rather than released. On the final CQE (flag absent), the
+  // callback is released as usual.
   bool do_dispatch(iou_cqe cqe) noexcept {
+    // Call through raw pointer.
     auto* raw_cb = cqe.get_data_ptr<completion_fn>();
     if (!raw_cb) return false;
+    bool result = (*raw_cb)(cqe.res());
+    // If multishot, retain the callback. Otherwise, release it.
+    if (cqe.flags() & IORING_CQE_F_MORE) return result;
     auto cb = completion_cb_pool_.reattach(std::move(raw_cb));
     if (!cb) return false;
-    return (cb.value())(iou_res{cqe.res()});
+    return result;
   }
 
   // Atomically swap out the active post queue, then execute and clear it

@@ -136,16 +136,21 @@ public:
   // True if the connection has not yet been closed.
   [[nodiscard]] bool is_open() const noexcept { return open_; }
 
-  // The remote peer address supplied at construction. Safe to call from any
-  // thread.
-  [[nodiscard]] const net_endpoint& remote_endpoint() const noexcept {
+  // The remote peer address. For accepted connections, computed lazily via
+  // `getpeername` on first call. Safe to call from any thread.
+  [[nodiscard]] const net_endpoint& remote_endpoint() noexcept {
+    std::lock_guard lock{endpoint_mutex_};
+    if (remote_.empty()) remote_ = net_endpoint::peer_of(sock_);
     return remote_;
   }
 
-  // The local address this socket is bound to. Useful after `listen` on
-  // port 0 to discover the OS-assigned port. Safe to call from any thread.
-  [[nodiscard]] net_endpoint local_endpoint() const noexcept {
-    return net_endpoint{sock_};
+  // The local address this socket is bound to, computed lazily via
+  // `getsockname` on first call. Useful after `listen` on port 0 to discover
+  // the OS-assigned port. Safe to call from any thread.
+  [[nodiscard]] const net_endpoint& local_endpoint() noexcept {
+    std::lock_guard lock{endpoint_mutex_};
+    if (local_.empty()) local_ = net_endpoint{sock_};
+    return local_;
   }
 
   // The `iou_loop` that drives this connection. Valid for the lifetime of
@@ -274,7 +279,11 @@ protected:
 
 private:
   net_socket sock_;
-  net_endpoint remote_;
+
+  std::mutex endpoint_mutex_; // protects lazy initialization of endpoints.
+  net_endpoint remote_;       // Always access through `remote_endpoint()` JIT.
+  net_endpoint local_;        // Always access through `local_endpoint()` JIT.
+
   iou_stream_conn_handlers own_handlers_;
 
   relaxed_atomic_bool open_;
@@ -291,17 +300,14 @@ private:
   std::deque<std::variant<std::string, buffer>> send_queue_;
   bool send_in_flight_{};
 
-  // Accept state (listener only). Must remain valid until the accept SQE
-  // fires.
-  net_endpoint_target accept_peer_target_;
-
   // Connect address. Must remain valid until the connect SQE fires.
   sockaddr_storage connect_addr_{};
 
 private:
-  bool do_submit_recv() {
+  // Submit buffer for receiving, borrowing a read buffer if needed.
+  bool do_submit_recv(buffer buf = {}) {
     assert(loop_.is_loop_thread() && !recv_in_flight_);
-    auto buf = loop_.borrow_read_buffer();
+    if (!buf) buf = loop_.borrow_read_buffer();
     if (!buf) return false;
     recv_in_flight_ = true;
     return loop_.submit_recv_buffer(sock_, std::move(buf),
@@ -311,18 +317,12 @@ private:
   }
 
   // Resubmit recv using an existing buffer from a prior `on_recv_complete`.
-  // If the buffer has no remaining active_span (completely full), re-delivers
-  // any remaining payload first, then gets a fresh buffer.
+  // If the buffer has no remaining `active_span` (completely full),
+  // re-delivers any remaining payload first, then gets a fresh buffer.
   bool do_continue_recv(buffer&& buf) {
     assert(loop_.is_loop_thread() && !recv_in_flight_);
     // Space remains in this buffer; resubmit for more data.
-    if (!buf.active_span().empty()) {
-      recv_in_flight_ = true;
-      return loop_.submit_recv_buffer(sock_, std::move(buf),
-          [p = self()](buffer& b) mutable -> bool {
-            return p->on_recv_complete(b);
-          });
-    }
+    if (!buf.active_span().empty()) return do_submit_recv(std::move(buf));
 
     // Buffer fully consumed and reset to initial read state: fresh recv.
     if (buf.payload_span().empty()) return do_submit_recv();
@@ -338,150 +338,170 @@ private:
     return true;
   }
 
+  // Handle completion of a receive operation. If successful, delivers the
+  // buffer to `on_data`. On error or EOF, initiates close.
   bool on_recv_complete(buffer& buf) {
+    assert(loop_.is_loop_thread() && recv_in_flight_);
     recv_in_flight_ = false;
     if (!open_) return true;
 
-    const iou_res res = buf.result();
+    const auto res = buf.result();
+    // EOF from peer.
     if (res.value() == 0) {
-      // EOF from peer.
       (void)notify_close_once();
       if (close_requested_ && !send_in_flight_ && send_queue_.empty())
         return do_close_now();
       return true;
     }
+    // Error.
     if (!res.ok()) {
-      if (res.is_soft_error()) return do_submit_recv();
-      (void)notify_close_once();
-      return do_close_now();
+      if (res.is_soft_error()) return do_submit_recv(std::move(buf));
+      return do_notify_and_close_now();
     }
 
     iou_recv_view view{std::move(buf), make_resume()};
     if (own_handlers_.on_data)
       return own_handlers_.on_data(*this, std::move(view));
-    return true; // view destructs and resubmits recv
+
+    return true;
   }
 
   // Build the resume callback captured by an `iou_recv_view`.
   iou_recv_view::resume_fn make_resume() {
-    return [wp = weak_loop_, p = self()](buffer&& b) mutable {
-      auto lk = wp.lock();
-      if (!lk) return;
-      (void)lk->execute_or_post([p, b = std::move(b)]() mutable -> bool {
-        if (!p->open_) return false;
-        if (!b) return p->do_submit_recv();       // take() path: fresh recv
-        return p->do_continue_recv(std::move(b)); // inline path
-      });
+    return [wp = weak_loop_, conn = self()](buffer&& buf) mutable {
+      auto loop = wp.lock();
+      if (!loop) return;
+      (void)loop->execute_or_post(
+          [conn, buf = std::move(buf)]() mutable -> bool {
+            if (!conn->open_) return false;
+            if (!buf) return conn->do_submit_recv(); // take() path: fresh recv
+            return conn->do_continue_recv(std::move(buf)); // inline path
+          });
     };
   }
 
+  // Send the next buffer in the send queue.
   bool do_submit_send() {
-    assert(loop_.is_loop_thread());
-    assert(!send_in_flight_);
+    assert(loop_.is_loop_thread() && !send_in_flight_);
     if (send_queue_.empty()) return true;
-    send_in_flight_ = true;
 
-    if (std::holds_alternative<std::string>(send_queue_.front())) {
-      // JIT-borrow a write buffer; pack consecutive string items.
-      auto buf = loop_.borrow_write_buffer();
-      if (!buf) {
-        send_in_flight_ = false;
-        return false;
-      }
+    buffer buf;
+    if (std::holds_alternative<buffer>(send_queue_.front())) {
+      buf = std::move(std::get<buffer>(send_queue_.front()));
+      send_queue_.pop_front();
+    } else {
+      buf = loop_.borrow_write_buffer();
       while (!send_queue_.empty() &&
              std::holds_alternative<std::string>(send_queue_.front()))
       {
         if (!buf.append(std::get<std::string>(send_queue_.front()))) break;
         send_queue_.pop_front();
       }
-      return loop_.submit_send_buffer(sock_, std::move(buf),
-          [p = self()](buffer& b) mutable -> bool {
-            return p->on_send_complete(b);
-          });
     }
 
-    // Direct buffer send.
-    auto buf = std::move(std::get<buffer>(send_queue_.front()));
-    send_queue_.pop_front();
+    return do_submit_send_buffer(std::move(buf));
+  }
+
+  // Helper for sending specific buffer.
+  bool do_submit_send_buffer(buffer&& buf) {
+    assert(loop_.is_loop_thread() && !send_in_flight_);
+    if (!buf) return false;
+    send_in_flight_ = true;
     return loop_.submit_send_buffer(sock_, std::move(buf),
         [p = self()](buffer& b) mutable -> bool {
           return p->on_send_complete(b);
         });
   }
 
+  // Handle completion of a send operation. On success, if the buffer is
+  // fully sent, pops the next buffer from the send queue and submits it. If
+  // the buffer is only partially sent or there's a soft error, resubmits the
+  // remaining active span. On error, initiates close.
   bool on_send_complete(buffer& buf) {
     assert(loop_.is_loop_thread());
     send_in_flight_ = false;
     if (!open_) return true;
 
-    if (!buf.result().ok()) return do_close_now();
-
-    // Partial send: remaining bytes in active_span.
-    if (!buf.active_span().empty()) {
-      send_in_flight_ = true;
-      return loop_.submit_send_buffer(sock_, std::move(buf),
-          [p = self()](buffer& b) mutable -> bool {
-            return p->on_send_complete(b);
-          });
+    // Error.
+    if (!buf.result().ok()) {
+      if (buf.result().is_soft_error())
+        return do_submit_send_buffer(std::move(buf));
+      return do_close_now();
     }
 
-    if (close_requested_ && send_queue_.empty()) return do_close_now();
+    // Partial send: remaining bytes in active_span.
+    if (!buf.active_span().empty())
+      return do_submit_send_buffer(std::move(buf));
+
+    // Full send.
     if (!send_queue_.empty()) return do_submit_send();
+
+    //  Close.
+    if (close_requested_ && send_queue_.empty()) return do_close_now();
+
     return notify_drained();
   }
 
+  // Attempt to connect. On success, fires `on_drain` and transitions to recv
+  // state. On failure, fires `on_close`.
   bool do_submit_connect() {
-    assert(loop_.is_loop_thread());
-    assert(connecting_);
+    assert(loop_.is_loop_thread() && connecting_);
     return loop_.submit_connect(sock_, remote_,
         [p = self()](iou_res res) mutable -> bool {
           return p->handle_connect_complete(res);
         });
   }
 
+  // Handle completion of connect operation. On success, fires `on_drain` and
+  // transitions to recv state. On failure, fires `on_close` and initiates
+  // close.
   bool handle_connect_complete(iou_res res) {
-    assert(loop_.is_loop_thread());
+    assert(loop_.is_loop_thread() && connecting_);
     connecting_ = false;
     if (!open_) return true;
-    if (!res.ok()) {
-      (void)notify_close_once();
-      return do_close_now();
-    }
-    if (!do_submit_recv()) {
-      (void)notify_close_once();
-      return do_close_now();
-    }
-    if (send_queue_.empty()) return notify_drained();
-    return do_submit_send();
+
+    // Error.
+    if (!res.ok()) return do_notify_and_close_now();
+
+    // Start listening for data.
+    if (!do_submit_recv()) return do_notify_and_close_now();
+
+    // In principle, we could have writes queued.
+    if (!send_queue_.empty()) return do_submit_send();
+
+    return notify_drained();
   }
 
+  // Submit a multishot accept operation. The callback fires for every accepted
+  // connection without re-arming; the kernel re-arms automatically.
   bool do_submit_accept() {
-    assert(loop_.is_loop_thread());
-    assert(listening_);
-    return loop_.submit_accept(sock_, accept_peer_target_,
+    assert(loop_.is_loop_thread() && listening_);
+    return loop_.submit_accept_multishot(sock_,
         [p = self()](iou_res res) mutable -> bool {
           return p->handle_accept_complete(res);
         });
   }
 
+  // Handle completion of a multishot accept. On success, creates a new
+  // `iou_stream_conn` for the accepted socket and registers it with the loop.
+  // On error, initiates close.
   bool handle_accept_complete(iou_res res) {
-    assert(loop_.is_loop_thread());
+    assert(loop_.is_loop_thread() && listening_);
     if (!open_) return true;
+
+    // Error. If it's an ECANCELED, we're already shutting down.
     if (!res.ok()) {
-      if (res.is_soft_error()) return do_submit_accept();
-      (void)notify_close_once();
-      return do_close_now();
+      if (res.is_soft_error() || res.err() == ECANCELED) return true;
+      return do_notify_and_close_now();
     }
-    net_socket new_sock{os_file{res.value()}};
-    net_endpoint& remote = accept_peer_target_.sockaddr;
-    auto peer = accept_clone(std::move(new_sock), remote, own_handlers_);
-    if (peer) {
-      auto lp = weak_loop_.lock();
-      if (lp) (void)lp->post([p = peer] { return p->register_with_loop(); });
-    }
-    return do_submit_accept(); // re-arm for next connection
+
+    net_socket accepted_sock{os_file{res.value()}};
+    auto peer = accept_clone(std::move(accepted_sock), {}, own_handlers_);
+    if (peer) (void)peer->register_with_loop();
+    return true;
   }
 
+  // Send out SQEs for new connection.
   bool register_with_loop() {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
@@ -490,6 +510,14 @@ private:
     return do_submit_recv();
   }
 
+  // Notify `on_drain`.
+  [[nodiscard]] bool notify_drained() {
+    assert(loop_.is_loop_thread());
+    if (own_handlers_.on_drain) return own_handlers_.on_drain(*this);
+    return true;
+  }
+
+  // Notify `on_close` exactly once.
   [[nodiscard]] bool notify_close_once() {
     assert(loop_.is_loop_thread());
     if (close_notified_) return false;
@@ -498,12 +526,15 @@ private:
     return true;
   }
 
-  [[nodiscard]] bool notify_drained() {
+  // Notify `on_close` if not already notified, then close immediately.
+  // TODO: Why does this exist
+  [[nodiscard]] bool do_notify_and_close_now() {
     assert(loop_.is_loop_thread());
-    if (own_handlers_.on_drain) return own_handlers_.on_drain(*this);
-    return true;
+    (void)notify_close_once();
+    return do_close_now();
   }
 
+  // Close immediately without flushing
   [[nodiscard]] bool do_close_now() {
     assert(loop_.is_loop_thread());
     if (!open_->exchange(false, std::memory_order::relaxed)) return false;
@@ -513,6 +544,7 @@ private:
     return notify_close_once();
   }
 
+  // Close after flushing.
   [[nodiscard]] bool do_close() {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
@@ -522,8 +554,8 @@ private:
   }
 };
 
-// RAII handle that owns an `iou_stream_conn` (or a derived class). Destruction
-// calls `hangup` unless `close` was called first.
+// RAII handle that owns an `iou_stream_conn` (or a derived class).
+// Destruction calls `hangup` unless `close` was called first.
 //
 // `T` defaults to `iou_stream_conn`. Use `iou_stream_conn_ptr_with<MyConn>`
 // for a typed handle whose `operator->` returns `MyConn*`.
@@ -583,8 +615,8 @@ public:
         connection_role::client);
   }
 
-  // Create a listening socket bound to `local`. Each accepted connection gets
-  // a copy of `h`. Returns an empty handle on failure.
+  // Create a listening socket bound to `local`. Each accepted connection
+  // gets a copy of `h`. Returns an empty handle on failure.
   [[nodiscard]] static iou_stream_conn_ptr_with
   listen(std::shared_ptr<iou_loop> loop, const net_endpoint& local,
       iou_stream_conn_handlers h = {}) {
@@ -641,8 +673,8 @@ using iou_stream_conn_ptr = iou_stream_conn_ptr_with<>;
 // and state via `iou_stream_conn_with_state<STATE>::from(conn)`.
 //
 // Connections accepted by a listening
-// `iou_stream_conn_ptr_with<iou_stream_conn_with_state<STATE>>` also have type
-// `iou_stream_conn_with_state<STATE>` with a fresh default-constructed
+// `iou_stream_conn_ptr_with<iou_stream_conn_with_state<STATE>>` also have
+// type `iou_stream_conn_with_state<STATE>` with a fresh default-constructed
 // `STATE`.
 template<typename STATE>
 class iou_stream_conn_with_state: public iou_stream_conn {
@@ -680,5 +712,4 @@ protected:
 private:
   state_t state_{};
 };
-
 }}} // namespace corvid::proto::iouring

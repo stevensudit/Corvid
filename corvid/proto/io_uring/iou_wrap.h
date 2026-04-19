@@ -131,11 +131,15 @@ public:
     return true;
   }
 
-  bool prep_accept(int fd, net_endpoint_target& endpoint_target,
+  bool prep_accept(int fd,
       int flags = SOCK_NONBLOCK | SOCK_CLOEXEC) noexcept {
-    endpoint_target.sockaddr_len = net_endpoint::max_sockaddr_size;
-    io_uring_prep_accept(sqe_, fd, endpoint_target.sockaddr.as_sockaddr(),
-        &endpoint_target.sockaddr_len, flags);
+    io_uring_prep_accept(sqe_, fd, nullptr, nullptr, flags);
+    return true;
+  }
+
+  bool prep_accept_multishot(int fd,
+      int flags = SOCK_NONBLOCK | SOCK_CLOEXEC) noexcept {
+    io_uring_prep_multishot_accept(sqe_, fd, nullptr, nullptr, flags);
     return true;
   }
 

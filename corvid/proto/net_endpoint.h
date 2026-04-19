@@ -146,9 +146,20 @@ public:
   explicit net_endpoint(const net_socket& sock) noexcept {
     sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
-    if (::getsockname(sock.handle(), reinterpret_cast<sockaddr*>(&addr),
-            &len) == 0)
-      do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), len);
+    auto* ptr = reinterpret_cast<sockaddr*>(&addr);
+    if (::getsockname(sock.handle(), ptr, &len) == 0)
+      do_assign_sockaddr(*ptr, len);
+  }
+
+  // Query the peer address of `sock` via `getpeername`. On failure, result
+  // is `empty()`.
+  [[nodiscard]] static net_endpoint peer_of(const net_socket& sock) noexcept {
+    sockaddr_storage addr{};
+    socklen_t len = sizeof(addr);
+    auto* ptr = reinterpret_cast<sockaddr*>(&addr);
+    if (::getpeername(sock.handle(), ptr, &len) == 0)
+      return net_endpoint{*ptr, len};
+    return {};
   }
 
   // Create wildcard bind endpoints for IPv4 or IPv6 with the given port.
