@@ -292,7 +292,7 @@ public:
   [[nodiscard]] bool submit_recv_fixed(const os_file& file,
       recv_completion_fn cb, block_size sz = block_size::small) {
     auto tok = buf_pool_.alloc_read(sz);
-    auto span = buf_pool_.access_full_span(tok);
+    auto span = buf_pool_.access_active_span(tok);
     return execute_or_post(
         [this, fd = file.handle(), ptr = span.data(), len = span.size(),
             ndx = tok.buf_index(), tok = std::move(tok),
@@ -307,11 +307,11 @@ public:
   }
 
   // Submit a zero-copy send from a pre-filled registered buffer. `tok` must
-  // come from `alloc_buf()` and updated with the payload size.
+  // come from `alloc_write()` and filled via `append` or `update_payload`.
   // Returns false if the SQ is full. May be called from any thread.
   [[nodiscard]] bool
   submit_send_fixed(const os_file& file, token tok, completion_fn cb) {
-    auto span = tok.write_span();
+    auto span = tok.active_span();
     return execute_or_post(
         [this, fd = file.handle(), ptr = span.data(), len = span.size(),
             ndx = tok.buf_index(), tok = std::move(tok),
@@ -322,10 +322,9 @@ public:
               },
               [tok = std::move(tok), cb = std::move(cb)](
                   iou_res res) mutable -> bool {
+                tok.update(res);
                 auto ok = cb(res);
-                // TODO: No, we need to be able to retry, and that means
-                // passing the whole token by ref.
-                tok.reset();
+                if (tok.active_span().empty()) tok.reset();
                 return ok;
               });
         });

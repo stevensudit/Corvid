@@ -69,30 +69,61 @@ public:
     large = 64UL * 1024
   };
 
+  using span_t = std::span<std::byte>;
+  using const_span_t = std::span<const std::byte>;
+
 public:
   // Moveable RAII handle to a single slab allocation. Returns its memory to
   // the pool on destruction or `reset()`. `buf_index()` is always 0;
   // `offset()` gives the byte distance from the huge page base for
   // file-offset SQE fields.
   //
-  // For read buffers, the `read_span` is initially empty, and `update()` sets
-  // its length to the byte count on completion. The `active_span` starts off
-  // as the full buffer, but after `update`, it is the remainder of the buffer.
-  // This allows doing another read to fill the tail of the buffer.
+  // These spans define the buffer state:
+  //   `full_span`     -- entire allocation; never changes after construction.
+  //   `payload_span`  -- data region (bytes received for reads, bytes to send
+  //                      for writes). Starts empty.
+  //   `active_span`   -- what gets passed to the kernel for the next I/O op.
+  //                      For reads: the writable tail after `payload_span`.
+  //                      For writes: the unsent portion of `payload_span`.
+  //   `tail_span`     -- the writable tail after `payload_span`; a derived
+  //                      value.
   //
-  // For write buffers, the `write_span` starts off as the full buffer, but
-  // `update_write_span` sets its length to the payload size. The `active_span`
-  // is the payload portion. After a write, `write_span` becomes the unsent
-  // tail, if any. This allows doing another write to send the rest of the
-  // buffer.
+  // Read lifecycle:
+  //   1. Allocate: `payload_span` empty at start of `full_span`;
+  //      `active_span` = entire `full_span`.
+  //   2. Submit recv SQE using `active_span`.
+  //   3. On completion, call `update(res)`: extends `payload_span` by bytes
+  //      read; `active_span` becomes the new tail.
+  //   4. Read via `payload_span` / `payload_view`. Can discard now.
+  //   5. Optionally consume incrementally with `consume_read`. Full drain
+  //   resets to step 1. Can discard now.
+  //   6. Optionally submit recv SQE again to read more into the tail, then
+  //   repeat until done.
+  //   7. Optionally `promote_to_write` to proxy received data.
+  //
+  // Write lifecycle:
+  //   1. Allocate: both `payload_span` and `active_span` empty at start of
+  //      `full_span`.
+  //   2. Fill via `append` or via `tail_span` + `update_payload`.
+  //   3. Submit send SQE using `active_span`.
+  //   4. On completion, call `update`: advances `active_span` front by
+  //      bytes sent. If fully sent, buffer enters consumed state.
+  //   5. In consumed state, the next `append`, `tail_span`, or
+  //      `update_payload` implicitly resets to step 1.
+  //   6. Can discard now.
+  //   7. Optionally `demote_to_read` to receive more data into the tail.
   class buffer {
   public:
+    using span_t = iou_buf_pool::span_t;
+    using const_span_t = iou_buf_pool::const_span_t;
+
     buffer() = default;
     ~buffer() { reset(); }
 
     buffer(buffer&& o) noexcept
         : pool_{std::exchange(o.pool_, nullptr)},
           full_span_{std::exchange(o.full_span_, {})},
+          payload_span_{std::exchange(o.payload_span_, {})},
           active_span_{std::exchange(o.active_span_, {})}, res_{o.res_},
           is_read_{o.is_read_} {}
 
@@ -101,6 +132,7 @@ public:
         reset();
         pool_ = std::exchange(o.pool_, nullptr);
         full_span_ = std::exchange(o.full_span_, {});
+        payload_span_ = std::exchange(o.payload_span_, {});
         active_span_ = std::exchange(o.active_span_, {});
         res_ = o.res_;
         is_read_ = o.is_read_;
@@ -116,59 +148,144 @@ public:
     }
     buffer& operator=(const buffer&) = delete;
 
-    [[nodiscard]] explicit operator bool() const noexcept { return res_; }
+    // Check for validity when a `buffer` has been allocated from the pool.
+    [[nodiscard]] explicit operator bool() const noexcept { return pool_; }
 
-    // Access the result of the I/O operation.
+    // Access the result of the I/O operation; initially an error condition.
     [[nodiscard]] iou_res result() const noexcept { return res_; }
 
-    // Access span of the buffer for write access. Initially returns the full
-    // span; after calling `update_write_span()`, returns just the payload
-    // portion.
-    [[nodiscard]] std::span<std::byte> write_span() noexcept {
-      assert(!is_read_);
-      return active_span_;
+    // Whether this buffer is in read mode. You should not need to check this.
+    [[nodiscard]] bool is_read() const noexcept { return is_read_; }
+
+    // Span of accumulated payload data. For reads this is bytes received so
+    // far; for writes, bytes being sent.
+    [[nodiscard]] span_t payload_span() noexcept { return payload_span_; }
+
+    // String view over `payload_span`.
+    [[nodiscard]] std::string_view payload_view() noexcept {
+      return {reinterpret_cast<char*>(payload_span_.data()),
+          payload_span_.size()};
     }
 
-    // After filling the start of the buffer with the payload, call this to
-    // update the span to point to just that portion.
-    [[nodiscard]] buffer& update_write_span(
-        std::span<std::byte> payload) noexcept {
-      assert(!is_read_);
-      assert(payload.data() == full_span_.data());
-      assert(payload.size() <= full_span_.size());
-      res_ = iou_res{static_cast<int32_t>(payload.size())};
-      active_span_ = payload;
-      return *this;
-    }
-
-    // Access span of bytes read in. If `update` hasn't been called, returns
-    // empty.
-    [[nodiscard]] std::span<const std::byte> read_span() noexcept {
+    // Consume up to `n` bytes from the front of the payload. Returns the
+    // taken slice. Fully draining the payload resets the buffer to its
+    // initial read state (empty payload, active = full block).
+    [[nodiscard]] span_t consume_read(size_t n) noexcept {
       assert(is_read_);
-      if (res_.bytes() >= full_span_.size()) return {};
-      return full_span_.first(res_.bytes());
+      const size_t take = std::min(n, payload_span_.size());
+      span_t result{payload_span_.data(), take};
+      payload_span_ = payload_span_.subspan(take);
+      if (payload_span_.empty()) {
+        payload_span_ = {full_span_.data(), 0};
+        active_span_ = full_span_;
+      }
+      return result;
     }
 
-    // Access view of bytes read in. If `update` hasn't been called, returns
-    // empty.
-    [[nodiscard]] std::string_view read_view() noexcept {
-      auto span = read_span();
-      return std::string_view{reinterpret_cast<const char*>(span.data()),
-          span.size()};
+    // Returns the region of `full_span` after `payload_span` ends, for use
+    // with the manual `tail_span` + `update_payload` fill pattern. Implicitly
+    // resets to initial write state if the buffer is consumed.
+    [[nodiscard]] span_t tail_span() noexcept {
+      assert(!is_read_);
+      if (do_is_fully_consumed()) do_reset_write_spans();
+      std::byte* end = payload_span_.data() + payload_span_.size();
+      return {end,
+          static_cast<size_t>(full_span_.data() + full_span_.size() - end)};
     }
 
-    // Update with the result of completion. On error, the span becomes
-    // effectively empty; on success, the span is updated to the byte count.
-    // Returns self for chaining.
-    [[nodiscard]] buffer& update(iou_res res) noexcept {
+    // Extend `payload_span` and `active_span` to cover `payload`. The
+    // start of `payload` must equal the current end of `payload_span`
+    // (i.e. it must be the span returned by `tail_span()`, trimmed to the
+    // bytes actually written). The end of `payload` must not exceed
+    // `full_span`. Returns false on violation; spans are left unchanged.
+    // Implicitly resets if the buffer is in consumed state before extending.
+    [[nodiscard]] bool update_payload(span_t payload) noexcept {
+      assert(!is_read_);
+      if (do_is_fully_consumed()) do_reset_write_spans();
+      const auto* expected_start = payload_span_.data() + payload_span_.size();
+      const auto* new_end = payload.data() + payload.size();
+      const auto* full_end = full_span_.data() + full_span_.size();
+      if (payload.data() != expected_start) return false;
+      if (new_end > full_end) return false;
+      payload_span_ = {payload_span_.data(),
+          static_cast<size_t>(new_end - payload_span_.data())};
+      active_span_ = {active_span_.data(),
+          static_cast<size_t>(new_end - active_span_.data())};
+      return true;
+    }
+
+    // Copy `data` to the tail of `payload_span_` and extend both
+    // `payload_span_` and `active_span_` by that amount. Returns false
+    // without modifying anything if `data` would not fit in the remaining
+    // tail. Implicitly resets if the buffer is in consumed state first.
+    [[nodiscard]] bool append(const_span_t data) noexcept {
+      assert(!is_read_);
+      if (do_is_fully_consumed()) do_reset_write_spans();
+      const size_t space =
+          full_span_.size() -
+          static_cast<size_t>(payload_span_.data() - full_span_.data()) -
+          payload_span_.size();
+      if (data.size() > space) return false;
+      std::memcpy(payload_span_.data() + payload_span_.size(), data.data(),
+          data.size());
+      payload_span_ = {payload_span_.data(),
+          payload_span_.size() + data.size()};
+      active_span_ = {active_span_.data(), active_span_.size() + data.size()};
+      return true;
+    }
+
+    [[nodiscard]] bool append(std::string_view sv) noexcept {
+      return append(const_span_t{reinterpret_cast<const std::byte*>(sv.data()),
+          sv.size()});
+    }
+
+    // Update with the result of an I/O completion.
+    //   Read mode: extends `payload_span` by bytes read; `active_span`
+    //     becomes the new tail (space remaining for further reads).
+    //   Write mode: advances `active_span` front by bytes sent; when fully
+    //     sent, `active_span` becomes zero-length (consumed state).
+    // On error `res`, spans are left unchanged. Returns self for chaining.
+    buffer& update(iou_res res) noexcept {
       res_ = res;
+      if (!res.ok()) return *this;
+      if (is_read_) {
+        const size_t extend = std::min(res.bytes(),
+            full_span_.size() -
+                static_cast<size_t>(payload_span_.data() - full_span_.data()) -
+                payload_span_.size());
+        payload_span_ = {payload_span_.data(), payload_span_.size() + extend};
+        auto* end = payload_span_.data() + payload_span_.size();
+        active_span_ = {end,
+            static_cast<size_t>(full_span_.data() + full_span_.size() - end)};
+      } else {
+        const size_t sent = std::min(res.bytes(), active_span_.size());
+        active_span_ = active_span_.subspan(sent);
+      }
       return *this;
     }
 
-    // Access the full span of the buffer.
-    [[nodiscard]] std::span<const std::byte> full_span() const noexcept {
-      assert(res_);
-      return full_span_.first(res_.bytes());
+    // Promote this read buffer to write mode. `payload_span` is kept as-is
+    // (the received bytes become the write payload); `active_span` is set to
+    // `payload_span` (so the next send transmits exactly what was read).
+    // Decrements the pool's in-flight read byte count for the full block.
+    buffer& promote_to_write() noexcept {
+      assert(is_read_);
+      pool_->do_decrement_read_bytes(full_span_.size());
+      active_span_ = payload_span_;
+      is_read_ = false;
+      return *this;
+    }
+
+    // Demote this write buffer to read mode. `payload_span` is kept as-is;
+    // `active_span` becomes the tail (space after `payload_span` for
+    // additional incoming data).
+    buffer& demote_to_read() noexcept {
+      assert(!is_read_);
+      auto* end = payload_span_.data() + payload_span_.size();
+      active_span_ = {end,
+          static_cast<size_t>(full_span_.data() + full_span_.size() - end)};
+      is_read_ = true;
+      return *this;
     }
 
     // Byte size of this allocation: 4096, 16384, or 65536.
@@ -177,10 +294,23 @@ public:
     // Always 0: the entire 2 MB page is registered as a single buffer entry.
     [[nodiscard]] static size_t buf_index() noexcept { return 0; }
 
-    // Byte offset from the huge page base. Use as `sqe->off` for file I/O.
+    // Byte offset from the huge page base.
     [[nodiscard]] uint64_t offset() const noexcept {
       return static_cast<uint64_t>(full_span_.data() - pool_->base_);
     }
+
+    // Span of the entire buffer. Not generally useful outside of
+    // `iou_buf_pool`.
+    [[nodiscard]] span_t full_span() noexcept { return full_span_; }
+
+    // Span for the next kernel I/O submission. For read buffers this is the
+    // writable tail; for write buffers this is the unsent portion. Not
+    // generally useful outside of `io_loop`.
+    [[nodiscard]] span_t active_span() noexcept { return active_span_; }
+
+    // Reset the I/O result manually. Not generally useful outside of
+    // `io_loop`.
+    void reset_result(iou_res res = iou_res{-1}) noexcept { res_ = res; }
 
     // Return the allocation to the pool immediately; buffer becomes empty.
     void reset() noexcept {
@@ -188,24 +318,39 @@ public:
       pool_->do_return(full_span_, is_read_);
       pool_ = nullptr;
       full_span_ = {};
+      payload_span_ = {};
+      active_span_ = {};
       res_ = iou_res{-1};
     }
 
   private:
     friend class iou_buf_pool;
 
-    buffer(iou_buf_pool* pool, std::span<std::byte> span,
-        bool is_read) noexcept
-        : pool_{pool}, full_span_{span}, is_read_{is_read} {
-      if (is_read_)
-        res_ = iou_res{-1};
-      else
-        res_ = iou_res{static_cast<int32_t>(span.size())};
+    buffer(iou_buf_pool* pool, span_t span, bool is_read) noexcept
+        : pool_{pool}, full_span_{span}, payload_span_{span.data(), 0},
+          active_span_{span.data(), 0}, res_{-1}, is_read_{is_read} {
+      if (is_read_) active_span_ = full_span_;
+    }
+
+    // True when the write buffer has been fully sent (or is initial-empty).
+    // Both states are treated identically: the next write operation resets.
+    [[nodiscard]] bool do_is_fully_consumed() const noexcept {
+      assert(!is_read_);
+      return active_span_.size() == 0 &&
+             active_span_.data() >=
+                 payload_span_.data() + payload_span_.size();
+    }
+
+    void do_reset_write_spans() noexcept {
+      assert(!is_read_);
+      payload_span_ = {full_span_.data(), 0};
+      active_span_ = {full_span_.data(), 0};
     }
 
     iou_buf_pool* pool_{};
-    std::span<std::byte> full_span_;
-    std::span<std::byte> active_span_;
+    span_t full_span_;
+    span_t payload_span_;
+    span_t active_span_;
     iou_res res_;
     bool is_read_{};
   };
@@ -277,8 +422,7 @@ public:
     void* p = do_alloc_block(len);
     if (!p) return {};
     available_bytes_ -= len;
-    return {this, std::span<std::byte>{static_cast<std::byte*>(p), len},
-        false};
+    return {this, span_t{static_cast<std::byte*>(p), len}, false};
   }
 
   // Total free bytes currently in the pool. Thread-safe.
@@ -287,11 +431,12 @@ public:
     return available_bytes_;
   }
 
-  // Access the full span of the buffer for a buffer. This is a backdoor for
-  // `iou_loop`.
-  [[nodiscard]] std::span<std::byte> access_full_span(buffer& buf) noexcept {
+  // Access the active span of `buf` for I/O submission. This is a backdoor
+  // for `iou_loop`: for read buffers, returns the writable tail; for write
+  // buffers, returns the unsent portion.
+  [[nodiscard]] span_t access_active_span(buffer& buf) noexcept {
     assert(buf.pool_ == this);
-    return buf.full_span_;
+    return buf.active_span_;
   }
 
 private:
@@ -359,7 +504,7 @@ private:
     return nullptr; // Sizes above 64 KB are unsupported.
   }
 
-  void do_return(std::span<std::byte> s, bool is_read) noexcept {
+  void do_return(span_t s, bool is_read) noexcept {
     if (std::lock_guard lock{mutex_}; true) {
       assert(available_bytes_ + s.size() <= HUGE_PAGE_SIZE);
       if (s.size() <= SMALL_SIZE)
@@ -370,8 +515,11 @@ private:
         do_push(large_head_, s.data());
       available_bytes_ += s.size();
     }
-    if (is_read)
-      in_flight_read_bytes_.fetch_sub(s.size(), std::memory_order::relaxed);
+    if (is_read) do_decrement_read_bytes(s.size());
+  }
+
+  void do_decrement_read_bytes(size_t n) noexcept {
+    in_flight_read_bytes_.fetch_sub(n, std::memory_order::relaxed);
   }
 
   std::byte* base_{};

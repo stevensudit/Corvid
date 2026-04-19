@@ -189,7 +189,7 @@ void IouLoop_RecvSendFixed() {
     const bool recv_ok = runner->submit_recv_fixed(recv_sock,
         [&](iou_loop::token tok, iou_res res) mutable {
           recv_n.store(res.value(), std::memory_order::relaxed);
-          auto data = tok.update(res).read_view();
+          auto data = tok.update(res).payload_view();
           payload.assign(data);
           received.store(true, std::memory_order::release);
           return true;
@@ -199,10 +199,10 @@ void IouLoop_RecvSendFixed() {
     auto tok = runner->acquire_write_buffer();
     EXPECT_TRUE(tok);
     if (!tok) return;
-    auto span = tok.write_span();
+    auto span = tok.tail_span();
     std::memcpy(span.data(), msg.data(), msg.size());
     span = span.first(msg.size());
-    (void)tok.update_write_span(span);
+    (void)tok.update_payload(span);
 
     const bool send_ok =
         runner->submit_send_fixed(send_sock, std::move(tok), [&](iou_res res) {
