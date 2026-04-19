@@ -18,6 +18,7 @@
 #include <atomic>
 #include <cassert>
 #include <concepts>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -565,10 +566,25 @@ public:
   explicit iou_basic_loop_runner(
       std::chrono::milliseconds post_and_wait_poll_interval =
           loop_t::default_post_and_wait_poll_interval)
-      : loop_{loop_t::make(post_and_wait_poll_interval)},
+      : post_and_wait_poll_interval_{post_and_wait_poll_interval},
         thread_{[this](const std::stop_token& st) { run(st); }} {
-    if (!loop_->wait_until_running(1000)) {
+    if (!started_.wait_for_value(std::chrono::milliseconds{1000}, true)) {
       thread_.request_stop();
+      throw std::runtime_error("iou_loop_runner failed to start");
+    }
+    std::shared_ptr<loop_t> loop;
+    std::exception_ptr startup_error;
+    if (std::scoped_lock lock{startup_mutex_}; true) {
+      loop = loop_;
+      startup_error = startup_error_;
+    }
+    if (startup_error) {
+      thread_.join();
+      std::rethrow_exception(startup_error);
+    }
+    if (!loop || !loop->wait_until_running(1000)) {
+      thread_.request_stop();
+      if (thread_.joinable()) thread_.join();
       throw std::runtime_error("iou_loop_runner failed to start");
     }
   }
@@ -601,13 +617,26 @@ public:
 private:
   void run(const std::stop_token& st) {
     jthread_stoppable_sleep::set_thread_name("iouring");
-    // Hold a local shared_ptr so the loop outlives this function even if the
-    // runner's shared_ptr is dropped by a callback running on this thread.
-    auto loop = loop_;
-    std::stop_callback on_stop{st, [loop] { loop->stop(); }};
-    loop->run();
+    try {
+      auto loop = loop_t::make(post_and_wait_poll_interval_);
+      if (std::scoped_lock lock{startup_mutex_}; true) loop_ = loop;
+      started_.notify(true);
+      // Hold a local shared_ptr so the loop outlives this function even if the
+      // runner's shared_ptr is dropped by a callback running on this thread.
+      std::stop_callback on_stop{st, [loop] { loop->stop(); }};
+      loop->run();
+    }
+    catch (...) {
+      if (std::scoped_lock lock{startup_mutex_}; true)
+        startup_error_ = std::current_exception();
+      started_.notify(true);
+    }
   }
 
+  const std::chrono::milliseconds post_and_wait_poll_interval_;
+  std::mutex startup_mutex_;
+  std::exception_ptr startup_error_;
+  notifiable<std::atomic_bool> started_{false};
   std::shared_ptr<loop_t> loop_;
   std::jthread thread_;
 };
