@@ -41,8 +41,8 @@ using namespace std::chrono_literals;
 
 // Completion-based I/O loop built on io_uring.
 //
-// Use an `iou_loop_runner` to drive this loop with `run()` (blocking, on the
-// loop thread) or `run_once()` (one batch, useful for testing) in its own
+// Use an `iou_loop_runner` to drive this loop with `run` (blocking, on the
+// loop thread) or `run_once` (one batch, useful for testing) in its own
 // thread. Public methods are labeled with their thread safety.
 //
 // Details:
@@ -114,10 +114,15 @@ public:
   // Construct a loop with `ring_size` SQE slots (must be a power of two).
   // Throws `std::system_error` if the ring, wakeup `eventfd`, or
   // `buf_pool_t` registration fails.
+  //
+  // Note: The flags for the ring require that all SQEs be issued from the same
+  // thread, and optimizes completions for the single-issuer case.
   explicit iou_basic_loop(allow,
       duration_t post_and_wait_poll_interval =
           default_post_and_wait_poll_interval)
-      : ring_{RING_SIZE}, wake_fd_{event_fd::create()},
+      : ring_{RING_SIZE,
+            IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN},
+        wake_fd_{event_fd::create()},
         post_and_wait_poll_interval_{post_and_wait_poll_interval} {
     if (!buf_pool_.register_with(ring_))
       throw std::system_error(errno, std::system_category(),
@@ -143,8 +148,8 @@ public:
   }
 
   // Returns a RAII guard that designates the calling thread as the loop thread
-  // for its lifetime. `run()` does this internally; call it manually before
-  // using `run_once()` directly (e.g., in tests).
+  // for its lifetime. `run` does this internally; call it manually before
+  // using `run_once` directly (e.g., in tests).
   [[nodiscard]] auto poll_thread_scope() const {
     return scoped_value<const iou_basic_loop*>{current_loop_, this};
   }
@@ -192,14 +197,14 @@ public:
     }
   }
 
-  // Block until `run()` is active. Returns false on timeout.
+  // Block until `run` is active. Returns false on timeout.
   // Pass -1 (the default) to wait up to 60 seconds.
   [[nodiscard]] bool wait_until_running(int timeout_ms = -1) {
     if (timeout_ms < 0) timeout_ms = 60000;
     return running_.wait_for_value(duration_t{timeout_ms}, true);
   }
 
-  // Run the loop on the calling thread until `stop()` is called.
+  // Run the loop on the calling thread until `stop` is called.
   void run() {
     stop_.store(false, std::memory_order::relaxed);
     const auto scope = poll_thread_scope();
@@ -411,7 +416,7 @@ public:
   }
 
   // Submit a zero-copy send from a pre-filled registered buffer. `buf` must
-  // come from `borrow_write_buffer()` and be filled via `append` or
+  // come from `borrow_write_buffer` and be filled via `append` or
   // `update_payload`. The callback receives the `buffer` so that it can check
   // `buf.result` and perhaps read from `buf.payload`. It may then wish to move
   // the buffer and reuse it. If the callback does not move the `buffer` out,
@@ -495,7 +500,7 @@ private:
   // `post` or `stop` writes to the `eventfd`, this poll fires as a CQE and
   // interrupts `io_uring_wait_cqe_timeout`. The poll is one-shot and is
   // rearmed after each wakeup. If the SQ is full, `wake_poll_armed_` stays
-  // false; the 10ms fallback timeout in `run()` covers this case, and the
+  // false; the 10ms fallback timeout in `run` covers this case, and the
   // arm is retried on the next `run_once` iteration.
   bool ensure_wake_poll_armed() {
     if (wake_poll_armed_) return true;

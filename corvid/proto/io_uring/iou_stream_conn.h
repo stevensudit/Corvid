@@ -47,7 +47,6 @@ public:
 
   ~iou_recv_view() {
     if (!buf_) return; // moved-from
-    if (taken_) return;
     resume_(std::move(buf_));
   }
 
@@ -56,13 +55,12 @@ public:
     return buf_.payload_view();
   }
 
-  // Advance past `n` bytes.
-  void consume(size_t n) noexcept { (void)buf_.consume_read(n); }
+  // Advance past `n` bytes, returning them as a view.
+  auto consume(size_t n) noexcept { return buf_.consume_read(n); }
 
   // Transfer buffer to caller for async parsing. A fresh-buffer recv is posted
   // immediately; the caller returns the buffer to the pool via RAII.
   [[nodiscard]] iou_buf_pool::buffer take() {
-    taken_ = true;
     resume_(iou_buf_pool::buffer{}); // empty signals: start fresh recv
     return std::move(buf_);
   }
@@ -76,7 +74,6 @@ private:
 
   iou_buf_pool::buffer buf_;
   resume_fn resume_;
-  bool taken_{};
 };
 
 // User-supplied persistent callbacks for an `iou_stream_conn`.
@@ -97,22 +94,30 @@ class iou_stream_conn_with_state;
 template<typename T>
 class iou_stream_conn_ptr_with;
 
-// TCP connection driven by an `iou_loop`. Instances are created via
-// `iou_stream_conn_ptr_with` factories.
+// An `iou_stream_conn` is a non-blocking stream socket driven by an
+// `iou_loop`. Instances are created, directly or indirectly, by
+// `iou_stream_conn_ptr_with` factories, and registered with the loop.
 //
-// Supports three creation paths:
-//   adopt   -- an already-connected socket.
-//   connect -- async connect; `on_drain` fires on success, `on_close` on
-//              failure.
-//   listen  -- accepts all incoming connections, each with a copy of the
-//              listener's handlers.
+/// Supports three creation paths:
 //
-// Send path: `send(string)` JIT-borrows a write buffer and packs consecutive
-// string items. `send(buffer&&)` submits zero-copy directly. One SQE in flight
-// at a time for ordering; additional sends queue behind it.
+// 1. Already-connected socket (whether from `connect` or `accept`): use the
+//    `iou_stream_conn_ptr_with` constructor directly. The socket must be
+//    non-blocking and connected.
+//
+// 2. Async connect: use the static `iou_stream_conn_ptr_with::connect`
+//    factory. Fire `on_drain` on success, `on_close` on failure.
+//
+// 3. Listening: use the static `iou_stream_conn_ptr_with::listen` factory.
+//    Accepts all incoming connections, each with a copy of the listener's
+//    handlers.
+//
+// Send path: `send(buffer&&)` submits zero-copy directly. `send(string)`
+// copies to a JIT-borrowed `buffer` to pack consecutive string items.
+// One SQE in flight at a time for ordering; additional sends queue behind it.
+// (Note: Soft-linked SQE's yield incorrect results on partial writes.)
 //
 // Recv path: one SQE in flight at a time. The `iou_recv_view` token delivered
-// to `on_data` controls re-submission via inline consume or async take().
+// to `on_data` controls re-submission via inline `consume` or async `take`.
 //
 // Thread safety: `send`, `close`, and `hangup` are safe from any thread.
 // All I/O and state mutation run on the loop thread.
@@ -123,29 +128,46 @@ public:
   // True if the connection has not yet been closed.
   [[nodiscard]] bool is_open() const noexcept { return open_; }
 
+  // The remote peer address supplied at construction. Safe to call from any
+  // thread.
   [[nodiscard]] const net_endpoint& remote_endpoint() const noexcept {
     return remote_;
   }
 
+  // The local address this socket is bound to. Useful after `listen` on
+  // port 0 to discover the OS-assigned port. Safe to call from any thread.
   [[nodiscard]] net_endpoint local_endpoint() const noexcept {
     return net_endpoint{sock_};
   }
 
+  // The `iou_loop` that drives this connection. Valid for the lifetime of
+  // the connection. Loop-thread-only for mutation operations; reads are safe
+  // from any thread, provided the connection is still alive.
   [[nodiscard]] iou_loop& loop() noexcept { return loop_; }
 
+  // Return a weak pointer to the loop. The reason for this is to handle an
+  // edge case that would lead to a crash during shutdown.
+  //
+  // Consider what happens if the connection is closed and the loop
+  // is destroyed, but you have a callback running on some arbitrary thread
+  // that kept this connection instance alive through its `shared_ptr`. If you
+  // then call it and it tries to post to the loop, things will go badly.
+  // Instead, you can attempt to upgrade the weak pointer, ensuring that the
+  // loop is still alive.
+  //
+  // This hypothetical is actually a reality for `timer_fuse`.
   [[nodiscard]] std::weak_ptr<iou_loop> weak_loop() const noexcept {
     return weak_loop_;
   }
 
   // Queue a string for sending. JIT-borrows a write buffer to pack consecutive
   // string items. Safe from any thread.
-  [[nodiscard]] bool send(std::string data) {
-    if (!open_) return false;
-    if (data.empty()) return false;
+  [[nodiscard]] bool send(std::string&& data) {
+    if (!open_ || data.empty()) return false;
     return loop_.execute_or_post(
         [p = self(), d = std::move(data)]() mutable -> bool {
           if (!p->open_) return false;
-          p->send_queue_.push_back(std::move(d));
+          p->send_queue_.emplace_back(std::move(d));
           if (!p->send_in_flight_) return p->do_submit_send();
           return true;
         });
@@ -154,23 +176,39 @@ public:
   // Queue a pre-filled registered buffer for zero-copy sending.
   // Safe from any thread.
   [[nodiscard]] bool send(buffer&& buf) {
-    if (!open_) return false;
-    if (!buf) return false;
+    if (!open_ || !buf || buf.active_span().empty()) return false;
     return loop_.execute_or_post(
         [p = self(), b = std::move(buf)]() mutable -> bool {
           if (!p->open_) return false;
-          p->send_queue_.push_back(std::move(b));
+          p->send_queue_.emplace_back(std::move(b));
           if (!p->send_in_flight_) return p->do_submit_send();
           return true;
         });
   }
 
-  // Begin graceful close: flush pending sends, then close. Once called,
-  // destruction of the owning handle does not force-close. Safe from any
-  // thread.
+  // Start a close. If `coordination` is `unilateral` (the default), flushes
+  // pending sends and then closes the socket. If `bilateral`, instead shuts
+  // down the write side after flushing pending sends and discards incoming
+  // data until the peer closes. Set the policy via `set_shutdown` before
+  // calling this. Safe to call from any thread. Once called, destructing the
+  // owning `iou_stream_conn_ptr_with` does not cause a forceful close.
   [[nodiscard]] bool close() {
     no_hangup_on_destruct_ = true;
     return loop_.execute_or_post([p = self()] { return p->do_close(); });
+  }
+
+  // The shutdown `coordination_policy` used by `close()`. `bilateral` shuts
+  // down the write side after the send queue flushes, then discards incoming
+  // data until the peer sends EOF. `unilateral` (the default) closes the
+  // entire socket once the queue empties. Safe to call from any thread.
+  [[nodiscard]] coordination_policy shutdown() const noexcept {
+    return shutdown_;
+  }
+
+  // Set the shutdown coordination policy. `shutdown` defaults to `unilateral`.
+  // Call before `close()`. Safe to call from any thread.
+  void set_shutdown(coordination_policy shutdown) noexcept {
+    shutdown_ = shutdown;
   }
 
   // Forceful close: cancel pending I/O and close immediately.
@@ -208,7 +246,13 @@ public:
 protected:
   iou_loop& loop_;
   std::weak_ptr<iou_loop> weak_loop_;
-  coordination_policy shutdown_{coordination_policy::unilateral};
+
+  // When `bilateral`, `close()` shuts down the write side after the send
+  // queue flushes, then discards incoming data until the peer closes. When
+  // `unilateral` (the default), `close()` closes the socket immediately once
+  // the queue empties.
+  relaxed_atomic<coordination_policy> shutdown_{
+      coordination_policy::unilateral};
 
   // Produce a new `iou_stream_conn` for each accepted connection. Override in
   // `iou_stream_conn_with_state` to return a richer type. Returning `nullptr`

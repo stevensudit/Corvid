@@ -214,15 +214,18 @@ public:
 
   // The `epoll_loop` that drives this connection. Valid for the lifetime of
   // the connection. Loop-thread-only for mutation operations; reads are safe
-  // from any thread provided the connection is still alive.
+  // from any thread, provided the connection is still alive.
   [[nodiscard]] epoll_loop& loop() noexcept { return loop_; }
 
-  // Ok, but what if the connection is closed and the loop is destroyed, but
-  // your callback, running on an arbitrary thread, kept this instance alive
-  // through its `shared_ptr`? That's what `weak_loop` is for: it returns a
-  // weak reference to the loop that you can check before posting to avoid a
-  // dangling reference in the callback. This is what `timer_fuse` uses. Safe
-  // to call from any thread.
+  // Return a weak pointer to the loop. The reason for this is to handle an
+  // edge case that would lead to a crash during shutdown.
+  //
+  // Consider what happens if the connection is closed and the loop
+  // is destroyed, but you have a callback running on some arbitrary thread
+  // that kept this connection instance alive through its `shared_ptr`. If you
+  // then call it and it tries to post to the loop, things will go badly.
+  // Instead, you can attempt to upgrade the weak pointer, ensuring that the
+  // loop is still alive.
   [[nodiscard]] std::weak_ptr<epoll_loop> weak_loop() const noexcept {
     return weak_loop_;
   }
