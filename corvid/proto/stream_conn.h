@@ -226,6 +226,8 @@ public:
   // then call it and it tries to post to the loop, things will go badly.
   // Instead, you can attempt to upgrade the weak pointer, ensuring that the
   // loop is still alive.
+  //
+  // This hypothetical is actually a reality for `timer_fuse`.
   [[nodiscard]] std::weak_ptr<epoll_loop> weak_loop() const noexcept {
     return weak_loop_;
   }

@@ -290,6 +290,7 @@ public:
     [[nodiscard]] size_t size() const noexcept { return full_span_.size(); }
 
     // Always 0: the entire 2 MB page is registered as a single buffer entry.
+    // NOTE: When we factor out this class for use with Provide Buffers.
     [[nodiscard]] static size_t buf_index() noexcept { return 0; }
 
     // Byte offset from the huge page base.

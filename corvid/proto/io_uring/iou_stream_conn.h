@@ -31,6 +31,7 @@
 namespace corvid { inline namespace proto { inline namespace iouring {
 using namespace bool_enums;
 
+// Fwd.
 class iou_stream_conn;
 
 // Move-only recv token delivered to `on_data`. Two consumption paths:
@@ -39,17 +40,20 @@ class iou_stream_conn;
 //   Async:  call `take()` to transfer buffer ownership for off-loop parsing.
 //           Destructor posts a fresh-buffer recv immediately.
 class iou_recv_view {
+#pragma region Construction and assignment
 public:
   iou_recv_view(iou_recv_view&&) noexcept = default;
-  iou_recv_view& operator=(iou_recv_view&&) = delete;
+
   iou_recv_view(const iou_recv_view&) = delete;
   iou_recv_view& operator=(const iou_recv_view&) = delete;
+  iou_recv_view& operator=(iou_recv_view&&) = delete;
 
   ~iou_recv_view() {
     if (!buf_) return; // moved-from
     resume_(std::move(buf_));
   }
-
+#pragma endregion
+#pragma region Buffer management
   // Current unconsumed payload.
   [[nodiscard]] std::string_view active_view() noexcept {
     return buf_.payload_view();
@@ -64,16 +68,20 @@ public:
     resume_(iou_buf_pool::buffer{}); // empty signals: start fresh recv
     return std::move(buf_);
   }
-
+#pragma endregion
+#pragma region Internals
 private:
   friend class iou_stream_conn;
   using resume_fn = std::function<void(iou_buf_pool::buffer&&)>;
 
   iou_recv_view(iou_buf_pool::buffer buf, resume_fn resume) noexcept
       : buf_{std::move(buf)}, resume_{std::move(resume)} {}
-
+#pragma endregion
+#pragma region Data members
+private:
   iou_buf_pool::buffer buf_;
   resume_fn resume_;
+#pragma endregion
 };
 
 // User-supplied persistent callbacks for an `iou_stream_conn`.
@@ -88,9 +96,9 @@ struct iou_stream_conn_handlers {
   std::function<bool(iou_stream_conn&)> on_close = nullptr;
 };
 
+// Fwd.
 template<typename STATE>
 class iou_stream_conn_with_state;
-
 template<typename T>
 class iou_stream_conn_ptr_with;
 
@@ -105,7 +113,7 @@ class iou_stream_conn_ptr_with;
 //    non-blocking and connected.
 //
 // 2. Async connect: use the static `iou_stream_conn_ptr_with::connect`
-//    factory. Fire `on_drain` on success, `on_close` on failure.
+//    factory. Fires `on_drain` on success, `on_close` on failure.
 //
 // 3. Listening: use the static `iou_stream_conn_ptr_with::listen` factory.
 //    Accepts all incoming connections, each with a copy of the listener's
@@ -154,14 +162,12 @@ public:
   // then call it and it tries to post to the loop, things will go badly.
   // Instead, you can attempt to upgrade the weak pointer, ensuring that the
   // loop is still alive.
-  //
-  // This hypothetical is actually a reality for `timer_fuse`.
   [[nodiscard]] std::weak_ptr<iou_loop> weak_loop() const noexcept {
     return weak_loop_;
   }
 
   // Queue a string for sending. JIT-borrows a write buffer to pack consecutive
-  // string items. Safe from any thread.
+  // string items. Safe to call from any thread.
   [[nodiscard]] bool send(std::string&& data) {
     if (!open_ || data.empty()) return false;
     return loop_.execute_or_post(
@@ -174,7 +180,7 @@ public:
   }
 
   // Queue a pre-filled registered buffer for zero-copy sending.
-  // Safe from any thread.
+  // Safe to call from any thread.
   [[nodiscard]] bool send(buffer&& buf) {
     if (!open_ || !buf || buf.active_span().empty()) return false;
     return loop_.execute_or_post(
@@ -270,6 +276,7 @@ private:
   net_socket sock_;
   net_endpoint remote_;
   iou_stream_conn_handlers own_handlers_;
+
   relaxed_atomic_bool open_;
   bool connecting_{};
   bool listening_{};
@@ -291,10 +298,9 @@ private:
   // Connect address. Must remain valid until the connect SQE fires.
   sockaddr_storage connect_addr_{};
 
-  // --- Internal methods. All run on the loop thread. ---
-
+private:
   bool do_submit_recv() {
-    assert(!recv_in_flight_);
+    assert(loop_.is_loop_thread() && !recv_in_flight_);
     auto buf = loop_.borrow_read_buffer();
     if (!buf) return false;
     recv_in_flight_ = true;
@@ -308,9 +314,9 @@ private:
   // If the buffer has no remaining active_span (completely full), re-delivers
   // any remaining payload first, then gets a fresh buffer.
   bool do_continue_recv(buffer&& buf) {
-    assert(!recv_in_flight_);
+    assert(loop_.is_loop_thread() && !recv_in_flight_);
+    // Space remains in this buffer; resubmit for more data.
     if (!buf.active_span().empty()) {
-      // Space remains in this buffer; resubmit for more data.
       recv_in_flight_ = true;
       return loop_.submit_recv_buffer(sock_, std::move(buf),
           [p = self()](buffer& b) mutable -> bool {
@@ -318,10 +324,8 @@ private:
           });
     }
 
-    if (buf.payload_span().empty()) {
-      // Buffer fully consumed and reset to initial read state: fresh recv.
-      return do_submit_recv();
-    }
+    // Buffer fully consumed and reset to initial read state: fresh recv.
+    if (buf.payload_span().empty()) return do_submit_recv();
 
     // Buffer is completely full but has remaining unconsumed payload.
     // Re-deliver it; when the handler consumes, the buffer resets and the view
@@ -372,6 +376,7 @@ private:
   }
 
   bool do_submit_send() {
+    assert(loop_.is_loop_thread());
     assert(!send_in_flight_);
     if (send_queue_.empty()) return true;
     send_in_flight_ = true;
@@ -405,6 +410,7 @@ private:
   }
 
   bool on_send_complete(buffer& buf) {
+    assert(loop_.is_loop_thread());
     send_in_flight_ = false;
     if (!open_) return true;
 
@@ -425,6 +431,7 @@ private:
   }
 
   bool do_submit_connect() {
+    assert(loop_.is_loop_thread());
     assert(connecting_);
     return loop_.submit_connect(sock_, remote_,
         [p = self()](iou_res res) mutable -> bool {
@@ -433,6 +440,7 @@ private:
   }
 
   bool handle_connect_complete(iou_res res) {
+    assert(loop_.is_loop_thread());
     connecting_ = false;
     if (!open_) return true;
     if (!res.ok()) {
@@ -448,6 +456,7 @@ private:
   }
 
   bool do_submit_accept() {
+    assert(loop_.is_loop_thread());
     assert(listening_);
     return loop_.submit_accept(sock_, accept_peer_target_,
         [p = self()](iou_res res) mutable -> bool {
@@ -456,6 +465,7 @@ private:
   }
 
   bool handle_accept_complete(iou_res res) {
+    assert(loop_.is_loop_thread());
     if (!open_) return true;
     if (!res.ok()) {
       if (res.is_soft_error()) return do_submit_accept();
@@ -473,6 +483,7 @@ private:
   }
 
   bool register_with_loop() {
+    assert(loop_.is_loop_thread());
     if (!open_) return false;
     if (listening_) return do_submit_accept();
     if (connecting_) return do_submit_connect();
@@ -480,6 +491,7 @@ private:
   }
 
   [[nodiscard]] bool notify_close_once() {
+    assert(loop_.is_loop_thread());
     if (close_notified_) return false;
     close_notified_ = true;
     if (own_handlers_.on_close) return own_handlers_.on_close(*this);
@@ -487,11 +499,13 @@ private:
   }
 
   [[nodiscard]] bool notify_drained() {
+    assert(loop_.is_loop_thread());
     if (own_handlers_.on_drain) return own_handlers_.on_drain(*this);
     return true;
   }
 
   [[nodiscard]] bool do_close_now() {
+    assert(loop_.is_loop_thread());
     if (!open_->exchange(false, std::memory_order::relaxed)) return false;
     send_queue_.clear();
     (void)sock_.close();
@@ -500,6 +514,7 @@ private:
   }
 
   [[nodiscard]] bool do_close() {
+    assert(loop_.is_loop_thread());
     if (!open_) return false;
     close_requested_ = true;
     if (send_queue_.empty() && !send_in_flight_) return do_close_now();
