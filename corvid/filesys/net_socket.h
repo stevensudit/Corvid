@@ -57,8 +57,6 @@ public:
   net_socket& operator=(net_socket&&) noexcept = default;
   net_socket& operator=(const net_socket&) = delete;
 
-  ~net_socket() = default;
-
   // Create an IPv4 socket. Defaults to non-blocking TCP (`SOCK_STREAM |
   // SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass `message_style::datagram` for UDP,
   // or `execution::blocking` to omit `SOCK_NONBLOCK`.

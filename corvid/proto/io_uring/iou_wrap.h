@@ -22,6 +22,8 @@
 #include <system_error>
 
 #include <poll.h>
+#include <sys/socket.h>
+#include <sys/uio.h>
 
 #include "../../filesys/event_fd.h"
 
@@ -120,6 +122,34 @@ public:
       uint64_t offset = 0) noexcept {
     io_uring_prep_write_fixed(sqe_, fd, buf, static_cast<unsigned>(len),
         static_cast<off_t>(offset), static_cast<int>(buf_index));
+    return true;
+  }
+
+  bool prep_accept(int fd, sockaddr* addr, socklen_t* addrlen,
+      int flags = SOCK_NONBLOCK | SOCK_CLOEXEC) noexcept {
+    io_uring_prep_accept(sqe_, fd, addr, addrlen, flags);
+    return true;
+  }
+
+  bool prep_connect(int fd, const sockaddr* addr, socklen_t addrlen) noexcept {
+    io_uring_prep_connect(sqe_, fd, addr, addrlen);
+    return true;
+  }
+
+  bool prep_recvmsg(int fd, msghdr* msg, int flags = 0) noexcept {
+    io_uring_prep_recvmsg(sqe_, fd, msg, flags);
+    return true;
+  }
+
+  bool
+  prep_sendmsg(int fd, const msghdr* msg, int flags = MSG_NOSIGNAL) noexcept {
+    io_uring_prep_sendmsg(sqe_, fd, msg, flags);
+    return true;
+  }
+
+  // Set additional SQE flags (e.g., `IOSQE_IO_LINK` for linked SQEs).
+  bool set_sqe_flags(uint8_t flags) noexcept {
+    sqe_->flags |= flags;
     return true;
   }
 

@@ -242,6 +242,62 @@ public:
 #pragma endregion
 #pragma region Submit and buffer APIs
 
+  // Submit an async accept on `file`. `addr` and `addrlen` receive the peer
+  // address on completion and must remain valid until the CQE fires. May be
+  // called from any thread.
+  [[nodiscard]] bool submit_accept(const os_file& file, sockaddr* addr,
+      socklen_t* addrlen, completion_fn cb,
+      int flags = SOCK_NONBLOCK | SOCK_CLOEXEC) {
+    return execute_or_post(
+        [this, fd = file.handle(), addr, addrlen, flags,
+            cb = std::move(cb)]() mutable -> bool {
+          return do_submit(
+              [fd, addr, addrlen, flags](iou_sqe sqe) {
+                sqe.prep_accept(fd, addr, addrlen, flags);
+              },
+              std::move(cb));
+        });
+  }
+
+  // Submit an async connect on `file` to `addr`. `addr` must remain valid
+  // until the CQE fires. May be called from any thread.
+  [[nodiscard]] bool submit_connect(const os_file& file, const sockaddr* addr,
+      socklen_t addrlen, completion_fn cb) {
+    return execute_or_post(
+        [this, fd = file.handle(), addr, addrlen,
+            cb = std::move(cb)]() mutable -> bool {
+          return do_submit(
+              [fd, addr, addrlen](iou_sqe sqe) {
+                sqe.prep_connect(fd, addr, addrlen);
+              },
+              std::move(cb));
+        });
+  }
+
+  // Submit an async recvmsg on `file`. `msg` must remain valid until the
+  // CQE fires. May be called from any thread.
+  [[nodiscard]] bool submit_recvmsg(const os_file& file, msghdr* msg,
+      completion_fn cb, int flags = 0) {
+    return execute_or_post([this, fd = file.handle(), msg, flags,
+                               cb = std::move(cb)]() mutable -> bool {
+      return do_submit(
+          [fd, msg, flags](iou_sqe sqe) { sqe.prep_recvmsg(fd, msg, flags); },
+          std::move(cb));
+    });
+  }
+
+  // Submit an async sendmsg on `file`. `msg` must remain valid until the
+  // CQE fires. May be called from any thread.
+  [[nodiscard]] bool submit_sendmsg(const os_file& file, const msghdr* msg,
+      completion_fn cb, int flags = MSG_NOSIGNAL) {
+    return execute_or_post([this, fd = file.handle(), msg, flags,
+                               cb = std::move(cb)]() mutable -> bool {
+      return do_submit(
+          [fd, msg, flags](iou_sqe sqe) { sqe.prep_sendmsg(fd, msg, flags); },
+          std::move(cb));
+    });
+  }
+
   // Submit a no-op that completes immediately with `res` == 0. Useful for
   // verifying ring plumbing. May be called from any thread.
   [[nodiscard]] bool submit_nop(completion_fn cb) {
