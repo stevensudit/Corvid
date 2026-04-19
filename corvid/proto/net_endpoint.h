@@ -87,7 +87,8 @@ namespace corvid { inline namespace proto {
 // `sockaddr_storage` is provided.
 class net_endpoint {
 public:
-  static_assert(sizeof(sockaddr_un) <= sizeof(sockaddr_storage),
+  static constexpr size_t max_sockaddr_size = sizeof(sockaddr_storage);
+  static_assert(sizeof(sockaddr_un) <= max_sockaddr_size,
       "`sockaddr_storage` is not large enough to hold `sockaddr_un`");
 
   // Constructors.
@@ -322,6 +323,12 @@ public:
     return {addr, sockaddr_size()};
   }
 
+  // Mutable version of `as_sockaddr()`.
+  [[nodiscard]] sockaddr* as_sockaddr() noexcept {
+    auto addr = reinterpret_cast<sockaddr*>(&storage_);
+    return addr;
+  }
+
   // Convenient invalid endpoint.
   static const net_endpoint invalid;
 
@@ -432,6 +439,14 @@ private:
   sockaddr_storage storage_{};
 };
 
-inline const net_endpoint net_endpoint::invalid{};
+// Can't be defined inline.
+inline const net_endpoint net_endpoint::invalid;
+
+// Net endpoint as a target. Necessary for io_uring, even though we don't care
+// about the value inserted into `sockaddr_len`.
+struct net_endpoint_target {
+  net_endpoint sockaddr;
+  socklen_t sockaddr_len{net_endpoint::max_sockaddr_size};
+};
 
 }} // namespace corvid::proto

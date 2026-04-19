@@ -77,6 +77,8 @@ public:
   using buf_pool_t = iou_buf_pool;
   using block_size = buf_pool_t::block_size;
   using buffer = buf_pool_t::buffer;
+  using span_t = buffer::span_t;
+  using const_span_t = buffer::const_span_t;
 
   // Timeouts.
   using duration_t = std::chrono::milliseconds;
@@ -242,34 +244,33 @@ public:
 #pragma endregion
 #pragma region Submit and buffer APIs
 
-  // Submit an async accept on `file`. `addr` and `addrlen` receive the peer
-  // address on completion and must remain valid until the CQE fires. May be
-  // called from any thread.
-  [[nodiscard]] bool submit_accept(const os_file& file, sockaddr* addr,
-      socklen_t* addrlen, completion_fn cb,
+  // Submit an async accept on `file`. `endpoint_target` receives the
+  // peer address on completion and must remain valid until the CQE fires.
+  //
+  // May be called from any thread.
+  [[nodiscard]] bool submit_accept(const os_file& file,
+      net_endpoint_target& endpoint_target, completion_fn cb,
       int flags = SOCK_NONBLOCK | SOCK_CLOEXEC) {
     return execute_or_post(
-        [this, fd = file.handle(), addr, addrlen, flags,
+        [this, fd = file.handle(), &endpoint_target, flags,
             cb = std::move(cb)]() mutable -> bool {
           return do_submit(
-              [fd, addr, addrlen, flags](iou_sqe sqe) {
-                sqe.prep_accept(fd, addr, addrlen, flags);
+              [fd, &endpoint_target, flags](iou_sqe sqe) {
+                sqe.prep_accept(fd, endpoint_target, flags);
               },
               std::move(cb));
         });
   }
 
-  // Submit an async connect on `file` to `addr`. `addr` must remain valid
-  // until the CQE fires. May be called from any thread.
-  [[nodiscard]] bool submit_connect(const os_file& file, const sockaddr* addr,
-      socklen_t addrlen, completion_fn cb) {
+  // Submit an async connect on `file` to `endpoint`. `endpoint` must remain
+  // valid until the CQE fires. May be called from any thread.
+  [[nodiscard]] bool submit_connect(const os_file& file,
+      const net_endpoint& endpoint, completion_fn cb) {
     return execute_or_post(
-        [this, fd = file.handle(), addr, addrlen,
+        [this, fd = file.handle(), &endpoint,
             cb = std::move(cb)]() mutable -> bool {
           return do_submit(
-              [fd, addr, addrlen](iou_sqe sqe) {
-                sqe.prep_connect(fd, addr, addrlen);
-              },
+              [fd, &endpoint](iou_sqe sqe) { sqe.prep_connect(fd, endpoint); },
               std::move(cb));
         });
   }
@@ -313,17 +314,14 @@ public:
   // callback fires. May be called from any thread.
   //
   // Prefer `submit_recv_buffer` over this.
-  [[nodiscard]] bool submit_recv_bytes(const os_file& file,
-      std::span<std::byte> buf, completion_fn cb, int flags = 0) {
-    return execute_or_post(
-        [this, fd = file.handle(), data = buf.data(), len = buf.size(), flags,
-            cb = std::move(cb)]() mutable -> bool {
-          return do_submit(
-              [fd, data, len, flags](iou_sqe sqe) {
-                sqe.prep_recv(fd, data, len, flags);
-              },
-              std::move(cb));
-        });
+  [[nodiscard]] bool submit_recv_bytes(const os_file& file, span_t span,
+      completion_fn cb, int flags = 0) {
+    return execute_or_post([this, fd = file.handle(), span, flags,
+                               cb = std::move(cb)]() mutable -> bool {
+      return do_submit(
+          [fd, span, flags](iou_sqe sqe) { sqe.prep_recv(fd, span, flags); },
+          std::move(cb));
+    });
   }
 
   // Low-level method to submit an async send of bytes at `buf` on `file`. The
@@ -333,17 +331,14 @@ public:
   // May be called from any thread.
   //
   // Prefer `submit_send_buffer` over this.
-  [[nodiscard]] bool submit_send_bytes(const os_file& file,
-      std::span<const std::byte> buf, completion_fn cb, int flags = 0) {
-    return execute_or_post(
-        [this, fd = file.handle(), data = buf.data(), len = buf.size(), flags,
-            cb = std::move(cb)]() mutable -> bool {
-          return do_submit(
-              [fd, data, len, flags](iou_sqe sqe) {
-                sqe.prep_send(fd, data, len, flags);
-              },
-              std::move(cb));
-        });
+  [[nodiscard]] bool submit_send_bytes(const os_file& file, const_span_t span,
+      completion_fn cb, int flags = 0) {
+    return execute_or_post([this, fd = file.handle(), span, flags,
+                               cb = std::move(cb)]() mutable -> bool {
+      return do_submit(
+          [fd, span, flags](iou_sqe sqe) { sqe.prep_send(fd, span, flags); },
+          std::move(cb));
+    });
   }
 
   // Borrow a registered `buffer` from the pool for the purpose of reading into
@@ -406,10 +401,10 @@ public:
     buf.reset_result();
     return execute_or_post([this, fd = file.handle(), buf = std::move(buf),
                                cb = std::move(cb)]() mutable -> bool {
-      auto span = buf.active_span();
       return do_submit(
-          [fd, ptr = span.data(), len = span.size(), ndx = buf.buf_index()](
-              iou_sqe sqe) { sqe.prep_read_fixed(fd, ptr, len, ndx); },
+          [fd, span = buf.active_span(), ndx = buf.buf_index()](iou_sqe sqe) {
+            sqe.prep_read_fixed(fd, span, ndx);
+          },
           [buf = std::move(buf), cb = std::move(cb)](
               iou_res res) mutable -> bool { return cb(buf.update(res)); });
     });
@@ -442,10 +437,10 @@ public:
   submit_send_buffer(const os_file& file, buffer&& buf, buf_completion_fn cb) {
     return execute_or_post([this, fd = file.handle(), buf = std::move(buf),
                                cb = std::move(cb)]() mutable -> bool {
-      auto span = buf.active_span();
       return do_submit(
-          [fd, ptr = span.data(), len = span.size(), ndx = buf.buf_index()](
-              iou_sqe sqe) { sqe.prep_write_fixed(fd, ptr, len, ndx); },
+          [fd, span = buf.active_span(), ndx = buf.buf_index()](iou_sqe sqe) {
+            sqe.prep_write_fixed(fd, span, ndx);
+          },
           [buf = std::move(buf), cb = std::move(cb)](
               iou_res res) mutable -> bool { return cb(buf.update(res)); });
     });

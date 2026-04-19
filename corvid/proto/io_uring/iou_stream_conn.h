@@ -240,10 +240,9 @@ private:
   std::deque<std::variant<std::string, buffer>> send_queue_;
   bool send_in_flight_{};
 
-  // Accept state (listener only). `accept_peer_addr_` and `accept_peer_len_`
-  // must remain valid until the accept SQE fires.
-  sockaddr_storage accept_peer_addr_{};
-  socklen_t accept_peer_len_{sizeof(sockaddr_storage)};
+  // Accept state (listener only). Must remain valid until the accept SQE
+  // fires.
+  net_endpoint_target accept_peer_target_;
 
   // Connect address. Must remain valid until the connect SQE fires.
   sockaddr_storage connect_addr_{};
@@ -383,10 +382,7 @@ private:
 
   bool do_submit_connect() {
     assert(connecting_);
-    connect_addr_ = static_cast<sockaddr_storage>(remote_);
-    return loop_.submit_connect(sock_,
-        reinterpret_cast<sockaddr*>(&connect_addr_),
-        net_socket::sockaddr_size(connect_addr_),
+    return loop_.submit_connect(sock_, remote_,
         [p = self()](iou_res res) mutable -> bool {
           return p->handle_connect_complete(res);
         });
@@ -409,9 +405,7 @@ private:
 
   bool do_submit_accept() {
     assert(listening_);
-    accept_peer_len_ = sizeof(accept_peer_addr_);
-    return loop_.submit_accept(sock_,
-        reinterpret_cast<sockaddr*>(&accept_peer_addr_), &accept_peer_len_,
+    return loop_.submit_accept(sock_, accept_peer_target_,
         [p = self()](iou_res res) mutable -> bool {
           return p->handle_accept_complete(res);
         });
@@ -425,7 +419,7 @@ private:
       return do_close_now();
     }
     net_socket new_sock{os_file{res.value()}};
-    net_endpoint remote{accept_peer_addr_};
+    net_endpoint& remote = accept_peer_target_.sockaddr;
     auto peer = accept_clone(std::move(new_sock), remote, own_handlers_);
     if (peer) {
       auto lp = weak_loop_.lock();

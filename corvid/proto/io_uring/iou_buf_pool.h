@@ -77,8 +77,8 @@ public:
     large = 64UL * 1024
   };
 
-  using span_t = std::span<std::byte>;
-  using const_span_t = std::span<const std::byte>;
+  using span_t = iou_sqe::span_t;
+  using const_span_t = iou_sqe::const_span_t;
 #pragma endregion
 #pragma region Buffer handle
 public:

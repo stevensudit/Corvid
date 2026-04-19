@@ -138,8 +138,7 @@ private:
   // Recv context: all fields must outlive the in-flight `recvmsg` SQE.
   struct recv_ctx {
     buffer buf;
-    sockaddr_storage peer_addr{};
-    socklen_t peer_len{sizeof(sockaddr_storage)};
+    net_endpoint_target peer_target;
     iovec iov{};  // msg_iov[0]: points into buf.active_span()
     msghdr hdr{}; // msg_name -> peer_addr, msg_iov -> &iov
   } recv_ctx_;
@@ -155,7 +154,7 @@ private:
   // Persistent send context: valid while a send SQE is in flight.
   struct send_ctx {
     buffer buf;
-    sockaddr_storage peer_addr{};
+    net_endpoint peer_addr;
     iovec iov{};  // msg_iov[0]: points into buf.active_span()
     msghdr hdr{}; // msg_name -> peer_addr, msg_iov -> &iov
   } send_ctx_;
@@ -169,10 +168,10 @@ private:
     if (!recv_ctx_.buf) return false;
     auto span = recv_ctx_.buf.active_span();
     recv_ctx_.iov = {span.data(), span.size()};
-    recv_ctx_.peer_len = sizeof(recv_ctx_.peer_addr);
+    recv_ctx_.peer_target.sockaddr_len = net_endpoint::max_sockaddr_size;
     recv_ctx_.hdr = {};
-    recv_ctx_.hdr.msg_name = &recv_ctx_.peer_addr;
-    recv_ctx_.hdr.msg_namelen = recv_ctx_.peer_len;
+    recv_ctx_.hdr.msg_name = recv_ctx_.peer_target.sockaddr.as_sockaddr();
+    recv_ctx_.hdr.msg_namelen = recv_ctx_.peer_target.sockaddr_len;
     recv_ctx_.hdr.msg_iov = &recv_ctx_.iov;
     recv_ctx_.hdr.msg_iovlen = 1;
     recv_in_flight_ = true;
@@ -193,7 +192,7 @@ private:
       const auto n = static_cast<size_t>(res.value());
       std::string_view payload{
           reinterpret_cast<const char*>(recv_ctx_.iov.iov_base), n};
-      net_endpoint from{recv_ctx_.peer_addr};
+      net_endpoint& from = recv_ctx_.peer_target.sockaddr;
       if (own_handlers_.on_data)
         (void)own_handlers_.on_data(*this, payload, from);
     }
@@ -221,7 +220,7 @@ private:
     }
 
     // Build msghdr pointing into the write buffer's active_span.
-    send_ctx_.peer_addr = static_cast<const sockaddr_storage&>(item.to);
+    send_ctx_.peer_addr = item.to;
     auto span = send_ctx_.buf.active_span();
     send_ctx_.iov = {const_cast<std::byte*>(span.data()), span.size()};
     send_ctx_.hdr = {};

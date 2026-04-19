@@ -26,6 +26,7 @@
 #include <sys/uio.h>
 
 #include "../../filesys/event_fd.h"
+#include "../net_endpoint.h"
 
 // Wrapper around `io_uring`'s C API, with the primary goal of adding C++
 // conveniences.
@@ -69,6 +70,9 @@ private:
 // ownership.
 class iou_sqe {
 public:
+  using span_t = std::span<std::byte>;
+  using const_span_t = std::span<const std::byte>;
+
   using ptr_t = io_uring_sqe*;
 
   iou_sqe() = default;
@@ -97,41 +101,46 @@ public:
     return true;
   }
 
-  bool prep_recv(int fd, void* buf, size_t len, int flags = 0) noexcept {
-    io_uring_prep_recv(sqe_, fd, buf, len, flags);
+  bool prep_recv(int fd, span_t span, int flags = 0) noexcept {
+    io_uring_prep_recv(sqe_, fd, span.data(), span.size(), flags);
     return true;
   }
 
-  bool prep_send(int fd, const void* buf, size_t len, int flags = 0) noexcept {
-    io_uring_prep_send(sqe_, fd, buf, len, flags);
+  bool prep_send(int fd, const_span_t span, int flags = 0) noexcept {
+    io_uring_prep_send(sqe_, fd, span.data(), span.size(), flags);
     return true;
   }
 
   // Read into a pre-registered fixed buffer. `buf_index` is the slot index
   // from `io_uring_register_buffers`. For sockets, `offset` is ignored.
-  bool prep_read_fixed(int fd, void* buf, size_t len, size_t buf_index,
+  bool prep_read_fixed(int fd, span_t span, size_t buf_index,
       uint64_t offset = 0) noexcept {
-    io_uring_prep_read_fixed(sqe_, fd, buf, static_cast<unsigned>(len),
-        static_cast<off_t>(offset), static_cast<int>(buf_index));
+    io_uring_prep_read_fixed(sqe_, fd, span.data(),
+        static_cast<unsigned>(span.size()), static_cast<off_t>(offset),
+        static_cast<int>(buf_index));
     return true;
   }
 
   // Write from a pre-registered fixed buffer. `buf_index` is the slot index
   // from `io_uring_register_buffers`. For sockets, `offset` is ignored.
-  bool prep_write_fixed(int fd, const void* buf, size_t len, size_t buf_index,
+  bool prep_write_fixed(int fd, const_span_t span, size_t buf_index,
       uint64_t offset = 0) noexcept {
-    io_uring_prep_write_fixed(sqe_, fd, buf, static_cast<unsigned>(len),
-        static_cast<off_t>(offset), static_cast<int>(buf_index));
+    io_uring_prep_write_fixed(sqe_, fd, span.data(),
+        static_cast<unsigned>(span.size()), static_cast<off_t>(offset),
+        static_cast<int>(buf_index));
     return true;
   }
 
-  bool prep_accept(int fd, sockaddr* addr, socklen_t* addrlen,
+  bool prep_accept(int fd, net_endpoint_target& endpoint_target,
       int flags = SOCK_NONBLOCK | SOCK_CLOEXEC) noexcept {
-    io_uring_prep_accept(sqe_, fd, addr, addrlen, flags);
+    endpoint_target.sockaddr_len = net_endpoint::max_sockaddr_size;
+    io_uring_prep_accept(sqe_, fd, endpoint_target.sockaddr.as_sockaddr(),
+        &endpoint_target.sockaddr_len, flags);
     return true;
   }
 
-  bool prep_connect(int fd, const sockaddr* addr, socklen_t addrlen) noexcept {
+  bool prep_connect(int fd, const net_endpoint& endpoint) noexcept {
+    auto [addr, addrlen] = endpoint.as_sockaddr();
     io_uring_prep_connect(sqe_, fd, addr, addrlen);
     return true;
   }
