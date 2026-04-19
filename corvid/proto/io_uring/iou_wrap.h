@@ -49,7 +49,8 @@ public:
 
   // True if the result is a "soft" error that can be retried.
   [[nodiscard]] bool is_soft_error() const {
-    return res_ == -ETIME || res_ == -EINTR;
+    return err() == ETIME || err() == EINTR || err() == EAGAIN ||
+           err() == ENOMEM || err() == ERESTART;
   }
 
   void throw_if_error(const std::string& context, int r = 0) const {

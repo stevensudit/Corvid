@@ -307,10 +307,14 @@ public:
     return buf_pool_.borrow_writer(sz);
   }
 
-  // Submit a zero-copy recv into a registered `buffer`. The callback receives
-  // the `buffer`, so that it can check `buf.result` and read from
-  // `buf.payload`. Returns false if no buffer is available. May be called from
-  // any thread.
+  // Submit a zero-copy recv into a registered `buffer`. The loop allocates the
+  // `buffer`; the callback receives it so that it can check `buf.result` and
+  // read from `buf.payload`. It may then wish to move the buffer and reuse it.
+  // If the callback does not move the `buffer` out, it is returned to the
+  // pool.
+  //
+  // Returns false if no buffer is available. May be called from any thread.
+  // See overload for description of `iou_res` values.
   //
   // Prefer this over manually calling `borrow_read_buffer` and
   // `submit_recv_bytes`. However, this method is ideal for reusing an existing
@@ -320,56 +324,75 @@ public:
     return submit_recv_buffer(file, borrow_read_buffer(sz), std::move(cb));
   }
 
-  // Submit a zero-copy recv into a registered `buffer`. The loop allocates the
-  // `buffer`; the callback receives the `buffer`. Check `buf.result` and read
-  // from `buf.payload`. Returns false if buffer is invalid. May be called from
-  // any thread.
+  // Submit a zero-copy recv into a registered `buffer`. The callback receives
+  // the `buffer` so that it can check `buf.result` and read from
+  // `buf.payload`. It may then wish to move the buffer and reuse it. If the
+  // callback does not move the `buffer` out, it is returned to the pool.
+  //
+  // Returns false if the `buffer` is invalid. May be called from any thread.
+  //
+  // On success, the `buffer.result().value()` will be set a positive integer,
+  // which is the number of bytes read. If there's room in the buffer and you
+  // expect more data, you may move the buffer by calling this method.
+  //
+  // On EOF, the `buffer.result().value()` will be 0. The buffer payload is
+  // unchanged and should be inspected for any remaining data. You should then
+  // close the socket.
+  //
+  // On soft error, `buffer.result().is_soft_error()` will be true. The buffer
+  // payload is unchanged and should be inspected for any remaining data. You
+  // may wish to retry, much as you would to accumulate more data.
   //
   // Prefer this over `submit_recv_bytes`.
   [[nodiscard]] bool
   submit_recv_buffer(const os_file& file, buffer&& buf, buf_completion_fn cb) {
     if (!buf) return false;
     buf.reset_result();
-    auto span = buf.active_span();
-    return execute_or_post(
-        [this, fd = file.handle(), ptr = span.data(), len = span.size(),
-            ndx = buf.buf_index(), buf = std::move(buf),
-            cb = std::move(cb)]() mutable -> bool {
-          return do_submit(
-              [fd, ptr, len, ndx](iou_sqe sqe) {
-                sqe.prep_read_fixed(fd, ptr, len, ndx);
-              },
-              [buf = std::move(buf), cb = std::move(cb)](
-                  iou_res res) mutable -> bool {
-                buf.update(res);
-                return cb(buf);
-              });
-        });
+    return execute_or_post([this, fd = file.handle(), buf = std::move(buf),
+                               cb = std::move(cb)]() mutable -> bool {
+      auto span = buf.active_span();
+      return do_submit(
+          [fd, ptr = span.data(), len = span.size(), ndx = buf.buf_index()](
+              iou_sqe sqe) { sqe.prep_read_fixed(fd, ptr, len, ndx); },
+          [buf = std::move(buf), cb = std::move(cb)](
+              iou_res res) mutable -> bool { return cb(buf.update(res)); });
+    });
   }
 
   // Submit a zero-copy send from a pre-filled registered buffer. `buf` must
   // come from `borrow_write_buffer()` and be filled via `append` or
-  // `update_payload`. Returns false if the SQ is full. May be called from any
-  // thread.
+  // `update_payload`. The callback receives the `buffer` so that it can check
+  // `buf.result` and perhaps read from `buf.payload`. It may then wish to move
+  // the buffer and reuse it. If the callback does not move the `buffer` out,
+  // it is returned to the pool.
+  //
+  // Returns false if the `buffer` is invalid. May be called from any thread.
+  //
+  // On success, the `buffer.result().value()` will be set a positive integer,
+  // which is the number of bytes written. This may be less than the
+  // `payload_span`, which means you may wish to retry by moving the buffer and
+  // calling this method again to write the remaining data. Note that a 0 is
+  // just the extreme case of a partial write, not an indication of EOF or
+  // error.
+  //
+  // On EOF, the `buffer.result().err()` will be `EPIPE` or even `ECONNRESET`.
+  // You should then close the socket.
+  //
+  // On soft error, `buffer.result().is_soft_error()` will be true. You
+  // may wish to retry, much as you would on any other partial write.
+  //
+  // Prefer this over `submit_send_bytes`.
   [[nodiscard]] bool
-  submit_send_buffer(const os_file& file, buffer&& buf, completion_fn cb) {
-    auto span = buf.active_span();
-    return execute_or_post(
-        [this, fd = file.handle(), ptr = span.data(), len = span.size(),
-            ndx = buf.buf_index(), buf = std::move(buf),
-            cb = std::move(cb)]() mutable -> bool {
-          return do_submit(
-              [fd, ptr, len, ndx](iou_sqe sqe) {
-                sqe.prep_write_fixed(fd, ptr, len, ndx);
-              },
-              [buf = std::move(buf), cb = std::move(cb)](
-                  iou_res res) mutable -> bool {
-                buf.update(res);
-                auto ok = cb(res);
-                if (buf.active_span().empty()) buf.reset();
-                return ok;
-              });
-        });
+  submit_send_buffer(const os_file& file, buffer&& buf, buf_completion_fn cb) {
+    return execute_or_post([this, fd = file.handle(), buf = std::move(buf),
+                               cb = std::move(cb)]() mutable -> bool {
+      auto span = buf.active_span();
+      return do_submit(
+          [fd, ptr = span.data(), len = span.size(), ndx = buf.buf_index()](
+              iou_sqe sqe) { sqe.prep_write_fixed(fd, ptr, len, ndx); },
+          [buf = std::move(buf), cb = std::move(cb)](
+              iou_res res) mutable -> bool { return cb(buf.update(res)); });
+    });
   }
 #pragma endregion
 #pragma region Helpers.
