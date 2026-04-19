@@ -392,12 +392,13 @@ public:
     return ring.register_buffers(&iov, 1);
   }
 
-  // Borrow a slab for an incoming read. Returns an empty buffer if:
+  // Borrow a buffer for an incoming read. Returns an empty buffer if:
   //   - the pool has fewer than WRITE_RESERVE bytes free after this alloc,
   //   or
   //   - in-flight read bytes would exceed READ_THROTTLE.
   // Thread-safe.
-  [[nodiscard]] buffer alloc_read(block_size sz = block_size::small) noexcept {
+  [[nodiscard]] buffer borrow_reader(
+      block_size sz = block_size::small) noexcept {
     std::lock_guard lock{mutex_};
     const auto len = static_cast<size_t>(sz);
     if (available_bytes_ < WRITE_RESERVE + len) return {};
@@ -412,10 +413,10 @@ public:
     return {this, s, true};
   }
 
-  // Borrow a slab for an outgoing write. Not subject to read backpressure;
+  // Borrow a buffer for an outgoing write. Not subject to read backpressure;
   // may draw from the write reserve. Returns an empty buffer if fully
   // exhausted. Thread-safe.
-  [[nodiscard]] buffer alloc_write(
+  [[nodiscard]] buffer borrow_writer(
       block_size sz = block_size::small) noexcept {
     std::lock_guard lock{mutex_};
     const auto len = static_cast<size_t>(sz);
@@ -429,14 +430,6 @@ public:
   [[nodiscard]] size_t available() const noexcept {
     std::lock_guard lock{mutex_};
     return available_bytes_;
-  }
-
-  // Access the active span of `buf` for I/O submission. This is a backdoor
-  // for `iou_loop`: for read buffers, returns the writable tail; for write
-  // buffers, returns the unsent portion.
-  [[nodiscard]] span_t access_active_span(buffer& buf) noexcept {
-    assert(buf.pool_ == this);
-    return buf.active_span_;
   }
 
 private:

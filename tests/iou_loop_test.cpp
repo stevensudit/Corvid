@@ -145,14 +145,14 @@ void IouLoop_RecvSend() {
     std::array<std::byte, 16> buf{};
 
     const bool ok = runner->post_and_wait([&] {
-      bool r = runner->submit_recv(recv_sock, buf, [&](iou_res res) {
+      bool r = runner->submit_recv_bytes(recv_sock, buf, [&](iou_res res) {
         recv_result.store(res.value(), std::memory_order::relaxed);
         received.store(true, std::memory_order::release);
         return true;
       });
       if (!r) return false;
-      return runner->submit_send(send_sock, std::as_bytes(std::span{msg}),
-          [&](iou_res res) {
+      return runner->submit_send_bytes(send_sock,
+          std::as_bytes(std::span{msg}), [&](iou_res res) {
             send_result.store(res.value(), std::memory_order::relaxed);
             return true;
           });
@@ -186,17 +186,17 @@ void IouLoop_RecvSendFixed() {
 
     constexpr std::string_view msg{"hello-fixed"};
 
-    const bool recv_ok = runner->submit_recv_fixed(recv_sock,
-        [&](iou_loop::token tok, iou_res res) mutable {
-          recv_n.store(res.value(), std::memory_order::relaxed);
-          auto data = tok.update(res).payload_view();
+    const bool recv_ok = runner->submit_recv_buffer(recv_sock,
+        [&](iou_loop::buffer buf) mutable {
+          recv_n.store(buf.result().value(), std::memory_order::relaxed);
+          auto data = buf.payload_view();
           payload.assign(data);
           received.store(true, std::memory_order::release);
           return true;
         });
     EXPECT_TRUE(recv_ok);
 
-    auto tok = runner->acquire_write_buffer();
+    auto tok = runner->borrow_write_buffer();
     EXPECT_TRUE(tok);
     if (!tok) return;
     auto span = tok.tail_span();
@@ -204,8 +204,8 @@ void IouLoop_RecvSendFixed() {
     span = span.first(msg.size());
     (void)tok.update_payload(span);
 
-    const bool send_ok =
-        runner->submit_send_fixed(send_sock, std::move(tok), [&](iou_res res) {
+    const bool send_ok = runner->submit_send_buffer(send_sock, std::move(tok),
+        [&](iou_res res) {
           send_n.store(res.value(), std::memory_order::relaxed);
           return true;
         });

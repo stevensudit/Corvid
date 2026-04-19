@@ -41,8 +41,11 @@ using namespace std::chrono_literals;
 
 // Completion-based I/O loop built on io_uring.
 //
-// Drive the loop with `run()` (blocking, on the loop thread) or `run_once()`
-// (one batch, useful for testing). Both drain the post queue before waiting.
+// Use an `iou_loop_runner` to drive this loop with `run()` (blocking, on the
+// loop thread) or `run_once()` (one batch, useful for testing) in its own
+// thread. Public methods are labeled with their thread safety.
+//
+// Details:
 //
 // `post` is the cross-thread entry point: any thread can push a callback onto
 // the queue, and the loop will execute it at the top of the next `run_once`.
@@ -54,10 +57,7 @@ using namespace std::chrono_literals;
 // `execute_or_post` executes inline on the loop thread or posts otherwise.
 //
 // `submit_*` methods enqueue I/O operations paired with a `completion_fn`
-// callback. They must only be called from the loop thread (directly or via
-// `post`/`execute_or_post`), since the SQ ring is not thread-safe.
-//
-// `stop()` is safe to call from any thread.
+// callback. They use `execute_or_post`, since the SQ ring is not thread-safe.
 //
 // `iou_basic_loop` is non-copyable and non-movable: the ring contains
 // kernel-mapped memory with self-referential pointers.
@@ -66,32 +66,37 @@ using namespace std::chrono_literals;
 // there are 2X CQE slots. The `SLOT_COUNT` controls the maximum number of
 // in-flight operations, which must be less than or equal to the number of CQE
 // slots.
+//
+// Plans:
+// - Allow `iou_buf_pool` size to be configured.
 template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
 class iou_basic_loop
     : std::enable_shared_from_this<iou_basic_loop<RING_SIZE, SLOT_COUNT>> {
 public:
+  // Buffer pool.
+  using buf_pool_t = iou_buf_pool;
+  using block_size = buf_pool_t::block_size;
+  using buffer = buf_pool_t::buffer;
+
+  // Timeouts.
   using duration_t = std::chrono::milliseconds;
-  using block_size = iou_buf_pool::block_size;
-
-  static constexpr duration_t default_run_once_timeout{10};
-  static constexpr duration_t default_post_and_wait_poll_interval{100};
-
-  // Callback invoked when an op completes.
-  using completion_fn = std::function<bool(iou_res)>;
+  static constexpr duration_t default_run_once_timeout{10ms};
+  static constexpr duration_t default_post_and_wait_poll_interval{100ms};
 
   // Callback scheduled via `post` to run on the loop thread.
   using posted_fn_t = std::function<bool()>;
 
-  using buf_pool_t = iou_buf_pool;
+  // Low-level callback invoked when an op completes. Pooled in
+  // `completion_cb_pool_t` to avoid the need for `std::shared_ptr` for each
+  // `std::function`.
+  using completion_fn = std::function<bool(iou_res)>;
 
-  // RAII handle to a registered buffer slot. See `iou_dma_buf_pool::token`.
-  using token = iou_buf_pool::buffer;
+  // Completion callback for `submit_recv_buffer` and `submit_send_buffer`:
+  // receives the `buffer`, which includes an `iou_res`. If the `buffer` is not
+  // moved from during the callback, it is returned to the pool afterwards.
+  using buf_completion_fn = std::function<bool(buffer&)>;
 
-  // Completion callback for `submit_recv_fixed`: receives the filled buffer
-  // token and the byte count. The token is returned to the pool when the
-  // callback's copy is destroyed.
-  using recv_completion_fn = std::function<bool(token, iou_res)>;
-
+#pragma region Details
 private:
   enum class allow : bool { ctor };
   static_assert((RING_SIZE & (RING_SIZE - 1)) == 0,
@@ -100,10 +105,13 @@ private:
       "SLOT_COUNT must be less than or equal to the number of CQE slots");
   using completion_cb_pool_t = object_pool<completion_fn, SLOT_COUNT>;
 
+  using post_queue_t = std::vector<posted_fn_t>;
+#pragma endregion
+#pragma region Infrastructure: construction, thread scope, and main loop
 public:
   // Construct a loop with `ring_size` SQE slots (must be a power of two).
-  // Throws `std::system_error` if the ring, wakeup `eventfd`, or buffer
-  // registration fails.
+  // Throws `std::system_error` if the ring, wakeup `eventfd`, or
+  // `buf_pool_t` registration fails.
   explicit iou_basic_loop(allow,
       duration_t post_and_wait_poll_interval =
           default_post_and_wait_poll_interval)
@@ -113,8 +121,6 @@ public:
       throw std::system_error(errno, std::system_category(),
           "io_uring_register_buffers");
   }
-
-  ~iou_basic_loop() = default;
 
   iou_basic_loop(const iou_basic_loop&) = delete;
   iou_basic_loop& operator=(const iou_basic_loop&) = delete;
@@ -227,28 +233,32 @@ public:
   }
 
   // Signal the loop to exit after the current `run_once` returns. Writes to
-  // the `eventfd` to interrupt a sleeping wait. Safe to call from any thread.
+  // the `eventfd` to interrupt a sleeping wait. May be called from any thread.
   void stop() noexcept {
     stop_.store(true, std::memory_order::release);
     (void)do_wake();
   }
 
+#pragma endregion
+#pragma region Submit and buffer APIs
+
   // Submit a no-op that completes immediately with `res` == 0. Useful for
-  // verifying ring plumbing. Returns false if the SQ is full. May be called
-  // from any thread.
+  // verifying ring plumbing. May be called from any thread.
   [[nodiscard]] bool submit_nop(completion_fn cb) {
     return execute_or_post([this, cb = std::move(cb)]() mutable -> bool {
       return do_submit([](iou_sqe sqe) { sqe.prep_nop(); }, std::move(cb));
     });
   }
 
-  // Submit an async recv on `file` into `buf`. The completion callback
-  // receives only the `iou_res`, so in order to know where to read from you
-  // will need to bind `buf` and any other necessary state into the callback.
-  // The buffer must remain valid until the callback fires. May be called from
-  // any thread.
-  [[nodiscard]] bool submit_recv(const os_file& file, std::span<std::byte> buf,
-      completion_fn cb, int flags = 0) {
+  // Low-level method to submit an async recv on `file` into bytes at `buf`.
+  // The completion callback receives only the `iou_res`, so in order to know
+  // where to read from, you will need to bind `buf` and any other necessary
+  // state into the callback. This buffer span must remain valid until the
+  // callback fires. May be called from any thread.
+  //
+  // Prefer `submit_recv_buffer` over this.
+  [[nodiscard]] bool submit_recv_bytes(const os_file& file,
+      std::span<std::byte> buf, completion_fn cb, int flags = 0) {
     return execute_or_post(
         [this, fd = file.handle(), data = buf.data(), len = buf.size(), flags,
             cb = std::move(cb)]() mutable -> bool {
@@ -260,11 +270,14 @@ public:
         });
   }
 
-  // Submit an async send of `buf` on `file`.  The completion callback receives
-  // only the `iou_res`, so in order to know what was sent, you will need to
-  // bind `buf` and any other necessary state into the callback. The buffer
-  // must remain valid until the callback fires. May be called from any thread.
-  [[nodiscard]] bool submit_send(const os_file& file,
+  // Low-level method to submit an async send of bytes at `buf` on `file`. The
+  // completion callback receives only the `iou_res`, so in order to know what
+  // was sent, you will need to bind `buf` and any other necessary state into
+  // the callback. The buffer span must remain valid until the callback fires.
+  // May be called from any thread.
+  //
+  // Prefer `submit_send_buffer` over this.
+  [[nodiscard]] bool submit_send_bytes(const os_file& file,
       std::span<const std::byte> buf, completion_fn cb, int flags = 0) {
     return execute_or_post(
         [this, fd = file.handle(), data = buf.data(), len = buf.size(), flags,
@@ -277,59 +290,89 @@ public:
         });
   }
 
-  // Acquire a registered buffer slot from the pool for the purpose of writing
-  // to it. Returns an empty token if the pool is exhausted. Fill the token's
-  // span, then pass it to `submit_send_fixed`. May be called from any thread.
-  [[nodiscard]] token acquire_write_buffer(
+  // Borrow a registered `buffer` from the pool for the purpose of reading into
+  // it. Returns an invalid `buffer` if the pool is exhausted. May be called
+  // from any thread.
+  [[nodiscard]] buffer borrow_read_buffer(
       block_size sz = block_size::small) noexcept {
-    return buf_pool_.alloc_write(sz);
+    return buf_pool_.borrow_reader(sz);
   }
 
-  // Submit a zero-copy recv into a registered buffer. The loop allocates the
-  // buffer; the callback receives `(token)`. Check `tok.result` and read from
-  // `tok.read_span`. Returns false if no buffer is available or the SQ is
-  // full. May be called from any thread.
-  [[nodiscard]] bool submit_recv_fixed(const os_file& file,
-      recv_completion_fn cb, block_size sz = block_size::small) {
-    auto tok = buf_pool_.alloc_read(sz);
-    auto span = buf_pool_.access_active_span(tok);
+  // Borrow a registered `buffer` from the pool for the purpose of writing to
+  // it. Returns an invalid `buffer` if the pool is exhausted. Fill the
+  // `buffer`'s payload, then pass it to `submit_send_buffer`. May be called
+  // from any thread.
+  [[nodiscard]] buffer borrow_write_buffer(
+      block_size sz = block_size::small) noexcept {
+    return buf_pool_.borrow_writer(sz);
+  }
+
+  // Submit a zero-copy recv into a registered `buffer`. The callback receives
+  // the `buffer`, so that it can check `buf.result` and read from
+  // `buf.payload`. Returns false if no buffer is available. May be called from
+  // any thread.
+  //
+  // Prefer this over manually calling `borrow_read_buffer` and
+  // `submit_recv_bytes`. However, this method is ideal for reusing an existing
+  // read buffer, or a converted write buffer.
+  [[nodiscard]] bool submit_recv_buffer(const os_file& file,
+      buf_completion_fn cb, block_size sz = block_size::small) {
+    return submit_recv_buffer(file, borrow_read_buffer(sz), std::move(cb));
+  }
+
+  // Submit a zero-copy recv into a registered `buffer`. The loop allocates the
+  // `buffer`; the callback receives the `buffer`. Check `buf.result` and read
+  // from `buf.payload`. Returns false if buffer is invalid. May be called from
+  // any thread.
+  //
+  // Prefer this over `submit_recv_bytes`.
+  [[nodiscard]] bool
+  submit_recv_buffer(const os_file& file, buffer&& buf, buf_completion_fn cb) {
+    if (!buf) return false;
+    buf.reset_result();
+    auto span = buf.active_span();
     return execute_or_post(
         [this, fd = file.handle(), ptr = span.data(), len = span.size(),
-            ndx = tok.buf_index(), tok = std::move(tok),
+            ndx = buf.buf_index(), buf = std::move(buf),
             cb = std::move(cb)]() mutable -> bool {
           return do_submit(
               [fd, ptr, len, ndx](iou_sqe sqe) {
                 sqe.prep_read_fixed(fd, ptr, len, ndx);
               },
-              [tok = std::move(tok), cb = std::move(cb)](iou_res res) mutable
-                  -> bool { return cb(std::move(tok), res); });
+              [buf = std::move(buf), cb = std::move(cb)](
+                  iou_res res) mutable -> bool {
+                buf.update(res);
+                return cb(buf);
+              });
         });
   }
 
-  // Submit a zero-copy send from a pre-filled registered buffer. `tok` must
-  // come from `alloc_write()` and filled via `append` or `update_payload`.
-  // Returns false if the SQ is full. May be called from any thread.
+  // Submit a zero-copy send from a pre-filled registered buffer. `buf` must
+  // come from `borrow_write_buffer()` and be filled via `append` or
+  // `update_payload`. Returns false if the SQ is full. May be called from any
+  // thread.
   [[nodiscard]] bool
-  submit_send_fixed(const os_file& file, token tok, completion_fn cb) {
-    auto span = tok.active_span();
+  submit_send_buffer(const os_file& file, buffer&& buf, completion_fn cb) {
+    auto span = buf.active_span();
     return execute_or_post(
         [this, fd = file.handle(), ptr = span.data(), len = span.size(),
-            ndx = tok.buf_index(), tok = std::move(tok),
+            ndx = buf.buf_index(), buf = std::move(buf),
             cb = std::move(cb)]() mutable -> bool {
           return do_submit(
               [fd, ptr, len, ndx](iou_sqe sqe) {
                 sqe.prep_write_fixed(fd, ptr, len, ndx);
               },
-              [tok = std::move(tok), cb = std::move(cb)](
+              [buf = std::move(buf), cb = std::move(cb)](
                   iou_res res) mutable -> bool {
-                tok.update(res);
+                buf.update(res);
                 auto ok = cb(res);
-                if (tok.active_span().empty()) tok.reset();
+                if (buf.active_span().empty()) buf.reset();
                 return ok;
               });
         });
   }
-
+#pragma endregion
+#pragma region Helpers.
 private:
   // Get an SQE, prepare it via `prep`, attach `cb` as user data, and submit.
   // Returns false if the SQ is full.
@@ -348,6 +391,8 @@ private:
     return completion_cb_pool_.detach(std::move(borrowed_cb)) || true;
   }
 
+  // Dispatch a CQE to its callback, which must be looked up from a `void*` to
+  // ` completion_fn` in the pool. Callback is released after execution.
   bool do_dispatch(iou_cqe cqe) noexcept {
     auto* raw_cb = cqe.get_data_ptr<completion_fn>();
     if (!raw_cb) return false;
@@ -397,31 +442,33 @@ private:
 
   [[nodiscard]] bool do_wake() noexcept { return wake_fd_.notify(); }
 
-  using post_queue_t = std::vector<posted_fn_t>;
-
-  // Members are declared in initialization order.
-
+#pragma endregion
+#pragma region Data members
+private:
+  // Rings and buffers.
   iou_ring ring_;
   buf_pool_t buf_pool_;
 
-  // `&wake_tag_` is the SQE user-data sentinel for the wake-poll CQE,
-  // distinct from any `completion_fn*`.
+  // Poll wake system.
   event_fd wake_fd_;
-  char wake_tag_{};
-  bool wake_poll_armed_{};
+  char wake_tag_{};        // SQE user-data sentinel.
+  bool wake_poll_armed_{}; // Current armed state.
 
+  // Completion callback pool, used to avoid `std::shared_ptr`.
   completion_cb_pool_t completion_cb_pool_;
 
-  inline static thread_local const iou_basic_loop* current_loop_{};
-
+  // Stop system.
   std::atomic_bool stop_;
   notifiable<std::atomic_bool> running_;
 
+  // Post queue system.
+  inline static thread_local const iou_basic_loop* current_loop_{};
   std::mutex post_mutex_;
   post_queue_t post_queues_[2];
   relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
 
   const std::chrono::milliseconds post_and_wait_poll_interval_;
+#pragma endregion
 };
 
 // Alias for the common case of default template parameters.
