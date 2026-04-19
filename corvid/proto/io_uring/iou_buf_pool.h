@@ -48,7 +48,14 @@ namespace corvid { inline namespace proto { inline namespace iouring {
 //
 // `iou_buf_pool` is non-copyable and non-movable. The pool must outlive
 // all uses of the memory it manages, and the `buffer` objects it hands out.
+//
+// Plans:
+// - Allow `iou_buf_pool` size to be configured at construction time.
+// - Add coalescing of adjacent free slabs to support more flexible allocation
+//   patterns. This may well require additional bookkeeping, including a bitmap
+//   of allocated 4k pages and a doubly-linked free list.
 class iou_buf_pool {
+#pragma region Internals
 private:
   static constexpr size_t HUGE_PAGE_SIZE = 2UL * 1024 * 1024; // 2 MB
   static constexpr size_t SMALL_SIZE = 4UL * 1024;            // 4 KB
@@ -60,7 +67,8 @@ private:
   struct free_node {
     free_node* next;
   };
-
+#pragma endregion
+#pragma region Types
 public:
   // NOLINTNEXTLINE(performance-enum-size)
   enum class block_size : size_t {
@@ -71,7 +79,8 @@ public:
 
   using span_t = std::span<std::byte>;
   using const_span_t = std::span<const std::byte>;
-
+#pragma endregion
+#pragma region Buffer handle
 public:
   // Moveable RAII handle to a single slab allocation. Returns its memory to
   // the pool on destruction or `reset()`. `buf_index()` is always 0;
@@ -154,10 +163,7 @@ public:
     // Access the result of the I/O operation; initially an error condition.
     [[nodiscard]] iou_res result() const noexcept { return res_; }
 
-    // Whether this buffer is in read mode. You should not need to check this.
-    [[nodiscard]] bool is_read() const noexcept { return is_read_; }
-
-    // Span of accumulated payload data. For reads this is bytes received so
+    // Span of accumulated payload data. For reads, this is bytes received so
     // far; for writes, bytes being sent.
     [[nodiscard]] span_t payload_span() noexcept { return payload_span_; }
 
@@ -201,36 +207,28 @@ public:
     // Implicitly resets if the buffer is in consumed state before extending.
     [[nodiscard]] bool update_payload(span_t payload) noexcept {
       assert(!is_read_);
-      if (do_is_fully_consumed()) do_reset_write_spans();
-      const auto* expected_start = payload_span_.data() + payload_span_.size();
-      const auto* new_end = payload.data() + payload.size();
-      const auto* full_end = full_span_.data() + full_span_.size();
-      if (payload.data() != expected_start) return false;
-      if (new_end > full_end) return false;
+      auto tail = tail_span();
+      if (payload.data() != tail.data()) return false;
+      if (payload.size() > tail.size()) return false;
       payload_span_ = {payload_span_.data(),
-          static_cast<size_t>(new_end - payload_span_.data())};
+          payload_span_.size() + payload.size()};
       active_span_ = {active_span_.data(),
-          static_cast<size_t>(new_end - active_span_.data())};
+          active_span_.size() + payload.size()};
       return true;
     }
 
-    // Copy `data` to the tail of `payload_span_` and extend both
+    // Copy `more` to the tail of `payload_span_` and extend both
     // `payload_span_` and `active_span_` by that amount. Returns false
-    // without modifying anything if `data` would not fit in the remaining
+    // without modifying anything if `more` would not fit in the remaining
     // tail. Implicitly resets if the buffer is in consumed state first.
-    [[nodiscard]] bool append(const_span_t data) noexcept {
+    [[nodiscard]] bool append(const_span_t more) noexcept {
       assert(!is_read_);
-      if (do_is_fully_consumed()) do_reset_write_spans();
-      const size_t space =
-          full_span_.size() -
-          static_cast<size_t>(payload_span_.data() - full_span_.data()) -
-          payload_span_.size();
-      if (data.size() > space) return false;
-      std::memcpy(payload_span_.data() + payload_span_.size(), data.data(),
-          data.size());
+      auto tail = tail_span();
+      if (more.size() > tail.size()) return false;
+      std::memcpy(tail.data(), more.data(), more.size());
       payload_span_ = {payload_span_.data(),
-          payload_span_.size() + data.size()};
-      active_span_ = {active_span_.data(), active_span_.size() + data.size()};
+          payload_span_.size() + more.size()};
+      active_span_ = {active_span_.data(), active_span_.size() + more.size()};
       return true;
     }
 
@@ -312,6 +310,9 @@ public:
     // `io_loop`.
     void reset_result(iou_res res = iou_res{-1}) noexcept { res_ = res; }
 
+    // Whether this buffer is in read mode. Not generally useful externally.
+    [[nodiscard]] bool is_read() const noexcept { return is_read_; }
+
     // Return the allocation to the pool immediately; buffer becomes empty.
     void reset() noexcept {
       if (!pool_) return;
@@ -326,8 +327,8 @@ public:
   private:
     friend class iou_buf_pool;
 
-    buffer(iou_buf_pool* pool, span_t span, bool is_read) noexcept
-        : pool_{pool}, full_span_{span}, payload_span_{span.data(), 0},
+    buffer(iou_buf_pool& pool, span_t span, bool is_read) noexcept
+        : pool_{&pool}, full_span_{span}, payload_span_{span.data(), 0},
           active_span_{span.data(), 0}, res_{-1}, is_read_{is_read} {
       if (is_read_) active_span_ = full_span_;
     }
@@ -354,7 +355,9 @@ public:
     iou_res res_;
     bool is_read_{};
   };
-
+#pragma endregion
+#pragma region Construction and registration
+public:
   // Allocate and warm the 2 MB backing store. Falls back to a plain
   // `MAP_ANONYMOUS` mapping if `MAP_HUGETLB` is unavailable (e.g., WSL2
   // without huge pages configured). Throws `std::system_error` on failure.
@@ -391,6 +394,8 @@ public:
     iovec iov{base_, HUGE_PAGE_SIZE};
     return ring.register_buffers(&iov, 1);
   }
+#pragma endregion
+#pragma region Buffer allocation and management
 
   // Borrow a buffer for an incoming read. Returns an empty buffer if:
   //   - the pool has fewer than WRITE_RESERVE bytes free after this alloc,
@@ -410,7 +415,7 @@ public:
     available_bytes_ -= len;
     std::span<std::byte> s{static_cast<std::byte*>(p), len};
     in_flight_read_bytes_.fetch_add(len, std::memory_order::relaxed);
-    return {this, s, true};
+    return {*this, s, true};
   }
 
   // Borrow a buffer for an outgoing write. Not subject to read backpressure;
@@ -423,7 +428,7 @@ public:
     void* p = do_alloc_block(len);
     if (!p) return {};
     available_bytes_ -= len;
-    return {this, span_t{static_cast<std::byte*>(p), len}, false};
+    return {*this, span_t{static_cast<std::byte*>(p), len}, false};
   }
 
   // Total free bytes currently in the pool. Thread-safe.
@@ -431,7 +436,8 @@ public:
     std::lock_guard lock{mutex_};
     return available_bytes_;
   }
-
+#pragma endregion
+#pragma region Helpers
 private:
   // Push all 32 x 64 KB blocks onto the large free-list.
   void do_init_free_lists() noexcept {
@@ -514,7 +520,9 @@ private:
   void do_decrement_read_bytes(size_t n) noexcept {
     in_flight_read_bytes_.fetch_sub(n, std::memory_order::relaxed);
   }
-
+#pragma endregion
+#pragma region Data members
+private:
   std::byte* base_{};
   mutable std::mutex mutex_;
   free_node* small_head_{};
@@ -522,5 +530,6 @@ private:
   free_node* large_head_{};
   size_t available_bytes_{};
   std::atomic_size_t in_flight_read_bytes_;
+#pragma endregion
 };
 }}} // namespace corvid::proto::iouring
