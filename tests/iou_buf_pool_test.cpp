@@ -44,8 +44,8 @@ void IouBufPool_ReadInitialState() {
     auto buf = pool.borrow_reader();
     ASSERT_TRUE(buf);
     EXPECT_TRUE(buf.is_read());
-    EXPECT_EQ(buf.size(), static_cast<size_t>(4096));
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(0));
+    EXPECT_EQ(buf.size(), 4096ULL);
+    EXPECT_EQ(buf.payload_span().size(), 0ULL);
     EXPECT_EQ(buf.active_span().size(), buf.size());
     EXPECT_TRUE(buf.active_span().data() == buf.payload_span().data());
     EXPECT_FALSE(buf.result().ok());
@@ -94,13 +94,13 @@ void IouBufPool_ReadConsumePartial() {
     ASSERT_TRUE(buf);
 
     sim_read(buf, "abcdefgh"sv);
-    ASSERT_EQ(buf.payload_span().size(), static_cast<size_t>(8));
+    ASSERT_EQ(buf.payload_span().size(), 8ULL);
 
     auto slice = buf.consume_read(3);
-    EXPECT_EQ(slice.size(), static_cast<size_t>(3));
+    EXPECT_EQ(slice.size(), 3ULL);
     EXPECT_EQ(std::string_view(reinterpret_cast<const char*>(slice.data()), 3),
         "abc");
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(5));
+    EXPECT_EQ(buf.payload_span().size(), 5ULL);
     EXPECT_EQ(buf.payload_view(), "defgh");
     // active_span still covers the tail beyond the original 8 bytes read.
     EXPECT_EQ(buf.active_span().size(), buf.size() - 8);
@@ -120,7 +120,7 @@ void IouBufPool_ReadConsumeFullReset() {
     const auto slice = buf.consume_read(n);
     EXPECT_EQ(slice.size(), n);
 
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(0));
+    EXPECT_EQ(buf.payload_span().size(), 0ULL);
     EXPECT_EQ(buf.active_span().size(), buf.size());
     EXPECT_TRUE(buf.payload_span().data() == base);
     EXPECT_TRUE(buf.active_span().data() == base);
@@ -136,7 +136,7 @@ void IouBufPool_ReadConsumeOverRequest() {
 
     sim_read(buf, "hi"sv);
     const auto slice = buf.consume_read(9999);
-    EXPECT_EQ(slice.size(), static_cast<size_t>(2));
+    EXPECT_EQ(slice.size(), 2ULL);
     // Fully consumed: reset to initial state.
     EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(0));
     EXPECT_EQ(buf.active_span().size(), buf.size());
@@ -244,7 +244,7 @@ void IouBufPool_WriteUpdatePayloadBadStart() {
     // tail_span() starts right after "abc"; subspan(1) shifts it by one byte.
     auto tail = buf.tail_span();
     EXPECT_FALSE(buf.update_payload(tail.subspan(1, 3)));
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(3)); // unchanged
+    EXPECT_EQ(buf.payload_span().size(), 3ULL); // unchanged
   }
 }
 
@@ -259,7 +259,7 @@ void IouBufPool_WriteUpdatePayloadOverflow() {
     // Construct a span that ends one byte past full_span.
     const iou_buf_pool::span_t overrun{tail.data(), tail.size() + 1};
     EXPECT_FALSE(buf.update_payload(overrun));
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(0)); // unchanged
+    EXPECT_EQ(buf.payload_span().size(), 0ULL); // unchanged
   }
 }
 
@@ -271,11 +271,11 @@ void IouBufPool_WriteUpdatePartialSend() {
     ASSERT_TRUE(buf);
 
     EXPECT_TRUE(buf.append("0123456789"sv)); // 10 bytes
-    EXPECT_EQ(buf.active_span().size(), static_cast<size_t>(10));
+    EXPECT_EQ(buf.active_span().size(), 10ULL);
 
-    buf.update(iou_res{6}); // kernel sent first 6 bytes
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(10)); // unchanged
-    EXPECT_EQ(buf.active_span().size(), static_cast<size_t>(4));   // 10 - 6
+    buf.update(iou_res{6});                      // kernel sent first 6 bytes
+    EXPECT_EQ(buf.payload_span().size(), 10ULL); // unchanged
+    EXPECT_EQ(buf.active_span().size(), 4ULL);   // 10 - 6
     EXPECT_EQ(std::string_view(
                   reinterpret_cast<const char*>(buf.active_span().data()), 4),
         "6789");
@@ -350,12 +350,12 @@ void IouBufPool_AppendToPartiallySentBuffer() {
     EXPECT_TRUE(buf.append("hello"sv));
     buf.update(iou_res{3}); // sent "hel"; active points to "lo" (2 bytes)
 
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(5));
-    EXPECT_EQ(buf.active_span().size(), static_cast<size_t>(2));
+    EXPECT_EQ(buf.payload_span().size(), 5ULL);
+    EXPECT_EQ(buf.active_span().size(), 2ULL);
 
     EXPECT_TRUE(buf.append(" world"sv));
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(11));
-    EXPECT_EQ(buf.active_span().size(), static_cast<size_t>(8));
+    EXPECT_EQ(buf.payload_span().size(), 11ULL);
+    EXPECT_EQ(buf.active_span().size(), 8ULL);
     EXPECT_EQ(buf.payload_view(), "hello world");
     EXPECT_EQ(std::string_view(
                   reinterpret_cast<const char*>(buf.active_span().data()), 8),
@@ -371,14 +371,14 @@ void IouBufPool_PromoteToWrite() {
     ASSERT_TRUE(buf);
 
     sim_read(buf, "proxy data"sv);
-    ASSERT_EQ(buf.payload_span().size(), static_cast<size_t>(10));
+    ASSERT_EQ(buf.payload_span().size(), 10ULL);
     const std::byte* payload_data = buf.payload_span().data();
 
     buf.promote_to_write();
 
     EXPECT_FALSE(buf.is_read());
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(10));
-    EXPECT_EQ(buf.active_span().size(), static_cast<size_t>(10));
+    EXPECT_EQ(buf.payload_span().size(), 10ULL);
+    EXPECT_EQ(buf.active_span().size(), 10ULL);
     EXPECT_TRUE(buf.active_span().data() == payload_data);
     EXPECT_EQ(buf.payload_view(), "proxy data");
   }
@@ -395,8 +395,8 @@ void IouBufPool_DemoteToRead() {
     buf.demote_to_read();
 
     EXPECT_TRUE(buf.is_read());
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(6));
-    EXPECT_EQ(buf.active_span().size(), buf.size() - 6);
+    EXPECT_EQ(buf.payload_span().size(), 6ULL);
+    EXPECT_EQ(buf.active_span().size(), buf.size() - 6ULL);
     EXPECT_EQ(buf.payload_view(), "header");
     EXPECT_TRUE(buf.active_span().data() ==
                 buf.payload_span().data() + buf.payload_span().size());
@@ -411,15 +411,15 @@ void IouBufPool_PromoteDemoteRoundtrip() {
     ASSERT_TRUE(buf);
 
     sim_read(buf, "roundtrip"sv);
-    ASSERT_EQ(buf.payload_span().size(), static_cast<size_t>(9));
+    ASSERT_EQ(buf.payload_span().size(), 9ULL);
 
     buf.promote_to_write();
     EXPECT_EQ(buf.payload_view(), "roundtrip");
-    EXPECT_EQ(buf.active_span().size(), static_cast<size_t>(9));
+    EXPECT_EQ(buf.active_span().size(), 9ULL);
 
     buf.demote_to_read();
     EXPECT_EQ(buf.payload_view(), "roundtrip");
-    EXPECT_EQ(buf.active_span().size(), buf.size() - 9);
+    EXPECT_EQ(buf.active_span().size(), buf.size() - 9ULL);
   }
 }
 
