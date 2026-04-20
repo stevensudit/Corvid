@@ -282,6 +282,7 @@ public:
   // the `completion_cb_pool_t` for the duration.
   [[nodiscard]] bool submit_accept_multishot(const os_file& file,
       completion_fn cb, int flags = SOCK_NONBLOCK | SOCK_CLOEXEC) {
+    if (!file) return false;
     return execute_or_post([this, fd = file.handle(), flags,
                                cb = std::move(cb)]() mutable -> bool {
       return do_submit(
@@ -294,6 +295,7 @@ public:
   // valid until the CQE fires. May be called from any thread.
   [[nodiscard]] bool submit_connect(const os_file& file,
       const net_endpoint& endpoint, completion_fn cb) {
+    if (!file) return false;
     return execute_or_post(
         [this, fd = file.handle(), &endpoint,
             cb = std::move(cb)]() mutable -> bool {
@@ -307,6 +309,7 @@ public:
   // CQE fires. May be called from any thread.
   [[nodiscard]] bool submit_recvmsg(const os_file& file, msghdr* msg,
       completion_fn cb, int flags = 0) {
+    if (!file) return false;
     return execute_or_post([this, fd = file.handle(), msg, flags,
                                cb = std::move(cb)]() mutable -> bool {
       return do_submit(
@@ -319,6 +322,7 @@ public:
   // CQE fires. May be called from any thread.
   [[nodiscard]] bool submit_sendmsg(const os_file& file, const msghdr* msg,
       completion_fn cb, int flags = MSG_NOSIGNAL) {
+    if (!file) return false;
     return execute_or_post([this, fd = file.handle(), msg, flags,
                                cb = std::move(cb)]() mutable -> bool {
       return do_submit(
@@ -335,6 +339,36 @@ public:
     });
   }
 
+  // Close `file` via `IORING_OP_CLOSE`. May be called from any thread.
+  [[nodiscard]] bool submit_close(os_file&& file, completion_fn cb) {
+    if (!file) return false;
+    return execute_or_post(
+        [this, fd = file.release(), cb = std::move(cb)]() mutable -> bool {
+          return do_submit([fd](iou_sqe sqe) { sqe.prep_close(fd); },
+              std::move(cb));
+        });
+  }
+
+  // Cancel all in-flight operations targeting `file` via
+  // `IORING_OP_ASYNC_CANCEL`. May be called from any thread.
+  [[nodiscard]] bool submit_cancel_fd(const os_file& file, completion_fn cb) {
+    if (!file) return false;
+    return execute_or_post(
+        [this, fd = file.handle(), cb = std::move(cb)]() mutable -> bool {
+          return do_submit([fd](iou_sqe sqe) { sqe.prep_cancel_fd(fd); },
+              std::move(cb));
+        });
+  }
+
+  // Submit a standalone timeout. `ts` must remain valid until the CQE fires.
+  // May be called from any thread.
+  [[nodiscard]] bool submit_timeout(__kernel_timespec* ts, completion_fn cb) {
+    return execute_or_post([this, ts, cb = std::move(cb)]() mutable -> bool {
+      return do_submit([ts](iou_sqe sqe) { sqe.prep_timeout(ts); },
+          std::move(cb));
+    });
+  }
+
   // Low-level method to submit an async recv on `file` into bytes at `buf`.
   // The completion callback receives only the `iou_res`, so in order to know
   // where to read from, you will need to bind `buf` and any other necessary
@@ -344,6 +378,7 @@ public:
   // Prefer `submit_recv_buffer` over this.
   [[nodiscard]] bool submit_recv_bytes(const os_file& file, span_t span,
       completion_fn cb, int flags = 0) {
+    if (!file) return false;
     return execute_or_post([this, fd = file.handle(), span, flags,
                                cb = std::move(cb)]() mutable -> bool {
       return do_submit(
@@ -361,6 +396,7 @@ public:
   // Prefer `submit_send_buffer` over this.
   [[nodiscard]] bool submit_send_bytes(const os_file& file, const_span_t span,
       completion_fn cb, int flags = 0) {
+    if (!file) return false;
     return execute_or_post([this, fd = file.handle(), span, flags,
                                cb = std::move(cb)]() mutable -> bool {
       return do_submit(
@@ -399,8 +435,10 @@ public:
   // `submit_recv_bytes`. However, this method is ideal for reusing an existing
   // read buffer, or a converted write buffer.
   [[nodiscard]] bool submit_recv_buffer(const os_file& file,
-      buf_completion_fn cb, block_size sz = block_size::small) {
-    return submit_recv_buffer(file, borrow_read_buffer(sz), std::move(cb));
+      buf_completion_fn cb, block_size sz = block_size::small,
+      __kernel_timespec* timeout = nullptr) {
+    return submit_recv_buffer(file, borrow_read_buffer(sz), std::move(cb),
+        timeout);
   }
 
   // Submit a zero-copy recv into a registered `buffer`. The callback receives
@@ -423,19 +461,23 @@ public:
   // may wish to retry, much as you would to accumulate more data.
   //
   // Prefer this over `submit_recv_bytes`.
-  [[nodiscard]] bool
-  submit_recv_buffer(const os_file& file, buffer&& buf, buf_completion_fn cb) {
-    if (!buf) return false;
+  [[nodiscard]] bool submit_recv_buffer(const os_file& file, buffer&& buf,
+      buf_completion_fn cb, __kernel_timespec* timeout = nullptr) {
+    if (!file || !buf) return false;
     buf.reset_result();
-    return execute_or_post([this, fd = file.handle(), buf = std::move(buf),
-                               cb = std::move(cb)]() mutable -> bool {
-      return do_submit(
-          [fd, span = buf.active_span(), ndx = buf.buf_index()](iou_sqe sqe) {
-            sqe.prep_read_fixed(fd, span, ndx);
-          },
-          [buf = std::move(buf), cb = std::move(cb)](
-              iou_res res) mutable -> bool { return cb(buf.update(res)); });
-    });
+    return execute_or_post(
+        [this, fd = file.handle(), buf = std::move(buf), cb = std::move(cb),
+            timeout]() mutable -> bool {
+          auto prep = [fd, span = buf.active_span(), ndx = buf.buf_index()](
+                          iou_sqe sqe) { sqe.prep_read_fixed(fd, span, ndx); };
+          completion_fn inner =
+              [buf = std::move(buf), cb = std::move(cb)](
+                  iou_res res) mutable -> bool { return cb(buf.update(res)); };
+          if (timeout)
+            return do_submit_linked_timeout(std::move(prep), std::move(inner),
+                timeout);
+          return do_submit(std::move(prep), std::move(inner));
+        });
   }
 
   // Submit a zero-copy send from a pre-filled registered buffer. `buf` must
@@ -461,17 +503,22 @@ public:
   // may wish to retry, much as you would on any other partial write.
   //
   // Prefer this over `submit_send_bytes`.
-  [[nodiscard]] bool
-  submit_send_buffer(const os_file& file, buffer&& buf, buf_completion_fn cb) {
-    return execute_or_post([this, fd = file.handle(), buf = std::move(buf),
-                               cb = std::move(cb)]() mutable -> bool {
-      return do_submit(
-          [fd, span = buf.active_span(), ndx = buf.buf_index()](iou_sqe sqe) {
-            sqe.prep_write_fixed(fd, span, ndx);
-          },
-          [buf = std::move(buf), cb = std::move(cb)](
-              iou_res res) mutable -> bool { return cb(buf.update(res)); });
-    });
+  [[nodiscard]] bool submit_send_buffer(const os_file& file, buffer&& buf,
+      buf_completion_fn cb, __kernel_timespec* timeout = nullptr) {
+    return execute_or_post(
+        [this, fd = file.handle(), buf = std::move(buf), cb = std::move(cb),
+            timeout]() mutable -> bool {
+          auto prep =
+              [fd, span = buf.active_span(), ndx = buf.buf_index()](
+                  iou_sqe sqe) { sqe.prep_write_fixed(fd, span, ndx); };
+          completion_fn inner =
+              [buf = std::move(buf), cb = std::move(cb)](
+                  iou_res res) mutable -> bool { return cb(buf.update(res)); };
+          if (timeout)
+            return do_submit_linked_timeout(std::move(prep), std::move(inner),
+                timeout);
+          return do_submit(std::move(prep), std::move(inner));
+        });
   }
 #pragma endregion
 #pragma region Helpers.
@@ -491,6 +538,54 @@ private:
     sqe.set_data_pointer(borrowed_cb.get());
     if (!ring_.submit().ok(1)) return sqe.prep_nop() && false;
     return completion_cb_pool_.detach(std::move(borrowed_cb)) || true;
+  }
+
+  // Fire-and-forget submit: no callback, null user data. `do_dispatch` ignores
+  // null-data CQEs, so no pool slot is needed.
+  [[nodiscard]] bool do_submit_void(std::invocable<iou_sqe> auto&& prep) {
+    auto sqe = ring_.next_sqe();
+    if (!sqe) return false;
+    std::forward<decltype(prep)>(prep)(sqe);
+    sqe.set_data_pointer(nullptr);
+    if (!ring_.submit().ok(1)) return sqe.prep_nop() && false;
+    return true;
+  }
+
+  // Submit a main op linked to a timeout SQE. The main op carries
+  // `IOSQE_IO_LINK`; the timeout SQE fires with `-ETIME` if `ts` elapses
+  // before the main op completes. `ts` must remain valid until both CQEs fire.
+  // The timeout CQE uses null user data and is ignored by `do_dispatch`.
+  [[nodiscard]] bool
+  do_submit_linked_timeout(std::invocable<iou_sqe> auto&& prep,
+      completion_fn&& cb, __kernel_timespec* ts) {
+    auto sqe_op = ring_.next_sqe();
+    if (!sqe_op) return false;
+    auto sqe_timeout = ring_.next_sqe();
+    if (!sqe_timeout) return sqe_op.prep_nop() && false;
+
+    std::forward<decltype(prep)>(prep)(sqe_op);
+    sqe_op.set_sqe_flags(IOSQE_IO_LINK);
+
+    sqe_timeout.prep_link_timeout(ts);
+    sqe_timeout.set_data_pointer(nullptr);
+
+    auto cb_op = completion_cb_pool_.borrow();
+    if (!cb_op) {
+      sqe_op.prep_nop();
+      sqe_timeout.prep_nop();
+      return false;
+    }
+
+    *cb_op = std::move(cb);
+    sqe_op.set_data_pointer(cb_op.get());
+
+    if (!ring_.submit().ok(2)) {
+      sqe_op.prep_nop();
+      sqe_timeout.prep_nop();
+      return false;
+    }
+    (void)completion_cb_pool_.detach(std::move(cb_op));
+    return true;
   }
 
   // Dispatch a CQE to its callback. For multishot operations,

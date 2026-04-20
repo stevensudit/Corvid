@@ -73,7 +73,8 @@ public:
     return handle_ != invalid_file_handle;
   }
 
-  explicit operator bool() const noexcept { return is_open(); }
+  [[nodiscard]] explicit operator bool() const noexcept { return is_open(); }
+  [[nodiscard]] bool operator!() const noexcept { return !is_open(); }
 
   // Return the raw platform handle.
   [[nodiscard]] file_handle_t handle() const noexcept { return handle_; }

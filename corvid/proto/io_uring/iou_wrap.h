@@ -160,6 +160,35 @@ public:
     return true;
   }
 
+  // Close `fd` asynchronously. Caller must have released ownership of `fd`
+  // (e.g., via `os_file::release`) before submitting, so the kernel is the
+  // sole closer.
+  bool prep_close(int fd) noexcept {
+    io_uring_prep_close(sqe_, fd);
+    return true;
+  }
+
+  // Cancel all pending operations targeting `fd`.
+  bool prep_cancel_fd(int fd, unsigned flags = 0) noexcept {
+    io_uring_prep_cancel_fd(sqe_, fd, flags);
+    return true;
+  }
+
+  // Standalone timeout: fires with `-ETIME` after `ts` elapses, or with
+  // `-ECANCELED` when canceled by a linked predecessor completing first.
+  bool prep_timeout(__kernel_timespec* ts) noexcept {
+    io_uring_prep_timeout(sqe_, ts, 0, 0);
+    return true;
+  }
+
+  // Linked timeout: must be the second SQE in a linked pair (first SQE must
+  // have `IOSQE_IO_LINK` set). Cancels the preceding op if `ts` expires
+  // before it completes.
+  bool prep_link_timeout(__kernel_timespec* ts) noexcept {
+    io_uring_prep_link_timeout(sqe_, ts, 0);
+    return true;
+  }
+
   // Set additional SQE flags (e.g., `IOSQE_IO_LINK` for linked SQEs).
   bool set_sqe_flags(uint8_t flags) noexcept {
     sqe_->flags |= flags;

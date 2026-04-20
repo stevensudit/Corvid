@@ -526,13 +526,19 @@ private:
     return true;
   }
 
-// Close immediately without flushing
+  // Close immediately without flushing. For listening sockets, a cancel is
+  // submitted first to abort the in-flight multishot accept before the fd is
+  // handed to the kernel for closing.
   [[nodiscard]] bool do_close_now() {
     assert(loop_.is_loop_thread());
     if (!open_->exchange(false, std::memory_order::relaxed)) return false;
     send_queue_.clear();
-    (void)sock_.close();
     close_requested_ = false;
+    if (sock_) {
+      if (listening_)
+        (void)loop_.submit_cancel_fd(sock_, [](iou_res) { return true; });
+      (void)loop_.submit_close(std::move(sock_), [](iou_res) { return true; });
+    }
     return notify_close_once();
   }
 
