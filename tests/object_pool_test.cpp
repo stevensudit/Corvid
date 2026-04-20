@@ -278,9 +278,115 @@ void ObjectPool_DetachAndReattach() {
   }
 }
 
+void ObjectPool_HandleBasics() {
+  // Default-constructed handle is invalid on all fronts.
+  if (true) {
+    object_pool<int, 4> pool;
+    object_pool<int, 4>::handle h;
+    EXPECT_FALSE(h);
+    EXPECT_TRUE(!h);
+    EXPECT_FALSE(h.valid());
+    EXPECT_EQ(h.get_ptr(pool), nullptr);
+  }
+
+  // Handle from `borrowed&` is valid and `get_ptr` returns the slot pointer.
+  if (true) {
+    object_pool<int, 4> pool;
+    auto b = pool.borrow();
+    *b = 7;
+    object_pool<int, 4>::handle h{b};
+    EXPECT_TRUE(h);
+    EXPECT_TRUE(h.valid());
+    EXPECT_EQ(h.get_ptr(pool), b.get());
+  }
+
+  // Handle from `borrowed&` does not transfer ownership; slot stays borrowed.
+  if (true) {
+    object_pool<int, 1> pool;
+    auto b = pool.borrow();
+    object_pool<int, 1>::handle h{b};
+    EXPECT_FALSE(pool.borrow()); // b still owns the slot
+    b.reset();
+    EXPECT_TRUE(pool.borrow()); // slot returned when b resets
+  }
+
+  // Handles are copyable; the copy refers to the same slot.
+  if (true) {
+    object_pool<int, 4> pool;
+    auto b = pool.borrow();
+    object_pool<int, 4>::handle h1{b};
+    auto h2 = h1;
+    EXPECT_TRUE(h2);
+    EXPECT_EQ(h2.get_ptr(pool), b.get());
+  }
+}
+
+void ObjectPool_HandleDetachAndBorrow() {
+  // `handle(borrowed&&)` detaches the `borrowed`; slot stays out of the pool.
+  if (true) {
+    object_pool<int, 1> pool;
+    auto b = pool.borrow();
+    int* p = b.get();
+    object_pool<int, 1>::handle h{std::move(b)};
+    EXPECT_FALSE(b);             // b was detached
+    EXPECT_TRUE(h);
+    EXPECT_FALSE(pool.borrow()); // slot not in free list
+    EXPECT_EQ(h.get_ptr(pool), p); // handle still resolves to the pointer
+  }
+
+  // `handle::borrow()` re-acquires the detached slot.
+  if (true) {
+    object_pool<int, 1> pool;
+    auto b = pool.borrow();
+    *b = 42;
+    object_pool<int, 1>::handle h{std::move(b)};
+
+    auto b2 = h.borrow(pool);
+    EXPECT_TRUE(b2);
+    EXPECT_EQ(*b2, 42);
+    EXPECT_FALSE(pool.borrow()); // slot still held by b2
+
+    // A second `borrow()` on the same handle fails while b2 owns the slot.
+    EXPECT_FALSE(h.borrow(pool));
+
+    b2.reset();
+    EXPECT_TRUE(pool.borrow()); // slot returned to pool
+  }
+}
+
+void ObjectPool_HandleStaleness() {
+  // `get_ptr` returns nullptr once the slot's generation has advanced.
+  if (true) {
+    object_pool<int, 4> pool;
+    auto b = pool.borrow();
+    object_pool<int, 4>::handle h{b};
+    EXPECT_EQ(h.get_ptr(pool), b.get()); // valid while b is live
+    b.reset();                            // gen incremented on return
+    EXPECT_EQ(h.get_ptr(pool), nullptr);  // stale
+  }
+
+  // `handle::borrow()` returns empty once the handle is stale.
+  if (true) {
+    object_pool<int, 4> pool;
+    auto b = pool.borrow();
+    object_pool<int, 4>::handle h{b};
+    b.reset(); // gen incremented; handle is now stale
+    EXPECT_FALSE(h.borrow(pool));
+  }
+
+  // `handle::borrow()` returns empty if the slot is currently borrowed.
+  if (true) {
+    object_pool<int, 4> pool;
+    auto b = pool.borrow();
+    object_pool<int, 4>::handle h{b}; // h and b refer to the same slot
+    EXPECT_FALSE(h.borrow(pool));     // b already owns it
+  }
+}
+
 MAKE_TEST_LIST(ObjectPool_BorrowAndReturn, ObjectPool_FullPool,
     ObjectPool_LIFOOrder, ObjectPool_MoveHandle, ObjectPool_MultipleSlots,
-    ObjectPool_Callbacks, ObjectPool_CreateHelper,
-    ObjectPool_DetachAndReattach);
+    ObjectPool_Callbacks, ObjectPool_CreateHelper, ObjectPool_DetachAndReattach,
+    ObjectPool_HandleBasics, ObjectPool_HandleDetachAndBorrow,
+    ObjectPool_HandleStaleness);
 
 // NOLINTEND(readability-function-cognitive-complexity)

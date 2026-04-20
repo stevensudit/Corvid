@@ -56,7 +56,17 @@ struct no_op_cb {
 // so you should free up things like locks but not buffers. For a pool of
 // `std::string`, for example, you could call `clear()` in the `ReturnCb`,
 // since it doesn't deallocate.
-
+//
+// Optimizations:
+// There's an obvious potential for false sharing, particularly among the
+// generation counters. The solutions include padding out the generation
+// counters while keeping them separate from the slots, or combining the slots
+// and generation counters, perhaps with padding.
+//
+// Whether any of these are necessary, and which one to choose, depends heavily
+// on the use case and the specific types, so this has to be a tunable
+// parameter, not a one-size-fits-all solution. And it has to be justified and
+// confirmed by benchmarks.
 template<typename T, size_t N,
     generation_scheme GEN = generation_scheme::versioned,
     typename BorrowCb = no_op_cb, typename ReturnCb = no_op_cb,
@@ -171,7 +181,7 @@ public:
     // yada, yada, yada.
     explicit handle(borrowed&& h) {
       if (!copy_from_handle(h)) return;
-      (void)h.pool->detach(std::move(h));
+      (void)h.pool_->detach(std::move(h));
     }
 
     // Get pointer to item, if still valid. Returns nullptr on failure.
@@ -200,8 +210,9 @@ public:
     // handle that has ownership semantics.
     [[nodiscard]] borrowed borrow(object_pool& pool) const {
       if (!valid()) return {};
-      if constexpr (is_versioned_v)
-        if (!pool.set_borrowed(ndx_)) return {};
+      if (std::lock_guard lock{pool.mutex_}; true)
+        if constexpr (is_versioned_v)
+          if (!pool.set_borrowed_if(ndx_, gen_)) return {};
 
       return borrowed{&pool, &pool.slots_[ndx_]};
     }
@@ -216,7 +227,7 @@ public:
   private:
     bool copy_from_handle(const borrowed& h) {
       if (!h) return false;
-      ndx_ = h.pool_->index_of(h.item_);
+      ndx_ = h.pool_->slot_from_item(h.item_);
       if constexpr (is_versioned_v)
         gen_ = h.pool_->gen_array_[ndx_].load(std::memory_order_relaxed) &
                0x7FFFFFFF;
@@ -267,7 +278,8 @@ public:
       if (free_top_ == 0) return {};
       auto ndx = free_list_[--free_top_];
       item = &slots_[ndx];
-      set_borrowed(ndx);
+      [[maybe_unused]] const bool impossible = !set_borrowed(ndx);
+      assert(!impossible);
     }
     borrow_cb_(*item);
     return {this, item};
@@ -283,8 +295,7 @@ public:
     assert(h.pool_ == this);
     if constexpr (is_versioned_v) {
       auto ndx = slot_from_item(h.item_);
-      std::lock_guard lock{mutex_};
-      unset_borrowed(ndx);
+      if (!unset_borrowed(ndx)) return nullptr;
     }
     h.pool_ = nullptr;
     return std::exchange(h.item_, nullptr);
@@ -299,7 +310,7 @@ public:
     if constexpr (is_versioned_v) {
       auto ndx = slot_from_item(item);
       std::lock_guard lock{mutex_};
-      set_borrowed(ndx);
+      if (!set_borrowed(ndx)) return {};
     }
     return {this, std::exchange(item, nullptr)};
   }
@@ -328,14 +339,15 @@ private:
   void return_slot(index_t ndx) noexcept {
     return_cb_(slots_[ndx]);
     std::lock_guard lock{mutex_};
-    unset_borrowed(ndx);
+    [[maybe_unused]] const bool impossible = !release_slot_gen(ndx);
+    assert(!impossible);
     free_list_[free_top_++] = ndx;
   }
 
   // Set the high bit to indicate that it's now borrowed. The
   // `std::atomic` is used to ensure that a `handle` can't observe a torn
   // generation value or mistakenly borrow a slot being returned.
-  bool set_borrowed(index_t ndx) {
+  [[nodiscard]] bool set_borrowed(index_t ndx) {
     if constexpr (is_versioned_v) {
       auto& gen = gen_array_[ndx];
       auto old_gen = gen.load(std::memory_order::relaxed);
@@ -347,20 +359,53 @@ private:
     return true;
   }
 
+  // Set the high bit to indicate that it's now borrowed, if the generation
+  // matches. The `std::atomic` is used to ensure that a `handle` can't
+  // observe a torn generation value or mistakenly borrow a slot being
+  // returned.
+  [[nodiscard]] bool set_borrowed_if(index_t ndx, gen_t expected_gen) {
+    if constexpr (is_versioned_v) {
+      auto& gen = gen_array_[ndx];
+      auto old_gen = gen.load(std::memory_order::relaxed);
+      if (old_gen & 0x80000000) return false;
+      if (old_gen != expected_gen) return false;
+      auto new_gen = old_gen | 0x80000000;
+      return gen.compare_exchange_strong(old_gen, new_gen,
+          std::memory_order::release, std::memory_order::relaxed);
+    }
+    return true;
+  }
+
+  // Clear the high bit to indicate that it's not borrowed anymore. The
+  // `std::atomic` is used to ensure that a `handle` can't observe a torn
+  // generation value.
+  [[nodiscard]] bool unset_borrowed(index_t ndx) {
+    if constexpr (is_versioned_v) {
+      auto& gen = gen_array_[ndx];
+      auto old_gen = gen.load(std::memory_order::relaxed);
+      if (!(old_gen & 0x80000000)) return false;
+      auto new_gen = old_gen & 0x7FFFFFFF;
+      return gen.compare_exchange_strong(old_gen, new_gen,
+          std::memory_order::release, std::memory_order::relaxed);
+    }
+    return true;
+  }
+
   // Increment atomically, and wrapping past 0 (which is invalid). Also clear
   // the high bit to indicate that it's not borrowed anymore. The `std::atomic`
   // is used to ensure that a `handle` can't observe a torn generation value or
   // mistakenly borrow a slot being returned.
-  void unset_borrowed(index_t ndx) {
+  [[nodiscard]] bool release_slot_gen(index_t ndx) {
     if constexpr (is_versioned_v) {
       auto& gen = gen_array_[ndx];
       auto old_gen = gen.load(std::memory_order::relaxed);
-      assert(old_gen & 0x80000000);
+      if (!(old_gen & 0x80000000)) return false;
       auto new_gen = (old_gen & 0x7FFFFFFF) + 1;
       if (new_gen == 0) new_gen = 1;
-      gen.compare_exchange_strong(old_gen, new_gen, std::memory_order::release,
-          std::memory_order::relaxed);
+      return gen.compare_exchange_strong(old_gen, new_gen,
+          std::memory_order::release, std::memory_order::relaxed);
     }
+    return true;
   }
 
   // Order of members is important for alignment.
