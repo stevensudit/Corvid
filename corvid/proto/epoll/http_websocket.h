@@ -31,12 +31,12 @@
 #include "../../containers/scoped_value.h"
 #include "../../enums/bool_enums.h"
 #include "../../enums/bitmask_enum.h"
-#include "../base-64.h"
+#include "../misc/base-64.h"
 #include "endian.h"
-#include "../sha-1.h"
-#include "../http_head_codec.h"
+#include "../misc/sha-1.h"
+#include "../misc/http_head_codec.h"
 #include "http_transaction.h"
-#include "../utf8-checker.h"
+#include "../misc/utf8-checker.h"
 
 namespace corvid { inline namespace proto {
 

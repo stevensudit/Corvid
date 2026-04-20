@@ -25,14 +25,14 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../enums/sequence_enum.h"
-#include "../strings/cases.h"
-#include "../strings/conversion.h"
-#include "../strings/trimming.h"
-#include "../strings/splitting.h"
-#include "../strings/token_parser.h"
-#include "../strings/enum_conversion.h"
-#include "../containers/transparent.h"
+#include "../../enums/sequence_enum.h"
+#include "../../strings/cases.h"
+#include "../../strings/conversion.h"
+#include "../../strings/trimming.h"
+#include "../../strings/splitting.h"
+#include "../../strings/token_parser.h"
+#include "../../strings/enum_conversion.h"
+#include "../../containers/transparent.h"
 
 namespace corvid { inline namespace proto { inline namespace http_proto {
 

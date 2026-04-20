@@ -18,6 +18,7 @@
 
 #include <cstring>
 #include <string_view>
+#include <functional>
 
 #define MINITEST_SHOW_TIMERS 0
 #include "minitest.h"
@@ -49,6 +50,13 @@ void IouBufPool_ReadInitialState() {
     EXPECT_EQ(buf.active_span().size(), buf.size());
     EXPECT_TRUE(buf.active_span().data() == buf.payload_span().data());
     EXPECT_FALSE(buf.result().ok());
+  }
+  if (true) {
+    // If this fails, it means we can finally get rid of the hack where we
+    // pretend to have a copy constructor but actually throw.
+#if defined(__cpp_lib_move_only_function) && !defined(__GLIBCXX__)
+    EXPECT_TRUE(false);
+#endif
   }
 }
 

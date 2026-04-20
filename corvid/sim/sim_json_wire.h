@@ -22,7 +22,7 @@
 #include <string_view>
 #include <vector>
 
-#include "../proto/json_parser.h"
+#include "../proto/misc/json_parser.h"
 #include "sim_game.h"
 
 namespace corvid { inline namespace sim {

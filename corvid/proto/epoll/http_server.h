@@ -25,10 +25,10 @@
 #include <variant>
 
 #include "epoll_loop.h"
-#include "../http_head_codec.h"
+#include "../misc/http_head_codec.h"
 #include "http_transaction.h"
 #include "stream_conn.h"
-#include "../terminated_text_parser.h"
+#include "../misc/terminated_text_parser.h"
 #include "../../containers/opt_find.h"
 #include "../../concurrency/timer_fuse.h"
 #include "../../containers/scoped_value.h"

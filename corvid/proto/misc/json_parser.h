@@ -29,10 +29,10 @@
 #include <utility>
 #include <vector>
 
-#include "../enums/bool_enums.h"
-#include "../strings/concat_join.h"
-#include "../strings/conversion.h"
-#include "../strings/trimming.h"
+#include "../../enums/bool_enums.h"
+#include "../../strings/concat_join.h"
+#include "../../strings/conversion.h"
+#include "../../strings/trimming.h"
 
 // Strict JSON parser, non-owning value views, and compact JSON writer.
 namespace corvid { inline namespace proto { inline namespace json {

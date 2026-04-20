@@ -29,7 +29,7 @@
 #include <string_view>
 #include <utility>
 
-#include "../proto/json_parser.h"
+#include "../proto/misc/json_parser.h"
 #include "sim_world.h"
 
 // SimGame: encapsulates the game rules and flow, using SimWorld for state and
