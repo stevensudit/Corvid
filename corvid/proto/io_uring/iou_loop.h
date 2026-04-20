@@ -40,11 +40,23 @@
 namespace corvid { inline namespace proto { inline namespace iouring {
 using namespace std::chrono_literals;
 
-// Completion-based I/O loop built on io_uring.
+// Completion-based I/O loop built on io_uring. This implements a Proactor
+// pattern, where we submit operations and then wait for their completion.
 //
 // Use an `iou_loop_runner` to drive this loop with `run` (blocking, on the
 // loop thread) or `run_once` (one batch, useful for testing) in its own
 // thread. Public methods are labeled with their thread safety.
+//
+// Note that, unlike `epoll_loop`, this does not have a registry of
+// connections. Instead, the only thing keeping a connection alive is the
+// presence of an in-flight operation whose completion callback holds a shared
+// pointer to it.
+//
+// So long as there is always a pending read or accept operation, it will be
+// naturally kept alive until the peer closes the connection or an error
+// occurs. If you need to apply backpressure, you need to either submit a
+// timeout operation or simply store a shared pointer to the connection
+// somewhere, such as in a protocol server.
 //
 // Details:
 //
