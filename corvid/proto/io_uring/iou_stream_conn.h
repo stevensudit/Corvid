@@ -356,7 +356,7 @@ private:
     // Error.
     if (!res.ok()) {
       if (res.is_soft_error()) return do_submit_recv(std::move(buf));
-      return do_notify_and_close_now();
+      return do_close_now();
     }
 
     iou_recv_view view{std::move(buf), make_resume()};
@@ -461,10 +461,10 @@ private:
     if (!open_) return true;
 
     // Error.
-    if (!res.ok()) return do_notify_and_close_now();
+    if (!res.ok()) return do_close_now();
 
     // Start listening for data.
-    if (!do_submit_recv()) return do_notify_and_close_now();
+    if (!do_submit_recv()) return do_close_now();
 
     // In principle, we could have writes queued.
     if (!send_queue_.empty()) return do_submit_send();
@@ -492,7 +492,7 @@ private:
     // Error. If it's an ECANCELED, we're already shutting down.
     if (!res.ok()) {
       if (res.is_soft_error() || res.err() == ECANCELED) return true;
-      return do_notify_and_close_now();
+      return do_close_now();
     }
 
     net_socket accepted_sock{os_file{res.value()}};
@@ -526,15 +526,7 @@ private:
     return true;
   }
 
-  // Notify `on_close` if not already notified, then close immediately.
-  // TODO: Why does this exist
-  [[nodiscard]] bool do_notify_and_close_now() {
-    assert(loop_.is_loop_thread());
-    (void)notify_close_once();
-    return do_close_now();
-  }
-
-  // Close immediately without flushing
+// Close immediately without flushing
   [[nodiscard]] bool do_close_now() {
     assert(loop_.is_loop_thread());
     if (!open_->exchange(false, std::memory_order::relaxed)) return false;
