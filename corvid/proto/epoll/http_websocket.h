@@ -28,15 +28,15 @@
 #include <string>
 #include <string_view>
 
-#include "../containers/scoped_value.h"
-#include "../enums/bool_enums.h"
-#include "../enums/bitmask_enum.h"
-#include "base-64.h"
+#include "../../containers/scoped_value.h"
+#include "../../enums/bool_enums.h"
+#include "../../enums/bitmask_enum.h"
+#include "../base-64.h"
 #include "endian.h"
-#include "sha-1.h"
-#include "http_head_codec.h"
+#include "../sha-1.h"
+#include "../http_head_codec.h"
 #include "http_transaction.h"
-#include "utf8-checker.h"
+#include "../utf8-checker.h"
 
 namespace corvid { inline namespace proto {
 

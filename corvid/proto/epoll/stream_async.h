@@ -21,7 +21,7 @@
 #include <string>
 #include <utility>
 
-#include "loop_task.h"
+#include "../loop_task.h"
 #include "stream_conn.h"
 
 namespace corvid { inline namespace proto {

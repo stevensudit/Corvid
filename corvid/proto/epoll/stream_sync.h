@@ -23,9 +23,9 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 
-#include "../filesys/net_socket.h"
-#include "../strings/no_zero.h"
-#include "net_endpoint.h"
+#include "../../filesys/net_socket.h"
+#include "../../strings/no_zero.h"
+#include "../net_endpoint.h"
 
 namespace corvid { inline namespace proto {
 

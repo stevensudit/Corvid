@@ -34,13 +34,13 @@
 #include <fcntl.h>
 
 #include "epoll_loop.h"
-#include "iov_msghdr.h"
-#include "net_endpoint.h"
+#include "../iov_msghdr.h"
+#include "../net_endpoint.h"
 #include "recv_buffer.h"
-#include "../concurrency/relaxed_atomic.h"
-#include "../enums/bool_enums.h"
-#include "../strings/any_strings.h"
-#include "../strings/no_zero.h"
+#include "../../concurrency/relaxed_atomic.h"
+#include "../../enums/bool_enums.h"
+#include "../../strings/any_strings.h"
+#include "../../strings/no_zero.h"
 
 namespace corvid { inline namespace proto {
 

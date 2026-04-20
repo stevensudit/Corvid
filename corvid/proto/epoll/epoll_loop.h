@@ -32,16 +32,16 @@
 
 #include <pthread.h>
 
-#include "../concurrency/jthread_stoppable_sleep.h"
-#include "../concurrency/notifiable.h"
-#include "../concurrency/tombstone.h"
-#include "../concurrency/relaxed_atomic.h"
-#include "../containers/scoped_value.h"
-#include "../containers/scope_exit.h"
-#include "../containers/opt_find.h"
-#include "../filesys/epoll.h"
-#include "../filesys/event_fd.h"
-#include "../filesys/net_socket.h"
+#include "../../concurrency/jthread_stoppable_sleep.h"
+#include "../../concurrency/notifiable.h"
+#include "../../concurrency/tombstone.h"
+#include "../../concurrency/relaxed_atomic.h"
+#include "../../containers/scoped_value.h"
+#include "../../containers/scope_exit.h"
+#include "../../containers/opt_find.h"
+#include "../../filesys/epoll.h"
+#include "../../filesys/event_fd.h"
+#include "../../filesys/net_socket.h"
 
 namespace corvid { inline namespace proto {
 
