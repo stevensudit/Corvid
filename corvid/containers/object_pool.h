@@ -18,6 +18,7 @@
 #include "containers_shared.h"
 
 #include <array>
+#include <atomic>
 #include <cassert>
 #include <cstdint>
 #include <cstddef>
@@ -28,7 +29,10 @@
 #include <type_traits>
 #include <utility>
 
+#include "../enums/bool_enums.h"
+
 namespace corvid { inline namespace container {
+using namespace bool_enums;
 
 // Default no-op callback for `object_pool`. Satisfies `void cb(T&)`.
 struct no_op_cb {
@@ -52,17 +56,24 @@ struct no_op_cb {
 // so you should free up things like locks but not buffers. For a pool of
 // `std::string`, for example, you could call `clear()` in the `ReturnCb`,
 // since it doesn't deallocate.
-template<typename T, size_t N, typename BorrowCb = no_op_cb,
-    typename ReturnCb = no_op_cb>
+
+template<typename T, size_t N,
+    generation_scheme GEN = generation_scheme::versioned,
+    typename BorrowCb = no_op_cb, typename ReturnCb = no_op_cb,
+    typename TAG = void>
 class object_pool {
 public:
+  static constexpr bool is_versioned_v = (GEN == generation_scheme::versioned);
+  using gen_t = maybe_t<uint32_t, is_versioned_v>;
+  using atomic_gen_t = maybe_t<std::atomic_uint32_t, is_versioned_v>;
+  using gen_array_t = maybe_t<std::array<atomic_gen_t, N>, is_versioned_v>;
+
   static constexpr size_t index_bits_v =
       N <= std::numeric_limits<uint8_t>::max()    ? 8U
       : N <= std::numeric_limits<uint16_t>::max() ? 16U
       : N <= std::numeric_limits<uint32_t>::max()
           ? 32U
           : 64U;
-
   using index_t = std::conditional_t<(index_bits_v == 8), uint8_t,
       std::conditional_t<(index_bits_v == 16), uint16_t,
           std::conditional_t<(index_bits_v == 32), uint32_t, uint64_t>>>;
@@ -126,19 +137,120 @@ public:
     object_pool* pool_{};
   };
 
+  // A cheaply-copied, non-owning handle to a slot. It has `std::weak_ptr`
+  // semantics in that it can escalate to ownership. However, it can only do
+  // this if there isn't a `borrowed` that currently owns the slot.
+  //
+  // To save space, it does not store a pointer to the pool or to the slot:
+  // just the index (and generation, if versioned). You will need the pool in
+  // order to dereference it, much less take ownership.
+  //
+  // It also can't distinguish among pools, although it's typesafe so at least
+  // it works only with one type of pool. If you have distinct pools of the
+  // same item type, you shoud use the TAG parameter to distinguish them.
+  class handle {
+  public:
+    static constexpr index_t npos = std::numeric_limits<index_t>::max();
+
+    // No ownership semantics.
+    handle() noexcept = default;
+    handle(const handle&) = default;
+    handle& operator=(const handle&) = default;
+
+    // Construct from a `borrowed` handle. No ownership semantics; it just
+    // refers to the slot. When versioned, it can detect staleness.
+    explicit handle(const borrowed& h) { (void)copy_from_handle(h); }
+
+    // Construct from a `borrowed` handle, detaching it. Although it removes
+    // ownership from the `borrowed` (by clearing it out), it does not take
+    // ownership. However, it can still access the pointer to the item or even
+    // escalate to ownership by calling `borrow`.
+    //
+    // As with `detach`, once you call this, you become fully responsible for
+    // ensuring that the item gets returned to the pool. With great power,
+    // yada, yada, yada.
+    explicit handle(borrowed&& h) {
+      if (!copy_from_handle(h)) return;
+      (void)h.pool->detach(std::move(h));
+    }
+
+    // Get pointer to item, if still valid. Returns nullptr on failure.
+    //
+    // When versioning is disabled, it can't detect staleness, so it just
+    // returns the pointer so long as the handle is valid. Even when versioning
+    // is enabled, this method is inherently racy since you don't own the slot
+    // and it could therefore be freed immediately. This may be fine or it may
+    // be a mistake: you get to decide.
+    [[nodiscard]] T* get_ptr(object_pool& pool) const noexcept {
+      if (!valid()) return nullptr;
+      if constexpr (is_versioned_v) {
+        auto gen =
+            pool.gen_array_[ndx_].load(std::memory_order_relaxed) & 0x7FFFFFFF;
+        if (gen != gen_) return nullptr;
+      }
+      return &pool.slots_[ndx_];
+    }
+
+    // Borrow the slot if it's not already borrowed. When versioned, returns
+    // empty if the slot is already borrowed or if the generation doesn't match
+    // (stale handle).
+    //
+    // This is akin to `std::weak_ptr::lock()`, except that it can only succeed
+    // if the slot is not currently borrowed, and it returns a `borrowed`
+    // handle that has ownership semantics.
+    [[nodiscard]] borrowed borrow(object_pool& pool) const {
+      if (!valid()) return {};
+      if constexpr (is_versioned_v)
+        if (!pool.set_borrowed(ndx_)) return {};
+
+      return borrowed{&pool, &pool.slots_[ndx_]};
+    }
+
+    [[nodiscard]] explicit operator bool() const noexcept { return valid(); }
+    [[nodiscard]] bool operator!() const noexcept { return !valid(); }
+
+    // Return whether the handle refers to a slot. There is no guarantee that
+    // it's not stale; you can only find that out by trying.
+    [[nodiscard]] bool valid() const noexcept { return ndx_ != npos; }
+
+  private:
+    bool copy_from_handle(const borrowed& h) {
+      if (!h) return false;
+      ndx_ = h.pool_->index_of(h.item_);
+      if constexpr (is_versioned_v)
+        gen_ = h.pool_->gen_array_[ndx_].load(std::memory_order_relaxed) &
+               0x7FFFFFFF;
+      return true;
+    }
+
+  private:
+    // Order is important for packing. The index could be 8 bits while the
+    // generation is always 32 when present.
+    [[no_unique_address]] gen_t gen_;
+    index_t ndx_{npos};
+  };
+
+  friend class handle;
+
   // Constructs the pool with optional borrow and return callbacks.
   explicit object_pool(BorrowCb borrow_cb = {}, ReturnCb return_cb = {})
       : borrow_cb_{std::move(borrow_cb)}, return_cb_{std::move(return_cb)} {
     std::iota(free_list_.begin(), free_list_.end(), index_t{0});
+    // Generation ranges from 1 to 2^31-1, as 0 is invalid and the high bit is
+    // reserved for borrower detection.
+    if constexpr (is_versioned_v)
+      for (auto& gen : gen_array_) gen.store(1, std::memory_order_relaxed);
   }
 
   // Factory method to deduce callback types. Use with `object_pool_factory`.
-  template<typename U, size_t M, typename borrow_t, typename return_t>
-  [[nodiscard]] static object_pool<U, M, std::decay_t<borrow_t>,
+  template<typename U, size_t M, generation_scheme G, typename borrow_t,
+      typename return_t>
+  [[nodiscard]] static object_pool<U, M, G, std::decay_t<borrow_t>,
       std::decay_t<return_t>>
   create(borrow_t&& borrow_cb = {}, return_t&& return_cb = {}) {
-    return object_pool<U, M, std::decay_t<borrow_t>, std::decay_t<return_t>>{
-        std::forward<borrow_t>(borrow_cb), std::forward<return_t>(return_cb)};
+    return object_pool<U, M, G, std::decay_t<borrow_t>,
+        std::decay_t<return_t>>{std::forward<borrow_t>(borrow_cb),
+        std::forward<return_t>(return_cb)};
   }
 
   object_pool(const object_pool&) = delete;
@@ -148,10 +260,14 @@ public:
 
   // Borrows a slot; returns empty if the pool is full.
   [[nodiscard]] borrowed borrow() {
+    // We do not increment the generation until return, but we do set the high
+    // bit to indicate that it's borrowed.
     T* item{};
     if (std::lock_guard lock{mutex_}; true) {
       if (free_top_ == 0) return {};
-      item = &slots_[free_list_[--free_top_]];
+      auto ndx = free_list_[--free_top_];
+      item = &slots_[ndx];
+      set_borrowed(ndx);
     }
     borrow_cb_(*item);
     return {this, item};
@@ -165,6 +281,11 @@ public:
   // Otherwise, it will leak, eventually leading to a lack of available slots.
   [[nodiscard]] T* detach(borrowed&& h) noexcept {
     assert(h.pool_ == this);
+    if constexpr (is_versioned_v) {
+      auto ndx = slot_from_item(h.item_);
+      std::lock_guard lock{mutex_};
+      unset_borrowed(ndx);
+    }
     h.pool_ = nullptr;
     return std::exchange(h.item_, nullptr);
   }
@@ -175,6 +296,11 @@ public:
   // NOLINTBEGIN(performance-move-const-arg)
   [[nodiscard]] borrowed reattach(T*&& item) noexcept {
     if (!is_in_pool(item)) return {};
+    if constexpr (is_versioned_v) {
+      auto ndx = slot_from_item(item);
+      std::lock_guard lock{mutex_};
+      set_borrowed(ndx);
+    }
     return {this, std::exchange(item, nullptr)};
   }
   // NOLINTEND(performance-move-const-arg)
@@ -196,22 +322,60 @@ private:
   void return_slot(T* item) noexcept {
     assert(is_in_pool(item));
     const auto ndx = slot_from_item(item);
-    return_cb_(*item);
+    return return_slot(ndx);
+  }
+
+  void return_slot(index_t ndx) noexcept {
+    return_cb_(slots_[ndx]);
     std::lock_guard lock{mutex_};
+    unset_borrowed(ndx);
     free_list_[free_top_++] = ndx;
   }
 
-  mutable std::mutex mutex_;
-  std::array<T, N> slots_{};
+  // Set the high bit to indicate that it's now borrowed. The
+  // `std::atomic` is used to ensure that a `handle` can't observe a torn
+  // generation value or mistakenly borrow a slot being returned.
+  bool set_borrowed(index_t ndx) {
+    if constexpr (is_versioned_v) {
+      auto& gen = gen_array_[ndx];
+      auto old_gen = gen.load(std::memory_order::relaxed);
+      if (old_gen & 0x80000000) return false;
+      auto new_gen = old_gen | 0x80000000;
+      return gen.compare_exchange_strong(old_gen, new_gen,
+          std::memory_order::release, std::memory_order::relaxed);
+    }
+    return true;
+  }
+
+  // Increment atomically, and wrapping past 0 (which is invalid). Also clear
+  // the high bit to indicate that it's not borrowed anymore. The `std::atomic`
+  // is used to ensure that a `handle` can't observe a torn generation value or
+  // mistakenly borrow a slot being returned.
+  void unset_borrowed(index_t ndx) {
+    if constexpr (is_versioned_v) {
+      auto& gen = gen_array_[ndx];
+      auto old_gen = gen.load(std::memory_order::relaxed);
+      assert(old_gen & 0x80000000);
+      auto new_gen = (old_gen & 0x7FFFFFFF) + 1;
+      if (new_gen == 0) new_gen = 1;
+      gen.compare_exchange_strong(old_gen, new_gen, std::memory_order::release,
+          std::memory_order::relaxed);
+    }
+  }
+
+  // Order of members is important for alignment.
+  alignas(T) std::array<T, N> slots_{};
   std::array<index_t, N> free_list_{};
   size_t free_top_{N};
+  mutable std::mutex mutex_;
+  [[no_unique_address]] gen_array_t gen_array_;
   [[no_unique_address]] BorrowCb borrow_cb_;
   [[no_unique_address]] ReturnCb return_cb_;
 };
 
 // Use with `object_pool::create`, since the specialization of the scoping
 // class doesn't matter.
-using object_pool_factory = object_pool<int, 1>;
+using object_pool_factory = object_pool<int, 1, generation_scheme::versioned>;
 
 // Implementation note: It is possible in principle to replace the `index_t`
 // values with `std::atomic_index_t` and do lock-free stack push and pop on

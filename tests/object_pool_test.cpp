@@ -175,8 +175,9 @@ void ObjectPool_Callbacks() {
     int return_count{};
     auto on_borrow = [&](int& v) noexcept { v = ++borrow_count; };
     auto on_return = [&](int&) noexcept { ++return_count; };
-    object_pool<int, 4, decltype(on_borrow), decltype(on_return)> store{
-        on_borrow, on_return};
+    object_pool<int, 4, generation_scheme::versioned, decltype(on_borrow),
+        decltype(on_return)>
+        store{on_borrow, on_return};
 
     auto h0 = store.borrow();
     EXPECT_EQ(*h0, 1);
@@ -198,8 +199,9 @@ void ObjectPool_Callbacks() {
   if (true) {
     auto on_borrow = [](int& v) noexcept { v = 99; };
     auto on_return = [](int& v) noexcept { v = 0; };
-    object_pool<int, 1, decltype(on_borrow), decltype(on_return)> store{
-        on_borrow, on_return};
+    object_pool<int, 1, generation_scheme::versioned, decltype(on_borrow),
+        decltype(on_return)>
+        store{on_borrow, on_return};
 
     auto h = store.borrow();
     EXPECT_EQ(*h, 99);
@@ -223,9 +225,10 @@ void ObjectPool_CreateHelper() {
     int borrow_count{};
     int return_count{};
 
-    auto pool = object_pool_factory::create<int, 2>(
-        [&](int& v) noexcept { v = ++borrow_count; },
-        [&](int&) noexcept { ++return_count; });
+    auto pool =
+        object_pool_factory::create<int, 2, generation_scheme::versioned>(
+            [&](int& v) noexcept { v = ++borrow_count; },
+            [&](int&) noexcept { ++return_count; });
 
     auto h0 = pool.borrow();
     EXPECT_TRUE(h0);
