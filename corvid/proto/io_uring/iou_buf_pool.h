@@ -405,7 +405,7 @@ public:
   // Thread-safe.
   [[nodiscard]] buffer borrow_reader(
       block_size sz = block_size::small) noexcept {
-    std::lock_guard lock{mutex_};
+    std::scoped_lock lock{mutex_};
     const auto len = static_cast<size_t>(sz);
     if (available_bytes_ < WRITE_RESERVE + len) return {};
     if (in_flight_read_bytes_.load(std::memory_order::relaxed) + len >
@@ -424,7 +424,7 @@ public:
   // exhausted. Thread-safe.
   [[nodiscard]] buffer borrow_writer(
       block_size sz = block_size::small) noexcept {
-    std::lock_guard lock{mutex_};
+    std::scoped_lock lock{mutex_};
     const auto len = static_cast<size_t>(sz);
     void* p = do_alloc_block(len);
     if (!p) return {};
@@ -434,7 +434,7 @@ public:
 
   // Total free bytes currently in the pool. Thread-safe.
   [[nodiscard]] size_t available() const noexcept {
-    std::lock_guard lock{mutex_};
+    std::scoped_lock lock{mutex_};
     return available_bytes_;
   }
 #pragma endregion
@@ -505,7 +505,7 @@ private:
   }
 
   void do_return(span_t s, bool is_read) noexcept {
-    if (std::lock_guard lock{mutex_}; true) {
+    if (std::scoped_lock lock{mutex_}; true) {
       assert(available_bytes_ + s.size() <= HUGE_PAGE_SIZE);
       if (s.size() <= SMALL_SIZE)
         do_push(small_head_, s.data());

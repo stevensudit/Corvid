@@ -287,7 +287,7 @@ public:
   // Bind a UDP socket to `local` and start receiving. Returns an empty handle
   // on failure.
   [[nodiscard]] static iou_dgram_conn_ptr_with
-  bind(std::shared_ptr<iou_loop> loop, const net_endpoint& local,
+  bind(const std::shared_ptr<iou_loop>& loop, const net_endpoint& local,
       iou_dgram_conn_handlers h = {}) {
     auto sock = net_socket::create_for(local, execution::nonblocking,
         message_style::datagram);
@@ -332,9 +332,10 @@ class iou_dgram_conn_with_state: public iou_dgram_conn {
 public:
   using state_t = STATE;
 
-  explicit iou_dgram_conn_with_state(allow a, std::shared_ptr<iou_loop> loop,
-      net_socket sock, iou_dgram_conn_handlers h)
-      : iou_dgram_conn(a, std::move(loop), std::move(sock), std::move(h)) {}
+  explicit iou_dgram_conn_with_state(allow a,
+      const std::shared_ptr<iou_loop>& loop, net_socket sock,
+      iou_dgram_conn_handlers h)
+      : iou_dgram_conn(a, loop, std::move(sock), std::move(h)) {}
 
   [[nodiscard]] state_t& state() noexcept { return state_; }
   [[nodiscard]] const state_t& state() const noexcept { return state_; }

@@ -48,10 +48,12 @@ public:
   iou_recv_view& operator=(const iou_recv_view&) = delete;
   iou_recv_view& operator=(iou_recv_view&&) = delete;
 
+  // NOLINTBEGIN(bugprone-exception-escape)
   ~iou_recv_view() {
     if (!buf_) return; // moved-from
     resume_(std::move(buf_));
   }
+  // NOLINTEND(bugprone-exception-escape)
 #pragma endregion
 #pragma region Buffer management
   // Current unconsumed payload.
@@ -139,7 +141,7 @@ public:
   // The remote peer address. For accepted connections, computed lazily via
   // `getpeername` on first call. Safe to call from any thread.
   [[nodiscard]] const net_endpoint& remote_endpoint() noexcept {
-    std::lock_guard lock{endpoint_mutex_};
+    std::scoped_lock lock{endpoint_mutex_};
     if (remote_.empty()) remote_ = net_endpoint::peer_of(sock_);
     return remote_;
   }
@@ -148,7 +150,7 @@ public:
   // `getsockname` on first call. Useful after `listen` on port 0 to discover
   // the OS-assigned port. Safe to call from any thread.
   [[nodiscard]] const net_endpoint& local_endpoint() noexcept {
-    std::lock_guard lock{endpoint_mutex_};
+    std::scoped_lock lock{endpoint_mutex_};
     if (local_.empty()) local_ = net_endpoint{sock_};
     return local_;
   }
@@ -595,36 +597,36 @@ public:
 
   // Adopt an already-connected socket. `sock` must be non-blocking.
   [[nodiscard]] static iou_stream_conn_ptr_with
-  adopt(std::shared_ptr<iou_loop> loop, net_socket sock, net_endpoint remote,
-      iou_stream_conn_handlers h = {}) {
-    return do_make(std::move(loop), std::move(sock), std::move(remote),
-        std::move(h), std::nullopt);
+  adopt(const std::shared_ptr<iou_loop>& loop, net_socket sock,
+      net_endpoint remote, iou_stream_conn_handlers h = {}) {
+    return do_make(loop, std::move(sock), std::move(remote), std::move(h),
+        std::nullopt);
   }
 
   // Initiate an async connect to `remote`. `on_drain` fires on success;
   // `on_close` fires on failure. Returns an empty handle on socket creation
   // failure.
   [[nodiscard]] static iou_stream_conn_ptr_with
-  connect(std::shared_ptr<iou_loop> loop, const net_endpoint& remote,
+  connect(const std::shared_ptr<iou_loop>& loop, const net_endpoint& remote,
       iou_stream_conn_handlers h = {}) {
     auto sock = net_socket::create_for(remote);
     if (!sock.is_open()) return {};
-    return do_make(std::move(loop), std::move(sock), remote, std::move(h),
+    return do_make(loop, std::move(sock), remote, std::move(h),
         connection_role::client);
   }
 
   // Create a listening socket bound to `local`. Each accepted connection
   // gets a copy of `h`. Returns an empty handle on failure.
   [[nodiscard]] static iou_stream_conn_ptr_with
-  listen(std::shared_ptr<iou_loop> loop, const net_endpoint& local,
+  listen(const std::shared_ptr<iou_loop>& loop, const net_endpoint& local,
       iou_stream_conn_handlers h = {}) {
     auto sock = net_socket::create_for(local);
     if (!sock.is_open()) return {};
     if (!sock.set_reuse_addr()) return {};
     if (!sock.bind(local)) return {};
     if (!sock.listen()) return {};
-    return do_make(std::move(loop), std::move(sock), net_endpoint::invalid,
-        std::move(h), connection_role::server);
+    return do_make(loop, std::move(sock), net_endpoint::invalid, std::move(h),
+        connection_role::server);
   }
 
   // Begin graceful close. Safe from any thread.
@@ -648,8 +650,9 @@ private:
   explicit iou_stream_conn_ptr_with(shared_ptr_t conn)
       : conn_{std::move(conn)} {}
 
-  static iou_stream_conn_ptr_with do_make(std::shared_ptr<iou_loop> loop,
-      net_socket sock, net_endpoint remote, iou_stream_conn_handlers h,
+  static iou_stream_conn_ptr_with
+  do_make(const std::shared_ptr<iou_loop>& loop, net_socket sock,
+      net_endpoint remote, iou_stream_conn_handlers h,
       std::optional<connection_role> role) {
     assert(loop.get());
     auto conn = std::make_shared<T>(iou_stream_conn::allow::ctor, loop,
@@ -679,11 +682,12 @@ class iou_stream_conn_with_state: public iou_stream_conn {
 public:
   using state_t = STATE;
 
-  explicit iou_stream_conn_with_state(allow a, std::shared_ptr<iou_loop> loop,
-      net_socket sock, net_endpoint remote, iou_stream_conn_handlers h,
+  explicit iou_stream_conn_with_state(allow a,
+      const std::shared_ptr<iou_loop>& loop, net_socket sock,
+      net_endpoint remote, iou_stream_conn_handlers h,
       std::optional<connection_role> role = {},
       coordination_policy shutdown = coordination_policy::unilateral)
-      : iou_stream_conn(a, std::move(loop), std::move(sock), std::move(remote),
+      : iou_stream_conn(a, loop, std::move(sock), std::move(remote),
             std::move(h), role, shutdown) {}
 
   [[nodiscard]] state_t& state() noexcept { return state_; }
@@ -700,10 +704,10 @@ protected:
   [[nodiscard]] std::shared_ptr<iou_stream_conn>
   accept_clone(net_socket&& sock, const net_endpoint& remote,
       iou_stream_conn_handlers h) const override {
-    auto lp = weak_loop_.lock();
-    if (!lp) return nullptr;
+    auto loop = weak_loop_.lock();
+    if (!loop) return nullptr;
     return std::make_shared<iou_stream_conn_with_state<state_t>>(allow::ctor,
-        std::move(lp), std::move(sock), remote, std::move(h), std::nullopt,
+        std::move(loop), std::move(sock), remote, std::move(h), std::nullopt,
         shutdown_);
   }
 

@@ -161,6 +161,8 @@ public:
   class handle {
   public:
     static constexpr index_t npos = std::numeric_limits<index_t>::max();
+    static constexpr bool allows_int_conversion =
+        (index_bits_v <= 32) || !is_versioned_v;
 
     // No ownership semantics.
     handle() noexcept = default;
@@ -182,6 +184,25 @@ public:
     explicit handle(borrowed&& h) {
       if (!copy_from_handle(h)) return;
       (void)h.pool_->detach(std::move(h));
+    }
+
+    // Construct from a packed `uint64_t` produced by `as_int`. Only available
+    // when it fits.
+    explicit handle(uint64_t v) noexcept
+    requires allows_int_conversion
+    {
+      ndx_ = static_cast<index_t>(v);
+      if constexpr (is_versioned_v) gen_ = static_cast<uint32_t>(v >> 32);
+    }
+
+    // Pack `gen_` (upper 32 bits) and `ndx_` (lower bits) into a `uint64_t`.
+    // Only available when it fits.
+    [[nodiscard]] uint64_t as_int() const noexcept
+    requires allows_int_conversion
+    {
+      auto i = uint64_t{ndx_};
+      if constexpr (is_versioned_v) i |= (uint64_t{gen_} << 32);
+      return i;
     }
 
     // Get pointer to item, if still valid. Returns nullptr on failure.
@@ -210,7 +231,7 @@ public:
     // handle that has ownership semantics.
     [[nodiscard]] borrowed borrow(object_pool& pool) const {
       if (!valid()) return {};
-      if (std::lock_guard lock{pool.mutex_}; true)
+      if (std::scoped_lock lock{pool.mutex_}; true)
         if constexpr (is_versioned_v)
           if (!pool.set_borrowed_if(ndx_, gen_)) return {};
 
@@ -237,7 +258,7 @@ public:
   private:
     // Order is important for packing. The index could be 8 bits while the
     // generation is always 32 when present.
-    [[no_unique_address]] gen_t gen_;
+    [[no_unique_address]] gen_t gen_{};
     index_t ndx_{npos};
   };
 
@@ -274,7 +295,7 @@ public:
     // We do not increment the generation until return, but we do set the high
     // bit to indicate that it's borrowed.
     T* item{};
-    if (std::lock_guard lock{mutex_}; true) {
+    if (std::scoped_lock lock{mutex_}; true) {
       if (free_top_ == 0) return {};
       auto ndx = free_list_[--free_top_];
       item = &slots_[ndx];
@@ -309,7 +330,7 @@ public:
     if (!is_in_pool(item)) return {};
     if constexpr (is_versioned_v) {
       auto ndx = slot_from_item(item);
-      std::lock_guard lock{mutex_};
+      std::scoped_lock lock{mutex_};
       if (!set_borrowed(ndx)) return {};
     }
     return {this, std::exchange(item, nullptr)};
@@ -338,7 +359,7 @@ private:
 
   void return_slot(index_t ndx) noexcept {
     return_cb_(slots_[ndx]);
-    std::lock_guard lock{mutex_};
+    std::scoped_lock lock{mutex_};
     [[maybe_unused]] const bool impossible = !release_slot_gen(ndx);
     assert(!impossible);
     free_list_[free_top_++] = ndx;

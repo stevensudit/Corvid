@@ -152,11 +152,13 @@ void ObjectPool_MultipleSlots() {
     for (size_t i = 0; i < cap; ++i) {
       handles[i] = pool.borrow();
       EXPECT_TRUE(handles[i].has_value());
+      // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
       **handles[i] = static_cast<int>(i);
     }
     EXPECT_FALSE(pool.borrow()); // all slots in use
 
     // Return every other slot.
+    // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
     for (size_t i = 0; i < cap; i += 2) handles[i]->reset();
 
     // Re-borrow the returned slots.
@@ -328,9 +330,9 @@ void ObjectPool_HandleDetachAndBorrow() {
     auto b = pool.borrow();
     int* p = b.get();
     object_pool<int, 1>::handle h{std::move(b)};
-    EXPECT_FALSE(b);             // b was detached
+    EXPECT_FALSE(b); // b was detached
     EXPECT_TRUE(h);
-    EXPECT_FALSE(pool.borrow()); // slot not in free list
+    EXPECT_FALSE(pool.borrow());   // slot not in free list
     EXPECT_EQ(h.get_ptr(pool), p); // handle still resolves to the pointer
   }
 
@@ -361,8 +363,8 @@ void ObjectPool_HandleStaleness() {
     auto b = pool.borrow();
     object_pool<int, 4>::handle h{b};
     EXPECT_EQ(h.get_ptr(pool), b.get()); // valid while b is live
-    b.reset();                            // gen incremented on return
-    EXPECT_EQ(h.get_ptr(pool), nullptr);  // stale
+    b.reset();                           // gen incremented on return
+    EXPECT_EQ(h.get_ptr(pool), nullptr); // stale
   }
 
   // `handle::borrow()` returns empty once the handle is stale.
@@ -383,10 +385,48 @@ void ObjectPool_HandleStaleness() {
   }
 }
 
+void ObjectPool_HandleAsInt() {
+  // Round-trip through `as_int` and `handle(uint64_t)` resolves to the same
+  // slot.
+  if (true) {
+    object_pool<int, 4> pool;
+    auto b = pool.borrow();
+    *b = 55;
+    object_pool<int, 4>::handle h{b};
+    auto packed = h.as_int();
+    object_pool<int, 4>::handle h2{packed};
+    EXPECT_TRUE(h2);
+    EXPECT_EQ(h2.get_ptr(pool), b.get());
+  }
+
+  // A handle reconstructed from a stale `as_int` value is also stale.
+  if (true) {
+    object_pool<int, 4> pool;
+    auto b = pool.borrow();
+    object_pool<int, 4>::handle h{b};
+    auto packed = h.as_int();
+    b.reset(); // gen incremented; packed value is now stale
+    object_pool<int, 4>::handle h2{packed};
+    EXPECT_EQ(h2.get_ptr(pool), nullptr);
+  }
+
+  // Unversioned pool: round-trip through `as_int` resolves to the same slot.
+  if (true) {
+    object_pool<int, 4, generation_scheme::unversioned> pool;
+    auto b = pool.borrow();
+    object_pool<int, 4, generation_scheme::unversioned>::handle h{b};
+    auto packed = h.as_int();
+    object_pool<int, 4, generation_scheme::unversioned>::handle h2{packed};
+    EXPECT_TRUE(h2);
+    EXPECT_EQ(h2.get_ptr(pool), b.get());
+  }
+}
+
 MAKE_TEST_LIST(ObjectPool_BorrowAndReturn, ObjectPool_FullPool,
     ObjectPool_LIFOOrder, ObjectPool_MoveHandle, ObjectPool_MultipleSlots,
-    ObjectPool_Callbacks, ObjectPool_CreateHelper, ObjectPool_DetachAndReattach,
-    ObjectPool_HandleBasics, ObjectPool_HandleDetachAndBorrow,
-    ObjectPool_HandleStaleness);
+    ObjectPool_Callbacks, ObjectPool_CreateHelper,
+    ObjectPool_DetachAndReattach, ObjectPool_HandleBasics,
+    ObjectPool_HandleDetachAndBorrow, ObjectPool_HandleStaleness,
+    ObjectPool_HandleAsInt);
 
 // NOLINTEND(readability-function-cognitive-complexity)

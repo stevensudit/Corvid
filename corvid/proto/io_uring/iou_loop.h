@@ -84,7 +84,8 @@ using namespace std::chrono_literals;
 // - Allow `iou_buf_pool` size to be configured.
 template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
 class iou_basic_loop
-    : std::enable_shared_from_this<iou_basic_loop<RING_SIZE, SLOT_COUNT>> {
+    : public std::enable_shared_from_this<
+          iou_basic_loop<RING_SIZE, SLOT_COUNT>> {
 public:
   // Buffer pool.
   using buf_pool_t = iou_buf_pool;
@@ -592,7 +593,7 @@ private:
   // `IORING_CQE_F_MORE` indicates more CQEs will follow; the callback is
   // retained rather than released. On the final CQE (flag absent), the
   // callback is released as usual.
-  bool do_dispatch(iou_cqe cqe) noexcept {
+  bool do_dispatch(iou_cqe cqe) {
     // Call through raw pointer.
     auto* raw_cb = cqe.get_data_ptr<completion_fn>();
     if (!raw_cb) return false;

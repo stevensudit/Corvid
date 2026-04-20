@@ -131,8 +131,7 @@ public:
     return true;
   }
 
-  bool prep_accept(int fd,
-      int flags = SOCK_NONBLOCK | SOCK_CLOEXEC) noexcept {
+  bool prep_accept(int fd, int flags = SOCK_NONBLOCK | SOCK_CLOEXEC) noexcept {
     io_uring_prep_accept(sqe_, fd, nullptr, nullptr, flags);
     return true;
   }
