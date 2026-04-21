@@ -321,10 +321,12 @@ private:
     if (!buf) buf = loop_.borrow_read_buffer();
     if (!buf) return false;
     recv_in_flight_ = true;
-    return loop_.submit_recv_buffer(sock_, std::move(buf),
+    // TODO: Save the token.
+    const auto token = loop_.submit_recv_buffer(sock_, std::move(buf),
         [p = self()](buffer& b) mutable -> bool {
           return p->on_recv_complete(b);
         });
+    return token.valid();
   }
 
   // Resubmit recv using an existing buffer from a prior `on_recv_complete`.
@@ -451,10 +453,12 @@ private:
     assert(loop_.is_loop_thread() && !send_in_flight_);
     if (!buf) return false;
     send_in_flight_ = true;
-    return loop_.submit_send_buffer(sock_, std::move(buf),
+    // TODO: Save the token.
+    const auto token = loop_.submit_send_buffer(sock_, std::move(buf),
         [p = self()](buffer& b) mutable -> bool {
           return p->on_send_complete(b);
         });
+    return token.valid();
   }
 
   // Handle completion of a send operation. On success, if the buffer is
@@ -490,10 +494,12 @@ private:
   // state. On failure, fires `on_close`.
   bool do_submit_connect() {
     assert(loop_.is_loop_thread() && connecting_);
-    return loop_.submit_connect(sock_, remote_,
+    // TODO: Store cancelation token.
+    auto token = loop_.submit_connect(sock_, remote_,
         [p = self()](iou_res res, iou_cqe_flags flags) mutable -> bool {
           return p->on_connect_complete(res, flags);
         });
+    return token.valid();
   }
 
   // Handle completion of connect operation. On success, fires `on_drain` and
@@ -520,10 +526,12 @@ private:
   // connection without re-arming; the kernel re-arms automatically.
   bool do_submit_accept() {
     assert(loop_.is_loop_thread() && listening_);
-    return loop_.submit_accept_multishot(sock_,
+    // TODO: Store cancelation token.
+    auto token = loop_.submit_accept_multishot(sock_,
         [p = self()](iou_res res, iou_cqe_flags flags) mutable -> bool {
           return p->on_accept_complete(res, flags);
         });
+    return token.valid();
   }
 
   // Handle completion of a multishot accept. On success, creates a new

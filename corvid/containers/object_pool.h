@@ -138,6 +138,13 @@ public:
     [[nodiscard]] T& operator*() const noexcept { return *item_; }
     [[nodiscard]] T* operator->() const noexcept { return item_; }
 
+    template<typename... Args>
+    auto operator()(Args&&... args) const
+    requires std::invocable<T&, Args...>
+    {
+      return std::invoke(*item_, std::forward<Args>(args)...);
+    }
+
   private:
     friend class object_pool;
 

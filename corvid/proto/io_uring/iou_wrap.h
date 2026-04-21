@@ -43,6 +43,17 @@ enum class iou_cqe_flags : uint32_t {
   buffer_id = 0xffff0000,
 };
 
+// `IOSQE_*` wrapper.
+enum class iou_sqe_flags : uint8_t {
+  fixed_file = IOSQE_FIXED_FILE,             // 0x1
+  io_drain = IOSQE_IO_DRAIN,                 // 0x2
+  io_link = IOSQE_IO_LINK,                   // 0x4
+  io_hardlink = IOSQE_IO_HARDLINK,           // 0x8
+  async = IOSQE_ASYNC,                       // 0x10
+  buffer_select = IOSQE_BUFFER_SELECT,       // 0x20
+  cqe_skip_success = IOSQE_CQE_SKIP_SUCCESS, // 0x40
+};
+
 }}} // namespace corvid::proto::iouring
 
 template<>
@@ -51,6 +62,14 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
     corvid::enums::bitmask::make_bitmask_enum_spec<
         corvid::proto::iouring::iou_cqe_flags,
         "buffer, more, sock_nonempty, notif">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::iouring::iou_sqe_flags> =
+    corvid::enums::bitmask::make_bitmask_enum_spec<
+        corvid::proto::iouring::iou_sqe_flags,
+        "fixed_file, io_drain, io_link, io_hardlink, async, buffer_select, "
+        "cqe_skip_success">();
 
 namespace corvid { inline namespace proto { inline namespace iouring {
 
@@ -194,24 +213,30 @@ public:
     return true;
   }
 
-  // Standalone timeout: fires with `-ETIME` after `ts` elapses, or with
+  // Cancel all pending operations with `user_data` matching the given value.
+  bool prep_cancel_user_data(uint64_t user_data, int flags = 0) noexcept {
+    io_uring_prep_cancel64(sqe_, user_data, flags);
+    return true;
+  }
+
+  // Standalone timeout: fires with `-ETIME` after `duration` elapses, or with
   // `-ECANCELED` when canceled by a linked predecessor completing first.
-  bool prep_timeout(__kernel_timespec* ts) noexcept {
-    io_uring_prep_timeout(sqe_, ts, 0, 0);
+  bool prep_timeout(__kernel_timespec* duration) noexcept {
+    io_uring_prep_timeout(sqe_, duration, 0, 0);
     return true;
   }
 
   // Linked timeout: must be the second SQE in a linked pair (first SQE must
-  // have `IOSQE_IO_LINK` set). Cancels the preceding op if `ts` expires
+  // have `IOSQE_IO_LINK` set). Cancels the preceding op if `duration` expires
   // before it completes.
-  bool prep_link_timeout(__kernel_timespec* ts) noexcept {
-    io_uring_prep_link_timeout(sqe_, ts, 0);
+  bool prep_link_timeout(__kernel_timespec* duration) noexcept {
+    io_uring_prep_link_timeout(sqe_, duration, 0);
     return true;
   }
 
   // Set additional SQE flags (e.g., `IOSQE_IO_LINK` for linked SQEs).
-  bool set_sqe_flags(uint8_t flags) noexcept {
-    sqe_->flags |= flags;
+  bool set_sqe_flags(iou_sqe_flags flags) noexcept {
+    sqe_->flags |= *flags;
     return true;
   }
 

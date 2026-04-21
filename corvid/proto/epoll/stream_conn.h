@@ -1245,7 +1245,7 @@ public:
       const net_endpoint& remote, stream_conn_handlers&& h = {},
       size_t recv_buf_size = stream_conn::default_recv_buf_size,
       coordination_policy shutdown = coordination_policy::unilateral) {
-    assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
+    assert(sock.get_flags().value_or(o_flags{}) & o_flags::nonblock);
     return stream_conn_ptr_with{loop, std::move(sock), remote, std::move(h),
         recv_buf_size, {}, shutdown};
   }
@@ -1358,7 +1358,7 @@ private:
       net_socket&& sock, const net_endpoint& remote, stream_conn_handlers&& h,
       size_t recv_buf_size, std::optional<connection_role> connection = {},
       coordination_policy shutdown = coordination_policy::unilateral) {
-    assert((sock.get_flags().value_or(0) & O_NONBLOCK) != 0);
+    assert(sock.get_flags().value_or(o_flags{}) & o_flags::nonblock);
     assert(loop.get());
     if (recv_buf_size == 0) recv_buf_size = stream_conn::default_recv_buf_size;
     conn_ = std::make_shared<conn_t>(stream_conn::allow::ctor, loop,

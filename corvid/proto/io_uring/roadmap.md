@@ -20,7 +20,7 @@ We can use io_uring_register_files to register an array of FDs whose lifespan we
 Instead of a shared_ptr to keep each iou_stream_conn alive, we could allocate a massive array of connections in advance and reuse them. Essentially, it's an object pool. To reference it, we'd have a handle with the index and generation (32 bits each). We'd then store this in the `user_data` of the SQE. This avoids reference counting, adds locality, and offers a relatively simple lifetime management approach. However, it doesn't go well with supporting both streams and datagrams, and it's fundamentally based on limited connections.
 
 ## Reducing submissions.
-Instead of calling io_uring_submit with each SQE, we could use a counter to do it after every N SQEs, and then at the end of a run_once. The overhead of submitting once per loop should be irrelevant under the conditions where such overhead matters, since we'd be processing many CQEs per loop, and these would emit many SQEs, so we'd be submitting repeatedly.
+Whenever we do an io_uring_get_sqe, increment a counter. Once it's prepared, call maybe_submit. This submits immediately (by calling definitely_submit) if the counter exceeds the limit or if the time since the last submit exceeds the limit. We also set up a repeating timer through a SQE, and all we do on completion is a definitely_submit call. Note that we need to decrement the number of submissions based on the return code from submit, not assume they were all consumed. We may need to enable IORING_SETUP_SUBMIT_ALL. (As an alternative to the repeating timer, we could do a maybe_submit at the end of each run_once loop.)
 
 ## epoll cleanup.
 Perhaps prefix some of the classes with epoll. For example, epoll_stream_conn.
