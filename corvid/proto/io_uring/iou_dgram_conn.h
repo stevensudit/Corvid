@@ -176,12 +176,12 @@ private:
     recv_ctx_.hdr.msg_iovlen = 1;
     recv_in_flight_ = true;
     return loop_.submit_recvmsg(sock_, &recv_ctx_.hdr,
-        [p = self()](iou_res res) mutable -> bool {
-          return p->on_recv_complete(res);
+        [p = self()](iou_res res, iou_cqe_flags flags) mutable -> bool {
+          return p->on_recv_complete(res, flags);
         });
   }
 
-  bool on_recv_complete(iou_res res) {
+  bool on_recv_complete(iou_res res, iou_cqe_flags) {
     recv_in_flight_ = false;
     if (!open_) return true;
     if (!res.ok()) {
@@ -232,12 +232,12 @@ private:
     send_queue_.pop_front();
 
     return loop_.submit_sendmsg(sock_, &send_ctx_.hdr,
-        [p = self()](iou_res res) mutable -> bool {
-          return p->on_send_complete(res);
+        [p = self()](iou_res res, iou_cqe_flags flags) mutable -> bool {
+          return p->on_send_complete(res, flags);
         });
   }
 
-  bool on_send_complete(iou_res res) {
+  bool on_send_complete(iou_res res, iou_cqe_flags) {
     send_in_flight_ = false;
     (void)res; // Datagrams are best-effort; ignore errors.
     send_ctx_.buf.reset();

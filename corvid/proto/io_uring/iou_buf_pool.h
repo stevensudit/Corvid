@@ -163,6 +163,11 @@ public:
     // Access the result of the I/O operation; initially an error condition.
     [[nodiscard]] iou_res result() const noexcept { return res_; }
 
+    // Access the CQE flags of the I/O operation; initially zero.
+    [[nodiscard]] iou_cqe_flags cqe_flags() const noexcept {
+      return cqe_flags_;
+    }
+
     // Span of accumulated payload data. For reads, this is bytes received so
     // far; for writes, bytes being sent.
     [[nodiscard]] span_t payload_span() noexcept { return payload_span_; }
@@ -243,8 +248,9 @@ public:
     //   Write mode: advances `active_span` front by bytes sent; when fully
     //     sent, `active_span` becomes zero-length (consumed state).
     // On error `res`, spans are left unchanged. Returns self for chaining.
-    buffer& update(iou_res res) noexcept {
+    buffer& update(iou_res res, iou_cqe_flags cqe_flags) noexcept {
       res_ = res;
+      cqe_flags_ = cqe_flags;
       if (!res.ok()) return *this;
       if (is_read_) {
         const size_t extend = std::min(res.bytes(),
@@ -309,7 +315,11 @@ public:
 
     // Reset the I/O result manually. Not generally useful outside of
     // `io_loop`.
-    void reset_result(iou_res res = iou_res{-1}) noexcept { res_ = res; }
+    void reset_result(iou_res res = iou_res{-1},
+        iou_cqe_flags cqe_flags = {}) noexcept {
+      res_ = res;
+      cqe_flags_ = cqe_flags;
+    }
 
     // Whether this buffer is in read mode. Not generally useful externally.
     [[nodiscard]] bool is_read() const noexcept { return is_read_; }
@@ -354,6 +364,7 @@ public:
     span_t payload_span_;
     span_t active_span_;
     iou_res res_;
+    iou_cqe_flags cqe_flags_;
     bool is_read_{};
   };
 #pragma endregion

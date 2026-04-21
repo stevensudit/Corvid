@@ -32,7 +32,7 @@ static size_t sim_read(iou_buf_pool::buffer& buf, std::string_view data) {
   auto active = buf.active_span();
   const size_t n = std::min(data.size(), active.size());
   std::memcpy(active.data(), data.data(), n);
-  buf.update(iou_res{static_cast<int32_t>(n)});
+  buf.update(iou_res{static_cast<int32_t>(n)}, iou_cqe_flags{});
   return n;
 }
 
@@ -162,7 +162,7 @@ void IouBufPool_ReadUpdateError() {
     const size_t payload_before = buf.payload_span().size();
     const size_t active_before = buf.active_span().size();
 
-    buf.update(iou_res{-ECONNRESET});
+    buf.update(iou_res{-ECONNRESET}, iou_cqe_flags{});
     EXPECT_FALSE(buf.result().ok());
     EXPECT_EQ(buf.payload_span().size(), payload_before);
     EXPECT_EQ(buf.active_span().size(), active_before);
@@ -281,7 +281,7 @@ void IouBufPool_WriteUpdatePartialSend() {
     EXPECT_TRUE(buf.append("0123456789"sv)); // 10 bytes
     EXPECT_EQ(buf.active_span().size(), 10ULL);
 
-    buf.update(iou_res{6});                      // kernel sent first 6 bytes
+    buf.update(iou_res{6}, iou_cqe_flags{});     // kernel sent first 6 bytes
     EXPECT_EQ(buf.payload_span().size(), 10ULL); // unchanged
     EXPECT_EQ(buf.active_span().size(), 4ULL);   // 10 - 6
     EXPECT_EQ(std::string_view(
@@ -299,7 +299,7 @@ void IouBufPool_WriteFullyConsumedThenAppend() {
     const std::byte* base = buf.active_span().data();
 
     EXPECT_TRUE(buf.append("sent"sv));
-    buf.update(iou_res{4}); // fully consumed
+    buf.update(iou_res{4}, iou_cqe_flags{}); // fully consumed
     EXPECT_EQ(buf.active_span().size(), static_cast<size_t>(0));
 
     // payload_view still shows "sent" before the implicit reset.
@@ -322,7 +322,7 @@ void IouBufPool_WriteFullyConsumedThenTailSpan() {
     const std::byte* base = buf.active_span().data();
 
     EXPECT_TRUE(buf.append("gone"sv));
-    buf.update(iou_res{4});
+    buf.update(iou_res{4}, iou_cqe_flags{});
 
     auto tail = buf.tail_span(); // triggers implicit reset
     EXPECT_EQ(tail.size(), buf.size());
@@ -341,7 +341,7 @@ void IouBufPool_WriteUpdateError() {
     const size_t payload_before = buf.payload_span().size();
     const size_t active_before = buf.active_span().size();
 
-    buf.update(iou_res{-EPIPE});
+    buf.update(iou_res{-EPIPE}, iou_cqe_flags{});
     EXPECT_FALSE(buf.result().ok());
     EXPECT_EQ(buf.payload_span().size(), payload_before);
     EXPECT_EQ(buf.active_span().size(), active_before);
@@ -356,7 +356,8 @@ void IouBufPool_AppendToPartiallySentBuffer() {
     ASSERT_TRUE(buf);
 
     EXPECT_TRUE(buf.append("hello"sv));
-    buf.update(iou_res{3}); // sent "hel"; active points to "lo" (2 bytes)
+    buf.update(iou_res{3},
+        iou_cqe_flags{}); // sent "hel"; active points to "lo" (2 bytes)
 
     EXPECT_EQ(buf.payload_span().size(), 5ULL);
     EXPECT_EQ(buf.active_span().size(), 2ULL);

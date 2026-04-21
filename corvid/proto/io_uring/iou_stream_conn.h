@@ -70,6 +70,15 @@ public:
     resume_(iou_buf_pool::buffer{}); // empty signals: start fresh recv
     return std::move(buf_);
   }
+
+  // To apply backpressure, you can prevent further recvs. Note that this can
+  // result in the connection lapsing if nothing is holding a strong pointer to
+  // it. You can call `resume` to continue.
+  //
+  // TODO: With multishot recvs, this will have to be done somewhat
+  // differently, as the `resume_` callback is basically a no-op. Instead, you
+  // need to call `pause` on the connection.
+  void stop_reading() { buf_.reset(); }
 #pragma endregion
 #pragma region Internals
 private:
@@ -361,6 +370,39 @@ private:
       return do_close_now();
     }
 
+    // Note how `make_resume` captures a strong pointer to this connection,
+    // keeping it alive between receives.
+    //
+    // TODO: For multishot recvs, things are different. There's no way to reuse
+    // the same buffer, and our `buffer` object has to be created over the
+    // Provided Buffer, with the destructor cleaning it up by returning it to
+    // the provider-buffer ring, not our own pool.
+    //
+    // This means that the caller should just process the `iou_recv_view` and
+    // consume all of its bytes. If it destructs the view with bytes left, the
+    // `resume_` callback should shut down the connection immediately because
+    // programmer error has led to lost bytes.
+    //
+    // In the normal case, the `resume_` callback provided by
+    // `make_multishot_resume` doesn't have to do anything. However, if the
+    // `iou_cqe_flags::more` flag in the buffer (which comes from the CQE) is
+    // not set, (and we're not actually trying to `pause`) then we need to
+    // start a new multishot recv.
+    //
+    // The most likely reason for this is that the  kernel has filled up the
+    // provided-buffer ring. In that case, the fact that we've freed up a
+    // provided buffer should allow us to continue.
+    //
+    // A possible edge case is when the `buffer` was taken, in which case we
+    // ought not start a new multishot recv but we also don't ever resume, even
+    // after the `buffer` is eventually freed. This means that if you use
+    // `take` for multishot, the user has to manually call `resume`.
+    //
+    // It's also possible to force this situation before we run out of buffers
+    // by actively canceling the multishot recv. This does not risk losing
+    // in-flight data, but it does require the user to call `resume` when
+    // they're ready.
+
     iou_recv_view view{std::move(buf), make_resume()};
     if (own_handlers_.on_data)
       return own_handlers_.on_data(*this, std::move(view));
@@ -449,15 +491,15 @@ private:
   bool do_submit_connect() {
     assert(loop_.is_loop_thread() && connecting_);
     return loop_.submit_connect(sock_, remote_,
-        [p = self()](iou_res res) mutable -> bool {
-          return p->handle_connect_complete(res);
+        [p = self()](iou_res res, iou_cqe_flags flags) mutable -> bool {
+          return p->on_connect_complete(res, flags);
         });
   }
 
   // Handle completion of connect operation. On success, fires `on_drain` and
   // transitions to recv state. On failure, fires `on_close` and initiates
   // close.
-  bool handle_connect_complete(iou_res res) {
+  bool on_connect_complete(iou_res res, iou_cqe_flags) {
     assert(loop_.is_loop_thread() && connecting_);
     connecting_ = false;
     if (!open_) return true;
@@ -479,19 +521,22 @@ private:
   bool do_submit_accept() {
     assert(loop_.is_loop_thread() && listening_);
     return loop_.submit_accept_multishot(sock_,
-        [p = self()](iou_res res) mutable -> bool {
-          return p->handle_accept_complete(res);
+        [p = self()](iou_res res, iou_cqe_flags flags) mutable -> bool {
+          return p->on_accept_complete(res, flags);
         });
   }
 
   // Handle completion of a multishot accept. On success, creates a new
   // `iou_stream_conn` for the accepted socket and registers it with the loop.
   // On error, initiates close.
-  bool handle_accept_complete(iou_res res) {
+  bool on_accept_complete(iou_res res, iou_cqe_flags flags) {
+    // TODO: Use flags.
+    (void)flags;
     assert(loop_.is_loop_thread() && listening_);
     if (!open_) return true;
 
-    // Error. If it's an ECANCELED, we're already shutting down.
+    // Error. If it's an ECANCELED, then we're either shutting down or pausing:
+    // either way, there's nothing for us to do here.
     if (!res.ok()) {
       if (res.is_soft_error() || res.err() == ECANCELED) return true;
       return do_close_now();
@@ -499,12 +544,14 @@ private:
 
     net_socket accepted_sock{os_file{res.value()}};
     auto peer = accept_clone(std::move(accepted_sock), {}, own_handlers_);
-    if (peer) (void)peer->register_with_loop();
+    if (peer) (void)peer->start_reading();
     return true;
   }
 
-  // Send out SQEs for new connection.
-  bool register_with_loop() {
+  // Send out SQEs for new connection so that we're ready to receive either a
+  // connection completion, an accepted socket, or data. Without this, nothing
+  // is keeping this instance alive.
+  bool start_reading() {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
     if (listening_) return do_submit_accept();
@@ -538,8 +585,12 @@ private:
     close_requested_ = false;
     if (sock_) {
       if (listening_)
-        (void)loop_.submit_cancel_fd(sock_, [](iou_res) { return true; });
-      (void)loop_.submit_close(std::move(sock_), [](iou_res) { return true; });
+        (void)loop_.submit_cancel_fd(sock_, [](iou_res, iou_cqe_flags) {
+          return true;
+        });
+      (void)loop_.submit_close(std::move(sock_), [](iou_res, iou_cqe_flags) {
+        return true;
+      });
     }
     return notify_close_once();
   }
@@ -657,7 +708,7 @@ private:
     assert(loop.get());
     auto conn = std::make_shared<T>(iou_stream_conn::allow::ctor, loop,
         std::move(sock), std::move(remote), std::move(h), role);
-    if (!loop->post([p = conn] { return p->register_with_loop(); })) return {};
+    if (!loop->post([p = conn] { return p->start_reading(); })) return {};
     return iou_stream_conn_ptr_with{conn};
   }
 

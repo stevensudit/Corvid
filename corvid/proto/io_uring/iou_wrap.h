@@ -27,9 +27,30 @@
 
 #include "../../filesys/event_fd.h"
 #include "../net_endpoint.h"
+#include "../../enums/bitmask_enum.h"
 
 // Wrapper around `io_uring`'s C API, with the primary goal of adding C++
 // conveniences.
+
+namespace corvid { inline namespace proto { inline namespace iouring {
+
+// `IORING_CQE_F_*` wrapper.
+enum class iou_cqe_flags : uint32_t {
+  buffer = IORING_CQE_F_BUFFER, // 0x1 (upper 16 bits are buffer ID if set)
+  more = IORING_CQE_F_MORE,     // 0x2
+  sock_nonempty = IORING_CQE_F_SOCK_NONEMPTY, // 0x4
+  notif = IORING_CQE_F_NOTIF,                 // 0x8
+  buffer_id = 0xffff0000,
+};
+
+}}} // namespace corvid::proto::iouring
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::iouring::iou_cqe_flags> =
+    corvid::enums::bitmask::make_bitmask_enum_spec<
+        corvid::proto::iouring::iou_cqe_flags,
+        "buffer, more, sock_nonempty, notif">();
 
 namespace corvid { inline namespace proto { inline namespace iouring {
 
@@ -227,7 +248,9 @@ public:
 
   [[nodiscard]] iou_res res() const noexcept { return iou_res{cqe_->res}; }
   [[nodiscard]] uint64_t user_data() const noexcept { return cqe_->user_data; }
-  [[nodiscard]] uint32_t flags() const noexcept { return cqe_->flags; }
+  [[nodiscard]] iou_cqe_flags flags() const noexcept {
+    return iou_cqe_flags{cqe_->flags};
+  }
 
   template<typename T = void>
   [[nodiscard]] T* get_data_ptr() const noexcept {

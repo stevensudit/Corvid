@@ -43,15 +43,19 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
 void IouLoop_NopCompletion() {
   // Verify that a submitted NOP fires its completion callback on the runner.
   if (true) {
+    constexpr uint32_t max_32 = std::numeric_limits<uint32_t>::max();
     iou_loop_runner runner;
     std::atomic_bool fired{false};
     std::atomic<int32_t> result{-999};
+    std::atomic<uint32_t> flags_int{max_32};
 
-    const bool submitted = runner->submit_nop([&](iou_res res) {
-      result.store(res.value(), std::memory_order::relaxed);
-      fired.store(true, std::memory_order::release);
-      return true;
-    });
+    const bool submitted =
+        runner->submit_nop([&](iou_res res, iou_cqe_flags flags) {
+          result.store(res.value(), std::memory_order::relaxed);
+          flags_int.store(*flags, std::memory_order::relaxed);
+          fired.store(true, std::memory_order::release);
+          return true;
+        });
     EXPECT_TRUE(submitted);
     EXPECT_TRUE(
         WaitFor([&] { return fired.load(std::memory_order::acquire); }));
@@ -67,10 +71,12 @@ void IouLoop_MultipleNops() {
 
     bool submitted = true;
     for (int i = 0; i < 4; ++i) {
-      submitted = submitted && runner->submit_nop([&](iou_res) {
-        count.fetch_add(1, std::memory_order::relaxed);
-        return true;
-      });
+      submitted =
+          submitted && runner->submit_nop([&](iou_res, iou_cqe_flags flags) {
+            count.fetch_add(1, std::memory_order::relaxed);
+            return bitmask::has(flags,
+                iou_cqe_flags::more); // chain completions together
+          });
     }
     EXPECT_TRUE(submitted);
     EXPECT_TRUE(
@@ -145,14 +151,15 @@ void IouLoop_RecvSend() {
     std::array<std::byte, 16> buf{};
 
     const bool ok = runner->post_and_wait([&] {
-      bool r = runner->submit_recv_bytes(recv_sock, buf, [&](iou_res res) {
-        recv_result.store(res.value(), std::memory_order::relaxed);
-        received.store(true, std::memory_order::release);
-        return true;
-      });
+      bool r = runner->submit_recv_bytes(recv_sock, buf,
+          [&](iou_res res, iou_cqe_flags) {
+            recv_result.store(res.value(), std::memory_order::relaxed);
+            received.store(true, std::memory_order::release);
+            return true;
+          });
       if (!r) return false;
       return runner->submit_send_bytes(send_sock,
-          std::as_bytes(std::span{msg}), [&](iou_res res) {
+          std::as_bytes(std::span{msg}), [&](iou_res res, iou_cqe_flags) {
             send_result.store(res.value(), std::memory_order::relaxed);
             return true;
           });

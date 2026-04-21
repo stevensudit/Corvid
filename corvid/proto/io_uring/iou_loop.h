@@ -105,12 +105,16 @@ public:
   // Low-level callback invoked when an op completes. Pooled in
   // `completion_cb_pool_t` to avoid the need for `std::shared_ptr` for each
   // `std::function`.
-  using completion_fn = std::function<bool(iou_res)>;
+  using completion_fn = std::function<bool(iou_res, iou_cqe_flags)>;
 
   // Completion callback for `submit_recv_buffer` and `submit_send_buffer`:
-  // receives the `buffer`, which includes an `iou_res`. If the `buffer` is not
-  // moved from during the callback, it is returned to the pool afterwards.
+  // receives the `buffer`, which includes an `iou_res` and `iou_cqe_flags`. If
+  // the `buffer` is not moved from during the callback, it is returned to the
+  // pool afterwards.
   using buf_completion_fn = std::function<bool(buffer&)>;
+
+  using completion_cb_pool_t = object_pool<completion_fn, SLOT_COUNT>;
+  using cancelation_token = typename completion_cb_pool_t::handle;
 
 #pragma region Details
 private:
@@ -119,7 +123,6 @@ private:
       "RING_SIZE must be a power of two");
   static_assert(SLOT_COUNT <= RING_SIZE * 2,
       "SLOT_COUNT must be less than or equal to the number of CQE slots");
-  using completion_cb_pool_t = object_pool<completion_fn, SLOT_COUNT>;
 
   using post_queue_t = std::vector<posted_fn_t>;
 #pragma endregion
@@ -472,8 +475,10 @@ public:
           auto prep = [fd, span = buf.active_span(), ndx = buf.buf_index()](
                           iou_sqe sqe) { sqe.prep_read_fixed(fd, span, ndx); };
           completion_fn inner =
-              [buf = std::move(buf), cb = std::move(cb)](
-                  iou_res res) mutable -> bool { return cb(buf.update(res)); };
+              [buf = std::move(buf), cb = std::move(cb)](iou_res res,
+                  iou_cqe_flags flags) mutable -> bool {
+            return cb(buf.update(res, flags));
+          };
           if (timeout)
             return do_submit_linked_timeout(std::move(prep), std::move(inner),
                 timeout);
@@ -513,8 +518,10 @@ public:
               [fd, span = buf.active_span(), ndx = buf.buf_index()](
                   iou_sqe sqe) { sqe.prep_write_fixed(fd, span, ndx); };
           completion_fn inner =
-              [buf = std::move(buf), cb = std::move(cb)](
-                  iou_res res) mutable -> bool { return cb(buf.update(res)); };
+              [buf = std::move(buf), cb = std::move(cb)](iou_res res,
+                  iou_cqe_flags flags) mutable -> bool {
+            return cb(buf.update(res, flags));
+          };
           if (timeout)
             return do_submit_linked_timeout(std::move(prep), std::move(inner),
                 timeout);
@@ -597,9 +604,9 @@ private:
     // Call through raw pointer.
     auto* raw_cb = cqe.get_data_ptr<completion_fn>();
     if (!raw_cb) return false;
-    bool result = (*raw_cb)(cqe.res());
+    bool result = (*raw_cb)(cqe.res(), cqe.flags());
     // If multishot, retain the callback. Otherwise, release it.
-    if (cqe.flags() & IORING_CQE_F_MORE) return result;
+    if (bitmask::has(cqe.flags(), iou_cqe_flags::more)) return result;
     auto cb = completion_cb_pool_.reattach(std::move(raw_cb));
     if (!cb) return false;
     return result;
