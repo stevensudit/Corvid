@@ -134,7 +134,7 @@ public:
           full_span_{std::exchange(o.full_span_, {})},
           payload_span_{std::exchange(o.payload_span_, {})},
           active_span_{std::exchange(o.active_span_, {})}, res_{o.res_},
-          is_read_{o.is_read_} {}
+          cqe_flags_(o.cqe_flags_), is_read_{o.is_read_} {}
 
     buffer& operator=(buffer&& o) noexcept {
       if (this != &o) {
@@ -144,6 +144,7 @@ public:
         payload_span_ = std::exchange(o.payload_span_, {});
         active_span_ = std::exchange(o.active_span_, {});
         res_ = o.res_;
+        cqe_flags_ = o.cqe_flags_;
         is_read_ = o.is_read_;
       }
       return *this;
@@ -364,7 +365,7 @@ public:
     span_t payload_span_;
     span_t active_span_;
     iou_res res_;
-    iou_cqe_flags cqe_flags_;
+    iou_cqe_flags cqe_flags_{};
     bool is_read_{};
   };
 #pragma endregion

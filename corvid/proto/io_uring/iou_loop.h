@@ -123,10 +123,10 @@ private:
   using completion_cb_pool_t = object_pool<completion_fn, SLOT_COUNT,
       generation_scheme::versioned, no_op_cb, clear_function_cb>;
 
-  using borrowed_cb = typename completion_cb_pool_t::borrowed;
+  using borrowed_cb = completion_cb_pool_t::borrowed;
 
 public:
-  using cancelation_token = typename completion_cb_pool_t::handle;
+  using cancelation_token = completion_cb_pool_t::handle;
 
 #pragma region Details
 private:
