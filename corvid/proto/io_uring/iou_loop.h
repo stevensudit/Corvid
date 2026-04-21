@@ -239,18 +239,19 @@ public:
     const auto scope = poll_thread_scope();
     running_.notify(true);
     scope_exit on_exit{[&] { running_.notify(false); }};
+    arm_wake_poll_multishot();
     while (!stop_.load(std::memory_order::acquire))
       (void)run_once(default_run_once_timeout);
   }
 
   // Process one batch of completions, waiting up to `timeout`. Drains the post
-  // queue first, then arms the wake poll if needed. Returns the number of user
-  // completions dispatched (internal wakeups excluded). Returns 0 on timeout
-  // or signal. Must be called on the loop thread.
+  // queue first, then waits for CQEs, one of which may be a wakeup triggered
+  // by setting the eventfd. Returns the number of user completions dispatched
+  // (internal wakeups excluded). Returns 0 on timeout or signal. Must be
+  // called on the loop thread.
   [[nodiscard]] size_t run_once(duration_t timeout = {}) {
     assert(is_loop_thread());
     do_drain_post_queue();
-    ensure_wake_poll_armed();
 
     auto res = ring_.wait_cqe_timeout(timeout);
     if (res.is_soft_error()) return 0;
@@ -258,23 +259,19 @@ public:
 
     size_t dispatched{};
     size_t total = ring_.for_each_cqe([&](iou_cqe cqe) {
-      if (cqe.get_data_ptr() == &wake_tag_)
-        disarm_wake_poll();
-      else if (do_dispatch(cqe))
-        ++dispatched;
+      if (do_dispatch(cqe)) ++dispatched;
       return true;
     });
     (void)total;
     return dispatched;
   }
 
-  // Signal the loop to exit after the current `run_once` returns. Writes to
-  // the `eventfd` to interrupt a sleeping wait. May be called from any thread.
+  // Signal the loop to exit after the current `run_once` returns. May be
+  // called from any thread.
   void stop() noexcept {
     stop_.store(true, std::memory_order::release);
     (void)do_wake();
   }
-
 #pragma endregion
 #pragma region Submit and buffer APIs
 
@@ -478,7 +475,7 @@ public:
     return token;
   }
 
-  // TODO: Add recurring timeout as well as io_uring_prep_poll_multishot.
+  // TODO: Add recurring timeout.
 
   // Low-level method to submit an async recv on `file` into bytes at `buf`.
   // The completion callback receives only the `iou_res` and `iou_cqe_flags` so
@@ -805,26 +802,32 @@ private:
     pending->clear();
   }
 
-  // Submit a one-shot `IORING_OP_POLL_ADD` for the wakeup `eventfd`. When
-  // `post` or `stop` writes to the `eventfd`, this poll fires as a CQE and
-  // interrupts `io_uring_wait_cqe_timeout`. The poll is one-shot and is
-  // rearmed after each wakeup. If the SQ is full, `wake_poll_armed_` stays
-  // false; the 10ms fallback timeout in `run` covers this case, and the
-  // arm is retried on the next `run_once` iteration.
-  bool ensure_wake_poll_armed() {
-    if (wake_poll_armed_) return true;
-    auto sqe = ring_.next_sqe();
-    if (!sqe) return false;
-    sqe.prep_poll_oneshot(wake_fd_.handle(), POLLIN);
-    sqe.set_data_pointer(&wake_tag_);
-    if (ring_.submit().ok(1)) wake_poll_armed_ = true;
-    return true;
-  }
-
-  // Consume the wakeup signal and disarm the wake poll.
-  bool disarm_wake_poll() {
-    (void)wake_fd_.read();
-    wake_poll_armed_ = false;
+  // Submit a multishot `IORING_OP_POLL_ADD` for the wakeup `eventfd`. Each
+  // time `post` or `stop` writes to the `eventfd`, the poll fires as a CQE
+  // and interrupts `io_uring_wait_cqe_timeout`. Because the operation is
+  // multishot, the kernel keeps it alive as long as `IORING_CQE_F_MORE` is
+  // set; the callback drains the `eventfd` on each firing. If the kernel
+  // ends the multishot (flag absent), the callback resubmits. If the SQ is
+  // full, `wake_poll_token_` stays invalid and the fallback timeout in `run`
+  // ensures the next `run_once` does not block indefinitely.
+  bool arm_wake_poll_multishot() {
+    if (wake_poll_token_.valid()) return true;
+    auto borrowed =
+        borrow(completion_fn{[this](iou_res, iou_cqe_flags flags) -> bool {
+          (void)wake_fd_.read();
+          if (!bitmask::has(flags, iou_cqe_flags::more)) {
+            wake_poll_token_ = {};
+            return arm_wake_poll_multishot();
+          }
+          return true;
+        }});
+    if (!borrowed) return false;
+    wake_poll_token_ = do_submit(
+        [fd = wake_fd_.handle()](iou_sqe sqe) {
+          sqe.prep_poll_multishot(fd, POLLIN);
+        },
+        std::move(borrowed));
+    if (!wake_poll_token_.valid()) return false;
     return true;
   }
 
@@ -839,8 +842,7 @@ private:
 
   // Poll wake system.
   event_fd wake_fd_;
-  char wake_tag_{};        // SQE user-data sentinel.
-  bool wake_poll_armed_{}; // Current armed state.
+  cancelation_token wake_poll_token_;
 
   // Completion callback pool, used to avoid `std::shared_ptr`.
   completion_cb_pool_t completion_cb_pool_;
