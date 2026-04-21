@@ -288,7 +288,8 @@ public:
                              cb = std::move(borrowed_cb)]() mutable -> bool {
           return do_submit(
               [fd, flags](iou_sqe sqe) { sqe.prep_accept(fd, flags); },
-              std::move(cb));
+              std::move(cb))
+              .valid();
         }))
       return {};
     return token;
@@ -312,7 +313,8 @@ public:
               [fd, flags](iou_sqe sqe) {
                 sqe.prep_accept_multishot(fd, flags);
               },
-              std::move(cb));
+              std::move(cb))
+              .valid();
         }))
       return {};
     return token;
@@ -333,7 +335,8 @@ public:
                              cb = std::move(borrowed_cb)]() mutable -> bool {
           return do_submit(
               [fd, &endpoint](iou_sqe sqe) { sqe.prep_connect(fd, endpoint); },
-              std::move(cb));
+              std::move(cb))
+              .valid();
         }))
       return {};
     return token;
@@ -354,7 +357,8 @@ public:
               [fd, msg, flags](iou_sqe sqe) {
                 sqe.prep_recvmsg(fd, msg, flags);
               },
-              std::move(cb));
+              std::move(cb))
+              .valid();
         }))
       return {};
     return token;
@@ -375,7 +379,8 @@ public:
               [fd, msg, flags](iou_sqe sqe) {
                 sqe.prep_sendmsg(fd, msg, flags);
               },
-              std::move(cb));
+              std::move(cb))
+              .valid();
         }))
       return {};
     return token;
@@ -407,7 +412,8 @@ public:
     if (!execute_or_post([this, fd = file.release(),
                              cb = std::move(borrowed_cb)]() mutable -> bool {
           return do_submit([fd](iou_sqe sqe) { sqe.prep_close(fd); },
-              std::move(cb));
+              std::move(cb))
+              .valid();
         }))
       return {};
     return token;
@@ -424,7 +430,8 @@ public:
     if (!execute_or_post([this, fd = file.handle(),
                              cb = std::move(borrowed_cb)]() mutable -> bool {
           return do_submit([fd](iou_sqe sqe) { sqe.prep_cancel_fd(fd); },
-              std::move(cb));
+              std::move(cb))
+              .valid();
         }))
       return {};
     return token;
@@ -444,7 +451,8 @@ public:
               [target_token](iou_sqe sqe) {
                 sqe.prep_cancel_user_data(target_token.as_int());
               },
-              std::move(cb));
+              std::move(cb))
+              .valid();
         }))
       return {};
     return token;
@@ -463,7 +471,8 @@ public:
             [this, duration, cb = std::move(borrowed_cb)]() mutable -> bool {
               return do_submit(
                   [duration](iou_sqe sqe) { sqe.prep_timeout(duration); },
-                  std::move(cb));
+                  std::move(cb))
+                  .valid();
             }))
       return {};
     return token;

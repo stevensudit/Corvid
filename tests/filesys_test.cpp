@@ -132,17 +132,17 @@ void OsFile_ReleaseFlags() {
     auto [reader, writer] = make_nb_pipe();
     auto flags = reader.get_flags();
     EXPECT_TRUE(flags.has_value());
-    EXPECT_TRUE(*flags & O_NONBLOCK);
+    EXPECT_TRUE(bitmask::has(*flags, o_flags::nonblock));
 
     EXPECT_TRUE(reader.set_nonblocking(false));
     flags = reader.get_flags();
     EXPECT_TRUE(flags.has_value());
-    EXPECT_FALSE(*flags & O_NONBLOCK);
+    EXPECT_FALSE(bitmask::has(*flags, o_flags::nonblock));
 
     EXPECT_TRUE(reader.set_nonblocking(true));
     flags = reader.get_flags();
     EXPECT_TRUE(flags.has_value());
-    EXPECT_TRUE(*flags & O_NONBLOCK);
+    EXPECT_TRUE(bitmask::has(*flags, o_flags::nonblock));
   }
 }
 
@@ -186,7 +186,7 @@ void NetSocket_Lifecycle() {
 
   // A real socket is open; closing it twice is idempotent.
   if (true) {
-    net_socket s{AF_INET, SOCK_STREAM, 0};
+    net_socket s{address_family::inet, socket_type::stream, {}};
     EXPECT_TRUE(s.is_open());
     EXPECT_TRUE(static_cast<bool>(s));
     EXPECT_NE(s.handle(), net_socket::invalid_handle);
@@ -196,7 +196,7 @@ void NetSocket_Lifecycle() {
   }
 
   // Destructor closes an open socket (no crash or leak).
-  if (true) { net_socket s{AF_INET, SOCK_STREAM, 0}; }
+  if (true) { net_socket s{address_family::inet, socket_type::stream, {}}; }
 }
 
 void EventFd_Lifecycle() {
@@ -447,7 +447,8 @@ void EventFd_Create() {
   if (true) {
     auto e = event_fd::create();
     EXPECT_TRUE(e.is_open());
-    EXPECT_TRUE(e.get_flags().value_or(0) & O_NONBLOCK);
+    EXPECT_TRUE(
+        bitmask::has(e.get_flags().value_or(o_flags{}), o_flags::nonblock));
     // Counter starts at 0, so an immediate read returns nullopt (EAGAIN).
     EXPECT_FALSE(e.read().has_value());
     EXPECT_EQ(errno, EAGAIN);
@@ -466,7 +467,8 @@ void EventFd_Create() {
   if (true) {
     auto e = event_fd::create(0, event_mode::counter, execution::blocking);
     EXPECT_TRUE(e.is_open());
-    EXPECT_FALSE(e.get_flags().value_or(0) & O_NONBLOCK);
+    EXPECT_FALSE(
+        bitmask::has(e.get_flags().value_or(o_flags{}), o_flags::nonblock));
   }
 }
 
@@ -526,7 +528,7 @@ void NetSocket_Move() {
 
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
-    net_socket a{AF_INET, SOCK_STREAM, 0};
+    net_socket a{address_family::inet, socket_type::stream, {}};
     const auto h = a.handle();
     net_socket b{std::move(a)};
     EXPECT_FALSE(a.is_open());
@@ -536,8 +538,8 @@ void NetSocket_Move() {
 
   // Move assignment closes the destination and transfers the source.
   if (true) {
-    net_socket a{AF_INET, SOCK_STREAM, 0};
-    net_socket b{AF_INET, SOCK_STREAM, 0};
+    net_socket a{address_family::inet, socket_type::stream, {}};
+    net_socket b{address_family::inet, socket_type::stream, {}};
     const auto h = a.handle();
     b = std::move(a);
     EXPECT_FALSE(a.is_open());
@@ -547,7 +549,7 @@ void NetSocket_Move() {
 
   // Self-assignment is a no-op.
   if (true) {
-    net_socket a{AF_INET, SOCK_STREAM, 0};
+    net_socket a{address_family::inet, socket_type::stream, {}};
     const auto h = a.handle();
     // Route through a pointer to defeat -Wself-move while still exercising
     // the self-assignment path.
@@ -563,7 +565,7 @@ void NetSocket_Release() {
 
   // `release()` yields the handle without closing it; socket becomes invalid.
   if (true) {
-    net_socket s{AF_INET, SOCK_STREAM, 0};
+    net_socket s{address_family::inet, socket_type::stream, {}};
     const auto h = s.release();
     EXPECT_NE(h, net_socket::invalid_handle);
     EXPECT_FALSE(s.is_open());
@@ -576,7 +578,7 @@ void NetSocket_Options() {
 
   // Named option helpers round-trip through `get_option`.
   if (true) {
-    net_socket s{AF_INET, SOCK_STREAM, 0};
+    net_socket s{address_family::inet, socket_type::stream, {}};
 
     EXPECT_TRUE(s.set_reuse_addr(true));
     auto v = s.get_option<int>(SOL_SOCKET, SO_REUSEADDR);
@@ -595,7 +597,7 @@ void NetSocket_Options() {
 
   // Buffer size helpers: kernel may round up, so just verify >= requested.
   if (true) {
-    net_socket s{AF_INET, SOCK_STREAM, 0};
+    net_socket s{address_family::inet, socket_type::stream, {}};
     EXPECT_TRUE(s.set_recv_buffer_size(65536));
     EXPECT_TRUE(s.set_send_buffer_size(65536));
     auto r = s.get_option<int>(SOL_SOCKET, SO_RCVBUF);
@@ -611,13 +613,15 @@ void NetSocket_Nonblocking() {
   if (is_codex()) return;
 
   if (true) {
-    net_socket s{AF_INET, SOCK_STREAM, 0};
+    net_socket s{address_family::inet, socket_type::stream, {}};
 
     EXPECT_TRUE(s.set_nonblocking(true));
-    EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
+    EXPECT_TRUE(
+        bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
 
     EXPECT_TRUE(s.set_nonblocking(false));
-    EXPECT_FALSE(s.get_flags().value_or(0) & O_NONBLOCK);
+    EXPECT_FALSE(
+        bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
   }
 }
 
@@ -685,7 +689,7 @@ void NetSocket_BindListenAccept() {
   if (is_codex()) return;
 
   // Bind a listening socket to a free loopback port.
-  net_socket listener{AF_INET, SOCK_STREAM, 0};
+  net_socket listener{address_family::inet, socket_type::stream, {}};
   EXPECT_TRUE(listener.is_open());
   EXPECT_TRUE(listener.set_reuse_addr());
   EXPECT_TRUE(listener.bind(net_endpoint{ipv4_addr::loopback, 0}));
@@ -701,7 +705,7 @@ void NetSocket_BindListenAccept() {
   EXPECT_NE(port, 0U);
 
   // Connect a client to the listening socket.
-  net_socket client{AF_INET, SOCK_STREAM, 0};
+  net_socket client{address_family::inet, socket_type::stream, {}};
   EXPECT_TRUE(client.is_open());
   EXPECT_TRUE(
       client.connect(net_endpoint{ipv4_addr::loopback, port}).value_or(false));
@@ -723,7 +727,8 @@ void NetSocket_FactoryMethods() {
     if (!is_codex()) {
       auto s = net_socket::create_ipv4();
       EXPECT_TRUE(s.is_open());
-      EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
+      EXPECT_TRUE(
+          bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
       auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
       EXPECT_TRUE(dom.has_value());
       EXPECT_EQ(*dom, AF_INET);
@@ -739,7 +744,8 @@ void NetSocket_FactoryMethods() {
       auto s = net_socket::create_ipv4(execution::blocking,
           message_style::datagram);
       EXPECT_TRUE(s.is_open());
-      EXPECT_FALSE(s.get_flags().value_or(0) & O_NONBLOCK);
+      EXPECT_FALSE(
+          bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
       auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
       EXPECT_EQ(*dom, AF_INET);
       auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
@@ -753,7 +759,8 @@ void NetSocket_FactoryMethods() {
     if (!is_codex()) {
       auto s = net_socket::create_ipv6();
       EXPECT_TRUE(s.is_open());
-      EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
+      EXPECT_TRUE(
+          bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
       auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
       EXPECT_TRUE(dom.has_value());
       EXPECT_EQ(*dom, AF_INET6);
@@ -767,7 +774,8 @@ void NetSocket_FactoryMethods() {
   if (true) {
     auto s = net_socket::create_uds();
     EXPECT_TRUE(s.is_open());
-    EXPECT_TRUE(s.get_flags().value_or(0) & O_NONBLOCK);
+    EXPECT_TRUE(
+        bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
     auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
     EXPECT_TRUE(dom.has_value());
     EXPECT_EQ(*dom, AF_UNIX);

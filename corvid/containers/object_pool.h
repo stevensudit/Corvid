@@ -116,7 +116,12 @@ public:
       return *this;
     }
 
-    borrowed(const borrowed&) = delete;
+    // Copyable enough to satisfy `std::function`, but throws if you actually
+    // try to copy it. This will no longer be necessary once
+    // `std::move_only_function` becomes available.
+    borrowed(const borrowed&) {
+      throw std::logic_error("object_pool::borrowed is not copyable");
+    }
     borrowed& operator=(const borrowed&) = delete;
 
     ~borrowed() { reset(); }
