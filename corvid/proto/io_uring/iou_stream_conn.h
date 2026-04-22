@@ -599,12 +599,10 @@ private:
     close_requested_ = false;
     if (sock_) {
       if (listening_)
-        (void)loop_.submit_cancel_fd(sock_, [](iou_res, iou_cqe_flags) {
-          return slot_retention{};
-        });
-      (void)loop_.submit_close(std::move(sock_), [](iou_res, iou_cqe_flags) {
-        return slot_retention{};
-      });
+        (void)loop_.submit_cancel_fd(sock_,
+            [p = self()](iou_res, iou_cqe_flags) { return slot_retention{}; });
+      (void)loop_.submit_close(std::move(sock_),
+          [p = self()](iou_res, iou_cqe_flags) { return slot_retention{}; });
     }
     return notify_close_once();
   }

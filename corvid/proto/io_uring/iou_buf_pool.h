@@ -127,7 +127,7 @@ public:
     using const_span_t = iou_buf_pool::const_span_t;
 
     buffer() = default;
-    ~buffer() { reset(); }
+    ~buffer() { do_reset(); }
 
     buffer(buffer&& o) noexcept
         : pool_{std::exchange(o.pool_, nullptr)},
@@ -327,8 +327,7 @@ public:
 
     // Return the allocation to the pool immediately; buffer becomes empty.
     void reset() noexcept {
-      if (!pool_) return;
-      pool_->do_return(full_span_, is_read_);
+      do_reset();
       pool_ = nullptr;
       full_span_ = {};
       payload_span_ = {};
@@ -358,6 +357,10 @@ public:
       assert(!is_read_);
       payload_span_ = {full_span_.data(), 0};
       active_span_ = {full_span_.data(), 0};
+    }
+
+    void do_reset() noexcept {
+      if (pool_) pool_->do_return(full_span_, is_read_);
     }
 
     iou_buf_pool* pool_{};
