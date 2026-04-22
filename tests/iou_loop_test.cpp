@@ -54,7 +54,7 @@ void IouLoop_NopCompletion() {
           result.store(res.value(), std::memory_order::relaxed);
           flags_int.store(*flags, std::memory_order::relaxed);
           fired.store(true, std::memory_order::release);
-          return true;
+          return slot_retention{};
         });
     EXPECT_TRUE(token.valid());
     EXPECT_TRUE(
@@ -71,12 +71,10 @@ void IouLoop_MultipleNops() {
 
     bool submitted = true;
     for (int i = 0; i < 4; ++i) {
-      submitted =
-          submitted && runner->submit_nop([&](iou_res, iou_cqe_flags flags) {
-            count.fetch_add(1, std::memory_order::relaxed);
-            return bitmask::has(flags,
-                iou_cqe_flags::more); // chain completions together
-          });
+      submitted = submitted && runner->submit_nop([&](iou_res, iou_cqe_flags) {
+        count.fetch_add(1, std::memory_order::relaxed);
+        return slot_retention{};
+      });
     }
     EXPECT_TRUE(submitted);
     EXPECT_TRUE(
@@ -155,13 +153,13 @@ void IouLoop_RecvSend() {
           [&](iou_res res, iou_cqe_flags) {
             recv_result.store(res.value(), std::memory_order::relaxed);
             received.store(true, std::memory_order::release);
-            return true;
+            return slot_retention{};
           });
       if (!token.valid()) return false;
       const auto send_token = runner->submit_send_bytes(send_sock,
           std::as_bytes(std::span{msg}), [&](iou_res res, iou_cqe_flags) {
             send_result.store(res.value(), std::memory_order::relaxed);
-            return true;
+            return slot_retention{};
           });
       if (!send_token.valid()) return false;
       return true;
@@ -201,7 +199,7 @@ void IouLoop_RecvSendFixed() {
           auto data = buf.payload_view();
           payload.assign(data);
           received.store(true, std::memory_order::release);
-          return true;
+          return slot_retention{};
         });
     EXPECT_TRUE(recv_token.valid());
 
@@ -216,7 +214,7 @@ void IouLoop_RecvSendFixed() {
     const auto send_token = runner->submit_send_buffer(send_sock,
         std::move(tok), [&](iou_loop::buffer& buf) {
           send_n.store(buf.result().value(), std::memory_order::relaxed);
-          return true;
+          return slot_retention{};
         });
     EXPECT_TRUE(send_token.valid());
     EXPECT_TRUE(

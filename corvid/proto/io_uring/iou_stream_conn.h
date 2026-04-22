@@ -323,8 +323,9 @@ private:
     recv_in_flight_ = true;
     // TODO: Save the token.
     const auto token = loop_.submit_recv_buffer(sock_, std::move(buf),
-        [p = self()](buffer& b) mutable -> bool {
-          return p->on_recv_complete(b);
+        [p = self()](buffer& b) mutable {
+          (void)p->on_recv_complete(b);
+          return slot_retention{};
         });
     return token.valid();
   }
@@ -455,8 +456,9 @@ private:
     send_in_flight_ = true;
     // TODO: Save the token.
     const auto token = loop_.submit_send_buffer(sock_, std::move(buf),
-        [p = self()](buffer& b) mutable -> bool {
-          return p->on_send_complete(b);
+        [p = self()](buffer& b) mutable -> slot_retention {
+          (void)p->on_send_complete(b);
+          return {};
         });
     return token.valid();
   }
@@ -496,8 +498,10 @@ private:
     assert(loop_.is_loop_thread() && connecting_);
     // TODO: Store cancelation token.
     auto token = loop_.submit_connect(sock_, remote_,
-        [p = self()](iou_res res, iou_cqe_flags flags) mutable -> bool {
-          return p->on_connect_complete(res, flags);
+        [p = self()](iou_res res,
+            iou_cqe_flags flags) mutable -> slot_retention {
+          (void)p->on_connect_complete(res, flags);
+          return {};
         });
     return token.valid();
   }
@@ -528,8 +532,10 @@ private:
     assert(loop_.is_loop_thread() && listening_);
     // TODO: Store cancelation token.
     auto token = loop_.submit_accept_multishot(sock_,
-        [p = self()](iou_res res, iou_cqe_flags flags) mutable -> bool {
-          return p->on_accept_complete(res, flags);
+        [p = self()](iou_res res,
+            iou_cqe_flags flags) mutable -> slot_retention {
+          (void)p->on_accept_complete(res, flags);
+          return {};
         });
     return token.valid();
   }
@@ -594,10 +600,10 @@ private:
     if (sock_) {
       if (listening_)
         (void)loop_.submit_cancel_fd(sock_, [](iou_res, iou_cqe_flags) {
-          return true;
+          return slot_retention{};
         });
       (void)loop_.submit_close(std::move(sock_), [](iou_res, iou_cqe_flags) {
-        return true;
+        return slot_retention{};
       });
     }
     return notify_close_once();

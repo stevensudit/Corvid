@@ -40,6 +40,20 @@
 namespace corvid { inline namespace proto { inline namespace iouring {
 using namespace std::chrono_literals;
 
+// `slot_reretention` is returned from CQE callbacks: `completion_fn` or
+// `buf_completion_fn` fires. Note that if the slot is released, any CQEs for
+// it will gently fail. You would normally release if no further operations
+// will be submitted using the slot, but you can retain if
+enum class slot_retention : uint8_t {
+  // Release the slot when `IORING_CQE_F_MORE` is absent; retain when set.
+  automatic,
+  // Always release the slot, even if `IORING_CQE_F_MORE` is set.
+  release,
+  // Always retain the slot, even if `IORING_CQE_F_MORE` is absent.
+  // Useful when the callback resubmits a new SQE reusing the same slot.
+  retain,
+};
+
 // Completion-based I/O loop built on io_uring. This implements a Proactor
 // pattern, where we submit operations and then wait for their completion.
 //
@@ -105,13 +119,13 @@ public:
   // Low-level callback invoked when an op completes. Pooled in
   // `completion_cb_pool_t` to avoid the need for `std::shared_ptr` for each
   // `std::function`.
-  using completion_fn = std::function<bool(iou_res, iou_cqe_flags)>;
+  using completion_fn = std::function<slot_retention(iou_res, iou_cqe_flags)>;
 
   // Completion callback for `submit_recv_buffer` and `submit_send_buffer`:
   // receives the `buffer`, which includes an `iou_res` and `iou_cqe_flags`. If
   // the `buffer` is not moved from during the callback, it is returned to the
   // pool afterwards.
-  using buf_completion_fn = std::function<bool(buffer&)>;
+  using buf_completion_fn = std::function<slot_retention(buffer&)>;
 
 private:
   struct clear_function_cb {
@@ -601,7 +615,7 @@ public:
     const auto buf_index = buf.buf_index();
     completion_fn inner =
         [buf = std::move(buf), cb = std::move(cb)](iou_res res,
-            iou_cqe_flags flags) mutable -> bool {
+            iou_cqe_flags flags) mutable -> slot_retention {
       return cb(buf.update(res, flags));
     };
     auto borrowed_cb = borrow(std::move(inner));
@@ -652,7 +666,7 @@ public:
     const auto buf_index = buf.buf_index();
     completion_fn inner =
         [buf = std::move(buf), cb = std::move(cb)](iou_res res,
-            iou_cqe_flags flags) mutable -> bool {
+            iou_cqe_flags flags) mutable -> slot_retention {
       return cb(buf.update(res, flags));
     };
     auto borrowed_cb = borrow(std::move(inner));
@@ -754,36 +768,31 @@ private:
     return submit_now();
   }
 
-  // Dispatch a CQE to its callback. For multishot operations,
-  // `IORING_CQE_F_MORE` indicates more CQEs will follow; the callback is
-  // retained rather than released. On the final CQE (flag absent), the
-  // callback is released as usual.
-  //
-  // TOOD: We want the callback to return an enum for:
-  //   - Default behavior (release depending on `IORING_CQE_F_MORE`).
-  //   - Always release. (probably not needed evere, but nice to have.)
-  //   - Always retain. (Suitable for reusing the callback in a new SQE.)
+  // Dispatch a CQE to its registered callback. The callback returns a
+  // `dispatch_result` that controls slot retention:
+  //   - `automatic`: retain iff `IORING_CQE_F_MORE` is set (multishot
+  //   default).
+  //   - `release`: always free the slot.
+  //   - `retain`: always keep the slot (e.g., callback resubmits a new SQE).
+  // Returns false if no valid callback was found (canceled or no-data CQE).
   bool do_dispatch(iou_cqe cqe) {
-    // Call through raw pointer.
     cancelation_token token{cqe.get_data_int()};
-
-    // If it doesn't have a cancelation token, no problem.
     if (!token) return true;
 
-    // Get ownership of the callback. This will quietly fail if the generation
-    // has been invalidated.
+    // Take ownership of the callback. Quietly fails if the generation has been
+    // invalidated.
     auto borrowed_cb = token.borrow(completion_cb_pool_);
     if (!borrowed_cb || !*borrowed_cb) return false;
 
-    // Invoke the callback with the result and flags.
-    bool result = borrowed_cb(cqe.res(), cqe.flags());
+    const auto retention = borrowed_cb(cqe.res(), cqe.flags());
+    const bool keep =
+        retention == slot_retention::retain ||
+        (retention == slot_retention::automatic &&
+            bitmask::has(cqe.flags(), iou_cqe_flags::more));
 
-    // If no more, release the callback.
-    if (!bitmask::has(cqe.flags(), iou_cqe_flags::more)) return result;
-
-    // Steal ownership without freeing it.
-    (void)cancelation_token{std::move(borrowed_cb)};
-    return result;
+    // To keep, steal ownership away without freeing.
+    if (keep) (void)cancelation_token{std::move(borrowed_cb)};
+    return true;
   }
 
   // Atomically swap out the active post queue, then execute and clear it
@@ -812,15 +821,14 @@ private:
   // ensures the next `run_once` does not block indefinitely.
   bool arm_wake_poll_multishot() {
     if (wake_poll_token_.valid()) return true;
-    auto borrowed =
-        borrow(completion_fn{[this](iou_res, iou_cqe_flags flags) -> bool {
-          (void)wake_fd_.read();
-          if (!bitmask::has(flags, iou_cqe_flags::more)) {
-            wake_poll_token_ = {};
-            return arm_wake_poll_multishot();
-          }
-          return true;
-        }});
+    auto borrowed = borrow(completion_fn{[this](iou_res, iou_cqe_flags flags) {
+      (void)wake_fd_.read();
+      if (!bitmask::has(flags, iou_cqe_flags::more)) {
+        wake_poll_token_ = {};
+        arm_wake_poll_multishot();
+      }
+      return slot_retention{};
+    }});
     if (!borrowed) return false;
     wake_poll_token_ = do_submit(
         [fd = wake_fd_.handle()](iou_sqe sqe) {

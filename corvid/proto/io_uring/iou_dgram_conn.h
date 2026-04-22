@@ -177,8 +177,10 @@ private:
     recv_in_flight_ = true;
     return loop_
         .submit_recvmsg(sock_, &recv_ctx_.hdr,
-            [p = self()](iou_res res, iou_cqe_flags flags) mutable -> bool {
-              return p->on_recv_complete(res, flags);
+            [p = self()](iou_res res,
+                iou_cqe_flags flags) mutable -> slot_retention {
+              (void)p->on_recv_complete(res, flags);
+              return {};
             })
         .valid();
   }
@@ -235,8 +237,10 @@ private:
 
     return loop_
         .submit_sendmsg(sock_, &send_ctx_.hdr,
-            [p = self()](iou_res res, iou_cqe_flags flags) mutable -> bool {
-              return p->on_send_complete(res, flags);
+            [p = self()](iou_res res,
+                iou_cqe_flags flags) mutable -> slot_retention {
+              (void)p->on_send_complete(res, flags);
+              return {};
             })
         .valid();
   }
