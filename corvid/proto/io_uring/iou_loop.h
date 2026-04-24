@@ -457,6 +457,16 @@ public:
     return buf_pool_.borrow_writer(sz);
   }
 
+  // Accept the inner `buf_completion_fn` and `buffer`, binding them into a
+  // `completion_fn`. Does not work with Provided Buffers.
+  completion_fn wrap_buf_completion_fn(buf_completion_fn bufcb, buffer&& buf) {
+    return [bufcb = std::move(bufcb),
+               buf = std::move(buf)](completion_handle cbhandle, iou_res res,
+               iou_cqe_flags flags) mutable -> slot_retention {
+      return bufcb(cbhandle, buf.update(res, flags));
+    };
+  }
+
 #pragma endregion
 #pragma region Submit
 
@@ -930,82 +940,56 @@ public:
   }
 
 #pragma endregion
-#if 0
-  // Submit a zero-copy recv into a registered `buffer`. The loop allocates
-  // the `buffer`; the callback receives it so that it can check `buf.result`
-  // and read from `buf.payload`. It may then wish to move the buffer and
-  // reuse it. If the callback does not move the `buffer` out, it is returned
-  // to the pool.
+#pragma region RecvBuffer
+
+  // Submit an async recv_fixed  on `socket` into a borrowed buffer.
   //
-  // Note that the `timeout` must remain valid until submit, so you may need
-  // to call `submit_now`.
-  //
-  // Returns cancelation token, which will be invalid if we fail early. May
-  // be called from any thread. See overload for description of `iou_res`
-  // values.
-  //
-  // Prefer this over manually calling `borrow_read_buffer` and
-  // `submit_recv_bytes`. However, this method is ideal for reusing an
-  // existing read buffer, or a converted write buffer.
-  [[nodiscard]] completion_token submit_recv_buffer(const os_file& file,
-      buf_completion_fn cb, block_size sz = block_size::small,
-      __kernel_timespec* timeout = nullptr) {
-    return submit_recv_buffer(file, borrow_read_buffer(sz), std::move(cb),
+  // Prefer `submit_recv_buffer` over this.
+  [[nodiscard]] completion_token submit_recv_buffer(const os_file& socket,
+      buf_completion_fn bufcb, block_size sz = block_size::small,
+      iou_timespec* timeout = nullptr) {
+    return submit_recv_buffer(socket, borrow_read_buffer(sz), std::move(bufcb),
         timeout);
   }
 
-  // Submit a zero-copy recv into a registered `buffer`. The callback
-  // receives the `buffer` so that it can check `buf.result` and read from
-  // `buf.payload`. It may then wish to move the buffer and reuse it. If the
-  // callback does not move the `buffer` out, it is returned to the pool.
+  // Submit an async recv_fixed on `socket` into `buf`.
   //
-  // Note that the `timeout` must remain valid until submit, so you may need
-  // to call `submit_now`.
-  //
-  // Returns cancelation token, which will be invalid if the `buffer` is
-  // invalid. May be called from any thread.
-  //
-  // On success, the `buffer.result().value()` will be set a positive
-  // integer, which is the number of bytes read. If there's room in the
-  // buffer and you expect more data, you may move the buffer by calling this
-  // method.
-  //
-  // On EOF, the `buffer.result().value()` will be 0. The buffer payload is
-  // unchanged and should be inspected for any remaining data. You should
-  // then close the socket.
-  //
-  // On soft error, `buffer.result().is_soft_error()` will be true. The
-  // buffer payload is unchanged and should be inspected for any remaining
-  // data. You may wish to retry, much as you would to accumulate more data.
-  //
-  // Prefer this over `submit_recv_bytes`.
-  [[nodiscard]] completion_token submit_recv_buffer(const os_file& file,
-      buffer&& buf, buf_completion_fn cb,
-      __kernel_timespec* timeout = nullptr) {
-    if (!file || !buf) return {};
-    buf.reset_result();
-    const auto span = buf.active_span();
-    const auto buf_index = buf.buf_index();
-    completion_fn inner =
-        [buf = std::move(buf), cb = std::move(cb)](iou_res res,
-            iou_cqe_flags flags) mutable -> slot_retention {
-      return cb(buf.update(res, flags));
-    };
-    auto borrowed_cb = borrow(std::move(inner));
-    if (!borrowed_cb) return {};
-    auto token = completion_token{borrowed_cb};
-    if (!execute_or_post(
-            [this, fd = file.handle(), cb = std::move(borrowed_cb), span,
-                buf_index, timeout]() mutable -> bool {
-              auto prep = [fd, span, buf_index](iou_sqe sqe) {
-                sqe.prep_read_fixed(fd, span, buf_index);
-              };
-              return do_submit(std::move(prep), std::move(cb), timeout)
-                  .is_valid();
-            }))
+  // Prefer `submit_recv_buffer` over this.
+  [[nodiscard]] completion_token submit_recv_buffer(const os_file& socket,
+      buffer&& buf, buf_completion_fn bufcb, iou_timespec* timeout = nullptr) {
+    auto [span, buf_index] = buf.prepare();
+    const auto cbtoken =
+        tokenize(wrap_buf_completion_fn(std::move(bufcb), std::move(buf)));
+    if (!submit_recv_buffer(socket, span, buf_index, cbtoken, timeout,
+            slot_retention::automatic))
       return {};
-    return token;
+    return cbtoken;
   }
+
+  // Submit an async recv_fixed on `socket`.
+  [[nodiscard]] bool submit_recv_buffer(const os_file& socket, span_t span,
+      size_t buf_index, completion_token cbtoken,
+      iou_timespec* timeout = nullptr,
+      slot_retention on_fail = slot_retention::retain) {
+    if (!cbtoken.is_valid()) return false;
+    if (!socket || span.empty())
+      return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = *socket, cbtoken, span, buf_index, timeout,
+                  on_fail]() mutable {
+      return do_submit_timeout(cbtoken, timeout, on_fail,
+          [fd, span, buf_index](iou_sqe sqe) {
+            sqe.prep_read_fixed(fd, span, buf_index);
+          });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+  // TODO: Add submit_recv_buffer_multishot, which requires Provided Buffers.
+  // This means adding a new kind of buf pool and a way to extract buffers from
+  // both.
+
+#pragma endregion
+#if 0
 
   // Submit a zero-copy send from a pre-filled registered buffer. `buf` must
   // come from `borrow_write_buffer` and be filled via `append` or

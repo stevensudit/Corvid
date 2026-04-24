@@ -243,6 +243,13 @@ public:
           sv.size()});
     }
 
+    // Prepare the buffer for I/O submission. Resets the I/O result and returns
+    // the active span and buffer index.
+    std::pair<span_t, size_t> prepare() noexcept {
+      reset_result();
+      return {active_span(), buf_index()};
+    }
+
     // Update with the result of an I/O completion.
     //   Read mode: extends `payload_span` by bytes read; `active_span`
     //     becomes the new tail (space remaining for further reads).
@@ -452,8 +459,10 @@ public:
     std::scoped_lock lock{mutex_};
     return available_bytes_;
   }
+
 #pragma endregion
 #pragma region Helpers
+
 private:
   // Push all 32 x 64 KB blocks onto the large free-list.
   void do_init_free_lists() noexcept {
