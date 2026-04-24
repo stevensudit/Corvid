@@ -985,63 +985,50 @@ public:
   }
 
   // TODO: Add submit_recv_buffer_multishot, which requires Provided Buffers.
-  // This means adding a new kind of buf pool and a way to extract buffers from
-  // both.
+  // This means adding a new kind of buf pool, reusing the current buffers.
 
 #pragma endregion
-#if 0
+#pragma region WriteBuffer
 
-  // Submit a zero-copy send from a pre-filled registered buffer. `buf` must
-  // come from `borrow_write_buffer` and be filled via `append` or
-  // `update_payload`. The callback receives the `buffer` so that it can
-  // check `buf.result` and perhaps read from `buf.payload`. It may then wish
-  // to move the buffer and reuse it. If the callback does not move the
-  // `buffer` out, it is returned to the pool.
+  // This writes fixed buffers with `io_uring_prep_write_fixed`, which is not
+  // socket-specific or zero-copy. However, it only generates a single CQE, so
+  // it's simpler to deal with. Contrast with `submit_send_buffer`, which uses
+  // io_uring_prep_send_zc_fixed`.
+
+  // Submit an async write_fixed on `file` into `buf`.
   //
-  // Returns false if the `buffer` is invalid. May be called from any thread.
-  //
-  // On success, the `buffer.result().value()` will be set a positive
-  // integer, which is the number of bytes written. This may be less than the
-  // `payload_span`, which means you may wish to retry by moving the buffer
-  // and calling this method again to write the remaining data. Note that a 0
-  // is just the extreme case of a partial write, not an indication of EOF or
-  // error.
-  //
-  // On EOF, the `buffer.result().err()` will be `EPIPE` or even
-  // `ECONNRESET`. You should then close the socket.
-  //
-  // On soft error, `buffer.result().is_soft_error()` will be true. You
-  // may wish to retry, much as you would on any other partial write.
-  //
-  // Prefer this over `submit_send_bytes`.
-  [[nodiscard]] completion_token submit_send_buffer(const os_file& file,
-      buffer&& buf, buf_completion_fn cb,
-      __kernel_timespec* timeout = nullptr) {
-    if (!file || !buf) return {};
-    buf.reset_result();
-    const auto span = buf.active_span();
-    const auto buf_index = buf.buf_index();
-    completion_fn inner =
-        [buf = std::move(buf), cb = std::move(cb)](iou_res res,
-            iou_cqe_flags flags) mutable -> slot_retention {
-      return cb(buf.update(res, flags));
-    };
-    auto borrowed_cb = borrow(std::move(inner));
-    if (!borrowed_cb) return {};
-    auto token = completion_token{borrowed_cb};
-    if (!execute_or_post(
-            [this, fd = file.handle(), cb = std::move(borrowed_cb), span,
-                buf_index, timeout]() mutable -> bool {
-              auto prep = [fd, span, buf_index](iou_sqe sqe) {
-                sqe.prep_write_fixed(fd, span, buf_index);
-              };
-              return do_submit(std::move(prep), std::move(cb), timeout)
-                  .is_valid();
-            }))
+  // Prefer `submit_send_buffer` over this, if you can manage the added
+  // complexity.
+  [[nodiscard]] completion_token submit_write_buffer(const os_file& file,
+      buffer&& buf, buf_completion_fn bufcb, iou_timespec* timeout = nullptr) {
+    auto [span, buf_index] = buf.prepare();
+    const auto cbtoken =
+        tokenize(wrap_buf_completion_fn(std::move(bufcb), std::move(buf)));
+    if (!submit_write_buffer(file, span, buf_index, cbtoken, timeout,
+            slot_retention::automatic))
       return {};
-    return token;
+    return cbtoken;
   }
-#endif
+
+  // Submit an async write_fixed on `file`.
+  [[nodiscard]] bool submit_write_buffer(const os_file& file, span_t span,
+      size_t buf_index, completion_token cbtoken,
+      iou_timespec* timeout = nullptr,
+      slot_retention on_fail = slot_retention::retain) {
+    if (!cbtoken.is_valid()) return false;
+    if (!file || span.empty()) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = *file, cbtoken, span, buf_index, timeout,
+                  on_fail]() mutable {
+      return do_submit_timeout(cbtoken, timeout, on_fail,
+          [fd, span, buf_index](iou_sqe sqe) {
+            sqe.prep_write_fixed(fd, span, buf_index);
+          });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
+
 #pragma endregion
 #pragma region Helpers.
 private:
@@ -1236,12 +1223,8 @@ private:
   bool arm_wake_poll_multishot() {
     if (wake_poll_token_.is_valid()) return true;
 
-#if 0
-submit_poll_multishot(const os_file& file,
-      completion_token cbtoken, poll_flags poll_mask = poll_flags::in,
-      slot_retention on_fail = slot_retention::retain)
-#endif
-
+    // Set up a callback that resubmits itself, and use it too bootstrap the
+    // initial submission.
     auto raw_cb =
         [this](completion_handle cbhandle, iou_res, iou_cqe_flags flags) {
           (void)wake_fd_.read();
@@ -1252,10 +1235,17 @@ submit_poll_multishot(const os_file& file,
             throw std::runtime_error("failed to resubmit wake poll multishot");
           return slot_retention::retain;
         };
+
+    // Make sure it doesn't just lock up at the start.
+    (void)do_wake();
+
+    // Pretend a CQE arrived.
     wake_poll_token_ = tokenize(std::move(raw_cb));
     auto borrowed = borrow(wake_poll_token_);
-    (void)do_wake();
+
+    // Get it to submit itself.
     (void)borrowed(wake_poll_token_.as_int(), iou_res(), iou_cqe_flags{});
+
     detach(std::move(borrowed));
     return true;
   }
