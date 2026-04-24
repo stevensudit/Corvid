@@ -251,7 +251,7 @@ public:
       // When no more CQEs, the ZC pin is released.
       if (!bitmask::has(cqe_flags_, iou_cqe_flags::more)) --pending_releases_;
       // If it's not a notification, then we can update the amount written.
-      if (bitmask::has(cqe_flags, iou_cqe_flags::notif))
+      if (!bitmask::has(cqe_flags, iou_cqe_flags::notif))
         active_span_ =
             active_span_.subspan(std::min(res.bytes(), active_span_.size()));
     }

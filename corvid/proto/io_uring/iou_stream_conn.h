@@ -98,9 +98,10 @@ private:
   resume_fn resume_;
 #pragma endregion
 };
-#pragma endregion
 
+#pragma endregion
 #pragma region iou_stream_conn_handlers
+
 // User-supplied persistent callbacks for an `iou_stream_conn`.
 struct iou_stream_conn_handlers {
   // Fired when data arrives. `view` is move-only; call `consume(n)` inline or
@@ -112,13 +113,15 @@ struct iou_stream_conn_handlers {
   // Fired once on graceful or error close.
   std::function<bool(iou_stream_conn&)> on_close = nullptr;
 };
-#pragma endregion
 
 // Fwd.
 template<typename STATE>
 class iou_stream_conn_with_state;
 template<typename T>
 class iou_stream_conn_ptr_with;
+
+#pragma endregion
+#pragma region iou_stream_conn
 
 // An `iou_stream_conn` is a non-blocking stream socket driven by an
 // `iou_loop`. Instances are created, directly or indirectly, by
@@ -150,6 +153,8 @@ class iou_stream_conn_ptr_with;
 class iou_stream_conn: public std::enable_shared_from_this<iou_stream_conn> {
 public:
   using buffer = iou_loop::buffer;
+
+#pragma region Accessors
 
   // True if the connection has not yet been closed.
   [[nodiscard]] bool is_open() const noexcept { return open_; }
@@ -189,6 +194,9 @@ public:
     return weak_loop_;
   }
 
+#pragma endregion
+#pragma region send
+
   // Queue a string for sending. JIT-borrows a write buffer to pack consecutive
   // string items. Safe to call from any thread.
   [[nodiscard]] bool send(std::string&& data) {
@@ -214,6 +222,9 @@ public:
           return true;
         });
   }
+
+#pragma endregion
+#pragma region close
 
   // Start a close. If `coordination` is `unilateral` (the default), flushes
   // pending sends and then closes the socket. If `bilateral`, instead shuts
@@ -246,6 +257,8 @@ public:
     return loop_.execute_or_post([p = self()] { return p->do_close_now(); });
   }
 
+#pragma endregion
+#pragma region Internals
 private:
   enum class allow : bool { ctor };
 
@@ -254,6 +267,8 @@ private:
   template<typename>
   friend class iou_stream_conn_with_state;
 
+#pragma endregion
+#pragma region Construction
 public:
   // Public only for `std::make_shared`; use `iou_stream_conn_ptr_with`
   // factories instead.
@@ -272,6 +287,8 @@ public:
     return std::static_pointer_cast<iou_stream_conn>(shared_from_this());
   }
 
+#pragma endregion
+#pragma region Child access
 protected:
   iou_loop& loop_;
   std::weak_ptr<iou_loop> weak_loop_;
@@ -295,6 +312,8 @@ protected:
         std::move(sock), remote, std::move(h), std::nullopt, shutdown_);
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   net_socket sock_;
 
@@ -321,6 +340,8 @@ private:
   // Connect address. Must remain valid until the connect SQE fires.
   sockaddr_storage connect_addr_{};
 
+#pragma endregion
+#pragma region Helpers
 private:
   // Submit buffer for receiving, borrowing a read buffer if needed.
   bool do_submit_recv(buffer buf = {}) {
@@ -470,35 +491,6 @@ private:
     return token.is_valid();
   }
 
-  // Handle completion of a send operation. On success, if the buffer is
-  // fully sent, pops the next buffer from the send queue and submits it. If
-  // the buffer is only partially sent or there's a soft error, resubmits the
-  // remaining active span. On error, initiates close.
-  bool on_send_complete(buffer& buf) {
-    assert(loop_.is_loop_thread());
-    send_in_flight_ = false;
-    if (!open_) return true;
-
-    // Error.
-    if (!buf.result().ok()) {
-      if (buf.result().is_soft_error())
-        return do_submit_send_buffer(std::move(buf));
-      return do_close_now();
-    }
-
-    // Partial send: remaining bytes in active_span.
-    if (!buf.active_span().empty())
-      return do_submit_send_buffer(std::move(buf));
-
-    // Full send.
-    if (!send_queue_.empty()) return do_submit_send();
-
-    //  Close.
-    if (close_requested_ && send_queue_.empty()) return do_close_now();
-
-    return notify_drained();
-  }
-
   // Attempt to connect. On success, fires `on_drain` and transitions to recv
   // state. On failure, fires `on_close`.
   bool do_submit_connect() {
@@ -511,26 +503,6 @@ private:
           return {};
         });
     return token.is_valid();
-  }
-
-  // Handle completion of connect operation. On success, fires `on_drain` and
-  // transitions to recv state. On failure, fires `on_close` and initiates
-  // close.
-  bool on_connect_complete(iou_res res, iou_cqe_flags) {
-    assert(loop_.is_loop_thread() && connecting_);
-    connecting_ = false;
-    if (!open_) return true;
-
-    // Error.
-    if (!res.ok()) return do_close_now();
-
-    // Start listening for data.
-    if (!do_submit_recv()) return do_close_now();
-
-    // In principle, we could have writes queued.
-    if (!send_queue_.empty()) return do_submit_send();
-
-    return notify_drained();
   }
 
   // Submit a multishot accept operation. The callback fires for every accepted
@@ -563,6 +535,89 @@ private:
 
     loop_.detach(std::move(borrowed));
     return true;
+  }
+
+  // Close immediately without flushing. For listening sockets, a cancel is
+  // submitted first to abort the in-flight multishot accept before the fd is
+  // handed to the kernel for closing.
+  [[nodiscard]] bool do_close_now() {
+    assert(loop_.is_loop_thread());
+    if (!open_->exchange(false, std::memory_order::relaxed)) return false;
+    send_queue_.clear();
+    close_requested_ = false;
+    if (sock_) {
+      if (listening_)
+        (void)loop_.submit_cancel(sock_,
+            [p = self()](completion_handle, iou_res, iou_cqe_flags) {
+              return slot_retention{};
+            });
+      (void)loop_.submit_close(std::move(sock_),
+          [p = self()](completion_handle, iou_res, iou_cqe_flags) {
+            return slot_retention{};
+          });
+    }
+    return notify_close_once();
+  }
+
+  // Close after flushing.
+  [[nodiscard]] bool do_close() {
+    assert(loop_.is_loop_thread());
+    if (!open_) return false;
+    close_requested_ = true;
+    if (send_queue_.empty() && !send_in_flight_) return do_close_now();
+    return true;
+  }
+
+#pragma endregion
+#pragma region Event handlers
+
+  // Handle completion of a send operation. On success, if the buffer is
+  // fully sent, pops the next buffer from the send queue and submits it. If
+  // the buffer is only partially sent or there's a soft error, resubmits the
+  // remaining active span. On error, initiates close.
+  bool on_send_complete(buffer& buf) {
+    assert(loop_.is_loop_thread());
+    send_in_flight_ = false;
+    if (!open_) return true;
+
+    // Error.
+    if (!buf.result().ok()) {
+      if (buf.result().is_soft_error())
+        return do_submit_send_buffer(std::move(buf));
+      return do_close_now();
+    }
+
+    // Partial send: remaining bytes in active_span.
+    if (!buf.active_span().empty())
+      return do_submit_send_buffer(std::move(buf));
+
+    // Full send.
+    if (!send_queue_.empty()) return do_submit_send();
+
+    //  Close.
+    if (close_requested_ && send_queue_.empty()) return do_close_now();
+
+    return notify_drained();
+  }
+
+  // Handle completion of connect operation. On success, fires `on_drain` and
+  // transitions to recv state. On failure, fires `on_close` and initiates
+  // close.
+  bool on_connect_complete(iou_res res, iou_cqe_flags) {
+    assert(loop_.is_loop_thread() && connecting_);
+    connecting_ = false;
+    if (!open_) return true;
+
+    // Error.
+    if (!res.ok()) return do_close_now();
+
+    // Start listening for data.
+    if (!do_submit_recv()) return do_close_now();
+
+    // In principle, we could have writes queued.
+    if (!send_queue_.empty()) return do_submit_send();
+
+    return notify_drained();
   }
 
   // Handle completion of a multishot accept. On success, creates a new
@@ -613,38 +668,10 @@ private:
     if (own_handlers_.on_close) return own_handlers_.on_close(*this);
     return true;
   }
-
-  // Close immediately without flushing. For listening sockets, a cancel is
-  // submitted first to abort the in-flight multishot accept before the fd is
-  // handed to the kernel for closing.
-  [[nodiscard]] bool do_close_now() {
-    assert(loop_.is_loop_thread());
-    if (!open_->exchange(false, std::memory_order::relaxed)) return false;
-    send_queue_.clear();
-    close_requested_ = false;
-    if (sock_) {
-      if (listening_)
-        (void)loop_.submit_cancel(sock_,
-            [p = self()](completion_handle, iou_res, iou_cqe_flags) {
-              return slot_retention{};
-            });
-      (void)loop_.submit_close(std::move(sock_),
-          [p = self()](completion_handle, iou_res, iou_cqe_flags) {
-            return slot_retention{};
-          });
-    }
-    return notify_close_once();
-  }
-
-  // Close after flushing.
-  [[nodiscard]] bool do_close() {
-    assert(loop_.is_loop_thread());
-    if (!open_) return false;
-    close_requested_ = true;
-    if (send_queue_.empty() && !send_in_flight_) return do_close_now();
-    return true;
-  }
 };
+
+#pragma endregion
+#pragma region ptr_with
 
 // RAII handle that owns an `iou_stream_conn` (or a derived class).
 // Destruction calls `hangup` unless `close` was called first.
@@ -759,6 +786,9 @@ private:
 // Untyped alias for the common case.
 using iou_stream_conn_ptr = iou_stream_conn_ptr_with<>;
 
+#pragma endregion
+#pragma region with_state
+
 // Extends `iou_stream_conn` with a typed per-connection state value.
 // `STATE` must be default-constructible.
 //
@@ -806,4 +836,7 @@ protected:
 private:
   state_t state_{};
 };
+
+#pragma endregion
+
 }}} // namespace corvid::proto::iouring
