@@ -28,19 +28,20 @@
 #include "../net_endpoint.h"
 #include "iou_loop.h"
 
-namespace corvid { inline namespace proto { inline namespace iouring {
+namespace corvid { inline namespace proto { namespace iouring {
 using namespace bool_enums;
 
 // Fwd.
 class iou_stream_conn;
 
+#pragma region iou_recv_view
 // Move-only recv token delivered to `on_data`. Two consumption paths:
 //   Inline: call `active_view()` + `consume(n)`. Destructor resubmits recv
 //           into the remaining buffer (or a fresh one if fully consumed).
 //   Async:  call `take()` to transfer buffer ownership for off-loop parsing.
 //           Destructor posts a fresh-buffer recv immediately.
 class iou_recv_view {
-#pragma region Construction and assignment
+#pragma region Construction
 public:
   iou_recv_view(iou_recv_view&&) noexcept = default;
 
@@ -54,8 +55,10 @@ public:
     resume_(std::move(buf_));
   }
   // NOLINTEND(bugprone-exception-escape)
+
 #pragma endregion
 #pragma region Buffer management
+
   // Current unconsumed payload.
   [[nodiscard]] std::string_view active_view() noexcept {
     return buf_.payload_view();
@@ -79,22 +82,25 @@ public:
   // differently, as the `resume_` callback is basically a no-op. Instead, you
   // need to call `pause` on the connection.
   void stop_reading() { buf_.reset(); }
+
 #pragma endregion
 #pragma region Internals
+
 private:
   friend class iou_stream_conn;
   using resume_fn = std::function<void(iou_buf_pool::buffer&&)>;
 
   iou_recv_view(iou_buf_pool::buffer buf, resume_fn resume) noexcept
       : buf_{std::move(buf)}, resume_{std::move(resume)} {}
-#pragma endregion
-#pragma region Data members
+
 private:
   iou_buf_pool::buffer buf_;
   resume_fn resume_;
 #pragma endregion
 };
+#pragma endregion
 
+#pragma region iou_stream_conn_handlers
 // User-supplied persistent callbacks for an `iou_stream_conn`.
 struct iou_stream_conn_handlers {
   // Fired when data arrives. `view` is move-only; call `consume(n)` inline or
@@ -106,6 +112,7 @@ struct iou_stream_conn_handlers {
   // Fired once on graceful or error close.
   std::function<bool(iou_stream_conn&)> on_close = nullptr;
 };
+#pragma endregion
 
 // Fwd.
 template<typename STATE>
@@ -323,11 +330,11 @@ private:
     recv_in_flight_ = true;
     // TODO: Save the token.
     const auto token = loop_.submit_recv_buffer(sock_, std::move(buf),
-        [p = self()](buffer& b) mutable {
+        [p = self()](completion_handle, buffer& b) mutable {
           (void)p->on_recv_complete(b);
           return slot_retention{};
         });
-    return token.valid();
+    return token.is_valid();
   }
 
   // Resubmit recv using an existing buffer from a prior `on_recv_complete`.
@@ -455,12 +462,12 @@ private:
     if (!buf) return false;
     send_in_flight_ = true;
     // TODO: Save the token.
-    const auto token = loop_.submit_send_buffer(sock_, std::move(buf),
-        [p = self()](buffer& b) mutable -> slot_retention {
+    const auto token = loop_.submit_write_buffer(sock_, std::move(buf),
+        [p = self()](completion_handle, buffer& b) mutable -> slot_retention {
           (void)p->on_send_complete(b);
           return {};
         });
-    return token.valid();
+    return token.is_valid();
   }
 
   // Handle completion of a send operation. On success, if the buffer is
@@ -497,13 +504,13 @@ private:
   bool do_submit_connect() {
     assert(loop_.is_loop_thread() && connecting_);
     // TODO: Store cancelation token.
-    auto token = loop_.submit_connect(sock_, remote_,
-        [p = self()](iou_res res,
+    auto token = loop_.submit_connect(sock_, &remote_,
+        [p = self()](completion_handle, iou_res res,
             iou_cqe_flags flags) mutable -> slot_retention {
           (void)p->on_connect_complete(res, flags);
           return {};
         });
-    return token.valid();
+    return token.is_valid();
   }
 
   // Handle completion of connect operation. On success, fires `on_drain` and
@@ -530,14 +537,32 @@ private:
   // connection without re-arming; the kernel re-arms automatically.
   bool do_submit_accept() {
     assert(loop_.is_loop_thread() && listening_);
-    // TODO: Store cancelation token.
-    auto token = loop_.submit_accept_multishot(sock_,
-        [p = self()](iou_res res,
+
+    // Set up a callback that resubmits itself, and use it too bootstrap the
+    // initial submission.
+    iou_loop::completion_fn raw_cb =
+        [p = self()](completion_handle cbhandle, iou_res res,
             iou_cqe_flags flags) mutable -> slot_retention {
-          (void)p->on_accept_complete(res, flags);
-          return {};
-        });
-    return token.valid();
+      (void)p->on_accept_complete(res, flags);
+      if (bitmask::has(flags, iou_cqe_flags::more))
+        return slot_retention::automatic;
+      if (!p->loop_.submit_accept_multishot(p->sock_,
+              iou_loop::completion_token{cbhandle}))
+        throw std::runtime_error("Failed to re-arm multishot accept");
+      return slot_retention::retain;
+    };
+
+    // Pretend a CQE arrived, with a soft error that will be ignored.
+    auto cbtoken = loop_.tokenize(std::move(raw_cb));
+    auto borrowed = loop_.borrow(cbtoken);
+
+    // Get it to submit itself.
+    (void)borrowed(cbtoken.as_int(), iou_res{*EC::again}, iou_cqe_flags{});
+
+    // TODO: Store cbtoken for cancelation.
+
+    loop_.detach(std::move(borrowed));
+    return true;
   }
 
   // Handle completion of a multishot accept. On success, creates a new
@@ -552,7 +577,7 @@ private:
     // Error. If it's an ECANCELED, then we're either shutting down or pausing:
     // either way, there's nothing for us to do here.
     if (!res.ok()) {
-      if (res.is_soft_error() || res.err() == ECANCELED) return true;
+      if (res.is_soft_error() || res.err() == EC::canceled) return true;
       return do_close_now();
     }
 
@@ -599,10 +624,14 @@ private:
     close_requested_ = false;
     if (sock_) {
       if (listening_)
-        (void)loop_.submit_cancel_fd(sock_,
-            [p = self()](iou_res, iou_cqe_flags) { return slot_retention{}; });
+        (void)loop_.submit_cancel(sock_,
+            [p = self()](completion_handle, iou_res, iou_cqe_flags) {
+              return slot_retention{};
+            });
       (void)loop_.submit_close(std::move(sock_),
-          [p = self()](iou_res, iou_cqe_flags) { return slot_retention{}; });
+          [p = self()](completion_handle, iou_res, iou_cqe_flags) {
+            return slot_retention{};
+          });
     }
     return notify_close_once();
   }

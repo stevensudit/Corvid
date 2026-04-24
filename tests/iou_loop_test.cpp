@@ -180,8 +180,7 @@ void IouLoop_RecvSend() {
   }
 }
 
-void IouLoop_RecvSendFixed() {
-#if 0
+void IouLoop_RecvWriteFixed() {
   // Submit a recv_fixed and a send_fixed over a Unix socket pair using
   // registered buffers; confirm the payload arrives and byte counts match.
   if (true) {
@@ -216,7 +215,7 @@ void IouLoop_RecvSendFixed() {
     span = span.first(msg.size());
     (void)tok.update_payload(span);
 
-    const auto send_token = runner->submit_send_buffer(send_sock,
+    const auto send_token = runner->submit_write_buffer(send_sock,
         std::move(tok), [&](completion_handle, iou_loop::buffer& buf) {
           send_n.store(buf.result().value(), std::memory_order::relaxed);
           return slot_retention{};
@@ -232,10 +231,9 @@ void IouLoop_RecvSendFixed() {
     close(send_sock.handle());
     close(recv_sock.handle());
   }
-#endif
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)
 MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
     IouLoop_StopFromThread, IouLoop_PostFromThread, IouLoop_PostAndWait,
-    IouLoop_RecvSend, IouLoop_RecvSendFixed)
+    IouLoop_RecvSend, IouLoop_RecvWriteFixed)

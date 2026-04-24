@@ -375,7 +375,8 @@ public:
   //
   // Callbacks are first moved into the pool, where their slot is referenced by
   // `completion_token`s. These are cheaply-copied, generation-checking handles
-  // that fit in 64 bits.
+  // that fit in 64 bits. When passes in callbacks, these are watered down to
+  // `completion_handle`, which is a type-unsafe uint64_t.
   //
   // The `completion_token` provides a persistent identity that handles
   // lifespan issues cleanly. When it's time to invoke the callback, the token
@@ -434,6 +435,29 @@ public:
     const auto borrowed = cbtoken.borrow(completion_cb_pool_);
     if (!borrowed) return false;
     return true;
+  }
+
+  // Borrow a callback pool slot and move `cb` into it.
+  //
+  // This has only niche uses.
+  [[nodiscard]] borrowed_cb borrow(completion_fn&& cb) {
+    auto borrowed_cb = completion_cb_pool_.borrow();
+    if (borrowed_cb) *borrowed_cb = std::move(cb);
+    return borrowed_cb;
+  }
+
+  // Borrow a callback pool slot from its `completion_token`.
+  //
+  // This has only niche uses.
+  [[nodiscard]] borrowed_cb borrow(completion_token token) {
+    return token.borrow(completion_cb_pool_);
+  }
+
+  // Detach a borrowed callback, without freeing it.
+  //
+  // This has only niche uses.
+  void detach(borrowed_cb&& cb) {
+    (void)completion_cb_pool_.detach(std::move(cb));
   }
 
 #pragma endregion
@@ -666,16 +690,17 @@ public:
 #pragma region Close
 
   // Submit an async close on `file`. Invalidates `file`.
-  [[nodiscard]] completion_token submit_close(os_file& file,
+  [[nodiscard]] completion_token submit_close(os_file&& file,
       completion_fn&& cb, iou_timespec* timeout = nullptr) {
     const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_close(file, cbtoken, timeout, slot_retention::automatic))
+    if (!submit_close(std::move(file), cbtoken, timeout,
+            slot_retention::automatic))
       return {};
     return cbtoken;
   }
 
   // Submit an async close on `file`. Invalidates `file`.
-  [[nodiscard]] bool submit_close(os_file& file, completion_token cbtoken,
+  [[nodiscard]] bool submit_close(os_file&& file, completion_token cbtoken,
       iou_timespec* timeout = nullptr,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken.is_valid()) return false;
@@ -723,13 +748,12 @@ public:
     if (!cbtoken.is_valid()) return false;
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *socket, flags, cbtoken, on_fail]() mutable {
-      return do_submit(cbtoken, {}, on_fail, [fd, flags](iou_sqe sqe) {
+      return do_submit(cbtoken, on_fail, [fd, flags](iou_sqe sqe) {
         sqe.prep_accept_multishot(fd, flags);
       });
     };
     return execute_or_post_with_retry(std::move(fn));
   }
-
 #pragma endregion
 #pragma region Connect
 
@@ -1032,23 +1056,6 @@ public:
 #pragma endregion
 #pragma region Helpers.
 private:
-  // Borrow a callback pool slot and move `cb` into it.
-  [[nodiscard]] borrowed_cb borrow(completion_fn&& cb) {
-    auto borrowed_cb = completion_cb_pool_.borrow();
-    if (borrowed_cb) *borrowed_cb = std::move(cb);
-    return borrowed_cb;
-  }
-
-  // Borrow a callback pool slot from its `completion_token`.
-  [[nodiscard]] borrowed_cb borrow(completion_token token) {
-    return token.borrow(completion_cb_pool_);
-  }
-
-  // Detach a borrowed callback, without freeing it.
-  void detach(borrowed_cb&& cb) {
-    (void)completion_cb_pool_.detach(std::move(cb));
-  }
-
   // Get an SQE, prepare it via `prep`, attach `cbtoken` as user data, and
   // potentially submit. Note that `cbtoken` is allowed to be `!is_valid` but
   // not released.
@@ -1244,7 +1251,7 @@ private:
     auto borrowed = borrow(wake_poll_token_);
 
     // Get it to submit itself.
-    (void)borrowed(wake_poll_token_.as_int(), iou_res(), iou_cqe_flags{});
+    (void)borrowed(wake_poll_token_.as_int(), iou_res{}, iou_cqe_flags{});
 
     detach(std::move(borrowed));
     return true;

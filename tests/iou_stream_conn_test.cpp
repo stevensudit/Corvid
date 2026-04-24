@@ -26,6 +26,7 @@
 #include "minitest.h"
 
 using namespace corvid;
+using namespace corvid::iouring;
 using namespace std::chrono_literals;
 
 namespace {

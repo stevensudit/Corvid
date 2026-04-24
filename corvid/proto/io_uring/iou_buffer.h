@@ -45,6 +45,11 @@ private:
   virtual void return_buffer(span_t s, bool is_read) noexcept = 0;
   virtual void decrement_read_bytes(size_t n) noexcept = 0;
   virtual void increment_read_bytes(size_t n) noexcept = 0;
+
+  // TODO: We'll need a way to make Provided Buffers programmatically
+  // detectable. What we really want is for the regular flow, where the user
+  // tries to append to the buffer, to fail as though the buffer were full.
+  // Perhaps it should just return and empty active_buffer in that case.
 };
 
 // Moveable RAII handle to a single slab allocation. Returns its memory to the
@@ -259,6 +264,8 @@ public:
   // Decrements the pool's in-flight read byte count for the full block.
   iou_buffer& promote_to_write() noexcept {
     assert(is_read_);
+    // TODO: Add a return value that can be used to cancel the attempt. In
+    // particular, Provided Buffers cannot be reused this way.
     pool_->decrement_read_bytes(full_span_.size());
     active_span_ = payload_span_;
     is_read_ = false;
@@ -270,6 +277,7 @@ public:
   // additional incoming data).
   iou_buffer& demote_to_read() noexcept {
     assert(!is_read_);
+    // TODO: Add a return value that can be used to cancel the attempt.
     pool_->increment_read_bytes(full_span_.size());
     auto* end = payload_span_.data() + payload_span_.size();
     active_span_ = {end,
