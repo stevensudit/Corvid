@@ -18,6 +18,7 @@
 #include <atomic>
 #include <cassert>
 #include <concepts>
+#include <cstddef>
 #include <exception>
 #include <functional>
 #include <memory>
@@ -37,57 +38,52 @@
 #include "iou_buf_pool.h"
 #include "iou_wrap.h"
 
-namespace corvid { inline namespace proto { inline namespace iouring {
+namespace corvid { inline namespace proto { namespace iouring {
 using namespace std::chrono_literals;
 
-// `slot_reretention` is returned from CQE callbacks: `completion_fn` or
-// `buf_completion_fn` fires. Note that if the slot is released, any CQEs for
-// it will gently fail. You would normally release if no further operations
-// will be submitted using the slot, but you can retain if
-enum class slot_retention : uint8_t {
-  // Release the slot when `IORING_CQE_F_MORE` is absent; retain when set.
-  automatic,
-  // Always release the slot, even if `IORING_CQE_F_MORE` is set.
-  release,
-  // Always retain the slot, even if `IORING_CQE_F_MORE` is absent.
-  // Useful when the callback resubmits a new SQE reusing the same slot.
-  retain,
-};
+// Type-unsafe version of `completion_token`.
+using completion_handle = uint64_t;
 
-// Completion-based I/O loop built on io_uring. This implements a Proactor
-// pattern, where we submit operations and then wait for their completion.
+#pragma region iou_loop
+
+// Completion-based I/O loop built on `io_uring`. This implements a Proactor
+// pattern where we submit operations and then wait for their completion.
 //
 // Use an `iou_loop_runner` to drive this loop with `run` (blocking, on the
 // loop thread) or `run_once` (one batch, useful for testing) in its own
 // thread. Public methods are labeled with their thread safety.
 //
 // Note that, unlike `epoll_loop`, this does not have a registry of
-// connections. Instead, the only thing keeping a connection alive is the
-// presence of an in-flight operation whose completion callback holds a shared
-// pointer to it.
+// connections. Instead, the only thing keeping a connection alive, if nobody
+// else holds a shared pointer to it, is the presence of an in-flight operation
+// whose completion callback has a shared pointer bound into it.
 //
-// So long as there is always a pending read or accept operation, it will be
-// naturally kept alive until the peer closes the connection or an error
-// occurs. If you need to apply backpressure, you need to either submit a
-// timeout operation or simply store a shared pointer to the connection
-// somewhere, such as in a protocol server.
+// Barring that external owner, so long as there is always a pending read or
+// accept operation, the connection will be naturally kept alive until the peer
+// closes the underlying socket or an error occurs. This means that if you need
+// to apply backpressure by not scheduling new operations, you will need to
+// keep the connection alive externally..
 //
 // Details:
 //
 // `post` is the cross-thread entry point: any thread can push a callback onto
 // the queue, and the loop will execute it at the top of the next `run_once`.
-// The loop is woken by a `IORING_OP_POLL_ADD` armed on an internal `eventfd`,
-// so the wakeup signal travels through the same CQE path as every other
-// completion, with no side channels. `post_and_wait` is a synchronous variant
-// that blocks the caller until the callback completes.
+// The loop is woken by a multishot `IORING_OP_POLL_ADD` armed on an internal
+// `eventfd`, so the wakeup signal travels through the same CQE path as every
+// other completion. `post_and_wait` is a synchronous variant that blocks the
+// caller until the callback completes: it has only niche uses.
 //
-// `execute_or_post` executes inline on the loop thread or posts otherwise.
+// `execute_or_post` executes inline on the loop thread or posts otherwise. It
+// is used under the hood to make public operations thread-safe without
+// unnecessary posting overhead when already on the loop thread (which is the
+// case for callbacks triggered by CQEs).
 //
-// `submit_*` methods enqueue I/O operations paired with a `completion_fn`
-// callback. They use `execute_or_post`, since the SQ ring is not thread-safe.
+// `submit_*` methods enqueue I/O operations paired with a `completion_fn` (or
+// `buf_completion_fn` if using a `buffer`) as their completion callback.
 //
-// `iou_basic_loop` is non-copyable and non-movable: the ring contains
-// kernel-mapped memory with self-referential pointers.
+// `iou_basic_loop` itself is non-copyable and non-movable: the rings contain
+// kernel-mapped memory with self-referential pointers, and these can only be
+// accessed safely from a single thread.
 //
 // The `RING_SIZE` template parameter controls the number of SQE slots, where
 // there are 2X CQE slots. The `SLOT_COUNT` controls the maximum number of
@@ -95,53 +91,54 @@ enum class slot_retention : uint8_t {
 // slots.
 //
 // Plans:
-// - Allow `iou_buf_pool` size to be configured.
+// - Allow `iou_buf_pool` size to be configured, likely at compile time.
 template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
 class iou_basic_loop
     : public std::enable_shared_from_this<
           iou_basic_loop<RING_SIZE, SLOT_COUNT>> {
+#pragma region Types
 public:
   // Buffer pool.
   using buf_pool_t = iou_buf_pool;
+
+  // Enum for block sizes in pool.
   using block_size = buf_pool_t::block_size;
+
+  // RAII for a buffer borrowed from the pool.
   using buffer = buf_pool_t::buffer;
+
+  // Mutable and const byte spans.
   using span_t = buffer::span_t;
   using const_span_t = buffer::const_span_t;
 
   // Timeouts.
-  using duration_t = std::chrono::milliseconds;
+  using duration_t = std::chrono::nanoseconds;
   static constexpr duration_t default_run_once_timeout{10ms};
   static constexpr duration_t default_post_and_wait_poll_interval{100ms};
 
-  // Callback scheduled via `post` to run on the loop thread.
-  using posted_fn_t = std::function<bool()>;
+  // Callback scheduled via `post` to run on the loop thread. These are used to
+  // force single-threading of ring access.
+  using posted_fn = std::function<bool()>;
 
-  // Low-level callback invoked when an op completes. Pooled in
-  // `completion_cb_pool_t` to avoid the need for `std::shared_ptr` for each
-  // `std::function`.
-  using completion_fn = std::function<slot_retention(iou_res, iou_cqe_flags)>;
+  // Low-level callback invoked when an op completes. Moved to a slot borrowed
+  // from the `completion_cb_pool_t`, avoiding the need for `std::shared_ptr`
+  // for each `std::function` and also allowing the use of `completion_token`.
+  //
+  // If this calls a method on your class, you will likely want to bind in a
+  // shared pointer to that instance.
+  using completion_fn =
+      std::function<slot_retention(completion_handle, iou_res, iou_cqe_flags)>;
 
-  // Completion callback for `submit_recv_buffer` and `submit_send_buffer`:
-  // receives the `buffer`, which includes an `iou_res` and `iou_cqe_flags`. If
-  // the `buffer` is not moved from during the callback, it is returned to the
-  // pool afterwards.
-  using buf_completion_fn = std::function<slot_retention(buffer&)>;
+  // Completion callback for operations using a `buffer`, which includes the
+  // `iou_res` and `iou_cqe_flags`. If the `buffer` is not moved from during
+  // the callback, it is returned to the pool afterwards.
+  //
+  // If this calls a method on your class, you will likely want to bind in a
+  // shared pointer to that instance.
+  using buf_completion_fn =
+      std::function<slot_retention(completion_handle, buffer&)>;
 
-private:
-  struct clear_function_cb {
-    constexpr void operator()(auto& completion_fn) const noexcept {
-      completion_fn = nullptr;
-    }
-  };
-
-  using completion_cb_pool_t = object_pool<completion_fn, SLOT_COUNT,
-      generation_scheme::versioned, no_op_cb, clear_function_cb>;
-
-  using borrowed_cb = completion_cb_pool_t::borrowed;
-
-public:
-  using cancelation_token = completion_cb_pool_t::handle;
-
+#pragma endregion
 #pragma region Details
 private:
   enum class allow : bool { ctor };
@@ -150,10 +147,33 @@ private:
   static_assert(SLOT_COUNT <= RING_SIZE * 2,
       "SLOT_COUNT must be less than or equal to the number of CQE slots");
 
-  using post_queue_t = std::vector<posted_fn_t>;
+  // Cleanup function for `completion_fn` objects in the pool.
+  struct clear_function_cb {
+    constexpr void operator()(auto& completion_fn) const noexcept {
+      completion_fn = nullptr;
+    }
+  };
+
+  // Object pool for `completion_fn` objects, which are used as callbacks for
+  // CQE completions. This avoids the need for `std::shared_ptr` for each
+  // `std::function` and allows us to refer to callbacks by
+  // `completion_token`, which is generation-checking.
+  using completion_cb_pool_t = object_pool<completion_fn, SLOT_COUNT,
+      generation_scheme::versioned, no_op_cb, clear_function_cb>;
+
+  // RAII for a `completion_fn` borrowed from the pool. Can be created from a
+  // `completion_token`.
+  using borrowed_cb = completion_cb_pool_t::borrowed;
+
+  using post_queue_t = std::vector<posted_fn>;
+
 #pragma endregion
-#pragma region Infrastructure: construction, thread scope, and main loop
+#pragma region Infrastructure
 public:
+  // Generation-checking token for a `completion_fn` in the pool. You can use
+  // this to cancel an operation by its callback.
+  using completion_token = completion_cb_pool_t::handle;
+
   // Construct a loop with `ring_size` SQE slots (must be a power of two).
   // Throws `std::system_error` if the ring, wakeup `eventfd`, or
   // `buf_pool_t` registration fails.
@@ -167,6 +187,8 @@ public:
             IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN},
         wake_fd_{event_fd::create()},
         post_and_wait_poll_interval_{post_and_wait_poll_interval} {
+    post_queues_[0].reserve(32);
+    post_queues_[1].reserve(32);
     if (!buf_pool_.register_with(ring_))
       throw std::system_error(errno, std::system_category(),
           "io_uring_register_buffers");
@@ -185,37 +207,141 @@ public:
         post_and_wait_poll_interval);
   }
 
+  // Returns an RAII guard that designates the calling thread as the loop
+  // thread for its lifetime. `run` does this internally; call it manually
+  // before using `run_once` directly (e.g., in tests).
+  [[nodiscard]] auto poll_thread_scope() const {
+    return scoped_value<const iou_basic_loop*>{current_loop_, this};
+  }
+
+  // Block until `run` is active. Returns false on timeout.
+  // Pass -1 (the default) to wait up to 60 seconds.
+  [[nodiscard]] bool wait_until_running(int timeout_ms = -1) {
+    if (timeout_ms < 0) timeout_ms = 60000;
+    return running_.wait_for_value(duration_t{timeout_ms}, true);
+  }
+
+  // Run the loop on the calling thread until `stop` is called. This is a
+  // blocking call.
+  size_t run() {
+    stop_.store(false, std::memory_order::relaxed);
+    const auto scope = poll_thread_scope();
+    running_.notify(true);
+    scope_exit on_exit{[&] { running_.notify(false); }};
+    arm_wake_poll_multishot();
+
+    iou_timespec timeout{default_run_once_timeout};
+
+    size_t total{};
+    while (!stop_.load(std::memory_order::acquire)) total = run_once(timeout);
+    return total;
+  }
+
+  // Process one batch of completions, waiting up to `timeout`. Drains the post
+  // queue first, then waits for CQEs, one of which may be a wakeup triggered
+  // by setting the `eventfd`. Returns the number of completions dispatched.
+  // Returns 0 on timeout or signal. Must be called on the loop thread.
+  [[nodiscard]] size_t run_once(const iou_timespec& timeout) {
+    assert(is_loop_thread());
+    do_drain_post_queue();
+
+    auto res = ring_.wait_cqe_timeout(timeout);
+    if (res.is_soft_error()) return 0;
+    res.throw_if_error("wait_cqe_timeout");
+
+    size_t dispatched{};
+    size_t total = ring_.for_each_snapshotted_cqe([&](iou_cqe cqe) {
+      if (do_dispatch(cqe)) ++dispatched;
+      return true;
+    });
+
+    (void)total;
+    return dispatched;
+  }
+
+  // Signal the loop to exit after the current `run_once` returns. May be
+  // called from any thread.
+  void stop() noexcept {
+    stop_.store(true, std::memory_order::release);
+    (void)do_wake();
+  }
+#pragma endregion
+#pragma region Post
+
+  // The post queue allows callbacks to be scheduled on the loop thread. This
+  // is necessary because the `io_uring` ring queues are designed to be
+  // accessed from a single thread.
+  //
+  // For maximum efficiency, public methods executing on the loop thread bypass
+  // the post queue. When executed on another thread, they fall back to
+  // posting. This is implemented by `execute_or_post`.
+  //
+  // There are other use cases where you will want to explicitly post to the
+  // loop thread, so `post` is public.
+
   // True if the calling thread is the active loop thread for this instance.
   [[nodiscard]] bool is_loop_thread() const noexcept {
     return current_loop_ == this;
   }
 
-  // Returns a RAII guard that designates the calling thread as the loop thread
-  // for its lifetime. `run` does this internally; call it manually before
-  // using `run_once` directly (e.g., in tests).
-  [[nodiscard]] auto poll_thread_scope() const {
-    return scoped_value<const iou_basic_loop*>{current_loop_, this};
-  }
-
-  // Schedule `fn` to run on the loop thread at the top of the next
-  // `run_once`. Safe to call from any thread. Writes to the internal
-  // `eventfd` to wake the loop if it is blocked waiting for CQEs.
-  [[nodiscard]] bool post(posted_fn_t fn) {
-    if (std::scoped_lock lock{post_mutex_}; true)
-      (*active_queue_)->push_back(std::move(fn));
+  // Schedule `cbpost` to run on the loop thread at the top of the next
+  // `run_once`.
+  //
+  // You will often want to use `execute_or_post` instead, as it executes
+  // inline if already on the loop thread, avoiding unnecessary posting
+  // overhead.
+  [[nodiscard]] bool post(posted_fn cbpost) {
+    bool was_empty{};
+    if (std::scoped_lock lock{post_mutex_}; true) {
+      auto& active_queue = **active_queue_;
+      was_empty = active_queue.empty();
+      active_queue.emplace_back(std::move(cbpost));
+    }
+    // If it was empty, signal the `eventfd` to wake the loop thread.
+    if (!was_empty) return true;
     return do_wake();
   }
 
-  // Execute `fn` immediately if on the loop thread; otherwise `post` it.
+  // Execute `fn` immediately if on the loop thread; otherwise `post` it. Does
+  // not retry on failure.
   template<typename FN>
   [[nodiscard]] bool execute_or_post(FN&& fn) {
     if (is_loop_thread()) return fn();
     return post(std::forward<FN>(fn));
   }
 
-  // Post `fn` to run on the loop thread and block the calling thread until
-  // it completes. Returns false if the loop is not running or the post fails.
-  // Executes inline and returns true if called from the loop thread.
+  // Execute `fn` immediately if on the loop thread. If it fails, or if we
+  // aren't on the loop thread, post it.
+  //
+  // When it executes from the post queue, if it fails then it will requeue
+  // itself. This only makes sense if the failure is retryable, such as the SQE
+  // queue being full. If we encounter an error that isn't retryable, we must
+  // return `true` to end the loop.
+  //
+  // Also, if `fn` has a `completion_token`, then it should check whether it's
+  // been released, and return `true` if it has. This allows the caller to
+  // abort retries.
+  //
+  // TODO: Consider whether we should add a retry count that defaults to a
+  // reasonable number and decrement each time we requeue. As much as an
+  // infinite loop shouldn't happen, it's better if it can't, even in the worst
+  // case.
+  //
+  // Clang-tidy doesn't understand that these lambdas are unconditionally
+  // moved, even though this is technically a universal reference.
+  // NOLINTBEGIN(bugprone-move-forwarding-reference)
+  template<typename FN>
+  [[nodiscard]] bool execute_or_post_with_retry(FN&& fn) {
+    if (!is_loop_thread() || !fn())
+      (void)post([this, fn = std::move(fn)]() mutable -> bool {
+        return execute_or_post_with_retry(std::move(fn));
+      });
+    return true;
+  }
+  // NOLINTEND(bugprone-move-forwarding-reference)
+
+  // Run `fn` fully synchronously on the loop thread. When executed from
+  // another thread, posts and block the calling thread until it completes.
   template<typename FN>
   [[nodiscard]] bool post_and_wait(FN&& fn) {
     if (!running_.get()) return false;
@@ -240,312 +366,84 @@ public:
     }
   }
 
-  // Block until `run` is active. Returns false on timeout.
-  // Pass -1 (the default) to wait up to 60 seconds.
-  [[nodiscard]] bool wait_until_running(int timeout_ms = -1) {
-    if (timeout_ms < 0) timeout_ms = 60000;
-    return running_.wait_for_value(duration_t{timeout_ms}, true);
-  }
-
-  // Run the loop on the calling thread until `stop` is called.
-  void run() {
-    stop_.store(false, std::memory_order::relaxed);
-    const auto scope = poll_thread_scope();
-    running_.notify(true);
-    scope_exit on_exit{[&] { running_.notify(false); }};
-    arm_wake_poll_multishot();
-    while (!stop_.load(std::memory_order::acquire))
-      (void)run_once(default_run_once_timeout);
-  }
-
-  // Process one batch of completions, waiting up to `timeout`. Drains the post
-  // queue first, then waits for CQEs, one of which may be a wakeup triggered
-  // by setting the eventfd. Returns the number of user completions dispatched
-  // (internal wakeups excluded). Returns 0 on timeout or signal. Must be
-  // called on the loop thread.
-  [[nodiscard]] size_t run_once(duration_t timeout = {}) {
-    assert(is_loop_thread());
-    do_drain_post_queue();
-
-    auto res = ring_.wait_cqe_timeout(timeout);
-    if (res.is_soft_error()) return 0;
-    res.throw_if_error("wait_cqe_timeout");
-
-    size_t dispatched{};
-    size_t total = ring_.for_each_cqe([&](iou_cqe cqe) {
-      if (do_dispatch(cqe)) ++dispatched;
-      return true;
-    });
-    (void)total;
-    return dispatched;
-  }
-
-  // Signal the loop to exit after the current `run_once` returns. May be
-  // called from any thread.
-  void stop() noexcept {
-    stop_.store(true, std::memory_order::release);
-    (void)do_wake();
-  }
 #pragma endregion
-#pragma region Submit and buffer APIs
+#pragma region Completion tokens
 
-  // Submit an async accept on `file`. May be called from any thread.
-  [[nodiscard]] cancelation_token submit_accept(const os_file& file,
-      completion_fn&& cb, int flags = SOCK_NONBLOCK | SOCK_CLOEXEC) {
-    auto borrowed_cb = borrow(std::move(cb));
-    if (!borrowed_cb) return {};
-    auto token = cancelation_token{borrowed_cb};
-    if (!execute_or_post([this, fd = file.handle(), flags,
-                             cb = std::move(borrowed_cb)]() mutable -> bool {
-          return do_submit(
-              [fd, flags](iou_sqe sqe) { sqe.prep_accept(fd, flags); },
-              std::move(cb))
-              .valid();
-        }))
-      return {};
-    return token;
-  }
-
-  // Submit a multishot async accept on `file`. The callback fires for every
-  // accepted connection without re-arming; it is released only when the
-  // operation terminates (error or cancel). May be called from any thread.
+  // CQE's are ultimately dispatched to user-provided callbacks of type
+  // `completion_fn` (and, indirectly, `buf_completion_fn`, which is bound in;
+  // in contrast, `posted_fn` is not involved in this scheme).
   //
-  // As with any multishot operation, the persisted callback takes up a slot in
-  // the `completion_cb_pool_t` for the duration.
-  [[nodiscard]] cancelation_token submit_accept_multishot(const os_file& file,
-      completion_fn&& cb, int flags = SOCK_NONBLOCK | SOCK_CLOEXEC) {
-    if (!file) return {};
-    auto borrowed_cb = borrow(std::move(cb));
-    if (!borrowed_cb) return {};
-    auto token = cancelation_token{borrowed_cb};
-    if (!execute_or_post([this, fd = file.handle(), flags,
-                             cb = std::move(borrowed_cb)]() mutable -> bool {
-          return do_submit(
-              [fd, flags](iou_sqe sqe) {
-                sqe.prep_accept_multishot(fd, flags);
-              },
-              std::move(cb))
-              .valid();
-        }))
-      return {};
-    return token;
-  }
-
-  // Submit an async connect on `file` to `endpoint`. `endpoint` must remain
-  // valid until the CQE fires. May be called from any thread.
+  // Callbacks are first moved into the pool, where their slot is referenced by
+  // `completion_token`s. These are cheaply-copied, generation-checking handles
+  // that fit in 64 bits.
   //
-  // Note that the `endpoint` must remain valid until submit, so you may need
-  // to call `submit_now`.
-  [[nodiscard]] cancelation_token submit_connect(const os_file& file,
-      const net_endpoint& endpoint, completion_fn&& cb) {
-    if (!file) return {};
-    auto borrowed_cb = borrow(std::move(cb));
-    if (!borrowed_cb) return {};
-    auto token = cancelation_token{borrowed_cb};
-    if (!execute_or_post([this, fd = file.handle(), &endpoint,
-                             cb = std::move(borrowed_cb)]() mutable -> bool {
-          return do_submit(
-              [fd, &endpoint](iou_sqe sqe) { sqe.prep_connect(fd, endpoint); },
-              std::move(cb))
-              .valid();
-        }))
-      return {};
-    return token;
-  }
-
-  // Submit an async recvmsg on `file`. `msg` must remain valid until the
-  // CQE fires. May be called from any thread.
-  [[nodiscard]] cancelation_token submit_recvmsg(const os_file& file,
-      msghdr* msg, completion_fn&& cb, int flags = 0) {
-    // TODO: Revisit this.
-    if (!file) return {};
-    auto borrowed_cb = borrow(std::move(cb));
-    if (!borrowed_cb) return {};
-    auto token = cancelation_token{borrowed_cb};
-    if (!execute_or_post([this, fd = file.handle(), msg, flags,
-                             cb = std::move(borrowed_cb)]() mutable -> bool {
-          return do_submit(
-              [fd, msg, flags](iou_sqe sqe) {
-                sqe.prep_recvmsg(fd, msg, flags);
-              },
-              std::move(cb))
-              .valid();
-        }))
-      return {};
-    return token;
-  }
-
-  // Submit an async sendmsg on `file`. `msg` must remain valid until the
-  // CQE fires. May be called from any thread.
-  [[nodiscard]] cancelation_token submit_sendmsg(const os_file& file,
-      const msghdr* msg, completion_fn&& cb, int flags = MSG_NOSIGNAL) {
-    if (!file) return {};
-    // TODO: Revisit this.
-    auto borrowed_cb = borrow(std::move(cb));
-    if (!borrowed_cb) return {};
-    auto token = cancelation_token{borrowed_cb};
-    if (!execute_or_post([this, fd = file.handle(), msg, flags,
-                             cb = std::move(borrowed_cb)]() mutable -> bool {
-          return do_submit(
-              [fd, msg, flags](iou_sqe sqe) {
-                sqe.prep_sendmsg(fd, msg, flags);
-              },
-              std::move(cb))
-              .valid();
-        }))
-      return {};
-    return token;
-  }
-
-  // Submit a no-op that completes immediately with `res` == 0. Useful for
-  // verifying ring plumbing. May be called from any thread.
-  [[nodiscard]] cancelation_token submit_nop(completion_fn&& cb) {
-    auto borrowed_cb = borrow(std::move(cb));
-    if (!borrowed_cb) return {};
-    auto token = cancelation_token{borrowed_cb};
-    if (!execute_or_post(
-            [this, cb = std::move(borrowed_cb)]() mutable -> bool {
-              return do_submit([](iou_sqe sqe) { sqe.prep_nop(); },
-                  std::move(cb))
-                  .valid();
-            }))
-      return {};
-    return token;
-  }
-
-  // Close `file` via `IORING_OP_CLOSE`. May be called from any thread.
-  [[nodiscard]] cancelation_token
-  submit_close(os_file&& file, completion_fn&& cb) {
-    if (!file) return {};
-    auto borrowed_cb = borrow(std::move(cb));
-    if (!borrowed_cb) return {};
-    auto token = cancelation_token{borrowed_cb};
-    if (!execute_or_post([this, fd = file.release(),
-                             cb = std::move(borrowed_cb)]() mutable -> bool {
-          return do_submit([fd](iou_sqe sqe) { sqe.prep_close(fd); },
-              std::move(cb))
-              .valid();
-        }))
-      return {};
-    return token;
-  }
-
-  // Cancel all in-flight operations targeting `file` via
-  // `IORING_OP_ASYNC_CANCEL`. May be called from any thread.
-  [[nodiscard]] cancelation_token
-  submit_cancel_fd(const os_file& file, completion_fn&& cb) {
-    if (!file) return {};
-    auto borrowed_cb = borrow(std::move(cb));
-    if (!borrowed_cb) return {};
-    auto token = cancelation_token{borrowed_cb};
-    if (!execute_or_post([this, fd = file.handle(),
-                             cb = std::move(borrowed_cb)]() mutable -> bool {
-          return do_submit([fd](iou_sqe sqe) { sqe.prep_cancel_fd(fd); },
-              std::move(cb))
-              .valid();
-        }))
-      return {};
-    return token;
-  }
-
-  // Cancel all in-flight operations with `target_token` via
-  // `IORING_OP_ASYNC_CANCEL`. May be called from any thread.
-  [[nodiscard]] cancelation_token
-  submit_cancel_token(cancelation_token target_token, completion_fn&& cb) {
-    if (!target_token) return {};
-    auto borrowed_cb = borrow(std::move(cb));
-    if (!borrowed_cb) return {};
-    auto token = cancelation_token{borrowed_cb};
-    if (!execute_or_post([this, target_token,
-                             cb = std::move(borrowed_cb)]() mutable -> bool {
-          return do_submit(
-              [target_token](iou_sqe sqe) {
-                sqe.prep_cancel_user_data(target_token.as_int());
-              },
-              std::move(cb))
-              .valid();
-        }))
-      return {};
-    return token;
-  }
-
-  // Submit a standalone timeout.  May be called from any thread.
+  // The `completion_token` provides a persistent identity that handles
+  // lifespan issues cleanly. When it's time to invoke the callback, the token
+  // is atomically converted into an owned callback, so we fail gracefully if
+  // it has already been released for any reason.
   //
-  // Note that the `duration` must remain valid until submit, so you may need
-  // to call `submit_now`.
-  [[nodiscard]] cancelation_token
-  submit_timeout(__kernel_timespec* duration, completion_fn&& cb) {
-    auto borrowed_cb = borrow(std::move(cb));
-    if (!borrowed_cb) return {};
-    auto token = cancelation_token{borrowed_cb};
-    if (!execute_or_post(
-            [this, duration, cb = std::move(borrowed_cb)]() mutable -> bool {
-              return do_submit(
-                  [duration](iou_sqe sqe) { sqe.prep_timeout(duration); },
-                  std::move(cb))
-                  .valid();
-            }))
-      return {};
-    return token;
-  }
-
-  // TODO: Add recurring timeout.
-
-  // Low-level method to submit an async recv on `file` into bytes at `buf`.
-  // The completion callback receives only the `iou_res` and `iou_cqe_flags` so
-  // in order to know where to read from, you will need to bind `span` and any
-  // other necessary state into the callback. This buffer span must remain
-  // valid until the callback fires. May be called from any thread.
+  // Simply invalidating the token effectively cancels the callback, but not
+  // the underlying operation. The token can also be used to tell `io_uring` to
+  // cancel all SQEs associated with that token, which is especially necessary
+  // for multi-shot operations.
   //
-  // Prefer `submit_recv_buffer` over this.
-  [[nodiscard]] cancelation_token submit_recv_bytes(const os_file& file,
-      span_t span, completion_fn&& cb, int flags = 0) {
-    if (!file) return {};
-    auto borrowed_cb = borrow(std::move(cb));
-    if (!borrowed_cb) return {};
-    auto token = cancelation_token{borrowed_cb};
-    if (!execute_or_post([this, fd = file.handle(), span, flags,
-                             cb = std::move(borrowed_cb)]() mutable -> bool {
-          return do_submit(
-              [fd, span, flags](iou_sqe sqe) {
-                sqe.prep_recv(fd, span, flags);
-              },
-              std::move(cb))
-              .valid();
-        }))
-      return {};
-    return token;
-  }
+  // By design, tokens are not owning; their lifecycle is managed by the
+  // system. In the standard single-shot workflow, the token remains valid
+  // until the CQE is processed, at which point the callback returns the
+  // default `slot_retention::automatic`, which leads to it being released.
 
-  // Low-level method to submit an async send of bytes at `buf` on `file`. The
-  // completion callback receives only the `iou_res`, so in order to know what
-  // was sent, you will need to bind `buf` and any other necessary state into
-  // the callback. The buffer span must remain valid until the callback fires.
-  // May be called from any thread.
+  // By returning `slot_retention::retain`, the callback can attach itself to
+  // another SQE without going through the pool again. When using a
+  // `buf_completion_fn`, you may also need to move the `buffer` to keep it
+  // from being released.
   //
-  // Prefer `submit_send_buffer` over this.
-  [[nodiscard]] cancelation_token submit_send_bytes(const os_file& file,
-      const_span_t span, completion_fn&& cb, int flags = 0) {
-    if (!file) return {};
-    auto borrowed_cb = borrow(std::move(cb));
-    if (!borrowed_cb) return {};
-    auto token = cancelation_token{borrowed_cb};
-    if (!execute_or_post([this, fd = file.handle(), span, flags,
-                             cb = std::move(borrowed_cb)]() mutable -> bool {
-          return do_submit(
-              [fd, span, flags](iou_sqe sqe) {
-                sqe.prep_send(fd, span, flags);
-              },
-              std::move(cb))
-              .valid();
-        }))
-      return {};
-    return token;
+  // Multishot operations are a bit more complex. So long as the CQE has
+  // `iou_cqe_flags::more` set, then `slot_retention::automatic` acts as
+  // `slot_retention::retain`.
+  //
+  // However, `io_uring` can choose to clear `iou_cqe_flags::more` on any CQE,
+  // even on a soft error or no error (such as when IORING_MAX_FIXED_FILES is
+  // reached), so the callback must either accept this or resubmit the token.
+  // In the latter case, it must explcitly return `slot_retention::retain`.
+  //
+  // All methods in this section are thread-safe.
+
+  // Determines whether the `completion_fn` associated with `cbtoken` has
+  // already been released. If it has, then `cbtoken` is invalidated, since it
+  // could never be used again.
+  //
+  // Note that a `true` is reliable and permanent, but a `false` reflects only
+  // the state at that moment.
+  [[nodiscard]] bool is_released(completion_token& cbtoken) noexcept {
+    if (cbtoken.get_ptr(completion_cb_pool_)) return false;
+    cbtoken = {};
+    return true;
   }
 
-  // Borrow a registered `buffer` from the pool for the purpose of reading into
-  // it. Returns an invalid `buffer` if the pool is exhausted. May be called
-  // from any thread.
+  // Convert a `completion_fn` into a `completion_token` by moving it into the
+  // pool. On failure, the return value is invalid.
+  [[nodiscard]] completion_token tokenize(completion_fn&& cb) {
+    if (!cb) return {};
+    return completion_token{borrow(std::move(cb))};
+  }
+
+  // Release the `completion_fn` associated with `cbtoken` back into the pool.
+  // Returns whether it was successfully released. Note that if the callback
+  // was already released or is currently borrowed, this will fail.
+  [[nodiscard]] bool release(completion_token&& cbtoken) {
+    const auto borrowed = cbtoken.borrow(completion_cb_pool_);
+    if (!borrowed) return false;
+    return true;
+  }
+
+#pragma endregion
+#pragma region Buffer
+
+  // Using a buffer pool is the preferred way to manage buffers.
+
+  // Borrow a registered `buffer` from the pool for the purpose of reading
+  // into it. Returns an invalid `buffer` if the pool is exhausted. Pass to
+  // `submit_recv_buffer`.
   [[nodiscard]] buffer borrow_read_buffer(
       block_size sz = block_size::small) noexcept {
     return buf_pool_.borrow_reader(sz);
@@ -553,60 +451,535 @@ public:
 
   // Borrow a registered `buffer` from the pool for the purpose of writing to
   // it. Returns an invalid `buffer` if the pool is exhausted. Fill the
-  // `buffer`'s payload, then pass it to `submit_send_buffer`. May be called
-  // from any thread.
+  // `buffer`'s payload, then pass it to `submit_send_buffer`.
   [[nodiscard]] buffer borrow_write_buffer(
       block_size sz = block_size::small) noexcept {
     return buf_pool_.borrow_writer(sz);
   }
 
-  // Submit a zero-copy recv into a registered `buffer`. The loop allocates the
-  // `buffer`; the callback receives it so that it can check `buf.result` and
-  // read from `buf.payload`. It may then wish to move the buffer and reuse it.
-  // If the callback does not move the `buffer` out, it is returned to the
-  // pool.
+#pragma endregion
+#pragma region Submit
+
+  // Submit overview:
+  //
+  // Methods in the family of `submit_nop` acquire, prepare, and (eventually)
+  // submit a SQE. These typically come in sets with three variants:
+  // single-shot, with  `completion_fn` and `completion_token`; and multi-shot,
+  // always with `completion_token`.
+  //
+  // These methods all use `execute_or_post_with_retry`, which not only
+  // attempts to execute inline on the loop thread, but falls back to posting.
+  // Moreover, the post is wrapped in a retry loop, that keeps reposting itself
+  // until the transient error (usually SQE congestion) is resolved.
+  //
+  // Variants:
+  //
+  // For the `completion_fn` variants, the callback is moved into the pool and
+  // associated with a `completion_token`. This token is returned on success,
+  // and is invalid on immediate failure.
+  //
+  // For the `completion_token` variants, the caller must have already acquired
+  // a token by calling `tokenize` on a `completion_fn`. On success, `true` is
+  // returned. Depending on `on_fail`, the token is either released or retained
+  // on failure.
+  //
+  // Timeouts:
+  //
+  // When it makes sense for the operation, single-shot variants take a timeout
+  // in the form of an `iou_timespec`. For multi-shot variants, timeouts would
+  // apply to the SQE as a whole, not to individual CQEs, so you should instead
+  // `submit_timeout` separately and check for a timestamp updated by the
+  // `completion_callback`.
+  //
+  // Parameter Lifespan:
+  //
+  // Sockets must remain valid until completion, as must `msghdr`. Otherwise,
+  // parameters passed by pointer, such as the `iou_timespec` or
+  // `net_endpoint`, must remain valid until submission.
+  //
+  // Thread safety:
+  // All of these methodsmay be called from any thread.
+
+#pragma region Nop
+
+  // Per the name, nop does nothing except trigger a completion.
+
+  // Submit an async nop.
+  [[nodiscard]] completion_token submit_nop(completion_fn&& cb) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_nop(cbtoken, slot_retention::automatic)) return {};
+    return cbtoken;
+  }
+
+  // Submit an async nop.
+  [[nodiscard]] bool submit_nop(completion_token cbtoken,
+      slot_retention on_fail = slot_retention::retain) {
+    if (!cbtoken.is_valid()) return false;
+    auto fn = [this, cbtoken, on_fail]() mutable {
+      return do_submit(cbtoken, on_fail, [](iou_sqe sqe) { sqe.prep_nop(); });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
+#pragma region Poll
+
+  //!!! For now, just multishot.
+
+  // Submit an async multishot poll on `file`.
+  [[nodiscard]] completion_token submit_poll_multishot(const os_file& file,
+      completion_fn&& cb, poll_flags poll_mask = poll_flags::in) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_poll_multishot(file, cbtoken, poll_mask,
+            slot_retention::automatic))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async multishot poll on `file`.
+  [[nodiscard]] bool submit_poll_multishot(const os_file& file,
+      completion_token cbtoken, poll_flags poll_mask = poll_flags::in,
+      slot_retention on_fail = slot_retention::retain) {
+    if (!cbtoken.is_valid()) return false;
+    auto fn = [this, cbtoken, fd = *file, poll_mask, on_fail]() mutable {
+      return do_submit(cbtoken, on_fail, [fd, poll_mask](iou_sqe sqe) {
+        sqe.prep_poll_multishot(fd, poll_mask);
+      });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
+#pragma region Timeout
+
+  // Allows creating, removing, and canceling stand-alone timeouts.
+  //
+  // These are not linked to existing operations: that functionality is
+  // provided through the optional `timeout` parameter on those methods.
+
+  //
+  // Create
+  //
+
+  // Submit an async timeout. For multishot, set the
+  // `io_timeout_flags::multishot` flag. The meaning of `cqe_count` depends on
+  // the mode.
+  [[nodiscard]] completion_token submit_timeout(iou_timespec* timeout,
+      completion_fn&& cb, iou_timeout_flags flags = iou_timeout_flags::rel,
+      size_t cqe_count = 0) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_timeout(timeout, cbtoken, flags, cqe_count,
+            slot_retention::automatic))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async timeout. For multishot, set the
+  // `io_timeout_flags::multishot` flag. The meaning of `cqe_count` depends on
+  // the mode.
+  [[nodiscard]] bool submit_timeout(iou_timespec* timeout,
+      completion_token cbtoken,
+      iou_timeout_flags flags = iou_timeout_flags::rel, size_t cqe_count = 0,
+      slot_retention on_fail = slot_retention::retain) {
+    if (!cbtoken.is_valid()) return false;
+    auto fn = [this, timeout, cbtoken, flags, cqe_count, on_fail]() mutable {
+      return do_submit(cbtoken, on_fail,
+          [timeout, flags, cqe_count](iou_sqe sqe) {
+            sqe.prep_timeout(timeout, flags, cqe_count);
+          });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+  //
+  // Remove
+  //
+
+  // Submit an async timeout removal.
+  [[nodiscard]] completion_token
+  submit_timeout_remove(iou_timespec* timeout, completion_fn&& cb) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_timeout_remove(timeout, cbtoken, slot_retention::automatic))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async timeout removal.
+  [[nodiscard]] bool submit_timeout_remove(completion_token cancelation_token,
+      completion_token cbtoken,
+      slot_retention on_fail = slot_retention::retain) {
+    if (!cbtoken.is_valid()) return false;
+    auto fn = [this, cancelation_token, cbtoken, on_fail]() mutable {
+      return do_submit(cbtoken, on_fail, [cancelation_token](iou_sqe sqe) {
+        sqe.prep_timeout_remove(cancelation_token.as_int());
+      });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+  //
+  // Update
+  //
+
+  // Submit an async timeout. For multishot, set the
+  // `io_timeout_flags::multishot` flag. The meaning of `cqe_count` depends on
+  // the mode.
+  [[nodiscard]] completion_token submit_update(iou_timespec* timeout,
+      completion_token update_token, completion_fn&& cb,
+      iou_timeout_flags flags = {}, size_t cqe_count = 0) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_timeout_update(timeout, update_token, cbtoken, flags,
+            cqe_count, slot_retention::automatic))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async timeout. For multishot, set the
+  // `io_timeout_flags::multishot` flag. The meaning of `cqe_count` depends on
+  // the mode.
+  [[nodiscard]] bool submit_timeout_update(iou_timespec* timeout,
+      completion_token update_token, completion_token cbtoken,
+      iou_timeout_flags flags = {}, size_t cqe_count = 0,
+      slot_retention on_fail = slot_retention::retain) {
+    if (!cbtoken.is_valid()) return false;
+    auto fn = [this, timeout, update_token, cbtoken, flags, cqe_count,
+                  on_fail]() mutable {
+      return do_submit(cbtoken, on_fail,
+          [timeout, flags, cqe_count](iou_sqe sqe) {
+            sqe.prep_timeout(timeout, flags, cqe_count);
+          });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
+#pragma region Close
+
+  // Submit an async close on `file`. Invalidates `file`.
+  [[nodiscard]] completion_token submit_close(os_file& file,
+      completion_fn&& cb, iou_timespec* timeout = nullptr) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_close(file, cbtoken, timeout, slot_retention::automatic))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async close on `file`. Invalidates `file`.
+  [[nodiscard]] bool submit_close(os_file& file, completion_token cbtoken,
+      iou_timespec* timeout = nullptr,
+      slot_retention on_fail = slot_retention::retain) {
+    if (!cbtoken.is_valid()) return false;
+    if (!file) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn =
+        [this, fd = file.release(), cbtoken, timeout, on_fail]() mutable {
+          return do_submit_timeout(cbtoken, timeout, on_fail,
+              [fd](iou_sqe sqe) { sqe.prep_close(fd); });
+        };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
+#pragma region Accept
+
+  // Submit an async accept on `socket`.
+  [[nodiscard]] completion_token submit_accept(const os_file& socket,
+      completion_fn&& cb, iou_timespec* timeout = nullptr) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_accept(socket, cbtoken, timeout, slot_retention::automatic))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async accept on `socket`.
+  [[nodiscard]] bool submit_accept(const os_file& socket,
+      completion_token cbtoken, iou_timespec* timeout = nullptr,
+      slot_retention on_fail = slot_retention::retain,
+      socket_type flags = socket_type::nonblock_cloexec) {
+    if (!cbtoken.is_valid()) return false;
+    if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn =
+        [this, fd = *socket, flags, cbtoken, timeout, on_fail]() mutable {
+          return do_submit_timeout(cbtoken, timeout, on_fail,
+              [fd, flags](iou_sqe sqe) { sqe.prep_accept(fd, flags); });
+        };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+  // Submit a multishot async accept on `socket`.
+  [[nodiscard]] bool submit_accept_multishot(const os_file& socket,
+      completion_token cbtoken,
+      slot_retention on_fail = slot_retention::retain,
+      socket_type flags = socket_type::nonblock_cloexec) {
+    if (!cbtoken.is_valid()) return false;
+    if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = *socket, flags, cbtoken, on_fail]() mutable {
+      return do_submit(cbtoken, {}, on_fail, [fd, flags](iou_sqe sqe) {
+        sqe.prep_accept_multishot(fd, flags);
+      });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
+#pragma region Connect
+
+  // Submit an async connect on `socket` to `endpoint`.
+  [[nodiscard]] completion_token submit_connect(const os_file& socket,
+      const net_endpoint* endpoint, completion_fn&& cb,
+      iou_timespec* timeout = nullptr) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_connect(socket, endpoint, cbtoken, timeout,
+            slot_retention::automatic))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async connect on `socket` to `endpoint`.
+  [[nodiscard]] bool submit_connect(const os_file& socket,
+      const net_endpoint* endpoint, completion_token cbtoken,
+      iou_timespec* timeout, slot_retention on_fail = slot_retention::retain) {
+    if (!cbtoken.is_valid()) return false;
+    if (!socket || !endpoint) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn =
+        [this, fd = *socket, endpoint, cbtoken, timeout, on_fail]() mutable {
+          return do_submit_timeout(cbtoken, timeout, on_fail,
+              [fd, endpoint](iou_sqe sqe) { sqe.prep_connect(fd, endpoint); });
+        };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
+#pragma region CancelFile
+
+  // Submit an async cancel on `file`. Cancels all ops for the file.
+  [[nodiscard]] completion_token submit_cancel(const os_file& file,
+      completion_fn&& cb, iou_timespec* timeout = nullptr) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_cancel(file, cbtoken, timeout, slot_retention::automatic))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async cancel on `file`.
+  [[nodiscard]] bool submit_cancel(const os_file& file,
+      completion_token cbtoken, iou_timespec* timeout = nullptr,
+      slot_retention on_fail = slot_retention::retain) {
+    if (!cbtoken.is_valid()) return false;
+    if (!file) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = *file, cbtoken, timeout, on_fail]() mutable {
+      return do_submit_timeout(cbtoken, timeout, on_fail, [fd](iou_sqe sqe) {
+        sqe.prep_cancel_fd(fd);
+      });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
+#pragma region CancelToken
+
+  // Submit an async cancel on `cancelation_token`.
+  [[nodiscard]] completion_token
+  submit_cancel(completion_token cancelation_token, completion_fn&& cb,
+      iou_timespec* timeout = nullptr) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_cancel(cancelation_token, cbtoken, timeout,
+            slot_retention::automatic))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async cancel on `cancelation_token`.
+  [[nodiscard]] bool submit_cancel(completion_token cancelation_token,
+      completion_token cbtoken, iou_timespec* timeout = nullptr,
+      slot_retention on_fail = slot_retention::retain) {
+    if (!cbtoken.is_valid()) return false;
+    if (!cancelation_token) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, cancelation_token, cbtoken, timeout, on_fail]() mutable {
+      return do_submit_timeout(cbtoken, timeout, on_fail,
+          [cancelation_token](iou_sqe sqe) {
+            sqe.prep_cancel_user_data(cancelation_token.as_int());
+          });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
+#pragma region RecvBytes
+
+  // Low-level method to submit an async recv on `socket` into bytes at `span`.
+  //
+  // Prefer `submit_recv_buffer` over this.
+  [[nodiscard]] completion_token submit_recv_bytes(const os_file& socket,
+      span_t span, completion_fn&& cb, iou_timespec* timeout = nullptr) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_recv_bytes(socket, span, cbtoken, timeout,
+            slot_retention::automatic))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async recvmsg on `socket`.
+  [[nodiscard]] bool submit_recv_bytes(const os_file& socket, span_t span,
+      completion_token cbtoken, iou_timespec* timeout = nullptr,
+      slot_retention on_fail = slot_retention::retain,
+      socket_type flags = {}) {
+    if (!cbtoken.is_valid()) return false;
+    if (!socket || span.empty())
+      return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = *socket, flags, cbtoken, span, timeout,
+                  on_fail]() mutable {
+      return do_submit_timeout(cbtoken, timeout, on_fail,
+          [fd, flags, span](iou_sqe sqe) { sqe.prep_recv(fd, span, flags); });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
+#pragma region SendBytes
+
+  // Low-level method to submit an async send on `socket` from bytes at `span`.
+  //
+  // Prefer `submit_send_buffer` over this.
+  [[nodiscard]] completion_token submit_send_bytes(const os_file& socket,
+      const_span_t span, completion_fn&& cb, iou_timespec* timeout = nullptr) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_send_bytes(socket, span, cbtoken, timeout,
+            slot_retention::automatic))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async send on `socket`.
+  [[nodiscard]] bool submit_send_bytes(const os_file& socket,
+      const_span_t span, completion_token cbtoken,
+      iou_timespec* timeout = nullptr,
+      slot_retention on_fail = slot_retention::retain,
+      socket_type flags = {}) {
+    if (!cbtoken.is_valid()) return false;
+    if (!socket || span.empty())
+      return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = *socket, flags, cbtoken, span, timeout,
+                  on_fail]() mutable {
+      return do_submit_timeout(cbtoken, timeout, on_fail,
+          [fd, flags, span](iou_sqe sqe) { sqe.prep_send(fd, span, flags); });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
+#pragma region RecvMsg
+
+  // TODO: We need a version that takes  a buffer, and likely wrap the msg.
+  // Also, are the flags correct? We might want a multishot.
+
+  // Submit an async recvmsg on `socket`.
+  [[nodiscard]] completion_token submit_recvmsg(const os_file& socket,
+      msghdr* msg, completion_fn&& cb, iou_timespec* timeout = nullptr,
+      msg_flags flags = {}) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_recvmsg(socket, msg, cbtoken, timeout,
+            slot_retention::automatic, flags))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async recvmsg on `socket`.
+  [[nodiscard]] bool submit_recvmsg(const os_file& socket, msghdr* msg,
+      completion_token cbtoken, iou_timespec* timeout = nullptr,
+      slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
+    if (!cbtoken.is_valid()) return false;
+    if (!socket || !msg) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = *socket, flags, cbtoken, msg, timeout,
+                  on_fail]() mutable {
+      return do_submit_timeout(cbtoken, timeout, on_fail,
+          [fd, flags, msg](iou_sqe sqe) { sqe.prep_recvmsg(fd, msg, flags); });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
+#pragma region SendMsg
+
+  // TODO: This needs to take a buffer, and likely wrap the msg. Also, are the
+  // flags correct?
+
+  // Submit an async sendmsg on `socket`.
+  [[nodiscard]] completion_token submit_sendmsg(const os_file& socket,
+      const msghdr* msg, completion_fn&& cb, iou_timespec* timeout = nullptr,
+      msg_flags flags = msg_flags::nosignal) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_sendmsg(socket, msg, cbtoken, timeout,
+            slot_retention::automatic, flags))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async sendmsg on `socket`.
+  [[nodiscard]] bool submit_sendmsg(const os_file& socket, const msghdr* msg,
+      completion_token cbtoken, iou_timespec* timeout = nullptr,
+      slot_retention on_fail = slot_retention::retain,
+      msg_flags flags = msg_flags::nosignal) {
+    if (!cbtoken.is_valid()) return false;
+    if (!socket || !msg) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = *socket, flags, cbtoken, msg, timeout,
+                  on_fail]() mutable {
+      return do_submit_timeout(cbtoken, timeout, on_fail,
+          [fd, flags, msg](iou_sqe sqe) { sqe.prep_sendmsg(fd, msg, flags); });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
+#if 0
+  // Submit a zero-copy recv into a registered `buffer`. The loop allocates
+  // the `buffer`; the callback receives it so that it can check `buf.result`
+  // and read from `buf.payload`. It may then wish to move the buffer and
+  // reuse it. If the callback does not move the `buffer` out, it is returned
+  // to the pool.
   //
   // Note that the `timeout` must remain valid until submit, so you may need
   // to call `submit_now`.
   //
-  // Returns cancelation token, which will be invalid if we fail early. May be
-  // called from any thread. See overload for description of `iou_res` values.
+  // Returns cancelation token, which will be invalid if we fail early. May
+  // be called from any thread. See overload for description of `iou_res`
+  // values.
   //
   // Prefer this over manually calling `borrow_read_buffer` and
-  // `submit_recv_bytes`. However, this method is ideal for reusing an existing
-  // read buffer, or a converted write buffer.
-  [[nodiscard]] cancelation_token submit_recv_buffer(const os_file& file,
+  // `submit_recv_bytes`. However, this method is ideal for reusing an
+  // existing read buffer, or a converted write buffer.
+  [[nodiscard]] completion_token submit_recv_buffer(const os_file& file,
       buf_completion_fn cb, block_size sz = block_size::small,
       __kernel_timespec* timeout = nullptr) {
     return submit_recv_buffer(file, borrow_read_buffer(sz), std::move(cb),
         timeout);
   }
 
-  // Submit a zero-copy recv into a registered `buffer`. The callback receives
-  // the `buffer` so that it can check `buf.result` and read from
+  // Submit a zero-copy recv into a registered `buffer`. The callback
+  // receives the `buffer` so that it can check `buf.result` and read from
   // `buf.payload`. It may then wish to move the buffer and reuse it. If the
   // callback does not move the `buffer` out, it is returned to the pool.
   //
-  // Note that the `timeout` must remain valid until submit, so you may need to
-  // call `submit_now`.
+  // Note that the `timeout` must remain valid until submit, so you may need
+  // to call `submit_now`.
   //
   // Returns cancelation token, which will be invalid if the `buffer` is
   // invalid. May be called from any thread.
   //
-  // On success, the `buffer.result().value()` will be set a positive integer,
-  // which is the number of bytes read. If there's room in the buffer and you
-  // expect more data, you may move the buffer by calling this method.
+  // On success, the `buffer.result().value()` will be set a positive
+  // integer, which is the number of bytes read. If there's room in the
+  // buffer and you expect more data, you may move the buffer by calling this
+  // method.
   //
   // On EOF, the `buffer.result().value()` will be 0. The buffer payload is
-  // unchanged and should be inspected for any remaining data. You should then
-  // close the socket.
+  // unchanged and should be inspected for any remaining data. You should
+  // then close the socket.
   //
-  // On soft error, `buffer.result().is_soft_error()` will be true. The buffer
-  // payload is unchanged and should be inspected for any remaining data. You
-  // may wish to retry, much as you would to accumulate more data.
+  // On soft error, `buffer.result().is_soft_error()` will be true. The
+  // buffer payload is unchanged and should be inspected for any remaining
+  // data. You may wish to retry, much as you would to accumulate more data.
   //
   // Prefer this over `submit_recv_bytes`.
-  [[nodiscard]] cancelation_token submit_recv_buffer(const os_file& file,
+  [[nodiscard]] completion_token submit_recv_buffer(const os_file& file,
       buffer&& buf, buf_completion_fn cb,
       __kernel_timespec* timeout = nullptr) {
     if (!file || !buf) return {};
@@ -620,7 +993,7 @@ public:
     };
     auto borrowed_cb = borrow(std::move(inner));
     if (!borrowed_cb) return {};
-    auto token = cancelation_token{borrowed_cb};
+    auto token = completion_token{borrowed_cb};
     if (!execute_or_post(
             [this, fd = file.handle(), cb = std::move(borrowed_cb), span,
                 buf_index, timeout]() mutable -> bool {
@@ -628,7 +1001,7 @@ public:
                 sqe.prep_read_fixed(fd, span, buf_index);
               };
               return do_submit(std::move(prep), std::move(cb), timeout)
-                  .valid();
+                  .is_valid();
             }))
       return {};
     return token;
@@ -636,28 +1009,28 @@ public:
 
   // Submit a zero-copy send from a pre-filled registered buffer. `buf` must
   // come from `borrow_write_buffer` and be filled via `append` or
-  // `update_payload`. The callback receives the `buffer` so that it can check
-  // `buf.result` and perhaps read from `buf.payload`. It may then wish to move
-  // the buffer and reuse it. If the callback does not move the `buffer` out,
-  // it is returned to the pool.
+  // `update_payload`. The callback receives the `buffer` so that it can
+  // check `buf.result` and perhaps read from `buf.payload`. It may then wish
+  // to move the buffer and reuse it. If the callback does not move the
+  // `buffer` out, it is returned to the pool.
   //
   // Returns false if the `buffer` is invalid. May be called from any thread.
   //
-  // On success, the `buffer.result().value()` will be set a positive integer,
-  // which is the number of bytes written. This may be less than the
-  // `payload_span`, which means you may wish to retry by moving the buffer and
-  // calling this method again to write the remaining data. Note that a 0 is
-  // just the extreme case of a partial write, not an indication of EOF or
+  // On success, the `buffer.result().value()` will be set a positive
+  // integer, which is the number of bytes written. This may be less than the
+  // `payload_span`, which means you may wish to retry by moving the buffer
+  // and calling this method again to write the remaining data. Note that a 0
+  // is just the extreme case of a partial write, not an indication of EOF or
   // error.
   //
-  // On EOF, the `buffer.result().err()` will be `EPIPE` or even `ECONNRESET`.
-  // You should then close the socket.
+  // On EOF, the `buffer.result().err()` will be `EPIPE` or even
+  // `ECONNRESET`. You should then close the socket.
   //
   // On soft error, `buffer.result().is_soft_error()` will be true. You
   // may wish to retry, much as you would on any other partial write.
   //
   // Prefer this over `submit_send_bytes`.
-  [[nodiscard]] cancelation_token submit_send_buffer(const os_file& file,
+  [[nodiscard]] completion_token submit_send_buffer(const os_file& file,
       buffer&& buf, buf_completion_fn cb,
       __kernel_timespec* timeout = nullptr) {
     if (!file || !buf) return {};
@@ -671,7 +1044,7 @@ public:
     };
     auto borrowed_cb = borrow(std::move(inner));
     if (!borrowed_cb) return {};
-    auto token = cancelation_token{borrowed_cb};
+    auto token = completion_token{borrowed_cb};
     if (!execute_or_post(
             [this, fd = file.handle(), cb = std::move(borrowed_cb), span,
                 buf_index, timeout]() mutable -> bool {
@@ -679,11 +1052,12 @@ public:
                 sqe.prep_write_fixed(fd, span, buf_index);
               };
               return do_submit(std::move(prep), std::move(cb), timeout)
-                  .valid();
+                  .is_valid();
             }))
       return {};
     return token;
   }
+#endif
 #pragma endregion
 #pragma region Helpers.
 private:
@@ -694,8 +1068,8 @@ private:
     return borrowed_cb;
   }
 
-  // Borrow a callback pool slot from its handle.
-  [[nodiscard]] borrowed_cb borrow(cancelation_token token) {
+  // Borrow a callback pool slot from its `completion_token`.
+  [[nodiscard]] borrowed_cb borrow(completion_token token) {
     return token.borrow(completion_cb_pool_);
   }
 
@@ -704,44 +1078,102 @@ private:
     (void)completion_cb_pool_.detach(std::move(cb));
   }
 
-  // Get an SQE, prepare it via `prep`, attach `cb` as user data, and
-  // potentially submit. If `timeout` specified, links a timeout SQE to it.
-  // Note that, if `timeout` points to a local variable, the caller must call
-  // `submit_now` before it leaves scope.
-  [[nodiscard]] cancelation_token
-  do_submit(std::invocable<iou_sqe> auto&& prep, borrowed_cb&& cb,
-      __kernel_timespec* timeout = nullptr) {
-    auto sqe = ring_.next_sqe();
-    if (!sqe) return {};
+  // Get an SQE, prepare it via `prep`, attach `cbtoken` as user data, and
+  // potentially submit. Note that `cbtoken` is allowed to be `!is_valid` but
+  // not released.
+  //
+  // If `timeout` specified, links a timeout SQE to it. See warnings about
+  // `iou_timespec` lifetime in class documentation.
+  [[nodiscard]] bool do_submit_timeout(completion_token cbtoken,
+      iou_timespec* timeout, slot_retention on_fail,
+      std::invocable<iou_sqe> auto&& prep) {
+    assert(on_fail != slot_retention::release); // Would be dumb.
+    auto do_submit = [&]() {
+      // Must return true to end retries.
+      if (cbtoken.is_valid() && is_released(cbtoken)) return true;
 
-    // If timeout, follow it up with a linked timeout SQE.
-    iou_sqe sqe_to;
-    if (timeout) {
-      sqe_to = ring_.next_sqe();
-      if (!sqe_to) {
-        sqe.prep_nop();
-        return {};
-      };
-      sqe_to.prep_link_timeout(timeout);
-      sqe_to.set_data_pointer(nullptr);
-    }
+      // Check availability up front and only assert on each.
+      size_t sqe_needed = timeout ? 2 : 1;
+      if (!ring_.enough_sqe_available(sqe_needed)) return false;
 
-    // Prep the operation, and if there's a timeout, link it.
-    std::forward<decltype(prep)>(prep)(sqe);
-    if (timeout) sqe.set_sqe_flags(iou_sqe_flags::io_link);
+      // Queue the operation SQE.
+      auto sqe_op = ring_.next_sqe();
+      assert(sqe_op);
 
-    // Store as token, "leaking" it.
-    cancelation_token token{std::move(cb)};
-    sqe.set_data_int(token.as_int());
-    if (!maybe_submit_pending()) return {};
-    return token;
+      // If timeout, follow it up with a linked timeout SQE.
+      iou_sqe sqe_to;
+      if (timeout) sqe_to = ring_.next_sqe();
+
+      // Prep the operation.
+      std::forward<decltype(prep)>(prep)(sqe_op);
+
+      // If there's a timeout, link it.
+      if (timeout) {
+        assert(sqe_to);
+        sqe_op.set_sqe_flags(iou_sqe_flags::io_link);
+        sqe_to.prep_link_timeout(timeout);
+        // On timeout, `cbtoken` is invoked with `iou_res.err() ==
+        // E_::canceled`. `sqe_to` will also generate a CQE (with
+        // `iou_res.err() == E_::time`), but this will be swallowed.
+        // When the operation fails, then it's the timeout CQE that gets
+        // the `E_canceled`.
+        sqe_to.set_data_pointer(nullptr);
+      }
+
+      // Store as token, "leaking" it.
+      sqe_op.set_data_int(cbtoken.as_int());
+      if (!maybe_submit_pending()) return false;
+      return true;
+    };
+
+    if (!do_submit()) return fail_and_maybe_release(on_fail, cbtoken);
+    return true;
   }
 
-  // Submit pending SQEs, although this could be delayed. The `sqe_count` is
-  // added to the pending value, and if it exceeds the configured limit, the
-  // submit is triggered immediately. Even if it doesn't exceed this limit,
-  // we also check how long it's been since the last submit, and if it
-  // exceeds that configured limit, we submit immediately.
+  // Get an SQE, prepare it via `prep`, attach `cbtoken` as user data, and
+  // potentially submit.  Note that `cbtoken` is allowed to be `!is_valid`
+  // but not released.
+  //
+  // If `timeout` specified, links a timeout SQE to it. See warnings about
+  // `iou_timespec` lifetime in class documentation.
+  [[nodiscard]] bool do_submit(completion_token cbtoken,
+      slot_retention on_fail, std::invocable<iou_sqe> auto&& prep) {
+    auto do_submit = [&]() {
+      if (cbtoken.is_valid() && is_released(cbtoken)) return true;
+
+      // Queue the operation SQE.
+      auto sqe_op = ring_.next_sqe();
+      if (!sqe_op) return false;
+
+      // Prep the operation.
+      std::forward<decltype(prep)>(prep)(sqe_op);
+
+      // Store as token, "leaking" it.
+      sqe_op.set_data_int(cbtoken.as_int());
+      if (!maybe_submit_pending()) return false;
+      return true;
+    };
+
+    if (!do_submit()) return fail_and_maybe_release(on_fail, cbtoken);
+    return true;
+  }
+
+  // Error-handling helper. Always returns false, and optional performs
+  // cleanup.
+  [[nodiscard]] bool
+  fail_and_maybe_release(slot_retention on_fail, completion_token& cbtoken) {
+    assert(on_fail != slot_retention::release);
+    if (on_fail != slot_retention::retain) (void)release(std::move(cbtoken));
+    return false;
+  }
+
+  // Submit pending SQEs, although this could be delayed.
+  //
+  // The `sqe_count` is added to the pending value, and if it exceeds the
+  // configured limit, the submit is triggered immediately. Even if it
+  // doesn't exceed this limit, we also check how long it's been since the
+  // last submit, and if it exceeds that configured limit, we submit
+  // immediately.
   [[nodiscard]] bool maybe_submit_pending(size_t sqe_count = 1) {
     (void)sqe_count;
     // TODO: Make the above true. For now, we just submit immediately.
@@ -776,22 +1208,22 @@ private:
   //   - `retain`: always keep the slot (e.g., callback resubmits a new SQE).
   // Returns false if no valid callback was found (canceled or no-data CQE).
   bool do_dispatch(iou_cqe cqe) {
-    cancelation_token token{cqe.get_data_int()};
+    completion_token token{cqe.get_data_int()};
     if (!token) return true;
 
-    // Take ownership of the callback. Quietly fails if the generation has been
-    // invalidated.
+    // Take ownership of the callback. Quietly fails if the generation has
+    // been invalidated.
     auto borrowed_cb = token.borrow(completion_cb_pool_);
     if (!borrowed_cb || !*borrowed_cb) return false;
 
-    const auto retention = borrowed_cb(cqe.res(), cqe.flags());
+    const auto retention = borrowed_cb(token.as_int(), cqe.res(), cqe.flags());
     const bool keep =
         retention == slot_retention::retain ||
         (retention == slot_retention::automatic &&
             bitmask::has(cqe.flags(), iou_cqe_flags::more));
 
     // To keep, steal ownership away without freeing.
-    if (keep) (void)cancelation_token{std::move(borrowed_cb)};
+    if (keep) detach(std::move(borrowed_cb));
     return true;
   }
 
@@ -816,26 +1248,31 @@ private:
   // and interrupts `io_uring_wait_cqe_timeout`. Because the operation is
   // multishot, the kernel keeps it alive as long as `IORING_CQE_F_MORE` is
   // set; the callback drains the `eventfd` on each firing. If the kernel
-  // ends the multishot (flag absent), the callback resubmits. If the SQ is
-  // full, `wake_poll_token_` stays invalid and the fallback timeout in `run`
-  // ensures the next `run_once` does not block indefinitely.
+  // ends the multishot (flag absent), the callback resubmits.
   bool arm_wake_poll_multishot() {
-    if (wake_poll_token_.valid()) return true;
-    auto borrowed = borrow(completion_fn{[this](iou_res, iou_cqe_flags flags) {
-      (void)wake_fd_.read();
-      if (!bitmask::has(flags, iou_cqe_flags::more)) {
-        wake_poll_token_ = {};
-        arm_wake_poll_multishot();
-      }
-      return slot_retention{};
-    }});
-    if (!borrowed) return false;
-    wake_poll_token_ = do_submit(
-        [fd = wake_fd_.handle()](iou_sqe sqe) {
-          sqe.prep_poll_multishot(fd, POLLIN);
-        },
-        std::move(borrowed));
-    if (!wake_poll_token_.valid()) return false;
+    if (wake_poll_token_.is_valid()) return true;
+
+#if 0
+submit_poll_multishot(const os_file& file,
+      completion_token cbtoken, poll_flags poll_mask = poll_flags::in,
+      slot_retention on_fail = slot_retention::retain)
+#endif
+
+    auto raw_cb =
+        [this](completion_handle cbhandle, iou_res, iou_cqe_flags flags) {
+          (void)wake_fd_.read();
+          if (bitmask::has(flags, iou_cqe_flags::more))
+            return slot_retention::automatic;
+          if (!submit_poll_multishot(wake_fd_, completion_token{cbhandle},
+                  poll_flags::in, slot_retention::retain))
+            throw std::runtime_error("failed to resubmit wake poll multishot");
+          return slot_retention::retain;
+        };
+    wake_poll_token_ = tokenize(std::move(raw_cb));
+    auto borrowed = borrow(wake_poll_token_);
+    (void)do_wake();
+    (void)borrowed(wake_poll_token_.as_int(), iou_res(), iou_cqe_flags{});
+    detach(std::move(borrowed));
     return true;
   }
 
@@ -850,7 +1287,7 @@ private:
 
   // Poll wake system.
   event_fd wake_fd_;
-  cancelation_token wake_poll_token_;
+  completion_token wake_poll_token_;
 
   // Completion callback pool, used to avoid `std::shared_ptr`.
   completion_cb_pool_t completion_cb_pool_;
@@ -865,12 +1302,14 @@ private:
   post_queue_t post_queues_[2];
   relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
 
-  const std::chrono::milliseconds post_and_wait_poll_interval_;
+  const duration_t post_and_wait_poll_interval_;
 #pragma endregion
 };
 
 // Alias for the common case of default template parameters.
 using iou_loop = iou_basic_loop<>;
+
+#pragma endregion
 
 // Runs an `iou_basic_loop` in its own background thread.
 //
@@ -882,7 +1321,7 @@ public:
   using loop_t = iou_basic_loop<RING_SIZE, SLOT_COUNT>;
 
   explicit iou_basic_loop_runner(
-      std::chrono::milliseconds post_and_wait_poll_interval =
+      std::chrono::nanoseconds post_and_wait_poll_interval =
           loop_t::default_post_and_wait_poll_interval)
       : post_and_wait_poll_interval_{post_and_wait_poll_interval},
         thread_{[this](const std::stop_token& st) { run(st); }} {
@@ -953,7 +1392,7 @@ private:
     }
   }
 
-  const std::chrono::milliseconds post_and_wait_poll_interval_;
+  const std::chrono::nanoseconds post_and_wait_poll_interval_;
   std::mutex startup_mutex_;
   std::exception_ptr startup_error_;
   notifiable<std::atomic_bool> started_{false};

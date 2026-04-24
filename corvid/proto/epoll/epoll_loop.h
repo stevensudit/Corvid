@@ -75,7 +75,7 @@ private:
 };
 
 // `epoll`-based I/O event loop, safe for use with a background thread. This
-// implements a Reactor pattern, where we wait for readiness and then act.
+// implements a Reactor pattern where we wait for readiness and then act.
 //
 // This is an internal building block for higher-level socket types
 // (e.g., `stream_conn`). User code drives the loop via `run` / `run_once`

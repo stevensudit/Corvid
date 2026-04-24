@@ -27,7 +27,7 @@
 
 #include "iou_wrap.h"
 
-namespace corvid { inline namespace proto { inline namespace iouring {
+namespace corvid { inline namespace proto { namespace iouring {
 
 // Pool of pre-registered fixed I/O buffers backed by a single 2 MB huge page.
 //

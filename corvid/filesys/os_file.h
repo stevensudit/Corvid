@@ -138,15 +138,15 @@ enum class errno_code : int {
   l2hlt = EL2HLT,                   // 51
   bade = EBADE,                     // 52
   badr = EBADR,                     // 53
-  exfull = EXFULL,                  // 54
+  xfull = EXFULL,                   // 54
   noano = ENOANO,                   // 55
   badrqc = EBADRQC,                 // 56
   badslt = EBADSLT,                 // 57
   old_deadlock = 58,                // 58 is EDEADLOCK/EDEADLK
-  ebfont = EBFONT,                  // 59
+  bfont = EBFONT,                   // 59
   nostr = ENOSTR,                   // 60
   nodata = ENODATA,                 // 61
-  etime = ETIME,                    // 62
+  time = ETIME,                     // 62
   nosr = ENOSR,                     // 63
   nonet = ENONET,                   // 64
   nopkg = ENOPKG,                   // 65
@@ -171,7 +171,7 @@ enum class errno_code : int {
   ilseq = EILSEQ,                   // 84
   restart = ERESTART,               // 85
   strpipe = ESTRPIPE,               // 86
-  eusers = EUSERS,                  // 87
+  users = EUSERS,                   // 87
   notsock = ENOTSOCK,               // 88
   destaddrreq = EDESTADDRREQ,       // 89
   msgsize = EMSGSIZE,               // 90
@@ -201,7 +201,7 @@ enum class errno_code : int {
   already = EALREADY,               // 114
   inprogress = EINPROGRESS,         // 115
   stale = ESTALE,                   // 116
-  euclean = EUCLEAN,                // 117
+  uclean = EUCLEAN,                 // 117
   notnam = ENOTNAM,                 // 118
   navail = ENAVAIL,                 // 119
   isnam = EISNAM,                   // 120
@@ -222,7 +222,7 @@ enum class errno_code : int {
 };
 
 // Type-safe aliasing for `errno`.
-using E_ = errno_code;
+using EC = errno_code;
 inline errno_code e_code() { return errno_code{errno}; };
 inline bool e_code_is(errno_code code) { return e_code() == code; }
 
@@ -284,16 +284,16 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
         "nospc, spipe, rofs, mlink,  pipe, dom, range, deadlk, nametoolong, "
         "nolck, nosys, notempty, loop, old_wouldblock, nomsg, idrm, chrng, "
         "l2nsync, l3hlt, l3rst, lnrng, unatch, ncsi, l2hlt, bade, badr, "
-        "exfull, noano, badrqc, badslt, old_deadlock, ebfont, nostr, nodata, "
-        "etime, nosr, nonet, nopkg, remote, nolink, adv, srmnt, comm, proto, "
+        "exfull, noano, badrqc, badslt, old_deadlock, bfont, nostr, nodata, "
+        "time, nosr, nonet, nopkg, remote, nolink, adv, srmnt, comm, proto, "
         "multihop, dotdot, badmsg, overflow, notuniq, badfd, remchg, libacc, "
-        "libbad, libscn, libmax, libexec, ilseq, restart,  strpipe, eusers, "
+        "libbad, libscn, libmax, libexec, ilseq, restart,  strpipe,  users, "
         "notsock, destaddrreq, msgsize, prototype, noprotoopt, "
         "protonosupport, socktnosupport, opnotsupp, pfnosupport, afnosupport, "
         "addrinuse, addrnotavail, netdown, netunreach, netreset, connaborted, "
         "connreset,  nobufs, isconn, notconn, shutdown, toomanyrefs, "
         "timedout, connrefused, hostdown, hostunreach, already, inprogress, "
-        "stale, euclean, notnam, navail, isnam, remoteio, dquot, nomedium, "
+        "stale, uclean, notnam, navail, isnam, remoteio, dquot, nomedium, "
         "mediumtype, canceled, nokey, keyexpired, keyrevoked, keyrejected, "
         "ownerdead, notrecoverable, rfkill, hwpoison">();
 
@@ -355,6 +355,7 @@ public:
 
   // Return the raw platform handle.
   [[nodiscard]] file_handle_t handle() const noexcept { return handle_; }
+  [[nodiscard]] file_handle_t operator*() const noexcept { return handle_; }
 
   // Close the file. Idempotent. Returns true when the file was open and is
   // now closed, false if it could not be closed (likely because it already
@@ -493,7 +494,7 @@ public:
   // return from a system call and is invalidated by the next system call.
   static bool is_hard_error(errno_code err = e_code()) noexcept {
     assert(err);
-    return (err != E_::again && err != E_::wouldblock && err != E_::intr);
+    return (err != EC::again && err != EC::wouldblock && err != EC::intr);
   }
 
 private:

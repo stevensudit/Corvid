@@ -45,9 +45,10 @@ enum class socket_type : int {
   unused_9 = 9,               // 9
   packet = SOCK_PACKET,       // 10
 
-  cloexec = SOCK_CLOEXEC,     // 0x0200'0000
-  nonblock = SOCK_NONBLOCK,   // 0x0000'4000
-  sequence_mask = 0x0000'000F // aka SOCK_TYPE_MASK
+  cloexec = SOCK_CLOEXEC,                // 0x0200'0000
+  nonblock = SOCK_NONBLOCK,              // 0x0000'4000
+  nonblock_cloexec = nonblock | cloexec, // 0x0200'4000
+  sequence_mask = 0x0000'000F            // aka SOCK_TYPE_MASK
 };
 
 // `AF_*` wrapper for address family domains.
@@ -567,7 +568,7 @@ public:
     if (::connect(handle(), reinterpret_cast<const sockaddr*>(&addr),
             sockaddr_size(addr)) == 0)
       return true;
-    if (e_code_is(E_::inprogress)) return std::nullopt;
+    if (e_code_is(EC::inprogress)) return std::nullopt;
     return false;
   }
 

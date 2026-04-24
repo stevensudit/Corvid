@@ -225,7 +225,7 @@ public:
     // and it could therefore be freed immediately. This may be fine or it may
     // be a mistake: you get to decide.
     [[nodiscard]] T* get_ptr(object_pool& pool) const noexcept {
-      if (!valid()) return nullptr;
+      if (!is_valid()) return nullptr;
       if constexpr (is_versioned_v) {
         auto gen =
             pool.gen_array_[ndx_].load(std::memory_order_relaxed) & 0x7FFFFFFF;
@@ -242,7 +242,7 @@ public:
     // if the slot is not currently borrowed, and it returns a `borrowed`
     // handle that has ownership semantics.
     [[nodiscard]] borrowed borrow(object_pool& pool) const {
-      if (!valid()) return {};
+      if (!is_valid()) return {};
       if (std::scoped_lock lock{pool.mutex_}; true)
         if constexpr (is_versioned_v)
           if (!pool.set_borrowed_if(ndx_, gen_)) return {};
@@ -250,12 +250,14 @@ public:
       return borrowed{&pool, &pool.slots_[ndx_]};
     }
 
-    [[nodiscard]] explicit operator bool() const noexcept { return valid(); }
-    [[nodiscard]] bool operator!() const noexcept { return !valid(); }
+    [[nodiscard]] explicit operator bool() const noexcept {
+      return is_valid();
+    }
+    [[nodiscard]] bool operator!() const noexcept { return !is_valid(); }
 
     // Return whether the handle refers to a slot. There is no guarantee that
     // it's not stale; you can only find that out by trying.
-    [[nodiscard]] bool valid() const noexcept { return ndx_ != npos; }
+    [[nodiscard]] bool is_valid() const noexcept { return ndx_ != npos; }
 
   private:
     bool copy_from_handle(const borrowed& h) {
@@ -454,6 +456,16 @@ private:
 // Use with `object_pool::create`, since the specialization of the scoping
 // class doesn't matter.
 using object_pool_factory = object_pool<int, 1, generation_scheme::versioned>;
+
+// `slot_retention` controls when an object is released to the pool.
+enum class slot_retention : uint8_t {
+  // Release the slot when it should no longer be needed.
+  automatic,
+  // Always release the slot, even if would otherwise have been retained.
+  release,
+  // Always retain the slot, even if it would otherwise have been released.
+  retain,
+};
 
 // Implementation note: It is possible in principle to replace the `index_t`
 // values with `std::atomic_index_t` and do lock-free stack push and pop on
