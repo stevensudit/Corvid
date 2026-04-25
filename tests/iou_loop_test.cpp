@@ -227,9 +227,6 @@ void IouLoop_RecvWriteFixed() {
     EXPECT_EQ(recv_n.load(), static_cast<int32_t>(msg.size()));
     EXPECT_EQ(send_n.load(), static_cast<int32_t>(msg.size()));
     EXPECT_EQ(payload, msg);
-
-    close(send_sock.handle());
-    close(recv_sock.handle());
   }
 }
 
