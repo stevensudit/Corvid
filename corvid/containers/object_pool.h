@@ -248,10 +248,14 @@ public:
     // This is akin to `std::weak_ptr::lock()`, except that it can only succeed
     // if the slot is not currently borrowed, and it returns a `borrowed`
     // handle that has ownership semantics.
+    //
+    // Note that, in the absence of versioning, this method not only fails to
+    // detect staleness, but it also cannot prevent multiple borrows of the
+    // same slot, which would lead to double-deletion. Use with caution.
     [[nodiscard]] borrowed borrow(object_pool& pool) const {
       if (!is_valid()) return {};
-      if (std::scoped_lock lock{pool.mutex_}; true)
-        if constexpr (is_versioned_v)
+      if constexpr (is_versioned_v)
+        if (std::scoped_lock lock{pool.mutex_}; true)
           if (!pool.set_borrowed_if(ndx_, gen_)) return {};
 
       return borrowed{&pool, &pool.slots_[ndx_]};
@@ -289,8 +293,8 @@ public:
   explicit object_pool(BorrowCb borrow_cb = {}, ReturnCb return_cb = {})
       : borrow_cb_{std::move(borrow_cb)}, return_cb_{std::move(return_cb)} {
     std::iota(free_list_.begin(), free_list_.end(), index_t{0});
-    // Generation ranges from 1 to 2^31-1, as 0 is invalid and the high bit is
-    // reserved for borrower detection.
+    // Generation ranges from 1 to 2^31-1, as 0 is invalid and the high bit
+    // is reserved for borrower detection.
     if constexpr (is_versioned_v)
       for (auto& gen : gen_array_) gen.store(1, std::memory_order_relaxed);
   }
@@ -313,8 +317,8 @@ public:
 
   // Borrows a slot; returns empty if the pool is full.
   [[nodiscard]] borrowed borrow() {
-    // We do not increment the generation until return, but we do set the high
-    // bit to indicate that it's borrowed.
+    // We do not increment the generation until return, but we do set the
+    // high bit to indicate that it's borrowed.
     T* item{};
     if (std::scoped_lock lock{mutex_}; true) {
       if (free_top_ == 0) return {};
@@ -332,7 +336,8 @@ public:
   // Detach item from handle without returning it to the pool. Sometimes
   // necessary, as when it must be `void*`. Once you call this, you become
   // fully responsible for using `reattach` to return the item to the pool.
-  // Otherwise, it will leak, eventually leading to a lack of available slots.
+  // Otherwise, it will leak, eventually leading to a lack of available
+  // slots.
   [[nodiscard]] T* detach(borrowed&& h) noexcept {
     assert(h.pool_ == this);
     if constexpr (is_versioned_v) {
@@ -344,8 +349,8 @@ public:
   }
 
   // Reattach item to a new handle. Useful after `detach()`. Returns empty if
-  // the item is not from this pool, which "should never happen", so check the
-  // results. Nulls out the input.
+  // the item is not from this pool, which "should never happen", so check
+  // the results. Nulls out the input.
   // NOLINTBEGIN(performance-move-const-arg)
   [[nodiscard]] borrowed reattach(T*&& item) noexcept {
     if (!is_in_pool(item)) return {};
@@ -434,9 +439,9 @@ private:
   }
 
   // Increment atomically, and wrapping past 0 (which is invalid). Also clear
-  // the high bit to indicate that it's not borrowed anymore. The `std::atomic`
-  // is used to ensure that a `token` can't observe a torn generation value or
-  // mistakenly borrow a slot being returned.
+  // the high bit to indicate that it's not borrowed anymore. The
+  // `std::atomic` is used to ensure that a `token` can't observe a torn
+  // generation value or mistakenly borrow a slot being returned.
   [[nodiscard]] bool release_slot_gen(index_t ndx) {
     if constexpr (is_versioned_v) {
       auto& gen = gen_array_[ndx];
@@ -477,16 +482,16 @@ enum class slot_retention : uint8_t {
 // Implementation note: It is possible in principle to replace the `index_t`
 // values with `std::atomic_index_t` and do lock-free stack push and pop on
 // the free list. However, contention is extremely unlikely, and the lock is
-// held for a short, fixed period. Moreover, lock-free doesn't guarantee speed.
-// Therefore, we would need benchmarks to justify the added complexity.
+// held for a short, fixed period. Moreover, lock-free doesn't guarantee
+// speed. Therefore, we would need benchmarks to justify the added
+// complexity.
 //
 // The other possible optimization would be to use a
-// `std::vector<std::pair<index_t, T>>` for an intrusive free list, instead of
-// the separate `slots_` array. The potential benefit is that it would let us
-// resize and might provide better cache locality. On the other hand, we would
-// lose the ability to use a packed 8-bit array for small pools, and would
-// generally run into cache-unfriendly packing issues and possible false
-// sharing. Once again, this would need to be thoroughly benchmarked to justify
-// the added complexity.
-
+// `std::vector<std::pair<index_t, T>>` for an intrusive free list, instead
+// of the separate `slots_` array. The potential benefit is that it would let
+// us resize and might provide better cache locality. On the other hand, we
+// would lose the ability to use a packed 8-bit array for small pools, and
+// would generally run into cache-unfriendly packing issues and possible
+// false sharing. Once again, this would need to be thoroughly benchmarked to
+// justify the added complexity.
 }} // namespace corvid::container
