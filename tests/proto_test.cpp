@@ -794,27 +794,6 @@ void DnsResolveOne_Failure() {
   EXPECT_EQ(ep, net_endpoint{});
 }
 
-// Helper: create a connected socketpair and wrap each end in a `net_socket`.
-// Caller must close both sockets when done (RAII via `net_socket` destructor).
-// Plain struct (not `std::pair`) so structured bindings use direct member
-// access rather than `std::tuple_element<>::type`.
-struct sockpair_t {
-  net_socket a;
-  net_socket b;
-};
-// Make a pair of connected sockets, in non-blocking mode.
-static sockpair_t make_nb_sockpair() {
-  int fds[2];
-  if (::socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, fds) != 0) {
-    const int err = errno;
-    std::cerr << "socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK) failed: "
-              << std::strerror(err) << " (" << err << ")\n";
-    ASSERT_TRUE(false);
-    return {};
-  }
-  return {net_socket{os_file{fds[0]}}, net_socket{os_file{fds[1]}}};
-}
-
 // Minimal `io_conn` that counts how many times each virtual is called.
 struct counting_conn: io_conn {
   using io_conn::io_conn;
@@ -862,7 +841,7 @@ void IoLoop_Post() {
 void IoLoop_PreStartWorkIsQueued() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   EXPECT_TRUE(loop->is_loop_thread());
 
@@ -890,7 +869,7 @@ void IoLoop_PreStartWorkIsQueued() {
 void IoLoop_RegisterUnregister() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
   ASSERT_TRUE(loop->register_socket(conn));
@@ -920,7 +899,7 @@ void IoLoop_RegisterUnregister() {
 void IoLoop_SetWritable() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
   ASSERT_TRUE(loop->register_socket(conn));
@@ -943,7 +922,7 @@ void IoLoop_SetWritable() {
 void IoLoop_SetReadable() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
   ASSERT_TRUE(loop->register_socket(conn, false, false));
@@ -976,7 +955,7 @@ void IoLoop_SetReadable() {
 void IoLoop_ErrorSkipsWritable() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   auto conn = std::make_shared<counting_conn>(std::move(a));
   ASSERT_TRUE(loop->register_socket(conn));
@@ -1005,7 +984,7 @@ void IoLoop_DefaultOnError() {
 
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   auto conn = std::make_shared<readable_only_conn>(std::move(a));
   ASSERT_TRUE(loop->register_socket(conn));
@@ -1020,7 +999,7 @@ void IoLoop_IsLoopThreadIsPerLoop() {
   auto loop_a = epoll_loop::make();
   auto loop_b = epoll_loop::make();
   auto loop_b_scope = loop_b->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
   auto conn = std::make_shared<counting_conn>(std::move(a));
 
   std::atomic_bool first_result{false};
@@ -1381,7 +1360,7 @@ void RecvBufferView_TryTakeFull_StealAllocation() {
 void StreamConn_Lifecycle() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   const net_endpoint remote{ipv4_addr::loopback, 9999};
   {
@@ -1399,7 +1378,7 @@ void StreamConn_Lifecycle() {
 void StreamConn_Receive() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   std::string received;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
@@ -1422,7 +1401,7 @@ void StreamConn_Receive() {
 void StreamConn_SetRecvBufSize() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   // `recv_buf_size` is a target for future compactions; the actual per-read
   // limit may be larger when the allocator (or SSO) provides extra capacity.
@@ -1460,7 +1439,7 @@ void StreamConn_SetRecvBufSize() {
 void StreamConn_PeerClose() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   bool closed = false;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
@@ -1500,7 +1479,7 @@ void StreamConn_PeerClose() {
 void StreamConn_PeerClose_WithBufferedData() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   int data_count = 0;
   bool read_open_at_eof_dispatch = true;
@@ -1550,7 +1529,7 @@ void StreamConn_PeerClose_WithBufferedData() {
 void StreamConn_Send() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   EXPECT_GE(loop->run_once(0), 0); // process posted do_open()
@@ -1570,7 +1549,7 @@ void StreamConn_Send() {
 void StreamConn_ManualClose() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   bool closed = false;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
@@ -1594,7 +1573,7 @@ void StreamConn_ManualClose() {
 void StreamConn_DrainAfterBufferedSend() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   // Restrict the kernel send buffer so that a large write is partial.
   // The kernel may round up, but typically honors a small value closely
@@ -1639,7 +1618,7 @@ void StreamConn_DrainAfterBufferedSend() {
 void StreamConn_DrainAfterImmediateSend() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   int drain_count = 0;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
@@ -1665,7 +1644,7 @@ void StreamConn_DrainAfterImmediateSend() {
 void StreamConn_SendRejectsOnlyEmptyBuffers() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   int drain_count = 0;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
@@ -1697,7 +1676,7 @@ void StreamConn_SendRejectsOnlyEmptyBuffers() {
 void StreamConn_SendMultipleBuffers() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   EXPECT_GE(loop->run_once(0), 0); // process posted do_open()
@@ -1715,7 +1694,7 @@ void StreamConn_SendMultipleBuffers() {
 void StreamConn_AsyncCbRead() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   std::string received;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
@@ -1741,7 +1720,7 @@ void StreamConn_AsyncCbRead() {
 void StreamConn_AsyncCbRead_PreservesEarlyData() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   std::string received;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
@@ -1769,7 +1748,7 @@ void StreamConn_AsyncCbRead_PreservesEarlyData() {
 void StreamConn_AsyncCbRead_DuplicateRejected() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   int callback_count = 0;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
@@ -1799,7 +1778,7 @@ void StreamConn_AsyncCbRead_DuplicateRejected() {
 void StreamConn_AsyncCbRead_PeerClose() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   // `stream_async_cb` fully takes over the handlers, so the persistent
   // `on_close` on `own_handlers_` does not fire while the `stream_async_cb`
@@ -1838,7 +1817,7 @@ void StreamConn_AsyncCbRead_PeerClose() {
 void StreamConn_AsyncCbWrite() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   bool completed{false};
   int callback_count = 0;
@@ -1864,7 +1843,7 @@ void StreamConn_AsyncCbWrite() {
 void StreamConn_AsyncCbWrite_Failure() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   // `stream_async_cb` fully takes over the handlers; the persistent `on_close`
   // on `own_handlers_` is silenced while it is active. The write-failure
@@ -1894,7 +1873,7 @@ void StreamConn_AsyncCbWrite_Failure() {
 void StreamConn_ShutdownWrite() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   std::string received;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
@@ -1927,7 +1906,7 @@ void StreamConn_ShutdownWrite() {
 void StreamConn_ShutdownRead() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   int data_count = 0;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
@@ -1965,7 +1944,7 @@ void StreamConn_ShutdownRead() {
 void StreamConn_ShutdownBothCloses() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {}, {});
   EXPECT_GE(loop->run_once(0), 0); // process posted register_with_loop
@@ -1983,7 +1962,7 @@ void StreamConn_ShutdownBothCloses() {
 
 void StreamConn_AsyncCbWrite_DuplicateRejected() {
   epoll_loop_runner loop;
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   constexpr int small_buf = 4096;
   EXPECT_TRUE(a.set_send_buffer_size(small_buf));
@@ -2025,7 +2004,7 @@ void StreamConn_AsyncCbWrite_DuplicateRejected() {
 void StreamConn_GracefulClose() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   constexpr int small_buf = 4096;
   EXPECT_TRUE(a.set_send_buffer_size(small_buf));
@@ -2067,7 +2046,7 @@ void StreamConn_GracefulClose() {
 void StreamConn_CloseThenDestructStaysGraceful() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   constexpr int small_buf = 4096;
   EXPECT_TRUE(a.set_send_buffer_size(small_buf));
@@ -2112,7 +2091,7 @@ void StreamConn_CloseThenDestructStaysGraceful() {
 void StreamConn_MutualClose() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   bool closed = false;
   auto conn = stream_conn_ptr::adopt(loop, std::move(a), {},
@@ -2220,7 +2199,7 @@ void StreamConn_Listen_MutualClose() {
 void StreamConn_DestructorHangsUp() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   constexpr int small_buf = 4096;
   EXPECT_TRUE(a.set_send_buffer_size(small_buf));
@@ -2271,7 +2250,7 @@ void LoopTask_FireAndForget() {
 void StreamConn_AsyncRead() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   std::string received;
   bool done = false;
@@ -2300,7 +2279,7 @@ void StreamConn_AsyncRead() {
 void StreamConn_AsyncRead_PreservesEarlyData() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   std::string received;
   bool done = false;
@@ -2332,7 +2311,7 @@ void StreamConn_AsyncRead_PreservesEarlyData() {
 void StreamConn_AsyncRead_StopsBetweenCalls() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   std::string first;
   std::string second;
@@ -2384,7 +2363,7 @@ void StreamConn_AsyncRead_StopsBetweenCalls() {
 void StreamConn_AsyncRead_PeerClose() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   std::string received{"sentinel"};
   bool done = false;
@@ -2419,7 +2398,7 @@ void StreamConn_AsyncRead_PeerClose() {
 void StreamConn_AsyncSend() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   bool sent = false;
 
@@ -2503,7 +2482,7 @@ void StreamConn_EchoServer() {
 void StreamConnWithState_Adopt() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   using conn_t = stream_conn_with_state<int>;
   auto conn = stream_conn_ptr_with<conn_t>::adopt(loop, std::move(a), {});
@@ -2517,7 +2496,7 @@ void StreamConnWithState_Adopt() {
 void StreamConnWithState_From() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   using conn_t = stream_conn_with_state<int>;
   int seen = -1;
@@ -2580,7 +2559,7 @@ void StreamConnWithState_Listen() {
 void StreamConnPtr_Covariance() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
-  auto [a, b] = make_nb_sockpair();
+  auto [a, b] = net_socket::create_pair();
 
   using conn_t = stream_conn_with_state<int>;
   bool closed = false;

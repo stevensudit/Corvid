@@ -32,6 +32,8 @@
 namespace corvid { inline namespace filesys {
 using namespace bool_enums;
 
+#pragma region Enums
+
 // `SOCK_*` wrapper for socket types and flags.
 enum class socket_type : int {
   stream = SOCK_STREAM,       // 1
@@ -40,9 +42,6 @@ enum class socket_type : int {
   rdm = SOCK_RDM,             // 4
   seqpacket = SOCK_SEQPACKET, // 5
   dccp = SOCK_DCCP,           // 6
-  unused_7 = 7,               // 7
-  unused_8 = 8,               // 8
-  unused_9 = 9,               // 9
   packet = SOCK_PACKET,       // 10
 
   cloexec = SOCK_CLOEXEC,                // 0x0200'0000
@@ -111,146 +110,34 @@ enum class protocol_type : int {
   ip = IPPROTO_IP,             // 0
   icmp = IPPROTO_ICMP,         // 1
   igmp = IPPROTO_IGMP,         // 2
-  unused_3 = 3,                // 3, was IPPROTO_GGP
   ipip = IPPROTO_IPIP,         // 4
-  unused_5 = 5,                // 5, was IPPROTO_ST
   tcp = IPPROTO_TCP,           // 6
-  unused_7 = 7,                // 7, was IPPROTO_CBT
   egp = IPPROTO_EGP,           // 8
-  unused_9 = 9,                // 9, was IPPROTO_IGP (PIGP)
-  unused_10 = 10,              // 10, was IPPROTO_BBNRCC
-  unused_11 = 11,              // 11, was IPPROTO_NVP
   pup = IPPROTO_PUP,           // 12
-  unused_13 = 13,              // 13, was IPPROTO_ARGUS
-  unused_14 = 14,              // 14, was IPPROTO_EMCON
-  unused_15 = 15,              // 15, was IPPROTO_XNET
-  unused_16 = 16,              // 16, was IPPROTO_CHAOS
   udp = IPPROTO_UDP,           // 17
-  unused_18 = 18,              // 18, was IPPROTO_MUX
-  unused_19 = 19,              // 19, was IPPROTO_DCN/MEAS
-  unused_20 = 20,              // 20, was IPPROTO_HMP
-  unused_21 = 21,              // 21, was IPPROTO_PRM
   idp = IPPROTO_IDP,           // 22
-  unused_23 = 23,              // 23, was IPPROTO_TRUNK1
-  unused_24 = 24,              // 24, was IPPROTO_TRUNK2
-  unused_25 = 25,              // 25, was IPPROTO_LEAF1
-  unused_26 = 26,              // 26, was IPPROTO_LEAF2
-  unused_27 = 27,              // 27, was IPPROTO_RDP
-  unused_28 = 28,              // 28, was IPPROTO_IRTP
   tp = IPPROTO_TP,             // 29
-  unused_30 = 30,              // 30, was IPPROTO_NETBLT
-  unused_31 = 31,              // 31, was IPPROTO_MFE_NSP
-  unused_32 = 32,              // 32, was IPPROTO_MERIT_INP
   dccp = IPPROTO_DCCP,         // 33
-  unused_34 = 34,              // 34, was IPPROTO_3PC
-  unused_35 = 35,              // 35, was IPPROTO_IDPR
-  unused_36 = 36,              // 36, was IPPROTO_XTP
-  unused_37 = 37,              // 37, was IPPROTO_DDP
-  unused_38 = 38,              // 38, was IPPROTO_IDPR_CMTP
-  unused_39 = 39,              // 39, was IPPROTO_TPXX
-  unused_40 = 40,              // 40, was IPPROTO_IL
   ipv6 = IPPROTO_IPV6,         // 41
-  unused_42 = 42,              // 42, was IPPROTO_SDRP
   routing = IPPROTO_ROUTING,   // 43
   fragment = IPPROTO_FRAGMENT, // 44
-  unused_45 = 45,              // 45, was IPPROTO_IDRP
   rsvp = IPPROTO_RSVP,         // 46
   gre = IPPROTO_GRE,           // 47
-  unused_48 = 48,              // 48, was IPPROTO_DSR
-  unused_49 = 49,              // 49, was IPPROTO_BNA
   esp = IPPROTO_ESP,           // 50
   ah = IPPROTO_AH,             // 51
-  unused_52 = 52,              // 52, was IPPROTO_INLSP
-  unused_53 = 53,              // 53, was IPPROTO_SWIPE
-  unused_54 = 54,              // 54, was IPPROTO_NARP
-  unused_55 = 55,              // 55, was IPPROTO_MOBILE
-  unused_56 = 56,              // 56, was IPPROTO_TLSP
-  unused_57 = 57,              // 57, was IPPROTO_SKIP
   icmpv6 = IPPROTO_ICMPV6,     // 58
   none = IPPROTO_NONE,         // 59
   dstopts = IPPROTO_DSTOPTS,   // 60
-  unused_61 = 61,              // 61, was IPPROTO_ANY
-  unused_62 = 62,              // 62, was IPPROTO_CFTP
-  unused_63 = 63,              // 63, was IPPROTO_LOCAL
-  unused_64 = 64,              // 64, was IPPROTO_SAT_EXPAK
-  unused_65 = 65,              // 65, was IPPROTO_KRYPTOLAN
-  unused_66 = 66,              // 66, was IPPROTO_RVD
-  unused_67 = 67,              // 67, was IPPROTO_IPPC
-  unused_68 = 68,              // 68, was IPPROTO_ADFS
-  unused_69 = 69,              // 69, was IPPROTO_SAT_MON
-  unused_70 = 70,              // 70, was IPPROTO_VISA
-  unused_71 = 71,              // 71, was IPPROTO_IPCV
-  unused_72 = 72,              // 72, was IPPROTO_CPNX
-  unused_73 = 73,              // 73, was IPPROTO_CPHB
-  unused_74 = 74,              // 74, was IPPROTO_WSN
-  unused_75 = 75,              // 75, was IPPROTO_PVP
-  unused_76 = 76,              // 76, was IPPROTO_BR_SAT_MON
-  unused_77 = 77,              // 77, was IPPROTO_SUN_ND
-  unused_78 = 78,              // 78, was IPPROTO_WB_MON
-  unused_79 = 79,              // 79, was IPPROTO_WB_EXPAK
-  unused_80 = 80,              // 80, was IPPROTO_ISO_IP
-  unused_81 = 81,              // 81, was IPPROTO_VMTP
-  unused_82 = 82,              // 82, was IPPROTO_SECURE_VTP
-  unused_83 = 83,              // 83, was IPPROTO_VINES
-  unused_84 = 84,              // 84, was IPPROTO_TTP (IPTM)
-  unused_85 = 85,              // 85, was IPPROTO_NSFNET_IGP
-  unused_86 = 86,              // 86, was IPPROTO_DGP
-  unused_87 = 87,              // 87, was IPPROTO_TCF
-  unused_88 = 88,              // 88, was IPPROTO_EIGRP
-  unused_89 = 89,              // 89, was IPPROTO_OSPFIGP
-  unused_90 = 90,              // 90, was IPPROTO_SPRITE_RPC
-  unused_91 = 91,              // 91, was IPPROTO_LARP
   mtp = IPPROTO_MTP,           // 92
-  unused_93 = 93,              // 93, was IPPROTO_AX25
   beetph = IPPROTO_BEETPH,     // 94, was IPPROTO_IPIP
-  unused_95 = 95,              // 95, was IPPROTO_MICP
-  unused_96 = 96,              // 96, was IPPROTO_SCC_SP
-  unused_97 = 97,              // 97, was IPPROTO_ETHERIP
   encap = IPPROTO_ENCAP,       // 98
-  unused_99 = 99,              // 99, was IPPROTO_PIM_ENCR
-  unused_100 = 100,            // 100, was IPPROTO_GMT
-  unused_101 = 101,            // 101, was IPPROTO_IFMP
-  unused_102 = 102,            // 102, was IPPROTO_PNNI
   pim = IPPROTO_PIM,           // 103
-  unused_104 = 104,            // 104, was IPPROTO_ARIS
-  unused_105 = 105,            // 105, was IPPROTO_SCPS
-  unused_106 = 106,            // 106, was IPPROTO_QNX
-  unused_107 = 107,            // 107, was IPPROTO_AN
   comp = IPPROTO_COMP,         // 108
-  unused_109 = 109,            // 109, was IPPROTO_SNP
-  unused_110 = 110,            // 110, was IPPROTO_COMPAQ_PEER
-  unused_111 = 111,            // 111, was IPPROTO_IPX_IN_IP
-  unused_112 = 112,            // 112, was IPPROTO_VRRP
-  unused_113 = 113,            // 113, was IPPROTO_PGM
-  unused_114 = 114,            // 114, was IPPROTO_ANY_0_HOP
   l2tp = IPPROTO_L2TP,         // 115
-  unused_116 = 116,            // 116, was IPPROTO_DDX
-  unused_117 = 117,            // 117, was IPPROTO_IATP
-  unused_118 = 118,            // 118, was IPPROTO_STP
-  unused_119 = 119,            // 119, was IPPROTO_SRP
-  unused_120 = 120,            // 120, was IPPROTO_UTI
-  unused_121 = 121,            // 121, was IPPROTO_SMP
-  unused_122 = 122,            // 122, was IPPROTO_SM
-  unused_123 = 123,            // 123, was IPPROTO_PTP
-  unused_124 = 124,            // 124, was IPPROTO_ISIS_IPV4
-  unused_125 = 125,            // 125, was IPPROTO_FIRE
-  unused_126 = 126,            // 126, was IPPROTO_CRTP
-  unused_127 = 127,            // 127, was IPPROTO_CRUDP
-  unused_128 = 128,            // 128, was IPPROTO_SSCOPMCE
-  unused_129 = 129,            // 129, was IPPROTO_IPLT
-  unused_130 = 130,            // 130, was IPPROTO_SPS
-  unused_131 = 131,            // 131, was IPPROTO_PIPE
   sctp = IPPROTO_SCTP,         // 132
-  unused_133 = 133,            // 133, was IPPROTO_FC
-  unused_134 = 134,            // 134, was IPPROTO_RSVP_E2E_IGNORE
   mh = IPPROTO_MH,             // 135
   udplite = IPPROTO_UDPLITE,   // 136
   mpls = IPPROTO_MPLS,         // 137
-  unused_138 = 138,            // 138, was IPPROTO_MANET
-  unused_139 = 139,            // 139, was IPPROTO_HIP
-  unused_140 = 140,            // 140, was IPPROTO_SHIM6
-  unused_141 = 141,            // 141, was IPPROTO_WESP
-  unused_142 = 142,            // 142, was IPPROTO_ROHC
   ethernet = IPPROTO_ETHERNET, // 143
   raw = IPPROTO_RAW,           // 255
   max = 256,
@@ -297,6 +184,9 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
 
 namespace corvid { inline namespace filesys {
 
+#pragma endregion
+#pragma region net_socket
+
 // RAII IP socket with type-safe option methods.
 //
 // `net_socket` is-an `os_file`, adding socket-specific operations on top
@@ -307,6 +197,7 @@ namespace corvid { inline namespace filesys {
 // peer address as a raw `sockaddr_storage`; use
 // `net_endpoint{sockaddr_storage}` to convert it if needed.
 class [[nodiscard]] net_socket: public os_file {
+#pragma region Construction
 public:
   using handle_t = os_file::file_handle_t;
   static constexpr handle_t invalid_handle = os_file::invalid_file_handle;
@@ -322,6 +213,35 @@ public:
 
   net_socket& operator=(net_socket&&) noexcept = default;
   net_socket& operator=(const net_socket&) = delete;
+
+#pragma endregion
+#pragma region Destruction
+
+  // Close the socket. Idempotent. Returns true when the socket was open and
+  // is now closed, false if it could not be closed (likely because it
+  // already was).
+  // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
+  [[nodiscard]] bool close() noexcept { return os_file::close(); }
+
+  // Close the socket. In `graceful` mode, performs a normal close (FIN/ACK).
+  // In `forceful` mode, performs a forceful close (RST).
+  [[nodiscard]] bool close(close_mode mode) noexcept {
+    if (mode == close_mode::forceful && is_open())
+      (void)set_option(SOL_SOCKET, SO_LINGER,
+          linger{.l_onoff = 1, .l_linger = 0});
+
+    return os_file::close();
+  }
+
+  // Shut down part of a full-duplex connection. `how` is one of `SHUT_RD`,
+  // `SHUT_WR`, or `SHUT_RDWR`. Returns true on success.
+  [[nodiscard]] bool shutdown(int how) noexcept {
+    assert(is_open());
+    return ::shutdown(handle(), how) == 0;
+  }
+
+#pragma endregion
+#pragma region Factories
 
   // Create an IPv4 socket. Defaults to non-blocking TCP (`SOCK_STREAM |
   // SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass `message_style::datagram` for UDP,
@@ -361,21 +281,22 @@ public:
     return do_create(address_family{addr.ss_family}, exec, style);
   }
 
-  // Close the socket. Idempotent. Returns true when the socket was open and
-  // is now closed, false if it could not be closed (likely because it
-  // already was).
-  // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
-  [[nodiscard]] bool close() noexcept { return os_file::close(); }
-
-  // Close the socket. In `graceful` mode, performs a normal close (FIN/ACK).
-  // In `forceful` mode, performs a forceful close (RST).
-  [[nodiscard]] bool close(close_mode mode) noexcept {
-    if (mode == close_mode::forceful && is_open())
-      (void)set_option(SOL_SOCKET, SO_LINGER,
-          linger{.l_onoff = 1, .l_linger = 0});
-
-    return os_file::close();
+  // Create a connected pair of sockets.
+  [[nodiscard]] static std::pair<net_socket, net_socket>
+  create_pair(address_family domain = address_family::unix,
+      socket_type type = socket_type::stream,
+      execution exec = execution::nonblocking) noexcept {
+    auto combined_type = *type;
+    if (exec == execution::nonblocking)
+      combined_type |= SOCK_NONBLOCK | SOCK_CLOEXEC;
+    int fds[2];
+    if (::socketpair(*domain, combined_type, 0, fds) == 0)
+      return {net_socket{os_file{fds[0]}}, net_socket{os_file{fds[1]}}};
+    return {};
   }
+
+#pragma endregion
+#pragma region Options
 
   // Set a socket option. Returns true on success. Templated to infer
   // `sizeof(T)` automatically and hide the `reinterpret_cast` required by
@@ -431,6 +352,9 @@ public:
   [[nodiscard]] bool set_send_buffer_size(int bytes) noexcept {
     return set_option(SOL_SOCKET, SO_SNDBUF, bytes);
   }
+
+#pragma endregion
+#pragma region Recv
 
   // Read up to `data.size() - offset` bytes into `data` starting at
   // `offset`.
@@ -502,6 +426,9 @@ public:
     return std::nullopt;
   }
 
+#pragma endregion
+#pragma region Send
+
   // Send as much of `data` as possible on the socket. On success, removes
   // the written prefix from `data` and returns true. On failure, leaves
   // `data` unchanged and returns false. A "soft" failure (e.g., EAGAIN) is
@@ -530,6 +457,9 @@ public:
     assert(is_open());
     return ::sendmsg(handle(), &msg, flags);
   }
+
+#pragma endregion
+#pragma region Connecting
 
   // Return the POSIX socket address size for `addr`. For IPv4 and IPv6,
   // returns the fixed struct size. For UDS pathname sockets, returns only
@@ -579,13 +509,6 @@ public:
     return ::listen(handle(), backlog) == 0;
   }
 
-  // Shut down part of a full-duplex connection. `how` is one of `SHUT_RD`,
-  // `SHUT_WR`, or `SHUT_RDWR`. Returns true on success.
-  [[nodiscard]] bool shutdown(int how) noexcept {
-    assert(is_open());
-    return ::shutdown(handle(), how) == 0;
-  }
-
   // Accept a pending connection. The returned socket is created with
   // `SOCK_CLOEXEC | SOCK_NONBLOCK` via `accept4`. Returns `std::nullopt`
   // when no connection is available (`EAGAIN`/`EWOULDBLOCK`) or an error
@@ -614,4 +537,6 @@ private:
     return net_socket{domain, type, protocol_type{0}};
   }
 };
+
+#pragma endregion
 }} // namespace corvid::filesys

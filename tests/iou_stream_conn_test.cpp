@@ -38,15 +38,6 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
   return pred();
 }
 
-// Create a connected Unix socket pair. Returns {send_fd, recv_fd}.
-std::pair<os_file, os_file> make_socket_pair() {
-  int raw[2];
-  if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0,
-          raw) != 0)
-    throw std::system_error(errno, std::system_category(), "socketpair");
-  return {os_file{raw[0]}, os_file{raw[1]}};
-}
-
 } // namespace
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
@@ -54,9 +45,7 @@ std::pair<os_file, os_file> make_socket_pair() {
 void IouStreamConn_SendRecvString() {
   // String send -> on_data fires, payload correct.
   if (true) {
-    auto [fd0, fd1] = make_socket_pair();
-    net_socket sock0{std::move(fd0)};
-    net_socket sock1{std::move(fd1)};
+    auto [sock0, sock1] = net_socket::create_pair();
 
     iou_loop_runner runner;
     std::atomic_bool received{false};
@@ -91,9 +80,7 @@ void IouStreamConn_SendRecvString() {
 void IouStreamConn_MultipleStrings() {
   // Multiple string sends -> all received and concatenated correctly.
   if (true) {
-    auto [fd0, fd1] = make_socket_pair();
-    net_socket sock0{std::move(fd0)};
-    net_socket sock1{std::move(fd1)};
+    auto [sock0, sock1] = net_socket::create_pair();
 
     iou_loop_runner runner;
     std::atomic<int> recv_bytes{0};
@@ -131,9 +118,7 @@ void IouStreamConn_MultipleStrings() {
 void IouStreamConn_SendRecvBuffer() {
   // Direct buffer send -> on_data fires, payload correct.
   if (true) {
-    auto [fd0, fd1] = make_socket_pair();
-    net_socket sock0{std::move(fd0)};
-    net_socket sock1{std::move(fd1)};
+    auto [sock0, sock1] = net_socket::create_pair();
 
     iou_loop_runner runner;
     std::atomic_bool received{false};
@@ -172,9 +157,7 @@ void IouStreamConn_SendRecvBuffer() {
 void IouStreamConn_BufferMoveOut() {
   // `take()` in on_data -> fresh recv submitted, caller owns buffer.
   if (true) {
-    auto [fd0, fd1] = make_socket_pair();
-    net_socket sock0{std::move(fd0)};
-    net_socket sock1{std::move(fd1)};
+    auto [sock0, sock1] = net_socket::create_pair();
 
     iou_loop_runner runner;
     std::atomic_bool received{false};
@@ -208,9 +191,7 @@ void IouStreamConn_BufferMoveOut() {
 void IouStreamConn_GracefulClose() {
   // `close()` -> on_close fires on both sides.
   if (true) {
-    auto [fd0, fd1] = make_socket_pair();
-    net_socket sock0{std::move(fd0)};
-    net_socket sock1{std::move(fd1)};
+    auto [sock0, sock1] = net_socket::create_pair();
 
     iou_loop_runner runner;
     std::atomic_bool closed0{false};
@@ -250,9 +231,7 @@ void IouStreamConn_GracefulClose() {
 void IouStreamConn_HangupClose() {
   // `hangup()` -> socket closed immediately.
   if (true) {
-    auto [fd0, fd1] = make_socket_pair();
-    net_socket sock0{std::move(fd0)};
-    net_socket sock1{std::move(fd1)};
+    auto [sock0, sock1] = net_socket::create_pair();
 
     iou_loop_runner runner;
     std::atomic_bool closed{false};
@@ -278,9 +257,7 @@ void IouStreamConn_HangupClose() {
 void IouStreamConn_OnDrain() {
   // `on_drain` fires after send completes and queue is empty.
   if (true) {
-    auto [fd0, fd1] = make_socket_pair();
-    net_socket sock0{std::move(fd0)};
-    net_socket sock1{std::move(fd1)};
+    auto [sock0, sock1] = net_socket::create_pair();
 
     iou_loop_runner runner;
     std::atomic_bool drained{false};
@@ -311,9 +288,7 @@ void IouStreamConn_OnDrain() {
 void IouStreamConn_WithState() {
   // `iou_stream_conn_with_state` - state accessible in callback.
   if (true) {
-    auto [fd0, fd1] = make_socket_pair();
-    net_socket sock0{std::move(fd0)};
-    net_socket sock1{std::move(fd1)};
+    auto [sock0, sock1] = net_socket::create_pair();
 
     iou_loop_runner runner;
     std::atomic_bool received{false};

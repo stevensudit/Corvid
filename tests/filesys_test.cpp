@@ -650,11 +650,7 @@ void NetSocket_SendRecv() {
 }
 
 void NetSocket_RecvAtContract() {
-  int fds[2];
-  ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
-
-  net_socket reader{os_file{fds[0]}};
-  net_socket writer{os_file{fds[1]}};
+  auto [reader, writer] = net_socket::create_pair();
 
   EXPECT_TRUE(reader.set_nonblocking(true));
 

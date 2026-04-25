@@ -166,7 +166,7 @@ public:
   // As duration.
   template<typename Duration = std::chrono::nanoseconds>
   [[nodiscard]] constexpr Duration as_duration() const noexcept {
-    return from_time_point<std::chrono::steady_clock, Duration>(ts_);
+    return to_duration<Duration>(ts_);
   }
 
   // As time point.
@@ -174,7 +174,7 @@ public:
       typename Duration = std::chrono::nanoseconds>
   [[nodiscard]] constexpr std::chrono::time_point<Clock, Duration>
   as_time_point() const noexcept {
-    return from_time_point<Clock, Duration>(ts_);
+    return to_time_point<Clock, Duration>(ts_);
   }
 
   // Raw value.

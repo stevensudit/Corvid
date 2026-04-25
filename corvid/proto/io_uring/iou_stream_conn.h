@@ -233,6 +233,7 @@ public:
   // calling this. Safe to call from any thread. Once called, destructing the
   // owning `iou_stream_conn_ptr_with` does not cause a forceful close.
   [[nodiscard]] bool close() {
+    // TODO: Honor coordination_policy.
     no_hangup_on_destruct_ = true;
     return loop_.execute_or_post([p = self()] { return p->do_close(); });
   }
@@ -254,6 +255,7 @@ public:
   // Forceful close: cancel pending I/O and close immediately.
   // Safe from any thread.
   [[nodiscard]] bool hangup() {
+    // TODO: Make this actually hang up.
     return loop_.execute_or_post([p = self()] { return p->do_close_now(); });
   }
 
@@ -469,7 +471,8 @@ private:
       while (!send_queue_.empty() &&
              std::holds_alternative<std::string>(send_queue_.front()))
       {
-        if (!buf.append(std::get<std::string>(send_queue_.front()))) break;
+        if (!buf.append(std::get<std::string>(send_queue_.front())))
+          return false;
         send_queue_.pop_front();
       }
     }

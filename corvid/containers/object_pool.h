@@ -176,10 +176,17 @@ public:
     static constexpr bool allows_int_conversion =
         (index_bits_v <= 32) || !is_versioned_v;
 
-    // No ownership semantics.
+    // No actual ownership.
     token() noexcept = default;
     token(const token&) = default;
     token& operator=(const token&) = default;
+    // These are to avoid `performance-move-trivially-copyable`.
+    token(token&& other) noexcept : gen_{other.gen_}, ndx_{other.ndx_} {}
+    token& operator=(token&& other) noexcept {
+      gen_ = other.gen_;
+      ndx_ = other.ndx_;
+      return *this;
+    }
 
     // Construct from a `borrowed` handle. No ownership semantics; it just
     // refers to the slot. When versioned, it can detect staleness.
