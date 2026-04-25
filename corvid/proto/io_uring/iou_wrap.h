@@ -92,30 +92,29 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
     corvid::proto::iouring::iou_cqe_flags> =
     corvid::enums::bitmask::make_bitmask_enum_spec<
         corvid::proto::iouring::iou_cqe_flags,
-        "buffer, more, sock_nonempty, notif">();
+        "notif, sock_nonempty, more, buffer">();
 
 template<>
 constexpr inline auto corvid::enums::registry::enum_spec_v<
     corvid::proto::iouring::iou_sqe_flags> =
     corvid::enums::bitmask::make_bitmask_enum_spec<
         corvid::proto::iouring::iou_sqe_flags,
-        "fixed_file, io_drain, io_link, io_hardlink, async, buffer_select, "
-        "cqe_skip_success">();
+        "cqe_skip_success, buffer_select, async, io_hardlink, io_link, "
+        "io_drain, fixed_file">();
 
 template<>
 constexpr inline auto corvid::enums::registry::enum_spec_v<
     corvid::proto::iouring::iou_timeout_flags> =
     corvid::enums::bitmask::make_bitmask_enum_spec<
         corvid::proto::iouring::iou_timeout_flags,
-        "rel, abs, update, boot_time, real_time, link_timeout_update, "
-        "etime_success, multishot">();
+        "multishot, etime_success, link_timeout_update, real_time, boot_time, "
+        "update, abs">();
 
 template<>
-constexpr inline auto
-    corvid::enums::registry::enum_spec_v<corvid::proto::iouring::poll_flags> =
-        corvid::enums::bitmask::make_bitmask_enum_spec<
-            corvid::proto::iouring::poll_flags,
-            "P_0, in, pri, out, err, hup, nval">();
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::iouring::poll_flags> =
+    corvid::enums::bitmask::make_bitmask_enum_spec<
+        corvid::proto::iouring::poll_flags, "nval, hup, err, out, pri, in">();
 
 namespace corvid { inline namespace proto { namespace iouring {
 

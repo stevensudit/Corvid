@@ -16,6 +16,7 @@
 // limitations under the License.
 #include "../corvid/proto/io_uring/iou_loop.h"
 #include "../corvid/filesys/net_socket.h"
+#include "../corvid/strings/enum_conversion.h"
 
 #include <atomic>
 #include <chrono>
@@ -725,6 +726,82 @@ void IouWrap_ResStatus() {
   }
 }
 
+void IouWrap_CqeFlagsString() {
+  // Each named bit round-trips through `enum_as_string` / `parse_enum`.
+  using namespace corvid::strings;
+  using F = iou_cqe_flags;
+  if (true) {
+    EXPECT_EQ(enum_as_string(F::buffer), "buffer");
+    EXPECT_EQ(enum_as_string(F::more), "more");
+    EXPECT_EQ(enum_as_string(F::sock_nonempty), "sock_nonempty");
+    EXPECT_EQ(enum_as_string(F::notif), "notif");
+  }
+  if (true) {
+    // Higher bits print first.
+    EXPECT_EQ(enum_as_string(F::more | F::buffer), "more + buffer");
+  }
+  if (true) {
+    constexpr F bad{0xff};
+    EXPECT_EQ(parse_enum("buffer", bad), F::buffer);
+    EXPECT_EQ(parse_enum("more", bad), F::more);
+    EXPECT_EQ(parse_enum("sock_nonempty", bad), F::sock_nonempty);
+    EXPECT_EQ(parse_enum("notif", bad), F::notif);
+    EXPECT_EQ(parse_enum("more + buffer", bad), F::more | F::buffer);
+  }
+}
+
+void IouWrap_SqeFlagsString() {
+  // Each named bit round-trips through `enum_as_string` / `parse_enum`.
+  using namespace corvid::strings;
+  using F = iou_sqe_flags;
+  if (true) {
+    EXPECT_EQ(enum_as_string(F::fixed_file), "fixed_file");
+    EXPECT_EQ(enum_as_string(F::io_drain), "io_drain");
+    EXPECT_EQ(enum_as_string(F::io_link), "io_link");
+    EXPECT_EQ(enum_as_string(F::io_hardlink), "io_hardlink");
+    EXPECT_EQ(enum_as_string(F::async), "async");
+    EXPECT_EQ(enum_as_string(F::buffer_select), "buffer_select");
+    EXPECT_EQ(enum_as_string(F::cqe_skip_success), "cqe_skip_success");
+  }
+  if (true) {
+    // Higher bits print first.
+    EXPECT_EQ(enum_as_string(F::async | F::io_link), "async + io_link");
+  }
+  if (true) {
+    constexpr F bad{0xff};
+    EXPECT_EQ(parse_enum("fixed_file", bad), F::fixed_file);
+    EXPECT_EQ(parse_enum("cqe_skip_success", bad), F::cqe_skip_success);
+    EXPECT_EQ(parse_enum("async + io_link", bad), F::async | F::io_link);
+  }
+}
+
+void IouWrap_TimeoutFlagsString() {
+  // Each named bit round-trips through `enum_as_string` / `parse_enum`.
+  // `rel` (value 0) has no bit name and prints as "0x00".
+  using namespace corvid::strings;
+  using F = iou_timeout_flags;
+  if (true) {
+    EXPECT_EQ(enum_as_string(F::rel), "0x00000000");
+    EXPECT_EQ(enum_as_string(F::abs), "abs");
+    EXPECT_EQ(enum_as_string(F::update), "update");
+    EXPECT_EQ(enum_as_string(F::boot_time), "boot_time");
+    EXPECT_EQ(enum_as_string(F::real_time), "real_time");
+    EXPECT_EQ(enum_as_string(F::link_timeout_update), "link_timeout_update");
+    EXPECT_EQ(enum_as_string(F::etime_success), "etime_success");
+    EXPECT_EQ(enum_as_string(F::multishot), "multishot");
+  }
+  if (true) {
+    // Higher bits print first.
+    EXPECT_EQ(enum_as_string(F::multishot | F::abs), "multishot + abs");
+  }
+  if (true) {
+    constexpr F bad{0x80000000};
+    EXPECT_EQ(parse_enum("abs", bad), F::abs);
+    EXPECT_EQ(parse_enum("multishot", bad), F::multishot);
+    EXPECT_EQ(parse_enum("multishot + abs", bad), F::multishot | F::abs);
+  }
+}
+
 // NOLINTEND(readability-function-cognitive-complexity)
 MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
     IouLoop_StopFromThread, IouLoop_PostFromThread, IouLoop_PostAndWait,
@@ -735,4 +812,5 @@ MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
     IouLoop_RecvSendMsg, IouLoop_BorrowBufferSizes,
     IouLoop_SlotRetentionRetain, IouWrap_TimespecDurationRoundTrip,
     IouWrap_TimespecTimePointRoundTrip, IouWrap_TimespecStaticHelpers,
-    IouWrap_TimespecAsPointer, IouWrap_ItimerspecConstruct, IouWrap_ResStatus)
+    IouWrap_TimespecAsPointer, IouWrap_ItimerspecConstruct, IouWrap_ResStatus,
+    IouWrap_CqeFlagsString, IouWrap_SqeFlagsString, IouWrap_TimeoutFlagsString)
