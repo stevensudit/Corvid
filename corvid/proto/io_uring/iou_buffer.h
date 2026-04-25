@@ -100,6 +100,7 @@ class iou_buffer {
 public:
   using span_t = buffer_pool_base::span_t;
   using const_span_t = buffer_pool_base::const_span_t;
+  static constexpr uint64_t seek_current = static_cast<uint64_t>(-1);
 
   iou_buffer() = default;
   ~iou_buffer() { do_reset(); }
@@ -158,12 +159,18 @@ public:
   // as a single buffer entry.
   [[nodiscard]] size_t buf_index() const noexcept { return buf_index_; }
 
-  // Offset into file: used for files, not sockets.
-  [[nodiscard]] size_t& file_offset() noexcept { return file_offset_; }
+  // Offset into file.
+  //
+  // For sockets, this must be `seek_current` or `0`. For files, you can also
+  // use `seek_current`, in which case it will be automatically advanced by the
+  // kernel. Alternately, you can set it explicitly, in which case it will be
+  // advanced automatically by the `update` method. See also: `set_read_size`
+  // and `seek_read`.
+  [[nodiscard]] uint64_t& file_offset() noexcept { return file_offset_; }
 
   // Byte offset from the pool base.
-  [[nodiscard]] uint64_t pool_base_offset() const noexcept {
-    return static_cast<uint64_t>(full_span_.data() - pool_->base());
+  [[nodiscard]] size_t pool_base_offset() const noexcept {
+    return full_span_.data() - pool_->base();
   }
 
   // Span of the entire buffer. Not generally useful outside of
@@ -201,6 +208,7 @@ public:
     is_read_ = false;
   }
 
+#pragma endregion
 #pragma region Payload
 
   // String view over `payload_span`.
@@ -273,6 +281,33 @@ public:
         sv.size()});
   }
 
+  // Set maximum bytes to read.
+  //
+  //  Set `active_span` to `bytes_to_read`, starting at the current tail.
+  //  Returns false without modifying anything if `bytes_to_read` exceeds the
+  //  available tail space.
+  [[nodiscard]] bool set_read_size(size_t bytes_to_read) noexcept {
+    assert(is_read_);
+    auto* tail_start = payload_span_.data() + payload_span_.size();
+    const auto tail_size = static_cast<size_t>(
+        full_span_.data() + full_span_.size() - tail_start);
+    if (bytes_to_read > tail_size) return false;
+    active_span_ = {tail_start, bytes_to_read};
+    return true;
+  }
+
+  // Set up a file read from `new_offset` for `bytes_to_read`. Updates
+  // `file_offset` and shrinks `active_span_` to exactly `bytes_to_read`,
+  // starting at the current tail. Returns false without modifying anything if
+  // `bytes_to_read` exceeds the available tail space. See also: `file_offset`.
+  [[nodiscard]] bool
+  seek_read(uint64_t new_offset, size_t bytes_to_read) noexcept {
+    assert(is_read_);
+    if (!set_read_size(bytes_to_read)) return false;
+    file_offset_ = new_offset;
+    return true;
+  }
+
 #pragma endregion
 #pragma region State
 
@@ -284,12 +319,22 @@ public:
     cqe_flags_ = cqe_flags;
   }
 
+  // Result of `prepare` call. Essentially, a named tuple.
+  struct prepare_result {
+    span_t active_span;
+    size_t buf_index;
+    uint64_t file_offset;
+  };
+
   // Prepare the buffer for I/O submission. Resets the I/O result and returns
-  // the active span and buffer index. This is primarily for internal use.
-  std::pair<span_t, size_t> prepare() noexcept {
+  // the active span, buffer index, and file offset. This is primarily for
+  // internal use.
+  prepare_result prepare() noexcept {
     reset_result();
     ++pending_releases_;
-    return {active_span(), buf_index()};
+    return {.active_span = active_span(),
+        .buf_index = buf_index(),
+        .file_offset = file_offset_};
   }
 
   // Update with the result of an I/O completion.
@@ -302,6 +347,7 @@ public:
     res_ = res;
     cqe_flags_ = cqe_flags;
     if (!res.ok()) return *this;
+    if (file_offset_ != seek_current) file_offset_ += res.bytes();
     if (is_read_) {
       --pending_releases_;
       const size_t extend = std::min(res.bytes(),
@@ -324,6 +370,7 @@ public:
     return *this;
   }
 
+#pragma endregion
 #pragma region Read/Write
 
   // Promote this read buffer to write mode. `payload_span` is kept as-is
@@ -397,7 +444,7 @@ private:
   span_t payload_span_;
   span_t active_span_;
   size_t buf_index_{};
-  size_t file_offset_{};
+  uint64_t file_offset_{};
   size_t pending_releases_{};
   iou_res res_;
   iou_cqe_flags cqe_flags_{};

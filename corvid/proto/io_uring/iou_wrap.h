@@ -371,21 +371,23 @@ public:
   }
 
   // Read into a pre-registered fixed buffer. `buf_index` is the slot index
-  // from `io_uring_register_buffers`. For sockets, `offset` is ignored.
+  // from `io_uring_register_buffers`. For sockets, `file_offset` must be 0 or
+  // -1.
   bool prep_read_fixed(int fd, span_t span, size_t buf_index,
-      uint64_t offset = 0) noexcept {
+      uint64_t file_offset = -1) noexcept {
     io_uring_prep_read_fixed(sqe_, fd, span.data(),
-        static_cast<unsigned>(span.size()), static_cast<off_t>(offset),
+        static_cast<unsigned>(span.size()), static_cast<off_t>(file_offset),
         static_cast<int>(buf_index));
     return true;
   }
 
   // Write from a pre-registered fixed buffer. `buf_index` is the slot index
-  // from `io_uring_register_buffers`. For sockets, `offset` is ignored.
+  // from `io_uring_register_buffers`. For sockets, `file_offset` must be 0 or
+  // -1.
   bool prep_write_fixed(int fd, const_span_t span, size_t buf_index,
-      uint64_t offset = 0) noexcept {
+      uint64_t file_offset = -1) noexcept {
     io_uring_prep_write_fixed(sqe_, fd, span.data(),
-        static_cast<unsigned>(span.size()), static_cast<off_t>(offset),
+        static_cast<unsigned>(span.size()), static_cast<off_t>(file_offset),
         static_cast<int>(buf_index));
     return true;
   }

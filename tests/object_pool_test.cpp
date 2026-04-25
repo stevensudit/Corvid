@@ -280,56 +280,56 @@ void ObjectPool_DetachAndReattach() {
   }
 }
 
-void ObjectPool_HandleBasics() {
-  // Default-constructed handle is invalid on all fronts.
+void ObjectPool_TokenBasics() {
+  // Default-constructed token is invalid on all fronts.
   if (true) {
     object_pool<int, 4> pool;
-    object_pool<int, 4>::handle h;
+    object_pool<int, 4>::token h;
     EXPECT_FALSE(h);
     EXPECT_TRUE(!h);
     EXPECT_FALSE(h.is_valid());
     EXPECT_EQ(h.get_ptr(pool), nullptr);
   }
 
-  // Handle from `borrowed&` is valid and `get_ptr` returns the slot pointer.
+  // Token from `borrowed&` is valid and `get_ptr` returns the slot pointer.
   if (true) {
     object_pool<int, 4> pool;
     auto b = pool.borrow();
     *b = 7;
-    object_pool<int, 4>::handle h{b};
+    object_pool<int, 4>::token h{b};
     EXPECT_TRUE(h);
     EXPECT_TRUE(h.is_valid());
     EXPECT_EQ(h.get_ptr(pool), b.get());
   }
 
-  // Handle from `borrowed&` does not transfer ownership; slot stays borrowed.
+  // Token from `borrowed&` does not transfer ownership; slot stays borrowed.
   if (true) {
     object_pool<int, 1> pool;
     auto b = pool.borrow();
-    object_pool<int, 1>::handle h{b};
+    object_pool<int, 1>::token h{b};
     EXPECT_FALSE(pool.borrow()); // b still owns the slot
     b.reset();
     EXPECT_TRUE(pool.borrow()); // slot returned when b resets
   }
 
-  // Handles are copyable; the copy refers to the same slot.
+  // Tokens are copyable; the copy refers to the same slot.
   if (true) {
     object_pool<int, 4> pool;
     auto b = pool.borrow();
-    object_pool<int, 4>::handle h1{b};
+    object_pool<int, 4>::token h1{b};
     auto h2 = h1;
     EXPECT_TRUE(h2);
     EXPECT_EQ(h2.get_ptr(pool), b.get());
   }
 }
 
-void ObjectPool_HandleDetachAndBorrow() {
-  // `handle(borrowed&&)` detaches the `borrowed`; slot stays out of the pool.
+void ObjectPool_TokenDetachAndBorrow() {
+  // `token(borrowed&&)` detaches the `borrowed`; slot stays out of the pool.
   if (true) {
     object_pool<int, 1> pool;
     auto b = pool.borrow();
     int* p = b.get();
-    object_pool<int, 1>::handle h{std::move(b)};
+    object_pool<int, 1>::token h{std::move(b)};
     EXPECT_FALSE(b); // b was detached
     EXPECT_TRUE(h);
     EXPECT_FALSE(pool.borrow());   // slot not in free list
@@ -341,7 +341,7 @@ void ObjectPool_HandleDetachAndBorrow() {
     object_pool<int, 1> pool;
     auto b = pool.borrow();
     *b = 42;
-    object_pool<int, 1>::handle h{std::move(b)};
+    object_pool<int, 1>::token h{std::move(b)};
 
     auto b2 = h.borrow(pool);
     EXPECT_TRUE(b2);
@@ -356,12 +356,12 @@ void ObjectPool_HandleDetachAndBorrow() {
   }
 }
 
-void ObjectPool_HandleStaleness() {
+void ObjectPool_TokenStaleness() {
   // `get_ptr` returns nullptr once the slot's generation has advanced.
   if (true) {
     object_pool<int, 4> pool;
     auto b = pool.borrow();
-    object_pool<int, 4>::handle h{b};
+    object_pool<int, 4>::token h{b};
     EXPECT_EQ(h.get_ptr(pool), b.get()); // valid while b is live
     b.reset();                           // gen incremented on return
     EXPECT_EQ(h.get_ptr(pool), nullptr); // stale
@@ -371,7 +371,7 @@ void ObjectPool_HandleStaleness() {
   if (true) {
     object_pool<int, 4> pool;
     auto b = pool.borrow();
-    object_pool<int, 4>::handle h{b};
+    object_pool<int, 4>::token h{b};
     b.reset(); // gen incremented; handle is now stale
     EXPECT_FALSE(h.borrow(pool));
   }
@@ -380,33 +380,33 @@ void ObjectPool_HandleStaleness() {
   if (true) {
     object_pool<int, 4> pool;
     auto b = pool.borrow();
-    object_pool<int, 4>::handle h{b}; // h and b refer to the same slot
-    EXPECT_FALSE(h.borrow(pool));     // b already owns it
+    object_pool<int, 4>::token h{b}; // h and b refer to the same slot
+    EXPECT_FALSE(h.borrow(pool));    // b already owns it
   }
 }
 
-void ObjectPool_HandleAsInt() {
-  // Round-trip through `as_int` and `handle(uint64_t)` resolves to the same
+void ObjectPool_TokenAsInt() {
+  // Round-trip through `as_int` and `token(uint64_t)` resolves to the same
   // slot.
   if (true) {
     object_pool<int, 4> pool;
     auto b = pool.borrow();
     *b = 55;
-    object_pool<int, 4>::handle h{b};
+    object_pool<int, 4>::token h{b};
     auto packed = h.as_int();
-    object_pool<int, 4>::handle h2{packed};
+    object_pool<int, 4>::token h2{packed};
     EXPECT_TRUE(h2);
     EXPECT_EQ(h2.get_ptr(pool), b.get());
   }
 
-  // A handle reconstructed from a stale `as_int` value is also stale.
+  // A token reconstructed from a stale `as_int` value is also stale.
   if (true) {
     object_pool<int, 4> pool;
     auto b = pool.borrow();
-    object_pool<int, 4>::handle h{b};
+    object_pool<int, 4>::token h{b};
     auto packed = h.as_int();
     b.reset(); // gen incremented; packed value is now stale
-    object_pool<int, 4>::handle h2{packed};
+    object_pool<int, 4>::token h2{packed};
     EXPECT_EQ(h2.get_ptr(pool), nullptr);
   }
 
@@ -414,9 +414,9 @@ void ObjectPool_HandleAsInt() {
   if (true) {
     object_pool<int, 4, generation_scheme::unversioned> pool;
     auto b = pool.borrow();
-    object_pool<int, 4, generation_scheme::unversioned>::handle h{b};
+    object_pool<int, 4, generation_scheme::unversioned>::token h{b};
     auto packed = h.as_int();
-    object_pool<int, 4, generation_scheme::unversioned>::handle h2{packed};
+    object_pool<int, 4, generation_scheme::unversioned>::token h2{packed};
     EXPECT_TRUE(h2);
     EXPECT_EQ(h2.get_ptr(pool), b.get());
   }
@@ -425,8 +425,8 @@ void ObjectPool_HandleAsInt() {
 MAKE_TEST_LIST(ObjectPool_BorrowAndReturn, ObjectPool_FullPool,
     ObjectPool_LIFOOrder, ObjectPool_MoveHandle, ObjectPool_MultipleSlots,
     ObjectPool_Callbacks, ObjectPool_CreateHelper,
-    ObjectPool_DetachAndReattach, ObjectPool_HandleBasics,
-    ObjectPool_HandleDetachAndBorrow, ObjectPool_HandleStaleness,
-    ObjectPool_HandleAsInt);
+    ObjectPool_DetachAndReattach, ObjectPool_TokenBasics,
+    ObjectPool_TokenDetachAndBorrow, ObjectPool_TokenStaleness,
+    ObjectPool_TokenAsInt);
 
 // NOLINTEND(readability-function-cognitive-complexity)

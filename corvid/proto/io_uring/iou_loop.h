@@ -173,7 +173,7 @@ private:
 public:
   // Generation-checking token for a `completion_fn` in the pool. You can use
   // this to cancel an operation by its callback.
-  using completion_token = completion_cb_pool_t::handle;
+  using completion_token = completion_cb_pool_t::token;
 
   // Construct a loop with `ring_size` SQE slots (must be a power of two).
   // Throws `std::system_error` if the ring, wakeup `eventfd`, or
@@ -375,7 +375,7 @@ public:
   // in contrast, `posted_fn` is not involved in this scheme).
   //
   // Callbacks are first moved into the pool, where their slot is referenced by
-  // `completion_token`s. These are cheaply-copied, generation-checking handles
+  // `completion_token`s. These are cheaply-copied, generation-checking tokens
   // that fit in 64 bits. When passes in callbacks, these are watered down to
   // `completion_id`, which is a type-unsafe uint64_t.
   //
@@ -869,6 +869,9 @@ public:
     return execute_or_post_with_retry(std::move(fn));
   }
 
+  // TODO: Add submit_recv_buffer_multishot, which requires Provided Buffers.
+  // This means adding a new kind of buf pool, reusing the current buffers.
+
 #pragma endregion
 #pragma region SendBytes
 
@@ -965,97 +968,48 @@ public:
   }
 
 #pragma endregion
-#pragma region RecvBuffer
-
-  // Submit an async recv_fixed  on `socket` into a borrowed buffer.
-  //
-  // Prefer `submit_recv_buffer` over this.
-  [[nodiscard]] completion_token submit_recv_buffer(const os_file& socket,
-      buf_completion_fn bufcb, block_size sz = block_size::small,
-      iou_timespec* timeout = nullptr) {
-    return submit_recv_buffer(socket, borrow_read_buffer(sz), std::move(bufcb),
-        timeout);
-  }
-
-  // Submit an async recv_fixed on `socket` into `buf`.
-  //
-  // Prefer `submit_recv_buffer` over this.
-  [[nodiscard]] completion_token submit_recv_buffer(const os_file& socket,
-      buffer&& buf, buf_completion_fn bufcb, iou_timespec* timeout = nullptr) {
-    auto [span, buf_index] = buf.prepare();
-    const auto cbtoken =
-        tokenize(wrap_buf_completion_fn(std::move(bufcb), std::move(buf)));
-    if (!submit_recv_buffer(socket, span, buf_index, cbtoken, timeout,
-            slot_retention::automatic))
-      return {};
-    return cbtoken;
-  }
-
-  // Submit an async recv_fixed on `socket`.
-  [[nodiscard]] bool submit_recv_buffer(const os_file& socket, span_t span,
-      size_t buf_index, completion_token cbtoken,
-      iou_timespec* timeout = nullptr,
-      slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
-    if (!socket || span.empty())
-      return fail_and_maybe_release(on_fail, cbtoken);
-    auto fn = [this, fd = *socket, cbtoken, span, buf_index, timeout,
-                  on_fail]() mutable {
-      return do_submit_timeout(cbtoken, timeout, on_fail,
-          [fd, span, buf_index](iou_sqe sqe) {
-            sqe.prep_read_fixed(fd, span, buf_index);
-          });
-    };
-    return execute_or_post_with_retry(std::move(fn));
-  }
-
-  // TODO: Add submit_recv_buffer_multishot, which requires Provided Buffers.
-  // This means adding a new kind of buf pool, reusing the current buffers.
-
-#pragma endregion
 #pragma region ReadBuffer
 
   //
-  // Read into buffers from `os_file` at `offset`.
+  // Read into buffers from `os_file`. Works with sockets or files, where the
+  // latter interacts with `buffer::file_offset`.
   //
 
   // Submit an async read_fixed on `file` into a borrowed buffer.
   //
-  // Prefer `submit_read_buffer` over this.
+  // Note that, for files, this override does not allow you to control
+  // `file_offset`.
   [[nodiscard]] completion_token submit_read_buffer(const os_file& file,
-      uint64_t offset, buf_completion_fn bufcb,
-      block_size sz = block_size::small, iou_timespec* timeout = nullptr) {
-    return submit_read_buffer(file, borrow_read_buffer(sz), offset,
-        std::move(bufcb), timeout);
+      buf_completion_fn bufcb, block_size sz = block_size::small,
+      iou_timespec* timeout = nullptr) {
+    return submit_read_buffer(file, borrow_read_buffer(sz), std::move(bufcb),
+        timeout);
   }
 
   // Submit an async read_fixed on `file` into `buf`.
-  //
-  // Prefer `submit_read_buffer` over this.
   [[nodiscard]] completion_token submit_read_buffer(const os_file& file,
-      buffer&& buf, uint64_t offset, buf_completion_fn bufcb,
-      iou_timespec* timeout = nullptr) {
-    auto [span, buf_index] = buf.prepare();
+      buffer&& buf, buf_completion_fn bufcb, iou_timespec* timeout = nullptr) {
+    auto [span, buf_index, file_offset] = buf.prepare();
     const auto cbtoken =
         tokenize(wrap_buf_completion_fn(std::move(bufcb), std::move(buf)));
-    if (!submit_read_buffer(file, span, buf_index, offset, cbtoken, timeout,
-            slot_retention::automatic))
+    if (!submit_read_buffer(file, span, buf_index, file_offset, cbtoken,
+            timeout, slot_retention::automatic))
       return {};
     return cbtoken;
   }
 
   // Submit an async read_fixed on `file`.
   [[nodiscard]] bool submit_read_buffer(const os_file& file, span_t span,
-      size_t buf_index, uint64_t offset, completion_token cbtoken,
+      size_t buf_index, size_t file_offset, completion_token cbtoken,
       iou_timespec* timeout = nullptr,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken.is_valid()) return false;
     if (!file || span.empty()) return fail_and_maybe_release(on_fail, cbtoken);
-    auto fn = [this, fd = *file, cbtoken, span, buf_index, offset, timeout,
-                  on_fail]() mutable {
+    auto fn = [this, fd = *file, cbtoken, span, buf_index, file_offset,
+                  timeout, on_fail]() mutable {
       return do_submit_timeout(cbtoken, timeout, on_fail,
-          [fd, span, buf_index, offset](iou_sqe sqe) {
-            sqe.prep_read_fixed(fd, span, buf_index, offset);
+          [fd, span, buf_index, file_offset](iou_sqe sqe) {
+            sqe.prep_read_fixed(fd, span, buf_index, file_offset);
           });
     };
     return execute_or_post_with_retry(std::move(fn));
@@ -1064,38 +1018,44 @@ public:
 #pragma endregion
 #pragma region WriteBuffer
 
-  // This writes fixed buffers with `io_uring_prep_write_fixed`, which is not
-  // socket-specific or zero-copy. However, it only generates a single CQE, so
-  // it's simpler to deal with. Contrast with `submit_send_buffer`, which uses
-  // io_uring_prep_send_zc_fixed`.
-
-  // Submit an async write_fixed on `file` into `buf`.
   //
-  // Prefer `submit_send_buffer` over this, if you can manage the added
-  // complexity.
+  // Write from buffers to `os_file`.
+  //
+  // Works with sockets or files. Files interact with `buffer::file_offset` For
+  // sockets, there's no way to pass `msg_flags::nosignal` so you need to
+  // disable SIGPIPE process-wide. Prefer `submit_send_buffer` over this, if
+  // you can justify the added complexity.
+  //
+  // The reason for this recommendation is that this uses fixed buffers with
+  // `io_uring_prep_write_fixed`, which is not socket-specific or zero-copy.
+  // However, it only generates a single CQE, which is  simpler to deal with
+  // and is likely to be faster for packets under 10k. Contrast with
+  // `submit_send_buffer`, which uses `io_uring_prep_send_zc_fixed`.
+
+  // Submit an async write_fixed on `file` from `buf`.
   [[nodiscard]] completion_token submit_write_buffer(const os_file& file,
       buffer&& buf, buf_completion_fn bufcb, iou_timespec* timeout = nullptr) {
-    auto [span, buf_index] = buf.prepare();
+    auto [span, buf_index, file_offset] = buf.prepare();
     const auto cbtoken =
         tokenize(wrap_buf_completion_fn(std::move(bufcb), std::move(buf)));
-    if (!submit_write_buffer(file, span, buf_index, cbtoken, timeout,
-            slot_retention::automatic))
+    if (!submit_write_buffer(file, span, buf_index, file_offset, cbtoken,
+            timeout, slot_retention::automatic))
       return {};
     return cbtoken;
   }
 
   // Submit an async write_fixed on `file`.
   [[nodiscard]] bool submit_write_buffer(const os_file& file, span_t span,
-      size_t buf_index, completion_token cbtoken,
+      size_t buf_index, uint64_t file_offset, completion_token cbtoken,
       iou_timespec* timeout = nullptr,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken.is_valid()) return false;
     if (!file || span.empty()) return fail_and_maybe_release(on_fail, cbtoken);
-    auto fn = [this, fd = *file, cbtoken, span, buf_index, timeout,
-                  on_fail]() mutable {
+    auto fn = [this, fd = *file, cbtoken, span, buf_index, file_offset,
+                  timeout, on_fail]() mutable {
       return do_submit_timeout(cbtoken, timeout, on_fail,
-          [fd, span, buf_index](iou_sqe sqe) {
-            sqe.prep_write_fixed(fd, span, buf_index);
+          [fd, span, buf_index, file_offset](iou_sqe sqe) {
+            sqe.prep_write_fixed(fd, span, buf_index, file_offset);
           });
     };
     return execute_or_post_with_retry(std::move(fn));

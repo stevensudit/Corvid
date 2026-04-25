@@ -350,7 +350,7 @@ private:
     if (!buf) return false;
     recv_in_flight_ = true;
     // TODO: Save the token.
-    const auto token = loop_.submit_recv_buffer(sock_, std::move(buf),
+    const auto token = loop_.submit_read_buffer(sock_, std::move(buf),
         [p = self()](completion_id, buffer& b) mutable {
           (void)p->on_recv_complete(b);
           return slot_retention{};

@@ -159,9 +159,9 @@ public:
     object_pool* pool_{};
   };
 
-  // A cheaply-copied, non-owning handle to a slot. It has `std::weak_ptr`
+  // A cheaply-copied, non-owning token for a slot. It has `std::weak_ptr`
   // semantics in that it can escalate to ownership. However, it can only do
-  // this if there isn't a `borrowed` that currently owns the slot.
+  // this if there isn't a `borrowed` handle that currently owns the slot.
   //
   // To save space, it does not store a pointer to the pool or to the slot:
   // just the index (and generation, if versioned). You will need the pool in
@@ -169,21 +169,21 @@ public:
   //
   // It also can't distinguish among pools, although it's typesafe so at least
   // it works only with one type of pool. If you have distinct pools of the
-  // same item type, you shoud use the TAG parameter to distinguish them.
-  class handle {
+  // same item type, you should use the TAG parameter to distinguish them.
+  class token {
   public:
     static constexpr index_t npos = std::numeric_limits<index_t>::max();
     static constexpr bool allows_int_conversion =
         (index_bits_v <= 32) || !is_versioned_v;
 
     // No ownership semantics.
-    handle() noexcept = default;
-    handle(const handle&) = default;
-    handle& operator=(const handle&) = default;
+    token() noexcept = default;
+    token(const token&) = default;
+    token& operator=(const token&) = default;
 
     // Construct from a `borrowed` handle. No ownership semantics; it just
     // refers to the slot. When versioned, it can detect staleness.
-    explicit handle(const borrowed& h) { (void)copy_from_handle(h); }
+    explicit token(const borrowed& h) { (void)copy_from_handle(h); }
 
     // Construct from a `borrowed` handle, detaching it. Although it removes
     // ownership from the `borrowed` (by clearing it out), it does not take
@@ -193,14 +193,14 @@ public:
     // As with `detach`, once you call this, you become fully responsible for
     // ensuring that the item gets returned to the pool. With great power,
     // yada, yada, yada.
-    explicit handle(borrowed&& h) {
+    explicit token(borrowed&& h) {
       if (!copy_from_handle(h)) return;
       (void)h.pool_->detach(std::move(h));
     }
 
     // Construct from a packed `uint64_t` produced by `as_int`. Only available
     // when it fits.
-    explicit handle(uint64_t v) noexcept
+    explicit token(uint64_t v) noexcept
     requires allows_int_conversion
     {
       ndx_ = static_cast<index_t>(v);
@@ -220,7 +220,7 @@ public:
     // Get pointer to item, if still valid. Returns nullptr on failure.
     //
     // When versioning is disabled, it can't detect staleness, so it just
-    // returns the pointer so long as the handle is valid. Even when versioning
+    // returns the pointer so long as the token is valid. Even when versioning
     // is enabled, this method is inherently racy since you don't own the slot
     // and it could therefore be freed immediately. This may be fine or it may
     // be a mistake: you get to decide.
@@ -236,7 +236,7 @@ public:
 
     // Borrow the slot if it's not already borrowed. When versioned, returns
     // empty if the slot is already borrowed or if the generation doesn't match
-    // (stale handle).
+    // (stale token).
     //
     // This is akin to `std::weak_ptr::lock()`, except that it can only succeed
     // if the slot is not currently borrowed, and it returns a `borrowed`
@@ -255,7 +255,7 @@ public:
     }
     [[nodiscard]] bool operator!() const noexcept { return !is_valid(); }
 
-    // Return whether the handle refers to a slot. There is no guarantee that
+    // Return whether the token refers to a slot. There is no guarantee that
     // it's not stale; you can only find that out by trying.
     [[nodiscard]] bool is_valid() const noexcept { return ndx_ != npos; }
 
@@ -276,7 +276,7 @@ public:
     index_t ndx_{npos};
   };
 
-  friend class handle;
+  friend class token;
 
   // Constructs the pool with optional borrow and return callbacks.
   explicit object_pool(BorrowCb borrow_cb = {}, ReturnCb return_cb = {})
@@ -380,7 +380,7 @@ private:
   }
 
   // Set the high bit to indicate that it's now borrowed. The
-  // `std::atomic` is used to ensure that a `handle` can't observe a torn
+  // `std::atomic` is used to ensure that a `token` can't observe a torn
   // generation value or mistakenly borrow a slot being returned.
   [[nodiscard]] bool set_borrowed(index_t ndx) {
     if constexpr (is_versioned_v) {
@@ -395,7 +395,7 @@ private:
   }
 
   // Set the high bit to indicate that it's now borrowed, if the generation
-  // matches. The `std::atomic` is used to ensure that a `handle` can't
+  // matches. The `std::atomic` is used to ensure that a `token` can't
   // observe a torn generation value or mistakenly borrow a slot being
   // returned.
   [[nodiscard]] bool set_borrowed_if(index_t ndx, gen_t expected_gen) {
@@ -412,7 +412,7 @@ private:
   }
 
   // Clear the high bit to indicate that it's not borrowed anymore. The
-  // `std::atomic` is used to ensure that a `handle` can't observe a torn
+  // `std::atomic` is used to ensure that a `token` can't observe a torn
   // generation value.
   [[nodiscard]] bool unset_borrowed(index_t ndx) {
     if constexpr (is_versioned_v) {
@@ -428,7 +428,7 @@ private:
 
   // Increment atomically, and wrapping past 0 (which is invalid). Also clear
   // the high bit to indicate that it's not borrowed anymore. The `std::atomic`
-  // is used to ensure that a `handle` can't observe a torn generation value or
+  // is used to ensure that a `token` can't observe a torn generation value or
   // mistakenly borrow a slot being returned.
   [[nodiscard]] bool release_slot_gen(index_t ndx) {
     if constexpr (is_versioned_v) {

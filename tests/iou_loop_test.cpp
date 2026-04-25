@@ -197,7 +197,7 @@ void IouLoop_RecvWriteFixed() {
 
     constexpr std::string_view msg{"hello-fixed"};
 
-    const auto recv_token = runner->submit_recv_buffer(recv_sock,
+    const auto recv_token = runner->submit_read_buffer(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) {
           recv_n.store(buf.result().value(), std::memory_order::relaxed);
           auto data = buf.payload_view();
