@@ -869,9 +869,6 @@ public:
     return execute_or_post_with_retry(std::move(fn));
   }
 
-  // TODO: Add submit_recv_buffer_multishot, which requires Provided Buffers.
-  // This means adding a new kind of buf pool, reusing the current buffers.
-
 #pragma endregion
 #pragma region SendBytes
 
@@ -1062,7 +1059,21 @@ public:
   }
 
 #pragma endregion
+#pragma region RecvBufferMulti
 
+  // TODO: `submit_recv_buffer_multishot` is the most complicate way to read
+  // from a socket, requiring a whole new type of buffer pool, for Provided
+  // Buffers.
+
+#pragma endregion
+#pragma region SendBufferZeroCopy
+
+  // TODO: `submit_send_buffer_zero_copy` is the most complicated way to write
+  // to a socket, requiring special handling of completions to avoid
+  // prematurely releasing buffers.
+
+#pragma endregion
+// Next lines closes "Submit".
 #pragma endregion
 #pragma region Helpers.
 private:
@@ -1146,7 +1157,7 @@ private:
     return true;
   }
 
-  // Error-handling helper. Always returns false, and optional performs
+  // Error-handling helper. Always returns false, and optionally performs
   // cleanup.
   [[nodiscard]] bool
   fail_and_maybe_release(slot_retention on_fail, completion_token& cbtoken) {
@@ -1165,6 +1176,7 @@ private:
   [[nodiscard]] bool maybe_submit_pending(size_t sqe_count = 1) {
     (void)sqe_count;
     // TODO: Make the above true. For now, we just submit immediately.
+    // DO not use io_uring_sq_ready.
     return submit_now();
   }
 
