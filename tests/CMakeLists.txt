@@ -79,8 +79,10 @@ foreach(SOURCE_FILE ${SOURCES})
     # Add executable for each source file
     add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
 
-    target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})
-    target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${LIBURING_LIBRARIES})
+    if(${EXECUTABLE_NAME} MATCHES "^iou_")
+        target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})
+        target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${LIBURING_LIBRARIES})
+    endif()
 
     if(NOT USE_LIBSTDCPP)
         # Link libc++ and libc++abi explicitly

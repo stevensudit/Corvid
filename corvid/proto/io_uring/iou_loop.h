@@ -856,8 +856,7 @@ public:
   // Submit an async recvmsg on `socket`.
   [[nodiscard]] bool submit_recv_bytes(const os_file& socket, span_t span,
       completion_token cbtoken, iou_timespec* timeout = nullptr,
-      slot_retention on_fail = slot_retention::retain,
-      socket_type flags = {}) {
+      slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
     if (!cbtoken.is_valid()) return false;
     if (!socket || span.empty())
       return fail_and_maybe_release(on_fail, cbtoken);
@@ -888,8 +887,7 @@ public:
   [[nodiscard]] bool submit_send_bytes(const os_file& socket,
       const_span_t span, completion_token cbtoken,
       iou_timespec* timeout = nullptr,
-      slot_retention on_fail = slot_retention::retain,
-      socket_type flags = {}) {
+      slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
     if (!cbtoken.is_valid()) return false;
     if (!socket || span.empty())
       return fail_and_maybe_release(on_fail, cbtoken);

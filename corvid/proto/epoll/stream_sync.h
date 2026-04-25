@@ -164,7 +164,7 @@ private:
     static constexpr size_t chunk_size = 4096;
     const size_t old_size = buf_.size();
     no_zero::resize_to(buf_, old_size + chunk_size);
-    const ssize_t n = sock_.recv(buf_.data() + old_size, chunk_size, 0);
+    const ssize_t n = sock_.recv(buf_.data() + old_size, chunk_size, {});
     if (n <= 0) return close() && false;
     no_zero::trim_to(buf_, old_size + n);
     return true;

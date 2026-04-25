@@ -370,11 +370,11 @@ public:
   // EOF             false     unchanged, so not empty
   // Hard failure    false     resized to offset
   [[nodiscard]] bool
-  recv_at(std::string& data, size_t offset, int flags = 0) const {
+  recv_at(std::string& data, size_t offset, msg_flags flags = {}) const {
     if (offset >= data.size()) return true;
 
     const ssize_t n =
-        ::recv(handle(), data.data() + offset, data.size() - offset, flags);
+        ::recv(handle(), data.data() + offset, data.size() - offset, *flags);
     if (n == 0) return false;
 
     no_zero::trim_to(data, offset + (n > 0 ? static_cast<size_t>(n) : 0));
@@ -395,22 +395,24 @@ public:
   // Soft failure    true      resized to zero (no new data)
   // EOF             false     unchanged, so not empty
   // Hard failure    false     cleared (empty)
-  [[nodiscard]] bool recv(std::string& data, int flags = 0) const {
+  [[nodiscard]] bool recv(std::string& data, msg_flags flags = {}) const {
     return recv_at(data, 0, flags);
   }
 
   // Receive raw bytes into `buf`, forwarding directly to POSIX `recv`.
-  [[nodiscard]] ssize_t recv(void* buf, size_t len, int flags) const noexcept {
+  [[nodiscard]] ssize_t
+  recv(void* buf, size_t len, msg_flags flags = {}) const noexcept {
     assert(is_open());
     // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
-    return ::recv(handle(), buf, len, flags);
+    return ::recv(handle(), buf, len, *flags);
   }
 
   // Receive a message into `msg`, forwarding directly to POSIX `recvmsg`.
   // See "iov_msghdr.h".
-  [[nodiscard]] ssize_t recv(msghdr& msg, int flags = 0) const noexcept {
+  [[nodiscard]] ssize_t
+  recv(msghdr& msg, msg_flags flags = {}) const noexcept {
     assert(is_open());
-    return ::recvmsg(handle(), &msg, flags);
+    return ::recvmsg(handle(), &msg, *flags);
   }
 
   // Peek at the socket, without consuming data, to determine whether EOF has
@@ -420,7 +422,7 @@ public:
   // `EBADF`).
   [[nodiscard]] std::optional<bool> peek_eof() const noexcept {
     char byte;
-    const ssize_t n = recv(&byte, 1, MSG_PEEK | MSG_DONTWAIT);
+    const ssize_t n = recv(&byte, 1, msg_flags::peek | msg_flags::dontwait);
     if (n == 0) return true;
     if (n > 0) return false;
     return std::nullopt;
@@ -445,17 +447,17 @@ public:
 
   // Send raw bytes from `buf`, forwarding to POSIX `send`.
   [[nodiscard]] ssize_t
-  send(const void* buf, size_t len, int flags = MSG_NOSIGNAL) const noexcept {
+  send(const void* buf, size_t len, msg_flags flags = {}) const noexcept {
     assert(is_open());
-    return ::send(handle(), buf, len, flags);
+    return ::send(handle(), buf, len, *flags);
   }
 
   // Send a message described by `msg`, forwarding to POSIX `sendmsg`. See
   // "iov_msghdr.h".
   [[nodiscard]] ssize_t
-  send(msghdr& msg, int flags = MSG_NOSIGNAL) const noexcept {
+  send(msghdr& msg, msg_flags flags = msg_flags::nosignal) const noexcept {
     assert(is_open());
-    return ::sendmsg(handle(), &msg, flags);
+    return ::sendmsg(handle(), &msg, *flags);
   }
 
 #pragma endregion

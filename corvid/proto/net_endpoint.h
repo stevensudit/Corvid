@@ -334,8 +334,8 @@ public:
     return {addr, sockaddr_size()};
   }
 
-  // Mutable version of `as_sockaddr()`.
-  [[nodiscard]] sockaddr* as_sockaddr() noexcept {
+  // Expose raw pointer to sockaddr.
+  [[nodiscard]] sockaddr* as_sockaddr_ptr() noexcept {
     auto addr = reinterpret_cast<sockaddr*>(&storage_);
     return addr;
   }

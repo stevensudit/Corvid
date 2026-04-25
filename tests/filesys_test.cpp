@@ -644,14 +644,15 @@ void NetSocket_SendRecv() {
   EXPECT_EQ(a.send(raw_msg, sizeof(raw_msg) - 1), 3);
 
   char raw_buf[8]{};
-  EXPECT_EQ(b.recv(raw_buf, sizeof(raw_buf), 0), 3);
+  EXPECT_EQ(b.recv(raw_buf, sizeof(raw_buf), {}), 3);
   const auto raw_view = std::string_view{raw_buf, 3};
   EXPECT_EQ(raw_view, "raw");
 }
 
 void NetSocket_RecvAtContract() {
   auto [reader, writer] = net_socket::create_pair();
-
+  EXPECT_TRUE(reader);
+  EXPECT_TRUE(writer);
   EXPECT_TRUE(reader.set_nonblocking(true));
 
   // Soft errors (EAGAIN on a non-blocking empty socket) trim back to the

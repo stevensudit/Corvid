@@ -360,12 +360,12 @@ public:
     return true;
   }
 
-  bool prep_recv(int fd, span_t span, socket_type flags = {}) noexcept {
+  bool prep_recv(int fd, span_t span, msg_flags flags = {}) noexcept {
     io_uring_prep_recv(sqe_, fd, span.data(), span.size(), *flags);
     return true;
   }
 
-  bool prep_send(int fd, const_span_t span, socket_type flags = {}) noexcept {
+  bool prep_send(int fd, const_span_t span, msg_flags flags = {}) noexcept {
     io_uring_prep_send(sqe_, fd, span.data(), span.size(), *flags);
     return true;
   }

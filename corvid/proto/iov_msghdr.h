@@ -161,8 +161,8 @@ public:
   // Success         true      past bytes written         count
   // Soft failure    true      start, `{0, 0}`            0
   // Hard failure    false     invalid, `{npos, npos}`    npos
-  [[nodiscard]] bool
-  send(const net_socket& socket, int flags = MSG_NOSIGNAL) noexcept
+  [[nodiscard]] bool send(const net_socket& socket,
+      msg_flags flags = msg_flags::nosignal) noexcept
   requires is_sender
   {
     // Apply last op before starting new one.
@@ -197,7 +197,8 @@ public:
   // Soft failure    true      start, `{0, 0}`            0
   // EOF             false     start, `{0, 0}`            0
   // Hard failure    false     invalid, `{npos, npos}`    npos
-  [[nodiscard]] bool recv(const net_socket& socket, int flags = 0) noexcept
+  [[nodiscard]] bool
+  recv(const net_socket& socket, msg_flags flags = {}) noexcept
   requires is_receiver
   {
     // Apply last op before starting new one.
