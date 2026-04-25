@@ -281,7 +281,9 @@ void IouBufPool_WriteUpdatePartialSend() {
     EXPECT_TRUE(buf.append("0123456789"sv)); // 10 bytes
     EXPECT_EQ(buf.active_span().size(), 10ULL);
 
-    buf.update(iou_res{6}, iou_cqe_flags{});     // kernel sent first 6 bytes
+    [[maybe_unused]] auto [active_buffer, buffer_index] = buf.prepare();
+    buf.update(iou_res{6}, iou_cqe_flags{}); // kernel sent first 6 bytes
+
     EXPECT_EQ(buf.payload_span().size(), 10ULL); // unchanged
     EXPECT_EQ(buf.active_span().size(), 4ULL);   // 10 - 6
     EXPECT_EQ(std::string_view(
@@ -299,6 +301,7 @@ void IouBufPool_WriteFullyConsumedThenAppend() {
     const std::byte* base = buf.active_span().data();
 
     EXPECT_TRUE(buf.append("sent"sv));
+    [[maybe_unused]] auto [active_buffer, buffer_index] = buf.prepare();
     buf.update(iou_res{4}, iou_cqe_flags{}); // fully consumed
     EXPECT_EQ(buf.active_span().size(), static_cast<size_t>(0));
 
@@ -322,6 +325,7 @@ void IouBufPool_WriteFullyConsumedThenTailSpan() {
     const std::byte* base = buf.active_span().data();
 
     EXPECT_TRUE(buf.append("gone"sv));
+    [[maybe_unused]] auto [active_buffer, buffer_index] = buf.prepare();
     buf.update(iou_res{4}, iou_cqe_flags{});
 
     auto tail = buf.tail_span(); // triggers implicit reset
@@ -356,6 +360,7 @@ void IouBufPool_AppendToPartiallySentBuffer() {
     ASSERT_TRUE(buf);
 
     EXPECT_TRUE(buf.append("hello"sv));
+    [[maybe_unused]] auto [active_buffer, buffer_index] = buf.prepare();
     buf.update(iou_res{3},
         iou_cqe_flags{}); // sent "hel"; active points to "lo" (2 bytes)
 

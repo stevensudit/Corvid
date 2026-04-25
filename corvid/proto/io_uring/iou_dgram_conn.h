@@ -28,8 +28,8 @@
 #include "../../enums/bool_enums.h"
 #include "../net_endpoint.h"
 #include "iou_loop.h"
-
-namespace corvid { inline namespace proto { inline namespace iouring {
+#if 0
+namespace corvid { inline namespace proto { namespace iouring {
 using namespace bool_enums;
 
 class iou_dgram_conn;
@@ -359,3 +359,4 @@ private:
 };
 
 }}} // namespace corvid::proto::iouring
+#endif

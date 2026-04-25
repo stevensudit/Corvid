@@ -1013,6 +1013,55 @@ public:
   // This means adding a new kind of buf pool, reusing the current buffers.
 
 #pragma endregion
+#pragma region ReadBuffer
+
+  //
+  // Read into buffers from `os_file` at `offset`.
+  //
+
+  // Submit an async read_fixed on `file` into a borrowed buffer.
+  //
+  // Prefer `submit_read_buffer` over this.
+  [[nodiscard]] completion_token submit_read_buffer(const os_file& file,
+      uint64_t offset, buf_completion_fn bufcb,
+      block_size sz = block_size::small, iou_timespec* timeout = nullptr) {
+    return submit_read_buffer(file, borrow_read_buffer(sz), offset,
+        std::move(bufcb), timeout);
+  }
+
+  // Submit an async read_fixed on `file` into `buf`.
+  //
+  // Prefer `submit_read_buffer` over this.
+  [[nodiscard]] completion_token submit_read_buffer(const os_file& file,
+      buffer&& buf, uint64_t offset, buf_completion_fn bufcb,
+      iou_timespec* timeout = nullptr) {
+    auto [span, buf_index] = buf.prepare();
+    const auto cbtoken =
+        tokenize(wrap_buf_completion_fn(std::move(bufcb), std::move(buf)));
+    if (!submit_read_buffer(file, span, buf_index, offset, cbtoken, timeout,
+            slot_retention::automatic))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async read_fixed on `file`.
+  [[nodiscard]] bool submit_read_buffer(const os_file& file, span_t span,
+      size_t buf_index, uint64_t offset, completion_token cbtoken,
+      iou_timespec* timeout = nullptr,
+      slot_retention on_fail = slot_retention::retain) {
+    if (!cbtoken.is_valid()) return false;
+    if (!file || span.empty()) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = *file, cbtoken, span, buf_index, offset, timeout,
+                  on_fail]() mutable {
+      return do_submit_timeout(cbtoken, timeout, on_fail,
+          [fd, span, buf_index, offset](iou_sqe sqe) {
+            sqe.prep_read_fixed(fd, span, buf_index, offset);
+          });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
 #pragma region WriteBuffer
 
   // This writes fixed buffers with `io_uring_prep_write_fixed`, which is not

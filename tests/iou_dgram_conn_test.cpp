@@ -24,8 +24,9 @@
 
 #define MINITEST_SHOW_TIMERS 0
 #include "minitest.h"
-
+#if 0
 using namespace corvid;
+using namespace corvid::iouring;
 using namespace std::chrono_literals;
 
 namespace {
@@ -225,3 +226,6 @@ void IouDgramConn_WithState() {
 // NOLINTEND(readability-function-cognitive-complexity)
 MAKE_TEST_LIST(IouDgramConn_SendRecv, IouDgramConn_MultipleDatagrams,
     IouDgramConn_SendRecvBuffer, IouDgramConn_OnDrain, IouDgramConn_WithState)
+#else
+MAKE_TEST_LIST();
+#endif

@@ -287,7 +287,7 @@ void ObjectPool_HandleBasics() {
     object_pool<int, 4>::handle h;
     EXPECT_FALSE(h);
     EXPECT_TRUE(!h);
-    EXPECT_FALSE(h.valid());
+    EXPECT_FALSE(h.is_valid());
     EXPECT_EQ(h.get_ptr(pool), nullptr);
   }
 
@@ -298,7 +298,7 @@ void ObjectPool_HandleBasics() {
     *b = 7;
     object_pool<int, 4>::handle h{b};
     EXPECT_TRUE(h);
-    EXPECT_TRUE(h.valid());
+    EXPECT_TRUE(h.is_valid());
     EXPECT_EQ(h.get_ptr(pool), b.get());
   }
 
