@@ -651,8 +651,8 @@ void NetSocket_SendRecv() {
 
 void NetSocket_RecvAtContract() {
   auto [reader, writer] = net_socket::create_pair();
-  EXPECT_TRUE(reader);
-  EXPECT_TRUE(writer);
+  ASSERT_TRUE(reader);
+  ASSERT_TRUE(writer);
   EXPECT_TRUE(reader.set_nonblocking(true));
 
   // Soft errors (EAGAIN on a non-blocking empty socket) trim back to the
