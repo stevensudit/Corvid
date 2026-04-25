@@ -286,9 +286,9 @@ public:
   create_pair(address_family domain = address_family::unix,
       socket_type type = socket_type::stream,
       execution exec = execution::nonblocking) noexcept {
-    auto combined_type = *type;
+    auto combined_type = *type | *socket_type::cloexec;
     if (exec == execution::nonblocking)
-      combined_type |= SOCK_NONBLOCK | SOCK_CLOEXEC;
+      combined_type |= *socket_type::nonblock;
     int fds[2];
     if (::socketpair(*domain, combined_type, 0, fds) == 0)
       return {net_socket{os_file{fds[0]}}, net_socket{os_file{fds[1]}}};
@@ -446,8 +446,8 @@ public:
   }
 
   // Send raw bytes from `buf`, forwarding to POSIX `send`.
-  [[nodiscard]] ssize_t
-  send(const void* buf, size_t len, msg_flags flags = {}) const noexcept {
+  [[nodiscard]] ssize_t send(const void* buf, size_t len,
+      msg_flags flags = msg_flags::nosignal) const noexcept {
     assert(is_open());
     return ::send(handle(), buf, len, *flags);
   }
@@ -511,18 +511,17 @@ public:
     return ::listen(handle(), backlog) == 0;
   }
 
-  // Accept a pending connection. The returned socket is created with
-  // `SOCK_CLOEXEC | SOCK_NONBLOCK` via `accept4`. Returns `std::nullopt`
-  // when no connection is available (`EAGAIN`/`EWOULDBLOCK`) or an error
-  // occurs. The peer address is returned as a raw `sockaddr_storage`; use
-  // `net_endpoint{sockaddr_storage}` to convert it if needed.
+  // Accept a pending connection. Returns `std::nullopt` when no connection is
+  // available (`EAGAIN`/`EWOULDBLOCK`) or an error occurs. The peer address is
+  // returned as a raw `sockaddr_storage`; use `net_endpoint{sockaddr_storage}`
+  // to convert it if needed.
   [[nodiscard]] std::optional<std::pair<net_socket, sockaddr_storage>>
   accept() noexcept {
     assert(is_open());
     sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
     const int fd = ::accept4(handle(), reinterpret_cast<sockaddr*>(&addr),
-        &len, SOCK_CLOEXEC | SOCK_NONBLOCK);
+        &len, *socket_type::nonblock_cloexec);
     if (fd < 0) return std::nullopt;
     return std::pair{net_socket{os_file{fd}}, addr};
   }
@@ -534,6 +533,7 @@ private:
         (style == message_style::stream)
             ? socket_type::stream
             : socket_type::datagram;
+    type = socket_type{*type | *socket_type::cloexec};
     if (exec == execution::nonblocking)
       type = socket_type{*type | *socket_type::nonblock};
     return net_socket{domain, type, protocol_type{0}};

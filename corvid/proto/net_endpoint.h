@@ -340,7 +340,8 @@ public:
     return addr;
   }
 
-  // Convenient invalid endpoint.
+  // Convenient invalid endpoint. Actual definition must be after the class is
+  // complete.
   static const net_endpoint invalid;
 
 private:
@@ -450,7 +451,7 @@ private:
   sockaddr_storage storage_{};
 };
 
-// Can't be defined inline.
+// Declared inside the class, but defined here, after the class is complete.
 inline const net_endpoint net_endpoint::invalid;
 
 // Net endpoint as a target. Necessary for io_uring, even though we don't care
