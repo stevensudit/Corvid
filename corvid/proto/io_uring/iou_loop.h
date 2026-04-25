@@ -41,8 +41,9 @@
 namespace corvid { inline namespace proto { namespace iouring {
 using namespace std::chrono_literals;
 
-// Type-unsafe version of `completion_token`.
-using completion_handle = uint64_t;
+// Type-unsafe version of `completion_token`, necessary to avoid circular
+// dependencies. Just construct a `completion_token` from it.
+using completion_id = uint64_t;
 
 #pragma region iou_loop
 
@@ -127,7 +128,7 @@ public:
   // If this calls a method on your class, you will likely want to bind in a
   // shared pointer to that instance.
   using completion_fn =
-      std::function<slot_retention(completion_handle, iou_res, iou_cqe_flags)>;
+      std::function<slot_retention(completion_id, iou_res, iou_cqe_flags)>;
 
   // Completion callback for operations using a `buffer`, which includes the
   // `iou_res` and `iou_cqe_flags`. If the `buffer` is not moved from during
@@ -136,7 +137,7 @@ public:
   // If this calls a method on your class, you will likely want to bind in a
   // shared pointer to that instance.
   using buf_completion_fn =
-      std::function<slot_retention(completion_handle, buffer&)>;
+      std::function<slot_retention(completion_id, buffer&)>;
 
 #pragma endregion
 #pragma region Details
@@ -376,7 +377,7 @@ public:
   // Callbacks are first moved into the pool, where their slot is referenced by
   // `completion_token`s. These are cheaply-copied, generation-checking handles
   // that fit in 64 bits. When passes in callbacks, these are watered down to
-  // `completion_handle`, which is a type-unsafe uint64_t.
+  // `completion_id`, which is a type-unsafe uint64_t.
   //
   // The `completion_token` provides a persistent identity that handles
   // lifespan issues cleanly. When it's time to invoke the callback, the token
@@ -485,7 +486,7 @@ public:
   // `completion_fn`. Does not work with Provided Buffers.
   completion_fn wrap_buf_completion_fn(buf_completion_fn bufcb, buffer&& buf) {
     return [bufcb = std::move(bufcb),
-               buf = std::move(buf)](completion_handle cbhandle, iou_res res,
+               buf = std::move(buf)](completion_id cbhandle, iou_res res,
                iou_cqe_flags flags) mutable -> slot_retention {
       return bufcb(cbhandle, buf.update(res, flags));
     };
@@ -1233,7 +1234,7 @@ private:
     // Set up a callback that resubmits itself, and use it too bootstrap the
     // initial submission.
     auto raw_cb =
-        [this](completion_handle cbhandle, iou_res, iou_cqe_flags flags) {
+        [this](completion_id cbhandle, iou_res, iou_cqe_flags flags) {
           (void)wake_fd_.read();
           if (bitmask::has(flags, iou_cqe_flags::more))
             return slot_retention::automatic;

@@ -351,7 +351,7 @@ private:
     recv_in_flight_ = true;
     // TODO: Save the token.
     const auto token = loop_.submit_recv_buffer(sock_, std::move(buf),
-        [p = self()](completion_handle, buffer& b) mutable {
+        [p = self()](completion_id, buffer& b) mutable {
           (void)p->on_recv_complete(b);
           return slot_retention{};
         });
@@ -484,7 +484,7 @@ private:
     send_in_flight_ = true;
     // TODO: Save the token.
     const auto token = loop_.submit_write_buffer(sock_, std::move(buf),
-        [p = self()](completion_handle, buffer& b) mutable -> slot_retention {
+        [p = self()](completion_id, buffer& b) mutable -> slot_retention {
           (void)p->on_send_complete(b);
           return {};
         });
@@ -497,7 +497,7 @@ private:
     assert(loop_.is_loop_thread() && connecting_);
     // TODO: Store cancelation token.
     auto token = loop_.submit_connect(sock_, &remote_,
-        [p = self()](completion_handle, iou_res res,
+        [p = self()](completion_id, iou_res res,
             iou_cqe_flags flags) mutable -> slot_retention {
           (void)p->on_connect_complete(res, flags);
           return {};
@@ -513,7 +513,7 @@ private:
     // Set up a callback that resubmits itself, and use it too bootstrap the
     // initial submission.
     iou_loop::completion_fn raw_cb =
-        [p = self()](completion_handle cbhandle, iou_res res,
+        [p = self()](completion_id cbhandle, iou_res res,
             iou_cqe_flags flags) mutable -> slot_retention {
       (void)p->on_accept_complete(res, flags);
       if (bitmask::has(flags, iou_cqe_flags::more))
@@ -548,11 +548,11 @@ private:
     if (sock_) {
       if (listening_)
         (void)loop_.submit_cancel(sock_,
-            [p = self()](completion_handle, iou_res, iou_cqe_flags) {
+            [p = self()](completion_id, iou_res, iou_cqe_flags) {
               return slot_retention{};
             });
       (void)loop_.submit_close(std::move(sock_),
-          [p = self()](completion_handle, iou_res, iou_cqe_flags) {
+          [p = self()](completion_id, iou_res, iou_cqe_flags) {
             return slot_retention{};
           });
     }

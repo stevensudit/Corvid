@@ -51,7 +51,7 @@ void IouLoop_NopCompletion() {
     std::atomic<uint32_t> flags_int{max_32};
 
     const auto token = runner->submit_nop(
-        [&](completion_handle, iou_res res, iou_cqe_flags flags) {
+        [&](completion_id, iou_res res, iou_cqe_flags flags) {
           result.store(res.value(), std::memory_order::relaxed);
           flags_int.store(*flags, std::memory_order::relaxed);
           fired.store(true, std::memory_order::release);
@@ -74,7 +74,7 @@ void IouLoop_MultipleNops() {
     for (int i = 0; i < 4; ++i) {
       submitted =
           submitted &&
-          runner->submit_nop([&](completion_handle, iou_res, iou_cqe_flags) {
+          runner->submit_nop([&](completion_id, iou_res, iou_cqe_flags) {
             count.fetch_add(1, std::memory_order::relaxed);
             return slot_retention{};
           });
@@ -153,7 +153,7 @@ void IouLoop_RecvSend() {
 
     const bool ok = runner->post_and_wait([&] {
       const auto token = runner->submit_recv_bytes(recv_sock, buf,
-          [&](completion_handle, iou_res res, iou_cqe_flags) {
+          [&](completion_id, iou_res res, iou_cqe_flags) {
             recv_result.store(res.value(), std::memory_order::relaxed);
             received.store(true, std::memory_order::release);
             return slot_retention{};
@@ -161,7 +161,7 @@ void IouLoop_RecvSend() {
       if (!token.is_valid()) return false;
       const auto send_token = runner->submit_send_bytes(send_sock,
           std::as_bytes(std::span{msg}),
-          [&](completion_handle, iou_res res, iou_cqe_flags) {
+          [&](completion_id, iou_res res, iou_cqe_flags) {
             send_result.store(res.value(), std::memory_order::relaxed);
             return slot_retention{};
           });
@@ -198,7 +198,7 @@ void IouLoop_RecvWriteFixed() {
     constexpr std::string_view msg{"hello-fixed"};
 
     const auto recv_token = runner->submit_recv_buffer(recv_sock,
-        [&](completion_handle, iou_loop::buffer& buf) {
+        [&](completion_id, iou_loop::buffer& buf) {
           recv_n.store(buf.result().value(), std::memory_order::relaxed);
           auto data = buf.payload_view();
           payload.assign(data);
@@ -216,7 +216,7 @@ void IouLoop_RecvWriteFixed() {
     (void)tok.update_payload(span);
 
     const auto send_token = runner->submit_write_buffer(send_sock,
-        std::move(tok), [&](completion_handle, iou_loop::buffer& buf) {
+        std::move(tok), [&](completion_id, iou_loop::buffer& buf) {
           send_n.store(buf.result().value(), std::memory_order::relaxed);
           return slot_retention{};
         });
