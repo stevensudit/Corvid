@@ -16,7 +16,7 @@ chmod +x llvm.sh
 sudo ./llvm.sh 22
 sudo apt update
 sudo apt install -y clang-22 lldb-22 lld-22 clang-format-22 clang-tidy-22 cmake ninja-build
-sudo apt-get install -y libc++-22-dev libc++abi-22-dev
+sudo apt-get install -y libc++-22-dev libc++abi-22-dev liburing-dev pkg-config
 sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-22 100 \
 --slave /usr/bin/clang++ clang++ /usr/bin/clang++-22
 ```

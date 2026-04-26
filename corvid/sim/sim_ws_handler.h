@@ -22,7 +22,7 @@
 #include <iostream>
 #include <memory>
 
-#include "../proto/http_websocket_transaction.h"
+#include "../proto/epoll/http_websocket_transaction.h"
 #include "../strings/any_strings.h"
 #include "sim_game.h"
 #include "sim_json_parse.h"

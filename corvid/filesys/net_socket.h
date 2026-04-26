@@ -32,23 +32,177 @@
 namespace corvid { inline namespace filesys {
 using namespace bool_enums;
 
+#pragma region Enums
+
+// `SOCK_*` wrapper for socket types and flags.
+enum class socket_type : int {
+  stream = SOCK_STREAM,       // 1
+  datagram = SOCK_DGRAM,      // 2
+  raw = SOCK_RAW,             // 3
+  rdm = SOCK_RDM,             // 4
+  seqpacket = SOCK_SEQPACKET, // 5
+  dccp = SOCK_DCCP,           // 6
+  packet = SOCK_PACKET,       // 10
+
+  cloexec = SOCK_CLOEXEC,                // 0x0200'0000
+  nonblock = SOCK_NONBLOCK,              // 0x0000'4000
+  nonblock_cloexec = nonblock | cloexec, // 0x0200'4000
+  sequence_mask = 0x0000'000F            // aka SOCK_TYPE_MASK
+};
+
+// `AF_*` wrapper for address family domains.
+enum class address_family : int {
+  unspecified = AF_UNSPEC,    // 0
+  local = AF_LOCAL,           // 1
+  unix = AF_LOCAL,            // 1, aka AF_LOCAL
+  file = AF_LOCAL,            // 1, aka AF_LOCAL
+  inet = AF_INET,             // 2
+  ax25 = AF_AX25,             // 3
+  ipx = AF_IPX,               // 4
+  appletalk = AF_APPLETALK,   // 5
+  netrom = AF_NETROM,         // 6
+  bridge = AF_BRIDGE,         // 7
+  atmpvc = AF_ATMPVC,         // 8
+  x25 = AF_X25,               // 9
+  inet6 = AF_INET6,           // 10
+  rose = AF_ROSE,             // 11
+  decnet = AF_DECnet,         // 12
+  netbeui = AF_NETBEUI,       // 13
+  security = AF_SECURITY,     // 14
+  key = AF_KEY,               // 15
+  netlink = AF_NETLINK,       // 16
+  route = AF_ROUTE,           // 16, aka AF_NETLINK
+  packet = AF_PACKET,         // 17
+  ash = AF_ASH,               // 18
+  econet = AF_ECONET,         // 19
+  atmsvc = AF_ATMSVC,         // 20
+  rds = AF_RDS,               // 21
+  sna = AF_SNA,               // 22
+  irda = AF_IRDA,             // 23
+  pppox = AF_PPPOX,           // 24
+  wanpipe = AF_WANPIPE,       // 25
+  llc = AF_LLC,               // 26
+  ib = AF_IB,                 // 27
+  mpls = AF_MPLS,             // 28
+  can = AF_CAN,               // 29
+  tipc = AF_TIPC,             // 30
+  bluetooth = AF_BLUETOOTH,   // 31
+  iucv = AF_IUCV,             // 32
+  rxrpc = AF_RXRPC,           // 33
+  isdn = AF_ISDN,             // 34
+  phonet = AF_PHONET,         // 35
+  ieee802154 = AF_IEEE802154, // 36
+  caif = AF_CAIF,             // 37
+  alg = AF_ALG,               // 38
+  nfc = AF_NFC,               // 39
+  vsock = AF_VSOCK,           // 40
+  kcm = AF_KCM,               // 41
+  qipcrtr = AF_QIPCRTR,       // 42
+  smc = AF_SMC,               // 43
+  xdp = AF_XDP,               // 44
+  mctp = AF_MCTP,             // 45
+  max = AF_MAX,               // 46
+  AF_MUST_BE_INT32 = 0x7FFF'FFFF
+};
+
+// `IPPROTO_*` wrapper for protocol types.
+enum class protocol_type : int {
+  ip = IPPROTO_IP,             // 0
+  icmp = IPPROTO_ICMP,         // 1
+  igmp = IPPROTO_IGMP,         // 2
+  ipip = IPPROTO_IPIP,         // 4
+  tcp = IPPROTO_TCP,           // 6
+  egp = IPPROTO_EGP,           // 8
+  pup = IPPROTO_PUP,           // 12
+  udp = IPPROTO_UDP,           // 17
+  idp = IPPROTO_IDP,           // 22
+  tp = IPPROTO_TP,             // 29
+  dccp = IPPROTO_DCCP,         // 33
+  ipv6 = IPPROTO_IPV6,         // 41
+  routing = IPPROTO_ROUTING,   // 43
+  fragment = IPPROTO_FRAGMENT, // 44
+  rsvp = IPPROTO_RSVP,         // 46
+  gre = IPPROTO_GRE,           // 47
+  esp = IPPROTO_ESP,           // 50
+  ah = IPPROTO_AH,             // 51
+  icmpv6 = IPPROTO_ICMPV6,     // 58
+  none = IPPROTO_NONE,         // 59
+  dstopts = IPPROTO_DSTOPTS,   // 60
+  mtp = IPPROTO_MTP,           // 92
+  beetph = IPPROTO_BEETPH,     // 94, was IPPROTO_IPIP
+  encap = IPPROTO_ENCAP,       // 98
+  pim = IPPROTO_PIM,           // 103
+  comp = IPPROTO_COMP,         // 108
+  l2tp = IPPROTO_L2TP,         // 115
+  sctp = IPPROTO_SCTP,         // 132
+  mh = IPPROTO_MH,             // 135
+  udplite = IPPROTO_UDPLITE,   // 136
+  mpls = IPPROTO_MPLS,         // 137
+  ethernet = IPPROTO_ETHERNET, // 143
+  raw = IPPROTO_RAW,           // 255
+  max = 256,
+  IPPROTO_MUST_BE_INT32 = 0x7FFF'FFFF
+};
+}} // namespace corvid::filesys
+
+template<>
+constexpr inline auto
+    corvid::enums::registry::enum_spec_v<corvid::filesys::socket_type> =
+        corvid::enums::sequence::make_sequence_enum_spec<
+            corvid::filesys::socket_type,
+            "-, stream, datagram, raw, rdm, seqpacket, dccp, , , , packet">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::filesys::address_family> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::filesys::address_family,
+        "unspecified, local, inet, ax25, ipx, appletalk, netrom, bridge, "
+        "atmpvc, x25, inet6, rose, decnet, netbeui,  security, key, netlink, "
+        "packet, ash, econet, atmsvc, rds, sna, irda, pppox, wanpipe, llc, "
+        "ib, mpls, can, tipc, bluetooth,  iucv, rxrpc, isdn, phonet, "
+        "ieee802154, caif, alg, nfc, vsock, kcm, qipcrtr, smc, xdp, mctp">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::filesys::protocol_type> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::filesys::protocol_type,
+        "ip, icmp, igmp, , ipip, , tcp, , egp, , , , pup, , , , , udp, , , , "
+        ", idp, , , , , , , , , , , dccp, , , , , , , , ipv6, , routing, "
+        "fragment, , rsvp, gre, , , esp, ah, , , , , , , icmpv6, none, "
+        "dstopts, , , , , , , , , , , , , , , , , , , , , , , , , , , , , , , "
+        ", mtp, , beetph, , , , encap, , , , , pim, , , , , comp, , , , , , , "
+        "l2tp, , , , , , , , , , , , , , , , , sctp, , , mh, udplite, mpls, , "
+        ", , , , ethernet, , , , , , , , , , , , , , , , , , , , ,  , ,  ,  , "
+        ", , , , , , , , , , , , , , , , , , , , , , , , , , , , ,  , , ,  , "
+        ", , , , , , , , , , , , , , , , , ,  , , , , , , , , , , , , , , , , "
+        ", , , , , , , , , , , , , , , , , , , , raw">();
+
+namespace corvid { inline namespace filesys {
+
+#pragma endregion
+#pragma region net_socket
+
 // RAII IP socket with type-safe option methods.
 //
-// `net_socket` is-an `os_file`, adding socket-specific operations on top of
-// the shared fd ownership and control helpers. Movable, non-copyable.
+// `net_socket` is-an `os_file`, adding socket-specific operations on top
+// of the shared fd ownership and control helpers. Movable, non-copyable.
 //
-// `bind` and `connect` accept a `sockaddr_storage`. `net_endpoint` converts
-// implicitly, so it can be passed directly. `accept` returns the peer address
-// as a raw `sockaddr_storage`; use `net_endpoint{sockaddr_storage}` to convert
-// it if needed.
+// `bind` and `connect` accept a `sockaddr_storage`. `net_endpoint`
+// converts implicitly, so it can be passed directly. `accept` returns the
+// peer address as a raw `sockaddr_storage`; use
+// `net_endpoint{sockaddr_storage}` to convert it if needed.
 class [[nodiscard]] net_socket: public os_file {
+#pragma region Construction
 public:
   using handle_t = os_file::file_handle_t;
   static constexpr handle_t invalid_handle = os_file::invalid_file_handle;
 
   net_socket() noexcept = default;
-  explicit net_socket(int domain, int type, int protocol) noexcept
-      : os_file(::socket(domain, type, protocol)) {}
+  explicit net_socket(address_family domain, socket_type type,
+      protocol_type protocol) noexcept
+      : os_file(::socket(*domain, *type, *protocol)) {}
   explicit net_socket(os_file&& file) noexcept : os_file(std::move(file)) {}
 
   net_socket(net_socket&&) noexcept = default;
@@ -57,49 +211,12 @@ public:
   net_socket& operator=(net_socket&&) noexcept = default;
   net_socket& operator=(const net_socket&) = delete;
 
-  ~net_socket() = default;
-
-  // Create an IPv4 socket. Defaults to non-blocking TCP (`SOCK_STREAM |
-  // SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass `message_style::datagram` for UDP,
-  // or `execution::blocking` to omit `SOCK_NONBLOCK`.
-  [[nodiscard]] static net_socket
-  create_ipv4(execution exec = execution::nonblocking,
-      message_style style = message_style::stream) noexcept {
-    return do_create(AF_INET, exec, style);
-  }
-
-  // Create an IPv6 socket. Defaults to non-blocking TCP (`SOCK_STREAM |
-  // SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass `message_style::datagram` for UDP,
-  // or `execution::blocking` to omit `SOCK_NONBLOCK`.
-  [[nodiscard]] static net_socket
-  create_ipv6(execution exec = execution::nonblocking,
-      message_style style = message_style::stream) noexcept {
-    return do_create(AF_INET6, exec, style);
-  }
-
-  // Create a Unix domain socket. Defaults to non-blocking stream
-  // (`SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass
-  // `message_style::datagram` for a connectionless UDS, or
-  // `execution::blocking` to omit `SOCK_NONBLOCK`.
-  [[nodiscard]] static net_socket
-  create_uds(execution exec = execution::nonblocking,
-      message_style style = message_style::stream) noexcept {
-    return do_create(AF_UNIX, exec, style);
-  }
-
-  // Create a socket whose address family matches `addr`. The family is read
-  // from `addr.ss_family`; if it is unrecognized, the underlying `socket(2)`
-  // call will fail and the returned socket will not be open. Defaults to
-  // non-blocking stream (`SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC`).
-  [[nodiscard]] static net_socket create_for(const sockaddr_storage& addr,
-      execution exec = execution::nonblocking,
-      message_style style = message_style::stream) noexcept {
-    return do_create(addr.ss_family, exec, style);
-  }
+#pragma endregion
+#pragma region Destruction
 
   // Close the socket. Idempotent. Returns true when the socket was open and
-  // is now closed, false if it could not be closed (likely because it already
-  // was).
+  // is now closed, false if it could not be closed (likely because it
+  // already was).
   // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
   [[nodiscard]] bool close() noexcept { return os_file::close(); }
 
@@ -112,6 +229,71 @@ public:
 
     return os_file::close();
   }
+
+  // Shut down part of a full-duplex connection. `how` is one of `SHUT_RD`,
+  // `SHUT_WR`, or `SHUT_RDWR`. Returns true on success.
+  [[nodiscard]] bool shutdown(int how) noexcept {
+    assert(is_open());
+    return ::shutdown(handle(), how) == 0;
+  }
+
+#pragma endregion
+#pragma region Factories
+
+  // Create an IPv4 socket. Defaults to non-blocking TCP (`SOCK_STREAM |
+  // SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass `message_style::datagram` for UDP,
+  // or `execution::blocking` to omit `SOCK_NONBLOCK`.
+  [[nodiscard]] static net_socket
+  create_ipv4(execution exec = execution::nonblocking,
+      message_style style = message_style::stream) noexcept {
+    return do_create(address_family::inet, exec, style);
+  }
+
+  // Create an IPv6 socket. Defaults to non-blocking TCP (`SOCK_STREAM |
+  // SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass `message_style::datagram` for UDP,
+  // or `execution::blocking` to omit `SOCK_NONBLOCK`.
+  [[nodiscard]] static net_socket
+  create_ipv6(execution exec = execution::nonblocking,
+      message_style style = message_style::stream) noexcept {
+    return do_create(address_family::inet6, exec, style);
+  }
+
+  // Create a Unix domain socket. Defaults to non-blocking stream
+  // (`SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC`). Pass
+  // `message_style::datagram` for a connectionless UDS, or
+  // `execution::blocking` to omit `SOCK_NONBLOCK`.
+  [[nodiscard]] static net_socket
+  create_uds(execution exec = execution::nonblocking,
+      message_style style = message_style::stream) noexcept {
+    return do_create(address_family::unix, exec, style);
+  }
+
+  // Create a socket whose address family matches `addr`. The family is read
+  // from `addr.ss_family`; if it is unrecognized, the underlying `socket(2)`
+  // call will fail and the returned socket will not be open. Defaults to
+  // non-blocking stream (`SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC`).
+  [[nodiscard]] static net_socket create_for(const sockaddr_storage& addr,
+      execution exec = execution::nonblocking,
+      message_style style = message_style::stream) noexcept {
+    return do_create(address_family{addr.ss_family}, exec, style);
+  }
+
+  // Create a connected pair of sockets.
+  [[nodiscard]] static std::pair<net_socket, net_socket>
+  create_pair(address_family domain = address_family::unix,
+      socket_type type = socket_type::stream,
+      execution exec = execution::nonblocking) noexcept {
+    auto combined_type = *type | *socket_type::cloexec;
+    if (exec == execution::nonblocking)
+      combined_type |= *socket_type::nonblock;
+    int fds[2];
+    if (::socketpair(*domain, combined_type, 0, fds) == 0)
+      return {net_socket{os_file{fds[0]}}, net_socket{os_file{fds[1]}}};
+    return {};
+  }
+
+#pragma endregion
+#pragma region Options
 
   // Set a socket option. Returns true on success. Templated to infer
   // `sizeof(T)` automatically and hide the `reinterpret_cast` required by
@@ -168,7 +350,11 @@ public:
     return set_option(SOL_SOCKET, SO_SNDBUF, bytes);
   }
 
-  // Read up to `data.size() - offset` bytes into `data` starting at `offset`.
+#pragma endregion
+#pragma region Recv
+
+  // Read up to `data.size() - offset` bytes into `data` starting at
+  // `offset`.
   //
   // On success, trims `data` to `offset + bytes_read` and returns true. On
   // EOF, leaves `data` unchanged and returns false. On soft error (EAGAIN),
@@ -181,11 +367,11 @@ public:
   // EOF             false     unchanged, so not empty
   // Hard failure    false     resized to offset
   [[nodiscard]] bool
-  recv_at(std::string& data, size_t offset, int flags = 0) const {
+  recv_at(std::string& data, size_t offset, msg_flags flags = {}) const {
     if (offset >= data.size()) return true;
 
     const ssize_t n =
-        ::recv(handle(), data.data() + offset, data.size() - offset, flags);
+        ::recv(handle(), data.data() + offset, data.size() - offset, *flags);
     if (n == 0) return false;
 
     no_zero::trim_to(data, offset + (n > 0 ? static_cast<size_t>(n) : 0));
@@ -196,50 +382,56 @@ public:
   // Read up to `data.size` bytes from the socket into `data`, honoring
   // `flags` as in POSIX `::recv`.
   //
-  // On success, resizes `data` to the number of bytes read and returns true. A
-  // "soft" failure (e.g., EAGAIN) is treated as success with zero bytes read.
-  // On EOF/disconnect, leaves `data` unchanged and returns false. On hard
-  // failure, clears `data` and returns false.
+  // On success, resizes `data` to the number of bytes read and returns true.
+  // A "soft" failure (e.g., EAGAIN) is treated as success with zero bytes
+  // read. On EOF/disconnect, leaves `data` unchanged and returns false. On
+  // hard failure, clears `data` and returns false.
   //
   // Status       |  Return  | `data`
   // Success         true      resized to bytes read
   // Soft failure    true      resized to zero (no new data)
   // EOF             false     unchanged, so not empty
   // Hard failure    false     cleared (empty)
-  [[nodiscard]] bool recv(std::string& data, int flags = 0) const {
+  [[nodiscard]] bool recv(std::string& data, msg_flags flags = {}) const {
     return recv_at(data, 0, flags);
   }
 
   // Receive raw bytes into `buf`, forwarding directly to POSIX `recv`.
-  [[nodiscard]] ssize_t recv(void* buf, size_t len, int flags) const noexcept {
+  [[nodiscard]] ssize_t
+  recv(void* buf, size_t len, msg_flags flags = {}) const noexcept {
     assert(is_open());
     // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
-    return ::recv(handle(), buf, len, flags);
+    return ::recv(handle(), buf, len, *flags);
   }
 
-  // Receive a message into `msg`, forwarding directly to POSIX `recvmsg`. See
-  // "iov_msghdr.h".
-  [[nodiscard]] ssize_t recv(msghdr& msg, int flags = 0) const noexcept {
+  // Receive a message into `msg`, forwarding directly to POSIX `recvmsg`.
+  // See "iov_msghdr.h".
+  [[nodiscard]] ssize_t
+  recv(msghdr& msg, msg_flags flags = {}) const noexcept {
     assert(is_open());
-    return ::recvmsg(handle(), &msg, flags);
+    return ::recvmsg(handle(), &msg, *flags);
   }
 
   // Peek at the socket, without consuming data, to determine whether EOF has
-  // been reached. Returns `true` if the peer has closed the connection (EOF),
-  // `false` if data is available (not EOF), or `std::nullopt` on any error
-  // (hard or soft) that prevents a determination (e.g., `EAGAIN`, `EBADF`).
+  // been reached. Returns `true` if the peer has closed the connection
+  // (EOF), `false` if data is available (not EOF), or `std::nullopt` on any
+  // error (hard or soft) that prevents a determination (e.g., `EAGAIN`,
+  // `EBADF`).
   [[nodiscard]] std::optional<bool> peek_eof() const noexcept {
     char byte;
-    const ssize_t n = recv(&byte, 1, MSG_PEEK | MSG_DONTWAIT);
+    const ssize_t n = recv(&byte, 1, msg_flags::peek | msg_flags::dontwait);
     if (n == 0) return true;
     if (n > 0) return false;
     return std::nullopt;
   }
 
-  // Send as much of `data` as possible on the socket. On success, removes the
-  // written prefix from `data` and returns true. On failure, leaves `data`
-  // unchanged and returns false. A "soft" failure (e.g., EAGAIN) is treated
-  // as success with no progress.
+#pragma endregion
+#pragma region Send
+
+  // Send as much of `data` as possible on the socket. On success, removes
+  // the written prefix from `data` and returns true. On failure, leaves
+  // `data` unchanged and returns false. A "soft" failure (e.g., EAGAIN) is
+  // treated as success with no progress.
   [[nodiscard]] bool send(std::string_view& data) const noexcept {
     if (data.empty()) return true;
 
@@ -251,26 +443,29 @@ public:
   }
 
   // Send raw bytes from `buf`, forwarding to POSIX `send`.
-  [[nodiscard]] ssize_t
-  send(const void* buf, size_t len, int flags = MSG_NOSIGNAL) const noexcept {
+  [[nodiscard]] ssize_t send(const void* buf, size_t len,
+      msg_flags flags = msg_flags::nosignal) const noexcept {
     assert(is_open());
-    return ::send(handle(), buf, len, flags);
+    return ::send(handle(), buf, len, *flags);
   }
 
   // Send a message described by `msg`, forwarding to POSIX `sendmsg`. See
   // "iov_msghdr.h".
   [[nodiscard]] ssize_t
-  send(msghdr& msg, int flags = MSG_NOSIGNAL) const noexcept {
+  send(msghdr& msg, msg_flags flags = msg_flags::nosignal) const noexcept {
     assert(is_open());
-    return ::sendmsg(handle(), &msg, flags);
+    return ::sendmsg(handle(), &msg, *flags);
   }
 
+#pragma endregion
+#pragma region Connecting
+
   // Return the POSIX socket address size for `addr`. For IPv4 and IPv6,
-  // returns the fixed struct size. For UDS pathname sockets, returns only the
-  // significant portion of `sun_path` (path length + null terminator +
+  // returns the fixed struct size. For UDS pathname sockets, returns only
+  // the significant portion of `sun_path` (path length + null terminator +
   // header). For ANS (abstract name sockets, where `sun_path[0] == '\0'`),
-  // returns `sizeof(sockaddr_un)` so the full name buffer is transmitted. For
-  // unrecognized families, returns `sizeof(sockaddr_storage)`.
+  // returns `sizeof(sockaddr_un)` so the full name buffer is transmitted.
+  // For unrecognized families, returns `sizeof(sockaddr_storage)`.
   [[nodiscard]] static socklen_t sockaddr_size(
       const sockaddr_storage& addr) noexcept {
     if (addr.ss_family == AF_INET) return sizeof(sockaddr_in);
@@ -302,7 +497,7 @@ public:
     if (::connect(handle(), reinterpret_cast<const sockaddr*>(&addr),
             sockaddr_size(addr)) == 0)
       return true;
-    if (errno == EINPROGRESS) return std::nullopt;
+    if (e_code_is(EC::inprogress)) return std::nullopt;
     return false;
   }
 
@@ -313,37 +508,34 @@ public:
     return ::listen(handle(), backlog) == 0;
   }
 
-  // Shut down part of a full-duplex connection. `how` is one of `SHUT_RD`,
-  // `SHUT_WR`, or `SHUT_RDWR`. Returns true on success.
-  [[nodiscard]] bool shutdown(int how) noexcept {
-    assert(is_open());
-    return ::shutdown(handle(), how) == 0;
-  }
-
-  // Accept a pending connection. The returned socket is created with
-  // `SOCK_CLOEXEC | SOCK_NONBLOCK` via `accept4`. Returns `std::nullopt` when
-  // no connection is available (`EAGAIN`/`EWOULDBLOCK`) or an error occurs.
-  // The peer address is returned as a raw `sockaddr_storage`; use
-  // `net_endpoint{sockaddr_storage}` to convert it if needed.
+  // Accept a pending connection. Returns `std::nullopt` when no connection is
+  // available (`EAGAIN`/`EWOULDBLOCK`) or an error occurs. The peer address is
+  // returned as a raw `sockaddr_storage`; use `net_endpoint{sockaddr_storage}`
+  // to convert it if needed.
   [[nodiscard]] std::optional<std::pair<net_socket, sockaddr_storage>>
   accept() noexcept {
     assert(is_open());
     sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
     const int fd = ::accept4(handle(), reinterpret_cast<sockaddr*>(&addr),
-        &len, SOCK_CLOEXEC | SOCK_NONBLOCK);
+        &len, *socket_type::nonblock_cloexec);
     if (fd < 0) return std::nullopt;
     return std::pair{net_socket{os_file{fd}}, addr};
   }
 
 private:
-  [[nodiscard]] static net_socket
-  do_create(int domain, execution exec, message_style style) noexcept {
-    int type = (style == message_style::stream) ? SOCK_STREAM : SOCK_DGRAM;
-    type |= SOCK_CLOEXEC;
-    if (exec == execution::nonblocking) type |= SOCK_NONBLOCK;
-    return net_socket{domain, type, 0};
+  [[nodiscard]] static net_socket do_create(address_family domain,
+      execution exec, message_style style) noexcept {
+    socket_type type =
+        (style == message_style::stream)
+            ? socket_type::stream
+            : socket_type::datagram;
+    type = socket_type{*type | *socket_type::cloexec};
+    if (exec == execution::nonblocking)
+      type = socket_type{*type | *socket_type::nonblock};
+    return net_socket{domain, type, protocol_type{0}};
   }
 };
 
+#pragma endregion
 }} // namespace corvid::filesys

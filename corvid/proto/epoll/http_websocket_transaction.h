@@ -23,7 +23,7 @@
 #include "epoll_loop.h"
 #include "http_transaction.h"
 #include "http_websocket.h"
-#include "../concurrency/timer_fuse.h"
+#include "../../concurrency/timer_fuse.h"
 
 namespace corvid { inline namespace proto {
 

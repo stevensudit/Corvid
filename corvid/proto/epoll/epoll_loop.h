@@ -32,15 +32,16 @@
 
 #include <pthread.h>
 
-#include "../concurrency/jthread_stoppable_sleep.h"
-#include "../concurrency/notifiable.h"
-#include "../concurrency/tombstone.h"
-#include "../containers/scoped_value.h"
-#include "../containers/scope_exit.h"
-#include "../containers/opt_find.h"
-#include "../filesys/epoll.h"
-#include "../filesys/event_fd.h"
-#include "../filesys/net_socket.h"
+#include "../../concurrency/jthread_stoppable_sleep.h"
+#include "../../concurrency/notifiable.h"
+#include "../../concurrency/tombstone.h"
+#include "../../concurrency/relaxed_atomic.h"
+#include "../../containers/scoped_value.h"
+#include "../../containers/scope_exit.h"
+#include "../../containers/opt_find.h"
+#include "../../filesys/epoll.h"
+#include "../../filesys/event_fd.h"
+#include "../../filesys/net_socket.h"
 
 namespace corvid { inline namespace proto {
 
@@ -73,7 +74,8 @@ private:
   net_socket sock_;
 };
 
-// `epoll`-based I/O event loop, safe for use with a background thread.
+// `epoll`-based I/O event loop, safe for use with a background thread. This
+// implements a Reactor pattern where we wait for readiness and then act.
 //
 // This is an internal building block for higher-level socket types
 // (e.g., `stream_conn`). User code drives the loop via `run` / `run_once`
@@ -221,12 +223,10 @@ public:
   // When a thread pool finishes work, it calls `post` to bring the result
   // back to the loop thread.
   [[nodiscard]] bool post(std::function<bool()> fn) {
-    {
-      // This lock not only protects the current queue from concurrent posts,
-      // but also ensures that we don't post to the wrong queue during a swap.
-      std::scoped_lock lock{post_mutex_};
-      active_queue_.load(std::memory_order_relaxed)->push_back(std::move(fn));
-    }
+    // This lock not only protects the current queue from concurrent posts,
+    // but also ensures that we don't post to the wrong queue during a swap.
+    if (std::scoped_lock lock{post_mutex_}; true)
+      (*active_queue_)->push_back(std::move(fn));
     return wake();
   }
 
@@ -473,10 +473,10 @@ private:
       // Lock so nobody can post to the queue we're about to swap out.
       // The actual swap could have been atomic without a lock.
       std::scoped_lock lock{post_mutex_};
-      pending = active_queue_.load(std::memory_order_relaxed);
+      pending = active_queue_;
       post_queue_t* other =
           (pending == &post_queues_[0]) ? &post_queues_[1] : &post_queues_[0];
-      active_queue_.store(other, std::memory_order_relaxed);
+      active_queue_ = other;
     }
     if (execute)
       for (auto& fn : *pending) (void)fn();
@@ -535,17 +535,17 @@ private:
   const epoll epoll_;
   const event_fd wake_fd_;
 
-  inline static thread_local const epoll_loop* current_loop_ = nullptr;
+  inline static thread_local const epoll_loop* current_loop_{};
 
   std::unordered_map<int, std::shared_ptr<io_conn>> registrations_;
 
   std::mutex post_mutex_;
   post_queue_t post_queues_[2];
-  std::atomic<post_queue_t*> active_queue_{&post_queues_[0]};
+  relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
   const std::chrono::milliseconds post_and_wait_poll_interval_;
 
   tombstone has_run_;
-  notifiable<std::atomic_bool> running_{false};
+  notifiable<std::atomic_bool> running_;
 };
 
 // Runs an `epoll_loop` in its own background thread.

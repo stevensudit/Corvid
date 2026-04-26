@@ -22,13 +22,290 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/socket.h>
 
 #include "../strings/no_zero.h"
+#include "../enums/bitmask_enum.h"
+#include "../enums/sequence_enum.h"
 
 namespace corvid { inline namespace filesys {
 
 using namespace corvid::strings::no_zero_funcs;
 
+// `MSG_*` wrapper.
+enum class msg_flags : int {
+  none = 0,                    // 0x0000'0000
+  oob = MSG_OOB,               // 0x0000'0001
+  peek = MSG_PEEK,             // 0x0000'0002
+  dontroute = MSG_DONTROUTE,   // 0x0000'0004
+  ctrunc = MSG_CTRUNC,         // 0x0000'0008
+  proxy = MSG_PROXY,           // 0x0000'0010
+  trunc = MSG_TRUNC,           // 0x0000'0020
+  dontwait = MSG_DONTWAIT,     // 0x0000'0040
+  eor = MSG_EOR,               // 0x0000'0080
+  waitall = MSG_WAITALL,       // 0x0000'0100
+  fin = MSG_FIN,               // 0x0000'0200
+  syn = MSG_SYN,               // 0x0000'0400
+  confirm = MSG_CONFIRM,       // 0x0000'0800
+  rst = MSG_RST,               // 0x0000'1000
+  errqueue = MSG_ERRQUEUE,     // 0x0000'2000
+  nosignal = MSG_NOSIGNAL,     // 0x0000'4000
+  more = MSG_MORE,             // 0x0000'8000
+  waitforone = MSG_WAITFORONE, // 0x0001'0000
+  batch = MSG_BATCH,           // 0x0004'0000
+  zerocopy = MSG_ZEROCOPY,     // 0x0400'0000
+  fastopen = MSG_FASTOPEN,     // 0x2000'0000
+  cloexec = MSG_CMSG_CLOEXEC   // 0x4000'0000
+};
+
+// `F_*` wrapper for `fcntl` operations.
+enum class fcntl_ops : int {
+  dupfd = F_DUPFD,                 // 0
+  getfd = F_GETFD,                 // 1
+  setfd = F_SETFD,                 // 2
+  getfl = F_GETFL,                 // 3
+  setfl = F_SETFL,                 // 4
+  getlk = F_GETLK,                 // 5
+  setlk = F_SETLK,                 // 6
+  setlkw = F_SETLKW,               // 7
+  setown = F_SETOWN,               // 8
+  getown = F_GETOWN,               // 9
+  setsig = F_SETSIG,               // 10
+  getsig = F_GETSIG,               // 11
+  getlk64 = F_GETLK64,             // 12
+  setlk64 = F_SETLK64,             // 13
+  setlkw64 = F_SETLKW64,           // 14
+  setownex = F_SETOWN_EX,          // 15
+  getownex = F_GETOWN_EX,          // 16
+  dupfd_cloexec = F_DUPFD_CLOEXEC, // 1030
+  F_MUST_BE_INT32 = 0x7FFF'FFFF
+};
+
+// `E_*` wrapper for `errno` values.
+enum class errno_code : int {
+  ok = 0,
+  perm = EPERM,                     // 1
+  noent = ENOENT,                   // 2
+  srch = ESRCH,                     // 3
+  intr = EINTR,                     // 4
+  io = EIO,                         // 5
+  nxio = ENXIO,                     // 6
+  toobig = E2BIG,                   // 7
+  noexec = ENOEXEC,                 // 8
+  badf = EBADF,                     // 9
+  child = ECHILD,                   // 10
+  again = EAGAIN,                   // 11
+  wouldblock = EAGAIN,              // 11 is EAGAIN
+  nomem = ENOMEM,                   // 12
+  acces = EACCES,                   // 13
+  fault = EFAULT,                   // 14
+  notblk = ENOTBLK,                 // 15
+  busy = EBUSY,                     // 16
+  exist = EEXIST,                   // 17
+  xdev = EXDEV,                     // 18
+  nodev = ENODEV,                   // 19
+  notdir = ENOTDIR,                 // 20
+  isdir = EISDIR,                   // 21
+  inval = EINVAL,                   // 22
+  nfile = ENFILE,                   // 23
+  mfile = EMFILE,                   // 24
+  notty = ENOTTY,                   // 25
+  txtbsy = ETXTBSY,                 // 26
+  fbig = EFBIG,                     // 27
+  nospc = ENOSPC,                   // 28
+  spipe = ESPIPE,                   // 29
+  rofs = EROFS,                     // 30
+  mlink = EMLINK,                   // 31
+  pipe = EPIPE,                     // 32
+  dom = EDOM,                       // 33
+  range = ERANGE,                   // 34
+  deadlk = EDEADLK,                 // 35
+  nametoolong = ENAMETOOLONG,       // 36
+  nolck = ENOLCK,                   // 37
+  nosys = ENOSYS,                   // 38
+  notempty = ENOTEMPTY,             // 39
+  loop = ELOOP,                     // 40
+  old_wouldblock = 41,              // 41 was EWOULDBLOCK
+  nomsg = ENOMSG,                   // 42
+  idrm = EIDRM,                     // 43
+  chrng = ECHRNG,                   // 44
+  l2nsync = EL2NSYNC,               // 45
+  l3hlt = EL3HLT,                   // 46
+  l3rst = EL3RST,                   // 47
+  lnrng = ELNRNG,                   // 48
+  unatch = EUNATCH,                 // 49
+  ncsi = ENOCSI,                    // 50
+  l2hlt = EL2HLT,                   // 51
+  bade = EBADE,                     // 52
+  badr = EBADR,                     // 53
+  xfull = EXFULL,                   // 54
+  noano = ENOANO,                   // 55
+  badrqc = EBADRQC,                 // 56
+  badslt = EBADSLT,                 // 57
+  old_deadlock = 58,                // 58 is EDEADLOCK/EDEADLK
+  bfont = EBFONT,                   // 59
+  nostr = ENOSTR,                   // 60
+  nodata = ENODATA,                 // 61
+  time = ETIME,                     // 62
+  nosr = ENOSR,                     // 63
+  nonet = ENONET,                   // 64
+  nopkg = ENOPKG,                   // 65
+  remote = EREMOTE,                 // 66
+  nolink = ENOLINK,                 // 67
+  adv = EADV,                       // 68
+  srmnt = ESRMNT,                   // 69
+  comm = ECOMM,                     // 70
+  proto = EPROTO,                   // 71
+  multihop = EMULTIHOP,             // 72
+  dotdot = EDOTDOT,                 // 73
+  badmsg = EBADMSG,                 // 74
+  overflow = EOVERFLOW,             // 75
+  notuniq = ENOTUNIQ,               // 76
+  badfd = EBADFD,                   // 77
+  remchg = EREMCHG,                 // 78
+  libacc = ELIBACC,                 // 79
+  libbad = ELIBBAD,                 // 80
+  libscn = ELIBSCN,                 // 81
+  libmax = ELIBMAX,                 // 82
+  libexec = ELIBEXEC,               // 83
+  ilseq = EILSEQ,                   // 84
+  restart = ERESTART,               // 85
+  strpipe = ESTRPIPE,               // 86
+  users = EUSERS,                   // 87
+  notsock = ENOTSOCK,               // 88
+  destaddrreq = EDESTADDRREQ,       // 89
+  msgsize = EMSGSIZE,               // 90
+  prototype = EPROTOTYPE,           // 91
+  noprotoopt = ENOPROTOOPT,         // 92
+  protonosupport = EPROTONOSUPPORT, // 93
+  socktnosupport = ESOCKTNOSUPPORT, // 94
+  opnotsupp = EOPNOTSUPP,           // 95
+  pfnosupport = EPFNOSUPPORT,       // 96
+  afnosupport = EAFNOSUPPORT,       // 97
+  addrinuse = EADDRINUSE,           // 98
+  addrnotavail = EADDRNOTAVAIL,     // 99
+  netdown = ENETDOWN,               // 100
+  netunreach = ENETUNREACH,         // 101
+  netreset = ENETRESET,             // 102
+  connaborted = ECONNABORTED,       // 103
+  connreset = ECONNRESET,           // 104
+  nobufs = ENOBUFS,                 // 105
+  isconn = EISCONN,                 // 106
+  notconn = ENOTCONN,               // 107
+  shutdown = ESHUTDOWN,             // 108
+  toomanyrefs = ETOOMANYREFS,       // 109
+  timedout = ETIMEDOUT,             // 110
+  connrefused = ECONNREFUSED,       // 111
+  hostdown = EHOSTDOWN,             // 112
+  hostunreach = EHOSTUNREACH,       // 113
+  already = EALREADY,               // 114
+  inprogress = EINPROGRESS,         // 115
+  stale = ESTALE,                   // 116
+  uclean = EUCLEAN,                 // 117
+  notnam = ENOTNAM,                 // 118
+  navail = ENAVAIL,                 // 119
+  isnam = EISNAM,                   // 120
+  remoteio = EREMOTEIO,             // 121
+  dquot = EDQUOT,                   // 122
+  nomedium = ENOMEDIUM,             // 123
+  mediumtype = EMEDIUMTYPE,         // 124
+  canceled = ECANCELED,             // 125
+  nokey = ENOKEY,                   // 126
+  keyexpired = EKEYEXPIRED,         // 127
+  keyrevoked = EKEYREVOKED,         // 128
+  keyrejected = EKEYREJECTED,       // 129
+  ownerdead = EOWNERDEAD,           // 130
+  notrecoverable = ENOTRECOVERABLE, // 131
+  rfkill = ERFKILL,                 // 132
+  hwpoison = EHWPOISON,             // 133
+  E_MUST_BE_INT32 = 0x7FFF'FFFF
+};
+
+// Type-safe aliasing for `errno`.
+using EC = errno_code;
+inline errno_code e_code() { return errno_code{errno}; };
+inline bool e_code_is(errno_code code) { return e_code() == code; }
+
+// `O_*` wrapper for `open` flags.
+enum class o_flags : int {
+  rdonly = O_RDONLY,                     // 0x0000'0000 sequence value
+  wronly = O_WRONLY,                     // 0x0000'0001 sequence value
+  rdwr = O_RDWR,                         // 0x0000'0002 sequence value
+  accmode = O_ACCMODE,                   // 0x0000'0003 mask for above three
+  creat = O_CREAT,                       // 0x0000'0040
+  excl = O_EXCL,                         // 0x0000'0080
+  noctty = O_NOCTTY,                     // 0x0000'0100
+  trunc = O_TRUNC,                       // 0x0000'0200
+  append = O_APPEND,                     // 0x0000'0400
+  nonblock = O_NONBLOCK,                 // 0x0000'0800
+  dsync = O_DSYNC,                       // 0x0000'1000
+  async = O_ASYNC,                       // 0x0000'2000
+  direct = O_DIRECT,                     // 0x0000'4000
+  largefile = O_LARGEFILE,               // 0x0000'8000
+  directory = O_DIRECTORY,               // 0x0001'0000
+  nofollow = O_NOFOLLOW,                 // 0x0002'0000
+  noattime = O_NOATIME,                  // 0x0004'0000
+  cloexec = O_CLOEXEC,                   // 0x0008'0000
+  raw_osync = O_FSYNC & O_DSYNC,         // 0x0010'0000 aka __O_SYNC.
+  osync = O_SYNC,                        // 0x0010'1000 raw_osync + dsync
+  fsync = O_FSYNC,                       // 0x0010'1000 alias for osync
+  rsync = O_RSYNC,                       // 0x0010'1000 alias for osync
+  path = O_PATH,                         // 0x0020'0000
+  raw_tmpfile = O_TMPFILE & O_DIRECTORY, // 0x0040'0000 aka __O_TMPFILE
+  tmpfile = O_TMPFILE,                   // 0x0041'0000 raw_tmpfile + directory
+};
+}} // namespace corvid::filesys
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::filesys::msg_flags> =
+    corvid::enums::bitmask::make_bitmask_enum_spec<corvid::filesys::msg_flags,
+        "cloexec, fastopen, , , zerocopy, , , , , , , , batch, , waitforone, "
+        "more, nosignal, errqueue, rst, confirm, syn, fin, waitall, eor, "
+        "dontwait, trunc, proxy, ctrunc, dontroute, peek, oob">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::filesys::fcntl_ops> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::filesys::fcntl_ops,
+        "dupfd, getfd, setfd, getfl, setfl, getlk, setlk, setlkw, setown, "
+        "getown, setsig, getsig, getlk64, setlk64, setlkw64, setownex, "
+        "getownex">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::filesys::errno_code> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::filesys::errno_code,
+        "ok, perm, noent, srch, intr, io, nxio, toobig, noexec, badf, child, "
+        "again, nomem, acces, fault, notblk, busy, exist, xdev, "
+        "nodev, notdir,  isdir, inval, nfile, mfile, notty, txtbsy, fbig, "
+        "nospc, spipe, rofs, mlink,  pipe, dom, range, deadlk, nametoolong, "
+        "nolck, nosys, notempty, loop, old_wouldblock, nomsg, idrm, chrng, "
+        "l2nsync, l3hlt, l3rst, lnrng, unatch, ncsi, l2hlt, bade, badr, "
+        "exfull, noano, badrqc, badslt, old_deadlock, bfont, nostr, nodata, "
+        "time, nosr, nonet, nopkg, remote, nolink, adv, srmnt, comm, proto, "
+        "multihop, dotdot, badmsg, overflow, notuniq, badfd, remchg, libacc, "
+        "libbad, libscn, libmax, libexec, ilseq, restart,  strpipe,  users, "
+        "notsock, destaddrreq, msgsize, prototype, noprotoopt, "
+        "protonosupport, socktnosupport, opnotsupp, pfnosupport, afnosupport, "
+        "addrinuse, addrnotavail, netdown, netunreach, netreset, connaborted, "
+        "connreset,  nobufs, isconn, notconn, shutdown, toomanyrefs, "
+        "timedout, connrefused, hostdown, hostunreach, already, inprogress, "
+        "stale, uclean, notnam, navail, isnam, remoteio, dquot, nomedium, "
+        "mediumtype, canceled, nokey, keyexpired, keyrevoked, keyrejected, "
+        "ownerdead, notrecoverable, rfkill, hwpoison">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::filesys::o_flags> =
+    corvid::enums::bitmask::make_bitmask_enum_spec<corvid::filesys::o_flags,
+        "rdonly, wronly, rdwr, creat, excl, noctty, trunc, append, nonblock, "
+        "dsync, async, direct, largefile, directory, nofollow, noattime, "
+        "cloexec, raw_osync, path, raw_tmpfile">();
+
+namespace corvid { inline namespace filesys {
 namespace details {
 // Platform file handle type and invalid-handle sentinel.
 using file_handle_t = int;
@@ -73,10 +350,12 @@ public:
     return handle_ != invalid_file_handle;
   }
 
-  explicit operator bool() const noexcept { return is_open(); }
+  [[nodiscard]] explicit operator bool() const noexcept { return is_open(); }
+  [[nodiscard]] bool operator!() const noexcept { return !is_open(); }
 
   // Return the raw platform handle.
   [[nodiscard]] file_handle_t handle() const noexcept { return handle_; }
+  [[nodiscard]] file_handle_t operator*() const noexcept { return handle_; }
 
   // Close the file. Idempotent. Returns true when the file was open and is
   // now closed, false if it could not be closed (likely because it already
@@ -180,19 +459,21 @@ public:
 
   // Invoke `fcntl(cmd, args...)` on the handle. Returns -1 on failure.
   template<typename... Args>
-  [[nodiscard]] int control(int cmd, Args&&... args) const noexcept {
-    return ::fcntl(handle_, cmd, std::forward<Args>(args)...);
+  [[nodiscard]] int control(fcntl_ops cmd, Args&&... args) const noexcept {
+    return ::fcntl(handle_, *cmd, std::forward<Args>(args)...);
   }
 
   // Return the fd status flags via `fcntl(F_GETFL)`.
-  [[nodiscard]] std::optional<int> get_flags() const noexcept {
-    const auto res = control(F_GETFL);
-    return res == -1 ? std::optional<int>{} : std::optional<int>{res};
+  [[nodiscard]] std::optional<o_flags> get_flags() const noexcept {
+    auto flags = o_flags{control(fcntl_ops::getfl)};
+    if (*flags == -1) return std::nullopt;
+    return flags;
   }
 
   // Set the fd status flags via `fcntl(F_SETFL)`. Returns false on failure.
-  [[nodiscard]] bool set_flags(int flags) const noexcept {
-    return control(F_SETFL, flags) == 0;
+  // These are the "O_" flags.
+  [[nodiscard]] bool set_flags(o_flags flags) const noexcept {
+    return control(fcntl_ops::setfl, *flags) == 0;
   }
 
   // Enable or disable non-blocking I/O via `fcntl(F_SETFL, O_NONBLOCK)`.
@@ -200,7 +481,7 @@ public:
   [[nodiscard]] bool set_nonblocking(bool on = true) const noexcept {
     const auto flags = get_flags();
     if (!flags) return false;
-    const int new_flags = on ? (*flags | O_NONBLOCK) : (*flags & ~O_NONBLOCK);
+    auto new_flags = bitmask::set_to(*flags, o_flags::nonblock, on);
     return set_flags(new_flags);
   }
 
@@ -211,9 +492,9 @@ public:
   //
   // Note that `errno` is only meaningful immediately after a failure
   // return from a system call and is invalidated by the next system call.
-  static bool is_hard_error(int err = errno) noexcept {
-    assert(err != 0);
-    return (err != EAGAIN && err != EWOULDBLOCK && err != EINTR);
+  static bool is_hard_error(errno_code err = e_code()) noexcept {
+    assert(err);
+    return (err != EC::again && err != EC::wouldblock && err != EC::intr);
   }
 
 private:

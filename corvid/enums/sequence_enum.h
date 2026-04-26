@@ -359,16 +359,13 @@ struct sequence_enum_names_spec
 //
 // The list must be a string literal, delimited by commas. Whitespace is
 // trimmed. An element that is empty, a hyphen, or a question mark or asterisk
-// means that nothing is shown for that value, but it's still valid.
+// is a placeholder, and its numeric value is printed instead of a name. The
+// same applies to values outside the name list's range.
 //
 // Set `wrapseq` to `wrapclip::limit` to enable wrapping.
 //
 // The `maxseq` is automatically calculated from the number of names, but if
 // the minimum value isn't 0, you must set `minseq` to it.
-//
-// Prints the matching name for the value. If it is not in the range of the
-// names, or if the name for that value is empty, the numerical value is
-// printed.
 template<ScopedEnum E, strings::fixed_string names,
     wrapclip wrapseq = wrapclip{}, E minseq = E{}>
 [[nodiscard]] consteval auto make_sequence_enum_spec() {

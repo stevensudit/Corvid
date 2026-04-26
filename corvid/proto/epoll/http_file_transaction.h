@@ -28,10 +28,10 @@
 #include <string>
 #include <string_view>
 
-#include "../containers/opt_find.h"
-#include "../containers/transparent.h"
-#include "../strings/token_parser.h"
-#include "http_head_codec.h"
+#include "../../containers/opt_find.h"
+#include "../../containers/transparent.h"
+#include "../../strings/token_parser.h"
+#include "../misc/http_head_codec.h"
 #include "http_transaction.h"
 
 namespace corvid { inline namespace proto {

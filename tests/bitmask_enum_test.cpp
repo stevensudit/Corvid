@@ -591,6 +591,67 @@ constexpr auto registry::enum_spec_v<safe_rskipb> =
     make_bitmask_enum_values_spec<safe_rskipb,
         "black, blue,*  ,  ?,red, purple,?, ?", wrapclip::limit>();
 
+// Like rskipb but uses question-mark placeholder, confirming identical
+// behavior to asterisk: green bit is valid but unnamed, so it appears in hex
+// residual.
+enum class rqb : std::uint8_t {
+  black = 0,  // ---
+  red = 4,    // r--
+  green = 2,  // -g-
+  blue = 1,   // --b
+  yellow = 6, // rg-
+  purple = 5, // r-b
+  cyan = 3,   // -gb
+  white = 7   // rgb
+};
+
+template<>
+constexpr auto registry::enum_spec_v<rqb> =
+    make_bitmask_enum_spec<rqb, "red,?,blue">();
+
+// Like safe_rb but uses hyphen for invalid values instead of empty element,
+// confirming identical behavior: invalid values appear in hex residual.
+enum class safe_rb_h : std::uint8_t {
+  black = 0,  // ---
+  blue = 1,   // --b
+  red = 4,    // r--
+  purple = 5, // r-b
+};
+
+template<>
+constexpr auto registry::enum_spec_v<safe_rb_h> =
+    make_bitmask_enum_values_spec<safe_rb_h, "black,blue,-,-,red,purple,-,-",
+        wrapclip::limit>();
+
+void BitMaskTest_Placeholders() {
+  using namespace strings;
+  if (true) {
+    // Question-mark placeholder in bit-name mode: bit is valid, unnamed.
+    EXPECT_EQ(valid_bits_v<rqb>, 7);
+    EXPECT_EQ(enum_as_string(rqb(0x00)), "0x00");
+    EXPECT_EQ(enum_as_string(rqb(0x01)), "blue");
+    EXPECT_EQ(enum_as_string(rqb(0x02)), "0x02"); // unnamed green -> hex
+    EXPECT_EQ(enum_as_string(rqb(0x03)), "blue + 0x02");
+    EXPECT_EQ(enum_as_string(rqb(0x04)), "red");
+    EXPECT_EQ(enum_as_string(rqb(0x05)), "red + blue");
+    EXPECT_EQ(enum_as_string(rqb(0x06)), "red + 0x02");
+    EXPECT_EQ(enum_as_string(rqb(0x07)), "red + blue + 0x02");
+  }
+  if (true) {
+    // Hyphen placeholder in value-name mode: value is invalid, unnamed.
+    EXPECT_EQ(valid_bits_v<safe_rb_h>, 5);
+    EXPECT_EQ(enum_as_string(safe_rb_h(0x00)), "black");
+    EXPECT_EQ(enum_as_string(safe_rb_h(0x01)), "blue");
+    EXPECT_EQ(enum_as_string(safe_rb_h(0x02)),
+        "black + 0x02"); // invalid -> hex
+    EXPECT_EQ(enum_as_string(safe_rb_h(0x03)), "blue + 0x02");
+    EXPECT_EQ(enum_as_string(safe_rb_h(0x04)), "red");
+    EXPECT_EQ(enum_as_string(safe_rb_h(0x05)), "purple");
+    EXPECT_EQ(enum_as_string(safe_rb_h(0x06)), "red + 0x02");
+    EXPECT_EQ(enum_as_string(safe_rb_h(0x07)), "purple + 0x02");
+  }
+}
+
 void BitMaskTest_SkipBlue() {
   using namespace strings;
   if (true) {
@@ -835,9 +896,10 @@ MAKE_TEST_LIST(BitMaskTest_Ops, BitMaskTest_NamedFunctions,
     BitMaskTest_SafeOps, BitMaskTest_SafeNamedFunctions,
     BitMaskTest_MoreNamingTests, BitMaskTest_StreamingOut, BitMaskTest_NoGreen,
     BitMaskTest_NoBlue, BitMaskTest_NoRed, BitMaskTest_SafeNoGreen,
-    BitMaskTest_SafeNoBlue, BitMaskTest_SafeNoRed, BitMaskTest_SkipBlue,
-    BitMaskTest_SafeBlackWhite, BitMaskTest_EnumCalcBitNames,
-    BitMaskTest_EnumCalcValueNames, BitMaskTest_SafeWhite,
-    BitMaskTest_ExtractEnum, BitMaskTest_HoleyOps, BitMaskTest_MakeAt);
+    BitMaskTest_SafeNoBlue, BitMaskTest_SafeNoRed, BitMaskTest_Placeholders,
+    BitMaskTest_SkipBlue, BitMaskTest_SafeBlackWhite,
+    BitMaskTest_EnumCalcBitNames, BitMaskTest_EnumCalcValueNames,
+    BitMaskTest_SafeWhite, BitMaskTest_ExtractEnum, BitMaskTest_HoleyOps,
+    BitMaskTest_MakeAt);
 
 // NOLINTEND(readability-function-cognitive-complexity)

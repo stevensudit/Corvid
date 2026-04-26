@@ -555,11 +555,9 @@ consteval auto make_bitmask_enum_spec() {
 // `E` as a bitmask enum.
 //
 // The list must be a string literal, delimited by commas. Whitespace is
-// trimmed.
-//
-//  An element that is empty or a hyphen means that bit is invalid, while a
-//  question mark or asterisk is a wildcard placeholder which means nothing is
-//  shown for that bit, but the bit is valid.
+// trimmed. An element that is empty or a hyphen marks the bit as invalid. A
+// question mark or asterisk marks the bit as valid but unnamed. In both cases,
+// if the bit is set, its value appears in the hex residual.
 //
 // You may wish to choose to follow the convention of specifying names with a
 // built-in scope, as in "rgb::red" as opposed to "red".
@@ -584,16 +582,14 @@ consteval auto make_bitmask_enum_spec() {
 // Make a `enum_spec_v` from a list of value names, marking `E` as a bitmask
 // enum.
 //
-// The list is a string literal, delimited by commas. Whitespace is
-// trimmed. These are the names of  all possible bit combinations, in sequence,
-// starting from zero.
+// The list is a string literal, delimited by commas. Whitespace is trimmed.
+// These are the names of all possible bit combinations, in sequence, starting
+// from zero. An empty string or hyphen marks the value as invalid. A question
+// mark or asterisk marks the value as valid but unnamed. In both cases, if the
+// value's bits are set, they appear in the hex residual.
 //
-//  An empty string or hyphen means that value is invalid, while a question
-//  mark or asterisk is a wildcard placeholder which means nothing is shown for
-//  that value, but it is valid.
-//
-//  Only bits which are contained in the index of at least one of the valid
-//  names are themselves valid.
+// Only bits which are contained in the index of at least one of the valid
+// names are themselves valid.
 //
 // You may wish to choose to follow the convention of specifying names with a
 // built-in scope, as in "rgb::yellow" as opposed to "yellow".

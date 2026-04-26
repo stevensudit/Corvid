@@ -87,7 +87,8 @@ namespace corvid { inline namespace proto {
 // `sockaddr_storage` is provided.
 class net_endpoint {
 public:
-  static_assert(sizeof(sockaddr_un) <= sizeof(sockaddr_storage),
+  static constexpr size_t max_sockaddr_size = sizeof(sockaddr_storage);
+  static_assert(sizeof(sockaddr_un) <= max_sockaddr_size,
       "`sockaddr_storage` is not large enough to hold `sockaddr_un`");
 
   // Constructors.
@@ -145,9 +146,20 @@ public:
   explicit net_endpoint(const net_socket& sock) noexcept {
     sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
-    if (::getsockname(sock.handle(), reinterpret_cast<sockaddr*>(&addr),
-            &len) == 0)
-      do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), len);
+    auto* ptr = reinterpret_cast<sockaddr*>(&addr);
+    if (::getsockname(sock.handle(), ptr, &len) == 0)
+      do_assign_sockaddr(*ptr, len);
+  }
+
+  // Query the peer address of `sock` via `getpeername`. On failure, result
+  // is `empty()`.
+  [[nodiscard]] static net_endpoint peer_of(const net_socket& sock) noexcept {
+    sockaddr_storage addr{};
+    socklen_t len = sizeof(addr);
+    auto* ptr = reinterpret_cast<sockaddr*>(&addr);
+    if (::getpeername(sock.handle(), ptr, &len) == 0)
+      return net_endpoint{*ptr, len};
+    return {};
   }
 
   // Create wildcard bind endpoints for IPv4 or IPv6 with the given port.
@@ -322,7 +334,14 @@ public:
     return {addr, sockaddr_size()};
   }
 
-  // Convenient invalid endpoint.
+  // Expose raw pointer to sockaddr.
+  [[nodiscard]] sockaddr* as_sockaddr_ptr() noexcept {
+    auto addr = reinterpret_cast<sockaddr*>(&storage_);
+    return addr;
+  }
+
+  // Convenient invalid endpoint. Actual definition must be after the class is
+  // complete.
   static const net_endpoint invalid;
 
 private:
@@ -432,6 +451,14 @@ private:
   sockaddr_storage storage_{};
 };
 
-inline const net_endpoint net_endpoint::invalid{};
+// Declared inside the class, but defined here, after the class is complete.
+inline const net_endpoint net_endpoint::invalid;
+
+// Net endpoint as a target. Necessary for io_uring, even though we don't care
+// about the value inserted into `sockaddr_len`.
+struct net_endpoint_target {
+  net_endpoint sockaddr;
+  socklen_t sockaddr_len{net_endpoint::max_sockaddr_size};
+};
 
 }} // namespace corvid::proto

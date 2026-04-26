@@ -17,6 +17,7 @@
                 "-Werror",
                 "-Wno-unused-variable",
                 "${file}",
+                "-luring",
                 "-o",
                 "${fileDirname}/debug_bin/${fileBasenameNoExtension}"
             ],
@@ -50,7 +51,7 @@
         {
             "label": "Run Executable",
             "type": "shell",
-            "command": "${fileDirname}/${fileBasenameNoExtension}",
+            "command": "${fileDirname}/debug_bin/${fileBasenameNoExtension}",
             "group": {
                 "kind": "test",
                 "isDefault": true

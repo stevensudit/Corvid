@@ -38,6 +38,10 @@ else()
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L/usr/lib/llvm-22/lib -lc++ -lc++abi")
 endif()
 
+# External dependencies: requires apt install liburing-dev pkg-config
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBURING REQUIRED liburing)
+
 if(USE_CLANG_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy clang-tidy-22)
     if(CLANG_TIDY_EXE)
@@ -74,6 +78,11 @@ foreach(SOURCE_FILE ${SOURCES})
 
     # Add executable for each source file
     add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
+
+    if(${EXECUTABLE_NAME} MATCHES "^iou_")
+        target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})
+        target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${LIBURING_LIBRARIES})
+    endif()
 
     if(NOT USE_LIBSTDCPP)
         # Link libc++ and libc++abi explicitly

@@ -22,7 +22,7 @@
 #include <string_view>
 #include <vector>
 
-#include "../proto/json_parser.h"
+#include "../proto/misc/json_parser.h"
 #include "sim_game.h"
 
 namespace corvid { inline namespace sim {
@@ -94,8 +94,7 @@ struct SimGameStateJson {
   UiState ui_state;
 
   auto write_delta = [&writer, &game, &result, current_tick, &current_wave,
-                         &lives_count, &resources_count, &phase,
-                         &ui_state,
+                         &lives_count, &resources_count, &phase, &ui_state,
                          send_strategy](json_writer<std::string>& target) {
     target.member(json_trusted{"type"}, json_trusted{"world_delta"})
         .member(json_trusted{"tick"}, *current_tick);

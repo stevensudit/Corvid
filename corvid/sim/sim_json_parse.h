@@ -22,7 +22,7 @@
 #include <string_view>
 #include <vector>
 
-#include "../proto/json_parser.h"
+#include "../proto/misc/json_parser.h"
 #include "../strings/enum_conversion.h"
 #include "sim_game.h"
 
