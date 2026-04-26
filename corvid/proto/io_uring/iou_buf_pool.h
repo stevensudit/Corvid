@@ -327,22 +327,21 @@ private:
     return true;
   }
 
-  // Scan all parent-sized windows; coalesce any where all four child siblings
-  // are free. Removes coalesced child blocks from `src` and pushes the
-  // reconstituted parent to `dst` tail (cold end) for preferential
-  // re-splitting. Returns true if at least one block was coalesced.
+  // Scan parent-sized windows until one is found where all four child siblings
+  // are free. Removes those child blocks from `src`, pushes the reconstituted
+  // parent to `dst` tail (cold end) for preferential re-splitting, and
+  // returns true. Returns false if no eligible window exists.
   [[nodiscard]] bool coalesce(free_list& src, size_t child_sz, free_list& dst,
       size_t parent_sz) noexcept {
     const size_t n = hugepage_size / parent_sz;
-    bool any{};
     for (size_t i = 0; i < n; ++i) {
       ptr parent = base_ + (i * parent_sz);
       if (!are_all_free(parent, parent_sz)) continue;
       for (size_t j = 0; j < 4; ++j) src.remove(parent + (j * child_sz));
       dst.push_tail(parent);
-      any = true;
+      return true;
     }
-    return any;
+    return false;
   }
 
   // Ensure `large_list_` is non-empty, coalescing medium blocks if needed.
