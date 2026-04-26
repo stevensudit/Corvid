@@ -109,7 +109,8 @@ public:
 
     explicit operator bool() const noexcept { return head != nullptr; }
 
-    // Add block to head (high-address end).
+    // Add block to head (high-address end). Used when returning a borrowed
+    // block.
     void push_head(ptr p) noexcept {
       auto* node = reinterpret_cast<free_node*>(p);
       *node = {.next = head, .prev = nullptr};
@@ -409,10 +410,15 @@ private:
   }
 
   // Return a slab to its tier free-list. Coalescing is deferred to alloc time.
+  //
+  // Small blocks go to the tail so returned blocks accumulate at the cold end
+  // rather than cycling immediately. This lets all four siblings of a medium
+  // window collect at the tail before the JIT sweep coalesces them.
+  // Medium and large go to the head (LIFO) so they remain hot for direct reuse.
   void do_return_block(ptr p, size_t sz) noexcept {
     do_mark_free(p, sz);
     if (sz == *block_size::small)
-      small_list_.push_head(p);
+      small_list_.push_tail(p);
     else if (sz == *block_size::medium)
       medium_list_.push_head(p);
     else
