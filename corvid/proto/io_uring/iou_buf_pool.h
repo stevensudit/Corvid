@@ -52,15 +52,14 @@ namespace iouring {
 
 // Pool of pre-registered fixed I/O buffers backed by a single 2 MB huge page.
 //
-// The entire 2 MB block is registered with the kernel as one entry in the
-// `io_uring` fixed-buffer table (`buf_index` = 0). The kernel pins these pages
-// once at registration time, via `register_with`, avoiding per-operation
-// pinning overhead.
+// When possible, the entire 2 MB block is registered with the kernel as one
+// entry in the `io_uring` fixed-buffer table (`buf_index` = 0). The kernel
+// pins these pages once at registration time, via `register_with`, avoiding
+// per-operation pinning overhead.
 //
-// Internally the memory is managed by a three-tier slab allocator with O(1)
+// Internally, the memory is managed by a three-tier slab allocator with O(1)
 // doubly-linked free-lists for 4 KB, 16 KB, and 64 KB slots. Larger slabs are
-// split on demand; freed slabs coalesce back up when all four siblings in a
-// parent block become free simultaneously.
+// split on demand; freed slabs coalesce back up when needed.
 //
 // Zone heuristic: splits take the lowest-address block (from the list tail) to
 // cluster small allocations at low addresses and reserve high addresses for
@@ -330,26 +329,78 @@ private:
     return true;
   }
 
+  // Scan all large-block windows; coalesce any where all four medium siblings
+  // are free. Coalesced blocks go to `large_list_` tail (zone heuristic).
+  // Returns true if at least one block was coalesced.
+  [[nodiscard]] bool do_coalesce_medium_to_large() noexcept {
+    const size_t n = hugepage_size / *block_size::large;
+    bool any{};
+    for (size_t i = 0; i < n; ++i) {
+      ptr parent = base_ + (i * *block_size::large);
+      if (!do_all_free(parent, *block_size::large)) continue;
+      for (size_t j = 0; j < 4; ++j)
+        medium_list_.remove(ptr_at(parent, j * *block_size::medium));
+      large_list_.push_tail(parent);
+      any = true;
+    }
+    return any;
+  }
+
+  // Scan all medium-block windows; coalesce any where all four small siblings
+  // are free. Coalesced blocks go to `medium_list_` tail (zone heuristic).
+  // Returns true if at least one block was coalesced.
+  [[nodiscard]] bool do_coalesce_small_to_medium() noexcept {
+    const size_t n = hugepage_size / *block_size::medium;
+    bool any{};
+    for (size_t i = 0; i < n; ++i) {
+      ptr parent = base_ + (i * *block_size::medium);
+      if (!do_all_free(parent, *block_size::medium)) continue;
+      for (size_t j = 0; j < 4; ++j)
+        small_list_.remove(ptr_at(parent, j * *block_size::small));
+      medium_list_.push_tail(parent);
+      any = true;
+    }
+    return any;
+  }
+
+  // Ensure `large_list_` is non-empty, coalescing medium blocks if needed.
+  [[nodiscard]] bool do_ensure_large() noexcept {
+    return large_list_ || do_coalesce_medium_to_large();
+  }
+
+  // Ensure `medium_list_` is non-empty, splitting or coalescing as needed.
+  [[nodiscard]] bool do_ensure_medium() noexcept {
+    if (medium_list_) return true;
+    if (do_split_large_to_medium()) return true;
+    return do_coalesce_medium_to_large() && do_split_large_to_medium();
+  }
+
+  // Ensure `small_list_` is non-empty, splitting or coalescing as needed.
+  [[nodiscard]] bool do_ensure_small() noexcept {
+    if (small_list_) return true;
+    if (!do_ensure_medium()) return false;
+    if (do_split_medium_to_small()) return true;
+    return do_coalesce_small_to_medium() && do_split_medium_to_small();
+  }
+
   // Allocate one block of `sz` bytes. Caller holds `mutex_`. Returns
   // `nullptr` if the pool is exhausted for that size class.
   // Direct allocations use pop_head (highest address -- zone heuristic).
   [[nodiscard]] ptr do_alloc_block(size_t sz) noexcept {
     if (sz <= *block_size::small) {
-      if (!small_list_) {
-        if (!medium_list_ && !do_split_large_to_medium()) return nullptr;
-        if (!do_split_medium_to_small()) return nullptr;
-      }
+      if (!do_ensure_small()) return nullptr;
       ptr p = small_list_.pop_head();
       if (p) do_mark_alloc(p, *block_size::small);
       return p;
     }
     if (sz <= *block_size::medium) {
-      if (!medium_list_ && !do_split_large_to_medium()) return nullptr;
+      if (!do_ensure_medium()) return nullptr;
       ptr p = medium_list_.pop_head();
       if (p) do_mark_alloc(p, *block_size::medium);
       return p;
     }
     if (sz <= *block_size::large) {
+      if (!do_ensure_large()) return nullptr;
       ptr p = large_list_.pop_head();
       if (p) do_mark_alloc(p, *block_size::large);
       return p;
@@ -357,37 +408,21 @@ private:
     return nullptr; // Sizes above 64 KB are unsupported.
   }
 
-  // Return a slab and coalesce upward if all siblings of the parent are free.
-  // The block is pushed onto its tier list first, then the sibling check runs
-  // so that all four siblings are on the list when `remove` iterates them.
-  // Maximum recursion depth is 2 (small -> medium -> large).
-  void do_return_and_coalesce(ptr p, size_t sz) noexcept {
+  // Return a slab to its tier free-list. Coalescing is deferred to alloc time.
+  void do_return_block(ptr p, size_t sz) noexcept {
     do_mark_free(p, sz);
-    if (sz == *block_size::small) {
+    if (sz == *block_size::small)
       small_list_.push_head(p);
-      ptr parent = do_medium_parent(p);
-      if (do_all_free(parent, *block_size::medium)) {
-        for (size_t i = 0; i < 4; ++i)
-          small_list_.remove(ptr_at(parent, i * *block_size::small));
-        do_return_and_coalesce(parent, *block_size::medium);
-      }
-    } else if (sz == *block_size::medium) {
+    else if (sz == *block_size::medium)
       medium_list_.push_head(p);
-      ptr parent = do_large_parent(p);
-      if (do_all_free(parent, *block_size::large)) {
-        for (size_t i = 0; i < 4; ++i)
-          medium_list_.remove(ptr_at(parent, i * *block_size::medium));
-        large_list_.push_tail(parent);
-      }
-    } else {
+    else
       large_list_.push_head(p);
-    }
   }
 
   void return_buffer(span_t s, bool is_read) noexcept override {
     if (std::scoped_lock lock{mutex_}; true) {
       assert(available_bytes_ + s.size() <= hugepage_size);
-      do_return_and_coalesce(s.data(), s.size());
+      do_return_block(s.data(), s.size());
       available_bytes_ += s.size();
     }
     if (is_read) decrement_read_bytes(s.size());
