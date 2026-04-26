@@ -26,8 +26,26 @@
 #include <sys/uio.h>
 
 #include "../../containers/fixed_bitset.h"
+#include "../../enums/sequence_enum.h"
 #include "iou_buffer.h"
 #include "iou_wrap.h"
+
+namespace corvid { inline namespace proto { namespace iouring {
+
+// NOLINTNEXTLINE(performance-enum-size)
+enum class block_size : size_t {
+  small = 4UL * 1024,
+  medium = 16UL * 1024,
+  large = 64UL * 1024
+};
+
+}}} // namespace corvid::proto::iouring
+
+template<>
+constexpr inline auto
+    corvid::enums::registry::enum_spec_v<corvid::proto::iouring::block_size> =
+        corvid::enums::sequence::make_sequence_enum_spec<
+            corvid::proto::iouring::block_size, "small, medium, large">();
 
 namespace corvid { inline namespace proto {
 namespace iouring {
@@ -61,15 +79,25 @@ namespace iouring {
 // Plans:
 // - Allow `iou_buf_pool` size to be configured at construction time.
 class iou_buf_pool: public buffer_pool_base {
+public:
+#pragma region Types
+public:
+  using block_size = ::corvid::proto::iouring::block_size;
+  using span_t = buffer_pool_base::span_t;
+  using const_span_t = buffer_pool_base::const_span_t;
+  using buffer = iou_buffer;
+  using ptr = std::byte*;
+  using cptr = const std::byte*;
+#pragma endregion
 #pragma region Internals
-private:
-  static constexpr size_t HUGE_PAGE_SIZE = 2UL * 1024 * 1024; // 2 MB
-  static constexpr size_t SMALL_SIZE = 4UL * 1024;            // 4 KB
-  static constexpr size_t MEDIUM_SIZE = 16UL * 1024;          // 16 KB
-  static constexpr size_t LARGE_SIZE = 64UL * 1024;           // 64 KB
-  static constexpr size_t READ_THROTTLE = 1536UL * 1024;      // 1.5 MB
-  static constexpr size_t WRITE_RESERVE = 512UL * 1024;       // 512 KB
+  // The 2M block has a quarter reserved for writes, so that reads can't
+  // exhaust the pool.
+  static constexpr size_t hugepage_size = 2UL * 1024 * 1024;          // 2 MB
+  static constexpr size_t read_throttle_size = hugepage_size * 3 / 4; // 1.5 MB
+  static constexpr size_t write_reserve_size = hugepage_size / 4;     // 512 KB
 
+  // Intrusive free list node.
+  // TODO: Add debug-only canaries to detect memory corruption.
   struct free_node {
     free_node* next;
     free_node* prev;
@@ -82,8 +110,9 @@ private:
 
     explicit operator bool() const noexcept { return head != nullptr; }
 
-    void push(void* p) noexcept {
-      auto* node = static_cast<free_node*>(p);
+    // Add block to head.
+    void push(ptr p) noexcept {
+      auto* node = reinterpret_cast<free_node*>(p);
       node->next = head;
       node->prev = nullptr;
       if (head)
@@ -93,8 +122,8 @@ private:
       head = node;
     }
 
-    // Direct allocations pop from head (highest address -- zone heuristic).
-    void* pop_head() noexcept {
+    // Direct allocations pop from head.
+    ptr pop_head() noexcept {
       if (!head) return nullptr;
       free_node* p = head;
       head = p->next;
@@ -102,11 +131,11 @@ private:
         head->prev = nullptr;
       else
         tail = nullptr;
-      return p;
+      return reinterpret_cast<ptr>(p);
     }
 
-    // Splits pop from tail (lowest address -- zone heuristic).
-    void* pop_tail() noexcept {
+    // Splits pop from tail.
+    ptr pop_tail() noexcept {
       if (!tail) return nullptr;
       free_node* p = tail;
       tail = p->prev;
@@ -114,12 +143,12 @@ private:
         tail->next = nullptr;
       else
         head = nullptr;
-      return p;
+      return reinterpret_cast<ptr>(p);
     }
 
-    // O(1) removal of an arbitrary node (used during coalescing).
-    void remove(void* p) noexcept {
-      auto* node = static_cast<free_node*>(p);
+    // Removal  arbitrary node (used during coalescing).
+    void remove(ptr p) noexcept {
+      auto* node = reinterpret_cast<free_node*>(p);
       if (node->prev)
         node->prev->next = node->next;
       else
@@ -129,43 +158,31 @@ private:
     }
   };
 #pragma endregion
-#pragma region Types
-public:
-  // NOLINTNEXTLINE(performance-enum-size)
-  enum class block_size : size_t {
-    small = 4UL * 1024,
-    medium = 16UL * 1024,
-    large = 64UL * 1024
-  };
-
-  using span_t = buffer_pool_base::span_t;
-  using const_span_t = buffer_pool_base::const_span_t;
-  using buffer = iou_buffer;
-#pragma endregion
 #pragma region Construction and registration
 public:
   // Allocate and warm the 2 MB backing store. Falls back to a plain
   // `MAP_ANONYMOUS` mapping if `MAP_HUGETLB` is unavailable (e.g., WSL2
   // without huge pages configured). Throws `std::system_error` on failure.
   iou_buf_pool() {
-    void* p = ::mmap(nullptr, HUGE_PAGE_SIZE, PROT_READ | PROT_WRITE,
-        MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE, -1, 0);
+    base_ = reinterpret_cast<ptr>(::mmap(nullptr, hugepage_size,
+        PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE, -1, 0));
     // Retry without huge pages.
-    if (p == MAP_FAILED)
-      p = ::mmap(nullptr, HUGE_PAGE_SIZE, PROT_READ | PROT_WRITE,
-          MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
-    if (p == MAP_FAILED)
+    if (base_ == MAP_FAILED)
+      base_ = reinterpret_cast<ptr>(::mmap(nullptr, hugepage_size,
+          PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE,
+          -1, 0));
+    if (base_ == MAP_FAILED)
       throw std::system_error(errno, std::system_category(), "mmap");
-    base_ = static_cast<std::byte*>(p);
     // Warm pages; MAP_POPULATE may already have faulted them in, but an
     // explicit memset guarantees zeroing and forces physical page
     // assignment.
-    std::memset(base_, 0, HUGE_PAGE_SIZE);
+    std::memset(base_, 0, hugepage_size);
     do_init_free_lists();
   }
 
   ~iou_buf_pool() override {
-    if (base_) ::munmap(base_, HUGE_PAGE_SIZE);
+    if (base_) ::munmap(base_, hugepage_size);
   }
 
   iou_buf_pool(const iou_buf_pool&) = delete;
@@ -177,7 +194,7 @@ public:
   // Must be called exactly once before any buffer is used in an I/O
   // submission. Returns false (and sets `errno`) on failure.
   [[nodiscard]] bool register_with(iou_ring& ring) noexcept {
-    iovec iov{base_, HUGE_PAGE_SIZE};
+    iovec iov{base_, hugepage_size};
     return ring.register_buffers(&iov, 1);
   }
 #pragma endregion
@@ -192,14 +209,14 @@ public:
       block_size sz = block_size::small) noexcept {
     std::scoped_lock lock{mutex_};
     const auto len = static_cast<size_t>(sz);
-    if (available_bytes_ < WRITE_RESERVE + len) return {};
+    if (available_bytes_ < write_reserve_size + len) return {};
     if (in_flight_read_bytes_.load(std::memory_order::relaxed) + len >
-        READ_THROTTLE)
+        read_throttle_size)
       return {};
-    void* p = do_alloc_block(len);
+    ptr p = do_alloc_block(len);
     if (!p) return {};
     available_bytes_ -= len;
-    std::span<std::byte> s{static_cast<std::byte*>(p), len};
+    span_t s{p, len};
     in_flight_read_bytes_.fetch_add(len, std::memory_order::relaxed);
     return {*this, s, 0U, true};
   }
@@ -211,10 +228,10 @@ public:
       block_size sz = block_size::small) noexcept {
     std::scoped_lock lock{mutex_};
     const auto len = static_cast<size_t>(sz);
-    void* p = do_alloc_block(len);
+    ptr p = do_alloc_block(len);
     if (!p) return {};
     available_bytes_ -= len;
-    return {*this, span_t{static_cast<std::byte*>(p), len}, 0U, false};
+    return {*this, span_t{p, len}, 0U, false};
   }
 
   // Total free bytes currently in the pool. Thread-safe.
@@ -231,98 +248,99 @@ private:
   // Blocks pushed in ascending address order; with LIFO, block 31 (highest
   // address) ends at the head and block 0 (lowest) ends at the tail.
   void do_init_free_lists() noexcept {
-    available_bytes_ = HUGE_PAGE_SIZE;
+    available_bytes_ = hugepage_size;
     // in_use_pages_ is zero-initialized by default (no pages in use).
-    const size_t n = HUGE_PAGE_SIZE / LARGE_SIZE;
-    for (size_t i = 0; i < n; ++i) large_list_.push(base_ + (i * LARGE_SIZE));
+    const size_t n = hugepage_size / *block_size::large;
+    for (size_t i = 0; i < n; ++i)
+      large_list_.push(base_ + (i * *block_size::large));
   }
 
   // Page-index of the first 4 KB page covered by address `p`.
-  [[nodiscard]] size_t do_page_index(const void* p) const noexcept {
-    return (static_cast<const std::byte*>(p) - base_) / SMALL_SIZE;
+  [[nodiscard]] size_t do_page_index(cptr p) const noexcept {
+    return (p - base_) / *block_size::small;
   }
 
   // Mark pages as in use after external allocation.
-  void do_mark_alloc(const void* p, size_t sz) noexcept {
+  void do_mark_alloc(cptr p, size_t sz) noexcept {
     const size_t first = do_page_index(p);
-    const size_t count = sz / SMALL_SIZE; // 1, 4, or 16
+    const size_t count = sz / *block_size::small; // 1, 4, or 16
     for (size_t i = 0; i < count; ++i) in_use_pages_[first + i] = true;
   }
 
   // Mark pages as free after a buffer is returned.
-  void do_mark_free(const void* p, size_t sz) noexcept {
+  void do_mark_free(cptr p, size_t sz) noexcept {
     const size_t first = do_page_index(p);
-    const size_t count = sz / SMALL_SIZE;
+    const size_t count = sz / *block_size::small;
     for (size_t i = 0; i < count; ++i) in_use_pages_[first + i] = false;
   }
 
   // True if no page in `[p, p+sz)` is currently allocated externally.
-  [[nodiscard]] bool do_all_free(const void* p, size_t sz) const noexcept {
+  [[nodiscard]] bool do_all_free(cptr p, size_t sz) const noexcept {
     const size_t first = do_page_index(p);
-    const size_t count = sz / SMALL_SIZE; // 4 or 16 max
+    const size_t count = sz / *block_size::small; // 4 or 16 max
     for (size_t i = 0; i < count; ++i)
       if (in_use_pages_[first + i]) return false;
     return true;
   }
 
-  // Round `p` down to the nearest MEDIUM_SIZE-aligned address (parent block).
-  [[nodiscard]] static void* do_medium_parent(void* p) noexcept {
-    return static_cast<std::byte*>(p) -
-           (reinterpret_cast<uintptr_t>(p) % MEDIUM_SIZE);
+  // Round `p` down to the nearest *block_size::medium-aligned address (parent
+  // block).
+  [[nodiscard]] static ptr do_medium_parent(ptr p) noexcept {
+    return p - (reinterpret_cast<uintptr_t>(p) % *block_size::medium);
   }
 
-  // Round `p` down to the nearest LARGE_SIZE-aligned address (parent block).
-  [[nodiscard]] static void* do_large_parent(void* p) noexcept {
-    return static_cast<std::byte*>(p) -
-           (reinterpret_cast<uintptr_t>(p) % LARGE_SIZE);
+  // Round `p` down to the nearest *block_size::large-aligned address (parent
+  // block).
+  [[nodiscard]] static ptr do_large_parent(ptr p) noexcept {
+    return p - (reinterpret_cast<uintptr_t>(p) % *block_size::large);
   }
 
-  [[nodiscard]] static void* ptr_at(void* base, size_t offset) noexcept {
-    return static_cast<std::byte*>(base) + offset;
+  [[nodiscard]] static ptr ptr_at(ptr base, size_t offset) noexcept {
+    return base + offset;
   }
 
   // Split one large block into four medium blocks.
   // Uses pop_tail to take the lowest-address large block (zone heuristic).
   [[nodiscard]] bool do_split_large_to_medium() noexcept {
-    void* p = large_list_.pop_tail();
-    if (!p) return false;
-    auto* base = static_cast<std::byte*>(p);
-    for (size_t i = 0; i < 4; ++i) medium_list_.push(base + (i * MEDIUM_SIZE));
+    ptr base = large_list_.pop_tail();
+    if (!base) return false;
+    for (size_t i = 0; i < 4; ++i)
+      medium_list_.push(base + (*block_size::medium * i));
     return true;
   }
 
   // Split one medium block into four small blocks.
   // Uses pop_tail to take the lowest-address medium block (zone heuristic).
   [[nodiscard]] bool do_split_medium_to_small() noexcept {
-    void* p = medium_list_.pop_tail();
-    if (!p) return false;
-    auto* base = static_cast<std::byte*>(p);
-    for (size_t i = 0; i < 4; ++i) small_list_.push(base + (i * SMALL_SIZE));
+    ptr base = medium_list_.pop_tail();
+    if (!base) return false;
+    for (size_t i = 0; i < 4; ++i)
+      small_list_.push(base + (*block_size::small * i));
     return true;
   }
 
   // Allocate one block of `sz` bytes. Caller holds `mutex_`. Returns
   // `nullptr` if the pool is exhausted for that size class.
   // Direct allocations use pop_head (highest address -- zone heuristic).
-  [[nodiscard]] void* do_alloc_block(size_t sz) noexcept {
-    if (sz <= SMALL_SIZE) {
+  [[nodiscard]] ptr do_alloc_block(size_t sz) noexcept {
+    if (sz <= *block_size::small) {
       if (!small_list_) {
         if (!medium_list_ && !do_split_large_to_medium()) return nullptr;
         if (!do_split_medium_to_small()) return nullptr;
       }
-      void* p = small_list_.pop_head();
-      if (p) do_mark_alloc(p, SMALL_SIZE);
+      ptr p = small_list_.pop_head();
+      if (p) do_mark_alloc(p, *block_size::small);
       return p;
     }
-    if (sz <= MEDIUM_SIZE) {
+    if (sz <= *block_size::medium) {
       if (!medium_list_ && !do_split_large_to_medium()) return nullptr;
-      void* p = medium_list_.pop_head();
-      if (p) do_mark_alloc(p, MEDIUM_SIZE);
+      ptr p = medium_list_.pop_head();
+      if (p) do_mark_alloc(p, *block_size::medium);
       return p;
     }
-    if (sz <= LARGE_SIZE) {
-      void* p = large_list_.pop_head();
-      if (p) do_mark_alloc(p, LARGE_SIZE);
+    if (sz <= *block_size::large) {
+      ptr p = large_list_.pop_head();
+      if (p) do_mark_alloc(p, *block_size::large);
       return p;
     }
     return nullptr; // Sizes above 64 KB are unsupported.
@@ -332,22 +350,22 @@ private:
   // The block is pushed onto its tier list first, then the sibling check runs
   // so that all four siblings are on the list when `remove` iterates them.
   // Maximum recursion depth is 2 (small -> medium -> large).
-  void do_return_and_coalesce(void* p, size_t sz) noexcept {
+  void do_return_and_coalesce(ptr p, size_t sz) noexcept {
     do_mark_free(p, sz);
-    if (sz == SMALL_SIZE) {
+    if (sz == *block_size::small) {
       small_list_.push(p);
-      void* parent = do_medium_parent(p);
-      if (do_all_free(parent, MEDIUM_SIZE)) {
+      ptr parent = do_medium_parent(p);
+      if (do_all_free(parent, *block_size::medium)) {
         for (size_t i = 0; i < 4; ++i)
-          small_list_.remove(ptr_at(parent, i * SMALL_SIZE));
-        do_return_and_coalesce(parent, MEDIUM_SIZE);
+          small_list_.remove(ptr_at(parent, i * *block_size::small));
+        do_return_and_coalesce(parent, *block_size::medium);
       }
-    } else if (sz == MEDIUM_SIZE) {
+    } else if (sz == *block_size::medium) {
       medium_list_.push(p);
-      void* parent = do_large_parent(p);
-      if (do_all_free(parent, LARGE_SIZE)) {
+      ptr parent = do_large_parent(p);
+      if (do_all_free(parent, *block_size::large)) {
         for (size_t i = 0; i < 4; ++i)
-          medium_list_.remove(ptr_at(parent, i * MEDIUM_SIZE));
+          medium_list_.remove(ptr_at(parent, i * *block_size::medium));
         large_list_.push(parent);
       }
     } else {
@@ -357,7 +375,7 @@ private:
 
   void return_buffer(span_t s, bool is_read) noexcept override {
     if (std::scoped_lock lock{mutex_}; true) {
-      assert(available_bytes_ + s.size() <= HUGE_PAGE_SIZE);
+      assert(available_bytes_ + s.size() <= hugepage_size);
       do_return_and_coalesce(s.data(), s.size());
       available_bytes_ += s.size();
     }
@@ -366,7 +384,7 @@ private:
 
   // Overrides.
 
-  [[nodiscard]] std::byte* base() const noexcept override { return base_; }
+  [[nodiscard]] ptr base() const noexcept override { return base_; }
 
   void decrement_read_bytes(size_t n) noexcept override {
     [[maybe_unused]] const auto old =
@@ -380,7 +398,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  std::byte* base_{};
+  ptr base_{};
   mutable std::mutex mutex_;
   free_list small_list_{};
   free_list medium_list_{};
@@ -388,7 +406,7 @@ private:
   size_t available_bytes_{};
   std::atomic_size_t in_flight_read_bytes_;
   // One bit per 4 KB page; 1 = page is allocated externally, 0 = free.
-  fixed_bitset<HUGE_PAGE_SIZE / SMALL_SIZE> in_use_pages_;
+  fixed_bitset<hugepage_size / *block_size::small> in_use_pages_;
 #pragma endregion
 };
 
