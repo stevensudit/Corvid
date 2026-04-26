@@ -221,6 +221,8 @@ void IouStreamConn_GracefulClose() {
     // Give both connections time to arm their recv SQEs.
     std::this_thread::sleep_for(20ms);
 
+    // TODO: This doesn't do the graceful close that's promised.
+
     EXPECT_TRUE(conn0.close());
     EXPECT_TRUE(
         WaitFor([&] { return closed0.load(std::memory_order::acquire); }));
