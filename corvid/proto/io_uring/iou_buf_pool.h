@@ -352,15 +352,18 @@ private:
     return true;
   }
 
-  // Scan parent-sized windows until one is found where all four child siblings
-  // are free. Removes those child blocks from `src`, pushes the reconstituted
-  // parent to `dst` tail (cold end) for preferential re-splitting, and
-  // returns true. Returns false if no eligible window exists.
+  // Walk `src` until one node's parent window has all four siblings free.
+  // Alignment of `base_` to `hugepage_size` guarantees that masking any child
+  // address to `~(parent_sz - 1)` yields a valid in-pool parent address.
+  // Removes those child blocks from `src`, pushes the reconstituted parent to
+  // `dst` tail (cold end) for preferential re-splitting, and returns true.
+  // Returns false if no eligible window exists.
   [[nodiscard]] bool coalesce(free_list& src, size_t child_sz, free_list& dst,
       size_t parent_sz) noexcept {
-    const size_t n = hugepage_size / parent_sz;
-    for (size_t i = 0; i < n; ++i) {
-      ptr parent = base_ + (i * parent_sz);
+    for (auto* node = src.head; node; node = node->next) {
+      ptr parent =
+          reinterpret_cast<ptr>(node) -
+          (reinterpret_cast<uintptr_t>(node) % parent_sz);
       if (!are_all_free(parent, parent_sz)) continue;
       for (size_t j = 0; j < 4; ++j) src.remove(parent + (j * child_sz));
       dst.push_tail(parent);
@@ -369,17 +372,29 @@ private:
     return false;
   }
 
-  // Ensure `large_list_` is non-empty, coalescing medium blocks if needed.
+  // Ensure `large_list_` is non-empty, coalescing as needed.
   [[nodiscard]] bool ensure_large() noexcept {
-    return large_list_ ||
-           coalesce(medium_list_, *block_size::medium, large_list_,
-               *block_size::large);
+    if (large_list_) return true;
+    if (coalesce(medium_list_, *block_size::medium, large_list_,
+            *block_size::large))
+      return true;
+    // Cascade: promote small groups one at a time, retrying after each.
+    while (coalesce(small_list_, *block_size::small, medium_list_,
+        *block_size::medium))
+      if (coalesce(medium_list_, *block_size::medium, large_list_,
+              *block_size::large))
+        return true;
+    return false;
   }
 
   // Ensure `medium_list_` is non-empty, splitting or coalescing as needed.
   [[nodiscard]] bool ensure_medium() noexcept {
     if (medium_list_) return true;
     if (split(large_list_, medium_list_, *block_size::medium)) return true;
+    // Cascade: try coalescing smalls into a medium before falling back.
+    if (coalesce(small_list_, *block_size::small, medium_list_,
+            *block_size::medium))
+      return true;
     return coalesce(medium_list_, *block_size::medium, large_list_,
                *block_size::large) &&
            split(large_list_, medium_list_, *block_size::medium);
