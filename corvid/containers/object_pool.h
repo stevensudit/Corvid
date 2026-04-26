@@ -22,10 +22,12 @@
 #include <cassert>
 #include <cstdint>
 #include <cstddef>
+#include <functional>
 #include <limits>
 #include <mutex>
 #include <numeric>
 #include <optional>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 

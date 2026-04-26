@@ -146,11 +146,11 @@ enum class protocol_type : int {
 }} // namespace corvid::filesys
 
 template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::filesys::socket_type> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::filesys::socket_type,
-        "stream, datagram, raw, rdm, seqpacket, dccp, U7, U8, U9, packet">();
+constexpr inline auto
+    corvid::enums::registry::enum_spec_v<corvid::filesys::socket_type> =
+        corvid::enums::sequence::make_sequence_enum_spec<
+            corvid::filesys::socket_type,
+            "-, stream, datagram, raw, rdm, seqpacket, dccp, , , , packet">();
 
 template<>
 constexpr inline auto corvid::enums::registry::enum_spec_v<
@@ -158,29 +158,26 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
     corvid::enums::sequence::make_sequence_enum_spec<
         corvid::filesys::address_family,
         "unspecified, local, inet, ax25, ipx, appletalk, netrom, bridge, "
-        "atmpvc, x25, inet6, rose, decnet, netbeui,  security, key, "
-        "netlink, packet, ash, econet, atmsvc, rds, sna, irda, pppox, "
-        "wanpipe, llc, ib, mpls, can, tipc, bluetooth,  iucv, rxrpc, isdn, "
-        "phonet, ieee802154, caif, alg, nfc, vsock, kcm, qipcrtr, smc, xdp, "
-        "mctp">();
+        "atmpvc, x25, inet6, rose, decnet, netbeui,  security, key, netlink, "
+        "packet, ash, econet, atmsvc, rds, sna, irda, pppox, wanpipe, llc, "
+        "ib, mpls, can, tipc, bluetooth,  iucv, rxrpc, isdn, phonet, "
+        "ieee802154, caif, alg, nfc, vsock, kcm, qipcrtr, smc, xdp, mctp">();
 
 template<>
 constexpr inline auto corvid::enums::registry::enum_spec_v<
     corvid::filesys::protocol_type> =
     corvid::enums::sequence::make_sequence_enum_spec<
         corvid::filesys::protocol_type,
-        "ip, icmp, igmp, U4, ipip, U6, tcp, U8, egp, U10, U11, pup, U13, U14, "
-        "U15, U16, udp, U18, U19, U20, U21, idp, U23, U24, U25, U26, U27, "
-        "U28, U29, U30, U31, U32, dccp, U34, U35, U36, U37, U38, U39, U40, "
-        "ipv6, U42, routing, fragment, U45, rsvp, gre, U48, U49, esp, ah, "
-        "U52, U53, U54, U55, U56, U57, icmpv6, none, dstopts, U61, U62, U63, "
-        "U64, U65, U66, U67, U68, U69, U70, U71, U72, U73, U74, U75, U76, "
-        "U77, U78, U79, U80, U81, U82, U83, U84, U85, U86, U87, U88, U89, "
-        "U90, U91, U92, mtp, U93, beetph, U95, U96, U97, encap, U99, U100, "
-        "U101, pim, U104, U105, U106, U107, comp, U109, U110, U111, U112, "
-        "U113, U114, l2tp, U116, U117, U118, U119, U120, U121, U122, U123, "
-        "U124, U125, U126, U127, U128, U129, U130, U131, sctp, U133, U134, "
-        "mh, udplite, mpls, U138, U139, U140, U141, U142, ethernet, raw">();
+        "ip, icmp, igmp, , ipip, , tcp, , egp, , , , pup, , , , , udp, , , , "
+        ", idp, , , , , , , , , , , dccp, , , , , , , , ipv6, , routing, "
+        "fragment, , rsvp, gre, , , esp, ah, , , , , , , icmpv6, none, "
+        "dstopts, , , , , , , , , , , , , , , , , , , , , , , , , , , , , , , "
+        ", mtp, , beetph, , , , encap, , , , , pim, , , , , comp, , , , , , , "
+        "l2tp, , , , , , , , , , , , , , , , , sctp, , , mh, udplite, mpls, , "
+        ", , , , ethernet, , , , , , , , , , , , , , , , , , , , ,  , ,  ,  , "
+        ", , , , , , , , , , , , , , , , , , , , , , , , , , , , ,  , , ,  , "
+        ", , , , , , , , , , , , , , , , , ,  , , , , , , , , , , , , , , , , "
+        ", , , , , , , , , , , , , , , , , , , , raw">();
 
 namespace corvid { inline namespace filesys {
 

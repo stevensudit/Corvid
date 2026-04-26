@@ -21,6 +21,7 @@
 
 #include "../corvid/filesys.h"
 #include "../corvid/proto/net_endpoint.h"
+#include "../corvid/strings/enum_conversion.h"
 #include "minitest.h"
 
 #include <cstdlib>
@@ -825,6 +826,176 @@ void OsFile_WriteAllReadExact() {
   }
 }
 
+void OsFile_MsgFlagsString() {
+  // Each named bit round-trips through `enum_as_string` / `parse_enum`.
+  // `none` (value 0) has no bit name and prints as "0x00000000".
+  using namespace corvid::strings;
+  using F = msg_flags;
+  if (true) {
+    EXPECT_EQ(enum_as_string(F{}), "0x00000000");
+    EXPECT_EQ(enum_as_string(F::oob), "oob");
+    EXPECT_EQ(enum_as_string(F::peek), "peek");
+    EXPECT_EQ(enum_as_string(F::nosignal), "nosignal");
+    EXPECT_EQ(enum_as_string(F::cloexec), "cloexec");
+  }
+  if (true) {
+    // Higher bits print first.
+    EXPECT_EQ(enum_as_string(F::dontwait | F::peek), "dontwait + peek");
+  }
+  if (true) {
+    constexpr F bad{0x00200000}; // bit 21, above all named flags
+    EXPECT_EQ(parse_enum("oob", bad), F::oob);
+    EXPECT_EQ(parse_enum("nosignal", bad), F::nosignal);
+    EXPECT_EQ(parse_enum("cloexec", bad), F::cloexec);
+    EXPECT_EQ(parse_enum("dontwait + peek", bad), F::dontwait | F::peek);
+  }
+}
+
+void NetSocket_SocketTypeString() {
+  // Sequence enum names round-trip correctly starting from `stream` = 1.
+  using namespace corvid::strings;
+  using T = socket_type;
+  if (true) {
+    EXPECT_EQ(enum_as_string(T::stream), "stream");
+    EXPECT_EQ(enum_as_string(T::datagram), "datagram");
+    EXPECT_EQ(enum_as_string(T::raw), "raw");
+    EXPECT_EQ(enum_as_string(T::seqpacket), "seqpacket");
+    EXPECT_EQ(enum_as_string(T::packet), "packet");
+  }
+  if (true) {
+    constexpr T bad{0};
+    EXPECT_EQ(parse_enum("stream", bad), T::stream);
+    EXPECT_EQ(parse_enum("datagram", bad), T::datagram);
+    EXPECT_EQ(parse_enum("packet", bad), T::packet);
+  }
+}
+
+void NetSocket_AddressFamilyString() {
+  // Sequence enum names starting from `unspecified` = 0.
+  using namespace corvid::strings;
+  using AF = address_family;
+  if (true) {
+    EXPECT_EQ(enum_as_string(AF::unspecified), "unspecified");
+    EXPECT_EQ(enum_as_string(AF::local), "local");
+    EXPECT_EQ(enum_as_string(AF::inet), "inet");
+    EXPECT_EQ(enum_as_string(AF::inet6), "inet6");
+    // `unix` and `file` are aliases for `local`; they share value 1.
+    EXPECT_EQ(enum_as_string(AF::unix), "local");
+  }
+  if (true) {
+    constexpr AF bad{-1};
+    EXPECT_EQ(parse_enum("unspecified", bad), AF::unspecified);
+    EXPECT_EQ(parse_enum("inet", bad), AF::inet);
+    EXPECT_EQ(parse_enum("inet6", bad), AF::inet6);
+  }
+}
+
+void NetSocket_ProtocolTypeString() {
+  // Each named protocol round-trips. (`tp` is unnamed in the spec and prints
+  // as "U29", so it is intentionally excluded.)
+  using namespace corvid::strings;
+  using P = protocol_type;
+  if (true) {
+    EXPECT_EQ(enum_as_string(P::ip), "ip");
+    EXPECT_EQ(enum_as_string(P::icmp), "icmp");
+    EXPECT_EQ(enum_as_string(P::igmp), "igmp");
+    EXPECT_EQ(enum_as_string(P::ipip), "ipip");
+    EXPECT_EQ(enum_as_string(P::tcp), "tcp");
+    EXPECT_EQ(enum_as_string(P::egp), "egp");
+    EXPECT_EQ(enum_as_string(P::pup), "pup");
+    EXPECT_EQ(enum_as_string(P::udp), "udp");
+    EXPECT_EQ(enum_as_string(P::idp), "idp");
+    EXPECT_EQ(enum_as_string(P::dccp), "dccp");
+    EXPECT_EQ(enum_as_string(P::ipv6), "ipv6");
+    EXPECT_EQ(enum_as_string(P::routing), "routing");
+    EXPECT_EQ(enum_as_string(P::fragment), "fragment");
+    EXPECT_EQ(enum_as_string(P::rsvp), "rsvp");
+    EXPECT_EQ(enum_as_string(P::gre), "gre");
+    EXPECT_EQ(enum_as_string(P::esp), "esp");
+    EXPECT_EQ(enum_as_string(P::ah), "ah");
+    EXPECT_EQ(enum_as_string(P::icmpv6), "icmpv6");
+    EXPECT_EQ(enum_as_string(P::none), "none");
+    EXPECT_EQ(enum_as_string(P::dstopts), "dstopts");
+    EXPECT_EQ(enum_as_string(P::mtp), "mtp");
+    EXPECT_EQ(enum_as_string(P::beetph), "beetph");
+    EXPECT_EQ(enum_as_string(P::encap), "encap");
+    EXPECT_EQ(enum_as_string(P::pim), "pim");
+    EXPECT_EQ(enum_as_string(P::comp), "comp");
+    EXPECT_EQ(enum_as_string(P::l2tp), "l2tp");
+    EXPECT_EQ(enum_as_string(P::sctp), "sctp");
+    EXPECT_EQ(enum_as_string(P::mh), "mh");
+    EXPECT_EQ(enum_as_string(P::udplite), "udplite");
+    EXPECT_EQ(enum_as_string(P::mpls), "mpls");
+    EXPECT_EQ(enum_as_string(P::ethernet), "ethernet");
+    EXPECT_EQ(enum_as_string(P::raw), "raw");
+  }
+  if (true) {
+    constexpr P bad{-1};
+    EXPECT_EQ(parse_enum("ip", bad), P::ip);
+    EXPECT_EQ(parse_enum("tcp", bad), P::tcp);
+    EXPECT_EQ(parse_enum("udp", bad), P::udp);
+  }
+}
+
+void OsFile_ErrnoCodeString() {
+  // Sequence enum: named values 0 ("ok") through 133 ("hwpoison").
+  using namespace corvid::strings;
+  using EC = filesys::errno_code;
+  if (true) {
+    EXPECT_EQ(enum_as_string(EC::ok), "ok");
+    EXPECT_EQ(enum_as_string(EC::noent), "noent");
+    EXPECT_EQ(enum_as_string(EC::again), "again");
+    // `wouldblock` is an alias for `again` (both have value 11); only one
+    // name.
+    EXPECT_EQ(enum_as_string(EC::wouldblock), "again");
+    EXPECT_EQ(enum_as_string(EC::hwpoison), "hwpoison");
+  }
+  if (true) {
+    // Out-of-range values print as their numeric value.
+    EXPECT_EQ(enum_as_string(EC{-1}), "-1");
+    EXPECT_EQ(enum_as_string(EC{134}), "134");
+  }
+  if (true) {
+    // `enum_as_view` returns "(unknown)" for out-of-range or unnamed values.
+    EXPECT_EQ(enums::sequence::enum_as_view(EC::ok), "ok");
+    EXPECT_EQ(enums::sequence::enum_as_view(EC::noent), "noent");
+    EXPECT_EQ(enums::sequence::enum_as_view(EC{-1}), "(unknown)");
+    EXPECT_EQ(enums::sequence::enum_as_view(EC{134}), "(unknown)");
+  }
+  if (true) {
+    constexpr EC bad{-1};
+    EXPECT_EQ(parse_enum("ok", bad), EC::ok);
+    EXPECT_EQ(parse_enum("noent", bad), EC::noent);
+    EXPECT_EQ(parse_enum("again", bad), EC::again);
+    EXPECT_EQ(parse_enum("hwpoison", bad), EC::hwpoison);
+  }
+}
+
+void OsFile_FcntlOpsString() {
+  // Sequence enum: named values 0 ("dupfd") through 16 ("getownex").
+  using namespace corvid::strings;
+  using FO = filesys::fcntl_ops;
+  if (true) {
+    EXPECT_EQ(enum_as_string(FO::dupfd), "dupfd");
+    EXPECT_EQ(enum_as_string(FO::getfd), "getfd");
+    EXPECT_EQ(enum_as_string(FO::setfl), "setfl");
+    EXPECT_EQ(enum_as_string(FO::getownex), "getownex");
+  }
+  if (true) {
+    // Out-of-range values (including the non-contiguous `dupfd_cloexec`) print
+    // as their numeric value.
+    EXPECT_EQ(enum_as_string(FO{-1}), "-1");
+    EXPECT_EQ(enum_as_string(FO{17}), "17");
+    EXPECT_EQ(enum_as_string(FO::dupfd_cloexec), "1030");
+  }
+  if (true) {
+    constexpr FO bad{-1};
+    EXPECT_EQ(parse_enum("dupfd", bad), FO::dupfd);
+    EXPECT_EQ(parse_enum("setfl", bad), FO::setfl);
+    EXPECT_EQ(parse_enum("getownex", bad), FO::getownex);
+  }
+}
+
 MAKE_TEST_LIST(OsFile_Lifecycle, OsFile_Move, OsFile_ReleaseFlags,
     OsFile_WriteRead, OsFile_WriteAllReadExact, NetSocket_Lifecycle,
     EventFd_Lifecycle, Epoll_Lifecycle, Epoll_Move, Epoll_Release,
@@ -833,7 +1004,9 @@ MAKE_TEST_LIST(OsFile_Lifecycle, OsFile_Move, OsFile_ReleaseFlags,
     EventFd_Create, EventFd_SemaphoreMode, NetSocket_Move, NetSocket_Release,
     NetSocket_Options, NetSocket_Nonblocking, NetSocket_SendRecv,
     NetSocket_RecvAtContract, NetSocket_BindListenAccept,
-    NetSocket_FactoryMethods);
+    NetSocket_FactoryMethods, OsFile_MsgFlagsString, OsFile_ErrnoCodeString,
+    OsFile_FcntlOpsString, NetSocket_SocketTypeString,
+    NetSocket_AddressFamilyString, NetSocket_ProtocolTypeString);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

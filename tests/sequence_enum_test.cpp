@@ -465,15 +465,35 @@ template<>
 constexpr auto registry::enum_spec_v<tiger_missing> =
     make_sequence_enum_spec<tiger_missing, "eeny, - , miny   , moe">();
 
+// Tests empty-string placeholder (whitespace-only element between commas).
+enum class tiger_gapped : std::uint8_t { ga, gb, gc, gd };
+
+template<>
+constexpr auto registry::enum_spec_v<tiger_gapped> =
+    make_sequence_enum_spec<tiger_gapped, "ga,  , gc, gd">();
+
 void SequentialEnumTest_Missing() {
   if (true) {
     using namespace strings;
+    // Hyphen placeholder: numeric value is printed.
     EXPECT_EQ((enum_as_string(tiger_missing::eeny)), "eeny");
     EXPECT_EQ(enum_as_string(tiger_missing(1)), "1");
     EXPECT_EQ((enum_as_string(tiger_missing::miny)), "miny");
     EXPECT_EQ((enum_as_string(tiger_missing::moe)), "moe");
     EXPECT_EQ(enum_as_string(tiger_missing(-1)), "255");
     EXPECT_EQ(enum_as_string(tiger_missing(4)), "4");
+  }
+  if (true) {
+    using namespace strings;
+    // Empty-element placeholder: numeric value is printed.
+    EXPECT_EQ(enum_as_string(tiger_gapped(0)), "ga");
+    EXPECT_EQ(enum_as_string(tiger_gapped(1)), "1");
+    EXPECT_EQ(enum_as_string(tiger_gapped(2)), "gc");
+    EXPECT_EQ(enum_as_string(tiger_gapped(3)), "gd");
+    // Asterisk placeholder (e0_3 index 1), question mark placeholder (index
+    // 3).
+    EXPECT_EQ(enum_as_string(e0_3(1)), "1");
+    EXPECT_EQ(enum_as_string(e0_3(3)), "3");
   }
 }
 

@@ -52,10 +52,10 @@ enum class msg_flags : int {
   nosignal = MSG_NOSIGNAL,     // 0x0000'4000
   more = MSG_MORE,             // 0x0000'8000
   waitforone = MSG_WAITFORONE, // 0x0001'0000
-  batch = MSG_BATCH,           // 0x0002'0000
-  zerocopy = MSG_ZEROCOPY,     // 0x0004'0000
-  fastopen = MSG_FASTOPEN,     // 0x0008'0000
-  cloexec = MSG_CMSG_CLOEXEC   // 0x0010'0000
+  batch = MSG_BATCH,           // 0x0004'0000
+  zerocopy = MSG_ZEROCOPY,     // 0x0400'0000
+  fastopen = MSG_FASTOPEN,     // 0x2000'0000
+  cloexec = MSG_CMSG_CLOEXEC   // 0x4000'0000
 };
 
 // `F_*` wrapper for `fcntl` operations.
@@ -260,9 +260,9 @@ template<>
 constexpr inline auto corvid::enums::registry::enum_spec_v<
     corvid::filesys::msg_flags> =
     corvid::enums::bitmask::make_bitmask_enum_spec<corvid::filesys::msg_flags,
-        "none, oob, peek, dontroute, ctrunc, proxy, trunc, dontwait, eor, "
-        "waitall, fin, syn, confirm, rst, errqueue, nosignal, more, "
-        "waitforone, batch, zerocopy, fastopen, cloexec">();
+        "cloexec, fastopen, , , zerocopy, , , , , , , , batch, , waitforone, "
+        "more, nosignal, errqueue, rst, confirm, syn, fin, waitall, eor, "
+        "dontwait, trunc, proxy, ctrunc, dontroute, peek, oob">();
 
 template<>
 constexpr inline auto corvid::enums::registry::enum_spec_v<
