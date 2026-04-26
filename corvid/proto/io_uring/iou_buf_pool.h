@@ -110,8 +110,8 @@ public:
 
     explicit operator bool() const noexcept { return head != nullptr; }
 
-    // Add block to head.
-    void push(ptr p) noexcept {
+    // Add block to head (high-address end).
+    void push_head(ptr p) noexcept {
       auto* node = reinterpret_cast<free_node*>(p);
       *node = {.next = head, .prev = nullptr};
       if (head)
@@ -119,6 +119,19 @@ public:
       else
         tail = node;
       head = node;
+    }
+
+    // Add block to tail (low-address end). Used when returning a coalesced
+    // block so it stays at the low end and is preferentially re-split rather
+    // than used for a direct large allocation.
+    void push_tail(ptr p) noexcept {
+      auto* node = reinterpret_cast<free_node*>(p);
+      *node = {.next = nullptr, .prev = tail};
+      if (tail)
+        tail->next = node;
+      else
+        head = node;
+      tail = node;
     }
 
     // Direct allocations pop from head.
@@ -250,7 +263,7 @@ private:
     // in_use_pages_ is zero-initialized by default (no pages in use).
     const size_t n = hugepage_size / *block_size::large;
     for (size_t i = 0; i < n; ++i)
-      large_list_.push(base_ + (i * *block_size::large));
+      large_list_.push_head(base_ + (i * *block_size::large));
   }
 
   // Page-index of the first 4 KB page covered by address `p`.
@@ -303,7 +316,7 @@ private:
     ptr base = large_list_.pop_tail();
     if (!base) return false;
     for (size_t i = 0; i < 4; ++i)
-      medium_list_.push(base + (*block_size::medium * i));
+      medium_list_.push_head(base + (*block_size::medium * i));
     return true;
   }
 
@@ -313,7 +326,7 @@ private:
     ptr base = medium_list_.pop_tail();
     if (!base) return false;
     for (size_t i = 0; i < 4; ++i)
-      small_list_.push(base + (*block_size::small * i));
+      small_list_.push_head(base + (*block_size::small * i));
     return true;
   }
 
@@ -351,7 +364,7 @@ private:
   void do_return_and_coalesce(ptr p, size_t sz) noexcept {
     do_mark_free(p, sz);
     if (sz == *block_size::small) {
-      small_list_.push(p);
+      small_list_.push_head(p);
       ptr parent = do_medium_parent(p);
       if (do_all_free(parent, *block_size::medium)) {
         for (size_t i = 0; i < 4; ++i)
@@ -359,15 +372,15 @@ private:
         do_return_and_coalesce(parent, *block_size::medium);
       }
     } else if (sz == *block_size::medium) {
-      medium_list_.push(p);
+      medium_list_.push_head(p);
       ptr parent = do_large_parent(p);
       if (do_all_free(parent, *block_size::large)) {
         for (size_t i = 0; i < 4; ++i)
           medium_list_.remove(ptr_at(parent, i * *block_size::medium));
-        large_list_.push(parent);
+        large_list_.push_tail(parent);
       }
     } else {
-      large_list_.push(p);
+      large_list_.push_head(p);
     }
   }
 
