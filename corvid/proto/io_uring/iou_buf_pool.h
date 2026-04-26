@@ -61,10 +61,12 @@ namespace iouring {
 // doubly-linked free-lists for 4 KB, 16 KB, and 64 KB slots. Larger slabs are
 // split on demand; freed slabs coalesce back up when needed.
 //
-// Zone heuristic: splits take the lowest-address block (from the list tail) to
-// cluster small allocations at low addresses and reserve high addresses for
-// large allocations. Direct allocations take the highest-address block (from
-// the list head).
+// Zone heuristic: each free-list keeps its highest-address blocks near the
+// head and its lowest-address blocks near the tail. Direct allocations pop
+// from the head (LIFO, high-address first). Splits borrow from the tail (the
+// lowest-address block), and coalesced blocks are returned to the tail as
+// well. Over time, this clusters small allocations at low addresses and
+// reserves high addresses for large allocations.
 //
 // Backpressure: `alloc_read` enforces two limits:
 //   - a hard 512 KB write reserve that read allocations cannot touch;
@@ -102,15 +104,19 @@ public:
     free_node* prev;
   };
 
-  // Doubly-linked intrusive free-list with head and tail pointers.
+  // Doubly-linked intrusive free-list. The head is the hot (LIFO) end:
+  // direct allocations pop from here and returned blocks push here. The tail
+  // is the deferred (cold) end: splits borrow from here, and coalesced or
+  // freshly split blocks are pushed here so they accumulate for preferential
+  // re-splitting rather than immediate reuse.
   struct free_list {
     free_node* head{};
     free_node* tail{};
 
     explicit operator bool() const noexcept { return head != nullptr; }
 
-    // Add block to head (high-address end). Used when returning a borrowed
-    // block.
+    // Push block to head (hot end). Used when returning a directly borrowed
+    // block (LIFO).
     void push_head(ptr p) noexcept {
       auto* node = reinterpret_cast<free_node*>(p);
       *node = {.next = head, .prev = nullptr};
@@ -121,9 +127,8 @@ public:
       head = node;
     }
 
-    // Add block to tail (low-address end). Used when returning a coalesced
-    // block so it stays at the low end and is preferentially re-split rather
-    // than used for a direct large allocation.
+    // Push block to tail (cold end). Used for coalesced blocks and for
+    // sub-blocks produced by a split.
     void push_tail(ptr p) noexcept {
       auto* node = reinterpret_cast<free_node*>(p);
       *node = {.next = nullptr, .prev = tail};
@@ -134,7 +139,7 @@ public:
       tail = node;
     }
 
-    // Direct allocations pop from head.
+    // Pop from head (hot end) for direct allocation (LIFO).
     ptr pop_head() noexcept {
       if (!head) return nullptr;
       free_node* p = head;
@@ -146,7 +151,7 @@ public:
       return reinterpret_cast<ptr>(p);
     }
 
-    // When splitting, pop from tail.
+    // Pop from tail (cold end) when borrowing a block for splitting.
     ptr pop_tail() noexcept {
       if (!tail) return nullptr;
       free_node* p = tail;
@@ -311,27 +316,34 @@ private:
   }
 
   // Split one large block into four medium blocks.
-  // Uses pop_tail to take the lowest-address large block (zone heuristic).
+  // Borrows from the tail (cold/low-address end). Children are appended to the
+  // tail in descending address order so the highest-address sub-block lands
+  // nearest the head, preserving the zone invariant even if the destination
+  // list is non-empty.
   [[nodiscard]] bool do_split_large_to_medium() noexcept {
     ptr base = large_list_.pop_tail();
     if (!base) return false;
-    for (size_t i = 0; i < 4; ++i)
-      medium_list_.push_head(base + (*block_size::medium * i));
+    for (size_t i = 4; i-- > 0;)
+      medium_list_.push_tail(base + (*block_size::medium * i));
     return true;
   }
 
   // Split one medium block into four small blocks.
-  // Uses pop_tail to take the lowest-address medium block (zone heuristic).
+  // Borrows from the tail (cold/low-address end). Children are appended to the
+  // tail in descending address order so the highest-address sub-block lands
+  // nearest the head, preserving the zone invariant even if the destination
+  // list is non-empty.
   [[nodiscard]] bool do_split_medium_to_small() noexcept {
     ptr base = medium_list_.pop_tail();
     if (!base) return false;
-    for (size_t i = 0; i < 4; ++i)
-      small_list_.push_head(base + (*block_size::small * i));
+    for (size_t i = 4; i-- > 0;)
+      small_list_.push_tail(base + (*block_size::small * i));
     return true;
   }
 
   // Scan all large-block windows; coalesce any where all four medium siblings
-  // are free. Coalesced blocks go to `large_list_` tail (zone heuristic).
+  // are free. Coalesced blocks go to `large_list_` tail (cold end) so they
+  // are preferentially re-split rather than taken for direct allocation.
   // Returns true if at least one block was coalesced.
   [[nodiscard]] bool do_coalesce_medium_to_large() noexcept {
     const size_t n = hugepage_size / *block_size::large;
@@ -348,7 +360,8 @@ private:
   }
 
   // Scan all medium-block windows; coalesce any where all four small siblings
-  // are free. Coalesced blocks go to `medium_list_` tail (zone heuristic).
+  // are free. Coalesced blocks go to `medium_list_` tail (cold end) so they
+  // are preferentially re-split rather than taken for direct allocation.
   // Returns true if at least one block was coalesced.
   [[nodiscard]] bool do_coalesce_small_to_medium() noexcept {
     const size_t n = hugepage_size / *block_size::medium;
@@ -386,7 +399,7 @@ private:
 
   // Allocate one block of `sz` bytes. Caller holds `mutex_`. Returns
   // `nullptr` if the pool is exhausted for that size class.
-  // Direct allocations use pop_head (highest address -- zone heuristic).
+  // Direct allocations pop from the head (hot/LIFO end).
   [[nodiscard]] ptr do_alloc_block(size_t sz) noexcept {
     if (sz <= *block_size::small) {
       if (!do_ensure_small()) return nullptr;
@@ -410,15 +423,12 @@ private:
   }
 
   // Return a slab to its tier free-list. Coalescing is deferred to alloc time.
-  //
-  // Small blocks go to the tail so returned blocks accumulate at the cold end
-  // rather than cycling immediately. This lets all four siblings of a medium
-  // window collect at the tail before the JIT sweep coalesces them.
-  // Medium and large go to the head (LIFO) so they remain hot for direct reuse.
+  // All tiers return to the head (LIFO) for hot reuse. Coalescing eligibility
+  // is tracked by `in_use_pages_`, not by list position.
   void do_return_block(ptr p, size_t sz) noexcept {
     do_mark_free(p, sz);
     if (sz == *block_size::small)
-      small_list_.push_tail(p);
+      small_list_.push_head(p);
     else if (sz == *block_size::medium)
       medium_list_.push_head(p);
     else
