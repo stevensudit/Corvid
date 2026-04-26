@@ -281,16 +281,16 @@ private:
     return true;
   }
 
-  // Round `p` down to the nearest *block_size::medium-aligned address (parent
-  // block).
-  [[nodiscard]] static ptr do_medium_parent(ptr p) noexcept {
-    return p - (reinterpret_cast<uintptr_t>(p) % *block_size::medium);
+  // Round `p` down to the nearest medium-block boundary relative to `base_`.
+  [[nodiscard]] ptr do_medium_parent(ptr p) const noexcept {
+    const auto off = static_cast<size_t>(p - base_);
+    return base_ + (off - (off % *block_size::medium));
   }
 
-  // Round `p` down to the nearest *block_size::large-aligned address (parent
-  // block).
-  [[nodiscard]] static ptr do_large_parent(ptr p) noexcept {
-    return p - (reinterpret_cast<uintptr_t>(p) % *block_size::large);
+  // Round `p` down to the nearest large-block boundary relative to `base_`.
+  [[nodiscard]] ptr do_large_parent(ptr p) const noexcept {
+    const auto off = static_cast<size_t>(p - base_);
+    return base_ + (off - (off % *block_size::large));
   }
 
   [[nodiscard]] static ptr ptr_at(ptr base, size_t offset) noexcept {
