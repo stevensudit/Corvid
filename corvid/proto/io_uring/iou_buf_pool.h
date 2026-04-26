@@ -189,13 +189,25 @@ public:
     base_ = reinterpret_cast<ptr>(::mmap(nullptr, hugepage_size,
         PROT_READ | PROT_WRITE,
         MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE, -1, 0));
-    // Retry without explicit hugetlb.
+    // Retry without explicit hugetlb. Over-allocate by one `hugepage_size` to
+    // guarantee a hugepage-aligned region exists within the mapping, then trim
+    // the prefix and suffix so that `base_` is aligned and `munmap` in the
+    // destructor covers exactly `hugepage_size` bytes.
     if (base_ == MAP_FAILED) {
-      base_ = reinterpret_cast<ptr>(::mmap(nullptr, hugepage_size,
+      auto* raw = reinterpret_cast<ptr>(::mmap(nullptr, 2 * hugepage_size,
           PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
-      if (base_ == MAP_FAILED)
+      if (raw == MAP_FAILED)
         throw std::system_error(errno, std::system_category(), "mmap");
-      // This may fail silently, but there's nothing we can do about it.
+      const auto rawaddr = reinterpret_cast<uintptr_t>(raw);
+      const size_t prefix =
+          (hugepage_size - (rawaddr % hugepage_size)) % hugepage_size;
+      base_ = raw + prefix;
+      if (prefix > 0) ::munmap(raw, prefix);
+      const size_t suffix = hugepage_size - prefix;
+      if (suffix > 0) ::munmap(base_ + hugepage_size, suffix);
+      // Attempt to enable huge page backing on the aligned region. This is a
+      // best-effort optimization; if it fails, we still have a correctly sized
+      // and aligned block of memory to use.
       ::madvise(base_, hugepage_size, MADV_HUGEPAGE);
     }
     // Warm pages: An explicit memset guarantees zeroing and forces physical
@@ -327,8 +339,8 @@ private:
   // highest-address sub-block lands at the head (large->medium). When
   // `ascending` is true, children are pushed in ascending order so the
   // lowest-address sub-block lands at the head (medium->small).
-  [[nodiscard]] static bool
-  split(free_list& src, free_list& dst, size_t child_sz,
+  [[nodiscard]] static bool split(free_list& src, free_list& dst,
+      size_t child_sz,
       split_direction dir = split_direction::descending) noexcept {
     ptr base = src.pop_tail();
     if (!base) return false;
@@ -377,10 +389,13 @@ private:
   [[nodiscard]] bool ensure_small() noexcept {
     if (small_list_) return true;
     if (!ensure_medium()) return false;
-    if (split(medium_list_, small_list_, *block_size::small, split_direction::ascending)) return true;
+    if (split(medium_list_, small_list_, *block_size::small,
+            split_direction::ascending))
+      return true;
     return coalesce(small_list_, *block_size::small, medium_list_,
                *block_size::medium) &&
-           split(medium_list_, small_list_, *block_size::small, split_direction::ascending);
+           split(medium_list_, small_list_, *block_size::small,
+               split_direction::ascending);
   }
 
   // Allocate one block of `sz` bytes. Caller holds `mutex_`. Returns

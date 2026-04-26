@@ -39,6 +39,7 @@ static size_t sim_read(iou_buf_pool::buffer& buf, std::string_view data) {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region ReadInitialState
 void IouBufPool_ReadInitialState() {
   // Freshly-allocated read buffer: empty payload, active = entire block.
   if (true) {
@@ -60,7 +61,9 @@ void IouBufPool_ReadInitialState() {
 #endif
   }
 }
+#pragma endregion
 
+#pragma region ReadAfterUpdate
 void IouBufPool_ReadAfterUpdate() {
   // After a simulated read, payload grows and active shrinks to the tail.
   if (true) {
@@ -77,7 +80,9 @@ void IouBufPool_ReadAfterUpdate() {
     EXPECT_EQ(buf.payload_view().substr(0, 5), "hello");
   }
 }
+#pragma endregion
 
+#pragma region ReadMultipleUpdates
 void IouBufPool_ReadMultipleUpdates() {
   // Two successive reads concatenate into a single growing payload.
   if (true) {
@@ -94,7 +99,9 @@ void IouBufPool_ReadMultipleUpdates() {
     EXPECT_EQ(buf.active_span().size(), buf.size() - 11);
   }
 }
+#pragma endregion
 
+#pragma region ReadConsumePartial
 void IouBufPool_ReadConsumePartial() {
   // consume_read(n) with n < payload returns n bytes and advances the front.
   if (true) {
@@ -115,7 +122,9 @@ void IouBufPool_ReadConsumePartial() {
     EXPECT_EQ(buf.active_span().size(), buf.size() - 8);
   }
 }
+#pragma endregion
 
+#pragma region ReadConsumeFullReset
 void IouBufPool_ReadConsumeFullReset() {
   // Consuming all payload bytes resets the buffer to its initial state.
   if (true) {
@@ -135,7 +144,9 @@ void IouBufPool_ReadConsumeFullReset() {
     EXPECT_TRUE(buf.active_span().data() == base);
   }
 }
+#pragma endregion
 
+#pragma region ReadConsumeOverRequest
 void IouBufPool_ReadConsumeOverRequest() {
   // Requesting more bytes than available returns only what's present.
   if (true) {
@@ -151,7 +162,9 @@ void IouBufPool_ReadConsumeOverRequest() {
     EXPECT_EQ(buf.active_span().size(), buf.size());
   }
 }
+#pragma endregion
 
+#pragma region ReadUpdateError
 void IouBufPool_ReadUpdateError() {
   // An error result leaves spans unchanged.
   if (true) {
@@ -169,7 +182,9 @@ void IouBufPool_ReadUpdateError() {
     EXPECT_EQ(buf.active_span().size(), active_before);
   }
 }
+#pragma endregion
 
+#pragma region WriteInitialState
 void IouBufPool_WriteInitialState() {
   // Freshly-allocated write buffer: both payload and active are empty.
   if (true) {
@@ -183,7 +198,9 @@ void IouBufPool_WriteInitialState() {
     EXPECT_TRUE(buf.payload_span().data() == buf.active_span().data());
   }
 }
+#pragma endregion
 
+#pragma region WriteViaAppend
 void IouBufPool_WriteViaAppend() {
   // append fills payload and active_span covers the same bytes.
   if (true) {
@@ -204,7 +221,9 @@ void IouBufPool_WriteViaAppend() {
     EXPECT_EQ(buf.payload_view(), "hello, world");
   }
 }
+#pragma endregion
 
+#pragma region WriteAppendOverflow
 void IouBufPool_WriteAppendOverflow() {
   // append returns false without modifying anything when data would not fit.
   if (true) {
@@ -221,7 +240,9 @@ void IouBufPool_WriteAppendOverflow() {
     EXPECT_EQ(buf.payload_span().size(), cap); // unchanged
   }
 }
+#pragma endregion
 
+#pragma region WriteViaTailAndUpdatePayload
 void IouBufPool_WriteViaTailAndUpdatePayload() {
   // Manual fill: get tail_span, memcpy, then update_payload.
   if (true) {
@@ -240,7 +261,9 @@ void IouBufPool_WriteViaTailAndUpdatePayload() {
     EXPECT_EQ(buf.payload_view(), msg);
   }
 }
+#pragma endregion
 
+#pragma region WriteUpdatePayloadBadStart
 void IouBufPool_WriteUpdatePayloadBadStart() {
   // update_payload rejects a span that does not start at payload_span's end.
   if (true) {
@@ -256,7 +279,9 @@ void IouBufPool_WriteUpdatePayloadBadStart() {
     EXPECT_EQ(buf.payload_span().size(), 3ULL); // unchanged
   }
 }
+#pragma endregion
 
+#pragma region WriteUpdatePayloadOverflow
 void IouBufPool_WriteUpdatePayloadOverflow() {
   // update_payload rejects a span whose end exceeds full_span.
   if (true) {
@@ -271,7 +296,9 @@ void IouBufPool_WriteUpdatePayloadOverflow() {
     EXPECT_EQ(buf.payload_span().size(), 0ULL); // unchanged
   }
 }
+#pragma endregion
 
+#pragma region WriteUpdatePartialSend
 void IouBufPool_WriteUpdatePartialSend() {
   // Partial send advances active_span front while payload_span stays fixed.
   if (true) {
@@ -293,7 +320,9 @@ void IouBufPool_WriteUpdatePartialSend() {
         "6789");
   }
 }
+#pragma endregion
 
+#pragma region WriteFullyConsumedThenAppend
 void IouBufPool_WriteFullyConsumedThenAppend() {
   // After a complete send, the next append resets from the block base.
   if (true) {
@@ -318,7 +347,9 @@ void IouBufPool_WriteFullyConsumedThenAppend() {
     EXPECT_EQ(buf.payload_view(), "new");
   }
 }
+#pragma endregion
 
+#pragma region WriteFullyConsumedThenTailSpan
 void IouBufPool_WriteFullyConsumedThenTailSpan() {
   // After a complete send, tail_span() triggers an implicit reset.
   if (true) {
@@ -337,7 +368,9 @@ void IouBufPool_WriteFullyConsumedThenTailSpan() {
     EXPECT_TRUE(tail.data() == base);
   }
 }
+#pragma endregion
 
+#pragma region WriteUpdateError
 void IouBufPool_WriteUpdateError() {
   // An error result leaves spans unchanged.
   if (true) {
@@ -355,7 +388,9 @@ void IouBufPool_WriteUpdateError() {
     EXPECT_EQ(buf.active_span().size(), active_before);
   }
 }
+#pragma endregion
 
+#pragma region AppendToPartiallySentBuffer
 void IouBufPool_AppendToPartiallySentBuffer() {
   // After a partial send, appending more extends both payload and active.
   if (true) {
@@ -381,7 +416,9 @@ void IouBufPool_AppendToPartiallySentBuffer() {
         "lo world");
   }
 }
+#pragma endregion
 
+#pragma region PromoteToWrite
 void IouBufPool_PromoteToWrite() {
   // Promoting a read buffer keeps payload; active_span = payload_span.
   if (true) {
@@ -402,7 +439,9 @@ void IouBufPool_PromoteToWrite() {
     EXPECT_EQ(buf.payload_view(), "proxy data");
   }
 }
+#pragma endregion
 
+#pragma region DemoteToRead
 void IouBufPool_DemoteToRead() {
   // Demoting a write buffer keeps payload; active_span = tail after payload.
   if (true) {
@@ -421,7 +460,9 @@ void IouBufPool_DemoteToRead() {
                 buf.payload_span().data() + buf.payload_span().size());
   }
 }
+#pragma endregion
 
+#pragma region PromoteDemoteRoundtrip
 void IouBufPool_PromoteDemoteRoundtrip() {
   // promote_to_write then demote_to_read preserves payload throughout.
   if (true) {
@@ -441,7 +482,9 @@ void IouBufPool_PromoteDemoteRoundtrip() {
     EXPECT_EQ(buf.active_span().size(), buf.size() - 9ULL);
   }
 }
+#pragma endregion
 
+#pragma region AvailableTracking
 void IouBufPool_AvailableTracking() {
   // Allocating reduces available bytes; reset restores them.
   if (true) {
@@ -463,7 +506,9 @@ void IouBufPool_AvailableTracking() {
     EXPECT_EQ(pool.available(), initial);
   }
 }
+#pragma endregion
 
+#pragma region MoveBuffer
 void IouBufPool_MoveBuffer() {
   // Moving a buffer transfers ownership; source becomes empty.
   if (true) {
@@ -478,7 +523,9 @@ void IouBufPool_MoveBuffer() {
     EXPECT_EQ(b.payload_view(), "move me");
   }
 }
+#pragma endregion
 
+#pragma region CoalesceSmallToMedium
 void IouBufPool_CoalesceSmallToMedium() {
   // Four smalls from the same medium coalesce back to one medium.
   // The three sibling mediums are held, so the large does NOT coalesce.
@@ -517,7 +564,9 @@ void IouBufPool_CoalesceSmallToMedium() {
     EXPECT_EQ(pool.available(), 2ULL * 1024 * 1024);
   }
 }
+#pragma endregion
 
+#pragma region CoalesceMediumToLarge
 void IouBufPool_CoalesceMediumToLarge() {
   // Four mediums from the same large coalesce back to one large.
   if (true) {
@@ -543,7 +592,9 @@ void IouBufPool_CoalesceMediumToLarge() {
     EXPECT_EQ(pool.available(), initial);
   }
 }
+#pragma endregion
 
+#pragma region CoalesceChain
 void IouBufPool_CoalesceChain() {
   // Allocate all 512 smalls, free all 512: cascading coalesce must rebuild
   // all 32 large blocks.
@@ -571,6 +622,7 @@ void IouBufPool_CoalesceChain() {
     EXPECT_EQ(pool.available(), 2ULL * 1024 * 1024);
   }
 }
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
 
