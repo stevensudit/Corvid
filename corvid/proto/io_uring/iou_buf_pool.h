@@ -96,7 +96,7 @@ public:
   enum class split_direction : bool { descending = false, ascending = true };
 #pragma endregion
 #pragma region Free list
-  // The 2M block has a quarter reserved for writes, so that reads can't
+  // The full block has a quarter reserved for writes, so that reads can't
   // exhaust the pool.
   static constexpr size_t hugepage_size = SIZE;
   static constexpr size_t read_throttle_size = hugepage_size * 3 / 4;
@@ -117,7 +117,7 @@ public:
   struct free_list {
     free_node* head{};
     free_node* tail{};
-    block_size sz{};
+    size_t sz{};
 
     explicit operator bool() const noexcept { return head != nullptr; }
 
@@ -307,9 +307,9 @@ private:
   // address) ends at the head and block 0 (lowest) ends at the tail.
   void init_free_lists() noexcept {
     available_bytes_ = hugepage_size;
-    const size_t n = hugepage_size / *large_list_.sz;
+    const size_t n = hugepage_size / large_list_.sz;
     for (size_t i = 0; i < n; ++i)
-      large_list_.push_head(base_ + (i * *large_list_.sz));
+      large_list_.push_head(base_ + (i * large_list_.sz));
   }
 
   // Page-index of the first 4 KB page covered by address `p`.
@@ -345,16 +345,16 @@ private:
     ptr base = src.pop_tail();
     if (!base) return false;
     if (dir == split_direction::ascending) {
-      for (size_t i = 0; i < 4; ++i) dst.push_tail(base + (*dst.sz * i));
+      for (size_t i = 0; i < 4; ++i) dst.push_tail(base + (dst.sz * i));
     } else {
-      for (size_t i = 4; i-- > 0;) dst.push_tail(base + (*dst.sz * i));
+      for (size_t i = 4; i-- > 0;) dst.push_tail(base + (dst.sz * i));
     }
     return true;
   }
 
   // Walk `src` until one node's parent window has all four siblings free.
   // Alignment of `base_` to `hugepage_size` guarantees that masking any child
-  // address to `~(*dst.sz - 1)` yields a valid in-pool parent address.
+  // address to `~(dst.sz - 1)` yields a valid in-pool parent address.
   // Removes those child blocks from `src`, pushes the reconstituted parent to
   // `dst` tail (cold end) for preferential re-splitting, and returns true.
   // Returns false if no eligible window exists.
@@ -362,9 +362,9 @@ private:
     for (auto* node = src.head; node; node = node->next) {
       ptr parent =
           reinterpret_cast<ptr>(node) -
-          (reinterpret_cast<uintptr_t>(node) % *dst.sz);
-      if (!are_all_free(parent, *dst.sz)) continue;
-      for (size_t j = 0; j < 4; ++j) src.remove(parent + (*src.sz * j));
+          (reinterpret_cast<uintptr_t>(node) % dst.sz);
+      if (!are_all_free(parent, dst.sz)) continue;
+      for (size_t j = 0; j < 4; ++j) src.remove(parent + (src.sz * j));
       dst.push_tail(parent);
       return true;
     }
@@ -405,22 +405,22 @@ private:
   // `nullptr` if the pool is exhausted for that size class.
   // Direct allocations pop from the head (hot/LIFO end).
   [[nodiscard]] ptr alloc_block(size_t sz) noexcept {
-    if (sz <= *small_list_.sz) {
+    if (sz <= small_list_.sz) {
       if (!ensure_small()) return nullptr;
       ptr p = small_list_.pop_head();
-      if (p) mark_pages(p, *small_list_.sz, true);
+      if (p) mark_pages(p, small_list_.sz, true);
       return p;
     }
-    if (sz <= *medium_list_.sz) {
+    if (sz <= medium_list_.sz) {
       if (!ensure_medium()) return nullptr;
       ptr p = medium_list_.pop_head();
-      if (p) mark_pages(p, *medium_list_.sz, true);
+      if (p) mark_pages(p, medium_list_.sz, true);
       return p;
     }
-    if (sz <= *large_list_.sz) {
+    if (sz <= large_list_.sz) {
       if (!ensure_large()) return nullptr;
       ptr p = large_list_.pop_head();
-      if (p) mark_pages(p, *large_list_.sz, true);
+      if (p) mark_pages(p, large_list_.sz, true);
       return p;
     }
     return nullptr; // Sizes above 64 KB are unsupported.
@@ -431,9 +431,9 @@ private:
   // is tracked by `in_use_pages_`, not by list position.
   void return_block(ptr p, size_t sz) noexcept {
     mark_pages(p, sz, false);
-    if (sz == *small_list_.sz)
+    if (sz == small_list_.sz)
       small_list_.push_head(p);
-    else if (sz == *medium_list_.sz)
+    else if (sz == medium_list_.sz)
       medium_list_.push_head(p);
     else
       large_list_.push_head(p);
@@ -444,9 +444,9 @@ private:
 private:
   ptr base_{};
   mutable std::mutex mutex_;
-  free_list small_list_{.sz = block_size::small};
-  free_list medium_list_{.sz = block_size::medium};
-  free_list large_list_{.sz = block_size::large};
+  free_list small_list_{.sz = *block_size::small};
+  free_list medium_list_{.sz = *block_size::medium};
+  free_list large_list_{.sz = *block_size::large};
   size_t available_bytes_{};
   std::atomic_size_t in_flight_read_bytes_;
   // One bit per 4 KB page; 1 = page is allocated externally, 0 = free.
