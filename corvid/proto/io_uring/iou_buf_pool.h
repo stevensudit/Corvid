@@ -113,8 +113,7 @@ public:
     // Add block to head.
     void push(ptr p) noexcept {
       auto* node = reinterpret_cast<free_node*>(p);
-      node->next = head;
-      node->prev = nullptr;
+      *node = {.next = head, .prev = nullptr};
       if (head)
         head->prev = node;
       else
@@ -134,7 +133,7 @@ public:
       return reinterpret_cast<ptr>(p);
     }
 
-    // Splits pop from tail.
+    // When splitting, pop from tail.
     ptr pop_tail() noexcept {
       if (!tail) return nullptr;
       free_node* p = tail;
@@ -158,7 +157,7 @@ public:
     }
   };
 #pragma endregion
-#pragma region Construction and registration
+#pragma region Construction
 public:
   // Allocate and warm the 2 MB backing store. Falls back to a plain
   // `MAP_ANONYMOUS` mapping if `MAP_HUGETLB` is unavailable (e.g., WSL2
@@ -192,31 +191,31 @@ public:
 
   // Register the 2 MB block as a single fixed buffer (index 0) with `ring`.
   // Must be called exactly once before any buffer is used in an I/O
-  // submission. Returns false (and sets `errno`) on failure.
+  // submission. Returns false (and sets `errno`) on failure. The `ring`
+  // unregisters on destruction.
   [[nodiscard]] bool register_with(iou_ring& ring) noexcept {
     iovec iov{base_, hugepage_size};
     return ring.register_buffers(&iov, 1);
   }
 #pragma endregion
-#pragma region Buffer allocation and management
+#pragma region Buffers
 
   // Borrow a buffer for an incoming read. Returns an empty buffer if:
-  //   - the pool has fewer than WRITE_RESERVE bytes free after this alloc,
-  //   or
-  //   - in-flight read bytes would exceed READ_THROTTLE.
+  //   - the pool has fewer than `write_reserve_size` bytes free after this
+  //   alloc, or
+  //   - in-flight read bytes would exceed `read_throttle_size`.
   // Thread-safe.
   [[nodiscard]] buffer borrow_reader(
       block_size sz = block_size::small) noexcept {
     std::scoped_lock lock{mutex_};
-    const auto len = static_cast<size_t>(sz);
+    const auto len = *sz;
     if (available_bytes_ < write_reserve_size + len) return {};
     if (in_flight_read_bytes_.load(std::memory_order::relaxed) + len >
         read_throttle_size)
       return {};
-    ptr p = do_alloc_block(len);
-    if (!p) return {};
+    span_t s{do_alloc_block(len), len};
+    if (!s.data()) return {};
     available_bytes_ -= len;
-    span_t s{p, len};
     in_flight_read_bytes_.fetch_add(len, std::memory_order::relaxed);
     return {*this, s, 0U, true};
   }
@@ -227,11 +226,10 @@ public:
   [[nodiscard]] buffer borrow_writer(
       block_size sz = block_size::small) noexcept {
     std::scoped_lock lock{mutex_};
-    const auto len = static_cast<size_t>(sz);
-    ptr p = do_alloc_block(len);
-    if (!p) return {};
-    available_bytes_ -= len;
-    return {*this, span_t{p, len}, 0U, false};
+    span_t s{do_alloc_block(*sz), *sz};
+    if (!s.data()) return {};
+    available_bytes_ -= s.size();
+    return {*this, s, 0U, false};
   }
 
   // Total free bytes currently in the pool. Thread-safe.

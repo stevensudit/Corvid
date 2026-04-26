@@ -570,7 +570,10 @@ public:
   iou_ring& operator=(const iou_ring&) = delete;
   iou_ring& operator=(iou_ring&&) = delete;
 
-  ~iou_ring() { io_uring_queue_exit(&ring_); }
+  ~iou_ring() {
+    io_uring_unregister_buffers(&ring_);
+    io_uring_queue_exit(&ring_);
+  }
 
   ptr_t get_ptr() noexcept { return &ring_; }
   operator ptr_t() noexcept { return &ring_; }

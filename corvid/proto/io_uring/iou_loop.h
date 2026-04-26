@@ -1282,9 +1282,9 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  // Rings and buffers.
-  iou_ring ring_;
+  // Rings and buffers. (Order is important.)
   buf_pool_t buf_pool_;
+  iou_ring ring_;
 
   // Poll wake system.
   event_fd wake_fd_;
