@@ -18,6 +18,7 @@
 #include <atomic>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <mutex>
 #include <span>
@@ -102,11 +103,54 @@ public:
   static constexpr size_t read_throttle_size = hugepage_size * 3 / 4;
   static constexpr size_t write_reserve_size = hugepage_size / 4;
 
-  // Intrusive free list node.
-  // TODO: Add debug-only canaries to detect memory corruption.
+  // Intrusive linked list node. Mapped onto the start of each free block.
+  // In debug mode, the canaries detect use-after-free and double-free bugs in
+  // the free list management.
   struct free_node {
+#ifndef NDEBUG
+    static constexpr unsigned __int128 canary_value =
+        static_cast<unsigned __int128>(0xC0A51F5F4FE6157ULL) << 64 |
+        0xC0DE5C2B1E5AFEFDULL;
+    unsigned __int128 canary_front;
+#endif
     free_node* next;
     free_node* prev;
+#ifndef NDEBUG
+    unsigned __int128 canary_back;
+#endif
+
+    void init(free_node* n, free_node* p) noexcept {
+      assert(!is_valid());
+      assert(!n || n->is_valid());
+      assert(!p || p->is_valid());
+      next = n;
+      prev = p;
+#ifndef NDEBUG
+      canary_front = canary_value;
+      canary_back = canary_value;
+#endif
+    }
+
+    ptr cleared() noexcept {
+      assert(is_valid());
+      assert(!prev || prev->is_valid());
+      assert(!next || next->is_valid());
+#ifndef NDEBUG
+      next = nullptr;
+      prev = nullptr;
+      canary_front = 0;
+      canary_back = 0;
+#endif
+      return reinterpret_cast<ptr>(this);
+    }
+
+    [[nodiscard]] bool is_valid() const noexcept {
+#ifndef NDEBUG
+      return canary_front == canary_value && canary_back == canary_value;
+#else
+      throw std::logic_error("Checks should only occur in debug mode");
+#endif
+    }
   };
 
   // Doubly-linked intrusive free-list. The head is the hot (LIFO) end:
@@ -125,7 +169,7 @@ public:
     // block (LIFO).
     void push_head(ptr p) noexcept {
       auto* node = reinterpret_cast<free_node*>(p);
-      *node = {.next = head, .prev = nullptr};
+      node->init(head, nullptr);
       if (head)
         head->prev = node;
       else
@@ -137,7 +181,7 @@ public:
     // sub-blocks produced by a split.
     void push_tail(ptr p) noexcept {
       auto* node = reinterpret_cast<free_node*>(p);
-      *node = {.next = nullptr, .prev = tail};
+      node->init(nullptr, tail);
       if (tail)
         tail->next = node;
       else
@@ -147,26 +191,30 @@ public:
 
     // Pop from head (hot end) for direct allocation (LIFO).
     ptr pop_head() noexcept {
+      assert(!head || head->is_valid());
       if (!head) return nullptr;
       free_node* p = head;
       head = p->next;
+      assert(!head || head->is_valid());
       if (head)
         head->prev = nullptr;
       else
         tail = nullptr;
-      return reinterpret_cast<ptr>(p);
+      return p->cleared();
     }
 
     // Pop from tail (cold end) when borrowing a block for splitting.
     ptr pop_tail() noexcept {
+      assert(!tail || tail->is_valid());
       if (!tail) return nullptr;
       free_node* p = tail;
       tail = p->prev;
+      assert(!tail || tail->is_valid());
       if (tail)
         tail->next = nullptr;
       else
         head = nullptr;
-      return reinterpret_cast<ptr>(p);
+      return p->cleared();
     }
 
     // Removal  arbitrary node (used during coalescing).
@@ -178,6 +226,7 @@ public:
         head = node->next;
       if (node->next) node->next->prev = node->prev;
       if (node == tail) tail = node->prev;
+      node->cleared();
     }
   };
 #pragma endregion
@@ -360,6 +409,7 @@ private:
   // Returns false if no eligible window exists.
   [[nodiscard]] bool coalesce(free_list& src, free_list& dst) noexcept {
     for (auto* node = src.head; node; node = node->next) {
+      assert(node->is_valid());
       ptr parent =
           reinterpret_cast<ptr>(node) -
           (reinterpret_cast<uintptr_t>(node) % dst.sz);
