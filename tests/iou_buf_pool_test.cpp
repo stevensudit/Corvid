@@ -478,6 +478,99 @@ void IouBufPool_MoveBuffer() {
   }
 }
 
+void IouBufPool_CoalesceSmallToMedium() {
+  // Four smalls from the same medium coalesce back to one medium.
+  // The three sibling mediums are held, so the large does NOT coalesce.
+  if (true) {
+    iou_buf_pool pool;
+    // Drain three mediums from the first large block (zone tail = lowest).
+    auto m0 = pool.borrow_writer(iou_buf_pool::block_size::medium);
+    auto m1 = pool.borrow_writer(iou_buf_pool::block_size::medium);
+    auto m2 = pool.borrow_writer(iou_buf_pool::block_size::medium);
+    ASSERT_TRUE(m0);
+    ASSERT_TRUE(m1);
+    ASSERT_TRUE(m2);
+    // The fourth medium is split into four smalls.
+    auto s0 = pool.borrow_writer(iou_buf_pool::block_size::small);
+    auto s1 = pool.borrow_writer(iou_buf_pool::block_size::small);
+    auto s2 = pool.borrow_writer(iou_buf_pool::block_size::small);
+    auto s3 = pool.borrow_writer(iou_buf_pool::block_size::small);
+    ASSERT_TRUE(s0);
+    ASSERT_TRUE(s1);
+    ASSERT_TRUE(s2);
+    ASSERT_TRUE(s3);
+    // Free all four smalls: they should coalesce into the fourth medium.
+    s0.reset();
+    s1.reset();
+    s2.reset();
+    s3.reset();
+    // Three sibling mediums are still held: the large must NOT coalesce.
+    // The coalesced medium should be immediately allocatable.
+    auto m_new = pool.borrow_writer(iou_buf_pool::block_size::medium);
+    ASSERT_TRUE(m_new);
+    // Release everything and verify full recovery.
+    m0.reset();
+    m1.reset();
+    m2.reset();
+    m_new.reset();
+    EXPECT_EQ(pool.available(), 2ULL * 1024 * 1024);
+  }
+}
+
+void IouBufPool_CoalesceMediumToLarge() {
+  // Four mediums from the same large coalesce back to one large.
+  if (true) {
+    iou_buf_pool pool;
+    const size_t initial = pool.available();
+    auto m0 = pool.borrow_writer(iou_buf_pool::block_size::medium);
+    auto m1 = pool.borrow_writer(iou_buf_pool::block_size::medium);
+    auto m2 = pool.borrow_writer(iou_buf_pool::block_size::medium);
+    auto m3 = pool.borrow_writer(iou_buf_pool::block_size::medium);
+    ASSERT_TRUE(m0);
+    ASSERT_TRUE(m1);
+    ASSERT_TRUE(m2);
+    ASSERT_TRUE(m3);
+    m0.reset();
+    m1.reset();
+    m2.reset();
+    m3.reset();
+    // All four mediums freed: the parent large must be reconstructed.
+    EXPECT_EQ(pool.available(), initial);
+    auto l = pool.borrow_writer(iou_buf_pool::block_size::large);
+    ASSERT_TRUE(l);
+    l.reset();
+    EXPECT_EQ(pool.available(), initial);
+  }
+}
+
+void IouBufPool_CoalesceChain() {
+  // Allocate all 512 smalls, free all 512: cascading coalesce must rebuild
+  // all 32 large blocks.
+  if (true) {
+    iou_buf_pool pool;
+    constexpr size_t TOTAL_SMALLS = 512;
+    constexpr size_t TOTAL_LARGE = 32;
+    std::array<iou_buf_pool::buffer, TOTAL_SMALLS> bufs;
+    for (size_t i = 0; i < TOTAL_SMALLS; ++i) {
+      bufs[i] = pool.borrow_writer(iou_buf_pool::block_size::small);
+      ASSERT_TRUE(bufs[i]);
+    }
+    EXPECT_EQ(pool.available(), 0ULL);
+    for (size_t i = 0; i < TOTAL_SMALLS; ++i) bufs[i].reset();
+    EXPECT_EQ(pool.available(), 2ULL * 1024 * 1024);
+    // All 32 large blocks must now be individually allocatable.
+    std::array<iou_buf_pool::buffer, TOTAL_LARGE> large_bufs;
+    for (size_t i = 0; i < TOTAL_LARGE; ++i) {
+      large_bufs[i] = pool.borrow_writer(iou_buf_pool::block_size::large);
+      ASSERT_TRUE(large_bufs[i]);
+    }
+    auto extra = pool.borrow_writer(iou_buf_pool::block_size::large);
+    EXPECT_FALSE(extra);
+    for (auto& b : large_bufs) b.reset();
+    EXPECT_EQ(pool.available(), 2ULL * 1024 * 1024);
+  }
+}
+
 // NOLINTEND(readability-function-cognitive-complexity)
 
 MAKE_TEST_LIST(IouBufPool_ReadInitialState, IouBufPool_ReadAfterUpdate,
@@ -492,4 +585,6 @@ MAKE_TEST_LIST(IouBufPool_ReadInitialState, IouBufPool_ReadAfterUpdate,
     IouBufPool_WriteFullyConsumedThenTailSpan, IouBufPool_WriteUpdateError,
     IouBufPool_AppendToPartiallySentBuffer, IouBufPool_PromoteToWrite,
     IouBufPool_DemoteToRead, IouBufPool_PromoteDemoteRoundtrip,
-    IouBufPool_AvailableTracking, IouBufPool_MoveBuffer)
+    IouBufPool_AvailableTracking, IouBufPool_MoveBuffer,
+    IouBufPool_CoalesceSmallToMedium, IouBufPool_CoalesceMediumToLarge,
+    IouBufPool_CoalesceChain)

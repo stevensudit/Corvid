@@ -5,9 +5,6 @@ We've never tried to stop listening on a connection (whether epoll or io_uring).
 
 # Needed enhancements
 
-## iou_buf_pool coalesce.
-We put off writing the code to glue slabs back together. As it stands, the system could get into a state where only 4k buffers were available. What we probably want to do is serve smaller buffers from the bottom of the memory area and bigger ones from the top.
-
 ## Cancellation token tracking in iou_stream_conn.
 `do_submit_recv`, `do_submit_send_buffer`, `do_submit_connect`, and `do_submit_accept` all obtain a completion token but do not store it anywhere on the connection. Without storing these tokens, there is no way to cancel individual in-flight operations (e.g., to implement a send timeout or to abort a pending connect). Each should be saved as a member so that `do_close` and related paths can cancel them explicitly.
 
