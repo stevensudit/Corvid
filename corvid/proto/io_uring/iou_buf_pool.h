@@ -90,7 +90,7 @@ public:
   using ptr = std::byte*;
   using cptr = const std::byte*;
 #pragma endregion
-#pragma region Internals
+#pragma region Free list
   // The 2M block has a quarter reserved for writes, so that reads can't
   // exhaust the pool.
   static constexpr size_t hugepage_size = 2UL * 1024 * 1024;          // 2 MB
@@ -195,7 +195,7 @@ public:
     // explicit memset guarantees zeroing and forces physical page
     // assignment.
     std::memset(base_, 0, hugepage_size);
-    do_init_free_lists();
+    init_free_lists();
   }
 
   ~iou_buf_pool() override {
@@ -231,7 +231,7 @@ public:
     if (in_flight_read_bytes_.load(std::memory_order::relaxed) + len >
         read_throttle_size)
       return {};
-    span_t s{do_alloc_block(len), len};
+    span_t s{alloc_block(len), len};
     if (!s.data()) return {};
     available_bytes_ -= len;
     in_flight_read_bytes_.fetch_add(len, std::memory_order::relaxed);
@@ -244,7 +244,7 @@ public:
   [[nodiscard]] buffer borrow_writer(
       block_size sz = block_size::small) noexcept {
     std::scoped_lock lock{mutex_};
-    span_t s{do_alloc_block(*sz), *sz};
+    span_t s{alloc_block(*sz), *sz};
     if (!s.data()) return {};
     available_bytes_ -= s.size();
     return {*this, s, 0U, false};
@@ -257,194 +257,16 @@ public:
   }
 
 #pragma endregion
-#pragma region Helpers
-
+#pragma region Overrides
 private:
-  // Push all 32 x 64 KB blocks onto the large free-list.
-  // Blocks pushed in ascending address order; with LIFO, block 31 (highest
-  // address) ends at the head and block 0 (lowest) ends at the tail.
-  void do_init_free_lists() noexcept {
-    available_bytes_ = hugepage_size;
-    // in_use_pages_ is zero-initialized by default (no pages in use).
-    const size_t n = hugepage_size / *block_size::large;
-    for (size_t i = 0; i < n; ++i)
-      large_list_.push_head(base_ + (i * *block_size::large));
-  }
-
-  // Page-index of the first 4 KB page covered by address `p`.
-  [[nodiscard]] size_t do_page_index(cptr p) const noexcept {
-    return (p - base_) / *block_size::small;
-  }
-
-  // Mark pages as in use after external allocation.
-  void do_mark_alloc(cptr p, size_t sz) noexcept {
-    const size_t first = do_page_index(p);
-    const size_t count = sz / *block_size::small; // 1, 4, or 16
-    for (size_t i = 0; i < count; ++i) in_use_pages_[first + i] = true;
-  }
-
-  // Mark pages as free after a buffer is returned.
-  void do_mark_free(cptr p, size_t sz) noexcept {
-    const size_t first = do_page_index(p);
-    const size_t count = sz / *block_size::small;
-    for (size_t i = 0; i < count; ++i) in_use_pages_[first + i] = false;
-  }
-
-  // True if no page in `[p, p+sz)` is currently allocated externally.
-  [[nodiscard]] bool do_all_free(cptr p, size_t sz) const noexcept {
-    const size_t first = do_page_index(p);
-    const size_t count = sz / *block_size::small; // 4 or 16 max
-    for (size_t i = 0; i < count; ++i)
-      if (in_use_pages_[first + i]) return false;
-    return true;
-  }
-
-  // Round `p` down to the nearest medium-block boundary relative to `base_`.
-  [[nodiscard]] ptr do_medium_parent(ptr p) const noexcept {
-    const auto off = static_cast<size_t>(p - base_);
-    return base_ + (off - (off % *block_size::medium));
-  }
-
-  // Round `p` down to the nearest large-block boundary relative to `base_`.
-  [[nodiscard]] ptr do_large_parent(ptr p) const noexcept {
-    const auto off = static_cast<size_t>(p - base_);
-    return base_ + (off - (off % *block_size::large));
-  }
-
-  [[nodiscard]] static ptr ptr_at(ptr base, size_t offset) noexcept {
-    return base + offset;
-  }
-
-  // Split one large block into four medium blocks.
-  // Borrows from the tail (cold/low-address end). Children are appended to the
-  // tail in descending address order so the highest-address sub-block lands
-  // nearest the head, preserving the zone invariant even if the destination
-  // list is non-empty.
-  [[nodiscard]] bool do_split_large_to_medium() noexcept {
-    ptr base = large_list_.pop_tail();
-    if (!base) return false;
-    for (size_t i = 4; i-- > 0;)
-      medium_list_.push_tail(base + (*block_size::medium * i));
-    return true;
-  }
-
-  // Split one medium block into four small blocks.
-  // Borrows from the tail (cold/low-address end). Children are appended to the
-  // tail in descending address order so the highest-address sub-block lands
-  // nearest the head, preserving the zone invariant even if the destination
-  // list is non-empty.
-  [[nodiscard]] bool do_split_medium_to_small() noexcept {
-    ptr base = medium_list_.pop_tail();
-    if (!base) return false;
-    for (size_t i = 4; i-- > 0;)
-      small_list_.push_tail(base + (*block_size::small * i));
-    return true;
-  }
-
-  // Scan all large-block windows; coalesce any where all four medium siblings
-  // are free. Coalesced blocks go to `large_list_` tail (cold end) so they
-  // are preferentially re-split rather than taken for direct allocation.
-  // Returns true if at least one block was coalesced.
-  [[nodiscard]] bool do_coalesce_medium_to_large() noexcept {
-    const size_t n = hugepage_size / *block_size::large;
-    bool any{};
-    for (size_t i = 0; i < n; ++i) {
-      ptr parent = base_ + (i * *block_size::large);
-      if (!do_all_free(parent, *block_size::large)) continue;
-      for (size_t j = 0; j < 4; ++j)
-        medium_list_.remove(ptr_at(parent, j * *block_size::medium));
-      large_list_.push_tail(parent);
-      any = true;
-    }
-    return any;
-  }
-
-  // Scan all medium-block windows; coalesce any where all four small siblings
-  // are free. Coalesced blocks go to `medium_list_` tail (cold end) so they
-  // are preferentially re-split rather than taken for direct allocation.
-  // Returns true if at least one block was coalesced.
-  [[nodiscard]] bool do_coalesce_small_to_medium() noexcept {
-    const size_t n = hugepage_size / *block_size::medium;
-    bool any{};
-    for (size_t i = 0; i < n; ++i) {
-      ptr parent = base_ + (i * *block_size::medium);
-      if (!do_all_free(parent, *block_size::medium)) continue;
-      for (size_t j = 0; j < 4; ++j)
-        small_list_.remove(ptr_at(parent, j * *block_size::small));
-      medium_list_.push_tail(parent);
-      any = true;
-    }
-    return any;
-  }
-
-  // Ensure `large_list_` is non-empty, coalescing medium blocks if needed.
-  [[nodiscard]] bool do_ensure_large() noexcept {
-    return large_list_ || do_coalesce_medium_to_large();
-  }
-
-  // Ensure `medium_list_` is non-empty, splitting or coalescing as needed.
-  [[nodiscard]] bool do_ensure_medium() noexcept {
-    if (medium_list_) return true;
-    if (do_split_large_to_medium()) return true;
-    return do_coalesce_medium_to_large() && do_split_large_to_medium();
-  }
-
-  // Ensure `small_list_` is non-empty, splitting or coalescing as needed.
-  [[nodiscard]] bool do_ensure_small() noexcept {
-    if (small_list_) return true;
-    if (!do_ensure_medium()) return false;
-    if (do_split_medium_to_small()) return true;
-    return do_coalesce_small_to_medium() && do_split_medium_to_small();
-  }
-
-  // Allocate one block of `sz` bytes. Caller holds `mutex_`. Returns
-  // `nullptr` if the pool is exhausted for that size class.
-  // Direct allocations pop from the head (hot/LIFO end).
-  [[nodiscard]] ptr do_alloc_block(size_t sz) noexcept {
-    if (sz <= *block_size::small) {
-      if (!do_ensure_small()) return nullptr;
-      ptr p = small_list_.pop_head();
-      if (p) do_mark_alloc(p, *block_size::small);
-      return p;
-    }
-    if (sz <= *block_size::medium) {
-      if (!do_ensure_medium()) return nullptr;
-      ptr p = medium_list_.pop_head();
-      if (p) do_mark_alloc(p, *block_size::medium);
-      return p;
-    }
-    if (sz <= *block_size::large) {
-      if (!do_ensure_large()) return nullptr;
-      ptr p = large_list_.pop_head();
-      if (p) do_mark_alloc(p, *block_size::large);
-      return p;
-    }
-    return nullptr; // Sizes above 64 KB are unsupported.
-  }
-
-  // Return a slab to its tier free-list. Coalescing is deferred to alloc time.
-  // All tiers return to the head (LIFO) for hot reuse. Coalescing eligibility
-  // is tracked by `in_use_pages_`, not by list position.
-  void do_return_block(ptr p, size_t sz) noexcept {
-    do_mark_free(p, sz);
-    if (sz == *block_size::small)
-      small_list_.push_head(p);
-    else if (sz == *block_size::medium)
-      medium_list_.push_head(p);
-    else
-      large_list_.push_head(p);
-  }
-
   void return_buffer(span_t s, bool is_read) noexcept override {
     if (std::scoped_lock lock{mutex_}; true) {
       assert(available_bytes_ + s.size() <= hugepage_size);
-      do_return_block(s.data(), s.size());
+      return_block(s.data(), s.size());
       available_bytes_ += s.size();
     }
     if (is_read) decrement_read_bytes(s.size());
   }
-
-  // Overrides.
 
   [[nodiscard]] ptr base() const noexcept override { return base_; }
 
@@ -457,6 +279,136 @@ private:
   void increment_read_bytes(size_t n) noexcept override {
     in_flight_read_bytes_.fetch_add(n, std::memory_order::relaxed);
   }
+
+#pragma endregion
+#pragma region Helpers
+
+  // Push all 32 x 64 KB blocks onto the large free-list.
+  // Blocks are pushed in ascending address order; with LIFO, block 31 (highest
+  // address) ends at the head and block 0 (lowest) ends at the tail.
+  void init_free_lists() noexcept {
+    available_bytes_ = hugepage_size;
+    const size_t n = hugepage_size / *block_size::large;
+    for (size_t i = 0; i < n; ++i)
+      large_list_.push_head(base_ + (i * *block_size::large));
+  }
+
+  // Page-index of the first 4 KB page covered by address `p`.
+  [[nodiscard]] size_t find_page_index(cptr p) const noexcept {
+    return (p - base_) / *block_size::small;
+  }
+
+  // Mark pages as externally allocated (in_use=true) or free (in_use=false) in
+  // bitmap.
+  void mark_pages(cptr p, size_t sz, bool in_use) noexcept {
+    const size_t first = find_page_index(p);
+    const size_t count = sz / *block_size::small;
+    for (size_t i = 0; i < count; ++i) in_use_pages_[first + i] = in_use;
+  }
+
+  // True if no page in `[p, p+sz)` is currently allocated externally.
+  [[nodiscard]] bool are_all_free(cptr p, size_t sz) const noexcept {
+    const size_t first = find_page_index(p);
+    const size_t count = sz / *block_size::small;
+    for (size_t i = 0; i < count; ++i)
+      if (in_use_pages_[first + i]) return false;
+    return true;
+  }
+
+  // Split one block from `src` into four child blocks pushed to `dst`.
+  // Borrows from the tail (cold end). Children are appended to the tail in
+  // descending address order so the highest-address sub-block lands nearest
+  // the head, preserving the zone invariant even if `dst` is non-empty.
+  [[nodiscard]] static bool
+  split(free_list& src, free_list& dst, size_t child_sz) noexcept {
+    ptr base = src.pop_tail();
+    if (!base) return false;
+    for (size_t i = 4; i-- > 0;) dst.push_tail(base + (child_sz * i));
+    return true;
+  }
+
+  // Scan all parent-sized windows; coalesce any where all four child siblings
+  // are free. Removes coalesced child blocks from `src` and pushes the
+  // reconstituted parent to `dst` tail (cold end) for preferential
+  // re-splitting. Returns true if at least one block was coalesced.
+  [[nodiscard]] bool coalesce(free_list& src, size_t child_sz, free_list& dst,
+      size_t parent_sz) noexcept {
+    const size_t n = hugepage_size / parent_sz;
+    bool any{};
+    for (size_t i = 0; i < n; ++i) {
+      ptr parent = base_ + (i * parent_sz);
+      if (!are_all_free(parent, parent_sz)) continue;
+      for (size_t j = 0; j < 4; ++j) src.remove(parent + (j * child_sz));
+      dst.push_tail(parent);
+      any = true;
+    }
+    return any;
+  }
+
+  // Ensure `large_list_` is non-empty, coalescing medium blocks if needed.
+  [[nodiscard]] bool ensure_large() noexcept {
+    return large_list_ ||
+           coalesce(medium_list_, *block_size::medium, large_list_,
+               *block_size::large);
+  }
+
+  // Ensure `medium_list_` is non-empty, splitting or coalescing as needed.
+  [[nodiscard]] bool ensure_medium() noexcept {
+    if (medium_list_) return true;
+    if (split(large_list_, medium_list_, *block_size::medium)) return true;
+    return coalesce(medium_list_, *block_size::medium, large_list_,
+               *block_size::large) &&
+           split(large_list_, medium_list_, *block_size::medium);
+  }
+
+  // Ensure `small_list_` is non-empty, splitting or coalescing as needed.
+  [[nodiscard]] bool ensure_small() noexcept {
+    if (small_list_) return true;
+    if (!ensure_medium()) return false;
+    if (split(medium_list_, small_list_, *block_size::small)) return true;
+    return coalesce(small_list_, *block_size::small, medium_list_,
+               *block_size::medium) &&
+           split(medium_list_, small_list_, *block_size::small);
+  }
+
+  // Allocate one block of `sz` bytes. Caller holds `mutex_`. Returns
+  // `nullptr` if the pool is exhausted for that size class.
+  // Direct allocations pop from the head (hot/LIFO end).
+  [[nodiscard]] ptr alloc_block(size_t sz) noexcept {
+    if (sz <= *block_size::small) {
+      if (!ensure_small()) return nullptr;
+      ptr p = small_list_.pop_head();
+      if (p) mark_pages(p, *block_size::small, true);
+      return p;
+    }
+    if (sz <= *block_size::medium) {
+      if (!ensure_medium()) return nullptr;
+      ptr p = medium_list_.pop_head();
+      if (p) mark_pages(p, *block_size::medium, true);
+      return p;
+    }
+    if (sz <= *block_size::large) {
+      if (!ensure_large()) return nullptr;
+      ptr p = large_list_.pop_head();
+      if (p) mark_pages(p, *block_size::large, true);
+      return p;
+    }
+    return nullptr; // Sizes above 64 KB are unsupported.
+  }
+
+  // Return a slab to its tier free-list. Coalescing is deferred to alloc time.
+  // All tiers return to the head (LIFO) for hot reuse. Coalescing eligibility
+  // is tracked by `in_use_pages_`, not by list position.
+  void return_block(ptr p, size_t sz) noexcept {
+    mark_pages(p, sz, false);
+    if (sz == *block_size::small)
+      small_list_.push_head(p);
+    else if (sz == *block_size::medium)
+      medium_list_.push_head(p);
+    else
+      large_list_.push_head(p);
+  }
+
 #pragma endregion
 #pragma region Data members
 private:

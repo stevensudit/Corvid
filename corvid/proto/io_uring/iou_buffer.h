@@ -43,8 +43,13 @@ public:
 private:
   friend class iou_buffer;
 
+  // Return base address of the pool's memory region.
   [[nodiscard]] virtual std::byte* base() const noexcept = 0;
+
+  // Return a buffer to the pool.
   virtual void return_buffer(span_t s, bool is_read) noexcept = 0;
+
+  // Track reads bytes separately, to selectively throttle.
   virtual void decrement_read_bytes(size_t n) noexcept = 0;
   virtual void increment_read_bytes(size_t n) noexcept = 0;
 
