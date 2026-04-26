@@ -62,16 +62,18 @@ namespace iouring {
 // doubly-linked free-lists for 4 KB, 16 KB, and 64 KB slots. Larger slabs are
 // split on demand; freed slabs coalesce back up when needed.
 //
-// Zone heuristic: each free-list keeps its highest-address blocks near the
-// head and its lowest-address blocks near the tail. Direct allocations pop
-// from the head (LIFO, high-address first). Splits borrow from the tail (the
-// lowest-address block), and coalesced blocks are returned to the tail as
-// well. Over time, this clusters small allocations at low addresses and
-// reserves high addresses for large allocations.
+// Zone heuristic: `large_list_` and `medium_list_` keep their highest-address
+// blocks near the head; `small_list_` keeps its lowest-address blocks near
+// the head. Large and medium direct allocations therefore consume high
+// addresses first (growing downward), while small allocations consume low
+// addresses first (growing upward). Splits borrow from the tail of the source
+// list (its lowest-address block) and fill the destination list from the head
+// in the appropriate direction. Over time this clusters small allocations at
+// low addresses and reserves high addresses for large allocations.
 //
 // Backpressure: `alloc_read` enforces two limits:
-//   - a hard 512 KB write reserve that read allocations cannot touch;
-//   - a 1536 KB in-flight cap on outstanding read bytes.
+//   - a hard 1/4 block write reserve that read allocations cannot touch;
+//   - a 3/4 block in-flight cap on outstanding read bytes.
 // `alloc_write` is unconstrained (it may use any available memory, including
 // the write reserve).
 //
@@ -91,6 +93,7 @@ public:
   using buffer = iou_buffer;
   using ptr = std::byte*;
   using cptr = const std::byte*;
+  enum class split_direction : bool { descending = false, ascending = true };
 #pragma endregion
 #pragma region Free list
   // The 2M block has a quarter reserved for writes, so that reads can't
@@ -319,14 +322,21 @@ private:
   }
 
   // Split one block from `src` into four child blocks pushed to `dst`.
-  // Borrows from the tail (cold end). Children are appended to the tail in
-  // descending address order so the highest-address sub-block lands nearest
-  // the head, preserving the zone invariant even if `dst` is non-empty.
+  // Borrows from the tail (cold end, lowest-address block). When `ascending`
+  // is false (default), children are pushed in descending address order so the
+  // highest-address sub-block lands at the head (large->medium). When
+  // `ascending` is true, children are pushed in ascending order so the
+  // lowest-address sub-block lands at the head (medium->small).
   [[nodiscard]] static bool
-  split(free_list& src, free_list& dst, size_t child_sz) noexcept {
+  split(free_list& src, free_list& dst, size_t child_sz,
+      split_direction dir = split_direction::descending) noexcept {
     ptr base = src.pop_tail();
     if (!base) return false;
-    for (size_t i = 4; i-- > 0;) dst.push_tail(base + (child_sz * i));
+    if (dir == split_direction::ascending) {
+      for (size_t i = 0; i < 4; ++i) dst.push_tail(base + (child_sz * i));
+    } else {
+      for (size_t i = 4; i-- > 0;) dst.push_tail(base + (child_sz * i));
+    }
     return true;
   }
 
@@ -367,10 +377,10 @@ private:
   [[nodiscard]] bool ensure_small() noexcept {
     if (small_list_) return true;
     if (!ensure_medium()) return false;
-    if (split(medium_list_, small_list_, *block_size::small)) return true;
+    if (split(medium_list_, small_list_, *block_size::small, split_direction::ascending)) return true;
     return coalesce(small_list_, *block_size::small, medium_list_,
                *block_size::medium) &&
-           split(medium_list_, small_list_, *block_size::small);
+           split(medium_list_, small_list_, *block_size::small, split_direction::ascending);
   }
 
   // Allocate one block of `sz` bytes. Caller holds `mutex_`. Returns
