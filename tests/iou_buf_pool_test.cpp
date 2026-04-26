@@ -24,6 +24,7 @@
 #include "minitest.h"
 
 using namespace corvid;
+using namespace corvid::proto::iouring;
 using namespace std::string_view_literals;
 
 // Simulate kernel filling bytes into `buf`'s active_span, then call update.

@@ -50,12 +50,13 @@ constexpr inline auto
 namespace corvid { inline namespace proto {
 namespace iouring {
 
-// Pool of pre-registered fixed I/O buffers backed by a single 2 MB huge page.
+// Pool of pre-registered fixed I/O buffers backed by a single huge page,
+// defaulting to 2 MB. If transparent huge pages are
 //
-// When possible, the entire 2 MB block is registered with the kernel as one
-// entry in the `io_uring` fixed-buffer table (`buf_index` = 0). The kernel
-// pins these pages once at registration time, via `register_with`, avoiding
-// per-operation pinning overhead.
+// The entire block is registered with the kernel as one entry in the
+// `io_uring` fixed-buffer table (`buf_index` = 0). The kernel pins these pages
+// once at registration time, via `register_with`, avoiding per-operation
+// pinning overhead.
 //
 // Internally, the memory is managed by a three-tier slab allocator with O(1)
 // doubly-linked free-lists for 4 KB, 16 KB, and 64 KB slots. Larger slabs are
@@ -79,7 +80,8 @@ namespace iouring {
 //
 // Plans:
 // - Allow `iou_buf_pool` size to be configured at construction time.
-class iou_buf_pool: public buffer_pool_base {
+template<size_t SIZE = 2UL * 1024 * 1024>
+class iou_buf_pool_of: public buffer_pool_base {
 public:
 #pragma region Types
 public:
@@ -93,9 +95,9 @@ public:
 #pragma region Free list
   // The 2M block has a quarter reserved for writes, so that reads can't
   // exhaust the pool.
-  static constexpr size_t hugepage_size = 2UL * 1024 * 1024;          // 2 MB
-  static constexpr size_t read_throttle_size = hugepage_size * 3 / 4; // 1.5 MB
-  static constexpr size_t write_reserve_size = hugepage_size / 4;     // 512 KB
+  static constexpr size_t hugepage_size = SIZE;
+  static constexpr size_t read_throttle_size = hugepage_size * 3 / 4;
+  static constexpr size_t write_reserve_size = hugepage_size / 4;
 
   // Intrusive free list node.
   // TODO: Add debug-only canaries to detect memory corruption.
@@ -180,32 +182,33 @@ public:
   // Allocate and warm the 2 MB backing store. Falls back to a plain
   // `MAP_ANONYMOUS` mapping if `MAP_HUGETLB` is unavailable (e.g., WSL2
   // without huge pages configured). Throws `std::system_error` on failure.
-  iou_buf_pool() {
+  iou_buf_pool_of() {
     base_ = reinterpret_cast<ptr>(::mmap(nullptr, hugepage_size,
         PROT_READ | PROT_WRITE,
         MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE, -1, 0));
-    // Retry without huge pages.
-    if (base_ == MAP_FAILED)
+    // Retry without explicit hugetlb.
+    if (base_ == MAP_FAILED) {
       base_ = reinterpret_cast<ptr>(::mmap(nullptr, hugepage_size,
-          PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE,
-          -1, 0));
-    if (base_ == MAP_FAILED)
-      throw std::system_error(errno, std::system_category(), "mmap");
-    // Warm pages; MAP_POPULATE may already have faulted them in, but an
-    // explicit memset guarantees zeroing and forces physical page
-    // assignment.
+          PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+      if (base_ == MAP_FAILED)
+        throw std::system_error(errno, std::system_category(), "mmap");
+      // This may fail silently, but there's nothing we can do about it.
+      ::madvise(base_, hugepage_size, MADV_HUGEPAGE);
+    }
+    // Warm pages: An explicit memset guarantees zeroing and forces physical
+    // page assignment.
     std::memset(base_, 0, hugepage_size);
     init_free_lists();
   }
 
-  ~iou_buf_pool() override {
+  ~iou_buf_pool_of() override {
     if (base_) ::munmap(base_, hugepage_size);
   }
 
-  iou_buf_pool(const iou_buf_pool&) = delete;
-  iou_buf_pool& operator=(const iou_buf_pool&) = delete;
-  iou_buf_pool(iou_buf_pool&&) = delete;
-  iou_buf_pool& operator=(iou_buf_pool&&) = delete;
+  iou_buf_pool_of(const iou_buf_pool_of&) = delete;
+  iou_buf_pool_of& operator=(const iou_buf_pool_of&) = delete;
+  iou_buf_pool_of(iou_buf_pool_of&&) = delete;
+  iou_buf_pool_of& operator=(iou_buf_pool_of&&) = delete;
 
   // Register the 2 MB block as a single fixed buffer (index 0) with `ring`.
   // Must be called exactly once before any buffer is used in an I/O
@@ -235,7 +238,7 @@ public:
     if (!s.data()) return {};
     available_bytes_ -= len;
     in_flight_read_bytes_.fetch_add(len, std::memory_order::relaxed);
-    return {*this, s, 0U, true};
+    return make_buffer(*this, s, 0U, true);
   }
 
   // Borrow a buffer for an outgoing write. Not subject to read backpressure;
@@ -247,7 +250,7 @@ public:
     span_t s{alloc_block(*sz), *sz};
     if (!s.data()) return {};
     available_bytes_ -= s.size();
-    return {*this, s, 0U, false};
+    return make_buffer(*this, s, 0U, false);
   }
 
   // Total free bytes currently in the pool. Thread-safe.
@@ -423,8 +426,10 @@ private:
 #pragma endregion
 };
 
+using iou_buf_pool = iou_buf_pool_of<>;
+
 } // namespace iouring
-using iouring::iou_buf_pool;
+using iouring::iou_buf_pool_of;
 using iouring::iou_cqe_flags;
 using iouring::iou_res;
 }} // namespace corvid::proto

@@ -27,10 +27,10 @@
 #include "iou_wrap.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
-
-class iou_buf_pool;
-
 #pragma region buffer_pool_base
+
+// Fwd.
+class iou_buffer;
 
 // Abstract backing pool used by `iou_buffer`.
 class buffer_pool_base {
@@ -52,6 +52,10 @@ private:
   // Track reads bytes separately, to selectively throttle.
   virtual void decrement_read_bytes(size_t n) noexcept = 0;
   virtual void increment_read_bytes(size_t n) noexcept = 0;
+
+protected:
+  static iou_buffer make_buffer(buffer_pool_base& pool, span_t span,
+      size_t buf_index, bool is_read) noexcept;
 
   // TODO: We'll need a way to make Provided Buffers programmatically
   // detectable. What we really want is for the regular flow, where the user
@@ -413,7 +417,7 @@ public:
 #pragma endregion
 #pragma region Helpers
 private:
-  friend class iou_buf_pool;
+  friend class buffer_pool_base;
 
   iou_buffer(buffer_pool_base& pool, span_t span, size_t buf_index,
       bool is_read) noexcept
@@ -455,6 +459,11 @@ private:
   iou_cqe_flags cqe_flags_{};
   bool is_read_{};
 };
+
+inline iou_buffer buffer_pool_base::make_buffer(buffer_pool_base& pool,
+    span_t span, size_t buf_index, bool is_read) noexcept {
+  return iou_buffer(pool, span, buf_index, is_read);
+}
 
 #pragma endregion
 
