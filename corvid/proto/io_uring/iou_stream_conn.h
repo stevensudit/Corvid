@@ -550,7 +550,12 @@ private:
     assert(loop_.is_loop_thread());
     if (shutdown_ == coordination_policy::unilateral || peer_eof_)
       return do_close_now();
-    if (!sock_.shutdown(SHUT_WR)) return do_close_now();
+    const auto token = loop_.submit_shutdown(sock_, shutdown_how::wr,
+        [p = self()](completion_id, iou_res res, iou_cqe_flags) {
+          if (!res.ok()) (void)p->do_close_now();
+          return slot_retention{};
+        });
+    if (!token.is_valid()) return do_close_now();
     write_open_ = false;
     if (!recv_in_flight_) return do_submit_recv();
     return true;

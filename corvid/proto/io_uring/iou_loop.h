@@ -734,6 +734,32 @@ public:
   }
 
 #pragma endregion
+#pragma region Shutdown
+
+  // Submit an async shutdown on `file`.
+  [[nodiscard]] completion_token
+  submit_shutdown(const os_file& file, shutdown_how how, completion_fn&& cb) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_shutdown(std::move(file), how, cbtoken,
+            slot_retention::automatic))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async shutdown on `file`.
+  [[nodiscard]] bool submit_shutdown(const os_file& file, shutdown_how how,
+      completion_token cbtoken,
+      slot_retention on_fail = slot_retention::retain) {
+    if (!cbtoken.is_valid()) return false;
+    if (!file) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = file.handle(), how, cbtoken, on_fail]() mutable {
+      return do_submit_timeout(cbtoken, nullptr, on_fail,
+          [fd, how](iou_sqe sqe) { sqe.prep_shutdown(fd, how); });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
 #pragma region Accept
 
   // Submit an async accept on `socket`.
