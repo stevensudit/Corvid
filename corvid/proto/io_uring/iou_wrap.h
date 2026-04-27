@@ -38,6 +38,27 @@ namespace corvid { inline namespace proto { namespace iouring {
 
 #pragma region iou flags
 
+// `IORING_SETUP_*` wrapper.
+enum class iou_setup_flags : uint32_t {
+  setup_iopoll = IORING_SETUP_IOPOLL,                         // 0x0001
+  setup_sqpoll = IORING_SETUP_SQPOLL,                         // 0x0002
+  setup_sq_aff = IORING_SETUP_SQ_AFF,                         // 0x0004
+  setup_cqsize = IORING_SETUP_CQSIZE,                         // 0x0008
+  setup_clamp = IORING_SETUP_CLAMP,                           // 0x0010
+  setup_attach_wq = IORING_SETUP_ATTACH_WQ,                   // 0x0020
+  setup_r_disabled = IORING_SETUP_R_DISABLED,                 // 0x0040
+  setup_submit_all = IORING_SETUP_SUBMIT_ALL,                 // 0x0080
+  setup_coop_taskrun = IORING_SETUP_COOP_TASKRUN,             // 0x0100
+  setup_taskrun_flag = IORING_SETUP_TASKRUN_FLAG,             // 0x0200
+  setup_sqe128 = IORING_SETUP_SQE128,                         // 0x0400
+  setup_cqe32 = IORING_SETUP_CQE32,                           // 0x0800
+  setup_single_issuer = IORING_SETUP_SINGLE_ISSUER,           // 0x1000
+  setup_defer_taskrun = IORING_SETUP_DEFER_TASKRUN,           // 0x2000
+  setup_no_mmap = IORING_SETUP_NO_MMAP,                       // 0x4000
+  setup_registered_fd_only = IORING_SETUP_REGISTERED_FD_ONLY, // 0x8000
+  IORING_SETUP_MUST_BE_UINT32 = 0x7FFF'FFFF
+};
+
 // `IORING_CQE_F_*` wrapper.
 enum class iou_cqe_flags : uint32_t {
   buffer = IORING_CQE_F_BUFFER, // 0x1 (upper 16 bits are buffer ID if set)
@@ -86,6 +107,17 @@ enum class poll_flags : uint16_t {
 };
 
 }}} // namespace corvid::proto::iouring
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::iouring::iou_setup_flags> =
+    corvid::enums::bitmask::make_bitmask_enum_spec<
+        corvid::proto::iouring::iou_setup_flags,
+        "setup_registered_fd_only, setup_no_mmap, setup_defer_taskrun, "
+        "setup_single_issuer, setup_cqe32, setup_sqe128, setup_taskrun_flag, "
+        "setup_coop_taskrun, setup_submit_all, setup_r_disabled, "
+        "setup_attach_wq, setup_clamp, setup_cqsize, setup_sq_aff, "
+        "setup_sqpoll, setup_iopoll">();
 
 template<>
 constexpr inline auto corvid::enums::registry::enum_spec_v<
@@ -558,8 +590,8 @@ public:
 
   // Construct and initialize an io_uring with the given `ring_size` and
   // `flags`.
-  explicit iou_ring(size_t ring_size = 256, int flags = 0) {
-    iou_res res{io_uring_queue_init(ring_size, &ring_, flags)};
+  explicit iou_ring(size_t ring_size = 256, iou_setup_flags flags = {}) {
+    iou_res res{io_uring_queue_init(ring_size, &ring_, *flags)};
     if (res) return;
     throw std::system_error(*res.err(), std::system_category(),
         "io_uring_queue_init");

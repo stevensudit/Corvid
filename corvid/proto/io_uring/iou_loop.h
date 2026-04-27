@@ -187,7 +187,9 @@ public:
           default_post_and_wait_poll_interval,
       size_t max_pending_sqes = default_max_pending_sqes)
       : ring_{RING_SIZE,
-            IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN},
+            iou_setup_flags::setup_single_issuer |
+                iou_setup_flags::setup_defer_taskrun |
+                iou_setup_flags::setup_submit_all},
         wake_fd_{event_fd::create()}, max_pending_sqes_{max_pending_sqes},
         post_and_wait_poll_interval_{post_and_wait_poll_interval} {
     post_queues_[0].reserve(32);

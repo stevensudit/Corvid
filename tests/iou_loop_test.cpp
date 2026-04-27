@@ -777,6 +777,44 @@ void IouWrap_SqeFlagsString() {
   }
 }
 
+void IouWrap_SetupFlagsString() {
+  // Each named bit round-trips through `enum_as_string` / `parse_enum`.
+  using namespace corvid::strings;
+  using F = iou_setup_flags;
+  if (true) {
+    EXPECT_EQ(enum_as_string(F::setup_iopoll), "setup_iopoll");
+    EXPECT_EQ(enum_as_string(F::setup_sqpoll), "setup_sqpoll");
+    EXPECT_EQ(enum_as_string(F::setup_sq_aff), "setup_sq_aff");
+    EXPECT_EQ(enum_as_string(F::setup_cqsize), "setup_cqsize");
+    EXPECT_EQ(enum_as_string(F::setup_clamp), "setup_clamp");
+    EXPECT_EQ(enum_as_string(F::setup_attach_wq), "setup_attach_wq");
+    EXPECT_EQ(enum_as_string(F::setup_r_disabled), "setup_r_disabled");
+    EXPECT_EQ(enum_as_string(F::setup_submit_all), "setup_submit_all");
+    EXPECT_EQ(enum_as_string(F::setup_coop_taskrun), "setup_coop_taskrun");
+    EXPECT_EQ(enum_as_string(F::setup_taskrun_flag), "setup_taskrun_flag");
+    EXPECT_EQ(enum_as_string(F::setup_sqe128), "setup_sqe128");
+    EXPECT_EQ(enum_as_string(F::setup_cqe32), "setup_cqe32");
+    EXPECT_EQ(enum_as_string(F::setup_single_issuer), "setup_single_issuer");
+    EXPECT_EQ(enum_as_string(F::setup_defer_taskrun), "setup_defer_taskrun");
+    EXPECT_EQ(enum_as_string(F::setup_no_mmap), "setup_no_mmap");
+    EXPECT_EQ(enum_as_string(F::setup_registered_fd_only),
+        "setup_registered_fd_only");
+  }
+  if (true) {
+    // Higher bits print first.
+    EXPECT_EQ(enum_as_string(F::setup_sqpoll | F::setup_iopoll),
+        "setup_sqpoll + setup_iopoll");
+  }
+  if (true) {
+    constexpr F bad{0x80000000};
+    EXPECT_EQ(parse_enum("setup_iopoll", bad), F::setup_iopoll);
+    EXPECT_EQ(parse_enum("setup_registered_fd_only", bad),
+        F::setup_registered_fd_only);
+    EXPECT_EQ(parse_enum("setup_sqpoll + setup_iopoll", bad),
+        F::setup_sqpoll | F::setup_iopoll);
+  }
+}
+
 void IouWrap_TimeoutFlagsString() {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   // `rel` (value 0) has no bit name and prints as "0x00".
@@ -815,4 +853,5 @@ MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
     IouLoop_SlotRetentionRetain, IouWrap_TimespecDurationRoundTrip,
     IouWrap_TimespecTimePointRoundTrip, IouWrap_TimespecStaticHelpers,
     IouWrap_TimespecAsPointer, IouWrap_ItimerspecConstruct, IouWrap_ResStatus,
-    IouWrap_CqeFlagsString, IouWrap_SqeFlagsString, IouWrap_TimeoutFlagsString)
+    IouWrap_CqeFlagsString, IouWrap_SqeFlagsString, IouWrap_SetupFlagsString,
+    IouWrap_TimeoutFlagsString)
