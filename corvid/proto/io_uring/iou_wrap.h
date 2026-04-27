@@ -615,7 +615,7 @@ public:
   // Note that the converted `iou_timespec` is used immediately, so it's safe
   // to pass by value, and even convert JIT from `std::chrono::duration`.
   [[nodiscard]] iou_res wait_cqe_timeout(iou_timespec ts = {}) {
-    iou_cqe cqe; // Not returned.
+    iou_cqe cqe; // Peeked but not returned.
     return iou_res{
         io_uring_wait_cqe_timeout(&ring_, cqe.pointer(), ts.pointer())};
   }
@@ -664,6 +664,16 @@ public:
   // Submit filled SQEs to the kernel. Returns an `iou_res` with the number
   // of SQEs submitted, or an error. An `ok(n)` on the result is a good idea.
   iou_res submit() noexcept { return iou_res{io_uring_submit(&ring_)}; }
+
+  // Submit filled SQEs and wait for at least one CQE, with an optional
+  // timeout. Combines `submit()` and `wait_cqe_timeout()` into one syscall,
+  // which also flushes deferred task work (required by `setup_defer_taskrun`).
+  [[nodiscard]] iou_res submit_and_wait_timeout(
+      iou_timespec ts = {}) noexcept {
+    iou_cqe cqe; // Peeked but not returned.
+    return iou_res{io_uring_submit_and_wait_timeout(&ring_, cqe.pointer(), 1,
+        ts.pointer(), nullptr)};
+  }
 
   // Register a fixed buffer table with the kernel. `iovecs` points to an
   // array of `count` `iovec` entries describing the pre-allocated buffers.

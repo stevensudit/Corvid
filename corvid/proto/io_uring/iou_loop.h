@@ -250,11 +250,11 @@ public:
   [[nodiscard]] size_t run_once(const iou_timespec& timeout) {
     assert(is_loop_thread());
     do_drain_post_queue();
-    if (!submit_now()) stop();
 
-    auto res = ring_.wait_cqe_timeout(timeout);
+    pending_sqe_count_ = 0;
+    auto res = ring_.submit_and_wait_timeout(timeout);
     if (res.is_soft_error()) return 0;
-    res.throw_if_error("wait_cqe_timeout");
+    res.throw_if_error("submit_and_wait_timeout");
 
     size_t dispatched{};
     size_t total = ring_.for_each_snapshotted_cqe([&](iou_cqe cqe) {
