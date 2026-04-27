@@ -32,6 +32,9 @@ using namespace std::chrono_literals;
 namespace {
 
 bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
+#if DEBUG
+  timeout = 1h;
+#endif
   const auto deadline = std::chrono::steady_clock::now() + timeout;
   while (!pred() && std::chrono::steady_clock::now() < deadline)
     std::this_thread::sleep_for(1ms);

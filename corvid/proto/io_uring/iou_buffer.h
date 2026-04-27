@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "iou_wrap.h"
+#include "../../meta/forwarding_address.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
 #pragma region buffer_pool_base
@@ -109,15 +110,11 @@ protected:
 // safely modify it. The first is that it is technically copyable, but any
 // attempt throws. This is necessary to satisfy `std::function`.
 //
-// The second is even stranger, and is also related to being bound into
-// `std::function`. In order to be addressible from outside the lambda that
-// captures it, it exposes `forwarding_address`, which can be set to point to
-// an `iou_buffer*` that lives outside the lambda. Whenever the buffer is
-// moved, it updates that forwarding address to point to itself. This is
-// nonowning, but it's essential that it be used to clear the forwarding
-// address inside the `iou_buffer`, because otherwise it's a dangling pointer
-// that could be written to after it's moved again.
-class iou_buffer {
+// The second is also related to being bound into `std::function`. Inheriting
+// `address_forwarder<iou_buffer>` allows a caller to register an external
+// `iou_buffer*` via `forwarding_address()`; it is updated on every move and
+// nulled on destruction. Clear it once the buffer has settled.
+class iou_buffer: public address_forwarder<iou_buffer> {
 #pragma region Construction
 public:
   using span_t = buffer_pool_base::span_t;
@@ -128,22 +125,20 @@ public:
   ~iou_buffer() { do_reset(); }
 
   iou_buffer(iou_buffer&& o) noexcept
-      : pool_{std::exchange(o.pool_, nullptr)},
+      : address_forwarder<iou_buffer>(std::move(o.as_base_move())),
+        pool_{std::exchange(o.pool_, nullptr)},
         full_span_{std::exchange(o.full_span_, {})},
         payload_span_{std::exchange(o.payload_span_, {})},
         active_span_{std::exchange(o.active_span_, {})},
         buf_index_{std::exchange(o.buf_index_, {})},
         file_offset_{std::exchange(o.file_offset_, {})},
         pending_releases_{std::exchange(o.pending_releases_, {})},
-        is_read_{o.is_read_},
-        forwarding_address_{std::exchange(o.forwarding_address_, nullptr)},
-        res_{o.res_}, cqe_flags_{o.cqe_flags_} {
-    if (forwarding_address_) *forwarding_address_ = this;
-  }
+        is_read_{o.is_read_}, res_{o.res_}, cqe_flags_{o.cqe_flags_} {}
 
   iou_buffer& operator=(iou_buffer&& o) noexcept {
     if (this != &o) {
       reset();
+      address_forwarder<iou_buffer>::operator=(std::move(o.as_base_move()));
       pool_ = std::exchange(o.pool_, nullptr);
       full_span_ = std::exchange(o.full_span_, {});
       payload_span_ = std::exchange(o.payload_span_, {});
@@ -152,10 +147,8 @@ public:
       file_offset_ = std::exchange(o.file_offset_, {});
       pending_releases_ = std::exchange(o.pending_releases_, {});
       is_read_ = o.is_read_;
-      forwarding_address_ = std::exchange(o.forwarding_address_, nullptr);
       res_ = o.res_;
       cqe_flags_ = o.cqe_flags_;
-      if (forwarding_address_) *forwarding_address_ = this;
     }
     return *this;
   }
@@ -163,13 +156,10 @@ public:
   // Copyable enough to satisfy `std::function`, but throws if you actually
   // try to copy it. This will no longer be necessary once
   // `std::move_only_function` becomes available.
-  iou_buffer(const iou_buffer&) {
-    throw std::logic_error("iou_buffer is not copyable");
+  iou_buffer(const iou_buffer& o) : address_forwarder<iou_buffer>(o) {
+    throw std::logic_error{"iou_buffer is not copyable"};
   }
   iou_buffer& operator=(const iou_buffer&) = delete;
-
-  // See class comment for explanation.
-  iou_buffer**& forwarding_address() noexcept { return forwarding_address_; }
 
 #pragma endregion
 #pragma region Accessors
@@ -223,6 +213,9 @@ public:
   // `iou_cqe_flags::notify`. Only when this reaches zero can we release the
   // callback, and hence the buffer.
   size_t& pending_releases() noexcept { return pending_releases_; }
+
+  // Access timeout associated with this buffer.
+  iou_timespec& timeout() noexcept { return timeout_; }
 
   // Return the allocation to the pool immediately; buffer becomes empty.
   void reset() noexcept {
@@ -479,9 +472,7 @@ private:
   size_t pending_releases_{};
   bool is_read_{};
 
-  iou_buffer** forwarding_address_{};
-
-  iou_timespec ts_;
+  iou_timespec timeout_;
   net_endpoint addr_;
 #if 0
   msghdr msg_;   // TODO: Reconstitute after move.

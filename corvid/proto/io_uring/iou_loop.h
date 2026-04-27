@@ -195,8 +195,8 @@ public:
     post_queues_[0].reserve(32);
     post_queues_[1].reserve(32);
     if (!buf_pool_.register_with(ring_))
-      throw std::system_error(errno, std::system_category(),
-          "io_uring_register_buffers");
+      throw std::system_error{errno, std::system_category(),
+          "io_uring_register_buffers"};
   }
 
   iou_basic_loop(const iou_basic_loop&) = delete;
@@ -498,6 +498,20 @@ public:
     };
   }
 
+  // Wrap a `buf_completion_fn` and `buffer` into a `completion_token` and
+  // `buffer*`.
+  std::pair<completion_token, buffer*>
+  wrap_buf_completion_fn_and_ptr(buf_completion_fn bufcb, buffer&& buf) {
+    buffer* buf_ptr{};
+    buf.forwarding_address() = &buf_ptr;
+    const auto cbtoken =
+        tokenize(wrap_buf_completion_fn(std::move(bufcb), std::move(buf)));
+    // `buf` is moved-from; clear via `buf_ptr` or the pool-slot buffer keeps a
+    // dangling pointer to the local `buf_ptr` and wild-writes on slot release.
+    if (buf_ptr) buf_ptr->forwarding_address() = nullptr;
+    return {cbtoken, buf_ptr};
+  }
+
 #pragma endregion
 #pragma region Submit
 
@@ -578,7 +592,27 @@ public:
 #pragma endregion
 #pragma region Poll
 
-  //!!! For now, just multishot.
+  // Submit an async poll on `file`.
+  [[nodiscard]] completion_token submit_poll(const os_file& file,
+      completion_fn&& cb, poll_flags poll_mask = poll_flags::in) {
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!submit_poll(file, cbtoken, poll_mask, slot_retention::automatic))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async poll on `file`.
+  [[nodiscard]] bool submit_poll(const os_file& file, completion_token cbtoken,
+      poll_flags poll_mask = poll_flags::in,
+      slot_retention on_fail = slot_retention::retain) {
+    if (!cbtoken.is_valid()) return false;
+    auto fn = [this, cbtoken, fd = *file, poll_mask, on_fail]() mutable {
+      return do_submit(cbtoken, on_fail, [fd, poll_mask](iou_sqe sqe) {
+        sqe.prep_poll_oneshot(fd, poll_mask);
+      });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
 
   // Submit an async multishot poll on `file`.
   [[nodiscard]] completion_token submit_poll_multishot(const os_file& file,
@@ -1016,38 +1050,36 @@ public:
   //
 
   // Submit an async read_fixed on `file` into a borrowed buffer.
-  //
-  // Note that, for files, this override does not allow you to control
-  // `file_offset`.
   [[nodiscard]] completion_token submit_read_buffer(const os_file& file,
       buf_completion_fn bufcb, block_size sz = block_size::small,
-      iou_timespec* timeout = nullptr) {
-    return submit_read_buffer(file, borrow_read_buffer(sz), std::move(bufcb),
-        timeout);
+      const iou_timespec& timeout = {}) {
+    buffer buf = borrow_read_buffer(sz);
+    buf.timeout() = timeout;
+    return submit_read_buffer(file, std::move(buf), std::move(bufcb));
   }
 
   // Submit an async read_fixed on `file` into `buf`.
   [[nodiscard]] completion_token submit_read_buffer(const os_file& file,
-      buffer&& buf, buf_completion_fn bufcb, iou_timespec* timeout = nullptr) {
-    auto [span, buf_index, file_offset] = buf.prepare();
-    const auto cbtoken =
-        tokenize(wrap_buf_completion_fn(std::move(bufcb), std::move(buf)));
-    if (!submit_read_buffer(file, span, buf_index, file_offset, cbtoken,
-            timeout, slot_retention::automatic))
+      buffer&& buf, buf_completion_fn bufcb) {
+    const auto [cbtoken, buf_ptr] =
+        wrap_buf_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
+    if (!submit_read_buffer(file, *buf_ptr, cbtoken,
+            slot_retention::automatic))
       return {};
     return cbtoken;
   }
 
-  // Submit an async read_fixed on `file`.
-  [[nodiscard]] bool submit_read_buffer(const os_file& file, span_t span,
-      size_t buf_index, size_t file_offset, completion_token cbtoken,
-      iou_timespec* timeout = nullptr,
+  // Submit an async read_fixed on `file`. Note that `buf` must point inside
+  // the callback.
+  [[nodiscard]] bool submit_read_buffer(const os_file& file, buffer& buf,
+      completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken.is_valid()) return false;
+    auto [span, buf_index, file_offset] = buf.prepare();
     if (!file || span.empty()) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *file, cbtoken, span, buf_index, file_offset,
-                  timeout, on_fail]() mutable {
-      return do_submit_timeout(cbtoken, timeout, on_fail,
+                  &timeout = buf.timeout(), on_fail]() mutable {
+      return do_submit_timeout(cbtoken, &timeout, on_fail,
           [fd, span, buf_index, file_offset](iou_sqe sqe) {
             sqe.prep_read_fixed(fd, span, buf_index, file_offset);
           });
@@ -1074,26 +1106,26 @@ public:
 
   // Submit an async write_fixed on `file` from `buf`.
   [[nodiscard]] completion_token submit_write_buffer(const os_file& file,
-      buffer&& buf, buf_completion_fn bufcb, iou_timespec* timeout = nullptr) {
-    auto [span, buf_index, file_offset] = buf.prepare();
-    const auto cbtoken =
-        tokenize(wrap_buf_completion_fn(std::move(bufcb), std::move(buf)));
-    if (!submit_write_buffer(file, span, buf_index, file_offset, cbtoken,
-            timeout, slot_retention::automatic))
+      buffer&& buf, buf_completion_fn bufcb) {
+    const auto [cbtoken, buf_ptr] =
+        wrap_buf_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
+    if (!submit_write_buffer(file, *buf_ptr, cbtoken,
+            slot_retention::automatic))
       return {};
     return cbtoken;
   }
 
-  // Submit an async write_fixed on `file`.
-  [[nodiscard]] bool submit_write_buffer(const os_file& file, span_t span,
-      size_t buf_index, uint64_t file_offset, completion_token cbtoken,
-      iou_timespec* timeout = nullptr,
+  // Submit an async write_fixed on `file`. Note that `buf` must point inside
+  // the callback.
+  [[nodiscard]] bool submit_write_buffer(const os_file& file, buffer& buf,
+      completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken.is_valid()) return false;
+    auto [span, buf_index, file_offset] = buf.prepare();
     if (!file || span.empty()) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *file, cbtoken, span, buf_index, file_offset,
-                  timeout, on_fail]() mutable {
-      return do_submit_timeout(cbtoken, timeout, on_fail,
+                  &timeout = buf.timeout(), on_fail]() mutable {
+      return do_submit_timeout(cbtoken, &timeout, on_fail,
           [fd, span, buf_index, file_offset](iou_sqe sqe) {
             sqe.prep_write_fixed(fd, span, buf_index, file_offset);
           });
@@ -1135,7 +1167,8 @@ private:
       if (cbtoken.is_valid() && is_released(cbtoken)) return true;
 
       // Check availability up front and only assert on each.
-      size_t sqe_needed = timeout ? 2 : 1;
+      bool use_timeout = timeout && timeout->is_valid();
+      size_t sqe_needed = use_timeout ? 2 : 1;
       if (!ring_.enough_sqe_available(sqe_needed)) return false;
 
       // Queue the operation SQE.
@@ -1144,13 +1177,14 @@ private:
 
       // If timeout, follow it up with a linked timeout SQE.
       iou_sqe sqe_to;
-      if (timeout) sqe_to = ring_.next_sqe();
+
+      if (use_timeout) sqe_to = ring_.next_sqe();
 
       // Prep the operation.
       std::forward<decltype(prep)>(prep)(sqe_op);
 
       // If there's a timeout, link it.
-      if (timeout) {
+      if (use_timeout) {
         assert(sqe_to);
         sqe_op.set_sqe_flags(iou_sqe_flags::io_link);
         sqe_to.prep_link_timeout(timeout);
@@ -1294,7 +1328,7 @@ private:
             return slot_retention::automatic;
           if (!submit_poll_multishot(wake_fd_, completion_token{cbhandle},
                   poll_flags::in, slot_retention::retain))
-            throw std::runtime_error("failed to resubmit wake poll multishot");
+            throw std::runtime_error{"failed to resubmit wake poll multishot"};
           return slot_retention::retain;
         };
 
@@ -1365,7 +1399,7 @@ public:
         thread_{[this](const std::stop_token& st) { run(st); }} {
     if (!started_.wait_for_value(std::chrono::milliseconds{1000}, true)) {
       thread_.request_stop();
-      throw std::runtime_error("iou_loop_runner failed to start");
+      throw std::runtime_error{"iou_loop_runner failed to start"};
     }
     std::shared_ptr<loop_t> loop;
     std::exception_ptr startup_error;
@@ -1380,7 +1414,7 @@ public:
     if (!loop || !loop->wait_until_running(1000)) {
       thread_.request_stop();
       if (thread_.joinable()) thread_.join();
-      throw std::runtime_error("iou_loop_runner failed to start");
+      throw std::runtime_error{"iou_loop_runner failed to start"};
     }
   }
 
