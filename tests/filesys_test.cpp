@@ -577,17 +577,17 @@ void NetSocket_Release() {
 void NetSocket_Options() {
   if (is_codex()) return;
 
-  // Named option helpers round-trip through `get_option`.
+  // Named option helpers round-trip through `get_raw_option`.
   if (true) {
     net_socket s{address_family::inet, socket_type::stream, {}};
 
     EXPECT_TRUE(s.set_reuse_addr(true));
-    auto v = s.get_option<int>(SOL_SOCKET, SO_REUSEADDR);
+    auto v = s.get_raw_option<int>(SOL_SOCKET, SO_REUSEADDR);
     EXPECT_TRUE(v.has_value());
     EXPECT_NE(*v, 0);
 
     EXPECT_TRUE(s.set_reuse_addr(false));
-    v = s.get_option<int>(SOL_SOCKET, SO_REUSEADDR);
+    v = s.get_raw_option<int>(SOL_SOCKET, SO_REUSEADDR);
     EXPECT_TRUE(v.has_value());
     EXPECT_EQ(*v, 0);
 
@@ -601,10 +601,10 @@ void NetSocket_Options() {
     net_socket s{address_family::inet, socket_type::stream, {}};
     EXPECT_TRUE(s.set_recv_buffer_size(65536));
     EXPECT_TRUE(s.set_send_buffer_size(65536));
-    auto r = s.get_option<int>(SOL_SOCKET, SO_RCVBUF);
+    auto r = s.get_raw_option<int>(SOL_SOCKET, SO_RCVBUF);
     EXPECT_TRUE(r.has_value());
     EXPECT_GE(*r, 65536);
-    auto t = s.get_option<int>(SOL_SOCKET, SO_SNDBUF);
+    auto t = s.get_raw_option<int>(SOL_SOCKET, SO_SNDBUF);
     EXPECT_TRUE(t.has_value());
     EXPECT_GE(*t, 65536);
   }
@@ -727,10 +727,10 @@ void NetSocket_FactoryMethods() {
       EXPECT_TRUE(s.is_open());
       EXPECT_TRUE(
           bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
-      auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
+      auto dom = s.get_raw_option<int>(SOL_SOCKET, SO_DOMAIN);
       EXPECT_TRUE(dom.has_value());
       EXPECT_EQ(*dom, AF_INET);
-      auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
+      auto type = s.get_raw_option<int>(SOL_SOCKET, SO_TYPE);
       EXPECT_TRUE(type.has_value());
       EXPECT_EQ(*type, SOCK_STREAM);
     }
@@ -744,9 +744,9 @@ void NetSocket_FactoryMethods() {
       EXPECT_TRUE(s.is_open());
       EXPECT_FALSE(
           bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
-      auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
+      auto dom = s.get_raw_option<int>(SOL_SOCKET, SO_DOMAIN);
       EXPECT_EQ(*dom, AF_INET);
-      auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
+      auto type = s.get_raw_option<int>(SOL_SOCKET, SO_TYPE);
       EXPECT_TRUE(type.has_value());
       EXPECT_EQ(*type, SOCK_DGRAM);
     }
@@ -759,10 +759,10 @@ void NetSocket_FactoryMethods() {
       EXPECT_TRUE(s.is_open());
       EXPECT_TRUE(
           bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
-      auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
+      auto dom = s.get_raw_option<int>(SOL_SOCKET, SO_DOMAIN);
       EXPECT_TRUE(dom.has_value());
       EXPECT_EQ(*dom, AF_INET6);
-      auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
+      auto type = s.get_raw_option<int>(SOL_SOCKET, SO_TYPE);
       EXPECT_TRUE(type.has_value());
       EXPECT_EQ(*type, SOCK_STREAM);
     }
@@ -774,10 +774,10 @@ void NetSocket_FactoryMethods() {
     EXPECT_TRUE(s.is_open());
     EXPECT_TRUE(
         bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
-    auto dom = s.get_option<int>(SOL_SOCKET, SO_DOMAIN);
+    auto dom = s.get_raw_option<int>(SOL_SOCKET, SO_DOMAIN);
     EXPECT_TRUE(dom.has_value());
     EXPECT_EQ(*dom, AF_UNIX);
-    auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
+    auto type = s.get_raw_option<int>(SOL_SOCKET, SO_TYPE);
     EXPECT_TRUE(type.has_value());
     EXPECT_EQ(*type, SOCK_STREAM);
   }
@@ -787,7 +787,7 @@ void NetSocket_FactoryMethods() {
     auto s = net_socket::create_uds(execution::nonblocking,
         message_style::datagram);
     EXPECT_TRUE(s.is_open());
-    auto type = s.get_option<int>(SOL_SOCKET, SO_TYPE);
+    auto type = s.get_raw_option<int>(SOL_SOCKET, SO_TYPE);
     EXPECT_TRUE(type.has_value());
     EXPECT_EQ(*type, SOCK_DGRAM);
   }
@@ -996,6 +996,89 @@ void OsFile_FcntlOpsString() {
   }
 }
 
+void NetSocket_SocketOptionString() {
+  // Sequence enum: named values 1 ("debug") through 77 ("peerpidfd").
+  // Aliases (`get_filter`=26, `detach_bpf`=27, `scm_txtime`=61) share values
+  // with primary names and are omitted from the spec; the primary name wins.
+  using namespace corvid::strings;
+  using SO = socket_option;
+  if (true) {
+    EXPECT_EQ(enum_as_string(SO::debug), "debug");
+    EXPECT_EQ(enum_as_string(SO::reuse_addr), "reuse_addr");
+    EXPECT_EQ(enum_as_string(SO::type), "type");
+    EXPECT_EQ(enum_as_string(SO::sndbuf), "sndbuf");
+    EXPECT_EQ(enum_as_string(SO::keep_alive), "keep_alive");
+    EXPECT_EQ(enum_as_string(SO::linger), "linger");
+    EXPECT_EQ(enum_as_string(SO::reuse_port), "reuse_port");
+    EXPECT_EQ(enum_as_string(SO::attach_filter), "attach_filter");
+    EXPECT_EQ(enum_as_string(SO::detach_filter), "detach_filter");
+    EXPECT_EQ(enum_as_string(SO::peername), "peername");
+    EXPECT_EQ(enum_as_string(SO::protocol), "protocol");
+    EXPECT_EQ(enum_as_string(SO::domain), "domain");
+    EXPECT_EQ(enum_as_string(SO::attach_bpf), "attach_bpf");
+    EXPECT_EQ(enum_as_string(SO::cookie), "cookie");
+    EXPECT_EQ(enum_as_string(SO::txtime), "txtime");
+    EXPECT_EQ(enum_as_string(SO::bind_to_ifindex), "bind_to_ifindex");
+    EXPECT_EQ(enum_as_string(SO::peerpidfd), "peerpidfd");
+    // Aliases: primary name wins for the shared value.
+    EXPECT_EQ(enum_as_string(SO::get_filter), "attach_filter");
+    EXPECT_EQ(enum_as_string(SO::detach_bpf), "detach_filter");
+    EXPECT_EQ(enum_as_string(SO::scm_txtime), "txtime");
+  }
+  if (true) {
+    // Out-of-range values print as their numeric value.
+    EXPECT_EQ(enum_as_string(SO{0}), "0");
+    EXPECT_EQ(enum_as_string(SO{78}), "78");
+  }
+  if (true) {
+    constexpr SO bad{0};
+    EXPECT_EQ(parse_enum("debug", bad), SO::debug);
+    EXPECT_EQ(parse_enum("reuse_addr", bad), SO::reuse_addr);
+    EXPECT_EQ(parse_enum("detach_filter", bad), SO::detach_filter);
+    EXPECT_EQ(parse_enum("domain", bad), SO::domain);
+    EXPECT_EQ(parse_enum("txtime", bad), SO::txtime);
+    EXPECT_EQ(parse_enum("peerpidfd", bad), SO::peerpidfd);
+  }
+}
+
+void NetSocket_TcpOptionString() {
+  // Sequence enum: named values 1 ("nodelay") through 37 ("tx_delay").
+  using namespace corvid::strings;
+  using TO = tcp_option;
+  if (true) {
+    EXPECT_EQ(enum_as_string(TO::nodelay), "nodelay");
+    EXPECT_EQ(enum_as_string(TO::maxseg), "maxseg");
+    EXPECT_EQ(enum_as_string(TO::cork), "cork");
+    EXPECT_EQ(enum_as_string(TO::keep_idle), "keep_idle");
+    EXPECT_EQ(enum_as_string(TO::syncnt), "syncnt");
+    EXPECT_EQ(enum_as_string(TO::linger2), "linger2");
+    EXPECT_EQ(enum_as_string(TO::defer_accept), "defer_accept");
+    EXPECT_EQ(enum_as_string(TO::info), "info");
+    EXPECT_EQ(enum_as_string(TO::quickack), "quickack");
+    EXPECT_EQ(enum_as_string(TO::fastopen), "fastopen");
+    EXPECT_EQ(enum_as_string(TO::notsent_lowat), "notsent_lowat");
+    EXPECT_EQ(enum_as_string(TO::save_syn), "save_syn");
+    EXPECT_EQ(enum_as_string(TO::saved_syn), "saved_syn");
+    EXPECT_EQ(enum_as_string(TO::fastopen_connect), "fastopen_connect");
+    EXPECT_EQ(enum_as_string(TO::zerocopy_receive), "zerocopy_receive");
+    EXPECT_EQ(enum_as_string(TO::inq), "inq");
+    EXPECT_EQ(enum_as_string(TO::tx_delay), "tx_delay");
+  }
+  if (true) {
+    // Out-of-range values print as their numeric value.
+    EXPECT_EQ(enum_as_string(TO{0}), "0");
+    EXPECT_EQ(enum_as_string(TO{38}), "38");
+  }
+  if (true) {
+    constexpr TO bad{0};
+    EXPECT_EQ(parse_enum("nodelay", bad), TO::nodelay);
+    EXPECT_EQ(parse_enum("linger2", bad), TO::linger2);
+    EXPECT_EQ(parse_enum("fastopen", bad), TO::fastopen);
+    EXPECT_EQ(parse_enum("saved_syn", bad), TO::saved_syn);
+    EXPECT_EQ(parse_enum("tx_delay", bad), TO::tx_delay);
+  }
+}
+
 MAKE_TEST_LIST(OsFile_Lifecycle, OsFile_Move, OsFile_ReleaseFlags,
     OsFile_WriteRead, OsFile_WriteAllReadExact, NetSocket_Lifecycle,
     EventFd_Lifecycle, Epoll_Lifecycle, Epoll_Move, Epoll_Release,
@@ -1006,7 +1089,8 @@ MAKE_TEST_LIST(OsFile_Lifecycle, OsFile_Move, OsFile_ReleaseFlags,
     NetSocket_RecvAtContract, NetSocket_BindListenAccept,
     NetSocket_FactoryMethods, OsFile_MsgFlagsString, OsFile_ErrnoCodeString,
     OsFile_FcntlOpsString, NetSocket_SocketTypeString,
-    NetSocket_AddressFamilyString, NetSocket_ProtocolTypeString);
+    NetSocket_AddressFamilyString, NetSocket_ProtocolTypeString,
+    NetSocket_SocketOptionString, NetSocket_TcpOptionString);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

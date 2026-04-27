@@ -252,11 +252,10 @@ public:
     shutdown_ = shutdown;
   }
 
-  // Forceful close: cancel pending I/O and close immediately.
+  // Forceful close: cancel pending I/O and close immediately with RST.
   // Safe from any thread.
   [[nodiscard]] bool hangup() {
-    // TODO: Make this actually hang up.
-    return loop_.execute_or_post([p = self()] { return p->do_close_now(); });
+    return loop_.execute_or_post([p = self()] { return p->do_hangup_now(); });
   }
 
 #pragma endregion
@@ -549,11 +548,31 @@ private:
     send_queue_.clear();
     close_requested_ = false;
     if (sock_) {
-      if (listening_)
-        (void)loop_.submit_cancel(sock_,
-            [p = self()](completion_id, iou_res, iou_cqe_flags) {
-              return slot_retention{};
-            });
+      (void)loop_.submit_cancel(sock_,
+          [p = self()](completion_id, iou_res, iou_cqe_flags) {
+            return slot_retention{};
+          });
+      (void)loop_.submit_close(std::move(sock_),
+          [p = self()](completion_id, iou_res, iou_cqe_flags) {
+            return slot_retention{};
+          });
+    }
+    return notify_close_once();
+  }
+
+  // Close immediately with RST, canceling all pending I/O first.
+  [[nodiscard]] bool do_hangup_now() {
+    assert(loop_.is_loop_thread());
+    if (!open_->exchange(false, std::memory_order::relaxed)) return false;
+    send_queue_.clear();
+    close_requested_ = false;
+    if (sock_) {
+      (void)sock_.set_option(socket_option::linger,
+          linger{.l_onoff = 1, .l_linger = 0});
+      (void)loop_.submit_cancel(sock_,
+          [p = self()](completion_id, iou_res, iou_cqe_flags) {
+            return slot_retention{};
+          });
       (void)loop_.submit_close(std::move(sock_),
           [p = self()](completion_id, iou_res, iou_cqe_flags) {
             return slot_retention{};
