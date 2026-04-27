@@ -106,6 +106,14 @@ enum class poll_flags : uint16_t {
   POLL_MUST_BE_INT16 = 0x7FFF
 };
 
+// `SHUT_*` wrapper for `prep_shutdown`.
+enum class shutdown_how : int {
+  rd = SHUT_RD,     // 0
+  wr = SHUT_WR,     // 1
+  rdwr = SHUT_RDWR, // 2
+  SHUT_MUST_BE_INT = 0x7FFF'FFFF
+};
+
 }}} // namespace corvid::proto::iouring
 
 template<>
@@ -147,6 +155,12 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
     corvid::proto::iouring::poll_flags> =
     corvid::enums::bitmask::make_bitmask_enum_spec<
         corvid::proto::iouring::poll_flags, "nval, hup, err, out, pri, in">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::iouring::shutdown_how> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::proto::iouring::shutdown_how, "rd, wr, rdwr">();
 
 namespace corvid { inline namespace proto { namespace iouring {
 
@@ -456,6 +470,14 @@ public:
   // sole closer.
   bool prep_close(int fd) noexcept {
     io_uring_prep_close(sqe_, fd);
+    return true;
+  }
+
+  // Shutdown `fd` asynchronously. Caller must have released ownership of `fd`
+  // (e.g., via `os_file::release`) before submitting, so the kernel is the
+  // sole closer. `how` is the same as for `shutdown(2)`.
+  bool prep_shutdown(int fd, shutdown_how how) noexcept {
+    io_uring_prep_shutdown(sqe_, fd, *how);
     return true;
   }
 

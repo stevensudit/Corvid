@@ -96,10 +96,11 @@ void IouStreamConn_MultipleStrings() {
         std::move(sock1), net_endpoint::invalid,
         iou_stream_conn_handlers{
             .on_data = [&](iou_stream_conn&, iou_recv_view view) {
-              payload += view.active_view();
-              recv_bytes.fetch_add(static_cast<int>(view.active_view().size()),
+              auto sv = view.active_view();
+              payload += sv;
+              recv_bytes.fetch_add(static_cast<int>(sv.size()),
                   std::memory_order::relaxed);
-              view.consume(view.active_view().size());
+              view.consume(sv.size());
               return true;
             }});
     EXPECT_TRUE(recv_conn);

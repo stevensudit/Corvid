@@ -54,8 +54,8 @@ private:
   virtual void increment_read_bytes(size_t n) noexcept = 0;
 
 protected:
-  static iou_buffer make_buffer(buffer_pool_base& pool, span_t span,
-      size_t buf_index, bool is_read) noexcept;
+  [[nodiscard]] static iou_buffer make_buffer(buffer_pool_base& pool,
+      span_t span, size_t buf_index, bool is_read) noexcept;
 
   // TODO: We'll need a way to make Provided Buffers programmatically
   // detectable. What we really want is for the regular flow, where the user
@@ -453,16 +453,17 @@ private:
   span_t payload_span_;
   span_t active_span_;
   size_t buf_index_{};
-  uint64_t file_offset_{};
+  uint64_t file_offset_{seek_current};
   size_t pending_releases_{};
   iou_res res_;
   iou_cqe_flags cqe_flags_{};
   bool is_read_{};
 };
 
-inline iou_buffer buffer_pool_base::make_buffer(buffer_pool_base& pool,
-    span_t span, size_t buf_index, bool is_read) noexcept {
-  return iou_buffer(pool, span, buf_index, is_read);
+[[nodiscard]] inline iou_buffer
+buffer_pool_base::make_buffer(buffer_pool_base& pool, span_t span,
+    size_t buf_index, bool is_read) noexcept {
+  return iou_buffer{pool, span, buf_index, is_read};
 }
 
 #pragma endregion

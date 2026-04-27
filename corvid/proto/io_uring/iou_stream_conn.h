@@ -248,7 +248,6 @@ public:
   // calling this. Safe to call from any thread. Once called, destructing the
   // owning `iou_stream_conn_ptr_with` does not cause a forceful close.
   [[nodiscard]] bool close() {
-    // TODO: Honor coordination_policy.
     no_hangup_on_destruct_ = true;
     return loop_.execute_or_post([p = self()] { return p->do_close(); });
   }
@@ -345,6 +344,8 @@ private:
   bool listening_{};
   bool close_requested_{};
   bool close_notified_{};
+  bool write_open_{true}; // false after SHUT_WR in bilateral close
+  bool peer_eof_{};       // true once peer sends EOF (res == 0)
   relaxed_atomic_bool no_hangup_on_destruct_;
 
   // Size of borrowed buffers.
@@ -541,12 +542,26 @@ private:
     return notify_close_once();
   }
 
+  // Finalize a requested close once the send queue is empty. With
+  // `unilateral` (or if the peer already sent EOF), closes immediately. With
+  // `bilateral`, shuts down the write side via `SHUT_WR` and keeps the recv
+  // loop running to discard incoming data until the peer sends EOF.
+  [[nodiscard]] bool do_finish_close() {
+    assert(loop_.is_loop_thread());
+    if (shutdown_ == coordination_policy::unilateral || peer_eof_)
+      return do_close_now();
+    if (!sock_.shutdown(SHUT_WR)) return do_close_now();
+    write_open_ = false;
+    if (!recv_in_flight_) return do_submit_recv();
+    return true;
+  }
+
   // Close after flushing.
   [[nodiscard]] bool do_close() {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
     close_requested_ = true;
-    if (send_queue_.empty() && !send_in_flight_) return do_close_now();
+    if (send_queue_.empty() && !send_in_flight_) return do_finish_close();
     return true;
   }
 
@@ -577,7 +592,7 @@ private:
     if (!send_queue_.empty()) return do_submit_send();
 
     //  Close.
-    if (close_requested_ && send_queue_.empty()) return do_close_now();
+    if (close_requested_ && send_queue_.empty()) return do_finish_close();
 
     return notify_drained();
   }
@@ -634,9 +649,12 @@ private:
     const auto res = buf.result();
     // EOF from peer.
     if (res.value() == 0) {
+      peer_eof_ = true;
+      // Bilateral drain: peer sent EOF as expected — close now.
+      if (close_requested_ && !write_open_) return do_close_now();
       (void)notify_close_once();
       if (close_requested_ && !send_in_flight_ && send_queue_.empty())
-        return do_close_now();
+        return do_finish_close();
       return true;
     }
     // Error.
@@ -677,6 +695,9 @@ private:
     // by actively canceling the multishot recv. This does not risk losing
     // in-flight data, but it does require the user to call `resume` when
     // they're ready.
+
+    // Bilateral drain: discard data and resubmit recv until peer sends EOF.
+    if (close_requested_ && !write_open_) return do_submit_recv();
 
     iou_recv_view view{std::move(buf), make_resume()};
     if (own_handlers_.on_data)
