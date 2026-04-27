@@ -42,6 +42,7 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region SendRecvString
 void IouStreamConn_SendRecvString() {
   // String send -> on_data fires, payload correct.
   if (true) {
@@ -76,7 +77,9 @@ void IouStreamConn_SendRecvString() {
     EXPECT_EQ(payload, msg);
   }
 }
+#pragma endregion
 
+#pragma region MultipleStrings
 void IouStreamConn_MultipleStrings() {
   // Multiple string sends -> all received and concatenated correctly.
   if (true) {
@@ -114,7 +117,9 @@ void IouStreamConn_MultipleStrings() {
     EXPECT_EQ(recv_bytes.load(), expected);
   }
 }
+#pragma endregion
 
+#pragma region SendRecvBuffer
 void IouStreamConn_SendRecvBuffer() {
   // Direct buffer send -> on_data fires, payload correct.
   if (true) {
@@ -153,7 +158,9 @@ void IouStreamConn_SendRecvBuffer() {
     EXPECT_EQ(payload, msg);
   }
 }
+#pragma endregion
 
+#pragma region BufferMoveOut
 void IouStreamConn_BufferMoveOut() {
   // `take()` in on_data -> fresh recv submitted, caller owns buffer.
   if (true) {
@@ -187,7 +194,9 @@ void IouStreamConn_BufferMoveOut() {
     EXPECT_EQ(payload, msg);
   }
 }
+#pragma endregion
 
+#pragma region GracefulClose
 void IouStreamConn_GracefulClose() {
   // `close()` -> on_close fires on both sides.
   if (true) {
@@ -229,7 +238,9 @@ void IouStreamConn_GracefulClose() {
     EXPECT_TRUE(closed0.load());
   }
 }
+#pragma endregion
 
+#pragma region HangupClose
 void IouStreamConn_HangupClose() {
   // `hangup()` -> socket closed immediately.
   if (true) {
@@ -255,7 +266,9 @@ void IouStreamConn_HangupClose() {
         WaitFor([&] { return closed.load(std::memory_order::acquire); }));
   }
 }
+#pragma endregion
 
+#pragma region OnDrain
 void IouStreamConn_OnDrain() {
   // `on_drain` fires after send completes and queue is empty.
   if (true) {
@@ -286,7 +299,9 @@ void IouStreamConn_OnDrain() {
         WaitFor([&] { return drained.load(std::memory_order::acquire); }));
   }
 }
+#pragma endregion
 
+#pragma region WithState
 void IouStreamConn_WithState() {
   // `iou_stream_conn_with_state` - state accessible in callback.
   if (true) {
@@ -324,6 +339,7 @@ void IouStreamConn_WithState() {
     EXPECT_EQ(recv_conn->state().recv_count, 1);
   }
 }
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
 MAKE_TEST_LIST(IouStreamConn_SendRecvString, IouStreamConn_MultipleStrings,

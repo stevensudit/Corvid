@@ -427,7 +427,7 @@ private:
     if (is_read_) active_span_ = full_span_;
   }
 
-  // True when the write buffer has been fully sent (or is initial-empty).
+  // True when the write buffer has been fully sent (or is initially empty).
   // Both states are treated identically: the next write operation resets.
   [[nodiscard]] bool do_is_fully_consumed() const noexcept {
     assert(!is_read_);
