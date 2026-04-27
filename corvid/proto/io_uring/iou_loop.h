@@ -116,6 +116,7 @@ public:
   using duration_t = std::chrono::nanoseconds;
   static constexpr duration_t default_run_once_timeout{10ms};
   static constexpr duration_t default_post_and_wait_poll_interval{100ms};
+  static constexpr size_t default_max_pending_sqes{RING_SIZE / 4};
 
   // Callback scheduled via `post` to run on the loop thread. These are used to
   // force single-threading of ring access.
@@ -183,10 +184,11 @@ public:
   // thread, and optimizes completions for the single-issuer case.
   explicit iou_basic_loop(allow,
       duration_t post_and_wait_poll_interval =
-          default_post_and_wait_poll_interval)
+          default_post_and_wait_poll_interval,
+      size_t max_pending_sqes = default_max_pending_sqes)
       : ring_{RING_SIZE,
             IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN},
-        wake_fd_{event_fd::create()},
+        wake_fd_{event_fd::create()}, max_pending_sqes_{max_pending_sqes},
         post_and_wait_poll_interval_{post_and_wait_poll_interval} {
     post_queues_[0].reserve(32);
     post_queues_[1].reserve(32);
@@ -201,11 +203,12 @@ public:
   iou_basic_loop& operator=(iou_basic_loop&&) = delete;
 
   // Create a heap-allocated `iou_basic_loop` managed by `std::shared_ptr`.
-  [[nodiscard]] static std::shared_ptr<iou_basic_loop> make(
-      duration_t post_and_wait_poll_interval =
-          default_post_and_wait_poll_interval) {
+  [[nodiscard]] static std::shared_ptr<iou_basic_loop>
+  make(duration_t post_and_wait_poll_interval =
+           default_post_and_wait_poll_interval,
+      size_t max_pending_sqes = default_max_pending_sqes) {
     return std::make_shared<iou_basic_loop>(allow::ctor,
-        post_and_wait_poll_interval);
+        post_and_wait_poll_interval, max_pending_sqes);
   }
 
   // Returns an RAII guard that designates the calling thread as the loop
@@ -245,6 +248,7 @@ public:
   [[nodiscard]] size_t run_once(const iou_timespec& timeout) {
     assert(is_loop_thread());
     do_drain_post_queue();
+    if (!submit_now()) stop();
 
     auto res = ring_.wait_cqe_timeout(timeout);
     if (res.is_soft_error()) return 0;
@@ -533,7 +537,20 @@ public:
   // `net_endpoint`, must remain valid until submission.
   //
   // Thread safety:
-  // All of these methodsmay be called from any thread.
+  // All of these methods may be called from any thread.
+
+  // Submit immediately if there are any pending SQEs. Silently fails when
+  // called from outside the loop thread, as anything queued as a post would
+  // only execute after `submit_now` had already been called. If you really
+  // want to avoid delay, post a callback that enqueues the SQEs and then calls
+  // this.
+  [[nodiscard]] bool submit_now() {
+    if (!is_loop_thread()) return false;
+    if (!pending_sqe_count_) return true;
+    pending_sqe_count_ = 0;
+    auto res = ring_.submit();
+    return (res.ok() || res.is_soft_error());
+  }
 
 #pragma region Nop
 
@@ -1119,7 +1136,7 @@ private:
 
       // Store as token, "leaking" it.
       sqe_op.set_data_int(cbtoken.as_int());
-      if (!maybe_submit_pending()) return false;
+      if (!maybe_submit_pending(sqe_needed)) return false;
       return true;
     };
 
@@ -1135,6 +1152,7 @@ private:
   // `iou_timespec` lifetime in class documentation.
   [[nodiscard]] bool do_submit(completion_token cbtoken,
       slot_retention on_fail, std::invocable<iou_sqe> auto&& prep) {
+    assert(is_loop_thread());
     auto do_submit = [&]() {
       if (cbtoken.is_valid() && is_released(cbtoken)) return true;
 
@@ -1147,7 +1165,7 @@ private:
 
       // Store as token, "leaking" it.
       sqe_op.set_data_int(cbtoken.as_int());
-      if (!maybe_submit_pending()) return false;
+      if (!maybe_submit_pending(1)) return false;
       return true;
     };
 
@@ -1167,34 +1185,23 @@ private:
   // Submit pending SQEs, although this could be delayed.
   //
   // The `sqe_count` is added to the pending value, and if it exceeds the
-  // configured limit, the submit is triggered immediately. Even if it
-  // doesn't exceed this limit, we also check how long it's been since the
-  // last submit, and if it exceeds that configured limit, we submit
-  // immediately.
+  // configured limit, the submit is triggered immediately.
   [[nodiscard]] bool maybe_submit_pending(size_t sqe_count = 1) {
-    (void)sqe_count;
-    // TODO: Make the above true. For now, we just submit immediately.
-    // DO not use io_uring_sq_ready.
-    return submit_now();
-  }
-
-  // Submit immediately if there are any pending SQEs.
-  [[nodiscard]] bool submit_now() {
-    // TODO: Check whether there are any pending SQEs at all, and if not,
-    // don't bother submitting.
-    auto res = ring_.submit();
-    if (res.ok() || res.is_soft_error()) return true;
-    // TODO: Don't return false, just shut down the loop.
-    return false;
+    assert(is_loop_thread());
+    pending_sqe_count_ += sqe_count;
+    if (pending_sqe_count_ >= max_pending_sqes_) return submit_now();
+    return true;
   }
 
   // Fire-and-forget submit: no callback, null user data. `do_dispatch`
   // ignores null-data CQEs, so no pool slot is needed.
   [[nodiscard]] bool do_submit_void(std::invocable<iou_sqe> auto&& prep) {
+    assert(is_loop_thread());
     auto sqe = ring_.next_sqe();
     if (!sqe) return false;
     std::forward<decltype(prep)>(prep)(sqe);
     sqe.set_data_pointer(nullptr);
+    maybe_submit_pending(1);
     return submit_now();
   }
 
@@ -1303,6 +1310,8 @@ private:
   post_queue_t post_queues_[2];
   relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
 
+  size_t max_pending_sqes_{};
+  size_t pending_sqe_count_{};
   const duration_t post_and_wait_poll_interval_;
 #pragma endregion
 };

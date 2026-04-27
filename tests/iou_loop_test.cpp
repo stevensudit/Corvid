@@ -517,6 +517,7 @@ void IouLoop_RecvSendMsg() {
           });
       if (!rtok.is_valid()) return false;
 
+      // This requires submitting immediately.
       iovec send_iov{.iov_base = const_cast<char*>(msg.data()),
           .iov_len = msg.size()};
       msghdr send_hdr{};
@@ -527,7 +528,8 @@ void IouLoop_RecvSendMsg() {
             send_n.store(res.value(), std::memory_order::relaxed);
             return slot_retention{};
           });
-      return stok.is_valid();
+      if (!stok.is_valid()) return false;
+      return loop->submit_now();
     });
     EXPECT_TRUE(ok);
     EXPECT_TRUE(

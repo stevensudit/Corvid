@@ -536,6 +536,7 @@ private:
           [p = self()](completion_id, iou_res, iou_cqe_flags) {
             return slot_retention{};
           });
+      (void)loop_.submit_now();
     }
     return notify_close_once();
   }
