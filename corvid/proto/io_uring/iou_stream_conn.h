@@ -26,6 +26,7 @@
 
 #include "../../enums/bool_enums.h"
 #include "../net_endpoint.h"
+#include "iou_buf_pool.h"
 #include "iou_loop.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
@@ -194,6 +195,20 @@ public:
     return weak_loop_;
   }
 
+  //
+  // Block size for borrowed buffers.
+  //
+
+  [[nodiscard]] block_size recv_buf_size() const noexcept {
+    return recv_buf_size_;
+  }
+  void set_recv_buf_size(block_size size) noexcept { recv_buf_size_ = size; }
+
+  [[nodiscard]] block_size send_buf_size() const noexcept {
+    return send_buf_size_;
+  }
+  void set_send_buf_size(block_size size) noexcept { send_buf_size_ = size; }
+
 #pragma endregion
 #pragma region send
 
@@ -275,12 +290,13 @@ public:
   // factories instead.
   explicit iou_stream_conn(allow, const std::shared_ptr<iou_loop>& loop,
       net_socket sock, net_endpoint remote, iou_stream_conn_handlers h,
-      std::optional<connection_role> role = {},
-      coordination_policy shutdown = coordination_policy::unilateral)
+      std::optional<connection_role> role, coordination_policy shutdown,
+      block_size recv_buf_size, block_size send_buf_size)
       : loop_{*loop}, weak_loop_{loop}, shutdown_{shutdown},
         sock_{std::move(sock)}, remote_{remote}, own_handlers_{std::move(h)},
         open_{true}, connecting_{role == connection_role::client},
-        listening_{role == connection_role::server} {}
+        listening_{role == connection_role::server},
+        recv_buf_size_{recv_buf_size}, send_buf_size_{send_buf_size} {}
 
   virtual ~iou_stream_conn() = default;
 
@@ -305,12 +321,12 @@ protected:
   // `iou_stream_conn_with_state` to return a richer type. Returning `nullptr`
   // skips registration for that connection (connection-limiting hook).
   [[nodiscard]] virtual std::shared_ptr<iou_stream_conn>
-  accept_clone(net_socket&& sock, const net_endpoint& remote,
-      iou_stream_conn_handlers h) const {
+  accept_clone(net_socket&& sock, const net_endpoint& remote) const {
     auto lp = weak_loop_.lock();
     if (!lp) return nullptr;
     return std::make_shared<iou_stream_conn>(allow::ctor, std::move(lp),
-        std::move(sock), remote, std::move(h), std::nullopt, shutdown_);
+        std::move(sock), remote, own_handlers_, std::nullopt, shutdown_,
+        recv_buf_size_, send_buf_size_);
   }
 
 #pragma endregion
@@ -331,10 +347,15 @@ private:
   bool close_notified_{};
   relaxed_atomic_bool no_hangup_on_destruct_;
 
+  // Size of borrowed buffers.
+  relaxed_atomic<block_size> recv_buf_size_{block_size::small};
+  relaxed_atomic<block_size> send_buf_size_{block_size::small};
+
   // Recv state: one SQE in flight at a time.
   bool recv_in_flight_{};
 
-  // Send state: one SQE in flight at a time; queue holds strings and buffers.
+  // Send state: one SQE in flight at a time; queue holds strings and
+  // buffers.
   std::deque<std::variant<std::string, buffer>> send_queue_;
   bool send_in_flight_{};
 
@@ -347,7 +368,7 @@ private:
   // Submit buffer for receiving, borrowing a read buffer if needed.
   bool do_submit_recv(buffer buf = {}) {
     assert(loop_.is_loop_thread() && !recv_in_flight_);
-    if (!buf) buf = loop_.borrow_read_buffer();
+    if (!buf) buf = loop_.borrow_read_buffer(recv_buf_size_);
     if (!buf) return false;
     recv_in_flight_ = true;
     // TODO: Save the token.
@@ -405,7 +426,7 @@ private:
       buf = std::move(std::get<buffer>(send_queue_.front()));
       send_queue_.pop_front();
     } else {
-      buf = loop_.borrow_write_buffer();
+      buf = loop_.borrow_write_buffer(send_buf_size_);
       while (!send_queue_.empty() &&
              std::holds_alternative<std::string>(send_queue_.front()))
       {
@@ -597,7 +618,7 @@ private:
     }
 
     net_socket accepted_sock{os_file{res.value()}};
-    auto peer = accept_clone(std::move(accepted_sock), {}, own_handlers_);
+    auto peer = accept_clone(std::move(accepted_sock), {});
     if (peer) (void)peer->start_reading();
     return true;
   }
@@ -664,8 +685,8 @@ private:
   }
 
   // Send out SQEs for new connection so that we're ready to receive either a
-  // connection completion, an accepted socket, or data. Without this, nothing
-  // is keeping this instance alive.
+  // connection completion, an accepted socket, or data. Without this,
+  // nothing is keeping this instance alive.
   bool start_reading() {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
@@ -795,10 +816,14 @@ private:
   static iou_stream_conn_ptr_with
   do_make(const std::shared_ptr<iou_loop>& loop, net_socket sock,
       net_endpoint remote, iou_stream_conn_handlers h,
-      std::optional<connection_role> role) {
+      std::optional<connection_role> role,
+      coordination_policy shutdown = coordination_policy::unilateral,
+      block_size recv_buf_size = block_size::small,
+      block_size send_buf_size = block_size::small) {
     assert(loop.get());
     auto conn = std::make_shared<T>(iou_stream_conn::allow::ctor, loop,
-        std::move(sock), std::move(remote), std::move(h), role);
+        std::move(sock), std::move(remote), std::move(h), role, shutdown,
+        recv_buf_size, send_buf_size);
     if (!loop->post([p = conn] { return p->start_reading(); })) return {};
     return iou_stream_conn_ptr_with{conn};
   }
@@ -831,9 +856,11 @@ public:
       const std::shared_ptr<iou_loop>& loop, net_socket sock,
       net_endpoint remote, iou_stream_conn_handlers h,
       std::optional<connection_role> role = {},
-      coordination_policy shutdown = coordination_policy::unilateral)
+      coordination_policy shutdown = coordination_policy::unilateral,
+      block_size recv_buf_size = block_size::small,
+      block_size send_buf_size = block_size::small)
       : iou_stream_conn(a, loop, std::move(sock), std::move(remote),
-            std::move(h), role, shutdown) {}
+            std::move(h), role, shutdown, recv_buf_size, send_buf_size) {}
 
   [[nodiscard]] state_t& state() noexcept { return state_; }
   [[nodiscard]] const state_t& state() const noexcept { return state_; }
@@ -847,13 +874,12 @@ public:
 
 protected:
   [[nodiscard]] std::shared_ptr<iou_stream_conn>
-  accept_clone(net_socket&& sock, const net_endpoint& remote,
-      iou_stream_conn_handlers h) const override {
+  accept_clone(net_socket&& sock, const net_endpoint& remote) const override {
     auto loop = weak_loop_.lock();
     if (!loop) return nullptr;
     return std::make_shared<iou_stream_conn_with_state<state_t>>(allow::ctor,
-        std::move(loop), std::move(sock), remote, std::move(h), std::nullopt,
-        shutdown_);
+        std::move(loop), std::move(sock), remote, own_handlers_, std::nullopt,
+        shutdown_, recv_buf_size_, send_buf_size_);
   }
 
 private:
@@ -861,5 +887,4 @@ private:
 };
 
 #pragma endregion
-
 }}} // namespace corvid::proto::iouring
