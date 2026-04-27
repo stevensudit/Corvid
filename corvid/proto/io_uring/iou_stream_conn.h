@@ -724,11 +724,13 @@ public:
   iou_stream_conn_ptr_with(iou_stream_conn_ptr_with<U>&& other) noexcept
       : conn_{std::move(other.conn_)} {}
 
+  // Perform `hangup` on destruction.  If you want to close cleanly, you must
+  // call `close` before the instance is destructed.
   // NOLINTBEGIN(bugprone-exception-escape)
   ~iou_stream_conn_ptr_with() {
     if (!conn_ || conn_->no_hangup_on_destruct_) return;
     (void)conn_->loop_.execute_or_post([p = std::move(conn_)] {
-      return p->do_close_now();
+      return p->do_hangup();
     });
   }
   // NOLINTEND(bugprone-exception-escape)
