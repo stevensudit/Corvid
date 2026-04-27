@@ -76,8 +76,8 @@ public:
     if (timeout.count() > 0) {
       const auto ms = timeout.count();
       const timeval tv{.tv_sec = ms / 1000, .tv_usec = (ms % 1000) * 1000};
-      if (!s.sock_.set_option(SOL_SOCKET, SO_RCVTIMEO, tv) ||
-          !s.sock_.set_option(SOL_SOCKET, SO_SNDTIMEO, tv))
+      if (!s.sock_.set_option(socket_option::rcvtimeo, tv) ||
+          !s.sock_.set_option(socket_option::sndtimeo, tv))
         return {};
     }
 

@@ -577,17 +577,17 @@ void NetSocket_Release() {
 void NetSocket_Options() {
   if (is_codex()) return;
 
-  // Named option helpers round-trip through `get_raw_option`.
+  // Named option helpers round-trip through `get_option`.
   if (true) {
     net_socket s{address_family::inet, socket_type::stream, {}};
 
     EXPECT_TRUE(s.set_reuse_addr(true));
-    auto v = s.get_raw_option<int>(SOL_SOCKET, SO_REUSEADDR);
+    auto v = s.get_option<int>(socket_option::reuse_addr);
     EXPECT_TRUE(v.has_value());
     EXPECT_NE(*v, 0);
 
     EXPECT_TRUE(s.set_reuse_addr(false));
-    v = s.get_raw_option<int>(SOL_SOCKET, SO_REUSEADDR);
+    v = s.get_option<int>(socket_option::reuse_addr);
     EXPECT_TRUE(v.has_value());
     EXPECT_EQ(*v, 0);
 
@@ -601,10 +601,10 @@ void NetSocket_Options() {
     net_socket s{address_family::inet, socket_type::stream, {}};
     EXPECT_TRUE(s.set_recv_buffer_size(65536));
     EXPECT_TRUE(s.set_send_buffer_size(65536));
-    auto r = s.get_raw_option<int>(SOL_SOCKET, SO_RCVBUF);
+    auto r = s.get_option<int>(socket_option::rcvbuf);
     EXPECT_TRUE(r.has_value());
     EXPECT_GE(*r, 65536);
-    auto t = s.get_raw_option<int>(SOL_SOCKET, SO_SNDBUF);
+    auto t = s.get_option<int>(socket_option::sndbuf);
     EXPECT_TRUE(t.has_value());
     EXPECT_GE(*t, 65536);
   }
@@ -727,10 +727,10 @@ void NetSocket_FactoryMethods() {
       EXPECT_TRUE(s.is_open());
       EXPECT_TRUE(
           bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
-      auto dom = s.get_raw_option<int>(SOL_SOCKET, SO_DOMAIN);
+      auto dom = s.get_option<int>(socket_option::domain);
       EXPECT_TRUE(dom.has_value());
       EXPECT_EQ(*dom, AF_INET);
-      auto type = s.get_raw_option<int>(SOL_SOCKET, SO_TYPE);
+      auto type = s.get_option<int>(socket_option::type);
       EXPECT_TRUE(type.has_value());
       EXPECT_EQ(*type, SOCK_STREAM);
     }
@@ -744,9 +744,9 @@ void NetSocket_FactoryMethods() {
       EXPECT_TRUE(s.is_open());
       EXPECT_FALSE(
           bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
-      auto dom = s.get_raw_option<int>(SOL_SOCKET, SO_DOMAIN);
+      auto dom = s.get_option<int>(socket_option::domain);
       EXPECT_EQ(*dom, AF_INET);
-      auto type = s.get_raw_option<int>(SOL_SOCKET, SO_TYPE);
+      auto type = s.get_option<int>(socket_option::type);
       EXPECT_TRUE(type.has_value());
       EXPECT_EQ(*type, SOCK_DGRAM);
     }
@@ -759,10 +759,10 @@ void NetSocket_FactoryMethods() {
       EXPECT_TRUE(s.is_open());
       EXPECT_TRUE(
           bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
-      auto dom = s.get_raw_option<int>(SOL_SOCKET, SO_DOMAIN);
+      auto dom = s.get_option<int>(socket_option::domain);
       EXPECT_TRUE(dom.has_value());
       EXPECT_EQ(*dom, AF_INET6);
-      auto type = s.get_raw_option<int>(SOL_SOCKET, SO_TYPE);
+      auto type = s.get_option<int>(socket_option::type);
       EXPECT_TRUE(type.has_value());
       EXPECT_EQ(*type, SOCK_STREAM);
     }
@@ -774,10 +774,10 @@ void NetSocket_FactoryMethods() {
     EXPECT_TRUE(s.is_open());
     EXPECT_TRUE(
         bitmask::has(s.get_flags().value_or(o_flags{}), o_flags::nonblock));
-    auto dom = s.get_raw_option<int>(SOL_SOCKET, SO_DOMAIN);
+    auto dom = s.get_option<int>(socket_option::domain);
     EXPECT_TRUE(dom.has_value());
     EXPECT_EQ(*dom, AF_UNIX);
-    auto type = s.get_raw_option<int>(SOL_SOCKET, SO_TYPE);
+    auto type = s.get_option<int>(socket_option::type);
     EXPECT_TRUE(type.has_value());
     EXPECT_EQ(*type, SOCK_STREAM);
   }
@@ -787,7 +787,7 @@ void NetSocket_FactoryMethods() {
     auto s = net_socket::create_uds(execution::nonblocking,
         message_style::datagram);
     EXPECT_TRUE(s.is_open());
-    auto type = s.get_raw_option<int>(SOL_SOCKET, SO_TYPE);
+    auto type = s.get_option<int>(socket_option::type);
     EXPECT_TRUE(type.has_value());
     EXPECT_EQ(*type, SOCK_DGRAM);
   }
