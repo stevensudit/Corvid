@@ -381,67 +381,6 @@ private:
     return true;
   }
 
-  // Handle completion of a receive operation. If successful, delivers the
-  // buffer to `on_data`. On error or EOF, initiates close.
-  bool on_recv_complete(buffer& buf) {
-    assert(loop_.is_loop_thread() && recv_in_flight_);
-    recv_in_flight_ = false;
-    if (!open_) return true;
-
-    const auto res = buf.result();
-    // EOF from peer.
-    if (res.value() == 0) {
-      (void)notify_close_once();
-      if (close_requested_ && !send_in_flight_ && send_queue_.empty())
-        return do_close_now();
-      return true;
-    }
-    // Error.
-    if (!res.ok()) {
-      if (res.is_soft_error()) return do_submit_recv(std::move(buf));
-      return do_close_now();
-    }
-
-    // Note how `make_resume` captures a strong pointer to this connection,
-    // keeping it alive between receives.
-    //
-    // TODO: For multishot recvs, things are different. There's no way to reuse
-    // the same buffer, and our `buffer` object has to be created over the
-    // Provided Buffer, with the destructor cleaning it up by returning it to
-    // the provider-buffer ring, not our own pool.
-    //
-    // This means that the caller should just process the `iou_recv_view` and
-    // consume all of its bytes. If it destructs the view with bytes left, the
-    // `resume_` callback should shut down the connection immediately because
-    // programmer error has led to lost bytes.
-    //
-    // In the normal case, the `resume_` callback provided by
-    // `make_multishot_resume` doesn't have to do anything. However, if the
-    // `iou_cqe_flags::more` flag in the buffer (which comes from the CQE) is
-    // not set, (and we're not actually trying to `pause`) then we need to
-    // start a new multishot recv.
-    //
-    // The most likely reason for this is that the  kernel has filled up the
-    // provided-buffer ring. In that case, the fact that we've freed up a
-    // provided buffer should allow us to continue.
-    //
-    // A possible edge case is when the `buffer` was taken, in which case we
-    // ought not start a new multishot recv but we also don't ever resume, even
-    // after the `buffer` is eventually freed. This means that if you use
-    // `take` for multishot, the user has to manually call `resume`.
-    //
-    // It's also possible to force this situation before we run out of buffers
-    // by actively canceling the multishot recv. This does not risk losing
-    // in-flight data, but it does require the user to call `resume` when
-    // they're ready.
-
-    iou_recv_view view{std::move(buf), make_resume()};
-    if (own_handlers_.on_data)
-      return own_handlers_.on_data(*this, std::move(view));
-
-    return true;
-  }
-
   // Build the resume callback captured by an `iou_recv_view`.
   iou_recv_view::resume_fn make_resume() {
     return [wp = weak_loop_, conn = self()](buffer&& buf) mutable {
@@ -511,7 +450,6 @@ private:
   // connection without re-arming; the kernel re-arms automatically.
   bool do_submit_accept() {
     assert(loop_.is_loop_thread() && listening_);
-
     // Set up a callback that resubmits itself, and use it too bootstrap the
     // initial submission.
     iou_loop::completion_fn raw_cb =
@@ -664,6 +602,67 @@ private:
     return true;
   }
 
+  // Handle completion of a receive operation. If successful, delivers the
+  // buffer to `on_data`. On error or EOF, initiates close.
+  bool on_recv_complete(buffer& buf) {
+    assert(loop_.is_loop_thread() && recv_in_flight_);
+    recv_in_flight_ = false;
+    if (!open_) return true;
+
+    const auto res = buf.result();
+    // EOF from peer.
+    if (res.value() == 0) {
+      (void)notify_close_once();
+      if (close_requested_ && !send_in_flight_ && send_queue_.empty())
+        return do_close_now();
+      return true;
+    }
+    // Error.
+    if (!res.ok()) {
+      if (res.is_soft_error()) return do_submit_recv(std::move(buf));
+      return do_close_now();
+    }
+
+    // Note how `make_resume` captures a strong pointer to this connection,
+    // keeping it alive between receives.
+    //
+    // TODO: For multishot recvs, things are different. There's no way to reuse
+    // the same buffer, and our `buffer` object has to be created over the
+    // Provided Buffer, with the destructor cleaning it up by returning it to
+    // the provider-buffer ring, not our own pool.
+    //
+    // This means that the caller should just process the `iou_recv_view` and
+    // consume all of its bytes. If it destructs the view with bytes left, the
+    // `resume_` callback should shut down the connection immediately because
+    // programmer error has led to lost bytes.
+    //
+    // In the normal case, the `resume_` callback provided by
+    // `make_multishot_resume` doesn't have to do anything. However, if the
+    // `iou_cqe_flags::more` flag in the buffer (which comes from the CQE) is
+    // not set, (and we're not actually trying to `pause`) then we need to
+    // start a new multishot recv.
+    //
+    // The most likely reason for this is that the  kernel has filled up the
+    // provided-buffer ring. In that case, the fact that we've freed up a
+    // provided buffer should allow us to continue.
+    //
+    // A possible edge case is when the `buffer` was taken, in which case we
+    // ought not start a new multishot recv but we also don't ever resume, even
+    // after the `buffer` is eventually freed. This means that if you use
+    // `take` for multishot, the user has to manually call `resume`.
+    //
+    // It's also possible to force this situation before we run out of buffers
+    // by actively canceling the multishot recv. This does not risk losing
+    // in-flight data, but it does require the user to call `resume` when
+    // they're ready.
+
+    iou_recv_view view{std::move(buf), make_resume()};
+    if (own_handlers_.on_data)
+      return own_handlers_.on_data(*this, std::move(view));
+
+    return true;
+  }
+
   // Send out SQEs for new connection so that we're ready to receive either a
   // connection completion, an accepted socket, or data. Without this, nothing
   // is keeping this instance alive.
@@ -730,7 +729,7 @@ public:
   ~iou_stream_conn_ptr_with() {
     if (!conn_ || conn_->no_hangup_on_destruct_) return;
     (void)conn_->loop_.execute_or_post([p = std::move(conn_)] {
-      return p->do_hangup();
+      return p->do_hangup_now();
     });
   }
   // NOLINTEND(bugprone-exception-escape)
