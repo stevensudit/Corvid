@@ -597,8 +597,8 @@ void IouLoop_SlotRetentionRetain() {
 void IouWrap_TimespecDurationRoundTrip() {
   // Construct from durations and verify `as_duration()` recovers the original.
   if (true) {
-    iou_timespec zero;
-    EXPECT_TRUE(zero.as_duration<std::chrono::nanoseconds>().count() == 0);
+    iou_timespec invalid;
+    EXPECT_TRUE(invalid.as_duration<std::chrono::nanoseconds>().count() < 0);
   }
   if (true) {
     iou_timespec ts{50ms};
@@ -662,17 +662,17 @@ void IouWrap_TimespecAsPointer() {
   // `as_pointer(nullptr)` is null; `as_pointer(&ts)` is non-null.
   if (true) {
     EXPECT_TRUE(
-        iou_timespec::as_pointer(static_cast<iou_timespec*>(nullptr)) ==
+        iou_timespec::to_pointer(static_cast<iou_timespec*>(nullptr)) ==
         nullptr);
     EXPECT_TRUE(
-        iou_timespec::as_pointer(static_cast<const iou_timespec*>(nullptr)) ==
+        iou_timespec::to_pointer(static_cast<const iou_timespec*>(nullptr)) ==
         nullptr);
   }
   if (true) {
     iou_timespec ts{50ms};
-    EXPECT_TRUE(iou_timespec::as_pointer(&ts) != nullptr);
+    EXPECT_TRUE(iou_timespec::to_pointer(&ts) != nullptr);
     const iou_timespec cts{50ms};
-    EXPECT_TRUE(iou_timespec::as_pointer(&cts) != nullptr);
+    EXPECT_TRUE(iou_timespec::to_pointer(&cts) != nullptr);
   }
 }
 

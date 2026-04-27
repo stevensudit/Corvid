@@ -104,6 +104,19 @@ protected:
 //      `update_payload` implicitly resets to step 1.
 //   6. Can discard now.
 //   7. Optionally `demote_to_read` to receive more data into the tail.
+//
+// There are some features to this class that you must understand in order to
+// safely modify it. The first is that it is technically copyable, but any
+// attempt throws. This is necessary to satisfy `std::function`.
+//
+// The second is even stranger, and is also related to being bound into
+// `std::function`. In order to be addressible from outside the lambda that
+// captures it, it exposes `forwarding_address`, which can be set to point to
+// an `iou_buffer*` that lives outside the lambda. Whenever the buffer is
+// moved, it updates that forwarding address to point to itself. This is
+// nonowning, but it's essential that it be used to clear the forwarding
+// address inside the `iou_buffer`, because otherwise it's a dangling pointer
+// that could be written to after it's moved again.
 class iou_buffer {
 #pragma region Construction
 public:
@@ -122,7 +135,11 @@ public:
         buf_index_{std::exchange(o.buf_index_, {})},
         file_offset_{std::exchange(o.file_offset_, {})},
         pending_releases_{std::exchange(o.pending_releases_, {})},
-        res_{o.res_}, cqe_flags_(o.cqe_flags_), is_read_{o.is_read_} {}
+        is_read_{o.is_read_},
+        forwarding_address_{std::exchange(o.forwarding_address_, nullptr)},
+        res_{o.res_}, cqe_flags_{o.cqe_flags_} {
+    if (forwarding_address_) *forwarding_address_ = this;
+  }
 
   iou_buffer& operator=(iou_buffer&& o) noexcept {
     if (this != &o) {
@@ -134,9 +151,11 @@ public:
       buf_index_ = std::exchange(o.buf_index_, {});
       file_offset_ = std::exchange(o.file_offset_, {});
       pending_releases_ = std::exchange(o.pending_releases_, {});
+      is_read_ = o.is_read_;
+      forwarding_address_ = std::exchange(o.forwarding_address_, nullptr);
       res_ = o.res_;
       cqe_flags_ = o.cqe_flags_;
-      is_read_ = o.is_read_;
+      if (forwarding_address_) *forwarding_address_ = this;
     }
     return *this;
   }
@@ -148,6 +167,9 @@ public:
     throw std::logic_error("iou_buffer is not copyable");
   }
   iou_buffer& operator=(const iou_buffer&) = delete;
+
+  // See class comment for explanation.
+  iou_buffer**& forwarding_address() noexcept { return forwarding_address_; }
 
 #pragma endregion
 #pragma region Accessors
@@ -212,9 +234,9 @@ public:
     buf_index_ = {};
     file_offset_ = {};
     pending_releases_ = {};
+    is_read_ = false;
     res_ = iou_res{-1};
     cqe_flags_ = {};
-    is_read_ = false;
   }
 
 #pragma endregion
@@ -422,8 +444,8 @@ private:
   iou_buffer(buffer_pool_base& pool, span_t span, size_t buf_index,
       bool is_read) noexcept
       : pool_{&pool}, full_span_{span}, payload_span_{span.data(), 0},
-        active_span_{span.data(), 0}, buf_index_{buf_index}, res_{-1},
-        is_read_{is_read} {
+        active_span_{span.data(), 0}, buf_index_{buf_index}, is_read_{is_read},
+        res_{-1} {
     if (is_read_) active_span_ = full_span_;
   }
 
@@ -455,9 +477,24 @@ private:
   size_t buf_index_{};
   uint64_t file_offset_{seek_current};
   size_t pending_releases_{};
+  bool is_read_{};
+
+  iou_buffer** forwarding_address_{};
+
+  iou_timespec ts_;
+  net_endpoint addr_;
+#if 0
+  msghdr msg_;   // TODO: Reconstitute after move.
+  iovec iov_[2]; // TODO: Ditto.
+
+  static constexpr size_t control_capacity =
+      CMSG_SPACE(sizeof(in_pktinfo)); // IPv4 IP_PKTINFO
+
+  std::array<std::byte, control_capacity> control;
+#endif
+
   iou_res res_;
   iou_cqe_flags cqe_flags_{};
-  bool is_read_{};
 };
 
 [[nodiscard]] inline iou_buffer

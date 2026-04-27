@@ -22,6 +22,7 @@
 #include <limits>
 #include <linux/time_types.h>
 #include <system_error>
+#include <type_traits>
 
 #include <poll.h>
 #include <sys/socket.h>
@@ -184,7 +185,7 @@ public:
   using duration_t = std::chrono::nanoseconds;
 
   // Default; invalid.
-  constexpr iou_timespec() noexcept : ts_{.tv_sec = 0, .tv_nsec = 0} {}
+  constexpr iou_timespec() noexcept : ts_{.tv_sec = -1, .tv_nsec = -1} {}
 
   // Conversion from raw.
   constexpr explicit iou_timespec(const raw_timespec& ts) noexcept : ts_(ts) {}
@@ -223,19 +224,31 @@ public:
   }
 
   // Raw value.
-  [[nodiscard]] auto* pointer(this auto& self) noexcept { return &self.ts_; }
+  [[nodiscard]] auto* pointer(this auto& self) noexcept {
+    using self_t = std::remove_reference_t<decltype(self)>;
+    using pointer_t = std::conditional_t<std::is_const_v<self_t>,
+        const raw_timespec, raw_timespec>*;
+    if (self.is_valid()) return &self.ts_;
+    return pointer_t{};
+  }
   [[nodiscard]] decltype(auto) value(this auto& self) noexcept {
     return self.ts_;
   }
 
+  [[nodiscard]] explicit operator bool() const noexcept { return is_valid(); }
+
+  [[nodiscard]] bool is_valid() const noexcept {
+    return ts_.tv_sec != -1 && ts_.tv_nsec != -1;
+  }
+
   // Conditional passthrough.
-  static raw_timespec* as_pointer(iou_timespec* ts) noexcept {
+  static raw_timespec* to_pointer(iou_timespec* ts) noexcept {
     raw_timespec* ptr{};
     if (ts) ptr = ts->pointer();
     return ptr;
   }
 
-  static const raw_timespec* as_pointer(const iou_timespec* ts) noexcept {
+  static const raw_timespec* to_pointer(const iou_timespec* ts) noexcept {
     const raw_timespec* ptr{};
     if (ts) ptr = ts->pointer();
     return ptr;
@@ -506,7 +519,7 @@ public:
   bool prep_timeout(iou_timespec* duration,
       iou_timeout_flags flags = iou_timeout_flags::rel,
       size_t cqe_count = 0) noexcept {
-    io_uring_prep_timeout(sqe_, iou_timespec::as_pointer(duration), cqe_count,
+    io_uring_prep_timeout(sqe_, iou_timespec::to_pointer(duration), cqe_count,
         *flags);
     return true;
   }
@@ -517,7 +530,7 @@ public:
   // might hope.
   bool prep_link_timeout(iou_timespec* duration,
       iou_timeout_flags flags = iou_timeout_flags::rel) noexcept {
-    io_uring_prep_link_timeout(sqe_, iou_timespec::as_pointer(duration),
+    io_uring_prep_link_timeout(sqe_, iou_timespec::to_pointer(duration),
         *flags);
     return true;
   }
@@ -536,7 +549,7 @@ public:
   // Update an existing timeout.
   bool prep_timeout_update(iou_timespec* duration, uint64_t user_data,
       iou_timeout_flags flags = {}) noexcept {
-    io_uring_prep_timeout_update(sqe_, iou_timespec::as_pointer(duration),
+    io_uring_prep_timeout_update(sqe_, iou_timespec::to_pointer(duration),
         user_data, *flags);
     return true;
   }
