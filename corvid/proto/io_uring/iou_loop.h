@@ -26,8 +26,10 @@
 #include <span>
 #include <stdexcept>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
+#include "../../meta/forwarding_address.h"
 #include "../../filesys/os_file.h"
 #include "../../concurrency/jthread_stoppable_sleep.h"
 #include "../../concurrency/notifiable.h"
@@ -44,6 +46,32 @@ using namespace std::chrono_literals;
 // Type-unsafe version of `completion_token`, necessary to avoid circular
 // dependencies. Just construct a `completion_token` from it.
 using completion_id = uint64_t;
+
+// Concept for `iou_loop::buf_completion_fn`.
+template<typename FN>
+concept buf_completion_invocable = std::is_invocable_r_v<slot_retention, FN,
+    completion_id, iou_buf_pool::buffer&>;
+
+// Concept for `iou_loop::completion_fn`.
+template<typename FN>
+concept completion_invocable = std::is_invocable_r_v<slot_retention, FN,
+    completion_id, iou_res, iou_cqe_flags>;
+
+// Bindable timeout with flags.
+struct flagged_timeout: public address_forwarder<flagged_timeout> {
+  iou_timespec timeout;
+  iou_timeout_flags flags;
+
+  [[nodiscard]] bool is_valid() const noexcept { return timeout.is_valid(); }
+};
+
+// Bindable timeout with flags and an endpoint.
+struct flagged_timeout_endpoint
+    : public address_forwarder<flagged_timeout_endpoint> {
+  net_endpoint endpoint;
+  iou_timespec timeout;
+  iou_timeout_flags flags;
+};
 
 #pragma region iou_loop
 
@@ -488,28 +516,60 @@ public:
     return buf_pool_.borrow_writer(sz);
   }
 
-  // Accept the inner `buf_completion_fn` and `buffer`, binding them into a
-  // `completion_fn`. Does not work with Provided Buffers.
-  completion_fn wrap_buf_completion_fn(buf_completion_fn bufcb, buffer&& buf) {
-    return [bufcb = std::move(bufcb),
+  // Accept the inner `buf_completion_fn`-shaped lambda and `buffer`, binding
+  // them into a `completion_fn`. Does not work with Provided Buffers.
+  // TODO: Make it move-only, because it is.
+  template<buf_completion_invocable FN>
+  completion_fn wrap_buf_completion_fn(FN&& bufcb, buffer&& buf) {
+    return [bufcb = std::forward<FN>(bufcb),
                buf = std::move(buf)](completion_id cbhandle, iou_res res,
                iou_cqe_flags flags) mutable -> slot_retention {
       return bufcb(cbhandle, buf.update(res, flags));
     };
   }
 
-  // Wrap a `buf_completion_fn` and `buffer` into a `completion_token` and
-  // `buffer*`.
+  // Wrap a `buf_completion_fn`-shaped lambda and `buffer` into a
+  // `completion_token` and `buffer*`.
+  template<buf_completion_invocable FN>
   std::pair<completion_token, buffer*>
-  wrap_buf_completion_fn_and_ptr(buf_completion_fn bufcb, buffer&& buf) {
+  wrap_buf_completion_fn_and_ptr(FN&& bufcb, buffer&& buf) {
     buffer* buf_ptr{};
     buf.forwarding_address() = &buf_ptr;
-    const auto cbtoken =
-        tokenize(wrap_buf_completion_fn(std::move(bufcb), std::move(buf)));
-    // `buf` is moved-from; clear via `buf_ptr` or the pool-slot buffer keeps a
-    // dangling pointer to the local `buf_ptr` and wild-writes on slot release.
+    const auto cbtoken = tokenize(
+        wrap_buf_completion_fn(std::forward<FN>(bufcb), std::move(buf)));
     if (buf_ptr) buf_ptr->forwarding_address() = nullptr;
     return {cbtoken, buf_ptr};
+  }
+
+  // Wrap a `completion_fn`-shaped lambda and `AddressForwarder` into a
+  // `completion_fn`.
+  template<completion_invocable FN, AddressForwarder T>
+  completion_fn wrap_completion_fn_and_timeout(FN&& cb, T&& t) {
+    return [wrapcb = std::forward<FN>(cb),
+               t = std::forward<T>(t)](completion_id cbhandle, iou_res res,
+               iou_cqe_flags flags) mutable -> slot_retention {
+      return wrapcb(cbhandle, res, flags);
+    };
+  }
+
+  // Wrap a `completion_fn`-shaped lambda and `AddressForwarder` into a
+  // `completion_token` and `AddressForwarder*`. If the `AddressForwarder` is
+  // invalid, then it will not be wrapped, and the `AddressForwarder*` returned
+  // will be nullptr.
+  template<completion_invocable FN, AddressForwarder T>
+  std::pair<completion_token, T*>
+  wrap_completion_fn_and_timeout_ptr(FN&& cb, T&& t) {
+    T* ptr{};
+    completion_token cbtoken;
+    if (t.is_valid()) {
+      t.forwarding_address() = &ptr;
+      cbtoken = tokenize(wrap_completion_fn_and_timeout(std::forward<FN>(cb),
+          std::forward<T>(t)));
+      ptr->forwarding_address() = nullptr;
+    } else {
+      cbtoken = tokenize(std::forward<FN>(cb));
+    }
+    return {cbtoken, ptr};
   }
 
 #pragma endregion
@@ -593,23 +653,27 @@ public:
 #pragma region Poll
 
   // Submit an async poll on `file`.
-  [[nodiscard]] completion_token submit_poll(const os_file& file,
-      completion_fn&& cb, poll_flags poll_mask = poll_flags::in) {
-    const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_poll(file, cbtoken, poll_mask, slot_retention::automatic))
+  template<completion_invocable FN>
+  [[nodiscard]] completion_token submit_poll(const os_file& file, FN&& cb,
+      poll_flags poll_mask = poll_flags::in, flagged_timeout timeout = {}) {
+    auto [cbtoken, timeout_ptr] = wrap_completion_fn_and_timeout_ptr(
+        std::forward<FN>(cb), std::move(timeout));
+    if (!submit_poll(file, timeout_ptr, cbtoken, poll_mask,
+            slot_retention::automatic))
       return {};
     return cbtoken;
   }
 
-  // Submit an async poll on `file`.
-  [[nodiscard]] bool submit_poll(const os_file& file, completion_token cbtoken,
-      poll_flags poll_mask = poll_flags::in,
+  // Submit an async poll on `file`. Note that `timeout` must either be
+  // nullptr, point inside the callback, or remain valid until cancelation.
+  [[nodiscard]] bool submit_poll(const os_file& file, flagged_timeout* timeout,
+      completion_token cbtoken, poll_flags poll_mask = poll_flags::in,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken.is_valid()) return false;
-    auto fn = [this, cbtoken, fd = *file, poll_mask, on_fail]() mutable {
-      return do_submit(cbtoken, on_fail, [fd, poll_mask](iou_sqe sqe) {
-        sqe.prep_poll_oneshot(fd, poll_mask);
-      });
+    auto fn = [this, cbtoken, fd = *file, timeout = timeout, poll_mask,
+                  on_fail]() mutable {
+      return do_submit_timeout(cbtoken, timeout, on_fail,
+          [fd, poll_mask](iou_sqe sqe) { sqe.prep_poll(fd, poll_mask); });
     };
     return execute_or_post_with_retry(std::move(fn));
   }
@@ -640,10 +704,10 @@ public:
 #pragma endregion
 #pragma region Timeout
 
-  // Allows creating, removing, and canceling stand-alone timeouts.
+  // Allows creating, removing, and updating stand-alone timeouts.
   //
   // These are not linked to existing operations: that functionality is
-  // provided through the optional `timeout` parameter on those methods.
+  // provided through the `timeout` parameter on those methods.
 
   //
   // Create
@@ -652,11 +716,13 @@ public:
   // Submit an async timeout. For multishot, set the
   // `io_timeout_flags::multishot` flag. The meaning of `cqe_count` depends on
   // the mode.
-  [[nodiscard]] completion_token submit_timeout(iou_timespec* timeout,
-      completion_fn&& cb, iou_timeout_flags flags = iou_timeout_flags::rel,
-      size_t cqe_count = 0) {
-    const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_timeout(timeout, cbtoken, flags, cqe_count,
+  template<completion_invocable FN>
+  [[nodiscard]] completion_token
+  submit_timeout(flagged_timeout&& timeout, FN&& cb, size_t cqe_count = 0) {
+    if (!timeout.timeout.is_valid()) return {};
+    auto [cbtoken, timeout_ptr] = wrap_completion_fn_and_timeout_ptr(
+        std::forward<FN>(cb), std::move(timeout));
+    if (!submit_timeout(*timeout_ptr, cbtoken, cqe_count,
             slot_retention::automatic))
       return {};
     return cbtoken;
@@ -664,17 +730,16 @@ public:
 
   // Submit an async timeout. For multishot, set the
   // `io_timeout_flags::multishot` flag. The meaning of `cqe_count` depends on
-  // the mode.
-  [[nodiscard]] bool submit_timeout(iou_timespec* timeout,
-      completion_token cbtoken,
-      iou_timeout_flags flags = iou_timeout_flags::rel, size_t cqe_count = 0,
+  // the mode. Note that `timeout` must either point inside the callback or
+  // remain valid until cancelation.
+  [[nodiscard]] bool submit_timeout(flagged_timeout& timeout,
+      completion_token cbtoken, size_t cqe_count = 0,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken.is_valid()) return false;
-    auto fn = [this, timeout, cbtoken, flags, cqe_count, on_fail]() mutable {
-      return do_submit(cbtoken, on_fail,
-          [timeout, flags, cqe_count](iou_sqe sqe) {
-            sqe.prep_timeout(timeout, flags, cqe_count);
-          });
+    auto fn = [this, &timeout, cbtoken, cqe_count, on_fail]() mutable {
+      return do_submit(cbtoken, on_fail, [&timeout, cqe_count](iou_sqe sqe) {
+        sqe.prep_timeout(&timeout.timeout, timeout.flags, cqe_count);
+      });
     };
     return execute_or_post_with_retry(std::move(fn));
   }
@@ -684,10 +749,11 @@ public:
   //
 
   // Submit an async timeout removal.
-  [[nodiscard]] completion_token
-  submit_timeout_remove(iou_timespec* timeout, completion_fn&& cb) {
+  [[nodiscard]] completion_token submit_timeout_remove(
+      completion_token cancelation_token, completion_fn&& cb) {
     const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_timeout_remove(timeout, cbtoken, slot_retention::automatic))
+    if (!submit_timeout_remove(cancelation_token, cbtoken,
+            slot_retention::automatic))
       return {};
     return cbtoken;
   }
@@ -706,35 +772,20 @@ public:
   }
 
   //
-  // Update
+  // Update.
   //
 
-  // Submit an async timeout. For multishot, set the
-  // `io_timeout_flags::multishot` flag. The meaning of `cqe_count` depends on
-  // the mode.
-  [[nodiscard]] completion_token submit_update(iou_timespec* timeout,
-      completion_token update_token, completion_fn&& cb,
-      iou_timeout_flags flags = {}, size_t cqe_count = 0) {
-    const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_timeout_update(timeout, update_token, cbtoken, flags,
-            cqe_count, slot_retention::automatic))
-      return {};
-    return cbtoken;
-  }
-
-  // Submit an async timeout. For multishot, set the
-  // `io_timeout_flags::multishot` flag. The meaning of `cqe_count` depends on
-  // the mode.
-  [[nodiscard]] bool submit_timeout_update(iou_timespec* timeout,
-      completion_token update_token, completion_token cbtoken,
-      iou_timeout_flags flags = {}, size_t cqe_count = 0,
+  // Submit an async timeout update. The meaning of `new_timeout` depends on
+  // the mode. The `new_timeout` must remain valid until cancelation.
+  [[nodiscard]] bool submit_timeout_update(completion_token update_token,
+      flagged_timeout& new_timeout,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
-    auto fn = [this, timeout, update_token, cbtoken, flags, cqe_count,
-                  on_fail]() mutable {
-      return do_submit(cbtoken, on_fail,
-          [timeout, flags, cqe_count](iou_sqe sqe) {
-            sqe.prep_timeout(timeout, flags, cqe_count);
+    if (!update_token.is_valid()) return false;
+    auto fn = [this, update_token, &new_timeout, on_fail]() mutable {
+      return do_submit(update_token, on_fail,
+          [update_token, &new_timeout](iou_sqe sqe) {
+            sqe.prep_timeout_update(&new_timeout.timeout, update_token,
+                new_timeout.flags);
           });
     };
     return execute_or_post_with_retry(std::move(fn));
@@ -744,18 +795,22 @@ public:
 #pragma region Close
 
   // Submit an async close on `file`. Invalidates `file`.
-  [[nodiscard]] completion_token submit_close(os_file&& file,
-      completion_fn&& cb, iou_timespec* timeout = nullptr) {
-    const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_close(std::move(file), cbtoken, timeout,
+  template<completion_invocable FN>
+  [[nodiscard]] completion_token
+  submit_close(os_file&& file, FN&& cb, flagged_timeout timeout = {}) {
+    auto [cbtoken, timeout_ptr] = wrap_completion_fn_and_timeout_ptr(
+        std::forward<FN>(cb), std::move(timeout));
+    if (!submit_close(std::move(file), cbtoken, timeout_ptr,
             slot_retention::automatic))
       return {};
     return cbtoken;
   }
 
-  // Submit an async close on `file`. Invalidates `file`.
+  // Submit an async close on `file`. Invalidates `file`. Note that `timeout`
+  // must either be nullptr, point inside the callback, or remain valid until
+  // cancelation
   [[nodiscard]] bool submit_close(os_file&& file, completion_token cbtoken,
-      iou_timespec* timeout = nullptr,
+      flagged_timeout* timeout = nullptr,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken.is_valid()) return false;
     if (!file) return fail_and_maybe_release(on_fail, cbtoken);
@@ -787,8 +842,9 @@ public:
     if (!cbtoken.is_valid()) return false;
     if (!file) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = file.handle(), how, cbtoken, on_fail]() mutable {
-      return do_submit_timeout(cbtoken, nullptr, on_fail,
-          [fd, how](iou_sqe sqe) { sqe.prep_shutdown(fd, how); });
+      return do_submit(cbtoken, on_fail, [fd, how](iou_sqe sqe) {
+        sqe.prep_shutdown(fd, how);
+      });
     };
     return execute_or_post_with_retry(std::move(fn));
   }
@@ -797,17 +853,21 @@ public:
 #pragma region Accept
 
   // Submit an async accept on `socket`.
-  [[nodiscard]] completion_token submit_accept(const os_file& socket,
-      completion_fn&& cb, iou_timespec* timeout = nullptr) {
-    const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_accept(socket, cbtoken, timeout, slot_retention::automatic))
+  template<completion_invocable FN>
+  [[nodiscard]] completion_token
+  submit_accept(const os_file& socket, FN&& cb, flagged_timeout timeout = {}) {
+    auto [cbtoken, timeout_ptr] = wrap_completion_fn_and_timeout_ptr(
+        std::forward<FN>(cb), std::move(timeout));
+    if (!submit_accept(socket, cbtoken, timeout_ptr,
+            slot_retention::automatic))
       return {};
     return cbtoken;
   }
 
-  // Submit an async accept on `socket`.
+  // Submit an async accept on `socket`. Note that `timeout` must either be
+  // nullptr, point inside the callback, or remain valid until cancelation.
   [[nodiscard]] bool submit_accept(const os_file& socket,
-      completion_token cbtoken, iou_timespec* timeout = nullptr,
+      completion_token cbtoken, flagged_timeout* timeout = nullptr,
       slot_retention on_fail = slot_retention::retain,
       socket_type flags = socket_type::nonblock_cloexec) {
     if (!cbtoken.is_valid()) return false;
@@ -1050,19 +1110,21 @@ public:
   //
 
   // Submit an async read_fixed on `file` into a borrowed buffer.
-  [[nodiscard]] completion_token submit_read_buffer(const os_file& file,
-      buf_completion_fn bufcb, block_size sz = block_size::small,
-      const iou_timespec& timeout = {}) {
+  template<buf_completion_invocable FN>
+  [[nodiscard]] completion_token
+  submit_read_buffer(const os_file& file, FN&& bufcb,
+      block_size sz = block_size::small, const iou_timespec& timeout = {}) {
     buffer buf = borrow_read_buffer(sz);
     buf.timeout() = timeout;
-    return submit_read_buffer(file, std::move(buf), std::move(bufcb));
+    return submit_read_buffer(file, std::move(buf), std::forward<FN>(bufcb));
   }
 
   // Submit an async read_fixed on `file` into `buf`.
-  [[nodiscard]] completion_token submit_read_buffer(const os_file& file,
-      buffer&& buf, buf_completion_fn bufcb) {
-    const auto [cbtoken, buf_ptr] =
-        wrap_buf_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
+  template<buf_completion_invocable FN>
+  [[nodiscard]] completion_token
+  submit_read_buffer(const os_file& file, buffer&& buf, FN&& bufcb) {
+    const auto [cbtoken, buf_ptr] = wrap_buf_completion_fn_and_ptr(
+        std::forward<FN>(bufcb), std::move(buf));
     if (!submit_read_buffer(file, *buf_ptr, cbtoken,
             slot_retention::automatic))
       return {};
@@ -1105,10 +1167,11 @@ public:
   // `submit_send_buffer`, which uses `io_uring_prep_send_zc_fixed`.
 
   // Submit an async write_fixed on `file` from `buf`.
-  [[nodiscard]] completion_token submit_write_buffer(const os_file& file,
-      buffer&& buf, buf_completion_fn bufcb) {
-    const auto [cbtoken, buf_ptr] =
-        wrap_buf_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
+  template<buf_completion_invocable FN>
+  [[nodiscard]] completion_token
+  submit_write_buffer(const os_file& file, buffer&& buf, FN&& bufcb) {
+    const auto [cbtoken, buf_ptr] = wrap_buf_completion_fn_and_ptr(
+        std::forward<FN>(bufcb), std::move(buf));
     if (!submit_write_buffer(file, *buf_ptr, cbtoken,
             slot_retention::automatic))
       return {};
@@ -1152,6 +1215,7 @@ public:
 #pragma endregion
 #pragma region Helpers.
 private:
+  // !!! KILL ME
   // Get an SQE, prepare it via `prep`, attach `cbtoken` as user data, and
   // potentially submit. Note that `cbtoken` is allowed to be `!is_valid` but
   // not released.
@@ -1188,6 +1252,60 @@ private:
         assert(sqe_to);
         sqe_op.set_sqe_flags(iou_sqe_flags::io_link);
         sqe_to.prep_link_timeout(timeout);
+        // On timeout, `cbtoken` is invoked with `iou_res.err() ==
+        // E_::canceled`. `sqe_to` will also generate a CQE (with
+        // `iou_res.err() == E_::time`), but this will be swallowed.
+        // When the operation fails, then it's the timeout CQE that gets
+        // the `E_canceled`.
+        sqe_to.set_data_pointer(nullptr);
+      }
+
+      // Store as token, "leaking" it.
+      sqe_op.set_data_int(cbtoken.as_int());
+      if (!maybe_submit_pending(sqe_needed)) return false;
+      return true;
+    };
+
+    if (!do_submit()) return fail_and_maybe_release(on_fail, cbtoken);
+    return true;
+  }
+
+  // Get an SQE, prepare it via `prep`, attach `cbtoken` as user data, and
+  // potentially submit. Note that `cbtoken` is allowed to be `!is_valid` but
+  // not released.
+  //
+  // If `timeout` specified, links a timeout SQE to it. See warnings about
+  // `iou_timespec` lifetime in class documentation.
+  [[nodiscard]] bool do_submit_timeout(completion_token cbtoken,
+      flagged_timeout* timeout, slot_retention on_fail,
+      std::invocable<iou_sqe> auto&& prep) {
+    assert(on_fail != slot_retention::release); // Would be dumb.
+    auto do_submit = [&]() {
+      // Must return true to end retries.
+      if (cbtoken.is_valid() && is_released(cbtoken)) return true;
+
+      // Check availability up front and only assert on each.
+      bool use_timeout = timeout && timeout->timeout.is_valid();
+      size_t sqe_needed = use_timeout ? 2 : 1;
+      if (!ring_.enough_sqe_available(sqe_needed)) return false;
+
+      // Queue the operation SQE.
+      auto sqe_op = ring_.next_sqe();
+      assert(sqe_op);
+
+      // If timeout, follow it up with a linked timeout SQE.
+      iou_sqe sqe_to;
+
+      if (use_timeout) sqe_to = ring_.next_sqe();
+
+      // Prep the operation.
+      std::forward<decltype(prep)>(prep)(sqe_op);
+
+      // If there's a timeout, link it.
+      if (use_timeout) {
+        assert(sqe_to);
+        sqe_op.set_sqe_flags(iou_sqe_flags::io_link);
+        sqe_to.prep_link_timeout(&timeout->timeout, timeout->flags);
         // On timeout, `cbtoken` is invoked with `iou_res.err() ==
         // E_::canceled`. `sqe_to` will also generate a CQE (with
         // `iou_res.err() == E_::time`), but this will be swallowed.
@@ -1382,6 +1500,7 @@ private:
 using iou_loop = iou_basic_loop<>;
 
 #pragma endregion
+#pragma region Loop Runner
 
 // Runs an `iou_basic_loop` in its own background thread.
 //
@@ -1474,4 +1593,7 @@ private:
 
 // Alias for the common case of default template parameters.
 using iou_loop_runner = iou_basic_loop_runner<>;
+
+#pragma endregion
+
 }}} // namespace corvid::proto::iouring

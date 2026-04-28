@@ -361,11 +361,13 @@ void IouLoop_SubmitTimeout() {
   // A single-shot timeout fires with `-ETIME` after the specified duration.
   if (true) {
     iou_loop_runner loop;
+    flagged_timeout timeout{.timeout = iou_timespec{50ms},
+        .flags = iou_timeout_flags::rel};
     iou_timespec ts{50ms};
     std::atomic_bool fired{false};
     std::atomic_int32_t result{0};
 
-    const auto token = loop->submit_timeout(&ts,
+    const auto token = loop->submit_timeout(std::move(timeout),
         [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
           result.store(res.value(), std::memory_order::relaxed);
           fired.store(true, std::memory_order::release);
@@ -384,16 +386,17 @@ void IouLoop_SubmitTimeoutMultishot() {
   // A multishot timeout with `cqe_count`=3 fires exactly 3 times then stops.
   if (true) {
     iou_loop_runner loop;
-    iou_timespec ts{20ms};
+    flagged_timeout timeout{.timeout = iou_timespec{20ms},
+        .flags = iou_timeout_flags::rel | iou_timeout_flags::multishot};
     std::atomic<int> count{0};
 
     const auto token = loop->submit_timeout(
-        &ts,
+        std::move(timeout),
         [&](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
           count.fetch_add(1, std::memory_order::relaxed);
           return slot_retention::automatic;
         },
-        iou_timeout_flags::multishot, 3);
+        3);
     EXPECT_TRUE(token.is_valid());
     EXPECT_TRUE(WaitFor(
         [&] { return count.load(std::memory_order::acquire) == 3; }, 500ms));

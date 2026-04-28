@@ -15,8 +15,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <concepts>
 #include <exception>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 namespace corvid { inline namespace meta {
@@ -43,9 +45,6 @@ namespace corvid { inline namespace meta {
 //   f.forwarding_address() = &ptr;  // ptr tracks f
 //   auto g = std::move(f);          // ptr now tracks g
 //   g.forwarding_address() = nullptr; // clear once stable
-//
-// The copy constructor is defined, so as to satisfy `std::function`, but
-// throws.
 template<typename Derived>
 class address_forwarder {
 public:
@@ -55,9 +54,12 @@ public:
     return forwarding_address_;
   }
 
+  [[nodiscard]] bool is_valid() const noexcept { return true; }
+
+  address_forwarder() = default;
+
 protected:
   // NOLINTBEGIN(bugprone-crtp-constructor-accessibility)
-  address_forwarder() = default;
 
   address_forwarder(address_forwarder&& o) noexcept
       : forwarding_address_{std::exchange(o.forwarding_address_, nullptr)} {
@@ -75,14 +77,11 @@ protected:
     return *this;
   }
 
-  address_forwarder(const address_forwarder&) {
-    throw std::logic_error{"address_forwarder is not copyable"};
-  }
-  address_forwarder& operator=(const address_forwarder& o) {
-    if (this == &o) return *this;
-    throw std::logic_error{"address_forwarder is not copy-assignable"};
-  }
+  // You will likely need to throw in your implmentation.
+  address_forwarder(const address_forwarder&) = default;
+  address_forwarder& operator=(const address_forwarder&) = default;
 
+public:
   ~address_forwarder() {
     if (forwarding_address_) *forwarding_address_ = nullptr;
   }
@@ -93,5 +92,9 @@ protected:
 private:
   Derived** forwarding_address_{};
 };
+
+template<typename T>
+concept AddressForwarder = std::derived_from<std::remove_cvref_t<T>,
+    address_forwarder<std::remove_cvref_t<T>>>;
 
 }} // namespace corvid::meta

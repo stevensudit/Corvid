@@ -406,8 +406,7 @@ public:
     return true;
   }
 
-  bool
-  prep_poll_oneshot(int fd, poll_flags poll_mask = poll_flags::in) noexcept {
+  bool prep_poll(int fd, poll_flags poll_mask = poll_flags::in) noexcept {
     io_uring_prep_poll_add(sqe_, fd, *poll_mask);
     return true;
   }
