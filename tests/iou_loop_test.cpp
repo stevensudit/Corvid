@@ -570,7 +570,7 @@ void IouLoop_RecvSendMsg() {
             return slot_retention{};
           });
       if (!stok.is_valid()) return false;
-      return loop->submit_now();
+      return loop->immediate_submit();
     });
     EXPECT_TRUE(ok);
     EXPECT_TRUE(

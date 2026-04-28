@@ -43,6 +43,9 @@
 namespace corvid { inline namespace proto { namespace iouring {
 using namespace std::chrono_literals;
 
+// See `flagged_timeout` for explanation.
+// NOLINTBEGIN(bugprone-move-forwarding-reference)
+
 #pragma region Bindables
 
 // Type-unsafe version of `completion_token`, necessary to avoid circular
@@ -54,7 +57,7 @@ using completion_id = uint64_t;
 // This addresses the complaint that `bugprone-move-forwarding-reference`
 // raises, which is about rvalue references that turn into universal
 // references. However, while it fixes the problem, it doesn't silence the
-// warning, so there are NOLINTs over the relevant regions.
+// warning, so we NOLINT the whole file.
 struct flagged_timeout: public address_forwarder<flagged_timeout> {
   iou_timespec ts;
   iou_timeout_flags flags{};
@@ -68,6 +71,8 @@ struct flagged_timeout_endpoint
   net_endpoint sockaddr;
   iou_timespec ts;
   iou_timeout_flags flags{};
+
+  net_endpoint& payload() noexcept { return sockaddr; }
 };
 
 #pragma endregion
@@ -378,8 +383,6 @@ public:
   // There are other use cases where you might want to explicitly post to the
   // loop thread, so `post` is public.
 
-  // NOLINTBEGIN(bugprone-move-forwarding-reference)
-
   // True if the calling thread is the active loop thread for this instance.
   [[nodiscard]] bool is_loop_thread() const noexcept {
     return current_loop_ == this;
@@ -461,8 +464,6 @@ public:
       if (!running_.get()) return false;
     }
   }
-
-  // NOLINTEND(bugprone-move-forwarding-reference)
 
 #pragma endregion
 #pragma region Completion tokens
@@ -558,8 +559,6 @@ public:
 #pragma endregion
 #pragma region Callbacks
 
-  // NOLINTBEGIN(bugprone-move-forwarding-reference)
-
   // Accept the inner `buf_completion_fn`-shaped lambda and `buffer`, binding
   // them into a `completion_fn`. Does not work with Provided Buffers.
   completion_fn
@@ -611,6 +610,9 @@ public:
 
   // Wrap a `completion_fn`-shaped lambda and `AddressForwarder` into a
   // `completion_fn`.
+  // TODO: Generalize to check for `payload`, and forward that as well if it
+  // exists. This would require expanding CompletionInvocable to allow for that
+  // extra parameter based on whether `payload` exists.
   completion_fn wrap_completion_fn_and_timeout(CompletionInvocable auto&& cb,
       AddressForwarder auto&& af) {
     return [wrapcb = std::move(cb), af = std::move(af)](completion_id cbhandle,
@@ -639,8 +641,6 @@ public:
     return {cbtoken, ptr};
   }
 
-  // NOLINTEND(bugprone-move-forwarding-reference)
-
 #pragma endregion
 #pragma region Submit
 
@@ -667,6 +667,9 @@ public:
   // returned. Depending on `on_fail`, the token is either released or retained
   // on failure.
   //
+  // Other variants are similar to `completion_fn` except that they may also
+  // add a payload parameter, such as a `buffer` or `net_endpoint`.
+  //
   // Timeouts:
   //
   // When it makes sense for the operation, single-shot variants take a timeout
@@ -674,22 +677,9 @@ public:
   // apply to the SQE as a whole, not to individual CQEs, so you should instead
   // `submit_timeout` separately and check for a timestamp updated by the
   // `completion_callback`.
-  //
-  // Parameter Lifespan:
-  //
-  // Sockets must remain valid until completion, as must `msghdr`. Otherwise,
-  // parameters passed by pointer, such as the `iou_timespec` or
-  // `net_endpoint`, must remain valid until submission.
-  //
-  // Thread safety:
-  // All of these methods may be called from any thread.
 
-  // Submit immediately if there are any pending SQEs. Silently fails when
-  // called from outside the loop thread, as anything queued as a post would
-  // only execute after `submit_now` had already been called. If you really
-  // want to avoid delay, post a callback that enqueues the SQEs and then calls
-  // this.
-  [[nodiscard]] bool submit_now() {
+  // Submit immediately if there are any pending SQEs. Not generally necessary.
+  [[nodiscard]] bool immediate_submit() {
     if (!is_loop_thread()) return false;
     if (!pending_sqe_count_) return true;
     pending_sqe_count_ = 0;
@@ -721,12 +711,13 @@ public:
 #pragma endregion
 #pragma region Poll
 
-  // Submit an async poll on `file`.
-  template<CompletionInvocable FN>
-  [[nodiscard]] completion_token submit_poll(const os_file& file, FN&& cb,
-      poll_flags poll_mask = poll_flags::in, flagged_timeout timeout = {}) {
-    auto [cbtoken, timeout_ptr] = wrap_completion_fn_and_timeout_ptr(
-        std::forward<FN>(cb), std::move(timeout));
+  // Submit an async poll on `file`. Completes when `file` is ready for the
+  // events specified by `poll_mask`.
+  [[nodiscard]] completion_token submit_poll(const os_file& file,
+      CompletionInvocable auto&& cb, poll_flags poll_mask = poll_flags::in,
+      flagged_timeout timeout = {}) {
+    auto [cbtoken, timeout_ptr] =
+        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(timeout));
     if (!submit_poll(file, timeout_ptr, cbtoken, poll_mask,
             slot_retention::automatic))
       return {};
@@ -1439,7 +1430,7 @@ private:
   [[nodiscard]] bool maybe_submit_pending(size_t sqe_count = 1) {
     assert(is_loop_thread());
     pending_sqe_count_ += sqe_count;
-    if (pending_sqe_count_ >= max_pending_sqes_) return submit_now();
+    if (pending_sqe_count_ >= max_pending_sqes_) return immediate_submit();
     return true;
   }
 
@@ -1452,7 +1443,7 @@ private:
     std::forward<decltype(prep)>(prep)(sqe);
     sqe.set_data_pointer(nullptr);
     maybe_submit_pending(1);
-    return submit_now();
+    return immediate_submit();
   }
 
   // Dispatch a CQE to its registered callback. The callback returns a
@@ -1665,5 +1656,7 @@ private:
 using iou_loop_runner = iou_basic_loop_runner<>;
 
 #pragma endregion
+
+// NOLINTEND(bugprone-move-forwarding-reference)
 
 }}} // namespace corvid::proto::iouring
