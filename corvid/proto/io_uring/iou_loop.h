@@ -43,36 +43,70 @@
 namespace corvid { inline namespace proto { namespace iouring {
 using namespace std::chrono_literals;
 
+#pragma region Bindables
+
 // Type-unsafe version of `completion_token`, necessary to avoid circular
 // dependencies. Just construct a `completion_token` from it.
 using completion_id = uint64_t;
 
-// Concept for `iou_loop::buf_completion_fn`.
-template<typename FN>
-concept buf_completion_invocable = std::is_invocable_r_v<slot_retention, FN,
-    completion_id, iou_buf_pool::buffer&>;
-
-// Concept for `iou_loop::completion_fn`.
-template<typename FN>
-concept completion_invocable = std::is_invocable_r_v<slot_retention, FN,
-    completion_id, iou_res, iou_cqe_flags>;
-
 // Bindable timeout with flags.
+//
+// This addresses the complaint that `bugprone-move-forwarding-reference`
+// raises, which is about rvalue references that turn into universal
+// references. However, while it fixes the problem, it doesn't silence the
+// warning, so there are NOLINTs over the relevant regions.
 struct flagged_timeout: public address_forwarder<flagged_timeout> {
-  iou_timespec timeout;
-  iou_timeout_flags flags;
+  iou_timespec ts;
+  iou_timeout_flags flags{};
 
-  [[nodiscard]] bool is_valid() const noexcept { return timeout.is_valid(); }
+  [[nodiscard]] bool is_valid() const noexcept { return ts.is_valid(); }
 };
 
-// Bindable timeout with flags and an endpoint.
+// Bindable endpoint, with timeout and flags.
 struct flagged_timeout_endpoint
     : public address_forwarder<flagged_timeout_endpoint> {
-  net_endpoint endpoint;
-  iou_timespec timeout;
-  iou_timeout_flags flags;
+  net_endpoint sockaddr;
+  iou_timespec ts;
+  iou_timeout_flags flags{};
 };
 
+#pragma endregion
+#pragma region Concepts
+
+// Concept for a callback that can be moved (not copied) into a
+// `std::function`.
+template<class FN>
+concept ConsumableCallback =
+    !std::is_lvalue_reference_v<FN> &&
+    !std::is_const_v<std::remove_reference_t<FN>>;
+
+// Concept for `iou_loop::buf_completion_fn` lambda.
+template<typename FN>
+concept BufCompletionInvocable =
+    ConsumableCallback<FN> &&
+    std::is_invocable_r_v<slot_retention, FN, completion_id,
+        iou_buf_pool::buffer&>;
+
+// Concept for `iou_loop::endpoint_completion_fn` lambda.
+template<typename FN>
+concept EndpointCompletionInvocable =
+    ConsumableCallback<FN> &&
+    std::is_invocable_r_v<slot_retention, FN, completion_id, iou_res,
+        iou_cqe_flags, const net_endpoint&>;
+
+// Concept for `iou_loop::completion_fn` lambda.
+template<typename FN>
+concept CompletionInvocable =
+    ConsumableCallback<FN> &&
+    std::is_invocable_r_v<slot_retention, FN, completion_id, iou_res,
+        iou_cqe_flags>;
+
+// Concept for `iou_loop::posted_fn` lambda.
+template<typename FN>
+concept PostedInvocable =
+    ConsumableCallback<FN> && std::is_invocable_r_v<bool, FN>;
+
+#pragma endregion
 #pragma region iou_loop
 
 // Completion-based I/O loop built on `io_uring`. This implements a Proactor
@@ -80,7 +114,7 @@ struct flagged_timeout_endpoint
 //
 // Use an `iou_loop_runner` to drive this loop with `run` (blocking, on the
 // loop thread) or `run_once` (one batch, useful for testing) in its own
-// thread. Public methods are labeled with their thread safety.
+// thread. Public methods are thread-safe unless otherwise indicated.
 //
 // Note that, unlike `epoll_loop`, this does not have a registry of
 // connections. Instead, the only thing keeping a connection alive, if nobody
@@ -91,24 +125,25 @@ struct flagged_timeout_endpoint
 // accept operation, the connection will be naturally kept alive until the peer
 // closes the underlying socket or an error occurs. This means that if you need
 // to apply backpressure by not scheduling new operations, you will need to
-// keep the connection alive externally..
+// keep the connection alive externally.
 //
 // Details:
 //
-// `post` is the cross-thread entry point: any thread can push a callback onto
-// the queue, and the loop will execute it at the top of the next `run_once`.
-// The loop is woken by a multishot `IORING_OP_POLL_ADD` armed on an internal
-// `eventfd`, so the wakeup signal travels through the same CQE path as every
-// other completion. `post_and_wait` is a synchronous variant that blocks the
-// caller until the callback completes: it has only niche uses.
+// `post` is the cross-thread entry point: any thread can push an arbitrary
+// callback onto the queue, and the loop will execute it at the top of the next
+// `run_once`. The loop is woken by a multishot `IORING_OP_POLL_ADD` armed on
+// an internal `eventfd`, so the wakeup signal travels through the same CQE
+// path as every other completion. `post_and_wait` is a synchronous variant
+// that blocks the caller until the callback completes: it has only niche uses.
 //
 // `execute_or_post` executes inline on the loop thread or posts otherwise. It
 // is used under the hood to make public operations thread-safe without
 // unnecessary posting overhead when already on the loop thread (which is the
 // case for callbacks triggered by CQEs).
 //
-// `submit_*` methods enqueue I/O operations paired with a `completion_fn` (or
-// `buf_completion_fn` if using a `buffer`) as their completion callback.
+// `submit_*` methods enqueue I/O operations paired with a `completion_fn`
+// (perhaps wrapping a more specific callback, such as `buf_completion_fn`) as
+// their completion callback.
 //
 // `iou_basic_loop` itself is non-copyable and non-movable: the rings contain
 // kernel-mapped memory with self-referential pointers, and these can only be
@@ -119,7 +154,7 @@ struct flagged_timeout_endpoint
 // in-flight operations, which must be less than or equal to the number of CQE
 // slots.
 //
-// Plans:
+// TODO:
 // - Allow `iou_buf_pool` size to be configured, likely at compile time.
 template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
 class iou_basic_loop
@@ -133,7 +168,7 @@ public:
   // Enum for block sizes in pool.
   using block_size = buf_pool_t::block_size;
 
-  // RAII for a buffer borrowed from the pool.
+  // RAII handle for a buffer borrowed from the pool.
   using buffer = buf_pool_t::buffer;
 
   // Mutable and const byte spans.
@@ -151,8 +186,9 @@ public:
   using posted_fn = std::function<bool()>;
 
   // Low-level callback invoked when an op completes. Moved to a slot borrowed
-  // from the `completion_cb_pool_t`, avoiding the need for `std::shared_ptr`
-  // for each `std::function` and also allowing the use of `completion_token`.
+  // from the `completion_cb_pool_t`. This avoids the need for
+  // `std::shared_ptr` for each `std::function` and also allows the use of
+  // `completion_token` as user data for a SQE.
   //
   // If this calls a method on your class, you will likely want to bind in a
   // shared pointer to that instance.
@@ -168,6 +204,13 @@ public:
   using buf_completion_fn =
       std::function<slot_retention(completion_id, buffer&)>;
 
+  // Completion callback for operations that return an endpoint, like `accept`.
+  //
+  // If this calls a method on your class, you will likely want to bind in a
+  // shared pointer to that instance.
+  using endpoint_completion_fn = std::function<slot_retention(completion_id,
+      iou_res, iou_cqe_flags, const net_endpoint&)>;
+
 #pragma endregion
 #pragma region Details
 private:
@@ -177,7 +220,7 @@ private:
   static_assert(SLOT_COUNT <= RING_SIZE * 2,
       "SLOT_COUNT must be less than or equal to the number of CQE slots");
 
-  // Cleanup function for `completion_fn` objects in the pool.
+  // Cleanup invokable for `completion_fn` objects in the pool.
   struct clear_function_cb {
     constexpr void operator()(auto& completion_fn) const noexcept {
       completion_fn = nullptr;
@@ -191,10 +234,13 @@ private:
   using completion_cb_pool_t = object_pool<completion_fn, SLOT_COUNT,
       generation_scheme::versioned, no_op_cb, clear_function_cb>;
 
-  // RAII for a `completion_fn` borrowed from the pool. Can be created from a
-  // `completion_token`.
+  // RAII handle for a `completion_fn` borrowed from the pool. Can be created
+  // from a `completion_token`, like a `std::shared_ptr` locked from a
+  // `std::weak_ptr`.
   using borrowed_cb = completion_cb_pool_t::borrowed;
 
+  // Type for the post queue, which holds `posted_fn`s scheduled to run on the
+  // loop thread.
   using post_queue_t = std::vector<posted_fn>;
 
 #pragma endregion
@@ -243,20 +289,18 @@ public:
 
   // Returns an RAII guard that designates the calling thread as the loop
   // thread for its lifetime. `run` does this internally; call it manually
-  // before using `run_once` directly (e.g., in tests).
+  // before using `run_once` directly. For tests only.
   [[nodiscard]] auto poll_thread_scope() const {
     return scoped_value<const iou_basic_loop*>{current_loop_, this};
   }
 
   // Block until `run` is active. Returns false on timeout.
-  // Pass -1 (the default) to wait up to 60 seconds.
-  [[nodiscard]] bool wait_until_running(int timeout_ms = -1) {
-    if (timeout_ms < 0) timeout_ms = 60000;
-    return running_.wait_for_value(duration_t{timeout_ms}, true);
+  [[nodiscard]] bool wait_until_running(duration_t timeout = 60s) {
+    return running_.wait_for_value(timeout, true);
   }
 
   // Run the loop on the calling thread until `stop` is called. This is a
-  // blocking call.
+  // blocking call. Used by `iou_loop_runner`.
   size_t run() {
     stop_.store(false, std::memory_order::relaxed);
     const auto scope = poll_thread_scope();
@@ -272,18 +316,21 @@ public:
   }
 
   // Process one batch of completions, waiting up to `timeout`. Drains the post
-  // queue first, then waits for CQEs, one of which may be a wakeup triggered
-  // by setting the `eventfd`. Returns the number of completions dispatched.
-  // Returns 0 on timeout or signal. Must be called on the loop thread.
+  // queue first, then submits SQEs and waits for CQEs. One of those CQEs may
+  // be a wakeup triggered by setting the `eventfd`. Returns the number of
+  // completions dispatched, or 0 on timeout or signal. Must be called on the
+  // loop thread.
   [[nodiscard]] size_t run_once(const iou_timespec& timeout) {
     assert(is_loop_thread());
     do_drain_post_queue();
 
+    // Simultaneously submit SQEs and wait for CQEs.
     pending_sqe_count_ = 0;
     auto res = ring_.submit_and_wait_timeout(timeout);
     if (res.is_soft_error()) return 0;
     res.throw_if_error("submit_and_wait_timeout");
 
+    // Dispatch snapshotted SQEs.
     size_t dispatched{};
     size_t total = ring_.for_each_snapshotted_cqe([&](iou_cqe cqe) {
       if (do_dispatch(cqe)) ++dispatched;
@@ -300,6 +347,23 @@ public:
     stop_.store(true, std::memory_order::release);
     (void)do_wake();
   }
+
+  // Borrow a registered `buffer` from the pool for the purpose of reading
+  // into it. Returns an invalid `buffer` if the pool is exhausted. Pass to
+  // `submit_recv_buffer`.
+  [[nodiscard]] buffer borrow_read_buffer(
+      block_size sz = block_size::small) noexcept {
+    return buf_pool_.borrow_reader(sz);
+  }
+
+  // Borrow a registered `buffer` from the pool for the purpose of writing to
+  // it. Returns an invalid `buffer` if the pool is exhausted. Fill the
+  // `buffer`'s payload, then pass it to `submit_send_buffer`.
+  [[nodiscard]] buffer borrow_write_buffer(
+      block_size sz = block_size::small) noexcept {
+    return buf_pool_.borrow_writer(sz);
+  }
+
 #pragma endregion
 #pragma region Post
 
@@ -311,8 +375,10 @@ public:
   // the post queue. When executed on another thread, they fall back to
   // posting. This is implemented by `execute_or_post`.
   //
-  // There are other use cases where you will want to explicitly post to the
+  // There are other use cases where you might want to explicitly post to the
   // loop thread, so `post` is public.
+
+  // NOLINTBEGIN(bugprone-move-forwarding-reference)
 
   // True if the calling thread is the active loop thread for this instance.
   [[nodiscard]] bool is_loop_thread() const noexcept {
@@ -325,33 +391,32 @@ public:
   // You will often want to use `execute_or_post` instead, as it executes
   // inline if already on the loop thread, avoiding unnecessary posting
   // overhead.
-  [[nodiscard]] bool post(posted_fn cbpost) {
+  [[nodiscard]] bool post(posted_fn&& cbpost) {
     bool was_empty{};
     if (std::scoped_lock lock{post_mutex_}; true) {
       auto& active_queue = **active_queue_;
       was_empty = active_queue.empty();
       active_queue.emplace_back(std::move(cbpost));
     }
-    // If it was empty, signal the `eventfd` to wake the loop thread.
+    // On transition from empty, signal the `eventfd` to wake the loop thread.
     if (!was_empty) return true;
     return do_wake();
   }
 
   // Execute `fn` immediately if on the loop thread; otherwise `post` it. Does
   // not retry on failure.
-  template<typename FN>
-  [[nodiscard]] bool execute_or_post(FN&& fn) {
+  [[nodiscard]] bool execute_or_post(PostedInvocable auto&& fn) {
     if (is_loop_thread()) return fn();
-    return post(std::forward<FN>(fn));
+    return post(std::move(fn));
   }
 
   // Execute `fn` immediately if on the loop thread. If it fails, or if we
   // aren't on the loop thread, post it.
   //
-  // When it executes from the post queue, if it fails then it will requeue
-  // itself. This only makes sense if the failure is retryable, such as the SQE
-  // queue being full. If we encounter an error that isn't retryable, we must
-  // return `true` to end the loop.
+  // When it fails while executing from the post queue, it will requeue itself.
+  // This only makes sense if the failure is retryable, such as the SQE queue
+  // being full. If we encounter an error that isn't retryable, we must return
+  // `true` to end the loop.
   //
   // Also, if `fn` has a `completion_token`, then it should check whether it's
   // been released, and return `true` if it has. This allows the caller to
@@ -364,30 +429,26 @@ public:
   //
   // Clang-tidy doesn't understand that these lambdas are unconditionally
   // moved, even though this is technically a universal reference.
-  // NOLINTBEGIN(bugprone-move-forwarding-reference)
-  template<typename FN>
-  [[nodiscard]] bool execute_or_post_with_retry(FN&& fn) {
+  [[nodiscard]] bool execute_or_post_with_retry(PostedInvocable auto&& fn) {
     if (!is_loop_thread() || !fn())
       (void)post([this, fn = std::move(fn)]() mutable -> bool {
         return execute_or_post_with_retry(std::move(fn));
       });
     return true;
   }
-  // NOLINTEND(bugprone-move-forwarding-reference)
 
   // Run `fn` fully synchronously on the loop thread. When executed from
   // another thread, posts and block the calling thread until it completes.
-  template<typename FN>
-  [[nodiscard]] bool post_and_wait(FN&& fn) {
+  [[nodiscard]] bool post_and_wait(PostedInvocable auto&& fn) {
     if (!running_.get()) return false;
     if (is_loop_thread()) return fn();
-    using fn_type = std::decay_t<FN>;
+    using fn_type = std::decay_t<decltype(fn)>;
     struct wait_state {
       notifiable<bool> done{false};
       fn_type fn;
       explicit wait_state(fn_type&& f) : fn(std::move(f)) {}
     };
-    auto waiter = std::make_shared<wait_state>(std::forward<FN>(fn));
+    auto waiter = std::make_shared<wait_state>(std::move(fn));
     if (!post([waiter] {
           waiter->fn();
           waiter->done.notify_one(true);
@@ -400,6 +461,8 @@ public:
       if (!running_.get()) return false;
     }
   }
+
+  // NOLINTEND(bugprone-move-forwarding-reference)
 
 #pragma endregion
 #pragma region Completion tokens
@@ -440,7 +503,7 @@ public:
   // However, `io_uring` can choose to clear `iou_cqe_flags::more` on any CQE,
   // even on a soft error or no error (such as when IORING_MAX_FIXED_FILES is
   // reached), so the callback must either accept this or resubmit the token.
-  // In the latter case, it must explcitly return `slot_retention::retain`.
+  // In the latter case, it must explicitly return `slot_retention::retain`.
   //
   // All methods in this section are thread-safe.
 
@@ -473,7 +536,6 @@ public:
   }
 
   // Borrow a callback pool slot and move `cb` into it.
-  //
   // This has only niche uses.
   [[nodiscard]] borrowed_cb borrow(completion_fn&& cb) {
     auto borrowed_cb = completion_cb_pool_.borrow();
@@ -482,46 +544,27 @@ public:
   }
 
   // Borrow a callback pool slot from its `completion_token`.
-  //
   // This has only niche uses.
   [[nodiscard]] borrowed_cb borrow(completion_token token) {
     return token.borrow(completion_cb_pool_);
   }
 
   // Detach a borrowed callback, without freeing it.
-  //
   // This has only niche uses.
   void detach(borrowed_cb&& cb) {
     (void)completion_cb_pool_.detach(std::move(cb));
   }
 
 #pragma endregion
-#pragma region Buffer
+#pragma region Callbacks
 
-  // Using a buffer pool is the preferred way to manage buffers.
-
-  // Borrow a registered `buffer` from the pool for the purpose of reading
-  // into it. Returns an invalid `buffer` if the pool is exhausted. Pass to
-  // `submit_recv_buffer`.
-  [[nodiscard]] buffer borrow_read_buffer(
-      block_size sz = block_size::small) noexcept {
-    return buf_pool_.borrow_reader(sz);
-  }
-
-  // Borrow a registered `buffer` from the pool for the purpose of writing to
-  // it. Returns an invalid `buffer` if the pool is exhausted. Fill the
-  // `buffer`'s payload, then pass it to `submit_send_buffer`.
-  [[nodiscard]] buffer borrow_write_buffer(
-      block_size sz = block_size::small) noexcept {
-    return buf_pool_.borrow_writer(sz);
-  }
+  // NOLINTBEGIN(bugprone-move-forwarding-reference)
 
   // Accept the inner `buf_completion_fn`-shaped lambda and `buffer`, binding
   // them into a `completion_fn`. Does not work with Provided Buffers.
-  // TODO: Make it move-only, because it is.
-  template<buf_completion_invocable FN>
-  completion_fn wrap_buf_completion_fn(FN&& bufcb, buffer&& buf) {
-    return [bufcb = std::forward<FN>(bufcb),
+  completion_fn
+  wrap_buf_completion_fn(BufCompletionInvocable auto&& bufcb, buffer&& buf) {
+    return [bufcb = std::move(bufcb),
                buf = std::move(buf)](completion_id cbhandle, iou_res res,
                iou_cqe_flags flags) mutable -> slot_retention {
       return bufcb(cbhandle, buf.update(res, flags));
@@ -530,24 +573,48 @@ public:
 
   // Wrap a `buf_completion_fn`-shaped lambda and `buffer` into a
   // `completion_token` and `buffer*`.
-  template<buf_completion_invocable FN>
-  std::pair<completion_token, buffer*>
-  wrap_buf_completion_fn_and_ptr(FN&& bufcb, buffer&& buf) {
+  std::pair<completion_token, buffer*> wrap_buf_completion_fn_and_ptr(
+      BufCompletionInvocable auto&& bufcb, buffer&& buf) {
     buffer* buf_ptr{};
     buf.forwarding_address() = &buf_ptr;
-    const auto cbtoken = tokenize(
-        wrap_buf_completion_fn(std::forward<FN>(bufcb), std::move(buf)));
+    const auto cbtoken =
+        tokenize(wrap_buf_completion_fn(std::move(bufcb), std::move(buf)));
     if (buf_ptr) buf_ptr->forwarding_address() = nullptr;
     return {cbtoken, buf_ptr};
   }
 
+  // Accept the inner `endpoint_completion_fn`-shaped lambda and `buffer`,
+  // binding them into a `completion_fn`.
+  completion_fn
+  wrap_endpoint_completion_fn(EndpointCompletionInvocable auto&& epcb,
+      flagged_timeout_endpoint&& endpoint) {
+    return [epcb = std::move(epcb),
+               endpoint = std::move(endpoint)](completion_id cbhandle,
+               iou_res res, iou_cqe_flags flags) mutable -> slot_retention {
+      return epcb(cbhandle, res, flags, endpoint.sockaddr);
+    };
+  }
+
+  // Wrap a `endpoint_completion_fn`-shaped lambda and
+  // `flagged_timeout_endpoint` into a `completion_token` and
+  // `flagged_timeout_endpoint*`.
+  std::pair<completion_token, flagged_timeout_endpoint*>
+  wrap_endpoint_completion_fn_and_ptr(EndpointCompletionInvocable auto&& cb,
+      flagged_timeout_endpoint&& ep) {
+    flagged_timeout_endpoint* ep_ptr{};
+    ep.forwarding_address() = &ep_ptr;
+    const auto cbtoken =
+        tokenize(wrap_endpoint_completion_fn(std::move(cb), std::move(ep)));
+    if (ep_ptr) ep_ptr->forwarding_address() = nullptr;
+    return {cbtoken, ep_ptr};
+  }
+
   // Wrap a `completion_fn`-shaped lambda and `AddressForwarder` into a
   // `completion_fn`.
-  template<completion_invocable FN, AddressForwarder T>
-  completion_fn wrap_completion_fn_and_timeout(FN&& cb, T&& t) {
-    return [wrapcb = std::forward<FN>(cb),
-               t = std::forward<T>(t)](completion_id cbhandle, iou_res res,
-               iou_cqe_flags flags) mutable -> slot_retention {
+  completion_fn wrap_completion_fn_and_timeout(CompletionInvocable auto&& cb,
+      AddressForwarder auto&& af) {
+    return [wrapcb = std::move(cb), af = std::move(af)](completion_id cbhandle,
+               iou_res res, iou_cqe_flags flags) mutable -> slot_retention {
       return wrapcb(cbhandle, res, flags);
     };
   }
@@ -556,21 +623,23 @@ public:
   // `completion_token` and `AddressForwarder*`. If the `AddressForwarder` is
   // invalid, then it will not be wrapped, and the `AddressForwarder*` returned
   // will be nullptr.
-  template<completion_invocable FN, AddressForwarder T>
-  std::pair<completion_token, T*>
-  wrap_completion_fn_and_timeout_ptr(FN&& cb, T&& t) {
-    T* ptr{};
+  template<AddressForwarder AF>
+  std::pair<completion_token, AF*>
+  wrap_completion_fn_and_timeout_ptr(CompletionInvocable auto&& cb, AF&& af) {
+    AF* ptr{};
     completion_token cbtoken;
-    if (t.is_valid()) {
-      t.forwarding_address() = &ptr;
-      cbtoken = tokenize(wrap_completion_fn_and_timeout(std::forward<FN>(cb),
-          std::forward<T>(t)));
+    if (af.is_valid()) {
+      af.forwarding_address() = &ptr;
+      cbtoken = tokenize(
+          wrap_completion_fn_and_timeout(std::move(cb), std::move(af)));
       ptr->forwarding_address() = nullptr;
-    } else {
-      cbtoken = tokenize(std::forward<FN>(cb));
-    }
+    } else
+      cbtoken = tokenize(std::move(cb));
+
     return {cbtoken, ptr};
   }
+
+  // NOLINTEND(bugprone-move-forwarding-reference)
 
 #pragma endregion
 #pragma region Submit
@@ -653,7 +722,7 @@ public:
 #pragma region Poll
 
   // Submit an async poll on `file`.
-  template<completion_invocable FN>
+  template<CompletionInvocable FN>
   [[nodiscard]] completion_token submit_poll(const os_file& file, FN&& cb,
       poll_flags poll_mask = poll_flags::in, flagged_timeout timeout = {}) {
     auto [cbtoken, timeout_ptr] = wrap_completion_fn_and_timeout_ptr(
@@ -716,10 +785,10 @@ public:
   // Submit an async timeout. For multishot, set the
   // `io_timeout_flags::multishot` flag. The meaning of `cqe_count` depends on
   // the mode.
-  template<completion_invocable FN>
+  template<CompletionInvocable FN>
   [[nodiscard]] completion_token
   submit_timeout(flagged_timeout&& timeout, FN&& cb, size_t cqe_count = 0) {
-    if (!timeout.timeout.is_valid()) return {};
+    if (!timeout.ts.is_valid()) return {};
     auto [cbtoken, timeout_ptr] = wrap_completion_fn_and_timeout_ptr(
         std::forward<FN>(cb), std::move(timeout));
     if (!submit_timeout(*timeout_ptr, cbtoken, cqe_count,
@@ -738,7 +807,7 @@ public:
     if (!cbtoken.is_valid()) return false;
     auto fn = [this, &timeout, cbtoken, cqe_count, on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [&timeout, cqe_count](iou_sqe sqe) {
-        sqe.prep_timeout(&timeout.timeout, timeout.flags, cqe_count);
+        sqe.prep_timeout(&timeout.ts, timeout.flags, cqe_count);
       });
     };
     return execute_or_post_with_retry(std::move(fn));
@@ -784,7 +853,7 @@ public:
     auto fn = [this, update_token, &new_timeout, on_fail]() mutable {
       return do_submit(update_token, on_fail,
           [update_token, &new_timeout](iou_sqe sqe) {
-            sqe.prep_timeout_update(&new_timeout.timeout, update_token,
+            sqe.prep_timeout_update(&new_timeout.ts, update_token,
                 new_timeout.flags);
           });
     };
@@ -795,7 +864,7 @@ public:
 #pragma region Close
 
   // Submit an async close on `file`. Invalidates `file`.
-  template<completion_invocable FN>
+  template<CompletionInvocable FN>
   [[nodiscard]] completion_token
   submit_close(os_file&& file, FN&& cb, flagged_timeout timeout = {}) {
     auto [cbtoken, timeout_ptr] = wrap_completion_fn_and_timeout_ptr(
@@ -853,28 +922,29 @@ public:
 #pragma region Accept
 
   // Submit an async accept on `socket`.
-  template<completion_invocable FN>
-  [[nodiscard]] completion_token
-  submit_accept(const os_file& socket, FN&& cb, flagged_timeout timeout = {}) {
-    auto [cbtoken, timeout_ptr] = wrap_completion_fn_and_timeout_ptr(
-        std::forward<FN>(cb), std::move(timeout));
-    if (!submit_accept(socket, cbtoken, timeout_ptr,
-            slot_retention::automatic))
+  template<typename FN>
+  [[nodiscard]] completion_token submit_accept(const os_file& socket, FN&& cb,
+      flagged_timeout_endpoint endpoint = {},
+      socket_type flags = socket_type::nonblock_cloexec) {
+    auto [cbtoken, endpoint_ptr] = wrap_endpoint_completion_fn_and_ptr(
+        std::forward<FN>(cb), std::move(endpoint));
+    if (!submit_accept(socket, *endpoint_ptr, cbtoken,
+            slot_retention::automatic, flags))
       return {};
     return cbtoken;
   }
 
-  // Submit an async accept on `socket`. Note that `timeout` must either be
-  // nullptr, point inside the callback, or remain valid until cancelation.
+  // Submit an async accept on `socket`. Note that `timeout` must either point
+  // inside the callback or remain valid until cancelation.
   [[nodiscard]] bool submit_accept(const os_file& socket,
-      completion_token cbtoken, flagged_timeout* timeout = nullptr,
+      flagged_timeout_endpoint& endpoint, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain,
       socket_type flags = socket_type::nonblock_cloexec) {
     if (!cbtoken.is_valid()) return false;
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn =
-        [this, fd = *socket, flags, cbtoken, timeout, on_fail]() mutable {
-          return do_submit_timeout(cbtoken, timeout, on_fail,
+        [this, fd = *socket, flags, cbtoken, &endpoint, on_fail]() mutable {
+          return do_submit_timeout(cbtoken, &endpoint.ts, on_fail,
               [fd, flags](iou_sqe sqe) { sqe.prep_accept(fd, flags); });
         };
     return execute_or_post_with_retry(std::move(fn));
@@ -1110,7 +1180,7 @@ public:
   //
 
   // Submit an async read_fixed on `file` into a borrowed buffer.
-  template<buf_completion_invocable FN>
+  template<BufCompletionInvocable FN>
   [[nodiscard]] completion_token
   submit_read_buffer(const os_file& file, FN&& bufcb,
       block_size sz = block_size::small, const iou_timespec& timeout = {}) {
@@ -1120,7 +1190,7 @@ public:
   }
 
   // Submit an async read_fixed on `file` into `buf`.
-  template<buf_completion_invocable FN>
+  template<BufCompletionInvocable FN>
   [[nodiscard]] completion_token
   submit_read_buffer(const os_file& file, buffer&& buf, FN&& bufcb) {
     const auto [cbtoken, buf_ptr] = wrap_buf_completion_fn_and_ptr(
@@ -1167,7 +1237,7 @@ public:
   // `submit_send_buffer`, which uses `io_uring_prep_send_zc_fixed`.
 
   // Submit an async write_fixed on `file` from `buf`.
-  template<buf_completion_invocable FN>
+  template<BufCompletionInvocable FN>
   [[nodiscard]] completion_token
   submit_write_buffer(const os_file& file, buffer&& buf, FN&& bufcb) {
     const auto [cbtoken, buf_ptr] = wrap_buf_completion_fn_and_ptr(
@@ -1285,7 +1355,7 @@ private:
       if (cbtoken.is_valid() && is_released(cbtoken)) return true;
 
       // Check availability up front and only assert on each.
-      bool use_timeout = timeout && timeout->timeout.is_valid();
+      bool use_timeout = timeout && timeout->ts.is_valid();
       size_t sqe_needed = use_timeout ? 2 : 1;
       if (!ring_.enough_sqe_available(sqe_needed)) return false;
 
@@ -1305,7 +1375,7 @@ private:
       if (use_timeout) {
         assert(sqe_to);
         sqe_op.set_sqe_flags(iou_sqe_flags::io_link);
-        sqe_to.prep_link_timeout(&timeout->timeout, timeout->flags);
+        sqe_to.prep_link_timeout(&timeout->ts, timeout->flags);
         // On timeout, `cbtoken` is invoked with `iou_res.err() ==
         // E_::canceled`. `sqe_to` will also generate a CQE (with
         // `iou_res.err() == E_::time`), but this will be swallowed.
@@ -1530,7 +1600,7 @@ public:
       thread_.join();
       std::rethrow_exception(startup_error);
     }
-    if (!loop || !loop->wait_until_running(1000)) {
+    if (!loop || !loop->wait_until_running(1000ms)) {
       thread_.request_stop();
       if (thread_.joinable()) thread_.join();
       throw std::runtime_error{"iou_loop_runner failed to start"};
