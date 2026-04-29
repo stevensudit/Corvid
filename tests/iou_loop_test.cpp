@@ -361,8 +361,8 @@ void IouLoop_SubmitTimeout() {
   // A single-shot timeout fires with `-ETIME` after the specified duration.
   if (true) {
     iou_loop_runner loop;
-    flagged_timeout timeout{.ts = iou_timespec{50ms},
-        .flags = iou_timeout_flags::rel};
+    flagged_timeout timeout{
+        .when = {.ts = iou_timespec{50ms}, .flags = iou_timeout_flags::rel}};
     std::atomic_bool fired{false};
     std::atomic_int32_t result{0};
 
@@ -385,8 +385,9 @@ void IouLoop_SubmitTimeoutMultishot() {
   // A multishot timeout with `cqe_count`=3 fires exactly 3 times then stops.
   if (true) {
     iou_loop_runner loop;
-    flagged_timeout timeout{.ts = iou_timespec{20ms},
-        .flags = iou_timeout_flags::rel | iou_timeout_flags::multishot};
+    flagged_timeout timeout{
+        .when = {.ts = iou_timespec{20ms},
+            .flags = iou_timeout_flags::rel | iou_timeout_flags::multishot}};
     std::atomic<int> count{0};
 
     const auto token = loop->submit_timeout(
@@ -499,7 +500,7 @@ void IouLoop_AcceptConnect() {
 
     const auto accept_tok = loop->submit_accept(listen_sock,
         [&](completion_id, iou_res res, iou_cqe_flags,
-            const net_endpoint&) -> slot_retention {
+            const combined_endpoint&) -> slot_retention {
           accept_res.store(res.value(), std::memory_order::relaxed);
           accepted.store(true, std::memory_order::release);
           return slot_retention{};
@@ -508,7 +509,11 @@ void IouLoop_AcceptConnect() {
 
     auto client_sock = net_socket::create_uds();
     EXPECT_TRUE(client_sock);
-    const auto connect_tok = loop->submit_connect(client_sock, &ep,
+    flagged_timeout_endpoint connect_ep{};
+    connect_ep.sockaddr.sockaddr = ep;
+    connect_ep.sockaddr.len = ep.sockaddr_size();
+    const auto connect_tok = loop->submit_connect(client_sock,
+        std::move(connect_ep),
         [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
           connect_res.store(res.value(), std::memory_order::relaxed);
           connected.store(true, std::memory_order::release);

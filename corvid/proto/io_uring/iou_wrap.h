@@ -344,6 +344,25 @@ private:
 };
 
 #pragma endregion
+#pragma region Structs
+
+// These are the peanut-butter-and-jelly structs that group values which go
+// together.
+
+// Timespec with flags to interpret it.
+struct combined_timespec {
+  iou_timespec ts;
+  iou_timeout_flags flags{};
+};
+
+// Needed for filling in a sockaddr.
+struct combined_endpoint {
+  net_endpoint sockaddr;
+  socklen_t len{};
+  socket_type flags = socket_type::nonblock_cloexec;
+};
+
+#pragma endregion
 #pragma region iou_res
 
 // Wrapper for `int` results from `io_uring` operations, where `res` >= 0 is
@@ -449,15 +468,33 @@ public:
     return true;
   }
 
-  bool prep_accept(int fd,
-      socket_type flags = socket_type::nonblock_cloexec) noexcept {
-    io_uring_prep_accept(sqe_, fd, nullptr, nullptr, *flags);
+  static std::pair<sockaddr*, socklen_t*> to_sockaddr_ptrs(
+      combined_endpoint* endpoint) noexcept {
+    sockaddr* sockaddr_ptr{};
+    socklen_t* socklen_ptr{};
+    if (endpoint) {
+      endpoint->len = endpoint->sockaddr.sockaddr_size();
+      sockaddr_ptr = endpoint->sockaddr.as_sockaddr_ptr();
+      socklen_ptr = &endpoint->len;
+    }
+    return {sockaddr_ptr, socklen_ptr};
+  }
+
+  bool prep_accept(int fd, combined_endpoint* endpoint = nullptr) noexcept {
+    auto [sockaddr_ptr, socklen_ptr] = to_sockaddr_ptrs(endpoint);
+    socket_type flags = socket_type::nonblock_cloexec;
+    if (endpoint) flags = endpoint->flags;
+    io_uring_prep_accept(sqe_, fd, sockaddr_ptr, socklen_ptr, *flags);
     return true;
   }
 
   bool prep_accept_multishot(int fd,
-      socket_type flags = socket_type::nonblock_cloexec) noexcept {
-    io_uring_prep_multishot_accept(sqe_, fd, nullptr, nullptr, *flags);
+      combined_endpoint* endpoint = nullptr) noexcept {
+    auto [sockaddr_ptr, socklen_ptr] = to_sockaddr_ptrs(endpoint);
+    socket_type flags = socket_type::nonblock_cloexec;
+    if (endpoint) flags = endpoint->flags;
+    io_uring_prep_multishot_accept(sqe_, fd, sockaddr_ptr, socklen_ptr,
+        *flags);
     return true;
   }
 

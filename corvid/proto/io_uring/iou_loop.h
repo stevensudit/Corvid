@@ -43,7 +43,12 @@
 namespace corvid { inline namespace proto { namespace iouring {
 using namespace std::chrono_literals;
 
-// See `flagged_timeout` for explanation.
+// This is a legitimate warning, but clang-tidy is applying it illegitimately.
+// It's complaining that what looks like an rvalue, and is being moved from, is
+// actually a universal reference. It could therefore become an lvalue, so we
+// should instead forward it. However, we use concepts to lock down the type to
+// ensure that it's an rvalue. See `ConsumableCallback`.
+//
 // NOLINTBEGIN(bugprone-move-forwarding-reference)
 
 #pragma region Bindables
@@ -52,27 +57,23 @@ using namespace std::chrono_literals;
 // dependencies. Just construct a `completion_token` from it.
 using completion_id = uint64_t;
 
-// Bindable timeout with flags.
-//
-// This addresses the complaint that `bugprone-move-forwarding-reference`
-// raises, which is about rvalue references that turn into universal
-// references. However, while it fixes the problem, it doesn't silence the
-// warning, so we NOLINT the whole file.
+// Bindable timeout.
 struct flagged_timeout: public address_forwarder<flagged_timeout> {
-  iou_timespec ts;
-  iou_timeout_flags flags{};
+  combined_timespec when;
 
-  [[nodiscard]] bool is_valid() const noexcept { return ts.is_valid(); }
+  auto& forwarding_payload() { return when; }
+};
+
+// Bindable endpoint.
+struct sockaddr_endpoint: public address_forwarder<sockaddr_endpoint> {
+  combined_endpoint sockaddr;
 };
 
 // Bindable endpoint, with timeout and flags.
 struct flagged_timeout_endpoint
     : public address_forwarder<flagged_timeout_endpoint> {
-  net_endpoint sockaddr;
-  iou_timespec ts;
-  iou_timeout_flags flags{};
-
-  net_endpoint& payload() noexcept { return sockaddr; }
+  combined_timespec when;
+  combined_endpoint sockaddr;
 };
 
 #pragma endregion
@@ -97,7 +98,7 @@ template<typename FN>
 concept EndpointCompletionInvocable =
     ConsumableCallback<FN> &&
     std::is_invocable_r_v<slot_retention, FN, completion_id, iou_res,
-        iou_cqe_flags, const net_endpoint&>;
+        iou_cqe_flags, combined_endpoint&>;
 
 // Concept for `iou_loop::completion_fn` lambda.
 template<typename FN>
@@ -214,7 +215,7 @@ public:
   // If this calls a method on your class, you will likely want to bind in a
   // shared pointer to that instance.
   using endpoint_completion_fn = std::function<slot_retention(completion_id,
-      iou_res, iou_cqe_flags, const net_endpoint&)>;
+      iou_res, iou_cqe_flags, combined_endpoint&)>;
 
 #pragma endregion
 #pragma region Details
@@ -236,7 +237,7 @@ private:
   // CQE completions. This avoids the need for `std::shared_ptr` for each
   // `std::function` and allows us to refer to callbacks by
   // `completion_token`, which is generation-checking.
-  using completion_cb_pool_t = object_pool<completion_fn, SLOT_COUNT,
+  using completion_cb_pool_t = object_pool<completion_fn, SLOT_COUNT * 2,
       generation_scheme::versioned, no_op_cb, clear_function_cb>;
 
   // RAII handle for a `completion_fn` borrowed from the pool. Can be created
@@ -536,6 +537,16 @@ public:
     return true;
   }
 
+  // Create completion callback that releases `cancelation_token` when invoked.
+  [[nodiscard]] completion_fn make_release_fn(
+      completion_token&& cancelation_token) {
+    return [this, cancelation_token](completion_id, iou_res,
+               iou_cqe_flags) mutable {
+      (void)release(std::move(cancelation_token));
+      return slot_retention::automatic;
+    };
+  }
+
   // Borrow a callback pool slot and move `cb` into it.
   // This has only niche uses.
   [[nodiscard]] borrowed_cb borrow(completion_fn&& cb) {
@@ -582,14 +593,41 @@ public:
     return {cbtoken, buf_ptr};
   }
 
-  // Accept the inner `endpoint_completion_fn`-shaped lambda and `buffer`,
-  // binding them into a `completion_fn`.
+  // Accept the inner `endpoint_completion_fn`-shaped lambda and
+  // `sockaddr_endpoint`, binding them into a `completion_fn`.
+  completion_fn wrap_endpoint_completion_fn(
+      EndpointCompletionInvocable auto&& epcb, sockaddr_endpoint&& endpoint) {
+    return [epcb = std::move(epcb),
+               endpoint = std::move(endpoint)](completion_id cbhandle,
+               iou_res res, iou_cqe_flags flags) mutable -> slot_retention {
+      endpoint.sockaddr.len = net_endpoint::max_sockaddr_size;
+      return epcb(cbhandle, res, flags, endpoint.sockaddr);
+    };
+  }
+
+  // Wrap a `endpoint_completion_fn`-shaped lambda and
+  // `sockaddr_endpoint` into a `completion_token` and
+  // `sockaddr_endpoint*`.
+  std::pair<completion_token, sockaddr_endpoint*>
+  wrap_endpoint_completion_fn_and_ptr(EndpointCompletionInvocable auto&& cb,
+      sockaddr_endpoint&& ep) {
+    sockaddr_endpoint* ep_ptr{};
+    ep.forwarding_address() = &ep_ptr;
+    const auto cbtoken =
+        tokenize(wrap_endpoint_completion_fn(std::move(cb), std::move(ep)));
+    if (ep_ptr) ep_ptr->forwarding_address() = nullptr;
+    return {cbtoken, ep_ptr};
+  }
+
+  // Accept the inner `endpoint_completion_fn`-shaped lambda and
+  // `flagged_timeout_endpoint`, binding them into a `completion_fn`.
   completion_fn
-  wrap_endpoint_completion_fn(EndpointCompletionInvocable auto&& epcb,
+  wrap_timed_endpoint_completion_fn(EndpointCompletionInvocable auto&& epcb,
       flagged_timeout_endpoint&& endpoint) {
     return [epcb = std::move(epcb),
                endpoint = std::move(endpoint)](completion_id cbhandle,
                iou_res res, iou_cqe_flags flags) mutable -> slot_retention {
+      endpoint.sockaddr.len = net_endpoint::max_sockaddr_size;
       return epcb(cbhandle, res, flags, endpoint.sockaddr);
     };
   }
@@ -598,12 +636,12 @@ public:
   // `flagged_timeout_endpoint` into a `completion_token` and
   // `flagged_timeout_endpoint*`.
   std::pair<completion_token, flagged_timeout_endpoint*>
-  wrap_endpoint_completion_fn_and_ptr(EndpointCompletionInvocable auto&& cb,
-      flagged_timeout_endpoint&& ep) {
+  wrap_timed_endpoint_completion_fn_and_ptr(
+      EndpointCompletionInvocable auto&& cb, flagged_timeout_endpoint&& ep) {
     flagged_timeout_endpoint* ep_ptr{};
     ep.forwarding_address() = &ep_ptr;
-    const auto cbtoken =
-        tokenize(wrap_endpoint_completion_fn(std::move(cb), std::move(ep)));
+    const auto cbtoken = tokenize(
+        wrap_timed_endpoint_completion_fn(std::move(cb), std::move(ep)));
     if (ep_ptr) ep_ptr->forwarding_address() = nullptr;
     return {cbtoken, ep_ptr};
   }
@@ -776,12 +814,11 @@ public:
   // Submit an async timeout. For multishot, set the
   // `io_timeout_flags::multishot` flag. The meaning of `cqe_count` depends on
   // the mode.
-  template<CompletionInvocable FN>
-  [[nodiscard]] completion_token
-  submit_timeout(flagged_timeout&& timeout, FN&& cb, size_t cqe_count = 0) {
-    if (!timeout.ts.is_valid()) return {};
-    auto [cbtoken, timeout_ptr] = wrap_completion_fn_and_timeout_ptr(
-        std::forward<FN>(cb), std::move(timeout));
+  [[nodiscard]] completion_token submit_timeout(flagged_timeout&& timeout,
+      CompletionInvocable auto&& cb, size_t cqe_count = 0) {
+    if (!timeout.is_valid()) return {};
+    auto [cbtoken, timeout_ptr] =
+        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(timeout));
     if (!submit_timeout(*timeout_ptr, cbtoken, cqe_count,
             slot_retention::automatic))
       return {};
@@ -798,7 +835,7 @@ public:
     if (!cbtoken.is_valid()) return false;
     auto fn = [this, &timeout, cbtoken, cqe_count, on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [&timeout, cqe_count](iou_sqe sqe) {
-        sqe.prep_timeout(&timeout.ts, timeout.flags, cqe_count);
+        sqe.prep_timeout(&timeout.when.ts, timeout.when.flags, cqe_count);
       });
     };
     return execute_or_post_with_retry(std::move(fn));
@@ -810,8 +847,9 @@ public:
 
   // Submit an async timeout removal.
   [[nodiscard]] completion_token submit_timeout_remove(
-      completion_token cancelation_token, completion_fn&& cb) {
-    const auto cbtoken = tokenize(std::move(cb));
+      completion_token cancelation_token) {
+    const auto cbtoken =
+        tokenize(make_release_fn(std::move(cancelation_token)));
     if (!submit_timeout_remove(cancelation_token, cbtoken,
             slot_retention::automatic))
       return {};
@@ -836,16 +874,16 @@ public:
   //
 
   // Submit an async timeout update. The meaning of `new_timeout` depends on
-  // the mode. The `new_timeout` must remain valid until cancelation.
+  // the mode. The `timeout` must remain valid until cancelation.
   [[nodiscard]] bool submit_timeout_update(completion_token update_token,
-      flagged_timeout& new_timeout,
+      flagged_timeout& timeout,
       slot_retention on_fail = slot_retention::retain) {
     if (!update_token.is_valid()) return false;
-    auto fn = [this, update_token, &new_timeout, on_fail]() mutable {
+    auto fn = [this, update_token, &timeout, on_fail]() mutable {
       return do_submit(update_token, on_fail,
-          [update_token, &new_timeout](iou_sqe sqe) {
-            sqe.prep_timeout_update(&new_timeout.ts, update_token,
-                new_timeout.flags);
+          [update_token, &timeout](iou_sqe sqe) {
+            sqe.prep_timeout_update(&timeout.when.ts, update_token,
+                timeout.when.flags);
           });
     };
     return execute_or_post_with_retry(std::move(fn));
@@ -855,11 +893,10 @@ public:
 #pragma region Close
 
   // Submit an async close on `file`. Invalidates `file`.
-  template<CompletionInvocable FN>
-  [[nodiscard]] completion_token
-  submit_close(os_file&& file, FN&& cb, flagged_timeout timeout = {}) {
-    auto [cbtoken, timeout_ptr] = wrap_completion_fn_and_timeout_ptr(
-        std::forward<FN>(cb), std::move(timeout));
+  [[nodiscard]] completion_token submit_close(os_file&& file,
+      CompletionInvocable auto&& cb, flagged_timeout timeout = {}) {
+    auto [cbtoken, timeout_ptr] =
+        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(timeout));
     if (!submit_close(std::move(file), cbtoken, timeout_ptr,
             slot_retention::automatic))
       return {};
@@ -868,17 +905,18 @@ public:
 
   // Submit an async close on `file`. Invalidates `file`. Note that `timeout`
   // must either be nullptr, point inside the callback, or remain valid until
-  // cancelation
+  // cancelation.
   [[nodiscard]] bool submit_close(os_file&& file, completion_token cbtoken,
       flagged_timeout* timeout = nullptr,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken.is_valid()) return false;
     if (!file) return fail_and_maybe_release(on_fail, cbtoken);
-    auto fn =
-        [this, fd = file.release(), cbtoken, timeout, on_fail]() mutable {
-          return do_submit_timeout(cbtoken, timeout, on_fail,
-              [fd](iou_sqe sqe) { sqe.prep_close(fd); });
-        };
+    combined_timespec* tsf = timeout ? &timeout->when : nullptr;
+    auto fn = [this, fd = file.release(), cbtoken, tsf, on_fail]() mutable {
+      return do_submit_timeout(cbtoken, tsf, on_fail, [fd](iou_sqe sqe) {
+        sqe.prep_close(fd);
+      });
+    };
     return execute_or_post_with_retry(std::move(fn));
   }
 
@@ -913,44 +951,42 @@ public:
 #pragma region Accept
 
   // Submit an async accept on `socket`.
-  template<typename FN>
-  [[nodiscard]] completion_token submit_accept(const os_file& socket, FN&& cb,
-      flagged_timeout_endpoint endpoint = {},
-      socket_type flags = socket_type::nonblock_cloexec) {
-    auto [cbtoken, endpoint_ptr] = wrap_endpoint_completion_fn_and_ptr(
-        std::forward<FN>(cb), std::move(endpoint));
+  [[nodiscard]] completion_token submit_accept(const os_file& socket,
+      EndpointCompletionInvocable auto&& cb,
+      flagged_timeout_endpoint endpoint = {}) {
+    auto [cbtoken, endpoint_ptr] = wrap_timed_endpoint_completion_fn_and_ptr(
+        std::move(cb), std::move(endpoint));
     if (!submit_accept(socket, *endpoint_ptr, cbtoken,
-            slot_retention::automatic, flags))
+            slot_retention::automatic))
       return {};
     return cbtoken;
   }
 
-  // Submit an async accept on `socket`. Note that `timeout` must either point
+  // Submit an async accept on `socket`. Note that `endpoint` must either point
   // inside the callback or remain valid until cancelation.
   [[nodiscard]] bool submit_accept(const os_file& socket,
       flagged_timeout_endpoint& endpoint, completion_token cbtoken,
-      slot_retention on_fail = slot_retention::retain,
-      socket_type flags = socket_type::nonblock_cloexec) {
+      slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken.is_valid()) return false;
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
-    auto fn =
-        [this, fd = *socket, flags, cbtoken, &endpoint, on_fail]() mutable {
-          return do_submit_timeout(cbtoken, &endpoint.ts, on_fail,
-              [fd, flags](iou_sqe sqe) { sqe.prep_accept(fd, flags); });
-        };
+    auto fn = [this, fd = *socket, &endpoint, cbtoken, on_fail]() mutable {
+      return do_submit_timeout(cbtoken, &endpoint.when, on_fail,
+          [fd, &endpoint](iou_sqe sqe) {
+            sqe.prep_accept(fd, &endpoint.sockaddr);
+          });
+    };
     return execute_or_post_with_retry(std::move(fn));
   }
 
   // Submit a multishot async accept on `socket`.
   [[nodiscard]] bool submit_accept_multishot(const os_file& socket,
-      completion_token cbtoken,
-      slot_retention on_fail = slot_retention::retain,
-      socket_type flags = socket_type::nonblock_cloexec) {
+      combined_endpoint& endpoint, completion_token cbtoken,
+      slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken.is_valid()) return false;
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
-    auto fn = [this, fd = *socket, flags, cbtoken, on_fail]() mutable {
-      return do_submit(cbtoken, on_fail, [fd, flags](iou_sqe sqe) {
-        sqe.prep_accept_multishot(fd, flags);
+    auto fn = [this, fd = *socket, &endpoint, cbtoken, on_fail]() mutable {
+      return do_submit(cbtoken, on_fail, [fd, &endpoint](iou_sqe sqe) {
+        sqe.prep_accept_multishot(fd, &endpoint);
       });
     };
     return execute_or_post_with_retry(std::move(fn));
@@ -960,26 +996,28 @@ public:
 
   // Submit an async connect on `socket` to `endpoint`.
   [[nodiscard]] completion_token submit_connect(const os_file& socket,
-      const net_endpoint* endpoint, completion_fn&& cb,
-      iou_timespec* timeout = nullptr) {
-    const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_connect(socket, endpoint, cbtoken, timeout,
+      flagged_timeout_endpoint&& remote, completion_fn&& cb) {
+    auto [cbtoken, endpoint_ptr] =
+        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(remote));
+    if (!submit_connect(socket, *endpoint_ptr, cbtoken,
             slot_retention::automatic))
       return {};
     return cbtoken;
   }
 
-  // Submit an async connect on `socket` to `endpoint`.
+  // Submit an async connect on `socket` to `remote`. `remote` must point
+  // inside the callback or remain valid until cancelation.
   [[nodiscard]] bool submit_connect(const os_file& socket,
-      const net_endpoint* endpoint, completion_token cbtoken,
-      iou_timespec* timeout, slot_retention on_fail = slot_retention::retain) {
+      flagged_timeout_endpoint& remote, completion_token cbtoken,
+      slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken.is_valid()) return false;
-    if (!socket || !endpoint) return fail_and_maybe_release(on_fail, cbtoken);
-    auto fn =
-        [this, fd = *socket, endpoint, cbtoken, timeout, on_fail]() mutable {
-          return do_submit_timeout(cbtoken, timeout, on_fail,
-              [fd, endpoint](iou_sqe sqe) { sqe.prep_connect(fd, endpoint); });
-        };
+    if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = *socket, &remote, cbtoken, on_fail]() mutable {
+      return do_submit_timeout(cbtoken, &remote.when, on_fail,
+          [fd, &remote](iou_sqe sqe) {
+            sqe.prep_connect(fd, &remote.sockaddr.sockaddr);
+          });
+    };
     return execute_or_post_with_retry(std::move(fn));
   }
 
@@ -987,22 +1025,22 @@ public:
 #pragma region CancelFile
 
   // Submit an async cancel on `file`. Cancels all ops for the file.
-  [[nodiscard]] completion_token submit_cancel(const os_file& file,
-      completion_fn&& cb, iou_timespec* timeout = nullptr) {
+  [[nodiscard]] completion_token
+  submit_cancel(const os_file& file, completion_fn&& cb) {
     const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_cancel(file, cbtoken, timeout, slot_retention::automatic))
-      return {};
+    if (!submit_cancel(file, cbtoken, slot_retention::automatic)) return {};
     return cbtoken;
   }
 
-  // Submit an async cancel on `file`.
+  // Submit an async cancel on `file`. Note that `timeout` must either point
+  // inside the callback or remain valid until cancelation.
   [[nodiscard]] bool submit_cancel(const os_file& file,
-      completion_token cbtoken, iou_timespec* timeout = nullptr,
+      completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken.is_valid()) return false;
     if (!file) return fail_and_maybe_release(on_fail, cbtoken);
-    auto fn = [this, fd = *file, cbtoken, timeout, on_fail]() mutable {
-      return do_submit_timeout(cbtoken, timeout, on_fail, [fd](iou_sqe sqe) {
+    auto fn = [this, fd = *file, cbtoken, on_fail]() mutable {
+      return do_submit(cbtoken, on_fail, [fd](iou_sqe sqe) {
         sqe.prep_cancel_fd(fd);
       });
     };
@@ -1014,26 +1052,23 @@ public:
 
   // Submit an async cancel on `cancelation_token`.
   [[nodiscard]] completion_token
-  submit_cancel(completion_token cancelation_token, completion_fn&& cb,
-      iou_timespec* timeout = nullptr) {
+  submit_cancel(completion_token cancelation_token, completion_fn&& cb) {
     const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_cancel(cancelation_token, cbtoken, timeout,
-            slot_retention::automatic))
+    if (!submit_cancel(cancelation_token, cbtoken, slot_retention::automatic))
       return {};
     return cbtoken;
   }
 
   // Submit an async cancel on `cancelation_token`.
   [[nodiscard]] bool submit_cancel(completion_token cancelation_token,
-      completion_token cbtoken, iou_timespec* timeout = nullptr,
+      completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken.is_valid()) return false;
     if (!cancelation_token) return fail_and_maybe_release(on_fail, cbtoken);
-    auto fn = [this, cancelation_token, cbtoken, timeout, on_fail]() mutable {
-      return do_submit_timeout(cbtoken, timeout, on_fail,
-          [cancelation_token](iou_sqe sqe) {
-            sqe.prep_cancel_user_data(cancelation_token.as_int());
-          });
+    auto fn = [this, cancelation_token, cbtoken, on_fail]() mutable {
+      return do_submit(cbtoken, on_fail, [cancelation_token](iou_sqe sqe) {
+        sqe.prep_cancel_user_data(cancelation_token.as_int());
+      });
     };
     return execute_or_post_with_retry(std::move(fn));
   }
@@ -1045,17 +1080,19 @@ public:
   //
   // Prefer `submit_recv_buffer` over this.
   [[nodiscard]] completion_token submit_recv_bytes(const os_file& socket,
-      span_t span, completion_fn&& cb, iou_timespec* timeout = nullptr) {
-    const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_recv_bytes(socket, span, cbtoken, timeout,
+      span_t span, completion_fn&& cb, flagged_timeout timeout = {}) {
+    auto [cbtoken, timeout_ptr] =
+        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(timeout));
+    if (!submit_recv_bytes(socket, span, cbtoken, &timeout_ptr->when,
             slot_retention::automatic))
       return {};
     return cbtoken;
   }
 
-  // Submit an async recvmsg on `socket`.
+  // Submit an async recvmsg on `socket`. Note that `timeout` must either be
+  // null, inside the callback, or remain valid until cancelation.
   [[nodiscard]] bool submit_recv_bytes(const os_file& socket, span_t span,
-      completion_token cbtoken, iou_timespec* timeout = nullptr,
+      completion_token cbtoken, combined_timespec* timeout = nullptr,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
     if (!cbtoken.is_valid()) return false;
     if (!socket || span.empty())
@@ -1075,18 +1112,20 @@ public:
   //
   // Prefer `submit_send_buffer` over this.
   [[nodiscard]] completion_token submit_send_bytes(const os_file& socket,
-      const_span_t span, completion_fn&& cb, iou_timespec* timeout = nullptr) {
-    const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_send_bytes(socket, span, cbtoken, timeout,
+      const_span_t span, completion_fn&& cb, flagged_timeout timeout = {}) {
+    auto [cbtoken, timeout_ptr] =
+        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(timeout));
+    if (!submit_send_bytes(socket, span, cbtoken, &timeout_ptr->when,
             slot_retention::automatic))
       return {};
     return cbtoken;
   }
 
-  // Submit an async send on `socket`.
+  // Submit an async send on `socket`. Note that `timeout` must either be null,
+  // inside the callback, or remain valid until cancelation.
   [[nodiscard]] bool submit_send_bytes(const os_file& socket,
       const_span_t span, completion_token cbtoken,
-      iou_timespec* timeout = nullptr,
+      combined_timespec* timeout = nullptr,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
     if (!cbtoken.is_valid()) return false;
     if (!socket || span.empty())
@@ -1107,10 +1146,11 @@ public:
 
   // Submit an async recvmsg on `socket`.
   [[nodiscard]] completion_token submit_recvmsg(const os_file& socket,
-      msghdr* msg, completion_fn&& cb, iou_timespec* timeout = nullptr,
+      msghdr* msg, completion_fn&& cb, flagged_timeout timeout = {},
       msg_flags flags = {}) {
-    const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_recvmsg(socket, msg, cbtoken, timeout,
+    auto [cbtoken, timeout_ptr] =
+        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(timeout));
+    if (!submit_recvmsg(socket, msg, cbtoken, &timeout_ptr->when,
             slot_retention::automatic, flags))
       return {};
     return cbtoken;
@@ -1118,7 +1158,7 @@ public:
 
   // Submit an async recvmsg on `socket`.
   [[nodiscard]] bool submit_recvmsg(const os_file& socket, msghdr* msg,
-      completion_token cbtoken, iou_timespec* timeout = nullptr,
+      completion_token cbtoken, combined_timespec* timeout = nullptr,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
     if (!cbtoken.is_valid()) return false;
     if (!socket || !msg) return fail_and_maybe_release(on_fail, cbtoken);
@@ -1138,10 +1178,11 @@ public:
 
   // Submit an async sendmsg on `socket`.
   [[nodiscard]] completion_token submit_sendmsg(const os_file& socket,
-      const msghdr* msg, completion_fn&& cb, iou_timespec* timeout = nullptr,
+      const msghdr* msg, completion_fn&& cb, flagged_timeout timeout = {},
       msg_flags flags = msg_flags::nosignal) {
-    const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_sendmsg(socket, msg, cbtoken, timeout,
+    auto [cbtoken, timeout_ptr] =
+        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(timeout));
+    if (!submit_sendmsg(socket, msg, cbtoken, &timeout_ptr->when,
             slot_retention::automatic, flags))
       return {};
     return cbtoken;
@@ -1149,7 +1190,7 @@ public:
 
   // Submit an async sendmsg on `socket`.
   [[nodiscard]] bool submit_sendmsg(const os_file& socket, const msghdr* msg,
-      completion_token cbtoken, iou_timespec* timeout = nullptr,
+      completion_token cbtoken, combined_timespec* timeout = nullptr,
       slot_retention on_fail = slot_retention::retain,
       msg_flags flags = msg_flags::nosignal) {
     if (!cbtoken.is_valid()) return false;
@@ -1338,7 +1379,7 @@ private:
   // If `timeout` specified, links a timeout SQE to it. See warnings about
   // `iou_timespec` lifetime in class documentation.
   [[nodiscard]] bool do_submit_timeout(completion_token cbtoken,
-      flagged_timeout* timeout, slot_retention on_fail,
+      combined_timespec* timeout, slot_retention on_fail,
       std::invocable<iou_sqe> auto&& prep) {
     assert(on_fail != slot_retention::release); // Would be dumb.
     auto do_submit = [&]() {
