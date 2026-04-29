@@ -593,10 +593,13 @@ public:
     return {cbtoken, buf_ptr};
   }
 
-  // Accept the inner `endpoint_completion_fn`-shaped lambda and
-  // `sockaddr_endpoint`, binding them into a `completion_fn`.
+  // Accept the inner `endpoint_completion_fn`-shaped lambda and an endpoint
+  // with a `sockaddr` member (e.g. `sockaddr_endpoint` or
+  // `flagged_timeout_endpoint`), binding them into a `completion_fn`.
+  template<typename EP>
+    requires AddressForwarder<EP> && requires(EP ep) { ep.sockaddr; }
   completion_fn wrap_endpoint_completion_fn(
-      EndpointCompletionInvocable auto&& epcb, sockaddr_endpoint&& endpoint) {
+      EndpointCompletionInvocable auto&& epcb, EP&& endpoint) {
     return [epcb = std::move(epcb),
                endpoint = std::move(endpoint)](completion_id cbhandle,
                iou_res res, iou_cqe_flags flags) mutable -> slot_retention {
@@ -605,43 +608,19 @@ public:
     };
   }
 
-  // Wrap a `endpoint_completion_fn`-shaped lambda and
-  // `sockaddr_endpoint` into a `completion_token` and
-  // `sockaddr_endpoint*`.
-  std::pair<completion_token, sockaddr_endpoint*>
+  // Wrap an `endpoint_completion_fn`-shaped lambda and an endpoint with a
+  // `sockaddr` member (e.g. `sockaddr_endpoint` or
+  // `flagged_timeout_endpoint`) into a `completion_token` and endpoint
+  // pointer.
+  template<typename EP>
+    requires AddressForwarder<EP> && requires(EP ep) { ep.sockaddr; }
+  std::pair<completion_token, EP*>
   wrap_endpoint_completion_fn_and_ptr(EndpointCompletionInvocable auto&& cb,
-      sockaddr_endpoint&& ep) {
-    sockaddr_endpoint* ep_ptr{};
+      EP&& ep) {
+    EP* ep_ptr{};
     ep.forwarding_address() = &ep_ptr;
     const auto cbtoken =
         tokenize(wrap_endpoint_completion_fn(std::move(cb), std::move(ep)));
-    if (ep_ptr) ep_ptr->forwarding_address() = nullptr;
-    return {cbtoken, ep_ptr};
-  }
-
-  // Accept the inner `endpoint_completion_fn`-shaped lambda and
-  // `flagged_timeout_endpoint`, binding them into a `completion_fn`.
-  completion_fn
-  wrap_timed_endpoint_completion_fn(EndpointCompletionInvocable auto&& epcb,
-      flagged_timeout_endpoint&& endpoint) {
-    return [epcb = std::move(epcb),
-               endpoint = std::move(endpoint)](completion_id cbhandle,
-               iou_res res, iou_cqe_flags flags) mutable -> slot_retention {
-      endpoint.sockaddr.len = net_endpoint::max_sockaddr_size;
-      return epcb(cbhandle, res, flags, endpoint.sockaddr);
-    };
-  }
-
-  // Wrap a `endpoint_completion_fn`-shaped lambda and
-  // `flagged_timeout_endpoint` into a `completion_token` and
-  // `flagged_timeout_endpoint*`.
-  std::pair<completion_token, flagged_timeout_endpoint*>
-  wrap_timed_endpoint_completion_fn_and_ptr(
-      EndpointCompletionInvocable auto&& cb, flagged_timeout_endpoint&& ep) {
-    flagged_timeout_endpoint* ep_ptr{};
-    ep.forwarding_address() = &ep_ptr;
-    const auto cbtoken = tokenize(
-        wrap_timed_endpoint_completion_fn(std::move(cb), std::move(ep)));
     if (ep_ptr) ep_ptr->forwarding_address() = nullptr;
     return {cbtoken, ep_ptr};
   }
@@ -954,7 +933,7 @@ public:
   [[nodiscard]] completion_token submit_accept(const os_file& socket,
       EndpointCompletionInvocable auto&& cb,
       flagged_timeout_endpoint endpoint = {}) {
-    auto [cbtoken, endpoint_ptr] = wrap_timed_endpoint_completion_fn_and_ptr(
+    auto [cbtoken, endpoint_ptr] = wrap_endpoint_completion_fn_and_ptr(
         std::move(cb), std::move(endpoint));
     if (!submit_accept(socket, *endpoint_ptr, cbtoken,
             slot_retention::automatic))
