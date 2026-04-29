@@ -105,13 +105,14 @@ concept CompletionInvocable =
     std::is_invocable_r_v<slot_retention, FN, completion_id, iou_res,
         iou_cqe_flags>;
 
-// Concept for any completion lambda, with or without a `combined_endpoint&`
-// parameter. Used as the broad constraint on unified wrap methods; the
-// presence or absence of the endpoint parameter is resolved via `if constexpr`
+// Concept for any completion lambda: plain `completion_fn`, with a
+// `combined_endpoint&`, or with a `buffer&`. Used as the broad constraint on
+// unified wrap methods; the specific branch is resolved via `if constexpr`
 // inside the method.
 template<typename FN>
 concept AnyCompletionInvocable =
-    CompletionInvocable<FN> || EndpointCompletionInvocable<FN>;
+    CompletionInvocable<FN> || EndpointCompletionInvocable<FN> ||
+    BufCompletionInvocable<FN>;
 
 // Concept for `iou_loop::posted_fn` lambda.
 template<typename FN>
@@ -576,43 +577,21 @@ public:
 #pragma endregion
 #pragma region Callbacks
 
-  // Accept the inner `buf_completion_fn`-shaped lambda and `buffer`, binding
-  // them into a `completion_fn`. Does not work with Provided Buffers.
-  completion_fn
-  wrap_buf_completion_fn(BufCompletionInvocable auto&& bufcb, buffer&& buf) {
-    return [bufcb = std::move(bufcb),
-               buf = std::move(buf)](completion_id cbhandle, iou_res res,
-               iou_cqe_flags flags) mutable -> slot_retention {
-      return bufcb(cbhandle, buf.update(res, flags));
-    };
-  }
-
-  // Wrap a `buf_completion_fn`-shaped lambda and `buffer` into a
-  // `completion_token` and `buffer*`.
-  std::pair<completion_token, buffer*> wrap_buf_completion_fn_and_ptr(
-      BufCompletionInvocable auto&& bufcb, buffer&& buf) {
-    buffer* buf_ptr{};
-    buf.forwarding_address() = &buf_ptr;
-    const auto cbtoken =
-        tokenize(wrap_buf_completion_fn(std::move(bufcb), std::move(buf)));
-    if (buf_ptr) buf_ptr->forwarding_address() = nullptr;
-    return {cbtoken, buf_ptr};
-  }
-
   // Bind any `AnyCompletionInvocable`-shaped lambda and `AddressForwarder`
-  // into a `completion_fn`. When `CB` is `EndpointCompletionInvocable`, the
-  // `EP` type must have a `sockaddr` member; it is prepared and forwarded as
-  // an extra argument. Otherwise the callback is called with only the standard
-  // `(completion_id, iou_res, iou_cqe_flags)` parameters.
+  // into a `completion_fn`. Behavior depends on `CB`:
+  // - `EndpointCompletionInvocable`: prepares `ep.sockaddr` and forwards it.
+  //   `EP` must have a `sockaddr` member.
+  // - `BufCompletionInvocable`: calls `ep.update(res, flags)` and forwards
+  //   the result. `EP` must have a matching `update` method.
+  // - `CompletionInvocable`: calls `cb` with only the standard parameters.
   template<AddressForwarder EP, typename CB>
-    requires AnyCompletionInvocable<CB> &&
-             (!EndpointCompletionInvocable<CB> ||
-                 requires(EP ep) { ep.sockaddr; })
+  requires AnyCompletionInvocable<CB>
   completion_fn wrap_completion_fn(CB&& cb, EP&& ep) {
-    return [cb = std::move(cb),
-               ep = std::move(ep)](completion_id cbhandle, iou_res res,
-               iou_cqe_flags flags) mutable -> slot_retention {
-      if constexpr (EndpointCompletionInvocable<CB>) {
+    return [cb = std::move(cb), ep = std::move(ep)](completion_id cbhandle,
+               iou_res res, iou_cqe_flags flags) mutable -> slot_retention {
+      if constexpr (BufCompletionInvocable<CB>) {
+        return cb(cbhandle, ep.update(res, flags));
+      } else if constexpr (EndpointCompletionInvocable<CB>) {
         ep.sockaddr.len = net_endpoint::max_sockaddr_size;
         return cb(cbhandle, res, flags, ep.sockaddr);
       } else {
@@ -624,9 +603,7 @@ public:
   // Bind any `AnyCompletionInvocable`-shaped lambda and `AddressForwarder`
   // into a `completion_token` and `AddressForwarder*`.
   template<AddressForwarder EP, typename CB>
-    requires AnyCompletionInvocable<CB> &&
-             (!EndpointCompletionInvocable<CB> ||
-                 requires(EP ep) { ep.sockaddr; })
+  requires AnyCompletionInvocable<CB>
   std::pair<completion_token, EP*>
   wrap_completion_fn_and_ptr(CB&& cb, EP&& ep) {
     EP* ep_ptr{};
@@ -912,8 +889,8 @@ public:
   [[nodiscard]] completion_token submit_accept(const os_file& socket,
       EndpointCompletionInvocable auto&& cb,
       flagged_timeout_endpoint endpoint = {}) {
-    auto [cbtoken, endpoint_ptr] = wrap_completion_fn_and_ptr(
-        std::move(cb), std::move(endpoint));
+    auto [cbtoken, endpoint_ptr] =
+        wrap_completion_fn_and_ptr(std::move(cb), std::move(endpoint));
     if (!submit_accept(socket, *endpoint_ptr, cbtoken,
             slot_retention::automatic))
       return {};
@@ -1183,8 +1160,8 @@ public:
   template<BufCompletionInvocable FN>
   [[nodiscard]] completion_token
   submit_read_buffer(const os_file& file, buffer&& buf, FN&& bufcb) {
-    const auto [cbtoken, buf_ptr] = wrap_buf_completion_fn_and_ptr(
-        std::forward<FN>(bufcb), std::move(buf));
+    const auto [cbtoken, buf_ptr] =
+        wrap_completion_fn_and_ptr(std::forward<FN>(bufcb), std::move(buf));
     if (!submit_read_buffer(file, *buf_ptr, cbtoken,
             slot_retention::automatic))
       return {};
@@ -1230,8 +1207,8 @@ public:
   template<BufCompletionInvocable FN>
   [[nodiscard]] completion_token
   submit_write_buffer(const os_file& file, buffer&& buf, FN&& bufcb) {
-    const auto [cbtoken, buf_ptr] = wrap_buf_completion_fn_and_ptr(
-        std::forward<FN>(bufcb), std::move(buf));
+    const auto [cbtoken, buf_ptr] =
+        wrap_completion_fn_and_ptr(std::forward<FN>(bufcb), std::move(buf));
     if (!submit_write_buffer(file, *buf_ptr, cbtoken,
             slot_retention::automatic))
       return {};
