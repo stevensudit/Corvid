@@ -1213,9 +1213,9 @@ public:
 
   // Submit an async read_fixed on `file` into a borrowed buffer.
   template<BufCompletionInvocable FN>
-  [[nodiscard]] completion_token
-  submit_read_buffer(const os_file& file, FN&& bufcb,
-      block_size sz = block_size::small, const iou_timespec& timeout = {}) {
+  [[nodiscard]] completion_token submit_read_buffer(const os_file& file,
+      FN&& bufcb, block_size sz = block_size::small,
+      const combined_timespec& timeout = {}) {
     buffer buf = borrow_read_buffer(sz);
     buf.timeout() = timeout;
     return submit_read_buffer(file, std::move(buf), std::forward<FN>(bufcb));
@@ -1317,67 +1317,12 @@ public:
 #pragma endregion
 #pragma region Helpers.
 private:
-  // !!! KILL ME
   // Get an SQE, prepare it via `prep`, attach `cbtoken` as user data, and
   // potentially submit. Note that `cbtoken` is allowed to be `!is_valid` but
   // not released.
   //
   // If `timeout` specified, links a timeout SQE to it. See warnings about
-  // `iou_timespec` lifetime in class documentation.
-  [[nodiscard]] bool do_submit_timeout(completion_token cbtoken,
-      iou_timespec* timeout, slot_retention on_fail,
-      std::invocable<iou_sqe> auto&& prep) {
-    assert(on_fail != slot_retention::release); // Would be dumb.
-    auto do_submit = [&]() {
-      // Must return true to end retries.
-      if (cbtoken.is_valid() && is_released(cbtoken)) return true;
-
-      // Check availability up front and only assert on each.
-      bool use_timeout = timeout && timeout->is_valid();
-      size_t sqe_needed = use_timeout ? 2 : 1;
-      if (!ring_.enough_sqe_available(sqe_needed)) return false;
-
-      // Queue the operation SQE.
-      auto sqe_op = ring_.next_sqe();
-      assert(sqe_op);
-
-      // If timeout, follow it up with a linked timeout SQE.
-      iou_sqe sqe_to;
-
-      if (use_timeout) sqe_to = ring_.next_sqe();
-
-      // Prep the operation.
-      std::forward<decltype(prep)>(prep)(sqe_op);
-
-      // If there's a timeout, link it.
-      if (use_timeout) {
-        assert(sqe_to);
-        sqe_op.set_sqe_flags(iou_sqe_flags::io_link);
-        sqe_to.prep_link_timeout(timeout);
-        // On timeout, `cbtoken` is invoked with `iou_res.err() ==
-        // E_::canceled`. `sqe_to` will also generate a CQE (with
-        // `iou_res.err() == E_::time`), but this will be swallowed.
-        // When the operation fails, then it's the timeout CQE that gets
-        // the `E_canceled`.
-        sqe_to.set_data_pointer(nullptr);
-      }
-
-      // Store as token, "leaking" it.
-      sqe_op.set_data_int(cbtoken.as_int());
-      if (!maybe_submit_pending(sqe_needed)) return false;
-      return true;
-    };
-
-    if (!do_submit()) return fail_and_maybe_release(on_fail, cbtoken);
-    return true;
-  }
-
-  // Get an SQE, prepare it via `prep`, attach `cbtoken` as user data, and
-  // potentially submit. Note that `cbtoken` is allowed to be `!is_valid` but
-  // not released.
-  //
-  // If `timeout` specified, links a timeout SQE to it. See warnings about
-  // `iou_timespec` lifetime in class documentation.
+  // `combined_timespec` lifetime in class documentation.
   [[nodiscard]] bool do_submit_timeout(completion_token cbtoken,
       combined_timespec* timeout, slot_retention on_fail,
       std::invocable<iou_sqe> auto&& prep) {

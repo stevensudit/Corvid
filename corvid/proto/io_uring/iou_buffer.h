@@ -215,7 +215,7 @@ public:
   size_t& pending_releases() noexcept { return pending_releases_; }
 
   // Access timeout associated with this buffer.
-  iou_timespec& timeout() noexcept { return timeout_; }
+  combined_timespec& timeout() noexcept { return timeout_; }
 
   // Return the allocation to the pool immediately; buffer becomes empty.
   void reset() noexcept {
@@ -472,7 +472,7 @@ private:
   size_t pending_releases_{};
   bool is_read_{};
 
-  iou_timespec timeout_;
+  combined_timespec timeout_;
   net_endpoint addr_;
 #if 0
   msghdr msg_;   // TODO: Reconstitute after move.
