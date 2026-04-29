@@ -496,7 +496,7 @@ private:
       return slot_retention::retain;
     };
 
-    auto [cbtoken, endpoint_ptr] = loop_.wrap_endpoint_completion_fn_and_ptr(
+    auto [cbtoken, endpoint_ptr] = loop_.wrap_completion_fn_and_ptr(
         std::move(raw_cb), sockaddr_endpoint{});
 
     // Pretend a CQE arrived, with a soft error that will be ignored. This will

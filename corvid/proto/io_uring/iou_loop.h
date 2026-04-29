@@ -60,8 +60,6 @@ using completion_id = uint64_t;
 // Bindable timeout.
 struct flagged_timeout: public address_forwarder<flagged_timeout> {
   combined_timespec when;
-
-  auto& forwarding_payload() { return when; }
 };
 
 // Bindable endpoint.
@@ -106,6 +104,14 @@ concept CompletionInvocable =
     ConsumableCallback<FN> &&
     std::is_invocable_r_v<slot_retention, FN, completion_id, iou_res,
         iou_cqe_flags>;
+
+// Concept for any completion lambda, with or without a `combined_endpoint&`
+// parameter. Used as the broad constraint on unified wrap methods; the
+// presence or absence of the endpoint parameter is resolved via `if constexpr`
+// inside the method.
+template<typename FN>
+concept AnyCompletionInvocable =
+    CompletionInvocable<FN> || EndpointCompletionInvocable<FN>;
 
 // Concept for `iou_loop::posted_fn` lambda.
 template<typename FN>
@@ -593,69 +599,42 @@ public:
     return {cbtoken, buf_ptr};
   }
 
-  // Accept the inner `endpoint_completion_fn`-shaped lambda and an endpoint
-  // with a `sockaddr` member (e.g. `sockaddr_endpoint` or
-  // `flagged_timeout_endpoint`), binding them into a `completion_fn`.
-  template<typename EP>
-    requires AddressForwarder<EP> && requires(EP ep) { ep.sockaddr; }
-  completion_fn wrap_endpoint_completion_fn(
-      EndpointCompletionInvocable auto&& epcb, EP&& endpoint) {
-    return [epcb = std::move(epcb),
-               endpoint = std::move(endpoint)](completion_id cbhandle,
-               iou_res res, iou_cqe_flags flags) mutable -> slot_retention {
-      endpoint.sockaddr.len = net_endpoint::max_sockaddr_size;
-      return epcb(cbhandle, res, flags, endpoint.sockaddr);
+  // Bind any `AnyCompletionInvocable`-shaped lambda and `AddressForwarder`
+  // into a `completion_fn`. When `CB` is `EndpointCompletionInvocable`, the
+  // `EP` type must have a `sockaddr` member; it is prepared and forwarded as
+  // an extra argument. Otherwise the callback is called with only the standard
+  // `(completion_id, iou_res, iou_cqe_flags)` parameters.
+  template<AddressForwarder EP, typename CB>
+    requires AnyCompletionInvocable<CB> &&
+             (!EndpointCompletionInvocable<CB> ||
+                 requires(EP ep) { ep.sockaddr; })
+  completion_fn wrap_completion_fn(CB&& cb, EP&& ep) {
+    return [cb = std::move(cb),
+               ep = std::move(ep)](completion_id cbhandle, iou_res res,
+               iou_cqe_flags flags) mutable -> slot_retention {
+      if constexpr (EndpointCompletionInvocable<CB>) {
+        ep.sockaddr.len = net_endpoint::max_sockaddr_size;
+        return cb(cbhandle, res, flags, ep.sockaddr);
+      } else {
+        return cb(cbhandle, res, flags);
+      }
     };
   }
 
-  // Wrap an `endpoint_completion_fn`-shaped lambda and an endpoint with a
-  // `sockaddr` member (e.g. `sockaddr_endpoint` or
-  // `flagged_timeout_endpoint`) into a `completion_token` and endpoint
-  // pointer.
-  template<typename EP>
-    requires AddressForwarder<EP> && requires(EP ep) { ep.sockaddr; }
+  // Bind any `AnyCompletionInvocable`-shaped lambda and `AddressForwarder`
+  // into a `completion_token` and `AddressForwarder*`.
+  template<AddressForwarder EP, typename CB>
+    requires AnyCompletionInvocable<CB> &&
+             (!EndpointCompletionInvocable<CB> ||
+                 requires(EP ep) { ep.sockaddr; })
   std::pair<completion_token, EP*>
-  wrap_endpoint_completion_fn_and_ptr(EndpointCompletionInvocable auto&& cb,
-      EP&& ep) {
+  wrap_completion_fn_and_ptr(CB&& cb, EP&& ep) {
     EP* ep_ptr{};
     ep.forwarding_address() = &ep_ptr;
     const auto cbtoken =
-        tokenize(wrap_endpoint_completion_fn(std::move(cb), std::move(ep)));
+        tokenize(wrap_completion_fn(std::move(cb), std::move(ep)));
     if (ep_ptr) ep_ptr->forwarding_address() = nullptr;
     return {cbtoken, ep_ptr};
-  }
-
-  // Wrap a `completion_fn`-shaped lambda and `AddressForwarder` into a
-  // `completion_fn`.
-  // TODO: Generalize to check for `payload`, and forward that as well if it
-  // exists. This would require expanding CompletionInvocable to allow for that
-  // extra parameter based on whether `payload` exists.
-  completion_fn wrap_completion_fn_and_timeout(CompletionInvocable auto&& cb,
-      AddressForwarder auto&& af) {
-    return [wrapcb = std::move(cb), af = std::move(af)](completion_id cbhandle,
-               iou_res res, iou_cqe_flags flags) mutable -> slot_retention {
-      return wrapcb(cbhandle, res, flags);
-    };
-  }
-
-  // Wrap a `completion_fn`-shaped lambda and `AddressForwarder` into a
-  // `completion_token` and `AddressForwarder*`. If the `AddressForwarder` is
-  // invalid, then it will not be wrapped, and the `AddressForwarder*` returned
-  // will be nullptr.
-  template<AddressForwarder AF>
-  std::pair<completion_token, AF*>
-  wrap_completion_fn_and_timeout_ptr(CompletionInvocable auto&& cb, AF&& af) {
-    AF* ptr{};
-    completion_token cbtoken;
-    if (af.is_valid()) {
-      af.forwarding_address() = &ptr;
-      cbtoken = tokenize(
-          wrap_completion_fn_and_timeout(std::move(cb), std::move(af)));
-      ptr->forwarding_address() = nullptr;
-    } else
-      cbtoken = tokenize(std::move(cb));
-
-    return {cbtoken, ptr};
   }
 
 #pragma endregion
@@ -734,7 +713,7 @@ public:
       CompletionInvocable auto&& cb, poll_flags poll_mask = poll_flags::in,
       flagged_timeout timeout = {}) {
     auto [cbtoken, timeout_ptr] =
-        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(timeout));
+        wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
     if (!submit_poll(file, timeout_ptr, cbtoken, poll_mask,
             slot_retention::automatic))
       return {};
@@ -797,7 +776,7 @@ public:
       CompletionInvocable auto&& cb, size_t cqe_count = 0) {
     if (!timeout.is_valid()) return {};
     auto [cbtoken, timeout_ptr] =
-        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(timeout));
+        wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
     if (!submit_timeout(*timeout_ptr, cbtoken, cqe_count,
             slot_retention::automatic))
       return {};
@@ -875,7 +854,7 @@ public:
   [[nodiscard]] completion_token submit_close(os_file&& file,
       CompletionInvocable auto&& cb, flagged_timeout timeout = {}) {
     auto [cbtoken, timeout_ptr] =
-        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(timeout));
+        wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
     if (!submit_close(std::move(file), cbtoken, timeout_ptr,
             slot_retention::automatic))
       return {};
@@ -933,7 +912,7 @@ public:
   [[nodiscard]] completion_token submit_accept(const os_file& socket,
       EndpointCompletionInvocable auto&& cb,
       flagged_timeout_endpoint endpoint = {}) {
-    auto [cbtoken, endpoint_ptr] = wrap_endpoint_completion_fn_and_ptr(
+    auto [cbtoken, endpoint_ptr] = wrap_completion_fn_and_ptr(
         std::move(cb), std::move(endpoint));
     if (!submit_accept(socket, *endpoint_ptr, cbtoken,
             slot_retention::automatic))
@@ -977,7 +956,7 @@ public:
   [[nodiscard]] completion_token submit_connect(const os_file& socket,
       flagged_timeout_endpoint&& remote, completion_fn&& cb) {
     auto [cbtoken, endpoint_ptr] =
-        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(remote));
+        wrap_completion_fn_and_ptr(std::move(cb), std::move(remote));
     if (!submit_connect(socket, *endpoint_ptr, cbtoken,
             slot_retention::automatic))
       return {};
@@ -1061,7 +1040,7 @@ public:
   [[nodiscard]] completion_token submit_recv_bytes(const os_file& socket,
       span_t span, completion_fn&& cb, flagged_timeout timeout = {}) {
     auto [cbtoken, timeout_ptr] =
-        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(timeout));
+        wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
     if (!submit_recv_bytes(socket, span, cbtoken, &timeout_ptr->when,
             slot_retention::automatic))
       return {};
@@ -1093,7 +1072,7 @@ public:
   [[nodiscard]] completion_token submit_send_bytes(const os_file& socket,
       const_span_t span, completion_fn&& cb, flagged_timeout timeout = {}) {
     auto [cbtoken, timeout_ptr] =
-        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(timeout));
+        wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
     if (!submit_send_bytes(socket, span, cbtoken, &timeout_ptr->when,
             slot_retention::automatic))
       return {};
@@ -1128,7 +1107,7 @@ public:
       msghdr* msg, completion_fn&& cb, flagged_timeout timeout = {},
       msg_flags flags = {}) {
     auto [cbtoken, timeout_ptr] =
-        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(timeout));
+        wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
     if (!submit_recvmsg(socket, msg, cbtoken, &timeout_ptr->when,
             slot_retention::automatic, flags))
       return {};
@@ -1160,7 +1139,7 @@ public:
       const msghdr* msg, completion_fn&& cb, flagged_timeout timeout = {},
       msg_flags flags = msg_flags::nosignal) {
     auto [cbtoken, timeout_ptr] =
-        wrap_completion_fn_and_timeout_ptr(std::move(cb), std::move(timeout));
+        wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
     if (!submit_sendmsg(socket, msg, cbtoken, &timeout_ptr->when,
             slot_retention::automatic, flags))
       return {};
