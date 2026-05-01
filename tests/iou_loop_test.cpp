@@ -361,7 +361,7 @@ void IouLoop_SubmitTimeout() {
   // A single-shot timeout fires with `-ETIME` after the specified duration.
   if (true) {
     iou_loop_runner loop;
-    flagged_timeout timeout{
+    bound_timeout timeout{
         .when = {.ts = iou_timespec{50ms}, .flags = iou_timeout_flags::rel}};
     std::atomic_bool fired{false};
     std::atomic_int32_t result{0};
@@ -385,7 +385,7 @@ void IouLoop_SubmitTimeoutMultishot() {
   // A multishot timeout with `cqe_count`=3 fires exactly 3 times then stops.
   if (true) {
     iou_loop_runner loop;
-    flagged_timeout timeout{
+    bound_timeout timeout{
         .when = {.ts = iou_timespec{20ms},
             .flags = iou_timeout_flags::rel | iou_timeout_flags::multishot}};
     std::atomic<int> count{0};
@@ -466,7 +466,7 @@ void IouLoop_SubmitCancelToken() {
     }));
 
     EXPECT_TRUE(loop->post_and_wait([&] {
-      (void)loop->submit_cancel(recv_token,
+      (void)loop->submit_cancel(std::move(recv_token),
           [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
             return slot_retention{};
           });
@@ -509,7 +509,7 @@ void IouLoop_AcceptConnect() {
 
     auto client_sock = net_socket::create_uds();
     EXPECT_TRUE(client_sock);
-    flagged_timeout_endpoint connect_ep{};
+    bound_endpoint_with_timeout connect_ep{};
     connect_ep.sockaddr.sockaddr = ep;
     connect_ep.sockaddr.len = ep.sockaddr_size();
     const auto connect_tok = loop->submit_connect(client_sock,

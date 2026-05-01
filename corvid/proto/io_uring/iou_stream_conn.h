@@ -289,7 +289,7 @@ public:
   // Public only for `std::make_shared`; use `iou_stream_conn_ptr_with`
   // factories instead.
   explicit iou_stream_conn(allow, const std::shared_ptr<iou_loop>& loop,
-      net_socket sock, flagged_timeout_endpoint remote,
+      net_socket sock, bound_endpoint_with_timeout remote,
       iou_stream_conn_handlers h, std::optional<connection_role> role,
       coordination_policy shutdown, block_size recv_buf_size,
       block_size send_buf_size)
@@ -326,7 +326,7 @@ protected:
   accept_clone(net_socket&& sock, const net_endpoint& remote) const {
     auto lp = weak_loop_.lock();
     if (!lp) return nullptr;
-    flagged_timeout_endpoint remote_ep{};
+    bound_endpoint_with_timeout remote_ep{};
     remote_ep.sockaddr.sockaddr = remote;
     remote_ep.sockaddr.len = remote.sockaddr_size();
 
@@ -341,7 +341,7 @@ private:
   net_socket sock_;
 
   std::mutex endpoint_mutex_; // protects lazy initialization of endpoints.
-  flagged_timeout_endpoint remote_; // Use `remote_endpoint()`.
+  bound_endpoint_with_timeout remote_; // Use `remote_endpoint()`.
   net_endpoint local_; // Always access through `local_endpoint()` JIT.
 
   iou_stream_conn_handlers own_handlers_;
@@ -466,7 +466,7 @@ private:
   bool do_submit_connect() {
     assert(loop_.is_loop_thread() && connecting_);
     // TODO: Store cancelation token.
-    flagged_timeout_endpoint ep;
+    bound_endpoint_with_timeout ep;
     ep.when = remote_.when;
     ep.sockaddr = remote_.sockaddr;
     auto token = loop_.submit_connect(sock_, std::move(ep),
@@ -478,8 +478,7 @@ private:
     return token.is_valid();
   }
 
-  // Submit a multishot accept operation. The callback fires for every accepted
-  // connection without re-arming; the kernel re-arms automatically.
+  // Submit a multishot accept operation.
   bool do_submit_accept() {
     assert(loop_.is_loop_thread() && listening_);
     // Set up a callback that resubmits itself, and use it too bootstrap the
@@ -496,8 +495,8 @@ private:
       return slot_retention::retain;
     };
 
-    auto [cbtoken, endpoint_ptr] = loop_.wrap_completion_fn_and_ptr(
-        std::move(raw_cb), sockaddr_endpoint{});
+    auto [cbtoken, endpoint_ptr] =
+        loop_.wrap_completion_fn_and_ptr(std::move(raw_cb), bound_endpoint{});
 
     // Pretend a CQE arrived, with a soft error that will be ignored. This will
     // get it to submit itself.
@@ -860,7 +859,7 @@ private:
       block_size recv_buf_size = block_size::small,
       block_size send_buf_size = block_size::small) {
     assert(loop.get());
-    flagged_timeout_endpoint ep;
+    bound_endpoint_with_timeout ep;
     ep.sockaddr.sockaddr = remote;
     ep.sockaddr.len = remote.sockaddr_size();
     auto conn = std::make_shared<T>(iou_stream_conn::allow::ctor, loop,
@@ -896,7 +895,7 @@ public:
 
   explicit iou_stream_conn_with_state(allow a,
       const std::shared_ptr<iou_loop>& loop, net_socket sock,
-      flagged_timeout_endpoint remote, iou_stream_conn_handlers h,
+      bound_endpoint_with_timeout remote, iou_stream_conn_handlers h,
       std::optional<connection_role> role = {},
       coordination_policy shutdown = coordination_policy::unilateral,
       block_size recv_buf_size = block_size::small,
@@ -919,7 +918,7 @@ protected:
   accept_clone(net_socket&& sock, const net_endpoint& remote) const override {
     auto loop = weak_loop_.lock();
     if (!loop) return nullptr;
-    flagged_timeout_endpoint ep;
+    bound_endpoint_with_timeout ep;
     ep.sockaddr.sockaddr = remote;
     ep.sockaddr.len = remote.sockaddr_size();
     return std::make_shared<iou_stream_conn_with_state<state_t>>(allow::ctor,

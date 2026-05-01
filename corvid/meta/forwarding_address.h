@@ -56,6 +56,9 @@ public:
 
   [[nodiscard]] bool is_valid() const noexcept { return true; }
 
+  // The clang-tidy warning is generally good advice, but it also blocks
+  // compilation.
+  // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility)
   address_forwarder() = default;
 
 protected:
