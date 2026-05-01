@@ -1217,7 +1217,6 @@ public:
 #pragma endregion
 #pragma region WriteBuffer
 
-  //
   // Write from buffers to `os_file`.
   //
   // Works with sockets or files. Files interact with `buffer::file_offset` For

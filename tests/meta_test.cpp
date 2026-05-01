@@ -632,6 +632,146 @@ void MetaTest_MaybeTypes() {
   EXPECT_EQ(sizeof(NoExtraSpace), sizeof(Baseline));
 }
 
+// address_forwarder
+
+struct Trackable: public address_forwarder<Trackable> {
+  int value{};
+  explicit Trackable(int v) : value{v} {}
+  friend std::ostream& operator<<(std::ostream& os, const Trackable& t) {
+    return os << "Trackable{" << t.value << "}";
+  }
+};
+
+static_assert(AddressForwarder<Trackable>);
+static_assert(!AddressForwarder<int>);
+
+void MetaTest_AddressForwarder_Basic() {
+  Trackable t{42};
+  EXPECT_TRUE(t.is_valid());
+  EXPECT_EQ(t.forwarding_address(), nullptr);
+}
+
+void MetaTest_AddressForwarder_Track() {
+  Trackable* ptr{};
+  {
+    Trackable t{7};
+    ptr = &t;                      // set initial value manually
+    t.forwarding_address() = &ptr; // register for future updates
+    EXPECT_EQ(ptr, &t);
+  }
+  // Destruction writes nullptr through the registered pointer.
+  EXPECT_EQ(ptr, nullptr);
+}
+
+void MetaTest_AddressForwarder_MoveConstruct() {
+  Trackable* ptr{};
+  Trackable a{1};
+  ptr = &a;
+  a.forwarding_address() = &ptr;
+  EXPECT_EQ(ptr, &a);
+
+  Trackable b{std::move(a)};
+  // Move construction updates `ptr` to the new location.
+  EXPECT_EQ(ptr, &b);
+  // Source no longer holds the forwarding address slot.
+  EXPECT_EQ(a.forwarding_address(), nullptr);
+}
+
+void MetaTest_AddressForwarder_MoveAssign() {
+  Trackable* ptr{};
+  Trackable a{2};
+  ptr = &a;
+  a.forwarding_address() = &ptr;
+  EXPECT_EQ(ptr, &a);
+
+  Trackable b{99};
+  b = std::move(a);
+  EXPECT_EQ(ptr, &b);
+  EXPECT_EQ(a.forwarding_address(), nullptr);
+
+  // Clearing the forwarding address on `b` stops future tracking, but does
+  // not touch the external `ptr` variable itself.
+  b.forwarding_address() = nullptr;
+  EXPECT_EQ(ptr, &b);
+}
+
+void MetaTest_AddressForwarder_SelfAssign() {
+  Trackable* ptr{};
+  Trackable a{3};
+  ptr = &a;
+  a.forwarding_address() = &ptr;
+
+  // Self-assignment must not corrupt state.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wself-move"
+  a = std::move(a);
+#pragma clang diagnostic pop
+  // After self-move `ptr` still points to `a`.
+  EXPECT_EQ(ptr, &a);
+}
+
+void MetaTest_AddressForwarder_DestroySource() {
+  Trackable* ptr{};
+  Trackable b{0};
+  {
+    Trackable a{5};
+    ptr = &a;
+    a.forwarding_address() = &ptr;
+    b = std::move(a);
+    // `a` no longer owns the slot; destroying it must not null `ptr`.
+  }
+  EXPECT_EQ(ptr, &b);
+  b.forwarding_address() = nullptr;
+}
+
+// Derived type with a custom move constructor that uses `as_base_move()`.
+struct Trackable2: public address_forwarder<Trackable2> {
+  int value{};
+  explicit Trackable2(int v) : value{v} {}
+  Trackable2(Trackable2&& o) noexcept
+      : address_forwarder{o.as_base_move()}, value{o.value} {}
+  Trackable2& operator=(Trackable2&&) = default;
+  friend std::ostream& operator<<(std::ostream& os, const Trackable2& t) {
+    return os << "Trackable2{" << t.value << "}";
+  }
+};
+
+void MetaTest_AddressForwarder_AsBaseMove() {
+  Trackable2* ptr{};
+  Trackable2 a{8};
+  ptr = &a;
+  a.forwarding_address() = &ptr;
+  EXPECT_EQ(ptr, &a);
+
+  Trackable2 b{std::move(a)};
+  EXPECT_EQ(ptr, &b);
+  EXPECT_EQ(a.forwarding_address(), nullptr);
+}
+
+void MetaTest_AddressForwarder_BoundFunction() {
+  // Primary use case: an object is moved into a `std::function` closure, and
+  // a pointer registered before the move chain tracks it to its final home.
+  Trackable* ptr{};
+  Trackable t{99};
+  t.forwarding_address() = &ptr;
+  // ptr is still null here; each move in the chain below will update it.
+
+  std::function<int()> fn = [t = std::move(t)]() mutable { return t.value; };
+
+  // ptr now points to `t` inside fn's internal storage.
+  EXPECT_NE(ptr, nullptr);
+  EXPECT_EQ(ptr->value, 99);
+
+  // fn() and ptr refer to the same object.
+  EXPECT_EQ(fn(), 99);
+  ptr->value = 42;
+  EXPECT_EQ(fn(), 42);
+
+  // Clear forwarding so fn's destructor does not write through the soon-to-be
+  // dangling &ptr.
+  ptr->forwarding_address() = nullptr;
+}
+
 MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
     MetaTest_EnumHighestValueInNBits, MetaTest_EnumPow2,
     MetaTest_SpanConstness, MetaTest_FunctionVoidReturn,
@@ -639,7 +779,12 @@ MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
     MetaTest_IsPair, MetaTest_ContainerElement, MetaTest_KeyFind,
     MetaTest_TypeName, MetaTest_StringViewConvertible, MetaTest_Number,
     MetaTest_Tuple, MetaTest_Detection, MetaTest_Underlying,
-    MetaTest_Streamable, MetaTest_MaybeTypes);
+    MetaTest_Streamable, MetaTest_MaybeTypes, MetaTest_AddressForwarder_Basic,
+    MetaTest_AddressForwarder_Track, MetaTest_AddressForwarder_MoveConstruct,
+    MetaTest_AddressForwarder_MoveAssign, MetaTest_AddressForwarder_SelfAssign,
+    MetaTest_AddressForwarder_DestroySource,
+    MetaTest_AddressForwarder_AsBaseMove,
+    MetaTest_AddressForwarder_BoundFunction);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

@@ -126,7 +126,7 @@ class iou_stream_conn_ptr_with;
 
 // An `iou_stream_conn` is a non-blocking stream socket driven by an
 // `iou_loop`. Instances are created, directly or indirectly, by
-// `iou_stream_conn_ptr_with` factories, and registered with the loop.
+// `iou_stream_conn_ptr_with` factories.
 //
 /// Supports three creation paths:
 //
@@ -157,7 +157,9 @@ public:
 
 #pragma region Accessors
 
-  // True if the connection has not yet been closed.
+  // True if the connection has not yet been closed. Safe to call from any
+  // thread, but there's no guarantee that a connection will remain open, while
+  // a closed one will remain closed.
   [[nodiscard]] bool is_open() const noexcept { return open_; }
 
   // The remote peer address. For accepted connections, computed lazily via
@@ -179,25 +181,24 @@ public:
   }
 
   // The `iou_loop` that drives this connection. Valid for the lifetime of
-  // the connection. Loop-thread-only for mutation operations; reads are safe
-  // from any thread, provided the connection is still alive.
+  // the connection.
   [[nodiscard]] iou_loop& loop() noexcept { return loop_; }
 
-  // Return a weak pointer to the loop. The reason for this is to handle an
-  // edge case that would lead to a crash during shutdown.
+  // Return a weak pointer to the loop. This is to handle an edge case that
+  // would lead to a crash during shutdown.
   //
-  // Consider what happens if the connection is closed and the loop
-  // is destroyed, but you have a callback running on some arbitrary thread
-  // that kept this connection instance alive through its `shared_ptr`. If you
-  // then call it and it tries to post to the loop, things will go badly.
-  // Instead, you can attempt to upgrade the weak pointer, ensuring that the
-  // loop is still alive.
+  // Consider what happens if the connection is closed and the loop is
+  // destroyed, but you have a callback running on some arbitrary thread that
+  // kept this connection instance alive through its `shared_ptr`. If you then
+  // call it and it tries to post to the loop, things will go badly. Instead,
+  // you can attempt to upgrade the weak pointer, ensuring that the loop is
+  // still alive.
   [[nodiscard]] std::weak_ptr<iou_loop> weak_loop() const noexcept {
     return weak_loop_;
   }
 
   //
-  // Block size for borrowed buffers.
+  // Block size for borrowed buffers. Thread-safe, but inherently racy.
   //
 
   [[nodiscard]] block_size recv_buf_size() const noexcept {
