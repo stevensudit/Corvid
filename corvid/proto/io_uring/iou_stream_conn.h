@@ -510,16 +510,12 @@ private:
     if (!open_->exchange(false, std::memory_order::relaxed)) return false;
     send_queue_.clear();
     close_requested_ = false;
-    if (sock_) {
-      (void)loop_.submit_cancel(sock_,
-          [p = self()](completion_id, iou_res, iou_cqe_flags) {
-            return slot_retention{};
-          });
+    if (sock_)
       (void)loop_.submit_close(std::move(sock_),
           [p = self()](completion_id, iou_res, iou_cqe_flags) {
             return slot_retention{};
           });
-    }
+
     return notify_close_once();
   }
 
@@ -532,10 +528,6 @@ private:
     if (sock_) {
       (void)sock_.set_option(socket_option::linger,
           linger{.l_onoff = 1, .l_linger = 0});
-      (void)loop_.submit_cancel(sock_,
-          [p = self()](completion_id, iou_res, iou_cqe_flags) {
-            return slot_retention{};
-          });
       (void)loop_.submit_close(std::move(sock_),
           [p = self()](completion_id, iou_res, iou_cqe_flags) {
             return slot_retention{};

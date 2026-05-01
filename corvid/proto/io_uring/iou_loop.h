@@ -851,32 +851,24 @@ public:
 #pragma endregion
 #pragma region Close
 
-  // Submit an async close on `file`. Invalidates `file`.
-  [[nodiscard]] completion_token submit_close(os_file&& file,
-      CompletionInvocable auto&& cb, bound_timeout timeout = {}) {
-    auto [cbtoken, timeout_ptr] =
-        wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
-    if (!submit_close(std::move(file), cbtoken, timeout_ptr,
-            slot_retention::automatic))
-      return {};
-    return cbtoken;
-  }
-
-  // Submit an async close on `file`. Invalidates `file`. Note that `timeout`
-  // must either be nullptr, point inside the callback, or remain valid until
-  // cancelation.
-  [[nodiscard]] bool submit_close(os_file&& file, completion_token cbtoken,
-      bound_timeout* timeout = nullptr,
-      slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
-    if (!file) return fail_and_maybe_release(on_fail, cbtoken);
-    combined_timespec* tsf = timeout ? &timeout->when : nullptr;
-    auto fn = [this, fd = file.release(), cbtoken, tsf, on_fail]() mutable {
-      return do_submit_timeout(cbtoken, tsf, on_fail, [fd](iou_sqe sqe) {
-        sqe.prep_close(fd);
-      });
+  // Submit a cancel-then-close as a hard-linked pair. The cancel SQE runs
+  // first; its CQE is swallowed regardless of outcome. The close SQE starts
+  // only after the cancel completes. whether it succeeds or fails. This
+  // sequencing prevents the possibility of the cancel being processed after
+  // the close, which would lead canceling on a reused FD.
+  // Invalidates `file`.
+  [[nodiscard]] completion_token
+  submit_close(os_file&& file, CompletionInvocable auto&& cb) {
+    if (!file) return {};
+    const auto cbtoken = tokenize(std::move(cb));
+    auto fn = [this, fd = file.release(), cbtoken,
+                  on_fail = slot_retention::automatic]() mutable {
+      return do_submit_hardlinked(
+          cbtoken, on_fail, [fd](iou_sqe sqe) { sqe.prep_cancel_fd(fd); },
+          [fd](iou_sqe sqe) { sqe.prep_close(fd); });
     };
-    return execute_or_post_with_retry(std::move(fn));
+    if (!execute_or_post_with_retry(std::move(fn))) return {};
+    return cbtoken;
   }
 
 #pragma endregion
@@ -1338,6 +1330,37 @@ private:
       // Store as token, "leaking" it.
       sqe_op.set_data_int(cbtoken.as_int());
       if (!maybe_submit_pending(sqe_needed)) return false;
+      return true;
+    };
+
+    if (!do_submit()) return fail_and_maybe_release(on_fail, cbtoken);
+    return true;
+  }
+
+  // Submit two hard-linked SQEs atomically, so that they run in sequence but
+  // the second executes regardless of the first's result. `prep_first` runs
+  // with `io_hardlink` set and a null user-data (its CQE is swallowed).
+  // `prep_second` carries `cbtoken`.
+  [[nodiscard]] bool do_submit_hardlinked(completion_token cbtoken,
+      slot_retention on_fail, std::invocable<iou_sqe> auto&& prep_first,
+      std::invocable<iou_sqe> auto&& prep_second) {
+    assert(is_loop_thread());
+    auto do_submit = [&]() {
+      if (cbtoken.is_valid() && is_released(cbtoken)) return true;
+      if (!ring_.enough_sqe_available(2)) return false;
+
+      auto sqe_first = ring_.next_sqe();
+      auto sqe_second = ring_.next_sqe();
+      assert(sqe_first && sqe_second);
+
+      std::forward<decltype(prep_first)>(prep_first)(sqe_first);
+      sqe_first.set_sqe_flags(iou_sqe_flags::io_hardlink);
+      sqe_first.set_data_pointer(nullptr); // CQE swallowed.
+
+      std::forward<decltype(prep_second)>(prep_second)(sqe_second);
+      sqe_second.set_data_int(cbtoken.as_int());
+
+      if (!maybe_submit_pending(2)) return false;
       return true;
     };
 

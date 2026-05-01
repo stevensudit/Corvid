@@ -386,7 +386,8 @@ void IouStreamConn_FullBufferRedelivery() {
     EXPECT_TRUE(send_conn);
 
     EXPECT_TRUE(send_conn->send(std::string(buf_size, 'x')));
-    EXPECT_TRUE(WaitFor([&] { return done.load(std::memory_order::acquire); }));
+    EXPECT_TRUE(
+        WaitFor([&] { return done.load(std::memory_order::acquire); }));
     EXPECT_EQ(full_deliveries.load(std::memory_order::acquire), 2);
   }
 }
