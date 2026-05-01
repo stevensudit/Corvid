@@ -388,11 +388,9 @@ private:
   // re-delivers any remaining payload first, then gets a fresh buffer.
   bool do_continue_recv(buffer&& buf) {
     assert(loop_.is_loop_thread() && !recv_in_flight_);
-    // Space remains in this buffer; resubmit for more data.
+    // Space remains in this buffer, perhaps because the contents have been
+    // fully consumed and the buffer has reset itself.
     if (!buf.active_span().empty()) return do_submit_recv(std::move(buf));
-
-    // Buffer fully consumed and reset to initial read state: fresh recv.
-    if (buf.payload_span().empty()) return do_submit_recv();
 
     // Buffer is completely full but has remaining unconsumed payload.
     // Re-deliver it; when the handler consumes, the buffer resets and the view
