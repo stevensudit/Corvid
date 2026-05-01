@@ -463,8 +463,8 @@ private:
     if (std::scoped_lock lock{endpoint_mutex_}; true) ep = remote_;
     auto token = loop_.submit_connect(sock_, std::move(ep),
         [p = self()](completion_id, iou_res res,
-            iou_cqe_flags flags) -> slot_retention {
-          (void)p->on_connect_complete(res, flags);
+            iou_cqe_flags) -> slot_retention {
+          (void)p->on_connect_complete(res);
           return {};
         });
     return token.is_valid();
@@ -478,7 +478,7 @@ private:
     auto raw_cb =
         [p = self()](completion_id cbid, iou_res res, iou_cqe_flags flags,
             combined_endpoint& endpoint) -> slot_retention {
-      (void)p->on_accept_complete(res, flags, endpoint);
+      (void)p->on_accept_complete(res, endpoint);
       if (bitmask::has(flags, iou_cqe_flags::more))
         return slot_retention::automatic;
       if (!p->listening_) return slot_retention::release;
@@ -535,10 +535,10 @@ private:
     return notify_close_once();
   }
 
-  // Finalize a requested close once the send queue is empty. With
-  // `unilateral` (or if the peer already sent EOF), closes immediately. With
-  // `bilateral`, shuts down the write side via `SHUT_WR` and keeps the recv
-  // loop running to discard incoming data until the peer sends EOF.
+  // Finalize a requested close once the send queue is empty. With `unilateral`
+  // (or if the peer already sent EOF), closes immediately. With `bilateral`,
+  // shuts down the write side via `SHUT_WR` and keeps the recv loop running to
+  // discard incoming data until the peer sends EOF.
   [[nodiscard]] bool do_finish_close() {
     assert(loop_.is_loop_thread());
     if (shutdown_ == coordination_policy::unilateral || peer_eof_)
@@ -566,9 +566,9 @@ private:
 #pragma endregion
 #pragma region Event handlers
 
-  // Handle completion of a send operation. On success, if the buffer is
-  // fully sent, pops the next buffer from the send queue and submits it. If
-  // the buffer is only partially sent or there's a soft error, resubmits the
+  // Handle completion of a send operation. On success, if the buffer is fully
+  // sent, pops the next buffer from the send queue and submits it. If the
+  // buffer is only partially sent or there's a soft error, resubmits the
   // remaining active span. On error, initiates close.
   bool on_send_complete(buffer& buf) {
     assert(loop_.is_loop_thread());
@@ -577,9 +577,8 @@ private:
 
     // Error.
     if (!buf.result().ok()) {
-      if (buf.result().is_soft_error())
-        return do_submit_send_buffer(std::move(buf));
-      return do_close_now();
+      if (!buf.result().is_soft_error()) return do_close_now();
+      return do_submit_send_buffer(std::move(buf));
     }
 
     // Partial send: remaining bytes in active_span.
@@ -598,7 +597,7 @@ private:
   // Handle completion of connect operation. On success, fires `on_drain` and
   // transitions to recv state. On failure, fires `on_close` and initiates
   // close.
-  bool on_connect_complete(iou_res res, iou_cqe_flags) {
+  bool on_connect_complete(iou_res res) {
     assert(loop_.is_loop_thread() && connecting_);
     connecting_ = false;
     if (!open_) return true;
@@ -618,15 +617,12 @@ private:
   // Handle completion of a multishot accept. On success, creates a new
   // `iou_stream_conn` for the accepted socket and registers it with the loop.
   // On error, initiates close.
-  bool on_accept_complete(iou_res res, iou_cqe_flags flags,
-      const combined_endpoint& remote) {
-    // TODO: Use flags.
-    (void)flags;
+  bool on_accept_complete(iou_res res, const combined_endpoint& remote) {
     assert(loop_.is_loop_thread() && listening_);
     if (!open_) return true;
 
-    // Error. If it's an ECANCELED, then we're either shutting down or pausing:
-    // either way, there's nothing for us to do here.
+    // Error. If it's an `ECANCELED`, then we're either shutting down or
+    // pausing: either way, there's nothing for us to do here.
     if (!res.ok()) {
       if (res.is_soft_error() || res.err() == EC::canceled) return true;
       return do_close_now();
@@ -645,8 +641,8 @@ private:
     recv_in_flight_ = false;
     if (!open_) return true;
 
-    const auto res = buf.result();
     // EOF from peer.
+    const auto res = buf.result();
     if (res.value() == 0) {
       peer_eof_ = true;
       // Bilateral drain: peer sent EOF as expected, so close now.
@@ -706,8 +702,8 @@ private:
   }
 
   // Send out SQEs for new connection so that we're ready to receive either a
-  // connection completion, an accepted socket, or data. Without this,
-  // nothing is keeping this instance alive.
+  // connection completion, an accepted socket, or data. Without this, nothing
+  // is keeping this instance alive.
   bool start_reading() {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
