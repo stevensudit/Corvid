@@ -70,6 +70,10 @@ using completion_id = uint64_t;
 
 struct bound_timeout: public address_forwarder<bound_timeout> {
   combined_timespec when;
+
+  static combined_timespec* to_when(bound_timeout* bt) noexcept {
+    return bt ? &bt->when : nullptr;
+  }
 };
 
 struct bound_endpoint: public address_forwarder<bound_endpoint> {
@@ -599,8 +603,8 @@ public:
   //   the result. `EP` must have a matching `update` method.
   // - `CompletionInvocable`: calls `cb` with only the standard parameters.
   completion_fn wrap_completion_fn(AnyCompletionInvocable auto&& cb,
-      AddressForwarder auto&& ep) {
-    return [cb = std::move(cb), ep = std::move(ep)](completion_id cbhandle,
+      AddressForwarder auto&& af) {
+    return [cb = std::move(cb), ep = std::move(af)](completion_id cbhandle,
                iou_res res, iou_cqe_flags flags) mutable -> slot_retention {
       if constexpr (BufCompletionInvocable<decltype(cb)>) {
         return cb(cbhandle, ep.update(res, flags));
@@ -618,7 +622,13 @@ public:
   auto wrap_completion_fn_and_ptr(AnyCompletionInvocable auto&& cb,
       AddressForwarder auto&& af)
       -> std::pair<completion_token, std::remove_reference_t<decltype(af)>*> {
-    std::remove_reference_t<decltype(af)>* af_ptr{};
+    using af_t = std::remove_cvref_t<decltype(af)>;
+    // No need to bind in an empty timeout.
+    if constexpr (std::is_same_v<af_t, bound_timeout>) {
+      if (!af.when.ts.is_valid())
+        return {tokenize(completion_fn{std::move(cb)}), nullptr};
+    }
+    af_t* af_ptr{};
     af.forwarding_address() = &af_ptr;
     const auto cbtoken =
         tokenize(wrap_completion_fn(std::move(cb), std::move(af)));
@@ -1046,8 +1056,8 @@ public:
       span_t span, completion_fn&& cb, bound_timeout timeout = {}) {
     auto [cbtoken, timeout_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
-    if (!submit_recv_bytes(socket, span, cbtoken, &timeout_ptr->when,
-            slot_retention::automatic))
+    if (!submit_recv_bytes(socket, span, cbtoken,
+            bound_timeout::to_when(timeout_ptr), slot_retention::automatic))
       return {};
     return cbtoken;
   }
@@ -1078,8 +1088,8 @@ public:
       const_span_t span, completion_fn&& cb, bound_timeout timeout = {}) {
     auto [cbtoken, timeout_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
-    if (!submit_send_bytes(socket, span, cbtoken, &timeout_ptr->when,
-            slot_retention::automatic))
+    if (!submit_send_bytes(socket, span, cbtoken,
+            bound_timeout::to_when(timeout_ptr), slot_retention::automatic))
       return {};
     return cbtoken;
   }
@@ -1113,8 +1123,9 @@ public:
       msg_flags flags = {}) {
     auto [cbtoken, timeout_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
-    if (!submit_recvmsg(socket, msg, cbtoken, &timeout_ptr->when,
-            slot_retention::automatic, flags))
+    if (!submit_recvmsg(socket, msg, cbtoken,
+            bound_timeout::to_when(timeout_ptr), slot_retention::automatic,
+            flags))
       return {};
     return cbtoken;
   }
@@ -1145,8 +1156,9 @@ public:
       msg_flags flags = msg_flags::nosignal) {
     auto [cbtoken, timeout_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
-    if (!submit_sendmsg(socket, msg, cbtoken, &timeout_ptr->when,
-            slot_retention::automatic, flags))
+    if (!submit_sendmsg(socket, msg, cbtoken,
+            bound_timeout::to_when(timeout_ptr), slot_retention::automatic,
+            flags))
       return {};
     return cbtoken;
   }
