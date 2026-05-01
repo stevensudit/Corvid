@@ -101,7 +101,7 @@ private:
 };
 
 #pragma endregion
-#pragma region iou_stream_conn_handlers
+#pragma region handlers
 
 // User-supplied persistent callbacks for an `iou_stream_conn`.
 struct iou_stream_conn_handlers {
@@ -243,22 +243,25 @@ public:
 #pragma endregion
 #pragma region close
 
-  // Start a close. If `coordination` is `unilateral` (the default), flushes
-  // pending sends and then closes the socket. If `bilateral`, instead shuts
-  // down the write side after flushing pending sends and discards incoming
-  // data until the peer closes. Set the policy via `set_shutdown` before
-  // calling this. Safe to call from any thread. Once called, destructing the
-  // owning `iou_stream_conn_ptr_with` does not cause a forceful close.
+  // Start a close.
+  //
+  // If `coordination` is `unilateral` (the default), flushes pending sends and
+  // then closes the socket. If `bilateral`, instead shuts down the write side
+  // after flushing pending sends and discards incoming data until the peer
+  // closes. Set the policy via `set_shutdown` before calling this.
+  //
+  // Safe to call from any thread. Once called, destructing the owning
+  // `iou_stream_conn_ptr_with` does not cause a forceful close.
   [[nodiscard]] bool close() {
     no_hangup_on_destruct_ = true;
     return loop_.execute_or_post([p = self()] { return p->do_close(); });
   }
 
-  // The shutdown `coordination_policy` used by `close()`. `bilateral` shuts
-  // down the write side after the send queue flushes, then discards incoming
-  // data until the peer sends EOF. `unilateral` (the default) closes the
-  // entire socket once the queue empties. Safe to call from any thread.
-  [[nodiscard]] coordination_policy shutdown() const noexcept {
+  // Get the shutdown `coordination_policy` used by `close()`. `bilateral`
+  // shuts down the write side after the send queue flushes, then discards
+  // incoming data until the peer sends EOF. `unilateral` (the default) closes
+  // the entire socket once the queue empties. Safe to call from any thread.
+  [[nodiscard]] coordination_policy get_shutdown() const noexcept {
     return shutdown_;
   }
 
@@ -269,7 +272,8 @@ public:
   }
 
   // Forceful close: cancel pending I/O and close immediately with RST.
-  // Safe from any thread.
+  // Safe to call from any thread. By default, destructing the owning
+  // `iou_stream_conn_ptr_with` causes a forceful close.
   [[nodiscard]] bool hangup() {
     return loop_.execute_or_post([p = self()] { return p->do_hangup_now(); });
   }
@@ -294,11 +298,10 @@ public:
       iou_stream_conn_handlers h, std::optional<connection_role> role,
       coordination_policy shutdown, block_size recv_buf_size,
       block_size send_buf_size)
-      : loop_{*loop}, weak_loop_{loop}, shutdown_{shutdown},
-        sock_{std::move(sock)}, remote_{std::move(remote)},
-        own_handlers_{std::move(h)}, open_{true},
+      : loop_{*loop}, weak_loop_{loop}, sock_{std::move(sock)},
+        remote_{std::move(remote)}, own_handlers_{std::move(h)},
         connecting_{role == connection_role::client},
-        listening_{role == connection_role::server},
+        listening_{role == connection_role::server}, shutdown_{shutdown},
         recv_buf_size_{recv_buf_size}, send_buf_size_{send_buf_size} {}
 
   virtual ~iou_stream_conn() = default;
@@ -313,16 +316,8 @@ protected:
   iou_loop& loop_;
   std::weak_ptr<iou_loop> weak_loop_;
 
-  // When `bilateral`, `close()` shuts down the write side after the send
-  // queue flushes, then discards incoming data until the peer closes. When
-  // `unilateral` (the default), `close()` closes the socket immediately once
-  // the queue empties.
-  relaxed_atomic<coordination_policy> shutdown_{
-      coordination_policy::unilateral};
-
   // Produce a new `iou_stream_conn` for each accepted connection. Override in
-  // `iou_stream_conn_with_state` to return a richer type. Returning `nullptr`
-  // skips registration for that connection (connection-limiting hook).
+  // `iou_stream_conn_with_state` to return a richer type.
   [[nodiscard]] virtual std::shared_ptr<iou_stream_conn>
   accept_clone(net_socket&& sock, const net_endpoint& remote) const {
     auto lp = weak_loop_.lock();
@@ -347,14 +342,16 @@ private:
 
   iou_stream_conn_handlers own_handlers_;
 
-  relaxed_atomic_bool open_;
-  bool connecting_{};
-  bool listening_{};
-  bool close_requested_{};
-  bool close_notified_{};
-  bool write_open_{true}; // false after SHUT_WR in bilateral close
-  bool peer_eof_{};       // true once peer sends EOF (res == 0)
-  relaxed_atomic_bool no_hangup_on_destruct_;
+  relaxed_atomic_bool open_{true}; // Cleared once close starts.
+  bool connecting_{};              // True when an async connect is in-flight.
+  bool listening_{};               // True if this is a listener.
+  bool close_requested_{};         // True once `close` is called.
+  bool close_notified_{};          // True once `on_close` fires.
+  bool write_open_{true};          // False after SHUT_WR in bilateral close.
+  bool peer_eof_{};                // True once peer sends EOF.
+  relaxed_atomic<coordination_policy> shutdown_{
+      coordination_policy::unilateral};
+  relaxed_atomic_bool no_hangup_on_destruct_; // Set by `close`.
 
   // Size of borrowed buffers.
   relaxed_atomic<block_size> recv_buf_size_{block_size::small};
@@ -368,9 +365,6 @@ private:
   std::deque<std::variant<std::string, buffer>> send_queue_;
   bool send_in_flight_{};
 
-  // Connect address. Must remain valid until the connect SQE fires.
-  sockaddr_storage connect_addr_{};
-
 #pragma endregion
 #pragma region Helpers
 private:
@@ -382,7 +376,7 @@ private:
     recv_in_flight_ = true;
     // TODO: Save the token.
     const auto token = loop_.submit_read_buffer(sock_, std::move(buf),
-        [p = self()](completion_id, buffer& b) mutable {
+        [p = self()](completion_id, buffer& b) {
           (void)p->on_recv_complete(b);
           return slot_retention{};
         });
@@ -402,8 +396,8 @@ private:
 
     // Buffer is completely full but has remaining unconsumed payload.
     // Re-deliver it; when the handler consumes, the buffer resets and the view
-    // destructor calls do_continue_recv again, which then falls through to
-    // do_submit_recv.
+    // destructor calls `do_continue_recv` again, which then falls through to
+    // `do_submit_recv`.
     auto resume = make_resume();
     iou_recv_view view{std::move(buf), std::move(resume)};
     if (own_handlers_.on_data)
@@ -455,7 +449,7 @@ private:
     send_in_flight_ = true;
     // TODO: Save the token.
     const auto token = loop_.submit_write_buffer(sock_, std::move(buf),
-        [p = self()](completion_id, buffer& b) mutable -> slot_retention {
+        [p = self()](completion_id, buffer& b) -> slot_retention {
           (void)p->on_send_complete(b);
           return {};
         });
@@ -472,7 +466,7 @@ private:
     ep.sockaddr = remote_.sockaddr;
     auto token = loop_.submit_connect(sock_, std::move(ep),
         [p = self()](completion_id, iou_res res,
-            iou_cqe_flags flags) mutable -> slot_retention {
+            iou_cqe_flags flags) -> slot_retention {
           (void)p->on_connect_complete(res, flags);
           return {};
         });
@@ -486,7 +480,7 @@ private:
     // initial submission.
     auto raw_cb =
         [p = self()](completion_id cbid, iou_res res, iou_cqe_flags flags,
-            combined_endpoint& endpoint) mutable -> slot_retention {
+            combined_endpoint& endpoint) -> slot_retention {
       (void)p->on_accept_complete(res, flags, endpoint);
       if (bitmask::has(flags, iou_cqe_flags::more))
         return slot_retention::automatic;
