@@ -509,7 +509,6 @@ private:
     assert(loop_.is_loop_thread());
     if (!open_->exchange(false, std::memory_order::relaxed)) return false;
     send_queue_.clear();
-    close_requested_ = false;
     if (sock_)
       (void)loop_.submit_close(std::move(sock_),
           [p = self()](completion_id, iou_res, iou_cqe_flags) {
@@ -524,7 +523,6 @@ private:
     assert(loop_.is_loop_thread());
     if (!open_->exchange(false, std::memory_order::relaxed)) return false;
     send_queue_.clear();
-    close_requested_ = false;
     if (sock_) {
       (void)sock_.set_option(socket_option::linger,
           linger{.l_onoff = 1, .l_linger = 0});
@@ -651,7 +649,7 @@ private:
     // EOF from peer.
     if (res.value() == 0) {
       peer_eof_ = true;
-      // Bilateral drain: peer sent EOF as expected — close now.
+      // Bilateral drain: peer sent EOF as expected, so close now.
       if (close_requested_ && !write_open_) return do_close_now();
       (void)notify_close_once();
       if (close_requested_ && !send_in_flight_ && send_queue_.empty())
