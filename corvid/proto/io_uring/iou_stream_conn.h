@@ -405,8 +405,8 @@ private:
 
   // Build the resume callback captured by an `iou_recv_view`.
   iou_recv_view::resume_fn make_resume() {
-    return [wp = weak_loop_, conn = self()](buffer&& buf) mutable {
-      auto loop = wp.lock();
+    return [conn = self()](buffer&& buf) {
+      auto loop = conn->weak_loop_.lock();
       if (!loop) return;
       (void)loop->execute_or_post(
           [conn, buf = std::move(buf)]() mutable -> bool {
@@ -460,8 +460,7 @@ private:
     assert(loop_.is_loop_thread() && connecting_);
     // TODO: Store cancelation token.
     bound_endpoint_with_timeout ep;
-    ep.when = remote_.when;
-    ep.sockaddr = remote_.sockaddr;
+    if (std::scoped_lock lock{endpoint_mutex_}; true) ep = remote_;
     auto token = loop_.submit_connect(sock_, std::move(ep),
         [p = self()](completion_id, iou_res res,
             iou_cqe_flags flags) -> slot_retention {
@@ -482,6 +481,7 @@ private:
       (void)p->on_accept_complete(res, flags, endpoint);
       if (bitmask::has(flags, iou_cqe_flags::more))
         return slot_retention::automatic;
+      if (!p->listening_) return slot_retention::release;
       if (!p->loop_.submit_accept_multishot(p->sock_, endpoint,
               iou_loop::completion_token{cbid}))
         throw std::runtime_error("Failed to re-arm multishot accept");
