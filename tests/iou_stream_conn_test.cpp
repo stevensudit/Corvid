@@ -345,8 +345,56 @@ void IouStreamConn_WithState() {
 }
 #pragma endregion
 
+#pragma region FullBufferRedelivery
+void IouStreamConn_FullBufferRedelivery() {
+  // Fills the recv buffer completely without consuming, verifying that
+  // `do_continue_recv` re-delivers the same full buffer to `on_data` without
+  // a kernel round-trip. Partial recvs during accumulation are harmless: each
+  // one appends to `payload_span` until `active_span` is exhausted, at which
+  // point the re-delivery path fires.
+  if (true) {
+    auto [sock0, sock1] = net_socket::create_pair();
+
+    iou_loop_runner runner;
+    std::atomic_bool done{false};
+    std::atomic_int full_deliveries{0};
+    const size_t buf_size = *block_size::small;
+
+    auto recv_conn = iou_stream_conn_ptr::adopt(runner.loop(),
+        std::move(sock1), net_endpoint::invalid,
+        iou_stream_conn_handlers{
+            .on_data = [&](iou_stream_conn&, iou_recv_view view) {
+              if (view.active_view().size() < buf_size) {
+                // Partial recv: buffer not yet full, let it accumulate.
+                return true;
+              }
+              if (full_deliveries.fetch_add(1, std::memory_order::acq_rel) ==
+                  0) {
+                // First full-buffer delivery: withhold consume to trigger
+                // re-delivery via do_continue_recv.
+                return true;
+              }
+              // Re-delivery of the same full buffer: now consume.
+              view.consume(view.active_view().size());
+              done.store(true, std::memory_order::release);
+              return true;
+            }});
+    EXPECT_TRUE(recv_conn);
+
+    auto send_conn = iou_stream_conn_ptr::adopt(runner.loop(),
+        std::move(sock0), net_endpoint::invalid);
+    EXPECT_TRUE(send_conn);
+
+    EXPECT_TRUE(send_conn->send(std::string(buf_size, 'x')));
+    EXPECT_TRUE(WaitFor([&] { return done.load(std::memory_order::acquire); }));
+    EXPECT_EQ(full_deliveries.load(std::memory_order::acquire), 2);
+  }
+}
+#pragma endregion
+
 // NOLINTEND(readability-function-cognitive-complexity)
 MAKE_TEST_LIST(IouStreamConn_SendRecvString, IouStreamConn_MultipleStrings,
     IouStreamConn_SendRecvBuffer, IouStreamConn_BufferMoveOut,
     IouStreamConn_GracefulClose, IouStreamConn_HangupClose,
-    IouStreamConn_OnDrain, IouStreamConn_WithState)
+    IouStreamConn_OnDrain, IouStreamConn_WithState,
+    IouStreamConn_FullBufferRedelivery)
