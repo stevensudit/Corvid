@@ -133,7 +133,10 @@ public:
         buf_index_{std::exchange(o.buf_index_, {})},
         file_offset_{std::exchange(o.file_offset_, {})},
         pending_releases_{std::exchange(o.pending_releases_, {})},
-        is_read_{o.is_read_}, res_{o.res_}, cqe_flags_{o.cqe_flags_} {}
+        is_read_{o.is_read_}, timeout_{o.timeout_}, addr_{o.addr_},
+        msg_{o.msg_}, iov_(o.iov_), res_{o.res_}, cqe_flags_{o.cqe_flags_} {
+    do_reconstitute_msg();
+  }
 
   iou_buffer& operator=(iou_buffer&& o) noexcept {
     if (this != &o) {
@@ -147,6 +150,11 @@ public:
       file_offset_ = std::exchange(o.file_offset_, {});
       pending_releases_ = std::exchange(o.pending_releases_, {});
       is_read_ = o.is_read_;
+      timeout_ = o.timeout_;
+      addr_ = o.addr_;
+      msg_ = o.msg_;
+      iov_ = o.iov_;
+      do_reconstitute_msg();
       res_ = o.res_;
       cqe_flags_ = o.cqe_flags_;
     }
@@ -430,6 +438,57 @@ public:
   [[nodiscard]] bool is_read() const noexcept { return is_read_; }
 
 #pragma endregion
+#pragma region Msg
+
+  // Peer address: sender address captured by recvmsg, or destination address
+  // used by sendmsg.
+  [[nodiscard]] net_endpoint& peer_addr() noexcept { return addr_; }
+  [[nodiscard]] const net_endpoint& peer_addr() const noexcept {
+    return addr_;
+  }
+
+  // Configure `msg_` for a recvmsg operation. Points `iov_` at `active_span_`
+  // and `msg_name` at `addr_` to capture the sender address. Returns `&msg_`
+  // for use with `prep_recvmsg`. Call `prepare_msg()` after this.
+  [[nodiscard]] msghdr* prepare_recvmsg() noexcept {
+    assert(is_read_);
+    reset_result();
+    ++pending_releases_;
+
+    iov_.iov_base = active_span_.data();
+    iov_.iov_len = active_span_.size();
+    msg_.msg_iov = &iov_;
+    msg_.msg_iovlen = 1;
+    msg_.msg_name = addr_.as_sockaddr_ptr();
+    msg_.msg_namelen = net_endpoint::max_sockaddr_size;
+    msg_.msg_control = nullptr;
+    msg_.msg_controllen = 0;
+    msg_.msg_flags = 0;
+    return &msg_;
+  }
+
+  // Configure `msg_` for a sendmsg operation to `dest`. Copies `dest` into
+  // `addr_` so `msg_name` remains valid for the lifetime of the SQE. Returns
+  // `&msg_` for use with `prep_sendmsg`. Call `prepare_msg()` after this.
+  [[nodiscard]] msghdr* prepare_sendmsg(const net_endpoint& dest) noexcept {
+    assert(!is_read_);
+    reset_result();
+    ++pending_releases_;
+
+    addr_ = dest;
+    iov_.iov_base = active_span_.data();
+    iov_.iov_len = active_span_.size();
+    msg_.msg_iov = &iov_;
+    msg_.msg_iovlen = 1;
+    msg_.msg_name = addr_.as_sockaddr_ptr();
+    msg_.msg_namelen = addr_.sockaddr_size();
+    msg_.msg_control = nullptr;
+    msg_.msg_controllen = 0;
+    msg_.msg_flags = 0;
+    return &msg_;
+  }
+
+#pragma endregion
 #pragma region Helpers
 private:
   friend class buffer_pool_base;
@@ -460,6 +519,11 @@ private:
     if (pool_) pool_->return_buffer(full_span_, is_read_);
   }
 
+  void do_reconstitute_msg() noexcept {
+    msg_.msg_iov = &iov_;
+    msg_.msg_name = addr_.as_sockaddr_ptr();
+  }
+
 #pragma endregion
 #pragma region Data members
 private:
@@ -474,15 +538,9 @@ private:
 
   combined_timespec timeout_;
   net_endpoint addr_;
-#if 0
-  msghdr msg_;   // TODO: Reconstitute after move.
-  iovec iov_[2]; // TODO: Ditto.
 
-  static constexpr size_t control_capacity =
-      CMSG_SPACE(sizeof(in_pktinfo)); // IPv4 IP_PKTINFO
-
-  std::array<std::byte, control_capacity> control;
-#endif
+  msghdr msg_{};
+  iovec iov_{};
 
   iou_res res_;
   iou_cqe_flags cqe_flags_{};

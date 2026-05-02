@@ -482,7 +482,7 @@ public:
   // Set a socket option at the `IPPROTO_TCP` level.
   template<typename T>
   [[nodiscard]] bool set_option(tcp_option optname, const T& value) noexcept {
-    return set_raw_option(IPPROTO_TCP, *optname, value);
+    return set_raw_option(*protocol_type::tcp, *optname, value);
   }
 
   // Get a socket option. Returns `std::nullopt` on failure.
@@ -511,7 +511,7 @@ public:
   template<typename T>
   [[nodiscard]] std::optional<T>
   get_option(tcp_option optname) const noexcept {
-    return get_raw_option<T>(IPPROTO_TCP, *optname);
+    return get_raw_option<T>(*protocol_type::tcp, *optname);
   }
 
   // Allow reuse of a recently-freed local address (`SO_REUSEADDR`).
@@ -577,7 +577,7 @@ public:
   // `flags` as in POSIX `::recv`.
   //
   // On success, resizes `data` to the number of bytes read and returns true.
-  // A "soft" failure (e.g., EAGAIN) is treated as success with zero bytes
+  // A "soft" failure (e.g., `EAGAIN`) is treated as success with zero bytes
   // read. On EOF/disconnect, leaves `data` unchanged and returns false. On
   // hard failure, clears `data` and returns false.
   //
@@ -624,8 +624,8 @@ public:
 
   // Send as much of `data` as possible on the socket. On success, removes
   // the written prefix from `data` and returns true. On failure, leaves
-  // `data` unchanged and returns false. A "soft" failure (e.g., EAGAIN) is
-  // treated as success with no progress.
+  // `data` unchanged and returns false. A "soft" failure (e.g., `EAGAIN`)
+  // is treated as success with no progress.
   [[nodiscard]] bool send(std::string_view& data) const noexcept {
     if (data.empty()) return true;
 
@@ -662,9 +662,9 @@ public:
   // For unrecognized families, returns `sizeof(sockaddr_storage)`.
   [[nodiscard]] static socklen_t sockaddr_size(
       const sockaddr_storage& addr) noexcept {
-    if (addr.ss_family == AF_INET) return sizeof(sockaddr_in);
-    if (addr.ss_family == AF_INET6) return sizeof(sockaddr_in6);
-    if (addr.ss_family == AF_UNIX) {
+    if (addr.ss_family == *address_family::inet) return sizeof(sockaddr_in);
+    if (addr.ss_family == *address_family::inet6) return sizeof(sockaddr_in6);
+    if (addr.ss_family == *address_family::unix) {
       const auto& sun = reinterpret_cast<const sockaddr_un&>(addr);
       if (sun.sun_path[0] == '\0') return sizeof(sockaddr_un); // ANS
       return static_cast<socklen_t>(

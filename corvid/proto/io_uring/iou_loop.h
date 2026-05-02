@@ -1106,31 +1106,31 @@ public:
 #pragma endregion
 #pragma region RecvMsg
 
-  // TODO: We need a version that takes  a buffer, and likely wrap the msg.
-  // Also, are the flags correct? We might want a multishot.
-
-  // Submit an async recvmsg on `socket`.
-  [[nodiscard]] completion_token submit_recvmsg(const os_file& socket,
-      msghdr* msg, completion_fn&& cb, bound_timeout timeout = {},
+  // Submit an async recvmsg on `socket` into `buf`. On completion, the buffer
+  // is updated and forwarded to `bufcb`. The sender address is available via
+  // `buf.peer_addr` in the callback.
+  [[nodiscard]] completion_token submit_recvmsg_buffer(const os_file& socket,
+      buffer&& buf, BufCompletionInvocable auto&& bufcb,
       msg_flags flags = {}) {
-    auto [cbtoken, timeout_ptr] =
-        wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
-    if (!submit_recvmsg(socket, msg, cbtoken,
-            bound_timeout::to_when(timeout_ptr), slot_retention::automatic,
-            flags))
+    const auto [cbtoken, buf_ptr] =
+        wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
+    if (!submit_recvmsg_buffer(socket, *buf_ptr, cbtoken,
+            slot_retention::automatic, flags))
       return {};
     return cbtoken;
   }
 
-  // Submit an async recvmsg on `socket`.
-  [[nodiscard]] bool submit_recvmsg(const os_file& socket, msghdr* msg,
-      completion_token cbtoken, combined_timespec* timeout = nullptr,
+  // Submit an async recvmsg on `socket`. Note that `buf` must point inside
+  // the callback, or remain valid until completion.
+  [[nodiscard]] bool submit_recvmsg_buffer(const os_file& socket, buffer& buf,
+      completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
     if (!cbtoken.is_valid()) return false;
-    if (!socket || !msg) return fail_and_maybe_release(on_fail, cbtoken);
-    auto fn = [this, fd = *socket, flags, cbtoken, msg, timeout,
-                  on_fail]() mutable {
-      return do_submit_timeout(cbtoken, timeout, on_fail,
+    auto* msg = buf.prepare_recvmsg();
+    if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = *socket, flags, cbtoken, msg,
+                  &timeout = buf.timeout(), on_fail]() mutable {
+      return do_submit_timeout(cbtoken, &timeout, on_fail,
           [fd, flags, msg](iou_sqe sqe) { sqe.prep_recvmsg(fd, msg, flags); });
     };
     return execute_or_post_with_retry(std::move(fn));
@@ -1139,32 +1139,33 @@ public:
 #pragma endregion
 #pragma region SendMsg
 
-  // TODO: This needs to take a buffer, and likely wrap the msg. Also, are the
-  // flags correct?
+  // Submit an async sendmsg on `socket` from `buf` to `dest`. On completion,
+  // the buffer is updated and forwarded to `bufcb`.
 
-  // Submit an async sendmsg on `socket`.
-  [[nodiscard]] completion_token submit_sendmsg(const os_file& socket,
-      const msghdr* msg, completion_fn&& cb, bound_timeout timeout = {},
+  [[nodiscard]] completion_token submit_sendmsg_buffer(const os_file& socket,
+      buffer&& buf, const net_endpoint& dest,
+      BufCompletionInvocable auto&& bufcb,
       msg_flags flags = msg_flags::nosignal) {
-    auto [cbtoken, timeout_ptr] =
-        wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
-    if (!submit_sendmsg(socket, msg, cbtoken,
-            bound_timeout::to_when(timeout_ptr), slot_retention::automatic,
-            flags))
+    const auto [cbtoken, buf_ptr] =
+        wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
+    if (!submit_sendmsg_buffer(socket, *buf_ptr, dest, cbtoken,
+            slot_retention::automatic, flags))
       return {};
     return cbtoken;
   }
 
-  // Submit an async sendmsg on `socket`.
-  [[nodiscard]] bool submit_sendmsg(const os_file& socket, const msghdr* msg,
-      completion_token cbtoken, combined_timespec* timeout = nullptr,
+  // Submit an async sendmsg on `socket`. Note that `buf` must point inside
+  // the callback, or remain valid until completion.
+  [[nodiscard]] bool submit_sendmsg_buffer(const os_file& socket, buffer& buf,
+      const net_endpoint& dest, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain,
       msg_flags flags = msg_flags::nosignal) {
     if (!cbtoken.is_valid()) return false;
-    if (!socket || !msg) return fail_and_maybe_release(on_fail, cbtoken);
-    auto fn = [this, fd = *socket, flags, cbtoken, msg, timeout,
-                  on_fail]() mutable {
-      return do_submit_timeout(cbtoken, timeout, on_fail,
+    auto* msg = buf.prepare_sendmsg(dest);
+    if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = *socket, flags, cbtoken, msg,
+                  &timeout = buf.timeout(), on_fail]() mutable {
+      return do_submit_timeout(cbtoken, &timeout, on_fail,
           [fd, flags, msg](iou_sqe sqe) { sqe.prep_sendmsg(fd, msg, flags); });
     };
     return execute_or_post_with_retry(std::move(fn));

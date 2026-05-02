@@ -535,44 +535,49 @@ void IouLoop_AcceptConnect() {
 
 #pragma region RecvSendMsg
 void IouLoop_RecvSendMsg() {
-  // `submit_recvmsg` and `submit_sendmsg` exchange a payload over a socket
-  // pair.
+  // `submit_recvmsg_buffer` and `submit_sendmsg_buffer` exchange a datagram
+  // between two UDP sockets. On completion, the received payload and sender
+  // address are available via the buffer.
   if (true) {
-    auto [send_sock, recv_sock] = net_socket::create_pair();
+    auto recv_ep = net_endpoint::any_v4(0);
+    auto send_ep = net_endpoint::any_v4(0);
+    auto recv_sock = net_socket::create_for(recv_ep, execution::nonblocking,
+        message_style::datagram);
+    auto send_sock = net_socket::create_for(send_ep, execution::nonblocking,
+        message_style::datagram);
+    EXPECT_TRUE(recv_sock.bind(recv_ep));
+    EXPECT_TRUE(send_sock.bind(send_ep));
+    net_endpoint recv_addr{recv_sock};
 
     iou_loop_runner loop;
     std::atomic_bool received{false};
     std::atomic_int32_t recv_n{-1};
     std::atomic_int32_t send_n{-1};
+    std::string recv_result;
 
-    constexpr std::string_view msg{"recvmsg-test"};
-    std::array<char, 64> recv_buf{};
-    iovec recv_iov{.iov_base = recv_buf.data(), .iov_len = recv_buf.size()};
-    msghdr recv_hdr{};
-    recv_hdr.msg_iov = &recv_iov;
-    recv_hdr.msg_iovlen = 1;
+    constexpr std::string_view payload{"recvmsg-test"};
 
-    // Both submits happen on the loop thread (`post_and_wait`), so the
-    // `msghdr` for the send need only outlive this lambda invocation.
     const bool ok = loop->post_and_wait([&] {
-      const auto rtok = loop->submit_recvmsg(recv_sock, &recv_hdr,
-          [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
-            recv_n.store(res.value(), std::memory_order::relaxed);
+      auto recv_buf = loop->borrow_read_buffer();
+      if (!recv_buf) return false;
+      const auto rtok = loop->submit_recvmsg_buffer(recv_sock,
+          std::move(recv_buf),
+          [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
+            recv_n.store(buf.result().value(), std::memory_order::relaxed);
+            recv_result = std::string{buf.payload_view()};
             received.store(true, std::memory_order::release);
-            return slot_retention{};
+            return {};
           });
       if (!rtok.is_valid()) return false;
 
-      // This requires submitting immediately.
-      iovec send_iov{.iov_base = const_cast<char*>(msg.data()),
-          .iov_len = msg.size()};
-      msghdr send_hdr{};
-      send_hdr.msg_iov = &send_iov;
-      send_hdr.msg_iovlen = 1;
-      const auto stok = loop->submit_sendmsg(send_sock, &send_hdr,
-          [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
-            send_n.store(res.value(), std::memory_order::relaxed);
-            return slot_retention{};
+      auto send_buf = loop->borrow_write_buffer();
+      if (!send_buf) return false;
+      (void)send_buf.append(payload);
+      const auto stok = loop->submit_sendmsg_buffer(send_sock,
+          std::move(send_buf), recv_addr,
+          [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
+            send_n.store(buf.result().value(), std::memory_order::relaxed);
+            return {};
           });
       if (!stok.is_valid()) return false;
       return loop->immediate_submit();
@@ -580,9 +585,9 @@ void IouLoop_RecvSendMsg() {
     EXPECT_TRUE(ok);
     EXPECT_TRUE(
         WaitFor([&] { return received.load(std::memory_order::acquire); }));
-    EXPECT_EQ(recv_n.load(), static_cast<int32_t>(msg.size()));
-    EXPECT_EQ(send_n.load(), static_cast<int32_t>(msg.size()));
-    EXPECT_EQ(std::string_view(recv_buf.data(), msg.size()), msg);
+    EXPECT_EQ(recv_n.load(), static_cast<int32_t>(payload.size()));
+    EXPECT_EQ(send_n.load(), static_cast<int32_t>(payload.size()));
+    EXPECT_EQ(recv_result, std::string{payload});
   }
 }
 #pragma endregion
