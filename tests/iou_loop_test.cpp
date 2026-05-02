@@ -573,8 +573,9 @@ void IouLoop_RecvSendMsg() {
       auto send_buf = loop->borrow_write_buffer();
       if (!send_buf) return false;
       (void)send_buf.append(payload);
+      send_buf.peer_addr() = recv_addr;
       const auto stok = loop->submit_sendmsg_buffer(send_sock,
-          std::move(send_buf), recv_addr,
+          std::move(send_buf),
           [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
             send_n.store(buf.result().value(), std::memory_order::relaxed);
             return {};

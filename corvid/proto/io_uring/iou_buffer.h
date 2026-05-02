@@ -467,15 +467,13 @@ public:
     return &msg_;
   }
 
-  // Configure `msg_` for a sendmsg operation to `dest`. Copies `dest` into
-  // `addr_` so `msg_name` remains valid for the lifetime of the SQE. Returns
+  // Configure `msg_` for a sendmsg operation to `peer_addr`. Returns
   // `&msg_` for use with `prep_sendmsg`. Call `prepare_msg()` after this.
-  [[nodiscard]] msghdr* prepare_sendmsg(const net_endpoint& dest) noexcept {
+  [[nodiscard]] msghdr* prepare_sendmsg() noexcept {
     assert(!is_read_);
     reset_result();
     ++pending_releases_;
 
-    addr_ = dest;
     iov_.iov_base = active_span_.data();
     iov_.iov_len = active_span_.size();
     msg_.msg_iov = &iov_;

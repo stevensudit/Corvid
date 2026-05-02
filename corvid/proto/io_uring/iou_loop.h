@@ -1104,7 +1104,7 @@ public:
   }
 
 #pragma endregion
-#pragma region RecvMsg
+#pragma region RecvMsgBuffer
 
   // Submit an async recvmsg on `socket` into `buf`. On completion, the buffer
   // is updated and forwarded to `bufcb`. The sender address is available via
@@ -1137,18 +1137,16 @@ public:
   }
 
 #pragma endregion
-#pragma region SendMsg
+#pragma region SendMsgBuffer
 
-  // Submit an async sendmsg on `socket` from `buf` to `dest`. On completion,
-  // the buffer is updated and forwarded to `bufcb`.
-
+  // Submit an async sendmsg on `socket` from `buf` to its `peer_addr`. On
+  // completion, the buffer is updated and forwarded to `bufcb`.
   [[nodiscard]] completion_token submit_sendmsg_buffer(const os_file& socket,
-      buffer&& buf, const net_endpoint& dest,
-      BufCompletionInvocable auto&& bufcb,
+      buffer&& buf, BufCompletionInvocable auto&& bufcb,
       msg_flags flags = msg_flags::nosignal) {
     const auto [cbtoken, buf_ptr] =
         wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
-    if (!submit_sendmsg_buffer(socket, *buf_ptr, dest, cbtoken,
+    if (!submit_sendmsg_buffer(socket, *buf_ptr, cbtoken,
             slot_retention::automatic, flags))
       return {};
     return cbtoken;
@@ -1157,11 +1155,11 @@ public:
   // Submit an async sendmsg on `socket`. Note that `buf` must point inside
   // the callback, or remain valid until completion.
   [[nodiscard]] bool submit_sendmsg_buffer(const os_file& socket, buffer& buf,
-      const net_endpoint& dest, completion_token cbtoken,
+      completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain,
       msg_flags flags = msg_flags::nosignal) {
     if (!cbtoken.is_valid()) return false;
-    auto* msg = buf.prepare_sendmsg(dest);
+    auto* msg = buf.prepare_sendmsg();
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *socket, flags, cbtoken, msg,
                   &timeout = buf.timeout(), on_fail]() mutable {
@@ -1180,21 +1178,19 @@ public:
   //
 
   // Submit an async read_fixed on `file` into a borrowed buffer.
-  template<BufCompletionInvocable FN>
   [[nodiscard]] completion_token submit_read_buffer(const os_file& file,
-      FN&& bufcb, block_size sz = block_size::small,
+      BufCompletionInvocable auto&& bufcb, block_size sz = block_size::small,
       const combined_timespec& timeout = {}) {
     buffer buf = borrow_read_buffer(sz);
     buf.timeout() = timeout;
-    return submit_read_buffer(file, std::move(buf), std::forward<FN>(bufcb));
+    return submit_read_buffer(file, std::move(buf), std::move(bufcb));
   }
 
   // Submit an async read_fixed on `file` into `buf`.
-  template<BufCompletionInvocable FN>
-  [[nodiscard]] completion_token
-  submit_read_buffer(const os_file& file, buffer&& buf, FN&& bufcb) {
+  [[nodiscard]] completion_token submit_read_buffer(const os_file& file,
+      buffer&& buf, BufCompletionInvocable auto&& bufcb) {
     const auto [cbtoken, buf_ptr] =
-        wrap_completion_fn_and_ptr(std::forward<FN>(bufcb), std::move(buf));
+        wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
     if (!submit_read_buffer(file, *buf_ptr, cbtoken,
             slot_retention::automatic))
       return {};
@@ -1236,11 +1232,10 @@ public:
   // `submit_send_buffer`, which uses `io_uring_prep_send_zc_fixed`.
 
   // Submit an async write_fixed on `file` from `buf`.
-  template<BufCompletionInvocable FN>
-  [[nodiscard]] completion_token
-  submit_write_buffer(const os_file& file, buffer&& buf, FN&& bufcb) {
+  [[nodiscard]] completion_token submit_write_buffer(const os_file& file,
+      buffer&& buf, BufCompletionInvocable auto&& bufcb) {
     const auto [cbtoken, buf_ptr] =
-        wrap_completion_fn_and_ptr(std::forward<FN>(bufcb), std::move(buf));
+        wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
     if (!submit_write_buffer(file, *buf_ptr, cbtoken,
             slot_retention::automatic))
       return {};

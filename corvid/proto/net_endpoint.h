@@ -118,7 +118,7 @@ public:
   // Construct from text: "1.2.3.4:80" (IPv4), "[2001:db8::1]:80" (IPv6),
   // "/run/user/[UID]/[appname].sock" (UDS), or "@abstract_name" (ANS). For
   // IPv4 and IPv6, port is required but may be "0", as a wildcard. On failure,
-  // result is `empty()`.
+  // result is `empty`.
   explicit net_endpoint(std::string_view s) { *this = do_parse(s); }
 
   // Conversion constructors for interop.
@@ -146,7 +146,7 @@ public:
   }
 
   // Construct by querying the local address bound to `sock` via `getsockname`.
-  // On failure, result is `empty()`.
+  // On failure, result is `empty`.
   explicit net_endpoint(const net_socket& sock) noexcept {
     sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
@@ -156,7 +156,7 @@ public:
   }
 
   // Query the peer address of `sock` via `getpeername`. On failure, result
-  // is `empty()`.
+  // is `empty`.
   [[nodiscard]] static net_endpoint peer_of(const net_socket& sock) noexcept {
     sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
@@ -173,6 +173,14 @@ public:
 
   [[nodiscard]] static net_endpoint any_v6(uint16_t port = 0) noexcept {
     return net_endpoint{ipv6_addr::any, port};
+  }
+
+  [[nodiscard]] static net_endpoint loopback_v4(uint16_t port = 0) noexcept {
+    return net_endpoint{ipv4_addr::loopback, port};
+  }
+
+  [[nodiscard]] static net_endpoint loopback_v6(uint16_t port = 0) noexcept {
+    return net_endpoint{ipv6_addr::loopback, port};
   }
 
 #pragma endregion

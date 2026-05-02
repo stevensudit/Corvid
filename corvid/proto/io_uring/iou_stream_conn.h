@@ -101,7 +101,7 @@ private:
 };
 
 #pragma endregion
-#pragma region handlers
+#pragma region Handlers
 
 // User-supplied persistent callbacks for an `iou_stream_conn`.
 struct iou_stream_conn_handlers {
