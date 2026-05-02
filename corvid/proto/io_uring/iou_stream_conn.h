@@ -144,7 +144,11 @@ class iou_stream_conn_ptr_with;
 // Send path: `send(buffer&&)` submits zero-copy directly. `send(string)`
 // copies to a JIT-borrowed `buffer` to pack consecutive string items.
 // One SQE in flight at a time for ordering; additional sends queue behind it.
-// (Note: Soft-linked SQE's yield incorrect results on partial writes.)
+// Attempts to use `submit_send_buffer` (`IORING_OP_SEND_ZC`), which may
+// deliver two CQEs per send: one for the send completion and a notification
+// CQE when the kernel releases the buffer. For sockets that do not support ZC,
+// such as UDS pairs, it will fall back to `submit_write_buffer`, which
+// generates a single CQE.
 //
 // Recv path: one SQE in flight at a time. The `iou_recv_view` token delivered
 // to `on_data` controls re-submission via inline `consume` or async `take`.
@@ -349,10 +353,9 @@ private:
   bool close_notified_{};          // True once `on_close` fires.
   bool write_open_{true};          // False after SHUT_WR in bilateral close.
   bool peer_eof_{};                // True once peer sends EOF.
+  relaxed_atomic_bool no_hangup_on_destruct_; // Set by `close`.
   relaxed_atomic<coordination_policy> shutdown_{
       coordination_policy::unilateral};
-  relaxed_atomic_bool no_hangup_on_destruct_; // Set by `close`.
-
   // Size of borrowed buffers.
   relaxed_atomic<block_size> recv_buf_size_{block_size::small};
   relaxed_atomic<block_size> send_buf_size_{block_size::small};
@@ -364,12 +367,13 @@ private:
   // buffers.
   std::deque<std::variant<std::string, buffer>> send_queue_;
   bool send_in_flight_{};
+  bool send_zc_supported_{true}; // Cleared on first EOPNOTSUPP.
 
 #pragma endregion
 #pragma region Helpers
 private:
   // Submit buffer for receiving, borrowing a read buffer if needed.
-  bool do_submit_recv(buffer buf = {}) {
+  [[nodiscard]] bool do_submit_recv(buffer buf = {}) {
     assert(loop_.is_loop_thread() && !recv_in_flight_);
     if (!buf) buf = loop_.borrow_read_buffer(recv_buf_size_);
     if (!buf) return false;
@@ -386,7 +390,7 @@ private:
   // Resubmit recv using an existing buffer from a prior `on_recv_complete`.
   // If the buffer has no remaining `active_span` (completely full),
   // re-delivers any remaining payload first, then gets a fresh buffer.
-  bool do_continue_recv(buffer&& buf) {
+  [[nodiscard]] bool do_continue_recv(buffer&& buf) {
     assert(loop_.is_loop_thread() && !recv_in_flight_);
     // Space remains in this buffer, perhaps because the contents have been
     // fully consumed and the buffer has reset itself.
@@ -404,7 +408,7 @@ private:
   }
 
   // Build the resume callback captured by an `iou_recv_view`.
-  iou_recv_view::resume_fn make_resume() {
+  [[nodiscard]] iou_recv_view::resume_fn make_resume() {
     return [conn = self()](buffer&& buf) {
       auto loop = conn->weak_loop_.lock();
       if (!loop) return;
@@ -418,7 +422,7 @@ private:
   }
 
   // Send the next buffer in the send queue.
-  bool do_submit_send() {
+  [[nodiscard]] bool do_submit_send() {
     assert(loop_.is_loop_thread() && !send_in_flight_);
     if (send_queue_.empty()) return true;
 
@@ -441,22 +445,35 @@ private:
   }
 
   // Helper for sending specific buffer.
-  bool do_submit_send_buffer(buffer&& buf) {
+  //
+  // Prefers `submit_send_buffer` (ZC). On first `EOPNOTSUPP` (such as with
+  // Unix domain sockets), `on_send_complete` clears `send_zc_supported_` and
+  // this helper falls back to `submit_write_buffer` for all subsequent sends.
+  [[nodiscard]] bool do_submit_send_buffer(buffer&& buf) {
     assert(loop_.is_loop_thread() && !send_in_flight_);
     if (!buf) return false;
     send_in_flight_ = true;
     // TODO: Save the token.
-    const auto token = loop_.submit_write_buffer(sock_, std::move(buf),
-        [p = self()](completion_id, buffer& b) -> slot_retention {
-          (void)p->on_send_complete(b);
-          return {};
-        });
+    iou_loop::completion_token token;
+    auto fn =
+        [p = self()](completion_id cbhandle, buffer& b) -> slot_retention {
+      if (bitmask::has(b.cqe_flags(), iou_cqe_flags::notif))
+        return b.pending_releases_decision();
+
+      return p->on_send_complete(cbhandle, b);
+    };
+
+    if (send_zc_supported_)
+      token = loop_.submit_send_buffer(sock_, std::move(buf), std::move(fn));
+    else
+      token = loop_.submit_write_buffer(sock_, std::move(buf), std::move(fn));
+
     return token.is_valid();
   }
 
   // Attempt to connect. On success, fires `on_drain` and transitions to recv
   // state. On failure, fires `on_close`.
-  bool do_submit_connect() {
+  [[nodiscard]] bool do_submit_connect() {
     assert(loop_.is_loop_thread() && connecting_);
     // TODO: Store cancelation token.
     bound_endpoint_with_timeout ep;
@@ -471,7 +488,7 @@ private:
   }
 
   // Submit a multishot accept operation.
-  bool do_submit_accept() {
+  [[nodiscard]] bool do_submit_accept() {
     assert(loop_.is_loop_thread() && listening_);
     // Set up a callback that resubmits itself, and use it too bootstrap the
     // initial submission.
@@ -566,38 +583,73 @@ private:
 #pragma endregion
 #pragma region Event handlers
 
-  // Handle completion of a send operation. On success, if the buffer is fully
-  // sent, pops the next buffer from the send queue and submits it. If the
-  // buffer is only partially sent or there's a soft error, resubmits the
-  // remaining active span. On error, initiates close.
-  bool on_send_complete(buffer& buf) {
+  // Resubmit `buf` using the same callback. This may be used for retriable
+  // failures or partial sends.
+  [[nodiscard]] bool do_resubmit_send(completion_id cbhandle, buffer& buf) {
+    assert(loop_.is_loop_thread());
+    assert(!buf.active_span().empty());
+    send_in_flight_ = true;
+    if (send_zc_supported_)
+      return loop_.submit_send_buffer(sock_, buf,
+          iou_loop::completion_token{cbhandle}, slot_retention::automatic);
+    else
+      return loop_.submit_write_buffer(sock_, buf,
+          iou_loop::completion_token{cbhandle}, slot_retention::automatic);
+  }
+
+  // Handle a failed send CQE. Returns the slot retention decision.
+  [[nodiscard]] slot_retention
+  do_handle_send_error(completion_id cbhandle, buffer& buf) {
+    assert(loop_.is_loop_thread());
+    // Retry if possible.
+    if (buf.result().is_soft_error() || buf.result().err() == EC::opnotsupp) {
+      if (buf.result().err() == EC::opnotsupp) send_zc_supported_ = false;
+      (void)do_resubmit_send(cbhandle, buf);
+      return slot_retention::retain;
+    }
+    // Give up and close on hard errors.
+    (void)do_close_now();
+    return buf.pending_releases_decision();
+  }
+
+  // Handle completion of a send CQE (not the optional ZC notification CQE).
+  //
+  // For partial sends and retriable errors, resubmit using the same callback
+  // so the buffer stays in the closure. A new slot is only used when advancing
+  // to the next buffer. `pending_releases_` (maintained by
+  // `iou_buffer::update`) tracks all outstanding ZC pins; we retain the
+  // callback slot until it reaches zero.
+  [[nodiscard]] slot_retention
+  on_send_complete(completion_id cbhandle, buffer& buf) {
     assert(loop_.is_loop_thread());
     send_in_flight_ = false;
-    if (!open_) return true;
+    if (!open_) return buf.pending_releases_decision();
 
-    // Error.
-    if (!buf.result().ok()) {
-      if (!buf.result().is_soft_error()) return do_close_now();
-      return do_submit_send_buffer(std::move(buf));
+    // Retry on soft errors.
+    if (!buf.result().ok()) return do_handle_send_error(cbhandle, buf);
+
+    // Continue partial sends.
+    if (!buf.active_span().empty()) {
+      (void)do_resubmit_send(cbhandle, buf);
+      return slot_retention::retain;
     }
 
-    // Partial send: remaining bytes in active_span.
-    if (!buf.active_span().empty())
-      return do_submit_send_buffer(std::move(buf));
+    // Send complete. Start the next send if queued, or close if requested,
+    // else notify drain.
+    if (!send_queue_.empty())
+      (void)do_submit_send();
+    else if (close_requested_)
+      (void)do_finish_close();
+    else
+      (void)notify_drained();
 
-    // Full send.
-    if (!send_queue_.empty()) return do_submit_send();
-
-    //  Close.
-    if (close_requested_ && send_queue_.empty()) return do_finish_close();
-
-    return notify_drained();
+    return buf.pending_releases_decision();
   }
 
   // Handle completion of connect operation. On success, fires `on_drain` and
   // transitions to recv state. On failure, fires `on_close` and initiates
   // close.
-  bool on_connect_complete(iou_res res) {
+  [[nodiscard]] bool on_connect_complete(iou_res res) {
     assert(loop_.is_loop_thread() && connecting_);
     connecting_ = false;
     if (!open_) return true;
@@ -617,7 +669,8 @@ private:
   // Handle completion of a multishot accept. On success, creates a new
   // `iou_stream_conn` for the accepted socket and registers it with the loop.
   // On error, initiates close.
-  bool on_accept_complete(iou_res res, const combined_endpoint& remote) {
+  [[nodiscard]] bool
+  on_accept_complete(iou_res res, const combined_endpoint& remote) {
     assert(loop_.is_loop_thread() && listening_);
     if (!open_) return true;
 
@@ -636,7 +689,7 @@ private:
 
   // Handle completion of a receive operation. If successful, delivers the
   // buffer to `on_data`. On error or EOF, initiates close.
-  bool on_recv_complete(buffer& buf) {
+  [[nodiscard]] bool on_recv_complete(buffer& buf) {
     assert(loop_.is_loop_thread() && recv_in_flight_);
     recv_in_flight_ = false;
     if (!open_) return true;
@@ -704,7 +757,7 @@ private:
   // Send out SQEs for new connection so that we're ready to receive either a
   // connection completion, an accepted socket, or data. Without this, nothing
   // is keeping this instance alive.
-  bool start_reading() {
+  [[nodiscard]] bool start_reading() {
     assert(loop_.is_loop_thread());
     if (!open_) return false;
     if (listening_) return do_submit_accept();

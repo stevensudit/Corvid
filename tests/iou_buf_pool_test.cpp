@@ -382,6 +382,8 @@ void IouBufPool_WriteUpdateError() {
     const size_t payload_before = buf.payload_span().size();
     const size_t active_before = buf.active_span().size();
 
+    [[maybe_unused]] auto [active_buffer, buffer_index, file_offset] =
+        buf.prepare();
     buf.update(iou_res{-EPIPE}, iou_cqe_flags{});
     EXPECT_FALSE(buf.result().ok());
     EXPECT_EQ(buf.payload_span().size(), payload_before);

@@ -26,6 +26,7 @@
 
 #include "iou_wrap.h"
 #include "../../meta/forwarding_address.h"
+#include "../../containers/object_pool.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
 #pragma region buffer_pool_base
@@ -222,6 +223,14 @@ public:
   // callback, and hence the buffer.
   size_t& pending_releases() noexcept { return pending_releases_; }
 
+  // Return slot retention decision based on whether there are pending
+  // releases.
+  [[nodiscard]] slot_retention pending_releases_decision() const noexcept {
+    return pending_releases_ > 0
+               ? slot_retention::retain
+               : slot_retention::automatic;
+  }
+
   // Access timeout associated with this buffer.
   combined_timespec& timeout() noexcept { return timeout_; }
 
@@ -374,14 +383,18 @@ public:
   //     becomes the new tail (space remaining for further reads).
   //   Write mode: advances `active_span` front by bytes sent; when fully
   //     sent, `active_span` becomes zero-length (consumed state).
-  // On error `res`, spans are left unchanged. Returns self for chaining.
+  // On error, spans are left unchanged.
+  // When `cqe_flags::more` is absent from, we decrement `pending_releases`.
+  // This is most relevant for ZC writes, where it prevents prematurely freeing
+  // the buffer.
   iou_buffer& update(iou_res res, iou_cqe_flags cqe_flags) noexcept {
     res_ = res;
     cqe_flags_ = cqe_flags;
+    if (!bitmask::has(cqe_flags_, iou_cqe_flags::more)) --pending_releases_;
     if (!res.ok()) return *this;
+
     if (file_offset_ != seek_current) file_offset_ += res.bytes();
     if (is_read_) {
-      --pending_releases_;
       const size_t extend = std::min(res.bytes(),
           full_span_.size() -
               static_cast<size_t>(payload_span_.data() - full_span_.data()) -
@@ -391,9 +404,6 @@ public:
       active_span_ = {end,
           static_cast<size_t>(full_span_.data() + full_span_.size() - end)};
     } else {
-      assert(pending_releases_ > 0);
-      // When no more CQEs, the ZC pin is released.
-      if (!bitmask::has(cqe_flags_, iou_cqe_flags::more)) --pending_releases_;
       // If it's not a notification, then we can update the amount written.
       if (!bitmask::has(cqe_flags_, iou_cqe_flags::notif))
         active_span_ =
