@@ -468,6 +468,16 @@ public:
     return true;
   }
 
+  // Send from a pre-registered fixed buffer, with ZC `send` semantics.
+  // `buf_index` is the slot index from `io_uring_register_buffers`.
+  bool prep_send_zc_fixed(int fd, const_span_t span, msg_flags flags,
+      size_t buf_index) noexcept {
+    io_uring_prep_send_zc_fixed(sqe_, fd, span.data(),
+        static_cast<unsigned>(span.size()), *flags, 0,
+        static_cast<int>(buf_index));
+    return true;
+  }
+
   static std::pair<sockaddr*, socklen_t*> to_sockaddr_ptrs(
       combined_endpoint* endpoint) noexcept {
     sockaddr* sockaddr_ptr{};

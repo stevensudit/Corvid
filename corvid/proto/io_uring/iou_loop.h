@@ -1268,11 +1268,43 @@ public:
   // Buffers.
 
 #pragma endregion
-#pragma region SendBufferZeroCopy
+#pragma region SendBuffer
 
-  // TODO: `submit_send_buffer_zero_copy` is the most complicated way to write
-  // to a socket, requiring special handling of completions to avoid
-  // prematurely releasing buffers.
+  // Send from buffers to `net_socket`.
+  //
+  // Uses `io_uring_prep_send_zc_fixed`, which provides full `send` semantics,
+  // including `msg_flags::nosignal`, but potentially generates two CQEs per
+  // send (one for the send and one for the release of the buffer).
+  [[nodiscard]] completion_token submit_send_buffer(const net_socket& socket,
+      buffer&& buf, BufCompletionInvocable auto&& bufcb,
+      msg_flags flags = msg_flags::nosignal) {
+    const auto [cbtoken, buf_ptr] =
+        wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
+    if (!submit_send_buffer(socket, *buf_ptr, cbtoken,
+            slot_retention::automatic, flags))
+      return {};
+    return cbtoken;
+  }
+
+  // Send from buffers to `net_socket`. Note that `buf` must point inside the
+  // callback.
+  [[nodiscard]] bool submit_send_buffer(const net_socket& socket, buffer& buf,
+      completion_token cbtoken,
+      slot_retention on_fail = slot_retention::retain,
+      msg_flags flags = msg_flags::nosignal) {
+    if (!cbtoken.is_valid()) return false;
+    auto [span, buf_index, _] = buf.prepare();
+    if (!socket || span.empty())
+      return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = socket.handle(), flags, cbtoken, span, buf_index,
+                  &timeout = buf.timeout(), on_fail]() mutable {
+      return do_submit_timeout(cbtoken, &timeout, on_fail,
+          [fd, flags, span, buf_index](iou_sqe sqe) {
+            sqe.prep_send_zc_fixed(fd, span, flags, buf_index);
+          });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
 
 #pragma endregion
 // Next lines closes "Submit".

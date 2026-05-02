@@ -222,16 +222,16 @@ void IouLoop_RecvWriteFixed() {
         });
     EXPECT_TRUE(recv_token.is_valid());
 
-    auto tok = loop->borrow_write_buffer();
-    EXPECT_TRUE(tok);
-    if (!tok) return;
-    auto span = tok.tail_span();
+    auto send_buf = loop->borrow_write_buffer();
+    EXPECT_TRUE(send_buf);
+    if (!send_buf) return;
+    auto span = send_buf.tail_span();
     std::memcpy(span.data(), msg.data(), msg.size());
     span = span.first(msg.size());
-    (void)tok.update_payload(span);
+    (void)send_buf.update_payload(span);
 
     const auto send_token = loop->submit_write_buffer(send_sock,
-        std::move(tok), [&](completion_id, iou_loop::buffer& buf) {
+        std::move(send_buf), [&](completion_id, iou_loop::buffer& buf) {
           send_n.store(buf.result().value(), std::memory_order::relaxed);
           return slot_retention{};
         });
@@ -242,6 +242,72 @@ void IouLoop_RecvWriteFixed() {
     EXPECT_EQ(recv_n.load(), static_cast<int32_t>(msg.size()));
     EXPECT_EQ(send_n.load(), static_cast<int32_t>(msg.size()));
     EXPECT_EQ(payload, msg);
+  }
+}
+#pragma endregion
+
+#pragma region SendBuffer
+void IouLoop_SendBuffer() {
+  // `submit_send_buffer` uses `IORING_OP_SEND_ZC` over connected UDP sockets
+  // on loopback. ZC send requires IP sockets; Unix domain sockets return
+  // `EOPNOTSUPP`. A sync `connect()` on the send socket sets the peer so the
+  // kernel knows the destination without a `sendmsg` address.
+  //
+  // The send callback may fire twice when ZC is active: once for the send
+  // completion (result = bytes sent) and once for the kernel notification
+  // (result = 0, `notif` flag set). The test records only the non-`notif`
+  // result for validation.
+  if (true) {
+    auto recv_ep = net_endpoint::any_v4(0);
+    auto send_ep = net_endpoint::any_v4(0);
+    auto recv_sock = net_socket::create_for(recv_ep, execution::nonblocking,
+        message_style::datagram);
+    auto send_sock = net_socket::create_for(send_ep, execution::nonblocking,
+        message_style::datagram);
+    EXPECT_TRUE(recv_sock.bind(recv_ep));
+    EXPECT_TRUE(send_sock.bind(send_ep));
+    net_endpoint recv_addr{recv_sock};
+    const auto connect_ok = send_sock.connect(recv_addr);
+    EXPECT_TRUE(connect_ok && *connect_ok);
+
+    iou_loop_runner loop;
+    std::atomic_bool received{false};
+    std::atomic_int32_t recv_n{-1};
+    std::atomic_int32_t send_n{-1};
+    std::string payload;
+
+    constexpr std::string_view msg{"hello-zc"};
+
+    const auto recv_token = loop->submit_read_buffer(recv_sock,
+        [&](completion_id, iou_loop::buffer& buf) {
+          recv_n.store(buf.result().value(), std::memory_order::relaxed);
+          payload.assign(buf.payload_view());
+          received.store(true, std::memory_order::release);
+          return slot_retention{};
+        });
+    EXPECT_TRUE(recv_token.is_valid());
+
+    auto send_buf = loop->borrow_write_buffer();
+    EXPECT_TRUE(send_buf);
+    if (!send_buf) return;
+    (void)send_buf.append(msg);
+
+    const auto send_token = loop->submit_send_buffer(send_sock,
+        std::move(send_buf), [&](completion_id, iou_loop::buffer& buf) {
+          // Notification CQE: kernel released the ZC-pinned buffer. Skip the
+          // result (it is always 0); return `automatic` to release the slot.
+          if (bitmask::has(buf.cqe_flags(), iou_cqe_flags::notif))
+            return slot_retention::automatic;
+          send_n.store(buf.result().value(), std::memory_order::relaxed);
+          return slot_retention::automatic;
+        });
+    EXPECT_TRUE(send_token.is_valid());
+    EXPECT_TRUE(
+        WaitFor([&] { return received.load(std::memory_order::acquire); }));
+
+    EXPECT_EQ(recv_n.load(), static_cast<int32_t>(msg.size()));
+    EXPECT_EQ(send_n.load(), static_cast<int32_t>(msg.size()));
+    EXPECT_EQ(payload, std::string{msg});
   }
 }
 #pragma endregion
@@ -922,13 +988,14 @@ void IouWrap_TimeoutFlagsString() {
 // NOLINTEND(readability-function-cognitive-complexity)
 MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
     IouLoop_StopFromThread, IouLoop_PostFromThread, IouLoop_PostAndWait,
-    IouLoop_RecvSend, IouLoop_RecvWriteFixed, IouLoop_IsLoopThread,
-    IouLoop_ExecuteOrPost, IouLoop_NopTokenVariant, IouLoop_TokenIsReleased,
-    IouLoop_SubmitClose, IouLoop_SubmitTimeout, IouLoop_SubmitTimeoutMultishot,
-    IouLoop_SubmitCancelFile, IouLoop_SubmitCancelToken, IouLoop_AcceptConnect,
-    IouLoop_RecvSendMsg, IouLoop_BorrowBufferSizes,
-    IouLoop_SlotRetentionRetain, IouWrap_TimespecDurationRoundTrip,
-    IouWrap_TimespecTimePointRoundTrip, IouWrap_TimespecStaticHelpers,
-    IouWrap_TimespecAsPointer, IouWrap_ItimerspecConstruct, IouWrap_ResStatus,
-    IouWrap_CqeFlagsString, IouWrap_SqeFlagsString, IouWrap_SetupFlagsString,
+    IouLoop_RecvSend, IouLoop_RecvWriteFixed, IouLoop_SendBuffer,
+    IouLoop_IsLoopThread, IouLoop_ExecuteOrPost, IouLoop_NopTokenVariant,
+    IouLoop_TokenIsReleased, IouLoop_SubmitClose, IouLoop_SubmitTimeout,
+    IouLoop_SubmitTimeoutMultishot, IouLoop_SubmitCancelFile,
+    IouLoop_SubmitCancelToken, IouLoop_AcceptConnect, IouLoop_RecvSendMsg,
+    IouLoop_BorrowBufferSizes, IouLoop_SlotRetentionRetain,
+    IouWrap_TimespecDurationRoundTrip, IouWrap_TimespecTimePointRoundTrip,
+    IouWrap_TimespecStaticHelpers, IouWrap_TimespecAsPointer,
+    IouWrap_ItimerspecConstruct, IouWrap_ResStatus, IouWrap_CqeFlagsString,
+    IouWrap_SqeFlagsString, IouWrap_SetupFlagsString,
     IouWrap_TimeoutFlagsString)
