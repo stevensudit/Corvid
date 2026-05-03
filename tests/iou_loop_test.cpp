@@ -985,6 +985,100 @@ void IouWrap_TimeoutFlagsString() {
 }
 #pragma endregion
 
+#pragma region CompletionFnSizeProbe
+void IouLoop_CompletionFnSizeProbe() {
+  // Probe the storage each (cb, ep) combination would need if `completion_fn`
+  // were replaced with `fixed_function<SZ, slot_retention(completion_id,
+  // iou_res, iou_cqe_flags)>`.  The wrapping lambda in `wrap_completion_fn`
+  // captures `cb` and `ep` by value, so:
+  //   required SZ = sizeof(wrapping_lambda) + 2*sizeof(void*)
+  //
+  // Callback categories and which submit functions use them:
+  //
+  //   raw CompletionInvocable         -- submit_close, submit_timeout,
+  //                                      submit_recv_bytes, submit_send_bytes,
+  //                                      submit_connect
+  //   completion_fn (std::fn)         -- submit_nop, submit_cancel (direct)
+  //   raw BufCompletionInvocable      -- submit_*_buffer
+  //   raw EndpointCompletionInvocable -- submit_accept
+  //
+  // Endpoint categories:
+  //   (none)                              -- nop, cancel: cb stored directly
+  //   bound_timeout (32 B)                -- timeout, recv_bytes, send_bytes,
+  //                                          close
+  //   bound_endpoint_with_timeout (168 B) -- accept, connect
+  //   iou_buffer (328 B)                  -- read/write/recvmsg/sendmsg buffer
+
+  constexpr size_t overhead = 2 * sizeof(void*); // fixed_function fn-ptr pair
+
+  // Representative raw lambdas for non-buffer ops: 3 ref captures = 24 bytes.
+  std::atomic_bool a{};
+  std::atomic_int32_t b{};
+  std::atomic_int32_t c{};
+
+  // NOLINTBEGIN(clang-diagnostic-unused-lambda-capture)
+  auto raw_simple =
+      [&a, &b, &c](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
+    (void)a;
+    (void)b;
+    (void)c;
+    return {};
+  };
+  // Realistic buf callback: captures a shared_ptr (as in `iou_stream_conn`).
+  // shared_ptr = 2 pointers = 16 bytes.
+  auto conn = std::make_shared<int>();
+  auto raw_buf = [conn](completion_id, iou_loop::buffer&) -> slot_retention {
+    (void)conn;
+    return {};
+  };
+  auto raw_endpoint =
+      [&a, &b, &c](completion_id, iou_res, iou_cqe_flags,
+          combined_endpoint&) -> slot_retention {
+    (void)a;
+    (void)b;
+    (void)c;
+    return {};
+  };
+  // NOLINTEND(clang-diagnostic-unused-lambda-capture)
+
+  // Replicate the wrap_completion_fn lambda structure to get an accurate
+  // sizeof.
+  auto wrap = [](auto cb, auto ep) {
+    return [cb = std::move(cb), ep = std::move(ep)](completion_id, iou_res,
+               iou_cqe_flags) mutable -> slot_retention {
+      (void)cb;
+      (void)ep;
+      return {};
+    };
+  };
+
+  // Direct storage (no ep): submit_nop, submit_cancel take completion_fn&&.
+  const size_t sz_direct_fn = sizeof(iou_loop::completion_fn) + overhead;
+
+  // submit_timeout, submit_recv/send_bytes, submit_close:
+  // raw CompletionInvocable + bound_timeout.
+  auto w_raw_bt = wrap(raw_simple, bound_timeout{});
+  const size_t sz_raw_bt = sizeof(w_raw_bt) + overhead;
+
+  // submit_accept, submit_connect: raw + bound_endpoint_with_timeout.
+  auto w_raw_bewt = wrap(raw_endpoint, bound_endpoint_with_timeout{});
+  const size_t sz_raw_bewt = sizeof(w_raw_bewt) + overhead;
+
+  // submit_*_buffer: raw BufCompletionInvocable + iou_buffer.
+  // iou_buffer has no default constructor; compute algebraically.
+  const size_t sz_raw_buf =
+      sizeof(raw_buf) + sizeof(iou_loop::buffer) + overhead;
+
+  const size_t all[] = {sz_direct_fn, sz_raw_bt, sz_raw_bewt, sz_raw_buf};
+  const size_t max_sz = *std::max_element(std::begin(all), std::end(all));
+
+  // Sounds like SZ = 384 works.
+
+  TEST_MSG("direct_fn=%zu raw+bt=%zu raw+bewt=%zu raw+buf=%zu  max=%zu",
+      sz_direct_fn, sz_raw_bt, sz_raw_bewt, sz_raw_buf, max_sz);
+}
+#pragma endregion
+
 // NOLINTEND(readability-function-cognitive-complexity)
 MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
     IouLoop_StopFromThread, IouLoop_PostFromThread, IouLoop_PostAndWait,
@@ -998,4 +1092,4 @@ MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
     IouWrap_TimespecStaticHelpers, IouWrap_TimespecAsPointer,
     IouWrap_ItimerspecConstruct, IouWrap_ResStatus, IouWrap_CqeFlagsString,
     IouWrap_SqeFlagsString, IouWrap_SetupFlagsString,
-    IouWrap_TimeoutFlagsString)
+    IouWrap_TimeoutFlagsString, IouLoop_CompletionFnSizeProbe)

@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "../../meta/forwarding_address.h"
+#include "../../meta/concepts.h"
 #include "../../filesys/os_file.h"
 #include "../../concurrency/jthread_stoppable_sleep.h"
 #include "../../concurrency/notifiable.h"
@@ -89,38 +90,40 @@ struct bound_endpoint_with_timeout
 #pragma endregion
 #pragma region Concepts
 
-// Concept for a parameter that can be consumed by moving it (such as into a
-// `std::function`). We use this to constrain universal references to rvalues
-// we can move from.
-template<class FN>
-concept MoveConsumable =
-    !std::is_lvalue_reference_v<FN> &&
-    !std::is_const_v<std::remove_reference_t<FN>>;
-
 // For efficiency, we don't want to prematurely require `std::function`
 // parameters for completion callbacks, instead accepting lambdas that can be
 // captured into them. That's what the following concepts define.
 
-// Concept for `iou_loop::buf_completion_fn` lambda.
+// Concept for `iou_loop::buf_completion_fn` lambda in its stored form.
+template<typename FN>
+concept StoredBufCompletionInvocable = std::is_invocable_r_v<slot_retention,
+    FN, completion_id, iou_buf_pool::buffer&>;
+
+// Concept for `iou_loop::buf_completion_fn` lambda as a parameter.
 template<typename FN>
 concept BufCompletionInvocable =
-    MoveConsumable<FN> &&
-    std::is_invocable_r_v<slot_retention, FN, completion_id,
-        iou_buf_pool::buffer&>;
+    MoveConsumable<FN> && StoredBufCompletionInvocable<FN>;
 
-// Concept for `iou_loop::endpoint_completion_fn` lambda.
+// Concept for `iou_loop::endpoint_completion_fn` lambda in its stored form.
 template<typename FN>
-concept EndpointCompletionInvocable =
-    MoveConsumable<FN> &&
+concept StoredEndpointCompletionInvocable =
     std::is_invocable_r_v<slot_retention, FN, completion_id, iou_res,
         iou_cqe_flags, combined_endpoint&>;
 
-// Concept for `iou_loop::completion_fn` lambda.
+// Concept for `iou_loop::endpoint_completion_fn` lambda as a parameter.
+template<typename FN>
+concept EndpointCompletionInvocable =
+    MoveConsumable<FN> && StoredEndpointCompletionInvocable<FN>;
+
+// Concept for `iou_loop::completion_fn` lambda in its stored form.
+template<typename FN>
+concept StoredCompletionInvocable = std::is_invocable_r_v<slot_retention, FN,
+    completion_id, iou_res, iou_cqe_flags>;
+
+// Concept for `iou_loop::completion_fn` lambda as a parameter.
 template<typename FN>
 concept CompletionInvocable =
-    MoveConsumable<FN> &&
-    std::is_invocable_r_v<slot_retention, FN, completion_id, iou_res,
-        iou_cqe_flags>;
+    MoveConsumable<FN> && StoredCompletionInvocable<FN>;
 
 // Concept for any completion lambda. All of these become `completion_fn` in
 // the end, but the "Buf" and "Endpoint" variants pass in parameters that were
@@ -605,9 +608,9 @@ public:
       AddressForwarder auto&& af) {
     return [cb = std::move(cb), ep = std::move(af)](completion_id cbhandle,
                iou_res res, iou_cqe_flags flags) mutable -> slot_retention {
-      if constexpr (BufCompletionInvocable<decltype(cb)>) {
+      if constexpr (StoredBufCompletionInvocable<decltype(cb)>) {
         return cb(cbhandle, ep.update(res, flags));
-      } else if constexpr (EndpointCompletionInvocable<decltype(cb)>) {
+      } else if constexpr (StoredEndpointCompletionInvocable<decltype(cb)>) {
         ep.sockaddr.len = net_endpoint::max_sockaddr_size;
         return cb(cbhandle, res, flags, ep.sockaddr);
       } else {
@@ -686,7 +689,7 @@ public:
   // Per the name, nop does nothing except trigger a completion.
 
   // Submit an async nop.
-  [[nodiscard]] completion_token submit_nop(completion_fn&& cb) {
+  [[nodiscard]] completion_token submit_nop(CompletionInvocable auto&& cb) {
     const auto cbtoken = tokenize(std::move(cb));
     if (!submit_nop(cbtoken, slot_retention::automatic)) return {};
     return cbtoken;
@@ -734,7 +737,7 @@ public:
 
   // Submit an async multishot poll on `file`.
   [[nodiscard]] completion_token submit_poll_multishot(const os_file& file,
-      completion_fn&& cb, poll_flags poll_mask = poll_flags::in) {
+      CompletionInvocable auto&& cb, poll_flags poll_mask = poll_flags::in) {
     const auto cbtoken = tokenize(std::move(cb));
     if (!submit_poll_multishot(file, cbtoken, poll_mask,
             slot_retention::automatic))
@@ -874,8 +877,8 @@ public:
 #pragma region Shutdown
 
   // Submit an async shutdown on `file`.
-  [[nodiscard]] completion_token
-  submit_shutdown(const os_file& file, shutdown_how how, completion_fn&& cb) {
+  [[nodiscard]] completion_token submit_shutdown(const os_file& file,
+      shutdown_how how, CompletionInvocable auto&& cb) {
     const auto cbtoken = tokenize(std::move(cb));
     if (!submit_shutdown(std::move(file), how, cbtoken,
             slot_retention::automatic))
@@ -946,7 +949,7 @@ public:
 
   // Submit an async connect on `socket` to `endpoint`.
   [[nodiscard]] completion_token submit_connect(const os_file& socket,
-      bound_endpoint_with_timeout&& remote, completion_fn&& cb) {
+      bound_endpoint_with_timeout&& remote, CompletionInvocable auto&& cb) {
     auto [cbtoken, endpoint_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(remote));
     if (!submit_connect(socket, *endpoint_ptr, cbtoken,
@@ -976,7 +979,7 @@ public:
 
   // Submit an async cancel on `file`. Cancels all ops for the file.
   [[nodiscard]] completion_token
-  submit_cancel(const os_file& file, completion_fn&& cb) {
+  submit_cancel(const os_file& file, CompletionInvocable auto&& cb) {
     const auto cbtoken = tokenize(std::move(cb));
     if (!submit_cancel(file, cbtoken, slot_retention::automatic)) return {};
     return cbtoken;
@@ -1012,8 +1015,8 @@ public:
   }
 
   // Submit an async cancel on `cancelation_token`.
-  [[nodiscard]] completion_token
-  submit_cancel(completion_token&& cancelation_token, completion_fn&& cb) {
+  [[nodiscard]] completion_token submit_cancel(
+      completion_token&& cancelation_token, CompletionInvocable auto&& cb) {
     const auto cbtoken = tokenize(std::move(cb));
     if (!submit_cancel(std::move(cancelation_token), cbtoken,
             slot_retention::automatic))
@@ -1044,7 +1047,7 @@ public:
   //
   // Prefer `submit_recv_buffer` over this.
   [[nodiscard]] completion_token submit_recv_bytes(const os_file& socket,
-      span_t span, completion_fn&& cb, bound_timeout timeout = {}) {
+      span_t span, CompletionInvocable auto&& cb, bound_timeout timeout = {}) {
     auto [cbtoken, timeout_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
     if (!submit_recv_bytes(socket, span, cbtoken,
@@ -1076,7 +1079,8 @@ public:
   //
   // Prefer `submit_send_buffer` over this.
   [[nodiscard]] completion_token submit_send_bytes(const os_file& socket,
-      const_span_t span, completion_fn&& cb, bound_timeout timeout = {}) {
+      const_span_t span, CompletionInvocable auto&& cb,
+      bound_timeout timeout = {}) {
     auto [cbtoken, timeout_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
     if (!submit_send_bytes(socket, span, cbtoken,

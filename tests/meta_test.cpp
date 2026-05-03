@@ -772,6 +772,182 @@ void MetaTest_AddressForwarder_BoundFunction() {
   ptr->forwarding_address() = nullptr;
 }
 
+// fixed_function compile-time size checks
+static_assert(sizeof(fixed_function<64, int()>) == 64);
+static_assert(sizeof(fixed_function<32, void(int, double)>) == 32);
+static_assert(sizeof(fixed_function<128, int(int, int)>) == 128);
+
+void MetaTest_FixedFunction_Basic() {
+  fixed_function<64, int()> f{[] { return 42; }};
+  EXPECT_EQ(f(), 42);
+}
+
+void MetaTest_FixedFunction_Args() {
+  fixed_function<64, int(int, int)> add{[](int x, int y) { return x + y; }};
+  EXPECT_EQ(add(3, 4), 7);
+  EXPECT_EQ(add(10, -3), 7);
+}
+
+void MetaTest_FixedFunction_Bool() {
+  fixed_function<64, int()> a{[] { return 1; }};
+  EXPECT_TRUE(static_cast<bool>(a));
+  fixed_function<64, int()> b{std::move(a)};
+  EXPECT_FALSE(static_cast<bool>(a));
+  EXPECT_TRUE(static_cast<bool>(b));
+}
+
+void MetaTest_FixedFunction_Move() {
+  fixed_function<64, int()> a{[] { return 7; }};
+  EXPECT_TRUE(static_cast<bool>(a));
+  fixed_function<64, int()> b{std::move(a)};
+  EXPECT_FALSE(static_cast<bool>(a));
+  EXPECT_TRUE(static_cast<bool>(b));
+  EXPECT_EQ(b(), 7);
+}
+
+void MetaTest_FixedFunction_MoveAssign() {
+  fixed_function<64, int()> a{[] { return 99; }};
+  fixed_function<64, int()> b{[] { return 0; }};
+  b = std::move(a);
+  EXPECT_FALSE(static_cast<bool>(a));
+  EXPECT_TRUE(static_cast<bool>(b));
+  EXPECT_EQ(b(), 99);
+
+  b = nullptr;
+  EXPECT_FALSE(static_cast<bool>(b));
+
+  // Sizer test.
+  struct Foo {
+    int value{};
+    char sz[48];
+    explicit Foo(int v) : value{v} {}
+    int operator()() const { return value; }
+  };
+
+  fixed_function_sizer<68, int()> c{Foo{42}};
+  EXPECT_EQ(c.required, 68U);
+}
+
+void MetaTest_FixedFunction_Destructor() {
+  // `Counted` does not null `count_` on move, so every `~Counted()` call
+  // increments the counter regardless of moved-from state.
+  struct Counted {
+    int* count_;
+    explicit Counted(int* c) noexcept : count_{c} {}
+    Counted(Counted&& o) noexcept : count_{o.count_} {}
+    ~Counted() {
+      if (count_) ++(*count_);
+    }
+    void operator()() const noexcept {}
+  };
+  int n{};
+  {
+    fixed_function<64, void()> f{Counted{&n}};
+    EXPECT_EQ(n, 1); // temporary destroyed after move into storage
+    {
+      fixed_function<64, void()> g{std::move(f)};
+      EXPECT_EQ(n, 2); // move ctor immediately destructs f's storage
+    } // g destroyed: Counted in g.storage_ destructed
+    EXPECT_EQ(n, 3);
+  } // f destroyed: manage_ is null, nothing happens
+  EXPECT_EQ(n, 3);
+}
+
+// Shared variable used by MetaTest_FixedFunction_RefReturn.
+static int g_ref_val = 42;
+
+// Free function used by MetaTest_FixedFunction_FreeFn.
+static int double_it(int x) { return x * 2; }
+
+void MetaTest_FixedFunction_RefReturn() {
+  // Callables that return an actual reference are safe.
+  fixed_function<64, int&()> f{[&]() -> int& { return g_ref_val; }};
+  EXPECT_EQ(f(), 42);
+  f() = 99;
+  EXPECT_EQ(g_ref_val, 99);
+  g_ref_val = 42; // restore
+
+  fixed_function<64, const int&()> g{[&]() -> const int& {
+    return g_ref_val;
+  }};
+  EXPECT_EQ(g(), 42);
+
+  fixed_function<64, int&&()> h{[]() -> int&& {
+    return static_cast<int&&>(g_ref_val);
+  }};
+  EXPECT_EQ(h(), 42);
+
+#ifdef NOT_SUPPOSED_TO_COMPILE
+  // Both of these trigger the static_assert: callable returns a prvalue `int`
+  // but the declared return type is a reference, so every call would dangle.
+  fixed_function<64, int&()> bad1{[] { return 42; }};
+  fixed_function<64, const int&()> bad2{[] { return 42; }};
+#endif
+}
+
+void MetaTest_FixedFunction_EmptyThrows() {
+  // Default-constructed instance is empty and throws on call.
+  fixed_function<64, int()> empty{};
+  EXPECT_TRUE(!empty);
+  EXPECT_THROW(empty(), std::bad_function_call);
+
+  // Moved-from instance is also empty and throws on call.
+  fixed_function<64, int()> f{[] { return 1; }};
+  fixed_function<64, int()> g{std::move(f)};
+  EXPECT_TRUE(!f);
+  EXPECT_THROW(f(), std::bad_function_call);
+
+  // nullptr-assigned instance throws too.
+  g = nullptr;
+  EXPECT_THROW(g(), std::bad_function_call);
+}
+
+void MetaTest_FixedFunction_FreeFn() {
+  // A plain function pointer satisfies MoveConsumable (it is a prvalue).
+  fixed_function<64, int(int)> f{&double_it};
+  EXPECT_TRUE(static_cast<bool>(f));
+  EXPECT_EQ(f(21), 42);
+}
+
+void MetaTest_FixedFunction_Functor() {
+  struct Adder {
+    int n;
+    int operator()(int x) const { return x + n; }
+  };
+  fixed_function<64, int(int)> f{Adder{10}};
+  EXPECT_EQ(f(32), 42);
+}
+
+void MetaTest_FixedFunction_Swap() {
+  using ff = fixed_function<64, int()>;
+  ff a{[] { return 1; }};
+  ff b{[] { return 2; }};
+
+  // Member swap.
+  a.swap(b);
+  EXPECT_EQ(a(), 2);
+  EXPECT_EQ(b(), 1);
+
+  // ADL swap (finds the hidden-friend in namespace corvid::meta).
+  using std::swap;
+  swap(a, b);
+  EXPECT_EQ(a(), 1);
+  EXPECT_EQ(b(), 2);
+
+  // Swap a full instance with an empty one.
+  ff empty{};
+  a.swap(empty);
+  EXPECT_FALSE(static_cast<bool>(a));
+  EXPECT_TRUE(static_cast<bool>(empty));
+  EXPECT_EQ(empty(), 1);
+
+  // Swap two empty instances is a no-op.
+  ff empty2{};
+  a.swap(empty2);
+  EXPECT_FALSE(static_cast<bool>(a));
+  EXPECT_FALSE(static_cast<bool>(empty2));
+}
+
 MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
     MetaTest_EnumHighestValueInNBits, MetaTest_EnumPow2,
     MetaTest_SpanConstness, MetaTest_FunctionVoidReturn,
@@ -784,7 +960,12 @@ MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
     MetaTest_AddressForwarder_MoveAssign, MetaTest_AddressForwarder_SelfAssign,
     MetaTest_AddressForwarder_DestroySource,
     MetaTest_AddressForwarder_AsBaseMove,
-    MetaTest_AddressForwarder_BoundFunction);
+    MetaTest_AddressForwarder_BoundFunction, MetaTest_FixedFunction_Basic,
+    MetaTest_FixedFunction_Args, MetaTest_FixedFunction_Bool,
+    MetaTest_FixedFunction_Move, MetaTest_FixedFunction_MoveAssign,
+    MetaTest_FixedFunction_Destructor, MetaTest_FixedFunction_RefReturn,
+    MetaTest_FixedFunction_EmptyThrows, MetaTest_FixedFunction_FreeFn,
+    MetaTest_FixedFunction_Functor, MetaTest_FixedFunction_Swap);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

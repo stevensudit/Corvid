@@ -218,4 +218,13 @@ concept CallableReturningNonVoid = requires(F f, Args&&... args) {
   } -> std::same_as<std::invoke_result_t<F, Args...>>;
 } && (!std::is_void_v<std::invoke_result_t<F, Args...>>);
 
+// Concept for a parameter that can be consumed by moving it (such as into a
+// `std::function`). We use this to constrain universal references to rvalues
+// we can move from, so that a universal reference acts like an rvalue
+// reference and doesn't accidentally bind to lvalues.
+template<class FN>
+concept MoveConsumable =
+    !std::is_lvalue_reference_v<FN> &&
+    !std::is_const_v<std::remove_reference_t<FN>>;
+
 }}} // namespace corvid::meta::concepts
