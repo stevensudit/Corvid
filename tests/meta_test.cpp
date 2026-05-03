@@ -853,11 +853,76 @@ void MetaTest_FixedFunction_Destructor() {
   EXPECT_EQ(n, 3);
 }
 
+// Free function used by MetaTest_FixedFunction_CppRef.
+static int cpref_num(int i) { return i; }
+
 // Shared variable used by MetaTest_FixedFunction_RefReturn.
 static int g_ref_val = 42;
 
 // Free function used by MetaTest_FixedFunction_FreeFn.
 static int double_it(int x) { return x * 2; }
+
+// Mirrors the cppreference.com `std::function` sample.
+// Member functions return values instead of printing so results are
+// verifiable.
+void MetaTest_FixedFunction_CppRef() {
+  struct Foo {
+    Foo(int num) : num_(num) {}
+    int add(int i) const { return num_ + i; }
+    int num_;
+  };
+  struct PrintNum {
+    int operator()(int i) const { return i; }
+  };
+
+  // store a free function
+  fixed_function<64, int(int)> f_display{&cpref_num};
+  EXPECT_EQ(f_display(-9), -9);
+
+  // store a lambda
+  fixed_function<64, int()> f_display_42{[] { return cpref_num(42); }};
+  EXPECT_EQ(f_display_42(), 42);
+
+  // store the result of a call to std::bind
+  fixed_function<64, int()> f_display_31337{std::bind(cpref_num, 31337)};
+  EXPECT_EQ(f_display_31337(), 31337);
+
+  // store a call to a member function
+  fixed_function<64, int(const Foo&, int)> f_add_display{&Foo::add};
+  const Foo foo{314159};
+  EXPECT_EQ(f_add_display(foo, 1), 314160);
+  EXPECT_EQ(f_add_display(314159, 1), 314160); // implicit Foo from int
+
+  // store a call to a data member accessor
+  fixed_function<64, int(const Foo&)> f_num{&Foo::num_};
+  EXPECT_EQ(f_num(foo), 314159);
+
+  // store a call to a member function and object
+  using std::placeholders::_1;
+  fixed_function<64, int(int)> f_add_display2{std::bind(&Foo::add, foo, _1)};
+  EXPECT_EQ(f_add_display2(2), 314161);
+
+  // store a call to a member function and object ptr
+  fixed_function<64, int(int)> f_add_display3{std::bind(&Foo::add, &foo, _1)};
+  EXPECT_EQ(f_add_display3(3), 314162);
+
+  // store a call to a function object
+  fixed_function<64, int(int)> f_display_obj{PrintNum{}};
+  EXPECT_EQ(f_display_obj(18), 18);
+
+  // recursive lambda: same self-referential pattern as the cppreference
+  // factorial example, using fixed_function instead of std::function
+  auto factorial = [](int n) {
+    fixed_function<64, int(int)> fac;
+    fac = fixed_function<64, int(int)>{[&fac](int k) -> int {
+      return (k < 2) ? 1 : k * fac(k - 1);
+    }};
+    return fac(n);
+  };
+  EXPECT_EQ(factorial(5), 120);
+  EXPECT_EQ(factorial(6), 720);
+  EXPECT_EQ(factorial(7), 5040);
+}
 
 void MetaTest_FixedFunction_RefReturn() {
   // Callables that return an actual reference are safe.
@@ -963,9 +1028,10 @@ MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
     MetaTest_AddressForwarder_BoundFunction, MetaTest_FixedFunction_Basic,
     MetaTest_FixedFunction_Args, MetaTest_FixedFunction_Bool,
     MetaTest_FixedFunction_Move, MetaTest_FixedFunction_MoveAssign,
-    MetaTest_FixedFunction_Destructor, MetaTest_FixedFunction_RefReturn,
-    MetaTest_FixedFunction_EmptyThrows, MetaTest_FixedFunction_FreeFn,
-    MetaTest_FixedFunction_Functor, MetaTest_FixedFunction_Swap);
+    MetaTest_FixedFunction_Destructor, MetaTest_FixedFunction_CppRef,
+    MetaTest_FixedFunction_RefReturn, MetaTest_FixedFunction_EmptyThrows,
+    MetaTest_FixedFunction_FreeFn, MetaTest_FixedFunction_Functor,
+    MetaTest_FixedFunction_Swap);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
