@@ -358,7 +358,7 @@ void IouStreamConn_FullBufferRedelivery() {
     iou_loop_runner runner;
     std::atomic_bool done{false};
     std::atomic_int full_deliveries{0};
-    const size_t buf_size = *block_size::small;
+    const size_t buf_size = *block_size::kb004;
 
     auto recv_conn = iou_stream_conn_ptr::adopt(runner.loop(),
         std::move(sock1), net_endpoint::invalid,

@@ -31,6 +31,8 @@
 namespace corvid { inline namespace proto { namespace iouring {
 #pragma region buffer_pool_base
 
+enum class block_type : bool { read, write };
+
 // Fwd.
 class iou_buffer;
 
@@ -49,7 +51,7 @@ private:
   [[nodiscard]] virtual std::byte* base() const noexcept = 0;
 
   // Return a buffer to the pool.
-  virtual void return_buffer(span_t s, bool is_read) noexcept = 0;
+  virtual void return_buffer(span_t s, block_type blockrw) noexcept = 0;
 
   // Track reads bytes separately, to selectively throttle.
   virtual void decrement_read_bytes(size_t n) noexcept = 0;
@@ -57,7 +59,7 @@ private:
 
 protected:
   [[nodiscard]] static iou_buffer make_buffer(buffer_pool_base& pool,
-      span_t span, size_t buf_index, bool is_read) noexcept;
+      span_t span, size_t buf_index, block_type blockrw) noexcept;
 
   // TODO: We'll need a way to make Provided Buffers programmatically
   // detectable. What we really want is for the regular flow, where the user
@@ -120,6 +122,7 @@ class iou_buffer: public address_forwarder<iou_buffer> {
 public:
   using span_t = buffer_pool_base::span_t;
   using const_span_t = buffer_pool_base::const_span_t;
+  using block_type = ::corvid::proto::iouring::block_type;
   static constexpr uint64_t seek_current = static_cast<uint64_t>(-1);
 
   iou_buffer() = default;
@@ -134,7 +137,7 @@ public:
         buf_index_{std::exchange(o.buf_index_, {})},
         file_offset_{std::exchange(o.file_offset_, {})},
         pending_releases_{std::exchange(o.pending_releases_, {})},
-        is_read_{o.is_read_}, timeout_{o.timeout_}, addr_{o.addr_},
+        blockrw_{o.blockrw_}, timeout_{o.timeout_}, addr_{o.addr_},
         msg_{o.msg_}, iov_(o.iov_), res_{o.res_}, cqe_flags_{o.cqe_flags_} {
     do_reconstitute_msg();
   }
@@ -150,7 +153,7 @@ public:
       buf_index_ = std::exchange(o.buf_index_, {});
       file_offset_ = std::exchange(o.file_offset_, {});
       pending_releases_ = std::exchange(o.pending_releases_, {});
-      is_read_ = o.is_read_;
+      blockrw_ = o.blockrw_;
       timeout_ = o.timeout_;
       addr_ = o.addr_;
       msg_ = o.msg_;
@@ -244,7 +247,7 @@ public:
     buf_index_ = {};
     file_offset_ = {};
     pending_releases_ = {};
-    is_read_ = false;
+    blockrw_ = block_type::write;
     res_ = iou_res{-1};
     cqe_flags_ = {};
   }
@@ -262,7 +265,7 @@ public:
   // taken slice. Fully draining the payload resets the buffer to its
   // initial read state (empty payload, active = full block).
   [[nodiscard]] span_t consume_read(size_t n) noexcept {
-    assert(is_read_);
+    assert(blockrw_ == block_type::read);
     const size_t take = std::min(n, payload_span_.size());
     span_t result{payload_span_.data(), take};
     payload_span_ = payload_span_.subspan(take);
@@ -277,7 +280,7 @@ public:
   // with the manual `tail_span` + `update_payload` fill pattern. Implicitly
   // resets to initial write state if the buffer is consumed.
   [[nodiscard]] span_t tail_span() noexcept {
-    assert(!is_read_);
+    assert(blockrw_ == block_type::write);
     if (do_is_fully_consumed()) do_reset_write_spans();
     std::byte* end = payload_span_.data() + payload_span_.size();
     return {end,
@@ -293,7 +296,7 @@ public:
   // `full_span`. Returns false on violation; spans are left unchanged.
   // Implicitly resets if the buffer is in consumed state before extending.
   [[nodiscard]] bool update_payload(span_t payload) noexcept {
-    assert(!is_read_);
+    assert(blockrw_ == block_type::write);
     auto tail = tail_span();
     if (payload.data() != tail.data()) return false;
     if (payload.size() > tail.size()) return false;
@@ -308,7 +311,7 @@ public:
   // without modifying anything if `more` would not fit in the remaining
   // tail. Implicitly resets if the buffer is in consumed state first.
   [[nodiscard]] bool append(const_span_t more) noexcept {
-    assert(!is_read_);
+    assert(blockrw_ == block_type::write);
     auto tail = tail_span();
     if (more.size() > tail.size()) return false;
     std::memcpy(tail.data(), more.data(), more.size());
@@ -328,7 +331,7 @@ public:
   //  Returns false without modifying anything if `bytes_to_read` exceeds the
   //  available tail space.
   [[nodiscard]] bool set_read_size(size_t bytes_to_read) noexcept {
-    assert(is_read_);
+    assert(blockrw_ == block_type::read);
     auto* tail_start = payload_span_.data() + payload_span_.size();
     const auto tail_size = static_cast<size_t>(
         full_span_.data() + full_span_.size() - tail_start);
@@ -343,7 +346,7 @@ public:
   // `bytes_to_read` exceeds the available tail space. See also: `file_offset`.
   [[nodiscard]] bool
   seek_read(uint64_t new_offset, size_t bytes_to_read) noexcept {
-    assert(is_read_);
+    assert(blockrw_ == block_type::read);
     if (!set_read_size(bytes_to_read)) return false;
     file_offset_ = new_offset;
     return true;
@@ -394,7 +397,7 @@ public:
     if (!res.ok()) return *this;
 
     if (file_offset_ != seek_current) file_offset_ += res.bytes();
-    if (is_read_) {
+    if (blockrw_ == block_type::read) {
       const size_t extend = std::min(res.bytes(),
           full_span_.size() -
               static_cast<size_t>(payload_span_.data() - full_span_.data()) -
@@ -420,12 +423,12 @@ public:
   // `payload_span` (so the next send transmits exactly what was read).
   // Decrements the pool's in-flight read byte count for the full block.
   iou_buffer& promote_to_write() noexcept {
-    assert(is_read_);
+    assert(blockrw_ == block_type::read);
     // TODO: Add a return value that can be used to cancel the attempt. In
     // particular, Provided Buffers cannot be reused this way.
     pool_->decrement_read_bytes(full_span_.size());
     active_span_ = payload_span_;
-    is_read_ = false;
+    blockrw_ = block_type::write;
     return *this;
   }
 
@@ -433,19 +436,19 @@ public:
   // `active_span` becomes the tail (space after `payload_span` for
   // additional incoming data).
   iou_buffer& demote_to_read() noexcept {
-    assert(!is_read_);
+    assert(blockrw_ == block_type::write);
     // TODO: Add a return value that can be used to cancel the attempt.
     pool_->increment_read_bytes(full_span_.size());
     auto* end = payload_span_.data() + payload_span_.size();
     active_span_ = {end,
         static_cast<size_t>(full_span_.data() + full_span_.size() - end)};
 
-    is_read_ = true;
+    blockrw_ = block_type::read;
     return *this;
   }
 
-  // Whether this buffer is in read mode. Not generally useful externally.
-  [[nodiscard]] bool is_read() const noexcept { return is_read_; }
+  // Whether this buffer is in read or write mode. Mostly internal.
+  [[nodiscard]] block_type blockrw() const noexcept { return blockrw_; }
 
 #pragma endregion
 #pragma region Msg
@@ -461,7 +464,7 @@ public:
   // and `msg_name` at `addr_` to capture the sender address. Returns `&msg_`
   // for use with `prep_recvmsg`. Call `prepare_msg()` after this.
   [[nodiscard]] msghdr* prepare_recvmsg() noexcept {
-    assert(is_read_);
+    assert(blockrw_ == block_type::read);
     reset_result();
     ++pending_releases_;
 
@@ -480,7 +483,7 @@ public:
   // Configure `msg_` for a sendmsg operation to `peer_addr`. Returns
   // `&msg_` for use with `prep_sendmsg`. Call `prepare_msg()` after this.
   [[nodiscard]] msghdr* prepare_sendmsg() noexcept {
-    assert(!is_read_);
+    assert(blockrw_ == block_type::write);
     reset_result();
     ++pending_releases_;
 
@@ -502,29 +505,29 @@ private:
   friend class buffer_pool_base;
 
   iou_buffer(buffer_pool_base& pool, span_t span, size_t buf_index,
-      bool is_read) noexcept
+      block_type blockrw) noexcept
       : pool_{&pool}, full_span_{span}, payload_span_{span.data(), 0},
-        active_span_{span.data(), 0}, buf_index_{buf_index}, is_read_{is_read},
+        active_span_{span.data(), 0}, buf_index_{buf_index}, blockrw_{blockrw},
         res_{-1} {
-    if (is_read_) active_span_ = full_span_;
+    if (blockrw_ == block_type::read) active_span_ = full_span_;
   }
 
   // True when the write buffer has been fully sent (or is initially empty).
   // Both states are treated identically: the next write operation resets.
   [[nodiscard]] bool do_is_fully_consumed() const noexcept {
-    assert(!is_read_);
+    assert(blockrw_ == block_type::write);
     return active_span_.size() == 0 &&
            active_span_.data() >= payload_span_.data() + payload_span_.size();
   }
 
   void do_reset_write_spans() noexcept {
-    assert(!is_read_);
+    assert(blockrw_ == block_type::write);
     payload_span_ = {full_span_.data(), 0};
     active_span_ = {full_span_.data(), 0};
   }
 
   void do_reset() noexcept {
-    if (pool_) pool_->return_buffer(full_span_, is_read_);
+    if (pool_) pool_->return_buffer(full_span_, blockrw_);
   }
 
   void do_reconstitute_msg() noexcept {
@@ -542,7 +545,7 @@ private:
   size_t buf_index_{};
   uint64_t file_offset_{seek_current};
   size_t pending_releases_{};
-  bool is_read_{};
+  block_type blockrw_{block_type::write};
 
   combined_timespec timeout_;
   net_endpoint addr_;
@@ -556,8 +559,8 @@ private:
 
 [[nodiscard]] inline iou_buffer
 buffer_pool_base::make_buffer(buffer_pool_base& pool, span_t span,
-    size_t buf_index, bool is_read) noexcept {
-  return iou_buffer{pool, span, buf_index, is_read};
+    size_t buf_index, block_type blockrw) noexcept {
+  return iou_buffer{pool, span, buf_index, blockrw};
 }
 
 #pragma endregion

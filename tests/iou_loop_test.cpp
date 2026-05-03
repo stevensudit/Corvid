@@ -668,17 +668,17 @@ void IouLoop_BorrowBufferSizes() {
     using bs = iou_loop::block_size;
 
     {
-      auto s = loop->borrow_read_buffer(bs::small);
-      auto m = loop->borrow_read_buffer(bs::medium);
-      auto l = loop->borrow_read_buffer(bs::large);
+      auto s = loop->borrow_read_buffer(bs::kb004);
+      auto m = loop->borrow_read_buffer(bs::kb016);
+      auto l = loop->borrow_read_buffer(bs::kb032);
       EXPECT_TRUE(s);
       EXPECT_TRUE(m);
       EXPECT_TRUE(l);
     }
     {
-      auto s = loop->borrow_write_buffer(bs::small);
-      auto m = loop->borrow_write_buffer(bs::medium);
-      auto l = loop->borrow_write_buffer(bs::large);
+      auto s = loop->borrow_write_buffer(bs::kb004);
+      auto m = loop->borrow_write_buffer(bs::kb016);
+      auto l = loop->borrow_write_buffer(bs::kb032);
       EXPECT_TRUE(s);
       EXPECT_TRUE(m);
       EXPECT_TRUE(l);

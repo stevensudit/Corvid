@@ -359,8 +359,8 @@ private:
       coordination_policy::unilateral};
 
   // Size of borrowed buffers.
-  relaxed_atomic<block_size> recv_buf_size_{block_size::small};
-  relaxed_atomic<block_size> send_buf_size_{block_size::small};
+  relaxed_atomic<block_size> recv_buf_size_{block_size::kb004};
+  relaxed_atomic<block_size> send_buf_size_{block_size::kb004};
 
   // When receiving, token of callback. Can be used for cancelation.
   completion_token recv_token_;
@@ -892,8 +892,8 @@ private:
       net_endpoint remote, iou_stream_conn_handlers h,
       std::optional<connection_role> role,
       coordination_policy shutdown = coordination_policy::unilateral,
-      block_size recv_buf_size = block_size::small,
-      block_size send_buf_size = block_size::small) {
+      block_size recv_buf_size = block_size::kb004,
+      block_size send_buf_size = block_size::kb004) {
     assert(loop.get());
     bound_endpoint_with_timeout ep;
     ep.sockaddr.sockaddr = remote;
@@ -934,8 +934,8 @@ public:
       bound_endpoint_with_timeout remote, iou_stream_conn_handlers h,
       std::optional<connection_role> role = {},
       coordination_policy shutdown = coordination_policy::unilateral,
-      block_size recv_buf_size = block_size::small,
-      block_size send_buf_size = block_size::small)
+      block_size recv_buf_size = block_size::kb004,
+      block_size send_buf_size = block_size::kb004)
       : iou_stream_conn(a, loop, std::move(sock), std::move(remote),
             std::move(h), role, shutdown, recv_buf_size, send_buf_size) {}
 

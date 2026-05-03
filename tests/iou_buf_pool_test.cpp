@@ -26,6 +26,7 @@
 using namespace corvid;
 using namespace corvid::proto::iouring;
 using namespace std::string_view_literals;
+using block_type = iou_buffer::block_type;
 
 // Simulate kernel filling bytes into `buf`'s active_span, then call update.
 // Returns the byte count "received".
@@ -46,7 +47,7 @@ void IouBufPool_ReadInitialState() {
     iou_buf_pool pool;
     auto buf = pool.borrow_reader();
     ASSERT_TRUE(buf);
-    EXPECT_TRUE(buf.is_read());
+    EXPECT_EQ(buf.blockrw(), block_type::read);
     EXPECT_EQ(buf.size(), 4096ULL);
     EXPECT_EQ(buf.payload_span().size(), 0ULL);
     EXPECT_EQ(buf.active_span().size(), buf.size());
@@ -91,10 +92,10 @@ void IouBufPool_ReadMultipleUpdates() {
     ASSERT_TRUE(buf);
 
     sim_read(buf, "hello"sv);
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(5));
+    EXPECT_EQ(buf.payload_span().size(), 5ULL);
 
     sim_read(buf, " world"sv);
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(11));
+    EXPECT_EQ(buf.payload_span().size(), 11ULL);
     EXPECT_EQ(buf.payload_view(), "hello world");
     EXPECT_EQ(buf.active_span().size(), buf.size() - 11);
   }
@@ -158,7 +159,7 @@ void IouBufPool_ReadConsumeOverRequest() {
     const auto slice = buf.consume_read(9999);
     EXPECT_EQ(slice.size(), 2ULL);
     // Fully consumed: reset to initial state.
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(0));
+    EXPECT_EQ(buf.payload_span().size(), 0ULL);
     EXPECT_EQ(buf.active_span().size(), buf.size());
   }
 }
@@ -191,10 +192,10 @@ void IouBufPool_WriteInitialState() {
     iou_buf_pool pool;
     auto buf = pool.borrow_writer();
     ASSERT_TRUE(buf);
-    EXPECT_FALSE(buf.is_read());
-    EXPECT_EQ(buf.size(), static_cast<size_t>(4096));
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(0));
-    EXPECT_EQ(buf.active_span().size(), static_cast<size_t>(0));
+    EXPECT_EQ(buf.blockrw(), block_type::write);
+    EXPECT_EQ(buf.size(), 4096ULL);
+    EXPECT_EQ(buf.payload_span().size(), 0ULL);
+    EXPECT_EQ(buf.active_span().size(), 0ULL);
     EXPECT_TRUE(buf.payload_span().data() == buf.active_span().data());
   }
 }
@@ -209,15 +210,15 @@ void IouBufPool_WriteViaAppend() {
     ASSERT_TRUE(buf);
 
     EXPECT_TRUE(buf.append("hello"sv));
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(5));
-    EXPECT_EQ(buf.active_span().size(), static_cast<size_t>(5));
+    EXPECT_EQ(buf.payload_span().size(), 5ULL);
+    EXPECT_EQ(buf.active_span().size(), 5ULL);
     EXPECT_TRUE(buf.active_span().data() == buf.payload_span().data());
     EXPECT_EQ(buf.payload_view(), "hello");
 
     // Second append extends both spans.
     EXPECT_TRUE(buf.append(", world"sv));
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(12));
-    EXPECT_EQ(buf.active_span().size(), static_cast<size_t>(12));
+    EXPECT_EQ(buf.payload_span().size(), 12ULL);
+    EXPECT_EQ(buf.active_span().size(), 12ULL);
     EXPECT_EQ(buf.payload_view(), "hello, world");
   }
 }
@@ -335,14 +336,14 @@ void IouBufPool_WriteFullyConsumedThenAppend() {
     [[maybe_unused]] auto [active_buffer, buffer_index, file_offset] =
         buf.prepare();
     buf.update(iou_res{4}, iou_cqe_flags{}); // fully consumed
-    EXPECT_EQ(buf.active_span().size(), static_cast<size_t>(0));
+    EXPECT_EQ(buf.active_span().size(), 0ULL);
 
     // payload_view still shows "sent" before the implicit reset.
     EXPECT_EQ(buf.payload_view(), "sent");
 
     EXPECT_TRUE(buf.append("new"sv));
-    EXPECT_EQ(buf.payload_span().size(), static_cast<size_t>(3));
-    EXPECT_EQ(buf.active_span().size(), static_cast<size_t>(3));
+    EXPECT_EQ(buf.payload_span().size(), 3ULL);
+    EXPECT_EQ(buf.active_span().size(), 3ULL);
     EXPECT_TRUE(buf.payload_span().data() == base);
     EXPECT_EQ(buf.payload_view(), "new");
   }
@@ -434,7 +435,7 @@ void IouBufPool_PromoteToWrite() {
 
     buf.promote_to_write();
 
-    EXPECT_FALSE(buf.is_read());
+    EXPECT_EQ(buf.blockrw(), block_type::write);
     EXPECT_EQ(buf.payload_span().size(), 10ULL);
     EXPECT_EQ(buf.active_span().size(), 10ULL);
     EXPECT_TRUE(buf.active_span().data() == payload_data);
@@ -454,7 +455,7 @@ void IouBufPool_DemoteToRead() {
     EXPECT_TRUE(buf.append("header"sv));
     buf.demote_to_read();
 
-    EXPECT_TRUE(buf.is_read());
+    EXPECT_EQ(buf.blockrw(), block_type::read);
     EXPECT_EQ(buf.payload_span().size(), 6ULL);
     EXPECT_EQ(buf.active_span().size(), buf.size() - 6ULL);
     EXPECT_EQ(buf.payload_view(), "header");
@@ -534,17 +535,17 @@ void IouBufPool_CoalesceSmallToMedium() {
   if (true) {
     iou_buf_pool pool;
     // Drain three mediums from the first large block (zone tail = lowest).
-    auto m0 = pool.borrow_writer(iou_buf_pool::block_size::medium);
-    auto m1 = pool.borrow_writer(iou_buf_pool::block_size::medium);
-    auto m2 = pool.borrow_writer(iou_buf_pool::block_size::medium);
+    auto m0 = pool.borrow_writer(iou_buf_pool::block_size::kb016);
+    auto m1 = pool.borrow_writer(iou_buf_pool::block_size::kb016);
+    auto m2 = pool.borrow_writer(iou_buf_pool::block_size::kb016);
     ASSERT_TRUE(m0);
     ASSERT_TRUE(m1);
     ASSERT_TRUE(m2);
     // The fourth medium is split into four smalls.
-    auto s0 = pool.borrow_writer(iou_buf_pool::block_size::small);
-    auto s1 = pool.borrow_writer(iou_buf_pool::block_size::small);
-    auto s2 = pool.borrow_writer(iou_buf_pool::block_size::small);
-    auto s3 = pool.borrow_writer(iou_buf_pool::block_size::small);
+    auto s0 = pool.borrow_writer(iou_buf_pool::block_size::kb004);
+    auto s1 = pool.borrow_writer(iou_buf_pool::block_size::kb004);
+    auto s2 = pool.borrow_writer(iou_buf_pool::block_size::kb004);
+    auto s3 = pool.borrow_writer(iou_buf_pool::block_size::kb004);
     ASSERT_TRUE(s0);
     ASSERT_TRUE(s1);
     ASSERT_TRUE(s2);
@@ -556,7 +557,7 @@ void IouBufPool_CoalesceSmallToMedium() {
     s3.reset();
     // Three sibling mediums are still held: the large must NOT coalesce.
     // The coalesced medium should be immediately allocatable.
-    auto m_new = pool.borrow_writer(iou_buf_pool::block_size::medium);
+    auto m_new = pool.borrow_writer(iou_buf_pool::block_size::kb016);
     ASSERT_TRUE(m_new);
     // Release everything and verify full recovery.
     m0.reset();
@@ -574,10 +575,10 @@ void IouBufPool_CoalesceMediumToLarge() {
   if (true) {
     iou_buf_pool pool;
     const size_t initial = pool.available();
-    auto m0 = pool.borrow_writer(iou_buf_pool::block_size::medium);
-    auto m1 = pool.borrow_writer(iou_buf_pool::block_size::medium);
-    auto m2 = pool.borrow_writer(iou_buf_pool::block_size::medium);
-    auto m3 = pool.borrow_writer(iou_buf_pool::block_size::medium);
+    auto m0 = pool.borrow_writer(iou_buf_pool::block_size::kb016);
+    auto m1 = pool.borrow_writer(iou_buf_pool::block_size::kb016);
+    auto m2 = pool.borrow_writer(iou_buf_pool::block_size::kb016);
+    auto m3 = pool.borrow_writer(iou_buf_pool::block_size::kb016);
     ASSERT_TRUE(m0);
     ASSERT_TRUE(m1);
     ASSERT_TRUE(m2);
@@ -588,7 +589,7 @@ void IouBufPool_CoalesceMediumToLarge() {
     m3.reset();
     // All four mediums freed: the parent large must be reconstructed.
     EXPECT_EQ(pool.available(), initial);
-    auto l = pool.borrow_writer(iou_buf_pool::block_size::large);
+    auto l = pool.borrow_writer(iou_buf_pool::block_size::kb032);
     ASSERT_TRUE(l);
     l.reset();
     EXPECT_EQ(pool.available(), initial);
@@ -606,7 +607,7 @@ void IouBufPool_CoalesceChain() {
     constexpr size_t TOTAL_LARGE = 32;
     std::array<iou_buf_pool::buffer, TOTAL_SMALLS> bufs;
     for (size_t i = 0; i < TOTAL_SMALLS; ++i) {
-      bufs[i] = pool.borrow_writer(iou_buf_pool::block_size::small);
+      bufs[i] = pool.borrow_writer(iou_buf_pool::block_size::kb004);
       ASSERT_TRUE(bufs[i]);
     }
     EXPECT_EQ(pool.available(), 0ULL);
@@ -615,12 +616,34 @@ void IouBufPool_CoalesceChain() {
     // All 32 large blocks must now be individually allocatable.
     std::array<iou_buf_pool::buffer, TOTAL_LARGE> large_bufs;
     for (size_t i = 0; i < TOTAL_LARGE; ++i) {
-      large_bufs[i] = pool.borrow_writer(iou_buf_pool::block_size::large);
+      large_bufs[i] = pool.borrow_writer(iou_buf_pool::block_size::kb064);
       ASSERT_TRUE(large_bufs[i]);
     }
-    auto extra = pool.borrow_writer(iou_buf_pool::block_size::large);
+    auto extra = pool.borrow_writer(iou_buf_pool::block_size::kb064);
     EXPECT_FALSE(extra);
     for (auto& b : large_bufs) b.reset();
+    EXPECT_EQ(pool.available(), 2ULL * 1024 * 1024);
+  }
+}
+#pragma endregion
+
+#pragma region UdpTierAlloc
+void IouBufPool_UdpTierAlloc() {
+  // Allocate all 1024 x 2 KB slots (2 MB / 2 KB), verify each succeeds and
+  // has the right size, then confirm full pool recovery after freeing all.
+  if (true) {
+    iou_buf_pool pool;
+    constexpr size_t TOTAL = 2ULL * 1024 * 1024 / (2ULL * 1024); // 1024
+    std::array<iou_buf_pool::buffer, TOTAL> bufs;
+    for (size_t i = 0; i < TOTAL; ++i) {
+      bufs[i] = pool.borrow_writer(iou_buf_pool::block_size::kb002);
+      ASSERT_TRUE(bufs[i]);
+      EXPECT_EQ(bufs[i].size(), 2ULL * 1024);
+    }
+    EXPECT_EQ(pool.available(), 0ULL);
+    auto extra = pool.borrow_writer(iou_buf_pool::block_size::kb002);
+    EXPECT_FALSE(extra);
+    for (auto& b : bufs) b.reset();
     EXPECT_EQ(pool.available(), 2ULL * 1024 * 1024);
   }
 }
@@ -642,4 +665,4 @@ MAKE_TEST_LIST(IouBufPool_ReadInitialState, IouBufPool_ReadAfterUpdate,
     IouBufPool_DemoteToRead, IouBufPool_PromoteDemoteRoundtrip,
     IouBufPool_AvailableTracking, IouBufPool_MoveBuffer,
     IouBufPool_CoalesceSmallToMedium, IouBufPool_CoalesceMediumToLarge,
-    IouBufPool_CoalesceChain)
+    IouBufPool_CoalesceChain, IouBufPool_UdpTierAlloc)

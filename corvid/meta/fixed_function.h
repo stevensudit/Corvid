@@ -199,7 +199,6 @@ private:
 #pragma endregion
 };
 
-
 #pragma endregion
 #pragma region fixed_function_of
 

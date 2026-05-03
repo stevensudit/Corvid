@@ -389,7 +389,7 @@ public:
   // into it. Returns an invalid `buffer` if the pool is exhausted. Pass to
   // `submit_recv_buffer`.
   [[nodiscard]] buffer borrow_read_buffer(
-      block_size sz = block_size::small) noexcept {
+      block_size sz = block_size::kb004) noexcept {
     return buf_pool_.borrow_reader(sz);
   }
 
@@ -397,7 +397,7 @@ public:
   // it. Returns an invalid `buffer` if the pool is exhausted. Fill the
   // `buffer`'s payload, then pass it to `submit_send_buffer`.
   [[nodiscard]] buffer borrow_write_buffer(
-      block_size sz = block_size::small) noexcept {
+      block_size sz = block_size::kb004) noexcept {
     return buf_pool_.borrow_writer(sz);
   }
 
@@ -1187,7 +1187,7 @@ public:
 
   // Submit an async read_fixed on `file` into a borrowed buffer.
   [[nodiscard]] completion_token submit_read_buffer(const os_file& file,
-      BufCompletionInvocable auto&& bufcb, block_size sz = block_size::small,
+      BufCompletionInvocable auto&& bufcb, block_size sz = block_size::kb004,
       const combined_timespec& timeout = {}) {
     buffer buf = borrow_read_buffer(sz);
     buf.timeout() = timeout;
