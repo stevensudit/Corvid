@@ -158,6 +158,7 @@ class iou_stream_conn_ptr_with;
 class iou_stream_conn: public std::enable_shared_from_this<iou_stream_conn> {
 public:
   using buffer = iou_loop::buffer;
+  using completion_token = iou_loop::completion_token;
 
 #pragma region Accessors
 
@@ -226,7 +227,7 @@ public:
         [p = self(), d = std::move(data)]() mutable -> bool {
           if (!p->open_) return false;
           p->send_queue_.emplace_back(std::move(d));
-          if (!p->send_in_flight_) return p->do_submit_send();
+          if (!p->send_token_) return p->do_submit_send();
           return true;
         });
   }
@@ -239,7 +240,7 @@ public:
         [p = self(), b = std::move(buf)]() mutable -> bool {
           if (!p->open_) return false;
           p->send_queue_.emplace_back(std::move(b));
-          if (!p->send_in_flight_) return p->do_submit_send();
+          if (!p->send_token_) return p->do_submit_send();
           return true;
         });
   }
@@ -347,51 +348,55 @@ private:
   iou_stream_conn_handlers own_handlers_;
 
   relaxed_atomic_bool open_{true}; // Cleared once close starts.
-  bool connecting_{};              // True when an async connect is in-flight.
-  bool listening_{};               // True if this is a listener.
-  bool close_requested_{};         // True once `close` is called.
-  bool close_notified_{};          // True once `on_close` fires.
-  bool write_open_{true};          // False after SHUT_WR in bilateral close.
-  bool peer_eof_{};                // True once peer sends EOF.
+  bool connecting_{};      // True when socket starts off trying to connect.
+  bool listening_{};       // True when socket starts off listening.
+  bool close_requested_{}; // True once `close` is called.
+  bool close_notified_{};  // True once `on_close` fires.
+  bool write_open_{true};  // False after SHUT_WR in bilateral close.
+  bool peer_eof_{};        // True once peer sends EOF.
   relaxed_atomic_bool no_hangup_on_destruct_; // Set by `close`.
   relaxed_atomic<coordination_policy> shutdown_{
       coordination_policy::unilateral};
+
   // Size of borrowed buffers.
   relaxed_atomic<block_size> recv_buf_size_{block_size::small};
   relaxed_atomic<block_size> send_buf_size_{block_size::small};
 
-  // Recv state: one SQE in flight at a time.
-  bool recv_in_flight_{};
+  // When receiving, token of callback. Can be used for cancelation.
+  completion_token recv_token_;
 
   // Send state: one SQE in flight at a time; queue holds strings and
   // buffers.
   std::deque<std::variant<std::string, buffer>> send_queue_;
-  bool send_in_flight_{};
   bool send_zc_supported_{true}; // Cleared on first EOPNOTSUPP.
+  // When sending, token of callback. Can be used for cancelation.
+  completion_token send_token_;
+
+  // Connect/listen token.
+  completion_token connect_token_;
 
 #pragma endregion
 #pragma region Helpers
 private:
   // Submit buffer for receiving, borrowing a read buffer if needed.
   [[nodiscard]] bool do_submit_recv(buffer buf = {}) {
-    assert(loop_.is_loop_thread() && !recv_in_flight_);
+    assert(loop_.is_loop_thread() && !recv_token_);
     if (!buf) buf = loop_.borrow_read_buffer(recv_buf_size_);
     if (!buf) return false;
-    recv_in_flight_ = true;
-    // TODO: Save the token.
-    const auto token = loop_.submit_read_buffer(sock_, std::move(buf),
+
+    recv_token_ = loop_.submit_read_buffer(sock_, std::move(buf),
         [p = self()](completion_id, buffer& b) {
           (void)p->on_recv_complete(b);
           return slot_retention{};
         });
-    return token.is_valid();
+    return recv_token_.is_valid();
   }
 
   // Resubmit recv using an existing buffer from a prior `on_recv_complete`.
   // If the buffer has no remaining `active_span` (completely full),
   // re-delivers any remaining payload first, then gets a fresh buffer.
   [[nodiscard]] bool do_continue_recv(buffer&& buf) {
-    assert(loop_.is_loop_thread() && !recv_in_flight_);
+    assert(loop_.is_loop_thread() && !recv_token_);
     // Space remains in this buffer, perhaps because the contents have been
     // fully consumed and the buffer has reset itself.
     if (!buf.active_span().empty()) return do_submit_recv(std::move(buf));
@@ -423,7 +428,7 @@ private:
 
   // Send the next buffer in the send queue.
   [[nodiscard]] bool do_submit_send() {
-    assert(loop_.is_loop_thread() && !send_in_flight_);
+    assert(loop_.is_loop_thread() && !send_token_);
     if (send_queue_.empty()) return true;
 
     buffer buf;
@@ -450,11 +455,9 @@ private:
   // Unix domain sockets), `on_send_complete` clears `send_zc_supported_` and
   // this helper falls back to `submit_write_buffer` for all subsequent sends.
   [[nodiscard]] bool do_submit_send_buffer(buffer&& buf) {
-    assert(loop_.is_loop_thread() && !send_in_flight_);
+    assert(loop_.is_loop_thread() && !send_token_);
     if (!buf) return false;
-    send_in_flight_ = true;
-    // TODO: Save the token.
-    iou_loop::completion_token token;
+
     auto fn =
         [p = self()](completion_id cbhandle, buffer& b) -> slot_retention {
       if (bitmask::has(b.cqe_flags(), iou_cqe_flags::notif))
@@ -464,32 +467,34 @@ private:
     };
 
     if (send_zc_supported_)
-      token = loop_.submit_send_buffer(sock_, std::move(buf), std::move(fn));
+      send_token_ =
+          loop_.submit_send_buffer(sock_, std::move(buf), std::move(fn));
     else
-      token = loop_.submit_write_buffer(sock_, std::move(buf), std::move(fn));
+      send_token_ =
+          loop_.submit_write_buffer(sock_, std::move(buf), std::move(fn));
 
-    return token.is_valid();
+    return send_token_.is_valid();
   }
 
   // Attempt to connect. On success, fires `on_drain` and transitions to recv
   // state. On failure, fires `on_close`.
   [[nodiscard]] bool do_submit_connect() {
-    assert(loop_.is_loop_thread() && connecting_);
-    // TODO: Store cancelation token.
+    assert(loop_.is_loop_thread() && connecting_ && !connect_token_);
+
     bound_endpoint_with_timeout ep;
     if (std::scoped_lock lock{endpoint_mutex_}; true) ep = remote_;
-    auto token = loop_.submit_connect(sock_, std::move(ep),
+    connect_token_ = loop_.submit_connect(sock_, std::move(ep),
         [p = self()](completion_id, iou_res res,
             iou_cqe_flags) -> slot_retention {
           (void)p->on_connect_complete(res);
           return {};
         });
-    return token.is_valid();
+    return connect_token_.is_valid();
   }
 
   // Submit a multishot accept operation.
   [[nodiscard]] bool do_submit_accept() {
-    assert(loop_.is_loop_thread() && listening_);
+    assert(loop_.is_loop_thread() && listening_ && !connect_token_);
     // Set up a callback that resubmits itself, and use it too bootstrap the
     // initial submission.
     auto raw_cb =
@@ -500,7 +505,7 @@ private:
         return slot_retention::automatic;
       if (!p->listening_) return slot_retention::release;
       if (!p->loop_.submit_accept_multishot(p->sock_, endpoint,
-              iou_loop::completion_token{cbid}))
+              completion_token{cbid}))
         throw std::runtime_error("Failed to re-arm multishot accept");
       return slot_retention::retain;
     };
@@ -514,9 +519,8 @@ private:
     (void)borrowed(cbtoken.as_int(), iou_res{*EC::again}, iou_cqe_flags{});
     loop_.detach(std::move(borrowed));
 
-    // TODO: Store cbtoken for cancelation.
-
-    return true;
+    connect_token_ = cbtoken;
+    return connect_token_.is_valid();
   }
 
   // Close immediately without flushing. For listening sockets, a cancel is
@@ -567,7 +571,7 @@ private:
         });
     if (!token.is_valid()) return do_close_now();
     write_open_ = false;
-    if (!recv_in_flight_) return do_submit_recv();
+    if (!recv_token_) return do_submit_recv();
     return true;
   }
 
@@ -576,7 +580,7 @@ private:
     assert(loop_.is_loop_thread());
     if (!open_) return false;
     close_requested_ = true;
-    if (send_queue_.empty() && !send_in_flight_) return do_finish_close();
+    if (send_queue_.empty() && !send_token_) return do_finish_close();
     return true;
   }
 
@@ -588,13 +592,13 @@ private:
   [[nodiscard]] bool do_resubmit_send(completion_id cbhandle, buffer& buf) {
     assert(loop_.is_loop_thread());
     assert(!buf.active_span().empty());
-    send_in_flight_ = true;
+    send_token_ = completion_token{cbhandle};
     if (send_zc_supported_)
-      return loop_.submit_send_buffer(sock_, buf,
-          iou_loop::completion_token{cbhandle}, slot_retention::automatic);
+      return loop_.submit_send_buffer(sock_, buf, send_token_,
+          slot_retention::automatic);
     else
-      return loop_.submit_write_buffer(sock_, buf,
-          iou_loop::completion_token{cbhandle}, slot_retention::automatic);
+      return loop_.submit_write_buffer(sock_, buf, send_token_,
+          slot_retention::automatic);
   }
 
   // Handle a failed send CQE. Returns the slot retention decision.
@@ -622,7 +626,7 @@ private:
   [[nodiscard]] slot_retention
   on_send_complete(completion_id cbhandle, buffer& buf) {
     assert(loop_.is_loop_thread());
-    send_in_flight_ = false;
+    send_token_ = {};
     if (!open_) return buf.pending_releases_decision();
 
     // Retry on soft errors.
@@ -690,8 +694,8 @@ private:
   // Handle completion of a receive operation. If successful, delivers the
   // buffer to `on_data`. On error or EOF, initiates close.
   [[nodiscard]] bool on_recv_complete(buffer& buf) {
-    assert(loop_.is_loop_thread() && recv_in_flight_);
-    recv_in_flight_ = false;
+    assert(loop_.is_loop_thread() && recv_token_);
+    recv_token_ = {};
     if (!open_) return true;
 
     // EOF from peer.
@@ -701,7 +705,7 @@ private:
       // Bilateral drain: peer sent EOF as expected, so close now.
       if (close_requested_ && !write_open_) return do_close_now();
       (void)notify_close_once();
-      if (close_requested_ && !send_in_flight_ && send_queue_.empty())
+      if (close_requested_ && !send_token_ && send_queue_.empty())
         return do_finish_close();
       return true;
     }

@@ -183,8 +183,7 @@ concept PostedInvocable =
 // in-flight operations, which must be less than or equal to the number of CQE
 // slots.
 //
-// TODO:
-// - Allow `iou_buf_pool` size to be configured, likely at compile time.
+// TODO: Allow `iou_buf_pool` size to be configured, likely at compile time.
 template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
 class iou_basic_loop
     : public std::enable_shared_from_this<
@@ -696,7 +695,7 @@ public:
   // Submit an async nop.
   [[nodiscard]] bool submit_nop(completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     auto fn = [this, cbtoken, on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [](iou_sqe sqe) { sqe.prep_nop(); });
     };
@@ -724,7 +723,7 @@ public:
   [[nodiscard]] bool submit_poll(const os_file& file, bound_timeout* timeout,
       completion_token cbtoken, poll_flags poll_mask = poll_flags::in,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     auto fn = [this, cbtoken, fd = *file, timeout = timeout, poll_mask,
                   on_fail]() mutable {
       return do_submit_timeout(cbtoken, timeout, on_fail,
@@ -747,7 +746,7 @@ public:
   [[nodiscard]] bool submit_poll_multishot(const os_file& file,
       completion_token cbtoken, poll_flags poll_mask = poll_flags::in,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     auto fn = [this, cbtoken, fd = *file, poll_mask, on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [fd, poll_mask](iou_sqe sqe) {
         sqe.prep_poll_multishot(fd, poll_mask);
@@ -789,7 +788,7 @@ public:
   [[nodiscard]] bool submit_timeout(bound_timeout& timeout,
       completion_token cbtoken, size_t cqe_count = 0,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     auto fn = [this, &timeout, cbtoken, cqe_count, on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [&timeout, cqe_count](iou_sqe sqe) {
         sqe.prep_timeout(&timeout.when.ts, timeout.when.flags, cqe_count);
@@ -817,7 +816,7 @@ public:
   [[nodiscard]] bool submit_timeout_remove(
       completion_token&& cancelation_token, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     auto fn = [this, cancelation_token = std::move(cancelation_token), cbtoken,
                   on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [cancelation_token](iou_sqe sqe) {
@@ -837,7 +836,7 @@ public:
   [[nodiscard]] bool submit_timeout_update(completion_token update_token,
       bound_timeout& timeout,
       slot_retention on_fail = slot_retention::retain) {
-    if (!update_token.is_valid()) return false;
+    if (!update_token) return false;
     auto fn = [this, update_token, &timeout, on_fail]() mutable {
       return do_submit(update_token, on_fail,
           [update_token, &timeout](iou_sqe sqe) {
@@ -888,7 +887,7 @@ public:
   [[nodiscard]] bool submit_shutdown(const os_file& file, shutdown_how how,
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     if (!file) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = file.handle(), how, cbtoken, on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [fd, how](iou_sqe sqe) {
@@ -918,7 +917,7 @@ public:
   [[nodiscard]] bool submit_accept(const os_file& socket,
       bound_endpoint_with_timeout& endpoint, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *socket, &endpoint, cbtoken, on_fail]() mutable {
       return do_submit_timeout(cbtoken, &endpoint.when, on_fail,
@@ -933,7 +932,7 @@ public:
   [[nodiscard]] bool submit_accept_multishot(const os_file& socket,
       combined_endpoint& endpoint, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *socket, &endpoint, cbtoken, on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [fd, &endpoint](iou_sqe sqe) {
@@ -961,7 +960,7 @@ public:
   [[nodiscard]] bool submit_connect(const os_file& socket,
       bound_endpoint_with_timeout& remote, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *socket, &remote, cbtoken, on_fail]() mutable {
       return do_submit_timeout(cbtoken, &remote.when, on_fail,
@@ -988,7 +987,7 @@ public:
   [[nodiscard]] bool submit_cancel(const os_file& file,
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     if (!file) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *file, cbtoken, on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [fd](iou_sqe sqe) {
@@ -1026,7 +1025,7 @@ public:
   [[nodiscard]] bool submit_cancel(completion_token&& cancelation_token,
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     if (!cancelation_token) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, cancelation_token = std::move(cancelation_token), cbtoken,
                   on_fail]() mutable {
@@ -1059,7 +1058,7 @@ public:
   [[nodiscard]] bool submit_recv_bytes(const os_file& socket, span_t span,
       completion_token cbtoken, combined_timespec* timeout = nullptr,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     if (!socket || span.empty())
       return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *socket, flags, cbtoken, span, timeout,
@@ -1092,7 +1091,7 @@ public:
       const_span_t span, completion_token cbtoken,
       combined_timespec* timeout = nullptr,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     if (!socket || span.empty())
       return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *socket, flags, cbtoken, span, timeout,
@@ -1125,7 +1124,7 @@ public:
   [[nodiscard]] bool submit_recvmsg_buffer(const os_file& socket, buffer& buf,
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     auto* msg = buf.prepare_recvmsg();
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *socket, flags, cbtoken, msg,
@@ -1158,7 +1157,7 @@ public:
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain,
       msg_flags flags = msg_flags::nosignal) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     auto* msg = buf.prepare_sendmsg();
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *socket, flags, cbtoken, msg,
@@ -1202,7 +1201,7 @@ public:
   [[nodiscard]] bool submit_read_buffer(const os_file& file, buffer& buf,
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     auto [span, buf_index, file_offset] = buf.prepare();
     if (!file || span.empty()) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *file, cbtoken, span, buf_index, file_offset,
@@ -1247,7 +1246,7 @@ public:
   [[nodiscard]] bool submit_write_buffer(const os_file& file, buffer& buf,
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     auto [span, buf_index, file_offset] = buf.prepare();
     if (!file || span.empty()) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *file, cbtoken, span, buf_index, file_offset,
@@ -1263,7 +1262,7 @@ public:
 #pragma endregion
 #pragma region RecvBufferMulti
 
-  // TODO: `submit_recv_buffer_multishot` is the most complicate way to read
+  // TODO: `submit_recv_buffer_multishot` is the most complicated way to read
   // from a socket, requiring a whole new type of buffer pool, for Provided
   // Buffers.
 
@@ -1292,7 +1291,7 @@ public:
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain,
       msg_flags flags = msg_flags::nosignal) {
-    if (!cbtoken.is_valid()) return false;
+    if (!cbtoken) return false;
     auto [span, buf_index, _] = buf.prepare();
     if (!socket || span.empty())
       return fail_and_maybe_release(on_fail, cbtoken);
@@ -1323,7 +1322,7 @@ private:
     assert(on_fail != slot_retention::release); // Would be dumb.
     auto do_submit = [&]() {
       // Must return true to end retries.
-      if (cbtoken.is_valid() && is_released(cbtoken)) return true;
+      if (cbtoken && is_released(cbtoken)) return true;
 
       // Check availability up front and only assert on each.
       bool use_timeout = timeout && timeout->ts.is_valid();
@@ -1374,7 +1373,7 @@ private:
       std::invocable<iou_sqe> auto&& prep_second) {
     assert(is_loop_thread());
     auto do_submit = [&]() {
-      if (cbtoken.is_valid() && is_released(cbtoken)) return true;
+      if (cbtoken && is_released(cbtoken)) return true;
       if (!ring_.enough_sqe_available(2)) return false;
 
       auto sqe_first = ring_.next_sqe();
@@ -1406,7 +1405,7 @@ private:
       slot_retention on_fail, std::invocable<iou_sqe> auto&& prep) {
     assert(is_loop_thread());
     auto do_submit = [&]() {
-      if (cbtoken.is_valid() && is_released(cbtoken)) return true;
+      if (cbtoken && is_released(cbtoken)) return true;
 
       // Queue the operation SQE.
       auto sqe_op = ring_.next_sqe();
@@ -1507,7 +1506,7 @@ private:
   // set; the callback drains the `eventfd` on each firing. If the kernel
   // ends the multishot (flag absent), the callback resubmits.
   bool arm_wake_poll_multishot() {
-    if (wake_poll_token_.is_valid()) return true;
+    if (wake_poll_token_) return true;
 
     // Set up a callback that resubmits itself, and use it too bootstrap the
     // initial submission.
