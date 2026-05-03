@@ -84,7 +84,7 @@ public:
   // The functor is move-constructed into internal storage.
   template<MoveConsumable FN>
   requires std::is_invocable_r_v<RP, std::decay_t<FN>, ARGS...>
-  explicit fixed_function(FN&& fn) {
+  fixed_function(FN&& fn) {
     using FD = std::decay_t<FN>;
     static_assert(sizeof(FD) <= storage_size,
         "fixed_function: functor too large for storage");
@@ -197,6 +197,23 @@ private:
   alignas(std::max_align_t) std::byte storage_[storage_size];
 
 #pragma endregion
+};
+
+
+#pragma endregion
+#pragma region fixed_function_of
+
+// `fixed_function_of<SZ>` pins the storage size and leaves the signature open,
+// letting a single size constant be shared across a family of aliases.
+//
+// Example:
+//   using my_fns     = fixed_function_of<64>;
+//   using callback_t = my_fns::type<void(int)>;
+//   using pred_t     = my_fns::type<bool(int)>;
+template<size_t SZ>
+struct fixed_function_of {
+  template<class Sig>
+  using type = fixed_function<SZ, Sig>;
 };
 
 #pragma endregion

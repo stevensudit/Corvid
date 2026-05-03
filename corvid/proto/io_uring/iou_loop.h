@@ -30,6 +30,8 @@
 #include <vector>
 
 #include "../../meta/forwarding_address.h"
+#include "../../meta/fixed_function.h"
+#include "../../proto/net_endpoint.h"
 #include "../../meta/concepts.h"
 #include "../../filesys/os_file.h"
 #include "../../concurrency/jthread_stoppable_sleep.h"
@@ -66,7 +68,7 @@ using completion_id = uint64_t;
 
 // Because `io_uring` often takes parameters by address and requires these
 // pointers to remain valid for an extended period, we need the ability to bind
-// them into the `std::function`. This is a bit tricky, so we leverage
+// them into the `fixed_function`. This is a bit tricky, so we leverage
 // `address_forwarder`.
 
 struct bound_timeout: public address_forwarder<bound_timeout> {
@@ -90,7 +92,7 @@ struct bound_endpoint_with_timeout
 #pragma endregion
 #pragma region Concepts
 
-// For efficiency, we don't want to prematurely require `std::function`
+// For efficiency, we don't want to prematurely require `fixed_function`
 // parameters for completion callbacks, instead accepting lambdas that can be
 // captured into them. That's what the following concepts define.
 
@@ -127,7 +129,7 @@ concept CompletionInvocable =
 
 // Concept for any completion lambda. All of these become `completion_fn` in
 // the end, but the "Buf" and "Endpoint" variants pass in parameters that were
-// bound to the `std::function`.
+// bound to the `fixed_function`.
 template<typename FN>
 concept AnyCompletionInvocable =
     CompletionInvocable<FN> || EndpointCompletionInvocable<FN> ||
@@ -212,19 +214,21 @@ public:
   static constexpr duration_t default_post_and_wait_poll_interval{100ms};
   static constexpr size_t default_max_pending_sqes{RING_SIZE / 4};
 
+  static constexpr size_t fixed_function_capacity = 384;
+
   // Callback scheduled via `post` to run on the loop thread. These are used to
   // force single-threading of ring access.
   using posted_fn = std::function<bool()>;
 
   // Low-level callback invoked when an op completes. Moved to a slot borrowed
   // from the `completion_cb_pool_t`. This avoids the need for
-  // `std::shared_ptr` for each `std::function` and also allows the use of
+  // `std::shared_ptr` for each `fixed_function` and also allows the use of
   // `completion_token` as user data for a SQE.
   //
   // If this calls a method on your class, you will likely want to bind in a
   // shared pointer to that instance.
-  using completion_fn =
-      std::function<slot_retention(completion_id, iou_res, iou_cqe_flags)>;
+  using completion_fn = fixed_function<fixed_function_capacity,
+      slot_retention(completion_id, iou_res, iou_cqe_flags)>;
 
   // Completion callback for operations using a `buffer`, which includes the
   // `iou_res` and `iou_cqe_flags`. If the `buffer` is not moved from during
@@ -232,15 +236,16 @@ public:
   //
   // If this calls a method on your class, you will likely want to bind in a
   // shared pointer to that instance.
-  using buf_completion_fn =
-      std::function<slot_retention(completion_id, buffer&)>;
+  using buf_completion_fn = fixed_function<fixed_function_capacity,
+      slot_retention(completion_id, buffer&)>;
 
   // Completion callback for operations that return an endpoint, like `accept`.
   //
   // If this calls a method on your class, you will likely want to bind in a
   // shared pointer to that instance.
-  using endpoint_completion_fn = std::function<slot_retention(completion_id,
-      iou_res, iou_cqe_flags, combined_endpoint&)>;
+  using endpoint_completion_fn = fixed_function<fixed_function_capacity,
+      slot_retention(completion_id, iou_res, iou_cqe_flags,
+          combined_endpoint&)>;
 
 #pragma endregion
 #pragma region Details
@@ -260,7 +265,7 @@ private:
 
   // Object pool for `completion_fn` objects, which are used as callbacks for
   // CQE completions. This avoids the need for `std::shared_ptr` for each
-  // `std::function` and allows us to refer to callbacks by
+  // `fixed_function` and allows us to refer to callbacks by
   // `completion_token`, which is generation-checking. This token is used for
   // the SQE user data.
   using completion_cb_pool_t = object_pool<completion_fn, SLOT_COUNT * 2,

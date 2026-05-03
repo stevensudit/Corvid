@@ -717,7 +717,7 @@ void IouLoop_SlotRetentionRetain() {
 }
 #pragma endregion
 
-#pragma region IouWrap_TimespecDurationRoundTrip
+#pragma region TimespecDurationRoundTrip
 void IouWrap_TimespecDurationRoundTrip() {
   // Construct from durations and verify `as_duration()` recovers the original.
   if (true) {
@@ -741,7 +741,7 @@ void IouWrap_TimespecDurationRoundTrip() {
 }
 #pragma endregion
 
-#pragma region IouWrap_TimespecTimePointRoundTrip
+#pragma region TimespecTimePointRoundTrip
 void IouWrap_TimespecTimePointRoundTrip() {
   // Construct from a `steady_clock` time_point and verify `as_time_point()`
   // recovers the exact same value.
@@ -756,7 +756,7 @@ void IouWrap_TimespecTimePointRoundTrip() {
 }
 #pragma endregion
 
-#pragma region IouWrap_TimespecStaticHelpers
+#pragma region TimespecStaticHelpers
 void IouWrap_TimespecStaticHelpers() {
   // `from_duration` splits seconds and nanosecond remainder correctly.
   if (true) {
@@ -787,7 +787,7 @@ void IouWrap_TimespecStaticHelpers() {
 }
 #pragma endregion
 
-#pragma region IouWrap_TimespecAsPointer
+#pragma region TimespecAsPointer
 void IouWrap_TimespecAsPointer() {
   // `as_pointer(nullptr)` is null; `as_pointer(&ts)` is non-null.
   if (true) {
@@ -807,7 +807,7 @@ void IouWrap_TimespecAsPointer() {
 }
 #pragma endregion
 
-#pragma region IouWrap_ItimerspecConstruct
+#pragma region ItimerspecConstruct
 void IouWrap_ItimerspecConstruct() {
   // Default construction zeros both fields; explicit construction stores the
   // correct interval and value.
@@ -828,7 +828,7 @@ void IouWrap_ItimerspecConstruct() {
 }
 #pragma endregion
 
-#pragma region IouWrap_ResStatus
+#pragma region ResStatus
 void IouWrap_ResStatus() {
   // `ok()`, `bool`, and `!` reflect the sign of the raw result.
   if (true) {
@@ -863,7 +863,7 @@ void IouWrap_ResStatus() {
 }
 #pragma endregion
 
-#pragma region IouWrap_CqeFlagsString
+#pragma region CqeFlagsString
 void IouWrap_CqeFlagsString() {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid::strings;
@@ -889,7 +889,7 @@ void IouWrap_CqeFlagsString() {
 }
 #pragma endregion
 
-#pragma region IouWrap_SqeFlagsString
+#pragma region SqeFlagsString
 void IouWrap_SqeFlagsString() {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid::strings;
@@ -916,7 +916,7 @@ void IouWrap_SqeFlagsString() {
 }
 #pragma endregion
 
-#pragma region IouWrap_SetupFlagsString
+#pragma region SetupFlagsString
 void IouWrap_SetupFlagsString() {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid::strings;
@@ -956,7 +956,7 @@ void IouWrap_SetupFlagsString() {
 }
 #pragma endregion
 
-#pragma region IouWrap_TimeoutFlagsString
+#pragma region TimeoutFlagsString
 void IouWrap_TimeoutFlagsString() {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   // `rel` (value 0) has no bit name and prints as "0x00".
@@ -985,7 +985,7 @@ void IouWrap_TimeoutFlagsString() {
 }
 #pragma endregion
 
-#pragma region CompletionFnSizeProbe
+#pragma region FnSizeProbe
 void IouLoop_CompletionFnSizeProbe() {
   // Probe the storage each (cb, ep) combination would need if `completion_fn`
   // were replaced with `fixed_function<SZ, slot_retention(completion_id,
