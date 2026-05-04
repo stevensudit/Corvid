@@ -771,5 +771,74 @@ private:
 };
 
 #pragma endregion
+#pragma region iou_buf_ring
 
+// RAII wrapper over a kernel provided-buffer ring (`io_uring_buf_ring`). Does
+// not own the `iou_ring` it is associated with and must be destroyed before
+// it.
+class iou_buf_ring {
+public:
+  iou_buf_ring() = default;
+
+  iou_buf_ring(const iou_buf_ring&) = delete;
+  iou_buf_ring& operator=(const iou_buf_ring&) = delete;
+
+  // Set up a provided-buffer ring with `entries` slots (must be a power of
+  // two) under group ID `bgid`. Returns an empty `iou_buf_ring` on failure.
+  [[nodiscard]] iou_buf_ring(iou_ring& ring, size_t entries, uint16_t bgid)
+      : ring_{&ring}, entries_{static_cast<unsigned>(entries)}, bgid_{bgid} {
+    int err{};
+    buf_ring_ = ::io_uring_setup_buf_ring(ring_->get_ptr(),
+        static_cast<unsigned>(entries), bgid, 0, &err);
+    if (!buf_ring_)
+      throw std::system_error(-err, std::system_category(),
+          "io_uring_setup_buf_ring");
+  }
+
+  iou_buf_ring(iou_buf_ring&& o) noexcept
+      : ring_{o.ring_}, buf_ring_{o.buf_ring_}, entries_{o.entries_},
+        bgid_{o.bgid_} {
+    o.ring_ = nullptr;
+    o.buf_ring_ = nullptr;
+  }
+
+  iou_buf_ring& operator=(iou_buf_ring&& o) noexcept {
+    if (this == &o) return *this;
+    do_free();
+    ring_ = o.ring_;
+    buf_ring_ = o.buf_ring_;
+    entries_ = o.entries_;
+    bgid_ = o.bgid_;
+    o.ring_ = nullptr;
+    o.buf_ring_ = nullptr;
+    return *this;
+  }
+
+  ~iou_buf_ring() { do_free(); }
+
+  [[nodiscard]] explicit operator bool() const noexcept { return buf_ring_; }
+  [[nodiscard]] bool operator!() const noexcept { return !buf_ring_; }
+
+  // Add a buffer slot to the ring. Must be followed by `advance`.
+  void add(void* data, unsigned len, unsigned short bid, int mask,
+      int offset) noexcept {
+    ::io_uring_buf_ring_add(buf_ring_, data, len, bid, mask, offset);
+  }
+
+  // Commit the last `n` slots added via `add` to the kernel.
+  void advance(int n) noexcept { ::io_uring_buf_ring_advance(buf_ring_, n); }
+
+private:
+  void do_free() noexcept {
+    if (buf_ring_)
+      ::io_uring_free_buf_ring(ring_->get_ptr(), buf_ring_, entries_, bgid_);
+  }
+
+  iou_ring* ring_{};
+  io_uring_buf_ring* buf_ring_{};
+  unsigned entries_{};
+  uint16_t bgid_{};
+};
+
+#pragma endregion
 }}} // namespace corvid::proto::iouring

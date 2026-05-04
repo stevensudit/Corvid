@@ -24,50 +24,13 @@
 #include <string_view>
 #include <utility>
 
+#include "iou_buffer_pool_base.h"
 #include "iou_wrap.h"
 #include "../../meta/forwarding_address.h"
 #include "../../containers/object_pool.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
-#pragma region buffer_pool_base
 
-enum class block_type : bool { read, write };
-
-// Fwd.
-class iou_buffer;
-
-// Abstract backing pool used by `iou_buffer`.
-class buffer_pool_base {
-public:
-  using span_t = iou_sqe::span_t;
-  using const_span_t = iou_sqe::const_span_t;
-
-  virtual ~buffer_pool_base() = default;
-
-private:
-  friend class iou_buffer;
-
-  // Return base address of the pool's memory region.
-  [[nodiscard]] virtual std::byte* base() const noexcept = 0;
-
-  // Return a buffer to the pool.
-  virtual void return_buffer(span_t s, block_type blockrw) noexcept = 0;
-
-  // Track reads bytes separately, to selectively throttle.
-  virtual void decrement_read_bytes(size_t n) noexcept = 0;
-  virtual void increment_read_bytes(size_t n) noexcept = 0;
-
-protected:
-  [[nodiscard]] static iou_buffer make_buffer(buffer_pool_base& pool,
-      span_t span, size_t buf_index, block_type blockrw) noexcept;
-
-  // TODO: We'll need a way to make Provided Buffers programmatically
-  // detectable. What we really want is for the regular flow, where the user
-  // tries to append to the buffer, to fail as though the buffer were full.
-  // Perhaps it should just return and empty active_buffer in that case.
-};
-
-#pragma endregion
 #pragma region iou_buffer
 
 // Moveable RAII handle to a single slab allocation. Returns its memory to the

@@ -25,55 +25,16 @@
 #include <mutex>
 #include <span>
 #include <system_error>
-#include <sys/mman.h>
-#include <sys/uio.h>
+
 
 #include "../../containers/fixed_bitset.h"
 #include "../../enums/sequence_enum.h"
+#include "iou_buffer_pool_base.h"
 #include "iou_buffer.h"
 #include "iou_wrap.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
 
-#pragma region block_size
-
-// Standard block sizes. Must be a power of two, but you can cast arbitrary
-// values to this type if you need larger or smaller ones.
-//
-// NOLINTNEXTLINE(performance-enum-size)
-enum class block_size : size_t {
-  kb001 = 1UL * 1024,
-  kb002 = 2UL * 1024, // 2 KB; fits a UDP payload inside a standard MTU
-  kb004 = 4UL * 1024,
-  kb008 = 8UL * 1024,
-  kb016 = 16UL * 1024,
-  kb032 = 32UL * 1024,
-  kb064 = 64UL * 1024,
-  kb128 = 128UL * 1024,
-  kb256 = 256UL * 1024,
-  kb512 = 512UL * 1024,
-  m01 = 1UL * 1024 * 1024,
-  m02 = 2UL * 1024 * 1024,
-  m04 = 4UL * 1024 * 1024,
-  m08 = 8UL * 1024 * 1024,
-  m16 = 16UL * 1024 * 1024,
-  m32 = 32UL * 1024 * 1024,
-  m64 = 64UL * 1024 * 1024,
-};
-
-}}} // namespace corvid::proto::iouring
-
-template<>
-constexpr inline auto corvid::enums::registry::enum_spec_v<
-    corvid::proto::iouring::block_size> =
-    corvid::enums::sequence::make_sequence_enum_spec<
-        corvid::proto::iouring::block_size,
-        "kb001, kb002, kb004, kb008, kb016, kb032, kb064, kb128, kb256, "
-        "kb512, m01, m02, m04, m08, m16, m32, m64">();
-
-namespace corvid { inline namespace proto { namespace iouring {
-
-#pragma endregion
 #pragma region iou_buf_pool_of
 
 // Pool of pre-registered fixed I/O buffers backed by a single huge page,
@@ -116,19 +77,9 @@ class iou_buf_pool_of: public buffer_pool_base {
       "MIN_BLOCK must be a power of 2");
   static_assert(SIZE >= MIN_BLOCK * 2, "SIZE must be at least 2x MIN_BLOCK");
 
-#pragma region Types
-public:
-  using block_size = ::corvid::proto::iouring::block_size;
-  using span_t = buffer_pool_base::span_t;
-  using const_span_t = buffer_pool_base::const_span_t;
-  using buffer = iou_buffer;
-  using ptr = std::byte*;
-  using cptr = const std::byte*;
-
 #pragma endregion
 #pragma region Free list
 
-  static constexpr size_t hugepage_size = 2 * 1024ULL * 1024ULL;
   static constexpr size_t slab_size = SIZE;
   static constexpr size_t min_block_size = MIN_BLOCK;
 
@@ -298,7 +249,7 @@ public:
       // Attempt to enable huge page backing on the aligned region. This is a
       // best-effort optimization; if it fails, we still have a correctly sized
       // and aligned block of memory to use.
-      ::madvise(base_, slab_size, MADV_HUGEPAGE);
+      (void)::madvise(base_, slab_size, MADV_HUGEPAGE);
     }
     // Warm pages: an explicit memset guarantees zeroing and forces physical
     // page assignment.
@@ -476,7 +427,7 @@ private:
     for (size_t h = tier + 1; h < tier_count; ++h) {
       if (!lists_[h]) continue;
       for (size_t t = h; t > tier; --t)
-        split_down(lists_[t], lists_[t - 1], t - 1 < tier_count / 2);
+        split_down(lists_[t], lists_[t - 1], (t - 1 < tier_count / 2));
       return true;
     }
 

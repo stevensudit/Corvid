@@ -535,17 +535,17 @@ void IouBufPool_CoalesceSmallToMedium() {
   if (true) {
     iou_buf_pool pool;
     // Drain three mediums from the first large block (zone tail = lowest).
-    auto m0 = pool.borrow_writer(iou_buf_pool::block_size::kb016);
-    auto m1 = pool.borrow_writer(iou_buf_pool::block_size::kb016);
-    auto m2 = pool.borrow_writer(iou_buf_pool::block_size::kb016);
+    auto m0 = pool.borrow_writer(block_size::kb016);
+    auto m1 = pool.borrow_writer(block_size::kb016);
+    auto m2 = pool.borrow_writer(block_size::kb016);
     ASSERT_TRUE(m0);
     ASSERT_TRUE(m1);
     ASSERT_TRUE(m2);
     // The fourth medium is split into four smalls.
-    auto s0 = pool.borrow_writer(iou_buf_pool::block_size::kb004);
-    auto s1 = pool.borrow_writer(iou_buf_pool::block_size::kb004);
-    auto s2 = pool.borrow_writer(iou_buf_pool::block_size::kb004);
-    auto s3 = pool.borrow_writer(iou_buf_pool::block_size::kb004);
+    auto s0 = pool.borrow_writer(block_size::kb004);
+    auto s1 = pool.borrow_writer(block_size::kb004);
+    auto s2 = pool.borrow_writer(block_size::kb004);
+    auto s3 = pool.borrow_writer(block_size::kb004);
     ASSERT_TRUE(s0);
     ASSERT_TRUE(s1);
     ASSERT_TRUE(s2);
@@ -557,7 +557,7 @@ void IouBufPool_CoalesceSmallToMedium() {
     s3.reset();
     // Three sibling mediums are still held: the large must NOT coalesce.
     // The coalesced medium should be immediately allocatable.
-    auto m_new = pool.borrow_writer(iou_buf_pool::block_size::kb016);
+    auto m_new = pool.borrow_writer(block_size::kb016);
     ASSERT_TRUE(m_new);
     // Release everything and verify full recovery.
     m0.reset();
@@ -575,10 +575,10 @@ void IouBufPool_CoalesceMediumToLarge() {
   if (true) {
     iou_buf_pool pool;
     const size_t initial = pool.available();
-    auto m0 = pool.borrow_writer(iou_buf_pool::block_size::kb016);
-    auto m1 = pool.borrow_writer(iou_buf_pool::block_size::kb016);
-    auto m2 = pool.borrow_writer(iou_buf_pool::block_size::kb016);
-    auto m3 = pool.borrow_writer(iou_buf_pool::block_size::kb016);
+    auto m0 = pool.borrow_writer(block_size::kb016);
+    auto m1 = pool.borrow_writer(block_size::kb016);
+    auto m2 = pool.borrow_writer(block_size::kb016);
+    auto m3 = pool.borrow_writer(block_size::kb016);
     ASSERT_TRUE(m0);
     ASSERT_TRUE(m1);
     ASSERT_TRUE(m2);
@@ -589,7 +589,7 @@ void IouBufPool_CoalesceMediumToLarge() {
     m3.reset();
     // All four mediums freed: the parent large must be reconstructed.
     EXPECT_EQ(pool.available(), initial);
-    auto l = pool.borrow_writer(iou_buf_pool::block_size::kb032);
+    auto l = pool.borrow_writer(block_size::kb032);
     ASSERT_TRUE(l);
     l.reset();
     EXPECT_EQ(pool.available(), initial);
@@ -607,7 +607,7 @@ void IouBufPool_CoalesceChain() {
     constexpr size_t TOTAL_LARGE = 32;
     std::array<iou_buf_pool::buffer, TOTAL_SMALLS> bufs;
     for (size_t i = 0; i < TOTAL_SMALLS; ++i) {
-      bufs[i] = pool.borrow_writer(iou_buf_pool::block_size::kb004);
+      bufs[i] = pool.borrow_writer(block_size::kb004);
       ASSERT_TRUE(bufs[i]);
     }
     EXPECT_EQ(pool.available(), 0ULL);
@@ -616,10 +616,10 @@ void IouBufPool_CoalesceChain() {
     // All 32 large blocks must now be individually allocatable.
     std::array<iou_buf_pool::buffer, TOTAL_LARGE> large_bufs;
     for (size_t i = 0; i < TOTAL_LARGE; ++i) {
-      large_bufs[i] = pool.borrow_writer(iou_buf_pool::block_size::kb064);
+      large_bufs[i] = pool.borrow_writer(block_size::kb064);
       ASSERT_TRUE(large_bufs[i]);
     }
-    auto extra = pool.borrow_writer(iou_buf_pool::block_size::kb064);
+    auto extra = pool.borrow_writer(block_size::kb064);
     EXPECT_FALSE(extra);
     for (auto& b : large_bufs) b.reset();
     EXPECT_EQ(pool.available(), 2ULL * 1024 * 1024);
@@ -636,12 +636,12 @@ void IouBufPool_UdpTierAlloc() {
     constexpr size_t TOTAL = 2ULL * 1024 * 1024 / (2ULL * 1024); // 1024
     std::array<iou_buf_pool::buffer, TOTAL> bufs;
     for (size_t i = 0; i < TOTAL; ++i) {
-      bufs[i] = pool.borrow_writer(iou_buf_pool::block_size::kb002);
+      bufs[i] = pool.borrow_writer(block_size::kb002);
       ASSERT_TRUE(bufs[i]);
       EXPECT_EQ(bufs[i].size(), 2ULL * 1024);
     }
     EXPECT_EQ(pool.available(), 0ULL);
-    auto extra = pool.borrow_writer(iou_buf_pool::block_size::kb002);
+    auto extra = pool.borrow_writer(block_size::kb002);
     EXPECT_FALSE(extra);
     for (auto& b : bufs) b.reset();
     EXPECT_EQ(pool.available(), 2ULL * 1024 * 1024);

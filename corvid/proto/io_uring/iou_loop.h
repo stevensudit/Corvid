@@ -198,9 +198,6 @@ public:
   // Buffer pool.
   using buf_pool_t = iou_buf_pool;
 
-  // Enum for block sizes in pool.
-  using block_size = buf_pool_t::block_size;
-
   // RAII handle for a buffer borrowed from the pool.
   using buffer = buf_pool_t::buffer;
 

@@ -665,20 +665,19 @@ void IouLoop_BorrowBufferSizes() {
   // sizes, and the buffers are returned to the pool on destruction.
   if (true) {
     iou_loop_runner loop;
-    using bs = iou_loop::block_size;
 
     {
-      auto s = loop->borrow_read_buffer(bs::kb004);
-      auto m = loop->borrow_read_buffer(bs::kb016);
-      auto l = loop->borrow_read_buffer(bs::kb032);
+      auto s = loop->borrow_read_buffer(block_size::kb004);
+      auto m = loop->borrow_read_buffer(block_size::kb016);
+      auto l = loop->borrow_read_buffer(block_size::kb032);
       EXPECT_TRUE(s);
       EXPECT_TRUE(m);
       EXPECT_TRUE(l);
     }
     {
-      auto s = loop->borrow_write_buffer(bs::kb004);
-      auto m = loop->borrow_write_buffer(bs::kb016);
-      auto l = loop->borrow_write_buffer(bs::kb032);
+      auto s = loop->borrow_write_buffer(block_size::kb004);
+      auto m = loop->borrow_write_buffer(block_size::kb016);
+      auto l = loop->borrow_write_buffer(block_size::kb032);
       EXPECT_TRUE(s);
       EXPECT_TRUE(m);
       EXPECT_TRUE(l);
@@ -1071,11 +1070,12 @@ void IouLoop_CompletionFnSizeProbe() {
 
   const size_t all[] = {sz_direct_fn, sz_raw_bt, sz_raw_bewt, sz_raw_buf};
   const size_t max_sz = *std::max_element(std::begin(all), std::end(all));
-
-  // Sounds like SZ = 384 works.
-
+  EXPECT_EQ(max_sz, 400U);
+// Sounds like SZ = 384 works.
+#if 0
   TEST_MSG("direct_fn=%zu raw+bt=%zu raw+bewt=%zu raw+buf=%zu  max=%zu",
       sz_direct_fn, sz_raw_bt, sz_raw_bewt, sz_raw_buf, max_sz);
+#endif
 }
 #pragma endregion
 
