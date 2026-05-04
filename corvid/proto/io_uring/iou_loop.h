@@ -42,6 +42,7 @@
 #include "../../containers/scoped_value.h"
 #include "../../containers/object_pool.h"
 #include "iou_buf_pool.h"
+#include "iou_provided_buf_pool.h"
 #include "iou_wrap.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
@@ -200,8 +201,9 @@ template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
 class iou_basic_loop: public owner_thread_dispatcher<posted_fn> {
 #pragma region Types
 public:
-  // Buffer pool.
+  // Buffer pools.
   using buf_pool_t = iou_buf_pool;
+  using provided_buf_pool_t = iou_provided_buf_pool;
 
   // RAII handle for a buffer borrowed from the pool.
   using buffer = buf_pool_t::buffer;
@@ -289,21 +291,33 @@ public:
   // Throws `std::system_error` if the ring, wakeup `eventfd`, or
   // `buf_pool_t` registration fails.
   //
+  // `udp_slab_size` controls the optional provided-buffer pool slab of 2k
+  // buffers. Pass 0 to disable it; the default is one hugepage (2 MB).
+  //
+  // TODO: Add a `tcp_provided_slab_size` for multishot reads, likely with a
+  // `tcp_provided_buf_size` defaulting to 4k. This initializes a
+  // `iou_provided_buf_pool`.
+  //
   // Note: The flags for the ring require that all SQEs be issued from the same
   // thread, and optimizes completions for the single-issuer case.
   explicit iou_basic_loop(allow,
       duration_t post_and_wait_poll_interval =
           default_post_and_wait_poll_interval,
-      size_t max_pending_sqes = default_max_pending_sqes)
+      size_t max_pending_sqes = default_max_pending_sqes,
+      size_t udp_slab_size = buf_pool_t::hugepage_size)
       : ring_{RING_SIZE,
             iou_setup_flags::setup_single_issuer |
                 iou_setup_flags::setup_defer_taskrun |
                 iou_setup_flags::setup_submit_all},
+        udp_buf_pool_{this, udp_slab_size, block_size::kb002, 1},
         max_pending_sqes_{max_pending_sqes},
         post_and_wait_poll_interval_{post_and_wait_poll_interval} {
     if (!buf_pool_.register_with(ring_))
       throw std::system_error{errno, std::system_category(),
           "io_uring_register_buffers"};
+    if (!udp_buf_pool_.register_with(ring_))
+      throw std::system_error{errno, std::system_category(),
+          "io_uring_register_buffers (udp_buf_pool)"};
   }
 
   iou_basic_loop(const iou_basic_loop&) = delete;
@@ -315,9 +329,10 @@ public:
   [[nodiscard]] static std::shared_ptr<iou_basic_loop>
   make(duration_t post_and_wait_poll_interval =
            default_post_and_wait_poll_interval,
-      size_t max_pending_sqes = default_max_pending_sqes) {
+      size_t max_pending_sqes = default_max_pending_sqes,
+      size_t udp_slab_size = buf_pool_t::hugepage_size) {
     return std::make_shared<iou_basic_loop>(allow::ctor,
-        post_and_wait_poll_interval, max_pending_sqes);
+        post_and_wait_poll_interval, max_pending_sqes, udp_slab_size);
   }
 
   // Block until `run` is active. Returns false on timeout.
@@ -1451,6 +1466,7 @@ private:
   // Rings and buffers. (Order is important.)
   buf_pool_t buf_pool_;
   iou_ring ring_;
+  provided_buf_pool_t udp_buf_pool_;
 
   // Completion callback pool, used to avoid `std::shared_ptr`.
   completion_cb_pool_t completion_cb_pool_;
@@ -1483,8 +1499,10 @@ public:
 
   explicit iou_basic_loop_runner(
       std::chrono::nanoseconds post_and_wait_poll_interval =
-          loop_t::default_post_and_wait_poll_interval)
+          loop_t::default_post_and_wait_poll_interval,
+      size_t pbuf_slab_size = loop_t::buf_pool_t::hugepage_size)
       : post_and_wait_poll_interval_{post_and_wait_poll_interval},
+        pbuf_slab_size_{pbuf_slab_size},
         thread_{[this](const std::stop_token& st) { run(st); }} {
     if (!started_.wait_for_value(std::chrono::milliseconds{1000}, true)) {
       thread_.request_stop();
@@ -1537,7 +1555,8 @@ private:
   void run(const std::stop_token& st) {
     jthread_stoppable_sleep::set_thread_name("iouring");
     try {
-      auto loop = loop_t::make(post_and_wait_poll_interval_);
+      auto loop = loop_t::make(post_and_wait_poll_interval_,
+          loop_t::default_max_pending_sqes, pbuf_slab_size_);
       if (std::scoped_lock lock{startup_mutex_}; true) loop_ = loop;
       started_.notify(true);
       // Hold a local shared_ptr so the loop outlives this function even if
@@ -1554,6 +1573,7 @@ private:
   }
 
   const std::chrono::nanoseconds post_and_wait_poll_interval_;
+  const size_t pbuf_slab_size_;
   std::mutex startup_mutex_;
   std::exception_ptr startup_error_;
   notifiable<std::atomic_bool> started_{false};

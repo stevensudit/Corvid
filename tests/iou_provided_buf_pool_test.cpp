@@ -42,7 +42,7 @@ void IouProvidedBufPool_NoOpZeroSlab() {
 
     // reconstruct returns empty buffer.
     const auto flags = iou_cqe_flags{
-        static_cast<uint32_t>(IORING_CQE_F_BUFFER | (0u << 16u))};
+        static_cast<uint32_t>(IORING_CQE_F_BUFFER | (0U << 16U))};
     auto buf = pool.reconstruct(iou_res{4}, flags);
     EXPECT_FALSE(buf);
   }
@@ -137,7 +137,7 @@ void IouProvidedBufPool_ReconstructBeforeRegister() {
         block_size::kb004, 0);
     ASSERT_TRUE(pool);
     const auto flags = iou_cqe_flags{
-        static_cast<uint32_t>(IORING_CQE_F_BUFFER | (1u << 16u))};
+        static_cast<uint32_t>(IORING_CQE_F_BUFFER | (1U << 16U))};
     auto buf = pool.reconstruct(iou_res{8}, flags);
     EXPECT_FALSE(buf);
   }
@@ -160,16 +160,17 @@ void IouProvidedBufPool_ReconstructPayload() {
     const size_t bid = 2;
     auto* slot = reinterpret_cast<char*>(pool.buf_data(bid));
     ASSERT_NE(slot, nullptr);
-    std::memcpy(slot, "hello world", 11);
+    const auto expected("hello world"sv);
+    std::memcpy(slot, expected.data(), expected.size());
 
     const auto flags = iou_cqe_flags{
-        static_cast<uint32_t>(IORING_CQE_F_BUFFER | (bid << 16u))};
+        static_cast<uint32_t>(IORING_CQE_F_BUFFER | (bid << 16U))};
     auto buf = pool.reconstruct(iou_res{11}, flags);
     ASSERT_TRUE(buf);
     EXPECT_EQ(buf.blockrw(), iou_buffer::block_type::read);
     EXPECT_EQ(buf.size(), pool.buf_size());
     EXPECT_EQ(buf.payload_span().size(), 11ULL);
-    EXPECT_EQ(buf.payload_view(), "hello world");
+    EXPECT_EQ(buf.payload_view(), expected);
     EXPECT_EQ(buf.buf_index(), bid);
     EXPECT_TRUE(buf.result().ok());
     // active_span covers the remaining tail after the payload.
@@ -194,7 +195,7 @@ void IouProvidedBufPool_ReconstructErrorResult() {
     ASSERT_TRUE(pool.register_with(ring));
 
     const auto flags = iou_cqe_flags{
-        static_cast<uint32_t>(IORING_CQE_F_BUFFER | (0u << 16u))};
+        static_cast<uint32_t>(IORING_CQE_F_BUFFER | (0U << 16U))};
     auto buf = pool.reconstruct(iou_res{-ECONNRESET}, flags);
     ASSERT_TRUE(buf); // buffer is valid (slot was consumed)
     EXPECT_FALSE(buf.result().ok());
@@ -234,7 +235,7 @@ void IouProvidedBufPool_ReconstructOutOfRangeBid() {
 
     // Encode bid=999 (well past buf_count=512).
     const auto flags = iou_cqe_flags{
-        static_cast<uint32_t>(IORING_CQE_F_BUFFER | (999u << 16u))};
+        static_cast<uint32_t>(IORING_CQE_F_BUFFER | (999U << 16U))};
     auto buf = pool.reconstruct(iou_res{8}, flags);
     EXPECT_FALSE(buf);
   }
@@ -256,7 +257,7 @@ void IouProvidedBufPool_ReturnReplenishes() {
 
     const size_t bid = 1;
     const auto flags = iou_cqe_flags{
-        static_cast<uint32_t>(IORING_CQE_F_BUFFER | (bid << 16u))};
+        static_cast<uint32_t>(IORING_CQE_F_BUFFER | (bid << 16U))};
 
     // First reconstruction; the slot is live until `buf` is destroyed.
     {
