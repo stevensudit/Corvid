@@ -1079,6 +1079,104 @@ void NetSocket_TcpOptionString() {
   }
 }
 
+void OsFile_MmapProtString() {
+  // Bitmask enum: exec(4) > write(2) > read(1); none(0) has no bit name.
+  using namespace corvid::strings;
+  using P = mmap_prot;
+  if (true) {
+    EXPECT_EQ(enum_as_string(P::none), "0x00000000");
+    EXPECT_EQ(enum_as_string(P::read), "read");
+    EXPECT_EQ(enum_as_string(P::write), "write");
+    EXPECT_EQ(enum_as_string(P::exec), "exec");
+    EXPECT_EQ(enum_as_string(P::exec | P::read), "exec + read");
+  }
+  if (true) {
+    constexpr P bad{};
+    EXPECT_EQ(parse_enum("read", bad), P::read);
+    EXPECT_EQ(parse_enum("write", bad), P::write);
+    EXPECT_EQ(parse_enum("exec", bad), P::exec);
+    EXPECT_EQ(parse_enum("exec + read", bad), P::exec | P::read);
+  }
+}
+
+void OsFile_MmapAdviceString() {
+  // Sequence enum: values 0-4 and 8-25 named; 5-7 are gaps; 26+ out of range.
+  using namespace corvid::strings;
+  using MA = mmap_advice;
+  if (true) {
+    EXPECT_EQ(enum_as_string(MA::normal), "normal");
+    EXPECT_EQ(enum_as_string(MA::dontneed), "dontneed");
+    EXPECT_EQ(enum_as_string(MA::free), "free");
+    EXPECT_EQ(enum_as_string(MA::remove), "remove");
+    EXPECT_EQ(enum_as_string(MA::dontfork), "dontfork");
+    EXPECT_EQ(enum_as_string(MA::dofork), "dofork");
+    EXPECT_EQ(enum_as_string(MA::hugepage), "hugepage");
+    EXPECT_EQ(enum_as_string(MA::wipeonfork), "wipeonfork");
+    EXPECT_EQ(enum_as_string(MA::collapse), "collapse");
+  }
+  if (true) {
+    // Gap values 5-7 print numerically; hwpoison=100 and -1 are out of range.
+    EXPECT_EQ(enum_as_string(MA{5}), "5");
+    EXPECT_EQ(enum_as_string(MA{26}), "26");
+    EXPECT_EQ(enum_as_string(MA::hwpoison), "100");
+    EXPECT_EQ(enum_as_string(MA{-1}), "-1");
+    EXPECT_EQ(enums::sequence::enum_as_view(MA::normal), "normal");
+    EXPECT_EQ(enums::sequence::enum_as_view(MA{5}), "(unknown)");
+    EXPECT_EQ(enums::sequence::enum_as_view(MA{26}), "(unknown)");
+    EXPECT_EQ(enums::sequence::enum_as_view(MA{-1}), "(unknown)");
+  }
+  if (true) {
+    constexpr MA bad{-1};
+    EXPECT_EQ(parse_enum("normal", bad), MA::normal);
+    EXPECT_EQ(parse_enum("dontneed", bad), MA::dontneed);
+    EXPECT_EQ(parse_enum("free", bad), MA::free);
+    EXPECT_EQ(parse_enum("dofork", bad), MA::dofork);
+    EXPECT_EQ(parse_enum("hugepage", bad), MA::hugepage);
+    EXPECT_EQ(parse_enum("collapse", bad), MA::collapse);
+  }
+}
+
+void OsFile_MmapMaskString() {
+  // Bitmask enum: named flags at bits 8 (growsdown) through 20
+  // (fixed_noreplace); none=0 and multi-bit masks print as hex.
+  using namespace corvid::strings;
+  using M = mmap_mask;
+  if (true) {
+    EXPECT_EQ(enum_as_string(M::shared), "shared");
+    EXPECT_EQ(enum_as_string(M::map_private), "private");
+    EXPECT_EQ(enum_as_string(M::anonymous), "anonymous");
+    EXPECT_EQ(enum_as_string(M::fixed), "fixed");
+    EXPECT_EQ(enum_as_string(M::growsdown), "growsdown");
+    EXPECT_EQ(enum_as_string(M::denywrite), "denywrite");
+    EXPECT_EQ(enum_as_string(M::executable), "executable");
+    EXPECT_EQ(enum_as_string(M::locked), "locked");
+    EXPECT_EQ(enum_as_string(M::noreserve), "noreserve");
+    EXPECT_EQ(enum_as_string(M::populate), "populate");
+    EXPECT_EQ(enum_as_string(M::nonblock), "nonblock");
+    EXPECT_EQ(enum_as_string(M::stack), "stack");
+    EXPECT_EQ(enum_as_string(M::hugetlb), "hugetlb");
+    EXPECT_EQ(enum_as_string(M::sync), "sync");
+    EXPECT_EQ(enum_as_string(M::fixed_noreplace), "fixed_noreplace");
+    // Higher bits print first.
+    EXPECT_EQ(enum_as_string(M::hugetlb | M::growsdown),
+        "hugetlb + growsdown");
+  }
+  if (true) {
+    constexpr M bad{};
+    EXPECT_EQ(parse_enum("shared", bad), M::shared);
+    EXPECT_EQ(parse_enum("private", bad), M::map_private);
+    EXPECT_EQ(parse_enum("anonymous", bad), M::anonymous);
+    EXPECT_EQ(parse_enum("fixed", bad), M::fixed);
+    EXPECT_EQ(parse_enum("growsdown", bad), M::growsdown);
+    EXPECT_EQ(parse_enum("denywrite", bad), M::denywrite);
+    EXPECT_EQ(parse_enum("populate", bad), M::populate);
+    EXPECT_EQ(parse_enum("hugetlb", bad), M::hugetlb);
+    EXPECT_EQ(parse_enum("fixed_noreplace", bad), M::fixed_noreplace);
+    EXPECT_EQ(parse_enum("hugetlb + growsdown", bad),
+        M::hugetlb | M::growsdown);
+  }
+}
+
 MAKE_TEST_LIST(OsFile_Lifecycle, OsFile_Move, OsFile_ReleaseFlags,
     OsFile_WriteRead, OsFile_WriteAllReadExact, NetSocket_Lifecycle,
     EventFd_Lifecycle, Epoll_Lifecycle, Epoll_Move, Epoll_Release,
@@ -1090,7 +1188,8 @@ MAKE_TEST_LIST(OsFile_Lifecycle, OsFile_Move, OsFile_ReleaseFlags,
     NetSocket_FactoryMethods, OsFile_MsgFlagsString, OsFile_ErrnoCodeString,
     OsFile_FcntlOpsString, NetSocket_SocketTypeString,
     NetSocket_AddressFamilyString, NetSocket_ProtocolTypeString,
-    NetSocket_SocketOptionString, NetSocket_TcpOptionString);
+    NetSocket_SocketOptionString, NetSocket_TcpOptionString,
+    OsFile_MmapProtString, OsFile_MmapAdviceString, OsFile_MmapMaskString);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

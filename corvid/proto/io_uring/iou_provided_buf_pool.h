@@ -27,6 +27,10 @@
 #include "iou_buffer_pool_base.h"
 #include "iou_buffer.h"
 
+// TODO: After `iou_pool` inherits from `owner_thread_dispatcher`, this class
+// should be initialized with an `owner_thread_dispatcher*` so that it drop the
+// mutex and instead post.
+
 namespace corvid { inline namespace proto { namespace iouring {
 
 // Pool of kernel-managed buffers for `io_uring` Provided Buffers (PBUF_RING).
@@ -70,12 +74,15 @@ public:
     // hugepage advice. Over-allocate by one `hugepage_size` to guarantee
     // alignment.
     base_ = reinterpret_cast<std::byte*>(::mmap(nullptr, slab_size_,
-        PROT_READ | PROT_WRITE,
-        MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE, -1, 0));
+        *mmap_prot::read | *mmap_prot::write,
+        *(mmap_mask::map_private | mmap_mask::anonymous | mmap_mask::hugetlb |
+            mmap_mask::populate),
+        -1, 0));
     if (base_ == MAP_FAILED) {
       const size_t reserve = slab_size_ + hugepage_size;
       auto* raw_ptr = reinterpret_cast<std::byte*>(::mmap(nullptr, reserve,
-          PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+          *mmap_prot::read | *mmap_prot::write,
+          *(mmap_mask::map_private | mmap_mask::anonymous), -1, 0));
       if (raw_ptr == MAP_FAILED)
         throw std::system_error(errno, std::system_category(), "mmap");
       const size_t prefix =

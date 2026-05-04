@@ -93,29 +93,6 @@ enum class block_size : size_t {
   m64 = 64UL * 1024 * 1024,
 };
 
-// `PROT_*` wrapper.
-enum class mmap_prot {
-  none = PROT_NONE,           // 0x00
-  read = PROT_READ,           // 0x01
-  write = PROT_WRITE,         // 0x02
-  exec = PROT_EXEC,           // 0x04
-  growsdown = PROT_GROWSDOWN, // 0x01000000
-  growsup = PROT_GROWSUP,     // 0x02000000
-};
-
-// `MAP_*` wrapper.
-enum class mmap_map {
-  file = MAP_FILE,                       // 0x00
-  shared = MAP_SHARED,                   // 0x01
-  map_private = MAP_PRIVATE,             // 0x02
-  shared_validate = MAP_SHARED_VALIDATE, // 0x03
-  mask_type = 0x0f,                      // Mask for mapping
-  fixed = MAP_FIXED,                     // 0x10
-  anonymous = MAP_ANONYMOUS,             // 0x20
-  map_huge_shuft = MAP_HUGE_SHIFT,       // 26
-  map_huge_mask = MAP_HUGE_MASK,         // 0x3f
-};
-
 }}} // namespace corvid::proto::iouring
 
 template<>

@@ -26,7 +26,6 @@
 #include <span>
 #include <system_error>
 
-
 #include "../../containers/fixed_bitset.h"
 #include "../../enums/sequence_enum.h"
 #include "iou_buffer_pool_base.h"
@@ -227,8 +226,10 @@ public:
     static_assert(slab_size % hugepage_size == 0);
     static_assert(std::has_single_bit(hugepage_size));
     base_ = reinterpret_cast<ptr>(::mmap(nullptr, slab_size,
-        PROT_READ | PROT_WRITE,
-        MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_POPULATE, -1, 0));
+        *(mmap_prot::read | mmap_prot::write),
+        *(mmap_mask::map_private | mmap_mask::anonymous | mmap_mask::hugetlb |
+            mmap_mask::populate),
+        -1, 0));
     // Retry without explicit hugetlb. Over-allocate by one `hugepage_size` to
     // guarantee a hugepage-aligned region exists within the mapping, then trim
     // the prefix and suffix so that `base_` is aligned and `munmap` in the
@@ -236,7 +237,8 @@ public:
     if (base_ == MAP_FAILED) {
       constexpr size_t reserve_size = slab_size + hugepage_size;
       auto* raw = reinterpret_cast<ptr>(::mmap(nullptr, reserve_size,
-          PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+          *(mmap_prot::read | mmap_prot::write),
+          *(mmap_mask::map_private | mmap_mask::anonymous), -1, 0));
       if (raw == MAP_FAILED)
         throw std::system_error(errno, std::system_category(), "mmap");
       const auto rawaddr = reinterpret_cast<uintptr_t>(raw);
@@ -249,7 +251,7 @@ public:
       // Attempt to enable huge page backing on the aligned region. This is a
       // best-effort optimization; if it fails, we still have a correctly sized
       // and aligned block of memory to use.
-      (void)::madvise(base_, slab_size, MADV_HUGEPAGE);
+      (void)::madvise(base_, slab_size, *mmap_advice::hugepage);
     }
     // Warm pages: an explicit memset guarantees zeroing and forces physical
     // page assignment.

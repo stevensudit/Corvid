@@ -17,12 +17,15 @@
 #pragma once
 #include <algorithm>
 #include <cerrno>
+#include <linux/fscrypt.h>
 #include <utility>
 #include <csignal>
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 
 #include "../strings/no_zero.h"
 #include "../enums/bitmask_enum.h"
@@ -254,6 +257,72 @@ enum class o_flags : int {
   raw_tmpfile = O_TMPFILE & O_DIRECTORY, // 0x0040'0000 aka __O_TMPFILE
   tmpfile = O_TMPFILE,                   // 0x0041'0000 raw_tmpfile + directory
 };
+
+// TODO: Move out into "mmap.h", which also wraps `::map` and `::madvise` and
+// defines a RAII `mmap` wrapper class.
+
+// `PROT_*` wrapper.
+enum class mmap_prot : uint32_t {
+  none = PROT_NONE,           // 0x00
+  read = PROT_READ,           // 0x01
+  write = PROT_WRITE,         // 0x02
+  exec = PROT_EXEC,           // 0x04
+  growsdown = PROT_GROWSDOWN, // 0x01000000
+  growsup = PROT_GROWSUP,     // 0x02000000
+};
+
+// `MAP_*` wrapper.
+enum class mmap_mask : uint32_t {
+  file = MAP_FILE,                       // 0x00
+  shared = MAP_SHARED,                   // 0x01
+  map_private = MAP_PRIVATE,             // 0x02
+  shared_validate = MAP_SHARED_VALIDATE, // 0x03
+  mask_type = MAP_TYPE,                  // 0x0f
+  map_huge_mask = MAP_HUGE_MASK,         // 0x3f
+  fixed = MAP_FIXED,                     // 0x00010
+  anonymous = MAP_ANONYMOUS,             // 0x00020
+  growsdown = MAP_GROWSDOWN,             // 0x00100
+  denywrite = MAP_DENYWRITE,             // 0x00800
+  executable = MAP_EXECUTABLE,           // 0x01000
+  locked = MAP_LOCKED,                   // 0x02000
+  noreserve = MAP_NORESERVE,             // 0x04000
+  populate = MAP_POPULATE,               // 0x08000
+  nonblock = MAP_NONBLOCK,               // 0x10000
+  stack = MAP_STACK,                     // 0x20000
+  hugetlb = MAP_HUGETLB,                 // 0x40000
+  sync = MAP_SYNC,                       // 0x80000
+  fixed_noreplace = MAP_FIXED_NOREPLACE, // 0x100000
+};
+
+// `MADV_*` wrapper.
+enum class mmap_advice : int32_t {
+  normal = MADV_NORMAL,                   // 0
+  random = MADV_RANDOM,                   // 1
+  sequential = MADV_SEQUENTIAL,           // 2
+  willneed = MADV_WILLNEED,               // 3
+  dontneed = MADV_DONTNEED,               // 4
+  free = MADV_FREE,                       // 8
+  remove = MADV_REMOVE,                   // 9
+  dontfork = MADV_DONTFORK,               // 10
+  dofork = MADV_DOFORK,                   // 11
+  mergeable = MADV_MERGEABLE,             // 12
+  unmergeable = MADV_UNMERGEABLE,         // 13
+  hugepage = MADV_HUGEPAGE,               // 14
+  nohugepage = MADV_NOHUGEPAGE,           // 15
+  dontdump = MADV_DONTDUMP,               // 16
+  dodump = MADV_DODUMP,                   // 17
+  wipeonfork = MADV_WIPEONFORK,           // 18
+  keeponfork = MADV_KEEPONFORK,           // 19
+  cold = MADV_COLD,                       // 20
+  pageout = MADV_PAGEOUT,                 // 21
+  populate_read = MADV_POPULATE_READ,     // 22
+  populate_write = MADV_POPULATE_WRITE,   // 23
+  dontneed_locked = MADV_DONTNEED_LOCKED, // 24
+  collapse = MADV_COLLAPSE,               // 25
+  hwpoison = MADV_HWPOISON,               // 100
+  MADV_MUST_BE_INT32 = 0x7FFF'FFFF
+};
+
 }} // namespace corvid::filesys
 
 template<>
@@ -304,6 +373,31 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
         "rdonly, wronly, rdwr, creat, excl, noctty, trunc, append, nonblock, "
         "dsync, async, direct, largefile, directory, nofollow, noattime, "
         "cloexec, raw_osync, path, raw_tmpfile">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::filesys::mmap_prot> =
+    corvid::enums::bitmask::make_bitmask_enum_spec<corvid::filesys::mmap_prot,
+        "exec, write, read">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::filesys::mmap_mask> =
+    corvid::enums::bitmask::make_bitmask_enum_spec<corvid::filesys::mmap_mask,
+        "fixed_noreplace, sync, hugetlb, stack, nonblock, populate, "
+        "noreserve, locked, executable, denywrite, , , growsdown, , , "
+        "anonymous, fixed , , , private , shared">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::filesys::mmap_advice> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::filesys::mmap_advice,
+        "normal, random, sequential, willneed, dontneed, -, -, -, free, "
+        "remove, dontfork, dofork, mergeable, unmergeable, hugepage, "
+        "nohugepage,  dontdump, dodump, wipeonfork, keeponfork, cold, "
+        "pageout, populate_read, populate_write, dontneed_locked, "
+        "collapse">();
 
 namespace corvid { inline namespace filesys {
 namespace details {
