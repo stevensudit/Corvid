@@ -71,8 +71,11 @@ concept PostedInvocable = MoveConsumable<FN> && StoredPostedInvocable<FN>;
 //
 // NOLINTBEGIN(bugprone-move-forwarding-reference)
 template<typename CB = std::function<bool()>>
-class owner_thread_dispatcher {
+class owner_thread_dispatcher
+    : public std::enable_shared_from_this<owner_thread_dispatcher<CB>> {
 public:
+#pragma region Infrastructure
+
   static_assert(StoredPostedInvocable<CB>,
       "CB must be a PostedInvocable lambda type");
 
@@ -91,34 +94,16 @@ public:
 
   ~owner_thread_dispatcher() = default;
 
-  // Access `eventfd` to wait on for work in the post queue.
-  const auto& wake_fd() const noexcept { return wake_fd_; }
+#pragma endregion
+#pragma region Accessors
 
   // True if the calling thread is the active loop thread for this instance.
   [[nodiscard]] bool is_loop_thread() const noexcept {
     return current_loop_ == this;
   }
 
-  // Execute all pending callbacks in the post queue. Returns the number of
-  // callbacks executed. There is no reason to call this until after `post`
-  // signals the `eventfd`, and it must only be called from the owning thread.
-  [[nodiscard]] size_t execute_post_queue() {
-    assert(is_loop_thread());
-
-    // Atomically swap between the double-buffered queues.
-    post_queue_t* pending;
-    if (std::scoped_lock lock{post_mutex_}; true) {
-      pending = active_queue_;
-      post_queue_t* other =
-          (pending == &post_queues_[0]) ? &post_queues_[1] : &post_queues_[0];
-      active_queue_ = other;
-    }
-
-    size_t count = pending->size();
-    for (auto& fn : *pending) fn();
-    pending->clear();
-    return count;
-  }
+#pragma endregion
+#pragma region Post
 
   // Schedule `cbpost` to run on the loop thread.
   //
@@ -134,10 +119,23 @@ public:
       active_queue.emplace_back(std::move(cbpost));
     }
     // On transition from empty, signal the `eventfd` to wake the loop thread.
-    if (was_empty) return do_wake();
+    if (was_empty) return wake_post_queue();
 
     return true;
   }
+
+#pragma endregion
+#pragma region Execute or post
+
+  // Execute `fn` immediately if on the loop thread; otherwise `post` it. Does
+  // not retry on failure.
+  [[nodiscard]] bool execute_or_post(PostedInvocable auto&& fn) {
+    if (is_loop_thread()) return fn();
+    return post(std::move(fn));
+  }
+
+#pragma endregion
+#pragma region Execute or post with retry
 
   // Execute `fn` immediately if on the loop thread. If it fails, or if we
   // aren't on the loop thread, post it.
@@ -163,6 +161,9 @@ public:
     return true;
   }
 
+#pragma endregion
+#pragma region Post and wait
+
   // Run `fn` fully synchronously on the loop thread. When executed from
   // another thread, posts before blocking the calling thread until it
   // completes.
@@ -183,6 +184,8 @@ public:
     return result;
   }
 
+#pragma endregion
+
   // Returns the current high-watermark for the post queues, which can be used
   // to tune the constructor's `post_queue_reserve` parameter. In practice,
   // vectors grow by doubling and never shrink, so in the steady state, there
@@ -192,18 +195,40 @@ public:
     return std::max(post_queues_[0].capacity(), post_queues_[1].capacity());
   }
 
-  // Execute `fn` immediately if on the loop thread; otherwise `post` it. Does
-  // not retry on failure.
-  [[nodiscard]] bool execute_or_post(PostedInvocable auto&& fn) {
-    if (is_loop_thread()) return fn();
-    return post(std::move(fn));
+#pragma region Child access
+protected:
+  // Access `eventfd` to wait on for work in the post queue.
+  const auto& wake_fd() const noexcept { return wake_fd_; }
+
+  // Signal eventfd to wake the loop thread.
+  [[nodiscard]] bool wake_post_queue() noexcept { return wake_fd_.notify(); }
+
+  // Execute all pending callbacks in the post queue. Returns the number of
+  // callbacks executed. There is no reason to call this until after `post`
+  // signals the `eventfd`, and it must only be called from the owning thread.
+  [[nodiscard]] size_t execute_post_queue() {
+    assert(is_loop_thread());
+
+    // Atomically swap between the double-buffered queues.
+    post_queue_t* pending;
+    if (std::scoped_lock lock{post_mutex_}; true) {
+      pending = active_queue_;
+      post_queue_t* other =
+          (pending == &post_queues_[0]) ? &post_queues_[1] : &post_queues_[0];
+      active_queue_ = other;
+    }
+
+    size_t count = pending->size();
+    for (auto& fn : *pending) fn();
+    pending->clear();
+    return count;
   }
 
+#pragma endregion
 private:
   using post_queue_t = std::vector<posted_fn>;
 
-  [[nodiscard]] bool do_wake() noexcept { return wake_fd_.notify(); }
-
+#pragma region Data members
 private:
   event_fd wake_fd_{0};
   inline static thread_local const owner_thread_dispatcher* current_loop_{};
@@ -211,6 +236,8 @@ private:
   post_queue_t post_queues_[2];
   relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
   relaxed_atomic_size_t default_retry_count_{3};
+
+#pragma endregion
 };
 
 // NOLINTEND(bugprone-move-forwarding-reference)

@@ -37,6 +37,7 @@
 #include "../../concurrency/jthread_stoppable_sleep.h"
 #include "../../concurrency/notifiable.h"
 #include "../../concurrency/relaxed_atomic.h"
+#include "../../concurrency/owner_thread_dispatcher.h"
 #include "../../containers/scope_exit.h"
 #include "../../containers/scoped_value.h"
 #include "../../containers/object_pool.h"
@@ -140,6 +141,12 @@ template<typename FN>
 concept PostedInvocable =
     MoveConsumable<FN> && std::is_invocable_r_v<bool, FN>;
 
+static constexpr size_t fixed_function_capacity = 384;
+
+// Callback scheduled via `post` to run on the loop thread. These are used to
+// force single-threading of ring access.
+using posted_fn = std::function<bool()>;
+
 #pragma endregion
 #pragma region iou_loop
 
@@ -190,9 +197,7 @@ concept PostedInvocable =
 //
 // TODO: Allow `iou_buf_pool` size to be configured, likely at compile time.
 template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
-class iou_basic_loop
-    : public std::enable_shared_from_this<
-          iou_basic_loop<RING_SIZE, SLOT_COUNT>> {
+class iou_basic_loop: public owner_thread_dispatcher<posted_fn> {
 #pragma region Types
 public:
   // Buffer pool.
@@ -212,10 +217,6 @@ public:
   static constexpr size_t default_max_pending_sqes{RING_SIZE / 4};
 
   static constexpr size_t fixed_function_capacity = 384;
-
-  // Callback scheduled via `post` to run on the loop thread. These are used to
-  // force single-threading of ring access.
-  using posted_fn = std::function<bool()>;
 
   // Low-level callback invoked when an op completes. Moved to a slot borrowed
   // from the `completion_cb_pool_t`. This avoids the need for
@@ -298,10 +299,8 @@ public:
             iou_setup_flags::setup_single_issuer |
                 iou_setup_flags::setup_defer_taskrun |
                 iou_setup_flags::setup_submit_all},
-        wake_fd_{event_fd::create()}, max_pending_sqes_{max_pending_sqes},
+        max_pending_sqes_{max_pending_sqes},
         post_and_wait_poll_interval_{post_and_wait_poll_interval} {
-    post_queues_[0].reserve(32);
-    post_queues_[1].reserve(32);
     if (!buf_pool_.register_with(ring_))
       throw std::system_error{errno, std::system_category(),
           "io_uring_register_buffers"};
@@ -321,13 +320,6 @@ public:
         post_and_wait_poll_interval, max_pending_sqes);
   }
 
-  // Returns an RAII guard that designates the calling thread as the loop
-  // thread for its lifetime. `run` does this internally; call it manually
-  // before using `run_once` directly. For tests only.
-  [[nodiscard]] auto poll_thread_scope() const {
-    return scoped_value<const iou_basic_loop*>{current_loop_, this};
-  }
-
   // Block until `run` is active. Returns false on timeout.
   [[nodiscard]] bool wait_until_running(duration_t timeout = 60s) {
     return running_.wait_for_value(timeout, true);
@@ -337,7 +329,6 @@ public:
   // blocking call. Used by `iou_loop_runner`.
   size_t run() {
     stop_.store(false, std::memory_order::relaxed);
-    const auto scope = poll_thread_scope();
     running_.notify(true);
     scope_exit on_exit{[&] { running_.notify(false); }};
     arm_wake_poll_multishot();
@@ -356,7 +347,7 @@ public:
   // loop thread.
   [[nodiscard]] size_t run_once(const iou_timespec& timeout) {
     assert(is_loop_thread());
-    do_drain_post_queue();
+    (void)execute_post_queue();
 
     // Simultaneously submit SQEs and wait for CQEs.
     pending_sqe_count_ = 0;
@@ -379,7 +370,7 @@ public:
   // called from any thread.
   void stop() noexcept {
     stop_.store(true, std::memory_order::release);
-    (void)do_wake();
+    (void)wake_post_queue();
   }
 
   // Borrow a registered `buffer` from the pool for the purpose of reading
@@ -411,86 +402,9 @@ public:
   //
   // There are other use cases where you might want to explicitly post to the
   // loop thread, so `post` is public.
-
-  // True if the calling thread is the active loop thread for this instance.
-  [[nodiscard]] bool is_loop_thread() const noexcept {
-    return current_loop_ == this;
-  }
-
-  // Schedule `cbpost` to run on the loop thread at the top of the next
-  // `run_once`.
   //
-  // You will often want to use `execute_or_post` instead, as it executes
-  // inline if already on the loop thread, avoiding unnecessary posting
-  // overhead.
-  [[nodiscard]] bool post(posted_fn&& cbpost) {
-    bool was_empty{};
-    if (std::scoped_lock lock{post_mutex_}; true) {
-      auto& active_queue = **active_queue_;
-      was_empty = active_queue.empty();
-      active_queue.emplace_back(std::move(cbpost));
-    }
-    // On transition from empty, signal the `eventfd` to wake the loop thread.
-    if (!was_empty) return true;
-    return do_wake();
-  }
-
-  // Execute `fn` immediately if on the loop thread; otherwise `post` it. Does
-  // not retry on failure.
-  [[nodiscard]] bool execute_or_post(PostedInvocable auto&& fn) {
-    if (is_loop_thread()) return fn();
-    return post(std::move(fn));
-  }
-
-  // Execute `fn` immediately if on the loop thread. If it fails, or if we
-  // aren't on the loop thread, post it.
-  //
-  // When it fails while executing from the post queue, it will requeue itself.
-  // This only makes sense if the failure is retryable, such as the SQE queue
-  // being full. If we encounter an error that isn't retryable, we must return
-  // `true` to end the loop.
-  //
-  // Also, if `fn` has a `completion_token`, then it should check whether it's
-  // been released, and return `true` if it has. This allows the caller to
-  // abort retries.
-  //
-  // TODO: Consider whether we should add a retry count that defaults to a
-  // reasonable number and decrement each time we requeue. As much as an
-  // infinite loop shouldn't happen, it's better if it can't, even in the worst
-  // case.
-  [[nodiscard]] bool execute_or_post_with_retry(PostedInvocable auto&& fn) {
-    if (!is_loop_thread() || !fn())
-      (void)post([this, fn = std::move(fn)]() mutable -> bool {
-        return execute_or_post_with_retry(std::move(fn));
-      });
-    return true;
-  }
-
-  // Run `fn` fully synchronously on the loop thread. When executed from
-  // another thread, posts before blocking the calling thread until it
-  // completes.
-  [[nodiscard]] bool post_and_wait(PostedInvocable auto&& fn) {
-    if (!running_.get()) return false;
-    if (is_loop_thread()) return fn();
-    using fn_type = std::decay_t<decltype(fn)>;
-    struct wait_state {
-      notifiable<bool> done{false};
-      fn_type fn;
-      explicit wait_state(fn_type&& f) : fn(std::move(f)) {}
-    };
-    auto waiter = std::make_shared<wait_state>(std::move(fn));
-    if (!post([waiter] {
-          waiter->fn();
-          waiter->done.notify_one(true);
-          return true;
-        }))
-      return false;
-    while (true) {
-      if (waiter->done.wait_for_value(post_and_wait_poll_interval_, true))
-        return true;
-      if (!running_.get()) return false;
-    }
-  }
+  // See `owner_thread_dispatcher` for more details on the threading model and
+  // the post queue.
 
 #pragma endregion
 #pragma region Completion tokens
@@ -1489,22 +1403,6 @@ private:
     return true;
   }
 
-  // Atomically swap out the active post queue, then execute and clear it
-  // without holding the lock. Callbacks posted from within a drained
-  // callback land in the newly active queue and run on the next iteration.
-  void do_drain_post_queue() {
-    assert(is_loop_thread());
-    post_queue_t* pending;
-    if (std::scoped_lock lock{post_mutex_}; true) {
-      pending = active_queue_;
-      post_queue_t* other =
-          (pending == &post_queues_[0]) ? &post_queues_[1] : &post_queues_[0];
-      active_queue_ = other;
-    }
-    for (auto& fn : *pending) fn();
-    pending->clear();
-  }
-
   // Submit a multishot `IORING_OP_POLL_ADD` for the wakeup `eventfd`. Each
   // time `post` or `stop` writes to the `eventfd`, the poll fires as a CQE
   // and interrupts `io_uring_wait_cqe_timeout`. Because the operation is
@@ -1518,17 +1416,17 @@ private:
     // initial submission.
     auto raw_cb =
         [this](completion_id cbhandle, iou_res, iou_cqe_flags flags) {
-          (void)wake_fd_.read();
+          (void)wake_fd().read();
           if (bitmask::has(flags, iou_cqe_flags::more))
             return slot_retention::automatic;
-          if (!submit_poll_multishot(wake_fd_, completion_token{cbhandle},
+          if (!submit_poll_multishot(wake_fd(), completion_token{cbhandle},
                   poll_flags::in, slot_retention::retain))
             throw std::runtime_error{"failed to resubmit wake poll multishot"};
           return slot_retention::retain;
         };
 
     // Make sure it doesn't just lock up at the start.
-    (void)do_wake();
+    (void)wake_post_queue();
 
     // Pretend a CQE arrived.
     wake_poll_token_ = tokenize(std::move(raw_cb));
@@ -1541,8 +1439,6 @@ private:
     return true;
   }
 
-  [[nodiscard]] bool do_wake() noexcept { return wake_fd_.notify(); }
-
 #pragma endregion
 #pragma region Data members
 private:
@@ -1550,22 +1446,13 @@ private:
   buf_pool_t buf_pool_;
   iou_ring ring_;
 
-  // Poll wake system.
-  event_fd wake_fd_;
-  completion_token wake_poll_token_;
-
   // Completion callback pool, used to avoid `std::shared_ptr`.
   completion_cb_pool_t completion_cb_pool_;
 
   // Stop system.
   std::atomic_bool stop_;
   notifiable<std::atomic_bool> running_;
-
-  // Post queue system.
-  inline static thread_local const iou_basic_loop* current_loop_{};
-  std::mutex post_mutex_;
-  post_queue_t post_queues_[2];
-  relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
+  completion_token wake_poll_token_;
 
   size_t max_pending_sqes_{};
   size_t pending_sqe_count_{};
