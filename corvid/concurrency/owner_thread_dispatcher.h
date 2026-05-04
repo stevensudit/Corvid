@@ -32,11 +32,7 @@
 #include "../meta/concepts.h"
 #include "../filesys/os_file.h"
 #include "../filesys/event_fd.h"
-#include "../concurrency/notifiable.h"
 #include "../concurrency/relaxed_atomic.h"
-#include "../containers/scope_exit.h"
-#include "../containers/scoped_value.h"
-#include "../containers/object_pool.h"
 
 namespace corvid { inline namespace concurrency {
 inline namespace owner_thread_dispatcherns {
@@ -55,12 +51,16 @@ concept StoredPostedInvocable =
 template<typename FN>
 concept PostedInvocable = MoveConsumable<FN> && StoredPostedInvocable<FN>;
 
-// Dispatches callbacks to execute only in the owning thread.
+// Dispatches callbacks to execute only in the owning thread, by using a post
+// queue.
 //
 // The instance imprints on the thread it was created by and only executes
 // callbacks in that thread. If a callback is passed from another thread, it is
 // instead posted to the queue so that it can be executed by the owning thread
 // later. To synchronize, posting a callback signals an `eventfd`.
+//
+// The post queue may be useful even when running entirely within the loop
+// thread, since you can use to defer execution.
 //
 // This class is designed to work equally well as a parent and as a member
 // (whose methods may be re-published). It will also work with any sort of
@@ -158,7 +158,7 @@ public:
     // once. It will only be queued again if it fails but there are more
     // retries.
     (void)post([this, retry_count, fn = std::move(fn)]() mutable -> bool {
-      if (execute_or_post_with_retry(std::move(fn), retry_count)) return true;
+      return execute_or_post_with_retry(std::move(fn), retry_count);
     });
     return true;
   }
@@ -205,9 +205,9 @@ private:
   [[nodiscard]] bool do_wake() noexcept { return wake_fd_.notify(); }
 
 private:
-  event_fd wake_fd_;
+  event_fd wake_fd_{0};
   inline static thread_local const owner_thread_dispatcher* current_loop_{};
-  std::mutex post_mutex_;
+  mutable std::mutex post_mutex_;
   post_queue_t post_queues_[2];
   relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
   relaxed_atomic_size_t default_retry_count_{3};

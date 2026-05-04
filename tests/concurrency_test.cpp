@@ -515,13 +515,249 @@ void TimerFuse_ExceedMaxDelay() {
   EXPECT_FALSE(ok);
 }
 
+void OwnerThreadDispatcher_IsLoopThread() {
+  // Constructor thread is the loop thread; other threads are not.
+  owner_thread_dispatcher<> dispatcher;
+  EXPECT_TRUE(dispatcher.is_loop_thread());
+
+  relaxed_atomic_bool other_is_loop{true};
+  std::thread t{[&] { other_is_loop = dispatcher.is_loop_thread(); }};
+  t.join();
+  EXPECT_FALSE(other_is_loop);
+}
+
+void OwnerThreadDispatcher_PostAndExecute() {
+  // `post` queues callbacks; `execute_post_queue` drains and returns count.
+  owner_thread_dispatcher<> dispatcher;
+  int count{0};
+  EXPECT_TRUE(dispatcher.post([&count]() mutable -> bool {
+    ++count;
+    return true;
+  }));
+  EXPECT_TRUE(dispatcher.post([&count]() mutable -> bool {
+    ++count;
+    return true;
+  }));
+  EXPECT_TRUE(dispatcher.post([&count]() mutable -> bool {
+    ++count;
+    return true;
+  }));
+  auto executed = dispatcher.execute_post_queue();
+  EXPECT_EQ(executed, 3U);
+  EXPECT_EQ(count, 3);
+}
+
+void OwnerThreadDispatcher_ExecutePostQueue_Empty() {
+  // Empty queue returns 0 and does not crash.
+  owner_thread_dispatcher<> dispatcher;
+  EXPECT_EQ(dispatcher.execute_post_queue(), 0U);
+}
+
+void OwnerThreadDispatcher_ExecuteOrPost_OnLoopThread() {
+  // On the loop thread `execute_or_post` runs inline without queuing.
+  owner_thread_dispatcher<> dispatcher;
+  int count{0};
+  auto ok = dispatcher.execute_or_post([&count]() -> bool {
+    ++count;
+    return true;
+  });
+  EXPECT_TRUE(ok);
+  EXPECT_EQ(count, 1);
+  EXPECT_EQ(dispatcher.execute_post_queue(), 0U);
+}
+
+void OwnerThreadDispatcher_ExecuteOrPost_OffLoopThread() {
+  // From a non-loop thread `execute_or_post` posts without executing inline.
+  owner_thread_dispatcher<> dispatcher;
+  relaxed_atomic_int count{0};
+  std::thread t{[&] {
+    (void)dispatcher.execute_or_post([&count]() -> bool {
+      count->fetch_add(1);
+      return true;
+    });
+  }};
+  t.join();
+  EXPECT_EQ(count, 0); // Not yet executed.
+  auto executed = dispatcher.execute_post_queue();
+  EXPECT_EQ(executed, 1U);
+  EXPECT_EQ(count, 1);
+}
+
+void OwnerThreadDispatcher_PostAndWait_OnLoopThread() {
+  // On the loop thread `post_and_wait` executes the callback directly.
+  owner_thread_dispatcher<> dispatcher;
+  int count{0};
+  auto ok = dispatcher.post_and_wait([&count]() -> bool {
+    ++count;
+    return true;
+  });
+  EXPECT_TRUE(ok);
+  EXPECT_EQ(count, 1);
+  EXPECT_EQ(dispatcher.execute_post_queue(), 0U);
+}
+
+void OwnerThreadDispatcher_PostAndWait_OffLoopThread() {
+  // From a non-loop thread `post_and_wait` blocks until the loop thread
+  // drains the queue.
+  owner_thread_dispatcher<> dispatcher;
+  bool result{false};
+  std::atomic<int> count{0};
+
+  std::thread t{[&] {
+    result = dispatcher.post_and_wait([&count]() -> bool {
+      ++count;
+      return true;
+    });
+  }};
+
+  // Spin until the posted item signals the eventfd.
+  event_fd::counter_t val{};
+  while (!dispatcher.wake_fd().read(val)) std::this_thread::yield();
+
+  auto executed = dispatcher.execute_post_queue();
+  t.join();
+
+  EXPECT_EQ(executed, 1U);
+  EXPECT_TRUE(result);
+  EXPECT_EQ(count.load(), 1);
+}
+
+void OwnerThreadDispatcher_QueueHighWatermark() {
+  // `queue_high_watermark` reflects the maximum capacity seen.
+  owner_thread_dispatcher<> dispatcher{4};
+  EXPECT_GE(dispatcher.queue_high_watermark(), 4U);
+  for (int i{}; i < 8; ++i)
+    EXPECT_TRUE(dispatcher.post([]() -> bool { return true; }));
+  (void)dispatcher.execute_post_queue();
+  EXPECT_GE(dispatcher.queue_high_watermark(), 8U);
+}
+
+void OwnerThreadDispatcher_DoubleBuffer() {
+  // Callbacks posted during `execute_post_queue` go into the inactive buffer
+  // and are deferred to the next drain.
+  owner_thread_dispatcher<> dispatcher;
+  int first{0};
+  int second{0};
+
+  EXPECT_TRUE(dispatcher.post([&]() mutable -> bool {
+    ++first;
+    (void)dispatcher.post([&]() mutable -> bool {
+      ++second;
+      return true;
+    });
+    return true;
+  }));
+
+  auto count1 = dispatcher.execute_post_queue();
+  EXPECT_EQ(count1, 1U);
+  EXPECT_EQ(first, 1);
+  EXPECT_EQ(second, 0); // Deferred to next drain.
+
+  auto count2 = dispatcher.execute_post_queue();
+  EXPECT_EQ(count2, 1U);
+  EXPECT_EQ(second, 1);
+}
+
+void OwnerThreadDispatcher_WakeFd() {
+  // `wake_fd` is signaled exactly once when the queue transitions from empty.
+  owner_thread_dispatcher<> dispatcher;
+
+  // No signal before any post.
+  EXPECT_FALSE(dispatcher.wake_fd().read().has_value());
+
+  // First post to empty queue signals the fd.
+  EXPECT_TRUE(dispatcher.post([]() -> bool { return true; }));
+  EXPECT_TRUE(dispatcher.wake_fd().read().has_value());
+
+  // Second post to a non-empty queue does not re-signal.
+  EXPECT_TRUE(dispatcher.post([]() -> bool { return true; }));
+  EXPECT_FALSE(dispatcher.wake_fd().read().has_value());
+
+  (void)dispatcher.execute_post_queue();
+}
+
+void OwnerThreadDispatcher_ExecuteOrPostWithRetry_Success() {
+  // On the loop thread, fn succeeds immediately; returns true without posting.
+  owner_thread_dispatcher<> dispatcher;
+  int calls{0};
+  auto ok = dispatcher.execute_or_post_with_retry(
+      [&calls]() mutable -> bool {
+        ++calls;
+        return true;
+      },
+      2);
+  EXPECT_TRUE(ok);
+  EXPECT_EQ(calls, 1);
+  EXPECT_EQ(dispatcher.execute_post_queue(), 0U);
+}
+
+void OwnerThreadDispatcher_ExecuteOrPostWithRetry_ExhaustedRetry() {
+  // With retry_count=0 and a fn that always fails, returns false immediately.
+  owner_thread_dispatcher<> dispatcher;
+  int calls{0};
+  auto ok = dispatcher.execute_or_post_with_retry(
+      [&calls]() mutable -> bool {
+        ++calls;
+        return false;
+      },
+      0);
+  EXPECT_FALSE(ok);
+  EXPECT_EQ(calls, 1);
+  EXPECT_EQ(dispatcher.execute_post_queue(), 0U);
+}
+
+void OwnerThreadDispatcher_ExecuteOrPostWithRetry_Retry() {
+  // fn fails the first time; the retry posted to the queue succeeds.
+  owner_thread_dispatcher<> dispatcher;
+  int attempts{0};
+  auto ok = dispatcher.execute_or_post_with_retry(
+      [&attempts]() mutable -> bool {
+        ++attempts;
+        return attempts >= 2;
+      },
+      2);
+  EXPECT_TRUE(ok);
+  EXPECT_EQ(attempts, 1); // First call failed; retry was posted.
+
+  (void)dispatcher.execute_post_queue();
+  EXPECT_EQ(attempts, 2); // Retry succeeded.
+}
+
+void OwnerThreadDispatcher_ExecuteOrPostWithRetry_OffLoopThread() {
+  // From a non-loop thread, fn is never called inline; it is always posted.
+  owner_thread_dispatcher<> dispatcher;
+  relaxed_atomic_int calls{0};
+  std::thread t{[&] {
+    (void)dispatcher.execute_or_post_with_retry([&calls]() -> bool {
+      calls->fetch_add(1);
+      return true;
+    });
+  }};
+  t.join();
+  EXPECT_EQ(calls, 0); // Not yet executed.
+  (void)dispatcher.execute_post_queue();
+  EXPECT_EQ(calls, 1);
+}
+
 MAKE_TEST_LIST(TombStone_Basic, TombStone_TrySet, TombStone_Kill,
     Notifiable_NotifyAndWait, Notifiable_ModifyAndNotify, Notifiable_WaitFor,
     Notifiable_WaitUntilChanged, Notifiable_Get, Notifiable_Atomic,
     RelaxedAtomic_Basic, RelaxedAtomic_Arrow, RelaxedAtomic_Bool,
     Notifiable_RelaxedAtomic, TimerFuse_Default, TimerFuse_ArmedFires,
     TimerFuse_Disarm, TimerFuse_Rearm, TimerFuse_ResourceExpired,
-    TimerFuse_ExceedMaxDelay);
+    TimerFuse_ExceedMaxDelay, OwnerThreadDispatcher_IsLoopThread,
+    OwnerThreadDispatcher_PostAndExecute,
+    OwnerThreadDispatcher_ExecutePostQueue_Empty,
+    OwnerThreadDispatcher_ExecuteOrPost_OnLoopThread,
+    OwnerThreadDispatcher_ExecuteOrPost_OffLoopThread,
+    OwnerThreadDispatcher_PostAndWait_OnLoopThread,
+    OwnerThreadDispatcher_PostAndWait_OffLoopThread,
+    OwnerThreadDispatcher_QueueHighWatermark,
+    OwnerThreadDispatcher_DoubleBuffer, OwnerThreadDispatcher_WakeFd,
+    OwnerThreadDispatcher_ExecuteOrPostWithRetry_Success,
+    OwnerThreadDispatcher_ExecuteOrPostWithRetry_ExhaustedRetry,
+    OwnerThreadDispatcher_ExecuteOrPostWithRetry_Retry,
+    OwnerThreadDispatcher_ExecuteOrPostWithRetry_OffLoopThread);
 
 // NOLINTEND(performance-unnecessary-copy-initialization)
 // NOLINTEND(readability-function-cognitive-complexity)
