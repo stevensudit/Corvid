@@ -373,22 +373,6 @@ public:
     (void)wake_post_queue();
   }
 
-  // Borrow a registered `buffer` from the pool for the purpose of reading
-  // into it. Returns an invalid `buffer` if the pool is exhausted. Pass to
-  // `submit_recv_buffer`.
-  [[nodiscard]] buffer borrow_read_buffer(
-      block_size sz = block_size::kb004) noexcept {
-    return buf_pool_.borrow_reader(sz);
-  }
-
-  // Borrow a registered `buffer` from the pool for the purpose of writing to
-  // it. Returns an invalid `buffer` if the pool is exhausted. Fill the
-  // `buffer`'s payload, then pass it to `submit_send_buffer`.
-  [[nodiscard]] buffer borrow_write_buffer(
-      block_size sz = block_size::kb004) noexcept {
-    return buf_pool_.borrow_writer(sz);
-  }
-
 #pragma endregion
 #pragma region Post
 
@@ -405,6 +389,28 @@ public:
   //
   // See `owner_thread_dispatcher` for more details on the threading model and
   // the post queue.
+
+#pragma endregion
+#pragma region Buffers
+
+  // These methods are used to interact with the `iou_buf_pool`, not the
+  // `iou_provided_buf_pool`.
+
+  // Borrow a registered `buffer` from the pool for the purpose of reading
+  // into it. Returns an invalid `buffer` if the pool is exhausted. Pass to
+  // `submit_recv_buffer`.
+  [[nodiscard]] buffer borrow_read_buffer(
+      block_size sz = block_size::kb004) noexcept {
+    return buf_pool_.borrow_reader(sz);
+  }
+
+  // Borrow a registered `buffer` from the pool for the purpose of writing to
+  // it. Returns an invalid `buffer` if the pool is exhausted. Fill the
+  // `buffer`'s payload, then pass it to `submit_send_buffer`.
+  [[nodiscard]] buffer borrow_write_buffer(
+      block_size sz = block_size::kb004) noexcept {
+    return buf_pool_.borrow_writer(sz);
+  }
 
 #pragma endregion
 #pragma region Completion tokens

@@ -20,16 +20,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <mutex>
 #include <system_error>
 #include <sys/mman.h>
 
+#include "../../concurrency/owner_thread_dispatcher.h"
+
 #include "iou_buffer_pool_base.h"
 #include "iou_buffer.h"
-
-// TODO: After `iou_pool` inherits from `owner_thread_dispatcher`, this class
-// should be initialized with an `owner_thread_dispatcher*` so that it drop the
-// mutex and instead post.
 
 namespace corvid { inline namespace proto { namespace iouring {
 
@@ -58,9 +55,9 @@ public:
   // `buf_count` is derived as `slab_size / buf_size` and must be a power of
   // two. Pass `slab_size = 0` for a no-op pool. Throws `std::system_error`
   // on allocation failure.
-  iou_provided_buf_pool(size_t slab_size, block_size buf_size,
-      uint16_t bgid = 0)
-      : bgid_{bgid} {
+  iou_provided_buf_pool(owner_thread_dispatcher<>* dispatcher,
+      size_t slab_size, block_size buf_size, uint16_t bgid = 0)
+      : dispatcher_{dispatcher}, bgid_{bgid} {
     if (slab_size == 0) return;
 
     assert(slab_size % hugepage_size == 0);
@@ -178,10 +175,8 @@ public:
   }
 
 #pragma endregion
-
-private:
 #pragma region Overrides
-
+private:
   [[nodiscard]] std::byte* base() const noexcept override { return base_; }
 
   // Replenish the returned slot into the kernel ring.
@@ -191,10 +186,13 @@ private:
     const size_t bid = (s.data() - base_) / buf_size_;
     assert(bid < buf_count_);
     const int mask = static_cast<int>(buf_count_) - 1;
-    std::scoped_lock lock{mutex_};
-    buf_ring_.add(s.data(), buf_size_, static_cast<unsigned short>(bid), mask,
-        0);
-    buf_ring_.advance(1);
+
+    (void)dispatcher_->execute_or_post([this, s, bid, mask] {
+      buf_ring_.add(s.data(), buf_size_, static_cast<unsigned short>(bid),
+          mask, 0);
+      buf_ring_.advance(1);
+      return true;
+    });
   }
 
   void decrement_read_bytes(size_t /*n*/) noexcept override {}
@@ -202,14 +200,14 @@ private:
 
 #pragma endregion
 #pragma region Data members
-
+private:
+  owner_thread_dispatcher<>* dispatcher_;
   std::byte* base_{};
   size_t buf_size_{};
   size_t buf_count_{};
   size_t slab_size_{};
   uint16_t bgid_{};
   iou_buf_ring buf_ring_;
-  std::mutex mutex_;
 
 #pragma endregion
 };
