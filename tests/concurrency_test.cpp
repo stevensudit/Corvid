@@ -515,19 +515,23 @@ void TimerFuse_ExceedMaxDelay() {
   EXPECT_FALSE(ok);
 }
 
+// NOLINTBEGIN(bugprone-derived-method-shadowing-base-method)
 class OwnerThreadTestDispatcher: public owner_thread_dispatcher<> {
 public:
   using parent = owner_thread_dispatcher<>;
 
   OwnerThreadTestDispatcher(size_t max_pending = 16) : parent(max_pending) {}
 
-  size_t execute_post_queue() {
+  [[nodiscard]] size_t execute_post_queue() {
     // Expose `execute_post_queue` for testing.
     return parent::execute_post_queue();
   }
 
-  const auto& wake_fd() const noexcept { return parent::wake_fd(); }
+  [[nodiscard]] const auto& wake_fd() const noexcept {
+    return parent::wake_fd();
+  }
 };
+// NOLINTEND(bugprone-derived-method-shadowing-base-method)
 
 void OwnerThreadDispatcher_IsLoopThread() {
   // Constructor thread is the loop thread; other threads are not.

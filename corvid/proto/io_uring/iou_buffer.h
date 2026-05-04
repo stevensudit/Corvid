@@ -387,9 +387,7 @@ public:
   // Decrements the pool's in-flight read byte count for the full block.
   iou_buffer& promote_to_write() noexcept {
     assert(blockrw_ == block_type::read);
-    // TODO: Add a return value that can be used to cancel the attempt. In
-    // particular, Provided Buffers cannot be reused this way.
-    pool_->decrement_read_bytes(full_span_.size());
+    if (!pool_->decrement_read_bytes(full_span_.size())) return *this;
     active_span_ = payload_span_;
     blockrw_ = block_type::write;
     return *this;
@@ -400,8 +398,7 @@ public:
   // additional incoming data).
   iou_buffer& demote_to_read() noexcept {
     assert(blockrw_ == block_type::write);
-    // TODO: Add a return value that can be used to cancel the attempt.
-    pool_->increment_read_bytes(full_span_.size());
+    if (!pool_->increment_read_bytes(full_span_.size())) return *this;
     auto* end = payload_span_.data() + payload_span_.size();
     active_span_ = {end,
         static_cast<size_t>(full_span_.data() + full_span_.size() - end)};
@@ -490,7 +487,7 @@ private:
   }
 
   void do_reset() noexcept {
-    if (pool_) pool_->return_buffer(full_span_, blockrw_);
+    if (pool_) (void)pool_->return_buffer(full_span_, blockrw_);
   }
 
   void do_reconstitute_msg() noexcept {

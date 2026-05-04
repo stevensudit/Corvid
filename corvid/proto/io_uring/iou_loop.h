@@ -291,12 +291,12 @@ public:
   // Throws `std::system_error` if the ring, wakeup `eventfd`, or
   // `buf_pool_t` registration fails.
   //
-  // `udp_slab_size` controls the optional provided-buffer pool slab of 2k
+  // `udp_provided_size` controls the optional provided-buffer pool slab of 2k
   // buffers. Pass 0 to disable it; the default is one hugepage (2 MB).
   //
-  // TODO: Add a `tcp_provided_slab_size` for multishot reads, likely with a
-  // `tcp_provided_buf_size` defaulting to 4k. This initializes a
-  // `iou_provided_buf_pool`.
+  // `tcp_provided_size` controls the optional provided-buffer pool slab for
+  // multishot TCP reads. Pass 0 to disable it; the default is one hugepage (2
+  // MB), split into `tcp_provided_buf_size` buffers (defaulting to 4k).
   //
   // Note: The flags for the ring require that all SQEs be issued from the same
   // thread, and optimizes completions for the single-issuer case.
@@ -304,12 +304,16 @@ public:
       duration_t post_and_wait_poll_interval =
           default_post_and_wait_poll_interval,
       size_t max_pending_sqes = default_max_pending_sqes,
-      size_t udp_slab_size = buf_pool_t::hugepage_size)
+      size_t udp_provided_size = buf_pool_t::hugepage_size,
+      size_t tcp_provided_size = buf_pool_t::hugepage_size,
+      block_size tcp_provided_buf_size = block_size::kb004)
       : ring_{RING_SIZE,
             iou_setup_flags::setup_single_issuer |
                 iou_setup_flags::setup_defer_taskrun |
                 iou_setup_flags::setup_submit_all},
-        udp_buf_pool_{this, udp_slab_size, block_size::kb002, 1},
+        udp_buf_pool_{this, udp_provided_size, block_size::kb002, 1},
+        tcp_provided_buf_pool_{this, tcp_provided_size, tcp_provided_buf_size,
+            2},
         max_pending_sqes_{max_pending_sqes},
         post_and_wait_poll_interval_{post_and_wait_poll_interval} {
     if (!buf_pool_.register_with(ring_))
@@ -318,6 +322,9 @@ public:
     if (!udp_buf_pool_.register_with(ring_))
       throw std::system_error{errno, std::system_category(),
           "io_uring_register_buffers (udp_buf_pool)"};
+    if (!tcp_provided_buf_pool_.register_with(ring_))
+      throw std::system_error{errno, std::system_category(),
+          "io_uring_register_buffers (tcp_provided_buf_pool)"};
   }
 
   iou_basic_loop(const iou_basic_loop&) = delete;
@@ -330,9 +337,12 @@ public:
   make(duration_t post_and_wait_poll_interval =
            default_post_and_wait_poll_interval,
       size_t max_pending_sqes = default_max_pending_sqes,
-      size_t udp_slab_size = buf_pool_t::hugepage_size) {
+      size_t udp_provided_size = buf_pool_t::hugepage_size,
+      size_t tcp_provided_size = buf_pool_t::hugepage_size,
+      block_size tcp_provided_buf_size = block_size::kb004) {
     return std::make_shared<iou_basic_loop>(allow::ctor,
-        post_and_wait_poll_interval, max_pending_sqes, udp_slab_size);
+        post_and_wait_poll_interval, max_pending_sqes, udp_provided_size,
+        tcp_provided_size, tcp_provided_buf_size);
   }
 
   // Block until `run` is active. Returns false on timeout.
@@ -715,6 +725,7 @@ public:
     if (!timeout.is_valid()) return {};
     auto [cbtoken, timeout_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
+    assert(timeout_ptr);
     if (!submit_timeout(*timeout_ptr, cbtoken, cqe_count,
             slot_retention::automatic))
       return {};
@@ -846,6 +857,7 @@ public:
       bound_endpoint_with_timeout endpoint = {}) {
     auto [cbtoken, endpoint_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(endpoint));
+    assert(endpoint_ptr);
     if (!submit_accept(socket, *endpoint_ptr, cbtoken,
             slot_retention::automatic))
       return {};
@@ -1131,6 +1143,7 @@ public:
       buffer&& buf, BufCompletionInvocable auto&& bufcb) {
     const auto [cbtoken, buf_ptr] =
         wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
+    assert(buf_ptr);
     if (!submit_read_buffer(file, *buf_ptr, cbtoken,
             slot_retention::automatic))
       return {};
@@ -1467,6 +1480,7 @@ private:
   buf_pool_t buf_pool_;
   iou_ring ring_;
   provided_buf_pool_t udp_buf_pool_;
+  provided_buf_pool_t tcp_provided_buf_pool_;
 
   // Completion callback pool, used to avoid `std::shared_ptr`.
   completion_cb_pool_t completion_cb_pool_;
@@ -1500,9 +1514,12 @@ public:
   explicit iou_basic_loop_runner(
       std::chrono::nanoseconds post_and_wait_poll_interval =
           loop_t::default_post_and_wait_poll_interval,
-      size_t pbuf_slab_size = loop_t::buf_pool_t::hugepage_size)
+      size_t pbuf_slab_size = loop_t::buf_pool_t::hugepage_size,
+      size_t tcp_provided_size = loop_t::buf_pool_t::hugepage_size,
+      block_size tcp_provided_buf_size = block_size::kb004)
       : post_and_wait_poll_interval_{post_and_wait_poll_interval},
-        pbuf_slab_size_{pbuf_slab_size},
+        pbuf_slab_size_{pbuf_slab_size}, tcp_provided_size_{tcp_provided_size},
+        tcp_provided_buf_size_{tcp_provided_buf_size},
         thread_{[this](const std::stop_token& st) { run(st); }} {
     if (!started_.wait_for_value(std::chrono::milliseconds{1000}, true)) {
       thread_.request_stop();
@@ -1556,7 +1573,8 @@ private:
     jthread_stoppable_sleep::set_thread_name("iouring");
     try {
       auto loop = loop_t::make(post_and_wait_poll_interval_,
-          loop_t::default_max_pending_sqes, pbuf_slab_size_);
+          loop_t::default_max_pending_sqes, pbuf_slab_size_,
+          tcp_provided_size_, tcp_provided_buf_size_);
       if (std::scoped_lock lock{startup_mutex_}; true) loop_ = loop;
       started_.notify(true);
       // Hold a local shared_ptr so the loop outlives this function even if
@@ -1574,6 +1592,8 @@ private:
 
   const std::chrono::nanoseconds post_and_wait_poll_interval_;
   const size_t pbuf_slab_size_;
+  const size_t tcp_provided_size_;
+  const block_size tcp_provided_buf_size_;
   std::mutex startup_mutex_;
   std::exception_ptr startup_error_;
   notifiable<std::atomic_bool> started_{false};

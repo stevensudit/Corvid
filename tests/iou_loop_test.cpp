@@ -1069,7 +1069,7 @@ void IouLoop_CompletionFnSizeProbe() {
       sizeof(raw_buf) + sizeof(iou_loop::buffer) + overhead;
 
   const size_t all[] = {sz_direct_fn, sz_raw_bt, sz_raw_bewt, sz_raw_buf};
-  const size_t max_sz = *std::max_element(std::begin(all), std::end(all));
+  const size_t max_sz = *std::ranges::max_element(all);
   EXPECT_EQ(max_sz, 400U);
 // Sounds like SZ = 384 works.
 #if 0

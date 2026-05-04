@@ -321,25 +321,30 @@ public:
 #pragma endregion
 #pragma region Overrides
 private:
-  void return_buffer(span_t s, block_type blockrw) noexcept override {
+  [[nodiscard]] bool
+  return_buffer(span_t s, block_type blockrw) noexcept override {
+    if (!s.data()) return false;
     if (std::scoped_lock lock{mutex_}; true) {
       assert(available_bytes_ + s.size() <= slab_size);
-      return_block(s.data(), s.size());
+      (void)return_block(s.data(), s.size());
       available_bytes_ += s.size();
     }
-    if (blockrw == block_type::read) decrement_read_bytes(s.size());
+    if (blockrw == block_type::read) (void)decrement_read_bytes(s.size());
+    return true;
   }
 
   [[nodiscard]] ptr base() const noexcept override { return base_; }
 
-  void decrement_read_bytes(size_t n) noexcept override {
+  [[nodiscard]] bool decrement_read_bytes(size_t n) noexcept override {
     [[maybe_unused]] const auto old =
         in_flight_read_bytes_.fetch_sub(n, std::memory_order::relaxed);
     assert(old >= n);
+    return true;
   }
 
-  void increment_read_bytes(size_t n) noexcept override {
+  [[nodiscard]] bool increment_read_bytes(size_t n) noexcept override {
     in_flight_read_bytes_.fetch_add(n, std::memory_order::relaxed);
+    return true;
   }
 
 #pragma endregion
@@ -407,8 +412,11 @@ private:
   [[nodiscard]] bool coalesce(free_list& src, free_list& dst) noexcept {
     for (auto* node = src.head; node; node = node->next) {
       assert(node->is_valid());
+      // The clang-tidy warning is spurious.
+      // NOLINTBEGIN(performance-no-int-to-ptr)
       ptr parent = reinterpret_cast<ptr>(
           reinterpret_cast<uintptr_t>(node) & ~(dst.sz - 1));
+      // NOLINTEND(performance-no-int-to-ptr)
       if (!are_all_free(parent, dst.sz)) continue;
       src.remove(parent);
       src.remove(parent + src.sz);
@@ -453,10 +461,11 @@ private:
   }
 
   // Return a block to its tier free-list. Coalescing is deferred to alloc
-  // time.
-  void return_block(ptr p, size_t sz) noexcept {
+  // time. Must be executed under lock.
+  [[nodiscard]] bool return_block(ptr p, size_t sz) noexcept {
     mark_pages(p, sz, false);
     lists_[find_tier(sz)].push_head(p);
+    return true;
   }
 
 #pragma endregion

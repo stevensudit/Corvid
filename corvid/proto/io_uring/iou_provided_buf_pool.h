@@ -135,39 +135,38 @@ public:
 
   // Register the buffer ring with `ring` and enqueue all buffer slots.
   // Must be called once before any SQE with `IOSQE_BUFFER_SELECT` is
-  // submitted. Returns false if the pool is unconfigured, is already
-  // registered, or kernel registration fails.
+  // submitted.
   [[nodiscard]] bool register_with(iou_ring& ring) noexcept {
-    if (!base_ || buf_ring_) return false;
+    if (!base_) return true;
+
+    // Associate buffer ring with I/O ring.
     buf_ring_ = iou_buf_ring{ring, buf_count_, bgid_};
     if (!buf_ring_) return false;
 
+    // Enqueue all buffer slots into the kernel ring. The kernel will select
+    // and fill them on `IOSQE_BUFFER_SELECT` SQEs, and replenish them when we
+    // return them in `return_buffer`.
     const int mask = static_cast<int>(buf_count_) - 1;
     for (size_t i = 0; i < buf_count_; ++i) {
       buf_ring_.add(base_ + (i * buf_size_), static_cast<unsigned>(buf_size_),
           static_cast<unsigned short>(i), mask, static_cast<int>(i));
     }
     buf_ring_.advance(static_cast<int>(buf_count_));
+
     return true;
   }
 
-  // Reconstruct an `iou_buffer` from a multishot read CQE. Extracts the
-  // buffer ID from `cqe_flags`, wraps the corresponding slot in read mode,
-  // and applies `res` to set the payload span. Returns an empty buffer if
-  // the pool is unconfigured, not yet registered, `cqe_flags` lacks
-  // `iou_cqe_flags::buffer`, or the buffer ID is out of range.
+  // Borrow an `iou_buffer` from a multishot read CQE.
+  //
   // Destroying or resetting the returned buffer replenishes the slot.
-  [[nodiscard]] buffer
-  reconstruct(iou_res res, iou_cqe_flags cqe_flags) noexcept {
+  [[nodiscard]] buffer borrow(iou_res res, iou_cqe_flags cqe_flags) noexcept {
     if (!base_ || !buf_ring_) return {};
     if (!bitmask::has(cqe_flags, iou_cqe_flags::buffer)) return {};
     const size_t bid = (*cqe_flags >> IORING_CQE_BUFFER_SHIFT) & 0xffffU;
     if (bid >= buf_count_) return {};
     span_t span{base_ + (bid * buf_size_), buf_size_};
     auto buf = make_buffer(*this, span, bid, block_type::read);
-    // Temporarily set `pending_releases_` to 1 so `update` can decrement it
-    // without underflow. Provided buffers do not participate in ZC send
-    // lifecycle tracking, so we reset it to 0 afterward.
+
     buf.pending_releases() = 1;
     buf.update(res, cqe_flags);
     buf.pending_releases() = 0;
@@ -180,9 +179,9 @@ private:
   [[nodiscard]] std::byte* base() const noexcept override { return base_; }
 
   // Replenish the returned slot into the kernel ring.
-  void return_buffer(span_t s, block_type /*blockrw*/) noexcept override {
-    if (!buf_ring_ || !s.data()) return;
-    assert(buf_size_ > 0);
+  [[nodiscard]] bool return_buffer(span_t s, block_type /*blockrw*/) override {
+    if (!s.data()) return false;
+    assert(buf_ring_ && buf_size_ > 0);
     const size_t bid = (s.data() - base_) / buf_size_;
     assert(bid < buf_count_);
     const int mask = static_cast<int>(buf_count_) - 1;
@@ -193,10 +192,17 @@ private:
       buf_ring_.advance(1);
       return true;
     });
+    return true;
   }
 
-  void decrement_read_bytes(size_t /*n*/) noexcept override {}
-  void increment_read_bytes(size_t /*n*/) noexcept override {}
+  [[nodiscard]] bool decrement_read_bytes(size_t) override {
+    throw std::logic_error(
+        "Provided buffer pool does not track in-flight read bytes");
+  }
+  [[nodiscard]] bool increment_read_bytes(size_t) override {
+    throw std::logic_error(
+        "Provided buffer pool does not track in-flight read bytes");
+  }
 
 #pragma endregion
 #pragma region Data members

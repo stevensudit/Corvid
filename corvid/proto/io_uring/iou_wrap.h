@@ -790,9 +790,6 @@ public:
     int err{};
     buf_ring_ = ::io_uring_setup_buf_ring(ring_->get_ptr(),
         static_cast<unsigned>(entries), bgid, 0, &err);
-    if (!buf_ring_)
-      throw std::system_error(-err, std::system_category(),
-          "io_uring_setup_buf_ring");
   }
 
   iou_buf_ring(iou_buf_ring&& o) noexcept
