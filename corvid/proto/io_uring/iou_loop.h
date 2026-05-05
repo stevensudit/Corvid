@@ -513,17 +513,6 @@ public:
     return true;
   }
 
-  // Create completion callback that releases `cancelation_token` when invoked.
-  // This is used for cleanup after canceling.
-  [[nodiscard]] completion_fn make_release_fn(
-      completion_token&& cancelation_token) {
-    return [this, cancelation_token](completion_id, iou_res,
-               iou_cqe_flags) mutable {
-      (void)release(std::move(cancelation_token));
-      return slot_retention::automatic;
-    };
-  }
-
   // Borrow a callback pool slot and move `cb` into it.
   // This has only niche uses.
   [[nodiscard]] borrowed_cb borrow(completion_fn&& cb) {
@@ -692,7 +681,8 @@ public:
     if (!cbtoken) return false;
     auto fn = [this, cbtoken, fd = *file, timeout = timeout, poll_mask,
                   on_fail]() mutable {
-      return do_submit_timeout(cbtoken, timeout, on_fail,
+      return do_submit_timeout(cbtoken, bound_timeout::to_when(timeout),
+          on_fail,
           [fd, poll_mask](iou_sqe sqe) { sqe.prep_poll(fd, poll_mask); });
     };
     return execute_or_post_with_retry(std::move(fn));
@@ -771,21 +761,18 @@ public:
   //
 
   // Submit an async timeout removal.
-  [[nodiscard]] completion_token submit_timeout_remove(
+  [[nodiscard]] bool submit_timeout_remove(
       completion_token&& cancelation_token) {
-    const auto cbtoken =
-        tokenize(make_release_fn(std::move(cancelation_token)));
-    if (!submit_timeout_remove(std::move(cancelation_token), cbtoken,
+    if (!submit_timeout_remove(std::move(cancelation_token), {},
             slot_retention::automatic))
-      return {};
-    return cbtoken;
+      return false;
+    return true;
   }
 
   // Submit an async timeout removal.
   [[nodiscard]] bool submit_timeout_remove(
       completion_token&& cancelation_token, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken) return false;
     auto fn = [this, cancelation_token = std::move(cancelation_token), cbtoken,
                   on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [cancelation_token](iou_sqe sqe) {
@@ -808,7 +795,7 @@ public:
     auto fn = [this, update_token, &timeout, on_fail]() mutable {
       return do_submit(update_token, on_fail,
           [update_token, &timeout](iou_sqe sqe) {
-            sqe.prep_timeout_update(&timeout.when.ts, update_token,
+            sqe.prep_timeout_update(&timeout.when.ts, update_token.as_int(),
                 timeout.when.flags);
           });
     };
@@ -853,6 +840,7 @@ public:
   [[nodiscard]] completion_token submit_shutdown(const net_socket& socket,
       shutdown_how how, CompletionInvocable auto&& cb) {
     const auto cbtoken = tokenize(std::move(cb));
+    if (!cbtoken) return {};
     if (!submit_shutdown(socket, how, cbtoken, slot_retention::automatic))
       return {};
     return cbtoken;
@@ -860,9 +848,8 @@ public:
 
   // Submit an async shutdown on `socket`.
   [[nodiscard]] bool submit_shutdown(const net_socket& socket,
-      shutdown_how how, completion_token cbtoken,
+      shutdown_how how, completion_token cbtoken = {},
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken) return false;
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *socket, how, cbtoken, on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [fd, how](iou_sqe sqe) {
@@ -996,20 +983,18 @@ public:
   //
 
   // Submit an async timeout removal.
-  [[nodiscard]] completion_token submit_cancel(
-      completion_token&& cancelation_token) {
-    const auto cbtoken =
-        tokenize(make_release_fn(std::move(cancelation_token)));
-    if (!submit_cancel(std::move(cancelation_token), cbtoken,
+  [[nodiscard]] bool submit_cancel(completion_token&& cancelation_token) {
+    if (!submit_cancel(std::move(cancelation_token), {},
             slot_retention::automatic))
-      return {};
-    return cbtoken;
+      return false;
+    return true;
   }
 
   // Submit an async cancel on `cancelation_token`.
   [[nodiscard]] completion_token submit_cancel(
       completion_token&& cancelation_token, CompletionInvocable auto&& cb) {
     const auto cbtoken = tokenize(std::move(cb));
+    if (!cbtoken) return {};
     if (!submit_cancel(std::move(cancelation_token), cbtoken,
             slot_retention::automatic))
       return {};
@@ -1020,7 +1005,6 @@ public:
   [[nodiscard]] bool submit_cancel(completion_token&& cancelation_token,
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken) return false;
     if (!cancelation_token) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, cancelation_token = std::move(cancelation_token), cbtoken,
                   on_fail]() mutable {
@@ -1042,7 +1026,7 @@ public:
   // Low-level method to submit an async recv on `socket` into bytes at `span`.
   //
   // Prefer `submit_recv_buffer` over this.
-  [[nodiscard]] completion_token submit_recv_bytes(const os_file& socket,
+  [[nodiscard]] completion_token submit_recv_bytes(const net_socket& socket,
       span_t span, CompletionInvocable auto&& cb, bound_timeout timeout = {}) {
     auto [cbtoken, timeout_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
@@ -1054,7 +1038,7 @@ public:
 
   // Submit an async recvmsg on `socket`. Note that `timeout` must either be
   // null, inside the callback, or remain valid until cancelation.
-  [[nodiscard]] bool submit_recv_bytes(const os_file& socket, span_t span,
+  [[nodiscard]] bool submit_recv_bytes(const net_socket& socket, span_t span,
       completion_token cbtoken, combined_timespec* timeout = nullptr,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
     if (!cbtoken) return false;
@@ -1079,7 +1063,7 @@ public:
   // Low-level method to submit an async send on `socket` from bytes at `span`.
   //
   // Prefer `submit_send_buffer` over this.
-  [[nodiscard]] completion_token submit_send_bytes(const os_file& socket,
+  [[nodiscard]] completion_token submit_send_bytes(const net_socket& socket,
       const_span_t span, CompletionInvocable auto&& cb,
       bound_timeout timeout = {}) {
     auto [cbtoken, timeout_ptr] =
@@ -1092,7 +1076,7 @@ public:
 
   // Submit an async send on `socket`. Note that `timeout` must either be null,
   // inside the callback, or remain valid until cancelation.
-  [[nodiscard]] bool submit_send_bytes(const os_file& socket,
+  [[nodiscard]] bool submit_send_bytes(const net_socket& socket,
       const_span_t span, completion_token cbtoken,
       combined_timespec* timeout = nullptr,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
@@ -1113,16 +1097,16 @@ public:
   //
   // Receive a message from a datagram socket into a fixed buffer (however, it
   // is not taking full advantage of the fact that it's fixed, and it's not
-  // provided or zero-copy). The socket is unbound, so the sender's address is
+  // provided or zero-copy). The socket is unbound, so the sender address is
   // placed into the `buffer::peer_addr`.
   //
 
   // Submit an async recvmsg on `socket` into `buf`. On completion, the
   // `buffer` is updated and forwarded to `bufcb`. The sender address is
   // available via `buf.peer_addr` in the callback.
-  [[nodiscard]] completion_token submit_recvmsg_buffer(const os_file& socket,
-      buffer&& buf, BufCompletionInvocable auto&& bufcb,
-      msg_flags flags = {}) {
+  [[nodiscard]] completion_token
+  submit_recvmsg_buffer(const net_socket& socket, buffer&& buf,
+      BufCompletionInvocable auto&& bufcb, msg_flags flags = {}) {
     const auto [cbtoken, buf_ptr] =
         wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
     if (!cbtoken) return {};
@@ -1134,8 +1118,8 @@ public:
 
   // Submit an async recvmsg on `socket`. Note that `buf` must point inside
   // the callback, or remain valid until completion.
-  [[nodiscard]] bool submit_recvmsg_buffer(const os_file& socket, buffer& buf,
-      completion_token cbtoken,
+  [[nodiscard]] bool submit_recvmsg_buffer(const net_socket& socket,
+      buffer& buf, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
     if (!cbtoken) return false;
     auto* msg = buf.prepare_recvmsg();
@@ -1160,8 +1144,9 @@ public:
 
   // Submit an async sendmsg on `socket` from `buf` to its `peer_addr`. On
   // completion, the buffer is updated and forwarded to `bufcb`.
-  [[nodiscard]] completion_token submit_sendmsg_buffer(const os_file& socket,
-      buffer&& buf, BufCompletionInvocable auto&& bufcb,
+  [[nodiscard]] completion_token
+  submit_sendmsg_buffer(const net_socket& socket, buffer&& buf,
+      BufCompletionInvocable auto&& bufcb,
       msg_flags flags = msg_flags::nosignal) {
     const auto [cbtoken, buf_ptr] =
         wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
@@ -1174,8 +1159,8 @@ public:
 
   // Submit an async sendmsg on `socket`. Note that `buf` must point inside
   // the callback, or remain valid until completion.
-  [[nodiscard]] bool submit_sendmsg_buffer(const os_file& socket, buffer& buf,
-      completion_token cbtoken,
+  [[nodiscard]] bool submit_sendmsg_buffer(const net_socket& socket,
+      buffer& buf, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain,
       msg_flags flags = msg_flags::nosignal) {
     if (!cbtoken) return false;

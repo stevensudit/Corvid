@@ -1079,6 +1079,225 @@ void IouLoop_CompletionFnSizeProbe() {
 }
 #pragma endregion
 
+#pragma region SubmitPoll
+void IouLoop_SubmitPoll() {
+  // Single-shot `submit_poll` fires once when the polled file becomes
+  // readable; `res` contains the triggered events mask (POLLIN bit set).
+  if (true) {
+    auto [send_sock, recv_sock] = net_socket::create_pair();
+    iou_loop_runner loop;
+    std::atomic_bool fired{false};
+    std::atomic_int32_t poll_res{-1};
+
+    const auto poll_tok = loop->submit_poll(recv_sock,
+        [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
+          poll_res.store(res.value(), std::memory_order::relaxed);
+          fired.store(true, std::memory_order::release);
+          return slot_retention{};
+        });
+    EXPECT_TRUE(poll_tok.is_valid());
+
+    // Make the socket readable by sending data.
+    constexpr std::string_view msg{"ping"};
+    EXPECT_TRUE(loop->post_and_wait([&] {
+      return loop
+          ->submit_send_bytes(send_sock, std::as_bytes(std::span{msg}),
+              [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
+                return slot_retention{};
+              })
+          .is_valid();
+    }));
+
+    EXPECT_TRUE(
+        WaitFor([&] { return fired.load(std::memory_order::acquire); }));
+    EXPECT_GE(poll_res.load(), 0);
+  }
+}
+#pragma endregion
+
+#pragma region SubmitShutdown
+void IouLoop_SubmitShutdown() {
+  // `submit_shutdown(SHUT_WR)` causes the peer recv to see EOF (0 bytes).
+  if (true) {
+    auto [send_sock, recv_sock] = net_socket::create_pair();
+    iou_loop_runner loop;
+    std::atomic_bool recv_done{false};
+    std::atomic_int32_t recv_res{-1};
+    std::atomic_bool shutdown_done{false};
+    std::atomic_int32_t shutdown_res{-1};
+    std::array<std::byte, 16> buf{};
+
+    EXPECT_TRUE(loop->post_and_wait([&] {
+      if (!loop
+              ->submit_recv_bytes(recv_sock, buf,
+                  [&](completion_id, iou_res res,
+                      iou_cqe_flags) -> slot_retention {
+                    recv_res.store(res.value(), std::memory_order::relaxed);
+                    recv_done.store(true, std::memory_order::release);
+                    return slot_retention{};
+                  })
+              .is_valid())
+        return false;
+      return loop
+          ->submit_shutdown(send_sock, shutdown_how::wr,
+              [&](completion_id, iou_res res,
+                  iou_cqe_flags) -> slot_retention {
+                shutdown_res.store(res.value(), std::memory_order::relaxed);
+                shutdown_done.store(true, std::memory_order::release);
+                return slot_retention{};
+              })
+          .is_valid();
+    }));
+
+    EXPECT_TRUE(
+        WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
+    EXPECT_TRUE(WaitFor([&] {
+      return shutdown_done.load(std::memory_order::acquire);
+    }));
+    EXPECT_EQ(recv_res.load(), 0);     // EOF
+    EXPECT_EQ(shutdown_res.load(), 0); // success
+  }
+}
+#pragma endregion
+
+#pragma region SubmitTimeoutRemove
+void IouLoop_SubmitTimeoutRemove() {
+  // `submit_timeout_remove(completion_token&&)` (auto-release variant)
+  // cancels a pending timeout. The returned remove token is valid; its slot
+  // is released once the cancel CQE is processed.
+  if (true) {
+    iou_loop_runner loop;
+    std::atomic<int32_t> timeout_result{1}; // non-negative sentinel
+
+    bound_timeout timeout{
+        .when = {.ts = iou_timespec{500ms}, .flags = iou_timeout_flags::rel}};
+    iou_loop::completion_token timeout_token;
+    EXPECT_TRUE(loop->post_and_wait([&] {
+      timeout_token = loop->submit_timeout(std::move(timeout),
+          [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
+            timeout_result.store(res.value(), std::memory_order::release);
+            return slot_retention{};
+          });
+      return timeout_token.is_valid();
+    }));
+
+    const auto ok = loop->submit_timeout_remove(std::move(timeout_token));
+    EXPECT_TRUE(ok);
+  }
+}
+#pragma endregion
+
+#pragma region SubmitTimeoutRemoveExplicit
+void IouLoop_SubmitTimeoutRemoveExplicit() {
+  // Two-arg `submit_timeout_remove` allows an explicit callback for the
+  // remove operation itself; verify it fires with `res == 0`.
+  if (true) {
+    iou_loop_runner loop;
+    std::atomic_bool remove_done{false};
+    std::atomic_int32_t remove_res{-1};
+
+    bound_timeout timeout{
+        .when = {.ts = iou_timespec{500ms}, .flags = iou_timeout_flags::rel}};
+    iou_loop::completion_token timeout_token;
+    EXPECT_TRUE(loop->post_and_wait([&] {
+      timeout_token = loop->submit_timeout(std::move(timeout),
+          [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
+            return slot_retention{};
+          });
+      return timeout_token.is_valid();
+    }));
+
+    const auto remove_cbtoken = loop->tokenize(
+        [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
+          remove_res.store(res.value(), std::memory_order::relaxed);
+          remove_done.store(true, std::memory_order::release);
+          return slot_retention{};
+        });
+    EXPECT_TRUE(remove_cbtoken.is_valid());
+
+    const bool ok = loop->submit_timeout_remove(std::move(timeout_token),
+        remove_cbtoken, slot_retention::automatic);
+    EXPECT_TRUE(ok);
+
+    EXPECT_TRUE(
+        WaitFor([&] { return remove_done.load(std::memory_order::acquire); }));
+    EXPECT_EQ(remove_res.load(), 0);
+  }
+}
+#pragma endregion
+
+#pragma region SubmitCancelTokenAutoRelease
+void IouLoop_SubmitCancelTokenAutoRelease() {
+  if (true) {
+    auto [send_sock, recv_sock] = net_socket::create_pair();
+    iou_loop_runner loop;
+    std::atomic_bool recv_done{false};
+    std::atomic_int32_t recv_res{0};
+    std::array<std::byte, 16> buf{};
+    iou_loop::completion_token recv_token;
+
+    EXPECT_TRUE(loop->post_and_wait([&] {
+      recv_token = loop->submit_recv_bytes(recv_sock, buf,
+          [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
+            recv_res.store(res.value(), std::memory_order::relaxed);
+            recv_done.store(true, std::memory_order::release);
+            return slot_retention{};
+          });
+      return recv_token.is_valid();
+    }));
+
+    const bool cancel_ok = loop->submit_cancel(std::move(recv_token));
+    EXPECT_TRUE(cancel_ok);
+
+    EXPECT_TRUE(
+        WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
+    EXPECT_LT(recv_res.load(), 0);
+  }
+}
+#pragma endregion
+
+#pragma region SubmitTimeoutUpdate
+void IouLoop_SubmitTimeoutUpdate() {
+  // `submit_timeout_update` changes the expiry of a pending timeout. Submit a
+  // 2s timeout, update it to 50ms, then wait for two CQEs on the same token:
+  // the update completion (res=0) and the expiry (res=-ETIME). The callback
+  // returns `retain` for the update so the slot stays live for the expiry.
+  if (true) {
+    iou_loop_runner loop;
+    std::atomic<int> count{0};
+    std::atomic_int32_t last_res{1}; // non-negative sentinel
+
+    bound_timeout timeout{
+        .when = {.ts = iou_timespec{2000ms}, .flags = iou_timeout_flags::rel}};
+    iou_loop::completion_token timeout_token;
+    EXPECT_TRUE(loop->post_and_wait([&] {
+      timeout_token = loop->submit_timeout(std::move(timeout),
+          [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
+            count.fetch_add(1, std::memory_order::relaxed);
+            last_res.store(res.value(), std::memory_order::release);
+            // Update CQE arrives first (res == 0); keep the slot alive for
+            // the subsequent expiry CQE.
+            if (res.value() == 0) return slot_retention::retain;
+            return slot_retention::automatic;
+          });
+      return timeout_token.is_valid();
+    }));
+
+    bound_timeout new_timeout{
+        .when = {.ts = iou_timespec{50ms}, .flags = iou_timeout_flags::rel}};
+    const bool updated = loop->post_and_wait([&] {
+      return loop->submit_timeout_update(timeout_token, new_timeout);
+    });
+    EXPECT_TRUE(updated);
+
+    // Wait for both CQEs: the update completion then the expiry.
+    EXPECT_TRUE(WaitFor(
+        [&] { return count.load(std::memory_order::acquire) >= 2; }, 500ms));
+    EXPECT_EQ(last_res.load(std::memory_order::acquire), -ETIME);
+  }
+}
+#pragma endregion
+
 // NOLINTEND(readability-function-cognitive-complexity)
 MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
     IouLoop_StopFromThread, IouLoop_PostFromThread, IouLoop_PostAndWait,
@@ -1087,9 +1306,11 @@ MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
     IouLoop_TokenIsReleased, IouLoop_SubmitClose, IouLoop_SubmitTimeout,
     IouLoop_SubmitTimeoutMultishot, IouLoop_SubmitCancelFile,
     IouLoop_SubmitCancelToken, IouLoop_AcceptConnect, IouLoop_RecvSendMsg,
-    IouLoop_BorrowBufferSizes, IouLoop_SlotRetentionRetain,
-    IouWrap_TimespecDurationRoundTrip, IouWrap_TimespecTimePointRoundTrip,
-    IouWrap_TimespecStaticHelpers, IouWrap_TimespecAsPointer,
-    IouWrap_ItimerspecConstruct, IouWrap_ResStatus, IouWrap_CqeFlagsString,
-    IouWrap_SqeFlagsString, IouWrap_SetupFlagsString,
+    IouLoop_BorrowBufferSizes, IouLoop_SlotRetentionRetain, IouLoop_SubmitPoll,
+    IouLoop_SubmitShutdown, IouLoop_SubmitTimeoutRemove,
+    IouLoop_SubmitTimeoutRemoveExplicit, IouLoop_SubmitCancelTokenAutoRelease,
+    IouLoop_SubmitTimeoutUpdate, IouWrap_TimespecDurationRoundTrip,
+    IouWrap_TimespecTimePointRoundTrip, IouWrap_TimespecStaticHelpers,
+    IouWrap_TimespecAsPointer, IouWrap_ItimerspecConstruct, IouWrap_ResStatus,
+    IouWrap_CqeFlagsString, IouWrap_SqeFlagsString, IouWrap_SetupFlagsString,
     IouWrap_TimeoutFlagsString, IouLoop_CompletionFnSizeProbe)
