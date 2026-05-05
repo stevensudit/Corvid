@@ -820,6 +820,7 @@ public:
   submit_close(os_file&& file, CompletionInvocable auto&& cb) {
     if (!file) return {};
     const auto cbtoken = tokenize(std::move(cb));
+    if (!cbtoken) return {};
     auto fn = [this, fd = file.release(), cbtoken,
                   on_fail = slot_retention::automatic]() mutable {
       return do_submit_hardlinked(
@@ -1484,7 +1485,7 @@ private:
   }
 
   // Dispatch a CQE to its registered callback. The callback returns a
-  // `dispatch_result` that controls slot retention:
+  // `slot_retention` result:
   //   - `automatic`: retain iff `IORING_CQE_F_MORE` is set (multishot
   //   default).
   //   - `release`: always free the slot.
