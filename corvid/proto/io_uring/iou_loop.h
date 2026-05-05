@@ -679,6 +679,7 @@ public:
       completion_token cbtoken, poll_flags poll_mask = poll_flags::in,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken) return false;
+    if (!file) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, cbtoken, fd = *file, timeout = timeout, poll_mask,
                   on_fail]() mutable {
       return do_submit_timeout(cbtoken, bound_timeout::to_when(timeout),
@@ -703,6 +704,7 @@ public:
       completion_token cbtoken, poll_flags poll_mask = poll_flags::in,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken) return false;
+    if (!file) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, cbtoken, fd = *file, poll_mask, on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [fd, poll_mask](iou_sqe sqe) {
         sqe.prep_poll_multishot(fd, poll_mask);
