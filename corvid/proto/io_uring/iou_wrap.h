@@ -540,7 +540,8 @@ public:
     return true;
   }
 
-  // Cancel all pending operations targeting `fd`. // TODO: Flags?!
+  // Cancel all pending operations targeting `fd`.
+  // TODO: IORING_ASYNC_CANCEL_ Flags?!
   bool prep_cancel_fd(int fd, unsigned flags = 0) noexcept {
     io_uring_prep_cancel_fd(sqe_, fd, flags);
     return true;

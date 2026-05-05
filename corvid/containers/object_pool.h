@@ -187,11 +187,13 @@ public:
     token() noexcept = default;
     token(const token&) = default;
     token& operator=(const token&) = default;
-    // These are to avoid `performance-move-trivially-copyable`.
-    token(token&& other) noexcept : gen_{other.gen_}, ndx_{other.ndx_} {}
+    token(token&& other) noexcept
+        : gen_{std::exchange(other.gen_, {})},
+          ndx_{std::exchange(other.ndx_, npos)} {}
     token& operator=(token&& other) noexcept {
-      gen_ = other.gen_;
-      ndx_ = other.ndx_;
+      if (this == &other) return *this;
+      gen_ = std::exchange(other.gen_, {});
+      ndx_ = std::exchange(other.ndx_, npos);
       return *this;
     }
 
@@ -278,6 +280,12 @@ public:
     [[nodiscard]] bool is_valid() const noexcept { return ndx_ != npos; }
 
   private:
+    void swap(token& other) noexcept {
+      using std::swap;
+      if constexpr (is_versioned_v) swap(gen_, other.gen_);
+      swap(ndx_, other.ndx_);
+    }
+
     bool copy_from_handle(const borrowed& h) {
       if (!h) return false;
       ndx_ = h.pool_->slot_from_item(h.item_);

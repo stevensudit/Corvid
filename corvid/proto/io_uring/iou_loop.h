@@ -196,7 +196,7 @@ using posted_fn = std::function<bool()>;
 // in-flight operations, which must be less than or equal to the number of CQE
 // slots.
 //
-// TODO: Allow `iou_buf_pool` size to be configured, likely at compile time.
+// TODO: Allow `iou_buf_pool` size to be configured at compile time.
 template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
 class iou_basic_loop: public owner_thread_dispatcher<posted_fn> {
 #pragma region Types
@@ -418,8 +418,10 @@ public:
 #pragma endregion
 #pragma region Buffers
 
+  //
   // These methods are used to interact with the `iou_buf_pool`, not the
   // `iou_provided_buf_pool`.
+  //
 
   // Borrow a registered `buffer` from the pool for the purpose of reading
   // into it. Returns an invalid `buffer` if the pool is exhausted. Pass to
@@ -440,6 +442,7 @@ public:
 #pragma endregion
 #pragma region Completion tokens
 
+  //
   // CQE's are ultimately dispatched to user-provided callbacks of type
   // `completion_fn`.
   //
@@ -480,6 +483,7 @@ public:
   // `slot_retention::retain`.
   //
   // All methods in this section are thread-safe.
+  //
 
   // Determines whether the `completion_fn` associated with `cbtoken` has
   // already been released. If it has, then `cbtoken` is invalidated, since it
@@ -592,8 +596,8 @@ public:
   //
   // Methods in the family of `submit_nop` acquire, prepare, and (eventually)
   // submit a SQE. These typically come in sets with three variants:
-  // single-shot, with `completion_fn` and `completion_token`; and multi-shot,
-  // with just `completion_token`.
+  // single-shot with `completion_fn`; single-shot with `completion_token`; and
+  // multi-shot, with just `completion_token`.
   //
   // These methods all use `execute_or_post_with_retry`, which not only
   // attempts to execute inline on the loop thread, but falls back to posting.
@@ -602,9 +606,9 @@ public:
   //
   // Variants:
   //
-  // For the `completion_fn` variants, the callback is moved into the pool and
-  // associated with a `completion_token`. This token is returned on success,
-  // and is invalid on immediate failure.
+  // For the `completion_fn` variants, the callback is moved into the pool
+  // and associated with a `completion_token`. This token is returned on
+  // success, but is invalid on immediate failure.
   //
   // For the `completion_token` variants, the caller must have already acquired
   // a token by calling `tokenize` on a `completion_fn`. On success, `true` is
@@ -612,15 +616,18 @@ public:
   // on failure.
   //
   // Other variants are similar to `completion_fn` except that they may also
-  // add a payload parameter, such as a `buffer` or `net_endpoint`.
+  // wrap the lambda passed to reshape it into a `completion_fn` and bind
+  // parameters to it, such as a `buffer` or `net_endpoint`.
   //
   // Timeouts:
   //
   // When it makes sense for the operation, single-shot variants take a timeout
-  // in the form of an `iou_timespec`. For multi-shot variants, hard-linked
-  // timeouts would apply to the SQE as a whole, not to individual CQEs, so you
-  // should instead `submit_timeout` separately and check for a timestamp
-  // updated by the `completion_callback`.
+  // in the form of a `bound_timeout`, or `bound_endpoint_with_timeout`, or
+  // `bound_endpoint`.
+  //
+  // For multi-shot variants, we can't use hard-linked timeouts, so you should
+  // instead `submit_timeout` separately and check for a timestamp updated by
+  // the completion callback.
 
   // Submit immediately if there are any pending SQEs. Not generally necessary.
   [[nodiscard]] bool immediate_submit() {
@@ -633,7 +640,9 @@ public:
 
 #pragma region Nop
 
+  //
   // Per the name, nop does nothing except trigger a completion.
+  //
 
   // Submit an async nop.
   [[nodiscard]] completion_token submit_nop(CompletionInvocable auto&& cb) {
@@ -654,6 +663,14 @@ public:
 
 #pragma endregion
 #pragma region Poll
+
+  //
+  // Poll for a signal on an `os_file`, such as readability or writability.
+  //
+  // This could be used to emulate `epoll`-style edge-triggered notifications,
+  // but that would be a bad idea. It's still useful for generating a CQE when
+  // an `eventfd` is signaled, for example.
+  //
 
   // Submit an async poll on `file`. Completes when `file` is ready for the
   // events specified by `poll_mask`.
@@ -708,10 +725,12 @@ public:
 #pragma endregion
 #pragma region Timeout
 
+  //
   // Allows creating, removing, and updating stand-alone timeouts.
   //
   // These are not linked to existing operations: that functionality is
   // provided through the `timeout` parameter on those methods.
+  //
 
   //
   // Create
@@ -801,6 +820,10 @@ public:
 #pragma endregion
 #pragma region Close
 
+  //
+  // Close a file handle after canceling all associated operations.
+  //
+
   // Submit a cancel-then-close as a hard-linked pair. The cancel SQE runs
   // first; its CQE is swallowed regardless of outcome. The close SQE starts
   // only after the cancel completes. whether it succeeds or fails. This
@@ -824,23 +847,27 @@ public:
 #pragma endregion
 #pragma region Shutdown
 
-  // Submit an async shutdown on `file`.
-  [[nodiscard]] completion_token submit_shutdown(const os_file& file,
+  //
+  // Shut down the read or write sides of a socket.
+  //
+
+  // Submit an async shutdown on `socket`.
+  [[nodiscard]] completion_token submit_shutdown(const net_socket& socket,
       shutdown_how how, CompletionInvocable auto&& cb) {
     const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_shutdown(std::move(file), how, cbtoken,
+    if (!submit_shutdown(std::move(socket), how, cbtoken,
             slot_retention::automatic))
       return {};
     return cbtoken;
   }
 
-  // Submit an async shutdown on `file`.
-  [[nodiscard]] bool submit_shutdown(const os_file& file, shutdown_how how,
-      completion_token cbtoken,
+  // Submit an async shutdown on `socket`.
+  [[nodiscard]] bool submit_shutdown(const net_socket& socket,
+      shutdown_how how, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken) return false;
-    if (!file) return fail_and_maybe_release(on_fail, cbtoken);
-    auto fn = [this, fd = file.handle(), how, cbtoken, on_fail]() mutable {
+    if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = *socket, how, cbtoken, on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [fd, how](iou_sqe sqe) {
         sqe.prep_shutdown(fd, how);
       });
@@ -851,8 +878,12 @@ public:
 #pragma endregion
 #pragma region Accept
 
+  //
+  // Accept a new connection on a listening socket.
+  //
+
   // Submit an async accept on `socket`.
-  [[nodiscard]] completion_token submit_accept(const os_file& socket,
+  [[nodiscard]] completion_token submit_accept(const net_socket& socket,
       EndpointCompletionInvocable auto&& cb,
       bound_endpoint_with_timeout endpoint = {}) {
     auto [cbtoken, endpoint_ptr] =
@@ -866,7 +897,7 @@ public:
 
   // Submit an async accept on `socket`. Note that `endpoint` must either point
   // inside the callback or remain valid until cancelation.
-  [[nodiscard]] bool submit_accept(const os_file& socket,
+  [[nodiscard]] bool submit_accept(const net_socket& socket,
       bound_endpoint_with_timeout& endpoint, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken) return false;
@@ -881,7 +912,7 @@ public:
   }
 
   // Submit a multishot async accept on `socket`.
-  [[nodiscard]] bool submit_accept_multishot(const os_file& socket,
+  [[nodiscard]] bool submit_accept_multishot(const net_socket& socket,
       combined_endpoint& endpoint, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken) return false;
@@ -893,11 +924,16 @@ public:
     };
     return execute_or_post_with_retry(std::move(fn));
   }
+
 #pragma endregion
 #pragma region Connect
 
+  //
+  // Connect a socket.
+  //
+
   // Submit an async connect on `socket` to `endpoint`.
-  [[nodiscard]] completion_token submit_connect(const os_file& socket,
+  [[nodiscard]] completion_token submit_connect(const net_socket& socket,
       bound_endpoint_with_timeout&& remote, CompletionInvocable auto&& cb) {
     auto [cbtoken, endpoint_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(remote));
@@ -909,7 +945,7 @@ public:
 
   // Submit an async connect on `socket` to `remote`. `remote` must point
   // inside the callback or remain valid until cancelation.
-  [[nodiscard]] bool submit_connect(const os_file& socket,
+  [[nodiscard]] bool submit_connect(const net_socket& socket,
       bound_endpoint_with_timeout& remote, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken) return false;
@@ -925,6 +961,11 @@ public:
 
 #pragma endregion
 #pragma region CancelFile
+
+  //
+  // Cancel all pending operations for a file handle. Usually done as part of
+  // closing but can also be used on its own.
+  //
 
   // Submit an async cancel on `file`. Cancels all ops for the file.
   [[nodiscard]] completion_token
@@ -951,6 +992,10 @@ public:
 
 #pragma endregion
 #pragma region CancelToken
+
+  //
+  // Cancel operations based on a `completion_token`.
+  //
 
   // Submit an async timeout removal.
   [[nodiscard]] completion_token submit_cancel(
@@ -992,6 +1037,11 @@ public:
 #pragma endregion
 #pragma region RecvBytes
 
+  //
+  // Receive bytes from a socket into an arbitrary buffer, not a fixed or
+  // provided one.
+  //
+
   // Low-level method to submit an async recv on `socket` into bytes at `span`.
   //
   // Prefer `submit_recv_buffer` over this.
@@ -1023,6 +1073,11 @@ public:
 
 #pragma endregion
 #pragma region SendBytes
+
+  //
+  // Send bytes from an arbitrary buffer, not a fixed or provided one, and not
+  // zero-copy.
+  //
 
   // Low-level method to submit an async send on `socket` from bytes at `span`.
   //
@@ -1058,9 +1113,16 @@ public:
 #pragma endregion
 #pragma region RecvMsgBuffer
 
-  // Submit an async recvmsg on `socket` into `buf`. On completion, the buffer
-  // is updated and forwarded to `bufcb`. The sender address is available via
-  // `buf.peer_addr` in the callback.
+  //
+  // Receive a message from a datagram socket into a fixed buffer (however, it
+  // is not taking full advantage of the fact that it's fixed, and it's not
+  // provided or zero-copy). The socket is unbound, so the sender's address is
+  // placed into the `buffer::peer_addr`.
+  //
+
+  // Submit an async recvmsg on `socket` into `buf`. On completion, the
+  // `buffer` is updated and forwarded to `bufcb`. The sender address is
+  // available via `buf.peer_addr` in the callback.
   [[nodiscard]] completion_token submit_recvmsg_buffer(const os_file& socket,
       buffer&& buf, BufCompletionInvocable auto&& bufcb,
       msg_flags flags = {}) {
@@ -1090,6 +1152,13 @@ public:
 
 #pragma endregion
 #pragma region SendMsgBuffer
+
+  //
+  // Send a message from a datagram socket from a fixed buffer (however, it is
+  // not taking full advantage of the fact that it's fixed, and it's not
+  // provided or zero-copy). The socket is unbound, so the destination address
+  // is taken from the `buffer::peer_addr`.
+  //
 
   // Submit an async sendmsg on `socket` from `buf` to its `peer_addr`. On
   // completion, the buffer is updated and forwarded to `bufcb`.
@@ -1125,8 +1194,11 @@ public:
 #pragma region ReadBuffer
 
   //
-  // Read into buffers from `os_file`. Works with sockets or files, where the
-  // latter interacts with `buffer::file_offset`.
+  // Read into fixed `buffer` from `os_file`. Works with sockets or files,
+  // where the latter interacts with `buffer::file_offset`.
+  //
+  // Uses `io_uring_prep_read_fixed`, which provides full `read` semantics, but
+  // is not socket-specific or zero-copy.
   //
 
   // Submit an async read_fixed on `file` into a borrowed buffer.
@@ -1171,18 +1243,22 @@ public:
 #pragma endregion
 #pragma region WriteBuffer
 
-  // Write from buffers to `os_file`.
+  //
+  // Write from fixed `buffer` to `os_file`.
+  //
+  // Uses `io_uring_prep_write_fixed`, which provides full `write` semantics,
+  // but is not socket-specific or zero-copy.
   //
   // Works with sockets or files. Files interact with `buffer::file_offset` For
   // sockets, there's no way to pass `msg_flags::nosignal` so you need to
   // disable SIGPIPE process-wide. Prefer `submit_send_buffer` over this, if
-  // you can justify the added complexity.
+  // you can justify the added complexity and you're not using UDS.
   //
   // The reason for this recommendation is that this uses fixed buffers with
-  // `io_uring_prep_write_fixed`, which is not socket-specific or zero-copy.
-  // However, it only generates a single CQE, which is  simpler to deal with
-  // and is likely to be faster for packets under 10k. Contrast with
-  // `submit_send_buffer`, which uses `io_uring_prep_send_zc_fixed`.
+  // `io_uring_prep_write_fixed`. However, it only generates a single CQE,
+  // which is  simpler to deal with and is likely to be faster for packets
+  // under 10k. Contrast with `submit_send_buffer`, which uses
+  // `io_uring_prep_send_zc_fixed`.
 
   // Submit an async write_fixed on `file` from `buf`.
   [[nodiscard]] completion_token submit_write_buffer(const os_file& file,
@@ -1216,14 +1292,24 @@ public:
 #pragma endregion
 #pragma region RecvBufferMulti
 
-  // TODO: `submit_recv_buffer_multishot` is the most complicated way to read
-  // from a socket, requiring a whole new type of buffer pool, for Provided
-  // Buffers.
+  //
+  // Receive from a socket into a provided `buffer` repeatedly.
+  //
+  // Uses `io_uring_prep_recv_multishot`, which is socket-specific.
+  //
+
+  // TODO: Write this. And also RecvMsgBufferMulti.
 
 #pragma endregion
 #pragma region SendBuffer
 
-  // Send from buffers to `net_socket`.
+  //
+  // Send to a socket from a fixed `buffer`, with zero-copy.
+  //
+  // This variant works for TCP/IP and UDP/IP sockets, but not UDS or files.
+  //
+
+  // Send from fixed `buffer` to `net_socket`.
   //
   // Uses `io_uring_prep_send_zc_fixed`, which provides full `send` semantics,
   // including `msg_flags::nosignal`, but potentially generates two CQEs per
@@ -1239,8 +1325,8 @@ public:
     return cbtoken;
   }
 
-  // Send from buffers to `net_socket`. Note that `buf` must point inside the
-  // callback.
+  // Send from fixed `buffer` to `net_socket`. Note that `buf` must point
+  // inside the callback.
   [[nodiscard]] bool submit_send_buffer(const net_socket& socket, buffer& buf,
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain,
@@ -1249,7 +1335,7 @@ public:
     auto [span, buf_index, _] = buf.prepare();
     if (!socket || span.empty())
       return fail_and_maybe_release(on_fail, cbtoken);
-    auto fn = [this, fd = socket.handle(), flags, cbtoken, span, buf_index,
+    auto fn = [this, fd = *socket, flags, cbtoken, span, buf_index,
                   &timeout = buf.timeout(), on_fail]() mutable {
       return do_submit_timeout(cbtoken, &timeout, on_fail,
           [fd, flags, span, buf_index](iou_sqe sqe) {
@@ -1260,7 +1346,6 @@ public:
   }
 
 #pragma endregion
-// Next lines closes "Submit".
 #pragma endregion
 #pragma region Helpers.
 private:
