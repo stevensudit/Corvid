@@ -522,7 +522,6 @@ public:
       (void)release(std::move(cancelation_token));
       return slot_retention::automatic;
     };
-    cancelation_token = {};
   }
 
   // Borrow a callback pool slot and move `cb` into it.
@@ -744,7 +743,7 @@ public:
     if (!timeout.is_valid()) return {};
     auto [cbtoken, timeout_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
-    assert(timeout_ptr);
+    if (!cbtoken) return {};
     if (!submit_timeout(*timeout_ptr, cbtoken, cqe_count,
             slot_retention::automatic))
       return {};
@@ -774,8 +773,7 @@ public:
   // Submit an async timeout removal.
   [[nodiscard]] completion_token submit_timeout_remove(
       completion_token&& cancelation_token) {
-    const auto cbtoken =
-        tokenize(make_release_fn(std::move(cancelation_token)));
+    const auto cbtoken = tokenize(make_release_fn(cancelation_token));
     if (!submit_timeout_remove(std::move(cancelation_token), cbtoken,
             slot_retention::automatic))
       return {};
@@ -793,7 +791,6 @@ public:
         sqe.prep_timeout_remove(cancelation_token.as_int());
       });
     };
-    cancelation_token = {};
     return execute_or_post_with_retry(std::move(fn));
   }
 
@@ -888,7 +885,7 @@ public:
       bound_endpoint_with_timeout endpoint = {}) {
     auto [cbtoken, endpoint_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(endpoint));
-    assert(endpoint_ptr);
+    if (!cbtoken) return {};
     if (!submit_accept(socket, *endpoint_ptr, cbtoken,
             slot_retention::automatic))
       return {};
@@ -937,6 +934,7 @@ public:
       bound_endpoint_with_timeout&& remote, CompletionInvocable auto&& cb) {
     auto [cbtoken, endpoint_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(remote));
+    if (!cbtoken) return {};
     if (!submit_connect(socket, *endpoint_ptr, cbtoken,
             slot_retention::automatic))
       return {};
@@ -1000,8 +998,7 @@ public:
   // Submit an async timeout removal.
   [[nodiscard]] completion_token submit_cancel(
       completion_token&& cancelation_token) {
-    const auto cbtoken =
-        tokenize(make_release_fn(std::move(cancelation_token)));
+    const auto cbtoken = tokenize(make_release_fn(cancelation_token));
     if (!submit_cancel(std::move(cancelation_token), cbtoken,
             slot_retention::automatic))
       return {};
@@ -1030,7 +1027,6 @@ public:
         sqe.prep_cancel_user_data(cancelation_token.as_int());
       });
     };
-    cancelation_token = {};
     return execute_or_post_with_retry(std::move(fn));
   }
 
@@ -1128,6 +1124,7 @@ public:
       msg_flags flags = {}) {
     const auto [cbtoken, buf_ptr] =
         wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
+    if (!cbtoken) return {};
     if (!submit_recvmsg_buffer(socket, *buf_ptr, cbtoken,
             slot_retention::automatic, flags))
       return {};
@@ -1167,6 +1164,7 @@ public:
       msg_flags flags = msg_flags::nosignal) {
     const auto [cbtoken, buf_ptr] =
         wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
+    if (!cbtoken) return {};
     if (!submit_sendmsg_buffer(socket, *buf_ptr, cbtoken,
             slot_retention::automatic, flags))
       return {};
@@ -1215,7 +1213,7 @@ public:
       buffer&& buf, BufCompletionInvocable auto&& bufcb) {
     const auto [cbtoken, buf_ptr] =
         wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
-    assert(buf_ptr);
+    if (!cbtoken) return {};
     if (!submit_read_buffer(file, *buf_ptr, cbtoken,
             slot_retention::automatic))
       return {};
@@ -1265,6 +1263,7 @@ public:
       buffer&& buf, BufCompletionInvocable auto&& bufcb) {
     const auto [cbtoken, buf_ptr] =
         wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
+    if (!cbtoken) return {};
     if (!submit_write_buffer(file, *buf_ptr, cbtoken,
             slot_retention::automatic))
       return {};
@@ -1319,6 +1318,7 @@ public:
       msg_flags flags = msg_flags::nosignal) {
     const auto [cbtoken, buf_ptr] =
         wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
+    if (!cbtoken) return {};
     if (!submit_send_buffer(socket, *buf_ptr, cbtoken,
             slot_retention::automatic, flags))
       return {};
@@ -1491,7 +1491,7 @@ private:
     if (!sqe) return false;
     std::forward<decltype(prep)>(prep)(sqe);
     sqe.set_data_pointer(nullptr);
-    maybe_submit_pending(1);
+    (void)maybe_submit_pending(1);
     return immediate_submit();
   }
 
