@@ -361,7 +361,7 @@ public:
     iou_timespec timeout{default_run_once_timeout};
 
     size_t total{};
-    while (!stop_.load(std::memory_order::acquire)) total = run_once(timeout);
+    while (!stop_.load(std::memory_order::acquire)) total += run_once(timeout);
     return total;
   }
 
@@ -773,7 +773,8 @@ public:
   // Submit an async timeout removal.
   [[nodiscard]] completion_token submit_timeout_remove(
       completion_token&& cancelation_token) {
-    const auto cbtoken = tokenize(make_release_fn(cancelation_token));
+    const auto cbtoken =
+        tokenize(make_release_fn(std::move(cancelation_token)));
     if (!submit_timeout_remove(std::move(cancelation_token), cbtoken,
             slot_retention::automatic))
       return {};
@@ -852,8 +853,7 @@ public:
   [[nodiscard]] completion_token submit_shutdown(const net_socket& socket,
       shutdown_how how, CompletionInvocable auto&& cb) {
     const auto cbtoken = tokenize(std::move(cb));
-    if (!submit_shutdown(std::move(socket), how, cbtoken,
-            slot_retention::automatic))
+    if (!submit_shutdown(socket, how, cbtoken, slot_retention::automatic))
       return {};
     return cbtoken;
   }
@@ -998,7 +998,8 @@ public:
   // Submit an async timeout removal.
   [[nodiscard]] completion_token submit_cancel(
       completion_token&& cancelation_token) {
-    const auto cbtoken = tokenize(make_release_fn(cancelation_token));
+    const auto cbtoken =
+        tokenize(make_release_fn(std::move(cancelation_token)));
     if (!submit_cancel(std::move(cancelation_token), cbtoken,
             slot_retention::automatic))
       return {};
@@ -1358,6 +1359,7 @@ private:
   [[nodiscard]] bool do_submit_timeout(completion_token cbtoken,
       combined_timespec* timeout, slot_retention on_fail,
       std::invocable<iou_sqe> auto&& prep) {
+    assert(is_loop_thread());
     assert(on_fail != slot_retention::release); // Would be dumb.
     auto do_submit = [&]() {
       // Must return true to end retries.
@@ -1501,7 +1503,6 @@ private:
   //   default).
   //   - `release`: always free the slot.
   //   - `retain`: always keep the slot (e.g., callback resubmits a new SQE).
-  // Returns false if no valid callback was found (canceled or no-data CQE).
   bool do_dispatch(iou_cqe cqe) {
     completion_token token{cqe.get_data_int()};
     if (!token) return true;
