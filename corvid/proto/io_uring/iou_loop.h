@@ -490,7 +490,7 @@ public:
   // could never be used again.
   //
   // Note that a `true` is reliable and permanent, but a `false` reflects only
-  // the state at that moment. If false, `cbtoken` is cleared.
+  // the state at that moment. If true, `cbtoken` is cleared.
   [[nodiscard]] bool is_released(completion_token& cbtoken) noexcept {
     if (cbtoken.get_ptr(completion_cb_pool_)) return false;
     cbtoken = {};
@@ -773,6 +773,7 @@ public:
   [[nodiscard]] bool submit_timeout_remove(
       completion_token&& cancelation_token, completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
+    if (!cancelation_token) return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, cancelation_token = std::move(cancelation_token), cbtoken,
                   on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [cancelation_token](iou_sqe sqe) {
@@ -982,7 +983,7 @@ public:
   // Cancel operations based on a `completion_token`.
   //
 
-  // Submit an async timeout removal.
+  // Submit an async cancel on `cancelation_token`.
   [[nodiscard]] bool submit_cancel(completion_token&& cancelation_token) {
     if (!submit_cancel(std::move(cancelation_token), {},
             slot_retention::automatic))
@@ -1517,7 +1518,7 @@ private:
   bool arm_wake_poll_multishot() {
     if (wake_poll_token_) return true;
 
-    // Set up a callback that resubmits itself, and use it too bootstrap the
+    // Set up a callback that resubmits itself, and use it to bootstrap the
     // initial submission.
     auto raw_cb =
         [this](completion_id cbhandle, iou_res, iou_cqe_flags flags) {
