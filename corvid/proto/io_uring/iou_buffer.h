@@ -410,40 +410,23 @@ public:
     cqe_flags_ = cqe_flags;
     if (!bitmask::has(cqe_flags_, iou_cqe_flags::more)) --pending_releases_;
 
-    // Attempt to parse the header.
-    io_uring_recvmsg_out* parsed_hdr{};
-    if (res.ok()) {
-      // The `msghdr` passed in as `msgh` is the same one we passed to
-      // `recvmsg_multishot`, but we also need the metadata at the start of the
-      // buffer.
-      parsed_hdr =
-          io_uring_recvmsg_validate(full_span_.data(), res.value(), &msgh);
-
-      // Even if it's truncated, we want to store the `peer_addr` and
-      // `msghdr_flags`, as well as the original length.
-      if (parsed_hdr) {
-        addr_.assign(
-            *static_cast<sockaddr*>(io_uring_recvmsg_name(parsed_hdr)),
-            parsed_hdr->namelen);
-        msgh_.msg_flags = static_cast<int>(parsed_hdr->flags);
-        msgh_.msg_controllen = static_cast<size_t>(parsed_hdr->payloadlen);
-      }
-
-      // If truncated, fail with `EC::msgsize`.
-      if (!parsed_hdr || (bitmask::has(msghdr_flags(), msg_flags::trunc))) {
-        res_ = iou_res{EC::msgsize};
-        msgh_.msg_flags |= *msg_flags::trunc;
-      }
+    iou_recvmsg_out out{full_span_.data(), msgh, res};
+    if (out) {
+      addr_.assign(*out.addr(), out.addr_len());
+      msgh_.msg_flags = *out.msghdr_flags();
+      msgh_.msg_controllen = out.datagram_length();
     }
 
-    // Fail.
+    // If we tried to parse but failed, or if the datagram was truncated, fail.
+    if (res.ok() && (!out || bitmask::has(msghdr_flags(), msg_flags::trunc))) {
+      res_ = iou_res{EC::msgsize};
+      msgh_.msg_flags |= *msg_flags::trunc;
+    }
+
     if (!res_) return *this;
 
-    // Set `payload_span` and `result` to the payload.
-    auto* payload =
-        static_cast<std::byte*>(io_uring_recvmsg_payload(parsed_hdr, &msgh));
-    const auto payload_len = static_cast<size_t>(
-        io_uring_recvmsg_payload_length(parsed_hdr, res.value(), &msgh));
+    auto* payload = out.payload_data();
+    const auto payload_len = out.payload_size();
 
     res_ = iou_res{static_cast<int>(payload_len)};
     payload_span_ = {payload, payload_len};

@@ -165,6 +165,11 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
 
 namespace corvid { inline namespace proto { namespace iouring {
 
+// Extracts the buffer ID from `flags` if `buffer` is set; otherwise returns 0.
+inline size_t get_buffer_id(iou_cqe_flags flags) noexcept {
+  return (*flags & *iou_cqe_flags::buffer_id) >> IORING_CQE_BUFFER_SHIFT;
+}
+
 #pragma endregion
 #pragma region iou_timespec
 
@@ -689,6 +694,58 @@ public:
 
 private:
   ptr_t cqe_{};
+};
+
+#pragma endregion
+#pragma region recvmsg_out
+
+// Wrapper for `io_uring_recvmsg_out`.
+class iou_recvmsg_out {
+public:
+  using ptr_t = io_uring_recvmsg_out*;
+
+  explicit iou_recvmsg_out(void* buf, msghdr& msgh, iou_res res)
+      : msgh_{&msgh}, res_{res} {
+    if (res.ok()) out_ = io_uring_recvmsg_validate(buf, res.value(), &msgh);
+  }
+
+  [[nodiscard]] operator bool() const noexcept { return ok(); }
+  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
+
+  [[nodiscard]] bool ok() const noexcept { return out_; }
+
+  [[nodiscard]] auto addr() noexcept {
+    return static_cast<sockaddr*>(io_uring_recvmsg_name(out_));
+  }
+
+  [[nodiscard]] size_t addr_len() const noexcept { return out_->namelen; }
+
+  [[nodiscard]] auto msghdr_flags() const noexcept {
+    return static_cast<msg_flags>(out_->flags);
+  }
+
+  [[nodiscard]] std::byte* payload_data() noexcept {
+    return static_cast<std::byte*>(io_uring_recvmsg_payload(out_, msgh_));
+  }
+
+  [[nodiscard]] size_t payload_size() const noexcept {
+    return io_uring_recvmsg_payload_length(out_, res_.value(), msgh_);
+  }
+
+  // When `msg_flags::trunc` was passed in to the SQE, this will contain the
+  // full length of the datagram, even if it was truncated.
+  [[nodiscard]] auto datagram_length() const noexcept {
+    return out_->payloadlen;
+  }
+
+  [[nodiscard]] ptr_t value() const noexcept { return out_; }
+
+  // Note: There is additional functionality not currently exposed.
+
+private:
+  ptr_t out_{};
+  msghdr* msgh_;
+  iou_res res_;
 };
 
 #pragma endregion
