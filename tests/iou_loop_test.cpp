@@ -1142,6 +1142,99 @@ void IouLoop_RecvMsgBufferMultiTruncated() {
 }
 #pragma endregion
 
+#pragma region RecvMsgBufferMultiStress
+void IouLoop_RecvMsgBufferMultiStress() {
+  // Stress test for multishot recvmsg with provided buffers.
+  //
+  // The UDP provided-buffer pool has 1024 slots (2 MiB slab / 2 KiB each).
+  //
+  // Callback phases (tracked by `overall`, the count of successful recvs):
+  //   Phase a [0, 1536): buffer returned immediately; `a_count` incremented.
+  //   Phase b [1536, 2048): buffer moved into `held_bufs`; `b_count` incr.
+  //   Phase c [2048, ...): at overall==2048 the vector is cleared (releasing
+  //     512 slots back to the pool); then buffer moved in; `c_count` incr.
+  //
+  // Phase c accumulates 1024 buffers (2048..3071) until the pool is empty.
+  // The 3073rd recv attempt fires with ENOBUFS and `cqe_flags::more` cleared,
+  // which terminates the multishot via `slot_retention::automatic`.
+  //
+  // Sending 4096 datagrams ensures the recv side always has work; the 1024
+  // that arrive after the multishot ends are silently discarded.
+  if (true) {
+    auto recv_ep = net_endpoint::any_v4(0);
+    auto send_ep = net_endpoint::any_v4(0);
+    auto recv_sock = net_socket::create_for(recv_ep, execution::nonblocking,
+        message_style::datagram);
+    auto send_sock = net_socket::create_for(send_ep, execution::blocking,
+        message_style::datagram);
+    EXPECT_TRUE(recv_sock.bind(recv_ep));
+    EXPECT_TRUE(send_sock.bind(send_ep));
+    net_endpoint recv_addr{recv_sock};
+    const auto connect_ok = send_sock.connect(recv_addr);
+    EXPECT_TRUE(connect_ok && *connect_ok);
+
+    // `loop` must be declared before `held_bufs` so that `held_bufs` is
+    // destroyed first (releasing its buffers back to the pool before the pool
+    // itself is freed when `loop` is destroyed).
+    iou_loop_runner loop;
+
+    // Loop-thread-only state (no synchronization needed between callbacks).
+    int overall{};
+    int a_count{};
+    int b_count{};
+    int c_count{};
+    bool enobufs_fired{};
+    std::vector<iou_loop::buffer> held_bufs;
+    held_bufs.reserve(1024);
+
+    std::atomic_bool multishot_done{false};
+
+    const auto recv_token = loop->submit_recvmsg_buffer_multi(recv_sock,
+        [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
+          const bool valid =
+              bitmask::has(buf.cqe_flags(), iou_cqe_flags::buffer);
+          if (!valid) {
+            enobufs_fired = true;
+            multishot_done.store(true, std::memory_order::release);
+            return slot_retention::automatic;
+          }
+
+          if (overall < 1536) {
+            ++a_count;
+          } else if (overall < 2048) {
+            ++b_count;
+            held_bufs.emplace_back(std::move(buf));
+          } else {
+            if (overall == 2048) held_bufs.clear();
+            ++c_count;
+            held_bufs.emplace_back(std::move(buf));
+          }
+          ++overall;
+          return slot_retention::automatic;
+        });
+    EXPECT_TRUE(recv_token.is_valid());
+
+    // Wait for the multishot SQE to be submitted to the kernel before sending.
+    EXPECT_TRUE(loop->post_and_wait([] { return true; }));
+
+    constexpr int send_count = 4096;
+    const char payload{'x'};
+    for (int i = 0; i < send_count; ++i)
+      (void)send_sock.send(&payload, sizeof(payload));
+
+    EXPECT_TRUE(WaitFor(
+        [&] { return multishot_done.load(std::memory_order::acquire); },
+        5000ms));
+
+    EXPECT_TRUE(enobufs_fired);
+    EXPECT_EQ(overall, 3072);
+    EXPECT_EQ(a_count, 1536);
+    EXPECT_EQ(b_count, 512);
+    EXPECT_EQ(c_count, 1024);
+  }
+}
+#pragma endregion
+
 #pragma region FnSizeProbe
 void IouLoop_CompletionFnSizeProbe() {
   // Probe the storage each (cb, ep) combination would need if `completion_fn`
@@ -1469,8 +1562,8 @@ MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
     IouLoop_SubmitTimeoutRemoveExplicit, IouLoop_SubmitCancelTokenAutoRelease,
     IouLoop_SubmitTimeoutUpdate, IouLoop_RecvBufferMulti,
     IouLoop_RecvMsgBufferMulti, IouLoop_RecvMsgBufferMultiTruncated,
-    IouWrap_TimespecDurationRoundTrip, IouWrap_TimespecTimePointRoundTrip,
-    IouWrap_TimespecStaticHelpers, IouWrap_TimespecAsPointer,
-    IouWrap_ItimerspecConstruct, IouWrap_ResStatus, IouWrap_CqeFlagsString,
-    IouWrap_SqeFlagsString, IouWrap_SetupFlagsString,
+    IouLoop_RecvMsgBufferMultiStress, IouWrap_TimespecDurationRoundTrip,
+    IouWrap_TimespecTimePointRoundTrip, IouWrap_TimespecStaticHelpers,
+    IouWrap_TimespecAsPointer, IouWrap_ItimerspecConstruct, IouWrap_ResStatus,
+    IouWrap_CqeFlagsString, IouWrap_SqeFlagsString, IouWrap_SetupFlagsString,
     IouWrap_TimeoutFlagsString, IouLoop_CompletionFnSizeProbe)
