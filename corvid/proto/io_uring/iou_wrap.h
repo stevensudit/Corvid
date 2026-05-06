@@ -371,6 +371,7 @@ struct combined_endpoint {
 class iou_res {
 public:
   explicit iou_res(int res = 0) : res_(res) {}
+  explicit iou_res(errno_code err) : res_(-*err) {}
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
   [[nodiscard]] bool operator!() const noexcept { return !ok(); }
@@ -441,6 +442,15 @@ public:
     return true;
   }
 
+  // Receive from a socket using provided buffers, repeatedly. `bgid` is the
+  // buffer group ID from `iou_provided_buf_pool::bgid()`.
+  bool prep_recv_multishot(int fd, msg_flags flags, uint16_t bgid) noexcept {
+    io_uring_prep_recv_multishot(sqe_, fd, nullptr, 0, *flags);
+    sqe_->flags |= IOSQE_BUFFER_SELECT;
+    sqe_->buf_group = bgid;
+    return true;
+  }
+
   bool prep_send(int fd, const_span_t span, msg_flags flags = {}) noexcept {
     io_uring_prep_send(sqe_, fd, span.data(), span.size(), *flags);
     return true;
@@ -478,6 +488,7 @@ public:
     return true;
   }
 
+  // Helper for `prep_accept*`.
   static std::pair<sockaddr*, socklen_t*> to_sockaddr_ptrs(
       combined_endpoint* endpoint) noexcept {
     sockaddr* sockaddr_ptr{};
@@ -490,6 +501,7 @@ public:
     return {sockaddr_ptr, socklen_ptr};
   }
 
+  // Accept a connection on `fd`, filling `endpoint`.
   bool prep_accept(int fd, combined_endpoint* endpoint = nullptr) noexcept {
     auto [sockaddr_ptr, socklen_ptr] = to_sockaddr_ptrs(endpoint);
     socket_type flags = socket_type::nonblock_cloexec;
@@ -498,6 +510,7 @@ public:
     return true;
   }
 
+  // Accept connections on `fd` repeatedly, filling `endpoint`.
   bool prep_accept_multishot(int fd,
       combined_endpoint* endpoint = nullptr) noexcept {
     auto [sockaddr_ptr, socklen_ptr] = to_sockaddr_ptrs(endpoint);
@@ -508,19 +521,37 @@ public:
     return true;
   }
 
+  // Connect `fd` to the peer address at endpoint.
   bool prep_connect(int fd, const net_endpoint* endpoint) noexcept {
     auto [addr, addrlen] = endpoint->as_sockaddr();
     io_uring_prep_connect(sqe_, fd, addr, addrlen);
     return true;
   }
 
-  bool prep_recvmsg(int fd, msghdr* msg, msg_flags flags = {}) noexcept {
-    io_uring_prep_recvmsg(sqe_, fd, msg, *flags);
+  // Receive a message from a socket. `msgh` must point to a valid `msghdr`
+  // struct, which itself points to the message data and ancillary data.
+  bool prep_recvmsg(int fd, msghdr* msgh, msg_flags flags = {}) noexcept {
+    io_uring_prep_recvmsg(sqe_, fd, msgh, *flags);
     return true;
   }
 
-  bool prep_sendmsg(int fd, const msghdr* msg, msg_flags flags = {}) noexcept {
-    io_uring_prep_sendmsg(sqe_, fd, msg, *flags);
+  // Receive a message from a socket using provided buffers, repeatedly. `bgid`
+  // is the buffer group ID from `iou_provided_buf_pool::bgid()`. Each
+  // provided buffer holds an `io_uring_recvmsg_out` header followed by peer
+  // address, control data, and payload.
+  bool prep_recvmsg_multishot(int fd, msghdr* msgh, msg_flags flags,
+      uint16_t bgid) noexcept {
+    io_uring_prep_recvmsg_multishot(sqe_, fd, msgh, *flags);
+    sqe_->flags |= IOSQE_BUFFER_SELECT;
+    sqe_->buf_group = bgid;
+    return true;
+  }
+
+  // Send a message on a socket. `msg` must point to a valid `msghdr` struct,
+  // which itself points to the message data and ancillary data.
+  bool
+  prep_sendmsg(int fd, const msghdr* msgh, msg_flags flags = {}) noexcept {
+    io_uring_prep_sendmsg(sqe_, fd, msgh, *flags);
     return true;
   }
 

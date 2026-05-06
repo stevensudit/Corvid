@@ -601,9 +601,9 @@ public:
   // Receive a message into `msg`, forwarding directly to POSIX `recvmsg`.
   // See "iov_msghdr.h".
   [[nodiscard]] ssize_t
-  recv(msghdr& msg, msg_flags flags = {}) const noexcept {
+  recv(msghdr& msgh, msg_flags flags = {}) const noexcept {
     assert(is_open());
-    return ::recvmsg(handle(), &msg, *flags);
+    return ::recvmsg(handle(), &msgh, *flags);
   }
 
   // Peek at the socket, without consuming data, to determine whether EOF has
@@ -643,12 +643,12 @@ public:
     return ::send(handle(), buf, len, *flags);
   }
 
-  // Send a message described by `msg`, forwarding to POSIX `sendmsg`. See
+  // Send a message described by `msgh`, forwarding to POSIX `sendmsg`. See
   // "iov_msghdr.h".
   [[nodiscard]] ssize_t
-  send(msghdr& msg, msg_flags flags = msg_flags::nosignal) const noexcept {
+  send(msghdr& msgh, msg_flags flags = msg_flags::nosignal) const noexcept {
     assert(is_open());
-    return ::sendmsg(handle(), &msg, *flags);
+    return ::sendmsg(handle(), &msgh, *flags);
   }
 
 #pragma endregion

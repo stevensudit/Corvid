@@ -156,20 +156,36 @@ public:
     return true;
   }
 
-  // Borrow an `iou_buffer` from a multishot read CQE.
+  // Borrow an `iou_buffer` from a multishot recv CQE.
+  //
+  // For a TCP `recv` (without a `msghdr`), `payload_span` covers
+  // the entire written region; `result().bytes()` equals the written byte
+  // count.
+  //
+  // For a UDP `recvmsg` (with a `msghdr`), the buffer is parsed out, with
+  // `payload_span` covering the payload, and `result().bytes()` likewise
+  // reflecting the payload size. The `peer_addr` is filled in from the peer
+  // address portion of the buffer, and `msghdr_flags` is set from the `msghdr`
+  // flags field.
   //
   // Destroying or resetting the returned buffer replenishes the slot.
-  [[nodiscard]] buffer borrow(iou_res res, iou_cqe_flags cqe_flags) noexcept {
+  [[nodiscard]] buffer borrow(iou_res res, iou_cqe_flags cqe_flags,
+      msghdr* msgh = nullptr) noexcept {
     if (!base_ || !buf_ring_) return {};
     if (!bitmask::has(cqe_flags, iou_cqe_flags::buffer)) return {};
     const size_t bid = (*cqe_flags >> IORING_CQE_BUFFER_SHIFT) & 0xffffU;
     if (bid >= buf_count_) return {};
     span_t span{base_ + (bid * buf_size_), buf_size_};
+
     auto buf = make_buffer(*this, span, bid, block_type::read);
 
     buf.pending_releases() = 1;
-    buf.update(res, cqe_flags);
+    if (msgh)
+      buf.update(res, cqe_flags, *msgh);
+    else
+      buf.update(res, cqe_flags);
     buf.pending_releases() = 0;
+
     return buf;
   }
 

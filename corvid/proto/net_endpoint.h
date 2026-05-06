@@ -125,24 +125,24 @@ public:
 
   // Construct from a POSIX `sockaddr_in`, `sockaddr_in6`, or `sockaddr_un`.
   explicit net_endpoint(const sockaddr_in& addr) noexcept {
-    do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
+    if (addr.sin_family == AF_INET) as_v4() = addr;
   }
 
   explicit net_endpoint(const sockaddr_in6& addr) noexcept {
-    do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
+    if (addr.sin6_family == AF_INET6) as_v6() = addr;
   }
 
   explicit net_endpoint(const sockaddr_un& addr) noexcept {
-    do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
+    if (addr.sun_family == AF_UNIX) as_uds() = addr;
   }
 
   explicit net_endpoint(const sockaddr& addr, socklen_t len) noexcept {
-    do_assign_sockaddr(addr, len);
+    assign(addr, len);
   }
 
   // Only supports recognized families (AF_INET, AF_INET6, AF_UNIX).
   explicit net_endpoint(const sockaddr_storage& addr) noexcept {
-    do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
+    assign(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
   }
 
   // Construct by querying the local address bound to `sock` via `getsockname`.
@@ -151,8 +151,7 @@ public:
     sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
     auto* ptr = reinterpret_cast<sockaddr*>(&addr);
-    if (::getsockname(sock.handle(), ptr, &len) == 0)
-      do_assign_sockaddr(*ptr, len);
+    if (::getsockname(sock.handle(), ptr, &len) == 0) assign(*ptr, len);
   }
 
   // Query the peer address of `sock` via `getpeername`. On failure, result
@@ -181,6 +180,25 @@ public:
 
   [[nodiscard]] static net_endpoint loopback_v6(uint16_t port = 0) noexcept {
     return net_endpoint{ipv6_addr::loopback, port};
+  }
+
+  // Assign from `sockaddr` buffer of given length. Fails on unknown family or
+  // insufficient input size.
+  bool constexpr assign(const sockaddr& addr, socklen_t len) noexcept {
+    const auto count = static_cast<size_t>(len);
+    if (addr.sa_family == AF_INET && count >= sizeof(sockaddr_in)) {
+      as_v4() = *reinterpret_cast<const sockaddr_in*>(&addr);
+      return true;
+    }
+    if (addr.sa_family == AF_INET6 && count >= sizeof(sockaddr_in6)) {
+      as_v6() = *reinterpret_cast<const sockaddr_in6*>(&addr);
+      return true;
+    }
+    if (addr.sa_family == AF_UNIX && count >= sizeof(sa_family_t)) {
+      std::memcpy(&as_uds(), &addr, std::min(count, sizeof(sockaddr_un)));
+      return true;
+    }
+    return false;
   }
 
 #pragma endregion
@@ -383,17 +401,6 @@ public:
 #pragma endregion
 #pragma region Implementation
 private:
-  void constexpr do_assign_sockaddr(const sockaddr& addr,
-      socklen_t len) noexcept {
-    const auto count = static_cast<size_t>(len);
-    if (addr.sa_family == AF_INET && count >= sizeof(sockaddr_in))
-      as_v4() = *reinterpret_cast<const sockaddr_in*>(&addr);
-    else if (addr.sa_family == AF_INET6 && count >= sizeof(sockaddr_in6))
-      as_v6() = *reinterpret_cast<const sockaddr_in6*>(&addr);
-    else if (addr.sa_family == AF_UNIX && count >= sizeof(sa_family_t))
-      std::memcpy(&as_uds(), &addr, std::min(count, sizeof(sockaddr_un)));
-  }
-
   // Create a UDS or ANS endpoint from `path`.
   // - Regular UDS (`/`-prefixed): copies up to 107 chars, null-terminated.
   // - ANS (`@`-prefixed): `sun_path[0] = '\0'`, name occupies

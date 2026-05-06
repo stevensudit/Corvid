@@ -22,6 +22,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <string_view>
+#include <sys/socket.h>
 #include <utility>
 
 #include "iou_buffer_pool_base.h"
@@ -101,7 +102,7 @@ public:
         file_offset_{std::exchange(o.file_offset_, {})},
         pending_releases_{std::exchange(o.pending_releases_, {})},
         blockrw_{o.blockrw_}, timeout_{o.timeout_}, addr_{o.addr_},
-        msg_{o.msg_}, iov_(o.iov_), res_{o.res_}, cqe_flags_{o.cqe_flags_} {
+        msgh_{o.msgh_}, iov_(o.iov_), res_{o.res_}, cqe_flags_{o.cqe_flags_} {
     do_reconstitute_msg();
   }
 
@@ -119,7 +120,7 @@ public:
       blockrw_ = o.blockrw_;
       timeout_ = o.timeout_;
       addr_ = o.addr_;
-      msg_ = o.msg_;
+      msgh_ = o.msgh_;
       iov_ = o.iov_;
       do_reconstitute_msg();
       res_ = o.res_;
@@ -199,6 +200,16 @@ public:
 
   // Access timeout associated with this buffer.
   combined_timespec& timeout() noexcept { return timeout_; }
+
+  // Access the recvmsg flags in the `msghdr`.
+  [[nodiscard]] msg_flags msghdr_flags() const noexcept {
+    return msg_flags{msgh_.msg_flags};
+  }
+
+  // Access the length in the `msghdr`.
+  [[nodiscard]] size_t msghdr_len() const noexcept {
+    return msgh_.msg_controllen;
+  }
 
   // Return the allocation to the pool immediately; buffer becomes empty.
   void reset() noexcept {
@@ -378,6 +389,69 @@ public:
     return *this;
   }
 
+  // Update with the result of a `recvmsg_multishot` completion using provided
+  // buffers.
+  //
+  // Parses the `io_uring_recvmsg_out` header at the start of `full_span_`,
+  // sets `payload_span` to just the payload bytes, copies the peer address
+  // from the name area into `peer_addr`, and stores `out->flags` in
+  // `msghdr_flags`. Sets `result` to the actual payload byte count, for
+  // consistency with the non-multishot recvmsg case.
+  //
+  // If truncated, then `result` will be `EC::msgsize`, `msghdr_flags` will
+  // have `msg_flags::trunc` set, and the payload will be empty. If we were
+  // able to parse the header, then `peer_addr` will be filled and the size
+  // will be in `msghdr_len`.
+  iou_buffer&
+  update(iou_res res, iou_cqe_flags cqe_flags, msghdr& msgh) noexcept {
+    assert(blockrw_ == block_type::read);
+
+    res_ = res;
+    cqe_flags_ = cqe_flags;
+    if (!bitmask::has(cqe_flags_, iou_cqe_flags::more)) --pending_releases_;
+
+    // Attempt to parse the header.
+    io_uring_recvmsg_out* parsed_hdr{};
+    if (res.ok()) {
+      // The `msghdr` passed in as `msgh` is the same one we passed to
+      // `recvmsg_multishot`, but we also need the metadata at the start of the
+      // buffer.
+      parsed_hdr =
+          io_uring_recvmsg_validate(full_span_.data(), res.value(), &msgh);
+
+      // Even if it's truncated, we want to store the `peer_addr` and
+      // `msghdr_flags`, as well as the original length.
+      if (parsed_hdr) {
+        addr_.assign(
+            *static_cast<sockaddr*>(io_uring_recvmsg_name(parsed_hdr)),
+            parsed_hdr->namelen);
+        msgh_.msg_flags = static_cast<int>(parsed_hdr->flags);
+        msgh_.msg_controllen = static_cast<size_t>(parsed_hdr->payloadlen);
+      }
+
+      // If truncated, fail with `EC::msgsize`.
+      if (!parsed_hdr || (bitmask::has(msghdr_flags(), msg_flags::trunc))) {
+        res_ = iou_res{EC::msgsize};
+        msgh_.msg_flags |= *msg_flags::trunc;
+      }
+    }
+
+    // Fail.
+    if (!res_) return *this;
+
+    // Set `payload_span` and `result` to the payload.
+    auto* payload =
+        static_cast<std::byte*>(io_uring_recvmsg_payload(parsed_hdr, &msgh));
+    const auto payload_len = static_cast<size_t>(
+        io_uring_recvmsg_payload_length(parsed_hdr, res.value(), &msgh));
+
+    res_ = iou_res{static_cast<int>(payload_len)};
+    payload_span_ = {payload, payload_len};
+    active_span_ = {payload + payload_len, 0};
+
+    return *this;
+  }
+
 #pragma endregion
 #pragma region Read/Write
 
@@ -430,14 +504,14 @@ public:
 
     iov_.iov_base = active_span_.data();
     iov_.iov_len = active_span_.size();
-    msg_.msg_iov = &iov_;
-    msg_.msg_iovlen = 1;
-    msg_.msg_name = addr_.as_sockaddr_ptr();
-    msg_.msg_namelen = net_endpoint::max_sockaddr_size;
-    msg_.msg_control = nullptr;
-    msg_.msg_controllen = 0;
-    msg_.msg_flags = 0;
-    return &msg_;
+    msgh_.msg_iov = &iov_;
+    msgh_.msg_iovlen = 1;
+    msgh_.msg_name = addr_.as_sockaddr_ptr();
+    msgh_.msg_namelen = net_endpoint::max_sockaddr_size;
+    msgh_.msg_control = nullptr;
+    msgh_.msg_controllen = 0;
+    msgh_.msg_flags = 0;
+    return &msgh_;
   }
 
   // Configure `msg_` for a sendmsg operation to `peer_addr`. Returns
@@ -449,14 +523,14 @@ public:
 
     iov_.iov_base = active_span_.data();
     iov_.iov_len = active_span_.size();
-    msg_.msg_iov = &iov_;
-    msg_.msg_iovlen = 1;
-    msg_.msg_name = addr_.as_sockaddr_ptr();
-    msg_.msg_namelen = addr_.sockaddr_size();
-    msg_.msg_control = nullptr;
-    msg_.msg_controllen = 0;
-    msg_.msg_flags = 0;
-    return &msg_;
+    msgh_.msg_iov = &iov_;
+    msgh_.msg_iovlen = 1;
+    msgh_.msg_name = addr_.as_sockaddr_ptr();
+    msgh_.msg_namelen = addr_.sockaddr_size();
+    msgh_.msg_control = nullptr;
+    msgh_.msg_controllen = 0;
+    msgh_.msg_flags = 0;
+    return &msgh_;
   }
 
 #pragma endregion
@@ -491,8 +565,8 @@ private:
   }
 
   void do_reconstitute_msg() noexcept {
-    msg_.msg_iov = &iov_;
-    msg_.msg_name = addr_.as_sockaddr_ptr();
+    msgh_.msg_iov = &iov_;
+    msgh_.msg_name = addr_.as_sockaddr_ptr();
   }
 
 #pragma endregion
@@ -510,7 +584,7 @@ private:
   combined_timespec timeout_;
   net_endpoint addr_;
 
-  msghdr msg_{};
+  msghdr msgh_{};
   iovec iov_{};
 
   iou_res res_;

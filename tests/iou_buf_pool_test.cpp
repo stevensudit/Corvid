@@ -17,6 +17,7 @@
 #include "../corvid/proto/io_uring/iou_buf_pool.h"
 
 #include <cstring>
+#include <netinet/in.h>
 #include <string_view>
 #include <functional>
 
@@ -645,6 +646,100 @@ void IouBufPool_UdpTierAlloc() {
     EXPECT_FALSE(extra);
     for (auto& b : bufs) b.reset();
     EXPECT_EQ(pool.available(), 2ULL * 1024 * 1024);
+  }
+}
+#pragma endregion
+
+#pragma region UpdateRecvmsgMsgFlagsDefault
+void IouBufPool_UpdateRecvmsgMsgFlagsDefault() {
+  // A freshly borrowed buffer has msg_flags() == 0.
+  if (true) {
+    iou_buf_pool pool;
+    auto buf = pool.borrow_reader();
+    ASSERT_TRUE(buf);
+    EXPECT_EQ(buf.msghdr_flags(), msg_flags{});
+  }
+}
+#pragma endregion
+
+#pragma region UpdateRecvmsgValid
+void IouBufPool_UpdateRecvmsgValid() {
+  if (true) {
+    iou_buf_pool pool;
+    auto buf = pool.borrow_reader();
+    ASSERT_TRUE(buf);
+
+    constexpr std::string_view data{"hello-recvmsg"};
+    constexpr uint32_t peer_ip = 0x7f000001; // 127.0.0.1
+    constexpr uint16_t peer_port = 54321;
+
+    // Write io_uring_recvmsg_out header + peer sockaddr_in + payload at the
+    // start of the buffer's active region.
+    auto* mem = buf.active_span().data();
+    auto* hdr = reinterpret_cast<io_uring_recvmsg_out*>(mem);
+    sockaddr_in peer{};
+    peer.sin_family = AF_INET;
+    peer.sin_port = htons(peer_port);
+    peer.sin_addr.s_addr = htonl(peer_ip);
+    const size_t namelen = sizeof(sockaddr_in);
+    hdr->namelen = static_cast<uint32_t>(namelen);
+    hdr->controllen = 0;
+    hdr->payloadlen = static_cast<uint32_t>(data.size());
+    hdr->flags = 0;
+    std::memcpy(mem + sizeof(io_uring_recvmsg_out), &peer, namelen);
+    std::memcpy(mem + sizeof(io_uring_recvmsg_out) + namelen, data.data(),
+        data.size());
+
+    const size_t total = sizeof(io_uring_recvmsg_out) + namelen + data.size();
+    msghdr msg_template{};
+    msg_template.msg_namelen = static_cast<socklen_t>(namelen);
+
+    buf.pending_releases() = 1;
+    buf.update(iou_res{static_cast<int>(total)}, iou_cqe_flags{},
+        msg_template);
+
+    EXPECT_EQ(buf.payload_span().size(), data.size());
+    EXPECT_EQ(buf.payload_view(), data);
+    EXPECT_EQ(buf.msghdr_flags(), msg_flags{});
+    EXPECT_EQ(buf.result().bytes(), data.size());
+    EXPECT_TRUE(buf.peer_addr().is_v4());
+    EXPECT_EQ(buf.peer_addr().port(), peer_port);
+  }
+}
+#pragma endregion
+
+#pragma region UpdateRecvmsgTruncated
+void IouBufPool_UpdateRecvmsgTruncated() {
+  // When the kernel sets MSG_TRUNC in out->flags, msg_flags() reflects it.
+  if (true) {
+    iou_buf_pool pool;
+    auto buf = pool.borrow_reader();
+    ASSERT_TRUE(buf);
+
+    const size_t namelen = sizeof(sockaddr_in);
+    auto* mem = buf.active_span().data();
+    auto* hdr = reinterpret_cast<io_uring_recvmsg_out*>(mem);
+    sockaddr_in peer{};
+    peer.sin_family = AF_INET;
+    hdr->namelen = static_cast<uint32_t>(namelen);
+    hdr->controllen = 0;
+    hdr->payloadlen = 5;
+    hdr->flags = MSG_TRUNC;
+    std::memcpy(mem + sizeof(io_uring_recvmsg_out), &peer, namelen);
+
+    constexpr std::string_view trunc{"trunc"};
+    std::memcpy(mem + sizeof(io_uring_recvmsg_out) + namelen, trunc.data(),
+        trunc.size());
+
+    const size_t total = sizeof(io_uring_recvmsg_out) + namelen + trunc.size();
+    msghdr msg_template{};
+    msg_template.msg_namelen = static_cast<socklen_t>(namelen);
+
+    buf.pending_releases() = 1;
+    buf.update(iou_res{static_cast<int>(total)}, iou_cqe_flags{},
+        msg_template);
+
+    EXPECT_FALSE(bitmask::has(buf.msghdr_flags(), msg_flags::trunc));
   }
 }
 #pragma endregion

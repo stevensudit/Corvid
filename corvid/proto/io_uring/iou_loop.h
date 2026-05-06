@@ -91,6 +91,10 @@ struct bound_endpoint_with_timeout
   combined_endpoint sockaddr;
 };
 
+struct bound_msghdr: public address_forwarder<bound_msghdr> {
+  msghdr msg{};
+};
+
 #pragma endregion
 #pragma region Concepts
 
@@ -119,6 +123,16 @@ template<typename FN>
 concept EndpointCompletionInvocable =
     MoveConsumable<FN> && StoredEndpointCompletionInvocable<FN>;
 
+// Concept for 'iou_loop::msghdr_completion_fn' lambda in its stored form.
+template<typename FN>
+concept StoredMsgHdrCompletionInvocable = std::is_invocable_r_v<slot_retention,
+    FN, completion_id, iou_res, iou_cqe_flags, msghdr&>;
+
+// Concept for `iou_loop::msghdr_completion_fn` lambda as a parameter.
+template<typename FN>
+concept MsgHdrCompletionInvocable =
+    MoveConsumable<FN> && StoredMsgHdrCompletionInvocable<FN>;
+
 // Concept for `iou_loop::completion_fn` lambda in its stored form.
 template<typename FN>
 concept StoredCompletionInvocable = std::is_invocable_r_v<slot_retention, FN,
@@ -135,7 +149,7 @@ concept CompletionInvocable =
 template<typename FN>
 concept AnyCompletionInvocable =
     CompletionInvocable<FN> || EndpointCompletionInvocable<FN> ||
-    BufCompletionInvocable<FN>;
+    BufCompletionInvocable<FN> || MsgHdrCompletionInvocable<FN>;
 
 // Concept for `iou_loop::posted_fn` lambda.
 template<typename FN>
@@ -246,6 +260,11 @@ public:
   using endpoint_completion_fn = fixed_function<fixed_function_capacity,
       slot_retention(completion_id, iou_res, iou_cqe_flags,
           combined_endpoint&)>;
+
+  // Completion callback for operations that return a `msghdr`, like
+  // `recvmsg_multishot`.
+  using msghdr_completion_fn = fixed_function<fixed_function_capacity,
+      slot_retention(completion_id, iou_res, iou_cqe_flags, msghdr&)>;
 
 #pragma endregion
 #pragma region Details
@@ -537,21 +556,19 @@ public:
 #pragma region Callbacks
 
   // Bind an `AnyCompletionInvocable`-shaped lambda and `AddressForwarder`
-  // into a `completion_fn`. Behavior depends on `CB`:
-  // - `EndpointCompletionInvocable`: prepares `ep.sockaddr` and forwards it.
-  //   `EP` must have a `sockaddr` member.
-  // - `BufCompletionInvocable`: calls `ep.update(res, flags)` and forwards
-  //   the result. `EP` must have a matching `update` method.
-  // - `CompletionInvocable`: calls `cb` with only the standard parameters.
+  // into a `completion_fn`. Behavior depends on `CB`.
   completion_fn wrap_completion_fn(AnyCompletionInvocable auto&& cb,
       AddressForwarder auto&& af) {
-    return [cb = std::move(cb), ep = std::move(af)](completion_id cbhandle,
+    return [cb = std::move(cb), af = std::move(af)](completion_id cbhandle,
                iou_res res, iou_cqe_flags flags) mutable -> slot_retention {
       if constexpr (StoredBufCompletionInvocable<decltype(cb)>) {
-        return cb(cbhandle, ep.update(res, flags));
+        return cb(cbhandle, af.update(res, flags));
       } else if constexpr (StoredEndpointCompletionInvocable<decltype(cb)>) {
-        ep.sockaddr.len = net_endpoint::max_sockaddr_size;
-        return cb(cbhandle, res, flags, ep.sockaddr);
+        af.sockaddr.len = net_endpoint::max_sockaddr_size;
+        return cb(cbhandle, res, flags, af.sockaddr);
+      } else if constexpr (StoredMsgHdrCompletionInvocable<decltype(cb)>) {
+        af.msg.namelen = net_endpoint::max_sockaddr_size;
+        return cb(cbhandle, res, flags, af.msg);
       } else {
         return cb(cbhandle, res, flags);
       }
@@ -610,8 +627,7 @@ public:
   // Timeouts:
   //
   // When it makes sense for the operation, single-shot variants take a timeout
-  // in the form of a `bound_timeout`, or `bound_endpoint_with_timeout`, or
-  // `bound_endpoint`.
+  // in the form of a `bound_timeout`, or `bound_endpoint_with_timeout`.
   //
   // For multi-shot variants, we can't use hard-linked timeouts, so you should
   // instead `submit_timeout` separately and check for a timestamp updated by
@@ -1282,12 +1298,105 @@ public:
 #pragma region RecvBufferMulti
 
   //
-  // Receive from a socket into a provided `buffer` repeatedly.
+  // Receive from a socket into a provided `buffer` repeatedly, using
+  // `tcp_provided_buf_pool_`.
   //
   // Uses `io_uring_prep_recv_multishot`, which is socket-specific.
   //
 
-  // TODO: Write this. And also RecvMsgBufferMulti.
+  // Submit an async multishot recv on `socket`. The callback receives a
+  // `buffer` borrowed from the provided pool on each completion. Use
+  // `slot_retention::automatic` (the default on completion) to keep the
+  // operation alive as long as `iou_cqe_flags::more` is set.
+  [[nodiscard]] completion_token
+  submit_recv_buffer_multi(const net_socket& socket,
+      BufCompletionInvocable auto&& bufcb, msg_flags flags = {}) {
+    auto cb =
+        [this, bufcb = std::move(bufcb)](completion_id cbhandle, iou_res res,
+            iou_cqe_flags cqe_flags) mutable -> slot_retention {
+      auto buf = tcp_provided_buf_pool_.borrow(res, cqe_flags);
+      return bufcb(cbhandle, buf);
+    };
+    const auto cbtoken = tokenize(std::move(cb));
+    if (!cbtoken) return {};
+    if (!submit_recv_buffer_multi(socket, cbtoken, slot_retention::automatic,
+            flags))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async multishot recv on `socket` using provided buffers.
+  [[nodiscard]] bool submit_recv_buffer_multi(const net_socket& socket,
+      completion_token cbtoken,
+      slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
+    if (!cbtoken) return false;
+    if (!socket || !tcp_provided_buf_pool_)
+      return fail_and_maybe_release(on_fail, cbtoken);
+    auto fn = [this, fd = *socket, flags, cbtoken, on_fail]() mutable {
+      const auto bgid = tcp_provided_buf_pool_.bgid();
+      return do_submit(cbtoken, on_fail, [fd, flags, bgid](iou_sqe sqe) {
+        sqe.prep_recv_multishot(fd, flags, bgid);
+      });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
+
+#pragma endregion
+#pragma region RecvMsgBufferMulti
+
+  //
+  // Receive messages from a datagram socket into provided buffers repeatedly,
+  // using `udp_buf_pool_`.
+  //
+  // Uses `io_uring_prep_recvmsg_multishot`, which is socket-specific. Each
+  // Provided Buffer holds an `io_uring_recvmsg_out` header followed by peer
+  // address, control data, and payload. The `buffer` has `payload_span`
+  // pointing to the payload, with `peer_addr` and `msghdr_flags` filled in.
+  //
+
+  // Submit an async multishot recvmsg on `socket` using `udp_buf_pool_`. The
+  // callback receives a `buffer` borrowed from the provided pool on each
+  // completion.
+  [[nodiscard]] completion_token submit_recvmsg_buffer_multi(
+      const net_socket& socket, BufCompletionInvocable auto&& bufcb,
+      msg_flags flags = msg_flags::trunc) {
+    completion_fn cb =
+        [this, bufcb = std::move(bufcb)](completion_id cbhandle, iou_res res,
+            iou_cqe_flags cqe_flags, msghdr& msgh) mutable -> slot_retention {
+      auto buf = udp_buf_pool_.borrow(res, cqe_flags, &msgh);
+      return bufcb(cbhandle, buf);
+    };
+    const auto [cbtoken, hdr_ptr] =
+        wrap_completion_fn_and_ptr(std::move(cb), std::move(bound_msghdr{}));
+    if (!cbtoken) return {};
+    if (!submit_recvmsg_buffer_multi(socket, hdr_ptr->msg, cbtoken,
+            slot_retention::automatic, flags))
+      return {};
+    return cbtoken;
+  }
+
+  // Submit an async multishot recvmsg on `socket` using provided buffers.
+  // Note that `msg` must point inside the callback or remain valid until
+  // cancelation. Only `msg_namelen` is used by the kernel; `msg_iov` and
+  // `msg_control` are ignored.
+  [[nodiscard]] bool submit_recvmsg_buffer_multi(const net_socket& socket,
+      msghdr& msg, completion_token cbtoken,
+      slot_retention on_fail = slot_retention::retain,
+      msg_flags flags = msg_flags::trunc) {
+    if (!cbtoken) return false;
+    if (!socket || !udp_buf_pool_)
+      return fail_and_maybe_release(on_fail, cbtoken);
+    const auto bgid = udp_buf_pool_.bgid();
+    auto* msg_ptr = &msg;
+    auto fn = [this, fd = *socket, flags, cbtoken, msg_ptr, bgid,
+                  on_fail]() mutable {
+      return do_submit(cbtoken, on_fail,
+          [fd, flags, msg_ptr, bgid](iou_sqe sqe) {
+            sqe.prep_recvmsg_multishot(fd, msg_ptr, flags, bgid);
+          });
+    };
+    return execute_or_post_with_retry(std::move(fn));
+  }
 
 #pragma endregion
 #pragma region SendBuffer
