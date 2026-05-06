@@ -1084,6 +1084,64 @@ void IouLoop_RecvMsgBufferMulti() {
 }
 #pragma endregion
 
+#pragma region RecvMsgBufferMultiTruncated
+void IouLoop_RecvMsgBufferMultiTruncated() {
+  // An 8 KiB datagram exceeds the 2 KiB UDP provided-buffer size. The
+  // multishot recvmsg callback should fire once with:
+  //   - `result()` == `EC::msgsize` (truncation error)
+  //   - `msghdr_flags()` has `msg_flags::trunc` set
+  //   - `msghdr_len()` == 8192 (the full original datagram length)
+  if (true) {
+    auto recv_ep = net_endpoint::any_v4(0);
+    auto send_ep = net_endpoint::any_v4(0);
+    auto recv_sock = net_socket::create_for(recv_ep, execution::nonblocking,
+        message_style::datagram);
+    auto send_sock = net_socket::create_for(send_ep, execution::nonblocking,
+        message_style::datagram);
+    EXPECT_TRUE(recv_sock.bind(recv_ep));
+    EXPECT_TRUE(send_sock.bind(send_ep));
+    net_endpoint recv_addr{recv_sock};
+
+    iou_loop_runner loop;
+    std::atomic_bool fired{false};
+    relaxed_atomic_int32_t result{0};
+    relaxed_atomic_bool truncated{false};
+    relaxed_atomic_size_t len{0};
+
+    const auto recv_token = loop->submit_recvmsg_buffer_multi(recv_sock,
+        [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
+          result = buf.result().value();
+          truncated = bitmask::has(buf.msghdr_flags(), msg_flags::trunc);
+          len = buf.msghdr_len();
+          fired.store(true, std::memory_order::release);
+          return slot_retention::automatic;
+        });
+    EXPECT_TRUE(recv_token.is_valid());
+
+    constexpr size_t datagram_size = 8192;
+    const std::vector<std::byte> big(datagram_size, std::byte{'X'});
+    EXPECT_TRUE(loop->post_and_wait([&] {
+      auto send_buf = loop->borrow_write_buffer(block_size::kb008);
+      if (!send_buf) return false;
+      if (!send_buf.append(std::as_bytes(std::span{big}))) return false;
+      send_buf.peer_addr() = recv_addr;
+      return loop
+          ->submit_sendmsg_buffer(send_sock, std::move(send_buf),
+              [](completion_id, iou_loop::buffer&) -> slot_retention {
+                return slot_retention{};
+              })
+          .is_valid();
+    }));
+
+    EXPECT_TRUE(
+        WaitFor([&] { return fired.load(std::memory_order::acquire); }));
+    EXPECT_EQ(result, -EMSGSIZE);
+    EXPECT_TRUE(truncated);
+    EXPECT_EQ(len, datagram_size);
+  }
+}
+#pragma endregion
+
 #pragma region FnSizeProbe
 void IouLoop_CompletionFnSizeProbe() {
   // Probe the storage each (cb, ep) combination would need if `completion_fn`
@@ -1410,8 +1468,9 @@ MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
     IouLoop_SubmitShutdown, IouLoop_SubmitTimeoutRemove,
     IouLoop_SubmitTimeoutRemoveExplicit, IouLoop_SubmitCancelTokenAutoRelease,
     IouLoop_SubmitTimeoutUpdate, IouLoop_RecvBufferMulti,
-    IouLoop_RecvMsgBufferMulti, IouWrap_TimespecDurationRoundTrip,
-    IouWrap_TimespecTimePointRoundTrip, IouWrap_TimespecStaticHelpers,
-    IouWrap_TimespecAsPointer, IouWrap_ItimerspecConstruct, IouWrap_ResStatus,
-    IouWrap_CqeFlagsString, IouWrap_SqeFlagsString, IouWrap_SetupFlagsString,
+    IouLoop_RecvMsgBufferMulti, IouLoop_RecvMsgBufferMultiTruncated,
+    IouWrap_TimespecDurationRoundTrip, IouWrap_TimespecTimePointRoundTrip,
+    IouWrap_TimespecStaticHelpers, IouWrap_TimespecAsPointer,
+    IouWrap_ItimerspecConstruct, IouWrap_ResStatus, IouWrap_CqeFlagsString,
+    IouWrap_SqeFlagsString, IouWrap_SetupFlagsString,
     IouWrap_TimeoutFlagsString, IouLoop_CompletionFnSizeProbe)
