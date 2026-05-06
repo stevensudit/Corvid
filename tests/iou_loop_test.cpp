@@ -984,6 +984,106 @@ void IouWrap_TimeoutFlagsString() {
 }
 #pragma endregion
 
+#pragma region RecvBufferMulti
+void IouLoop_RecvBufferMulti() {
+  // `submit_recv_buffer_multi` fires the callback for each message received.
+  // Send three messages over a SEQPACKET socket pair (which preserves message
+  // boundaries); confirm all three arrive with the correct payloads.
+  if (true) {
+    auto [send_sock, recv_sock] =
+        net_socket::create_pair(address_family::unix, socket_type::seqpacket);
+
+    iou_loop_runner loop;
+    std::atomic<int> count{0};
+    std::array<std::string, 3> payloads;
+
+    const auto recv_token = loop->submit_recv_buffer_multi(recv_sock,
+        [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
+          if (buf.result().ok()) {
+            const int i = count.load(std::memory_order::relaxed);
+            if (i < static_cast<int>(payloads.size()))
+              payloads[i] = std::string{buf.payload_view()};
+          }
+          count.fetch_add(1, std::memory_order::release);
+          return slot_retention::automatic;
+        });
+    EXPECT_TRUE(recv_token.is_valid());
+
+    constexpr std::array<std::string_view, 3> msgs{"alpha", "beta", "gamma"};
+    for (auto msg : msgs) {
+      EXPECT_TRUE(loop->post_and_wait([&] {
+        return loop
+            ->submit_send_bytes(send_sock, std::as_bytes(std::span{msg}),
+                [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
+                  return slot_retention{};
+                })
+            .is_valid();
+      }));
+    }
+
+    EXPECT_TRUE(
+        WaitFor([&] { return count.load(std::memory_order::acquire) >= 3; }));
+    EXPECT_EQ(count.load(), 3);
+    for (int i = 0; i < 3; ++i) EXPECT_EQ(payloads[i], std::string{msgs[i]});
+  }
+}
+#pragma endregion
+
+#pragma region RecvMsgBufferMulti
+void IouLoop_RecvMsgBufferMulti() {
+  // `submit_recvmsg_buffer_multi` fires the callback for each datagram.
+  // Send three UDP datagrams; confirm all three arrive with correct payloads.
+  if (true) {
+    auto recv_ep = net_endpoint::any_v4(0);
+    auto send_ep = net_endpoint::any_v4(0);
+    auto recv_sock = net_socket::create_for(recv_ep, execution::nonblocking,
+        message_style::datagram);
+    auto send_sock = net_socket::create_for(send_ep, execution::nonblocking,
+        message_style::datagram);
+    EXPECT_TRUE(recv_sock.bind(recv_ep));
+    EXPECT_TRUE(send_sock.bind(send_ep));
+    net_endpoint recv_addr{recv_sock};
+
+    iou_loop_runner loop;
+    std::atomic<int> count{0};
+    std::array<std::string, 3> payloads;
+
+    const auto recv_token = loop->submit_recvmsg_buffer_multi(recv_sock,
+        [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
+          if (buf.result().ok()) {
+            const int i = count.load(std::memory_order::relaxed);
+            if (i < static_cast<int>(payloads.size()))
+              payloads[i] = std::string{buf.payload_view()};
+          }
+          count.fetch_add(1, std::memory_order::release);
+          return slot_retention::automatic;
+        });
+    EXPECT_TRUE(recv_token.is_valid());
+
+    constexpr std::array<std::string_view, 3> msgs{"one", "two", "three"};
+    for (auto msg : msgs) {
+      EXPECT_TRUE(loop->post_and_wait([&] {
+        auto send_buf = loop->borrow_write_buffer();
+        if (!send_buf) return false;
+        (void)send_buf.append(msg);
+        send_buf.peer_addr() = recv_addr;
+        return loop
+            ->submit_sendmsg_buffer(send_sock, std::move(send_buf),
+                [](completion_id, iou_loop::buffer&) -> slot_retention {
+                  return slot_retention{};
+                })
+            .is_valid();
+      }));
+    }
+
+    EXPECT_TRUE(
+        WaitFor([&] { return count.load(std::memory_order::acquire) >= 3; }));
+    EXPECT_EQ(count.load(), 3);
+    for (int i = 0; i < 3; ++i) EXPECT_EQ(payloads[i], std::string{msgs[i]});
+  }
+}
+#pragma endregion
+
 #pragma region FnSizeProbe
 void IouLoop_CompletionFnSizeProbe() {
   // Probe the storage each (cb, ep) combination would need if `completion_fn`
@@ -1309,7 +1409,8 @@ MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
     IouLoop_BorrowBufferSizes, IouLoop_SlotRetentionRetain, IouLoop_SubmitPoll,
     IouLoop_SubmitShutdown, IouLoop_SubmitTimeoutRemove,
     IouLoop_SubmitTimeoutRemoveExplicit, IouLoop_SubmitCancelTokenAutoRelease,
-    IouLoop_SubmitTimeoutUpdate, IouWrap_TimespecDurationRoundTrip,
+    IouLoop_SubmitTimeoutUpdate, IouLoop_RecvBufferMulti,
+    IouLoop_RecvMsgBufferMulti, IouWrap_TimespecDurationRoundTrip,
     IouWrap_TimespecTimePointRoundTrip, IouWrap_TimespecStaticHelpers,
     IouWrap_TimespecAsPointer, IouWrap_ItimerspecConstruct, IouWrap_ResStatus,
     IouWrap_CqeFlagsString, IouWrap_SqeFlagsString, IouWrap_SetupFlagsString,

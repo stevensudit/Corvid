@@ -93,6 +93,10 @@ struct bound_endpoint_with_timeout
 
 struct bound_msghdr: public address_forwarder<bound_msghdr> {
   msghdr msg{};
+
+  bound_msghdr() {
+    msg.msg_namelen = static_cast<socklen_t>(net_endpoint::max_sockaddr_size);
+  }
 };
 
 #pragma endregion
@@ -567,7 +571,7 @@ public:
         af.sockaddr.len = net_endpoint::max_sockaddr_size;
         return cb(cbhandle, res, flags, af.sockaddr);
       } else if constexpr (StoredMsgHdrCompletionInvocable<decltype(cb)>) {
-        af.msg.namelen = net_endpoint::max_sockaddr_size;
+        af.msg.msg_namelen = net_endpoint::max_sockaddr_size;
         return cb(cbhandle, res, flags, af.msg);
       } else {
         return cb(cbhandle, res, flags);
@@ -1360,7 +1364,7 @@ public:
   [[nodiscard]] completion_token submit_recvmsg_buffer_multi(
       const net_socket& socket, BufCompletionInvocable auto&& bufcb,
       msg_flags flags = msg_flags::trunc) {
-    completion_fn cb =
+    auto cb =
         [this, bufcb = std::move(bufcb)](completion_id cbhandle, iou_res res,
             iou_cqe_flags cqe_flags, msghdr& msgh) mutable -> slot_retention {
       auto buf = udp_buf_pool_.borrow(res, cqe_flags, &msgh);
