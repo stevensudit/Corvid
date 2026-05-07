@@ -24,6 +24,9 @@
 
 using namespace corvid;
 // NOLINTBEGIN(readability-function-cognitive-complexity)
+
+#pragma region Parser_ParseScalarsAndKinds
+
 void JsonParser_ParseScalarsAndKinds() {
   json_value_view value;
 
@@ -48,6 +51,9 @@ void JsonParser_ParseScalarsAndKinds() {
   ASSERT_TRUE(plain_value.has_value());
   EXPECT_EQ(*plain_value, std::string_view{"plain"});
 }
+
+#pragma endregion
+#pragma region Parser_ParseNestedViewsAndLookup
 
 void JsonParser_ParseNestedViewsAndLookup() {
   json_value_view root;
@@ -85,6 +91,9 @@ void JsonParser_ParseNestedViewsAndLookup() {
   EXPECT_EQ(count, 2U);
 }
 
+#pragma endregion
+#pragma region Parser_DecodesEscapesAndUnicode
+
 void JsonParser_DecodesEscapesAndUnicode() {
   json_value_view value;
   ASSERT_TRUE(parse_json(R"("line\nA\uD83D\uDE00")", value));
@@ -97,6 +106,9 @@ void JsonParser_DecodesEscapesAndUnicode() {
   expected += "\xF0\x9F\x98\x80";
   EXPECT_EQ(decoded, expected);
 }
+
+#pragma endregion
+#pragma region Parser_RejectsInvalidJson
 
 void JsonParser_RejectsInvalidJson() {
   json_value_view value;
@@ -118,6 +130,9 @@ void JsonParser_RejectsInvalidJson() {
   EXPECT_EQ(err.code, json_errc::invalid_token);
 }
 
+#pragma endregion
+#pragma region Parser_RespectsDepthLimit
+
 void JsonParser_RespectsDepthLimit() {
   json_value_view value;
   json_error err;
@@ -125,6 +140,9 @@ void JsonParser_RespectsDepthLimit() {
   EXPECT_FALSE(parse_json("[[[0]]]", value, &err, {.max_depth = 2}));
   EXPECT_EQ(err.code, json_errc::depth_exceeded);
 }
+
+#pragma endregion
+#pragma region Writer_EscapesAndTrustedStrings
 
 void JsonWriter_EscapesAndTrustedStrings() {
   std::string out;
@@ -138,6 +156,9 @@ void JsonWriter_EscapesAndTrustedStrings() {
 
   EXPECT_EQ(out, R"({"escaped":"a\/b","trusted":"a/b"})");
 }
+
+#pragma endregion
+#pragma region Writer_FormatsFloatsAndRoundTrips
 
 void JsonWriter_FormatsFloatsAndRoundTrips() {
   std::string out;
@@ -186,6 +207,9 @@ void JsonWriter_FormatsFloatsAndRoundTrips() {
   EXPECT_EQ(count, 3U);
 }
 
+#pragma endregion
+#pragma region Writer_WritesToOstreamTargets
+
 void JsonWriter_WritesToOstreamTargets() {
   std::ostringstream out;
   json_writer writer{out};
@@ -200,6 +224,9 @@ void JsonWriter_WritesToOstreamTargets() {
 
   EXPECT_EQ(out.str(), R"({"ok":true,"items":[null,"raw"]})");
 }
+
+#pragma endregion
+#pragma region Writer_ScopedContainersAutoClose
 
 void JsonWriter_ScopedContainersAutoClose() {
   std::string out;
@@ -229,6 +256,7 @@ void JsonWriter_ScopedContainersAutoClose() {
       R"({"kind":"demo","meta":{"ok":true},"items":[1,{"name":"two"}]})");
 }
 
+#pragma endregion
 MAKE_TEST_LIST(JsonParser_ParseScalarsAndKinds,
     JsonParser_ParseNestedViewsAndLookup, JsonParser_DecodesEscapesAndUnicode,
     JsonParser_RejectsInvalidJson, JsonParser_RespectsDepthLimit,

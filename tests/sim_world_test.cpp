@@ -312,6 +312,8 @@ spawnDefenderShooter(SimWorld& w, Position spawn_pos) {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region World_SpawnAndSnapshot
+
 void SimWorld_SpawnAndSnapshot() {
   SimWorld w;
   EXPECT_EQ(w.size(), 0U);
@@ -337,6 +339,9 @@ void SimWorld_SpawnAndSnapshot() {
       2U);
 }
 
+#pragma endregion
+#pragma region World_NextMovesInvaderAlpha
+
 void SimWorld_NextMovesInvaderAlpha() {
   SimWorld w;
   PathJoints p;
@@ -353,6 +358,9 @@ void SimWorld_NextMovesInvaderAlpha() {
   EXPECT_NEAR(snaps[0].pos.x, 50.0, 1e-6);
   EXPECT_NEAR(snaps[0].pos.y, 0.0, 1e-6);
 }
+
+#pragma endregion
+#pragma region World_ExtractUpdatedEntitiesReportsMovedInvaderOncePerExtraction
 
 void SimWorld_ExtractUpdatedEntitiesReportsMovedInvaderOncePerExtraction() {
   SimWorld w;
@@ -377,6 +385,9 @@ void SimWorld_ExtractUpdatedEntitiesReportsMovedInvaderOncePerExtraction() {
   EXPECT_TRUE(empty_delta.upserts.empty());
   EXPECT_TRUE(empty_delta.erased.empty());
 }
+
+#pragma endregion
+#pragma region World_DefenderInRangeFlashesItselfAndInvader
 
 void SimWorld_DefenderInRangeFlashesItselfAndInvader() {
   SimWorld w;
@@ -409,6 +420,9 @@ void SimWorld_DefenderInRangeFlashesItselfAndInvader() {
   EXPECT_NEAR(invader_it->pos.x, 50.0, 1e-6);
 }
 
+#pragma endregion
+#pragma region World_DefenderAoeAttackEmitsPulseExplosion
+
 void SimWorld_DefenderAoeAttackEmitsPulseExplosion() {
   SimWorld w;
   PathJoints p;
@@ -436,6 +450,9 @@ void SimWorld_DefenderAoeAttackEmitsPulseExplosion() {
   EXPECT_TRUE(w.try_get_component<Position>(defender.id()) != nullptr);
 }
 
+#pragma endregion
+#pragma region World_DefenderShooterSpawnsVisibleBullet
+
 void SimWorld_DefenderShooterSpawnsVisibleBullet() {
   SimWorld w;
   PathJoints p;
@@ -459,6 +476,9 @@ void SimWorld_DefenderShooterSpawnsVisibleBullet() {
   EXPECT_NEAR(bulletIt->pos.x, 0.0, 1e-6);
   EXPECT_NEAR(bulletIt->pos.y, 0.0, 1e-6);
 }
+
+#pragma endregion
+#pragma region World_DefenderShooterBulletHitsInvaderOnNextStep
 
 void SimWorld_DefenderShooterBulletHitsInvaderOnNextStep() {
   SimWorld w;
@@ -499,6 +519,9 @@ void SimWorld_DefenderShooterBulletHitsInvaderOnNextStep() {
   EXPECT_NEAR(explosions[0].circle.y, 0.0, 1e-6);
 }
 
+#pragma endregion
+#pragma region World_DefenderShooterBulletHitsFirstInvaderAlongPath
+
 void SimWorld_DefenderShooterBulletHitsFirstInvaderAlongPath() {
   SimWorld w;
   PathJoints p;
@@ -526,6 +549,9 @@ void SimWorld_DefenderShooterBulletHitsFirstInvaderAlongPath() {
   ASSERT_TRUE(stats != nullptr);
   EXPECT_NEAR(stats->totalDamageDealt, 15.0, 1e-6);
 }
+
+#pragma endregion
+#pragma region World_ExplosiveBulletDetonatesOnExpiry
 
 void SimWorld_ExplosiveBulletDetonatesOnExpiry() {
   SimWorld w;
@@ -569,6 +595,9 @@ void SimWorld_ExplosiveBulletDetonatesOnExpiry() {
   EXPECT_NEAR(explosions[0].circle.radius, 250.0, 1e-6);
 }
 
+#pragma endregion
+#pragma region World_SnapshotSinceTracksChanges
+
 void SimWorld_SnapshotSinceTracksChanges() {
   SimWorld w;
   PathJoints p;
@@ -602,6 +631,9 @@ void SimWorld_SnapshotSinceTracksChanges() {
   EXPECT_TRUE(stable.erased.empty());
 }
 
+#pragma endregion
+#pragma region World_DefenderDoesNotAppearAsChangedAfterTick
+
 void SimWorld_DefenderDoesNotAppearAsChangedAfterTick() {
   SimWorld w;
   const auto defender = spawnDefenderAoe(w, Position{50.F, 60.F});
@@ -623,6 +655,9 @@ void SimWorld_DefenderDoesNotAppearAsChangedAfterTick() {
   EXPECT_TRUE(delta.erased.empty());
 }
 
+#pragma endregion
+#pragma region BakePath_TwoJoints
+
 void BakePath_TwoJoints() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{3.F, 4.F}}};
@@ -634,6 +669,9 @@ void BakePath_TwoJoints() {
   EXPECT_NEAR(bp.segments[0].length, 5.0, 1e-6);
   EXPECT_NEAR(bp.totalLength, 5.0, 1e-6);
 }
+
+#pragma endregion
+#pragma region BakePath_ThreeJoints
 
 void BakePath_ThreeJoints() {
   PathJoints p;
@@ -648,6 +686,9 @@ void BakePath_ThreeJoints() {
   EXPECT_NEAR(bp.segments[1].length, 5.0, 1e-6);
   EXPECT_NEAR(bp.totalLength, 10.0, 1e-6);
 }
+
+#pragma endregion
+#pragma region PathPosition_Endpoints
 
 void PathPosition_Endpoints() {
   PathJoints p;
@@ -664,6 +705,9 @@ void PathPosition_Endpoints() {
   EXPECT_NEAR(end.y, 0.0, 1e-6);
 }
 
+#pragma endregion
+#pragma region PathPosition_Midpoint
+
 void PathPosition_Midpoint() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
@@ -675,6 +719,9 @@ void PathPosition_Midpoint() {
   EXPECT_NEAR(mid.y, 0.0, 1e-6);
 }
 
+#pragma endregion
+#pragma region PathPosition_CrossingSegmentBoundaryEmitsJoint
+
 void PathPosition_CrossingSegmentBoundaryEmitsJoint() {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}, {{10.F, 10.F}}};
@@ -685,6 +732,9 @@ void PathPosition_CrossingSegmentBoundaryEmitsJoint() {
   EXPECT_NEAR(corner.x, 10.0, 1e-6);
   EXPECT_NEAR(corner.y, 0.0, 1e-6);
 }
+
+#pragma endregion
+#pragma region World_EnemyAdvancesOnTick
 
 void SimWorld_EnemyAdvancesOnTick() {
   SimWorld w;
@@ -705,6 +755,9 @@ void SimWorld_EnemyAdvancesOnTick() {
   EXPECT_NEAR(delta.upserts[0].pos.x, 50.0, 1e-5);
   EXPECT_NEAR(delta.upserts[0].pos.y, 0.0, 1e-5);
 }
+
+#pragma endregion
+#pragma region World_ResolveEscapeesVisitsEscapedEnemy
 
 void SimWorld_ResolveEscapeesVisitsEscapedEnemy() {
   SimWorld w;
@@ -741,6 +794,9 @@ void SimWorld_ResolveEscapeesVisitsEscapedEnemy() {
   (void)w.tick();
 }
 
+#pragma endregion
+#pragma region World_ResolveEscapeesCanLeaveEnemyAlive
+
 void SimWorld_ResolveEscapeesCanLeaveEnemyAlive() {
   SimWorld w;
   PathJoints p;
@@ -768,6 +824,9 @@ void SimWorld_ResolveEscapeesCanLeaveEnemyAlive() {
   (void)w.tick();
 }
 
+#pragma endregion
+#pragma region World_GetPathOutOfRange
+
 void SimWorld_GetPathOutOfRange() {
   SimWorld w;
   EXPECT_TRUE(w.getPath(PathId{0}) == nullptr);
@@ -779,6 +838,9 @@ void SimWorld_GetPathOutOfRange() {
   EXPECT_TRUE(w.getPath(PathId{0}) != nullptr);
   EXPECT_TRUE(w.getPath(PathId{1}) == nullptr);
 }
+
+#pragma endregion
+#pragma region World_ObtainPathIncludesTerminalJoint
 
 void SimWorld_ObtainPathIncludesTerminalJoint() {
   SimWorld w;
@@ -803,6 +865,9 @@ void SimWorld_ObtainPathIncludesTerminalJoint() {
   EXPECT_NEAR(points[2].y, 5.0, 1e-6);
 }
 
+#pragma endregion
+#pragma region Game_LoadMapInitialSnapshotAndState
+
 void SimGame_LoadMapInitialSnapshotAndState() {
   SimGame game;
   (void)game.loadMap();
@@ -824,6 +889,9 @@ void SimGame_LoadMapInitialSnapshotAndState() {
   EXPECT_TRUE(delta.erased.empty());
 }
 
+#pragma endregion
+#pragma region Game_HandleUiActionStartWaveTransitionsToWavePhase
+
 void SimGame_HandleUiActionStartWaveTransitionsToWavePhase() {
   SimGame game;
   (void)game.loadMap();
@@ -840,6 +908,9 @@ void SimGame_HandleUiActionStartWaveTransitionsToWavePhase() {
   EXPECT_EQ(delta.phase, std::string_view{"wave"});
   EXPECT_EQ(delta.waveTick, WaveTick{1});
 }
+
+#pragma endregion
+#pragma region Game_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase
 
 void SimGame_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase() {
   SimGame game;
@@ -874,6 +945,9 @@ void SimGame_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase() {
   EXPECT_TRUE(after.erased.empty());
 }
 
+#pragma endregion
+#pragma region Game_HandleUiCanvasRightClickSpawnPlacesDefender
+
 void SimGame_HandleUiCanvasRightClickSpawnPlacesDefender() {
   SimGame game;
   (void)game.loadMap();
@@ -903,6 +977,9 @@ void SimGame_HandleUiCanvasRightClickSpawnPlacesDefender() {
   EXPECT_NEAR(after.upserts[0].second.y, 100.0, 1e-6);
   EXPECT_TRUE(after.erased.empty());
 }
+
+#pragma endregion
+#pragma region Game_HandleUiCanvasSelectingDefenderReportsSelectedPosition
 
 void SimGame_HandleUiCanvasSelectingDefenderReportsSelectedPosition() {
   SimGame game;
@@ -940,6 +1017,9 @@ void SimGame_HandleUiCanvasSelectingDefenderReportsSelectedPosition() {
   ASSERT_TRUE(delta.defenderSummary.has_value());
 }
 
+#pragma endregion
+#pragma region Game_HandleUiCanvasSpawnsShooterDefender
+
 void SimGame_HandleUiCanvasSpawnsShooterDefender() {
   SimGame game;
   (void)game.loadMap();
@@ -973,6 +1053,9 @@ void SimGame_HandleUiCanvasSpawnsShooterDefender() {
   EXPECT_TRUE(after.erased.empty());
 }
 
+#pragma endregion
+#pragma region Game_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick
+
 void SimGame_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick() {
   SimGame game;
   (void)game.loadMap();
@@ -998,6 +1081,9 @@ void SimGame_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick() {
   EXPECT_FALSE(*delta.placementAllowed);
 }
 
+#pragma endregion
+#pragma region Game_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick
+
 void SimGame_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick() {
   SimGame game;
   (void)game.loadMap();
@@ -1021,6 +1107,9 @@ void SimGame_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick() {
   EXPECT_FALSE(*delta.spawnAllowed);
 }
 
+#pragma endregion
+#pragma region Game_StartWaveSpawnsFirstEnemyOnFirstStep
+
 void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
   SimGame game;
   (void)game.loadMap();
@@ -1043,6 +1132,9 @@ void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
   EXPECT_TRUE(delta.upserts.empty());
   EXPECT_TRUE(delta.erased.empty());
 }
+
+#pragma endregion
+#pragma region Game_ExtractDeltaConsumesWorldUpdatesButNotState
 
 void SimGame_ExtractDeltaConsumesWorldUpdatesButNotState() {
   SimGame game;
@@ -1071,6 +1163,9 @@ void SimGame_ExtractDeltaConsumesWorldUpdatesButNotState() {
   EXPECT_EQ(empty_world_delta.phase, std::string_view{"wave"});
 }
 
+#pragma endregion
+#pragma region Game_ReachesGameOverAsSoonAsLivesAreExhausted
+
 void SimGame_ReachesGameOverAsSoonAsLivesAreExhausted() {
   SimGame game;
   (void)game.loadMap();
@@ -1090,6 +1185,9 @@ void SimGame_ReachesGameOverAsSoonAsLivesAreExhausted() {
 
   EXPECT_TRUE(sawZeroLives);
 }
+
+#pragma endregion
+#pragma region Game_GameOverFreezesRemainingInvaders
 
 void SimGame_GameOverFreezesRemainingInvaders() {
   SimGame game;
@@ -1125,6 +1223,9 @@ void SimGame_GameOverFreezesRemainingInvaders() {
         terminalSnapshot.entities[i].pos.y, 1e-6);
   }
 }
+
+#pragma endregion
+#pragma region Game_ExtractFullIncludesPathsAndState
 
 void SimGame_ExtractFullIncludesPathsAndState() {
   SimGame game;
@@ -1168,6 +1269,9 @@ void SimGame_ExtractFullIncludesPathsAndState() {
   EXPECT_FALSE(uiState.selectedDefender.has_value());
 }
 
+#pragma endregion
+#pragma region Json_ParseUiCanvasMessage
+
 void SimJson_ParseUiCanvasMessage() {
   const auto msg = parseSimClientMessageRoot(R"({
     "type": "ui_canvas",
@@ -1204,6 +1308,9 @@ void SimJson_ParseUiCanvasMessage() {
   EXPECT_FALSE(input->meta);
 }
 
+#pragma endregion
+#pragma region Json_ParseUiActionMessageFields
+
 void SimJson_ParseUiActionMessageFields() {
   const auto input = parseUiActionMessage(
       R"({"type":"ui_action","seq":7,"action":"start_wave","fields":{"defender/kind":"ice","note":"line\nbreak"}})");
@@ -1223,10 +1330,16 @@ void SimJson_ParseUiActionMessageFields() {
   EXPECT_EQ(note->value, std::string("line\nbreak"));
 }
 
+#pragma endregion
+#pragma region Json_BuildHelloAckJson
+
 void SimJson_BuildHelloAckJson() {
   EXPECT_EQ(buildSimHelloAckJson(),
       std::string(R"({"type":"hello_ack","message":"connected"})"));
 }
+
+#pragma endregion
+#pragma region Json_BuildWorldDeltaJsonShapeAndFormatting
 
 void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   SimGame game;
@@ -1298,6 +1411,9 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
   EXPECT_EQ(count, 1U);
 }
 
+#pragma endregion
+#pragma region Json_BuildWorldDeltaIncludesFlashVisualEffects
+
 void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
   SimGame game;
   (void)game.loadMap();
@@ -1362,6 +1478,9 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
   EXPECT_EQ(count, 1U);
 }
 
+#pragma endregion
+#pragma region Json_FlashExpiryTickReturnsAbsoluteTick
+
 void SimJson_FlashExpiryTickReturnsAbsoluteTick() {
   VisualEffects fx{
       .modified = WorldTick{12},
@@ -1377,6 +1496,9 @@ void SimJson_FlashExpiryTickReturnsAbsoluteTick() {
   fx.flashColor = 0;
   EXPECT_EQ(flashExpiryTick(fx), 0U);
 }
+
+#pragma endregion
+#pragma region Json_BuildWorldSnapshotJsonShape
 
 void SimJson_BuildWorldSnapshotJsonShape() {
   SimGame game;
@@ -1419,6 +1541,9 @@ void SimJson_BuildWorldSnapshotJsonShape() {
   EXPECT_EQ(*delta_phase, std::string_view{"build"});
 }
 
+#pragma endregion
+#pragma region Game_BuildCurrentMapEntityCsvReport
+
 void SimGame_BuildCurrentMapEntityCsvReport() {
   SimGame game;
   ASSERT_TRUE(game.loadMap());
@@ -1434,6 +1559,8 @@ void SimGame_BuildCurrentMapEntityCsvReport() {
   EXPECT_TRUE(csv.contains("DefenderAoeBasic,50,30,100,6,20\n"));
   EXPECT_TRUE(csv.contains("DefenderHitscanBasic,100,25,200,30,25\n"));
 }
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
 

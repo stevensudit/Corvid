@@ -32,6 +32,8 @@ using namespace corvid;
 
 using int_stable_ids = stable_ids<int>;
 
+#pragma region ArchetypeStorage_Basic
+
 void ArchetypeStorage_Basic() {
   using id_enums::entity_id_t;
   using id_enums::store_id_t;
@@ -62,6 +64,9 @@ void ArchetypeStorage_Basic() {
     EXPECT_TRUE(v.empty());
   }
 }
+
+#pragma endregion
+#pragma region ArchetypeStorage_Registry
 
 void ArchetypeStorage_Registry() {
   using namespace id_enums;
@@ -101,6 +106,9 @@ void ArchetypeStorage_Registry() {
     EXPECT_EQ(a.limit(), *id_t::invalid);
   }
 }
+
+#pragma endregion
+#pragma region ArchetypeStorage_Add
 
 void ArchetypeStorage_Add() {
   using namespace id_enums;
@@ -266,6 +274,9 @@ void ArchetypeStorage_Add() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeStorage_Remove
+
 void ArchetypeStorage_Remove() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -353,6 +364,9 @@ void ArchetypeStorage_Remove() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeStorage_Erase
+
 void ArchetypeStorage_Erase() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -437,6 +451,9 @@ void ArchetypeStorage_Erase() {
     EXPECT_EQ(a[id1].component<int>(), 22);
   }
 }
+
+#pragma endregion
+#pragma region ArchetypeStorage_RowAccess
 
 void ArchetypeStorage_RowAccess() {
   using namespace id_enums;
@@ -601,6 +618,9 @@ void ArchetypeStorage_RowAccess() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeStorage_ComponentAccess
+
 void ArchetypeStorage_ComponentAccess() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -673,6 +693,9 @@ void ArchetypeStorage_ComponentAccess() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeStorage_Limit
+
 void ArchetypeStorage_Limit() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -736,6 +759,9 @@ void ArchetypeStorage_Limit() {
     EXPECT_EQ(r.size(), 1U);
   }
 }
+
+#pragma endregion
+#pragma region ArchetypeStorage_SwapAndMove
 
 void ArchetypeStorage_SwapAndMove() {
   using namespace id_enums;
@@ -824,6 +850,9 @@ void ArchetypeStorage_SwapAndMove() {
     EXPECT_FALSE(r.is_valid(id1));
   }
 }
+
+#pragma endregion
+#pragma region ArchetypeStorage_Iterator
 
 void ArchetypeStorage_Iterator() {
   using namespace id_enums;
@@ -930,6 +959,9 @@ void ArchetypeStorage_Iterator() {
         std::is_same_v<decltype(a.cbegin()), arch_t::const_iterator>);
   }
 }
+
+#pragma endregion
+#pragma region ArchetypeStorage_EraseIf
 
 void ArchetypeStorage_EraseIf() {
   using namespace id_enums;
@@ -1046,6 +1078,9 @@ void ArchetypeStorage_EraseIf() {
     EXPECT_FALSE(r.is_valid(id1));
   }
 }
+
+#pragma endregion
+#pragma region StableId_Basic
 
 void StableId_Basic() {
   using V = int_stable_ids;
@@ -1345,6 +1380,8 @@ void StableId_Basic() {
   }
 }
 
+#pragma endregion
+
 enum class small_id_t : std::uint8_t { invalid = 255 };
 
 template<>
@@ -1361,6 +1398,8 @@ using int_stable_ids_fifo_nogen = stable_ids<int, int_stable_ids::id_t,
     generation_scheme::unversioned, sequence_order::fifo, std::allocator<int>>;
 using int_stable_small_ids_fifo = stable_ids<int, small_id_t,
     generation_scheme::versioned, sequence_order::fifo, std::allocator<int>>;
+
+#pragma region StableId_SmallId
 
 void StableId_SmallId() {
   using V = int_stable_small_ids;
@@ -1412,6 +1451,9 @@ void StableId_SmallId() {
     EXPECT_THROW(v.push_back(0), std::out_of_range);
   }
 }
+
+#pragma endregion
+#pragma region StableId_NoThrow
 
 void StableId_NoThrow() {
   using V = int_stable_small_ids;
@@ -1488,6 +1530,9 @@ void StableId_NoThrow() {
     EXPECT_EQ(v.size(), 255U);
   }
 }
+
+#pragma endregion
+#pragma region StableId_Fifo
 
 void StableId_Fifo() {
   using V = int_stable_ids_fifo;
@@ -1730,6 +1775,9 @@ void StableId_Fifo() {
   }
 }
 
+#pragma endregion
+#pragma region StableId_NoGen
+
 void StableId_NoGen() {
   using V = int_stable_ids_nogen;
   using id_t = V::id_t;
@@ -1845,6 +1893,9 @@ void StableId_NoGen() {
   }
 }
 
+#pragma endregion
+#pragma region StableId_FifoNoGen
+
 void StableId_FifoNoGen() {
   using V = int_stable_ids_fifo_nogen;
   using id_t = V::id_t;
@@ -1926,7 +1977,11 @@ void StableId_FifoNoGen() {
   }
 }
 
+#pragma endregion
+#pragma region StableId_MaxId
+
 // Test the max_id() setting to limit ID allocation.
+
 void StableId_MaxId() {
   using id_t = int_stable_ids::id_t;
   using V = stable_ids<int, id_t>;
@@ -2064,6 +2119,9 @@ void StableId_MaxId() {
   }
 }
 
+#pragma endregion
+#pragma region EntityRegistry_ForEach
+
 void EntityRegistry_ForEach() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -2153,6 +2211,9 @@ void EntityRegistry_ForEach() {
     EXPECT_EQ(cnt, 0U);
   }
 }
+
+#pragma endregion
+#pragma region MonoArchetypeStorage_Basic
 
 void MonoArchetypeStorage_Basic() {
   using namespace id_enums;
@@ -2323,6 +2384,9 @@ void MonoArchetypeStorage_Basic() {
   }
 }
 
+#pragma endregion
+#pragma region MonoArchetypeStorage_Handle
+
 void MonoArchetypeStorage_Handle() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -2442,6 +2506,9 @@ void MonoArchetypeStorage_Handle() {
   }
 }
 
+#pragma endregion
+#pragma region MonoArchetypeStorage_Remove
+
 void MonoArchetypeStorage_Remove() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -2516,6 +2583,9 @@ void MonoArchetypeStorage_Remove() {
   }
 }
 
+#pragma endregion
+#pragma region MonoArchetypeStorage_RemoveAll
+
 void MonoArchetypeStorage_RemoveAll() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -2563,6 +2633,9 @@ void MonoArchetypeStorage_RemoveAll() {
   }
 }
 
+#pragma endregion
+#pragma region MonoArchetypeStorage_Erase
+
 void MonoArchetypeStorage_Erase() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -2608,6 +2681,9 @@ void MonoArchetypeStorage_Erase() {
     EXPECT_FALSE(s.erase(bad_id));
   }
 }
+
+#pragma endregion
+#pragma region MonoArchetypeStorage_EraseIf
 
 void MonoArchetypeStorage_EraseIf() {
   using namespace id_enums;
@@ -2656,6 +2732,9 @@ void MonoArchetypeStorage_EraseIf() {
   }
 }
 
+#pragma endregion
+#pragma region MonoArchetypeStorage_Clear
+
 void MonoArchetypeStorage_Clear() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -2690,6 +2769,9 @@ void MonoArchetypeStorage_Clear() {
     EXPECT_TRUE(s.empty());
   }
 }
+
+#pragma endregion
+#pragma region MonoArchetypeStorage_SwapAndMove
 
 void MonoArchetypeStorage_SwapAndMove() {
   using namespace id_enums;
@@ -2772,6 +2854,9 @@ void MonoArchetypeStorage_SwapAndMove() {
     EXPECT_FALSE(r.is_valid(id1));
   }
 }
+
+#pragma endregion
+#pragma region MonoArchetypeStorage_LimitAndReserve
 
 void MonoArchetypeStorage_LimitAndReserve() {
   using namespace id_enums;
@@ -2972,6 +3057,9 @@ void MonoArchetypeStorage_LimitAndReserve() {
   }
 }
 
+#pragma endregion
+#pragma region MonoArchetypeStorage_Iterator
+
 void MonoArchetypeStorage_Iterator() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -3127,6 +3215,9 @@ void MonoArchetypeStorage_Iterator() {
   }
 }
 
+#pragma endregion
+#pragma region ChunkedArchetypeStorage_Basic
+
 // ============================================================
 // chunked_archetype_storage tests
 // Use ChunkSize=4 so chunk boundaries appear at indices 4, 8, …
@@ -3192,6 +3283,9 @@ void ChunkedArchetypeStorage_Basic() {
     static_assert(!std::is_same_v<tagged_t, arch_t>);
   }
 }
+
+#pragma endregion
+#pragma region ChunkedArchetypeStorage_Add
 
 void ChunkedArchetypeStorage_Add() {
   using namespace id_enums;
@@ -3320,6 +3414,9 @@ void ChunkedArchetypeStorage_Add() {
   }
 }
 
+#pragma endregion
+#pragma region ChunkedArchetypeStorage_RemoveAndErase
+
 void ChunkedArchetypeStorage_RemoveAndErase() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -3426,6 +3523,9 @@ void ChunkedArchetypeStorage_RemoveAndErase() {
     EXPECT_EQ(r.get_location(id1).ndx, 1U);
   }
 }
+
+#pragma endregion
+#pragma region ChunkedArchetypeStorage_RowAndIterator
 
 void ChunkedArchetypeStorage_RowAndIterator() {
   using namespace id_enums;
@@ -3566,6 +3666,9 @@ void ChunkedArchetypeStorage_RowAndIterator() {
   }
 }
 
+#pragma endregion
+#pragma region ChunkedArchetypeStorage_EraseIf
+
 void ChunkedArchetypeStorage_EraseIf() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -3627,6 +3730,9 @@ void ChunkedArchetypeStorage_EraseIf() {
     EXPECT_FALSE(r.is_valid(id1));
   }
 }
+
+#pragma endregion
+#pragma region ChunkedArchetypeStorage_ChunkBoundary
 
 void ChunkedArchetypeStorage_ChunkBoundary() {
   using namespace id_enums;
@@ -3746,6 +3852,8 @@ void ChunkedArchetypeStorage_ChunkBoundary() {
   }
 }
 
+#pragma endregion
+
 // ---- Scene tests ----
 //
 // Component types used across all archetype_scene tests.
@@ -3774,6 +3882,9 @@ using three_storage_scene_t =
 
 // Compile-time checks for `tuple_union_t`, `tuple_index_v`, and
 // `wrap_optionals_t` from `ecs_meta.h`.
+
+#pragma region EcsMeta_TupleUnion
+
 void EcsMeta_TupleUnion() {
   // Deduplication: overlapping types appear only once, in first-seen order.
   if (true) {
@@ -3811,6 +3922,9 @@ void EcsMeta_TupleUnion() {
   }
 }
 
+#pragma endregion
+#pragma region EcsMeta_TupleIndex
+
 void EcsMeta_TupleIndex() {
   // `tuple_index_v` returns the 0-based position of each type in a tuple.
   if (true) {
@@ -3823,6 +3937,9 @@ void EcsMeta_TupleIndex() {
   // Works correctly for a single-element tuple.
   if (true) { static_assert(tuple_index_v<Health, std::tuple<Health>> == 0); }
 }
+
+#pragma endregion
+#pragma region EcsMeta_WrapOptionals
 
 void EcsMeta_WrapOptionals() {
   // `wrap_optionals_t` transforms each element type to `std::optional<T>`.
@@ -3844,7 +3961,11 @@ void EcsMeta_WrapOptionals() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeScene_Basic
+
 // Basic construction, type queries, storage access.
+
 void ArchetypeScene_Basic() {
   // Default construction: empty, zero size.
   if (true) {
@@ -3918,8 +4039,12 @@ void ArchetypeScene_Basic() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeScene_EraseRemove
+
 // archetype_scene::erase and archetype_scene::remove dispatch to the correct
 // storage.
+
 void ArchetypeScene_EraseRemove() {
   // erase_entity(id) on an entity in storage 0.
   if (true) {
@@ -3997,7 +4122,11 @@ void ArchetypeScene_EraseRemove() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeScene_Migrate_Manual
+
 // migrate with a user-supplied build callback.
+
 void ArchetypeScene_Migrate_Manual() {
   // Promote from arch_pv to arch_pvh, providing a new Health component.
   if (true) {
@@ -4053,7 +4182,11 @@ void ArchetypeScene_Migrate_Manual() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeScene_Migrate_Auto
+
 // migrate_entity with automatic type-based component mapping.
+
 void ArchetypeScene_Migrate_Auto() {
   // Promote: arch_pv (Position, Velocity) -> arch_pvh (Position, Velocity,
   // Health). Health should be default-constructed (hp=100).
@@ -4113,7 +4246,11 @@ void ArchetypeScene_Migrate_Auto() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeScene_EraseStaged
+
 // erase_staged_entities removes all staged entities.
+
 void ArchetypeScene_EraseStaged() {
   // Entities placed in a storage are not staged and are not affected.
   if (true) {
@@ -4165,7 +4302,11 @@ void ArchetypeScene_EraseStaged() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeScene_Clear
+
 // archetype_scene::clear empties everything.
+
 void ArchetypeScene_Clear() {
   // clear(true) -- fast path: all entities gone, registry empty.
   if (true) {
@@ -4245,8 +4386,12 @@ void ArchetypeScene_Clear() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeScene_MultiStorage
+
 // Multiple storages with different component sets; archetype_scene-level
 // dispatch correctly targets each one by store_id.
+
 void ArchetypeScene_MultiStorage() {
   if (true) {
     three_storage_scene_t s;
@@ -4284,11 +4429,15 @@ void ArchetypeScene_MultiStorage() {
   }
 }
 
+#pragma endregion
+
 // Mixed-storage scene: one archetype, one chunked, one mono_archetype_storage.
 using chunked_h_t = chunked_archetype_storage<scene_reg_t, std::tuple<Health>>;
 using comp_pos_t = mono_archetype_storage<scene_reg_t, Position>;
 using mixed_scene_t =
     archetype_scene<scene_reg_t, arch_pv_t, chunked_h_t, comp_pos_t>;
+
+#pragma region ArchetypeScene_MixedStorages
 
 void ArchetypeScene_MixedStorages() {
   // add_new into each storage type; size() sums all three.
@@ -4383,6 +4532,9 @@ void ArchetypeScene_MixedStorages() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeStorage_At
+
 void ArchetypeStorage_At() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -4463,6 +4615,9 @@ void ArchetypeStorage_At() {
     EXPECT_THROW(ca2.at(h), std::invalid_argument);
   }
 }
+
+#pragma endregion
+#pragma region ArchetypeStorage_RemoveIf
 
 void ArchetypeStorage_RemoveIf() {
   using namespace id_enums;
@@ -4567,6 +4722,9 @@ void ArchetypeStorage_RemoveIf() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeStorage_IteratorPostIncDec
+
 void ArchetypeStorage_IteratorPostIncDec() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -4641,6 +4799,9 @@ void ArchetypeStorage_IteratorPostIncDec() {
   }
 }
 
+#pragma endregion
+#pragma region ChunkedArchetypeStorage_At
+
 void ChunkedArchetypeStorage_At() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -4705,6 +4866,9 @@ void ChunkedArchetypeStorage_At() {
     EXPECT_THROW(ca.at(bad), std::invalid_argument);
   }
 }
+
+#pragma endregion
+#pragma region ChunkedArchetypeStorage_RemoveIf
 
 void ChunkedArchetypeStorage_RemoveIf() {
   using namespace id_enums;
@@ -4772,6 +4936,9 @@ void ChunkedArchetypeStorage_RemoveIf() {
   }
 }
 
+#pragma endregion
+#pragma region MonoArchetypeStorage_RowView
+
 void MonoArchetypeStorage_RowView() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -4835,6 +5002,9 @@ void MonoArchetypeStorage_RowView() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeScene_StorageTypeAccess
+
 void ArchetypeScene_StorageTypeAccess() {
   // storage<STORAGE>() type-based access refers to the same object as
   // storage<SID>() enum-based access.
@@ -4873,8 +5043,12 @@ void ArchetypeScene_StorageTypeAccess() {
   }
 }
 
+#pragma endregion
+
 struct TagA {};
 struct TagB {};
+
+#pragma region ArchetypeStorage_Tag
 
 void ArchetypeStorage_Tag() {
   using namespace id_enums;
@@ -4910,6 +5084,9 @@ void ArchetypeStorage_Tag() {
   }
 }
 
+#pragma endregion
+#pragma region StableId_ReservePrefill
+
 void StableId_ReservePrefill() {
   // reserve(n, true) extends the ID space without inserting elements.
   if (true) {
@@ -4944,6 +5121,9 @@ void StableId_ReservePrefill() {
     EXPECT_EQ(ids.size(), 3U);
   }
 }
+
+#pragma endregion
+#pragma region ChunkedArchetypeStorage_SwapAndMove
 
 void ChunkedArchetypeStorage_SwapAndMove() {
   using namespace id_enums;
@@ -5048,6 +5228,9 @@ void ChunkedArchetypeStorage_SwapAndMove() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentIndex_Flat
+
 // ============================================================
 // component_index_policies tests
 // ============================================================
@@ -5099,6 +5282,9 @@ void ComponentIndex_Flat() {
     EXPECT_EQ(idx.lookup(entity_id_t{4}), 20U);
   }
 }
+
+#pragma endregion
+#pragma region ComponentIndex_Sorted
 
 void ComponentIndex_Sorted() {
   using namespace id_enums;
@@ -5154,6 +5340,9 @@ void ComponentIndex_Sorted() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentIndex_Paged
+
 void ComponentIndex_Paged() {
   using namespace id_enums;
   using idx_t = paged_sparse_index<entity_id_t>;
@@ -5195,6 +5384,8 @@ void ComponentIndex_Paged() {
   }
 }
 
+#pragma endregion
+
 // ============================================================
 // component_storage tests
 // ============================================================
@@ -5208,6 +5399,8 @@ using cs_id_t = cs_reg_t::id_t;
 
 // Default storage (flat_sparse_index).
 using cs_store_t = component_storage<cs_reg_t, float>;
+
+#pragma region ComponentStorage_Basic
 
 void ComponentStorage_Basic() {
   using namespace id_enums;
@@ -5327,6 +5520,9 @@ void ComponentStorage_Basic() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentStorage_MultiStore
+
 void ComponentStorage_MultiStore() {
   using namespace id_enums;
 
@@ -5364,6 +5560,9 @@ void ComponentStorage_MultiStore() {
     EXPECT_TRUE(sb.contains(h.id()));
   }
 }
+
+#pragma endregion
+#pragma region ComponentStorage_Remove
 
 void ComponentStorage_Remove() {
   using namespace id_enums;
@@ -5425,6 +5624,9 @@ void ComponentStorage_Remove() {
     EXPECT_TRUE(r.is_valid(id1));
   }
 }
+
+#pragma endregion
+#pragma region ComponentStorage_Erase
 
 void ComponentStorage_Erase() {
   using namespace id_enums;
@@ -5501,6 +5703,9 @@ void ComponentStorage_Erase() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentStorage_EraseIf
+
 void ComponentStorage_EraseIf() {
   using namespace id_enums;
 
@@ -5562,6 +5767,9 @@ void ComponentStorage_EraseIf() {
     EXPECT_EQ(s2[id0], 9.0f);
   }
 }
+
+#pragma endregion
+#pragma region ComponentStorage_Iterator
 
 void ComponentStorage_Iterator() {
   using namespace id_enums;
@@ -5631,6 +5839,9 @@ void ComponentStorage_Iterator() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentStorage_IndexVariants
+
 void ComponentStorage_IndexVariants() {
   using namespace id_enums;
 
@@ -5686,6 +5897,8 @@ void ComponentStorage_IndexVariants() {
   }
 }
 
+#pragma endregion
+
 // ============================================================
 // component_scene tests
 // ============================================================
@@ -5715,6 +5928,8 @@ using two_tagged_scene_t =
 // SID{3}=int. Used for mixed tag+component selector tests.
 using three_tagged_scene_t = component_scene<cs_scene_reg_t, tagged_float_a_t,
     tagged_float_b_t, cs_scene_store2_t>;
+
+#pragma region ComponentScene_Basic
 
 void ComponentScene_Basic() {
   // Default construction: empty registry, no entities.
@@ -5752,7 +5967,11 @@ void ComponentScene_Basic() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentScene_StoreEntity
+
 // component_scene: store_entity and multi-storage membership.
+
 void ComponentScene_StoreEntity() {
   // store_entity adds entity to a second storage without removing it from
   // the first. Entity is in both storages simultaneously.
@@ -5808,7 +6027,11 @@ void ComponentScene_StoreEntity() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentScene_RemoveErase
+
 // component_scene: remove_entity, staging, and erase_entity.
+
 void ComponentScene_RemoveErase() {
   // remove_entity removes entity from one storage; it remains in others.
   if (true) {
@@ -5916,7 +6139,11 @@ void ComponentScene_RemoveErase() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentScene_EraseStaged
+
 // component_scene: erase_staged_entities and clear.
+
 void ComponentScene_EraseStaged() {
   // erase_staged_entities removes entities with no components.
   if (true) {
@@ -5973,7 +6200,11 @@ void ComponentScene_EraseStaged() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentScene_Destructor
+
 // component_scene: destructor implicitly calls clear().
+
 void ComponentScene_Destructor() {
   // The meaningful check is that the scene is non-empty going in and that
   // destruction completes without error (i.e., the destructor calls clear()
@@ -5990,6 +6221,9 @@ void ComponentScene_Destructor() {
     // Scope ends here; destructor runs clear() implicitly.
   }
 }
+
+#pragma endregion
+#pragma region ArchetypeScene_CreateHandleId
 
 void ArchetypeScene_CreateHandleId() {
   // stage_new_entity() creates a staged entity through the scene.
@@ -6026,6 +6260,9 @@ void ArchetypeScene_CreateHandleId() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeScene_AddNewRuntime
+
 void ArchetypeScene_AddNewRuntime() {
   // store_new_entity(store_id) dispatches to the correct storage at runtime
   // and default-constructs all components.
@@ -6059,6 +6296,9 @@ void ArchetypeScene_AddNewRuntime() {
     EXPECT_EQ(s.registry().size(), 0U);
   }
 }
+
+#pragma endregion
+#pragma region ArchetypeScene_StoreEntity
 
 void ArchetypeScene_StoreEntity() {
   // store_entity(id, store_id) moves a staged entity into the chosen storage
@@ -6173,6 +6413,9 @@ void ArchetypeScene_StoreEntity() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeScene_EntityLifecycle
+
 void ArchetypeScene_EntityLifecycle() {
   // Full entity lifecycle: stage -> store -> remove_entity -> re-store ->
   // migrate_entity -> erase_entity.
@@ -6224,6 +6467,9 @@ void ArchetypeScene_EntityLifecycle() {
   EXPECT_FALSE(s.registry().is_valid(h)); // stale handle
 }
 
+#pragma endregion
+#pragma region ArchetypeScene_MigrateEdgeCases
+
 void ArchetypeScene_MigrateEdgeCases() {
   // migrate(id, to, build) is a no-op when entity is already in target
   // storage.
@@ -6270,6 +6516,9 @@ void ArchetypeScene_MigrateEdgeCases() {
     EXPECT_FALSE(s.migrate_entity(bad, scene_sid_t{1}));
   }
 }
+
+#pragma endregion
+#pragma region ArchetypeScene_ForEach
 
 void ArchetypeScene_ForEach() {
   // for_each<Cs...> visits all entities in all storages that have Cs...
@@ -6439,6 +6688,9 @@ void ArchetypeScene_ForEach() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeScene_TryGetComponent
+
 void ArchetypeScene_TryGetComponent() {
   // Returns non-null for a component the entity's archetype has.
   if (true) {
@@ -6509,6 +6761,9 @@ void ArchetypeScene_TryGetComponent() {
         42.f);
   }
 }
+
+#pragma endregion
+#pragma region ArchetypeScene_TryGetComponents
 
 void ArchetypeScene_TryGetComponents() {
   // Returns non-null pointers for all requested components when the archetype
@@ -6584,6 +6839,9 @@ void ArchetypeScene_TryGetComponents() {
         24.f);
   }
 }
+
+#pragma endregion
+#pragma region ArchetypeScene_MegaTuple
 
 void ArchetypeScene_MegaTuple() {
   // `component_union_t` is the deduplicated union of all archetype component
@@ -6713,6 +6971,9 @@ void ArchetypeScene_MegaTuple() {
   }
 }
 
+#pragma endregion
+#pragma region ArchetypeScene_TryGetSomeComponents
+
 void ArchetypeScene_TryGetSomeComponents() {
   // All requested components present: all pointers non-null with correct
   // values.
@@ -6793,6 +7054,9 @@ void ArchetypeScene_TryGetSomeComponents() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentScene_StageNewEntity
+
 void ComponentScene_StageNewEntity() {
   // stage_new_entity() creates a staged entity and returns its handle.
   if (true) {
@@ -6815,6 +7079,9 @@ void ComponentScene_StageNewEntity() {
     EXPECT_EQ(s.storage<cs_scene_sid_t{2}>()[id], 42);
   }
 }
+
+#pragma endregion
+#pragma region ComponentScene_RemoveAll
 
 void ComponentScene_RemoveAll() {
   // restage_entity(id) removes entity from all storages; entity stays alive
@@ -6873,6 +7140,9 @@ void ComponentScene_RemoveAll() {
     EXPECT_EQ(s.size(), 0U);
   }
 }
+
+#pragma endregion
+#pragma region ComponentScene_EntityLifecycle
 
 void ComponentScene_EntityLifecycle() {
   // Full entity lifecycle for component_scene: demonstrates an entity
@@ -6952,9 +7222,13 @@ void ComponentScene_EntityLifecycle() {
   EXPECT_FALSE(s.registry().is_valid(h)); // stale handle
 }
 
+#pragma endregion
+#pragma region ComponentScene_ForEach
+
 // component_scene with OWN_COUNT that is not a multiple of 8: the registry
 // rounds the bitmap width up internally; the user-visible OWN_COUNT still
 // enforces the storage-count limit.
+
 void ComponentScene_ForEach() {
   // for_each<Cs...> visits entities present in all named storages.
   // two_cs_scene_t: SID{1}=float, SID{2}=int.
@@ -7127,6 +7401,9 @@ void ComponentScene_ForEach() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentScene_NonAlignedOwnCount
+
 void ComponentScene_NonAlignedOwnCount() {
   using namespace id_enums;
   // OWN_COUNT=3 means staging bit 0 + up to 2 real storages. The
@@ -7151,7 +7428,11 @@ void ComponentScene_NonAlignedOwnCount() {
   EXPECT_EQ(s.size(), 0U);
 }
 
+#pragma endregion
+#pragma region ComponentScene_ForAll
+
 // component_scene: for_all registry-driven iteration.
+
 void ComponentScene_ForAll() {
   // for_all<Cs...> visits entities present in all named storages, driving
   // the outer loop from the registry rather than from the smallest storage.
@@ -7308,11 +7589,15 @@ void ComponentScene_ForAll() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentScene_TagLookup
+
 // component_scene: tag-based storage resolution.
 // When two storages share the same `component_t` and differ only by `tag_t`,
 // pass the `tag_t` as the selector to `for_each`, `for_all`, and
 // `get_component`. The callback receives the storage's `component_t&`, not
 // the tag type itself.
+
 void ComponentScene_TagLookup() {
   // two_tagged_scene_t: SID{1} = float/FloatTagA, SID{2} = float/FloatTagB.
 
@@ -7621,11 +7906,15 @@ void ComponentScene_TagLookup() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentScene_ForAllSharedType
+
 // component_scene: for_all with a component type shared by multiple storages.
 // When two storages have the same component_t but different tag_t, passing the
 // plain component type to for_all finds the entity in whichever storage it
 // occupies. If the entity is in both storages simultaneously the result is
 // ambiguous: the entity is skipped and counted in the return value.
+
 void ComponentScene_ForAllSharedType() {
   // Entity in TagA storage only: visited once, correct component value.
   if (true) {
@@ -7790,6 +8079,9 @@ void ComponentScene_ForAllSharedType() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentStorage_SwapMoveReserve
+
 void ComponentStorage_SwapMoveReserve() {
   using namespace id_enums;
 
@@ -7869,6 +8161,9 @@ void ComponentStorage_SwapMoveReserve() {
   }
 }
 
+#pragma endregion
+#pragma region ComponentStorage_AddNew
+
 void ComponentStorage_AddNew() {
   using namespace id_enums;
 
@@ -7924,6 +8219,9 @@ void ComponentStorage_AddNew() {
     EXPECT_EQ(s.limit(), 10U);
   }
 }
+
+#pragma endregion
+#pragma region ComponentStorage_At
 
 void ComponentStorage_At() {
   using namespace id_enums;
@@ -7990,6 +8288,8 @@ void ComponentStorage_At() {
     EXPECT_THROW((void)cs1.at(h), std::invalid_argument);
   }
 }
+
+#pragma endregion
 
 MAKE_TEST_LIST(EcsMeta_TupleUnion, EcsMeta_TupleIndex, EcsMeta_WrapOptionals,
     ArchetypeStorage_Basic, ArchetypeStorage_Registry, ArchetypeStorage_Add,

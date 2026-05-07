@@ -31,6 +31,8 @@ using namespace corvid::literals;
 // NOLINTBEGIN(readability-function-cognitive-complexity,
 // readability-function-size)
 
+#pragma region Construction
+
 void OptStringViewTest_Construction() {
   // Default-constructed string_view.
   if (true) {
@@ -260,6 +262,9 @@ void OptStringViewTest_Construction() {
   }
 }
 
+#pragma endregion
+#pragma region Optional
+
 void OptStringViewTest_Optional() {
   if (true) {
     std::optional<std::string> opt;
@@ -279,6 +284,9 @@ void OptStringViewTest_Optional() {
     EXPECT_EQ(osv, "test");
   }
 }
+
+#pragma endregion
+#pragma region Workalike
 
 void OptStringViewTest_Workalike() {
   // Verify optional-like interface.
@@ -327,6 +335,9 @@ void accept_string_view_rref(std::string_view&& v) { v = "changed"; }
 
 std::string_view accept_overloaded(std::string_view) { return "sv"; }
 std::string_view accept_overloaded(opt_string_view) { return "osv"; }
+
+#pragma endregion
+#pragma region Cast
 
 void OptStringViewTest_Cast() {
   // Casts "up" implicitly.
@@ -378,6 +389,9 @@ void OptStringViewTest_Cast() {
   EXPECT_EQ(s, "changed");
   EXPECT_EQ(std::string(osv), "changed");
 }
+
+#pragma endregion
+#pragma region Equal
 
 void OptStringViewTestEqual() {
   // sv
@@ -461,6 +475,8 @@ void OptStringViewTestEqual() {
   ss.insert("abc"_osv);
   EXPECT_TRUE(ss.contains("abc"_osv));
 }
+
+#pragma endregion
 
 MAKE_TEST_LIST(OptStringViewTest_Construction, OptStringViewTest_Optional,
     OptStringViewTest_Workalike, OptStringViewTest_Cast,

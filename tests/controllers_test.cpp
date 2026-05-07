@@ -30,6 +30,8 @@ using namespace corvid::controllers;
 
 constexpr double eps = 1e-6;
 
+#pragma region PidControllerTest
+
 void PidControllerTest() {
   if (true) {
     // Proportional only.
@@ -96,6 +98,9 @@ void PidControllerTest() {
   }
 }
 
+#pragma endregion
+#pragma region SopdtPlantTest
+
 void sopdt_plant_test() {
   if (true) {
     // K=1, tau1=tau2=1, L=1.0, dt=0.1
@@ -155,6 +160,8 @@ void sopdt_plant_test() {
     }
   }
 }
+
+#pragma endregion
 
 MAKE_TEST_LIST(PidControllerTest, sopdt_plant_test);
 

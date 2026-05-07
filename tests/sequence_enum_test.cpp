@@ -40,9 +40,14 @@ constexpr auto registry::enum_spec_v<tiger_pick> =
 enum old_enum : std::uint8_t { old_zero, old_one, old_two, old_three };
 enum class new_enum : std::uint8_t { new_zero, new_one, new_two, new_three };
 
+#pragma region Registry
+
 void SequentialEnumTest_Registry() {
   if (true) { EXPECT_EQ((strings::enum_as_string(tiger_pick::eeny)), "eeny"); }
 }
+
+#pragma endregion
+#pragma region Ops
 
 void SequentialEnumTest_Ops() {
   if (true) {
@@ -102,6 +107,8 @@ void SequentialEnumTest_Ops() {
     EXPECT_EQ(enum_as_string(tiger_pick(4)), "4");
   }
 }
+
+#pragma endregion
 
 // Range of 0 to 3.
 enum class e0_3 : int8_t {};
@@ -167,6 +174,8 @@ template<>
 constexpr auto registry::enum_spec_v<eu64_large> =
     make_sequence_enum_spec<eu64_large, "first, second, third",
         wrapclip::limit, eu64_large{UINT64_C(10000000000000000000)}>();
+
+#pragma region MakeSafely
 
 void SequentialEnumTest_MakeSafely() {
   if (true) {
@@ -386,6 +395,9 @@ void SequentialEnumTest_MakeSafely() {
   }
 }
 
+#pragma endregion
+#pragma region SafeOps
+
 void SequentialEnumTest_SafeOps() {
   if (true) {
     e0_3 e;
@@ -406,11 +418,15 @@ void SequentialEnumTest_SafeOps() {
   }
 }
 
+#pragma endregion
+
 enum class tiger_nochoice : std::uint8_t { tiger };
 
 template<>
 constexpr auto registry::enum_spec_v<tiger_nochoice> =
     make_sequence_enum_spec<tiger_nochoice, tiger_nochoice{}>();
+
+#pragma region NoChoice
 
 void SequentialEnumTest_NoChoice() {
   if (true) {
@@ -420,12 +436,16 @@ void SequentialEnumTest_NoChoice() {
   }
 }
 
+#pragma endregion
+
 // Range of 0 to 3, but without wrapping.
 enum class e0_3unsafe : int8_t {};
 
 template<>
 constexpr auto registry::enum_spec_v<e0_3unsafe> =
     make_sequence_enum_spec<e0_3unsafe, e0_3unsafe{3}>();
+
+#pragma region SubtleBugRepro
 
 void SequentialEnumTest_SubtleBugRepro() {
   e0_3unsafe e;
@@ -435,6 +455,9 @@ void SequentialEnumTest_SubtleBugRepro() {
   EXPECT_EQ(*e, 0);
   EXPECT_NE(*e, 36);
 }
+
+#pragma endregion
+#pragma region StreamingOut
 
 void SequentialEnumTest_StreamingOut() {
   EXPECT_TRUE(OStreamable<tiger_pick>);
@@ -459,6 +482,8 @@ void SequentialEnumTest_StreamingOut() {
   }
 }
 
+#pragma endregion
+
 enum class tiger_missing : std::uint8_t { eeny, miny = 2, moe };
 
 template<>
@@ -471,6 +496,8 @@ enum class tiger_gapped : std::uint8_t { ga, gb, gc, gd };
 template<>
 constexpr auto registry::enum_spec_v<tiger_gapped> =
     make_sequence_enum_spec<tiger_gapped, "ga,  , gc, gd">();
+
+#pragma region Missing
 
 void SequentialEnumTest_Missing() {
   if (true) {
@@ -496,6 +523,9 @@ void SequentialEnumTest_Missing() {
     EXPECT_EQ(enum_as_string(e0_3(3)), "3");
   }
 }
+
+#pragma endregion
+#pragma region Intervals
 
 void SequentialEnumTest_Intervals() {
   if (true) {
@@ -539,6 +569,9 @@ void SequentialEnumTest_Intervals() {
     EXPECT_EQ(s, -128);
   }
 }
+
+#pragma endregion
+#pragma region ExtractEnum
 
 void SequentialEnumTest_ExtractEnum() {
   using namespace corvid::strings;
@@ -674,6 +707,9 @@ void SequentialEnumTest_ExtractEnum() {
     EXPECT_EQ(e, new_enum::new_one);
   }
 }
+
+#pragma endregion
+#pragma region Int64
 
 void SequentialEnumTest_Int64() {
   // Test basic operations with int64_t underlying type.
@@ -896,6 +932,9 @@ void SequentialEnumTest_Int64() {
   }
 }
 
+#pragma endregion
+#pragma region AsView
+
 void SequentialEnumTest_AsView() {
   if (true) {
     EXPECT_EQ(enum_as_view(e0_3(0)), "a");
@@ -905,6 +944,8 @@ void SequentialEnumTest_AsView() {
     EXPECT_EQ(enum_as_view(e0_3(4)), "(unknown)");
   }
 }
+
+#pragma endregion
 
 MAKE_TEST_LIST(SequentialEnumTest_Registry, SequentialEnumTest_Ops,
     SequentialEnumTest_MakeSafely, SequentialEnumTest_SafeOps,

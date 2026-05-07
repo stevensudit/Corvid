@@ -33,6 +33,8 @@ static_assert(std::is_same_v<object_pool<int, 65536>::index_t, uint32_t>,
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region BorrowAndReturn
+
 void ObjectPool_BorrowAndReturn() {
   // Borrow a slot and verify it's valid.
   if (true) {
@@ -69,6 +71,9 @@ void ObjectPool_BorrowAndReturn() {
   }
 }
 
+#pragma endregion
+#pragma region FullPool
+
 void ObjectPool_FullPool() {
   // Borrowing past capacity returns an empty `borrowed`.
   if (true) {
@@ -83,6 +88,9 @@ void ObjectPool_FullPool() {
     EXPECT_TRUE(!h2);
   }
 }
+
+#pragma endregion
+#pragma region LIFOOrder
 
 void ObjectPool_LIFOOrder() {
   // Slots are returned in LIFO order: last-returned is first-borrowed.
@@ -104,6 +112,9 @@ void ObjectPool_LIFOOrder() {
     EXPECT_EQ(h3.get(), p1);
   }
 }
+
+#pragma endregion
+#pragma region MoveHandle
 
 void ObjectPool_MoveHandle() {
   // Move construction transfers ownership; original becomes empty.
@@ -142,6 +153,9 @@ void ObjectPool_MoveHandle() {
   }
 }
 
+#pragma endregion
+#pragma region MultipleSlots
+
 void ObjectPool_MultipleSlots() {
   // All slots can be borrowed and individually returned.
   if (true) {
@@ -169,6 +183,9 @@ void ObjectPool_MultipleSlots() {
     EXPECT_FALSE(pool.borrow()); // all slots in use again
   }
 }
+
+#pragma endregion
+#pragma region Callbacks
 
 void ObjectPool_Callbacks() {
   // BorrowCb is called on each borrow; ReturnCb is called on each return.
@@ -221,6 +238,9 @@ void ObjectPool_Callbacks() {
   }
 }
 
+#pragma endregion
+#pragma region CreateHelper
+
 void ObjectPool_CreateHelper() {
   // `create` deduces callback types from lambdas and wires both callbacks in.
   if (true) {
@@ -247,6 +267,9 @@ void ObjectPool_CreateHelper() {
     EXPECT_EQ(borrow_count, 2);
   }
 }
+
+#pragma endregion
+#pragma region DetachAndReattach
 
 void ObjectPool_DetachAndReattach() {
   // `detach` releases ownership from the handle without returning the slot.
@@ -279,6 +302,9 @@ void ObjectPool_DetachAndReattach() {
     EXPECT_FALSE(h);
   }
 }
+
+#pragma endregion
+#pragma region TokenBasics
 
 void ObjectPool_TokenBasics() {
   // Default-constructed token is invalid on all fronts.
@@ -323,6 +349,9 @@ void ObjectPool_TokenBasics() {
   }
 }
 
+#pragma endregion
+#pragma region TokenDetachAndBorrow
+
 void ObjectPool_TokenDetachAndBorrow() {
   // `token(borrowed&&)` detaches the `borrowed`; slot stays out of the pool.
   if (true) {
@@ -356,6 +385,9 @@ void ObjectPool_TokenDetachAndBorrow() {
   }
 }
 
+#pragma endregion
+#pragma region TokenStaleness
+
 void ObjectPool_TokenStaleness() {
   // `get_ptr` returns nullptr once the slot's generation has advanced.
   if (true) {
@@ -384,6 +416,9 @@ void ObjectPool_TokenStaleness() {
     EXPECT_FALSE(h.borrow(pool));    // b already owns it
   }
 }
+
+#pragma endregion
+#pragma region TokenAsInt
 
 void ObjectPool_TokenAsInt() {
   // Round-trip through `as_int` and `token(uint64_t)` resolves to the same
@@ -421,6 +456,8 @@ void ObjectPool_TokenAsInt() {
     EXPECT_EQ(h2.get_ptr(pool), b.get());
   }
 }
+
+#pragma endregion
 
 MAKE_TEST_LIST(ObjectPool_BorrowAndReturn, ObjectPool_FullPool,
     ObjectPool_LIFOOrder, ObjectPool_MoveHandle, ObjectPool_MultipleSlots,

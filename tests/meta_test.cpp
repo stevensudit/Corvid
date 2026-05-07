@@ -36,6 +36,8 @@ auto& stream_out(OStreamDerived auto& os, const OStreamable auto& osb) {
   return os << osb;
 }
 
+#pragma region OStreamdDerived
+
 void MetaTest_OStreamdDerived() {
   std::ostringstream oss;
   stream_out(oss, 1);
@@ -46,6 +48,9 @@ void MetaTest_OStreamdDerived() {
   stream_out(oss, oss);
 #endif
 }
+
+#pragma endregion
+#pragma region EnumBitWidth
 
 void MetaTest_EnumBitWidth() {
   EXPECT_EQ(std::bit_width(0ULL), 0);
@@ -178,6 +183,9 @@ void MetaTest_EnumBitWidth() {
   EXPECT_EQ(std::bit_width(18446744073709551615ULL), 64);
 }
 
+#pragma endregion
+#pragma region EnumHighestValueInNBits
+
 void MetaTest_EnumHighestValueInNBits() {
   EXPECT_EQ(meta::highest_value_in_n_bits(0ULL), 0ULL);
   EXPECT_EQ(meta::highest_value_in_n_bits(1ULL), 1ULL);
@@ -245,6 +253,9 @@ void MetaTest_EnumHighestValueInNBits() {
   EXPECT_EQ(meta::highest_value_in_n_bits(63ULL), 9223372036854775807ULL);
   EXPECT_EQ(meta::highest_value_in_n_bits(64ULL), 18446744073709551615ULL);
 }
+
+#pragma endregion
+#pragma region EnumPow2
 
 void MetaTest_EnumPow2() {
   EXPECT_EQ(meta::pow2(0), 1ULL);
@@ -314,12 +325,18 @@ void MetaTest_EnumPow2() {
   EXPECT_EQ(meta::pow2(64), 0ULL);
 }
 
+#pragma endregion
+#pragma region SpanConstness
+
 void MetaTest_SpanConstness() {
   EXPECT_TRUE((Span<std::span<char>, char>));
   EXPECT_TRUE((Span<std::span<char>, const char>));
   EXPECT_FALSE((Span<std::span<const char>, char>));
   EXPECT_TRUE((Span<std::span<const char>, const char>));
 }
+
+#pragma endregion
+#pragma region FunctionVoidReturn
 
 void MetaTest_FunctionVoidReturn() {
   using FNV0 = std::function<void()>;
@@ -338,11 +355,15 @@ void MetaTest_FunctionVoidReturn() {
   EXPECT_TRUE((CallableReturningNonVoid<FNI1, int>));
 }
 
+#pragma endregion
+
 // Helper types for specialization tests
 struct Foo {};
 
 template<typename T>
 struct Goo {};
+
+#pragma region Specialization
 
 void MetaTest_Specialization() {
   EXPECT_TRUE((is_specialization_of_v<std::vector<int>, std::vector>));
@@ -356,11 +377,17 @@ void MetaTest_Specialization() {
   // - is_specialization_of_v<std::array<int, 4>, std::array> (non-type params)
 }
 
+#pragma endregion
+#pragma region PointerElement
+
 void MetaTest_PointerElement() {
   EXPECT_TRUE((std::is_same_v<int, pointer_element_t<int*>>));
   EXPECT_TRUE((std::is_same_v<int, pointer_element_t<std::unique_ptr<int>>>));
   EXPECT_TRUE((std::is_same_v<void, pointer_element_t<int>>));
 }
+
+#pragma endregion
+#pragma region Dereferenceable
 
 void MetaTest_Dereferenceable() {
   EXPECT_TRUE((Dereferenceable<int*>));
@@ -368,6 +395,9 @@ void MetaTest_Dereferenceable() {
   EXPECT_FALSE((Dereferenceable<int>));
   EXPECT_TRUE((Dereferenceable<decltype(std::optional<int>())>));
 }
+
+#pragma endregion
+#pragma region IsPair
 
 void MetaTest_IsPair() {
   EXPECT_TRUE((is_pair_v<std::pair<int, int>>));
@@ -396,6 +426,9 @@ void MetaTest_IsPair() {
   // Note: Tests with intervals::interval skipped (requires Interval.h)
 }
 
+#pragma endregion
+#pragma region ContainerElement
+
 void MetaTest_ContainerElement() {
   // Test with pair - extracts the second element (value)
   {
@@ -418,6 +451,9 @@ void MetaTest_ContainerElement() {
   }
 }
 
+#pragma endregion
+#pragma region KeyFind
+
 void MetaTest_KeyFind() {
   // has_key_find_v checks if container has find(key_type) method
   using M = std::map<int, Foo>;
@@ -432,6 +468,9 @@ void MetaTest_KeyFind() {
   // Note: Old two-parameter version (checking specific key type compatibility)
   // and find_ret_t have been removed from the API
 }
+
+#pragma endregion
+#pragma region TypeName
 
 void MetaTest_TypeName() {
   using T = std::string;
@@ -450,6 +489,9 @@ void MetaTest_TypeName() {
   // Value-based overload matches type-based version
   EXPECT_EQ(type_name<T>(), type_name(T{}));
 }
+
+#pragma endregion
+#pragma region StringViewConvertible
 
 void MetaTest_StringViewConvertible() {
   // StringViewConvertible concept (replaces is_string_view_convertible_v)
@@ -479,6 +521,9 @@ void MetaTest_StringViewConvertible() {
   EXPECT_FALSE((Container<char[4]>)); // Excluded (StringViewConvertible)
   EXPECT_FALSE((Container<char*>));
 }
+
+#pragma endregion
+#pragma region Number
 
 void MetaTest_Number() {
   // Integer concept (integral excluding bool)
@@ -516,6 +561,9 @@ void MetaTest_Number() {
   // Use Integer for integral types or std::floating_point for floats
 }
 
+#pragma endregion
+#pragma region Tuple
+
 void MetaTest_Tuple() {
   using T0 = std::tuple<>;
   using T2 = std::tuple<int, int>;
@@ -544,6 +592,9 @@ void MetaTest_Tuple() {
   EXPECT_FALSE((is_tuple_v<PI>));
   EXPECT_TRUE((TupleLike<PI>)); // pair is tuple-like
 }
+
+#pragma endregion
+#pragma region Detection
 
 void MetaTest_Detection() {
   // initializer_list detection
@@ -584,6 +635,9 @@ void MetaTest_Detection() {
   // Note: is_void_ptr_v trait no longer exists
 }
 
+#pragma endregion
+#pragma region Underlying
+
 void MetaTest_Underlying() {
   enum class X : size_t { x1 = 1, x2 };
   enum class Y : int64_t { ylow = -1 };
@@ -607,11 +661,17 @@ void MetaTest_Underlying() {
   EXPECT_TRUE((std::is_same_v<unsigned int, decltype(z)>));
 }
 
+#pragma endregion
+#pragma region Streamable
+
 void MetaTest_Streamable() {
   // OStreamable concept (replaces can_stream_out_v)
   EXPECT_TRUE((OStreamable<int>));
   EXPECT_FALSE((OStreamable<Foo>));
 }
+
+#pragma endregion
+#pragma region MaybeTypes
 
 void MetaTest_MaybeTypes() {
   EXPECT_TRUE((std::is_empty_v<empty_t>));
@@ -632,7 +692,11 @@ void MetaTest_MaybeTypes() {
   EXPECT_EQ(sizeof(NoExtraSpace), sizeof(Baseline));
 }
 
+#pragma endregion
+
 // address_forwarder
+
+#pragma region AddressForwarder_Basic
 
 struct Trackable: public address_forwarder<Trackable> {
   int value{};
@@ -645,13 +709,16 @@ struct Trackable: public address_forwarder<Trackable> {
 static_assert(AddressForwarder<Trackable>);
 static_assert(!AddressForwarder<int>);
 
-void MetaTest_AddressForwarder_Basic() {
+void AddressForwarder_Basic() {
   Trackable t{42};
   EXPECT_TRUE(t.is_valid());
   EXPECT_EQ(t.forwarding_address(), nullptr);
 }
 
-void MetaTest_AddressForwarder_Track() {
+#pragma endregion
+#pragma region AddressForwarder_Track
+
+void AddressForwarder_Track() {
   Trackable* ptr{};
   {
     Trackable t{7};
@@ -663,7 +730,10 @@ void MetaTest_AddressForwarder_Track() {
   EXPECT_EQ(ptr, nullptr);
 }
 
-void MetaTest_AddressForwarder_MoveConstruct() {
+#pragma endregion
+#pragma region AddressForwarder_MoveConstruct
+
+void AddressForwarder_MoveConstruct() {
   Trackable* ptr{};
   Trackable a{1};
   ptr = &a;
@@ -677,7 +747,10 @@ void MetaTest_AddressForwarder_MoveConstruct() {
   EXPECT_EQ(a.forwarding_address(), nullptr);
 }
 
-void MetaTest_AddressForwarder_MoveAssign() {
+#pragma endregion
+#pragma region AddressForwarder_MoveAssign
+
+void AddressForwarder_MoveAssign() {
   Trackable* ptr{};
   Trackable a{2};
   ptr = &a;
@@ -695,7 +768,7 @@ void MetaTest_AddressForwarder_MoveAssign() {
   EXPECT_EQ(ptr, &b);
 }
 
-void MetaTest_AddressForwarder_SelfAssign() {
+void AddressForwarder_SelfAssign() {
   Trackable* ptr{};
   Trackable a{3};
   ptr = &a;
@@ -710,7 +783,10 @@ void MetaTest_AddressForwarder_SelfAssign() {
   EXPECT_EQ(ptr, &a);
 }
 
-void MetaTest_AddressForwarder_DestroySource() {
+#pragma endregion
+#pragma region AddressForwarder_DestroySource
+
+void AddressForwarder_DestroySource() {
   Trackable* ptr{};
   Trackable b{0};
   {
@@ -724,6 +800,8 @@ void MetaTest_AddressForwarder_DestroySource() {
   b.forwarding_address() = nullptr;
 }
 
+#pragma endregion
+
 // Derived type with a custom move constructor that uses `as_base_move()`.
 struct Trackable2: public address_forwarder<Trackable2> {
   int value{};
@@ -736,7 +814,9 @@ struct Trackable2: public address_forwarder<Trackable2> {
   }
 };
 
-void MetaTest_AddressForwarder_AsBaseMove() {
+#pragma region AddressForwarder_AsBaseMove
+
+void AddressForwarder_AsBaseMove() {
   Trackable2* ptr{};
   Trackable2 a{8};
   ptr = &a;
@@ -748,7 +828,10 @@ void MetaTest_AddressForwarder_AsBaseMove() {
   EXPECT_EQ(a.forwarding_address(), nullptr);
 }
 
-void MetaTest_AddressForwarder_BoundFunction() {
+#pragma endregion
+#pragma region AddressForwarder_BoundFunction
+
+void AddressForwarder_BoundFunction() {
   // Primary use case: an object is moved into a `std::function` closure, and
   // a pointer registered before the move chain tracks it to its final home.
   Trackable* ptr{};
@@ -772,23 +855,33 @@ void MetaTest_AddressForwarder_BoundFunction() {
   ptr->forwarding_address() = nullptr;
 }
 
+#pragma endregion
+
 // fixed_function compile-time size checks
 static_assert(sizeof(fixed_function<64, int()>) == 64);
 static_assert(sizeof(fixed_function<32, void(int, double)>) == 32);
 static_assert(sizeof(fixed_function<128, int(int, int)>) == 128);
 
-void MetaTest_FixedFunction_Basic() {
+#pragma region FixedFunction_Basic
+
+void FixedFunction_Basic() {
   fixed_function<64, int()> f{[] { return 42; }};
   EXPECT_EQ(f(), 42);
 }
 
-void MetaTest_FixedFunction_Args() {
+#pragma endregion
+#pragma region FixedFunction_Args
+
+void FixedFunction_Args() {
   fixed_function<64, int(int, int)> add{[](int x, int y) { return x + y; }};
   EXPECT_EQ(add(3, 4), 7);
   EXPECT_EQ(add(10, -3), 7);
 }
 
-void MetaTest_FixedFunction_Bool() {
+#pragma endregion
+#pragma region FixedFunction_Bool
+
+void FixedFunction_Bool() {
   fixed_function<64, int()> a{[] { return 1; }};
   EXPECT_TRUE(static_cast<bool>(a));
   fixed_function<64, int()> b{std::move(a)};
@@ -796,7 +889,10 @@ void MetaTest_FixedFunction_Bool() {
   EXPECT_TRUE(static_cast<bool>(b));
 }
 
-void MetaTest_FixedFunction_Move() {
+#pragma endregion
+#pragma region FixedFunction_Move
+
+void FixedFunction_Move() {
   fixed_function<64, int()> a{[] { return 7; }};
   EXPECT_TRUE(static_cast<bool>(a));
   fixed_function<64, int()> b{std::move(a)};
@@ -805,7 +901,10 @@ void MetaTest_FixedFunction_Move() {
   EXPECT_EQ(b(), 7);
 }
 
-void MetaTest_FixedFunction_MoveAssign() {
+#pragma endregion
+#pragma region FixedFunction_MoveAssign
+
+void FixedFunction_MoveAssign() {
   fixed_function<64, int()> a{[] { return 99; }};
   fixed_function<64, int()> b{[] { return 0; }};
   b = std::move(a);
@@ -828,7 +927,10 @@ void MetaTest_FixedFunction_MoveAssign() {
   EXPECT_EQ(c.required, 68U);
 }
 
-void MetaTest_FixedFunction_Destructor() {
+#pragma endregion
+#pragma region FixedFunction_Destructor
+
+void FixedFunction_Destructor() {
   // `Counted` does not null `count_` on move, so every `~Counted()` call
   // increments the counter regardless of moved-from state.
   struct Counted {
@@ -853,19 +955,23 @@ void MetaTest_FixedFunction_Destructor() {
   EXPECT_EQ(n, 3);
 }
 
-// Free function used by MetaTest_FixedFunction_CppRef.
+#pragma endregion
+
+// Free function used by FixedFunction_CppRef.
 static int cpref_num(int i) { return i; }
 
-// Shared variable used by MetaTest_FixedFunction_RefReturn.
+// Shared variable used by FixedFunction_RefReturn.
 static int g_ref_val = 42;
 
-// Free function used by MetaTest_FixedFunction_FreeFn.
+// Free function used by FixedFunction_FreeFn.
 static int double_it(int x) { return x * 2; }
 
 // Mirrors the cppreference.com `std::function` sample.
 // Member functions return values instead of printing so results are
 // verifiable.
-void MetaTest_FixedFunction_CppRef() {
+#pragma region FixedFunction_CppRef
+
+void FixedFunction_CppRef() {
   struct Foo {
     Foo(int num) : num_(num) {}
     int add(int i) const { return num_ + i; }
@@ -924,7 +1030,10 @@ void MetaTest_FixedFunction_CppRef() {
   EXPECT_EQ(factorial(7), 5040);
 }
 
-void MetaTest_FixedFunction_RefReturn() {
+#pragma endregion
+#pragma region FixedFunction_RefReturn
+
+void FixedFunction_RefReturn() {
   // Callables that return an actual reference are safe.
   fixed_function<64, int&()> f{[&]() -> int& { return g_ref_val; }};
   EXPECT_EQ(f(), 42);
@@ -950,7 +1059,10 @@ void MetaTest_FixedFunction_RefReturn() {
 #endif
 }
 
-void MetaTest_FixedFunction_EmptyThrows() {
+#pragma endregion
+#pragma region FixedFunction_EmptyThrows
+
+void FixedFunction_EmptyThrows() {
   // Default-constructed instance is empty and throws on call.
   fixed_function<64, int()> empty{};
   EXPECT_TRUE(!empty);
@@ -967,14 +1079,20 @@ void MetaTest_FixedFunction_EmptyThrows() {
   EXPECT_THROW(g(), std::bad_function_call);
 }
 
-void MetaTest_FixedFunction_FreeFn() {
+#pragma endregion
+#pragma region FixedFunction_FreeFn
+
+void FixedFunction_FreeFn() {
   // A plain function pointer satisfies MoveConsumable (it is a prvalue).
   fixed_function<64, int(int)> f{&double_it};
   EXPECT_TRUE(static_cast<bool>(f));
   EXPECT_EQ(f(21), 42);
 }
 
-void MetaTest_FixedFunction_Functor() {
+#pragma endregion
+#pragma region FixedFunction_Functor
+
+void FixedFunction_Functor() {
   struct Adder {
     int n;
     int operator()(int x) const { return x + n; }
@@ -983,7 +1101,10 @@ void MetaTest_FixedFunction_Functor() {
   EXPECT_EQ(f(32), 42);
 }
 
-void MetaTest_FixedFunction_Swap() {
+#pragma endregion
+#pragma region FixedFunction_Swap
+
+void FixedFunction_Swap() {
   using ff = fixed_function<64, int()>;
   ff a{[] { return 1; }};
   ff b{[] { return 2; }};
@@ -1013,6 +1134,8 @@ void MetaTest_FixedFunction_Swap() {
   EXPECT_FALSE(static_cast<bool>(empty2));
 }
 
+#pragma endregion
+
 MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
     MetaTest_EnumHighestValueInNBits, MetaTest_EnumPow2,
     MetaTest_SpanConstness, MetaTest_FunctionVoidReturn,
@@ -1020,18 +1143,15 @@ MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
     MetaTest_IsPair, MetaTest_ContainerElement, MetaTest_KeyFind,
     MetaTest_TypeName, MetaTest_StringViewConvertible, MetaTest_Number,
     MetaTest_Tuple, MetaTest_Detection, MetaTest_Underlying,
-    MetaTest_Streamable, MetaTest_MaybeTypes, MetaTest_AddressForwarder_Basic,
-    MetaTest_AddressForwarder_Track, MetaTest_AddressForwarder_MoveConstruct,
-    MetaTest_AddressForwarder_MoveAssign, MetaTest_AddressForwarder_SelfAssign,
-    MetaTest_AddressForwarder_DestroySource,
-    MetaTest_AddressForwarder_AsBaseMove,
-    MetaTest_AddressForwarder_BoundFunction, MetaTest_FixedFunction_Basic,
-    MetaTest_FixedFunction_Args, MetaTest_FixedFunction_Bool,
-    MetaTest_FixedFunction_Move, MetaTest_FixedFunction_MoveAssign,
-    MetaTest_FixedFunction_Destructor, MetaTest_FixedFunction_CppRef,
-    MetaTest_FixedFunction_RefReturn, MetaTest_FixedFunction_EmptyThrows,
-    MetaTest_FixedFunction_FreeFn, MetaTest_FixedFunction_Functor,
-    MetaTest_FixedFunction_Swap);
+    MetaTest_Streamable, MetaTest_MaybeTypes, AddressForwarder_Basic,
+    AddressForwarder_Track, AddressForwarder_MoveConstruct,
+    AddressForwarder_MoveAssign, AddressForwarder_SelfAssign,
+    AddressForwarder_DestroySource, AddressForwarder_AsBaseMove,
+    AddressForwarder_BoundFunction, FixedFunction_Basic, FixedFunction_Args,
+    FixedFunction_Bool, FixedFunction_Move, FixedFunction_MoveAssign,
+    FixedFunction_Destructor, FixedFunction_CppRef, FixedFunction_RefReturn,
+    FixedFunction_EmptyThrows, FixedFunction_FreeFn, FixedFunction_Functor,
+    FixedFunction_Swap);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

@@ -38,6 +38,8 @@ using namespace corvid::enums::bitmask;
 // readability-function-size)
 
 // Test extract_piece.
+#pragma region ExtractPiece
+
 void StringUtilsTest_ExtractPiece() {
   std::string_view sv;
   EXPECT_EQ(strings::extract_piece(sv, ","), "");
@@ -55,7 +57,11 @@ void StringUtilsTest_ExtractPiece() {
   EXPECT_EQ(strings::extract_piece<std::string>(sv, ","), "1");
 }
 
+#pragma endregion
+
 // Test more_pieces.
+#pragma region MorePieces
+
 void StringUtilsTest_MorePieces() {
   std::string_view w, part;
   w = "1,2";
@@ -77,7 +83,11 @@ void StringUtilsTest_MorePieces() {
   EXPECT_EQ(part, "");
 }
 
+#pragma endregion
+
 // Test split.
+#pragma region Split
+
 void StringUtilsTest_Split() {
   if (true) {
     using V = std::vector<std::string_view>;
@@ -130,7 +140,11 @@ void StringUtilsTest_Split() {
   }
 }
 
+#pragma endregion
+
 // Test split_gen.
+#pragma region SplitPg
+
 void StringUtilsTest_SplitPg() {
   using PG = strings::piece_generator;
   if (true) {
@@ -186,7 +200,11 @@ void StringUtilsTest_SplitPg() {
   }
 }
 
+#pragma endregion
+
 // Test as_lower, as_upper.
+#pragma region Case
+
 void StringUtilsTest_Case() {
   auto s = "abcdefghij"s;
   strings::to_upper(s);
@@ -200,7 +218,11 @@ void StringUtilsTest_Case() {
   EXPECT_EQ(a, "ABCDEFGHIJ"sv);
 }
 
+#pragma endregion
+
 // Test locate.
+#pragma region Locate
+
 void StringUtilsTest_Locate() {
   using location = corvid::strings::location;
   if (true) {
@@ -540,6 +562,9 @@ void StringUtilsTest_Locate() {
   }
 }
 
+#pragma endregion
+#pragma region RLocate
+
 void StringUtilsTest_RLocate() {
   using location = corvid::strings::location;
   // These tests are abbreviated because we only want to confirm algorithmic
@@ -599,6 +624,9 @@ void StringUtilsTest_RLocate() {
   }
 }
 
+#pragma endregion
+#pragma region LocateEdges
+
 void StringUtilsTest_LocateEdges() {
   using location = corvid::strings::location;
   // Test for using size as npos.
@@ -655,6 +683,9 @@ void StringUtilsTest_LocateEdges() {
     EXPECT_EQ(strings::locate(s, std::array<std::string_view, 0>{}), nloc);
   }
 }
+
+#pragma endregion
+#pragma region Substitute
 
 void StringUtilsTest_Substitute() {
   if (true) {
@@ -813,6 +844,9 @@ void StringUtilsTest_Substitute() {
   }
 }
 
+#pragma endregion
+#pragma region Excise
+
 void StringUtilsTest_Excise() {
   if (true) {
     // excise: ch, psz, s, sv.
@@ -927,6 +961,8 @@ void StringUtilsTest_Excise() {
   }
 }
 
+#pragma endregion
+
 template<AppendTarget T>
 auto& test_append(T& target, std::string_view sv) {
   return *strings::appender{target}
@@ -935,6 +971,8 @@ auto& test_append(T& target, std::string_view sv) {
               .append(sv.data(), sv.size())
               .append(4, sv[0]);
 }
+
+#pragma region Target
 
 void StringUtilsTest_Target() {
   if (true) {
@@ -955,7 +993,11 @@ void StringUtilsTest_Target() {
 #endif
 }
 
+#pragma endregion
+
 struct NotStreamable {};
+
+#pragma region Print
 
 void StringUtilsTest_Print() {
   if (true) {
@@ -1014,6 +1056,9 @@ void StringUtilsTest_Print() {
 #endif
 }
 
+#pragma endregion
+#pragma region OstreamRedirectorTraits
+
 void StringUtilsTest_OstreamRedirectorTraits() {
   using R = strings::ostream_redirector;
   static_assert(!std::is_copy_constructible_v<R>);
@@ -1021,6 +1066,9 @@ void StringUtilsTest_OstreamRedirectorTraits() {
   static_assert(!std::is_move_constructible_v<R>);
   static_assert(!std::is_move_assignable_v<R>);
 }
+
+#pragma endregion
+#pragma region OstreamRedirectorRestore
 
 void StringUtilsTest_OstreamRedirectorRestore() {
   auto* orig = std::cout.rdbuf();
@@ -1035,6 +1083,9 @@ void StringUtilsTest_OstreamRedirectorRestore() {
     EXPECT_TRUE(std::cout.rdbuf() == orig);
   }
 }
+
+#pragma endregion
+#pragma region Trim
 
 void StringUtilsTest_Trim() {
   if (true) {
@@ -1122,6 +1173,9 @@ void StringUtilsTest_Trim() {
   }
 }
 
+#pragma endregion
+#pragma region AddBraces
+
 void StringUtilsTest_AddBraces() {
   if (true) {
     EXPECT_EQ(strings::add_braces(""), "[]");
@@ -1132,6 +1186,9 @@ void StringUtilsTest_AddBraces() {
     EXPECT_EQ(strings::add_braces("12", "'"), "'12'");
   }
 }
+
+#pragma endregion
+#pragma region ParseNum
 
 void StringUtilsTest_ParseNum() {
   if (true) {
@@ -1273,6 +1330,9 @@ void StringUtilsTest_ParseNum() {
   }
 }
 
+#pragma endregion
+#pragma region AppendNum
+
 void StringUtilsTest_AppendNum() {
   if (true) {
     EXPECT_EQ(strings::num_as_string(1), "1");
@@ -1300,6 +1360,9 @@ void StringUtilsTest_AppendNum() {
         "65536.25");
   }
 }
+
+#pragma endregion
+#pragma region Append
 
 void StringUtilsTest_Append() {
   using strings::join_opt;
@@ -1682,6 +1745,9 @@ void StringUtilsTest_Append() {
   EXPECT_EQ(s, R"([["a", "b", "c"], ["d", "e", "f"]])");
 }
 
+#pragma endregion
+#pragma region Edges
+
 void StringUtilsTest_Edges() {
   using strings::join_opt;
 
@@ -1697,6 +1763,9 @@ void StringUtilsTest_Edges() {
       ", [[1, 2, 3], [4, 5, 6]]");
 }
 
+#pragma endregion
+#pragma region Streams
+
 void StringUtilsTest_Streams() {
   using strings::join_opt;
 
@@ -1709,6 +1778,8 @@ void StringUtilsTest_Streams() {
     EXPECT_EQ(s.str(), "[[1, 2, 3], [4, 5, 6]]");
   }
 }
+
+#pragma endregion
 
 enum class rgb : std::uint8_t {
   black,      // ---
@@ -1725,6 +1796,8 @@ template<>
 constexpr auto registry::enum_spec_v<rgb> =
     make_bitmask_enum_spec<rgb, "red,green,blue">();
 
+#pragma region AppendEnum
+
 void StringUtilsTest_AppendEnum() {
   std::string s;
   EXPECT_EQ((strings::concat(rgb::yellow)), "red + green");
@@ -1738,6 +1811,8 @@ void StringUtilsTest_AppendEnum() {
       rgb::yellow, rgb::cyan);
   EXPECT_EQ(s, "red + green, green + blue");
 }
+
+#pragma endregion
 
 // Enlisted Marine Corps ranks.
 enum class marine_rank : std::uint8_t {
@@ -1810,6 +1885,8 @@ constexpr auto strings::append_override_fn<A, person> = person::append<A>;
 template<strings::join_opt opt, char open, char close, AppendTarget A>
 constexpr auto strings::append_join_override_fn<opt, open, close, A, person> =
     person::append_join_with<opt, open, close, A>;
+
+#pragma region AppendStream
 
 void StringUtilsTest_AppendStream() {
   using strings::join_opt;
@@ -1943,6 +2020,9 @@ void StringUtilsTest_AppendStream() {
   }
 }
 
+#pragma endregion
+#pragma region AppendJson
+
 void StringUtilsTest_AppendJson() {
   using strings::join_opt;
 
@@ -1997,6 +2077,9 @@ void StringUtilsTest_AppendJson() {
     EXPECT_EQ(s, R"("has"quote")");
   }
 }
+
+#pragma endregion
+#pragma region StdFromChars
 
 void StringUtilsTest_StdFromChars() {
   // Test std::from_chars directly for float.
@@ -2193,6 +2276,9 @@ void StringUtilsTest_StdFromChars() {
     EXPECT_EQ(val, -999.0);
   }
 }
+
+#pragma endregion
+#pragma region NoZero
 
 void StringUtilsTest_NoZero() {
   // Sanity check: `clear` does not release a heap buffer, but `shrink_to_fit`
@@ -2439,7 +2525,11 @@ void StringUtilsTest_NoZero() {
   }
 }
 
+#pragma endregion
+
 // Test token_parser.
+#pragma region TokenParser
+
 void StringUtilsTest_TokenParser() {
   using strings::token_parser;
 
@@ -2501,7 +2591,11 @@ void StringUtilsTest_TokenParser() {
   EXPECT_EQ(input, "three");
 }
 
+#pragma endregion
+
 // Test any_strings, strings::as_vector, and strings::as_any.
+#pragma region AnyStrings
+
 void StringUtilsTest_AnyStrings() {
   using strings::any_strings;
 
@@ -2537,6 +2631,8 @@ void StringUtilsTest_AnyStrings() {
   EXPECT_EQ(sv[0], "x");
   EXPECT_EQ(sv[1], "y");
 }
+
+#pragma endregion
 
 MAKE_TEST_LIST(StringUtilsTest_ExtractPiece, StringUtilsTest_MorePieces,
     StringUtilsTest_Split, StringUtilsTest_SplitPg, StringUtilsTest_ParseNum,

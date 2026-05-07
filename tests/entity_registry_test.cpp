@@ -27,6 +27,8 @@ using namespace corvid;
 // NOLINTBEGIN(readability-function-cognitive-complexity,
 // readability-function-size)
 
+#pragma region Basic
+
 void EntityRegistry_Basic() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -258,6 +260,10 @@ void EntityRegistry_Basic() {
   }
 }
 
+#pragma endregion
+
+#pragma region Handle
+
 void EntityRegistry_Handle() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -451,6 +457,10 @@ void EntityRegistry_Handle() {
   }
 }
 
+#pragma endregion
+
+#pragma region Fifo
+
 void EntityRegistry_Fifo() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -470,6 +480,10 @@ void EntityRegistry_Fifo() {
     EXPECT_EQ(r.create_id({}, 200), id_t{1});
   }
 }
+
+#pragma endregion
+
+#pragma region Clear
 
 void EntityRegistry_Clear() {
   using namespace id_enums;
@@ -503,6 +517,10 @@ void EntityRegistry_Clear() {
     EXPECT_EQ(r.get_handle(id0).gen(), 0U); // gen reset
   }
 }
+
+#pragma endregion
+
+#pragma region Reserve
 
 void EntityRegistry_Reserve() {
   using namespace id_enums;
@@ -555,6 +573,10 @@ void EntityRegistry_Reserve() {
   }
 }
 
+#pragma endregion
+
+#pragma region IdLimit
+
 void EntityRegistry_IdLimit() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -583,6 +605,10 @@ void EntityRegistry_IdLimit() {
     EXPECT_EQ(r.create_id({}, 30), id_t::invalid);
   }
 }
+
+#pragma endregion
+
+#pragma region NoGen
 
 void EntityRegistry_NoGen() {
   using namespace id_enums;
@@ -729,6 +755,10 @@ void EntityRegistry_NoGen() {
   }
 }
 
+#pragma endregion
+
+#pragma region VoidMeta
+
 void EntityRegistry_VoidMeta() {
   using namespace id_enums;
   using reg_t = entity_registry<void>;
@@ -848,6 +878,10 @@ void EntityRegistry_VoidMeta() {
   }
 }
 
+#pragma endregion
+
+#pragma region VoidNoGen
+
 void EntityRegistry_VoidNoGen() {
   using namespace id_enums;
   using reg_t = entity_registry<void, entity_id_t, store_id_t,
@@ -889,6 +923,10 @@ void EntityRegistry_VoidNoGen() {
     EXPECT_EQ(r.create_id(), id_t{1});
   }
 }
+
+#pragma endregion
+
+#pragma region IdLimitAdvanced
 
 void EntityRegistry_IdLimitAdvanced() {
   using namespace id_enums;
@@ -946,6 +984,10 @@ void EntityRegistry_IdLimitAdvanced() {
     EXPECT_EQ(r.create_id({}, 200), id_t::invalid); // at limit
   }
 }
+
+#pragma endregion
+
+#pragma region FifoAdvanced
 
 void EntityRegistry_FifoAdvanced() {
   using namespace id_enums;
@@ -1014,6 +1056,10 @@ void EntityRegistry_FifoAdvanced() {
     EXPECT_EQ(r.create_id({}, 300), id_t{2});
   }
 }
+
+#pragma endregion
+
+#pragma region LifoAdvanced
 
 void EntityRegistry_LifoAdvanced() {
   using namespace id_enums;
@@ -1102,6 +1148,10 @@ void EntityRegistry_LifoAdvanced() {
   }
 }
 
+#pragma endregion
+
+#pragma region LocationRecord
+
 void EntityRegistry_LocationRecord() {
   using namespace id_enums;
 
@@ -1185,6 +1235,10 @@ void EntityRegistry_LocationRecord() {
     }
   }
 }
+
+#pragma endregion
+
+#pragma region EdgeCases
 
 void EntityRegistry_EdgeCases() {
   using namespace id_enums;
@@ -1415,6 +1469,10 @@ void EntityRegistry_EdgeCases() {
   }
 }
 
+#pragma endregion
+
+#pragma region MetadataCleanup
+
 void EntityRegistry_MetadataCleanup() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -1466,6 +1524,10 @@ void EntityRegistry_MetadataCleanup() {
   }
 }
 
+#pragma endregion
+
+#pragma region EraseIfPredicate
+
 void EntityRegistry_EraseIfPredicate() {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
@@ -1492,6 +1554,10 @@ void EntityRegistry_EraseIfPredicate() {
     EXPECT_FALSE(r.is_valid(id_t{2}));
   }
 }
+
+#pragma endregion
+
+#pragma region IdLimitFreeList
 
 void EntityRegistry_IdLimitFreeList() {
   using namespace id_enums;
@@ -1521,6 +1587,10 @@ void EntityRegistry_IdLimitFreeList() {
     EXPECT_EQ(r.create_id({}, 70), id_t::invalid);
   }
 }
+
+#pragma endregion
+
+#pragma region ReservePrefillExisting
 
 void EntityRegistry_ReservePrefillExisting() {
   using namespace id_enums;
@@ -1561,6 +1631,10 @@ void EntityRegistry_ReservePrefillExisting() {
     EXPECT_EQ(r.create_id({}, 60), id_t{4});
   }
 }
+
+#pragma endregion
+
+#pragma region HandleOwner
 
 void EntityRegistry_HandleOwner() {
   using namespace id_enums;
@@ -1785,6 +1859,10 @@ void EntityRegistry_HandleOwner() {
   }
 }
 
+#pragma endregion
+
+#pragma region GetAllocator
+
 void EntityRegistry_GetAllocator() {
   using reg_t = entity_registry<int>;
 
@@ -1806,7 +1884,11 @@ void EntityRegistry_GetAllocator() {
   }
 }
 
+#pragma endregion
+
 // Component-mode tests.
+
+#pragma region ComponentMode_Basic
 
 void EntityRegistry_ComponentMode_Basic() {
   using namespace id_enums;
@@ -1960,6 +2042,10 @@ void EntityRegistry_ComponentMode_Basic() {
   }
 }
 
+#pragma endregion
+
+#pragma region ComponentMode_Bitmap
+
 void EntityRegistry_ComponentMode_Bitmap() {
   using namespace id_enums;
   using creg_t = entity_registry<int, entity_id_t, store_id_t,
@@ -2074,6 +2160,10 @@ void EntityRegistry_ComponentMode_Bitmap() {
   }
 }
 
+#pragma endregion
+
+#pragma region ComponentMode_Fifo
+
 void EntityRegistry_ComponentMode_Fifo() {
   using namespace id_enums;
   using creg_t = entity_registry<int, entity_id_t, store_id_t,
@@ -2134,6 +2224,10 @@ void EntityRegistry_ComponentMode_Fifo() {
     EXPECT_EQ(r.max_id(), id_t{1});
   }
 }
+
+#pragma endregion
+
+#pragma region ComponentMode_HandleOwner
 
 void EntityRegistry_ComponentMode_HandleOwner() {
   using namespace id_enums;
@@ -2213,6 +2307,10 @@ void EntityRegistry_ComponentMode_HandleOwner() {
   }
 }
 
+#pragma endregion
+
+#pragma region ComponentMode_NoGen
+
 void EntityRegistry_ComponentMode_NoGen() {
   using namespace id_enums;
   using creg_t = entity_registry<int, entity_id_t, store_id_t,
@@ -2257,6 +2355,10 @@ void EntityRegistry_ComponentMode_NoGen() {
     EXPECT_FALSE(r.is_in_location(id0, store_id_t{1}));
   }
 }
+
+#pragma endregion
+
+#pragma region ComponentMode_VoidMeta
 
 void EntityRegistry_ComponentMode_VoidMeta() {
   using namespace id_enums;
@@ -2310,6 +2412,10 @@ void EntityRegistry_ComponentMode_VoidMeta() {
   }
 }
 
+#pragma endregion
+
+#pragma region ComponentMode_Lifo
+
 void EntityRegistry_ComponentMode_Lifo() {
   using namespace id_enums;
   using creg_t = entity_registry<int, entity_id_t, store_id_t,
@@ -2344,6 +2450,8 @@ void EntityRegistry_ComponentMode_Lifo() {
     EXPECT_EQ(r.create_id({}, 300), id_t{0});
   }
 }
+
+#pragma endregion
 
 MAKE_TEST_LIST(EntityRegistry_Basic, EntityRegistry_Handle,
     EntityRegistry_Fifo, EntityRegistry_Clear, EntityRegistry_Reserve,
