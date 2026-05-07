@@ -142,12 +142,18 @@ public:
 
   // Check for validity when a `buffer` has been allocated from the pool.
   [[nodiscard]] explicit operator bool() const noexcept { return pool_; }
+  [[nodiscard]] bool operator!() const noexcept { return !pool_; }
 
   // Access the result of the I/O operation; initially an error condition.
   [[nodiscard]] iou_res result() const noexcept { return res_; }
 
   // Access the CQE flags of the I/O operation; initially zero.
   [[nodiscard]] iou_cqe_flags cqe_flags() const noexcept { return cqe_flags_; }
+
+  // Whether the kernel has more data for this buffer.
+  [[nodiscard]] bool has_more() const noexcept {
+    return bitmask::has(cqe_flags_, iou_cqe_flags::more);
+  }
 
   // Byte size of this allocation: 4096, 16384, or 65536.
   [[nodiscard]] size_t size() const noexcept { return full_span_.size(); }
@@ -337,6 +343,9 @@ public:
     cqe_flags_ = cqe_flags;
   }
 
+  // Mark buffer as deactivated. Used for flow control.
+  void deactivate() noexcept { res_ = iou_res{EC::notsock}; }
+
   // Result of `prepare` call. Essentially, a named tuple.
   struct prepare_result {
     span_t active_span;
@@ -367,7 +376,7 @@ public:
   iou_buffer& update(iou_res res, iou_cqe_flags cqe_flags) noexcept {
     res_ = res;
     cqe_flags_ = cqe_flags;
-    if (!bitmask::has(cqe_flags_, iou_cqe_flags::more)) --pending_releases_;
+    if (!has_more()) --pending_releases_;
     if (!res.ok()) return *this;
 
     if (file_offset_ != seek_current) file_offset_ += res.bytes();
