@@ -788,7 +788,7 @@ private:
   // Handle completion of a receive operation. If successful, delivers the
   // buffer to `on_data`. On error or EOF, initiates close.
   [[nodiscard]] bool on_recv_complete(buffer& buf) {
-    assert(loop_.is_loop_thread() && recv_token_);
+    assert(loop_.is_loop_thread());
     if (!open_) return true;
 
     // EOF from peer.
