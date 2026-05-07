@@ -395,10 +395,9 @@ private:
 #pragma region Helpers
 private:
   // Submit buffer for recv.
-  [[nodiscard]] bool do_submit_recv(buffer&& buf = {}) {
-    if (recv_active_shot_ == shot_type::single)
-      return do_submit_single_recv(std::move(buf));
-    buf.reset();
+  [[nodiscard]] bool do_submit_recv() {
+    if (recv_active_shot_ == shot_type::single) return do_submit_single_recv();
+
     return do_submit_multi_recv();
   }
 
@@ -413,6 +412,7 @@ private:
 
     recv_token_ = loop_.submit_read_buffer(sock_, std::move(buf),
         [conn = self()](completion_id, buffer& b) {
+          conn->recv_token_ = {};
           (void)conn->on_recv_complete(b);
           return slot_retention{};
         });
@@ -443,19 +443,19 @@ private:
           conn->recv_token_ = {};
 
           // If it's an intentional cancelation, do not resuscitate.
-          if (buf.result().err() == EC::canceled) {
+          if (result.err() == EC::canceled) {
             conn->recv_paused_ = true;
             return slot_retention::release;
           }
 
           // If we ran out of buffers, downgrade to singleshot for now.
-          if (buf.result().err() == EC::nobufs) {
+          if (result.err() == EC::nobufs) {
             (void)conn->do_submit_single_recv();
             return slot_retention::release;
           }
 
           // Not EOF or an error, so probably just a glitch. Retry.
-          if (buf.result().value() > 0 && !conn->recv_paused_) {
+          if (result.value() > 0 && !conn->recv_paused_) {
             conn->recv_token_ = completion_token{cbid};
             has_more = conn->loop_.submit_recv_buffer_multi(conn->sock_,
                 completion_token{cbid});
@@ -513,7 +513,13 @@ private:
             // If in singleshot mode, need to explicitly ask for more.
             if (!conn->recv_paused_ &&
                 conn->recv_active_shot_ == shot_type::single)
+            {
+              // Buffer is full (no space for a kernel recv): re-deliver to
+              // on_data without a round-trip to the kernel.
+              if (buf && buf.active_span().empty())
+                return conn->on_recv_complete(buf);
               return conn->do_submit_single_recv(std::move(buf));
+            }
 
             return true;
           });
