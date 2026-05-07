@@ -1550,6 +1550,7 @@ private:
       slot_retention on_fail, std::invocable<iou_sqe> auto&& prep) {
     assert(is_loop_thread());
     auto do_submit = [&]() {
+      // If released, pretend to succeed so as to stop retries.
       if (cbtoken && is_released(cbtoken)) return true;
 
       // Queue the operation SQE.

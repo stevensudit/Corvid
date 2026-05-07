@@ -72,6 +72,10 @@ public:
     if (buf_count_ == 0) return;
     if (!std::has_single_bit(buf_count_))
       throw std::invalid_argument("buf_count must be a power of two");
+    if (buf_count_ >
+        static_cast<size_t>(std::numeric_limits<unsigned short>::max()) + 1ULL)
+      throw std::invalid_argument(
+          "buf_count exceeds io_uring 16-bit bid range");
 
     // Try a hugepage-backed mapping first; fall back to anonymous with
     // hugepage advice. Over-allocate by one `hugepage_size` to guarantee
