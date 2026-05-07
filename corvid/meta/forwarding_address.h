@@ -54,8 +54,6 @@ public:
     return forwarding_address_;
   }
 
-  [[nodiscard]] bool is_valid() const noexcept { return true; }
-
   // The clang-tidy warning is generally good advice, but it also blocks
   // compilation.
   // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility)
@@ -80,8 +78,9 @@ protected:
     return *this;
   }
 
-  // You will likely need to throw in your implmentation.
-  address_forwarder(const address_forwarder&) = default;
+  address_forwarder(const address_forwarder&) {
+    throw std::logic_error{"address_forwarder is not copyable"};
+  }
   address_forwarder& operator=(const address_forwarder&) = default;
 
 public:

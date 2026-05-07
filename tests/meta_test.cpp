@@ -711,7 +711,6 @@ static_assert(!AddressForwarder<int>);
 
 void AddressForwarder_Basic() {
   Trackable t{42};
-  EXPECT_TRUE(t.is_valid());
   EXPECT_EQ(t.forwarding_address(), nullptr);
 }
 
@@ -914,17 +913,6 @@ void FixedFunction_MoveAssign() {
 
   b = nullptr;
   EXPECT_FALSE(static_cast<bool>(b));
-
-  // Sizer test.
-  struct Foo {
-    int value{};
-    char sz[48];
-    explicit Foo(int v) : value{v} {}
-    int operator()() const { return value; }
-  };
-
-  fixed_function_sizer<68, int()> c{Foo{42}};
-  EXPECT_EQ(c.required, 68U);
 }
 
 #pragma endregion

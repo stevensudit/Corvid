@@ -296,10 +296,6 @@ private:
   // `std::weak_ptr`.
   using borrowed_cb = completion_cb_pool_t::borrowed;
 
-  // Type for the post queue, which holds `posted_fn`s scheduled to run on the
-  // loop thread.
-  using post_queue_t = std::vector<posted_fn>;
-
 #pragma endregion
 #pragma region Infrastructure
 public:
@@ -327,7 +323,8 @@ public:
       size_t udp_provided_size = buf_pool_t::hugepage_size,
       size_t tcp_provided_size = buf_pool_t::hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004)
-      : ring_{RING_SIZE,
+      : owner_thread_dispatcher{32, 64},
+        ring_{RING_SIZE,
             iou_setup_flags::setup_single_issuer |
                 iou_setup_flags::setup_defer_taskrun |
                 iou_setup_flags::setup_submit_all},
@@ -341,10 +338,10 @@ public:
           "io_uring_register_buffers"};
     if (!udp_buf_pool_.register_with(ring_))
       throw std::system_error{errno, std::system_category(),
-          "io_uring_register_buffers (udp_buf_pool)"};
+          "io_uring_register_buf_ring (udp_buf_pool)"};
     if (!tcp_provided_buf_pool_.register_with(ring_))
       throw std::system_error{errno, std::system_category(),
-          "io_uring_register_buffers (tcp_provided_buf_pool)"};
+          "io_uring_register_buf_ring (tcp_provided_buf_pool)"};
   }
 
   iou_basic_loop(const iou_basic_loop&) = delete;
@@ -669,7 +666,6 @@ public:
   // Submit an async nop.
   [[nodiscard]] bool submit_nop(completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
-    if (!cbtoken) return false;
     auto fn = [this, cbtoken, on_fail]() mutable {
       return do_submit(cbtoken, on_fail, [](iou_sqe sqe) { sqe.prep_nop(); });
     };
@@ -759,7 +755,6 @@ public:
   // the mode.
   [[nodiscard]] completion_token submit_timeout(bound_timeout&& timeout,
       CompletionInvocable auto&& cb, size_t cqe_count = 0) {
-    if (!timeout.is_valid()) return {};
     auto [cbtoken, timeout_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
     if (!cbtoken || !timeout_ptr) return {};
@@ -1592,18 +1587,6 @@ private:
     pending_sqe_count_ += sqe_count;
     if (pending_sqe_count_ >= max_pending_sqes_) return immediate_submit();
     return true;
-  }
-
-  // Fire-and-forget submit: no callback, null user data. `do_dispatch`
-  // ignores null-data CQEs, so no pool slot is needed.
-  [[nodiscard]] bool do_submit_void(std::invocable<iou_sqe> auto&& prep) {
-    assert(is_loop_thread());
-    auto sqe = ring_.next_sqe();
-    if (!sqe) return false;
-    std::forward<decltype(prep)>(prep)(sqe);
-    sqe.set_data_pointer(nullptr);
-    (void)maybe_submit_pending(1);
-    return immediate_submit();
   }
 
   // Dispatch a CQE to its registered callback. The callback returns a

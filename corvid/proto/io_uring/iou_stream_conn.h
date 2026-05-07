@@ -86,7 +86,8 @@ public:
 #pragma region Internals
 private:
   friend class iou_stream_conn;
-  using resume_fn = std::function<void(iou_buf_pool::buffer&&)>;
+  using resume_fn = fixed_function<default_fixed_function::capacity,
+      void(iou_buf_pool::buffer&&)>;
 
   iou_recv_view(iou_buf_pool::buffer buf, resume_fn resume) noexcept
       : buf_{std::move(buf)}, resume_{std::move(resume)} {}
@@ -635,9 +636,7 @@ private:
     return connect_token_.is_valid();
   }
 
-  // Close immediately without flushing. For listening sockets, a cancel is
-  // submitted first to abort the in-flight multishot accept before the fd is
-  // handed to the kernel for closing.
+  // Close immediately without flushing.
   [[nodiscard]] bool do_close_now() {
     assert(loop_.is_loop_thread());
     if (!open_->exchange(false, std::memory_order::relaxed)) return false;

@@ -451,7 +451,7 @@ public:
   // (the received bytes become the write payload); `active_span` is set to
   // `payload_span` (so the next send transmits exactly what was read).
   // Decrements the pool's in-flight read byte count for the full block.
-  iou_buffer& promote_to_write() noexcept {
+  iou_buffer& promote_to_write() {
     assert(blockrw_ == block_type::read);
     if (!pool_->decrement_read_bytes(full_span_.size())) return *this;
     active_span_ = payload_span_;
@@ -462,7 +462,7 @@ public:
   // Demote this write buffer to read mode. `payload_span` is kept as-is;
   // `active_span` becomes the tail (space after `payload_span` for
   // additional incoming data).
-  iou_buffer& demote_to_read() noexcept {
+  iou_buffer& demote_to_read() {
     assert(blockrw_ == block_type::write);
     if (!pool_->increment_read_bytes(full_span_.size())) return *this;
     auto* end = payload_span_.data() + payload_span_.size();

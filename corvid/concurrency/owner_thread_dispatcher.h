@@ -85,8 +85,9 @@ public:
   // Construct with initial sizes for post queues and default retry count. See
   // `queue_high_watermark` for tuning.
   explicit owner_thread_dispatcher(size_t post_queue_reserve = 32,
-      size_t default_retry_count = 100)
-      : default_retry_count_{default_retry_count} {
+      size_t default_retry_count = npos) {
+    if (default_retry_count != npos)
+      default_retry_count_ = default_retry_count;
     current_loop_ = this;
     post_queues_[0].reserve(post_queue_reserve);
     post_queues_[1].reserve(post_queue_reserve);

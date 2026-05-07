@@ -26,31 +26,6 @@ namespace corvid { inline namespace meta {
 template<size_t SZ, class Sig>
 class fixed_function;
 
-#pragma region Sizer
-
-// `fixed_function_sizer<SZ, Sig>` is a helper for determining the required
-// `SZ` to store a given functor type in `fixed_function<SZ, Sig>`. It is not
-// strictly necessary, but it avoids the need to titrate or do your own
-// `sizeof` math.
-template<size_t SZ, class Sig>
-struct fixed_function_sizer;
-
-template<size_t SZ, class RP, class... ARGS>
-struct fixed_function_sizer<SZ, RP(ARGS...)> {
-  static constexpr size_t pointer_pair_size = 2 * sizeof(void*);
-
-  // Fake constructor that just sets the size.
-  template<MoveConsumable FN>
-  requires std::is_invocable_r_v<RP, std::decay_t<FN>, ARGS...>
-  explicit fixed_function_sizer(FN&&) {
-    using FD = std::decay_t<FN>;
-    required = sizeof(FD) + pointer_pair_size;
-  }
-
-  size_t required{};
-};
-
-#pragma endregion
 #pragma region fixed_function
 
 // `fixed_function<SZ, RP(ARGS...)>` is a move-only, zero-allocation
