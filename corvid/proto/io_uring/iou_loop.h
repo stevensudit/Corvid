@@ -928,13 +928,13 @@ public:
 
   // Submit a multishot async accept on `socket`.
   [[nodiscard]] bool submit_accept_multishot(const net_socket& socket,
-      combined_endpoint& endpoint, completion_token cbtoken,
+      completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain) {
     if (!cbtoken) return false;
     if (!socket) return fail_and_maybe_release(on_fail, cbtoken);
-    auto fn = [this, fd = *socket, &endpoint, cbtoken, on_fail]() mutable {
-      return do_submit(cbtoken, on_fail, [fd, &endpoint](iou_sqe sqe) {
-        sqe.prep_accept_multishot(fd, &endpoint);
+    auto fn = [this, fd = *socket, cbtoken, on_fail]() mutable {
+      return do_submit(cbtoken, on_fail, [fd](iou_sqe sqe) {
+        sqe.prep_accept_multishot(fd);
       });
     };
     return execute_or_post_with_retry(std::move(fn));

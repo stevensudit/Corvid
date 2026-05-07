@@ -168,9 +168,8 @@ public:
   // `getpeername` on first call. Safe to call from any thread.
   [[nodiscard]] const net_endpoint& remote_endpoint() noexcept {
     std::scoped_lock lock{endpoint_mutex_};
-    if (remote_.sockaddr.sockaddr.empty())
-      remote_.sockaddr.sockaddr = net_endpoint::peer_of(sock_);
-    return remote_.sockaddr.sockaddr;
+    if (remote_.empty()) remote_ = net_endpoint::peer_of(sock_);
+    return remote_;
   }
 
   // The local address this socket is bound to, computed lazily via
@@ -308,12 +307,13 @@ public:
   // Public only for `std::make_shared`; use `iou_stream_conn_ptr_with`
   // factories instead.
   explicit iou_stream_conn(allow, const std::shared_ptr<iou_loop>& loop,
-      net_socket sock, bound_endpoint_with_timeout remote,
-      iou_stream_conn_handlers h, std::optional<connection_role> role,
-      coordination_policy shutdown, block_size recv_buf_size,
-      block_size send_buf_size, shot_type recv_shot = shot_type::single)
+      net_socket sock, const net_endpoint* remote, iou_stream_conn_handlers h,
+      std::optional<connection_role> role, coordination_policy shutdown,
+      block_size recv_buf_size, block_size send_buf_size,
+      shot_type recv_shot = shot_type::single)
       : loop_{*loop}, weak_loop_{loop}, sock_{std::move(sock)},
-        remote_{std::move(remote)}, own_handlers_{std::move(h)},
+        remote_{remote ? *remote : net_endpoint{}},
+        own_handlers_{std::move(h)},
         connecting_{role == connection_role::client},
         listening_{role == connection_role::server}, shutdown_{shutdown},
         recv_buf_size_{recv_buf_size}, send_buf_size_{send_buf_size},
@@ -334,16 +334,12 @@ protected:
   // Produce a new `iou_stream_conn` for each accepted connection. Override in
   // `iou_stream_conn_with_state` to return a richer type.
   [[nodiscard]] virtual std::shared_ptr<iou_stream_conn>
-  accept_clone(net_socket&& sock, const net_endpoint& remote) const {
+  accept_clone(net_socket&& sock, const net_endpoint* remote = {}) const {
     auto lp = weak_loop_.lock();
     if (!lp) return nullptr;
-    bound_endpoint_with_timeout remote_ep{};
-    remote_ep.sockaddr.sockaddr = remote;
-    remote_ep.sockaddr.len = remote.sockaddr_size();
-
     return std::make_shared<iou_stream_conn>(allow::ctor, std::move(lp),
-        std::move(sock), std::move(remote_ep), own_handlers_, std::nullopt,
-        shutdown_, recv_buf_size_, send_buf_size_, recv_intended_shot_);
+        std::move(sock), remote, own_handlers_, std::nullopt, shutdown_,
+        recv_buf_size_, send_buf_size_, recv_intended_shot_);
   }
 
 #pragma endregion
@@ -352,8 +348,8 @@ private:
   net_socket sock_;
 
   std::mutex endpoint_mutex_; // protects lazy initialization of endpoints.
-  bound_endpoint_with_timeout remote_; // Use `remote_endpoint()`.
-  net_endpoint local_; // Always access through `local_endpoint()` JIT.
+  net_endpoint remote_;       // Always access through `remote_endpoint()` JIT.
+  net_endpoint local_;        // Always access through `local_endpoint()` JIT.
 
   iou_stream_conn_handlers own_handlers_;
 
@@ -596,8 +592,11 @@ private:
   [[nodiscard]] bool do_submit_connect() {
     assert(loop_.is_loop_thread() && connecting_ && !connect_token_);
 
+    const auto& remote = remote_endpoint();
     bound_endpoint_with_timeout ep;
-    if (std::scoped_lock lock{endpoint_mutex_}; true) ep = remote_;
+    ep.when.ts = iou_timespec{10s};
+    ep.sockaddr = {remote, remote.sockaddr_size()};
+
     connect_token_ = loop_.submit_connect(sock_, std::move(ep),
         [conn = self()](completion_id, iou_res res,
             iou_cqe_flags) -> slot_retention {
@@ -610,23 +609,21 @@ private:
   // Submit a multishot accept operation.
   [[nodiscard]] bool do_submit_accept() {
     assert(loop_.is_loop_thread() && listening_ && !connect_token_);
-    // Set up a callback that resubmits itself, and use it too bootstrap the
+    // Set up a callback that resubmits itself, and use it to bootstrap the
     // initial submission.
-    auto raw_cb =
-        [conn = self()](completion_id cbid, iou_res res, iou_cqe_flags flags,
-            combined_endpoint& endpoint) -> slot_retention {
-      (void)conn->on_accept_complete(res, endpoint);
+    auto raw_cb = [conn = self()](completion_id cbid, iou_res res,
+                      iou_cqe_flags flags) -> slot_retention {
+      (void)conn->on_accept_complete(res);
       if (bitmask::has(flags, iou_cqe_flags::more))
         return slot_retention::automatic;
       if (!conn->listening_) return slot_retention::release;
-      if (!conn->loop_.submit_accept_multishot(conn->sock_, endpoint,
+      if (!conn->loop_.submit_accept_multishot(conn->sock_,
               completion_token{cbid}))
         throw std::runtime_error("Failed to re-arm multishot accept");
       return slot_retention::retain;
     };
 
-    auto [cbtoken, endpoint_ptr] =
-        loop_.wrap_completion_fn_and_ptr(std::move(raw_cb), bound_endpoint{});
+    const auto cbtoken = loop_.tokenize(std::move(raw_cb));
 
     // Pretend a CQE arrived, with a soft error that will be ignored. This will
     // get it to submit itself.
@@ -788,8 +785,7 @@ private:
   // Handle completion of a multishot accept. On success, creates a new
   // `iou_stream_conn` for the accepted socket and registers it with the loop.
   // On error, initiates close.
-  [[nodiscard]] bool
-  on_accept_complete(iou_res res, const combined_endpoint& remote) {
+  [[nodiscard]] bool on_accept_complete(iou_res res) {
     assert(loop_.is_loop_thread() && listening_);
     if (!open_) return true;
 
@@ -801,7 +797,7 @@ private:
     }
 
     net_socket accepted_sock{os_file{res.value()}};
-    auto peer = accept_clone(std::move(accepted_sock), remote.sockaddr);
+    auto peer = accept_clone(std::move(accepted_sock));
     if (peer) (void)peer->start_reading();
     return true;
   }
@@ -923,9 +919,9 @@ public:
   adopt(const std::shared_ptr<iou_loop>& loop, net_socket sock,
       net_endpoint remote, iou_stream_conn_handlers h = {},
       shot_type shot_recv = shot_type::single) {
-    return do_make(loop, std::move(sock), std::move(remote), std::move(h),
-        std::nullopt, coordination_policy::unilateral, block_size::kb004,
-        block_size::kb004, shot_recv);
+    return do_make(loop, std::move(sock), &remote, std::move(h), std::nullopt,
+        coordination_policy::unilateral, block_size::kb004, block_size::kb004,
+        shot_recv);
   }
 
   // Initiate an async connect to `remote`. `on_drain` fires on success;
@@ -937,7 +933,7 @@ public:
       shot_type shot_recv = shot_type::single) {
     auto sock = net_socket::create_for(remote);
     if (!sock.is_open()) return {};
-    return do_make(loop, std::move(sock), remote, std::move(h),
+    return do_make(loop, std::move(sock), &remote, std::move(h),
         connection_role::client, coordination_policy::unilateral,
         block_size::kb004, block_size::kb004, shot_recv);
   }
@@ -953,7 +949,7 @@ public:
     if (!sock.set_reuse_addr()) return {};
     if (!sock.bind(local)) return {};
     if (!sock.listen()) return {};
-    return do_make(loop, std::move(sock), net_endpoint::invalid, std::move(h),
+    return do_make(loop, std::move(sock), nullptr, std::move(h),
         connection_role::server, coordination_policy::unilateral,
         block_size::kb004, block_size::kb004, shot_recv);
   }
@@ -981,19 +977,16 @@ private:
 
   static iou_stream_conn_ptr_with
   do_make(const std::shared_ptr<iou_loop>& loop, net_socket sock,
-      net_endpoint remote, iou_stream_conn_handlers h,
+      const net_endpoint* remote, iou_stream_conn_handlers h,
       std::optional<connection_role> role,
       coordination_policy shutdown = coordination_policy::unilateral,
       block_size recv_buf_size = block_size::kb004,
       block_size send_buf_size = block_size::kb004,
       shot_type shot_recv = shot_type::single) {
     assert(loop.get());
-    bound_endpoint_with_timeout ep;
-    ep.sockaddr.sockaddr = remote;
-    ep.sockaddr.len = remote.sockaddr_size();
     auto conn = std::make_shared<T>(iou_stream_conn::allow::ctor, loop,
-        std::move(sock), std::move(ep), std::move(h), role, shutdown,
-        recv_buf_size, send_buf_size, shot_recv);
+        std::move(sock), remote, std::move(h), role, shutdown, recv_buf_size,
+        send_buf_size, shot_recv);
     if (!loop->post([p = conn] { return p->start_reading(); })) return {};
     return iou_stream_conn_ptr_with{conn};
   }
@@ -1024,15 +1017,14 @@ public:
 
   explicit iou_stream_conn_with_state(allow a,
       const std::shared_ptr<iou_loop>& loop, net_socket sock,
-      bound_endpoint_with_timeout remote, iou_stream_conn_handlers h,
+      const net_endpoint* remote, iou_stream_conn_handlers h,
       std::optional<connection_role> role = {},
       coordination_policy shutdown = coordination_policy::unilateral,
       block_size recv_buf_size = block_size::kb004,
       block_size send_buf_size = block_size::kb004,
       shot_type recv_shot = shot_type::single)
-      : iou_stream_conn(a, loop, std::move(sock), std::move(remote),
-            std::move(h), role, shutdown, recv_buf_size, send_buf_size,
-            recv_shot) {}
+      : iou_stream_conn(a, loop, std::move(sock), remote, std::move(h), role,
+            shutdown, recv_buf_size, send_buf_size, recv_shot) {}
 
   [[nodiscard]] state_t& state() noexcept { return state_; }
   [[nodiscard]] const state_t& state() const noexcept { return state_; }
@@ -1045,17 +1037,13 @@ public:
   }
 
 protected:
-  [[nodiscard]] std::shared_ptr<iou_stream_conn>
-  accept_clone(net_socket&& sock, const net_endpoint& remote) const override {
+  [[nodiscard]] std::shared_ptr<iou_stream_conn> accept_clone(
+      net_socket&& sock, const net_endpoint* remote = nullptr) const override {
     auto loop = weak_loop_.lock();
     if (!loop) return nullptr;
-    bound_endpoint_with_timeout ep;
-    ep.sockaddr.sockaddr = remote;
-    ep.sockaddr.len = remote.sockaddr_size();
     return std::make_shared<iou_stream_conn_with_state<state_t>>(allow::ctor,
-        std::move(loop), std::move(sock), std::move(ep), own_handlers_,
-        std::nullopt, shutdown_, recv_buf_size_, send_buf_size_,
-        recv_intended_shot_);
+        std::move(loop), std::move(sock), remote, own_handlers_, std::nullopt,
+        shutdown_, recv_buf_size_, send_buf_size_, recv_intended_shot_);
   }
 
 private:

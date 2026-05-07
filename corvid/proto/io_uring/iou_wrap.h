@@ -515,14 +515,11 @@ public:
     return true;
   }
 
-  // Accept connections on `fd` repeatedly, filling `endpoint`.
-  bool prep_accept_multishot(int fd,
-      combined_endpoint* endpoint = nullptr) noexcept {
-    auto [sockaddr_ptr, socklen_ptr] = to_sockaddr_ptrs(endpoint);
+  // Accept connections on `fd` repeatedly. Peer address is not captured here;
+  // use `net_endpoint::peer_of` on the accepted fd after each completion.
+  bool prep_accept_multishot(int fd) noexcept {
     socket_type flags = socket_type::nonblock_cloexec;
-    if (endpoint) flags = endpoint->flags;
-    io_uring_prep_multishot_accept(sqe_, fd, sockaddr_ptr, socklen_ptr,
-        *flags);
+    io_uring_prep_multishot_accept(sqe_, fd, nullptr, nullptr, *flags);
     return true;
   }
 
