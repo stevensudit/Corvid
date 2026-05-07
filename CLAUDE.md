@@ -12,7 +12,7 @@ When presented with a code review comment, first read the relevant code and dete
 
 When a function can fail, always consider returning some status indication instead of being void.
 
-Before discarding a `[[nodiscard]]` return value with `(void)`, first consider whether the failure case should be detected and acted upon. Voiding out a nodiscard result to silence a warning is a last resort; the preferred response is to propagate, log, or handle the error appropriately.
+Before discarding a `[[nodiscard]]` return value with `(void)`, first consider whether the failure case should be detected and acted upon. Voiding out a nodiscard result to silence a warning is acceptable when it's intentional. When possible, the preferred response is to propagate, log, or handle the error appropriately.
 
 ## Build System
 

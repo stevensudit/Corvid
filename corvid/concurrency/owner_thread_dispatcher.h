@@ -69,6 +69,17 @@ concept PostedInvocable = MoveConsumable<FN> && StoredPostedInvocable<FN>;
 // the ability to wrap the callback in a lambda and post that, and therefore
 // won't work with a raw function  pointer).
 //
+// Threading constraints (debug-asserted):
+//   - At most one `owner_thread_dispatcher<CB>` instance may exist per thread
+//     for a given `CB`. The construction thread is the loop thread, and the
+//     imprint is tracked via a single `thread_local` slot shared by all
+//     instances of the instantiation. Sequential construction is fine: the
+//     destructor releases the slot.
+//   - The thread that constructs the instance must also be the thread that
+//     calls `run_once`/drains the post queue. Constructing on one thread and
+//     running on another will leave `is_loop_thread()` returning `false`
+//     everywhere.
+//
 // NOLINTBEGIN(bugprone-move-forwarding-reference)
 template<typename CB = std::function<bool()>>
 class owner_thread_dispatcher
@@ -83,9 +94,12 @@ public:
   static constexpr size_t npos = -1;
 
   // Construct with initial sizes for post queues and default retry count. See
-  // `queue_high_watermark` for tuning.
+  // `queue_high_watermark` for tuning. The constructing thread becomes the
+  // loop thread; only one instance per thread is permitted (debug-asserted).
   explicit owner_thread_dispatcher(size_t post_queue_reserve = 32,
       size_t default_retry_count = npos) {
+    assert(current_loop_ == nullptr &&
+           "another owner_thread_dispatcher already exists on this thread");
     if (default_retry_count != npos)
       default_retry_count_ = default_retry_count;
     current_loop_ = this;
@@ -93,7 +107,9 @@ public:
     post_queues_[1].reserve(post_queue_reserve);
   }
 
-  ~owner_thread_dispatcher() = default;
+  ~owner_thread_dispatcher() {
+    if (current_loop_ == this) current_loop_ = nullptr;
+  }
 
 #pragma endregion
 #pragma region Accessors

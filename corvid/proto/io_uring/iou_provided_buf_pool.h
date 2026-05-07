@@ -94,7 +94,7 @@ public:
       if (prefix > 0) ::munmap(raw_ptr, prefix);
       const size_t suffix = reserve - prefix - slab_size_;
       if (suffix > 0) ::munmap(base_ + slab_size_, suffix);
-      ::madvise(base_, slab_size_, MADV_HUGEPAGE);
+      (void)::madvise(base_, slab_size_, MADV_HUGEPAGE);
     }
     std::memset(base_, 0, slab_size_);
   }
