@@ -687,5 +687,5 @@ MAKE_TEST_LIST(HttpServer_Http09, HttpServer_LeadingCrlf,
     HttpServer_TooLongHeaders, HttpServer_MalformedRequestLine,
     HttpServer_Http10KeepAlive);
 
-// NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(bugprone-unchecked-optional-access)
+// NOLINTEND(readability-function-cognitive-complexity)

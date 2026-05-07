@@ -43,6 +43,7 @@ void TimerFuse_Default() {
   // Copyability: a copy is also unarmed.
   auto copy = fuse;
   EXPECT_EQ(copy.get_if_armed(), nullptr);
+  copy = fuse; // copy assignment
 }
 
 #pragma endregion

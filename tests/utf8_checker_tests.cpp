@@ -98,5 +98,5 @@ void Utf8Checker_RejectsInvalidSequences() {
 MAKE_TEST_LIST(Utf8Checker_Complete, Utf8Checker_IncompleteThenComplete,
     Utf8Checker_InvalidSticky, Utf8Checker_RejectsInvalidSequences);
 
-// NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(bugprone-unchecked-optional-access)
+// NOLINTEND(readability-function-cognitive-complexity)

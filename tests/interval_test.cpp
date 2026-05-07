@@ -25,6 +25,7 @@ using namespace corvid;
 using namespace corvid::sequence;
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
+// NOLINTBEGIN(readability-function-size)
 
 #pragma region Ctors
 
@@ -146,7 +147,8 @@ void IntervalTest_Insert() {
 void IntervalTest_ForEach() {
   auto i = interval{1, 4};
 
-  int64_t c{}, s{};
+  int64_t c{};
+  int64_t s{};
   for (auto e : i) {
     ++c;
     s += e;
@@ -163,8 +165,11 @@ void IntervalTest_Reverse() {
   if (true) {
     auto i = interval{1, 4};
 
-    int64_t c{}, s{}, l{};
-    auto b = std::begin(i), e = std::end(i);
+    int64_t c{};
+    int64_t s{};
+    int64_t l{};
+    auto b = std::begin(i);
+    auto e = std::end(i);
     std::for_each(b, e, [&c, &s, &l](auto e) {
       ++c;
       s += e;
@@ -178,9 +183,11 @@ void IntervalTest_Reverse() {
   if (true) {
     auto i = interval{1, 4};
 
-    int64_t c{}, s{}, l{};
-    auto b = std::reverse_iterator(std::end(i)),
-         e = std::reverse_iterator(std::begin(i));
+    int64_t c{};
+    int64_t s{};
+    int64_t l{};
+    auto b = std::reverse_iterator(std::end(i));
+    auto e = std::reverse_iterator(std::begin(i));
     std::for_each(b, e, [&c, &s, &l](auto e) {
       ++c;
       s += e;
@@ -194,8 +201,11 @@ void IntervalTest_Reverse() {
   if (true) {
     auto i = interval{1, 4};
 
-    int64_t c{}, s{}, l{};
-    auto b = std::rbegin(i), e = std::rend(i);
+    int64_t c{};
+    int64_t s{};
+    int64_t l{};
+    auto b = std::rbegin(i);
+    auto e = std::rend(i);
     std::for_each(b, e, [&c, &s, &l](auto e) {
       ++c;
       s += e;
@@ -274,4 +284,5 @@ MAKE_TEST_LIST(Intervals_Ctors, IntervalTest_Insert, IntervalTest_ForEach,
     IntervalTest_Reverse, IntervalTest_MinMax, IntervalTest_CompareAndSwap,
     IntervalTest_Append);
 
+// NOLINTEND(readability-function-size)
 // NOLINTEND(readability-function-cognitive-complexity)

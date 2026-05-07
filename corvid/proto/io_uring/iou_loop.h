@@ -762,7 +762,7 @@ public:
     if (!timeout.is_valid()) return {};
     auto [cbtoken, timeout_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(timeout));
-    if (!cbtoken) return {};
+    if (!cbtoken || !timeout_ptr) return {};
     if (!submit_timeout(*timeout_ptr, cbtoken, cqe_count,
             slot_retention::automatic))
       return {};
@@ -903,7 +903,7 @@ public:
       bound_endpoint_with_timeout endpoint = {}) {
     auto [cbtoken, endpoint_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(endpoint));
-    if (!cbtoken) return {};
+    if (!cbtoken || !endpoint_ptr) return {};
     if (!submit_accept(socket, *endpoint_ptr, cbtoken,
             slot_retention::automatic))
       return {};

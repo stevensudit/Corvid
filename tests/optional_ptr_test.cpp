@@ -256,7 +256,8 @@ void OptionalPtrTest_Dumb() {
   }
   if (true) {
     int i;
-    O a(&i), b;
+    O a(&i);
+    O b;
     EXPECT_TRUE(a != b);
     EXPECT_TRUE(!(a == b));
     EXPECT_FALSE(a == O());

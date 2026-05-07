@@ -2061,5 +2061,5 @@ MAKE_TEST_LIST(WebSocket_AcceptKey, WebSocket_FrameCodec_RoundTrip,
     HttpServer_WebSocket, HttpServer_WebSocket_QueryAndFragmentRoute,
     HttpServer_WebSocket_Frames);
 
-// NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(bugprone-unchecked-optional-access)
+// NOLINTEND(readability-function-cognitive-complexity)

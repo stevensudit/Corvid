@@ -1247,5 +1247,5 @@ MAKE_TEST_LIST(HttpHeaderBlock_ParseHttp11, HttpHeaderBlock_ParseHttp10,
     HttpHeaderBlock_HttpOptionsExtractApply, HttpHeaderBlock_GetValues,
     HttpHeaderBlock_SetRawAndRemove);
 
-// NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(bugprone-unchecked-optional-access)
+// NOLINTEND(readability-function-cognitive-complexity)

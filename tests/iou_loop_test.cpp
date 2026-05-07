@@ -1000,8 +1000,8 @@ void IouLoop_RecvBufferMulti() {
     const auto recv_token = loop->submit_recv_buffer_multi(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
           if (buf.result().ok()) {
-            const int i = count.load(std::memory_order::relaxed);
-            if (i < static_cast<int>(payloads.size()))
+            const size_t i = count.load(std::memory_order::relaxed);
+            if (i < payloads.size())
               payloads[i] = std::string{buf.payload_view()};
           }
           count.fetch_add(1, std::memory_order::release);
@@ -1051,8 +1051,8 @@ void IouLoop_RecvMsgBufferMulti() {
     const auto recv_token = loop->submit_recvmsg_buffer_multi(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
           if (buf.result().ok()) {
-            const int i = count.load(std::memory_order::relaxed);
-            if (i < static_cast<int>(payloads.size()))
+            const size_t i = count.load(std::memory_order::relaxed);
+            if (i < payloads.size())
               payloads[i] = std::string{buf.payload_view()};
           }
           count.fetch_add(1, std::memory_order::release);
