@@ -68,21 +68,23 @@ public:
     slab_size_ = slab_size;
     buf_size_ = *buf_size;
     buf_count_ = slab_size_ / buf_size_;
+
     if (buf_count_ == 0) return;
-    assert(std::has_single_bit(buf_count_));
+    if (!std::has_single_bit(buf_count_))
+      throw std::invalid_argument("buf_count must be a power of two");
 
     // Try a hugepage-backed mapping first; fall back to anonymous with
     // hugepage advice. Over-allocate by one `hugepage_size` to guarantee
     // alignment.
     base_ = reinterpret_cast<std::byte*>(::mmap(nullptr, slab_size_,
-        *mmap_prot::read | *mmap_prot::write,
+        *(mmap_prot::read | mmap_prot::write),
         *(mmap_mask::map_private | mmap_mask::anonymous | mmap_mask::hugetlb |
             mmap_mask::populate),
         -1, 0));
     if (base_ == MAP_FAILED) {
       const size_t reserve = slab_size_ + hugepage_size;
       auto* raw_ptr = reinterpret_cast<std::byte*>(::mmap(nullptr, reserve,
-          *mmap_prot::read | *mmap_prot::write,
+          *(mmap_prot::read | mmap_prot::write),
           *(mmap_mask::map_private | mmap_mask::anonymous), -1, 0));
       if (raw_ptr == MAP_FAILED)
         throw std::system_error(errno, std::system_category(), "mmap");
@@ -94,7 +96,7 @@ public:
       if (prefix > 0) ::munmap(raw_ptr, prefix);
       const size_t suffix = reserve - prefix - slab_size_;
       if (suffix > 0) ::munmap(base_ + slab_size_, suffix);
-      (void)::madvise(base_, slab_size_, MADV_HUGEPAGE);
+      (void)::madvise(base_, slab_size_, *mmap_advice::hugepage);
     }
     std::memset(base_, 0, slab_size_);
   }

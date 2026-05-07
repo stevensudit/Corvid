@@ -443,7 +443,7 @@ private:
             buffer& buf) mutable -> slot_retention {
           if (!conn->open_) return slot_retention::release;
           const auto result = buf.result();
-          bool has_more = buf.has_more();
+          const bool has_more = buf.has_more();
 
           // Normal case.
           if (has_more) {
@@ -469,10 +469,10 @@ private:
           // Not EOF or an error, so probably just a glitch. Retry.
           if (result.value() > 0 && !conn->recv_paused_) {
             conn->recv_token_ = completion_token{cbid};
-            has_more = conn->loop_.submit_recv_buffer_multi(conn->sock_,
-                completion_token{cbid});
+            const bool continued = conn->loop_.submit_recv_buffer_multi(
+                conn->sock_, completion_token{cbid});
             (void)conn->on_recv_complete(buf);
-            if (has_more) return slot_retention::retain;
+            if (continued) return slot_retention::retain;
             conn->recv_token_ = {};
             conn->recv_paused_ = true;
             return slot_retention::release;

@@ -1692,11 +1692,12 @@ public:
   explicit iou_basic_loop_runner(
       std::chrono::nanoseconds post_and_wait_poll_interval =
           loop_t::default_post_and_wait_poll_interval,
-      size_t pbuf_slab_size = loop_t::buf_pool_t::hugepage_size,
+      size_t udp_provided_size = loop_t::buf_pool_t::hugepage_size,
       size_t tcp_provided_size = loop_t::buf_pool_t::hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004)
       : post_and_wait_poll_interval_{post_and_wait_poll_interval},
-        pbuf_slab_size_{pbuf_slab_size}, tcp_provided_size_{tcp_provided_size},
+        udp_provided_size_{udp_provided_size},
+        tcp_provided_size_{tcp_provided_size},
         tcp_provided_buf_size_{tcp_provided_buf_size},
         thread_{[this](const std::stop_token& st) { run(st); }} {
     if (!started_.wait_for_value(std::chrono::milliseconds{1000}, true)) {
@@ -1751,7 +1752,7 @@ private:
     jthread_stoppable_sleep::set_thread_name("iouring");
     try {
       auto loop = loop_t::make(post_and_wait_poll_interval_,
-          loop_t::default_max_pending_sqes, pbuf_slab_size_,
+          loop_t::default_max_pending_sqes, udp_provided_size_,
           tcp_provided_size_, tcp_provided_buf_size_);
       if (std::scoped_lock lock{startup_mutex_}; true) loop_ = loop;
       started_.notify(true);
@@ -1769,7 +1770,7 @@ private:
   }
 
   const std::chrono::nanoseconds post_and_wait_poll_interval_;
-  const size_t pbuf_slab_size_;
+  const size_t udp_provided_size_;
   const size_t tcp_provided_size_;
   const block_size tcp_provided_buf_size_;
   std::mutex startup_mutex_;

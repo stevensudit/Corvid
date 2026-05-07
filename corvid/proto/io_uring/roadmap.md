@@ -1,8 +1,5 @@
 # Needed enhancements
 
-## Shut down the loop on fatal submit errors.
-`submit_now` returns `false` on a fatal ring error, propagating it up the call chain. A fatal ring error means the loop cannot continue; returning `false` only defers the problem. Instead, `submit_now` should initiate a graceful loop shutdown directly rather than relying on callers to handle the return value correctly.
-
 # Possible enhancements
 
 ## Fixed File Table.

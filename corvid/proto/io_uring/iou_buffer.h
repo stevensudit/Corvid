@@ -102,7 +102,7 @@ public:
         file_offset_{std::exchange(o.file_offset_, {})},
         pending_releases_{std::exchange(o.pending_releases_, {})},
         blockrw_{o.blockrw_}, timeout_{o.timeout_}, addr_{o.addr_},
-        msgh_{o.msgh_}, iov_(o.iov_), res_{o.res_}, cqe_flags_{o.cqe_flags_} {
+        msgh_{o.msgh_}, iov_{o.iov_}, res_{o.res_}, cqe_flags_{o.cqe_flags_} {
     do_reconstitute_msg();
   }
 

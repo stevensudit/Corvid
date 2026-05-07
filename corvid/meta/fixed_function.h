@@ -43,7 +43,7 @@ class fixed_function;
 template<size_t SZ, class RP, class... ARGS>
 class fixed_function<SZ, RP(ARGS...)> {
   static constexpr size_t pointer_pair_size = 2 * sizeof(void*);
-  static_assert(SZ >= pointer_pair_size,
+  static_assert(SZ > pointer_pair_size,
       "fixed_function: SZ must be at least 2*sizeof(void*)");
 
 public:
