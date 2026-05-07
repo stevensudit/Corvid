@@ -120,7 +120,8 @@ public:
 #pragma endregion
 #pragma region Invocation
 
-  // Invoke through the type-erased `invoke_` function pointer.
+  // Invoke through the type-erased `invoke_` function pointer. Intentionally
+  // disallows invocation through a `const this`.
   RP operator()(ARGS... args) {
     return invoke_(storage_, std::forward<ARGS>(args)...);
   }

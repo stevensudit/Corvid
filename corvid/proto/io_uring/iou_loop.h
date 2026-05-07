@@ -328,8 +328,8 @@ public:
             iou_setup_flags::setup_single_issuer |
                 iou_setup_flags::setup_defer_taskrun |
                 iou_setup_flags::setup_submit_all},
-        udp_buf_pool_{this, udp_provided_size, block_size::kb002, 1},
-        tcp_provided_buf_pool_{this, tcp_provided_size, tcp_provided_buf_size,
+        udp_buf_pool_{*this, udp_provided_size, block_size::kb002, 1},
+        tcp_provided_buf_pool_{*this, tcp_provided_size, tcp_provided_buf_size,
             2},
         max_pending_sqes_{max_pending_sqes},
         post_and_wait_poll_interval_{post_and_wait_poll_interval} {

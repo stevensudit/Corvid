@@ -207,7 +207,7 @@ protected:
   // Execute all pending callbacks in the post queue. Returns the number of
   // callbacks executed. There is no reason to call this until after `post`
   // signals the `eventfd`, and it must only be called from the owning thread.
-  [[nodiscard]] size_t execute_post_queue() {
+  [[nodiscard]] size_t execute_post_queue() noexcept {
     assert(is_loop_thread());
 
     // Atomically swap between the double-buffered queues.
@@ -220,6 +220,9 @@ protected:
     }
 
     size_t count = pending->size();
+
+    // Note that this method is marked `noexcept`, so if any callback throws,
+    // we crash. This is because we have no reasonable alternative.
     for (auto& fn : *pending) fn();
     pending->clear();
     return count;
@@ -232,11 +235,13 @@ private:
 #pragma region Data members
 private:
   event_fd wake_fd_{0};
-  inline static thread_local const owner_thread_dispatcher* current_loop_{};
   mutable std::mutex post_mutex_;
   post_queue_t post_queues_[2];
   relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
   relaxed_atomic_size_t default_retry_count_{3};
+
+  // A thread can only have one active loop at a time.
+  inline static thread_local const owner_thread_dispatcher* current_loop_{};
 
 #pragma endregion
 };

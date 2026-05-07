@@ -59,9 +59,9 @@ public:
   // `buf_count` is derived as `slab_size / buf_size` and must be a power of
   // two. Pass `slab_size = 0` for a no-op pool. Throws `std::system_error`
   // on allocation failure.
-  iou_provided_buf_pool(dispatcher_t* dispatcher, size_t slab_size,
+  iou_provided_buf_pool(dispatcher_t& dispatcher, size_t slab_size,
       block_size buf_size, uint16_t bgid = 0)
-      : dispatcher_{dispatcher}, bgid_{bgid} {
+      : dispatcher_{&dispatcher}, bgid_{bgid} {
     if (slab_size == 0) return;
 
     assert(slab_size % hugepage_size == 0);
@@ -145,6 +145,8 @@ public:
   // Register the buffer ring with `ring` and enqueue all buffer slots.
   // Must be called once before any SQE with `IOSQE_BUFFER_SELECT` is
   // submitted.
+  //
+  // Note that, when `slab_size` is 0, we silently pass.
   [[nodiscard]] bool register_with(iou_ring& ring) noexcept {
     if (!base_) return true;
 
@@ -213,7 +215,7 @@ private:
     assert(bid < buf_count_);
     const int mask = static_cast<int>(buf_count_) - 1;
 
-    (void)dispatcher_->execute_or_post([this, s, bid, mask] {
+    (void)dispatcher_->execute_or_post_with_retry([this, s, bid, mask] {
       buf_ring_.add(s.data(), buf_size_, static_cast<unsigned short>(bid),
           mask, 0);
       buf_ring_.advance(1);
@@ -221,15 +223,6 @@ private:
       return true;
     });
     return true;
-  }
-
-  [[nodiscard]] bool decrement_read_bytes(size_t) override {
-    throw std::logic_error(
-        "Provided buffer pool does not track in-flight read bytes");
-  }
-  [[nodiscard]] bool increment_read_bytes(size_t) override {
-    throw std::logic_error(
-        "Provided buffer pool does not track in-flight read bytes");
   }
 
 #pragma endregion

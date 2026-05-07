@@ -52,8 +52,8 @@ private:
   [[nodiscard]] virtual bool return_buffer(span_t s, block_type blockrw) = 0;
 
   // Track read bytes separately, to selectively throttle.
-  [[nodiscard]] virtual bool decrement_read_bytes(size_t n) = 0;
-  [[nodiscard]] virtual bool increment_read_bytes(size_t n) = 0;
+  [[nodiscard]] virtual bool decrement_read_bytes(size_t) { return false; }
+  [[nodiscard]] virtual bool increment_read_bytes(size_t) { return false; }
 
 protected:
   [[nodiscard]] static iou_buffer make_buffer(buffer_pool_base& pool,

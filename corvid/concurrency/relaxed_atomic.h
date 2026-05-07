@@ -23,7 +23,7 @@
 #include <type_traits>
 
 namespace corvid { inline namespace concurrency {
-inline namespace relaxed_atomic_ns {
+inline namespace relaxed_atomicns {
 
 // Thin wrapper around `std::atomic<T>`, providing only implicit conversion to
 // `T` and assignment from `T` while using relaxed memory ordering.  All other
@@ -187,4 +187,4 @@ using relaxed_atomic_ptrdiff_t = relaxed_atomic<std::ptrdiff_t>;
 using relaxed_atomic_intmax_t = relaxed_atomic<std::intmax_t>;
 using relaxed_atomic_uintmax_t = relaxed_atomic<std::uintmax_t>;
 
-}}} // namespace corvid::concurrency::relaxed_atomic_ns
+}}} // namespace corvid::concurrency::relaxed_atomicns

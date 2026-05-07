@@ -81,7 +81,10 @@ protected:
   address_forwarder(const address_forwarder&) {
     throw std::logic_error{"address_forwarder is not copyable"};
   }
-  address_forwarder& operator=(const address_forwarder&) = default;
+  address_forwarder& operator=(const address_forwarder& o) {
+    if (this == &o) return *this;
+    throw std::logic_error{"address_forwarder is not copyable"};
+  }
 
 public:
   ~address_forwarder() {
