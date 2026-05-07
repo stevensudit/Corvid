@@ -17,13 +17,6 @@ Instead of a shared_ptr to keep each iou_stream_conn alive, we could allocate a 
 ## epoll cleanup.
 Perhaps prefix some of the classes with epoll. For example, epoll_stream_conn.
 
-
-
-
-
-
-Gemini is AI and can make mistakes.
-
 # io_uring Preparation Operations Matrix
 
 | io_uring prep operation                  | TCP   | UDP   | UDS stream   | UDS datagram / seqpacket   | Zero Copy   | Fixed Buffers                                           |
@@ -37,8 +30,7 @@ Gemini is AI and can make mistakes.
 | io_uring_prep_recv + IOSQE_BUFFER_SELECT | Yes   | Yes   | Yes          | Yes                        | No          | Provided buffers, not fixed registered buffers          |
 | io_uring_prep_recv_multishot             | Yes   | Yes   | Yes          | Yes                        | No          | Provided buffers required, not fixed registered buffers |
 | io_uring_prep_recvmsg                    | Yes   | Yes   | Yes          | Yes                        | No          | No                                                      |
-io_uring_ops.md
- 
+
 read is for generic files. It doesn't consume zero-size datagrams, unlike recv.
 But read_fixed does use fixed buffers, whereas multishots effectively do.
 
