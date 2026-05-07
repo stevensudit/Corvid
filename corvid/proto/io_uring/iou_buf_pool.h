@@ -26,6 +26,7 @@
 #include <span>
 #include <system_error>
 
+#include "../../concurrency/relaxed_atomic.h"
 #include "../../containers/fixed_bitset.h"
 #include "../../enums/sequence_enum.h"
 #include "iou_buffer_pool_base.h"
@@ -290,13 +291,11 @@ public:
     std::scoped_lock lock{mutex_};
     const auto len = *sz;
     if (available_bytes_ < write_reserve_size + len) return {};
-    if (in_flight_read_bytes_.load(std::memory_order::relaxed) + len >
-        read_throttle_size)
-      return {};
+    if (in_flight_read_bytes_ + len > read_throttle_size) return {};
     span_t s{alloc_block(len), len};
     if (!s.data()) return {};
     available_bytes_ -= len;
-    in_flight_read_bytes_.fetch_add(len, std::memory_order::relaxed);
+    in_flight_read_bytes_ += len;
     return make_buffer(*this, s, 0U, block_type::read);
   }
 
@@ -336,14 +335,13 @@ private:
   [[nodiscard]] ptr base() const noexcept override { return base_; }
 
   [[nodiscard]] bool decrement_read_bytes(size_t n) noexcept override {
-    [[maybe_unused]] const auto old =
-        in_flight_read_bytes_.fetch_sub(n, std::memory_order::relaxed);
-    assert(old >= n);
+    [[maybe_unused]] const auto old = in_flight_read_bytes_ -= n;
+    assert(old < read_throttle_size);
     return true;
   }
 
   [[nodiscard]] bool increment_read_bytes(size_t n) noexcept override {
-    in_flight_read_bytes_.fetch_add(n, std::memory_order::relaxed);
+    in_flight_read_bytes_ += n;
     return true;
   }
 
@@ -475,9 +473,8 @@ private:
   mutable std::mutex mutex_;
   std::array<free_list, tier_count> lists_;
   size_t available_bytes_{};
-  std::atomic_size_t in_flight_read_bytes_;
-  // One bit per `min_block_size` page; 1 = page is allocated externally, 0 =
-  // free.
+  relaxed_atomic_size_t in_flight_read_bytes_;
+  // One bit per `min_block_size` page.
   fixed_bitset<slab_size / min_block_size> in_use_pages_;
 #pragma endregion
 };

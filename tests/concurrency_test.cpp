@@ -590,7 +590,7 @@ void OwnerThreadDispatcher_ExecuteOrPost_OffLoopThread() {
   relaxed_atomic_int count{0};
   std::thread t{[&] {
     (void)dispatcher.execute_or_post([&count]() -> bool {
-      count->fetch_add(1);
+      ++count;
       return true;
     });
   }};
@@ -747,7 +747,7 @@ void OwnerThreadDispatcher_ExecuteOrPostWithRetry_OffLoopThread() {
   relaxed_atomic_int calls{0};
   std::thread t{[&] {
     (void)dispatcher.execute_or_post_with_retry([&calls]() -> bool {
-      calls->fetch_add(1);
+      ++calls;
       return true;
     });
   }};

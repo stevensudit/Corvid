@@ -24,6 +24,7 @@
 #include <sys/mman.h>
 
 #include "../../concurrency/owner_thread_dispatcher.h"
+#include "../../concurrency/relaxed_atomic.h"
 
 #include "iou_buffer_pool_base.h"
 #include "iou_buffer.h"
@@ -123,6 +124,11 @@ public:
   // Number of buffer slots (`slab_size / buf_size`).
   [[nodiscard]] size_t buf_count() const noexcept { return buf_count_; }
 
+  // Number of slots currently free (enqueued in the kernel ring).
+  [[nodiscard]] size_t free_block_count() const noexcept {
+    return *free_count_;
+  }
+
   // Pointer to the start of buffer slot `bid`. Returns null if the pool is
   // unconfigured or `bid` is out of range.
   [[nodiscard]] std::byte* buf_data(size_t bid) const noexcept {
@@ -152,6 +158,7 @@ public:
           static_cast<unsigned short>(i), mask, static_cast<int>(i));
     }
     buf_ring_.advance(static_cast<int>(buf_count_));
+    free_count_ = buf_count_;
 
     return true;
   }
@@ -177,6 +184,7 @@ public:
     if (bid >= buf_count_) return {};
     span_t span{base_ + (bid * buf_size_), buf_size_};
 
+    --free_count_;
     auto buf = make_buffer(*this, span, bid, block_type::read);
 
     buf.pending_releases() = 1;
@@ -206,6 +214,7 @@ private:
       buf_ring_.add(s.data(), buf_size_, static_cast<unsigned short>(bid),
           mask, 0);
       buf_ring_.advance(1);
+      ++free_count_;
       return true;
     });
     return true;
@@ -230,6 +239,7 @@ private:
   size_t slab_size_{};
   uint16_t bgid_{};
   iou_buf_ring buf_ring_;
+  relaxed_atomic_size_t free_count_;
 
 #pragma endregion
 };

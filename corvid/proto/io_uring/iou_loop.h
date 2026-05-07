@@ -462,6 +462,16 @@ public:
     return buf_pool_.borrow_writer(sz);
   }
 
+  // Snapshot of number of free buffers in the TCP Provided Buffer pool.
+  [[nodiscard]] size_t free_tcp_block_count() const noexcept {
+    return tcp_provided_buf_pool_.free_block_count();
+  }
+
+  // Snapshot of number of free buffers in the UDP Provided Buffer pool.
+  [[nodiscard]] size_t free_udp_block_count() const noexcept {
+    return udp_buf_pool_.free_block_count();
+  }
+
 #pragma endregion
 #pragma region Completion tokens
 

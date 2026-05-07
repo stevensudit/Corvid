@@ -86,6 +86,44 @@ public:
     return &self.value_;
   }
 
+  // Increment and decrement with relaxed ordering (enabled when `T` supports
+  // `fetch_add`/`fetch_sub`).
+  value_type operator++(this auto& self) noexcept
+  requires requires { self.value_.fetch_add(1); }
+  {
+    return self.value_.fetch_add(1, std::memory_order::relaxed) + 1;
+  }
+
+  value_type operator++(this auto& self, int) noexcept
+  requires requires { self.value_.fetch_add(1); }
+  {
+    return self.value_.fetch_add(1, std::memory_order::relaxed);
+  }
+
+  value_type operator--(this auto& self) noexcept
+  requires requires { self.value_.fetch_sub(1); }
+  {
+    return self.value_.fetch_sub(1, std::memory_order::relaxed) - 1;
+  }
+
+  value_type operator--(this auto& self, int) noexcept
+  requires requires { self.value_.fetch_sub(1); }
+  {
+    return self.value_.fetch_sub(1, std::memory_order::relaxed);
+  }
+
+  value_type operator+=(this auto& self, value_type n) noexcept
+  requires requires { self.value_.fetch_add(n); }
+  {
+    return self.value_.fetch_add(n, std::memory_order::relaxed) + n;
+  }
+
+  value_type operator-=(this auto& self, value_type n) noexcept
+  requires requires { self.value_.fetch_sub(n); }
+  {
+    return self.value_.fetch_sub(n, std::memory_order::relaxed) - n;
+  }
+
 private:
   underlying_t value_{};
 };

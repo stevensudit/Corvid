@@ -89,7 +89,7 @@ void IouStreamConn_MultipleStrings() {
     auto [sock0, sock1] = net_socket::create_pair();
 
     iou_loop_runner runner;
-    std::atomic<int> recv_bytes{0};
+    relaxed_atomic_int recv_bytes{0};
     std::string payload;
 
     constexpr int N = 4;
@@ -101,8 +101,7 @@ void IouStreamConn_MultipleStrings() {
             .on_data = [&](iou_stream_conn&, iou_recv_view view) {
               auto sv = view.active_view();
               payload += sv;
-              recv_bytes.fetch_add(static_cast<int>(sv.size()),
-                  std::memory_order::relaxed);
+              recv_bytes += static_cast<int>(sv.size());
               view.consume(sv.size());
               return true;
             }});
@@ -115,10 +114,8 @@ void IouStreamConn_MultipleStrings() {
     for (int i = 0; i < N; ++i) EXPECT_TRUE(send_conn->send(std::string{msg}));
 
     const int expected = N * static_cast<int>(msg.size());
-    EXPECT_TRUE(WaitFor([&] {
-      return recv_bytes.load(std::memory_order::relaxed) >= expected;
-    }));
-    EXPECT_EQ(recv_bytes.load(), expected);
+    EXPECT_TRUE(WaitFor([&] { return recv_bytes >= expected; }));
+    EXPECT_EQ(recv_bytes, expected);
   }
 }
 #pragma endregion
