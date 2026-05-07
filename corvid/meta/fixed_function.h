@@ -19,7 +19,9 @@
 #include "./concepts.h"
 #include <cassert>
 #include <cstddef>
+#include <functional>
 #include <new>
+#include <stdexcept>
 
 namespace corvid { inline namespace meta {
 
@@ -34,9 +36,9 @@ class fixed_function;
 // This is similar in principle to the proposed `stdext::inplace_function`, but
 // a bit more specific.
 //
-// `SZ` is the total instance size in bytes. The stored functor must fit within
-// `SZ - 2*sizeof(void*)` bytes and have alignment <=
-// `alignof(std::max_align_t)`.
+// `SZ` is the total instance size in bytes (although padding is possible). The
+// stored functor must fit within `SZ - 2*sizeof(void*)` bytes and have
+// alignment <= `alignof(std::max_align_t)`.
 //
 // If either constraint is violated, a `static_assert` fires with a clear
 // message. Unlike `std::function`, no dynamic allocation is ever performed.

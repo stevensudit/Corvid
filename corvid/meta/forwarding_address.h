@@ -78,6 +78,8 @@ protected:
     return *this;
   }
 
+  // Throws on copy so that it can be used in `std::function`, which requires
+  // copyability even if you always move.
   address_forwarder(const address_forwarder&) {
     throw std::logic_error{"address_forwarder is not copyable"};
   }

@@ -98,8 +98,10 @@ public:
   // loop thread; only one instance per thread is permitted (debug-asserted).
   explicit owner_thread_dispatcher(size_t post_queue_reserve = 32,
       size_t default_retry_count = npos) {
-    assert(current_loop_ == nullptr &&
-           "another owner_thread_dispatcher already exists on this thread");
+    if (current_loop_)
+      throw std::logic_error{
+          "another owner_thread_dispatcher already exists on this thread"};
+
     if (default_retry_count != npos)
       default_retry_count_ = default_retry_count;
     current_loop_ = this;
@@ -223,6 +225,11 @@ protected:
   // Execute all pending callbacks in the post queue. Returns the number of
   // callbacks executed. There is no reason to call this until after `post`
   // signals the `eventfd`, and it must only be called from the owning thread.
+  //
+  // This is intentional: we want to fail on an exception in a callback
+  // function.
+  //
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] size_t execute_post_queue() noexcept {
     assert(is_loop_thread());
 
