@@ -160,11 +160,9 @@ template<typename FN>
 concept PostedInvocable =
     MoveConsumable<FN> && std::is_invocable_r_v<bool, FN>;
 
-static constexpr size_t fixed_function_capacity = 384;
-
 // Callback scheduled via `post` to run on the loop thread. These are used to
 // force single-threading of ring access.
-using posted_fn = std::function<bool()>;
+using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
 
 #pragma endregion
 #pragma region iou_loop
@@ -236,8 +234,6 @@ public:
   static constexpr duration_t default_post_and_wait_poll_interval{100ms};
   static constexpr size_t default_max_pending_sqes{RING_SIZE / 4};
 
-  static constexpr size_t fixed_function_capacity = 384;
-
   // Low-level callback invoked when an op completes. Moved to a slot borrowed
   // from the `completion_cb_pool_t`. This avoids the need for
   // `std::shared_ptr` for each `fixed_function` and also allows the use of
@@ -245,7 +241,7 @@ public:
   //
   // If this calls a method on your class, you will likely want to bind in a
   // shared pointer to that instance.
-  using completion_fn = fixed_function<fixed_function_capacity,
+  using completion_fn = fixed_function<default_fixed_function::capacity,
       slot_retention(completion_id, iou_res, iou_cqe_flags)>;
 
   // Completion callback for operations using a `buffer`, which includes the
@@ -254,20 +250,21 @@ public:
   //
   // If this calls a method on your class, you will likely want to bind in a
   // shared pointer to that instance.
-  using buf_completion_fn = fixed_function<fixed_function_capacity,
+  using buf_completion_fn = fixed_function<default_fixed_function::capacity,
       slot_retention(completion_id, buffer&)>;
 
   // Completion callback for operations that return an endpoint, like `accept`.
   //
   // If this calls a method on your class, you will likely want to bind in a
   // shared pointer to that instance.
-  using endpoint_completion_fn = fixed_function<fixed_function_capacity,
-      slot_retention(completion_id, iou_res, iou_cqe_flags,
-          combined_endpoint&)>;
+  using endpoint_completion_fn =
+      fixed_function<default_fixed_function::capacity,
+          slot_retention(completion_id, iou_res, iou_cqe_flags,
+              combined_endpoint&)>;
 
   // Completion callback for operations that return a `msghdr`, like
   // `recvmsg_multishot`.
-  using msghdr_completion_fn = fixed_function<fixed_function_capacity,
+  using msghdr_completion_fn = fixed_function<default_fixed_function::capacity,
       slot_retention(completion_id, iou_res, iou_cqe_flags, msghdr&)>;
 
 #pragma endregion

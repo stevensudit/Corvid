@@ -51,13 +51,16 @@ class iou_provided_buf_pool: public buffer_pool_base {
 public:
 #pragma region Construction
 
+  using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
+  using dispatcher_t = owner_thread_dispatcher<posted_fn>;
+
   // Construct a pool backed by a slab of `slab_size` bytes (must be a
   // multiple of `hugepage_size`), split into slots of `buf_size` bytes each.
   // `buf_count` is derived as `slab_size / buf_size` and must be a power of
   // two. Pass `slab_size = 0` for a no-op pool. Throws `std::system_error`
   // on allocation failure.
-  iou_provided_buf_pool(owner_thread_dispatcher<>* dispatcher,
-      size_t slab_size, block_size buf_size, uint16_t bgid = 0)
+  iou_provided_buf_pool(dispatcher_t* dispatcher, size_t slab_size,
+      block_size buf_size, uint16_t bgid = 0)
       : dispatcher_{dispatcher}, bgid_{bgid} {
     if (slab_size == 0) return;
 
@@ -232,7 +235,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  owner_thread_dispatcher<>* dispatcher_;
+  dispatcher_t* dispatcher_;
   std::byte* base_{};
   size_t buf_size_{};
   size_t buf_count_{};

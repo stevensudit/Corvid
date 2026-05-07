@@ -288,9 +288,7 @@ public:
       if (!conn->open_ || !conn->recv_paused_ || conn->recv_token_)
         return false;
       conn->recv_paused_ = false;
-      return (conn->recv_shot_ == shot_type::multi)
-                 ? conn->do_submit_multi_recv()
-                 : conn->do_submit_single_recv();
+      return conn->do_submit_recv();
     });
   }
 
@@ -319,7 +317,7 @@ public:
         connecting_{role == connection_role::client},
         listening_{role == connection_role::server}, shutdown_{shutdown},
         recv_buf_size_{recv_buf_size}, send_buf_size_{send_buf_size},
-        recv_shot_{recv_shot}, recv_active_shot_{recv_shot} {}
+        recv_intended_shot_{recv_shot}, recv_active_shot_{recv_shot} {}
 
   virtual ~iou_stream_conn() = default;
 
@@ -345,7 +343,7 @@ protected:
 
     return std::make_shared<iou_stream_conn>(allow::ctor, std::move(lp),
         std::move(sock), std::move(remote_ep), own_handlers_, std::nullopt,
-        shutdown_, recv_buf_size_, send_buf_size_, recv_shot_);
+        shutdown_, recv_buf_size_, send_buf_size_, recv_intended_shot_);
   }
 
 #pragma endregion
@@ -374,9 +372,13 @@ private:
   relaxed_atomic<block_size> recv_buf_size_{block_size::kb004};
   relaxed_atomic<block_size> send_buf_size_{block_size::kb004};
 
-  shot_type recv_shot_{shot_type::single};
-  shot_type recv_active_shot_{shot_type::single};
+  // Recv state: whether it's paused, whether we're trying for single or
+  // multishot, and whether the current shot is single or multi. The
+  // distinction is needed because we can be forced by buffer pressure to
+  // downgrade from multi to single.
   bool recv_paused_{};
+  shot_type recv_intended_shot_{shot_type::single};
+  shot_type recv_active_shot_{shot_type::single};
 
   // When receiving, token of callback. Can be used for cancelation.
   completion_token recv_token_;
@@ -397,17 +399,30 @@ private:
   // Submit buffer for recv.
   [[nodiscard]] bool do_submit_recv() {
     if (recv_active_shot_ == shot_type::single) return do_submit_single_recv();
-
     return do_submit_multi_recv();
   }
 
-  // Submit buffer for singleshot recv, borrowing a read buffer if
-  // needed.
-  [[nodiscard]] bool do_submit_single_recv(buffer buf = {}) {
+  // Submit buffer for singleshot recv, borrowing a read buffer if needed.
+  // `allow_upgrade` prevents re-entering `do_submit_multi_recv` when multishot
+  // submission itself fails.
+  [[nodiscard]] bool
+  do_submit_single_recv(buffer* bufptr = {}, bool allow_upgrade = true) {
     assert(loop_.is_loop_thread());
     if (recv_token_) return false;
     recv_active_shot_ = shot_type::single;
-    if (!buf) buf = loop_.borrow_read_buffer(recv_buf_size_);
+
+    if (allow_upgrade && recv_intended_shot_ == shot_type::multi &&
+        (!bufptr || bufptr->payload_view().empty()) &&
+        loop_.free_tcp_block_count() > 16)
+      return do_submit_multi_recv();
+
+    // Reuse buffer if possible.
+    buffer buf;
+    if (bufptr && *bufptr)
+      buf = std::move(*bufptr);
+    else
+      buf = loop_.borrow_read_buffer(recv_buf_size_);
+
     if (!buf) return false;
 
     recv_token_ = loop_.submit_read_buffer(sock_, std::move(buf),
@@ -471,8 +486,8 @@ private:
           return slot_retention::release;
         });
 
-    // If we can't start a multishot, try singleshot.
-    if (!recv_token_) return do_submit_single_recv();
+    // If we can't start a multishot, try singleshot without upgrading again.
+    if (!recv_token_) return do_submit_single_recv({}, false);
 
     return true;
   }
@@ -518,7 +533,7 @@ private:
               // on_data without a round-trip to the kernel.
               if (buf && buf.active_span().empty())
                 return conn->on_recv_complete(buf);
-              return conn->do_submit_single_recv(std::move(buf));
+              return conn->do_submit_single_recv(&buf);
             }
 
             return true;
@@ -1039,7 +1054,8 @@ protected:
     ep.sockaddr.len = remote.sockaddr_size();
     return std::make_shared<iou_stream_conn_with_state<state_t>>(allow::ctor,
         std::move(loop), std::move(sock), std::move(ep), own_handlers_,
-        std::nullopt, shutdown_, recv_buf_size_, send_buf_size_, recv_shot_);
+        std::nullopt, shutdown_, recv_buf_size_, send_buf_size_,
+        recv_intended_shot_);
   }
 
 private:

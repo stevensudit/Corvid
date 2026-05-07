@@ -31,7 +31,7 @@ using namespace std::string_view_literals;
 #pragma region NoOpZeroSlab
 void IouProvidedBufPool_NoOpZeroSlab() {
   // slab_size=0 produces a no-op pool with no allocation.
-  owner_thread_dispatcher<> dispatcher;
+  iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     iou_provided_buf_pool pool(&dispatcher, 0, block_size::kb004);
     EXPECT_FALSE(pool);
@@ -52,7 +52,7 @@ void IouProvidedBufPool_NoOpZeroSlab() {
 #pragma region ConstructValid
 void IouProvidedBufPool_ConstructValid() {
   // Valid construction: sizes, buf_count, slab_size, and bgid are correct.
-  owner_thread_dispatcher<> dispatcher;
+  iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     // 2 MB / 4 KB = 512 buffers.
     constexpr size_t slab = 2ULL * 1024 * 1024;
@@ -72,7 +72,7 @@ void IouProvidedBufPool_ConstructValid() {
 #pragma region BufCountFromDivision
 void IouProvidedBufPool_BufCountFromDivision() {
   // buf_count is derived as slab_size / buf_size.
-  owner_thread_dispatcher<> dispatcher;
+  iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     // 4 MB / 4 KB = 1024.
     iou_provided_buf_pool pool(&dispatcher, 4ULL * 1024 * 1024,
@@ -98,7 +98,7 @@ void IouProvidedBufPool_BufCountFromDivision() {
 #pragma region BufDataOffsets
 void IouProvidedBufPool_BufDataOffsets() {
   // buf_data(bid) returns pointers that are exactly buf_size apart.
-  owner_thread_dispatcher<> dispatcher;
+  iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     constexpr size_t slab = 2ULL * 1024 * 1024;
     iou_provided_buf_pool pool(&dispatcher, slab, block_size::kb004);
@@ -115,7 +115,7 @@ void IouProvidedBufPool_BufDataOffsets() {
 #pragma region RegisterWithRing
 void IouProvidedBufPool_RegisterWithRing() {
   // register_with succeeds, and a second call on the same pool fails.
-  owner_thread_dispatcher<> dispatcher;
+  iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     iou_provided_buf_pool pool(&dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
@@ -131,7 +131,7 @@ void IouProvidedBufPool_RegisterWithRing() {
 #pragma region ReconstructBeforeRegister
 void IouProvidedBufPool_ReconstructBeforeRegister() {
   // reconstruct before register_with returns an empty buffer.
-  owner_thread_dispatcher<> dispatcher;
+  iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     iou_provided_buf_pool pool(&dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
@@ -148,7 +148,7 @@ void IouProvidedBufPool_ReconstructBeforeRegister() {
 void IouProvidedBufPool_ReconstructPayload() {
   // After register_with, reconstruct creates a read buffer with the correct
   // payload span.
-  owner_thread_dispatcher<> dispatcher;
+  iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     iou_provided_buf_pool pool(&dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
@@ -186,7 +186,7 @@ void IouProvidedBufPool_ReconstructPayload() {
 #pragma region ReconstructErrorResult
 void IouProvidedBufPool_ReconstructErrorResult() {
   // A CQE with buffer flag set but an error result yields an empty payload.
-  owner_thread_dispatcher<> dispatcher;
+  iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     iou_provided_buf_pool pool(&dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
@@ -207,7 +207,7 @@ void IouProvidedBufPool_ReconstructErrorResult() {
 #pragma region ReconstructNoBufferFlag
 void IouProvidedBufPool_ReconstructNoBufferFlag() {
   // A CQE without the buffer flag returns an empty buffer.
-  owner_thread_dispatcher<> dispatcher;
+  iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     iou_provided_buf_pool pool(&dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
@@ -225,7 +225,7 @@ void IouProvidedBufPool_ReconstructNoBufferFlag() {
 #pragma region ReconstructOutOfRangeBid
 void IouProvidedBufPool_ReconstructOutOfRangeBid() {
   // A buffer ID >= buf_count returns an empty buffer.
-  owner_thread_dispatcher<> dispatcher;
+  iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     iou_provided_buf_pool pool(&dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
@@ -247,7 +247,7 @@ void IouProvidedBufPool_ReturnReplenishes() {
   // Destroying the reconstructed buffer returns the slot to the ring.
   // We verify indirectly: reconstruct the same slot twice (once after the
   // first buffer is destroyed) to confirm the slot was replenished.
-  owner_thread_dispatcher<> dispatcher;
+  iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     iou_provided_buf_pool pool(&dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
