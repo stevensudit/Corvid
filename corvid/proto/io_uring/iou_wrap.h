@@ -768,7 +768,11 @@ public:
   iou_ring& operator=(iou_ring&&) = delete;
 
   ~iou_ring() {
-    io_uring_unregister_buffers(&ring_);
+    // Do not call `io_uring_unregister_buffers` first: it blocks until all
+    // in-flight requests referencing the registered buffers complete, which
+    // can wait forever once the loop has stopped processing CQEs.
+    // `io_uring_queue_exit` cancels pending requests and releases registered
+    // resources as part of teardown.
     io_uring_queue_exit(&ring_);
   }
 

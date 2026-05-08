@@ -81,6 +81,7 @@ void IouStreamConn_SendRecvString() {
     EXPECT_EQ(payload, msg);
   }
 }
+
 #pragma endregion
 #pragma region MultipleStrings
 
@@ -119,6 +120,7 @@ void IouStreamConn_MultipleStrings() {
     EXPECT_EQ(recv_bytes, expected);
   }
 }
+
 #pragma endregion
 #pragma region SendRecvBuffer
 
@@ -160,6 +162,7 @@ void IouStreamConn_SendRecvBuffer() {
     EXPECT_EQ(payload, msg);
   }
 }
+
 #pragma endregion
 #pragma region BufferMoveOut
 
@@ -241,6 +244,7 @@ void IouStreamConn_GracefulClose() {
     EXPECT_TRUE(closed0.load());
   }
 }
+
 #pragma endregion
 #pragma region HangupClose
 
@@ -269,6 +273,7 @@ void IouStreamConn_HangupClose() {
         WaitFor([&] { return closed.load(std::memory_order::acquire); }));
   }
 }
+
 #pragma endregion
 #pragma region OnDrain
 
@@ -302,6 +307,7 @@ void IouStreamConn_OnDrain() {
         WaitFor([&] { return drained.load(std::memory_order::acquire); }));
   }
 }
+
 #pragma endregion
 #pragma region WithState
 
