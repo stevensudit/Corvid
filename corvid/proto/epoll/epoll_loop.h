@@ -43,6 +43,8 @@
 
 namespace corvid { inline namespace proto {
 
+#pragma region io_conn
+
 // Abstract base for objects registered with `epoll_loop`. Higher-level types
 // (e.g., `stream_conn`) inherit from this and override the three event
 // methods. The default `on_error` falls through to `on_readable` so that
@@ -69,6 +71,9 @@ struct io_conn: std::enable_shared_from_this<io_conn> {
 private:
   net_socket sock_;
 };
+
+#pragma endregion
+#pragma region epoll_loop
 
 // `epoll`-based I/O event loop, safe for use with a background thread. This
 // implements a Reactor pattern where we wait for readiness and then act.
@@ -109,6 +114,7 @@ class epoll_loop
           concurrency::default_fixed_function::capacity, bool()>> {
   enum class allow : bool { ctor };
 
+#pragma region Types
 public:
   // Maximum number of events retrieved per `epoll_wait` call.
   static constexpr size_t max_events = 64;
@@ -116,6 +122,23 @@ public:
   using posted_fn_t =
       fixed_function<concurrency::default_fixed_function::capacity, bool()>;
   using parent = concurrency::owner_thread_dispatcher<posted_fn_t>;
+
+#pragma endregion
+#pragma region Infrastructure
+public:
+  // Create the `epoll` instance and register the base's wakeup `event_fd`.
+  // Throws `std::system_error` on failure. Use `make` instead of calling this
+  // directly. Per the dispatcher contract, the constructing thread becomes the
+  // loop thread.
+  explicit epoll_loop(allow) : epoll_{create_epollfd()} {
+    // The base's `event_fd` is used by `post` and `stop` to interrupt a
+    // sleeping `epoll_wait` from another thread.
+    epoll_event ev{.events = EPOLLIN,
+        .data = epoll_data_t{.fd = wake_fd().handle()}};
+    if (!epoll_.add(wake_fd().handle(), ev))
+      throw std::system_error(errno, std::generic_category(),
+          "epoll_ctl wake_fd");
+  }
 
   epoll_loop(const epoll_loop&) = delete;
   epoll_loop& operator=(const epoll_loop&) = delete;
@@ -133,6 +156,82 @@ public:
     return std::make_shared<epoll_loop>(allow::ctor);
   }
 
+  // Block until `run` enters its polling loop. Returns false on timeout.
+  // Pass -1 (the default) to wait up to 60 seconds.
+  [[nodiscard]] bool wait_until_running(int timeout_ms = -1) {
+    if (timeout_ms < 0) timeout_ms = 60000;
+    return running_.wait_for_value(std::chrono::milliseconds{timeout_ms},
+        true);
+  }
+
+  // Dispatch events in a loop until `stop` is called or `run_once` returns
+  // -1. `timeout_ms` is forwarded to each `epoll_wait` call.
+  //
+  // May only be called once; returns false immediately if called again.
+  [[nodiscard]] bool run(int timeout_ms = -1) {
+    if (!has_run_.kill()) return false;
+
+    running_.notify(true);
+    scope_exit on_exit{[&] { running_.notify(false); }};
+
+    bool ok = true;
+    for (; running_.get();)
+      if (run_once(timeout_ms) < 0) {
+        ok = false;
+        break;
+      }
+
+    return ok;
+  }
+
+  // Wait up to `timeout_ms` milliseconds for events and dispatch ready
+  // sockets. Pass -1 to block indefinitely, 0 to poll. Drains the active post
+  // queue first. Returns the number of I/O events dispatched, or -1 on error.
+  [[nodiscard]] int run_once(int timeout_ms = -1) {
+    assert(is_loop_thread());
+
+    // Execute backlog of posts.
+    (void)execute_post_queue();
+
+    // Poll for available events.
+    epoll_event events[max_events];
+    auto available = epoll_.wait(events, max_events, timeout_ms);
+    if (!available) return os_file::is_hard_error() ? -1 : 0;
+
+    // Dispatch each event to handler.
+    int dispatched = 0;
+    int woken = 0;
+    for (int ndx = 0; ndx < *available; ++ndx) {
+      const int fd = events[ndx].data.fd;
+
+      // Drain the internal wakeup handle and skip: it carries no user event.
+      if (fd == wake_fd().handle()) {
+        if (!wake_fd().read()) return -1;
+        ++woken;
+        continue;
+      }
+
+      // Callback executes in polling thread and should immediately handle the
+      // event by performing I/O. It should not block or post more work to the
+      // loop until ready to handle the callback.
+      ++dispatched;
+      if (!dispatch_event(fd, events[ndx].events)) return -1;
+    }
+
+    assert(dispatched + woken == available);
+    return dispatched;
+  }
+
+  // Signal the loop to exit after the current dispatch round completes.
+  // Safe to call from any thread.
+  [[nodiscard]] bool stop() {
+    running_.notify(false);
+    return wake_post_queue();
+  }
+
+#pragma endregion
+#pragma region Registration
+public:
   // Register `conn`.
   //
   // The initial event mask always includes `EPOLLERR | EPOLLHUP`; read and
@@ -211,93 +310,8 @@ public:
     return found ? *found : nullptr;
   }
 
-  // Signal the loop to exit after the current dispatch round completes.
-  // Safe to call from any thread.
-  [[nodiscard]] bool stop() {
-    running_.notify(false);
-    return wake_post_queue();
-  }
-
-  // Block until `run` enters its polling loop. Returns false on timeout.
-  // Pass -1 (the default) to wait up to 60 seconds.
-  [[nodiscard]] bool wait_until_running(int timeout_ms = -1) {
-    if (timeout_ms < 0) timeout_ms = 60000;
-    return running_.wait_for_value(std::chrono::milliseconds{timeout_ms},
-        true);
-  }
-
-  // Wait up to `timeout_ms` milliseconds for events and dispatch ready
-  // sockets. Pass -1 to block indefinitely, 0 to poll. Drains the active post
-  // queue first. Returns the number of I/O events dispatched, or -1 on error.
-  [[nodiscard]] int run_once(int timeout_ms = -1) {
-    assert(is_loop_thread());
-
-    // Execute backlog of posts.
-    (void)execute_post_queue();
-
-    // Poll for available events.
-    epoll_event events[max_events];
-    auto available = epoll_.wait(events, max_events, timeout_ms);
-    if (!available) return os_file::is_hard_error() ? -1 : 0;
-
-    // Dispatch each event to handler.
-    int dispatched = 0;
-    int woken = 0;
-    for (int ndx = 0; ndx < *available; ++ndx) {
-      const int fd = events[ndx].data.fd;
-
-      // Drain the internal wakeup handle and skip: it carries no user event.
-      if (fd == wake_fd().handle()) {
-        if (!wake_fd().read()) return -1;
-        ++woken;
-        continue;
-      }
-
-      // Callback executes in polling thread and should immediately handle the
-      // event by performing I/O. It should not block or post more work to the
-      // loop until ready to handle the callback.
-      ++dispatched;
-      if (!dispatch_event(fd, events[ndx].events)) return -1;
-    }
-
-    assert(dispatched + woken == available);
-    return dispatched;
-  }
-
-  // Dispatch events in a loop until `stop` is called or `run_once` returns
-  // -1. `timeout_ms` is forwarded to each `epoll_wait` call.
-  //
-  // May only be called once; returns false immediately if called again.
-  [[nodiscard]] bool run(int timeout_ms = -1) {
-    if (!has_run_.kill()) return false;
-
-    running_.notify(true);
-    scope_exit on_exit{[&] { running_.notify(false); }};
-
-    bool ok = true;
-    for (; running_.get();)
-      if (run_once(timeout_ms) < 0) {
-        ok = false;
-        break;
-      }
-
-    return ok;
-  }
-
-  // Create the `epoll` instance and register the base's wakeup `event_fd`.
-  // Throws `std::system_error` on failure. Use `make` instead of calling this
-  // directly. Per the dispatcher contract, the constructing thread becomes the
-  // loop thread.
-  explicit epoll_loop(allow) : epoll_{create_epollfd()} {
-    // The base's `event_fd` is used by `post` and `stop` to interrupt a
-    // sleeping `epoll_wait` from another thread.
-    epoll_event ev{.events = EPOLLIN,
-        .data = epoll_data_t{.fd = wake_fd().handle()}};
-    if (!epoll_.add(wake_fd().handle(), ev))
-      throw std::system_error(errno, std::generic_category(),
-          "epoll_ctl wake_fd");
-  }
-
+#pragma endregion
+#pragma region Helpers.
 private:
   // Register socket and initial interest in reading and writing. Returns
   // false if already registered or `epoll_ctl` fails.
@@ -414,13 +428,21 @@ private:
     return f;
   }
 
+#pragma endregion
+#pragma region Data members
+private:
   const epoll epoll_;
 
   std::unordered_map<int, std::shared_ptr<io_conn>> registrations_;
 
   tombstone has_run_;
   notifiable<std::atomic_bool> running_;
+
+#pragma endregion
 };
+
+#pragma endregion
+#pragma region Loop Runner
 
 // Runs an `epoll_loop` in its own background thread.
 //
@@ -527,4 +549,7 @@ private:
   std::shared_ptr<epoll_loop> loop_;
   std::jthread thread_;
 };
+
+#pragma endregion
+
 }} // namespace corvid::proto
