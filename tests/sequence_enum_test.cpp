@@ -949,10 +949,10 @@ void SequentialEnumTest_AsView() {
 
 MAKE_TEST_LIST(SequentialEnumTest_Registry, SequentialEnumTest_Ops,
     SequentialEnumTest_MakeSafely, SequentialEnumTest_SafeOps,
-    SequentialEnumTest_SubtleBugRepro, SequentialEnumTest_StreamingOut,
-    SequentialEnumTest_Missing, SequentialEnumTest_Intervals,
-    SequentialEnumTest_ExtractEnum, SequentialEnumTest_Int64,
-    SequentialEnumTest_AsView);
+    SequentialEnumTest_NoChoice, SequentialEnumTest_SubtleBugRepro,
+    SequentialEnumTest_StreamingOut, SequentialEnumTest_Missing,
+    SequentialEnumTest_Intervals, SequentialEnumTest_ExtractEnum,
+    SequentialEnumTest_Int64, SequentialEnumTest_AsView);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

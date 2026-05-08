@@ -739,7 +739,7 @@ void IouBufPool_UpdateRecvmsgTruncated() {
     buf.update(iou_res{static_cast<int>(total)}, iou_cqe_flags{},
         msg_template);
 
-    EXPECT_FALSE(bitmask::has(buf.msghdr_flags(), msg_flags::trunc));
+    EXPECT_TRUE(bitmask::has(buf.msghdr_flags(), msg_flags::trunc));
   }
 }
 #pragma endregion
@@ -760,4 +760,6 @@ MAKE_TEST_LIST(IouBufPool_ReadInitialState, IouBufPool_ReadAfterUpdate,
     IouBufPool_DemoteToRead, IouBufPool_PromoteDemoteRoundtrip,
     IouBufPool_AvailableTracking, IouBufPool_MoveBuffer,
     IouBufPool_CoalesceSmallToMedium, IouBufPool_CoalesceMediumToLarge,
-    IouBufPool_CoalesceChain, IouBufPool_UdpTierAlloc)
+    IouBufPool_CoalesceChain, IouBufPool_UdpTierAlloc,
+    IouBufPool_UpdateRecvmsgMsgFlagsDefault, IouBufPool_UpdateRecvmsgValid,
+    IouBufPool_UpdateRecvmsgTruncated)
