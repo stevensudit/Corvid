@@ -1716,6 +1716,10 @@ public:
       std::rethrow_exception(startup_error);
     }
     if (!loop || !loop->wait_until_running(1000ms)) {
+      // Drop our local ref before stopping the worker so the worker's local
+      // in `run()` is the last owner and `~loop_t` fires on the worker
+      // thread (required by `owner_thread_dispatcher`).
+      loop.reset();
       thread_.request_stop();
       if (thread_.joinable()) thread_.join();
       throw std::runtime_error{"iou_loop_runner failed to start"};
@@ -1762,6 +1766,12 @@ private:
       // thread.
       std::stop_callback on_stop{st, [loop] { loop->stop(); }};
       loop->run();
+      // Drop the runner's reference here so that, in the common case, the
+      // last shared_ptr release (and thus `~loop_t`) happens on this thread
+      // rather than on whichever thread later destroys the runner. The
+      // owner_thread_dispatcher base requires destruction on its owning
+      // thread.
+      if (std::scoped_lock lock{startup_mutex_}; true) loop_.reset();
     }
     catch (...) {
       if (std::scoped_lock lock{startup_mutex_}; true)

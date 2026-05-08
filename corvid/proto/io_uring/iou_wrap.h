@@ -565,9 +565,7 @@ public:
     return true;
   }
 
-  // Shutdown `fd` asynchronously. Caller must have released ownership of `fd`
-  // (e.g., via `os_file::release`) before submitting, so the kernel is the
-  // sole closer. `how` is the same as for `shutdown(2)`.
+  // Shutdown `fd` asynchronously. `how` is the same as for `shutdown(2)`.
   bool prep_shutdown(int fd, shutdown_how how) noexcept {
     io_uring_prep_shutdown(sqe_, fd, *how);
     return true;
