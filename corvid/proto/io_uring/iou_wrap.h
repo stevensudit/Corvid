@@ -701,7 +701,7 @@ public:
 
   explicit iou_recvmsg_out(void* buf, msghdr& msgh, iou_res res)
       : msgh_{&msgh}, res_{res} {
-    if (res.ok()) out_ = io_uring_recvmsg_validate(buf, res.value(), &msgh);
+    if (res) out_ = io_uring_recvmsg_validate(buf, res.value(), &msgh);
   }
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }

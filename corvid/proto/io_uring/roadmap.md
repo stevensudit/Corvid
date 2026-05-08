@@ -1,6 +1,13 @@
 # Needed enhancements
 
-## iou_dgram_conn is a mess. Needs a rewrite.
+## iou_dgram_router / iou_dgram_session
+
+Replaces the old `iou_dgram_conn`. The router owns the UDP socket and demuxes
+incoming datagrams onto per-key sessions via a user-supplied extractor (default:
+peer endpoint; QUIC: connection ID). Multishot recvmsg with provided buffers,
+singleshot fallback on `EC::nobufs`. Sends are independent and atomic; each
+completion returns the buffer to the originating session's `on_sent` so the
+caller decides whether to retry.
 
 # Possible enhancements
 

@@ -647,7 +647,7 @@ public:
     if (!pending_sqe_count_) return true;
     pending_sqe_count_ = 0;
     auto res = ring_.submit();
-    return (res.ok() || res.is_soft_error());
+    return (res || res.is_soft_error());
   }
 
 #pragma region Nop

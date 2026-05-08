@@ -241,8 +241,8 @@ public:
 #pragma region Payload
 
   // String view over `payload_span`.
-  [[nodiscard]] std::string_view payload_view() noexcept {
-    return {reinterpret_cast<char*>(payload_span_.data()),
+  [[nodiscard]] std::string_view payload_view() const noexcept {
+    return {reinterpret_cast<const char*>(payload_span_.data()),
         payload_span_.size()};
   }
 
@@ -382,7 +382,7 @@ public:
     res_ = res;
     cqe_flags_ = cqe_flags;
     if (!has_more()) --pending_releases_;
-    if (!res.ok()) return *this;
+    if (!res) return *this;
 
     if (file_offset_ != seek_current) file_offset_ += res.bytes();
     if (blockrw_ == block_type::read) {
@@ -432,7 +432,7 @@ public:
     }
 
     // If we tried to parse but failed, or if the datagram was truncated, fail.
-    if (res.ok() && (!out || bitmask::has(msghdr_flags(), msg_flags::trunc))) {
+    if (res && (!out || bitmask::has(msghdr_flags(), msg_flags::trunc))) {
       res_ = iou_res{EC::msgsize};
       msgh_.msg_flags |= *msg_flags::trunc;
     }

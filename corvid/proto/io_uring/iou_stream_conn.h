@@ -686,7 +686,7 @@ private:
       return do_close_now();
     const auto token = loop_.submit_shutdown(sock_, shutdown_how::wr,
         [conn = self()](completion_id, iou_res res, iou_cqe_flags) {
-          if (!res.ok()) (void)conn->do_close_now();
+          if (!res) (void)conn->do_close_now();
           return slot_retention{};
         });
     if (!token.is_valid()) return do_close_now();
@@ -780,7 +780,7 @@ private:
     if (!open_) return true;
 
     // Error.
-    if (!res.ok()) return do_close_now();
+    if (!res) return do_close_now();
 
     // Start listening for data.
     if (!do_submit_recv()) return do_close_now();
@@ -800,7 +800,7 @@ private:
 
     // Error. If it's an `ECANCELED`, then we're either shutting down or
     // pausing: either way, there's nothing for us to do here.
-    if (!res.ok()) {
+    if (!res) {
       if (res.is_soft_error() || res.err() == EC::canceled) return true;
       return do_close_now();
     }

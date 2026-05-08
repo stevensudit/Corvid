@@ -382,6 +382,12 @@ public:
     return std::pair{self.as_sockaddr_ptr(), self.sockaddr_size()};
   }
 
+  // Return a `string_view` of the raw bytes of the sockaddr struct.
+  [[nodiscard]] constexpr auto as_view() const noexcept {
+    return std::string_view{reinterpret_cast<const char*>(as_sockaddr_ptr()),
+        sockaddr_size()};
+  }
+
   [[nodiscard]] static constexpr std::pair<sockaddr*, socklen_t> to_sockaddr(
       net_endpoint* ep) noexcept {
     if (!ep) return {nullptr, 0};
@@ -512,3 +518,14 @@ struct net_endpoint_target {
 #pragma endregion
 
 }} // namespace corvid::proto
+
+namespace std {
+template<>
+struct hash<corvid::net_endpoint> {
+  [[nodiscard]] size_t operator()(
+      const corvid::net_endpoint& ep) const noexcept {
+    if (ep.empty()) return 0;
+    return std::hash<std::string_view>{}(ep.as_view());
+  }
+};
+} // namespace std
