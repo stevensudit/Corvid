@@ -207,6 +207,9 @@ public:
       buf.update(res, cqe_flags);
     buf.pending_releases() = 0;
 
+    // A Provided Buffer has no `active_span`.
+    (void)buf.set_read_size(0);
+
     return buf;
   }
 

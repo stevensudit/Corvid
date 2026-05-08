@@ -155,6 +155,11 @@ public:
     return bitmask::has(cqe_flags_, iou_cqe_flags::more);
   }
 
+  // Whether this buffer was filled by the kernel from a provided buffer.
+  [[nodiscard]] bool was_provided() const noexcept {
+    return bitmask::has(cqe_flags_, iou_cqe_flags::buffer);
+  }
+
   // Byte size of this allocation: 4096, 16384, or 65536.
   [[nodiscard]] size_t size() const noexcept { return full_span_.size(); }
 

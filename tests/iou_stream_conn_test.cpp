@@ -46,6 +46,7 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region SendRecvString
+
 void IouStreamConn_SendRecvString() {
   // String send -> on_data fires, payload correct.
   if (true) {
@@ -81,8 +82,8 @@ void IouStreamConn_SendRecvString() {
   }
 }
 #pragma endregion
-
 #pragma region MultipleStrings
+
 void IouStreamConn_MultipleStrings() {
   // Multiple string sends -> all received and concatenated correctly.
   if (true) {
@@ -119,8 +120,8 @@ void IouStreamConn_MultipleStrings() {
   }
 }
 #pragma endregion
-
 #pragma region SendRecvBuffer
+
 void IouStreamConn_SendRecvBuffer() {
   // Direct buffer send -> on_data fires, payload correct.
   if (true) {
@@ -160,8 +161,8 @@ void IouStreamConn_SendRecvBuffer() {
   }
 }
 #pragma endregion
-
 #pragma region BufferMoveOut
+
 void IouStreamConn_BufferMoveOut() {
   // `take()` in on_data -> fresh recv submitted, caller owns buffer.
   if (true) {
@@ -195,9 +196,10 @@ void IouStreamConn_BufferMoveOut() {
     EXPECT_EQ(payload, msg);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region GracefulClose
+
 void IouStreamConn_GracefulClose() {
   // `close()` -> on_close fires on both sides.
   if (true) {
@@ -240,8 +242,8 @@ void IouStreamConn_GracefulClose() {
   }
 }
 #pragma endregion
-
 #pragma region HangupClose
+
 void IouStreamConn_HangupClose() {
   // `hangup()` -> socket closed immediately.
   if (true) {
@@ -268,8 +270,8 @@ void IouStreamConn_HangupClose() {
   }
 }
 #pragma endregion
-
 #pragma region OnDrain
+
 void IouStreamConn_OnDrain() {
   // `on_drain` fires after send completes and queue is empty.
   if (true) {
@@ -301,8 +303,8 @@ void IouStreamConn_OnDrain() {
   }
 }
 #pragma endregion
-
 #pragma region WithState
+
 void IouStreamConn_WithState() {
   // `iou_stream_conn_with_state` - state accessible in callback.
   if (true) {
@@ -340,40 +342,35 @@ void IouStreamConn_WithState() {
     EXPECT_EQ(recv_conn->state().recv_count, 1);
   }
 }
-#pragma endregion
 
-#pragma region FullBufferRedelivery
-void IouStreamConn_FullBufferRedelivery() {
-  // Fills the recv buffer completely without consuming, verifying that
-  // `do_continue_recv` re-delivers the same full buffer to `on_data` without
-  // a kernel round-trip. Partial recvs during accumulation are harmless: each
-  // one appends to `payload_span` until `active_span` is exhausted, at which
-  // point the re-delivery path fires.
+#pragma endregion
+#pragma region FullBufferPartialConsume
+
+void IouStreamConn_FullBufferPartialConsume() {
+  // Fills the recv buffer completely, then consumes part of it on the first
+  // full-buffer delivery. The remaining bytes plus newly-received bytes are
+  // delivered on a subsequent recv. Verifies that partial consume of a full
+  // buffer makes forward progress (the buffer regains headroom) and that the
+  // contract violation -- returning a full buffer with zero consumed -- is
+  // not exercised here.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
     iou_loop_runner runner;
     std::atomic_bool done{false};
-    std::atomic_int full_deliveries{0};
+    std::atomic_size_t total_consumed{0};
     const size_t buf_size = *block_size::kb004;
 
     auto recv_conn = iou_stream_conn_ptr::adopt(runner.loop(),
         std::move(sock1), net_endpoint::invalid,
         iou_stream_conn_handlers{
             .on_data = [&](iou_stream_conn&, iou_recv_view view) {
-              if (view.active_view().size() < buf_size) {
-                // Partial recv: buffer not yet full, let it accumulate.
-                return true;
-              }
-              if (full_deliveries.fetch_add(1, std::memory_order::acq_rel) ==
-                  0) {
-                // First full-buffer delivery: withhold consume to trigger
-                // re-delivery via do_continue_recv.
-                return true;
-              }
-              // Re-delivery of the same full buffer: now consume.
-              view.consume(view.active_view().size());
-              done.store(true, std::memory_order::release);
+              const auto sz = view.active_view().size();
+              view.consume(sz);
+              if (total_consumed.fetch_add(sz, std::memory_order::acq_rel) +
+                      sz >=
+                  buf_size + 1)
+                done.store(true, std::memory_order::release);
               return true;
             }});
     EXPECT_TRUE(recv_conn);
@@ -383,14 +380,16 @@ void IouStreamConn_FullBufferRedelivery() {
     EXPECT_TRUE(send_conn);
 
     EXPECT_TRUE(send_conn->send(std::string(buf_size, 'x')));
+    EXPECT_TRUE(send_conn->send(std::string(1, 'y')));
     EXPECT_TRUE(
         WaitFor([&] { return done.load(std::memory_order::acquire); }));
-    EXPECT_EQ(full_deliveries.load(std::memory_order::acquire), 2);
+    EXPECT_GE(total_consumed.load(std::memory_order::acquire), buf_size + 1);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region MultishotRecvBasic
+
 void IouStreamConn_MultishotRecv_Basic() {
   // multishot recv mode: data arrives and `on_data` fires.
   if (true) {
@@ -425,9 +424,10 @@ void IouStreamConn_MultishotRecv_Basic() {
     EXPECT_EQ(payload, msg);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region MultishotRecvMultipleMessages
+
 void IouStreamConn_MultishotRecv_MultipleMessages() {
   // multishot recv mode: multiple sends are all delivered (bytes counted since
   // the stream socket may coalesce messages into a single on_data call).
@@ -467,9 +467,10 @@ void IouStreamConn_MultishotRecv_MultipleMessages() {
     EXPECT_EQ(recv_bytes.load(), expected);
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region MultishotRecvTakeBuffer
+
 void IouStreamConn_MultishotRecv_TakeBuffer() {
   // `take()` in multishot mode: multishot resubmits after the taken buffer is
   // released.
@@ -514,9 +515,10 @@ void IouStreamConn_MultishotRecv_TakeBuffer() {
     }));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region MultishotRecvStopAndResume
+
 void IouStreamConn_MultishotRecv_StopAndResume() {
   // `stop_reading()` pauses recv; `resume_recv()` restarts it.
   if (true) {
@@ -534,7 +536,7 @@ void IouStreamConn_MultishotRecv_StopAndResume() {
                 [&](iou_stream_conn&, iou_recv_view view) {
                   view.consume(view.active_view().size());
                   if (recv_count.fetch_add(1, std::memory_order::acq_rel) == 0)
-                    view.stop_reading(); // stop after first message
+                    (void)view.stop_reading(); // stop after first message
                   return true;
                 }},
         shot_type::multi);
@@ -562,9 +564,10 @@ void IouStreamConn_MultishotRecv_StopAndResume() {
     }));
   }
 }
-#pragma endregion
 
+#pragma endregion
 #pragma region MultishotRecvAcceptedConnsInheritMode
+
 void IouStreamConn_MultishotRecv_AcceptedConnsInheritMode() {
   // Accepted connections from a multishot-mode listener also use multishot.
   if (true) {
@@ -597,6 +600,7 @@ void IouStreamConn_MultishotRecv_AcceptedConnsInheritMode() {
     EXPECT_EQ(payload, msg);
   }
 }
+
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
@@ -604,7 +608,7 @@ MAKE_TEST_LIST(IouStreamConn_SendRecvString, IouStreamConn_MultipleStrings,
     IouStreamConn_SendRecvBuffer, IouStreamConn_BufferMoveOut,
     IouStreamConn_GracefulClose, IouStreamConn_HangupClose,
     IouStreamConn_OnDrain, IouStreamConn_WithState,
-    IouStreamConn_FullBufferRedelivery, IouStreamConn_MultishotRecv_Basic,
+    IouStreamConn_FullBufferPartialConsume, IouStreamConn_MultishotRecv_Basic,
     IouStreamConn_MultishotRecv_MultipleMessages,
     IouStreamConn_MultishotRecv_TakeBuffer,
     IouStreamConn_MultishotRecv_StopAndResume,

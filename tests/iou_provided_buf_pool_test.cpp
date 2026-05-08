@@ -173,10 +173,9 @@ void IouProvidedBufPool_ReconstructPayload() {
     EXPECT_EQ(buf.payload_view(), expected);
     EXPECT_EQ(buf.buf_index(), bid);
     EXPECT_TRUE(buf.result().ok());
-    // active_span covers the remaining tail after the payload.
-    EXPECT_EQ(buf.active_span().size(), pool.buf_size() - 11ULL);
-    EXPECT_EQ(buf.active_span().data(),
-        buf.payload_span().data() + buf.payload_span().size());
+    // Provided buffers are one-shot, so `active_span` is empty.
+    EXPECT_TRUE(buf.was_provided());
+    EXPECT_EQ(buf.active_span().size(), 0ULL);
     // Provided buffers do not use ZC send tracking.
     EXPECT_EQ(buf.pending_releases(), 0ULL);
   }

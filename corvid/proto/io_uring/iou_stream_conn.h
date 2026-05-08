@@ -36,14 +36,20 @@ using namespace bool_enums;
 class iou_stream_conn;
 
 #pragma region iou_recv_view
-// Move-only recv token delivered to `on_data`. Two consumption paths:
-//   Inline: call `active_view()` + `consume(n)`. Destructor resubmits recv
-//           into the remaining buffer (or a fresh one if fully consumed).
-//   Async:  call `take()` to transfer buffer ownership for off-loop parsing.
-//           Destructor posts a fresh-buffer recv immediately.
+// Move-only recv token delivered to `on_data`. Three consumption paths:
 //
-// If a Provided Buffer is used, then you must not leave any unconsumed payload
-// when the view is destroyed.
+//  Inline: call `active_view()` + `consume(n)`. When the buffer is not
+//      Provided by the kernel, you can leave some of the payload unconsumed
+//      and it will be accumulated onto by subsequent recvs. However, if the
+//      buffer is full, it is an error to leave unconsumed payload. Likewise,
+//      if it's Provided, you must not leave unconsumed payload. Both of these
+//      user errors result in a thrown exception.
+//
+//  Async: call `take()` to transfer buffer ownership for off-loop parsing.
+//      Incoming data will land in another buffer.
+//
+//  Stop: call `stop_reading()` to take the buffer and prevent further
+//        recvs. Useful for backpressure.
 class iou_recv_view {
 #pragma region Construction
 public:
@@ -55,11 +61,10 @@ public:
 
   // NOLINTBEGIN(bugprone-exception-escape)
   ~iou_recv_view() noexcept(false) {
-    if (!buf_) return; // moved-from
-    // A Provided Buffer cannot be accumulated onto, so it must be fully
-    // consumed.
-    if (bitmask::has(buf_.cqe_flags(), iou_cqe_flags::buffer) &&
-        !buf_.payload_view().empty())
+    if (!resume_) return; // View was moved from.
+    if (deactivated_)
+      buf_.deactivate();
+    else if (!buf_.payload_view().empty() && buf_.active_span().empty())
       throw std::logic_error{
           "iou_recv_view with unconsumed payload cannot be reused"};
 
@@ -78,17 +83,18 @@ public:
   // Advance past `n` bytes, returning them as a view.
   auto consume(size_t n) noexcept { return buf_.consume_read(n); }
 
-  // Transfer buffer to caller for async parsing. A fresh-buffer recv is posted
-  // immediately; the caller returns the buffer to the pool via RAII.
-  [[nodiscard]] iou_buf_pool::buffer take() {
-    resume_(iou_buf_pool::buffer{}); // empty signals: start fresh recv
+  // Transfer buffer to caller for async parsing.
+  [[nodiscard]] iou_buf_pool::buffer take() noexcept {
     return std::move(buf_);
   }
 
-  // To apply backpressure, you can prevent further recvs. Note that this can
-  // result in the connection lapsing if nothing is holding a strong pointer to
-  // it.
-  void stop_reading() { buf_.deactivate(); }
+  // Apply backpressure: prevent further recvs. Returns the buffer so the
+  // caller can deal with any unconsumed payload. Note that this can result in
+  // the connection lapsing if nothing else is holding a strong pointer to it.
+  [[nodiscard]] iou_buf_pool::buffer stop_reading() noexcept {
+    deactivated_ = true;
+    return std::move(buf_);
+  }
 
 #pragma endregion
 #pragma region Internals
@@ -103,6 +109,7 @@ private:
 private:
   iou_buf_pool::buffer buf_;
   resume_fn resume_;
+  bool deactivated_{};
 #pragma endregion
 };
 
@@ -533,13 +540,7 @@ private:
             // If in singleshot mode, need to explicitly ask for more.
             if (!conn->recv_paused_ &&
                 conn->recv_active_shot_ == shot_type::single)
-            {
-              // Buffer is full (no space for a kernel recv): re-deliver to
-              // on_data without a round-trip to the kernel.
-              if (buf && buf.active_span().empty())
-                return conn->on_recv_complete(buf);
               return conn->do_submit_single_recv(&buf);
-            }
 
             return true;
           });
