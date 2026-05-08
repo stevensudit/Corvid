@@ -59,6 +59,8 @@ consteval bool CanSplit() {
 static_assert(CanSplit<",">());
 static_assert(!CanSplit<"">());
 
+#pragma region General
+
 void FixedStringTest_General() {
   std::string_view s;
   s = GetFixedString<"abc">();
@@ -84,6 +86,8 @@ void FixedStringTest_General() {
   EXPECT_EQ(cs, "abc"sv);
   EXPECT_EQ(ceval, "abc"_csv);
 }
+
+#pragma endregion
 
 MAKE_TEST_LIST(FixedStringTest_General);
 

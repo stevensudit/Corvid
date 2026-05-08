@@ -41,6 +41,8 @@ struct no_op_cb {
   constexpr void operator()(auto&) const noexcept {}
 };
 
+#pragma region object_pool
+
 // Thread-safe fixed-capacity object pool with LIFO slot reuse.
 //
 // Callers borrow slots via `borrow()`, which returns a moveable RAII
@@ -55,7 +57,7 @@ struct no_op_cb {
 // default-constructed state. Use `ReturnCb` in order to free up resources.
 //
 // Note, however, that the whole point of an object pool is to reuse objects,
-// so you should free up things like locks but not buffers. For a pool of
+// so you should free up things like locks, but not buffers. For a pool of
 // `std::string`, for example, you could call `clear()` in the `ReturnCb`,
 // since it doesn't deallocate.
 //
@@ -99,6 +101,7 @@ private:
   static_assert(std::is_nothrow_invocable_v<ReturnCb, T&>,
       "ReturnCb must be noexcept");
 
+#pragma region borrowed
 public:
   // Moveable RAII handle; returns its slot to the pool on destruction.
   class borrowed {
@@ -110,11 +113,10 @@ public:
           pool_{std::exchange(other.pool_, nullptr)} {}
 
     borrowed& operator=(borrowed&& other) noexcept {
-      if (this != &other) {
-        reset();
-        item_ = std::exchange(other.item_, nullptr);
-        pool_ = std::exchange(other.pool_, nullptr);
-      }
+      if (this == &other) return *this;
+      reset();
+      item_ = std::exchange(other.item_, nullptr);
+      pool_ = std::exchange(other.pool_, nullptr);
       return *this;
     }
 
@@ -161,6 +163,9 @@ public:
     object_pool* pool_{};
   };
 
+#pragma endregion
+#pragma region token
+
   // A cheaply-copied, non-owning token for a slot. It has `std::weak_ptr`
   // semantics in that it can escalate to ownership. However, it can only do
   // this if there isn't a `borrowed` handle that currently owns the slot.
@@ -182,11 +187,13 @@ public:
     token() noexcept = default;
     token(const token&) = default;
     token& operator=(const token&) = default;
-    // These are to avoid `performance-move-trivially-copyable`.
-    token(token&& other) noexcept : gen_{other.gen_}, ndx_{other.ndx_} {}
+    token(token&& other) noexcept
+        : gen_{std::exchange(other.gen_, {})},
+          ndx_{std::exchange(other.ndx_, npos)} {}
     token& operator=(token&& other) noexcept {
-      gen_ = other.gen_;
-      ndx_ = other.ndx_;
+      if (this == &other) return *this;
+      gen_ = std::exchange(other.gen_, {});
+      ndx_ = std::exchange(other.ndx_, npos);
       return *this;
     }
 
@@ -273,6 +280,12 @@ public:
     [[nodiscard]] bool is_valid() const noexcept { return ndx_ != npos; }
 
   private:
+    void swap(token& other) noexcept {
+      using std::swap;
+      if constexpr (is_versioned_v) swap(gen_, other.gen_);
+      swap(ndx_, other.ndx_);
+    }
+
     bool copy_from_handle(const borrowed& h) {
       if (!h) return false;
       ndx_ = h.pool_->slot_from_item(h.item_);
@@ -290,6 +303,9 @@ public:
   };
 
   friend class token;
+
+#pragma endregion
+#pragma region Construction
 
   // Constructs the pool with optional borrow and return callbacks.
   explicit object_pool(BorrowCb borrow_cb = {}, ReturnCb return_cb = {})
@@ -316,6 +332,9 @@ public:
   object_pool(object_pool&&) = delete;
   object_pool& operator=(const object_pool&) = delete;
   object_pool& operator=(object_pool&&) = delete;
+
+#pragma endregion
+#pragma region Borrowing
 
   // Borrows a slot; returns empty if the pool is full.
   [[nodiscard]] borrowed borrow() {
@@ -365,6 +384,8 @@ public:
   }
   // NOLINTEND(performance-move-const-arg)
 
+#pragma endregion
+#pragma region Helpers
 private:
   [[nodiscard]] index_t slot_from_item(const T* item) const noexcept {
     const auto ndx = static_cast<index_t>(item - slots_.data());
@@ -457,6 +478,9 @@ private:
     return true;
   }
 
+#pragma endregion
+#pragma region Data members
+
   // Order of members is important for alignment.
   alignas(T) std::array<T, N> slots_{};
   std::array<index_t, N> free_list_{};
@@ -467,9 +491,14 @@ private:
   [[no_unique_address]] ReturnCb return_cb_;
 };
 
+#pragma endregion
+
 // Use with `object_pool::create`, since the specialization of the scoping
 // class doesn't matter.
 using object_pool_factory = object_pool<int, 1, generation_scheme::versioned>;
+
+#pragma endregion
+#pragma region slot_retention
 
 // `slot_retention` controls when an object is released to the pool.
 enum class slot_retention : uint8_t {
@@ -480,6 +509,8 @@ enum class slot_retention : uint8_t {
   // Always retain the slot, even if it would otherwise have been released.
   retain,
 };
+
+#pragma endregion
 
 // Implementation note: It is possible in principle to replace the `index_t`
 // values with `std::atomic_index_t` and do lock-free stack push and pop on

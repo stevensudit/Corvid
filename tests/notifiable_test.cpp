@@ -15,8 +15,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <chrono>
-#include <functional>
 #include <thread>
 
 #include "../corvid/concurrency.h"
@@ -28,55 +26,7 @@ using namespace std::chrono_literals;
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(performance-unnecessary-copy-initialization)
 
-void TombStone_Basic() {
-  tombstone t;
-  EXPECT_FALSE(t.dead());
-  EXPECT_FALSE(t.get());
-  EXPECT_FALSE(*t);
-  if (t) {
-    EXPECT_FALSE(true);
-  } else {
-    EXPECT_FALSE(false);
-  }
-  if (!t) {
-    EXPECT_TRUE(true);
-  } else {
-    EXPECT_FALSE(false);
-  }
-  t.set(false);
-  EXPECT_FALSE(t.dead());
-  t.set(true);
-  EXPECT_TRUE(t.dead());
-  EXPECT_TRUE(t.get());
-  EXPECT_TRUE(*t);
-  t.set(false);
-  EXPECT_TRUE(t.dead());
-  EXPECT_TRUE(t.get());
-  EXPECT_TRUE(*t);
-}
-
-void TombStone_TrySet() {
-  tombstone t;
-  // Returns false when value is already the target.
-  EXPECT_FALSE(t.try_set(false));
-  EXPECT_FALSE(t.dead());
-  // Returns true when value changes.
-  EXPECT_TRUE(t.try_set(true));
-  EXPECT_TRUE(t.dead());
-  // Returns false when dead (even for a different value).
-  EXPECT_FALSE(t.try_set(false));
-  EXPECT_TRUE(t.dead());
-}
-
-void TombStone_Kill() {
-  tombstone t;
-  // First kill succeeds.
-  EXPECT_TRUE(t.kill());
-  EXPECT_TRUE(t.dead());
-  // Second kill reports already dead.
-  EXPECT_FALSE(t.kill());
-  EXPECT_TRUE(t.dead());
-}
+#pragma region NotifyAndWait
 
 void Notifiable_NotifyAndWait() {
   // `notify` + `wait_until`: waiter unblocks when flag becomes true.
@@ -97,6 +47,9 @@ void Notifiable_NotifyAndWait() {
   }
 }
 
+#pragma endregion
+#pragma region ModifyAndNotify
+
 void Notifiable_ModifyAndNotify() {
   // `modify_and_notify`: waiter unblocks once value exceeds threshold.
   notifiable<int> counter{0};
@@ -107,6 +60,9 @@ void Notifiable_ModifyAndNotify() {
   EXPECT_EQ(v, 5);
   t.join();
 }
+
+#pragma endregion
+#pragma region WaitFor
 
 void Notifiable_WaitFor() {
   // `wait_for` satisfied before deadline: returns the matching value.
@@ -125,6 +81,9 @@ void Notifiable_WaitFor() {
     EXPECT_FALSE(v);
   }
 }
+
+#pragma endregion
+#pragma region WaitUntilChanged
 
 void Notifiable_WaitUntilChanged() {
   // `wait_until_changed` unblocks when the value changes; returns new value.
@@ -155,6 +114,9 @@ void Notifiable_WaitUntilChanged() {
   }
 }
 
+#pragma endregion
+#pragma region Get
+
 void Notifiable_Get() {
   // `get` returns snapshot without blocking.
   notifiable<int> n{42};
@@ -162,6 +124,9 @@ void Notifiable_Get() {
   n.notify(99);
   EXPECT_EQ(n.get(), 99);
 }
+
+#pragma endregion
+#pragma region Atomic
 
 void Notifiable_Atomic() {
   // `get` on `std::atomic<bool>`: lock-free relaxed load.
@@ -256,6 +221,9 @@ void Notifiable_Atomic() {
   }
 }
 
+#pragma endregion
+#pragma region RelaxedAtomic_Basic
+
 void RelaxedAtomic_Basic() {
   // Default-constructed value is zero-initialized.
   relaxed_atomic<int> a;
@@ -274,6 +242,9 @@ void RelaxedAtomic_Basic() {
   EXPECT_EQ(r, 99);
   EXPECT_EQ(static_cast<int>(b), 99);
 }
+
+#pragma endregion
+#pragma region RelaxedAtomic_Arrow
 
 void RelaxedAtomic_Arrow() {
   // `operator->` exposes the underlying `std::atomic<T>` methods.
@@ -303,6 +274,9 @@ void RelaxedAtomic_Arrow() {
   EXPECT_EQ(expected, 40);
 }
 
+#pragma endregion
+#pragma region RelaxedAtomic_Bool
+
 void RelaxedAtomic_Bool() {
   // Works for `bool` values.
   relaxed_atomic<bool> flag{false};
@@ -310,6 +284,9 @@ void RelaxedAtomic_Bool() {
   flag = true;
   EXPECT_TRUE(static_cast<bool>(flag));
 }
+
+#pragma endregion
+#pragma region RelaxedAtomic
 
 void Notifiable_RelaxedAtomic() {
   // `get` on `relaxed_atomic<bool>`: lock-free relaxed load.
@@ -388,140 +365,12 @@ void Notifiable_RelaxedAtomic() {
     EXPECT_FALSE(n.wait_for_changed(1ms));
   }
 }
+#pragma endregion
 
-// Minimal resource type for timer_fuse tests. Holds the sequencer that
-// `timer_fuse` uses for liveness checks.
-struct FakeResource {
-  std::atomic_uint64_t seq{0};
-  int value{42};
-};
-
-void TimerFuse_Default() {
-  // Default-constructed fuse is permanently unarmed.
-  timer_fuse<FakeResource> fuse;
-  EXPECT_EQ(fuse.get_if_armed(), nullptr);
-
-  // Copyability: a copy is also unarmed.
-  auto copy = fuse;
-  EXPECT_EQ(copy.get_if_armed(), nullptr);
-}
-
-void TimerFuse_ArmedFires() {
-  // A fuse whose payload fires while the sequencer is unchanged returns the
-  // live resource from `get_if_armed`.
-  auto resource = std::make_shared<FakeResource>();
-  auto t0 = std::chrono::steady_clock::now();
-  timing_wheel wheel{4, 1ms, t0};
-
-  bool fired{false};
-  bool saw_resource{false};
-  auto ok = timer_fuse<FakeResource>::set_timeout(wheel, resource->seq,
-      resource, 1ms, [&](const timer_fuse<FakeResource>& f) -> bool {
-        fired = true;
-        saw_resource = (f.get_if_armed() != nullptr);
-        return true;
-      });
-  EXPECT_TRUE(ok);
-  wheel.tick(t0 + 4ms);
-  EXPECT_TRUE(fired);
-  EXPECT_TRUE(saw_resource);
-}
-
-void TimerFuse_Disarm() {
-  // Calling `disarm` before the wheel ticks causes the payload to see a null
-  // resource from `get_if_armed`.
-  auto resource = std::make_shared<FakeResource>();
-  auto t0 = std::chrono::steady_clock::now();
-  timing_wheel wheel{4, 1ms, t0};
-
-  bool fired{false};
-  bool saw_null{false};
-  (void)timer_fuse<FakeResource>::set_timeout(wheel, resource->seq, resource,
-      1ms, [&](const timer_fuse<FakeResource>& f) -> bool {
-        fired = true;
-        saw_null = (f.get_if_armed() == nullptr);
-        return true;
-      });
-  timer_fuse<FakeResource>::disarm(resource->seq);
-  wheel.tick(t0 + 4ms);
-  EXPECT_TRUE(fired);
-  EXPECT_TRUE(saw_null);
-}
-
-void TimerFuse_Rearm() {
-  // Re-arming increments the sequencer so the earlier fuse fizzles; only the
-  // most-recently-armed fuse sees a live resource.
-  auto resource = std::make_shared<FakeResource>();
-  auto t0 = std::chrono::steady_clock::now();
-  timing_wheel wheel{6, 1ms, t0};
-
-  bool first_fired{false};
-  bool first_saw_resource{false};
-  bool second_fired{false};
-  bool second_saw_resource{false};
-
-  (void)timer_fuse<FakeResource>::set_timeout(wheel, resource->seq, resource,
-      1ms, [&](const timer_fuse<FakeResource>& f) -> bool {
-        first_fired = true;
-        first_saw_resource = (f.get_if_armed() != nullptr);
-        return true;
-      });
-
-  // Re-arm: the earlier fuse's target no longer matches the sequencer.
-  (void)timer_fuse<FakeResource>::set_timeout(wheel, resource->seq, resource,
-      2ms, [&](const timer_fuse<FakeResource>& f) -> bool {
-        second_fired = true;
-        second_saw_resource = (f.get_if_armed() != nullptr);
-        return true;
-      });
-
-  wheel.tick(t0 + 6ms);
-  EXPECT_TRUE(first_fired);
-  EXPECT_FALSE(first_saw_resource); // fizzled
-  EXPECT_TRUE(second_fired);
-  EXPECT_TRUE(second_saw_resource); // still armed
-}
-
-void TimerFuse_ResourceExpired() {
-  // If the `shared_ptr` owning the resource is released before the payload
-  // fires, `get_if_armed` returns nullptr (the `weak_ptr` is expired).
-  auto resource = std::make_shared<FakeResource>();
-  auto t0 = std::chrono::steady_clock::now();
-  timing_wheel wheel{4, 1ms, t0};
-
-  bool fired{false};
-  bool saw_null{false};
-  (void)timer_fuse<FakeResource>::set_timeout(wheel, resource->seq, resource,
-      1ms, [&](const timer_fuse<FakeResource>& f) -> bool {
-        fired = true;
-        saw_null = (f.get_if_armed() == nullptr);
-        return true;
-      });
-  resource.reset();
-  wheel.tick(t0 + 4ms);
-  EXPECT_TRUE(fired);
-  EXPECT_TRUE(saw_null);
-}
-
-void TimerFuse_ExceedMaxDelay() {
-  // `set_timeout` returns false when the delay exceeds the wheel's range.
-  // With slot_count=2 and tick_interval=1ms, max delay = 1ms.
-  auto resource = std::make_shared<FakeResource>();
-  timing_wheel wheel{2, 1ms};
-
-  auto ok = timer_fuse<FakeResource>::set_timeout(wheel, resource->seq,
-      resource, 2ms,
-      [](const timer_fuse<FakeResource>&) -> bool { return true; });
-  EXPECT_FALSE(ok);
-}
-
-MAKE_TEST_LIST(TombStone_Basic, TombStone_TrySet, TombStone_Kill,
-    Notifiable_NotifyAndWait, Notifiable_ModifyAndNotify, Notifiable_WaitFor,
-    Notifiable_WaitUntilChanged, Notifiable_Get, Notifiable_Atomic,
-    RelaxedAtomic_Basic, RelaxedAtomic_Arrow, RelaxedAtomic_Bool,
-    Notifiable_RelaxedAtomic, TimerFuse_Default, TimerFuse_ArmedFires,
-    TimerFuse_Disarm, TimerFuse_Rearm, TimerFuse_ResourceExpired,
-    TimerFuse_ExceedMaxDelay);
+MAKE_TEST_LIST(Notifiable_NotifyAndWait, Notifiable_ModifyAndNotify,
+    Notifiable_WaitFor, Notifiable_WaitUntilChanged, Notifiable_Get,
+    Notifiable_Atomic, RelaxedAtomic_Basic, RelaxedAtomic_Arrow,
+    RelaxedAtomic_Bool, Notifiable_RelaxedAtomic);
 
 // NOLINTEND(performance-unnecessary-copy-initialization)
 // NOLINTEND(readability-function-cognitive-complexity)

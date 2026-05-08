@@ -31,6 +31,8 @@ using namespace corvid::literals;
 // NOLINTBEGIN(readability-function-cognitive-complexity,
 // readability-function-size)
 
+#pragma region Construction
+
 void CStringViewTest_Construction() {
   // Default-constructed string_view.
   if (true) {
@@ -269,6 +271,9 @@ void CStringViewTest_Construction() {
   }
 }
 
+#pragma endregion
+#pragma region Optional
+
 void CStringViewTest_Optional() {
   if (true) {
     std::optional<std::string> opt;
@@ -281,6 +286,8 @@ void CStringViewTest_Optional() {
   }
 }
 
+#pragma endregion
+
 auto accept_string_view(std::string_view v) { return v; }
 auto accept_cstring_view(cstring_view v) { return v; }
 
@@ -289,6 +296,8 @@ void accept_string_view_rref(std::string_view&& v) { v = "changed"; }
 
 std::string_view accept_overloaded(std::string_view) { return "sv"; }
 std::string_view accept_overloaded(cstring_view) { return "csv"; }
+
+#pragma region Cast
 
 void CStringViewTest_Cast() {
   // Casts "up" implicitly.
@@ -339,6 +348,9 @@ void CStringViewTest_Cast() {
   EXPECT_EQ(s, "abc");
   EXPECT_EQ(std::string(csv), "abc");
 }
+
+#pragma endregion
+#pragma region Equal
 
 void CStringViewTestEqual() {
   // sv
@@ -424,12 +436,17 @@ void CStringViewTestEqual() {
   EXPECT_TRUE(ss.contains("abc"_csv));
 }
 
+#pragma endregion
+#pragma region Env
+
 void CStringViewTest_Env() {
   auto path = "PATH"_env;
   EXPECT_NE(path, "");
   auto missing = "sdfk4r345dLKLJldksfdlkl"_env;
   EXPECT_TRUE(missing.null());
 }
+
+#pragma endregion
 
 MAKE_TEST_LIST(CStringViewTest_Construction, CStringViewTest_Optional,
     CStringViewTest_Cast, CStringViewTestEqual, CStringViewTest_Env);

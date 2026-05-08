@@ -30,6 +30,8 @@ enum class slot_t : size_t {};
 // NOLINTBEGIN(readability-function-cognitive-complexity,
 // readability-function-size)
 
+#pragma region Empty
+
 void FixedBitset_Empty() {
   // Default construction: all bits clear.
   if (true) {
@@ -48,6 +50,9 @@ void FixedBitset_Empty() {
     EXPECT_TRUE(bits.empty());
   }
 }
+
+#pragma endregion
+#pragma region SetClearTest
 
 void FixedBitset_SetClearTest() {
   if (true) {
@@ -124,8 +129,12 @@ void FixedBitset_SetClearTest() {
   }
 }
 
+#pragma endregion
+#pragma region Subscript
+
 // operator[] has two overloads: const (returns bool) and non-const
 // (returns a reference proxy for mutable access).
+
 void FixedBitset_Subscript() {
   // Const overload: read-only, returns bool directly.
   if (true) {
@@ -164,6 +173,9 @@ void FixedBitset_Subscript() {
   }
 }
 
+#pragma endregion
+#pragma region Popcount
+
 void FixedBitset_Popcount() {
   if (true) {
     fixed_bitset<64> b;
@@ -187,6 +199,9 @@ void FixedBitset_Popcount() {
   }
 }
 
+#pragma endregion
+#pragma region Reset
+
 void FixedBitset_Reset() {
   if (true) {
     fixed_bitset<64> b;
@@ -199,6 +214,9 @@ void FixedBitset_Reset() {
     EXPECT_EQ(b.count(), 0U);
   }
 }
+
+#pragma endregion
+#pragma region Equality
 
 void FixedBitset_Equality() {
   if (true) {
@@ -216,6 +234,9 @@ void FixedBitset_Equality() {
     EXPECT_EQ(a, b);
   }
 }
+
+#pragma endregion
+#pragma region CopyMove
 
 void FixedBitset_CopyMove() {
   // Copy construction produces an independent equal copy.
@@ -267,8 +288,12 @@ void FixedBitset_CopyMove() {
   }
 }
 
+#pragma endregion
+#pragma region WordType
+
 // word_t is automatically selected as the largest power-of-2 unsigned type
 // whose width evenly divides N_BITS. bits_per_word_v reflects the word size.
+
 void FixedBitset_WordType() {
   // Type selection: compile-time verification.
   if (true) {
@@ -414,8 +439,12 @@ void FixedBitset_WordType() {
   }
 }
 
+#pragma endregion
+#pragma region ForcedWord
+
 // FORCED_WORD overrides the auto-selected word type. When the word is larger
 // than N_BITS, the top (N_BITS % bits_per_word_v) bits are padding kept zero.
+
 void FixedBitset_ForcedWord() {
   // Compile-time: type and sizing.
   if (true) {
@@ -579,9 +608,13 @@ void FixedBitset_ForcedWord() {
   }
 }
 
+#pragma endregion
+#pragma region Reference
+
 // operator[](pos) on a mutable bitset returns a reference proxy akin to
 // std::bitset<N>::reference. The proxy is a zero-overhead abstraction that
 // the compiler eliminates at -O1 and above.
+
 void FixedBitset_Reference() {
   // operator bool() reads the current bit value through the proxy.
   if (true) {
@@ -674,6 +707,9 @@ void FixedBitset_Reference() {
   }
 }
 
+#pragma endregion
+#pragma region BitwiseAnd
+
 void FixedBitset_BitwiseAnd() {
   if (true) {
     fixed_bitset<64> a, b;
@@ -723,6 +759,9 @@ void FixedBitset_BitwiseAnd() {
   }
 }
 
+#pragma endregion
+#pragma region BitwiseOr
+
 void FixedBitset_BitwiseOr() {
   if (true) {
     fixed_bitset<64> a, b;
@@ -757,6 +796,9 @@ void FixedBitset_BitwiseOr() {
     EXPECT_EQ(a.count(), 2U);
   }
 }
+
+#pragma endregion
+#pragma region BitwiseXor
 
 void FixedBitset_BitwiseXor() {
   // Basic XOR: shared bits cancel, unique bits survive.
@@ -820,6 +862,9 @@ void FixedBitset_BitwiseXor() {
   }
 }
 
+#pragma endregion
+#pragma region Complement
+
 void FixedBitset_Complement() {
   // ~empty is all-ones.
   if (true) {
@@ -871,6 +916,9 @@ void FixedBitset_Complement() {
     EXPECT_EQ(c.count(), 126U);
   }
 }
+
+#pragma endregion
+#pragma region CountBits
 
 void FixedBitset_CountBits() {
   // --- countr_zero: index of the lowest set bit, or bit_count_v if none ---
@@ -1055,6 +1103,9 @@ void FixedBitset_CountBits() {
   }
 }
 
+#pragma endregion
+#pragma region HasSingleBit
+
 void FixedBitset_HasSingleBit() {
   // Empty -> false.
   if (true) {
@@ -1101,6 +1152,9 @@ void FixedBitset_HasSingleBit() {
     EXPECT_FALSE(b.has_single_bit());
   }
 }
+
+#pragma endregion
+#pragma region Iteration
 
 void FixedBitset_Iteration() {
   // Single bit.
@@ -1159,6 +1213,9 @@ void FixedBitset_Iteration() {
     EXPECT_TRUE(b.cend() == b.end());
   }
 }
+
+#pragma endregion
+#pragma region MultiWord
 
 void FixedBitset_MultiWord() {
   // 128-bit (2-word) bitset: bits span both words.
@@ -1243,6 +1300,9 @@ void FixedBitset_MultiWord() {
     EXPECT_EQ(a, b);
   }
 }
+
+#pragma endregion
+#pragma region PosParam
 
 void FixedBitset_PosParam() {
   using bs_t = fixed_bitset<64, slot_t>;
@@ -1350,7 +1410,11 @@ void FixedBitset_PosParam() {
   }
 }
 
+#pragma endregion
+#pragma region Size
+
 // size() is a constexpr instance method reflecting bit_count_v.
+
 void FixedBitset_Size() {
   // Callable on instances.
   if (true) {
@@ -1377,8 +1441,12 @@ void FixedBitset_Size() {
   }
 }
 
+#pragma endregion
+#pragma region At
+
 // at() and the other named access functions throw std::out_of_range for
 // out-of-range positions. operator[] uses assert-only (no throw).
+
 void FixedBitset_At() {
   // In-range: agrees with test() at every position.
   if (true) {
@@ -1441,9 +1509,13 @@ void FixedBitset_At() {
   }
 }
 
+#pragma endregion
+#pragma region Ordering
+
 // operator<=> provides lexicographic ordering over the underlying words array.
 // Word 0 (bits 0-63) is compared before word 1 (bits 64-127), so lower-index
 // words dominate even though they hold lower-index bits.
+
 void FixedBitset_Ordering() {
   // Reflexive: equal bitsets compare equal.
   if (true) {
@@ -1506,7 +1578,11 @@ void FixedBitset_Ordering() {
   }
 }
 
+#pragma endregion
+#pragma region Tag
+
 // TAG prevents structurally-identical bitsets from being mixed.
+
 void FixedBitset_Tag() {
   struct tag_a {};
   struct tag_b {};
@@ -1546,7 +1622,11 @@ void FixedBitset_Tag() {
   }
 }
 
+#pragma endregion
+#pragma region Constexpr
+
 // constexpr: bitset operations are usable in constant expressions.
+
 void FixedBitset_Constexpr() {
   // Build a bitset at compile time.
   constexpr auto b = []() {
@@ -1652,6 +1732,9 @@ void FixedBitset_Constexpr() {
   static_assert(via_ref.test(20));
   static_assert(via_ref.count() == 1);
 }
+
+#pragma endregion
+#pragma region Rotation
 
 void FixedBitset_Rotation() {
   // rotl by 1: bit 63 wraps to bit 0.
@@ -1775,6 +1858,9 @@ void FixedBitset_Rotation() {
     EXPECT_EQ(b, orig);
   }
 }
+
+#pragma endregion
+#pragma region Shift
 
 void FixedBitset_Shift() {
   // <<= by 0: no-op.
@@ -1939,6 +2025,9 @@ void FixedBitset_Shift() {
   }
 }
 
+#pragma endregion
+#pragma region ArrayConstruct
+
 void FixedBitset_ArrayConstruct() {
   // Single byte with binary literal: each set bit is readable.
   if (true) {
@@ -2005,6 +2094,9 @@ void FixedBitset_ArrayConstruct() {
     static_assert(b.count() == 4);
   }
 }
+
+#pragma endregion
+#pragma region Intersects
 
 void FixedBitset_Intersects() {
   // intersects: at least one bit set in both.
@@ -2095,6 +2187,9 @@ void FixedBitset_Intersects() {
   }
 }
 
+#pragma endregion
+#pragma region IsSubset
+
 void FixedBitset_IsSubset() {
   // is_subset_of: every set bit in *this is also set in other.
   if (true) {
@@ -2176,6 +2271,8 @@ void FixedBitset_IsSubset() {
     static_assert(r.second == false);
   }
 }
+
+#pragma endregion
 
 MAKE_TEST_LIST(FixedBitset_Empty, FixedBitset_SetClearTest,
     FixedBitset_Subscript, FixedBitset_Popcount, FixedBitset_Reset,

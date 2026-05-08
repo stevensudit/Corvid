@@ -50,6 +50,8 @@ struct iov_msghdr_test {
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
+#pragma region Construction
+
 void Ipv4Addr_Construction() {
   // Default construction yields the "any" address, which is also empty.
   if (true) {
@@ -109,6 +111,9 @@ void Ipv4Addr_Construction() {
     EXPECT_TRUE(bool(a));
   }
 }
+
+#pragma endregion
+#pragma region Parse
 
 void Ipv4Addr_Parse() {
   // Valid addresses.
@@ -173,6 +178,9 @@ void Ipv4Addr_Parse() {
   }
 }
 
+#pragma endregion
+#pragma region Classification
+
 void Ipv4Addr_Classification() {
   // is_loopback(): entire 127.0.0.0/8 range.
   if (true) {
@@ -224,6 +232,9 @@ void Ipv4Addr_Classification() {
   }
 }
 
+#pragma endregion
+#pragma region Comparison
+
 void Ipv4Addr_Comparison() {
   ipv4_addr a{10, 0, 0, 1};
   ipv4_addr b{10, 0, 0, 2};
@@ -238,6 +249,9 @@ void Ipv4Addr_Comparison() {
   EXPECT_TRUE(a >= c);
 }
 
+#pragma endregion
+#pragma region Formatting
+
 void Ipv4Addr_Formatting() {
   EXPECT_EQ(ipv4_addr::any.to_string(), "0.0.0.0");
   EXPECT_EQ(ipv4_addr::loopback.to_string(), "127.0.0.1");
@@ -249,6 +263,9 @@ void Ipv4Addr_Formatting() {
   ASSERT_TRUE(addr.has_value());
   EXPECT_EQ(addr->to_string(), "10.20.30.40");
 }
+
+#pragma endregion
+#pragma region PosixInterop
 
 void Ipv4Addr_PosixInterop() {
   ipv4_addr a{192, 168, 1, 1};
@@ -262,6 +279,9 @@ void Ipv4Addr_PosixInterop() {
   // so `s_addr` should be 0x0101a8c0 on a little-endian host.
   EXPECT_EQ(ntohl(raw.s_addr), a.to_uint32());
 }
+
+#pragma endregion
+#pragma region Construction
 
 void Ipv6Addr_Construction() {
   if (true) {
@@ -295,6 +315,9 @@ void Ipv6Addr_Construction() {
     EXPECT_EQ(a.to_string(), "2001:db8::1");
   }
 }
+
+#pragma endregion
+#pragma region Parse
 
 void Ipv6Addr_Parse() {
   if (true) {
@@ -352,6 +375,9 @@ void Ipv6Addr_Parse() {
   }
 }
 
+#pragma endregion
+#pragma region Classification
+
 void Ipv6Addr_Classification() {
   if (true) {
     EXPECT_TRUE(ipv6_addr::loopback.is_loopback());
@@ -376,6 +402,9 @@ void Ipv6Addr_Classification() {
   }
 }
 
+#pragma endregion
+#pragma region Comparison
+
 void Ipv6Addr_Comparison() {
   ipv6_addr a{0x2001, 0xdb8, 0, 0, 0, 0, 0, 1};
   ipv6_addr b{0x2001, 0xdb8, 0, 0, 0, 0, 0, 2};
@@ -387,6 +416,9 @@ void Ipv6Addr_Comparison() {
   EXPECT_TRUE(a < b);
   EXPECT_TRUE(b > a);
 }
+
+#pragma endregion
+#pragma region Formatting
 
 void Ipv6Addr_Formatting() {
   EXPECT_EQ(ipv6_addr::any.to_string(), "::");
@@ -401,6 +433,9 @@ void Ipv6Addr_Formatting() {
   EXPECT_EQ(addr->to_string(), "2001:db8::abcd");
 }
 
+#pragma endregion
+#pragma region PosixInterop
+
 void Ipv6Addr_PosixInterop() {
   ipv6_addr a{0x2001, 0xdb8, 0, 0, 0, 0, 0, 1};
 
@@ -411,6 +446,9 @@ void Ipv6Addr_PosixInterop() {
   EXPECT_EQ(raw.s6_addr[1], 0x01U);
   EXPECT_EQ(raw.s6_addr[15], 0x01U);
 }
+
+#pragma endregion
+#pragma region Construction
 
 void NetEndpoint_Construction() {
   if (true) {
@@ -488,6 +526,9 @@ void NetEndpoint_Construction() {
   }
 }
 
+#pragma endregion
+#pragma region Parse
+
 void NetEndpoint_Parse() {
   if (true) {
     net_endpoint a{"192.168.1.10:8080"};
@@ -562,6 +603,9 @@ void NetEndpoint_Parse() {
   }
 }
 
+#pragma endregion
+#pragma region Comparison
+
 void NetEndpoint_Comparison() {
   net_endpoint a{ipv4_addr(10, 0, 0, 1), 80};
   net_endpoint b{ipv4_addr(10, 0, 0, 1), 81};
@@ -594,6 +638,9 @@ void NetEndpoint_Comparison() {
   // ANS and regular UDS are unequal (sun_path[0] differs: '\0' vs '/').
   EXPECT_NE(n1, u1);
 }
+
+#pragma endregion
+#pragma region Formatting
 
 void NetEndpoint_Formatting() {
   auto v4 = net_endpoint{ipv4_addr(127, 0, 0, 1), 80};
@@ -645,6 +692,9 @@ void NetEndpoint_Formatting() {
     EXPECT_EQ(ep.to_string(), "unix:@" + max_name);
   }
 }
+
+#pragma endregion
+#pragma region PosixInterop
 
 void NetEndpoint_PosixInterop() {
   if (true) {
@@ -727,6 +777,9 @@ void NetEndpoint_PosixInterop() {
   }
 }
 
+#pragma endregion
+#pragma region NumericIPv4
+
 void DnsResolve_NumericIPv4() {
   // Numeric IPv4 addresses are resolved without a DNS lookup.
   auto result = dns_resolver::find_all("127.0.0.1", 80);
@@ -738,6 +791,9 @@ void DnsResolve_NumericIPv4() {
   EXPECT_TRUE(found);
 }
 
+#pragma endregion
+#pragma region NumericIPv6
+
 void DnsResolve_NumericIPv6() {
   // Numeric IPv6 addresses are resolved without a DNS lookup.
   auto result = dns_resolver::find_all("::1", 443, AF_INET6);
@@ -748,6 +804,9 @@ void DnsResolve_NumericIPv6() {
   }
   EXPECT_TRUE(found);
 }
+
+#pragma endregion
+#pragma region Localhost
 
 void DnsResolve_Localhost() {
   // "localhost" is defined in /etc/hosts on all major POSIX systems.
@@ -765,6 +824,9 @@ void DnsResolve_Localhost() {
   EXPECT_TRUE(found);
 }
 
+#pragma endregion
+#pragma region FamilyFilter
+
 void DnsResolve_FamilyFilter() {
   // With `AF_INET`, every result must be an IPv4 endpoint.
   auto v4 = dns_resolver::find_all("localhost", 80, AF_INET);
@@ -775,11 +837,17 @@ void DnsResolve_FamilyFilter() {
   for (const auto& ep : v6) EXPECT_TRUE(ep.is_v6());
 }
 
+#pragma endregion
+#pragma region InvalidHost
+
 void DnsResolve_InvalidHost() {
   // The `.invalid` TLD (RFC 2606) must not resolve.
   auto result = dns_resolver::find_all("no-such-host.invalid", 80);
   EXPECT_TRUE(result.empty());
 }
+
+#pragma endregion
+#pragma region Success
 
 void DnsResolveOne_Success() {
   // Numeric loopback resolves to exactly one endpoint with the right port.
@@ -788,11 +856,16 @@ void DnsResolveOne_Success() {
   EXPECT_EQ(ep.port(), 80U);
 }
 
+#pragma endregion
+#pragma region Failure
+
 void DnsResolveOne_Failure() {
   // An unresolvable host returns a default-constructed (invalid) endpoint.
   const auto ep = dns_resolver::find_one("no-such-host.invalid", 80);
   EXPECT_EQ(ep, net_endpoint{});
 }
+
+#pragma endregion
 
 // Minimal `io_conn` that counts how many times each virtual is called.
 struct counting_conn: io_conn {
@@ -814,6 +887,7 @@ struct counting_conn: io_conn {
     return true;
   }
 };
+#pragma region Lifecycle
 
 void IoLoop_Lifecycle() {
   // Construction succeeds; an empty poll returns 0 events.
@@ -821,6 +895,9 @@ void IoLoop_Lifecycle() {
   auto this_is_the_loop_thread = loop->poll_thread_scope();
   EXPECT_EQ(loop->run_once(0), 0);
 }
+
+#pragma endregion
+#pragma region Post
 
 void IoLoop_Post() {
   auto loop = epoll_loop::make();
@@ -837,6 +914,9 @@ void IoLoop_Post() {
   EXPECT_GE(loop->run_once(0), 0);
   EXPECT_EQ(fired, 1);
 }
+
+#pragma endregion
+#pragma region PreStartWorkIsQueued
 
 void IoLoop_PreStartWorkIsQueued() {
   auto loop = epoll_loop::make();
@@ -863,9 +943,13 @@ void IoLoop_PreStartWorkIsQueued() {
   EXPECT_EQ(conn->readable, 1);
 }
 
+#pragma endregion
+
 // `register_socket` dispatches `on_readable` via virtual `io_conn` override;
 // `unregister_socket` stops further dispatch. Double-register and
 // double-unregister both return false.
+#pragma region RegisterUnregister
+
 void IoLoop_RegisterUnregister() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -894,8 +978,12 @@ void IoLoop_RegisterUnregister() {
   EXPECT_EQ(conn->readable, 1);
 }
 
+#pragma endregion
+
 // `enable_writes(true)` arms `EPOLLOUT`; the kernel fires it when the kernel
 // send buffer has space, which it does immediately on a fresh socketpair.
+#pragma region SetWritable
+
 void IoLoop_SetWritable() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -918,6 +1006,9 @@ void IoLoop_SetWritable() {
   EXPECT_EQ(loop->run_once(0), 0);
   EXPECT_EQ(conn->writable, w);
 }
+
+#pragma endregion
+#pragma region SetReadable
 
 void IoLoop_SetReadable() {
   auto loop = epoll_loop::make();
@@ -949,9 +1040,13 @@ void IoLoop_SetReadable() {
   EXPECT_GE(conn->writable, 1);
 }
 
+#pragma endregion
+
 // When `EPOLLERR` or `EPOLLHUP` fires together with `EPOLLOUT`, `on_error` is
 // called but `on_writable` is skipped (the early-return path in
 // `dispatch_event`).
+#pragma region ErrorSkipsWritable
+
 void IoLoop_ErrorSkipsWritable() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -968,9 +1063,13 @@ void IoLoop_ErrorSkipsWritable() {
   EXPECT_EQ(conn->writable, 0); // must not fire when error/hup is reported
 }
 
+#pragma endregion
+
 // The default `io_conn::on_error` implementation falls through to
 // `on_readable`. Verify this by registering a subclass that overrides only
 // `on_readable` and confirming it is called when the peer closes.
+#pragma region DefaultOnError
+
 void IoLoop_DefaultOnError() {
   struct readable_only_conn: io_conn {
     using io_conn::io_conn;
@@ -994,6 +1093,9 @@ void IoLoop_DefaultOnError() {
 
   EXPECT_GE(conn->readable, 1);
 }
+
+#pragma endregion
+#pragma region IsLoopThreadIsPerLoop
 
 void IoLoop_IsLoopThreadIsPerLoop() {
   auto loop_a = epoll_loop::make();
@@ -1028,6 +1130,9 @@ void IoLoop_IsLoopThreadIsPerLoop() {
   EXPECT_EQ(loop_b->run_once(0), 1);
   EXPECT_EQ(conn->readable, 1);
 }
+
+#pragma endregion
+#pragma region PostAndWait_StopRace
 
 void IoLoop_PostAndWait_StopRace() {
   constexpr int iterations = 64;
@@ -1071,6 +1176,8 @@ void IoLoop_PostAndWait_StopRace() {
   EXPECT_LE(callback_runs.load(), iterations);
 }
 
+#pragma endregion
+
 // Helper: allocate `cap` bytes into `rb.buffer`, set `begin`/`end`, and
 // default `min_capacity` to the actual post-allocation capacity so that
 // resize logic does not fire unexpectedly in tests that do not set it.
@@ -1085,6 +1192,8 @@ setup_rb(recv_buffer& rb, size_t cap, size_t b, size_t e, char ch = 'X') {
 }
 
 // When there are no active bytes, compact always resets begin and end to 0.
+#pragma region Compact_NoActiveBytes
+
 void RecvBuffer_Compact_NoActiveBytes() {
   if (true) {
     // begin == end == 0: already at front, cheap reset is a no-op.
@@ -1106,8 +1215,12 @@ void RecvBuffer_Compact_NoActiveBytes() {
   }
 }
 
+#pragma endregion
+
 // When write space is exhausted (end == capacity) but begin > 0, compact
 // must memmove to reclaim space before the active region.
+#pragma region Compact_MustCompact
+
 void RecvBuffer_Compact_MustCompact() {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
@@ -1121,8 +1234,12 @@ void RecvBuffer_Compact_MustCompact() {
   EXPECT_GT(rb.write_space(), 0U);
 }
 
+#pragma endregion
+
 // When begin is past the 1/4 mark and end is past the 3/4 mark, compact
 // proactively moves bytes to avoid a short recv on the next call.
+#pragma region Compact_WorthIt
+
 void RecvBuffer_Compact_WorthIt() {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
@@ -1136,8 +1253,12 @@ void RecvBuffer_Compact_WorthIt() {
   EXPECT_EQ(rb.buffer[0], 'B');
 }
 
+#pragma endregion
+
 // When neither "must" nor "worth it" applies, begin and end are left
 // unchanged to avoid a pointless memmove.
+#pragma region Compact_SkipsUnnecessaryMove
+
 void RecvBuffer_Compact_SkipsUnnecessaryMove() {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
@@ -1150,8 +1271,12 @@ void RecvBuffer_Compact_SkipsUnnecessaryMove() {
   EXPECT_EQ(rb.end.load(std::memory_order::relaxed), e);
 }
 
+#pragma endregion
+
 // When target exceeds current capacity, the buffer is grown and active bytes
 // are copied to the front of the new buffer.
+#pragma region Compact_GrowOnRequest
+
 void RecvBuffer_Compact_GrowOnRequest() {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
@@ -1164,8 +1289,12 @@ void RecvBuffer_Compact_GrowOnRequest() {
   EXPECT_EQ(rb.buffer[0], 'C');
 }
 
+#pragma endregion
+
 // When current capacity is below min_capacity, compact grows the buffer
 // and syncs min_capacity to the actual post-resize capacity.
+#pragma region Compact_GrowToMinCapacity
+
 void RecvBuffer_Compact_GrowToMinCapacity() {
   recv_buffer rb;
   setup_rb(rb, 32, 0, 10, 'D');
@@ -1180,8 +1309,12 @@ void RecvBuffer_Compact_GrowToMinCapacity() {
   EXPECT_EQ(size_t(rb.min_capacity), rb.buffer.capacity());
 }
 
+#pragma endregion
+
 // When the buffer has bloated beyond 2x min_capacity and all active data
 // fits in min_capacity, compact shrinks back to min_capacity.
+#pragma region Compact_Shrink
+
 void RecvBuffer_Compact_Shrink() {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
@@ -1200,8 +1333,12 @@ void RecvBuffer_Compact_Shrink() {
   EXPECT_EQ(rb.buffer[0], 'E');
 }
 
+#pragma endregion
+
 // Shrink is skipped when active_len exceeds min_capacity; the shrunken
 // buffer would not fit the active data.
+#pragma region Compact_ShrinkSkippedIfActiveWontFit
+
 void RecvBuffer_Compact_ShrinkSkippedIfActiveWontFit() {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
@@ -1216,7 +1353,11 @@ void RecvBuffer_Compact_ShrinkSkippedIfActiveWontFit() {
   EXPECT_EQ(rb.end.load(std::memory_order::relaxed), cap / 2);
 }
 
+#pragma endregion
+
 // When target > 0 but does not exceed current capacity, no resize occurs.
+#pragma region Compact_NoResizeWhenTargetFits
+
 void RecvBuffer_Compact_NoResizeWhenTargetFits() {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
@@ -1225,9 +1366,13 @@ void RecvBuffer_Compact_NoResizeWhenTargetFits() {
   EXPECT_EQ(rb.buffer.capacity(), cap);
 }
 
+#pragma endregion
+
 // `update_active_view` advances `begin` by the number of bytes the parser
 // moved past in an `active_view` snapshot. Calling it in stages is
 // equivalent to a single `consume` for the total consumed bytes.
+#pragma region UpdateActiveView
+
 void RecvBufferView_UpdateActiveView() {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 5, 'X');
@@ -1254,9 +1399,13 @@ void RecvBufferView_UpdateActiveView() {
   EXPECT_EQ(rb.begin.load(std::memory_order::relaxed), 5U);
 }
 
+#pragma endregion
+
 // The moved-from view must not fire the resume callback; only the final
 // owner fires it, exactly once. `last_seen_end_` and `new_buffer_size_` are
 // carried over by the move so the callback receives correct values.
+#pragma region MoveSemantics
+
 void RecvBufferView_MoveSemantics() {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 10, 'X');
@@ -1283,8 +1432,12 @@ void RecvBufferView_MoveSemantics() {
   }
 }
 
+#pragma endregion
+
 // try_take_full returns false and leaves everything unchanged when `end` is
 // not at the physical end of the buffer.
+#pragma region TryTakeFull_Fail
+
 void RecvBufferView_TryTakeFull_Fail() {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 5, 'X');
@@ -1301,9 +1454,13 @@ void RecvBufferView_TryTakeFull_Fail() {
   EXPECT_EQ(rb.buffer.capacity(), cap);
 }
 
+#pragma endregion
+
 // try_take_full succeeds when `end == capacity`. The backing buffer is
 // swapped into `out`, `view` covers the active region inside `out`, and
 // indices are reset. The destructor callback receives `lse == 0`.
+#pragma region TryTakeFull_Success
+
 void RecvBufferView_TryTakeFull_Success() {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
@@ -1332,8 +1489,12 @@ void RecvBufferView_TryTakeFull_Success() {
   EXPECT_EQ(cb_lse, 0U);
 }
 
+#pragma endregion
+
 // Pre-loading `out` with a large allocation causes try_take_full to steal it
 // for the backing buffer, avoiding a reallocation on the next cycle.
+#pragma region TryTakeFull_StealAllocation
+
 void RecvBufferView_TryTakeFull_StealAllocation() {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
@@ -1357,6 +1518,9 @@ void RecvBufferView_TryTakeFull_StealAllocation() {
   EXPECT_EQ(sv[0], 'B');
 }
 
+#pragma endregion
+#pragma region Lifecycle
+
 void StreamConn_Lifecycle() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -1374,6 +1538,9 @@ void StreamConn_Lifecycle() {
   EXPECT_GE(loop->run_once(0), 0);
   EXPECT_EQ(loop->run_once(0), 0);
 }
+
+#pragma endregion
+#pragma region Receive
 
 void StreamConn_Receive() {
   auto loop = epoll_loop::make();
@@ -1397,6 +1564,9 @@ void StreamConn_Receive() {
   EXPECT_GE(loop->run_once(0), 0); // dispatch EPOLLIN
   EXPECT_EQ(received, msg);
 }
+
+#pragma endregion
+#pragma region SetRecvBufSize
 
 void StreamConn_SetRecvBufSize() {
   auto loop = epoll_loop::make();
@@ -1436,6 +1606,9 @@ void StreamConn_SetRecvBufSize() {
   EXPECT_EQ(received, "abcd1234ABCDEFGHijkl");
 }
 
+#pragma endregion
+#pragma region PeerClose
+
 void StreamConn_PeerClose() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -1471,11 +1644,15 @@ void StreamConn_PeerClose() {
   EXPECT_FALSE(conn->is_open());
 }
 
+#pragma endregion
+
 // When the peer sends data and then half-closes before the receiver reads,
 // the first `handle_readable` delivers the data via `on_data`. The subsequent
 // EOF event enters `handle_read_eof` with a non-empty buffer and no live view,
 // so it must dispatch `on_data` once more with the residual bytes (at which
 // point `can_read()` is already false) before firing `on_close`.
+#pragma region PeerClose_WithBufferedData
+
 void StreamConn_PeerClose_WithBufferedData() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -1526,6 +1703,9 @@ void StreamConn_PeerClose_WithBufferedData() {
   EXPECT_TRUE(closed);
 }
 
+#pragma endregion
+#pragma region Send
+
 void StreamConn_Send() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -1545,6 +1725,9 @@ void StreamConn_Send() {
   EXPECT_EQ(buf.size(), 5U);
   EXPECT_EQ(buf, "world");
 }
+
+#pragma endregion
+#pragma region ManualClose
 
 void StreamConn_ManualClose() {
   auto loop = epoll_loop::make();
@@ -1569,6 +1752,9 @@ void StreamConn_ManualClose() {
   EXPECT_GE(loop->run_once(0), 0);
   EXPECT_EQ(loop->run_once(0), 0);
 }
+
+#pragma endregion
+#pragma region DrainAfterBufferedSend
 
 void StreamConn_DrainAfterBufferedSend() {
   auto loop = epoll_loop::make();
@@ -1615,6 +1801,9 @@ void StreamConn_DrainAfterBufferedSend() {
   EXPECT_GE(drain_count, 1);
 }
 
+#pragma endregion
+#pragma region DrainAfterImmediateSend
+
 void StreamConn_DrainAfterImmediateSend() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -1640,6 +1829,9 @@ void StreamConn_DrainAfterImmediateSend() {
   ASSERT_TRUE(b.read(received));
   EXPECT_EQ(received, "hello");
 }
+
+#pragma endregion
+#pragma region SendRejectsOnlyEmptyBuffers
 
 void StreamConn_SendRejectsOnlyEmptyBuffers() {
   auto loop = epoll_loop::make();
@@ -1670,9 +1862,13 @@ void StreamConn_SendRejectsOnlyEmptyBuffers() {
   EXPECT_EQ(received, "hello");
 }
 
+#pragma endregion
+
 // Verify that sending multiple non-empty buffers in a single call delivers all
 // of them, not just the first. Regression test for the OR-fold short-circuit
 // bug in `enqueue_send`, where buffers after the first were silently dropped.
+#pragma region SendMultipleBuffers
+
 void StreamConn_SendMultipleBuffers() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -1690,6 +1886,9 @@ void StreamConn_SendMultipleBuffers() {
   ASSERT_TRUE(b.read(received));
   EXPECT_EQ(received, "hello world");
 }
+
+#pragma endregion
+#pragma region AsyncCbRead
 
 void StreamConn_AsyncCbRead() {
   auto loop = epoll_loop::make();
@@ -1716,6 +1915,9 @@ void StreamConn_AsyncCbRead() {
 
   EXPECT_EQ(received, msg);
 }
+
+#pragma endregion
+#pragma region AsyncCbRead_PreservesEarlyData
 
 void StreamConn_AsyncCbRead_PreservesEarlyData() {
   auto loop = epoll_loop::make();
@@ -1744,6 +1946,9 @@ void StreamConn_AsyncCbRead_PreservesEarlyData() {
   EXPECT_GE(loop->run_once(0), 0); // enabling EPOLLIN surfaces buffered data
   EXPECT_EQ(received, msg);
 }
+
+#pragma endregion
+#pragma region AsyncCbRead_DuplicateRejected
 
 void StreamConn_AsyncCbRead_DuplicateRejected() {
   auto loop = epoll_loop::make();
@@ -1774,6 +1979,9 @@ void StreamConn_AsyncCbRead_DuplicateRejected() {
 
   EXPECT_EQ(callback_count, 1);
 }
+
+#pragma endregion
+#pragma region AsyncCbRead_PeerClose
 
 void StreamConn_AsyncCbRead_PeerClose() {
   auto loop = epoll_loop::make();
@@ -1814,6 +2022,9 @@ void StreamConn_AsyncCbRead_PeerClose() {
   EXPECT_FALSE(cb.is_open());
 }
 
+#pragma endregion
+#pragma region AsyncCbWrite
+
 void StreamConn_AsyncCbWrite() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -1839,6 +2050,9 @@ void StreamConn_AsyncCbWrite() {
   EXPECT_TRUE(completed);
   EXPECT_EQ(callback_count, 1);
 }
+
+#pragma endregion
+#pragma region AsyncCbWrite_Failure
 
 void StreamConn_AsyncCbWrite_Failure() {
   auto loop = epoll_loop::make();
@@ -1869,6 +2083,9 @@ void StreamConn_AsyncCbWrite_Failure() {
   EXPECT_GE(loop->run_once(0), 0);
   EXPECT_FALSE(cb.is_open());
 }
+
+#pragma endregion
+#pragma region ShutdownWrite
 
 void StreamConn_ShutdownWrite() {
   auto loop = epoll_loop::make();
@@ -1902,6 +2119,9 @@ void StreamConn_ShutdownWrite() {
   EXPECT_GE(loop->run_once(0), 0);
   EXPECT_EQ(received, msg);
 }
+
+#pragma endregion
+#pragma region ShutdownRead
 
 void StreamConn_ShutdownRead() {
   auto loop = epoll_loop::make();
@@ -1941,6 +2161,9 @@ void StreamConn_ShutdownRead() {
   EXPECT_EQ(data_count, 0);
 }
 
+#pragma endregion
+#pragma region ShutdownBothCloses
+
 void StreamConn_ShutdownBothCloses() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -1959,6 +2182,9 @@ void StreamConn_ShutdownBothCloses() {
   EXPECT_FALSE(conn->can_read());
   EXPECT_FALSE(conn->can_write());
 }
+
+#pragma endregion
+#pragma region AsyncCbWrite_DuplicateRejected
 
 void StreamConn_AsyncCbWrite_DuplicateRejected() {
   epoll_loop_runner loop;
@@ -2000,6 +2226,9 @@ void StreamConn_AsyncCbWrite_DuplicateRejected() {
 
   EXPECT_EQ(completions, 1);
 }
+
+#pragma endregion
+#pragma region GracefulClose
 
 void StreamConn_GracefulClose() {
   auto loop = epoll_loop::make();
@@ -2043,6 +2272,9 @@ void StreamConn_GracefulClose() {
   EXPECT_FALSE(conn->is_open());
 }
 
+#pragma endregion
+#pragma region CloseThenDestructStaysGraceful
+
 void StreamConn_CloseThenDestructStaysGraceful() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -2085,9 +2317,13 @@ void StreamConn_CloseThenDestructStaysGraceful() {
   EXPECT_FALSE(b.read(tmp));
 }
 
+#pragma endregion
+
 // With `coordination_policy::bilateral` set, `close()` shuts down writes after
 // the send queue drains, then waits for the peer to close before firing
 // `on_close`. Incoming data arriving during the drain is silently discarded.
+#pragma region MutualClose
+
 void StreamConn_MutualClose() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -2127,6 +2363,8 @@ void StreamConn_MutualClose() {
   EXPECT_FALSE(conn->is_open());
 }
 
+#pragma endregion
+
 // Verify that a listener created with `coordination_policy::bilateral`
 // propagates the policy to every accepted connection, and that the accepted
 // connection's bilateral handshake completes correctly end to end.
@@ -2136,6 +2374,8 @@ void StreamConn_MutualClose() {
 // only after the peer (client) has also closed. Since the client is still open
 // when we check, the absence of `on_close` is logically guaranteed, not
 // timing-based.
+#pragma region Listen_MutualClose
+
 void StreamConn_Listen_MutualClose() {
   epoll_loop_runner loop;
 
@@ -2196,6 +2436,9 @@ void StreamConn_Listen_MutualClose() {
   ASSERT_TRUE(server_closed.wait_for_value(std::chrono::seconds{5}, true));
 }
 
+#pragma endregion
+#pragma region DestructorHangsUp
+
 void StreamConn_DestructorHangsUp() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -2232,10 +2475,14 @@ void StreamConn_DestructorHangsUp() {
   EXPECT_LT(received.size(), payload.size());
 }
 
+#pragma endregion
+
 // Coroutine tests.
 
 // Verify that a `loop_task` coroutine body executes eagerly and that the
 // frame is self-destroyed (i.e., no handle is needed to drive it).
+#pragma region FireAndForget
+
 void LoopTask_FireAndForget() {
   int counter = 0;
   auto coro = [&]() -> loop_task {
@@ -2246,7 +2493,11 @@ void LoopTask_FireAndForget() {
   EXPECT_EQ(counter, 1);
 }
 
+#pragma endregion
+
 // Verify that `async_read` delivers data to a coroutine.
+#pragma region AsyncRead
+
 void StreamConn_AsyncRead() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -2275,6 +2526,9 @@ void StreamConn_AsyncRead() {
   EXPECT_TRUE(done);
   EXPECT_EQ(received, msg);
 }
+
+#pragma endregion
+#pragma region AsyncRead_PreservesEarlyData
 
 void StreamConn_AsyncRead_PreservesEarlyData() {
   auto loop = epoll_loop::make();
@@ -2307,6 +2561,9 @@ void StreamConn_AsyncRead_PreservesEarlyData() {
   EXPECT_TRUE(done);
   EXPECT_EQ(received, msg);
 }
+
+#pragma endregion
+#pragma region AsyncRead_StopsBetweenCalls
 
 void StreamConn_AsyncRead_StopsBetweenCalls() {
   auto loop = epoll_loop::make();
@@ -2358,8 +2615,12 @@ void StreamConn_AsyncRead_StopsBetweenCalls() {
   EXPECT_EQ(second, "second");
 }
 
+#pragma endregion
+
 // Verify that `async_read` returns an empty string when the peer closes
 // the connection before data arrives.
+#pragma region AsyncRead_PeerClose
+
 void StreamConn_AsyncRead_PeerClose() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -2393,8 +2654,12 @@ void StreamConn_AsyncRead_PeerClose() {
   EXPECT_FALSE(conn->is_open()); // on_close initiated a graceful close
 }
 
+#pragma endregion
+
 // Verify that `async_send` delivers bytes to the peer and suspends until
 // the queue drains.
+#pragma region AsyncSend
+
 void StreamConn_AsyncSend() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -2426,8 +2691,12 @@ void StreamConn_AsyncSend() {
   EXPECT_EQ(buf, msg);
 }
 
+#pragma endregion
+
 // Verify that a client can connect to a local loopback listener and that the
 // server echoes back whatever it receives, using only persistent callbacks.
+#pragma region EchoServer
+
 void StreamConn_EchoServer() {
   epoll_loop_runner loop;
 
@@ -2475,10 +2744,14 @@ void StreamConn_EchoServer() {
   EXPECT_EQ(received, std::string{msg});
 }
 
+#pragma endregion
+
 // `stream_conn_with_state` tests.
 
 // Verify that `adopt()` creates a typed handle, that state is
 // zero-initialized, and that it is mutable via the typed pointer.
+#pragma region Adopt
+
 void StreamConnWithState_Adopt() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -2492,7 +2765,11 @@ void StreamConnWithState_Adopt() {
   EXPECT_EQ(conn->state(), 42);
 }
 
+#pragma endregion
+
 // Verify that `from` correctly downcasts a `stream_conn&` inside a callback.
+#pragma region From
+
 void StreamConnWithState_From() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -2521,8 +2798,12 @@ void StreamConnWithState_From() {
   EXPECT_EQ(seen, 10); // state was 9, incremented to 10 inside the callback
 }
 
+#pragma endregion
+
 // Verify that connections accepted via listen() have the right concrete type
 // and that each has an independent `TState`.
+#pragma region Listen
+
 void StreamConnWithState_Listen() {
   epoll_loop_runner loop;
 
@@ -2554,8 +2835,12 @@ void StreamConnWithState_Listen() {
   ASSERT_TRUE(received_state.wait_for_value(std::chrono::seconds{5}, 1));
 }
 
+#pragma endregion
+
 // Verify that a stream_conn_ptr_with<Derived> is implicitly convertible to
 // the untyped stream_conn_ptr and the resulting handle is usable.
+#pragma region Covariance
+
 void StreamConnPtr_Covariance() {
   auto loop = epoll_loop::make();
   auto this_is_the_loop_thread = loop->poll_thread_scope();
@@ -2582,8 +2867,12 @@ void StreamConnPtr_Covariance() {
   EXPECT_TRUE(closed);
 }
 
+#pragma endregion
+
 // Verify that overriding accept_clone to return nullptr causes handle_listen
 // to silently skip the connection (no on_data fired, drain loop continues).
+#pragma region AcceptClone_Nullptr
+
 void StreamConnWithState_AcceptClone_Nullptr() {
   struct rejecting_conn: stream_conn_with_state<int> {
     using stream_conn_with_state<int>::stream_conn_with_state;
@@ -2621,7 +2910,11 @@ void StreamConnWithState_AcceptClone_Nullptr() {
   EXPECT_EQ(data_calls, 0);
 }
 
+#pragma endregion
+
 // Single complete frame delivered in one call.
+#pragma region CompleteLine
+
 void TerminatedTextParser_CompleteLine() {
   terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
@@ -2632,7 +2925,11 @@ void TerminatedTextParser_CompleteLine() {
   EXPECT_TRUE(sv.empty()); // `sv` advanced past the frame
 }
 
+#pragma endregion
+
 // Empty view: incomplete with zero bytes scanned.
+#pragma region IncompleteEmpty
+
 void TerminatedTextParser_IncompleteEmpty() {
   terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
@@ -2642,7 +2939,11 @@ void TerminatedTextParser_IncompleteEmpty() {
   EXPECT_EQ(p.bytes_scanned(), 0U);
 }
 
+#pragma endregion
+
 // Partial frame with no sentinel: incomplete, bytes_scanned updated.
+#pragma region IncompletePartial
+
 void TerminatedTextParser_IncompletePartial() {
   terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
@@ -2652,7 +2953,11 @@ void TerminatedTextParser_IncompletePartial() {
   EXPECT_EQ(p.bytes_scanned(), 4U);
 }
 
+#pragma endregion
+
 // Sentinel split across two calls: "\r" arrives first, "\n" in the next view.
+#pragma region SplitSentinel
+
 void TerminatedTextParser_SplitSentinel() {
   terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
@@ -2670,7 +2975,11 @@ void TerminatedTextParser_SplitSentinel() {
   EXPECT_TRUE(sv2.empty());
 }
 
+#pragma endregion
+
 // Two frames in the same view: parse twice with reset() between.
+#pragma region MultipleFrames
+
 void TerminatedTextParser_MultipleFrames() {
   terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
@@ -2686,7 +2995,11 @@ void TerminatedTextParser_MultipleFrames() {
   EXPECT_TRUE(sv.empty());
 }
 
+#pragma endregion
+
 // Bare sentinel with no preceding text: complete with empty text.
+#pragma region EmptyLine
+
 void TerminatedTextParser_EmptyLine() {
   terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
@@ -2697,7 +3010,11 @@ void TerminatedTextParser_EmptyLine() {
   EXPECT_TRUE(sv.empty());
 }
 
+#pragma endregion
+
 // Exceeding max_length with no sentinel present returns false.
+#pragma region TooLong
+
 void TerminatedTextParser_TooLong() {
   terminated_text_parser::state s{"\r\n", 8};
   terminated_text_parser p{s};
@@ -2706,8 +3023,12 @@ void TerminatedTextParser_TooLong() {
   EXPECT_TRUE(p.parse(sv, text) == false);
 }
 
+#pragma endregion
+
 // Sentinel found after max_length bytes returns false; input is not modified.
 // A frame of exactly max_length bytes succeeds.
+#pragma region TooLong_WithSentinel
+
 void TerminatedTextParser_TooLong_WithSentinel() {
   // 9 bytes before "\r\n": over the limit of 8.
   {
@@ -2729,7 +3050,11 @@ void TerminatedTextParser_TooLong_WithSentinel() {
   }
 }
 
+#pragma endregion
+
 // With max_length == 0, the same input returns incomplete (no limit enforced).
+#pragma region NoLimit
+
 void TerminatedTextParser_NoLimit() {
   terminated_text_parser::state s{"\r\n", 0};
   terminated_text_parser p{s};
@@ -2738,7 +3063,11 @@ void TerminatedTextParser_NoLimit() {
   EXPECT_TRUE(p.parse(sv, text) == std::nullopt);
 }
 
+#pragma endregion
+
 // Custom sentinel ":" extracts the text up to the first colon.
+#pragma region CustomSentinel
+
 void TerminatedTextParser_CustomSentinel() {
   terminated_text_parser::state s{":"};
   terminated_text_parser p{s};
@@ -2749,7 +3078,11 @@ void TerminatedTextParser_CustomSentinel() {
   EXPECT_EQ(sv, " text/html");
 }
 
+#pragma endregion
+
 // After complete + reset(), the parser correctly handles a second frame.
+#pragma region Reset
+
 void TerminatedTextParser_Reset() {
   terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
@@ -2768,9 +3101,13 @@ void TerminatedTextParser_Reset() {
   EXPECT_EQ(p.bytes_scanned(), 6U);
 }
 
+#pragma endregion
+
 // `stream_sync` tests.
 
 // Verify that connecting to an invalid endpoint returns a falsy `stream_sync`.
+#pragma region ConnectFail
+
 void StreamSync_ConnectFail() {
   // An empty endpoint has ss_family == AF_UNSPEC; `socket(2)` will fail and
   // the returned connection will be closed.
@@ -2778,6 +3115,8 @@ void StreamSync_ConnectFail() {
   EXPECT_FALSE(conn);
   EXPECT_FALSE(conn.is_open());
 }
+
+#pragma endregion
 
 // Helper: start a loopback echo server on an OS-assigned port and return its
 // endpoint. The caller must keep `listener` alive for the test duration.
@@ -2796,6 +3135,8 @@ start_echo_server(epoll_loop_runner& loop, stream_conn_ptr& listener) {
 }
 
 // Verify basic send and recv_exact against an echo server.
+#pragma region SendRecv
+
 void StreamSync_SendRecv() {
   epoll_loop_runner loop;
   stream_conn_ptr listener;
@@ -2809,8 +3150,12 @@ void StreamSync_SendRecv() {
   EXPECT_EQ(got, "hello");
 }
 
+#pragma endregion
+
 // Verify that recv_until returns through the delimiter and leaves trailing
 // bytes in the internal buffer for the next recv call.
+#pragma region RecvUntil
+
 void StreamSync_RecvUntil() {
   epoll_loop_runner loop;
   stream_conn_ptr listener;
@@ -2829,7 +3174,11 @@ void StreamSync_RecvUntil() {
   EXPECT_EQ(tail, "extra");
 }
 
+#pragma endregion
+
 // Verify that recv returns nullopt when the peer closes the connection.
+#pragma region PeerClose
+
 void StreamSync_PeerClose() {
   epoll_loop_runner loop;
   stream_conn_ptr listener;
@@ -2850,11 +3199,15 @@ void StreamSync_PeerClose() {
   EXPECT_TRUE(conn.recv().empty());
 }
 
+#pragma endregion
+
 // ---------------------------------------------------------------------------
 // base_64 tests
 // ---------------------------------------------------------------------------
 
 // RFC 4648 test vectors: encode produces the canonical Base64 output.
+#pragma region Encode_KnownVectors
+
 void Base64_Encode_KnownVectors() {
   EXPECT_EQ(base_64::encode(""), "");
   EXPECT_EQ(base_64::encode("f"), "Zg==");
@@ -2865,13 +3218,21 @@ void Base64_Encode_KnownVectors() {
   EXPECT_EQ(base_64::encode("foobar"), "Zm9vYmFy");
 }
 
+#pragma endregion
+
 // decode returns empty vector for empty input.
+#pragma region Decode_Empty
+
 void Base64_Decode_Empty() {
   auto result = base_64::decode("");
   EXPECT_TRUE(result.empty());
 }
 
+#pragma endregion
+
 // RFC 4648 test vectors: decode recovers the original bytes.
+#pragma region Decode_KnownVectors
+
 void Base64_Decode_KnownVectors() {
   auto check = [](std::string_view encoded, std::string_view expected) {
     auto result = base_64::decode(encoded);
@@ -2886,22 +3247,34 @@ void Base64_Decode_KnownVectors() {
   check("Zm9vYmFy", "foobar");
 }
 
+#pragma endregion
+
 // decode rejects input whose length is not a multiple of 4.
+#pragma region Decode_InvalidLength
+
 void Base64_Decode_InvalidLength() {
   EXPECT_TRUE(base_64::decode("Zg").empty());
   EXPECT_TRUE(base_64::decode("Zm8").empty());
   EXPECT_TRUE(base_64::decode("Zm9vY").empty());
 }
 
+#pragma endregion
+
 // decode rejects input containing characters outside the Base64 alphabet.
+#pragma region Decode_InvalidChar
+
 void Base64_Decode_InvalidChar() {
   EXPECT_TRUE(base_64::decode("Zg=!").empty());
   EXPECT_TRUE(base_64::decode("Z!==").empty());
   EXPECT_TRUE(base_64::decode("!g==").empty());
 }
 
+#pragma endregion
+
 // encode then decode returns the original bytes (round-trip), exercising all
 // three remainder cases (0, 1, and 2 leftover bytes before padding).
+#pragma region RoundTrip_Short
+
 void Base64_RoundTrip_Short() {
   for (const std::string_view sv : {"", "A", "AB", "ABC", "ABCD"}) {
     const std::string encoded = base_64::encode(sv);
@@ -2910,8 +3283,12 @@ void Base64_RoundTrip_Short() {
   }
 }
 
+#pragma endregion
+
 // Round-trip across all 256 byte values to confirm the decode table is
 // the exact inverse of the encode alphabet.
+#pragma region RoundTrip_AllBytes
+
 void Base64_RoundTrip_AllBytes() {
   std::vector<uint8_t> all_bytes(256);
   for (size_t i{}; i < 256; ++i) all_bytes[i] = uint8_t(i);
@@ -2922,6 +3299,9 @@ void Base64_RoundTrip_AllBytes() {
 
   EXPECT_EQ(decoded, all_bytes);
 }
+
+#pragma endregion
+#pragma region OversizeTransferIsHardFailure
 
 void IovMsghdr_OversizeTransferIsHardFailure() {
   if (true) {
@@ -2942,6 +3322,8 @@ void IovMsghdr_OversizeTransferIsHardFailure() {
     EXPECT_EQ(op.offset, proto::iov_msghdr_receiver::npos);
   }
 }
+
+#pragma endregion
 
 // ---------------------------------------------------------------------------
 // http_server tests

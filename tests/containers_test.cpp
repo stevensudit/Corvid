@@ -16,9 +16,12 @@
 // limitations under the License.
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <set>
+#include <sstream>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "../corvid/containers.h"
@@ -27,7 +30,6 @@
 using namespace std::literals;
 using namespace corvid;
 using namespace corvid::internal;
-using namespace corvid::sequence;
 
 // Enum type for testing enum_vector.
 enum class test_id_t : size_t { invalid = std::numeric_limits<size_t>::max() };
@@ -39,548 +41,7 @@ constexpr auto corvid::enums::registry::enum_spec_v<test_id_t> =
 // NOLINTBEGIN(readability-function-cognitive-complexity,
 // readability-function-size)
 
-void OptionalPtrTest_Construction() {
-  if (true) {
-    optional_ptr<int*> o;
-    EXPECT_FALSE(o.has_value());
-  }
-  if (true) {
-    optional_ptr<int*> o{nullptr};
-    EXPECT_FALSE(o.has_value());
-  }
-  if (true) {
-    optional_ptr<int*> o{std::nullopt};
-    EXPECT_FALSE(o.has_value());
-  }
-  if (true) {
-    int i{42};
-    optional_ptr o{&i};
-    EXPECT_TRUE(o.has_value());
-    o.reset();
-    EXPECT_FALSE(o.has_value());
-  }
-  if (true) {
-    optional_ptr o{new int{42}};
-    EXPECT_TRUE(o.has_value());
-    delete o.get();
-    o.reset();
-    EXPECT_FALSE(o.has_value());
-  }
-  if (true) {
-    int i{42};
-    optional_ptr o{&i};
-    // NOLINTNEXTLINE(performance-move-const-arg)
-    optional_ptr qo{std::move(o)};
-    // NOLINTBEGIN
-    optional_ptr ro{o};
-    EXPECT_TRUE(o.has_value());
-    // NOLINTEND
-    EXPECT_TRUE(qo.has_value());
-    EXPECT_TRUE(ro.has_value());
-  }
-  if (true) {
-    auto test{"test"s};
-    optional_ptr o{std::make_unique<std::string>(test)};
-    // * optional_ptr qo{o};
-    optional_ptr ro{std::move(o)};
-    // NOLINTNEXTLINE(bugprone-use-after-move)
-    EXPECT_FALSE(o.has_value());
-    EXPECT_TRUE(ro.has_value());
-  }
-}
-
-void OptionalPtrTest_Access() {
-  if (true) {
-    auto test{"test"s};
-    optional_ptr o = &test;
-    EXPECT_TRUE(o.has_value());
-    EXPECT_EQ(o.value(), test);
-    std::string* p = o;
-    EXPECT_EQ(p, o);
-    EXPECT_EQ(o->size(), test.size());
-    EXPECT_EQ(p, o.get());
-    o.reset();
-    EXPECT_THROW(o.value(), std::bad_optional_access);
-    bool f = o ? true : false;
-    EXPECT_FALSE(f);
-
-    // Raw pointers evaluate to bool in any context.
-    f = o;
-    (void)f;
-
-    o.reset(&test);
-    EXPECT_EQ(o->size(), 4U);
-  }
-  if (true) {
-    auto const test{"test"s};
-    optional_ptr o = &test;
-    auto p = o.get();
-    // * o.get()->resize(test.size());
-    p++;
-    (void)p[6];
-    p = p + 1;
-    (void)p;
-    // * o++;
-    // * o[6];
-    // * o + 1;
-  }
-}
-
-void OptionalPtrTest_OrElse() {
-  if (true) {
-    optional_ptr<std::string*> o;
-    EXPECT_FALSE(o.has_value());
-    std::string empty{};
-    auto test{"test"s};
-    auto l = [&]() { return test; };
-    EXPECT_EQ(o.value_or(test), test);
-    EXPECT_EQ(o.value_or(), empty);
-    EXPECT_EQ(o.value_or_ptr(&test), test);
-    EXPECT_EQ(o.value_or_fn(l), test);
-  }
-}
-
-void OptionalPtrTest_ConstOrPtr() {
-  if (true) {
-    const auto test{"test"s};
-    optional_ptr<const std::string*> o;
-    auto& p = o.value_or_ptr(&test);
-    auto b = std::is_same_v<decltype(p), const std::string&>;
-    EXPECT_TRUE(b);
-  }
-  if (true) {
-    const auto test{"test"s};
-    optional_ptr<std::string*> o;
-    auto& p = o.value_or_ptr(&test);
-    EXPECT_TRUE((std::is_same_v<decltype(p), const std::string&>));
-  }
-  if (true) {
-    auto test{"test"s};
-    optional_ptr<const std::string*> o;
-    auto& p = o.value_or_ptr(&test);
-    EXPECT_TRUE((std::is_same_v<decltype(p), const std::string&>));
-  }
-}
-
-void OptionalPtrTest_Smart() {
-  if (true) {
-    auto test{"test"s};
-    optional_ptr o = std::make_unique<std::string>(test);
-    EXPECT_TRUE(o.has_value());
-    EXPECT_EQ(o->size(), test.size());
-
-    // * auto qo{o};
-    auto qo{std::move(o)};
-    // NOLINTNEXTLINE(bugprone-use-after-move)
-    EXPECT_FALSE(o.has_value());
-    EXPECT_TRUE(qo.has_value());
-
-    EXPECT_EQ(*qo, test);
-    auto& q = *qo;
-    q.resize(q.size());
-    EXPECT_EQ(q, test);
-
-    // * auto p{qo.get()};
-    auto p{std::move(qo).get()};
-
-    auto l = [&test]() {
-      return optional_ptr{std::make_unique<std::string>(test)};
-    };
-
-    p = l().get();
-    p.reset();
-
-    // This was moved from, so it's empty.
-    bool f = o ? true : false;
-    EXPECT_FALSE(f);
-
-    // Does not compile because operator bool is marked as explicit and this is
-    // not a predicate context.
-    // * f = o;
-
-    o.reset(std::make_unique<std::string>(test));
-    EXPECT_EQ(o->size(), 4U);
-    o.reset();
-    EXPECT_FALSE(o.has_value());
-  }
-  if (true) {
-    auto test{"test"s};
-    optional_ptr o = std::make_shared<std::string>(test);
-    EXPECT_TRUE(o.has_value());
-    EXPECT_EQ(o->size(), test.size());
-
-    auto qo{o};
-    EXPECT_TRUE(o.has_value());
-    EXPECT_TRUE(qo.has_value());
-
-    EXPECT_EQ(*qo, test);
-    auto& q = *qo;
-    q.resize(q.size());
-    EXPECT_EQ(q, test);
-
-    auto p{qo.get()};
-
-    bool f = o ? true : false;
-    EXPECT_TRUE(f);
-
-    // Does not compile because operator bool is marked as explicit and this is
-    // not a predicate context.
-    // * f = o;
-
-    EXPECT_EQ(o->size(), 4U);
-
-    p.reset();
-    qo.reset();
-  }
-}
-
-void OptionalPtrTest_Dumb() {
-  using O = optional_ptr<int*>;
-
-  if (true) {
-    O o = nullptr;
-    EXPECT_FALSE(o);
-    O p(nullptr);
-    EXPECT_FALSE(p);
-    EXPECT_FALSE(O{nullptr});
-  }
-  if (true) {
-    int i;
-    O o(&i);
-    EXPECT_TRUE(o);
-    auto& p = (o = nullptr);
-    EXPECT_FALSE(o);
-    EXPECT_FALSE(p);
-  }
-  if (true) {
-    int i;
-    O a(&i), b;
-    EXPECT_TRUE(a != b);
-    EXPECT_TRUE(!(a == b));
-    EXPECT_FALSE(a == O());
-    EXPECT_TRUE(b == O());
-    EXPECT_FALSE(a == nullptr);
-    EXPECT_TRUE(b == nullptr);
-    EXPECT_TRUE(a != O());
-    EXPECT_FALSE(b != O());
-    EXPECT_TRUE(a != nullptr);
-    EXPECT_FALSE(b != nullptr);
-  }
-}
-
-void FindOptTest_Maps() {
-  if (true) {
-    const auto key = "key"s;
-    const auto value = "value"s;
-    using C = std::map<std::string, std::string>;
-    C m{{key, value}};
-    EXPECT_EQ(*find_opt(m, key), value);
-    EXPECT_EQ(find_opt(m, value).value_or_ptr(&key), key);
-    EXPECT_TRUE(KeyFindable<C>);
-    EXPECT_FALSE(RangeWithoutFind<C>);
-  }
-  if (true) {
-    using C = std::map<std::string_view, int>;
-    const auto key = "key"sv;
-    const auto value = 42;
-    C m{{key, value}};
-    EXPECT_EQ(*find_opt(m, key), value);
-    EXPECT_EQ(find_opt(m, "missing"sv).value_or(0), 0);
-    EXPECT_TRUE(KeyFindable<C>);
-    EXPECT_FALSE(RangeWithoutFind<C>);
-  }
-  if (true) {
-    extensible_arena arena{4096};
-    extensible_arena::scope s{arena};
-    using C = arena_map<std::string_view, int>;
-    const auto key = "key"sv;
-    const auto value = 42;
-    C m{{key, value}};
-    EXPECT_EQ(*find_opt(m, key), value);
-    EXPECT_EQ(find_opt(m, "missing"sv).value_or(0), 0);
-    EXPECT_TRUE(KeyFindable<C>);
-    EXPECT_FALSE(RangeWithoutFind<C>);
-  }
-}
-
-void FindOptTest_Sets() {
-  const auto value = "value"s;
-  using C = std::set<std::string>;
-  C s{value};
-  EXPECT_EQ(*find_opt(s, value), value);
-  EXPECT_EQ(find_opt(s, "").value_or("nope"), "nope");
-  EXPECT_TRUE(KeyFindable<C>);
-  EXPECT_FALSE(RangeWithoutFind<C>);
-}
-
-void FindOptTest_Vectors() {
-  const auto value = "value"s;
-  using C = std::vector<std::string>;
-  C s{value};
-  EXPECT_EQ(*find_opt(s, value), value);
-  EXPECT_EQ(find_opt(s, "").value_or("nope"), "nope");
-  EXPECT_FALSE(KeyFindable<C>);
-  EXPECT_TRUE(RangeWithoutFind<C>);
-}
-
-void FindOptTest_Arrays() {
-  int s[]{1, 2, 3, 4};
-  using C = decltype(s);
-  EXPECT_EQ(*find_opt(s, 3), 3);
-  EXPECT_EQ(find_opt(s, 5).value_or(-1), -1);
-  EXPECT_FALSE(KeyFindable<C>);
-  EXPECT_TRUE(RangeWithoutFind<C>);
-}
-
-void FindOptTest_Strings() {
-  if (true) {
-    using C = std::string;
-    C s{"value"};
-    EXPECT_EQ(*find_opt(s, 'a'), 'a');
-    EXPECT_FALSE(contains(s, 'z'));
-    EXPECT_FALSE(KeyFindable<C>);
-    EXPECT_TRUE(RangeWithoutFind<C>);
-  }
-  if (true) {
-    using C = std::string_view;
-    C s{"value"};
-    EXPECT_EQ(*find_opt(s, 'a'), 'a');
-    EXPECT_FALSE(contains(s, 'z'));
-    EXPECT_FALSE(KeyFindable<C>);
-    EXPECT_TRUE(RangeWithoutFind<C>);
-  }
-  if (true) {
-    using C = std::vector<char>;
-    C s{'v', 'a', 'l', 'u', 'e'};
-    EXPECT_EQ(*find_opt(s, 'a'), 'a');
-    EXPECT_FALSE(contains(s, 'z'));
-    EXPECT_FALSE(KeyFindable<C>);
-    EXPECT_TRUE(RangeWithoutFind<C>);
-  }
-}
-
-void Intervals_Ctors() {
-  if (true) {
-    interval i;
-    EXPECT_TRUE(i.empty());
-    EXPECT_FALSE(i.invalid());
-  }
-  if (true) {
-    interval i{42};
-    EXPECT_FALSE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1U);
-    EXPECT_EQ(i.front(), 42);
-    EXPECT_EQ(i.back(), 42);
-  }
-  if (true) {
-    interval i{40, 42};
-    EXPECT_FALSE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 3U);
-    EXPECT_EQ(i.front(), 40);
-    EXPECT_EQ(i.back(), 42);
-  }
-  if (true) {
-    // Next line asserts.
-    // * interval i{42, 40};
-    interval i{40};
-    i.min(42);
-    EXPECT_TRUE(i.empty());
-    EXPECT_TRUE(i.invalid());
-  }
-}
-
-void IntervalTest_Insert() {
-  if (true) {
-    interval i;
-    EXPECT_TRUE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_TRUE(i.insert(0));
-    EXPECT_FALSE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1U);
-    EXPECT_EQ(i.front(), 0);
-    EXPECT_EQ(i.back(), 0);
-
-    EXPECT_TRUE(i.insert(5));
-    EXPECT_FALSE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 6U);
-    EXPECT_EQ(i.front(), 0);
-    EXPECT_EQ(i.back(), 5);
-
-    EXPECT_TRUE(i.insert(-5));
-    EXPECT_FALSE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 11U);
-    EXPECT_EQ(i.front(), -5);
-    EXPECT_EQ(i.back(), 5);
-
-    EXPECT_FALSE(i.insert(-5));
-    EXPECT_FALSE(i.insert(0));
-    EXPECT_FALSE(i.insert(5));
-  }
-  if (true) {
-    interval i{5};
-    EXPECT_FALSE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1U);
-
-    EXPECT_FALSE(i.push_back(0));
-    EXPECT_FALSE(i.push_back(5));
-    EXPECT_TRUE(i.push_back(6));
-    EXPECT_TRUE(i.push_back(7));
-    EXPECT_FALSE(i.push_back(6));
-    EXPECT_EQ(i.size(), 3U);
-    EXPECT_EQ(i.front(), 5);
-    EXPECT_EQ(i.back(), 7);
-
-    i.pop_back();
-    EXPECT_EQ(i.size(), 2U);
-    EXPECT_EQ(i.front(), 5);
-    EXPECT_EQ(i.back(), 6);
-    i.pop_back(2);
-    EXPECT_TRUE(i.empty());
-  }
-  if (true) {
-    interval i{5};
-    EXPECT_FALSE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1U);
-
-    EXPECT_FALSE(i.push_front(7));
-    EXPECT_FALSE(i.push_front(6));
-    EXPECT_FALSE(i.push_front(5));
-    EXPECT_TRUE(i.push_front(4));
-    EXPECT_TRUE(i.push_front(3));
-    EXPECT_FALSE(i.push_front(6));
-    EXPECT_EQ(i.size(), 3U);
-    EXPECT_EQ(i.front(), 3);
-    EXPECT_EQ(i.back(), 5);
-
-    i.pop_front();
-    EXPECT_EQ(i.size(), 2U);
-    EXPECT_EQ(i.front(), 4);
-    EXPECT_EQ(i.back(), 5);
-    i.pop_front(2);
-    EXPECT_TRUE(i.empty());
-  }
-}
-
-void IntervalTest_ForEach() {
-  auto i = interval{1, 4};
-
-  int64_t c{}, s{};
-  for (auto e : i) {
-    ++c;
-    s += e;
-  }
-
-  EXPECT_EQ(c, 4);
-  EXPECT_EQ(s, 1 + 2 + 3 + 4);
-}
-
-void IntervalTest_Reverse() {
-  if (true) {
-    auto i = interval{1, 4};
-
-    int64_t c{}, s{}, l{};
-    auto b = std::begin(i), e = std::end(i);
-    std::for_each(b, e, [&c, &s, &l](auto e) {
-      ++c;
-      s += e;
-      l = e;
-    });
-
-    EXPECT_EQ(c, 4);
-    EXPECT_EQ(s, 1 + 2 + 3 + 4);
-    EXPECT_EQ(l, 4);
-  }
-  if (true) {
-    auto i = interval{1, 4};
-
-    int64_t c{}, s{}, l{};
-    auto b = std::reverse_iterator(std::end(i)),
-         e = std::reverse_iterator(std::begin(i));
-    std::for_each(b, e, [&c, &s, &l](auto e) {
-      ++c;
-      s += e;
-      l = e;
-    });
-
-    EXPECT_EQ(c, 4);
-    EXPECT_EQ(s, 1 + 2 + 3 + 4);
-    EXPECT_EQ(l, 1);
-  }
-  if (true) {
-    auto i = interval{1, 4};
-
-    int64_t c{}, s{}, l{};
-    auto b = std::rbegin(i), e = std::rend(i);
-    std::for_each(b, e, [&c, &s, &l](auto e) {
-      ++c;
-      s += e;
-      l = e;
-    });
-
-    EXPECT_EQ(c, 4);
-    EXPECT_EQ(s, 1 + 2 + 3 + 4);
-    EXPECT_EQ(l, 1);
-  }
-}
-
-void IntervalTest_MinMax() {
-  auto i = interval{1, 4};
-
-  EXPECT_EQ(i.min(), 1);
-  EXPECT_EQ(i.max(), 4);
-  i.min(42);
-  EXPECT_EQ(i.min(), 42);
-  EXPECT_TRUE(i.invalid());
-  i.max(64);
-  EXPECT_EQ(i.max(), 64);
-  EXPECT_FALSE(i.invalid());
-}
-
-void IntervalTest_CompareAndSwap() {
-  auto i = interval{1, 4};
-  auto j = interval{2, 3};
-  EXPECT_TRUE(i == i);
-  EXPECT_TRUE(j == j);
-  EXPECT_TRUE(i != j);
-  EXPECT_EQ(i.back(), 4);
-  using std::swap;
-  swap(i, j);
-  EXPECT_EQ(j.back(), 4);
-  i.swap(j);
-  EXPECT_EQ(i.back(), 4);
-}
-
-void IntervalTest_Append() {
-  if (true) {
-    auto i = interval{1, 4};
-    using I = decltype(i);
-    EXPECT_FALSE(is_pair_v<decltype(i)>);
-    EXPECT_TRUE(is_pair_convertible_v<decltype(i)>);
-
-    auto s = ""s;
-    I::append_fn(s, i);
-    EXPECT_EQ(s, "1, 4");
-    s = strings::concat(i);
-    EXPECT_EQ(s, "1, 4");
-
-    s = strings::join<strings::join_opt::json>(i);
-    EXPECT_EQ(s, "[1, 4]");
-
-    i.clear();
-    s = strings::join<strings::join_opt::json>(i);
-    EXPECT_EQ(s, "[]");
-
-    // Note: make_interval is tested in bitmask_enum_test.cpp and
-    // sequence_enum_test.cpp.
-  }
-}
+#pragma region TransparentTest_General
 
 void TransparentTest_General() {
   const auto ks = "key"s;
@@ -592,7 +53,7 @@ void TransparentTest_General() {
     EXPECT_EQ(tm.size(), 0U);
     m[ks] = 42;
     tm[ks] = 42;
-    // * tm[ksv] = 42; // error: no match for ‘operator[]’
+    // * tm[ksv] = 42; // error: no match for 'operator[]'
     int* p;
     p = find_opt(m, ks);
     EXPECT_TRUE(p);
@@ -627,6 +88,9 @@ void TransparentTest_General() {
     EXPECT_TRUE(tss.contains(ksv));
   }
 }
+#pragma endregion
+
+#pragma region IndirectKey_Basic
 
 void IndirectKey_Basic() {
   using IHK = indirect_hash_key<std::string>;
@@ -640,256 +104,7 @@ void IndirectKey_Basic() {
   m[key] = 42;
   EXPECT_EQ(m[key], 42);
 }
-
-namespace corvid { inline namespace container { inline namespace intern {
-
-// Test fixture to allow access to internals.
-template<typename T, SequentialEnum ID>
-struct intern_test {
-  using interned_value_t = interned_value<T, ID>;
-  using allow = restrict_intern_construction::allow;
-  template<typename U>
-  static interned_value_t make(U&& u, ID id = {}) {
-    return interned_value_t{allow::ctor, std::forward<U>(u), id};
-  }
-};
-}}} // namespace corvid::container::intern
-
-enum class string_id : std::uint8_t { missing };
-
-template<>
-constexpr inline auto registry::enum_spec_v<string_id> =
-    sequence::make_sequence_enum_spec<string_id, "missing">();
-
-using interned_string = interned_value<std::string, string_id>;
-using string_intern_test = intern_test<std::string, string_id>;
-using arena_string_intern_test = intern_test<arena_string, string_id>;
-using string_intern_table = intern_table<std::string, string_id>;
-using string_intern_table_value = string_intern_table::interned_value_t;
-
-template class std::deque<std::string>;
-
-void InternTableTest_Basic() {
-  if (true) {
-    // Test arena in isolation to reproduce corrected bugs.
-    extensible_arena arena{128};
-    extensible_arena::scope s{arena};
-
-    arena_string as_abc{"abc"};
-    arena_string as;
-
-    // This causes a new node to be allocated, which triggered a fencepost bug.
-    // That was compounded by a second bug, in which the new buffer was too
-    // small.
-    as.resize(256);
-    bool used_to_crash = as_abc > as;
-    EXPECT_TRUE(used_to_crash);
-  }
-  if (true) {
-    extensible_arena arena{4096};
-    extensible_arena::scope s{arena};
-    //  using arena_value_t = SIT::arena_value_t;
-    //  using key_t = SIT::key_t;
-    // using lookup_by_id_t = SIT::lookup_by_id_t;
-
-    // lookup_by_id_t
-    std::string key{"abc"};
-    std::deque<std::string> dq{42};
-    arena_deque<arena_string> adq{42};
-    auto z = key + key;
-    (void)z;
-  }
-  if (true) {
-    // Show that, when we're not using arena-specialized types, we can create
-    // interned values that aren't actually in an arena.
-    extensible_arena arena{4096};
-    extensible_arena::scope s{arena};
-    std::string abc_str{"abc"};
-    std::string bcd_str{"bcdefghijklmnopqrstuvwxyz"};
-    // These are `interned_value` objects but the value pointed at is not
-    // interned or in the arena.
-    auto abc = string_intern_test::make(abc_str);
-    auto bcd = string_intern_test::make(bcd_str);
-    EXPECT_FALSE(extensible_arena::contains(&abc.value()));
-    EXPECT_FALSE(extensible_arena::contains(abc.value().data()));
-    EXPECT_FALSE(extensible_arena::contains(&bcd.value()));
-    EXPECT_FALSE(extensible_arena::contains(bcd.value().data()));
-    EXPECT_EQ(abc, abc);
-    EXPECT_NE(abc, bcd);
-    EXPECT_EQ(abc.value(), "abc");
-    EXPECT_LT(abc, bcd);
-    EXPECT_EQ(abc.value(), abc_str);
-    EXPECT_EQ(bcd.value(), bcd_str);
-  }
-  if (true) {
-    // Show that, when we do use arena-specialized types, the values we create
-    // are not in the arena, but what's contained within them is.
-    extensible_arena arena{4096};
-    extensible_arena::scope s{arena};
-    // Does not use arena despite being an arena_string because it's short.
-    arena_string abc_str{"abc"};
-    // Does use arena.
-    arena_string bcd_str{"bcdefghijklmnopqrstuvwxyz"};
-    // These are `interned_value` objects but the value pointed at is not
-    // interned. The contents of `bcd` are in the arena, however.
-    auto abc = arena_string_intern_test::make(abc_str);
-    auto bcd = arena_string_intern_test::make(bcd_str);
-    EXPECT_FALSE(extensible_arena::contains(&abc.value()));
-    EXPECT_FALSE(extensible_arena::contains(abc.value().data()));
-    EXPECT_FALSE(extensible_arena::contains(&bcd.value()));
-    // Short-string optimization is why "abc" isn't in the arena.
-    EXPECT_FALSE(extensible_arena::contains(abc.value().data()));
-    EXPECT_TRUE(extensible_arena::contains(bcd.value().data()));
-    EXPECT_EQ(abc, abc);
-    EXPECT_NE(abc, bcd);
-    EXPECT_EQ(abc.value(), "abc"sv);
-    EXPECT_LT(abc, bcd);
-    EXPECT_EQ(abc.value(), abc_str);
-    EXPECT_EQ(bcd.value(), bcd_str);
-  }
-  if (true) {
-    // Show that we can intern strings.
-    extensible_arena arena{4096};
-    extensible_arena::scope s{arena};
-    auto sit_ptr = string_intern_table::make(string_id{0}, string_id{3});
-    auto& sit = *sit_ptr;
-    const auto& csit = sit;
-    using SIT = std::remove_reference_t<decltype(sit)>;
-
-    auto iv = sit("abc"s);
-    EXPECT_FALSE(iv);
-    iv = sit.intern("abc");
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{1});
-    EXPECT_EQ(iv.value(), "abc");
-    // Both the string and its contents are in the arena.
-    EXPECT_TRUE(extensible_arena::contains(&iv.value()));
-    EXPECT_TRUE(extensible_arena::contains(iv.value().data()));
-    iv = SIT::interned_value_t{};
-    EXPECT_FALSE(iv);
-    using C = SIT::lookup_by_value_t;
-    EXPECT_TRUE(KeyFindable<C>);
-    EXPECT_FALSE(RangeWithoutFind<C>);
-    iv = sit("abc");
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{1});
-    EXPECT_EQ(iv.value(), "abc");
-    EXPECT_TRUE(extensible_arena::contains(&iv.value()));
-    EXPECT_TRUE(extensible_arena::contains(iv.value().data()));
-
-    iv = sit("defghijklmnopqrstuvwxyz"sv);
-    EXPECT_FALSE(iv);
-    iv = sit.intern("defghijklmnopqrstuvwxyz"sv);
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{2});
-    EXPECT_EQ(iv.value(), "defghijklmnopqrstuvwxyz"sv);
-    // Non-short strings are in the arena.
-    EXPECT_TRUE(extensible_arena::contains(&iv.value()));
-    EXPECT_TRUE(extensible_arena::contains(iv.value().data()));
-
-    iv = string_intern_table_value{csit, "ghi"s};
-    EXPECT_FALSE(iv);
-    iv = string_intern_table_value{sit, "ghi"s};
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{3});
-    EXPECT_EQ(iv.value(), "ghi"s);
-
-    iv = sit("jkl");
-    EXPECT_FALSE(iv);
-    iv = sit.intern("jkl");
-    EXPECT_FALSE(iv);
-
-    iv = string_intern_table_value{csit, string_id{3}};
-    EXPECT_EQ(iv.id(), string_id{3});
-    EXPECT_EQ(iv.value(), "ghi"s);
-
-    iv = string_intern_table_value{csit, "abc"};
-    EXPECT_EQ(iv.id(), string_id{1});
-    EXPECT_EQ(iv.value(), "abc");
-  }
-}
-
-// This is not technically a `std::string`, so it uses the general traits,
-// including the indirect wrappers.
-struct bad_key: std::string {
-  bad_key() = default;
-  explicit bad_key(const std::string& s) : std::string(s) {}
-  bad_key(const bad_key&) = default;
-  bad_key(bad_key&&) = default;
-  bad_key& operator=(bad_key&&) = default;
-  bad_key& operator=(const bad_key&) = delete;
-
-  friend auto operator<=>(const bad_key& a, const bad_key& b) {
-    return static_cast<const std::string&>(a) <=>
-           static_cast<const std::string&>(b);
-  }
-};
-
-template<>
-struct std::hash<bad_key>: std::hash<std::string> {};
-
-template<>
-struct std::equal_to<bad_key>: std::equal_to<std::string> {};
-
-using interned_badkey = interned_value<bad_key, string_id>;
-using badkey_intern_test = intern_test<bad_key, string_id>;
-using badkey_intern_table = intern_table<bad_key, string_id>;
-
-void InternTableTest_Badkey() {
-  if (true) {
-    const auto bk_abc = bad_key{"abc"};
-    const auto bk_bcd = bad_key{"bcd"};
-    auto abc = badkey_intern_test::make(bk_abc);
-    auto bcd = badkey_intern_test::make(bk_bcd);
-    EXPECT_EQ(abc, abc);
-    EXPECT_NE(abc, bcd);
-    EXPECT_EQ(abc.value(), bk_abc);
-    EXPECT_LT(abc, bcd);
-  }
-  if (true) {
-    auto sit_ptr = badkey_intern_table::make(string_id{0}, string_id{3});
-    auto& sit = *sit_ptr;
-    using SIT = std::remove_reference_t<decltype(sit)>;
-    const auto bk_abc = bad_key{"abc"};
-    const auto bk_bcd = bad_key{"bcd"};
-
-    auto iv = sit(bk_abc);
-
-    EXPECT_FALSE(iv);
-    iv = sit.intern(bk_abc);
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{1});
-    EXPECT_EQ(iv.value(), bk_abc);
-    iv = SIT::interned_value_t{};
-    EXPECT_FALSE(iv);
-    iv = sit(bk_abc);
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{1});
-    EXPECT_EQ(iv.value(), bk_abc);
-
-    const auto bk_def = bad_key{"def"};
-    iv = sit(bk_def);
-    EXPECT_FALSE(iv);
-    iv = sit.intern(bk_def);
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{2});
-    EXPECT_EQ(iv.value(), bk_def);
-
-    const auto bk_ghi = bad_key{"ghi"};
-    iv = sit(bk_ghi);
-    EXPECT_FALSE(iv);
-    iv = sit.intern(bk_ghi);
-    EXPECT_TRUE(iv);
-    EXPECT_EQ(iv.id(), string_id{3});
-    EXPECT_EQ(iv.value(), bk_ghi);
-
-    const auto bk_jkl = bad_key{"jkl"};
-    iv = sit(bk_jkl);
-    EXPECT_FALSE(iv);
-    iv = sit.intern(bk_jkl);
-    EXPECT_FALSE(iv);
-  }
-}
+#pragma endregion
 
 class SpecialIntDeleter {
 public:
@@ -918,6 +133,8 @@ struct D // deleter
     delete p;
   };
 };
+
+#pragma region OwnPtrTest_Ctor
 
 void OwnPtrTest_Ctor() {
   {
@@ -1083,6 +300,7 @@ void OwnPtrTest_Ctor() {
     EXPECT_EQ(*p, 42);
   }
 }
+#pragma endregion
 
 template<typename T, typename D = std::default_delete<T>>
 class Holder {
@@ -1101,12 +319,15 @@ private:
 template<typename T>
 Holder(T*) -> Holder<float>;
 
+#pragma region DeductionTest_Experimental
+
 void DeductionTest_Experimental() {
   int i = 42;
   Holder<int> h0{&i};
   //  Holder h1{&i};
   //  Holder h2{42.0};
 }
+#pragma endregion
 
 // NOLINTNEXTLINE(performance-enum-size)
 enum class FileDescriptor : int { invalid = -1 };
@@ -1121,6 +342,8 @@ struct fd_deleter {
 };
 
 using unique_fd = std::unique_ptr<FileDescriptor, fd_deleter>;
+
+#pragma region CustomHandleTest_Basic
 
 void CustomHandleTest_Basic() {
 #if 0
@@ -1179,6 +402,9 @@ void CustomHandleTest_Basic() {
   EXPECT_EQ(fd_deleter::close_count, 8U);
 #endif
 }
+#pragma endregion
+
+#pragma region NoInitResize_Basic
 
 void NoInitResize_Basic() {
   std::vector<int> v;
@@ -1187,6 +413,7 @@ void NoInitResize_Basic() {
   // s.resize_and_overwrite(2);
   (void)s;
 }
+#pragma endregion
 
 using FirstName = strong_type<std::string, struct FirstNameTag>;
 using LastName = strong_type<std::string, struct LastNameTag>;
@@ -1197,6 +424,8 @@ using WeakPersonFn =
 using PersonFn = strong_type<WeakPersonFn, struct PersonFnTag>;
 using WeakPointlessFn = std::function<void(const FirstName&, const LastName&)>;
 using PointlessFn = strong_type<WeakPointlessFn, struct PointlessFnTag>;
+
+#pragma region StrongType_Basic
 
 void StrongType_Basic() {
   FirstName fn{"John"};
@@ -1232,6 +461,9 @@ void StrongType_Basic() {
   EXPECT_EQ(age, 43);
   age = age << 1;
 }
+#pragma endregion
+
+#pragma region StrongType_Extended
 
 void StrongType_Extended() {
   // Comprehensive test of all methods and operators for FirstName.
@@ -1574,6 +806,7 @@ void StrongType_Extended() {
   oss << fn;
   EXPECT_EQ(oss.str(), "John");
 }
+#pragma endregion
 
 struct RetrievalKey {
   size_t id{};
@@ -1614,6 +847,8 @@ std::string list_variant_types() {
   }(std::make_index_sequence<std::variant_size_v<T>>{});
   return oss.str();
 }
+
+#pragma region EnumVariant_Basic
 
 void EnumVariant_Basic() {
   std::variant<std::monostate, int, char, std::string> v;
@@ -1721,6 +956,9 @@ void EnumVariant_Basic() {
     EXPECT_EQ(s, "Some RangeKey(start=10, end=20)");
   }
 }
+#pragma endregion
+
+#pragma region EnumVector_Basic
 
 void EnumVector_Basic() {
   using id_t = test_id_t;
@@ -1789,6 +1027,7 @@ void EnumVector_Basic() {
   v.clear();
   EXPECT_TRUE(v.empty());
 }
+#pragma endregion
 
 struct throwing_scoped_value_test {
   std::string value;
@@ -1822,6 +1061,8 @@ inline void swap(throwing_scoped_value_test& lhs,
   swap(lhs.value, rhs.value);
   swap(lhs.throw_on_move, rhs.throw_on_move);
 }
+
+#pragma region ScopedValue_Basic
 
 void ScopedValue_Basic() {
   if (true) {
@@ -1910,6 +1151,9 @@ void ScopedValue_Basic() {
     EXPECT_EQ(x, 10);
   }
 }
+#pragma endregion
+
+#pragma region ScopeExit_Basic
 
 void ScopeExit_Basic() {
   if (true) {
@@ -1962,6 +1206,9 @@ void ScopeExit_Basic() {
     EXPECT_EQ(value, 7);
   }
 }
+#pragma endregion
+
+#pragma region HashCombiner_Basic
 
 void HashCombiner_Basic() {
   // Default seed is zero; explicit seed is respected.
@@ -2033,17 +1280,11 @@ void HashCombiner_Basic() {
     EXPECT_NE(combined_hash(1, 2), combined_hash(1, 3));
   }
 }
+#pragma endregion
 
-MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
-    OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Dumb,
-    FindOptTest_Maps, FindOptTest_Sets, FindOptTest_Vectors,
-    FindOptTest_Arrays, FindOptTest_Strings, Intervals_Ctors,
-    IntervalTest_Insert, IntervalTest_ForEach, IntervalTest_Reverse,
-    IntervalTest_MinMax, IntervalTest_CompareAndSwap, IntervalTest_Append,
-    TransparentTest_General, IndirectKey_Basic, InternTableTest_Basic,
-    InternTableTest_Badkey, OwnPtrTest_Ctor, DeductionTest_Experimental,
-    CustomHandleTest_Basic, NoInitResize_Basic, StrongType_Basic,
-    StrongType_Extended, EnumVariant_Basic, EnumVector_Basic,
+MAKE_TEST_LIST(TransparentTest_General, IndirectKey_Basic, OwnPtrTest_Ctor,
+    DeductionTest_Experimental, CustomHandleTest_Basic, NoInitResize_Basic,
+    StrongType_Basic, StrongType_Extended, EnumVariant_Basic, EnumVector_Basic,
     ScopedValue_Basic, ScopeExit_Basic, HashCombiner_Basic);
 
 // NOLINTEND(readability-function-cognitive-complexity,

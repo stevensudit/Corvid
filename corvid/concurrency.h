@@ -21,8 +21,10 @@
 //  sync_lock         - `synchronizer`, `lock`, and `reverse_lock` attestation
 //                      idiom
 //  notifiable        - value guarded by mutex and condition variable
-//  tombstone         - thread-safe atomic value with a final "dead" state
-//  timers            - thread-safe priority-queue timer scheduler
+//  owner_thread_dispatcher - dispatches callbacks to execute only in the
+//                            owning thread
+//  tombstone         - thread-safe atomic value with a final
+//  "dead" state timers            - thread-safe priority-queue timer scheduler
 //  relaxed_atomic    - `std::atomic<T>` wrapper with relaxed load/store
 //                      operators
 #include "concurrency/sync_lock.h"
@@ -31,3 +33,4 @@
 #include "concurrency/timers.h"
 #include "concurrency/relaxed_atomic.h"
 #include "concurrency/timer_fuse.h"
+#include "concurrency/owner_thread_dispatcher.h"

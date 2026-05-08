@@ -23,7 +23,7 @@
 #include <type_traits>
 
 namespace corvid { inline namespace concurrency {
-inline namespace relaxed_atomic_ns {
+inline namespace relaxed_atomicns {
 
 // Thin wrapper around `std::atomic<T>`, providing only implicit conversion to
 // `T` and assignment from `T` while using relaxed memory ordering.  All other
@@ -84,6 +84,44 @@ public:
   // Access underlying atomic methods.
   [[nodiscard]] auto* operator->(this auto& self) noexcept {
     return &self.value_;
+  }
+
+  // Increment and decrement with relaxed ordering (enabled when `T` supports
+  // `fetch_add`/`fetch_sub`).
+  value_type operator++(this auto& self) noexcept
+  requires requires { self.value_.fetch_add(1); }
+  {
+    return self.value_.fetch_add(1, std::memory_order::relaxed) + 1;
+  }
+
+  value_type operator++(this auto& self, int) noexcept
+  requires requires { self.value_.fetch_add(1); }
+  {
+    return self.value_.fetch_add(1, std::memory_order::relaxed);
+  }
+
+  value_type operator--(this auto& self) noexcept
+  requires requires { self.value_.fetch_sub(1); }
+  {
+    return self.value_.fetch_sub(1, std::memory_order::relaxed) - 1;
+  }
+
+  value_type operator--(this auto& self, int) noexcept
+  requires requires { self.value_.fetch_sub(1); }
+  {
+    return self.value_.fetch_sub(1, std::memory_order::relaxed);
+  }
+
+  value_type operator+=(this auto& self, value_type n) noexcept
+  requires requires { self.value_.fetch_add(n); }
+  {
+    return self.value_.fetch_add(n, std::memory_order::relaxed) + n;
+  }
+
+  value_type operator-=(this auto& self, value_type n) noexcept
+  requires requires { self.value_.fetch_sub(n); }
+  {
+    return self.value_.fetch_sub(n, std::memory_order::relaxed) - n;
   }
 
 private:
@@ -149,4 +187,4 @@ using relaxed_atomic_ptrdiff_t = relaxed_atomic<std::ptrdiff_t>;
 using relaxed_atomic_intmax_t = relaxed_atomic<std::intmax_t>;
 using relaxed_atomic_uintmax_t = relaxed_atomic<std::uintmax_t>;
 
-}}} // namespace corvid::concurrency::relaxed_atomic_ns
+}}} // namespace corvid::concurrency::relaxed_atomicns

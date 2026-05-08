@@ -27,6 +27,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -38,6 +39,8 @@
 #include "ipv6_addr.h"
 
 namespace corvid { inline namespace proto {
+
+#pragma region net_endpoint
 
 // Unified network endpoint: an IPv4/IPv6 address with port, or a Unix domain
 // socket path.
@@ -86,6 +89,7 @@ namespace corvid { inline namespace proto {
 // Interop with `sockaddr_in`, `sockaddr_in6`, `sockaddr_un`, and
 // `sockaddr_storage` is provided.
 class net_endpoint {
+#pragma region Construction
 public:
   static constexpr size_t max_sockaddr_size = sizeof(sockaddr_storage);
   static_assert(sizeof(sockaddr_un) <= max_sockaddr_size,
@@ -114,45 +118,44 @@ public:
   // Construct from text: "1.2.3.4:80" (IPv4), "[2001:db8::1]:80" (IPv6),
   // "/run/user/[UID]/[appname].sock" (UDS), or "@abstract_name" (ANS). For
   // IPv4 and IPv6, port is required but may be "0", as a wildcard. On failure,
-  // result is `empty()`.
+  // result is `empty`.
   explicit net_endpoint(std::string_view s) { *this = do_parse(s); }
 
   // Conversion constructors for interop.
 
   // Construct from a POSIX `sockaddr_in`, `sockaddr_in6`, or `sockaddr_un`.
   explicit net_endpoint(const sockaddr_in& addr) noexcept {
-    do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
+    if (addr.sin_family == AF_INET) as_v4() = addr;
   }
 
   explicit net_endpoint(const sockaddr_in6& addr) noexcept {
-    do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
+    if (addr.sin6_family == AF_INET6) as_v6() = addr;
   }
 
   explicit net_endpoint(const sockaddr_un& addr) noexcept {
-    do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
+    if (addr.sun_family == AF_UNIX) as_uds() = addr;
   }
 
   explicit net_endpoint(const sockaddr& addr, socklen_t len) noexcept {
-    do_assign_sockaddr(addr, len);
+    assign(addr, len);
   }
 
   // Only supports recognized families (AF_INET, AF_INET6, AF_UNIX).
   explicit net_endpoint(const sockaddr_storage& addr) noexcept {
-    do_assign_sockaddr(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
+    assign(reinterpret_cast<const sockaddr&>(addr), sizeof(addr));
   }
 
   // Construct by querying the local address bound to `sock` via `getsockname`.
-  // On failure, result is `empty()`.
+  // On failure, result is `empty`.
   explicit net_endpoint(const net_socket& sock) noexcept {
     sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
     auto* ptr = reinterpret_cast<sockaddr*>(&addr);
-    if (::getsockname(sock.handle(), ptr, &len) == 0)
-      do_assign_sockaddr(*ptr, len);
+    if (::getsockname(sock.handle(), ptr, &len) == 0) assign(*ptr, len);
   }
 
   // Query the peer address of `sock` via `getpeername`. On failure, result
-  // is `empty()`.
+  // is `empty`.
   [[nodiscard]] static net_endpoint peer_of(const net_socket& sock) noexcept {
     sockaddr_storage addr{};
     socklen_t len = sizeof(addr);
@@ -170,6 +173,36 @@ public:
   [[nodiscard]] static net_endpoint any_v6(uint16_t port = 0) noexcept {
     return net_endpoint{ipv6_addr::any, port};
   }
+
+  [[nodiscard]] static net_endpoint loopback_v4(uint16_t port = 0) noexcept {
+    return net_endpoint{ipv4_addr::loopback, port};
+  }
+
+  [[nodiscard]] static net_endpoint loopback_v6(uint16_t port = 0) noexcept {
+    return net_endpoint{ipv6_addr::loopback, port};
+  }
+
+  // Assign from `sockaddr` buffer of given length. Fails on unknown family or
+  // insufficient input size.
+  bool constexpr assign(const sockaddr& addr, socklen_t len) noexcept {
+    const auto count = static_cast<size_t>(len);
+    if (addr.sa_family == AF_INET && count >= sizeof(sockaddr_in)) {
+      as_v4() = *reinterpret_cast<const sockaddr_in*>(&addr);
+      return true;
+    }
+    if (addr.sa_family == AF_INET6 && count >= sizeof(sockaddr_in6)) {
+      as_v6() = *reinterpret_cast<const sockaddr_in6*>(&addr);
+      return true;
+    }
+    if (addr.sa_family == AF_UNIX && count >= sizeof(sa_family_t)) {
+      std::memcpy(&as_uds(), &addr, std::min(count, sizeof(sockaddr_un)));
+      return true;
+    }
+    return false;
+  }
+
+#pragma endregion
+#pragma region Accessors
 
   // Return whether this endpoint is empty (i.e., has no valid address).
   [[nodiscard]] constexpr bool empty() const noexcept { return !family(); }
@@ -237,6 +270,9 @@ public:
     return do_raw_uds_path();
   }
 
+#pragma endregion
+#pragma region Comparison
+
   // Comparison operators.
   // Only endpoints with the same family can be equal: there is no special
   // handling for IPv4-Mapped IPv6 Addresses.
@@ -268,6 +304,9 @@ public:
     return lhs.port() <=> rhs.port();
   }
 
+#pragma endregion
+#pragma region Formatting
+
   // Format as "1.2.3.4:80" (IPv4), "[2001:db8::1]:80" (IPv6), "unix:<path>"
   // (regular UDS), "unix:@<name>" (terminated ANS),  or "(invalid)".
   [[nodiscard]] constexpr std::string to_string() const {
@@ -291,6 +330,9 @@ public:
   friend std::ostream& operator<<(std::ostream& os, const net_endpoint& ep) {
     return os << ep.to_string();
   }
+
+#pragma endregion
+#pragma region Interop
 
   // Convert to the corresponding POSIX socket address struct.
   // `as_sockaddr_in`, `as_sockaddr_in6`, and `as_sockaddr_un` require the
@@ -326,36 +368,39 @@ public:
     return net_socket::sockaddr_size(storage_);
   }
 
-  // Return a pointer and length suitable for passing to POSIX socket
-  // functions.
-  [[nodiscard]] constexpr std::pair<const sockaddr*, socklen_t>
-  as_sockaddr() const noexcept {
-    const auto addr = reinterpret_cast<const sockaddr*>(&storage_);
-    return {addr, sockaddr_size()};
+  // Expose raw pointer to sockaddr.
+  [[nodiscard]] constexpr auto as_sockaddr_ptr(this auto& self) noexcept {
+    using self_t = std::remove_reference_t<decltype(self)>;
+    using sockaddr_t =
+        std::conditional_t<std::is_const_v<self_t>, const sockaddr, sockaddr>;
+    return reinterpret_cast<sockaddr_t*>(&self.storage_);
   }
 
-  // Expose raw pointer to sockaddr.
-  [[nodiscard]] sockaddr* as_sockaddr_ptr() noexcept {
-    auto addr = reinterpret_cast<sockaddr*>(&storage_);
-    return addr;
+  // Return a pointer and length suitable for passing to POSIX socket
+  // functions.
+  [[nodiscard]] constexpr auto as_sockaddr(this auto& self) noexcept {
+    return std::pair{self.as_sockaddr_ptr(), self.sockaddr_size()};
+  }
+
+  [[nodiscard]] static constexpr std::pair<sockaddr*, socklen_t> to_sockaddr(
+      net_endpoint* ep) noexcept {
+    if (!ep) return {nullptr, 0};
+    return ep->as_sockaddr();
+  }
+
+  [[nodiscard]] static constexpr std::pair<const sockaddr*, socklen_t>
+  to_sockaddr(const net_endpoint* ep) noexcept {
+    if (!ep) return {nullptr, 0};
+    return ep->as_sockaddr();
   }
 
   // Convenient invalid endpoint. Actual definition must be after the class is
   // complete.
   static const net_endpoint invalid;
 
+#pragma endregion
+#pragma region Implementation
 private:
-  void constexpr do_assign_sockaddr(const sockaddr& addr,
-      socklen_t len) noexcept {
-    const auto count = static_cast<size_t>(len);
-    if (addr.sa_family == AF_INET && count >= sizeof(sockaddr_in))
-      as_v4() = *reinterpret_cast<const sockaddr_in*>(&addr);
-    else if (addr.sa_family == AF_INET6 && count >= sizeof(sockaddr_in6))
-      as_v6() = *reinterpret_cast<const sockaddr_in6*>(&addr);
-    else if (addr.sa_family == AF_UNIX && count >= sizeof(sa_family_t))
-      std::memcpy(&as_uds(), &addr, std::min(count, sizeof(sockaddr_un)));
-  }
-
   // Create a UDS or ANS endpoint from `path`.
   // - Regular UDS (`/`-prefixed): copies up to 107 chars, null-terminated.
   // - ANS (`@`-prefixed): `sun_path[0] = '\0'`, name occupies
@@ -447,8 +492,11 @@ private:
     return {as_uds().sun_path, sizeof(as_uds().sun_path)};
   }
 
+#pragma endregion
+#pragma region Data members
 private:
   sockaddr_storage storage_{};
+#pragma endregion
 };
 
 // Declared inside the class, but defined here, after the class is complete.
@@ -460,5 +508,7 @@ struct net_endpoint_target {
   net_endpoint sockaddr;
   socklen_t sockaddr_len{net_endpoint::max_sockaddr_size};
 };
+
+#pragma endregion
 
 }} // namespace corvid::proto

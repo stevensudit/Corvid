@@ -820,7 +820,7 @@ private:
     assert(connecting_);
     connecting_ = false;
 
-    const auto err = sock().get_option<int>(SOL_SOCKET, SO_ERROR);
+    const auto err = sock().get_option<int>(socket_option::error);
     if (!err || *err != 0) return do_close_now(close_mode::forceful) && false;
 
     // Arm reads if an `on_data` handler is installed.

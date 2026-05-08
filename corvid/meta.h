@@ -23,4 +23,6 @@
 #include "meta/naming.h"
 #include "meta/containers.h"
 #include "meta/forward_like.h"
+#include "meta/forwarding_address.h"
 #include "meta/maybe.h"
+#include "meta/fixed_function.h"

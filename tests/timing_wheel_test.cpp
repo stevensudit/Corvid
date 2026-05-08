@@ -30,6 +30,8 @@ static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
+#pragma region BasicFire
+
 void TimingWheel_BasicFire() {
   // Schedule at 200ms; should not fire at 100ms but should fire at 200ms.
   timing_wheel wheel(600, dur{100}, T(0));
@@ -55,6 +57,9 @@ void TimingWheel_BasicFire() {
   EXPECT_EQ(fired, 1);
 }
 
+#pragma endregion
+#pragma region NotFiredEarly
+
 void TimingWheel_NotFiredEarly() {
   // Verify no premature fire.
   timing_wheel wheel(600, dur{100}, T(0));
@@ -76,6 +81,9 @@ void TimingWheel_NotFiredEarly() {
   wheel.tick(T(300));
   EXPECT_EQ(fired, 1);
 }
+
+#pragma endregion
+#pragma region MultiSlot
 
 void TimingWheel_MultiSlot() {
   // Three entries at 100/200/300ms; exactly one fires per 100ms tick.
@@ -115,6 +123,9 @@ void TimingWheel_MultiSlot() {
   EXPECT_EQ(count, 3);
 }
 
+#pragma endregion
+#pragma region TickSkip
+
 void TimingWheel_TickSkip() {
   // A single tick jump drains all three slots at once.
   timing_wheel wheel(600, dur{100}, T(0));
@@ -149,6 +160,9 @@ void TimingWheel_TickSkip() {
   EXPECT_EQ(count, 3);
 }
 
+#pragma endregion
+#pragma region TickTooEarly
+
 void TimingWheel_TickTooEarly() {
   // Ticks separated by less than 100ms are no-ops.
   timing_wheel wheel(600, dur{100}, T(0));
@@ -171,6 +185,9 @@ void TimingWheel_TickTooEarly() {
   EXPECT_EQ(fired, 1);
 }
 
+#pragma endregion
+#pragma region ZeroDelay
+
 void TimingWheel_ZeroDelay() {
   // Zero delay is clamped to one tick; fires on the next tick, not current.
   timing_wheel wheel(600, dur{100}, T(0));
@@ -191,6 +208,9 @@ void TimingWheel_ZeroDelay() {
   wheel.tick(T(100));
   EXPECT_EQ(fired, 1);
 }
+
+#pragma endregion
+#pragma region OverflowFails
 
 void TimingWheel_OverflowFails() {
   // A delay exceeding the wheel range is rejected; returns false.
@@ -223,6 +243,9 @@ void TimingWheel_OverflowFails() {
   EXPECT_EQ(fired, 1);
 }
 
+#pragma endregion
+#pragma region SameSlotMultiple
+
 void TimingWheel_SameSlotMultiple() {
   // Five callbacks in the same slot all fire together.
   timing_wheel wheel(600, dur{100}, T(0));
@@ -241,6 +264,9 @@ void TimingWheel_SameSlotMultiple() {
   wheel.tick(T(300));
   EXPECT_EQ(count, 5);
 }
+
+#pragma endregion
+#pragma region RingWrap
 
 void TimingWheel_RingWrap() {
   // Advance near the end of the ring; a new entry wraps around to slot 0.
@@ -267,6 +293,9 @@ void TimingWheel_RingWrap() {
   wheel.tick(T(1000));
   EXPECT_EQ(fired, 1);
 }
+
+#pragma endregion
+#pragma region ScheduleDuringTick
 
 void TimingWheel_ScheduleDuringTick() {
   // A callback that calls schedule() places the new entry in a future slot.
@@ -299,6 +328,9 @@ void TimingWheel_ScheduleDuringTick() {
   wheel.tick(T(200));
   EXPECT_EQ(second, 1);
 }
+
+#pragma endregion
+#pragma region CallbackOwnsMeta
 
 void TimingWheel_CallbackOwnsMeta() {
   // The callback closure owns all its own metadata (simulated ID + target).
@@ -343,6 +375,9 @@ void TimingWheel_CallbackOwnsMeta() {
   EXPECT_EQ(received_id2, 0U); // Callback fired but was stale.
 }
 
+#pragma endregion
+#pragma region StopAbortsTick
+
 void TimingWheel_StopAbortsTick() {
   // Calling stop() during tick() prevents remaining callbacks from firing.
   timing_wheel wheel(600, dur{100}, T(0));
@@ -364,6 +399,8 @@ void TimingWheel_StopAbortsTick() {
   // Only the first callback fires before the tombstone is seen.
   EXPECT_EQ(count, 1);
 }
+
+#pragma endregion
 
 MAKE_TEST_LIST(TimingWheel_BasicFire, TimingWheel_NotFiredEarly,
     TimingWheel_MultiSlot, TimingWheel_TickSkip, TimingWheel_TickTooEarly,

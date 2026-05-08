@@ -36,6 +36,8 @@ auto& stream_out(OStreamDerived auto& os, const OStreamable auto& osb) {
   return os << osb;
 }
 
+#pragma region OStreamdDerived
+
 void MetaTest_OStreamdDerived() {
   std::ostringstream oss;
   stream_out(oss, 1);
@@ -46,6 +48,9 @@ void MetaTest_OStreamdDerived() {
   stream_out(oss, oss);
 #endif
 }
+
+#pragma endregion
+#pragma region EnumBitWidth
 
 void MetaTest_EnumBitWidth() {
   EXPECT_EQ(std::bit_width(0ULL), 0);
@@ -178,6 +183,9 @@ void MetaTest_EnumBitWidth() {
   EXPECT_EQ(std::bit_width(18446744073709551615ULL), 64);
 }
 
+#pragma endregion
+#pragma region EnumHighestValueInNBits
+
 void MetaTest_EnumHighestValueInNBits() {
   EXPECT_EQ(meta::highest_value_in_n_bits(0ULL), 0ULL);
   EXPECT_EQ(meta::highest_value_in_n_bits(1ULL), 1ULL);
@@ -245,6 +253,9 @@ void MetaTest_EnumHighestValueInNBits() {
   EXPECT_EQ(meta::highest_value_in_n_bits(63ULL), 9223372036854775807ULL);
   EXPECT_EQ(meta::highest_value_in_n_bits(64ULL), 18446744073709551615ULL);
 }
+
+#pragma endregion
+#pragma region EnumPow2
 
 void MetaTest_EnumPow2() {
   EXPECT_EQ(meta::pow2(0), 1ULL);
@@ -314,12 +325,18 @@ void MetaTest_EnumPow2() {
   EXPECT_EQ(meta::pow2(64), 0ULL);
 }
 
+#pragma endregion
+#pragma region SpanConstness
+
 void MetaTest_SpanConstness() {
   EXPECT_TRUE((Span<std::span<char>, char>));
   EXPECT_TRUE((Span<std::span<char>, const char>));
   EXPECT_FALSE((Span<std::span<const char>, char>));
   EXPECT_TRUE((Span<std::span<const char>, const char>));
 }
+
+#pragma endregion
+#pragma region FunctionVoidReturn
 
 void MetaTest_FunctionVoidReturn() {
   using FNV0 = std::function<void()>;
@@ -338,11 +355,15 @@ void MetaTest_FunctionVoidReturn() {
   EXPECT_TRUE((CallableReturningNonVoid<FNI1, int>));
 }
 
+#pragma endregion
+
 // Helper types for specialization tests
 struct Foo {};
 
 template<typename T>
 struct Goo {};
+
+#pragma region Specialization
 
 void MetaTest_Specialization() {
   EXPECT_TRUE((is_specialization_of_v<std::vector<int>, std::vector>));
@@ -356,11 +377,17 @@ void MetaTest_Specialization() {
   // - is_specialization_of_v<std::array<int, 4>, std::array> (non-type params)
 }
 
+#pragma endregion
+#pragma region PointerElement
+
 void MetaTest_PointerElement() {
   EXPECT_TRUE((std::is_same_v<int, pointer_element_t<int*>>));
   EXPECT_TRUE((std::is_same_v<int, pointer_element_t<std::unique_ptr<int>>>));
   EXPECT_TRUE((std::is_same_v<void, pointer_element_t<int>>));
 }
+
+#pragma endregion
+#pragma region Dereferenceable
 
 void MetaTest_Dereferenceable() {
   EXPECT_TRUE((Dereferenceable<int*>));
@@ -368,6 +395,9 @@ void MetaTest_Dereferenceable() {
   EXPECT_FALSE((Dereferenceable<int>));
   EXPECT_TRUE((Dereferenceable<decltype(std::optional<int>())>));
 }
+
+#pragma endregion
+#pragma region IsPair
 
 void MetaTest_IsPair() {
   EXPECT_TRUE((is_pair_v<std::pair<int, int>>));
@@ -396,6 +426,9 @@ void MetaTest_IsPair() {
   // Note: Tests with intervals::interval skipped (requires Interval.h)
 }
 
+#pragma endregion
+#pragma region ContainerElement
+
 void MetaTest_ContainerElement() {
   // Test with pair - extracts the second element (value)
   {
@@ -418,6 +451,9 @@ void MetaTest_ContainerElement() {
   }
 }
 
+#pragma endregion
+#pragma region KeyFind
+
 void MetaTest_KeyFind() {
   // has_key_find_v checks if container has find(key_type) method
   using M = std::map<int, Foo>;
@@ -432,6 +468,9 @@ void MetaTest_KeyFind() {
   // Note: Old two-parameter version (checking specific key type compatibility)
   // and find_ret_t have been removed from the API
 }
+
+#pragma endregion
+#pragma region TypeName
 
 void MetaTest_TypeName() {
   using T = std::string;
@@ -450,6 +489,9 @@ void MetaTest_TypeName() {
   // Value-based overload matches type-based version
   EXPECT_EQ(type_name<T>(), type_name(T{}));
 }
+
+#pragma endregion
+#pragma region StringViewConvertible
 
 void MetaTest_StringViewConvertible() {
   // StringViewConvertible concept (replaces is_string_view_convertible_v)
@@ -479,6 +521,9 @@ void MetaTest_StringViewConvertible() {
   EXPECT_FALSE((Container<char[4]>)); // Excluded (StringViewConvertible)
   EXPECT_FALSE((Container<char*>));
 }
+
+#pragma endregion
+#pragma region Number
 
 void MetaTest_Number() {
   // Integer concept (integral excluding bool)
@@ -516,6 +561,9 @@ void MetaTest_Number() {
   // Use Integer for integral types or std::floating_point for floats
 }
 
+#pragma endregion
+#pragma region Tuple
+
 void MetaTest_Tuple() {
   using T0 = std::tuple<>;
   using T2 = std::tuple<int, int>;
@@ -544,6 +592,9 @@ void MetaTest_Tuple() {
   EXPECT_FALSE((is_tuple_v<PI>));
   EXPECT_TRUE((TupleLike<PI>)); // pair is tuple-like
 }
+
+#pragma endregion
+#pragma region Detection
 
 void MetaTest_Detection() {
   // initializer_list detection
@@ -584,6 +635,9 @@ void MetaTest_Detection() {
   // Note: is_void_ptr_v trait no longer exists
 }
 
+#pragma endregion
+#pragma region Underlying
+
 void MetaTest_Underlying() {
   enum class X : size_t { x1 = 1, x2 };
   enum class Y : int64_t { ylow = -1 };
@@ -607,11 +661,17 @@ void MetaTest_Underlying() {
   EXPECT_TRUE((std::is_same_v<unsigned int, decltype(z)>));
 }
 
+#pragma endregion
+#pragma region Streamable
+
 void MetaTest_Streamable() {
   // OStreamable concept (replaces can_stream_out_v)
   EXPECT_TRUE((OStreamable<int>));
   EXPECT_FALSE((OStreamable<Foo>));
 }
+
+#pragma endregion
+#pragma region MaybeTypes
 
 void MetaTest_MaybeTypes() {
   EXPECT_TRUE((std::is_empty_v<empty_t>));
@@ -632,6 +692,438 @@ void MetaTest_MaybeTypes() {
   EXPECT_EQ(sizeof(NoExtraSpace), sizeof(Baseline));
 }
 
+#pragma endregion
+
+// address_forwarder
+
+#pragma region AddressForwarder_Basic
+
+struct Trackable: public address_forwarder<Trackable> {
+  int value{};
+  explicit Trackable(int v) : value{v} {}
+  friend std::ostream& operator<<(std::ostream& os, const Trackable& t) {
+    return os << "Trackable{" << t.value << "}";
+  }
+};
+
+static_assert(AddressForwarder<Trackable>);
+static_assert(!AddressForwarder<int>);
+
+void AddressForwarder_Basic() {
+  Trackable t{42};
+  EXPECT_EQ(t.forwarding_address(), nullptr);
+}
+
+#pragma endregion
+#pragma region AddressForwarder_Track
+
+void AddressForwarder_Track() {
+  Trackable* ptr{};
+  {
+    Trackable t{7};
+    ptr = &t;                      // set initial value manually
+    t.forwarding_address() = &ptr; // register for future updates
+    EXPECT_EQ(ptr, &t);
+  }
+  // Destruction writes nullptr through the registered pointer.
+  EXPECT_EQ(ptr, nullptr);
+}
+
+#pragma endregion
+#pragma region AddressForwarder_MoveConstruct
+
+void AddressForwarder_MoveConstruct() {
+  Trackable* ptr{};
+  Trackable a{1};
+  ptr = &a;
+  a.forwarding_address() = &ptr;
+  EXPECT_EQ(ptr, &a);
+
+  Trackable b{std::move(a)};
+  // Move construction updates `ptr` to the new location.
+  EXPECT_EQ(ptr, &b);
+  // Source no longer holds the forwarding address slot.
+  EXPECT_EQ(a.forwarding_address(), nullptr);
+}
+
+#pragma endregion
+#pragma region AddressForwarder_MoveAssign
+
+void AddressForwarder_MoveAssign() {
+  Trackable* ptr{};
+  Trackable a{2};
+  ptr = &a;
+  a.forwarding_address() = &ptr;
+  EXPECT_EQ(ptr, &a);
+
+  Trackable b{99};
+  b = std::move(a);
+  EXPECT_EQ(ptr, &b);
+  EXPECT_EQ(a.forwarding_address(), nullptr);
+
+  // Clearing the forwarding address on `b` stops future tracking, but does
+  // not touch the external `ptr` variable itself.
+  b.forwarding_address() = nullptr;
+  EXPECT_EQ(ptr, &b);
+}
+
+void AddressForwarder_SelfAssign() {
+  Trackable* ptr{};
+  Trackable a{3};
+  ptr = &a;
+  a.forwarding_address() = &ptr;
+
+  // Self-assignment must not corrupt state.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wself-move"
+  a = std::move(a);
+#pragma clang diagnostic pop
+  // After self-move `ptr` still points to `a`.
+  EXPECT_EQ(ptr, &a);
+}
+
+#pragma endregion
+#pragma region AddressForwarder_DestroySource
+
+void AddressForwarder_DestroySource() {
+  Trackable* ptr{};
+  Trackable b{0};
+  {
+    Trackable a{5};
+    ptr = &a;
+    a.forwarding_address() = &ptr;
+    b = std::move(a);
+    // `a` no longer owns the slot; destroying it must not null `ptr`.
+  }
+  EXPECT_EQ(ptr, &b);
+  b.forwarding_address() = nullptr;
+}
+
+#pragma endregion
+
+// Derived type with a custom move constructor that uses `as_base_move()`.
+struct Trackable2: public address_forwarder<Trackable2> {
+  int value{};
+  explicit Trackable2(int v) : value{v} {}
+  Trackable2(Trackable2&& o) noexcept
+      : address_forwarder{o.as_base_move()}, value{o.value} {}
+  Trackable2& operator=(Trackable2&&) = default;
+  friend std::ostream& operator<<(std::ostream& os, const Trackable2& t) {
+    return os << "Trackable2{" << t.value << "}";
+  }
+};
+
+#pragma region AddressForwarder_AsBaseMove
+
+void AddressForwarder_AsBaseMove() {
+  Trackable2* ptr{};
+  Trackable2 a{8};
+  ptr = &a;
+  a.forwarding_address() = &ptr;
+  EXPECT_EQ(ptr, &a);
+
+  Trackable2 b{std::move(a)};
+  EXPECT_EQ(ptr, &b);
+  EXPECT_EQ(a.forwarding_address(), nullptr);
+}
+
+#pragma endregion
+#pragma region AddressForwarder_BoundFunction
+
+void AddressForwarder_BoundFunction() {
+  // Primary use case: an object is moved into a `std::function` closure, and
+  // a pointer registered before the move chain tracks it to its final home.
+  Trackable* ptr{};
+  Trackable t{99};
+  t.forwarding_address() = &ptr;
+  // ptr is still null here; each move in the chain below will update it.
+
+  std::function<int()> fn = [t = std::move(t)]() mutable { return t.value; };
+
+  // ptr now points to `t` inside fn's internal storage.
+  EXPECT_NE(ptr, nullptr);
+  EXPECT_EQ(ptr->value, 99);
+
+  // fn() and ptr refer to the same object.
+  EXPECT_EQ(fn(), 99);
+  ptr->value = 42;
+  EXPECT_EQ(fn(), 42);
+
+  // Clear forwarding so fn's destructor does not write through the soon-to-be
+  // dangling &ptr.
+  ptr->forwarding_address() = nullptr;
+}
+
+#pragma endregion
+
+// fixed_function compile-time size checks
+static_assert(sizeof(fixed_function<64, int()>) == 64);
+static_assert(sizeof(fixed_function<32, void(int, double)>) == 32);
+static_assert(sizeof(fixed_function<128, int(int, int)>) == 128);
+
+#pragma region FixedFunction_Basic
+
+void FixedFunction_Basic() {
+  fixed_function<64, int()> f{[] { return 42; }};
+  EXPECT_EQ(f(), 42);
+}
+
+#pragma endregion
+#pragma region FixedFunction_Args
+
+void FixedFunction_Args() {
+  fixed_function<64, int(int, int)> add{[](int x, int y) { return x + y; }};
+  EXPECT_EQ(add(3, 4), 7);
+  EXPECT_EQ(add(10, -3), 7);
+}
+
+#pragma endregion
+#pragma region FixedFunction_Bool
+
+void FixedFunction_Bool() {
+  fixed_function<64, int()> a{[] { return 1; }};
+  EXPECT_TRUE(static_cast<bool>(a));
+  fixed_function<64, int()> b{std::move(a)};
+  EXPECT_FALSE(static_cast<bool>(a));
+  EXPECT_TRUE(static_cast<bool>(b));
+}
+
+#pragma endregion
+#pragma region FixedFunction_Move
+
+void FixedFunction_Move() {
+  fixed_function<64, int()> a{[] { return 7; }};
+  EXPECT_TRUE(static_cast<bool>(a));
+  fixed_function<64, int()> b{std::move(a)};
+  EXPECT_FALSE(static_cast<bool>(a));
+  EXPECT_TRUE(static_cast<bool>(b));
+  EXPECT_EQ(b(), 7);
+}
+
+#pragma endregion
+#pragma region FixedFunction_MoveAssign
+
+void FixedFunction_MoveAssign() {
+  fixed_function<64, int()> a{[] { return 99; }};
+  fixed_function<64, int()> b{[] { return 0; }};
+  b = std::move(a);
+  EXPECT_FALSE(static_cast<bool>(a));
+  EXPECT_TRUE(static_cast<bool>(b));
+  EXPECT_EQ(b(), 99);
+
+  b = nullptr;
+  EXPECT_FALSE(static_cast<bool>(b));
+}
+
+#pragma endregion
+#pragma region FixedFunction_Destructor
+
+void FixedFunction_Destructor() {
+  // `Counted` does not null `count_` on move, so every `~Counted()` call
+  // increments the counter regardless of moved-from state.
+  struct Counted {
+    int* count_;
+    explicit Counted(int* c) noexcept : count_{c} {}
+    Counted(Counted&& o) noexcept : count_{o.count_} {}
+    ~Counted() {
+      if (count_) ++(*count_);
+    }
+    void operator()() const noexcept {}
+  };
+  int n{};
+  {
+    fixed_function<64, void()> f{Counted{&n}};
+    EXPECT_EQ(n, 1); // temporary destroyed after move into storage
+    {
+      fixed_function<64, void()> g{std::move(f)};
+      EXPECT_EQ(n, 2); // move ctor immediately destructs f's storage
+    } // g destroyed: Counted in g.storage_ destructed
+    EXPECT_EQ(n, 3);
+  } // f destroyed: manage_ is null, nothing happens
+  EXPECT_EQ(n, 3);
+}
+
+#pragma endregion
+
+// Free function used by FixedFunction_CppRef.
+static int cpref_num(int i) { return i; }
+
+// Shared variable used by FixedFunction_RefReturn.
+static int g_ref_val = 42;
+
+// Free function used by FixedFunction_FreeFn.
+static int double_it(int x) { return x * 2; }
+
+// Mirrors the cppreference.com `std::function` sample.
+// Member functions return values instead of printing so results are
+// verifiable.
+#pragma region FixedFunction_CppRef
+
+void FixedFunction_CppRef() {
+  struct Foo {
+    Foo(int num) : num_(num) {}
+    int add(int i) const { return num_ + i; }
+    int num_;
+  };
+  struct PrintNum {
+    int operator()(int i) const { return i; }
+  };
+
+  // store a free function
+  fixed_function<64, int(int)> f_display{&cpref_num};
+  EXPECT_EQ(f_display(-9), -9);
+
+  // store a lambda
+  fixed_function<64, int()> f_display_42{[] { return cpref_num(42); }};
+  EXPECT_EQ(f_display_42(), 42);
+
+  // store the result of a call to std::bind
+  fixed_function<64, int()> f_display_31337{std::bind(cpref_num, 31337)};
+  EXPECT_EQ(f_display_31337(), 31337);
+
+  // store a call to a member function
+  fixed_function<64, int(const Foo&, int)> f_add_display{&Foo::add};
+  const Foo foo{314159};
+  EXPECT_EQ(f_add_display(foo, 1), 314160);
+  EXPECT_EQ(f_add_display(314159, 1), 314160); // implicit Foo from int
+
+  // store a call to a data member accessor
+  fixed_function<64, int(const Foo&)> f_num{&Foo::num_};
+  EXPECT_EQ(f_num(foo), 314159);
+
+  // store a call to a member function and object
+  using std::placeholders::_1;
+  fixed_function<64, int(int)> f_add_display2{std::bind(&Foo::add, foo, _1)};
+  EXPECT_EQ(f_add_display2(2), 314161);
+
+  // store a call to a member function and object ptr
+  fixed_function<64, int(int)> f_add_display3{std::bind(&Foo::add, &foo, _1)};
+  EXPECT_EQ(f_add_display3(3), 314162);
+
+  // store a call to a function object
+  fixed_function<64, int(int)> f_display_obj{PrintNum{}};
+  EXPECT_EQ(f_display_obj(18), 18);
+
+  // recursive lambda: same self-referential pattern as the cppreference
+  // factorial example, using fixed_function instead of std::function
+  auto factorial = [](int n) {
+    fixed_function<64, int(int)> fac;
+    fac = fixed_function<64, int(int)>{[&fac](int k) -> int {
+      return (k < 2) ? 1 : k * fac(k - 1);
+    }};
+    return fac(n);
+  };
+  EXPECT_EQ(factorial(5), 120);
+  EXPECT_EQ(factorial(6), 720);
+  EXPECT_EQ(factorial(7), 5040);
+}
+
+#pragma endregion
+#pragma region FixedFunction_RefReturn
+
+void FixedFunction_RefReturn() {
+  // Callables that return an actual reference are safe.
+  fixed_function<64, int&()> f{[&]() -> int& { return g_ref_val; }};
+  EXPECT_EQ(f(), 42);
+  f() = 99;
+  EXPECT_EQ(g_ref_val, 99);
+  g_ref_val = 42; // restore
+
+  fixed_function<64, const int&()> g{[&]() -> const int& {
+    return g_ref_val;
+  }};
+  EXPECT_EQ(g(), 42);
+
+  fixed_function<64, int&&()> h{[]() -> int&& {
+    return static_cast<int&&>(g_ref_val);
+  }};
+  EXPECT_EQ(h(), 42);
+
+#ifdef NOT_SUPPOSED_TO_COMPILE
+  // Both of these trigger the static_assert: callable returns a prvalue `int`
+  // but the declared return type is a reference, so every call would dangle.
+  fixed_function<64, int&()> bad1{[] { return 42; }};
+  fixed_function<64, const int&()> bad2{[] { return 42; }};
+#endif
+}
+
+#pragma endregion
+#pragma region FixedFunction_EmptyThrows
+
+void FixedFunction_EmptyThrows() {
+  // Default-constructed instance is empty and throws on call.
+  fixed_function<64, int()> empty{};
+  EXPECT_TRUE(!empty);
+  EXPECT_THROW(empty(), std::bad_function_call);
+
+  // Moved-from instance is also empty and throws on call.
+  fixed_function<64, int()> f{[] { return 1; }};
+  fixed_function<64, int()> g{std::move(f)};
+  EXPECT_TRUE(!f);
+  EXPECT_THROW(f(), std::bad_function_call);
+
+  // nullptr-assigned instance throws too.
+  g = nullptr;
+  EXPECT_THROW(g(), std::bad_function_call);
+}
+
+#pragma endregion
+#pragma region FixedFunction_FreeFn
+
+void FixedFunction_FreeFn() {
+  // A plain function pointer satisfies MoveConsumable (it is a prvalue).
+  fixed_function<64, int(int)> f{&double_it};
+  EXPECT_TRUE(static_cast<bool>(f));
+  EXPECT_EQ(f(21), 42);
+}
+
+#pragma endregion
+#pragma region FixedFunction_Functor
+
+void FixedFunction_Functor() {
+  struct Adder {
+    int n;
+    int operator()(int x) const { return x + n; }
+  };
+  fixed_function<64, int(int)> f{Adder{10}};
+  EXPECT_EQ(f(32), 42);
+}
+
+#pragma endregion
+#pragma region FixedFunction_Swap
+
+void FixedFunction_Swap() {
+  using ff = fixed_function<64, int()>;
+  ff a{[] { return 1; }};
+  ff b{[] { return 2; }};
+
+  // Member swap.
+  a.swap(b);
+  EXPECT_EQ(a(), 2);
+  EXPECT_EQ(b(), 1);
+
+  // ADL swap (finds the hidden-friend in namespace corvid::meta).
+  using std::swap;
+  swap(a, b);
+  EXPECT_EQ(a(), 1);
+  EXPECT_EQ(b(), 2);
+
+  // Swap a full instance with an empty one.
+  ff empty{};
+  a.swap(empty);
+  EXPECT_FALSE(static_cast<bool>(a));
+  EXPECT_TRUE(static_cast<bool>(empty));
+  EXPECT_EQ(empty(), 1);
+
+  // Swap two empty instances is a no-op.
+  ff empty2{};
+  a.swap(empty2);
+  EXPECT_FALSE(static_cast<bool>(a));
+  EXPECT_FALSE(static_cast<bool>(empty2));
+}
+
+#pragma endregion
+
 MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
     MetaTest_EnumHighestValueInNBits, MetaTest_EnumPow2,
     MetaTest_SpanConstness, MetaTest_FunctionVoidReturn,
@@ -639,7 +1131,15 @@ MAKE_TEST_LIST(MetaTest_OStreamdDerived, MetaTest_EnumBitWidth,
     MetaTest_IsPair, MetaTest_ContainerElement, MetaTest_KeyFind,
     MetaTest_TypeName, MetaTest_StringViewConvertible, MetaTest_Number,
     MetaTest_Tuple, MetaTest_Detection, MetaTest_Underlying,
-    MetaTest_Streamable, MetaTest_MaybeTypes);
+    MetaTest_Streamable, MetaTest_MaybeTypes, AddressForwarder_Basic,
+    AddressForwarder_Track, AddressForwarder_MoveConstruct,
+    AddressForwarder_MoveAssign, AddressForwarder_SelfAssign,
+    AddressForwarder_DestroySource, AddressForwarder_AsBaseMove,
+    AddressForwarder_BoundFunction, FixedFunction_Basic, FixedFunction_Args,
+    FixedFunction_Bool, FixedFunction_Move, FixedFunction_MoveAssign,
+    FixedFunction_Destructor, FixedFunction_CppRef, FixedFunction_RefReturn,
+    FixedFunction_EmptyThrows, FixedFunction_FreeFn, FixedFunction_Functor,
+    FixedFunction_Swap);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

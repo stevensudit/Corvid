@@ -32,6 +32,8 @@ using container_t = id_container<int, eid_t>;
 // NOLINTBEGIN(readability-function-cognitive-complexity,
 // readability-function-size)
 
+#pragma region DefaultConstruct
+
 void IdContainer_DefaultConstruct() {
   // Default-constructed container is empty with maximum limit.
   if (true) {
@@ -42,6 +44,9 @@ void IdContainer_DefaultConstruct() {
     EXPECT_EQ(c.id_limit(), eid_t::invalid);
   }
 }
+
+#pragma endregion
+#pragma region PushBack
 
 void IdContainer_PushBack() {
   // push_back appends values accessible by slot index.
@@ -75,6 +80,9 @@ void IdContainer_PushBack() {
   }
 }
 
+#pragma endregion
+#pragma region EmplaceBack
+
 void IdContainer_EmplaceBack() {
   // emplace_back constructs in-place and returns a pointer to the new element.
   if (true) {
@@ -97,6 +105,9 @@ void IdContainer_EmplaceBack() {
   }
 }
 
+#pragma endregion
+#pragma region PopBack
+
 void IdContainer_PopBack() {
   // pop_back removes the last slot.
   if (true) {
@@ -108,6 +119,9 @@ void IdContainer_PopBack() {
     EXPECT_EQ(c[eid_t{0}], 1);
   }
 }
+
+#pragma endregion
+#pragma region FrontBack
 
 void IdContainer_FrontBack() {
   // front() and back() return the first and last elements.
@@ -132,6 +146,9 @@ void IdContainer_FrontBack() {
   }
 }
 
+#pragma endregion
+#pragma region Subscript
+
 void IdContainer_Subscript() {
   // operator[] returns a mutable reference.
   if (true) {
@@ -149,6 +166,9 @@ void IdContainer_Subscript() {
     EXPECT_EQ(cc[eid_t{0}], 7);
   }
 }
+
+#pragma endregion
+#pragma region At
 
 void IdContainer_At() {
   // at() provides bounds-checked access; throws std::out_of_range.
@@ -179,6 +199,9 @@ void IdContainer_At() {
   }
 }
 
+#pragma endregion
+#pragma region SizeAsEnum
+
 void IdContainer_SizeAsEnum() {
   // size_as_enum() returns the size as the id_t type.
   if (true) {
@@ -191,6 +214,9 @@ void IdContainer_SizeAsEnum() {
   }
 }
 
+#pragma endregion
+#pragma region Reserve
+
 void IdContainer_Reserve() {
   // reserve() pre-allocates capacity without changing size.
   if (true) {
@@ -201,6 +227,9 @@ void IdContainer_Reserve() {
     EXPECT_GE(c.capacity(), 100U);
   }
 }
+
+#pragma endregion
+#pragma region Resize
 
 void IdContainer_Resize() {
   // resize(n) expands or shrinks the slot count.
@@ -234,6 +263,9 @@ void IdContainer_Resize() {
   }
 }
 
+#pragma endregion
+#pragma region Clear
+
 void IdContainer_Clear() {
   // clear() empties the container without releasing capacity.
   if (true) {
@@ -245,6 +277,9 @@ void IdContainer_Clear() {
     EXPECT_EQ(c.size(), 0U);
   }
 }
+
+#pragma endregion
+#pragma region ShrinkToFit
 
 void IdContainer_ShrinkToFit() {
   // shrink_to_fit() reduces capacity to match size.
@@ -258,6 +293,9 @@ void IdContainer_ShrinkToFit() {
     EXPECT_GE(c.capacity(), 1U);
   }
 }
+
+#pragma endregion
+#pragma region Limit
 
 void IdContainer_Limit() {
   // id_limit() defaults to the maximum representable value.
@@ -307,6 +345,9 @@ void IdContainer_Limit() {
   }
 }
 
+#pragma endregion
+#pragma region Iteration
+
 void IdContainer_Iteration() {
   // Range-for iterates over all slots in index order.
   if (true) {
@@ -350,6 +391,9 @@ void IdContainer_Iteration() {
   }
 }
 
+#pragma endregion
+#pragma region Underlying
+
 void IdContainer_Underlying() {
   // underlying() returns the inner std::vector<T>.
   if (true) {
@@ -371,6 +415,9 @@ void IdContainer_Underlying() {
   }
 }
 
+#pragma endregion
+#pragma region Data
+
 void IdContainer_Data() {
   // data() returns a pointer to the first element.
   if (true) {
@@ -382,6 +429,9 @@ void IdContainer_Data() {
     EXPECT_EQ(p[1], 2);
   }
 }
+
+#pragma endregion
+#pragma region Allocator
 
 void IdContainer_Allocator() {
   // get_allocator() returns the stored allocator.
@@ -407,6 +457,9 @@ void IdContainer_Allocator() {
   }
 }
 
+#pragma endregion
+#pragma region NonIntType
+
 void IdContainer_NonIntType() {
   // id_container works with non-int value types.
   if (true) {
@@ -430,6 +483,8 @@ void IdContainer_NonIntType() {
     EXPECT_EQ(c[eid_t{0}].y, 4);
   }
 }
+
+#pragma endregion
 
 MAKE_TEST_LIST(IdContainer_DefaultConstruct, IdContainer_PushBack,
     IdContainer_EmplaceBack, IdContainer_PopBack, IdContainer_FrontBack,

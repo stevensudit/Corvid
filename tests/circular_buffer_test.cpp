@@ -27,6 +27,8 @@ using namespace corvid;
 // NOLINTBEGIN(readability-function-cognitive-complexity,
 // readability-function-size)
 
+#pragma region Construction
+
 void CircularBufferTest_Construction() {
   if (true) {
     std::vector<int> v;
@@ -67,6 +69,9 @@ void CircularBufferTest_Construction() {
     cb2.push_back(2);
   }
 }
+#pragma endregion
+
+#pragma region Ops
 
 void CircularBufferTest_Ops() {
   std::vector<int> v;
@@ -191,6 +196,9 @@ void CircularBufferTest_Ops() {
   EXPECT_EQ(cb.front(), 2);
   EXPECT_EQ(cb.back(), 1);
 }
+#pragma endregion
+
+#pragma region WrapIndex
 
 void CircularBufferTest_WrapIndex() {
   std::vector<int> v;
@@ -214,6 +222,9 @@ void CircularBufferTest_WrapIndex() {
   EXPECT_EQ(cb[4], 2);
   EXPECT_EQ(cb[5], 3);
 }
+#pragma endregion
+
+#pragma region PushPop
 
 void CircularBufferTest_PushPop() {
   std::vector<int> v;
@@ -261,6 +272,9 @@ void CircularBufferTest_PushPop() {
   EXPECT_EQ(cb[1], 3);
   EXPECT_EQ(cb[2], 4);
 }
+#pragma endregion
+
+#pragma region Iterate
 
 void CircularBufferTest_Iterate() {
   if (true) {
@@ -302,6 +316,7 @@ void CircularBufferTest_Iterate() {
     // *c = 5;
   }
 }
+#pragma endregion
 
 class MoveOnlyInt {
 public:
@@ -329,6 +344,8 @@ public:
 private:
   int value_{};
 };
+
+#pragma region Smoke
 
 void CircularBufferTest_Smoke() {
   if (true) {
@@ -531,6 +548,7 @@ void CircularBufferTest_Smoke() {
     //*ccb[0] = 43;
   }
 }
+#pragma endregion
 
 MAKE_TEST_LIST(CircularBufferTest_Construction, CircularBufferTest_WrapIndex,
     CircularBufferTest_Ops, CircularBufferTest_PushPop,

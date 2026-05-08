@@ -77,7 +77,7 @@ public:
 
   // Full access to `msghdr`.
   [[nodiscard]] decltype(auto) header(this auto& self) noexcept {
-    return (self.header_);
+    return (self.msgh_);
   }
 
   // View into active segments.
@@ -170,7 +170,7 @@ public:
     if (last_op_.transferred != 0)
       if (!do_consume()) return false;
 
-    const auto result = socket.send(header_, flags);
+    const auto result = socket.send(msgh_, flags);
     if (result < 0) {
       if (!socket.is_hard_error()) return do_set_last(0, 0, 0);
       return do_set_fail();
@@ -206,8 +206,8 @@ public:
     if (last_op_.transferred != 0)
       if (!do_consume()) return false;
 
-    header_.msg_flags = 0;
-    const auto result = socket.recv(header_, flags);
+    msgh_.msg_flags = 0;
+    const auto result = socket.recv(msgh_, flags);
     if (result < 0) {
       if (!socket.is_hard_error()) return do_set_last(0, 0, 0);
       return do_set_fail();
@@ -227,12 +227,12 @@ private:
   // Point header at the active segments.
   bool update_iov() {
     if (first_index_ >= segments_.size()) {
-      header_.msg_iov = nullptr;
-      header_.msg_iovlen = 0;
+      msgh_.msg_iov = nullptr;
+      msgh_.msg_iovlen = 0;
       return true;
     }
-    header_.msg_iov = &segments_[first_index_];
-    header_.msg_iovlen = segments_.size() - first_index_;
+    msgh_.msg_iov = &segments_[first_index_];
+    msgh_.msg_iovlen = segments_.size() - first_index_;
     return true;
   }
 
@@ -248,7 +248,7 @@ private:
   bool update() { return update_iov() && update_count(); }
 
   bool do_clear() noexcept {
-    header_ = {};
+    msgh_ = {};
     segments_.clear();
     first_index_ = 0;
     size_ = 0;
@@ -334,7 +334,7 @@ private:
     return do_set_last(npos, npos, npos) && false;
   }
 
-  msghdr header_{};
+  msghdr msgh_{};
   std::vector<iovec> segments_;
   size_t first_index_{};
   size_t size_{};

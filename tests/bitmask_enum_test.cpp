@@ -66,6 +66,8 @@ constexpr auto registry::enum_spec_v<safe_rgb> = make_bitmask_enum_values_spec<
 // This is not a bitmask class, so it shouldn't work as a bitmap.
 enum class tires : std::uint8_t { none, one, two, three, four, five, six };
 
+#pragma region Ops
+
 void BitMaskTest_Ops() {
   if (true) {
     EXPECT_TRUE(!rgb{});
@@ -115,6 +117,9 @@ void BitMaskTest_Ops() {
     EXPECT_EQ(c, rgb::green);
   }
 }
+#pragma endregion
+
+#pragma region NamedFunctions
 
 void BitMaskTest_NamedFunctions() {
   if (true) {
@@ -179,6 +184,9 @@ void BitMaskTest_NamedFunctions() {
     EXPECT_EQ(enum_as_string(rgb(7 + 0x40)), "red + green + blue + 0x40");
   }
 }
+#pragma endregion
+
+#pragma region SafeOps
 
 void BitMaskTest_SafeOps() {
   if (true) {
@@ -217,6 +225,9 @@ void BitMaskTest_SafeOps() {
     EXPECT_EQ(c, safe_rgb::green);
   }
 }
+#pragma endregion
+
+#pragma region SafeNamedFunctions
 
 void BitMaskTest_SafeNamedFunctions() {
   if (true) {
@@ -261,6 +272,7 @@ void BitMaskTest_SafeNamedFunctions() {
     EXPECT_EQ(enum_as_string(safe_rgb(7 + 0x40)), "white + 0x40");
   }
 }
+#pragma endregion
 
 enum class rgb_unnamed : std::uint8_t {
   black = 0,  // ---
@@ -292,6 +304,8 @@ template<>
 constexpr auto registry::enum_spec_v<patchy_rgb> =
     make_bitmask_enum_values_spec<patchy_rgb,
         "-,blue,green,-,red,purple,-,white">();
+
+#pragma region MoreNamingTests
 
 void BitMaskTest_MoreNamingTests() {
   using namespace strings;
@@ -332,6 +346,9 @@ void BitMaskTest_MoreNamingTests() {
     EXPECT_EQ(enum_as_string(patchy_rgb(7 + 0x40)), "white + 0x40");
   }
 }
+#pragma endregion
+
+#pragma region StreamingOut
 
 void BitMaskTest_StreamingOut() {
   EXPECT_TRUE(OStreamable<rgb>);
@@ -347,6 +364,7 @@ void BitMaskTest_StreamingOut() {
     EXPECT_EQ(ss.str(), "red");
   }
 }
+#pragma endregion
 
 // RGB, but without the G.
 enum class rb : std::uint8_t {
@@ -359,6 +377,8 @@ enum class rb : std::uint8_t {
 template<>
 constexpr auto registry::enum_spec_v<rb> =
     make_bitmask_enum_spec<rb, "red, , blue">();
+
+#pragma region NoGreen
 
 void BitMaskTest_NoGreen() {
   using namespace strings;
@@ -381,6 +401,7 @@ void BitMaskTest_NoGreen() {
     EXPECT_EQ(enum_as_string(rb(0x7 + 0x40)), "red + blue + 0x42");
   }
 }
+#pragma endregion
 
 // RGB, but without the B.
 enum class rg : std::uint8_t {
@@ -393,6 +414,8 @@ enum class rg : std::uint8_t {
 template<>
 constexpr auto registry::enum_spec_v<rg> =
     make_bitmask_enum_spec<rg, "red, green, -">();
+
+#pragma region NoBlue
 
 void BitMaskTest_NoBlue() {
   using namespace strings;
@@ -415,6 +438,7 @@ void BitMaskTest_NoBlue() {
     EXPECT_EQ(enum_as_string(rg(0x7 + 0x40)), "red + green + 0x41");
   }
 }
+#pragma endregion
 
 // RGB, but without the R.
 enum class gb : std::uint8_t {
@@ -430,6 +454,8 @@ enum class gb : std::uint8_t {
 template<>
 constexpr auto registry::enum_spec_v<gb> =
     make_bitmask_enum_spec<gb, "green, blue">();
+
+#pragma region NoRed
 
 void BitMaskTest_NoRed() {
   using namespace strings;
@@ -452,6 +478,7 @@ void BitMaskTest_NoRed() {
     EXPECT_EQ(enum_as_string(gb(0x7 + 0x40)), "green + blue + 0x44");
   }
 }
+#pragma endregion
 
 // Same thing, but safe due to clipping.
 enum class safe_rb : std::uint8_t {
@@ -464,6 +491,8 @@ enum class safe_rb : std::uint8_t {
 template<>
 constexpr auto registry::enum_spec_v<safe_rb> = make_bitmask_enum_values_spec<
     safe_rb, "black,blue,,,red,purple,,", wrapclip::limit>();
+
+#pragma region SafeNoGreen
 
 void BitMaskTest_SafeNoGreen() {
   using namespace strings;
@@ -486,6 +515,7 @@ void BitMaskTest_SafeNoGreen() {
     EXPECT_EQ(enum_as_string(safe_rb(0x7 + 0x40)), "purple + 0x42");
   }
 }
+#pragma endregion
 
 // Same thing, but safe due to clipping.
 enum class safe_rg : std::uint8_t {
@@ -498,6 +528,8 @@ enum class safe_rg : std::uint8_t {
 template<>
 constexpr auto registry::enum_spec_v<safe_rg> = make_bitmask_enum_values_spec<
     safe_rg, "black,,green,,red,,yellow,", wrapclip::limit>();
+
+#pragma region SafeNoBlue
 
 void BitMaskTest_SafeNoBlue() {
   using namespace strings;
@@ -520,6 +552,7 @@ void BitMaskTest_SafeNoBlue() {
     EXPECT_EQ(enum_as_string(safe_rg(0x7 + 0x40)), "yellow + 0x41");
   }
 }
+#pragma endregion
 
 // Same thing, but safe due to clipping.
 enum class safe_gb : std::uint8_t {
@@ -532,6 +565,8 @@ enum class safe_gb : std::uint8_t {
 template<>
 constexpr auto registry::enum_spec_v<safe_gb> = make_bitmask_enum_values_spec<
     safe_gb, "black,blue,green,cyan,,,,", wrapclip::limit>();
+
+#pragma region SafeNoRed
 
 void BitMaskTest_SafeNoRed() {
   using namespace strings;
@@ -554,6 +589,7 @@ void BitMaskTest_SafeNoRed() {
     EXPECT_EQ(enum_as_string(safe_gb(0x7 + 0x40)), "cyan + 0x44");
   }
 }
+#pragma endregion
 
 // All three bits are valid, but we have no name for green, so we use a
 // placeholder space. Contrast it with rb, which has no space and therefore
@@ -623,6 +659,8 @@ constexpr auto registry::enum_spec_v<safe_rb_h> =
     make_bitmask_enum_values_spec<safe_rb_h, "black,blue,-,-,red,purple,-,-",
         wrapclip::limit>();
 
+#pragma region Placeholders
+
 void BitMaskTest_Placeholders() {
   using namespace strings;
   if (true) {
@@ -651,6 +689,9 @@ void BitMaskTest_Placeholders() {
     EXPECT_EQ(enum_as_string(safe_rb_h(0x07)), "purple + 0x02");
   }
 }
+#pragma endregion
+
+#pragma region SkipBlue
 
 void BitMaskTest_SkipBlue() {
   using namespace strings;
@@ -691,6 +732,7 @@ void BitMaskTest_SkipBlue() {
     EXPECT_EQ(enum_as_string(safe_rskipb(0x7 + 0x40)), "purple + 0x42");
   }
 }
+#pragma endregion
 
 // Note: safe_b is impossible because we need at least one valid bit.
 
@@ -700,6 +742,8 @@ enum class safe_bw : std::uint8_t { black, white };
 template<>
 constexpr auto registry::enum_spec_v<safe_bw> = make_bitmask_enum_values_spec<
     safe_bw, "color::black,color::white", wrapclip::limit>();
+
+#pragma region SafeBlackWhite
 
 void BitMaskTest_SafeBlackWhite() {
   using namespace strings;
@@ -722,6 +766,7 @@ void BitMaskTest_SafeBlackWhite() {
     EXPECT_EQ(enum_as_string(safe_bw(0x7 + 0x40)), "color::white + 0x46");
   }
 }
+#pragma endregion
 
 // Same thing, but safe due to clipping.
 enum class safe_w : std::uint8_t { white = 1 };
@@ -729,6 +774,8 @@ enum class safe_w : std::uint8_t { white = 1 };
 template<>
 constexpr auto registry::enum_spec_v<safe_w> =
     make_bitmask_enum_values_spec<safe_w, ",color::white", wrapclip::limit>();
+
+#pragma region SafeWhite
 
 void BitMaskTest_SafeWhite() {
   using namespace strings;
@@ -751,11 +798,14 @@ void BitMaskTest_SafeWhite() {
     EXPECT_EQ(enum_as_string(safe_w(0x7 + 0x40)), "color::white + 0x46");
   }
 }
+#pragma endregion
 
 template<strings::fixed_string W>
 consteval auto cvbfbn() {
   return bitmask::details::calc_valid_bits_from_bit_names<W>();
 }
+
+#pragma region EnumCalcBitNames
 
 void BitMaskTest_EnumCalcBitNames() {
   static_assert(cvbfbn<"r">() == 1);
@@ -772,11 +822,14 @@ void BitMaskTest_EnumCalcBitNames() {
              "az,ba,bb,bc,bd,be,bf,bg,bh,bi,bj,bk,bl">() ==
       18446744073709551615ULL);
 }
+#pragma endregion
 
 template<strings::fixed_string W>
 consteval auto cvbfvn() {
   return bitmask::details::calc_valid_bits_from_value_names<W>();
 }
+
+#pragma region EnumCalcValueNames
 
 void BitMaskTest_EnumCalcValueNames() {
   static_assert(cvbfvn<",">() == 0);
@@ -792,6 +845,9 @@ void BitMaskTest_EnumCalcValueNames() {
   static_assert(cvbfvn<"black,blue,,,red,purple,,,">() == 5);
   static_assert(cvbfvn<"black,,green,,red,,yellow,">() == 6);
 }
+#pragma endregion
+
+#pragma region ExtractEnum
 
 void BitMaskTest_ExtractEnum() {
   using namespace corvid::strings;
@@ -848,6 +904,9 @@ void BitMaskTest_ExtractEnum() {
     EXPECT_FALSE(extract_enum(e, sv));
   }
 }
+#pragma endregion
+
+#pragma region HoleyOps
 
 void BitMaskTest_HoleyOps() {
   // Tests for op~ and flip with bit masks that have holes (non-contiguous
@@ -873,6 +932,9 @@ void BitMaskTest_HoleyOps() {
     EXPECT_EQ(~safe_rb::purple, safe_rb::black);
   }
 }
+#pragma endregion
+
+#pragma region MakeAt
 
 void BitMaskTest_MakeAt() {
   // make_at uses 1-based indexing.
@@ -891,6 +953,7 @@ void BitMaskTest_MakeAt() {
     EXPECT_EQ(clear_at(rgb::white, 3), rgb::cyan);
   }
 }
+#pragma endregion
 
 MAKE_TEST_LIST(BitMaskTest_Ops, BitMaskTest_NamedFunctions,
     BitMaskTest_SafeOps, BitMaskTest_SafeNamedFunctions,

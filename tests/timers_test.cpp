@@ -42,6 +42,8 @@ static time_point_t make_time(int ms) {
   return time_point_t{} + milliseconds{ms};
 }
 
+#pragma region OneShot
+
 void TimersTest_OneShot() {
   auto now = make_time(100);
   auto t = timers::make("test");
@@ -107,6 +109,9 @@ void TimersTest_OneShot() {
   EXPECT_TRUE(ev->canceled);
 }
 
+#pragma endregion
+#pragma region Repeating
+
 void TimersTest_Repeating() {
   auto now = make_time(100);
   auto t = timers::make("test");
@@ -141,6 +146,9 @@ void TimersTest_Repeating() {
   EXPECT_EQ(calls, 3U); // cancelled
 }
 
+#pragma endregion
+#pragma region Cancel
+
 void TimersTest_Cancel() {
   auto now = make_time(100);
   auto t = timers::make("test");
@@ -161,6 +169,9 @@ void TimersTest_Cancel() {
   t->tick();
   EXPECT_FALSE(called);
 }
+
+#pragma endregion
+#pragma region Reschedule
 
 void TimersTest_Reschedule() {
   auto now = make_time(100);
@@ -192,6 +203,9 @@ void TimersTest_Reschedule() {
   EXPECT_EQ(calls, 2U);
   EXPECT_TRUE(ev->canceled);
 }
+
+#pragma endregion
+#pragma region General
 
 void TimersTest_General() {
   auto now = make_date(2024y / 1 / 1);
@@ -236,6 +250,9 @@ void TimersTest_General() {
   EXPECT_TRUE(ev2->canceled);
 }
 
+#pragma endregion
+#pragma region Edge
+
 void TimersTest_Edge() {
   auto now = make_date(2024y / 1 / 1);
   auto t = timers::make("test");
@@ -274,6 +291,8 @@ void TimersTest_Edge() {
   // Cancel to clean up.
   (void)ev->canceled.kill();
 }
+
+#pragma endregion
 
 MAKE_TEST_LIST(TimersTest_OneShot, TimersTest_Repeating, TimersTest_Cancel,
     TimersTest_Reschedule, TimersTest_General, TimersTest_Edge);

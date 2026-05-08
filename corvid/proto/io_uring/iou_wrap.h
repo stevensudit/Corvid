@@ -22,6 +22,7 @@
 #include <limits>
 #include <linux/time_types.h>
 #include <system_error>
+#include <type_traits>
 
 #include <poll.h>
 #include <sys/socket.h>
@@ -37,6 +38,27 @@
 namespace corvid { inline namespace proto { namespace iouring {
 
 #pragma region iou flags
+
+// `IORING_SETUP_*` wrapper.
+enum class iou_setup_flags : uint32_t {
+  setup_iopoll = IORING_SETUP_IOPOLL,                         // 0x0001
+  setup_sqpoll = IORING_SETUP_SQPOLL,                         // 0x0002
+  setup_sq_aff = IORING_SETUP_SQ_AFF,                         // 0x0004
+  setup_cqsize = IORING_SETUP_CQSIZE,                         // 0x0008
+  setup_clamp = IORING_SETUP_CLAMP,                           // 0x0010
+  setup_attach_wq = IORING_SETUP_ATTACH_WQ,                   // 0x0020
+  setup_r_disabled = IORING_SETUP_R_DISABLED,                 // 0x0040
+  setup_submit_all = IORING_SETUP_SUBMIT_ALL,                 // 0x0080
+  setup_coop_taskrun = IORING_SETUP_COOP_TASKRUN,             // 0x0100
+  setup_taskrun_flag = IORING_SETUP_TASKRUN_FLAG,             // 0x0200
+  setup_sqe128 = IORING_SETUP_SQE128,                         // 0x0400
+  setup_cqe32 = IORING_SETUP_CQE32,                           // 0x0800
+  setup_single_issuer = IORING_SETUP_SINGLE_ISSUER,           // 0x1000
+  setup_defer_taskrun = IORING_SETUP_DEFER_TASKRUN,           // 0x2000
+  setup_no_mmap = IORING_SETUP_NO_MMAP,                       // 0x4000
+  setup_registered_fd_only = IORING_SETUP_REGISTERED_FD_ONLY, // 0x8000
+  IORING_SETUP_MUST_BE_UINT32 = 0x7FFF'FFFF
+};
 
 // `IORING_CQE_F_*` wrapper.
 enum class iou_cqe_flags : uint32_t {
@@ -85,7 +107,26 @@ enum class poll_flags : uint16_t {
   POLL_MUST_BE_INT16 = 0x7FFF
 };
 
+// `SHUT_*` wrapper for `prep_shutdown`.
+enum class shutdown_how : int {
+  rd = SHUT_RD,     // 0
+  wr = SHUT_WR,     // 1
+  rdwr = SHUT_RDWR, // 2
+  SHUT_MUST_BE_INT = 0x7FFF'FFFF
+};
+
 }}} // namespace corvid::proto::iouring
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::iouring::iou_setup_flags> =
+    corvid::enums::bitmask::make_bitmask_enum_spec<
+        corvid::proto::iouring::iou_setup_flags,
+        "setup_registered_fd_only, setup_no_mmap, setup_defer_taskrun, "
+        "setup_single_issuer, setup_cqe32, setup_sqe128, setup_taskrun_flag, "
+        "setup_coop_taskrun, setup_submit_all, setup_r_disabled, "
+        "setup_attach_wq, setup_clamp, setup_cqsize, setup_sq_aff, "
+        "setup_sqpoll, setup_iopoll">();
 
 template<>
 constexpr inline auto corvid::enums::registry::enum_spec_v<
@@ -116,7 +157,18 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
     corvid::enums::bitmask::make_bitmask_enum_spec<
         corvid::proto::iouring::poll_flags, "nval, hup, err, out, pri, in">();
 
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::proto::iouring::shutdown_how> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::proto::iouring::shutdown_how, "rd, wr, rdwr">();
+
 namespace corvid { inline namespace proto { namespace iouring {
+
+// Extracts the buffer ID from `flags` if `buffer` is set; otherwise returns 0.
+inline size_t get_buffer_id(iou_cqe_flags flags) noexcept {
+  return (*flags & *iou_cqe_flags::buffer_id) >> IORING_CQE_BUFFER_SHIFT;
+}
 
 #pragma endregion
 #pragma region iou_timespec
@@ -138,7 +190,7 @@ public:
   using duration_t = std::chrono::nanoseconds;
 
   // Default; invalid.
-  constexpr iou_timespec() noexcept : ts_{.tv_sec = 0, .tv_nsec = 0} {}
+  constexpr iou_timespec() noexcept : ts_{.tv_sec = -1, .tv_nsec = -1} {}
 
   // Conversion from raw.
   constexpr explicit iou_timespec(const raw_timespec& ts) noexcept : ts_(ts) {}
@@ -177,19 +229,31 @@ public:
   }
 
   // Raw value.
-  [[nodiscard]] auto* pointer(this auto& self) noexcept { return &self.ts_; }
+  [[nodiscard]] auto* pointer(this auto& self) noexcept {
+    using self_t = std::remove_reference_t<decltype(self)>;
+    using pointer_t = std::conditional_t<std::is_const_v<self_t>,
+        const raw_timespec, raw_timespec>*;
+    if (self.is_valid()) return &self.ts_;
+    return pointer_t{};
+  }
   [[nodiscard]] decltype(auto) value(this auto& self) noexcept {
     return self.ts_;
   }
 
+  [[nodiscard]] explicit operator bool() const noexcept { return is_valid(); }
+
+  [[nodiscard]] bool is_valid() const noexcept {
+    return ts_.tv_sec != -1 && ts_.tv_nsec != -1;
+  }
+
   // Conditional passthrough.
-  static raw_timespec* as_pointer(iou_timespec* ts) noexcept {
+  static raw_timespec* to_pointer(iou_timespec* ts) noexcept {
     raw_timespec* ptr{};
     if (ts) ptr = ts->pointer();
     return ptr;
   }
 
-  static const raw_timespec* as_pointer(const iou_timespec* ts) noexcept {
+  static const raw_timespec* to_pointer(const iou_timespec* ts) noexcept {
     const raw_timespec* ptr{};
     if (ts) ptr = ts->pointer();
     return ptr;
@@ -285,6 +349,25 @@ private:
 };
 
 #pragma endregion
+#pragma region Structs
+
+// These are the peanut-butter-and-jelly structs that group values which go
+// together.
+
+// Timespec with flags to interpret it.
+struct combined_timespec {
+  iou_timespec ts;
+  iou_timeout_flags flags{};
+};
+
+// Needed for filling in a sockaddr.
+struct combined_endpoint {
+  net_endpoint sockaddr;
+  socklen_t len{};
+  socket_type flags = socket_type::nonblock_cloexec;
+};
+
+#pragma endregion
 #pragma region iou_res
 
 // Wrapper for `int` results from `io_uring` operations, where `res` >= 0 is
@@ -293,6 +376,7 @@ private:
 class iou_res {
 public:
   explicit iou_res(int res = 0) : res_(res) {}
+  explicit iou_res(errno_code err) : res_(-*err) {}
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
   [[nodiscard]] bool operator!() const noexcept { return !ok(); }
@@ -347,8 +431,7 @@ public:
     return true;
   }
 
-  bool
-  prep_poll_oneshot(int fd, poll_flags poll_mask = poll_flags::in) noexcept {
+  bool prep_poll(int fd, poll_flags poll_mask = poll_flags::in) noexcept {
     io_uring_prep_poll_add(sqe_, fd, *poll_mask);
     return true;
   }
@@ -361,6 +444,15 @@ public:
 
   bool prep_recv(int fd, span_t span, msg_flags flags = {}) noexcept {
     io_uring_prep_recv(sqe_, fd, span.data(), span.size(), *flags);
+    return true;
+  }
+
+  // Receive from a socket using provided buffers, repeatedly. `bgid` is the
+  // buffer group ID from `iou_provided_buf_pool::bgid()`.
+  bool prep_recv_multishot(int fd, msg_flags flags, uint16_t bgid) noexcept {
+    io_uring_prep_recv_multishot(sqe_, fd, nullptr, 0, *flags);
+    sqe_->flags |= IOSQE_BUFFER_SELECT;
+    sqe_->buf_group = bgid;
     return true;
   }
 
@@ -391,31 +483,77 @@ public:
     return true;
   }
 
-  bool prep_accept(int fd,
-      socket_type flags = socket_type::nonblock_cloexec) noexcept {
-    io_uring_prep_accept(sqe_, fd, nullptr, nullptr, *flags);
+  // Send from a pre-registered fixed buffer, with ZC `send` semantics.
+  // `buf_index` is the slot index from `io_uring_register_buffers`.
+  bool prep_send_zc_fixed(int fd, const_span_t span, msg_flags flags,
+      size_t buf_index) noexcept {
+    io_uring_prep_send_zc_fixed(sqe_, fd, span.data(),
+        static_cast<unsigned>(span.size()), *flags, 0,
+        static_cast<int>(buf_index));
     return true;
   }
 
-  bool prep_accept_multishot(int fd,
-      socket_type flags = socket_type::nonblock_cloexec) noexcept {
+  // Helper for `prep_accept*`.
+  static std::pair<sockaddr*, socklen_t*> to_sockaddr_ptrs(
+      combined_endpoint* endpoint) noexcept {
+    sockaddr* sockaddr_ptr{};
+    socklen_t* socklen_ptr{};
+    if (endpoint) {
+      endpoint->len = endpoint->sockaddr.sockaddr_size();
+      sockaddr_ptr = endpoint->sockaddr.as_sockaddr_ptr();
+      socklen_ptr = &endpoint->len;
+    }
+    return {sockaddr_ptr, socklen_ptr};
+  }
+
+  // Accept a connection on `fd`, filling `endpoint`.
+  bool prep_accept(int fd, combined_endpoint* endpoint = nullptr) noexcept {
+    auto [sockaddr_ptr, socklen_ptr] = to_sockaddr_ptrs(endpoint);
+    socket_type flags = socket_type::nonblock_cloexec;
+    if (endpoint) flags = endpoint->flags;
+    io_uring_prep_accept(sqe_, fd, sockaddr_ptr, socklen_ptr, *flags);
+    return true;
+  }
+
+  // Accept connections on `fd` repeatedly. Peer address is not captured here;
+  // use `net_endpoint::peer_of` on the accepted fd after each completion.
+  bool prep_accept_multishot(int fd) noexcept {
+    socket_type flags = socket_type::nonblock_cloexec;
     io_uring_prep_multishot_accept(sqe_, fd, nullptr, nullptr, *flags);
     return true;
   }
 
+  // Connect `fd` to the peer address at endpoint.
   bool prep_connect(int fd, const net_endpoint* endpoint) noexcept {
     auto [addr, addrlen] = endpoint->as_sockaddr();
     io_uring_prep_connect(sqe_, fd, addr, addrlen);
     return true;
   }
 
-  bool prep_recvmsg(int fd, msghdr* msg, msg_flags flags = {}) noexcept {
-    io_uring_prep_recvmsg(sqe_, fd, msg, *flags);
+  // Receive a message from a socket. `msgh` must point to a valid `msghdr`
+  // struct, which itself points to the message data and ancillary data.
+  bool prep_recvmsg(int fd, msghdr* msgh, msg_flags flags = {}) noexcept {
+    io_uring_prep_recvmsg(sqe_, fd, msgh, *flags);
     return true;
   }
 
-  bool prep_sendmsg(int fd, const msghdr* msg, msg_flags flags = {}) noexcept {
-    io_uring_prep_sendmsg(sqe_, fd, msg, *flags);
+  // Receive a message from a socket using provided buffers, repeatedly. `bgid`
+  // is the buffer group ID from `iou_provided_buf_pool::bgid()`. Each
+  // provided buffer holds an `io_uring_recvmsg_out` header followed by peer
+  // address, control data, and payload.
+  bool prep_recvmsg_multishot(int fd, msghdr* msgh, msg_flags flags,
+      uint16_t bgid) noexcept {
+    io_uring_prep_recvmsg_multishot(sqe_, fd, msgh, *flags);
+    sqe_->flags |= IOSQE_BUFFER_SELECT;
+    sqe_->buf_group = bgid;
+    return true;
+  }
+
+  // Send a message on a socket. `msg` must point to a valid `msghdr` struct,
+  // which itself points to the message data and ancillary data.
+  bool
+  prep_sendmsg(int fd, const msghdr* msgh, msg_flags flags = {}) noexcept {
+    io_uring_prep_sendmsg(sqe_, fd, msgh, *flags);
     return true;
   }
 
@@ -427,7 +565,14 @@ public:
     return true;
   }
 
-  // Cancel all pending operations targeting `fd`. // TODO: Flags?!
+  // Shutdown `fd` asynchronously. `how` is the same as for `shutdown(2)`.
+  bool prep_shutdown(int fd, shutdown_how how) noexcept {
+    io_uring_prep_shutdown(sqe_, fd, *how);
+    return true;
+  }
+
+  // Cancel all pending operations targeting `fd`.
+  // TODO: IORING_ASYNC_CANCEL_ Flags?!
   bool prep_cancel_fd(int fd, unsigned flags = 0) noexcept {
     io_uring_prep_cancel_fd(sqe_, fd, flags);
     return true;
@@ -452,7 +597,7 @@ public:
   bool prep_timeout(iou_timespec* duration,
       iou_timeout_flags flags = iou_timeout_flags::rel,
       size_t cqe_count = 0) noexcept {
-    io_uring_prep_timeout(sqe_, iou_timespec::as_pointer(duration), cqe_count,
+    io_uring_prep_timeout(sqe_, iou_timespec::to_pointer(duration), cqe_count,
         *flags);
     return true;
   }
@@ -463,7 +608,7 @@ public:
   // might hope.
   bool prep_link_timeout(iou_timespec* duration,
       iou_timeout_flags flags = iou_timeout_flags::rel) noexcept {
-    io_uring_prep_link_timeout(sqe_, iou_timespec::as_pointer(duration),
+    io_uring_prep_link_timeout(sqe_, iou_timespec::to_pointer(duration),
         *flags);
     return true;
   }
@@ -482,7 +627,7 @@ public:
   // Update an existing timeout.
   bool prep_timeout_update(iou_timespec* duration, uint64_t user_data,
       iou_timeout_flags flags = {}) noexcept {
-    io_uring_prep_timeout_update(sqe_, iou_timespec::as_pointer(duration),
+    io_uring_prep_timeout_update(sqe_, iou_timespec::to_pointer(duration),
         user_data, *flags);
     return true;
   }
@@ -547,6 +692,58 @@ private:
 };
 
 #pragma endregion
+#pragma region recvmsg_out
+
+// Wrapper for `io_uring_recvmsg_out`.
+class iou_recvmsg_out {
+public:
+  using ptr_t = io_uring_recvmsg_out*;
+
+  explicit iou_recvmsg_out(void* buf, msghdr& msgh, iou_res res)
+      : msgh_{&msgh}, res_{res} {
+    if (res.ok()) out_ = io_uring_recvmsg_validate(buf, res.value(), &msgh);
+  }
+
+  [[nodiscard]] operator bool() const noexcept { return ok(); }
+  [[nodiscard]] bool operator!() const noexcept { return !ok(); }
+
+  [[nodiscard]] bool ok() const noexcept { return out_; }
+
+  [[nodiscard]] auto addr() noexcept {
+    return static_cast<sockaddr*>(io_uring_recvmsg_name(out_));
+  }
+
+  [[nodiscard]] size_t addr_len() const noexcept { return out_->namelen; }
+
+  [[nodiscard]] auto msghdr_flags() const noexcept {
+    return static_cast<msg_flags>(out_->flags);
+  }
+
+  [[nodiscard]] std::byte* payload_data() noexcept {
+    return static_cast<std::byte*>(io_uring_recvmsg_payload(out_, msgh_));
+  }
+
+  [[nodiscard]] size_t payload_size() const noexcept {
+    return io_uring_recvmsg_payload_length(out_, res_.value(), msgh_);
+  }
+
+  // When `msg_flags::trunc` was passed in to the SQE, this will contain the
+  // full length of the datagram, even if it was truncated.
+  [[nodiscard]] auto datagram_length() const noexcept {
+    return out_->payloadlen;
+  }
+
+  [[nodiscard]] ptr_t value() const noexcept { return out_; }
+
+  // Note: There is additional functionality not currently exposed.
+
+private:
+  ptr_t out_{};
+  msghdr* msgh_;
+  iou_res res_;
+};
+
+#pragma endregion
 #pragma region iou_ring
 
 // Wrapper over `io_uring`. Non-movable and non-copyable, and has ownership.
@@ -558,8 +755,8 @@ public:
 
   // Construct and initialize an io_uring with the given `ring_size` and
   // `flags`.
-  explicit iou_ring(size_t ring_size = 256, int flags = 0) {
-    iou_res res{io_uring_queue_init(ring_size, &ring_, flags)};
+  explicit iou_ring(size_t ring_size = 256, iou_setup_flags flags = {}) {
+    iou_res res{io_uring_queue_init(ring_size, &ring_, *flags)};
     if (res) return;
     throw std::system_error(*res.err(), std::system_category(),
         "io_uring_queue_init");
@@ -570,7 +767,14 @@ public:
   iou_ring& operator=(const iou_ring&) = delete;
   iou_ring& operator=(iou_ring&&) = delete;
 
-  ~iou_ring() { io_uring_queue_exit(&ring_); }
+  ~iou_ring() {
+    // Do not call `io_uring_unregister_buffers` first: it blocks until all
+    // in-flight requests referencing the registered buffers complete, which
+    // can wait forever once the loop has stopped processing CQEs.
+    // `io_uring_queue_exit` cancels pending requests and releases registered
+    // resources as part of teardown.
+    io_uring_queue_exit(&ring_);
+  }
 
   ptr_t get_ptr() noexcept { return &ring_; }
   operator ptr_t() noexcept { return &ring_; }
@@ -580,7 +784,7 @@ public:
   // Note that the converted `iou_timespec` is used immediately, so it's safe
   // to pass by value, and even convert JIT from `std::chrono::duration`.
   [[nodiscard]] iou_res wait_cqe_timeout(iou_timespec ts = {}) {
-    iou_cqe cqe; // Not returned.
+    iou_cqe cqe; // Peeked but not returned.
     return iou_res{
         io_uring_wait_cqe_timeout(&ring_, cqe.pointer(), ts.pointer())};
   }
@@ -630,6 +834,16 @@ public:
   // of SQEs submitted, or an error. An `ok(n)` on the result is a good idea.
   iou_res submit() noexcept { return iou_res{io_uring_submit(&ring_)}; }
 
+  // Submit filled SQEs and wait for at least one CQE, with an optional
+  // timeout. Combines `submit()` and `wait_cqe_timeout()` into one syscall,
+  // which also flushes deferred task work (required by `setup_defer_taskrun`).
+  [[nodiscard]] iou_res submit_and_wait_timeout(
+      iou_timespec ts = {}) noexcept {
+    iou_cqe cqe; // Peeked but not returned.
+    return iou_res{io_uring_submit_and_wait_timeout(&ring_, cqe.pointer(), 1,
+        ts.pointer(), nullptr)};
+  }
+
   // Register a fixed buffer table with the kernel. `iovecs` points to an
   // array of `count` `iovec` entries describing the pre-allocated buffers.
   // Each entry's `iov_base`/`iov_len` defines one registered slot used by
@@ -645,5 +859,71 @@ private:
 };
 
 #pragma endregion
+#pragma region iou_buf_ring
 
+// RAII wrapper over a kernel provided-buffer ring (`io_uring_buf_ring`). Does
+// not own the `iou_ring` it is associated with and must be destroyed before
+// it.
+class iou_buf_ring {
+public:
+  iou_buf_ring() = default;
+
+  iou_buf_ring(const iou_buf_ring&) = delete;
+  iou_buf_ring& operator=(const iou_buf_ring&) = delete;
+
+  // Set up a provided-buffer ring with `entries` slots (must be a power of
+  // two) under group ID `bgid`. Returns an empty `iou_buf_ring` on failure.
+  [[nodiscard]] iou_buf_ring(iou_ring& ring, size_t entries, uint16_t bgid)
+      : ring_{&ring}, entries_{static_cast<unsigned>(entries)}, bgid_{bgid} {
+    int err{};
+    buf_ring_ = ::io_uring_setup_buf_ring(ring_->get_ptr(),
+        static_cast<unsigned>(entries), bgid, 0, &err);
+  }
+
+  iou_buf_ring(iou_buf_ring&& o) noexcept
+      : ring_{o.ring_}, buf_ring_{o.buf_ring_}, entries_{o.entries_},
+        bgid_{o.bgid_} {
+    o.ring_ = nullptr;
+    o.buf_ring_ = nullptr;
+  }
+
+  iou_buf_ring& operator=(iou_buf_ring&& o) noexcept {
+    if (this == &o) return *this;
+    do_free();
+    ring_ = o.ring_;
+    buf_ring_ = o.buf_ring_;
+    entries_ = o.entries_;
+    bgid_ = o.bgid_;
+    o.ring_ = nullptr;
+    o.buf_ring_ = nullptr;
+    return *this;
+  }
+
+  ~iou_buf_ring() { do_free(); }
+
+  [[nodiscard]] explicit operator bool() const noexcept { return buf_ring_; }
+  [[nodiscard]] bool operator!() const noexcept { return !buf_ring_; }
+
+  // Add a buffer slot to the ring. Must be followed by `advance`.
+  void add(void* data, unsigned len, unsigned short bid, int mask,
+      int offset) noexcept {
+    ::io_uring_buf_ring_add(buf_ring_, data, len, bid, mask, offset);
+  }
+
+  // Commit the last `n` slots added via `add` to the kernel.
+  void advance(int n) noexcept { ::io_uring_buf_ring_advance(buf_ring_, n); }
+
+private:
+  void do_free() noexcept {
+    if (buf_ring_)
+      ::io_uring_free_buf_ring(ring_->get_ptr(), buf_ring_, entries_, bgid_);
+  }
+
+  iou_ring* ring_{};
+  io_uring_buf_ring* buf_ring_{};
+  unsigned entries_{};
+  uint16_t bgid_{};
+};
+
+#pragma endregion
 }}} // namespace corvid::proto::iouring

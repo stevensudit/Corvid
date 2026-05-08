@@ -143,6 +143,134 @@ enum class protocol_type : int {
   max = 256,
   IPPROTO_MUST_BE_INT32 = 0x7FFF'FFFF
 };
+
+// `SO_*` wrapper for socket options.
+enum class socket_option : int {
+  debug = SO_DEBUG,                                                 // 1
+  reuse_addr = SO_REUSEADDR,                                        // 2
+  type = SO_TYPE,                                                   // 3
+  error = SO_ERROR,                                                 // 4
+  dontroute = SO_DONTROUTE,                                         // 5
+  broadcast = SO_BROADCAST,                                         // 6
+  sndbuf = SO_SNDBUF,                                               // 7
+  rcvbuf = SO_RCVBUF,                                               // 8
+  keep_alive = SO_KEEPALIVE,                                        // 9
+  oob_inline = SO_OOBINLINE,                                        // 10
+  no_check = SO_NO_CHECK,                                           // 11
+  priority = SO_PRIORITY,                                           // 12
+  linger = SO_LINGER,                                               // 13
+  bsd_compat = SO_BSDCOMPAT,                                        // 14
+  reuse_port = SO_REUSEPORT,                                        // 15
+  passcred = SO_PASSCRED,                                           // 16
+  peercred = SO_PEERCRED,                                           // 17
+  rcvlowat = SO_RCVLOWAT,                                           // 18
+  sndlowat = SO_SNDLOWAT,                                           // 19
+  rcvtimeo = SO_RCVTIMEO,                                           // 20 (old)
+  sndtimeo = SO_SNDTIMEO,                                           // 21 (old)
+  security_authentication = SO_SECURITY_AUTHENTICATION,             // 22
+  security_encryption_transport = SO_SECURITY_ENCRYPTION_TRANSPORT, // 23
+  security_encryption_network = SO_SECURITY_ENCRYPTION_NETWORK,     // 24
+  bind_to_device = SO_BINDTODEVICE,                                 // 25
+  attach_filter = SO_ATTACH_FILTER,                                 // 26
+  get_filter = SO_GET_FILTER,                              // 26 (again)
+  detach_filter = SO_DETACH_FILTER,                        // 27
+  peername = SO_PEERNAME,                                  // 28
+  timestamp_old = SO_TIMESTAMP_OLD,                        // 29
+  acceptconn = SO_ACCEPTCONN,                              // 30
+  peersec = SO_PEERSEC,                                    // 31
+  sndbufforce = SO_SNDBUFFORCE,                            // 32
+  rcvbufforce = SO_RCVBUFFORCE,                            // 33
+  passsec = SO_PASSSEC,                                    // 34
+  timestamp_ns_old = SO_TIMESTAMPNS_OLD,                   // 35
+  mark = SO_MARK,                                          // 36
+  timestamping_old = SO_TIMESTAMPING_OLD,                  // 37
+  protocol = SO_PROTOCOL,                                  // 38
+  domain = SO_DOMAIN,                                      // 39
+  rxq_ovfl = SO_RXQ_OVFL,                                  // 40
+  wifi_status = SO_WIFI_STATUS,                            // 41
+  peek_off = SO_PEEK_OFF,                                  // 42
+  nofcs = SO_NOFCS,                                        // 43
+  lock_filter = SO_LOCK_FILTER,                            // 44
+  select_err_queue = SO_SELECT_ERR_QUEUE,                  // 45
+  busy_poll = SO_BUSY_POLL,                                // 46
+  max_pacing_rate = SO_MAX_PACING_RATE,                    // 47
+  bpf_extensions = SO_BPF_EXTENSIONS,                      // 48
+  incoming_cpu = SO_INCOMING_CPU,                          // 49
+  attach_bpf = SO_ATTACH_BPF,                              // 50
+  detach_bpf = SO_DETACH_BPF,                              // 27 (again)
+  attach_reuseport_cbpf = SO_ATTACH_REUSEPORT_CBPF,        // 51
+  attach_reuseport_ebpf = SO_ATTACH_REUSEPORT_EBPF,        // 52
+  cnx_advice = SO_CNX_ADVICE,                              // 53
+  scm_timestamping_opt_stats = SCM_TIMESTAMPING_OPT_STATS, // 54
+  meminfo = SO_MEMINFO,                                    // 55
+  incoming_napi_id = SO_INCOMING_NAPI_ID,                  // 56
+  cookie = SO_COOKIE,                                      // 57
+  scm_timestamping_pktinfo = SCM_TIMESTAMPING_PKTINFO,     // 58
+  peergroups = SO_PEERGROUPS,                              // 59
+  zerocopy = SO_ZEROCOPY,                                  // 60
+  txtime = SO_TXTIME,                                      // 61
+  scm_txtime = SCM_TXTIME,                                 // 61 (again)
+  bind_to_ifindex = SO_BINDTOIFINDEX,                      // 62
+  timestamp_new = SO_TIMESTAMP_NEW,                        // 63
+  timestamp_ns_new = SO_TIMESTAMPNS_NEW,                   // 64
+  timestamping_new = SO_TIMESTAMPING_NEW,                  // 65
+  rcvtimeo_new = SO_RCVTIMEO_NEW,                          // 66
+  sndtimeo_new = SO_SNDTIMEO_NEW,                          // 67
+  detach_reuseport_bpf = SO_DETACH_REUSEPORT_BPF,          // 68
+  prefer_busy_poll = SO_PREFER_BUSY_POLL,                  // 69
+  busy_poll_budget = SO_BUSY_POLL_BUDGET,                  // 70
+  netns_cookie = SO_NETNS_COOKIE,                          // 71
+  buf_lock = SO_BUF_LOCK,                                  // 72
+  reserve_mem = SO_RESERVE_MEM,                            // 73
+  tx_rehash = SO_TXREHASH,                                 // 74
+  rcvmark = SO_RCVMARK,                                    // 75
+  passpidfd = SO_PASSPIDFD,                                // 76
+  peerpidfd = SO_PEERPIDFD,                                // 77
+  SO_MUST_BE_INT32 = 0x7FFF'FFFF
+};
+
+// "TCP_* wrapper for TCP-level socket options".
+enum class tcp_option : int {
+  nodelay = TCP_NODELAY,                           // 1
+  maxseg = TCP_MAXSEG,                             // 2
+  cork = TCP_CORK,                                 // 3
+  keep_idle = TCP_KEEPIDLE,                        // 4
+  keep_intvl = TCP_KEEPINTVL,                      // 5
+  keep_cnt = TCP_KEEPCNT,                          // 6
+  syncnt = TCP_SYNCNT,                             // 7
+  linger2 = TCP_LINGER2,                           // 8
+  defer_accept = TCP_DEFER_ACCEPT,                 // 9
+  window_clamp = TCP_WINDOW_CLAMP,                 // 10
+  info = TCP_INFO,                                 // 11
+  quickack = TCP_QUICKACK,                         // 12
+  congestion = TCP_CONGESTION,                     // 13
+  md5sig = TCP_MD5SIG,                             // 14
+  cookie_transactions = TCP_COOKIE_TRANSACTIONS,   // 15
+  thin_linear_timeouts = TCP_THIN_LINEAR_TIMEOUTS, // 16
+  thin_dupack = TCP_THIN_DUPACK,                   // 17
+  user_timeout = TCP_USER_TIMEOUT,                 // 18
+  repair = TCP_REPAIR,                             // 19
+  repair_queue = TCP_REPAIR_QUEUE,                 // 20
+  queue_seq = TCP_QUEUE_SEQ,                       // 21
+  repair_options = TCP_REPAIR_OPTIONS,             // 22
+  fastopen = TCP_FASTOPEN,                         // 23
+  timestamp = TCP_TIMESTAMP,                       // 24
+  notsent_lowat = TCP_NOTSENT_LOWAT,               // 25
+  cc_info = TCP_CC_INFO,                           // 26
+  save_syn = TCP_SAVE_SYN,                         // 27
+  saved_syn = TCP_SAVED_SYN,                       // 28
+  repair_window = TCP_REPAIR_WINDOW,               // 29
+  fastopen_connect = TCP_FASTOPEN_CONNECT,         // 30
+  ulp = TCP_ULP,                                   // 31
+  md5sig_ext = TCP_MD5SIG_EXT,                     // 32
+  fastopen_key = TCP_FASTOPEN_KEY,                 // 33
+  fastopen_no_cookie = TCP_FASTOPEN_NO_COOKIE,     // 34
+  zerocopy_receive = TCP_ZEROCOPY_RECEIVE,         // 35
+  inq = TCP_INQ,                                   // 36
+  tx_delay = TCP_TX_DELAY,                         // 37
+  TCP_MUST_BE_INT32 = 0x7FFF'FFFF
+};
+
 }} // namespace corvid::filesys
 
 template<>
@@ -178,6 +306,43 @@ constexpr inline auto corvid::enums::registry::enum_spec_v<
         ", , , , , , , , , , , , , , , , , , , , , , , , , , , , ,  , , ,  , "
         ", , , , , , , , , , , , , , , , , ,  , , , , , , , , , , , , , , , , "
         ", , , , , , , , , , , , , , , , , , , , raw">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::filesys::socket_option> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::filesys::socket_option,
+        ",debug, reuse_addr, type, error, dontroute, broadcast, sndbuf, "
+        "rcvbuf, keep_alive, oob_inline, no_check, priority, linger, "
+        "bsd_compat, reuse_port,  passcred, peercred, rcvlowat, sndlowat, "
+        "rcvtimeo, sndtimeo, security_authentication, "
+        "security_encryption_transport, security_encryption_network, "
+        "bind_to_device, attach_filter, detach_filter, peername, "
+        "timestamp_old, acceptconn, peersec, sndbufforce, rcvbufforce, "
+        "passsec, timestamp_ns_old, mark, timestamping_old, protocol, domain, "
+        "rxq_ovfl, wifi_status, peek_off, nofcs, lock_filter, "
+        "select_err_queue, busy_poll, max_pacing_rate, bpf_extensions, "
+        "incoming_cpu, attach_bpf, attach_reuseport_cbpf, "
+        "attach_reuseport_ebpf, cnx_advice, scm_timestamping_opt_stats, "
+        "meminfo, incoming_napi_id, cookie, scm_timestamping_pktinfo, "
+        "peergroups, zerocopy, txtime, bind_to_ifindex, "
+        "timestamp_new, timestamp_ns_new, timestamping_new, rcvtimeo_new, "
+        "sndtimeo_new, detach_reuseport_bpf, prefer_busy_poll, "
+        "busy_poll_budget, netns_cookie, buf_lock, reserve_mem, tx_rehash, "
+        "rcvmark, passpidfd, peerpidfd">();
+
+template<>
+constexpr inline auto corvid::enums::registry::enum_spec_v<
+    corvid::filesys::tcp_option> =
+    corvid::enums::sequence::make_sequence_enum_spec<
+        corvid::filesys::tcp_option,
+        ",nodelay, maxseg, cork, keep_idle, keep_intvl, keep_cnt, syncnt, "
+        "linger2, defer_accept, window_clamp, info, quickack, congestion, "
+        "md5sig, cookie_transactions, thin_linear_timeouts, thin_dupack, "
+        "user_timeout, repair, repair_queue, queue_seq, repair_options, "
+        "fastopen, timestamp, notsent_lowat, cc_info, save_syn, saved_syn, "
+        "repair_window, fastopen_connect, ulp, md5sig_ext, fastopen_key, "
+        "fastopen_no_cookie, zerocopy_receive, inq, tx_delay">();
 
 namespace corvid { inline namespace filesys {
 
@@ -224,7 +389,7 @@ public:
   // In `forceful` mode, performs a forceful close (RST).
   [[nodiscard]] bool close(close_mode mode) noexcept {
     if (mode == close_mode::forceful && is_open())
-      (void)set_option(SOL_SOCKET, SO_LINGER,
+      (void)set_option(socket_option::linger,
           linger{.l_onoff = 1, .l_linger = 0});
 
     return os_file::close();
@@ -300,17 +465,30 @@ public:
   // the C `setsockopt` API; callers pass a typed value directly.
   template<typename T>
   [[nodiscard]] bool
-  set_option(int level, int optname, const T& value) noexcept {
+  set_raw_option(int level, int optname, const T& value) noexcept {
     assert(is_open());
     return ::setsockopt(handle(), level, optname,
                reinterpret_cast<const char*>(&value),
                static_cast<socklen_t>(sizeof(T))) == 0;
   }
 
+  // Set a socket option at the `SOL_SOCKET` level.
+  template<typename T>
+  [[nodiscard]] bool
+  set_option(socket_option optname, const T& value) noexcept {
+    return set_raw_option(SOL_SOCKET, *optname, value);
+  }
+
+  // Set a socket option at the `IPPROTO_TCP` level.
+  template<typename T>
+  [[nodiscard]] bool set_option(tcp_option optname, const T& value) noexcept {
+    return set_raw_option(*protocol_type::tcp, *optname, value);
+  }
+
   // Get a socket option. Returns `std::nullopt` on failure.
   template<typename T>
   [[nodiscard]] std::optional<T>
-  get_option(int level, int optname) const noexcept {
+  get_raw_option(int level, int optname) const noexcept {
     assert(is_open());
     T value{};
     socklen_t len = sizeof(T);
@@ -320,34 +498,50 @@ public:
     return value;
   }
 
+  // Get a socket option at the `SOL_SOCKET` level. Returns `std::nullopt` on
+  // failure.
+  template<typename T>
+  [[nodiscard]] std::optional<T>
+  get_option(socket_option optname) const noexcept {
+    return get_raw_option<T>(SOL_SOCKET, *optname);
+  }
+
+  // Get a socket option at the `IPPROTO_TCP` level. Returns `std::nullopt` on
+  // failure.
+  template<typename T>
+  [[nodiscard]] std::optional<T>
+  get_option(tcp_option optname) const noexcept {
+    return get_raw_option<T>(*protocol_type::tcp, *optname);
+  }
+
   // Allow reuse of a recently-freed local address (`SO_REUSEADDR`).
   [[nodiscard]] bool set_reuse_addr(bool on = true) noexcept {
-    return set_option(SOL_SOCKET, SO_REUSEADDR, int{on});
+    return set_option(socket_option::reuse_addr, int{on});
   }
 
   // Allow multiple sockets to bind the same port (`SO_REUSEPORT`).
   [[nodiscard]] bool set_reuse_port(bool on = true) noexcept {
-    return set_option(SOL_SOCKET, SO_REUSEPORT, int{on});
+    return set_option(socket_option::reuse_port, int{on});
   }
 
   // Disable Nagle algorithm for lower latency (`TCP_NODELAY`).
   [[nodiscard]] bool set_nodelay(bool on = true) noexcept {
-    return set_option(IPPROTO_TCP, TCP_NODELAY, int{on});
+    return set_option(tcp_option::nodelay, int{on});
   }
 
   // Enable TCP keepalive probes (`SO_KEEPALIVE`).
   [[nodiscard]] bool set_keepalive(bool on = true) noexcept {
-    return set_option(SOL_SOCKET, SO_KEEPALIVE, int{on});
+    return set_option(socket_option::keep_alive, int{on});
   }
 
   // Set receive buffer size in bytes (`SO_RCVBUF`).
   [[nodiscard]] bool set_recv_buffer_size(int bytes) noexcept {
-    return set_option(SOL_SOCKET, SO_RCVBUF, bytes);
+    return set_option(socket_option::rcvbuf, bytes);
   }
 
   // Set send buffer size in bytes (`SO_SNDBUF`).
   [[nodiscard]] bool set_send_buffer_size(int bytes) noexcept {
-    return set_option(SOL_SOCKET, SO_SNDBUF, bytes);
+    return set_option(socket_option::sndbuf, bytes);
   }
 
 #pragma endregion
@@ -383,7 +577,7 @@ public:
   // `flags` as in POSIX `::recv`.
   //
   // On success, resizes `data` to the number of bytes read and returns true.
-  // A "soft" failure (e.g., EAGAIN) is treated as success with zero bytes
+  // A "soft" failure (e.g., `EAGAIN`) is treated as success with zero bytes
   // read. On EOF/disconnect, leaves `data` unchanged and returns false. On
   // hard failure, clears `data` and returns false.
   //
@@ -407,9 +601,9 @@ public:
   // Receive a message into `msg`, forwarding directly to POSIX `recvmsg`.
   // See "iov_msghdr.h".
   [[nodiscard]] ssize_t
-  recv(msghdr& msg, msg_flags flags = {}) const noexcept {
+  recv(msghdr& msgh, msg_flags flags = {}) const noexcept {
     assert(is_open());
-    return ::recvmsg(handle(), &msg, *flags);
+    return ::recvmsg(handle(), &msgh, *flags);
   }
 
   // Peek at the socket, without consuming data, to determine whether EOF has
@@ -430,8 +624,8 @@ public:
 
   // Send as much of `data` as possible on the socket. On success, removes
   // the written prefix from `data` and returns true. On failure, leaves
-  // `data` unchanged and returns false. A "soft" failure (e.g., EAGAIN) is
-  // treated as success with no progress.
+  // `data` unchanged and returns false. A "soft" failure (e.g., `EAGAIN`)
+  // is treated as success with no progress.
   [[nodiscard]] bool send(std::string_view& data) const noexcept {
     if (data.empty()) return true;
 
@@ -449,12 +643,12 @@ public:
     return ::send(handle(), buf, len, *flags);
   }
 
-  // Send a message described by `msg`, forwarding to POSIX `sendmsg`. See
+  // Send a message described by `msgh`, forwarding to POSIX `sendmsg`. See
   // "iov_msghdr.h".
   [[nodiscard]] ssize_t
-  send(msghdr& msg, msg_flags flags = msg_flags::nosignal) const noexcept {
+  send(msghdr& msgh, msg_flags flags = msg_flags::nosignal) const noexcept {
     assert(is_open());
-    return ::sendmsg(handle(), &msg, *flags);
+    return ::sendmsg(handle(), &msgh, *flags);
   }
 
 #pragma endregion
@@ -468,9 +662,9 @@ public:
   // For unrecognized families, returns `sizeof(sockaddr_storage)`.
   [[nodiscard]] static socklen_t sockaddr_size(
       const sockaddr_storage& addr) noexcept {
-    if (addr.ss_family == AF_INET) return sizeof(sockaddr_in);
-    if (addr.ss_family == AF_INET6) return sizeof(sockaddr_in6);
-    if (addr.ss_family == AF_UNIX) {
+    if (addr.ss_family == *address_family::inet) return sizeof(sockaddr_in);
+    if (addr.ss_family == *address_family::inet6) return sizeof(sockaddr_in6);
+    if (addr.ss_family == *address_family::unix) {
       const auto& sun = reinterpret_cast<const sockaddr_un&>(addr);
       if (sun.sun_path[0] == '\0') return sizeof(sockaddr_un); // ANS
       return static_cast<socklen_t>(
@@ -508,10 +702,10 @@ public:
     return ::listen(handle(), backlog) == 0;
   }
 
-  // Accept a pending connection. Returns `std::nullopt` when no connection is
-  // available (`EAGAIN`/`EWOULDBLOCK`) or an error occurs. The peer address is
-  // returned as a raw `sockaddr_storage`; use `net_endpoint{sockaddr_storage}`
-  // to convert it if needed.
+  // Accept a pending connection. Returns `std::nullopt` when no connection
+  // is available (`EAGAIN`/`EWOULDBLOCK`) or an error occurs. The peer
+  // address is returned as a raw `sockaddr_storage`; use
+  // `net_endpoint{sockaddr_storage}` to convert it if needed.
   [[nodiscard]] std::optional<std::pair<net_socket, sockaddr_storage>>
   accept() noexcept {
     assert(is_open());

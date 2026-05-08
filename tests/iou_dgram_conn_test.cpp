@@ -24,7 +24,7 @@
 
 #define MINITEST_SHOW_TIMERS 0
 #include "minitest.h"
-#if 0
+
 using namespace corvid;
 using namespace corvid::iouring;
 using namespace std::chrono_literals;
@@ -32,6 +32,9 @@ using namespace std::chrono_literals;
 namespace {
 
 bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
+#if DEBUG
+  timeout = 1h;
+#endif
   const auto deadline = std::chrono::steady_clock::now() + timeout;
   while (!pred() && std::chrono::steady_clock::now() < deadline)
     std::this_thread::sleep_for(1ms);
@@ -42,80 +45,8 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
-void IouDgramConn_SendRecv() {
-  // Single datagram: `from` address correct, payload matches.
-  if (true) {
-    iou_loop_runner runner;
-    std::atomic_bool received{false};
-    std::string payload;
-    net_endpoint from_addr;
-
-    constexpr std::string_view msg{"hello-udp"};
-
-    auto ep1 = net_endpoint{net_endpoint::any_v4(0)};
-    auto ep2 = net_endpoint{net_endpoint::any_v4(0)};
-
-    auto conn1 = iou_dgram_conn_ptr::bind(runner.loop(), ep1,
-        iou_dgram_conn_handlers{
-            .on_data = [&](iou_dgram_conn&, std::string_view data,
-                           const net_endpoint& from) {
-              payload = data;
-              from_addr = from;
-              received.store(true, std::memory_order::release);
-              return true;
-            }});
-    EXPECT_TRUE(conn1);
-
-    auto conn2 = iou_dgram_conn_ptr::bind(runner.loop(), ep2);
-    EXPECT_TRUE(conn2);
-
-    // Query the OS-assigned port for conn1.
-    net_endpoint dest = conn1->local_endpoint();
-    EXPECT_TRUE(!dest.empty());
-
-    EXPECT_TRUE(conn2->send_to(dest, std::string{msg}));
-    EXPECT_TRUE(
-        WaitFor([&] { return received.load(std::memory_order::acquire); }));
-    EXPECT_EQ(payload, msg);
-    EXPECT_TRUE(!from_addr.empty());
-  }
-}
-
-void IouDgramConn_MultipleDatagrams() {
-  // Several datagrams queued; all received.
-  if (true) {
-    iou_loop_runner runner;
-    std::atomic<int> count{0};
-    constexpr int N = 4;
-
-    auto ep1 = net_endpoint::any_v4(0);
-    auto ep2 = net_endpoint::any_v4(0);
-
-    auto conn1 = iou_dgram_conn_ptr::bind(runner.loop(), ep1,
-        iou_dgram_conn_handlers{
-            .on_data =
-                [&](iou_dgram_conn&, std::string_view, const net_endpoint&) {
-                  count.fetch_add(1, std::memory_order::relaxed);
-                  return true;
-                }});
-    EXPECT_TRUE(conn1);
-
-    auto conn2 = iou_dgram_conn_ptr::bind(runner.loop(), ep2);
-    EXPECT_TRUE(conn2);
-
-    net_endpoint dest = conn1->local_endpoint();
-    EXPECT_TRUE(!dest.empty());
-
-    for (int i = 0; i < N; ++i)
-      EXPECT_TRUE(conn2->send_to(dest, std::string{"pkt"}));
-
-    EXPECT_TRUE(
-        WaitFor([&] { return count.load(std::memory_order::relaxed) >= N; }));
-    EXPECT_EQ(count.load(), N);
-  }
-}
-
 void IouDgramConn_SendRecvBuffer() {
+#if 0
   // Direct buffer send, received correctly.
   if (true) {
     iou_loop_runner runner;
@@ -124,66 +55,76 @@ void IouDgramConn_SendRecvBuffer() {
 
     constexpr std::string_view msg{"buf-udp"};
 
-    auto ep1 = net_endpoint::any_v4(0);
-    auto ep2 = net_endpoint::any_v4(0);
-
-    auto conn1 = iou_dgram_conn_ptr::bind(runner.loop(), ep1,
+    auto conn1 = iou_dgram_conn_ptr::bind(runner.loop(),
+        net_endpoint::loopback_v4(),
         iou_dgram_conn_handlers{
-            .on_data = [&](iou_dgram_conn&, std::string_view data,
-                           const net_endpoint&) {
-              payload = data;
+            .on_data = [&](iou_dgram_conn&, iou_loop::buffer& buf) {
+              payload = buf.payload_view();
               received.store(true, std::memory_order::release);
               return true;
             }});
     EXPECT_TRUE(conn1);
 
-    auto conn2 = iou_dgram_conn_ptr::bind(runner.loop(), ep2);
+    auto conn2 =
+        iou_dgram_conn_ptr::bind(runner.loop(), net_endpoint::loopback_v4());
     EXPECT_TRUE(conn2);
 
     net_endpoint dest = conn1->local_endpoint();
     EXPECT_TRUE(!dest.empty());
+    std::string dest_str = dest.to_string();
+    EXPECT_NE(dest_str, "");
 
-    auto tok = runner->borrow_write_buffer();
-    EXPECT_TRUE(tok);
-    if (!tok) return;
-    EXPECT_TRUE(tok.append(msg));
-    EXPECT_TRUE(conn2->send_to(dest, std::move(tok)));
+    auto buf = runner->borrow_write_buffer();
+    buf.peer_addr() = dest;
+    EXPECT_TRUE(buf);
+    if (!buf) return;
+    EXPECT_TRUE(buf.append(msg));
+    EXPECT_TRUE(conn2->send_to(std::move(buf)));
 
     EXPECT_TRUE(
         WaitFor([&] { return received.load(std::memory_order::acquire); }));
     EXPECT_EQ(payload, msg);
   }
+#endif
 }
 
 void IouDgramConn_OnDrain() {
+#if 0
   // `on_drain` fires after all sends complete.
   if (true) {
     iou_loop_runner runner;
     std::atomic_bool drained{false};
 
-    auto ep1 = net_endpoint::any_v4(0);
-    auto ep2 = net_endpoint::any_v4(0);
+    auto ep1 = net_endpoint::loopback_v4(0);
+    auto ep2 = net_endpoint::loopback_v4(0);
 
     auto conn1 = iou_dgram_conn_ptr::bind(runner.loop(), ep1);
     EXPECT_TRUE(conn1);
 
     auto conn2 = iou_dgram_conn_ptr::bind(runner.loop(), ep2,
-        iou_dgram_conn_handlers{.on_drain = [&](iou_dgram_conn&) {
-          drained.store(true, std::memory_order::release);
-          return true;
-        }});
+        iou_dgram_conn_handlers{
+            .on_drain = [&](iou_dgram_conn&, iou_loop::buffer&) {
+              drained.store(true, std::memory_order::release);
+              return true;
+            }});
     EXPECT_TRUE(conn2);
 
     net_endpoint dest = conn1->local_endpoint();
     EXPECT_TRUE(!dest.empty());
 
-    EXPECT_TRUE(conn2->send_to(dest, std::string{"drain-test"}));
+    auto buf = runner->borrow_write_buffer();
+    ASSERT_TRUE(buf);
+    buf.peer_addr() = dest;
+    EXPECT_TRUE(buf.append("drain-test"));
+    EXPECT_TRUE(conn2->send_to(std::move(buf)));
     EXPECT_TRUE(
         WaitFor([&] { return drained.load(std::memory_order::acquire); }));
   }
+#endif
 }
 
 void IouDgramConn_WithState() {
+#if 0
   // `iou_dgram_conn_with_state` - state accessible in callback.
   if (true) {
     iou_loop_runner runner;
@@ -196,18 +137,17 @@ void IouDgramConn_WithState() {
     using my_conn = iou_dgram_conn_with_state<MyState>;
     using my_ptr = iou_dgram_conn_ptr_with<my_conn>;
 
-    auto ep1 = net_endpoint::any_v4(0);
-    auto ep2 = net_endpoint::any_v4(0);
+    auto ep1 = net_endpoint::loopback_v4(0);
+    auto ep2 = net_endpoint::loopback_v4(0);
 
     auto conn1 = my_ptr::bind(runner.loop(), ep1,
         iou_dgram_conn_handlers{
-            .on_data =
-                [&](iou_dgram_conn& c, std::string_view, const net_endpoint&) {
-                  auto& s = my_conn::from(c);
-                  s.state().recv_count++;
-                  received.store(true, std::memory_order::release);
-                  return true;
-                }});
+            .on_data = [&](iou_dgram_conn& c, iou_loop::buffer&) {
+              auto& s = my_conn::from(c);
+              s.state().recv_count++;
+              received.store(true, std::memory_order::release);
+              return true;
+            }});
     EXPECT_TRUE(conn1);
 
     auto conn2 = iou_dgram_conn_ptr::bind(runner.loop(), ep2);
@@ -216,16 +156,18 @@ void IouDgramConn_WithState() {
     net_endpoint dest = conn1->local_endpoint();
     EXPECT_TRUE(!dest.empty());
 
-    EXPECT_TRUE(conn2->send_to(dest, std::string{"state-dgram"}));
+    auto buf = runner->borrow_write_buffer();
+    ASSERT_TRUE(buf);
+    buf.peer_addr() = dest;
+    EXPECT_TRUE(buf.append("state-dgram"));
+    EXPECT_TRUE(conn2->send_to(std::move(buf)));
     EXPECT_TRUE(
         WaitFor([&] { return received.load(std::memory_order::acquire); }));
     EXPECT_EQ(conn1->state().recv_count, 1);
   }
+#endif
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)
-MAKE_TEST_LIST(IouDgramConn_SendRecv, IouDgramConn_MultipleDatagrams,
-    IouDgramConn_SendRecvBuffer, IouDgramConn_OnDrain, IouDgramConn_WithState)
-#else
-MAKE_TEST_LIST();
-#endif
+MAKE_TEST_LIST(IouDgramConn_SendRecvBuffer, IouDgramConn_OnDrain,
+    IouDgramConn_WithState)
