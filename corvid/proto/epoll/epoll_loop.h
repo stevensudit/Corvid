@@ -19,7 +19,6 @@
 #include <chrono>
 #include <cerrno>
 #include <format>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -28,24 +27,21 @@
 #include <system_error>
 #include <thread>
 #include <unordered_map>
-#include <vector>
 
 #include <pthread.h>
 
 #include "../../concurrency/jthread_stoppable_sleep.h"
 #include "../../concurrency/notifiable.h"
+#include "../../concurrency/owner_thread_dispatcher.h"
 #include "../../concurrency/tombstone.h"
-#include "../../concurrency/relaxed_atomic.h"
-#include "../../containers/scoped_value.h"
 #include "../../containers/scope_exit.h"
 #include "../../containers/opt_find.h"
 #include "../../filesys/epoll.h"
 #include "../../filesys/event_fd.h"
 #include "../../filesys/net_socket.h"
+#include "../../meta/fixed_function.h"
 
 namespace corvid { inline namespace proto {
-
-using namespace corvid::container::value_scoping;
 
 // Abstract base for objects registered with `epoll_loop`. Higher-level types
 // (e.g., `stream_conn`) inherit from this and override the three event
@@ -87,53 +83,54 @@ private:
 // `io_conn`. `EPOLLERR | EPOLLHUP` stay armed regardless, so sockets still
 // observe closure and error transitions even when regular reads are disarmed.
 //
-// `post` schedules a callback to run at the top of the next `run_once`
-// iteration. It is safe to call from any thread: it locks `post_mutex_`,
-// pushes the callback onto the active queue, then writes to `wake_fd_` (an
-// `eventfd`) to interrupt a sleeping `epoll_wait`. The expected pattern is
-// that I/O callbacks fire on the loop thread and handle I/O immediately, but
-// may hand off work to a thread pool, which uses `post` to deliver results
-// back.
+// Cross-thread dispatch is provided by `owner_thread_dispatcher`: `post`,
+// `execute_or_post`, `post_and_wait`, and `is_loop_thread` come from the base
+// class. The base owns the wakeup `event_fd` (exposed as `wake_fd()`), which
+// `epoll_loop` registers with `epoll` so that posts interrupt a sleeping
+// `epoll_wait`. Posted callbacks run at the top of the next `run_once`. The
+// expected pattern is that I/O callbacks fire on the loop thread and handle
+// I/O immediately, but may hand off work to a thread pool, which uses `post`
+// to deliver results back.
 //
 // `stop` is also thread-safe: it sets `running_` (a
-// `notifiable<std::atomic_bool>`) and writes to `wake_fd_` so the loop exits
-// promptly even if blocked in `epoll_wait`.
+// `notifiable<std::atomic_bool>`) and signals the wake `event_fd` so the loop
+// exits promptly even if blocked in `epoll_wait`.
 //
 // `register_socket`, `unregister_socket`, `enable_reads`, and `enable_writes`
 // are NOT inherently thread-safe, but they automatically promote a call from
 // outside the active polling thread for this loop into a `post`.
 //
 // `epoll_loop` is non-copyable, non-movable, and always heap-allocated via
-// `epoll_loop::make`.
-class epoll_loop {
+// `epoll_loop::make`. Per the `owner_thread_dispatcher` contract, the
+// instance must be constructed and destructed on the loop thread; use
+// `epoll_loop_runner` to satisfy this automatically.
+class epoll_loop
+    : public concurrency::owner_thread_dispatcher<fixed_function<
+          concurrency::default_fixed_function::capacity, bool()>> {
   enum class allow : bool { ctor };
 
 public:
   // Maximum number of events retrieved per `epoll_wait` call.
   static constexpr size_t max_events = 64;
-  static constexpr std::chrono::milliseconds
-      default_post_and_wait_poll_interval{100};
 
-  using posted_fn_t = std::function<bool()>;
+  using posted_fn_t =
+      fixed_function<concurrency::default_fixed_function::capacity, bool()>;
+  using parent = concurrency::owner_thread_dispatcher<posted_fn_t>;
 
   epoll_loop(const epoll_loop&) = delete;
   epoll_loop& operator=(const epoll_loop&) = delete;
   epoll_loop(epoll_loop&&) = delete;
   epoll_loop& operator=(epoll_loop&&) = delete;
 
-  ~epoll_loop() = default;
-
   // Factory: create a heap-allocated `epoll_loop` managed by
   // `std::shared_ptr`. Throws `std::system_error` in the improbable event that
-  // the underlying `epoll` or `eventfd` cannot be created.
+  // the underlying `epoll` or `eventfd` cannot be created. Per the dispatcher
+  // contract, must be called on the thread that will run the loop.
   //
   // Normally, you would want to use an `epoll_loop_runner` to create an
   // instance in a thread.
-  [[nodiscard]] static std::shared_ptr<epoll_loop> make(
-      std::chrono::milliseconds post_and_wait_poll_interval =
-          default_post_and_wait_poll_interval) {
-    return std::make_shared<epoll_loop>(allow::ctor,
-        post_and_wait_poll_interval);
+  [[nodiscard]] static std::shared_ptr<epoll_loop> make() {
+    return std::make_shared<epoll_loop>(allow::ctor);
   }
 
   // Register `conn`.
@@ -214,80 +211,12 @@ public:
     return found ? *found : nullptr;
   }
 
-  // Schedule `fn` to run at the top of the next `run_once` iteration,
-  // before `epoll_wait`. Safe to call from any thread. This is the right
-  // place to invoke user completion callbacks, hand work to a thread pool,
-  // or call `register_socket`/`unregister_socket`/`enable_writes` from outside
-  // the dispatch loop.
-  //
-  // When a thread pool finishes work, it calls `post` to bring the result
-  // back to the loop thread.
-  [[nodiscard]] bool post(std::function<bool()> fn) {
-    // This lock not only protects the current queue from concurrent posts,
-    // but also ensures that we don't post to the wrong queue during a swap.
-    if (std::scoped_lock lock{post_mutex_}; true)
-      (*active_queue_)->push_back(std::move(fn));
-    return wake();
-  }
-
-  // Run `fn` on the loop thread and block the caller until it returns. If
-  // already on the loop thread, executes `fn` inline. Unlike a regular post,
-  // which is asynchronous, this is synchronous and passes through the return
-  // value.
-  //
-  // Note: To prevent a deadlock, this fails when the loop is not running.
-  template<typename FN>
-  [[nodiscard]] bool post_and_wait(FN&& fn) {
-    if (is_loop_thread()) return fn();
-    if (!running_.get()) return false;
-
-    // To avoid a race condition, we need to ensure that the state in the
-    // lambda wrapper survives longer than this function.
-    using fn_type = std::decay_t<FN>;
-    struct wait_state {
-      notifiable<bool> done{false};
-      bool result{};
-      fn_type fn;
-
-      explicit wait_state(fn_type&& fn) : fn(std::move(fn)) {}
-    };
-
-    auto waiter = std::make_shared<wait_state>(std::forward<FN>(fn));
-    if (!post([waiter] {
-          waiter->result = waiter->fn();
-          waiter->done.notify_one(true);
-          return true;
-        }))
-      return false;
-
-    // Wait for the callback to run and signal completion. To avoid deadlock,
-    // we also check `running_` in the wait loop, so if the loop thread exits
-    // before the callback runs, we can give up and return false.
-    while (true) {
-      if (waiter->done.wait_for_value(post_and_wait_poll_interval_, true))
-        return waiter->result;
-      // If loop exits, give up.
-      if (!running_.get()) return false;
-    }
-  }
-
-  // Run `fn` immediately if on the loop thread, otherwise `post` it. Returns
-  // the result of `fn` if executed immediately, otherwise true.
-  template<typename FN>
-  [[nodiscard]] bool execute_or_post(FN&& fn) {
-    if (is_loop_thread()) return fn();
-    return post(std::forward<FN>(fn));
-  }
-
   // Signal the loop to exit after the current dispatch round completes.
   // Safe to call from any thread.
   [[nodiscard]] bool stop() {
     running_.notify(false);
-    return wake();
+    return wake_post_queue();
   }
-
-  // Check whether the current thread is actively polling this loop.
-  bool is_loop_thread() const noexcept { return current_loop_ == this; }
 
   // Block until `run` enters its polling loop. Returns false on timeout.
   // Pass -1 (the default) to wait up to 60 seconds.
@@ -304,7 +233,7 @@ public:
     assert(is_loop_thread());
 
     // Execute backlog of posts.
-    if (!drain_post_queue()) return -1;
+    (void)execute_post_queue();
 
     // Poll for available events.
     epoll_event events[max_events];
@@ -318,8 +247,8 @@ public:
       const int fd = events[ndx].data.fd;
 
       // Drain the internal wakeup handle and skip: it carries no user event.
-      if (fd == wake_fd_.handle()) {
-        if (!wake_fd_.read()) return -1;
+      if (fd == wake_fd().handle()) {
+        if (!wake_fd().read()) return -1;
         ++woken;
         continue;
       }
@@ -335,13 +264,6 @@ public:
     return dispatched;
   }
 
-  // Establishes the current thread as the loop thread for this `epoll_loop`
-  // instance. Not needed when you just call `run`, but necessary if you want
-  // to call `run_once`. Almost exclusively for testing purposes.
-  [[nodiscard]] auto poll_thread_scope() const {
-    return scoped_value<const epoll_loop*>{current_loop_, this};
-  }
-
   // Dispatch events in a loop until `stop` is called or `run_once` returns
   // -1. `timeout_ms` is forwarded to each `epoll_wait` call.
   //
@@ -349,7 +271,6 @@ public:
   [[nodiscard]] bool run(int timeout_ms = -1) {
     if (!has_run_.kill()) return false;
 
-    const auto scope = poll_thread_scope();
     running_.notify(true);
     scope_exit on_exit{[&] { running_.notify(false); }};
 
@@ -363,26 +284,21 @@ public:
     return ok;
   }
 
-  // Create the `epoll` instance and the internal `eventfd` wakeup handle.
+  // Create the `epoll` instance and register the base's wakeup `event_fd`.
   // Throws `std::system_error` on failure. Use `make` instead of calling this
-  // directly.
-  explicit epoll_loop(allow,
-      std::chrono::milliseconds post_and_wait_poll_interval =
-          default_post_and_wait_poll_interval)
-      : epoll_{create_epollfd()}, wake_fd_{create_eventfd()},
-        post_and_wait_poll_interval_{post_and_wait_poll_interval} {
-    // The `eventfd` is used by `post` and `stop` to interrupt a sleeping
-    // `epoll_wait` from another thread.
+  // directly. Per the dispatcher contract, the constructing thread becomes the
+  // loop thread.
+  explicit epoll_loop(allow) : epoll_{create_epollfd()} {
+    // The base's `event_fd` is used by `post` and `stop` to interrupt a
+    // sleeping `epoll_wait` from another thread.
     epoll_event ev{.events = EPOLLIN,
-        .data = epoll_data_t{.fd = wake_fd_.handle()}};
-    if (!epoll_.add(wake_fd_.handle(), ev))
+        .data = epoll_data_t{.fd = wake_fd().handle()}};
+    if (!epoll_.add(wake_fd().handle(), ev))
       throw std::system_error(errno, std::generic_category(),
           "epoll_ctl wake_fd");
   }
 
 private:
-  using post_queue_t = std::vector<posted_fn_t>;
-
   // Register socket and initial interest in reading and writing. Returns
   // false if already registered or `epoll_ctl` fails.
   [[nodiscard]] bool do_register_socket(std::shared_ptr<io_conn>&& conn,
@@ -462,28 +378,6 @@ private:
            (writable ? uint32_t{EPOLLOUT} : uint32_t{0});
   }
 
-  // Atomically redirect new posts to the idle queue, then invoke each
-  // callback in the queue that was just retired. Callbacks posted from within
-  // a drained callback land in the newly active queue and run on the next
-  // iteration. No heap allocation is needed; the two queue buffers are reused.
-  [[nodiscard]] bool drain_post_queue(bool execute = true) {
-    assert(is_loop_thread());
-    post_queue_t* pending;
-    {
-      // Lock so nobody can post to the queue we're about to swap out.
-      // The actual swap could have been atomic without a lock.
-      std::scoped_lock lock{post_mutex_};
-      pending = active_queue_;
-      post_queue_t* other =
-          (pending == &post_queues_[0]) ? &post_queues_[1] : &post_queues_[0];
-      active_queue_ = other;
-    }
-    if (execute)
-      for (auto& fn : *pending) (void)fn();
-    pending->clear();
-    return execute;
-  }
-
   // Dispatch a single epoll event for `fd` with event mask `ev`. The
   // `shared_ptr<io_conn>` is copied before any virtual call so the object
   // stays alive even if a callback calls `unregister_socket`. Returns
@@ -512,10 +406,6 @@ private:
     return true;
   }
 
-  // Write to `wake_fd_` to interrupt a sleeping `epoll_wait`. Idempotent and
-  // safe to call from any thread.
-  [[nodiscard]] bool wake() { return wake_fd_.notify(); }
-
   // Create the loop's epoll instance or throw on failure.
   static epoll create_epollfd() {
     auto f = epoll::create();
@@ -524,25 +414,9 @@ private:
     return f;
   }
 
-  // Create the loop's wakeup eventfd or throw on failure.
-  static event_fd create_eventfd() {
-    auto f = event_fd::create();
-    if (!f.is_open())
-      throw std::system_error(errno, std::generic_category(), "eventfd");
-    return f;
-  }
-
   const epoll epoll_;
-  const event_fd wake_fd_;
-
-  inline static thread_local const epoll_loop* current_loop_{};
 
   std::unordered_map<int, std::shared_ptr<io_conn>> registrations_;
-
-  std::mutex post_mutex_;
-  post_queue_t post_queues_[2];
-  relaxed_atomic<post_queue_t*> active_queue_{&post_queues_[0]};
-  const std::chrono::milliseconds post_and_wait_poll_interval_;
 
   tombstone has_run_;
   notifiable<std::atomic_bool> running_;
@@ -550,20 +424,41 @@ private:
 
 // Runs an `epoll_loop` in its own background thread.
 //
+// The loop is constructed inside the worker thread (as required by
+// `owner_thread_dispatcher`) and the runner's `shared_ptr` is dropped from
+// the worker thread on exit so the destructor lands there too.
+//
 // Shutdown ordering: call `stop` (or destroy the runner) before destroying
 // any object that a pending `post` callback might reference. Pending
 // callbacks in the post queue are discarded when the thread exits; they do
 // not fire after `stop` returns.
 class epoll_loop_runner {
 public:
-  explicit epoll_loop_runner(
-      std::chrono::milliseconds post_and_wait_poll_interval =
-          epoll_loop::default_post_and_wait_poll_interval)
-      : loop_{epoll_loop::make(post_and_wait_poll_interval)},
-        thread_{[this](const std::stop_token& st) { run(st); }} {
-    if (!loop_->wait_until_running(1000)) {
+  explicit epoll_loop_runner()
+      : thread_{[this](const std::stop_token& st) { run(st); }} {
+    using namespace std::chrono_literals;
+    if (!started_.wait_for_value(1000ms, true)) {
       thread_.request_stop();
-      throw std::runtime_error("epoll_loop_runner failed to start");
+      throw std::runtime_error{"epoll_loop_runner failed to start"};
+    }
+    std::shared_ptr<epoll_loop> loop;
+    std::exception_ptr startup_error;
+    if (std::scoped_lock lock{startup_mutex_}; true) {
+      loop = loop_;
+      startup_error = startup_error_;
+    }
+    if (startup_error) {
+      thread_.join();
+      std::rethrow_exception(startup_error);
+    }
+    if (!loop || !loop->wait_until_running(1000)) {
+      // Drop the local ref so the worker's local owns the loop and
+      // `~epoll_loop` fires on the worker thread (required by
+      // `owner_thread_dispatcher`).
+      loop.reset();
+      thread_.request_stop();
+      if (thread_.joinable()) thread_.join();
+      throw std::runtime_error{"epoll_loop_runner failed to start"};
     }
   }
 
@@ -601,22 +496,34 @@ public:
 private:
   void run(const std::stop_token& st) {
     jthread_stoppable_sleep::set_thread_name("epoll");
+    try {
+      auto loop = epoll_loop::make();
+      if (std::scoped_lock lock{startup_mutex_}; true) loop_ = loop;
+      started_.notify(true);
 
-    // Hold a local `shared_ptr` so the loop outlives this function even if
-    // every external owner (e.g., `http_server::loop_` and
-    // `epoll_loop_runner::loop_`) is dropped by a callback running on this
-    // thread. Without it, destroying the last external owner inside a callback
-    // (self-join path) calls `epoll_loop::~epoll_loop` while `run` is still on
-    // the call stack, causing use-after-free in `dispatch_event`.
-    auto loop = loop_;
+      // When stop is requested, wake the `epoll_wait` so the loop can exit.
+      // Capture `loop` by value so the lambda does not reference `this` (the
+      // runner), which may already be in its destructor when stop fires.
+      std::stop_callback on_stop{st, [loop] { (void)loop->stop(); }};
+      (void)loop->run(100);
 
-    // When stop is requested, wake the `epoll_wait` so the loop can exit.
-    // Capture `loop` by value so the lambda does not reference `this` (the
-    // runner), which may already be in its destructor when stop fires.
-    std::stop_callback on_stop{st, [loop] { (void)loop->stop(); }};
-    (void)loop->run(100);
+      // Drop the runner's reference here so that, in the common case, the
+      // last `shared_ptr` release (and thus `~epoll_loop`) happens on this
+      // thread rather than on whichever thread later destroys the runner.
+      // The `owner_thread_dispatcher` base requires destruction on the
+      // owning thread.
+      if (std::scoped_lock lock{startup_mutex_}; true) loop_.reset();
+    }
+    catch (...) {
+      if (std::scoped_lock lock{startup_mutex_}; true)
+        startup_error_ = std::current_exception();
+      started_.notify(true);
+    }
   }
 
+  std::mutex startup_mutex_;
+  std::exception_ptr startup_error_;
+  notifiable<std::atomic_bool> started_{false};
   std::shared_ptr<epoll_loop> loop_;
   std::jthread thread_;
 };
