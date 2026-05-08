@@ -404,6 +404,19 @@ void IouDgramRouter_OnClose() {
         }});
     EXPECT_TRUE(routerA->add_session(sess));
 
+    // `add_session` posts to the loop thread, while `close()` clears
+    // `open_` synchronously on the calling thread. Without a barrier, the
+    // queued add can run after that flip, see `!is_open()`, and silently
+    // drop the session before `do_close` drains. Post a sentinel and wait
+    // for it: FIFO guarantees `add_session` has been processed first.
+    std::atomic_bool synced{false};
+    EXPECT_TRUE(runner.loop()->execute_or_post([&] {
+      synced.store(true, std::memory_order::release);
+      return true;
+    }));
+    EXPECT_TRUE(
+        WaitFor([&] { return synced.load(std::memory_order::acquire); }));
+
     EXPECT_TRUE(routerA->close());
     EXPECT_TRUE(WaitFor([&] {
       return router_closed.load(std::memory_order::acquire) &&

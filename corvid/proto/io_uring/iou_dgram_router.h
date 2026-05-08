@@ -95,7 +95,7 @@ public:
   explicit iou_dgram_router_base(allow, const std::shared_ptr<iou_loop>& loop,
       net_socket&& sock, const net_endpoint& local,
       shot_type recv_shot) noexcept
-      : loop_{*loop}, weak_loop_{loop}, sock_{std::move(sock)}, local_{local},
+      : sock_{std::move(sock)}, loop_{*loop}, weak_loop_{loop}, local_{local},
         recv_intended_shot_{recv_shot}, recv_active_shot_{recv_shot} {}
 
   virtual ~iou_dgram_router_base() = default;
@@ -295,9 +295,10 @@ private:
 #pragma endregion
 #pragma region Data members
 
+  net_socket sock_;
+
   iou_loop& loop_;
   std::weak_ptr<iou_loop> weak_loop_;
-  net_socket sock_;
 
   std::mutex endpoint_mutex_; // protects lazy initialization of `local_`.
   net_endpoint local_;        // Always access through `local_endpoint()`.
@@ -306,18 +307,10 @@ private:
   bool close_notified_{};
 
   // Recv state. `intended` is the user's preference; `active` may be forced
-  // down to single by buffer pressure. There is no pause state: the socket
-  // is shared across all sessions, so per-session backpressure isn't
-  // meaningful, and UDP at the socket level can drop on overflow without
-  // breaking semantics.
+  // down to single by buffer pressure.
   shot_type recv_intended_shot_{shot_type::single};
   shot_type recv_active_shot_{shot_type::single};
   completion_token recv_token_;
-
-  template<typename>
-  friend class iou_dgram_router;
-  template<typename>
-  friend class iou_dgram_router_ptr_with;
 
 #pragma endregion
 };
@@ -325,10 +318,10 @@ private:
 #pragma endregion
 #pragma region iou_dgram_session_base
 
-// Non-templated base for `iou_dgram_session`. Holds the
-// `weak_ptr<iou_dgram_router_base>` and the open/close machinery, and
-// provides `send`, `send_to`, and `close`. The typed `iou_dgram_session<Key>`
-// adds the key, the typed handlers struct, and the dispatch overrides.
+// Non-templated base for `iou_dgram_session`. Contains the open/close
+// machinery, and provides `send`, `send_to`, and `close`. The typed
+// `iou_dgram_session<Key>` adds the key, the typed handlers struct, and the
+// dispatch overrides.
 class iou_dgram_session_base
     : public std::enable_shared_from_this<iou_dgram_session_base> {
 public:
