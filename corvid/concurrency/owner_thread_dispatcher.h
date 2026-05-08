@@ -193,7 +193,7 @@ public:
     bool result{};
     std::latch done{1};
 
-    if (post([fn = std::move(fn), &result, &done]() -> bool {
+    if (post([fn = std::move(fn), &result, &done]() mutable -> bool {
           result = fn();
           done.count_down();
           return true;

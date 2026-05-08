@@ -41,6 +41,9 @@ class iou_stream_conn;
 //           into the remaining buffer (or a fresh one if fully consumed).
 //   Async:  call `take()` to transfer buffer ownership for off-loop parsing.
 //           Destructor posts a fresh-buffer recv immediately.
+//
+// If a Provided Buffer is used, then you must not leave any unconsumed payload
+// when the view is destroyed.
 class iou_recv_view {
 #pragma region Construction
 public:
@@ -51,10 +54,15 @@ public:
   iou_recv_view& operator=(iou_recv_view&&) = delete;
 
   // NOLINTBEGIN(bugprone-exception-escape)
-  ~iou_recv_view() {
-    // TODO: If it's a Provided Buffer, as shown by its `bid`, then it must be
-    // fully consumed, since we can't continue appending to it.
+  ~iou_recv_view() noexcept(false) {
     if (!buf_) return; // moved-from
+    // A Provided Buffer cannot be accumulated onto, so it must be fully
+    // consumed.
+    if (bitmask::has(buf_.cqe_flags(), iou_cqe_flags::buffer) &&
+        !buf_.payload_view().empty())
+      throw std::logic_error{
+          "iou_recv_view with unconsumed payload cannot be reused"};
+
     resume_(std::move(buf_));
   }
   // NOLINTEND(bugprone-exception-escape)
@@ -682,6 +690,7 @@ private:
         });
     if (!token.is_valid()) return do_close_now();
     write_open_ = false;
+    recv_paused_ = false;
     if (!recv_token_) return do_submit_recv();
     return true;
   }
@@ -904,7 +913,9 @@ public:
   // NOLINTBEGIN(bugprone-exception-escape)
   ~iou_stream_conn_ptr_with() {
     if (!conn_ || conn_->no_hangup_on_destruct_) return;
-    (void)conn_->loop_.execute_or_post([conn = std::move(conn_)] {
+    auto loop = conn_->weak_loop_.lock();
+    if (!loop) return;
+    (void)loop->execute_or_post([conn = std::move(conn_)] {
       return conn->do_hangup_now();
     });
   }

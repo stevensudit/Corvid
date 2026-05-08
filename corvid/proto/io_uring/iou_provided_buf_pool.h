@@ -64,7 +64,6 @@ public:
       : dispatcher_{&dispatcher}, bgid_{bgid} {
     if (slab_size == 0) return;
 
-    assert(slab_size % hugepage_size == 0);
     slab_size_ = slab_size;
     buf_size_ = *buf_size;
     buf_count_ = slab_size_ / buf_size_;
@@ -72,6 +71,9 @@ public:
     if (buf_count_ == 0) return;
     if (!std::has_single_bit(buf_count_))
       throw std::invalid_argument("buf_count must be a power of two");
+    if (slab_size % hugepage_size != 0)
+      throw std::invalid_argument(
+          "slab_size must be a multiple of hugepage_size");
     if (buf_count_ >
         static_cast<size_t>(std::numeric_limits<unsigned short>::max()) + 1ULL)
       throw std::invalid_argument(
