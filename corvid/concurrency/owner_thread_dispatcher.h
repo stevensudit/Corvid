@@ -51,34 +51,51 @@ concept StoredPostedInvocable =
 template<typename FN>
 concept PostedInvocable = MoveConsumable<FN> && StoredPostedInvocable<FN>;
 
-// Dispatches callbacks to execute only in the owning thread, by using a post
-// queue.
+// Dispatches callbacks to execute only in the owning thread (aka the loop
+// thread) by queuing them when they're posted from another thread.
 //
-// The instance imprints on the thread it was created by and only executes
-// callbacks in that thread. If a callback is passed from another thread, it is
-// instead posted to the queue so that it can be executed by the owning thread
-// later. To synchronize, posting a callback signals an `eventfd`.
+// The goal is to provide an inter-thread message-passing primitive. In this
+// system, the callback is the message and posting it delivers it to the loop
+// thread that this dispatcher is bound to, where it runs in the loop thread's
+// context. Posts are non-blocking: the poster never waits for the callback's
+// result, so threads stay decoupled.
+//
+// Within the loop thread, code is effectively single-threaded because only one
+// callback runs at a time. As a result, you don't need mutexes to protect
+// state owned by that thread.
+//
+// Concurrency is reintroduced by composition: a callback can fan out the work
+// by handing it off to another thread's dispatcher, or placing it in a shared
+// work queue, or however else it prefers. Some state should use atomics, not
+// so much for correctness as to allow visibility from other threads.
+//
+// This mechanism is essential for safe and efficient I/O loops, which is the
+// initial use case that the class targets.
+//
+// Requires strict ownership semantics because the class instance is bound to
+// the thread that it dispatches into. The expectation is that the thread runs
+// a loop that consumes the post queue in a timely manner by executing the
+// callbacks.
+//
+// An instance must be created on the thread it will run in and destructed in
+// that same thread. Only one such instance can live on a thread, and the post
+// queue must be consumed only from within that thread.
+//
+// When lambdas are passed to `execute_or_post`, they are only executed
+// immediately if already on the loop thread. Otherwise, they are posted to the
+// queue, as though `post` had been called, so that they can later be executed
+// on that thread.
 //
 // The post queue may be useful even when running entirely within the loop
-// thread, since you can use to defer execution.
+// thread, since you can use it to defer execution and break up recursive call
+// stacks.
 //
 // This class is designed to work equally well as a parent and as a member
-// (whose methods may be re-published). It will also work with any sort of
-// callback type, from raw function pointer to `fixed_function` (with the
-// exception of `execute_or_post_with_retry` and `post_and_wait`, which require
-// the ability to wrap the callback in a lambda and post that, and therefore
-// won't work with a raw function  pointer).
-//
-// Threading constraints (debug-asserted):
-//   - At most one `owner_thread_dispatcher<CB>` instance may exist per thread
-//     for a given `CB`. The construction thread is the loop thread, and the
-//     imprint is tracked via a single `thread_local` slot shared by all
-//     instances of the instantiation. Sequential construction is fine: the
-//     destructor releases the slot.
-//   - The thread that constructs the instance must also be the thread that
-//     calls `run_once`/drains the post queue. Constructing on one thread and
-//     running on another will leave `is_loop_thread()` returning `false`
-//     everywhere.
+// (whose methods may be wrapped and re-published). It will also work with any
+// sort of callback type, from raw function pointer to `fixed_function`. The
+// exception is that if you choose to use `execute_or_post_with_retry` and
+// `post_and_wait`, they require the ability to wrap the callback in a lambda
+// and therefore won't work with a raw function pointer.
 //
 // NOLINTBEGIN(bugprone-move-forwarding-reference)
 template<typename CB = std::function<bool()>>
@@ -109,8 +126,12 @@ public:
     post_queues_[1].reserve(post_queue_reserve);
   }
 
-  ~owner_thread_dispatcher() {
-    if (current_loop_ == this) current_loop_ = nullptr;
+  ~owner_thread_dispatcher() noexcept(false) {
+    if (current_loop_ != this)
+      throw std::logic_error{
+          "owner_thread_dispatcher destructed on a different thread than it "
+          "was created on"};
+    current_loop_ = nullptr;
   }
 
 #pragma endregion
