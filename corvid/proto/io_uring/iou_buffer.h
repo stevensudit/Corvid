@@ -137,6 +137,39 @@ public:
   }
   iou_buffer& operator=(const iou_buffer&) = delete;
 
+  // Create a non-owning, synthetic read buffer that views `data`. The buffer
+  // is pre-filled: `payload_span` covers all of `data` and `active_span` is
+  // an empty tail past the end. It is backed by `null_buffer_pool::instance`,
+  // so destruction and `reset` do not free anything.
+  //
+  // The caller owns `data` and must keep it alive while the buffer is in use.
+  // Synthetic buffers are intended to be passed to consumers that read
+  // `payload_span` / `payload_view`; behavior of features that assume real
+  // pool backing (`pool_base_offset`, `promote_to_write`/`demote_to_read`,
+  // `prepare_recvmsg`/`prepare_sendmsg`, kernel I/O submission) is undefined
+  // or unsupported.
+  [[nodiscard]] static iou_buffer
+  make_synthetic(span_t data, buffer_pool_base* pool = nullptr) noexcept {
+    struct null_buffer_pool: public buffer_pool_base {
+      [[nodiscard]] std::byte* base() const noexcept override {
+        return nullptr;
+      }
+      [[nodiscard]] bool return_buffer(span_t, block_type) override {
+        return true;
+      }
+    };
+    static null_buffer_pool instance;
+    if (!pool) pool = &instance;
+    iou_buffer buf;
+    buf.pool_ = pool;
+    buf.full_span_ = data;
+    buf.payload_span_ = data;
+    buf.active_span_ = {data.data() + data.size(), 0};
+    buf.blockrw_ = block_type::read;
+    buf.res_ = iou_res{static_cast<int>(data.size())};
+    return buf;
+  }
+
 #pragma endregion
 #pragma region Accessors
 

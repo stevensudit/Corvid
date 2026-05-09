@@ -744,6 +744,79 @@ void IouBufPool_UpdateRecvmsgTruncated() {
 }
 #pragma endregion
 
+#pragma region SyntheticPrefilled
+void IouBufPool_SyntheticPrefilled() {
+  // `make_synthetic` produces a non-owning read buffer whose payload covers
+  // the input span and whose active tail is empty.
+  std::string data{"hello world"};
+  iou_buffer::span_t span{reinterpret_cast<std::byte*>(data.data()),
+      data.size()};
+  auto buf = iou_buffer::make_synthetic(span);
+
+  ASSERT_TRUE(buf);
+  EXPECT_EQ(buf.blockrw(), block_type::read);
+  EXPECT_EQ(buf.size(), data.size());
+  EXPECT_EQ(buf.payload_span().size(), data.size());
+  EXPECT_EQ(buf.payload_view(), data);
+  EXPECT_EQ(buf.active_span().size(), 0ULL);
+  EXPECT_TRUE(buf.active_span().data() ==
+              buf.payload_span().data() + buf.payload_span().size());
+  EXPECT_EQ(buf.result().bytes(), data.size());
+}
+#pragma endregion
+
+#pragma region SyntheticDestructionHarmless
+void IouBufPool_SyntheticDestructionHarmless() {
+  // The buffer holds no real allocation, so going out of scope must not
+  // touch the data the caller owns.
+  std::string data{"keepalive"};
+  iou_buffer::span_t span{reinterpret_cast<std::byte*>(data.data()),
+      data.size()};
+  if (true) {
+    auto buf = iou_buffer::make_synthetic(span);
+    EXPECT_EQ(buf.payload_view(), data);
+  }
+  EXPECT_EQ(data, "keepalive");
+}
+#pragma endregion
+
+#pragma region SyntheticConsumeRead
+void IouBufPool_SyntheticConsumeRead() {
+  // A synthetic buffer behaves like a freshly-completed read: the consumer
+  // can drain it via `consume_read`.
+  std::string data{"abcdef"};
+  iou_buffer::span_t span{reinterpret_cast<std::byte*>(data.data()),
+      data.size()};
+  auto buf = iou_buffer::make_synthetic(span);
+
+  auto first = buf.consume_read(3);
+  EXPECT_EQ(first.size(), 3ULL);
+  EXPECT_EQ(std::string_view(reinterpret_cast<const char*>(first.data()),
+                first.size()),
+      "abc");
+  EXPECT_EQ(buf.payload_view(), "def");
+
+  auto rest = buf.consume_read(buf.payload_span().size());
+  EXPECT_EQ(rest.size(), 3ULL);
+  EXPECT_EQ(buf.payload_span().size(), 0ULL);
+}
+#pragma endregion
+
+#pragma region SyntheticMove
+void IouBufPool_SyntheticMove() {
+  // Moving a synthetic buffer transfers the view; the source ends up empty.
+  std::string data{"transferable"};
+  iou_buffer::span_t span{reinterpret_cast<std::byte*>(data.data()),
+      data.size()};
+  auto src = iou_buffer::make_synthetic(span);
+  auto dst = std::move(src);
+  ASSERT_TRUE(dst);
+  EXPECT_FALSE(src);
+  EXPECT_EQ(dst.payload_view(), data);
+  EXPECT_EQ(src.payload_span().size(), 0ULL);
+}
+#pragma endregion
+
 // NOLINTEND(readability-function-cognitive-complexity)
 
 MAKE_TEST_LIST(IouBufPool_ReadInitialState, IouBufPool_ReadAfterUpdate,
@@ -762,4 +835,6 @@ MAKE_TEST_LIST(IouBufPool_ReadInitialState, IouBufPool_ReadAfterUpdate,
     IouBufPool_CoalesceSmallToMedium, IouBufPool_CoalesceMediumToLarge,
     IouBufPool_CoalesceChain, IouBufPool_UdpTierAlloc,
     IouBufPool_UpdateRecvmsgMsgFlagsDefault, IouBufPool_UpdateRecvmsgValid,
-    IouBufPool_UpdateRecvmsgTruncated)
+    IouBufPool_UpdateRecvmsgTruncated, IouBufPool_SyntheticPrefilled,
+    IouBufPool_SyntheticDestructionHarmless, IouBufPool_SyntheticConsumeRead,
+    IouBufPool_SyntheticMove)

@@ -48,7 +48,7 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 void IouDgramRouter_BasicSendRecv() {
-  // First packet hits `on_new_session`; payload arrives via the buffer.
+  // First packet hits the session factory; payload arrives via the buffer.
   if (true) {
     iou_loop_runner runner;
     std::atomic_bool received{false};
@@ -57,15 +57,13 @@ void IouDgramRouter_BasicSendRecv() {
     using router_t = iou_dgram_router_ptr::router_t;
 
     auto routerA = iou_dgram_router_ptr::bind(runner.loop(),
-        net_endpoint::loopback_v4(),
-        router_t::handlers{
-            .on_new_session =
-                [&](router_t& r, const net_endpoint& key,
-                    iou_loop::buffer&& buf) -> router_t::session_ptr {
-              payload = std::string{buf.payload_view()};
-              received.store(true, std::memory_order::release);
-              return r.make_session(key, {});
-            }});
+        net_endpoint::loopback_v4(), router_t::handlers{},
+        [&](std::weak_ptr<iou_dgram_router_base> r,
+            iou_loop::buffer& buf) -> router_t::session_ptr {
+          payload = std::string{buf.payload_view()};
+          received.store(true, std::memory_order::release);
+          return iou_dgram_session::make(std::move(r), {});
+        });
     EXPECT_TRUE(routerA);
 
     auto routerB =
@@ -75,8 +73,9 @@ void IouDgramRouter_BasicSendRecv() {
     const auto destA = routerA->local_endpoint();
     EXPECT_FALSE(destA.empty());
 
-    auto sessB = routerB->make_session(destA, {});
-    EXPECT_TRUE(routerB->add_session(sessB));
+    auto sessB = iou_dgram_session::make(
+        std::weak_ptr<iou_dgram_router_base>{routerB.pointer()}, {});
+    EXPECT_TRUE(routerB->add_session(destA, sessB));
 
     EXPECT_TRUE(sessB->send_to(destA, "buf-udp"));
 
@@ -97,18 +96,19 @@ void IouDgramRouter_OnSentReturnsBuffer() {
     using router_t = iou_dgram_router_ptr::router_t;
 
     auto routerA = iou_dgram_router_ptr::bind(runner.loop(),
-        net_endpoint::loopback_v4(),
-        router_t::handlers{
-            .on_new_session =
-                [&](router_t& r, const net_endpoint& key, iou_loop::buffer&&)
-                -> router_t::session_ptr { return r.make_session(key, {}); }});
+        net_endpoint::loopback_v4(), router_t::handlers{},
+        [](std::weak_ptr<iou_dgram_router_base> r,
+            iou_loop::buffer&) -> router_t::session_ptr {
+          return iou_dgram_session::make(std::move(r), {});
+        });
     EXPECT_TRUE(routerA);
 
     auto routerB =
         iou_dgram_router_ptr::bind(runner.loop(), net_endpoint::loopback_v4());
     EXPECT_TRUE(routerB);
 
-    auto sessB = routerB->make_session(routerA->local_endpoint(),
+    auto sessB = iou_dgram_session::make(
+        std::weak_ptr<iou_dgram_router_base>{routerB.pointer()},
         router_t::session_handlers{
             .on_sent = [&](router_t::session_t&, iou_loop::buffer&& buf) {
               ok.store(buf.result().ok(), std::memory_order::release);
@@ -117,7 +117,7 @@ void IouDgramRouter_OnSentReturnsBuffer() {
               sent.store(true, std::memory_order::release);
               return true;
             }});
-    EXPECT_TRUE(routerB->add_session(sessB));
+    EXPECT_TRUE(routerB->add_session(routerA->local_endpoint(), sessB));
 
     EXPECT_TRUE(sessB->send_to(routerA->local_endpoint(), "ping"));
     EXPECT_TRUE(
@@ -138,20 +138,17 @@ void IouDgramRouter_LazySession() {
     using router_t = iou_dgram_router_ptr::router_t;
 
     auto routerA = iou_dgram_router_ptr::bind(runner.loop(),
-        net_endpoint::loopback_v4(),
-        router_t::handlers{
-            .on_new_session =
-                [&](router_t& r, const net_endpoint& key,
-                    iou_loop::buffer&&) -> router_t::session_ptr {
-              ++factory_calls;
-              return r.make_session(key,
-                  router_t::session_handlers{
-                      .on_data =
-                          [&](router_t::session_t&, iou_loop::buffer&&) {
-                            ++data_calls;
-                            return true;
-                          }});
-            }});
+        net_endpoint::loopback_v4(), router_t::handlers{},
+        [&](std::weak_ptr<iou_dgram_router_base> r,
+            iou_loop::buffer&) -> router_t::session_ptr {
+          ++factory_calls;
+          return iou_dgram_session::make(std::move(r),
+              router_t::session_handlers{
+                  .on_data = [&](router_t::session_t&, iou_loop::buffer&&) {
+                    ++data_calls;
+                    return true;
+                  }});
+        });
     EXPECT_TRUE(routerA);
 
     auto routerB =
@@ -159,8 +156,9 @@ void IouDgramRouter_LazySession() {
     EXPECT_TRUE(routerB);
 
     const auto destA = routerA->local_endpoint();
-    auto sessB = routerB->make_session(destA, {});
-    EXPECT_TRUE(routerB->add_session(sessB));
+    auto sessB = iou_dgram_session::make(
+        std::weak_ptr<iou_dgram_router_base>{routerB.pointer()}, {});
+    EXPECT_TRUE(routerB->add_session(destA, sessB));
 
     EXPECT_TRUE(sessB->send_to(destA, "p1"));
     EXPECT_TRUE(WaitFor([&] {
@@ -187,14 +185,12 @@ void IouDgramRouter_DropOnNullFactory() {
     using router_t = iou_dgram_router_ptr::router_t;
 
     auto routerA = iou_dgram_router_ptr::bind(runner.loop(),
-        net_endpoint::loopback_v4(),
-        router_t::handlers{
-            .on_new_session =
-                [&](router_t&, const net_endpoint&,
-                    iou_loop::buffer&&) -> router_t::session_ptr {
-              ++factory_calls;
-              return nullptr;
-            }});
+        net_endpoint::loopback_v4(), router_t::handlers{},
+        [&](std::weak_ptr<iou_dgram_router_base>,
+            iou_loop::buffer&) -> router_t::session_ptr {
+          ++factory_calls;
+          return nullptr;
+        });
     EXPECT_TRUE(routerA);
 
     auto routerB =
@@ -202,8 +198,9 @@ void IouDgramRouter_DropOnNullFactory() {
     EXPECT_TRUE(routerB);
 
     const auto destA = routerA->local_endpoint();
-    auto sessB = routerB->make_session(destA, {});
-    EXPECT_TRUE(routerB->add_session(sessB));
+    auto sessB = iou_dgram_session::make(
+        std::weak_ptr<iou_dgram_router_base>{routerB.pointer()}, {});
+    EXPECT_TRUE(routerB->add_session(destA, sessB));
 
     EXPECT_TRUE(sessB->send_to(destA, "drop1"));
     EXPECT_TRUE(sessB->send_to(destA, "drop2"));
@@ -218,50 +215,49 @@ void IouDgramRouter_CustomKey() {
   // Routing by a 32-bit ID extracted from the first 4 payload bytes,
   // independent of peer_addr.
   if (true) {
-    struct id_extractor {
-      [[nodiscard]] std::uint32_t operator()(
-          iou_loop::buffer& buf) const noexcept {
-        const auto v = buf.payload_view();
-        if (v.size() < 4) return 0;
-        std::uint32_t id{};
-        std::memcpy(&id, v.data(), 4);
-        return id;
-      }
-    };
-
-    using my_router = iou_dgram_router<id_extractor>;
-    using my_router_ptr = iou_dgram_router_ptr_with<my_router>;
+    using my_router = iou_dgram_router<std::uint32_t>;
     static_assert(std::same_as<my_router::key_t, std::uint32_t>);
+
+    std::function<std::uint32_t(const iou_loop::buffer&)> id_extractor =
+        [](const iou_loop::buffer& buf) -> std::uint32_t {
+      const auto v = buf.payload_view();
+      if (v.size() < 4) return 0;
+      std::uint32_t id{};
+      std::memcpy(&id, v.data(), 4);
+      return id;
+    };
 
     iou_loop_runner runner;
     std::atomic_int sess1_data{0};
     std::atomic_int sess2_data{0};
 
-    auto routerA = my_router_ptr::bind(runner.loop(),
-        net_endpoint::loopback_v4(),
-        my_router::handlers{
-            .on_new_session =
-                [&](my_router& r, const std::uint32_t& key,
-                    iou_loop::buffer&&) -> my_router::session_ptr {
-              return r.make_session(key,
-                  my_router::session_handlers{
-                      .on_data =
-                          [&, key](my_router::session_t&, iou_loop::buffer&&) {
-                            if (key == 1U) ++sess1_data;
-                            if (key == 2U) ++sess2_data;
-                            return true;
-                          }});
-            }},
-        id_extractor{});
+    // `Key` is deduced from `id_extractor`'s std::function signature.
+    auto routerA = iou_dgram_router_ptr::bind(runner.loop(),
+        net_endpoint::loopback_v4(), my_router::handlers{}, id_extractor,
+        [&](std::weak_ptr<iou_dgram_router_base> r,
+            iou_loop::buffer& buf) -> my_router::session_ptr {
+          const std::uint32_t key = id_extractor(buf);
+          return iou_dgram_session::make(std::move(r),
+              my_router::session_handlers{
+                  .on_data =
+                      [&, key](my_router::session_t&, iou_loop::buffer&&) {
+                        if (key == 1U) ++sess1_data;
+                        if (key == 2U) ++sess2_data;
+                        return true;
+                      }});
+        });
     EXPECT_TRUE(routerA);
+    static_assert(
+        std::same_as<decltype(routerA), iou_dgram_router_ptr_with<my_router>>);
 
     auto routerB =
         iou_dgram_router_ptr::bind(runner.loop(), net_endpoint::loopback_v4());
     EXPECT_TRUE(routerB);
 
     const auto destA = routerA->local_endpoint();
-    auto sessB = routerB->make_session(destA, {});
-    EXPECT_TRUE(routerB->add_session(sessB));
+    auto sessB = iou_dgram_session::make(
+        std::weak_ptr<iou_dgram_router_base>{routerB.pointer()}, {});
+    EXPECT_TRUE(routerB->add_session(destA, sessB));
 
     auto send_id = [&](std::uint32_t id, std::string_view tail) {
       std::string payload(4 + tail.size(), '\0');
@@ -298,22 +294,19 @@ void IouDgramRouter_WithState() {
     std::atomic_int observed{0};
 
     auto routerA = iou_dgram_router_ptr::bind(runner.loop(),
-        net_endpoint::loopback_v4(),
-        router_t::handlers{
-            .on_new_session =
-                [&](router_t& r, const net_endpoint& key,
-                    iou_loop::buffer&&) -> router_t::session_ptr {
-              return r.make_session<sess_with_state>(key,
-                  router_t::session_handlers{
-                      .on_data =
-                          [&](router_t::session_t& s, iou_loop::buffer&&) {
-                            auto& state = sess_with_state::from(s).state();
-                            ++state.recv_count;
-                            observed.store(state.recv_count,
-                                std::memory_order::release);
-                            return true;
-                          }});
-            }});
+        net_endpoint::loopback_v4(), router_t::handlers{},
+        [&](std::weak_ptr<iou_dgram_router_base> r,
+            iou_loop::buffer&) -> router_t::session_ptr {
+          return sess_with_state::make(std::move(r),
+              router_t::session_handlers{
+                  .on_data = [&](router_t::session_t& s, iou_loop::buffer&&) {
+                    auto& state = sess_with_state::from(s).state();
+                    ++state.recv_count;
+                    observed.store(state.recv_count,
+                        std::memory_order::release);
+                    return true;
+                  }});
+        });
     EXPECT_TRUE(routerA);
 
     auto routerB =
@@ -321,8 +314,9 @@ void IouDgramRouter_WithState() {
     EXPECT_TRUE(routerB);
 
     const auto destA = routerA->local_endpoint();
-    auto sessB = routerB->make_session(destA, {});
-    EXPECT_TRUE(routerB->add_session(sessB));
+    auto sessB = iou_dgram_session::make(
+        std::weak_ptr<iou_dgram_router_base>{routerB.pointer()}, {});
+    EXPECT_TRUE(routerB->add_session(destA, sessB));
 
     EXPECT_TRUE(sessB->send_to(destA, "p1")); // factory only
     EXPECT_TRUE(sessB->send_to(destA, "p2")); // on_data, count=1
@@ -342,22 +336,20 @@ void IouDgramRouter_Multishot() {
 
     using router_t = iou_dgram_router_ptr::router_t;
 
-    auto routerA = iou_dgram_router_ptr::bind(runner.loop(),
-        net_endpoint::loopback_v4(),
-        router_t::handlers{
-            .on_new_session =
-                [&](router_t& r, const net_endpoint& key,
-                    iou_loop::buffer&&) -> router_t::session_ptr {
-              ++delivered;
-              return r.make_session(key,
-                  router_t::session_handlers{
-                      .on_data =
-                          [&](router_t::session_t&, iou_loop::buffer&&) {
-                            ++delivered;
-                            return true;
-                          }});
-            }},
-        make_default_dgram_extractor(), shot_type::multi);
+    auto routerA = iou_dgram_router_ptr::bind(
+        runner.loop(), net_endpoint::loopback_v4(), router_t::handlers{},
+        make_default_dgram_extractor(),
+        [&](std::weak_ptr<iou_dgram_router_base> r,
+            iou_loop::buffer&) -> router_t::session_ptr {
+          ++delivered;
+          return iou_dgram_session::make(std::move(r),
+              router_t::session_handlers{
+                  .on_data = [&](router_t::session_t&, iou_loop::buffer&&) {
+                    ++delivered;
+                    return true;
+                  }});
+        },
+        shot_type::multi);
     EXPECT_TRUE(routerA);
 
     auto routerB =
@@ -365,8 +357,9 @@ void IouDgramRouter_Multishot() {
     EXPECT_TRUE(routerB);
 
     const auto destA = routerA->local_endpoint();
-    auto sessB = routerB->make_session(destA, {});
-    EXPECT_TRUE(routerB->add_session(sessB));
+    auto sessB = iou_dgram_session::make(
+        std::weak_ptr<iou_dgram_router_base>{routerB.pointer()}, {});
+    EXPECT_TRUE(routerB->add_session(destA, sessB));
 
     constexpr int total = 16;
     for (int i = 0; i < total; ++i)
@@ -396,13 +389,14 @@ void IouDgramRouter_OnClose() {
         }});
     EXPECT_TRUE(routerA);
 
-    auto sess = routerA->make_session(
-        net_endpoint::loopback_v4(/*port=*/12345),
+    auto sess = iou_dgram_session::make(
+        std::weak_ptr<iou_dgram_router_base>{routerA.pointer()},
         router_t::session_handlers{.on_close = [&](router_t::session_t&) {
           ++session_closed;
           return true;
         }});
-    EXPECT_TRUE(routerA->add_session(sess));
+    EXPECT_TRUE(
+        routerA->add_session(net_endpoint::loopback_v4(/*port=*/12345), sess));
 
     // `add_session` posts to the loop thread, while `close()` clears
     // `open_` synchronously on the calling thread. Without a barrier, the
