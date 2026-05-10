@@ -112,37 +112,29 @@ public:
   }
 
   // Send a datagram. The buffer must already carry its `peer_addr`. Returns
-  // the buffer to the caller via `on_sent` on completion. Safe from any
-  // thread.
-  [[nodiscard]] bool send(buffer&& buf) {
-    if (!open_) return false;
+  // the `completion_token` for the in-flight send (invalid on failure); the
+  // buffer is returned to the caller via `on_sent` on completion. Safe from
+  // any thread.
+  [[nodiscard]] iou_loop::completion_token send(buffer&& buf) {
+    if (!open_) return {};
     auto router = router_.lock();
-    if (!router) return false;
-    return router->loop().execute_or_post(
-        [r = router, self = shared_from_this(),
-            b = std::move(buf)]() mutable -> bool {
-          if (!self->open_ || !r->is_open()) return false;
-          return self->do_session_send(*r, std::move(b));
-        });
+    if (!router || !router->is_open()) return {};
+    return do_session_send(*router, std::move(buf));
   }
 
   // Convenience: copy `data` into a JIT-borrowed write buffer with the
   // given `peer` address, then send. Safe from any thread.
-  [[nodiscard]] bool send_to(net_endpoint peer, std::string_view data) {
-    if (!open_) return false;
+  [[nodiscard]] iou_loop::completion_token
+  send_to(const net_endpoint& peer, std::string_view data) {
+    if (!open_) return {};
     auto router = router_.lock();
-    if (!router) return false;
-    return router->loop().execute_or_post(
-        [r = router, self = self_ptr(), peer,
-            d = std::string{data}]() mutable -> bool {
-          if (!self->open_ || !r->is_open()) return false;
-          auto buf =
-              r->loop().borrow_write_buffer(iou_dgram_router_base::buf_size);
-          if (!buf) return false;
-          buf.peer_addr() = peer;
-          if (!buf.append(d)) return false;
-          return self->do_session_send(*r, std::move(buf));
-        });
+    if (!router || !router->is_open()) return {};
+    auto buf =
+        router->loop().borrow_write_buffer(iou_dgram_router_base::buf_size);
+    if (!buf) return {};
+    buf.peer_addr() = peer;
+    if (!buf.append(data)) return {};
+    return do_session_send(*router, std::move(buf));
   }
 
 #pragma endregion
@@ -184,8 +176,9 @@ public:
   }
 
   // Submit a send through the router's socket. The completion routes the
-  // buffer to this session's `on_sent`. Safe to call from any thread.
-  [[nodiscard]] bool
+  // buffer to this session's `on_sent`. Returns the `completion_token` for
+  // the in-flight send (invalid on failure). Safe to call from any thread.
+  [[nodiscard]] iou_loop::completion_token
   do_session_send(iou_dgram_router_base& router, buffer&& buf) {
     return router.submit_session_send(std::move(buf), shared_from_this());
   }
@@ -204,15 +197,14 @@ public:
 };
 
 // Out-of-line definitions.
-inline bool iou_dgram_router_base::submit_session_send(buffer&& buf,
-    const std::shared_ptr<iou_dgram_session>& ssn) {
-  if (!open_) return false;
-  const auto token = loop_.submit_sendmsg_buffer(sock_, std::move(buf),
+inline auto iou_dgram_router_base::submit_session_send(buffer&& buf,
+    const std::shared_ptr<iou_dgram_session>& ssn) -> completion_token {
+  if (!open_) return {};
+  return loop_.submit_sendmsg_buffer(sock_, std::move(buf),
       [ssn](completion_id, buffer& b) -> slot_retention {
         if (ssn->is_open()) ssn->dispatch_on_sent(std::move(b));
         return slot_retention{};
       });
-  return token.is_valid();
 }
 
 inline bool iou_dgram_router_base::do_close(bool already_closing) {
@@ -228,7 +220,7 @@ inline bool iou_dgram_router_base::do_close(bool already_closing) {
 
   if (sock_)
     (void)loop_.submit_close(std::move(sock_),
-        [self = base_ptr()](completion_id, iou_res, iou_cqe_flags) {
+        [](completion_id, iou_res, iou_cqe_flags) {
           return slot_retention{};
         });
 

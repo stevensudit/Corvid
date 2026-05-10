@@ -135,8 +135,7 @@ public:
   // Begin recv loop. Idempotent. Safe to call from any thread.
   [[nodiscard]] bool start_reading() {
     if (!open_) return false;
-    if (!is_reading_->exchange(false, std::memory_order::relaxed))
-      return false;
+    if (is_reading_->exchange(true, std::memory_order::relaxed)) return false;
     return loop_.execute_or_post_with_retry([this]() mutable {
       if (recv_active_shot_ == shot_type::single)
         return do_submit_single_recv();
@@ -150,16 +149,21 @@ public:
   // `on_close`. Idempotent. Safe from any thread.
   [[nodiscard]] bool close() {
     if (!open_->exchange(false, std::memory_order::relaxed)) return false;
-    return loop_.execute_or_post([this] { return do_close(true); });
+    return loop_.execute_or_post([self = base_ptr()] {
+      return self->do_close(true);
+    });
   }
 
 #pragma endregion
 #pragma region Session interface
 
   // Submit a `sendmsg` through this router's socket. The completion routes the
-  // buffer back to `ssn->dispatch_on_sent` if the session is still open. Safe
-  // to call from any thread.
-  [[nodiscard]] bool submit_session_send(buffer&& buf, const session_ptr& ssn);
+  // buffer back to `ssn->dispatch_on_sent` if the session is still open.
+  // Returns the `completion_token` for the submitted send (invalid token on
+  // failure), allowing the caller to track or cancel the in-flight op via
+  // the loop. Safe to call from any thread.
+  [[nodiscard]] completion_token
+  submit_session_send(buffer&& buf, const session_ptr& ssn);
 
   // Demux a received packet to the right session and dispatch its
   // `on_data`.
@@ -205,6 +209,7 @@ private:
         [self = base_ptr()](completion_id,
             buffer& buf) mutable -> slot_retention {
           self->recv_token_ = {};
+          self->is_reading_ = false;
           if (!self->open_) return slot_retention{};
           const auto res = buf.result();
           if (!res && !res.is_soft_error()) {
@@ -238,6 +243,7 @@ private:
 
           // Multishot has stopped. Decide what to do.
           self->recv_token_ = {};
+          self->is_reading_ = false;
 
           // Cancelation comes from `do_close`, which has already cleared
           // `open_`; the early check above handles that path. Any other
