@@ -141,7 +141,7 @@ void IouDgramRouter_LazySession() {
     auto routerA = iou_dgram_router_ptr::bind(runner.loop(),
         net_endpoint::loopback_v4(), make_default_dgram_extractor(),
         [&](const std::shared_ptr<iou_dgram_router_base>& r,
-            iou_loop::buffer&) -> router_t::session_ptr {
+            iou_loop::buffer&&) -> router_t::session_ptr {
           ++factory_calls;
           return iou_dgram_session::make(r,
               iou_dgram_session::handlers{
@@ -236,7 +236,7 @@ void IouDgramRouter_CustomKey() {
     auto routerA = iou_dgram_router_ptr::bind(runner.loop(),
         net_endpoint::loopback_v4(), id_extractor,
         [&](const std::shared_ptr<iou_dgram_router_base>& r,
-            iou_loop::buffer& buf) -> my_router::session_ptr {
+            iou_loop::buffer&& buf) -> my_router::session_ptr {
           const std::uint32_t key = id_extractor(buf);
           return iou_dgram_session::make(r,
               iou_dgram_session::handlers{
@@ -296,7 +296,7 @@ void IouDgramRouter_WithState() {
     auto routerA = iou_dgram_router_ptr::bind<net_endpoint>(runner.loop(),
         net_endpoint::loopback_v4(), make_default_dgram_extractor(),
         [&](const std::shared_ptr<iou_dgram_router_base>& r,
-            iou_loop::buffer&) -> router_t::session_ptr {
+            iou_loop::buffer&&) -> router_t::session_ptr {
           return sess_with_state::make(r,
               iou_dgram_session::handlers{
                   .on_data = [&](router_t::session_t& s, iou_loop::buffer&&) {
@@ -340,7 +340,7 @@ void IouDgramRouter_Multishot() {
         runner.loop(), net_endpoint::loopback_v4(),
         make_default_dgram_extractor(),
         [&](const std::shared_ptr<iou_dgram_router_base>& r,
-            iou_loop::buffer&) -> router_t::session_ptr {
+            iou_loop::buffer&&) -> router_t::session_ptr {
           ++delivered;
           return iou_dgram_session::make(r,
               iou_dgram_session::handlers{

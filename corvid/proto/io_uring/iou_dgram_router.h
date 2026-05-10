@@ -48,16 +48,12 @@ class iou_dgram_router_ptr_with;
 
 #pragma region Extractor
 
-// Construct the default extractor closure (for use as the default argument
-// of `iou_dgram_router_ptr_with::bind`).
+// Construct the default extractor closure, based on extracting `peer_addr`.
 [[nodiscard]] inline auto make_default_dgram_extractor() noexcept {
   return std::function{[](const iou_loop::buffer& buf) -> net_endpoint {
     return buf.peer_addr();
   }};
 }
-
-// TODO: Consider which, if any, execute_or_post lambdas need to be bound to a
-// shared_ptr instead of `this`.
 
 #pragma endregion
 #pragma region iou_dgram_router_base
@@ -84,19 +80,13 @@ public:
 
 #pragma region Construction
 protected:
-  enum class allow : bool { ctor };
-
-  template<typename ROUTER>
-  friend class iou_dgram_router_ptr_with;
-
-public:
-  // This is effectively private, so use `make_shared` in a child class.
-  explicit iou_dgram_router_base(allow, const loop_ptr& loop,
-      net_socket&& sock, const net_endpoint& local,
-      shot_type recv_shot) noexcept
+  // Only constructable as a base subobject of a derived router class.
+  explicit iou_dgram_router_base(const loop_ptr& loop, net_socket&& sock,
+      const net_endpoint& local, shot_type recv_shot) noexcept
       : loop_{*loop}, sock_{std::move(sock)}, weak_loop_{loop}, local_{local},
         recv_intended_shot_{recv_shot}, recv_active_shot_{recv_shot} {}
 
+public:
   virtual ~iou_dgram_router_base() = default;
 
   iou_dgram_router_base(const iou_dgram_router_base&) = delete;
@@ -336,17 +326,21 @@ public:
   // registered. The factory receives a weak pointer to this router (pass
   // it through to `iou_dgram_session::make`) and a reference to the first
   // packet's buffer. Return a session_ptr to register, or nullptr to drop.
-  // TODO: Why not &&?
-  using session_factory_t = std::function<session_ptr(router_ptr, buffer&)>;
+  using session_factory_t = std::function<session_ptr(router_ptr, buffer&&)>;
 
 #pragma region Construction
+protected:
+  enum class allow : bool { ctor };
+
+  template<typename ROUTER>
+  friend class iou_dgram_router_ptr_with;
+
 public:
   // Public for `make_shared`; use `iou_dgram_router_ptr_with::bind`.
   explicit iou_dgram_router(allow, const std::shared_ptr<iou_loop>& loop,
       net_socket sock, const net_endpoint& local, extractor_t&& extract,
       session_factory_t&& factory, shot_type recv_shot) noexcept
-      : iou_dgram_router_base{iou_dgram_router_base::allow::ctor, loop,
-            std::move(sock), local, recv_shot},
+      : iou_dgram_router_base{loop, std::move(sock), local, recv_shot},
         extract_{std::move(extract)}, factory_{std::move(factory)} {}
 
   [[nodiscard]] std::shared_ptr<iou_dgram_router> self() {
@@ -416,7 +410,7 @@ public:
 
       // Unknown key: invoke the lazy factory.
       if (factory_) {
-        auto ssn = factory_(base_ptr(), buf);
+        auto ssn = factory_(base_ptr(), std::move(buf));
         if (ssn) (void)sessions_.try_emplace(std::move(key), std::move(ssn));
         return true;
       }
