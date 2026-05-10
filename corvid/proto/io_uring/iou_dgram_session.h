@@ -228,11 +228,11 @@ inline bool iou_dgram_router_base::do_close(bool already_closing) {
 
   if (sock_)
     (void)loop_.submit_close(std::move(sock_),
-        [self = self_ptr()](completion_id, iou_res, iou_cqe_flags) {
+        [self = base_ptr()](completion_id, iou_res, iou_cqe_flags) {
           return slot_retention{};
         });
 
-  return notify_close_once();
+  return true;
 }
 
 #pragma endregion

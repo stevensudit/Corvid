@@ -40,10 +40,10 @@ class iou_dgram_session;
 template<typename STATE>
 class iou_dgram_session_with_state;
 
-template<typename Key>
+template<typename KEY>
 class iou_dgram_router;
 
-template<typename Router>
+template<typename ROUTER>
 class iou_dgram_router_ptr_with;
 
 #pragma region Extractor
@@ -56,11 +56,14 @@ class iou_dgram_router_ptr_with;
   }};
 }
 
+// TODO: Consider which, if any, execute_or_post lambdas need to be bound to a
+// shared_ptr instead of `this`.
+
 #pragma endregion
 #pragma region iou_dgram_router_base
 
-// Non-templated base for `iou_dgram_router`. Owns the UDP socket, runs the
-// `recv` loop, and submits `send`s. The typed `iou_dgram_router<Key>`
+// Non-templated base for `iou_dgram_router`. Owns the socket, runs the
+// `recv` loop, and submits `send`s. The typed `iou_dgram_router<KEY>`
 // derives from this and adds the typed sessions map, plus demux logic.
 //
 // Sessions hold a `weak_ptr<iou_dgram_router_base>`.
@@ -69,6 +72,11 @@ class iou_dgram_router_base
 public:
   using buffer = iou_loop::buffer;
   using completion_token = iou_loop::completion_token;
+  using session_t = iou_dgram_session;
+  using session_ptr = std::shared_ptr<session_t>;
+  using session_cb = std::function<bool(session_t&)>;
+  using loop_ptr = std::shared_ptr<iou_loop>;
+  using router_ptr = std::shared_ptr<iou_dgram_router_base>;
 
   // Block size for borrowed buffers. UDP datagrams cap at 64KB but only with
   // fragmentation. The MTU is typically around 1500 bytes, so 2KB is enough.
@@ -78,12 +86,12 @@ public:
 protected:
   enum class allow : bool { ctor };
 
-  template<typename Router>
+  template<typename ROUTER>
   friend class iou_dgram_router_ptr_with;
 
 public:
-  // Use `make_shared` in child class.
-  explicit iou_dgram_router_base(allow, const std::shared_ptr<iou_loop>& loop,
+  // This is effectively private, so use `make_shared` in a child class.
+  explicit iou_dgram_router_base(allow, const loop_ptr& loop,
       net_socket&& sock, const net_endpoint& local,
       shot_type recv_shot) noexcept
       : loop_{*loop}, sock_{std::move(sock)}, weak_loop_{loop}, local_{local},
@@ -113,16 +121,13 @@ public:
   [[nodiscard]] iou_loop& loop() noexcept { return loop_; }
 
   // Strong pointer to the loop, for callbacks that may run after the router
-  // is destroyed. Will be empty if the loop is already destroyed, so callers
-  // must check before posting.
-  [[nodiscard]] std::shared_ptr<iou_loop> strong_loop() const noexcept {
+  // is destroyed.
+  [[nodiscard]] loop_ptr strong_loop() const noexcept {
     return weak_loop_.lock();
   }
 
   // Strong pointer to self.
-  [[nodiscard]] std::shared_ptr<iou_dgram_router_base> self_ptr() {
-    return shared_from_this();
-  }
+  [[nodiscard]] router_ptr base_ptr() { return shared_from_this(); }
 
 #pragma endregion
 #pragma region Flow control
@@ -130,11 +135,13 @@ public:
   // Begin recv loop. Idempotent. Safe to call from any thread.
   [[nodiscard]] bool start_reading() {
     if (!open_) return false;
-    if (!is_reading->exchange(false, std::memory_order::relaxed)) return false;
+    if (!is_reading_->exchange(false, std::memory_order::relaxed))
+      return false;
     return loop_.execute_or_post_with_retry([this]() mutable {
       if (recv_active_shot_ == shot_type::single)
         return do_submit_single_recv();
-      return do_submit_multi_recv();
+      else
+        return do_submit_multi_recv();
     });
   }
 
@@ -143,9 +150,7 @@ public:
   // `on_close`. Idempotent. Safe from any thread.
   [[nodiscard]] bool close() {
     if (!open_->exchange(false, std::memory_order::relaxed)) return false;
-    return loop_.execute_or_post([self = self_ptr()] {
-      return self->do_close(true);
-    });
+    return loop_.execute_or_post([this] { return do_close(true); });
   }
 
 #pragma endregion
@@ -154,8 +159,7 @@ public:
   // Submit a `sendmsg` through this router's socket. The completion routes the
   // buffer back to `ssn->dispatch_on_sent` if the session is still open. Safe
   // to call from any thread.
-  [[nodiscard]] bool submit_session_send(buffer&& buf,
-      const std::shared_ptr<iou_dgram_session>& ssn);
+  [[nodiscard]] bool submit_session_send(buffer&& buf, const session_ptr& ssn);
 
   // Demux a received packet to the right session and dispatch its
   // `on_data`.
@@ -167,27 +171,19 @@ public:
   //  Add session to router by extracting the key from `buf`. The `buf` is safe
   //  to destruct as soon as the function returns. Actual adding will be async
   //  when called from outside the loop thread.
-  [[nodiscard]] virtual bool add_session(const buffer& buf,
-      const std::shared_ptr<iou_dgram_session>& ssn) = 0;
+  [[nodiscard]] virtual bool
+  add_session(const buffer& buf, const session_ptr& ssn) = 0;
 
   // Remove session from router by extracting the key from `buf`. The `buf` is
   // safe to destruct as soon as the function returns. Actual removing will be
   // async when called from outside the loop thread.
   [[nodiscard]] virtual bool remove_session(const buffer& buf) = 0;
 
-  // Last-ditch removal by reference.
-  [[nodiscard]] virtual bool remove_session(iou_dgram_session& s) = 0;
+  // Last-ditch removal by address.
+  [[nodiscard]] virtual bool remove_session(session_t& s) = 0;
 
-#pragma endregion
-#pragma region Child overrides
-protected:
   // Iterate over all sessions. Return false to remove session from map.
-  virtual void for_each_session(
-      std::function<bool(iou_dgram_session&)>&& cbssn) = 0;
-
-  // Fire the router's own `on_close` (typed) exactly once. Called by
-  // `notify_close_once` inside `do_close`.
-  virtual bool fire_router_on_close() = 0;
+  virtual void for_each_session(session_cb&& cbssn) = 0;
 
 #pragma endregion
 #pragma region Helpers
@@ -206,7 +202,7 @@ private:
     if (!buf) return false;
 
     recv_token_ = loop_.submit_recvmsg_buffer(sock_, std::move(buf),
-        [self = self_ptr()](completion_id,
+        [self = base_ptr()](completion_id,
             buffer& buf) mutable -> slot_retention {
           self->recv_token_ = {};
           if (!self->open_) return slot_retention{};
@@ -228,7 +224,7 @@ private:
     recv_active_shot_ = shot_type::multi;
 
     recv_token_ = loop_.submit_recvmsg_buffer_multi(sock_,
-        [self = self_ptr()](completion_id,
+        [self = base_ptr()](completion_id,
             buffer& buf) mutable -> slot_retention {
           if (!self->open_) return slot_retention::release;
           const auto res = buf.result();
@@ -274,13 +270,6 @@ private:
   // Cleanly close the router.
   [[nodiscard]] bool do_close(bool already_closing = false);
 
-  [[nodiscard]] bool notify_close_once() {
-    assert(loop().is_loop_thread());
-    if (close_notified_) return false;
-    close_notified_ = true;
-    return fire_router_on_close();
-  }
-
 #pragma endregion
 #pragma region Data members
 private:
@@ -292,13 +281,12 @@ private:
   net_endpoint local_;        // Always access through `local_endpoint()`.
 
   relaxed_atomic_bool open_{true}; // Cleared once close starts.
-  bool close_notified_{};
 
   // Recv state. `intended` is the user's preference; `active` may be forced
   // down to single by buffer pressure.
   shot_type recv_intended_shot_{shot_type::single};
   shot_type recv_active_shot_{shot_type::single};
-  relaxed_atomic_bool is_reading;
+  relaxed_atomic_bool is_reading_;
   completion_token recv_token_;
 
 #pragma endregion
@@ -307,17 +295,16 @@ private:
 #pragma endregion
 #pragma region iou_dgram_router
 
-// Owns a UDP socket and demuxes incoming datagrams onto per-key
+// Owns a socket and demuxes incoming datagrams onto per-key
 // `iou_dgram_session` instances. The class is templated on the routing `KEY`
 // type; the extractor is always a `std::function<key_t(const buffer&)>`, which
 // lets `iou_dgram_router_ptr_with::bind` deduce `KEY` from the extractor's
 // signature.
 //
-// Recv path: defaults to multishot `recvmsg` using the loop's UDP
-// provided-buffer pool. On `EC::nobufs`, downgrades to singleshot `recvmsg`
-// into a borrowed read buffer. On hard error, closes the router. The recv
-// loop runs uninterrupted for the router's lifetime; the socket is shared
-// across sessions, so there is no per-session pause.
+// Recv path: defaults to multishot `recvmsg` using the loop's provided-buffer
+// pool. On `EC::nobufs`, downgrades to singleshot `recvmsg` into a borrowed
+// read buffer. On hard error, closes the router. The `recv` loop runs
+// uninterrupted for the router's lifetime.
 //
 // Send path: each session's `send(buffer&&)` flows through the router's
 // socket via `submit_sendmsg_buffer`. There is no internal queue; multiple
@@ -325,9 +312,7 @@ private:
 // buffer back to the originating session's `on_sent`.
 //
 // Demux: incoming packets are keyed by invoking the extractor on the
-// buffer. The default extractor returns the buffer's stamped `peer_addr`.
-// QUIC users supply a callable wrapped in `std::function<conn_id(const
-// buffer&)>` that parses the connection ID from the packet header.
+// buffer, then routed by key to the matching session.
 //
 // Lifecycle: sessions can be created lazily on first packet (the router
 // invokes the injected `session_factory_t` for unknown keys) or
@@ -340,37 +325,23 @@ class iou_dgram_router: public iou_dgram_router_base {
 public:
   using key_t = KEY;
   using extractor_t = std::function<key_t(const iou_loop::buffer&)>;
-  using session_t = iou_dgram_session;
-  using session_ptr = std::shared_ptr<session_t>;
-  using buffer = iou_loop::buffer;
 
   // Fires when a packet arrives keyed to a session that is not currently
   // registered. The factory receives a weak pointer to this router (pass
   // it through to `iou_dgram_session::make`) and a reference to the first
   // packet's buffer. Return a session_ptr to register, or nullptr to drop.
-  using session_factory_t = std::function<session_ptr(
-      std::shared_ptr<iou_dgram_router_base>, buffer&)>;
+  // TODO: Why not &&?
+  using session_factory_t = std::function<session_ptr(router_ptr, buffer&)>;
 
-#pragma region Handlers
-
-  // TODO: WTAF?!
-  struct handlers {
-    // Fires once when the router itself closes (after all sessions have
-    // been notified).
-    std::function<bool(iou_dgram_router&)> on_close = nullptr;
-  };
-
-#pragma endregion
 #pragma region Construction
 public:
   // Public for `make_shared`; use `iou_dgram_router_ptr_with::bind`.
   explicit iou_dgram_router(allow, const std::shared_ptr<iou_loop>& loop,
-      net_socket sock, net_endpoint local, handlers h, extractor_t&& extract,
+      net_socket sock, const net_endpoint& local, extractor_t&& extract,
       session_factory_t&& factory, shot_type recv_shot) noexcept
       : iou_dgram_router_base{iou_dgram_router_base::allow::ctor, loop,
-            std::move(sock), std::move(local), recv_shot},
-        h_{std::move(h)}, extract_{std::move(extract)},
-        factory_{std::move(factory)} {}
+            std::move(sock), local, recv_shot},
+        extract_{std::move(extract)}, factory_{std::move(factory)} {}
 
   [[nodiscard]] std::shared_ptr<iou_dgram_router> self() {
     return std::static_pointer_cast<iou_dgram_router>(
@@ -380,22 +351,23 @@ public:
 #pragma endregion
 #pragma region Sessions
 
+  // Add by extracted key. Safe from any thread.S
   [[nodiscard]] bool add_session(const buffer& buf,
       const std::shared_ptr<iou_dgram_session>& ssn) override {
     return add_session(extract_(buf), ssn);
   }
 
-  // Pre-register a session under `key`. Returns true once the session is
-  // in the routing map. Safe from any thread.
-  [[nodiscard]] bool add_session(key_t key, const session_ptr& ssn) {
+  // Pre-register a session under `key`. Safe from any thread.
+  [[nodiscard]] bool add_session(const key_t& key, const session_ptr& ssn) {
     if (!ssn) return false;
-    return loop().execute_or_post([self = self(), key, ssn]() mutable -> bool {
-      if (!self->is_open()) return false;
-      auto [it, inserted] = self->sessions_.try_emplace(key, std::move(ssn));
+    return loop().execute_or_post([this, key, ssn]() mutable -> bool {
+      if (!is_open()) return false;
+      auto [it, inserted] = sessions_.try_emplace(key, std::move(ssn));
       return inserted;
     });
   }
 
+  // Remove by extracted key. Safe from any thread.
   [[nodiscard]] bool remove_session(const buffer& buf) override {
     return remove_session(extract_(buf));
   }
@@ -404,14 +376,17 @@ public:
   // `on_close`. Use the session's own `close()` to notify. Safe from any
   // thread.
   [[nodiscard]] bool remove_session(const key_t& key) {
-    return loop().execute_or_post([self = self(), key]() -> bool {
-      return self->sessions_.erase(key) > 0;
+    return loop().execute_or_post([this, key]() -> bool {
+      return sessions_.erase(key) > 0;
     });
   }
 
+  // Forcibly remove a session by reference. Does NOT fire the session's
+  // `on_close`. Use the session's own `close()` to notify. Safe from any
+  // thread.
   [[nodiscard]] bool remove_session(iou_dgram_session& s) override {
-    return loop().execute_or_post([self = self(), &s]() -> bool {
-      return self->do_remove_session(s);
+    return loop().execute_or_post([this, &s]() -> bool {
+      return do_remove_session(s);
     });
   }
 
@@ -422,35 +397,34 @@ public:
     return (it == sessions_.end()) ? nullptr : it->second;
   }
 
-  // Demux a successfully received datagram to a session. Loop-thread only.
+  // Demux a successfully received datagram to a session.
   [[nodiscard]] bool dispatch_packet(buffer&& buf) override {
     assert(loop().is_loop_thread());
-    key_t key = extract_(buf);
+    return loop().execute_or_post([this, &buf]() -> bool {
+      key_t key = extract_(buf);
 
-    if (auto it = sessions_.find(key); it != sessions_.end()) {
-      it->second->dispatch_on_data(std::move(buf));
+      if (auto it = sessions_.find(key); it != sessions_.end()) {
+        it->second->dispatch_on_data(std::move(buf));
+        return true;
+      }
+
+      // Unknown key: invoke the lazy factory.
+      if (factory_) {
+        auto ssn = factory_(base_ptr(), buf);
+        if (ssn) (void)sessions_.try_emplace(std::move(key), std::move(ssn));
+        return true;
+      }
+
+      // Drop. Buffer destructor releases the slot.
       return true;
-    }
-
-    // Unknown key: invoke the lazy factory.
-    if (factory_) {
-      std::shared_ptr<iou_dgram_router_base> strong_self{
-          std::static_pointer_cast<iou_dgram_router_base>(
-              this->shared_from_this())};
-      auto ssn = factory_(std::move(strong_self), buf);
-      if (ssn) (void)sessions_.try_emplace(std::move(key), std::move(ssn));
-      return true;
-    }
-
-    // Drop. Buffer destructor releases the slot.
-    return true;
+    });
   }
+
 #pragma endregion
 #pragma region Dispatch
 protected:
-  void for_each_session(
-      std::function<bool(iou_dgram_session&)>&& cbssn) override {
-    auto fn = [this, cbssn = std::move(cbssn)]() -> bool {
+  void for_each_session(session_cb&& cbssn) override {
+    (void)loop().execute_or_post([this, cbssn = std::move(cbssn)]() -> bool {
       for (auto it = sessions_.begin(); it != sessions_.end();) {
         if (!cbssn(*it->second)) {
           it = sessions_.erase(it);
@@ -459,14 +433,7 @@ protected:
         }
       }
       return true;
-    };
-    (void)loop().execute_or_post(std::move(fn));
-  }
-
-  // Fire the router's own `on_close`. Loop-thread only.
-  bool fire_router_on_close() override {
-    if (h_.on_close) return h_.on_close(*this);
-    return true;
+    });
   }
 
 #pragma endregion
@@ -486,7 +453,6 @@ protected:
 #pragma endregion
 #pragma region Data members
 private:
-  handlers h_;
   extractor_t extract_;
   session_factory_t factory_;
   std::unordered_map<key_t, session_ptr> sessions_;
@@ -539,12 +505,11 @@ public:
   template<typename Key>
   [[nodiscard]] static iou_dgram_router_ptr_with<iou_dgram_router<Key>>
   bind(const std::shared_ptr<iou_loop>& loop, const net_endpoint& local,
-      iou_dgram_router<Key>::handlers h,
       std::function<Key(const iou_loop::buffer&)> extract,
       iou_dgram_router<Key>::session_factory_t factory = {},
       shot_type recv_shot = shot_type::single) {
-    return do_bind<iou_dgram_router<Key>>(loop, local, std::move(h),
-        std::move(extract), std::move(factory), recv_shot);
+    return do_bind<iou_dgram_router<Key>>(loop, local, std::move(extract),
+        std::move(factory), recv_shot);
   }
 
 #pragma endregion
@@ -575,7 +540,6 @@ private:
   template<typename TargetRouter>
   [[nodiscard]] static iou_dgram_router_ptr_with<TargetRouter>
   do_bind(const std::shared_ptr<iou_loop>& loop, const net_endpoint& local,
-      typename TargetRouter::handlers h,
       typename TargetRouter::extractor_t extract,
       typename TargetRouter::session_factory_t factory, shot_type recv_shot) {
     auto sock = net_socket::create_for(local, execution::nonblocking,
@@ -587,8 +551,8 @@ private:
     if (!local.port()) bound = net_endpoint{sock};
     assert(loop.get());
     auto router = std::make_shared<TargetRouter>(TargetRouter::allow::ctor,
-        loop, std::move(sock), std::move(bound), std::move(h),
-        std::move(extract), std::move(factory), recv_shot);
+        loop, std::move(sock), std::move(bound), std::move(extract),
+        std::move(factory), recv_shot);
     if (!loop->post([r = router] { return r->start_reading(); })) return {};
     return iou_dgram_router_ptr_with<TargetRouter>{std::move(router)};
   }
