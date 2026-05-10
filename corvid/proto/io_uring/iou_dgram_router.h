@@ -78,6 +78,9 @@ public:
 protected:
   enum class allow : bool { ctor };
 
+  template<typename Router>
+  friend class iou_dgram_router_ptr_with;
+
 public:
   // Use `make_shared` in child class.
   explicit iou_dgram_router_base(allow, const std::shared_ptr<iou_loop>& loop,

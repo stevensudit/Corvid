@@ -257,10 +257,10 @@ public:
   // Construct a session_with_state bound to `router`, optionally
   // initializing the per-session state. Safe from any thread.
   [[nodiscard]] static std::shared_ptr<iou_dgram_session_with_state>
-  make(std::weak_ptr<iou_dgram_router_base> router, handlers h,
+  make(const std::shared_ptr<iou_dgram_router_base>& router, handlers h,
       state_t state = {}) {
     return std::make_shared<iou_dgram_session_with_state>(base::allow::ctor,
-        std::move(router), std::move(h), std::move(state));
+        router, std::move(h), std::move(state));
   }
 
 #pragma endregion
