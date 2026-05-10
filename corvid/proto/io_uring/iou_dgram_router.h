@@ -80,10 +80,9 @@ public:
 
 #pragma region Construction
 protected:
-  // Only constructable as a base subobject of a derived router class.
-  explicit iou_dgram_router_base(const loop_ptr& loop, net_socket&& sock,
+  explicit iou_dgram_router_base(iou_loop& loop, net_socket&& sock,
       const net_endpoint& local, shot_type recv_shot) noexcept
-      : loop_{*loop}, sock_{std::move(sock)}, weak_loop_{loop}, local_{local},
+      : loop_{loop}, sock_{std::move(sock)}, local_{local},
         recv_intended_shot_{recv_shot}, recv_active_shot_{recv_shot} {}
 
 public:
@@ -100,8 +99,7 @@ public:
   // True until `close()` is called. Safe from any thread.
   [[nodiscard]] bool is_open() const noexcept { return open_; }
 
-  // The bound local address. Resolved lazily via `getsockname` on first call
-  // to support `port == 0`. Safe from any thread.
+  // The bound local address. Safe from any thread.
   [[nodiscard]] const net_endpoint& local_endpoint() noexcept {
     std::scoped_lock lock{endpoint_mutex_};
     if (local_.empty()) local_ = net_endpoint{sock_};
@@ -109,12 +107,6 @@ public:
   }
 
   [[nodiscard]] iou_loop& loop() noexcept { return loop_; }
-
-  // Strong pointer to the loop, for callbacks that may run after the router
-  // is destroyed.
-  [[nodiscard]] loop_ptr strong_loop() const noexcept {
-    return weak_loop_.lock();
-  }
 
   // Strong pointer to self.
   [[nodiscard]] router_ptr base_ptr() { return shared_from_this(); }
@@ -271,7 +263,6 @@ private:
 private:
   iou_loop& loop_;
   net_socket sock_;
-  std::weak_ptr<iou_loop> weak_loop_;
 
   std::mutex endpoint_mutex_; // protects lazy initialization of `local_`.
   net_endpoint local_;        // Always access through `local_endpoint()`.
@@ -337,8 +328,8 @@ protected:
 
 public:
   // Public for `make_shared`; use `iou_dgram_router_ptr_with::bind`.
-  explicit iou_dgram_router(allow, const std::shared_ptr<iou_loop>& loop,
-      net_socket sock, const net_endpoint& local, extractor_t&& extract,
+  explicit iou_dgram_router(allow, iou_loop& loop, net_socket sock,
+      const net_endpoint& local, extractor_t&& extract,
       session_factory_t&& factory, shot_type recv_shot) noexcept
       : iou_dgram_router_base{loop, std::move(sock), local, recv_shot},
         extract_{std::move(extract)}, factory_{std::move(factory)} {}
@@ -489,8 +480,6 @@ public:
   // NOLINTBEGIN(bugprone-exception-escape)
   ~iou_dgram_router_ptr_with() {
     if (!router_) return;
-    auto loop = router_->strong_loop();
-    if (!loop) return;
     (void)router_->close();
   }
   // NOLINTEND(bugprone-exception-escape)
@@ -551,7 +540,7 @@ private:
     if (!local.port()) bound = net_endpoint{sock};
     assert(loop.get());
     auto router = std::make_shared<TargetRouter>(TargetRouter::allow::ctor,
-        loop, std::move(sock), std::move(bound), std::move(extract),
+        *loop, std::move(sock), std::move(bound), std::move(extract),
         std::move(factory), recv_shot);
     if (!loop->post([r = router] { return r->start_reading(); })) return {};
     return iou_dgram_router_ptr_with<TargetRouter>{std::move(router)};
