@@ -21,6 +21,7 @@
 #include <mutex>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "../../containers/opt_find.h"
 #include "../../enums/bool_enums.h"
@@ -347,6 +348,11 @@ private:
           // Soft error or kernel-side glitch: process this packet (if any),
           // then arm a fresh multishot.
           if (res) (void)self->dispatch_packet(std::move(buf));
+
+          // This looks recursive but actually can't overflow the stack. We
+          // could theoretically reuse the completion ID as a token and queue
+          // that, but there are hurdles and it's not worth doing for an error
+          // recovery case.
           (void)self->do_submit_multi_recv();
           return slot_retention::release;
         });
@@ -355,9 +361,16 @@ private:
     return true;
   }
 
-  // Cleanly close the router. Moves the sessions map out before iterating
-  // so each session's `close()` -> `unregister_self` -> `remove_session(key)`
-  // hits an empty router map (no-op) instead of mutating mid-iteration.
+  // Cleanly close the router. Walks the sessions map by snapshot so that
+  // each session's `close()` -> `unregister_self` -> `remove_session(key)`
+  // can mutate `sessions_` normally without iterator invalidation. After
+  // every session has had its turn, the map should be empty; anything left
+  // is a misbehaving plugin that failed to unregister.
+  //
+  // Holding the snapshot of `shared_ptr<session>`s keeps each session alive
+  // for the duration of its `close()`. In-flight callbacks (sends in
+  // particular) bind their own `shared_ptr<session>`, so the session will
+  // also outlive them and be destructed when the last reference drops.
   [[nodiscard]] bool do_close(bool already_closing = false) {
     assert(loop_.is_loop_thread());
     if (!already_closing &&
@@ -365,9 +378,15 @@ private:
       return false;
     assert(!open_);
 
-    auto drained = std::move(sessions_);
-    sessions_.clear();
-    for (auto& [k, ssn] : drained) (void)ssn->close();
+    std::vector<session_ptr> closing;
+    closing.reserve(sessions_.size());
+    for (const auto& [k, ssn] : sessions_) closing.push_back(ssn);
+
+    for (const auto& ssn : closing) (void)ssn->close();
+
+    // Each session was expected to have removed all its keys via
+    // `unregister_self`. Anything left points to a buggy plugin.
+    assert(sessions_.empty());
 
     if (sock_)
       (void)loop_.submit_close(std::move(sock_),
