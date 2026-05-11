@@ -126,6 +126,29 @@ concept iou_dgram_session_plugin = requires(P p, const iou_loop::buffer& cbuf,
 // plugin's `unregister_self`) before submitting the socket close. Sessions
 // hold a reference to the router.
 //
+// Ownership: `iou_dgram_router_handle` is the canonical RAII owner and is
+// what tests and most users hold. The router is also self-sustaining: as
+// long as a recv is in flight, the recv callback holds a captured
+// `shared_ptr<self>`, so the router cannot destruct even with no external
+// `shared_ptr`. This permits a fire-and-forget pattern - `bind`, `release`
+// the handle, hand the resulting `shared_ptr` to a session plugin (or
+// discard it entirely) - and let the router live on its own ref.
+// Termination then comes from one of:
+//   - any holder calling `close()` (a session that captured `&router_` can
+//     do this from `unregister_self` or elsewhere);
+//   - a hard recv error driving `do_close()` from inside the recv callback;
+//   - the `iou_loop` shutting down, which clears every slot and so releases
+//     every captured `shared_ptr`.
+// In all three, `close()` cancels the in-flight recv via `submit_close`
+// (`prep_cancel_fd`); the recv callback receives the canceled CQE, releases
+// its slot, the last `self` ref drops, and the router destructs.
+//
+// Re-arming inside the recv callback goes through `start_reading` ->
+// `execute_or_post_with_retry`, which keeps retrying transient submission
+// failures (SQE pressure, buffer-pool starvation) until they clear. As long
+// as the loop itself is alive, the chain heals on its own; the only way
+// the self-sustaining ref disappears is one of the termination paths above.
+//
 // Thread safety: the public API is safe to call from any thread. All state
 // mutation happens on the loop thread.
 template<typename RouterPlugin>
