@@ -44,11 +44,12 @@ using namespace bool_enums;
 // Required methods (regular, non-static):
 //  `key_t extract(const buffer&)` - deterministic key extraction.
 //  `bool create_session(const buffer&, iou_dgram_router&)` - invoked on
-//    cache miss. Constructs a session via `session_t::make` (whose factory
-//    calls the session plugin's `register_self`, which in turn calls
-//    `router.add_session(key, self)` one or more times). May choose not to
-//    register (rejection path); the router will then drop the originating
-//    packet. Return value is informational.
+//      key-to-session dictionary miss. Constructs a session via
+//      `session_t::make` (whose factory calls the session plugin's
+//      `register_self`, which in turn calls `router.add_session(key, self)`
+//      one or more times). May choose not to register (rejection path); the
+//      router will then drop the originating packet. Return value is
+//      informational.
 //
 // This concept is NOT used as a template parameter constraint on
 // `iou_dgram_router` itself. Doing so would force eager checks of the
@@ -64,7 +65,7 @@ template<typename P>
 concept iou_dgram_router_plugin = requires(P p, const iou_loop::buffer& cbuf) {
   typename P::session_t;
   typename P::key_t;
-  { p.extract(cbuf) } -> std::same_as<typename P::key_t>;
+  { p.extract(cbuf) } -> std::convertible_to<typename P::key_t>;
 };
 
 // Plugin contract for `iou_dgram_session`. The plugin owns per-session state
@@ -77,14 +78,15 @@ concept iou_dgram_router_plugin = requires(P p, const iou_loop::buffer& cbuf) {
 //
 // Required methods (regular, non-static):
 //  `bool register_self(const buffer&)` - called from `iou_dgram_session::make`
-//    immediately after construction. Sniff the key(s) and call
-//    `router.add_session(key, session.shared_from_this())` one or more times.
+//      immediately after construction. Sniff the key(s) and call
+//      `router.add_session(key, session.shared_from_this())` one or more
+//      times.
 //  `bool handle_recv(buffer&&)` - dispatched per received datagram routed to
-//    this session.
+//      this session.
 //  `bool handle_sent(buffer&&)` - the buffer comes back here when a send
-//    completes; check `buf.result()` for outcome.
+//      completes; check `buf.result()` for outcome, and potentially resend.
 //  `bool unregister_self()` - called on session close. Plugin must call
-//    `router.remove_session(key)` once per registered key.
+//      `router.remove_session(key)` once per registered key.
 //
 // Not used as a template parameter constraint; verified by a deferred
 // `static_assert` in the `iou_dgram_session` constructor body. See the note
@@ -102,19 +104,20 @@ concept iou_dgram_session_plugin = requires(P p, const iou_loop::buffer& cbuf,
 #pragma endregion
 #pragma region iou_dgram_router
 
-// Owns a UDP socket and demuxes incoming datagrams onto per-key
+// Owns a datagram socket and demuxes incoming datagrams onto per-key
 // `iou_dgram_session` instances via the `RouterPlugin`'s `extract` /
 // `create_session` methods.
 //
 // Recv path: defaults to multishot `recvmsg` using the loop's provided-buffer
 // pool. On `EC::nobufs`, downgrades to singleshot `recvmsg` into a borrowed
 // read buffer. On hard error, closes the router. The `recv` loop runs
-// uninterrupted for the router's lifetime.
+// uninterrupted for the router's lifetime and is not controlled by sessions.
 //
 // Send path: each session's `send(buffer&&)` flows through the router's
 // socket via `submit_sendmsg_buffer`. There is no internal queue; multiple
 // datagrams may be in flight concurrently. Each completion routes the
-// buffer back to the originating session's `on_sent`.
+// buffer back to the originating session's `on_sent`, allowed the result to be
+// checked and for the buffer to potentially be resent.
 //
 // Lifetime: the router is intended to outlive all of its sessions. `close()`
 // drains the sessions map (calling each session's `close()`, which fires the
@@ -161,8 +164,6 @@ public:
         "RouterPlugin must satisfy the iou_dgram_router_plugin concept");
   }
 
-  ~iou_dgram_router() = default;
-
   iou_dgram_router(const iou_dgram_router&) = delete;
   iou_dgram_router(iou_dgram_router&&) = delete;
   iou_dgram_router& operator=(const iou_dgram_router&) = delete;
@@ -183,8 +184,6 @@ public:
 
   [[nodiscard]] iou_loop& loop() noexcept { return loop_; }
   [[nodiscard]] router_plugin_t& plugin() noexcept { return plugin_; }
-
-  // Strong pointer to self.
   [[nodiscard]] router_ptr self() { return this->shared_from_this(); }
 
 #pragma endregion
@@ -211,6 +210,8 @@ public:
     });
   }
 
+  // TODO: Consider adding a way to pause the server.
+
 #pragma endregion
 #pragma region Sessions
 
@@ -226,19 +227,12 @@ public:
   }
 
   // Forcibly remove a session by key. Does NOT fire the session's plugin
-  // `unregister_self`; use the session's own `close()` to notify. Safe from
-  // any thread.
+  // `unregister_self`; use the session's own `close()` to notify. Actual
+  // removal is async when called off-loop. Safe from any thread.
   [[nodiscard]] bool remove_session(const key_t& key) {
     return loop_.execute_or_post([this, key]() -> bool {
       return sessions_.erase(key) > 0;
     });
-  }
-
-  // Look up an existing session. Loop-thread only.
-  [[nodiscard]] session_ptr find_session(const key_t& key) const {
-    assert(loop_.is_loop_thread());
-    auto it = sessions_.find(key);
-    return (it == sessions_.end()) ? nullptr : it->second;
   }
 
   // Submit a `sendmsg` through this router's socket. The completion routes
