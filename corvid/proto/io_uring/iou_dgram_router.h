@@ -439,7 +439,7 @@ private:
   relaxed_atomic_bool is_reading_;
   completion_token recv_token_;
 
-  RouterPlugin plugin_;
+  [[no_unique_address]] RouterPlugin plugin_;
   std::unordered_map<key_t, session_ptr> sessions_;
 
 #pragma endregion

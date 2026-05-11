@@ -67,17 +67,17 @@ public:
     using router_t = iou_dgram_router<router_plugin>;
     using key_t = net_endpoint;
 
-    explicit router_plugin(state* st = nullptr) noexcept : state_{st} {}
+    explicit router_plugin(state* state = nullptr) noexcept : state_{state} {}
 
-    [[nodiscard]] key_t extract(const iou_loop::buffer& b) const noexcept {
-      (void)this; // intentionally non-static; see iou_dgram_echo_server.h.
-      return b.peer_addr();
+    [[nodiscard]] key_t extract(const iou_loop::buffer& buf) const noexcept {
+      (void)this;
+      return buf.peer_addr();
     }
 
-    bool create_session(const iou_loop::buffer& b, router_t& r) {
-      if (state_ && state_->on_create) state_->on_create(b);
+    bool create_session(const iou_loop::buffer& buf, router_t& router) {
+      if (state_ && state_->on_create) state_->on_create(buf);
       if (!state_ || !state_->auto_create) return false;
-      (void)session_t::make(r, b, state_);
+      (void)session_t::make(router, buf, state_);
       return true;
     }
 
@@ -90,22 +90,23 @@ public:
     using router_t = iou_dgram_router<router_plugin>;
     using session_t = iou_dgram_session<session_plugin>;
 
-    session_plugin(router_t& r, session_t& s, state* st,
+    session_plugin(router_t& router, session_t& session, state* state,
         net_endpoint preset_key = {}) noexcept
-        : router_{r}, session_{s}, state_{st}, key_{preset_key} {}
+        : router_{router}, session_{session}, state_{state}, key_{preset_key} {
+    }
 
-    bool register_self(const iou_loop::buffer& first) {
-      key_ = first.peer_addr();
+    bool register_self(const iou_loop::buffer& buf) {
+      key_ = buf.peer_addr();
       return router_.add_session(key_, session_.self());
     }
 
-    bool handle_recv(iou_loop::buffer&& b) {
-      if (state_ && state_->on_recv) return state_->on_recv(std::move(b));
+    bool handle_recv(iou_loop::buffer&& buf) {
+      if (state_ && state_->on_recv) return state_->on_recv(std::move(buf));
       return true;
     }
 
-    bool handle_sent(iou_loop::buffer&& b) {
-      if (state_ && state_->on_sent) return state_->on_sent(std::move(b));
+    bool handle_sent(iou_loop::buffer&& buf) {
+      if (state_ && state_->on_sent) return state_->on_sent(std::move(buf));
       return true;
     }
 
@@ -307,20 +308,20 @@ public:
     using session_t = iou_dgram_session<session_plugin>;
     using key_t = std::uint32_t;
 
-    explicit router_plugin(state* st = nullptr) noexcept : state_{st} {}
+    explicit router_plugin(state* state = nullptr) noexcept : state_{state} {}
 
-    [[nodiscard]] key_t extract(const iou_loop::buffer& b) const noexcept {
+    [[nodiscard]] key_t extract(const iou_loop::buffer& buf) const noexcept {
       (void)this;
-      const auto v = b.payload_view();
+      const auto v = buf.payload_view();
       if (v.size() < 4) return 0;
       key_t id{};
       std::memcpy(&id, v.data(), 4);
       return id;
     }
 
-    bool create_session(const iou_loop::buffer& b,
-        iou_dgram_router<router_plugin>& r) {
-      (void)session_t::make(r, b, state_, extract(b));
+    bool create_session(const iou_loop::buffer& buf,
+        iou_dgram_router<router_plugin>& router) {
+      (void)session_t::make(router, buf, state_, extract(buf));
       return true;
     }
 
@@ -333,16 +334,16 @@ public:
     using router_t = iou_dgram_router<router_plugin>;
     using session_t = iou_dgram_session<session_plugin>;
 
-    session_plugin(router_t& r, session_t& s, state* st,
+    session_plugin(router_t& router, session_t& session, state* state,
         std::uint32_t key) noexcept
-        : router_{r}, session_{s}, state_{st}, key_{key} {}
+        : router_{router}, session_{session}, state_{state}, key_{key} {}
 
     bool register_self(const iou_loop::buffer&) {
       return router_.add_session(key_, session_.self());
     }
-    bool handle_recv(iou_loop::buffer&& b) {
+    bool handle_recv(iou_loop::buffer&& buf) {
       if (state_ && state_->on_recv)
-        return state_->on_recv(key_, std::move(b));
+        return state_->on_recv(key_, std::move(buf));
       return true;
     }
     bool handle_sent(iou_loop::buffer&&) noexcept {
