@@ -96,7 +96,7 @@ public:
 
     bool register_self(const iou_loop::buffer& first) {
       key_ = first.peer_addr();
-      return router_.add_session(key_, session_.self_ptr());
+      return router_.add_session(key_, session_.self());
     }
 
     bool handle_recv(iou_loop::buffer&& b) {
@@ -146,13 +146,13 @@ void IouDgramRouter_BasicSendRecv() {
       return true;
     };
 
-    auto routerA = capture_handle::bind(runner.loop(),
+    auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &recvA);
     EXPECT_TRUE(routerA);
 
     capture_protocol::state stateB; // sender side: no auto-create needed
     stateB.auto_create = false;
-    auto routerB = capture_handle::bind(runner.loop(),
+    auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
     EXPECT_TRUE(routerB);
 
@@ -181,7 +181,7 @@ void IouDgramRouter_OnSentReturnsBuffer() {
     std::atomic_int sent_bytes{0};
 
     capture_protocol::state stateA; // receiver: just accept
-    auto routerA = capture_handle::bind(runner.loop(),
+    auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateA);
     EXPECT_TRUE(routerA);
 
@@ -194,7 +194,7 @@ void IouDgramRouter_OnSentReturnsBuffer() {
       return true;
     };
 
-    auto routerB = capture_handle::bind(runner.loop(),
+    auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
     EXPECT_TRUE(routerB);
 
@@ -226,13 +226,13 @@ void IouDgramRouter_LazySession() {
       return true;
     };
 
-    auto routerA = capture_handle::bind(runner.loop(),
+    auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateA);
     EXPECT_TRUE(routerA);
 
     capture_protocol::state stateB;
     stateB.auto_create = false;
-    auto routerB = capture_handle::bind(runner.loop(),
+    auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
     EXPECT_TRUE(routerB);
 
@@ -267,13 +267,13 @@ void IouDgramRouter_DropOnNullFactory() {
     stateA.auto_create = false;
     stateA.on_create = [&](const iou_loop::buffer&) { ++factory_calls; };
 
-    auto routerA = capture_handle::bind(runner.loop(),
+    auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateA);
     EXPECT_TRUE(routerA);
 
     capture_protocol::state stateB;
     stateB.auto_create = false;
-    auto routerB = capture_handle::bind(runner.loop(),
+    auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
     EXPECT_TRUE(routerB);
 
@@ -338,7 +338,7 @@ public:
         : router_{r}, session_{s}, state_{st}, key_{key} {}
 
     bool register_self(const iou_loop::buffer&) {
-      return router_.add_session(key_, session_.self_ptr());
+      return router_.add_session(key_, session_.self());
     }
     bool handle_recv(iou_loop::buffer&& b) {
       if (state_ && state_->on_recv)
@@ -380,13 +380,13 @@ void IouDgramRouter_CustomKey() {
     };
 
     auto routerA = iou_dgram_router_handle<id_protocol::router_plugin>::bind(
-        runner.loop(), net_endpoint::loopback_v4(), shot_type::single,
+        *runner.loop(), net_endpoint::loopback_v4(), shot_type::single,
         &stateA);
     EXPECT_TRUE(routerA);
 
     capture_protocol::state stateB;
     stateB.auto_create = false;
-    auto routerB = capture_handle::bind(runner.loop(),
+    auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
     EXPECT_TRUE(routerB);
 
@@ -459,7 +459,7 @@ public:
 
     bool register_self(const iou_loop::buffer& first) {
       key_ = first.peer_addr();
-      return router_.add_session(key_, session_.self_ptr());
+      return router_.add_session(key_, session_.self());
     }
     bool handle_recv(iou_loop::buffer&&) {
       ++recv_count_;
@@ -492,13 +492,13 @@ void IouDgramRouter_WithPluginState() {
 
     auto routerA =
         iou_dgram_router_handle<counting_protocol::router_plugin>::bind(
-            runner.loop(), net_endpoint::loopback_v4(), shot_type::single,
+            *runner.loop(), net_endpoint::loopback_v4(), shot_type::single,
             &stateA);
     EXPECT_TRUE(routerA);
 
     capture_protocol::state stateB;
     stateB.auto_create = false;
-    auto routerB = capture_handle::bind(runner.loop(),
+    auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
     EXPECT_TRUE(routerB);
 
@@ -530,13 +530,13 @@ void IouDgramRouter_Multishot() {
       return true;
     };
 
-    auto routerA = capture_handle::bind(runner.loop(),
+    auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::multi, &stateA);
     EXPECT_TRUE(routerA);
 
     capture_protocol::state stateB;
     stateB.auto_create = false;
-    auto routerB = capture_handle::bind(runner.loop(),
+    auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
     EXPECT_TRUE(routerB);
 
@@ -568,7 +568,7 @@ void IouDgramRouter_OnClose() {
       return true;
     };
 
-    auto routerA = capture_handle::bind(runner.loop(),
+    auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateA);
     EXPECT_TRUE(routerA);
 
@@ -604,7 +604,7 @@ void IouDgramEchoProtocol_RoundTrip() {
     std::atomic_bool received{false};
     std::string echoed;
 
-    auto echoA = iou_dgram_echo_server::bind(runner.loop(),
+    auto echoA = iou_dgram_echo_server::bind(*runner.loop(),
         net_endpoint::loopback_v4());
     EXPECT_TRUE(echoA);
 
@@ -616,7 +616,7 @@ void IouDgramEchoProtocol_RoundTrip() {
       return true;
     };
 
-    auto routerB = capture_handle::bind(runner.loop(),
+    auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
     EXPECT_TRUE(routerB);
 

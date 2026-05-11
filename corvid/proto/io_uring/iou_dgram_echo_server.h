@@ -28,6 +28,7 @@ namespace corvid { inline namespace proto { namespace iouring {
 // datagram back to its sender.
 class iou_dgram_echo_protocol {
 public:
+  using buffer = iou_loop::buffer;
   class session_plugin;
 
   class router_plugin {
@@ -36,16 +37,14 @@ public:
     using router_t = iou_dgram_router<router_plugin>;
     using key_t = net_endpoint;
 
-    [[nodiscard]] key_t extract(const iou_loop::buffer& b) const noexcept {
-      (void)this; // Plugin methods are intentionally instance methods so
-                  // future state additions don't churn signatures; suppress
-                  // `readability-convert-member-functions-to-static`.
-      return b.peer_addr();
+    [[nodiscard]] const key_t& extract(const buffer& buf) const noexcept {
+      (void)this;
+      return buf.peer_addr();
     }
 
-    bool create_session(const iou_loop::buffer& b, router_t& r) {
+    bool create_session(const buffer& buf, router_t& router) {
       (void)this;
-      (void)session_t::make(r, b);
+      (void)session_t::make(router, buf);
       return true;
     }
   };
@@ -55,28 +54,35 @@ public:
     using router_t = iou_dgram_router<router_plugin>;
     using session_t = iou_dgram_session<session_plugin>;
 
-    session_plugin(router_t& r, session_t& s) noexcept
-        : router_{r}, session_{s} {}
+    session_plugin(router_t& router, session_t& session) noexcept
+        : router_{router}, session_{session} {}
 
-    bool register_self(const iou_loop::buffer& first) {
-      key_ = first.peer_addr();
-      return router_.add_session(key_, session_.self_ptr());
+    bool register_self(const buffer& buf) {
+      key_ = buf.peer_addr();
+      return router_.add_session(key_, session_.self());
     }
 
-    bool handle_recv(iou_loop::buffer&& b) {
-      auto out = session_.borrow_send_buffer();
-      if (!out) return false;
-      out.peer_addr() = key_;
-      if (!out.append(b.payload_view())) return false;
-      return session_.send(std::move(out)).is_valid();
+    bool handle_recv(buffer&& request) {
+      // We could reuse the buffer, especially since we have no changes, but
+      // it's an abuse of the system to repurpose a Provided Buffer for sends.
+      auto response = session_.borrow_send_buffer();
+      if (!response) return false;
+      response.peer_addr() = key_;
+      if (!response.append(request.payload_view())) return false;
+      return session_.send(std::move(response)).is_valid();
     }
 
-    bool handle_sent(iou_loop::buffer&&) noexcept {
+    bool handle_sent(buffer&&) noexcept {
+      // We don't care about sent buffers. We're not going to update state or
+      // resend them.
       (void)this;
       return true;
     }
 
-    bool unregister_self() { return router_.remove_session(key_); }
+    bool unregister_self() {
+      // The simple case of having a single key.
+      return router_.remove_session(key_);
+    }
 
   private:
     router_t& router_;
@@ -92,18 +98,18 @@ public:
 class iou_dgram_echo_server {
 public:
   using router_plugin_t = iou_dgram_echo_protocol::router_plugin;
-  using router_t = iou_dgram_router<router_plugin_t>;
+  using router_t = router_plugin_t::router_t;
   using handle_t = iou_dgram_router_handle<router_plugin_t>;
 
   iou_dgram_echo_server() noexcept = default;
   iou_dgram_echo_server(iou_dgram_echo_server&&) noexcept = default;
   iou_dgram_echo_server& operator=(iou_dgram_echo_server&&) noexcept = default;
+
   iou_dgram_echo_server(const iou_dgram_echo_server&) = delete;
   iou_dgram_echo_server& operator=(const iou_dgram_echo_server&) = delete;
 
-  [[nodiscard]] static iou_dgram_echo_server
-  bind(const std::shared_ptr<iou_loop>& loop, const net_endpoint& local,
-      shot_type recv_shot = shot_type::single) {
+  [[nodiscard]] static iou_dgram_echo_server bind(iou_loop& loop,
+      const net_endpoint& local, shot_type recv_shot = shot_type::multi) {
     return iou_dgram_echo_server{handle_t::bind(loop, local, recv_shot)};
   }
 

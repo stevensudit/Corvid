@@ -58,11 +58,13 @@ using namespace bool_enums;
 // `session_t` alias, which names `iou_dgram_session<MatchingSessionPlugin>`,
 // whose own constraint would in turn re-check the matching session plugin's
 // `router_t` alias - a circular dependency that no two-step ordering can
-// satisfy. Conformance is instead verified by a deferred `static_assert` in
-// the `iou_dgram_router` constructor body, which is instantiated only when
-// an instance is actually constructed (by which time both plugins are
-// complete). Concept failures surface as a clean `static_assert` diagnostic
-// pointing at the unsatisfied requirement.
+// satisfy.
+//
+// Conformance is instead verified by a deferred `static_assert` in the
+// `iou_dgram_router` constructor body, which is instantiated only when an
+// instance is actually constructed (by which time both plugins are complete).
+// Concept failures surface as a clean `static_assert` diagnostic pointing at
+// the unsatisfied requirement.
 template<typename P>
 concept iou_dgram_router_plugin = requires(P p, const iou_loop::buffer& cbuf) {
   typename P::session_t;
@@ -482,20 +484,17 @@ public:
   // requests default construction. Returns an empty handle on failure.
   template<typename... PluginArgs>
   [[nodiscard]] static iou_dgram_router_handle
-  bind(const std::shared_ptr<iou_loop>& loop, const net_endpoint& local,
-      shot_type recv_shot = shot_type::single, PluginArgs&&... plugin_args) {
+  bind(iou_loop& loop, net_endpoint local,
+      shot_type recv_shot = shot_type::multi, PluginArgs&&... plugin_args) {
     auto sock = net_socket::create_for(local, execution::nonblocking,
         message_style::datagram);
-    if (!sock.is_open()) return {};
-    if (!sock.set_reuse_addr()) return {};
-    if (!sock.bind(local)) return {};
-    auto bound = local;
-    if (!local.port()) bound = net_endpoint{sock};
-    assert(loop.get());
-    auto router = std::make_shared<router_t>(router_t::allow::ctor, *loop,
-        std::move(sock), std::move(bound), recv_shot,
+    if (!sock.is_open() || !sock.set_nonblocking() || !sock.bind(local))
+      return {};
+    if (!local.port()) local = net_endpoint{sock};
+    auto router = std::make_shared<router_t>(router_t::allow::ctor, loop,
+        std::move(sock), std::move(local), recv_shot,
         std::forward<PluginArgs>(plugin_args)...);
-    if (!loop->post([r = router] { return r->start_reading(); })) return {};
+    (void)router->start_reading();
     return iou_dgram_router_handle{std::move(router)};
   }
 
@@ -512,12 +511,11 @@ public:
     return router_->close();
   }
 
-  [[nodiscard]] router_t* operator->() noexcept { return router_.get(); }
-  [[nodiscard]] const router_t* operator->() const noexcept {
-    return router_.get();
+  [[nodiscard]] auto operator->(this auto&& self) noexcept {
+    return self.router_.get();
   }
   [[nodiscard]] explicit operator bool() const noexcept {
-    return router_ != nullptr;
+    return router_.get();
   }
 
 #pragma endregion

@@ -26,24 +26,27 @@ namespace corvid { inline namespace proto { namespace iouring {
 
 #pragma region iou_dgram_session
 
-// A logical conversation, owned by an `iou_dgram_router` via `shared_ptr`.
-// The session holds a reference to its router (the router is intended to
-// outlive all of its sessions; `router.close()` drains them first).
+// A logical conversation, owned by an `iou_dgram_router` via `shared_ptr`. The
+// session holds a reference to its router.
+//
+// (The router is intended to outlive all of its sessions; `router.close()`
+// drains them first. It is possible for a zombie session, kept alive by an
+// outstanding `shared_ptr`, to linger after the router is gone, but it is in
+// the closed state and will never attempt to call through to the router).
 //
 // All per-session state lives on the `SessionPlugin` instance, which the
-// session constructs in-place with `(router&, *this, user_args...)`. The
-// plugin is therefore free to capture either reference as a member.
+// session constructs in-place with `(router&, *this, user_args...)`.
 //
 // Send path: `send(buffer&&)` flows through the router and eventually
-// fires the plugin's `handle_sent` with the buffer's `result()` reflecting
-// the send outcome.
+// fires the plugin's `handle_sent` with the `buffer`'s `result()` reflecting
+// the send outcome. The `buffer` itself is available for resending, if needed.
 //
 // Recv path: the router calls `on_receive(buffer&&)`, which forwards into
 // the plugin's `handle_recv`.
 //
-// Construction: use the static `make` factory. It calls `make_shared`, then
-// invokes `plugin.register_self(first_buf)` so the plugin can register the
-// session under one or more keys.
+// Construction: the router plugin uses the static `make` factory, which calls
+// `make_shared`, then invokes `plugin.register_self(buf)` so the plugin
+// can register the session under one or more keys.
 template<typename SessionPlugin>
 class iou_dgram_session
     : public std::enable_shared_from_this<iou_dgram_session<SessionPlugin>> {
@@ -60,11 +63,11 @@ protected:
 
 #pragma endregion
 public:
-  // Public for `make_shared`; prefer the `make` / `make_unregistered`
-  // factories. The plugin is constructed in-place with `(router, *this,
-  // plugin_args...)`. The plugin must only **store** the router and session
-  // references during its own ctor; it must not call any member functions
-  // on the session, since the session's construction is not yet complete.
+  // Public for `make_shared`; use `make` / `make_unregistered` factories. The
+  // plugin is constructed in-place with `(router, *this, plugin_args...)`. The
+  // plugin must only **store** the router and session references during its
+  // own ctor; it must not call any member functions on the session, since the
+  // session's construction is not yet complete.
   template<typename... PluginArgs>
   explicit iou_dgram_session(allow, router_t& router,
       PluginArgs&&... plugin_args) noexcept
@@ -75,23 +78,21 @@ public:
         "SessionPlugin must satisfy the iou_dgram_session_plugin concept");
   }
 
-  ~iou_dgram_session() = default;
-
   iou_dgram_session(const iou_dgram_session&) = delete;
   iou_dgram_session(iou_dgram_session&&) = delete;
   iou_dgram_session& operator=(const iou_dgram_session&) = delete;
   iou_dgram_session& operator=(iou_dgram_session&&) = delete;
 
   // Construct a session bound to `router` and call the plugin's
-  // `register_self(first_buf)` immediately afterwards. Caller should invoke
-  // from the loop thread so that any `router.add_session(...)` performed by
+  // `register_self(buf)` immediately afterwards. Caller should invoke from the
+  // loop thread so that any `router.add_session(...)` performed by
   // `register_self` takes effect inline.
   template<typename... PluginArgs>
-  [[nodiscard]] static session_ptr make(router_t& router,
-      const buffer& first_buf, PluginArgs&&... plugin_args) {
+  [[nodiscard]] static session_ptr
+  make(router_t& router, const buffer& buf, PluginArgs&&... plugin_args) {
     auto self = std::make_shared<iou_dgram_session>(allow::ctor, router,
         std::forward<PluginArgs>(plugin_args)...);
-    (void)self->plugin_.register_self(first_buf);
+    (void)self->plugin_.register_self(buf);
     return self;
   }
 
@@ -115,7 +116,7 @@ public:
   [[nodiscard]] iou_loop& loop() noexcept { return loop_; }
   [[nodiscard]] session_plugin_t& plugin() noexcept { return plugin_; }
 
-  [[nodiscard]] session_ptr self_ptr() { return this->shared_from_this(); }
+  [[nodiscard]] session_ptr self() { return this->shared_from_this(); }
 
 #pragma endregion
 #pragma region Send
@@ -132,7 +133,7 @@ public:
   // from any thread.
   [[nodiscard]] completion_token send(buffer&& buf) {
     if (!open_ || !router_.is_open()) return {};
-    return router_.submit_session_send(std::move(buf), self_ptr());
+    return router_.submit_session_send(std::move(buf), self());
   }
 
   // Convenience: copy `data` into a JIT-borrowed write buffer with the given
@@ -144,7 +145,7 @@ public:
     if (!buf) return {};
     buf.peer_addr() = peer;
     if (!buf.append(data)) return {};
-    return router_.submit_session_send(std::move(buf), self_ptr());
+    return router_.submit_session_send(std::move(buf), self());
   }
 
 #pragma endregion
@@ -152,12 +153,14 @@ public:
 
   // Loop-thread only. Forwards to the plugin's `handle_recv`.
   bool on_receive(buffer&& buf) {
+    assert(loop_.is_loop_thread());
     if (!open_) return false;
     return plugin_.handle_recv(std::move(buf));
   }
 
   // Loop-thread only. Forwards to the plugin's `handle_sent`.
   bool on_sent(buffer&& buf) {
+    assert(loop_.is_loop_thread());
     if (!open_) return false;
     return plugin_.handle_sent(std::move(buf));
   }
@@ -170,7 +173,7 @@ public:
   // registered key. Idempotent. Safe from any thread.
   [[nodiscard]] bool close() {
     if (!open_->exchange(false, std::memory_order::relaxed)) return false;
-    return loop_.execute_or_post([self = self_ptr()]() mutable -> bool {
+    return loop_.execute_or_post([self = self()]() mutable -> bool {
       if (self->close_notified_) return false;
       self->close_notified_ = true;
       (void)self->plugin_.unregister_self();
