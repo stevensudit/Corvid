@@ -157,7 +157,10 @@ public:
   }
 
   // Loop-thread only. Forwards to the plugin's `handle_sent`.
-  bool on_sent(buffer&& buf) { return plugin_.handle_sent(std::move(buf)); }
+  bool on_sent(buffer&& buf) {
+    if (!open_) return false;
+    return plugin_.handle_sent(std::move(buf));
+  }
 
 #pragma endregion
 #pragma region Close

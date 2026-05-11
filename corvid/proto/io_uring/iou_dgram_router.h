@@ -22,6 +22,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "../../containers/opt_find.h"
 #include "../../enums/bool_enums.h"
 #include "../net_endpoint.h"
 #include "iou_buf_pool.h"
@@ -44,7 +45,7 @@ using namespace bool_enums;
 // Required methods (regular, non-static):
 //  `key_t extract(const buffer&)` - deterministic key extraction.
 //  `bool create_session(const buffer&, iou_dgram_router&)` - invoked on
-//      key-to-session dictionary miss. Constructs a session via
+//      key not found in the session registry. Constructs a session via
 //      `session_t::make` (whose factory calls the session plugin's
 //      `register_self`, which in turn calls `router.add_session(key, self)`
 //      one or more times). May choose not to register (rejection path); the
@@ -117,12 +118,12 @@ concept iou_dgram_session_plugin = requires(P p, const iou_loop::buffer& cbuf,
 // socket via `submit_sendmsg_buffer`. There is no internal queue; multiple
 // datagrams may be in flight concurrently. Each completion routes the
 // buffer back to the originating session's `on_sent`, allowed the result to be
-// checked and for the buffer to potentially be resent.
+// checked and for the buffer to be potentially resent.
 //
 // Lifetime: the router is intended to outlive all of its sessions. `close()`
 // drains the sessions map (calling each session's `close()`, which fires the
 // plugin's `unregister_self`) before submitting the socket close. Sessions
-// hold a reference to the router and may cache it as a raw pointer.
+// hold a reference to the router.
 //
 // Thread safety: the public API is safe to call from any thread. All state
 // mutation happens on the loop thread.
@@ -244,7 +245,7 @@ public:
     if (!open_) return {};
     return loop_.submit_sendmsg_buffer(sock_, std::move(buf),
         [ssn](completion_id, buffer& b) -> slot_retention {
-          if (ssn->is_open()) (void)ssn->on_sent(std::move(b));
+          (void)ssn->on_sent(std::move(b));
           return slot_retention{};
         });
   }
@@ -256,22 +257,22 @@ private:
   [[nodiscard]] bool dispatch_packet(buffer&& buf) {
     return loop_.execute_or_post(
         [this, buf = std::move(buf)]() mutable -> bool {
-          key_t key = plugin_.extract(buf);
+          const key_t& key = plugin_.extract(buf);
 
-          if (auto it = sessions_.find(key); it != sessions_.end()) {
-            (void)it->second->on_receive(std::move(buf));
+          if (auto found = find_opt(sessions_, key)) {
+            (void)(*found)->on_receive(std::move(buf));
             return true;
           }
 
-          // Cache miss: ask plugin to create the session. The session's
-          // `make` factory calls `register_self`, which calls
+          // Not found in registry: ask plugin to create the session. The
+          // session's `make` factory calls `register_self`, which calls
           // `add_session(key, ...)` one or more times.
           (void)plugin_.create_session(buf, *this);
 
           // Re-lookup. If still missing (rejection), drop.
-          if (auto it = sessions_.find(key); it != sessions_.end())
-            (void)it->second->on_receive(std::move(buf));
-          return true;
+          if (auto found = find_opt(sessions_, key))
+            (void)(*found)->on_receive(std::move(buf));
+          return false;
         });
   }
 
@@ -293,6 +294,7 @@ private:
           self->recv_token_ = {};
           self->is_reading_ = false;
           if (!self->open_) return slot_retention{};
+
           const auto res = buf.result();
           if (!res && !res.is_soft_error()) {
             (void)self->do_close();
