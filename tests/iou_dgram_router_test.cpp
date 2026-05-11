@@ -70,6 +70,7 @@ public:
     explicit router_plugin(state* st = nullptr) noexcept : state_{st} {}
 
     [[nodiscard]] key_t extract(const iou_loop::buffer& b) const noexcept {
+      (void)this; // intentionally non-static; see iou_dgram_echo_server.h.
       return b.peer_addr();
     }
 
@@ -309,6 +310,7 @@ public:
     explicit router_plugin(state* st = nullptr) noexcept : state_{st} {}
 
     [[nodiscard]] key_t extract(const iou_loop::buffer& b) const noexcept {
+      (void)this;
       const auto v = b.payload_view();
       if (v.size() < 4) return 0;
       key_t id{};
@@ -343,7 +345,10 @@ public:
         return state_->on_recv(key_, std::move(b));
       return true;
     }
-    bool handle_sent(iou_loop::buffer&&) noexcept { return true; }
+    bool handle_sent(iou_loop::buffer&&) noexcept {
+      (void)this;
+      return true;
+    }
     bool unregister_self() { return router_.remove_session(key_); }
 
   private:
@@ -430,6 +435,7 @@ public:
     explicit router_plugin(state* st = nullptr) noexcept : state_{st} {}
 
     [[nodiscard]] key_t extract(const iou_loop::buffer& b) const noexcept {
+      (void)this;
       return b.peer_addr();
     }
 
@@ -461,7 +467,10 @@ public:
         state_->observed.store(recv_count_, std::memory_order::release);
       return true;
     }
-    bool handle_sent(iou_loop::buffer&&) noexcept { return true; }
+    bool handle_sent(iou_loop::buffer&&) noexcept {
+      (void)this;
+      return true;
+    }
     bool unregister_self() { return router_.remove_session(key_); }
 
   private:

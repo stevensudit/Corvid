@@ -51,7 +51,7 @@ public:
   using buffer = iou_loop::buffer;
   using completion_token = iou_loop::completion_token;
   using session_plugin_t = SessionPlugin;
-  using router_t = typename SessionPlugin::router_t;
+  using router_t = SessionPlugin::router_t;
   using session_ptr = std::shared_ptr<iou_dgram_session>;
 
 #pragma region Construction
@@ -69,7 +69,11 @@ public:
   explicit iou_dgram_session(allow, router_t& router,
       PluginArgs&&... plugin_args) noexcept
       : loop_{router.loop()}, router_{router},
-        plugin_{router, *this, std::forward<PluginArgs>(plugin_args)...} {}
+        plugin_{router, *this, std::forward<PluginArgs>(plugin_args)...} {
+    // Deferred concept check: see the matching note in iou_dgram_router.h.
+    static_assert(iou_dgram_session_plugin<SessionPlugin>,
+        "SessionPlugin must satisfy the iou_dgram_session_plugin concept");
+  }
 
   ~iou_dgram_session() = default;
 

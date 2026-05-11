@@ -25,9 +25,7 @@ namespace corvid { inline namespace proto { namespace iouring {
 #pragma region iou_dgram_echo_protocol
 
 // Reference implementation of the dgram plugin pair: bounce each received
-// datagram back to its sender. Both plugins are nested classes so that the
-// inter-plugin forward declaration stays scoped to the protocol class
-// instead of leaking into the namespace.
+// datagram back to its sender.
 class iou_dgram_echo_protocol {
 public:
   class session_plugin;
@@ -39,10 +37,14 @@ public:
     using key_t = net_endpoint;
 
     [[nodiscard]] key_t extract(const iou_loop::buffer& b) const noexcept {
+      (void)this; // Plugin methods are intentionally instance methods so
+                  // future state additions don't churn signatures; suppress
+                  // `readability-convert-member-functions-to-static`.
       return b.peer_addr();
     }
 
     bool create_session(const iou_loop::buffer& b, router_t& r) {
+      (void)this;
       (void)session_t::make(r, b);
       return true;
     }
@@ -69,7 +71,10 @@ public:
       return session_.send(std::move(out)).is_valid();
     }
 
-    bool handle_sent(iou_loop::buffer&&) noexcept { return true; }
+    bool handle_sent(iou_loop::buffer&&) noexcept {
+      (void)this;
+      return true;
+    }
 
     bool unregister_self() { return router_.remove_session(key_); }
 

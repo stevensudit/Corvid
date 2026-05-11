@@ -50,13 +50,16 @@ using namespace bool_enums;
 //    register (rejection path); the router will then drop the originating
 //    packet. Return value is informational.
 //
-// This concept is documentation-only: it is NOT used as a template parameter
-// constraint on `iou_dgram_router`. Doing so would force eager checks of the
-// `session_t` alias, which itself names
-// `iou_dgram_session<MatchingSessionPlugin>`, whose own constraint would in
-// turn re-check the matching session plugin's `router_t` alias - a circular
-// dependency that no two-step ordering can satisfy. Mismatches surface as
-// ordinary template errors at the call site.
+// This concept is NOT used as a template parameter constraint on
+// `iou_dgram_router` itself. Doing so would force eager checks of the
+// `session_t` alias, which names `iou_dgram_session<MatchingSessionPlugin>`,
+// whose own constraint would in turn re-check the matching session plugin's
+// `router_t` alias - a circular dependency that no two-step ordering can
+// satisfy. Conformance is instead verified by a deferred `static_assert` in
+// the `iou_dgram_router` constructor body, which is instantiated only when
+// an instance is actually constructed (by which time both plugins are
+// complete). Concept failures surface as a clean `static_assert` diagnostic
+// pointing at the unsatisfied requirement.
 template<typename P>
 concept iou_dgram_router_plugin = requires(P p, const iou_loop::buffer& cbuf) {
   typename P::session_t;
@@ -83,7 +86,9 @@ concept iou_dgram_router_plugin = requires(P p, const iou_loop::buffer& cbuf) {
 //  `bool unregister_self()` - called on session close. Plugin must call
 //    `router.remove_session(key)` once per registered key.
 //
-// Documentation-only; see the note on `iou_dgram_router_plugin` above.
+// Not used as a template parameter constraint; verified by a deferred
+// `static_assert` in the `iou_dgram_session` constructor body. See the note
+// on `iou_dgram_router_plugin` above for why.
 template<typename P>
 concept iou_dgram_session_plugin = requires(P p, const iou_loop::buffer& cbuf,
     iou_loop::buffer buf) {
@@ -125,8 +130,8 @@ public:
   using buffer = iou_loop::buffer;
   using completion_token = iou_loop::completion_token;
   using router_plugin_t = RouterPlugin;
-  using session_t = typename RouterPlugin::session_t;
-  using key_t = typename RouterPlugin::key_t;
+  using session_t = RouterPlugin::session_t;
+  using key_t = RouterPlugin::key_t;
   using session_ptr = std::shared_ptr<session_t>;
   using router_ptr = std::shared_ptr<iou_dgram_router>;
 
@@ -142,14 +147,19 @@ protected:
   friend class iou_dgram_router_handle;
 
 public:
-  // Public for `make_shared`; use `iou_dgram_router_handle::bind`.
+  // Public for `make_shared`; use `iou_dgram_router_handle::bind`. The
+  // ctor-body `static_assert` is the deferred concept check described on
+  // `iou_dgram_router_plugin`.
   template<typename... PluginArgs>
   explicit iou_dgram_router(allow, iou_loop& loop, net_socket sock,
       const net_endpoint& local, shot_type recv_shot,
       PluginArgs&&... plugin_args) noexcept
       : loop_{loop}, sock_{std::move(sock)}, local_{local},
         recv_intended_shot_{recv_shot}, recv_active_shot_{recv_shot},
-        plugin_{std::forward<PluginArgs>(plugin_args)...} {}
+        plugin_{std::forward<PluginArgs>(plugin_args)...} {
+    static_assert(iou_dgram_router_plugin<RouterPlugin>,
+        "RouterPlugin must satisfy the iou_dgram_router_plugin concept");
+  }
 
   ~iou_dgram_router() = default;
 
