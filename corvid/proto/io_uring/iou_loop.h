@@ -212,13 +212,15 @@ using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
 // in-flight operations, which must be less than or equal to the number of CQE
 // slots.
 //
-// TODO: Allow `iou_buf_pool` size to be configured at compile time.
-template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
+// `BUF_POOL_SIZE` and `BUF_POOL_MIN_BLOCK` are forwarded to `iou_buf_pool_of`.
+template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512,
+    size_t BUF_POOL_SIZE = 2UL * 1024 * 1024,
+    size_t BUF_POOL_MIN_BLOCK = 1UL * 1024>
 class iou_basic_loop: public owner_thread_dispatcher<posted_fn> {
 #pragma region Types
 public:
   // Buffer pools.
-  using buf_pool_t = iou_buf_pool;
+  using buf_pool_t = iou_buf_pool_of<BUF_POOL_SIZE, BUF_POOL_MIN_BLOCK>;
   using provided_buf_pool_t = iou_provided_buf_pool;
 
   // RAII handle for a buffer borrowed from the pool.
@@ -307,8 +309,9 @@ public:
   // Throws `std::system_error` if the ring, wakeup `eventfd`, or
   // `buf_pool_t` registration fails.
   //
-  // `udp_provided_size` controls the optional provided-buffer pool slab of 2k
-  // buffers. Pass 0 to disable it; the default is one hugepage (2 MB).
+  // `udp_provided_size` controls the optional provided-buffer pool slab for
+  // UDP recvmsg. Pass 0 to disable it; the default is one hugepage (2 MB),
+  // split into `udp_provided_buf_size` buffers (defaulting to 2k).
   //
   // `tcp_provided_size` controls the optional provided-buffer pool slab for
   // multishot TCP reads. Pass 0 to disable it; the default is one hugepage (2
@@ -321,11 +324,12 @@ public:
           default_post_and_wait_poll_interval,
       size_t max_pending_sqes = default_max_pending_sqes,
       size_t udp_provided_size = buf_pool_t::hugepage_size,
+      block_size udp_provided_buf_size = block_size::kb002,
       size_t tcp_provided_size = buf_pool_t::hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004)
       : owner_thread_dispatcher{32, 64}, buf_pool_{buf_pool_t::create()},
         udp_buf_pool_{provided_buf_pool_t::create(*this, udp_provided_size,
-            block_size::kb002, 1)},
+            udp_provided_buf_size, 1)},
         tcp_provided_buf_pool_{provided_buf_pool_t::create(*this,
             tcp_provided_size, tcp_provided_buf_size, 2)},
         ring_{RING_SIZE,
@@ -373,11 +377,12 @@ public:
            default_post_and_wait_poll_interval,
       size_t max_pending_sqes = default_max_pending_sqes,
       size_t udp_provided_size = buf_pool_t::hugepage_size,
+      block_size udp_provided_buf_size = block_size::kb002,
       size_t tcp_provided_size = buf_pool_t::hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004) {
     return std::make_shared<iou_basic_loop>(allow::ctor,
         post_and_wait_poll_interval, max_pending_sqes, udp_provided_size,
-        tcp_provided_size, tcp_provided_buf_size);
+        udp_provided_buf_size, tcp_provided_size, tcp_provided_buf_size);
   }
 
   // Block until `run` is active. Returns false on timeout.
@@ -1728,19 +1733,24 @@ using iou_loop = iou_basic_loop<>;
 //
 // Shutdown ordering: call `stop` (or destroy the runner) before destroying
 // any object that a pending `post` callback might reference.
-template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
+template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512,
+    size_t BUF_POOL_SIZE = 2UL * 1024 * 1024,
+    size_t BUF_POOL_MIN_BLOCK = 1UL * 1024>
 class iou_basic_loop_runner {
 public:
-  using loop_t = iou_basic_loop<RING_SIZE, SLOT_COUNT>;
+  using loop_t =
+      iou_basic_loop<RING_SIZE, SLOT_COUNT, BUF_POOL_SIZE, BUF_POOL_MIN_BLOCK>;
 
   explicit iou_basic_loop_runner(
       std::chrono::nanoseconds post_and_wait_poll_interval =
           loop_t::default_post_and_wait_poll_interval,
       size_t udp_provided_size = loop_t::buf_pool_t::hugepage_size,
+      block_size udp_provided_buf_size = block_size::kb002,
       size_t tcp_provided_size = loop_t::buf_pool_t::hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004)
       : post_and_wait_poll_interval_{post_and_wait_poll_interval},
         udp_provided_size_{udp_provided_size},
+        udp_provided_buf_size_{udp_provided_buf_size},
         tcp_provided_size_{tcp_provided_size},
         tcp_provided_buf_size_{tcp_provided_buf_size},
         thread_{[this](const std::stop_token& st) { run(st); }} {
@@ -1801,7 +1811,7 @@ private:
     try {
       auto loop = loop_t::make(post_and_wait_poll_interval_,
           loop_t::default_max_pending_sqes, udp_provided_size_,
-          tcp_provided_size_, tcp_provided_buf_size_);
+          udp_provided_buf_size_, tcp_provided_size_, tcp_provided_buf_size_);
       if (std::scoped_lock lock{startup_mutex_}; true) loop_ = loop;
       started_.notify(true);
       // Hold a local shared_ptr so the loop outlives this function even if
@@ -1825,6 +1835,7 @@ private:
 
   const std::chrono::nanoseconds post_and_wait_poll_interval_;
   const size_t udp_provided_size_;
+  const block_size udp_provided_buf_size_;
   const size_t tcp_provided_size_;
   const block_size tcp_provided_buf_size_;
   std::mutex startup_mutex_;
