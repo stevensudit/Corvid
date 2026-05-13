@@ -86,6 +86,11 @@ public:
     return &self.value_;
   }
 
+  // Relaxed exchange. Always sets to `desired`, returns the previous value.
+  value_type exchange(value_type desired) noexcept {
+    return value_.exchange(desired, std::memory_order::relaxed);
+  }
+
   // Increment and decrement with relaxed ordering (enabled when `T` supports
   // `fetch_add`/`fetch_sub`).
   value_type operator++(this auto& self) noexcept

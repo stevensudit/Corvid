@@ -172,7 +172,7 @@ public:
   // is responsible for calling `router.remove_session(key)` for each
   // registered key. Idempotent. Safe from any thread.
   [[nodiscard]] bool close() {
-    if (!open_->exchange(false, std::memory_order::relaxed)) return false;
+    if (!open_.exchange(false)) return false;
     return loop_.execute_or_post([self = self()]() mutable -> bool {
       if (self->close_notified_) return false;
       self->close_notified_ = true;

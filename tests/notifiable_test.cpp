@@ -258,7 +258,7 @@ void RelaxedAtomic_Arrow() {
   EXPECT_EQ(static_cast<int>(a), 20);
 
   // exchange.
-  int old = a->exchange(30);
+  int old = a.exchange(30);
   EXPECT_EQ(old, 20);
   EXPECT_EQ(static_cast<int>(a), 30);
 

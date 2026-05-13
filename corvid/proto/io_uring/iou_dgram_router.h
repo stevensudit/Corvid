@@ -219,7 +219,7 @@ public:
   // Begin `recv` loop. Idempotent. Safe from any thread.
   [[nodiscard]] bool start_reading() {
     if (!open_) return false;
-    if (is_reading_->exchange(true, std::memory_order::relaxed)) return false;
+    if (is_reading_.exchange(true)) return false;
     return loop_.execute_or_post_with_retry([this]() mutable {
       if (recv_active_shot_ == shot_type::single)
         return do_submit_single_recv();
@@ -231,7 +231,7 @@ public:
   // `unregister_self`), cancels the `recv`, and closes the socket.
   // Idempotent. Safe from any thread.
   [[nodiscard]] bool close() {
-    if (!open_->exchange(false, std::memory_order::relaxed)) return false;
+    if (!open_.exchange(false)) return false;
     return loop_.execute_or_post([self = self()] {
       return self->do_close(true);
     });
@@ -398,9 +398,7 @@ private:
   // also outlive them and be destructed when the last reference drops.
   [[nodiscard]] bool do_close(bool already_closing = false) {
     assert(loop_.is_loop_thread());
-    if (!already_closing &&
-        !open_->exchange(false, std::memory_order::relaxed))
-      return false;
+    if (!already_closing && !open_.exchange(false)) return false;
     assert(!open_);
 
     std::vector<session_ptr> closing;

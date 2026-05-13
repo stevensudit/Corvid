@@ -791,7 +791,7 @@ private:
   // Handle write failure by aborting queued sends and closing as needed.
   [[nodiscard]] bool handle_write_failure() {
     assert(loop_.is_loop_thread());
-    if (write_shut_->exchange(true, std::memory_order::relaxed)) return false;
+    if (write_shut_.exchange(true)) return false;
     send_queue_.clear();
     iov_sender_.clear();
     (void)loop_.enable_writes(*this, false);
@@ -1155,7 +1155,7 @@ private:
   // if already closed, true if this call performed the close.
   [[nodiscard]] bool do_close_now(close_mode mode = close_mode::graceful) {
     assert(loop_.is_loop_thread());
-    if (!open_->exchange(false, std::memory_order::relaxed)) return false;
+    if (!open_.exchange(false)) return false;
 
     read_open_ = false;
     write_shut_ = true;

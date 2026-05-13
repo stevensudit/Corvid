@@ -394,8 +394,7 @@ public:
   // Idempotent. After `close` is called, further `send`s are rejected.
   [[nodiscard]] bool close() {
     if (closed_) return false;
-    if (close_requested_->exchange(true, std::memory_order::relaxed))
-      return false;
+    if (close_requested_.exchange(true)) return false;
     return loop_.execute_or_post([this, _ = self()] {
       if (send_queue_.empty() && !send_token_) return do_close_now(true);
       return true;
@@ -409,8 +408,7 @@ public:
   // were already shut, just closes. Idempotent.
   [[nodiscard]] bool shutdown_send() {
     if (!writes_allowed()) return false;
-    if (shutdown_send_requested_->exchange(true, std::memory_order::relaxed))
-      return false;
+    if (shutdown_send_requested_.exchange(true)) return false;
     return loop_.execute_or_post([this, _ = self()] {
       if (send_queue_.empty() && !send_token_) return do_shutdown_send_now();
       return true;
@@ -428,7 +426,7 @@ public:
   // kernel behavior.
   [[nodiscard]] bool shutdown_recv() {
     if (closed_) return false;
-    if (read_shut_->exchange(true, std::memory_order::relaxed)) return false;
+    if (read_shut_.exchange(true)) return false;
     return loop_.execute_or_post([this, _ = self()] {
       if (closed_) return false;
       if (write_shut_) return do_close_now();
@@ -444,7 +442,7 @@ public:
 
   // Forceful close: cancel pending I/O and close immediately with RST.
   [[nodiscard]] bool hangup() {
-    if (closed_->exchange(true, std::memory_order::relaxed)) return false;
+    if (closed_.exchange(true)) return false;
     return loop_.execute_or_post([this, _ = self()] {
       send_queue_.clear();
       if (sock_) {
@@ -465,7 +463,7 @@ public:
   // pointer. Idempotent.
   [[nodiscard]] auto stop_receiving() {
     auto conn = self();
-    if (!recv_paused_->exchange(true, std::memory_order::relaxed))
+    if (!recv_paused_.exchange(true))
       (void)loop_.execute_or_post([this, _ = conn] {
         if (!recv_token_) return false;
         return loop_.submit_cancel(std::move(recv_token_));
@@ -476,8 +474,7 @@ public:
   // Resume receiving after `stop_receiving`. Idempotent. A no-op once the read
   // side has been shut (peer EOF observed).
   [[nodiscard]] bool resume_receiving() {
-    if (!recv_paused_->exchange(false, std::memory_order::relaxed))
-      return false;
+    if (!recv_paused_.exchange(false)) return false;
     return loop_.execute_or_post([this, _ = self()]() -> bool {
       if (closed_ || recv_token_ || read_shut_) return false;
       return do_submit_recv();
@@ -886,9 +883,7 @@ private:
   // Close immediately without flushing.
   [[nodiscard]] bool do_close_now(bool already_exchanged = false) {
     assert(loop().is_loop_thread());
-    if (!already_exchanged &&
-        closed_->exchange(true, std::memory_order::relaxed))
-      return false;
+    if (!already_exchanged && closed_.exchange(true)) return false;
     send_queue_.clear();
     if (sock_)
       (void)loop_.submit_close(std::move(sock_),
