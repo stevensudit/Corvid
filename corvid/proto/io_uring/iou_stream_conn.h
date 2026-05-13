@@ -506,14 +506,17 @@ public:
 
   // Accept-clone construction path. Called by `do_accept_clone` to build a
   // child conn from a parent. The new plugin is constructed by invoking
-  // `accept_from.make_child_plugin(*this)`.
+  // `accept_from.make_child_plugin(*this)`. `send_zc_supported` is inherited
+  // from the listener, so children of a transport known not to support ZC
+  // (e.g., UDS) skip the per-conn discovery `EOPNOTSUPP`.
   iou_stream_conn(allow, const plugin_t& accept_from, iou_loop& loop,
       net_socket sock, const net_endpoint* remote, block_size recv_buf_size,
-      block_size send_buf_size, shot_type recv_shot)
+      block_size send_buf_size, shot_type recv_shot, bool send_zc_supported)
       : loop_{loop}, sock_{std::move(sock)},
         remote_{remote ? *remote : net_endpoint{}},
         recv_buf_size_{recv_buf_size}, send_buf_size_{send_buf_size},
         recv_intended_shot_{recv_shot}, recv_active_shot_{recv_shot},
+        send_zc_supported_{send_zc_supported},
         plugin_{accept_from.make_child_plugin(*this)} {
     static_assert(iou_stream_conn_plugin<plugin_t>,
         "plugin_t must satisfy the iou_stream_conn_plugin concept");
@@ -659,7 +662,7 @@ private:
     assert(loop().is_loop_thread());
     return std::make_shared<iou_stream_conn>(allow::ctor, plugin_, loop_,
         std::move(sock), remote, block_size{recv_buf_size_},
-        block_size{send_buf_size_}, recv_intended_shot_);
+        block_size{send_buf_size_}, recv_intended_shot_, send_zc_supported_);
   }
 
   // Submit buffer for recv.
@@ -856,6 +859,10 @@ private:
   // Submit a multishot accept operation.
   [[nodiscard]] bool do_submit_accept() {
     assert(loop().is_loop_thread() && listening_ && !connect_token_);
+
+    // Don't  waste time attempting ZC writes on UDS.
+    if (local_endpoint().is_uds()) send_zc_supported_ = false;
+
     // Set up a callback that resubmits itself, and use it to bootstrap the
     // initial submission.
     const auto cbtoken = loop_.tokenize(
