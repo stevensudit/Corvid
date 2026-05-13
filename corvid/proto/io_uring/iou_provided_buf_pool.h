@@ -211,8 +211,8 @@ public:
   // flags field.
   //
   // Destroying or resetting the returned buffer replenishes the slot.
-  [[nodiscard]] buffer borrow(iou_res res, iou_cqe_flags cqe_flags,
-      msghdr* msgh = nullptr) noexcept {
+  [[nodiscard]] buffer
+  borrow(iou_res res, iou_cqe_flags cqe_flags, msghdr* msgh = nullptr) {
     if (!base_ || !buf_ring_) return {};
     if (!bitmask::has(cqe_flags, iou_cqe_flags::buffer))
       return buffer::make_synthetic({}, {}, res);

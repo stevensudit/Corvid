@@ -296,8 +296,7 @@ public:
   //   alloc, or
   //   - in-flight read bytes would exceed `read_throttle_size`.
   // Thread-safe.
-  [[nodiscard]] buffer borrow_reader(
-      block_size sz = block_size::kb004) noexcept {
+  [[nodiscard]] buffer borrow_reader(block_size sz = block_size::kb004) {
     std::scoped_lock lock{mutex_};
     const auto len = *sz;
     if (available_bytes_ < write_reserve_size + len) return {};
@@ -312,8 +311,7 @@ public:
   // Borrow a buffer for an outgoing write. Not subject to read backpressure;
   // may draw from the write reserve. Returns an empty buffer if fully
   // exhausted. Thread-safe.
-  [[nodiscard]] buffer borrow_writer(
-      block_size sz = block_size::kb004) noexcept {
+  [[nodiscard]] buffer borrow_writer(block_size sz = block_size::kb004) {
     std::scoped_lock lock{mutex_};
     span_t s{alloc_block(*sz), *sz};
     if (!s.data()) return {};

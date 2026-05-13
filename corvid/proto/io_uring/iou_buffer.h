@@ -148,8 +148,8 @@ public:
   // pool backing (`pool_base_offset`, `promote_to_write`/`demote_to_read`,
   // `prepare_recvmsg`/`prepare_sendmsg`, kernel I/O submission) is undefined
   // or unsupported.
-  [[nodiscard]] static iou_buffer make_synthetic(span_t data,
-      pool_ptr_t pool = {}, iou_res res = {}) noexcept {
+  [[nodiscard]] static iou_buffer
+  make_synthetic(span_t data, pool_ptr_t pool = {}, iou_res res = {}) {
     struct null_buffer_pool: public buffer_pool_base {
       [[nodiscard]] std::byte* base() const noexcept override {
         return nullptr;
@@ -624,8 +624,8 @@ private:
 };
 
 [[nodiscard]] inline iou_buffer
-buffer_pool_base::make_buffer(const pool_ptr_t& pool, span_t span,
-    size_t buf_index, block_type blockrw) noexcept {
+buffer_pool_base::make_buffer(const std::shared_ptr<buffer_pool_base>& pool,
+    span_t span, size_t buf_index, block_type blockrw) noexcept {
   return iou_buffer{pool, span, buf_index, blockrw};
 }
 

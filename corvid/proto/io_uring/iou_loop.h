@@ -466,16 +466,14 @@ public:
   // Borrow a registered `buffer` from the pool for the purpose of reading
   // into it. Returns an invalid `buffer` if the pool is exhausted. Pass to
   // `submit_recv_buffer`.
-  [[nodiscard]] buffer borrow_read_buffer(
-      block_size sz = block_size::kb004) noexcept {
+  [[nodiscard]] buffer borrow_read_buffer(block_size sz = block_size::kb004) {
     return buf_pool_->borrow_reader(sz);
   }
 
   // Borrow a registered `buffer` from the pool for the purpose of writing to
   // it. Returns an invalid `buffer` if the pool is exhausted. Fill the
   // `buffer`'s payload, then pass it to `submit_send_buffer`.
-  [[nodiscard]] buffer borrow_write_buffer(
-      block_size sz = block_size::kb004) noexcept {
+  [[nodiscard]] buffer borrow_write_buffer(block_size sz = block_size::kb004) {
     return buf_pool_->borrow_writer(sz);
   }
 
@@ -1249,6 +1247,7 @@ public:
     const auto [cbtoken, buf_ptr] =
         wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
     if (!cbtoken) return {};
+    assert(buf_ptr);
     if (!submit_read_buffer(file, *buf_ptr, cbtoken,
             slot_retention::automatic))
       return {};
