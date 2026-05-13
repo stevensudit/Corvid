@@ -11,6 +11,7 @@
                 "-march=native",
                 "-g",
                 "-O0",
+                "-DDEBUG",
                 "-D_LIBCPP_NO_ABI_TAG",
                 "-Wall",
                 "-Wextra",

@@ -37,7 +37,7 @@ using namespace std::chrono_literals;
 namespace {
 
 bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
-#ifndef NDEBUG
+#ifdef DEBUG
   timeout = 1h;
 #endif
   const auto deadline = std::chrono::steady_clock::now() + timeout;

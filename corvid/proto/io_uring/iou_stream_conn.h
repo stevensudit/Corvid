@@ -367,7 +367,7 @@ public:
     if (!writes_allowed() || !buf || buf.active_span().empty()) return false;
     return loop_.execute_or_post(
         [this, _ = self(), buf = std::move(buf)]() mutable -> bool {
-          if (!writes_allowed()) return false;
+          if (closed_) return false;
           send_queue_.emplace_back(std::move(buf));
           if (!send_token_) return do_submit_send();
           return true;
@@ -380,7 +380,7 @@ public:
     if (!writes_allowed() || data.empty()) return false;
     return loop_.execute_or_post(
         [this, _ = self(), data = std::move(data)]() mutable -> bool {
-          if (!writes_allowed()) return false;
+          if (closed_) return false;
           send_queue_.emplace_back(std::move(data));
           if (!send_token_) return do_submit_send();
           return true;
@@ -438,6 +438,7 @@ public:
             return slot_retention{};
           });
       if (!cbtoken.is_valid()) return do_close_now();
+      return true;
     });
   }
 
