@@ -639,6 +639,12 @@ private:
   relaxed_atomic<expiration_duration_t> read_timeout_;
   relaxed_atomic<expiration_duration_t> write_timeout_;
 
+  // Currently active timeout durations. Mutated internally as the conn
+  // starts and pauses; zero (the default) means the expiration is not
+  // being advanced and the conn is not participating in the sweeper.
+  relaxed_atomic<expiration_duration_t> active_read_timeout_;
+  relaxed_atomic<expiration_duration_t> active_write_timeout_;
+
   // Current read/write deadlines, mutated as data flows and read by the
   // sweeper callback. See `timeout_sweeper` for the read/write protocol.
   relaxed_atomic<expiration_time_point_t> read_expiration_;
@@ -853,6 +859,7 @@ private:
   [[nodiscard]] bool do_submit_send_buffer(buffer&& buf) {
     assert(loop().is_loop_thread() && !send_token_);
     if (!buf) return false;
+    write_expiration_ = *write_expiration_ + *active_write_timeout_;
 
     auto fn = [this, _ = self()](completion_id cbhandle, buffer& buf)
         -> slot_retention {
@@ -1077,6 +1084,7 @@ private:
   // shut, transitions to full close.
   [[nodiscard]] bool on_recv_complete(buffer& buf) {
     assert(loop().is_loop_thread());
+    read_expiration_ = *read_expiration_ + *active_read_timeout_;
     if (closed_ || read_shut_) return true;
 
     const auto res = buf.result();
