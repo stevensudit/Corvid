@@ -114,7 +114,7 @@ void IouStreamConn_SendRecvString() {
 
     // Adopt sock1 as receiver.
     auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::single, &recv_state);
+        net_endpoint::invalid, shot_type::single, {}, {}, &recv_state);
     EXPECT_TRUE(recv_conn);
 
     // Adopt sock0 as sender.
@@ -154,7 +154,7 @@ void IouStreamConn_MultipleStrings() {
     };
 
     auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::single, &recv_state);
+        net_endpoint::invalid, shot_type::single, {}, {}, &recv_state);
     EXPECT_TRUE(recv_conn);
 
     auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
@@ -192,7 +192,7 @@ void IouStreamConn_SendRecvBuffer() {
     };
 
     auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::single, &recv_state);
+        net_endpoint::invalid, shot_type::single, {}, {}, &recv_state);
     EXPECT_TRUE(recv_conn);
 
     auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
@@ -236,7 +236,7 @@ void IouStreamConn_BufferMoveOut() {
     };
 
     auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::single, &recv_state);
+        net_endpoint::invalid, shot_type::single, {}, {}, &recv_state);
     EXPECT_TRUE(recv_conn);
 
     auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
@@ -274,9 +274,9 @@ void IouStreamConn_GracefulClose() {
     };
 
     auto* conn0 = capture_conn::adopt(*runner.loop(), std::move(sock0),
-        net_endpoint::invalid, shot_type::single, &state0);
+        net_endpoint::invalid, shot_type::single, {}, {}, &state0);
     auto* conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::single, &state1);
+        net_endpoint::invalid, shot_type::single, {}, {}, &state1);
     EXPECT_TRUE(conn0);
     EXPECT_TRUE(conn1);
 
@@ -310,7 +310,7 @@ void IouStreamConn_HangupClose() {
     };
 
     auto* conn0 = capture_conn::adopt(*runner.loop(), std::move(sock0),
-        net_endpoint::invalid, shot_type::single, &state0);
+        net_endpoint::invalid, shot_type::single, {}, {}, &state0);
     // conn1 just absorbs the other end
     auto* conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid);
@@ -345,7 +345,7 @@ void IouStreamConn_OnDrain() {
     };
 
     auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
-        net_endpoint::invalid, shot_type::single, &send_state);
+        net_endpoint::invalid, shot_type::single, {}, {}, &send_state);
     EXPECT_TRUE(send_conn);
 
     EXPECT_TRUE(send_conn->send(std::string{"ping"}));
@@ -381,7 +381,7 @@ void IouStreamConn_WithState() {
     };
 
     auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::single, &recv_state);
+        net_endpoint::invalid, shot_type::single, {}, {}, &recv_state);
     EXPECT_TRUE(recv_conn);
 
     auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
@@ -424,7 +424,7 @@ void IouStreamConn_FullBufferPartialConsume() {
     };
 
     auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::single, &recv_state);
+        net_endpoint::invalid, shot_type::single, {}, {}, &recv_state);
     EXPECT_TRUE(recv_conn);
 
     auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
@@ -462,7 +462,7 @@ void IouStreamConn_MultishotRecv_Basic() {
     };
 
     auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::multi, &recv_state);
+        net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state);
     EXPECT_TRUE(recv_conn);
 
     auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
@@ -501,7 +501,7 @@ void IouStreamConn_MultishotRecv_MultipleMessages() {
     };
 
     auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::multi, &recv_state);
+        net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state);
     EXPECT_TRUE(recv_conn);
 
     auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
@@ -543,7 +543,7 @@ void IouStreamConn_MultishotRecv_TakeBuffer() {
     };
 
     auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::multi, &recv_state);
+        net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state);
     EXPECT_TRUE(recv_conn);
 
     auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
@@ -601,7 +601,7 @@ void IouStreamConn_MultishotRecv_StopAndResume() {
     // Raw pointer is fine: the resume callback (when produced) holds the
     // shared_ptr that keeps the conn alive across the pause.
     auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::multi, &recv_state);
+        net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state);
     EXPECT_TRUE(recv_conn);
 
     auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
@@ -652,7 +652,7 @@ void IouStreamConn_MultishotRecv_AcceptedConnsInheritMode() {
     };
 
     auto* server = capture_conn::listen(*runner.loop(),
-        net_endpoint::loopback_v4(0), shot_type::multi, &server_state);
+        net_endpoint::loopback_v4(0), shot_type::multi, {}, {}, &server_state);
     EXPECT_TRUE(server);
 
     const auto& listen_ep = server->local_endpoint();
@@ -684,7 +684,7 @@ void IouStreamConn_AccessorsLifecycle() {
     };
 
     auto* conn0 = capture_conn::adopt(*runner.loop(), std::move(sock0),
-        net_endpoint::invalid, shot_type::single, &state0);
+        net_endpoint::invalid, shot_type::single, {}, {}, &state0);
     auto* conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid);
     EXPECT_TRUE(conn0);
@@ -719,7 +719,7 @@ void IouStreamConn_Endpoints() {
 
     capture_protocol::state server_state;
     auto* server = capture_conn::listen(*runner.loop(),
-        net_endpoint::loopback_v4(0), shot_type::multi, &server_state);
+        net_endpoint::loopback_v4(0), shot_type::multi, {}, {}, &server_state);
     EXPECT_TRUE(server);
 
     const auto& listen_ep = server->local_endpoint();
@@ -733,7 +733,7 @@ void IouStreamConn_Endpoints() {
     };
 
     auto* client = capture_conn::connect(*runner.loop(), listen_ep,
-        shot_type::single, &client_state);
+        shot_type::single, {}, {}, &client_state);
     EXPECT_TRUE(client);
     EXPECT_TRUE(
         WaitFor([&] { return connected.load(std::memory_order::acquire); }));
@@ -814,7 +814,7 @@ void IouStreamConn_PeerEofDeliversEmptyView() {
     };
 
     auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::single, &recv_state);
+        net_endpoint::invalid, shot_type::single, {}, {}, &recv_state);
     EXPECT_TRUE(recv_conn);
 
     auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
@@ -873,7 +873,7 @@ void IouStreamConn_ShutdownSend() {
     // and force-RSTs the socket - which would then drive send_conn's
     // post-shutdown_send read to EOF and auto-close it.
     auto* recv_raw = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::single, &recv_state);
+        net_endpoint::invalid, shot_type::single, {}, {}, &recv_state);
     EXPECT_TRUE(recv_raw);
     auto recv_conn = recv_raw->self();
 
@@ -931,7 +931,7 @@ void IouStreamConn_ShutdownRecv() {
     };
 
     auto* recv_raw = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::single, &recv_state);
+        net_endpoint::invalid, shot_type::single, {}, {}, &recv_state);
     EXPECT_TRUE(recv_raw);
     auto recv_conn = recv_raw->self();
 
@@ -979,7 +979,7 @@ void IouStreamConn_StopAndResumeReceivingOnConn() {
     };
 
     auto* recv_raw = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::multi, &recv_state);
+        net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state);
     EXPECT_TRUE(recv_raw);
     auto recv_conn = recv_raw->self();
 
@@ -1055,7 +1055,7 @@ void IouStreamConn_ConnectFailure() {
     std::this_thread::sleep_for(20ms);
 
     auto* client = capture_conn::connect(*runner.loop(), unreachable,
-        shot_type::single, &state);
+        shot_type::single, {}, {}, &state);
     EXPECT_TRUE(client);
 
     EXPECT_TRUE(
@@ -1091,7 +1091,7 @@ void IouStreamConn_ListenAcceptMultipleClients() {
     };
 
     auto* server = capture_conn::listen(*runner.loop(),
-        net_endpoint::loopback_v4(0), shot_type::multi, &server_state);
+        net_endpoint::loopback_v4(0), shot_type::multi, {}, {}, &server_state);
     EXPECT_TRUE(server);
     const auto& listen_ep = server->local_endpoint();
 
@@ -1142,7 +1142,7 @@ void IouStreamConn_CloseFlushesPendingSend() {
     };
 
     auto* recv_raw = capture_conn::adopt(*runner.loop(), std::move(sock1),
-        net_endpoint::invalid, shot_type::single, &recv_state);
+        net_endpoint::invalid, shot_type::single, {}, {}, &recv_state);
     EXPECT_TRUE(recv_raw);
     auto recv_conn = recv_raw->self();
 
@@ -1178,7 +1178,7 @@ void IouStreamConn_HangupIdempotent() {
     };
 
     auto* conn0 = capture_conn::adopt(*runner.loop(), std::move(sock0),
-        net_endpoint::invalid, shot_type::single, &state);
+        net_endpoint::invalid, shot_type::single, {}, {}, &state);
     auto* conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid);
     EXPECT_TRUE(conn0);
@@ -1214,7 +1214,7 @@ void IouStreamConn_SelfSharedPtr() {
     std::shared_ptr<capture_conn> held;
     if (true) {
       auto* conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
-          net_endpoint::invalid, shot_type::single, &state);
+          net_endpoint::invalid, shot_type::single, {}, {}, &state);
       EXPECT_TRUE(conn);
       held = conn->self();
     }

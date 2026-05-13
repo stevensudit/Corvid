@@ -290,6 +290,8 @@ public:
   using plugin_t = ConnPlugin;
   using buffer = iou_loop::buffer;
   using completion_token = iou_loop::completion_token;
+  using expiration_time_point_t = iou_loop::expiration_time_point_t;
+  using expiration_duration_t = iou_loop::expiration_duration_t;
 
 #pragma region Accessors
 
@@ -358,6 +360,20 @@ public:
     return send_buf_size_;
   }
   void set_send_buf_size(block_size size) noexcept { send_buf_size_ = size; }
+
+  //
+  // Idle timeouts. Configured at construction (via factory). A duration of
+  // zero means "no timeout"; the conn does not participate in the loop's
+  // `timeouts()` sweeper.
+  //
+
+  [[nodiscard]] expiration_duration_t read_timeout() const noexcept {
+    return read_timeout_;
+  }
+
+  [[nodiscard]] expiration_duration_t write_timeout() const noexcept {
+    return write_timeout_;
+  }
 
 #pragma endregion
 #pragma region send
@@ -492,12 +508,14 @@ public:
   explicit iou_stream_conn(allow, iou_loop& loop, net_socket sock,
       const net_endpoint* remote, std::optional<connection_role> role,
       block_size recv_buf_size, block_size send_buf_size, shot_type recv_shot,
+      expiration_duration_t read_timeout, expiration_duration_t write_timeout,
       PluginArgs&&... plugin_args)
       : loop_{loop}, sock_{std::move(sock)},
         remote_{remote ? *remote : net_endpoint{}},
         connecting_{role == connection_role::client},
         listening_{role == connection_role::server},
         recv_buf_size_{recv_buf_size}, send_buf_size_{send_buf_size},
+        read_timeout_{read_timeout}, write_timeout_{write_timeout},
         recv_intended_shot_{recv_shot}, recv_active_shot_{recv_shot},
         plugin_{*this, std::forward<PluginArgs>(plugin_args)...} {
     static_assert(iou_stream_conn_plugin<plugin_t>,
@@ -511,10 +529,12 @@ public:
   // (e.g., UDS) skip the per-conn discovery `EOPNOTSUPP`.
   iou_stream_conn(allow, const plugin_t& accept_from, iou_loop& loop,
       net_socket sock, const net_endpoint* remote, block_size recv_buf_size,
-      block_size send_buf_size, shot_type recv_shot, bool send_zc_supported)
+      block_size send_buf_size, shot_type recv_shot, bool send_zc_supported,
+      expiration_duration_t read_timeout, expiration_duration_t write_timeout)
       : loop_{loop}, sock_{std::move(sock)},
         remote_{remote ? *remote : net_endpoint{}},
         recv_buf_size_{recv_buf_size}, send_buf_size_{send_buf_size},
+        read_timeout_{read_timeout}, write_timeout_{write_timeout},
         recv_intended_shot_{recv_shot}, recv_active_shot_{recv_shot},
         send_zc_supported_{send_zc_supported},
         plugin_{accept_from.make_child_plugin(*this)} {
@@ -550,42 +570,45 @@ public:
   // by its in-flight callbacks; promote to a `shared_ptr` via `self` if you
   // need to.
   template<typename... PluginArgs>
-  [[nodiscard]] static iou_stream_conn*
-  adopt(iou_loop& loop, net_socket sock, net_endpoint remote,
-      shot_type recv_shot = shot_type::multi, PluginArgs&&... plugin_args) {
+  [[nodiscard]] static iou_stream_conn* adopt(iou_loop& loop, net_socket sock,
+      net_endpoint remote, shot_type recv_shot = shot_type::multi,
+      expiration_duration_t read_timeout = {},
+      expiration_duration_t write_timeout = {}, PluginArgs&&... plugin_args) {
     return do_make(loop, std::move(sock), &remote, std::nullopt,
-        block_size::kb004, block_size::kb004, recv_shot,
-        std::forward<PluginArgs>(plugin_args)...);
+        block_size::kb004, block_size::kb004, recv_shot, read_timeout,
+        write_timeout, std::forward<PluginArgs>(plugin_args)...);
   }
 
   // Initiate an async connect to `remote`. `on_drain` fires on success;
   // `on_close` fires on failure. Returns `nullptr` on socket creation failure.
   template<typename... PluginArgs>
-  [[nodiscard]] static iou_stream_conn*
-  connect(iou_loop& loop, const net_endpoint& remote,
-      shot_type recv_shot = shot_type::multi, PluginArgs&&... plugin_args) {
+  [[nodiscard]] static iou_stream_conn* connect(iou_loop& loop,
+      const net_endpoint& remote, shot_type recv_shot = shot_type::multi,
+      expiration_duration_t read_timeout = {},
+      expiration_duration_t write_timeout = {}, PluginArgs&&... plugin_args) {
     auto sock = net_socket::create_for(remote);
     if (!sock.is_open()) return nullptr;
     return do_make(loop, std::move(sock), &remote, connection_role::client,
-        block_size::kb004, block_size::kb004, recv_shot,
-        std::forward<PluginArgs>(plugin_args)...);
+        block_size::kb004, block_size::kb004, recv_shot, read_timeout,
+        write_timeout, std::forward<PluginArgs>(plugin_args)...);
   }
 
   // Create a listening socket bound to `local`. Each accepted connection
   // gets a fresh plugin built via the parent plugin's `make_child_plugin`.
   // Returns `nullptr` on failure.
   template<typename... PluginArgs>
-  [[nodiscard]] static iou_stream_conn*
-  listen(iou_loop& loop, const net_endpoint& local,
-      shot_type recv_shot = shot_type::multi, PluginArgs&&... plugin_args) {
+  [[nodiscard]] static iou_stream_conn* listen(iou_loop& loop,
+      const net_endpoint& local, shot_type recv_shot = shot_type::multi,
+      expiration_duration_t read_timeout = {},
+      expiration_duration_t write_timeout = {}, PluginArgs&&... plugin_args) {
     auto sock = net_socket::create_for(local);
     if (!sock.is_open()) return nullptr;
     if (!sock.set_reuse_addr()) return nullptr;
     if (!sock.bind(local)) return nullptr;
     if (!sock.listen()) return nullptr;
     return do_make(loop, std::move(sock), nullptr, connection_role::server,
-        block_size::kb004, block_size::kb004, recv_shot,
-        std::forward<PluginArgs>(plugin_args)...);
+        block_size::kb004, block_size::kb004, recv_shot, read_timeout,
+        write_timeout, std::forward<PluginArgs>(plugin_args)...);
   }
 
 #pragma endregion
@@ -611,6 +634,15 @@ private:
   // Size of borrowed buffers.
   relaxed_atomic<block_size> recv_buf_size_{block_size::kb004};
   relaxed_atomic<block_size> send_buf_size_{block_size::kb004};
+
+  // Idle timeouts. Set at construction; zero means "no timeout".
+  relaxed_atomic<expiration_duration_t> read_timeout_;
+  relaxed_atomic<expiration_duration_t> write_timeout_;
+
+  // Current read/write deadlines, mutated as data flows and read by the
+  // sweeper callback. See `timeout_sweeper` for the read/write protocol.
+  relaxed_atomic<expiration_time_point_t> read_expiration_;
+  relaxed_atomic<expiration_time_point_t> write_expiration_;
 
   // Recv state: whether it's paused, whether we're trying for single or
   // multishot, and whether the current shot is single or multi. The
@@ -643,10 +675,11 @@ private:
   static iou_stream_conn* do_make(iou_loop& loop, net_socket sock,
       const net_endpoint* remote, std::optional<connection_role> role,
       block_size recv_buf_size, block_size send_buf_size, shot_type recv_shot,
+      expiration_duration_t read_timeout, expiration_duration_t write_timeout,
       PluginArgs&&... plugin_args) {
     auto conn = std::make_shared<iou_stream_conn>(allow::ctor, loop,
         std::move(sock), remote, role, recv_buf_size, send_buf_size, recv_shot,
-        std::forward<PluginArgs>(plugin_args)...);
+        read_timeout, write_timeout, std::forward<PluginArgs>(plugin_args)...);
     auto* ptr = conn.get();
     if (!loop.execute_or_post([conn = std::move(conn)] {
           return conn->start_reading();
@@ -662,7 +695,9 @@ private:
     assert(loop().is_loop_thread());
     return std::make_shared<iou_stream_conn>(allow::ctor, plugin_, loop_,
         std::move(sock), remote, block_size{recv_buf_size_},
-        block_size{send_buf_size_}, recv_intended_shot_, send_zc_supported_);
+        block_size{send_buf_size_}, recv_intended_shot_, send_zc_supported_,
+        expiration_duration_t{read_timeout_},
+        expiration_duration_t{write_timeout_});
   }
 
   // Submit buffer for recv.
