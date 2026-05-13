@@ -38,6 +38,7 @@
 #include "../../concurrency/notifiable.h"
 #include "../../concurrency/relaxed_atomic.h"
 #include "../../concurrency/owner_thread_dispatcher.h"
+#include "../../concurrency/timeout_sweeper.h"
 #include "../../containers/scope_exit.h"
 #include "../../containers/scoped_value.h"
 #include "../../containers/object_pool.h"
@@ -164,6 +165,12 @@ concept PostedInvocable =
 // force single-threading of ring access.
 using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
 
+// Callback for entries registered with the loop's `timeouts()` sweeper.
+// Sized for the typical idle-timeout capture: one `std::weak_ptr` on top of
+// the `fixed_function` invoke/manage overhead.
+using expiration_fn = fixed_function<32,
+    timeout_sweeper_base::time_point_t(timeout_sweeper_base::time_point_t)>;
+
 #pragma endregion
 #pragma region iou_loop
 
@@ -230,11 +237,16 @@ public:
   using span_t = buffer::span_t;
   using const_span_t = buffer::const_span_t;
 
-  // Timeouts.
+  // Timeouts. (io_uring-specific)
   using duration_t = std::chrono::nanoseconds;
   static constexpr duration_t default_run_once_timeout{10ms};
   static constexpr duration_t default_post_and_wait_poll_interval{100ms};
   static constexpr size_t default_max_pending_sqes{RING_SIZE / 4};
+
+  // Expiration. (`timeout_sweeper`-specific)
+  using sweeper_t = concurrency::timeout_sweeper<expiration_fn>;
+  using expiration_time_point_t = sweeper_t::time_point_t;
+  using expiration_duration_t = sweeper_t::duration_t;
 
   // Low-level callback invoked when an op completes. Moved to a slot borrowed
   // from the `completion_cb_pool_t`. This avoids the need for
@@ -365,6 +377,7 @@ public:
     // outlives this loop (held by a conn the user kept past
     // `~iou_basic_loop`), its destructor must not touch our `iou_ring` or our
     // dispatcher base, both of which are about to vanish.
+    timeouts_.clear();
     udp_buf_pool_->skip_unregister();
     tcp_provided_buf_pool_->skip_unregister();
     udp_buf_pool_->disarm();
@@ -486,6 +499,10 @@ public:
   [[nodiscard]] size_t free_udp_block_count() const noexcept {
     return udp_buf_pool_->free_block_count();
   }
+
+  // Shared timeout sweeper. Conn classes (or any other client of the loop)
+  // may register expirations with it.
+  [[nodiscard]] auto& timeouts() noexcept { return timeouts_; }
 
 #pragma endregion
 #pragma region Completion tokens
@@ -1711,6 +1728,9 @@ private:
   // Completion callback pool, used to avoid `std::shared_ptr`.
   completion_cb_pool_t completion_cb_pool_;
 
+  // Shared timeout sweeper.
+  sweeper_t timeouts_;
+
   // Stop system.
   std::atomic_bool stop_;
   notifiable<std::atomic_bool> running_;
@@ -1719,6 +1739,7 @@ private:
   size_t max_pending_sqes_{};
   size_t pending_sqe_count_{};
   const duration_t post_and_wait_poll_interval_;
+
 #pragma endregion
 };
 

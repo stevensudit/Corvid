@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "relaxed_atomic.h"
+#include "timeout_sweeper_base.h"
 
 namespace corvid { inline namespace concurrency {
 
@@ -87,12 +88,10 @@ namespace corvid { inline namespace concurrency {
 //       std::chrono::steady_clock::time_point(
 //           std::chrono::steady_clock::time_point)>>;
 //
-template<typename CB = std::function<std::chrono::steady_clock::time_point(
-             std::chrono::steady_clock::time_point)>>
-class timeout_sweeper {
+template<typename CB = std::function<timeout_sweeper_base::time_point_t(
+             timeout_sweeper_base::time_point_t)>>
+class timeout_sweeper: public timeout_sweeper_base {
 public:
-  using time_point_t = std::chrono::steady_clock::time_point;
-  using duration_t = std::chrono::steady_clock::duration;
   using callback_t = CB;
 
   static_assert(
@@ -101,16 +100,6 @@ public:
           std::is_move_constructible_v<callback_t>,
       "callback_t must be invocable as time_point_t(time_point_t), "
       "default-constructible, and move-constructible");
-
-  // Sentinel value used to enter logical pause mode. See example above for
-  // explanation.
-  static constexpr time_point_t paused_expiration =
-      time_point_t::max() - std::chrono::years{1};
-
-  // Single source of truth for the current time.
-  [[nodiscard]] static time_point_t now() noexcept {
-    return std::chrono::steady_clock::now();
-  }
 
   timeout_sweeper() { heap_.reserve(64); };
 
