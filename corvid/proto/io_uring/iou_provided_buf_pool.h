@@ -214,7 +214,8 @@ public:
   [[nodiscard]] buffer borrow(iou_res res, iou_cqe_flags cqe_flags,
       msghdr* msgh = nullptr) noexcept {
     if (!base_ || !buf_ring_) return {};
-    if (!bitmask::has(cqe_flags, iou_cqe_flags::buffer)) return {};
+    if (!bitmask::has(cqe_flags, iou_cqe_flags::buffer))
+      return buffer::make_synthetic({}, {}, res);
     const size_t bid = get_buffer_id(cqe_flags);
     if (bid >= buf_count_) return {};
     span_t span{base_ + (bid * buf_size_), buf_size_};

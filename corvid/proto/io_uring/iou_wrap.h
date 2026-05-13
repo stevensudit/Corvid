@@ -375,7 +375,8 @@ struct combined_endpoint {
 // `errno` value.
 class iou_res {
 public:
-  explicit iou_res(int res = 0) : res_(res) {}
+  iou_res() noexcept : res_(0) {}
+  explicit iou_res(int res) : res_(res) {}
   explicit iou_res(errno_code err) : res_(-*err) {}
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
@@ -383,15 +384,20 @@ public:
 
   [[nodiscard]] bool ok(int r = 0) const noexcept { return res_ >= r; }
   [[nodiscard]] int value() const noexcept { return res_; }
-  [[nodiscard]] errno_code err() const noexcept { return errno_code{-res_}; }
+  [[nodiscard]] errno_code err() const noexcept {
+    assert(!ok());
+    return errno_code{-res_};
+  }
   [[nodiscard]] size_t bytes() const noexcept {
     return static_cast<size_t>(res_);
   }
 
   // True if the result is a "soft" error that can be retried.
   [[nodiscard]] bool is_soft_error() const {
-    return err() == EC::time || err() == EC::intr || err() == EC::again ||
-           err() == EC::nomem || err() == EC::restart;
+    if (ok()) return false;
+    const auto e = err();
+    return e == EC::time || e == EC::intr || e == EC::again ||
+           e == EC::nomem || e == EC::restart;
   }
 
   void throw_if_error(const std::string& context, int r = 0) const {

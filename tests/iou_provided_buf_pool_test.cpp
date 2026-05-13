@@ -209,7 +209,9 @@ void IouProvidedBufPool_ReconstructErrorResult() {
 
 #pragma region ReconstructNoBufferFlag
 void IouProvidedBufPool_ReconstructNoBufferFlag() {
-  // A CQE without the buffer flag returns an empty buffer.
+  // A CQE without the buffer flag returns a synthetic stub: no payload, but
+  // the CQE `res` is preserved so callers can distinguish EOF (`res=0`)
+  // from cancel, hard errors, etc.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
@@ -220,7 +222,9 @@ void IouProvidedBufPool_ReconstructNoBufferFlag() {
 
     // No IORING_CQE_F_BUFFER flag set.
     auto buf = pool->borrow(iou_res{8}, iou_cqe_flags{});
-    EXPECT_FALSE(buf);
+    ASSERT_TRUE(buf);
+    EXPECT_EQ(buf.result().value(), 8);
+    EXPECT_TRUE(buf.payload_view().empty());
   }
 }
 #pragma endregion

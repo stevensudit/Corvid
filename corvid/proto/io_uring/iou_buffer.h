@@ -148,7 +148,7 @@ public:
   // `prepare_recvmsg`/`prepare_sendmsg`, kernel I/O submission) is undefined
   // or unsupported.
   [[nodiscard]] static iou_buffer make_synthetic(span_t data,
-      std::shared_ptr<buffer_pool_base> pool = {}) noexcept {
+      std::shared_ptr<buffer_pool_base> pool = {}, iou_res res = {}) noexcept {
     struct null_buffer_pool: public buffer_pool_base {
       [[nodiscard]] std::byte* base() const noexcept override {
         return nullptr;
@@ -166,7 +166,8 @@ public:
     buf.payload_span_ = data;
     buf.active_span_ = {data.data() + data.size(), 0};
     buf.blockrw_ = block_type::read;
-    buf.res_ = iou_res{static_cast<int>(data.size())};
+    if (data.size()) res = iou_res{static_cast<int>(data.size())};
+    buf.res_ = res;
     return buf;
   }
 
@@ -178,7 +179,7 @@ public:
   [[nodiscard]] bool operator!() const noexcept { return !pool_; }
 
   // Access the result of the I/O operation; initially an error condition.
-  [[nodiscard]] iou_res result() const noexcept { return res_; }
+  [[nodiscard]] const iou_res& result() const noexcept { return res_; }
 
   // Access the CQE flags of the I/O operation; initially zero.
   [[nodiscard]] iou_cqe_flags cqe_flags() const noexcept { return cqe_flags_; }
@@ -283,6 +284,7 @@ public:
   // taken slice. Fully draining the payload resets the buffer to its
   // initial read state (empty payload, active = full block).
   [[nodiscard]] span_t consume_read(size_t n) noexcept {
+    if (n == 0) return {};
     assert(blockrw_ == block_type::read);
     const size_t take = std::min(n, payload_span_.size());
     span_t result{payload_span_.data(), take};

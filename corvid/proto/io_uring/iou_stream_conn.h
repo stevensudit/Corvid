@@ -28,6 +28,7 @@
 #include "../net_endpoint.h"
 #include "iou_buf_pool.h"
 #include "iou_loop.h"
+#include "iou_wrap.h"
 
 namespace corvid { inline namespace proto { namespace iouring {
 using namespace bool_enums;
@@ -37,22 +38,25 @@ template<typename ConnPlugin>
 class iou_stream_conn;
 
 #pragma region iou_recv_view
-// Move-only recv view delivered to a plugin's `on_data`. Three consumption
+// Move-only recv view delivered to a plugin's `on_data`. Four consumption
 // paths:
 //
-//  Inline: call `active_view` + `consume`. When the buffer is not Provided by
-//      the kernel for a multishot, you can leave some of the payload
-//      unconsumed and it will be accumulated onto by subsequent `recv`s.
-//      However, if the buffer is full or was Provided, it is an error to leave
-//      unconsumed payload.
+//  Consume: call `active_view` + `consume`. When the buffer is not Provided by
+//    the kernel for a multishot, you can leave some of the payload unconsumed
+//    and it will be accumulated onto by subsequent `recv`s. However, if the
+//    buffer is full or was Provided, it is an error to leave unconsumed
+//    payload.
 //
-//  Async: call `take` to transfer buffer ownership for off-loop parsing.
-//  Incoming data will land in another buffer.
+//  Take: call `take` to transfer buffer ownership for off-loop parsing.
+//    Incoming data will land in another buffer.
 //
 //  Stop: extract the buffer first via `take`, then call `stop_receiving` to
-//        end the `recv` loop. Returns a `posted_fn` resume callback that keeps
-//        the conn alive while held and, when invoked, restarts the `recv`
-//        loop. Useful for backpressure.
+//    end the `recv` loop. Returns a `posted_fn` resume callback that keeps the
+//    conn alive while held and, when invoked, restarts the `recv` loop. Useful
+//    for backpressure.
+//
+//  Move: transfer ownership of the view itself by binding it into a callback
+//    to be executed on another thread. This offers more flexibility.
 class iou_recv_view {
 #pragma region Construction
 public:
@@ -223,6 +227,8 @@ concept iou_stream_conn_plugin = requires(P p, iou_recv_view&& view,
 // the plugin's `on_data` controls re-submission via inline `consume` or
 // async `take`.
 //
+// Thread safety: All public methods are thread-safe unless otherwise labeled.
+//
 // Ownership: the conn is self-sustaining. Every in-flight `recv`, `send`,
 // `connect`, `accept`, or `close` callback captures a `shared_ptr<self>`, so
 // the conn cannot destruct as long as any I/O is pending - even with no
@@ -287,13 +293,33 @@ public:
 
 #pragma region Accessors
 
-  // True if the connection has not yet been closed. Safe to call from any
-  // thread, but there's no guarantee that a connection will remain open, while
-  // a closed one will remain closed.
-  [[nodiscard]] bool is_open() const noexcept { return open_; }
+  // Like all public methods, accessors are thread-safe. However, they may be
+  // racy until they've reached their final state.
+
+  // True if the connection has not yet been closed. Once `false`, stays
+  // `false`.
+  [[nodiscard]] bool is_open() const noexcept { return !closed_; }
+
+  // True once the peer has sent EOF (their `SHUT_WR` or `close`), or we have
+  // submitted `SHUT_RD`. The local write side may still be open and `send` may
+  // still queue data, unless `close` or `shutdown_send` has also been
+  // requested. Once `true`, stays `true`.
+  [[nodiscard]] bool is_read_shut() const noexcept { return read_shut_; }
+
+  // True once we have submitted `SHUT_WR` (via `shutdown_send` or `close`).
+  // After this, further `send` calls are rejected, though the peer may still
+  // send data. Once `true`, stays `true`.
+  [[nodiscard]] bool is_write_shut() const noexcept { return write_shut_; }
+
+  // True iff the conn will currently accept new `send` calls: it must be
+  // open, with neither `close` nor `shutdown_send` requested. Once `false`,
+  // stays `false`.
+  [[nodiscard]] bool writes_allowed() const noexcept {
+    return !closed_ && !close_requested_ && !shutdown_send_requested_;
+  }
 
   // The remote peer address. For accepted connections, computed lazily via
-  // `getpeername` on first call. Safe from any thread.
+  // `getpeername` on first call.
   [[nodiscard]] const net_endpoint& remote_endpoint() noexcept {
     std::scoped_lock lock{endpoint_mutex_};
     if (remote_.empty()) remote_ = net_endpoint::peer_of(sock_);
@@ -302,7 +328,7 @@ public:
 
   // The local address this socket is bound to, computed lazily via
   // `getsockname` on first call. Useful after `listen` on port 0 to discover
-  // the OS-assigned port. Safe from any thread.
+  // the OS-assigned port.
   [[nodiscard]] const net_endpoint& local_endpoint() noexcept {
     std::scoped_lock lock{endpoint_mutex_};
     if (local_.empty()) local_ = net_endpoint{sock_};
@@ -320,7 +346,7 @@ public:
   }
 
   //
-  // Block size for borrowed buffers. Thread-safe, but inherently racy.
+  // Block size for borrowed buffers.
   //
 
   [[nodiscard]] block_size recv_buf_size() const noexcept {
@@ -336,27 +362,27 @@ public:
 #pragma endregion
 #pragma region send
 
-  // Queue a string for sending. JIT-borrows a write `buffer` to pack
-  // consecutive string items. Safe from any thread.
-  [[nodiscard]] bool send(std::string&& data) {
-    if (!open_ || data.empty()) return false;
+  // Queue a registered `buffer` for zero-copy sending.
+  [[nodiscard]] bool send(buffer&& buf) {
+    if (!writes_allowed() || !buf || buf.active_span().empty()) return false;
     return loop_.execute_or_post(
-        [conn = self(), d = std::move(data)]() mutable -> bool {
-          if (!conn->open_) return false;
-          conn->send_queue_.emplace_back(std::move(d));
-          if (!conn->send_token_) return conn->do_submit_send();
+        [this, _ = self(), buf = std::move(buf)]() mutable -> bool {
+          if (!writes_allowed()) return false;
+          send_queue_.emplace_back(std::move(buf));
+          if (!send_token_) return do_submit_send();
           return true;
         });
   }
 
-  // Queue a registered `buffer` for zero-copy sending. Safe from any thread.
-  [[nodiscard]] bool send(buffer&& buf) {
-    if (!open_ || !buf || buf.active_span().empty()) return false;
+  // Queue a string for sending. JIT-borrows a write `buffer` to pack
+  // consecutive string items. Prefer the `buffer` overload for performance.
+  [[nodiscard]] bool send(std::string&& data) {
+    if (!writes_allowed() || data.empty()) return false;
     return loop_.execute_or_post(
-        [conn = self(), b = std::move(buf)]() mutable -> bool {
-          if (!conn->open_) return false;
-          conn->send_queue_.emplace_back(std::move(b));
-          if (!conn->send_token_) return conn->do_submit_send();
+        [this, _ = self(), data = std::move(data)]() mutable -> bool {
+          if (!writes_allowed()) return false;
+          send_queue_.emplace_back(std::move(data));
+          if (!send_token_) return do_submit_send();
           return true;
         });
   }
@@ -364,61 +390,96 @@ public:
 #pragma endregion
 #pragma region close
 
-  // Start a close.
-  //
-  // If `coordination` is `unilateral` (the default), flushes pending `send`s
-  // and then closes the socket. If `bilateral`, instead shuts down the write
-  // side after flushing pending `send`s and discards incoming data until the
-  // peer closes. Set the policy via `set_shutdown` before calling this.
-  //
-  // Safe from any thread.
+  // Start a close. Flushes pending `send`s, then fully closes the socket.
+  // Idempotent. After `close` is called, further `send`s are rejected.
   [[nodiscard]] bool close() {
-    return loop_.execute_or_post([conn = self()] { return conn->do_close(); });
-  }
-
-  // Get the shutdown `coordination_policy` used by `close`. `bilateral`
-  // shuts down the write side after the send queue flushes, then discards
-  // incoming data until the peer sends EOF. `unilateral` (the default) closes
-  // the entire socket once the queue empties. Safe from any thread.
-  [[nodiscard]] coordination_policy get_shutdown() const noexcept {
-    return shutdown_;
-  }
-
-  // Set the shutdown coordination policy. `shutdown` defaults to `unilateral`.
-  // Call before `close`. Safe from any thread.
-  void set_shutdown(coordination_policy shutdown) noexcept {
-    shutdown_ = shutdown;
-  }
-
-  // Forceful close: cancel pending I/O and close immediately with RST.
-  // Safe from any thread.
-  [[nodiscard]] bool hangup() {
-    return loop_.execute_or_post([conn = self()] {
-      return conn->do_hangup_now();
+    if (closed_) return false;
+    if (close_requested_->exchange(true, std::memory_order::relaxed))
+      return false;
+    return loop_.execute_or_post([this, _ = self()] {
+      if (send_queue_.empty() && !send_token_) return do_close_now(true);
+      return true;
     });
   }
 
-  // Pause the recv loop. Returns a `shared_ptr` to conn, so that you
+  // Shut down the write side. Flushes pending `send`s, then submits `SHUT_WR`
+  // so the peer sees EOF on its read. The read side stays open; `on_data`
+  // continues to fire (including with an empty view on peer EOF). After
+  // `shutdown_send` is called, further `send` calls are rejected. If reads
+  // were already shut, just closes. Idempotent.
+  [[nodiscard]] bool shutdown_send() {
+    if (!writes_allowed()) return false;
+    if (shutdown_send_requested_->exchange(true, std::memory_order::relaxed))
+      return false;
+    return loop_.execute_or_post([this, _ = self()] {
+      if (send_queue_.empty() && !send_token_) return do_shutdown_send_now();
+      return true;
+    });
+  }
+
+  // Shut down the read side. Submits `SHUT_RD` so the kernel discards any
+  // queued inbound data and future recvs return EOF, and cancels any
+  // in-flight recv so its terminating CQE is dropped silently rather than
+  // treated as a hard error. Sets `read_shut_`. The write side stays open.
+  // If writes were already shut, just closes. Idempotent.
+  //
+  // Symmetric to `shutdown_send`, though generally less useful because it
+  // doesn't send any indication over the wire or offer strong guarantees about
+  // kernel behavior.
+  [[nodiscard]] bool shutdown_recv() {
+    if (closed_) return false;
+    if (read_shut_->exchange(true, std::memory_order::relaxed)) return false;
+    return loop_.execute_or_post([this, _ = self()] {
+      if (closed_) return false;
+      if (write_shut_) return do_close_now();
+      if (recv_token_) (void)loop_.submit_cancel(std::move(recv_token_));
+      const auto cbtoken = loop_.submit_shutdown(sock_, shutdown_how::rd,
+          [_ = self()](completion_id, iou_res, iou_cqe_flags) {
+            return slot_retention{};
+          });
+      if (!cbtoken.is_valid()) return do_close_now();
+    });
+  }
+
+  // Forceful close: cancel pending I/O and close immediately with RST.
+  [[nodiscard]] bool hangup() {
+    if (closed_->exchange(true, std::memory_order::relaxed)) return false;
+    return loop_.execute_or_post([this, _ = self()] {
+      send_queue_.clear();
+      if (sock_) {
+        (void)sock_.set_option(socket_option::linger,
+            linger{.l_onoff = 1, .l_linger = 0});
+        (void)loop_.submit_close(std::move(sock_),
+            [_ = self()](completion_id, iou_res, iou_cqe_flags) {
+              return slot_retention{};
+            });
+        (void)loop_.immediate_submit();
+      }
+      return notify_close_once();
+    });
+  }
+
+  // Pause the `recv` loop. Returns a `shared_ptr` to conn, so that you
   // can keep the conn alive until you call `resume_receiving` through the
-  // pointer. Idempotent. Safe from any thread.
+  // pointer. Idempotent.
   [[nodiscard]] auto stop_receiving() {
     auto conn = self();
     if (!recv_paused_->exchange(true, std::memory_order::relaxed))
-      (void)loop_.execute_or_post([conn] {
-        if (!conn->recv_token_) return false;
-        return conn->loop_.submit_cancel(std::move(conn->recv_token_));
+      (void)loop_.execute_or_post([this, _ = conn] {
+        if (!recv_token_) return false;
+        return loop_.submit_cancel(std::move(recv_token_));
       });
     return conn;
   }
 
-  // Resume receiving after `stop_receiving`. Idempotent. Safe from any
-  // thread.
+  // Resume receiving after `stop_receiving`. Idempotent. A no-op once the read
+  // side has been shut (peer EOF observed).
   [[nodiscard]] bool resume_receiving() {
     if (!recv_paused_->exchange(false, std::memory_order::relaxed))
       return false;
-    return loop_.execute_or_post([conn = self()]() -> bool {
-      if (!conn->open_ || conn->recv_token_) return false;
-      return conn->do_submit_recv();
+    return loop_.execute_or_post([this, _ = self()]() -> bool {
+      if (closed_ || recv_token_ || read_shut_) return false;
+      return do_submit_recv();
     });
   }
 
@@ -432,13 +493,12 @@ public:
   template<typename... PluginArgs>
   explicit iou_stream_conn(allow, iou_loop& loop, net_socket sock,
       const net_endpoint* remote, std::optional<connection_role> role,
-      coordination_policy shutdown, block_size recv_buf_size,
-      block_size send_buf_size, shot_type recv_shot,
+      block_size recv_buf_size, block_size send_buf_size, shot_type recv_shot,
       PluginArgs&&... plugin_args)
       : loop_{loop}, sock_{std::move(sock)},
         remote_{remote ? *remote : net_endpoint{}},
         connecting_{role == connection_role::client},
-        listening_{role == connection_role::server}, shutdown_{shutdown},
+        listening_{role == connection_role::server},
         recv_buf_size_{recv_buf_size}, send_buf_size_{send_buf_size},
         recv_intended_shot_{recv_shot}, recv_active_shot_{recv_shot},
         plugin_{*this, std::forward<PluginArgs>(plugin_args)...} {
@@ -450,11 +510,10 @@ public:
   // child conn from a parent. The new plugin is constructed by invoking
   // `accept_from.make_child_plugin(*this)`.
   iou_stream_conn(allow, const plugin_t& accept_from, iou_loop& loop,
-      net_socket sock, const net_endpoint* remote,
-      coordination_policy shutdown, block_size recv_buf_size,
+      net_socket sock, const net_endpoint* remote, block_size recv_buf_size,
       block_size send_buf_size, shot_type recv_shot)
       : loop_{loop}, sock_{std::move(sock)},
-        remote_{remote ? *remote : net_endpoint{}}, shutdown_{shutdown},
+        remote_{remote ? *remote : net_endpoint{}},
         recv_buf_size_{recv_buf_size}, send_buf_size_{send_buf_size},
         recv_intended_shot_{recv_shot}, recv_active_shot_{recv_shot},
         plugin_{accept_from.make_child_plugin(*this)} {
@@ -494,8 +553,8 @@ public:
   adopt(iou_loop& loop, net_socket sock, net_endpoint remote,
       shot_type recv_shot = shot_type::multi, PluginArgs&&... plugin_args) {
     return do_make(loop, std::move(sock), &remote, std::nullopt,
-        coordination_policy::unilateral, block_size::kb004, block_size::kb004,
-        recv_shot, std::forward<PluginArgs>(plugin_args)...);
+        block_size::kb004, block_size::kb004, recv_shot,
+        std::forward<PluginArgs>(plugin_args)...);
   }
 
   // Initiate an async connect to `remote`. `on_drain` fires on success;
@@ -507,8 +566,8 @@ public:
     auto sock = net_socket::create_for(remote);
     if (!sock.is_open()) return nullptr;
     return do_make(loop, std::move(sock), &remote, connection_role::client,
-        coordination_policy::unilateral, block_size::kb004, block_size::kb004,
-        recv_shot, std::forward<PluginArgs>(plugin_args)...);
+        block_size::kb004, block_size::kb004, recv_shot,
+        std::forward<PluginArgs>(plugin_args)...);
   }
 
   // Create a listening socket bound to `local`. Each accepted connection
@@ -524,8 +583,8 @@ public:
     if (!sock.bind(local)) return nullptr;
     if (!sock.listen()) return nullptr;
     return do_make(loop, std::move(sock), nullptr, connection_role::server,
-        coordination_policy::unilateral, block_size::kb004, block_size::kb004,
-        recv_shot, std::forward<PluginArgs>(plugin_args)...);
+        block_size::kb004, block_size::kb004, recv_shot,
+        std::forward<PluginArgs>(plugin_args)...);
   }
 
 #pragma endregion
@@ -538,15 +597,15 @@ private:
   net_endpoint remote_;       // Always access through `remote_endpoint` JIT.
   net_endpoint local_;        // Always access through `local_endpoint` JIT.
 
-  relaxed_atomic_bool open_{true}; // Cleared once close starts.
-  bool connecting_{};      // True when socket starts off trying to connect.
-  bool listening_{};       // True when socket starts off listening.
-  bool close_requested_{}; // True once `close` is called.
-  bool close_notified_{};  // True once `on_close` fires.
-  bool write_shut_{};      // True after SHUT_WR in bilateral close.
-  bool peer_eof_{};        // True once peer sends EOF.
-  relaxed_atomic<coordination_policy> shutdown_{
-      coordination_policy::unilateral};
+  relaxed_atomic_bool closed_;          // Socket is effectively closed.
+  relaxed_atomic_bool close_requested_; // `close` was called.
+  relaxed_atomic_bool shutdown_send_requested_; // `shutdown_send` was called.
+  relaxed_atomic_bool write_shut_;              // `write_shut` was called.
+  relaxed_atomic_bool read_shut_;               // `read_shut` was called.
+  bool on_close_was_notified_{};                // `on_close` was called.
+
+  bool connecting_{}; // Socket started off trying to connect.
+  bool listening_{};  // Socket is listening.
 
   // Size of borrowed buffers.
   relaxed_atomic<block_size> recv_buf_size_{block_size::kb004};
@@ -558,14 +617,15 @@ private:
   // downgrade from multi to single.
   relaxed_atomic_bool recv_paused_;
   shot_type recv_intended_shot_{shot_type::multi};
-  shot_type recv_active_shot_{shot_type::multi};
+  relaxed_atomic<shot_type> recv_active_shot_{shot_type::multi};
 
   // When receiving, token of callback. Can be used for cancelation.
   completion_token recv_token_;
 
   // Send state: one SQE in flight at a time; queue holds strings and
   // buffers.
-  // TODO: This really should be a circular buffer.
+  // TODO: This should probably be a circular buffer. Perhaps keep the deque
+  // around for overflow.
   std::deque<std::variant<std::string, buffer>> send_queue_;
   bool send_zc_supported_{true}; // Cleared on first EOPNOTSUPP.
   completion_token send_token_;
@@ -579,20 +639,19 @@ private:
 #pragma region Helpers
 private:
   template<typename... PluginArgs>
-  static iou_stream_conn*
-  do_make(iou_loop& loop, net_socket sock, const net_endpoint* remote,
-      std::optional<connection_role> role, coordination_policy shutdown,
+  static iou_stream_conn* do_make(iou_loop& loop, net_socket sock,
+      const net_endpoint* remote, std::optional<connection_role> role,
       block_size recv_buf_size, block_size send_buf_size, shot_type recv_shot,
       PluginArgs&&... plugin_args) {
     auto conn = std::make_shared<iou_stream_conn>(allow::ctor, loop,
-        std::move(sock), remote, role, shutdown, recv_buf_size, send_buf_size,
-        recv_shot, std::forward<PluginArgs>(plugin_args)...);
-    auto* raw = conn.get();
-    if (!loop.execute_or_post([p = std::move(conn)] {
-          return p->start_reading();
+        std::move(sock), remote, role, recv_buf_size, send_buf_size, recv_shot,
+        std::forward<PluginArgs>(plugin_args)...);
+    auto* ptr = conn.get();
+    if (!loop.execute_or_post([conn = std::move(conn)] {
+          return conn->start_reading();
         }))
       return nullptr;
-    return raw;
+    return ptr;
   }
 
   // Produce a new `iou_stream_conn` for each accepted connection. The new
@@ -601,24 +660,24 @@ private:
   do_accept_clone(net_socket&& sock, const net_endpoint* remote = nullptr) {
     assert(loop().is_loop_thread());
     return std::make_shared<iou_stream_conn>(allow::ctor, plugin_, loop_,
-        std::move(sock), remote, coordination_policy{shutdown_},
-        block_size{recv_buf_size_}, block_size{send_buf_size_},
-        recv_intended_shot_);
+        std::move(sock), remote, block_size{recv_buf_size_},
+        block_size{send_buf_size_}, recv_intended_shot_);
   }
 
   // Submit buffer for recv.
   [[nodiscard]] bool do_submit_recv() {
+    assert(loop().is_loop_thread());
     if (recv_active_shot_ == shot_type::single) return do_submit_single_recv();
     return do_submit_multi_recv();
   }
 
   // Submit buffer for singleshot recv, borrowing a read buffer if needed.
-  // `allow_upgrade` prevents re-entering `do_submit_multi_recv` when multishot
-  // submission itself fails.
+  // `allow_upgrade` controls whether we can re-enter `do_submit_multi_recv`
+  // when we switched to singleshot due to a multishot failure.
   [[nodiscard]] bool
   do_submit_single_recv(buffer* bufptr = {}, bool allow_upgrade = true) {
     assert(loop().is_loop_thread());
-    if (recv_token_) return false;
+    if (closed_ || recv_token_ || read_shut_ || recv_paused_) return false;
     recv_active_shot_ = shot_type::single;
 
     if (allow_upgrade && recv_intended_shot_ == shot_type::multi &&
@@ -636,9 +695,9 @@ private:
     if (!buf) return false;
 
     recv_token_ = loop_.submit_read_buffer(sock_, std::move(buf),
-        [conn = self()](completion_id, buffer& b) {
-          conn->recv_token_ = {};
-          (void)conn->on_recv_complete(b);
+        [this, _ = self()](completion_id, buffer& b) {
+          recv_token_ = {};
+          (void)on_recv_complete(b);
           return slot_retention{};
         });
     return recv_token_.is_valid();
@@ -648,51 +707,51 @@ private:
   // Automatically handles `has_more` failure.
   [[nodiscard]] bool do_submit_multi_recv() {
     assert(loop().is_loop_thread() && !recv_token_);
-    if (recv_paused_) return false;
+    if (closed_ || recv_token_ || read_shut_ || recv_paused_) return false;
 
     recv_active_shot_ = shot_type::multi;
     recv_token_ = loop_.submit_recv_buffer_multi(sock_,
-        [conn = self()](completion_id cbid,
+        [this, _ = self()](completion_id cbid,
             buffer& buf) mutable -> slot_retention {
-          if (!conn->open_) return slot_retention::release;
+          if (closed_) return slot_retention::release;
           const auto result = buf.result();
           const bool has_more = buf.has_more();
 
           // Normal case.
           if (has_more) {
-            (void)conn->on_recv_complete(buf);
+            (void)on_recv_complete(buf);
             return slot_retention::automatic;
           }
 
           // Multishot has stopped. Decide what to do about it.
-          conn->recv_token_ = {};
+          recv_token_ = {};
 
           // If it's an intentional cancelation, do not resuscitate.
-          if (result.err() == EC::canceled) {
-            conn->recv_paused_ = true;
+          if (!result && result.err() == EC::canceled) {
+            recv_paused_ = true;
             return slot_retention::release;
           }
 
           // If we ran out of buffers, downgrade to singleshot for now.
-          if (result.err() == EC::nobufs) {
-            (void)conn->do_submit_single_recv();
+          if (!result && result.err() == EC::nobufs) {
+            (void)do_submit_single_recv();
             return slot_retention::release;
           }
 
           // Not EOF or an error, so probably just a glitch. Retry.
-          if (result.value() > 0 && !conn->recv_paused_) {
-            conn->recv_token_ = completion_token{cbid};
-            const bool continued = conn->loop_.submit_recv_buffer_multi(
-                conn->sock_, completion_token{cbid});
-            (void)conn->on_recv_complete(buf);
+          if (result.value() > 0 && !recv_paused_) {
+            recv_token_ = completion_token{cbid};
+            const bool continued =
+                loop_.submit_recv_buffer_multi(sock_, completion_token{cbid});
+            (void)on_recv_complete(buf);
             if (continued) return slot_retention::retain;
-            conn->recv_token_ = {};
-            conn->recv_paused_ = true;
+            recv_token_ = {};
+            recv_paused_ = true;
             return slot_retention::release;
           }
 
           // Pass error on.
-          (void)conn->on_recv_complete(buf);
+          (void)on_recv_complete(buf);
           return slot_retention::release;
         });
 
@@ -704,31 +763,25 @@ private:
 
   // Build the resume callback captured by an `iou_recv_view`. Returns an
   // `iou_loop::posted_fn` resume token on the stop path (notsock signal),
-  // or an empty `posted_fn` on the normal re-arm path. The outer lambda
-  // captures a raw `this` rather than `self`: the view is passed by value
-  // into `on_data` and destructs (or has its `stop_receiving` called) before
-  // `on_data` returns, all on the loop thread inside the recv-completion
-  // callback that already holds a `shared_ptr<self>`. So there's no need to
-  // extend the conn's lifetime through the view; we avoid a refcount touch
-  // per recv. On the stop path, we *do* mint a `shared_ptr` and bind it into
-  // the returned token - that's the whole point of the token.
+  // or an empty `posted_fn` on the normal re-arm path. Safe to call from any
+  // thread.
   [[nodiscard]] iou_recv_view::resume_fn make_resume() {
-    return [conn = self()](buffer&& buf) -> iou_loop::posted_fn {
-      // Stop signal: deactivated buffer carries `EC::notsock`.
-      if (buf.result().err() == EC::notsock)
-        return [conn = conn->stop_receiving()] {
-          return conn->resume_receiving();
-        };
+    return [this, conn = self()](buffer&& buf) -> iou_loop::posted_fn {
+      // Read side is shut: the recv chain has already ended. Nothing to
+      // resubmit, no stop callback to mint.
+      if (read_shut_) return {};
 
-      // Normal re-arm. Singleshot needs an explicit resubmission; multishot
-      // is kernel-driven and just needs us to not get in the way.
-      (void)conn->loop_.execute_or_post(
-          [conn = std::move(conn), buf = std::move(buf)]() mutable -> bool {
-            if (!conn->open_) return false;
-            if (!conn->recv_paused_ &&
-                conn->recv_active_shot_ == shot_type::single)
-              return conn->do_submit_single_recv(&buf);
-            return true;
+      // Stop signal: deactivated buffer carries `EC::notsock`.
+      if (!buf.result() && buf.result().err() == EC::notsock)
+        return [this, conn = stop_receiving()] { return resume_receiving(); };
+
+      // Nothing more do when in multishot mode.
+      if (recv_active_shot_ == shot_type::multi) return {};
+
+      // Rearm singleshot.
+      (void)loop_.execute_or_post(
+          [this, _ = std::move(conn), buf = std::move(buf)]() mutable -> bool {
+            return do_submit_single_recv(&buf);
           });
       return {};
     };
@@ -757,21 +810,20 @@ private:
     return do_submit_send_buffer(std::move(buf));
   }
 
-  // Helper for sending specific buffer.
-  //
-  // Prefers `submit_send_buffer` (ZC). On first `EOPNOTSUPP` (such as with
-  // Unix domain sockets), `on_send_complete` clears `send_zc_supported_` and
-  // this helper falls back to `submit_write_buffer` for all subsequent sends.
+  // Send buffer. Prefers `submit_send_buffer` (ZC). On first `EOPNOTSUPP`
+  // (such as with Unix domain sockets), `on_send_complete` clears
+  // `send_zc_supported_` and this helper falls back to `submit_write_buffer`
+  // for all subsequent sends.
   [[nodiscard]] bool do_submit_send_buffer(buffer&& buf) {
     assert(loop().is_loop_thread() && !send_token_);
     if (!buf) return false;
 
-    auto fn =
-        [conn = self()](completion_id cbhandle, buffer& b) -> slot_retention {
-      if (bitmask::has(b.cqe_flags(), iou_cqe_flags::notif))
-        return b.pending_releases_decision();
+    auto fn = [this, _ = self()](completion_id cbhandle, buffer& buf)
+        -> slot_retention {
+      if (bitmask::has(buf.cqe_flags(), iou_cqe_flags::notif))
+        return buf.pending_releases_decision();
 
-      return conn->on_send_complete(cbhandle, b);
+      return on_send_complete(cbhandle, buf);
     };
 
     if (send_zc_supported_)
@@ -795,9 +847,9 @@ private:
     ep.sockaddr = {remote, remote.sockaddr_size()};
 
     connect_token_ = loop_.submit_connect(sock_, std::move(ep),
-        [conn = self()](completion_id, iou_res res,
+        [this, _ = self()](completion_id, iou_res res,
             iou_cqe_flags) -> slot_retention {
-          (void)conn->on_connect_complete(res);
+          (void)on_connect_complete(res);
           return {};
         });
     return connect_token_.is_valid();
@@ -809,14 +861,13 @@ private:
     // Set up a callback that resubmits itself, and use it to bootstrap the
     // initial submission.
     const auto cbtoken = loop_.tokenize(
-        [conn = self()](completion_id cbid, iou_res res,
+        [this, _ = self()](completion_id cbid, iou_res res,
             iou_cqe_flags flags) -> slot_retention {
-          (void)conn->on_accept_complete(res);
+          (void)on_accept_complete(res);
           if (bitmask::has(flags, iou_cqe_flags::more))
             return slot_retention::automatic;
-          if (!conn->listening_) return slot_retention::release;
-          if (!conn->loop_.submit_accept_multishot(conn->sock_,
-                  completion_token{cbid}))
+          if (!listening_) return slot_retention::release;
+          if (!loop_.submit_accept_multishot(sock_, completion_token{cbid}))
             throw std::runtime_error("Failed to re-arm multishot accept");
           return slot_retention::retain;
         });
@@ -824,7 +875,7 @@ private:
     // Pretend a CQE arrived, with a soft error that will be ignored. This will
     // get it to submit itself.
     auto borrowed = loop_.borrow(cbtoken);
-    (void)borrowed(cbtoken.as_int(), iou_res{*EC::again}, iou_cqe_flags{});
+    (void)borrowed(cbtoken.as_int(), iou_res{EC::again}, iou_cqe_flags{});
     loop_.detach(std::move(borrowed));
 
     connect_token_ = cbtoken;
@@ -832,64 +883,37 @@ private:
   }
 
   // Close immediately without flushing.
-  [[nodiscard]] bool do_close_now() {
+  [[nodiscard]] bool do_close_now(bool already_exchanged = false) {
     assert(loop().is_loop_thread());
-    if (!open_->exchange(false, std::memory_order::relaxed)) return false;
+    if (!already_exchanged &&
+        closed_->exchange(true, std::memory_order::relaxed))
+      return false;
     send_queue_.clear();
     if (sock_)
       (void)loop_.submit_close(std::move(sock_),
-          [conn = self()](completion_id, iou_res, iou_cqe_flags) {
+          [_ = self()](completion_id, iou_res, iou_cqe_flags) {
             return slot_retention{};
           });
 
     return notify_close_once();
   }
 
-  // Close immediately with RST, canceling all pending I/O first.
-  [[nodiscard]] bool do_hangup_now() {
-    assert(loop().is_loop_thread());
-    if (!open_->exchange(false, std::memory_order::relaxed)) return false;
-    send_queue_.clear();
-    if (sock_) {
-      (void)sock_.set_option(socket_option::linger,
-          linger{.l_onoff = 1, .l_linger = 0});
-      (void)loop_.submit_close(std::move(sock_),
-          [conn = self()](completion_id, iou_res, iou_cqe_flags) {
-            return slot_retention{};
-          });
-      (void)loop_.immediate_submit();
-    }
-    return notify_close_once();
-  }
-
-  // Finalize a requested close once the send queue is empty. With `unilateral`
-  // (or if the peer already sent EOF), closes immediately. With `bilateral`,
-  // shuts down the write side via `SHUT_WR` and keeps the recv loop running to
-  // discard incoming data until the peer sends EOF.
-  [[nodiscard]] bool do_finish_close() {
-    assert(loop().is_loop_thread());
-    if (shutdown_ == coordination_policy::unilateral || peer_eof_)
-      return do_close_now();
+  // Submit `SHUT_WR` and mark the write side as shut. The recv loop is left
+  // running so the plugin keeps seeing `on_data` until the peer sends EOF.
+  // On submission failure, falls back to a full close. If the read side
+  // is already shut (peer EOF observed earlier, or `shutdown_recv` already
+  // called), both halves are now down and we cascade straight to a full
+  // close rather than leave the socket lingering.
+  [[nodiscard]] bool do_shutdown_send_now() {
+    assert(loop().is_loop_thread() && !write_shut_);
+    if (read_shut_) return do_close_now();
     const auto token = loop_.submit_shutdown(sock_, shutdown_how::wr,
-        [conn = self()](completion_id, iou_res res, iou_cqe_flags) {
-          if (!res) (void)conn->do_close_now();
+        [this, _ = self()](completion_id, iou_res res, iou_cqe_flags) {
+          if (!res) (void)do_close_now();
           return slot_retention{};
         });
     if (!token.is_valid()) return do_close_now();
     write_shut_ = true;
-
-    // Must keep listening until the peer sends EOF.
-    recv_paused_ = false;
-    if (!recv_token_) return do_submit_recv();
-    return true;
-  }
-
-  // Close after flushing.
-  [[nodiscard]] bool do_close() {
-    assert(loop().is_loop_thread());
-    if (!open_) return false;
-    close_requested_ = true;
-    if (send_queue_.empty() && !send_token_) return do_finish_close();
     return true;
   }
 
@@ -914,12 +938,20 @@ private:
   [[nodiscard]] slot_retention
   do_handle_send_error(completion_id cbhandle, buffer& buf) {
     assert(loop().is_loop_thread());
+
+    // Downgrade from ZC if socket doesn't support it.
+    auto res = buf.result();
+    if (!res && res.err() == EC::opnotsupp && send_zc_supported_) {
+      send_zc_supported_ = false;
+      res = iou_res{EC::again};
+    }
+
     // Retry if possible.
-    if (buf.result().is_soft_error() || buf.result().err() == EC::opnotsupp) {
-      if (buf.result().err() == EC::opnotsupp) send_zc_supported_ = false;
+    if (res.is_soft_error()) {
       (void)do_resubmit_send(cbhandle, buf);
       return slot_retention::retain;
     }
+
     // Give up and close on hard errors.
     (void)do_close_now();
     return buf.pending_releases_decision();
@@ -928,15 +960,15 @@ private:
   // Handle completion of a send CQE (not the optional ZC notification CQE).
   //
   // For partial sends and retriable errors, resubmit using the same callback
-  // so the buffer stays in the closure. A new slot is only used when advancing
-  // to the next buffer. `pending_releases_` (maintained by
+  // so the buffer stays in the closure. A new slot is only used when
+  // advancing to the next buffer. `pending_releases_` (maintained by
   // `iou_buffer::update`) tracks all outstanding ZC pins; we retain the
   // callback slot until it reaches zero.
   [[nodiscard]] slot_retention
   on_send_complete(completion_id cbhandle, buffer& buf) {
     assert(loop().is_loop_thread());
     send_token_ = {};
-    if (!open_) return buf.pending_releases_decision();
+    if (closed_) return buf.pending_releases_decision();
 
     // Retry on soft errors.
     if (!buf.result().ok()) return do_handle_send_error(cbhandle, buf);
@@ -947,12 +979,14 @@ private:
       return slot_retention::retain;
     }
 
-    // Send complete. Start the next send if queued, or close if requested,
-    // else notify drain.
+    // Send complete. Start the next send if queued; otherwise act on a
+    // pending close / shutdown_send; otherwise notify drain.
     if (!send_queue_.empty())
       (void)do_submit_send();
     else if (close_requested_)
-      (void)do_finish_close();
+      (void)do_close_now();
+    else if (shutdown_send_requested_ && !write_shut_)
+      (void)do_shutdown_send_now();
     else
       (void)notify_drained();
 
@@ -965,7 +999,7 @@ private:
   [[nodiscard]] bool on_connect_complete(iou_res res) {
     assert(loop().is_loop_thread() && connecting_);
     connecting_ = false;
-    if (!open_) return true;
+    if (closed_) return true;
 
     // Error.
     if (!res) return do_close_now();
@@ -980,11 +1014,11 @@ private:
   }
 
   // Handle completion of a multishot accept. On success, creates a new
-  // `iou_stream_conn` for the accepted socket and registers it with the loop.
-  // On error, initiates close.
+  // `iou_stream_conn` for the accepted socket and registers it with the
+  // loop. On error, initiates close.
   [[nodiscard]] bool on_accept_complete(iou_res res) {
     assert(loop().is_loop_thread() && listening_);
-    if (!open_) return true;
+    if (closed_) return true;
 
     // Error. If it's an `ECANCELED`, then we're either shutting down or
     // pausing: either way, there's nothing for us to do here.
@@ -999,35 +1033,35 @@ private:
     return true;
   }
 
-  // Handle completion of a receive operation. If successful, delivers the
-  // buffer to `on_data`. On error or EOF, initiates close.
+  // Handle completion of a receive operation. Delivers the buffer to
+  // `on_data` (including an empty buffer on peer EOF, as the EOF signal).
+  // On hard error, fully closes. On peer EOF with our write side already
+  // shut, transitions to full close.
   [[nodiscard]] bool on_recv_complete(buffer& buf) {
     assert(loop().is_loop_thread());
-    if (!open_) return true;
+    if (closed_ || read_shut_) return true;
 
-    // EOF from peer.
     const auto res = buf.result();
+
+    // EOF from peer. Deliver an empty view so the plugin learns the read side
+    // is shut.
     if (res.value() == 0) {
-      peer_eof_ = true;
-      // Bilateral drain: peer sent EOF as expected, so close now.
-      if (close_requested_ && write_shut_) return do_close_now();
-      (void)notify_close_once();
-      if (close_requested_ && !send_token_ && send_queue_.empty())
-        return do_finish_close();
-      return true;
+      read_shut_ = true;
+      if (write_shut_) return do_close_now();
+      iou_recv_view view{std::move(buf), make_resume()};
+      return plugin_.on_data(std::move(view));
     }
 
-    // Fail on hard errors.
-    if (!res && !res.is_soft_error()) return do_close_now();
-
-    // Otherwise, keep reading (when there's a soft error or a drain).
-    if (!res || (close_requested_ && write_shut_)) {
-      if (recv_active_shot_ == shot_type::multi) {
-        recv_token_ = {};
-        return do_submit_recv();
-      }
-      return true;
+    // Fail on hard errors, retry on soft errors.
+    if (!res) {
+      if (!res.is_soft_error()) return do_close_now();
+      // For singleshot, we need to resubmit on soft errors.
+      if (recv_active_shot_ == shot_type::multi) return true;
+      return do_submit_single_recv(&buf);
     }
+
+    // If it snuck in after we stopped listening, just drop it.
+    if (close_requested_ || read_shut_) return true;
 
     // Process buffer and count on view destructor to continue receiving.
     iou_recv_view view{std::move(buf), make_resume()};
@@ -1035,11 +1069,11 @@ private:
   }
 
   // Send out SQEs for new connection so that we're ready to receive either a
-  // connection completion, an accepted socket, or data. Without this, nothing
-  // is keeping this instance alive.
+  // connection completion, an accepted socket, or data. Without this,
+  // nothing is keeping this instance alive.
   [[nodiscard]] bool start_reading() {
     assert(loop().is_loop_thread());
-    if (!open_) return false;
+    if (closed_) return false;
     if (listening_) return do_submit_accept();
     if (connecting_) return do_submit_connect();
     return do_submit_recv();
@@ -1054,8 +1088,8 @@ private:
   // Notify `on_close` exactly once.
   [[nodiscard]] bool notify_close_once() {
     assert(loop().is_loop_thread());
-    if (close_notified_) return false;
-    close_notified_ = true;
+    if (on_close_was_notified_) return false;
+    on_close_was_notified_ = true;
     return plugin_.on_close();
   }
 };
