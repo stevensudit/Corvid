@@ -46,6 +46,9 @@ public:
   using underlying_t = std::atomic<value_type>;
   using is_relaxed_atomic = std::true_type;
 
+  static_assert(underlying_t::is_always_lock_free,
+      "relaxed_atomic<T> requires T to be lock-free");
+
   constexpr relaxed_atomic() noexcept(
       std::is_nothrow_default_constructible_v<T>)
   requires std::is_default_constructible_v<T>

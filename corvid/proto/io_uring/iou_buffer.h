@@ -87,6 +87,7 @@ public:
   using span_t = buffer_pool_base::span_t;
   using const_span_t = buffer_pool_base::const_span_t;
   using block_type = ::corvid::proto::iouring::block_type;
+  using pool_ptr_t = std::shared_ptr<buffer_pool_base>;
   static constexpr uint64_t seek_current = static_cast<uint64_t>(-1);
 
   iou_buffer() = default;
@@ -148,7 +149,7 @@ public:
   // `prepare_recvmsg`/`prepare_sendmsg`, kernel I/O submission) is undefined
   // or unsupported.
   [[nodiscard]] static iou_buffer make_synthetic(span_t data,
-      std::shared_ptr<buffer_pool_base> pool = {}, iou_res res = {}) noexcept {
+      pool_ptr_t pool = {}, iou_res res = {}) noexcept {
     struct null_buffer_pool: public buffer_pool_base {
       [[nodiscard]] std::byte* base() const noexcept override {
         return nullptr;
@@ -157,8 +158,7 @@ public:
         return true;
       }
     };
-    static const std::shared_ptr<buffer_pool_base> instance =
-        std::make_shared<null_buffer_pool>();
+    static const pool_ptr_t instance = std::make_shared<null_buffer_pool>();
     if (!pool) pool = instance;
     iou_buffer buf;
     buf.pool_ = std::move(pool);
@@ -570,8 +570,8 @@ public:
 private:
   friend class buffer_pool_base;
 
-  iou_buffer(std::shared_ptr<buffer_pool_base> pool, span_t span,
-      size_t buf_index, block_type blockrw) noexcept
+  iou_buffer(pool_ptr_t pool, span_t span, size_t buf_index,
+      block_type blockrw) noexcept
       : pool_{std::move(pool)}, full_span_{span},
         payload_span_{span.data(), 0}, active_span_{span.data(), 0},
         buf_index_{buf_index}, blockrw_{blockrw}, res_{-1} {
@@ -604,7 +604,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  std::shared_ptr<buffer_pool_base> pool_;
+  pool_ptr_t pool_;
   span_t full_span_;
   span_t payload_span_;
   span_t active_span_;
@@ -624,8 +624,8 @@ private:
 };
 
 [[nodiscard]] inline iou_buffer
-buffer_pool_base::make_buffer(const std::shared_ptr<buffer_pool_base>& pool,
-    span_t span, size_t buf_index, block_type blockrw) noexcept {
+buffer_pool_base::make_buffer(const pool_ptr_t& pool, span_t span,
+    size_t buf_index, block_type blockrw) noexcept {
   return iou_buffer{pool, span, buf_index, blockrw};
 }
 
