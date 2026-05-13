@@ -48,18 +48,20 @@ namespace corvid { inline namespace proto { namespace iouring {
 // `iou_provided_buf_pool` is non-copyable and non-movable. The pool must
 // outlive all `iou_buffer` objects it produces.
 class iou_provided_buf_pool: public buffer_pool_base {
-public:
-#pragma region Construction
+  enum class allow : bool { ctor };
 
+#pragma region Construction
+public:
   using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
   using dispatcher_t = owner_thread_dispatcher<posted_fn>;
 
-  // Construct a pool backed by a slab of `slab_size` bytes (must be a
+  // Public for `std::make_shared`; external callers must go through `create`.
+  // Constructs a pool backed by a slab of `slab_size` bytes (must be a
   // multiple of `hugepage_size`), split into slots of `buf_size` bytes each.
   // `buf_count` is derived as `slab_size / buf_size` and must be a power of
   // two. Pass `slab_size = 0` for a no-op pool. Throws `std::system_error`
   // on allocation failure.
-  iou_provided_buf_pool(dispatcher_t& dispatcher, size_t slab_size,
+  iou_provided_buf_pool(allow, dispatcher_t& dispatcher, size_t slab_size,
       block_size buf_size, uint16_t bgid = 0)
       : dispatcher_{&dispatcher}, bgid_{bgid} {
     if (slab_size == 0) return;
@@ -115,6 +117,14 @@ public:
   iou_provided_buf_pool& operator=(const iou_provided_buf_pool&) = delete;
   iou_provided_buf_pool(iou_provided_buf_pool&&) = delete;
   iou_provided_buf_pool& operator=(iou_provided_buf_pool&&) = delete;
+
+  // Construct a heap-allocated pool owned by `std::shared_ptr`.
+  [[nodiscard]] static std::shared_ptr<iou_provided_buf_pool>
+  create(dispatcher_t& dispatcher, size_t slab_size, block_size buf_size,
+      uint16_t bgid = 0) {
+    return std::make_shared<iou_provided_buf_pool>(allow::ctor, dispatcher,
+        slab_size, buf_size, bgid);
+  }
 
 #pragma endregion
 #pragma region Accessors
@@ -176,6 +186,18 @@ public:
     return true;
   }
 
+  // Tell the embedded `iou_buf_ring` that its associated `iou_ring` is about
+  // to be destroyed, so its destructor will skip the explicit unregister.
+  void skip_unregister() noexcept { buf_ring_.skip_unregister(); }
+
+  // Disable future use of `dispatcher_`. Once disarmed, `return_buffer` is a
+  // no-op. Called from `~iou_basic_loop` so that buffers outliving the loop
+  // (held by external `iou_stream_conn` refs) can destruct without trying to
+  // post into a torn-down dispatcher.
+  void disarm() noexcept {
+    dispatcher_.store(nullptr, std::memory_order::release);
+  }
+
   // Borrow an `iou_buffer` from a multishot recv CQE.
   //
   // For a TCP `recv` (without a `msghdr`), `payload_span` covers
@@ -198,7 +220,7 @@ public:
     span_t span{base_ + (bid * buf_size_), buf_size_};
 
     --free_count_;
-    auto buf = make_buffer(*this, span, bid, block_type::read);
+    auto buf = make_buffer(shared_from_this(), span, bid, block_type::read);
 
     buf.pending_releases() = 1;
     if (msgh)
@@ -218,15 +240,19 @@ public:
 private:
   [[nodiscard]] std::byte* base() const noexcept override { return base_; }
 
-  // Replenish the returned slot into the kernel ring.
+  // Replenish the returned slot into the kernel ring. After `disarm` (called
+  // from `~iou_basic_loop`), this is a no-op so a buffer outliving the loop
+  // can destruct without touching the torn-down dispatcher.
   [[nodiscard]] bool return_buffer(span_t s, block_type /*blockrw*/) override {
     if (!s.data()) return false;
+    auto* d = dispatcher_.load(std::memory_order::acquire);
+    if (!d) return false;
     assert(buf_ring_ && buf_size_ > 0);
     const size_t bid = (s.data() - base_) / buf_size_;
     assert(bid < buf_count_);
     const int mask = static_cast<int>(buf_count_) - 1;
 
-    (void)dispatcher_->execute_or_post_with_retry([this, s, bid, mask] {
+    (void)d->execute_or_post_with_retry([this, s, bid, mask] {
       buf_ring_.add(s.data(), buf_size_, static_cast<unsigned short>(bid),
           mask, 0);
       buf_ring_.advance(1);
@@ -239,7 +265,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  dispatcher_t* dispatcher_;
+  std::atomic<dispatcher_t*> dispatcher_;
   std::byte* base_{};
   size_t buf_size_{};
   size_t buf_count_{};

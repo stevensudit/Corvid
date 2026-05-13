@@ -140,6 +140,7 @@ class iou_buf_pool_of: public buffer_pool_base {
     }
   };
 
+private:
   // Doubly-linked intrusive free-list. The head is the hot (LIFO) end:
   // direct allocations pop from here and returned blocks push here. The tail
   // is the deferred (cold) end: splits borrow from here, and coalesced or
@@ -219,11 +220,15 @@ class iou_buf_pool_of: public buffer_pool_base {
 
 #pragma endregion
 #pragma region Construction
+
+  enum class allow : bool { ctor };
+
 public:
-  // Allocate and warm the backing store. Falls back to a plain `MAP_ANONYMOUS`
-  // mapping if `MAP_HUGETLB` is unavailable (e.g., WSL2 without huge pages
-  // configured). Throws `std::system_error` on failure.
-  iou_buf_pool_of() {
+  // Public for `std::make_shared`; external callers must go through `create`.
+  // Allocates and warms the backing store. Falls back to a plain
+  // `MAP_ANONYMOUS` mapping if `MAP_HUGETLB` is unavailable (e.g., WSL2
+  // without huge pages configured). Throws `std::system_error` on failure.
+  explicit iou_buf_pool_of(allow) {
     static_assert(slab_size % hugepage_size == 0);
     static_assert(std::has_single_bit(hugepage_size));
     base_ = reinterpret_cast<ptr>(::mmap(nullptr, slab_size,
@@ -269,6 +274,11 @@ public:
   iou_buf_pool_of(iou_buf_pool_of&&) = delete;
   iou_buf_pool_of& operator=(iou_buf_pool_of&&) = delete;
 
+  // Construct a heap-allocated pool owned by `std::shared_ptr`.
+  [[nodiscard]] static std::shared_ptr<iou_buf_pool_of> create() {
+    return std::make_shared<iou_buf_pool_of>(allow::ctor);
+  }
+
   // Register the backing block as a single fixed buffer (index 0) with
   // `ring`. Must be called exactly once before any buffer is used in an I/O
   // submission. Returns false (and sets `errno`) on failure. The `ring`
@@ -296,7 +306,7 @@ public:
     if (!s.data()) return {};
     available_bytes_ -= len;
     in_flight_read_bytes_ += len;
-    return make_buffer(*this, s, 0U, block_type::read);
+    return make_buffer(this->shared_from_this(), s, 0U, block_type::read);
   }
 
   // Borrow a buffer for an outgoing write. Not subject to read backpressure;
@@ -308,7 +318,7 @@ public:
     span_t s{alloc_block(*sz), *sz};
     if (!s.data()) return {};
     available_bytes_ -= s.size();
-    return make_buffer(*this, s, 0U, block_type::write);
+    return make_buffer(this->shared_from_this(), s, 0U, block_type::write);
   }
 
   // Total free bytes currently in the pool. Thread-safe.

@@ -913,9 +913,18 @@ public:
   // Commit the last `n` slots added via `add` to the kernel.
   void advance(int n) noexcept { ::io_uring_buf_ring_advance(buf_ring_, n); }
 
+  // Tell this `iou_buf_ring` that its associated `iou_ring` is about to be
+  // destroyed, so the destructor must not call `io_uring_free_buf_ring` on
+  // it. `io_uring_queue_exit` releases the kernel-side buf-ring registration
+  // as part of its teardown, so the explicit unregister is unnecessary in
+  // that case and would dereference a destroyed `iou_ring`. The user-space
+  // `add` and `advance` paths remain usable (they only touch the mmap'd
+  // ring), though by this point nothing should be calling them.
+  void skip_unregister() noexcept { ring_ = nullptr; }
+
 private:
   void do_free() noexcept {
-    if (buf_ring_)
+    if (ring_ && buf_ring_)
       ::io_uring_free_buf_ring(ring_->get_ptr(), buf_ring_, entries_, bgid_);
   }
 

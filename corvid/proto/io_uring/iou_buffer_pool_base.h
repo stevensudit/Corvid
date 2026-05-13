@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <cstddef>
+#include <memory>
 #include <sys/mman.h>
 #include <sys/uio.h>
 
@@ -30,8 +31,12 @@ class iou_buffer;
 
 #pragma region buffer_pool_base
 
-// Abstract backing pool used by `iou_buffer`.
-class buffer_pool_base {
+// Abstract backing pool used by `iou_buffer`. Pools must be instantiated via
+// `std::make_shared` (their concrete factories enforce this), because each
+// `iou_buffer` holds a `std::shared_ptr<buffer_pool_base>` to its pool. That
+// keeps the pool alive as long as any buffer it produced is still in scope,
+// so a buffer can always return its allocation on destruction.
+class buffer_pool_base: public std::enable_shared_from_this<buffer_pool_base> {
 public:
   using span_t = iou_sqe::span_t;
   using const_span_t = iou_sqe::const_span_t;
@@ -56,8 +61,9 @@ private:
   [[nodiscard]] virtual bool increment_read_bytes(size_t) { return false; }
 
 protected:
-  [[nodiscard]] static iou_buffer make_buffer(buffer_pool_base& pool,
-      span_t span, size_t buf_index, block_type blockrw) noexcept;
+  [[nodiscard]] static iou_buffer
+  make_buffer(const std::shared_ptr<buffer_pool_base>& pool, span_t span,
+      size_t buf_index, block_type blockrw) noexcept;
 
   // TODO: We'll need a way to make Provided Buffers programmatically
   // detectable. What we really want is for the regular flow, where the user

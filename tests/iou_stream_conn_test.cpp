@@ -18,6 +18,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <string_view>
 #include <thread>
 #include <sys/socket.h>
@@ -41,6 +42,51 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
   return pred();
 }
 
+// Shared test plugin. State lives in a `state` struct owned by the test;
+// the plugin just holds a pointer to it (plus a ref to its conn, which it
+// captures at construction).
+class capture_protocol {
+public:
+  using conn_t = iou_stream_conn<capture_protocol>;
+
+  struct state {
+    std::function<bool(iou_recv_view)> on_data;
+    std::function<bool()> on_drain;
+    std::function<bool()> on_close;
+  };
+
+  explicit capture_protocol(conn_t& conn, state* s = nullptr) noexcept
+      : conn_{conn}, state_{s} {}
+
+  bool on_data(iou_recv_view view) {
+    if (state_ && state_->on_data) return state_->on_data(std::move(view));
+    view.consume(view.active_view().size());
+    return true;
+  }
+
+  bool on_drain() {
+    if (state_ && state_->on_drain) return state_->on_drain();
+    return true;
+  }
+
+  bool on_close() {
+    if (state_ && state_->on_close) return state_->on_close();
+    return true;
+  }
+
+  capture_protocol make_child_plugin(conn_t& child) const {
+    return capture_protocol{child, state_};
+  }
+
+  [[nodiscard]] conn_t& conn() noexcept { return conn_; }
+
+private:
+  conn_t& conn_;
+  state* state_;
+};
+
+using capture_conn = iou_stream_conn<capture_protocol>;
+
 } // namespace
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
@@ -58,21 +104,22 @@ void IouStreamConn_SendRecvString() {
 
     constexpr std::string_view msg{"hello-stream"};
 
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      payload = view.active_view();
+      view.consume(view.active_view().size());
+      received.store(true, std::memory_order::release);
+      return true;
+    };
+
     // Adopt sock1 as receiver.
-    auto recv_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock1), net_endpoint::invalid,
-        iou_stream_conn_handlers{
-            .on_data = [&](iou_stream_conn&, iou_recv_view view) {
-              payload = view.active_view();
-              view.consume(view.active_view().size());
-              received.store(true, std::memory_order::release);
-              return true;
-            }});
+    auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid, shot_type::single, &recv_state);
     EXPECT_TRUE(recv_conn);
 
     // Adopt sock0 as sender.
-    auto send_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock0), net_endpoint::invalid);
+    auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid);
     EXPECT_TRUE(send_conn);
 
     EXPECT_TRUE(send_conn->send(std::string{msg}));
@@ -97,20 +144,21 @@ void IouStreamConn_MultipleStrings() {
     constexpr int N = 4;
     constexpr std::string_view msg{"abc"};
 
-    auto recv_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock1), net_endpoint::invalid,
-        iou_stream_conn_handlers{
-            .on_data = [&](iou_stream_conn&, iou_recv_view view) {
-              auto sv = view.active_view();
-              payload += sv;
-              recv_bytes += static_cast<int>(sv.size());
-              view.consume(sv.size());
-              return true;
-            }});
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      auto sv = view.active_view();
+      payload += sv;
+      recv_bytes += static_cast<int>(sv.size());
+      view.consume(sv.size());
+      return true;
+    };
+
+    auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid, shot_type::single, &recv_state);
     EXPECT_TRUE(recv_conn);
 
-    auto send_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock0), net_endpoint::invalid);
+    auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid);
     EXPECT_TRUE(send_conn);
 
     for (int i = 0; i < N; ++i) EXPECT_TRUE(send_conn->send(std::string{msg}));
@@ -135,19 +183,20 @@ void IouStreamConn_SendRecvBuffer() {
 
     constexpr std::string_view msg{"hello-buffer"};
 
-    auto recv_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock1), net_endpoint::invalid,
-        iou_stream_conn_handlers{
-            .on_data = [&](iou_stream_conn&, iou_recv_view view) {
-              payload = view.active_view();
-              view.consume(view.active_view().size());
-              received.store(true, std::memory_order::release);
-              return true;
-            }});
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      payload = view.active_view();
+      view.consume(view.active_view().size());
+      received.store(true, std::memory_order::release);
+      return true;
+    };
+
+    auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid, shot_type::single, &recv_state);
     EXPECT_TRUE(recv_conn);
 
-    auto send_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock0), net_endpoint::invalid);
+    auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid);
     EXPECT_TRUE(send_conn);
 
     // Borrow a write buffer and fill it manually, then send.
@@ -177,20 +226,21 @@ void IouStreamConn_BufferMoveOut() {
 
     constexpr std::string_view msg{"take-me"};
 
-    auto recv_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock1), net_endpoint::invalid,
-        iou_stream_conn_handlers{
-            .on_data = [&](iou_stream_conn&, iou_recv_view view) {
-              auto buf = view.take(); // move buffer out
-              payload.assign(buf.payload_view());
-              received.store(true, std::memory_order::release);
-              return true;
-              // buf returns to pool on scope exit
-            }});
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      auto buf = view.take(); // move buffer out
+      payload.assign(buf.payload_view());
+      received.store(true, std::memory_order::release);
+      return true;
+      // buf returns to pool on scope exit
+    };
+
+    auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid, shot_type::single, &recv_state);
     EXPECT_TRUE(recv_conn);
 
-    auto send_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock0), net_endpoint::invalid);
+    auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid);
     EXPECT_TRUE(send_conn);
 
     EXPECT_TRUE(send_conn->send(std::string{msg}));
@@ -212,24 +262,21 @@ void IouStreamConn_GracefulClose() {
     std::atomic_bool closed0{false};
     std::atomic_bool closed1{false};
 
-    auto make_handlers = [](std::atomic_bool& flag) {
-      return iou_stream_conn_handlers{
-          .on_data =
-              [](iou_stream_conn&, iou_recv_view view) {
-                view.consume(view.active_view().size());
-                return true;
-              },
-          .on_close =
-              [&flag](iou_stream_conn&) {
-                flag.store(true, std::memory_order::release);
-                return true;
-              }};
+    capture_protocol::state state0;
+    state0.on_close = [&] {
+      closed0.store(true, std::memory_order::release);
+      return true;
+    };
+    capture_protocol::state state1;
+    state1.on_close = [&] {
+      closed1.store(true, std::memory_order::release);
+      return true;
     };
 
-    auto conn0 = iou_stream_conn_ptr::adopt(runner.loop(), std::move(sock0),
-        net_endpoint::invalid, make_handlers(closed0));
-    auto conn1 = iou_stream_conn_ptr::adopt(runner.loop(), std::move(sock1),
-        net_endpoint::invalid, make_handlers(closed1));
+    auto* conn0 = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid, shot_type::single, &state0);
+    auto* conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid, shot_type::single, &state1);
     EXPECT_TRUE(conn0);
     EXPECT_TRUE(conn1);
 
@@ -238,7 +285,7 @@ void IouStreamConn_GracefulClose() {
 
     // TODO: This doesn't do the graceful close that's promised.
 
-    EXPECT_TRUE(conn0.close());
+    EXPECT_TRUE(conn0->close());
     EXPECT_TRUE(
         WaitFor([&] { return closed0.load(std::memory_order::acquire); }));
     EXPECT_TRUE(closed0.load());
@@ -256,14 +303,16 @@ void IouStreamConn_HangupClose() {
     iou_loop_runner runner;
     std::atomic_bool closed{false};
 
-    auto conn0 = iou_stream_conn_ptr::adopt(runner.loop(), std::move(sock0),
-        net_endpoint::invalid,
-        iou_stream_conn_handlers{.on_close = [&](iou_stream_conn&) {
-          closed.store(true, std::memory_order::release);
-          return true;
-        }});
+    capture_protocol::state state0;
+    state0.on_close = [&] {
+      closed.store(true, std::memory_order::release);
+      return true;
+    };
+
+    auto* conn0 = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid, shot_type::single, &state0);
     // conn1 just absorbs the other end
-    auto conn1 = iou_stream_conn_ptr::adopt(runner.loop(), std::move(sock1),
+    auto* conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid);
     EXPECT_TRUE(conn0);
     EXPECT_TRUE(conn1);
@@ -285,21 +334,18 @@ void IouStreamConn_OnDrain() {
     iou_loop_runner runner;
     std::atomic_bool drained{false};
 
-    auto recv_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock1), net_endpoint::invalid,
-        iou_stream_conn_handlers{
-            .on_data = [](iou_stream_conn&, iou_recv_view view) {
-              view.consume(view.active_view().size());
-              return true;
-            }});
+    auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid);
     EXPECT_TRUE(recv_conn);
 
-    auto send_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock0), net_endpoint::invalid,
-        iou_stream_conn_handlers{.on_drain = [&](iou_stream_conn&) {
-          drained.store(true, std::memory_order::release);
-          return true;
-        }});
+    capture_protocol::state send_state;
+    send_state.on_drain = [&] {
+      drained.store(true, std::memory_order::release);
+      return true;
+    };
+
+    auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid, shot_type::single, &send_state);
     EXPECT_TRUE(send_conn);
 
     EXPECT_TRUE(send_conn->send(std::string{"ping"}));
@@ -312,7 +358,8 @@ void IouStreamConn_OnDrain() {
 #pragma region WithState
 
 void IouStreamConn_WithState() {
-  // `iou_stream_conn_with_state` - state accessible in callback.
+  // Per-connection state living in the plugin (replaces the old
+  // `iou_stream_conn_with_state` pattern).
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
@@ -323,29 +370,28 @@ void IouStreamConn_WithState() {
       int recv_count{};
     };
 
-    using my_conn = iou_stream_conn_with_state<MyState>;
-    using my_ptr = iou_stream_conn_ptr_with<my_conn>;
+    MyState my_state;
 
-    auto recv_conn = my_ptr::adopt(runner.loop(), std::move(sock1),
-        net_endpoint::invalid,
-        iou_stream_conn_handlers{
-            .on_data = [&](iou_stream_conn& c, iou_recv_view view) {
-              auto& s = my_conn::from(c);
-              s.state().recv_count++;
-              view.consume(view.active_view().size());
-              received.store(true, std::memory_order::release);
-              return true;
-            }});
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      my_state.recv_count++;
+      view.consume(view.active_view().size());
+      received.store(true, std::memory_order::release);
+      return true;
+    };
+
+    auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid, shot_type::single, &recv_state);
     EXPECT_TRUE(recv_conn);
 
-    auto send_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock0), net_endpoint::invalid);
+    auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid);
     EXPECT_TRUE(send_conn);
 
     EXPECT_TRUE(send_conn->send(std::string{"state-test"}));
     EXPECT_TRUE(
         WaitFor([&] { return received.load(std::memory_order::acquire); }));
-    EXPECT_EQ(recv_conn->state().recv_count, 1);
+    EXPECT_EQ(my_state.recv_count, 1);
   }
 }
 
@@ -367,22 +413,22 @@ void IouStreamConn_FullBufferPartialConsume() {
     std::atomic_size_t total_consumed{0};
     const size_t buf_size = *block_size::kb004;
 
-    auto recv_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock1), net_endpoint::invalid,
-        iou_stream_conn_handlers{
-            .on_data = [&](iou_stream_conn&, iou_recv_view view) {
-              const auto sz = view.active_view().size();
-              view.consume(sz);
-              if (total_consumed.fetch_add(sz, std::memory_order::acq_rel) +
-                      sz >=
-                  buf_size + 1)
-                done.store(true, std::memory_order::release);
-              return true;
-            }});
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      const auto sz = view.active_view().size();
+      view.consume(sz);
+      if (total_consumed.fetch_add(sz, std::memory_order::acq_rel) + sz >=
+          buf_size + 1)
+        done.store(true, std::memory_order::release);
+      return true;
+    };
+
+    auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid, shot_type::single, &recv_state);
     EXPECT_TRUE(recv_conn);
 
-    auto send_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock0), net_endpoint::invalid);
+    auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid);
     EXPECT_TRUE(send_conn);
 
     EXPECT_TRUE(send_conn->send(std::string(buf_size, 'x')));
@@ -407,21 +453,20 @@ void IouStreamConn_MultishotRecv_Basic() {
 
     constexpr std::string_view msg{"hello-multishot"};
 
-    auto recv_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock1), net_endpoint::invalid,
-        iou_stream_conn_handlers{
-            .on_data =
-                [&](iou_stream_conn&, iou_recv_view view) {
-                  payload = view.active_view();
-                  view.consume(view.active_view().size());
-                  received.store(true, std::memory_order::release);
-                  return true;
-                }},
-        shot_type::multi);
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      payload = view.active_view();
+      view.consume(view.active_view().size());
+      received.store(true, std::memory_order::release);
+      return true;
+    };
+
+    auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid, shot_type::multi, &recv_state);
     EXPECT_TRUE(recv_conn);
 
-    auto send_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock0), net_endpoint::invalid);
+    auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid);
     EXPECT_TRUE(send_conn);
 
     EXPECT_TRUE(send_conn->send(std::string{msg}));
@@ -447,22 +492,20 @@ void IouStreamConn_MultishotRecv_MultipleMessages() {
     constexpr std::string_view msg{"ping"};
     const int expected = static_cast<int>(N * msg.size());
 
-    auto recv_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock1), net_endpoint::invalid,
-        iou_stream_conn_handlers{
-            .on_data =
-                [&](iou_stream_conn&, iou_recv_view view) {
-                  recv_bytes.fetch_add(
-                      static_cast<int>(view.active_view().size()),
-                      std::memory_order::release);
-                  view.consume(view.active_view().size());
-                  return true;
-                }},
-        shot_type::multi);
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      recv_bytes.fetch_add(static_cast<int>(view.active_view().size()),
+          std::memory_order::release);
+      view.consume(view.active_view().size());
+      return true;
+    };
+
+    auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid, shot_type::multi, &recv_state);
     EXPECT_TRUE(recv_conn);
 
-    auto send_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock0), net_endpoint::invalid);
+    auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid);
     EXPECT_TRUE(send_conn);
 
     for (int i = 0; i < N; ++i) EXPECT_TRUE(send_conn->send(std::string{msg}));
@@ -489,23 +532,22 @@ void IouStreamConn_MultishotRecv_TakeBuffer() {
 
     constexpr std::string_view msg{"take-multi"};
 
-    auto recv_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock1), net_endpoint::invalid,
-        iou_stream_conn_handlers{
-            .on_data =
-                [&](iou_stream_conn&, iou_recv_view view) {
-                  if (recv_count.load(std::memory_order::relaxed) == 0)
-                    taken_buf = view.take(); // take the first buffer
-                  else
-                    view.consume(view.active_view().size());
-                  recv_count.fetch_add(1, std::memory_order::release);
-                  return true;
-                }},
-        shot_type::multi);
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      if (recv_count.load(std::memory_order::relaxed) == 0)
+        taken_buf = view.take(); // take the first buffer
+      else
+        view.consume(view.active_view().size());
+      recv_count.fetch_add(1, std::memory_order::release);
+      return true;
+    };
+
+    auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid, shot_type::multi, &recv_state);
     EXPECT_TRUE(recv_conn);
 
-    auto send_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock0), net_endpoint::invalid);
+    auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid);
     EXPECT_TRUE(send_conn);
 
     EXPECT_TRUE(send_conn->send(std::string{msg}));
@@ -526,7 +568,9 @@ void IouStreamConn_MultishotRecv_TakeBuffer() {
 #pragma region MultishotRecvStopAndResume
 
 void IouStreamConn_MultishotRecv_StopAndResume() {
-  // `stop_reading()` pauses recv; `resume_recv()` restarts it.
+  // `stop_receiving()` pauses recv and returns a resume callback; the
+  // callback both keeps the conn alive and, when invoked, restarts the
+  // recv loop.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
@@ -535,21 +579,33 @@ void IouStreamConn_MultishotRecv_StopAndResume() {
 
     constexpr std::string_view msg{"stop-resume"};
 
-    auto recv_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock1), net_endpoint::invalid,
-        iou_stream_conn_handlers{
-            .on_data =
-                [&](iou_stream_conn&, iou_recv_view view) {
-                  view.consume(view.active_view().size());
-                  if (recv_count.fetch_add(1, std::memory_order::acq_rel) == 0)
-                    (void)view.stop_reading(); // stop after first message
-                  return true;
-                }},
-        shot_type::multi);
+    // The resume callback comes out of on_data. Stash it where the test
+    // thread can see it. `iou_loop::posted_fn` is move-only.
+    std::mutex cb_mutex;
+    iou_loop::posted_fn resume_cb;
+
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      view.consume(view.active_view().size());
+      if (recv_count.fetch_add(1, std::memory_order::acq_rel) == 0) {
+        // Buffer must be extracted before stop_receiving (it no longer
+        // returns the buffer). We have nothing more to do with it here.
+        (void)view.take();
+        auto cb = view.stop_receiving();
+        std::scoped_lock lock{cb_mutex};
+        resume_cb = std::move(cb);
+      }
+      return true;
+    };
+
+    // Raw pointer is fine: the resume callback (when produced) holds the
+    // shared_ptr that keeps the conn alive across the pause.
+    auto* recv_conn = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid, shot_type::multi, &recv_state);
     EXPECT_TRUE(recv_conn);
 
-    auto send_conn = iou_stream_conn_ptr::adopt(runner.loop(),
-        std::move(sock0), net_endpoint::invalid);
+    auto* send_conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
+        net_endpoint::invalid);
     EXPECT_TRUE(send_conn);
 
     // First message: received, then reading stops.
@@ -563,8 +619,12 @@ void IouStreamConn_MultishotRecv_StopAndResume() {
     std::this_thread::sleep_for(50ms);
     EXPECT_EQ(recv_count.load(std::memory_order::acquire), 1);
 
-    // Resume: second message should now be delivered.
-    EXPECT_TRUE(recv_conn->resume_recv());
+    // Resume by invoking the callback.
+    {
+      std::scoped_lock lock{cb_mutex};
+      EXPECT_TRUE(resume_cb);
+      EXPECT_TRUE(resume_cb());
+    }
     EXPECT_TRUE(WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 2;
     }));
@@ -583,21 +643,20 @@ void IouStreamConn_MultishotRecv_AcceptedConnsInheritMode() {
 
     constexpr std::string_view msg{"inherit-multishot"};
 
-    auto server = iou_stream_conn_ptr::listen(runner.loop(),
-        net_endpoint::loopback_v4(0),
-        iou_stream_conn_handlers{
-            .on_data =
-                [&](iou_stream_conn&, iou_recv_view view) {
-                  payload = view.active_view();
-                  view.consume(view.active_view().size());
-                  received.store(true, std::memory_order::release);
-                  return true;
-                }},
-        shot_type::multi);
+    capture_protocol::state server_state;
+    server_state.on_data = [&](iou_recv_view view) {
+      payload = view.active_view();
+      view.consume(view.active_view().size());
+      received.store(true, std::memory_order::release);
+      return true;
+    };
+
+    auto* server = capture_conn::listen(*runner.loop(),
+        net_endpoint::loopback_v4(0), shot_type::multi, &server_state);
     EXPECT_TRUE(server);
 
     const auto& listen_ep = server->local_endpoint();
-    auto client = iou_stream_conn_ptr::connect(runner.loop(), listen_ep);
+    auto* client = capture_conn::connect(*runner.loop(), listen_ep);
     EXPECT_TRUE(client);
 
     EXPECT_TRUE(client->send(std::string{msg}));

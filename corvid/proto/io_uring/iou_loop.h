@@ -323,23 +323,24 @@ public:
       size_t udp_provided_size = buf_pool_t::hugepage_size,
       size_t tcp_provided_size = buf_pool_t::hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004)
-      : owner_thread_dispatcher{32, 64},
+      : owner_thread_dispatcher{32, 64}, buf_pool_{buf_pool_t::create()},
+        udp_buf_pool_{provided_buf_pool_t::create(*this, udp_provided_size,
+            block_size::kb002, 1)},
+        tcp_provided_buf_pool_{provided_buf_pool_t::create(*this,
+            tcp_provided_size, tcp_provided_buf_size, 2)},
         ring_{RING_SIZE,
             iou_setup_flags::setup_single_issuer |
                 iou_setup_flags::setup_defer_taskrun |
                 iou_setup_flags::setup_submit_all},
-        udp_buf_pool_{*this, udp_provided_size, block_size::kb002, 1},
-        tcp_provided_buf_pool_{*this, tcp_provided_size, tcp_provided_buf_size,
-            2},
         max_pending_sqes_{max_pending_sqes},
         post_and_wait_poll_interval_{post_and_wait_poll_interval} {
-    if (!buf_pool_.register_with(ring_))
+    if (!buf_pool_->register_with(ring_))
       throw std::system_error{errno, std::system_category(),
           "io_uring_register_buffers"};
-    if (!udp_buf_pool_.register_with(ring_))
+    if (!udp_buf_pool_->register_with(ring_))
       throw std::system_error{errno, std::system_category(),
           "io_uring_register_buf_ring (udp_buf_pool)"};
-    if (!tcp_provided_buf_pool_.register_with(ring_))
+    if (!tcp_provided_buf_pool_->register_with(ring_))
       throw std::system_error{errno, std::system_category(),
           "io_uring_register_buf_ring (tcp_provided_buf_pool)"};
   }
@@ -348,6 +349,23 @@ public:
   iou_basic_loop& operator=(const iou_basic_loop&) = delete;
   iou_basic_loop(iou_basic_loop&&) = delete;
   iou_basic_loop& operator=(iou_basic_loop&&) = delete;
+
+  // The provided buf pools are declared above `ring_` so their backing memory
+  // outlives `io_uring_queue_exit` (which `~iou_ring` calls to cancel
+  // in-flight ops). But their embedded `iou_buf_ring`s would otherwise call
+  // `io_uring_free_buf_ring` against a destroyed `ring_`. We disarm that here
+  // before any member starts destructing: `queue_exit` handles the
+  // kernel-side unregister anyway.
+  ~iou_basic_loop() {
+    // Disarm the provided pools before any other teardown: if a buffer
+    // outlives this loop (held by a conn the user kept past
+    // `~iou_basic_loop`), its destructor must not touch our `iou_ring` or our
+    // dispatcher base, both of which are about to vanish.
+    udp_buf_pool_->skip_unregister();
+    tcp_provided_buf_pool_->skip_unregister();
+    udp_buf_pool_->disarm();
+    tcp_provided_buf_pool_->disarm();
+  }
 
   // Create a heap-allocated `iou_basic_loop` managed by `std::shared_ptr`.
   [[nodiscard]] static std::shared_ptr<iou_basic_loop>
@@ -445,7 +463,7 @@ public:
   // `submit_recv_buffer`.
   [[nodiscard]] buffer borrow_read_buffer(
       block_size sz = block_size::kb004) noexcept {
-    return buf_pool_.borrow_reader(sz);
+    return buf_pool_->borrow_reader(sz);
   }
 
   // Borrow a registered `buffer` from the pool for the purpose of writing to
@@ -453,17 +471,17 @@ public:
   // `buffer`'s payload, then pass it to `submit_send_buffer`.
   [[nodiscard]] buffer borrow_write_buffer(
       block_size sz = block_size::kb004) noexcept {
-    return buf_pool_.borrow_writer(sz);
+    return buf_pool_->borrow_writer(sz);
   }
 
   // Snapshot of number of free buffers in the TCP Provided Buffer pool.
   [[nodiscard]] size_t free_tcp_block_count() const noexcept {
-    return tcp_provided_buf_pool_.free_block_count();
+    return tcp_provided_buf_pool_->free_block_count();
   }
 
   // Snapshot of number of free buffers in the UDP Provided Buffer pool.
   [[nodiscard]] size_t free_udp_block_count() const noexcept {
-    return udp_buf_pool_.free_block_count();
+    return udp_buf_pool_->free_block_count();
   }
 
 #pragma endregion
@@ -1320,7 +1338,7 @@ public:
     auto cb =
         [this, bufcb = std::move(bufcb)](completion_id cbhandle, iou_res res,
             iou_cqe_flags cqe_flags) mutable -> slot_retention {
-      auto buf = tcp_provided_buf_pool_.borrow(res, cqe_flags);
+      auto buf = tcp_provided_buf_pool_->borrow(res, cqe_flags);
       return bufcb(cbhandle, buf);
     };
     const auto cbtoken = tokenize(std::move(cb));
@@ -1336,10 +1354,10 @@ public:
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
     if (!cbtoken) return false;
-    if (!socket || !tcp_provided_buf_pool_)
+    if (!socket || !*tcp_provided_buf_pool_)
       return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *socket, flags, cbtoken, on_fail]() mutable {
-      const auto bgid = tcp_provided_buf_pool_.bgid();
+      const auto bgid = tcp_provided_buf_pool_->bgid();
       return do_submit(cbtoken, on_fail, [fd, flags, bgid](iou_sqe sqe) {
         sqe.prep_recv_multishot(fd, flags, bgid);
       });
@@ -1369,7 +1387,7 @@ public:
     auto cb =
         [this, bufcb = std::move(bufcb)](completion_id cbhandle, iou_res res,
             iou_cqe_flags cqe_flags, msghdr& msgh) mutable -> slot_retention {
-      auto buf = udp_buf_pool_.borrow(res, cqe_flags, &msgh);
+      auto buf = udp_buf_pool_->borrow(res, cqe_flags, &msgh);
       return bufcb(cbhandle, buf);
     };
     const auto [cbtoken, hdr_ptr] =
@@ -1390,9 +1408,9 @@ public:
       slot_retention on_fail = slot_retention::retain,
       msg_flags flags = msg_flags::trunc) {
     if (!cbtoken) return false;
-    if (!socket || !udp_buf_pool_)
+    if (!socket || !*udp_buf_pool_)
       return fail_and_maybe_release(on_fail, cbtoken);
-    const auto bgid = udp_buf_pool_.bgid();
+    const auto bgid = udp_buf_pool_->bgid();
     auto* msg_ptr = &msg;
     auto fn = [this, fd = *socket, flags, cbtoken, msg_ptr, bgid,
                   on_fail]() mutable {
@@ -1655,11 +1673,36 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  // Rings and buffers. (Order is important.)
-  buf_pool_t buf_pool_;
+  // Rings and buffers.
+  //
+  // The pools are held via `std::shared_ptr` because each `iou_buffer` they
+  // hand out also holds a `shared_ptr<buffer_pool_base>`. This keeps the
+  // pool's backing memory alive for as long as any buffer borrowed from it
+  // remains in scope, even if the buffer outlives the loop (e.g., a conn
+  // held by user code past `~iou_basic_loop`). Both ~`iou_basic_loop` and
+  // ~`buf_pool_` are safe in either order.
+  //
+  // Member declaration order is still chosen so reverse-order destruction
+  // matches kernel/ring teardown:
+  //
+  // 1. `completion_cb_pool_` destructs first (declared last) - drops all
+  //    callback captures, including `shared_ptr<iou_stream_conn>` refs and
+  //    any captured buffers.
+  // 2. `ring_` destructs next - `io_uring_queue_exit` cancels every in-flight
+  //    op, so the kernel stops writing to any buffer memory.
+  // 3. The provided buf pools' shared_ptrs drop. `~iou_basic_loop` already
+  //    called `skip_unregister` (so the `iou_buf_ring` destructor will not
+  //    touch the destroyed `ring_`) and `disarm` (so any later
+  //    `return_buffer` call from a buffer outliving the loop is a no-op
+  //    against the torn-down dispatcher). If no buffer still holds a ref,
+  //    each pool destructs here and `munmap`s its slab.
+  // 4. `buf_pool_`'s shared_ptr drops last. Same deferred-destruction
+  //    semantics; `iou_buf_pool` needs no disarm because its `return_buffer`
+  //    only touches internal state.
+  std::shared_ptr<buf_pool_t> buf_pool_;
+  std::shared_ptr<provided_buf_pool_t> udp_buf_pool_;
+  std::shared_ptr<provided_buf_pool_t> tcp_provided_buf_pool_;
   iou_ring ring_;
-  provided_buf_pool_t udp_buf_pool_;
-  provided_buf_pool_t tcp_provided_buf_pool_;
 
   // Completion callback pool, used to avoid `std::shared_ptr`.
   completion_cb_pool_t completion_cb_pool_;

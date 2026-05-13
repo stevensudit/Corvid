@@ -223,7 +223,7 @@ public:
   }
 
   // Signal the loop to exit after the current dispatch round completes.
-  // Safe to call from any thread.
+  // Safe from any thread.
   [[nodiscard]] bool stop() {
     running_.notify(false);
     return wake_post_queue();

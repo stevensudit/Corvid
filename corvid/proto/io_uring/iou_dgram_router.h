@@ -216,7 +216,7 @@ public:
 #pragma endregion
 #pragma region Flow control
 
-  // Begin recv loop. Idempotent. Safe to call from any thread.
+  // Begin `recv` loop. Idempotent. Safe from any thread.
   [[nodiscard]] bool start_reading() {
     if (!open_) return false;
     if (is_reading_->exchange(true, std::memory_order::relaxed)) return false;
@@ -265,7 +265,7 @@ public:
   // Submit a `sendmsg` through this router's socket. The completion routes
   // the buffer back to `ssn->on_sent` if the session is still open. Returns
   // the `completion_token` for the in-flight send (invalid token on
-  // failure). Safe to call from any thread.
+  // failure). Safe from any thread.
   [[nodiscard]] completion_token
   submit_session_send(buffer&& buf, const session_ptr& ssn) {
     if (!open_) return {};

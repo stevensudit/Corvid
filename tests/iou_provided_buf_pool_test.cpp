@@ -33,17 +33,18 @@ void IouProvidedBufPool_NoOpZeroSlab() {
   // slab_size=0 produces a no-op pool with no allocation.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
-    iou_provided_buf_pool pool(dispatcher, 0, block_size::kb004);
-    EXPECT_FALSE(pool);
-    EXPECT_EQ(pool.buf_size(), 0ULL);
-    EXPECT_EQ(pool.buf_count(), 0ULL);
-    EXPECT_EQ(pool.slab_size(), 0ULL);
-    EXPECT_EQ(pool.buf_data(0), nullptr);
+    auto pool =
+        iou_provided_buf_pool::create(dispatcher, 0, block_size::kb004);
+    EXPECT_FALSE(*pool);
+    EXPECT_EQ(pool->buf_size(), 0ULL);
+    EXPECT_EQ(pool->buf_count(), 0ULL);
+    EXPECT_EQ(pool->slab_size(), 0ULL);
+    EXPECT_EQ(pool->buf_data(0), nullptr);
 
     // reconstruct returns empty buffer.
     const auto flags = iou_cqe_flags{
         static_cast<uint32_t>(IORING_CQE_F_BUFFER | (0U << 16U))};
-    auto buf = pool.borrow(iou_res{4}, flags);
+    auto buf = pool->borrow(iou_res{4}, flags);
     EXPECT_FALSE(buf);
   }
 }
@@ -56,15 +57,16 @@ void IouProvidedBufPool_ConstructValid() {
   if (true) {
     // 2 MB / 4 KB = 512 buffers.
     constexpr size_t slab = 2ULL * 1024 * 1024;
-    iou_provided_buf_pool pool(dispatcher, slab, block_size::kb004, 3);
-    EXPECT_TRUE(pool);
-    EXPECT_EQ(pool.buf_size(), 4096ULL);
-    EXPECT_EQ(pool.buf_count(), 512ULL);
-    EXPECT_EQ(pool.slab_size(), slab);
-    EXPECT_EQ(pool.bgid(), 3);
-    EXPECT_NE(pool.buf_data(0), nullptr);
-    EXPECT_NE(pool.buf_data(511), nullptr);
-    EXPECT_EQ(pool.buf_data(512), nullptr); // out of range
+    auto pool =
+        iou_provided_buf_pool::create(dispatcher, slab, block_size::kb004, 3);
+    EXPECT_TRUE(*pool);
+    EXPECT_EQ(pool->buf_size(), 4096ULL);
+    EXPECT_EQ(pool->buf_count(), 512ULL);
+    EXPECT_EQ(pool->slab_size(), slab);
+    EXPECT_EQ(pool->bgid(), 3);
+    EXPECT_NE(pool->buf_data(0), nullptr);
+    EXPECT_NE(pool->buf_data(511), nullptr);
+    EXPECT_EQ(pool->buf_data(512), nullptr); // out of range
   }
 }
 #pragma endregion
@@ -75,22 +77,23 @@ void IouProvidedBufPool_BufCountFromDivision() {
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     // 4 MB / 4 KB = 1024.
-    iou_provided_buf_pool pool(dispatcher, 4ULL * 1024 * 1024,
+    auto pool = iou_provided_buf_pool::create(dispatcher, 4ULL * 1024 * 1024,
         block_size::kb004);
-    EXPECT_TRUE(pool);
-    EXPECT_EQ(pool.buf_count(), 1024ULL);
-    EXPECT_EQ(pool.slab_size(), 4ULL * 1024 * 1024);
+    EXPECT_TRUE(*pool);
+    EXPECT_EQ(pool->buf_count(), 1024ULL);
+    EXPECT_EQ(pool->slab_size(), 4ULL * 1024 * 1024);
   }
   if (true) {
     // 8 MB slab (4 hugepages) / 1 MB = 8 buffers (power of two).
     constexpr size_t slab = 4ULL * buffer_pool_base::hugepage_size;
-    iou_provided_buf_pool pool(dispatcher, slab, block_size::m01);
-    EXPECT_TRUE(pool);
-    EXPECT_EQ(pool.buf_count(), 8ULL);
-    EXPECT_EQ(pool.slab_size(), slab);
+    auto pool =
+        iou_provided_buf_pool::create(dispatcher, slab, block_size::m01);
+    EXPECT_TRUE(*pool);
+    EXPECT_EQ(pool->buf_count(), 8ULL);
+    EXPECT_EQ(pool->slab_size(), slab);
 
     iou_ring ring;
-    EXPECT_TRUE(pool.register_with(ring));
+    EXPECT_TRUE(pool->register_with(ring));
   }
 }
 #pragma endregion
@@ -101,12 +104,13 @@ void IouProvidedBufPool_BufDataOffsets() {
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
     constexpr size_t slab = 2ULL * 1024 * 1024;
-    iou_provided_buf_pool pool(dispatcher, slab, block_size::kb004);
+    auto pool =
+        iou_provided_buf_pool::create(dispatcher, slab, block_size::kb004);
     ASSERT_TRUE(pool);
-    const std::byte* base = pool.buf_data(0);
+    const std::byte* base = pool->buf_data(0);
     ASSERT_NE(base, nullptr);
-    for (size_t i = 1; i < pool.buf_count(); ++i) {
-      EXPECT_EQ(pool.buf_data(i), base + i * pool.buf_size());
+    for (size_t i = 1; i < pool->buf_count(); ++i) {
+      EXPECT_EQ(pool->buf_data(i), base + i * pool->buf_size());
     }
   }
 }
@@ -117,13 +121,13 @@ void IouProvidedBufPool_RegisterWithRing() {
   // register_with succeeds, and a second call on the same pool fails.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
-    iou_provided_buf_pool pool(dispatcher, 2ULL * 1024 * 1024,
+    auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
     ASSERT_TRUE(pool);
     iou_ring ring;
-    ASSERT_TRUE(pool.register_with(ring));
+    ASSERT_TRUE(pool->register_with(ring));
     // Double registration must fail.
-    EXPECT_FALSE(pool.register_with(ring));
+    EXPECT_FALSE(pool->register_with(ring));
   }
 }
 #pragma endregion
@@ -133,12 +137,12 @@ void IouProvidedBufPool_ReconstructBeforeRegister() {
   // reconstruct before register_with returns an empty buffer.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
-    iou_provided_buf_pool pool(dispatcher, 2ULL * 1024 * 1024,
+    auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
     ASSERT_TRUE(pool);
     const auto flags = iou_cqe_flags{
         static_cast<uint32_t>(IORING_CQE_F_BUFFER | (1U << 16U))};
-    auto buf = pool.borrow(iou_res{8}, flags);
+    auto buf = pool->borrow(iou_res{8}, flags);
     EXPECT_FALSE(buf);
   }
 }
@@ -150,25 +154,25 @@ void IouProvidedBufPool_ReconstructPayload() {
   // payload span.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
-    iou_provided_buf_pool pool(dispatcher, 2ULL * 1024 * 1024,
+    auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
     ASSERT_TRUE(pool);
     iou_ring ring;
-    ASSERT_TRUE(pool.register_with(ring));
+    ASSERT_TRUE(pool->register_with(ring));
 
     // Simulate the kernel writing "hello world" into slot 2.
     const size_t bid = 2;
-    auto* slot = reinterpret_cast<char*>(pool.buf_data(bid));
+    auto* slot = reinterpret_cast<char*>(pool->buf_data(bid));
     ASSERT_NE(slot, nullptr);
     const auto expected("hello world"sv);
     std::memcpy(slot, expected.data(), expected.size());
 
     const auto flags = iou_cqe_flags{
         static_cast<uint32_t>(IORING_CQE_F_BUFFER | (bid << 16U))};
-    auto buf = pool.borrow(iou_res{11}, flags);
+    auto buf = pool->borrow(iou_res{11}, flags);
     ASSERT_TRUE(buf);
     EXPECT_EQ(buf.blockrw(), iou_buffer::block_type::read);
-    EXPECT_EQ(buf.size(), pool.buf_size());
+    EXPECT_EQ(buf.size(), pool->buf_size());
     EXPECT_EQ(buf.payload_span().size(), 11ULL);
     EXPECT_EQ(buf.payload_view(), expected);
     EXPECT_EQ(buf.buf_index(), bid);
@@ -187,15 +191,15 @@ void IouProvidedBufPool_ReconstructErrorResult() {
   // A CQE with buffer flag set but an error result yields an empty payload.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
-    iou_provided_buf_pool pool(dispatcher, 2ULL * 1024 * 1024,
+    auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
     ASSERT_TRUE(pool);
     iou_ring ring;
-    ASSERT_TRUE(pool.register_with(ring));
+    ASSERT_TRUE(pool->register_with(ring));
 
     const auto flags = iou_cqe_flags{
         static_cast<uint32_t>(IORING_CQE_F_BUFFER | (0U << 16U))};
-    auto buf = pool.borrow(iou_res{-ECONNRESET}, flags);
+    auto buf = pool->borrow(iou_res{-ECONNRESET}, flags);
     ASSERT_TRUE(buf); // buffer is valid (slot was consumed)
     EXPECT_FALSE(buf.result().ok());
     EXPECT_EQ(buf.payload_span().size(), 0ULL); // no data
@@ -208,14 +212,14 @@ void IouProvidedBufPool_ReconstructNoBufferFlag() {
   // A CQE without the buffer flag returns an empty buffer.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
-    iou_provided_buf_pool pool(dispatcher, 2ULL * 1024 * 1024,
+    auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
     ASSERT_TRUE(pool);
     iou_ring ring;
-    ASSERT_TRUE(pool.register_with(ring));
+    ASSERT_TRUE(pool->register_with(ring));
 
     // No IORING_CQE_F_BUFFER flag set.
-    auto buf = pool.borrow(iou_res{8}, iou_cqe_flags{});
+    auto buf = pool->borrow(iou_res{8}, iou_cqe_flags{});
     EXPECT_FALSE(buf);
   }
 }
@@ -226,16 +230,16 @@ void IouProvidedBufPool_ReconstructOutOfRangeBid() {
   // A buffer ID >= buf_count returns an empty buffer.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
-    iou_provided_buf_pool pool(dispatcher, 2ULL * 1024 * 1024,
+    auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
     ASSERT_TRUE(pool);
     iou_ring ring;
-    ASSERT_TRUE(pool.register_with(ring));
+    ASSERT_TRUE(pool->register_with(ring));
 
     // Encode bid=999 (well past buf_count=512).
     const auto flags = iou_cqe_flags{
         static_cast<uint32_t>(IORING_CQE_F_BUFFER | (999U << 16U))};
-    auto buf = pool.borrow(iou_res{8}, flags);
+    auto buf = pool->borrow(iou_res{8}, flags);
     EXPECT_FALSE(buf);
   }
 }
@@ -248,11 +252,11 @@ void IouProvidedBufPool_ReturnReplenishes() {
   // first buffer is destroyed) to confirm the slot was replenished.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
-    iou_provided_buf_pool pool(dispatcher, 2ULL * 1024 * 1024,
+    auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
     ASSERT_TRUE(pool);
     iou_ring ring;
-    ASSERT_TRUE(pool.register_with(ring));
+    ASSERT_TRUE(pool->register_with(ring));
 
     const size_t bid = 1;
     const auto flags = iou_cqe_flags{
@@ -260,11 +264,11 @@ void IouProvidedBufPool_ReturnReplenishes() {
 
     // First reconstruction; the slot is live until `buf` is destroyed.
     {
-      auto buf = pool.borrow(iou_res{5}, flags);
+      auto buf = pool->borrow(iou_res{5}, flags);
       ASSERT_TRUE(buf);
     }
     // Slot was returned to the ring; reconstruct again (no crash or assert).
-    auto buf2 = pool.borrow(iou_res{3}, flags);
+    auto buf2 = pool->borrow(iou_res{3}, flags);
     ASSERT_TRUE(buf2);
     EXPECT_EQ(buf2.payload_span().size(), 3ULL);
   }
