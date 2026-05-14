@@ -61,8 +61,8 @@ public:
   relaxed_atomic& operator=(const relaxed_atomic&) = delete;
 
   // Conversion to `value_type` with relaxed semantics.
-  operator value_type(this auto& self) noexcept {
-    return self.value_.load(std::memory_order::relaxed);
+  operator value_type() const noexcept {
+    return value_.load(std::memory_order::relaxed);
   }
 
   // Assignment from `value_type` with relaxed semantics. Returns `value_type`,
