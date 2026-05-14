@@ -27,6 +27,7 @@
 #include "timeout_sweeper_base.h"
 
 namespace corvid { inline namespace concurrency {
+#pragma region timeout_sweeper
 
 // A min-heap of (`expiration`, `callback`) pairs, swept by an external driver
 // that calls `tick` periodically.
@@ -87,10 +88,10 @@ namespace corvid { inline namespace concurrency {
 //   using my_sweeper = timeout_sweeper<fixed_function<32,
 //       std::chrono::steady_clock::time_point(
 //           std::chrono::steady_clock::time_point)>>;
-//
 template<typename CB = std::function<timeout_sweeper_base::time_point_t(
              timeout_sweeper_base::time_point_t)>>
 class timeout_sweeper: public timeout_sweeper_base {
+#pragma region Types
 public:
   using callback_t = CB;
 
@@ -100,6 +101,9 @@ public:
           std::is_move_constructible_v<callback_t>,
       "callback_t must be invocable as time_point_t(time_point_t), "
       "default-constructible, and move-constructible");
+
+#pragma endregion
+#pragma region Construction
 
   timeout_sweeper() { heap_.reserve(64); };
 
@@ -116,6 +120,9 @@ public:
     tick(time_point_t::max());
   }
 
+#pragma endregion
+#pragma region Modifiers
+
   // Discard all registered entries without invoking their callbacks.
   // Thread-safe.
   void clear() noexcept {
@@ -124,9 +131,8 @@ public:
   }
 
   // Register `callback` to be invoked once after `expire` has been reached.
-  // Thread-safe. (Named `schedule` rather than `register` because the latter
-  // remains a reserved keyword in C++23.) Returns false if the sweeper is
-  // closing; in that case `callback` is dropped on the floor.
+  // Thread-safe.  Returns `false` if the sweeper is closing; in which case
+  // `callback` is dropped on the floor.
   bool schedule(time_point_t expire, callback_t callback) {
     std::scoped_lock lock{mutex_};
     if (closing_) return false;
@@ -135,17 +141,20 @@ public:
     return true;
   }
 
+#pragma endregion
+#pragma region Driver
+
   // Pop and invoke every callback whose expiration is at or before `now`.
   // Callbacks are invoked outside the internal lock; a non-zero return value
-  // is re-inserted at the returned time.
+  // causes the callback to be re-inserted at the returned time.
   //
   // Intended to be called from a single driver thread.
   void tick(time_point_t now) {
     while (true) {
       callback_t callback;
       time_point_t expire;
-      {
-        std::scoped_lock lock{mutex_};
+
+      if (std::scoped_lock lock{mutex_}; true) {
         // Stop when the heap is empty or the next entry hasn't expired yet.
         if (heap_.empty()) return;
         if (heap_.front().expire > now) return;
@@ -156,14 +165,21 @@ public:
         expire = heap_.back().expire;
         heap_.pop_back();
       }
+
+      // Note how we pass `expire`, not `now`.
       const auto next = callback(expire);
+
       // Short-circuit the rearm path during shutdown so the drain terminates.
       if (next == time_point_t{} || closing_) continue;
+
       std::scoped_lock lock{mutex_};
       heap_.push_back({next, std::move(callback)});
       std::push_heap(heap_.begin(), heap_.end());
     }
   }
+
+#pragma endregion
+#pragma region Accessors
 
   // Number of registered entries.
   [[nodiscard]] size_t size() const noexcept {
@@ -177,6 +193,8 @@ public:
     return heap_.empty();
   }
 
+#pragma endregion
+#pragma region Internals
 private:
   struct entry {
     time_point_t expire;
@@ -190,6 +208,10 @@ private:
   mutable std::mutex mutex_;
   std::vector<entry> heap_;
   relaxed_atomic_bool closing_;
+
+#pragma endregion
 };
+
+#pragma endregion
 
 }} // namespace corvid::concurrency

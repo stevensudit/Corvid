@@ -89,9 +89,26 @@ public:
     return &self.value_;
   }
 
-  // Relaxed exchange. Always sets to `desired`, returns the previous value.
-  value_type exchange(value_type desired) noexcept {
-    return value_.exchange(desired, std::memory_order::relaxed);
+  // Relaxed exchange. Sets to `desired`, and returns the previous value.
+  value_type exchange(value_type desired,
+      std::memory_order order = std::memory_order::relaxed) noexcept {
+    return value_.exchange(desired, order);
+  }
+
+  // Relaxed compare-and-exchange. Compares value with `expected`, sets to
+  // `desired` if equal, and returns a success flag. On failure, `expected` is
+  // updated with the current value. Which is a bit misleading, because it's no
+  // longer expected, it's unexpected.
+  bool compare_exchange(value_type& expected, value_type desired,
+      std::memory_order order = std::memory_order::relaxed) noexcept {
+    return value_.compare_exchange_strong(expected, desired, order);
+  }
+
+  // Weak relaxed compare-and-exchange. May fail spuriously, so should be
+  // retried in a loop. Otherwise the same semantics as `compare_exchange`.
+  bool try_compare_exchange(value_type& expected, value_type desired,
+      std::memory_order order = std::memory_order::relaxed) noexcept {
+    return value_.compare_exchange_weak(expected, desired, order);
   }
 
   // Increment and decrement with relaxed ordering (enabled when `T` supports

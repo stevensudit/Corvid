@@ -16,6 +16,7 @@
 // limitations under the License.
 #pragma once
 #include <chrono>
+#include <cstdint>
 
 namespace corvid { inline namespace concurrency {
 
@@ -23,8 +24,16 @@ namespace corvid { inline namespace concurrency {
 // variant that will eventually share its callback contract.
 class timeout_sweeper_base {
 public:
+  // Timeout mode. Used in `idle_timeout`.
+  enum class mode : uint8_t {
+    stopped, // Not participating in the sweeper.
+    paused,  // Parked at `paused_expiration`; clips periodically.
+    running, // Counting down toward a real deadline.
+  };
+
   using time_point_t = std::chrono::steady_clock::time_point;
   using duration_t = std::chrono::steady_clock::duration;
+  using now_fn_t = time_point_t (*)() noexcept;
 
   // Sentinel value used to enter logical pause mode. One year shy of
   // `time_point_t::max()`, leaving ample headroom against overflow when
@@ -32,11 +41,17 @@ public:
   static constexpr time_point_t paused_expiration =
       time_point_t::max() - std::chrono::years{1};
 
-  // Single source of truth for the current time. Callers should use this
-  // in preference to calling `std::chrono::steady_clock::now` directly, so
-  // that all parties share the same clock.
-  [[nodiscard]] static time_point_t now() noexcept {
-    return std::chrono::steady_clock::now();
-  }
+  timeout_sweeper_base() noexcept : now_fn_{&std::chrono::steady_clock::now} {}
+
+  // Single source of truth for the current time. Invokes the injected
+  // clock function; defaults to `std::chrono::steady_clock::now`. Tests
+  // can substitute a fake clock via `set_now_fn`.
+  [[nodiscard]] time_point_t now() const noexcept { return now_fn_(); }
+
+  // Replace the clock function.
+  void set_now_fn(now_fn_t fn) noexcept { now_fn_ = fn; }
+
+private:
+  now_fn_t now_fn_;
 };
 }} // namespace corvid::concurrency

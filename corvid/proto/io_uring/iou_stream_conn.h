@@ -24,6 +24,7 @@
 #include <string_view>
 #include <variant>
 
+#include "../../concurrency/idle_timeout.h"
 #include "../../enums/bool_enums.h"
 #include "../net_endpoint.h"
 #include "iou_buf_pool.h"
@@ -36,14 +37,6 @@ using namespace bool_enums;
 // Fwd.
 template<typename ConnPlugin>
 class iou_stream_conn;
-
-// Per-direction idle-timeout scheduler state for `iou_stream_conn`. See
-// `set_read_idle_timeout_state` / `change_write_timeout_state`.
-enum class timeout_state : uint8_t {
-  stopped, // Not participating in the sweeper.
-  paused, // In the sweeper, parked at `paused_expiration`; clips periodically.
-  active, // In the sweeper, counting down toward a real deadline.
-};
 
 #pragma region iou_recv_view
 // Move-only recv view delivered to a plugin's `on_data`. Four consumption
@@ -301,6 +294,10 @@ public:
   using sweeper_t = iou_loop::sweeper_t;
   using idle_expiration_time_t = iou_loop::expiration_time_point_t;
   using idle_duration_t = iou_loop::expiration_duration_t;
+  using idle_timeout_t =
+      concurrency::idle_timeout<iou_stream_conn, iou_loop::sweeper_t>;
+  using cancel_action_t = idle_timeout_t::cancel_action_t;
+  using idle_mode = idle_timeout_t::mode;
 
 #pragma region Accessors
 
@@ -372,46 +369,15 @@ public:
 
   //
   // Idle timeouts. Configured at construction (via factory). A duration of
-  // zero means "no timeout"; the conn does not participate in the loop's
-  // `timeouts()` sweeper.
+  // zero means "no timeout". The two `idle_timeout` instances expose the
+  // full API for each direction.
   //
 
-  [[nodiscard]] idle_duration_t get_read_idle_timeout() const noexcept {
-    return configured_read_idle_timeout_;
+  [[nodiscard]] auto read_idle(this auto& self) noexcept {
+    return self->read_idle_;
   }
-
-  [[nodiscard]] idle_duration_t get_write_idle_timeout() const noexcept {
-    return configured_write_idle_timeout_;
-  }
-
-  // Set the configured read idle timeout. Does not touch the scheduler. If the
-  // conn is currently in `Active` state (`active_read_timeout_` non-zero),
-  // syncs the active duration to match so the next per-I/O bump uses the
-  // new value. Note: calling with `d == 0` while `Active` stops bumps and
-  // the next deadline will close the conn -- call
-  // `set_read_idle_timeout_state(Stopped)` first to safely zero the
-  // configured duration.
-  [[nodiscard]] bool set_read_idle_timeout(idle_duration_t d) {
-    return loop_.execute_or_post([this, _ = self(), d] {
-      return do_set_read_idle_timeout(d);
-    });
-  }
-
-  // Drive the read-side idle timeout state machine. When read idle timeout is
-  // 0, state is stuck as `Stopped`.
-  [[nodiscard]] bool set_read_idle(timeout_state target) {
-    return loop_.execute_or_post([this, _ = self(), target] {
-      return do_set_read_idle(target);
-    });
-  }
-
-  // Snapshot of the current read-idle timeout state. Racy under
-  // concurrent state changes.
-  [[nodiscard]] timeout_state get_read_idle() const noexcept {
-    const auto exp = idle_expiration_time_t{read_idle_deadline_};
-    if (exp == sweeper_t::paused_expiration) return timeout_state::paused;
-    if (exp == idle_expiration_time_t{}) return timeout_state::stopped;
-    return timeout_state::active;
+  [[nodiscard]] auto write_idle(this auto& self) noexcept {
+    return self->write_idle_;
   }
 
 #pragma endregion
@@ -554,8 +520,10 @@ public:
         connecting_{role == connection_role::client},
         listening_{role == connection_role::server},
         recv_buf_size_{recv_buf_size}, send_buf_size_{send_buf_size},
-        configured_read_idle_timeout_{read_idle_timeout},
-        configured_write_idle_timeout_{write_idle_timeout},
+        read_idle_{loop_.timeouts(), *this,
+            cancel_action_t{[this] { (void)hangup(); }}, read_idle_timeout},
+        write_idle_{loop_.timeouts(), *this,
+            cancel_action_t{[this] { (void)hangup(); }}, write_idle_timeout},
         recv_intended_shot_{recv_shot}, recv_active_shot_{recv_shot},
         plugin_{*this, std::forward<PluginArgs>(plugin_args)...} {
     static_assert(iou_stream_conn_plugin<plugin_t>,
@@ -574,8 +542,10 @@ public:
       : loop_{loop}, sock_{std::move(sock)},
         remote_{remote ? *remote : net_endpoint{}},
         recv_buf_size_{recv_buf_size}, send_buf_size_{send_buf_size},
-        configured_read_idle_timeout_{read_idle_timeout},
-        configured_write_idle_timeout_{write_idle_timeout},
+        read_idle_{loop_.timeouts(), *this,
+            cancel_action_t{[this] { (void)hangup(); }}, read_idle_timeout},
+        write_idle_{loop_.timeouts(), *this,
+            cancel_action_t{[this] { (void)hangup(); }}, write_idle_timeout},
         recv_intended_shot_{recv_shot}, recv_active_shot_{recv_shot},
         send_zc_supported_{send_zc_supported},
         plugin_{accept_from.make_child_plugin(*this)} {
@@ -676,21 +646,10 @@ private:
   relaxed_atomic<block_size> recv_buf_size_{block_size::kb004};
   relaxed_atomic<block_size> send_buf_size_{block_size::kb004};
 
-  // Idle timeouts. Set at construction and updated with `set_*_idle_timeout`;
-  // zero means "no timeout".
-  relaxed_atomic<idle_duration_t> configured_read_idle_timeout_;
-  relaxed_atomic<idle_duration_t> configured_write_idle_timeout_;
-
-  // Currently effective idle timeout durations. Mutated internally as the conn
-  // starts and pauses; zero (the default) means the expiration is not
-  // being advanced and the conn is not participating in the sweeper.
-  relaxed_atomic<idle_duration_t> read_idle_timeout_;
-  relaxed_atomic<idle_duration_t> write_idle_timeout_;
-
-  // Current read/write idle deadlines, mutated as data flows and read by the
-  // sweeper callback. See `timeout_sweeper` for the read/write protocol.
-  relaxed_atomic<idle_expiration_time_t> read_idle_deadline_;
-  relaxed_atomic<idle_expiration_time_t> write_idle_deadline_;
+  // Idle timeouts. One per direction; configured at construction and
+  // driven via the `read_idle()` / `write_idle()` accessors.
+  idle_timeout_t read_idle_;
+  idle_timeout_t write_idle_;
 
   // Recv state: whether it's paused, whether we're trying for single or
   // multishot, and whether the current shot is single or multi. The
@@ -737,93 +696,6 @@ private:
     return ptr;
   }
 
-  // Set the configured read timeout. Loop-thread-only body of
-  // `configure_read_timeout`.
-  [[nodiscard]] bool do_set_read_idle_timeout(idle_duration_t d) {
-    assert(loop().is_loop_thread());
-    configured_read_idle_timeout_ = d;
-    if (*read_idle_timeout_ != idle_duration_t{}) read_idle_timeout_ = d;
-    return true;
-  }
-
-  // Drive the read-side state machine.
-  [[nodiscard]] bool do_set_read_idle(timeout_state target) {
-    assert(loop().is_loop_thread());
-    if (*configured_read_idle_timeout_ == idle_duration_t{} &&
-        target != timeout_state::stopped)
-      return false;
-    const auto old_deadline = *read_idle_deadline_;
-    switch (target) {
-    case timeout_state::stopped:
-      read_idle_timeout_ = idle_duration_t{};
-      read_idle_deadline_ = idle_expiration_time_t{};
-      return true;
-    case timeout_state::paused:
-      read_idle_timeout_ = idle_duration_t{};
-      if (old_deadline == idle_expiration_time_t{}) {
-        // From Stopped: bootstrap. Schedule a near-future fire so the
-        // clipping cycle starts, then revert to the sentinel so the
-        // first fire clips.
-        read_idle_deadline_ =
-            sweeper_t::now() + *configured_read_idle_timeout_;
-        if (!loop_.timeouts().schedule(read_idle_deadline_,
-                make_read_timeout_callback()))
-          return false;
-        read_idle_deadline_ = sweeper_t::paused_expiration;
-        return true;
-      }
-      // From Active or Paused: existing entry adapts on next fire.
-      read_idle_deadline_ = sweeper_t::paused_expiration;
-      return true;
-    case timeout_state::active:
-      read_idle_timeout_ = idle_duration_t{configured_read_idle_timeout_};
-      read_idle_deadline_ = sweeper_t::now() + *configured_read_idle_timeout_;
-      if (old_deadline == idle_expiration_time_t{}) {
-        // From Stopped: schedule fresh.
-        return loop_.timeouts().schedule(read_idle_deadline_,
-            make_read_timeout_callback());
-      }
-      // From Active or Paused: existing entry adapts on next fire. Note:
-      // Paused -> Active may take up to one `read_timeout_` of slop before
-      // the new deadline starts being checked.
-      return true;
-    }
-    return false; // unreachable
-  }
-
-  // Build the sweeper callback for the read direction. The closure
-  // captures only a `weak_ptr` so it fits in the loop's 32-byte
-  // `expiration_fn`.
-  [[nodiscard]] auto make_read_timeout_callback() {
-    return [weak = std::weak_ptr<iou_stream_conn>{self()}](
-               idle_expiration_time_t deadline) -> idle_expiration_time_t {
-      auto conn = weak.lock();
-      if (!conn) return {};
-      const auto current = *conn->read_expiration_;
-      // Stopped (or expiration was reset): drop.
-      if (current == idle_expiration_time_t{}) return {};
-      // Paused: clip back to a near-future fire so we re-check periodically.
-      if (current == sweeper_t::paused_expiration) {
-        const auto cfg = *conn->read_timeout_;
-        if (cfg == idle_duration_t{}) {
-          // Defensive: configured was zeroed while Paused. Drop; state
-          // collapses to Stopped.
-          conn->read_expiration_ = idle_expiration_time_t{};
-          return {};
-        }
-        return sweeper_t::now() + cfg;
-      }
-      // Active: close on idle, else rearm to whatever the conn wants
-      // (advanced by per-I/O bumps).
-      if (current == deadline) {
-        (void)conn->do_close_now();
-        conn->read_expiration_ = idle_expiration_time_t{};
-        return {};
-      }
-      return current;
-    };
-  }
-
   // Produce a new `iou_stream_conn` for each accepted connection. The new
   // conn's plugin is built by calling `plugin_.make_child_plugin(*new_conn)`.
   [[nodiscard]] std::shared_ptr<iou_stream_conn>
@@ -832,12 +704,12 @@ private:
     return std::make_shared<iou_stream_conn>(allow::ctor, plugin_, loop_,
         std::move(sock), remote, block_size{recv_buf_size_},
         block_size{send_buf_size_}, recv_intended_shot_, send_zc_supported_,
-        idle_duration_t{configured_read_idle_timeout_},
-        idle_duration_t{configured_write_idle_timeout_});
+        read_idle_.configured_timeout(), write_idle_.configured_timeout());
   }
 
   // Submit buffer for recv.
   [[nodiscard]] bool do_submit_recv() {
+    (void)read_idle_.set_mode(idle_mode::running);
     assert(loop().is_loop_thread());
     if (recv_active_shot_ == shot_type::single) return do_submit_single_recv();
     return do_submit_multi_recv();
@@ -989,7 +861,7 @@ private:
   [[nodiscard]] bool do_submit_send_buffer(buffer&& buf) {
     assert(loop().is_loop_thread() && !send_token_);
     if (!buf) return false;
-    write_idle_deadline_ = *write_idle_deadline_ + *write_idle_timeout_;
+    (void)write_idle_.set_mode(idle_mode::running);
 
     auto fn = [this, _ = self()](completion_id cbhandle, buffer& buf)
         -> slot_retention {
@@ -1014,6 +886,7 @@ private:
   [[nodiscard]] bool do_submit_connect() {
     assert(loop().is_loop_thread() && connecting_ && !connect_token_);
 
+    (void)read_idle_.set_mode(idle_mode::running);
     const auto& remote = remote_endpoint();
     bound_endpoint_with_timeout ep;
     ep.when.ts = iou_timespec{10s};
@@ -1214,7 +1087,7 @@ private:
   // shut, transitions to full close.
   [[nodiscard]] bool on_recv_complete(buffer& buf) {
     assert(loop().is_loop_thread());
-    read_idle_deadline_ = *read_idle_deadline_ + *read_idle_timeout_;
+    read_idle_.postpone();
     if (closed_ || read_shut_) return true;
 
     const auto res = buf.result();
@@ -1258,6 +1131,7 @@ private:
   // Notify `on_drain`.
   [[nodiscard]] bool notify_drained() {
     assert(loop().is_loop_thread());
+    (void)write_idle_.set_mode(idle_mode::paused);
     return plugin_.on_drain();
   }
 
