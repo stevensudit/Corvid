@@ -458,12 +458,117 @@ void ObjectPool_TokenAsInt() {
 }
 
 #pragma endregion
+#pragma region Shutdown
+
+void ObjectPool_Shutdown() {
+  // After `shutdown`, `borrow` fails.
+  if (true) {
+    object_pool<int, 4> pool;
+    auto h = pool.borrow();
+    EXPECT_TRUE(h);
+    h.reset();
+
+    EXPECT_TRUE(pool.shutdown());
+    EXPECT_FALSE(pool.borrow());
+
+    // Idempotent: subsequent calls report no-op.
+    EXPECT_FALSE(pool.shutdown());
+  }
+
+  // `shutdown` invokes `return_cb_` on every slot regardless of state:
+  // free slots (already returned), and currently-borrowed slots (which it
+  // forcibly clears). Returning a still-live handle afterwards still runs
+  // `return_cb_` from the normal `return_slot` path.
+  if (true) {
+    int return_count{};
+    auto on_return = [&](int&) noexcept { ++return_count; };
+    object_pool<int, 4, generation_scheme::versioned, no_op_cb,
+        decltype(on_return)>
+        pool{{}, on_return};
+
+    auto h0 = pool.borrow();
+    auto h1 = pool.borrow();
+    h0.reset(); // one return: count == 1
+    EXPECT_EQ(return_count, 1);
+
+    // Shutdown invokes return_cb on all 4 slots (including h1's).
+    EXPECT_TRUE(pool.shutdown());
+    EXPECT_EQ(return_count, 5);
+
+    // Returning the still-live handle still runs return_cb once.
+    h1.reset();
+    EXPECT_EQ(return_count, 6);
+  }
+
+  // `shutdown` forcibly resets every slot to a default-constructed
+  // value, even one a `borrowed` handle is currently observing. The
+  // handle still resets cleanly afterwards, but the slot is not
+  // returned to the free list, so subsequent borrows still fail.
+  if (true) {
+    object_pool<int, 2> pool;
+    auto h = pool.borrow();
+    *h = 42;
+    EXPECT_EQ(*h, 42);
+
+    EXPECT_TRUE(pool.shutdown());
+
+    // The slot has been reset to T{}.
+    EXPECT_EQ(*h, 0);
+
+    h.reset();
+    EXPECT_FALSE(pool.borrow());
+  }
+
+  // With no outstanding borrows at shutdown time, `borrow` continues to
+  // return empty: shutdown emptied the free list and no return has
+  // refilled it.
+  if (true) {
+    object_pool<int, 2> pool;
+    EXPECT_TRUE(pool.shutdown());
+    EXPECT_FALSE(pool.borrow());
+    EXPECT_FALSE(pool.borrow());
+  }
+
+  // Tokens captured before `shutdown` cannot escalate to a `borrowed`
+  // afterwards: shutdown clears the borrow bit and bumps the generation
+  // on every still-borrowed slot, leaving the token stale.
+  if (true) {
+    object_pool<int, 2> pool;
+    auto h = pool.borrow();
+    object_pool<int, 2>::token tok{h};
+    EXPECT_TRUE(tok);
+
+    EXPECT_TRUE(pool.shutdown());
+
+    EXPECT_FALSE(tok.borrow(pool));
+    EXPECT_EQ(tok.get_ptr(pool), nullptr);
+  }
+
+  // The pool's destructor calls `shutdown`, so `return_cb_` runs for
+  // every slot even when no explicit `shutdown` was invoked.
+  if (true) {
+    int return_count{};
+    auto on_return = [&](int&) noexcept { ++return_count; };
+    {
+      object_pool<int, 3, generation_scheme::versioned, no_op_cb,
+          decltype(on_return)>
+          pool{{}, on_return};
+      auto h = pool.borrow();
+      h.reset(); // 1 return so far
+      EXPECT_EQ(return_count, 1);
+    }
+    // Destructor invoked shutdown: 3 more invocations (one per slot).
+    EXPECT_EQ(return_count, 4);
+  }
+}
+
+#pragma endregion
 
 MAKE_TEST_LIST(ObjectPool_BorrowAndReturn, ObjectPool_FullPool,
     ObjectPool_LIFOOrder, ObjectPool_MoveHandle, ObjectPool_MultipleSlots,
     ObjectPool_Callbacks, ObjectPool_CreateHelper,
     ObjectPool_DetachAndReattach, ObjectPool_TokenBasics,
     ObjectPool_TokenDetachAndBorrow, ObjectPool_TokenStaleness,
-    ObjectPool_TokenAsInt);
+    ObjectPool_TokenAsInt, ObjectPool_Shutdown);
 
 // NOLINTEND(readability-function-cognitive-complexity)

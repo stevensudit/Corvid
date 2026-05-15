@@ -333,10 +333,13 @@ public:
   object_pool& operator=(const object_pool&) = delete;
   object_pool& operator=(object_pool&&) = delete;
 
+  ~object_pool() noexcept(false) { (void)shutdown(); }
+
 #pragma endregion
 #pragma region Borrowing
 
-  // Borrows a slot; returns empty if the pool is full.
+  // Borrows a slot; returns empty if the pool is full or has been shut
+  // down.
   [[nodiscard]] borrowed borrow() {
     // We do not increment the generation until return, but we do set the
     // high bit to indicate that it's borrowed.
@@ -384,6 +387,26 @@ public:
   }
   // NOLINTEND(performance-move-const-arg)
 
+  // Permanently shut down the pool. After the first call, `borrow` (and
+  // `token::borrow`) returns empty. Already-borrowed handles can still be
+  // reset/destroyed safely; `return_cb_` runs as usual on each return, but
+  // the freed slots are not offered for reuse. Each currently-free slot
+  // also has `return_cb_` invoked, for callers that use it to release
+  // resources. Idempotent; returns true on the first call, false on any
+  // subsequent call.
+  [[nodiscard]] bool shutdown() noexcept {
+    std::scoped_lock lock{mutex_};
+    if (shut_down_) return false;
+    shut_down_ = true;
+    for (size_t ndx = 0; ndx < N; ++ndx) {
+      (void)release_slot_gen(ndx);
+      return_cb_(slots_[ndx]);
+      slots_[ndx] = T{};
+    }
+    free_top_ = 0;
+    return true;
+  }
+
 #pragma endregion
 #pragma region Helpers
 private:
@@ -409,8 +432,8 @@ private:
   void return_slot(index_t ndx) noexcept {
     return_cb_(slots_[ndx]);
     std::scoped_lock lock{mutex_};
-    [[maybe_unused]] const bool impossible = !release_slot_gen(ndx);
-    assert(!impossible);
+    if (shut_down_) return;
+    (void)release_slot_gen(ndx);
     free_list_[free_top_++] = ndx;
   }
 
@@ -485,6 +508,7 @@ private:
   alignas(T) std::array<T, N> slots_{};
   std::array<index_t, N> free_list_{};
   size_t free_top_{N};
+  bool shut_down_{};
   mutable std::mutex mutex_;
   [[no_unique_address]] gen_array_t gen_array_;
   [[no_unique_address]] BorrowCb borrow_cb_;

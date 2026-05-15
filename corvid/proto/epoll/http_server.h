@@ -204,7 +204,7 @@ public:
     // Get an epoll loop.
     if (!loop) {
       self->runner_.emplace();
-      self->loop_ = self->runner_->loop();
+      self->loop_ = self->runner_->loop()->self();
     } else
       self->loop_ = std::move(loop);
 

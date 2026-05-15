@@ -378,6 +378,7 @@ public:
     // `~iou_basic_loop`), its destructor must not touch our `iou_ring` or our
     // dispatcher base, both of which are about to vanish.
     timeouts_.clear();
+    (void)completion_cb_pool_.shutdown();
     udp_buf_pool_->skip_unregister();
     tcp_provided_buf_pool_->skip_unregister();
     udp_buf_pool_->disarm();

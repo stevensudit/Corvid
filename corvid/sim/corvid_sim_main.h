@@ -127,7 +127,7 @@ int do_main(int argc, char** argv) {
         return s.add_route({"", "/ws"},
             SimWsHandler::make_factory(s.loop(), s.wheel()));
       },
-      loop.loop(), wheel.wheel(), request_timeout, write_timeout);
+      loop.loop()->self(), wheel.wheel(), request_timeout, write_timeout);
 
   if (!server) {
     std::cerr << "Failed to create HTTP server\n";

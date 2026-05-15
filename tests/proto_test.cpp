@@ -2083,7 +2083,8 @@ void StreamConn_AsyncCbWrite_DuplicateRejected() {
   constexpr int small_buf = 4096;
   EXPECT_TRUE(a.set_send_buffer_size(small_buf));
 
-  auto conn = stream_conn_ptr::adopt(loop.loop(), std::move(a), {}, {});
+  auto conn =
+      stream_conn_ptr::adopt(loop.loop()->self(), std::move(a), {}, {});
   stream_async_cb cb{conn.pointer()};
 
   const std::string payload(256ULL * 1024ULL, 'w');
@@ -2276,7 +2277,7 @@ void StreamConn_Listen_MutualClose() {
   notifiable<coordination_policy> accepted_policy{
       coordination_policy::unilateral};
 
-  auto listener = stream_conn_ptr::listen(loop.loop(),
+  auto listener = stream_conn_ptr::listen(loop.loop()->self(),
       net_endpoint{ipv4_addr::loopback, 0},
       {.on_data =
               [&](stream_conn& conn, recv_buffer_view v) {
@@ -2303,7 +2304,7 @@ void StreamConn_Listen_MutualClose() {
 
   // Connect and send a message to trigger `on_data` on the accepted
   // connection.
-  auto client = stream_conn_ptr::connect(loop.loop(), server_ep, {});
+  auto client = stream_conn_ptr::connect(loop.loop()->self(), server_ep, {});
   ASSERT_TRUE(client);
   ASSERT_TRUE(client->send(std::string{"ping"}));
 
@@ -2584,7 +2585,7 @@ void StreamConn_EchoServer() {
   // Bind a non-blocking listener to an OS-assigned loopback port.
   // Each accepted connection is self-owning and gets a copy of the listener's
   // handlers, so no external handle is needed.
-  auto listener = stream_conn_ptr::listen(loop.loop(),
+  auto listener = stream_conn_ptr::listen(loop.loop()->self(),
       net_endpoint{ipv4_addr::loopback, 0},
       {.on_data = [](stream_conn& conn, recv_buffer_view v) {
         std::string_view av = v;
@@ -2605,7 +2606,7 @@ void StreamConn_EchoServer() {
   notifiable<bool> done{false};
   stream_conn_ptr client_conn;
 
-  client_conn = stream_conn_ptr::connect(loop.loop(), server_ep,
+  client_conn = stream_conn_ptr::connect(loop.loop()->self(), server_ep,
       {.on_data =
               [&](stream_conn&, recv_buffer_view v) {
                 std::string_view av = v;
@@ -2689,7 +2690,7 @@ void StreamConnWithState_Listen() {
   using conn_t = stream_conn_with_state<int>;
   notifiable<int> received_state{-1};
 
-  auto listener = stream_conn_ptr_with<conn_t>::listen(loop.loop(),
+  auto listener = stream_conn_ptr_with<conn_t>::listen(loop.loop()->self(),
       net_endpoint{ipv4_addr::loopback, 0},
       {.on_data = [&](stream_conn& c, recv_buffer_view v) {
         auto& typed = conn_t::from(c);
@@ -2704,7 +2705,7 @@ void StreamConnWithState_Listen() {
   const net_endpoint server_ep = listener->local_endpoint();
   ASSERT_TRUE(server_ep);
 
-  auto client = stream_conn_ptr::connect(loop.loop(), server_ep, {});
+  auto client = stream_conn_ptr::connect(loop.loop()->self(), server_ep, {});
   ASSERT_TRUE(client);
 
   const std::string msg{"ping"};
@@ -2765,8 +2766,8 @@ void StreamConnWithState_AcceptClone_Nullptr() {
   epoll_loop_runner loop;
 
   int data_calls = 0;
-  auto listener = stream_conn_ptr_with<rejecting_conn>::listen(loop.loop(),
-      net_endpoint{ipv4_addr::loopback, 0},
+  auto listener = stream_conn_ptr_with<rejecting_conn>::listen(
+      loop.loop()->self(), net_endpoint{ipv4_addr::loopback, 0},
       {.on_data = [&](stream_conn&, recv_buffer_view v) {
         ++data_calls;
         std::string_view av = v;
@@ -3000,7 +3001,7 @@ void StreamSync_ConnectFail() {
 // endpoint. The caller must keep `listener` alive for the test duration.
 static net_endpoint
 start_echo_server(epoll_loop_runner& loop, stream_conn_ptr& listener) {
-  listener = stream_conn_ptr::listen(loop.loop(),
+  listener = stream_conn_ptr::listen(loop.loop()->self(),
       net_endpoint{ipv4_addr::loopback, 0},
       {.on_data = [](stream_conn& conn, recv_buffer_view v) {
         std::string_view av = v;
@@ -3061,7 +3062,7 @@ void StreamSync_PeerClose() {
   epoll_loop_runner loop;
   stream_conn_ptr listener;
   // Server echoes nothing; it closes as soon as data arrives.
-  listener = stream_conn_ptr::listen(loop.loop(),
+  listener = stream_conn_ptr::listen(loop.loop()->self(),
       net_endpoint{ipv4_addr::loopback, 0},
       {.on_data = [](stream_conn& conn, recv_buffer_view v) {
         v.consume(std::string_view{v}.size());
