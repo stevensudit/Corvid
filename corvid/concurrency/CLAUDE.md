@@ -34,9 +34,9 @@ The `concurrency` module provides thread-safety primitives.
   destroyed freely; the next sweep then drops the entry. The cancel
   action runs through a one-shot atomic slot, so the sweeper-driven fire
   and a manual `expire` cannot both invoke it; `reset_expiration` rearms
-  the slot. Public API: `configure`, `postpone`, `set_mode` (`stopped` /
-  `paused` / `running`), `get_mode`, `expire`, `reset_expiration`, plus
-  read-only accessors.
+  the slot. Public API: `configure`, `postpone`, `start`, `stop`, `pause`,
+  `set_mode` (`stopped` / `paused` / `running`), `get_mode`, `expire`,
+  `reset_expiration`, plus read-only accessors.
 - `jthread_stoppable_sleep` -- interruptible deadline sleep for `std::jthread`;
   workaround for the missing stop-token overload of
   `std::condition_variable_any::wait_until` in libc++.

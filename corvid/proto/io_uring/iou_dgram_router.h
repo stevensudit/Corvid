@@ -120,11 +120,11 @@ concept iou_dgram_session_plugin = requires(P p, const iou_loop::buffer& cbuf,
 // Send path: each session's `send(buffer&&)` flows through the router's
 // socket via `submit_sendmsg_buffer`. There is no internal queue; multiple
 // datagrams may be in flight concurrently. Each completion routes the
-// buffer back to the originating session's `on_sent`, allowed the result to be
-// checked and for the buffer to be potentially resent.
+// buffer back to the originating session's `on_sent`, allowing the result to
+// be checked and for the buffer to be potentially resent.
 //
-// Lifetime: the router is intended to outlive all of its sessions. `close()`
-// drains the sessions map (calling each session's `close()`, which fires the
+// Lifetime: the router is intended to outlive all of its sessions. `close`
+// drains the sessions map (calling each session's `close`, which fires the
 // plugin's `unregister_self`) before submitting the socket close. Sessions
 // hold a reference to the router.
 //
@@ -136,12 +136,12 @@ concept iou_dgram_session_plugin = requires(P p, const iou_loop::buffer& cbuf,
 // the handle, hand the resulting `shared_ptr` to a session plugin (or
 // discard it entirely) - and let the router live on its own ref.
 // Termination then comes from one of:
-//   - any holder calling `close()` (a session that captured `&router_` can
+//   - any holder calling `close` (a session that captured `&router_` can
 //     do this from `unregister_self` or elsewhere);
 //   - a hard recv error driving `do_close()` from inside the recv callback;
 //   - the `iou_loop` shutting down, which clears every slot and so releases
 //     every captured `shared_ptr`.
-// In all three, `close()` cancels the in-flight recv via `submit_close`
+// In all three, `close` cancels the in-flight recv via `submit_close`
 // (`prep_cancel_fd`); the recv callback receives the canceled CQE, releases
 // its slot, the last `self` ref drops, and the router destructs.
 //
@@ -199,7 +199,7 @@ public:
 #pragma endregion
 #pragma region Accessors
 
-  // True until `close()` is called. Safe from any thread.
+  // True until `close` is called. Safe from any thread.
   [[nodiscard]] bool is_open() const noexcept { return open_; }
 
   // The bound local address. Safe from any thread.
@@ -254,7 +254,7 @@ public:
   }
 
   // Forcibly remove a session by key. Does NOT fire the session's plugin
-  // `unregister_self`; use the session's own `close()` to notify. Actual
+  // `unregister_self`; use the session's own `close` to notify. Actual
   // removal is async when called off-loop. Safe from any thread.
   [[nodiscard]] bool remove_session(const key_t& key) {
     return loop_.execute_or_post([this, key]() -> bool {
@@ -297,7 +297,7 @@ private:
 
           // Re-lookup. If still missing (rejection), drop.
           if (auto found = find_opt(sessions_, key))
-            (void)(*found)->on_receive(std::move(buf));
+            return (*found)->on_receive(std::move(buf)) || true;
           return false;
         });
   }
@@ -378,6 +378,7 @@ private:
           // could theoretically reuse the completion ID as a token and queue
           // that, but there are hurdles and it's not worth doing for an error
           // recovery case.
+          self->is_reading_ = true;
           (void)self->do_submit_multi_recv();
           return slot_retention::release;
         });
@@ -387,13 +388,13 @@ private:
   }
 
   // Cleanly close the router. Walks the sessions map by snapshot so that
-  // each session's `close()` -> `unregister_self` -> `remove_session(key)`
+  // each session's `close` -> `unregister_self` -> `remove_session(key)`
   // can mutate `sessions_` normally without iterator invalidation. After
   // every session has had its turn, the map should be empty; anything left
   // is a misbehaving plugin that failed to unregister.
   //
   // Holding the snapshot of `shared_ptr<session>`s keeps each session alive
-  // for the duration of its `close()`. In-flight callbacks (sends in
+  // for the duration of its `close`. In-flight callbacks (sends in
   // particular) bind their own `shared_ptr<session>`, so the session will
   // also outlive them and be destructed when the last reference drops.
   [[nodiscard]] bool do_close(bool already_closing = false) {
@@ -408,7 +409,9 @@ private:
     for (const auto& ssn : closing) (void)ssn->close();
 
     // Each session was expected to have removed all its keys via
-    // `unregister_self`. Anything left points to a buggy plugin.
+    // `unregister_self`. Anything left points to a buggy plugin,
+    // which should be fixed. However, even though it misses `unregister_self`,
+    // the router still tears down cleanly.
     assert(sessions_.empty());
 
     if (sock_)
@@ -426,7 +429,7 @@ private:
   net_socket sock_;
 
   std::mutex endpoint_mutex_; // protects lazy initialization of `local_`.
-  net_endpoint local_;        // Always access through `local_endpoint()`.
+  net_endpoint local_;        // Always access through `local_endpoint`.
 
   relaxed_atomic_bool open_{true}; // Cleared once close starts.
 
@@ -446,7 +449,7 @@ private:
 #pragma endregion
 #pragma region iou_dgram_router_handle
 
-// RAII handle that owns an `iou_dgram_router`. Destruction calls `close()`
+// RAII handle that owns an `iou_dgram_router`. Destruction calls `close`
 // (which drains sessions and closes the socket).
 template<typename RouterPlugin>
 class iou_dgram_router_handle {
