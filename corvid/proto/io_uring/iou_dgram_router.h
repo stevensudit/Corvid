@@ -362,10 +362,11 @@ private:
 
           // Cancelation comes from `do_close`, which has already cleared
           // `open_`; the early check above handles that path.
-          if (res.err() == EC::canceled) return slot_retention::release;
+          if (!res && res.err() == EC::canceled)
+            return slot_retention::release;
 
           // Pool exhausted: downgrade to singleshot.
-          if (res.err() == EC::nobufs) {
+          if (!res && res.err() == EC::nobufs) {
             (void)self->do_submit_single_recv(false);
             return slot_retention::release;
           }

@@ -160,6 +160,7 @@ public:
     };
     static const pool_ptr_t instance = std::make_shared<null_buffer_pool>();
     if (!pool) pool = instance;
+    if (!data.data()) data = {};
     iou_buffer buf;
     buf.pool_ = std::move(pool);
     buf.full_span_ = data;
@@ -212,6 +213,7 @@ public:
 
   // Byte offset from the pool base.
   [[nodiscard]] size_t pool_base_offset() const noexcept {
+    if (!pool_->base()) return 0;
     return full_span_.data() - pool_->base();
   }
 
