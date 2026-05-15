@@ -32,6 +32,10 @@
 namespace corvid { inline namespace proto { namespace iouring {
 using namespace bool_enums;
 
+// Fwd.
+template<typename RouterPlugin>
+class iou_dgram_router;
+
 #pragma region Concepts
 
 // Plugin contract for `iou_dgram_router`. The plugin owns per-router state
@@ -66,10 +70,12 @@ using namespace bool_enums;
 // Concept failures surface as a clean `static_assert` diagnostic pointing at
 // the unsatisfied requirement.
 template<typename P>
-concept iou_dgram_router_plugin = requires(P p, const iou_loop::buffer& cbuf) {
+concept iou_dgram_router_plugin = requires(P p, const iou_loop::buffer& cbuf,
+    iou_dgram_router<P>& router) {
   typename P::session_t;
   typename P::key_t;
   { p.extract(cbuf) } -> std::convertible_to<typename P::key_t>;
+  { p.create_session(cbuf, router) } -> std::same_as<bool>;
 };
 
 // Plugin contract for `iou_dgram_session`. The plugin owns per-session state

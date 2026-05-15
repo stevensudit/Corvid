@@ -140,7 +140,7 @@ public:
   // Start the timeout that was stopped or paused. If already running, all it
   // does is postpone once. Fails if `configured_timeout` is zero or it can't
   // schedule.
-  [[nodiscard]] bool start() noexcept {
+  [[nodiscard]] bool start() {
     const auto now_time = now();
     const auto was_stopped = (*deadline_ <= now_time);
     const auto configured_snapshot = *configured_;
@@ -162,7 +162,7 @@ public:
   // `postpone` becomes a no-op.
   //
   // Fails if `configured_timeout` is zero or it can't schedule.
-  [[nodiscard]] bool pause() noexcept {
+  [[nodiscard]] bool pause() {
     const auto now_time = now();
     const auto was_stopped = (*deadline_ <= now_time);
     const auto configured_snapshot = *configured_;

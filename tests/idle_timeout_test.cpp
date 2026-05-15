@@ -47,6 +47,7 @@ namespace {
 // `set_now_fn` takes). The tests stay single-owner; if we ever wanted
 // concurrent fixtures we'd need a different strategy.
 struct test_owner: std::enable_shared_from_this<test_owner> {
+  // NOLINTNEXTLINE(bugprone-throwing-static-initialization)
   static inline tp now{};
   int idle_count{0};
   idle_timeout<test_owner> idle;

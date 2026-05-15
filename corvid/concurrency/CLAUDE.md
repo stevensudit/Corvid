@@ -11,6 +11,14 @@ The `concurrency` module provides thread-safety primitives.
   spawning the notifying thread; the zero-argument forms capture the "before"
   value inside the lock and will hang if the thread has already notified by
   then.
+- `owner_thread_dispatcher` -- cross-thread dispatch primitive: post a
+  callback (in stored form) from any thread, run it on the bound owner
+  thread. Provides `post`, `execute_or_post`, `post_and_wait`, and
+  `is_loop_thread`. Owns the wake `event_fd` exposed via `wake_fd()`. The
+  instance must be constructed and destructed on the owner thread, and only
+  one such instance can live on a given thread. Used as the base for I/O
+  loops (`iou_basic_loop`, `epoll_loop`), which register the wake fd with
+  their poller so posts interrupt blocked waits.
 - `tombstone_of<T>` / `tombstone` -- atomic value that can be set once to a
   final "dead" state; cannot be reverted.
 - `timers` -- thread-safe priority-queue timer scheduler with one-shot and
@@ -27,6 +35,19 @@ The `concurrency` module provides thread-safety primitives.
   delivery channels); `timing_wheel_runner` drives the wheel from its own
   thread. Constructor requires `slot_count >= 2` and
   `tick_interval >= 500000ns`; throws `std::invalid_argument` otherwise.
+- `timeout_sweeper` -- min-heap of (`expiration`, `callback`) pairs, swept
+  by an external driver that calls `tick(now)` periodically. Each callback
+  receives the expiration it was registered at and returns either zero
+  (drop the entry) or a new expiration (rearm at that time). No
+  cancellation API: a callback self-cancels by returning zero on a later
+  invocation. `schedule` is thread-safe and re-entrant from inside a
+  callback; `tick` is intended to be called from a single driver thread.
+  Callbacks fire outside the heap lock so other threads may `schedule`
+  concurrently. Common types and the `paused_expiration` sentinel live in
+  `timeout_sweeper_base`. Compared to `timing_wheel`, it trades O(1)
+  schedule for unbounded delay range and per-entry rearm logic chosen by
+  the callback; compared to `timers`, a much smaller API surface (just
+  register, tick, return-value contract).
 - `idle_timeout` -- per-direction idle-timeout helper bound to a
   `timeout_sweeper`. Templated on `Owner` (must inherit from
   `std::enable_shared_from_this`) and `Sweeper`. The sweeper callback
