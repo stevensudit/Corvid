@@ -125,7 +125,7 @@ void IdleTimeout_StoppedToActive() {
 #pragma region ActiveFiresOnIdle
 
 void IdleTimeout_ActiveFiresOnIdle() {
-  // No restart_deadline calls -> deadline matches the registered time,
+  // No `postpone` calls -> deadline matches the registered time,
   // callback invokes the cancel action exactly once, sweeper entry drops.
   sweeper sw;
   auto o = make_owner(sw, 100ms);
@@ -151,7 +151,7 @@ void IdleTimeout_ActiveFiresOnIdle() {
 #pragma region RestartPushesDeadline
 
 void IdleTimeout_RestartPushesDeadline() {
-  // A `restart_deadline` between submission and the registered fire
+  // A `postpone` call between submission and the registered fire
   // pushes the deadline forward; the callback rearms instead of firing
   // the idle action.
   sweeper sw;
@@ -184,26 +184,59 @@ void IdleTimeout_RestartPushesDeadline() {
 #pragma region RestartFromStoppedIsRecoverable
 
 void IdleTimeout_RestartFromStoppedIsRecoverable() {
-  // Calling `restart_deadline` while still Stopped writes
-  // `deadline_ = now() + 0 = now()`, a real value. `get_state` then
-  // reports `active` even though no sweeper entry exists. The bug
-  // (set_mode(active) silently skipping the schedule) is gone now
-  // that `was_stopped` checks `deadline_ <= now()` instead of
-  // `deadline_ == T0`: the stale deadline equals the `now` at restart
-  // time, which is at most the current `now`, so the check correctly
-  // schedules a fresh entry.
+  // `postpone` is a no-op while Stopped (active_ is zero), so `deadline_`
+  // stays at T0 and `get_mode` keeps reporting Stopped. A direct
+  // `set_mode(running)` then schedules a fresh entry: `was_stopped` is
+  // satisfied because `deadline_ == T0 <= now`.
   sweeper sw;
   auto o = make_owner(sw, 100ms);
   o->now = T(42);
   o->idle.postpone();
+  EXPECT_EQ(o->idle.deadline().time_since_epoch().count(),
+      tp{}.time_since_epoch().count());
   EXPECT_TRUE(sw.empty());
   EXPECT_EQ(static_cast<int>(o->idle.get_mode()),
       static_cast<int>(mode::stopped));
 
-  // Direct recovery: `set_mode(active)` now schedules a fresh entry
-  // without first needing `set_mode(stopped)`.
   EXPECT_TRUE(o->idle.set_mode(mode::running));
   EXPECT_EQ(sw.size(), 1U);
+}
+
+#pragma endregion
+#pragma region PostponeIsNoOpOutsideRunning
+
+void IdleTimeout_PostponeIsNoOpOutsideRunning() {
+  // `postpone` reads `active_` and bails when zero, so neither Paused nor
+  // Stopped should observe any change to `deadline_`.
+  sweeper sw;
+  auto o = make_owner(sw, 100ms);
+
+  // Paused: postpone must not disturb the sentinel, must not break the
+  // clip cycle, and must leave the mode as Paused.
+  o->now = T(0);
+  EXPECT_TRUE(o->idle.set_mode(mode::paused));
+  o->now = T(50);
+  o->idle.postpone();
+  EXPECT_EQ(o->idle.deadline().time_since_epoch().count(),
+      timeout_sweeper_base::paused_expiration.time_since_epoch().count());
+  EXPECT_EQ(static_cast<int>(o->idle.get_mode()),
+      static_cast<int>(mode::paused));
+
+  // Bootstrap entry at T(100) still clips back to now + configured.
+  o->now = T(100);
+  sw.tick(T(100));
+  EXPECT_EQ(o->idle_count, 0);
+  EXPECT_EQ(sw.size(), 1U);
+  EXPECT_EQ(static_cast<int>(o->idle.get_mode()),
+      static_cast<int>(mode::paused));
+
+  // Stopped: postpone must leave `deadline_` at T0.
+  EXPECT_TRUE(o->idle.set_mode(mode::stopped));
+  o->idle.postpone();
+  EXPECT_EQ(o->idle.deadline().time_since_epoch().count(),
+      tp{}.time_since_epoch().count());
+  EXPECT_EQ(static_cast<int>(o->idle.get_mode()),
+      static_cast<int>(mode::stopped));
 }
 
 #pragma endregion
@@ -386,14 +419,86 @@ void IdleTimeout_NowFnInjection() {
 }
 
 #pragma endregion
+#pragma region ExpireIsIdempotent
+
+void IdleTimeout_ExpireIsIdempotent() {
+  // `expire` fires the cancel action exactly once. `reset_expiration` arms
+  // it to fire again. Both calls are also no-ops if no rearm is pending.
+  sweeper sw;
+  auto o = make_owner(sw, 100ms);
+  o->now = T(0);
+  EXPECT_TRUE(o->idle.set_mode(mode::running));
+
+  o->idle.expire();
+  EXPECT_EQ(o->idle_count, 1);
+  EXPECT_EQ(static_cast<int>(o->idle.get_mode()),
+      static_cast<int>(mode::stopped));
+
+  // Repeat calls do nothing until `reset_expiration` arms again.
+  o->idle.expire();
+  o->idle.expire();
+  EXPECT_EQ(o->idle_count, 1);
+
+  o->idle.reset_expiration();
+  o->idle.expire();
+  EXPECT_EQ(o->idle_count, 2);
+
+  // `reset_expiration` is itself idempotent: calling it twice doesn't
+  // unlock two more fires.
+  o->idle.reset_expiration();
+  o->idle.reset_expiration();
+  o->idle.expire();
+  EXPECT_EQ(o->idle_count, 3);
+  o->idle.expire();
+  EXPECT_EQ(o->idle_count, 3);
+}
+
+#pragma endregion
+#pragma region SweepAndExpireFireOnce
+
+void IdleTimeout_SweepAndExpireFireOnce() {
+  // The sweeper-driven fire and a manual `expire` share the same one-shot
+  // slot, so a manual call after the sweep is a no-op.
+  sweeper sw;
+  auto o = make_owner(sw, 100ms);
+  o->now = T(0);
+  EXPECT_TRUE(o->idle.set_mode(mode::running));
+
+  o->now = T(100);
+  sw.tick(T(100));
+  EXPECT_EQ(o->idle_count, 1);
+
+  o->idle.expire();
+  EXPECT_EQ(o->idle_count, 1);
+
+  // And in the other order: a manual `expire` first means the subsequent
+  // sweep doesn't double-fire.
+  EXPECT_TRUE(o->idle.set_mode(mode::stopped));
+  o->idle.reset_expiration();
+  EXPECT_TRUE(o->idle.set_mode(mode::running));
+  o->now = T(200);
+  o->idle.expire();
+  EXPECT_EQ(o->idle_count, 2);
+
+  // The lingering sweeper entry from set_mode(mode::running) drops cleanly
+  // on its next fire without invoking the cancel action again.
+  o->now = T(300);
+  sw.tick(T(300));
+  EXPECT_EQ(o->idle_count, 2);
+  EXPECT_TRUE(sw.empty());
+}
+
+#pragma endregion
 
 MAKE_TEST_LIST(IdleTimeout_DefaultIsStopped,
     IdleTimeout_ActiveRequiresNonZeroConfigured, IdleTimeout_StoppedToActive,
     IdleTimeout_ActiveFiresOnIdle, IdleTimeout_RestartPushesDeadline,
     IdleTimeout_RestartFromStoppedIsRecoverable,
+    IdleTimeout_PostponeIsNoOpOutsideRunning,
     IdleTimeout_StoppedToPausedBootstrap, IdleTimeout_PausedClipsAndStays,
     IdleTimeout_PausedToActive, IdleTimeout_ActiveToStoppedDropsEntry,
     IdleTimeout_ConfigureSyncsActiveOnlyWhenActive,
-    IdleTimeout_OwnerDeathDropsCallback, IdleTimeout_NowFnInjection);
+    IdleTimeout_OwnerDeathDropsCallback, IdleTimeout_NowFnInjection,
+    IdleTimeout_ExpireIsIdempotent, IdleTimeout_SweepAndExpireFireOnce);
 
 // NOLINTEND(readability-function-cognitive-complexity)

@@ -35,11 +35,11 @@ public:
   using duration_t = std::chrono::steady_clock::duration;
   using now_fn_t = time_point_t (*)() noexcept;
 
-  // Sentinel value used to enter logical pause mode. One year shy of
+  // Sentinel value used to enter logical pause mode. One decade shy of
   // `time_point_t::max()`, leaving ample headroom against overflow when
   // arithmetic is done on it.
   static constexpr time_point_t paused_expiration =
-      time_point_t::max() - std::chrono::years{1};
+      time_point_t::max() - std::chrono::years{10};
 
   timeout_sweeper_base() noexcept : now_fn_{&std::chrono::steady_clock::now} {}
 

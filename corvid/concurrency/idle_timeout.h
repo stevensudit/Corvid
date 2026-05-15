@@ -29,7 +29,7 @@ namespace corvid { inline namespace concurrency {
 #pragma region idle_timeout
 
 // Idle-timeout helper bound to the class that contains it and to a
-// `timeout_sweeper` . Packages the idle timeout for a particular type of
+// `timeout_sweeper`. Packages the idle timeout for a particular type of
 // operation, such as reads or writes. Manages the configured/active duration,
 // current deadline, sweeper integration, and the three-state machine that
 // owners drive via `set_mode`.
@@ -41,9 +41,10 @@ namespace corvid { inline namespace concurrency {
 // `shared_from_this()` works. `idle_timeout` can therefore be a value member
 // of the owner and constructed in the owner's member-init list.
 //
-// Thread safety: all public methods are safe to call from any thread.
-// They operate on `relaxed_atomic` members and on
-// `timeout_sweeper::schedule`.
+// The `postpone` method is fully thread-safe. Past that, individual loads and
+// stores are atomic, but there is no serialization of concurrent mutators. To
+// put it another way, it is best to call these other methods from a single
+// thread.
 template<typename Owner, typename Sweeper = timeout_sweeper<>>
 class idle_timeout: public timeout_sweeper_base {
 #pragma region Types
@@ -65,6 +66,7 @@ public:
       cancel_action_t&& on_idle, duration_t configured = {}) noexcept
       : sweeper_{sweeper}, owner_{owner}, on_idle_{std::move(on_idle)},
         configured_{configured} {
+    on_idle_once_ = &on_idle_;
     assert(configured >= duration_t{});
     assert(on_idle_);
   }
@@ -84,17 +86,16 @@ public:
     return configured_;
   }
 
-  // Active timeout. Non-zero iff currently `mode::running` or `mode::paused`.
-  // When `mode::running`, the next deadline is always `now() +
-  // active_timeout()`. When `mode::paused`, the deadline is parked at the
-  // sentinel and the `active_timeout` is zero, so the effective deadline is
-  // instead updated to `now() + configured_timeout()`.
+  // Active timeout. Non-zero iff currently `mode::running`.
   [[nodiscard]] duration_t active_timeout() const noexcept { return active_; }
 
-  // Current deadline. When `mode::running`, the next sweeper entry is always
-  // scheduled for this time. When `mode::paused`, this is a sentinel value
-  // (`paused_expiration`) that signals the clipping behavior. When
-  // `mode::stopped`, this will be a value in the past.
+  // Current deadline. When `mode::running`, this time was set to `now() +
+  // active_timeout()` and used to schedule the next sweep. When
+  // `mode::paused`, this is at or past the sentinel value
+  // (`paused_expiration`) that signals the clipping behavior, so that the next
+  // sweep is scheduled for `now() + configured_timeout()` but will not
+  // trigger an expiration. When `mode::stopped`, this will be a value in the
+  // past.
   [[nodiscard]] time_point_t deadline() const noexcept { return deadline_; }
 
   // Current mode.
@@ -121,51 +122,88 @@ public:
   }
 
   // Postpone the expiration after progress. Safe to call in any mode.
-  void postpone() noexcept { deadline_ = now() + *active_; }
+  void postpone() noexcept {
+    const auto active_snapshot = *active_;
+    if (active_snapshot == duration_t{}) return;
+    deadline_ = now() + active_snapshot;
+  }
+
+  // Stop the timeout and cancel any pending entry. Idempotent. Safe to call in
+  // any mode. Leaves `configured_timeout` and `on_idle` intact so the timeout
+  // can be restarted later.
+  [[nodiscard]] bool stop() noexcept {
+    active_ = duration_t{};
+    deadline_ = time_point_t{};
+    return true;
+  }
+
+  // Start the timeout that was stopped or paused. If already running, all it
+  // does is postpone once. Fails if `configured_timeout` is zero or it can't
+  // schedule.
+  [[nodiscard]] bool start() noexcept {
+    const auto now_time = now();
+    const auto was_stopped = (*deadline_ <= now_time);
+    const auto configured_snapshot = *configured_;
+    if (configured_snapshot == duration_t{}) return false;
+    active_ = configured_snapshot;
+    const auto deadline_snapshot = now_time + configured_snapshot;
+    deadline_ = deadline_snapshot;
+    // Existing entry adapts on its next fire (`mode::paused` ->
+    // `mode::running` may see up to one `configured_timeout` of slop).
+    if (!was_stopped) return true;
+    return sweeper_.schedule(deadline_snapshot, build_sweeper_cb());
+  }
+
+  // Pause the timeout. If already paused, does nothing.
+  //
+  // In pause mode, the deadline is parked at the sentinel value, and the
+  // sweeper callback clips it back to `now() + configured_timeout()` on each
+  // fire without ever invoking the `on_idle` expiration callback. Also,
+  // `postpone` becomes a no-op.
+  //
+  // Fails if `configured_timeout` is zero or it can't schedule.
+  [[nodiscard]] bool pause() noexcept {
+    const auto now_time = now();
+    const auto was_stopped = (*deadline_ <= now_time);
+    const auto configured_snapshot = *configured_;
+    if (configured_snapshot == duration_t{}) return false;
+    auto succeeded = true;
+    if (was_stopped) {
+      // From `mode::stopped`: bootstrap. Schedule a near-future fire so the
+      // clipping cycle starts, then revert to the sentinel.
+      const auto deadline_snapshot = now_time + configured_snapshot;
+      deadline_ = deadline_snapshot;
+      succeeded = sweeper_.schedule(deadline_snapshot, build_sweeper_cb());
+    }
+    active_ = duration_t{};
+    deadline_ = paused_expiration;
+    return succeeded;
+  }
 
   // Change the mode to start, stop, or pause the timeout. Returns `false` if
   // `configured_timeout` is zero and `target` is not `mode::stopped`, or if
   // scheduling a fresh sweeper entry fails.
   [[nodiscard]] bool set_mode(mode target) {
-    if (*configured_ == duration_t{} && target != mode::stopped) return false;
-    const auto now_time = now();
-    const auto was_stopped = (*deadline_ <= now_time);
-
     switch (target) {
-    case mode::stopped: {
-      active_ = duration_t{};
-      deadline_ = time_point_t{};
-      return true;
-    }
-    case mode::paused: {
-      auto succeeded = true;
-      if (was_stopped) {
-        // From `mode::stopped`: bootstrap. Schedule a near-future fire so the
-        // clipping cycle starts, then revert to the sentinel.
-        deadline_ = now_time + *configured_;
-        succeeded = sweeper_.schedule(deadline_, build_sweeper_callback());
-      }
-      active_ = duration_t{};
-      deadline_ = paused_expiration;
-      return succeeded;
-    }
-    case mode::running: {
-      active_ = *configured_;
-      deadline_ = now_time + *active_;
-      if (!was_stopped) return true;
-      // Existing entry adapts on its next fire (`mode::paused` ->
-      // `mode::running` may see up to one `configured_timeout` of slop).
-      return sweeper_.schedule(deadline_, build_sweeper_callback());
-    }
+    case mode::stopped: return stop();
+    case mode::paused: return pause();
+    case mode::running: return start();
     default: return false;
     }
   }
 
-  // Expire now.
+  // Expire now. Idempotent.
   void expire() {
     active_ = duration_t{};
     deadline_ = time_point_t{};
-    on_idle_();
+    auto on_idle = on_idle_once_.exchange(nullptr);
+    if (on_idle) (*on_idle)();
+  }
+
+  // If expiration was not fatal, you must reset it. Idempotent.
+  void reset_expiration() noexcept {
+    cancel_action_t* expected = nullptr;
+    on_idle_once_.compare_exchange(expected, &on_idle_);
   }
 
 #pragma endregion
@@ -173,8 +211,8 @@ public:
 private:
   // Build the sweeper closure. Mints a fresh aliased `weak_ptr` each
   // call; the lambda captures it by value (16 bytes), fitting
-  // `callback_t`. Reaches `on_idle_` through the locked `self`.
-  [[nodiscard]] callback_t build_sweeper_callback() {
+  // `callback_t`. Reaches `expire` through the locked `self`.
+  [[nodiscard]] callback_t build_sweeper_cb() {
     auto self_sp =
         std::shared_ptr<idle_timeout>{owner_.shared_from_this(), this};
     return [weak = std::weak_ptr<idle_timeout>{std::move(self_sp)}](
@@ -182,7 +220,7 @@ private:
       auto self = weak.lock();
       if (!self) return {};
       const auto result = self->on_sweep(fired);
-      if (result.fire_idle && self->on_idle_) self->on_idle_();
+      if (result.fire_idle && self->on_idle_) self->expire();
       return result.next_deadline;
     };
   }
@@ -226,6 +264,7 @@ private:
   sweeper_t& sweeper_;
   owner_t& owner_;
   cancel_action_t on_idle_;
+  relaxed_atomic<cancel_action_t*> on_idle_once_;
   relaxed_atomic<duration_t> configured_;
   relaxed_atomic<duration_t> active_;
   relaxed_atomic<time_point_t> deadline_;

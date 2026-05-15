@@ -373,11 +373,11 @@ public:
   // full API for each direction.
   //
 
-  [[nodiscard]] auto read_idle(this auto& self) noexcept {
-    return self->read_idle_;
+  [[nodiscard]] auto& read_idle(this auto& self) noexcept {
+    return self.read_idle_;
   }
-  [[nodiscard]] auto write_idle(this auto& self) noexcept {
-    return self->write_idle_;
+  [[nodiscard]] auto& write_idle(this auto& self) noexcept {
+    return self.write_idle_;
   }
 
 #pragma endregion
@@ -486,6 +486,7 @@ public:
     auto conn = self();
     if (!recv_paused_.exchange(true))
       (void)loop_.execute_or_post([this, _ = conn] {
+        (void)read_idle_.pause();
         if (!recv_token_) return false;
         return loop_.submit_cancel(std::move(recv_token_));
       });
@@ -595,13 +596,13 @@ public:
   template<typename... PluginArgs>
   [[nodiscard]] static iou_stream_conn* connect(iou_loop& loop,
       const net_endpoint& remote, shot_type recv_shot = shot_type::multi,
-      idle_duration_t read_timeout = {}, idle_duration_t write_timeout = {},
-      PluginArgs&&... plugin_args) {
+      idle_duration_t read_idle_timeout = {},
+      idle_duration_t write_idle_timeout = {}, PluginArgs&&... plugin_args) {
     auto sock = net_socket::create_for(remote);
     if (!sock.is_open()) return nullptr;
     return do_make(loop, std::move(sock), &remote, connection_role::client,
-        block_size::kb004, block_size::kb004, recv_shot, read_timeout,
-        write_timeout, std::forward<PluginArgs>(plugin_args)...);
+        block_size::kb004, block_size::kb004, recv_shot, read_idle_timeout,
+        write_idle_timeout, std::forward<PluginArgs>(plugin_args)...);
   }
 
   // Create a listening socket bound to `local`. Each accepted connection
@@ -709,8 +710,8 @@ private:
 
   // Submit buffer for recv.
   [[nodiscard]] bool do_submit_recv() {
-    (void)read_idle_.set_mode(idle_mode::running);
     assert(loop().is_loop_thread());
+    (void)read_idle_.start();
     if (recv_active_shot_ == shot_type::single) return do_submit_single_recv();
     return do_submit_multi_recv();
   }
@@ -809,7 +810,7 @@ private:
   // `iou_loop::posted_fn` resume token on the stop path (notsock signal),
   // or an empty `posted_fn` on the normal re-arm path. Safe to call from any
   // thread.
-  [[nodiscard]] iou_recv_view::resume_fn make_resume() {
+  [[nodiscard]] iou_recv_view::resume_fn make_view_resume() {
     return [this, conn = self()](buffer&& buf) -> iou_loop::posted_fn {
       // Read side is shut: the recv chain has already ended. Nothing to
       // resubmit, no stop callback to mint.
@@ -861,7 +862,7 @@ private:
   [[nodiscard]] bool do_submit_send_buffer(buffer&& buf) {
     assert(loop().is_loop_thread() && !send_token_);
     if (!buf) return false;
-    (void)write_idle_.set_mode(idle_mode::running);
+    (void)write_idle_.start();
 
     auto fn = [this, _ = self()](completion_id cbhandle, buffer& buf)
         -> slot_retention {
@@ -885,8 +886,6 @@ private:
   // state. On failure, fires `on_close`.
   [[nodiscard]] bool do_submit_connect() {
     assert(loop().is_loop_thread() && connecting_ && !connect_token_);
-
-    (void)read_idle_.set_mode(idle_mode::running);
     const auto& remote = remote_endpoint();
     bound_endpoint_with_timeout ep;
     ep.when.ts = iou_timespec{10s};
@@ -1097,7 +1096,7 @@ private:
     if (res.value() == 0) {
       read_shut_ = true;
       if (write_shut_) return do_close_now();
-      iou_recv_view view{std::move(buf), make_resume()};
+      iou_recv_view view{std::move(buf), make_view_resume()};
       return plugin_.on_data(std::move(view));
     }
 
@@ -1113,7 +1112,7 @@ private:
     if (close_requested_ || read_shut_) return true;
 
     // Process buffer and count on view destructor to continue receiving.
-    iou_recv_view view{std::move(buf), make_resume()};
+    iou_recv_view view{std::move(buf), make_view_resume()};
     return plugin_.on_data(std::move(view));
   }
 
@@ -1131,7 +1130,7 @@ private:
   // Notify `on_drain`.
   [[nodiscard]] bool notify_drained() {
     assert(loop().is_loop_thread());
-    (void)write_idle_.set_mode(idle_mode::paused);
+    (void)write_idle_.pause();
     return plugin_.on_drain();
   }
 

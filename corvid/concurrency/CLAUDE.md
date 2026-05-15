@@ -29,10 +29,14 @@ The `concurrency` module provides thread-safety primitives.
   `tick_interval >= 500000ns`; throws `std::invalid_argument` otherwise.
 - `idle_timeout` -- per-direction idle-timeout helper bound to a
   `timeout_sweeper`. Templated on `Owner` (must inherit from
-  `std::enable_shared_from_this`) and `Sweeper`. Internally aliases the
-  owner's `shared_ptr` so the sweeper callback keeps the owner alive on
-  every fire. Public API: `configure`, `restart_deadline`, `set_state`
-  (Stopped / Paused / Active), `get_state`, plus read-only accessors.
+  `std::enable_shared_from_this`) and `Sweeper`. The sweeper callback
+  captures a `weak_ptr` aliased to the owner, so the owner can be
+  destroyed freely; the next sweep then drops the entry. The cancel
+  action runs through a one-shot atomic slot, so the sweeper-driven fire
+  and a manual `expire` cannot both invoke it; `reset_expiration` rearms
+  the slot. Public API: `configure`, `postpone`, `set_mode` (`stopped` /
+  `paused` / `running`), `get_mode`, `expire`, `reset_expiration`, plus
+  read-only accessors.
 - `jthread_stoppable_sleep` -- interruptible deadline sleep for `std::jthread`;
   workaround for the missing stop-token overload of
   `std::condition_variable_any::wait_until` in libc++.
