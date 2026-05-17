@@ -274,7 +274,7 @@ public:
   // failure). Safe from any thread.
   [[nodiscard]] completion_token
   submit_session_send(buffer&& buf, const session_ptr& ssn) {
-    if (!open_ && !ssn) return {};
+    if (!open_ || !ssn) return {};
     return loop_.submit_sendmsg_buffer(sock_, std::move(buf),
         [ssn](completion_id, buffer& b) -> slot_retention {
           (void)ssn->on_sent(std::move(b));
