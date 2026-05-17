@@ -26,6 +26,23 @@ else()
     endif()
 endif()
 
+# Default libc++ prefix is the system clang-22 install. SANITIZER=msan
+# overrides this to the locally-built MSAN-instrumented libc++ so that the
+# C++ stdlib code MSAN's instrumentation observes is itself instrumented.
+set(LIBCXX_PREFIX "/usr/lib/llvm-22")
+if(SANITIZER STREQUAL "msan")
+    if(USE_LIBSTDCPP)
+        message(FATAL_ERROR "SANITIZER=msan requires libc++ (USE_LIBSTDCPP=OFF)")
+    endif()
+    set(LIBCXX_PREFIX "${CMAKE_SOURCE_DIR}/.local/llvm-msan")
+    if(NOT EXISTS "${LIBCXX_PREFIX}/lib/libc++.a")
+        message(FATAL_ERROR
+            "MSAN libc++ not found at ${LIBCXX_PREFIX}/lib/libc++.a. "
+            "Run scripts/build_msan_libcxx.sh first (one-time, ~10 min).")
+    endif()
+    message(STATUS "Using MSAN libc++ at ${LIBCXX_PREFIX}")
+endif()
+
 if(USE_LIBSTDCPP)
     # Rely on whichever clang is available and the default libstdc++ install.
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -std=c++23")
@@ -33,9 +50,13 @@ else()
     # Use Clang 22 and avoid pulling in GCC.
     set(CMAKE_CXX_COMPILER "/usr/bin/clang++-22")
     set(CMAKE_CXX_COMPILER_TARGET "x86_64-pc-linux-gnu")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -nostdinc++ -isystem /usr/lib/llvm-22/include/c++/v1 -std=c++23")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -Wall -Wextra -Werror -nostdinc++ -isystem ${LIBCXX_PREFIX}/include/c++/v1 -std=c++23")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ --rtlib=compiler-rt -fuse-ld=lld")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L/usr/lib/llvm-22/lib -lc++ -lc++abi")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L${LIBCXX_PREFIX}/lib -lc++ -lc++abi")
+    # Embed an rpath so binaries find libc++/libunwind .so files at the chosen
+    # prefix without requiring LD_LIBRARY_PATH. Harmless for the system path,
+    # essential for SANITIZER=msan where LIBCXX_PREFIX is outside ld.so config.
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath,${LIBCXX_PREFIX}/lib")
 endif()
 
 # Use ccache as a compiler launcher when available so that cleanbuild's
@@ -45,6 +66,46 @@ find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
     message(STATUS "ccache enabled: ${CCACHE_PROGRAM}")
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+endif()
+
+# Optional sanitizer mode. Selected via -DSANITIZER=asan|tsan|ubsan (or via
+# `./cleanbuild.sh asan` etc.). Sanitizers need the same -fsanitize flags on
+# both compile and link lines, plus -fno-omit-frame-pointer for usable stack
+# traces and -g so the traces resolve to source locations. The flags propagate
+# into the FetchContent Catch2 build so its objects match.
+set(SANITIZER "" CACHE STRING
+    "Enable sanitizer mode: asan, tsan, ubsan, or msan")
+set(_extra_san_flags "")
+if(SANITIZER)
+    if(SANITIZER STREQUAL "asan")
+        # ASAN + UBSAN: compatible and complementary; this is the common combo.
+        set(_san "address,undefined")
+    elseif(SANITIZER STREQUAL "tsan")
+        # TSAN is incompatible with ASAN; runs in its own build.
+        set(_san "thread")
+    elseif(SANITIZER STREQUAL "ubsan")
+        set(_san "undefined")
+    elseif(SANITIZER STREQUAL "msan")
+        # MSAN needs the MSAN-instrumented libc++ already wired in above.
+        # NOTE: origin tracking (-fsanitize-memory-track-origins) was tried
+        # but caused stack overflows in heavily templated tests under our
+        # compile flags. Plain MSAN still reports uninitialized reads; the
+        # origin pinpoint is the loss.
+        set(_san "memory")
+    else()
+        message(FATAL_ERROR
+            "Unknown SANITIZER=${SANITIZER} (expected asan|tsan|ubsan|msan)")
+    endif()
+    message(STATUS "Sanitizer enabled: ${SANITIZER} (-fsanitize=${_san})")
+    set(_san_flags "-fsanitize=${_san} ${_extra_san_flags} -fno-omit-frame-pointer -g")
+    # MSAN doesn't play nicely with -march=native: AVX intrinsics can read
+    # past initialized data in ways MSAN can't model, producing crashes
+    # rather than diagnostic reports. Strip it for MSAN runs.
+    if(SANITIZER STREQUAL "msan")
+        string(REGEX REPLACE "-march=native" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    endif()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_san_flags}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${_san_flags}")
 endif()
 
 # External dependencies: requires apt install liburing-dev pkg-config
@@ -114,6 +175,14 @@ endif()
 foreach(SOURCE_FILE ${SOURCES})
     # Get the base name (e.g., test1 from test1.cpp)
     get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
+
+    # Phase 1 of MSAN support: skip iou_* tests. io_uring completions involve
+    # kernel writes to user buffers, which MSAN can't observe, so those tests
+    # would flood with false positives. Phase 2 will annotate the io_uring
+    # plumbing with __msan_unpoison_* and re-enable them here.
+    if(SANITIZER STREQUAL "msan" AND "${EXECUTABLE_NAME}" MATCHES "^iou_")
+        continue()
+    endif()
 
     add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
 

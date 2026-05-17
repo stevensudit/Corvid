@@ -26,9 +26,20 @@ CMakeLists.txt lives in `tests/` only; there is none at the project root. Build 
 ./cleanbuild.sh                  # clean build + run all tests (libc++)
 ./cleanbuild.sh libstdcpp        # use libstdc++
 ./cleanbuild.sh tidy             # also run clang-tidy
+./cleanbuild.sh asan             # build + run with ASAN + UBSAN
+./cleanbuild.sh tsan             # build + run with TSAN
+./cleanbuild.sh ubsan            # build + run with UBSAN only
+./cleanbuild.sh msan             # build + run with MSAN (needs one-time setup)
 ./cleanbuild.sh strings_test.cpp # build + run only that target
 ./format_all.sh                  # format all sources (run before commit)
 ```
+
+Sanitizer modes accept the same `[testname.cpp]` and `libstdcpp|libcxx` arguments as the plain build. `asan`/`tsan`/`msan` are mutually exclusive (each instruments a conflicting runtime); run them separately. Sanitizer sweeps continue past test failures so all issues surface in one run; plain runs still bail on the first failure.
+
+MSAN extras:
+- One-time setup: run `scripts/build_msan_libcxx.sh` to build an MSAN-instrumented libc++/libc++abi/libunwind into `tests/.local/llvm-msan/` (~10 minutes, since `libc++` writes through pointers MSAN observes and an uninstrumented stdlib would flood with false positives).
+- `iou_*` tests are excluded from the MSAN build (kernel writes to user buffers via io_uring aren't visible to MSAN). Adding `__msan_unpoison_*` to the io_uring buffer plumbing is pending phase-2 work.
+- A subset of heavy-template tests currently segfaults silently under MSAN (no diagnostic output) - also phase-2 work.
 
 ## Code Style
 
