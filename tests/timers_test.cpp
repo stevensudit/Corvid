@@ -23,7 +23,7 @@ operator<<(std::ostream& os, const corvid::concurrency::time_point_t& when) {
   return os;
 }
 
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace std::literals;
 using namespace std::chrono;
@@ -44,7 +44,7 @@ static time_point_t make_time(int ms) {
 
 #pragma region OneShot
 
-void TimersTest_OneShot() {
+TEST_CASE("TimersTest_OneShot", "[TimersTest]") {
   auto now = make_time(100);
   auto t = timers::make("test");
   t->set_clock_callback([&]() { return now; });
@@ -55,34 +55,34 @@ void TimersTest_OneShot() {
     fired.push_back(i.scheduled_time);
     return {};
   });
-  EXPECT_FALSE(ev->canceled);
+  CHECK_FALSE((ev->canceled));
 
   // Way too soon.
   size_t c{};
   c = t->tick();
-  EXPECT_EQ(c, 0U);
-  EXPECT_EQ(fired.size(), 0U);
+  CHECK((c) == (0U));
+  CHECK((fired.size()) == (0U));
 
   // Slightly too soon.
   now += 49ms;
   c = t->tick();
-  EXPECT_EQ(c, 0U);
-  EXPECT_EQ(fired.size(), 0U);
+  CHECK((c) == (0U));
+  CHECK((fired.size()) == (0U));
 
   // Right now.
   now += 1ms;
   c = t->tick();
-  EXPECT_EQ(c, 1U);
-  EXPECT_EQ(fired.size(), 1U);
-  EXPECT_EQ(fired[0], now);
+  CHECK((c) == (1U));
+  CHECK((fired.size()) == (1U));
+  CHECK((fired[0]) == (now));
 
   // No more events.
   now += 50ms;
   c = t->tick();
-  EXPECT_EQ(c, 0U);
-  EXPECT_EQ(fired.size(), 1U);
+  CHECK((c) == (0U));
+  CHECK((fired.size()) == (1U));
 
-  EXPECT_TRUE(ev->canceled);
+  CHECK((ev->canceled));
 
   // Reschedule self.
   size_t cnt{};
@@ -91,28 +91,28 @@ void TimersTest_OneShot() {
     return {};
   });
 
-  EXPECT_FALSE(ev->canceled);
+  CHECK_FALSE((ev->canceled));
   c = t->tick();
-  EXPECT_EQ(c, 0U);
-  EXPECT_EQ(cnt, 0U);
+  CHECK((c) == (0U));
+  CHECK((cnt) == (0U));
 
   now += 50ms;
   c = t->tick();
-  EXPECT_EQ(c, 1U);
-  EXPECT_EQ(cnt, 1U);
-  EXPECT_FALSE(ev->canceled);
+  CHECK((c) == (1U));
+  CHECK((cnt) == (1U));
+  CHECK_FALSE((ev->canceled));
 
   now += 50ms;
   c = t->tick();
-  EXPECT_EQ(c, 1U);
-  EXPECT_EQ(cnt, 2U);
-  EXPECT_TRUE(ev->canceled);
+  CHECK((c) == (1U));
+  CHECK((cnt) == (2U));
+  CHECK((ev->canceled));
 }
 
 #pragma endregion
 #pragma region Repeating
 
-void TimersTest_Repeating() {
+TEST_CASE("TimersTest_Repeating", "[TimersTest]") {
   auto now = make_time(100);
   auto t = timers::make("test");
   t->set_clock_callback([&]() { return now; });
@@ -129,27 +129,27 @@ void TimersTest_Repeating() {
 
   now += 10ms;
   t->tick();
-  EXPECT_EQ(calls, 1U);
+  CHECK((calls) == (1U));
 
   now += 15ms;
   t->tick();
-  EXPECT_EQ(calls, 2U);
+  CHECK((calls) == (2U));
 
   now += 15ms;
   t->tick();
-  EXPECT_EQ(calls, 3U);
+  CHECK((calls) == (3U));
 
   // Cancel by setting tombstone.
   (void)ev->canceled.kill();
   now += 15ms;
   t->tick();
-  EXPECT_EQ(calls, 3U); // cancelled
+  CHECK((calls) == (3U)); // cancelled
 }
 
 #pragma endregion
 #pragma region Cancel
 
-void TimersTest_Cancel() {
+TEST_CASE("TimersTest_Cancel", "[TimersTest]") {
   auto now = make_time(100);
   auto t = timers::make("test");
   t->set_clock_callback([&]() { return now; });
@@ -161,19 +161,19 @@ void TimersTest_Cancel() {
   });
 
   // Cancel before it fires.
-  EXPECT_FALSE(ev->canceled);
+  CHECK_FALSE((ev->canceled));
   (void)ev->canceled.kill();
-  EXPECT_TRUE(ev->canceled);
+  CHECK((ev->canceled));
 
   now += 25ms;
   t->tick();
-  EXPECT_FALSE(called);
+  CHECK_FALSE((called));
 }
 
 #pragma endregion
 #pragma region Reschedule
 
-void TimersTest_Reschedule() {
+TEST_CASE("TimersTest_Reschedule", "[TimersTest]") {
   auto now = make_time(100);
   auto t = timers::make("test");
   t->set_clock_callback([&]() { return now; });
@@ -191,23 +191,23 @@ void TimersTest_Reschedule() {
 
   now += 10ms;
   t->tick();
-  EXPECT_EQ(calls, 1U);
-  EXPECT_FALSE(ev->canceled);
+  CHECK((calls) == (1U));
+  CHECK_FALSE((ev->canceled));
 
   now += 10ms;
   t->tick();
-  EXPECT_EQ(calls, 1U); // not yet
+  CHECK((calls) == (1U)); // not yet
 
   now += 10ms;
   t->tick();
-  EXPECT_EQ(calls, 2U);
-  EXPECT_TRUE(ev->canceled);
+  CHECK((calls) == (2U));
+  CHECK((ev->canceled));
 }
 
 #pragma endregion
 #pragma region General
 
-void TimersTest_General() {
+TEST_CASE("TimersTest_General", "[TimersTest]") {
   auto now = make_date(2024y / 1 / 1);
   auto t = timers::make("test");
   t->set_clock_callback([&now]() { return now; });
@@ -218,42 +218,42 @@ void TimersTest_General() {
     fired_events.push_back(i.event);
     return {};
   });
-  EXPECT_EQ(ev1->start_at, now + 30s);
+  CHECK((ev1->start_at) == (now + 30s));
 
   auto ev2 = t->set(60s, [&](const timer_invocation& i) -> time_point_t {
     fired_events.push_back(i.event);
     return {};
   });
-  EXPECT_EQ(ev2->start_at, now + 60s);
+  CHECK((ev2->start_at) == (now + 60s));
 
   size_t count = 0;
   count = t->tick();
-  EXPECT_EQ(count, 0U);
+  CHECK((count) == (0U));
 
   now += 29s;
   count = t->tick();
-  EXPECT_EQ(count, 0U);
+  CHECK((count) == (0U));
 
   now += 1s;
   count = t->tick();
-  EXPECT_EQ(count, 1U);
-  EXPECT_EQ(fired_events.size(), 1U);
-  EXPECT_EQ(fired_events[0], ev1);
-  EXPECT_TRUE(ev1->canceled);
-  EXPECT_FALSE(ev2->canceled);
+  CHECK((count) == (1U));
+  CHECK((fired_events.size()) == (1U));
+  CHECK((fired_events[0]) == (ev1));
+  CHECK((ev1->canceled));
+  CHECK_FALSE((ev2->canceled));
 
   now += 30s;
   count = t->tick();
-  EXPECT_EQ(count, 1U);
-  EXPECT_EQ(fired_events.size(), 2U);
-  EXPECT_EQ(fired_events[1], ev2);
-  EXPECT_TRUE(ev2->canceled);
+  CHECK((count) == (1U));
+  CHECK((fired_events.size()) == (2U));
+  CHECK((fired_events[1]) == (ev2));
+  CHECK((ev2->canceled));
 }
 
 #pragma endregion
 #pragma region Edge
 
-void TimersTest_Edge() {
+TEST_CASE("TimersTest_Edge", "[TimersTest]") {
   auto now = make_date(2024y / 1 / 1);
   auto t = timers::make("test");
   t->set_clock_callback([&now]() { return now; });
@@ -272,29 +272,26 @@ void TimersTest_Edge() {
 
   now += 29s;
   count = t->tick();
-  EXPECT_EQ(count, 0U);
+  CHECK((count) == (0U));
 
   now += 1s;
   count = t->tick();
-  EXPECT_EQ(count, 1U); // Fires at 30s.
-  EXPECT_EQ(calls, 1U);
+  CHECK((count) == (1U)); // Fires at 30s.
+  CHECK((calls) == (1U));
 
   now += 59s;
   count = t->tick();
-  EXPECT_EQ(count, 0U);
+  CHECK((count) == (0U));
 
   now += 1s;
   count = t->tick();
-  EXPECT_EQ(count, 1U); // Fires at 90s (30s + 60s).
-  EXPECT_EQ(calls, 2U);
+  CHECK((count) == (1U)); // Fires at 90s (30s + 60s).
+  CHECK((calls) == (2U));
 
   // Cancel to clean up.
   (void)ev->canceled.kill();
 }
 
 #pragma endregion
-
-MAKE_TEST_LIST(TimersTest_OneShot, TimersTest_Repeating, TimersTest_Cancel,
-    TimersTest_Reschedule, TimersTest_General, TimersTest_Edge);
 
 // NOLINTEND(readability-function-cognitive-complexity)

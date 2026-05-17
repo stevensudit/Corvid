@@ -81,10 +81,6 @@ if(NOT _have_catch2)
     FetchContent_MakeAvailable(Catch2)
 endif()
 
-# Test source files that use Catch2 instead of minitest. As more files migrate,
-# add them here.
-set(CATCH2_TESTS find_opt_test.cpp)
-
 if(USE_CLANG_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy clang-tidy-22)
     if(CLANG_TIDY_EXE)
@@ -117,13 +113,13 @@ endif()
 # Loop through each source file and create a separate executable
 foreach(SOURCE_FILE ${SOURCES})
     # Get the base name (e.g., test1 from test1.cpp)
-    get_filename_component(SOURCE_BASENAME ${SOURCE_FILE} NAME)
     get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
 
     add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
 
-    list(FIND CATCH2_TESTS "${SOURCE_BASENAME}" _is_catch_test)
-    if(NOT _is_catch_test EQUAL -1)
+    # Every test file uses Catch2 except `notest_*` programs (long-lived
+    # servers/demos that opt out via filename convention).
+    if(NOT ${EXECUTABLE_NAME} MATCHES "^notest_")
         target_link_libraries(${EXECUTABLE_NAME} PRIVATE Catch2::Catch2)
     endif()
 

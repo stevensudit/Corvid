@@ -18,7 +18,7 @@
 #include <algorithm>
 
 #include "../corvid/containers.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace std::literals;
 using namespace corvid;
@@ -29,122 +29,122 @@ using namespace corvid::sequence;
 
 #pragma region Ctors
 
-void Intervals_Ctors() {
+TEST_CASE("Intervals_Ctors", "[Intervals]") {
   if (true) {
     interval i;
-    EXPECT_TRUE(i.empty());
-    EXPECT_FALSE(i.invalid());
+    CHECK((i.empty()));
+    CHECK_FALSE((i.invalid()));
   }
   if (true) {
     interval i{42};
-    EXPECT_FALSE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1U);
-    EXPECT_EQ(i.front(), 42);
-    EXPECT_EQ(i.back(), 42);
+    CHECK_FALSE((i.empty()));
+    CHECK_FALSE((i.invalid()));
+    CHECK((i.size()) == (1U));
+    CHECK((i.front()) == (42));
+    CHECK((i.back()) == (42));
   }
   if (true) {
     interval i{40, 42};
-    EXPECT_FALSE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 3U);
-    EXPECT_EQ(i.front(), 40);
-    EXPECT_EQ(i.back(), 42);
+    CHECK_FALSE((i.empty()));
+    CHECK_FALSE((i.invalid()));
+    CHECK((i.size()) == (3U));
+    CHECK((i.front()) == (40));
+    CHECK((i.back()) == (42));
   }
   if (true) {
     // Next line asserts.
     // * interval i{42, 40};
     interval i{40};
     i.min(42);
-    EXPECT_TRUE(i.empty());
-    EXPECT_TRUE(i.invalid());
+    CHECK((i.empty()));
+    CHECK((i.invalid()));
   }
 }
 #pragma endregion
 
 #pragma region Insert
 
-void IntervalTest_Insert() {
+TEST_CASE("IntervalTest_Insert", "[IntervalTest]") {
   if (true) {
     interval i;
-    EXPECT_TRUE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_TRUE(i.insert(0));
-    EXPECT_FALSE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1U);
-    EXPECT_EQ(i.front(), 0);
-    EXPECT_EQ(i.back(), 0);
+    CHECK((i.empty()));
+    CHECK_FALSE((i.invalid()));
+    CHECK((i.insert(0)));
+    CHECK_FALSE((i.empty()));
+    CHECK_FALSE((i.invalid()));
+    CHECK((i.size()) == (1U));
+    CHECK((i.front()) == (0));
+    CHECK((i.back()) == (0));
 
-    EXPECT_TRUE(i.insert(5));
-    EXPECT_FALSE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 6U);
-    EXPECT_EQ(i.front(), 0);
-    EXPECT_EQ(i.back(), 5);
+    CHECK((i.insert(5)));
+    CHECK_FALSE((i.empty()));
+    CHECK_FALSE((i.invalid()));
+    CHECK((i.size()) == (6U));
+    CHECK((i.front()) == (0));
+    CHECK((i.back()) == (5));
 
-    EXPECT_TRUE(i.insert(-5));
-    EXPECT_FALSE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 11U);
-    EXPECT_EQ(i.front(), -5);
-    EXPECT_EQ(i.back(), 5);
+    CHECK((i.insert(-5)));
+    CHECK_FALSE((i.empty()));
+    CHECK_FALSE((i.invalid()));
+    CHECK((i.size()) == (11U));
+    CHECK((i.front()) == (-5));
+    CHECK((i.back()) == (5));
 
-    EXPECT_FALSE(i.insert(-5));
-    EXPECT_FALSE(i.insert(0));
-    EXPECT_FALSE(i.insert(5));
+    CHECK_FALSE((i.insert(-5)));
+    CHECK_FALSE((i.insert(0)));
+    CHECK_FALSE((i.insert(5)));
   }
   if (true) {
     interval i{5};
-    EXPECT_FALSE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1U);
+    CHECK_FALSE((i.empty()));
+    CHECK_FALSE((i.invalid()));
+    CHECK((i.size()) == (1U));
 
-    EXPECT_FALSE(i.push_back(0));
-    EXPECT_FALSE(i.push_back(5));
-    EXPECT_TRUE(i.push_back(6));
-    EXPECT_TRUE(i.push_back(7));
-    EXPECT_FALSE(i.push_back(6));
-    EXPECT_EQ(i.size(), 3U);
-    EXPECT_EQ(i.front(), 5);
-    EXPECT_EQ(i.back(), 7);
+    CHECK_FALSE((i.push_back(0)));
+    CHECK_FALSE((i.push_back(5)));
+    CHECK((i.push_back(6)));
+    CHECK((i.push_back(7)));
+    CHECK_FALSE((i.push_back(6)));
+    CHECK((i.size()) == (3U));
+    CHECK((i.front()) == (5));
+    CHECK((i.back()) == (7));
 
     i.pop_back();
-    EXPECT_EQ(i.size(), 2U);
-    EXPECT_EQ(i.front(), 5);
-    EXPECT_EQ(i.back(), 6);
+    CHECK((i.size()) == (2U));
+    CHECK((i.front()) == (5));
+    CHECK((i.back()) == (6));
     i.pop_back(2);
-    EXPECT_TRUE(i.empty());
+    CHECK((i.empty()));
   }
   if (true) {
     interval i{5};
-    EXPECT_FALSE(i.empty());
-    EXPECT_FALSE(i.invalid());
-    EXPECT_EQ(i.size(), 1U);
+    CHECK_FALSE((i.empty()));
+    CHECK_FALSE((i.invalid()));
+    CHECK((i.size()) == (1U));
 
-    EXPECT_FALSE(i.push_front(7));
-    EXPECT_FALSE(i.push_front(6));
-    EXPECT_FALSE(i.push_front(5));
-    EXPECT_TRUE(i.push_front(4));
-    EXPECT_TRUE(i.push_front(3));
-    EXPECT_FALSE(i.push_front(6));
-    EXPECT_EQ(i.size(), 3U);
-    EXPECT_EQ(i.front(), 3);
-    EXPECT_EQ(i.back(), 5);
+    CHECK_FALSE((i.push_front(7)));
+    CHECK_FALSE((i.push_front(6)));
+    CHECK_FALSE((i.push_front(5)));
+    CHECK((i.push_front(4)));
+    CHECK((i.push_front(3)));
+    CHECK_FALSE((i.push_front(6)));
+    CHECK((i.size()) == (3U));
+    CHECK((i.front()) == (3));
+    CHECK((i.back()) == (5));
 
     i.pop_front();
-    EXPECT_EQ(i.size(), 2U);
-    EXPECT_EQ(i.front(), 4);
-    EXPECT_EQ(i.back(), 5);
+    CHECK((i.size()) == (2U));
+    CHECK((i.front()) == (4));
+    CHECK((i.back()) == (5));
     i.pop_front(2);
-    EXPECT_TRUE(i.empty());
+    CHECK((i.empty()));
   }
 }
 #pragma endregion
 
 #pragma region ForEach
 
-void IntervalTest_ForEach() {
+TEST_CASE("IntervalTest_ForEach", "[IntervalTest]") {
   auto i = interval{1, 4};
 
   int64_t c{};
@@ -154,14 +154,14 @@ void IntervalTest_ForEach() {
     s += e;
   }
 
-  EXPECT_EQ(c, 4);
-  EXPECT_EQ(s, 1 + 2 + 3 + 4);
+  CHECK((c) == (4));
+  CHECK((s) == (1 + 2 + 3 + 4));
 }
 #pragma endregion
 
 #pragma region Reverse
 
-void IntervalTest_Reverse() {
+TEST_CASE("IntervalTest_Reverse", "[IntervalTest]") {
   if (true) {
     auto i = interval{1, 4};
 
@@ -176,9 +176,9 @@ void IntervalTest_Reverse() {
       l = e;
     });
 
-    EXPECT_EQ(c, 4);
-    EXPECT_EQ(s, 1 + 2 + 3 + 4);
-    EXPECT_EQ(l, 4);
+    CHECK((c) == (4));
+    CHECK((s) == (1 + 2 + 3 + 4));
+    CHECK((l) == (4));
   }
   if (true) {
     auto i = interval{1, 4};
@@ -194,9 +194,9 @@ void IntervalTest_Reverse() {
       l = e;
     });
 
-    EXPECT_EQ(c, 4);
-    EXPECT_EQ(s, 1 + 2 + 3 + 4);
-    EXPECT_EQ(l, 1);
+    CHECK((c) == (4));
+    CHECK((s) == (1 + 2 + 3 + 4));
+    CHECK((l) == (1));
   }
   if (true) {
     auto i = interval{1, 4};
@@ -212,77 +212,73 @@ void IntervalTest_Reverse() {
       l = e;
     });
 
-    EXPECT_EQ(c, 4);
-    EXPECT_EQ(s, 1 + 2 + 3 + 4);
-    EXPECT_EQ(l, 1);
+    CHECK((c) == (4));
+    CHECK((s) == (1 + 2 + 3 + 4));
+    CHECK((l) == (1));
   }
 }
 #pragma endregion
 
 #pragma region MinMax
 
-void IntervalTest_MinMax() {
+TEST_CASE("IntervalTest_MinMax", "[IntervalTest]") {
   auto i = interval{1, 4};
 
-  EXPECT_EQ(i.min(), 1);
-  EXPECT_EQ(i.max(), 4);
+  CHECK((i.min()) == (1));
+  CHECK((i.max()) == (4));
   i.min(42);
-  EXPECT_EQ(i.min(), 42);
-  EXPECT_TRUE(i.invalid());
+  CHECK((i.min()) == (42));
+  CHECK((i.invalid()));
   i.max(64);
-  EXPECT_EQ(i.max(), 64);
-  EXPECT_FALSE(i.invalid());
+  CHECK((i.max()) == (64));
+  CHECK_FALSE((i.invalid()));
 }
 #pragma endregion
 
 #pragma region CompareAndSwap
 
-void IntervalTest_CompareAndSwap() {
+TEST_CASE("IntervalTest_CompareAndSwap", "[IntervalTest]") {
   auto i = interval{1, 4};
   auto j = interval{2, 3};
-  EXPECT_TRUE(i == i);
-  EXPECT_TRUE(j == j);
-  EXPECT_TRUE(i != j);
-  EXPECT_EQ(i.back(), 4);
+  CHECK((i == i));
+  CHECK((j == j));
+  CHECK((i != j));
+  CHECK((i.back()) == (4));
   using std::swap;
   swap(i, j);
-  EXPECT_EQ(j.back(), 4);
+  CHECK((j.back()) == (4));
   i.swap(j);
-  EXPECT_EQ(i.back(), 4);
+  CHECK((i.back()) == (4));
 }
 #pragma endregion
 
 #pragma region Append
 
-void IntervalTest_Append() {
+TEST_CASE("IntervalTest_Append", "[IntervalTest]") {
   if (true) {
     auto i = interval{1, 4};
     using I = decltype(i);
-    EXPECT_FALSE(is_pair_v<decltype(i)>);
-    EXPECT_TRUE(is_pair_convertible_v<decltype(i)>);
+    CHECK_FALSE((is_pair_v<decltype(i)>));
+    CHECK((is_pair_convertible_v<decltype(i)>));
 
     auto s = ""s;
     I::append_fn(s, i);
-    EXPECT_EQ(s, "1, 4");
+    CHECK((s) == ("1, 4"));
     s = strings::concat(i);
-    EXPECT_EQ(s, "1, 4");
+    CHECK((s) == ("1, 4"));
 
     s = strings::join<strings::join_opt::json>(i);
-    EXPECT_EQ(s, "[1, 4]");
+    CHECK((s) == ("[1, 4]"));
 
     i.clear();
     s = strings::join<strings::join_opt::json>(i);
-    EXPECT_EQ(s, "[]");
+    CHECK((s) == ("[]"));
 
     // Note: make_interval is tested in bitmask_enum_test.cpp and
     // sequence_enum_test.cpp.
   }
 }
 #pragma endregion
-
-MAKE_TEST_LIST(Intervals_Ctors, IntervalTest_Insert, IntervalTest_ForEach,
-    IntervalTest_Reverse, IntervalTest_MinMax, IntervalTest_CompareAndSwap,
-    IntervalTest_Append);
 
 // NOLINTEND(readability-function-size)
 // NOLINTEND(readability-function-cognitive-complexity)

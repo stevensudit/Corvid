@@ -22,7 +22,7 @@
 #include "../corvid/meta.h"
 #include "../corvid/enums/sequence_enum.h"
 #include "../corvid/containers.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace corvid;
 using namespace corvid::enums;
@@ -42,20 +42,22 @@ enum class new_enum : std::uint8_t { new_zero, new_one, new_two, new_three };
 
 #pragma region Registry
 
-void SequentialEnumTest_Registry() {
-  if (true) { EXPECT_EQ((strings::enum_as_string(tiger_pick::eeny)), "eeny"); }
+TEST_CASE("SequentialEnumTest_Registry", "[SequentialEnumTest]") {
+  if (true) {
+    CHECK(((strings::enum_as_string(tiger_pick::eeny))) == ("eeny"));
+  }
 }
 
 #pragma endregion
 #pragma region Ops
 
-void SequentialEnumTest_Ops() {
+TEST_CASE("SequentialEnumTest_Ops", "[SequentialEnumTest]") {
   if (true) {
-    EXPECT_TRUE(!tiger_pick{});
+    CHECK((!tiger_pick{}));
 
     auto e = tiger_pick::eeny;
     auto i = *e;
-    EXPECT_EQ(i, 0);
+    CHECK((i) == (0));
 
     // The next line correctly fails because std::byte isn't a registered enum.
     // auto bad = make<std::byte>(23);
@@ -64,47 +66,47 @@ void SequentialEnumTest_Ops() {
     // * auto worse = make<int>(23);
 
     e = e + 1;
-    EXPECT_EQ(e, tiger_pick::meany);
+    CHECK((e) == (tiger_pick::meany));
 
     // Commutative.
     e = 0 + e;
 
     e += 1;
-    EXPECT_EQ(e, tiger_pick::miny);
+    CHECK((e) == (tiger_pick::miny));
     e = tiger_pick::eeny;
-    EXPECT_EQ(++e, tiger_pick::meany);
-    EXPECT_EQ(e, tiger_pick::meany);
-    EXPECT_EQ(e++, tiger_pick::meany);
-    EXPECT_EQ(e, tiger_pick::miny);
+    CHECK((++e) == (tiger_pick::meany));
+    CHECK((e) == (tiger_pick::meany));
+    CHECK((e++) == (tiger_pick::meany));
+    CHECK((e) == (tiger_pick::miny));
 
     e = tiger_pick::moe;
     e = e - 1;
-    EXPECT_EQ(e, tiger_pick::miny);
+    CHECK((e) == (tiger_pick::miny));
 
     // Does not compile because subtraction is not commutative.
     // * auto bad = 1 - e;
 
     e -= 1;
-    EXPECT_EQ(e, tiger_pick::meany);
+    CHECK((e) == (tiger_pick::meany));
     e = tiger_pick::moe;
-    EXPECT_EQ(--e, tiger_pick::miny);
-    EXPECT_EQ(e, tiger_pick::miny);
-    EXPECT_EQ(e--, tiger_pick::miny);
-    EXPECT_EQ(e, tiger_pick::meany);
+    CHECK((--e) == (tiger_pick::miny));
+    CHECK((e) == (tiger_pick::miny));
+    CHECK((e--) == (tiger_pick::miny));
+    CHECK((e) == (tiger_pick::meany));
 
     // The following shows what happens when wrapping isn't enabled.
     e = tiger_pick::eeny;
     --e;
-    EXPECT_EQ(*e, -1);
+    CHECK((*e) == (-1));
   }
   if (true) {
     using namespace strings;
-    EXPECT_EQ((enum_as_string(tiger_pick::eeny)), "eeny");
-    EXPECT_EQ((enum_as_string(tiger_pick::meany)), "meany");
-    EXPECT_EQ((enum_as_string(tiger_pick::miny)), "miny");
-    EXPECT_EQ((enum_as_string(tiger_pick::moe)), "moe");
-    EXPECT_EQ(enum_as_string(tiger_pick(-1)), "-1");
-    EXPECT_EQ(enum_as_string(tiger_pick(4)), "4");
+    CHECK(((enum_as_string(tiger_pick::eeny))) == ("eeny"));
+    CHECK(((enum_as_string(tiger_pick::meany))) == ("meany"));
+    CHECK(((enum_as_string(tiger_pick::miny))) == ("miny"));
+    CHECK(((enum_as_string(tiger_pick::moe))) == ("moe"));
+    CHECK((enum_as_string(tiger_pick(-1))) == ("-1"));
+    CHECK((enum_as_string(tiger_pick(4))) == ("4"));
   }
 }
 
@@ -177,244 +179,244 @@ constexpr auto registry::enum_spec_v<eu64_large> =
 
 #pragma region MakeSafely
 
-void SequentialEnumTest_MakeSafely() {
+TEST_CASE("SequentialEnumTest_MakeSafely", "[SequentialEnumTest]") {
   if (true) {
     e0_3 e;
     e = make_safely<e0_3>(0);
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make_safely<e0_3>(1);
-    EXPECT_EQ(*e, 1);
+    CHECK((*e) == (1));
     e = make_safely<e0_3>(3);
-    EXPECT_EQ(*e, 3);
+    CHECK((*e) == (3));
 
     e = make_safely<e0_3>(3 + 1);
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make_safely<e0_3>(3 + 2);
-    EXPECT_EQ(*e, 1);
+    CHECK((*e) == (1));
     e = make_safely<e0_3>(3 + 3);
-    EXPECT_EQ(*e, 2);
+    CHECK((*e) == (2));
     e = make_safely<e0_3>(3 + 4);
-    EXPECT_EQ(*e, 3);
+    CHECK((*e) == (3));
     e = make_safely<e0_3>(3 + 5);
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make_safely<e0_3>(3 + 3 * 4);
-    EXPECT_EQ(*e, 3);
+    CHECK((*e) == (3));
 
     // Note: All of these casts are strictly unnecessary. They're just to
     // suppress spurious warnings of precision lost due to the implicit
     // cast.
     e = make_safely<e0_3>(int8_t(0 - 1));
-    EXPECT_EQ(*e, 3);
+    CHECK((*e) == (3));
     e = make_safely<e0_3>(int8_t(0 - 2));
-    EXPECT_EQ(*e, 2);
+    CHECK((*e) == (2));
     e = make_safely<e0_3>(int8_t(0 - 3));
-    EXPECT_EQ(*e, 1);
+    CHECK((*e) == (1));
     e = make_safely<e0_3>(int8_t(0 - 4));
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make_safely<e0_3>(int8_t(0 - 5));
-    EXPECT_EQ(*e, 3);
+    CHECK((*e) == (3));
     e = make_safely<e0_3>(int8_t(0 - 4 * 4));
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
   }
   if (true) {
     using namespace strings;
-    EXPECT_EQ(enum_as_string(e0_3(-1)), "-1");
-    EXPECT_EQ(enum_as_string(e0_3(0)), "a");
-    EXPECT_EQ(enum_as_string(e0_3(1)), "1");
-    EXPECT_EQ(enum_as_string(e0_3(2)), "c");
-    EXPECT_EQ(enum_as_string(e0_3(3)), "3");
-    EXPECT_EQ(enum_as_string(e0_3(4)), "4");
+    CHECK((enum_as_string(e0_3(-1))) == ("-1"));
+    CHECK((enum_as_string(e0_3(0))) == ("a"));
+    CHECK((enum_as_string(e0_3(1))) == ("1"));
+    CHECK((enum_as_string(e0_3(2))) == ("c"));
+    CHECK((enum_as_string(e0_3(3))) == ("3"));
+    CHECK((enum_as_string(e0_3(4))) == ("4"));
   }
   if (true) {
     e10_13 e;
     e = make_safely<e10_13>(10);
-    EXPECT_EQ(*e, 10);
+    CHECK((*e) == (10));
     e = make_safely<e10_13>(11);
-    EXPECT_EQ(*e, 11);
+    CHECK((*e) == (11));
     e = make_safely<e10_13>(13);
-    EXPECT_EQ(*e, 13);
+    CHECK((*e) == (13));
 
     e = make_safely<e10_13>(13 + 1);
-    EXPECT_EQ(*e, 10);
+    CHECK((*e) == (10));
     e = make_safely<e10_13>(13 + 2);
-    EXPECT_EQ(*e, 11);
+    CHECK((*e) == (11));
     e = make_safely<e10_13>(13 + 3);
-    EXPECT_EQ(*e, 12);
+    CHECK((*e) == (12));
     e = make_safely<e10_13>(13 + 4);
-    EXPECT_EQ(*e, 13);
+    CHECK((*e) == (13));
     e = make_safely<e10_13>(13 + 5);
-    EXPECT_EQ(*e, 10);
+    CHECK((*e) == (10));
     e = make_safely<e10_13>(13 + 3 * 4);
-    EXPECT_EQ(*e, 13);
+    CHECK((*e) == (13));
 
     e = make_safely<e10_13>(10 - 1);
-    EXPECT_EQ(*e, 13);
+    CHECK((*e) == (13));
     e = make_safely<e10_13>(10 - 2);
-    EXPECT_EQ(*e, 12);
+    CHECK((*e) == (12));
     e = make_safely<e10_13>(10 - 3);
-    EXPECT_EQ(*e, 11);
+    CHECK((*e) == (11));
     e = make_safely<e10_13>(10 - 4);
-    EXPECT_EQ(*e, 10);
+    CHECK((*e) == (10));
     e = make_safely<e10_13>(10 - 5);
-    EXPECT_EQ(*e, 13);
+    CHECK((*e) == (13));
     e = make_safely<e10_13>(int8_t(10 - 4 * 4));
-    EXPECT_EQ(*e, 10);
+    CHECK((*e) == (10));
   }
   if (true) {
     using namespace strings;
-    EXPECT_EQ(enum_as_string(e10_13(-1)), "-1");
-    EXPECT_EQ(enum_as_string(e10_13(9)), "9");
-    EXPECT_EQ(enum_as_string(e10_13(10)), "ten");
-    EXPECT_EQ(enum_as_string(e10_13(11)), "eleven");
-    EXPECT_EQ(enum_as_string(e10_13(12)), "twelve");
-    EXPECT_EQ(enum_as_string(e10_13(13)), "thirteen");
-    EXPECT_EQ(enum_as_string(e10_13(14)), "14");
+    CHECK((enum_as_string(e10_13(-1))) == ("-1"));
+    CHECK((enum_as_string(e10_13(9))) == ("9"));
+    CHECK((enum_as_string(e10_13(10))) == ("ten"));
+    CHECK((enum_as_string(e10_13(11))) == ("eleven"));
+    CHECK((enum_as_string(e10_13(12))) == ("twelve"));
+    CHECK((enum_as_string(e10_13(13))) == ("thirteen"));
+    CHECK((enum_as_string(e10_13(14))) == ("14"));
   }
   if (true) {
     eneg3_3 e;
     e = make_safely<eneg3_3>(0);
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make_safely<eneg3_3>(-3);
-    EXPECT_EQ(*e, -3);
+    CHECK((*e) == (-3));
     e = make_safely<eneg3_3>(3);
-    EXPECT_EQ(*e, 3);
+    CHECK((*e) == (3));
 
     e = make_safely<eneg3_3>(3 + 1);
-    EXPECT_EQ(*e, -3);
+    CHECK((*e) == (-3));
     e = make_safely<eneg3_3>(3 + 2);
-    EXPECT_EQ(*e, -2);
+    CHECK((*e) == (-2));
     e = make_safely<eneg3_3>(3 + 3);
-    EXPECT_EQ(*e, -1);
+    CHECK((*e) == (-1));
     e = make_safely<eneg3_3>(3 + 4);
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make_safely<eneg3_3>(3 + 5);
-    EXPECT_EQ(*e, 1);
+    CHECK((*e) == (1));
     e = make_safely<eneg3_3>(3 + 6);
-    EXPECT_EQ(*e, 2);
+    CHECK((*e) == (2));
     e = make_safely<eneg3_3>(3 + 7);
-    EXPECT_EQ(*e, 3);
+    CHECK((*e) == (3));
     e = make_safely<eneg3_3>(3 + 8);
-    EXPECT_EQ(*e, -3);
+    CHECK((*e) == (-3));
     e = make_safely<eneg3_3>(3 + 7 * 4);
-    EXPECT_EQ(*e, 3);
+    CHECK((*e) == (3));
 
     e = make_safely<eneg3_3>(-3 - 1);
-    EXPECT_EQ(*e, 3);
+    CHECK((*e) == (3));
     e = make_safely<eneg3_3>(-3 - 2);
-    EXPECT_EQ(*e, 2);
+    CHECK((*e) == (2));
     e = make_safely<eneg3_3>(-3 - 3);
-    EXPECT_EQ(*e, 1);
+    CHECK((*e) == (1));
     e = make_safely<eneg3_3>(-3 - 4);
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make_safely<eneg3_3>(-3 - 5);
-    EXPECT_EQ(*e, -1);
+    CHECK((*e) == (-1));
     e = make_safely<eneg3_3>(-3 - 6);
-    EXPECT_EQ(*e, -2);
+    CHECK((*e) == (-2));
     e = make_safely<eneg3_3>(-3 - 7);
-    EXPECT_EQ(*e, -3);
+    CHECK((*e) == (-3));
     e = make_safely<eneg3_3>(-3 - 8);
-    EXPECT_EQ(*e, 3);
+    CHECK((*e) == (3));
     e = make_safely<eneg3_3>(-3 - 7 * 4);
-    EXPECT_EQ(*e, -3);
+    CHECK((*e) == (-3));
   }
   if (true) {
     using namespace strings;
-    EXPECT_EQ(enum_as_string(eneg3_3(-4)), "-4");
-    EXPECT_EQ(enum_as_string(eneg3_3(-3)), "neg-three");
-    EXPECT_EQ(enum_as_string(eneg3_3(-2)), "neg-two");
-    EXPECT_EQ(enum_as_string(eneg3_3(-1)), "neg-one");
-    EXPECT_EQ(enum_as_string(eneg3_3(0)), "zero");
-    EXPECT_EQ(enum_as_string(eneg3_3(1)), "one");
-    EXPECT_EQ(enum_as_string(eneg3_3(2)), "two");
-    EXPECT_EQ(enum_as_string(eneg3_3(3)), "three");
-    EXPECT_EQ(enum_as_string(eneg3_3(4)), "4");
+    CHECK((enum_as_string(eneg3_3(-4))) == ("-4"));
+    CHECK((enum_as_string(eneg3_3(-3))) == ("neg-three"));
+    CHECK((enum_as_string(eneg3_3(-2))) == ("neg-two"));
+    CHECK((enum_as_string(eneg3_3(-1))) == ("neg-one"));
+    CHECK((enum_as_string(eneg3_3(0))) == ("zero"));
+    CHECK((enum_as_string(eneg3_3(1))) == ("one"));
+    CHECK((enum_as_string(eneg3_3(2))) == ("two"));
+    CHECK((enum_as_string(eneg3_3(3))) == ("three"));
+    CHECK((enum_as_string(eneg3_3(4))) == ("4"));
   }
   if (true) {
     e0_255 e;
 
     e = make_safely<e0_255>(0);
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make_safely<e0_255>(uint8_t(256));
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make_safely<e0_255>(uint8_t(257));
-    EXPECT_EQ(*e, 1);
+    CHECK((*e) == (1));
 
     e = make_safely<e0_255>(uint8_t(0 - 2));
-    EXPECT_EQ(*e, 254);
+    CHECK((*e) == (254));
     e = make_safely<e0_255>(uint8_t(255 + 3));
-    EXPECT_EQ(*e, 2);
+    CHECK((*e) == (2));
     e = make_safely<e0_255>(uint8_t(255 + 3 * 256));
-    EXPECT_EQ(*e, 255);
+    CHECK((*e) == (255));
 
     // Safety is meaningless in this case.
     e = make<e0_255>(0);
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make<e0_255>(uint8_t(256));
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make<e0_255>(uint8_t(257));
-    EXPECT_EQ(*e, 1);
+    CHECK((*e) == (1));
 
     e = make<e0_255>(uint8_t(0 - 2));
-    EXPECT_EQ(*e, 254);
+    CHECK((*e) == (254));
     e = make<e0_255>(uint8_t(255 + 3));
-    EXPECT_EQ(*e, 2);
+    CHECK((*e) == (2));
     e = make<e0_255>(uint8_t(255 + 3 * 256));
-    EXPECT_EQ(*e, 255);
+    CHECK((*e) == (255));
   }
   if (true) {
     eneg128_127 e;
 
     e = make_safely<eneg128_127>(0);
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make_safely<eneg128_127>(int8_t(128));
-    EXPECT_EQ(*e, -128);
+    CHECK((*e) == (-128));
     e = make_safely<eneg128_127>(int8_t(-129));
-    EXPECT_EQ(*e, 127);
+    CHECK((*e) == (127));
 
     e = make_safely<eneg128_127>(int8_t(-128 - 2));
-    EXPECT_EQ(*e, 126);
+    CHECK((*e) == (126));
     e = make_safely<eneg128_127>(int8_t(127 + 3));
-    EXPECT_EQ(*e, -126);
+    CHECK((*e) == (-126));
     e = make_safely<eneg128_127>(int8_t(127 + 3 * 256));
-    EXPECT_EQ(*e, 127);
+    CHECK((*e) == (127));
 
     // Safety is meaningless in this case.
     e = make<eneg128_127>(0);
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make<eneg128_127>(int8_t(128));
-    EXPECT_EQ(*e, -128);
+    CHECK((*e) == (-128));
     e = make<eneg128_127>(int8_t(-129));
-    EXPECT_EQ(*e, 127);
+    CHECK((*e) == (127));
 
     e = make<eneg128_127>(int8_t(-128 - 2));
-    EXPECT_EQ(*e, 126);
+    CHECK((*e) == (126));
     e = make<eneg128_127>(int8_t(127 + 3));
-    EXPECT_EQ(*e, -126);
+    CHECK((*e) == (-126));
     e = make<eneg128_127>(int8_t(127 + 3 * 256));
-    EXPECT_EQ(*e, 127);
+    CHECK((*e) == (127));
   }
 }
 
 #pragma endregion
 #pragma region SafeOps
 
-void SequentialEnumTest_SafeOps() {
+TEST_CASE("SequentialEnumTest_SafeOps", "[SequentialEnumTest]") {
   if (true) {
     e0_3 e;
     e = make<e0_3>(0);
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     --e;
-    EXPECT_EQ(*e, 3);
+    CHECK((*e) == (3));
     ++e;
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e += 4;
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e += 4 * 4;
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e -= 4;
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e -= 4 * 4;
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
   }
 }
 
@@ -428,11 +430,11 @@ constexpr auto registry::enum_spec_v<tiger_nochoice> =
 
 #pragma region NoChoice
 
-void SequentialEnumTest_NoChoice() {
+TEST_CASE("SequentialEnumTest_NoChoice", "[SequentialEnumTest]") {
   if (true) {
     auto e = tiger_nochoice::tiger;
     auto n = *e;
-    EXPECT_EQ(n, 0);
+    CHECK((n) == (0));
   }
 }
 
@@ -447,38 +449,38 @@ constexpr auto registry::enum_spec_v<e0_3unsafe> =
 
 #pragma region SubtleBugRepro
 
-void SequentialEnumTest_SubtleBugRepro() {
+TEST_CASE("SequentialEnumTest_SubtleBugRepro", "[SequentialEnumTest]") {
   e0_3unsafe e;
 
   // This is a regression test now.
   e = make_safely<e0_3unsafe>(36);
-  EXPECT_EQ(*e, 0);
-  EXPECT_NE(*e, 36);
+  CHECK((*e) == (0));
+  CHECK((*e) != (36));
 }
 
 #pragma endregion
 #pragma region StreamingOut
 
-void SequentialEnumTest_StreamingOut() {
-  EXPECT_TRUE(OStreamable<tiger_pick>);
+TEST_CASE("SequentialEnumTest_StreamingOut", "[SequentialEnumTest]") {
+  CHECK((OStreamable<tiger_pick>));
   if (true) {
     std::stringstream ss;
     int i = *tiger_pick::moe;
     ss << i << std::flush;
-    EXPECT_EQ(ss.str(), "3");
+    CHECK((ss.str()) == ("3"));
   }
 
   if (true) {
     std::stringstream ss;
     ss << tiger_pick::moe << std::flush;
-    EXPECT_EQ(ss.str(), "moe");
+    CHECK((ss.str()) == ("moe"));
   }
 
   if (true) {
     std::stringstream ss;
     ss << extract_field::value << ", " << extract_field::key_value
        << std::flush;
-    EXPECT_EQ(ss.str(), "value, key_value");
+    CHECK((ss.str()) == ("value, key_value"));
   }
 }
 
@@ -499,43 +501,43 @@ constexpr auto registry::enum_spec_v<tiger_gapped> =
 
 #pragma region Missing
 
-void SequentialEnumTest_Missing() {
+TEST_CASE("SequentialEnumTest_Missing", "[SequentialEnumTest]") {
   if (true) {
     using namespace strings;
     // Hyphen placeholder: numeric value is printed.
-    EXPECT_EQ((enum_as_string(tiger_missing::eeny)), "eeny");
-    EXPECT_EQ(enum_as_string(tiger_missing(1)), "1");
-    EXPECT_EQ((enum_as_string(tiger_missing::miny)), "miny");
-    EXPECT_EQ((enum_as_string(tiger_missing::moe)), "moe");
-    EXPECT_EQ(enum_as_string(tiger_missing(-1)), "255");
-    EXPECT_EQ(enum_as_string(tiger_missing(4)), "4");
+    CHECK(((enum_as_string(tiger_missing::eeny))) == ("eeny"));
+    CHECK((enum_as_string(tiger_missing(1))) == ("1"));
+    CHECK(((enum_as_string(tiger_missing::miny))) == ("miny"));
+    CHECK(((enum_as_string(tiger_missing::moe))) == ("moe"));
+    CHECK((enum_as_string(tiger_missing(-1))) == ("255"));
+    CHECK((enum_as_string(tiger_missing(4))) == ("4"));
   }
   if (true) {
     using namespace strings;
     // Empty-element placeholder: numeric value is printed.
-    EXPECT_EQ(enum_as_string(tiger_gapped(0)), "ga");
-    EXPECT_EQ(enum_as_string(tiger_gapped(1)), "1");
-    EXPECT_EQ(enum_as_string(tiger_gapped(2)), "gc");
-    EXPECT_EQ(enum_as_string(tiger_gapped(3)), "gd");
+    CHECK((enum_as_string(tiger_gapped(0))) == ("ga"));
+    CHECK((enum_as_string(tiger_gapped(1))) == ("1"));
+    CHECK((enum_as_string(tiger_gapped(2))) == ("gc"));
+    CHECK((enum_as_string(tiger_gapped(3))) == ("gd"));
     // Asterisk placeholder (e0_3 index 1), question mark placeholder (index
     // 3).
-    EXPECT_EQ(enum_as_string(e0_3(1)), "1");
-    EXPECT_EQ(enum_as_string(e0_3(3)), "3");
+    CHECK((enum_as_string(e0_3(1))) == ("1"));
+    CHECK((enum_as_string(e0_3(3))) == ("3"));
   }
 }
 
 #pragma endregion
 #pragma region Intervals
 
-void SequentialEnumTest_Intervals() {
+TEST_CASE("SequentialEnumTest_Intervals", "[SequentialEnumTest]") {
   if (true) {
     int c{}, s{};
     for (auto e : make_interval<e0_3>()) {
       ++c;
       s += *e;
     }
-    EXPECT_EQ(c, 4);
-    EXPECT_EQ(s, 0 + 1 + 2 + 3);
+    CHECK((c) == (4));
+    CHECK((s) == (0 + 1 + 2 + 3));
   }
   if (true) {
     int c{}, s{};
@@ -543,8 +545,8 @@ void SequentialEnumTest_Intervals() {
       ++c;
       s += *e;
     }
-    EXPECT_EQ(c, 4);
-    EXPECT_EQ(s, 10 + 11 + 12 + 13);
+    CHECK((c) == (4));
+    CHECK((s) == (10 + 11 + 12 + 13));
   }
   if (true) {
     int c{}, s{};
@@ -554,8 +556,8 @@ void SequentialEnumTest_Intervals() {
       ++c;
       s += *e;
     }
-    EXPECT_EQ(c, 256);
-    EXPECT_EQ(s, 32640);
+    CHECK((c) == (256));
+    CHECK((s) == (32640));
   }
   if (true) {
     int c{}, s{};
@@ -565,294 +567,294 @@ void SequentialEnumTest_Intervals() {
       ++c;
       s += *e;
     }
-    EXPECT_EQ(c, 256);
-    EXPECT_EQ(s, -128);
+    CHECK((c) == (256));
+    CHECK((s) == (-128));
   }
 }
 
 #pragma endregion
 #pragma region ExtractEnum
 
-void SequentialEnumTest_ExtractEnum() {
+TEST_CASE("SequentialEnumTest_ExtractEnum", "[SequentialEnumTest]") {
   using namespace corvid::strings;
   if (true) {
     tiger_pick e{};
     std::string_view sv;
 
     sv = "0";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, tiger_pick::eeny);
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (tiger_pick::eeny));
 
     sv = "eeny";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, tiger_pick::eeny);
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (tiger_pick::eeny));
 
     sv = "meany";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, tiger_pick::meany);
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (tiger_pick::meany));
 
     sv = "miny";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, tiger_pick::miny);
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (tiger_pick::miny));
 
     sv = "miny";
     e = extract_enum<tiger_pick>(sv).value_or(tiger_pick{-1});
-    EXPECT_EQ(e, tiger_pick::miny);
-    EXPECT_TRUE(sv.empty());
+    CHECK((e) == (tiger_pick::miny));
+    CHECK((sv.empty()));
 
     sv = "miny";
     auto opte = parse_enum<tiger_pick>(sv);
-    EXPECT_EQ(opte.value_or(tiger_pick{-1}), tiger_pick::miny);
+    CHECK((opte.value_or(tiger_pick{-1})) == (tiger_pick::miny));
 
     sv = "miny  ";
     opte = parse_enum<tiger_pick>(sv);
-    EXPECT_EQ(opte.value_or(tiger_pick{-1}), tiger_pick::miny);
+    CHECK((opte.value_or(tiger_pick{-1})) == (tiger_pick::miny));
 
     sv = "miny ; ";
     opte = parse_enum<tiger_pick>(sv);
-    EXPECT_FALSE(opte.has_value());
+    CHECK_FALSE((opte.has_value()));
 
     sv = "miny";
     e = parse_enum(sv, tiger_pick::moe);
-    EXPECT_EQ(e, tiger_pick::miny);
+    CHECK((e) == (tiger_pick::miny));
 
     sv = "miny ; ";
     e = parse_enum(sv, tiger_pick::moe);
-    EXPECT_EQ(e, tiger_pick::moe);
+    CHECK((e) == (tiger_pick::moe));
   }
   if (true) {
     e10_13 e{};
     std::string_view sv;
 
     sv = "10";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, e10_13{10});
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (e10_13{10}));
 
     sv = "13";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, e10_13{13});
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (e10_13{13}));
 
     sv = "ten";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, e10_13{10});
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (e10_13{10}));
 
     sv = "thirteen";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, e10_13{13});
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (e10_13{13}));
   }
   if (true) {
     eneg3_3 e{};
     std::string_view sv;
 
     sv = "-3";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, eneg3_3{-3});
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (eneg3_3{-3}));
 
     sv = "neg-three";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, eneg3_3{-3});
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (eneg3_3{-3}));
 
     sv = "0";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, eneg3_3{0});
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (eneg3_3{0}));
 
     sv = "zero";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, eneg3_3{0});
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (eneg3_3{0}));
 
     sv = "3";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, eneg3_3{3});
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (eneg3_3{3}));
 
     sv = "three";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, eneg3_3{3});
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (eneg3_3{3}));
 
     sv = "4";
-    EXPECT_FALSE(extract_enum(e, sv));
+    CHECK_FALSE((extract_enum(e, sv)));
 
     sv = "four";
-    EXPECT_FALSE(extract_enum(e, sv));
+    CHECK_FALSE((extract_enum(e, sv)));
   }
   if (true) {
     old_enum e{};
     std::string_view sv;
 
     sv = "1";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, old_one);
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (old_one));
   }
   if (true) {
     new_enum e{};
     std::string_view sv;
 
     sv = "1";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(e, new_enum::new_one);
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((e) == (new_enum::new_one));
   }
 }
 
 #pragma endregion
 #pragma region Int64
 
-void SequentialEnumTest_Int64() {
+TEST_CASE("SequentialEnumTest_Int64", "[SequentialEnumTest]") {
   // Test basic operations with int64_t underlying type.
   if (true) {
     e64_0_3 e;
     e = make<e64_0_3>(0);
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make<e64_0_3>(1);
-    EXPECT_EQ(*e, 1);
+    CHECK((*e) == (1));
     e = make<e64_0_3>(3);
-    EXPECT_EQ(*e, 3);
+    CHECK((*e) == (3));
 
     // Test arithmetic.
     e = make<e64_0_3>(0);
     ++e;
-    EXPECT_EQ(*e, 1);
+    CHECK((*e) == (1));
     --e;
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e += 2;
-    EXPECT_EQ(*e, 2);
+    CHECK((*e) == (2));
     e -= 1;
-    EXPECT_EQ(*e, 1);
+    CHECK((*e) == (1));
   }
   // Test make_safely wrapping with int64_t.
   if (true) {
     e64_0_3 e;
     e = make_safely<e64_0_3>(0);
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make_safely<e64_0_3>(3);
-    EXPECT_EQ(*e, 3);
+    CHECK((*e) == (3));
 
     // Wrap around.
     e = make_safely<e64_0_3>(4);
-    EXPECT_EQ(*e, 0);
+    CHECK((*e) == (0));
     e = make_safely<e64_0_3>(5);
-    EXPECT_EQ(*e, 1);
+    CHECK((*e) == (1));
     e = make_safely<e64_0_3>(-1);
-    EXPECT_EQ(*e, 3);
+    CHECK((*e) == (3));
     e = make_safely<e64_0_3>(-2);
-    EXPECT_EQ(*e, 2);
+    CHECK((*e) == (2));
   }
   // Test enum_as_string with int64_t.
   if (true) {
     using namespace strings;
-    EXPECT_EQ(enum_as_string(e64_0_3(0)), "alpha");
-    EXPECT_EQ(enum_as_string(e64_0_3(1)), "beta");
-    EXPECT_EQ(enum_as_string(e64_0_3(2)), "gamma");
-    EXPECT_EQ(enum_as_string(e64_0_3(3)), "delta");
-    EXPECT_EQ(enum_as_string(e64_0_3(-1)), "-1");
-    EXPECT_EQ(enum_as_string(e64_0_3(4)), "4");
+    CHECK((enum_as_string(e64_0_3(0))) == ("alpha"));
+    CHECK((enum_as_string(e64_0_3(1))) == ("beta"));
+    CHECK((enum_as_string(e64_0_3(2))) == ("gamma"));
+    CHECK((enum_as_string(e64_0_3(3))) == ("delta"));
+    CHECK((enum_as_string(e64_0_3(-1))) == ("-1"));
+    CHECK((enum_as_string(e64_0_3(4))) == ("4"));
   }
   // Test large int64_t values.
   if (true) {
     e64_large e;
     e = make<e64_large>(1000000000000);
-    EXPECT_EQ(*e, 1000000000000);
+    CHECK((*e) == (1000000000000));
     e = make<e64_large>(1000000000001);
-    EXPECT_EQ(*e, 1000000000001);
+    CHECK((*e) == (1000000000001));
     e = make<e64_large>(1000000000002);
-    EXPECT_EQ(*e, 1000000000002);
+    CHECK((*e) == (1000000000002));
 
     // Test arithmetic with large values.
     e = make<e64_large>(1000000000000);
     ++e;
-    EXPECT_EQ(*e, 1000000000001);
+    CHECK((*e) == (1000000000001));
     ++e;
-    EXPECT_EQ(*e, 1000000000002);
+    CHECK((*e) == (1000000000002));
   }
   // Test enum_as_string with large int64_t values.
   if (true) {
     using namespace strings;
-    EXPECT_EQ(enum_as_string(e64_large(1000000000000)), "low");
-    EXPECT_EQ(enum_as_string(e64_large(1000000000001)), "mid");
-    EXPECT_EQ(enum_as_string(e64_large(1000000000002)), "high");
-    EXPECT_EQ(enum_as_string(e64_large(999999999999)), "999999999999");
-    EXPECT_EQ(enum_as_string(e64_large(1000000000003)), "1000000000003");
+    CHECK((enum_as_string(e64_large(1000000000000))) == ("low"));
+    CHECK((enum_as_string(e64_large(1000000000001))) == ("mid"));
+    CHECK((enum_as_string(e64_large(1000000000002))) == ("high"));
+    CHECK((enum_as_string(e64_large(999999999999))) == ("999999999999"));
+    CHECK((enum_as_string(e64_large(1000000000003))) == ("1000000000003"));
   }
   // Test basic operations with uint64_t underlying type.
   if (true) {
     eu64_0_3 e;
     e = make<eu64_0_3>(0);
-    EXPECT_EQ(*e, 0U);
+    CHECK((*e) == (0U));
     e = make<eu64_0_3>(1);
-    EXPECT_EQ(*e, 1U);
+    CHECK((*e) == (1U));
     e = make<eu64_0_3>(3);
-    EXPECT_EQ(*e, 3U);
+    CHECK((*e) == (3U));
 
     // Test arithmetic.
     e = make<eu64_0_3>(0);
     ++e;
-    EXPECT_EQ(*e, 1U);
+    CHECK((*e) == (1U));
     e += 2;
-    EXPECT_EQ(*e, 3U);
+    CHECK((*e) == (3U));
   }
   // Test make_safely wrapping with uint64_t.
   if (true) {
     eu64_0_3 e;
     e = make_safely<eu64_0_3>(0);
-    EXPECT_EQ(*e, 0U);
+    CHECK((*e) == (0U));
     e = make_safely<eu64_0_3>(3);
-    EXPECT_EQ(*e, 3U);
+    CHECK((*e) == (3U));
 
     // Wrap around.
     e = make_safely<eu64_0_3>(4);
-    EXPECT_EQ(*e, 0U);
+    CHECK((*e) == (0U));
     e = make_safely<eu64_0_3>(5);
-    EXPECT_EQ(*e, 1U);
+    CHECK((*e) == (1U));
   }
   // Test enum_as_string with uint64_t.
   if (true) {
     using namespace strings;
-    EXPECT_EQ(enum_as_string(eu64_0_3(0)), "one");
-    EXPECT_EQ(enum_as_string(eu64_0_3(1)), "two");
-    EXPECT_EQ(enum_as_string(eu64_0_3(2)), "three");
-    EXPECT_EQ(enum_as_string(eu64_0_3(3)), "four");
-    EXPECT_EQ(enum_as_string(eu64_0_3(4)), "4");
+    CHECK((enum_as_string(eu64_0_3(0))) == ("one"));
+    CHECK((enum_as_string(eu64_0_3(1))) == ("two"));
+    CHECK((enum_as_string(eu64_0_3(2))) == ("three"));
+    CHECK((enum_as_string(eu64_0_3(3))) == ("four"));
+    CHECK((enum_as_string(eu64_0_3(4))) == ("4"));
   }
   // Test large uint64_t values.
   if (true) {
     eu64_large e;
     e = make<eu64_large>(UINT64_C(10000000000000000000));
-    EXPECT_EQ(*e, UINT64_C(10000000000000000000));
+    CHECK((*e) == (UINT64_C(10000000000000000000)));
     e = make<eu64_large>(UINT64_C(10000000000000000001));
-    EXPECT_EQ(*e, UINT64_C(10000000000000000001));
+    CHECK((*e) == (UINT64_C(10000000000000000001)));
     e = make<eu64_large>(UINT64_C(10000000000000000002));
-    EXPECT_EQ(*e, UINT64_C(10000000000000000002));
+    CHECK((*e) == (UINT64_C(10000000000000000002)));
 
     // Test arithmetic with large values.
     e = make<eu64_large>(UINT64_C(10000000000000000000));
     ++e;
-    EXPECT_EQ(*e, UINT64_C(10000000000000000001));
+    CHECK((*e) == (UINT64_C(10000000000000000001)));
     ++e;
-    EXPECT_EQ(*e, UINT64_C(10000000000000000002));
+    CHECK((*e) == (UINT64_C(10000000000000000002)));
   }
   // Test enum_as_string with large uint64_t values.
   if (true) {
     using namespace strings;
-    EXPECT_EQ(enum_as_string(eu64_large(UINT64_C(10000000000000000000))),
-        "first");
-    EXPECT_EQ(enum_as_string(eu64_large(UINT64_C(10000000000000000001))),
-        "second");
-    EXPECT_EQ(enum_as_string(eu64_large(UINT64_C(10000000000000000002))),
-        "third");
+    CHECK((enum_as_string(eu64_large(UINT64_C(10000000000000000000)))) ==
+          ("first"));
+    CHECK((enum_as_string(eu64_large(UINT64_C(10000000000000000001)))) ==
+          ("second"));
+    CHECK((enum_as_string(eu64_large(UINT64_C(10000000000000000002)))) ==
+          ("third"));
   }
   // Test intervals with int64_t.
   if (true) {
@@ -862,8 +864,8 @@ void SequentialEnumTest_Int64() {
       ++c;
       s += *e;
     }
-    EXPECT_EQ(c, 4);
-    EXPECT_EQ(s, 0 + 1 + 2 + 3);
+    CHECK((c) == (4));
+    CHECK((s) == (0 + 1 + 2 + 3));
   }
   // Test intervals with uint64_t.
   if (true) {
@@ -873,8 +875,8 @@ void SequentialEnumTest_Int64() {
       ++c;
       s += *e;
     }
-    EXPECT_EQ(c, 4);
-    EXPECT_EQ(s, 0U + 1U + 2U + 3U);
+    CHECK((c) == (4));
+    CHECK((s) == (0U + 1U + 2U + 3U));
   }
   // Test extract_enum with int64_t.
   if (true) {
@@ -883,19 +885,19 @@ void SequentialEnumTest_Int64() {
     std::string_view sv;
 
     sv = "0";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(*e, 0);
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((*e) == (0));
 
     sv = "alpha";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(*e, 0);
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((*e) == (0));
 
     sv = "delta";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(*e, 3);
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((*e) == (3));
   }
   // Test extract_enum with uint64_t.
   if (true) {
@@ -904,55 +906,48 @@ void SequentialEnumTest_Int64() {
     std::string_view sv;
 
     sv = "0";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(*e, 0U);
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((*e) == (0U));
 
     sv = "one";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(*e, 0U);
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((*e) == (0U));
 
     sv = "four";
-    EXPECT_TRUE(extract_enum(e, sv));
-    EXPECT_TRUE(sv.empty());
-    EXPECT_EQ(*e, 3U);
+    CHECK((extract_enum(e, sv)));
+    CHECK((sv.empty()));
+    CHECK((*e) == (3U));
   }
   // Test streaming with int64_t.
   if (true) {
     std::stringstream ss;
     ss << e64_0_3(1) << std::flush;
-    EXPECT_EQ(ss.str(), "beta");
+    CHECK((ss.str()) == ("beta"));
   }
   // Test streaming with uint64_t.
   if (true) {
     std::stringstream ss;
     ss << eu64_0_3(2) << std::flush;
-    EXPECT_EQ(ss.str(), "three");
+    CHECK((ss.str()) == ("three"));
   }
 }
 
 #pragma endregion
 #pragma region AsView
 
-void SequentialEnumTest_AsView() {
+TEST_CASE("SequentialEnumTest_AsView", "[SequentialEnumTest]") {
   if (true) {
-    EXPECT_EQ(enum_as_view(e0_3(0)), "a");
-    EXPECT_EQ(enum_as_view(e0_3(1)), "(unknown)");
-    EXPECT_EQ(enum_as_view(e0_3(2)), "c");
-    EXPECT_EQ(enum_as_view(e0_3(3)), "(unknown)");
-    EXPECT_EQ(enum_as_view(e0_3(4)), "(unknown)");
+    CHECK((enum_as_view(e0_3(0))) == ("a"));
+    CHECK((enum_as_view(e0_3(1))) == ("(unknown)"));
+    CHECK((enum_as_view(e0_3(2))) == ("c"));
+    CHECK((enum_as_view(e0_3(3))) == ("(unknown)"));
+    CHECK((enum_as_view(e0_3(4))) == ("(unknown)"));
   }
 }
 
 #pragma endregion
-
-MAKE_TEST_LIST(SequentialEnumTest_Registry, SequentialEnumTest_Ops,
-    SequentialEnumTest_MakeSafely, SequentialEnumTest_SafeOps,
-    SequentialEnumTest_NoChoice, SequentialEnumTest_SubtleBugRepro,
-    SequentialEnumTest_StreamingOut, SequentialEnumTest_Missing,
-    SequentialEnumTest_Intervals, SequentialEnumTest_ExtractEnum,
-    SequentialEnumTest_Int64, SequentialEnumTest_AsView);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

@@ -23,8 +23,8 @@
 #include <thread>
 #include <sys/socket.h>
 
-#define MINITEST_SHOW_TIMERS 0
-#include "minitest.h"
+#define CATCH2_SHOW_TIMERS 0
+#include "catch2_main.h"
 
 using namespace corvid;
 using namespace corvid::iouring;
@@ -93,7 +93,7 @@ using capture_conn = iou_stream_conn<capture_protocol>;
 
 #pragma region SendRecvString
 
-void IouStreamConn_SendRecvString() {
+TEST_CASE("IouStreamConn_SendRecvString", "[IouStreamConn]") {
   // String send -> on_data fires, payload correct.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -118,26 +118,26 @@ void IouStreamConn_SendRecvString() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_conn);
+    CHECK((recv_conn));
 
     // Adopt sock0 as sender.
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_conn);
+    CHECK((send_conn));
 
-    EXPECT_TRUE(send_conn->send(std::string{msg}));
-    EXPECT_TRUE(
-        WaitFor([&] { return received.load(std::memory_order::acquire); }));
-    EXPECT_EQ(payload, msg);
+    CHECK((send_conn->send(std::string{msg})));
+    CHECK(
+        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
+    CHECK((payload) == (msg));
   }
 }
 
 #pragma endregion
 #pragma region MultipleStrings
 
-void IouStreamConn_MultipleStrings() {
+TEST_CASE("IouStreamConn_MultipleStrings", "[IouStreamConn]") {
   // Multiple string sends -> all received and concatenated correctly.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -163,26 +163,26 @@ void IouStreamConn_MultipleStrings() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_conn);
+    CHECK((recv_conn));
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_conn);
+    CHECK((send_conn));
 
-    for (int i = 0; i < N; ++i) EXPECT_TRUE(send_conn->send(std::string{msg}));
+    for (int i = 0; i < N; ++i) CHECK((send_conn->send(std::string{msg})));
 
     const int expected = N * static_cast<int>(msg.size());
-    EXPECT_TRUE(WaitFor([&] { return recv_bytes >= expected; }));
-    EXPECT_EQ(recv_bytes, expected);
+    CHECK((WaitFor([&] { return recv_bytes >= expected; })));
+    CHECK((recv_bytes) == (expected));
   }
 }
 
 #pragma endregion
 #pragma region SendRecvBuffer
 
-void IouStreamConn_SendRecvBuffer() {
+TEST_CASE("IouStreamConn_SendRecvBuffer", "[IouStreamConn]") {
   // Direct buffer send -> on_data fires, payload correct.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -206,31 +206,31 @@ void IouStreamConn_SendRecvBuffer() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_conn);
+    CHECK((recv_conn));
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_conn);
+    CHECK((send_conn));
 
     // Borrow a write buffer and fill it manually, then send.
     auto tok = runner->borrow_write_buffer();
-    EXPECT_TRUE(tok);
+    CHECK((tok));
     if (!tok) return;
-    EXPECT_TRUE(tok.append(msg));
-    EXPECT_TRUE(send_conn->send(std::move(tok)));
+    CHECK((tok.append(msg)));
+    CHECK((send_conn->send(std::move(tok))));
 
-    EXPECT_TRUE(
-        WaitFor([&] { return received.load(std::memory_order::acquire); }));
-    EXPECT_EQ(payload, msg);
+    CHECK(
+        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
+    CHECK((payload) == (msg));
   }
 }
 
 #pragma endregion
 #pragma region BufferMoveOut
 
-void IouStreamConn_BufferMoveOut() {
+TEST_CASE("IouStreamConn_BufferMoveOut", "[IouStreamConn]") {
   // `take()` in on_data -> fresh recv submitted, caller owns buffer.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -255,25 +255,25 @@ void IouStreamConn_BufferMoveOut() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_conn);
+    CHECK((recv_conn));
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_conn);
+    CHECK((send_conn));
 
-    EXPECT_TRUE(send_conn->send(std::string{msg}));
-    EXPECT_TRUE(
-        WaitFor([&] { return received.load(std::memory_order::acquire); }));
-    EXPECT_EQ(payload, msg);
+    CHECK((send_conn->send(std::string{msg})));
+    CHECK(
+        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
+    CHECK((payload) == (msg));
   }
 }
 
 #pragma endregion
 #pragma region GracefulClose
 
-void IouStreamConn_GracefulClose() {
+TEST_CASE("IouStreamConn_GracefulClose", "[IouStreamConn]") {
   // `close()` -> on_close fires on both sides.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -300,25 +300,24 @@ void IouStreamConn_GracefulClose() {
     auto conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid, shot_type::single, {}, {}, &state1)
                      .lock();
-    EXPECT_TRUE(conn0);
-    EXPECT_TRUE(conn1);
+    CHECK((conn0));
+    CHECK((conn1));
 
     // Give both connections time to arm their recv SQEs.
     std::this_thread::sleep_for(20ms);
 
     // TODO: This doesn't do the graceful close that's promised.
 
-    EXPECT_TRUE(conn0->close());
-    EXPECT_TRUE(
-        WaitFor([&] { return closed0.load(std::memory_order::acquire); }));
-    EXPECT_TRUE(closed0.load());
+    CHECK((conn0->close()));
+    CHECK((WaitFor([&] { return closed0.load(std::memory_order::acquire); })));
+    CHECK((closed0.load()));
   }
 }
 
 #pragma endregion
 #pragma region HangupClose
 
-void IouStreamConn_HangupClose() {
+TEST_CASE("IouStreamConn_HangupClose", "[IouStreamConn]") {
   // `hangup()` -> socket closed immediately.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -340,19 +339,18 @@ void IouStreamConn_HangupClose() {
     auto conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid)
                      .lock();
-    EXPECT_TRUE(conn0);
-    EXPECT_TRUE(conn1);
+    CHECK((conn0));
+    CHECK((conn1));
 
-    EXPECT_TRUE(conn0->hangup());
-    EXPECT_TRUE(
-        WaitFor([&] { return closed.load(std::memory_order::acquire); }));
+    CHECK((conn0->hangup()));
+    CHECK((WaitFor([&] { return closed.load(std::memory_order::acquire); })));
   }
 }
 
 #pragma endregion
 #pragma region OnDrain
 
-void IouStreamConn_OnDrain() {
+TEST_CASE("IouStreamConn_OnDrain", "[IouStreamConn]") {
   // `on_drain` fires after send completes and queue is empty.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -365,7 +363,7 @@ void IouStreamConn_OnDrain() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(recv_conn);
+    CHECK((recv_conn));
 
     capture_protocol::state send_state;
     send_state.on_drain = [&] {
@@ -377,18 +375,17 @@ void IouStreamConn_OnDrain() {
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid, shot_type::single, {}, {}, &send_state)
             .lock();
-    EXPECT_TRUE(send_conn);
+    CHECK((send_conn));
 
-    EXPECT_TRUE(send_conn->send(std::string{"ping"}));
-    EXPECT_TRUE(
-        WaitFor([&] { return drained.load(std::memory_order::acquire); }));
+    CHECK((send_conn->send(std::string{"ping"})));
+    CHECK((WaitFor([&] { return drained.load(std::memory_order::acquire); })));
   }
 }
 
 #pragma endregion
 #pragma region WithState
 
-void IouStreamConn_WithState() {
+TEST_CASE("IouStreamConn_WithState", "[IouStreamConn]") {
   // Per-connection state living in the plugin (replaces the old
   // `iou_stream_conn_with_state` pattern).
   if (true) {
@@ -416,25 +413,25 @@ void IouStreamConn_WithState() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_conn);
+    CHECK((recv_conn));
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_conn);
+    CHECK((send_conn));
 
-    EXPECT_TRUE(send_conn->send(std::string{"state-test"}));
-    EXPECT_TRUE(
-        WaitFor([&] { return received.load(std::memory_order::acquire); }));
-    EXPECT_EQ(my_state.recv_count, 1);
+    CHECK((send_conn->send(std::string{"state-test"})));
+    CHECK(
+        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
+    CHECK((my_state.recv_count) == (1));
   }
 }
 
 #pragma endregion
 #pragma region FullBufferPartialConsume
 
-void IouStreamConn_FullBufferPartialConsume() {
+TEST_CASE("IouStreamConn_FullBufferPartialConsume", "[IouStreamConn]") {
   // Fills the recv buffer completely, then consumes part of it on the first
   // full-buffer delivery. The remaining bytes plus newly-received bytes are
   // delivered on a subsequent recv. Verifies that partial consume of a full
@@ -464,26 +461,25 @@ void IouStreamConn_FullBufferPartialConsume() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_conn);
+    CHECK((recv_conn));
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_conn);
+    CHECK((send_conn));
 
-    EXPECT_TRUE(send_conn->send(std::string(buf_size, 'x')));
-    EXPECT_TRUE(send_conn->send(std::string(1, 'y')));
-    EXPECT_TRUE(
-        WaitFor([&] { return done.load(std::memory_order::acquire); }));
-    EXPECT_GE(total_consumed.load(std::memory_order::acquire), buf_size + 1);
+    CHECK((send_conn->send(std::string(buf_size, 'x'))));
+    CHECK((send_conn->send(std::string(1, 'y'))));
+    CHECK((WaitFor([&] { return done.load(std::memory_order::acquire); })));
+    CHECK((total_consumed.load(std::memory_order::acquire)) >= (buf_size + 1));
   }
 }
 
 #pragma endregion
 #pragma region MultishotRecvBasic
 
-void IouStreamConn_MultishotRecv_Basic() {
+TEST_CASE("IouStreamConn_MultishotRecv_Basic", "[IouStreamConn]") {
   // multishot recv mode: data arrives and `on_data` fires.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -507,25 +503,25 @@ void IouStreamConn_MultishotRecv_Basic() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_conn);
+    CHECK((recv_conn));
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_conn);
+    CHECK((send_conn));
 
-    EXPECT_TRUE(send_conn->send(std::string{msg}));
-    EXPECT_TRUE(
-        WaitFor([&] { return received.load(std::memory_order::acquire); }));
-    EXPECT_EQ(payload, msg);
+    CHECK((send_conn->send(std::string{msg})));
+    CHECK(
+        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
+    CHECK((payload) == (msg));
   }
 }
 
 #pragma endregion
 #pragma region MultishotRecvMultipleMessages
 
-void IouStreamConn_MultishotRecv_MultipleMessages() {
+TEST_CASE("IouStreamConn_MultishotRecv_MultipleMessages", "[IouStreamConn]") {
   // multishot recv mode: multiple sends are all delivered (bytes counted since
   // the stream socket may coalesce messages into a single on_data call).
   if (true) {
@@ -551,27 +547,27 @@ void IouStreamConn_MultishotRecv_MultipleMessages() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_conn);
+    CHECK((recv_conn));
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_conn);
+    CHECK((send_conn));
 
-    for (int i = 0; i < N; ++i) EXPECT_TRUE(send_conn->send(std::string{msg}));
+    for (int i = 0; i < N; ++i) CHECK((send_conn->send(std::string{msg})));
 
-    EXPECT_TRUE(WaitFor([&] {
+    CHECK((WaitFor([&] {
       return recv_bytes.load(std::memory_order::acquire) >= expected;
-    }));
-    EXPECT_EQ(recv_bytes.load(), expected);
+    })));
+    CHECK((recv_bytes.load()) == (expected));
   }
 }
 
 #pragma endregion
 #pragma region MultishotRecvTakeBuffer
 
-void IouStreamConn_MultishotRecv_TakeBuffer() {
+TEST_CASE("IouStreamConn_MultishotRecv_TakeBuffer", "[IouStreamConn]") {
   // `take()` in multishot mode: multishot resubmits after the taken buffer is
   // released.
   if (true) {
@@ -598,32 +594,32 @@ void IouStreamConn_MultishotRecv_TakeBuffer() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_conn);
+    CHECK((recv_conn));
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_conn);
+    CHECK((send_conn));
 
-    EXPECT_TRUE(send_conn->send(std::string{msg}));
-    EXPECT_TRUE(WaitFor([&] {
+    CHECK((send_conn->send(std::string{msg})));
+    CHECK((WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 1;
-    }));
+    })));
 
     // After take(), send a second message; recv should still work.
     taken_buf = {}; // release the taken buffer back to the pool
-    EXPECT_TRUE(send_conn->send(std::string{msg}));
-    EXPECT_TRUE(WaitFor([&] {
+    CHECK((send_conn->send(std::string{msg})));
+    CHECK((WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 2;
-    }));
+    })));
   }
 }
 
 #pragma endregion
 #pragma region MultishotRecvStopAndResume
 
-void IouStreamConn_MultishotRecv_StopAndResume() {
+TEST_CASE("IouStreamConn_MultishotRecv_StopAndResume", "[IouStreamConn]") {
   // `stop_receiving()` pauses recv and returns a resume callback; the
   // callback both keeps the conn alive and, when invoked, restarts the
   // recv loop.
@@ -661,41 +657,42 @@ void IouStreamConn_MultishotRecv_StopAndResume() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_conn);
+    CHECK((recv_conn));
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_conn);
+    CHECK((send_conn));
 
     // First message: received, then reading stops.
-    EXPECT_TRUE(send_conn->send(std::string{msg}));
-    EXPECT_TRUE(WaitFor([&] {
+    CHECK((send_conn->send(std::string{msg})));
+    CHECK((WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 1;
-    }));
+    })));
 
     // Second message: sent while paused, should not be delivered yet.
-    EXPECT_TRUE(send_conn->send(std::string{msg}));
+    CHECK((send_conn->send(std::string{msg})));
     std::this_thread::sleep_for(50ms);
-    EXPECT_EQ(recv_count.load(std::memory_order::acquire), 1);
+    CHECK((recv_count.load(std::memory_order::acquire)) == (1));
 
     // Resume by invoking the callback.
     {
       std::scoped_lock lock{cb_mutex};
-      EXPECT_TRUE(resume_cb);
-      EXPECT_TRUE(resume_cb());
+      CHECK((resume_cb));
+      CHECK((resume_cb()));
     }
-    EXPECT_TRUE(WaitFor([&] {
+    CHECK((WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 2;
-    }));
+    })));
   }
 }
 
 #pragma endregion
 #pragma region MultishotRecvAcceptedConnsInheritMode
 
-void IouStreamConn_MultishotRecv_AcceptedConnsInheritMode() {
+TEST_CASE("IouStreamConn_MultishotRecv_AcceptedConnsInheritMode",
+    "[IouStreamConn]") {
   // Accepted connections from a multishot-mode listener also use multishot.
   if (true) {
     std::atomic_bool received{false};
@@ -716,23 +713,23 @@ void IouStreamConn_MultishotRecv_AcceptedConnsInheritMode() {
     auto server = capture_conn::listen(*runner.loop(),
         net_endpoint::loopback_v4(0), shot_type::multi, {}, {}, &server_state)
                       .lock();
-    EXPECT_TRUE(server);
+    CHECK((server));
 
     const auto& listen_ep = server->local_endpoint();
     auto client = capture_conn::connect(*runner.loop(), listen_ep).lock();
-    EXPECT_TRUE(client);
+    CHECK((client));
 
-    EXPECT_TRUE(client->send(std::string{msg}));
-    EXPECT_TRUE(
-        WaitFor([&] { return received.load(std::memory_order::acquire); }));
-    EXPECT_EQ(payload, msg);
+    CHECK((client->send(std::string{msg})));
+    CHECK(
+        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
+    CHECK((payload) == (msg));
   }
 }
 
 #pragma endregion
 #pragma region AccessorsLifecycle
 
-void IouStreamConn_AccessorsLifecycle() {
+TEST_CASE("IouStreamConn_AccessorsLifecycle", "[IouStreamConn]") {
   // is_open / writes_allowed / is_read_shut / is_write_shut transitions.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -753,31 +750,30 @@ void IouStreamConn_AccessorsLifecycle() {
     auto conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid)
                      .lock();
-    EXPECT_TRUE(conn0);
-    EXPECT_TRUE(conn1);
+    CHECK((conn0));
+    CHECK((conn1));
 
-    EXPECT_TRUE(conn0->is_open());
-    EXPECT_TRUE(conn0->writes_allowed());
-    EXPECT_FALSE(conn0->is_read_shut());
-    EXPECT_FALSE(conn0->is_write_shut());
+    CHECK((conn0->is_open()));
+    CHECK((conn0->writes_allowed()));
+    CHECK_FALSE((conn0->is_read_shut()));
+    CHECK_FALSE((conn0->is_write_shut()));
 
-    EXPECT_TRUE(conn0->close());
+    CHECK((conn0->close()));
     // writes_allowed flips synchronously off `close_requested_`; is_open
     // follows once the actual close is processed.
-    EXPECT_FALSE(conn0->writes_allowed());
-    EXPECT_TRUE(
-        WaitFor([&] { return closed.load(std::memory_order::acquire); }));
-    EXPECT_FALSE(conn0->is_open());
+    CHECK_FALSE((conn0->writes_allowed()));
+    CHECK((WaitFor([&] { return closed.load(std::memory_order::acquire); })));
+    CHECK_FALSE((conn0->is_open()));
 
     // Second `close` is a no-op.
-    EXPECT_FALSE(conn0->close());
+    CHECK_FALSE((conn0->close()));
   }
 }
 
 #pragma endregion
 #pragma region Endpoints
 
-void IouStreamConn_Endpoints() {
+TEST_CASE("IouStreamConn_Endpoints", "[IouStreamConn]") {
   // local_endpoint and remote_endpoint resolve after listen + connect.
   if (true) {
     std::atomic_bool connected{false};
@@ -794,33 +790,33 @@ void IouStreamConn_Endpoints() {
     auto server = capture_conn::listen(*runner.loop(),
         net_endpoint::loopback_v4(0), shot_type::multi, {}, {}, &server_state)
                       .lock();
-    EXPECT_TRUE(server);
+    CHECK((server));
 
     const auto& listen_ep = server->local_endpoint();
-    EXPECT_FALSE(listen_ep.empty());
-    EXPECT_NE(listen_ep.port(), 0);
+    CHECK_FALSE((listen_ep.empty()));
+    CHECK((listen_ep.port()) != (0));
 
     auto client = capture_conn::connect(*runner.loop(), listen_ep,
         shot_type::single, {}, {}, &client_state)
                       .lock();
-    EXPECT_TRUE(client);
-    EXPECT_TRUE(
-        WaitFor([&] { return connected.load(std::memory_order::acquire); }));
+    CHECK((client));
+    CHECK(
+        (WaitFor([&] { return connected.load(std::memory_order::acquire); })));
 
     // After connect succeeds, both endpoints should be resolvable.
     const auto& cl_remote = client->remote_endpoint();
-    EXPECT_EQ(cl_remote.port(), listen_ep.port());
+    CHECK((cl_remote.port()) == (listen_ep.port()));
 
     const auto& cl_local = client->local_endpoint();
-    EXPECT_FALSE(cl_local.empty());
-    EXPECT_NE(cl_local.port(), 0);
+    CHECK_FALSE((cl_local.empty()));
+    CHECK((cl_local.port()) != (0));
   }
 }
 
 #pragma endregion
 #pragma region BufSizeAccessors
 
-void IouStreamConn_BufSizeAccessors() {
+TEST_CASE("IouStreamConn_BufSizeAccessors", "[IouStreamConn]") {
   // set_recv_buf_size / set_send_buf_size round-trip through the relaxed
   // atomic storage. The conn keeps using the new sizes for subsequent
   // borrows; we don't try to observe that here, just the getter/setter.
@@ -832,15 +828,15 @@ void IouStreamConn_BufSizeAccessors() {
     auto conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
         net_endpoint::invalid)
                     .lock();
-    EXPECT_TRUE(conn);
+    CHECK((conn));
 
-    EXPECT_EQ(conn->recv_buf_size(), block_size::kb004);
-    EXPECT_EQ(conn->send_buf_size(), block_size::kb004);
+    CHECK((conn->recv_buf_size()) == (block_size::kb004));
+    CHECK((conn->send_buf_size()) == (block_size::kb004));
 
     conn->set_recv_buf_size(block_size::kb002);
     conn->set_send_buf_size(block_size::kb008);
-    EXPECT_EQ(conn->recv_buf_size(), block_size::kb002);
-    EXPECT_EQ(conn->send_buf_size(), block_size::kb008);
+    CHECK((conn->recv_buf_size()) == (block_size::kb002));
+    CHECK((conn->send_buf_size()) == (block_size::kb008));
 
     // Keep sock1 alive until conn teardown to avoid a stray RST during the
     // test (cleanup happens in the runner destructor).
@@ -852,7 +848,7 @@ void IouStreamConn_BufSizeAccessors() {
 #pragma endregion
 #pragma region PeerEofDeliversEmptyView
 
-void IouStreamConn_PeerEofDeliversEmptyView() {
+TEST_CASE("IouStreamConn_PeerEofDeliversEmptyView", "[IouStreamConn]") {
   // When the peer closes, this side gets a final on_data with an empty view
   // and is_read_shut transitions to true.
   if (true) {
@@ -888,36 +884,35 @@ void IouStreamConn_PeerEofDeliversEmptyView() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_conn);
+    CHECK((recv_conn));
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_conn);
+    CHECK((send_conn));
 
-    EXPECT_TRUE(send_conn->send(std::string{msg}));
-    EXPECT_TRUE(
-        WaitFor([&] { return got_data.load(std::memory_order::acquire); }));
-    EXPECT_EQ(payload, msg);
+    CHECK((send_conn->send(std::string{msg})));
+    CHECK(
+        (WaitFor([&] { return got_data.load(std::memory_order::acquire); })));
+    CHECK((payload) == (msg));
 
-    EXPECT_TRUE(send_conn->close());
-    EXPECT_TRUE(
-        WaitFor([&] { return got_eof.load(std::memory_order::acquire); }));
-    EXPECT_TRUE(recv_conn->is_read_shut());
+    CHECK((send_conn->close()));
+    CHECK((WaitFor([&] { return got_eof.load(std::memory_order::acquire); })));
+    CHECK((recv_conn->is_read_shut()));
 
     // Peer EOF does not auto-close locally; the recv side must close itself
     // to retire its on_close.
-    EXPECT_TRUE(recv_conn->close());
-    EXPECT_TRUE(
-        WaitFor([&] { return got_close.load(std::memory_order::acquire); }));
+    CHECK((recv_conn->close()));
+    CHECK(
+        (WaitFor([&] { return got_close.load(std::memory_order::acquire); })));
   }
 }
 
 #pragma endregion
 #pragma region ShutdownSend
 
-void IouStreamConn_ShutdownSend() {
+TEST_CASE("IouStreamConn_ShutdownSend", "[IouStreamConn]") {
   // shutdown_send flushes the queue, then peer sees EOF on its read side.
   // Further sends are rejected on this side. Second call is a no-op.
   if (true) {
@@ -952,49 +947,48 @@ void IouStreamConn_ShutdownSend() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_raw);
+    CHECK((recv_raw));
     auto recv_conn = recv_raw->self();
 
     auto send_raw =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_raw);
+    CHECK((send_raw));
     auto send_conn = send_raw->self();
 
     // send + shutdown_send back-to-back: the send was authorized when
     // `writes_allowed()` first returned true, so the in-lambda guard
     // (which checks `closed_`, not `shutdown_send_requested_`) honors it
     // before `shutdown_send` tears down.
-    EXPECT_TRUE(send_conn->send(std::string{msg}));
-    EXPECT_TRUE(send_conn->shutdown_send());
+    CHECK((send_conn->send(std::string{msg})));
+    CHECK((send_conn->shutdown_send()));
 
-    EXPECT_TRUE(
-        WaitFor([&] { return got_data.load(std::memory_order::acquire); }));
-    EXPECT_EQ(payload, msg);
-    EXPECT_TRUE(
-        WaitFor([&] { return got_eof.load(std::memory_order::acquire); }));
+    CHECK(
+        (WaitFor([&] { return got_data.load(std::memory_order::acquire); })));
+    CHECK((payload) == (msg));
+    CHECK((WaitFor([&] { return got_eof.load(std::memory_order::acquire); })));
 
     // Writes are now rejected.
-    EXPECT_FALSE(send_conn->writes_allowed());
-    EXPECT_FALSE(send_conn->send(std::string{"nope"}));
+    CHECK_FALSE((send_conn->writes_allowed()));
+    CHECK_FALSE((send_conn->send(std::string{"nope"})));
 
     // Idempotent.
-    EXPECT_FALSE(send_conn->shutdown_send());
+    CHECK_FALSE((send_conn->shutdown_send()));
 
     // Local conn is still open for reads.
-    EXPECT_TRUE(send_conn->is_open());
+    CHECK((send_conn->is_open()));
 
     // Clean shutdown: explicit close on both sides before runner teardown.
-    EXPECT_TRUE(recv_conn->close());
-    EXPECT_TRUE(send_conn->close());
+    CHECK((recv_conn->close()));
+    CHECK((send_conn->close()));
   }
 }
 
 #pragma endregion
 #pragma region ShutdownRecv
 
-void IouStreamConn_ShutdownRecv() {
+TEST_CASE("IouStreamConn_ShutdownRecv", "[IouStreamConn]") {
   // shutdown_recv sets is_read_shut; further data from the peer no longer
   // reaches on_data. Idempotent.
   if (true) {
@@ -1015,38 +1009,38 @@ void IouStreamConn_ShutdownRecv() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_raw);
+    CHECK((recv_raw));
     auto recv_conn = recv_raw->self();
 
     auto send_raw =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_raw);
+    CHECK((send_raw));
     auto send_conn = send_raw->self();
 
-    EXPECT_TRUE(send_conn->send(std::string{"first"}));
-    EXPECT_TRUE(WaitFor([&] {
+    CHECK((send_conn->send(std::string{"first"})));
+    CHECK((WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 1;
-    }));
+    })));
 
-    EXPECT_TRUE(recv_conn->shutdown_recv());
-    EXPECT_TRUE(WaitFor([&] { return recv_conn->is_read_shut(); }));
+    CHECK((recv_conn->shutdown_recv()));
+    CHECK((WaitFor([&] { return recv_conn->is_read_shut(); })));
 
     // Idempotent.
-    EXPECT_FALSE(recv_conn->shutdown_recv());
+    CHECK_FALSE((recv_conn->shutdown_recv()));
 
     // New data does not surface as additional on_data calls.
-    EXPECT_TRUE(send_conn->send(std::string{"second"}));
+    CHECK((send_conn->send(std::string{"second"})));
     std::this_thread::sleep_for(50ms);
-    EXPECT_EQ(recv_count.load(std::memory_order::acquire), 1);
+    CHECK((recv_count.load(std::memory_order::acquire)) == (1));
   }
 }
 
 #pragma endregion
 #pragma region StopAndResumeReceivingOnConn
 
-void IouStreamConn_StopAndResumeReceivingOnConn() {
+TEST_CASE("IouStreamConn_StopAndResumeReceivingOnConn", "[IouStreamConn]") {
   // conn->stop_receiving + resume_receiving in multishot mode.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -1068,54 +1062,54 @@ void IouStreamConn_StopAndResumeReceivingOnConn() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_raw);
+    CHECK((recv_raw));
     auto recv_conn = recv_raw->self();
 
     auto send_raw =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_raw);
+    CHECK((send_raw));
     auto send_conn = send_raw->self();
 
-    EXPECT_TRUE(send_conn->send(std::string{"A"}));
-    EXPECT_TRUE(WaitFor([&] {
+    CHECK((send_conn->send(std::string{"A"})));
+    CHECK((WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 1;
-    }));
+    })));
 
     // Pause. The returned shared_ptr is what keeps the conn alive once the
     // recv loop ends; without holding it we'd race against the cancel CQE
     // releasing the last in-flight self-ref. (Our outer `recv_conn`
     // already serves that role, so we don't need to bind a separate var.)
     auto paused = recv_conn->stop_receiving();
-    EXPECT_TRUE(paused);
+    CHECK((paused));
     // Give the cancel time to take effect.
     std::this_thread::sleep_for(50ms);
 
     // Send while paused; should not reach on_data yet.
-    EXPECT_TRUE(send_conn->send(std::string{"B"}));
+    CHECK((send_conn->send(std::string{"B"})));
     std::this_thread::sleep_for(50ms);
-    EXPECT_EQ(recv_count.load(std::memory_order::acquire), 1);
+    CHECK((recv_count.load(std::memory_order::acquire)) == (1));
 
     // Resume.
-    EXPECT_TRUE(recv_conn->resume_receiving());
-    EXPECT_TRUE(WaitFor([&] {
+    CHECK((recv_conn->resume_receiving()));
+    CHECK((WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 2;
-    }));
-    EXPECT_EQ(payload, "AB");
+    })));
+    CHECK((payload) == ("AB"));
 
     // Idempotent: a second resume_receiving with no prior pause is a no-op.
-    EXPECT_FALSE(recv_conn->resume_receiving());
+    CHECK_FALSE((recv_conn->resume_receiving()));
 
-    EXPECT_TRUE(recv_conn->close());
-    EXPECT_TRUE(send_conn->close());
+    CHECK((recv_conn->close()));
+    CHECK((send_conn->close()));
   }
 }
 
 #pragma endregion
 #pragma region ConnectFailure
 
-void IouStreamConn_ConnectFailure() {
+TEST_CASE("IouStreamConn_ConnectFailure", "[IouStreamConn]") {
   // Async connect to an unbound loopback port fires on_close, not on_drain.
   if (true) {
     std::atomic_bool drained{false};
@@ -1139,9 +1133,9 @@ void IouStreamConn_ConnectFailure() {
       auto probe =
           capture_conn::listen(*runner.loop(), net_endpoint::loopback_v4(0))
               .lock();
-      EXPECT_TRUE(probe);
+      CHECK((probe));
       unreachable = probe->local_endpoint();
-      EXPECT_TRUE(probe->hangup());
+      CHECK((probe->hangup()));
     }
     // Small pause so the listener's close completes before we connect.
     std::this_thread::sleep_for(20ms);
@@ -1149,18 +1143,17 @@ void IouStreamConn_ConnectFailure() {
     auto client = capture_conn::connect(*runner.loop(), unreachable,
         shot_type::single, {}, {}, &state)
                       .lock();
-    EXPECT_TRUE(client);
+    CHECK((client));
 
-    EXPECT_TRUE(
-        WaitFor([&] { return closed.load(std::memory_order::acquire); }));
-    EXPECT_FALSE(drained.load(std::memory_order::acquire));
+    CHECK((WaitFor([&] { return closed.load(std::memory_order::acquire); })));
+    CHECK_FALSE((drained.load(std::memory_order::acquire)));
   }
 }
 
 #pragma endregion
 #pragma region ListenAcceptMultipleClients
 
-void IouStreamConn_ListenAcceptMultipleClients() {
+TEST_CASE("IouStreamConn_ListenAcceptMultipleClients", "[IouStreamConn]") {
   // Multiple clients connect; the listener's plugin spawns a child plugin
   // per accept via make_child_plugin and each child receives its own data.
   if (true) {
@@ -1187,30 +1180,30 @@ void IouStreamConn_ListenAcceptMultipleClients() {
     auto server = capture_conn::listen(*runner.loop(),
         net_endpoint::loopback_v4(0), shot_type::multi, {}, {}, &server_state)
                       .lock();
-    EXPECT_TRUE(server);
+    CHECK((server));
     const auto& listen_ep = server->local_endpoint();
 
     std::vector<std::shared_ptr<capture_conn>> clients;
     clients.reserve(N);
     for (int i = 0; i < N; ++i) {
       auto c = capture_conn::connect(*runner.loop(), listen_ep).lock();
-      EXPECT_TRUE(c);
+      CHECK((c));
       clients.push_back(c);
     }
 
-    for (const auto& c : clients) EXPECT_TRUE(c->send(std::string{msg}));
+    for (const auto& c : clients) CHECK((c->send(std::string{msg})));
 
-    EXPECT_TRUE(WaitFor([&] {
+    CHECK((WaitFor([&] {
       return total_bytes.load(std::memory_order::acquire) >= expected;
-    }));
-    EXPECT_EQ(total_bytes.load(), expected);
+    })));
+    CHECK((total_bytes.load()) == (expected));
   }
 }
 
 #pragma endregion
 #pragma region CloseFlushesPendingSend
 
-void IouStreamConn_CloseFlushesPendingSend() {
+TEST_CASE("IouStreamConn_CloseFlushesPendingSend", "[IouStreamConn]") {
   // send + close back-to-back: the send was authorized when `writes_allowed`
   // first returned true, so the in-lambda guard (which checks `closed_`, not
   // `close_requested_`) honors it. `close` sees a non-empty queue (or a live
@@ -1241,29 +1234,28 @@ void IouStreamConn_CloseFlushesPendingSend() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_raw);
+    CHECK((recv_raw));
     auto recv_conn = recv_raw->self();
 
     auto send_raw =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_raw);
+    CHECK((send_raw));
     auto send_conn = send_raw->self();
 
-    EXPECT_TRUE(send_conn->send(std::string{msg}));
-    EXPECT_TRUE(send_conn->close());
+    CHECK((send_conn->send(std::string{msg})));
+    CHECK((send_conn->close()));
 
-    EXPECT_TRUE(
-        WaitFor([&] { return got_eof.load(std::memory_order::acquire); }));
-    EXPECT_EQ(payload, msg);
+    CHECK((WaitFor([&] { return got_eof.load(std::memory_order::acquire); })));
+    CHECK((payload) == (msg));
   }
 }
 
 #pragma endregion
 #pragma region HangupIdempotent
 
-void IouStreamConn_HangupIdempotent() {
+TEST_CASE("IouStreamConn_HangupIdempotent", "[IouStreamConn]") {
   // Second hangup is a no-op.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -1284,21 +1276,20 @@ void IouStreamConn_HangupIdempotent() {
     auto conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid)
                      .lock();
-    EXPECT_TRUE(conn0);
-    EXPECT_TRUE(conn1);
+    CHECK((conn0));
+    CHECK((conn1));
 
-    EXPECT_TRUE(conn0->hangup());
-    EXPECT_FALSE(conn0->hangup());
-    EXPECT_TRUE(
-        WaitFor([&] { return closed.load(std::memory_order::acquire); }));
-    EXPECT_FALSE(conn0->is_open());
+    CHECK((conn0->hangup()));
+    CHECK_FALSE((conn0->hangup()));
+    CHECK((WaitFor([&] { return closed.load(std::memory_order::acquire); })));
+    CHECK_FALSE((conn0->is_open()));
   }
 }
 
 #pragma endregion
 #pragma region SelfSharedPtr
 
-void IouStreamConn_SelfSharedPtr() {
+TEST_CASE("IouStreamConn_SelfSharedPtr", "[IouStreamConn]") {
   // self() promotes a conn reference to a shared_ptr. The factories return a
   // weak_ptr; the conn is kept alive by its in-flight callbacks. A user-held
   // shared_ptr must extend that lifetime past hangup.
@@ -1320,27 +1311,26 @@ void IouStreamConn_SelfSharedPtr() {
       auto conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
           net_endpoint::invalid, shot_type::single, {}, {}, &state)
                       .lock();
-      EXPECT_TRUE(conn);
+      CHECK((conn));
       held = conn->self();
     }
     // Other side absorbs the pair.
     auto peer = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid)
                     .lock();
-    EXPECT_TRUE(peer);
+    CHECK((peer));
 
-    EXPECT_TRUE(held->hangup());
-    EXPECT_TRUE(
-        WaitFor([&] { return closed.load(std::memory_order::acquire); }));
+    CHECK((held->hangup()));
+    CHECK((WaitFor([&] { return closed.load(std::memory_order::acquire); })));
     // After hangup, our held ref is still valid (just not "open").
-    EXPECT_FALSE(held->is_open());
+    CHECK_FALSE((held->is_open()));
   }
 }
 
 #pragma endregion
 #pragma region SendStringBatchOverflow
 
-void IouStreamConn_SendStringBatchOverflow() {
+TEST_CASE("IouStreamConn_SendStringBatchOverflow", "[IouStreamConn]") {
   // Multiple queued strings whose total exceeds the JIT send buffer must
   // all arrive: the batching loop must send what fits and leave the
   // remainder for the next round. Default `send_buf_size` is 4 KB; queue
@@ -1373,28 +1363,28 @@ void IouStreamConn_SendStringBatchOverflow() {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    EXPECT_TRUE(recv_conn);
+    CHECK((recv_conn));
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_conn);
+    CHECK((send_conn));
 
-    EXPECT_TRUE(send_conn->send(std::string{chunk_a}));
-    EXPECT_TRUE(send_conn->send(std::string{chunk_b}));
-    EXPECT_TRUE(send_conn->send(std::string{chunk_c}));
+    CHECK((send_conn->send(std::string{chunk_a})));
+    CHECK((send_conn->send(std::string{chunk_b})));
+    CHECK((send_conn->send(std::string{chunk_c})));
 
-    EXPECT_TRUE(WaitFor([&] { return recv_bytes >= expected; }));
-    EXPECT_EQ(recv_bytes, expected);
-    EXPECT_EQ(payload, chunk_a + chunk_b + chunk_c);
+    CHECK((WaitFor([&] { return recv_bytes >= expected; })));
+    CHECK((recv_bytes) == (expected));
+    CHECK((payload) == (chunk_a + chunk_b + chunk_c));
   }
 }
 
 #pragma endregion
 #pragma region SendStringTooBigRejected
 
-void IouStreamConn_SendStringTooBigRejected() {
+TEST_CASE("IouStreamConn_SendStringTooBigRejected", "[IouStreamConn]") {
   // A string larger than `send_buf_size` is rejected at the `send` entry
   // point; the caller should chunk or use the `buffer` overload.
   if (true) {
@@ -1406,40 +1396,23 @@ void IouStreamConn_SendStringTooBigRejected() {
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    EXPECT_TRUE(send_conn);
+    CHECK((send_conn));
     auto peer = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid)
                     .lock();
-    EXPECT_TRUE(peer);
+    CHECK((peer));
 
     // Default `send_buf_size` is 4 KB; anything strictly larger must be
     // rejected.
     const std::string too_big((4 * 1024ULL) + 1, 'X');
-    EXPECT_FALSE(send_conn->send(std::string{too_big}));
+    CHECK_FALSE((send_conn->send(std::string{too_big})));
 
     // A string exactly equal to the buffer size still fits.
     const std::string just_fits(4 * 1024ULL, 'Y');
-    EXPECT_TRUE(send_conn->send(std::string{just_fits}));
+    CHECK((send_conn->send(std::string{just_fits})));
   }
 }
 
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
-MAKE_TEST_LIST(IouStreamConn_SendRecvString, IouStreamConn_MultipleStrings,
-    IouStreamConn_SendRecvBuffer, IouStreamConn_BufferMoveOut,
-    IouStreamConn_GracefulClose, IouStreamConn_HangupClose,
-    IouStreamConn_OnDrain, IouStreamConn_WithState,
-    IouStreamConn_FullBufferPartialConsume, IouStreamConn_MultishotRecv_Basic,
-    IouStreamConn_MultishotRecv_MultipleMessages,
-    IouStreamConn_MultishotRecv_TakeBuffer,
-    IouStreamConn_MultishotRecv_StopAndResume,
-    IouStreamConn_MultishotRecv_AcceptedConnsInheritMode,
-    IouStreamConn_AccessorsLifecycle, IouStreamConn_Endpoints,
-    IouStreamConn_BufSizeAccessors, IouStreamConn_PeerEofDeliversEmptyView,
-    IouStreamConn_ShutdownSend, IouStreamConn_ShutdownRecv,
-    IouStreamConn_StopAndResumeReceivingOnConn, IouStreamConn_ConnectFailure,
-    IouStreamConn_ListenAcceptMultipleClients,
-    IouStreamConn_CloseFlushesPendingSend, IouStreamConn_HangupIdempotent,
-    IouStreamConn_SelfSharedPtr, IouStreamConn_SendStringBatchOverflow,
-    IouStreamConn_SendStringTooBigRejected)

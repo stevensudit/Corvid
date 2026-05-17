@@ -20,131 +20,131 @@
 #include <sstream>
 #include <string>
 
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace corvid;
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region Parser_ParseScalarsAndKinds
 
-void JsonParser_ParseScalarsAndKinds() {
+TEST_CASE("JsonParser_ParseScalarsAndKinds", "[JsonParser]") {
   json_value_view value;
 
-  ASSERT_TRUE(parse_json("null", value));
-  EXPECT_TRUE(value.is_null());
+  REQUIRE((parse_json("null", value)));
+  CHECK((value.is_null()));
 
-  ASSERT_TRUE(parse_json(" true ", value));
-  ASSERT_TRUE(value.is_bool());
+  REQUIRE((parse_json(" true ", value)));
+  REQUIRE((value.is_bool()));
   const auto bool_value = value.as_bool();
-  ASSERT_TRUE(bool_value.has_value());
-  EXPECT_TRUE(*bool_value);
+  REQUIRE((bool_value.has_value()));
+  CHECK((*bool_value));
 
-  ASSERT_TRUE(parse_json("-12.5e2", value));
-  ASSERT_TRUE(value.is_number());
+  REQUIRE((parse_json("-12.5e2", value)));
+  REQUIRE((value.is_number()));
   const auto number_value = value.as_number<double>();
-  ASSERT_TRUE(number_value.has_value());
-  EXPECT_NEAR(*number_value, -1250.0, 1e-6);
+  REQUIRE((number_value.has_value()));
+  CHECK(std::abs((*number_value) - (-1250.0)) <= (1e-6));
 
-  ASSERT_TRUE(parse_json(R"("plain")", value));
-  ASSERT_TRUE(value.is_string());
+  REQUIRE((parse_json(R"("plain")", value)));
+  REQUIRE((value.is_string()));
   const auto plain_value = value.string_view_if_plain();
-  ASSERT_TRUE(plain_value.has_value());
-  EXPECT_EQ(*plain_value, std::string_view{"plain"});
+  REQUIRE((plain_value.has_value()));
+  CHECK((*plain_value) == (std::string_view{"plain"}));
 }
 
 #pragma endregion
 #pragma region Parser_ParseNestedViewsAndLookup
 
-void JsonParser_ParseNestedViewsAndLookup() {
+TEST_CASE("JsonParser_ParseNestedViewsAndLookup", "[JsonParser]") {
   json_value_view root;
-  ASSERT_TRUE(parse_json(
-      R"({"a\/b":[1,{"nested":false}],"plain":"value","count":2})", root));
+  REQUIRE((parse_json(
+      R"({"a\/b":[1,{"nested":false}],"plain":"value","count":2})", root)));
 
   const auto obj = root.as_object();
-  ASSERT_TRUE(obj);
+  REQUIRE((obj));
 
   const auto plain = obj.get_string_view_if_plain("plain");
-  ASSERT_TRUE(plain.has_value());
-  EXPECT_EQ(*plain, std::string_view{"value"});
+  REQUIRE((plain.has_value()));
+  CHECK((*plain) == (std::string_view{"value"}));
   const auto count_value = obj.get_number<int>("count");
-  ASSERT_TRUE(count_value.has_value());
-  EXPECT_EQ(*count_value, 2);
+  REQUIRE((count_value.has_value()));
+  CHECK((*count_value) == (2));
 
   const auto arr = obj.get_array("a/b");
-  ASSERT_TRUE(arr);
+  REQUIRE((arr));
 
   size_t count = 0;
   for (const auto item : arr) {
     if (count == 0) {
       const auto item_value = item.as_number<int>();
-      ASSERT_TRUE(item_value.has_value());
-      EXPECT_EQ(*item_value, 1);
+      REQUIRE((item_value.has_value()));
+      CHECK((*item_value) == (1));
     } else {
       const auto nested = item.as_object();
-      ASSERT_TRUE(nested);
+      REQUIRE((nested));
       const auto nested_value = nested.get_bool("nested");
-      ASSERT_TRUE(nested_value.has_value());
-      EXPECT_FALSE(*nested_value);
+      REQUIRE((nested_value.has_value()));
+      CHECK_FALSE((*nested_value));
     }
     ++count;
   }
-  EXPECT_EQ(count, 2U);
+  CHECK((count) == (2U));
 }
 
 #pragma endregion
 #pragma region Parser_DecodesEscapesAndUnicode
 
-void JsonParser_DecodesEscapesAndUnicode() {
+TEST_CASE("JsonParser_DecodesEscapesAndUnicode", "[JsonParser]") {
   json_value_view value;
-  ASSERT_TRUE(parse_json(R"("line\nA\uD83D\uDE00")", value));
+  REQUIRE((parse_json(R"("line\nA\uD83D\uDE00")", value)));
 
-  EXPECT_FALSE(value.string_view_if_plain().has_value());
+  CHECK_FALSE((value.string_view_if_plain().has_value()));
 
   std::string decoded;
-  ASSERT_TRUE(value.decode_string(decoded));
+  REQUIRE((value.decode_string(decoded)));
   std::string expected = "line\nA";
   expected += "\xF0\x9F\x98\x80";
-  EXPECT_EQ(decoded, expected);
+  CHECK((decoded) == (expected));
 }
 
 #pragma endregion
 #pragma region Parser_RejectsInvalidJson
 
-void JsonParser_RejectsInvalidJson() {
+TEST_CASE("JsonParser_RejectsInvalidJson", "[JsonParser]") {
   json_value_view value;
   json_error err;
 
-  EXPECT_FALSE(parse_json("01", value, &err));
-  EXPECT_EQ(err.code, json_errc::invalid_number);
+  CHECK_FALSE((parse_json("01", value, &err)));
+  CHECK((err.code) == (json_errc::invalid_number));
 
-  EXPECT_FALSE(parse_json("1.", value, &err));
-  EXPECT_EQ(err.code, json_errc::invalid_number);
+  CHECK_FALSE((parse_json("1.", value, &err)));
+  CHECK((err.code) == (json_errc::invalid_number));
 
-  EXPECT_FALSE(parse_json(R"({"a":1,})", value, &err));
-  EXPECT_EQ(err.code, json_errc::expected_key);
+  CHECK_FALSE((parse_json(R"({"a":1,})", value, &err)));
+  CHECK((err.code) == (json_errc::expected_key));
 
-  EXPECT_FALSE(parse_json("true false", value, &err));
-  EXPECT_EQ(err.code, json_errc::trailing_data);
+  CHECK_FALSE((parse_json("true false", value, &err)));
+  CHECK((err.code) == (json_errc::trailing_data));
 
-  EXPECT_FALSE(parse_json("NaN", value, &err));
-  EXPECT_EQ(err.code, json_errc::invalid_token);
+  CHECK_FALSE((parse_json("NaN", value, &err)));
+  CHECK((err.code) == (json_errc::invalid_token));
 }
 
 #pragma endregion
 #pragma region Parser_RespectsDepthLimit
 
-void JsonParser_RespectsDepthLimit() {
+TEST_CASE("JsonParser_RespectsDepthLimit", "[JsonParser]") {
   json_value_view value;
   json_error err;
 
-  EXPECT_FALSE(parse_json("[[[0]]]", value, &err, {.max_depth = 2}));
-  EXPECT_EQ(err.code, json_errc::depth_exceeded);
+  CHECK_FALSE((parse_json("[[[0]]]", value, &err, {.max_depth = 2})));
+  CHECK((err.code) == (json_errc::depth_exceeded));
 }
 
 #pragma endregion
 #pragma region Writer_EscapesAndTrustedStrings
 
-void JsonWriter_EscapesAndTrustedStrings() {
+TEST_CASE("JsonWriter_EscapesAndTrustedStrings", "[JsonWriter]") {
   std::string out;
   json_writer writer{out};
 
@@ -154,13 +154,13 @@ void JsonWriter_EscapesAndTrustedStrings() {
         .member(json_trusted{"trusted"}, json_trusted{"a/b"});
   }
 
-  EXPECT_EQ(out, R"({"escaped":"a\/b","trusted":"a/b"})");
+  CHECK((out) == (R"({"escaped":"a\/b","trusted":"a/b"})"));
 }
 
 #pragma endregion
 #pragma region Writer_FormatsFloatsAndRoundTrips
 
-void JsonWriter_FormatsFloatsAndRoundTrips() {
+TEST_CASE("JsonWriter_FormatsFloatsAndRoundTrips", "[JsonWriter]") {
   std::string out;
   json_writer writer{out};
 
@@ -178,39 +178,40 @@ void JsonWriter_FormatsFloatsAndRoundTrips() {
     }
   }
 
-  EXPECT_EQ(out, R"({"x":20.0,"scale":2.000,"items":[1,"two",{"ok":true}]})");
+  CHECK(
+      (out) == (R"({"x":20.0,"scale":2.000,"items":[1,"two",{"ok":true}]})"));
 
   json_value_view root;
-  ASSERT_TRUE(parse_json(out, root));
+  REQUIRE((parse_json(out, root)));
   const auto obj = root.as_object();
-  ASSERT_TRUE(obj);
+  REQUIRE((obj));
   const auto x = obj.get_number<float>("x");
   const auto scale = obj.get_number<float>("scale");
-  ASSERT_TRUE(x.has_value());
-  ASSERT_TRUE(scale.has_value());
-  EXPECT_NEAR(*x, 20.0, 1e-6);
-  EXPECT_NEAR(*scale, 2.0, 1e-6);
+  REQUIRE((x.has_value()));
+  REQUIRE((scale.has_value()));
+  CHECK(std::abs((*x) - (20.0)) <= (1e-6));
+  CHECK(std::abs((*scale) - (2.0)) <= (1e-6));
 
   const auto items = obj.get_array("items");
-  ASSERT_TRUE(items);
+  REQUIRE((items));
   size_t count = 0;
   for (const auto item : items) {
     if (count == 2) {
       const auto nested = item.as_object();
-      ASSERT_TRUE(nested);
+      REQUIRE((nested));
       const auto ok = nested.get_bool("ok");
-      ASSERT_TRUE(ok.has_value());
-      EXPECT_TRUE(*ok);
+      REQUIRE((ok.has_value()));
+      CHECK((*ok));
     }
     ++count;
   }
-  EXPECT_EQ(count, 3U);
+  CHECK((count) == (3U));
 }
 
 #pragma endregion
 #pragma region Writer_WritesToOstreamTargets
 
-void JsonWriter_WritesToOstreamTargets() {
+TEST_CASE("JsonWriter_WritesToOstreamTargets", "[JsonWriter]") {
   std::ostringstream out;
   json_writer writer{out};
 
@@ -222,13 +223,13 @@ void JsonWriter_WritesToOstreamTargets() {
     items->value(nullptr).value(json_trusted{"raw"});
   }
 
-  EXPECT_EQ(out.str(), R"({"ok":true,"items":[null,"raw"]})");
+  CHECK((out.str()) == (R"({"ok":true,"items":[null,"raw"]})"));
 }
 
 #pragma endregion
 #pragma region Writer_ScopedContainersAutoClose
 
-void JsonWriter_ScopedContainersAutoClose() {
+TEST_CASE("JsonWriter_ScopedContainersAutoClose", "[JsonWriter]") {
   std::string out;
   json_writer writer{out};
 
@@ -252,14 +253,9 @@ void JsonWriter_ScopedContainersAutoClose() {
     }
   }
 
-  EXPECT_EQ(out,
-      R"({"kind":"demo","meta":{"ok":true},"items":[1,{"name":"two"}]})");
+  CHECK((out) ==
+        (R"({"kind":"demo","meta":{"ok":true},"items":[1,{"name":"two"}]})"));
 }
 
 #pragma endregion
-MAKE_TEST_LIST(JsonParser_ParseScalarsAndKinds,
-    JsonParser_ParseNestedViewsAndLookup, JsonParser_DecodesEscapesAndUnicode,
-    JsonParser_RejectsInvalidJson, JsonParser_RespectsDepthLimit,
-    JsonWriter_EscapesAndTrustedStrings, JsonWriter_FormatsFloatsAndRoundTrips,
-    JsonWriter_WritesToOstreamTargets, JsonWriter_ScopedContainersAutoClose);
 // NOLINTEND(readability-function-cognitive-complexity)

@@ -17,7 +17,7 @@
 
 #include "../corvid/strings/fixed_string.h"
 #include "../corvid/strings/fixed_string_utils.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace std::literals;
 using namespace corvid;
@@ -61,34 +61,31 @@ static_assert(!CanSplit<"">());
 
 #pragma region General
 
-void FixedStringTest_General() {
+TEST_CASE("FixedStringTest_General", "[FixedStringTest]") {
   std::string_view s;
   s = GetFixedString<"abc">();
-  EXPECT_EQ(s, "abc"sv);
+  CHECK((s) == ("abc"sv));
   constinit static auto ceval = test_ceval();
-  EXPECT_EQ(ceval, "abc"sv);
+  CHECK((ceval) == ("abc"sv));
   constinit static auto csplit = test_split();
-  EXPECT_EQ(csplit, "def"sv);
+  CHECK((csplit) == ("def"sv));
 
-  EXPECT_EQ((strings::fixed_split<"abc,def">()),
-      (std::array{"abc"sv, "def"sv}));
-  EXPECT_EQ((strings::fixed_split<"abc , def">()),
-      (std::array{"abc "sv, " def"sv}));
-  EXPECT_EQ((strings::fixed_split_trim<"   abc   ,   def   ">()),
-      (std::array{"abc"sv, "def"sv}));
-  EXPECT_EQ((strings::fixed_split_trim<"   abc   ,    ,  def   ">()),
-      (std::array{"abc"sv, ""sv, "def"sv}));
-  EXPECT_EQ(
-      (strings::fixed_split_trim<"- -- abc  - ,  --  ,  def  -- ", " -">()),
-      (std::array{"abc"sv, ""sv, "def"sv}));
+  CHECK(((strings::fixed_split<"abc,def">())) ==
+        ((std::array{"abc"sv, "def"sv})));
+  CHECK(((strings::fixed_split<"abc , def">())) ==
+        ((std::array{"abc "sv, " def"sv})));
+  CHECK(((strings::fixed_split_trim<"   abc   ,   def   ">())) ==
+        ((std::array{"abc"sv, "def"sv})));
+  CHECK(((strings::fixed_split_trim<"   abc   ,    ,  def   ">())) ==
+        ((std::array{"abc"sv, ""sv, "def"sv})));
+  CHECK(((strings::fixed_split_trim<"- -- abc  - ,  --  ,  def  -- ",
+            " -">())) == ((std::array{"abc"sv, ""sv, "def"sv})));
 
   auto cs = test_cstr();
-  EXPECT_EQ(cs, "abc"sv);
-  EXPECT_EQ(ceval, "abc"_csv);
+  CHECK((cs) == ("abc"sv));
+  CHECK((ceval) == ("abc"_csv));
 }
 
 #pragma endregion
-
-MAKE_TEST_LIST(FixedStringTest_General);
 
 // NOLINTEND(readability-function-cognitive-complexity)

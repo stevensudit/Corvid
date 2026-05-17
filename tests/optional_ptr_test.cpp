@@ -16,7 +16,7 @@
 // limitations under the License.
 
 #include "../corvid/containers.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace std::literals;
 using namespace corvid;
@@ -26,32 +26,32 @@ using corvid::internal::optional_ptr;
 
 #pragma region Construction
 
-void OptionalPtrTest_Construction() {
+TEST_CASE("OptionalPtrTest_Construction", "[OptionalPtrTest]") {
   if (true) {
     optional_ptr<int*> o;
-    EXPECT_FALSE(o.has_value());
+    CHECK_FALSE((o.has_value()));
   }
   if (true) {
     optional_ptr<int*> o{nullptr};
-    EXPECT_FALSE(o.has_value());
+    CHECK_FALSE((o.has_value()));
   }
   if (true) {
     optional_ptr<int*> o{std::nullopt};
-    EXPECT_FALSE(o.has_value());
+    CHECK_FALSE((o.has_value()));
   }
   if (true) {
     int i{42};
     optional_ptr o{&i};
-    EXPECT_TRUE(o.has_value());
+    CHECK((o.has_value()));
     o.reset();
-    EXPECT_FALSE(o.has_value());
+    CHECK_FALSE((o.has_value()));
   }
   if (true) {
     optional_ptr o{new int{42}};
-    EXPECT_TRUE(o.has_value());
+    CHECK((o.has_value()));
     delete o.get();
     o.reset();
-    EXPECT_FALSE(o.has_value());
+    CHECK_FALSE((o.has_value()));
   }
   if (true) {
     int i{42};
@@ -60,10 +60,10 @@ void OptionalPtrTest_Construction() {
     optional_ptr qo{std::move(o)};
     // NOLINTBEGIN
     optional_ptr ro{o};
-    EXPECT_TRUE(o.has_value());
+    CHECK((o.has_value()));
     // NOLINTEND
-    EXPECT_TRUE(qo.has_value());
-    EXPECT_TRUE(ro.has_value());
+    CHECK((qo.has_value()));
+    CHECK((ro.has_value()));
   }
   if (true) {
     auto test{"test"s};
@@ -71,35 +71,35 @@ void OptionalPtrTest_Construction() {
     // * optional_ptr qo{o};
     optional_ptr ro{std::move(o)};
     // NOLINTNEXTLINE(bugprone-use-after-move)
-    EXPECT_FALSE(o.has_value());
-    EXPECT_TRUE(ro.has_value());
+    CHECK_FALSE((o.has_value()));
+    CHECK((ro.has_value()));
   }
 }
 
 #pragma endregion
 #pragma region Access
 
-void OptionalPtrTest_Access() {
+TEST_CASE("OptionalPtrTest_Access", "[OptionalPtrTest]") {
   if (true) {
     auto test{"test"s};
     optional_ptr o = &test;
-    EXPECT_TRUE(o.has_value());
-    EXPECT_EQ(o.value(), test);
+    CHECK((o.has_value()));
+    CHECK((o.value()) == (test));
     std::string* p = o;
-    EXPECT_EQ(p, o);
-    EXPECT_EQ(o->size(), test.size());
-    EXPECT_EQ(p, o.get());
+    CHECK((p) == (o));
+    CHECK((o->size()) == (test.size()));
+    CHECK((p) == (o.get()));
     o.reset();
-    EXPECT_THROW(o.value(), std::bad_optional_access);
+    CHECK_THROWS_AS(o.value(), std::bad_optional_access);
     bool f = o ? true : false;
-    EXPECT_FALSE(f);
+    CHECK_FALSE((f));
 
     // Raw pointers evaluate to bool in any context.
     f = o;
     (void)f;
 
     o.reset(&test);
-    EXPECT_EQ(o->size(), 4U);
+    CHECK((o->size()) == (4U));
   }
   if (true) {
     auto const test{"test"s};
@@ -119,65 +119,65 @@ void OptionalPtrTest_Access() {
 #pragma endregion
 #pragma region OrElse
 
-void OptionalPtrTest_OrElse() {
+TEST_CASE("OptionalPtrTest_OrElse", "[OptionalPtrTest]") {
   if (true) {
     optional_ptr<std::string*> o;
-    EXPECT_FALSE(o.has_value());
+    CHECK_FALSE((o.has_value()));
     std::string empty{};
     auto test{"test"s};
     auto l = [&]() { return test; };
-    EXPECT_EQ(o.value_or(test), test);
-    EXPECT_EQ(o.value_or(), empty);
-    EXPECT_EQ(o.value_or_ptr(&test), test);
-    EXPECT_EQ(o.value_or_fn(l), test);
+    CHECK((o.value_or(test)) == (test));
+    CHECK((o.value_or()) == (empty));
+    CHECK((o.value_or_ptr(&test)) == (test));
+    CHECK((o.value_or_fn(l)) == (test));
   }
 }
 
 #pragma endregion
 #pragma region ConstOrPtr
 
-void OptionalPtrTest_ConstOrPtr() {
+TEST_CASE("OptionalPtrTest_ConstOrPtr", "[OptionalPtrTest]") {
   if (true) {
     const auto test{"test"s};
     optional_ptr<const std::string*> o;
     auto& p = o.value_or_ptr(&test);
     auto b = std::is_same_v<decltype(p), const std::string&>;
-    EXPECT_TRUE(b);
+    CHECK((b));
   }
   if (true) {
     const auto test{"test"s};
     optional_ptr<std::string*> o;
     auto& p = o.value_or_ptr(&test);
-    EXPECT_TRUE((std::is_same_v<decltype(p), const std::string&>));
+    CHECK(((std::is_same_v<decltype(p), const std::string&>)));
   }
   if (true) {
     auto test{"test"s};
     optional_ptr<const std::string*> o;
     auto& p = o.value_or_ptr(&test);
-    EXPECT_TRUE((std::is_same_v<decltype(p), const std::string&>));
+    CHECK(((std::is_same_v<decltype(p), const std::string&>)));
   }
 }
 
 #pragma endregion
 #pragma region Smart
 
-void OptionalPtrTest_Smart() {
+TEST_CASE("OptionalPtrTest_Smart", "[OptionalPtrTest]") {
   if (true) {
     auto test{"test"s};
     optional_ptr o = std::make_unique<std::string>(test);
-    EXPECT_TRUE(o.has_value());
-    EXPECT_EQ(o->size(), test.size());
+    CHECK((o.has_value()));
+    CHECK((o->size()) == (test.size()));
 
     // * auto qo{o};
     auto qo{std::move(o)};
     // NOLINTNEXTLINE(bugprone-use-after-move)
-    EXPECT_FALSE(o.has_value());
-    EXPECT_TRUE(qo.has_value());
+    CHECK_FALSE((o.has_value()));
+    CHECK((qo.has_value()));
 
-    EXPECT_EQ(*qo, test);
+    CHECK((*qo) == (test));
     auto& q = *qo;
     q.resize(q.size());
-    EXPECT_EQ(q, test);
+    CHECK((q) == (test));
 
     // * auto p{qo.get()};
     auto p{std::move(qo).get()};
@@ -191,42 +191,42 @@ void OptionalPtrTest_Smart() {
 
     // This was moved from, so it's empty.
     bool f = o ? true : false;
-    EXPECT_FALSE(f);
+    CHECK_FALSE((f));
 
     // Does not compile because operator bool is marked as explicit and this is
     // not a predicate context.
     // * f = o;
 
     o.reset(std::make_unique<std::string>(test));
-    EXPECT_EQ(o->size(), 4U);
+    CHECK((o->size()) == (4U));
     o.reset();
-    EXPECT_FALSE(o.has_value());
+    CHECK_FALSE((o.has_value()));
   }
   if (true) {
     auto test{"test"s};
     optional_ptr o = std::make_shared<std::string>(test);
-    EXPECT_TRUE(o.has_value());
-    EXPECT_EQ(o->size(), test.size());
+    CHECK((o.has_value()));
+    CHECK((o->size()) == (test.size()));
 
     auto qo{o};
-    EXPECT_TRUE(o.has_value());
-    EXPECT_TRUE(qo.has_value());
+    CHECK((o.has_value()));
+    CHECK((qo.has_value()));
 
-    EXPECT_EQ(*qo, test);
+    CHECK((*qo) == (test));
     auto& q = *qo;
     q.resize(q.size());
-    EXPECT_EQ(q, test);
+    CHECK((q) == (test));
 
     auto p{qo.get()};
 
     bool f = o ? true : false;
-    EXPECT_TRUE(f);
+    CHECK((f));
 
     // Does not compile because operator bool is marked as explicit and this is
     // not a predicate context.
     // * f = o;
 
-    EXPECT_EQ(o->size(), 4U);
+    CHECK((o->size()) == (4U));
 
     p.reset();
     qo.reset();
@@ -236,45 +236,41 @@ void OptionalPtrTest_Smart() {
 #pragma endregion
 #pragma region Dumb
 
-void OptionalPtrTest_Dumb() {
+TEST_CASE("OptionalPtrTest_Dumb", "[OptionalPtrTest]") {
   using O = optional_ptr<int*>;
 
   if (true) {
     O o = nullptr;
-    EXPECT_FALSE(o);
+    CHECK_FALSE((o));
     O p(nullptr);
-    EXPECT_FALSE(p);
-    EXPECT_FALSE(O{nullptr});
+    CHECK_FALSE((p));
+    CHECK_FALSE((O{nullptr}));
   }
   if (true) {
     int i;
     O o(&i);
-    EXPECT_TRUE(o);
+    CHECK((o));
     auto& p = (o = nullptr);
-    EXPECT_FALSE(o);
-    EXPECT_FALSE(p);
+    CHECK_FALSE((o));
+    CHECK_FALSE((p));
   }
   if (true) {
     int i;
     O a(&i);
     O b;
-    EXPECT_TRUE(a != b);
-    EXPECT_TRUE(!(a == b));
-    EXPECT_FALSE(a == O());
-    EXPECT_TRUE(b == O());
-    EXPECT_FALSE(a == nullptr);
-    EXPECT_TRUE(b == nullptr);
-    EXPECT_TRUE(a != O());
-    EXPECT_FALSE(b != O());
-    EXPECT_TRUE(a != nullptr);
-    EXPECT_FALSE(b != nullptr);
+    CHECK((a != b));
+    CHECK((!(a == b)));
+    CHECK_FALSE((a == O()));
+    CHECK((b == O()));
+    CHECK_FALSE((a == nullptr));
+    CHECK((b == nullptr));
+    CHECK((a != O()));
+    CHECK_FALSE((b != O()));
+    CHECK((a != nullptr));
+    CHECK_FALSE((b != nullptr));
   }
 }
 
 #pragma endregion
-
-MAKE_TEST_LIST(OptionalPtrTest_Construction, OptionalPtrTest_Access,
-    OptionalPtrTest_OrElse, OptionalPtrTest_ConstOrPtr, OptionalPtrTest_Smart,
-    OptionalPtrTest_Dumb);
 
 // NOLINTEND(readability-function-cognitive-complexity)

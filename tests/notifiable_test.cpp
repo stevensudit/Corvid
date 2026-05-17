@@ -18,7 +18,7 @@
 #include <thread>
 
 #include "../corvid/concurrency.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace corvid;
 using namespace std::chrono_literals;
@@ -28,13 +28,13 @@ using namespace std::chrono_literals;
 
 #pragma region NotifyAndWait
 
-void Notifiable_NotifyAndWait() {
+TEST_CASE("Notifiable_NotifyAndWait", "[Notifiable]") {
   // `notify` + `wait_until`: waiter unblocks when flag becomes true.
   if (true) {
     notifiable<bool> flag{false};
     std::thread t{[&] { flag.notify(true); }};
     auto v = flag.wait_until([](bool b) { return b; });
-    EXPECT_TRUE(v);
+    CHECK((v));
     t.join();
   }
   // `std::identity` shorthand for bool flag.
@@ -42,7 +42,7 @@ void Notifiable_NotifyAndWait() {
     notifiable<bool> flag{false};
     std::thread t{[&] { flag.notify(true); }};
     auto v = flag.wait_until(std::identity{});
-    EXPECT_TRUE(v);
+    CHECK((v));
     t.join();
   }
 }
@@ -50,42 +50,42 @@ void Notifiable_NotifyAndWait() {
 #pragma endregion
 #pragma region ModifyAndNotify
 
-void Notifiable_ModifyAndNotify() {
+TEST_CASE("Notifiable_ModifyAndNotify", "[Notifiable]") {
   // `modify_and_notify`: waiter unblocks once value exceeds threshold.
   notifiable<int> counter{0};
   std::thread t{[&] {
     for (int i = 0; i < 5; ++i) counter.modify_and_notify([](int& v) { ++v; });
   }};
   auto v = counter.wait_until([](int n) { return n >= 5; });
-  EXPECT_EQ(v, 5);
+  CHECK((v) == (5));
   t.join();
 }
 
 #pragma endregion
 #pragma region WaitFor
 
-void Notifiable_WaitFor() {
+TEST_CASE("Notifiable_WaitFor", "[Notifiable]") {
   // `wait_for` satisfied before deadline: returns the matching value.
   if (true) {
     notifiable<bool> flag{false};
     std::thread t{[&] { flag.notify(true); }};
     auto v = flag.wait_for(5s, std::identity{});
-    EXPECT_TRUE(v);
-    EXPECT_TRUE(*v);
+    CHECK((v));
+    CHECK((*v));
     t.join();
   }
   // `wait_for` timeout: predicate never met, returns nullopt.
   if (true) {
     notifiable<bool> flag{false};
     auto v = flag.wait_for(1ms, std::identity{});
-    EXPECT_FALSE(v);
+    CHECK_FALSE((v));
   }
 }
 
 #pragma endregion
 #pragma region WaitUntilChanged
 
-void Notifiable_WaitUntilChanged() {
+TEST_CASE("Notifiable_WaitUntilChanged", "[Notifiable]") {
   // `wait_until_changed` unblocks when the value changes; returns new value.
   // Capture `old` before spawning the thread so the wait succeeds even if
   // the thread runs before `wait_until_changed` is entered.
@@ -93,7 +93,7 @@ void Notifiable_WaitUntilChanged() {
     notifiable<int> n{0};
     auto old = n.get();
     std::thread t{[&] { n.notify(42); }};
-    EXPECT_EQ(n.wait_until_changed(old), 42);
+    CHECK((n.wait_until_changed(old)) == (42));
     t.join();
   }
   // `wait_for_changed` unblocks before deadline: returns new value.
@@ -102,45 +102,45 @@ void Notifiable_WaitUntilChanged() {
     auto old = n.get();
     std::thread t{[&] { n.notify(42); }};
     auto v = n.wait_for_changed(5s, old);
-    EXPECT_TRUE(v);
-    EXPECT_EQ(*v, 42);
+    CHECK((v));
+    CHECK((*v) == (42));
     t.join();
   }
   // `wait_for_changed` timeout: value never changes, returns nullopt.
   if (true) {
     notifiable<int> n{0};
     auto v = n.wait_for_changed(1ms);
-    EXPECT_FALSE(v);
+    CHECK_FALSE((v));
   }
 }
 
 #pragma endregion
 #pragma region Get
 
-void Notifiable_Get() {
+TEST_CASE("Notifiable_Get", "[Notifiable]") {
   // `get` returns snapshot without blocking.
   notifiable<int> n{42};
-  EXPECT_EQ(n.get(), 42);
+  CHECK((n.get()) == (42));
   n.notify(99);
-  EXPECT_EQ(n.get(), 99);
+  CHECK((n.get()) == (99));
 }
 
 #pragma endregion
 #pragma region Atomic
 
-void Notifiable_Atomic() {
+TEST_CASE("Notifiable_Atomic", "[Notifiable]") {
   // `get` on `std::atomic<bool>`: lock-free relaxed load.
   if (true) {
     notifiable<std::atomic_bool> flag{false};
-    EXPECT_FALSE(flag.get());
+    CHECK_FALSE((flag.get()));
     flag.notify(true);
-    EXPECT_TRUE(flag.get());
-    EXPECT_TRUE(flag.get(std::memory_order::acquire));
+    CHECK((flag.get()));
+    CHECK((flag.get(std::memory_order::acquire)));
   }
   // `load_value` static helper: relaxed read without implicit `seq_cst` cast.
   if (true) {
     std::atomic_bool a{true};
-    EXPECT_TRUE(notifiable<std::atomic_bool>::load_value(a));
+    CHECK((notifiable<std::atomic_bool>::load_value(a)));
   }
   // `notify` + `wait_until`: waiter unblocks when atomic flag becomes true.
   if (true) {
@@ -149,7 +149,7 @@ void Notifiable_Atomic() {
     auto v = flag.wait_until([](const std::atomic_bool& b) {
       return b.load();
     });
-    EXPECT_TRUE(v);
+    CHECK((v));
     t.join();
   }
   // `wait_until_value`: uses `load_value` internally (no implicit `seq_cst`).
@@ -157,7 +157,7 @@ void Notifiable_Atomic() {
     notifiable<std::atomic_bool> flag{false};
     std::thread t{[&] { flag.notify(true); }};
     flag.wait_until_value(true);
-    EXPECT_TRUE(flag.get());
+    CHECK((flag.get()));
     t.join();
   }
   // `wait_until_changed` on atomic int: returns new value.
@@ -165,7 +165,7 @@ void Notifiable_Atomic() {
     notifiable<std::atomic<int>> n{0};
     auto old = n.get();
     std::thread t{[&] { n.notify(42); }};
-    EXPECT_EQ(n.wait_until_changed(old), 42);
+    CHECK((n.wait_until_changed(old)) == (42));
     t.join();
   }
   // `modify_and_notify` on atomic int: waiter unblocks once threshold reached.
@@ -178,7 +178,7 @@ void Notifiable_Atomic() {
     auto v = counter.wait_until([](const std::atomic<int>& n) {
       return n.load() >= 5;
     });
-    EXPECT_EQ(v, 5);
+    CHECK((v) == (5));
     t.join();
   }
   // `wait_for` satisfied before deadline.
@@ -188,21 +188,21 @@ void Notifiable_Atomic() {
     auto v = flag.wait_for(5s, [](const std::atomic_bool& b) {
       return b.load();
     });
-    EXPECT_TRUE(v);
-    EXPECT_TRUE(*v);
+    CHECK((v));
+    CHECK((*v));
     t.join();
   }
   // `wait_for_value` satisfied before deadline.
   if (true) {
     notifiable<std::atomic_bool> flag{false};
     std::thread t{[&] { flag.notify(true); }};
-    EXPECT_TRUE(flag.wait_for_value(5s, true));
+    CHECK((flag.wait_for_value(5s, true)));
     t.join();
   }
   // `wait_for_value` timeout: predicate never met.
   if (true) {
     notifiable<std::atomic_bool> flag{false};
-    EXPECT_FALSE(flag.wait_for_value(1ms, true));
+    CHECK_FALSE((flag.wait_for_value(1ms, true)));
   }
   // `wait_for_changed` satisfied before deadline.
   if (true) {
@@ -210,92 +210,92 @@ void Notifiable_Atomic() {
     auto old = n.get();
     std::thread t{[&] { n.notify(99); }};
     auto v = n.wait_for_changed(5s, old);
-    EXPECT_TRUE(v);
-    EXPECT_EQ(*v, 99);
+    CHECK((v));
+    CHECK((*v) == (99));
     t.join();
   }
   // `wait_for_changed` timeout: value never changes.
   if (true) {
     notifiable<std::atomic<int>> n{0};
-    EXPECT_FALSE(n.wait_for_changed(1ms));
+    CHECK_FALSE((n.wait_for_changed(1ms)));
   }
 }
 
 #pragma endregion
 #pragma region RelaxedAtomic_Basic
 
-void RelaxedAtomic_Basic() {
+TEST_CASE("RelaxedAtomic_Basic", "[RelaxedAtomic]") {
   // Default-constructed value is zero-initialized.
   relaxed_atomic<int> a;
-  EXPECT_EQ(static_cast<int>(a), 0);
+  CHECK((static_cast<int>(a)) == (0));
 
   // Value constructor.
   relaxed_atomic<int> b{42};
-  EXPECT_EQ(static_cast<int>(b), 42);
+  CHECK((static_cast<int>(b)) == (42));
 
   // Implicit conversion reads with relaxed semantics.
   int v = b;
-  EXPECT_EQ(v, 42);
+  CHECK((v) == (42));
 
   // Assignment stores with relaxed semantics and returns the stored value.
   int r = (b = 99);
-  EXPECT_EQ(r, 99);
-  EXPECT_EQ(static_cast<int>(b), 99);
+  CHECK((r) == (99));
+  CHECK((static_cast<int>(b)) == (99));
 }
 
 #pragma endregion
 #pragma region RelaxedAtomic_Arrow
 
-void RelaxedAtomic_Arrow() {
+TEST_CASE("RelaxedAtomic_Arrow", "[RelaxedAtomic]") {
   // `operator->` exposes the underlying `std::atomic<T>` methods.
   relaxed_atomic<int> a{10};
 
   // Explicit load with acquire ordering.
-  EXPECT_EQ(a->load(std::memory_order::acquire), 10);
+  CHECK((a->load(std::memory_order::acquire)) == (10));
 
   // Explicit store with release ordering.
   a->store(20, std::memory_order::release);
-  EXPECT_EQ(static_cast<int>(a), 20);
+  CHECK((static_cast<int>(a)) == (20));
 
   // exchange.
   int old = a.exchange(30);
-  EXPECT_EQ(old, 20);
-  EXPECT_EQ(static_cast<int>(a), 30);
+  CHECK((old) == (20));
+  CHECK((static_cast<int>(a)) == (30));
 
   // compare_exchange_strong: succeeds when expected matches.
   int expected = 30;
-  EXPECT_TRUE(a->compare_exchange_strong(expected, 40));
-  EXPECT_EQ(static_cast<int>(a), 40);
+  CHECK((a->compare_exchange_strong(expected, 40)));
+  CHECK((static_cast<int>(a)) == (40));
 
   // compare_exchange_strong: fails and updates expected when it does not
   // match.
   expected = 0;
-  EXPECT_FALSE(a->compare_exchange_strong(expected, 99));
-  EXPECT_EQ(expected, 40);
+  CHECK_FALSE((a->compare_exchange_strong(expected, 99)));
+  CHECK((expected) == (40));
 }
 
 #pragma endregion
 #pragma region RelaxedAtomic_Bool
 
-void RelaxedAtomic_Bool() {
+TEST_CASE("RelaxedAtomic_Bool", "[RelaxedAtomic]") {
   // Works for `bool` values.
   relaxed_atomic<bool> flag{false};
-  EXPECT_FALSE(static_cast<bool>(flag));
+  CHECK_FALSE((static_cast<bool>(flag)));
   flag = true;
-  EXPECT_TRUE(static_cast<bool>(flag));
+  CHECK((static_cast<bool>(flag)));
 }
 
 #pragma endregion
 #pragma region RelaxedAtomic
 
-void Notifiable_RelaxedAtomic() {
+TEST_CASE("Notifiable_RelaxedAtomic", "[Notifiable]") {
   // `get` on `relaxed_atomic<bool>`: lock-free relaxed load.
   if (true) {
     notifiable<relaxed_atomic_bool> flag{false};
-    EXPECT_FALSE(flag.get());
+    CHECK_FALSE((flag.get()));
     flag.notify(true);
-    EXPECT_TRUE(flag.get());
-    EXPECT_TRUE(flag.get(std::memory_order::acquire));
+    CHECK((flag.get()));
+    CHECK((flag.get(std::memory_order::acquire)));
   }
   // `notify` + `wait_until`: waiter unblocks when flag becomes true.
   if (true) {
@@ -304,7 +304,7 @@ void Notifiable_RelaxedAtomic() {
     auto v = flag.wait_until([](const relaxed_atomic_bool& b) {
       return b->load();
     });
-    EXPECT_TRUE(v);
+    CHECK((v));
     t.join();
   }
   // `wait_until_value` on `relaxed_atomic<bool>`.
@@ -312,7 +312,7 @@ void Notifiable_RelaxedAtomic() {
     notifiable<relaxed_atomic_bool> flag{false};
     std::thread t{[&] { flag.notify(true); }};
     flag.wait_until_value(true);
-    EXPECT_TRUE(flag.get());
+    CHECK((flag.get()));
     t.join();
   }
   // `wait_until_changed` on `relaxed_atomic<int>`: returns new value.
@@ -320,7 +320,7 @@ void Notifiable_RelaxedAtomic() {
     notifiable<relaxed_atomic<int>> n{0};
     auto old = n.get();
     std::thread t{[&] { n.notify(42); }};
-    EXPECT_EQ(n.wait_until_changed(old), 42);
+    CHECK((n.wait_until_changed(old)) == (42));
     t.join();
   }
   // `modify_and_notify` on `relaxed_atomic<int>`.
@@ -335,7 +335,7 @@ void Notifiable_RelaxedAtomic() {
     auto v = counter.wait_until([](const relaxed_atomic<int>& n) {
       return n->load() >= 5;
     });
-    EXPECT_EQ(v, 5);
+    CHECK((v) == (5));
     t.join();
   }
   // `wait_for` satisfied before deadline.
@@ -345,8 +345,8 @@ void Notifiable_RelaxedAtomic() {
     auto v = flag.wait_for(5s, [](const relaxed_atomic_bool& b) {
       return b->load();
     });
-    EXPECT_TRUE(v);
-    EXPECT_TRUE(*v);
+    CHECK((v));
+    CHECK((*v));
     t.join();
   }
   // `wait_for_changed` satisfied before deadline.
@@ -355,22 +355,17 @@ void Notifiable_RelaxedAtomic() {
     auto old = n.get();
     std::thread t{[&] { n.notify(99); }};
     auto v = n.wait_for_changed(5s, old);
-    EXPECT_TRUE(v);
-    EXPECT_EQ(*v, 99);
+    CHECK((v));
+    CHECK((*v) == (99));
     t.join();
   }
   // `wait_for_changed` timeout: value never changes.
   if (true) {
     notifiable<relaxed_atomic<int>> n{0};
-    EXPECT_FALSE(n.wait_for_changed(1ms));
+    CHECK_FALSE((n.wait_for_changed(1ms)));
   }
 }
 #pragma endregion
-
-MAKE_TEST_LIST(Notifiable_NotifyAndWait, Notifiable_ModifyAndNotify,
-    Notifiable_WaitFor, Notifiable_WaitUntilChanged, Notifiable_Get,
-    Notifiable_Atomic, RelaxedAtomic_Basic, RelaxedAtomic_Arrow,
-    RelaxedAtomic_Bool, Notifiable_RelaxedAtomic);
 
 // NOLINTEND(performance-unnecessary-copy-initialization)
 // NOLINTEND(readability-function-cognitive-complexity)

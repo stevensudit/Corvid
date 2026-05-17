@@ -19,7 +19,7 @@
 #include <memory>
 
 #include "../corvid/concurrency.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace corvid;
 using namespace std::chrono_literals;
@@ -35,21 +35,21 @@ struct FakeResource {
 
 #pragma region TimerFuse_Default
 
-void TimerFuse_Default() {
+TEST_CASE("TimerFuse_Default", "[TimerFuse]") {
   // Default-constructed fuse is permanently unarmed.
   timer_fuse<FakeResource> fuse;
-  EXPECT_EQ(fuse.get_if_armed(), nullptr);
+  CHECK((fuse.get_if_armed()) == (nullptr));
 
   // Copyability: a copy is also unarmed.
   auto copy = fuse;
-  EXPECT_EQ(copy.get_if_armed(), nullptr);
+  CHECK((copy.get_if_armed()) == (nullptr));
   copy = fuse; // copy assignment
 }
 
 #pragma endregion
 #pragma region TimerFuse_ArmedFires
 
-void TimerFuse_ArmedFires() {
+TEST_CASE("TimerFuse_ArmedFires", "[TimerFuse]") {
   // A fuse whose payload fires while the sequencer is unchanged returns the
   // live resource from `get_if_armed`.
   auto resource = std::make_shared<FakeResource>();
@@ -64,16 +64,16 @@ void TimerFuse_ArmedFires() {
         saw_resource = (f.get_if_armed() != nullptr);
         return true;
       });
-  EXPECT_TRUE(ok);
+  CHECK((ok));
   wheel.tick(t0 + 4ms);
-  EXPECT_TRUE(fired);
-  EXPECT_TRUE(saw_resource);
+  CHECK((fired));
+  CHECK((saw_resource));
 }
 
 #pragma endregion
 #pragma region TimerFuse_Disarm
 
-void TimerFuse_Disarm() {
+TEST_CASE("TimerFuse_Disarm", "[TimerFuse]") {
   // Calling `disarm` before the wheel ticks causes the payload to see a null
   // resource from `get_if_armed`.
   auto resource = std::make_shared<FakeResource>();
@@ -90,14 +90,14 @@ void TimerFuse_Disarm() {
       });
   timer_fuse<FakeResource>::disarm(resource->seq);
   wheel.tick(t0 + 4ms);
-  EXPECT_TRUE(fired);
-  EXPECT_TRUE(saw_null);
+  CHECK((fired));
+  CHECK((saw_null));
 }
 
 #pragma endregion
 #pragma region TimerFuse_Rearm
 
-void TimerFuse_Rearm() {
+TEST_CASE("TimerFuse_Rearm", "[TimerFuse]") {
   // Re-arming increments the sequencer so the earlier fuse fizzles; only the
   // most-recently-armed fuse sees a live resource.
   auto resource = std::make_shared<FakeResource>();
@@ -125,16 +125,16 @@ void TimerFuse_Rearm() {
       });
 
   wheel.tick(t0 + 6ms);
-  EXPECT_TRUE(first_fired);
-  EXPECT_FALSE(first_saw_resource); // fizzled
-  EXPECT_TRUE(second_fired);
-  EXPECT_TRUE(second_saw_resource); // still armed
+  CHECK((first_fired));
+  CHECK_FALSE((first_saw_resource)); // fizzled
+  CHECK((second_fired));
+  CHECK((second_saw_resource)); // still armed
 }
 
 #pragma endregion
 #pragma region TimerFuse_ResourceExpired
 
-void TimerFuse_ResourceExpired() {
+TEST_CASE("TimerFuse_ResourceExpired", "[TimerFuse]") {
   // If the `shared_ptr` owning the resource is released before the payload
   // fires, `get_if_armed` returns nullptr (the `weak_ptr` is expired).
   auto resource = std::make_shared<FakeResource>();
@@ -151,14 +151,14 @@ void TimerFuse_ResourceExpired() {
       });
   resource.reset();
   wheel.tick(t0 + 4ms);
-  EXPECT_TRUE(fired);
-  EXPECT_TRUE(saw_null);
+  CHECK((fired));
+  CHECK((saw_null));
 }
 
 #pragma endregion
 #pragma region TimerFuse_ExceedMaxDelay
 
-void TimerFuse_ExceedMaxDelay() {
+TEST_CASE("TimerFuse_ExceedMaxDelay", "[TimerFuse]") {
   // `set_timeout` returns false when the delay exceeds the wheel's range.
   // With slot_count=2 and tick_interval=1ms, max delay = 1ms.
   auto resource = std::make_shared<FakeResource>();
@@ -167,12 +167,9 @@ void TimerFuse_ExceedMaxDelay() {
   auto ok = timer_fuse<FakeResource>::set_timeout(wheel, resource->seq,
       resource, 2ms,
       [](const timer_fuse<FakeResource>&) -> bool { return true; });
-  EXPECT_FALSE(ok);
+  CHECK_FALSE((ok));
 }
 
 #pragma endregion
-
-MAKE_TEST_LIST(TimerFuse_Default, TimerFuse_ArmedFires, TimerFuse_Disarm,
-    TimerFuse_Rearm, TimerFuse_ResourceExpired, TimerFuse_ExceedMaxDelay);
 
 // NOLINTEND(readability-function-cognitive-complexity)

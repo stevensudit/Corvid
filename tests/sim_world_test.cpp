@@ -26,7 +26,7 @@
 #include "../corvid/sim/sim_game.h"
 #include "../corvid/sim/sim_json_parse.h"
 #include "../corvid/sim/sim_json_wire.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace corvid;
 using namespace corvid::sim;
@@ -314,9 +314,9 @@ spawnDefenderShooter(SimWorld& w, Position spawn_pos) {
 
 #pragma region World_SpawnAndSnapshot
 
-void SimWorld_SpawnAndSnapshot() {
+TEST_CASE("SimWorld_SpawnAndSnapshot", "[SimWorld]") {
   SimWorld w;
-  EXPECT_EQ(w.size(), 0U);
+  CHECK((w.size()) == (0U));
 
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{200.F, 0.F}}};
@@ -325,24 +325,21 @@ void SimWorld_SpawnAndSnapshot() {
   const auto invader = spawnInvaderAlpha(w, pid);
   const auto defender = spawnDefenderAoe(w, Position{30.F, 40.F});
 
-  EXPECT_EQ(w.size(), 2U);
+  CHECK((w.size()) == (2U));
 
   const auto all = snapshot(w);
-  ASSERT_EQ(all.size(), 2U);
-  EXPECT_EQ(filterSnapshot(all, std::vector<SimWorld::EntityId>{invader.id()})
-                .size(),
-      1U);
-  EXPECT_EQ(
-      filterSnapshot(all,
-          std::vector<SimWorld::EntityId>{invader.id(), defender.id()})
-          .size(),
-      2U);
+  REQUIRE((all.size()) == (2U));
+  CHECK((filterSnapshot(all, std::vector<SimWorld::EntityId>{invader.id()})
+                .size()) == (1U));
+  CHECK((filterSnapshot(all,
+            std::vector<SimWorld::EntityId>{invader.id(), defender.id()})
+                .size()) == (2U));
 }
 
 #pragma endregion
 #pragma region World_NextMovesInvaderAlpha
 
-void SimWorld_NextMovesInvaderAlpha() {
+TEST_CASE("SimWorld_NextMovesInvaderAlpha", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{200.F, 0.F}}};
@@ -352,17 +349,19 @@ void SimWorld_NextMovesInvaderAlpha() {
   (void)w.next();
 
   const auto snaps = snapshot(w);
-  EXPECT_EQ(*w.tick(), 1U);
-  ASSERT_EQ(snaps.size(), 1U);
-  EXPECT_EQ(snaps[0].id, invader.id());
-  EXPECT_NEAR(snaps[0].pos.x, 50.0, 1e-6);
-  EXPECT_NEAR(snaps[0].pos.y, 0.0, 1e-6);
+  CHECK((*w.tick()) == (1U));
+  REQUIRE((snaps.size()) == (1U));
+  CHECK((snaps[0].id) == (invader.id()));
+  CHECK(std::abs((snaps[0].pos.x) - (50.0)) <= (1e-6));
+  CHECK(std::abs((snaps[0].pos.y) - (0.0)) <= (1e-6));
 }
 
 #pragma endregion
 #pragma region World_ExtractUpdatedEntitiesReportsMovedInvaderOncePerExtraction
 
-void SimWorld_ExtractUpdatedEntitiesReportsMovedInvaderOncePerExtraction() {
+TEST_CASE(
+    "SimWorld_ExtractUpdatedEntitiesReportsMovedInvaderOncePerExtraction",
+    "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{300.F, 0.F}}};
@@ -373,23 +372,23 @@ void SimWorld_ExtractUpdatedEntitiesReportsMovedInvaderOncePerExtraction() {
   (void)w.tick();
   const auto delta = extractWorldDelta(w);
 
-  EXPECT_TRUE(containsId(delta.upserts, invader.id()));
-  EXPECT_TRUE(delta.erased.empty());
+  CHECK((containsId(delta.upserts, invader.id())));
+  CHECK((delta.erased.empty()));
 
   const auto* pos = findPosition(delta.upserts, invader.id());
-  ASSERT_TRUE(pos != nullptr);
-  EXPECT_NEAR(pos->x, 50.0, 1e-6);
-  EXPECT_NEAR(pos->y, 0.0, 1e-6);
+  REQUIRE((pos != nullptr));
+  CHECK(std::abs((pos->x) - (50.0)) <= (1e-6));
+  CHECK(std::abs((pos->y) - (0.0)) <= (1e-6));
 
   const auto empty_delta = extractWorldDelta(w);
-  EXPECT_TRUE(empty_delta.upserts.empty());
-  EXPECT_TRUE(empty_delta.erased.empty());
+  CHECK((empty_delta.upserts.empty()));
+  CHECK((empty_delta.erased.empty()));
 }
 
 #pragma endregion
 #pragma region World_DefenderInRangeFlashesItselfAndInvader
 
-void SimWorld_DefenderInRangeFlashesItselfAndInvader() {
+TEST_CASE("SimWorld_DefenderInRangeFlashesItselfAndInvader", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -402,28 +401,28 @@ void SimWorld_DefenderInRangeFlashesItselfAndInvader() {
   (void)w.next();
 
   const auto delta = extractWorldDelta(w);
-  ASSERT_EQ(delta.upserts.size(), 2U);
-  EXPECT_TRUE(containsId(delta.upserts, defender.id()));
-  EXPECT_TRUE(containsId(delta.upserts, invader.id()));
+  REQUIRE((delta.upserts.size()) == (2U));
+  CHECK((containsId(delta.upserts, defender.id())));
+  CHECK((containsId(delta.upserts, invader.id())));
 
   const auto defender_it =
       std::ranges::find(delta.upserts, defender.id(), &WorldDelta::Upsert::id);
-  ASSERT_TRUE(defender_it != delta.upserts.end());
-  EXPECT_EQ(defender_it->fx.flashColor, 0xFFFFFFFFU);
-  EXPECT_EQ(defender_it->fx.flashExpiry, WorldTick{6});
+  REQUIRE((defender_it != delta.upserts.end()));
+  CHECK((defender_it->fx.flashColor) == (0xFFFFFFFFU));
+  CHECK((defender_it->fx.flashExpiry) == (WorldTick{6}));
 
   const auto invader_it =
       std::ranges::find(delta.upserts, invader.id(), &WorldDelta::Upsert::id);
-  ASSERT_TRUE(invader_it != delta.upserts.end());
-  EXPECT_EQ(invader_it->fx.flashColor, 0xFF7F7FFFU);
-  EXPECT_EQ(invader_it->fx.flashExpiry, WorldTick{6});
-  EXPECT_NEAR(invader_it->pos.x, 50.0, 1e-6);
+  REQUIRE((invader_it != delta.upserts.end()));
+  CHECK((invader_it->fx.flashColor) == (0xFF7F7FFFU));
+  CHECK((invader_it->fx.flashExpiry) == (WorldTick{6}));
+  CHECK(std::abs((invader_it->pos.x) - (50.0)) <= (1e-6));
 }
 
 #pragma endregion
 #pragma region World_DefenderAoeAttackEmitsPulseExplosion
 
-void SimWorld_DefenderAoeAttackEmitsPulseExplosion() {
+TEST_CASE("SimWorld_DefenderAoeAttackEmitsPulseExplosion", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -436,24 +435,24 @@ void SimWorld_DefenderAoeAttackEmitsPulseExplosion() {
   (void)w.next();
 
   const auto explosions = extractTransientExplosions(w);
-  ASSERT_EQ(explosions.size(), 1U);
-  EXPECT_NEAR(explosions[0].circle.x, 0.0, 1e-6);
-  EXPECT_NEAR(explosions[0].circle.y, 0.0, 1e-6);
-  EXPECT_EQ(explosions[0].expiry, WorldTick{2});
-  EXPECT_EQ(explosions[0].primaryColor, 0xFFFF0030U);
-  EXPECT_EQ(explosions[0].secondaryColor, 0xFFFF0010U);
-  EXPECT_NEAR(explosions[0].circle.radius, 100.0, 1e-6);
+  REQUIRE((explosions.size()) == (1U));
+  CHECK(std::abs((explosions[0].circle.x) - (0.0)) <= (1e-6));
+  CHECK(std::abs((explosions[0].circle.y) - (0.0)) <= (1e-6));
+  CHECK((explosions[0].expiry) == (WorldTick{2}));
+  CHECK((explosions[0].primaryColor) == (0xFFFF0030U));
+  CHECK((explosions[0].secondaryColor) == (0xFFFF0010U));
+  CHECK(std::abs((explosions[0].circle.radius) - (100.0)) <= (1e-6));
 
   const auto drained = extractTransientExplosions(w);
-  EXPECT_TRUE(drained.empty());
+  CHECK((drained.empty()));
 
-  EXPECT_TRUE(w.try_get_component<Position>(defender.id()) != nullptr);
+  CHECK((w.try_get_component<Position>(defender.id()) != nullptr));
 }
 
 #pragma endregion
 #pragma region World_DefenderShooterSpawnsVisibleBullet
 
-void SimWorld_DefenderShooterSpawnsVisibleBullet() {
+TEST_CASE("SimWorld_DefenderShooterSpawnsVisibleBullet", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -465,22 +464,23 @@ void SimWorld_DefenderShooterSpawnsVisibleBullet() {
   (void)w.next();
 
   const auto delta = extractWorldDelta(w);
-  ASSERT_EQ(delta.upserts.size(), 1U);
+  REQUIRE((delta.upserts.size()) == (1U));
   const auto bulletIt = std::ranges::find_if(delta.upserts,
       [&](const WorldDelta::Upsert& upsert) {
         return upsert.id != defender.id() && upsert.app.glyph == U'*';
       });
-  ASSERT_TRUE(bulletIt != delta.upserts.end());
-  EXPECT_TRUE(bulletIt->app.glyph == U'*');
-  EXPECT_NEAR(bulletIt->app.radius, 8.0, 1e-6);
-  EXPECT_NEAR(bulletIt->pos.x, 0.0, 1e-6);
-  EXPECT_NEAR(bulletIt->pos.y, 0.0, 1e-6);
+  REQUIRE((bulletIt != delta.upserts.end()));
+  CHECK((bulletIt->app.glyph == U'*'));
+  CHECK(std::abs((bulletIt->app.radius) - (8.0)) <= (1e-6));
+  CHECK(std::abs((bulletIt->pos.x) - (0.0)) <= (1e-6));
+  CHECK(std::abs((bulletIt->pos.y) - (0.0)) <= (1e-6));
 }
 
 #pragma endregion
 #pragma region World_DefenderShooterBulletHitsInvaderOnNextStep
 
-void SimWorld_DefenderShooterBulletHitsInvaderOnNextStep() {
+TEST_CASE("SimWorld_DefenderShooterBulletHitsInvaderOnNextStep",
+    "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -495,34 +495,35 @@ void SimWorld_DefenderShooterBulletHitsInvaderOnNextStep() {
       [&](const WorldDelta::Upsert& upsert) {
         return upsert.id != defender.id() && upsert.id != invader.id();
       });
-  ASSERT_TRUE(bulletIt != bulletSpawnDelta.upserts.end());
+  REQUIRE((bulletIt != bulletSpawnDelta.upserts.end()));
   const auto bulletId = bulletIt->id;
   (void)w.tick();
 
   (void)w.next();
 
   const auto delta = extractWorldDelta(w);
-  EXPECT_TRUE(containsId(delta.upserts, invader.id()));
-  EXPECT_TRUE(containsId(delta.erased, bulletId));
+  CHECK((containsId(delta.upserts, invader.id())));
+  CHECK((containsId(delta.erased, bulletId)));
 
   const auto* hp = w.try_get_component<Health>(invader.id());
-  ASSERT_TRUE(hp != nullptr);
-  EXPECT_NEAR(hp->currentHealth, 85.0, 1e-6);
+  REQUIRE((hp != nullptr));
+  CHECK(std::abs((hp->currentHealth) - (85.0)) <= (1e-6));
 
   const auto* stats = w.try_get_component<DefenderStats>(defender.id());
-  ASSERT_TRUE(stats != nullptr);
-  EXPECT_NEAR(stats->totalDamageDealt, 15.0, 1e-6);
+  REQUIRE((stats != nullptr));
+  CHECK(std::abs((stats->totalDamageDealt) - (15.0)) <= (1e-6));
 
   const auto explosions = extractTransientExplosions(w);
-  ASSERT_EQ(explosions.size(), 1U);
-  EXPECT_NEAR(explosions[0].circle.x, 100.0, 1e-6);
-  EXPECT_NEAR(explosions[0].circle.y, 0.0, 1e-6);
+  REQUIRE((explosions.size()) == (1U));
+  CHECK(std::abs((explosions[0].circle.x) - (100.0)) <= (1e-6));
+  CHECK(std::abs((explosions[0].circle.y) - (0.0)) <= (1e-6));
 }
 
 #pragma endregion
 #pragma region World_DefenderShooterBulletHitsFirstInvaderAlongPath
 
-void SimWorld_DefenderShooterBulletHitsFirstInvaderAlongPath() {
+TEST_CASE("SimWorld_DefenderShooterBulletHitsFirstInvaderAlongPath",
+    "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -540,20 +541,20 @@ void SimWorld_DefenderShooterBulletHitsFirstInvaderAlongPath() {
 
   const auto* nearHp = w.try_get_component<Health>(nearInvader.id());
   const auto* farHp = w.try_get_component<Health>(farInvader.id());
-  ASSERT_TRUE(nearHp != nullptr);
-  ASSERT_TRUE(farHp != nullptr);
-  EXPECT_NEAR(nearHp->currentHealth, 85.0, 1e-6);
-  EXPECT_NEAR(farHp->currentHealth, 100.0, 1e-6);
+  REQUIRE((nearHp != nullptr));
+  REQUIRE((farHp != nullptr));
+  CHECK(std::abs((nearHp->currentHealth) - (85.0)) <= (1e-6));
+  CHECK(std::abs((farHp->currentHealth) - (100.0)) <= (1e-6));
 
   const auto* stats = w.try_get_component<DefenderStats>(defender.id());
-  ASSERT_TRUE(stats != nullptr);
-  EXPECT_NEAR(stats->totalDamageDealt, 15.0, 1e-6);
+  REQUIRE((stats != nullptr));
+  CHECK(std::abs((stats->totalDamageDealt) - (15.0)) <= (1e-6));
 }
 
 #pragma endregion
 #pragma region World_ExplosiveBulletDetonatesOnExpiry
 
-void SimWorld_ExplosiveBulletDetonatesOnExpiry() {
+TEST_CASE("SimWorld_ExplosiveBulletDetonatesOnExpiry", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -561,7 +562,7 @@ void SimWorld_ExplosiveBulletDetonatesOnExpiry() {
   const auto defender = spawnDefenderShooter(w, {0.F, 0.F});
   const auto invader = spawnInvaderAlpha(w, pid, 50.F);
   auto* shooter = w.try_get_component<DefenderShooter>(defender.id());
-  ASSERT_TRUE(shooter != nullptr);
+  REQUIRE((shooter != nullptr));
   shooter->bulletTemplate.splashRadius = 250.F;
   shooter->bulletTemplate.expiry = WorldTick{1};
 
@@ -572,33 +573,33 @@ void SimWorld_ExplosiveBulletDetonatesOnExpiry() {
       [&](const WorldDelta::Upsert& upsert) {
         return upsert.id != defender.id() && upsert.id != invader.id();
       });
-  ASSERT_TRUE(bulletIt != bulletSpawnDelta.upserts.end());
+  REQUIRE((bulletIt != bulletSpawnDelta.upserts.end()));
   const auto bulletId = bulletIt->id;
   (void)w.tick();
   (void)w.next();
 
   const auto delta = extractWorldDelta(w);
-  EXPECT_TRUE(containsId(delta.erased, bulletId));
+  CHECK((containsId(delta.erased, bulletId)));
 
   const auto* hp = w.try_get_component<Health>(invader.id());
-  ASSERT_TRUE(hp != nullptr);
-  EXPECT_NEAR(hp->currentHealth, 85.0, 1e-6);
+  REQUIRE((hp != nullptr));
+  CHECK(std::abs((hp->currentHealth) - (85.0)) <= (1e-6));
 
   const auto* stats = w.try_get_component<DefenderStats>(defender.id());
-  ASSERT_TRUE(stats != nullptr);
-  EXPECT_NEAR(stats->totalDamageDealt, 15.0, 1e-6);
+  REQUIRE((stats != nullptr));
+  CHECK(std::abs((stats->totalDamageDealt) - (15.0)) <= (1e-6));
 
   const auto explosions = extractTransientExplosions(w);
-  ASSERT_EQ(explosions.size(), 1U);
-  EXPECT_NEAR(explosions[0].circle.x, 200.0, 1e-6);
-  EXPECT_NEAR(explosions[0].circle.y, 0.0, 1e-6);
-  EXPECT_NEAR(explosions[0].circle.radius, 250.0, 1e-6);
+  REQUIRE((explosions.size()) == (1U));
+  CHECK(std::abs((explosions[0].circle.x) - (200.0)) <= (1e-6));
+  CHECK(std::abs((explosions[0].circle.y) - (0.0)) <= (1e-6));
+  CHECK(std::abs((explosions[0].circle.radius) - (250.0)) <= (1e-6));
 }
 
 #pragma endregion
 #pragma region World_SnapshotSinceTracksChanges
 
-void SimWorld_SnapshotSinceTracksChanges() {
+TEST_CASE("SimWorld_SnapshotSinceTracksChanges", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -608,11 +609,11 @@ void SimWorld_SnapshotSinceTracksChanges() {
 
   // Drain the spawn-time dirty list; both entities visible at tick_=0.
   const auto initial = extractWorldDelta(w);
-  EXPECT_EQ(initial.upserts.size(), 2U);
+  CHECK((initial.upserts.size()) == (2U));
 
   const auto unchanged = extractWorldDelta(w);
-  EXPECT_TRUE(unchanged.upserts.empty());
-  EXPECT_TRUE(unchanged.erased.empty());
+  CHECK((unchanged.upserts.empty()));
+  CHECK((unchanged.erased.empty()));
 
   // Advance tick first so next() physics runs at a new tick value and can
   // re-mark the mover (last_updated=0 != tick_=1).
@@ -620,77 +621,77 @@ void SimWorld_SnapshotSinceTracksChanges() {
   (void)w.next();
 
   const auto moved = extractWorldDelta(w);
-  EXPECT_EQ(moved.upserts.size(), 1U);
-  EXPECT_TRUE(moved.erased.empty());
-  EXPECT_TRUE(containsId(moved.upserts, invader.id()));
+  CHECK((moved.upserts.size()) == (1U));
+  CHECK((moved.erased.empty()));
+  CHECK((containsId(moved.upserts, invader.id())));
 
   (void)w.tick();
 
   const auto stable = extractWorldDelta(w);
-  EXPECT_TRUE(stable.upserts.empty());
-  EXPECT_TRUE(stable.erased.empty());
+  CHECK((stable.upserts.empty()));
+  CHECK((stable.erased.empty()));
 }
 
 #pragma endregion
 #pragma region World_DefenderDoesNotAppearAsChangedAfterTick
 
-void SimWorld_DefenderDoesNotAppearAsChangedAfterTick() {
+TEST_CASE("SimWorld_DefenderDoesNotAppearAsChangedAfterTick", "[SimWorld]") {
   SimWorld w;
   const auto defender = spawnDefenderAoe(w, Position{50.F, 60.F});
 
   const auto initial = extractWorldDelta(w);
-  ASSERT_EQ(initial.upserts.size(), 1U);
-  EXPECT_TRUE(containsId(initial.upserts, defender.id()));
+  REQUIRE((initial.upserts.size()) == (1U));
+  CHECK((containsId(initial.upserts, defender.id())));
 
   (void)w.tick();
   (void)w.next();
 
   const auto snaps = snapshot(w);
-  ASSERT_EQ(snaps.size(), 1U);
-  EXPECT_NEAR(snaps[0].pos.x, 50.0, 1e-6);
-  EXPECT_NEAR(snaps[0].pos.y, 60.0, 1e-6);
+  REQUIRE((snaps.size()) == (1U));
+  CHECK(std::abs((snaps[0].pos.x) - (50.0)) <= (1e-6));
+  CHECK(std::abs((snaps[0].pos.y) - (60.0)) <= (1e-6));
 
   const auto delta = extractWorldDelta(w);
-  EXPECT_TRUE(delta.upserts.empty());
-  EXPECT_TRUE(delta.erased.empty());
+  CHECK((delta.upserts.empty()));
+  CHECK((delta.erased.empty()));
 }
 
 #pragma endregion
 #pragma region BakePath_TwoJoints
 
-void BakePath_TwoJoints() {
+TEST_CASE("BakePath_TwoJoints", "[BakePath]") {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{3.F, 4.F}}};
 
   const auto bp = SegmentedPath::fromJoints(p);
 
-  ASSERT_EQ(bp.segments.size(), 1U);
-  EXPECT_NEAR(bp.segments[0].cumulativeStart, 0.0, 1e-6);
-  EXPECT_NEAR(bp.segments[0].length, 5.0, 1e-6);
-  EXPECT_NEAR(bp.totalLength, 5.0, 1e-6);
+  REQUIRE((bp.segments.size()) == (1U));
+  CHECK(std::abs((bp.segments[0].cumulativeStart) - (0.0)) <= (1e-6));
+  CHECK(std::abs((bp.segments[0].length) - (5.0)) <= (1e-6));
+  CHECK(std::abs((bp.totalLength) - (5.0)) <= (1e-6));
 }
 
 #pragma endregion
 #pragma region BakePath_ThreeJoints
 
-void BakePath_ThreeJoints() {
+TEST_CASE("BakePath_ThreeJoints", "[BakePath]") {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{3.F, 4.F}}, {{6.F, 8.F}}};
 
   const auto bp = SegmentedPath::fromJoints(p);
 
-  ASSERT_EQ(bp.segments.size(), 2U);
-  EXPECT_NEAR(bp.segments[0].cumulativeStart, 0.0, 1e-6);
-  EXPECT_NEAR(bp.segments[0].length, 5.0, 1e-6);
-  EXPECT_NEAR(bp.segments[1].cumulativeStart, 5.0, 1e-6);
-  EXPECT_NEAR(bp.segments[1].length, 5.0, 1e-6);
-  EXPECT_NEAR(bp.totalLength, 10.0, 1e-6);
+  REQUIRE((bp.segments.size()) == (2U));
+  CHECK(std::abs((bp.segments[0].cumulativeStart) - (0.0)) <= (1e-6));
+  CHECK(std::abs((bp.segments[0].length) - (5.0)) <= (1e-6));
+  CHECK(std::abs((bp.segments[1].cumulativeStart) - (5.0)) <= (1e-6));
+  CHECK(std::abs((bp.segments[1].length) - (5.0)) <= (1e-6));
+  CHECK(std::abs((bp.totalLength) - (10.0)) <= (1e-6));
 }
 
 #pragma endregion
 #pragma region PathPosition_Endpoints
 
-void PathPosition_Endpoints() {
+TEST_CASE("PathPosition_Endpoints", "[PathPosition]") {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
   const auto bp = SegmentedPath::fromJoints(p);
@@ -699,67 +700,67 @@ void PathPosition_Endpoints() {
   const auto end =
       bp.calculatePositionFromProgress(bp.totalLength, bp.totalLength);
 
-  EXPECT_NEAR(start.x, 0.0, 1e-6);
-  EXPECT_NEAR(start.y, 0.0, 1e-6);
-  EXPECT_NEAR(end.x, 10.0, 1e-6);
-  EXPECT_NEAR(end.y, 0.0, 1e-6);
+  CHECK(std::abs((start.x) - (0.0)) <= (1e-6));
+  CHECK(std::abs((start.y) - (0.0)) <= (1e-6));
+  CHECK(std::abs((end.x) - (10.0)) <= (1e-6));
+  CHECK(std::abs((end.y) - (0.0)) <= (1e-6));
 }
 
 #pragma endregion
 #pragma region PathPosition_Midpoint
 
-void PathPosition_Midpoint() {
+TEST_CASE("PathPosition_Midpoint", "[PathPosition]") {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
   const auto bp = SegmentedPath::fromJoints(p);
 
   const auto mid = bp.calculatePositionFromProgress(5.F, 5.F);
 
-  EXPECT_NEAR(mid.x, 5.0, 1e-6);
-  EXPECT_NEAR(mid.y, 0.0, 1e-6);
+  CHECK(std::abs((mid.x) - (5.0)) <= (1e-6));
+  CHECK(std::abs((mid.y) - (0.0)) <= (1e-6));
 }
 
 #pragma endregion
 #pragma region PathPosition_CrossingSegmentBoundaryEmitsJoint
 
-void PathPosition_CrossingSegmentBoundaryEmitsJoint() {
+TEST_CASE("PathPosition_CrossingSegmentBoundaryEmitsJoint", "[PathPosition]") {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}, {{10.F, 10.F}}};
   const auto bp = SegmentedPath::fromJoints(p);
 
   const auto corner = bp.calculatePositionFromProgress(12.F, 8.F);
 
-  EXPECT_NEAR(corner.x, 10.0, 1e-6);
-  EXPECT_NEAR(corner.y, 0.0, 1e-6);
+  CHECK(std::abs((corner.x) - (10.0)) <= (1e-6));
+  CHECK(std::abs((corner.y) - (0.0)) <= (1e-6));
 }
 
 #pragma endregion
 #pragma region World_EnemyAdvancesOnTick
 
-void SimWorld_EnemyAdvancesOnTick() {
+TEST_CASE("SimWorld_EnemyAdvancesOnTick", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{100.F, 0.F}}};
   const auto pid = w.addPath(p);
   const auto enemy = spawnInvaderAlpha(w, pid);
 
-  EXPECT_TRUE(static_cast<bool>(enemy));
-  EXPECT_EQ(w.size(), 1U);
+  CHECK((static_cast<bool>(enemy)));
+  CHECK((w.size()) == (1U));
 
   (void)w.next();
   (void)w.tick();
 
   const auto delta = extractWorldDelta(w);
-  EXPECT_TRUE(containsId(delta.upserts, enemy.id()));
-  ASSERT_EQ(delta.upserts.size(), 1U);
-  EXPECT_NEAR(delta.upserts[0].pos.x, 50.0, 1e-5);
-  EXPECT_NEAR(delta.upserts[0].pos.y, 0.0, 1e-5);
+  CHECK((containsId(delta.upserts, enemy.id())));
+  REQUIRE((delta.upserts.size()) == (1U));
+  CHECK(std::abs((delta.upserts[0].pos.x) - (50.0)) <= (1e-5));
+  CHECK(std::abs((delta.upserts[0].pos.y) - (0.0)) <= (1e-5));
 }
 
 #pragma endregion
 #pragma region World_ResolveEscapeesVisitsEscapedEnemy
 
-void SimWorld_ResolveEscapeesVisitsEscapedEnemy() {
+TEST_CASE("SimWorld_ResolveEscapeesVisitsEscapedEnemy", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
@@ -767,37 +768,37 @@ void SimWorld_ResolveEscapeesVisitsEscapedEnemy() {
   const auto enemy = spawnInvaderAlpha(w, pid, 8.F);
 
   (void)w.next();
-  EXPECT_EQ(w.size(), 1U);
+  CHECK((w.size()) == (1U));
 
   size_t resolved = 0;
   (void)w.resolveEscapees(
       [&](SimWorld::EntityId id, const Position& pos, const Pathing& pf) {
         ++resolved;
-        EXPECT_EQ(id, enemy.id());
-        EXPECT_NEAR(pos.x, 8.0, 1e-6);
-        EXPECT_NEAR(pos.y, 0.0, 1e-6);
-        EXPECT_NEAR(pf.progress, 58.0, 1e-6);
-        EXPECT_NEAR(pf.speed, 50.0, 1e-6);
+        CHECK((id) == (enemy.id()));
+        CHECK(std::abs((pos.x) - (8.0)) <= (1e-6));
+        CHECK(std::abs((pos.y) - (0.0)) <= (1e-6));
+        CHECK(std::abs((pf.progress) - (58.0)) <= (1e-6));
+        CHECK(std::abs((pf.speed) - (50.0)) <= (1e-6));
         return true;
       });
 
-  EXPECT_EQ(resolved, 1U);
-  EXPECT_EQ(w.size(), 0U);
+  CHECK((resolved) == (1U));
+  CHECK((w.size()) == (0U));
 
   const auto delta = extractWorldDelta(w);
-  EXPECT_TRUE(delta.upserts.empty());
-  EXPECT_EQ(delta.erased.size(), 1U);
-  EXPECT_EQ(delta.erased[0], enemy.id());
+  CHECK((delta.upserts.empty()));
+  CHECK((delta.erased.size()) == (1U));
+  CHECK((delta.erased[0]) == (enemy.id()));
 
   const auto snaps = snapshot(w);
-  EXPECT_TRUE(snaps.empty());
+  CHECK((snaps.empty()));
   (void)w.tick();
 }
 
 #pragma endregion
 #pragma region World_ResolveEscapeesCanLeaveEnemyAlive
 
-void SimWorld_ResolveEscapeesCanLeaveEnemyAlive() {
+TEST_CASE("SimWorld_ResolveEscapeesCanLeaveEnemyAlive", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
@@ -810,39 +811,39 @@ void SimWorld_ResolveEscapeesCanLeaveEnemyAlive() {
   (void)w.resolveEscapees(
       [&](SimWorld::EntityId id, const Position&, const Pathing&) {
         ++resolved;
-        EXPECT_EQ(id, enemy.id());
+        CHECK((id) == (enemy.id()));
         return false;
       });
 
-  EXPECT_EQ(resolved, 1U);
-  EXPECT_EQ(w.size(), 1U);
+  CHECK((resolved) == (1U));
+  CHECK((w.size()) == (1U));
 
   const auto snaps = snapshot(w);
-  ASSERT_EQ(snaps.size(), 1U);
-  EXPECT_EQ(snaps[0].id, enemy.id());
-  EXPECT_NEAR(snaps[0].pos.x, 8.0, 1e-6);
+  REQUIRE((snaps.size()) == (1U));
+  CHECK((snaps[0].id) == (enemy.id()));
+  CHECK(std::abs((snaps[0].pos.x) - (8.0)) <= (1e-6));
   (void)w.tick();
 }
 
 #pragma endregion
 #pragma region World_GetPathOutOfRange
 
-void SimWorld_GetPathOutOfRange() {
+TEST_CASE("SimWorld_GetPathOutOfRange", "[SimWorld]") {
   SimWorld w;
-  EXPECT_TRUE(w.getPath(PathId{0}) == nullptr);
+  CHECK((w.getPath(PathId{0}) == nullptr));
 
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{1.F, 0.F}}};
   (void)w.addPath(p);
 
-  EXPECT_TRUE(w.getPath(PathId{0}) != nullptr);
-  EXPECT_TRUE(w.getPath(PathId{1}) == nullptr);
+  CHECK((w.getPath(PathId{0}) != nullptr));
+  CHECK((w.getPath(PathId{1}) == nullptr));
 }
 
 #pragma endregion
 #pragma region World_ObtainPathIncludesTerminalJoint
 
-void SimWorld_ObtainPathIncludesTerminalJoint() {
+TEST_CASE("SimWorld_ObtainPathIncludesTerminalJoint", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}, {{10.F, 5.F}}};
@@ -856,43 +857,44 @@ void SimWorld_ObtainPathIncludesTerminalJoint() {
       },
       pid);
 
-  ASSERT_EQ(points.size(), 3U);
-  EXPECT_NEAR(points[0].x, 0.0, 1e-6);
-  EXPECT_NEAR(points[0].y, 0.0, 1e-6);
-  EXPECT_NEAR(points[1].x, 10.0, 1e-6);
-  EXPECT_NEAR(points[1].y, 0.0, 1e-6);
-  EXPECT_NEAR(points[2].x, 10.0, 1e-6);
-  EXPECT_NEAR(points[2].y, 5.0, 1e-6);
+  REQUIRE((points.size()) == (3U));
+  CHECK(std::abs((points[0].x) - (0.0)) <= (1e-6));
+  CHECK(std::abs((points[0].y) - (0.0)) <= (1e-6));
+  CHECK(std::abs((points[1].x) - (10.0)) <= (1e-6));
+  CHECK(std::abs((points[1].y) - (0.0)) <= (1e-6));
+  CHECK(std::abs((points[2].x) - (10.0)) <= (1e-6));
+  CHECK(std::abs((points[2].y) - (5.0)) <= (1e-6));
 }
 
 #pragma endregion
 #pragma region Game_LoadMapInitialSnapshotAndState
 
-void SimGame_LoadMapInitialSnapshotAndState() {
+TEST_CASE("SimGame_LoadMapInitialSnapshotAndState", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
 
   const auto snap = snapshot(game);
-  ASSERT_EQ(snap.entities.size(), 0U);
-  ASSERT_EQ(snap.path_points.size(), 1U);
-  EXPECT_EQ(snap.path_points[0].joints.front().pos.x, 0.F);
-  EXPECT_EQ(snap.path_points[0].joints.front().pos.y, 0.F);
-  EXPECT_GT(snap.path_points[0].joints.size(), 2U);
+  REQUIRE((snap.entities.size()) == (0U));
+  REQUIRE((snap.path_points.size()) == (1U));
+  CHECK((snap.path_points[0].joints.front().pos.x) == (0.F));
+  CHECK((snap.path_points[0].joints.front().pos.y) == (0.F));
+  CHECK((snap.path_points[0].joints.size()) > (2U));
 
   const auto delta = extractGameDelta(game);
-  EXPECT_EQ(delta.currentWave, 0U);
-  EXPECT_EQ(delta.waveTick, WaveTick{});
-  EXPECT_EQ(delta.lives, 20);
-  EXPECT_EQ(delta.resources, 1000);
-  EXPECT_EQ(delta.phase, std::string_view{"build"});
-  EXPECT_TRUE(delta.upserts.empty());
-  EXPECT_TRUE(delta.erased.empty());
+  CHECK((delta.currentWave) == (0U));
+  CHECK((delta.waveTick) == (WaveTick{}));
+  CHECK((delta.lives) == (20));
+  CHECK((delta.resources) == (1000));
+  CHECK((delta.phase) == (std::string_view{"build"}));
+  CHECK((delta.upserts.empty()));
+  CHECK((delta.erased.empty()));
 }
 
 #pragma endregion
 #pragma region Game_HandleUiActionStartWaveTransitionsToWavePhase
 
-void SimGame_HandleUiActionStartWaveTransitionsToWavePhase() {
+TEST_CASE("SimGame_HandleUiActionStartWaveTransitionsToWavePhase",
+    "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
 
@@ -900,19 +902,20 @@ void SimGame_HandleUiActionStartWaveTransitionsToWavePhase() {
       UiActionInput{.seq = 1, .action = "start_wave", .fields = {}});
 
   const auto before = extractGameDelta(game);
-  EXPECT_EQ(before.phase, std::string_view{"build"});
+  CHECK((before.phase) == (std::string_view{"build"}));
 
   (void)game.next();
 
   const auto delta = extractGameDelta(game);
-  EXPECT_EQ(delta.phase, std::string_view{"wave"});
-  EXPECT_EQ(delta.waveTick, WaveTick{1});
+  CHECK((delta.phase) == (std::string_view{"wave"}));
+  CHECK((delta.waveTick) == (WaveTick{1}));
 }
 
 #pragma endregion
 #pragma region Game_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase
 
-void SimGame_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase() {
+TEST_CASE("SimGame_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase",
+    "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
   const auto before = extractGameDelta(game);
@@ -929,26 +932,26 @@ void SimGame_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase() {
       .parameters = {"DefenderAoeBasic"}});
 
   const auto pending = extractGameDelta(game);
-  EXPECT_TRUE(pending.upserts.empty());
-  EXPECT_FALSE(pending.spawnAllowed.has_value());
+  CHECK((pending.upserts.empty()));
+  CHECK_FALSE((pending.spawnAllowed.has_value()));
 
   (void)game.next();
 
   const auto after = extractGameDelta(game);
-  EXPECT_EQ(before.phase, std::string_view{"build"});
-  EXPECT_EQ(after.phase, std::string_view{"build"});
-  ASSERT_TRUE(after.spawnAllowed.has_value());
-  EXPECT_TRUE(*after.spawnAllowed);
-  ASSERT_EQ(after.upserts.size(), 1U);
-  EXPECT_NEAR(after.upserts[0].second.x, 300.0, 1e-6);
-  EXPECT_NEAR(after.upserts[0].second.y, 100.0, 1e-6);
-  EXPECT_TRUE(after.erased.empty());
+  CHECK((before.phase) == (std::string_view{"build"}));
+  CHECK((after.phase) == (std::string_view{"build"}));
+  REQUIRE((after.spawnAllowed.has_value()));
+  CHECK((*after.spawnAllowed));
+  REQUIRE((after.upserts.size()) == (1U));
+  CHECK(std::abs((after.upserts[0].second.x) - (300.0)) <= (1e-6));
+  CHECK(std::abs((after.upserts[0].second.y) - (100.0)) <= (1e-6));
+  CHECK((after.erased.empty()));
 }
 
 #pragma endregion
 #pragma region Game_HandleUiCanvasRightClickSpawnPlacesDefender
 
-void SimGame_HandleUiCanvasRightClickSpawnPlacesDefender() {
+TEST_CASE("SimGame_HandleUiCanvasRightClickSpawnPlacesDefender", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
 
@@ -964,24 +967,25 @@ void SimGame_HandleUiCanvasRightClickSpawnPlacesDefender() {
       .parameters = {"DefenderAoeBasic"}});
 
   const auto pending = extractGameDelta(game);
-  EXPECT_TRUE(pending.upserts.empty());
+  CHECK((pending.upserts.empty()));
 
   (void)game.next();
 
   const auto after = extractGameDelta(game);
-  EXPECT_EQ(after.phase, std::string_view{"build"});
-  ASSERT_TRUE(after.spawnAllowed.has_value());
-  EXPECT_TRUE(*after.spawnAllowed);
-  ASSERT_EQ(after.upserts.size(), 1U);
-  EXPECT_NEAR(after.upserts[0].second.x, 300.0, 1e-6);
-  EXPECT_NEAR(after.upserts[0].second.y, 100.0, 1e-6);
-  EXPECT_TRUE(after.erased.empty());
+  CHECK((after.phase) == (std::string_view{"build"}));
+  REQUIRE((after.spawnAllowed.has_value()));
+  CHECK((*after.spawnAllowed));
+  REQUIRE((after.upserts.size()) == (1U));
+  CHECK(std::abs((after.upserts[0].second.x) - (300.0)) <= (1e-6));
+  CHECK(std::abs((after.upserts[0].second.y) - (100.0)) <= (1e-6));
+  CHECK((after.erased.empty()));
 }
 
 #pragma endregion
 #pragma region Game_HandleUiCanvasSelectingDefenderReportsSelectedPosition
 
-void SimGame_HandleUiCanvasSelectingDefenderReportsSelectedPosition() {
+TEST_CASE("SimGame_HandleUiCanvasSelectingDefenderReportsSelectedPosition",
+    "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
 
@@ -1011,16 +1015,16 @@ void SimGame_HandleUiCanvasSelectingDefenderReportsSelectedPosition() {
   (void)game.next();
 
   const auto delta = extractGameDelta(game);
-  ASSERT_TRUE(delta.selectedDefender.has_value());
-  EXPECT_NEAR(delta.selectedDefender->x, 300.0, 1e-6);
-  EXPECT_NEAR(delta.selectedDefender->y, 100.0, 1e-6);
-  ASSERT_TRUE(delta.defenderSummary.has_value());
+  REQUIRE((delta.selectedDefender.has_value()));
+  CHECK(std::abs((delta.selectedDefender->x) - (300.0)) <= (1e-6));
+  CHECK(std::abs((delta.selectedDefender->y) - (100.0)) <= (1e-6));
+  REQUIRE((delta.defenderSummary.has_value()));
 }
 
 #pragma endregion
 #pragma region Game_HandleUiCanvasSpawnsShooterDefender
 
-void SimGame_HandleUiCanvasSpawnsShooterDefender() {
+TEST_CASE("SimGame_HandleUiCanvasSpawnsShooterDefender", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
   const auto before = extractGameDelta(game);
@@ -1037,26 +1041,27 @@ void SimGame_HandleUiCanvasSpawnsShooterDefender() {
       .parameters = {"DefenderShooterPistol"}});
 
   const auto pending = extractGameDelta(game);
-  EXPECT_TRUE(pending.upserts.empty());
-  EXPECT_FALSE(pending.spawnAllowed.has_value());
+  CHECK((pending.upserts.empty()));
+  CHECK_FALSE((pending.spawnAllowed.has_value()));
 
   (void)game.next();
 
   const auto after = extractGameDelta(game);
-  EXPECT_EQ(before.phase, std::string_view{"build"});
-  EXPECT_EQ(after.phase, std::string_view{"build"});
-  ASSERT_TRUE(after.spawnAllowed.has_value());
-  EXPECT_TRUE(*after.spawnAllowed);
-  ASSERT_EQ(after.upserts.size(), 1U);
-  EXPECT_NEAR(after.upserts[0].second.x, 300.0, 1e-6);
-  EXPECT_NEAR(after.upserts[0].second.y, 100.0, 1e-6);
-  EXPECT_TRUE(after.erased.empty());
+  CHECK((before.phase) == (std::string_view{"build"}));
+  CHECK((after.phase) == (std::string_view{"build"}));
+  REQUIRE((after.spawnAllowed.has_value()));
+  CHECK((*after.spawnAllowed));
+  REQUIRE((after.upserts.size()) == (1U));
+  CHECK(std::abs((after.upserts[0].second.x) - (300.0)) <= (1e-6));
+  CHECK(std::abs((after.upserts[0].second.y) - (100.0)) <= (1e-6));
+  CHECK((after.erased.empty()));
 }
 
 #pragma endregion
 #pragma region Game_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick
 
-void SimGame_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick() {
+TEST_CASE("SimGame_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick",
+    "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
 
@@ -1072,19 +1077,20 @@ void SimGame_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick() {
       .parameters = {"DefenderAoeBasic"}});
 
   const auto pending = extractGameDelta(game);
-  EXPECT_FALSE(pending.placementAllowed.has_value());
+  CHECK_FALSE((pending.placementAllowed.has_value()));
 
   (void)game.next();
 
   const auto delta = extractGameDelta(game);
-  ASSERT_TRUE(delta.placementAllowed.has_value());
-  EXPECT_FALSE(*delta.placementAllowed);
+  REQUIRE((delta.placementAllowed.has_value()));
+  CHECK_FALSE((*delta.placementAllowed));
 }
 
 #pragma endregion
 #pragma region Game_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick
 
-void SimGame_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick() {
+TEST_CASE("SimGame_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick",
+    "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
 
@@ -1102,15 +1108,15 @@ void SimGame_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick() {
   (void)game.next();
 
   const auto delta = extractGameDelta(game);
-  EXPECT_TRUE(delta.upserts.empty());
-  ASSERT_TRUE(delta.spawnAllowed.has_value());
-  EXPECT_FALSE(*delta.spawnAllowed);
+  CHECK((delta.upserts.empty()));
+  REQUIRE((delta.spawnAllowed.has_value()));
+  CHECK_FALSE((*delta.spawnAllowed));
 }
 
 #pragma endregion
 #pragma region Game_StartWaveSpawnsFirstEnemyOnFirstStep
 
-void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
+TEST_CASE("SimGame_StartWaveSpawnsFirstEnemyOnFirstStep", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
   (void)game.start_wave();
@@ -1118,25 +1124,25 @@ void SimGame_StartWaveSpawnsFirstEnemyOnFirstStep() {
   (void)game.next();
 
   const auto snap = snapshot(game);
-  EXPECT_EQ(*game.tick(), 1U);
-  ASSERT_EQ(snap.entities.size(), 1U);
-  EXPECT_NEAR(snap.entities[0].pos.x, 0.0, 1e-6);
-  EXPECT_NEAR(snap.entities[0].pos.y, 0.0, 1e-6);
+  CHECK((*game.tick()) == (1U));
+  REQUIRE((snap.entities.size()) == (1U));
+  CHECK(std::abs((snap.entities[0].pos.x) - (0.0)) <= (1e-6));
+  CHECK(std::abs((snap.entities[0].pos.y) - (0.0)) <= (1e-6));
 
   const auto delta = extractGameDelta(game);
-  EXPECT_EQ(delta.currentWave, 0U);
-  EXPECT_EQ(delta.waveTick, WaveTick{1});
-  EXPECT_EQ(delta.lives, 20);
-  EXPECT_EQ(delta.resources, 1000);
-  EXPECT_EQ(delta.phase, std::string_view{"wave"});
-  EXPECT_TRUE(delta.upserts.empty());
-  EXPECT_TRUE(delta.erased.empty());
+  CHECK((delta.currentWave) == (0U));
+  CHECK((delta.waveTick) == (WaveTick{1}));
+  CHECK((delta.lives) == (20));
+  CHECK((delta.resources) == (1000));
+  CHECK((delta.phase) == (std::string_view{"wave"}));
+  CHECK((delta.upserts.empty()));
+  CHECK((delta.erased.empty()));
 }
 
 #pragma endregion
 #pragma region Game_ExtractDeltaConsumesWorldUpdatesButNotState
 
-void SimGame_ExtractDeltaConsumesWorldUpdatesButNotState() {
+TEST_CASE("SimGame_ExtractDeltaConsumesWorldUpdatesButNotState", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
   (void)game.start_wave();
@@ -1147,26 +1153,26 @@ void SimGame_ExtractDeltaConsumesWorldUpdatesButNotState() {
   (void)game.tick();
 
   const auto delta = extractGameDelta(game);
-  EXPECT_TRUE(!delta.upserts.empty());
-  EXPECT_EQ(delta.erased.size(), 0U);
-  EXPECT_EQ(delta.waveTick, WaveTick{2});
-  EXPECT_EQ(delta.phase, std::string_view{"wave"});
+  CHECK((!delta.upserts.empty()));
+  CHECK((delta.erased.size()) == (0U));
+  CHECK((delta.waveTick) == (WaveTick{2}));
+  CHECK((delta.phase) == (std::string_view{"wave"}));
 
   const auto* pos = findPosition(delta.upserts, delta.upserts.front().first);
-  ASSERT_TRUE(pos != nullptr);
-  EXPECT_GT(pos->x, 0.F);
+  REQUIRE((pos != nullptr));
+  CHECK((pos->x) > (0.F));
 
   const auto empty_world_delta = extractGameDelta(game);
-  EXPECT_TRUE(empty_world_delta.upserts.empty());
-  EXPECT_TRUE(empty_world_delta.erased.empty());
-  EXPECT_EQ(empty_world_delta.waveTick, WaveTick{2});
-  EXPECT_EQ(empty_world_delta.phase, std::string_view{"wave"});
+  CHECK((empty_world_delta.upserts.empty()));
+  CHECK((empty_world_delta.erased.empty()));
+  CHECK((empty_world_delta.waveTick) == (WaveTick{2}));
+  CHECK((empty_world_delta.phase) == (std::string_view{"wave"}));
 }
 
 #pragma endregion
 #pragma region Game_ReachesGameOverAsSoonAsLivesAreExhausted
 
-void SimGame_ReachesGameOverAsSoonAsLivesAreExhausted() {
+TEST_CASE("SimGame_ReachesGameOverAsSoonAsLivesAreExhausted", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
   (void)game.start_wave();
@@ -1177,19 +1183,19 @@ void SimGame_ReachesGameOverAsSoonAsLivesAreExhausted() {
     const auto delta = extractGameDelta(game);
     if (delta.lives <= 0) {
       sawZeroLives = true;
-      EXPECT_EQ(delta.phase, std::string_view{"game_over"});
+      CHECK((delta.phase) == (std::string_view{"game_over"}));
       break;
     }
     (void)game.tick();
   }
 
-  EXPECT_TRUE(sawZeroLives);
+  CHECK((sawZeroLives));
 }
 
 #pragma endregion
 #pragma region Game_GameOverFreezesRemainingInvaders
 
-void SimGame_GameOverFreezesRemainingInvaders() {
+TEST_CASE("SimGame_GameOverFreezesRemainingInvaders", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
   (void)game.start_wave();
@@ -1208,26 +1214,27 @@ void SimGame_GameOverFreezesRemainingInvaders() {
     (void)game.tick();
   }
 
-  ASSERT_TRUE(reachedGameOver);
+  REQUIRE((reachedGameOver));
 
   (void)game.tick();
   (void)game.next();
 
   const auto afterSnapshot = snapshot(game);
-  ASSERT_EQ(afterSnapshot.entities.size(), terminalSnapshot.entities.size());
+  REQUIRE(
+      (afterSnapshot.entities.size()) == (terminalSnapshot.entities.size()));
   for (size_t i = 0; i < terminalSnapshot.entities.size(); ++i) {
-    EXPECT_EQ(afterSnapshot.entities[i].id, terminalSnapshot.entities[i].id);
-    EXPECT_NEAR(afterSnapshot.entities[i].pos.x,
-        terminalSnapshot.entities[i].pos.x, 1e-6);
-    EXPECT_NEAR(afterSnapshot.entities[i].pos.y,
-        terminalSnapshot.entities[i].pos.y, 1e-6);
+    CHECK((afterSnapshot.entities[i].id) == (terminalSnapshot.entities[i].id));
+    CHECK(std::abs((afterSnapshot.entities[i].pos.x) -
+                   (terminalSnapshot.entities[i].pos.x)) <= (1e-6));
+    CHECK(std::abs((afterSnapshot.entities[i].pos.y) -
+                   (terminalSnapshot.entities[i].pos.y)) <= (1e-6));
   }
 }
 
 #pragma endregion
 #pragma region Game_ExtractFullIncludesPathsAndState
 
-void SimGame_ExtractFullIncludesPathsAndState() {
+TEST_CASE("SimGame_ExtractFullIncludesPathsAndState", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
 
@@ -1258,21 +1265,21 @@ void SimGame_ExtractFullIncludesPathsAndState() {
         uiState = newUiState;
       });
 
-  EXPECT_GT(path_points, 0U);
-  EXPECT_EQ(upserts, 0U);
-  EXPECT_EQ(erased, 0U);
-  EXPECT_EQ(currentWave, 0U);
-  EXPECT_EQ(waveTick, WaveTick{0});
-  EXPECT_EQ(lives, 20);
-  EXPECT_EQ(resources, 1000);
-  EXPECT_EQ(phase, std::string_view{"build"});
-  EXPECT_FALSE(uiState.selectedDefender.has_value());
+  CHECK((path_points) > (0U));
+  CHECK((upserts) == (0U));
+  CHECK((erased) == (0U));
+  CHECK((currentWave) == (0U));
+  CHECK((waveTick) == (WaveTick{0}));
+  CHECK((lives) == (20));
+  CHECK((resources) == (1000));
+  CHECK((phase) == (std::string_view{"build"}));
+  CHECK_FALSE((uiState.selectedDefender.has_value()));
 }
 
 #pragma endregion
 #pragma region Json_ParseUiCanvasMessage
 
-void SimJson_ParseUiCanvasMessage() {
+TEST_CASE("SimJson_ParseUiCanvasMessage", "[SimJson]") {
   const auto msg = parseSimClientMessageRoot(R"({
     "type": "ui_canvas",
     "seq": 42,
@@ -1289,59 +1296,59 @@ void SimJson_ParseUiCanvasMessage() {
     "meta": false
   })");
 
-  ASSERT_TRUE(msg.has_value());
-  EXPECT_EQ(classifySimClientMessage(*msg), SimClientMessageKind::ui_canvas);
+  REQUIRE((msg.has_value()));
+  CHECK((classifySimClientMessage(*msg)) == (SimClientMessageKind::ui_canvas));
 
   const auto input = parseUiCanvasMessage(*msg);
-  ASSERT_TRUE(input.has_value());
-  EXPECT_EQ(input->seq, 42U);
-  EXPECT_EQ(input->event, UiCanvasEvent::dragmove);
-  EXPECT_EQ(input->button, UiMouseButton::right);
-  EXPECT_EQ(input->buttons, 2U);
-  EXPECT_NEAR(input->x, 10.5, 1e-6);
-  EXPECT_NEAR(input->y, -3.25, 1e-6);
-  EXPECT_NEAR(input->canvasX, 100.0, 1e-6);
-  EXPECT_NEAR(input->canvasY, 200.5, 1e-6);
-  EXPECT_TRUE(input->shift);
-  EXPECT_FALSE(input->ctrl);
-  EXPECT_TRUE(input->alt);
-  EXPECT_FALSE(input->meta);
+  REQUIRE((input.has_value()));
+  CHECK((input->seq) == (42U));
+  CHECK((input->event) == (UiCanvasEvent::dragmove));
+  CHECK((input->button) == (UiMouseButton::right));
+  CHECK((input->buttons) == (2U));
+  CHECK(std::abs((input->x) - (10.5)) <= (1e-6));
+  CHECK(std::abs((input->y) - (-3.25)) <= (1e-6));
+  CHECK(std::abs((input->canvasX) - (100.0)) <= (1e-6));
+  CHECK(std::abs((input->canvasY) - (200.5)) <= (1e-6));
+  CHECK((input->shift));
+  CHECK_FALSE((input->ctrl));
+  CHECK((input->alt));
+  CHECK_FALSE((input->meta));
 }
 
 #pragma endregion
 #pragma region Json_ParseUiActionMessageFields
 
-void SimJson_ParseUiActionMessageFields() {
+TEST_CASE("SimJson_ParseUiActionMessageFields", "[SimJson]") {
   const auto input = parseUiActionMessage(
       R"({"type":"ui_action","seq":7,"action":"start_wave","fields":{"defender/kind":"ice","note":"line\nbreak"}})");
 
-  ASSERT_TRUE(input.has_value());
-  EXPECT_EQ(input->seq, 7U);
-  EXPECT_EQ(input->action, "start_wave");
-  ASSERT_EQ(input->fields.size(), 2U);
+  REQUIRE((input.has_value()));
+  CHECK((input->seq) == (7U));
+  CHECK((input->action) == ("start_wave"));
+  REQUIRE((input->fields.size()) == (2U));
   const auto defender_kind =
       std::ranges::find(input->fields, "defender/kind", &UiActionField::key);
-  ASSERT_TRUE(defender_kind != input->fields.end());
-  EXPECT_EQ(defender_kind->value, "ice");
+  REQUIRE((defender_kind != input->fields.end()));
+  CHECK((defender_kind->value) == ("ice"));
 
   const auto note =
       std::ranges::find(input->fields, "note", &UiActionField::key);
-  ASSERT_TRUE(note != input->fields.end());
-  EXPECT_EQ(note->value, std::string("line\nbreak"));
+  REQUIRE((note != input->fields.end()));
+  CHECK((note->value) == (std::string("line\nbreak")));
 }
 
 #pragma endregion
 #pragma region Json_BuildHelloAckJson
 
-void SimJson_BuildHelloAckJson() {
-  EXPECT_EQ(buildSimHelloAckJson(),
-      std::string(R"({"type":"hello_ack","message":"connected"})"));
+TEST_CASE("SimJson_BuildHelloAckJson", "[SimJson]") {
+  CHECK((buildSimHelloAckJson()) ==
+        (std::string(R"({"type":"hello_ack","message":"connected"})")));
 }
 
 #pragma endregion
 #pragma region Json_BuildWorldDeltaJsonShapeAndFormatting
 
-void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
+TEST_CASE("SimJson_BuildWorldDeltaJsonShapeAndFormatting", "[SimJson]") {
   SimGame game;
   (void)game.loadMap();
   (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
@@ -1358,63 +1365,63 @@ void SimJson_BuildWorldDeltaJsonShapeAndFormatting() {
 
   SimGameStateJson state;
   (void)buildSimGameStateJson(state, game);
-  EXPECT_TRUE(state.body.contains(R"("x":300.0)"));
-  EXPECT_TRUE(state.body.contains(R"("radius":30.000)"));
-  EXPECT_TRUE(state.body.contains(R"("vfx")"));
-  EXPECT_TRUE(state.body.contains(R"("flashExpiryTick":5)"));
-  EXPECT_TRUE(state.body.contains(R"("uiState")"));
-  EXPECT_TRUE(state.body.contains(R"("spawnAllowed":true)"));
-  EXPECT_FALSE(state.body.contains(R"("selectedDefender")"));
-  EXPECT_FALSE(state.body.contains(R"("defenderSummary")"));
-  EXPECT_FALSE(state.body.contains(R"("modified")"));
-  EXPECT_FALSE(state.body.contains(R"("flash_expiry")"));
-  EXPECT_FALSE(state.body.contains(R"("glow")"));
+  CHECK((state.body.contains(R"("x":300.0)")));
+  CHECK((state.body.contains(R"("radius":30.000)")));
+  CHECK((state.body.contains(R"("vfx")")));
+  CHECK((state.body.contains(R"("flashExpiryTick":5)")));
+  CHECK((state.body.contains(R"("uiState")")));
+  CHECK((state.body.contains(R"("spawnAllowed":true)")));
+  CHECK_FALSE((state.body.contains(R"("selectedDefender")")));
+  CHECK_FALSE((state.body.contains(R"("defenderSummary")")));
+  CHECK_FALSE((state.body.contains(R"("modified")")));
+  CHECK_FALSE((state.body.contains(R"("flash_expiry")")));
+  CHECK_FALSE((state.body.contains(R"("glow")")));
 
   json_value_view root;
-  ASSERT_TRUE(parse_json(state.body, root));
+  REQUIRE((parse_json(state.body, root)));
   const auto obj = root.as_object();
-  ASSERT_TRUE(obj);
+  REQUIRE((obj));
   const auto tick_value = obj.get_number<uint32_t>("tick");
   const auto phase_value = obj.get_string_view_if_plain("phase");
-  ASSERT_TRUE(tick_value.has_value());
-  ASSERT_TRUE(phase_value.has_value());
-  EXPECT_EQ(*tick_value, 0U);
-  EXPECT_EQ(*phase_value, std::string_view{"build"});
+  REQUIRE((tick_value.has_value()));
+  REQUIRE((phase_value.has_value()));
+  CHECK((*tick_value) == (0U));
+  CHECK((*phase_value) == (std::string_view{"build"}));
 
   const auto upserts = obj.get_array("upserts");
-  ASSERT_TRUE(upserts);
+  REQUIRE((upserts));
   size_t count = 0;
   for (const auto item : upserts) {
     const auto entry = item.as_object();
-    ASSERT_TRUE(entry);
+    REQUIRE((entry));
     const auto pos = entry.get_object("pos");
-    ASSERT_TRUE(pos);
+    REQUIRE((pos));
     const auto x = pos.get_number<float>("x");
-    ASSERT_TRUE(x.has_value());
-    EXPECT_NEAR(*x, 300.0, 1e-6);
+    REQUIRE((x.has_value()));
+    CHECK(std::abs((*x) - (300.0)) <= (1e-6));
 
     const auto app = entry.get_object("app");
-    ASSERT_TRUE(app);
-    ASSERT_TRUE(app.get_number<uint32_t>("glyph").has_value());
-    ASSERT_TRUE(app.get_number<float>("radius").has_value());
-    ASSERT_TRUE(!app.get_number<uint32_t>("modified").has_value());
+    REQUIRE((app));
+    REQUIRE((app.get_number<uint32_t>("glyph").has_value()));
+    REQUIRE((app.get_number<float>("radius").has_value()));
+    REQUIRE((!app.get_number<uint32_t>("modified").has_value()));
 
     const auto vfx = entry.get_object("vfx");
-    ASSERT_TRUE(vfx);
-    ASSERT_TRUE(vfx.get_number<uint32_t>("selection").has_value());
-    ASSERT_TRUE(vfx.get_number<float>("rangeRadius").has_value());
-    ASSERT_TRUE(vfx.get_number<uint32_t>("range").has_value());
-    ASSERT_TRUE(vfx.get_number<uint32_t>("flash").has_value());
-    ASSERT_TRUE(vfx.get_number<uint32_t>("flashExpiryTick").has_value());
+    REQUIRE((vfx));
+    REQUIRE((vfx.get_number<uint32_t>("selection").has_value()));
+    REQUIRE((vfx.get_number<float>("rangeRadius").has_value()));
+    REQUIRE((vfx.get_number<uint32_t>("range").has_value()));
+    REQUIRE((vfx.get_number<uint32_t>("flash").has_value()));
+    REQUIRE((vfx.get_number<uint32_t>("flashExpiryTick").has_value()));
     ++count;
   }
-  EXPECT_EQ(count, 1U);
+  CHECK((count) == (1U));
 }
 
 #pragma endregion
 #pragma region Json_BuildWorldDeltaIncludesFlashVisualEffects
 
-void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
+TEST_CASE("SimJson_BuildWorldDeltaIncludesFlashVisualEffects", "[SimJson]") {
   SimGame game;
   (void)game.loadMap();
   (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
@@ -1449,39 +1456,39 @@ void SimJson_BuildWorldDeltaIncludesFlashVisualEffects() {
   (void)buildSimGameStateJson(state, game);
 
   json_value_view root;
-  ASSERT_TRUE(parse_json(state.body, root));
+  REQUIRE((parse_json(state.body, root)));
   const auto obj = root.as_object();
-  ASSERT_TRUE(obj);
+  REQUIRE((obj));
 
   const auto upserts = obj.get_array("upserts");
-  ASSERT_TRUE(upserts);
+  REQUIRE((upserts));
   size_t count = 0;
   for (const auto item : upserts) {
     const auto entry = item.as_object();
-    ASSERT_TRUE(entry);
+    REQUIRE((entry));
     const auto pos = entry.get_object("pos");
-    ASSERT_TRUE(pos);
+    REQUIRE((pos));
     const auto x = pos.get_number<float>("x");
-    ASSERT_TRUE(x.has_value());
-    EXPECT_NEAR(*x, 300.0, 1e-6);
+    REQUIRE((x.has_value()));
+    CHECK(std::abs((*x) - (300.0)) <= (1e-6));
 
     const auto vfx = entry.get_object("vfx");
-    ASSERT_TRUE(vfx);
+    REQUIRE((vfx));
     const auto flash = vfx.get_number<uint32_t>("flash");
     const auto flash_expiry_tick = vfx.get_number<uint32_t>("flashExpiryTick");
-    ASSERT_TRUE(flash.has_value());
-    ASSERT_TRUE(flash_expiry_tick.has_value());
-    EXPECT_EQ(*flash, 0xFF7F7FFFU);
-    EXPECT_EQ(*flash_expiry_tick, 5U);
+    REQUIRE((flash.has_value()));
+    REQUIRE((flash_expiry_tick.has_value()));
+    CHECK((*flash) == (0xFF7F7FFFU));
+    CHECK((*flash_expiry_tick) == (5U));
     ++count;
   }
-  EXPECT_EQ(count, 1U);
+  CHECK((count) == (1U));
 }
 
 #pragma endregion
 #pragma region Json_FlashExpiryTickReturnsAbsoluteTick
 
-void SimJson_FlashExpiryTickReturnsAbsoluteTick() {
+TEST_CASE("SimJson_FlashExpiryTickReturnsAbsoluteTick", "[SimJson]") {
   VisualEffects fx{
       .modified = WorldTick{12},
       .selectionColor = 0,
@@ -1491,110 +1498,75 @@ void SimJson_FlashExpiryTickReturnsAbsoluteTick() {
       .flashExpiry = WorldTick{15},
   };
 
-  EXPECT_EQ(flashExpiryTick(fx), 15U);
+  CHECK((flashExpiryTick(fx)) == (15U));
 
   fx.flashColor = 0;
-  EXPECT_EQ(flashExpiryTick(fx), 0U);
+  CHECK((flashExpiryTick(fx)) == (0U));
 }
 
 #pragma endregion
 #pragma region Json_BuildWorldSnapshotJsonShape
 
-void SimJson_BuildWorldSnapshotJsonShape() {
+TEST_CASE("SimJson_BuildWorldSnapshotJsonShape", "[SimJson]") {
   SimGame game;
   (void)game.loadMap();
 
   SimGameStateJson state;
   (void)buildSimGameStateJson(state, game, update_strategy::full);
-  EXPECT_TRUE(state.body.contains(R"("type":"world_snapshot")"));
-  EXPECT_TRUE(state.body.contains(R"("x":0.0)"));
+  CHECK((state.body.contains(R"("type":"world_snapshot")")));
+  CHECK((state.body.contains(R"("x":0.0)")));
 
   json_value_view root;
-  ASSERT_TRUE(parse_json(state.body, root));
+  REQUIRE((parse_json(state.body, root)));
   const auto obj = root.as_object();
-  ASSERT_TRUE(obj);
+  REQUIRE((obj));
   const auto root_type = obj.get_string_view_if_plain("type");
-  ASSERT_TRUE(root_type.has_value());
-  EXPECT_EQ(*root_type, std::string_view{"world_snapshot"});
+  REQUIRE((root_type.has_value()));
+  CHECK((*root_type) == (std::string_view{"world_snapshot"}));
 
   const auto map_design = obj.get_object("mapDesign");
-  ASSERT_TRUE(map_design);
+  REQUIRE((map_design));
   const auto paths = map_design.get_array("paths");
-  ASSERT_TRUE(paths);
+  REQUIRE((paths));
   size_t path_points = 0;
   for (const auto point : paths) {
     const auto entry = point.as_object();
-    ASSERT_TRUE(entry);
-    ASSERT_TRUE(entry.get_number<float>("x").has_value());
-    ASSERT_TRUE(entry.get_number<float>("y").has_value());
+    REQUIRE((entry));
+    REQUIRE((entry.get_number<float>("x").has_value()));
+    REQUIRE((entry.get_number<float>("y").has_value()));
     ++path_points;
   }
-  EXPECT_GT(path_points, 0U);
+  CHECK((path_points) > (0U));
 
   const auto delta = obj.get_object("delta");
-  ASSERT_TRUE(delta);
+  REQUIRE((delta));
   const auto delta_type = delta.get_string_view_if_plain("type");
   const auto delta_phase = delta.get_string_view_if_plain("phase");
-  ASSERT_TRUE(delta_type.has_value());
-  EXPECT_EQ(*delta_type, std::string_view{"world_delta"});
-  ASSERT_TRUE(delta_phase.has_value());
-  EXPECT_EQ(*delta_phase, std::string_view{"build"});
+  REQUIRE((delta_type.has_value()));
+  CHECK((*delta_type) == (std::string_view{"world_delta"}));
+  REQUIRE((delta_phase.has_value()));
+  CHECK((*delta_phase) == (std::string_view{"build"}));
 }
 
 #pragma endregion
 #pragma region Game_BuildCurrentMapEntityCsvReport
 
-void SimGame_BuildCurrentMapEntityCsvReport() {
+TEST_CASE("SimGame_BuildCurrentMapEntityCsvReport", "[SimGame]") {
   SimGame game;
-  ASSERT_TRUE(game.loadMap());
+  REQUIRE((game.loadMap()));
 
   const auto csv = game.buildCurrentMapEntityCsvReport();
-  EXPECT_TRUE(
-      csv.contains("entityName,Radius,Speed,Radius,Health,Regen,Bounty\n"));
-  EXPECT_TRUE(csv.contains("InvaderAlphaBasic,30,50,30,50,10,10\n"));
-  EXPECT_TRUE(csv.contains("InvaderBetaBasic,40,30,40,120,12,25\n"));
-  EXPECT_TRUE(csv.contains(
+  CHECK(
+      (csv.contains("entityName,Radius,Speed,Radius,Health,Regen,Bounty\n")));
+  CHECK((csv.contains("InvaderAlphaBasic,30,50,30,50,10,10\n")));
+  CHECK((csv.contains("InvaderBetaBasic,40,30,40,120,12,25\n")));
+  CHECK((csv.contains(
       "\nentityName,resourceCost,radius,attackRadius,"
-      "attackDamage,cooldown\n"));
-  EXPECT_TRUE(csv.contains("DefenderAoeBasic,50,30,100,6,20\n"));
-  EXPECT_TRUE(csv.contains("DefenderHitscanBasic,100,25,200,30,25\n"));
+      "attackDamage,cooldown\n")));
+  CHECK((csv.contains("DefenderAoeBasic,50,30,100,6,20\n")));
+  CHECK((csv.contains("DefenderHitscanBasic,100,25,200,30,25\n")));
 }
 
 #pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
-
-MAKE_TEST_LIST(SimWorld_SpawnAndSnapshot, SimWorld_NextMovesInvaderAlpha,
-    SimWorld_ExtractUpdatedEntitiesReportsMovedInvaderOncePerExtraction,
-    SimWorld_DefenderInRangeFlashesItselfAndInvader,
-    SimWorld_DefenderAoeAttackEmitsPulseExplosion,
-    SimWorld_DefenderShooterSpawnsVisibleBullet,
-    SimWorld_DefenderShooterBulletHitsInvaderOnNextStep,
-    SimWorld_DefenderShooterBulletHitsFirstInvaderAlongPath,
-    SimWorld_ExplosiveBulletDetonatesOnExpiry,
-    SimWorld_SnapshotSinceTracksChanges,
-    SimWorld_DefenderDoesNotAppearAsChangedAfterTick, BakePath_TwoJoints,
-    BakePath_ThreeJoints, PathPosition_Endpoints, PathPosition_Midpoint,
-    PathPosition_CrossingSegmentBoundaryEmitsJoint,
-    SimWorld_EnemyAdvancesOnTick, SimWorld_ResolveEscapeesVisitsEscapedEnemy,
-    SimWorld_ResolveEscapeesCanLeaveEnemyAlive, SimWorld_GetPathOutOfRange,
-    SimWorld_ObtainPathIncludesTerminalJoint,
-    SimGame_LoadMapInitialSnapshotAndState,
-    SimGame_HandleUiActionStartWaveTransitionsToWavePhase,
-    SimGame_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase,
-    SimGame_HandleUiCanvasRightClickSpawnPlacesDefender,
-    SimGame_HandleUiCanvasSelectingDefenderReportsSelectedPosition,
-    SimGame_HandleUiCanvasSpawnsShooterDefender,
-    SimGame_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick,
-    SimGame_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick,
-    SimGame_StartWaveSpawnsFirstEnemyOnFirstStep,
-    SimGame_ExtractDeltaConsumesWorldUpdatesButNotState,
-    SimGame_ReachesGameOverAsSoonAsLivesAreExhausted,
-    SimGame_GameOverFreezesRemainingInvaders,
-    SimGame_ExtractFullIncludesPathsAndState, SimJson_ParseUiCanvasMessage,
-    SimJson_ParseUiActionMessageFields, SimJson_BuildHelloAckJson,
-    SimJson_BuildWorldDeltaJsonShapeAndFormatting,
-    SimJson_BuildWorldDeltaIncludesFlashVisualEffects,
-    SimJson_FlashExpiryTickReturnsAbsoluteTick,
-    SimJson_BuildWorldSnapshotJsonShape,
-    SimGame_BuildCurrentMapEntityCsvReport)

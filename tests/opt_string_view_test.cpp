@@ -22,7 +22,7 @@
 
 #include "../corvid/strings/opt_string_view.h"
 #include "../corvid/meta.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace std::literals;
 using namespace corvid;
@@ -33,21 +33,21 @@ using namespace corvid::literals;
 
 #pragma region Construction
 
-void OptStringViewTest_Construction() {
+TEST_CASE("OptStringViewTest_Construction", "[OptStringViewTest]") {
   // Default-constructed string_view.
   if (true) {
     std::string_view v;
-    EXPECT_TRUE(v.empty());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK((v.data()) == (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Default-constructed opt_string_view.
   if (true) {
     opt_string_view v;
-    EXPECT_TRUE(v.empty());
-    EXPECT_TRUE(v.null());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK((v.null()));
+    CHECK((v.data()) == (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct string_view on null pointer.
   if (true) {
@@ -56,35 +56,35 @@ void OptStringViewTest_Construction() {
     // This doesn't even throw, as such. It's undefined, so you (probably) get
     // an access violation. We could try to test for this with a try/catch
     // block and ellipses, but it's not guaranteed to behave on all platforms.
-    // * EXPECT_THROW((std::string_view(p)), std::runtime_error);
+    // * CHECK_THROWS_AS((std::string_view(p)), std::runtime_error);
   }
   // Construct opt_string_view on null pointer.
   if (true) {
     // Works same as default construction.
     const char* p{};
     opt_string_view v{p};
-    EXPECT_TRUE(v.empty());
-    EXPECT_TRUE(v.null());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK((v.null()));
+    CHECK((v.data()) == (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct opt_string_view on nullptr.
   if (true) {
     // Works same as default construction.
     opt_string_view v{nullptr};
-    EXPECT_TRUE(v.empty());
-    EXPECT_TRUE(v.null());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK((v.null()));
+    CHECK((v.data()) == (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct opt_string_view on nullopt.
   if (true) {
     // Works same as default construction.
     opt_string_view v{std::nullopt};
-    EXPECT_TRUE(v.empty());
-    EXPECT_TRUE(v.null());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK((v.null()));
+    CHECK((v.data()) == (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct string_view on null and 0.
   if (true) {
@@ -92,237 +92,237 @@ void OptStringViewTest_Construction() {
     const char* p{};
     // NOLINTNEXTLINE(bugprone-string-constructor)
     std::string_view v{p, 0};
-    EXPECT_TRUE(v.empty());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK((v.data()) == (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct opt_string_view on null and 0.
   if (true) {
     // Same as default.
     const char* p{};
     opt_string_view v{p, 0};
-    EXPECT_TRUE(v.empty());
-    EXPECT_TRUE(v.null());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK((v.null()));
+    CHECK((v.data()) == (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct opt_string_view on null and 1.
   if (true) {
     // Same as null and 0.
     const char* p{};
     opt_string_view v{p, 1};
-    EXPECT_TRUE(v.empty());
-    EXPECT_TRUE(v.null());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK((v.null()));
+    CHECK((v.data()) == (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct string_view on empty.
   if (true) {
     const char* p = "";
     std::string_view v{p};
-    EXPECT_TRUE(v.empty());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK((v.data()) != (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct opt_string_view on empty.
   if (true) {
     const char* p = "";
     opt_string_view v{p};
-    EXPECT_TRUE(v.empty());
-    EXPECT_FALSE(v.null());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK_FALSE((v.null()));
+    CHECK((v.data()) != (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct string_view on empty and 0.
   if (true) {
     const char* p = "";
     // NOLINTNEXTLINE(bugprone-string-constructor)
     std::string_view v{p, 0};
-    EXPECT_TRUE(v.empty());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK((v.data()) != (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct opt_string_view on empty and 0.
   if (true) {
     const char* p = "";
     opt_string_view v{p, 0};
-    EXPECT_TRUE(v.empty());
-    EXPECT_FALSE(v.null());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK_FALSE((v.null()));
+    CHECK((v.data()) != (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct string_view on empty string.
   if (true) {
     std::string s;
     std::string_view v{s};
-    EXPECT_TRUE(v.empty());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK((v.data()) != (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct opt_string_view on empty string.
   if (true) {
     std::string s;
     opt_string_view v{s};
-    EXPECT_TRUE(v.empty());
-    EXPECT_FALSE(v.null());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK_FALSE((v.null()));
+    CHECK((v.data()) != (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct string_view on null string_view.
   if (true) {
     std::string_view sv;
-    EXPECT_EQ(sv.data(), nullptr);
+    CHECK((sv.data()) == (nullptr));
     std::string_view v{sv};
-    EXPECT_TRUE(v.empty());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK((v.data()) == (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct opt_string_view on null string_view.
   if (true) {
     std::string_view sv;
-    EXPECT_EQ(sv.data(), nullptr);
+    CHECK((sv.data()) == (nullptr));
     opt_string_view v(sv);
-    EXPECT_TRUE(v.empty());
-    EXPECT_TRUE(v.null());
-    EXPECT_EQ(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK((v.null()));
+    CHECK((v.data()) == (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct string_view on empty string_view.
   if (true) {
     std::string_view sv("");
-    EXPECT_NE(sv.data(), nullptr);
+    CHECK((sv.data()) != (nullptr));
     std::string_view v{sv};
-    EXPECT_TRUE(v.empty());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK((v.data()) != (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct opt_string_view on empty string_view.
   if (true) {
     std::string_view sv{""};
     opt_string_view v(sv);
-    EXPECT_TRUE(v.empty());
-    EXPECT_FALSE(v.null());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_EQ(v.begin(), v.end());
+    CHECK((v.empty()));
+    CHECK_FALSE((v.null()));
+    CHECK((v.data()) != (nullptr));
+    CHECK((v.begin()) == (v.end()));
   }
   // Construct string_view on arbitrary string_view.
   if (true) {
     std::string_view sv("abc");
     std::string_view v{sv};
-    EXPECT_FALSE(v.empty());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_NE(v.begin(), v.end());
+    CHECK_FALSE((v.empty()));
+    CHECK((v.data()) != (nullptr));
+    CHECK((v.begin()) != (v.end()));
   }
   // Construct opt_string_view on arbitrary string_view.
   if (true) {
     std::string_view sv("abc");
     opt_string_view v(sv);
-    EXPECT_FALSE(v.empty());
-    EXPECT_FALSE(v.null());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_NE(v.begin(), v.end());
+    CHECK_FALSE((v.empty()));
+    CHECK_FALSE((v.null()));
+    CHECK((v.data()) != (nullptr));
+    CHECK((v.begin()) != (v.end()));
   }
   // Construct string_view on it/end.
   if (true) {
     std::span<const char> r{"abc"};
     std::string_view v{r.begin(), r.end()};
-    EXPECT_FALSE(v.empty());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_NE(v.begin(), v.end());
-    EXPECT_EQ(r.size(), 4U);
-    EXPECT_EQ(v.size(), 4U);
+    CHECK_FALSE((v.empty()));
+    CHECK((v.data()) != (nullptr));
+    CHECK((v.begin()) != (v.end()));
+    CHECK((r.size()) == (4U));
+    CHECK((v.size()) == (4U));
   }
   // Construct opt_string_view on it/end
   if (true) {
     std::span<const char> r{"abc"};
     opt_string_view v(r.begin(), r.end());
-    EXPECT_FALSE(v.empty());
-    EXPECT_FALSE(v.null());
-    EXPECT_NE(v.data(), nullptr);
-    EXPECT_NE(v.begin(), v.end());
-    EXPECT_EQ(r.size(), 4U);
-    EXPECT_EQ(v.size(), 4U);
+    CHECK_FALSE((v.empty()));
+    CHECK_FALSE((v.null()));
+    CHECK((v.data()) != (nullptr));
+    CHECK((v.begin()) != (v.end()));
+    CHECK((r.size()) == (4U));
+    CHECK((v.size()) == (4U));
   }
   // Construct using UDL.
   if (true) {
     auto a = ""_osv;
-    EXPECT_TRUE(a.empty());
-    EXPECT_FALSE(a.null());
+    CHECK((a.empty()));
+    CHECK_FALSE((a.null()));
     auto b = "abc"_osv;
-    EXPECT_EQ(b.size(), 3U);
+    CHECK((b.size()) == (3U));
     // Embedded zeros are permitted.
     auto c = "abc\0def"_osv;
-    EXPECT_EQ(c.size(), 7U);
+    CHECK((c.size()) == (7U));
     // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
     auto d = opt_string_view(c.data());
-    EXPECT_EQ(d.size(), 3U);
+    CHECK((d.size()) == (3U));
     auto e = 0_osv;
-    EXPECT_TRUE(e.null());
-    EXPECT_THROW((1_osv), std::out_of_range);
+    CHECK((e.null()));
+    CHECK_THROWS_AS((1_osv), std::out_of_range);
   }
 }
 
 #pragma endregion
 #pragma region Optional
 
-void OptStringViewTest_Optional() {
+TEST_CASE("OptStringViewTest_Optional", "[OptStringViewTest]") {
   if (true) {
     std::optional<std::string> opt;
     opt_string_view osv{opt};
-    EXPECT_TRUE(osv.null());
+    CHECK((osv.null()));
     opt = "test";
     osv = opt;
-    EXPECT_EQ(osv, "test");
+    CHECK((osv) == ("test"));
     // * opt_string_view bad{std::optional<int>{}};
   }
   if (true) {
     std::optional<std::string_view> opt;
     opt_string_view osv{opt};
-    EXPECT_TRUE(osv.null());
+    CHECK((osv.null()));
     opt = "test";
     osv = opt;
-    EXPECT_EQ(osv, "test");
+    CHECK((osv) == ("test"));
   }
 }
 
 #pragma endregion
 #pragma region Workalike
 
-void OptStringViewTest_Workalike() {
+TEST_CASE("OptStringViewTest_Workalike", "[OptStringViewTest]") {
   // Verify optional-like interface.
   if (true) {
     opt_string_view osv;
-    EXPECT_FALSE(osv.has_value());
-    EXPECT_EQ(osv.value_or("def"), "def");
+    CHECK_FALSE((osv.has_value()));
+    CHECK((osv.value_or("def")) == ("def"));
     osv.emplace("abc");
-    EXPECT_TRUE(osv.has_value());
-    EXPECT_EQ(osv.value(), "abc");
-    EXPECT_EQ(osv.value_or("def"), "abc");
+    CHECK((osv.has_value()));
+    CHECK((osv.value()) == ("abc"));
+    CHECK((osv.value_or("def")) == ("abc"));
     osv.reset();
-    EXPECT_FALSE(osv.has_value());
+    CHECK_FALSE((osv.has_value()));
   }
 
   // Interaction with temporaries and moved-from values.
   if (true) {
-    EXPECT_EQ(opt_string_view{"tmp"}.value_or("def"), "tmp");
+    CHECK((opt_string_view{"tmp"}.value_or("def")) == ("tmp"));
 
     opt_string_view src{"xyz"};
     // NOLINTNEXTLINE(performance-move-const-arg)
     opt_string_view dst{std::move(src)};
     // Moving doesn't clear opt_string_view
     // NOLINTNEXTLINE(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
-    EXPECT_TRUE(src.has_value());
-    EXPECT_TRUE(dst.has_value());
+    CHECK((src.has_value()));
+    CHECK((dst.has_value()));
 
     dst.reset();
-    EXPECT_FALSE(dst.has_value());
+    CHECK_FALSE((dst.has_value()));
   }
 
   // Methods operate correctly on rvalues.
   if (true) {
     opt_string_view osv{"qqq"};
     // NOLINTNEXTLINE(performance-move-const-arg)
-    EXPECT_EQ(std::move(osv).value_or("def"), "qqq");
+    CHECK((std::move(osv).value_or("def")) == ("qqq"));
     opt_string_view{"aaa"}.emplace("bbb");
   }
 }
@@ -339,31 +339,31 @@ std::string_view accept_overloaded(opt_string_view) { return "osv"; }
 #pragma endregion
 #pragma region Cast
 
-void OptStringViewTest_Cast() {
+TEST_CASE("OptStringViewTest_Cast", "[OptStringViewTest]") {
   // Casts "up" implicitly.
-  EXPECT_EQ("abc"_osv, "abc"_osv);
-  EXPECT_EQ(accept_string_view("abc"sv), "abc");
+  CHECK(("abc"_osv) == ("abc"_osv));
+  CHECK((accept_string_view("abc"sv)) == ("abc"));
   auto abc_str = "abc"s;
-  EXPECT_EQ(accept_string_view(abc_str), "abc");
-  EXPECT_EQ(accept_string_view("abc"_osv), "abc");
+  CHECK((accept_string_view(abc_str)) == ("abc"));
+  CHECK((accept_string_view("abc"_osv)) == ("abc"));
 
-  EXPECT_EQ(accept_opt_string_view("abc"_osv), "abc");
-  EXPECT_EQ(accept_opt_string_view(abc_str), "abc");
+  CHECK((accept_opt_string_view("abc"_osv)) == ("abc"));
+  CHECK((accept_opt_string_view(abc_str)) == ("abc"));
 
   // Or down.
-  EXPECT_EQ(accept_opt_string_view("abc"sv), "abc");
+  CHECK((accept_opt_string_view("abc"sv)) == ("abc"));
 
   // Handles overloading just fine.
-  EXPECT_EQ(accept_overloaded("abc"sv), "sv");
-  EXPECT_EQ(accept_overloaded("abc"_osv), "osv");
+  CHECK((accept_overloaded("abc"sv)) == ("sv"));
+  CHECK((accept_overloaded("abc"_osv)) == ("osv"));
 
   // But not this ambiguity.
   // Need to either cast here or add a specific overload.
-  // * EXPECT_EQ(accept_overloaded("abc"s), "sv");
+  // * CHECK((accept_overloaded("abc"s)) == ("sv"));
 
   // It's not a std::string_view but can be converted to one.
-  EXPECT_FALSE((std::is_same_v<opt_string_view, std::string_view>));
-  EXPECT_TRUE((StringViewConvertible<opt_string_view>));
+  CHECK_FALSE(((std::is_same_v<opt_string_view, std::string_view>)));
+  CHECK(((StringViewConvertible<opt_string_view>)));
 
   auto osv = "abc"_osv;
   std::string_view sv = osv;
@@ -373,114 +373,110 @@ void OptStringViewTest_Cast() {
   // NOLINTNEXTLINE(performance-move-const-arg)
   accept_string_view_rref(std::move(sv));
   // NOLINTNEXTLINE(bugprone-use-after-move)
-  EXPECT_EQ(sv, "changed");
+  CHECK((sv) == ("changed"));
   // NOLINTNEXTLINE(performance-move-const-arg)
   accept_string_view_rref(std::move(osv));
   // NOLINTNEXTLINE(bugprone-use-after-move)
-  EXPECT_EQ(osv, "changed");
+  CHECK((osv) == ("changed"));
   // Same thing happens with `std::string`. If you want this not to happen, you
   // need to prevent conversion (by hiding behind `enable_if` or forcing a
   // conversion to a transitional type).
   auto s = ""s;
   accept_string_view_rref(s);
-  EXPECT_EQ(s, "");
+  CHECK((s) == (""));
 
   s = osv;
-  EXPECT_EQ(s, "changed");
-  EXPECT_EQ(std::string(osv), "changed");
+  CHECK((s) == ("changed"));
+  CHECK((std::string(osv)) == ("changed"));
 }
 
 #pragma endregion
 #pragma region Equal
 
-void OptStringViewTestEqual() {
+TEST_CASE("OptStringViewTestEqual", "[OptStringViewTestEqual]") {
   // sv
-  EXPECT_EQ("abc"sv, "abc");
-  EXPECT_EQ("abc"sv, "abc"sv);
-  EXPECT_EQ("abc"sv, "abc"s);
+  CHECK(("abc"sv) == ("abc"));
+  CHECK(("abc"sv) == ("abc"sv));
+  CHECK(("abc"sv) == ("abc"s));
 
   // osv
-  EXPECT_EQ("abc"_osv, "abc");
-  EXPECT_EQ("abc"_osv, "abc"sv);
-  EXPECT_EQ("abc"_osv, "abc"s);
-  EXPECT_EQ("abc"_osv, "abc"_osv);
+  CHECK(("abc"_osv) == ("abc"));
+  CHECK(("abc"_osv) == ("abc"sv));
+  CHECK(("abc"_osv) == ("abc"s));
+  CHECK(("abc"_osv) == ("abc"_osv));
 
   // commutative
-  EXPECT_EQ("abc", "abc"_osv);
-  EXPECT_EQ("abc"_osv, "abc");
+  CHECK(("abc") == ("abc"_osv));
+  CHECK(("abc"_osv) == ("abc"));
 
-  EXPECT_EQ("abc"sv, "abc"_osv);
-  EXPECT_EQ("abc"_osv, "abc"sv);
+  CHECK(("abc"sv) == ("abc"_osv));
+  CHECK(("abc"_osv) == ("abc"sv));
 
-  EXPECT_EQ("abc"s, "abc"_osv);
-  EXPECT_EQ("abc"_osv, "abc"s);
+  CHECK(("abc"s) == ("abc"_osv));
+  CHECK(("abc"_osv) == ("abc"s));
 
   // null and empty.
   constexpr auto e = ""_osv;
   constexpr auto n = 0_osv;
 
-  EXPECT_THROW(1_osv, std::out_of_range);
+  CHECK_THROWS_AS(1_osv, std::out_of_range);
 
   // It's really constexpr, despite throwing on non-0, because it knows at
   // compile-time that it's 0.
-  if constexpr (n.empty()) { EXPECT_TRUE(true); }
+  if constexpr (n.empty()) { CHECK((true)); }
 
   auto csv = opt_string_view{"abc"};
   // In contrast, the next line won't compile.
-  // * if constexpr (csv.empty()) { EXPECT_TRUE(true); }
+  // * if constexpr (csv.empty()) { CHECK((true)); }
 
-  EXPECT_TRUE(e.empty());
-  EXPECT_FALSE(e.null());
+  CHECK((e.empty()));
+  CHECK_FALSE((e.null()));
 
-  EXPECT_TRUE(n.empty());
-  EXPECT_TRUE(n.null());
+  CHECK((n.empty()));
+  CHECK((n.null()));
 
-  EXPECT_TRUE((e == n));
-  EXPECT_FALSE(e.same(n));
+  CHECK(((e == n)));
+  CHECK_FALSE((e.same(n)));
 
-  EXPECT_NE(e.data(), nullptr);
-  EXPECT_EQ(n.data(), nullptr);
+  CHECK((e.data()) != (nullptr));
+  CHECK((n.data()) == (nullptr));
 
-  EXPECT_NE(e.data(), n.data());
+  CHECK((e.data()) != (n.data()));
 
   if (n) {
-    EXPECT_TRUE(false);
+    CHECK((false));
   } else {
-    EXPECT_TRUE(true);
+    CHECK((true));
   }
 
   if (!n) {
-    EXPECT_TRUE(true);
+    CHECK((true));
   } else {
-    EXPECT_TRUE(false);
+    CHECK((false));
   }
 
   if (csv) {
-    EXPECT_TRUE(true);
+    CHECK((true));
   } else {
-    EXPECT_TRUE(false);
+    CHECK((false));
   }
 
   int i{};
   i = n ? 42 : 24;
-  EXPECT_EQ(i, 24);
+  CHECK((i) == (24));
   i = !n ? 24 : 42;
-  EXPECT_EQ(i, 24);
+  CHECK((i) == (24));
 
-  EXPECT_EQ("abc"_osv, "abc"_osv);
-  EXPECT_LT("abc"_osv, "def"_osv);
+  CHECK(("abc"_osv) == ("abc"_osv));
+  CHECK(("abc"_osv) < ("def"_osv));
 
   // Hash test.
   std::set<opt_string_view> ss;
   ss.insert("abc"_osv);
-  EXPECT_TRUE(ss.contains("abc"_osv));
+  CHECK((ss.contains("abc"_osv)));
 }
 
 #pragma endregion
-
-MAKE_TEST_LIST(OptStringViewTest_Construction, OptStringViewTest_Optional,
-    OptStringViewTest_Workalike, OptStringViewTest_Cast,
-    OptStringViewTestEqual);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

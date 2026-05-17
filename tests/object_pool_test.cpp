@@ -16,7 +16,7 @@
 // limitations under the License.
 
 #include "../corvid/containers/object_pool.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace corvid;
 
@@ -35,17 +35,17 @@ static_assert(std::is_same_v<object_pool<int, 65536>::index_t, uint32_t>,
 
 #pragma region BorrowAndReturn
 
-void ObjectPool_BorrowAndReturn() {
+TEST_CASE("ObjectPool_BorrowAndReturn", "[ObjectPool]") {
   // Borrow a slot and verify it's valid.
   if (true) {
     object_pool<int, 4> pool;
-    EXPECT_EQ(pool.capacity(), 4U);
+    CHECK((pool.capacity()) == (4U));
 
     auto h = pool.borrow();
-    EXPECT_TRUE(h);
+    CHECK((h));
     *h = 42;
-    EXPECT_EQ(*h, 42);
-    EXPECT_EQ(h.value(), 42);
+    CHECK((*h) == (42));
+    CHECK((h.value()) == (42));
   }
 
   // Slot is returned on handle destruction; the freed slot can be re-borrowed.
@@ -53,46 +53,46 @@ void ObjectPool_BorrowAndReturn() {
     object_pool<int, 1> pool;
     {
       auto h = pool.borrow();
-      EXPECT_TRUE(h);
-      EXPECT_FALSE(pool.borrow()); // pool full
+      CHECK((h));
+      CHECK_FALSE((pool.borrow())); // pool full
     }
-    EXPECT_TRUE(pool.borrow()); // slot was returned on destruction
+    CHECK((pool.borrow())); // slot was returned on destruction
   }
 
   // Explicit `reset()` returns the slot early.
   if (true) {
     object_pool<int, 1> pool;
     auto h = pool.borrow();
-    EXPECT_TRUE(h);
-    EXPECT_FALSE(pool.borrow()); // pool full
+    CHECK((h));
+    CHECK_FALSE((pool.borrow())); // pool full
     h.reset();
-    EXPECT_FALSE(h);
-    EXPECT_TRUE(pool.borrow()); // slot returned
+    CHECK_FALSE((h));
+    CHECK((pool.borrow())); // slot returned
   }
 }
 
 #pragma endregion
 #pragma region FullPool
 
-void ObjectPool_FullPool() {
+TEST_CASE("ObjectPool_FullPool", "[ObjectPool]") {
   // Borrowing past capacity returns an empty `borrowed`.
   if (true) {
     object_pool<int, 2> pool;
     auto h0 = pool.borrow();
     auto h1 = pool.borrow();
-    EXPECT_TRUE(h0);
-    EXPECT_TRUE(h1);
+    CHECK((h0));
+    CHECK((h1));
 
     auto h2 = pool.borrow();
-    EXPECT_FALSE(h2);
-    EXPECT_TRUE(!h2);
+    CHECK_FALSE((h2));
+    CHECK((!h2));
   }
 }
 
 #pragma endregion
 #pragma region LIFOOrder
 
-void ObjectPool_LIFOOrder() {
+TEST_CASE("ObjectPool_LIFOOrder", "[ObjectPool]") {
   // Slots are returned in LIFO order: last-returned is first-borrowed.
   if (true) {
     object_pool<int, 4> pool;
@@ -106,26 +106,26 @@ void ObjectPool_LIFOOrder() {
 
     // `p0` was returned last, so it should be borrowed first.
     auto h2 = pool.borrow();
-    EXPECT_EQ(h2.get(), p0);
+    CHECK((h2.get()) == (p0));
 
     auto h3 = pool.borrow();
-    EXPECT_EQ(h3.get(), p1);
+    CHECK((h3.get()) == (p1));
   }
 }
 
 #pragma endregion
 #pragma region MoveHandle
 
-void ObjectPool_MoveHandle() {
+TEST_CASE("ObjectPool_MoveHandle", "[ObjectPool]") {
   // Move construction transfers ownership; original becomes empty.
   if (true) {
     object_pool<int, 4> pool;
     auto h = pool.borrow();
-    EXPECT_TRUE(h);
+    CHECK((h));
 
     auto h2 = std::move(h);
-    EXPECT_FALSE(h);
-    EXPECT_TRUE(h2);
+    CHECK_FALSE((h));
+    CHECK((h2));
   }
 
   // Slot is returned when the moved-to handle is destroyed.
@@ -135,10 +135,10 @@ void ObjectPool_MoveHandle() {
       auto outer = pool.borrow();
       {
         auto inner = std::move(outer);
-        EXPECT_TRUE(inner);
-        EXPECT_FALSE(pool.borrow()); // slot still held by inner
+        CHECK((inner));
+        CHECK_FALSE((pool.borrow())); // slot still held by inner
       }
-      EXPECT_TRUE(pool.borrow()); // inner destroyed, slot returned
+      CHECK((pool.borrow())); // inner destroyed, slot returned
     }
   }
 
@@ -148,15 +148,15 @@ void ObjectPool_MoveHandle() {
     auto h = pool.borrow();
     object_pool<int, 4>::borrowed h2;
     h2 = std::move(h);
-    EXPECT_FALSE(h);
-    EXPECT_TRUE(h2);
+    CHECK_FALSE((h));
+    CHECK((h2));
   }
 }
 
 #pragma endregion
 #pragma region MultipleSlots
 
-void ObjectPool_MultipleSlots() {
+TEST_CASE("ObjectPool_MultipleSlots", "[ObjectPool]") {
   // All slots can be borrowed and individually returned.
   if (true) {
     constexpr size_t cap = 8;
@@ -165,11 +165,11 @@ void ObjectPool_MultipleSlots() {
     std::array<std::optional<object_pool<int, cap>::borrowed>, cap> handles;
     for (size_t i = 0; i < cap; ++i) {
       handles[i] = pool.borrow();
-      EXPECT_TRUE(handles[i].has_value());
+      CHECK((handles[i].has_value()));
       // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
       **handles[i] = static_cast<int>(i);
     }
-    EXPECT_FALSE(pool.borrow()); // all slots in use
+    CHECK_FALSE((pool.borrow())); // all slots in use
 
     // Return every other slot.
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
@@ -178,16 +178,16 @@ void ObjectPool_MultipleSlots() {
     // Re-borrow the returned slots.
     for (size_t i = 0; i < cap; i += 2) {
       handles[i] = pool.borrow();
-      EXPECT_TRUE(handles[i].has_value());
+      CHECK((handles[i].has_value()));
     }
-    EXPECT_FALSE(pool.borrow()); // all slots in use again
+    CHECK_FALSE((pool.borrow())); // all slots in use again
   }
 }
 
 #pragma endregion
 #pragma region Callbacks
 
-void ObjectPool_Callbacks() {
+TEST_CASE("ObjectPool_Callbacks", "[ObjectPool]") {
   // BorrowCb is called on each borrow; ReturnCb is called on each return.
   if (true) {
     int borrow_count{};
@@ -199,18 +199,18 @@ void ObjectPool_Callbacks() {
         store{on_borrow, on_return};
 
     auto h0 = store.borrow();
-    EXPECT_EQ(*h0, 1);
-    EXPECT_EQ(borrow_count, 1);
-    EXPECT_EQ(return_count, 0);
+    CHECK((*h0) == (1));
+    CHECK((borrow_count) == (1));
+    CHECK((return_count) == (0));
 
     auto h1 = store.borrow();
-    EXPECT_EQ(*h1, 2);
-    EXPECT_EQ(borrow_count, 2);
+    CHECK((*h1) == (2));
+    CHECK((borrow_count) == (2));
 
     h0.reset();
-    EXPECT_EQ(return_count, 1);
+    CHECK((return_count) == (1));
     h1.reset();
-    EXPECT_EQ(return_count, 2);
+    CHECK((return_count) == (2));
   }
 
   // ReturnCb runs before the slot re-enters the free list; re-borrowing
@@ -223,25 +223,25 @@ void ObjectPool_Callbacks() {
         store{on_borrow, on_return};
 
     auto h = store.borrow();
-    EXPECT_EQ(*h, 99);
+    CHECK((*h) == (99));
     h.reset();
 
     auto h2 = store.borrow();
-    EXPECT_EQ(*h2, 99);
+    CHECK((*h2) == (99));
   }
 
   // Default no-op callbacks still compile and work correctly.
   if (true) {
     object_pool<int, 4> pool;
     auto h = pool.borrow();
-    EXPECT_TRUE(h);
+    CHECK((h));
   }
 }
 
 #pragma endregion
 #pragma region CreateHelper
 
-void ObjectPool_CreateHelper() {
+TEST_CASE("ObjectPool_CreateHelper", "[ObjectPool]") {
   // `create` deduces callback types from lambdas and wires both callbacks in.
   if (true) {
     int borrow_count{};
@@ -253,44 +253,44 @@ void ObjectPool_CreateHelper() {
             [&](int&) noexcept { ++return_count; });
 
     auto h0 = pool.borrow();
-    EXPECT_TRUE(h0);
-    EXPECT_EQ(*h0, 1);
-    EXPECT_EQ(borrow_count, 1);
-    EXPECT_EQ(return_count, 0);
+    CHECK((h0));
+    CHECK((*h0) == (1));
+    CHECK((borrow_count) == (1));
+    CHECK((return_count) == (0));
 
     h0.reset();
-    EXPECT_EQ(return_count, 1);
+    CHECK((return_count) == (1));
 
     auto h1 = pool.borrow();
-    EXPECT_TRUE(h1);
-    EXPECT_EQ(*h1, 2);
-    EXPECT_EQ(borrow_count, 2);
+    CHECK((h1));
+    CHECK((*h1) == (2));
+    CHECK((borrow_count) == (2));
   }
 }
 
 #pragma endregion
 #pragma region DetachAndReattach
 
-void ObjectPool_DetachAndReattach() {
+TEST_CASE("ObjectPool_DetachAndReattach", "[ObjectPool]") {
   // `detach` releases ownership from the handle without returning the slot.
   if (true) {
     object_pool<int, 1> pool;
     auto h = pool.borrow();
-    EXPECT_TRUE(h);
+    CHECK((h));
     int* item = h.get();
 
     auto detached = pool.detach(std::move(h));
-    EXPECT_FALSE(h);
-    EXPECT_EQ(detached, item);
-    EXPECT_FALSE(pool.borrow()); // detached slot is still out of the pool
+    CHECK_FALSE((h));
+    CHECK((detached) == (item));
+    CHECK_FALSE((pool.borrow())); // detached slot is still out of the pool
 
     // NOLINTNEXTLINE(performance-move-const-arg)
     auto h2 = pool.reattach(std::move(detached));
-    EXPECT_TRUE(h2);
-    EXPECT_EQ(h2.get(), item);
+    CHECK((h2));
+    CHECK((h2.get()) == (item));
 
     h2.reset();
-    EXPECT_TRUE(pool.borrow()); // slot returned after reattached handle resets
+    CHECK((pool.borrow())); // slot returned after reattached handle resets
   }
 
   // `reattach` fails for pointers that do not belong to the pool.
@@ -299,22 +299,22 @@ void ObjectPool_DetachAndReattach() {
     int outside{};
     // NOLINTNEXTLINE(performance-move-const-arg)
     auto h = pool.reattach(std::move(&outside));
-    EXPECT_FALSE(h);
+    CHECK_FALSE((h));
   }
 }
 
 #pragma endregion
 #pragma region TokenBasics
 
-void ObjectPool_TokenBasics() {
+TEST_CASE("ObjectPool_TokenBasics", "[ObjectPool]") {
   // Default-constructed token is invalid on all fronts.
   if (true) {
     object_pool<int, 4> pool;
     object_pool<int, 4>::token h;
-    EXPECT_FALSE(h);
-    EXPECT_TRUE(!h);
-    EXPECT_FALSE(h.is_valid());
-    EXPECT_EQ(h.get_ptr(pool), nullptr);
+    CHECK_FALSE((h));
+    CHECK((!h));
+    CHECK_FALSE((h.is_valid()));
+    CHECK((h.get_ptr(pool)) == (nullptr));
   }
 
   // Token from `borrowed&` is valid and `get_ptr` returns the slot pointer.
@@ -323,9 +323,9 @@ void ObjectPool_TokenBasics() {
     auto b = pool.borrow();
     *b = 7;
     object_pool<int, 4>::token h{b};
-    EXPECT_TRUE(h);
-    EXPECT_TRUE(h.is_valid());
-    EXPECT_EQ(h.get_ptr(pool), b.get());
+    CHECK((h));
+    CHECK((h.is_valid()));
+    CHECK((h.get_ptr(pool)) == (b.get()));
   }
 
   // Token from `borrowed&` does not transfer ownership; slot stays borrowed.
@@ -333,9 +333,9 @@ void ObjectPool_TokenBasics() {
     object_pool<int, 1> pool;
     auto b = pool.borrow();
     object_pool<int, 1>::token h{b};
-    EXPECT_FALSE(pool.borrow()); // b still owns the slot
+    CHECK_FALSE((pool.borrow())); // b still owns the slot
     b.reset();
-    EXPECT_TRUE(pool.borrow()); // slot returned when b resets
+    CHECK((pool.borrow())); // slot returned when b resets
   }
 
   // Tokens are copyable; the copy refers to the same slot.
@@ -344,25 +344,25 @@ void ObjectPool_TokenBasics() {
     auto b = pool.borrow();
     object_pool<int, 4>::token h1{b};
     auto h2 = h1;
-    EXPECT_TRUE(h2);
-    EXPECT_EQ(h2.get_ptr(pool), b.get());
+    CHECK((h2));
+    CHECK((h2.get_ptr(pool)) == (b.get()));
   }
 }
 
 #pragma endregion
 #pragma region TokenDetachAndBorrow
 
-void ObjectPool_TokenDetachAndBorrow() {
+TEST_CASE("ObjectPool_TokenDetachAndBorrow", "[ObjectPool]") {
   // `token(borrowed&&)` detaches the `borrowed`; slot stays out of the pool.
   if (true) {
     object_pool<int, 1> pool;
     auto b = pool.borrow();
     int* p = b.get();
     object_pool<int, 1>::token h{std::move(b)};
-    EXPECT_FALSE(b); // b was detached
-    EXPECT_TRUE(h);
-    EXPECT_FALSE(pool.borrow());   // slot not in free list
-    EXPECT_EQ(h.get_ptr(pool), p); // handle still resolves to the pointer
+    CHECK_FALSE((b)); // b was detached
+    CHECK((h));
+    CHECK_FALSE((pool.borrow()));    // slot not in free list
+    CHECK((h.get_ptr(pool)) == (p)); // handle still resolves to the pointer
   }
 
   // `handle::borrow()` re-acquires the detached slot.
@@ -373,30 +373,30 @@ void ObjectPool_TokenDetachAndBorrow() {
     object_pool<int, 1>::token h{std::move(b)};
 
     auto b2 = h.borrow(pool);
-    EXPECT_TRUE(b2);
-    EXPECT_EQ(*b2, 42);
-    EXPECT_FALSE(pool.borrow()); // slot still held by b2
+    CHECK((b2));
+    CHECK((*b2) == (42));
+    CHECK_FALSE((pool.borrow())); // slot still held by b2
 
     // A second `borrow()` on the same handle fails while b2 owns the slot.
-    EXPECT_FALSE(h.borrow(pool));
+    CHECK_FALSE((h.borrow(pool)));
 
     b2.reset();
-    EXPECT_TRUE(pool.borrow()); // slot returned to pool
+    CHECK((pool.borrow())); // slot returned to pool
   }
 }
 
 #pragma endregion
 #pragma region TokenStaleness
 
-void ObjectPool_TokenStaleness() {
+TEST_CASE("ObjectPool_TokenStaleness", "[ObjectPool]") {
   // `get_ptr` returns nullptr once the slot's generation has advanced.
   if (true) {
     object_pool<int, 4> pool;
     auto b = pool.borrow();
     object_pool<int, 4>::token h{b};
-    EXPECT_EQ(h.get_ptr(pool), b.get()); // valid while b is live
-    b.reset();                           // gen incremented on return
-    EXPECT_EQ(h.get_ptr(pool), nullptr); // stale
+    CHECK((h.get_ptr(pool)) == (b.get())); // valid while b is live
+    b.reset();                             // gen incremented on return
+    CHECK((h.get_ptr(pool)) == (nullptr)); // stale
   }
 
   // `handle::borrow()` returns empty once the handle is stale.
@@ -405,7 +405,7 @@ void ObjectPool_TokenStaleness() {
     auto b = pool.borrow();
     object_pool<int, 4>::token h{b};
     b.reset(); // gen incremented; handle is now stale
-    EXPECT_FALSE(h.borrow(pool));
+    CHECK_FALSE((h.borrow(pool)));
   }
 
   // `handle::borrow()` returns empty if the slot is currently borrowed.
@@ -413,14 +413,14 @@ void ObjectPool_TokenStaleness() {
     object_pool<int, 4> pool;
     auto b = pool.borrow();
     object_pool<int, 4>::token h{b}; // h and b refer to the same slot
-    EXPECT_FALSE(h.borrow(pool));    // b already owns it
+    CHECK_FALSE((h.borrow(pool)));   // b already owns it
   }
 }
 
 #pragma endregion
 #pragma region TokenAsInt
 
-void ObjectPool_TokenAsInt() {
+TEST_CASE("ObjectPool_TokenAsInt", "[ObjectPool]") {
   // Round-trip through `as_int` and `token(uint64_t)` resolves to the same
   // slot.
   if (true) {
@@ -430,8 +430,8 @@ void ObjectPool_TokenAsInt() {
     object_pool<int, 4>::token h{b};
     auto packed = h.as_int();
     object_pool<int, 4>::token h2{packed};
-    EXPECT_TRUE(h2);
-    EXPECT_EQ(h2.get_ptr(pool), b.get());
+    CHECK((h2));
+    CHECK((h2.get_ptr(pool)) == (b.get()));
   }
 
   // A token reconstructed from a stale `as_int` value is also stale.
@@ -442,7 +442,7 @@ void ObjectPool_TokenAsInt() {
     auto packed = h.as_int();
     b.reset(); // gen incremented; packed value is now stale
     object_pool<int, 4>::token h2{packed};
-    EXPECT_EQ(h2.get_ptr(pool), nullptr);
+    CHECK((h2.get_ptr(pool)) == (nullptr));
   }
 
   // Unversioned pool: round-trip through `as_int` resolves to the same slot.
@@ -452,27 +452,27 @@ void ObjectPool_TokenAsInt() {
     object_pool<int, 4, generation_scheme::unversioned>::token h{b};
     auto packed = h.as_int();
     object_pool<int, 4, generation_scheme::unversioned>::token h2{packed};
-    EXPECT_TRUE(h2);
-    EXPECT_EQ(h2.get_ptr(pool), b.get());
+    CHECK((h2));
+    CHECK((h2.get_ptr(pool)) == (b.get()));
   }
 }
 
 #pragma endregion
 #pragma region Shutdown
 
-void ObjectPool_Shutdown() {
+TEST_CASE("ObjectPool_Shutdown", "[ObjectPool]") {
   // After `shutdown`, `borrow` fails.
   if (true) {
     object_pool<int, 4> pool;
     auto h = pool.borrow();
-    EXPECT_TRUE(h);
+    CHECK((h));
     h.reset();
 
-    EXPECT_TRUE(pool.shutdown());
-    EXPECT_FALSE(pool.borrow());
+    CHECK((pool.shutdown()));
+    CHECK_FALSE((pool.borrow()));
 
     // Idempotent: subsequent calls report no-op.
-    EXPECT_FALSE(pool.shutdown());
+    CHECK_FALSE((pool.shutdown()));
   }
 
   // `shutdown` invokes `return_cb_` on every slot regardless of state:
@@ -489,15 +489,15 @@ void ObjectPool_Shutdown() {
     auto h0 = pool.borrow();
     auto h1 = pool.borrow();
     h0.reset(); // one return: count == 1
-    EXPECT_EQ(return_count, 1);
+    CHECK((return_count) == (1));
 
     // Shutdown invokes return_cb on all 4 slots (including h1's).
-    EXPECT_TRUE(pool.shutdown());
-    EXPECT_EQ(return_count, 5);
+    CHECK((pool.shutdown()));
+    CHECK((return_count) == (5));
 
     // Returning the still-live handle still runs return_cb once.
     h1.reset();
-    EXPECT_EQ(return_count, 6);
+    CHECK((return_count) == (6));
   }
 
   // `shutdown` forcibly resets every slot to a default-constructed
@@ -508,15 +508,15 @@ void ObjectPool_Shutdown() {
     object_pool<int, 2> pool;
     auto h = pool.borrow();
     *h = 42;
-    EXPECT_EQ(*h, 42);
+    CHECK((*h) == (42));
 
-    EXPECT_TRUE(pool.shutdown());
+    CHECK((pool.shutdown()));
 
     // The slot has been reset to T{}.
-    EXPECT_EQ(*h, 0);
+    CHECK((*h) == (0));
 
     h.reset();
-    EXPECT_FALSE(pool.borrow());
+    CHECK_FALSE((pool.borrow()));
   }
 
   // With no outstanding borrows at shutdown time, `borrow` continues to
@@ -524,9 +524,9 @@ void ObjectPool_Shutdown() {
   // refilled it.
   if (true) {
     object_pool<int, 2> pool;
-    EXPECT_TRUE(pool.shutdown());
-    EXPECT_FALSE(pool.borrow());
-    EXPECT_FALSE(pool.borrow());
+    CHECK((pool.shutdown()));
+    CHECK_FALSE((pool.borrow()));
+    CHECK_FALSE((pool.borrow()));
   }
 
   // Tokens captured before `shutdown` cannot escalate to a `borrowed`
@@ -536,12 +536,12 @@ void ObjectPool_Shutdown() {
     object_pool<int, 2> pool;
     auto h = pool.borrow();
     object_pool<int, 2>::token tok{h};
-    EXPECT_TRUE(tok);
+    CHECK((tok));
 
-    EXPECT_TRUE(pool.shutdown());
+    CHECK((pool.shutdown()));
 
-    EXPECT_FALSE(tok.borrow(pool));
-    EXPECT_EQ(tok.get_ptr(pool), nullptr);
+    CHECK_FALSE((tok.borrow(pool)));
+    CHECK((tok.get_ptr(pool)) == (nullptr));
   }
 
   // The pool's destructor calls `shutdown`, so `return_cb_` runs for
@@ -555,20 +555,13 @@ void ObjectPool_Shutdown() {
           pool{{}, on_return};
       auto h = pool.borrow();
       h.reset(); // 1 return so far
-      EXPECT_EQ(return_count, 1);
+      CHECK((return_count) == (1));
     }
     // Destructor invoked shutdown: 3 more invocations (one per slot).
-    EXPECT_EQ(return_count, 4);
+    CHECK((return_count) == (4));
   }
 }
 
 #pragma endregion
-
-MAKE_TEST_LIST(ObjectPool_BorrowAndReturn, ObjectPool_FullPool,
-    ObjectPool_LIFOOrder, ObjectPool_MoveHandle, ObjectPool_MultipleSlots,
-    ObjectPool_Callbacks, ObjectPool_CreateHelper,
-    ObjectPool_DetachAndReattach, ObjectPool_TokenBasics,
-    ObjectPool_TokenDetachAndBorrow, ObjectPool_TokenStaleness,
-    ObjectPool_TokenAsInt, ObjectPool_Shutdown);
 
 // NOLINTEND(readability-function-cognitive-complexity)

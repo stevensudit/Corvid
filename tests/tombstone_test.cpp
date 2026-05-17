@@ -16,7 +16,7 @@
 // limitations under the License.
 
 #include "../corvid/concurrency.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace corvid;
 
@@ -24,64 +24,62 @@ using namespace corvid;
 
 #pragma region TombStone_Basic
 
-void TombStone_Basic() {
+TEST_CASE("TombStone_Basic", "[TombStone]") {
   tombstone t;
-  EXPECT_FALSE(t.dead());
-  EXPECT_FALSE(t.get());
-  EXPECT_FALSE(*t);
+  CHECK_FALSE((t.dead()));
+  CHECK_FALSE((t.get()));
+  CHECK_FALSE((*t));
   if (t) {
-    EXPECT_FALSE(true);
+    CHECK_FALSE((true));
   } else {
-    EXPECT_FALSE(false);
+    CHECK_FALSE((false));
   }
   if (!t) {
-    EXPECT_TRUE(true);
+    CHECK((true));
   } else {
-    EXPECT_FALSE(false);
+    CHECK_FALSE((false));
   }
   t.set(false);
-  EXPECT_FALSE(t.dead());
+  CHECK_FALSE((t.dead()));
   t.set(true);
-  EXPECT_TRUE(t.dead());
-  EXPECT_TRUE(t.get());
-  EXPECT_TRUE(*t);
+  CHECK((t.dead()));
+  CHECK((t.get()));
+  CHECK((*t));
   t.set(false);
-  EXPECT_TRUE(t.dead());
-  EXPECT_TRUE(t.get());
-  EXPECT_TRUE(*t);
+  CHECK((t.dead()));
+  CHECK((t.get()));
+  CHECK((*t));
 }
 
 #pragma endregion
 #pragma region TombStone_TrySet
 
-void TombStone_TrySet() {
+TEST_CASE("TombStone_TrySet", "[TombStone]") {
   tombstone t;
   // Returns false when value is already the target.
-  EXPECT_FALSE(t.try_set(false));
-  EXPECT_FALSE(t.dead());
+  CHECK_FALSE((t.try_set(false)));
+  CHECK_FALSE((t.dead()));
   // Returns true when value changes.
-  EXPECT_TRUE(t.try_set(true));
-  EXPECT_TRUE(t.dead());
+  CHECK((t.try_set(true)));
+  CHECK((t.dead()));
   // Returns false when dead (even for a different value).
-  EXPECT_FALSE(t.try_set(false));
-  EXPECT_TRUE(t.dead());
+  CHECK_FALSE((t.try_set(false)));
+  CHECK((t.dead()));
 }
 
 #pragma endregion
 #pragma region TombStone_Kill
 
-void TombStone_Kill() {
+TEST_CASE("TombStone_Kill", "[TombStone]") {
   tombstone t;
   // First kill succeeds.
-  EXPECT_TRUE(t.kill());
-  EXPECT_TRUE(t.dead());
+  CHECK((t.kill()));
+  CHECK((t.dead()));
   // Second kill reports already dead.
-  EXPECT_FALSE(t.kill());
-  EXPECT_TRUE(t.dead());
+  CHECK_FALSE((t.kill()));
+  CHECK((t.dead()));
 }
 
 #pragma endregion
-
-MAKE_TEST_LIST(TombStone_Basic, TombStone_TrySet, TombStone_Kill);
 
 // NOLINTEND(readability-function-cognitive-complexity)

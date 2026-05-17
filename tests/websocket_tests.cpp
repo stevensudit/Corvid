@@ -25,8 +25,8 @@
 #include <iostream>
 #include <unistd.h>
 
-#define MINITEST_SHOW_TIMERS 0
-#include "minitest.h"
+#define CATCH2_SHOW_TIMERS 0
+#include "catch2_main.h"
 
 using namespace corvid;
 using namespace std::string_literals;
@@ -76,41 +76,41 @@ void wstx_reextract_options(request_head& req) {
 // `ws_frame_wrapper` and `http_websocket` unit tests.
 
 // RFC 6455 section 1.3: known input -> known accept key.
-void WebSocket_AcceptKey() {
+TEST_CASE("WebSocket_AcceptKey", "[WebSocket]") {
   const auto key =
       ws_frame_view::compute_accept_key("dGhlIHNhbXBsZSBub25jZQ==");
-  EXPECT_EQ(key, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+  CHECK((key) == ("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="));
 }
 
 #pragma endregion
 #pragma region FrameCodec_RoundTrip
 
 // Serialize an unmasked text frame and verify the parsed header fields.
-void WebSocket_FrameCodec_RoundTrip() {
+TEST_CASE("WebSocket_FrameCodec_RoundTrip", "[WebSocket]") {
   const std::string payload{"hello"};
   const auto frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, payload);
 
-  ASSERT_GE(frame.size(), 7ULL);
+  REQUIRE((frame.size()) >= (7ULL));
   ws_frame_view hdr{frame};
-  ASSERT_TRUE(hdr.is_complete());
-  ASSERT_TRUE(hdr.parse());
-  EXPECT_TRUE(hdr.is_final());
-  EXPECT_FALSE(hdr.is_masked());
-  EXPECT_EQ(hdr.header_length(), 2ULL);
-  EXPECT_EQ(hdr.payload_length(), 5ULL);
-  EXPECT_EQ(hdr.total_length(), 7ULL);
+  REQUIRE((hdr.is_complete()));
+  REQUIRE((hdr.parse()));
+  CHECK((hdr.is_final()));
+  CHECK_FALSE((hdr.is_masked()));
+  CHECK((hdr.header_length()) == (2ULL));
+  CHECK((hdr.payload_length()) == (5ULL));
+  CHECK((hdr.total_length()) == (7ULL));
 
   const std::string_view extracted{frame.data() + hdr.header_length(),
       hdr.payload_length()};
-  EXPECT_EQ(extracted, payload);
+  CHECK((extracted) == (payload));
 }
 
 #pragma endregion
 #pragma region Feed_SingleText
 
 // Client pump receives a single unmasked text frame from the server.
-void WebSocket_Feed_SingleText() {
+TEST_CASE("WebSocket_Feed_SingleText", "[WebSocket]") {
   std::string got_msg;
   ws_frame_control got_op{};
   http_websocket ws{[](any_strings&&) { return true; },
@@ -123,17 +123,17 @@ void WebSocket_Feed_SingleText() {
   const auto frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "hello");
   std::string_view wire{frame};
-  EXPECT_EQ(ws.feed(wire), 0U);
-  EXPECT_EQ(wire.size(), 0U);
-  EXPECT_EQ(got_msg, "hello");
-  EXPECT_EQ(got_op, ws_frame_control::text);
+  CHECK((ws.feed(wire)) == (0U));
+  CHECK((wire.size()) == (0U));
+  CHECK((got_msg) == ("hello"));
+  CHECK((got_op) == (ws_frame_control::text));
 }
 
 #pragma endregion
 #pragma region Feed_SingleTextInvalidUtf8
 
 // Invalid UTF-8 in a text frame fails the connection with close code 1007.
-void WebSocket_Feed_SingleTextInvalidUtf8() {
+TEST_CASE("WebSocket_Feed_SingleTextInvalidUtf8", "[WebSocket]") {
   std::string sent_frame;
   http_websocket ws{[&](any_strings&& f) {
     sent_frame = std::get<std::string>(std::move(f));
@@ -148,27 +148,27 @@ void WebSocket_Feed_SingleTextInvalidUtf8() {
   std::string wire_frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "\x80", 0x12345678U);
   std::string_view wire{wire_frame};
-  EXPECT_EQ(ws.feed(wire), http_websocket::insatiable);
-  EXPECT_FALSE(msg_fired);
+  CHECK((ws.feed(wire)) == (http_websocket::insatiable));
+  CHECK_FALSE((msg_fired));
 
   ws_frame_view hdr{sent_frame};
-  ASSERT_TRUE(hdr.is_complete());
-  ASSERT_TRUE(hdr.parse());
-  EXPECT_EQ(hdr.opcode(), ws_frame_control::close);
+  REQUIRE((hdr.is_complete()));
+  REQUIRE((hdr.parse()));
+  CHECK((hdr.opcode()) == (ws_frame_control::close));
   const std::string_view close_payload = std::string_view{sent_frame}.substr(
       hdr.header_length(), hdr.payload_length());
-  ASSERT_GE(close_payload.size(), 2U);
+  REQUIRE((close_payload.size()) >= (2U));
   const uint16_t code =
       (static_cast<uint8_t>(close_payload[0]) << 8) |
       static_cast<uint8_t>(close_payload[1]);
-  EXPECT_EQ(code, uint16_t{1007});
+  CHECK((code) == (uint16_t{1007}));
 }
 
 #pragma endregion
 #pragma region Feed_SingleTextInvalidUtf8Disabled
 
 // Disabling UTF-8 validation allows invalid text payloads through.
-void WebSocket_Feed_SingleTextInvalidUtf8Disabled() {
+TEST_CASE("WebSocket_Feed_SingleTextInvalidUtf8Disabled", "[WebSocket]") {
   std::string got_msg;
   ws_frame_control got_op{};
   bool msg_fired{};
@@ -184,17 +184,17 @@ void WebSocket_Feed_SingleTextInvalidUtf8Disabled() {
   std::string wire_frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "\x80", 0x12345678U);
   std::string_view wire{wire_frame};
-  EXPECT_EQ(ws.feed(wire), 0U);
-  EXPECT_TRUE(msg_fired);
-  EXPECT_EQ(got_msg, std::string("\x80", 1));
-  EXPECT_EQ(got_op, ws_frame_control::text);
+  CHECK((ws.feed(wire)) == (0U));
+  CHECK((msg_fired));
+  CHECK((got_msg) == (std::string("\x80", 1)));
+  CHECK((got_op) == (ws_frame_control::text));
 }
 
 #pragma endregion
 #pragma region Feed_MaskedBinary
 
 // Server pump receives a masked binary frame and correctly unmasks it.
-void WebSocket_Feed_MaskedBinary() {
+TEST_CASE("WebSocket_Feed_MaskedBinary", "[WebSocket]") {
   std::string got_msg;
   ws_frame_control got_op{};
   http_websocket ws{[](any_strings&&) { return true; }};
@@ -207,17 +207,17 @@ void WebSocket_Feed_MaskedBinary() {
       ws_frame_control::fin | ws_frame_control::binary, "world",
       uint32_t{0xDEADBEEF});
   std::string_view wire{frame};
-  EXPECT_EQ(ws.feed(wire), 0U);
-  EXPECT_EQ(wire.size(), 0U);
-  EXPECT_EQ(got_msg, "world");
-  EXPECT_EQ(got_op, ws_frame_control::binary);
+  CHECK((ws.feed(wire)) == (0U));
+  CHECK((wire.size()) == (0U));
+  CHECK((got_msg) == ("world"));
+  CHECK((got_op) == (ws_frame_control::binary));
 }
 
 #pragma endregion
 #pragma region Feed_Ping
 
 // Server auto-pongs a ping frame and does not fire on_message.
-void WebSocket_Feed_Ping() {
+TEST_CASE("WebSocket_Feed_Ping", "[WebSocket]") {
   std::string sent_frame;
   bool msg_fired{};
   http_websocket ws_server{[&](any_strings&& f) {
@@ -236,29 +236,29 @@ void WebSocket_Feed_Ping() {
         return true;
       },
       connection_role::client};
-  EXPECT_TRUE(ws_client.send_frame(
-      ws_frame_control::fin | ws_frame_control::ping, "ping-payload"));
+  CHECK((ws_client.send_frame(ws_frame_control::fin | ws_frame_control::ping,
+      "ping-payload")));
   std::string_view wire{received_frame};
 
-  EXPECT_EQ(ws_server.feed(wire), 0U);
-  EXPECT_EQ(wire.size(), 0U);
-  EXPECT_FALSE(msg_fired);
-  ASSERT_FALSE(sent_frame.empty());
+  CHECK((ws_server.feed(wire)) == (0U));
+  CHECK((wire.size()) == (0U));
+  CHECK_FALSE((msg_fired));
+  REQUIRE_FALSE((sent_frame.empty()));
   ws_frame_view hdr{sent_frame};
-  ASSERT_TRUE(hdr.is_complete());
-  ASSERT_TRUE(hdr.parse());
+  REQUIRE((hdr.is_complete()));
+  REQUIRE((hdr.parse()));
   const auto pong_op = static_cast<ws_frame_control>(
       static_cast<uint8_t>(hdr.opcode()) & 0x0FU);
-  EXPECT_EQ(pong_op, ws_frame_control::pong);
+  CHECK((pong_op) == (ws_frame_control::pong));
   // Pong body must echo the ping payload.
-  EXPECT_EQ(hdr.payload_length(), 12ULL);
+  CHECK((hdr.payload_length()) == (12ULL));
 }
 
 #pragma endregion
 #pragma region Feed_Close
 
 // Server fires on_close with the correct status code and reason string.
-void WebSocket_Feed_Close() {
+TEST_CASE("WebSocket_Feed_Close", "[WebSocket]") {
   uint16_t got_code{};
   std::string got_reason;
   http_websocket ws_server{[](any_strings&&) { return true; }};
@@ -274,20 +274,20 @@ void WebSocket_Feed_Close() {
         return true;
       },
       connection_role::client};
-  EXPECT_TRUE(ws_client.send_close(1001, "going away"));
+  CHECK((ws_client.send_close(1001, "going away")));
   std::string_view wire{received_frame};
 
-  EXPECT_EQ(ws_server.feed(wire), 0U);
-  EXPECT_EQ(wire.size(), 0U);
-  EXPECT_EQ(got_code, uint16_t{1001});
-  EXPECT_EQ(got_reason, "going away");
+  CHECK((ws_server.feed(wire)) == (0U));
+  CHECK((wire.size()) == (0U));
+  CHECK((got_code) == (uint16_t{1001}));
+  CHECK((got_reason) == ("going away"));
 }
 
 #pragma endregion
 #pragma region Feed_CloseInvalidUtf8Reason
 
 // Invalid UTF-8 in a close reason fails the connection with 1007.
-void WebSocket_Feed_CloseInvalidUtf8Reason() {
+TEST_CASE("WebSocket_Feed_CloseInvalidUtf8Reason", "[WebSocket]") {
   std::string sent_frame;
   bool close_fired{};
   http_websocket ws_server{[&](any_strings&& f) {
@@ -305,28 +305,28 @@ void WebSocket_Feed_CloseInvalidUtf8Reason() {
       ws_frame_control::fin | ws_frame_control::close, payload, 0x12345678U);
   std::string_view wire{received_frame};
 
-  EXPECT_NE(ws_server.feed(wire), 0U);
-  EXPECT_NE(wire.size(), 0U);
-  EXPECT_FALSE(close_fired);
+  CHECK((ws_server.feed(wire)) != (0U));
+  CHECK((wire.size()) != (0U));
+  CHECK_FALSE((close_fired));
 
   ws_frame_view hdr{sent_frame};
-  ASSERT_TRUE(hdr.is_complete());
-  ASSERT_TRUE(hdr.parse());
-  EXPECT_EQ(hdr.opcode(), ws_frame_control::close);
+  REQUIRE((hdr.is_complete()));
+  REQUIRE((hdr.parse()));
+  CHECK((hdr.opcode()) == (ws_frame_control::close));
   const std::string_view close_payload = std::string_view{sent_frame}.substr(
       hdr.header_length(), hdr.payload_length());
-  ASSERT_GE(close_payload.size(), 2U);
+  REQUIRE((close_payload.size()) >= (2U));
   const uint16_t code =
       (static_cast<uint8_t>(close_payload[0]) << 8) |
       static_cast<uint8_t>(close_payload[1]);
-  EXPECT_EQ(code, uint16_t{1007});
+  CHECK((code) == (uint16_t{1007}));
 }
 
 #pragma endregion
 #pragma region Feed_Fragmented
 
 // Three-frame fragmented message is assembled and delivered exactly once.
-void WebSocket_Feed_Fragmented() {
+TEST_CASE("WebSocket_Feed_Fragmented", "[WebSocket]") {
   std::string got_msg;
   ws_frame_control got_op{};
   int msg_count{};
@@ -347,28 +347,28 @@ void WebSocket_Feed_Fragmented() {
   std::string_view wire;
 
   // Fragment 1: FIN=0, text opcode, "hel".
-  EXPECT_TRUE(ws_client.send_frame(ws_frame_control::text, "hel"));
+  CHECK((ws_client.send_frame(ws_frame_control::text, "hel")));
   wire = received_frame;
-  EXPECT_EQ(ws.feed(wire), 0U);
-  EXPECT_EQ(wire.size(), 0U);
-  EXPECT_EQ(msg_count, 0);
+  CHECK((ws.feed(wire)) == (0U));
+  CHECK((wire.size()) == (0U));
+  CHECK((msg_count) == (0));
 
   // Fragment 2: FIN=0, continuation, "lo ".
-  EXPECT_TRUE(ws_client.send_frame(ws_frame_control::continuation, "lo "));
+  CHECK((ws_client.send_frame(ws_frame_control::continuation, "lo ")));
   wire = received_frame;
-  EXPECT_EQ(ws.feed(wire), 0U);
-  EXPECT_EQ(wire.size(), 0U);
-  EXPECT_EQ(msg_count, 0);
+  CHECK((ws.feed(wire)) == (0U));
+  CHECK((wire.size()) == (0U));
+  CHECK((msg_count) == (0));
 
   // Fragment 3: FIN=1, continuation, "world" -> dispatch.
-  EXPECT_TRUE(ws_client.send_frame(
-      ws_frame_control::fin | ws_frame_control::continuation, "world"));
+  CHECK((ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::continuation, "world")));
   wire = received_frame;
-  EXPECT_EQ(ws.feed(wire), 0U);
-  EXPECT_EQ(wire.size(), 0U);
-  EXPECT_EQ(msg_count, 1);
-  EXPECT_EQ(got_msg, "hello world");
-  EXPECT_EQ(got_op, ws_frame_control::text);
+  CHECK((ws.feed(wire)) == (0U));
+  CHECK((wire.size()) == (0U));
+  CHECK((msg_count) == (1));
+  CHECK((got_msg) == ("hello world"));
+  CHECK((got_op) == (ws_frame_control::text));
 }
 
 #pragma endregion
@@ -377,7 +377,7 @@ void WebSocket_Feed_Fragmented() {
 // Three-frame fragmented message with deliver_fragments=true fires on_message
 // once per frame. Non-final frames carry the data opcode without the fin bit;
 // the final frame carries opcode|fin.
-void WebSocket_Feed_FragmentedDelivery() {
+TEST_CASE("WebSocket_Feed_FragmentedDelivery", "[WebSocket]") {
   struct Call {
     std::string payload;
     ws_frame_control op{};
@@ -399,39 +399,39 @@ void WebSocket_Feed_FragmentedDelivery() {
   std::string_view wire;
 
   // Fragment 1: FIN=0, text opcode, "hel".
-  EXPECT_TRUE(ws_client.send_frame(ws_frame_control::text, "hel"));
+  CHECK((ws_client.send_frame(ws_frame_control::text, "hel")));
   wire = received_frame;
-  EXPECT_EQ(ws.feed(wire), 0U);
-  EXPECT_EQ(wire.size(), 0U);
-  ASSERT_EQ(calls.size(), 1U);
-  EXPECT_EQ(calls[0].payload, "hel");
-  EXPECT_EQ(calls[0].op, ws_frame_control::text);
+  CHECK((ws.feed(wire)) == (0U));
+  CHECK((wire.size()) == (0U));
+  REQUIRE((calls.size()) == (1U));
+  CHECK((calls[0].payload) == ("hel"));
+  CHECK((calls[0].op) == (ws_frame_control::text));
 
   // Fragment 2: FIN=0, continuation, "lo ".
-  EXPECT_TRUE(ws_client.send_frame(ws_frame_control::continuation, "lo "));
+  CHECK((ws_client.send_frame(ws_frame_control::continuation, "lo ")));
   wire = received_frame;
-  EXPECT_EQ(ws.feed(wire), 0U);
-  EXPECT_EQ(wire.size(), 0U);
-  ASSERT_EQ(calls.size(), 2U);
-  EXPECT_EQ(calls[1].payload, "lo ");
-  EXPECT_EQ(calls[1].op, ws_frame_control::text);
+  CHECK((ws.feed(wire)) == (0U));
+  CHECK((wire.size()) == (0U));
+  REQUIRE((calls.size()) == (2U));
+  CHECK((calls[1].payload) == ("lo "));
+  CHECK((calls[1].op) == (ws_frame_control::text));
 
   // Fragment 3: FIN=1, continuation, "world" -> dispatched with fin bit.
-  EXPECT_TRUE(ws_client.send_frame(
-      ws_frame_control::fin | ws_frame_control::continuation, "world"));
+  CHECK((ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::continuation, "world")));
   wire = received_frame;
-  EXPECT_EQ(ws.feed(wire), 0U);
-  EXPECT_EQ(wire.size(), 0U);
-  ASSERT_EQ(calls.size(), 3U);
-  EXPECT_EQ(calls[2].payload, "world");
-  EXPECT_EQ(calls[2].op, ws_frame_control::fin | ws_frame_control::text);
+  CHECK((ws.feed(wire)) == (0U));
+  CHECK((wire.size()) == (0U));
+  REQUIRE((calls.size()) == (3U));
+  CHECK((calls[2].payload) == ("world"));
+  CHECK((calls[2].op) == (ws_frame_control::fin | ws_frame_control::text));
 }
 
 #pragma endregion
 #pragma region Feed_FragmentedDeliverySplitUtf8
 
 // In fragment-delivery mode, a code point split across frames is accepted.
-void WebSocket_Feed_FragmentedDeliverySplitUtf8() {
+TEST_CASE("WebSocket_Feed_FragmentedDeliverySplitUtf8", "[WebSocket]") {
   struct Call {
     std::string payload;
     ws_frame_control op{};
@@ -452,27 +452,27 @@ void WebSocket_Feed_FragmentedDeliverySplitUtf8() {
       connection_role::client};
   std::string_view wire;
 
-  EXPECT_TRUE(ws_client.send_frame(ws_frame_control::text, "\xF0\x9F"));
+  CHECK((ws_client.send_frame(ws_frame_control::text, "\xF0\x9F")));
   wire = received_frame;
-  EXPECT_EQ(ws.feed(wire), 0U);
+  CHECK((ws.feed(wire)) == (0U));
 
-  EXPECT_TRUE(ws_client.send_frame(
-      ws_frame_control::fin | ws_frame_control::continuation, "\x98\x80"));
+  CHECK((ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::continuation, "\x98\x80")));
   wire = received_frame;
-  EXPECT_EQ(ws.feed(wire), 0U);
+  CHECK((ws.feed(wire)) == (0U));
 
-  ASSERT_EQ(calls.size(), 2U);
-  EXPECT_EQ(calls[0].payload, "\xF0\x9F");
-  EXPECT_EQ(calls[0].op, ws_frame_control::text);
-  EXPECT_EQ(calls[1].payload, "\x98\x80");
-  EXPECT_EQ(calls[1].op, ws_frame_control::fin | ws_frame_control::text);
+  REQUIRE((calls.size()) == (2U));
+  CHECK((calls[0].payload) == ("\xF0\x9F"));
+  CHECK((calls[0].op) == (ws_frame_control::text));
+  CHECK((calls[1].payload) == ("\x98\x80"));
+  CHECK((calls[1].op) == (ws_frame_control::fin | ws_frame_control::text));
 }
 
 #pragma endregion
 #pragma region Feed_FragmentedDeliveryInvalidUtf8
 
 // In fragment-delivery mode, invalid UTF-8 across frames fails with 1007.
-void WebSocket_Feed_FragmentedDeliveryInvalidUtf8() {
+TEST_CASE("WebSocket_Feed_FragmentedDeliveryInvalidUtf8", "[WebSocket]") {
   std::string sent_frame;
   http_websocket ws{[&](any_strings&& f) {
     sent_frame = std::get<std::string>(std::move(f));
@@ -488,26 +488,26 @@ void WebSocket_Feed_FragmentedDeliveryInvalidUtf8() {
       connection_role::client};
   std::string_view wire;
 
-  EXPECT_TRUE(ws_client.send_frame(ws_frame_control::text, "\xF0"));
+  CHECK((ws_client.send_frame(ws_frame_control::text, "\xF0")));
   wire = received_frame;
-  EXPECT_EQ(ws.feed(wire), 0U);
+  CHECK((ws.feed(wire)) == (0U));
 
-  EXPECT_TRUE(ws_client.send_frame(
-      ws_frame_control::fin | ws_frame_control::continuation, "A"));
+  CHECK((ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::continuation, "A")));
   wire = received_frame;
-  EXPECT_EQ(ws.feed(wire), http_websocket::insatiable);
+  CHECK((ws.feed(wire)) == (http_websocket::insatiable));
 
   ws_frame_view hdr{sent_frame};
-  ASSERT_TRUE(hdr.is_complete());
-  ASSERT_TRUE(hdr.parse());
-  EXPECT_EQ(hdr.opcode(), ws_frame_control::close);
+  REQUIRE((hdr.is_complete()));
+  REQUIRE((hdr.parse()));
+  CHECK((hdr.opcode()) == (ws_frame_control::close));
   const std::string_view payload = std::string_view{sent_frame}.substr(
       hdr.header_length(), hdr.payload_length());
-  ASSERT_GE(payload.size(), 2U);
+  REQUIRE((payload.size()) >= (2U));
   const uint16_t code =
       (static_cast<uint8_t>(payload[0]) << 8) |
       static_cast<uint8_t>(payload[1]);
-  EXPECT_EQ(code, uint16_t{1007});
+  CHECK((code) == (uint16_t{1007}));
 }
 
 #pragma endregion
@@ -515,7 +515,8 @@ void WebSocket_Feed_FragmentedDeliveryInvalidUtf8() {
 
 // An empty final fragment must still fail if the prior text ended
 // mid-code-point.
-void WebSocket_Feed_FragmentedDeliveryInvalidUtf8EmptyFinal() {
+TEST_CASE("WebSocket_Feed_FragmentedDeliveryInvalidUtf8EmptyFinal",
+    "[WebSocket]") {
   std::string sent_frame;
   http_websocket ws{[&](any_strings&& f) {
     sent_frame = std::get<std::string>(std::move(f));
@@ -531,33 +532,34 @@ void WebSocket_Feed_FragmentedDeliveryInvalidUtf8EmptyFinal() {
       connection_role::client};
   std::string_view wire;
 
-  EXPECT_TRUE(ws_client.send_frame(ws_frame_control::text, "\xF0"));
+  CHECK((ws_client.send_frame(ws_frame_control::text, "\xF0")));
   wire = received_frame;
-  EXPECT_EQ(ws.feed(wire), 0U);
+  CHECK((ws.feed(wire)) == (0U));
 
-  EXPECT_TRUE(ws_client.send_frame(
-      ws_frame_control::fin | ws_frame_control::continuation, ""));
+  CHECK((ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::continuation, "")));
   wire = received_frame;
-  EXPECT_EQ(ws.feed(wire), http_websocket::insatiable);
+  CHECK((ws.feed(wire)) == (http_websocket::insatiable));
 
   ws_frame_view hdr{sent_frame};
-  ASSERT_TRUE(hdr.is_complete());
-  ASSERT_TRUE(hdr.parse());
-  EXPECT_EQ(hdr.opcode(), ws_frame_control::close);
+  REQUIRE((hdr.is_complete()));
+  REQUIRE((hdr.parse()));
+  CHECK((hdr.opcode()) == (ws_frame_control::close));
   const std::string_view payload = std::string_view{sent_frame}.substr(
       hdr.header_length(), hdr.payload_length());
-  ASSERT_GE(payload.size(), 2U);
+  REQUIRE((payload.size()) >= (2U));
   const uint16_t code =
       (static_cast<uint8_t>(payload[0]) << 8) |
       static_cast<uint8_t>(payload[1]);
-  EXPECT_EQ(code, uint16_t{1007});
+  CHECK((code) == (uint16_t{1007}));
 }
 
 #pragma endregion
 #pragma region Feed_FragmentedDeliveryInvalidUtf8Disabled
 
 // Disabling UTF-8 validation also suppresses fragment-mode UTF-8 failures.
-void WebSocket_Feed_FragmentedDeliveryInvalidUtf8Disabled() {
+TEST_CASE("WebSocket_Feed_FragmentedDeliveryInvalidUtf8Disabled",
+    "[WebSocket]") {
   struct Call {
     std::string payload;
     ws_frame_control op{};
@@ -579,27 +581,27 @@ void WebSocket_Feed_FragmentedDeliveryInvalidUtf8Disabled() {
       connection_role::client};
   std::string_view wire;
 
-  EXPECT_TRUE(ws_client.send_frame(ws_frame_control::text, "\xF0"));
+  CHECK((ws_client.send_frame(ws_frame_control::text, "\xF0")));
   wire = received_frame;
-  EXPECT_EQ(ws.feed(wire), 0U);
+  CHECK((ws.feed(wire)) == (0U));
 
-  EXPECT_TRUE(ws_client.send_frame(
-      ws_frame_control::fin | ws_frame_control::continuation, "A"));
+  CHECK((ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::continuation, "A")));
   wire = received_frame;
-  EXPECT_EQ(ws.feed(wire), 0U);
+  CHECK((ws.feed(wire)) == (0U));
 
-  ASSERT_EQ(calls.size(), 2U);
-  EXPECT_EQ(calls[0].payload, std::string("\xF0", 1));
-  EXPECT_EQ(calls[0].op, ws_frame_control::text);
-  EXPECT_EQ(calls[1].payload, "A");
-  EXPECT_EQ(calls[1].op, ws_frame_control::fin | ws_frame_control::text);
+  REQUIRE((calls.size()) == (2U));
+  CHECK((calls[0].payload) == (std::string("\xF0", 1)));
+  CHECK((calls[0].op) == (ws_frame_control::text));
+  CHECK((calls[1].payload) == ("A"));
+  CHECK((calls[1].op) == (ws_frame_control::fin | ws_frame_control::text));
 }
 
 #pragma endregion
 #pragma region Feed_PartialFrame
 
 // Feeding only the header bytes of a frame returns true (awaiting payload).
-void WebSocket_Feed_PartialFrame() {
+TEST_CASE("WebSocket_Feed_PartialFrame", "[WebSocket]") {
   bool msg_fired{};
   http_websocket ws{[](any_strings&&) { return true; }};
   ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
@@ -616,36 +618,36 @@ void WebSocket_Feed_PartialFrame() {
   buf = frame;
   buf.resize(1);
   wire = buf;
-  EXPECT_EQ(ws.feed(wire), 2ULL);
-  EXPECT_FALSE(msg_fired);
+  CHECK((ws.feed(wire)) == (2ULL));
+  CHECK_FALSE((msg_fired));
 
   // With 2, it knows what the frame is and knows it needs a mask, but won't
   // look any further.
   buf = frame;
   buf.resize(2);
   wire = buf;
-  EXPECT_EQ(ws.feed(wire), 6ULL);
-  EXPECT_FALSE(msg_fired);
+  CHECK((ws.feed(wire)) == (6ULL));
+  CHECK_FALSE((msg_fired));
 
   // With 6, it has the full frame, and knows it needs the payload.
   buf = frame;
   buf.resize(6);
   wire = buf;
-  EXPECT_EQ(ws.feed(wire), frame_size);
-  EXPECT_FALSE(msg_fired);
+  CHECK((ws.feed(wire)) == (frame_size));
+  CHECK_FALSE((msg_fired));
 
   // With 8, it knows it only has a partial payload.
   buf = frame;
   buf.resize(8);
   wire = buf;
-  EXPECT_EQ(ws.feed(wire), frame_size);
-  EXPECT_FALSE(msg_fired);
+  CHECK((ws.feed(wire)) == (frame_size));
+  CHECK_FALSE((msg_fired));
 
   // With the whole thing it works.
   buf = frame;
   wire = buf;
-  EXPECT_EQ(ws.feed(wire), 0ULL);
-  EXPECT_TRUE(msg_fired);
+  CHECK((ws.feed(wire)) == (0ULL));
+  CHECK((msg_fired));
 }
 
 #pragma endregion
@@ -654,7 +656,8 @@ void WebSocket_Feed_PartialFrame() {
 // `feed(recv_buffer_view&)` requests growth to the full frame size when a
 // frame prefix fills the buffer but the completed frame would not fit after
 // compaction.
-void WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth() {
+TEST_CASE("WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth",
+    "[WebSocket]") {
   recv_buffer rb;
   rb.buffer.resize(256);
   const size_t capacity = rb.buffer.capacity();
@@ -665,7 +668,7 @@ void WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth() {
   const auto frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text,
       std::string(capacity, 'x'));
-  ASSERT_GT(frame.size(), capacity);
+  REQUIRE((frame.size()) > (capacity));
   std::memcpy(rb.buffer.data(), frame.data(), capacity);
 
   size_t resume_new_size{};
@@ -677,18 +680,18 @@ void WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth() {
           resume_last_seen_end = lse;
         }};
     http_websocket ws{[](any_strings&&) { return true; }};
-    EXPECT_TRUE(ws.feed(view));
+    CHECK((ws.feed(view)));
   }
 
-  EXPECT_EQ(resume_new_size, frame.size());
-  EXPECT_EQ(resume_last_seen_end, capacity);
+  CHECK((resume_new_size) == (frame.size()));
+  CHECK((resume_last_seen_end) == (capacity));
 }
 
 #pragma endregion
 #pragma region Feed_MultipleFrames
 
 // Two complete frames in one buffer each fire on_message.
-void WebSocket_Feed_MultipleFrames() {
+TEST_CASE("WebSocket_Feed_MultipleFrames", "[WebSocket]") {
   std::vector<std::string> msgs;
   http_websocket ws{[](any_strings&&) { return true; }};
   ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control) {
@@ -701,10 +704,10 @@ void WebSocket_Feed_MultipleFrames() {
       ws_frame_lens::serialize_frame(
           ws_frame_control::fin | ws_frame_control::text, "bar", 0);
   std::string_view wire{both};
-  EXPECT_EQ(ws.feed(wire), 0ULL);
-  ASSERT_EQ(msgs.size(), 2ULL);
-  EXPECT_EQ(msgs[0], "foo");
-  EXPECT_EQ(msgs[1], "bar");
+  CHECK((ws.feed(wire)) == (0ULL));
+  REQUIRE((msgs.size()) == (2ULL));
+  CHECK((msgs[0]) == ("foo"));
+  CHECK((msgs[1]) == ("bar"));
 }
 
 #pragma endregion
@@ -713,7 +716,7 @@ void WebSocket_Feed_MultipleFrames() {
 // Two complete frames in one `recv_buffer_view` call: both must be delivered.
 // This exercises `feed(recv_buffer_view&)` specifically, not the
 // `feed(std::string_view&)` overload.
-void WebSocket_Feed_MultipleFramesViaView() {
+TEST_CASE("WebSocket_Feed_MultipleFramesViaView", "[WebSocket]") {
   std::vector<std::string> msgs;
   http_websocket ws{[](any_strings&&) { return true; }};
   ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control) {
@@ -731,40 +734,40 @@ void WebSocket_Feed_MultipleFramesViaView() {
   std::memcpy(buf.buffer.data(), both.data(), both.size());
   buf.end.store(both.size(), std::memory_order::relaxed);
   recv_buffer_view view{buf, [](size_t, size_t) {}};
-  EXPECT_TRUE(ws.feed(view));
-  ASSERT_EQ(msgs.size(), 2ULL);
-  EXPECT_EQ(msgs[0], "foo");
-  EXPECT_EQ(msgs[1], "bar");
+  CHECK((ws.feed(view)));
+  REQUIRE((msgs.size()) == (2ULL));
+  CHECK((msgs[0]) == ("foo"));
+  CHECK((msgs[1]) == ("bar"));
 }
 
 #pragma endregion
 #pragma region Feed_BadContinuation
 
 // A continuation frame without a prior start fragment is a protocol error.
-void WebSocket_Feed_BadContinuation() {
+TEST_CASE("WebSocket_Feed_BadContinuation", "[WebSocket]") {
   http_websocket ws{[](any_strings&&) { return true; }};
   std::string buf = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::continuation, "data");
   std::string_view wire{buf};
-  EXPECT_EQ(ws.feed(wire), -1ULL);
+  CHECK((ws.feed(wire)) == (-1ULL));
 }
 
 #pragma endregion
 #pragma region Feed_InterleavedData
 
 // A non-continuation data frame arriving mid-fragment is a protocol error.
-void WebSocket_Feed_InterleavedData() {
+TEST_CASE("WebSocket_Feed_InterleavedData", "[WebSocket]") {
   http_websocket ws{[](any_strings&&) { return true; }};
   std::string buf =
       ws_frame_lens::serialize_frame(ws_frame_control::text, "start", 0);
   std::string_view wire{buf};
-  EXPECT_EQ(ws.feed(wire), 0ULL);
+  CHECK((ws.feed(wire)) == (0ULL));
 
   // This shouldn't be marked as text.
   buf = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "bad", 0);
   wire = buf;
-  EXPECT_EQ(ws.feed(wire), -1ULL);
+  CHECK((ws.feed(wire)) == (-1ULL));
 }
 
 #pragma endregion
@@ -773,23 +776,23 @@ void WebSocket_Feed_InterleavedData() {
 // Data frame received after we sent a close is silently discarded.
 // `on_message` must not fire and `feed` must succeed (not return
 // `insatiable`).
-void WebSocket_Feed_DataAfterSentClose() {
+TEST_CASE("WebSocket_Feed_DataAfterSentClose", "[WebSocket]") {
   bool msg_fired{};
   http_websocket ws{[](any_strings&&) { return true; }};
   ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
     msg_fired = true;
     return true;
   };
-  ASSERT_TRUE(ws.send_close(1000));
-  ASSERT_TRUE(ws.is_close_started());
+  REQUIRE((ws.send_close(1000)));
+  REQUIRE((ws.is_close_started()));
 
   // Peer sends a text frame after we've already sent our close.
   const std::string frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "late", 0);
   std::string_view wire{frame};
-  EXPECT_EQ(ws.feed(wire), 0U);
-  EXPECT_EQ(wire.size(), 0U);
-  EXPECT_FALSE(msg_fired);
+  CHECK((ws.feed(wire)) == (0U));
+  CHECK((wire.size()) == (0U));
+  CHECK_FALSE((msg_fired));
 }
 
 #pragma endregion
@@ -798,7 +801,7 @@ void WebSocket_Feed_DataAfterSentClose() {
 // Data frame received after we received a close is silently discarded.
 // `on_message` must not fire and `feed` must succeed (not return
 // `insatiable`).
-void WebSocket_Feed_DataAfterReceivedClose() {
+TEST_CASE("WebSocket_Feed_DataAfterReceivedClose", "[WebSocket]") {
   bool msg_fired{};
   std::string sent_frame;
   http_websocket ws{[&](any_strings&& f) {
@@ -814,45 +817,45 @@ void WebSocket_Feed_DataAfterReceivedClose() {
   std::string close_frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::close, {}, 0x12345678U);
   std::string_view wire{close_frame};
-  ASSERT_EQ(ws.feed(wire), 0U);
-  ASSERT_TRUE(ws.is_close_started());
+  REQUIRE((ws.feed(wire)) == (0U));
+  REQUIRE((ws.is_close_started()));
 
   // Peer sends a text frame after their own close frame.
   const std::string frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "late", 0x12345678U);
   wire = frame;
-  EXPECT_EQ(ws.feed(wire), 0U);
-  EXPECT_EQ(wire.size(), 0U);
-  EXPECT_FALSE(msg_fired);
+  CHECK((ws.feed(wire)) == (0U));
+  CHECK((wire.size()) == (0U));
+  CHECK_FALSE((msg_fired));
 }
 
 #pragma endregion
 #pragma region Send_Server
 
 // Server pump sends unmasked frames.
-void WebSocket_Send_Server() {
+TEST_CASE("WebSocket_Send_Server", "[WebSocket]") {
   std::string sent;
   http_websocket ws{[&](any_strings&& f) {
     sent = std::get<std::string>(std::move(f));
     return true;
   }};
-  EXPECT_TRUE(ws.send_text("hi"));
-  ASSERT_FALSE(sent.empty());
+  CHECK((ws.send_text("hi")));
+  REQUIRE_FALSE((sent.empty()));
   ws_frame_view hdr{sent};
-  ASSERT_TRUE(hdr.is_complete());
-  ASSERT_TRUE(hdr.parse());
-  EXPECT_FALSE(hdr.is_masked());
-  EXPECT_EQ(hdr.payload_length(), 2ULL);
+  REQUIRE((hdr.is_complete()));
+  REQUIRE((hdr.parse()));
+  CHECK_FALSE((hdr.is_masked()));
+  CHECK((hdr.payload_length()) == (2ULL));
   // Payload is plaintext; verify it directly.
   const std::string_view pl{sent.data() + hdr.header_length(), 2};
-  EXPECT_EQ(pl, "hi");
+  CHECK((pl) == ("hi"));
 }
 
 #pragma endregion
 #pragma region Send_Client
 
 // Client pump sends masked frames; payload round-trips via unmask.
-void WebSocket_Send_Client() {
+TEST_CASE("WebSocket_Send_Client", "[WebSocket]") {
   std::string sent;
   http_websocket ws{
       [&](any_strings&& f) {
@@ -860,17 +863,17 @@ void WebSocket_Send_Client() {
         return true;
       },
       connection_role::client};
-  EXPECT_TRUE(ws.send_text("hi"));
-  ASSERT_FALSE(sent.empty());
+  CHECK((ws.send_text("hi")));
+  REQUIRE_FALSE((sent.empty()));
   ws_frame_view hdr{sent};
-  ASSERT_TRUE(hdr.is_complete());
-  ASSERT_TRUE(hdr.parse());
-  EXPECT_TRUE(hdr.is_masked());
-  EXPECT_EQ(hdr.payload_length(), 2ULL);
+  REQUIRE((hdr.is_complete()));
+  REQUIRE((hdr.parse()));
+  CHECK((hdr.is_masked()));
+  CHECK((hdr.payload_length()) == (2ULL));
   char unmasked[2]{};
-  EXPECT_TRUE(hdr.mask_payload_copy(unmasked,
-      {sent.data() + hdr.header_length(), hdr.payload_length()}));
-  EXPECT_EQ(std::string_view(unmasked, 2), "hi");
+  CHECK((hdr.mask_payload_copy(unmasked,
+      {sent.data() + hdr.header_length(), hdr.payload_length()})));
+  CHECK((std::string_view(unmasked, 2)) == ("hi"));
 }
 
 #pragma endregion
@@ -878,40 +881,40 @@ void WebSocket_Send_Client() {
 
 // `header()`, `header_view()`, and `payload_view()` return correctly bounded
 // views after `parse`.
-void WebSocket_FrameWrapper_HeaderAndViews() {
+TEST_CASE("WebSocket_FrameWrapper_HeaderAndViews", "[WebSocket]") {
   const auto frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "abc");
   ws_frame_view hdr{frame.data(), frame.size()};
-  ASSERT_TRUE(hdr.is_complete() && hdr.parse());
+  REQUIRE((hdr.is_complete() && hdr.parse()));
 
   // `header_view` covers exactly the header bytes and begins at `header()`.
-  EXPECT_EQ(hdr.header_view().size(), hdr.header_length());
-  EXPECT_EQ(hdr.header_view().data(),
-      reinterpret_cast<const char*>(&hdr.header()));
+  CHECK((hdr.header_view().size()) == (hdr.header_length()));
+  CHECK((hdr.header_view().data()) ==
+        (reinterpret_cast<const char*>(&hdr.header())));
 
   // `payload_view` covers the payload bytes immediately after the header.
-  EXPECT_EQ(hdr.payload_view().size(), hdr.payload_length());
-  EXPECT_EQ(hdr.payload_view(), "abc");
+  CHECK((hdr.payload_view().size()) == (hdr.payload_length()));
+  CHECK((hdr.payload_view()) == ("abc"));
 }
 
 #pragma endregion
 #pragma region FrameWrapper_CopyTo
 
 // `copy_to` copies the header bytes into a caller-supplied buffer.
-void WebSocket_FrameWrapper_CopyTo() {
+TEST_CASE("WebSocket_FrameWrapper_CopyTo", "[WebSocket]") {
   const auto frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::binary, "xy");
   ws_frame_view hdr{frame.data(), frame.size()};
-  ASSERT_TRUE(hdr.is_complete() && hdr.parse());
+  REQUIRE((hdr.is_complete() && hdr.parse()));
 
   char buf[14]{};
-  EXPECT_TRUE(hdr.copy_to(buf));
-  EXPECT_EQ(std::memcmp(buf, frame.data(), hdr.header_length()), 0);
+  CHECK((hdr.copy_to(buf)));
+  CHECK((std::memcmp(buf, frame.data(), hdr.header_length())) == (0));
 
   // A default-constructed (null) wrapper has no header to copy.
   ws_frame_view empty{};
   char buf2[14]{};
-  EXPECT_FALSE(empty.copy_to(buf2));
+  CHECK_FALSE((empty.copy_to(buf2)));
 }
 
 #pragma endregion
@@ -919,33 +922,32 @@ void WebSocket_FrameWrapper_CopyTo() {
 
 // `mask_payload` unmasks the payload bytes of a masked frame in-place,
 // exercising `mask_key()` and the mutable `variable_section()` accessor.
-void WebSocket_FrameWrapper_MaskPayloadInPlace() {
+TEST_CASE("WebSocket_FrameWrapper_MaskPayloadInPlace", "[WebSocket]") {
   const std::string payload{"hello"};
   const uint32_t key = 0xDEADBEEF;
   std::string frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, payload, key);
 
   ws_frame_lens lens{frame};
-  ASSERT_TRUE(lens.is_complete() && lens.parse());
-  EXPECT_TRUE(lens.is_masked());
-  EXPECT_NE(lens.mask_key(), 0U);
+  REQUIRE((lens.is_complete() && lens.parse()));
+  CHECK((lens.is_masked()));
+  CHECK((lens.mask_key()) != (0U));
 
   // The mutable `variable_section()` pointer falls right after the two fixed
   // header bytes.
-  EXPECT_EQ(reinterpret_cast<const char*>(lens.variable_section()),
-      frame.data() + 2);
+  CHECK((reinterpret_cast<const char*>(lens.variable_section())) ==
+        (frame.data() + 2));
 
   // In-place unmask: payload must round-trip back to the original.
-  EXPECT_TRUE(lens.mask_payload(frame));
+  CHECK((lens.mask_payload(frame)));
   const std::string_view unmasked{frame.data() + lens.header_length(),
       lens.payload_length()};
-  EXPECT_EQ(unmasked, payload);
+  CHECK((unmasked) == (payload));
 
   // Applying `mask_payload` again re-masks; the round-trip is symmetric.
-  EXPECT_TRUE(lens.mask_payload(frame));
-  EXPECT_NE(std::string_view(frame.data() + lens.header_length(),
-                lens.payload_length()),
-      payload);
+  CHECK((lens.mask_payload(frame)));
+  CHECK((std::string_view(frame.data() + lens.header_length(),
+            lens.payload_length())) != (payload));
 }
 
 #pragma endregion
@@ -962,7 +964,7 @@ void WebSocket_FrameWrapper_MaskPayloadInPlace() {
 //
 // The second case ("Hello, World!") exercises both the 8-byte-at-a-time main
 // loop and the trailing straggler loop.
-void WebSocket_FrameWrapper_MaskPayloadCopyByteOrder() {
+TEST_CASE("WebSocket_FrameWrapper_MaskPayloadCopyByteOrder", "[WebSocket]") {
   // `build` stores mask_ in host order and writes hton32(mask_) to the frame.
   // To get frame bytes [0x37, 0xfa, 0x21, 0x3d] on a little-endian host,
   // hton32(mask_val) must equal 0x3d21fa37, so mask_val = 0x37fa213d.
@@ -977,11 +979,11 @@ void WebSocket_FrameWrapper_MaskPayloadCopyByteOrder() {
     auto lens = ws_frame_lens::build(frame,
         ws_frame_control::fin | ws_frame_control::text, payload.size(),
         mask_val);
-    ASSERT_EQ(lens.mask_key(), mask_val);
+    REQUIRE((lens.mask_key()) == (mask_val));
 
     std::string dst(payload.size(), '\0');
-    ASSERT_TRUE(lens.mask_payload_copy(dst.data(), payload));
-    EXPECT_EQ(dst, expected);
+    REQUIRE((lens.mask_payload_copy(dst.data(), payload)));
+    CHECK((dst) == (expected));
   }
 
   // Longer payload: exercises the 8-byte main loop plus the straggler (13
@@ -995,11 +997,11 @@ void WebSocket_FrameWrapper_MaskPayloadCopyByteOrder() {
     auto lens = ws_frame_lens::build(frame,
         ws_frame_control::fin | ws_frame_control::text, payload.size(),
         mask_val);
-    ASSERT_EQ(lens.mask_key(), mask_val);
+    REQUIRE((lens.mask_key()) == (mask_val));
 
     std::string dst(payload.size(), '\0');
-    ASSERT_TRUE(lens.mask_payload_copy(dst.data(), payload));
-    EXPECT_EQ(dst, expected);
+    REQUIRE((lens.mask_payload_copy(dst.data(), payload)));
+    CHECK((dst) == (expected));
   }
 }
 
@@ -1007,21 +1009,21 @@ void WebSocket_FrameWrapper_MaskPayloadCopyByteOrder() {
 #pragma region Send_Binary
 
 // `send_binary` sends a FIN+binary frame with the correct opcode.
-void WebSocket_Send_Binary() {
+TEST_CASE("WebSocket_Send_Binary", "[WebSocket]") {
   std::string sent;
   http_websocket ws{[&](any_strings&& f) {
     sent = std::get<std::string>(std::move(f));
     return true;
   }};
-  EXPECT_TRUE(ws.send_binary("data"));
-  ASSERT_FALSE(sent.empty());
+  CHECK((ws.send_binary("data")));
+  REQUIRE_FALSE((sent.empty()));
   ws_frame_view hdr{sent};
-  ASSERT_TRUE(hdr.is_complete());
-  ASSERT_TRUE(hdr.parse());
-  EXPECT_TRUE(hdr.is_final());
-  EXPECT_EQ(hdr.opcode(), ws_frame_control::binary);
-  EXPECT_EQ(hdr.payload_length(), 4ULL);
-  EXPECT_EQ(std::string_view(sent.data() + hdr.header_length(), 4), "data");
+  REQUIRE((hdr.is_complete()));
+  REQUIRE((hdr.parse()));
+  CHECK((hdr.is_final()));
+  CHECK((hdr.opcode()) == (ws_frame_control::binary));
+  CHECK((hdr.payload_length()) == (4ULL));
+  CHECK((std::string_view(sent.data() + hdr.header_length(), 4)) == ("data"));
 }
 
 #pragma endregion
@@ -1029,21 +1031,20 @@ void WebSocket_Send_Binary() {
 
 // `send_pong` sends a FIN+pong frame even after `send_close` would otherwise
 // block outbound data.
-void WebSocket_Send_Pong_Direct() {
+TEST_CASE("WebSocket_Send_Pong_Direct", "[WebSocket]") {
   std::string sent;
   http_websocket ws{[&](any_strings&& f) {
     sent = std::get<std::string>(std::move(f));
     return true;
   }};
-  ASSERT_TRUE(ws.send_close(1000));
-  EXPECT_TRUE(ws.send_pong("echo"));
+  REQUIRE((ws.send_close(1000)));
+  CHECK((ws.send_pong("echo")));
   ws_frame_view hdr{sent};
-  ASSERT_TRUE(hdr.is_complete());
-  ASSERT_TRUE(hdr.parse());
-  EXPECT_EQ(hdr.opcode(), ws_frame_control::pong);
-  EXPECT_EQ(std::string_view(sent.data() + hdr.header_length(),
-                hdr.payload_length()),
-      "echo");
+  REQUIRE((hdr.is_complete()));
+  REQUIRE((hdr.parse()));
+  CHECK((hdr.opcode()) == (ws_frame_control::pong));
+  CHECK((std::string_view(sent.data() + hdr.header_length(),
+            hdr.payload_length())) == ("echo"));
 }
 
 #pragma endregion
@@ -1051,7 +1052,7 @@ void WebSocket_Send_Pong_Direct() {
 
 // `send_frame(std::string&&)` delivers a pre-serialized frame directly to the
 // send callback.
-void WebSocket_Send_Frame_Prebuilt() {
+TEST_CASE("WebSocket_Send_Frame_Prebuilt", "[WebSocket]") {
   std::string sent;
   http_websocket ws{[&](any_strings&& f) {
     sent = std::get<std::string>(std::move(f));
@@ -1059,19 +1060,19 @@ void WebSocket_Send_Frame_Prebuilt() {
   }};
   std::string frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "pre");
-  EXPECT_TRUE(ws.send_frame(std::move(frame)));
+  CHECK((ws.send_frame(std::move(frame))));
   ws_frame_view hdr{sent};
-  ASSERT_TRUE(hdr.is_complete());
-  ASSERT_TRUE(hdr.parse());
-  EXPECT_EQ(hdr.opcode(), ws_frame_control::text);
-  EXPECT_EQ(hdr.payload_length(), 3ULL);
+  REQUIRE((hdr.is_complete()));
+  REQUIRE((hdr.parse()));
+  CHECK((hdr.opcode()) == (ws_frame_control::text));
+  CHECK((hdr.payload_length()) == (3ULL));
 }
 
 #pragma endregion
 #pragma region Hangup
 
 // `hangup` invokes the send callback with `std::monostate` to signal RST.
-void WebSocket_Hangup() {
+TEST_CASE("WebSocket_Hangup", "[WebSocket]") {
   bool called{};
   bool got_monostate{};
   http_websocket ws{[&](any_strings&& f) {
@@ -1079,9 +1080,9 @@ void WebSocket_Hangup() {
     got_monostate = std::holds_alternative<std::monostate>(f);
     return true;
   }};
-  EXPECT_FALSE(ws.hangup());
-  EXPECT_TRUE(called);
-  EXPECT_TRUE(got_monostate);
+  CHECK_FALSE((ws.hangup()));
+  CHECK((called));
+  CHECK((got_monostate));
 }
 
 #pragma endregion
@@ -1090,7 +1091,7 @@ void WebSocket_Hangup() {
 // `fail` sends a close frame and returns false. `fail_proto` wraps `fail` with
 // code 1002 and a "Protocol failure: " prefix. `fail_insatiable` sends close
 // and hangup then returns `insatiable`.
-void WebSocket_Fail() {
+TEST_CASE("WebSocket_Fail", "[WebSocket]") {
   // `fail` with no prior close sends a close frame.
   {
     std::string sent;
@@ -1098,11 +1099,11 @@ void WebSocket_Fail() {
       sent = std::get<std::string>(std::move(f));
       return true;
     }};
-    EXPECT_FALSE(ws.fail(1001, "bye"));
+    CHECK_FALSE((ws.fail(1001, "bye")));
     ws_frame_view hdr{sent};
-    ASSERT_TRUE(hdr.is_complete());
-    ASSERT_TRUE(hdr.parse());
-    EXPECT_EQ(hdr.opcode(), ws_frame_control::close);
+    REQUIRE((hdr.is_complete()));
+    REQUIRE((hdr.parse()));
+    CHECK((hdr.opcode()) == (ws_frame_control::close));
   }
 
   // `fail_proto` sends close code 1002 with a prefixed reason string.
@@ -1112,24 +1113,24 @@ void WebSocket_Fail() {
       sent = std::get<std::string>(std::move(f));
       return true;
     }};
-    EXPECT_FALSE(ws.fail_proto("test reason"));
+    CHECK_FALSE((ws.fail_proto("test reason")));
     ws_frame_view hdr{sent};
-    ASSERT_TRUE(hdr.is_complete());
-    ASSERT_TRUE(hdr.parse());
-    EXPECT_EQ(hdr.opcode(), ws_frame_control::close);
+    REQUIRE((hdr.is_complete()));
+    REQUIRE((hdr.parse()));
+    CHECK((hdr.opcode()) == (ws_frame_control::close));
     const std::string_view close_pl{sent.data() + hdr.header_length(),
         hdr.payload_length()};
-    ASSERT_GE(close_pl.size(), 2U);
+    REQUIRE((close_pl.size()) >= (2U));
     const uint16_t code =
         (static_cast<uint8_t>(close_pl[0]) << 8) |
         static_cast<uint8_t>(close_pl[1]);
-    EXPECT_EQ(code, uint16_t{1002});
+    CHECK((code) == (uint16_t{1002}));
   }
 
   // `fail_insatiable` returns `insatiable`.
   {
     http_websocket ws{[](any_strings&&) { return true; }};
-    EXPECT_EQ(ws.fail_insatiable(1000, "error"), http_websocket::insatiable);
+    CHECK((ws.fail_insatiable(1000, "error")) == (http_websocket::insatiable));
   }
 }
 
@@ -1138,7 +1139,7 @@ void WebSocket_Fail() {
 
 // `on_drain` callback on `http_websocket_transaction` is invoked from
 // `handle_drain` after the upgrade response is flushed.
-void WebSocketTransaction_OnDrain() {
+TEST_CASE("WebSocketTransaction_OnDrain", "[WebSocketTransaction]") {
   auto tx =
       std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
 
@@ -1151,43 +1152,44 @@ void WebSocketTransaction_OnDrain() {
   recv_buffer buf;
   {
     auto view = wstx_make_view(buf);
-    ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
+    REQUIRE((tx->handle_data(view)) == (stream_claim::claim));
   }
 
   http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
   // First drain flushes the 101 response, then falls through to `on_drain`.
-  EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
-  EXPECT_EQ(drain_count, 1);
+  CHECK((tx->handle_drain(send_fn)) == (stream_claim::claim));
+  CHECK((drain_count) == (1));
 
   // Subsequent drains with no pending response also route through `on_drain`.
-  EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
-  EXPECT_EQ(drain_count, 2);
+  CHECK((tx->handle_drain(send_fn)) == (stream_claim::claim));
+  CHECK((drain_count) == (2));
 }
 
 #pragma endregion
 #pragma region UpgradeSuccess
 
 // Valid upgrade handshake: `handle_data` returns `claim`.
-void WebSocketTransaction_UpgradeSuccess() {
+TEST_CASE("WebSocketTransaction_UpgradeSuccess", "[WebSocketTransaction]") {
   auto tx =
       std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
   recv_buffer buf;
   auto view = wstx_make_view(buf);
-  EXPECT_EQ(tx->handle_data(view), stream_claim::claim);
+  CHECK((tx->handle_data(view)) == (stream_claim::claim));
 }
 
 #pragma endregion
 #pragma region DrainSendsResponse
 
 // After upgrade, `handle_drain` sends the 101 response and returns `claim`.
-void WebSocketTransaction_DrainSendsResponse() {
+TEST_CASE("WebSocketTransaction_DrainSendsResponse",
+    "[WebSocketTransaction]") {
   std::string expected_accept_key;
   auto tx = std::make_shared<http_websocket_transaction>(
       wstx_make_upgrade_req(&expected_accept_key));
   recv_buffer buf;
   {
     auto view = wstx_make_view(buf);
-    ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
+    REQUIRE((tx->handle_data(view)) == (stream_claim::claim));
   }
 
   std::string sent;
@@ -1195,95 +1197,96 @@ void WebSocketTransaction_DrainSendsResponse() {
     sent = std::get<std::string>(std::move(data));
     return true;
   }};
-  EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
-  ASSERT_FALSE(sent.empty());
+  CHECK((tx->handle_drain(send_fn)) == (stream_claim::claim));
+  REQUIRE_FALSE((sent.empty()));
 
   // `parse()` expects the wire text without the trailing blank-line CRLF.
   response_head resp;
-  ASSERT_TRUE(resp.parse(sent.substr(0, sent.size() - 2)));
-  EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+  REQUIRE((resp.parse(sent.substr(0, sent.size() - 2))));
+  CHECK((resp.status_code) == (http_status_code::SWITCHING_PROTOCOLS));
 
   const auto accept = resp.headers.get("Sec-Websocket-Accept");
-  ASSERT_TRUE(accept);
-  EXPECT_EQ(*accept, expected_accept_key);
+  REQUIRE((accept));
+  CHECK((*accept) == (expected_accept_key));
 }
 
 #pragma endregion
 #pragma region DrainBeforeUpgrade
 
 // `handle_drain` before `handle_data` has been called returns `release`.
-void WebSocketTransaction_DrainBeforeUpgrade() {
+TEST_CASE("WebSocketTransaction_DrainBeforeUpgrade",
+    "[WebSocketTransaction]") {
   auto tx =
       std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
   http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
-  EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::release);
+  CHECK((tx->handle_drain(send_fn)) == (stream_claim::release));
 }
 
 #pragma endregion
 #pragma region BadMethod
 
 // Non-GET method: `handle_data` returns `release`.
-void WebSocketTransaction_BadMethod() {
+TEST_CASE("WebSocketTransaction_BadMethod", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.method = http_method::POST;
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
   recv_buffer buf;
   auto view = wstx_make_view(buf);
-  EXPECT_EQ(tx->handle_data(view), stream_claim::release);
+  CHECK((tx->handle_data(view)) == (stream_claim::release));
 }
 
 #pragma endregion
 #pragma region MissingUpgrade
 
 // No `Upgrade` option: `handle_data` returns `release`.
-void WebSocketTransaction_MissingUpgrade() {
+TEST_CASE("WebSocketTransaction_MissingUpgrade", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.options.upgrade = std::nullopt;
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
   recv_buffer buf;
   auto view = wstx_make_view(buf);
-  EXPECT_EQ(tx->handle_data(view), stream_claim::release);
+  CHECK((tx->handle_data(view)) == (stream_claim::release));
 }
 
 #pragma endregion
 #pragma region MissingConnection
 
 // Missing `Connection` header: `handle_data` returns `release`.
-void WebSocketTransaction_MissingConnection() {
+TEST_CASE("WebSocketTransaction_MissingConnection", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Connection");
   wstx_reextract_options(req);
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
   recv_buffer buf;
   auto view = wstx_make_view(buf);
-  EXPECT_EQ(tx->handle_data(view), stream_claim::release);
+  CHECK((tx->handle_data(view)) == (stream_claim::release));
 }
 
 #pragma endregion
 #pragma region WrongVersion
 
 // Wrong `Sec-Websocket-Version`: `handle_data` returns `release`.
-void WebSocketTransaction_WrongVersion() {
+TEST_CASE("WebSocketTransaction_WrongVersion", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Sec-Websocket-Version");
   (void)req.headers.add_raw("Sec-Websocket-Version", "8");
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
   recv_buffer buf;
   auto view = wstx_make_view(buf);
-  EXPECT_EQ(tx->handle_data(view), stream_claim::release);
+  CHECK((tx->handle_data(view)) == (stream_claim::release));
 }
 
 #pragma endregion
 #pragma region MissingKey
 
 // Missing `Sec-Websocket-Key`: `handle_data` returns `release`.
-void WebSocketTransaction_MissingKey() {
+TEST_CASE("WebSocketTransaction_MissingKey", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Sec-Websocket-Key");
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
   recv_buffer buf;
   auto view = wstx_make_view(buf);
-  EXPECT_EQ(tx->handle_data(view), stream_claim::release);
+  CHECK((tx->handle_data(view)) == (stream_claim::release));
 }
 
 #pragma endregion
@@ -1291,7 +1294,8 @@ void WebSocketTransaction_MissingKey() {
 
 // Wrong `Sec-Websocket-Version`: drain sends 426 with the required headers and
 // `close_after` stays `keep_alive` so the connection remains open for retry.
-void WebSocketTransaction_UpgradeRequiredDrain() {
+TEST_CASE("WebSocketTransaction_UpgradeRequiredDrain",
+    "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Sec-Websocket-Version");
   (void)req.headers.add_raw("Sec-Websocket-Version", "8");
@@ -1303,7 +1307,7 @@ void WebSocketTransaction_UpgradeRequiredDrain() {
   recv_buffer buf;
   {
     auto view = wstx_make_view(buf);
-    ASSERT_EQ(tx->handle_data(view), stream_claim::release);
+    REQUIRE((tx->handle_data(view)) == (stream_claim::release));
   }
 
   std::string sent;
@@ -1311,26 +1315,26 @@ void WebSocketTransaction_UpgradeRequiredDrain() {
     sent = std::get<std::string>(std::move(data));
     return true;
   }};
-  EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::release);
-  ASSERT_FALSE(sent.empty());
+  CHECK((tx->handle_drain(send_fn)) == (stream_claim::release));
+  REQUIRE_FALSE((sent.empty()));
 
   response_head resp;
-  ASSERT_TRUE(resp.parse(sent.substr(0, sent.size() - 2)));
-  EXPECT_EQ(resp.status_code, http_status_code::UPGRADE_REQUIRED);
+  REQUIRE((resp.parse(sent.substr(0, sent.size() - 2))));
+  CHECK((resp.status_code) == (http_status_code::UPGRADE_REQUIRED));
 
   const auto upgrade = resp.headers.get("Upgrade");
-  ASSERT_TRUE(upgrade);
-  EXPECT_EQ(*upgrade, "websocket");
+  REQUIRE((upgrade));
+  CHECK((*upgrade) == ("websocket"));
 
   const auto connection = resp.headers.get("Connection");
-  ASSERT_TRUE(connection);
-  EXPECT_EQ(*connection, "Upgrade");
+  REQUIRE((connection));
+  CHECK((*connection) == ("Upgrade"));
 
   const auto version = resp.headers.get("Sec-Websocket-Version");
-  ASSERT_TRUE(version);
-  EXPECT_EQ(*version, "13");
+  REQUIRE((version));
+  CHECK((*version) == ("13"));
 
-  EXPECT_EQ(tx->close_after, after_response::keep_alive);
+  CHECK((tx->close_after) == (after_response::keep_alive));
 }
 
 #pragma endregion
@@ -1338,14 +1342,14 @@ void WebSocketTransaction_UpgradeRequiredDrain() {
 
 // After a rejected upgrade, `handle_drain` sends the 400 error and returns
 // `release`.
-void WebSocketTransaction_BadRequestDrain() {
+TEST_CASE("WebSocketTransaction_BadRequestDrain", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.method = http_method::POST;
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
   recv_buffer buf;
   {
     auto view = wstx_make_view(buf);
-    ASSERT_EQ(tx->handle_data(view), stream_claim::release);
+    REQUIRE((tx->handle_data(view)) == (stream_claim::release));
   }
 
   std::string sent;
@@ -1353,12 +1357,12 @@ void WebSocketTransaction_BadRequestDrain() {
     sent = std::get<std::string>(std::move(data));
     return true;
   }};
-  EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::release);
-  ASSERT_FALSE(sent.empty());
+  CHECK((tx->handle_drain(send_fn)) == (stream_claim::release));
+  REQUIRE_FALSE((sent.empty()));
 
   response_head resp;
-  ASSERT_TRUE(resp.parse(sent.substr(0, sent.size() - 2)));
-  EXPECT_EQ(resp.status_code, http_status_code::BAD_REQUEST);
+  REQUIRE((resp.parse(sent.substr(0, sent.size() - 2))));
+  CHECK((resp.status_code) == (http_status_code::BAD_REQUEST));
 }
 
 #pragma endregion
@@ -1366,7 +1370,7 @@ void WebSocketTransaction_BadRequestDrain() {
 
 // After upgrade, a text frame fires `on_message` and `handle_data` returns
 // `claim`.
-void WebSocketTransaction_FeedAfterUpgrade() {
+TEST_CASE("WebSocketTransaction_FeedAfterUpgrade", "[WebSocketTransaction]") {
   auto tx =
       std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
 
@@ -1381,17 +1385,17 @@ void WebSocketTransaction_FeedAfterUpgrade() {
   recv_buffer buf;
   {
     auto view = wstx_make_view(buf);
-    ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
+    REQUIRE((tx->handle_data(view)) == (stream_claim::claim));
   }
   http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
-  ASSERT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
+  REQUIRE((tx->handle_drain(send_fn)) == (stream_claim::claim));
 
   const auto frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "hello", 0);
   auto view2 = wstx_make_view(buf, frame);
-  EXPECT_EQ(tx->handle_data(view2), stream_claim::claim);
-  EXPECT_EQ(got_msg, "hello");
-  EXPECT_EQ(got_op, ws_frame_control::text);
+  CHECK((tx->handle_data(view2)) == (stream_claim::claim));
+  CHECK((got_msg) == ("hello"));
+  CHECK((got_op) == (ws_frame_control::text));
 }
 
 #pragma endregion
@@ -1400,24 +1404,24 @@ void WebSocketTransaction_FeedAfterUpgrade() {
 // After upgrade, a protocol-error frame causes `handle_data` to keep the
 // stream claimed, latch close-pending, and let `handle_drain` begin graceful
 // shutdown.
-void WebSocketTransaction_FeedProtocolError() {
+TEST_CASE("WebSocketTransaction_FeedProtocolError", "[WebSocketTransaction]") {
   auto tx =
       std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
   recv_buffer buf;
   {
     auto view = wstx_make_view(buf);
-    ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
+    REQUIRE((tx->handle_data(view)) == (stream_claim::claim));
   }
   http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
-  ASSERT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
+  REQUIRE((tx->handle_drain(send_fn)) == (stream_claim::claim));
 
   // A continuation frame with no prior start fragment is a protocol error.
   const auto frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::continuation, "data", 0);
   auto view2 = wstx_make_view(buf, frame);
-  EXPECT_EQ(tx->handle_data(view2), stream_claim::claim);
-  EXPECT_TRUE(tx->websocket().is_close_pending());
-  EXPECT_EQ(tx->handle_drain(send_fn), stream_claim::release);
+  CHECK((tx->handle_data(view2)) == (stream_claim::claim));
+  CHECK((tx->websocket().is_close_pending()));
+  CHECK((tx->handle_drain(send_fn)) == (stream_claim::release));
 }
 
 #pragma endregion
@@ -1426,7 +1430,8 @@ void WebSocketTransaction_FeedProtocolError() {
 // When `on_protocol` is set and the client offers subprotocols, the chosen
 // protocol appears in the 101 response. When the client offers no protocols,
 // the callback is not invoked and the response has no protocol header.
-void WebSocketTransaction_SubprotocolNegotiation() {
+TEST_CASE("WebSocketTransaction_SubprotocolNegotiation",
+    "[WebSocketTransaction]") {
   // Case 1: client offers "chat, superchat"; callback picks "chat".
   {
     auto req = wstx_make_upgrade_req();
@@ -1436,14 +1441,14 @@ void WebSocketTransaction_SubprotocolNegotiation() {
     bool called{};
     tx->on_protocol = [&](std::string_view offered) -> std::string {
       called = true;
-      EXPECT_EQ(offered, "chat, superchat");
+      CHECK((offered) == ("chat, superchat"));
       return "chat";
     };
 
     recv_buffer buf;
     {
       auto view = wstx_make_view(buf);
-      ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
+      REQUIRE((tx->handle_data(view)) == (stream_claim::claim));
     }
 
     std::string sent;
@@ -1451,15 +1456,15 @@ void WebSocketTransaction_SubprotocolNegotiation() {
       sent = std::get<std::string>(std::move(data));
       return true;
     }};
-    ASSERT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
-    EXPECT_TRUE(called);
+    REQUIRE((tx->handle_drain(send_fn)) == (stream_claim::claim));
+    CHECK((called));
 
     response_head resp;
-    ASSERT_TRUE(resp.parse(sent.substr(0, sent.size() - 2)));
-    EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+    REQUIRE((resp.parse(sent.substr(0, sent.size() - 2))));
+    CHECK((resp.status_code) == (http_status_code::SWITCHING_PROTOCOLS));
     const auto proto = resp.headers.get("Sec-Websocket-Protocol");
-    ASSERT_TRUE(proto);
-    EXPECT_EQ(*proto, "chat");
+    REQUIRE((proto));
+    CHECK((*proto) == ("chat"));
   }
 
   // Case 2: client sends no protocol header; callback is not invoked and the
@@ -1477,7 +1482,7 @@ void WebSocketTransaction_SubprotocolNegotiation() {
     recv_buffer buf;
     {
       auto view = wstx_make_view(buf);
-      ASSERT_EQ(tx->handle_data(view), stream_claim::claim);
+      REQUIRE((tx->handle_data(view)) == (stream_claim::claim));
     }
 
     std::string sent;
@@ -1485,13 +1490,13 @@ void WebSocketTransaction_SubprotocolNegotiation() {
       sent = std::get<std::string>(std::move(data));
       return true;
     }};
-    ASSERT_EQ(tx->handle_drain(send_fn), stream_claim::claim);
-    EXPECT_FALSE(called);
+    REQUIRE((tx->handle_drain(send_fn)) == (stream_claim::claim));
+    CHECK_FALSE((called));
 
     response_head resp;
-    ASSERT_TRUE(resp.parse(sent.substr(0, sent.size() - 2)));
-    EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
-    EXPECT_FALSE(resp.headers.get("Sec-Websocket-Protocol"));
+    REQUIRE((resp.parse(sent.substr(0, sent.size() - 2))));
+    CHECK((resp.status_code) == (http_status_code::SWITCHING_PROTOCOLS));
+    CHECK_FALSE((resp.headers.get("Sec-Websocket-Protocol")));
   }
 }
 
@@ -1500,7 +1505,7 @@ void WebSocketTransaction_SubprotocolNegotiation() {
 
 // `make_factory` creates an `http_websocket_transaction` and invokes the
 // configure callback.
-void WebSocketTransaction_MakeFactory() {
+TEST_CASE("WebSocketTransaction_MakeFactory", "[WebSocketTransaction]") {
   bool configured{};
   auto factory = http_websocket_transaction::make_factory(
       [&](http_websocket_transaction& wstx) {
@@ -1513,12 +1518,12 @@ void WebSocketTransaction_MakeFactory() {
       });
 
   auto tx = factory(wstx_make_upgrade_req());
-  ASSERT_TRUE(tx);
-  EXPECT_TRUE(configured);
+  REQUIRE((tx));
+  CHECK((configured));
 
   recv_buffer buf;
   auto view = wstx_make_view(buf);
-  EXPECT_EQ(tx->handle_data(view), stream_claim::claim);
+  CHECK((tx->handle_data(view)) == (stream_claim::claim));
 }
 
 #pragma endregion
@@ -1526,7 +1531,7 @@ void WebSocketTransaction_MakeFactory() {
 
 // Verify `send_ping` uses an auto-incrementing 4-byte counter payload and that
 // a matching pong fires `on_pong` while a mismatched pong does not.
-void WebSocket_PingCounter() {
+TEST_CASE("WebSocket_PingCounter", "[WebSocket]") {
   using namespace std::chrono_literals;
 
   std::string sent_frame;
@@ -1544,48 +1549,48 @@ void WebSocket_PingCounter() {
   };
 
   // First ping: counter becomes 1, payload is {0,0,0,1}.
-  EXPECT_FALSE(ws.pong_pending());
-  ASSERT_TRUE(ws.send_ping());
-  EXPECT_TRUE(ws.pong_pending());
-  ASSERT_FALSE(sent_frame.empty());
+  CHECK_FALSE((ws.pong_pending()));
+  REQUIRE((ws.send_ping()));
+  CHECK((ws.pong_pending()));
+  REQUIRE_FALSE((sent_frame.empty()));
 
   ws_frame_view hdr1{sent_frame};
-  ASSERT_TRUE(hdr1.is_complete());
-  ASSERT_TRUE(hdr1.parse());
-  EXPECT_EQ(hdr1.opcode(), ws_frame_control::ping);
-  EXPECT_EQ(hdr1.payload_length(), 4ULL);
+  REQUIRE((hdr1.is_complete()));
+  REQUIRE((hdr1.parse()));
+  CHECK((hdr1.opcode()) == (ws_frame_control::ping));
+  CHECK((hdr1.payload_length()) == (4ULL));
   // Payload encodes counter value 1 big-endian.
   std::string_view p1 =
       std::string_view{sent_frame}.substr(hdr1.header_length(), 4);
-  EXPECT_EQ(static_cast<uint8_t>(p1[3]), 1U);
+  CHECK((static_cast<uint8_t>(p1[3])) == (1U));
 
   // Feed a masked pong with a wrong payload: `on_pong` must not fire.
   // Server-mode ws requires masked client frames (RFC 6455 section 5.3).
   std::string bad_pong = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::pong, "xxxx", 0x12345678U);
   std::string_view bad_sv{bad_pong};
-  EXPECT_NE(ws.feed(bad_sv), http_websocket::insatiable);
-  EXPECT_FALSE(pong_fired);
-  EXPECT_TRUE(ws.pong_pending()); // still pending
+  CHECK((ws.feed(bad_sv)) != (http_websocket::insatiable));
+  CHECK_FALSE((pong_fired));
+  CHECK((ws.pong_pending())); // still pending
 
   // Feed a masked pong with the correct 4-byte counter payload.
   std::string good_pong = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::pong, p1.substr(0, 4),
       0x12345678U);
   std::string_view good_sv{good_pong};
-  EXPECT_NE(ws.feed(good_sv), http_websocket::insatiable);
-  EXPECT_TRUE(pong_fired);
-  EXPECT_FALSE(ws.pong_pending());
+  CHECK((ws.feed(good_sv)) != (http_websocket::insatiable));
+  CHECK((pong_fired));
+  CHECK_FALSE((ws.pong_pending()));
 
   // Second ping: counter becomes 2.
   pong_fired = false;
-  ASSERT_TRUE(ws.send_ping());
+  REQUIRE((ws.send_ping()));
   ws_frame_view hdr2{sent_frame};
-  ASSERT_TRUE(hdr2.is_complete());
-  ASSERT_TRUE(hdr2.parse());
+  REQUIRE((hdr2.is_complete()));
+  REQUIRE((hdr2.parse()));
   std::string_view p2 =
       std::string_view{sent_frame}.substr(hdr2.header_length(), 4);
-  EXPECT_EQ(static_cast<uint8_t>(p2[3]), 2U);
+  CHECK((static_cast<uint8_t>(p2[3])) == (2U));
 }
 
 #pragma endregion
@@ -1594,7 +1599,7 @@ void WebSocket_PingCounter() {
 // Verify that a live WebSocket server sends periodic pings when keepalive is
 // enabled and that a client responding with matching pongs keeps the
 // connection open. Uses 100 ms intervals so the test runs quickly.
-void HttpServer_WebSocket_Keepalive() {
+TEST_CASE("HttpServer_WebSocket_Keepalive", "[HttpServer]") {
   if (is_codex()) return;
 
   using namespace std::chrono_literals;
@@ -1614,10 +1619,10 @@ void HttpServer_WebSocket_Keepalive() {
       },
       loop_runner.loop()->self(), wheel_runner.wheel(),
       /*request_timeout=*/0s, /*write_timeout=*/0s);
-  ASSERT_TRUE(server);
+  REQUIRE((server));
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  ASSERT_TRUE(client);
+  REQUIRE((client));
 
   // Perform WebSocket upgrade.
   std::string accept_key;
@@ -1627,15 +1632,15 @@ void HttpServer_WebSocket_Keepalive() {
   http_websocket ws_client{std::move(send_fn), connection_role::client};
   auto req = http_websocket::generate_upgrade_request("/ws", accept_key);
   (void)req.headers.add_raw("Host", "localhost");
-  ASSERT_TRUE(client.send(req.serialize()));
+  REQUIRE((client.send(req.serialize())));
 
   const auto resp_wire = client.recv_until("\r\n\r\n");
-  ASSERT_FALSE(resp_wire.empty());
+  REQUIRE_FALSE((resp_wire.empty()));
   auto resp_sv = std::string_view{resp_wire};
   resp_sv.remove_suffix(2);
   response_head resp;
-  ASSERT_TRUE(resp.parse(resp_sv));
-  EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+  REQUIRE((resp.parse(resp_sv)));
+  CHECK((resp.status_code) == (http_status_code::SWITCHING_PROTOCOLS));
 
   // Respond to several pings from the server; verify connection stays open.
   int pings_answered{};
@@ -1658,21 +1663,21 @@ void HttpServer_WebSocket_Keepalive() {
         // Echo the payload back as a pong.
         std::string_view payload =
             sv.substr(hdr.header_length(), hdr.payload_length());
-        EXPECT_TRUE(ws_client.send_pong(payload));
+        CHECK((ws_client.send_pong(payload)));
         ++pings_answered;
       }
       sv.remove_prefix(hdr.total_length());
     }
   }
 
-  EXPECT_GE(pings_answered, 3);
-  EXPECT_FALSE(got_close);
+  CHECK((pings_answered) >= (3));
+  CHECK_FALSE((got_close));
 
   // Clean close: client initiates, waits for server echo so the connection
   // is fully torn down before the test's `server` shared_ptr goes out of
   // scope. Without this, the 4th ping timer fires while `server` (captured
   // raw in the send_fn lambda) has already been destroyed, causing UB.
-  EXPECT_TRUE(ws_client.send_close(1000, ""));
+  CHECK((ws_client.send_close(1000, "")));
   while (!ws_client.is_close_pending()) {
     auto chunk = client.recv();
     if (chunk.empty()) break;
@@ -1686,7 +1691,7 @@ void HttpServer_WebSocket_Keepalive() {
 
 // Verify that the server closes the connection with code 1001 when the client
 // ignores pings and the pong timeout expires.
-void HttpServer_WebSocket_KeepaliveTimeout() {
+TEST_CASE("HttpServer_WebSocket_KeepaliveTimeout", "[HttpServer]") {
   if (is_codex()) return;
 
   using namespace std::chrono_literals;
@@ -1706,10 +1711,10 @@ void HttpServer_WebSocket_KeepaliveTimeout() {
       },
       loop_runner.loop()->self(), wheel_runner.wheel(),
       /*request_timeout=*/0s, /*write_timeout=*/0s);
-  ASSERT_TRUE(server);
+  REQUIRE((server));
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  ASSERT_TRUE(client);
+  REQUIRE((client));
 
   // Perform WebSocket upgrade.
   std::string accept_key;
@@ -1719,15 +1724,15 @@ void HttpServer_WebSocket_KeepaliveTimeout() {
   http_websocket ws_client{std::move(send_fn), connection_role::client};
   auto req = http_websocket::generate_upgrade_request("/ws", accept_key);
   (void)req.headers.add_raw("Host", "localhost");
-  ASSERT_TRUE(client.send(req.serialize()));
+  REQUIRE((client.send(req.serialize())));
 
   const auto resp_wire = client.recv_until("\r\n\r\n");
-  ASSERT_FALSE(resp_wire.empty());
+  REQUIRE_FALSE((resp_wire.empty()));
   auto resp_sv = std::string_view{resp_wire};
   resp_sv.remove_suffix(2);
   response_head resp;
-  ASSERT_TRUE(resp.parse(resp_sv));
-  EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+  REQUIRE((resp.parse(resp_sv)));
+  CHECK((resp.status_code) == (http_status_code::SWITCHING_PROTOCOLS));
 
   // Do not respond to pings; wait for the server to close with code 1001.
   // The close arrives ~200 ms after upgrade (100 ms ping + 100 ms pong
@@ -1759,7 +1764,7 @@ void HttpServer_WebSocket_KeepaliveTimeout() {
     }
   }
 
-  EXPECT_EQ(got_close_code, 1001U);
+  CHECK((got_close_code) == (1001U));
 }
 
 #pragma endregion
@@ -1774,7 +1779,7 @@ void HttpServer_WebSocket_KeepaliveTimeout() {
 //   2. Client sends an HTTP/1.1 upgrade request and receives 101.
 //   3. Client sends a masked text frame; server echoes it back unmasked.
 //   4. Client decodes the echo and verifies the payload.
-void HttpServer_WebSocket() {
+TEST_CASE("HttpServer_WebSocket", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
@@ -1788,34 +1793,34 @@ void HttpServer_WebSocket() {
                   return true;
                 }));
       });
-  ASSERT_TRUE(server);
+  REQUIRE((server));
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  ASSERT_TRUE(client);
+  REQUIRE((client));
 
   // Send a valid HTTP/1.1 WebSocket upgrade request. The RFC 6455 test-vector
   // key produces accept value `s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`.
-  ASSERT_TRUE(client.send(
+  REQUIRE((client.send(
       "GET /ws/ HTTP/1.1\r\n"
       "Host: localhost\r\n"
       "Upgrade: websocket\r\n"
       "Connection: Upgrade\r\n"
       "Sec-Websocket-Version: 13\r\n"
       "Sec-Websocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-      "\r\n"));
+      "\r\n")));
 
   // Receive and verify the 101 Switching Protocols response.
   const auto resp_wire = client.recv_until("\r\n\r\n");
-  ASSERT_FALSE(resp_wire.empty());
+  REQUIRE_FALSE((resp_wire.empty()));
   auto resp_head_wire = std::string_view{resp_wire};
-  ASSERT_GE(resp_head_wire.size(), 2U);
+  REQUIRE((resp_head_wire.size()) >= (2U));
   resp_head_wire.remove_suffix(2);
   response_head resp;
-  ASSERT_TRUE(resp.parse(resp_head_wire));
-  EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+  REQUIRE((resp.parse(resp_head_wire)));
+  CHECK((resp.status_code) == (http_status_code::SWITCHING_PROTOCOLS));
   const auto accept = resp.headers.get("Sec-Websocket-Accept");
-  ASSERT_TRUE(accept);
-  EXPECT_EQ(*accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+  REQUIRE((accept));
+  CHECK((*accept) == ("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="));
 
   // Build a client-side WebSocket pump that writes through `client`.
   std::string got_msg;
@@ -1832,15 +1837,15 @@ void HttpServer_WebSocket() {
       };
 
   // Send a masked text frame; server echoes it back unmasked.
-  ASSERT_TRUE(ws_client.send_text("hello"));
+  REQUIRE((ws_client.send_text("hello")));
 
   // On loopback, the echo arrives in a single recv.
   const auto echo = client.recv();
-  ASSERT_FALSE(echo.empty());
+  REQUIRE_FALSE((echo.empty()));
   std::string_view echo_sv{echo};
-  EXPECT_EQ(ws_client.feed(echo_sv), 0ULL);
-  EXPECT_EQ(got_msg, "hello");
-  EXPECT_EQ(got_op, ws_frame_control::text);
+  CHECK((ws_client.feed(echo_sv)) == (0ULL));
+  CHECK((got_msg) == ("hello"));
+  CHECK((got_op) == (ws_frame_control::text));
 }
 
 #pragma endregion
@@ -1848,7 +1853,7 @@ void HttpServer_WebSocket() {
 
 // Query strings and fragments must not affect route matching; only the target
 // path determines the registered `base_path`.
-void HttpServer_WebSocket_QueryAndFragmentRoute() {
+TEST_CASE("HttpServer_WebSocket_QueryAndFragmentRoute", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
@@ -1862,31 +1867,31 @@ void HttpServer_WebSocket_QueryAndFragmentRoute() {
                   return true;
                 }));
       });
-  ASSERT_TRUE(server);
+  REQUIRE((server));
 
   auto client = stream_sync::connect(server->local_endpoint(), 1s);
-  ASSERT_TRUE(client);
+  REQUIRE((client));
 
-  ASSERT_TRUE(client.send(
+  REQUIRE((client.send(
       "GET /ws?token=abc#frag HTTP/1.1\r\n"
       "Host: localhost\r\n"
       "Upgrade: websocket\r\n"
       "Connection: Upgrade\r\n"
       "Sec-Websocket-Version: 13\r\n"
       "Sec-Websocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-      "\r\n"));
+      "\r\n")));
 
   const auto resp_wire = client.recv_until("\r\n\r\n");
-  ASSERT_FALSE(resp_wire.empty());
+  REQUIRE_FALSE((resp_wire.empty()));
   auto resp_head_wire = std::string_view{resp_wire};
-  ASSERT_GE(resp_head_wire.size(), 2U);
+  REQUIRE((resp_head_wire.size()) >= (2U));
   resp_head_wire.remove_suffix(2);
   response_head resp;
-  ASSERT_TRUE(resp.parse(resp_head_wire));
-  EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+  REQUIRE((resp.parse(resp_head_wire)));
+  CHECK((resp.status_code) == (http_status_code::SWITCHING_PROTOCOLS));
   const auto accept = resp.headers.get("Sec-Websocket-Accept");
-  ASSERT_TRUE(accept);
-  EXPECT_EQ(*accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+  REQUIRE((accept));
+  CHECK((*accept) == ("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="));
 }
 
 #pragma endregion
@@ -1905,7 +1910,7 @@ void HttpServer_WebSocket_QueryAndFragmentRoute() {
 //      and a client-originated pong (silently absorbed); reassembled echo
 //      returned after the pong.
 //   4. Close frame (code 1001): server mirrors the code; `on_close` fires.
-void HttpServer_WebSocket_Frames() {
+TEST_CASE("HttpServer_WebSocket_Frames", "[HttpServer]") {
   if (is_codex()) return;
 
   // Server echoes text messages and mirrors close frames.
@@ -1920,10 +1925,10 @@ void HttpServer_WebSocket_Frames() {
                   return true;
                 }));
       });
-  ASSERT_TRUE(web_server);
+  REQUIRE((web_server));
 
   auto client = stream_sync::connect(web_server->local_endpoint(), 1s);
-  ASSERT_TRUE(client);
+  REQUIRE((client));
 
   http_transaction::send_fn client_send{[&](any_strings&& frame) {
     return client.send(std::get<std::string>(frame));
@@ -1948,20 +1953,20 @@ void HttpServer_WebSocket_Frames() {
   std::string accept_key;
   auto req = http_websocket::generate_upgrade_request("/ws", accept_key);
   (void)req.headers.add_raw("Host", "localhost");
-  ASSERT_TRUE(client.send(req.serialize()));
+  REQUIRE((client.send(req.serialize())));
 
   // Verify the response.
   const auto resp_wire = client.recv_until("\r\n\r\n");
-  ASSERT_FALSE(resp_wire.empty());
+  REQUIRE_FALSE((resp_wire.empty()));
   auto resp_head_wire = std::string_view{resp_wire};
-  ASSERT_GE(resp_head_wire.size(), 2U);
+  REQUIRE((resp_head_wire.size()) >= (2U));
   resp_head_wire.remove_suffix(2);
   response_head resp;
-  ASSERT_TRUE(resp.parse(resp_head_wire));
-  EXPECT_EQ(resp.status_code, http_status_code::SWITCHING_PROTOCOLS);
+  REQUIRE((resp.parse(resp_head_wire)));
+  CHECK((resp.status_code) == (http_status_code::SWITCHING_PROTOCOLS));
   const auto accept = resp.headers.get("Sec-Websocket-Accept");
-  ASSERT_TRUE(accept);
-  EXPECT_EQ(*accept, accept_key);
+  REQUIRE((accept));
+  CHECK((*accept) == (accept_key));
 
   // Receive chunks from the socket and feed them through `ws_client` until
   // `on_message` fires.  Handles both single-recv and split-recv delivery.
@@ -1976,20 +1981,20 @@ void HttpServer_WebSocket_Frames() {
   };
 
   // Case 1: single text frame.
-  ASSERT_TRUE(ws_client.send_text("hello"));
+  REQUIRE((ws_client.send_text("hello")));
   recv_msg();
-  EXPECT_EQ(got_msg, "hello");
-  EXPECT_EQ(got_op, ws_frame_control::text);
+  CHECK((got_msg) == ("hello"));
+  CHECK((got_op) == (ws_frame_control::text));
 
   // Case 2: two-fragment text message.
   //   Fragment 1: FIN=0, text opcode, "hel"
   //   Fragment 2: FIN=1, continuation, "lo"
   //   -> server reassembles and echoes "hello"
-  ASSERT_TRUE(ws_client.send_frame(ws_frame_control::text, "hel"));
-  ASSERT_TRUE(ws_client.send_frame(
-      ws_frame_control::fin | ws_frame_control::continuation, "lo"));
+  REQUIRE((ws_client.send_frame(ws_frame_control::text, "hel")));
+  REQUIRE((ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::continuation, "lo")));
   recv_msg();
-  EXPECT_EQ(got_msg, "hello");
+  CHECK((got_msg) == ("hello"));
 
   // Case 3: three fragments interleaved with a ping and a pong.
   //   FIN=0 text       "foo"     -> accumulate
@@ -2000,66 +2005,30 @@ void HttpServer_WebSocket_Frames() {
   //
   // `recv_msg` feeds chunks until `on_message` fires, transparently
   // consuming any pong frames that arrive before the echo.
-  ASSERT_TRUE(ws_client.send_frame(ws_frame_control::text, "foo"));
-  ASSERT_TRUE(ws_client.send_frame(
-      ws_frame_control::fin | ws_frame_control::ping, "payload"));
-  ASSERT_TRUE(ws_client.send_frame(ws_frame_control::continuation, "bar"));
-  ASSERT_TRUE(ws_client.send_pong("payload"));
-  ASSERT_TRUE(ws_client.send_frame(
-      ws_frame_control::fin | ws_frame_control::continuation, "baz"));
+  REQUIRE((ws_client.send_frame(ws_frame_control::text, "foo")));
+  REQUIRE((ws_client.send_frame(ws_frame_control::fin | ws_frame_control::ping,
+      "payload")));
+  REQUIRE((ws_client.send_frame(ws_frame_control::continuation, "bar")));
+  REQUIRE((ws_client.send_pong("payload")));
+  REQUIRE((ws_client.send_frame(
+      ws_frame_control::fin | ws_frame_control::continuation, "baz")));
   recv_msg();
-  EXPECT_EQ(got_msg, "foobarbaz");
+  CHECK((got_msg) == ("foobarbaz"));
 
   // Case 4: close frame (code 1001).
   //   Client sends close; server `on_close` mirrors the code back.
   //   Client feeds received data until its `on_close` fires.
-  ASSERT_TRUE(ws_client.send_close(1001, "done"));
+  REQUIRE((ws_client.send_close(1001, "done")));
   while (got_close_code == 0) {
     auto chunk = client.recv();
     if (chunk.empty()) break;
     std::string_view sv{chunk};
     (void)ws_client.feed(sv);
   }
-  EXPECT_EQ(got_close_code, uint16_t{1001});
+  CHECK((got_close_code) == (uint16_t{1001}));
 }
 
 #pragma endregion
-
-MAKE_TEST_LIST(WebSocket_AcceptKey, WebSocket_FrameCodec_RoundTrip,
-    WebSocket_Feed_SingleText, WebSocket_Feed_SingleTextInvalidUtf8,
-    WebSocket_Feed_SingleTextInvalidUtf8Disabled, WebSocket_Feed_MaskedBinary,
-    WebSocket_Feed_Ping, WebSocket_Feed_Close,
-    WebSocket_Feed_CloseInvalidUtf8Reason, WebSocket_Feed_Fragmented,
-    WebSocket_Feed_FragmentedDelivery,
-    WebSocket_Feed_FragmentedDeliverySplitUtf8,
-    WebSocket_Feed_FragmentedDeliveryInvalidUtf8,
-    WebSocket_Feed_FragmentedDeliveryInvalidUtf8EmptyFinal,
-    WebSocket_Feed_FragmentedDeliveryInvalidUtf8Disabled,
-    WebSocket_Feed_PartialFrame,
-    WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth,
-    WebSocket_Feed_MultipleFrames, WebSocket_Feed_MultipleFramesViaView,
-    WebSocket_Feed_BadContinuation, WebSocket_Feed_InterleavedData,
-    WebSocket_Feed_DataAfterSentClose, WebSocket_Feed_DataAfterReceivedClose,
-    WebSocket_Send_Server, WebSocket_Send_Client,
-    WebSocket_FrameWrapper_HeaderAndViews, WebSocket_FrameWrapper_CopyTo,
-    WebSocket_FrameWrapper_MaskPayloadInPlace,
-    WebSocket_FrameWrapper_MaskPayloadCopyByteOrder, WebSocket_Send_Binary,
-    WebSocket_Send_Pong_Direct, WebSocket_Send_Frame_Prebuilt,
-    WebSocket_Hangup, WebSocket_Fail, WebSocketTransaction_OnDrain,
-    WebSocketTransaction_UpgradeSuccess,
-    WebSocketTransaction_DrainSendsResponse,
-    WebSocketTransaction_DrainBeforeUpgrade, WebSocketTransaction_BadMethod,
-    WebSocketTransaction_MissingUpgrade,
-    WebSocketTransaction_MissingConnection, WebSocketTransaction_WrongVersion,
-    WebSocketTransaction_MissingKey, WebSocketTransaction_UpgradeRequiredDrain,
-    WebSocketTransaction_BadRequestDrain,
-    WebSocketTransaction_FeedAfterUpgrade,
-    WebSocketTransaction_FeedProtocolError,
-    WebSocketTransaction_SubprotocolNegotiation,
-    WebSocketTransaction_MakeFactory, WebSocket_PingCounter,
-    HttpServer_WebSocket_Keepalive, HttpServer_WebSocket_KeepaliveTimeout,
-    HttpServer_WebSocket, HttpServer_WebSocket_QueryAndFragmentRoute,
-    HttpServer_WebSocket_Frames);
 
 // NOLINTEND(bugprone-unchecked-optional-access)
 // NOLINTEND(readability-function-cognitive-complexity)

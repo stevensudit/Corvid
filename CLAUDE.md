@@ -53,7 +53,7 @@ CMakeLists.txt lives in `tests/` only; there is none at the project root. Build 
 
 ## Testing
 
-Framework: custom minitest (`tests/minitest.h`). Tests may be per-class, per-group, or per-subfolder; check `tests/` before asking about coverage.
+Framework: Catch2 v3. Each test source includes `tests/catch2_main.h` (provides Catch2 macros + `main`), uses `TEST_CASE("Name", "[tag]")` for test cases and `SECTION("desc")` for sub-blocks. Assertions are `CHECK` / `REQUIRE` (or `_FALSE` / `_THROWS_AS` variants). Tests may be per-class, per-group, or per-subfolder; check `tests/` before asking about coverage. Sources prefixed `notest_` are built but not run as part of the sweep.
 
 ## TODO File
 

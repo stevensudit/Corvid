@@ -19,7 +19,7 @@
 #include <vector>
 
 #include "../corvid/containers/fixed_bitset.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace corvid;
 
@@ -32,14 +32,14 @@ enum class slot_t : size_t {};
 
 #pragma region Empty
 
-void FixedBitset_Empty() {
+TEST_CASE("FixedBitset_Empty", "[FixedBitset]") {
   // Default construction: all bits clear.
   if (true) {
     fixed_bitset<64> b;
-    EXPECT_TRUE(b.none());
-    EXPECT_FALSE(b.any());
-    EXPECT_FALSE(b.all());
-    EXPECT_EQ(b.count(), 0U);
+    CHECK((b.none()));
+    CHECK_FALSE((b.any()));
+    CHECK_FALSE((b.all()));
+    CHECK((b.count()) == (0U));
   }
 
   // Iterating an empty bitset yields no elements.
@@ -47,43 +47,43 @@ void FixedBitset_Empty() {
     fixed_bitset<64> b;
     std::vector<std::size_t> bits;
     for (auto idx : b) bits.push_back(idx);
-    EXPECT_TRUE(bits.empty());
+    CHECK((bits.empty()));
   }
 }
 
 #pragma endregion
 #pragma region SetClearTest
 
-void FixedBitset_SetClearTest() {
+TEST_CASE("FixedBitset_SetClearTest", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> b;
     b.set(0);
-    EXPECT_TRUE(b.test(0));
-    EXPECT_FALSE(b.test(1));
-    EXPECT_FALSE(b.test(63));
+    CHECK((b.test(0)));
+    CHECK_FALSE((b.test(1)));
+    CHECK_FALSE((b.test(63)));
 
     b.set(63);
-    EXPECT_TRUE(b.test(0));
-    EXPECT_TRUE(b.test(63));
+    CHECK((b.test(0)));
+    CHECK((b.test(63)));
 
     b.reset(0);
-    EXPECT_FALSE(b.test(0));
-    EXPECT_TRUE(b.test(63));
+    CHECK_FALSE((b.test(0)));
+    CHECK((b.test(63)));
 
     b.reset(63);
-    EXPECT_FALSE(b.test(63));
-    EXPECT_TRUE(b.none());
+    CHECK_FALSE((b.test(63)));
+    CHECK((b.none()));
   }
 
   // Set/reset all 64 bits.
   if (true) {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 64; ++i) b.set(i);
-    EXPECT_TRUE(b.all());
-    EXPECT_EQ(b.count(), 64U);
+    CHECK((b.all()));
+    CHECK((b.count()) == (64U));
 
     for (std::size_t i = 0; i < 64; ++i) b.reset(i);
-    EXPECT_TRUE(b.none());
+    CHECK((b.none()));
   }
 
   // set(pos, false) clears the bit -- equivalent to reset(pos).
@@ -92,28 +92,28 @@ void FixedBitset_SetClearTest() {
     b.set(10);
     b.set(20);
     b.set(10, false);
-    EXPECT_FALSE(b.test(10));
-    EXPECT_TRUE(b.test(20));
+    CHECK_FALSE((b.test(10)));
+    CHECK((b.test(20)));
 
     b.set(20, true); // redundant but valid
-    EXPECT_TRUE(b.test(20));
+    CHECK((b.test(20)));
   }
 
   // set() with no arguments sets all bits at once.
   if (true) {
     fixed_bitset<64> b;
     b.set();
-    EXPECT_TRUE(b.all());
-    EXPECT_EQ(b.count(), 64U);
+    CHECK((b.all()));
+    CHECK((b.count()) == (64U));
   }
 
   // set() with padding respects the valid-bit mask.
   if (true) {
     fixed_bitset<8, size_t, void, 64> b;
     b.set();
-    EXPECT_TRUE(b.all());
-    EXPECT_EQ(b.count(), 8U);
-    EXPECT_EQ(b.array()[0], uint64_t{0xFF}); // only 8 valid bits set
+    CHECK((b.all()));
+    CHECK((b.count()) == (8U));
+    CHECK((b.array()[0]) == (uint64_t{0xFF})); // only 8 valid bits set
   }
 
   // reset(pos_t) clears one bit and returns *this, enabling chaining.
@@ -123,9 +123,9 @@ void FixedBitset_SetClearTest() {
     b.set(10);
     b.set(20);
     b.reset(10).reset(20);
-    EXPECT_TRUE(b.test(5));
-    EXPECT_FALSE(b.test(10));
-    EXPECT_FALSE(b.test(20));
+    CHECK((b.test(5)));
+    CHECK_FALSE((b.test(10)));
+    CHECK_FALSE((b.test(20)));
   }
 }
 
@@ -135,7 +135,7 @@ void FixedBitset_SetClearTest() {
 // operator[] has two overloads: const (returns bool) and non-const
 // (returns a reference proxy for mutable access).
 
-void FixedBitset_Subscript() {
+TEST_CASE("FixedBitset_Subscript", "[FixedBitset]") {
   // Const overload: read-only, returns bool directly.
   if (true) {
     fixed_bitset<64> b;
@@ -143,102 +143,102 @@ void FixedBitset_Subscript() {
     b.set(42);
     const fixed_bitset<64>& cb = b;
 
-    EXPECT_TRUE(cb[7]);
-    EXPECT_TRUE(cb[42]);
-    EXPECT_FALSE(cb[0]);
-    EXPECT_FALSE(cb[6]);
-    EXPECT_FALSE(cb[8]);
-    EXPECT_FALSE(cb[63]);
+    CHECK((cb[7]));
+    CHECK((cb[42]));
+    CHECK_FALSE((cb[0]));
+    CHECK_FALSE((cb[6]));
+    CHECK_FALSE((cb[8]));
+    CHECK_FALSE((cb[63]));
 
     // Must agree with test() at every position.
-    for (std::size_t i = 0; i < 64; ++i) EXPECT_EQ(cb[i], b.test(i));
+    for (std::size_t i = 0; i < 64; ++i) CHECK((cb[i]) == (b.test(i)));
   }
 
   // Non-const overload: returns a reference proxy; writes go through.
   if (true) {
     fixed_bitset<64> b;
     b[7] = true;
-    EXPECT_TRUE(b.test(7));
+    CHECK((b.test(7)));
     b[7] = false;
-    EXPECT_FALSE(b.test(7));
+    CHECK_FALSE((b.test(7)));
 
     b[0] = true;
     b[63] = true;
-    EXPECT_EQ(b.count(), 2U);
+    CHECK((b.count()) == (2U));
 
     // Non-const [] also reads correctly through the proxy.
-    EXPECT_TRUE(bool(b[0]));
-    EXPECT_TRUE(bool(b[63]));
-    EXPECT_FALSE(bool(b[1]));
+    CHECK((bool(b[0])));
+    CHECK((bool(b[63])));
+    CHECK_FALSE((bool(b[1])));
   }
 }
 
 #pragma endregion
 #pragma region Popcount
 
-void FixedBitset_Popcount() {
+TEST_CASE("FixedBitset_Popcount", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> b;
     b.set(3);
     b.set(7);
     b.set(62);
-    EXPECT_EQ(b.count(), 3U);
-    EXPECT_TRUE(b.any());
-    EXPECT_FALSE(b.all());
-    EXPECT_FALSE(b.none());
+    CHECK((b.count()) == (3U));
+    CHECK((b.any()));
+    CHECK_FALSE((b.all()));
+    CHECK_FALSE((b.none()));
   }
 
   // all() only returns true when every bit is set.
   if (true) {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 63; ++i) b.set(i);
-    EXPECT_FALSE(b.all());
+    CHECK_FALSE((b.all()));
     b.set(63);
-    EXPECT_TRUE(b.all());
-    EXPECT_EQ(b.count(), 64U);
+    CHECK((b.all()));
+    CHECK((b.count()) == (64U));
   }
 }
 
 #pragma endregion
 #pragma region Reset
 
-void FixedBitset_Reset() {
+TEST_CASE("FixedBitset_Reset", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> b;
     b.set(0);
     b.set(31);
     b.set(63);
-    EXPECT_EQ(b.count(), 3U);
+    CHECK((b.count()) == (3U));
     b.reset();
-    EXPECT_TRUE(b.none());
-    EXPECT_EQ(b.count(), 0U);
+    CHECK((b.none()));
+    CHECK((b.count()) == (0U));
   }
 }
 
 #pragma endregion
 #pragma region Equality
 
-void FixedBitset_Equality() {
+TEST_CASE("FixedBitset_Equality", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> a, b;
-    EXPECT_EQ(a, b);
+    CHECK((a) == (b));
 
     a.set(5);
-    EXPECT_NE(a, b);
+    CHECK((a) != (b));
 
     b.set(5);
-    EXPECT_EQ(a, b);
+    CHECK((a) == (b));
 
     a.set(63);
     b.set(63);
-    EXPECT_EQ(a, b);
+    CHECK((a) == (b));
   }
 }
 
 #pragma endregion
 #pragma region CopyMove
 
-void FixedBitset_CopyMove() {
+TEST_CASE("FixedBitset_CopyMove", "[FixedBitset]") {
   // Copy construction produces an independent equal copy.
   if (true) {
     fixed_bitset<64> a;
@@ -246,12 +246,12 @@ void FixedBitset_CopyMove() {
     a.set(33);
 
     fixed_bitset<64> b{a};
-    EXPECT_EQ(a, b);
+    CHECK((a) == (b));
 
     // Modifying the copy doesn't affect the original.
     b.set(50);
-    EXPECT_FALSE(a.test(50));
-    EXPECT_NE(a, b);
+    CHECK_FALSE((a.test(50)));
+    CHECK((a) != (b));
   }
 
   // Copy assignment.
@@ -259,9 +259,9 @@ void FixedBitset_CopyMove() {
     fixed_bitset<64> a, b;
     a.set(10);
     b = a;
-    EXPECT_EQ(a, b);
+    CHECK((a) == (b));
     b.reset(10);
-    EXPECT_TRUE(a.test(10));
+    CHECK((a.test(10)));
   }
 
   // Move construction leaves a usable value (for trivial types, same as copy).
@@ -269,7 +269,7 @@ void FixedBitset_CopyMove() {
     fixed_bitset<64> a;
     a.set(5);
     fixed_bitset<64> b{std::move(a)};
-    EXPECT_TRUE(b.test(5));
+    CHECK((b.test(5)));
   }
 
   // Move assignment.
@@ -277,14 +277,14 @@ void FixedBitset_CopyMove() {
     fixed_bitset<64> a, b;
     a.set(20);
     b = std::move(a);
-    EXPECT_TRUE(b.test(20));
+    CHECK((b.test(20)));
   }
 
   // bit_count_v is the right value.
   if (true) {
-    EXPECT_EQ(fixed_bitset<64>::bit_count_v, 64U);
-    EXPECT_EQ(fixed_bitset<128>::bit_count_v, 128U);
-    EXPECT_EQ(fixed_bitset<192>::bit_count_v, 192U);
+    CHECK((fixed_bitset<64>::bit_count_v) == (64U));
+    CHECK((fixed_bitset<128>::bit_count_v) == (128U));
+    CHECK((fixed_bitset<192>::bit_count_v) == (192U));
   }
 }
 
@@ -294,7 +294,7 @@ void FixedBitset_CopyMove() {
 // word_t is automatically selected as the largest power-of-2 unsigned type
 // whose width evenly divides N_BITS. bits_per_word_v reflects the word size.
 
-void FixedBitset_WordType() {
+TEST_CASE("FixedBitset_WordType", "[FixedBitset]") {
   // Type selection: compile-time verification.
   if (true) {
     static_assert(std::is_same_v<fixed_bitset<64>::word_t, uint64_t>);
@@ -335,25 +335,25 @@ void FixedBitset_WordType() {
   // Runtime: fixed_bitset<8> -- single uint8_t word.
   if (true) {
     fixed_bitset<8> b;
-    EXPECT_TRUE(b.none());
+    CHECK((b.none()));
     b.set(0);
     b.set(7);
-    EXPECT_TRUE(b.test(0));
-    EXPECT_TRUE(b.test(7));
-    EXPECT_FALSE(b.test(1));
-    EXPECT_EQ(b.count(), 2U);
+    CHECK((b.test(0)));
+    CHECK((b.test(7)));
+    CHECK_FALSE((b.test(1)));
+    CHECK((b.count()) == (2U));
 
     std::vector<std::size_t> bits;
     for (auto idx : b) bits.push_back(idx);
-    EXPECT_EQ(bits.size(), 2U);
-    EXPECT_EQ(bits[0], 0U);
-    EXPECT_EQ(bits[1], 7U);
+    CHECK((bits.size()) == (2U));
+    CHECK((bits[0]) == (0U));
+    CHECK((bits[1]) == (7U));
 
     // all() requires all 8 bits set.
     for (std::size_t i = 0; i < 8; ++i) b.set(i);
-    EXPECT_TRUE(b.all());
+    CHECK((b.all()));
     b.reset(3);
-    EXPECT_FALSE(b.all());
+    CHECK_FALSE((b.all()));
   }
 
   // Runtime: fixed_bitset<24> -- three uint8_t words.
@@ -364,23 +364,23 @@ void FixedBitset_WordType() {
     b.set(0);  // word 0, bit 0
     b.set(9);  // word 1, bit 1
     b.set(23); // word 2, bit 7
-    EXPECT_EQ(b.count(), 3U);
+    CHECK((b.count()) == (3U));
 
     std::vector<std::size_t> bits;
     for (auto idx : b) bits.push_back(idx);
-    EXPECT_EQ(bits.size(), 3U);
-    EXPECT_EQ(bits[0], 0U);
-    EXPECT_EQ(bits[1], 9U);
-    EXPECT_EQ(bits[2], 23U);
+    CHECK((bits.size()) == (3U));
+    CHECK((bits[0]) == (0U));
+    CHECK((bits[1]) == (9U));
+    CHECK((bits[2]) == (23U));
 
     // Complement flips all 24 bits.
     auto c = ~b;
-    EXPECT_EQ(c.count(), 21U);
-    EXPECT_FALSE(c.test(0));
-    EXPECT_FALSE(c.test(9));
-    EXPECT_FALSE(c.test(23));
-    EXPECT_TRUE(c.test(1));
-    EXPECT_TRUE(c.test(8));
+    CHECK((c.count()) == (21U));
+    CHECK_FALSE((c.test(0)));
+    CHECK_FALSE((c.test(9)));
+    CHECK_FALSE((c.test(23)));
+    CHECK((c.test(1)));
+    CHECK((c.test(8)));
 
     // AND across all three words.
     fixed_bitset<24> a;
@@ -388,18 +388,18 @@ void FixedBitset_WordType() {
     a.set(8);
     a.set(16);
     auto d = a & b;
-    EXPECT_TRUE(d.test(0));   // in both
-    EXPECT_FALSE(d.test(8));  // only in a
-    EXPECT_FALSE(d.test(9));  // only in b
-    EXPECT_FALSE(d.test(16)); // only in a
+    CHECK((d.test(0)));        // in both
+    CHECK_FALSE((d.test(8)));  // only in a
+    CHECK_FALSE((d.test(9)));  // only in b
+    CHECK_FALSE((d.test(16))); // only in a
 
     // OR across all three words.
     auto e = a | b;
-    EXPECT_TRUE(e.test(0));
-    EXPECT_TRUE(e.test(8));
-    EXPECT_TRUE(e.test(9));
-    EXPECT_TRUE(e.test(16));
-    EXPECT_TRUE(e.test(23));
+    CHECK((e.test(0)));
+    CHECK((e.test(8)));
+    CHECK((e.test(9)));
+    CHECK((e.test(16)));
+    CHECK((e.test(23)));
   }
 
   // Runtime: fixed_bitset<32> -- single uint32_t word.
@@ -407,13 +407,13 @@ void FixedBitset_WordType() {
     fixed_bitset<32> b;
     b.set(0);
     b.set(31);
-    EXPECT_TRUE(b.test(0));
-    EXPECT_TRUE(b.test(31));
-    EXPECT_FALSE(b.test(16));
-    EXPECT_EQ(b.count(), 2U);
+    CHECK((b.test(0)));
+    CHECK((b.test(31)));
+    CHECK_FALSE((b.test(16)));
+    CHECK((b.count()) == (2U));
 
     for (std::size_t i = 0; i < 32; ++i) b.set(i);
-    EXPECT_TRUE(b.all());
+    CHECK((b.all()));
   }
 
   // array() exposes the raw word array; mutations through it are reflected in
@@ -424,18 +424,18 @@ void FixedBitset_WordType() {
     b.array()[0] = 0x01; // bit 0 set in word 0
     b.array()[1] = 0x02; // bit 9 set in word 1
     b.array()[2] = 0x80; // bit 23 set in word 2
-    EXPECT_TRUE(b.test(0));
-    EXPECT_TRUE(b.test(9));
-    EXPECT_TRUE(b.test(23));
-    EXPECT_EQ(b.count(), 3U);
+    CHECK((b.test(0)));
+    CHECK((b.test(9)));
+    CHECK((b.test(23)));
+    CHECK((b.count()) == (3U));
 
     // Const: array().data() yields const word_t*.
     const fixed_bitset<24>& cb = b;
     static_assert(std::is_same_v<decltype(cb.array().data()),
         const fixed_bitset<24>::word_t*>);
-    EXPECT_EQ(cb.array()[0], uint8_t{0x01});
-    EXPECT_EQ(cb.array()[1], uint8_t{0x02});
-    EXPECT_EQ(cb.array()[2], uint8_t{0x80});
+    CHECK((cb.array()[0]) == (uint8_t{0x01}));
+    CHECK((cb.array()[1]) == (uint8_t{0x02}));
+    CHECK((cb.array()[2]) == (uint8_t{0x80}));
   }
 }
 
@@ -445,7 +445,7 @@ void FixedBitset_WordType() {
 // FORCED_WORD overrides the auto-selected word type. When the word is larger
 // than N_BITS, the top (N_BITS % bits_per_word_v) bits are padding kept zero.
 
-void FixedBitset_ForcedWord() {
+TEST_CASE("FixedBitset_ForcedWord", "[FixedBitset]") {
   // Compile-time: type and sizing.
   if (true) {
     // Force smaller words for a large bitset.
@@ -482,24 +482,24 @@ void FixedBitset_ForcedWord() {
     b.set(7);  // last bit of word 0
     b.set(8);  // first bit of word 1
     b.set(63); // last bit of word 7
-    EXPECT_EQ(b.count(), 4U);
-    EXPECT_TRUE(b.test(0));
-    EXPECT_TRUE(b.test(7));
-    EXPECT_TRUE(b.test(8));
-    EXPECT_TRUE(b.test(63));
-    EXPECT_FALSE(b.test(1));
+    CHECK((b.count()) == (4U));
+    CHECK((b.test(0)));
+    CHECK((b.test(7)));
+    CHECK((b.test(8)));
+    CHECK((b.test(63)));
+    CHECK_FALSE((b.test(1)));
 
     std::vector<size_t> bits;
     for (auto idx : b) bits.push_back(idx);
-    EXPECT_EQ(bits.size(), 4U);
-    EXPECT_EQ(bits[0], 0U);
-    EXPECT_EQ(bits[1], 7U);
-    EXPECT_EQ(bits[2], 8U);
-    EXPECT_EQ(bits[3], 63U);
+    CHECK((bits.size()) == (4U));
+    CHECK((bits[0]) == (0U));
+    CHECK((bits[1]) == (7U));
+    CHECK((bits[2]) == (8U));
+    CHECK((bits[3]) == (63U));
 
     // all() requires all 64 bits set.
     for (size_t i = 0; i < 64; ++i) b.set(i);
-    EXPECT_TRUE(b.all());
+    CHECK((b.all()));
   }
 
   // Runtime: fixed_bitset<8, size_t, void, 64> -- 1 × uint64_t, 56 pad bits.
@@ -508,59 +508,59 @@ void FixedBitset_ForcedWord() {
     fb8 b;
     b.set(0);
     b.set(7);
-    EXPECT_EQ(b.count(), 2U);
-    EXPECT_TRUE(b.test(0));
-    EXPECT_TRUE(b.test(7));
+    CHECK((b.count()) == (2U));
+    CHECK((b.test(0)));
+    CHECK((b.test(7)));
 
     // Padding bits (8-63) are never set by normal operations.
-    EXPECT_EQ(b.array()[0] & ~uint64_t{0xFF}, uint64_t{0});
+    CHECK((b.array()[0] & ~uint64_t{0xFF}) == (uint64_t{0}));
 
     // all() requires only the 8 valid bits to be set.
     for (size_t i = 0; i < 8; ++i) b.set(i);
-    EXPECT_TRUE(b.all());
-    EXPECT_EQ(b.count(), 8U);
-    EXPECT_EQ(b.array()[0], uint64_t{0xFF}); // padding bits remain 0
+    CHECK((b.all()));
+    CHECK((b.count()) == (8U));
+    CHECK((b.array()[0]) == (uint64_t{0xFF})); // padding bits remain 0
 
     // flip() inverts only the 8 valid bits; padding stays zero.
     fb8 empty;
     auto full = ~empty;
-    EXPECT_TRUE(full.all());
-    EXPECT_EQ(full.array()[0], uint64_t{0xFF});
+    CHECK((full.all()));
+    CHECK((full.array()[0]) == (uint64_t{0xFF}));
 
     // operator<<= keeps padding clear.
     fb8 s;
     s.set(3);
     s <<= 4;
-    EXPECT_TRUE(s.test(7));
-    EXPECT_FALSE(s.test(3));
-    EXPECT_EQ(s.array()[0] & ~uint64_t{0xFF}, uint64_t{0});
+    CHECK((s.test(7)));
+    CHECK_FALSE((s.test(3)));
+    CHECK((s.array()[0] & ~uint64_t{0xFF}) == (uint64_t{0}));
 
     // countl_zero counts only the 8 valid bits.
     fb8 top_bit;
     top_bit.set(7); // highest valid bit
-    EXPECT_EQ(top_bit.countl_zero(), 0U);
+    CHECK((top_bit.countl_zero()) == (0U));
 
     fb8 bot_bit;
     bot_bit.set(0);
-    EXPECT_EQ(bot_bit.countl_zero(), 7U);
+    CHECK((bot_bit.countl_zero()) == (7U));
 
     // countl_one.
     fb8 all_set;
     for (size_t i = 0; i < 8; ++i) all_set.set(i);
-    EXPECT_EQ(all_set.countl_one(), 8U);
+    CHECK((all_set.countl_one()) == (8U));
 
     fb8 top_two;
     top_two.set(7);
     top_two.set(6);
-    EXPECT_EQ(top_two.countl_one(), 2U);
+    CHECK((top_two.countl_one()) == (2U));
 
     // rotl wraps the top valid bit to bit 0.
     fb8 rot;
     rot.set(7);
     rot.rotl(1);
-    EXPECT_TRUE(rot.test(0));
-    EXPECT_FALSE(rot.test(7));
-    EXPECT_EQ(rot.array()[0] & ~uint64_t{0xFF}, uint64_t{0});
+    CHECK((rot.test(0)));
+    CHECK_FALSE((rot.test(7)));
+    CHECK((rot.array()[0] & ~uint64_t{0xFF}) == (uint64_t{0}));
   }
 
   // Runtime: fixed_bitset<24, size_t, void, 32> -- 1 × uint32_t, 8 pad bits.
@@ -570,41 +570,41 @@ void FixedBitset_ForcedWord() {
     b.set(0);
     b.set(12);
     b.set(23); // highest valid bit
-    EXPECT_EQ(b.count(), 3U);
+    CHECK((b.count()) == (3U));
 
     std::vector<size_t> bits;
     for (auto idx : b) bits.push_back(idx);
-    EXPECT_EQ(bits.size(), 3U);
-    EXPECT_EQ(bits[0], 0U);
-    EXPECT_EQ(bits[1], 12U);
-    EXPECT_EQ(bits[2], 23U);
+    CHECK((bits.size()) == (3U));
+    CHECK((bits[0]) == (0U));
+    CHECK((bits[1]) == (12U));
+    CHECK((bits[2]) == (23U));
 
     // flip() sets exactly 24 bits; top 8 bits of the uint32_t remain 0.
     fb24 empty;
     auto full = ~empty;
-    EXPECT_EQ(full.count(), 24U);
-    EXPECT_EQ(full.array()[0], uint32_t{0x00FFFFFF});
-    EXPECT_TRUE(full.all());
+    CHECK((full.count()) == (24U));
+    CHECK((full.array()[0]) == (uint32_t{0x00FFFFFF}));
+    CHECK((full.all()));
 
     // countl_zero counts only the 24 valid bits.
     fb24 top_only;
     top_only.set(23);
-    EXPECT_EQ(top_only.countl_zero(), 0U);
+    CHECK((top_only.countl_zero()) == (0U));
 
     fb24 bot_only;
     bot_only.set(0);
-    EXPECT_EQ(bot_only.countl_zero(), 23U);
+    CHECK((bot_only.countl_zero()) == (23U));
 
     // countl_one.
-    EXPECT_EQ(full.countl_one(), 24U);
+    CHECK((full.countl_one()) == (24U));
 
     // rotl wraps the top valid bit (23) to bit 0.
     fb24 rot;
     rot.set(23);
     rot.rotl(1);
-    EXPECT_TRUE(rot.test(0));
-    EXPECT_FALSE(rot.test(23));
-    EXPECT_EQ(rot.array()[0] & ~uint32_t{0x00FFFFFF}, uint32_t{0});
+    CHECK((rot.test(0)));
+    CHECK_FALSE((rot.test(23)));
+    CHECK((rot.array()[0] & ~uint32_t{0x00FFFFFF}) == (uint32_t{0}));
   }
 }
 
@@ -615,39 +615,39 @@ void FixedBitset_ForcedWord() {
 // std::bitset<N>::reference. The proxy is a zero-overhead abstraction that
 // the compiler eliminates at -O1 and above.
 
-void FixedBitset_Reference() {
+TEST_CASE("FixedBitset_Reference", "[FixedBitset]") {
   // operator bool() reads the current bit value through the proxy.
   if (true) {
     fixed_bitset<64> b;
     b.set(7);
-    EXPECT_TRUE(static_cast<bool>(b[7]));
-    EXPECT_FALSE(static_cast<bool>(b[0]));
+    CHECK((static_cast<bool>(b[7])));
+    CHECK_FALSE((static_cast<bool>(b[0])));
   }
 
   // operator=(bool) writes through the proxy.
   if (true) {
     fixed_bitset<64> b;
     b[3] = true;
-    EXPECT_TRUE(b.test(3));
+    CHECK((b.test(3)));
     b[3] = false;
-    EXPECT_FALSE(b.test(3));
+    CHECK_FALSE((b.test(3)));
 
     // Setting a bit that is already set / clearing one already clear.
     b.set(9);
     b[9] = true;
-    EXPECT_TRUE(b.test(9));
+    CHECK((b.test(9)));
     b[9] = false;
-    EXPECT_FALSE(b.test(9));
+    CHECK_FALSE((b.test(9)));
   }
 
   // operator~() returns the inverted bit value without modifying the bitset.
   if (true) {
     fixed_bitset<64> b;
     b.set(5);
-    EXPECT_FALSE(~b[5]);     // set -> inverted is false
-    EXPECT_TRUE(~b[6]);      // clear -> inverted is true
-    EXPECT_TRUE(b.test(5));  // unchanged
-    EXPECT_FALSE(b.test(6)); // unchanged
+    CHECK_FALSE((~b[5]));     // set -> inverted is false
+    CHECK((~b[6]));           // clear -> inverted is true
+    CHECK((b.test(5)));       // unchanged
+    CHECK_FALSE((b.test(6))); // unchanged
   }
 
   // flip() toggles the referenced bit in-place.
@@ -655,9 +655,9 @@ void FixedBitset_Reference() {
     fixed_bitset<64> b;
     b.set(8);
     b[8].flip();
-    EXPECT_FALSE(b.test(8));
+    CHECK_FALSE((b.test(8)));
     b[8].flip();
-    EXPECT_TRUE(b.test(8));
+    CHECK((b.test(8)));
   }
 
   // operator=(const reference&) copies the bit value from another reference.
@@ -665,9 +665,9 @@ void FixedBitset_Reference() {
     fixed_bitset<64> a, b;
     a.set(2);
     b[5] = a[2]; // b[5] ← true (bit 2 of a)
-    EXPECT_TRUE(b.test(5));
+    CHECK((b.test(5)));
     b[5] = a[3]; // b[5] ← false (bit 3 of a is clear)
-    EXPECT_FALSE(b.test(5));
+    CHECK_FALSE((b.test(5)));
   }
 
   // array() -- mutable overload returns a reference to the underlying array.
@@ -678,9 +678,9 @@ void FixedBitset_Reference() {
             fixed_bitset<64>::word_count_v>&>);
 
     b.array()[0] = uint64_t{0xFF}; // set bits 0-7 directly
-    EXPECT_EQ(b.count(), 8U);
-    for (size_t i = 0; i < 8; ++i) EXPECT_TRUE(b.test(i));
-    for (size_t i = 8; i < 64; ++i) EXPECT_FALSE(b.test(i));
+    CHECK((b.count()) == (8U));
+    for (size_t i = 0; i < 8; ++i) CHECK((b.test(i)));
+    for (size_t i = 8; i < 64; ++i) CHECK_FALSE((b.test(i)));
   }
 
   // array() -- const overload returns a const reference to the underlying
@@ -694,7 +694,7 @@ void FixedBitset_Reference() {
         const std::array<fixed_bitset<64>::word_t,
             fixed_bitset<64>::word_count_v>&>);
     const auto expected = (uint64_t{1}) | (uint64_t{1} << 63);
-    EXPECT_EQ(cb.array()[0], expected);
+    CHECK((cb.array()[0]) == (expected));
   }
 
   // Multi-word array() access.
@@ -702,15 +702,15 @@ void FixedBitset_Reference() {
     fixed_bitset<128> b;
     b.set(0);
     b.set(64);
-    EXPECT_EQ(b.array()[0], uint64_t{1}); // word 0
-    EXPECT_EQ(b.array()[1], uint64_t{1}); // word 1
+    CHECK((b.array()[0]) == (uint64_t{1})); // word 0
+    CHECK((b.array()[1]) == (uint64_t{1})); // word 1
   }
 }
 
 #pragma endregion
 #pragma region BitwiseAnd
 
-void FixedBitset_BitwiseAnd() {
+TEST_CASE("FixedBitset_BitwiseAnd", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> a, b;
     a.set(1);
@@ -721,11 +721,11 @@ void FixedBitset_BitwiseAnd() {
     b.set(7);
 
     auto c = a & b;
-    EXPECT_FALSE(c.test(1));
-    EXPECT_TRUE(c.test(3));
-    EXPECT_TRUE(c.test(5));
-    EXPECT_FALSE(c.test(7));
-    EXPECT_EQ(c.count(), 2U);
+    CHECK_FALSE((c.test(1)));
+    CHECK((c.test(3)));
+    CHECK((c.test(5)));
+    CHECK_FALSE((c.test(7)));
+    CHECK((c.count()) == (2U));
   }
 
   // AND with itself is idempotent.
@@ -734,7 +734,7 @@ void FixedBitset_BitwiseAnd() {
     a.set(10);
     a.set(20);
     auto b = a & a;
-    EXPECT_EQ(a, b);
+    CHECK((a) == (b));
   }
 
   // AND with empty yields empty.
@@ -742,7 +742,7 @@ void FixedBitset_BitwiseAnd() {
     fixed_bitset<64> a, empty;
     a.set(7);
     auto result = a & empty;
-    EXPECT_TRUE(result.none());
+    CHECK((result.none()));
   }
 
   // operator&= in-place.
@@ -753,16 +753,16 @@ void FixedBitset_BitwiseAnd() {
     b.set(4);
     b.set(6);
     a &= b;
-    EXPECT_FALSE(a.test(2));
-    EXPECT_TRUE(a.test(4));
-    EXPECT_FALSE(a.test(6));
+    CHECK_FALSE((a.test(2)));
+    CHECK((a.test(4)));
+    CHECK_FALSE((a.test(6)));
   }
 }
 
 #pragma endregion
 #pragma region BitwiseOr
 
-void FixedBitset_BitwiseOr() {
+TEST_CASE("FixedBitset_BitwiseOr", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> a, b;
     a.set(1);
@@ -771,10 +771,10 @@ void FixedBitset_BitwiseOr() {
     b.set(5);
 
     auto c = a | b;
-    EXPECT_TRUE(c.test(1));
-    EXPECT_TRUE(c.test(3));
-    EXPECT_TRUE(c.test(5));
-    EXPECT_EQ(c.count(), 3U);
+    CHECK((c.test(1)));
+    CHECK((c.test(3)));
+    CHECK((c.test(5)));
+    CHECK((c.count()) == (3U));
   }
 
   // OR with empty is idempotent.
@@ -782,7 +782,7 @@ void FixedBitset_BitwiseOr() {
     fixed_bitset<64> a, empty;
     a.set(7);
     auto result = a | empty;
-    EXPECT_EQ(result, a);
+    CHECK((result) == (a));
   }
 
   // operator|= in-place.
@@ -791,16 +791,16 @@ void FixedBitset_BitwiseOr() {
     a.set(1);
     b.set(2);
     a |= b;
-    EXPECT_TRUE(a.test(1));
-    EXPECT_TRUE(a.test(2));
-    EXPECT_EQ(a.count(), 2U);
+    CHECK((a.test(1)));
+    CHECK((a.test(2)));
+    CHECK((a.count()) == (2U));
   }
 }
 
 #pragma endregion
 #pragma region BitwiseXor
 
-void FixedBitset_BitwiseXor() {
+TEST_CASE("FixedBitset_BitwiseXor", "[FixedBitset]") {
   // Basic XOR: shared bits cancel, unique bits survive.
   if (true) {
     fixed_bitset<64> a, b;
@@ -812,11 +812,11 @@ void FixedBitset_BitwiseXor() {
     b.set(7);
 
     auto c = a ^ b;
-    EXPECT_TRUE(c.test(1));  // only in a
-    EXPECT_FALSE(c.test(3)); // in both, cancelled
-    EXPECT_FALSE(c.test(5)); // in both, cancelled
-    EXPECT_TRUE(c.test(7));  // only in b
-    EXPECT_EQ(c.count(), 2U);
+    CHECK((c.test(1)));       // only in a
+    CHECK_FALSE((c.test(3))); // in both, cancelled
+    CHECK_FALSE((c.test(5))); // in both, cancelled
+    CHECK((c.test(7)));       // only in b
+    CHECK((c.count()) == (2U));
   }
 
   // XOR with itself yields empty.
@@ -825,14 +825,14 @@ void FixedBitset_BitwiseXor() {
     a.set(4);
     a.set(20);
     a.set(63);
-    EXPECT_TRUE((a ^ a).none());
+    CHECK(((a ^ a).none()));
   }
 
   // XOR with empty is idempotent.
   if (true) {
     fixed_bitset<64> a, empty;
     a.set(9);
-    EXPECT_EQ(a ^ empty, a);
+    CHECK((a ^ empty) == (a));
   }
 
   // operator^= in-place.
@@ -843,9 +843,9 @@ void FixedBitset_BitwiseXor() {
     b.set(1);
     b.set(2);
     a ^= b;
-    EXPECT_TRUE(a.test(0));  // only in original a
-    EXPECT_FALSE(a.test(1)); // cancelled
-    EXPECT_TRUE(a.test(2));  // only in b
+    CHECK((a.test(0)));       // only in original a
+    CHECK_FALSE((a.test(1))); // cancelled
+    CHECK((a.test(2)));       // only in b
   }
 
   // XOR across word boundary (128-bit).
@@ -856,29 +856,29 @@ void FixedBitset_BitwiseXor() {
     b.set(63);
     b.set(65);
     auto c = a ^ b;
-    EXPECT_FALSE(c.test(63)); // cancelled
-    EXPECT_TRUE(c.test(64));  // only in a
-    EXPECT_TRUE(c.test(65));  // only in b
+    CHECK_FALSE((c.test(63))); // cancelled
+    CHECK((c.test(64)));       // only in a
+    CHECK((c.test(65)));       // only in b
   }
 }
 
 #pragma endregion
 #pragma region Complement
 
-void FixedBitset_Complement() {
+TEST_CASE("FixedBitset_Complement", "[FixedBitset]") {
   // ~empty is all-ones.
   if (true) {
     fixed_bitset<64> empty;
     auto full = ~empty;
-    EXPECT_TRUE(full.all());
-    EXPECT_EQ(full.count(), 64U);
+    CHECK((full.all()));
+    CHECK((full.count()) == (64U));
   }
 
   // ~all-ones is empty.
   if (true) {
     fixed_bitset<64> full;
     for (std::size_t i = 0; i < 64; ++i) full.set(i);
-    EXPECT_TRUE((~full).none());
+    CHECK(((~full).none()));
   }
 
   // Complement is its own inverse: ~~b == b.
@@ -887,7 +887,7 @@ void FixedBitset_Complement() {
     b.set(0);
     b.set(17);
     b.set(63);
-    EXPECT_EQ(~~b, b);
+    CHECK((~~b) == (b));
   }
 
   // Specific bit inversion.
@@ -895,12 +895,12 @@ void FixedBitset_Complement() {
     fixed_bitset<64> b;
     b.set(5);
     auto c = ~b;
-    EXPECT_FALSE(c.test(5));
-    EXPECT_TRUE(c.test(0));
-    EXPECT_TRUE(c.test(4));
-    EXPECT_TRUE(c.test(6));
-    EXPECT_TRUE(c.test(63));
-    EXPECT_EQ(c.count(), 63U);
+    CHECK_FALSE((c.test(5)));
+    CHECK((c.test(0)));
+    CHECK((c.test(4)));
+    CHECK((c.test(6)));
+    CHECK((c.test(63)));
+    CHECK((c.count()) == (63U));
   }
 
   // Complement across word boundary (128-bit).
@@ -909,48 +909,48 @@ void FixedBitset_Complement() {
     b.set(63);
     b.set(64);
     auto c = ~b;
-    EXPECT_FALSE(c.test(63));
-    EXPECT_FALSE(c.test(64));
-    EXPECT_TRUE(c.test(62));
-    EXPECT_TRUE(c.test(65));
-    EXPECT_EQ(c.count(), 126U);
+    CHECK_FALSE((c.test(63)));
+    CHECK_FALSE((c.test(64)));
+    CHECK((c.test(62)));
+    CHECK((c.test(65)));
+    CHECK((c.count()) == (126U));
   }
 }
 
 #pragma endregion
 #pragma region CountBits
 
-void FixedBitset_CountBits() {
+TEST_CASE("FixedBitset_CountBits", "[FixedBitset]") {
   // --- countr_zero: index of the lowest set bit, or bit_count_v if none ---
 
   // Empty -> bit_count_v.
   if (true) {
     fixed_bitset<64> b;
-    EXPECT_EQ(b.countr_zero(), 64U);
+    CHECK((b.countr_zero()) == (64U));
   }
   // Bit 0 set -> 0 trailing zeros.
   if (true) {
     fixed_bitset<64> b;
     b.set(0);
-    EXPECT_EQ(b.countr_zero(), 0U);
+    CHECK((b.countr_zero()) == (0U));
   }
   // Bit 5 set (bits 0-4 clear) -> 5 trailing zeros.
   if (true) {
     fixed_bitset<64> b;
     b.set(5);
-    EXPECT_EQ(b.countr_zero(), 5U);
+    CHECK((b.countr_zero()) == (5U));
   }
   // All set -> 0 trailing zeros.
   if (true) {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 64; ++i) b.set(i);
-    EXPECT_EQ(b.countr_zero(), 0U);
+    CHECK((b.countr_zero()) == (0U));
   }
   // Multi-word: only bit 64 set -> 64 trailing zeros.
   if (true) {
     fixed_bitset<128> b;
     b.set(64);
-    EXPECT_EQ(b.countr_zero(), 64U);
+    CHECK((b.countr_zero()) == (64U));
   }
 
   // --- countr_one: number of consecutive ones from bit 0 ---
@@ -958,37 +958,37 @@ void FixedBitset_CountBits() {
   // Empty -> 0.
   if (true) {
     fixed_bitset<64> b;
-    EXPECT_EQ(b.countr_one(), 0U);
+    CHECK((b.countr_one()) == (0U));
   }
   // Bit 0 only -> 1.
   if (true) {
     fixed_bitset<64> b;
     b.set(0);
-    EXPECT_EQ(b.countr_one(), 1U);
+    CHECK((b.countr_one()) == (1U));
   }
   // Bits 0-4 set, bit 5 clear -> 5.
   if (true) {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 5; ++i) b.set(i);
-    EXPECT_EQ(b.countr_one(), 5U);
+    CHECK((b.countr_one()) == (5U));
   }
   // All set -> 64.
   if (true) {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 64; ++i) b.set(i);
-    EXPECT_EQ(b.countr_one(), 64U);
+    CHECK((b.countr_one()) == (64U));
   }
   // Multi-word: bits 0-63 set, bit 64 clear -> 64.
   if (true) {
     fixed_bitset<128> b;
     for (std::size_t i = 0; i < 64; ++i) b.set(i);
-    EXPECT_EQ(b.countr_one(), 64U);
+    CHECK((b.countr_one()) == (64U));
   }
   // Multi-word: bits 0-64 set -> 65.
   if (true) {
     fixed_bitset<128> b;
     for (std::size_t i = 0; i <= 64; ++i) b.set(i);
-    EXPECT_EQ(b.countr_one(), 65U);
+    CHECK((b.countr_one()) == (65U));
   }
 
   // --- countl_zero: leading zeros from the top bit ---
@@ -996,43 +996,43 @@ void FixedBitset_CountBits() {
   // Empty -> bit_count_v.
   if (true) {
     fixed_bitset<64> b;
-    EXPECT_EQ(b.countl_zero(), 64U);
+    CHECK((b.countl_zero()) == (64U));
   }
   // Bit 63 set (highest) -> 0 leading zeros.
   if (true) {
     fixed_bitset<64> b;
     b.set(63);
-    EXPECT_EQ(b.countl_zero(), 0U);
+    CHECK((b.countl_zero()) == (0U));
   }
   // Bit 62 set -> 1 leading zero.
   if (true) {
     fixed_bitset<64> b;
     b.set(62);
-    EXPECT_EQ(b.countl_zero(), 1U);
+    CHECK((b.countl_zero()) == (1U));
   }
   // Bit 0 only -> 63 leading zeros.
   if (true) {
     fixed_bitset<64> b;
     b.set(0);
-    EXPECT_EQ(b.countl_zero(), 63U);
+    CHECK((b.countl_zero()) == (63U));
   }
   // All set -> 0 leading zeros.
   if (true) {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 64; ++i) b.set(i);
-    EXPECT_EQ(b.countl_zero(), 0U);
+    CHECK((b.countl_zero()) == (0U));
   }
   // Multi-word 128-bit: only bit 64 set -> 63 leading zeros.
   if (true) {
     fixed_bitset<128> b;
     b.set(64);
-    EXPECT_EQ(b.countl_zero(), 63U);
+    CHECK((b.countl_zero()) == (63U));
   }
   // Multi-word 128-bit: only bit 0 set -> 127 leading zeros.
   if (true) {
     fixed_bitset<128> b;
     b.set(0);
-    EXPECT_EQ(b.countl_zero(), 127U);
+    CHECK((b.countl_zero()) == (127U));
   }
 
   // --- countl_one: leading ones from the top bit ---
@@ -1040,32 +1040,32 @@ void FixedBitset_CountBits() {
   // Empty -> 0.
   if (true) {
     fixed_bitset<64> b;
-    EXPECT_EQ(b.countl_one(), 0U);
+    CHECK((b.countl_one()) == (0U));
   }
   // Bit 63 set -> 1.
   if (true) {
     fixed_bitset<64> b;
     b.set(63);
-    EXPECT_EQ(b.countl_one(), 1U);
+    CHECK((b.countl_one()) == (1U));
   }
   // Bits 62-63 set -> 2.
   if (true) {
     fixed_bitset<64> b;
     b.set(62);
     b.set(63);
-    EXPECT_EQ(b.countl_one(), 2U);
+    CHECK((b.countl_one()) == (2U));
   }
   // All set -> 64.
   if (true) {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 64; ++i) b.set(i);
-    EXPECT_EQ(b.countl_one(), 64U);
+    CHECK((b.countl_one()) == (64U));
   }
   // Multi-word 128-bit: bits 64-127 set, word 0 empty -> 64.
   if (true) {
     fixed_bitset<128> b;
     for (std::size_t i = 64; i < 128; ++i) b.set(i);
-    EXPECT_EQ(b.countl_one(), 64U);
+    CHECK((b.countl_one()) == (64U));
   }
 
   // --- bit_width: position of highest set bit + 1, or 0 if empty ---
@@ -1073,25 +1073,25 @@ void FixedBitset_CountBits() {
   // Empty -> 0.
   if (true) {
     fixed_bitset<64> b;
-    EXPECT_EQ(b.bit_width(), 0U);
+    CHECK((b.bit_width()) == (0U));
   }
   // Bit 0 -> 1.
   if (true) {
     fixed_bitset<64> b;
     b.set(0);
-    EXPECT_EQ(b.bit_width(), 1U);
+    CHECK((b.bit_width()) == (1U));
   }
   // Bit 5 -> 6.
   if (true) {
     fixed_bitset<64> b;
     b.set(5);
-    EXPECT_EQ(b.bit_width(), 6U);
+    CHECK((b.bit_width()) == (6U));
   }
   // Bit 63 -> 64.
   if (true) {
     fixed_bitset<64> b;
     b.set(63);
-    EXPECT_EQ(b.bit_width(), 64U);
+    CHECK((b.bit_width()) == (64U));
   }
   // bit_width tracks the highest bit, not the count.
   if (true) {
@@ -1099,18 +1099,18 @@ void FixedBitset_CountBits() {
     b.set(0);
     b.set(10);
     b.set(30);
-    EXPECT_EQ(b.bit_width(), 31U);
+    CHECK((b.bit_width()) == (31U));
   }
 }
 
 #pragma endregion
 #pragma region HasSingleBit
 
-void FixedBitset_HasSingleBit() {
+TEST_CASE("FixedBitset_HasSingleBit", "[FixedBitset]") {
   // Empty -> false.
   if (true) {
     fixed_bitset<64> b;
-    EXPECT_FALSE(b.has_single_bit());
+    CHECK_FALSE((b.has_single_bit()));
   }
 
   // Each individual bit -> true.
@@ -1118,7 +1118,7 @@ void FixedBitset_HasSingleBit() {
     for (std::size_t i = 0; i < 64; ++i) {
       fixed_bitset<64> b;
       b.set(i);
-      EXPECT_TRUE(b.has_single_bit());
+      CHECK((b.has_single_bit()));
     }
   }
 
@@ -1127,7 +1127,7 @@ void FixedBitset_HasSingleBit() {
     fixed_bitset<64> b;
     b.set(0);
     b.set(1);
-    EXPECT_FALSE(b.has_single_bit());
+    CHECK_FALSE((b.has_single_bit()));
   }
 
   // Two bits in different words -> false.
@@ -1135,36 +1135,36 @@ void FixedBitset_HasSingleBit() {
     fixed_bitset<128> b;
     b.set(0);
     b.set(64);
-    EXPECT_FALSE(b.has_single_bit());
+    CHECK_FALSE((b.has_single_bit()));
   }
 
   // A single bit in the second word -> true.
   if (true) {
     fixed_bitset<128> b;
     b.set(100);
-    EXPECT_TRUE(b.has_single_bit());
+    CHECK((b.has_single_bit()));
   }
 
   // All set -> false.
   if (true) {
     fixed_bitset<64> b;
     for (std::size_t i = 0; i < 64; ++i) b.set(i);
-    EXPECT_FALSE(b.has_single_bit());
+    CHECK_FALSE((b.has_single_bit()));
   }
 }
 
 #pragma endregion
 #pragma region Iteration
 
-void FixedBitset_Iteration() {
+TEST_CASE("FixedBitset_Iteration", "[FixedBitset]") {
   // Single bit.
   if (true) {
     fixed_bitset<64> b;
     b.set(17);
     std::vector<std::size_t> bits;
     for (auto idx : b) bits.push_back(idx);
-    EXPECT_EQ(bits.size(), 1U);
-    EXPECT_EQ(bits[0], 17U);
+    CHECK((bits.size()) == (1U));
+    CHECK((bits[0]) == (17U));
   }
 
   // Multiple bits, should come out in ascending order.
@@ -1176,11 +1176,11 @@ void FixedBitset_Iteration() {
     b.set(63);
     std::vector<std::size_t> bits;
     for (auto idx : b) bits.push_back(idx);
-    EXPECT_EQ(bits.size(), 4U);
-    EXPECT_EQ(bits[0], 0U);
-    EXPECT_EQ(bits[1], 7U);
-    EXPECT_EQ(bits[2], 31U);
-    EXPECT_EQ(bits[3], 63U);
+    CHECK((bits.size()) == (4U));
+    CHECK((bits[0]) == (0U));
+    CHECK((bits[1]) == (7U));
+    CHECK((bits[2]) == (31U));
+    CHECK((bits[3]) == (63U));
   }
 
   // Iteration count matches count().
@@ -1191,7 +1191,7 @@ void FixedBitset_Iteration() {
     b.set(25);
     std::size_t count = 0;
     for ([[maybe_unused]] auto idx : b) ++count;
-    EXPECT_EQ(count, b.count());
+    CHECK((count) == (b.count()));
   }
 
   // Post-increment yields the old value.
@@ -1201,23 +1201,23 @@ void FixedBitset_Iteration() {
     b.set(9);
     auto it = b.begin();
     auto old = it++;
-    EXPECT_EQ(*old, 3U);
-    EXPECT_EQ(*it, 9U);
+    CHECK((*old) == (3U));
+    CHECK((*it) == (9U));
   }
 
   // cbegin/cend agree with begin/end.
   if (true) {
     fixed_bitset<64> b;
     b.set(11);
-    EXPECT_EQ(*b.cbegin(), *b.begin());
-    EXPECT_TRUE(b.cend() == b.end());
+    CHECK((*b.cbegin()) == (*b.begin()));
+    CHECK((b.cend() == b.end()));
   }
 }
 
 #pragma endregion
 #pragma region MultiWord
 
-void FixedBitset_MultiWord() {
+TEST_CASE("FixedBitset_MultiWord", "[FixedBitset]") {
   // 128-bit (2-word) bitset: bits span both words.
   if (true) {
     fixed_bitset<128> b;
@@ -1225,15 +1225,15 @@ void FixedBitset_MultiWord() {
     b.set(63);  // word 0, bit 63
     b.set(64);  // word 1, bit 0
     b.set(127); // word 1, bit 63
-    EXPECT_EQ(b.count(), 4U);
+    CHECK((b.count()) == (4U));
 
     std::vector<std::size_t> bits;
     for (auto idx : b) bits.push_back(idx);
-    EXPECT_EQ(bits.size(), 4U);
-    EXPECT_EQ(bits[0], 0U);
-    EXPECT_EQ(bits[1], 63U);
-    EXPECT_EQ(bits[2], 64U);
-    EXPECT_EQ(bits[3], 127U);
+    CHECK((bits.size()) == (4U));
+    CHECK((bits[0]) == (0U));
+    CHECK((bits[1]) == (63U));
+    CHECK((bits[2]) == (64U));
+    CHECK((bits[3]) == (127U));
   }
 
   // AND across word boundary.
@@ -1244,10 +1244,10 @@ void FixedBitset_MultiWord() {
     b.set(63);
     b.set(65);
     auto c = a & b;
-    EXPECT_TRUE(c.test(63));
-    EXPECT_FALSE(c.test(64));
-    EXPECT_FALSE(c.test(65));
-    EXPECT_EQ(c.count(), 1U);
+    CHECK((c.test(63)));
+    CHECK_FALSE((c.test(64)));
+    CHECK_FALSE((c.test(65)));
+    CHECK((c.count()) == (1U));
   }
 
   // OR across word boundary.
@@ -1256,9 +1256,9 @@ void FixedBitset_MultiWord() {
     a.set(60);
     b.set(68);
     auto c = a | b;
-    EXPECT_TRUE(c.test(60));
-    EXPECT_TRUE(c.test(68));
-    EXPECT_EQ(c.count(), 2U);
+    CHECK((c.test(60)));
+    CHECK((c.test(68)));
+    CHECK((c.count()) == (2U));
   }
 
   // Iteration skips entirely empty words.
@@ -1267,26 +1267,26 @@ void FixedBitset_MultiWord() {
     b.set(100); // only in word 1
     std::vector<std::size_t> bits;
     for (auto idx : b) bits.push_back(idx);
-    EXPECT_EQ(bits.size(), 1U);
-    EXPECT_EQ(bits[0], 100U);
+    CHECK((bits.size()) == (1U));
+    CHECK((bits[0]) == (100U));
   }
 
   // Reset clears all words.
   if (true) {
     fixed_bitset<128> b;
     for (std::size_t i = 0; i < 128; ++i) b.set(i);
-    EXPECT_TRUE(b.all());
+    CHECK((b.all()));
     b.reset();
-    EXPECT_TRUE(b.none());
+    CHECK((b.none()));
   }
 
   // all() requires every word to be full.
   if (true) {
     fixed_bitset<128> b;
     for (std::size_t i = 0; i < 128; ++i) b.set(i);
-    EXPECT_TRUE(b.all());
+    CHECK((b.all()));
     b.reset(64);
-    EXPECT_FALSE(b.all());
+    CHECK_FALSE((b.all()));
   }
 
   // Equality across words.
@@ -1295,16 +1295,16 @@ void FixedBitset_MultiWord() {
     a.set(0);
     a.set(127);
     b.set(0);
-    EXPECT_NE(a, b);
+    CHECK((a) != (b));
     b.set(127);
-    EXPECT_EQ(a, b);
+    CHECK((a) == (b));
   }
 }
 
 #pragma endregion
 #pragma region PosParam
 
-void FixedBitset_PosParam() {
+TEST_CASE("FixedBitset_PosParam", "[FixedBitset]") {
   using bs_t = fixed_bitset<64, slot_t>;
 
   // pos_t is the enum type.
@@ -1314,12 +1314,12 @@ void FixedBitset_PosParam() {
   if (true) {
     bs_t b;
     b.set(slot_t{5});
-    EXPECT_TRUE(b.test(slot_t{5}));
-    EXPECT_TRUE(bool(b[slot_t{5}]));
-    EXPECT_FALSE(b.test(slot_t{0}));
+    CHECK((b.test(slot_t{5})));
+    CHECK((bool(b[slot_t{5}])));
+    CHECK_FALSE((b.test(slot_t{0})));
 
     b.reset(slot_t{5});
-    EXPECT_FALSE(b.test(slot_t{5}));
+    CHECK_FALSE((b.test(slot_t{5})));
   }
 
   // Iterator yields pos_t values.
@@ -1331,63 +1331,63 @@ void FixedBitset_PosParam() {
 
     std::vector<slot_t> got;
     for (auto p : b) got.push_back(p);
-    EXPECT_EQ(got.size(), 3U);
+    CHECK((got.size()) == (3U));
     // Use EXPECT_TRUE for enum comparisons: EXPECT_EQ's error path can't
     // print unprintable types.
-    EXPECT_TRUE(got[0] == slot_t{3});
-    EXPECT_TRUE(got[1] == slot_t{17});
-    EXPECT_TRUE(got[2] == slot_t{63});
+    CHECK((got[0] == slot_t{3}));
+    CHECK((got[1] == slot_t{17}));
+    CHECK((got[2] == slot_t{63}));
   }
 
   // countr_zero returns pos_t; sentinel is as_pos(bit_count_v).
   if (true) {
     bs_t empty;
-    EXPECT_TRUE(empty.countr_zero() == slot_t{64});
+    CHECK((empty.countr_zero() == slot_t{64}));
 
     bs_t b;
     b.set(slot_t{7});
-    EXPECT_TRUE(b.countr_zero() == slot_t{7});
+    CHECK((b.countr_zero() == slot_t{7}));
   }
 
   // countr_one returns pos_t.
   if (true) {
     bs_t b;
     for (size_t i = 0; i < 4; ++i) b.set(slot_t{i});
-    EXPECT_TRUE(b.countr_one() == slot_t{4});
+    CHECK((b.countr_one() == slot_t{4}));
   }
 
   // countl_zero returns pos_t.
   if (true) {
     bs_t empty;
-    EXPECT_TRUE(empty.countl_zero() == slot_t{64});
+    CHECK((empty.countl_zero() == slot_t{64}));
 
     bs_t b;
     b.set(slot_t{63});
-    EXPECT_TRUE(b.countl_zero() == slot_t{0});
+    CHECK((b.countl_zero() == slot_t{0}));
 
     bs_t b2;
     b2.set(slot_t{62});
-    EXPECT_TRUE(b2.countl_zero() == slot_t{1});
+    CHECK((b2.countl_zero() == slot_t{1}));
   }
 
   // countl_one returns pos_t.
   if (true) {
     bs_t empty;
-    EXPECT_TRUE(empty.countl_one() == slot_t{0});
+    CHECK((empty.countl_one() == slot_t{0}));
 
     bs_t b;
     b.set(slot_t{63});
-    EXPECT_TRUE(b.countl_one() == slot_t{1});
+    CHECK((b.countl_one() == slot_t{1}));
   }
 
   // bit_width returns pos_t.
   if (true) {
     bs_t empty;
-    EXPECT_TRUE(empty.bit_width() == slot_t{0});
+    CHECK((empty.bit_width() == slot_t{0}));
 
     bs_t b;
     b.set(slot_t{5});
-    EXPECT_TRUE(b.bit_width() == slot_t{6});
+    CHECK((b.bit_width() == slot_t{6}));
   }
 
   // Bitwise operators preserve pos_t interface.
@@ -1397,16 +1397,16 @@ void FixedBitset_PosParam() {
     b.set(slot_t{2});
     b.set(slot_t{4});
     auto c = a & b;
-    EXPECT_TRUE(c.test(slot_t{2}));
-    EXPECT_FALSE(c.test(slot_t{4}));
+    CHECK((c.test(slot_t{2})));
+    CHECK_FALSE((c.test(slot_t{4})));
 
     auto d = a | b;
-    EXPECT_TRUE(d.test(slot_t{2}));
-    EXPECT_TRUE(d.test(slot_t{4}));
+    CHECK((d.test(slot_t{2})));
+    CHECK((d.test(slot_t{4})));
 
     auto e = a ^ b;
-    EXPECT_FALSE(e.test(slot_t{2}));
-    EXPECT_TRUE(e.test(slot_t{4}));
+    CHECK_FALSE((e.test(slot_t{2})));
+    CHECK((e.test(slot_t{4})));
   }
 }
 
@@ -1415,23 +1415,23 @@ void FixedBitset_PosParam() {
 
 // size() is a constexpr instance method reflecting bit_count_v.
 
-void FixedBitset_Size() {
+TEST_CASE("FixedBitset_Size", "[FixedBitset]") {
   // Callable on instances.
   if (true) {
-    EXPECT_EQ(fixed_bitset<64>{}.size(), 64U);
-    EXPECT_EQ(fixed_bitset<128>{}.size(), 128U);
+    CHECK((fixed_bitset<64>{}.size()) == (64U));
+    CHECK((fixed_bitset<128>{}.size()) == (128U));
   }
 
   // Callable on named instances.
   if (true) {
     fixed_bitset<64> b;
-    EXPECT_EQ(b.size(), 64U);
+    CHECK((b.size()) == (64U));
   }
 
   // Callable on const references.
   if (true) {
     const fixed_bitset<64> b;
-    EXPECT_EQ(b.size(), 64U);
+    CHECK((b.size()) == (64U));
   }
 
   // Usable in constant expressions.
@@ -1447,54 +1447,54 @@ void FixedBitset_Size() {
 // at() and the other named access functions throw std::out_of_range for
 // out-of-range positions. operator[] uses assert-only (no throw).
 
-void FixedBitset_At() {
+TEST_CASE("FixedBitset_At", "[FixedBitset]") {
   // In-range: agrees with test() at every position.
   if (true) {
     fixed_bitset<64> b;
     b.set(10);
     b.set(50);
-    for (size_t i = 0; i < 64; ++i) EXPECT_EQ(b.at(i), b.test(i));
+    for (size_t i = 0; i < 64; ++i) CHECK((b.at(i)) == (b.test(i)));
   }
 
   // at() throws std::out_of_range for out-of-range positions.
   if (true) {
     fixed_bitset<64> b;
-    TEST_EXCEPTION(b.at(64), std::out_of_range);
-    TEST_EXCEPTION(b.at(1000), std::out_of_range);
+    CHECK_THROWS_AS(b.at(64), std::out_of_range);
+    CHECK_THROWS_AS(b.at(1000), std::out_of_range);
   }
 
   // test() throws std::out_of_range for out-of-range positions.
   if (true) {
     fixed_bitset<64> b;
-    TEST_EXCEPTION(b.test(64), std::out_of_range);
+    CHECK_THROWS_AS(b.test(64), std::out_of_range);
   }
 
   // set(pos) throws std::out_of_range for out-of-range positions.
   if (true) {
     fixed_bitset<64> b;
-    TEST_EXCEPTION(b.set(64), std::out_of_range);
-    TEST_EXCEPTION(b.set(64, false), std::out_of_range);
+    CHECK_THROWS_AS(b.set(64), std::out_of_range);
+    CHECK_THROWS_AS(b.set(64, false), std::out_of_range);
   }
 
   // reset(pos) throws std::out_of_range for out-of-range positions.
   if (true) {
     fixed_bitset<64> b;
-    TEST_EXCEPTION(b.reset(64), std::out_of_range);
+    CHECK_THROWS_AS(b.reset(64), std::out_of_range);
   }
 
   // flip(pos) throws std::out_of_range for out-of-range positions.
   if (true) {
     fixed_bitset<64> b;
-    TEST_EXCEPTION(b.flip(64), std::out_of_range);
+    CHECK_THROWS_AS(b.flip(64), std::out_of_range);
   }
 
   // Works with enum POS.
   if (true) {
     fixed_bitset<64, slot_t> b;
     b.set(slot_t{5});
-    EXPECT_TRUE(b.at(slot_t{5}));
-    EXPECT_FALSE(b.at(slot_t{6}));
-    TEST_EXCEPTION(b.at(slot_t{64}), std::out_of_range);
+    CHECK((b.at(slot_t{5})));
+    CHECK_FALSE((b.at(slot_t{6})));
+    CHECK_THROWS_AS(b.at(slot_t{64}), std::out_of_range);
   }
 
   // In-range at() is usable in constant expressions.
@@ -1516,14 +1516,14 @@ void FixedBitset_At() {
 // Word 0 (bits 0-63) is compared before word 1 (bits 64-127), so lower-index
 // words dominate even though they hold lower-index bits.
 
-void FixedBitset_Ordering() {
+TEST_CASE("FixedBitset_Ordering", "[FixedBitset]") {
   // Reflexive: equal bitsets compare equal.
   if (true) {
     fixed_bitset<64> a, b;
-    EXPECT_TRUE((a <=> b) == 0);
+    CHECK(((a <=> b) == 0));
     a.set(5);
     b.set(5);
-    EXPECT_TRUE((a <=> b) == 0);
+    CHECK(((a <=> b) == 0));
   }
 
   // Within one word: a higher-index bit makes the word value larger.
@@ -1531,18 +1531,18 @@ void FixedBitset_Ordering() {
     fixed_bitset<64> lo, hi;
     lo.set(0); // words_[0] = 1
     hi.set(1); // words_[0] = 2
-    EXPECT_TRUE(lo < hi);
-    EXPECT_TRUE(hi > lo);
-    EXPECT_TRUE(lo <= hi);
-    EXPECT_TRUE(hi >= lo);
+    CHECK((lo < hi));
+    CHECK((hi > lo));
+    CHECK((lo <= hi));
+    CHECK((hi >= lo));
   }
 
   // Empty is less than any set bit.
   if (true) {
     fixed_bitset<64> empty, b;
     b.set(0);
-    EXPECT_TRUE(empty < b);
-    EXPECT_FALSE(b < empty);
+    CHECK((empty < b));
+    CHECK_FALSE((b < empty));
   }
 
   // Multi-word: word 0 dominates word 1, so a single bit in word 0 outweighs
@@ -1552,8 +1552,8 @@ void FixedBitset_Ordering() {
     word0.set(0);  // words_ = {1, 0}
     word1.set(64); // words_ = {0, 1}
     // word0 > word1 because words_[0]=1 > 0
-    EXPECT_TRUE(word0 > word1);
-    EXPECT_TRUE(word1 < word0);
+    CHECK((word0 > word1));
+    CHECK((word1 < word0));
   }
 
   // A full word 1 is still less than a single bit in word 0.
@@ -1563,7 +1563,7 @@ void FixedBitset_Ordering() {
     for (std::size_t i = 64; i < 128; ++i) w1full.set(i);
     // w0bit: words_ = {1, 0}; w1full: words_ = {0, ~0ull}
     // words_[0]: 1 > 0, so w0bit > w1full
-    EXPECT_TRUE(w0bit > w1full);
+    CHECK((w0bit > w1full));
   }
 
   // Ordering is consistent with equality.
@@ -1571,10 +1571,10 @@ void FixedBitset_Ordering() {
     fixed_bitset<64> a, b;
     a.set(10);
     b.set(10);
-    EXPECT_TRUE(a <= b);
-    EXPECT_TRUE(a >= b);
-    EXPECT_FALSE(a < b);
-    EXPECT_FALSE(a > b);
+    CHECK((a <= b));
+    CHECK((a >= b));
+    CHECK_FALSE((a < b));
+    CHECK_FALSE((a > b));
   }
 }
 
@@ -1583,7 +1583,7 @@ void FixedBitset_Ordering() {
 
 // TAG prevents structurally-identical bitsets from being mixed.
 
-void FixedBitset_Tag() {
+TEST_CASE("FixedBitset_Tag", "[FixedBitset]") {
   struct tag_a {};
   struct tag_b {};
   using bs_a = fixed_bitset<64, size_t, tag_a>;
@@ -1606,19 +1606,19 @@ void FixedBitset_Tag() {
     bs_a a;
     a.set(1);
     a.set(33);
-    EXPECT_TRUE(a.test(1));
-    EXPECT_TRUE(a.test(33));
-    EXPECT_EQ(a.count(), 2U);
+    CHECK((a.test(1)));
+    CHECK((a.test(33)));
+    CHECK((a.count()) == (2U));
 
     bs_b b;
     b.set(1);
-    EXPECT_TRUE(b.test(1));
-    EXPECT_EQ(b.count(), 1U);
+    CHECK((b.test(1)));
+    CHECK((b.count()) == (1U));
 
     // a and b have equal content in the overlapping bit, but are distinct
     // objects of different types -- no mixing is possible.
-    EXPECT_EQ(a.test(1), b.test(1));
-    EXPECT_NE(a.count(), b.count());
+    CHECK((a.test(1)) == (b.test(1)));
+    CHECK((a.count()) != (b.count()));
   }
 }
 
@@ -1627,7 +1627,7 @@ void FixedBitset_Tag() {
 
 // constexpr: bitset operations are usable in constant expressions.
 
-void FixedBitset_Constexpr() {
+TEST_CASE("FixedBitset_Constexpr", "[FixedBitset]") {
   // Build a bitset at compile time.
   constexpr auto b = []() {
     fixed_bitset<64> r;
@@ -1736,15 +1736,15 @@ void FixedBitset_Constexpr() {
 #pragma endregion
 #pragma region Rotation
 
-void FixedBitset_Rotation() {
+TEST_CASE("FixedBitset_Rotation", "[FixedBitset]") {
   // rotl by 1: bit 63 wraps to bit 0.
   if (true) {
     fixed_bitset<64> b;
     b.set(63);
     b.rotl(1);
-    EXPECT_TRUE(b.test(0));
-    EXPECT_FALSE(b.test(63));
-    EXPECT_EQ(b.count(), 1U);
+    CHECK((b.test(0)));
+    CHECK_FALSE((b.test(63)));
+    CHECK((b.count()) == (1U));
   }
 
   // rotr by 1: bit 0 wraps to bit 63.
@@ -1752,9 +1752,9 @@ void FixedBitset_Rotation() {
     fixed_bitset<64> b;
     b.set(0);
     b.rotr(1);
-    EXPECT_TRUE(b.test(63));
-    EXPECT_FALSE(b.test(0));
-    EXPECT_EQ(b.count(), 1U);
+    CHECK((b.test(63)));
+    CHECK_FALSE((b.test(0)));
+    CHECK((b.count()) == (1U));
   }
 
   // rotl by bit_count_v: shift % bit_count_v == 0, so no-op.
@@ -1764,7 +1764,7 @@ void FixedBitset_Rotation() {
     b.set(42);
     fixed_bitset<64> orig = b;
     b.rotl(64);
-    EXPECT_EQ(b, orig);
+    CHECK((b) == (orig));
   }
 
   // rotl by 2*bit_count_v: also a no-op.
@@ -1773,7 +1773,7 @@ void FixedBitset_Rotation() {
     b.set(5);
     fixed_bitset<64> orig = b;
     b.rotl(128);
-    EXPECT_EQ(b, orig);
+    CHECK((b) == (orig));
   }
 
   // rotl(bit_count_v + k) == rotl(k).
@@ -1783,7 +1783,7 @@ void FixedBitset_Rotation() {
     fixed_bitset<64> expected = b;
     expected.rotl(3);
     b.rotl(64 + 3); // 67 % 64 == 3
-    EXPECT_EQ(b, expected);
+    CHECK((b) == (expected));
   }
 
   // rotr by bit_count_v: no-op.
@@ -1793,7 +1793,7 @@ void FixedBitset_Rotation() {
     b.set(33);
     fixed_bitset<64> orig = b;
     b.rotr(64);
-    EXPECT_EQ(b, orig);
+    CHECK((b) == (orig));
   }
 
   // rotr(bit_count_v + k) == rotr(k).
@@ -1803,7 +1803,7 @@ void FixedBitset_Rotation() {
     fixed_bitset<64> expected = b;
     expected.rotr(5);
     b.rotr(64 + 5); // 69 % 64 == 5
-    EXPECT_EQ(b, expected);
+    CHECK((b) == (expected));
   }
 
   // rotl and rotr are inverses.
@@ -1814,7 +1814,7 @@ void FixedBitset_Rotation() {
     fixed_bitset<64> c = b;
     c.rotl(7);
     c.rotr(7);
-    EXPECT_EQ(b, c);
+    CHECK((b) == (c));
   }
 
   // Non-member rotl/rotr return a new bitset; original is unchanged.
@@ -1822,13 +1822,13 @@ void FixedBitset_Rotation() {
     fixed_bitset<64> b;
     b.set(10);
     auto lhs = rotl(b, 3);
-    EXPECT_TRUE(lhs.test(13));
-    EXPECT_FALSE(lhs.test(10));
-    EXPECT_TRUE(b.test(10)); // original unchanged
+    CHECK((lhs.test(13)));
+    CHECK_FALSE((lhs.test(10)));
+    CHECK((b.test(10))); // original unchanged
 
     auto rhs = rotr(b, 3);
-    EXPECT_TRUE(rhs.test(7));
-    EXPECT_FALSE(rhs.test(10));
+    CHECK((rhs.test(7)));
+    CHECK_FALSE((rhs.test(10)));
   }
 
   // Multi-word 128-bit: bit 127 wraps to bit 0 on rotl(1).
@@ -1836,14 +1836,14 @@ void FixedBitset_Rotation() {
     fixed_bitset<128> b;
     b.set(127);
     b.rotl(1);
-    EXPECT_TRUE(b.test(0));
-    EXPECT_FALSE(b.test(127));
+    CHECK((b.test(0)));
+    CHECK_FALSE((b.test(127)));
 
     fixed_bitset<128> b2;
     b2.set(0);
     b2.rotr(1);
-    EXPECT_TRUE(b2.test(127));
-    EXPECT_FALSE(b2.test(0));
+    CHECK((b2.test(127)));
+    CHECK_FALSE((b2.test(0)));
   }
 
   // Multi-word: rotl(128) and rotl(256) are no-ops.
@@ -1853,25 +1853,25 @@ void FixedBitset_Rotation() {
     b.set(70);
     fixed_bitset<128> orig = b;
     b.rotl(128);
-    EXPECT_EQ(b, orig);
+    CHECK((b) == (orig));
     b.rotl(256);
-    EXPECT_EQ(b, orig);
+    CHECK((b) == (orig));
   }
 }
 
 #pragma endregion
 #pragma region Shift
 
-void FixedBitset_Shift() {
+TEST_CASE("FixedBitset_Shift", "[FixedBitset]") {
   // <<= by 0: no-op.
   if (true) {
     fixed_bitset<64> b;
     b.set(0);
     b.set(7);
     b <<= 0;
-    EXPECT_TRUE(b.test(0));
-    EXPECT_TRUE(b.test(7));
-    EXPECT_EQ(b.count(), 2U);
+    CHECK((b.test(0)));
+    CHECK((b.test(7)));
+    CHECK((b.count()) == (2U));
   }
 
   // <<= by 1: each bit moves to the next-higher index; bit 0 vacated.
@@ -1880,10 +1880,10 @@ void FixedBitset_Shift() {
     b.set(0);
     b.set(7);
     b <<= 1;
-    EXPECT_TRUE(b.test(1));
-    EXPECT_TRUE(b.test(8));
-    EXPECT_FALSE(b.test(0));
-    EXPECT_FALSE(b.test(7));
+    CHECK((b.test(1)));
+    CHECK((b.test(8)));
+    CHECK_FALSE((b.test(0)));
+    CHECK_FALSE((b.test(7)));
   }
 
   // <<= by bit_count_v: clears everything.
@@ -1892,7 +1892,7 @@ void FixedBitset_Shift() {
     b.set(0);
     b.set(63);
     b <<= 64;
-    EXPECT_TRUE(b.none());
+    CHECK((b.none()));
   }
 
   // <<= by more than bit_count_v: also clears.
@@ -1900,7 +1900,7 @@ void FixedBitset_Shift() {
     fixed_bitset<64> b;
     b.set(5);
     b <<= 100;
-    EXPECT_TRUE(b.none());
+    CHECK((b.none()));
   }
 
   // >>= by 0: no-op.
@@ -1908,8 +1908,8 @@ void FixedBitset_Shift() {
     fixed_bitset<64> b;
     b.set(10);
     b >>= 0;
-    EXPECT_TRUE(b.test(10));
-    EXPECT_EQ(b.count(), 1U);
+    CHECK((b.test(10)));
+    CHECK((b.count()) == (1U));
   }
 
   // >>= by 1: each bit moves to the next-lower index; top bit vacated.
@@ -1918,11 +1918,11 @@ void FixedBitset_Shift() {
     b.set(7);
     b.set(63);
     b >>= 1;
-    EXPECT_TRUE(b.test(6));
-    EXPECT_TRUE(b.test(62));
-    EXPECT_FALSE(b.test(7));
-    EXPECT_FALSE(b.test(63));
-    EXPECT_FALSE(b.test(0)); // not fed from bit 1
+    CHECK((b.test(6)));
+    CHECK((b.test(62)));
+    CHECK_FALSE((b.test(7)));
+    CHECK_FALSE((b.test(63)));
+    CHECK_FALSE((b.test(0))); // not fed from bit 1
   }
 
   // >>= by bit_count_v: clears everything.
@@ -1931,7 +1931,7 @@ void FixedBitset_Shift() {
     b.set(0);
     b.set(63);
     b >>= 64;
-    EXPECT_TRUE(b.none());
+    CHECK((b.none()));
   }
 
   // >>= by more than bit_count_v: also clears.
@@ -1939,7 +1939,7 @@ void FixedBitset_Shift() {
     fixed_bitset<64> b;
     b.set(30);
     b >>= 200;
-    EXPECT_TRUE(b.none());
+    CHECK((b.none()));
   }
 
   // Non-member << and >> return a new bitset; original is unchanged.
@@ -1947,13 +1947,13 @@ void FixedBitset_Shift() {
     fixed_bitset<64> b;
     b.set(5);
     auto lhs = b << 3;
-    EXPECT_TRUE(lhs.test(8));
-    EXPECT_FALSE(lhs.test(5));
-    EXPECT_TRUE(b.test(5)); // original unchanged
+    CHECK((lhs.test(8)));
+    CHECK_FALSE((lhs.test(5)));
+    CHECK((b.test(5))); // original unchanged
 
     auto rhs = b >> 3;
-    EXPECT_TRUE(rhs.test(2));
-    EXPECT_FALSE(rhs.test(5));
+    CHECK((rhs.test(2)));
+    CHECK_FALSE((rhs.test(5)));
   }
 
   // Multi-word: <<= by 1 moves the top bit of word 0 into word 1.
@@ -1961,8 +1961,8 @@ void FixedBitset_Shift() {
     fixed_bitset<128> b;
     b.set(63); // last bit of word 0
     b <<= 1;
-    EXPECT_TRUE(b.test(64)); // now in word 1
-    EXPECT_FALSE(b.test(63));
+    CHECK((b.test(64))); // now in word 1
+    CHECK_FALSE((b.test(63)));
   }
 
   // Multi-word: >>= by 1 moves the low bit of word 1 into word 0.
@@ -1970,8 +1970,8 @@ void FixedBitset_Shift() {
     fixed_bitset<128> b;
     b.set(64); // first bit of word 1
     b >>= 1;
-    EXPECT_TRUE(b.test(63)); // now in word 0
-    EXPECT_FALSE(b.test(64));
+    CHECK((b.test(63))); // now in word 0
+    CHECK_FALSE((b.test(64)));
   }
 
   // Multi-word: <<= by a full word width shifts word 0 into word 1.
@@ -1980,11 +1980,11 @@ void FixedBitset_Shift() {
     b.set(0);
     b.set(3);
     b <<= 64;
-    EXPECT_TRUE(b.test(64));
-    EXPECT_TRUE(b.test(67));
-    EXPECT_FALSE(b.test(0));
-    EXPECT_FALSE(b.test(3));
-    EXPECT_EQ(b.array()[0], uint64_t{0}); // low word cleared
+    CHECK((b.test(64)));
+    CHECK((b.test(67)));
+    CHECK_FALSE((b.test(0)));
+    CHECK_FALSE((b.test(3)));
+    CHECK((b.array()[0]) == (uint64_t{0})); // low word cleared
   }
 
   // Multi-word: >>= by a full word width shifts word 1 into word 0.
@@ -1993,9 +1993,9 @@ void FixedBitset_Shift() {
     b.set(64);
     b.set(67);
     b >>= 64;
-    EXPECT_TRUE(b.test(0));
-    EXPECT_TRUE(b.test(3));
-    EXPECT_EQ(b.array()[1], uint64_t{0}); // high word cleared
+    CHECK((b.test(0)));
+    CHECK((b.test(3)));
+    CHECK((b.array()[1]) == (uint64_t{0})); // high word cleared
   }
 
   // Multi-word: <<= by bit_count_v clears a 128-bit bitset.
@@ -2004,7 +2004,7 @@ void FixedBitset_Shift() {
     b.set(0);
     b.set(127);
     b <<= 128;
-    EXPECT_TRUE(b.none());
+    CHECK((b.none()));
   }
 
   // Multi-word: >>= by bit_count_v clears a 128-bit bitset.
@@ -2013,7 +2013,7 @@ void FixedBitset_Shift() {
     b.set(0);
     b.set(127);
     b >>= 128;
-    EXPECT_TRUE(b.none());
+    CHECK((b.none()));
   }
 
   // Multi-word: <<= by more than bit_count_v also clears.
@@ -2021,44 +2021,44 @@ void FixedBitset_Shift() {
     fixed_bitset<128> b;
     b.set(64);
     b <<= 300;
-    EXPECT_TRUE(b.none());
+    CHECK((b.none()));
   }
 }
 
 #pragma endregion
 #pragma region ArrayConstruct
 
-void FixedBitset_ArrayConstruct() {
+TEST_CASE("FixedBitset_ArrayConstruct", "[FixedBitset]") {
   // Single byte with binary literal: each set bit is readable.
   if (true) {
     fixed_bitset<8> b{std::array<uint8_t, 1>{0b10101010}};
-    EXPECT_FALSE(b.test(0));
-    EXPECT_TRUE(b.test(1));
-    EXPECT_FALSE(b.test(2));
-    EXPECT_TRUE(b.test(3));
-    EXPECT_FALSE(b.test(4));
-    EXPECT_TRUE(b.test(5));
-    EXPECT_FALSE(b.test(6));
-    EXPECT_TRUE(b.test(7));
-    EXPECT_EQ(b.count(), 4U);
+    CHECK_FALSE((b.test(0)));
+    CHECK((b.test(1)));
+    CHECK_FALSE((b.test(2)));
+    CHECK((b.test(3)));
+    CHECK_FALSE((b.test(4)));
+    CHECK((b.test(5)));
+    CHECK_FALSE((b.test(6)));
+    CHECK((b.test(7)));
+    CHECK((b.count()) == (4U));
   }
 
   // 64-bit single word.
   if (true) {
     fixed_bitset<64> b{
         std::array<uint64_t, 1>{uint64_t{1} | (uint64_t{1} << 63)}};
-    EXPECT_TRUE(b.test(0));
-    EXPECT_TRUE(b.test(63));
-    EXPECT_EQ(b.count(), 2U);
+    CHECK((b.test(0)));
+    CHECK((b.test(63)));
+    CHECK((b.count()) == (2U));
   }
 
   // Multi-word: fixed_bitset<24> -- three uint8_t words.
   if (true) {
     fixed_bitset<24> b{std::array<uint8_t, 3>{0x01, 0x02, 0x80}};
-    EXPECT_TRUE(b.test(0));  // bit 0 of word 0
-    EXPECT_TRUE(b.test(9));  // bit 1 of word 1
-    EXPECT_TRUE(b.test(23)); // bit 7 of word 2
-    EXPECT_EQ(b.count(), 3U);
+    CHECK((b.test(0)));  // bit 0 of word 0
+    CHECK((b.test(9)));  // bit 1 of word 1
+    CHECK((b.test(23))); // bit 7 of word 2
+    CHECK((b.count()) == (3U));
   }
 
   // Padding bits in the top word are masked off by the constructor.
@@ -2067,9 +2067,9 @@ void FixedBitset_ArrayConstruct() {
     // 56 bits passed in must be silently cleared.
     using fb8x64 = fixed_bitset<8, size_t, void, 64>;
     fb8x64 b{std::array<uint64_t, 1>{uint64_t{0xFF'FF}}};
-    EXPECT_EQ(b.array()[0], uint64_t{0xFF}); // only 8 valid bits survive
-    EXPECT_EQ(b.count(), 8U);
-    EXPECT_TRUE(b.all());
+    CHECK((b.array()[0]) == (uint64_t{0xFF})); // only 8 valid bits survive
+    CHECK((b.count()) == (8U));
+    CHECK((b.all()));
   }
 
   // Constructor is explicit: no implicit conversions.
@@ -2098,7 +2098,7 @@ void FixedBitset_ArrayConstruct() {
 #pragma endregion
 #pragma region Intersects
 
-void FixedBitset_Intersects() {
+TEST_CASE("FixedBitset_Intersects", "[FixedBitset]") {
   // intersects: at least one bit set in both.
   if (true) {
     fixed_bitset<8> a, b;
@@ -2106,8 +2106,8 @@ void FixedBitset_Intersects() {
     a.set(3);
     b.set(3);
     b.set(5);
-    EXPECT_TRUE(a.intersects(b)); // bit 3 is in both
-    EXPECT_TRUE(b.intersects(a)); // symmetric
+    CHECK((a.intersects(b))); // bit 3 is in both
+    CHECK((b.intersects(a))); // symmetric
   }
 
   // Non-overlapping sets do not intersect.
@@ -2117,17 +2117,17 @@ void FixedBitset_Intersects() {
     a.set(2);
     b.set(1);
     b.set(3);
-    EXPECT_FALSE(a.intersects(b));
-    EXPECT_FALSE(b.intersects(a));
+    CHECK_FALSE((a.intersects(b)));
+    CHECK_FALSE((b.intersects(a)));
   }
 
   // Empty set intersects nothing.
   if (true) {
     fixed_bitset<8> empty, full;
     full.set();
-    EXPECT_FALSE(empty.intersects(full));
-    EXPECT_FALSE(full.intersects(empty));
-    EXPECT_FALSE(empty.intersects(empty));
+    CHECK_FALSE((empty.intersects(full)));
+    CHECK_FALSE((full.intersects(empty)));
+    CHECK_FALSE((empty.intersects(empty)));
   }
 
   // Full set intersects any non-empty set.
@@ -2135,9 +2135,9 @@ void FixedBitset_Intersects() {
     fixed_bitset<8> full, single;
     full.set();
     single.set(4);
-    EXPECT_TRUE(full.intersects(single));
-    EXPECT_TRUE(single.intersects(full));
-    EXPECT_TRUE(full.intersects(full));
+    CHECK((full.intersects(single)));
+    CHECK((single.intersects(full)));
+    CHECK((full.intersects(full)));
   }
 
   // is_disjoint_from is the complement.
@@ -2147,25 +2147,25 @@ void FixedBitset_Intersects() {
     b.set(0);
     b.set(7);
     c.set(7);
-    EXPECT_FALSE(a.is_disjoint_from(b)); // share bit 0
-    EXPECT_TRUE(a.is_disjoint_from(c));  // no overlap
-    EXPECT_TRUE(c.is_disjoint_from(a));  // symmetric
+    CHECK_FALSE((a.is_disjoint_from(b))); // share bit 0
+    CHECK((a.is_disjoint_from(c)));       // no overlap
+    CHECK((c.is_disjoint_from(a)));       // symmetric
   }
 
   // Multi-word bitset (128 bits = two 64-bit words, exercises the word loop).
   if (true) {
     fixed_bitset<128> a, b;
-    a.set(0);                     // word 0
-    a.set(65);                    // word 1
-    b.set(65);                    // word 1 -- shared with a
-    b.set(127);                   // word 1
-    EXPECT_TRUE(a.intersects(b)); // bit 65 in both
-    EXPECT_FALSE(a.is_disjoint_from(b));
+    a.set(0);                 // word 0
+    a.set(65);                // word 1
+    b.set(65);                // word 1 -- shared with a
+    b.set(127);               // word 1
+    CHECK((a.intersects(b))); // bit 65 in both
+    CHECK_FALSE((a.is_disjoint_from(b)));
     fixed_bitset<128> c;
-    c.set(1);                      // word 0
-    c.set(126);                    // word 1
-    EXPECT_FALSE(a.intersects(c)); // no overlap
-    EXPECT_TRUE(a.is_disjoint_from(c));
+    c.set(1);                       // word 0
+    c.set(126);                     // word 1
+    CHECK_FALSE((a.intersects(c))); // no overlap
+    CHECK((a.is_disjoint_from(c)));
   }
 
   // Constexpr.
@@ -2190,7 +2190,7 @@ void FixedBitset_Intersects() {
 #pragma endregion
 #pragma region IsSubset
 
-void FixedBitset_IsSubset() {
+TEST_CASE("FixedBitset_IsSubset", "[FixedBitset]") {
   // is_subset_of: every set bit in *this is also set in other.
   if (true) {
     fixed_bitset<8> a, b;
@@ -2199,8 +2199,8 @@ void FixedBitset_IsSubset() {
     b.set(1);
     b.set(2);
     b.set(3);
-    EXPECT_TRUE(a.is_subset_of(b));  // {1,3} subset of {1,2,3}
-    EXPECT_FALSE(b.is_subset_of(a)); // {1,2,3} not subset of {1,3}
+    CHECK((a.is_subset_of(b)));       // {1,3} subset of {1,2,3}
+    CHECK_FALSE((b.is_subset_of(a))); // {1,2,3} not subset of {1,3}
   }
 
   // Equal sets are subsets of each other.
@@ -2210,17 +2210,17 @@ void FixedBitset_IsSubset() {
     a.set(7);
     b.set(0);
     b.set(7);
-    EXPECT_TRUE(a.is_subset_of(b));
-    EXPECT_TRUE(b.is_subset_of(a));
+    CHECK((a.is_subset_of(b)));
+    CHECK((b.is_subset_of(a)));
   }
 
   // Empty set is a subset of everything.
   if (true) {
     fixed_bitset<8> empty, full;
     full.set();
-    EXPECT_TRUE(empty.is_subset_of(full));
-    EXPECT_TRUE(empty.is_subset_of(empty));
-    EXPECT_FALSE(full.is_subset_of(empty));
+    CHECK((empty.is_subset_of(full)));
+    CHECK((empty.is_subset_of(empty)));
+    CHECK_FALSE((full.is_subset_of(empty)));
   }
 
   // Full set is only a subset of itself.
@@ -2229,8 +2229,8 @@ void FixedBitset_IsSubset() {
     full.set();
     almost = full;
     almost.reset(3);
-    EXPECT_TRUE(full.is_subset_of(full));
-    EXPECT_FALSE(full.is_subset_of(almost));
+    CHECK((full.is_subset_of(full)));
+    CHECK_FALSE((full.is_subset_of(almost)));
   }
 
   // is_superset_of is the mirror.
@@ -2239,22 +2239,22 @@ void FixedBitset_IsSubset() {
     a.set(2);
     b.set(2);
     b.set(5);
-    EXPECT_TRUE(b.is_superset_of(a));  // {2,5} contains {2}
-    EXPECT_FALSE(a.is_superset_of(b)); // {2} does not contain {2,5}
+    CHECK((b.is_superset_of(a)));       // {2,5} contains {2}
+    CHECK_FALSE((a.is_superset_of(b))); // {2} does not contain {2,5}
   }
 
   // Multi-word bitset (128 bits = two 64-bit words, exercises the word loop).
   if (true) {
     fixed_bitset<128> a, b;
-    a.set(0);                          // word 0
-    a.set(65);                         // word 1
-    b.set(0);                          // word 0
-    b.set(65);                         // word 1
-    b.set(127);                        // word 1 -- extra bit only in b
-    EXPECT_TRUE(a.is_subset_of(b));    // all of a's bits are in b
-    EXPECT_FALSE(b.is_subset_of(a));   // b has bit 127 which a lacks
-    EXPECT_TRUE(b.is_superset_of(a));  // b contains all of a
-    EXPECT_FALSE(a.is_superset_of(b)); // a lacks bit 127
+    a.set(0);                           // word 0
+    a.set(65);                          // word 1
+    b.set(0);                           // word 0
+    b.set(65);                          // word 1
+    b.set(127);                         // word 1 -- extra bit only in b
+    CHECK((a.is_subset_of(b)));         // all of a's bits are in b
+    CHECK_FALSE((b.is_subset_of(a)));   // b has bit 127 which a lacks
+    CHECK((b.is_superset_of(a)));       // b contains all of a
+    CHECK_FALSE((a.is_superset_of(b))); // a lacks bit 127
   }
 
   // Constexpr.
@@ -2273,17 +2273,6 @@ void FixedBitset_IsSubset() {
 }
 
 #pragma endregion
-
-MAKE_TEST_LIST(FixedBitset_Empty, FixedBitset_SetClearTest,
-    FixedBitset_Subscript, FixedBitset_Popcount, FixedBitset_Reset,
-    FixedBitset_Equality, FixedBitset_CopyMove, FixedBitset_WordType,
-    FixedBitset_ForcedWord, FixedBitset_Reference, FixedBitset_BitwiseAnd,
-    FixedBitset_BitwiseOr, FixedBitset_BitwiseXor, FixedBitset_Complement,
-    FixedBitset_CountBits, FixedBitset_HasSingleBit, FixedBitset_Iteration,
-    FixedBitset_MultiWord, FixedBitset_PosParam, FixedBitset_Size,
-    FixedBitset_At, FixedBitset_Ordering, FixedBitset_Tag,
-    FixedBitset_Constexpr, FixedBitset_Rotation, FixedBitset_Shift,
-    FixedBitset_ArrayConstruct, FixedBitset_IsSubset, FixedBitset_Intersects);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)

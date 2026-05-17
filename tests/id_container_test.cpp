@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "../corvid/ecs/id_container.h"
-#include "minitest.h"
+#include "catch2_main.h"
 
 using namespace corvid;
 
@@ -34,334 +34,334 @@ using container_t = id_container<int, eid_t>;
 
 #pragma region DefaultConstruct
 
-void IdContainer_DefaultConstruct() {
+TEST_CASE("IdContainer_DefaultConstruct", "[IdContainer]") {
   // Default-constructed container is empty with maximum limit.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.empty());
-    EXPECT_EQ(c.size(), 0U);
-    EXPECT_EQ(c.size_as_enum(), eid_t{0});
-    EXPECT_EQ(c.id_limit(), eid_t::invalid);
+    CHECK((c.empty()));
+    CHECK((c.size()) == (0U));
+    CHECK((c.size_as_enum()) == (eid_t{0}));
+    CHECK((c.id_limit()) == (eid_t::invalid));
   }
 }
 
 #pragma endregion
 #pragma region PushBack
 
-void IdContainer_PushBack() {
+TEST_CASE("IdContainer_PushBack", "[IdContainer]") {
   // push_back appends values accessible by slot index.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(10));
-    EXPECT_TRUE(c.push_back(20));
-    EXPECT_TRUE(c.push_back(30));
-    EXPECT_EQ(c.size(), 3U);
-    EXPECT_FALSE(c.empty());
-    EXPECT_EQ(c[eid_t{0}], 10);
-    EXPECT_EQ(c[eid_t{1}], 20);
-    EXPECT_EQ(c[eid_t{2}], 30);
+    CHECK((c.push_back(10)));
+    CHECK((c.push_back(20)));
+    CHECK((c.push_back(30)));
+    CHECK((c.size()) == (3U));
+    CHECK_FALSE((c.empty()));
+    CHECK((c[eid_t{0}]) == (10));
+    CHECK((c[eid_t{1}]) == (20));
+    CHECK((c[eid_t{2}]) == (30));
   }
 
   // push_back with rvalue.
   if (true) {
     container_t c;
     int val = 42;
-    EXPECT_TRUE(c.push_back(std::move(val)));
-    EXPECT_EQ(c[eid_t{0}], 42);
+    CHECK((c.push_back(std::move(val))));
+    CHECK((c[eid_t{0}]) == (42));
   }
 
   // push_back returns false when the limit is reached.
   if (true) {
     container_t c{eid_t{2}};
-    EXPECT_TRUE(c.push_back(1));
-    EXPECT_TRUE(c.push_back(2));
-    EXPECT_FALSE(c.push_back(3));
-    EXPECT_EQ(c.size(), 2U);
+    CHECK((c.push_back(1)));
+    CHECK((c.push_back(2)));
+    CHECK_FALSE((c.push_back(3)));
+    CHECK((c.size()) == (2U));
   }
 }
 
 #pragma endregion
 #pragma region EmplaceBack
 
-void IdContainer_EmplaceBack() {
+TEST_CASE("IdContainer_EmplaceBack", "[IdContainer]") {
   // emplace_back constructs in-place and returns a pointer to the new element.
   if (true) {
     container_t c;
     auto* ptr = c.emplace_back(99);
-    EXPECT_TRUE(ptr != nullptr);
-    EXPECT_EQ(*ptr, 99);
-    EXPECT_EQ(c[eid_t{0}], 99);
-    EXPECT_EQ(c.size(), 1U);
+    CHECK((ptr != nullptr));
+    CHECK((*ptr) == (99));
+    CHECK((c[eid_t{0}]) == (99));
+    CHECK((c.size()) == (1U));
   }
 
   // emplace_back returns nullptr when the limit is reached.
   if (true) {
     container_t c{eid_t{1}};
     auto* p1 = c.emplace_back(10);
-    EXPECT_TRUE(p1 != nullptr);
+    CHECK((p1 != nullptr));
     auto* p2 = c.emplace_back(20);
-    EXPECT_TRUE(p2 == nullptr);
-    EXPECT_EQ(c.size(), 1U);
+    CHECK((p2 == nullptr));
+    CHECK((c.size()) == (1U));
   }
 }
 
 #pragma endregion
 #pragma region PopBack
 
-void IdContainer_PopBack() {
+TEST_CASE("IdContainer_PopBack", "[IdContainer]") {
   // pop_back removes the last slot.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(1));
-    EXPECT_TRUE(c.push_back(2));
+    CHECK((c.push_back(1)));
+    CHECK((c.push_back(2)));
     c.pop_back();
-    EXPECT_EQ(c.size(), 1U);
-    EXPECT_EQ(c[eid_t{0}], 1);
+    CHECK((c.size()) == (1U));
+    CHECK((c[eid_t{0}]) == (1));
   }
 }
 
 #pragma endregion
 #pragma region FrontBack
 
-void IdContainer_FrontBack() {
+TEST_CASE("IdContainer_FrontBack", "[IdContainer]") {
   // front() and back() return the first and last elements.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(11));
-    EXPECT_TRUE(c.push_back(22));
-    EXPECT_TRUE(c.push_back(33));
-    EXPECT_EQ(c.front(), 11);
-    EXPECT_EQ(c.back(), 33);
+    CHECK((c.push_back(11)));
+    CHECK((c.push_back(22)));
+    CHECK((c.push_back(33)));
+    CHECK((c.front()) == (11));
+    CHECK((c.back()) == (33));
   }
 
   // front() and back() are mutable.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(1));
-    EXPECT_TRUE(c.push_back(2));
+    CHECK((c.push_back(1)));
+    CHECK((c.push_back(2)));
     c.front() = 100;
     c.back() = 200;
-    EXPECT_EQ(c[eid_t{0}], 100);
-    EXPECT_EQ(c[eid_t{1}], 200);
+    CHECK((c[eid_t{0}]) == (100));
+    CHECK((c[eid_t{1}]) == (200));
   }
 }
 
 #pragma endregion
 #pragma region Subscript
 
-void IdContainer_Subscript() {
+TEST_CASE("IdContainer_Subscript", "[IdContainer]") {
   // operator[] returns a mutable reference.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(5));
+    CHECK((c.push_back(5)));
     c[eid_t{0}] = 50;
-    EXPECT_EQ(c[eid_t{0}], 50);
+    CHECK((c[eid_t{0}]) == (50));
   }
 
   // const operator[] returns a const reference.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(7));
+    CHECK((c.push_back(7)));
     const container_t& cc = c;
-    EXPECT_EQ(cc[eid_t{0}], 7);
+    CHECK((cc[eid_t{0}]) == (7));
   }
 }
 
 #pragma endregion
 #pragma region At
 
-void IdContainer_At() {
+TEST_CASE("IdContainer_At", "[IdContainer]") {
   // at() provides bounds-checked access; throws std::out_of_range.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(3));
-    EXPECT_TRUE(c.push_back(6));
-    EXPECT_EQ(c.at(eid_t{0}), 3);
-    EXPECT_EQ(c.at(eid_t{1}), 6);
-    TEST_EXCEPTION(c.at(eid_t{2}), std::out_of_range);
+    CHECK((c.push_back(3)));
+    CHECK((c.push_back(6)));
+    CHECK((c.at(eid_t{0})) == (3));
+    CHECK((c.at(eid_t{1})) == (6));
+    CHECK_THROWS_AS(c.at(eid_t{2}), std::out_of_range);
   }
 
   // const at().
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(9));
+    CHECK((c.push_back(9)));
     const container_t& cc = c;
-    EXPECT_EQ(cc.at(eid_t{0}), 9);
-    TEST_EXCEPTION(cc.at(eid_t{1}), std::out_of_range);
+    CHECK((cc.at(eid_t{0})) == (9));
+    CHECK_THROWS_AS(cc.at(eid_t{1}), std::out_of_range);
   }
 
   // at() returns a mutable reference.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(1));
+    CHECK((c.push_back(1)));
     c.at(eid_t{0}) = 100;
-    EXPECT_EQ(c[eid_t{0}], 100);
+    CHECK((c[eid_t{0}]) == (100));
   }
 }
 
 #pragma endregion
 #pragma region SizeAsEnum
 
-void IdContainer_SizeAsEnum() {
+TEST_CASE("IdContainer_SizeAsEnum", "[IdContainer]") {
   // size_as_enum() returns the size as the id_t type.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.size_as_enum() == eid_t{0});
-    EXPECT_TRUE(c.push_back(1));
-    EXPECT_TRUE(c.size_as_enum() == eid_t{1});
-    EXPECT_TRUE(c.push_back(2));
-    EXPECT_TRUE(c.size_as_enum() == eid_t{2});
+    CHECK((c.size_as_enum() == eid_t{0}));
+    CHECK((c.push_back(1)));
+    CHECK((c.size_as_enum() == eid_t{1}));
+    CHECK((c.push_back(2)));
+    CHECK((c.size_as_enum() == eid_t{2}));
   }
 }
 
 #pragma endregion
 #pragma region Reserve
 
-void IdContainer_Reserve() {
+TEST_CASE("IdContainer_Reserve", "[IdContainer]") {
   // reserve() pre-allocates capacity without changing size.
   if (true) {
     container_t c;
     c.reserve(100);
-    EXPECT_EQ(c.size(), 0U);
-    EXPECT_TRUE(c.empty());
-    EXPECT_GE(c.capacity(), 100U);
+    CHECK((c.size()) == (0U));
+    CHECK((c.empty()));
+    CHECK((c.capacity()) >= (100U));
   }
 }
 
 #pragma endregion
 #pragma region Resize
 
-void IdContainer_Resize() {
+TEST_CASE("IdContainer_Resize", "[IdContainer]") {
   // resize(n) expands or shrinks the slot count.
   if (true) {
     container_t c;
     c.resize(5);
-    EXPECT_EQ(c.size(), 5U);
-    EXPECT_FALSE(c.empty());
+    CHECK((c.size()) == (5U));
+    CHECK_FALSE((c.empty()));
   }
 
   // resize(n, value) fills new slots with value.
   if (true) {
     container_t c;
     c.resize(3, 77);
-    EXPECT_EQ(c.size(), 3U);
-    EXPECT_EQ(c[eid_t{0}], 77);
-    EXPECT_EQ(c[eid_t{1}], 77);
-    EXPECT_EQ(c[eid_t{2}], 77);
+    CHECK((c.size()) == (3U));
+    CHECK((c[eid_t{0}]) == (77));
+    CHECK((c[eid_t{1}]) == (77));
+    CHECK((c[eid_t{2}]) == (77));
   }
 
   // resize to smaller discards tail slots.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(1));
-    EXPECT_TRUE(c.push_back(2));
-    EXPECT_TRUE(c.push_back(3));
+    CHECK((c.push_back(1)));
+    CHECK((c.push_back(2)));
+    CHECK((c.push_back(3)));
     c.resize(2);
-    EXPECT_EQ(c.size(), 2U);
-    EXPECT_EQ(c[eid_t{0}], 1);
-    EXPECT_EQ(c[eid_t{1}], 2);
+    CHECK((c.size()) == (2U));
+    CHECK((c[eid_t{0}]) == (1));
+    CHECK((c[eid_t{1}]) == (2));
   }
 }
 
 #pragma endregion
 #pragma region Clear
 
-void IdContainer_Clear() {
+TEST_CASE("IdContainer_Clear", "[IdContainer]") {
   // clear() empties the container without releasing capacity.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(1));
-    EXPECT_TRUE(c.push_back(2));
+    CHECK((c.push_back(1)));
+    CHECK((c.push_back(2)));
     c.clear();
-    EXPECT_TRUE(c.empty());
-    EXPECT_EQ(c.size(), 0U);
+    CHECK((c.empty()));
+    CHECK((c.size()) == (0U));
   }
 }
 
 #pragma endregion
 #pragma region ShrinkToFit
 
-void IdContainer_ShrinkToFit() {
+TEST_CASE("IdContainer_ShrinkToFit", "[IdContainer]") {
   // shrink_to_fit() reduces capacity to match size.
   if (true) {
     container_t c;
     c.reserve(100);
-    EXPECT_TRUE(c.push_back(42));
+    CHECK((c.push_back(42)));
     c.shrink_to_fit();
-    EXPECT_EQ(c.size(), 1U);
+    CHECK((c.size()) == (1U));
     // Capacity is implementation-defined but should not exceed size by much.
-    EXPECT_GE(c.capacity(), 1U);
+    CHECK((c.capacity()) >= (1U));
   }
 }
 
 #pragma endregion
 #pragma region Limit
 
-void IdContainer_Limit() {
+TEST_CASE("IdContainer_Limit", "[IdContainer]") {
   // id_limit() defaults to the maximum representable value.
   if (true) {
     container_t c;
-    EXPECT_EQ(c.id_limit(), eid_t::invalid);
+    CHECK((c.id_limit()) == (eid_t::invalid));
   }
 
   // Constructor with explicit limit.
   if (true) {
     container_t c{eid_t{100}};
-    EXPECT_TRUE(c.id_limit() == eid_t{100});
+    CHECK((c.id_limit() == eid_t{100}));
   }
 
   // set_id_limit() changes the limit.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.set_id_limit(eid_t{50}));
-    EXPECT_TRUE(c.id_limit() == eid_t{50});
-    EXPECT_TRUE(c.set_id_limit(eid_t{200}));
-    EXPECT_TRUE(c.id_limit() == eid_t{200});
+    CHECK((c.set_id_limit(eid_t{50})));
+    CHECK((c.id_limit() == eid_t{50}));
+    CHECK((c.set_id_limit(eid_t{200})));
+    CHECK((c.id_limit() == eid_t{200}));
   }
 
   // set_id_limit() fails when the new limit would be below current size.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(1));
-    EXPECT_TRUE(c.push_back(2));
-    EXPECT_FALSE(c.set_id_limit(eid_t{1}));
-    EXPECT_EQ(c.id_limit(), eid_t::invalid);
+    CHECK((c.push_back(1)));
+    CHECK((c.push_back(2)));
+    CHECK_FALSE((c.set_id_limit(eid_t{1})));
+    CHECK((c.id_limit()) == (eid_t::invalid));
   }
 
   // Constructor with eager prefill reserves capacity up front.
   if (true) {
     container_t c{eid_t{50}, allocation_policy::eager};
-    EXPECT_TRUE(c.empty());
-    EXPECT_GE(c.capacity(), 50U);
-    EXPECT_EQ(c.id_limit(), eid_t{50});
+    CHECK((c.empty()));
+    CHECK((c.capacity()) >= (50U));
+    CHECK((c.id_limit()) == (eid_t{50}));
   }
 
   // set_id_limit() with eager prefill reserves capacity.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.set_id_limit(eid_t{30}, allocation_policy::eager));
-    EXPECT_GE(c.capacity(), 30U);
-    EXPECT_EQ(c.id_limit(), eid_t{30});
+    CHECK((c.set_id_limit(eid_t{30}, allocation_policy::eager)));
+    CHECK((c.capacity()) >= (30U));
+    CHECK((c.id_limit()) == (eid_t{30}));
   }
 }
 
 #pragma endregion
 #pragma region Iteration
 
-void IdContainer_Iteration() {
+TEST_CASE("IdContainer_Iteration", "[IdContainer]") {
   // Range-for iterates over all slots in index order.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(10));
-    EXPECT_TRUE(c.push_back(20));
-    EXPECT_TRUE(c.push_back(30));
+    CHECK((c.push_back(10)));
+    CHECK((c.push_back(20)));
+    CHECK((c.push_back(30)));
 
     std::vector<int> got;
     for (auto v : c) got.push_back(v);
-    EXPECT_EQ(got.size(), 3U);
-    EXPECT_EQ(got[0], 10);
-    EXPECT_EQ(got[1], 20);
-    EXPECT_EQ(got[2], 30);
+    CHECK((got.size()) == (3U));
+    CHECK((got[0]) == (10));
+    CHECK((got[1]) == (20));
+    CHECK((got[2]) == (30));
   }
 
   // Empty container yields empty range.
@@ -369,71 +369,71 @@ void IdContainer_Iteration() {
     container_t c;
     std::size_t count{};
     for ([[maybe_unused]] auto v : c) ++count;
-    EXPECT_EQ(count, 0U);
+    CHECK((count) == (0U));
   }
 
   // cbegin/cend match begin/end.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(1));
-    EXPECT_EQ(*c.cbegin(), *c.begin());
-    EXPECT_TRUE(c.cend() == c.end());
+    CHECK((c.push_back(1)));
+    CHECK((*c.cbegin()) == (*c.begin()));
+    CHECK((c.cend() == c.end()));
   }
 
   // Mutable iteration allows modifying values.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(1));
-    EXPECT_TRUE(c.push_back(2));
+    CHECK((c.push_back(1)));
+    CHECK((c.push_back(2)));
     for (auto& v : c) v *= 10;
-    EXPECT_EQ(c[eid_t{0}], 10);
-    EXPECT_EQ(c[eid_t{1}], 20);
+    CHECK((c[eid_t{0}]) == (10));
+    CHECK((c[eid_t{1}]) == (20));
   }
 }
 
 #pragma endregion
 #pragma region Underlying
 
-void IdContainer_Underlying() {
+TEST_CASE("IdContainer_Underlying", "[IdContainer]") {
   // underlying() returns the inner std::vector<T>.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(5));
-    EXPECT_TRUE(c.push_back(6));
+    CHECK((c.push_back(5)));
+    CHECK((c.push_back(6)));
     auto& vec = c.underlying();
-    EXPECT_EQ(vec.size(), 2U);
-    EXPECT_EQ(vec[0], 5);
-    EXPECT_EQ(vec[1], 6);
+    CHECK((vec.size()) == (2U));
+    CHECK((vec[0]) == (5));
+    CHECK((vec[1]) == (6));
   }
 
   // Mutations through underlying() are visible via operator[].
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(0));
+    CHECK((c.push_back(0)));
     c.underlying()[0] = 99;
-    EXPECT_EQ(c[eid_t{0}], 99);
+    CHECK((c[eid_t{0}]) == (99));
   }
 }
 
 #pragma endregion
 #pragma region Data
 
-void IdContainer_Data() {
+TEST_CASE("IdContainer_Data", "[IdContainer]") {
   // data() returns a pointer to the first element.
   if (true) {
     container_t c;
-    EXPECT_TRUE(c.push_back(1));
-    EXPECT_TRUE(c.push_back(2));
+    CHECK((c.push_back(1)));
+    CHECK((c.push_back(2)));
     const int* p = c.data();
-    EXPECT_EQ(p[0], 1);
-    EXPECT_EQ(p[1], 2);
+    CHECK((p[0]) == (1));
+    CHECK((p[1]) == (2));
   }
 }
 
 #pragma endregion
 #pragma region Allocator
 
-void IdContainer_Allocator() {
+TEST_CASE("IdContainer_Allocator", "[IdContainer]") {
   // get_allocator() returns the stored allocator.
   if (true) {
     container_t c;
@@ -445,30 +445,30 @@ void IdContainer_Allocator() {
   if (true) {
     std::allocator<int> alloc;
     container_t c{alloc};
-    EXPECT_TRUE(c.empty());
+    CHECK((c.empty()));
   }
 
   // Constructor with limit and explicit allocator.
   if (true) {
     std::allocator<int> alloc;
     container_t c{eid_t{10}, allocation_policy::lazy, alloc};
-    EXPECT_TRUE(c.id_limit() == eid_t{10});
-    EXPECT_TRUE(c.empty());
+    CHECK((c.id_limit() == eid_t{10}));
+    CHECK((c.empty()));
   }
 }
 
 #pragma endregion
 #pragma region NonIntType
 
-void IdContainer_NonIntType() {
+TEST_CASE("IdContainer_NonIntType", "[IdContainer]") {
   // id_container works with non-int value types.
   if (true) {
     id_container<double, eid_t> c;
-    EXPECT_TRUE(c.push_back(1.5));
-    EXPECT_TRUE(c.push_back(2.5));
-    EXPECT_EQ(c.size(), 2U);
-    EXPECT_EQ(c[eid_t{0}], 1.5);
-    EXPECT_EQ(c[eid_t{1}], 2.5);
+    CHECK((c.push_back(1.5)));
+    CHECK((c.push_back(2.5)));
+    CHECK((c.size()) == (2U));
+    CHECK((c[eid_t{0}]) == (1.5));
+    CHECK((c[eid_t{1}]) == (2.5));
   }
 
   if (true) {
@@ -478,21 +478,13 @@ void IdContainer_NonIntType() {
     };
     id_container<point_t, eid_t> c;
     auto* ptr = c.emplace_back(point_t{3, 4});
-    EXPECT_TRUE(ptr != nullptr);
-    EXPECT_EQ(c[eid_t{0}].x, 3);
-    EXPECT_EQ(c[eid_t{0}].y, 4);
+    CHECK((ptr != nullptr));
+    CHECK((c[eid_t{0}].x) == (3));
+    CHECK((c[eid_t{0}].y) == (4));
   }
 }
 
 #pragma endregion
-
-MAKE_TEST_LIST(IdContainer_DefaultConstruct, IdContainer_PushBack,
-    IdContainer_EmplaceBack, IdContainer_PopBack, IdContainer_FrontBack,
-    IdContainer_Subscript, IdContainer_At, IdContainer_SizeAsEnum,
-    IdContainer_Reserve, IdContainer_Resize, IdContainer_Clear,
-    IdContainer_ShrinkToFit, IdContainer_Limit, IdContainer_Iteration,
-    IdContainer_Underlying, IdContainer_Data, IdContainer_Allocator,
-    IdContainer_NonIntType);
 
 // NOLINTEND(readability-function-cognitive-complexity,
 // readability-function-size)
