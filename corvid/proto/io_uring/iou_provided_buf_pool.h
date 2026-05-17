@@ -220,7 +220,10 @@ public:
   // address portion of the buffer, and `msghdr_flags` is set from the `msghdr`
   // flags field.
   //
-  // Destroying or resetting the returned buffer replenishes the slot.
+  // Destroying or resetting the returned buffer replenishes the slot. (In the
+  // case of an error, where no Provided Buffer is available, we return a
+  // synthetic buffer with an error result; this has no slot to replenish but
+  // allows the caller to handle the error without a separate code path.)
   [[nodiscard]] buffer
   borrow(iou_res res, iou_cqe_flags cqe_flags, msghdr* msgh = nullptr) {
     if (!base_ || !buf_ring_) return {};
