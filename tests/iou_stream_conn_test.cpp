@@ -98,7 +98,6 @@ void IouStreamConn_SendRecvString() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic_bool received{false};
     std::string payload;
 
@@ -113,6 +112,8 @@ void IouStreamConn_SendRecvString() {
     };
 
     // Adopt sock1 as receiver.
+    iou_loop_runner runner;
+
     auto recv_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
@@ -141,7 +142,6 @@ void IouStreamConn_MultipleStrings() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     relaxed_atomic_int recv_bytes{0};
     std::string payload;
 
@@ -156,6 +156,8 @@ void IouStreamConn_MultipleStrings() {
       view.consume(sv.size());
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto recv_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
@@ -185,7 +187,6 @@ void IouStreamConn_SendRecvBuffer() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic_bool received{false};
     std::string payload;
 
@@ -198,6 +199,8 @@ void IouStreamConn_SendRecvBuffer() {
       received.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto recv_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
@@ -232,7 +235,6 @@ void IouStreamConn_BufferMoveOut() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic_bool received{false};
     std::string payload;
 
@@ -246,6 +248,8 @@ void IouStreamConn_BufferMoveOut() {
       return true;
       // buf returns to pool on scope exit
     };
+
+    iou_loop_runner runner;
 
     auto recv_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
@@ -274,7 +278,6 @@ void IouStreamConn_GracefulClose() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic_bool closed0{false};
     std::atomic_bool closed1{false};
 
@@ -288,6 +291,8 @@ void IouStreamConn_GracefulClose() {
       closed1.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto conn0 = capture_conn::adopt(*runner.loop(), std::move(sock0),
         net_endpoint::invalid, shot_type::single, {}, {}, &state0)
@@ -318,7 +323,6 @@ void IouStreamConn_HangupClose() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic_bool closed{false};
 
     capture_protocol::state state0;
@@ -326,6 +330,8 @@ void IouStreamConn_HangupClose() {
       closed.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto conn0 = capture_conn::adopt(*runner.loop(), std::move(sock0),
         net_endpoint::invalid, shot_type::single, {}, {}, &state0)
@@ -351,8 +357,9 @@ void IouStreamConn_OnDrain() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic_bool drained{false};
+
+    iou_loop_runner runner;
 
     auto recv_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
@@ -387,7 +394,6 @@ void IouStreamConn_WithState() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic_bool received{false};
 
     struct MyState {
@@ -403,6 +409,8 @@ void IouStreamConn_WithState() {
       received.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto recv_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
@@ -436,7 +444,6 @@ void IouStreamConn_FullBufferPartialConsume() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic_bool done{false};
     std::atomic_size_t total_consumed{0};
     const size_t buf_size = *block_size::kb004;
@@ -450,6 +457,8 @@ void IouStreamConn_FullBufferPartialConsume() {
         done.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto recv_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
@@ -479,7 +488,6 @@ void IouStreamConn_MultishotRecv_Basic() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic_bool received{false};
     std::string payload;
 
@@ -492,6 +500,8 @@ void IouStreamConn_MultishotRecv_Basic() {
       received.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto recv_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
@@ -521,7 +531,6 @@ void IouStreamConn_MultishotRecv_MultipleMessages() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic<int> recv_bytes{0};
 
     constexpr int N = 3;
@@ -535,6 +544,8 @@ void IouStreamConn_MultishotRecv_MultipleMessages() {
       view.consume(view.active_view().size());
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto recv_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
@@ -566,7 +577,6 @@ void IouStreamConn_MultishotRecv_TakeBuffer() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic<int> recv_count{0};
     iou_loop::buffer taken_buf;
 
@@ -581,6 +591,8 @@ void IouStreamConn_MultishotRecv_TakeBuffer() {
       recv_count.fetch_add(1, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto recv_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
@@ -618,7 +630,6 @@ void IouStreamConn_MultishotRecv_StopAndResume() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic<int> recv_count{0};
 
     constexpr std::string_view msg{"stop-resume"};
@@ -644,6 +655,8 @@ void IouStreamConn_MultishotRecv_StopAndResume() {
 
     // Raw pointer is fine: the resume callback (when produced) holds the
     // shared_ptr that keeps the conn alive across the pause.
+    iou_loop_runner runner;
+
     auto recv_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
@@ -685,7 +698,6 @@ void IouStreamConn_MultishotRecv_StopAndResume() {
 void IouStreamConn_MultishotRecv_AcceptedConnsInheritMode() {
   // Accepted connections from a multishot-mode listener also use multishot.
   if (true) {
-    iou_loop_runner runner;
     std::atomic_bool received{false};
     std::string payload;
 
@@ -698,6 +710,8 @@ void IouStreamConn_MultishotRecv_AcceptedConnsInheritMode() {
       received.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto server = capture_conn::listen(*runner.loop(),
         net_endpoint::loopback_v4(0), shot_type::multi, {}, {}, &server_state)
@@ -723,7 +737,6 @@ void IouStreamConn_AccessorsLifecycle() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic_bool closed{false};
 
     capture_protocol::state state0;
@@ -731,6 +744,8 @@ void IouStreamConn_AccessorsLifecycle() {
       closed.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto conn0 = capture_conn::adopt(*runner.loop(), std::move(sock0),
         net_endpoint::invalid, shot_type::single, {}, {}, &state0)
@@ -765,10 +780,17 @@ void IouStreamConn_AccessorsLifecycle() {
 void IouStreamConn_Endpoints() {
   // local_endpoint and remote_endpoint resolve after listen + connect.
   if (true) {
-    iou_loop_runner runner;
     std::atomic_bool connected{false};
 
     capture_protocol::state server_state;
+    capture_protocol::state client_state;
+    client_state.on_drain = [&] {
+      connected.store(true, std::memory_order::release);
+      return true;
+    };
+
+    iou_loop_runner runner;
+
     auto server = capture_conn::listen(*runner.loop(),
         net_endpoint::loopback_v4(0), shot_type::multi, {}, {}, &server_state)
                       .lock();
@@ -777,12 +799,6 @@ void IouStreamConn_Endpoints() {
     const auto& listen_ep = server->local_endpoint();
     EXPECT_FALSE(listen_ep.empty());
     EXPECT_NE(listen_ep.port(), 0);
-
-    capture_protocol::state client_state;
-    client_state.on_drain = [&] {
-      connected.store(true, std::memory_order::release);
-      return true;
-    };
 
     auto client = capture_conn::connect(*runner.loop(), listen_ep,
         shot_type::single, {}, {}, &client_state)
@@ -842,7 +858,6 @@ void IouStreamConn_PeerEofDeliversEmptyView() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic_bool got_data{false};
     std::atomic_bool got_eof{false};
     std::atomic_bool got_close{false};
@@ -866,6 +881,8 @@ void IouStreamConn_PeerEofDeliversEmptyView() {
       got_close.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto recv_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
@@ -906,7 +923,6 @@ void IouStreamConn_ShutdownSend() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic_bool got_data{false};
     std::atomic_bool got_eof{false};
     std::string payload;
@@ -930,6 +946,8 @@ void IouStreamConn_ShutdownSend() {
     // (peer EOF), recv_conn loses its last in-flight self-ref, destructs,
     // and force-RSTs the socket - which would then drive send_conn's
     // post-shutdown_send read to EOF and auto-close it.
+    iou_loop_runner runner;
+
     auto recv_raw =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
@@ -982,7 +1000,6 @@ void IouStreamConn_ShutdownRecv() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic<int> recv_count{0};
 
     capture_protocol::state recv_state;
@@ -991,6 +1008,8 @@ void IouStreamConn_ShutdownRecv() {
       recv_count.fetch_add(1, std::memory_order::acq_rel);
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto recv_raw =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
@@ -1032,7 +1051,6 @@ void IouStreamConn_StopAndResumeReceivingOnConn() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic<int> recv_count{0};
     std::string payload;
 
@@ -1043,6 +1061,8 @@ void IouStreamConn_StopAndResumeReceivingOnConn() {
       recv_count.fetch_add(1, std::memory_order::acq_rel);
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto recv_raw =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
@@ -1098,7 +1118,6 @@ void IouStreamConn_StopAndResumeReceivingOnConn() {
 void IouStreamConn_ConnectFailure() {
   // Async connect to an unbound loopback port fires on_close, not on_drain.
   if (true) {
-    iou_loop_runner runner;
     std::atomic_bool drained{false};
     std::atomic_bool closed{false};
 
@@ -1111,6 +1130,8 @@ void IouStreamConn_ConnectFailure() {
       closed.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
 
     // Bind+listen+drop to grab a port that is now known-unbound.
     net_endpoint unreachable;
@@ -1143,7 +1164,6 @@ void IouStreamConn_ListenAcceptMultipleClients() {
   // Multiple clients connect; the listener's plugin spawns a child plugin
   // per accept via make_child_plugin and each child receives its own data.
   if (true) {
-    iou_loop_runner runner;
     constexpr int N = 3;
     std::atomic<int> total_bytes{0};
     std::mutex m;
@@ -1161,6 +1181,8 @@ void IouStreamConn_ListenAcceptMultipleClients() {
       view.consume(sv.size());
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto server = capture_conn::listen(*runner.loop(),
         net_endpoint::loopback_v4(0), shot_type::multi, {}, {}, &server_state)
@@ -1196,7 +1218,6 @@ void IouStreamConn_CloseFlushesPendingSend() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::string payload;
     std::atomic_bool got_eof{false};
 
@@ -1213,6 +1234,8 @@ void IouStreamConn_CloseFlushesPendingSend() {
       }
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto recv_raw =
         capture_conn::adopt(*runner.loop(), std::move(sock1),
@@ -1245,7 +1268,6 @@ void IouStreamConn_HangupIdempotent() {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic_bool closed{false};
 
     capture_protocol::state state;
@@ -1253,6 +1275,8 @@ void IouStreamConn_HangupIdempotent() {
       closed.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto conn0 = capture_conn::adopt(*runner.loop(), std::move(sock0),
         net_endpoint::invalid, shot_type::single, {}, {}, &state)
@@ -1275,13 +1299,12 @@ void IouStreamConn_HangupIdempotent() {
 #pragma region SelfSharedPtr
 
 void IouStreamConn_SelfSharedPtr() {
-  // self() promotes a raw conn pointer to a shared_ptr. The factories return
-  // a raw pointer; the conn is kept alive by its in-flight callbacks. A
-  // user-held shared_ptr must extend that lifetime past hangup.
+  // self() promotes a conn reference to a shared_ptr. The factories return a
+  // weak_ptr; the conn is kept alive by its in-flight callbacks. A user-held
+  // shared_ptr must extend that lifetime past hangup.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    iou_loop_runner runner;
     std::atomic_bool closed{false};
 
     capture_protocol::state state;
@@ -1289,6 +1312,8 @@ void IouStreamConn_SelfSharedPtr() {
       closed.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
 
     std::shared_ptr<capture_conn> held;
     if (true) {

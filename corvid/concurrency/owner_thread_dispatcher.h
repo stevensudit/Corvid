@@ -271,6 +271,7 @@ protected:
     post_queue_t* pending;
     if (std::scoped_lock lock{post_mutex_}; true) {
       pending = active_queue_;
+      if (!pending) return 0; // shutdown has been called.
       post_queue_t* other =
           (pending == &post_queues_[0]) ? &post_queues_[1] : &post_queues_[0];
       active_queue_ = other;
