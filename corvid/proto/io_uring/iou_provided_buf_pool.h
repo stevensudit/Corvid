@@ -224,8 +224,11 @@ public:
   // case of an error, where no Provided Buffer is available, we return a
   // synthetic buffer with an error result; this has no slot to replenish but
   // allows the caller to handle the error without a separate code path.)
-  [[nodiscard]] buffer
-  borrow(iou_res res, iou_cqe_flags cqe_flags, msghdr* msgh = nullptr) {
+  //
+  // The throw clang-tidy is worried about is impossible.
+  // NOLINTNEXTLINE(bugprone-exception-escape)
+  [[nodiscard]] buffer borrow(iou_res res, iou_cqe_flags cqe_flags,
+      msghdr* msgh = nullptr) noexcept {
     if (!base_ || !buf_ring_) return {};
     if (!bitmask::has(cqe_flags, iou_cqe_flags::buffer))
       return buffer::make_synthetic({}, {}, res);
