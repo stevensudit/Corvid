@@ -29,7 +29,7 @@ using namespace corvid::sequence;
 
 #pragma region Ctors
 
-TEST_CASE("Intervals_Ctors", "[Intervals]") {
+TEST_CASE("Ctors", "[Intervals]") {
   if (true) {
     interval i;
     CHECK((i.empty()));
@@ -64,7 +64,7 @@ TEST_CASE("Intervals_Ctors", "[Intervals]") {
 
 #pragma region Insert
 
-TEST_CASE("IntervalTest_Insert", "[IntervalTest]") {
+TEST_CASE("Insert", "[IntervalTest]") {
   if (true) {
     interval i;
     CHECK((i.empty()));
@@ -144,7 +144,7 @@ TEST_CASE("IntervalTest_Insert", "[IntervalTest]") {
 
 #pragma region ForEach
 
-TEST_CASE("IntervalTest_ForEach", "[IntervalTest]") {
+TEST_CASE("ForEach", "[IntervalTest]") {
   auto i = interval{1, 4};
 
   int64_t c{};
@@ -161,7 +161,7 @@ TEST_CASE("IntervalTest_ForEach", "[IntervalTest]") {
 
 #pragma region Reverse
 
-TEST_CASE("IntervalTest_Reverse", "[IntervalTest]") {
+TEST_CASE("Reverse", "[IntervalTest]") {
   if (true) {
     auto i = interval{1, 4};
 
@@ -221,7 +221,7 @@ TEST_CASE("IntervalTest_Reverse", "[IntervalTest]") {
 
 #pragma region MinMax
 
-TEST_CASE("IntervalTest_MinMax", "[IntervalTest]") {
+TEST_CASE("MinMax", "[IntervalTest]") {
   auto i = interval{1, 4};
 
   CHECK((i.min()) == (1));
@@ -237,7 +237,7 @@ TEST_CASE("IntervalTest_MinMax", "[IntervalTest]") {
 
 #pragma region CompareAndSwap
 
-TEST_CASE("IntervalTest_CompareAndSwap", "[IntervalTest]") {
+TEST_CASE("CompareAndSwap", "[IntervalTest]") {
   auto i = interval{1, 4};
   auto j = interval{2, 3};
   CHECK((i == i));
@@ -254,7 +254,7 @@ TEST_CASE("IntervalTest_CompareAndSwap", "[IntervalTest]") {
 
 #pragma region Append
 
-TEST_CASE("IntervalTest_Append", "[IntervalTest]") {
+TEST_CASE("Append", "[IntervalTest]") {
   if (true) {
     auto i = interval{1, 4};
     using I = decltype(i);

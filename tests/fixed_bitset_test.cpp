@@ -32,7 +32,7 @@ enum class slot_t : size_t {};
 
 #pragma region Empty
 
-TEST_CASE("FixedBitset_Empty", "[FixedBitset]") {
+TEST_CASE("Empty", "[FixedBitset]") {
   // Default construction: all bits clear.
   if (true) {
     fixed_bitset<64> b;
@@ -54,7 +54,7 @@ TEST_CASE("FixedBitset_Empty", "[FixedBitset]") {
 #pragma endregion
 #pragma region SetClearTest
 
-TEST_CASE("FixedBitset_SetClearTest", "[FixedBitset]") {
+TEST_CASE("SetClearTest", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> b;
     b.set(0);
@@ -135,7 +135,7 @@ TEST_CASE("FixedBitset_SetClearTest", "[FixedBitset]") {
 // operator[] has two overloads: const (returns bool) and non-const
 // (returns a reference proxy for mutable access).
 
-TEST_CASE("FixedBitset_Subscript", "[FixedBitset]") {
+TEST_CASE("Subscript", "[FixedBitset]") {
   // Const overload: read-only, returns bool directly.
   if (true) {
     fixed_bitset<64> b;
@@ -176,7 +176,7 @@ TEST_CASE("FixedBitset_Subscript", "[FixedBitset]") {
 #pragma endregion
 #pragma region Popcount
 
-TEST_CASE("FixedBitset_Popcount", "[FixedBitset]") {
+TEST_CASE("Popcount", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> b;
     b.set(3);
@@ -202,7 +202,7 @@ TEST_CASE("FixedBitset_Popcount", "[FixedBitset]") {
 #pragma endregion
 #pragma region Reset
 
-TEST_CASE("FixedBitset_Reset", "[FixedBitset]") {
+TEST_CASE("Reset", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> b;
     b.set(0);
@@ -218,7 +218,7 @@ TEST_CASE("FixedBitset_Reset", "[FixedBitset]") {
 #pragma endregion
 #pragma region Equality
 
-TEST_CASE("FixedBitset_Equality", "[FixedBitset]") {
+TEST_CASE("Equality", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> a, b;
     CHECK((a) == (b));
@@ -238,7 +238,7 @@ TEST_CASE("FixedBitset_Equality", "[FixedBitset]") {
 #pragma endregion
 #pragma region CopyMove
 
-TEST_CASE("FixedBitset_CopyMove", "[FixedBitset]") {
+TEST_CASE("CopyMove", "[FixedBitset]") {
   // Copy construction produces an independent equal copy.
   if (true) {
     fixed_bitset<64> a;
@@ -294,7 +294,7 @@ TEST_CASE("FixedBitset_CopyMove", "[FixedBitset]") {
 // word_t is automatically selected as the largest power-of-2 unsigned type
 // whose width evenly divides N_BITS. bits_per_word_v reflects the word size.
 
-TEST_CASE("FixedBitset_WordType", "[FixedBitset]") {
+TEST_CASE("WordType", "[FixedBitset]") {
   // Type selection: compile-time verification.
   if (true) {
     static_assert(std::is_same_v<fixed_bitset<64>::word_t, uint64_t>);
@@ -445,7 +445,7 @@ TEST_CASE("FixedBitset_WordType", "[FixedBitset]") {
 // FORCED_WORD overrides the auto-selected word type. When the word is larger
 // than N_BITS, the top (N_BITS % bits_per_word_v) bits are padding kept zero.
 
-TEST_CASE("FixedBitset_ForcedWord", "[FixedBitset]") {
+TEST_CASE("ForcedWord", "[FixedBitset]") {
   // Compile-time: type and sizing.
   if (true) {
     // Force smaller words for a large bitset.
@@ -615,7 +615,7 @@ TEST_CASE("FixedBitset_ForcedWord", "[FixedBitset]") {
 // std::bitset<N>::reference. The proxy is a zero-overhead abstraction that
 // the compiler eliminates at -O1 and above.
 
-TEST_CASE("FixedBitset_Reference", "[FixedBitset]") {
+TEST_CASE("Reference", "[FixedBitset]") {
   // operator bool() reads the current bit value through the proxy.
   if (true) {
     fixed_bitset<64> b;
@@ -710,7 +710,7 @@ TEST_CASE("FixedBitset_Reference", "[FixedBitset]") {
 #pragma endregion
 #pragma region BitwiseAnd
 
-TEST_CASE("FixedBitset_BitwiseAnd", "[FixedBitset]") {
+TEST_CASE("BitwiseAnd", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> a, b;
     a.set(1);
@@ -762,7 +762,7 @@ TEST_CASE("FixedBitset_BitwiseAnd", "[FixedBitset]") {
 #pragma endregion
 #pragma region BitwiseOr
 
-TEST_CASE("FixedBitset_BitwiseOr", "[FixedBitset]") {
+TEST_CASE("BitwiseOr", "[FixedBitset]") {
   if (true) {
     fixed_bitset<64> a, b;
     a.set(1);
@@ -800,7 +800,7 @@ TEST_CASE("FixedBitset_BitwiseOr", "[FixedBitset]") {
 #pragma endregion
 #pragma region BitwiseXor
 
-TEST_CASE("FixedBitset_BitwiseXor", "[FixedBitset]") {
+TEST_CASE("BitwiseXor", "[FixedBitset]") {
   // Basic XOR: shared bits cancel, unique bits survive.
   if (true) {
     fixed_bitset<64> a, b;
@@ -865,7 +865,7 @@ TEST_CASE("FixedBitset_BitwiseXor", "[FixedBitset]") {
 #pragma endregion
 #pragma region Complement
 
-TEST_CASE("FixedBitset_Complement", "[FixedBitset]") {
+TEST_CASE("Complement", "[FixedBitset]") {
   // ~empty is all-ones.
   if (true) {
     fixed_bitset<64> empty;
@@ -920,7 +920,7 @@ TEST_CASE("FixedBitset_Complement", "[FixedBitset]") {
 #pragma endregion
 #pragma region CountBits
 
-TEST_CASE("FixedBitset_CountBits", "[FixedBitset]") {
+TEST_CASE("CountBits", "[FixedBitset]") {
   // --- countr_zero: index of the lowest set bit, or bit_count_v if none ---
 
   // Empty -> bit_count_v.
@@ -1106,7 +1106,7 @@ TEST_CASE("FixedBitset_CountBits", "[FixedBitset]") {
 #pragma endregion
 #pragma region HasSingleBit
 
-TEST_CASE("FixedBitset_HasSingleBit", "[FixedBitset]") {
+TEST_CASE("HasSingleBit", "[FixedBitset]") {
   // Empty -> false.
   if (true) {
     fixed_bitset<64> b;
@@ -1156,7 +1156,7 @@ TEST_CASE("FixedBitset_HasSingleBit", "[FixedBitset]") {
 #pragma endregion
 #pragma region Iteration
 
-TEST_CASE("FixedBitset_Iteration", "[FixedBitset]") {
+TEST_CASE("Iteration", "[FixedBitset]") {
   // Single bit.
   if (true) {
     fixed_bitset<64> b;
@@ -1217,7 +1217,7 @@ TEST_CASE("FixedBitset_Iteration", "[FixedBitset]") {
 #pragma endregion
 #pragma region MultiWord
 
-TEST_CASE("FixedBitset_MultiWord", "[FixedBitset]") {
+TEST_CASE("MultiWord", "[FixedBitset]") {
   // 128-bit (2-word) bitset: bits span both words.
   if (true) {
     fixed_bitset<128> b;
@@ -1304,7 +1304,7 @@ TEST_CASE("FixedBitset_MultiWord", "[FixedBitset]") {
 #pragma endregion
 #pragma region PosParam
 
-TEST_CASE("FixedBitset_PosParam", "[FixedBitset]") {
+TEST_CASE("PosParam", "[FixedBitset]") {
   using bs_t = fixed_bitset<64, slot_t>;
 
   // pos_t is the enum type.
@@ -1415,7 +1415,7 @@ TEST_CASE("FixedBitset_PosParam", "[FixedBitset]") {
 
 // size() is a constexpr instance method reflecting bit_count_v.
 
-TEST_CASE("FixedBitset_Size", "[FixedBitset]") {
+TEST_CASE("Size", "[FixedBitset]") {
   // Callable on instances.
   if (true) {
     CHECK((fixed_bitset<64>{}.size()) == (64U));
@@ -1447,7 +1447,7 @@ TEST_CASE("FixedBitset_Size", "[FixedBitset]") {
 // at() and the other named access functions throw std::out_of_range for
 // out-of-range positions. operator[] uses assert-only (no throw).
 
-TEST_CASE("FixedBitset_At", "[FixedBitset]") {
+TEST_CASE("At", "[FixedBitset]") {
   // In-range: agrees with test() at every position.
   if (true) {
     fixed_bitset<64> b;
@@ -1516,7 +1516,7 @@ TEST_CASE("FixedBitset_At", "[FixedBitset]") {
 // Word 0 (bits 0-63) is compared before word 1 (bits 64-127), so lower-index
 // words dominate even though they hold lower-index bits.
 
-TEST_CASE("FixedBitset_Ordering", "[FixedBitset]") {
+TEST_CASE("Ordering", "[FixedBitset]") {
   // Reflexive: equal bitsets compare equal.
   if (true) {
     fixed_bitset<64> a, b;
@@ -1583,7 +1583,7 @@ TEST_CASE("FixedBitset_Ordering", "[FixedBitset]") {
 
 // TAG prevents structurally-identical bitsets from being mixed.
 
-TEST_CASE("FixedBitset_Tag", "[FixedBitset]") {
+TEST_CASE("Tag", "[FixedBitset]") {
   struct tag_a {};
   struct tag_b {};
   using bs_a = fixed_bitset<64, size_t, tag_a>;
@@ -1627,7 +1627,7 @@ TEST_CASE("FixedBitset_Tag", "[FixedBitset]") {
 
 // constexpr: bitset operations are usable in constant expressions.
 
-TEST_CASE("FixedBitset_Constexpr", "[FixedBitset]") {
+TEST_CASE("Constexpr", "[FixedBitset]") {
   // Build a bitset at compile time.
   constexpr auto b = []() {
     fixed_bitset<64> r;
@@ -1736,7 +1736,7 @@ TEST_CASE("FixedBitset_Constexpr", "[FixedBitset]") {
 #pragma endregion
 #pragma region Rotation
 
-TEST_CASE("FixedBitset_Rotation", "[FixedBitset]") {
+TEST_CASE("Rotation", "[FixedBitset]") {
   // rotl by 1: bit 63 wraps to bit 0.
   if (true) {
     fixed_bitset<64> b;
@@ -1862,7 +1862,7 @@ TEST_CASE("FixedBitset_Rotation", "[FixedBitset]") {
 #pragma endregion
 #pragma region Shift
 
-TEST_CASE("FixedBitset_Shift", "[FixedBitset]") {
+TEST_CASE("Shift", "[FixedBitset]") {
   // <<= by 0: no-op.
   if (true) {
     fixed_bitset<64> b;
@@ -2028,7 +2028,7 @@ TEST_CASE("FixedBitset_Shift", "[FixedBitset]") {
 #pragma endregion
 #pragma region ArrayConstruct
 
-TEST_CASE("FixedBitset_ArrayConstruct", "[FixedBitset]") {
+TEST_CASE("ArrayConstruct", "[FixedBitset]") {
   // Single byte with binary literal: each set bit is readable.
   if (true) {
     fixed_bitset<8> b{std::array<uint8_t, 1>{0b10101010}};
@@ -2098,7 +2098,7 @@ TEST_CASE("FixedBitset_ArrayConstruct", "[FixedBitset]") {
 #pragma endregion
 #pragma region Intersects
 
-TEST_CASE("FixedBitset_Intersects", "[FixedBitset]") {
+TEST_CASE("Intersects", "[FixedBitset]") {
   // intersects: at least one bit set in both.
   if (true) {
     fixed_bitset<8> a, b;
@@ -2190,7 +2190,7 @@ TEST_CASE("FixedBitset_Intersects", "[FixedBitset]") {
 #pragma endregion
 #pragma region IsSubset
 
-TEST_CASE("FixedBitset_IsSubset", "[FixedBitset]") {
+TEST_CASE("IsSubset", "[FixedBitset]") {
   // is_subset_of: every set bit in *this is also set in other.
   if (true) {
     fixed_bitset<8> a, b;

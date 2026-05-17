@@ -52,7 +52,7 @@ struct iov_msghdr_test {
 
 #pragma region Construction
 
-TEST_CASE("Ipv4Addr_Construction", "[Ipv4Addr]") {
+TEST_CASE("Construction", "[Ipv4Addr]") {
   // Default construction yields the "any" address, which is also empty.
   if (true) {
     ipv4_addr a;
@@ -115,7 +115,7 @@ TEST_CASE("Ipv4Addr_Construction", "[Ipv4Addr]") {
 #pragma endregion
 #pragma region Parse
 
-TEST_CASE("Ipv4Addr_Parse", "[Ipv4Addr]") {
+TEST_CASE("Parse", "[Ipv4Addr]") {
   // Valid addresses.
   if (true) {
     auto a = ipv4_addr::parse("0.0.0.0");
@@ -181,7 +181,7 @@ TEST_CASE("Ipv4Addr_Parse", "[Ipv4Addr]") {
 #pragma endregion
 #pragma region Classification
 
-TEST_CASE("Ipv4Addr_Classification", "[Ipv4Addr]") {
+TEST_CASE("Classification", "[Ipv4Addr]") {
   // is_loopback(): entire 127.0.0.0/8 range.
   if (true) {
     CHECK((ipv4_addr(127, 0, 0, 1).is_loopback()));
@@ -235,7 +235,7 @@ TEST_CASE("Ipv4Addr_Classification", "[Ipv4Addr]") {
 #pragma endregion
 #pragma region Comparison
 
-TEST_CASE("Ipv4Addr_Comparison", "[Ipv4Addr]") {
+TEST_CASE("Comparison", "[Ipv4Addr]") {
   ipv4_addr a{10, 0, 0, 1};
   ipv4_addr b{10, 0, 0, 2};
   ipv4_addr c{10, 0, 0, 1};
@@ -252,7 +252,7 @@ TEST_CASE("Ipv4Addr_Comparison", "[Ipv4Addr]") {
 #pragma endregion
 #pragma region Formatting
 
-TEST_CASE("Ipv4Addr_Formatting", "[Ipv4Addr]") {
+TEST_CASE("Formatting", "[Ipv4Addr]") {
   CHECK((ipv4_addr::any.to_string()) == ("0.0.0.0"));
   CHECK((ipv4_addr::loopback.to_string()) == ("127.0.0.1"));
   CHECK((ipv4_addr::broadcast.to_string()) == ("255.255.255.255"));
@@ -267,7 +267,7 @@ TEST_CASE("Ipv4Addr_Formatting", "[Ipv4Addr]") {
 #pragma endregion
 #pragma region PosixInterop
 
-TEST_CASE("Ipv4Addr_PosixInterop", "[Ipv4Addr]") {
+TEST_CASE("PosixInterop", "[Ipv4Addr]") {
   ipv4_addr a{192, 168, 1, 1};
 
   // Convert to `in_addr` and back.
@@ -283,7 +283,7 @@ TEST_CASE("Ipv4Addr_PosixInterop", "[Ipv4Addr]") {
 #pragma endregion
 #pragma region Construction
 
-TEST_CASE("Ipv6Addr_Construction", "[Ipv6Addr]") {
+TEST_CASE("Construction", "[Ipv6Addr]") {
   if (true) {
     ipv6_addr a;
     CHECK((a.is_any()));
@@ -319,7 +319,7 @@ TEST_CASE("Ipv6Addr_Construction", "[Ipv6Addr]") {
 #pragma endregion
 #pragma region Parse
 
-TEST_CASE("Ipv6Addr_Parse", "[Ipv6Addr]") {
+TEST_CASE("Parse", "[Ipv6Addr]") {
   if (true) {
     auto a = ipv6_addr::parse("::");
     REQUIRE((a.has_value()));
@@ -378,7 +378,7 @@ TEST_CASE("Ipv6Addr_Parse", "[Ipv6Addr]") {
 #pragma endregion
 #pragma region Classification
 
-TEST_CASE("Ipv6Addr_Classification", "[Ipv6Addr]") {
+TEST_CASE("Classification", "[Ipv6Addr]") {
   if (true) {
     CHECK((ipv6_addr::loopback.is_loopback()));
     CHECK_FALSE((ipv6_addr::any.is_loopback()));
@@ -405,7 +405,7 @@ TEST_CASE("Ipv6Addr_Classification", "[Ipv6Addr]") {
 #pragma endregion
 #pragma region Comparison
 
-TEST_CASE("Ipv6Addr_Comparison", "[Ipv6Addr]") {
+TEST_CASE("Comparison", "[Ipv6Addr]") {
   ipv6_addr a{0x2001, 0xdb8, 0, 0, 0, 0, 0, 1};
   ipv6_addr b{0x2001, 0xdb8, 0, 0, 0, 0, 0, 2};
   ipv6_addr c{0x2001, 0xdb8, 0, 0, 0, 0, 0, 1};
@@ -420,7 +420,7 @@ TEST_CASE("Ipv6Addr_Comparison", "[Ipv6Addr]") {
 #pragma endregion
 #pragma region Formatting
 
-TEST_CASE("Ipv6Addr_Formatting", "[Ipv6Addr]") {
+TEST_CASE("Formatting", "[Ipv6Addr]") {
   CHECK((ipv6_addr::any.to_string()) == ("::"));
   CHECK((ipv6_addr::loopback.to_string()) == ("::1"));
   CHECK((ipv6_addr(0x2001, 0xdb8, 0, 0, 1, 0, 0, 1).to_string()) ==
@@ -436,7 +436,7 @@ TEST_CASE("Ipv6Addr_Formatting", "[Ipv6Addr]") {
 #pragma endregion
 #pragma region PosixInterop
 
-TEST_CASE("Ipv6Addr_PosixInterop", "[Ipv6Addr]") {
+TEST_CASE("PosixInterop", "[Ipv6Addr]") {
   ipv6_addr a{0x2001, 0xdb8, 0, 0, 0, 0, 0, 1};
 
   in6_addr raw = a.to_in6_addr();
@@ -450,7 +450,7 @@ TEST_CASE("Ipv6Addr_PosixInterop", "[Ipv6Addr]") {
 #pragma endregion
 #pragma region Construction
 
-TEST_CASE("NetEndpoint_Construction", "[NetEndpoint]") {
+TEST_CASE("Construction", "[NetEndpoint]") {
   if (true) {
     net_endpoint ep;
     CHECK((ep.empty()));
@@ -529,7 +529,7 @@ TEST_CASE("NetEndpoint_Construction", "[NetEndpoint]") {
 #pragma endregion
 #pragma region Parse
 
-TEST_CASE("NetEndpoint_Parse", "[NetEndpoint]") {
+TEST_CASE("Parse", "[NetEndpoint]") {
   if (true) {
     net_endpoint a{"192.168.1.10:8080"};
     CHECK((!a.empty()));
@@ -606,7 +606,7 @@ TEST_CASE("NetEndpoint_Parse", "[NetEndpoint]") {
 #pragma endregion
 #pragma region Comparison
 
-TEST_CASE("NetEndpoint_Comparison", "[NetEndpoint]") {
+TEST_CASE("Comparison", "[NetEndpoint]") {
   net_endpoint a{ipv4_addr(10, 0, 0, 1), 80};
   net_endpoint b{ipv4_addr(10, 0, 0, 1), 81};
   net_endpoint c{ipv4_addr(10, 0, 0, 1), 80};
@@ -642,7 +642,7 @@ TEST_CASE("NetEndpoint_Comparison", "[NetEndpoint]") {
 #pragma endregion
 #pragma region Formatting
 
-TEST_CASE("NetEndpoint_Formatting", "[NetEndpoint]") {
+TEST_CASE("Formatting", "[NetEndpoint]") {
   auto v4 = net_endpoint{ipv4_addr(127, 0, 0, 1), 80};
   auto v6 = net_endpoint{ipv6_addr::loopback, 443};
   CHECK((v4.to_string()) == ("127.0.0.1:80"));
@@ -696,7 +696,7 @@ TEST_CASE("NetEndpoint_Formatting", "[NetEndpoint]") {
 #pragma endregion
 #pragma region PosixInterop
 
-TEST_CASE("NetEndpoint_PosixInterop", "[NetEndpoint]") {
+TEST_CASE("PosixInterop", "[NetEndpoint]") {
   if (true) {
     net_endpoint ep{ipv4_addr(192, 168, 1, 2), 1234};
     auto raw = ep.as_sockaddr_in();
@@ -780,7 +780,7 @@ TEST_CASE("NetEndpoint_PosixInterop", "[NetEndpoint]") {
 #pragma endregion
 #pragma region NumericIPv4
 
-TEST_CASE("DnsResolve_NumericIPv4", "[DnsResolve]") {
+TEST_CASE("NumericIPv4", "[DnsResolve]") {
   // Numeric IPv4 addresses are resolved without a DNS lookup.
   auto result = dns_resolver::find_all("127.0.0.1", 80);
   CHECK_FALSE((result.empty()));
@@ -794,7 +794,7 @@ TEST_CASE("DnsResolve_NumericIPv4", "[DnsResolve]") {
 #pragma endregion
 #pragma region NumericIPv6
 
-TEST_CASE("DnsResolve_NumericIPv6", "[DnsResolve]") {
+TEST_CASE("NumericIPv6", "[DnsResolve]") {
   // Numeric IPv6 addresses are resolved without a DNS lookup.
   auto result = dns_resolver::find_all("::1", 443, AF_INET6);
   CHECK_FALSE((result.empty()));
@@ -808,7 +808,7 @@ TEST_CASE("DnsResolve_NumericIPv6", "[DnsResolve]") {
 #pragma endregion
 #pragma region Localhost
 
-TEST_CASE("DnsResolve_Localhost", "[DnsResolve]") {
+TEST_CASE("Localhost", "[DnsResolve]") {
   // "localhost" is defined in /etc/hosts on all major POSIX systems.
   auto result = dns_resolver::find_all("localhost", 8080);
   CHECK_FALSE((result.empty()));
@@ -827,7 +827,7 @@ TEST_CASE("DnsResolve_Localhost", "[DnsResolve]") {
 #pragma endregion
 #pragma region FamilyFilter
 
-TEST_CASE("DnsResolve_FamilyFilter", "[DnsResolve]") {
+TEST_CASE("FamilyFilter", "[DnsResolve]") {
   // With `AF_INET`, every result must be an IPv4 endpoint.
   auto v4 = dns_resolver::find_all("localhost", 80, AF_INET);
   for (const auto& ep : v4) CHECK((ep.is_v4()));
@@ -840,7 +840,7 @@ TEST_CASE("DnsResolve_FamilyFilter", "[DnsResolve]") {
 #pragma endregion
 #pragma region InvalidHost
 
-TEST_CASE("DnsResolve_InvalidHost", "[DnsResolve]") {
+TEST_CASE("InvalidHost", "[DnsResolve]") {
   // The `.invalid` TLD (RFC 2606) must not resolve.
   auto result = dns_resolver::find_all("no-such-host.invalid", 80);
   CHECK((result.empty()));
@@ -849,7 +849,7 @@ TEST_CASE("DnsResolve_InvalidHost", "[DnsResolve]") {
 #pragma endregion
 #pragma region Success
 
-TEST_CASE("DnsResolveOne_Success", "[DnsResolveOne]") {
+TEST_CASE("Success", "[DnsResolveOne]") {
   // Numeric loopback resolves to exactly one endpoint with the right port.
   const auto ep = dns_resolver::find_one("127.0.0.1", 80);
   CHECK((ep.is_v4()));
@@ -859,7 +859,7 @@ TEST_CASE("DnsResolveOne_Success", "[DnsResolveOne]") {
 #pragma endregion
 #pragma region Failure
 
-TEST_CASE("DnsResolveOne_Failure", "[DnsResolveOne]") {
+TEST_CASE("Failure", "[DnsResolveOne]") {
   // An unresolvable host returns a default-constructed (invalid) endpoint.
   const auto ep = dns_resolver::find_one("no-such-host.invalid", 80);
   CHECK((ep) == (net_endpoint{}));
@@ -889,7 +889,7 @@ struct counting_conn: io_conn {
 };
 #pragma region Lifecycle
 
-TEST_CASE("IoLoop_Lifecycle", "[IoLoop]") {
+TEST_CASE("Lifecycle", "[IoLoop]") {
   // Construction succeeds; an empty poll returns 0 events.
   auto loop = epoll_loop::make();
   CHECK((loop->run_once(0)) == (0));
@@ -898,7 +898,7 @@ TEST_CASE("IoLoop_Lifecycle", "[IoLoop]") {
 #pragma endregion
 #pragma region Post
 
-TEST_CASE("IoLoop_Post", "[IoLoop]") {
+TEST_CASE("Post", "[IoLoop]") {
   auto loop = epoll_loop::make();
 
   int fired = 0;
@@ -916,7 +916,7 @@ TEST_CASE("IoLoop_Post", "[IoLoop]") {
 #pragma endregion
 #pragma region PreStartWorkIsQueued
 
-TEST_CASE("IoLoop_PreStartWorkIsQueued", "[IoLoop]") {
+TEST_CASE("PreStartWorkIsQueued", "[IoLoop]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -953,7 +953,7 @@ TEST_CASE("IoLoop_PreStartWorkIsQueued", "[IoLoop]") {
 // Synchronize with the detached worker via `finished_signal`, which the
 // worker notifies after `~epoll_loop` has run. This gives TSAN a real
 // happens-before edge with the worker's exit (no sleep).
-TEST_CASE("IoLoop_SelfDestroyOnLoopThread", "[IoLoop]") {
+TEST_CASE("SelfDestroyOnLoopThread", "[IoLoop]") {
   auto runner = std::make_unique<epoll_loop_runner>();
   auto* loop = runner->loop();
   REQUIRE((loop != nullptr));
@@ -974,7 +974,7 @@ TEST_CASE("IoLoop_SelfDestroyOnLoopThread", "[IoLoop]") {
 // double-unregister both return false.
 #pragma region RegisterUnregister
 
-TEST_CASE("IoLoop_RegisterUnregister", "[IoLoop]") {
+TEST_CASE("RegisterUnregister", "[IoLoop]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1007,7 +1007,7 @@ TEST_CASE("IoLoop_RegisterUnregister", "[IoLoop]") {
 // send buffer has space, which it does immediately on a fresh socketpair.
 #pragma region SetWritable
 
-TEST_CASE("IoLoop_SetWritable", "[IoLoop]") {
+TEST_CASE("SetWritable", "[IoLoop]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1032,7 +1032,7 @@ TEST_CASE("IoLoop_SetWritable", "[IoLoop]") {
 #pragma endregion
 #pragma region SetReadable
 
-TEST_CASE("IoLoop_SetReadable", "[IoLoop]") {
+TEST_CASE("SetReadable", "[IoLoop]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1068,7 +1068,7 @@ TEST_CASE("IoLoop_SetReadable", "[IoLoop]") {
 // `dispatch_event`).
 #pragma region ErrorSkipsWritable
 
-TEST_CASE("IoLoop_ErrorSkipsWritable", "[IoLoop]") {
+TEST_CASE("ErrorSkipsWritable", "[IoLoop]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1090,7 +1090,7 @@ TEST_CASE("IoLoop_ErrorSkipsWritable", "[IoLoop]") {
 // `on_readable` and confirming it is called when the peer closes.
 #pragma region DefaultOnError
 
-TEST_CASE("IoLoop_DefaultOnError", "[IoLoop]") {
+TEST_CASE("DefaultOnError", "[IoLoop]") {
   struct readable_only_conn: io_conn {
     using io_conn::io_conn;
     int readable = 0;
@@ -1131,7 +1131,7 @@ setup_rb(recv_buffer& rb, size_t cap, size_t b, size_t e, char ch = 'X') {
 // When there are no active bytes, compact always resets begin and end to 0.
 #pragma region Compact_NoActiveBytes
 
-TEST_CASE("RecvBuffer_Compact_NoActiveBytes", "[RecvBuffer]") {
+TEST_CASE("Compact_NoActiveBytes", "[RecvBuffer]") {
   if (true) {
     // begin == end == 0: already at front, cheap reset is a no-op.
     recv_buffer rb;
@@ -1158,7 +1158,7 @@ TEST_CASE("RecvBuffer_Compact_NoActiveBytes", "[RecvBuffer]") {
 // must memmove to reclaim space before the active region.
 #pragma region Compact_MustCompact
 
-TEST_CASE("RecvBuffer_Compact_MustCompact", "[RecvBuffer]") {
+TEST_CASE("Compact_MustCompact", "[RecvBuffer]") {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
@@ -1177,7 +1177,7 @@ TEST_CASE("RecvBuffer_Compact_MustCompact", "[RecvBuffer]") {
 // proactively moves bytes to avoid a short recv on the next call.
 #pragma region Compact_WorthIt
 
-TEST_CASE("RecvBuffer_Compact_WorthIt", "[RecvBuffer]") {
+TEST_CASE("Compact_WorthIt", "[RecvBuffer]") {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
@@ -1196,7 +1196,7 @@ TEST_CASE("RecvBuffer_Compact_WorthIt", "[RecvBuffer]") {
 // unchanged to avoid a pointless memmove.
 #pragma region Compact_SkipsUnnecessaryMove
 
-TEST_CASE("RecvBuffer_Compact_SkipsUnnecessaryMove", "[RecvBuffer]") {
+TEST_CASE("Compact_SkipsUnnecessaryMove", "[RecvBuffer]") {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
@@ -1214,7 +1214,7 @@ TEST_CASE("RecvBuffer_Compact_SkipsUnnecessaryMove", "[RecvBuffer]") {
 // are copied to the front of the new buffer.
 #pragma region Compact_GrowOnRequest
 
-TEST_CASE("RecvBuffer_Compact_GrowOnRequest", "[RecvBuffer]") {
+TEST_CASE("Compact_GrowOnRequest", "[RecvBuffer]") {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
@@ -1232,7 +1232,7 @@ TEST_CASE("RecvBuffer_Compact_GrowOnRequest", "[RecvBuffer]") {
 // and syncs min_capacity to the actual post-resize capacity.
 #pragma region Compact_GrowToMinCapacity
 
-TEST_CASE("RecvBuffer_Compact_GrowToMinCapacity", "[RecvBuffer]") {
+TEST_CASE("Compact_GrowToMinCapacity", "[RecvBuffer]") {
   recv_buffer rb;
   setup_rb(rb, 32, 0, 10, 'D');
   const size_t configured = rb.buffer.capacity() * 2;
@@ -1252,7 +1252,7 @@ TEST_CASE("RecvBuffer_Compact_GrowToMinCapacity", "[RecvBuffer]") {
 // fits in min_capacity, compact shrinks back to min_capacity.
 #pragma region Compact_Shrink
 
-TEST_CASE("RecvBuffer_Compact_Shrink", "[RecvBuffer]") {
+TEST_CASE("Compact_Shrink", "[RecvBuffer]") {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t bloated_cap = rb.buffer.capacity();
@@ -1276,7 +1276,7 @@ TEST_CASE("RecvBuffer_Compact_Shrink", "[RecvBuffer]") {
 // buffer would not fit the active data.
 #pragma region Compact_ShrinkSkippedIfActiveWontFit
 
-TEST_CASE("RecvBuffer_Compact_ShrinkSkippedIfActiveWontFit", "[RecvBuffer]") {
+TEST_CASE("Compact_ShrinkSkippedIfActiveWontFit", "[RecvBuffer]") {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
@@ -1295,7 +1295,7 @@ TEST_CASE("RecvBuffer_Compact_ShrinkSkippedIfActiveWontFit", "[RecvBuffer]") {
 // When target > 0 but does not exceed current capacity, no resize occurs.
 #pragma region Compact_NoResizeWhenTargetFits
 
-TEST_CASE("RecvBuffer_Compact_NoResizeWhenTargetFits", "[RecvBuffer]") {
+TEST_CASE("Compact_NoResizeWhenTargetFits", "[RecvBuffer]") {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
@@ -1310,7 +1310,7 @@ TEST_CASE("RecvBuffer_Compact_NoResizeWhenTargetFits", "[RecvBuffer]") {
 // equivalent to a single `consume` for the total consumed bytes.
 #pragma region UpdateActiveView
 
-TEST_CASE("RecvBufferView_UpdateActiveView", "[RecvBufferView]") {
+TEST_CASE("UpdateActiveView", "[RecvBufferView]") {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 5, 'X');
 
@@ -1343,7 +1343,7 @@ TEST_CASE("RecvBufferView_UpdateActiveView", "[RecvBufferView]") {
 // carried over by the move so the callback receives correct values.
 #pragma region MoveSemantics
 
-TEST_CASE("RecvBufferView_MoveSemantics", "[RecvBufferView]") {
+TEST_CASE("MoveSemantics", "[RecvBufferView]") {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 10, 'X');
 
@@ -1376,7 +1376,7 @@ TEST_CASE("RecvBufferView_MoveSemantics", "[RecvBufferView]") {
 // not at the physical end of the buffer.
 #pragma region TryTakeFull_Fail
 
-TEST_CASE("RecvBufferView_TryTakeFull_Fail", "[RecvBufferView]") {
+TEST_CASE("TryTakeFull_Fail", "[RecvBufferView]") {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 5, 'X');
   const size_t cap = rb.buffer.capacity();
@@ -1399,7 +1399,7 @@ TEST_CASE("RecvBufferView_TryTakeFull_Fail", "[RecvBufferView]") {
 // indices are reset. The destructor callback receives `lse == 0`.
 #pragma region TryTakeFull_Success
 
-TEST_CASE("RecvBufferView_TryTakeFull_Success", "[RecvBufferView]") {
+TEST_CASE("TryTakeFull_Success", "[RecvBufferView]") {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
@@ -1433,7 +1433,7 @@ TEST_CASE("RecvBufferView_TryTakeFull_Success", "[RecvBufferView]") {
 // for the backing buffer, avoiding a reallocation on the next cycle.
 #pragma region TryTakeFull_StealAllocation
 
-TEST_CASE("RecvBufferView_TryTakeFull_StealAllocation", "[RecvBufferView]") {
+TEST_CASE("TryTakeFull_StealAllocation", "[RecvBufferView]") {
   recv_buffer rb;
   setup_rb(rb, 64, 0, 0);
   const size_t cap = rb.buffer.capacity();
@@ -1459,7 +1459,7 @@ TEST_CASE("RecvBufferView_TryTakeFull_StealAllocation", "[RecvBufferView]") {
 #pragma endregion
 #pragma region Lifecycle
 
-TEST_CASE("StreamConn_Lifecycle", "[StreamConn]") {
+TEST_CASE("Lifecycle", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1479,7 +1479,7 @@ TEST_CASE("StreamConn_Lifecycle", "[StreamConn]") {
 #pragma endregion
 #pragma region Receive
 
-TEST_CASE("StreamConn_Receive", "[StreamConn]") {
+TEST_CASE("Receive", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1504,7 +1504,7 @@ TEST_CASE("StreamConn_Receive", "[StreamConn]") {
 #pragma endregion
 #pragma region SetRecvBufSize
 
-TEST_CASE("StreamConn_SetRecvBufSize", "[StreamConn]") {
+TEST_CASE("SetRecvBufSize", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1544,7 +1544,7 @@ TEST_CASE("StreamConn_SetRecvBufSize", "[StreamConn]") {
 #pragma endregion
 #pragma region PeerClose
 
-TEST_CASE("StreamConn_PeerClose", "[StreamConn]") {
+TEST_CASE("PeerClose", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1587,7 +1587,7 @@ TEST_CASE("StreamConn_PeerClose", "[StreamConn]") {
 // point `can_read()` is already false) before firing `on_close`.
 #pragma region PeerClose_WithBufferedData
 
-TEST_CASE("StreamConn_PeerClose_WithBufferedData", "[StreamConn]") {
+TEST_CASE("PeerClose_WithBufferedData", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1639,7 +1639,7 @@ TEST_CASE("StreamConn_PeerClose_WithBufferedData", "[StreamConn]") {
 #pragma endregion
 #pragma region Send
 
-TEST_CASE("StreamConn_Send", "[StreamConn]") {
+TEST_CASE("Send", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1661,7 +1661,7 @@ TEST_CASE("StreamConn_Send", "[StreamConn]") {
 #pragma endregion
 #pragma region ManualClose
 
-TEST_CASE("StreamConn_ManualClose", "[StreamConn]") {
+TEST_CASE("ManualClose", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1688,7 +1688,7 @@ TEST_CASE("StreamConn_ManualClose", "[StreamConn]") {
 #pragma endregion
 #pragma region DrainAfterBufferedSend
 
-TEST_CASE("StreamConn_DrainAfterBufferedSend", "[StreamConn]") {
+TEST_CASE("DrainAfterBufferedSend", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1735,7 +1735,7 @@ TEST_CASE("StreamConn_DrainAfterBufferedSend", "[StreamConn]") {
 #pragma endregion
 #pragma region DrainAfterImmediateSend
 
-TEST_CASE("StreamConn_DrainAfterImmediateSend", "[StreamConn]") {
+TEST_CASE("DrainAfterImmediateSend", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1763,7 +1763,7 @@ TEST_CASE("StreamConn_DrainAfterImmediateSend", "[StreamConn]") {
 #pragma endregion
 #pragma region SendRejectsOnlyEmptyBuffers
 
-TEST_CASE("StreamConn_SendRejectsOnlyEmptyBuffers", "[StreamConn]") {
+TEST_CASE("SendRejectsOnlyEmptyBuffers", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1798,7 +1798,7 @@ TEST_CASE("StreamConn_SendRejectsOnlyEmptyBuffers", "[StreamConn]") {
 // bug in `enqueue_send`, where buffers after the first were silently dropped.
 #pragma region SendMultipleBuffers
 
-TEST_CASE("StreamConn_SendMultipleBuffers", "[StreamConn]") {
+TEST_CASE("SendMultipleBuffers", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1818,7 +1818,7 @@ TEST_CASE("StreamConn_SendMultipleBuffers", "[StreamConn]") {
 #pragma endregion
 #pragma region AsyncCbRead
 
-TEST_CASE("StreamConn_AsyncCbRead", "[StreamConn]") {
+TEST_CASE("AsyncCbRead", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1846,7 +1846,7 @@ TEST_CASE("StreamConn_AsyncCbRead", "[StreamConn]") {
 #pragma endregion
 #pragma region AsyncCbRead_PreservesEarlyData
 
-TEST_CASE("StreamConn_AsyncCbRead_PreservesEarlyData", "[StreamConn]") {
+TEST_CASE("AsyncCbRead_PreservesEarlyData", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1876,7 +1876,7 @@ TEST_CASE("StreamConn_AsyncCbRead_PreservesEarlyData", "[StreamConn]") {
 #pragma endregion
 #pragma region AsyncCbRead_DuplicateRejected
 
-TEST_CASE("StreamConn_AsyncCbRead_DuplicateRejected", "[StreamConn]") {
+TEST_CASE("AsyncCbRead_DuplicateRejected", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1908,7 +1908,7 @@ TEST_CASE("StreamConn_AsyncCbRead_DuplicateRejected", "[StreamConn]") {
 #pragma endregion
 #pragma region AsyncCbRead_PeerClose
 
-TEST_CASE("StreamConn_AsyncCbRead_PeerClose", "[StreamConn]") {
+TEST_CASE("AsyncCbRead_PeerClose", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1949,7 +1949,7 @@ TEST_CASE("StreamConn_AsyncCbRead_PeerClose", "[StreamConn]") {
 #pragma endregion
 #pragma region AsyncCbWrite
 
-TEST_CASE("StreamConn_AsyncCbWrite", "[StreamConn]") {
+TEST_CASE("AsyncCbWrite", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -1976,7 +1976,7 @@ TEST_CASE("StreamConn_AsyncCbWrite", "[StreamConn]") {
 #pragma endregion
 #pragma region AsyncCbWrite_Failure
 
-TEST_CASE("StreamConn_AsyncCbWrite_Failure", "[StreamConn]") {
+TEST_CASE("AsyncCbWrite_Failure", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2008,7 +2008,7 @@ TEST_CASE("StreamConn_AsyncCbWrite_Failure", "[StreamConn]") {
 #pragma endregion
 #pragma region ShutdownWrite
 
-TEST_CASE("StreamConn_ShutdownWrite", "[StreamConn]") {
+TEST_CASE("ShutdownWrite", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2043,7 +2043,7 @@ TEST_CASE("StreamConn_ShutdownWrite", "[StreamConn]") {
 #pragma endregion
 #pragma region ShutdownRead
 
-TEST_CASE("StreamConn_ShutdownRead", "[StreamConn]") {
+TEST_CASE("ShutdownRead", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2083,7 +2083,7 @@ TEST_CASE("StreamConn_ShutdownRead", "[StreamConn]") {
 #pragma endregion
 #pragma region ShutdownBothCloses
 
-TEST_CASE("StreamConn_ShutdownBothCloses", "[StreamConn]") {
+TEST_CASE("ShutdownBothCloses", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2104,7 +2104,7 @@ TEST_CASE("StreamConn_ShutdownBothCloses", "[StreamConn]") {
 #pragma endregion
 #pragma region AsyncCbWrite_DuplicateRejected
 
-TEST_CASE("StreamConn_AsyncCbWrite_DuplicateRejected", "[StreamConn]") {
+TEST_CASE("AsyncCbWrite_DuplicateRejected", "[StreamConn]") {
   // `completion` outlives the inner scope's `loop`, so its `~notifiable`
   // runs after the loop's destructor has joined the worker. Otherwise the
   // worker could still be inside `cv_.notify_one` (released the mutex,
@@ -2155,7 +2155,7 @@ TEST_CASE("StreamConn_AsyncCbWrite_DuplicateRejected", "[StreamConn]") {
 #pragma endregion
 #pragma region GracefulClose
 
-TEST_CASE("StreamConn_GracefulClose", "[StreamConn]") {
+TEST_CASE("GracefulClose", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2199,7 +2199,7 @@ TEST_CASE("StreamConn_GracefulClose", "[StreamConn]") {
 #pragma endregion
 #pragma region CloseThenDestructStaysGraceful
 
-TEST_CASE("StreamConn_CloseThenDestructStaysGraceful", "[StreamConn]") {
+TEST_CASE("CloseThenDestructStaysGraceful", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2247,7 +2247,7 @@ TEST_CASE("StreamConn_CloseThenDestructStaysGraceful", "[StreamConn]") {
 // `on_close`. Incoming data arriving during the drain is silently discarded.
 #pragma region MutualClose
 
-TEST_CASE("StreamConn_MutualClose", "[StreamConn]") {
+TEST_CASE("MutualClose", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2298,7 +2298,7 @@ TEST_CASE("StreamConn_MutualClose", "[StreamConn]") {
 // timing-based.
 #pragma region Listen_MutualClose
 
-TEST_CASE("StreamConn_Listen_MutualClose", "[StreamConn]") {
+TEST_CASE("Listen_MutualClose", "[StreamConn]") {
   epoll_loop_runner loop;
 
   // Set in `on_data` after the server calls `conn.close()`, so the test
@@ -2361,7 +2361,7 @@ TEST_CASE("StreamConn_Listen_MutualClose", "[StreamConn]") {
 #pragma endregion
 #pragma region DestructorHangsUp
 
-TEST_CASE("StreamConn_DestructorHangsUp", "[StreamConn]") {
+TEST_CASE("DestructorHangsUp", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2404,7 +2404,7 @@ TEST_CASE("StreamConn_DestructorHangsUp", "[StreamConn]") {
 // frame is self-destroyed (i.e., no handle is needed to drive it).
 #pragma region FireAndForget
 
-TEST_CASE("LoopTask_FireAndForget", "[LoopTask]") {
+TEST_CASE("FireAndForget", "[LoopTask]") {
   int counter = 0;
   auto coro = [&]() -> loop_task {
     ++counter;
@@ -2419,7 +2419,7 @@ TEST_CASE("LoopTask_FireAndForget", "[LoopTask]") {
 // Verify that `async_read` delivers data to a coroutine.
 #pragma region AsyncRead
 
-TEST_CASE("StreamConn_AsyncRead", "[StreamConn]") {
+TEST_CASE("AsyncRead", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2450,7 +2450,7 @@ TEST_CASE("StreamConn_AsyncRead", "[StreamConn]") {
 #pragma endregion
 #pragma region AsyncRead_PreservesEarlyData
 
-TEST_CASE("StreamConn_AsyncRead_PreservesEarlyData", "[StreamConn]") {
+TEST_CASE("AsyncRead_PreservesEarlyData", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2484,7 +2484,7 @@ TEST_CASE("StreamConn_AsyncRead_PreservesEarlyData", "[StreamConn]") {
 #pragma endregion
 #pragma region AsyncRead_StopsBetweenCalls
 
-TEST_CASE("StreamConn_AsyncRead_StopsBetweenCalls", "[StreamConn]") {
+TEST_CASE("AsyncRead_StopsBetweenCalls", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2539,7 +2539,7 @@ TEST_CASE("StreamConn_AsyncRead_StopsBetweenCalls", "[StreamConn]") {
 // the connection before data arrives.
 #pragma region AsyncRead_PeerClose
 
-TEST_CASE("StreamConn_AsyncRead_PeerClose", "[StreamConn]") {
+TEST_CASE("AsyncRead_PeerClose", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2577,7 +2577,7 @@ TEST_CASE("StreamConn_AsyncRead_PeerClose", "[StreamConn]") {
 // the queue drains.
 #pragma region AsyncSend
 
-TEST_CASE("StreamConn_AsyncSend", "[StreamConn]") {
+TEST_CASE("AsyncSend", "[StreamConn]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2613,7 +2613,7 @@ TEST_CASE("StreamConn_AsyncSend", "[StreamConn]") {
 // server echoes back whatever it receives, using only persistent callbacks.
 #pragma region EchoServer
 
-TEST_CASE("StreamConn_EchoServer", "[StreamConn]") {
+TEST_CASE("EchoServer", "[StreamConn]") {
   epoll_loop_runner loop;
 
   // Bind a non-blocking listener to an OS-assigned loopback port.
@@ -2668,7 +2668,7 @@ TEST_CASE("StreamConn_EchoServer", "[StreamConn]") {
 // zero-initialized, and that it is mutable via the typed pointer.
 #pragma region Adopt
 
-TEST_CASE("StreamConnWithState_Adopt", "[StreamConnWithState]") {
+TEST_CASE("Adopt", "[StreamConnWithState]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2685,7 +2685,7 @@ TEST_CASE("StreamConnWithState_Adopt", "[StreamConnWithState]") {
 // Verify that `from` correctly downcasts a `stream_conn&` inside a callback.
 #pragma region From
 
-TEST_CASE("StreamConnWithState_From", "[StreamConnWithState]") {
+TEST_CASE("From", "[StreamConnWithState]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2718,7 +2718,7 @@ TEST_CASE("StreamConnWithState_From", "[StreamConnWithState]") {
 // and that each has an independent `TState`.
 #pragma region Listen
 
-TEST_CASE("StreamConnWithState_Listen", "[StreamConnWithState]") {
+TEST_CASE("Listen", "[StreamConnWithState]") {
   epoll_loop_runner loop;
 
   using conn_t = stream_conn_with_state<int>;
@@ -2755,7 +2755,7 @@ TEST_CASE("StreamConnWithState_Listen", "[StreamConnWithState]") {
 // the untyped stream_conn_ptr and the resulting handle is usable.
 #pragma region Covariance
 
-TEST_CASE("StreamConnPtr_Covariance", "[StreamConnPtr]") {
+TEST_CASE("Covariance", "[StreamConnPtr]") {
   auto loop = epoll_loop::make();
   auto [a, b] = net_socket::create_pair();
 
@@ -2786,7 +2786,7 @@ TEST_CASE("StreamConnPtr_Covariance", "[StreamConnPtr]") {
 // to silently skip the connection (no on_data fired, drain loop continues).
 #pragma region AcceptClone_Nullptr
 
-TEST_CASE("StreamConnWithState_AcceptClone_Nullptr", "[StreamConnWithState]") {
+TEST_CASE("AcceptClone_Nullptr", "[StreamConnWithState]") {
   struct rejecting_conn: stream_conn_with_state<int> {
     using stream_conn_with_state<int>::stream_conn_with_state;
 
@@ -2828,7 +2828,7 @@ TEST_CASE("StreamConnWithState_AcceptClone_Nullptr", "[StreamConnWithState]") {
 // Single complete frame delivered in one call.
 #pragma region CompleteLine
 
-TEST_CASE("TerminatedTextParser_CompleteLine", "[TerminatedTextParser]") {
+TEST_CASE("CompleteLine", "[TerminatedTextParser]") {
   terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
   std::string_view sv{"text\r\n"};
@@ -2843,7 +2843,7 @@ TEST_CASE("TerminatedTextParser_CompleteLine", "[TerminatedTextParser]") {
 // Empty view: incomplete with zero bytes scanned.
 #pragma region IncompleteEmpty
 
-TEST_CASE("TerminatedTextParser_IncompleteEmpty", "[TerminatedTextParser]") {
+TEST_CASE("IncompleteEmpty", "[TerminatedTextParser]") {
   terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
   std::string_view sv;
@@ -2857,7 +2857,7 @@ TEST_CASE("TerminatedTextParser_IncompleteEmpty", "[TerminatedTextParser]") {
 // Partial frame with no sentinel: incomplete, bytes_scanned updated.
 #pragma region IncompletePartial
 
-TEST_CASE("TerminatedTextParser_IncompletePartial", "[TerminatedTextParser]") {
+TEST_CASE("IncompletePartial", "[TerminatedTextParser]") {
   terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
   std::string_view sv{"text"};
@@ -2871,7 +2871,7 @@ TEST_CASE("TerminatedTextParser_IncompletePartial", "[TerminatedTextParser]") {
 // Sentinel split across two calls: "\r" arrives first, "\n" in the next view.
 #pragma region SplitSentinel
 
-TEST_CASE("TerminatedTextParser_SplitSentinel", "[TerminatedTextParser]") {
+TEST_CASE("SplitSentinel", "[TerminatedTextParser]") {
   terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
   std::string_view text;
@@ -2893,7 +2893,7 @@ TEST_CASE("TerminatedTextParser_SplitSentinel", "[TerminatedTextParser]") {
 // Two frames in the same view: parse twice with reset() between.
 #pragma region MultipleFrames
 
-TEST_CASE("TerminatedTextParser_MultipleFrames", "[TerminatedTextParser]") {
+TEST_CASE("MultipleFrames", "[TerminatedTextParser]") {
   terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
   std::string_view sv{"line1\r\nline2\r\n"};
@@ -2913,7 +2913,7 @@ TEST_CASE("TerminatedTextParser_MultipleFrames", "[TerminatedTextParser]") {
 // Bare sentinel with no preceding text: complete with empty text.
 #pragma region EmptyLine
 
-TEST_CASE("TerminatedTextParser_EmptyLine", "[TerminatedTextParser]") {
+TEST_CASE("EmptyLine", "[TerminatedTextParser]") {
   terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
   std::string_view sv{"\r\n"};
@@ -2928,7 +2928,7 @@ TEST_CASE("TerminatedTextParser_EmptyLine", "[TerminatedTextParser]") {
 // Exceeding max_length with no sentinel present returns false.
 #pragma region TooLong
 
-TEST_CASE("TerminatedTextParser_TooLong", "[TerminatedTextParser]") {
+TEST_CASE("TooLong", "[TerminatedTextParser]") {
   terminated_text_parser::state s{"\r\n", 8};
   terminated_text_parser p{s};
   std::string_view sv{"123456789"}; // 9 bytes, no sentinel
@@ -2942,8 +2942,7 @@ TEST_CASE("TerminatedTextParser_TooLong", "[TerminatedTextParser]") {
 // A frame of exactly max_length bytes succeeds.
 #pragma region TooLong_WithSentinel
 
-TEST_CASE("TerminatedTextParser_TooLong_WithSentinel",
-    "[TerminatedTextParser]") {
+TEST_CASE("TooLong_WithSentinel", "[TerminatedTextParser]") {
   // 9 bytes before "\r\n": over the limit of 8.
   {
     terminated_text_parser::state s{"\r\n", 8};
@@ -2969,7 +2968,7 @@ TEST_CASE("TerminatedTextParser_TooLong_WithSentinel",
 // With max_length == 0, the same input returns incomplete (no limit enforced).
 #pragma region NoLimit
 
-TEST_CASE("TerminatedTextParser_NoLimit", "[TerminatedTextParser]") {
+TEST_CASE("NoLimit", "[TerminatedTextParser]") {
   terminated_text_parser::state s{"\r\n", 0};
   terminated_text_parser p{s};
   std::string_view sv{"123456789"};
@@ -2982,7 +2981,7 @@ TEST_CASE("TerminatedTextParser_NoLimit", "[TerminatedTextParser]") {
 // Custom sentinel ":" extracts the text up to the first colon.
 #pragma region CustomSentinel
 
-TEST_CASE("TerminatedTextParser_CustomSentinel", "[TerminatedTextParser]") {
+TEST_CASE("CustomSentinel", "[TerminatedTextParser]") {
   terminated_text_parser::state s{":"};
   terminated_text_parser p{s};
   std::string_view sv{"Content-Type: text/html"};
@@ -2997,7 +2996,7 @@ TEST_CASE("TerminatedTextParser_CustomSentinel", "[TerminatedTextParser]") {
 // After complete + reset(), the parser correctly handles a second frame.
 #pragma region Reset
 
-TEST_CASE("TerminatedTextParser_Reset", "[TerminatedTextParser]") {
+TEST_CASE("Reset", "[TerminatedTextParser]") {
   terminated_text_parser::state s{"\r\n"};
   terminated_text_parser p{s};
   std::string_view text;
@@ -3022,7 +3021,7 @@ TEST_CASE("TerminatedTextParser_Reset", "[TerminatedTextParser]") {
 // Verify that connecting to an invalid endpoint returns a falsy `stream_sync`.
 #pragma region ConnectFail
 
-TEST_CASE("StreamSync_ConnectFail", "[StreamSync]") {
+TEST_CASE("ConnectFail", "[StreamSync]") {
   // An empty endpoint has ss_family == AF_UNSPEC; `socket(2)` will fail and
   // the returned connection will be closed.
   auto conn = stream_sync::connect(net_endpoint{});
@@ -3051,7 +3050,7 @@ start_echo_server(epoll_loop_runner& loop, stream_conn_ptr& listener) {
 // Verify basic send and recv_exact against an echo server.
 #pragma region SendRecv
 
-TEST_CASE("StreamSync_SendRecv", "[StreamSync]") {
+TEST_CASE("SendRecv", "[StreamSync]") {
   epoll_loop_runner loop;
   stream_conn_ptr listener;
   const auto ep = start_echo_server(loop, listener);
@@ -3070,7 +3069,7 @@ TEST_CASE("StreamSync_SendRecv", "[StreamSync]") {
 // bytes in the internal buffer for the next recv call.
 #pragma region RecvUntil
 
-TEST_CASE("StreamSync_RecvUntil", "[StreamSync]") {
+TEST_CASE("RecvUntil", "[StreamSync]") {
   epoll_loop_runner loop;
   stream_conn_ptr listener;
   const auto ep = start_echo_server(loop, listener);
@@ -3093,7 +3092,7 @@ TEST_CASE("StreamSync_RecvUntil", "[StreamSync]") {
 // Verify that recv returns nullopt when the peer closes the connection.
 #pragma region PeerClose
 
-TEST_CASE("StreamSync_PeerClose", "[StreamSync]") {
+TEST_CASE("PeerClose", "[StreamSync]") {
   epoll_loop_runner loop;
   stream_conn_ptr listener;
   // Server echoes nothing; it closes as soon as data arrives.
@@ -3122,7 +3121,7 @@ TEST_CASE("StreamSync_PeerClose", "[StreamSync]") {
 // RFC 4648 test vectors: encode produces the canonical Base64 output.
 #pragma region Encode_KnownVectors
 
-TEST_CASE("Base64_Encode_KnownVectors", "[Base64]") {
+TEST_CASE("Encode_KnownVectors", "[Base64]") {
   CHECK((base_64::encode("")) == (""));
   CHECK((base_64::encode("f")) == ("Zg=="));
   CHECK((base_64::encode("fo")) == ("Zm8="));
@@ -3137,7 +3136,7 @@ TEST_CASE("Base64_Encode_KnownVectors", "[Base64]") {
 // decode returns empty vector for empty input.
 #pragma region Decode_Empty
 
-TEST_CASE("Base64_Decode_Empty", "[Base64]") {
+TEST_CASE("Decode_Empty", "[Base64]") {
   auto result = base_64::decode("");
   CHECK((result.empty()));
 }
@@ -3147,7 +3146,7 @@ TEST_CASE("Base64_Decode_Empty", "[Base64]") {
 // RFC 4648 test vectors: decode recovers the original bytes.
 #pragma region Decode_KnownVectors
 
-TEST_CASE("Base64_Decode_KnownVectors", "[Base64]") {
+TEST_CASE("Decode_KnownVectors", "[Base64]") {
   auto check = [](std::string_view encoded, std::string_view expected) {
     auto result = base_64::decode(encoded);
     CHECK((std::string(result.begin(), result.end())) ==
@@ -3166,7 +3165,7 @@ TEST_CASE("Base64_Decode_KnownVectors", "[Base64]") {
 // decode rejects input whose length is not a multiple of 4.
 #pragma region Decode_InvalidLength
 
-TEST_CASE("Base64_Decode_InvalidLength", "[Base64]") {
+TEST_CASE("Decode_InvalidLength", "[Base64]") {
   CHECK((base_64::decode("Zg").empty()));
   CHECK((base_64::decode("Zm8").empty()));
   CHECK((base_64::decode("Zm9vY").empty()));
@@ -3177,7 +3176,7 @@ TEST_CASE("Base64_Decode_InvalidLength", "[Base64]") {
 // decode rejects input containing characters outside the Base64 alphabet.
 #pragma region Decode_InvalidChar
 
-TEST_CASE("Base64_Decode_InvalidChar", "[Base64]") {
+TEST_CASE("Decode_InvalidChar", "[Base64]") {
   CHECK((base_64::decode("Zg=!").empty()));
   CHECK((base_64::decode("Z!==").empty()));
   CHECK((base_64::decode("!g==").empty()));
@@ -3189,7 +3188,7 @@ TEST_CASE("Base64_Decode_InvalidChar", "[Base64]") {
 // three remainder cases (0, 1, and 2 leftover bytes before padding).
 #pragma region RoundTrip_Short
 
-TEST_CASE("Base64_RoundTrip_Short", "[Base64]") {
+TEST_CASE("RoundTrip_Short", "[Base64]") {
   for (const std::string_view sv : {"", "A", "AB", "ABC", "ABCD"}) {
     const std::string encoded = base_64::encode(sv);
     const auto decoded = base_64::decode(encoded);
@@ -3203,7 +3202,7 @@ TEST_CASE("Base64_RoundTrip_Short", "[Base64]") {
 // the exact inverse of the encode alphabet.
 #pragma region RoundTrip_AllBytes
 
-TEST_CASE("Base64_RoundTrip_AllBytes", "[Base64]") {
+TEST_CASE("RoundTrip_AllBytes", "[Base64]") {
   std::vector<uint8_t> all_bytes(256);
   for (size_t i{}; i < 256; ++i) all_bytes[i] = uint8_t(i);
 
@@ -3217,7 +3216,7 @@ TEST_CASE("Base64_RoundTrip_AllBytes", "[Base64]") {
 #pragma endregion
 #pragma region OversizeTransferIsHardFailure
 
-TEST_CASE("IovMsghdr_OversizeTransferIsHardFailure", "[IovMsghdr]") {
+TEST_CASE("OversizeTransferIsHardFailure", "[IovMsghdr]") {
   if (true) {
     const auto [ok, op] =
         corvid::proto::iov_msghdr_test::oversize_update<true>();

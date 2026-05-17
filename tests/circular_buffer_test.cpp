@@ -29,7 +29,7 @@ using namespace corvid;
 
 #pragma region Construction
 
-TEST_CASE("CircularBufferTest_Construction", "[CircularBufferTest]") {
+TEST_CASE("Construction", "[CircularBufferTest]") {
   if (true) {
     std::vector<int> v;
     v.resize(3);
@@ -73,7 +73,7 @@ TEST_CASE("CircularBufferTest_Construction", "[CircularBufferTest]") {
 
 #pragma region Ops
 
-TEST_CASE("CircularBufferTest_Ops", "[CircularBufferTest]") {
+TEST_CASE("Ops", "[CircularBufferTest]") {
   std::vector<int> v;
   v.resize(3);
   circular_buffer cb{v};
@@ -200,7 +200,7 @@ TEST_CASE("CircularBufferTest_Ops", "[CircularBufferTest]") {
 
 #pragma region WrapIndex
 
-TEST_CASE("CircularBufferTest_WrapIndex", "[CircularBufferTest]") {
+TEST_CASE("WrapIndex", "[CircularBufferTest]") {
   std::vector<int> v;
   v.resize(3);
   circular_buffer cb{v};
@@ -226,7 +226,7 @@ TEST_CASE("CircularBufferTest_WrapIndex", "[CircularBufferTest]") {
 
 #pragma region PushPop
 
-TEST_CASE("CircularBufferTest_PushPop", "[CircularBufferTest]") {
+TEST_CASE("PushPop", "[CircularBufferTest]") {
   std::vector<int> v;
   v.resize(3);
   circular_buffer cb{v};
@@ -276,7 +276,7 @@ TEST_CASE("CircularBufferTest_PushPop", "[CircularBufferTest]") {
 
 #pragma region Iterate
 
-TEST_CASE("CircularBufferTest_Iterate", "[CircularBufferTest]") {
+TEST_CASE("Iterate", "[CircularBufferTest]") {
   if (true) {
     std::vector<int> v;
     v.resize(3);
@@ -347,7 +347,7 @@ private:
 
 #pragma region Smoke
 
-TEST_CASE("CircularBufferTest_Smoke", "[CircularBufferTest]") {
+TEST_CASE("Smoke", "[CircularBufferTest]") {
   if (true) {
     std::vector<int> v;
     v.resize(3);

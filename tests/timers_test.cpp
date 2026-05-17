@@ -44,7 +44,7 @@ static time_point_t make_time(int ms) {
 
 #pragma region OneShot
 
-TEST_CASE("TimersTest_OneShot", "[TimersTest]") {
+TEST_CASE("OneShot", "[TimersTest]") {
   auto now = make_time(100);
   auto t = timers::make("test");
   t->set_clock_callback([&]() { return now; });
@@ -112,7 +112,7 @@ TEST_CASE("TimersTest_OneShot", "[TimersTest]") {
 #pragma endregion
 #pragma region Repeating
 
-TEST_CASE("TimersTest_Repeating", "[TimersTest]") {
+TEST_CASE("Repeating", "[TimersTest]") {
   auto now = make_time(100);
   auto t = timers::make("test");
   t->set_clock_callback([&]() { return now; });
@@ -149,7 +149,7 @@ TEST_CASE("TimersTest_Repeating", "[TimersTest]") {
 #pragma endregion
 #pragma region Cancel
 
-TEST_CASE("TimersTest_Cancel", "[TimersTest]") {
+TEST_CASE("Cancel", "[TimersTest]") {
   auto now = make_time(100);
   auto t = timers::make("test");
   t->set_clock_callback([&]() { return now; });
@@ -173,7 +173,7 @@ TEST_CASE("TimersTest_Cancel", "[TimersTest]") {
 #pragma endregion
 #pragma region Reschedule
 
-TEST_CASE("TimersTest_Reschedule", "[TimersTest]") {
+TEST_CASE("Reschedule", "[TimersTest]") {
   auto now = make_time(100);
   auto t = timers::make("test");
   t->set_clock_callback([&]() { return now; });
@@ -207,7 +207,7 @@ TEST_CASE("TimersTest_Reschedule", "[TimersTest]") {
 #pragma endregion
 #pragma region General
 
-TEST_CASE("TimersTest_General", "[TimersTest]") {
+TEST_CASE("General", "[TimersTest]") {
   auto now = make_date(2024y / 1 / 1);
   auto t = timers::make("test");
   t->set_clock_callback([&now]() { return now; });
@@ -253,7 +253,7 @@ TEST_CASE("TimersTest_General", "[TimersTest]") {
 #pragma endregion
 #pragma region Edge
 
-TEST_CASE("TimersTest_Edge", "[TimersTest]") {
+TEST_CASE("Edge", "[TimersTest]") {
   auto now = make_date(2024y / 1 / 1);
   auto t = timers::make("test");
   t->set_clock_callback([&now]() { return now; });

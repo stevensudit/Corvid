@@ -133,7 +133,7 @@ using capture_handle =
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
-TEST_CASE("IouDgramRouter_BasicSendRecv", "[IouDgramRouter]") {
+TEST_CASE("BasicSendRecv", "[IouDgramRouter]") {
   // First packet hits create_session; payload arrives via the buffer.
   if (true) {
     std::atomic_bool received{false};
@@ -173,7 +173,7 @@ TEST_CASE("IouDgramRouter_BasicSendRecv", "[IouDgramRouter]") {
   }
 }
 
-TEST_CASE("IouDgramRouter_OnSentReturnsBuffer", "[IouDgramRouter]") {
+TEST_CASE("OnSentReturnsBuffer", "[IouDgramRouter]") {
   // `handle_sent` fires with the buffer in success state after a send
   // completes.
   if (true) {
@@ -213,7 +213,7 @@ TEST_CASE("IouDgramRouter_OnSentReturnsBuffer", "[IouDgramRouter]") {
   }
 }
 
-TEST_CASE("IouDgramRouter_LazySession", "[IouDgramRouter]") {
+TEST_CASE("LazySession", "[IouDgramRouter]") {
   // create_session fires once per unknown key; subsequent packets bypass it
   // and dispatch directly to handle_recv.
   if (true) {
@@ -259,7 +259,7 @@ TEST_CASE("IouDgramRouter_LazySession", "[IouDgramRouter]") {
   }
 }
 
-TEST_CASE("IouDgramRouter_DropOnNullFactory", "[IouDgramRouter]") {
+TEST_CASE("DropOnNullFactory", "[IouDgramRouter]") {
   // `create_session` returns false (no session installed); every arriving
   // packet re-invokes it.
   if (true) {
@@ -365,7 +365,7 @@ public:
 
 } // namespace
 
-TEST_CASE("IouDgramRouter_CustomKey", "[IouDgramRouter]") {
+TEST_CASE("CustomKey", "[IouDgramRouter]") {
   // Routing by a 32-bit ID extracted from the first 4 payload bytes,
   // independent of peer_addr.
   if (true) {
@@ -489,7 +489,7 @@ public:
 
 } // namespace
 
-TEST_CASE("IouDgramRouter_WithPluginState", "[IouDgramRouter]") {
+TEST_CASE("WithPluginState", "[IouDgramRouter]") {
   // SessionPlugin is the per-session state container.
   if (true) {
     counting_protocol::state stateA;
@@ -523,7 +523,7 @@ TEST_CASE("IouDgramRouter_WithPluginState", "[IouDgramRouter]") {
   }
 }
 
-TEST_CASE("IouDgramRouter_Multishot", "[IouDgramRouter]") {
+TEST_CASE("Multishot", "[IouDgramRouter]") {
   // Multishot recvmsg path: a burst of datagrams all arrive.
   if (true) {
     std::atomic_int delivered{0};
@@ -561,7 +561,7 @@ TEST_CASE("IouDgramRouter_Multishot", "[IouDgramRouter]") {
   }
 }
 
-TEST_CASE("IouDgramRouter_OnClose", "[IouDgramRouter]") {
+TEST_CASE("OnClose", "[IouDgramRouter]") {
   // Closing the router fires `unregister_self` on registered sessions
   // exactly once.
   if (true) {
@@ -603,7 +603,7 @@ TEST_CASE("IouDgramRouter_OnClose", "[IouDgramRouter]") {
   }
 }
 
-TEST_CASE("IouDgramEchoProtocol_RoundTrip", "[IouDgramEchoProtocol]") {
+TEST_CASE("RoundTrip", "[IouDgramEchoProtocol]") {
   // `iou_dgram_echo_server` bounces each datagram back to its sender.
   if (true) {
     std::atomic_bool received{false};

@@ -59,7 +59,7 @@ std::pair<os_file, os_file> make_blocking_pipe() {
 
 #pragma region Lifecycle
 
-TEST_CASE("Epoll_Lifecycle", "[Epoll]") {
+TEST_CASE("Lifecycle", "[Epoll]") {
   // Default-constructed epoll handle is invalid.
   if (true) {
     epoll p;
@@ -88,7 +88,7 @@ TEST_CASE("Epoll_Lifecycle", "[Epoll]") {
 
 #pragma region Create
 
-TEST_CASE("Epoll_Create", "[Epoll]") {
+TEST_CASE("Create", "[Epoll]") {
   // Default create() produces an open, functional epoll instance.
   if (true) {
     auto p = epoll::create();
@@ -123,7 +123,7 @@ TEST_CASE("Epoll_Create", "[Epoll]") {
 
 #pragma region Move
 
-TEST_CASE("Epoll_Move", "[Epoll]") {
+TEST_CASE("Move", "[Epoll]") {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
     epoll a{epoll::default_flags};
@@ -160,7 +160,7 @@ TEST_CASE("Epoll_Move", "[Epoll]") {
 
 #pragma region Release
 
-TEST_CASE("Epoll_Release", "[Epoll]") {
+TEST_CASE("Release", "[Epoll]") {
   // `release()` yields the handle without closing it; epoll becomes invalid.
   if (true) {
     epoll p{epoll::default_flags};
@@ -175,7 +175,7 @@ TEST_CASE("Epoll_Release", "[Epoll]") {
 
 #pragma region ControlWait
 
-TEST_CASE("Epoll_ControlWait", "[Epoll]") {
+TEST_CASE("ControlWait", "[Epoll]") {
   event_fd e{0};
   epoll p{epoll::default_flags};
 
@@ -205,7 +205,7 @@ TEST_CASE("Epoll_ControlWait", "[Epoll]") {
 
 #pragma region WaitArray
 
-TEST_CASE("Epoll_WaitArray", "[Epoll]") {
+TEST_CASE("WaitArray", "[Epoll]") {
   event_fd e{0};
   epoll p{epoll::default_flags};
 
@@ -234,7 +234,7 @@ TEST_CASE("Epoll_WaitArray", "[Epoll]") {
 
 #pragma region EventFd_Lifecycle
 
-TEST_CASE("EventFd_Lifecycle", "[EventFd]") {
+TEST_CASE("Lifecycle", "[EventFd]") {
   // Default-constructed eventfd is invalid.
   if (true) {
     event_fd e;
@@ -263,7 +263,7 @@ TEST_CASE("EventFd_Lifecycle", "[EventFd]") {
 
 #pragma region EventFd_Move
 
-TEST_CASE("EventFd_Move", "[EventFd]") {
+TEST_CASE("Move", "[EventFd]") {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
     event_fd a{0};
@@ -300,7 +300,7 @@ TEST_CASE("EventFd_Move", "[EventFd]") {
 
 #pragma region EventFd_Release
 
-TEST_CASE("EventFd_Release", "[EventFd]") {
+TEST_CASE("Release", "[EventFd]") {
   // `release()` yields the handle without closing it; eventfd becomes invalid.
   if (true) {
     event_fd e{0};
@@ -315,7 +315,7 @@ TEST_CASE("EventFd_Release", "[EventFd]") {
 
 #pragma region EventFd_NotifyRead
 
-TEST_CASE("EventFd_NotifyRead", "[EventFd]") {
+TEST_CASE("NotifyRead", "[EventFd]") {
   // Writes accumulate and a read returns the total while resetting to zero.
   if (true) {
     event_fd e{0};
@@ -340,7 +340,7 @@ TEST_CASE("EventFd_NotifyRead", "[EventFd]") {
 
 #pragma region EventFd_Create
 
-TEST_CASE("EventFd_Create", "[EventFd]") {
+TEST_CASE("Create", "[EventFd]") {
   using namespace bool_enums;
 
   // Default: non-blocking counter mode, initial value 0.
@@ -376,7 +376,7 @@ TEST_CASE("EventFd_Create", "[EventFd]") {
 
 #pragma region EventFd_SemaphoreMode
 
-TEST_CASE("EventFd_SemaphoreMode", "[EventFd]") {
+TEST_CASE("SemaphoreMode", "[EventFd]") {
   using namespace bool_enums;
 
   // With initial value 3, each read consumes exactly 1 token and returns 1.
@@ -422,7 +422,7 @@ TEST_CASE("EventFd_SemaphoreMode", "[EventFd]") {
 
 #pragma region EventFd_NonblockingEmptyRead
 
-TEST_CASE("EventFd_NonblockingEmptyRead", "[EventFd]") {
+TEST_CASE("NonblockingEmptyRead", "[EventFd]") {
   // Default-created eventfds are non-blocking, so an empty read returns
   // nullopt.
   event_fd e{0};

@@ -27,7 +27,7 @@ using namespace corvid;
 
 #pragma region Parser_ParseScalarsAndKinds
 
-TEST_CASE("JsonParser_ParseScalarsAndKinds", "[JsonParser]") {
+TEST_CASE("ParseScalarsAndKinds", "[JsonParser]") {
   json_value_view value;
 
   REQUIRE((parse_json("null", value)));
@@ -55,7 +55,7 @@ TEST_CASE("JsonParser_ParseScalarsAndKinds", "[JsonParser]") {
 #pragma endregion
 #pragma region Parser_ParseNestedViewsAndLookup
 
-TEST_CASE("JsonParser_ParseNestedViewsAndLookup", "[JsonParser]") {
+TEST_CASE("ParseNestedViewsAndLookup", "[JsonParser]") {
   json_value_view root;
   REQUIRE((parse_json(
       R"({"a\/b":[1,{"nested":false}],"plain":"value","count":2})", root)));
@@ -94,7 +94,7 @@ TEST_CASE("JsonParser_ParseNestedViewsAndLookup", "[JsonParser]") {
 #pragma endregion
 #pragma region Parser_DecodesEscapesAndUnicode
 
-TEST_CASE("JsonParser_DecodesEscapesAndUnicode", "[JsonParser]") {
+TEST_CASE("DecodesEscapesAndUnicode", "[JsonParser]") {
   json_value_view value;
   REQUIRE((parse_json(R"("line\nA\uD83D\uDE00")", value)));
 
@@ -110,7 +110,7 @@ TEST_CASE("JsonParser_DecodesEscapesAndUnicode", "[JsonParser]") {
 #pragma endregion
 #pragma region Parser_RejectsInvalidJson
 
-TEST_CASE("JsonParser_RejectsInvalidJson", "[JsonParser]") {
+TEST_CASE("RejectsInvalidJson", "[JsonParser]") {
   json_value_view value;
   json_error err;
 
@@ -133,7 +133,7 @@ TEST_CASE("JsonParser_RejectsInvalidJson", "[JsonParser]") {
 #pragma endregion
 #pragma region Parser_RespectsDepthLimit
 
-TEST_CASE("JsonParser_RespectsDepthLimit", "[JsonParser]") {
+TEST_CASE("RespectsDepthLimit", "[JsonParser]") {
   json_value_view value;
   json_error err;
 
@@ -144,7 +144,7 @@ TEST_CASE("JsonParser_RespectsDepthLimit", "[JsonParser]") {
 #pragma endregion
 #pragma region Writer_EscapesAndTrustedStrings
 
-TEST_CASE("JsonWriter_EscapesAndTrustedStrings", "[JsonWriter]") {
+TEST_CASE("EscapesAndTrustedStrings", "[JsonWriter]") {
   std::string out;
   json_writer writer{out};
 
@@ -160,7 +160,7 @@ TEST_CASE("JsonWriter_EscapesAndTrustedStrings", "[JsonWriter]") {
 #pragma endregion
 #pragma region Writer_FormatsFloatsAndRoundTrips
 
-TEST_CASE("JsonWriter_FormatsFloatsAndRoundTrips", "[JsonWriter]") {
+TEST_CASE("FormatsFloatsAndRoundTrips", "[JsonWriter]") {
   std::string out;
   json_writer writer{out};
 
@@ -211,7 +211,7 @@ TEST_CASE("JsonWriter_FormatsFloatsAndRoundTrips", "[JsonWriter]") {
 #pragma endregion
 #pragma region Writer_WritesToOstreamTargets
 
-TEST_CASE("JsonWriter_WritesToOstreamTargets", "[JsonWriter]") {
+TEST_CASE("WritesToOstreamTargets", "[JsonWriter]") {
   std::ostringstream out;
   json_writer writer{out};
 
@@ -229,7 +229,7 @@ TEST_CASE("JsonWriter_WritesToOstreamTargets", "[JsonWriter]") {
 #pragma endregion
 #pragma region Writer_ScopedContainersAutoClose
 
-TEST_CASE("JsonWriter_ScopedContainersAutoClose", "[JsonWriter]") {
+TEST_CASE("ScopedContainersAutoClose", "[JsonWriter]") {
   std::string out;
   json_writer writer{out};
 

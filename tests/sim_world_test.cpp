@@ -314,7 +314,7 @@ spawnDefenderShooter(SimWorld& w, Position spawn_pos) {
 
 #pragma region World_SpawnAndSnapshot
 
-TEST_CASE("SimWorld_SpawnAndSnapshot", "[SimWorld]") {
+TEST_CASE("SpawnAndSnapshot", "[SimWorld]") {
   SimWorld w;
   CHECK((w.size()) == (0U));
 
@@ -339,7 +339,7 @@ TEST_CASE("SimWorld_SpawnAndSnapshot", "[SimWorld]") {
 #pragma endregion
 #pragma region World_NextMovesInvaderAlpha
 
-TEST_CASE("SimWorld_NextMovesInvaderAlpha", "[SimWorld]") {
+TEST_CASE("NextMovesInvaderAlpha", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{200.F, 0.F}}};
@@ -388,7 +388,7 @@ TEST_CASE(
 #pragma endregion
 #pragma region World_DefenderInRangeFlashesItselfAndInvader
 
-TEST_CASE("SimWorld_DefenderInRangeFlashesItselfAndInvader", "[SimWorld]") {
+TEST_CASE("DefenderInRangeFlashesItselfAndInvader", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -422,7 +422,7 @@ TEST_CASE("SimWorld_DefenderInRangeFlashesItselfAndInvader", "[SimWorld]") {
 #pragma endregion
 #pragma region World_DefenderAoeAttackEmitsPulseExplosion
 
-TEST_CASE("SimWorld_DefenderAoeAttackEmitsPulseExplosion", "[SimWorld]") {
+TEST_CASE("DefenderAoeAttackEmitsPulseExplosion", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -452,7 +452,7 @@ TEST_CASE("SimWorld_DefenderAoeAttackEmitsPulseExplosion", "[SimWorld]") {
 #pragma endregion
 #pragma region World_DefenderShooterSpawnsVisibleBullet
 
-TEST_CASE("SimWorld_DefenderShooterSpawnsVisibleBullet", "[SimWorld]") {
+TEST_CASE("DefenderShooterSpawnsVisibleBullet", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -479,8 +479,7 @@ TEST_CASE("SimWorld_DefenderShooterSpawnsVisibleBullet", "[SimWorld]") {
 #pragma endregion
 #pragma region World_DefenderShooterBulletHitsInvaderOnNextStep
 
-TEST_CASE("SimWorld_DefenderShooterBulletHitsInvaderOnNextStep",
-    "[SimWorld]") {
+TEST_CASE("DefenderShooterBulletHitsInvaderOnNextStep", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -522,8 +521,7 @@ TEST_CASE("SimWorld_DefenderShooterBulletHitsInvaderOnNextStep",
 #pragma endregion
 #pragma region World_DefenderShooterBulletHitsFirstInvaderAlongPath
 
-TEST_CASE("SimWorld_DefenderShooterBulletHitsFirstInvaderAlongPath",
-    "[SimWorld]") {
+TEST_CASE("DefenderShooterBulletHitsFirstInvaderAlongPath", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -554,7 +552,7 @@ TEST_CASE("SimWorld_DefenderShooterBulletHitsFirstInvaderAlongPath",
 #pragma endregion
 #pragma region World_ExplosiveBulletDetonatesOnExpiry
 
-TEST_CASE("SimWorld_ExplosiveBulletDetonatesOnExpiry", "[SimWorld]") {
+TEST_CASE("ExplosiveBulletDetonatesOnExpiry", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -599,7 +597,7 @@ TEST_CASE("SimWorld_ExplosiveBulletDetonatesOnExpiry", "[SimWorld]") {
 #pragma endregion
 #pragma region World_SnapshotSinceTracksChanges
 
-TEST_CASE("SimWorld_SnapshotSinceTracksChanges", "[SimWorld]") {
+TEST_CASE("SnapshotSinceTracksChanges", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{500.F, 0.F}}};
@@ -635,7 +633,7 @@ TEST_CASE("SimWorld_SnapshotSinceTracksChanges", "[SimWorld]") {
 #pragma endregion
 #pragma region World_DefenderDoesNotAppearAsChangedAfterTick
 
-TEST_CASE("SimWorld_DefenderDoesNotAppearAsChangedAfterTick", "[SimWorld]") {
+TEST_CASE("DefenderDoesNotAppearAsChangedAfterTick", "[SimWorld]") {
   SimWorld w;
   const auto defender = spawnDefenderAoe(w, Position{50.F, 60.F});
 
@@ -659,7 +657,7 @@ TEST_CASE("SimWorld_DefenderDoesNotAppearAsChangedAfterTick", "[SimWorld]") {
 #pragma endregion
 #pragma region BakePath_TwoJoints
 
-TEST_CASE("BakePath_TwoJoints", "[BakePath]") {
+TEST_CASE("TwoJoints", "[BakePath]") {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{3.F, 4.F}}};
 
@@ -674,7 +672,7 @@ TEST_CASE("BakePath_TwoJoints", "[BakePath]") {
 #pragma endregion
 #pragma region BakePath_ThreeJoints
 
-TEST_CASE("BakePath_ThreeJoints", "[BakePath]") {
+TEST_CASE("ThreeJoints", "[BakePath]") {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{3.F, 4.F}}, {{6.F, 8.F}}};
 
@@ -691,7 +689,7 @@ TEST_CASE("BakePath_ThreeJoints", "[BakePath]") {
 #pragma endregion
 #pragma region PathPosition_Endpoints
 
-TEST_CASE("PathPosition_Endpoints", "[PathPosition]") {
+TEST_CASE("Endpoints", "[PathPosition]") {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
   const auto bp = SegmentedPath::fromJoints(p);
@@ -709,7 +707,7 @@ TEST_CASE("PathPosition_Endpoints", "[PathPosition]") {
 #pragma endregion
 #pragma region PathPosition_Midpoint
 
-TEST_CASE("PathPosition_Midpoint", "[PathPosition]") {
+TEST_CASE("Midpoint", "[PathPosition]") {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
   const auto bp = SegmentedPath::fromJoints(p);
@@ -723,7 +721,7 @@ TEST_CASE("PathPosition_Midpoint", "[PathPosition]") {
 #pragma endregion
 #pragma region PathPosition_CrossingSegmentBoundaryEmitsJoint
 
-TEST_CASE("PathPosition_CrossingSegmentBoundaryEmitsJoint", "[PathPosition]") {
+TEST_CASE("CrossingSegmentBoundaryEmitsJoint", "[PathPosition]") {
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}, {{10.F, 10.F}}};
   const auto bp = SegmentedPath::fromJoints(p);
@@ -737,7 +735,7 @@ TEST_CASE("PathPosition_CrossingSegmentBoundaryEmitsJoint", "[PathPosition]") {
 #pragma endregion
 #pragma region World_EnemyAdvancesOnTick
 
-TEST_CASE("SimWorld_EnemyAdvancesOnTick", "[SimWorld]") {
+TEST_CASE("EnemyAdvancesOnTick", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{100.F, 0.F}}};
@@ -760,7 +758,7 @@ TEST_CASE("SimWorld_EnemyAdvancesOnTick", "[SimWorld]") {
 #pragma endregion
 #pragma region World_ResolveEscapeesVisitsEscapedEnemy
 
-TEST_CASE("SimWorld_ResolveEscapeesVisitsEscapedEnemy", "[SimWorld]") {
+TEST_CASE("ResolveEscapeesVisitsEscapedEnemy", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
@@ -798,7 +796,7 @@ TEST_CASE("SimWorld_ResolveEscapeesVisitsEscapedEnemy", "[SimWorld]") {
 #pragma endregion
 #pragma region World_ResolveEscapeesCanLeaveEnemyAlive
 
-TEST_CASE("SimWorld_ResolveEscapeesCanLeaveEnemyAlive", "[SimWorld]") {
+TEST_CASE("ResolveEscapeesCanLeaveEnemyAlive", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}};
@@ -828,7 +826,7 @@ TEST_CASE("SimWorld_ResolveEscapeesCanLeaveEnemyAlive", "[SimWorld]") {
 #pragma endregion
 #pragma region World_GetPathOutOfRange
 
-TEST_CASE("SimWorld_GetPathOutOfRange", "[SimWorld]") {
+TEST_CASE("GetPathOutOfRange", "[SimWorld]") {
   SimWorld w;
   CHECK((w.getPath(PathId{0}) == nullptr));
 
@@ -843,7 +841,7 @@ TEST_CASE("SimWorld_GetPathOutOfRange", "[SimWorld]") {
 #pragma endregion
 #pragma region World_ObtainPathIncludesTerminalJoint
 
-TEST_CASE("SimWorld_ObtainPathIncludesTerminalJoint", "[SimWorld]") {
+TEST_CASE("ObtainPathIncludesTerminalJoint", "[SimWorld]") {
   SimWorld w;
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{10.F, 0.F}}, {{10.F, 5.F}}};
@@ -869,7 +867,7 @@ TEST_CASE("SimWorld_ObtainPathIncludesTerminalJoint", "[SimWorld]") {
 #pragma endregion
 #pragma region Game_LoadMapInitialSnapshotAndState
 
-TEST_CASE("SimGame_LoadMapInitialSnapshotAndState", "[SimGame]") {
+TEST_CASE("LoadMapInitialSnapshotAndState", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
 
@@ -893,8 +891,7 @@ TEST_CASE("SimGame_LoadMapInitialSnapshotAndState", "[SimGame]") {
 #pragma endregion
 #pragma region Game_HandleUiActionStartWaveTransitionsToWavePhase
 
-TEST_CASE("SimGame_HandleUiActionStartWaveTransitionsToWavePhase",
-    "[SimGame]") {
+TEST_CASE("HandleUiActionStartWaveTransitionsToWavePhase", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
 
@@ -914,8 +911,7 @@ TEST_CASE("SimGame_HandleUiActionStartWaveTransitionsToWavePhase",
 #pragma endregion
 #pragma region Game_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase
 
-TEST_CASE("SimGame_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase",
-    "[SimGame]") {
+TEST_CASE("HandleUiCanvasSpawnsDefenderButKeepsBuildPhase", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
   const auto before = extractGameDelta(game);
@@ -951,7 +947,7 @@ TEST_CASE("SimGame_HandleUiCanvasSpawnsDefenderButKeepsBuildPhase",
 #pragma endregion
 #pragma region Game_HandleUiCanvasRightClickSpawnPlacesDefender
 
-TEST_CASE("SimGame_HandleUiCanvasRightClickSpawnPlacesDefender", "[SimGame]") {
+TEST_CASE("HandleUiCanvasRightClickSpawnPlacesDefender", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
 
@@ -984,7 +980,7 @@ TEST_CASE("SimGame_HandleUiCanvasRightClickSpawnPlacesDefender", "[SimGame]") {
 #pragma endregion
 #pragma region Game_HandleUiCanvasSelectingDefenderReportsSelectedPosition
 
-TEST_CASE("SimGame_HandleUiCanvasSelectingDefenderReportsSelectedPosition",
+TEST_CASE("HandleUiCanvasSelectingDefenderReportsSelectedPosition",
     "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
@@ -1024,7 +1020,7 @@ TEST_CASE("SimGame_HandleUiCanvasSelectingDefenderReportsSelectedPosition",
 #pragma endregion
 #pragma region Game_HandleUiCanvasSpawnsShooterDefender
 
-TEST_CASE("SimGame_HandleUiCanvasSpawnsShooterDefender", "[SimGame]") {
+TEST_CASE("HandleUiCanvasSpawnsShooterDefender", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
   const auto before = extractGameDelta(game);
@@ -1060,7 +1056,7 @@ TEST_CASE("SimGame_HandleUiCanvasSpawnsShooterDefender", "[SimGame]") {
 #pragma endregion
 #pragma region Game_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick
 
-TEST_CASE("SimGame_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick",
+TEST_CASE("HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick",
     "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
@@ -1089,8 +1085,7 @@ TEST_CASE("SimGame_HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick",
 #pragma endregion
 #pragma region Game_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick
 
-TEST_CASE("SimGame_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick",
-    "[SimGame]") {
+TEST_CASE("HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
 
@@ -1116,7 +1111,7 @@ TEST_CASE("SimGame_HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick",
 #pragma endregion
 #pragma region Game_StartWaveSpawnsFirstEnemyOnFirstStep
 
-TEST_CASE("SimGame_StartWaveSpawnsFirstEnemyOnFirstStep", "[SimGame]") {
+TEST_CASE("StartWaveSpawnsFirstEnemyOnFirstStep", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
   (void)game.start_wave();
@@ -1142,7 +1137,7 @@ TEST_CASE("SimGame_StartWaveSpawnsFirstEnemyOnFirstStep", "[SimGame]") {
 #pragma endregion
 #pragma region Game_ExtractDeltaConsumesWorldUpdatesButNotState
 
-TEST_CASE("SimGame_ExtractDeltaConsumesWorldUpdatesButNotState", "[SimGame]") {
+TEST_CASE("ExtractDeltaConsumesWorldUpdatesButNotState", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
   (void)game.start_wave();
@@ -1172,7 +1167,7 @@ TEST_CASE("SimGame_ExtractDeltaConsumesWorldUpdatesButNotState", "[SimGame]") {
 #pragma endregion
 #pragma region Game_ReachesGameOverAsSoonAsLivesAreExhausted
 
-TEST_CASE("SimGame_ReachesGameOverAsSoonAsLivesAreExhausted", "[SimGame]") {
+TEST_CASE("ReachesGameOverAsSoonAsLivesAreExhausted", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
   (void)game.start_wave();
@@ -1195,7 +1190,7 @@ TEST_CASE("SimGame_ReachesGameOverAsSoonAsLivesAreExhausted", "[SimGame]") {
 #pragma endregion
 #pragma region Game_GameOverFreezesRemainingInvaders
 
-TEST_CASE("SimGame_GameOverFreezesRemainingInvaders", "[SimGame]") {
+TEST_CASE("GameOverFreezesRemainingInvaders", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
   (void)game.start_wave();
@@ -1234,7 +1229,7 @@ TEST_CASE("SimGame_GameOverFreezesRemainingInvaders", "[SimGame]") {
 #pragma endregion
 #pragma region Game_ExtractFullIncludesPathsAndState
 
-TEST_CASE("SimGame_ExtractFullIncludesPathsAndState", "[SimGame]") {
+TEST_CASE("ExtractFullIncludesPathsAndState", "[SimGame]") {
   SimGame game;
   (void)game.loadMap();
 
@@ -1279,7 +1274,7 @@ TEST_CASE("SimGame_ExtractFullIncludesPathsAndState", "[SimGame]") {
 #pragma endregion
 #pragma region Json_ParseUiCanvasMessage
 
-TEST_CASE("SimJson_ParseUiCanvasMessage", "[SimJson]") {
+TEST_CASE("ParseUiCanvasMessage", "[SimJson]") {
   const auto msg = parseSimClientMessageRoot(R"({
     "type": "ui_canvas",
     "seq": 42,
@@ -1318,7 +1313,7 @@ TEST_CASE("SimJson_ParseUiCanvasMessage", "[SimJson]") {
 #pragma endregion
 #pragma region Json_ParseUiActionMessageFields
 
-TEST_CASE("SimJson_ParseUiActionMessageFields", "[SimJson]") {
+TEST_CASE("ParseUiActionMessageFields", "[SimJson]") {
   const auto input = parseUiActionMessage(
       R"({"type":"ui_action","seq":7,"action":"start_wave","fields":{"defender/kind":"ice","note":"line\nbreak"}})");
 
@@ -1340,7 +1335,7 @@ TEST_CASE("SimJson_ParseUiActionMessageFields", "[SimJson]") {
 #pragma endregion
 #pragma region Json_BuildHelloAckJson
 
-TEST_CASE("SimJson_BuildHelloAckJson", "[SimJson]") {
+TEST_CASE("BuildHelloAckJson", "[SimJson]") {
   CHECK((buildSimHelloAckJson()) ==
         (std::string(R"({"type":"hello_ack","message":"connected"})")));
 }
@@ -1348,7 +1343,7 @@ TEST_CASE("SimJson_BuildHelloAckJson", "[SimJson]") {
 #pragma endregion
 #pragma region Json_BuildWorldDeltaJsonShapeAndFormatting
 
-TEST_CASE("SimJson_BuildWorldDeltaJsonShapeAndFormatting", "[SimJson]") {
+TEST_CASE("BuildWorldDeltaJsonShapeAndFormatting", "[SimJson]") {
   SimGame game;
   (void)game.loadMap();
   (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
@@ -1421,7 +1416,7 @@ TEST_CASE("SimJson_BuildWorldDeltaJsonShapeAndFormatting", "[SimJson]") {
 #pragma endregion
 #pragma region Json_BuildWorldDeltaIncludesFlashVisualEffects
 
-TEST_CASE("SimJson_BuildWorldDeltaIncludesFlashVisualEffects", "[SimJson]") {
+TEST_CASE("BuildWorldDeltaIncludesFlashVisualEffects", "[SimJson]") {
   SimGame game;
   (void)game.loadMap();
   (void)game.handleUiCanvas(UiCanvasInput{.seq = 1,
@@ -1488,7 +1483,7 @@ TEST_CASE("SimJson_BuildWorldDeltaIncludesFlashVisualEffects", "[SimJson]") {
 #pragma endregion
 #pragma region Json_FlashExpiryTickReturnsAbsoluteTick
 
-TEST_CASE("SimJson_FlashExpiryTickReturnsAbsoluteTick", "[SimJson]") {
+TEST_CASE("FlashExpiryTickReturnsAbsoluteTick", "[SimJson]") {
   VisualEffects fx{
       .modified = WorldTick{12},
       .selectionColor = 0,
@@ -1507,7 +1502,7 @@ TEST_CASE("SimJson_FlashExpiryTickReturnsAbsoluteTick", "[SimJson]") {
 #pragma endregion
 #pragma region Json_BuildWorldSnapshotJsonShape
 
-TEST_CASE("SimJson_BuildWorldSnapshotJsonShape", "[SimJson]") {
+TEST_CASE("BuildWorldSnapshotJsonShape", "[SimJson]") {
   SimGame game;
   (void)game.loadMap();
 
@@ -1551,7 +1546,7 @@ TEST_CASE("SimJson_BuildWorldSnapshotJsonShape", "[SimJson]") {
 #pragma endregion
 #pragma region Game_BuildCurrentMapEntityCsvReport
 
-TEST_CASE("SimGame_BuildCurrentMapEntityCsvReport", "[SimGame]") {
+TEST_CASE("BuildCurrentMapEntityCsvReport", "[SimGame]") {
   SimGame game;
   REQUIRE((game.loadMap()));
 

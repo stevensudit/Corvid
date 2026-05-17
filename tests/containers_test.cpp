@@ -43,7 +43,7 @@ constexpr auto corvid::enums::registry::enum_spec_v<test_id_t> =
 
 #pragma region TransparentTest_General
 
-TEST_CASE("TransparentTest_General", "[TransparentTest]") {
+TEST_CASE("General", "[TransparentTest]") {
   const auto ks = "key"s;
   const auto ksv = "key"sv;
   if (true) {
@@ -92,7 +92,7 @@ TEST_CASE("TransparentTest_General", "[TransparentTest]") {
 
 #pragma region IndirectKey_Basic
 
-TEST_CASE("IndirectKey_Basic", "[IndirectKey]") {
+TEST_CASE("Basic", "[IndirectKey]") {
   using IHK = indirect_hash_key<std::string>;
   std::unordered_map<IHK, int> um;
   const auto key{"abc"s};
@@ -136,7 +136,7 @@ struct D // deleter
 
 #pragma region OwnPtrTest_Ctor
 
-TEST_CASE("OwnPtrTest_Ctor", "[OwnPtrTest]") {
+TEST_CASE("Ctor", "[OwnPtrTest]") {
   {
     own_ptr<int> p;
     own_ptr<int, DefaultIntDeleter> q;
@@ -321,7 +321,7 @@ Holder(T*) -> Holder<float>;
 
 #pragma region DeductionTest_Experimental
 
-TEST_CASE("DeductionTest_Experimental", "[DeductionTest]") {
+TEST_CASE("Experimental", "[DeductionTest]") {
   int i = 42;
   Holder<int> h0{&i};
   //  Holder h1{&i};
@@ -345,7 +345,7 @@ using unique_fd = std::unique_ptr<FileDescriptor, fd_deleter>;
 
 #pragma region CustomHandleTest_Basic
 
-TEST_CASE("CustomHandleTest_Basic", "[CustomHandleTest]") {
+TEST_CASE("Basic", "[CustomHandleTest]") {
 #if 0
   // Baseline unique_ptr.
   if (true) {
@@ -406,7 +406,7 @@ TEST_CASE("CustomHandleTest_Basic", "[CustomHandleTest]") {
 
 #pragma region NoInitResize_Basic
 
-TEST_CASE("NoInitResize_Basic", "[NoInitResize]") {
+TEST_CASE("Basic", "[NoInitResize]") {
   std::vector<int> v;
   v.resize(2);
   std::string s;
@@ -427,7 +427,7 @@ using PointlessFn = strong_type<WeakPointlessFn, struct PointlessFnTag>;
 
 #pragma region StrongType_Basic
 
-TEST_CASE("StrongType_Basic", "[StrongType]") {
+TEST_CASE("Basic", "[StrongType]") {
   FirstName fn{"John"};
   LastName ln{"Smith"};
   CHECK((fn.value()) == ("John"));
@@ -465,7 +465,7 @@ TEST_CASE("StrongType_Basic", "[StrongType]") {
 
 #pragma region StrongType_Extended
 
-TEST_CASE("StrongType_Extended", "[StrongType]") {
+TEST_CASE("Extended", "[StrongType]") {
   // Comprehensive test of all methods and operators for FirstName.
 
   if (true) {
@@ -850,7 +850,7 @@ std::string list_variant_types() {
 
 #pragma region EnumVariant_Basic
 
-TEST_CASE("EnumVariant_Basic", "[EnumVariant]") {
+TEST_CASE("Basic", "[EnumVariant]") {
   std::variant<std::monostate, int, char, std::string> v;
   list_variant_types<decltype(v)>();
   if (true) {
@@ -960,7 +960,7 @@ TEST_CASE("EnumVariant_Basic", "[EnumVariant]") {
 
 #pragma region EnumVector_Basic
 
-TEST_CASE("EnumVector_Basic", "[EnumVector]") {
+TEST_CASE("Basic", "[EnumVector]") {
   using id_t = test_id_t;
   enum_vector<int, id_t> v;
 
@@ -1064,7 +1064,7 @@ inline void swap(throwing_scoped_value_test& lhs,
 
 #pragma region ScopedValue_Basic
 
-TEST_CASE("ScopedValue_Basic", "[ScopedValue]") {
+TEST_CASE("Basic", "[ScopedValue]") {
   if (true) {
     int x = 1;
     {
@@ -1155,7 +1155,7 @@ TEST_CASE("ScopedValue_Basic", "[ScopedValue]") {
 
 #pragma region ScopeExit_Basic
 
-TEST_CASE("ScopeExit_Basic", "[ScopeExit]") {
+TEST_CASE("Basic", "[ScopeExit]") {
   if (true) {
     bool exited = false;
     {
@@ -1210,7 +1210,7 @@ TEST_CASE("ScopeExit_Basic", "[ScopeExit]") {
 
 #pragma region HashCombiner_Basic
 
-TEST_CASE("HashCombiner_Basic", "[HashCombiner]") {
+TEST_CASE("Basic", "[HashCombiner]") {
   // Default seed is zero; explicit seed is respected.
   if (true) {
     hash_combiner h;

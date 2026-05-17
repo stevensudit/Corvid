@@ -29,7 +29,7 @@ using namespace corvid;
 
 #pragma region Basic
 
-TEST_CASE("EntityRegistry_Basic", "[EntityRegistry]") {
+TEST_CASE("Basic", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -264,7 +264,7 @@ TEST_CASE("EntityRegistry_Basic", "[EntityRegistry]") {
 
 #pragma region Handle
 
-TEST_CASE("EntityRegistry_Handle", "[EntityRegistry]") {
+TEST_CASE("Handle", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -461,7 +461,7 @@ TEST_CASE("EntityRegistry_Handle", "[EntityRegistry]") {
 
 #pragma region Fifo
 
-TEST_CASE("EntityRegistry_Fifo", "[EntityRegistry]") {
+TEST_CASE("Fifo", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -485,7 +485,7 @@ TEST_CASE("EntityRegistry_Fifo", "[EntityRegistry]") {
 
 #pragma region Clear
 
-TEST_CASE("EntityRegistry_Clear", "[EntityRegistry]") {
+TEST_CASE("Clear", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -522,7 +522,7 @@ TEST_CASE("EntityRegistry_Clear", "[EntityRegistry]") {
 
 #pragma region Reserve
 
-TEST_CASE("EntityRegistry_Reserve", "[EntityRegistry]") {
+TEST_CASE("Reserve", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -577,7 +577,7 @@ TEST_CASE("EntityRegistry_Reserve", "[EntityRegistry]") {
 
 #pragma region IdLimit
 
-TEST_CASE("EntityRegistry_IdLimit", "[EntityRegistry]") {
+TEST_CASE("IdLimit", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -610,7 +610,7 @@ TEST_CASE("EntityRegistry_IdLimit", "[EntityRegistry]") {
 
 #pragma region NoGen
 
-TEST_CASE("EntityRegistry_NoGen", "[EntityRegistry]") {
+TEST_CASE("NoGen", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int, entity_id_t, store_id_t,
       generation_scheme::unversioned>;
@@ -759,7 +759,7 @@ TEST_CASE("EntityRegistry_NoGen", "[EntityRegistry]") {
 
 #pragma region VoidMeta
 
-TEST_CASE("EntityRegistry_VoidMeta", "[EntityRegistry]") {
+TEST_CASE("VoidMeta", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<void>;
   using id_t = reg_t::id_t;
@@ -882,7 +882,7 @@ TEST_CASE("EntityRegistry_VoidMeta", "[EntityRegistry]") {
 
 #pragma region VoidNoGen
 
-TEST_CASE("EntityRegistry_VoidNoGen", "[EntityRegistry]") {
+TEST_CASE("VoidNoGen", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<void, entity_id_t, store_id_t,
       generation_scheme::unversioned>;
@@ -928,7 +928,7 @@ TEST_CASE("EntityRegistry_VoidNoGen", "[EntityRegistry]") {
 
 #pragma region IdLimitAdvanced
 
-TEST_CASE("EntityRegistry_IdLimitAdvanced", "[EntityRegistry]") {
+TEST_CASE("IdLimitAdvanced", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -989,7 +989,7 @@ TEST_CASE("EntityRegistry_IdLimitAdvanced", "[EntityRegistry]") {
 
 #pragma region FifoAdvanced
 
-TEST_CASE("EntityRegistry_FifoAdvanced", "[EntityRegistry]") {
+TEST_CASE("FifoAdvanced", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -1061,7 +1061,7 @@ TEST_CASE("EntityRegistry_FifoAdvanced", "[EntityRegistry]") {
 
 #pragma region LifoAdvanced
 
-TEST_CASE("EntityRegistry_LifoAdvanced", "[EntityRegistry]") {
+TEST_CASE("LifoAdvanced", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int, entity_id_t, store_id_t,
       generation_scheme::versioned, 1, sequence_order::lifo>;
@@ -1152,7 +1152,7 @@ TEST_CASE("EntityRegistry_LifoAdvanced", "[EntityRegistry]") {
 
 #pragma region LocationRecord
 
-TEST_CASE("EntityRegistry_LocationRecord", "[EntityRegistry]") {
+TEST_CASE("LocationRecord", "[EntityRegistry]") {
   using namespace id_enums;
 
   // Archetype mode: get_store_id() and contains() via erase_if predicates.
@@ -1240,7 +1240,7 @@ TEST_CASE("EntityRegistry_LocationRecord", "[EntityRegistry]") {
 
 #pragma region EdgeCases
 
-TEST_CASE("EntityRegistry_EdgeCases", "[EntityRegistry]") {
+TEST_CASE("EdgeCases", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -1473,7 +1473,7 @@ TEST_CASE("EntityRegistry_EdgeCases", "[EntityRegistry]") {
 
 #pragma region MetadataCleanup
 
-TEST_CASE("EntityRegistry_MetadataCleanup", "[EntityRegistry]") {
+TEST_CASE("MetadataCleanup", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -1528,7 +1528,7 @@ TEST_CASE("EntityRegistry_MetadataCleanup", "[EntityRegistry]") {
 
 #pragma region EraseIfPredicate
 
-TEST_CASE("EntityRegistry_EraseIfPredicate", "[EntityRegistry]") {
+TEST_CASE("EraseIfPredicate", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -1559,7 +1559,7 @@ TEST_CASE("EntityRegistry_EraseIfPredicate", "[EntityRegistry]") {
 
 #pragma region IdLimitFreeList
 
-TEST_CASE("EntityRegistry_IdLimitFreeList", "[EntityRegistry]") {
+TEST_CASE("IdLimitFreeList", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -1592,7 +1592,7 @@ TEST_CASE("EntityRegistry_IdLimitFreeList", "[EntityRegistry]") {
 
 #pragma region ReservePrefillExisting
 
-TEST_CASE("EntityRegistry_ReservePrefillExisting", "[EntityRegistry]") {
+TEST_CASE("ReservePrefillExisting", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -1636,7 +1636,7 @@ TEST_CASE("EntityRegistry_ReservePrefillExisting", "[EntityRegistry]") {
 
 #pragma region HandleOwner
 
-TEST_CASE("EntityRegistry_HandleOwner", "[EntityRegistry]") {
+TEST_CASE("HandleOwner", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -1863,7 +1863,7 @@ TEST_CASE("EntityRegistry_HandleOwner", "[EntityRegistry]") {
 
 #pragma region GetAllocator
 
-TEST_CASE("EntityRegistry_GetAllocator", "[EntityRegistry]") {
+TEST_CASE("GetAllocator", "[EntityRegistry]") {
   using reg_t = entity_registry<int>;
 
   // get_allocator() returns allocator_type.
@@ -1890,7 +1890,7 @@ TEST_CASE("EntityRegistry_GetAllocator", "[EntityRegistry]") {
 
 #pragma region ComponentMode_Basic
 
-TEST_CASE("EntityRegistry_ComponentMode_Basic", "[EntityRegistry]") {
+TEST_CASE("ComponentMode_Basic", "[EntityRegistry]") {
   using namespace id_enums;
   // OWN_COUNT = 64 selects component mode (64-bit bitmap), versioned.
   using creg_t = entity_registry<int, entity_id_t, store_id_t,
@@ -2046,7 +2046,7 @@ TEST_CASE("EntityRegistry_ComponentMode_Basic", "[EntityRegistry]") {
 
 #pragma region ComponentMode_Bitmap
 
-TEST_CASE("EntityRegistry_ComponentMode_Bitmap", "[EntityRegistry]") {
+TEST_CASE("ComponentMode_Bitmap", "[EntityRegistry]") {
   using namespace id_enums;
   using creg_t = entity_registry<int, entity_id_t, store_id_t,
       generation_scheme::versioned, 64>;
@@ -2164,7 +2164,7 @@ TEST_CASE("EntityRegistry_ComponentMode_Bitmap", "[EntityRegistry]") {
 
 #pragma region ComponentMode_Fifo
 
-TEST_CASE("EntityRegistry_ComponentMode_Fifo", "[EntityRegistry]") {
+TEST_CASE("ComponentMode_Fifo", "[EntityRegistry]") {
   using namespace id_enums;
   using creg_t = entity_registry<int, entity_id_t, store_id_t,
       generation_scheme::versioned, 64>;
@@ -2229,7 +2229,7 @@ TEST_CASE("EntityRegistry_ComponentMode_Fifo", "[EntityRegistry]") {
 
 #pragma region ComponentMode_HandleOwner
 
-TEST_CASE("EntityRegistry_ComponentMode_HandleOwner", "[EntityRegistry]") {
+TEST_CASE("ComponentMode_HandleOwner", "[EntityRegistry]") {
   using namespace id_enums;
   using creg_t = entity_registry<int, entity_id_t, store_id_t,
       generation_scheme::versioned, 64>;
@@ -2311,7 +2311,7 @@ TEST_CASE("EntityRegistry_ComponentMode_HandleOwner", "[EntityRegistry]") {
 
 #pragma region ComponentMode_NoGen
 
-TEST_CASE("EntityRegistry_ComponentMode_NoGen", "[EntityRegistry]") {
+TEST_CASE("ComponentMode_NoGen", "[EntityRegistry]") {
   using namespace id_enums;
   using creg_t = entity_registry<int, entity_id_t, store_id_t,
       generation_scheme::unversioned, 64>;
@@ -2360,7 +2360,7 @@ TEST_CASE("EntityRegistry_ComponentMode_NoGen", "[EntityRegistry]") {
 
 #pragma region ComponentMode_VoidMeta
 
-TEST_CASE("EntityRegistry_ComponentMode_VoidMeta", "[EntityRegistry]") {
+TEST_CASE("ComponentMode_VoidMeta", "[EntityRegistry]") {
   using namespace id_enums;
   using creg_t = entity_registry<void, entity_id_t, store_id_t,
       generation_scheme::versioned, 64>;
@@ -2416,7 +2416,7 @@ TEST_CASE("EntityRegistry_ComponentMode_VoidMeta", "[EntityRegistry]") {
 
 #pragma region ComponentMode_Lifo
 
-TEST_CASE("EntityRegistry_ComponentMode_Lifo", "[EntityRegistry]") {
+TEST_CASE("ComponentMode_Lifo", "[EntityRegistry]") {
   using namespace id_enums;
   using creg_t = entity_registry<int, entity_id_t, store_id_t,
       generation_scheme::versioned, 64, sequence_order::lifo>;

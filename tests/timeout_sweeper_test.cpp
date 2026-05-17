@@ -38,7 +38,7 @@ static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
 
 #pragma region BasicFire
 
-TEST_CASE("TimeoutSweeper_BasicFire", "[TimeoutSweeper]") {
+TEST_CASE("BasicFire", "[TimeoutSweeper]") {
   sweeper s;
   int fired{0};
   CHECK((s.schedule(T(100), [&](tp) -> tp {
@@ -54,7 +54,7 @@ TEST_CASE("TimeoutSweeper_BasicFire", "[TimeoutSweeper]") {
 #pragma endregion
 #pragma region NotFiredEarly
 
-TEST_CASE("TimeoutSweeper_NotFiredEarly", "[TimeoutSweeper]") {
+TEST_CASE("NotFiredEarly", "[TimeoutSweeper]") {
   // `fired` must outlive `s`: the sweeper's destructor drains the still-queued
   // T(100) callback (neither tick reaches it), which captures `&fired`.
   int fired{0};
@@ -73,7 +73,7 @@ TEST_CASE("TimeoutSweeper_NotFiredEarly", "[TimeoutSweeper]") {
 #pragma endregion
 #pragma region MinHeapOrder
 
-TEST_CASE("TimeoutSweeper_MinHeapOrder", "[TimeoutSweeper]") {
+TEST_CASE("MinHeapOrder", "[TimeoutSweeper]") {
   // Insert out of expiration order; the heap should pop in time order
   // regardless of insertion order.
   sweeper s;
@@ -100,8 +100,7 @@ TEST_CASE("TimeoutSweeper_MinHeapOrder", "[TimeoutSweeper]") {
 #pragma endregion
 #pragma region ExpireParameterIsRegisteredTime
 
-TEST_CASE("TimeoutSweeper_ExpireParameterIsRegisteredTime",
-    "[TimeoutSweeper]") {
+TEST_CASE("ExpireParameterIsRegisteredTime", "[TimeoutSweeper]") {
   // The callback receives the registered expiration, not the tick time.
   sweeper s;
   tp captured{};
@@ -117,7 +116,7 @@ TEST_CASE("TimeoutSweeper_ExpireParameterIsRegisteredTime",
 #pragma endregion
 #pragma region RearmReturnsNewTime
 
-TEST_CASE("TimeoutSweeper_RearmReturnsNewTime", "[TimeoutSweeper]") {
+TEST_CASE("RearmReturnsNewTime", "[TimeoutSweeper]") {
   sweeper s;
   int fired{0};
   s.schedule(T(100), [&](tp) -> tp {
@@ -140,7 +139,7 @@ TEST_CASE("TimeoutSweeper_RearmReturnsNewTime", "[TimeoutSweeper]") {
 #pragma endregion
 #pragma region MultipleExpiredInOneTick
 
-TEST_CASE("TimeoutSweeper_MultipleExpiredInOneTick", "[TimeoutSweeper]") {
+TEST_CASE("MultipleExpiredInOneTick", "[TimeoutSweeper]") {
   // A single tick should drain everything whose expiration is at or before
   // the tick time, in order.
   sweeper s;
@@ -158,7 +157,7 @@ TEST_CASE("TimeoutSweeper_MultipleExpiredInOneTick", "[TimeoutSweeper]") {
 #pragma endregion
 #pragma region Clear
 
-TEST_CASE("TimeoutSweeper_Clear", "[TimeoutSweeper]") {
+TEST_CASE("Clear", "[TimeoutSweeper]") {
   sweeper s;
   int fired{0};
   s.schedule(T(100), [&](tp) -> tp {
@@ -179,7 +178,7 @@ TEST_CASE("TimeoutSweeper_Clear", "[TimeoutSweeper]") {
 #pragma endregion
 #pragma region SizeAndEmpty
 
-TEST_CASE("TimeoutSweeper_SizeAndEmpty", "[TimeoutSweeper]") {
+TEST_CASE("SizeAndEmpty", "[TimeoutSweeper]") {
   sweeper s;
   CHECK((s.empty()));
   CHECK((s.size()) == (0U));
@@ -194,7 +193,7 @@ TEST_CASE("TimeoutSweeper_SizeAndEmpty", "[TimeoutSweeper]") {
 #pragma endregion
 #pragma region DestructorDrains
 
-TEST_CASE("TimeoutSweeper_DestructorDrains", "[TimeoutSweeper]") {
+TEST_CASE("DestructorDrains", "[TimeoutSweeper]") {
   // Pending callbacks should each fire exactly once when the sweeper is
   // destroyed without an explicit drain tick.
   int fired{0};
@@ -215,7 +214,7 @@ TEST_CASE("TimeoutSweeper_DestructorDrains", "[TimeoutSweeper]") {
 #pragma endregion
 #pragma region DestructorShortCircuitsRearm
 
-TEST_CASE("TimeoutSweeper_DestructorShortCircuitsRearm", "[TimeoutSweeper]") {
+TEST_CASE("DestructorShortCircuitsRearm", "[TimeoutSweeper]") {
   // A callback that always asks to rearm must still fire only once during
   // the destructor's drain; otherwise the drain would not terminate.
   int fired{0};
@@ -232,8 +231,7 @@ TEST_CASE("TimeoutSweeper_DestructorShortCircuitsRearm", "[TimeoutSweeper]") {
 #pragma endregion
 #pragma region DestructorBlocksFurtherSchedule
 
-TEST_CASE("TimeoutSweeper_DestructorBlocksFurtherSchedule",
-    "[TimeoutSweeper]") {
+TEST_CASE("DestructorBlocksFurtherSchedule", "[TimeoutSweeper]") {
   // While the destructor is draining, `closing_` is set; any `schedule`
   // attempt from inside a fired callback must be rejected.
   bool inner_accepted{true};
@@ -250,8 +248,7 @@ TEST_CASE("TimeoutSweeper_DestructorBlocksFurtherSchedule",
 #pragma endregion
 #pragma region ScheduleAcceptsDuringNormalTick
 
-TEST_CASE("TimeoutSweeper_ScheduleAcceptsDuringNormalTick",
-    "[TimeoutSweeper]") {
+TEST_CASE("ScheduleAcceptsDuringNormalTick", "[TimeoutSweeper]") {
   // Outside of destructor drain, a callback fired during a normal `tick`
   // must be able to schedule new entries.
   sweeper s;
@@ -276,7 +273,7 @@ struct test_conn {
 };
 } // namespace
 
-TEST_CASE("TimeoutSweeper_ConnPattern_CloseOnIdle", "[TimeoutSweeper]") {
+TEST_CASE("ConnPattern_CloseOnIdle", "[TimeoutSweeper]") {
   // Canonical idle-timeout pattern. When `read_expiration_` matches the
   // registered time, the callback closes the conn.
   sweeper s;
@@ -302,7 +299,7 @@ TEST_CASE("TimeoutSweeper_ConnPattern_CloseOnIdle", "[TimeoutSweeper]") {
 #pragma endregion
 #pragma region ConnPattern_RearmOnExtended
 
-TEST_CASE("TimeoutSweeper_ConnPattern_RearmOnExtended", "[TimeoutSweeper]") {
+TEST_CASE("ConnPattern_RearmOnExtended", "[TimeoutSweeper]") {
   // When the conn extends its deadline before the callback fires, the
   // callback rearms to the new deadline rather than closing.
   sweeper s;
@@ -335,7 +332,7 @@ TEST_CASE("TimeoutSweeper_ConnPattern_RearmOnExtended", "[TimeoutSweeper]") {
 #pragma endregion
 #pragma region ConnPattern_WeakPtrExpiry
 
-TEST_CASE("TimeoutSweeper_ConnPattern_WeakPtrExpiry", "[TimeoutSweeper]") {
+TEST_CASE("ConnPattern_WeakPtrExpiry", "[TimeoutSweeper]") {
   // If the conn dies before the callback fires, the callback returns zero
   // and the entry is dropped silently.
   sweeper s;
@@ -361,7 +358,7 @@ TEST_CASE("TimeoutSweeper_ConnPattern_WeakPtrExpiry", "[TimeoutSweeper]") {
 #pragma endregion
 #pragma region PausedExpirationClip
 
-TEST_CASE("TimeoutSweeper_PausedExpirationClip", "[TimeoutSweeper]") {
+TEST_CASE("PausedExpirationClip", "[TimeoutSweeper]") {
   // While the conn is paused (`read_expiration_ == paused_expiration`), the
   // callback rearms to a near-future deadline rather than firing.
   sweeper s;
@@ -401,7 +398,7 @@ TEST_CASE("TimeoutSweeper_PausedExpirationClip", "[TimeoutSweeper]") {
 #pragma endregion
 #pragma region FixedFunctionSpecialization
 
-TEST_CASE("TimeoutSweeper_FixedFunctionSpecialization", "[TimeoutSweeper]") {
+TEST_CASE("FixedFunctionSpecialization", "[TimeoutSweeper]") {
   // The class template must accept a `fixed_function` specialization with
   // a small capacity sized to a `weak_ptr` capture.
   using small_cb = corvid::meta::fixed_function<32, tp(tp)>;

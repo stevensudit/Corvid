@@ -59,7 +59,7 @@ std::pair<os_file, os_file> make_blocking_pipe() {
 
 #pragma region Lifecycle
 
-TEST_CASE("NetSocket_Lifecycle", "[NetSocket]") {
+TEST_CASE("Lifecycle", "[NetSocket]") {
   if (is_codex()) return;
 
   // Default-constructed socket is invalid.
@@ -90,7 +90,7 @@ TEST_CASE("NetSocket_Lifecycle", "[NetSocket]") {
 
 #pragma region Move
 
-TEST_CASE("NetSocket_Move", "[NetSocket]") {
+TEST_CASE("Move", "[NetSocket]") {
   if (is_codex()) return;
 
   // Move constructor transfers ownership; source becomes invalid.
@@ -131,7 +131,7 @@ TEST_CASE("NetSocket_Move", "[NetSocket]") {
 
 #pragma region Release
 
-TEST_CASE("NetSocket_Release", "[NetSocket]") {
+TEST_CASE("Release", "[NetSocket]") {
   if (is_codex()) return;
 
   // `release()` yields the handle without closing it; socket becomes invalid.
@@ -148,7 +148,7 @@ TEST_CASE("NetSocket_Release", "[NetSocket]") {
 
 #pragma region Options
 
-TEST_CASE("NetSocket_Options", "[NetSocket]") {
+TEST_CASE("Options", "[NetSocket]") {
   if (is_codex()) return;
 
   // Named option helpers round-trip through `get_option`.
@@ -188,7 +188,7 @@ TEST_CASE("NetSocket_Options", "[NetSocket]") {
 
 #pragma region Nonblocking
 
-TEST_CASE("NetSocket_Nonblocking", "[NetSocket]") {
+TEST_CASE("Nonblocking", "[NetSocket]") {
   if (is_codex()) return;
 
   if (true) {
@@ -208,7 +208,7 @@ TEST_CASE("NetSocket_Nonblocking", "[NetSocket]") {
 
 #pragma region SendRecv
 
-TEST_CASE("NetSocket_SendRecv", "[NetSocket]") {
+TEST_CASE("SendRecv", "[NetSocket]") {
   int fds[2];
   REQUIRE((::socketpair(AF_UNIX, SOCK_STREAM, 0, fds)) == (0));
 
@@ -236,7 +236,7 @@ TEST_CASE("NetSocket_SendRecv", "[NetSocket]") {
 
 #pragma region RecvAtContract
 
-TEST_CASE("NetSocket_RecvAtContract", "[NetSocket]") {
+TEST_CASE("RecvAtContract", "[NetSocket]") {
   auto [reader, writer] = net_socket::create_pair();
   REQUIRE((reader));
   REQUIRE((writer));
@@ -273,7 +273,7 @@ TEST_CASE("NetSocket_RecvAtContract", "[NetSocket]") {
 
 #pragma region BindListenAccept
 
-TEST_CASE("NetSocket_BindListenAccept", "[NetSocket]") {
+TEST_CASE("BindListenAccept", "[NetSocket]") {
   if (is_codex()) return;
 
   // Bind a listening socket to a free loopback port.
@@ -310,7 +310,7 @@ TEST_CASE("NetSocket_BindListenAccept", "[NetSocket]") {
 
 #pragma region FactoryMethods
 
-TEST_CASE("NetSocket_FactoryMethods", "[NetSocket]") {
+TEST_CASE("FactoryMethods", "[NetSocket]") {
   using namespace bool_enums;
 
   // create_ipv4 defaults to non-blocking TCP.
@@ -390,7 +390,7 @@ TEST_CASE("NetSocket_FactoryMethods", "[NetSocket]") {
 
 #pragma region SocketTypeString
 
-TEST_CASE("NetSocket_SocketTypeString", "[NetSocket]") {
+TEST_CASE("SocketTypeString", "[NetSocket]") {
   // Sequence enum names round-trip correctly starting from `stream` = 1.
   using namespace corvid::strings;
   using T = socket_type;
@@ -413,7 +413,7 @@ TEST_CASE("NetSocket_SocketTypeString", "[NetSocket]") {
 
 #pragma region AddressFamilyString
 
-TEST_CASE("NetSocket_AddressFamilyString", "[NetSocket]") {
+TEST_CASE("AddressFamilyString", "[NetSocket]") {
   // Sequence enum names starting from `unspecified` = 0.
   using namespace corvid::strings;
   using AF = address_family;
@@ -437,7 +437,7 @@ TEST_CASE("NetSocket_AddressFamilyString", "[NetSocket]") {
 
 #pragma region ProtocolTypeString
 
-TEST_CASE("NetSocket_ProtocolTypeString", "[NetSocket]") {
+TEST_CASE("ProtocolTypeString", "[NetSocket]") {
   // Each named protocol round-trips. (`tp` is unnamed in the spec and prints
   // as "U29", so it is intentionally excluded.)
   using namespace corvid::strings;
@@ -488,7 +488,7 @@ TEST_CASE("NetSocket_ProtocolTypeString", "[NetSocket]") {
 
 #pragma region SocketOptionString
 
-TEST_CASE("NetSocket_SocketOptionString", "[NetSocket]") {
+TEST_CASE("SocketOptionString", "[NetSocket]") {
   // Sequence enum: named values 1 ("debug") through 77 ("peerpidfd").
   // Aliases (`get_filter`=26, `detach_bpf`=27, `scm_txtime`=61) share values
   // with primary names and are omitted from the spec; the primary name wins.
@@ -537,7 +537,7 @@ TEST_CASE("NetSocket_SocketOptionString", "[NetSocket]") {
 
 #pragma region TcpOptionString
 
-TEST_CASE("NetSocket_TcpOptionString", "[NetSocket]") {
+TEST_CASE("TcpOptionString", "[NetSocket]") {
   // Sequence enum: named values 1 ("nodelay") through 37 ("tx_delay").
   using namespace corvid::strings;
   using TO = tcp_option;

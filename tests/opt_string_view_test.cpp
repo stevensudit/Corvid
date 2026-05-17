@@ -33,7 +33,7 @@ using namespace corvid::literals;
 
 #pragma region Construction
 
-TEST_CASE("OptStringViewTest_Construction", "[OptStringViewTest]") {
+TEST_CASE("Construction", "[OptStringViewTest]") {
   // Default-constructed string_view.
   if (true) {
     std::string_view v;
@@ -265,7 +265,7 @@ TEST_CASE("OptStringViewTest_Construction", "[OptStringViewTest]") {
 #pragma endregion
 #pragma region Optional
 
-TEST_CASE("OptStringViewTest_Optional", "[OptStringViewTest]") {
+TEST_CASE("Optional", "[OptStringViewTest]") {
   if (true) {
     std::optional<std::string> opt;
     opt_string_view osv{opt};
@@ -288,7 +288,7 @@ TEST_CASE("OptStringViewTest_Optional", "[OptStringViewTest]") {
 #pragma endregion
 #pragma region Workalike
 
-TEST_CASE("OptStringViewTest_Workalike", "[OptStringViewTest]") {
+TEST_CASE("Workalike", "[OptStringViewTest]") {
   // Verify optional-like interface.
   if (true) {
     opt_string_view osv;
@@ -339,7 +339,7 @@ std::string_view accept_overloaded(opt_string_view) { return "osv"; }
 #pragma endregion
 #pragma region Cast
 
-TEST_CASE("OptStringViewTest_Cast", "[OptStringViewTest]") {
+TEST_CASE("Cast", "[OptStringViewTest]") {
   // Casts "up" implicitly.
   CHECK(("abc"_osv) == ("abc"_osv));
   CHECK((accept_string_view("abc"sv)) == ("abc"));

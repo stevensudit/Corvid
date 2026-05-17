@@ -35,7 +35,7 @@ struct FakeResource {
 
 #pragma region TimerFuse_Default
 
-TEST_CASE("TimerFuse_Default", "[TimerFuse]") {
+TEST_CASE("Default", "[TimerFuse]") {
   // Default-constructed fuse is permanently unarmed.
   timer_fuse<FakeResource> fuse;
   CHECK((fuse.get_if_armed()) == (nullptr));
@@ -49,7 +49,7 @@ TEST_CASE("TimerFuse_Default", "[TimerFuse]") {
 #pragma endregion
 #pragma region TimerFuse_ArmedFires
 
-TEST_CASE("TimerFuse_ArmedFires", "[TimerFuse]") {
+TEST_CASE("ArmedFires", "[TimerFuse]") {
   // A fuse whose payload fires while the sequencer is unchanged returns the
   // live resource from `get_if_armed`.
   auto resource = std::make_shared<FakeResource>();
@@ -73,7 +73,7 @@ TEST_CASE("TimerFuse_ArmedFires", "[TimerFuse]") {
 #pragma endregion
 #pragma region TimerFuse_Disarm
 
-TEST_CASE("TimerFuse_Disarm", "[TimerFuse]") {
+TEST_CASE("Disarm", "[TimerFuse]") {
   // Calling `disarm` before the wheel ticks causes the payload to see a null
   // resource from `get_if_armed`.
   auto resource = std::make_shared<FakeResource>();
@@ -97,7 +97,7 @@ TEST_CASE("TimerFuse_Disarm", "[TimerFuse]") {
 #pragma endregion
 #pragma region TimerFuse_Rearm
 
-TEST_CASE("TimerFuse_Rearm", "[TimerFuse]") {
+TEST_CASE("Rearm", "[TimerFuse]") {
   // Re-arming increments the sequencer so the earlier fuse fizzles; only the
   // most-recently-armed fuse sees a live resource.
   auto resource = std::make_shared<FakeResource>();
@@ -134,7 +134,7 @@ TEST_CASE("TimerFuse_Rearm", "[TimerFuse]") {
 #pragma endregion
 #pragma region TimerFuse_ResourceExpired
 
-TEST_CASE("TimerFuse_ResourceExpired", "[TimerFuse]") {
+TEST_CASE("ResourceExpired", "[TimerFuse]") {
   // If the `shared_ptr` owning the resource is released before the payload
   // fires, `get_if_armed` returns nullptr (the `weak_ptr` is expired).
   auto resource = std::make_shared<FakeResource>();
@@ -158,7 +158,7 @@ TEST_CASE("TimerFuse_ResourceExpired", "[TimerFuse]") {
 #pragma endregion
 #pragma region TimerFuse_ExceedMaxDelay
 
-TEST_CASE("TimerFuse_ExceedMaxDelay", "[TimerFuse]") {
+TEST_CASE("ExceedMaxDelay", "[TimerFuse]") {
   // `set_timeout` returns false when the delay exceeds the wheel's range.
   // With slot_count=2 and tick_interval=1ms, max delay = 1ms.
   auto resource = std::make_shared<FakeResource>();

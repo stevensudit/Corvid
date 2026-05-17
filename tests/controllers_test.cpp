@@ -110,7 +110,7 @@ TEST_CASE("PidControllerTest", "[PidControllerTest]") {
 #pragma endregion
 #pragma region SopdtPlantTest
 
-TEST_CASE("sopdt_plant_test", "[sopdt]") {
+TEST_CASE("plant_test", "[sopdt]") {
   if (true) {
     // K=1, tau1=tau2=1, L=1.0, dt=0.1
     soptd_plant plant(1.0, 1.0, 1.0, 1.0, 0.1);

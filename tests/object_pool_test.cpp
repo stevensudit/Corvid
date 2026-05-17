@@ -35,7 +35,7 @@ static_assert(std::is_same_v<object_pool<int, 65536>::index_t, uint32_t>,
 
 #pragma region BorrowAndReturn
 
-TEST_CASE("ObjectPool_BorrowAndReturn", "[ObjectPool]") {
+TEST_CASE("BorrowAndReturn", "[ObjectPool]") {
   // Borrow a slot and verify it's valid.
   if (true) {
     object_pool<int, 4> pool;
@@ -74,7 +74,7 @@ TEST_CASE("ObjectPool_BorrowAndReturn", "[ObjectPool]") {
 #pragma endregion
 #pragma region FullPool
 
-TEST_CASE("ObjectPool_FullPool", "[ObjectPool]") {
+TEST_CASE("FullPool", "[ObjectPool]") {
   // Borrowing past capacity returns an empty `borrowed`.
   if (true) {
     object_pool<int, 2> pool;
@@ -92,7 +92,7 @@ TEST_CASE("ObjectPool_FullPool", "[ObjectPool]") {
 #pragma endregion
 #pragma region LIFOOrder
 
-TEST_CASE("ObjectPool_LIFOOrder", "[ObjectPool]") {
+TEST_CASE("LIFOOrder", "[ObjectPool]") {
   // Slots are returned in LIFO order: last-returned is first-borrowed.
   if (true) {
     object_pool<int, 4> pool;
@@ -116,7 +116,7 @@ TEST_CASE("ObjectPool_LIFOOrder", "[ObjectPool]") {
 #pragma endregion
 #pragma region MoveHandle
 
-TEST_CASE("ObjectPool_MoveHandle", "[ObjectPool]") {
+TEST_CASE("MoveHandle", "[ObjectPool]") {
   // Move construction transfers ownership; original becomes empty.
   if (true) {
     object_pool<int, 4> pool;
@@ -156,7 +156,7 @@ TEST_CASE("ObjectPool_MoveHandle", "[ObjectPool]") {
 #pragma endregion
 #pragma region MultipleSlots
 
-TEST_CASE("ObjectPool_MultipleSlots", "[ObjectPool]") {
+TEST_CASE("MultipleSlots", "[ObjectPool]") {
   // All slots can be borrowed and individually returned.
   if (true) {
     constexpr size_t cap = 8;
@@ -187,7 +187,7 @@ TEST_CASE("ObjectPool_MultipleSlots", "[ObjectPool]") {
 #pragma endregion
 #pragma region Callbacks
 
-TEST_CASE("ObjectPool_Callbacks", "[ObjectPool]") {
+TEST_CASE("Callbacks", "[ObjectPool]") {
   // BorrowCb is called on each borrow; ReturnCb is called on each return.
   if (true) {
     int borrow_count{};
@@ -241,7 +241,7 @@ TEST_CASE("ObjectPool_Callbacks", "[ObjectPool]") {
 #pragma endregion
 #pragma region CreateHelper
 
-TEST_CASE("ObjectPool_CreateHelper", "[ObjectPool]") {
+TEST_CASE("CreateHelper", "[ObjectPool]") {
   // `create` deduces callback types from lambdas and wires both callbacks in.
   if (true) {
     int borrow_count{};
@@ -271,7 +271,7 @@ TEST_CASE("ObjectPool_CreateHelper", "[ObjectPool]") {
 #pragma endregion
 #pragma region DetachAndReattach
 
-TEST_CASE("ObjectPool_DetachAndReattach", "[ObjectPool]") {
+TEST_CASE("DetachAndReattach", "[ObjectPool]") {
   // `detach` releases ownership from the handle without returning the slot.
   if (true) {
     object_pool<int, 1> pool;
@@ -306,7 +306,7 @@ TEST_CASE("ObjectPool_DetachAndReattach", "[ObjectPool]") {
 #pragma endregion
 #pragma region TokenBasics
 
-TEST_CASE("ObjectPool_TokenBasics", "[ObjectPool]") {
+TEST_CASE("TokenBasics", "[ObjectPool]") {
   // Default-constructed token is invalid on all fronts.
   if (true) {
     object_pool<int, 4> pool;
@@ -352,7 +352,7 @@ TEST_CASE("ObjectPool_TokenBasics", "[ObjectPool]") {
 #pragma endregion
 #pragma region TokenDetachAndBorrow
 
-TEST_CASE("ObjectPool_TokenDetachAndBorrow", "[ObjectPool]") {
+TEST_CASE("TokenDetachAndBorrow", "[ObjectPool]") {
   // `token(borrowed&&)` detaches the `borrowed`; slot stays out of the pool.
   if (true) {
     object_pool<int, 1> pool;
@@ -388,7 +388,7 @@ TEST_CASE("ObjectPool_TokenDetachAndBorrow", "[ObjectPool]") {
 #pragma endregion
 #pragma region TokenStaleness
 
-TEST_CASE("ObjectPool_TokenStaleness", "[ObjectPool]") {
+TEST_CASE("TokenStaleness", "[ObjectPool]") {
   // `get_ptr` returns nullptr once the slot's generation has advanced.
   if (true) {
     object_pool<int, 4> pool;
@@ -420,7 +420,7 @@ TEST_CASE("ObjectPool_TokenStaleness", "[ObjectPool]") {
 #pragma endregion
 #pragma region TokenAsInt
 
-TEST_CASE("ObjectPool_TokenAsInt", "[ObjectPool]") {
+TEST_CASE("TokenAsInt", "[ObjectPool]") {
   // Round-trip through `as_int` and `token(uint64_t)` resolves to the same
   // slot.
   if (true) {
@@ -460,7 +460,7 @@ TEST_CASE("ObjectPool_TokenAsInt", "[ObjectPool]") {
 #pragma endregion
 #pragma region Shutdown
 
-TEST_CASE("ObjectPool_Shutdown", "[ObjectPool]") {
+TEST_CASE("Shutdown", "[ObjectPool]") {
   // After `shutdown`, `borrow` fails.
   if (true) {
     object_pool<int, 4> pool;

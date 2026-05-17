@@ -24,7 +24,7 @@ using namespace corvid;
 
 #pragma region TombStone_Basic
 
-TEST_CASE("TombStone_Basic", "[TombStone]") {
+TEST_CASE("Basic", "[TombStone]") {
   tombstone t;
   CHECK_FALSE((t.dead()));
   CHECK_FALSE((t.get()));
@@ -54,7 +54,7 @@ TEST_CASE("TombStone_Basic", "[TombStone]") {
 #pragma endregion
 #pragma region TombStone_TrySet
 
-TEST_CASE("TombStone_TrySet", "[TombStone]") {
+TEST_CASE("TrySet", "[TombStone]") {
   tombstone t;
   // Returns false when value is already the target.
   CHECK_FALSE((t.try_set(false)));
@@ -70,7 +70,7 @@ TEST_CASE("TombStone_TrySet", "[TombStone]") {
 #pragma endregion
 #pragma region TombStone_Kill
 
-TEST_CASE("TombStone_Kill", "[TombStone]") {
+TEST_CASE("Kill", "[TombStone]") {
   tombstone t;
   // First kill succeeds.
   CHECK((t.kill()));

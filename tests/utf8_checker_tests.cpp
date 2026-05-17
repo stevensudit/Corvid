@@ -46,7 +46,7 @@ bool is_codex() {
 #pragma region Complete
 
 // ASCII and fully contained multibyte sequences leave the validator complete.
-TEST_CASE("Utf8Checker_Complete", "[Utf8Checker]") {
+TEST_CASE("Complete", "[Utf8Checker]") {
   utf8_checker v;
   CHECK((v.state()) == (utf8_checker::validation::complete));
   CHECK((v.validate("hello")) == (utf8_checker::validation::complete));
@@ -58,7 +58,7 @@ TEST_CASE("Utf8Checker_Complete", "[Utf8Checker]") {
 #pragma region IncompleteThenComplete
 
 // A split multibyte sequence transitions to incomplete, then back to complete.
-TEST_CASE("Utf8Checker_IncompleteThenComplete", "[Utf8Checker]") {
+TEST_CASE("IncompleteThenComplete", "[Utf8Checker]") {
   utf8_checker v;
   CHECK((v.validate("\xF0\x9F")) == (utf8_checker::validation::incomplete));
   CHECK((v.is_incomplete()));
@@ -70,7 +70,7 @@ TEST_CASE("Utf8Checker_IncompleteThenComplete", "[Utf8Checker]") {
 #pragma region InvalidSticky
 
 // Invalid leading and continuation bytes move the validator to sticky invalid.
-TEST_CASE("Utf8Checker_InvalidSticky", "[Utf8Checker]") {
+TEST_CASE("InvalidSticky", "[Utf8Checker]") {
   utf8_checker v;
   CHECK((v.validate("\x80")) == (utf8_checker::validation::failed));
   CHECK((v.is_failed()));
@@ -82,7 +82,7 @@ TEST_CASE("Utf8Checker_InvalidSticky", "[Utf8Checker]") {
 #pragma region RejectsInvalidSequences
 
 // Reject overlongs, surrogate code points, and code points past U+10FFFF.
-TEST_CASE("Utf8Checker_RejectsInvalidSequences", "[Utf8Checker]") {
+TEST_CASE("RejectsInvalidSequences", "[Utf8Checker]") {
   utf8_checker v;
   CHECK((v.validate("\xE0\x80\x80")) == (utf8_checker::validation::failed));
 

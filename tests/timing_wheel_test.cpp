@@ -32,7 +32,7 @@ static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
 
 #pragma region BasicFire
 
-TEST_CASE("TimingWheel_BasicFire", "[TimingWheel]") {
+TEST_CASE("BasicFire", "[TimingWheel]") {
   // Schedule at 200ms; should not fire at 100ms but should fire at 200ms.
   timing_wheel wheel(600, dur{100}, T(0));
   int fired = 0;
@@ -58,7 +58,7 @@ TEST_CASE("TimingWheel_BasicFire", "[TimingWheel]") {
 #pragma endregion
 #pragma region NotFiredEarly
 
-TEST_CASE("TimingWheel_NotFiredEarly", "[TimingWheel]") {
+TEST_CASE("NotFiredEarly", "[TimingWheel]") {
   // Verify no premature fire.
   timing_wheel wheel(600, dur{100}, T(0));
   int fired = 0;
@@ -81,7 +81,7 @@ TEST_CASE("TimingWheel_NotFiredEarly", "[TimingWheel]") {
 #pragma endregion
 #pragma region MultiSlot
 
-TEST_CASE("TimingWheel_MultiSlot", "[TimingWheel]") {
+TEST_CASE("MultiSlot", "[TimingWheel]") {
   // Three entries at 100/200/300ms; exactly one fires per 100ms tick.
   timing_wheel wheel(600, dur{100}, T(0));
   int count = 0;
@@ -116,7 +116,7 @@ TEST_CASE("TimingWheel_MultiSlot", "[TimingWheel]") {
 #pragma endregion
 #pragma region TickSkip
 
-TEST_CASE("TimingWheel_TickSkip", "[TimingWheel]") {
+TEST_CASE("TickSkip", "[TimingWheel]") {
   // A single tick jump drains all three slots at once.
   timing_wheel wheel(600, dur{100}, T(0));
   int count = 0;
@@ -147,7 +147,7 @@ TEST_CASE("TimingWheel_TickSkip", "[TimingWheel]") {
 #pragma endregion
 #pragma region TickTooEarly
 
-TEST_CASE("TimingWheel_TickTooEarly", "[TimingWheel]") {
+TEST_CASE("TickTooEarly", "[TimingWheel]") {
   // Ticks separated by less than 100ms are no-ops.
   timing_wheel wheel(600, dur{100}, T(0));
   int fired = 0;
@@ -170,7 +170,7 @@ TEST_CASE("TimingWheel_TickTooEarly", "[TimingWheel]") {
 #pragma endregion
 #pragma region ZeroDelay
 
-TEST_CASE("TimingWheel_ZeroDelay", "[TimingWheel]") {
+TEST_CASE("ZeroDelay", "[TimingWheel]") {
   // Zero delay is clamped to one tick; fires on the next tick, not current.
   timing_wheel wheel(600, dur{100}, T(0));
   int fired = 0;
@@ -192,7 +192,7 @@ TEST_CASE("TimingWheel_ZeroDelay", "[TimingWheel]") {
 #pragma endregion
 #pragma region OverflowFails
 
-TEST_CASE("TimingWheel_OverflowFails", "[TimingWheel]") {
+TEST_CASE("OverflowFails", "[TimingWheel]") {
   // A delay exceeding the wheel range is rejected; returns false.
   // Use slot_count=10 so the max is 900ms.
   timing_wheel wheel(10, dur{100}, T(0));
@@ -222,7 +222,7 @@ TEST_CASE("TimingWheel_OverflowFails", "[TimingWheel]") {
 #pragma endregion
 #pragma region SameSlotMultiple
 
-TEST_CASE("TimingWheel_SameSlotMultiple", "[TimingWheel]") {
+TEST_CASE("SameSlotMultiple", "[TimingWheel]") {
   // Five callbacks in the same slot all fire together.
   timing_wheel wheel(600, dur{100}, T(0));
   int count = 0;
@@ -242,7 +242,7 @@ TEST_CASE("TimingWheel_SameSlotMultiple", "[TimingWheel]") {
 #pragma endregion
 #pragma region RingWrap
 
-TEST_CASE("TimingWheel_RingWrap", "[TimingWheel]") {
+TEST_CASE("RingWrap", "[TimingWheel]") {
   // Advance near the end of the ring; a new entry wraps around to slot 0.
   // slot_count=10: slots 0..9, max delay = 900ms.
   timing_wheel wheel(10, dur{100}, T(0));
@@ -269,7 +269,7 @@ TEST_CASE("TimingWheel_RingWrap", "[TimingWheel]") {
 #pragma endregion
 #pragma region ScheduleDuringTick
 
-TEST_CASE("TimingWheel_ScheduleDuringTick", "[TimingWheel]") {
+TEST_CASE("ScheduleDuringTick", "[TimingWheel]") {
   // A callback that calls schedule() places the new entry in a future slot.
   timing_wheel wheel(600, dur{100}, T(0));
   int first = 0;
@@ -300,7 +300,7 @@ TEST_CASE("TimingWheel_ScheduleDuringTick", "[TimingWheel]") {
 #pragma endregion
 #pragma region CallbackOwnsMeta
 
-TEST_CASE("TimingWheel_CallbackOwnsMeta", "[TimingWheel]") {
+TEST_CASE("CallbackOwnsMeta", "[TimingWheel]") {
   // The callback closure owns all its own metadata (simulated ID + target).
   timing_wheel wheel(600, dur{100}, T(0));
 
@@ -342,7 +342,7 @@ TEST_CASE("TimingWheel_CallbackOwnsMeta", "[TimingWheel]") {
 #pragma endregion
 #pragma region StopAbortsTick
 
-TEST_CASE("TimingWheel_StopAbortsTick", "[TimingWheel]") {
+TEST_CASE("StopAbortsTick", "[TimingWheel]") {
   // Calling stop() during tick() prevents remaining callbacks from firing.
   timing_wheel wheel(600, dur{100}, T(0));
   int count = 0;

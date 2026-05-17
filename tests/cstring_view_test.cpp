@@ -33,7 +33,7 @@ using namespace corvid::literals;
 
 #pragma region Construction
 
-TEST_CASE("CStringViewTest_Construction", "[CStringViewTest]") {
+TEST_CASE("Construction", "[CStringViewTest]") {
   // Default-constructed string_view.
   if (true) {
     std::string_view v;
@@ -274,7 +274,7 @@ TEST_CASE("CStringViewTest_Construction", "[CStringViewTest]") {
 #pragma endregion
 #pragma region Optional
 
-TEST_CASE("CStringViewTest_Optional", "[CStringViewTest]") {
+TEST_CASE("Optional", "[CStringViewTest]") {
   if (true) {
     std::optional<std::string> opt;
     cstring_view csv{opt};
@@ -299,7 +299,7 @@ std::string_view accept_overloaded(cstring_view) { return "csv"; }
 
 #pragma region Cast
 
-TEST_CASE("CStringViewTest_Cast", "[CStringViewTest]") {
+TEST_CASE("Cast", "[CStringViewTest]") {
   // Casts "up" implicitly.
   CHECK(("abc"_csv) == ("abc"_csv));
   CHECK((accept_string_view("abc"sv)) == ("abc"));
@@ -439,7 +439,7 @@ TEST_CASE("CStringViewTestEqual", "[CStringViewTestEqual]") {
 #pragma endregion
 #pragma region Env
 
-TEST_CASE("CStringViewTest_Env", "[CStringViewTest]") {
+TEST_CASE("Env", "[CStringViewTest]") {
   auto path = "PATH"_env;
   CHECK((path) != (""));
   auto missing = "sdfk4r345dLKLJldksfdlkl"_env;

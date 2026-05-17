@@ -29,7 +29,7 @@ using namespace std::string_view_literals;
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region NoOpZeroSlab
-TEST_CASE("IouProvidedBufPool_NoOpZeroSlab", "[IouProvidedBufPool]") {
+TEST_CASE("NoOpZeroSlab", "[IouProvidedBufPool]") {
   // slab_size=0 produces a no-op pool with no allocation.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
@@ -51,7 +51,7 @@ TEST_CASE("IouProvidedBufPool_NoOpZeroSlab", "[IouProvidedBufPool]") {
 #pragma endregion
 
 #pragma region ConstructValid
-TEST_CASE("IouProvidedBufPool_ConstructValid", "[IouProvidedBufPool]") {
+TEST_CASE("ConstructValid", "[IouProvidedBufPool]") {
   // Valid construction: sizes, buf_count, slab_size, and bgid are correct.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
@@ -72,7 +72,7 @@ TEST_CASE("IouProvidedBufPool_ConstructValid", "[IouProvidedBufPool]") {
 #pragma endregion
 
 #pragma region BufCountFromDivision
-TEST_CASE("IouProvidedBufPool_BufCountFromDivision", "[IouProvidedBufPool]") {
+TEST_CASE("BufCountFromDivision", "[IouProvidedBufPool]") {
   // buf_count is derived as slab_size / buf_size.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
@@ -99,7 +99,7 @@ TEST_CASE("IouProvidedBufPool_BufCountFromDivision", "[IouProvidedBufPool]") {
 #pragma endregion
 
 #pragma region BufDataOffsets
-TEST_CASE("IouProvidedBufPool_BufDataOffsets", "[IouProvidedBufPool]") {
+TEST_CASE("BufDataOffsets", "[IouProvidedBufPool]") {
   // buf_data(bid) returns pointers that are exactly buf_size apart.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
@@ -117,7 +117,7 @@ TEST_CASE("IouProvidedBufPool_BufDataOffsets", "[IouProvidedBufPool]") {
 #pragma endregion
 
 #pragma region RegisterWithRing
-TEST_CASE("IouProvidedBufPool_RegisterWithRing", "[IouProvidedBufPool]") {
+TEST_CASE("RegisterWithRing", "[IouProvidedBufPool]") {
   // register_with succeeds, and a second call on the same pool fails.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
@@ -133,8 +133,7 @@ TEST_CASE("IouProvidedBufPool_RegisterWithRing", "[IouProvidedBufPool]") {
 #pragma endregion
 
 #pragma region ReconstructBeforeRegister
-TEST_CASE("IouProvidedBufPool_ReconstructBeforeRegister",
-    "[IouProvidedBufPool]") {
+TEST_CASE("ReconstructBeforeRegister", "[IouProvidedBufPool]") {
   // reconstruct before register_with returns an empty buffer.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
@@ -150,7 +149,7 @@ TEST_CASE("IouProvidedBufPool_ReconstructBeforeRegister",
 #pragma endregion
 
 #pragma region ReconstructPayload
-TEST_CASE("IouProvidedBufPool_ReconstructPayload", "[IouProvidedBufPool]") {
+TEST_CASE("ReconstructPayload", "[IouProvidedBufPool]") {
   // After register_with, reconstruct creates a read buffer with the correct
   // payload span.
   iou_provided_buf_pool::dispatcher_t dispatcher;
@@ -188,8 +187,7 @@ TEST_CASE("IouProvidedBufPool_ReconstructPayload", "[IouProvidedBufPool]") {
 #pragma endregion
 
 #pragma region ReconstructErrorResult
-TEST_CASE("IouProvidedBufPool_ReconstructErrorResult",
-    "[IouProvidedBufPool]") {
+TEST_CASE("ReconstructErrorResult", "[IouProvidedBufPool]") {
   // A CQE with buffer flag set but an error result yields an empty payload.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
@@ -210,8 +208,7 @@ TEST_CASE("IouProvidedBufPool_ReconstructErrorResult",
 #pragma endregion
 
 #pragma region ReconstructNoBufferFlag
-TEST_CASE("IouProvidedBufPool_ReconstructNoBufferFlag",
-    "[IouProvidedBufPool]") {
+TEST_CASE("ReconstructNoBufferFlag", "[IouProvidedBufPool]") {
   // A CQE without the buffer flag returns a synthetic stub: no payload, but
   // the CQE `res` is preserved so callers can distinguish EOF (`res=0`)
   // from cancel, hard errors, etc.
@@ -233,8 +230,7 @@ TEST_CASE("IouProvidedBufPool_ReconstructNoBufferFlag",
 #pragma endregion
 
 #pragma region ReconstructOutOfRangeBid
-TEST_CASE("IouProvidedBufPool_ReconstructOutOfRangeBid",
-    "[IouProvidedBufPool]") {
+TEST_CASE("ReconstructOutOfRangeBid", "[IouProvidedBufPool]") {
   // A buffer ID >= buf_count returns an empty buffer.
   iou_provided_buf_pool::dispatcher_t dispatcher;
   if (true) {
@@ -254,7 +250,7 @@ TEST_CASE("IouProvidedBufPool_ReconstructOutOfRangeBid",
 #pragma endregion
 
 #pragma region ReturnReplenishes
-TEST_CASE("IouProvidedBufPool_ReturnReplenishes", "[IouProvidedBufPool]") {
+TEST_CASE("ReturnReplenishes", "[IouProvidedBufPool]") {
   // Destroying the reconstructed buffer returns the slot to the ring.
   // We verify indirectly: reconstruct the same slot twice (once after the
   // first buffer is destroyed) to confirm the slot was replenished.

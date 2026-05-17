@@ -35,7 +35,7 @@ template<operation op, typename... Args>
 }
 
 #pragma region Constants
-TEST_CASE("LangTest_Constants", "[LangTest]") {
+TEST_CASE("Constants", "[LangTest]") {
   using enum operation;
   node_ptr root;
 
@@ -77,7 +77,7 @@ TEST_CASE("LangTest_Constants", "[LangTest]") {
 #pragma endregion
 #pragma region Negation
 
-TEST_CASE("LangTest_Negation", "[LangTest]") {
+TEST_CASE("Negation", "[LangTest]") {
   using enum operation;
   node_ptr root;
 
@@ -140,7 +140,7 @@ TEST_CASE("LangTest_Negation", "[LangTest]") {
 #pragma endregion
 #pragma region Flattening
 
-TEST_CASE("LangTest_Flattening", "[LangTest]") {
+TEST_CASE("Flattening", "[LangTest]") {
   using enum operation;
   node_ptr root;
 
@@ -187,7 +187,7 @@ TEST_CASE("LangTest_Flattening", "[LangTest]") {
 #pragma endregion
 #pragma region Distribution
 
-TEST_CASE("LangTest_Distribution", "[LangTest]") {
+TEST_CASE("Distribution", "[LangTest]") {
   using enum operation;
   node_ptr root;
 
@@ -245,7 +245,7 @@ TEST_CASE("LangTest_Distribution", "[LangTest]") {
 #pragma endregion
 #pragma region Wikipedia
 
-TEST_CASE("LangTest_Wikipedia", "[LangTest]") {
+TEST_CASE("Wikipedia", "[LangTest]") {
   using enum operation;
   node_ptr root;
 
@@ -282,7 +282,7 @@ TEST_CASE("LangTest_Wikipedia", "[LangTest]") {
 #pragma endregion
 #pragma region Comprehensive
 
-TEST_CASE("LangTest_Comprehensive", "[LangTest]") {
+TEST_CASE("Comprehensive", "[LangTest]") {
   using enum operation;
   node_ptr root;
 

@@ -42,7 +42,7 @@ static size_t sim_read(iou_buf_pool::buffer& buf, std::string_view data) {
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 #pragma region ReadInitialState
-TEST_CASE("IouBufPool_ReadInitialState", "[IouBufPool]") {
+TEST_CASE("ReadInitialState", "[IouBufPool]") {
   // Freshly-allocated read buffer: empty payload, active = entire block.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -66,7 +66,7 @@ TEST_CASE("IouBufPool_ReadInitialState", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region ReadAfterUpdate
-TEST_CASE("IouBufPool_ReadAfterUpdate", "[IouBufPool]") {
+TEST_CASE("ReadAfterUpdate", "[IouBufPool]") {
   // After a simulated read, payload grows and active shrinks to the tail.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -85,7 +85,7 @@ TEST_CASE("IouBufPool_ReadAfterUpdate", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region ReadMultipleUpdates
-TEST_CASE("IouBufPool_ReadMultipleUpdates", "[IouBufPool]") {
+TEST_CASE("ReadMultipleUpdates", "[IouBufPool]") {
   // Two successive reads concatenate into a single growing payload.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -104,7 +104,7 @@ TEST_CASE("IouBufPool_ReadMultipleUpdates", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region ReadConsumePartial
-TEST_CASE("IouBufPool_ReadConsumePartial", "[IouBufPool]") {
+TEST_CASE("ReadConsumePartial", "[IouBufPool]") {
   // consume_read(n) with n < payload returns n bytes and advances the front.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -127,7 +127,7 @@ TEST_CASE("IouBufPool_ReadConsumePartial", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region ReadConsumeFullReset
-TEST_CASE("IouBufPool_ReadConsumeFullReset", "[IouBufPool]") {
+TEST_CASE("ReadConsumeFullReset", "[IouBufPool]") {
   // Consuming all payload bytes resets the buffer to its initial state.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -149,7 +149,7 @@ TEST_CASE("IouBufPool_ReadConsumeFullReset", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region ReadConsumeOverRequest
-TEST_CASE("IouBufPool_ReadConsumeOverRequest", "[IouBufPool]") {
+TEST_CASE("ReadConsumeOverRequest", "[IouBufPool]") {
   // Requesting more bytes than available returns only what's present.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -167,7 +167,7 @@ TEST_CASE("IouBufPool_ReadConsumeOverRequest", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region ReadUpdateError
-TEST_CASE("IouBufPool_ReadUpdateError", "[IouBufPool]") {
+TEST_CASE("ReadUpdateError", "[IouBufPool]") {
   // An error result leaves spans unchanged.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -187,7 +187,7 @@ TEST_CASE("IouBufPool_ReadUpdateError", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region WriteInitialState
-TEST_CASE("IouBufPool_WriteInitialState", "[IouBufPool]") {
+TEST_CASE("WriteInitialState", "[IouBufPool]") {
   // Freshly-allocated write buffer: both payload and active are empty.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -203,7 +203,7 @@ TEST_CASE("IouBufPool_WriteInitialState", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region WriteViaAppend
-TEST_CASE("IouBufPool_WriteViaAppend", "[IouBufPool]") {
+TEST_CASE("WriteViaAppend", "[IouBufPool]") {
   // append fills payload and active_span covers the same bytes.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -226,7 +226,7 @@ TEST_CASE("IouBufPool_WriteViaAppend", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region WriteAppendOverflow
-TEST_CASE("IouBufPool_WriteAppendOverflow", "[IouBufPool]") {
+TEST_CASE("WriteAppendOverflow", "[IouBufPool]") {
   // append returns false without modifying anything when data would not fit.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -245,7 +245,7 @@ TEST_CASE("IouBufPool_WriteAppendOverflow", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region WriteViaTailAndUpdatePayload
-TEST_CASE("IouBufPool_WriteViaTailAndUpdatePayload", "[IouBufPool]") {
+TEST_CASE("WriteViaTailAndUpdatePayload", "[IouBufPool]") {
   // Manual fill: get tail_span, memcpy, then update_payload.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -266,7 +266,7 @@ TEST_CASE("IouBufPool_WriteViaTailAndUpdatePayload", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region WriteUpdatePayloadBadStart
-TEST_CASE("IouBufPool_WriteUpdatePayloadBadStart", "[IouBufPool]") {
+TEST_CASE("WriteUpdatePayloadBadStart", "[IouBufPool]") {
   // update_payload rejects a span that does not start at payload_span's end.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -284,7 +284,7 @@ TEST_CASE("IouBufPool_WriteUpdatePayloadBadStart", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region WriteUpdatePayloadOverflow
-TEST_CASE("IouBufPool_WriteUpdatePayloadOverflow", "[IouBufPool]") {
+TEST_CASE("WriteUpdatePayloadOverflow", "[IouBufPool]") {
   // update_payload rejects a span whose end exceeds full_span.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -301,7 +301,7 @@ TEST_CASE("IouBufPool_WriteUpdatePayloadOverflow", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region WriteUpdatePartialSend
-TEST_CASE("IouBufPool_WriteUpdatePartialSend", "[IouBufPool]") {
+TEST_CASE("WriteUpdatePartialSend", "[IouBufPool]") {
   // Partial send advances active_span front while payload_span stays fixed.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -325,7 +325,7 @@ TEST_CASE("IouBufPool_WriteUpdatePartialSend", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region WriteFullyConsumedThenAppend
-TEST_CASE("IouBufPool_WriteFullyConsumedThenAppend", "[IouBufPool]") {
+TEST_CASE("WriteFullyConsumedThenAppend", "[IouBufPool]") {
   // After a complete send, the next append resets from the block base.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -352,7 +352,7 @@ TEST_CASE("IouBufPool_WriteFullyConsumedThenAppend", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region WriteFullyConsumedThenTailSpan
-TEST_CASE("IouBufPool_WriteFullyConsumedThenTailSpan", "[IouBufPool]") {
+TEST_CASE("WriteFullyConsumedThenTailSpan", "[IouBufPool]") {
   // After a complete send, tail_span() triggers an implicit reset.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -373,7 +373,7 @@ TEST_CASE("IouBufPool_WriteFullyConsumedThenTailSpan", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region WriteUpdateError
-TEST_CASE("IouBufPool_WriteUpdateError", "[IouBufPool]") {
+TEST_CASE("WriteUpdateError", "[IouBufPool]") {
   // An error result leaves spans unchanged.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -395,7 +395,7 @@ TEST_CASE("IouBufPool_WriteUpdateError", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region AppendToPartiallySentBuffer
-TEST_CASE("IouBufPool_AppendToPartiallySentBuffer", "[IouBufPool]") {
+TEST_CASE("AppendToPartiallySentBuffer", "[IouBufPool]") {
   // After a partial send, appending more extends both payload and active.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -423,7 +423,7 @@ TEST_CASE("IouBufPool_AppendToPartiallySentBuffer", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region PromoteToWrite
-TEST_CASE("IouBufPool_PromoteToWrite", "[IouBufPool]") {
+TEST_CASE("PromoteToWrite", "[IouBufPool]") {
   // Promoting a read buffer keeps payload; active_span = payload_span.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -446,7 +446,7 @@ TEST_CASE("IouBufPool_PromoteToWrite", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region DemoteToRead
-TEST_CASE("IouBufPool_DemoteToRead", "[IouBufPool]") {
+TEST_CASE("DemoteToRead", "[IouBufPool]") {
   // Demoting a write buffer keeps payload; active_span = tail after payload.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -467,7 +467,7 @@ TEST_CASE("IouBufPool_DemoteToRead", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region PromoteDemoteRoundtrip
-TEST_CASE("IouBufPool_PromoteDemoteRoundtrip", "[IouBufPool]") {
+TEST_CASE("PromoteDemoteRoundtrip", "[IouBufPool]") {
   // promote_to_write then demote_to_read preserves payload throughout.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -489,7 +489,7 @@ TEST_CASE("IouBufPool_PromoteDemoteRoundtrip", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region AvailableTracking
-TEST_CASE("IouBufPool_AvailableTracking", "[IouBufPool]") {
+TEST_CASE("AvailableTracking", "[IouBufPool]") {
   // Allocating reduces available bytes; reset restores them.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -513,7 +513,7 @@ TEST_CASE("IouBufPool_AvailableTracking", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region MoveBuffer
-TEST_CASE("IouBufPool_MoveBuffer", "[IouBufPool]") {
+TEST_CASE("MoveBuffer", "[IouBufPool]") {
   // Moving a buffer transfers ownership; source becomes empty.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -530,7 +530,7 @@ TEST_CASE("IouBufPool_MoveBuffer", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region CoalesceSmallToMedium
-TEST_CASE("IouBufPool_CoalesceSmallToMedium", "[IouBufPool]") {
+TEST_CASE("CoalesceSmallToMedium", "[IouBufPool]") {
   // Four smalls from the same medium coalesce back to one medium.
   // The three sibling mediums are held, so the large does NOT coalesce.
   if (true) {
@@ -571,7 +571,7 @@ TEST_CASE("IouBufPool_CoalesceSmallToMedium", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region CoalesceMediumToLarge
-TEST_CASE("IouBufPool_CoalesceMediumToLarge", "[IouBufPool]") {
+TEST_CASE("CoalesceMediumToLarge", "[IouBufPool]") {
   // Four mediums from the same large coalesce back to one large.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -599,7 +599,7 @@ TEST_CASE("IouBufPool_CoalesceMediumToLarge", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region CoalesceChain
-TEST_CASE("IouBufPool_CoalesceChain", "[IouBufPool]") {
+TEST_CASE("CoalesceChain", "[IouBufPool]") {
   // Allocate all 512 smalls, free all 512: cascading coalesce must rebuild
   // all 32 large blocks.
   if (true) {
@@ -629,7 +629,7 @@ TEST_CASE("IouBufPool_CoalesceChain", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region UdpTierAlloc
-TEST_CASE("IouBufPool_UdpTierAlloc", "[IouBufPool]") {
+TEST_CASE("UdpTierAlloc", "[IouBufPool]") {
   // Allocate all 1024 x 2 KB slots (2 MB / 2 KB), verify each succeeds and
   // has the right size, then confirm full pool recovery after freeing all.
   if (true) {
@@ -651,7 +651,7 @@ TEST_CASE("IouBufPool_UdpTierAlloc", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region UpdateRecvmsgMsgFlagsDefault
-TEST_CASE("IouBufPool_UpdateRecvmsgMsgFlagsDefault", "[IouBufPool]") {
+TEST_CASE("UpdateRecvmsgMsgFlagsDefault", "[IouBufPool]") {
   // A freshly borrowed buffer has msg_flags() == 0.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -663,7 +663,7 @@ TEST_CASE("IouBufPool_UpdateRecvmsgMsgFlagsDefault", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region UpdateRecvmsgValid
-TEST_CASE("IouBufPool_UpdateRecvmsgValid", "[IouBufPool]") {
+TEST_CASE("UpdateRecvmsgValid", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_reader();
@@ -709,7 +709,7 @@ TEST_CASE("IouBufPool_UpdateRecvmsgValid", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region UpdateRecvmsgTruncated
-TEST_CASE("IouBufPool_UpdateRecvmsgTruncated", "[IouBufPool]") {
+TEST_CASE("UpdateRecvmsgTruncated", "[IouBufPool]") {
   // When the kernel sets MSG_TRUNC in out->flags, msg_flags() reflects it.
   if (true) {
     auto pool = iou_buf_pool::create();
@@ -745,7 +745,7 @@ TEST_CASE("IouBufPool_UpdateRecvmsgTruncated", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region SyntheticPrefilled
-TEST_CASE("IouBufPool_SyntheticPrefilled", "[IouBufPool]") {
+TEST_CASE("SyntheticPrefilled", "[IouBufPool]") {
   // `make_synthetic` produces a non-owning read buffer whose payload covers
   // the input span and whose active tail is empty.
   std::string data{"hello world"};
@@ -766,7 +766,7 @@ TEST_CASE("IouBufPool_SyntheticPrefilled", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region SyntheticDestructionHarmless
-TEST_CASE("IouBufPool_SyntheticDestructionHarmless", "[IouBufPool]") {
+TEST_CASE("SyntheticDestructionHarmless", "[IouBufPool]") {
   // The buffer holds no real allocation, so going out of scope must not
   // touch the data the caller owns.
   std::string data{"keepalive"};
@@ -781,7 +781,7 @@ TEST_CASE("IouBufPool_SyntheticDestructionHarmless", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region SyntheticConsumeRead
-TEST_CASE("IouBufPool_SyntheticConsumeRead", "[IouBufPool]") {
+TEST_CASE("SyntheticConsumeRead", "[IouBufPool]") {
   // A synthetic buffer behaves like a freshly-completed read: the consumer
   // can drain it via `consume_read`.
   std::string data{"abcdef"};
@@ -802,7 +802,7 @@ TEST_CASE("IouBufPool_SyntheticConsumeRead", "[IouBufPool]") {
 #pragma endregion
 
 #pragma region SyntheticMove
-TEST_CASE("IouBufPool_SyntheticMove", "[IouBufPool]") {
+TEST_CASE("SyntheticMove", "[IouBufPool]") {
   // Moving a synthetic buffer transfers the view; the source ends up empty.
   std::string data{"transferable"};
   iou_buffer::span_t span{reinterpret_cast<std::byte*>(data.data()),

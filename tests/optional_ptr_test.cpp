@@ -26,7 +26,7 @@ using corvid::internal::optional_ptr;
 
 #pragma region Construction
 
-TEST_CASE("OptionalPtrTest_Construction", "[OptionalPtrTest]") {
+TEST_CASE("Construction", "[OptionalPtrTest]") {
   if (true) {
     optional_ptr<int*> o;
     CHECK_FALSE((o.has_value()));
@@ -79,7 +79,7 @@ TEST_CASE("OptionalPtrTest_Construction", "[OptionalPtrTest]") {
 #pragma endregion
 #pragma region Access
 
-TEST_CASE("OptionalPtrTest_Access", "[OptionalPtrTest]") {
+TEST_CASE("Access", "[OptionalPtrTest]") {
   if (true) {
     auto test{"test"s};
     optional_ptr o = &test;
@@ -119,7 +119,7 @@ TEST_CASE("OptionalPtrTest_Access", "[OptionalPtrTest]") {
 #pragma endregion
 #pragma region OrElse
 
-TEST_CASE("OptionalPtrTest_OrElse", "[OptionalPtrTest]") {
+TEST_CASE("OrElse", "[OptionalPtrTest]") {
   if (true) {
     optional_ptr<std::string*> o;
     CHECK_FALSE((o.has_value()));
@@ -136,7 +136,7 @@ TEST_CASE("OptionalPtrTest_OrElse", "[OptionalPtrTest]") {
 #pragma endregion
 #pragma region ConstOrPtr
 
-TEST_CASE("OptionalPtrTest_ConstOrPtr", "[OptionalPtrTest]") {
+TEST_CASE("ConstOrPtr", "[OptionalPtrTest]") {
   if (true) {
     const auto test{"test"s};
     optional_ptr<const std::string*> o;
@@ -161,7 +161,7 @@ TEST_CASE("OptionalPtrTest_ConstOrPtr", "[OptionalPtrTest]") {
 #pragma endregion
 #pragma region Smart
 
-TEST_CASE("OptionalPtrTest_Smart", "[OptionalPtrTest]") {
+TEST_CASE("Smart", "[OptionalPtrTest]") {
   if (true) {
     auto test{"test"s};
     optional_ptr o = std::make_unique<std::string>(test);
@@ -236,7 +236,7 @@ TEST_CASE("OptionalPtrTest_Smart", "[OptionalPtrTest]") {
 #pragma endregion
 #pragma region Dumb
 
-TEST_CASE("OptionalPtrTest_Dumb", "[OptionalPtrTest]") {
+TEST_CASE("Dumb", "[OptionalPtrTest]") {
   using O = optional_ptr<int*>;
 
   if (true) {

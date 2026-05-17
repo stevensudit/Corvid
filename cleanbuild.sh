@@ -6,9 +6,9 @@ set -e
 # Choose which standard library to use. Optionally pass a test source filename
 # first to build and run a matching unit test, then pass "libstdcpp" or
 # "libcxx" to override the default. Add "tidy" to run clang-tidy during the
-# build. Add a sanitizer mode ("asan", "tsan", or "ubsan") to instrument the
-# build with the corresponding LLVM sanitizer. The default is `libcxx`, no
-# tidy, no sanitizer.
+# build. Add a sanitizer mode ("asan" [which includes ubsan], "tsan", "ubsan",
+# or "msan") to instrument the build with the corresponding LLVM sanitizer.
+# The default is `libcxx`, no tidy, no sanitizer.
 
 choice=""
 use_tidy=false

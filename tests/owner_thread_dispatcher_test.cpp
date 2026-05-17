@@ -46,7 +46,7 @@ public:
 
 #pragma region IsLoopThread
 
-TEST_CASE("OwnerThreadDispatcher_IsLoopThread", "[OwnerThreadDispatcher]") {
+TEST_CASE("IsLoopThread", "[OwnerThreadDispatcher]") {
   // Constructor thread is the loop thread; other threads are not.
   owner_thread_dispatcher<> dispatcher;
   CHECK((dispatcher.is_loop_thread()));
@@ -60,7 +60,7 @@ TEST_CASE("OwnerThreadDispatcher_IsLoopThread", "[OwnerThreadDispatcher]") {
 
 #pragma region PostAndExecute
 
-TEST_CASE("OwnerThreadDispatcher_PostAndExecute", "[OwnerThreadDispatcher]") {
+TEST_CASE("PostAndExecute", "[OwnerThreadDispatcher]") {
   // `post` queues callbacks; `execute_post_queue` drains and returns count.
   OwnerThreadTestDispatcher dispatcher;
   int count{0};
@@ -84,8 +84,7 @@ TEST_CASE("OwnerThreadDispatcher_PostAndExecute", "[OwnerThreadDispatcher]") {
 
 #pragma region ExecutePostQueue_Empty
 
-TEST_CASE("OwnerThreadDispatcher_ExecutePostQueue_Empty",
-    "[OwnerThreadDispatcher]") {
+TEST_CASE("ExecutePostQueue_Empty", "[OwnerThreadDispatcher]") {
   // Empty queue returns 0 and does not crash.
   OwnerThreadTestDispatcher dispatcher;
   CHECK((dispatcher.execute_post_queue()) == (0U));
@@ -94,8 +93,7 @@ TEST_CASE("OwnerThreadDispatcher_ExecutePostQueue_Empty",
 
 #pragma region ExecuteOrPost_OnLoopThread
 
-TEST_CASE("OwnerThreadDispatcher_ExecuteOrPost_OnLoopThread",
-    "[OwnerThreadDispatcher]") {
+TEST_CASE("ExecuteOrPost_OnLoopThread", "[OwnerThreadDispatcher]") {
   // On the loop thread `execute_or_post` runs inline without queuing.
   OwnerThreadTestDispatcher dispatcher;
   int count{0};
@@ -111,8 +109,7 @@ TEST_CASE("OwnerThreadDispatcher_ExecuteOrPost_OnLoopThread",
 
 #pragma region ExecuteOrPost_OffLoopThread
 
-TEST_CASE("OwnerThreadDispatcher_ExecuteOrPost_OffLoopThread",
-    "[OwnerThreadDispatcher]") {
+TEST_CASE("ExecuteOrPost_OffLoopThread", "[OwnerThreadDispatcher]") {
   // From a non-loop thread `execute_or_post` posts without executing inline.
   OwnerThreadTestDispatcher dispatcher;
   relaxed_atomic_int count{0};
@@ -132,8 +129,7 @@ TEST_CASE("OwnerThreadDispatcher_ExecuteOrPost_OffLoopThread",
 
 #pragma region PostAndWait_OnLoopThread
 
-TEST_CASE("OwnerThreadDispatcher_PostAndWait_OnLoopThread",
-    "[OwnerThreadDispatcher]") {
+TEST_CASE("PostAndWait_OnLoopThread", "[OwnerThreadDispatcher]") {
   // On the loop thread `post_and_wait` executes the callback directly.
   OwnerThreadTestDispatcher dispatcher;
   int count{0};
@@ -149,8 +145,7 @@ TEST_CASE("OwnerThreadDispatcher_PostAndWait_OnLoopThread",
 
 #pragma region PostAndWait_OffLoopThread
 
-TEST_CASE("OwnerThreadDispatcher_PostAndWait_OffLoopThread",
-    "[OwnerThreadDispatcher]") {
+TEST_CASE("PostAndWait_OffLoopThread", "[OwnerThreadDispatcher]") {
   // From a non-loop thread `post_and_wait` blocks until the loop thread
   // drains the queue.
   OwnerThreadTestDispatcher dispatcher;
@@ -179,8 +174,7 @@ TEST_CASE("OwnerThreadDispatcher_PostAndWait_OffLoopThread",
 
 #pragma region QueueHighWatermark
 
-TEST_CASE("OwnerThreadDispatcher_QueueHighWatermark",
-    "[OwnerThreadDispatcher]") {
+TEST_CASE("QueueHighWatermark", "[OwnerThreadDispatcher]") {
   // `queue_high_watermark` reflects the maximum capacity seen.
   OwnerThreadTestDispatcher dispatcher{4};
   CHECK((dispatcher.queue_high_watermark()) >= (4U));
@@ -193,7 +187,7 @@ TEST_CASE("OwnerThreadDispatcher_QueueHighWatermark",
 
 #pragma region DoubleBuffer
 
-TEST_CASE("OwnerThreadDispatcher_DoubleBuffer", "[OwnerThreadDispatcher]") {
+TEST_CASE("DoubleBuffer", "[OwnerThreadDispatcher]") {
   // Callbacks posted during `execute_post_queue` go into the inactive buffer
   // and are deferred to the next drain.
   OwnerThreadTestDispatcher dispatcher;
@@ -222,7 +216,7 @@ TEST_CASE("OwnerThreadDispatcher_DoubleBuffer", "[OwnerThreadDispatcher]") {
 
 #pragma region WakeFd
 
-TEST_CASE("OwnerThreadDispatcher_WakeFd", "[OwnerThreadDispatcher]") {
+TEST_CASE("WakeFd", "[OwnerThreadDispatcher]") {
   // `wake_fd` is signaled exactly once when the queue transitions from empty.
   OwnerThreadTestDispatcher dispatcher;
 
@@ -243,8 +237,7 @@ TEST_CASE("OwnerThreadDispatcher_WakeFd", "[OwnerThreadDispatcher]") {
 
 #pragma region ExecuteOrPostWithRetry_Success
 
-TEST_CASE("OwnerThreadDispatcher_ExecuteOrPostWithRetry_Success",
-    "[OwnerThreadDispatcher]") {
+TEST_CASE("ExecuteOrPostWithRetry_Success", "[OwnerThreadDispatcher]") {
   // On the loop thread, fn succeeds immediately; returns true without posting.
   OwnerThreadTestDispatcher dispatcher;
   int calls{0};
@@ -262,8 +255,7 @@ TEST_CASE("OwnerThreadDispatcher_ExecuteOrPostWithRetry_Success",
 
 #pragma region ExecuteOrPostWithRetry_ExhaustedRetry
 
-TEST_CASE("OwnerThreadDispatcher_ExecuteOrPostWithRetry_ExhaustedRetry",
-    "[OwnerThreadDispatcher]") {
+TEST_CASE("ExecuteOrPostWithRetry_ExhaustedRetry", "[OwnerThreadDispatcher]") {
   // With retry_count=0 and a fn that always fails, returns false immediately.
   OwnerThreadTestDispatcher dispatcher;
   int calls{0};
@@ -281,8 +273,7 @@ TEST_CASE("OwnerThreadDispatcher_ExecuteOrPostWithRetry_ExhaustedRetry",
 
 #pragma region ExecuteOrPostWithRetry_Retry
 
-TEST_CASE("OwnerThreadDispatcher_ExecuteOrPostWithRetry_Retry",
-    "[OwnerThreadDispatcher]") {
+TEST_CASE("ExecuteOrPostWithRetry_Retry", "[OwnerThreadDispatcher]") {
   // fn fails the first time; the retry posted to the queue succeeds.
   OwnerThreadTestDispatcher dispatcher;
   int attempts{0};
@@ -302,8 +293,7 @@ TEST_CASE("OwnerThreadDispatcher_ExecuteOrPostWithRetry_Retry",
 
 #pragma region ExecuteOrPostWithRetry_OffLoopThread
 
-TEST_CASE("OwnerThreadDispatcher_ExecuteOrPostWithRetry_OffLoopThread",
-    "[OwnerThreadDispatcher]") {
+TEST_CASE("ExecuteOrPostWithRetry_OffLoopThread", "[OwnerThreadDispatcher]") {
   // From a non-loop thread, fn is never called inline; it is always posted.
   OwnerThreadTestDispatcher dispatcher;
   relaxed_atomic_int calls{0};

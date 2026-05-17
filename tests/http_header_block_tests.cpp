@@ -45,7 +45,7 @@ bool is_codex() {
 // Verify that a well-formed HTTP/1.1 GET request is parsed correctly.
 #pragma region ParseHttp11
 
-TEST_CASE("HttpHeaderBlock_ParseHttp11", "[HttpHeaderBlock]") {
+TEST_CASE("ParseHttp11", "[HttpHeaderBlock]") {
   request_head req;
   // The final crlf was parsed out by `terminated_text_parser`, as part of the
   // crlfcrlf sentinel.
@@ -65,7 +65,7 @@ TEST_CASE("HttpHeaderBlock_ParseHttp11", "[HttpHeaderBlock]") {
 #pragma region ParseHttp10
 
 // Verify that a well-formed HTTP/1.0 request is parsed correctly.
-TEST_CASE("HttpHeaderBlock_ParseHttp10", "[HttpHeaderBlock]") {
+TEST_CASE("ParseHttp10", "[HttpHeaderBlock]") {
   request_head req;
   REQUIRE((req.parse("POST /submit HTTP/1.0\r\n")));
   CHECK((req.version) == (http_version::http_1_0));
@@ -76,7 +76,7 @@ TEST_CASE("HttpHeaderBlock_ParseHttp10", "[HttpHeaderBlock]") {
 #pragma region UnknownMethod
 
 // Verify that an unrecognized method token causes `parse` to fail.
-TEST_CASE("HttpHeaderBlock_UnknownMethod", "[HttpHeaderBlock]") {
+TEST_CASE("UnknownMethod", "[HttpHeaderBlock]") {
   request_head req;
   CHECK_FALSE((req.parse("BREW /coffee HTTP/1.1\r\n")));
 }
@@ -84,7 +84,7 @@ TEST_CASE("HttpHeaderBlock_UnknownMethod", "[HttpHeaderBlock]") {
 #pragma region InvalidVersion
 
 // Verify that an unrecognized version token causes `parse` to fail.
-TEST_CASE("HttpHeaderBlock_InvalidVersion", "[HttpHeaderBlock]") {
+TEST_CASE("InvalidVersion", "[HttpHeaderBlock]") {
   request_head req;
   CHECK_FALSE((req.parse("GET / HTTP/2.0\r\n")));
 }
@@ -93,7 +93,7 @@ TEST_CASE("HttpHeaderBlock_InvalidVersion", "[HttpHeaderBlock]") {
 
 // Verify that an HTTP/0.9-style request line (no version token) yields
 // `http_version::http_0_9`.
-TEST_CASE("HttpHeaderBlock_Http09Style", "[HttpHeaderBlock]") {
+TEST_CASE("Http09Style", "[HttpHeaderBlock]") {
   request_head req;
   REQUIRE((req.parse("GET /\r\n")));
   CHECK((req.version) == (http_version::http_0_9));
@@ -103,7 +103,7 @@ TEST_CASE("HttpHeaderBlock_Http09Style", "[HttpHeaderBlock]") {
 #pragma region NoSp
 
 // Verify that a request line with no SP at all returns false.
-TEST_CASE("HttpHeaderBlock_NoSp", "[HttpHeaderBlock]") {
+TEST_CASE("NoSp", "[HttpHeaderBlock]") {
   request_head req;
   CHECK_FALSE((req.parse("GETNOSPC\r\n")));
 }
@@ -113,7 +113,7 @@ TEST_CASE("HttpHeaderBlock_NoSp", "[HttpHeaderBlock]") {
 // Verify that `http_headers::get()` requires the canonical key form.
 // `add()` folds to canonical form before indexing; lookups with
 // non-canonical names return `nullopt`.
-TEST_CASE("HttpHeaderBlock_HeaderLookupCanonical", "[HttpHeaderBlock]") {
+TEST_CASE("HeaderLookupCanonical", "[HttpHeaderBlock]") {
   http_headers h;
   // Add with mixed-case input; stored under "Content-Type".
   CHECK((h.add("content-TYPE", "text/plain")));
@@ -126,7 +126,7 @@ TEST_CASE("HttpHeaderBlock_HeaderLookupCanonical", "[HttpHeaderBlock]") {
 #pragma region HeaderGet
 
 // Verify that `get()` returns `nullopt` for absent or non-canonical names.
-TEST_CASE("HttpHeaderBlock_HeaderGet", "[HttpHeaderBlock]") {
+TEST_CASE("HeaderGet", "[HttpHeaderBlock]") {
   http_headers h;
   CHECK((h.add("Host", "localhost")));
   const auto host = h.get("Host");
@@ -139,7 +139,7 @@ TEST_CASE("HttpHeaderBlock_HeaderGet", "[HttpHeaderBlock]") {
 #pragma region HeaderGetEmptyValue
 
 // Verify that `get()` distinguishes an empty stored value from a missing one.
-TEST_CASE("HttpHeaderBlock_HeaderGetEmptyValue", "[HttpHeaderBlock]") {
+TEST_CASE("HeaderGetEmptyValue", "[HttpHeaderBlock]") {
   http_headers h;
   CHECK((h.add_raw("X-Empty", "")));
   const auto empty_value = h.get("X-Empty");
@@ -151,7 +151,7 @@ TEST_CASE("HttpHeaderBlock_HeaderGetEmptyValue", "[HttpHeaderBlock]") {
 #pragma region HeaderCombine
 
 // Verify that `http_headers::get_combined()` joins multiple values with ", ".
-TEST_CASE("HttpHeaderBlock_HeaderCombine", "[HttpHeaderBlock]") {
+TEST_CASE("HeaderCombine", "[HttpHeaderBlock]") {
   http_headers h;
   CHECK((h.add("Accept", "text/html")));
   CHECK((h.add("Accept", "application/json")));
@@ -162,7 +162,7 @@ TEST_CASE("HttpHeaderBlock_HeaderCombine", "[HttpHeaderBlock]") {
 #pragma region KeepAlive
 
 // Verify `keep_alive()` for HTTP/1.1 (default on) and HTTP/1.0 (default off).
-TEST_CASE("HttpHeaderBlock_KeepAlive", "[HttpHeaderBlock]") {
+TEST_CASE("KeepAlive", "[HttpHeaderBlock]") {
   {
     request_head req;
     REQUIRE((req.parse("GET / HTTP/1.1\r\nHost: h\r\n")));
@@ -191,7 +191,7 @@ TEST_CASE("HttpHeaderBlock_KeepAlive", "[HttpHeaderBlock]") {
 
 // Verify `keep_alive()` parses `Connection` as a comma-separated token list,
 // with `"close"` taking precedence over `"keep-alive"`.
-TEST_CASE("HttpHeaderBlock_KeepAliveTokenList", "[HttpHeaderBlock]") {
+TEST_CASE("KeepAliveTokenList", "[HttpHeaderBlock]") {
   // Token list containing `"close"` among other tokens -> close.
   {
     request_head req;
@@ -226,7 +226,7 @@ TEST_CASE("HttpHeaderBlock_KeepAliveTokenList", "[HttpHeaderBlock]") {
 
 // Verify that `response_head::serialize()` produces the correct
 // HTTP wire format (headers only; body is sent separately).
-TEST_CASE("HttpHeaderBlock_ResponseSerialize", "[HttpHeaderBlock]") {
+TEST_CASE("ResponseSerialize", "[HttpHeaderBlock]") {
   response_head resp;
   resp.version = http_version::http_1_1;
   resp.status_code = http_status_code::OK;
@@ -247,7 +247,7 @@ TEST_CASE("HttpHeaderBlock_ResponseSerialize", "[HttpHeaderBlock]") {
 
 // Verify that `request_head::parse` skips leading CRLF lines
 // (RFC 9112 section 2.2) and that a request that is only leading CRLFs fails.
-TEST_CASE("HttpHeaderBlock_ExtractLeadingCrlf", "[HttpHeaderBlock]") {
+TEST_CASE("ExtractLeadingCrlf", "[HttpHeaderBlock]") {
   {
     request_head req;
     REQUIRE(
@@ -269,7 +269,7 @@ TEST_CASE("HttpHeaderBlock_ExtractLeadingCrlf", "[HttpHeaderBlock]") {
 #pragma region ExtractHeaderErrors
 
 // Verify that malformed header-field lines cause `parse` to return false.
-TEST_CASE("HttpHeaderBlock_ExtractHeaderErrors", "[HttpHeaderBlock]") {
+TEST_CASE("ExtractHeaderErrors", "[HttpHeaderBlock]") {
   {
     // Obs-fold with SP: rejected.
     request_head req;
@@ -298,7 +298,7 @@ TEST_CASE("HttpHeaderBlock_ExtractHeaderErrors", "[HttpHeaderBlock]") {
 
 // Verify that `request_head::serialize()` produces correct wire format
 // and that a round-trip through `parse` is lossless.
-TEST_CASE("HttpHeaderBlock_RequestSerialize", "[HttpHeaderBlock]") {
+TEST_CASE("RequestSerialize", "[HttpHeaderBlock]") {
   {
     // HTTP/1.1 with headers.
     request_head req;
@@ -352,7 +352,7 @@ TEST_CASE("HttpHeaderBlock_RequestSerialize", "[HttpHeaderBlock]") {
 
 // Verify that a well-formed HTTP response is parsed by
 // `response_head::parse()`.
-TEST_CASE("HttpHeaderBlock_ResponseExtract", "[HttpHeaderBlock]") {
+TEST_CASE("ResponseExtract", "[HttpHeaderBlock]") {
   {
     // HTTP/1.1 200 with headers.
     response_head resp;
@@ -415,7 +415,7 @@ TEST_CASE("HttpHeaderBlock_ResponseExtract", "[HttpHeaderBlock]") {
 
 // Verify normalization of valid header names: case folding and hyphen
 // word-boundary detection.
-TEST_CASE("HttpHeaderBlock_NormalizeCasing", "[HttpHeaderBlock]") {
+TEST_CASE("NormalizeCasing", "[HttpHeaderBlock]") {
   const std::vector<std::pair<std::string, std::string>> test_cases = {
       // --- 1. Standard Normalization (Train-Case) ---
       // Basic alphabetical case-insensitivity and hyphen-based
@@ -513,7 +513,7 @@ TEST_CASE("HttpHeaderBlock_NormalizeCasing", "[HttpHeaderBlock]") {
 
 // Verify that valid token special characters are accepted and that names
 // containing them are normalized correctly.
-TEST_CASE("HttpHeaderBlock_NormalizeSpecialChars", "[HttpHeaderBlock]") {
+TEST_CASE("NormalizeSpecialChars", "[HttpHeaderBlock]") {
   {
     // Underscore and dot are valid; alpha segments are title-cased.
     std::string name{"x-custom_header.v2"};
@@ -545,7 +545,7 @@ TEST_CASE("HttpHeaderBlock_NormalizeSpecialChars", "[HttpHeaderBlock]") {
 
 // Verify that names containing characters outside the allowed set are
 // rejected: `std::nullopt` is returned and `name` is left unchanged.
-TEST_CASE("HttpHeaderBlock_NormalizeInvalidChars", "[HttpHeaderBlock]") {
+TEST_CASE("NormalizeInvalidChars", "[HttpHeaderBlock]") {
   // Returns true iff `normalize` rejected the name (nullopt) and left it
   // unchanged.
   auto bad = [](std::string name) {
@@ -569,7 +569,7 @@ TEST_CASE("HttpHeaderBlock_NormalizeInvalidChars", "[HttpHeaderBlock]") {
 #pragma region NormalizeEdgeCases
 
 // Verify edge cases: empty name and single-character names.
-TEST_CASE("HttpHeaderBlock_NormalizeEdgeCases", "[HttpHeaderBlock]") {
+TEST_CASE("NormalizeEdgeCases", "[HttpHeaderBlock]") {
   {
     // Empty string: no invalid chars, no change, returns nullopt.
     std::string name;
@@ -611,7 +611,7 @@ TEST_CASE("HttpHeaderBlock_NormalizeEdgeCases", "[HttpHeaderBlock]") {
 
 // Verify `is_valid_field_value`: empty and printable are accepted; control
 // characters and DEL are rejected; obs-text bytes (>= 0x80) are accepted.
-TEST_CASE("HttpHeaderBlock_IsValidFieldValue", "[HttpHeaderBlock]") {
+TEST_CASE("IsValidFieldValue", "[HttpHeaderBlock]") {
   CHECK((http_headers::is_valid_field_value("")));
   CHECK((http_headers::is_valid_field_value("text/html; charset=utf-8")));
   CHECK((http_headers::is_valid_field_value(" padded value ")));
@@ -634,7 +634,7 @@ TEST_CASE("HttpHeaderBlock_IsValidFieldValue", "[HttpHeaderBlock]") {
 
 // Verify `content_length` in `http_options`: set when present and parseable,
 // `std::nullopt` when absent or non-numeric.
-TEST_CASE("HttpHeaderBlock_ContentLength", "[HttpHeaderBlock]") {
+TEST_CASE("ContentLength", "[HttpHeaderBlock]") {
   {
     http_headers h;
     CHECK((h.add_raw("Content-Length", "42")));
@@ -674,7 +674,7 @@ TEST_CASE("HttpHeaderBlock_ContentLength", "[HttpHeaderBlock]") {
 // Verify `transfer_encoding` in `http_options`: `chunked` when recognized
 // (case-insensitive) as the last token of the last field, `std::nullopt`
 // otherwise.
-TEST_CASE("HttpHeaderBlock_IsChunked", "[HttpHeaderBlock]") {
+TEST_CASE("IsChunked", "[HttpHeaderBlock]") {
   {
     http_headers h;
     CHECK((h.add_raw("Transfer-Encoding", "chunked")));
@@ -740,7 +740,7 @@ TEST_CASE("HttpHeaderBlock_IsChunked", "[HttpHeaderBlock]") {
 #pragma region SizeAndEmpty
 
 // Verify `empty()`, `size()`, and ordered iteration.
-TEST_CASE("HttpHeaderBlock_SizeAndEmpty", "[HttpHeaderBlock]") {
+TEST_CASE("SizeAndEmpty", "[HttpHeaderBlock]") {
   http_headers h;
   CHECK((h.empty()));
   CHECK((h.size()) == (0ULL));
@@ -765,7 +765,7 @@ TEST_CASE("HttpHeaderBlock_SizeAndEmpty", "[HttpHeaderBlock]") {
 
 // Verify 3-arg `add_raw`: `field_name` is the index key (canonical form);
 // `raw_field_name` is the wire name stored in the entry.
-TEST_CASE("HttpHeaderBlock_AddRawWithRawName", "[HttpHeaderBlock]") {
+TEST_CASE("AddRawWithRawName", "[HttpHeaderBlock]") {
   http_headers h;
   // Index key is canonical "Content-Type"; wire name is lowercase.
   CHECK((h.add_raw("Content-Type", "text/html", "content-type")));
@@ -786,7 +786,7 @@ TEST_CASE("HttpHeaderBlock_AddRawWithRawName", "[HttpHeaderBlock]") {
 
 // Verify that `get()` returns only the first value when a field name appears
 // multiple times (use `get_combined()` for all values).
-TEST_CASE("HttpHeaderBlock_GetReturnsFirst", "[HttpHeaderBlock]") {
+TEST_CASE("GetReturnsFirst", "[HttpHeaderBlock]") {
   http_headers h;
   CHECK((h.add("Accept", "text/html")));
   CHECK((h.add("Accept", "application/json")));
@@ -805,7 +805,7 @@ TEST_CASE("HttpHeaderBlock_GetReturnsFirst", "[HttpHeaderBlock]") {
 
 // Verify `keep_alive()` for HTTP/0.9: always `close`, regardless of any
 // `Connection` header (HTTP/0.9 headers don't exist, but guard against it).
-TEST_CASE("HttpHeaderBlock_KeepAliveHttp09", "[HttpHeaderBlock]") {
+TEST_CASE("KeepAliveHttp09", "[HttpHeaderBlock]") {
   // HTTP/0.9 always yields `close` regardless of any `Connection` header.
   http_headers h;
   http_options opts;
@@ -824,7 +824,7 @@ TEST_CASE("HttpHeaderBlock_KeepAliveHttp09", "[HttpHeaderBlock]") {
 
 // Verify that an HTTP/0.9 request line with trailing header text causes
 // `request_head::parse` to fail (HTTP/0.9 does not allow headers).
-TEST_CASE("HttpHeaderBlock_Http09WithHeaders", "[HttpHeaderBlock]") {
+TEST_CASE("Http09WithHeaders", "[HttpHeaderBlock]") {
   request_head req;
   CHECK_FALSE((req.parse("GET /\r\nHost: example.com\r\n")));
 }
@@ -833,7 +833,7 @@ TEST_CASE("HttpHeaderBlock_Http09WithHeaders", "[HttpHeaderBlock]") {
 
 // Verify that more than five consecutive leading CRLFs cause `parse` to fail
 // (RFC 9112 section 2.2 imposes a limit).
-TEST_CASE("HttpHeaderBlock_TooManyLeadingCrlfs", "[HttpHeaderBlock]") {
+TEST_CASE("TooManyLeadingCrlfs", "[HttpHeaderBlock]") {
   {
     // Exactly 5 leading CRLFs: should still parse successfully.
     request_head req;
@@ -850,7 +850,7 @@ TEST_CASE("HttpHeaderBlock_TooManyLeadingCrlfs", "[HttpHeaderBlock]") {
 #pragma region TargetNotPath
 
 // Verify that a target not starting with `'/'` causes `parse` to fail.
-TEST_CASE("HttpHeaderBlock_TargetNotPath", "[HttpHeaderBlock]") {
+TEST_CASE("TargetNotPath", "[HttpHeaderBlock]") {
   {
     // Absolute URI form (HTTP/1.1 proxies): not accepted by this parser.
     request_head req;
@@ -867,7 +867,7 @@ TEST_CASE("HttpHeaderBlock_TargetNotPath", "[HttpHeaderBlock]") {
 
 // Verify that `request_head::clear()` restores default-constructed state so
 // the object can be reused for a second request.
-TEST_CASE("HttpHeaderBlock_ClearRequest", "[HttpHeaderBlock]") {
+TEST_CASE("ClearRequest", "[HttpHeaderBlock]") {
   request_head req;
   REQUIRE((req.parse(
       "GET /path HTTP/1.1\r\nHost: example.com\r\nAccept: text/html\r\n")));
@@ -884,7 +884,7 @@ TEST_CASE("HttpHeaderBlock_ClearRequest", "[HttpHeaderBlock]") {
 #pragma region ClearResponse
 
 // Verify that `response_head::clear()` restores default-constructed state.
-TEST_CASE("HttpHeaderBlock_ClearResponse", "[HttpHeaderBlock]") {
+TEST_CASE("ClearResponse", "[HttpHeaderBlock]") {
   response_head resp;
   resp.version = http_version::http_1_1;
   resp.status_code = http_status_code::OK;
@@ -902,7 +902,7 @@ TEST_CASE("HttpHeaderBlock_ClearResponse", "[HttpHeaderBlock]") {
 
 // Verify that `response_head::serialize()` returns an empty string when the
 // version is `http_version::invalid`.
-TEST_CASE("HttpHeaderBlock_ResponseSerializeInvalid", "[HttpHeaderBlock]") {
+TEST_CASE("ResponseSerializeInvalid", "[HttpHeaderBlock]") {
   response_head resp;
   // Default-constructed version is `invalid`.
   CHECK((resp.serialize().empty()));
@@ -917,7 +917,7 @@ TEST_CASE("HttpHeaderBlock_ResponseSerializeInvalid", "[HttpHeaderBlock]") {
 #pragma region MakeErrorResponse
 
 // Verify `make_error_response()` with default and custom arguments.
-TEST_CASE("HttpHeaderBlock_MakeErrorResponse", "[HttpHeaderBlock]") {
+TEST_CASE("MakeErrorResponse", "[HttpHeaderBlock]") {
   {
     // Defaults: HTTP/1.1 400 Bad Request, Connection: close.
     const auto wire = response_head::make_error_response();
@@ -944,7 +944,7 @@ TEST_CASE("HttpHeaderBlock_MakeErrorResponse", "[HttpHeaderBlock]") {
 // Verify `response_head::parse()` edge cases: empty reason phrase (trailing
 // space after status code with no text) succeeds; missing space after status
 // code fails.
-TEST_CASE("HttpHeaderBlock_ResponseParseEdgeCases", "[HttpHeaderBlock]") {
+TEST_CASE("ResponseParseEdgeCases", "[HttpHeaderBlock]") {
   {
     // Empty reason: status line is "HTTP/1.1 204 ", reason is "".
     response_head resp;
@@ -974,7 +974,7 @@ TEST_CASE("HttpHeaderBlock_ResponseParseEdgeCases", "[HttpHeaderBlock]") {
 
 // Verify `http_options::extract` for `content_type` and `upgrade`, and
 // `http_options::apply` writing values back into headers.
-TEST_CASE("HttpHeaderBlock_HttpOptionsExtractApply", "[HttpHeaderBlock]") {
+TEST_CASE("HttpOptionsExtractApply", "[HttpHeaderBlock]") {
   // content_type: recognized media type, parameters stripped.
   {
     http_headers h;
@@ -1072,7 +1072,7 @@ TEST_CASE("HttpHeaderBlock_HttpOptionsExtractApply", "[HttpHeaderBlock]") {
 
 // Verify `get_values()`: iteration over all values for a field, `size()`,
 // `empty()`, and `iterator::index()`.
-TEST_CASE("HttpHeaderBlock_GetValues", "[HttpHeaderBlock]") {
+TEST_CASE("GetValues", "[HttpHeaderBlock]") {
   // Empty range when field not found.
   {
     http_headers h;
@@ -1126,7 +1126,7 @@ TEST_CASE("HttpHeaderBlock_GetValues", "[HttpHeaderBlock]") {
 #pragma region SetRawAndRemove
 
 // Verify `reset_raw()` upsert, `remove_entry()`, and `remove_key()`.
-TEST_CASE("HttpHeaderBlock_SetRawAndRemove", "[HttpHeaderBlock]") {
+TEST_CASE("SetRawAndRemove", "[HttpHeaderBlock]") {
   // reset_raw adds when field is absent.
   {
     http_headers h;

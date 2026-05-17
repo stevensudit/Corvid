@@ -58,7 +58,7 @@ template class std::deque<std::string>;
 
 #pragma region Basic
 
-TEST_CASE("InternTableTest_Basic", "[InternTableTest]") {
+TEST_CASE("Basic", "[InternTableTest]") {
   if (true) {
     // Test arena in isolation to reproduce corrected bugs.
     extensible_arena arena{128};

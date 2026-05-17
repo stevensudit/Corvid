@@ -34,7 +34,7 @@ using int_stable_ids = stable_ids<int>;
 
 #pragma region ArchetypeStorage_Basic
 
-TEST_CASE("ArchetypeStorage_Basic", "[ArchetypeStorage]") {
+TEST_CASE("Basic", "[ArchetypeStorage]") {
   using id_enums::entity_id_t;
   using id_enums::store_id_t;
   using reg_t = entity_registry<int>;
@@ -68,7 +68,7 @@ TEST_CASE("ArchetypeStorage_Basic", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region ArchetypeStorage_Registry
 
-TEST_CASE("ArchetypeStorage_Registry", "[ArchetypeStorage]") {
+TEST_CASE("Registry", "[ArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -110,7 +110,7 @@ TEST_CASE("ArchetypeStorage_Registry", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region ArchetypeStorage_Add
 
-TEST_CASE("ArchetypeStorage_Add", "[ArchetypeStorage]") {
+TEST_CASE("Add", "[ArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -277,7 +277,7 @@ TEST_CASE("ArchetypeStorage_Add", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region ArchetypeStorage_Remove
 
-TEST_CASE("ArchetypeStorage_Remove", "[ArchetypeStorage]") {
+TEST_CASE("Remove", "[ArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -367,7 +367,7 @@ TEST_CASE("ArchetypeStorage_Remove", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region ArchetypeStorage_Erase
 
-TEST_CASE("ArchetypeStorage_Erase", "[ArchetypeStorage]") {
+TEST_CASE("Erase", "[ArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -455,7 +455,7 @@ TEST_CASE("ArchetypeStorage_Erase", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region ArchetypeStorage_RowAccess
 
-TEST_CASE("ArchetypeStorage_RowAccess", "[ArchetypeStorage]") {
+TEST_CASE("RowAccess", "[ArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -621,7 +621,7 @@ TEST_CASE("ArchetypeStorage_RowAccess", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region ArchetypeStorage_ComponentAccess
 
-TEST_CASE("ArchetypeStorage_ComponentAccess", "[ArchetypeStorage]") {
+TEST_CASE("ComponentAccess", "[ArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -696,7 +696,7 @@ TEST_CASE("ArchetypeStorage_ComponentAccess", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region ArchetypeStorage_Limit
 
-TEST_CASE("ArchetypeStorage_Limit", "[ArchetypeStorage]") {
+TEST_CASE("Limit", "[ArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -763,7 +763,7 @@ TEST_CASE("ArchetypeStorage_Limit", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region ArchetypeStorage_SwapAndMove
 
-TEST_CASE("ArchetypeStorage_SwapAndMove", "[ArchetypeStorage]") {
+TEST_CASE("SwapAndMove", "[ArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -854,7 +854,7 @@ TEST_CASE("ArchetypeStorage_SwapAndMove", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region ArchetypeStorage_Iterator
 
-TEST_CASE("ArchetypeStorage_Iterator", "[ArchetypeStorage]") {
+TEST_CASE("Iterator", "[ArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -963,7 +963,7 @@ TEST_CASE("ArchetypeStorage_Iterator", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region ArchetypeStorage_EraseIf
 
-TEST_CASE("ArchetypeStorage_EraseIf", "[ArchetypeStorage]") {
+TEST_CASE("EraseIf", "[ArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -1082,7 +1082,7 @@ TEST_CASE("ArchetypeStorage_EraseIf", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region StableId_Basic
 
-TEST_CASE("StableId_Basic", "[StableId]") {
+TEST_CASE("Basic", "[StableId]") {
   using V = int_stable_ids;
   using id_t = V::id_t;
 
@@ -1401,7 +1401,7 @@ using int_stable_small_ids_fifo = stable_ids<int, small_id_t,
 
 #pragma region StableId_SmallId
 
-TEST_CASE("StableId_SmallId", "[StableId]") {
+TEST_CASE("SmallId", "[StableId]") {
   using V = int_stable_small_ids;
   using id_t = V::id_t; // small_id_t : uint8_t, invalid = 255
 
@@ -1455,7 +1455,7 @@ TEST_CASE("StableId_SmallId", "[StableId]") {
 #pragma endregion
 #pragma region StableId_NoThrow
 
-TEST_CASE("StableId_NoThrow", "[StableId]") {
+TEST_CASE("NoThrow", "[StableId]") {
   using V = int_stable_small_ids;
   using id_t = V::id_t; // small_id_t : uint8_t, invalid = 255
 
@@ -1534,7 +1534,7 @@ TEST_CASE("StableId_NoThrow", "[StableId]") {
 #pragma endregion
 #pragma region StableId_Fifo
 
-TEST_CASE("StableId_Fifo", "[StableId]") {
+TEST_CASE("Fifo", "[StableId]") {
   using V = int_stable_ids_fifo;
   using id_t = V::id_t;
 
@@ -1778,7 +1778,7 @@ TEST_CASE("StableId_Fifo", "[StableId]") {
 #pragma endregion
 #pragma region StableId_NoGen
 
-TEST_CASE("StableId_NoGen", "[StableId]") {
+TEST_CASE("NoGen", "[StableId]") {
   using V = int_stable_ids_nogen;
   using id_t = V::id_t;
 
@@ -1896,7 +1896,7 @@ TEST_CASE("StableId_NoGen", "[StableId]") {
 #pragma endregion
 #pragma region StableId_FifoNoGen
 
-TEST_CASE("StableId_FifoNoGen", "[StableId]") {
+TEST_CASE("FifoNoGen", "[StableId]") {
   using V = int_stable_ids_fifo_nogen;
   using id_t = V::id_t;
 
@@ -1982,7 +1982,7 @@ TEST_CASE("StableId_FifoNoGen", "[StableId]") {
 
 // Test the max_id() setting to limit ID allocation.
 
-TEST_CASE("StableId_MaxId", "[StableId]") {
+TEST_CASE("MaxId", "[StableId]") {
   using id_t = int_stable_ids::id_t;
   using V = stable_ids<int, id_t>;
 
@@ -2122,7 +2122,7 @@ TEST_CASE("StableId_MaxId", "[StableId]") {
 #pragma endregion
 #pragma region EntityRegistry_ForEach
 
-TEST_CASE("EntityRegistry_ForEach", "[EntityRegistry]") {
+TEST_CASE("ForEach", "[EntityRegistry]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -2214,7 +2214,7 @@ TEST_CASE("EntityRegistry_ForEach", "[EntityRegistry]") {
 #pragma endregion
 #pragma region MonoArchetypeStorage_Basic
 
-TEST_CASE("MonoArchetypeStorage_Basic", "[MonoArchetypeStorage]") {
+TEST_CASE("Basic", "[MonoArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -2386,7 +2386,7 @@ TEST_CASE("MonoArchetypeStorage_Basic", "[MonoArchetypeStorage]") {
 #pragma endregion
 #pragma region MonoArchetypeStorage_Handle
 
-TEST_CASE("MonoArchetypeStorage_Handle", "[MonoArchetypeStorage]") {
+TEST_CASE("Handle", "[MonoArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -2508,7 +2508,7 @@ TEST_CASE("MonoArchetypeStorage_Handle", "[MonoArchetypeStorage]") {
 #pragma endregion
 #pragma region MonoArchetypeStorage_Remove
 
-TEST_CASE("MonoArchetypeStorage_Remove", "[MonoArchetypeStorage]") {
+TEST_CASE("Remove", "[MonoArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -2585,7 +2585,7 @@ TEST_CASE("MonoArchetypeStorage_Remove", "[MonoArchetypeStorage]") {
 #pragma endregion
 #pragma region MonoArchetypeStorage_RemoveAll
 
-TEST_CASE("MonoArchetypeStorage_RemoveAll", "[MonoArchetypeStorage]") {
+TEST_CASE("RemoveAll", "[MonoArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -2635,7 +2635,7 @@ TEST_CASE("MonoArchetypeStorage_RemoveAll", "[MonoArchetypeStorage]") {
 #pragma endregion
 #pragma region MonoArchetypeStorage_Erase
 
-TEST_CASE("MonoArchetypeStorage_Erase", "[MonoArchetypeStorage]") {
+TEST_CASE("Erase", "[MonoArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -2684,7 +2684,7 @@ TEST_CASE("MonoArchetypeStorage_Erase", "[MonoArchetypeStorage]") {
 #pragma endregion
 #pragma region MonoArchetypeStorage_EraseIf
 
-TEST_CASE("MonoArchetypeStorage_EraseIf", "[MonoArchetypeStorage]") {
+TEST_CASE("EraseIf", "[MonoArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -2734,7 +2734,7 @@ TEST_CASE("MonoArchetypeStorage_EraseIf", "[MonoArchetypeStorage]") {
 #pragma endregion
 #pragma region MonoArchetypeStorage_Clear
 
-TEST_CASE("MonoArchetypeStorage_Clear", "[MonoArchetypeStorage]") {
+TEST_CASE("Clear", "[MonoArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -2772,7 +2772,7 @@ TEST_CASE("MonoArchetypeStorage_Clear", "[MonoArchetypeStorage]") {
 #pragma endregion
 #pragma region MonoArchetypeStorage_SwapAndMove
 
-TEST_CASE("MonoArchetypeStorage_SwapAndMove", "[MonoArchetypeStorage]") {
+TEST_CASE("SwapAndMove", "[MonoArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -2857,7 +2857,7 @@ TEST_CASE("MonoArchetypeStorage_SwapAndMove", "[MonoArchetypeStorage]") {
 #pragma endregion
 #pragma region MonoArchetypeStorage_LimitAndReserve
 
-TEST_CASE("MonoArchetypeStorage_LimitAndReserve", "[MonoArchetypeStorage]") {
+TEST_CASE("LimitAndReserve", "[MonoArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -3059,7 +3059,7 @@ TEST_CASE("MonoArchetypeStorage_LimitAndReserve", "[MonoArchetypeStorage]") {
 #pragma endregion
 #pragma region MonoArchetypeStorage_Iterator
 
-TEST_CASE("MonoArchetypeStorage_Iterator", "[MonoArchetypeStorage]") {
+TEST_CASE("Iterator", "[MonoArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using id_t = reg_t::id_t;
@@ -3222,7 +3222,7 @@ TEST_CASE("MonoArchetypeStorage_Iterator", "[MonoArchetypeStorage]") {
 // Use ChunkSize=4 so chunk boundaries appear at indices 4, 8, …
 // ============================================================
 
-TEST_CASE("ChunkedArchetypeStorage_Basic", "[ChunkedArchetypeStorage]") {
+TEST_CASE("Basic", "[ChunkedArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using arch_t = chunked_archetype_storage<reg_t, std::tuple<int, float>, 4>;
@@ -3286,7 +3286,7 @@ TEST_CASE("ChunkedArchetypeStorage_Basic", "[ChunkedArchetypeStorage]") {
 #pragma endregion
 #pragma region ChunkedArchetypeStorage_Add
 
-TEST_CASE("ChunkedArchetypeStorage_Add", "[ChunkedArchetypeStorage]") {
+TEST_CASE("Add", "[ChunkedArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -3416,8 +3416,7 @@ TEST_CASE("ChunkedArchetypeStorage_Add", "[ChunkedArchetypeStorage]") {
 #pragma endregion
 #pragma region ChunkedArchetypeStorage_RemoveAndErase
 
-TEST_CASE("ChunkedArchetypeStorage_RemoveAndErase",
-    "[ChunkedArchetypeStorage]") {
+TEST_CASE("RemoveAndErase", "[ChunkedArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -3527,8 +3526,7 @@ TEST_CASE("ChunkedArchetypeStorage_RemoveAndErase",
 #pragma endregion
 #pragma region ChunkedArchetypeStorage_RowAndIterator
 
-TEST_CASE("ChunkedArchetypeStorage_RowAndIterator",
-    "[ChunkedArchetypeStorage]") {
+TEST_CASE("RowAndIterator", "[ChunkedArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -3670,7 +3668,7 @@ TEST_CASE("ChunkedArchetypeStorage_RowAndIterator",
 #pragma endregion
 #pragma region ChunkedArchetypeStorage_EraseIf
 
-TEST_CASE("ChunkedArchetypeStorage_EraseIf", "[ChunkedArchetypeStorage]") {
+TEST_CASE("EraseIf", "[ChunkedArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -3735,8 +3733,7 @@ TEST_CASE("ChunkedArchetypeStorage_EraseIf", "[ChunkedArchetypeStorage]") {
 #pragma endregion
 #pragma region ChunkedArchetypeStorage_ChunkBoundary
 
-TEST_CASE("ChunkedArchetypeStorage_ChunkBoundary",
-    "[ChunkedArchetypeStorage]") {
+TEST_CASE("ChunkBoundary", "[ChunkedArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -3887,7 +3884,7 @@ using three_storage_scene_t =
 
 #pragma region EcsMeta_TupleUnion
 
-TEST_CASE("EcsMeta_TupleUnion", "[EcsMeta]") {
+TEST_CASE("TupleUnion", "[EcsMeta]") {
   // Deduplication: overlapping types appear only once, in first-seen order.
   if (true) {
     using u = tuple_union_t<std::tuple<Position, Velocity>,
@@ -3927,7 +3924,7 @@ TEST_CASE("EcsMeta_TupleUnion", "[EcsMeta]") {
 #pragma endregion
 #pragma region EcsMeta_TupleIndex
 
-TEST_CASE("EcsMeta_TupleIndex", "[EcsMeta]") {
+TEST_CASE("TupleIndex", "[EcsMeta]") {
   // `tuple_index_v` returns the 0-based position of each type in a tuple.
   if (true) {
     using t = std::tuple<Position, Velocity, Health>;
@@ -3943,7 +3940,7 @@ TEST_CASE("EcsMeta_TupleIndex", "[EcsMeta]") {
 #pragma endregion
 #pragma region EcsMeta_WrapOptionals
 
-TEST_CASE("EcsMeta_WrapOptionals", "[EcsMeta]") {
+TEST_CASE("WrapOptionals", "[EcsMeta]") {
   // `wrap_optionals_t` transforms each element type to `std::optional<T>`.
   if (true) {
     using wrapped = wrap_optionals_t<std::tuple<Position, Velocity, Health>>;
@@ -3968,7 +3965,7 @@ TEST_CASE("EcsMeta_WrapOptionals", "[EcsMeta]") {
 
 // Basic construction, type queries, storage access.
 
-TEST_CASE("ArchetypeScene_Basic", "[ArchetypeScene]") {
+TEST_CASE("Basic", "[ArchetypeScene]") {
   // Default construction: empty, zero size.
   if (true) {
     two_storage_scene_t s;
@@ -4047,7 +4044,7 @@ TEST_CASE("ArchetypeScene_Basic", "[ArchetypeScene]") {
 // archetype_scene::erase and archetype_scene::remove dispatch to the correct
 // storage.
 
-TEST_CASE("ArchetypeScene_EraseRemove", "[ArchetypeScene]") {
+TEST_CASE("EraseRemove", "[ArchetypeScene]") {
   // erase_entity(id) on an entity in storage 0.
   if (true) {
     two_storage_scene_t s;
@@ -4129,7 +4126,7 @@ TEST_CASE("ArchetypeScene_EraseRemove", "[ArchetypeScene]") {
 
 // migrate with a user-supplied build callback.
 
-TEST_CASE("ArchetypeScene_Migrate_Manual", "[ArchetypeScene]") {
+TEST_CASE("Migrate_Manual", "[ArchetypeScene]") {
   // Promote from arch_pv to arch_pvh, providing a new Health component.
   if (true) {
     two_storage_scene_t s;
@@ -4191,7 +4188,7 @@ TEST_CASE("ArchetypeScene_Migrate_Manual", "[ArchetypeScene]") {
 
 // migrate_entity with automatic type-based component mapping.
 
-TEST_CASE("ArchetypeScene_Migrate_Auto", "[ArchetypeScene]") {
+TEST_CASE("Migrate_Auto", "[ArchetypeScene]") {
   // Promote: arch_pv (Position, Velocity) -> arch_pvh (Position, Velocity,
   // Health). Health should be default-constructed (hp=100).
   if (true) {
@@ -4255,7 +4252,7 @@ TEST_CASE("ArchetypeScene_Migrate_Auto", "[ArchetypeScene]") {
 
 // erase_staged_entities removes all staged entities.
 
-TEST_CASE("ArchetypeScene_EraseStaged", "[ArchetypeScene]") {
+TEST_CASE("EraseStaged", "[ArchetypeScene]") {
   // Entities placed in a storage are not staged and are not affected.
   if (true) {
     two_storage_scene_t s;
@@ -4311,7 +4308,7 @@ TEST_CASE("ArchetypeScene_EraseStaged", "[ArchetypeScene]") {
 
 // archetype_scene::clear empties everything.
 
-TEST_CASE("ArchetypeScene_Clear", "[ArchetypeScene]") {
+TEST_CASE("Clear", "[ArchetypeScene]") {
   // clear(true) -- fast path: all entities gone, registry empty.
   if (true) {
     two_storage_scene_t s;
@@ -4396,7 +4393,7 @@ TEST_CASE("ArchetypeScene_Clear", "[ArchetypeScene]") {
 // Multiple storages with different component sets; archetype_scene-level
 // dispatch correctly targets each one by store_id.
 
-TEST_CASE("ArchetypeScene_MultiStorage", "[ArchetypeScene]") {
+TEST_CASE("MultiStorage", "[ArchetypeScene]") {
   if (true) {
     three_storage_scene_t s;
     // Add entities to each of the three storages.
@@ -4443,7 +4440,7 @@ using mixed_scene_t =
 
 #pragma region ArchetypeScene_MixedStorages
 
-TEST_CASE("ArchetypeScene_MixedStorages", "[ArchetypeScene]") {
+TEST_CASE("MixedStorages", "[ArchetypeScene]") {
   // add_new into each storage type; size() sums all three.
   if (true) {
     mixed_scene_t s;
@@ -4541,7 +4538,7 @@ TEST_CASE("ArchetypeScene_MixedStorages", "[ArchetypeScene]") {
 #pragma endregion
 #pragma region ArchetypeStorage_At
 
-TEST_CASE("ArchetypeStorage_At", "[ArchetypeStorage]") {
+TEST_CASE("At", "[ArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -4625,7 +4622,7 @@ TEST_CASE("ArchetypeStorage_At", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region ArchetypeStorage_RemoveIf
 
-TEST_CASE("ArchetypeStorage_RemoveIf", "[ArchetypeStorage]") {
+TEST_CASE("RemoveIf", "[ArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -4731,7 +4728,7 @@ TEST_CASE("ArchetypeStorage_RemoveIf", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region ArchetypeStorage_IteratorPostIncDec
 
-TEST_CASE("ArchetypeStorage_IteratorPostIncDec", "[ArchetypeStorage]") {
+TEST_CASE("IteratorPostIncDec", "[ArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -4808,7 +4805,7 @@ TEST_CASE("ArchetypeStorage_IteratorPostIncDec", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region ChunkedArchetypeStorage_At
 
-TEST_CASE("ChunkedArchetypeStorage_At", "[ChunkedArchetypeStorage]") {
+TEST_CASE("At", "[ChunkedArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -4876,7 +4873,7 @@ TEST_CASE("ChunkedArchetypeStorage_At", "[ChunkedArchetypeStorage]") {
 #pragma endregion
 #pragma region ChunkedArchetypeStorage_RemoveIf
 
-TEST_CASE("ChunkedArchetypeStorage_RemoveIf", "[ChunkedArchetypeStorage]") {
+TEST_CASE("RemoveIf", "[ChunkedArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -4945,7 +4942,7 @@ TEST_CASE("ChunkedArchetypeStorage_RemoveIf", "[ChunkedArchetypeStorage]") {
 #pragma endregion
 #pragma region MonoArchetypeStorage_RowView
 
-TEST_CASE("MonoArchetypeStorage_RowView", "[MonoArchetypeStorage]") {
+TEST_CASE("RowView", "[MonoArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -5011,7 +5008,7 @@ TEST_CASE("MonoArchetypeStorage_RowView", "[MonoArchetypeStorage]") {
 #pragma endregion
 #pragma region ArchetypeScene_StorageTypeAccess
 
-TEST_CASE("ArchetypeScene_StorageTypeAccess", "[ArchetypeScene]") {
+TEST_CASE("StorageTypeAccess", "[ArchetypeScene]") {
   // storage<STORAGE>() type-based access refers to the same object as
   // storage<SID>() enum-based access.
   if (true) {
@@ -5056,7 +5053,7 @@ struct TagB {};
 
 #pragma region ArchetypeStorage_Tag
 
-TEST_CASE("ArchetypeStorage_Tag", "[ArchetypeStorage]") {
+TEST_CASE("Tag", "[ArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using arch_a_t = archetype_storage<reg_t, std::tuple<int, float>, TagA>;
@@ -5093,7 +5090,7 @@ TEST_CASE("ArchetypeStorage_Tag", "[ArchetypeStorage]") {
 #pragma endregion
 #pragma region StableId_ReservePrefill
 
-TEST_CASE("StableId_ReservePrefill", "[StableId]") {
+TEST_CASE("ReservePrefill", "[StableId]") {
   // reserve(n, true) extends the ID space without inserting elements.
   if (true) {
     int_stable_ids ids;
@@ -5132,7 +5129,7 @@ TEST_CASE("StableId_ReservePrefill", "[StableId]") {
 #pragma endregion
 #pragma region ChunkedArchetypeStorage_SwapAndMove
 
-TEST_CASE("ChunkedArchetypeStorage_SwapAndMove", "[ChunkedArchetypeStorage]") {
+TEST_CASE("SwapAndMove", "[ChunkedArchetypeStorage]") {
   using namespace id_enums;
   using reg_t = entity_registry<int>;
   using loc_t = reg_t::location_t;
@@ -5242,7 +5239,7 @@ TEST_CASE("ChunkedArchetypeStorage_SwapAndMove", "[ChunkedArchetypeStorage]") {
 // component_index_policies tests
 // ============================================================
 
-TEST_CASE("ComponentIndex_Flat", "[ComponentIndex]") {
+TEST_CASE("Flat", "[ComponentIndex]") {
   using namespace id_enums;
   using idx_t = flat_sparse_index<entity_id_t>;
 
@@ -5293,7 +5290,7 @@ TEST_CASE("ComponentIndex_Flat", "[ComponentIndex]") {
 #pragma endregion
 #pragma region ComponentIndex_Sorted
 
-TEST_CASE("ComponentIndex_Sorted", "[ComponentIndex]") {
+TEST_CASE("Sorted", "[ComponentIndex]") {
   using namespace id_enums;
   using idx_t = sorted_pair_index<entity_id_t>;
 
@@ -5350,7 +5347,7 @@ TEST_CASE("ComponentIndex_Sorted", "[ComponentIndex]") {
 #pragma endregion
 #pragma region ComponentIndex_Paged
 
-TEST_CASE("ComponentIndex_Paged", "[ComponentIndex]") {
+TEST_CASE("Paged", "[ComponentIndex]") {
   using namespace id_enums;
   using idx_t = paged_sparse_index<entity_id_t>;
 
@@ -5409,7 +5406,7 @@ using cs_store_t = component_storage<cs_reg_t, float>;
 
 #pragma region ComponentStorage_Basic
 
-TEST_CASE("ComponentStorage_Basic", "[ComponentStorage]") {
+TEST_CASE("Basic", "[ComponentStorage]") {
   using namespace id_enums;
 
   // Default construction.
@@ -5530,7 +5527,7 @@ TEST_CASE("ComponentStorage_Basic", "[ComponentStorage]") {
 #pragma endregion
 #pragma region ComponentStorage_MultiStore
 
-TEST_CASE("ComponentStorage_MultiStore", "[ComponentStorage]") {
+TEST_CASE("MultiStore", "[ComponentStorage]") {
   using namespace id_enums;
 
   // An entity can occupy two storages simultaneously.
@@ -5571,7 +5568,7 @@ TEST_CASE("ComponentStorage_MultiStore", "[ComponentStorage]") {
 #pragma endregion
 #pragma region ComponentStorage_Remove
 
-TEST_CASE("ComponentStorage_Remove", "[ComponentStorage]") {
+TEST_CASE("Remove", "[ComponentStorage]") {
   using namespace id_enums;
 
   // remove() from one storage; entity stays alive in the other.
@@ -5635,7 +5632,7 @@ TEST_CASE("ComponentStorage_Remove", "[ComponentStorage]") {
 #pragma endregion
 #pragma region ComponentStorage_Erase
 
-TEST_CASE("ComponentStorage_Erase", "[ComponentStorage]") {
+TEST_CASE("Erase", "[ComponentStorage]") {
   using namespace id_enums;
 
   // erase() from last storage destroys the entity.
@@ -5713,7 +5710,7 @@ TEST_CASE("ComponentStorage_Erase", "[ComponentStorage]") {
 #pragma endregion
 #pragma region ComponentStorage_EraseIf
 
-TEST_CASE("ComponentStorage_EraseIf", "[ComponentStorage]") {
+TEST_CASE("EraseIf", "[ComponentStorage]") {
   using namespace id_enums;
 
   // erase_if removes matching entities (destroys if last storage).
@@ -5778,7 +5775,7 @@ TEST_CASE("ComponentStorage_EraseIf", "[ComponentStorage]") {
 #pragma endregion
 #pragma region ComponentStorage_Iterator
 
-TEST_CASE("ComponentStorage_Iterator", "[ComponentStorage]") {
+TEST_CASE("Iterator", "[ComponentStorage]") {
   using namespace id_enums;
 
   // Mutable iterator: operator*, operator->, id(), arithmetic.
@@ -5849,7 +5846,7 @@ TEST_CASE("ComponentStorage_Iterator", "[ComponentStorage]") {
 #pragma endregion
 #pragma region ComponentStorage_IndexVariants
 
-TEST_CASE("ComponentStorage_IndexVariants", "[ComponentStorage]") {
+TEST_CASE("IndexVariants", "[ComponentStorage]") {
   using namespace id_enums;
 
   // sorted_pair_index variant: same behavior as flat for add/remove/lookup.
@@ -5938,7 +5935,7 @@ using three_tagged_scene_t = component_scene<cs_scene_reg_t, tagged_float_a_t,
 
 #pragma region ComponentScene_Basic
 
-TEST_CASE("ComponentScene_Basic", "[ComponentScene]") {
+TEST_CASE("Basic", "[ComponentScene]") {
   // Default construction: empty registry, no entities.
   if (true) {
     two_cs_scene_t s;
@@ -5979,7 +5976,7 @@ TEST_CASE("ComponentScene_Basic", "[ComponentScene]") {
 
 // component_scene: store_entity and multi-storage membership.
 
-TEST_CASE("ComponentScene_StoreEntity", "[ComponentScene]") {
+TEST_CASE("StoreEntity", "[ComponentScene]") {
   // store_entity adds entity to a second storage without removing it from
   // the first. Entity is in both storages simultaneously.
   if (true) {
@@ -6040,7 +6037,7 @@ TEST_CASE("ComponentScene_StoreEntity", "[ComponentScene]") {
 
 // component_scene: remove_entity, staging, and erase_entity.
 
-TEST_CASE("ComponentScene_RemoveErase", "[ComponentScene]") {
+TEST_CASE("RemoveErase", "[ComponentScene]") {
   // remove_entity removes entity from one storage; it remains in others.
   if (true) {
     two_cs_scene_t s;
@@ -6151,7 +6148,7 @@ TEST_CASE("ComponentScene_RemoveErase", "[ComponentScene]") {
 
 // component_scene: erase_staged_entities and clear.
 
-TEST_CASE("ComponentScene_EraseStaged", "[ComponentScene]") {
+TEST_CASE("EraseStaged", "[ComponentScene]") {
   // erase_staged_entities removes entities with no components.
   if (true) {
     two_cs_scene_t s;
@@ -6212,7 +6209,7 @@ TEST_CASE("ComponentScene_EraseStaged", "[ComponentScene]") {
 
 // component_scene: destructor implicitly calls clear().
 
-TEST_CASE("ComponentScene_Destructor", "[ComponentScene]") {
+TEST_CASE("Destructor", "[ComponentScene]") {
   // The meaningful check is that the scene is non-empty going in and that
   // destruction completes without error (i.e., the destructor calls clear()
   // and does not assert or crash). Handles are value types (ID + generation),
@@ -6232,7 +6229,7 @@ TEST_CASE("ComponentScene_Destructor", "[ComponentScene]") {
 #pragma endregion
 #pragma region ArchetypeScene_CreateHandleId
 
-TEST_CASE("ArchetypeScene_CreateHandleId", "[ArchetypeScene]") {
+TEST_CASE("CreateHandleId", "[ArchetypeScene]") {
   // stage_new_entity() creates a staged entity through the scene.
   if (true) {
     two_storage_scene_t s;
@@ -6270,7 +6267,7 @@ TEST_CASE("ArchetypeScene_CreateHandleId", "[ArchetypeScene]") {
 #pragma endregion
 #pragma region ArchetypeScene_AddNewRuntime
 
-TEST_CASE("ArchetypeScene_AddNewRuntime", "[ArchetypeScene]") {
+TEST_CASE("AddNewRuntime", "[ArchetypeScene]") {
   // store_new_entity(store_id) dispatches to the correct storage at runtime
   // and default-constructs all components.
   if (true) {
@@ -6308,7 +6305,7 @@ TEST_CASE("ArchetypeScene_AddNewRuntime", "[ArchetypeScene]") {
 #pragma endregion
 #pragma region ArchetypeScene_StoreEntity
 
-TEST_CASE("ArchetypeScene_StoreEntity", "[ArchetypeScene]") {
+TEST_CASE("StoreEntity", "[ArchetypeScene]") {
   // store_entity(id, store_id) moves a staged entity into the chosen storage
   // at runtime using default-constructed components.
   if (true) {
@@ -6424,7 +6421,7 @@ TEST_CASE("ArchetypeScene_StoreEntity", "[ArchetypeScene]") {
 #pragma endregion
 #pragma region ArchetypeScene_EntityLifecycle
 
-TEST_CASE("ArchetypeScene_EntityLifecycle", "[ArchetypeScene]") {
+TEST_CASE("EntityLifecycle", "[ArchetypeScene]") {
   // Full entity lifecycle: stage -> store -> remove_entity -> re-store ->
   // migrate_entity -> erase_entity.
   two_storage_scene_t s;
@@ -6478,7 +6475,7 @@ TEST_CASE("ArchetypeScene_EntityLifecycle", "[ArchetypeScene]") {
 #pragma endregion
 #pragma region ArchetypeScene_MigrateEdgeCases
 
-TEST_CASE("ArchetypeScene_MigrateEdgeCases", "[ArchetypeScene]") {
+TEST_CASE("MigrateEdgeCases", "[ArchetypeScene]") {
   // migrate(id, to, build) is a no-op when entity is already in target
   // storage.
   if (true) {
@@ -6528,7 +6525,7 @@ TEST_CASE("ArchetypeScene_MigrateEdgeCases", "[ArchetypeScene]") {
 #pragma endregion
 #pragma region ArchetypeScene_ForEach
 
-TEST_CASE("ArchetypeScene_ForEach", "[ArchetypeScene]") {
+TEST_CASE("ForEach", "[ArchetypeScene]") {
   // for_each<Cs...> visits all entities in all storages that have Cs...
   // three_storage_scene_t: SID{1}=arch_pv_t, SID{2}=arch_pvh_t,
   // SID{3}=arch_h_t.
@@ -6699,7 +6696,7 @@ TEST_CASE("ArchetypeScene_ForEach", "[ArchetypeScene]") {
 #pragma endregion
 #pragma region ArchetypeScene_TryGetComponent
 
-TEST_CASE("ArchetypeScene_TryGetComponent", "[ArchetypeScene]") {
+TEST_CASE("TryGetComponent", "[ArchetypeScene]") {
   // Returns non-null for a component the entity's archetype has.
   if (true) {
     three_storage_scene_t s;
@@ -6773,7 +6770,7 @@ TEST_CASE("ArchetypeScene_TryGetComponent", "[ArchetypeScene]") {
 #pragma endregion
 #pragma region ArchetypeScene_TryGetComponents
 
-TEST_CASE("ArchetypeScene_TryGetComponents", "[ArchetypeScene]") {
+TEST_CASE("TryGetComponents", "[ArchetypeScene]") {
   // Returns non-null pointers for all requested components when the archetype
   // contains them.
   if (true) {
@@ -6851,7 +6848,7 @@ TEST_CASE("ArchetypeScene_TryGetComponents", "[ArchetypeScene]") {
 #pragma endregion
 #pragma region ArchetypeScene_MegaTuple
 
-TEST_CASE("ArchetypeScene_MegaTuple", "[ArchetypeScene]") {
+TEST_CASE("MegaTuple", "[ArchetypeScene]") {
   // `component_union_t` is the deduplicated union of all archetype component
   // types. For `two_storage_scene_t` (arch_pv_t: {Position, Velocity} and
   // arch_pvh_t: {Position, Velocity, Health}), the union is
@@ -6982,7 +6979,7 @@ TEST_CASE("ArchetypeScene_MegaTuple", "[ArchetypeScene]") {
 #pragma endregion
 #pragma region ArchetypeScene_TryGetSomeComponents
 
-TEST_CASE("ArchetypeScene_TryGetSomeComponents", "[ArchetypeScene]") {
+TEST_CASE("TryGetSomeComponents", "[ArchetypeScene]") {
   // All requested components present: all pointers non-null with correct
   // values.
   if (true) {
@@ -7066,7 +7063,7 @@ TEST_CASE("ArchetypeScene_TryGetSomeComponents", "[ArchetypeScene]") {
 #pragma endregion
 #pragma region ComponentScene_StageNewEntity
 
-TEST_CASE("ComponentScene_StageNewEntity", "[ComponentScene]") {
+TEST_CASE("StageNewEntity", "[ComponentScene]") {
   // stage_new_entity() creates a staged entity and returns its handle.
   if (true) {
     two_cs_scene_t s;
@@ -7092,7 +7089,7 @@ TEST_CASE("ComponentScene_StageNewEntity", "[ComponentScene]") {
 #pragma endregion
 #pragma region ComponentScene_RemoveAll
 
-TEST_CASE("ComponentScene_RemoveAll", "[ComponentScene]") {
+TEST_CASE("RemoveAll", "[ComponentScene]") {
   // restage_entity(id) removes entity from all storages; entity stays alive
   // staged.
   if (true) {
@@ -7153,7 +7150,7 @@ TEST_CASE("ComponentScene_RemoveAll", "[ComponentScene]") {
 #pragma endregion
 #pragma region ComponentScene_EntityLifecycle
 
-TEST_CASE("ComponentScene_EntityLifecycle", "[ComponentScene]") {
+TEST_CASE("EntityLifecycle", "[ComponentScene]") {
   // Full entity lifecycle for component_scene: demonstrates an entity
   // occupying multiple storages simultaneously, which is the key distinction
   // from archetype_scene (where an entity occupies exactly one storage at a
@@ -7238,7 +7235,7 @@ TEST_CASE("ComponentScene_EntityLifecycle", "[ComponentScene]") {
 // rounds the bitmap width up internally; the user-visible OWN_COUNT still
 // enforces the storage-count limit.
 
-TEST_CASE("ComponentScene_ForEach", "[ComponentScene]") {
+TEST_CASE("ForEach", "[ComponentScene]") {
   // for_each<Cs...> visits entities present in all named storages.
   // two_cs_scene_t: SID{1}=float, SID{2}=int.
 
@@ -7413,7 +7410,7 @@ TEST_CASE("ComponentScene_ForEach", "[ComponentScene]") {
 #pragma endregion
 #pragma region ComponentScene_NonAlignedOwnCount
 
-TEST_CASE("ComponentScene_NonAlignedOwnCount", "[ComponentScene]") {
+TEST_CASE("NonAlignedOwnCount", "[ComponentScene]") {
   using namespace id_enums;
   // OWN_COUNT=3 means staging bit 0 + up to 2 real storages. The
   // `fixed_bitset` backing the presence bitmap is rounded up to 8 bits
@@ -7442,7 +7439,7 @@ TEST_CASE("ComponentScene_NonAlignedOwnCount", "[ComponentScene]") {
 
 // component_scene: for_all registry-driven iteration.
 
-TEST_CASE("ComponentScene_ForAll", "[ComponentScene]") {
+TEST_CASE("ForAll", "[ComponentScene]") {
   // for_all<Cs...> visits entities present in all named storages, driving
   // the outer loop from the registry rather than from the smallest storage.
 
@@ -7607,7 +7604,7 @@ TEST_CASE("ComponentScene_ForAll", "[ComponentScene]") {
 // `get_component`. The callback receives the storage's `component_t&`, not
 // the tag type itself.
 
-TEST_CASE("ComponentScene_TagLookup", "[ComponentScene]") {
+TEST_CASE("TagLookup", "[ComponentScene]") {
   // two_tagged_scene_t: SID{1} = float/FloatTagA, SID{2} = float/FloatTagB.
 
   // for_each<FloatTagA, FloatTagB>: visits only entities in both tag storages.
@@ -7924,7 +7921,7 @@ TEST_CASE("ComponentScene_TagLookup", "[ComponentScene]") {
 // occupies. If the entity is in both storages simultaneously the result is
 // ambiguous: the entity is skipped and counted in the return value.
 
-TEST_CASE("ComponentScene_ForAllSharedType", "[ComponentScene]") {
+TEST_CASE("ForAllSharedType", "[ComponentScene]") {
   // Entity in TagA storage only: visited once, correct component value.
   if (true) {
     two_tagged_scene_t s;
@@ -8091,7 +8088,7 @@ TEST_CASE("ComponentScene_ForAllSharedType", "[ComponentScene]") {
 #pragma endregion
 #pragma region ComponentStorage_SwapMoveReserve
 
-TEST_CASE("ComponentStorage_SwapMoveReserve", "[ComponentStorage]") {
+TEST_CASE("SwapMoveReserve", "[ComponentStorage]") {
   using namespace id_enums;
 
   // reserve() pre-allocates without changing size; shrink_to_fit() compacts.
@@ -8173,7 +8170,7 @@ TEST_CASE("ComponentStorage_SwapMoveReserve", "[ComponentStorage]") {
 #pragma endregion
 #pragma region ComponentStorage_AddNew
 
-TEST_CASE("ComponentStorage_AddNew", "[ComponentStorage]") {
+TEST_CASE("AddNew", "[ComponentStorage]") {
   using namespace id_enums;
 
   // add_new(component) -- component-first overload; default metadata.
@@ -8232,7 +8229,7 @@ TEST_CASE("ComponentStorage_AddNew", "[ComponentStorage]") {
 #pragma endregion
 #pragma region ComponentStorage_At
 
-TEST_CASE("ComponentStorage_At", "[ComponentStorage]") {
+TEST_CASE("At", "[ComponentStorage]") {
   using namespace id_enums;
 
   // at(id_t) const: read-only access returns a `row_view`.

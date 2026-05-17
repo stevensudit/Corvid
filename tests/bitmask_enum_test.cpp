@@ -68,7 +68,7 @@ enum class tires : std::uint8_t { none, one, two, three, four, five, six };
 
 #pragma region Ops
 
-TEST_CASE("BitMaskTest_Ops", "[BitMaskTest]") {
+TEST_CASE("Ops", "[BitMaskTest]") {
   if (true) {
     CHECK((!rgb{}));
     CHECK((valid_bits_v<rgb>) == (7));
@@ -121,7 +121,7 @@ TEST_CASE("BitMaskTest_Ops", "[BitMaskTest]") {
 
 #pragma region NamedFunctions
 
-TEST_CASE("BitMaskTest_NamedFunctions", "[BitMaskTest]") {
+TEST_CASE("NamedFunctions", "[BitMaskTest]") {
   if (true) {
     // Does not compile.
     // * auto bad = make<int>(0);
@@ -188,7 +188,7 @@ TEST_CASE("BitMaskTest_NamedFunctions", "[BitMaskTest]") {
 
 #pragma region SafeOps
 
-TEST_CASE("BitMaskTest_SafeOps", "[BitMaskTest]") {
+TEST_CASE("SafeOps", "[BitMaskTest]") {
   if (true) {
     CHECK((valid_bits_v<safe_rgb>) == (7));
     CHECK((max_value<safe_rgb>()) == (safe_rgb::white));
@@ -229,7 +229,7 @@ TEST_CASE("BitMaskTest_SafeOps", "[BitMaskTest]") {
 
 #pragma region SafeNamedFunctions
 
-TEST_CASE("BitMaskTest_SafeNamedFunctions", "[BitMaskTest]") {
+TEST_CASE("SafeNamedFunctions", "[BitMaskTest]") {
   if (true) {
     CHECK((make<safe_rgb>(1)) == (safe_rgb::blue));
     CHECK((make<safe_rgb>(-1)) == (safe_rgb::white));
@@ -307,7 +307,7 @@ constexpr auto registry::enum_spec_v<patchy_rgb> =
 
 #pragma region MoreNamingTests
 
-TEST_CASE("BitMaskTest_MoreNamingTests", "[BitMaskTest]") {
+TEST_CASE("MoreNamingTests", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
     CHECK((valid_bits_v<rgb_unnamed>) == (7));
@@ -350,7 +350,7 @@ TEST_CASE("BitMaskTest_MoreNamingTests", "[BitMaskTest]") {
 
 #pragma region StreamingOut
 
-TEST_CASE("BitMaskTest_StreamingOut", "[BitMaskTest]") {
+TEST_CASE("StreamingOut", "[BitMaskTest]") {
   CHECK((OStreamable<rgb>));
   if (true) {
     std::stringstream ss;
@@ -380,7 +380,7 @@ constexpr auto registry::enum_spec_v<rb> =
 
 #pragma region NoGreen
 
-TEST_CASE("BitMaskTest_NoGreen", "[BitMaskTest]") {
+TEST_CASE("NoGreen", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
     CHECK((valid_bits_v<rb>) == (5));
@@ -417,7 +417,7 @@ constexpr auto registry::enum_spec_v<rg> =
 
 #pragma region NoBlue
 
-TEST_CASE("BitMaskTest_NoBlue", "[BitMaskTest]") {
+TEST_CASE("NoBlue", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
     CHECK((valid_bits_v<rg>) == (6));
@@ -457,7 +457,7 @@ constexpr auto registry::enum_spec_v<gb> =
 
 #pragma region NoRed
 
-TEST_CASE("BitMaskTest_NoRed", "[BitMaskTest]") {
+TEST_CASE("NoRed", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
     CHECK((valid_bits_v<gb>) == (3));
@@ -494,7 +494,7 @@ constexpr auto registry::enum_spec_v<safe_rb> = make_bitmask_enum_values_spec<
 
 #pragma region SafeNoGreen
 
-TEST_CASE("BitMaskTest_SafeNoGreen", "[BitMaskTest]") {
+TEST_CASE("SafeNoGreen", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
     CHECK((valid_bits_v<safe_rb>) == (5));
@@ -531,7 +531,7 @@ constexpr auto registry::enum_spec_v<safe_rg> = make_bitmask_enum_values_spec<
 
 #pragma region SafeNoBlue
 
-TEST_CASE("BitMaskTest_SafeNoBlue", "[BitMaskTest]") {
+TEST_CASE("SafeNoBlue", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
     CHECK((valid_bits_v<safe_rg>) == (6));
@@ -568,7 +568,7 @@ constexpr auto registry::enum_spec_v<safe_gb> = make_bitmask_enum_values_spec<
 
 #pragma region SafeNoRed
 
-TEST_CASE("BitMaskTest_SafeNoRed", "[BitMaskTest]") {
+TEST_CASE("SafeNoRed", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
     CHECK((valid_bits_v<safe_gb>) == (3));
@@ -661,7 +661,7 @@ constexpr auto registry::enum_spec_v<safe_rb_h> =
 
 #pragma region Placeholders
 
-TEST_CASE("BitMaskTest_Placeholders", "[BitMaskTest]") {
+TEST_CASE("Placeholders", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
     // Question-mark placeholder in bit-name mode: bit is valid, unnamed.
@@ -693,7 +693,7 @@ TEST_CASE("BitMaskTest_Placeholders", "[BitMaskTest]") {
 
 #pragma region SkipBlue
 
-TEST_CASE("BitMaskTest_SkipBlue", "[BitMaskTest]") {
+TEST_CASE("SkipBlue", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
     CHECK((valid_bits_v<rskipb>) == (7));
@@ -745,7 +745,7 @@ constexpr auto registry::enum_spec_v<safe_bw> = make_bitmask_enum_values_spec<
 
 #pragma region SafeBlackWhite
 
-TEST_CASE("BitMaskTest_SafeBlackWhite", "[BitMaskTest]") {
+TEST_CASE("SafeBlackWhite", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
     CHECK((valid_bits_v<safe_bw>) == (1));
@@ -777,7 +777,7 @@ constexpr auto registry::enum_spec_v<safe_w> =
 
 #pragma region SafeWhite
 
-TEST_CASE("BitMaskTest_SafeWhite", "[BitMaskTest]") {
+TEST_CASE("SafeWhite", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
     CHECK((valid_bits_v<safe_w>) == (1));
@@ -807,7 +807,7 @@ consteval auto cvbfbn() {
 
 #pragma region EnumCalcBitNames
 
-TEST_CASE("BitMaskTest_EnumCalcBitNames", "[BitMaskTest]") {
+TEST_CASE("EnumCalcBitNames", "[BitMaskTest]") {
   static_assert(cvbfbn<"r">() == 1);
   static_assert(cvbfbn<"r,">() == 2);
   static_assert(cvbfbn<"r,g">() == 3);
@@ -831,7 +831,7 @@ consteval auto cvbfvn() {
 
 #pragma region EnumCalcValueNames
 
-TEST_CASE("BitMaskTest_EnumCalcValueNames", "[BitMaskTest]") {
+TEST_CASE("EnumCalcValueNames", "[BitMaskTest]") {
   static_assert(cvbfvn<",">() == 0);
   static_assert(cvbfvn<"black,">() == 0);
   static_assert(cvbfvn<"black,blue">() == 1);
@@ -849,7 +849,7 @@ TEST_CASE("BitMaskTest_EnumCalcValueNames", "[BitMaskTest]") {
 
 #pragma region ExtractEnum
 
-TEST_CASE("BitMaskTest_ExtractEnum", "[BitMaskTest]") {
+TEST_CASE("ExtractEnum", "[BitMaskTest]") {
   using namespace corvid::strings;
   if (true) {
     rgb e{};
@@ -908,7 +908,7 @@ TEST_CASE("BitMaskTest_ExtractEnum", "[BitMaskTest]") {
 
 #pragma region HoleyOps
 
-TEST_CASE("BitMaskTest_HoleyOps", "[BitMaskTest]") {
+TEST_CASE("HoleyOps", "[BitMaskTest]") {
   // Tests for op~ and flip with bit masks that have holes (non-contiguous
   // valid bits). rb has valid bits 101 (red and blue, no green).
   if (true) {
@@ -936,7 +936,7 @@ TEST_CASE("BitMaskTest_HoleyOps", "[BitMaskTest]") {
 
 #pragma region MakeAt
 
-TEST_CASE("BitMaskTest_MakeAt", "[BitMaskTest]") {
+TEST_CASE("MakeAt", "[BitMaskTest]") {
   // make_at uses 1-based indexing.
   if (true) {
     CHECK((make_at<rgb>(1)) == (rgb::blue));  // bit 0 (lsb)

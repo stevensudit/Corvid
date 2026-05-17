@@ -59,7 +59,7 @@ std::pair<os_file, os_file> make_blocking_pipe() {
 
 #pragma region Lifecycle
 
-TEST_CASE("OsFile_Lifecycle", "[OsFile]") {
+TEST_CASE("Lifecycle", "[OsFile]") {
   // Default-constructed file is invalid.
   if (true) {
     os_file f;
@@ -90,7 +90,7 @@ TEST_CASE("OsFile_Lifecycle", "[OsFile]") {
 #pragma endregion
 #pragma region Move
 
-TEST_CASE("OsFile_Move", "[OsFile]") {
+TEST_CASE("Move", "[OsFile]") {
   // Move constructor transfers ownership; source becomes invalid.
   if (true) {
     auto [reader, writer] = make_nb_pipe();
@@ -126,7 +126,7 @@ TEST_CASE("OsFile_Move", "[OsFile]") {
 #pragma endregion
 #pragma region ReleaseFlags
 
-TEST_CASE("OsFile_ReleaseFlags", "[OsFile]") {
+TEST_CASE("ReleaseFlags", "[OsFile]") {
   // `release()` yields the handle without closing it; file becomes invalid.
   if (true) {
     auto [reader, writer] = make_nb_pipe();
@@ -158,7 +158,7 @@ TEST_CASE("OsFile_ReleaseFlags", "[OsFile]") {
 #pragma endregion
 #pragma region WriteRead
 
-TEST_CASE("OsFile_WriteRead", "[OsFile]") {
+TEST_CASE("WriteRead", "[OsFile]") {
   auto [reader, writer] = make_nb_pipe();
 
   // A small write drains fully and the read side sees the same bytes.
@@ -187,7 +187,7 @@ TEST_CASE("OsFile_WriteRead", "[OsFile]") {
 #pragma endregion
 #pragma region WriteAllReadExact
 
-TEST_CASE("OsFile_WriteAllReadExact", "[OsFile]") {
+TEST_CASE("WriteAllReadExact", "[OsFile]") {
   // write_all sends all bytes; read_exact receives exactly that many.
   if (true) {
     auto [reader, writer] = make_blocking_pipe();
@@ -223,7 +223,7 @@ TEST_CASE("OsFile_WriteAllReadExact", "[OsFile]") {
 #pragma endregion
 #pragma region MsgFlagsString
 
-TEST_CASE("OsFile_MsgFlagsString", "[OsFile]") {
+TEST_CASE("MsgFlagsString", "[OsFile]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   // `none` (value 0) has no bit name and prints as "0x00000000".
   using namespace corvid::strings;
@@ -251,7 +251,7 @@ TEST_CASE("OsFile_MsgFlagsString", "[OsFile]") {
 #pragma endregion
 #pragma region ErrnoCodeString
 
-TEST_CASE("OsFile_ErrnoCodeString", "[OsFile]") {
+TEST_CASE("ErrnoCodeString", "[OsFile]") {
   // Sequence enum: named values 0 ("ok") through 133 ("hwpoison").
   using namespace corvid::strings;
   using EC = filesys::errno_code;
@@ -288,7 +288,7 @@ TEST_CASE("OsFile_ErrnoCodeString", "[OsFile]") {
 #pragma endregion
 #pragma region FcntlOpsString
 
-TEST_CASE("OsFile_FcntlOpsString", "[OsFile]") {
+TEST_CASE("FcntlOpsString", "[OsFile]") {
   // Sequence enum: named values 0 ("dupfd") through 16 ("getownex").
   using namespace corvid::strings;
   using FO = filesys::fcntl_ops;
@@ -316,7 +316,7 @@ TEST_CASE("OsFile_FcntlOpsString", "[OsFile]") {
 #pragma endregion
 #pragma region MmapProtString
 
-TEST_CASE("OsFile_MmapProtString", "[OsFile]") {
+TEST_CASE("MmapProtString", "[OsFile]") {
   // Bitmask enum: exec(4) > write(2) > read(1); none(0) has no bit name.
   using namespace corvid::strings;
   using P = mmap_prot;
@@ -339,7 +339,7 @@ TEST_CASE("OsFile_MmapProtString", "[OsFile]") {
 #pragma endregion
 #pragma region MmapAdviceString
 
-TEST_CASE("OsFile_MmapAdviceString", "[OsFile]") {
+TEST_CASE("MmapAdviceString", "[OsFile]") {
   // Sequence enum: values 0-4 and 8-25 named; 5-7 are gaps; 26+ out of range.
   using namespace corvid::strings;
   using MA = mmap_advice;
@@ -379,7 +379,7 @@ TEST_CASE("OsFile_MmapAdviceString", "[OsFile]") {
 #pragma endregion
 #pragma region MmapMaskString
 
-TEST_CASE("OsFile_MmapMaskString", "[OsFile]") {
+TEST_CASE("MmapMaskString", "[OsFile]") {
   // Bitmask enum: named flags at bits 8 (growsdown) through 20
   // (fixed_noreplace); none=0 and multi-bit masks print as hex.
   using namespace corvid::strings;

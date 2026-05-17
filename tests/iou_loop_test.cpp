@@ -50,7 +50,7 @@ bool WaitFor(const auto& pred, std::chrono::milliseconds timeout = 500ms) {
 
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 #pragma region NopCompletion
-TEST_CASE("IouLoop_NopCompletion", "[IouLoop]") {
+TEST_CASE("NopCompletion", "[IouLoop]") {
   // Verify that a submitted NOP fires its completion callback on the runner.
   if (true) {
     constexpr uint32_t max_32 = std::numeric_limits<uint32_t>::max();
@@ -75,7 +75,7 @@ TEST_CASE("IouLoop_NopCompletion", "[IouLoop]") {
 #pragma endregion
 
 #pragma region MultipleNops
-TEST_CASE("IouLoop_MultipleNops", "[IouLoop]") {
+TEST_CASE("MultipleNops", "[IouLoop]") {
   // Submit several NOPs and confirm all complete on the runner thread.
   if (true) {
     iou_loop_runner loop;
@@ -99,7 +99,7 @@ TEST_CASE("IouLoop_MultipleNops", "[IouLoop]") {
 #pragma endregion
 
 #pragma region StopFromThread
-TEST_CASE("IouLoop_StopFromThread", "[IouLoop]") {
+TEST_CASE("StopFromThread", "[IouLoop]") {
   // Stop the runner from another thread and let destruction join cleanly.
   if (true) {
     iou_loop_runner loop;
@@ -128,7 +128,7 @@ TEST_CASE("IouLoop_StopFromThread", "[IouLoop]") {
 // worker notifies after `~loop_t` has run. This gives TSAN a real
 // happens-before edge with the worker's exit (no sleep), and also covers
 // the io_uring memory being unmapped before the next test re-mmaps it.
-TEST_CASE("IouLoop_SelfDestroyOnLoopThread", "[IouLoop]") {
+TEST_CASE("SelfDestroyOnLoopThread", "[IouLoop]") {
   auto runner = std::make_unique<iou_loop_runner>();
   // Use a reference (no `shared_ptr` copy) so the worker's `use_count`
   // check sees `state->loop` as the sole owner during cleanup.
@@ -145,7 +145,7 @@ TEST_CASE("IouLoop_SelfDestroyOnLoopThread", "[IouLoop]") {
 #pragma endregion
 
 #pragma region PostFromThread
-TEST_CASE("IouLoop_PostFromThread", "[IouLoop]") {
+TEST_CASE("PostFromThread", "[IouLoop]") {
   // Post a callback from an external thread; verify the loop executes it.
   if (true) {
     std::atomic_bool fired{false};
@@ -164,7 +164,7 @@ TEST_CASE("IouLoop_PostFromThread", "[IouLoop]") {
 #pragma endregion
 
 #pragma region PostAndWait
-TEST_CASE("IouLoop_PostAndWait", "[IouLoop]") {
+TEST_CASE("PostAndWait", "[IouLoop]") {
   // `post_and_wait` blocks until the callback runs, then returns.
   if (true) {
     std::atomic_bool ran{false};
@@ -182,7 +182,7 @@ TEST_CASE("IouLoop_PostAndWait", "[IouLoop]") {
 #pragma endregion
 
 #pragma region RecvSend
-TEST_CASE("IouLoop_RecvSend", "[IouLoop]") {
+TEST_CASE("RecvSend", "[IouLoop]") {
   // Submit a recv and a send over a Unix socket pair; confirm the payload
   // arrives and the byte counts are correct.
   if (true) {
@@ -227,7 +227,7 @@ TEST_CASE("IouLoop_RecvSend", "[IouLoop]") {
 #pragma endregion
 
 #pragma region RecvWriteFixed
-TEST_CASE("IouLoop_RecvWriteFixed", "[IouLoop]") {
+TEST_CASE("RecvWriteFixed", "[IouLoop]") {
   // Submit a recv_fixed and a send_fixed over a Unix socket pair using
   // registered buffers; confirm the payload arrives and byte counts match.
   if (true) {
@@ -277,7 +277,7 @@ TEST_CASE("IouLoop_RecvWriteFixed", "[IouLoop]") {
 #pragma endregion
 
 #pragma region SendBuffer
-TEST_CASE("IouLoop_SendBuffer", "[IouLoop]") {
+TEST_CASE("SendBuffer", "[IouLoop]") {
   // `submit_send_buffer` uses `IORING_OP_SEND_ZC` over connected UDP sockets
   // on loopback. ZC send requires IP sockets; Unix domain sockets return
   // `EOPNOTSUPP`. A sync `connect()` on the send socket sets the peer so the
@@ -344,7 +344,7 @@ TEST_CASE("IouLoop_SendBuffer", "[IouLoop]") {
 #pragma endregion
 
 #pragma region IsLoopThread
-TEST_CASE("IouLoop_IsLoopThread", "[IouLoop]") {
+TEST_CASE("IsLoopThread", "[IouLoop]") {
   // `is_loop_thread()` returns false on the test thread and true inside a
   // callback executing on the loop thread.
   if (true) {
@@ -363,7 +363,7 @@ TEST_CASE("IouLoop_IsLoopThread", "[IouLoop]") {
 #pragma endregion
 
 #pragma region ExecuteOrPost
-TEST_CASE("IouLoop_ExecuteOrPost", "[IouLoop]") {
+TEST_CASE("ExecuteOrPost", "[IouLoop]") {
   // `execute_or_post` from an off-thread posts; the callback still runs.
   if (true) {
     std::atomic_bool executed{false};
@@ -382,7 +382,7 @@ TEST_CASE("IouLoop_ExecuteOrPost", "[IouLoop]") {
 #pragma endregion
 
 #pragma region NopTokenVariant
-TEST_CASE("IouLoop_NopTokenVariant", "[IouLoop]") {
+TEST_CASE("NopTokenVariant", "[IouLoop]") {
   // `tokenize` + `submit_nop(token)` exercises the token-based submission
   // path.
   if (true) {
@@ -408,7 +408,7 @@ TEST_CASE("IouLoop_NopTokenVariant", "[IouLoop]") {
 #pragma endregion
 
 #pragma region TokenIsReleased
-TEST_CASE("IouLoop_TokenIsReleased", "[IouLoop]") {
+TEST_CASE("TokenIsReleased", "[IouLoop]") {
   // `tokenize` produces a valid token; `is_released` returns false while the
   // slot is live, true after explicit release.
   if (true) {
@@ -431,7 +431,7 @@ TEST_CASE("IouLoop_TokenIsReleased", "[IouLoop]") {
 #pragma endregion
 
 #pragma region SubmitClose
-TEST_CASE("IouLoop_SubmitClose", "[IouLoop]") {
+TEST_CASE("SubmitClose", "[IouLoop]") {
   // `submit_close` fires its callback with `res == 0` after the fd is closed.
   if (true) {
     auto [keep, to_close] = net_socket::create_pair();
@@ -455,7 +455,7 @@ TEST_CASE("IouLoop_SubmitClose", "[IouLoop]") {
 #pragma endregion
 
 #pragma region SubmitTimeout
-TEST_CASE("IouLoop_SubmitTimeout", "[IouLoop]") {
+TEST_CASE("SubmitTimeout", "[IouLoop]") {
   // A single-shot timeout fires with `-ETIME` after the specified duration.
   if (true) {
     bound_timeout timeout{
@@ -480,7 +480,7 @@ TEST_CASE("IouLoop_SubmitTimeout", "[IouLoop]") {
 #pragma endregion
 
 #pragma region SubmitTimeoutMultishot
-TEST_CASE("IouLoop_SubmitTimeoutMultishot", "[IouLoop]") {
+TEST_CASE("SubmitTimeoutMultishot", "[IouLoop]") {
   // A multishot timeout with `cqe_count`=3 fires exactly 3 times then stops.
   if (true) {
     bound_timeout timeout{
@@ -506,7 +506,7 @@ TEST_CASE("IouLoop_SubmitTimeoutMultishot", "[IouLoop]") {
 #pragma endregion
 
 #pragma region SubmitCancelFile
-TEST_CASE("IouLoop_SubmitCancelFile", "[IouLoop]") {
+TEST_CASE("SubmitCancelFile", "[IouLoop]") {
   // Canceling a file's pending ops delivers a negative result to the recv
   // callback (typically `ECANCELED`).
   if (true) {
@@ -544,7 +544,7 @@ TEST_CASE("IouLoop_SubmitCancelFile", "[IouLoop]") {
 #pragma endregion
 
 #pragma region SubmitCancelToken
-TEST_CASE("IouLoop_SubmitCancelToken", "[IouLoop]") {
+TEST_CASE("SubmitCancelToken", "[IouLoop]") {
   // Canceling via `completion_token` delivers a negative result to the
   // matching recv callback (typically `ECANCELED`).
   if (true) {
@@ -583,7 +583,7 @@ TEST_CASE("IouLoop_SubmitCancelToken", "[IouLoop]") {
 #pragma endregion
 
 #pragma region AcceptConnect
-TEST_CASE("IouLoop_AcceptConnect", "[IouLoop]") {
+TEST_CASE("AcceptConnect", "[IouLoop]") {
   // `submit_accept` and `submit_connect` complete successfully over a Unix ANS
   // socket. The accepted socket fd (>= 0) is immediately closed to avoid
   // leaks.
@@ -637,7 +637,7 @@ TEST_CASE("IouLoop_AcceptConnect", "[IouLoop]") {
 #pragma endregion
 
 #pragma region RecvSendMsg
-TEST_CASE("IouLoop_RecvSendMsg", "[IouLoop]") {
+TEST_CASE("RecvSendMsg", "[IouLoop]") {
   // `submit_recvmsg_buffer` and `submit_sendmsg_buffer` exchange a datagram
   // between two UDP sockets. On completion, the received payload and sender
   // address are available via the buffer.
@@ -698,7 +698,7 @@ TEST_CASE("IouLoop_RecvSendMsg", "[IouLoop]") {
 #pragma endregion
 
 #pragma region BorrowBufferSizes
-TEST_CASE("IouLoop_BorrowBufferSizes", "[IouLoop]") {
+TEST_CASE("BorrowBufferSizes", "[IouLoop]") {
   // `borrow_read_buffer` and `borrow_write_buffer` succeed for all three block
   // sizes, and the buffers are returned to the pool on destruction.
   if (true) {
@@ -725,7 +725,7 @@ TEST_CASE("IouLoop_BorrowBufferSizes", "[IouLoop]") {
 #pragma endregion
 
 #pragma region SlotRetentionRetain
-TEST_CASE("IouLoop_SlotRetentionRetain", "[IouLoop]") {
+TEST_CASE("SlotRetentionRetain", "[IouLoop]") {
   // A callback returning `slot_retention::retain` keeps the pool slot live.
   // Re-submitting a NOP with the same token fires the callback a second time,
   // after which it releases normally.
@@ -756,7 +756,7 @@ TEST_CASE("IouLoop_SlotRetentionRetain", "[IouLoop]") {
 #pragma endregion
 
 #pragma region TimespecDurationRoundTrip
-TEST_CASE("IouWrap_TimespecDurationRoundTrip", "[IouWrap]") {
+TEST_CASE("TimespecDurationRoundTrip", "[IouWrap]") {
   // Construct from durations and verify `as_duration()` recovers the original.
   if (true) {
     iou_timespec invalid;
@@ -780,7 +780,7 @@ TEST_CASE("IouWrap_TimespecDurationRoundTrip", "[IouWrap]") {
 #pragma endregion
 
 #pragma region TimespecTimePointRoundTrip
-TEST_CASE("IouWrap_TimespecTimePointRoundTrip", "[IouWrap]") {
+TEST_CASE("TimespecTimePointRoundTrip", "[IouWrap]") {
   // Construct from a `steady_clock` time_point and verify `as_time_point()`
   // recovers the exact same value.
   using clk = std::chrono::steady_clock;
@@ -795,7 +795,7 @@ TEST_CASE("IouWrap_TimespecTimePointRoundTrip", "[IouWrap]") {
 #pragma endregion
 
 #pragma region TimespecStaticHelpers
-TEST_CASE("IouWrap_TimespecStaticHelpers", "[IouWrap]") {
+TEST_CASE("TimespecStaticHelpers", "[IouWrap]") {
   // `from_duration` splits seconds and nanosecond remainder correctly.
   if (true) {
     auto raw = iou_timespec::from_duration(750ms);
@@ -826,7 +826,7 @@ TEST_CASE("IouWrap_TimespecStaticHelpers", "[IouWrap]") {
 #pragma endregion
 
 #pragma region TimespecAsPointer
-TEST_CASE("IouWrap_TimespecAsPointer", "[IouWrap]") {
+TEST_CASE("TimespecAsPointer", "[IouWrap]") {
   // `as_pointer(nullptr)` is null; `as_pointer(&ts)` is non-null.
   if (true) {
     CHECK((iou_timespec::to_pointer(static_cast<iou_timespec*>(nullptr)) ==
@@ -844,7 +844,7 @@ TEST_CASE("IouWrap_TimespecAsPointer", "[IouWrap]") {
 #pragma endregion
 
 #pragma region ItimerspecConstruct
-TEST_CASE("IouWrap_ItimerspecConstruct", "[IouWrap]") {
+TEST_CASE("ItimerspecConstruct", "[IouWrap]") {
   // Default construction zeros both fields; explicit construction stores the
   // correct interval and value.
   if (true) {
@@ -865,7 +865,7 @@ TEST_CASE("IouWrap_ItimerspecConstruct", "[IouWrap]") {
 #pragma endregion
 
 #pragma region ResStatus
-TEST_CASE("IouWrap_ResStatus", "[IouWrap]") {
+TEST_CASE("ResStatus", "[IouWrap]") {
   // `ok()`, `bool`, and `!` reflect the sign of the raw result.
   if (true) {
     iou_res r{0};
@@ -900,7 +900,7 @@ TEST_CASE("IouWrap_ResStatus", "[IouWrap]") {
 #pragma endregion
 
 #pragma region CqeFlagsString
-TEST_CASE("IouWrap_CqeFlagsString", "[IouWrap]") {
+TEST_CASE("CqeFlagsString", "[IouWrap]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid::strings;
   using F = iou_cqe_flags;
@@ -926,7 +926,7 @@ TEST_CASE("IouWrap_CqeFlagsString", "[IouWrap]") {
 #pragma endregion
 
 #pragma region SqeFlagsString
-TEST_CASE("IouWrap_SqeFlagsString", "[IouWrap]") {
+TEST_CASE("SqeFlagsString", "[IouWrap]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid::strings;
   using F = iou_sqe_flags;
@@ -953,7 +953,7 @@ TEST_CASE("IouWrap_SqeFlagsString", "[IouWrap]") {
 #pragma endregion
 
 #pragma region SetupFlagsString
-TEST_CASE("IouWrap_SetupFlagsString", "[IouWrap]") {
+TEST_CASE("SetupFlagsString", "[IouWrap]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   using namespace corvid::strings;
   using F = iou_setup_flags;
@@ -993,7 +993,7 @@ TEST_CASE("IouWrap_SetupFlagsString", "[IouWrap]") {
 #pragma endregion
 
 #pragma region TimeoutFlagsString
-TEST_CASE("IouWrap_TimeoutFlagsString", "[IouWrap]") {
+TEST_CASE("TimeoutFlagsString", "[IouWrap]") {
   // Each named bit round-trips through `enum_as_string` / `parse_enum`.
   // `rel` (value 0) has no bit name and prints as "0x00".
   using namespace corvid::strings;
@@ -1022,7 +1022,7 @@ TEST_CASE("IouWrap_TimeoutFlagsString", "[IouWrap]") {
 #pragma endregion
 
 #pragma region RecvBufferMulti
-TEST_CASE("IouLoop_RecvBufferMulti", "[IouLoop]") {
+TEST_CASE("RecvBufferMulti", "[IouLoop]") {
   // `submit_recv_buffer_multi` fires the callback for each message received.
   // Send three messages over a SEQPACKET socket pair (which preserves message
   // boundaries); confirm all three arrive with the correct payloads.
@@ -1068,7 +1068,7 @@ TEST_CASE("IouLoop_RecvBufferMulti", "[IouLoop]") {
 #pragma endregion
 
 #pragma region RecvMsgBufferMulti
-TEST_CASE("IouLoop_RecvMsgBufferMulti", "[IouLoop]") {
+TEST_CASE("RecvMsgBufferMulti", "[IouLoop]") {
   // `submit_recvmsg_buffer_multi` fires the callback for each datagram.
   // Send three UDP datagrams; confirm all three arrive with correct payloads.
   if (true) {
@@ -1124,7 +1124,7 @@ TEST_CASE("IouLoop_RecvMsgBufferMulti", "[IouLoop]") {
 #pragma endregion
 
 #pragma region RecvMsgBufferMultiTruncated
-TEST_CASE("IouLoop_RecvMsgBufferMultiTruncated", "[IouLoop]") {
+TEST_CASE("RecvMsgBufferMultiTruncated", "[IouLoop]") {
   // An 8 KiB datagram exceeds the 2 KiB UDP provided-buffer size. The
   // multishot recvmsg callback should fire once with:
   //   - `result()` == `EC::msgsize` (truncation error)
@@ -1182,7 +1182,7 @@ TEST_CASE("IouLoop_RecvMsgBufferMultiTruncated", "[IouLoop]") {
 #pragma endregion
 
 #pragma region RecvMsgBufferMultiStress
-TEST_CASE("IouLoop_RecvMsgBufferMultiStress", "[IouLoop]") {
+TEST_CASE("RecvMsgBufferMultiStress", "[IouLoop]") {
   // Stress test for multishot recvmsg with provided buffers.
   //
   // The UDP provided-buffer pool has 1024 slots (2 MiB slab / 2 KiB each).
@@ -1278,7 +1278,7 @@ TEST_CASE("IouLoop_RecvMsgBufferMultiStress", "[IouLoop]") {
 #pragma endregion
 
 #pragma region FnSizeProbe
-TEST_CASE("IouLoop_CompletionFnSizeProbe", "[IouLoop]") {
+TEST_CASE("CompletionFnSizeProbe", "[IouLoop]") {
   // Probe the storage each (cb, ep) combination would need if `completion_fn`
   // were replaced with `fixed_function<SZ, slot_retention(completion_id,
   // iou_res, iou_cqe_flags)>`.  The wrapping lambda in `wrap_completion_fn`
@@ -1373,7 +1373,7 @@ TEST_CASE("IouLoop_CompletionFnSizeProbe", "[IouLoop]") {
 #pragma endregion
 
 #pragma region SubmitPoll
-TEST_CASE("IouLoop_SubmitPoll", "[IouLoop]") {
+TEST_CASE("SubmitPoll", "[IouLoop]") {
   // Single-shot `submit_poll` fires once when the polled file becomes
   // readable; `res` contains the triggered events mask (POLLIN bit set).
   if (true) {
@@ -1409,7 +1409,7 @@ TEST_CASE("IouLoop_SubmitPoll", "[IouLoop]") {
 #pragma endregion
 
 #pragma region SubmitShutdown
-TEST_CASE("IouLoop_SubmitShutdown", "[IouLoop]") {
+TEST_CASE("SubmitShutdown", "[IouLoop]") {
   // `submit_shutdown(SHUT_WR)` causes the peer recv to see EOF (0 bytes).
   if (true) {
     auto [send_sock, recv_sock] = net_socket::create_pair();
@@ -1455,7 +1455,7 @@ TEST_CASE("IouLoop_SubmitShutdown", "[IouLoop]") {
 #pragma endregion
 
 #pragma region SubmitTimeoutRemove
-TEST_CASE("IouLoop_SubmitTimeoutRemove", "[IouLoop]") {
+TEST_CASE("SubmitTimeoutRemove", "[IouLoop]") {
   // `submit_timeout_remove(completion_token&&)` (auto-release variant)
   // cancels a pending timeout. The returned remove token is valid; its slot
   // is released once the cancel CQE is processed.
@@ -1483,7 +1483,7 @@ TEST_CASE("IouLoop_SubmitTimeoutRemove", "[IouLoop]") {
 #pragma endregion
 
 #pragma region SubmitTimeoutRemoveExplicit
-TEST_CASE("IouLoop_SubmitTimeoutRemoveExplicit", "[IouLoop]") {
+TEST_CASE("SubmitTimeoutRemoveExplicit", "[IouLoop]") {
   // Two-arg `submit_timeout_remove` allows an explicit callback for the
   // remove operation itself; verify it fires with `res == 0`.
   if (true) {
@@ -1524,7 +1524,7 @@ TEST_CASE("IouLoop_SubmitTimeoutRemoveExplicit", "[IouLoop]") {
 #pragma endregion
 
 #pragma region SubmitCancelTokenAutoRelease
-TEST_CASE("IouLoop_SubmitCancelTokenAutoRelease", "[IouLoop]") {
+TEST_CASE("SubmitCancelTokenAutoRelease", "[IouLoop]") {
   if (true) {
     auto [send_sock, recv_sock] = net_socket::create_pair();
     std::atomic_bool recv_done{false};
@@ -1555,7 +1555,7 @@ TEST_CASE("IouLoop_SubmitCancelTokenAutoRelease", "[IouLoop]") {
 #pragma endregion
 
 #pragma region SubmitTimeoutUpdate
-TEST_CASE("IouLoop_SubmitTimeoutUpdate", "[IouLoop]") {
+TEST_CASE("SubmitTimeoutUpdate", "[IouLoop]") {
   // `submit_timeout_update` changes the expiry of a pending timeout. Submit a
   // 2s timeout, update it to 50ms, then wait for two CQEs on the same token:
   // the update completion (res=0) and the expiry (res=-ETIME). The callback

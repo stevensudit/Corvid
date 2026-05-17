@@ -38,7 +38,7 @@ auto& stream_out(OStreamDerived auto& os, const OStreamable auto& osb) {
 
 #pragma region OStreamdDerived
 
-TEST_CASE("MetaTest_OStreamdDerived", "[MetaTest]") {
+TEST_CASE("OStreamdDerived", "[MetaTest]") {
   std::ostringstream oss;
   stream_out(oss, 1);
   CHECK((oss.str()) == ("1"));
@@ -52,7 +52,7 @@ TEST_CASE("MetaTest_OStreamdDerived", "[MetaTest]") {
 #pragma endregion
 #pragma region EnumBitWidth
 
-TEST_CASE("MetaTest_EnumBitWidth", "[MetaTest]") {
+TEST_CASE("EnumBitWidth", "[MetaTest]") {
   CHECK((std::bit_width(0ULL)) == (0));
   CHECK((std::bit_width(1ULL)) == (1));
   CHECK((std::bit_width(2ULL)) == (2));
@@ -186,7 +186,7 @@ TEST_CASE("MetaTest_EnumBitWidth", "[MetaTest]") {
 #pragma endregion
 #pragma region EnumHighestValueInNBits
 
-TEST_CASE("MetaTest_EnumHighestValueInNBits", "[MetaTest]") {
+TEST_CASE("EnumHighestValueInNBits", "[MetaTest]") {
   CHECK((meta::highest_value_in_n_bits(0ULL)) == (0ULL));
   CHECK((meta::highest_value_in_n_bits(1ULL)) == (1ULL));
   CHECK((meta::highest_value_in_n_bits(2ULL)) == (3ULL));
@@ -257,7 +257,7 @@ TEST_CASE("MetaTest_EnumHighestValueInNBits", "[MetaTest]") {
 #pragma endregion
 #pragma region EnumPow2
 
-TEST_CASE("MetaTest_EnumPow2", "[MetaTest]") {
+TEST_CASE("EnumPow2", "[MetaTest]") {
   CHECK((meta::pow2(0)) == (1ULL));
   CHECK((meta::pow2(1)) == (2ULL));
   CHECK((meta::pow2(2)) == (4ULL));
@@ -328,7 +328,7 @@ TEST_CASE("MetaTest_EnumPow2", "[MetaTest]") {
 #pragma endregion
 #pragma region SpanConstness
 
-TEST_CASE("MetaTest_SpanConstness", "[MetaTest]") {
+TEST_CASE("SpanConstness", "[MetaTest]") {
   CHECK(((Span<std::span<char>, char>)));
   CHECK(((Span<std::span<char>, const char>)));
   CHECK_FALSE(((Span<std::span<const char>, char>)));
@@ -338,7 +338,7 @@ TEST_CASE("MetaTest_SpanConstness", "[MetaTest]") {
 #pragma endregion
 #pragma region FunctionVoidReturn
 
-TEST_CASE("MetaTest_FunctionVoidReturn", "[MetaTest]") {
+TEST_CASE("FunctionVoidReturn", "[MetaTest]") {
   using FNV0 = std::function<void()>;
   using FNV1 = std::function<void(int)>;
   using FNI0 = std::function<int()>;
@@ -365,7 +365,7 @@ struct Goo {};
 
 #pragma region Specialization
 
-TEST_CASE("MetaTest_Specialization", "[MetaTest]") {
+TEST_CASE("Specialization", "[MetaTest]") {
   CHECK(((is_specialization_of_v<std::vector<int>, std::vector>)));
   CHECK_FALSE(((is_specialization_of_v<std::vector<int>, std::map>)));
   CHECK_FALSE(((is_specialization_of_v<int, std::map>)));
@@ -380,7 +380,7 @@ TEST_CASE("MetaTest_Specialization", "[MetaTest]") {
 #pragma endregion
 #pragma region PointerElement
 
-TEST_CASE("MetaTest_PointerElement", "[MetaTest]") {
+TEST_CASE("PointerElement", "[MetaTest]") {
   CHECK(((std::is_same_v<int, pointer_element_t<int*>>)));
   CHECK(((std::is_same_v<int, pointer_element_t<std::unique_ptr<int>>>)));
   CHECK(((std::is_same_v<void, pointer_element_t<int>>)));
@@ -389,7 +389,7 @@ TEST_CASE("MetaTest_PointerElement", "[MetaTest]") {
 #pragma endregion
 #pragma region Dereferenceable
 
-TEST_CASE("MetaTest_Dereferenceable", "[MetaTest]") {
+TEST_CASE("Dereferenceable", "[MetaTest]") {
   CHECK(((Dereferenceable<int*>)));
   CHECK(((Dereferenceable<std::unique_ptr<int>>)));
   CHECK_FALSE(((Dereferenceable<int>)));
@@ -399,7 +399,7 @@ TEST_CASE("MetaTest_Dereferenceable", "[MetaTest]") {
 #pragma endregion
 #pragma region IsPair
 
-TEST_CASE("MetaTest_IsPair", "[MetaTest]") {
+TEST_CASE("IsPair", "[MetaTest]") {
   CHECK(((is_pair_v<std::pair<int, int>>)));
   CHECK_FALSE(((is_pair_v<std::tuple<int, int>>)));
   CHECK_FALSE(((is_pair_v<int>)));
@@ -429,7 +429,7 @@ TEST_CASE("MetaTest_IsPair", "[MetaTest]") {
 #pragma endregion
 #pragma region ContainerElement
 
-TEST_CASE("MetaTest_ContainerElement", "[MetaTest]") {
+TEST_CASE("ContainerElement", "[MetaTest]") {
   // Test with pair - extracts the second element (value)
   {
     std::pair<int, int> kv{1, 2};
@@ -454,7 +454,7 @@ TEST_CASE("MetaTest_ContainerElement", "[MetaTest]") {
 #pragma endregion
 #pragma region KeyFind
 
-TEST_CASE("MetaTest_KeyFind", "[MetaTest]") {
+TEST_CASE("KeyFind", "[MetaTest]") {
   // has_key_find_v checks if container has find(key_type) method
   using M = std::map<int, Foo>;
   CHECK(((has_key_find_v<M>)));
@@ -472,7 +472,7 @@ TEST_CASE("MetaTest_KeyFind", "[MetaTest]") {
 #pragma endregion
 #pragma region TypeName
 
-TEST_CASE("MetaTest_TypeName", "[MetaTest]") {
+TEST_CASE("TypeName", "[MetaTest]") {
   using T = std::string;
   using U = const std::string;
   using V = std::string&;
@@ -493,7 +493,7 @@ TEST_CASE("MetaTest_TypeName", "[MetaTest]") {
 #pragma endregion
 #pragma region StringViewConvertible
 
-TEST_CASE("MetaTest_StringViewConvertible", "[MetaTest]") {
+TEST_CASE("StringViewConvertible", "[MetaTest]") {
   // StringViewConvertible concept (replaces is_string_view_convertible_v)
   CHECK(((StringViewConvertible<std::string_view>)));
   CHECK(((StringViewConvertible<std::string>)));
@@ -525,7 +525,7 @@ TEST_CASE("MetaTest_StringViewConvertible", "[MetaTest]") {
 #pragma endregion
 #pragma region Number
 
-TEST_CASE("MetaTest_Number", "[MetaTest]") {
+TEST_CASE("Number", "[MetaTest]") {
   // Integer concept (integral excluding bool)
   CHECK(((Integer<char>)));
   CHECK(((Integer<int>)));
@@ -564,7 +564,7 @@ TEST_CASE("MetaTest_Number", "[MetaTest]") {
 #pragma endregion
 #pragma region Tuple
 
-TEST_CASE("MetaTest_Tuple", "[MetaTest]") {
+TEST_CASE("Tuple", "[MetaTest]") {
   using T0 = std::tuple<>;
   using T2 = std::tuple<int, int>;
   using PI = std::pair<int, int>;
@@ -596,7 +596,7 @@ TEST_CASE("MetaTest_Tuple", "[MetaTest]") {
 #pragma endregion
 #pragma region Detection
 
-TEST_CASE("MetaTest_Detection", "[MetaTest]") {
+TEST_CASE("Detection", "[MetaTest]") {
   // initializer_list detection
   {
     auto il = {1, 2, 3};
@@ -638,7 +638,7 @@ TEST_CASE("MetaTest_Detection", "[MetaTest]") {
 #pragma endregion
 #pragma region Underlying
 
-TEST_CASE("MetaTest_Underlying", "[MetaTest]") {
+TEST_CASE("Underlying", "[MetaTest]") {
   enum class X : size_t { x1 = 1, x2 };
   enum class Y : int64_t { ylow = -1 };
   enum Z { z1 = 1 };
@@ -664,7 +664,7 @@ TEST_CASE("MetaTest_Underlying", "[MetaTest]") {
 #pragma endregion
 #pragma region Streamable
 
-TEST_CASE("MetaTest_Streamable", "[MetaTest]") {
+TEST_CASE("Streamable", "[MetaTest]") {
   // OStreamable concept (replaces can_stream_out_v)
   CHECK(((OStreamable<int>)));
   CHECK_FALSE(((OStreamable<Foo>)));
@@ -673,7 +673,7 @@ TEST_CASE("MetaTest_Streamable", "[MetaTest]") {
 #pragma endregion
 #pragma region MaybeTypes
 
-TEST_CASE("MetaTest_MaybeTypes", "[MetaTest]") {
+TEST_CASE("MaybeTypes", "[MetaTest]") {
   CHECK(((std::is_empty_v<empty_t>)));
   CHECK(((std::is_same_v<maybe_t<int, true>, int>)));
   CHECK(((std::is_same_v<maybe_t<int, false>, empty_t>)));
@@ -709,7 +709,7 @@ struct Trackable: public address_forwarder<Trackable> {
 static_assert(AddressForwarder<Trackable>);
 static_assert(!AddressForwarder<int>);
 
-TEST_CASE("AddressForwarder_Basic", "[AddressForwarder]") {
+TEST_CASE("Basic", "[AddressForwarder]") {
   Trackable t{42};
   CHECK((t.forwarding_address()) == (nullptr));
 }
@@ -717,7 +717,7 @@ TEST_CASE("AddressForwarder_Basic", "[AddressForwarder]") {
 #pragma endregion
 #pragma region AddressForwarder_Track
 
-TEST_CASE("AddressForwarder_Track", "[AddressForwarder]") {
+TEST_CASE("Track", "[AddressForwarder]") {
   Trackable* ptr{};
   {
     Trackable t{7};
@@ -732,7 +732,7 @@ TEST_CASE("AddressForwarder_Track", "[AddressForwarder]") {
 #pragma endregion
 #pragma region AddressForwarder_MoveConstruct
 
-TEST_CASE("AddressForwarder_MoveConstruct", "[AddressForwarder]") {
+TEST_CASE("MoveConstruct", "[AddressForwarder]") {
   Trackable* ptr{};
   Trackable a{1};
   ptr = &a;
@@ -749,7 +749,7 @@ TEST_CASE("AddressForwarder_MoveConstruct", "[AddressForwarder]") {
 #pragma endregion
 #pragma region AddressForwarder_MoveAssign
 
-TEST_CASE("AddressForwarder_MoveAssign", "[AddressForwarder]") {
+TEST_CASE("MoveAssign", "[AddressForwarder]") {
   Trackable* ptr{};
   Trackable a{2};
   ptr = &a;
@@ -767,7 +767,7 @@ TEST_CASE("AddressForwarder_MoveAssign", "[AddressForwarder]") {
   CHECK((ptr) == (&b));
 }
 
-TEST_CASE("AddressForwarder_SelfAssign", "[AddressForwarder]") {
+TEST_CASE("SelfAssign", "[AddressForwarder]") {
   Trackable* ptr{};
   Trackable a{3};
   ptr = &a;
@@ -785,7 +785,7 @@ TEST_CASE("AddressForwarder_SelfAssign", "[AddressForwarder]") {
 #pragma endregion
 #pragma region AddressForwarder_DestroySource
 
-TEST_CASE("AddressForwarder_DestroySource", "[AddressForwarder]") {
+TEST_CASE("DestroySource", "[AddressForwarder]") {
   Trackable* ptr{};
   Trackable b{0};
   {
@@ -815,7 +815,7 @@ struct Trackable2: public address_forwarder<Trackable2> {
 
 #pragma region AddressForwarder_AsBaseMove
 
-TEST_CASE("AddressForwarder_AsBaseMove", "[AddressForwarder]") {
+TEST_CASE("AsBaseMove", "[AddressForwarder]") {
   Trackable2* ptr{};
   Trackable2 a{8};
   ptr = &a;
@@ -830,7 +830,7 @@ TEST_CASE("AddressForwarder_AsBaseMove", "[AddressForwarder]") {
 #pragma endregion
 #pragma region AddressForwarder_BoundFunction
 
-TEST_CASE("AddressForwarder_BoundFunction", "[AddressForwarder]") {
+TEST_CASE("BoundFunction", "[AddressForwarder]") {
   // Primary use case: an object is moved into a `std::function` closure, and
   // a pointer registered before the move chain tracks it to its final home.
   Trackable* ptr{};
@@ -863,7 +863,7 @@ static_assert(sizeof(fixed_function<128, int(int, int)>) == 128);
 
 #pragma region FixedFunction_Basic
 
-TEST_CASE("FixedFunction_Basic", "[FixedFunction]") {
+TEST_CASE("Basic", "[FixedFunction]") {
   fixed_function<64, int()> f{[] { return 42; }};
   CHECK((f()) == (42));
 }
@@ -871,7 +871,7 @@ TEST_CASE("FixedFunction_Basic", "[FixedFunction]") {
 #pragma endregion
 #pragma region FixedFunction_Args
 
-TEST_CASE("FixedFunction_Args", "[FixedFunction]") {
+TEST_CASE("Args", "[FixedFunction]") {
   fixed_function<64, int(int, int)> add{[](int x, int y) { return x + y; }};
   CHECK((add(3, 4)) == (7));
   CHECK((add(10, -3)) == (7));
@@ -880,7 +880,7 @@ TEST_CASE("FixedFunction_Args", "[FixedFunction]") {
 #pragma endregion
 #pragma region FixedFunction_Bool
 
-TEST_CASE("FixedFunction_Bool", "[FixedFunction]") {
+TEST_CASE("Bool", "[FixedFunction]") {
   fixed_function<64, int()> a{[] { return 1; }};
   CHECK((static_cast<bool>(a)));
   fixed_function<64, int()> b{std::move(a)};
@@ -891,7 +891,7 @@ TEST_CASE("FixedFunction_Bool", "[FixedFunction]") {
 #pragma endregion
 #pragma region FixedFunction_Move
 
-TEST_CASE("FixedFunction_Move", "[FixedFunction]") {
+TEST_CASE("Move", "[FixedFunction]") {
   fixed_function<64, int()> a{[] { return 7; }};
   CHECK((static_cast<bool>(a)));
   fixed_function<64, int()> b{std::move(a)};
@@ -903,7 +903,7 @@ TEST_CASE("FixedFunction_Move", "[FixedFunction]") {
 #pragma endregion
 #pragma region FixedFunction_MoveAssign
 
-TEST_CASE("FixedFunction_MoveAssign", "[FixedFunction]") {
+TEST_CASE("MoveAssign", "[FixedFunction]") {
   fixed_function<64, int()> a{[] { return 99; }};
   fixed_function<64, int()> b{[] { return 0; }};
   b = std::move(a);
@@ -918,7 +918,7 @@ TEST_CASE("FixedFunction_MoveAssign", "[FixedFunction]") {
 #pragma endregion
 #pragma region FixedFunction_Destructor
 
-TEST_CASE("FixedFunction_Destructor", "[FixedFunction]") {
+TEST_CASE("Destructor", "[FixedFunction]") {
   // `Counted` does not null `count_` on move, so every `~Counted()` call
   // increments the counter regardless of moved-from state.
   struct Counted {
@@ -959,7 +959,7 @@ static int double_it(int x) { return x * 2; }
 // verifiable.
 #pragma region FixedFunction_CppRef
 
-TEST_CASE("FixedFunction_CppRef", "[FixedFunction]") {
+TEST_CASE("CppRef", "[FixedFunction]") {
   struct Foo {
     Foo(int num) : num_(num) {}
     int add(int i) const { return num_ + i; }
@@ -1021,7 +1021,7 @@ TEST_CASE("FixedFunction_CppRef", "[FixedFunction]") {
 #pragma endregion
 #pragma region FixedFunction_RefReturn
 
-TEST_CASE("FixedFunction_RefReturn", "[FixedFunction]") {
+TEST_CASE("RefReturn", "[FixedFunction]") {
   // Callables that return an actual reference are safe.
   fixed_function<64, int&()> f{[&]() -> int& { return g_ref_val; }};
   CHECK((f()) == (42));
@@ -1050,7 +1050,7 @@ TEST_CASE("FixedFunction_RefReturn", "[FixedFunction]") {
 #pragma endregion
 #pragma region FixedFunction_EmptyThrows
 
-TEST_CASE("FixedFunction_EmptyThrows", "[FixedFunction]") {
+TEST_CASE("EmptyThrows", "[FixedFunction]") {
   // Default-constructed instance is empty and throws on call.
   fixed_function<64, int()> empty{};
   CHECK((!empty));
@@ -1070,7 +1070,7 @@ TEST_CASE("FixedFunction_EmptyThrows", "[FixedFunction]") {
 #pragma endregion
 #pragma region FixedFunction_FreeFn
 
-TEST_CASE("FixedFunction_FreeFn", "[FixedFunction]") {
+TEST_CASE("FreeFn", "[FixedFunction]") {
   // A plain function pointer satisfies MoveConsumable (it is a prvalue).
   fixed_function<64, int(int)> f{&double_it};
   CHECK((static_cast<bool>(f)));
@@ -1080,7 +1080,7 @@ TEST_CASE("FixedFunction_FreeFn", "[FixedFunction]") {
 #pragma endregion
 #pragma region FixedFunction_Functor
 
-TEST_CASE("FixedFunction_Functor", "[FixedFunction]") {
+TEST_CASE("Functor", "[FixedFunction]") {
   struct Adder {
     int n;
     int operator()(int x) const { return x + n; }
@@ -1092,7 +1092,7 @@ TEST_CASE("FixedFunction_Functor", "[FixedFunction]") {
 #pragma endregion
 #pragma region FixedFunction_Swap
 
-TEST_CASE("FixedFunction_Swap", "[FixedFunction]") {
+TEST_CASE("Swap", "[FixedFunction]") {
   using ff = fixed_function<64, int()>;
   ff a{[] { return 1; }};
   ff b{[] { return 2; }};

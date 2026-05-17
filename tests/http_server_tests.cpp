@@ -132,7 +132,7 @@ private:
 
 // Verify that an HTTP/0.9-style request (no version token, no headers)
 // receives a response and the server then closes the connection.
-TEST_CASE("HttpServer_Http09", "[HttpServer]") {
+TEST_CASE("Http09", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
@@ -151,7 +151,7 @@ TEST_CASE("HttpServer_Http09", "[HttpServer]") {
 
 // Verify that leading bare CRLFs before the request line are silently
 // skipped (RFC 9112 section 2.2) and the request is served normally.
-TEST_CASE("HttpServer_LeadingCrlf", "[HttpServer]") {
+TEST_CASE("LeadingCrlf", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
@@ -168,7 +168,7 @@ TEST_CASE("HttpServer_LeadingCrlf", "[HttpServer]") {
 
 // Verify that more than `max_leading_crls` bare CRLFs before the request
 // line cause the server to drop the connection.
-TEST_CASE("HttpServer_TooManyLeadingCrls", "[HttpServer]") {
+TEST_CASE("TooManyLeadingCrls", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
@@ -186,7 +186,7 @@ TEST_CASE("HttpServer_TooManyLeadingCrls", "[HttpServer]") {
 #pragma region OwnLoop
 
 // Verify that `create` with a null loop starts its own `epoll_loop_runner`.
-TEST_CASE("HttpServer_OwnLoop", "[HttpServer]") {
+TEST_CASE("OwnLoop", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
@@ -197,7 +197,7 @@ TEST_CASE("HttpServer_OwnLoop", "[HttpServer]") {
 #pragma region SharedLoop
 
 // Verify that `create` with a shared loop stores and uses it.
-TEST_CASE("HttpServer_SharedLoop", "[HttpServer]") {
+TEST_CASE("SharedLoop", "[HttpServer]") {
   if (is_codex()) return;
 
   epoll_loop_runner runner;
@@ -211,7 +211,7 @@ TEST_CASE("HttpServer_SharedLoop", "[HttpServer]") {
 
 // Verify that `create` returns null when the listen socket cannot be created
 // (e.g., an invalid endpoint).
-TEST_CASE("HttpServer_Create_BadEndpoint", "[HttpServer]") {
+TEST_CASE("Create_BadEndpoint", "[HttpServer]") {
   auto server = make_test_server(net_endpoint{});
   CHECK_FALSE((server));
 }
@@ -219,7 +219,7 @@ TEST_CASE("HttpServer_Create_BadEndpoint", "[HttpServer]") {
 #pragma region GetRoot
 
 // Verify that `GET / HTTP/1.1` produces a 200 HTML response.
-TEST_CASE("HttpServer_GetRoot", "[HttpServer]") {
+TEST_CASE("GetRoot", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
@@ -237,7 +237,7 @@ TEST_CASE("HttpServer_GetRoot", "[HttpServer]") {
 
 // Verify that `GET /123 HTTP/1.1` produces an HTML response that includes
 // the numeric path component.
-TEST_CASE("HttpServer_GetPath", "[HttpServer]") {
+TEST_CASE("GetPath", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
@@ -256,7 +256,7 @@ TEST_CASE("HttpServer_GetPath", "[HttpServer]") {
 
 // Verify that `route_base_path` extracts the leading path component from the
 // request target path and ignores any query or fragment suffix.
-TEST_CASE("HttpServer_RouteBasePath", "[HttpServer]") {
+TEST_CASE("RouteBasePath", "[HttpServer]") {
   struct test_case {
     std::string_view target;
     std::string_view base_path;
@@ -274,7 +274,7 @@ TEST_CASE("HttpServer_RouteBasePath", "[HttpServer]") {
 #pragma region InvalidRequest
 
 // Verify that a POST request yields a 405 response (not a silent close).
-TEST_CASE("HttpServer_InvalidRequest", "[HttpServer]") {
+TEST_CASE("InvalidRequest", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
@@ -291,7 +291,7 @@ TEST_CASE("HttpServer_InvalidRequest", "[HttpServer]") {
 
 // Verify that a request line exceeding the 8192-byte limit causes the server
 // to hang up immediately without sending any response.
-TEST_CASE("HttpServer_TooLongRequest", "[HttpServer]") {
+TEST_CASE("TooLongRequest", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
@@ -311,7 +311,7 @@ TEST_CASE("HttpServer_TooLongRequest", "[HttpServer]") {
 // Verify that a request arriving in two writes is handled correctly by the
 // stateful `terminated_text_parser`. The two writes may or may not be
 // coalesced by TCP, but the test verifies correct parsing in either case.
-TEST_CASE("HttpServer_PartialRequest", "[HttpServer]") {
+TEST_CASE("PartialRequest", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
@@ -331,7 +331,7 @@ TEST_CASE("HttpServer_PartialRequest", "[HttpServer]") {
 
 // Verify that the server can listen on an ANS (Abstract Name Socket) and
 // respond correctly to a `GET` request from a `stream_sync` client.
-TEST_CASE("HttpServer_ANS", "[HttpServer]") {
+TEST_CASE("ANS", "[HttpServer]") {
   if (is_codex()) return;
 
   const std::string name =
@@ -354,7 +354,7 @@ TEST_CASE("HttpServer_ANS", "[HttpServer]") {
 #pragma region SharedWheel
 
 // Verify that `create` with a shared `timing_wheel` stores and uses it.
-TEST_CASE("HttpServer_SharedWheel", "[HttpServer]") {
+TEST_CASE("SharedWheel", "[HttpServer]") {
   if (is_codex()) return;
 
   timing_wheel_runner wheel;
@@ -367,7 +367,7 @@ TEST_CASE("HttpServer_SharedWheel", "[HttpServer]") {
 #pragma region RequestWithinTimeout
 
 // Verify that a normal GET request is served within the timeout window.
-TEST_CASE("HttpServer_RequestWithinTimeout", "[HttpServer]") {
+TEST_CASE("RequestWithinTimeout", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
@@ -385,7 +385,7 @@ TEST_CASE("HttpServer_RequestWithinTimeout", "[HttpServer]") {
 
 // Verify that an idle connection (no request sent) is forcefully closed by
 // the server after the request timeout expires.
-TEST_CASE("HttpServer_IdleTimeout", "[HttpServer]") {
+TEST_CASE("IdleTimeout", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
@@ -415,7 +415,7 @@ TEST_CASE("HttpServer_IdleTimeout", "[HttpServer]") {
 // The client requests a 10 MB response but never reads, filling the kernel
 // receive buffer and stalling the server's send path. The server should hang
 // up the connection after the write timeout expires.
-TEST_CASE("HttpServer_WriteTimeout", "[HttpServer]") {
+TEST_CASE("WriteTimeout", "[HttpServer]") {
   if (is_codex()) return;
 
   // Use a short write timeout so the test completes quickly. The timing
@@ -476,7 +476,7 @@ TEST_CASE("HttpServer_WriteTimeout", "[HttpServer]") {
 
 // Verify that an HTTP/1.1 request without a `Host` header receives a 400
 // response, and the server then closes the connection.
-TEST_CASE("HttpServer_MissingHost", "[HttpServer]") {
+TEST_CASE("MissingHost", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
@@ -495,7 +495,7 @@ TEST_CASE("HttpServer_MissingHost", "[HttpServer]") {
 
 // Verify that a keep-alive connection accepts a second request after the
 // first response is received.
-TEST_CASE("HttpServer_KeepAlive", "[HttpServer]") {
+TEST_CASE("KeepAlive", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
@@ -519,7 +519,7 @@ TEST_CASE("HttpServer_KeepAlive", "[HttpServer]") {
 
 // Verify that two requests sent back-to-back (before any response is read)
 // are both served in order -- the pipelining property.
-TEST_CASE("HttpServer_Pipeline", "[HttpServer]") {
+TEST_CASE("Pipeline", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
@@ -546,7 +546,7 @@ TEST_CASE("HttpServer_Pipeline", "[HttpServer]") {
 
 // Verify that `Connection: close` causes the server to close the connection
 // after the response.
-TEST_CASE("HttpServer_ConnectionClose", "[HttpServer]") {
+TEST_CASE("ConnectionClose", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
@@ -568,7 +568,7 @@ TEST_CASE("HttpServer_ConnectionClose", "[HttpServer]") {
 
 // Verify that an HTTP/1.0 request (no `Host` header) receives a 200
 // response and the server closes the connection (HTTP/1.0 default is close).
-TEST_CASE("HttpServer_Http10NoKeepAlive", "[HttpServer]") {
+TEST_CASE("Http10NoKeepAlive", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0});
@@ -587,7 +587,7 @@ TEST_CASE("HttpServer_Http10NoKeepAlive", "[HttpServer]") {
 #pragma region BodyTooLarge
 
 // Verify that a path encoding a body size exceeding 10 MB yields a 400.
-TEST_CASE("HttpServer_BodyTooLarge", "[HttpServer]") {
+TEST_CASE("BodyTooLarge", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
@@ -606,7 +606,7 @@ TEST_CASE("HttpServer_BodyTooLarge", "[HttpServer]") {
 
 // Verify that a header block exceeding the 8192-byte limit yields a 400
 // response and the server closes the connection.
-TEST_CASE("HttpServer_TooLongHeaders", "[HttpServer]") {
+TEST_CASE("TooLongHeaders", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
@@ -628,7 +628,7 @@ TEST_CASE("HttpServer_TooLongHeaders", "[HttpServer]") {
 
 // Verify that a request line with an unrecognized method yields a 400
 // response and the server closes the connection.
-TEST_CASE("HttpServer_MalformedRequestLine", "[HttpServer]") {
+TEST_CASE("MalformedRequestLine", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,
@@ -647,7 +647,7 @@ TEST_CASE("HttpServer_MalformedRequestLine", "[HttpServer]") {
 
 // Verify that an HTTP/1.0 request with `Connection: keep-alive` keeps the
 // connection open for a second request.
-TEST_CASE("HttpServer_Http10KeepAlive", "[HttpServer]") {
+TEST_CASE("Http10KeepAlive", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0}, nullptr,

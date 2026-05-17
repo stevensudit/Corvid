@@ -80,7 +80,7 @@ make_owner(sweeper& sw, dur configured) {
 
 #pragma region DefaultIsStopped
 
-TEST_CASE("IdleTimeout_DefaultIsStopped", "[IdleTimeout]") {
+TEST_CASE("DefaultIsStopped", "[IdleTimeout]") {
   sweeper sw;
   auto o = make_owner(sw, 100ms);
   CHECK((static_cast<int>(o->idle.get_mode())) ==
@@ -92,7 +92,7 @@ TEST_CASE("IdleTimeout_DefaultIsStopped", "[IdleTimeout]") {
 #pragma endregion
 #pragma region ActiveRequiresNonZeroConfigured
 
-TEST_CASE("IdleTimeout_ActiveRequiresNonZeroConfigured", "[IdleTimeout]") {
+TEST_CASE("ActiveRequiresNonZeroConfigured", "[IdleTimeout]") {
   // With configured == 0, only Stopped is reachable.
   sweeper sw;
   auto o = make_owner(sw, dur{});
@@ -107,7 +107,7 @@ TEST_CASE("IdleTimeout_ActiveRequiresNonZeroConfigured", "[IdleTimeout]") {
 #pragma endregion
 #pragma region StoppedToActive
 
-TEST_CASE("IdleTimeout_StoppedToActive", "[IdleTimeout]") {
+TEST_CASE("StoppedToActive", "[IdleTimeout]") {
   // Transitioning Stopped -> Active sets the deadline to now+configured
   // and schedules a fresh sweeper entry.
   sweeper sw;
@@ -125,7 +125,7 @@ TEST_CASE("IdleTimeout_StoppedToActive", "[IdleTimeout]") {
 #pragma endregion
 #pragma region ActiveFiresOnIdle
 
-TEST_CASE("IdleTimeout_ActiveFiresOnIdle", "[IdleTimeout]") {
+TEST_CASE("ActiveFiresOnIdle", "[IdleTimeout]") {
   // No `postpone` calls -> deadline matches the registered time,
   // callback invokes the cancel action exactly once, sweeper entry drops.
   sweeper sw;
@@ -151,7 +151,7 @@ TEST_CASE("IdleTimeout_ActiveFiresOnIdle", "[IdleTimeout]") {
 #pragma endregion
 #pragma region RestartPushesDeadline
 
-TEST_CASE("IdleTimeout_RestartPushesDeadline", "[IdleTimeout]") {
+TEST_CASE("RestartPushesDeadline", "[IdleTimeout]") {
   // A `postpone` call between submission and the registered fire
   // pushes the deadline forward; the callback rearms instead of firing
   // the idle action.
@@ -184,7 +184,7 @@ TEST_CASE("IdleTimeout_RestartPushesDeadline", "[IdleTimeout]") {
 #pragma endregion
 #pragma region RestartFromStoppedIsRecoverable
 
-TEST_CASE("IdleTimeout_RestartFromStoppedIsRecoverable", "[IdleTimeout]") {
+TEST_CASE("RestartFromStoppedIsRecoverable", "[IdleTimeout]") {
   // `postpone` is a no-op while Stopped (active_ is zero), so `deadline_`
   // stays at T0 and `get_mode` keeps reporting Stopped. A direct
   // `set_mode(running)` then schedules a fresh entry: `was_stopped` is
@@ -206,7 +206,7 @@ TEST_CASE("IdleTimeout_RestartFromStoppedIsRecoverable", "[IdleTimeout]") {
 #pragma endregion
 #pragma region PostponeIsNoOpOutsideRunning
 
-TEST_CASE("IdleTimeout_PostponeIsNoOpOutsideRunning", "[IdleTimeout]") {
+TEST_CASE("PostponeIsNoOpOutsideRunning", "[IdleTimeout]") {
   // `postpone` reads `active_` and bails when zero, so neither Paused nor
   // Stopped should observe any change to `deadline_`.
   sweeper sw;
@@ -243,7 +243,7 @@ TEST_CASE("IdleTimeout_PostponeIsNoOpOutsideRunning", "[IdleTimeout]") {
 #pragma endregion
 #pragma region StoppedToPausedBootstrap
 
-TEST_CASE("IdleTimeout_StoppedToPausedBootstrap", "[IdleTimeout]") {
+TEST_CASE("StoppedToPausedBootstrap", "[IdleTimeout]") {
   // Stopped -> Paused schedules a near-future entry then parks the
   // deadline at the sentinel.
   sweeper sw;
@@ -260,7 +260,7 @@ TEST_CASE("IdleTimeout_StoppedToPausedBootstrap", "[IdleTimeout]") {
 #pragma endregion
 #pragma region PausedClipsAndStays
 
-TEST_CASE("IdleTimeout_PausedClipsAndStays", "[IdleTimeout]") {
+TEST_CASE("PausedClipsAndStays", "[IdleTimeout]") {
   // When the bootstrap entry fires, the callback sees the sentinel and
   // clips back to now + configured, staying in Paused.
   sweeper sw;
@@ -287,7 +287,7 @@ TEST_CASE("IdleTimeout_PausedClipsAndStays", "[IdleTimeout]") {
 #pragma endregion
 #pragma region PausedToActive
 
-TEST_CASE("IdleTimeout_PausedToActive", "[IdleTimeout]") {
+TEST_CASE("PausedToActive", "[IdleTimeout]") {
   // Resume from Paused: deadline becomes now+configured immediately; no
   // new schedule is needed (the existing entry adapts on its next fire).
   sweeper sw;
@@ -319,7 +319,7 @@ TEST_CASE("IdleTimeout_PausedToActive", "[IdleTimeout]") {
 #pragma endregion
 #pragma region ActiveToStoppedDropsEntry
 
-TEST_CASE("IdleTimeout_ActiveToStoppedDropsEntry", "[IdleTimeout]") {
+TEST_CASE("ActiveToStoppedDropsEntry", "[IdleTimeout]") {
   // Going Stopped from Active sets the deadline to T0. The existing
   // entry fires at the originally-registered time, sees T0, drops.
   sweeper sw;
@@ -345,7 +345,7 @@ TEST_CASE("IdleTimeout_ActiveToStoppedDropsEntry", "[IdleTimeout]") {
 #pragma endregion
 #pragma region ConfigureSyncsActiveOnlyWhenActive
 
-TEST_CASE("IdleTimeout_ConfigureSyncsActiveOnlyWhenActive", "[IdleTimeout]") {
+TEST_CASE("ConfigureSyncsActiveOnlyWhenActive", "[IdleTimeout]") {
   sweeper sw;
   auto o = make_owner(sw, 100ms);
 
@@ -385,7 +385,7 @@ TEST_CASE("IdleTimeout_ConfigureSyncsActiveOnlyWhenActive", "[IdleTimeout]") {
 #pragma endregion
 #pragma region OwnerDeathDropsCallback
 
-TEST_CASE("IdleTimeout_OwnerDeathDropsCallback", "[IdleTimeout]") {
+TEST_CASE("OwnerDeathDropsCallback", "[IdleTimeout]") {
   // When the owner is destroyed before the entry fires, the weak_ptr
   // lock fails and the callback returns {} so the sweeper drops the
   // entry. The idle action never fires.
@@ -408,7 +408,7 @@ TEST_CASE("IdleTimeout_OwnerDeathDropsCallback", "[IdleTimeout]") {
 #pragma endregion
 #pragma region NowFnInjection
 
-TEST_CASE("IdleTimeout_NowFnInjection", "[IdleTimeout]") {
+TEST_CASE("NowFnInjection", "[IdleTimeout]") {
   // Sanity check that the injected clock is what the class actually
   // calls -- different `set_now_fn` should produce a different deadline.
   sweeper sw;
@@ -422,7 +422,7 @@ TEST_CASE("IdleTimeout_NowFnInjection", "[IdleTimeout]") {
 #pragma endregion
 #pragma region ExpireIsIdempotent
 
-TEST_CASE("IdleTimeout_ExpireIsIdempotent", "[IdleTimeout]") {
+TEST_CASE("ExpireIsIdempotent", "[IdleTimeout]") {
   // `expire` fires the cancel action exactly once. `reset_expiration` arms
   // it to fire again. Both calls are also no-ops if no rearm is pending.
   sweeper sw;
@@ -457,7 +457,7 @@ TEST_CASE("IdleTimeout_ExpireIsIdempotent", "[IdleTimeout]") {
 #pragma endregion
 #pragma region SweepAndExpireFireOnce
 
-TEST_CASE("IdleTimeout_SweepAndExpireFireOnce", "[IdleTimeout]") {
+TEST_CASE("SweepAndExpireFireOnce", "[IdleTimeout]") {
   // The sweeper-driven fire and a manual `expire` share the same one-shot
   // slot, so a manual call after the sweep is a no-op.
   sweeper sw;

@@ -28,7 +28,7 @@ using namespace std::chrono_literals;
 
 #pragma region NotifyAndWait
 
-TEST_CASE("Notifiable_NotifyAndWait", "[Notifiable]") {
+TEST_CASE("NotifyAndWait", "[Notifiable]") {
   // `notify` + `wait_until`: waiter unblocks when flag becomes true.
   if (true) {
     notifiable<bool> flag{false};
@@ -50,7 +50,7 @@ TEST_CASE("Notifiable_NotifyAndWait", "[Notifiable]") {
 #pragma endregion
 #pragma region ModifyAndNotify
 
-TEST_CASE("Notifiable_ModifyAndNotify", "[Notifiable]") {
+TEST_CASE("ModifyAndNotify", "[Notifiable]") {
   // `modify_and_notify`: waiter unblocks once value exceeds threshold.
   notifiable<int> counter{0};
   std::thread t{[&] {
@@ -64,7 +64,7 @@ TEST_CASE("Notifiable_ModifyAndNotify", "[Notifiable]") {
 #pragma endregion
 #pragma region WaitFor
 
-TEST_CASE("Notifiable_WaitFor", "[Notifiable]") {
+TEST_CASE("WaitFor", "[Notifiable]") {
   // `wait_for` satisfied before deadline: returns the matching value.
   if (true) {
     notifiable<bool> flag{false};
@@ -85,7 +85,7 @@ TEST_CASE("Notifiable_WaitFor", "[Notifiable]") {
 #pragma endregion
 #pragma region WaitUntilChanged
 
-TEST_CASE("Notifiable_WaitUntilChanged", "[Notifiable]") {
+TEST_CASE("WaitUntilChanged", "[Notifiable]") {
   // `wait_until_changed` unblocks when the value changes; returns new value.
   // Capture `old` before spawning the thread so the wait succeeds even if
   // the thread runs before `wait_until_changed` is entered.
@@ -117,7 +117,7 @@ TEST_CASE("Notifiable_WaitUntilChanged", "[Notifiable]") {
 #pragma endregion
 #pragma region Get
 
-TEST_CASE("Notifiable_Get", "[Notifiable]") {
+TEST_CASE("Get", "[Notifiable]") {
   // `get` returns snapshot without blocking.
   notifiable<int> n{42};
   CHECK((n.get()) == (42));
@@ -128,7 +128,7 @@ TEST_CASE("Notifiable_Get", "[Notifiable]") {
 #pragma endregion
 #pragma region Atomic
 
-TEST_CASE("Notifiable_Atomic", "[Notifiable]") {
+TEST_CASE("Atomic", "[Notifiable]") {
   // `get` on `std::atomic<bool>`: lock-free relaxed load.
   if (true) {
     notifiable<std::atomic_bool> flag{false};
@@ -224,7 +224,7 @@ TEST_CASE("Notifiable_Atomic", "[Notifiable]") {
 #pragma endregion
 #pragma region RelaxedAtomic_Basic
 
-TEST_CASE("RelaxedAtomic_Basic", "[RelaxedAtomic]") {
+TEST_CASE("Basic", "[RelaxedAtomic]") {
   // Default-constructed value is zero-initialized.
   relaxed_atomic<int> a;
   CHECK((static_cast<int>(a)) == (0));
@@ -246,7 +246,7 @@ TEST_CASE("RelaxedAtomic_Basic", "[RelaxedAtomic]") {
 #pragma endregion
 #pragma region RelaxedAtomic_Arrow
 
-TEST_CASE("RelaxedAtomic_Arrow", "[RelaxedAtomic]") {
+TEST_CASE("Arrow", "[RelaxedAtomic]") {
   // `operator->` exposes the underlying `std::atomic<T>` methods.
   relaxed_atomic<int> a{10};
 
@@ -277,7 +277,7 @@ TEST_CASE("RelaxedAtomic_Arrow", "[RelaxedAtomic]") {
 #pragma endregion
 #pragma region RelaxedAtomic_Bool
 
-TEST_CASE("RelaxedAtomic_Bool", "[RelaxedAtomic]") {
+TEST_CASE("Bool", "[RelaxedAtomic]") {
   // Works for `bool` values.
   relaxed_atomic<bool> flag{false};
   CHECK_FALSE((static_cast<bool>(flag)));
@@ -288,7 +288,7 @@ TEST_CASE("RelaxedAtomic_Bool", "[RelaxedAtomic]") {
 #pragma endregion
 #pragma region RelaxedAtomic
 
-TEST_CASE("Notifiable_RelaxedAtomic", "[Notifiable]") {
+TEST_CASE("RelaxedAtomic", "[Notifiable]") {
   // `get` on `relaxed_atomic<bool>`: lock-free relaxed load.
   if (true) {
     notifiable<relaxed_atomic_bool> flag{false};

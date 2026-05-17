@@ -931,9 +931,11 @@ private:
           (void)on_accept_complete(res);
           if (bitmask::has(flags, iou_cqe_flags::more))
             return slot_retention::automatic;
-          if (!listening_) return slot_retention::release;
-          if (!loop_.submit_accept_multishot(sock_, completion_token{cbid}))
-            throw std::runtime_error("Failed to re-arm multishot accept");
+          if (closed_) return slot_retention::release;
+          if (!loop_.submit_accept_multishot(sock_, completion_token{cbid})) {
+            (void)do_close_now();
+            return slot_retention::release;
+          }
           return slot_retention::retain;
         });
 

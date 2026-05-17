@@ -42,7 +42,7 @@ enum class new_enum : std::uint8_t { new_zero, new_one, new_two, new_three };
 
 #pragma region Registry
 
-TEST_CASE("SequentialEnumTest_Registry", "[SequentialEnumTest]") {
+TEST_CASE("Registry", "[SequentialEnumTest]") {
   if (true) {
     CHECK(((strings::enum_as_string(tiger_pick::eeny))) == ("eeny"));
   }
@@ -51,7 +51,7 @@ TEST_CASE("SequentialEnumTest_Registry", "[SequentialEnumTest]") {
 #pragma endregion
 #pragma region Ops
 
-TEST_CASE("SequentialEnumTest_Ops", "[SequentialEnumTest]") {
+TEST_CASE("Ops", "[SequentialEnumTest]") {
   if (true) {
     CHECK((!tiger_pick{}));
 
@@ -179,7 +179,7 @@ constexpr auto registry::enum_spec_v<eu64_large> =
 
 #pragma region MakeSafely
 
-TEST_CASE("SequentialEnumTest_MakeSafely", "[SequentialEnumTest]") {
+TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
   if (true) {
     e0_3 e;
     e = make_safely<e0_3>(0);
@@ -400,7 +400,7 @@ TEST_CASE("SequentialEnumTest_MakeSafely", "[SequentialEnumTest]") {
 #pragma endregion
 #pragma region SafeOps
 
-TEST_CASE("SequentialEnumTest_SafeOps", "[SequentialEnumTest]") {
+TEST_CASE("SafeOps", "[SequentialEnumTest]") {
   if (true) {
     e0_3 e;
     e = make<e0_3>(0);
@@ -430,7 +430,7 @@ constexpr auto registry::enum_spec_v<tiger_nochoice> =
 
 #pragma region NoChoice
 
-TEST_CASE("SequentialEnumTest_NoChoice", "[SequentialEnumTest]") {
+TEST_CASE("NoChoice", "[SequentialEnumTest]") {
   if (true) {
     auto e = tiger_nochoice::tiger;
     auto n = *e;
@@ -449,7 +449,7 @@ constexpr auto registry::enum_spec_v<e0_3unsafe> =
 
 #pragma region SubtleBugRepro
 
-TEST_CASE("SequentialEnumTest_SubtleBugRepro", "[SequentialEnumTest]") {
+TEST_CASE("SubtleBugRepro", "[SequentialEnumTest]") {
   e0_3unsafe e;
 
   // This is a regression test now.
@@ -461,7 +461,7 @@ TEST_CASE("SequentialEnumTest_SubtleBugRepro", "[SequentialEnumTest]") {
 #pragma endregion
 #pragma region StreamingOut
 
-TEST_CASE("SequentialEnumTest_StreamingOut", "[SequentialEnumTest]") {
+TEST_CASE("StreamingOut", "[SequentialEnumTest]") {
   CHECK((OStreamable<tiger_pick>));
   if (true) {
     std::stringstream ss;
@@ -501,7 +501,7 @@ constexpr auto registry::enum_spec_v<tiger_gapped> =
 
 #pragma region Missing
 
-TEST_CASE("SequentialEnumTest_Missing", "[SequentialEnumTest]") {
+TEST_CASE("Missing", "[SequentialEnumTest]") {
   if (true) {
     using namespace strings;
     // Hyphen placeholder: numeric value is printed.
@@ -529,7 +529,7 @@ TEST_CASE("SequentialEnumTest_Missing", "[SequentialEnumTest]") {
 #pragma endregion
 #pragma region Intervals
 
-TEST_CASE("SequentialEnumTest_Intervals", "[SequentialEnumTest]") {
+TEST_CASE("Intervals", "[SequentialEnumTest]") {
   if (true) {
     int c{}, s{};
     for (auto e : make_interval<e0_3>()) {
@@ -575,7 +575,7 @@ TEST_CASE("SequentialEnumTest_Intervals", "[SequentialEnumTest]") {
 #pragma endregion
 #pragma region ExtractEnum
 
-TEST_CASE("SequentialEnumTest_ExtractEnum", "[SequentialEnumTest]") {
+TEST_CASE("ExtractEnum", "[SequentialEnumTest]") {
   using namespace corvid::strings;
   if (true) {
     tiger_pick e{};
@@ -713,7 +713,7 @@ TEST_CASE("SequentialEnumTest_ExtractEnum", "[SequentialEnumTest]") {
 #pragma endregion
 #pragma region Int64
 
-TEST_CASE("SequentialEnumTest_Int64", "[SequentialEnumTest]") {
+TEST_CASE("Int64", "[SequentialEnumTest]") {
   // Test basic operations with int64_t underlying type.
   if (true) {
     e64_0_3 e;
@@ -937,7 +937,7 @@ TEST_CASE("SequentialEnumTest_Int64", "[SequentialEnumTest]") {
 #pragma endregion
 #pragma region AsView
 
-TEST_CASE("SequentialEnumTest_AsView", "[SequentialEnumTest]") {
+TEST_CASE("AsView", "[SequentialEnumTest]") {
   if (true) {
     CHECK((enum_as_view(e0_3(0))) == ("a"));
     CHECK((enum_as_view(e0_3(1))) == ("(unknown)"));

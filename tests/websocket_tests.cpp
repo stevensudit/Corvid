@@ -76,7 +76,7 @@ void wstx_reextract_options(request_head& req) {
 // `ws_frame_wrapper` and `http_websocket` unit tests.
 
 // RFC 6455 section 1.3: known input -> known accept key.
-TEST_CASE("WebSocket_AcceptKey", "[WebSocket]") {
+TEST_CASE("AcceptKey", "[WebSocket]") {
   const auto key =
       ws_frame_view::compute_accept_key("dGhlIHNhbXBsZSBub25jZQ==");
   CHECK((key) == ("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="));
@@ -86,7 +86,7 @@ TEST_CASE("WebSocket_AcceptKey", "[WebSocket]") {
 #pragma region FrameCodec_RoundTrip
 
 // Serialize an unmasked text frame and verify the parsed header fields.
-TEST_CASE("WebSocket_FrameCodec_RoundTrip", "[WebSocket]") {
+TEST_CASE("FrameCodec_RoundTrip", "[WebSocket]") {
   const std::string payload{"hello"};
   const auto frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, payload);
@@ -110,7 +110,7 @@ TEST_CASE("WebSocket_FrameCodec_RoundTrip", "[WebSocket]") {
 #pragma region Feed_SingleText
 
 // Client pump receives a single unmasked text frame from the server.
-TEST_CASE("WebSocket_Feed_SingleText", "[WebSocket]") {
+TEST_CASE("Feed_SingleText", "[WebSocket]") {
   std::string got_msg;
   ws_frame_control got_op{};
   http_websocket ws{[](any_strings&&) { return true; },
@@ -133,7 +133,7 @@ TEST_CASE("WebSocket_Feed_SingleText", "[WebSocket]") {
 #pragma region Feed_SingleTextInvalidUtf8
 
 // Invalid UTF-8 in a text frame fails the connection with close code 1007.
-TEST_CASE("WebSocket_Feed_SingleTextInvalidUtf8", "[WebSocket]") {
+TEST_CASE("Feed_SingleTextInvalidUtf8", "[WebSocket]") {
   std::string sent_frame;
   http_websocket ws{[&](any_strings&& f) {
     sent_frame = std::get<std::string>(std::move(f));
@@ -168,7 +168,7 @@ TEST_CASE("WebSocket_Feed_SingleTextInvalidUtf8", "[WebSocket]") {
 #pragma region Feed_SingleTextInvalidUtf8Disabled
 
 // Disabling UTF-8 validation allows invalid text payloads through.
-TEST_CASE("WebSocket_Feed_SingleTextInvalidUtf8Disabled", "[WebSocket]") {
+TEST_CASE("Feed_SingleTextInvalidUtf8Disabled", "[WebSocket]") {
   std::string got_msg;
   ws_frame_control got_op{};
   bool msg_fired{};
@@ -194,7 +194,7 @@ TEST_CASE("WebSocket_Feed_SingleTextInvalidUtf8Disabled", "[WebSocket]") {
 #pragma region Feed_MaskedBinary
 
 // Server pump receives a masked binary frame and correctly unmasks it.
-TEST_CASE("WebSocket_Feed_MaskedBinary", "[WebSocket]") {
+TEST_CASE("Feed_MaskedBinary", "[WebSocket]") {
   std::string got_msg;
   ws_frame_control got_op{};
   http_websocket ws{[](any_strings&&) { return true; }};
@@ -217,7 +217,7 @@ TEST_CASE("WebSocket_Feed_MaskedBinary", "[WebSocket]") {
 #pragma region Feed_Ping
 
 // Server auto-pongs a ping frame and does not fire on_message.
-TEST_CASE("WebSocket_Feed_Ping", "[WebSocket]") {
+TEST_CASE("Feed_Ping", "[WebSocket]") {
   std::string sent_frame;
   bool msg_fired{};
   http_websocket ws_server{[&](any_strings&& f) {
@@ -258,7 +258,7 @@ TEST_CASE("WebSocket_Feed_Ping", "[WebSocket]") {
 #pragma region Feed_Close
 
 // Server fires on_close with the correct status code and reason string.
-TEST_CASE("WebSocket_Feed_Close", "[WebSocket]") {
+TEST_CASE("Feed_Close", "[WebSocket]") {
   uint16_t got_code{};
   std::string got_reason;
   http_websocket ws_server{[](any_strings&&) { return true; }};
@@ -287,7 +287,7 @@ TEST_CASE("WebSocket_Feed_Close", "[WebSocket]") {
 #pragma region Feed_CloseInvalidUtf8Reason
 
 // Invalid UTF-8 in a close reason fails the connection with 1007.
-TEST_CASE("WebSocket_Feed_CloseInvalidUtf8Reason", "[WebSocket]") {
+TEST_CASE("Feed_CloseInvalidUtf8Reason", "[WebSocket]") {
   std::string sent_frame;
   bool close_fired{};
   http_websocket ws_server{[&](any_strings&& f) {
@@ -326,7 +326,7 @@ TEST_CASE("WebSocket_Feed_CloseInvalidUtf8Reason", "[WebSocket]") {
 #pragma region Feed_Fragmented
 
 // Three-frame fragmented message is assembled and delivered exactly once.
-TEST_CASE("WebSocket_Feed_Fragmented", "[WebSocket]") {
+TEST_CASE("Feed_Fragmented", "[WebSocket]") {
   std::string got_msg;
   ws_frame_control got_op{};
   int msg_count{};
@@ -377,7 +377,7 @@ TEST_CASE("WebSocket_Feed_Fragmented", "[WebSocket]") {
 // Three-frame fragmented message with deliver_fragments=true fires on_message
 // once per frame. Non-final frames carry the data opcode without the fin bit;
 // the final frame carries opcode|fin.
-TEST_CASE("WebSocket_Feed_FragmentedDelivery", "[WebSocket]") {
+TEST_CASE("Feed_FragmentedDelivery", "[WebSocket]") {
   struct Call {
     std::string payload;
     ws_frame_control op{};
@@ -431,7 +431,7 @@ TEST_CASE("WebSocket_Feed_FragmentedDelivery", "[WebSocket]") {
 #pragma region Feed_FragmentedDeliverySplitUtf8
 
 // In fragment-delivery mode, a code point split across frames is accepted.
-TEST_CASE("WebSocket_Feed_FragmentedDeliverySplitUtf8", "[WebSocket]") {
+TEST_CASE("Feed_FragmentedDeliverySplitUtf8", "[WebSocket]") {
   struct Call {
     std::string payload;
     ws_frame_control op{};
@@ -472,7 +472,7 @@ TEST_CASE("WebSocket_Feed_FragmentedDeliverySplitUtf8", "[WebSocket]") {
 #pragma region Feed_FragmentedDeliveryInvalidUtf8
 
 // In fragment-delivery mode, invalid UTF-8 across frames fails with 1007.
-TEST_CASE("WebSocket_Feed_FragmentedDeliveryInvalidUtf8", "[WebSocket]") {
+TEST_CASE("Feed_FragmentedDeliveryInvalidUtf8", "[WebSocket]") {
   std::string sent_frame;
   http_websocket ws{[&](any_strings&& f) {
     sent_frame = std::get<std::string>(std::move(f));
@@ -515,8 +515,7 @@ TEST_CASE("WebSocket_Feed_FragmentedDeliveryInvalidUtf8", "[WebSocket]") {
 
 // An empty final fragment must still fail if the prior text ended
 // mid-code-point.
-TEST_CASE("WebSocket_Feed_FragmentedDeliveryInvalidUtf8EmptyFinal",
-    "[WebSocket]") {
+TEST_CASE("Feed_FragmentedDeliveryInvalidUtf8EmptyFinal", "[WebSocket]") {
   std::string sent_frame;
   http_websocket ws{[&](any_strings&& f) {
     sent_frame = std::get<std::string>(std::move(f));
@@ -558,8 +557,7 @@ TEST_CASE("WebSocket_Feed_FragmentedDeliveryInvalidUtf8EmptyFinal",
 #pragma region Feed_FragmentedDeliveryInvalidUtf8Disabled
 
 // Disabling UTF-8 validation also suppresses fragment-mode UTF-8 failures.
-TEST_CASE("WebSocket_Feed_FragmentedDeliveryInvalidUtf8Disabled",
-    "[WebSocket]") {
+TEST_CASE("Feed_FragmentedDeliveryInvalidUtf8Disabled", "[WebSocket]") {
   struct Call {
     std::string payload;
     ws_frame_control op{};
@@ -601,7 +599,7 @@ TEST_CASE("WebSocket_Feed_FragmentedDeliveryInvalidUtf8Disabled",
 #pragma region Feed_PartialFrame
 
 // Feeding only the header bytes of a frame returns true (awaiting payload).
-TEST_CASE("WebSocket_Feed_PartialFrame", "[WebSocket]") {
+TEST_CASE("Feed_PartialFrame", "[WebSocket]") {
   bool msg_fired{};
   http_websocket ws{[](any_strings&&) { return true; }};
   ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
@@ -656,8 +654,7 @@ TEST_CASE("WebSocket_Feed_PartialFrame", "[WebSocket]") {
 // `feed(recv_buffer_view&)` requests growth to the full frame size when a
 // frame prefix fills the buffer but the completed frame would not fit after
 // compaction.
-TEST_CASE("WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth",
-    "[WebSocket]") {
+TEST_CASE("Feed_RecvBufferViewRequestsFrameSizedGrowth", "[WebSocket]") {
   recv_buffer rb;
   rb.buffer.resize(256);
   const size_t capacity = rb.buffer.capacity();
@@ -691,7 +688,7 @@ TEST_CASE("WebSocket_Feed_RecvBufferViewRequestsFrameSizedGrowth",
 #pragma region Feed_MultipleFrames
 
 // Two complete frames in one buffer each fire on_message.
-TEST_CASE("WebSocket_Feed_MultipleFrames", "[WebSocket]") {
+TEST_CASE("Feed_MultipleFrames", "[WebSocket]") {
   std::vector<std::string> msgs;
   http_websocket ws{[](any_strings&&) { return true; }};
   ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control) {
@@ -716,7 +713,7 @@ TEST_CASE("WebSocket_Feed_MultipleFrames", "[WebSocket]") {
 // Two complete frames in one `recv_buffer_view` call: both must be delivered.
 // This exercises `feed(recv_buffer_view&)` specifically, not the
 // `feed(std::string_view&)` overload.
-TEST_CASE("WebSocket_Feed_MultipleFramesViaView", "[WebSocket]") {
+TEST_CASE("Feed_MultipleFramesViaView", "[WebSocket]") {
   std::vector<std::string> msgs;
   http_websocket ws{[](any_strings&&) { return true; }};
   ws.on_message = [&](http_websocket&, std::string&& p, ws_frame_control) {
@@ -744,7 +741,7 @@ TEST_CASE("WebSocket_Feed_MultipleFramesViaView", "[WebSocket]") {
 #pragma region Feed_BadContinuation
 
 // A continuation frame without a prior start fragment is a protocol error.
-TEST_CASE("WebSocket_Feed_BadContinuation", "[WebSocket]") {
+TEST_CASE("Feed_BadContinuation", "[WebSocket]") {
   http_websocket ws{[](any_strings&&) { return true; }};
   std::string buf = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::continuation, "data");
@@ -756,7 +753,7 @@ TEST_CASE("WebSocket_Feed_BadContinuation", "[WebSocket]") {
 #pragma region Feed_InterleavedData
 
 // A non-continuation data frame arriving mid-fragment is a protocol error.
-TEST_CASE("WebSocket_Feed_InterleavedData", "[WebSocket]") {
+TEST_CASE("Feed_InterleavedData", "[WebSocket]") {
   http_websocket ws{[](any_strings&&) { return true; }};
   std::string buf =
       ws_frame_lens::serialize_frame(ws_frame_control::text, "start", 0);
@@ -776,7 +773,7 @@ TEST_CASE("WebSocket_Feed_InterleavedData", "[WebSocket]") {
 // Data frame received after we sent a close is silently discarded.
 // `on_message` must not fire and `feed` must succeed (not return
 // `insatiable`).
-TEST_CASE("WebSocket_Feed_DataAfterSentClose", "[WebSocket]") {
+TEST_CASE("Feed_DataAfterSentClose", "[WebSocket]") {
   bool msg_fired{};
   http_websocket ws{[](any_strings&&) { return true; }};
   ws.on_message = [&](http_websocket&, std::string&&, ws_frame_control) {
@@ -801,7 +798,7 @@ TEST_CASE("WebSocket_Feed_DataAfterSentClose", "[WebSocket]") {
 // Data frame received after we received a close is silently discarded.
 // `on_message` must not fire and `feed` must succeed (not return
 // `insatiable`).
-TEST_CASE("WebSocket_Feed_DataAfterReceivedClose", "[WebSocket]") {
+TEST_CASE("Feed_DataAfterReceivedClose", "[WebSocket]") {
   bool msg_fired{};
   std::string sent_frame;
   http_websocket ws{[&](any_strings&& f) {
@@ -833,7 +830,7 @@ TEST_CASE("WebSocket_Feed_DataAfterReceivedClose", "[WebSocket]") {
 #pragma region Send_Server
 
 // Server pump sends unmasked frames.
-TEST_CASE("WebSocket_Send_Server", "[WebSocket]") {
+TEST_CASE("Send_Server", "[WebSocket]") {
   std::string sent;
   http_websocket ws{[&](any_strings&& f) {
     sent = std::get<std::string>(std::move(f));
@@ -855,7 +852,7 @@ TEST_CASE("WebSocket_Send_Server", "[WebSocket]") {
 #pragma region Send_Client
 
 // Client pump sends masked frames; payload round-trips via unmask.
-TEST_CASE("WebSocket_Send_Client", "[WebSocket]") {
+TEST_CASE("Send_Client", "[WebSocket]") {
   std::string sent;
   http_websocket ws{
       [&](any_strings&& f) {
@@ -881,7 +878,7 @@ TEST_CASE("WebSocket_Send_Client", "[WebSocket]") {
 
 // `header()`, `header_view()`, and `payload_view()` return correctly bounded
 // views after `parse`.
-TEST_CASE("WebSocket_FrameWrapper_HeaderAndViews", "[WebSocket]") {
+TEST_CASE("FrameWrapper_HeaderAndViews", "[WebSocket]") {
   const auto frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "abc");
   ws_frame_view hdr{frame.data(), frame.size()};
@@ -901,7 +898,7 @@ TEST_CASE("WebSocket_FrameWrapper_HeaderAndViews", "[WebSocket]") {
 #pragma region FrameWrapper_CopyTo
 
 // `copy_to` copies the header bytes into a caller-supplied buffer.
-TEST_CASE("WebSocket_FrameWrapper_CopyTo", "[WebSocket]") {
+TEST_CASE("FrameWrapper_CopyTo", "[WebSocket]") {
   const auto frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::binary, "xy");
   ws_frame_view hdr{frame.data(), frame.size()};
@@ -922,7 +919,7 @@ TEST_CASE("WebSocket_FrameWrapper_CopyTo", "[WebSocket]") {
 
 // `mask_payload` unmasks the payload bytes of a masked frame in-place,
 // exercising `mask_key()` and the mutable `variable_section()` accessor.
-TEST_CASE("WebSocket_FrameWrapper_MaskPayloadInPlace", "[WebSocket]") {
+TEST_CASE("FrameWrapper_MaskPayloadInPlace", "[WebSocket]") {
   const std::string payload{"hello"};
   const uint32_t key = 0xDEADBEEF;
   std::string frame = ws_frame_lens::serialize_frame(
@@ -964,7 +961,7 @@ TEST_CASE("WebSocket_FrameWrapper_MaskPayloadInPlace", "[WebSocket]") {
 //
 // The second case ("Hello, World!") exercises both the 8-byte-at-a-time main
 // loop and the trailing straggler loop.
-TEST_CASE("WebSocket_FrameWrapper_MaskPayloadCopyByteOrder", "[WebSocket]") {
+TEST_CASE("FrameWrapper_MaskPayloadCopyByteOrder", "[WebSocket]") {
   // `build` stores mask_ in host order and writes hton32(mask_) to the frame.
   // To get frame bytes [0x37, 0xfa, 0x21, 0x3d] on a little-endian host,
   // hton32(mask_val) must equal 0x3d21fa37, so mask_val = 0x37fa213d.
@@ -1009,7 +1006,7 @@ TEST_CASE("WebSocket_FrameWrapper_MaskPayloadCopyByteOrder", "[WebSocket]") {
 #pragma region Send_Binary
 
 // `send_binary` sends a FIN+binary frame with the correct opcode.
-TEST_CASE("WebSocket_Send_Binary", "[WebSocket]") {
+TEST_CASE("Send_Binary", "[WebSocket]") {
   std::string sent;
   http_websocket ws{[&](any_strings&& f) {
     sent = std::get<std::string>(std::move(f));
@@ -1031,7 +1028,7 @@ TEST_CASE("WebSocket_Send_Binary", "[WebSocket]") {
 
 // `send_pong` sends a FIN+pong frame even after `send_close` would otherwise
 // block outbound data.
-TEST_CASE("WebSocket_Send_Pong_Direct", "[WebSocket]") {
+TEST_CASE("Send_Pong_Direct", "[WebSocket]") {
   std::string sent;
   http_websocket ws{[&](any_strings&& f) {
     sent = std::get<std::string>(std::move(f));
@@ -1052,7 +1049,7 @@ TEST_CASE("WebSocket_Send_Pong_Direct", "[WebSocket]") {
 
 // `send_frame(std::string&&)` delivers a pre-serialized frame directly to the
 // send callback.
-TEST_CASE("WebSocket_Send_Frame_Prebuilt", "[WebSocket]") {
+TEST_CASE("Send_Frame_Prebuilt", "[WebSocket]") {
   std::string sent;
   http_websocket ws{[&](any_strings&& f) {
     sent = std::get<std::string>(std::move(f));
@@ -1072,7 +1069,7 @@ TEST_CASE("WebSocket_Send_Frame_Prebuilt", "[WebSocket]") {
 #pragma region Hangup
 
 // `hangup` invokes the send callback with `std::monostate` to signal RST.
-TEST_CASE("WebSocket_Hangup", "[WebSocket]") {
+TEST_CASE("Hangup", "[WebSocket]") {
   bool called{};
   bool got_monostate{};
   http_websocket ws{[&](any_strings&& f) {
@@ -1091,7 +1088,7 @@ TEST_CASE("WebSocket_Hangup", "[WebSocket]") {
 // `fail` sends a close frame and returns false. `fail_proto` wraps `fail` with
 // code 1002 and a "Protocol failure: " prefix. `fail_insatiable` sends close
 // and hangup then returns `insatiable`.
-TEST_CASE("WebSocket_Fail", "[WebSocket]") {
+TEST_CASE("Fail", "[WebSocket]") {
   // `fail` with no prior close sends a close frame.
   {
     std::string sent;
@@ -1139,7 +1136,7 @@ TEST_CASE("WebSocket_Fail", "[WebSocket]") {
 
 // `on_drain` callback on `http_websocket_transaction` is invoked from
 // `handle_drain` after the upgrade response is flushed.
-TEST_CASE("WebSocketTransaction_OnDrain", "[WebSocketTransaction]") {
+TEST_CASE("OnDrain", "[WebSocketTransaction]") {
   auto tx =
       std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
 
@@ -1169,7 +1166,7 @@ TEST_CASE("WebSocketTransaction_OnDrain", "[WebSocketTransaction]") {
 #pragma region UpgradeSuccess
 
 // Valid upgrade handshake: `handle_data` returns `claim`.
-TEST_CASE("WebSocketTransaction_UpgradeSuccess", "[WebSocketTransaction]") {
+TEST_CASE("UpgradeSuccess", "[WebSocketTransaction]") {
   auto tx =
       std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
   recv_buffer buf;
@@ -1181,8 +1178,7 @@ TEST_CASE("WebSocketTransaction_UpgradeSuccess", "[WebSocketTransaction]") {
 #pragma region DrainSendsResponse
 
 // After upgrade, `handle_drain` sends the 101 response and returns `claim`.
-TEST_CASE("WebSocketTransaction_DrainSendsResponse",
-    "[WebSocketTransaction]") {
+TEST_CASE("DrainSendsResponse", "[WebSocketTransaction]") {
   std::string expected_accept_key;
   auto tx = std::make_shared<http_websocket_transaction>(
       wstx_make_upgrade_req(&expected_accept_key));
@@ -1214,8 +1210,7 @@ TEST_CASE("WebSocketTransaction_DrainSendsResponse",
 #pragma region DrainBeforeUpgrade
 
 // `handle_drain` before `handle_data` has been called returns `release`.
-TEST_CASE("WebSocketTransaction_DrainBeforeUpgrade",
-    "[WebSocketTransaction]") {
+TEST_CASE("DrainBeforeUpgrade", "[WebSocketTransaction]") {
   auto tx =
       std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
   http_transaction::send_fn send_fn{[](any_strings&&) { return true; }};
@@ -1226,7 +1221,7 @@ TEST_CASE("WebSocketTransaction_DrainBeforeUpgrade",
 #pragma region BadMethod
 
 // Non-GET method: `handle_data` returns `release`.
-TEST_CASE("WebSocketTransaction_BadMethod", "[WebSocketTransaction]") {
+TEST_CASE("BadMethod", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.method = http_method::POST;
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
@@ -1239,7 +1234,7 @@ TEST_CASE("WebSocketTransaction_BadMethod", "[WebSocketTransaction]") {
 #pragma region MissingUpgrade
 
 // No `Upgrade` option: `handle_data` returns `release`.
-TEST_CASE("WebSocketTransaction_MissingUpgrade", "[WebSocketTransaction]") {
+TEST_CASE("MissingUpgrade", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.options.upgrade = std::nullopt;
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
@@ -1252,7 +1247,7 @@ TEST_CASE("WebSocketTransaction_MissingUpgrade", "[WebSocketTransaction]") {
 #pragma region MissingConnection
 
 // Missing `Connection` header: `handle_data` returns `release`.
-TEST_CASE("WebSocketTransaction_MissingConnection", "[WebSocketTransaction]") {
+TEST_CASE("MissingConnection", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Connection");
   wstx_reextract_options(req);
@@ -1266,7 +1261,7 @@ TEST_CASE("WebSocketTransaction_MissingConnection", "[WebSocketTransaction]") {
 #pragma region WrongVersion
 
 // Wrong `Sec-Websocket-Version`: `handle_data` returns `release`.
-TEST_CASE("WebSocketTransaction_WrongVersion", "[WebSocketTransaction]") {
+TEST_CASE("WrongVersion", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Sec-Websocket-Version");
   (void)req.headers.add_raw("Sec-Websocket-Version", "8");
@@ -1280,7 +1275,7 @@ TEST_CASE("WebSocketTransaction_WrongVersion", "[WebSocketTransaction]") {
 #pragma region MissingKey
 
 // Missing `Sec-Websocket-Key`: `handle_data` returns `release`.
-TEST_CASE("WebSocketTransaction_MissingKey", "[WebSocketTransaction]") {
+TEST_CASE("MissingKey", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Sec-Websocket-Key");
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
@@ -1294,8 +1289,7 @@ TEST_CASE("WebSocketTransaction_MissingKey", "[WebSocketTransaction]") {
 
 // Wrong `Sec-Websocket-Version`: drain sends 426 with the required headers and
 // `close_after` stays `keep_alive` so the connection remains open for retry.
-TEST_CASE("WebSocketTransaction_UpgradeRequiredDrain",
-    "[WebSocketTransaction]") {
+TEST_CASE("UpgradeRequiredDrain", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.headers.remove_key("Sec-Websocket-Version");
   (void)req.headers.add_raw("Sec-Websocket-Version", "8");
@@ -1342,7 +1336,7 @@ TEST_CASE("WebSocketTransaction_UpgradeRequiredDrain",
 
 // After a rejected upgrade, `handle_drain` sends the 400 error and returns
 // `release`.
-TEST_CASE("WebSocketTransaction_BadRequestDrain", "[WebSocketTransaction]") {
+TEST_CASE("BadRequestDrain", "[WebSocketTransaction]") {
   auto req = wstx_make_upgrade_req();
   req.method = http_method::POST;
   auto tx = std::make_shared<http_websocket_transaction>(std::move(req));
@@ -1370,7 +1364,7 @@ TEST_CASE("WebSocketTransaction_BadRequestDrain", "[WebSocketTransaction]") {
 
 // After upgrade, a text frame fires `on_message` and `handle_data` returns
 // `claim`.
-TEST_CASE("WebSocketTransaction_FeedAfterUpgrade", "[WebSocketTransaction]") {
+TEST_CASE("FeedAfterUpgrade", "[WebSocketTransaction]") {
   auto tx =
       std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
 
@@ -1404,7 +1398,7 @@ TEST_CASE("WebSocketTransaction_FeedAfterUpgrade", "[WebSocketTransaction]") {
 // After upgrade, a protocol-error frame causes `handle_data` to keep the
 // stream claimed, latch close-pending, and let `handle_drain` begin graceful
 // shutdown.
-TEST_CASE("WebSocketTransaction_FeedProtocolError", "[WebSocketTransaction]") {
+TEST_CASE("FeedProtocolError", "[WebSocketTransaction]") {
   auto tx =
       std::make_shared<http_websocket_transaction>(wstx_make_upgrade_req());
   recv_buffer buf;
@@ -1430,8 +1424,7 @@ TEST_CASE("WebSocketTransaction_FeedProtocolError", "[WebSocketTransaction]") {
 // When `on_protocol` is set and the client offers subprotocols, the chosen
 // protocol appears in the 101 response. When the client offers no protocols,
 // the callback is not invoked and the response has no protocol header.
-TEST_CASE("WebSocketTransaction_SubprotocolNegotiation",
-    "[WebSocketTransaction]") {
+TEST_CASE("SubprotocolNegotiation", "[WebSocketTransaction]") {
   // Case 1: client offers "chat, superchat"; callback picks "chat".
   {
     auto req = wstx_make_upgrade_req();
@@ -1505,7 +1498,7 @@ TEST_CASE("WebSocketTransaction_SubprotocolNegotiation",
 
 // `make_factory` creates an `http_websocket_transaction` and invokes the
 // configure callback.
-TEST_CASE("WebSocketTransaction_MakeFactory", "[WebSocketTransaction]") {
+TEST_CASE("MakeFactory", "[WebSocketTransaction]") {
   bool configured{};
   auto factory = http_websocket_transaction::make_factory(
       [&](http_websocket_transaction& wstx) {
@@ -1531,7 +1524,7 @@ TEST_CASE("WebSocketTransaction_MakeFactory", "[WebSocketTransaction]") {
 
 // Verify `send_ping` uses an auto-incrementing 4-byte counter payload and that
 // a matching pong fires `on_pong` while a mismatched pong does not.
-TEST_CASE("WebSocket_PingCounter", "[WebSocket]") {
+TEST_CASE("PingCounter", "[WebSocket]") {
   using namespace std::chrono_literals;
 
   std::string sent_frame;
@@ -1599,7 +1592,7 @@ TEST_CASE("WebSocket_PingCounter", "[WebSocket]") {
 // Verify that a live WebSocket server sends periodic pings when keepalive is
 // enabled and that a client responding with matching pongs keeps the
 // connection open. Uses 100 ms intervals so the test runs quickly.
-TEST_CASE("HttpServer_WebSocket_Keepalive", "[HttpServer]") {
+TEST_CASE("WebSocket_Keepalive", "[HttpServer]") {
   if (is_codex()) return;
 
   using namespace std::chrono_literals;
@@ -1691,7 +1684,7 @@ TEST_CASE("HttpServer_WebSocket_Keepalive", "[HttpServer]") {
 
 // Verify that the server closes the connection with code 1001 when the client
 // ignores pings and the pong timeout expires.
-TEST_CASE("HttpServer_WebSocket_KeepaliveTimeout", "[HttpServer]") {
+TEST_CASE("WebSocket_KeepaliveTimeout", "[HttpServer]") {
   if (is_codex()) return;
 
   using namespace std::chrono_literals;
@@ -1779,7 +1772,7 @@ TEST_CASE("HttpServer_WebSocket_KeepaliveTimeout", "[HttpServer]") {
 //   2. Client sends an HTTP/1.1 upgrade request and receives 101.
 //   3. Client sends a masked text frame; server echoes it back unmasked.
 //   4. Client decodes the echo and verifies the payload.
-TEST_CASE("HttpServer_WebSocket", "[HttpServer]") {
+TEST_CASE("WebSocket", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
@@ -1853,7 +1846,7 @@ TEST_CASE("HttpServer_WebSocket", "[HttpServer]") {
 
 // Query strings and fragments must not affect route matching; only the target
 // path determines the registered `base_path`.
-TEST_CASE("HttpServer_WebSocket_QueryAndFragmentRoute", "[HttpServer]") {
+TEST_CASE("WebSocket_QueryAndFragmentRoute", "[HttpServer]") {
   if (is_codex()) return;
 
   auto server = http_server::create(net_endpoint{ipv4_addr::loopback, 0},
@@ -1910,7 +1903,7 @@ TEST_CASE("HttpServer_WebSocket_QueryAndFragmentRoute", "[HttpServer]") {
 //      and a client-originated pong (silently absorbed); reassembled echo
 //      returned after the pong.
 //   4. Close frame (code 1001): server mirrors the code; `on_close` fires.
-TEST_CASE("HttpServer_WebSocket_Frames", "[HttpServer]") {
+TEST_CASE("WebSocket_Frames", "[HttpServer]") {
   if (is_codex()) return;
 
   // Server echoes text messages and mirrors close frames.

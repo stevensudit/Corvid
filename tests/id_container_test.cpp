@@ -34,7 +34,7 @@ using container_t = id_container<int, eid_t>;
 
 #pragma region DefaultConstruct
 
-TEST_CASE("IdContainer_DefaultConstruct", "[IdContainer]") {
+TEST_CASE("DefaultConstruct", "[IdContainer]") {
   // Default-constructed container is empty with maximum limit.
   if (true) {
     container_t c;
@@ -48,7 +48,7 @@ TEST_CASE("IdContainer_DefaultConstruct", "[IdContainer]") {
 #pragma endregion
 #pragma region PushBack
 
-TEST_CASE("IdContainer_PushBack", "[IdContainer]") {
+TEST_CASE("PushBack", "[IdContainer]") {
   // push_back appends values accessible by slot index.
   if (true) {
     container_t c;
@@ -83,7 +83,7 @@ TEST_CASE("IdContainer_PushBack", "[IdContainer]") {
 #pragma endregion
 #pragma region EmplaceBack
 
-TEST_CASE("IdContainer_EmplaceBack", "[IdContainer]") {
+TEST_CASE("EmplaceBack", "[IdContainer]") {
   // emplace_back constructs in-place and returns a pointer to the new element.
   if (true) {
     container_t c;
@@ -108,7 +108,7 @@ TEST_CASE("IdContainer_EmplaceBack", "[IdContainer]") {
 #pragma endregion
 #pragma region PopBack
 
-TEST_CASE("IdContainer_PopBack", "[IdContainer]") {
+TEST_CASE("PopBack", "[IdContainer]") {
   // pop_back removes the last slot.
   if (true) {
     container_t c;
@@ -123,7 +123,7 @@ TEST_CASE("IdContainer_PopBack", "[IdContainer]") {
 #pragma endregion
 #pragma region FrontBack
 
-TEST_CASE("IdContainer_FrontBack", "[IdContainer]") {
+TEST_CASE("FrontBack", "[IdContainer]") {
   // front() and back() return the first and last elements.
   if (true) {
     container_t c;
@@ -149,7 +149,7 @@ TEST_CASE("IdContainer_FrontBack", "[IdContainer]") {
 #pragma endregion
 #pragma region Subscript
 
-TEST_CASE("IdContainer_Subscript", "[IdContainer]") {
+TEST_CASE("Subscript", "[IdContainer]") {
   // operator[] returns a mutable reference.
   if (true) {
     container_t c;
@@ -170,7 +170,7 @@ TEST_CASE("IdContainer_Subscript", "[IdContainer]") {
 #pragma endregion
 #pragma region At
 
-TEST_CASE("IdContainer_At", "[IdContainer]") {
+TEST_CASE("At", "[IdContainer]") {
   // at() provides bounds-checked access; throws std::out_of_range.
   if (true) {
     container_t c;
@@ -202,7 +202,7 @@ TEST_CASE("IdContainer_At", "[IdContainer]") {
 #pragma endregion
 #pragma region SizeAsEnum
 
-TEST_CASE("IdContainer_SizeAsEnum", "[IdContainer]") {
+TEST_CASE("SizeAsEnum", "[IdContainer]") {
   // size_as_enum() returns the size as the id_t type.
   if (true) {
     container_t c;
@@ -217,7 +217,7 @@ TEST_CASE("IdContainer_SizeAsEnum", "[IdContainer]") {
 #pragma endregion
 #pragma region Reserve
 
-TEST_CASE("IdContainer_Reserve", "[IdContainer]") {
+TEST_CASE("Reserve", "[IdContainer]") {
   // reserve() pre-allocates capacity without changing size.
   if (true) {
     container_t c;
@@ -231,7 +231,7 @@ TEST_CASE("IdContainer_Reserve", "[IdContainer]") {
 #pragma endregion
 #pragma region Resize
 
-TEST_CASE("IdContainer_Resize", "[IdContainer]") {
+TEST_CASE("Resize", "[IdContainer]") {
   // resize(n) expands or shrinks the slot count.
   if (true) {
     container_t c;
@@ -266,7 +266,7 @@ TEST_CASE("IdContainer_Resize", "[IdContainer]") {
 #pragma endregion
 #pragma region Clear
 
-TEST_CASE("IdContainer_Clear", "[IdContainer]") {
+TEST_CASE("Clear", "[IdContainer]") {
   // clear() empties the container without releasing capacity.
   if (true) {
     container_t c;
@@ -281,7 +281,7 @@ TEST_CASE("IdContainer_Clear", "[IdContainer]") {
 #pragma endregion
 #pragma region ShrinkToFit
 
-TEST_CASE("IdContainer_ShrinkToFit", "[IdContainer]") {
+TEST_CASE("ShrinkToFit", "[IdContainer]") {
   // shrink_to_fit() reduces capacity to match size.
   if (true) {
     container_t c;
@@ -297,7 +297,7 @@ TEST_CASE("IdContainer_ShrinkToFit", "[IdContainer]") {
 #pragma endregion
 #pragma region Limit
 
-TEST_CASE("IdContainer_Limit", "[IdContainer]") {
+TEST_CASE("Limit", "[IdContainer]") {
   // id_limit() defaults to the maximum representable value.
   if (true) {
     container_t c;
@@ -348,7 +348,7 @@ TEST_CASE("IdContainer_Limit", "[IdContainer]") {
 #pragma endregion
 #pragma region Iteration
 
-TEST_CASE("IdContainer_Iteration", "[IdContainer]") {
+TEST_CASE("Iteration", "[IdContainer]") {
   // Range-for iterates over all slots in index order.
   if (true) {
     container_t c;
@@ -394,7 +394,7 @@ TEST_CASE("IdContainer_Iteration", "[IdContainer]") {
 #pragma endregion
 #pragma region Underlying
 
-TEST_CASE("IdContainer_Underlying", "[IdContainer]") {
+TEST_CASE("Underlying", "[IdContainer]") {
   // underlying() returns the inner std::vector<T>.
   if (true) {
     container_t c;
@@ -418,7 +418,7 @@ TEST_CASE("IdContainer_Underlying", "[IdContainer]") {
 #pragma endregion
 #pragma region Data
 
-TEST_CASE("IdContainer_Data", "[IdContainer]") {
+TEST_CASE("Data", "[IdContainer]") {
   // data() returns a pointer to the first element.
   if (true) {
     container_t c;
@@ -433,7 +433,7 @@ TEST_CASE("IdContainer_Data", "[IdContainer]") {
 #pragma endregion
 #pragma region Allocator
 
-TEST_CASE("IdContainer_Allocator", "[IdContainer]") {
+TEST_CASE("Allocator", "[IdContainer]") {
   // get_allocator() returns the stored allocator.
   if (true) {
     container_t c;
@@ -460,7 +460,7 @@ TEST_CASE("IdContainer_Allocator", "[IdContainer]") {
 #pragma endregion
 #pragma region NonIntType
 
-TEST_CASE("IdContainer_NonIntType", "[IdContainer]") {
+TEST_CASE("NonIntType", "[IdContainer]") {
   // id_container works with non-int value types.
   if (true) {
     id_container<double, eid_t> c;

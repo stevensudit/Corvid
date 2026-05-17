@@ -61,7 +61,7 @@ static_assert(!CanSplit<"">());
 
 #pragma region General
 
-TEST_CASE("FixedStringTest_General", "[FixedStringTest]") {
+TEST_CASE("General", "[FixedStringTest]") {
   std::string_view s;
   s = GetFixedString<"abc">();
   CHECK((s) == ("abc"sv));

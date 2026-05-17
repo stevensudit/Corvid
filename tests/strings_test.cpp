@@ -40,7 +40,7 @@ using namespace corvid::enums::bitmask;
 // Test extract_piece.
 #pragma region ExtractPiece
 
-TEST_CASE("StringUtilsTest_ExtractPiece", "[StringUtilsTest]") {
+TEST_CASE("ExtractPiece", "[StringUtilsTest]") {
   std::string_view sv;
   CHECK((strings::extract_piece(sv, ",")) == (""));
   CHECK((strings::extract_piece(sv, ",")) == (""));
@@ -62,7 +62,7 @@ TEST_CASE("StringUtilsTest_ExtractPiece", "[StringUtilsTest]") {
 // Test more_pieces.
 #pragma region MorePieces
 
-TEST_CASE("StringUtilsTest_MorePieces", "[StringUtilsTest]") {
+TEST_CASE("MorePieces", "[StringUtilsTest]") {
   std::string_view w, part;
   w = "1,2";
   CHECK_FALSE((w.empty()));
@@ -88,7 +88,7 @@ TEST_CASE("StringUtilsTest_MorePieces", "[StringUtilsTest]") {
 // Test split.
 #pragma region Split
 
-TEST_CASE("StringUtilsTest_Split", "[StringUtilsTest]") {
+TEST_CASE("Split", "[StringUtilsTest]") {
   if (true) {
     using V = std::vector<std::string_view>;
 
@@ -145,7 +145,7 @@ TEST_CASE("StringUtilsTest_Split", "[StringUtilsTest]") {
 // Test split_gen.
 #pragma region SplitPg
 
-TEST_CASE("StringUtilsTest_SplitPg", "[StringUtilsTest]") {
+TEST_CASE("SplitPg", "[StringUtilsTest]") {
   using PG = strings::piece_generator;
   if (true) {
     using V = std::vector<std::string_view>;
@@ -205,7 +205,7 @@ TEST_CASE("StringUtilsTest_SplitPg", "[StringUtilsTest]") {
 // Test as_lower, as_upper.
 #pragma region Case
 
-TEST_CASE("StringUtilsTest_Case", "[StringUtilsTest]") {
+TEST_CASE("Case", "[StringUtilsTest]") {
   auto s = "abcdefghij"s;
   strings::to_upper(s);
   CHECK((s) == ("ABCDEFGHIJ"));
@@ -223,7 +223,7 @@ TEST_CASE("StringUtilsTest_Case", "[StringUtilsTest]") {
 // Test locate.
 #pragma region Locate
 
-TEST_CASE("StringUtilsTest_Locate", "[StringUtilsTest]") {
+TEST_CASE("Locate", "[StringUtilsTest]") {
   using location = corvid::strings::location;
   if (true) {
     constexpr auto s = "abcdefghij"sv;
@@ -565,7 +565,7 @@ TEST_CASE("StringUtilsTest_Locate", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region RLocate
 
-TEST_CASE("StringUtilsTest_RLocate", "[StringUtilsTest]") {
+TEST_CASE("RLocate", "[StringUtilsTest]") {
   using location = corvid::strings::location;
   // These tests are abbreviated because we only want to confirm algorithmic
   // correctness, not test for all those tricky overloads.
@@ -627,7 +627,7 @@ TEST_CASE("StringUtilsTest_RLocate", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region LocateEdges
 
-TEST_CASE("StringUtilsTest_LocateEdges", "[StringUtilsTest]") {
+TEST_CASE("LocateEdges", "[StringUtilsTest]") {
   using location = corvid::strings::location;
   // Test for using size as npos.
   if (true) {
@@ -689,7 +689,7 @@ TEST_CASE("StringUtilsTest_LocateEdges", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region Substitute
 
-TEST_CASE("StringUtilsTest_Substitute", "[StringUtilsTest]") {
+TEST_CASE("Substitute", "[StringUtilsTest]") {
   if (true) {
     // substitute: ch, psz, s, sv.
     constexpr auto sv = "abcdefghijabcdefghij"sv;
@@ -846,7 +846,7 @@ TEST_CASE("StringUtilsTest_Substitute", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region Excise
 
-TEST_CASE("StringUtilsTest_Excise", "[StringUtilsTest]") {
+TEST_CASE("Excise", "[StringUtilsTest]") {
   if (true) {
     // excise: ch, psz, s, sv.
     constexpr auto sv = "abcdefghijabcdefghij"sv;
@@ -973,7 +973,7 @@ auto& test_append(T& target, std::string_view sv) {
 
 #pragma region Target
 
-TEST_CASE("StringUtilsTest_Target", "[StringUtilsTest]") {
+TEST_CASE("Target", "[StringUtilsTest]") {
   if (true) {
     std::ostringstream oss;
     CHECK((test_append(oss, "abc").str()) == ("abcaabcaaaa"));
@@ -998,7 +998,7 @@ struct NotStreamable {};
 
 #pragma region Print
 
-TEST_CASE("StringUtilsTest_Print", "[StringUtilsTest]") {
+TEST_CASE("Print", "[StringUtilsTest]") {
   if (true) {
     std::stringstream ss;
     strings::stream_out(ss, "abc=", 5, ';');
@@ -1058,7 +1058,7 @@ TEST_CASE("StringUtilsTest_Print", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region OstreamRedirectorTraits
 
-TEST_CASE("StringUtilsTest_OstreamRedirectorTraits", "[StringUtilsTest]") {
+TEST_CASE("OstreamRedirectorTraits", "[StringUtilsTest]") {
   using R = strings::ostream_redirector;
   static_assert(!std::is_copy_constructible_v<R>);
   static_assert(!std::is_copy_assignable_v<R>);
@@ -1069,7 +1069,7 @@ TEST_CASE("StringUtilsTest_OstreamRedirectorTraits", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region OstreamRedirectorRestore
 
-TEST_CASE("StringUtilsTest_OstreamRedirectorRestore", "[StringUtilsTest]") {
+TEST_CASE("OstreamRedirectorRestore", "[StringUtilsTest]") {
   auto* orig = std::cout.rdbuf();
   {
     std::stringstream ss;
@@ -1086,7 +1086,7 @@ TEST_CASE("StringUtilsTest_OstreamRedirectorRestore", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region Trim
 
-TEST_CASE("StringUtilsTest_Trim", "[StringUtilsTest]") {
+TEST_CASE("Trim", "[StringUtilsTest]") {
   if (true) {
     CHECK((strings::trim_left("")) == (""));
     CHECK((strings::trim_left("1")) == ("1"));
@@ -1175,7 +1175,7 @@ TEST_CASE("StringUtilsTest_Trim", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region AddBraces
 
-TEST_CASE("StringUtilsTest_AddBraces", "[StringUtilsTest]") {
+TEST_CASE("AddBraces", "[StringUtilsTest]") {
   if (true) {
     CHECK((strings::add_braces("")) == ("[]"));
     CHECK((strings::add_braces("1")) == ("[1]"));
@@ -1189,7 +1189,7 @@ TEST_CASE("StringUtilsTest_AddBraces", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region ParseNum
 
-TEST_CASE("StringUtilsTest_ParseNum", "[StringUtilsTest]") {
+TEST_CASE("ParseNum", "[StringUtilsTest]") {
   if (true) {
     std::string_view sv;
     sv = "123";
@@ -1332,7 +1332,7 @@ TEST_CASE("StringUtilsTest_ParseNum", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region AppendNum
 
-TEST_CASE("StringUtilsTest_AppendNum", "[StringUtilsTest]") {
+TEST_CASE("AppendNum", "[StringUtilsTest]") {
   if (true) {
     CHECK((strings::num_as_string(1)) == ("1"));
     CHECK((strings::num_as_string(0)) == ("0"));
@@ -1361,7 +1361,7 @@ TEST_CASE("StringUtilsTest_AppendNum", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region Append
 
-TEST_CASE("StringUtilsTest_Append", "[StringUtilsTest]") {
+TEST_CASE("Append", "[StringUtilsTest]") {
   using strings::join_opt;
   std::string s;
 
@@ -1745,7 +1745,7 @@ TEST_CASE("StringUtilsTest_Append", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region Edges
 
-TEST_CASE("StringUtilsTest_Edges", "[StringUtilsTest]") {
+TEST_CASE("Edges", "[StringUtilsTest]") {
   using strings::join_opt;
 
   std::vector<int> a{1, 2, 3};
@@ -1763,7 +1763,7 @@ TEST_CASE("StringUtilsTest_Edges", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region Streams
 
-TEST_CASE("StringUtilsTest_Streams", "[StringUtilsTest]") {
+TEST_CASE("Streams", "[StringUtilsTest]") {
   using strings::join_opt;
 
   std::vector<int> a{1, 2, 3};
@@ -1795,7 +1795,7 @@ constexpr auto registry::enum_spec_v<rgb> =
 
 #pragma region AppendEnum
 
-TEST_CASE("StringUtilsTest_AppendEnum", "[StringUtilsTest]") {
+TEST_CASE("AppendEnum", "[StringUtilsTest]") {
   std::string s;
   CHECK(((strings::concat(rgb::yellow))) == ("red + green"));
   CHECK(((strings::join(rgb::yellow, rgb::cyan))) ==
@@ -1885,7 +1885,7 @@ constexpr auto strings::append_join_override_fn<opt, open, close, A, person> =
 
 #pragma region AppendStream
 
-TEST_CASE("StringUtilsTest_AppendStream", "[StringUtilsTest]") {
+TEST_CASE("AppendStream", "[StringUtilsTest]") {
   using strings::join_opt;
   soldier pyle{"Gomer", marine_rank::Private, 12345678};
   soldier carter{"Vince", marine_rank::GunnerySergeant, 23456789};
@@ -2021,7 +2021,7 @@ TEST_CASE("StringUtilsTest_AppendStream", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region AppendJson
 
-TEST_CASE("StringUtilsTest_AppendJson", "[StringUtilsTest]") {
+TEST_CASE("AppendJson", "[StringUtilsTest]") {
   using strings::join_opt;
 
   if (true) {
@@ -2079,7 +2079,7 @@ TEST_CASE("StringUtilsTest_AppendJson", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region StdFromChars
 
-TEST_CASE("StringUtilsTest_StdFromChars", "[StringUtilsTest]") {
+TEST_CASE("StdFromChars", "[StringUtilsTest]") {
   // Test std::from_chars directly for float.
   if (true) {
     float value{};
@@ -2278,7 +2278,7 @@ TEST_CASE("StringUtilsTest_StdFromChars", "[StringUtilsTest]") {
 #pragma endregion
 #pragma region NoZero
 
-TEST_CASE("StringUtilsTest_NoZero", "[StringUtilsTest]") {
+TEST_CASE("NoZero", "[StringUtilsTest]") {
   // Sanity check: `clear` does not release a heap buffer, but `shrink_to_fit`
   // does. SSO ensures capacity never drops to zero.
   if (true) {
@@ -2528,7 +2528,7 @@ TEST_CASE("StringUtilsTest_NoZero", "[StringUtilsTest]") {
 // Test token_parser.
 #pragma region TokenParser
 
-TEST_CASE("StringUtilsTest_TokenParser", "[StringUtilsTest]") {
+TEST_CASE("TokenParser", "[StringUtilsTest]") {
   using strings::token_parser;
 
   token_parser p{"\r\n"};
@@ -2594,7 +2594,7 @@ TEST_CASE("StringUtilsTest_TokenParser", "[StringUtilsTest]") {
 // Test any_strings, strings::as_vector, and strings::as_any.
 #pragma region AnyStrings
 
-TEST_CASE("StringUtilsTest_AnyStrings", "[StringUtilsTest]") {
+TEST_CASE("AnyStrings", "[StringUtilsTest]") {
   using strings::any_strings;
 
   // strings::as_vector: zero, one, and multiple strings.
