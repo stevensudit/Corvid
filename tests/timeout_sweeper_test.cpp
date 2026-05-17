@@ -55,8 +55,10 @@ TEST_CASE("TimeoutSweeper_BasicFire", "[TimeoutSweeper]") {
 #pragma region NotFiredEarly
 
 TEST_CASE("TimeoutSweeper_NotFiredEarly", "[TimeoutSweeper]") {
-  sweeper s;
+  // `fired` must outlive `s`: the sweeper's destructor drains the still-queued
+  // T(100) callback (neither tick reaches it), which captures `&fired`.
   int fired{0};
+  sweeper s;
   s.schedule(T(100), [&](tp) -> tp {
     ++fired;
     return {};

@@ -50,6 +50,11 @@ int main(int argc, char* argv[]) {
 #if defined(CATCH2_SHOW_TIMERS) && CATCH2_SHOW_TIMERS == 1
     args.push_back(const_cast<char*>("--durations"));
     args.push_back(const_cast<char*>("yes"));
+#elif defined(__has_feature) && __has_feature(memory_sanitizer)
+    // Under MSAN, skip the injection. Catch2's `--min-duration` parser uses
+    // `std::istream >> double`, and libc++'s locale-based float parsing trips
+    // a known MSAN false positive in `__constexpr_memchr`. Without this skip,
+    // every test exits with an MSAN report before its body runs.
 #else
     args.push_back(const_cast<char*>("--min-duration"));
     args.push_back(const_cast<char*>("0.1"));

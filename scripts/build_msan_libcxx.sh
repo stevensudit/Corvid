@@ -40,7 +40,9 @@ cmake -G Ninja -S "$SRC_DIR/runtimes" -B "$BUILD_DIR" \
     -DLIBCXX_INCLUDE_TESTS=OFF \
     -DLIBCXX_INCLUDE_BENCHMARKS=OFF \
     -DLIBCXXABI_INCLUDE_TESTS=OFF \
-    -DLIBUNWIND_INCLUDE_TESTS=OFF
+    -DLIBUNWIND_INCLUDE_TESTS=OFF \
+    -DLIBUNWIND_ADDITIONAL_COMPILE_FLAGS="-fno-sanitize=memory" \
+    -DLIBUNWIND_ADDITIONAL_C_FLAGS="-fno-sanitize=memory"
 
 echo "Building libc++/libc++abi/libunwind (slow) ..."
 ninja -C "$BUILD_DIR" cxx cxxabi unwind
