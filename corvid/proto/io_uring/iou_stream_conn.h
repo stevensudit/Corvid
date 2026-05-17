@@ -576,12 +576,14 @@ public:
 #pragma region Factories
 
   // Adopt an already-connected socket. `sock` must be non-blocking. Returns a
-  // raw `iou_stream_conn*` (or `nullptr` on failure). The conn is kept alive
-  // by its in-flight callbacks; promote to a `shared_ptr` via `self` if you
-  // need to.
+  // `std::weak_ptr<iou_stream_conn>`; the conn is self-sustaining via its
+  // in-flight callbacks. `lock()` for ad-hoc access. An empty/expired
+  // `std::weak_ptr` signals either a failure to launch or that the conn has
+  // already finished its life and torn down.
   template<typename... PluginArgs>
-  [[nodiscard]] static iou_stream_conn* adopt(iou_loop& loop, net_socket sock,
-      net_endpoint remote, shot_type recv_shot = shot_type::multi,
+  [[nodiscard]] static std::weak_ptr<iou_stream_conn>
+  adopt(iou_loop& loop, net_socket sock, net_endpoint remote,
+      shot_type recv_shot = shot_type::multi,
       idle_duration_t read_idle_timeout = {},
       idle_duration_t write_idle_timeout = {}, PluginArgs&&... plugin_args) {
     return do_make(loop, std::move(sock), &remote, std::nullopt,
@@ -590,14 +592,15 @@ public:
   }
 
   // Initiate an async connect to `remote`. `on_drain` fires on success;
-  // `on_close` fires on failure. Returns `nullptr` on socket creation failure.
+  // `on_close` fires on failure. Returns an empty `std::weak_ptr` on socket
+  // creation failure. See `adopt` for the `std::weak_ptr` contract.
   template<typename... PluginArgs>
-  [[nodiscard]] static iou_stream_conn* connect(iou_loop& loop,
+  [[nodiscard]] static std::weak_ptr<iou_stream_conn> connect(iou_loop& loop,
       const net_endpoint& remote, shot_type recv_shot = shot_type::multi,
       idle_duration_t read_idle_timeout = {},
       idle_duration_t write_idle_timeout = {}, PluginArgs&&... plugin_args) {
     auto sock = net_socket::create_for(remote);
-    if (!sock.is_open()) return nullptr;
+    if (!sock.is_open()) return {};
     return do_make(loop, std::move(sock), &remote, connection_role::client,
         block_size::kb004, block_size::kb004, recv_shot, read_idle_timeout,
         write_idle_timeout, std::forward<PluginArgs>(plugin_args)...);
@@ -605,17 +608,18 @@ public:
 
   // Create a listening socket bound to `local`. Each accepted connection
   // gets a fresh plugin built via the parent plugin's `make_child_plugin`.
-  // Returns `nullptr` on failure.
+  // Returns an empty `std::weak_ptr` on failure. See `adopt` for the
+  // `std::weak_ptr` contract.
   template<typename... PluginArgs>
-  [[nodiscard]] static iou_stream_conn* listen(iou_loop& loop,
+  [[nodiscard]] static std::weak_ptr<iou_stream_conn> listen(iou_loop& loop,
       const net_endpoint& local, shot_type recv_shot = shot_type::multi,
       idle_duration_t read_idle_timeout = {},
       idle_duration_t write_idle_timeout = {}, PluginArgs&&... plugin_args) {
     auto sock = net_socket::create_for(local);
-    if (!sock.is_open()) return nullptr;
-    if (!sock.set_reuse_addr()) return nullptr;
-    if (!sock.bind(local)) return nullptr;
-    if (!sock.listen()) return nullptr;
+    if (!sock.is_open()) return {};
+    if (!sock.set_reuse_addr()) return {};
+    if (!sock.bind(local)) return {};
+    if (!sock.listen()) return {};
     return do_make(loop, std::move(sock), nullptr, connection_role::server,
         block_size::kb004, block_size::kb004, recv_shot, read_idle_timeout,
         write_idle_timeout, std::forward<PluginArgs>(plugin_args)...);
@@ -678,21 +682,22 @@ private:
 #pragma region Helpers
 private:
   template<typename... PluginArgs>
-  static iou_stream_conn* do_make(iou_loop& loop, net_socket sock,
-      const net_endpoint* remote, std::optional<connection_role> role,
-      block_size recv_buf_size, block_size send_buf_size, shot_type recv_shot,
+  static std::weak_ptr<iou_stream_conn>
+  do_make(iou_loop& loop, net_socket sock, const net_endpoint* remote,
+      std::optional<connection_role> role, block_size recv_buf_size,
+      block_size send_buf_size, shot_type recv_shot,
       idle_duration_t read_idle_timeout, idle_duration_t write_idle_timeout,
       PluginArgs&&... plugin_args) {
     auto conn = std::make_shared<iou_stream_conn>(allow::ctor, loop,
         std::move(sock), remote, role, recv_buf_size, send_buf_size, recv_shot,
         read_idle_timeout, write_idle_timeout,
         std::forward<PluginArgs>(plugin_args)...);
-    auto* ptr = conn.get();
+    std::weak_ptr<iou_stream_conn> weak{conn};
     if (!loop.execute_or_post([conn = std::move(conn)] {
           return conn->start_reading();
         }))
-      return nullptr;
-    return ptr;
+      return {};
+    return weak;
   }
 
   // Produce a new `iou_stream_conn` for each accepted connection. The new
