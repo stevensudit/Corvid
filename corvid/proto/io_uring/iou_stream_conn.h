@@ -349,9 +349,7 @@ public:
   [[nodiscard]] iou_loop& loop() noexcept { return loop_; }
 
   // Access to the plugin held by this conn.
-  [[nodiscard]] auto& plugin(this auto& self) noexcept {
-    return self->plugin_;
-  }
+  [[nodiscard]] auto& plugin(this auto& self) noexcept { return self.plugin_; }
 
   //
   // Block size for borrowed buffers.

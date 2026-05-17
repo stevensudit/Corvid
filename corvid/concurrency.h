@@ -50,7 +50,3 @@
 #include "concurrency/timers.h"
 #include "concurrency/timing_wheel.h"
 #include "concurrency/tombstone.h"
-
-// TODO: Kill timing_wheel and replace it with the same interface as
-// timeout_sweeper, but with a hierarchical multi-level design to achieve O(1)
-// schedule and tick.

@@ -29,6 +29,10 @@
 
 namespace corvid { inline namespace concurrency {
 
+// TODO: Kill timing_wheel and replace it with the same interface as
+// timeout_sweeper, but with a hierarchical multi-level design to achieve O(1)
+// schedule and tick.
+
 using namespace std::chrono_literals;
 
 // Single-level timing wheel with configurable precision (100ms by default).
