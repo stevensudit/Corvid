@@ -172,30 +172,30 @@ public:
 
   // The current per-connection receive-buffer target used for future reads.
   // The actual buffer string size used by a given read may be somewhat
-  // larger if more capacity is available. Safe to call from any thread.
+  // larger if more capacity is available. Safe from any thread.
   [[nodiscard]] size_t recv_buf_size() const noexcept {
     return recv_buf_.min_capacity;
   }
 
-  // Whether the read side is still open. Safe to call from any thread. Returns
+  // Whether the read side is still open. Safe from any thread. Returns
   // false if the connection is closed or the read side has been shut down.
   [[nodiscard]] bool can_read() const noexcept { return read_open_; }
 
-  // Whether the write side is still open. Safe to call from any thread.
+  // Whether the write side is still open. Safe from any thread.
   // Returns false if the connection is closed or the write side has been shut
   // down.
-  [[nodiscard]] bool can_write() const noexcept { return write_open_; }
+  [[nodiscard]] bool can_write() const noexcept { return !write_shut_; }
 
   // The shutdown `coordination_policy` used by `close()`. `bilateral` shuts
   // down the write side after the send queue flushes, then discards incoming
   // data until the peer sends EOF. `unilateral` (the default) closes the
-  // entire socket once the queue empties. Safe to call from any thread.
+  // entire socket once the queue empties. Safe from any thread.
   [[nodiscard]] coordination_policy shutdown() const noexcept {
     return shutdown_;
   }
 
   // Set the shutdown coordination policy. `shutdown` defaults to `unilateral`.
-  // Call before `close()`. Safe to call from any thread.
+  // Call before `close()`. Safe from any thread.
   void set_shutdown(coordination_policy shutdown) noexcept {
     shutdown_ = shutdown;
   }
@@ -207,7 +207,7 @@ public:
   }
 
   // The local address this socket is bound to. Useful after `listen` on
-  // port 0 to discover the OS-assigned port. Safe to call from any thread.
+  // port 0 to discover the OS-assigned port. Safe from any thread.
   [[nodiscard]] net_endpoint local_endpoint() const noexcept {
     return net_endpoint{sock()};
   }
@@ -237,12 +237,12 @@ public:
   // of these conditions is not met, or if we are unable to write to this
   // socket.
   //
-  // Safe to call from any thread. Success does not mean that the buffers have
+  // Safe from any thread. Success does not mean that the buffers have
   // been fully sent; send completion is signaled via the `on_drain` callback.
   template<typename... Bufs>
   requires(std::same_as<Bufs, std::string> && ...)
   [[nodiscard]] bool send(Bufs&&... bufs) {
-    if (!open_ || !write_open_) return false;
+    if (!open_ || write_shut_) return false;
     if (((bufs.empty() ? 0U : 1U) + ...) == 0) return false;
     return execute_or_post(
         [p = self(),
@@ -257,10 +257,10 @@ public:
   // There must be at least one non-empty buffer. Returns false if either of
   // these conditions is not met, or if we are unable to write to this socket.
   //
-  // Safe to call from any thread. Success does not mean that the buffers have
+  // Safe from any thread. Success does not mean that the buffers have
   // been fully sent; send completion is signaled via the `on_drain` callback.
   [[nodiscard]] bool send_vector(std::vector<std::string>&& bufs) {
-    if (!open_ || !write_open_) return false;
+    if (!open_ || write_shut_) return false;
     bool any{};
     for (const auto& b : bufs)
       if (!b.empty()) {
@@ -278,10 +278,10 @@ public:
   // Returns false if either of these conditions is not met, or if we are
   // unable to write to this socket.
   //
-  // Safe to call from any thread. Success does not mean that the buffers have
+  // Safe from any thread. Success does not mean that the buffers have
   // been fully sent; send completion is signaled via the `on_drain` callback.
   [[nodiscard]] bool send_any(any_strings&& strings) {
-    if (!open_ || !write_open_) return false;
+    if (!open_ || write_shut_) return false;
     bool any = std::visit(
         [](const auto& v) {
           using T = std::decay_t<decltype(v)>;
@@ -305,7 +305,7 @@ public:
   // pending sends and then closes the socket. If `bilateral`, instead shuts
   // down the write side after flushing pending sends and discards incoming
   // data until the peer closes. Set the policy via `set_shutdown` before
-  // calling this. Safe to call from any thread. Once called, destructing the
+  // calling this. Safe from any thread. Once called, destructing the
   // owning `stream_conn_ptr_with` does not cause a forceful close.
   [[nodiscard]] bool close() {
     no_hangup_on_destruct_ = true;
@@ -313,20 +313,20 @@ public:
   }
 
   // Start a forceful close. Pending sends are discarded and SO_LINGER is
-  // disabled. Safe to call from any thread.
+  // disabled. Safe from any thread.
   [[nodiscard]] bool hangup() {
     return execute_or_post([p = self()] { return p->do_hangup(); });
   }
 
   // Shut down the local read side while keeping the write side available.
-  // Safe to call from any thread.
+  // Safe from any thread.
   [[nodiscard]] bool shutdown_read(execution exec = execution::blocking) {
     if (!open_) return false;
     return exec_lambda(exec, [p = self()] { return p->do_shutdown_read(); });
   }
 
   // Shut down the local write side while keeping the read side available.
-  // Safe to call from any thread.
+  // Safe from any thread.
   [[nodiscard]] bool shutdown_write(execution exec = execution::blocking) {
     if (!open_) return false;
     return exec_lambda(exec, [p = self()] { return p->do_shutdown_write(); });
@@ -359,7 +359,7 @@ public:
     recv_buf_.min_capacity =
         std::min(rbs, std::numeric_limits<std::size_t>::max() / 2);
     // Listening sockets have no writable data path.
-    if (listening_) write_open_ = false;
+    if (listening_) write_shut_ = true;
   }
 
   // Return a `shared_ptr<stream_conn>` to `*this`.
@@ -427,10 +427,10 @@ private:
   // closing forcefully after a graceful close has been initiated.
   relaxed_atomic_bool no_hangup_on_destruct_{false};
 
-  // Whether the read and write sides of the socket are open (assuming `open_`
-  // is true). Cleared by `do_shutdown_read` and `do_shutdown_write`
+  // Per-direction state, assuming `open_` is true. `read_open_` is cleared by
+  // `do_shutdown_read`; `write_shut_` is set by `do_shutdown_write`.
   relaxed_atomic_bool read_open_{true};
-  relaxed_atomic_bool write_open_{true};
+  relaxed_atomic_bool write_shut_{false};
 
   // Set to true by `register_with_loop` after successful epoll registration.
   // Before this point, `execute_or_post` defers inline execution even on the
@@ -695,10 +695,10 @@ private:
   // Shut down the local write side and discard any unsent outbound data.
   [[nodiscard]] bool do_shutdown_write() {
     assert(loop_.is_loop_thread());
-    if (!open_ || !write_open_) return false;
+    if (!open_ || write_shut_) return false;
     if (!sock().shutdown(SHUT_WR))
       return do_close_now(close_mode::forceful) && false;
-    write_open_ = false;
+    write_shut_ = true;
     send_queue_.clear();
     iov_sender_.clear();
     if (!loop_.enable_writes(*this, false)) return false;
@@ -709,7 +709,7 @@ private:
   [[nodiscard]] bool maybe_finish_after_side_close(
       close_mode mode = close_mode::graceful) {
     assert(loop_.is_loop_thread());
-    if (!read_open_ && !write_open_) return do_close_now(mode) && false;
+    if (!read_open_ && write_shut_) return do_close_now(mode) && false;
     return true;
   }
 
@@ -791,8 +791,7 @@ private:
   // Handle write failure by aborting queued sends and closing as needed.
   [[nodiscard]] bool handle_write_failure() {
     assert(loop_.is_loop_thread());
-    if (!write_open_->exchange(false, std::memory_order::relaxed))
-      return false;
+    if (write_shut_.exchange(true)) return false;
     send_queue_.clear();
     iov_sender_.clear();
     (void)loop_.enable_writes(*this, false);
@@ -972,7 +971,7 @@ private:
   requires(std::same_as<Bufs, std::string> && ...)
   [[nodiscard]] bool enqueue_send(Bufs&&... bufs) {
     assert(loop_.is_loop_thread());
-    if (!open_ || !write_open_) return false;
+    if (!open_ || write_shut_) return false;
 
     // Append each non-empty buffer to queue and sender; sender segments point
     // into the stored strings.
@@ -989,7 +988,7 @@ private:
   // rules as `enqueue_send`.
   [[nodiscard]] bool enqueue_send_vector(std::vector<std::string>&& bufs) {
     assert(loop_.is_loop_thread());
-    if (!open_ || !write_open_) return false;
+    if (!open_ || write_shut_) return false;
 
     bool appended{};
     for (auto& b : bufs) {
@@ -1006,7 +1005,7 @@ private:
   // as `enqueue_send`.
   [[nodiscard]] bool enqueue_send_any(any_strings&& strings) {
     assert(loop_.is_loop_thread());
-    if (!open_ || !write_open_) return false;
+    if (!open_ || write_shut_) return false;
 
     bool appended{};
     std::visit(
@@ -1156,10 +1155,10 @@ private:
   // if already closed, true if this call performed the close.
   [[nodiscard]] bool do_close_now(close_mode mode = close_mode::graceful) {
     assert(loop_.is_loop_thread());
-    if (!open_->exchange(false, std::memory_order::relaxed)) return false;
+    if (!open_.exchange(false)) return false;
 
     read_open_ = false;
-    write_open_ = false;
+    write_shut_ = true;
 
     (void)loop_.unregister_socket(sock());
     (void)sock().close(mode);
@@ -1331,7 +1330,7 @@ public:
   }
 
   // Start a graceful close. Drains pending sends first, then shuts down the
-  // socket. Safe to call from any thread. Once this is called, destructing
+  // socket. Safe from any thread. Once this is called, destructing
   // this object does not cause a forceful close.
   [[nodiscard]] bool close() {
     if (!conn_) return false;

@@ -35,10 +35,13 @@ CMakeLists.txt lives in `tests/` only; there is none at the project root. Build 
 - Run `./format_all.sh` after edits and before `git commit`. Edit/Write bypass IDE save hooks, so this is manual.
 - Code references in markdown: `[filename.ext:line](filename.ext#Lline)`.
 - Comment quoting: backticks for literal names (types, vars, fns, enums, templates, constants); single quotes for characters (`'@'`); double quotes for strings/filenames (`"config.json"`).
+- When mentioning a function in a comment, write `do_something`, not `do_something()`. The backticks quote the symbol itself, not a call. Only include parentheses when you specifically need to show the parameters used (e.g., `foo(nullptr)`).
 - Plain 7-bit ASCII only in comments and docs: `->` not the Unicode arrow; no em dashes, curly quotes, etc.
 - No trailing-underscore private methods. Prefix with `do_` instead: public `close()`, private `do_close()`.
 - Prefer uniform initialization: `int i{4};`, `: option_{option}`. Don't use `{}` for variables with a default constructor (clang-tidy flags it); do use it for `int`/`bool`/etc.
 - Use `std::chrono` literal suffixes (`1s`, `500ms`, `100us`) over explicit constructors. Library headers already pull in `using namespace std::chrono_literals;`; add it in test files as needed.
+- "Token" is reserved for things that are literally named tokens (e.g., `completion_token`). Don't use the word loosely in comments or docs to mean "handle," "callback," "view," "ticket," "marker," etc. For example, an `iou_recv_view` is not a token; a `posted_fn` returned by `stop_receiving` is a callback, not a token. Pick the precise word, or just describe what the thing is.
+- Lambda init-captures: keep the name the same as the bound variable. Prefer `[data = std::move(data)]` over `[d = std::move(data)]`, `[buf = std::move(buf)]` over `[b = std::move(buf)]`. The lambda body reads as if the variable kept its identity, which it morally did.
 
 ## Git Workflow
 

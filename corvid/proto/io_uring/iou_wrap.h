@@ -375,7 +375,8 @@ struct combined_endpoint {
 // `errno` value.
 class iou_res {
 public:
-  explicit iou_res(int res = 0) : res_(res) {}
+  iou_res() noexcept : res_(0) {}
+  explicit iou_res(int res) : res_(res) {}
   explicit iou_res(errno_code err) : res_(-*err) {}
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
@@ -383,15 +384,20 @@ public:
 
   [[nodiscard]] bool ok(int r = 0) const noexcept { return res_ >= r; }
   [[nodiscard]] int value() const noexcept { return res_; }
-  [[nodiscard]] errno_code err() const noexcept { return errno_code{-res_}; }
+  [[nodiscard]] errno_code err() const noexcept {
+    assert(!ok());
+    return errno_code{-res_};
+  }
   [[nodiscard]] size_t bytes() const noexcept {
     return static_cast<size_t>(res_);
   }
 
   // True if the result is a "soft" error that can be retried.
   [[nodiscard]] bool is_soft_error() const {
-    return err() == EC::time || err() == EC::intr || err() == EC::again ||
-           err() == EC::nomem || err() == EC::restart;
+    if (ok()) return false;
+    const auto e = err();
+    return e == EC::time || e == EC::intr || e == EC::again ||
+           e == EC::nomem || e == EC::restart;
   }
 
   void throw_if_error(const std::string& context, int r = 0) const {
@@ -701,7 +707,7 @@ public:
 
   explicit iou_recvmsg_out(void* buf, msghdr& msgh, iou_res res)
       : msgh_{&msgh}, res_{res} {
-    if (res.ok()) out_ = io_uring_recvmsg_validate(buf, res.value(), &msgh);
+    if (res) out_ = io_uring_recvmsg_validate(buf, res.value(), &msgh);
   }
 
   [[nodiscard]] operator bool() const noexcept { return ok(); }
@@ -913,9 +919,18 @@ public:
   // Commit the last `n` slots added via `add` to the kernel.
   void advance(int n) noexcept { ::io_uring_buf_ring_advance(buf_ring_, n); }
 
+  // Tell this `iou_buf_ring` that its associated `iou_ring` is about to be
+  // destroyed, so the destructor must not call `io_uring_free_buf_ring` on
+  // it. `io_uring_queue_exit` releases the kernel-side buf-ring registration
+  // as part of its teardown, so the explicit unregister is unnecessary in
+  // that case and would dereference a destroyed `iou_ring`. The user-space
+  // `add` and `advance` paths remain usable (they only touch the mmap'd
+  // ring), though by this point nothing should be calling them.
+  void skip_unregister() noexcept { ring_ = nullptr; }
+
 private:
   void do_free() noexcept {
-    if (buf_ring_)
+    if (ring_ && buf_ring_)
       ::io_uring_free_buf_ring(ring_->get_ptr(), buf_ring_, entries_, bgid_);
   }
 

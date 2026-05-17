@@ -202,8 +202,8 @@ void HttpServer_SharedLoop() {
   if (is_codex()) return;
 
   epoll_loop_runner runner;
-  auto server =
-      make_test_server(net_endpoint{ipv4_addr::loopback, 0}, runner.loop());
+  auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0},
+      runner.loop()->self());
   ASSERT_TRUE(server);
   EXPECT_TRUE(server->local_endpoint());
 }
@@ -427,7 +427,7 @@ void HttpServer_WriteTimeout() {
   timing_wheel_runner wheel;
 
   auto server = make_test_server(net_endpoint{ipv4_addr::loopback, 0},
-      loop.loop(), wheel.wheel(),
+      loop.loop()->self(), wheel.wheel(),
       /*request_timeout=*/30s,
       /*write_timeout=*/kWriteTimeout);
   ASSERT_TRUE(server);
@@ -441,7 +441,7 @@ void HttpServer_WriteTimeout() {
   // Once that buffer fills, TCP flow control prevents the server from
   // writing, stalling the drain and triggering the write timeout.
   notifiable<bool> closed{false};
-  auto client = stream_conn_ptr::connect(loop.loop(), ep,
+  auto client = stream_conn_ptr::connect(loop.loop()->self(), ep,
       {.on_drain =
               [sent = false](stream_conn& conn) mutable {
                 if (std::exchange(sent, true)) return true;

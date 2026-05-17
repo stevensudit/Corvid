@@ -87,6 +87,7 @@ public:
   using span_t = buffer_pool_base::span_t;
   using const_span_t = buffer_pool_base::const_span_t;
   using block_type = ::corvid::proto::iouring::block_type;
+  using pool_ptr_t = std::shared_ptr<buffer_pool_base>;
   static constexpr uint64_t seek_current = static_cast<uint64_t>(-1);
 
   iou_buffer() = default;
@@ -94,8 +95,7 @@ public:
 
   iou_buffer(iou_buffer&& o) noexcept
       : address_forwarder<iou_buffer>(std::move(o.as_base_move())),
-        pool_{std::exchange(o.pool_, nullptr)},
-        full_span_{std::exchange(o.full_span_, {})},
+        pool_{std::move(o.pool_)}, full_span_{std::exchange(o.full_span_, {})},
         payload_span_{std::exchange(o.payload_span_, {})},
         active_span_{std::exchange(o.active_span_, {})},
         buf_index_{std::exchange(o.buf_index_, {})},
@@ -110,7 +110,7 @@ public:
     if (this != &o) {
       reset();
       address_forwarder<iou_buffer>::operator=(std::move(o.as_base_move()));
-      pool_ = std::exchange(o.pool_, nullptr);
+      pool_ = std::move(o.pool_);
       full_span_ = std::exchange(o.full_span_, {});
       payload_span_ = std::exchange(o.payload_span_, {});
       active_span_ = std::exchange(o.active_span_, {});
@@ -137,15 +137,55 @@ public:
   }
   iou_buffer& operator=(const iou_buffer&) = delete;
 
+  // Create a non-owning, synthetic read buffer that views `data`. The buffer
+  // is pre-filled: `payload_span` covers all of `data` and `active_span` is
+  // an empty tail past the end. It is backed by a process-wide null pool,
+  // so destruction and `reset` do not free anything.
+  //
+  // The caller owns `data` and must keep it alive while the buffer is in use.
+  // Synthetic buffers are intended to be passed to consumers that read
+  // `payload_span` / `payload_view`; behavior of features that assume real
+  // pool backing (`pool_base_offset`, `promote_to_write`/`demote_to_read`,
+  // `prepare_recvmsg`/`prepare_sendmsg`, kernel I/O submission) is undefined
+  // or unsupported.
+  //
+  // The default synthetic pool is an aliasing `shared_ptr` over a function-
+  // local static, so no allocation ever occurs.
+  [[nodiscard]] static iou_buffer make_synthetic(span_t data,
+      pool_ptr_t pool = {}, iou_res res = {}) noexcept {
+    struct null_buffer_pool: public buffer_pool_base {
+      [[nodiscard]] std::byte* base() const noexcept override {
+        return nullptr;
+      }
+      [[nodiscard]] bool return_buffer(span_t, block_type) override {
+        return true;
+      }
+    };
+    static null_buffer_pool inst;
+    static const pool_ptr_t instance{std::shared_ptr<buffer_pool_base>{},
+        &inst};
+    if (!pool) pool = instance;
+    if (!data.data()) data = {};
+    iou_buffer buf;
+    buf.pool_ = std::move(pool);
+    buf.full_span_ = data;
+    buf.payload_span_ = data;
+    buf.active_span_ = {data.data() + data.size(), 0};
+    buf.blockrw_ = block_type::read;
+    if (data.size()) res = iou_res{static_cast<int>(data.size())};
+    buf.res_ = res;
+    return buf;
+  }
+
 #pragma endregion
 #pragma region Accessors
 
   // Check for validity when a `buffer` has been allocated from the pool.
-  [[nodiscard]] explicit operator bool() const noexcept { return pool_; }
+  [[nodiscard]] explicit operator bool() const noexcept { return pool_.get(); }
   [[nodiscard]] bool operator!() const noexcept { return !pool_; }
 
   // Access the result of the I/O operation; initially an error condition.
-  [[nodiscard]] iou_res result() const noexcept { return res_; }
+  [[nodiscard]] const iou_res& result() const noexcept { return res_; }
 
   // Access the CQE flags of the I/O operation; initially zero.
   [[nodiscard]] iou_cqe_flags cqe_flags() const noexcept { return cqe_flags_; }
@@ -178,6 +218,7 @@ public:
 
   // Byte offset from the pool base.
   [[nodiscard]] size_t pool_base_offset() const noexcept {
+    if (!pool_->base()) return 0;
     return full_span_.data() - pool_->base();
   }
 
@@ -241,8 +282,8 @@ public:
 #pragma region Payload
 
   // String view over `payload_span`.
-  [[nodiscard]] std::string_view payload_view() noexcept {
-    return {reinterpret_cast<char*>(payload_span_.data()),
+  [[nodiscard]] std::string_view payload_view() const noexcept {
+    return {reinterpret_cast<const char*>(payload_span_.data()),
         payload_span_.size()};
   }
 
@@ -250,6 +291,7 @@ public:
   // taken slice. Fully draining the payload resets the buffer to its
   // initial read state (empty payload, active = full block).
   [[nodiscard]] span_t consume_read(size_t n) noexcept {
+    if (n == 0) return {};
     assert(blockrw_ == block_type::read);
     const size_t take = std::min(n, payload_span_.size());
     span_t result{payload_span_.data(), take};
@@ -382,7 +424,7 @@ public:
     res_ = res;
     cqe_flags_ = cqe_flags;
     if (!has_more()) --pending_releases_;
-    if (!res.ok()) return *this;
+    if (!res) return *this;
 
     if (file_offset_ != seek_current) file_offset_ += res.bytes();
     if (blockrw_ == block_type::read) {
@@ -432,7 +474,7 @@ public:
     }
 
     // If we tried to parse but failed, or if the datagram was truncated, fail.
-    if (res.ok() && (!out || bitmask::has(msghdr_flags(), msg_flags::trunc))) {
+    if (res && (!out || bitmask::has(msghdr_flags(), msg_flags::trunc))) {
       res_ = iou_res{EC::msgsize};
       msgh_.msg_flags |= *msg_flags::trunc;
     }
@@ -535,11 +577,11 @@ public:
 private:
   friend class buffer_pool_base;
 
-  iou_buffer(buffer_pool_base& pool, span_t span, size_t buf_index,
+  iou_buffer(pool_ptr_t pool, span_t span, size_t buf_index,
       block_type blockrw) noexcept
-      : pool_{&pool}, full_span_{span}, payload_span_{span.data(), 0},
-        active_span_{span.data(), 0}, buf_index_{buf_index}, blockrw_{blockrw},
-        res_{-1} {
+      : pool_{std::move(pool)}, full_span_{span},
+        payload_span_{span.data(), 0}, active_span_{span.data(), 0},
+        buf_index_{buf_index}, blockrw_{blockrw}, res_{-1} {
     if (blockrw_ == block_type::read) active_span_ = full_span_;
   }
 
@@ -569,7 +611,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  buffer_pool_base* pool_{};
+  pool_ptr_t pool_;
   span_t full_span_;
   span_t payload_span_;
   span_t active_span_;
@@ -589,8 +631,8 @@ private:
 };
 
 [[nodiscard]] inline iou_buffer
-buffer_pool_base::make_buffer(buffer_pool_base& pool, span_t span,
-    size_t buf_index, block_type blockrw) noexcept {
+buffer_pool_base::make_buffer(const std::shared_ptr<buffer_pool_base>& pool,
+    span_t span, size_t buf_index, block_type blockrw) noexcept {
   return iou_buffer{pool, span, buf_index, blockrw};
 }
 

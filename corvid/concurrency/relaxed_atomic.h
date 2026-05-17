@@ -46,6 +46,9 @@ public:
   using underlying_t = std::atomic<value_type>;
   using is_relaxed_atomic = std::true_type;
 
+  static_assert(underlying_t::is_always_lock_free,
+      "relaxed_atomic<T> requires T to be lock-free");
+
   constexpr relaxed_atomic() noexcept(
       std::is_nothrow_default_constructible_v<T>)
   requires std::is_default_constructible_v<T>
@@ -58,8 +61,8 @@ public:
   relaxed_atomic& operator=(const relaxed_atomic&) = delete;
 
   // Conversion to `value_type` with relaxed semantics.
-  operator value_type(this auto& self) noexcept {
-    return self.value_.load(std::memory_order::relaxed);
+  operator value_type() const noexcept {
+    return value_.load(std::memory_order::relaxed);
   }
 
   // Assignment from `value_type` with relaxed semantics. Returns `value_type`,
@@ -84,6 +87,28 @@ public:
   // Access underlying atomic methods.
   [[nodiscard]] auto* operator->(this auto& self) noexcept {
     return &self.value_;
+  }
+
+  // Relaxed exchange. Sets to `desired`, and returns the previous value.
+  value_type exchange(value_type desired,
+      std::memory_order order = std::memory_order::relaxed) noexcept {
+    return value_.exchange(desired, order);
+  }
+
+  // Relaxed compare-and-exchange. Compares value with `expected`, sets to
+  // `desired` if equal, and returns a success flag. On failure, `expected` is
+  // updated with the current value. Which is a bit misleading, because it's no
+  // longer expected, it's unexpected.
+  bool compare_exchange(value_type& expected, value_type desired,
+      std::memory_order order = std::memory_order::relaxed) noexcept {
+    return value_.compare_exchange_strong(expected, desired, order);
+  }
+
+  // Weak relaxed compare-and-exchange. May fail spuriously, so should be
+  // retried in a loop. Otherwise the same semantics as `compare_exchange`.
+  bool try_compare_exchange(value_type& expected, value_type desired,
+      std::memory_order order = std::memory_order::relaxed) noexcept {
+    return value_.compare_exchange_weak(expected, desired, order);
   }
 
   // Increment and decrement with relaxed ordering (enabled when `T` supports

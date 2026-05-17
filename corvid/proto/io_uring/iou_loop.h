@@ -38,6 +38,7 @@
 #include "../../concurrency/notifiable.h"
 #include "../../concurrency/relaxed_atomic.h"
 #include "../../concurrency/owner_thread_dispatcher.h"
+#include "../../concurrency/timeout_sweeper.h"
 #include "../../containers/scope_exit.h"
 #include "../../containers/scoped_value.h"
 #include "../../containers/object_pool.h"
@@ -164,6 +165,12 @@ concept PostedInvocable =
 // force single-threading of ring access.
 using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
 
+// Callback for entries registered with the loop's `timeouts()` sweeper.
+// Sized for the typical idle-timeout capture: one `std::weak_ptr` on top of
+// the `fixed_function` invoke/manage overhead.
+using expiration_fn = fixed_function<32,
+    timeout_sweeper_base::time_point_t(timeout_sweeper_base::time_point_t)>;
+
 #pragma endregion
 #pragma region iou_loop
 
@@ -212,13 +219,15 @@ using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
 // in-flight operations, which must be less than or equal to the number of CQE
 // slots.
 //
-// TODO: Allow `iou_buf_pool` size to be configured at compile time.
-template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
+// `BUF_POOL_SIZE` and `BUF_POOL_MIN_BLOCK` are forwarded to `iou_buf_pool_of`.
+template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512,
+    size_t BUF_POOL_SIZE = 2UL * 1024 * 1024,
+    size_t BUF_POOL_MIN_BLOCK = 1UL * 1024>
 class iou_basic_loop: public owner_thread_dispatcher<posted_fn> {
 #pragma region Types
 public:
   // Buffer pools.
-  using buf_pool_t = iou_buf_pool;
+  using buf_pool_t = iou_buf_pool_of<BUF_POOL_SIZE, BUF_POOL_MIN_BLOCK>;
   using provided_buf_pool_t = iou_provided_buf_pool;
 
   // RAII handle for a buffer borrowed from the pool.
@@ -228,11 +237,16 @@ public:
   using span_t = buffer::span_t;
   using const_span_t = buffer::const_span_t;
 
-  // Timeouts.
+  // Timeouts. (io_uring-specific)
   using duration_t = std::chrono::nanoseconds;
   static constexpr duration_t default_run_once_timeout{10ms};
   static constexpr duration_t default_post_and_wait_poll_interval{100ms};
   static constexpr size_t default_max_pending_sqes{RING_SIZE / 4};
+
+  // Expiration. (`timeout_sweeper`-specific)
+  using sweeper_t = concurrency::timeout_sweeper<expiration_fn>;
+  using expiration_time_point_t = sweeper_t::time_point_t;
+  using expiration_duration_t = sweeper_t::duration_t;
 
   // Low-level callback invoked when an op completes. Moved to a slot borrowed
   // from the `completion_cb_pool_t`. This avoids the need for
@@ -307,8 +321,9 @@ public:
   // Throws `std::system_error` if the ring, wakeup `eventfd`, or
   // `buf_pool_t` registration fails.
   //
-  // `udp_provided_size` controls the optional provided-buffer pool slab of 2k
-  // buffers. Pass 0 to disable it; the default is one hugepage (2 MB).
+  // `udp_provided_size` controls the optional provided-buffer pool slab for
+  // UDP recvmsg. Pass 0 to disable it; the default is one hugepage (2 MB),
+  // split into `udp_provided_buf_size` buffers (defaulting to 2k).
   //
   // `tcp_provided_size` controls the optional provided-buffer pool slab for
   // multishot TCP reads. Pass 0 to disable it; the default is one hugepage (2
@@ -321,25 +336,27 @@ public:
           default_post_and_wait_poll_interval,
       size_t max_pending_sqes = default_max_pending_sqes,
       size_t udp_provided_size = buf_pool_t::hugepage_size,
+      block_size udp_provided_buf_size = block_size::kb002,
       size_t tcp_provided_size = buf_pool_t::hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004)
-      : owner_thread_dispatcher{32, 64},
+      : owner_thread_dispatcher{32, 64}, buf_pool_{buf_pool_t::create()},
+        udp_buf_pool_{provided_buf_pool_t::create(*this, udp_provided_size,
+            udp_provided_buf_size, 1)},
+        tcp_provided_buf_pool_{provided_buf_pool_t::create(*this,
+            tcp_provided_size, tcp_provided_buf_size, 2)},
         ring_{RING_SIZE,
             iou_setup_flags::setup_single_issuer |
                 iou_setup_flags::setup_defer_taskrun |
                 iou_setup_flags::setup_submit_all},
-        udp_buf_pool_{*this, udp_provided_size, block_size::kb002, 1},
-        tcp_provided_buf_pool_{*this, tcp_provided_size, tcp_provided_buf_size,
-            2},
         max_pending_sqes_{max_pending_sqes},
         post_and_wait_poll_interval_{post_and_wait_poll_interval} {
-    if (!buf_pool_.register_with(ring_))
+    if (!buf_pool_->register_with(ring_))
       throw std::system_error{errno, std::system_category(),
           "io_uring_register_buffers"};
-    if (!udp_buf_pool_.register_with(ring_))
+    if (!udp_buf_pool_->register_with(ring_))
       throw std::system_error{errno, std::system_category(),
           "io_uring_register_buf_ring (udp_buf_pool)"};
-    if (!tcp_provided_buf_pool_.register_with(ring_))
+    if (!tcp_provided_buf_pool_->register_with(ring_))
       throw std::system_error{errno, std::system_category(),
           "io_uring_register_buf_ring (tcp_provided_buf_pool)"};
   }
@@ -349,17 +366,37 @@ public:
   iou_basic_loop(iou_basic_loop&&) = delete;
   iou_basic_loop& operator=(iou_basic_loop&&) = delete;
 
+  // The provided buf pools are declared above `ring_` so their backing memory
+  // outlives `io_uring_queue_exit` (which `~iou_ring` calls to cancel
+  // in-flight ops). But their embedded `iou_buf_ring`s would otherwise call
+  // `io_uring_free_buf_ring` against a destroyed `ring_`. We disarm that here
+  // before any member starts destructing: `queue_exit` handles the
+  // kernel-side unregister anyway.
+  ~iou_basic_loop() {
+    // Disarm the provided pools before any other teardown: if a buffer
+    // outlives this loop (held by a conn the user kept past
+    // `~iou_basic_loop`), its destructor must not touch our `iou_ring` or our
+    // dispatcher base, both of which are about to vanish.
+    timeouts_.clear();
+    (void)completion_cb_pool_.shutdown();
+    udp_buf_pool_->skip_unregister();
+    tcp_provided_buf_pool_->skip_unregister();
+    udp_buf_pool_->disarm();
+    tcp_provided_buf_pool_->disarm();
+  }
+
   // Create a heap-allocated `iou_basic_loop` managed by `std::shared_ptr`.
   [[nodiscard]] static std::shared_ptr<iou_basic_loop>
   make(duration_t post_and_wait_poll_interval =
            default_post_and_wait_poll_interval,
       size_t max_pending_sqes = default_max_pending_sqes,
       size_t udp_provided_size = buf_pool_t::hugepage_size,
+      block_size udp_provided_buf_size = block_size::kb002,
       size_t tcp_provided_size = buf_pool_t::hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004) {
     return std::make_shared<iou_basic_loop>(allow::ctor,
         post_and_wait_poll_interval, max_pending_sqes, udp_provided_size,
-        tcp_provided_size, tcp_provided_buf_size);
+        udp_provided_buf_size, tcp_provided_size, tcp_provided_buf_size);
   }
 
   // Block until `run` is active. Returns false on timeout.
@@ -443,28 +480,30 @@ public:
   // Borrow a registered `buffer` from the pool for the purpose of reading
   // into it. Returns an invalid `buffer` if the pool is exhausted. Pass to
   // `submit_recv_buffer`.
-  [[nodiscard]] buffer borrow_read_buffer(
-      block_size sz = block_size::kb004) noexcept {
-    return buf_pool_.borrow_reader(sz);
+  [[nodiscard]] buffer borrow_read_buffer(block_size sz = block_size::kb004) {
+    return buf_pool_->borrow_reader(sz);
   }
 
   // Borrow a registered `buffer` from the pool for the purpose of writing to
   // it. Returns an invalid `buffer` if the pool is exhausted. Fill the
   // `buffer`'s payload, then pass it to `submit_send_buffer`.
-  [[nodiscard]] buffer borrow_write_buffer(
-      block_size sz = block_size::kb004) noexcept {
-    return buf_pool_.borrow_writer(sz);
+  [[nodiscard]] buffer borrow_write_buffer(block_size sz = block_size::kb004) {
+    return buf_pool_->borrow_writer(sz);
   }
 
   // Snapshot of number of free buffers in the TCP Provided Buffer pool.
   [[nodiscard]] size_t free_tcp_block_count() const noexcept {
-    return tcp_provided_buf_pool_.free_block_count();
+    return tcp_provided_buf_pool_->free_block_count();
   }
 
   // Snapshot of number of free buffers in the UDP Provided Buffer pool.
   [[nodiscard]] size_t free_udp_block_count() const noexcept {
-    return udp_buf_pool_.free_block_count();
+    return udp_buf_pool_->free_block_count();
   }
+
+  // Shared timeout sweeper. Conn classes (or any other client of the loop)
+  // may register expirations with it.
+  [[nodiscard]] auto& timeouts() noexcept { return timeouts_; }
 
 #pragma endregion
 #pragma region Completion tokens
@@ -647,7 +686,7 @@ public:
     if (!pending_sqe_count_) return true;
     pending_sqe_count_ = 0;
     auto res = ring_.submit();
-    return (res.ok() || res.is_soft_error());
+    return (res || res.is_soft_error());
   }
 
 #pragma region Nop
@@ -1226,6 +1265,7 @@ public:
     const auto [cbtoken, buf_ptr] =
         wrap_completion_fn_and_ptr(std::move(bufcb), std::move(buf));
     if (!cbtoken) return {};
+    assert(buf_ptr);
     if (!submit_read_buffer(file, *buf_ptr, cbtoken,
             slot_retention::automatic))
       return {};
@@ -1320,7 +1360,7 @@ public:
     auto cb =
         [this, bufcb = std::move(bufcb)](completion_id cbhandle, iou_res res,
             iou_cqe_flags cqe_flags) mutable -> slot_retention {
-      auto buf = tcp_provided_buf_pool_.borrow(res, cqe_flags);
+      auto buf = tcp_provided_buf_pool_->borrow(res, cqe_flags);
       return bufcb(cbhandle, buf);
     };
     const auto cbtoken = tokenize(std::move(cb));
@@ -1336,10 +1376,10 @@ public:
       completion_token cbtoken,
       slot_retention on_fail = slot_retention::retain, msg_flags flags = {}) {
     if (!cbtoken) return false;
-    if (!socket || !tcp_provided_buf_pool_)
+    if (!socket || !*tcp_provided_buf_pool_)
       return fail_and_maybe_release(on_fail, cbtoken);
     auto fn = [this, fd = *socket, flags, cbtoken, on_fail]() mutable {
-      const auto bgid = tcp_provided_buf_pool_.bgid();
+      const auto bgid = tcp_provided_buf_pool_->bgid();
       return do_submit(cbtoken, on_fail, [fd, flags, bgid](iou_sqe sqe) {
         sqe.prep_recv_multishot(fd, flags, bgid);
       });
@@ -1369,12 +1409,13 @@ public:
     auto cb =
         [this, bufcb = std::move(bufcb)](completion_id cbhandle, iou_res res,
             iou_cqe_flags cqe_flags, msghdr& msgh) mutable -> slot_retention {
-      auto buf = udp_buf_pool_.borrow(res, cqe_flags, &msgh);
+      auto buf = udp_buf_pool_->borrow(res, cqe_flags, &msgh);
       return bufcb(cbhandle, buf);
     };
     const auto [cbtoken, hdr_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(bound_msghdr{}));
     if (!cbtoken) return {};
+    assert(hdr_ptr);
     if (!submit_recvmsg_buffer_multi(socket, hdr_ptr->msg, cbtoken,
             slot_retention::automatic, flags))
       return {};
@@ -1390,9 +1431,9 @@ public:
       slot_retention on_fail = slot_retention::retain,
       msg_flags flags = msg_flags::trunc) {
     if (!cbtoken) return false;
-    if (!socket || !udp_buf_pool_)
+    if (!socket || !*udp_buf_pool_)
       return fail_and_maybe_release(on_fail, cbtoken);
-    const auto bgid = udp_buf_pool_.bgid();
+    const auto bgid = udp_buf_pool_->bgid();
     auto* msg_ptr = &msg;
     auto fn = [this, fd = *socket, flags, cbtoken, msg_ptr, bgid,
                   on_fail]() mutable {
@@ -1655,14 +1696,42 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  // Rings and buffers. (Order is important.)
-  buf_pool_t buf_pool_;
+  // Rings and buffers.
+  //
+  // The pools are held via `std::shared_ptr` because each `iou_buffer` they
+  // hand out also holds a `shared_ptr<buffer_pool_base>`. This keeps the
+  // pool's backing memory alive for as long as any buffer borrowed from it
+  // remains in scope, even if the buffer outlives the loop (e.g., a conn
+  // held by user code past `~iou_basic_loop`). Both ~`iou_basic_loop` and
+  // ~`buf_pool_` are safe in either order.
+  //
+  // Member declaration order is still chosen so reverse-order destruction
+  // matches kernel/ring teardown:
+  //
+  // 1. `completion_cb_pool_` destructs first (declared last) - drops all
+  //    callback captures, including `shared_ptr<iou_stream_conn>` refs and
+  //    any captured buffers.
+  // 2. `ring_` destructs next - `io_uring_queue_exit` cancels every in-flight
+  //    op, so the kernel stops writing to any buffer memory.
+  // 3. The provided buf pools' shared_ptrs drop. `~iou_basic_loop` already
+  //    called `skip_unregister` (so the `iou_buf_ring` destructor will not
+  //    touch the destroyed `ring_`) and `disarm` (so any later
+  //    `return_buffer` call from a buffer outliving the loop is a no-op
+  //    against the torn-down dispatcher). If no buffer still holds a ref,
+  //    each pool destructs here and `munmap`s its slab.
+  // 4. `buf_pool_`'s shared_ptr drops last. Same deferred-destruction
+  //    semantics; `iou_buf_pool` needs no disarm because its `return_buffer`
+  //    only touches internal state.
+  std::shared_ptr<buf_pool_t> buf_pool_;
+  std::shared_ptr<provided_buf_pool_t> udp_buf_pool_;
+  std::shared_ptr<provided_buf_pool_t> tcp_provided_buf_pool_;
   iou_ring ring_;
-  provided_buf_pool_t udp_buf_pool_;
-  provided_buf_pool_t tcp_provided_buf_pool_;
 
   // Completion callback pool, used to avoid `std::shared_ptr`.
   completion_cb_pool_t completion_cb_pool_;
+
+  // Shared timeout sweeper.
+  sweeper_t timeouts_;
 
   // Stop system.
   std::atomic_bool stop_;
@@ -1672,6 +1741,7 @@ private:
   size_t max_pending_sqes_{};
   size_t pending_sqe_count_{};
   const duration_t post_and_wait_poll_interval_;
+
 #pragma endregion
 };
 
@@ -1685,31 +1755,36 @@ using iou_loop = iou_basic_loop<>;
 //
 // Shutdown ordering: call `stop` (or destroy the runner) before destroying
 // any object that a pending `post` callback might reference.
-template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512>
+template<size_t RING_SIZE = 256, size_t SLOT_COUNT = 512,
+    size_t BUF_POOL_SIZE = 2UL * 1024 * 1024,
+    size_t BUF_POOL_MIN_BLOCK = 1UL * 1024>
 class iou_basic_loop_runner {
 public:
-  using loop_t = iou_basic_loop<RING_SIZE, SLOT_COUNT>;
+  using loop_t =
+      iou_basic_loop<RING_SIZE, SLOT_COUNT, BUF_POOL_SIZE, BUF_POOL_MIN_BLOCK>;
 
   explicit iou_basic_loop_runner(
       std::chrono::nanoseconds post_and_wait_poll_interval =
           loop_t::default_post_and_wait_poll_interval,
       size_t udp_provided_size = loop_t::buf_pool_t::hugepage_size,
+      block_size udp_provided_buf_size = block_size::kb002,
       size_t tcp_provided_size = loop_t::buf_pool_t::hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004)
-      : post_and_wait_poll_interval_{post_and_wait_poll_interval},
-        udp_provided_size_{udp_provided_size},
-        tcp_provided_size_{tcp_provided_size},
-        tcp_provided_buf_size_{tcp_provided_buf_size},
-        thread_{[this](const std::stop_token& st) { run(st); }} {
-    if (!started_.wait_for_value(std::chrono::milliseconds{1000}, true)) {
+      : state_{std::make_shared<runner_state>(post_and_wait_poll_interval,
+            udp_provided_size, udp_provided_buf_size, tcp_provided_size,
+            tcp_provided_buf_size)},
+        thread_{[state = state_](const std::stop_token& st) {
+          run(st, state);
+        }} {
+    if (!state_->started.wait_for_value(1000ms, true)) {
       thread_.request_stop();
       throw std::runtime_error{"iou_loop_runner failed to start"};
     }
     std::shared_ptr<loop_t> loop;
     std::exception_ptr startup_error;
-    if (std::scoped_lock lock{startup_mutex_}; true) {
-      loop = loop_;
-      startup_error = startup_error_;
+    if (std::scoped_lock lock{state_->startup_mutex}; true) {
+      loop = state_->loop;
+      startup_error = state_->startup_error;
     }
     if (startup_error) {
       thread_.join();
@@ -1731,6 +1806,8 @@ public:
     if (!thread_.joinable()) return;
     // If the last shared_ptr owner is a callback on the loop thread, the
     // runner's destructor may run on that thread. Detach to avoid self-join.
+    // The worker keeps its own ref to `runner_state`, so it remains safe to
+    // access after we release `state_` here.
     if (thread_.get_id() == std::this_thread::get_id())
       thread_.detach();
     else
@@ -1747,47 +1824,95 @@ public:
   void stop() { thread_.request_stop(); }
 
   [[nodiscard]] const std::shared_ptr<loop_t>& loop() noexcept {
-    return loop_;
+    return state_->loop;
   }
-  [[nodiscard]] operator loop_t&() noexcept { return *loop_; }
-  [[nodiscard]] loop_t* operator->() noexcept { return loop_.get(); }
+  [[nodiscard]] operator loop_t&() noexcept { return *state_->loop; }
+  [[nodiscard]] loop_t* operator->() noexcept { return state_->loop.get(); }
 
 private:
-  void run(const std::stop_token& st) {
+  // Thread-private state shared between the handle and the worker.
+  // Heap-allocated and held by `shared_ptr` so the worker outlives the
+  // handle when the handle is destroyed on the loop thread (a
+  // self-destroy path that would otherwise be a use-after-free).
+  struct runner_state {
+    explicit runner_state(std::chrono::nanoseconds ppi, size_t ups,
+        block_size ubs, size_t tps, block_size tbs)
+        : post_and_wait_poll_interval{ppi}, udp_provided_size{ups},
+          udp_provided_buf_size{ubs}, tcp_provided_size{tps},
+          tcp_provided_buf_size{tbs} {}
+
+    const std::chrono::nanoseconds post_and_wait_poll_interval;
+    const size_t udp_provided_size;
+    const block_size udp_provided_buf_size;
+    const size_t tcp_provided_size;
+    const block_size tcp_provided_buf_size;
+    std::mutex startup_mutex;
+    std::exception_ptr startup_error;
+    notifiable<std::atomic_bool> started{false};
+    std::shared_ptr<loop_t> loop;
+  };
+
+  static void
+  run(const std::stop_token& st, const std::shared_ptr<runner_state>& state) {
     jthread_stoppable_sleep::set_thread_name("iouring");
     try {
-      auto loop = loop_t::make(post_and_wait_poll_interval_,
-          loop_t::default_max_pending_sqes, udp_provided_size_,
-          tcp_provided_size_, tcp_provided_buf_size_);
-      if (std::scoped_lock lock{startup_mutex_}; true) loop_ = loop;
-      started_.notify(true);
-      // Hold a local shared_ptr so the loop outlives this function even if
-      // the runner's shared_ptr is dropped by a callback running on this
-      // thread.
-      std::stop_callback on_stop{st, [loop] { loop->stop(); }};
-      loop->run();
-      // Drop the runner's reference here so that, in the common case, the
-      // last shared_ptr release (and thus `~loop_t`) happens on this thread
-      // rather than on whichever thread later destroys the runner. The
-      // owner_thread_dispatcher base requires destruction on its owning
-      // thread.
-      if (std::scoped_lock lock{startup_mutex_}; true) loop_.reset();
+      auto loop = loop_t::make(state->post_and_wait_poll_interval,
+          loop_t::default_max_pending_sqes, state->udp_provided_size,
+          state->udp_provided_buf_size, state->tcp_provided_size,
+          state->tcp_provided_buf_size);
+      if (std::scoped_lock lock{state->startup_mutex}; true)
+        state->loop = loop;
+      state->started.notify(true);
+
+      // Inner scope so the `stop_callback` (and its `[loop]` capture) is
+      // released before the `use_count` check below. The lambda captures
+      // `loop` by value (not `state`) so it is self-contained and runs
+      // the same regardless of which thread triggers the stop.
+      {
+        std::stop_callback on_stop{st, [loop] { loop->stop(); }};
+        loop->run();
+      }
+
+      // Drop the local loop ref so `~loop_t` happens on this thread
+      // rather than on whichever thread later destroys `runner_state`.
+      // The `owner_thread_dispatcher` base requires destruction on the
+      // owning thread.
+      //
+      // Order:
+      //   1. Drop the local `loop` so `state->loop` should be the sole
+      //      owner. (Unlike `epoll_loop`, no separate shutdown step is
+      //      needed: `iou_stream_conn` holds a bare `iou_loop&` rather
+      //      than a `shared_ptr`, so there are no ownership cycles
+      //      from connections to break.)
+      //   2. Belt-and-suspenders: confirm no external `shared_ptr`
+      //      still holds the loop alive (e.g., a copy taken from
+      //      `loop()`). `use_count` is approximate (the standard
+      //      explicitly calls it "immediately stale" in MT contexts),
+      //      but adequate as a misuse detector. Retry briefly to
+      //      absorb in-flight releases. If it never settles, call
+      //      `std::terminate` rather than let `~loop_t` fire on a
+      //      non-owner thread (which would itself throw from inside a
+      //      destructor). `std::terminate` is used instead of `throw`
+      //      so the catch handler below cannot swallow it.
+      //   3. Drop `state->loop`, triggering `~loop_t` on this thread.
+      loop.reset();
+
+      for (size_t retry = 0; retry < 10 && state->loop.use_count() != 1;
+          ++retry)
+        std::this_thread::sleep_for(1s);
+      if (state->loop.use_count() != 1) std::terminate();
+
+      if (std::scoped_lock lock{state->startup_mutex}; true)
+        state->loop.reset();
     }
     catch (...) {
-      if (std::scoped_lock lock{startup_mutex_}; true)
-        startup_error_ = std::current_exception();
-      started_.notify(true);
+      if (std::scoped_lock lock{state->startup_mutex}; true)
+        state->startup_error = std::current_exception();
+      state->started.notify(true);
     }
   }
 
-  const std::chrono::nanoseconds post_and_wait_poll_interval_;
-  const size_t udp_provided_size_;
-  const size_t tcp_provided_size_;
-  const block_size tcp_provided_buf_size_;
-  std::mutex startup_mutex_;
-  std::exception_ptr startup_error_;
-  notifiable<std::atomic_bool> started_{false};
-  std::shared_ptr<loop_t> loop_;
+  std::shared_ptr<runner_state> state_;
   std::jthread thread_;
 };
 

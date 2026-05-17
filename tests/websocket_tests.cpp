@@ -1612,7 +1612,7 @@ void HttpServer_WebSocket_Keepalive() {
                   return tx.enable_keepalive(loop, wheel, 100ms, 100ms);
                 }));
       },
-      loop_runner.loop(), wheel_runner.wheel(),
+      loop_runner.loop()->self(), wheel_runner.wheel(),
       /*request_timeout=*/0s, /*write_timeout=*/0s);
   ASSERT_TRUE(server);
 
@@ -1704,7 +1704,7 @@ void HttpServer_WebSocket_KeepaliveTimeout() {
                   return tx.enable_keepalive(loop, wheel, 100ms, 100ms);
                 }));
       },
-      loop_runner.loop(), wheel_runner.wheel(),
+      loop_runner.loop()->self(), wheel_runner.wheel(),
       /*request_timeout=*/0s, /*write_timeout=*/0s);
   ASSERT_TRUE(server);
 

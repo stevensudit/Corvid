@@ -126,11 +126,22 @@ public:
     post_queues_[1].reserve(post_queue_reserve);
   }
 
+  // Force shutdown of resources. Idempotent.
+  [[nodiscard]] bool shutdown() {
+    if (current_loop_ != this) return false;
+    std::scoped_lock lock{post_mutex_};
+    if (!active_queue_.exchange(nullptr)) return false;
+    post_queues_[0].clear();
+    post_queues_[1].clear();
+    return true;
+  }
+
   ~owner_thread_dispatcher() noexcept(false) {
     if (current_loop_ != this)
       throw std::logic_error{
           "owner_thread_dispatcher destructed on a different thread than it "
           "was created on"};
+    (void)shutdown();
     current_loop_ = nullptr;
   }
 
@@ -154,7 +165,9 @@ public:
     bool was_empty{};
     // In the steady state, this does not require reallocation.
     if (std::scoped_lock lock{post_mutex_}; true) {
-      auto& active_queue = **active_queue_;
+      auto active_queue_ptr = *active_queue_;
+      if (!active_queue_ptr) return false;
+      auto& active_queue = *active_queue_ptr;
       was_empty = active_queue.empty();
       active_queue.emplace_back(std::move(cbpost));
     }
@@ -258,6 +271,7 @@ protected:
     post_queue_t* pending;
     if (std::scoped_lock lock{post_mutex_}; true) {
       pending = active_queue_;
+      if (!pending) return 0; // shutdown has been called.
       post_queue_t* other =
           (pending == &post_queues_[0]) ? &post_queues_[1] : &post_queues_[0];
       active_queue_ = other;

@@ -41,6 +41,9 @@ struct no_op_cb {
   constexpr void operator()(auto&) const noexcept {}
 };
 
+template<typename FN>
+concept IsNoOpCb = std::is_same_v<no_op_cb, std::remove_cvref_t<FN>>;
+
 #pragma region object_pool
 
 // Thread-safe fixed-capacity object pool with LIFO slot reuse.
@@ -264,8 +267,7 @@ public:
     [[nodiscard]] borrowed borrow(object_pool& pool) const {
       if (!is_valid()) return {};
       if constexpr (is_versioned_v)
-        if (std::scoped_lock lock{pool.mutex_}; true)
-          if (!pool.set_borrowed_if(ndx_, gen_)) return {};
+        if (!pool.set_borrowed_if(ndx_, gen_)) return {};
 
       return borrowed{&pool, &pool.slots_[ndx_]};
     }
@@ -333,22 +335,28 @@ public:
   object_pool& operator=(const object_pool&) = delete;
   object_pool& operator=(object_pool&&) = delete;
 
+  ~object_pool() noexcept(false) { (void)shutdown(); }
+
 #pragma endregion
 #pragma region Borrowing
 
-  // Borrows a slot; returns empty if the pool is full.
+  // Borrows a slot; returns empty if the pool is full or has been shut
+  // down.
   [[nodiscard]] borrowed borrow() {
     // We do not increment the generation until return, but we do set the
     // high bit to indicate that it's borrowed.
     T* item{};
-    if (std::scoped_lock lock{mutex_}; true) {
+    if (std::scoped_lock pool_lock{pool_mutex_}; true) {
       if (free_top_ == 0) return {};
       auto ndx = free_list_[--free_top_];
       item = &slots_[ndx];
       [[maybe_unused]] const bool impossible = !set_borrowed(ndx);
       assert(!impossible);
     }
-    borrow_cb_(*item);
+    if constexpr (!IsNoOpCb<BorrowCb>) {
+      std::scoped_lock func_lock{func_mutex_};
+      borrow_cb_(*item);
+    }
     return {this, item};
   }
 
@@ -377,12 +385,48 @@ public:
     if (!is_in_pool(item)) return {};
     if constexpr (is_versioned_v) {
       auto ndx = slot_from_item(item);
-      std::scoped_lock lock{mutex_};
       if (!set_borrowed(ndx)) return {};
     }
     return {this, std::exchange(item, nullptr)};
   }
   // NOLINTEND(performance-move-const-arg)
+
+  // Permanently shut down the pool. After the first call, `borrow` (and
+  // `token::borrow`) returns empty. Already-borrowed handles can still be
+  // reset/destroyed safely; `return_cb_` runs as usual on each return, but
+  // the freed slots are not offered for reuse. Each currently-free slot
+  // also has `return_cb_` invoked, for callers that use it to release
+  // resources. Idempotent; returns true on the first call, false on any
+  // subsequent call.
+  //
+  // The mechanism that rejects post-shutdown borrows differs by path. `borrow`
+  // is blocked because `free_top_` is cleared. `token::borrow`, in versioned
+  // mode, is blocked because `release_slot_gen` below increments the gen of
+  // every currently-borrowed slot, so any outstanding token's gen no longer
+  // matches; tokens for already-returned slots were stale anyway. In
+  // unversioned mode `token::borrow` has no staleness check at all (see the
+  // caveat on `token::borrow`), so shutdown adds no protection beyond what
+  // versioning itself does not provide.
+  //
+  // `return_cb` contract: `return_cb` is invoked outside the pool mutex by
+  // `return_slot` (to minimize lock hold time), and is also invoked under
+  // the lock by `shutdown` on every slot. A late `return_slot` racing with
+  // `shutdown` can therefore see `return_cb` fired twice on the same slot:
+  // once with the original value, once with the post-shutdown `T{}`. So
+  // `return_cb` must be idempotent and safe to invoke on a default-
+  // constructed `T`.
+  [[nodiscard]] bool shutdown() noexcept {
+    std::scoped_lock both_lock{pool_mutex_, func_mutex_};
+    if (shut_down_) return false;
+    shut_down_ = true;
+    for (size_t ndx = 0; ndx < N; ++ndx) {
+      (void)release_slot_gen(ndx);
+      if constexpr (!IsNoOpCb<ReturnCb>) return_cb_(slots_[ndx]);
+      slots_[ndx] = T{};
+    }
+    free_top_ = 0;
+    return true;
+  }
 
 #pragma endregion
 #pragma region Helpers
@@ -407,10 +451,13 @@ private:
   }
 
   void return_slot(index_t ndx) noexcept {
-    return_cb_(slots_[ndx]);
-    std::scoped_lock lock{mutex_};
-    [[maybe_unused]] const bool impossible = !release_slot_gen(ndx);
-    assert(!impossible);
+    if constexpr (!IsNoOpCb<ReturnCb>) {
+      std::scoped_lock func_lock{func_mutex_};
+      return_cb_(slots_[ndx]);
+    }
+    std::scoped_lock pool_lock{pool_mutex_};
+    if (shut_down_) return;
+    (void)release_slot_gen(ndx);
     free_list_[free_top_++] = ndx;
   }
 
@@ -485,7 +532,9 @@ private:
   alignas(T) std::array<T, N> slots_{};
   std::array<index_t, N> free_list_{};
   size_t free_top_{N};
-  mutable std::mutex mutex_;
+  bool shut_down_{};
+  mutable std::mutex pool_mutex_;
+  mutable std::mutex func_mutex_;
   [[no_unique_address]] gen_array_t gen_array_;
   [[no_unique_address]] BorrowCb borrow_cb_;
   [[no_unique_address]] ReturnCb return_cb_;

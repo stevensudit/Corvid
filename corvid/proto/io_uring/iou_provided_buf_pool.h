@@ -48,18 +48,20 @@ namespace corvid { inline namespace proto { namespace iouring {
 // `iou_provided_buf_pool` is non-copyable and non-movable. The pool must
 // outlive all `iou_buffer` objects it produces.
 class iou_provided_buf_pool: public buffer_pool_base {
-public:
-#pragma region Construction
+  enum class allow : bool { ctor };
 
+#pragma region Construction
+public:
   using posted_fn = fixed_function<default_fixed_function::capacity, bool()>;
   using dispatcher_t = owner_thread_dispatcher<posted_fn>;
 
-  // Construct a pool backed by a slab of `slab_size` bytes (must be a
+  // Public for `std::make_shared`; external callers must go through `create`.
+  // Constructs a pool backed by a slab of `slab_size` bytes (must be a
   // multiple of `hugepage_size`), split into slots of `buf_size` bytes each.
   // `buf_count` is derived as `slab_size / buf_size` and must be a power of
   // two. Pass `slab_size = 0` for a no-op pool. Throws `std::system_error`
   // on allocation failure.
-  iou_provided_buf_pool(dispatcher_t& dispatcher, size_t slab_size,
+  iou_provided_buf_pool(allow, dispatcher_t& dispatcher, size_t slab_size,
       block_size buf_size, uint16_t bgid = 0)
       : dispatcher_{&dispatcher}, bgid_{bgid} {
     if (slab_size == 0) return;
@@ -115,6 +117,14 @@ public:
   iou_provided_buf_pool& operator=(const iou_provided_buf_pool&) = delete;
   iou_provided_buf_pool(iou_provided_buf_pool&&) = delete;
   iou_provided_buf_pool& operator=(iou_provided_buf_pool&&) = delete;
+
+  // Construct a heap-allocated pool owned by `std::shared_ptr`.
+  [[nodiscard]] static std::shared_ptr<iou_provided_buf_pool>
+  create(dispatcher_t& dispatcher, size_t slab_size, block_size buf_size,
+      uint16_t bgid = 0) {
+    return std::make_shared<iou_provided_buf_pool>(allow::ctor, dispatcher,
+        slab_size, buf_size, bgid);
+  }
 
 #pragma endregion
 #pragma region Accessors
@@ -176,6 +186,28 @@ public:
     return true;
   }
 
+  // Tell the embedded `iou_buf_ring` that its associated `iou_ring` is about
+  // to be destroyed, so its destructor will skip the explicit unregister.
+  void skip_unregister() noexcept { buf_ring_.skip_unregister(); }
+
+  // Begin pool shutdown: subsequent `return_buffer` calls become no-ops
+  // instead of trying to re-add the returned slot to the (now-disabled) ring.
+  //
+  // Called from `~iou_basic_loop`. The supported lifetime model is that the
+  // user destroys the loop on the loop thread after stopping active workers,
+  // so buffer destruction either happens before teardown (normal path) or
+  // strictly after it (e.g., a `shared_ptr<iou_stream_conn>` held by user
+  // code past `~iou_basic_loop`, dropped later on any thread). The
+  // store-release here pairs with the load-acquire in `return_buffer` to
+  // give that late call a clean `nullptr` to observe.
+  //
+  // Not a guard against concurrent buffer use during teardown: returning
+  // buffers from another thread while `~iou_basic_loop` is running is
+  // outside the supported model.
+  void disarm() noexcept {
+    dispatcher_.store(nullptr, std::memory_order::release);
+  }
+
   // Borrow an `iou_buffer` from a multishot recv CQE.
   //
   // For a TCP `recv` (without a `msghdr`), `payload_span` covers
@@ -188,17 +220,24 @@ public:
   // address portion of the buffer, and `msghdr_flags` is set from the `msghdr`
   // flags field.
   //
-  // Destroying or resetting the returned buffer replenishes the slot.
+  // Destroying or resetting the returned buffer replenishes the slot. (In the
+  // case of an error, where no Provided Buffer is available, we return a
+  // synthetic buffer with an error result; this has no slot to replenish but
+  // allows the caller to handle the error without a separate code path.)
+  //
+  // The throw clang-tidy is worried about is impossible.
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] buffer borrow(iou_res res, iou_cqe_flags cqe_flags,
       msghdr* msgh = nullptr) noexcept {
     if (!base_ || !buf_ring_) return {};
-    if (!bitmask::has(cqe_flags, iou_cqe_flags::buffer)) return {};
+    if (!bitmask::has(cqe_flags, iou_cqe_flags::buffer))
+      return buffer::make_synthetic({}, {}, res);
     const size_t bid = get_buffer_id(cqe_flags);
     if (bid >= buf_count_) return {};
     span_t span{base_ + (bid * buf_size_), buf_size_};
 
     --free_count_;
-    auto buf = make_buffer(*this, span, bid, block_type::read);
+    auto buf = make_buffer(shared_from_this(), span, bid, block_type::read);
 
     buf.pending_releases() = 1;
     if (msgh)
@@ -218,15 +257,20 @@ public:
 private:
   [[nodiscard]] std::byte* base() const noexcept override { return base_; }
 
-  // Replenish the returned slot into the kernel ring.
+  // Replenish the returned slot into the kernel ring. After `disarm` (called
+  // from `~iou_basic_loop`), the pool is shutting down and the ring must not
+  // be touched; this becomes a no-op so a buffer outliving the loop can
+  // destruct cleanly. See `disarm` for the lifetime model.
   [[nodiscard]] bool return_buffer(span_t s, block_type /*blockrw*/) override {
     if (!s.data()) return false;
+    auto* d = dispatcher_.load(std::memory_order::acquire);
+    if (!d) return false;
     assert(buf_ring_ && buf_size_ > 0);
     const size_t bid = (s.data() - base_) / buf_size_;
     assert(bid < buf_count_);
     const int mask = static_cast<int>(buf_count_) - 1;
 
-    (void)dispatcher_->execute_or_post_with_retry([this, s, bid, mask] {
+    (void)d->execute_or_post_with_retry([this, s, bid, mask] {
       buf_ring_.add(s.data(), buf_size_, static_cast<unsigned short>(bid),
           mask, 0);
       buf_ring_.advance(1);
@@ -239,7 +283,7 @@ private:
 #pragma endregion
 #pragma region Data members
 private:
-  dispatcher_t* dispatcher_;
+  std::atomic<dispatcher_t*> dispatcher_;
   std::byte* base_{};
   size_t buf_size_{};
   size_t buf_count_{};
