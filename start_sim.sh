@@ -25,11 +25,11 @@ BUILD_DIR="tests/build_sim"
 echo "--- Configuring C++ build ---"
 cmake -S tests -B "$BUILD_DIR" -G Ninja \
     -DUSE_LIBSTDCPP=OFF \
-    -DTEST_NAME=corvid_sim.cpp \
+    -DTEST_NAME=notest_corvid_sim.cpp \
     --log-level=WARNING
 
-echo "--- Building corvid_sim ---"
-cmake --build "$BUILD_DIR" --config Release --target corvid_sim
+echo "--- Building notest_corvid_sim ---"
+cmake --build "$BUILD_DIR" --config Release --target notest_corvid_sim
 
 # Frontend build ---------------------------------------------------------
 
@@ -43,6 +43,6 @@ npm --prefix "$WEB_DIR" run build
 
 # Launch -----------------------------------------------------------------
 
-BINARY="$BUILD_DIR/release_bin/corvid_sim"
+BINARY="$BUILD_DIR/release_bin/notest_corvid_sim"
 echo "--- Starting server ---"
 exec "$BINARY"

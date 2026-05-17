@@ -38,9 +38,52 @@ else()
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -L/usr/lib/llvm-22/lib -lc++ -lc++abi")
 endif()
 
+# Use ccache as a compiler launcher when available so that cleanbuild's
+# `rm -rf tests/build/` doesn't trigger a full Catch2 (and Corvid) recompile
+# every run. Cache hits return cached `.o` files in milliseconds.
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+    message(STATUS "ccache enabled: ${CCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+endif()
+
 # External dependencies: requires apt install liburing-dev pkg-config
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBURING REQUIRED liburing)
+
+# Catch2 v3. Under libstdc++, prefer a system install (apt install catch2),
+# since Ubuntu's package is built against libstdc++ and links cleanly. Under
+# libc++ we must build Catch2 from source against the same standard library
+# (mixing the two produces unresolved std::__cxx11 / std::__1 symbols at link
+# time), so we always go through FetchContent there.
+set(_have_catch2 FALSE)
+if(USE_LIBSTDCPP)
+    find_package(Catch2 3 QUIET)
+    if(Catch2_FOUND)
+        message(STATUS "Using system Catch2 ${Catch2_VERSION} (libstdc++)")
+        set(_have_catch2 TRUE)
+    endif()
+endif()
+if(NOT _have_catch2)
+    # Persist the FetchContent cache outside the build dir so cleanbuild.sh's
+    # `rm -rf tests/build/` doesn't trigger a full Catch2 rebuild every run.
+    # Skip update checks once the source is populated for faster reconfigures.
+    set(FETCHCONTENT_BASE_DIR "${CMAKE_CURRENT_LIST_DIR}/.fetchcontent"
+        CACHE PATH "FetchContent cache (persisted across builds)")
+    set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
+    message(STATUS "Fetching Catch2 v3.6.0 via FetchContent (cache: ${FETCHCONTENT_BASE_DIR})")
+    include(FetchContent)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG        v3.6.0
+    )
+    FetchContent_MakeAvailable(Catch2)
+endif()
+
+# Test source files that use Catch2 instead of minitest. As more files migrate,
+# add them here.
+set(CATCH2_TESTS find_opt_test.cpp)
 
 if(USE_CLANG_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy clang-tidy-22)
@@ -74,10 +117,15 @@ endif()
 # Loop through each source file and create a separate executable
 foreach(SOURCE_FILE ${SOURCES})
     # Get the base name (e.g., test1 from test1.cpp)
+    get_filename_component(SOURCE_BASENAME ${SOURCE_FILE} NAME)
     get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
 
-    # Add executable for each source file
     add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
+
+    list(FIND CATCH2_TESTS "${SOURCE_BASENAME}" _is_catch_test)
+    if(NOT _is_catch_test EQUAL -1)
+        target_link_libraries(${EXECUTABLE_NAME} PRIVATE Catch2::Catch2)
+    endif()
 
     if(${EXECUTABLE_NAME} MATCHES "^iou_")
         target_include_directories(${EXECUTABLE_NAME} PRIVATE ${LIBURING_INCLUDE_DIRS})

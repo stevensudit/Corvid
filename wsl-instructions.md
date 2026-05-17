@@ -19,6 +19,7 @@ sudo apt install -y clang-22 lldb-22 lld-22 clang-format-22 clang-tidy-22 cmake 
 sudo apt-get install -y libc++-22-dev libc++abi-22-dev liburing-dev pkg-config
 sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-22 100 \
 --slave /usr/bin/clang++ clang++ /usr/bin/clang++-22
+sudo apt install -y catch22 ccache
 ```
 8. In the repo, run `code .`, which brings up VSCode remotely.
 9. Run `./cleanbuild.sh tidy` to build the tests with clang-tidy enabled. You can specify `libstdcpp` or `libcxx` as the first argument to choose the standard library.

@@ -105,12 +105,17 @@ else
   fi
 fi
 
-# Loop through each file in the release directory
+# Loop through each file in the release directory. Sources prefixed with
+# `notest_` (e.g. `notest_corvid_sim.cpp`) are built like tests but skipped
+# here -- typically long-lived servers or demos that should only run when
+# invoked directly (F5).
 for file in "$buildDir"/*; do
   # Check if the file is an executable and a regular file (not a directory or symlink)
   if [[ -x "$file" && -f "$file" && "$file" != *"CMakeCXXCompilerId"* ]]; then
+    base="${file##*/}"
+    if [[ "$base" == notest_* ]]; then continue; fi
     echo "$file..."
-    "$file" -testonly
+    "$file"
     echo "."
   fi
 done
