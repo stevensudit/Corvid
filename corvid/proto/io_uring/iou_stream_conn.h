@@ -1022,6 +1022,7 @@ private:
   [[nodiscard]] slot_retention
   on_send_complete(completion_id cbhandle, buffer& buf) {
     assert(loop().is_loop_thread());
+    write_idle_.postpone();
     send_token_ = {};
     if (closed_) return buf.pending_releases_decision();
 
