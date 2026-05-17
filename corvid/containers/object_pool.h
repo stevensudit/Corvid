@@ -394,6 +394,15 @@ public:
   // also has `return_cb_` invoked, for callers that use it to release
   // resources. Idempotent; returns true on the first call, false on any
   // subsequent call.
+  //
+  // The mechanism that rejects post-shutdown borrows differs by path. `borrow`
+  // is blocked because `free_top_` is cleared. `token::borrow`, in versioned
+  // mode, is blocked because `release_slot_gen` below increments the gen of
+  // every currently-borrowed slot, so any outstanding token's gen no longer
+  // matches; tokens for already-returned slots were stale anyway. In
+  // unversioned mode `token::borrow` has no staleness check at all (see the
+  // caveat on `token::borrow`), so shutdown adds no protection beyond what
+  // versioning itself does not provide.
   [[nodiscard]] bool shutdown() noexcept {
     std::scoped_lock lock{mutex_};
     if (shut_down_) return false;
