@@ -1222,9 +1222,12 @@ void IouLoop_RecvMsgBufferMultiStress() {
     const auto connect_ok = send_sock.connect(recv_addr);
     EXPECT_TRUE(connect_ok && *connect_ok);
 
-    // `loop` must be declared before `held_bufs` so that `held_bufs` is
-    // destroyed first (releasing its buffers back to the pool before the pool
-    // itself is freed when `loop` is destroyed).
+    // `loop` is declared after the captured locals so that `~loop_runner`
+    // joins the loop thread before any of them die. `held_bufs` may outlive
+    // the loop here: each buffer holds a `shared_ptr<buffer_pool_base>`, so
+    // the pool stays alive until the last buffer is released. Buffer
+    // destructors after `disarm` are no-ops on the return path; see the
+    // doc on `iou_provided_buf_pool::disarm`.
     // Loop-thread-only state (no synchronization needed between callbacks).
     int overall{};
     int a_count{};
