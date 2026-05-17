@@ -194,15 +194,16 @@ concept iou_stream_conn_plugin = requires(P p, iou_recv_view&& view,
 // construction and supplies the user-customizable surface (`on_data`,
 // `on_drain`, `on_close`, `make_child_plugin`).
 //
-// The factories return a raw `iou_stream_conn*` (or `nullptr` on failure).
-// The use of a dumb pointer is deliberate: the conn is self-sustaining (see
-// Ownership, below), so the default expectation is "use the pointer
-// immediately, then forget it."
+// The factories return a `std::weak_ptr<iou_stream_conn>` (empty on failure).
+// The conn is self-sustaining (see Ownership, below), so the default
+// expectation is "lock once if you need to drive it, then let the in-flight
+// callbacks carry it from there."
 //
-// Callers who need to hold the conn  should promote the raw pointer to a
-// `std::shared_ptr` via `self`. Callers who want to check later whether the
-// conn is still alive without keeping it alive themselves can demote that
-// strong pointer to a `std::weak_ptr` and `lock` before each use.
+// Callers who need to hold the conn strongly can `lock()` the weak_ptr to a
+// `std::shared_ptr`, or call `self()` on the conn to get a fresh strong ref.
+// Callers who only want to observe later without keeping it alive can keep
+// the weak_ptr and `lock` before each use; an expired weak_ptr means the
+// conn has already torn down.
 //
 // Supports three creation paths:
 //
@@ -235,11 +236,15 @@ concept iou_stream_conn_plugin = requires(P p, iou_recv_view&& view,
 // the conn cannot destruct as long as any I/O is pending - even with no
 // external `shared_ptr`.
 //
-// The factories return a raw pointer rather than a handle or a `shared_ptr`
-// precisely so that callers do not implicitly extend the conn's lifetime; the
-// factory's own `shared_ptr` is moved into the initial `start_reading` post
-// and then released, and the `recv` (or `accept`) callback's captured `self`
-// carries the conn from there.
+// The factories return a `std::weak_ptr` rather than a `shared_ptr` precisely
+// so that callers do not implicitly extend the conn's lifetime; the factory's
+// own `shared_ptr` is moved into the initial `start_reading` post and then
+// released, and the `recv` (or `accept`) callback's captured `self` carries
+// the conn from there. The weak_ptr form (instead of a raw pointer) closes
+// the window where async `start_reading` failure could leave a caller holding
+// a dangling pointer: a failed launch drops the captured `shared_ptr`, the
+// conn destructs, and the caller's weak_ptr observes the expiration on the
+// next `lock`.
 //
 // Termination comes from one of:
 //   - any holder calling `close` or `hangup`;
