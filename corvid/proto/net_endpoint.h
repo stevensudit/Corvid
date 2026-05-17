@@ -275,33 +275,20 @@ public:
 
   // Comparison operators.
   // Only endpoints with the same family can be equal: there is no special
-  // handling for IPv4-Mapped IPv6 Addresses.
+  // handling for IPv4-Mapped IPv6 Addresses. Comparison is defined over the
+  // raw `as_view` bytes to match `std::hash<net_endpoint>`. For IPv6, this
+  // means endpoints differing only in `sin6_scope_id` or `sin6_flowinfo`
+  // compare unequal - link-local addresses with different scopes are
+  // distinct destinations, so this is correct.
 
   [[nodiscard]] friend constexpr bool
   operator==(const net_endpoint& lhs, const net_endpoint& rhs) noexcept {
-    return (lhs <=> rhs) == 0;
+    return lhs.as_view() == rhs.as_view();
   }
 
   [[nodiscard]] friend constexpr std::strong_ordering
   operator<=>(const net_endpoint& lhs, const net_endpoint& rhs) noexcept {
-    if (const auto by_family = lhs.family() <=> rhs.family(); by_family != 0)
-      return by_family;
-
-    if (lhs.empty()) return std::strong_ordering::equal;
-    // NOLINTBEGIN(bugprone-unchecked-optional-access)
-    if (lhs.is_v4()) {
-      if (const auto by_addr = lhs.v4()->to_uint32() <=> rhs.v4()->to_uint32();
-          by_addr != 0)
-        return by_addr;
-    } else if (lhs.is_v6()) {
-      if (const auto by_addr = lhs.v6()->words() <=> rhs.v6()->words();
-          by_addr != 0)
-        return by_addr;
-    } else if (lhs.is_uds()) {
-      return lhs.do_raw_uds_path() <=> rhs.do_raw_uds_path();
-    }
-    // NOLINTEND(bugprone-unchecked-optional-access)
-    return lhs.port() <=> rhs.port();
+    return lhs.as_view() <=> rhs.as_view();
   }
 
 #pragma endregion
@@ -383,7 +370,7 @@ public:
   }
 
   // Return a `string_view` of the raw bytes of the sockaddr struct.
-  [[nodiscard]] constexpr auto as_view() const noexcept {
+  [[nodiscard]] constexpr std::string_view as_view() const noexcept {
     return std::string_view{reinterpret_cast<const char*>(as_sockaddr_ptr()),
         sockaddr_size()};
   }
