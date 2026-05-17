@@ -1415,6 +1415,7 @@ public:
     const auto [cbtoken, hdr_ptr] =
         wrap_completion_fn_and_ptr(std::move(cb), std::move(bound_msghdr{}));
     if (!cbtoken) return {};
+    assert(hdr_ptr);
     if (!submit_recvmsg_buffer_multi(socket, hdr_ptr->msg, cbtoken,
             slot_retention::automatic, flags))
       return {};
@@ -1769,21 +1770,21 @@ public:
       block_size udp_provided_buf_size = block_size::kb002,
       size_t tcp_provided_size = loop_t::buf_pool_t::hugepage_size,
       block_size tcp_provided_buf_size = block_size::kb004)
-      : post_and_wait_poll_interval_{post_and_wait_poll_interval},
-        udp_provided_size_{udp_provided_size},
-        udp_provided_buf_size_{udp_provided_buf_size},
-        tcp_provided_size_{tcp_provided_size},
-        tcp_provided_buf_size_{tcp_provided_buf_size},
-        thread_{[this](const std::stop_token& st) { run(st); }} {
-    if (!started_.wait_for_value(std::chrono::milliseconds{1000}, true)) {
+      : state_{std::make_shared<runner_state>(post_and_wait_poll_interval,
+            udp_provided_size, udp_provided_buf_size, tcp_provided_size,
+            tcp_provided_buf_size)},
+        thread_{[state = state_](const std::stop_token& st) {
+          run(st, state);
+        }} {
+    if (!state_->started.wait_for_value(1000ms, true)) {
       thread_.request_stop();
       throw std::runtime_error{"iou_loop_runner failed to start"};
     }
     std::shared_ptr<loop_t> loop;
     std::exception_ptr startup_error;
-    if (std::scoped_lock lock{startup_mutex_}; true) {
-      loop = loop_;
-      startup_error = startup_error_;
+    if (std::scoped_lock lock{state_->startup_mutex}; true) {
+      loop = state_->loop;
+      startup_error = state_->startup_error;
     }
     if (startup_error) {
       thread_.join();
@@ -1805,6 +1806,8 @@ public:
     if (!thread_.joinable()) return;
     // If the last shared_ptr owner is a callback on the loop thread, the
     // runner's destructor may run on that thread. Detach to avoid self-join.
+    // The worker keeps its own ref to `runner_state`, so it remains safe to
+    // access after we release `state_` here.
     if (thread_.get_id() == std::this_thread::get_id())
       thread_.detach();
     else
@@ -1821,48 +1824,95 @@ public:
   void stop() { thread_.request_stop(); }
 
   [[nodiscard]] const std::shared_ptr<loop_t>& loop() noexcept {
-    return loop_;
+    return state_->loop;
   }
-  [[nodiscard]] operator loop_t&() noexcept { return *loop_; }
-  [[nodiscard]] loop_t* operator->() noexcept { return loop_.get(); }
+  [[nodiscard]] operator loop_t&() noexcept { return *state_->loop; }
+  [[nodiscard]] loop_t* operator->() noexcept { return state_->loop.get(); }
 
 private:
-  void run(const std::stop_token& st) {
+  // Thread-private state shared between the handle and the worker.
+  // Heap-allocated and held by `shared_ptr` so the worker outlives the
+  // handle when the handle is destroyed on the loop thread (a
+  // self-destroy path that would otherwise be a use-after-free).
+  struct runner_state {
+    explicit runner_state(std::chrono::nanoseconds ppi, size_t ups,
+        block_size ubs, size_t tps, block_size tbs)
+        : post_and_wait_poll_interval{ppi}, udp_provided_size{ups},
+          udp_provided_buf_size{ubs}, tcp_provided_size{tps},
+          tcp_provided_buf_size{tbs} {}
+
+    const std::chrono::nanoseconds post_and_wait_poll_interval;
+    const size_t udp_provided_size;
+    const block_size udp_provided_buf_size;
+    const size_t tcp_provided_size;
+    const block_size tcp_provided_buf_size;
+    std::mutex startup_mutex;
+    std::exception_ptr startup_error;
+    notifiable<std::atomic_bool> started{false};
+    std::shared_ptr<loop_t> loop;
+  };
+
+  static void
+  run(const std::stop_token& st, const std::shared_ptr<runner_state>& state) {
     jthread_stoppable_sleep::set_thread_name("iouring");
     try {
-      auto loop = loop_t::make(post_and_wait_poll_interval_,
-          loop_t::default_max_pending_sqes, udp_provided_size_,
-          udp_provided_buf_size_, tcp_provided_size_, tcp_provided_buf_size_);
-      if (std::scoped_lock lock{startup_mutex_}; true) loop_ = loop;
-      started_.notify(true);
-      // Hold a local shared_ptr so the loop outlives this function even if
-      // the runner's shared_ptr is dropped by a callback running on this
-      // thread.
-      std::stop_callback on_stop{st, [loop] { loop->stop(); }};
-      loop->run();
-      // Drop the runner's reference here so that, in the common case, the
-      // last shared_ptr release (and thus `~loop_t`) happens on this thread
-      // rather than on whichever thread later destroys the runner. The
-      // owner_thread_dispatcher base requires destruction on its owning
-      // thread.
-      if (std::scoped_lock lock{startup_mutex_}; true) loop_.reset();
+      auto loop = loop_t::make(state->post_and_wait_poll_interval,
+          loop_t::default_max_pending_sqes, state->udp_provided_size,
+          state->udp_provided_buf_size, state->tcp_provided_size,
+          state->tcp_provided_buf_size);
+      if (std::scoped_lock lock{state->startup_mutex}; true)
+        state->loop = loop;
+      state->started.notify(true);
+
+      // Inner scope so the `stop_callback` (and its `[loop]` capture) is
+      // released before the `use_count` check below. The lambda captures
+      // `loop` by value (not `state`) so it is self-contained and runs
+      // the same regardless of which thread triggers the stop.
+      {
+        std::stop_callback on_stop{st, [loop] { loop->stop(); }};
+        loop->run();
+      }
+
+      // Drop the local loop ref so `~loop_t` happens on this thread
+      // rather than on whichever thread later destroys `runner_state`.
+      // The `owner_thread_dispatcher` base requires destruction on the
+      // owning thread.
+      //
+      // Order:
+      //   1. Drop the local `loop` so `state->loop` should be the sole
+      //      owner. (Unlike `epoll_loop`, no separate shutdown step is
+      //      needed: `iou_stream_conn` holds a bare `iou_loop&` rather
+      //      than a `shared_ptr`, so there are no ownership cycles
+      //      from connections to break.)
+      //   2. Belt-and-suspenders: confirm no external `shared_ptr`
+      //      still holds the loop alive (e.g., a copy taken from
+      //      `loop()`). `use_count` is approximate (the standard
+      //      explicitly calls it "immediately stale" in MT contexts),
+      //      but adequate as a misuse detector. Retry briefly to
+      //      absorb in-flight releases. If it never settles, call
+      //      `std::terminate` rather than let `~loop_t` fire on a
+      //      non-owner thread (which would itself throw from inside a
+      //      destructor). `std::terminate` is used instead of `throw`
+      //      so the catch handler below cannot swallow it.
+      //   3. Drop `state->loop`, triggering `~loop_t` on this thread.
+      loop.reset();
+
+      for (size_t retry = 0; retry < 10 && state->loop.use_count() != 1;
+          ++retry)
+        std::this_thread::sleep_for(1s);
+      if (state->loop.use_count() != 1) std::terminate();
+
+      if (std::scoped_lock lock{state->startup_mutex}; true)
+        state->loop.reset();
     }
     catch (...) {
-      if (std::scoped_lock lock{startup_mutex_}; true)
-        startup_error_ = std::current_exception();
-      started_.notify(true);
+      if (std::scoped_lock lock{state->startup_mutex}; true)
+        state->startup_error = std::current_exception();
+      state->started.notify(true);
     }
   }
 
-  const std::chrono::nanoseconds post_and_wait_poll_interval_;
-  const size_t udp_provided_size_;
-  const block_size udp_provided_buf_size_;
-  const size_t tcp_provided_size_;
-  const block_size tcp_provided_buf_size_;
-  std::mutex startup_mutex_;
-  std::exception_ptr startup_error_;
-  notifiable<std::atomic_bool> started_{false};
-  std::shared_ptr<loop_t> loop_;
+  std::shared_ptr<runner_state> state_;
   std::jthread thread_;
 };
 

@@ -116,6 +116,36 @@ void IouLoop_StopFromThread() {
 }
 #pragma endregion
 
+#pragma region SelfDestroyOnLoopThread
+// A loop-thread callback that holds the last `unique_ptr<iou_loop_runner>`
+// destroys the runner from inside the worker thread. The destructor detaches
+// the jthread and returns; the worker then unwinds out of `loop_t::run`
+// and finishes its cleanup. The worker keeps its own ref to `runner_state`,
+// so the post-`run` cleanup must not touch any state belonging to the
+// already-freed handle. Sanitizer-enabled builds catch a regression
+// deterministically; in plain builds the test mainly proves the dtor
+// returns cleanly.
+void IouLoop_SelfDestroyOnLoopThread() {
+  auto runner = std::make_unique<iou_loop_runner>();
+  // Use a reference (no `shared_ptr` copy) so the worker's `use_count`
+  // check sees `state->loop` as the sole owner during cleanup.
+  iou_loop& loop = *runner;
+
+  notifiable<std::atomic_bool> done{false};
+  ASSERT_TRUE(loop.post([r = std::move(runner), &done]() mutable {
+    r.reset();
+    done.notify(true);
+    return true;
+  }));
+
+  ASSERT_TRUE(done.wait_for_value(1s, true));
+  // Detached worker still needs to finish its cleanup; give it a brief
+  // settle so any access to the freed handle would be observed before
+  // the test scope exits.
+  std::this_thread::sleep_for(200ms);
+}
+#pragma endregion
+
 #pragma region PostFromThread
 void IouLoop_PostFromThread() {
   // Post a callback from an external thread; verify the loop executes it.
@@ -1551,19 +1581,20 @@ void IouLoop_SubmitTimeoutUpdate() {
 
 // NOLINTEND(readability-function-cognitive-complexity)
 MAKE_TEST_LIST(IouLoop_NopCompletion, IouLoop_MultipleNops,
-    IouLoop_StopFromThread, IouLoop_PostFromThread, IouLoop_PostAndWait,
-    IouLoop_RecvSend, IouLoop_RecvWriteFixed, IouLoop_SendBuffer,
-    IouLoop_IsLoopThread, IouLoop_ExecuteOrPost, IouLoop_NopTokenVariant,
-    IouLoop_TokenIsReleased, IouLoop_SubmitClose, IouLoop_SubmitTimeout,
-    IouLoop_SubmitTimeoutMultishot, IouLoop_SubmitCancelFile,
-    IouLoop_SubmitCancelToken, IouLoop_AcceptConnect, IouLoop_RecvSendMsg,
-    IouLoop_BorrowBufferSizes, IouLoop_SlotRetentionRetain, IouLoop_SubmitPoll,
-    IouLoop_SubmitShutdown, IouLoop_SubmitTimeoutRemove,
-    IouLoop_SubmitTimeoutRemoveExplicit, IouLoop_SubmitCancelTokenAutoRelease,
-    IouLoop_SubmitTimeoutUpdate, IouLoop_RecvBufferMulti,
-    IouLoop_RecvMsgBufferMulti, IouLoop_RecvMsgBufferMultiTruncated,
-    IouLoop_RecvMsgBufferMultiStress, IouWrap_TimespecDurationRoundTrip,
-    IouWrap_TimespecTimePointRoundTrip, IouWrap_TimespecStaticHelpers,
-    IouWrap_TimespecAsPointer, IouWrap_ItimerspecConstruct, IouWrap_ResStatus,
-    IouWrap_CqeFlagsString, IouWrap_SqeFlagsString, IouWrap_SetupFlagsString,
+    IouLoop_StopFromThread, IouLoop_SelfDestroyOnLoopThread,
+    IouLoop_PostFromThread, IouLoop_PostAndWait, IouLoop_RecvSend,
+    IouLoop_RecvWriteFixed, IouLoop_SendBuffer, IouLoop_IsLoopThread,
+    IouLoop_ExecuteOrPost, IouLoop_NopTokenVariant, IouLoop_TokenIsReleased,
+    IouLoop_SubmitClose, IouLoop_SubmitTimeout, IouLoop_SubmitTimeoutMultishot,
+    IouLoop_SubmitCancelFile, IouLoop_SubmitCancelToken, IouLoop_AcceptConnect,
+    IouLoop_RecvSendMsg, IouLoop_BorrowBufferSizes,
+    IouLoop_SlotRetentionRetain, IouLoop_SubmitPoll, IouLoop_SubmitShutdown,
+    IouLoop_SubmitTimeoutRemove, IouLoop_SubmitTimeoutRemoveExplicit,
+    IouLoop_SubmitCancelTokenAutoRelease, IouLoop_SubmitTimeoutUpdate,
+    IouLoop_RecvBufferMulti, IouLoop_RecvMsgBufferMulti,
+    IouLoop_RecvMsgBufferMultiTruncated, IouLoop_RecvMsgBufferMultiStress,
+    IouWrap_TimespecDurationRoundTrip, IouWrap_TimespecTimePointRoundTrip,
+    IouWrap_TimespecStaticHelpers, IouWrap_TimespecAsPointer,
+    IouWrap_ItimerspecConstruct, IouWrap_ResStatus, IouWrap_CqeFlagsString,
+    IouWrap_SqeFlagsString, IouWrap_SetupFlagsString,
     IouWrap_TimeoutFlagsString, IouLoop_CompletionFnSizeProbe)

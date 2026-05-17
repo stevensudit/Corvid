@@ -461,9 +461,17 @@ private:
 
 // Runs an `epoll_loop` in its own background thread.
 //
+// The handle is a thin owner of the worker thread. Thread-private state
+// (startup synchronization, the loop `shared_ptr`, the cached raw pointer)
+// lives in a heap-allocated `runner_state` held by both the handle and the
+// worker via `shared_ptr`. This keeps the worker's state alive even when
+// the handle is destroyed from a callback running on the loop thread (a
+// self-destroy path that would otherwise be a use-after-free).
+//
 // The loop is constructed inside the worker thread (as required by
-// `owner_thread_dispatcher`) and the runner's `shared_ptr` is dropped from
-// the worker thread on exit so the destructor lands there too.
+// `owner_thread_dispatcher`); the worker resets the loop `shared_ptr`
+// before releasing its own ref to `runner_state`, so `~epoll_loop` always
+// fires on the worker thread.
 //
 // Shutdown ordering: call `stop` (or destroy the runner) before destroying
 // any object that a pending `post` callback might reference. Pending
@@ -472,17 +480,20 @@ private:
 class epoll_loop_runner {
 public:
   explicit epoll_loop_runner()
-      : thread_{[this](const std::stop_token& st) { run(st); }} {
+      : state_{std::make_shared<runner_state>()},
+        thread_{[state = state_](const std::stop_token& st) {
+          run(st, state);
+        }} {
     using namespace std::chrono_literals;
-    if (!started_.wait_for_value(1000ms, true)) {
+    if (!state_->started.wait_for_value(1000ms, true)) {
       thread_.request_stop();
       throw std::runtime_error{"epoll_loop_runner failed to start"};
     }
     std::shared_ptr<epoll_loop> loop;
     std::exception_ptr startup_error;
-    if (std::scoped_lock lock{startup_mutex_}; true) {
-      loop = loop_;
-      startup_error = startup_error_;
+    if (std::scoped_lock lock{state_->startup_mutex}; true) {
+      loop = state_->loop;
+      startup_error = state_->startup_error;
     }
     if (startup_error) {
       thread_.join();
@@ -504,7 +515,9 @@ public:
     if (!thread_.joinable()) return;
     // `http_server` can be destroyed from the loop thread when a callback's
     // temporary `shared_ptr` is the final owner. libc++ throws on self-join,
-    // so detach in that narrow case after requesting stop.
+    // so detach in that narrow case after requesting stop. The worker keeps
+    // its own ref to `runner_state`, so it remains safe to access after we
+    // release `state_` here.
     if (thread_.get_id() == std::this_thread::get_id())
       thread_.detach();
     else
@@ -520,38 +533,49 @@ public:
   // destructor.
   void stop() { thread_.request_stop(); }
 
-  [[nodiscard]] epoll_loop* loop() noexcept { return raw_loop_; }
-  [[nodiscard]] operator epoll_loop&() noexcept { return **raw_loop_; }
-  [[nodiscard]] epoll_loop* operator->() noexcept { return raw_loop_; }
+  [[nodiscard]] epoll_loop* loop() noexcept { return state_->raw_loop; }
+  [[nodiscard]] operator epoll_loop&() noexcept { return **state_->raw_loop; }
+  [[nodiscard]] epoll_loop* operator->() noexcept { return state_->raw_loop; }
 
 private:
-  void run(const std::stop_token& st) {
+  // Thread-private state shared between the handle and the worker.
+  struct runner_state {
+    std::mutex startup_mutex;
+    std::exception_ptr startup_error;
+    notifiable<std::atomic_bool> started{false};
+    std::shared_ptr<epoll_loop> loop;
+    relaxed_atomic<epoll_loop*> raw_loop{nullptr};
+  };
+
+  static void
+  run(const std::stop_token& st, const std::shared_ptr<runner_state>& state) {
     jthread_stoppable_sleep::set_thread_name("epoll");
     try {
       auto loop = epoll_loop::make();
-      if (std::scoped_lock lock{startup_mutex_}; true) loop_ = loop;
-      raw_loop_ = loop.get();
-      started_.notify(true);
+      if (std::scoped_lock lock{state->startup_mutex}; true)
+        state->loop = loop;
+      state->raw_loop = loop.get();
+      state->started.notify(true);
 
       // When stop is requested, wake the `epoll_wait` so the loop can
-      // exit. Capture `loop` by value so the lambda does not reference
-      // `this` (the runner), which may already be in its destructor
-      // when stop fires. Inner scope so the `stop_callback` (and its
-      // `[loop]` capture) is released before the `use_count` check
+      // exit. Capture `loop` by value (not `state`) so the callback is
+      // self-contained and runs the same regardless of which thread
+      // triggered the stop. Inner scope so the `stop_callback` (and
+      // its `[loop]` capture) is released before the `use_count` check
       // below.
       {
         std::stop_callback on_stop{st, [loop] { (void)loop->stop(); }};
         (void)loop->run(100);
       }
 
-      // Drop the runner's reference here so that the last `shared_ptr`
+      // Drop the local loop ref here so that the last `shared_ptr`
       // release (and thus `~epoll_loop`) happens on this thread rather
-      // than on whichever thread later destroys the runner. The
+      // than on whichever thread later destroys `runner_state`. The
       // `owner_thread_dispatcher` base requires destruction on the
       // owning thread.
       //
       // Order:
-      //   1. Clear `raw_loop_` so external lookups via the public
+      //   1. Clear `raw_loop` so external lookups via the public
       //      accessor see nullptr; in-flight callers that already
       //      loaded the pointer are responsible for not outliving the
       //      runner.
@@ -559,8 +583,8 @@ private:
       //      registrations on this thread, so any
       //      `shared_ptr<epoll_loop>` held by a connection is released
       //      here.
-      //   3. Drop the local `loop` so the runner's `loop_` should be
-      //      the sole owner.
+      //   3. Drop the local `loop` so `state->loop` should be the sole
+      //      owner.
       //   4. Belt-and-suspenders: confirm no external `shared_ptr`
       //      still holds the loop alive. `use_count` is approximate
       //      (the standard explicitly calls it "immediately stale" in
@@ -571,29 +595,28 @@ private:
       //      itself throw from inside a destructor). `std::terminate`
       //      is used instead of `throw` so the catch handler below
       //      cannot swallow it.
-      //   5. Drop `loop_`, triggering `~epoll_loop` on this thread.
-      raw_loop_ = nullptr;
+      //   5. Drop `state->loop`, triggering `~epoll_loop` on this
+      //      thread.
+      state->raw_loop = nullptr;
       (void)loop->shutdown_epoll_loop();
       loop.reset();
 
-      for (size_t retry = 0; retry < 10 && loop_.use_count() != 1; ++retry)
+      for (size_t retry = 0; retry < 10 && state->loop.use_count() != 1;
+          ++retry)
         std::this_thread::sleep_for(1s);
-      if (loop_.use_count() != 1) std::terminate();
+      if (state->loop.use_count() != 1) std::terminate();
 
-      if (std::scoped_lock lock{startup_mutex_}; true) loop_.reset();
+      if (std::scoped_lock lock{state->startup_mutex}; true)
+        state->loop.reset();
     }
     catch (...) {
-      if (std::scoped_lock lock{startup_mutex_}; true)
-        startup_error_ = std::current_exception();
-      started_.notify(true);
+      if (std::scoped_lock lock{state->startup_mutex}; true)
+        state->startup_error = std::current_exception();
+      state->started.notify(true);
     }
   }
 
-  std::mutex startup_mutex_;
-  std::exception_ptr startup_error_;
-  notifiable<std::atomic_bool> started_{false};
-  std::shared_ptr<epoll_loop> loop_;
-  relaxed_atomic<epoll_loop*> raw_loop_{nullptr};
+  std::shared_ptr<runner_state> state_;
   std::jthread thread_;
 };
 

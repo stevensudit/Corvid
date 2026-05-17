@@ -941,6 +941,36 @@ void IoLoop_PreStartWorkIsQueued() {
 }
 
 #pragma endregion
+#pragma region SelfDestroyOnLoopThread
+
+// A loop-thread callback that holds the last `unique_ptr<epoll_loop_runner>`
+// destroys the runner from inside the worker thread. The destructor detaches
+// the jthread and returns; the worker then unwinds out of `epoll_loop::run`
+// and finishes its cleanup. The worker keeps its own ref to `runner_state`,
+// so the post-`run` cleanup must not touch any state belonging to the
+// already-freed handle. Sanitizer-enabled builds catch a regression
+// deterministically; in plain builds the test mainly proves the dtor
+// returns cleanly.
+void IoLoop_SelfDestroyOnLoopThread() {
+  auto runner = std::make_unique<epoll_loop_runner>();
+  auto* loop = runner->loop();
+  ASSERT_TRUE(loop != nullptr);
+
+  notifiable<std::atomic_bool> done{false};
+  ASSERT_TRUE(loop->post([r = std::move(runner), &done]() mutable {
+    r.reset();
+    done.notify(true);
+    return true;
+  }));
+
+  ASSERT_TRUE(done.wait_for_value(1s, true));
+  // Detached worker still needs to finish its cleanup; give it a brief
+  // settle so any access to the freed handle would be observed before
+  // the test scope exits.
+  std::this_thread::sleep_for(200ms);
+}
+
+#pragma endregion
 
 // `register_socket` dispatches `on_readable` via virtual `io_conn` override;
 // `unregister_socket` stops further dispatch. Double-register and
@@ -3217,12 +3247,13 @@ MAKE_TEST_LIST(Ipv4Addr_Construction, Ipv4Addr_Parse, Ipv4Addr_Classification,
     DnsResolve_NumericIPv6, DnsResolve_Localhost, DnsResolve_FamilyFilter,
     DnsResolve_InvalidHost, DnsResolveOne_Success, DnsResolveOne_Failure,
     IoLoop_Lifecycle, IoLoop_Post, IoLoop_PreStartWorkIsQueued,
-    IoLoop_RegisterUnregister, IoLoop_SetWritable, IoLoop_SetReadable,
-    IoLoop_ErrorSkipsWritable, IoLoop_DefaultOnError,
-    RecvBuffer_Compact_NoActiveBytes, RecvBuffer_Compact_MustCompact,
-    RecvBuffer_Compact_WorthIt, RecvBuffer_Compact_SkipsUnnecessaryMove,
-    RecvBuffer_Compact_GrowOnRequest, RecvBuffer_Compact_GrowToMinCapacity,
-    RecvBuffer_Compact_Shrink, RecvBuffer_Compact_ShrinkSkippedIfActiveWontFit,
+    IoLoop_SelfDestroyOnLoopThread, IoLoop_RegisterUnregister,
+    IoLoop_SetWritable, IoLoop_SetReadable, IoLoop_ErrorSkipsWritable,
+    IoLoop_DefaultOnError, RecvBuffer_Compact_NoActiveBytes,
+    RecvBuffer_Compact_MustCompact, RecvBuffer_Compact_WorthIt,
+    RecvBuffer_Compact_SkipsUnnecessaryMove, RecvBuffer_Compact_GrowOnRequest,
+    RecvBuffer_Compact_GrowToMinCapacity, RecvBuffer_Compact_Shrink,
+    RecvBuffer_Compact_ShrinkSkippedIfActiveWontFit,
     RecvBuffer_Compact_NoResizeWhenTargetFits, RecvBufferView_UpdateActiveView,
     RecvBufferView_MoveSemantics, RecvBufferView_TryTakeFull_Fail,
     RecvBufferView_TryTakeFull_Success,
