@@ -1338,6 +1338,92 @@ void IouStreamConn_SelfSharedPtr() {
 }
 
 #pragma endregion
+#pragma region SendStringBatchOverflow
+
+void IouStreamConn_SendStringBatchOverflow() {
+  // Multiple queued strings whose total exceeds the JIT send buffer must
+  // all arrive: the batching loop must send what fits and leave the
+  // remainder for the next round. Default `send_buf_size` is 4 KB; queue
+  // three 1500-byte strings (total 4500) so the third spills.
+  if (true) {
+    auto [sock0, sock1] = net_socket::create_pair();
+
+    relaxed_atomic_int recv_bytes{0};
+    std::string payload;
+
+    constexpr int chunk_size = 1500;
+    constexpr int chunk_count = 3;
+    constexpr int expected = chunk_size * chunk_count;
+    const std::string chunk_a(chunk_size, 'A');
+    const std::string chunk_b(chunk_size, 'B');
+    const std::string chunk_c(chunk_size, 'C');
+
+    capture_protocol::state recv_state;
+    recv_state.on_data = [&](iou_recv_view view) {
+      auto sv = view.active_view();
+      payload += sv;
+      recv_bytes += static_cast<int>(sv.size());
+      view.consume(sv.size());
+      return true;
+    };
+
+    iou_loop_runner runner;
+
+    auto recv_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock1),
+            net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
+            .lock();
+    EXPECT_TRUE(recv_conn);
+
+    auto send_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock0),
+            net_endpoint::invalid)
+            .lock();
+    EXPECT_TRUE(send_conn);
+
+    EXPECT_TRUE(send_conn->send(std::string{chunk_a}));
+    EXPECT_TRUE(send_conn->send(std::string{chunk_b}));
+    EXPECT_TRUE(send_conn->send(std::string{chunk_c}));
+
+    EXPECT_TRUE(WaitFor([&] { return recv_bytes >= expected; }));
+    EXPECT_EQ(recv_bytes, expected);
+    EXPECT_EQ(payload, chunk_a + chunk_b + chunk_c);
+  }
+}
+
+#pragma endregion
+#pragma region SendStringTooBigRejected
+
+void IouStreamConn_SendStringTooBigRejected() {
+  // A string larger than `send_buf_size` is rejected at the `send` entry
+  // point; the caller should chunk or use the `buffer` overload.
+  if (true) {
+    auto [sock0, sock1] = net_socket::create_pair();
+
+    iou_loop_runner runner;
+
+    auto send_conn =
+        capture_conn::adopt(*runner.loop(), std::move(sock0),
+            net_endpoint::invalid)
+            .lock();
+    EXPECT_TRUE(send_conn);
+    auto peer = capture_conn::adopt(*runner.loop(), std::move(sock1),
+        net_endpoint::invalid)
+                    .lock();
+    EXPECT_TRUE(peer);
+
+    // Default `send_buf_size` is 4 KB; anything strictly larger must be
+    // rejected.
+    const std::string too_big(4 * 1024 + 1, 'X');
+    EXPECT_FALSE(send_conn->send(std::string{too_big}));
+
+    // A string exactly equal to the buffer size still fits.
+    const std::string just_fits(4 * 1024, 'Y');
+    EXPECT_TRUE(send_conn->send(std::string{just_fits}));
+  }
+}
+
+#pragma endregion
 
 // NOLINTEND(readability-function-cognitive-complexity)
 MAKE_TEST_LIST(IouStreamConn_SendRecvString, IouStreamConn_MultipleStrings,
@@ -1355,4 +1441,5 @@ MAKE_TEST_LIST(IouStreamConn_SendRecvString, IouStreamConn_MultipleStrings,
     IouStreamConn_StopAndResumeReceivingOnConn, IouStreamConn_ConnectFailure,
     IouStreamConn_ListenAcceptMultipleClients,
     IouStreamConn_CloseFlushesPendingSend, IouStreamConn_HangupIdempotent,
-    IouStreamConn_SelfSharedPtr)
+    IouStreamConn_SelfSharedPtr, IouStreamConn_SendStringBatchOverflow,
+    IouStreamConn_SendStringTooBigRejected)

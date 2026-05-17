@@ -400,8 +400,13 @@ public:
 
   // Queue a string for sending. JIT-borrows a write `buffer` to pack
   // consecutive string items. Prefer the `buffer` overload for performance.
+  //
+  // Strings larger than the current `send_buf_size` are rejected; the caller
+  // is responsible for chunking large payloads or using the `buffer` overload
+  // with a larger `buffer`.
   [[nodiscard]] bool send(std::string&& data) {
     if (!writes_allowed() || data.empty()) return false;
+    if (data.size() > **send_buf_size_) return false;
     return loop_.execute_or_post(
         [this, _ = self(), data = std::move(data)]() mutable -> bool {
           if (closed_) return false;
@@ -854,8 +859,8 @@ private:
       while (!send_queue_.empty() &&
              std::holds_alternative<std::string>(send_queue_.front()))
       {
-        if (!buf.append(std::get<std::string>(send_queue_.front())))
-          return false;
+        // If it won't fit, add it to the next buffer.
+        if (!buf.append(std::get<std::string>(send_queue_.front()))) break;
         send_queue_.pop_front();
       }
     }
