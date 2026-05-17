@@ -31,6 +31,17 @@ else
     echo "llvm-project source already present at $SRC_DIR"
 fi
 
+# Patch libunwind's CMakeLists.txt so LIBUNWIND_ADDITIONAL_COMPILE_FLAGS is
+# applied PRIVATE rather than PUBLIC. The default PUBLIC propagation causes
+# our -fno-sanitize=memory (added to keep libunwind from MSAN-recursing in
+# the reporter) to leak into libcxx via target dependencies, silently
+# disabling MSAN for libc++.so. Idempotent: only patches if not already done.
+LIBUNWIND_CMAKE="$SRC_DIR/libunwind/src/CMakeLists.txt"
+if grep -q 'PUBLIC "${LIBUNWIND_ADDITIONAL_COMPILE_FLAGS}"' "$LIBUNWIND_CMAKE"; then
+    echo "Patching libunwind CMakeLists.txt: PUBLIC -> PRIVATE for ADDITIONAL flags"
+    sed -i 's|PUBLIC "${LIBUNWIND_ADDITIONAL_COMPILE_FLAGS}"|PRIVATE "${LIBUNWIND_ADDITIONAL_COMPILE_FLAGS}"|g' "$LIBUNWIND_CMAKE"
+fi
+
 # ccache speeds up repeat rebuilds. The ignorelist's path is on the command
 # line, but its *content* is not part of ccache's hash by default, so list it
 # in CCACHE_EXTRAFILES to ensure ignorelist edits invalidate stale entries.
