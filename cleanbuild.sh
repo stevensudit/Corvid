@@ -81,6 +81,13 @@ fi
 if [[ -n "$sanitizer" ]]; then
   echo "Sanitizer: $sanitizer"
   SAN_OPTION="-DSANITIZER=$sanitizer"
+  # When building under MSAN, the ignorelist content affects codegen but is
+  # not part of ccache's default hash (only its path is, via the command
+  # line). Without CCACHE_EXTRAFILES, editing the ignorelist between two
+  # cleanbuild runs can yield stale .o files.
+  if [[ "$sanitizer" == "msan" ]]; then
+    export CCACHE_EXTRAFILES="$(pwd)/scripts/msan-libcxx-ignorelist.txt"
+  fi
 else
   SAN_OPTION=""
 fi

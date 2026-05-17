@@ -92,6 +92,14 @@ if(SANITIZER)
         # compile flags. Plain MSAN still reports uninitialized reads; the
         # origin pinpoint is the loss.
         set(_san "memory")
+        # Apply the same ignorelist used for the libc++ MSAN rebuild so that
+        # libc++ template instantiations in user TUs (Catch2 reporters,
+        # iostream uses in test code) are not instrumented either.
+        set(_ignorelist "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/msan-libcxx-ignorelist.txt")
+        if(NOT EXISTS "${_ignorelist}")
+            message(FATAL_ERROR "MSAN ignorelist not found at ${_ignorelist}")
+        endif()
+        set(_extra_san_flags "-fsanitize-ignorelist=${_ignorelist}")
     else()
         message(FATAL_ERROR
             "Unknown SANITIZER=${SANITIZER} (expected asan|tsan|ubsan|msan)")

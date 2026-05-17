@@ -154,3 +154,28 @@
 
 31. containers/own_ptr.h - CTAD improvements:
    a. Make all of the Ptr/Del ctors take the same three templated arguments, where the third is a named thing defaulted to void with a requires clause requiring it to be void. Then add deduction guides that set the must-be-void to something else.
+
+
+-----
+
+Tooling improvements.
+0. All of these should be CMake presets, exposed through cleanbuild.sh.
+1. Integrate CTest so that all tests are registered with it.
+2. Add a coverage build, which uses `-fprofile-instr-generate -fcoverage-mapping`,
+   merged profiles with `llvm-profdata`, and reports with `llvm-cov`.
+3. Integrate libFuzzer.
+4. Integrate the Clang Static Analyzer `scan-build`, as a supplement to `clang-tidy`.
+5. Integrate IWYU `include-what-you-use`, while disabling it where it's inappropriate.
+6. Integrate Valgrind and Memcheck, as a supplement to ASAN/MSAN.
+7. Consider mold instead of lld, or not.
+8. Install clang-query, for convenience when refactoring.
+9. Flame graphs using `perf`, `heaptrack`, `callgrind`. Split it up as:
+	perf stat       // high-level counters
+	perf record     // CPU hot paths
+	heaptrack       // allocation behavior
+	callgrind       // deterministic-ish call cost, slower
+	flamegraph      // visualization
+10. Similarly, integrate CTrack for a different approach to timing.
+11. Install `rr`, for replay debugging
+12. Pre-merge suite: create a CI-lite system with a simple shell script that runs
+    cleanbuild for debug, release, asan/ubsan, tsan, msan, coverage, clang-tidy. Essentially, run the code base through all the tool, prior to merge. Or perhaps this makes more sense as a CMake `check` target.

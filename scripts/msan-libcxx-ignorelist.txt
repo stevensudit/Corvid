@@ -1,0 +1,57 @@
+# Sanitizer ignorelist for MSAN builds.
+#
+# libc++'s MSAN-instrumented build has incomplete uninit annotations in its
+# stream/locale code. Any program that uses iostreams trips MSAN false
+# positives in Catch2's reporter (or the float parser used by --min-duration)
+# before reaching user code. We are not maintainers of libc++; the acceptable
+# cost is losing MSAN coverage of uninit reads inside these paths.
+#
+# This file is passed via -fsanitize-ignorelist=... to both the libc++ build
+# (scripts/build_msan_libcxx.sh) and the project build (tests/CMakeLists.txt
+# when SANITIZER=msan), so template instantiations are skipped in both the
+# libc++ binary and user TUs that include the headers.
+#
+# Pattern semantics:
+#   src: -- matches the file containing the function definition (header path
+#           for templates, source path for ordinary functions).
+#   fun: -- matches the demangled function name; used as a fallback when
+#           src: misses a template instantiation whose IR debug info points
+#           to the instantiation site rather than the definition header.
+#
+# Start narrow. When a new false positive surfaces, add the smallest pattern
+# that covers it rather than broadening existing entries.
+
+[memory]
+
+# Internal subdirectories of the iostream/locale family. These directory
+# patterns match both the install path (.../c++/v1/__ostream/...) and the
+# libc++ source-tree path used when libc++ itself is being built
+# (.../libcxx/include/__ostream/...).
+src:*/__ostream/*
+src:*/__ios/*
+src:*/__locale_dir/*
+
+# Top-level umbrella headers (libc++ uses extension-less filenames). The
+# */<name> tail matches both install (*v1/<name>) and source-tree
+# (*include/<name>) paths.
+src:*/streambuf
+src:*/ostream
+src:*/istream
+src:*/sstream
+src:*/fstream
+src:*/iomanip
+src:*/ios
+src:*/locale
+src:*/__locale
+
+# Function-name fallback for template instantiations whose IR debug info
+# may point to the instantiation site rather than the defining header.
+fun:*__put_character_sequence*
+fun:*__pad_and_output*
+fun:*basic_ostream*
+fun:*basic_istream*
+fun:*basic_ios*
+fun:*basic_streambuf*
+fun:*ios_base*
+fun:*num_get*
+fun:*num_put*
