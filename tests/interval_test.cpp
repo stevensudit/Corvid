@@ -32,32 +32,32 @@ using namespace corvid::sequence;
 TEST_CASE("Ctors", "[Intervals]") {
   if (true) {
     interval i;
-    CHECK((i.empty()));
-    CHECK_FALSE((i.invalid()));
+    CHECK(i.empty());
+    CHECK_FALSE(i.invalid());
   }
   if (true) {
     interval i{42};
-    CHECK_FALSE((i.empty()));
-    CHECK_FALSE((i.invalid()));
-    CHECK((i.size()) == (1U));
-    CHECK((i.front()) == (42));
-    CHECK((i.back()) == (42));
+    CHECK_FALSE(i.empty());
+    CHECK_FALSE(i.invalid());
+    CHECK(i.size() == 1U);
+    CHECK(i.front() == 42);
+    CHECK(i.back() == 42);
   }
   if (true) {
     interval i{40, 42};
-    CHECK_FALSE((i.empty()));
-    CHECK_FALSE((i.invalid()));
-    CHECK((i.size()) == (3U));
-    CHECK((i.front()) == (40));
-    CHECK((i.back()) == (42));
+    CHECK_FALSE(i.empty());
+    CHECK_FALSE(i.invalid());
+    CHECK(i.size() == 3U);
+    CHECK(i.front() == 40);
+    CHECK(i.back() == 42);
   }
   if (true) {
     // Next line asserts.
     // * interval i{42, 40};
     interval i{40};
     i.min(42);
-    CHECK((i.empty()));
-    CHECK((i.invalid()));
+    CHECK(i.empty());
+    CHECK(i.invalid());
   }
 }
 #pragma endregion
@@ -67,77 +67,77 @@ TEST_CASE("Ctors", "[Intervals]") {
 TEST_CASE("Insert", "[IntervalTest]") {
   if (true) {
     interval i;
-    CHECK((i.empty()));
-    CHECK_FALSE((i.invalid()));
-    CHECK((i.insert(0)));
-    CHECK_FALSE((i.empty()));
-    CHECK_FALSE((i.invalid()));
-    CHECK((i.size()) == (1U));
-    CHECK((i.front()) == (0));
-    CHECK((i.back()) == (0));
+    CHECK(i.empty());
+    CHECK_FALSE(i.invalid());
+    CHECK(i.insert(0));
+    CHECK_FALSE(i.empty());
+    CHECK_FALSE(i.invalid());
+    CHECK(i.size() == 1U);
+    CHECK(i.front() == 0);
+    CHECK(i.back() == 0);
 
-    CHECK((i.insert(5)));
-    CHECK_FALSE((i.empty()));
-    CHECK_FALSE((i.invalid()));
-    CHECK((i.size()) == (6U));
-    CHECK((i.front()) == (0));
-    CHECK((i.back()) == (5));
+    CHECK(i.insert(5));
+    CHECK_FALSE(i.empty());
+    CHECK_FALSE(i.invalid());
+    CHECK(i.size() == 6U);
+    CHECK(i.front() == 0);
+    CHECK(i.back() == 5);
 
-    CHECK((i.insert(-5)));
-    CHECK_FALSE((i.empty()));
-    CHECK_FALSE((i.invalid()));
-    CHECK((i.size()) == (11U));
-    CHECK((i.front()) == (-5));
-    CHECK((i.back()) == (5));
+    CHECK(i.insert(-5));
+    CHECK_FALSE(i.empty());
+    CHECK_FALSE(i.invalid());
+    CHECK(i.size() == 11U);
+    CHECK(i.front() == -5);
+    CHECK(i.back() == 5);
 
-    CHECK_FALSE((i.insert(-5)));
-    CHECK_FALSE((i.insert(0)));
-    CHECK_FALSE((i.insert(5)));
+    CHECK_FALSE(i.insert(-5));
+    CHECK_FALSE(i.insert(0));
+    CHECK_FALSE(i.insert(5));
   }
   if (true) {
     interval i{5};
-    CHECK_FALSE((i.empty()));
-    CHECK_FALSE((i.invalid()));
-    CHECK((i.size()) == (1U));
+    CHECK_FALSE(i.empty());
+    CHECK_FALSE(i.invalid());
+    CHECK(i.size() == 1U);
 
-    CHECK_FALSE((i.push_back(0)));
-    CHECK_FALSE((i.push_back(5)));
-    CHECK((i.push_back(6)));
-    CHECK((i.push_back(7)));
-    CHECK_FALSE((i.push_back(6)));
-    CHECK((i.size()) == (3U));
-    CHECK((i.front()) == (5));
-    CHECK((i.back()) == (7));
+    CHECK_FALSE(i.push_back(0));
+    CHECK_FALSE(i.push_back(5));
+    CHECK(i.push_back(6));
+    CHECK(i.push_back(7));
+    CHECK_FALSE(i.push_back(6));
+    CHECK(i.size() == 3U);
+    CHECK(i.front() == 5);
+    CHECK(i.back() == 7);
 
     i.pop_back();
-    CHECK((i.size()) == (2U));
-    CHECK((i.front()) == (5));
-    CHECK((i.back()) == (6));
+    CHECK(i.size() == 2U);
+    CHECK(i.front() == 5);
+    CHECK(i.back() == 6);
     i.pop_back(2);
-    CHECK((i.empty()));
+    CHECK(i.empty());
   }
   if (true) {
     interval i{5};
-    CHECK_FALSE((i.empty()));
-    CHECK_FALSE((i.invalid()));
-    CHECK((i.size()) == (1U));
+    CHECK_FALSE(i.empty());
+    CHECK_FALSE(i.invalid());
+    CHECK(i.size() == 1U);
 
-    CHECK_FALSE((i.push_front(7)));
-    CHECK_FALSE((i.push_front(6)));
-    CHECK_FALSE((i.push_front(5)));
-    CHECK((i.push_front(4)));
-    CHECK((i.push_front(3)));
-    CHECK_FALSE((i.push_front(6)));
-    CHECK((i.size()) == (3U));
-    CHECK((i.front()) == (3));
-    CHECK((i.back()) == (5));
+    CHECK_FALSE(i.push_front(7));
+    CHECK_FALSE(i.push_front(6));
+    CHECK_FALSE(i.push_front(5));
+    CHECK(i.push_front(4));
+    CHECK(i.push_front(3));
+    CHECK_FALSE(i.push_front(6));
+    CHECK(i.size() == 3U);
+    CHECK(i.front() == 3);
+    CHECK(i.back() == 5);
 
     i.pop_front();
-    CHECK((i.size()) == (2U));
-    CHECK((i.front()) == (4));
-    CHECK((i.back()) == (5));
+    CHECK(i.size() == 2U);
+    CHECK(i.front() == 4);
+    CHECK(i.back() == 5);
     i.pop_front(2);
-    CHECK((i.empty()));
+    CHECK(i.empty());
   }
 }
 #pragma endregion
@@ -154,8 +154,8 @@ TEST_CASE("ForEach", "[IntervalTest]") {
     s += e;
   }
 
-  CHECK((c) == (4));
-  CHECK((s) == (1 + 2 + 3 + 4));
+  CHECK(c == 4);
+  CHECK(s == (1 + 2 + 3 + 4));
 }
 #pragma endregion
 
@@ -176,9 +176,9 @@ TEST_CASE("Reverse", "[IntervalTest]") {
       l = e;
     });
 
-    CHECK((c) == (4));
-    CHECK((s) == (1 + 2 + 3 + 4));
-    CHECK((l) == (4));
+    CHECK(c == 4);
+    CHECK(s == (1 + 2 + 3 + 4));
+    CHECK(l == 4);
   }
   if (true) {
     auto i = interval{1, 4};
@@ -194,9 +194,9 @@ TEST_CASE("Reverse", "[IntervalTest]") {
       l = e;
     });
 
-    CHECK((c) == (4));
-    CHECK((s) == (1 + 2 + 3 + 4));
-    CHECK((l) == (1));
+    CHECK(c == 4);
+    CHECK(s == (1 + 2 + 3 + 4));
+    CHECK(l == 1);
   }
   if (true) {
     auto i = interval{1, 4};
@@ -212,9 +212,9 @@ TEST_CASE("Reverse", "[IntervalTest]") {
       l = e;
     });
 
-    CHECK((c) == (4));
-    CHECK((s) == (1 + 2 + 3 + 4));
-    CHECK((l) == (1));
+    CHECK(c == 4);
+    CHECK(s == (1 + 2 + 3 + 4));
+    CHECK(l == 1);
   }
 }
 #pragma endregion
@@ -224,14 +224,14 @@ TEST_CASE("Reverse", "[IntervalTest]") {
 TEST_CASE("MinMax", "[IntervalTest]") {
   auto i = interval{1, 4};
 
-  CHECK((i.min()) == (1));
-  CHECK((i.max()) == (4));
+  CHECK(i.min() == 1);
+  CHECK(i.max() == 4);
   i.min(42);
-  CHECK((i.min()) == (42));
-  CHECK((i.invalid()));
+  CHECK(i.min() == 42);
+  CHECK(i.invalid());
   i.max(64);
-  CHECK((i.max()) == (64));
-  CHECK_FALSE((i.invalid()));
+  CHECK(i.max() == 64);
+  CHECK_FALSE(i.invalid());
 }
 #pragma endregion
 
@@ -240,15 +240,15 @@ TEST_CASE("MinMax", "[IntervalTest]") {
 TEST_CASE("CompareAndSwap", "[IntervalTest]") {
   auto i = interval{1, 4};
   auto j = interval{2, 3};
-  CHECK((i == i));
-  CHECK((j == j));
-  CHECK((i != j));
-  CHECK((i.back()) == (4));
+  CHECK(i == i);
+  CHECK(j == j);
+  CHECK(i != j);
+  CHECK(i.back() == 4);
   using std::swap;
   swap(i, j);
-  CHECK((j.back()) == (4));
+  CHECK(j.back() == 4);
   i.swap(j);
-  CHECK((i.back()) == (4));
+  CHECK(i.back() == 4);
 }
 #pragma endregion
 
@@ -258,21 +258,21 @@ TEST_CASE("Append", "[IntervalTest]") {
   if (true) {
     auto i = interval{1, 4};
     using I = decltype(i);
-    CHECK_FALSE((is_pair_v<decltype(i)>));
-    CHECK((is_pair_convertible_v<decltype(i)>));
+    CHECK_FALSE(is_pair_v<decltype(i)>);
+    CHECK(is_pair_convertible_v<decltype(i)>);
 
     auto s = ""s;
     I::append_fn(s, i);
-    CHECK((s) == ("1, 4"));
+    CHECK(s == "1, 4");
     s = strings::concat(i);
-    CHECK((s) == ("1, 4"));
+    CHECK(s == "1, 4");
 
     s = strings::join<strings::join_opt::json>(i);
-    CHECK((s) == ("[1, 4]"));
+    CHECK(s == "[1, 4]");
 
     i.clear();
     s = strings::join<strings::join_opt::json>(i);
-    CHECK((s) == ("[]"));
+    CHECK(s == "[]");
 
     // Note: make_interval is tested in bitmask_enum_test.cpp and
     // sequence_enum_test.cpp.

@@ -37,17 +37,17 @@ TEST_CASE("Construction", "[OptStringViewTest]") {
   // Default-constructed string_view.
   if (true) {
     std::string_view v;
-    CHECK((v.empty()));
-    CHECK((v.data()) == (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK(v.data() == nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Default-constructed opt_string_view.
   if (true) {
     opt_string_view v;
-    CHECK((v.empty()));
-    CHECK((v.null()));
-    CHECK((v.data()) == (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct string_view on null pointer.
   if (true) {
@@ -63,28 +63,28 @@ TEST_CASE("Construction", "[OptStringViewTest]") {
     // Works same as default construction.
     const char* p{};
     opt_string_view v{p};
-    CHECK((v.empty()));
-    CHECK((v.null()));
-    CHECK((v.data()) == (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct opt_string_view on nullptr.
   if (true) {
     // Works same as default construction.
     opt_string_view v{nullptr};
-    CHECK((v.empty()));
-    CHECK((v.null()));
-    CHECK((v.data()) == (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct opt_string_view on nullopt.
   if (true) {
     // Works same as default construction.
     opt_string_view v{std::nullopt};
-    CHECK((v.empty()));
-    CHECK((v.null()));
-    CHECK((v.data()) == (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct string_view on null and 0.
   if (true) {
@@ -92,172 +92,172 @@ TEST_CASE("Construction", "[OptStringViewTest]") {
     const char* p{};
     // NOLINTNEXTLINE(bugprone-string-constructor)
     std::string_view v{p, 0};
-    CHECK((v.empty()));
-    CHECK((v.data()) == (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK(v.data() == nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct opt_string_view on null and 0.
   if (true) {
     // Same as default.
     const char* p{};
     opt_string_view v{p, 0};
-    CHECK((v.empty()));
-    CHECK((v.null()));
-    CHECK((v.data()) == (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct opt_string_view on null and 1.
   if (true) {
     // Same as null and 0.
     const char* p{};
     opt_string_view v{p, 1};
-    CHECK((v.empty()));
-    CHECK((v.null()));
-    CHECK((v.data()) == (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct string_view on empty.
   if (true) {
     const char* p = "";
     std::string_view v{p};
-    CHECK((v.empty()));
-    CHECK((v.data()) != (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK(v.data() != nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct opt_string_view on empty.
   if (true) {
     const char* p = "";
     opt_string_view v{p};
-    CHECK((v.empty()));
-    CHECK_FALSE((v.null()));
-    CHECK((v.data()) != (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK_FALSE(v.null());
+    CHECK(v.data() != nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct string_view on empty and 0.
   if (true) {
     const char* p = "";
     // NOLINTNEXTLINE(bugprone-string-constructor)
     std::string_view v{p, 0};
-    CHECK((v.empty()));
-    CHECK((v.data()) != (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK(v.data() != nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct opt_string_view on empty and 0.
   if (true) {
     const char* p = "";
     opt_string_view v{p, 0};
-    CHECK((v.empty()));
-    CHECK_FALSE((v.null()));
-    CHECK((v.data()) != (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK_FALSE(v.null());
+    CHECK(v.data() != nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct string_view on empty string.
   if (true) {
     std::string s;
     std::string_view v{s};
-    CHECK((v.empty()));
-    CHECK((v.data()) != (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK(v.data() != nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct opt_string_view on empty string.
   if (true) {
     std::string s;
     opt_string_view v{s};
-    CHECK((v.empty()));
-    CHECK_FALSE((v.null()));
-    CHECK((v.data()) != (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK_FALSE(v.null());
+    CHECK(v.data() != nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct string_view on null string_view.
   if (true) {
     std::string_view sv;
-    CHECK((sv.data()) == (nullptr));
+    CHECK(sv.data() == nullptr);
     std::string_view v{sv};
-    CHECK((v.empty()));
-    CHECK((v.data()) == (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK(v.data() == nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct opt_string_view on null string_view.
   if (true) {
     std::string_view sv;
-    CHECK((sv.data()) == (nullptr));
+    CHECK(sv.data() == nullptr);
     opt_string_view v(sv);
-    CHECK((v.empty()));
-    CHECK((v.null()));
-    CHECK((v.data()) == (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK(v.null());
+    CHECK(v.data() == nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct string_view on empty string_view.
   if (true) {
     std::string_view sv("");
-    CHECK((sv.data()) != (nullptr));
+    CHECK(sv.data() != nullptr);
     std::string_view v{sv};
-    CHECK((v.empty()));
-    CHECK((v.data()) != (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK(v.data() != nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct opt_string_view on empty string_view.
   if (true) {
     std::string_view sv{""};
     opt_string_view v(sv);
-    CHECK((v.empty()));
-    CHECK_FALSE((v.null()));
-    CHECK((v.data()) != (nullptr));
-    CHECK((v.begin()) == (v.end()));
+    CHECK(v.empty());
+    CHECK_FALSE(v.null());
+    CHECK(v.data() != nullptr);
+    CHECK(v.begin() == v.end());
   }
   // Construct string_view on arbitrary string_view.
   if (true) {
     std::string_view sv("abc");
     std::string_view v{sv};
-    CHECK_FALSE((v.empty()));
-    CHECK((v.data()) != (nullptr));
-    CHECK((v.begin()) != (v.end()));
+    CHECK_FALSE(v.empty());
+    CHECK(v.data() != nullptr);
+    CHECK(v.begin() != v.end());
   }
   // Construct opt_string_view on arbitrary string_view.
   if (true) {
     std::string_view sv("abc");
     opt_string_view v(sv);
-    CHECK_FALSE((v.empty()));
-    CHECK_FALSE((v.null()));
-    CHECK((v.data()) != (nullptr));
-    CHECK((v.begin()) != (v.end()));
+    CHECK_FALSE(v.empty());
+    CHECK_FALSE(v.null());
+    CHECK(v.data() != nullptr);
+    CHECK(v.begin() != v.end());
   }
   // Construct string_view on it/end.
   if (true) {
     std::span<const char> r{"abc"};
     std::string_view v{r.begin(), r.end()};
-    CHECK_FALSE((v.empty()));
-    CHECK((v.data()) != (nullptr));
-    CHECK((v.begin()) != (v.end()));
-    CHECK((r.size()) == (4U));
-    CHECK((v.size()) == (4U));
+    CHECK_FALSE(v.empty());
+    CHECK(v.data() != nullptr);
+    CHECK(v.begin() != v.end());
+    CHECK(r.size() == 4U);
+    CHECK(v.size() == 4U);
   }
   // Construct opt_string_view on it/end
   if (true) {
     std::span<const char> r{"abc"};
     opt_string_view v(r.begin(), r.end());
-    CHECK_FALSE((v.empty()));
-    CHECK_FALSE((v.null()));
-    CHECK((v.data()) != (nullptr));
-    CHECK((v.begin()) != (v.end()));
-    CHECK((r.size()) == (4U));
-    CHECK((v.size()) == (4U));
+    CHECK_FALSE(v.empty());
+    CHECK_FALSE(v.null());
+    CHECK(v.data() != nullptr);
+    CHECK(v.begin() != v.end());
+    CHECK(r.size() == 4U);
+    CHECK(v.size() == 4U);
   }
   // Construct using UDL.
   if (true) {
     auto a = ""_osv;
-    CHECK((a.empty()));
-    CHECK_FALSE((a.null()));
+    CHECK(a.empty());
+    CHECK_FALSE(a.null());
     auto b = "abc"_osv;
-    CHECK((b.size()) == (3U));
+    CHECK(b.size() == 3U);
     // Embedded zeros are permitted.
     auto c = "abc\0def"_osv;
-    CHECK((c.size()) == (7U));
+    CHECK(c.size() == 7U);
     // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
     auto d = opt_string_view(c.data());
-    CHECK((d.size()) == (3U));
+    CHECK(d.size() == 3U);
     auto e = 0_osv;
-    CHECK((e.null()));
+    CHECK(e.null());
     CHECK_THROWS_AS((1_osv), std::out_of_range);
   }
 }
@@ -269,19 +269,19 @@ TEST_CASE("Optional", "[OptStringViewTest]") {
   if (true) {
     std::optional<std::string> opt;
     opt_string_view osv{opt};
-    CHECK((osv.null()));
+    CHECK(osv.null());
     opt = "test";
     osv = opt;
-    CHECK((osv) == ("test"));
+    CHECK(osv == "test");
     // * opt_string_view bad{std::optional<int>{}};
   }
   if (true) {
     std::optional<std::string_view> opt;
     opt_string_view osv{opt};
-    CHECK((osv.null()));
+    CHECK(osv.null());
     opt = "test";
     osv = opt;
-    CHECK((osv) == ("test"));
+    CHECK(osv == "test");
   }
 }
 
@@ -292,37 +292,37 @@ TEST_CASE("Workalike", "[OptStringViewTest]") {
   // Verify optional-like interface.
   if (true) {
     opt_string_view osv;
-    CHECK_FALSE((osv.has_value()));
-    CHECK((osv.value_or("def")) == ("def"));
+    CHECK_FALSE(osv.has_value());
+    CHECK(osv.value_or("def") == "def");
     osv.emplace("abc");
-    CHECK((osv.has_value()));
-    CHECK((osv.value()) == ("abc"));
-    CHECK((osv.value_or("def")) == ("abc"));
+    CHECK(osv.has_value());
+    CHECK(osv.value() == "abc");
+    CHECK(osv.value_or("def") == "abc");
     osv.reset();
-    CHECK_FALSE((osv.has_value()));
+    CHECK_FALSE(osv.has_value());
   }
 
   // Interaction with temporaries and moved-from values.
   if (true) {
-    CHECK((opt_string_view{"tmp"}.value_or("def")) == ("tmp"));
+    CHECK(opt_string_view{"tmp"}.value_or("def") == "tmp");
 
     opt_string_view src{"xyz"};
     // NOLINTNEXTLINE(performance-move-const-arg)
     opt_string_view dst{std::move(src)};
     // Moving doesn't clear opt_string_view
     // NOLINTNEXTLINE(bugprone-use-after-move, clang-analyzer-cplusplus.Move)
-    CHECK((src.has_value()));
-    CHECK((dst.has_value()));
+    CHECK(src.has_value());
+    CHECK(dst.has_value());
 
     dst.reset();
-    CHECK_FALSE((dst.has_value()));
+    CHECK_FALSE(dst.has_value());
   }
 
   // Methods operate correctly on rvalues.
   if (true) {
     opt_string_view osv{"qqq"};
     // NOLINTNEXTLINE(performance-move-const-arg)
-    CHECK((std::move(osv).value_or("def")) == ("qqq"));
+    CHECK(std::move(osv).value_or("def") == "qqq");
     opt_string_view{"aaa"}.emplace("bbb");
   }
 }
@@ -341,29 +341,29 @@ std::string_view accept_overloaded(opt_string_view) { return "osv"; }
 
 TEST_CASE("Cast", "[OptStringViewTest]") {
   // Casts "up" implicitly.
-  CHECK(("abc"_osv) == ("abc"_osv));
-  CHECK((accept_string_view("abc"sv)) == ("abc"));
+  CHECK("abc"_osv == "abc"_osv);
+  CHECK(accept_string_view("abc"sv) == "abc");
   auto abc_str = "abc"s;
-  CHECK((accept_string_view(abc_str)) == ("abc"));
-  CHECK((accept_string_view("abc"_osv)) == ("abc"));
+  CHECK(accept_string_view(abc_str) == "abc");
+  CHECK(accept_string_view("abc"_osv) == "abc");
 
-  CHECK((accept_opt_string_view("abc"_osv)) == ("abc"));
-  CHECK((accept_opt_string_view(abc_str)) == ("abc"));
+  CHECK(accept_opt_string_view("abc"_osv) == "abc");
+  CHECK(accept_opt_string_view(abc_str) == "abc");
 
   // Or down.
-  CHECK((accept_opt_string_view("abc"sv)) == ("abc"));
+  CHECK(accept_opt_string_view("abc"sv) == "abc");
 
   // Handles overloading just fine.
-  CHECK((accept_overloaded("abc"sv)) == ("sv"));
-  CHECK((accept_overloaded("abc"_osv)) == ("osv"));
+  CHECK(accept_overloaded("abc"sv) == "sv");
+  CHECK(accept_overloaded("abc"_osv) == "osv");
 
   // But not this ambiguity.
   // Need to either cast here or add a specific overload.
-  // * CHECK((accept_overloaded("abc"s)) == ("sv"));
+  // * CHECK(accept_overloaded("abc"s) == "sv");
 
   // It's not a std::string_view but can be converted to one.
-  CHECK_FALSE(((std::is_same_v<opt_string_view, std::string_view>)));
-  CHECK(((StringViewConvertible<opt_string_view>)));
+  CHECK_FALSE((std::is_same_v<opt_string_view, std::string_view>));
+  CHECK(StringViewConvertible<opt_string_view>);
 
   auto osv = "abc"_osv;
   std::string_view sv = osv;
@@ -373,21 +373,21 @@ TEST_CASE("Cast", "[OptStringViewTest]") {
   // NOLINTNEXTLINE(performance-move-const-arg)
   accept_string_view_rref(std::move(sv));
   // NOLINTNEXTLINE(bugprone-use-after-move)
-  CHECK((sv) == ("changed"));
+  CHECK(sv == "changed");
   // NOLINTNEXTLINE(performance-move-const-arg)
   accept_string_view_rref(std::move(osv));
   // NOLINTNEXTLINE(bugprone-use-after-move)
-  CHECK((osv) == ("changed"));
+  CHECK(osv == "changed");
   // Same thing happens with `std::string`. If you want this not to happen, you
   // need to prevent conversion (by hiding behind `enable_if` or forcing a
   // conversion to a transitional type).
   auto s = ""s;
   accept_string_view_rref(s);
-  CHECK((s) == (""));
+  CHECK(s == "");
 
   s = osv;
-  CHECK((s) == ("changed"));
-  CHECK((std::string(osv)) == ("changed"));
+  CHECK(s == "changed");
+  CHECK(std::string(osv) == "changed");
 }
 
 #pragma endregion
@@ -395,25 +395,25 @@ TEST_CASE("Cast", "[OptStringViewTest]") {
 
 TEST_CASE("OptStringViewTestEqual", "[OptStringViewTestEqual]") {
   // sv
-  CHECK(("abc"sv) == ("abc"));
-  CHECK(("abc"sv) == ("abc"sv));
-  CHECK(("abc"sv) == ("abc"s));
+  CHECK("abc"sv == "abc");
+  CHECK("abc"sv == "abc"sv);
+  CHECK("abc"sv == "abc"s);
 
   // osv
-  CHECK(("abc"_osv) == ("abc"));
-  CHECK(("abc"_osv) == ("abc"sv));
-  CHECK(("abc"_osv) == ("abc"s));
-  CHECK(("abc"_osv) == ("abc"_osv));
+  CHECK("abc"_osv == "abc");
+  CHECK("abc"_osv == "abc"sv);
+  CHECK("abc"_osv == "abc"s);
+  CHECK("abc"_osv == "abc"_osv);
 
   // commutative
-  CHECK(("abc") == ("abc"_osv));
-  CHECK(("abc"_osv) == ("abc"));
+  CHECK("abc" == "abc"_osv);
+  CHECK("abc"_osv == "abc");
 
-  CHECK(("abc"sv) == ("abc"_osv));
-  CHECK(("abc"_osv) == ("abc"sv));
+  CHECK("abc"sv == "abc"_osv);
+  CHECK("abc"_osv == "abc"sv);
 
-  CHECK(("abc"s) == ("abc"_osv));
-  CHECK(("abc"_osv) == ("abc"s));
+  CHECK("abc"s == "abc"_osv);
+  CHECK("abc"_osv == "abc"s);
 
   // null and empty.
   constexpr auto e = ""_osv;
@@ -423,57 +423,57 @@ TEST_CASE("OptStringViewTestEqual", "[OptStringViewTestEqual]") {
 
   // It's really constexpr, despite throwing on non-0, because it knows at
   // compile-time that it's 0.
-  if constexpr (n.empty()) { CHECK((true)); }
+  if constexpr (n.empty()) { CHECK(true); }
 
   auto csv = opt_string_view{"abc"};
   // In contrast, the next line won't compile.
-  // * if constexpr (csv.empty()) { CHECK((true)); }
+  // * if constexpr (csv.empty()) { CHECK(true); }
 
-  CHECK((e.empty()));
-  CHECK_FALSE((e.null()));
+  CHECK(e.empty());
+  CHECK_FALSE(e.null());
 
-  CHECK((n.empty()));
-  CHECK((n.null()));
+  CHECK(n.empty());
+  CHECK(n.null());
 
-  CHECK(((e == n)));
-  CHECK_FALSE((e.same(n)));
+  CHECK(e == n);
+  CHECK_FALSE(e.same(n));
 
-  CHECK((e.data()) != (nullptr));
-  CHECK((n.data()) == (nullptr));
+  CHECK(e.data() != nullptr);
+  CHECK(n.data() == nullptr);
 
-  CHECK((e.data()) != (n.data()));
+  CHECK(e.data() != n.data());
 
   if (n) {
-    CHECK((false));
+    CHECK(false);
   } else {
-    CHECK((true));
+    CHECK(true);
   }
 
   if (!n) {
-    CHECK((true));
+    CHECK(true);
   } else {
-    CHECK((false));
+    CHECK(false);
   }
 
   if (csv) {
-    CHECK((true));
+    CHECK(true);
   } else {
-    CHECK((false));
+    CHECK(false);
   }
 
   int i{};
   i = n ? 42 : 24;
-  CHECK((i) == (24));
+  CHECK(i == 24);
   i = !n ? 24 : 42;
-  CHECK((i) == (24));
+  CHECK(i == 24);
 
-  CHECK(("abc"_osv) == ("abc"_osv));
+  CHECK("abc"_osv == "abc"_osv);
   CHECK(("abc"_osv) < ("def"_osv));
 
   // Hash test.
   std::set<opt_string_view> ss;
   ss.insert("abc"_osv);
-  CHECK((ss.contains("abc"_osv)));
+  CHECK(ss.contains("abc"_osv));
 }
 
 #pragma endregion

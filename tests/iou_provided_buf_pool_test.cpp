@@ -35,17 +35,17 @@ TEST_CASE("NoOpZeroSlab", "[IouProvidedBufPool]") {
   if (true) {
     auto pool =
         iou_provided_buf_pool::create(dispatcher, 0, block_size::kb004);
-    CHECK_FALSE((*pool));
-    CHECK((pool->buf_size()) == (0ULL));
-    CHECK((pool->buf_count()) == (0ULL));
-    CHECK((pool->slab_size()) == (0ULL));
-    CHECK((pool->buf_data(0)) == (nullptr));
+    CHECK_FALSE(*pool);
+    CHECK(pool->buf_size() == 0ULL);
+    CHECK(pool->buf_count() == 0ULL);
+    CHECK(pool->slab_size() == 0ULL);
+    CHECK(pool->buf_data(0) == nullptr);
 
     // reconstruct returns empty buffer.
     const auto flags = iou_cqe_flags{
         static_cast<uint32_t>(IORING_CQE_F_BUFFER | (0U << 16U))};
     auto buf = pool->borrow(iou_res{4}, flags);
-    CHECK_FALSE((buf));
+    CHECK_FALSE(buf);
   }
 }
 #pragma endregion
@@ -59,14 +59,14 @@ TEST_CASE("ConstructValid", "[IouProvidedBufPool]") {
     constexpr size_t slab = 2ULL * 1024 * 1024;
     auto pool =
         iou_provided_buf_pool::create(dispatcher, slab, block_size::kb004, 3);
-    CHECK((*pool));
-    CHECK((pool->buf_size()) == (4096ULL));
-    CHECK((pool->buf_count()) == (512ULL));
-    CHECK((pool->slab_size()) == (slab));
-    CHECK((pool->bgid()) == (3));
-    CHECK((pool->buf_data(0)) != (nullptr));
-    CHECK((pool->buf_data(511)) != (nullptr));
-    CHECK((pool->buf_data(512)) == (nullptr)); // out of range
+    CHECK(*pool);
+    CHECK(pool->buf_size() == 4096ULL);
+    CHECK(pool->buf_count() == 512ULL);
+    CHECK(pool->slab_size() == slab);
+    CHECK(pool->bgid() == 3);
+    CHECK(pool->buf_data(0) != nullptr);
+    CHECK(pool->buf_data(511) != nullptr);
+    CHECK(pool->buf_data(512) == nullptr); // out of range
   }
 }
 #pragma endregion
@@ -79,21 +79,21 @@ TEST_CASE("BufCountFromDivision", "[IouProvidedBufPool]") {
     // 4 MB / 4 KB = 1024.
     auto pool = iou_provided_buf_pool::create(dispatcher, 4ULL * 1024 * 1024,
         block_size::kb004);
-    CHECK((*pool));
-    CHECK((pool->buf_count()) == (1024ULL));
-    CHECK((pool->slab_size()) == (4ULL * 1024 * 1024));
+    CHECK(*pool);
+    CHECK(pool->buf_count() == 1024ULL);
+    CHECK(pool->slab_size() == (4ULL * 1024 * 1024));
   }
   if (true) {
     // 8 MB slab (4 hugepages) / 1 MB = 8 buffers (power of two).
     constexpr size_t slab = 4ULL * buffer_pool_base::hugepage_size;
     auto pool =
         iou_provided_buf_pool::create(dispatcher, slab, block_size::m01);
-    CHECK((*pool));
-    CHECK((pool->buf_count()) == (8ULL));
-    CHECK((pool->slab_size()) == (slab));
+    CHECK(*pool);
+    CHECK(pool->buf_count() == 8ULL);
+    CHECK(pool->slab_size() == slab);
 
     iou_ring ring;
-    CHECK((pool->register_with(ring)));
+    CHECK(pool->register_with(ring));
   }
 }
 #pragma endregion
@@ -106,11 +106,11 @@ TEST_CASE("BufDataOffsets", "[IouProvidedBufPool]") {
     constexpr size_t slab = 2ULL * 1024 * 1024;
     auto pool =
         iou_provided_buf_pool::create(dispatcher, slab, block_size::kb004);
-    REQUIRE((pool));
+    REQUIRE(pool);
     const std::byte* base = pool->buf_data(0);
-    REQUIRE((base) != (nullptr));
+    REQUIRE(base != nullptr);
     for (size_t i = 1; i < pool->buf_count(); ++i) {
-      CHECK((pool->buf_data(i)) == (base + i * pool->buf_size()));
+      CHECK(pool->buf_data(i) == (base + i * pool->buf_size()));
     }
   }
 }
@@ -123,11 +123,11 @@ TEST_CASE("RegisterWithRing", "[IouProvidedBufPool]") {
   if (true) {
     auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
-    REQUIRE((pool));
+    REQUIRE(pool);
     iou_ring ring;
-    REQUIRE((pool->register_with(ring)));
+    REQUIRE(pool->register_with(ring));
     // Double registration must fail.
-    CHECK_FALSE((pool->register_with(ring)));
+    CHECK_FALSE(pool->register_with(ring));
   }
 }
 #pragma endregion
@@ -139,11 +139,11 @@ TEST_CASE("ReconstructBeforeRegister", "[IouProvidedBufPool]") {
   if (true) {
     auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
-    REQUIRE((pool));
+    REQUIRE(pool);
     const auto flags = iou_cqe_flags{
         static_cast<uint32_t>(IORING_CQE_F_BUFFER | (1U << 16U))};
     auto buf = pool->borrow(iou_res{8}, flags);
-    CHECK_FALSE((buf));
+    CHECK_FALSE(buf);
   }
 }
 #pragma endregion
@@ -156,32 +156,32 @@ TEST_CASE("ReconstructPayload", "[IouProvidedBufPool]") {
   if (true) {
     auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
-    REQUIRE((pool));
+    REQUIRE(pool);
     iou_ring ring;
-    REQUIRE((pool->register_with(ring)));
+    REQUIRE(pool->register_with(ring));
 
     // Simulate the kernel writing "hello world" into slot 2.
     const size_t bid = 2;
     auto* slot = reinterpret_cast<char*>(pool->buf_data(bid));
-    REQUIRE((slot) != (nullptr));
+    REQUIRE(slot != nullptr);
     const auto expected("hello world"sv);
     std::memcpy(slot, expected.data(), expected.size());
 
     const auto flags = iou_cqe_flags{
         static_cast<uint32_t>(IORING_CQE_F_BUFFER | (bid << 16U))};
     auto buf = pool->borrow(iou_res{11}, flags);
-    REQUIRE((buf));
-    CHECK((buf.blockrw()) == (iou_buffer::block_type::read));
-    CHECK((buf.size()) == (pool->buf_size()));
-    CHECK((buf.payload_span().size()) == (11ULL));
-    CHECK((buf.payload_view()) == (expected));
-    CHECK((buf.buf_index()) == (bid));
-    CHECK((buf.result().ok()));
+    REQUIRE(buf);
+    CHECK(buf.blockrw() == iou_buffer::block_type::read);
+    CHECK(buf.size() == pool->buf_size());
+    CHECK(buf.payload_span().size() == 11ULL);
+    CHECK(buf.payload_view() == expected);
+    CHECK(buf.buf_index() == bid);
+    CHECK(buf.result().ok());
     // Provided buffers are one-shot, so `active_span` is empty.
-    CHECK((buf.was_provided()));
-    CHECK((buf.active_span().size()) == (0ULL));
+    CHECK(buf.was_provided());
+    CHECK(buf.active_span().size() == 0ULL);
     // Provided buffers do not use ZC send tracking.
-    CHECK((buf.pending_releases()) == (0ULL));
+    CHECK(buf.pending_releases() == 0ULL);
   }
 }
 #pragma endregion
@@ -193,16 +193,16 @@ TEST_CASE("ReconstructErrorResult", "[IouProvidedBufPool]") {
   if (true) {
     auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
-    REQUIRE((pool));
+    REQUIRE(pool);
     iou_ring ring;
-    REQUIRE((pool->register_with(ring)));
+    REQUIRE(pool->register_with(ring));
 
     const auto flags = iou_cqe_flags{
         static_cast<uint32_t>(IORING_CQE_F_BUFFER | (0U << 16U))};
     auto buf = pool->borrow(iou_res{-ECONNRESET}, flags);
-    REQUIRE((buf)); // buffer is valid (slot was consumed)
-    CHECK_FALSE((buf.result().ok()));
-    CHECK((buf.payload_span().size()) == (0ULL)); // no data
+    REQUIRE(buf); // buffer is valid (slot was consumed)
+    CHECK_FALSE(buf.result().ok());
+    CHECK(buf.payload_span().size() == 0ULL); // no data
   }
 }
 #pragma endregion
@@ -216,15 +216,15 @@ TEST_CASE("ReconstructNoBufferFlag", "[IouProvidedBufPool]") {
   if (true) {
     auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
-    REQUIRE((pool));
+    REQUIRE(pool);
     iou_ring ring;
-    REQUIRE((pool->register_with(ring)));
+    REQUIRE(pool->register_with(ring));
 
     // No IORING_CQE_F_BUFFER flag set.
     auto buf = pool->borrow(iou_res{8}, iou_cqe_flags{});
-    REQUIRE((buf));
-    CHECK((buf.result().value()) == (8));
-    CHECK((buf.payload_view().empty()));
+    REQUIRE(buf);
+    CHECK(buf.result().value() == 8);
+    CHECK(buf.payload_view().empty());
   }
 }
 #pragma endregion
@@ -236,15 +236,15 @@ TEST_CASE("ReconstructOutOfRangeBid", "[IouProvidedBufPool]") {
   if (true) {
     auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
-    REQUIRE((pool));
+    REQUIRE(pool);
     iou_ring ring;
-    REQUIRE((pool->register_with(ring)));
+    REQUIRE(pool->register_with(ring));
 
     // Encode bid=999 (well past buf_count=512).
     const auto flags = iou_cqe_flags{
         static_cast<uint32_t>(IORING_CQE_F_BUFFER | (999U << 16U))};
     auto buf = pool->borrow(iou_res{8}, flags);
-    CHECK_FALSE((buf));
+    CHECK_FALSE(buf);
   }
 }
 #pragma endregion
@@ -258,9 +258,9 @@ TEST_CASE("ReturnReplenishes", "[IouProvidedBufPool]") {
   if (true) {
     auto pool = iou_provided_buf_pool::create(dispatcher, 2ULL * 1024 * 1024,
         block_size::kb004, 0);
-    REQUIRE((pool));
+    REQUIRE(pool);
     iou_ring ring;
-    REQUIRE((pool->register_with(ring)));
+    REQUIRE(pool->register_with(ring));
 
     const size_t bid = 1;
     const auto flags = iou_cqe_flags{
@@ -269,12 +269,12 @@ TEST_CASE("ReturnReplenishes", "[IouProvidedBufPool]") {
     // First reconstruction; the slot is live until `buf` is destroyed.
     {
       auto buf = pool->borrow(iou_res{5}, flags);
-      REQUIRE((buf));
+      REQUIRE(buf);
     }
     // Slot was returned to the ring; reconstruct again (no crash or assert).
     auto buf2 = pool->borrow(iou_res{3}, flags);
-    REQUIRE((buf2));
-    CHECK((buf2.payload_span().size()) == (3ULL));
+    REQUIRE(buf2);
+    CHECK(buf2.payload_span().size() == 3ULL);
   }
 }
 #pragma endregion

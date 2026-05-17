@@ -63,21 +63,21 @@ TEST_CASE("Lifecycle", "[OsFile]") {
   // Default-constructed file is invalid.
   if (true) {
     os_file f;
-    CHECK_FALSE((f.is_open()));
-    CHECK_FALSE((static_cast<bool>(f)));
-    CHECK((f.handle()) == (os_file::invalid_file_handle));
-    CHECK_FALSE((f.close()));
+    CHECK_FALSE(f.is_open());
+    CHECK_FALSE(static_cast<bool>(f));
+    CHECK(f.handle() == os_file::invalid_file_handle);
+    CHECK_FALSE(f.close());
   }
 
   // An adopted file handle is open; closing it twice is idempotent.
   if (true) {
     auto [reader, writer] = make_nb_pipe();
-    CHECK((reader.is_open()));
-    CHECK((static_cast<bool>(reader)));
-    CHECK((reader.handle()) != (os_file::invalid_file_handle));
-    CHECK((reader.close()));
-    CHECK_FALSE((reader.is_open()));
-    CHECK_FALSE((reader.close()));
+    CHECK(reader.is_open());
+    CHECK(static_cast<bool>(reader));
+    CHECK(reader.handle() != os_file::invalid_file_handle);
+    CHECK(reader.close());
+    CHECK_FALSE(reader.is_open());
+    CHECK_FALSE(reader.close());
   }
 
   // Destructor closes an open file (no crash or leak).
@@ -96,9 +96,9 @@ TEST_CASE("Move", "[OsFile]") {
     auto [reader, writer] = make_nb_pipe();
     const auto h = reader.handle();
     os_file moved{std::move(reader)};
-    CHECK_FALSE((reader.is_open()));
-    CHECK((moved.is_open()));
-    CHECK((moved.handle()) == (h));
+    CHECK_FALSE(reader.is_open());
+    CHECK(moved.is_open());
+    CHECK(moved.handle() == h);
   }
 
   // Move assignment closes the destination and transfers the source.
@@ -107,9 +107,9 @@ TEST_CASE("Move", "[OsFile]") {
     auto [reader_b, writer_b] = make_nb_pipe();
     const auto h = reader_a.handle();
     reader_b = std::move(reader_a);
-    CHECK_FALSE((reader_a.is_open()));
-    CHECK((reader_b.is_open()));
-    CHECK((reader_b.handle()) == (h));
+    CHECK_FALSE(reader_a.is_open());
+    CHECK(reader_b.is_open());
+    CHECK(reader_b.handle() == h);
   }
 
   // Self-assignment is a no-op.
@@ -118,8 +118,8 @@ TEST_CASE("Move", "[OsFile]") {
     const auto h = reader.handle();
     auto* p = &reader;
     reader = std::move(*p);
-    CHECK((reader.is_open()));
-    CHECK((reader.handle()) == (h));
+    CHECK(reader.is_open());
+    CHECK(reader.handle() == h);
   }
 }
 
@@ -131,8 +131,8 @@ TEST_CASE("ReleaseFlags", "[OsFile]") {
   if (true) {
     auto [reader, writer] = make_nb_pipe();
     const auto h = reader.release();
-    CHECK((h) != (os_file::invalid_file_handle));
-    CHECK_FALSE((reader.is_open()));
+    CHECK(h != os_file::invalid_file_handle);
+    CHECK_FALSE(reader.is_open());
     ::close(h);
   }
 
@@ -140,18 +140,18 @@ TEST_CASE("ReleaseFlags", "[OsFile]") {
   if (true) {
     auto [reader, writer] = make_nb_pipe();
     auto flags = reader.get_flags();
-    CHECK((flags.has_value()));
-    CHECK((bitmask::has(*flags, o_flags::nonblock)));
+    CHECK(flags.has_value());
+    CHECK(bitmask::has(*flags, o_flags::nonblock));
 
-    CHECK((reader.set_nonblocking(false)));
+    CHECK(reader.set_nonblocking(false));
     flags = reader.get_flags();
-    CHECK((flags.has_value()));
-    CHECK_FALSE((bitmask::has(*flags, o_flags::nonblock)));
+    CHECK(flags.has_value());
+    CHECK_FALSE(bitmask::has(*flags, o_flags::nonblock));
 
-    CHECK((reader.set_nonblocking(true)));
+    CHECK(reader.set_nonblocking(true));
     flags = reader.get_flags();
-    CHECK((flags.has_value()));
-    CHECK((bitmask::has(*flags, o_flags::nonblock)));
+    CHECK(flags.has_value());
+    CHECK(bitmask::has(*flags, o_flags::nonblock));
   }
 }
 
@@ -163,25 +163,25 @@ TEST_CASE("WriteRead", "[OsFile]") {
 
   // A small write drains fully and the read side sees the same bytes.
   auto msg = std::string_view{"hello"};
-  CHECK((writer.write(msg)));
-  CHECK((msg.empty()));
+  CHECK(writer.write(msg));
+  CHECK(msg.empty());
 
   std::string buf;
   no_zero::enlarge_to(buf, 16);
-  CHECK((reader.read(buf)));
-  CHECK((buf) == ("hello"));
+  CHECK(reader.read(buf));
+  CHECK(buf == "hello");
 
   // An empty non-blocking read is a soft failure: success with no bytes read.
   no_zero::enlarge_to(buf, 16);
-  CHECK((reader.read(buf)));
-  CHECK((buf.empty()));
-  CHECK((errno) == (EAGAIN));
+  CHECK(reader.read(buf));
+  CHECK(buf.empty());
+  CHECK(errno == EAGAIN);
 
   // EOF leaves the caller's buffer unchanged and returns false.
-  CHECK((writer.close()));
+  CHECK(writer.close());
   buf = "sentinel";
-  CHECK_FALSE((reader.read(buf)));
-  CHECK((buf) == ("sentinel"));
+  CHECK_FALSE(reader.read(buf));
+  CHECK(buf == "sentinel");
 }
 
 #pragma endregion
@@ -192,31 +192,31 @@ TEST_CASE("WriteAllReadExact", "[OsFile]") {
   if (true) {
     auto [reader, writer] = make_blocking_pipe();
     const std::string_view msg = "hello, world";
-    CHECK((writer.write_all(msg)));
+    CHECK(writer.write_all(msg));
 
     std::string buf(msg.size(), '\0');
-    CHECK((reader.read_exact(buf)));
-    CHECK((buf) == (msg));
+    CHECK(reader.read_exact(buf));
+    CHECK(buf == msg);
   }
 
   // read_exact on EOF before the buffer is filled trims `data` to the
   // bytes received and returns false.
   if (true) {
     auto [reader, writer] = make_blocking_pipe();
-    CHECK((writer.write_all(std::string_view{"hi"})));
-    CHECK((writer.close()));
+    CHECK(writer.write_all(std::string_view{"hi"}));
+    CHECK(writer.close());
 
     std::string buf(8, '\0');
-    CHECK_FALSE((reader.read_exact(buf)));
-    CHECK((buf) == ("hi"));
+    CHECK_FALSE(reader.read_exact(buf));
+    CHECK(buf == "hi");
   }
 
   // Empty write_all and read_exact are no-ops that return true.
   if (true) {
     auto [reader, writer] = make_blocking_pipe();
-    CHECK((writer.write_all(std::string_view{})));
+    CHECK(writer.write_all(std::string_view{}));
     std::string buf;
-    CHECK((reader.read_exact(buf)));
+    CHECK(reader.read_exact(buf));
   }
 }
 
@@ -229,22 +229,22 @@ TEST_CASE("MsgFlagsString", "[OsFile]") {
   using namespace corvid::strings;
   using F = msg_flags;
   if (true) {
-    CHECK((enum_as_string(F{})) == ("0x00000000"));
-    CHECK((enum_as_string(F::oob)) == ("oob"));
-    CHECK((enum_as_string(F::peek)) == ("peek"));
-    CHECK((enum_as_string(F::nosignal)) == ("nosignal"));
-    CHECK((enum_as_string(F::cloexec)) == ("cloexec"));
+    CHECK(enum_as_string(F{}) == "0x00000000");
+    CHECK(enum_as_string(F::oob) == "oob");
+    CHECK(enum_as_string(F::peek) == "peek");
+    CHECK(enum_as_string(F::nosignal) == "nosignal");
+    CHECK(enum_as_string(F::cloexec) == "cloexec");
   }
   if (true) {
     // Higher bits print first.
-    CHECK((enum_as_string(F::dontwait | F::peek)) == ("dontwait + peek"));
+    CHECK(enum_as_string(F::dontwait | F::peek) == "dontwait + peek");
   }
   if (true) {
     constexpr F bad{0x00200000}; // bit 21, above all named flags
-    CHECK((parse_enum("oob", bad)) == (F::oob));
-    CHECK((parse_enum("nosignal", bad)) == (F::nosignal));
-    CHECK((parse_enum("cloexec", bad)) == (F::cloexec));
-    CHECK((parse_enum("dontwait + peek", bad)) == (F::dontwait | F::peek));
+    CHECK(parse_enum("oob", bad) == F::oob);
+    CHECK(parse_enum("nosignal", bad) == F::nosignal);
+    CHECK(parse_enum("cloexec", bad) == F::cloexec);
+    CHECK(parse_enum("dontwait + peek", bad) == (F::dontwait | F::peek));
   }
 }
 
@@ -256,32 +256,32 @@ TEST_CASE("ErrnoCodeString", "[OsFile]") {
   using namespace corvid::strings;
   using EC = filesys::errno_code;
   if (true) {
-    CHECK((enum_as_string(EC::ok)) == ("ok"));
-    CHECK((enum_as_string(EC::noent)) == ("noent"));
-    CHECK((enum_as_string(EC::again)) == ("again"));
+    CHECK(enum_as_string(EC::ok) == "ok");
+    CHECK(enum_as_string(EC::noent) == "noent");
+    CHECK(enum_as_string(EC::again) == "again");
     // `wouldblock` is an alias for `again` (both have value 11); only one
     // name.
-    CHECK((enum_as_string(EC::wouldblock)) == ("again"));
-    CHECK((enum_as_string(EC::hwpoison)) == ("hwpoison"));
+    CHECK(enum_as_string(EC::wouldblock) == "again");
+    CHECK(enum_as_string(EC::hwpoison) == "hwpoison");
   }
   if (true) {
     // Out-of-range values print as their numeric value.
-    CHECK((enum_as_string(EC{-1})) == ("-1"));
-    CHECK((enum_as_string(EC{134})) == ("134"));
+    CHECK(enum_as_string(EC{-1}) == "-1");
+    CHECK(enum_as_string(EC{134}) == "134");
   }
   if (true) {
     // `enum_as_view` returns "(unknown)" for out-of-range or unnamed values.
-    CHECK((enums::sequence::enum_as_view(EC::ok)) == ("ok"));
-    CHECK((enums::sequence::enum_as_view(EC::noent)) == ("noent"));
-    CHECK((enums::sequence::enum_as_view(EC{-1})) == ("(unknown)"));
-    CHECK((enums::sequence::enum_as_view(EC{134})) == ("(unknown)"));
+    CHECK(enums::sequence::enum_as_view(EC::ok) == "ok");
+    CHECK(enums::sequence::enum_as_view(EC::noent) == "noent");
+    CHECK(enums::sequence::enum_as_view(EC{-1}) == "(unknown)");
+    CHECK(enums::sequence::enum_as_view(EC{134}) == "(unknown)");
   }
   if (true) {
     constexpr EC bad{-1};
-    CHECK((parse_enum("ok", bad)) == (EC::ok));
-    CHECK((parse_enum("noent", bad)) == (EC::noent));
-    CHECK((parse_enum("again", bad)) == (EC::again));
-    CHECK((parse_enum("hwpoison", bad)) == (EC::hwpoison));
+    CHECK(parse_enum("ok", bad) == EC::ok);
+    CHECK(parse_enum("noent", bad) == EC::noent);
+    CHECK(parse_enum("again", bad) == EC::again);
+    CHECK(parse_enum("hwpoison", bad) == EC::hwpoison);
   }
 }
 
@@ -293,23 +293,23 @@ TEST_CASE("FcntlOpsString", "[OsFile]") {
   using namespace corvid::strings;
   using FO = filesys::fcntl_ops;
   if (true) {
-    CHECK((enum_as_string(FO::dupfd)) == ("dupfd"));
-    CHECK((enum_as_string(FO::getfd)) == ("getfd"));
-    CHECK((enum_as_string(FO::setfl)) == ("setfl"));
-    CHECK((enum_as_string(FO::getownex)) == ("getownex"));
+    CHECK(enum_as_string(FO::dupfd) == "dupfd");
+    CHECK(enum_as_string(FO::getfd) == "getfd");
+    CHECK(enum_as_string(FO::setfl) == "setfl");
+    CHECK(enum_as_string(FO::getownex) == "getownex");
   }
   if (true) {
     // Out-of-range values (including the non-contiguous `dupfd_cloexec`) print
     // as their numeric value.
-    CHECK((enum_as_string(FO{-1})) == ("-1"));
-    CHECK((enum_as_string(FO{17})) == ("17"));
-    CHECK((enum_as_string(FO::dupfd_cloexec)) == ("1030"));
+    CHECK(enum_as_string(FO{-1}) == "-1");
+    CHECK(enum_as_string(FO{17}) == "17");
+    CHECK(enum_as_string(FO::dupfd_cloexec) == "1030");
   }
   if (true) {
     constexpr FO bad{-1};
-    CHECK((parse_enum("dupfd", bad)) == (FO::dupfd));
-    CHECK((parse_enum("setfl", bad)) == (FO::setfl));
-    CHECK((parse_enum("getownex", bad)) == (FO::getownex));
+    CHECK(parse_enum("dupfd", bad) == FO::dupfd);
+    CHECK(parse_enum("setfl", bad) == FO::setfl);
+    CHECK(parse_enum("getownex", bad) == FO::getownex);
   }
 }
 
@@ -321,18 +321,18 @@ TEST_CASE("MmapProtString", "[OsFile]") {
   using namespace corvid::strings;
   using P = mmap_prot;
   if (true) {
-    CHECK((enum_as_string(P::none)) == ("0x00000000"));
-    CHECK((enum_as_string(P::read)) == ("read"));
-    CHECK((enum_as_string(P::write)) == ("write"));
-    CHECK((enum_as_string(P::exec)) == ("exec"));
-    CHECK((enum_as_string(P::exec | P::read)) == ("exec + read"));
+    CHECK(enum_as_string(P::none) == "0x00000000");
+    CHECK(enum_as_string(P::read) == "read");
+    CHECK(enum_as_string(P::write) == "write");
+    CHECK(enum_as_string(P::exec) == "exec");
+    CHECK(enum_as_string(P::exec | P::read) == "exec + read");
   }
   if (true) {
     constexpr P bad{};
-    CHECK((parse_enum("read", bad)) == (P::read));
-    CHECK((parse_enum("write", bad)) == (P::write));
-    CHECK((parse_enum("exec", bad)) == (P::exec));
-    CHECK((parse_enum("exec + read", bad)) == (P::exec | P::read));
+    CHECK(parse_enum("read", bad) == P::read);
+    CHECK(parse_enum("write", bad) == P::write);
+    CHECK(parse_enum("exec", bad) == P::exec);
+    CHECK(parse_enum("exec + read", bad) == (P::exec | P::read));
   }
 }
 
@@ -344,35 +344,35 @@ TEST_CASE("MmapAdviceString", "[OsFile]") {
   using namespace corvid::strings;
   using MA = mmap_advice;
   if (true) {
-    CHECK((enum_as_string(MA::normal)) == ("normal"));
-    CHECK((enum_as_string(MA::dontneed)) == ("dontneed"));
-    CHECK((enum_as_string(MA::free)) == ("free"));
-    CHECK((enum_as_string(MA::remove)) == ("remove"));
-    CHECK((enum_as_string(MA::dontfork)) == ("dontfork"));
-    CHECK((enum_as_string(MA::dofork)) == ("dofork"));
-    CHECK((enum_as_string(MA::hugepage)) == ("hugepage"));
-    CHECK((enum_as_string(MA::wipeonfork)) == ("wipeonfork"));
-    CHECK((enum_as_string(MA::collapse)) == ("collapse"));
+    CHECK(enum_as_string(MA::normal) == "normal");
+    CHECK(enum_as_string(MA::dontneed) == "dontneed");
+    CHECK(enum_as_string(MA::free) == "free");
+    CHECK(enum_as_string(MA::remove) == "remove");
+    CHECK(enum_as_string(MA::dontfork) == "dontfork");
+    CHECK(enum_as_string(MA::dofork) == "dofork");
+    CHECK(enum_as_string(MA::hugepage) == "hugepage");
+    CHECK(enum_as_string(MA::wipeonfork) == "wipeonfork");
+    CHECK(enum_as_string(MA::collapse) == "collapse");
   }
   if (true) {
     // Gap values 5-7 print numerically; hwpoison=100 and -1 are out of range.
-    CHECK((enum_as_string(MA{5})) == ("5"));
-    CHECK((enum_as_string(MA{26})) == ("26"));
-    CHECK((enum_as_string(MA::hwpoison)) == ("100"));
-    CHECK((enum_as_string(MA{-1})) == ("-1"));
-    CHECK((enums::sequence::enum_as_view(MA::normal)) == ("normal"));
-    CHECK((enums::sequence::enum_as_view(MA{5})) == ("(unknown)"));
-    CHECK((enums::sequence::enum_as_view(MA{26})) == ("(unknown)"));
-    CHECK((enums::sequence::enum_as_view(MA{-1})) == ("(unknown)"));
+    CHECK(enum_as_string(MA{5}) == "5");
+    CHECK(enum_as_string(MA{26}) == "26");
+    CHECK(enum_as_string(MA::hwpoison) == "100");
+    CHECK(enum_as_string(MA{-1}) == "-1");
+    CHECK(enums::sequence::enum_as_view(MA::normal) == "normal");
+    CHECK(enums::sequence::enum_as_view(MA{5}) == "(unknown)");
+    CHECK(enums::sequence::enum_as_view(MA{26}) == "(unknown)");
+    CHECK(enums::sequence::enum_as_view(MA{-1}) == "(unknown)");
   }
   if (true) {
     constexpr MA bad{-1};
-    CHECK((parse_enum("normal", bad)) == (MA::normal));
-    CHECK((parse_enum("dontneed", bad)) == (MA::dontneed));
-    CHECK((parse_enum("free", bad)) == (MA::free));
-    CHECK((parse_enum("dofork", bad)) == (MA::dofork));
-    CHECK((parse_enum("hugepage", bad)) == (MA::hugepage));
-    CHECK((parse_enum("collapse", bad)) == (MA::collapse));
+    CHECK(parse_enum("normal", bad) == MA::normal);
+    CHECK(parse_enum("dontneed", bad) == MA::dontneed);
+    CHECK(parse_enum("free", bad) == MA::free);
+    CHECK(parse_enum("dofork", bad) == MA::dofork);
+    CHECK(parse_enum("hugepage", bad) == MA::hugepage);
+    CHECK(parse_enum("collapse", bad) == MA::collapse);
   }
 }
 
@@ -385,36 +385,36 @@ TEST_CASE("MmapMaskString", "[OsFile]") {
   using namespace corvid::strings;
   using M = mmap_mask;
   if (true) {
-    CHECK((enum_as_string(M::shared)) == ("shared"));
-    CHECK((enum_as_string(M::map_private)) == ("private"));
-    CHECK((enum_as_string(M::anonymous)) == ("anonymous"));
-    CHECK((enum_as_string(M::fixed)) == ("fixed"));
-    CHECK((enum_as_string(M::growsdown)) == ("growsdown"));
-    CHECK((enum_as_string(M::denywrite)) == ("denywrite"));
-    CHECK((enum_as_string(M::executable)) == ("executable"));
-    CHECK((enum_as_string(M::locked)) == ("locked"));
-    CHECK((enum_as_string(M::noreserve)) == ("noreserve"));
-    CHECK((enum_as_string(M::populate)) == ("populate"));
-    CHECK((enum_as_string(M::nonblock)) == ("nonblock"));
-    CHECK((enum_as_string(M::stack)) == ("stack"));
-    CHECK((enum_as_string(M::hugetlb)) == ("hugetlb"));
-    CHECK((enum_as_string(M::sync)) == ("sync"));
-    CHECK((enum_as_string(M::fixed_noreplace)) == ("fixed_noreplace"));
+    CHECK(enum_as_string(M::shared) == "shared");
+    CHECK(enum_as_string(M::map_private) == "private");
+    CHECK(enum_as_string(M::anonymous) == "anonymous");
+    CHECK(enum_as_string(M::fixed) == "fixed");
+    CHECK(enum_as_string(M::growsdown) == "growsdown");
+    CHECK(enum_as_string(M::denywrite) == "denywrite");
+    CHECK(enum_as_string(M::executable) == "executable");
+    CHECK(enum_as_string(M::locked) == "locked");
+    CHECK(enum_as_string(M::noreserve) == "noreserve");
+    CHECK(enum_as_string(M::populate) == "populate");
+    CHECK(enum_as_string(M::nonblock) == "nonblock");
+    CHECK(enum_as_string(M::stack) == "stack");
+    CHECK(enum_as_string(M::hugetlb) == "hugetlb");
+    CHECK(enum_as_string(M::sync) == "sync");
+    CHECK(enum_as_string(M::fixed_noreplace) == "fixed_noreplace");
     // Higher bits print first.
     CHECK((enum_as_string(M::hugetlb | M::growsdown)) ==
           ("hugetlb + growsdown"));
   }
   if (true) {
     constexpr M bad{};
-    CHECK((parse_enum("shared", bad)) == (M::shared));
-    CHECK((parse_enum("private", bad)) == (M::map_private));
-    CHECK((parse_enum("anonymous", bad)) == (M::anonymous));
-    CHECK((parse_enum("fixed", bad)) == (M::fixed));
-    CHECK((parse_enum("growsdown", bad)) == (M::growsdown));
-    CHECK((parse_enum("denywrite", bad)) == (M::denywrite));
-    CHECK((parse_enum("populate", bad)) == (M::populate));
-    CHECK((parse_enum("hugetlb", bad)) == (M::hugetlb));
-    CHECK((parse_enum("fixed_noreplace", bad)) == (M::fixed_noreplace));
+    CHECK(parse_enum("shared", bad) == M::shared);
+    CHECK(parse_enum("private", bad) == M::map_private);
+    CHECK(parse_enum("anonymous", bad) == M::anonymous);
+    CHECK(parse_enum("fixed", bad) == M::fixed);
+    CHECK(parse_enum("growsdown", bad) == M::growsdown);
+    CHECK(parse_enum("denywrite", bad) == M::denywrite);
+    CHECK(parse_enum("populate", bad) == M::populate);
+    CHECK(parse_enum("hugetlb", bad) == M::hugetlb);
+    CHECK(parse_enum("fixed_noreplace", bad) == M::fixed_noreplace);
     CHECK((parse_enum("hugetlb + growsdown", bad)) ==
           (M::hugetlb | M::growsdown));
   }

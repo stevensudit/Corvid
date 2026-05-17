@@ -39,13 +39,13 @@ TEST_CASE("BorrowAndReturn", "[ObjectPool]") {
   // Borrow a slot and verify it's valid.
   if (true) {
     object_pool<int, 4> pool;
-    CHECK((pool.capacity()) == (4U));
+    CHECK(pool.capacity() == 4U);
 
     auto h = pool.borrow();
-    CHECK((h));
+    CHECK(h);
     *h = 42;
-    CHECK((*h) == (42));
-    CHECK((h.value()) == (42));
+    CHECK(*h == 42);
+    CHECK(h.value() == 42);
   }
 
   // Slot is returned on handle destruction; the freed slot can be re-borrowed.
@@ -53,21 +53,21 @@ TEST_CASE("BorrowAndReturn", "[ObjectPool]") {
     object_pool<int, 1> pool;
     {
       auto h = pool.borrow();
-      CHECK((h));
-      CHECK_FALSE((pool.borrow())); // pool full
+      CHECK(h);
+      CHECK_FALSE(pool.borrow()); // pool full
     }
-    CHECK((pool.borrow())); // slot was returned on destruction
+    CHECK(pool.borrow()); // slot was returned on destruction
   }
 
   // Explicit `reset()` returns the slot early.
   if (true) {
     object_pool<int, 1> pool;
     auto h = pool.borrow();
-    CHECK((h));
-    CHECK_FALSE((pool.borrow())); // pool full
+    CHECK(h);
+    CHECK_FALSE(pool.borrow()); // pool full
     h.reset();
-    CHECK_FALSE((h));
-    CHECK((pool.borrow())); // slot returned
+    CHECK_FALSE(h);
+    CHECK(pool.borrow()); // slot returned
   }
 }
 
@@ -80,12 +80,12 @@ TEST_CASE("FullPool", "[ObjectPool]") {
     object_pool<int, 2> pool;
     auto h0 = pool.borrow();
     auto h1 = pool.borrow();
-    CHECK((h0));
-    CHECK((h1));
+    CHECK(h0);
+    CHECK(h1);
 
     auto h2 = pool.borrow();
-    CHECK_FALSE((h2));
-    CHECK((!h2));
+    CHECK_FALSE(h2);
+    CHECK(!h2);
   }
 }
 
@@ -106,10 +106,10 @@ TEST_CASE("LIFOOrder", "[ObjectPool]") {
 
     // `p0` was returned last, so it should be borrowed first.
     auto h2 = pool.borrow();
-    CHECK((h2.get()) == (p0));
+    CHECK(h2.get() == p0);
 
     auto h3 = pool.borrow();
-    CHECK((h3.get()) == (p1));
+    CHECK(h3.get() == p1);
   }
 }
 
@@ -121,11 +121,11 @@ TEST_CASE("MoveHandle", "[ObjectPool]") {
   if (true) {
     object_pool<int, 4> pool;
     auto h = pool.borrow();
-    CHECK((h));
+    CHECK(h);
 
     auto h2 = std::move(h);
-    CHECK_FALSE((h));
-    CHECK((h2));
+    CHECK_FALSE(h);
+    CHECK(h2);
   }
 
   // Slot is returned when the moved-to handle is destroyed.
@@ -135,10 +135,10 @@ TEST_CASE("MoveHandle", "[ObjectPool]") {
       auto outer = pool.borrow();
       {
         auto inner = std::move(outer);
-        CHECK((inner));
-        CHECK_FALSE((pool.borrow())); // slot still held by inner
+        CHECK(inner);
+        CHECK_FALSE(pool.borrow()); // slot still held by inner
       }
-      CHECK((pool.borrow())); // inner destroyed, slot returned
+      CHECK(pool.borrow()); // inner destroyed, slot returned
     }
   }
 
@@ -148,8 +148,8 @@ TEST_CASE("MoveHandle", "[ObjectPool]") {
     auto h = pool.borrow();
     object_pool<int, 4>::borrowed h2;
     h2 = std::move(h);
-    CHECK_FALSE((h));
-    CHECK((h2));
+    CHECK_FALSE(h);
+    CHECK(h2);
   }
 }
 
@@ -165,11 +165,11 @@ TEST_CASE("MultipleSlots", "[ObjectPool]") {
     std::array<std::optional<object_pool<int, cap>::borrowed>, cap> handles;
     for (size_t i = 0; i < cap; ++i) {
       handles[i] = pool.borrow();
-      CHECK((handles[i].has_value()));
+      CHECK(handles[i].has_value());
       // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
       **handles[i] = static_cast<int>(i);
     }
-    CHECK_FALSE((pool.borrow())); // all slots in use
+    CHECK_FALSE(pool.borrow()); // all slots in use
 
     // Return every other slot.
     // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
@@ -178,9 +178,9 @@ TEST_CASE("MultipleSlots", "[ObjectPool]") {
     // Re-borrow the returned slots.
     for (size_t i = 0; i < cap; i += 2) {
       handles[i] = pool.borrow();
-      CHECK((handles[i].has_value()));
+      CHECK(handles[i].has_value());
     }
-    CHECK_FALSE((pool.borrow())); // all slots in use again
+    CHECK_FALSE(pool.borrow()); // all slots in use again
   }
 }
 
@@ -199,18 +199,18 @@ TEST_CASE("Callbacks", "[ObjectPool]") {
         store{on_borrow, on_return};
 
     auto h0 = store.borrow();
-    CHECK((*h0) == (1));
-    CHECK((borrow_count) == (1));
-    CHECK((return_count) == (0));
+    CHECK(*h0 == 1);
+    CHECK(borrow_count == 1);
+    CHECK(return_count == 0);
 
     auto h1 = store.borrow();
-    CHECK((*h1) == (2));
-    CHECK((borrow_count) == (2));
+    CHECK(*h1 == 2);
+    CHECK(borrow_count == 2);
 
     h0.reset();
-    CHECK((return_count) == (1));
+    CHECK(return_count == 1);
     h1.reset();
-    CHECK((return_count) == (2));
+    CHECK(return_count == 2);
   }
 
   // ReturnCb runs before the slot re-enters the free list; re-borrowing
@@ -223,18 +223,18 @@ TEST_CASE("Callbacks", "[ObjectPool]") {
         store{on_borrow, on_return};
 
     auto h = store.borrow();
-    CHECK((*h) == (99));
+    CHECK(*h == 99);
     h.reset();
 
     auto h2 = store.borrow();
-    CHECK((*h2) == (99));
+    CHECK(*h2 == 99);
   }
 
   // Default no-op callbacks still compile and work correctly.
   if (true) {
     object_pool<int, 4> pool;
     auto h = pool.borrow();
-    CHECK((h));
+    CHECK(h);
   }
 }
 
@@ -253,18 +253,18 @@ TEST_CASE("CreateHelper", "[ObjectPool]") {
             [&](int&) noexcept { ++return_count; });
 
     auto h0 = pool.borrow();
-    CHECK((h0));
-    CHECK((*h0) == (1));
-    CHECK((borrow_count) == (1));
-    CHECK((return_count) == (0));
+    CHECK(h0);
+    CHECK(*h0 == 1);
+    CHECK(borrow_count == 1);
+    CHECK(return_count == 0);
 
     h0.reset();
-    CHECK((return_count) == (1));
+    CHECK(return_count == 1);
 
     auto h1 = pool.borrow();
-    CHECK((h1));
-    CHECK((*h1) == (2));
-    CHECK((borrow_count) == (2));
+    CHECK(h1);
+    CHECK(*h1 == 2);
+    CHECK(borrow_count == 2);
   }
 }
 
@@ -276,21 +276,21 @@ TEST_CASE("DetachAndReattach", "[ObjectPool]") {
   if (true) {
     object_pool<int, 1> pool;
     auto h = pool.borrow();
-    CHECK((h));
+    CHECK(h);
     int* item = h.get();
 
     auto detached = pool.detach(std::move(h));
-    CHECK_FALSE((h));
-    CHECK((detached) == (item));
-    CHECK_FALSE((pool.borrow())); // detached slot is still out of the pool
+    CHECK_FALSE(h);
+    CHECK(detached == item);
+    CHECK_FALSE(pool.borrow()); // detached slot is still out of the pool
 
     // NOLINTNEXTLINE(performance-move-const-arg)
     auto h2 = pool.reattach(std::move(detached));
-    CHECK((h2));
-    CHECK((h2.get()) == (item));
+    CHECK(h2);
+    CHECK(h2.get() == item);
 
     h2.reset();
-    CHECK((pool.borrow())); // slot returned after reattached handle resets
+    CHECK(pool.borrow()); // slot returned after reattached handle resets
   }
 
   // `reattach` fails for pointers that do not belong to the pool.
@@ -299,7 +299,7 @@ TEST_CASE("DetachAndReattach", "[ObjectPool]") {
     int outside{};
     // NOLINTNEXTLINE(performance-move-const-arg)
     auto h = pool.reattach(std::move(&outside));
-    CHECK_FALSE((h));
+    CHECK_FALSE(h);
   }
 }
 
@@ -311,10 +311,10 @@ TEST_CASE("TokenBasics", "[ObjectPool]") {
   if (true) {
     object_pool<int, 4> pool;
     object_pool<int, 4>::token h;
-    CHECK_FALSE((h));
-    CHECK((!h));
-    CHECK_FALSE((h.is_valid()));
-    CHECK((h.get_ptr(pool)) == (nullptr));
+    CHECK_FALSE(h);
+    CHECK(!h);
+    CHECK_FALSE(h.is_valid());
+    CHECK(h.get_ptr(pool) == nullptr);
   }
 
   // Token from `borrowed&` is valid and `get_ptr` returns the slot pointer.
@@ -323,9 +323,9 @@ TEST_CASE("TokenBasics", "[ObjectPool]") {
     auto b = pool.borrow();
     *b = 7;
     object_pool<int, 4>::token h{b};
-    CHECK((h));
-    CHECK((h.is_valid()));
-    CHECK((h.get_ptr(pool)) == (b.get()));
+    CHECK(h);
+    CHECK(h.is_valid());
+    CHECK(h.get_ptr(pool) == b.get());
   }
 
   // Token from `borrowed&` does not transfer ownership; slot stays borrowed.
@@ -333,9 +333,9 @@ TEST_CASE("TokenBasics", "[ObjectPool]") {
     object_pool<int, 1> pool;
     auto b = pool.borrow();
     object_pool<int, 1>::token h{b};
-    CHECK_FALSE((pool.borrow())); // b still owns the slot
+    CHECK_FALSE(pool.borrow()); // b still owns the slot
     b.reset();
-    CHECK((pool.borrow())); // slot returned when b resets
+    CHECK(pool.borrow()); // slot returned when b resets
   }
 
   // Tokens are copyable; the copy refers to the same slot.
@@ -344,8 +344,8 @@ TEST_CASE("TokenBasics", "[ObjectPool]") {
     auto b = pool.borrow();
     object_pool<int, 4>::token h1{b};
     auto h2 = h1;
-    CHECK((h2));
-    CHECK((h2.get_ptr(pool)) == (b.get()));
+    CHECK(h2);
+    CHECK(h2.get_ptr(pool) == b.get());
   }
 }
 
@@ -359,10 +359,10 @@ TEST_CASE("TokenDetachAndBorrow", "[ObjectPool]") {
     auto b = pool.borrow();
     int* p = b.get();
     object_pool<int, 1>::token h{std::move(b)};
-    CHECK_FALSE((b)); // b was detached
-    CHECK((h));
-    CHECK_FALSE((pool.borrow()));    // slot not in free list
-    CHECK((h.get_ptr(pool)) == (p)); // handle still resolves to the pointer
+    CHECK_FALSE(b); // b was detached
+    CHECK(h);
+    CHECK_FALSE(pool.borrow());  // slot not in free list
+    CHECK(h.get_ptr(pool) == p); // handle still resolves to the pointer
   }
 
   // `handle::borrow()` re-acquires the detached slot.
@@ -373,15 +373,15 @@ TEST_CASE("TokenDetachAndBorrow", "[ObjectPool]") {
     object_pool<int, 1>::token h{std::move(b)};
 
     auto b2 = h.borrow(pool);
-    CHECK((b2));
-    CHECK((*b2) == (42));
-    CHECK_FALSE((pool.borrow())); // slot still held by b2
+    CHECK(b2);
+    CHECK(*b2 == 42);
+    CHECK_FALSE(pool.borrow()); // slot still held by b2
 
     // A second `borrow()` on the same handle fails while b2 owns the slot.
-    CHECK_FALSE((h.borrow(pool)));
+    CHECK_FALSE(h.borrow(pool));
 
     b2.reset();
-    CHECK((pool.borrow())); // slot returned to pool
+    CHECK(pool.borrow()); // slot returned to pool
   }
 }
 
@@ -394,9 +394,9 @@ TEST_CASE("TokenStaleness", "[ObjectPool]") {
     object_pool<int, 4> pool;
     auto b = pool.borrow();
     object_pool<int, 4>::token h{b};
-    CHECK((h.get_ptr(pool)) == (b.get())); // valid while b is live
-    b.reset();                             // gen incremented on return
-    CHECK((h.get_ptr(pool)) == (nullptr)); // stale
+    CHECK(h.get_ptr(pool) == b.get()); // valid while b is live
+    b.reset();                         // gen incremented on return
+    CHECK(h.get_ptr(pool) == nullptr); // stale
   }
 
   // `handle::borrow()` returns empty once the handle is stale.
@@ -405,7 +405,7 @@ TEST_CASE("TokenStaleness", "[ObjectPool]") {
     auto b = pool.borrow();
     object_pool<int, 4>::token h{b};
     b.reset(); // gen incremented; handle is now stale
-    CHECK_FALSE((h.borrow(pool)));
+    CHECK_FALSE(h.borrow(pool));
   }
 
   // `handle::borrow()` returns empty if the slot is currently borrowed.
@@ -413,7 +413,7 @@ TEST_CASE("TokenStaleness", "[ObjectPool]") {
     object_pool<int, 4> pool;
     auto b = pool.borrow();
     object_pool<int, 4>::token h{b}; // h and b refer to the same slot
-    CHECK_FALSE((h.borrow(pool)));   // b already owns it
+    CHECK_FALSE(h.borrow(pool));     // b already owns it
   }
 }
 
@@ -430,8 +430,8 @@ TEST_CASE("TokenAsInt", "[ObjectPool]") {
     object_pool<int, 4>::token h{b};
     auto packed = h.as_int();
     object_pool<int, 4>::token h2{packed};
-    CHECK((h2));
-    CHECK((h2.get_ptr(pool)) == (b.get()));
+    CHECK(h2);
+    CHECK(h2.get_ptr(pool) == b.get());
   }
 
   // A token reconstructed from a stale `as_int` value is also stale.
@@ -442,7 +442,7 @@ TEST_CASE("TokenAsInt", "[ObjectPool]") {
     auto packed = h.as_int();
     b.reset(); // gen incremented; packed value is now stale
     object_pool<int, 4>::token h2{packed};
-    CHECK((h2.get_ptr(pool)) == (nullptr));
+    CHECK(h2.get_ptr(pool) == nullptr);
   }
 
   // Unversioned pool: round-trip through `as_int` resolves to the same slot.
@@ -452,8 +452,8 @@ TEST_CASE("TokenAsInt", "[ObjectPool]") {
     object_pool<int, 4, generation_scheme::unversioned>::token h{b};
     auto packed = h.as_int();
     object_pool<int, 4, generation_scheme::unversioned>::token h2{packed};
-    CHECK((h2));
-    CHECK((h2.get_ptr(pool)) == (b.get()));
+    CHECK(h2);
+    CHECK(h2.get_ptr(pool) == b.get());
   }
 }
 
@@ -465,14 +465,14 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
   if (true) {
     object_pool<int, 4> pool;
     auto h = pool.borrow();
-    CHECK((h));
+    CHECK(h);
     h.reset();
 
-    CHECK((pool.shutdown()));
-    CHECK_FALSE((pool.borrow()));
+    CHECK(pool.shutdown());
+    CHECK_FALSE(pool.borrow());
 
     // Idempotent: subsequent calls report no-op.
-    CHECK_FALSE((pool.shutdown()));
+    CHECK_FALSE(pool.shutdown());
   }
 
   // `shutdown` invokes `return_cb_` on every slot regardless of state:
@@ -489,15 +489,15 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     auto h0 = pool.borrow();
     auto h1 = pool.borrow();
     h0.reset(); // one return: count == 1
-    CHECK((return_count) == (1));
+    CHECK(return_count == 1);
 
     // Shutdown invokes return_cb on all 4 slots (including h1's).
-    CHECK((pool.shutdown()));
-    CHECK((return_count) == (5));
+    CHECK(pool.shutdown());
+    CHECK(return_count == 5);
 
     // Returning the still-live handle still runs return_cb once.
     h1.reset();
-    CHECK((return_count) == (6));
+    CHECK(return_count == 6);
   }
 
   // `shutdown` forcibly resets every slot to a default-constructed
@@ -508,15 +508,15 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     object_pool<int, 2> pool;
     auto h = pool.borrow();
     *h = 42;
-    CHECK((*h) == (42));
+    CHECK(*h == 42);
 
-    CHECK((pool.shutdown()));
+    CHECK(pool.shutdown());
 
     // The slot has been reset to T{}.
-    CHECK((*h) == (0));
+    CHECK(*h == 0);
 
     h.reset();
-    CHECK_FALSE((pool.borrow()));
+    CHECK_FALSE(pool.borrow());
   }
 
   // With no outstanding borrows at shutdown time, `borrow` continues to
@@ -524,9 +524,9 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
   // refilled it.
   if (true) {
     object_pool<int, 2> pool;
-    CHECK((pool.shutdown()));
-    CHECK_FALSE((pool.borrow()));
-    CHECK_FALSE((pool.borrow()));
+    CHECK(pool.shutdown());
+    CHECK_FALSE(pool.borrow());
+    CHECK_FALSE(pool.borrow());
   }
 
   // Tokens captured before `shutdown` cannot escalate to a `borrowed`
@@ -536,12 +536,12 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
     object_pool<int, 2> pool;
     auto h = pool.borrow();
     object_pool<int, 2>::token tok{h};
-    CHECK((tok));
+    CHECK(tok);
 
-    CHECK((pool.shutdown()));
+    CHECK(pool.shutdown());
 
-    CHECK_FALSE((tok.borrow(pool)));
-    CHECK((tok.get_ptr(pool)) == (nullptr));
+    CHECK_FALSE(tok.borrow(pool));
+    CHECK(tok.get_ptr(pool) == nullptr);
   }
 
   // The pool's destructor calls `shutdown`, so `return_cb_` runs for
@@ -555,10 +555,10 @@ TEST_CASE("Shutdown", "[ObjectPool]") {
           pool{{}, on_return};
       auto h = pool.borrow();
       h.reset(); // 1 return so far
-      CHECK((return_count) == (1));
+      CHECK(return_count == 1);
     }
     // Destructor invoked shutdown: 3 more invocations (one per slot).
-    CHECK((return_count) == (4));
+    CHECK(return_count == 4);
   }
 }
 

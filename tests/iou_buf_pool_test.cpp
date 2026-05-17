@@ -47,19 +47,19 @@ TEST_CASE("ReadInitialState", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_reader();
-    REQUIRE((buf));
-    CHECK((buf.blockrw()) == (block_type::read));
-    CHECK((buf.size()) == (4096ULL));
-    CHECK((buf.payload_span().size()) == (0ULL));
-    CHECK((buf.active_span().size()) == (buf.size()));
-    CHECK((buf.active_span().data() == buf.payload_span().data()));
-    CHECK_FALSE((buf.result().ok()));
+    REQUIRE(buf);
+    CHECK(buf.blockrw() == block_type::read);
+    CHECK(buf.size() == 4096ULL);
+    CHECK(buf.payload_span().size() == 0ULL);
+    CHECK(buf.active_span().size() == buf.size());
+    CHECK(buf.active_span().data() == buf.payload_span().data());
+    CHECK_FALSE(buf.result().ok());
   }
   if (true) {
     // If this fails, it means we can finally get rid of the hack where we
     // pretend to have a copy constructor but actually throw.
 #if defined(__cpp_lib_move_only_function) && !defined(__GLIBCXX__)
-    CHECK((false));
+    CHECK(false);
 #endif
   }
 }
@@ -71,15 +71,15 @@ TEST_CASE("ReadAfterUpdate", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_reader();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
     const size_t n = sim_read(buf, "hello world"sv);
-    CHECK((buf.payload_span().size()) == (n));
-    CHECK((buf.active_span().size()) == (buf.size() - n));
-    CHECK((buf.active_span().data() ==
-           buf.payload_span().data() + buf.payload_span().size()));
-    CHECK((buf.result().ok()));
-    CHECK((buf.payload_view().substr(0, 5)) == ("hello"));
+    CHECK(buf.payload_span().size() == n);
+    CHECK(buf.active_span().size() == (buf.size() - n));
+    CHECK(buf.active_span().data() ==
+          buf.payload_span().data() + buf.payload_span().size());
+    CHECK(buf.result().ok());
+    CHECK(buf.payload_view().substr(0, 5) == "hello");
   }
 }
 #pragma endregion
@@ -90,15 +90,15 @@ TEST_CASE("ReadMultipleUpdates", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_reader();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
     sim_read(buf, "hello"sv);
-    CHECK((buf.payload_span().size()) == (5ULL));
+    CHECK(buf.payload_span().size() == 5ULL);
 
     sim_read(buf, " world"sv);
-    CHECK((buf.payload_span().size()) == (11ULL));
-    CHECK((buf.payload_view()) == ("hello world"));
-    CHECK((buf.active_span().size()) == (buf.size() - 11));
+    CHECK(buf.payload_span().size() == 11ULL);
+    CHECK(buf.payload_view() == "hello world");
+    CHECK(buf.active_span().size() == (buf.size() - 11));
   }
 }
 #pragma endregion
@@ -109,19 +109,19 @@ TEST_CASE("ReadConsumePartial", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_reader();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
     sim_read(buf, "abcdefgh"sv);
-    REQUIRE((buf.payload_span().size()) == (8ULL));
+    REQUIRE(buf.payload_span().size() == 8ULL);
 
     auto slice = buf.consume_read(3);
-    CHECK((slice.size()) == (3ULL));
+    CHECK(slice.size() == 3ULL);
     CHECK((std::string_view(reinterpret_cast<const char*>(slice.data()), 3)) ==
           ("abc"));
-    CHECK((buf.payload_span().size()) == (5ULL));
-    CHECK((buf.payload_view()) == ("defgh"));
+    CHECK(buf.payload_span().size() == 5ULL);
+    CHECK(buf.payload_view() == "defgh");
     // active_span still covers the tail beyond the original 8 bytes read.
-    CHECK((buf.active_span().size()) == (buf.size() - 8));
+    CHECK(buf.active_span().size() == (buf.size() - 8));
   }
 }
 #pragma endregion
@@ -132,18 +132,18 @@ TEST_CASE("ReadConsumeFullReset", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_reader();
-    REQUIRE((buf));
+    REQUIRE(buf);
     const std::byte* base = buf.active_span().data();
 
     sim_read(buf, "reset-me"sv);
     const size_t n = buf.payload_span().size();
     const auto slice = buf.consume_read(n);
-    CHECK((slice.size()) == (n));
+    CHECK(slice.size() == n);
 
-    CHECK((buf.payload_span().size()) == (0ULL));
-    CHECK((buf.active_span().size()) == (buf.size()));
-    CHECK((buf.payload_span().data() == base));
-    CHECK((buf.active_span().data() == base));
+    CHECK(buf.payload_span().size() == 0ULL);
+    CHECK(buf.active_span().size() == buf.size());
+    CHECK(buf.payload_span().data() == base);
+    CHECK(buf.active_span().data() == base);
   }
 }
 #pragma endregion
@@ -154,14 +154,14 @@ TEST_CASE("ReadConsumeOverRequest", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_reader();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
     sim_read(buf, "hi"sv);
     const auto slice = buf.consume_read(9999);
-    CHECK((slice.size()) == (2ULL));
+    CHECK(slice.size() == 2ULL);
     // Fully consumed: reset to initial state.
-    CHECK((buf.payload_span().size()) == (0ULL));
-    CHECK((buf.active_span().size()) == (buf.size()));
+    CHECK(buf.payload_span().size() == 0ULL);
+    CHECK(buf.active_span().size() == buf.size());
   }
 }
 #pragma endregion
@@ -172,16 +172,16 @@ TEST_CASE("ReadUpdateError", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_reader();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
     sim_read(buf, "good data"sv);
     const size_t payload_before = buf.payload_span().size();
     const size_t active_before = buf.active_span().size();
 
     buf.update(iou_res{-ECONNRESET}, iou_cqe_flags{});
-    CHECK_FALSE((buf.result().ok()));
-    CHECK((buf.payload_span().size()) == (payload_before));
-    CHECK((buf.active_span().size()) == (active_before));
+    CHECK_FALSE(buf.result().ok());
+    CHECK(buf.payload_span().size() == payload_before);
+    CHECK(buf.active_span().size() == active_before);
   }
 }
 #pragma endregion
@@ -192,12 +192,12 @@ TEST_CASE("WriteInitialState", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_writer();
-    REQUIRE((buf));
-    CHECK((buf.blockrw()) == (block_type::write));
-    CHECK((buf.size()) == (4096ULL));
-    CHECK((buf.payload_span().size()) == (0ULL));
-    CHECK((buf.active_span().size()) == (0ULL));
-    CHECK((buf.payload_span().data() == buf.active_span().data()));
+    REQUIRE(buf);
+    CHECK(buf.blockrw() == block_type::write);
+    CHECK(buf.size() == 4096ULL);
+    CHECK(buf.payload_span().size() == 0ULL);
+    CHECK(buf.active_span().size() == 0ULL);
+    CHECK(buf.payload_span().data() == buf.active_span().data());
   }
 }
 #pragma endregion
@@ -208,19 +208,19 @@ TEST_CASE("WriteViaAppend", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_writer();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
-    CHECK((buf.append("hello"sv)));
-    CHECK((buf.payload_span().size()) == (5ULL));
-    CHECK((buf.active_span().size()) == (5ULL));
-    CHECK((buf.active_span().data() == buf.payload_span().data()));
-    CHECK((buf.payload_view()) == ("hello"));
+    CHECK(buf.append("hello"sv));
+    CHECK(buf.payload_span().size() == 5ULL);
+    CHECK(buf.active_span().size() == 5ULL);
+    CHECK(buf.active_span().data() == buf.payload_span().data());
+    CHECK(buf.payload_view() == "hello");
 
     // Second append extends both spans.
-    CHECK((buf.append(", world"sv)));
-    CHECK((buf.payload_span().size()) == (12ULL));
-    CHECK((buf.active_span().size()) == (12ULL));
-    CHECK((buf.payload_view()) == ("hello, world"));
+    CHECK(buf.append(", world"sv));
+    CHECK(buf.payload_span().size() == 12ULL);
+    CHECK(buf.active_span().size() == 12ULL);
+    CHECK(buf.payload_view() == "hello, world");
   }
 }
 #pragma endregion
@@ -231,15 +231,15 @@ TEST_CASE("WriteAppendOverflow", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_writer();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
     const size_t cap = buf.size();
     const std::string filler(cap, 'x');
-    CHECK((buf.append(std::string_view{filler})));
-    CHECK((buf.payload_span().size()) == (cap));
+    CHECK(buf.append(std::string_view{filler}));
+    CHECK(buf.payload_span().size() == cap);
 
-    CHECK_FALSE((buf.append("y"sv)));            // one byte too many
-    CHECK((buf.payload_span().size()) == (cap)); // unchanged
+    CHECK_FALSE(buf.append("y"sv));          // one byte too many
+    CHECK(buf.payload_span().size() == cap); // unchanged
   }
 }
 #pragma endregion
@@ -250,17 +250,17 @@ TEST_CASE("WriteViaTailAndUpdatePayload", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_writer();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
     auto tail = buf.tail_span();
-    CHECK((tail.size()) == (buf.size())); // tail = full block initially
+    CHECK(tail.size() == buf.size()); // tail = full block initially
     constexpr std::string_view msg{"tail-fill"};
     std::memcpy(tail.data(), msg.data(), msg.size());
-    CHECK((buf.update_payload(tail.first(msg.size()))));
+    CHECK(buf.update_payload(tail.first(msg.size())));
 
-    CHECK((buf.payload_span().size()) == (msg.size()));
-    CHECK((buf.active_span().size()) == (msg.size()));
-    CHECK((buf.payload_view()) == (msg));
+    CHECK(buf.payload_span().size() == msg.size());
+    CHECK(buf.active_span().size() == msg.size());
+    CHECK(buf.payload_view() == msg);
   }
 }
 #pragma endregion
@@ -271,14 +271,14 @@ TEST_CASE("WriteUpdatePayloadBadStart", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_writer();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
-    CHECK((buf.append("abc"sv)));
+    CHECK(buf.append("abc"sv));
 
     // tail_span() starts right after "abc"; subspan(1) shifts it by one byte.
     auto tail = buf.tail_span();
-    CHECK_FALSE((buf.update_payload(tail.subspan(1, 3))));
-    CHECK((buf.payload_span().size()) == (3ULL)); // unchanged
+    CHECK_FALSE(buf.update_payload(tail.subspan(1, 3)));
+    CHECK(buf.payload_span().size() == 3ULL); // unchanged
   }
 }
 #pragma endregion
@@ -289,13 +289,13 @@ TEST_CASE("WriteUpdatePayloadOverflow", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_writer();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
     auto tail = buf.tail_span(); // entire block
     // Construct a span that ends one byte past full_span.
     const iou_buf_pool::span_t overrun{tail.data(), tail.size() + 1};
-    CHECK_FALSE((buf.update_payload(overrun)));
-    CHECK((buf.payload_span().size()) == (0ULL)); // unchanged
+    CHECK_FALSE(buf.update_payload(overrun));
+    CHECK(buf.payload_span().size() == 0ULL); // unchanged
   }
 }
 #pragma endregion
@@ -306,17 +306,17 @@ TEST_CASE("WriteUpdatePartialSend", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_writer();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
-    CHECK((buf.append("0123456789"sv))); // 10 bytes
-    CHECK((buf.active_span().size()) == (10ULL));
+    CHECK(buf.append("0123456789"sv)); // 10 bytes
+    CHECK(buf.active_span().size() == 10ULL);
 
     [[maybe_unused]] auto [active_buffer, buffer_index, file_offset] =
         buf.prepare();
     buf.update(iou_res{6}, iou_cqe_flags{}); // kernel sent first 6 bytes
 
-    CHECK((buf.payload_span().size()) == (10ULL)); // unchanged
-    CHECK((buf.active_span().size()) == (4ULL));   // 10 - 6
+    CHECK(buf.payload_span().size() == 10ULL); // unchanged
+    CHECK(buf.active_span().size() == 4ULL);   // 10 - 6
     CHECK((std::string_view(
               reinterpret_cast<const char*>(buf.active_span().data()), 4)) ==
           ("6789"));
@@ -330,23 +330,23 @@ TEST_CASE("WriteFullyConsumedThenAppend", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_writer();
-    REQUIRE((buf));
+    REQUIRE(buf);
     const std::byte* base = buf.active_span().data();
 
-    CHECK((buf.append("sent"sv)));
+    CHECK(buf.append("sent"sv));
     [[maybe_unused]] auto [active_buffer, buffer_index, file_offset] =
         buf.prepare();
     buf.update(iou_res{4}, iou_cqe_flags{}); // fully consumed
-    CHECK((buf.active_span().size()) == (0ULL));
+    CHECK(buf.active_span().size() == 0ULL);
 
     // payload_view still shows "sent" before the implicit reset.
-    CHECK((buf.payload_view()) == ("sent"));
+    CHECK(buf.payload_view() == "sent");
 
-    CHECK((buf.append("new"sv)));
-    CHECK((buf.payload_span().size()) == (3ULL));
-    CHECK((buf.active_span().size()) == (3ULL));
-    CHECK((buf.payload_span().data() == base));
-    CHECK((buf.payload_view()) == ("new"));
+    CHECK(buf.append("new"sv));
+    CHECK(buf.payload_span().size() == 3ULL);
+    CHECK(buf.active_span().size() == 3ULL);
+    CHECK(buf.payload_span().data() == base);
+    CHECK(buf.payload_view() == "new");
   }
 }
 #pragma endregion
@@ -357,17 +357,17 @@ TEST_CASE("WriteFullyConsumedThenTailSpan", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_writer();
-    REQUIRE((buf));
+    REQUIRE(buf);
     const std::byte* base = buf.active_span().data();
 
-    CHECK((buf.append("gone"sv)));
+    CHECK(buf.append("gone"sv));
     [[maybe_unused]] auto [active_buffer, buffer_index, file_offset] =
         buf.prepare();
     buf.update(iou_res{4}, iou_cqe_flags{});
 
     auto tail = buf.tail_span(); // triggers implicit reset
-    CHECK((tail.size()) == (buf.size()));
-    CHECK((tail.data() == base));
+    CHECK(tail.size() == buf.size());
+    CHECK(tail.data() == base);
   }
 }
 #pragma endregion
@@ -378,18 +378,18 @@ TEST_CASE("WriteUpdateError", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_writer();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
-    CHECK((buf.append("data"sv)));
+    CHECK(buf.append("data"sv));
     const size_t payload_before = buf.payload_span().size();
     const size_t active_before = buf.active_span().size();
 
     [[maybe_unused]] auto [active_buffer, buffer_index, file_offset] =
         buf.prepare();
     buf.update(iou_res{-EPIPE}, iou_cqe_flags{});
-    CHECK_FALSE((buf.result().ok()));
-    CHECK((buf.payload_span().size()) == (payload_before));
-    CHECK((buf.active_span().size()) == (active_before));
+    CHECK_FALSE(buf.result().ok());
+    CHECK(buf.payload_span().size() == payload_before);
+    CHECK(buf.active_span().size() == active_before);
   }
 }
 #pragma endregion
@@ -400,21 +400,21 @@ TEST_CASE("AppendToPartiallySentBuffer", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_writer();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
-    CHECK((buf.append("hello"sv)));
+    CHECK(buf.append("hello"sv));
     [[maybe_unused]] auto [active_buffer, buffer_index, file_offset] =
         buf.prepare();
     buf.update(iou_res{3},
         iou_cqe_flags{}); // sent "hel"; active points to "lo" (2 bytes)
 
-    CHECK((buf.payload_span().size()) == (5ULL));
-    CHECK((buf.active_span().size()) == (2ULL));
+    CHECK(buf.payload_span().size() == 5ULL);
+    CHECK(buf.active_span().size() == 2ULL);
 
-    CHECK((buf.append(" world"sv)));
-    CHECK((buf.payload_span().size()) == (11ULL));
-    CHECK((buf.active_span().size()) == (8ULL));
-    CHECK((buf.payload_view()) == ("hello world"));
+    CHECK(buf.append(" world"sv));
+    CHECK(buf.payload_span().size() == 11ULL);
+    CHECK(buf.active_span().size() == 8ULL);
+    CHECK(buf.payload_view() == "hello world");
     CHECK((std::string_view(
               reinterpret_cast<const char*>(buf.active_span().data()), 8)) ==
           ("lo world"));
@@ -428,19 +428,19 @@ TEST_CASE("PromoteToWrite", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_reader();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
     sim_read(buf, "proxy data"sv);
-    REQUIRE((buf.payload_span().size()) == (10ULL));
+    REQUIRE(buf.payload_span().size() == 10ULL);
     const std::byte* payload_data = buf.payload_span().data();
 
     buf.promote_to_write();
 
-    CHECK((buf.blockrw()) == (block_type::write));
-    CHECK((buf.payload_span().size()) == (10ULL));
-    CHECK((buf.active_span().size()) == (10ULL));
-    CHECK((buf.active_span().data() == payload_data));
-    CHECK((buf.payload_view()) == ("proxy data"));
+    CHECK(buf.blockrw() == block_type::write);
+    CHECK(buf.payload_span().size() == 10ULL);
+    CHECK(buf.active_span().size() == 10ULL);
+    CHECK(buf.active_span().data() == payload_data);
+    CHECK(buf.payload_view() == "proxy data");
   }
 }
 #pragma endregion
@@ -451,17 +451,17 @@ TEST_CASE("DemoteToRead", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_writer();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
-    CHECK((buf.append("header"sv)));
+    CHECK(buf.append("header"sv));
     buf.demote_to_read();
 
-    CHECK((buf.blockrw()) == (block_type::read));
-    CHECK((buf.payload_span().size()) == (6ULL));
-    CHECK((buf.active_span().size()) == (buf.size() - 6ULL));
-    CHECK((buf.payload_view()) == ("header"));
-    CHECK((buf.active_span().data() ==
-           buf.payload_span().data() + buf.payload_span().size()));
+    CHECK(buf.blockrw() == block_type::read);
+    CHECK(buf.payload_span().size() == 6ULL);
+    CHECK(buf.active_span().size() == (buf.size() - 6ULL));
+    CHECK(buf.payload_view() == "header");
+    CHECK(buf.active_span().data() ==
+          buf.payload_span().data() + buf.payload_span().size());
   }
 }
 #pragma endregion
@@ -472,18 +472,18 @@ TEST_CASE("PromoteDemoteRoundtrip", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_reader();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
     sim_read(buf, "roundtrip"sv);
-    REQUIRE((buf.payload_span().size()) == (9ULL));
+    REQUIRE(buf.payload_span().size() == 9ULL);
 
     buf.promote_to_write();
-    CHECK((buf.payload_view()) == ("roundtrip"));
-    CHECK((buf.active_span().size()) == (9ULL));
+    CHECK(buf.payload_view() == "roundtrip");
+    CHECK(buf.active_span().size() == 9ULL);
 
     buf.demote_to_read();
-    CHECK((buf.payload_view()) == ("roundtrip"));
-    CHECK((buf.active_span().size()) == (buf.size() - 9ULL));
+    CHECK(buf.payload_view() == "roundtrip");
+    CHECK(buf.active_span().size() == (buf.size() - 9ULL));
   }
 }
 #pragma endregion
@@ -496,18 +496,18 @@ TEST_CASE("AvailableTracking", "[IouBufPool]") {
     const size_t initial = pool->available();
 
     auto r = pool->borrow_reader();
-    REQUIRE((r));
-    CHECK((pool->available()) == (initial - r.size()));
+    REQUIRE(r);
+    CHECK(pool->available() == (initial - r.size()));
 
     auto w = pool->borrow_writer();
-    REQUIRE((w));
-    CHECK((pool->available()) == (initial - r.size() - w.size()));
+    REQUIRE(w);
+    CHECK(pool->available() == (initial - r.size() - w.size()));
 
     r.reset();
-    CHECK((pool->available()) == (initial - w.size()));
+    CHECK(pool->available() == (initial - w.size()));
 
     w.reset();
-    CHECK((pool->available()) == (initial));
+    CHECK(pool->available() == initial);
   }
 }
 #pragma endregion
@@ -518,13 +518,13 @@ TEST_CASE("MoveBuffer", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto a = pool->borrow_writer();
-    REQUIRE((a));
-    CHECK((a.append("move me"sv)));
+    REQUIRE(a);
+    CHECK(a.append("move me"sv));
 
     auto b = std::move(a);
-    CHECK_FALSE((a)); // NOLINT(bugprone-use-after-move)
-    CHECK((b));
-    CHECK((b.payload_view()) == ("move me"));
+    CHECK_FALSE(a); // NOLINT(bugprone-use-after-move)
+    CHECK(b);
+    CHECK(b.payload_view() == "move me");
   }
 }
 #pragma endregion
@@ -539,18 +539,18 @@ TEST_CASE("CoalesceSmallToMedium", "[IouBufPool]") {
     auto m0 = pool->borrow_writer(block_size::kb016);
     auto m1 = pool->borrow_writer(block_size::kb016);
     auto m2 = pool->borrow_writer(block_size::kb016);
-    REQUIRE((m0));
-    REQUIRE((m1));
-    REQUIRE((m2));
+    REQUIRE(m0);
+    REQUIRE(m1);
+    REQUIRE(m2);
     // The fourth medium is split into four smalls.
     auto s0 = pool->borrow_writer(block_size::kb004);
     auto s1 = pool->borrow_writer(block_size::kb004);
     auto s2 = pool->borrow_writer(block_size::kb004);
     auto s3 = pool->borrow_writer(block_size::kb004);
-    REQUIRE((s0));
-    REQUIRE((s1));
-    REQUIRE((s2));
-    REQUIRE((s3));
+    REQUIRE(s0);
+    REQUIRE(s1);
+    REQUIRE(s2);
+    REQUIRE(s3);
     // Free all four smalls: they should coalesce into the fourth medium.
     s0.reset();
     s1.reset();
@@ -559,13 +559,13 @@ TEST_CASE("CoalesceSmallToMedium", "[IouBufPool]") {
     // Three sibling mediums are still held: the large must NOT coalesce.
     // The coalesced medium should be immediately allocatable.
     auto m_new = pool->borrow_writer(block_size::kb016);
-    REQUIRE((m_new));
+    REQUIRE(m_new);
     // Release everything and verify full recovery.
     m0.reset();
     m1.reset();
     m2.reset();
     m_new.reset();
-    CHECK((pool->available()) == (2ULL * 1024 * 1024));
+    CHECK(pool->available() == (2ULL * 1024 * 1024));
   }
 }
 #pragma endregion
@@ -580,20 +580,20 @@ TEST_CASE("CoalesceMediumToLarge", "[IouBufPool]") {
     auto m1 = pool->borrow_writer(block_size::kb016);
     auto m2 = pool->borrow_writer(block_size::kb016);
     auto m3 = pool->borrow_writer(block_size::kb016);
-    REQUIRE((m0));
-    REQUIRE((m1));
-    REQUIRE((m2));
-    REQUIRE((m3));
+    REQUIRE(m0);
+    REQUIRE(m1);
+    REQUIRE(m2);
+    REQUIRE(m3);
     m0.reset();
     m1.reset();
     m2.reset();
     m3.reset();
     // All four mediums freed: the parent large must be reconstructed.
-    CHECK((pool->available()) == (initial));
+    CHECK(pool->available() == initial);
     auto l = pool->borrow_writer(block_size::kb032);
-    REQUIRE((l));
+    REQUIRE(l);
     l.reset();
-    CHECK((pool->available()) == (initial));
+    CHECK(pool->available() == initial);
   }
 }
 #pragma endregion
@@ -609,21 +609,21 @@ TEST_CASE("CoalesceChain", "[IouBufPool]") {
     std::array<iou_buf_pool::buffer, TOTAL_SMALLS> bufs;
     for (size_t i = 0; i < TOTAL_SMALLS; ++i) {
       bufs[i] = pool->borrow_writer(block_size::kb004);
-      REQUIRE((bufs[i]));
+      REQUIRE(bufs[i]);
     }
-    CHECK((pool->available()) == (0ULL));
+    CHECK(pool->available() == 0ULL);
     for (size_t i = 0; i < TOTAL_SMALLS; ++i) bufs[i].reset();
-    CHECK((pool->available()) == (2ULL * 1024 * 1024));
+    CHECK(pool->available() == (2ULL * 1024 * 1024));
     // All 32 large blocks must now be individually allocatable.
     std::array<iou_buf_pool::buffer, TOTAL_LARGE> large_bufs;
     for (size_t i = 0; i < TOTAL_LARGE; ++i) {
       large_bufs[i] = pool->borrow_writer(block_size::kb064);
-      REQUIRE((large_bufs[i]));
+      REQUIRE(large_bufs[i]);
     }
     auto extra = pool->borrow_writer(block_size::kb064);
-    CHECK_FALSE((extra));
+    CHECK_FALSE(extra);
     for (auto& b : large_bufs) b.reset();
-    CHECK((pool->available()) == (2ULL * 1024 * 1024));
+    CHECK(pool->available() == (2ULL * 1024 * 1024));
   }
 }
 #pragma endregion
@@ -638,14 +638,14 @@ TEST_CASE("UdpTierAlloc", "[IouBufPool]") {
     std::array<iou_buf_pool::buffer, TOTAL> bufs;
     for (size_t i = 0; i < TOTAL; ++i) {
       bufs[i] = pool->borrow_writer(block_size::kb002);
-      REQUIRE((bufs[i]));
-      CHECK((bufs[i].size()) == (2ULL * 1024));
+      REQUIRE(bufs[i]);
+      CHECK(bufs[i].size() == (2ULL * 1024));
     }
-    CHECK((pool->available()) == (0ULL));
+    CHECK(pool->available() == 0ULL);
     auto extra = pool->borrow_writer(block_size::kb002);
-    CHECK_FALSE((extra));
+    CHECK_FALSE(extra);
     for (auto& b : bufs) b.reset();
-    CHECK((pool->available()) == (2ULL * 1024 * 1024));
+    CHECK(pool->available() == (2ULL * 1024 * 1024));
   }
 }
 #pragma endregion
@@ -656,8 +656,8 @@ TEST_CASE("UpdateRecvmsgMsgFlagsDefault", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_reader();
-    REQUIRE((buf));
-    CHECK((buf.msghdr_flags()) == (msg_flags{}));
+    REQUIRE(buf);
+    CHECK(buf.msghdr_flags() == msg_flags{});
   }
 }
 #pragma endregion
@@ -667,7 +667,7 @@ TEST_CASE("UpdateRecvmsgValid", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_reader();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
     constexpr std::string_view data{"hello-recvmsg"};
     constexpr uint32_t peer_ip = 0x7f000001; // 127.0.0.1
@@ -698,12 +698,12 @@ TEST_CASE("UpdateRecvmsgValid", "[IouBufPool]") {
     buf.update(iou_res{static_cast<int>(total)}, iou_cqe_flags{},
         msg_template);
 
-    CHECK((buf.payload_span().size()) == (data.size()));
-    CHECK((buf.payload_view()) == (data));
-    CHECK((buf.msghdr_flags()) == (msg_flags{}));
-    CHECK((buf.result().bytes()) == (data.size()));
-    CHECK((buf.peer_addr().is_v4()));
-    CHECK((buf.peer_addr().port()) == (peer_port));
+    CHECK(buf.payload_span().size() == data.size());
+    CHECK(buf.payload_view() == data);
+    CHECK(buf.msghdr_flags() == msg_flags{});
+    CHECK(buf.result().bytes() == data.size());
+    CHECK(buf.peer_addr().is_v4());
+    CHECK(buf.peer_addr().port() == peer_port);
   }
 }
 #pragma endregion
@@ -714,7 +714,7 @@ TEST_CASE("UpdateRecvmsgTruncated", "[IouBufPool]") {
   if (true) {
     auto pool = iou_buf_pool::create();
     auto buf = pool->borrow_reader();
-    REQUIRE((buf));
+    REQUIRE(buf);
 
     const size_t namelen = sizeof(sockaddr_in);
     auto* mem = buf.active_span().data();
@@ -739,7 +739,7 @@ TEST_CASE("UpdateRecvmsgTruncated", "[IouBufPool]") {
     buf.update(iou_res{static_cast<int>(total)}, iou_cqe_flags{},
         msg_template);
 
-    CHECK((bitmask::has(buf.msghdr_flags(), msg_flags::trunc)));
+    CHECK(bitmask::has(buf.msghdr_flags(), msg_flags::trunc));
   }
 }
 #pragma endregion
@@ -753,15 +753,15 @@ TEST_CASE("SyntheticPrefilled", "[IouBufPool]") {
       data.size()};
   auto buf = iou_buffer::make_synthetic(span);
 
-  REQUIRE((buf));
-  CHECK((buf.blockrw()) == (block_type::read));
-  CHECK((buf.size()) == (data.size()));
-  CHECK((buf.payload_span().size()) == (data.size()));
-  CHECK((buf.payload_view()) == (data));
-  CHECK((buf.active_span().size()) == (0ULL));
-  CHECK((buf.active_span().data() ==
-         buf.payload_span().data() + buf.payload_span().size()));
-  CHECK((buf.result().bytes()) == (data.size()));
+  REQUIRE(buf);
+  CHECK(buf.blockrw() == block_type::read);
+  CHECK(buf.size() == data.size());
+  CHECK(buf.payload_span().size() == data.size());
+  CHECK(buf.payload_view() == data);
+  CHECK(buf.active_span().size() == 0ULL);
+  CHECK(buf.active_span().data() ==
+        buf.payload_span().data() + buf.payload_span().size());
+  CHECK(buf.result().bytes() == data.size());
 }
 #pragma endregion
 
@@ -774,9 +774,9 @@ TEST_CASE("SyntheticDestructionHarmless", "[IouBufPool]") {
       data.size()};
   if (true) {
     auto buf = iou_buffer::make_synthetic(span);
-    CHECK((buf.payload_view()) == (data));
+    CHECK(buf.payload_view() == data);
   }
-  CHECK((data) == ("keepalive"));
+  CHECK(data == "keepalive");
 }
 #pragma endregion
 
@@ -790,14 +790,14 @@ TEST_CASE("SyntheticConsumeRead", "[IouBufPool]") {
   auto buf = iou_buffer::make_synthetic(span);
 
   auto first = buf.consume_read(3);
-  CHECK((first.size()) == (3ULL));
-  CHECK((std::string_view(reinterpret_cast<const char*>(first.data()),
-            first.size())) == ("abc"));
-  CHECK((buf.payload_view()) == ("def"));
+  CHECK(first.size() == 3ULL);
+  CHECK(std::string_view(reinterpret_cast<const char*>(first.data()),
+            first.size()) == "abc");
+  CHECK(buf.payload_view() == "def");
 
   auto rest = buf.consume_read(buf.payload_span().size());
-  CHECK((rest.size()) == (3ULL));
-  CHECK((buf.payload_span().size()) == (0ULL));
+  CHECK(rest.size() == 3ULL);
+  CHECK(buf.payload_span().size() == 0ULL);
 }
 #pragma endregion
 
@@ -809,10 +809,10 @@ TEST_CASE("SyntheticMove", "[IouBufPool]") {
       data.size()};
   auto src = iou_buffer::make_synthetic(span);
   auto dst = std::move(src);
-  REQUIRE((dst));
-  CHECK_FALSE((src));
-  CHECK((dst.payload_view()) == (data));
-  CHECK((src.payload_span().size()) == (0ULL));
+  REQUIRE(dst);
+  CHECK_FALSE(src);
+  CHECK(dst.payload_view() == data);
+  CHECK(src.payload_span().size() == 0ULL);
 }
 #pragma endregion
 

@@ -37,7 +37,7 @@ TEST_CASE("PidControllerTest", "[PidControllerTest]") {
     // Proportional only.
     pid_controller pid(2.0, 0.0, 0.0);
     double out = pid.update(10.0, 4.0, 0.0);
-    CHECK(std::abs((out) - (12.0)) <= (eps)); // P = 2 * (10 - 4) = 12
+    CHECK(std::abs((out) - (12.0)) <= eps); // P = 2 * (10 - 4) = 12
   }
   if (true) {
     // Proportional only, repeated time.
@@ -52,12 +52,12 @@ TEST_CASE("PidControllerTest", "[PidControllerTest]") {
     pid_controller pid(2.0, 0.0, 0.0);
     double first = pid.update(10.0, 4.0, 0.0);
     double second = pid.update(10.0, 4.0, 1.0);
-    CHECK(std::abs((first) - (second)) <= (eps)); // Still just P, no change
+    CHECK(std::abs((first) - (second)) <= eps); // Still just P, no change
   }
   if (true) {
     // Integral accumulation.
     pid_controller pid(0.0, 1.0, 0.0);
-    CHECK(std::abs((pid.update(1.0, 0.0, 0.0)) - (0.0)) <= (eps)); // Init
+    CHECK(std::abs((pid.update(1.0, 0.0, 0.0)) - (0.0)) <= eps); // Init
     CHECK(std::abs((pid.update(1.0, 0.0, 1.0)) - (1.0)) <=
           (eps)); // Integral = 1
     CHECK(std::abs((pid.update(1.0, 0.0, 2.0)) - (2.0)) <=
@@ -66,22 +66,20 @@ TEST_CASE("PidControllerTest", "[PidControllerTest]") {
   if (true) {
     // Clock moves backwards.
     pid_controller pid(1.0, 0.0, 0.0);
-    CHECK(std::abs((pid.update(1.0, 0.0, 5.0)) - (1.0)) <= (eps));
-    CHECK(
-        std::abs((pid.update(1.0, 0.0, 3.0)) - (1.0)) <= (eps)); // Last value
+    CHECK(std::abs((pid.update(1.0, 0.0, 5.0)) - (1.0)) <= eps);
+    CHECK(std::abs((pid.update(1.0, 0.0, 3.0)) - (1.0)) <= eps); // Last value
     CHECK(std::abs((pid.update(1.0, 0.0, 6.0)) - (1.0)) <=
           (eps)); // Still same error
   }
   if (true) {
     // Clock moves backwards, without losing integral.
     pid_controller pid(0.0, 1.0, 0.0);
-    CHECK(std::abs((pid.update(1.0, 0.0, 5.0)) - (0.0)) <= (eps)); // Init
+    CHECK(std::abs((pid.update(1.0, 0.0, 5.0)) - (0.0)) <= eps); // Init
     CHECK(std::abs((pid.update(1.0, 0.0, 6.0)) - (1.0)) <=
           (eps)); // One second of panic.
     CHECK(std::abs((pid.update(1.0, 0.0, 8.0)) - (3.0)) <=
           (eps)); // Two seconds of panic.
-    CHECK(
-        std::abs((pid.update(1.0, 0.0, 3.0)) - (3.0)) <= (eps)); // Time jump.
+    CHECK(std::abs((pid.update(1.0, 0.0, 3.0)) - (3.0)) <= eps); // Time jump.
     CHECK(std::abs((pid.update(1.0, 0.0, 4.0)) - (4.0)) <=
           (eps)); // One second of panic.
   }
@@ -89,21 +87,21 @@ TEST_CASE("PidControllerTest", "[PidControllerTest]") {
     // Derivative filtering.
     pid_controller pid(0.0, 0.0, 1.0, 0.5);    // D-only, filtered
     double first = pid.update(0.0, 10.0, 0.0); // First call, no D yet
-    CHECK(std::abs((first) - (0.0)) <= (eps)); // No change, no previous error
+    CHECK(std::abs((first) - (0.0)) <= eps);   // No change, no previous error
     // Error jump from -10 to 0 -> D spike
     double out = pid.update(0.0, 0.0, 0.1);
     // raw D = (0 - (-10)) / 0.1 = 100, but filtered: 0.5 * 0 + 0.5 * 100 = 50
-    CHECK(std::abs((out) - (50.0)) <= (eps));
+    CHECK(std::abs((out) - (50.0)) <= eps);
   }
   if (true) {
     // Saturation and windup
     // Aggressive gains, clamped
     pid_controller pid(100.0, 50.0, 0.0, 0.0, -10.0, 10.0);
     double first = pid.update(1.0, -1.0, 0.0); // Error = 2 -> unclamped = huge
-    CHECK(std::abs((first) - (10.0)) <= (eps)); // Clamped at max
+    CHECK(std::abs((first) - (10.0)) <= eps);  // Clamped at max
     // Integral term would grow, but shouldn't
     double second = pid.update(1.0, -1.0, 1.0);
-    CHECK(std::abs((second) - (10.0)) <= (eps)); // Still clamped, no windup
+    CHECK(std::abs((second) - (10.0)) <= eps); // Still clamped, no windup
   }
 }
 
@@ -118,21 +116,21 @@ TEST_CASE("plant_test", "[sopdt]") {
     // Apply 1.0 for multiple steps
     for (int i = 0; i < 10; ++i) {
       // dead time, output should still be 0.0
-      CHECK(std::abs((plant.update(1.0)) - (0.0)) <= (eps));
+      CHECK(std::abs((plant.update(1.0)) - (0.0)) <= eps);
     }
 
     double output = plant.update(1.0); // step 11: input has reached system
     // This is now valid after 1 time constant (tau = 1)
-    CHECK(std::abs((output) - (0.01)) <= (eps));
+    CHECK(std::abs((output) - (0.01)) <= eps);
 
     // Loop more to approximate steady state.
     for (int i = 0; i < 1000; ++i) {
       output = plant.update(1.0);
-      CHECK((std::isfinite(output))); // Ensure output is finite
+      CHECK(std::isfinite(output)); // Ensure output is finite
     }
 
     output = plant.update(1.0);
-    CHECK(std::abs((output) - (1)) <= (eps));
+    CHECK(std::abs((output) - (1)) <= eps);
   }
   if (true) {
     const double dt = 0.01;

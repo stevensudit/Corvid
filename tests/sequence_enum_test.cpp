@@ -43,9 +43,7 @@ enum class new_enum : std::uint8_t { new_zero, new_one, new_two, new_three };
 #pragma region Registry
 
 TEST_CASE("Registry", "[SequentialEnumTest]") {
-  if (true) {
-    CHECK(((strings::enum_as_string(tiger_pick::eeny))) == ("eeny"));
-  }
+  if (true) { CHECK(strings::enum_as_string(tiger_pick::eeny) == "eeny"); }
 }
 
 #pragma endregion
@@ -53,11 +51,11 @@ TEST_CASE("Registry", "[SequentialEnumTest]") {
 
 TEST_CASE("Ops", "[SequentialEnumTest]") {
   if (true) {
-    CHECK((!tiger_pick{}));
+    CHECK(!tiger_pick{});
 
     auto e = tiger_pick::eeny;
     auto i = *e;
-    CHECK((i) == (0));
+    CHECK(i == 0);
 
     // The next line correctly fails because std::byte isn't a registered enum.
     // auto bad = make<std::byte>(23);
@@ -66,47 +64,47 @@ TEST_CASE("Ops", "[SequentialEnumTest]") {
     // * auto worse = make<int>(23);
 
     e = e + 1;
-    CHECK((e) == (tiger_pick::meany));
+    CHECK(e == tiger_pick::meany);
 
     // Commutative.
     e = 0 + e;
 
     e += 1;
-    CHECK((e) == (tiger_pick::miny));
+    CHECK(e == tiger_pick::miny);
     e = tiger_pick::eeny;
-    CHECK((++e) == (tiger_pick::meany));
-    CHECK((e) == (tiger_pick::meany));
-    CHECK((e++) == (tiger_pick::meany));
-    CHECK((e) == (tiger_pick::miny));
+    CHECK(++e == tiger_pick::meany);
+    CHECK(e == tiger_pick::meany);
+    CHECK(e++ == tiger_pick::meany);
+    CHECK(e == tiger_pick::miny);
 
     e = tiger_pick::moe;
     e = e - 1;
-    CHECK((e) == (tiger_pick::miny));
+    CHECK(e == tiger_pick::miny);
 
     // Does not compile because subtraction is not commutative.
     // * auto bad = 1 - e;
 
     e -= 1;
-    CHECK((e) == (tiger_pick::meany));
+    CHECK(e == tiger_pick::meany);
     e = tiger_pick::moe;
-    CHECK((--e) == (tiger_pick::miny));
-    CHECK((e) == (tiger_pick::miny));
-    CHECK((e--) == (tiger_pick::miny));
-    CHECK((e) == (tiger_pick::meany));
+    CHECK(--e == tiger_pick::miny);
+    CHECK(e == tiger_pick::miny);
+    CHECK(e-- == tiger_pick::miny);
+    CHECK(e == tiger_pick::meany);
 
     // The following shows what happens when wrapping isn't enabled.
     e = tiger_pick::eeny;
     --e;
-    CHECK((*e) == (-1));
+    CHECK(*e == -1);
   }
   if (true) {
     using namespace strings;
-    CHECK(((enum_as_string(tiger_pick::eeny))) == ("eeny"));
-    CHECK(((enum_as_string(tiger_pick::meany))) == ("meany"));
-    CHECK(((enum_as_string(tiger_pick::miny))) == ("miny"));
-    CHECK(((enum_as_string(tiger_pick::moe))) == ("moe"));
-    CHECK((enum_as_string(tiger_pick(-1))) == ("-1"));
-    CHECK((enum_as_string(tiger_pick(4))) == ("4"));
+    CHECK(enum_as_string(tiger_pick::eeny) == "eeny");
+    CHECK(enum_as_string(tiger_pick::meany) == "meany");
+    CHECK(enum_as_string(tiger_pick::miny) == "miny");
+    CHECK(enum_as_string(tiger_pick::moe) == "moe");
+    CHECK(enum_as_string(tiger_pick(-1)) == "-1");
+    CHECK(enum_as_string(tiger_pick(4)) == "4");
   }
 }
 
@@ -183,217 +181,217 @@ TEST_CASE("MakeSafely", "[SequentialEnumTest]") {
   if (true) {
     e0_3 e;
     e = make_safely<e0_3>(0);
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make_safely<e0_3>(1);
-    CHECK((*e) == (1));
+    CHECK(*e == 1);
     e = make_safely<e0_3>(3);
-    CHECK((*e) == (3));
+    CHECK(*e == 3);
 
     e = make_safely<e0_3>(3 + 1);
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make_safely<e0_3>(3 + 2);
-    CHECK((*e) == (1));
+    CHECK(*e == 1);
     e = make_safely<e0_3>(3 + 3);
-    CHECK((*e) == (2));
+    CHECK(*e == 2);
     e = make_safely<e0_3>(3 + 4);
-    CHECK((*e) == (3));
+    CHECK(*e == 3);
     e = make_safely<e0_3>(3 + 5);
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make_safely<e0_3>(3 + 3 * 4);
-    CHECK((*e) == (3));
+    CHECK(*e == 3);
 
     // Note: All of these casts are strictly unnecessary. They're just to
     // suppress spurious warnings of precision lost due to the implicit
     // cast.
     e = make_safely<e0_3>(int8_t(0 - 1));
-    CHECK((*e) == (3));
+    CHECK(*e == 3);
     e = make_safely<e0_3>(int8_t(0 - 2));
-    CHECK((*e) == (2));
+    CHECK(*e == 2);
     e = make_safely<e0_3>(int8_t(0 - 3));
-    CHECK((*e) == (1));
+    CHECK(*e == 1);
     e = make_safely<e0_3>(int8_t(0 - 4));
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make_safely<e0_3>(int8_t(0 - 5));
-    CHECK((*e) == (3));
+    CHECK(*e == 3);
     e = make_safely<e0_3>(int8_t(0 - 4 * 4));
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
   }
   if (true) {
     using namespace strings;
-    CHECK((enum_as_string(e0_3(-1))) == ("-1"));
-    CHECK((enum_as_string(e0_3(0))) == ("a"));
-    CHECK((enum_as_string(e0_3(1))) == ("1"));
-    CHECK((enum_as_string(e0_3(2))) == ("c"));
-    CHECK((enum_as_string(e0_3(3))) == ("3"));
-    CHECK((enum_as_string(e0_3(4))) == ("4"));
+    CHECK(enum_as_string(e0_3(-1)) == "-1");
+    CHECK(enum_as_string(e0_3(0)) == "a");
+    CHECK(enum_as_string(e0_3(1)) == "1");
+    CHECK(enum_as_string(e0_3(2)) == "c");
+    CHECK(enum_as_string(e0_3(3)) == "3");
+    CHECK(enum_as_string(e0_3(4)) == "4");
   }
   if (true) {
     e10_13 e;
     e = make_safely<e10_13>(10);
-    CHECK((*e) == (10));
+    CHECK(*e == 10);
     e = make_safely<e10_13>(11);
-    CHECK((*e) == (11));
+    CHECK(*e == 11);
     e = make_safely<e10_13>(13);
-    CHECK((*e) == (13));
+    CHECK(*e == 13);
 
     e = make_safely<e10_13>(13 + 1);
-    CHECK((*e) == (10));
+    CHECK(*e == 10);
     e = make_safely<e10_13>(13 + 2);
-    CHECK((*e) == (11));
+    CHECK(*e == 11);
     e = make_safely<e10_13>(13 + 3);
-    CHECK((*e) == (12));
+    CHECK(*e == 12);
     e = make_safely<e10_13>(13 + 4);
-    CHECK((*e) == (13));
+    CHECK(*e == 13);
     e = make_safely<e10_13>(13 + 5);
-    CHECK((*e) == (10));
+    CHECK(*e == 10);
     e = make_safely<e10_13>(13 + 3 * 4);
-    CHECK((*e) == (13));
+    CHECK(*e == 13);
 
     e = make_safely<e10_13>(10 - 1);
-    CHECK((*e) == (13));
+    CHECK(*e == 13);
     e = make_safely<e10_13>(10 - 2);
-    CHECK((*e) == (12));
+    CHECK(*e == 12);
     e = make_safely<e10_13>(10 - 3);
-    CHECK((*e) == (11));
+    CHECK(*e == 11);
     e = make_safely<e10_13>(10 - 4);
-    CHECK((*e) == (10));
+    CHECK(*e == 10);
     e = make_safely<e10_13>(10 - 5);
-    CHECK((*e) == (13));
+    CHECK(*e == 13);
     e = make_safely<e10_13>(int8_t(10 - 4 * 4));
-    CHECK((*e) == (10));
+    CHECK(*e == 10);
   }
   if (true) {
     using namespace strings;
-    CHECK((enum_as_string(e10_13(-1))) == ("-1"));
-    CHECK((enum_as_string(e10_13(9))) == ("9"));
-    CHECK((enum_as_string(e10_13(10))) == ("ten"));
-    CHECK((enum_as_string(e10_13(11))) == ("eleven"));
-    CHECK((enum_as_string(e10_13(12))) == ("twelve"));
-    CHECK((enum_as_string(e10_13(13))) == ("thirteen"));
-    CHECK((enum_as_string(e10_13(14))) == ("14"));
+    CHECK(enum_as_string(e10_13(-1)) == "-1");
+    CHECK(enum_as_string(e10_13(9)) == "9");
+    CHECK(enum_as_string(e10_13(10)) == "ten");
+    CHECK(enum_as_string(e10_13(11)) == "eleven");
+    CHECK(enum_as_string(e10_13(12)) == "twelve");
+    CHECK(enum_as_string(e10_13(13)) == "thirteen");
+    CHECK(enum_as_string(e10_13(14)) == "14");
   }
   if (true) {
     eneg3_3 e;
     e = make_safely<eneg3_3>(0);
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make_safely<eneg3_3>(-3);
-    CHECK((*e) == (-3));
+    CHECK(*e == -3);
     e = make_safely<eneg3_3>(3);
-    CHECK((*e) == (3));
+    CHECK(*e == 3);
 
     e = make_safely<eneg3_3>(3 + 1);
-    CHECK((*e) == (-3));
+    CHECK(*e == -3);
     e = make_safely<eneg3_3>(3 + 2);
-    CHECK((*e) == (-2));
+    CHECK(*e == -2);
     e = make_safely<eneg3_3>(3 + 3);
-    CHECK((*e) == (-1));
+    CHECK(*e == -1);
     e = make_safely<eneg3_3>(3 + 4);
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make_safely<eneg3_3>(3 + 5);
-    CHECK((*e) == (1));
+    CHECK(*e == 1);
     e = make_safely<eneg3_3>(3 + 6);
-    CHECK((*e) == (2));
+    CHECK(*e == 2);
     e = make_safely<eneg3_3>(3 + 7);
-    CHECK((*e) == (3));
+    CHECK(*e == 3);
     e = make_safely<eneg3_3>(3 + 8);
-    CHECK((*e) == (-3));
+    CHECK(*e == -3);
     e = make_safely<eneg3_3>(3 + 7 * 4);
-    CHECK((*e) == (3));
+    CHECK(*e == 3);
 
     e = make_safely<eneg3_3>(-3 - 1);
-    CHECK((*e) == (3));
+    CHECK(*e == 3);
     e = make_safely<eneg3_3>(-3 - 2);
-    CHECK((*e) == (2));
+    CHECK(*e == 2);
     e = make_safely<eneg3_3>(-3 - 3);
-    CHECK((*e) == (1));
+    CHECK(*e == 1);
     e = make_safely<eneg3_3>(-3 - 4);
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make_safely<eneg3_3>(-3 - 5);
-    CHECK((*e) == (-1));
+    CHECK(*e == -1);
     e = make_safely<eneg3_3>(-3 - 6);
-    CHECK((*e) == (-2));
+    CHECK(*e == -2);
     e = make_safely<eneg3_3>(-3 - 7);
-    CHECK((*e) == (-3));
+    CHECK(*e == -3);
     e = make_safely<eneg3_3>(-3 - 8);
-    CHECK((*e) == (3));
+    CHECK(*e == 3);
     e = make_safely<eneg3_3>(-3 - 7 * 4);
-    CHECK((*e) == (-3));
+    CHECK(*e == -3);
   }
   if (true) {
     using namespace strings;
-    CHECK((enum_as_string(eneg3_3(-4))) == ("-4"));
-    CHECK((enum_as_string(eneg3_3(-3))) == ("neg-three"));
-    CHECK((enum_as_string(eneg3_3(-2))) == ("neg-two"));
-    CHECK((enum_as_string(eneg3_3(-1))) == ("neg-one"));
-    CHECK((enum_as_string(eneg3_3(0))) == ("zero"));
-    CHECK((enum_as_string(eneg3_3(1))) == ("one"));
-    CHECK((enum_as_string(eneg3_3(2))) == ("two"));
-    CHECK((enum_as_string(eneg3_3(3))) == ("three"));
-    CHECK((enum_as_string(eneg3_3(4))) == ("4"));
+    CHECK(enum_as_string(eneg3_3(-4)) == "-4");
+    CHECK(enum_as_string(eneg3_3(-3)) == "neg-three");
+    CHECK(enum_as_string(eneg3_3(-2)) == "neg-two");
+    CHECK(enum_as_string(eneg3_3(-1)) == "neg-one");
+    CHECK(enum_as_string(eneg3_3(0)) == "zero");
+    CHECK(enum_as_string(eneg3_3(1)) == "one");
+    CHECK(enum_as_string(eneg3_3(2)) == "two");
+    CHECK(enum_as_string(eneg3_3(3)) == "three");
+    CHECK(enum_as_string(eneg3_3(4)) == "4");
   }
   if (true) {
     e0_255 e;
 
     e = make_safely<e0_255>(0);
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make_safely<e0_255>(uint8_t(256));
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make_safely<e0_255>(uint8_t(257));
-    CHECK((*e) == (1));
+    CHECK(*e == 1);
 
     e = make_safely<e0_255>(uint8_t(0 - 2));
-    CHECK((*e) == (254));
+    CHECK(*e == 254);
     e = make_safely<e0_255>(uint8_t(255 + 3));
-    CHECK((*e) == (2));
+    CHECK(*e == 2);
     e = make_safely<e0_255>(uint8_t(255 + 3 * 256));
-    CHECK((*e) == (255));
+    CHECK(*e == 255);
 
     // Safety is meaningless in this case.
     e = make<e0_255>(0);
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make<e0_255>(uint8_t(256));
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make<e0_255>(uint8_t(257));
-    CHECK((*e) == (1));
+    CHECK(*e == 1);
 
     e = make<e0_255>(uint8_t(0 - 2));
-    CHECK((*e) == (254));
+    CHECK(*e == 254);
     e = make<e0_255>(uint8_t(255 + 3));
-    CHECK((*e) == (2));
+    CHECK(*e == 2);
     e = make<e0_255>(uint8_t(255 + 3 * 256));
-    CHECK((*e) == (255));
+    CHECK(*e == 255);
   }
   if (true) {
     eneg128_127 e;
 
     e = make_safely<eneg128_127>(0);
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make_safely<eneg128_127>(int8_t(128));
-    CHECK((*e) == (-128));
+    CHECK(*e == -128);
     e = make_safely<eneg128_127>(int8_t(-129));
-    CHECK((*e) == (127));
+    CHECK(*e == 127);
 
     e = make_safely<eneg128_127>(int8_t(-128 - 2));
-    CHECK((*e) == (126));
+    CHECK(*e == 126);
     e = make_safely<eneg128_127>(int8_t(127 + 3));
-    CHECK((*e) == (-126));
+    CHECK(*e == -126);
     e = make_safely<eneg128_127>(int8_t(127 + 3 * 256));
-    CHECK((*e) == (127));
+    CHECK(*e == 127);
 
     // Safety is meaningless in this case.
     e = make<eneg128_127>(0);
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make<eneg128_127>(int8_t(128));
-    CHECK((*e) == (-128));
+    CHECK(*e == -128);
     e = make<eneg128_127>(int8_t(-129));
-    CHECK((*e) == (127));
+    CHECK(*e == 127);
 
     e = make<eneg128_127>(int8_t(-128 - 2));
-    CHECK((*e) == (126));
+    CHECK(*e == 126);
     e = make<eneg128_127>(int8_t(127 + 3));
-    CHECK((*e) == (-126));
+    CHECK(*e == -126);
     e = make<eneg128_127>(int8_t(127 + 3 * 256));
-    CHECK((*e) == (127));
+    CHECK(*e == 127);
   }
 }
 
@@ -404,19 +402,19 @@ TEST_CASE("SafeOps", "[SequentialEnumTest]") {
   if (true) {
     e0_3 e;
     e = make<e0_3>(0);
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     --e;
-    CHECK((*e) == (3));
+    CHECK(*e == 3);
     ++e;
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e += 4;
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e += 4 * 4;
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e -= 4;
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e -= 4 * 4;
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
   }
 }
 
@@ -434,7 +432,7 @@ TEST_CASE("NoChoice", "[SequentialEnumTest]") {
   if (true) {
     auto e = tiger_nochoice::tiger;
     auto n = *e;
-    CHECK((n) == (0));
+    CHECK(n == 0);
   }
 }
 
@@ -454,33 +452,33 @@ TEST_CASE("SubtleBugRepro", "[SequentialEnumTest]") {
 
   // This is a regression test now.
   e = make_safely<e0_3unsafe>(36);
-  CHECK((*e) == (0));
-  CHECK((*e) != (36));
+  CHECK(*e == 0);
+  CHECK(*e != 36);
 }
 
 #pragma endregion
 #pragma region StreamingOut
 
 TEST_CASE("StreamingOut", "[SequentialEnumTest]") {
-  CHECK((OStreamable<tiger_pick>));
+  CHECK(OStreamable<tiger_pick>);
   if (true) {
     std::stringstream ss;
     int i = *tiger_pick::moe;
     ss << i << std::flush;
-    CHECK((ss.str()) == ("3"));
+    CHECK(ss.str() == "3");
   }
 
   if (true) {
     std::stringstream ss;
     ss << tiger_pick::moe << std::flush;
-    CHECK((ss.str()) == ("moe"));
+    CHECK(ss.str() == "moe");
   }
 
   if (true) {
     std::stringstream ss;
     ss << extract_field::value << ", " << extract_field::key_value
        << std::flush;
-    CHECK((ss.str()) == ("value, key_value"));
+    CHECK(ss.str() == "value, key_value");
   }
 }
 
@@ -505,24 +503,24 @@ TEST_CASE("Missing", "[SequentialEnumTest]") {
   if (true) {
     using namespace strings;
     // Hyphen placeholder: numeric value is printed.
-    CHECK(((enum_as_string(tiger_missing::eeny))) == ("eeny"));
-    CHECK((enum_as_string(tiger_missing(1))) == ("1"));
-    CHECK(((enum_as_string(tiger_missing::miny))) == ("miny"));
-    CHECK(((enum_as_string(tiger_missing::moe))) == ("moe"));
-    CHECK((enum_as_string(tiger_missing(-1))) == ("255"));
-    CHECK((enum_as_string(tiger_missing(4))) == ("4"));
+    CHECK(enum_as_string(tiger_missing::eeny) == "eeny");
+    CHECK(enum_as_string(tiger_missing(1)) == "1");
+    CHECK(enum_as_string(tiger_missing::miny) == "miny");
+    CHECK(enum_as_string(tiger_missing::moe) == "moe");
+    CHECK(enum_as_string(tiger_missing(-1)) == "255");
+    CHECK(enum_as_string(tiger_missing(4)) == "4");
   }
   if (true) {
     using namespace strings;
     // Empty-element placeholder: numeric value is printed.
-    CHECK((enum_as_string(tiger_gapped(0))) == ("ga"));
-    CHECK((enum_as_string(tiger_gapped(1))) == ("1"));
-    CHECK((enum_as_string(tiger_gapped(2))) == ("gc"));
-    CHECK((enum_as_string(tiger_gapped(3))) == ("gd"));
+    CHECK(enum_as_string(tiger_gapped(0)) == "ga");
+    CHECK(enum_as_string(tiger_gapped(1)) == "1");
+    CHECK(enum_as_string(tiger_gapped(2)) == "gc");
+    CHECK(enum_as_string(tiger_gapped(3)) == "gd");
     // Asterisk placeholder (e0_3 index 1), question mark placeholder (index
     // 3).
-    CHECK((enum_as_string(e0_3(1))) == ("1"));
-    CHECK((enum_as_string(e0_3(3))) == ("3"));
+    CHECK(enum_as_string(e0_3(1)) == "1");
+    CHECK(enum_as_string(e0_3(3)) == "3");
   }
 }
 
@@ -536,8 +534,8 @@ TEST_CASE("Intervals", "[SequentialEnumTest]") {
       ++c;
       s += *e;
     }
-    CHECK((c) == (4));
-    CHECK((s) == (0 + 1 + 2 + 3));
+    CHECK(c == 4);
+    CHECK(s == (0 + 1 + 2 + 3));
   }
   if (true) {
     int c{}, s{};
@@ -545,8 +543,8 @@ TEST_CASE("Intervals", "[SequentialEnumTest]") {
       ++c;
       s += *e;
     }
-    CHECK((c) == (4));
-    CHECK((s) == (10 + 11 + 12 + 13));
+    CHECK(c == 4);
+    CHECK(s == (10 + 11 + 12 + 13));
   }
   if (true) {
     int c{}, s{};
@@ -556,8 +554,8 @@ TEST_CASE("Intervals", "[SequentialEnumTest]") {
       ++c;
       s += *e;
     }
-    CHECK((c) == (256));
-    CHECK((s) == (32640));
+    CHECK(c == 256);
+    CHECK(s == 32640);
   }
   if (true) {
     int c{}, s{};
@@ -567,8 +565,8 @@ TEST_CASE("Intervals", "[SequentialEnumTest]") {
       ++c;
       s += *e;
     }
-    CHECK((c) == (256));
-    CHECK((s) == (-128));
+    CHECK(c == 256);
+    CHECK(s == -128);
   }
 }
 
@@ -582,131 +580,131 @@ TEST_CASE("ExtractEnum", "[SequentialEnumTest]") {
     std::string_view sv;
 
     sv = "0";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (tiger_pick::eeny));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == tiger_pick::eeny);
 
     sv = "eeny";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (tiger_pick::eeny));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == tiger_pick::eeny);
 
     sv = "meany";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (tiger_pick::meany));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == tiger_pick::meany);
 
     sv = "miny";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (tiger_pick::miny));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == tiger_pick::miny);
 
     sv = "miny";
     e = extract_enum<tiger_pick>(sv).value_or(tiger_pick{-1});
-    CHECK((e) == (tiger_pick::miny));
-    CHECK((sv.empty()));
+    CHECK(e == tiger_pick::miny);
+    CHECK(sv.empty());
 
     sv = "miny";
     auto opte = parse_enum<tiger_pick>(sv);
-    CHECK((opte.value_or(tiger_pick{-1})) == (tiger_pick::miny));
+    CHECK(opte.value_or(tiger_pick{-1}) == tiger_pick::miny);
 
     sv = "miny  ";
     opte = parse_enum<tiger_pick>(sv);
-    CHECK((opte.value_or(tiger_pick{-1})) == (tiger_pick::miny));
+    CHECK(opte.value_or(tiger_pick{-1}) == tiger_pick::miny);
 
     sv = "miny ; ";
     opte = parse_enum<tiger_pick>(sv);
-    CHECK_FALSE((opte.has_value()));
+    CHECK_FALSE(opte.has_value());
 
     sv = "miny";
     e = parse_enum(sv, tiger_pick::moe);
-    CHECK((e) == (tiger_pick::miny));
+    CHECK(e == tiger_pick::miny);
 
     sv = "miny ; ";
     e = parse_enum(sv, tiger_pick::moe);
-    CHECK((e) == (tiger_pick::moe));
+    CHECK(e == tiger_pick::moe);
   }
   if (true) {
     e10_13 e{};
     std::string_view sv;
 
     sv = "10";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (e10_13{10}));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == e10_13{10});
 
     sv = "13";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (e10_13{13}));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == e10_13{13});
 
     sv = "ten";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (e10_13{10}));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == e10_13{10});
 
     sv = "thirteen";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (e10_13{13}));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == e10_13{13});
   }
   if (true) {
     eneg3_3 e{};
     std::string_view sv;
 
     sv = "-3";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (eneg3_3{-3}));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == eneg3_3{-3});
 
     sv = "neg-three";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (eneg3_3{-3}));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == eneg3_3{-3});
 
     sv = "0";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (eneg3_3{0}));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == eneg3_3{0});
 
     sv = "zero";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (eneg3_3{0}));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == eneg3_3{0});
 
     sv = "3";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (eneg3_3{3}));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == eneg3_3{3});
 
     sv = "three";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (eneg3_3{3}));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == eneg3_3{3});
 
     sv = "4";
-    CHECK_FALSE((extract_enum(e, sv)));
+    CHECK_FALSE(extract_enum(e, sv));
 
     sv = "four";
-    CHECK_FALSE((extract_enum(e, sv)));
+    CHECK_FALSE(extract_enum(e, sv));
   }
   if (true) {
     old_enum e{};
     std::string_view sv;
 
     sv = "1";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (old_one));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == old_one);
   }
   if (true) {
     new_enum e{};
     std::string_view sv;
 
     sv = "1";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (new_enum::new_one));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == new_enum::new_one);
   }
 }
 
@@ -718,133 +716,133 @@ TEST_CASE("Int64", "[SequentialEnumTest]") {
   if (true) {
     e64_0_3 e;
     e = make<e64_0_3>(0);
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make<e64_0_3>(1);
-    CHECK((*e) == (1));
+    CHECK(*e == 1);
     e = make<e64_0_3>(3);
-    CHECK((*e) == (3));
+    CHECK(*e == 3);
 
     // Test arithmetic.
     e = make<e64_0_3>(0);
     ++e;
-    CHECK((*e) == (1));
+    CHECK(*e == 1);
     --e;
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e += 2;
-    CHECK((*e) == (2));
+    CHECK(*e == 2);
     e -= 1;
-    CHECK((*e) == (1));
+    CHECK(*e == 1);
   }
   // Test make_safely wrapping with int64_t.
   if (true) {
     e64_0_3 e;
     e = make_safely<e64_0_3>(0);
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make_safely<e64_0_3>(3);
-    CHECK((*e) == (3));
+    CHECK(*e == 3);
 
     // Wrap around.
     e = make_safely<e64_0_3>(4);
-    CHECK((*e) == (0));
+    CHECK(*e == 0);
     e = make_safely<e64_0_3>(5);
-    CHECK((*e) == (1));
+    CHECK(*e == 1);
     e = make_safely<e64_0_3>(-1);
-    CHECK((*e) == (3));
+    CHECK(*e == 3);
     e = make_safely<e64_0_3>(-2);
-    CHECK((*e) == (2));
+    CHECK(*e == 2);
   }
   // Test enum_as_string with int64_t.
   if (true) {
     using namespace strings;
-    CHECK((enum_as_string(e64_0_3(0))) == ("alpha"));
-    CHECK((enum_as_string(e64_0_3(1))) == ("beta"));
-    CHECK((enum_as_string(e64_0_3(2))) == ("gamma"));
-    CHECK((enum_as_string(e64_0_3(3))) == ("delta"));
-    CHECK((enum_as_string(e64_0_3(-1))) == ("-1"));
-    CHECK((enum_as_string(e64_0_3(4))) == ("4"));
+    CHECK(enum_as_string(e64_0_3(0)) == "alpha");
+    CHECK(enum_as_string(e64_0_3(1)) == "beta");
+    CHECK(enum_as_string(e64_0_3(2)) == "gamma");
+    CHECK(enum_as_string(e64_0_3(3)) == "delta");
+    CHECK(enum_as_string(e64_0_3(-1)) == "-1");
+    CHECK(enum_as_string(e64_0_3(4)) == "4");
   }
   // Test large int64_t values.
   if (true) {
     e64_large e;
     e = make<e64_large>(1000000000000);
-    CHECK((*e) == (1000000000000));
+    CHECK(*e == 1000000000000);
     e = make<e64_large>(1000000000001);
-    CHECK((*e) == (1000000000001));
+    CHECK(*e == 1000000000001);
     e = make<e64_large>(1000000000002);
-    CHECK((*e) == (1000000000002));
+    CHECK(*e == 1000000000002);
 
     // Test arithmetic with large values.
     e = make<e64_large>(1000000000000);
     ++e;
-    CHECK((*e) == (1000000000001));
+    CHECK(*e == 1000000000001);
     ++e;
-    CHECK((*e) == (1000000000002));
+    CHECK(*e == 1000000000002);
   }
   // Test enum_as_string with large int64_t values.
   if (true) {
     using namespace strings;
-    CHECK((enum_as_string(e64_large(1000000000000))) == ("low"));
-    CHECK((enum_as_string(e64_large(1000000000001))) == ("mid"));
-    CHECK((enum_as_string(e64_large(1000000000002))) == ("high"));
-    CHECK((enum_as_string(e64_large(999999999999))) == ("999999999999"));
-    CHECK((enum_as_string(e64_large(1000000000003))) == ("1000000000003"));
+    CHECK(enum_as_string(e64_large(1000000000000)) == "low");
+    CHECK(enum_as_string(e64_large(1000000000001)) == "mid");
+    CHECK(enum_as_string(e64_large(1000000000002)) == "high");
+    CHECK(enum_as_string(e64_large(999999999999)) == "999999999999");
+    CHECK(enum_as_string(e64_large(1000000000003)) == "1000000000003");
   }
   // Test basic operations with uint64_t underlying type.
   if (true) {
     eu64_0_3 e;
     e = make<eu64_0_3>(0);
-    CHECK((*e) == (0U));
+    CHECK(*e == 0U);
     e = make<eu64_0_3>(1);
-    CHECK((*e) == (1U));
+    CHECK(*e == 1U);
     e = make<eu64_0_3>(3);
-    CHECK((*e) == (3U));
+    CHECK(*e == 3U);
 
     // Test arithmetic.
     e = make<eu64_0_3>(0);
     ++e;
-    CHECK((*e) == (1U));
+    CHECK(*e == 1U);
     e += 2;
-    CHECK((*e) == (3U));
+    CHECK(*e == 3U);
   }
   // Test make_safely wrapping with uint64_t.
   if (true) {
     eu64_0_3 e;
     e = make_safely<eu64_0_3>(0);
-    CHECK((*e) == (0U));
+    CHECK(*e == 0U);
     e = make_safely<eu64_0_3>(3);
-    CHECK((*e) == (3U));
+    CHECK(*e == 3U);
 
     // Wrap around.
     e = make_safely<eu64_0_3>(4);
-    CHECK((*e) == (0U));
+    CHECK(*e == 0U);
     e = make_safely<eu64_0_3>(5);
-    CHECK((*e) == (1U));
+    CHECK(*e == 1U);
   }
   // Test enum_as_string with uint64_t.
   if (true) {
     using namespace strings;
-    CHECK((enum_as_string(eu64_0_3(0))) == ("one"));
-    CHECK((enum_as_string(eu64_0_3(1))) == ("two"));
-    CHECK((enum_as_string(eu64_0_3(2))) == ("three"));
-    CHECK((enum_as_string(eu64_0_3(3))) == ("four"));
-    CHECK((enum_as_string(eu64_0_3(4))) == ("4"));
+    CHECK(enum_as_string(eu64_0_3(0)) == "one");
+    CHECK(enum_as_string(eu64_0_3(1)) == "two");
+    CHECK(enum_as_string(eu64_0_3(2)) == "three");
+    CHECK(enum_as_string(eu64_0_3(3)) == "four");
+    CHECK(enum_as_string(eu64_0_3(4)) == "4");
   }
   // Test large uint64_t values.
   if (true) {
     eu64_large e;
     e = make<eu64_large>(UINT64_C(10000000000000000000));
-    CHECK((*e) == (UINT64_C(10000000000000000000)));
+    CHECK(*e == UINT64_C(10000000000000000000));
     e = make<eu64_large>(UINT64_C(10000000000000000001));
-    CHECK((*e) == (UINT64_C(10000000000000000001)));
+    CHECK(*e == UINT64_C(10000000000000000001));
     e = make<eu64_large>(UINT64_C(10000000000000000002));
-    CHECK((*e) == (UINT64_C(10000000000000000002)));
+    CHECK(*e == UINT64_C(10000000000000000002));
 
     // Test arithmetic with large values.
     e = make<eu64_large>(UINT64_C(10000000000000000000));
     ++e;
-    CHECK((*e) == (UINT64_C(10000000000000000001)));
+    CHECK(*e == UINT64_C(10000000000000000001));
     ++e;
-    CHECK((*e) == (UINT64_C(10000000000000000002)));
+    CHECK(*e == UINT64_C(10000000000000000002));
   }
   // Test enum_as_string with large uint64_t values.
   if (true) {
@@ -864,8 +862,8 @@ TEST_CASE("Int64", "[SequentialEnumTest]") {
       ++c;
       s += *e;
     }
-    CHECK((c) == (4));
-    CHECK((s) == (0 + 1 + 2 + 3));
+    CHECK(c == 4);
+    CHECK(s == (0 + 1 + 2 + 3));
   }
   // Test intervals with uint64_t.
   if (true) {
@@ -875,8 +873,8 @@ TEST_CASE("Int64", "[SequentialEnumTest]") {
       ++c;
       s += *e;
     }
-    CHECK((c) == (4));
-    CHECK((s) == (0U + 1U + 2U + 3U));
+    CHECK(c == 4);
+    CHECK(s == (0U + 1U + 2U + 3U));
   }
   // Test extract_enum with int64_t.
   if (true) {
@@ -885,19 +883,19 @@ TEST_CASE("Int64", "[SequentialEnumTest]") {
     std::string_view sv;
 
     sv = "0";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((*e) == (0));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(*e == 0);
 
     sv = "alpha";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((*e) == (0));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(*e == 0);
 
     sv = "delta";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((*e) == (3));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(*e == 3);
   }
   // Test extract_enum with uint64_t.
   if (true) {
@@ -906,31 +904,31 @@ TEST_CASE("Int64", "[SequentialEnumTest]") {
     std::string_view sv;
 
     sv = "0";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((*e) == (0U));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(*e == 0U);
 
     sv = "one";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((*e) == (0U));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(*e == 0U);
 
     sv = "four";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((*e) == (3U));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(*e == 3U);
   }
   // Test streaming with int64_t.
   if (true) {
     std::stringstream ss;
     ss << e64_0_3(1) << std::flush;
-    CHECK((ss.str()) == ("beta"));
+    CHECK(ss.str() == "beta");
   }
   // Test streaming with uint64_t.
   if (true) {
     std::stringstream ss;
     ss << eu64_0_3(2) << std::flush;
-    CHECK((ss.str()) == ("three"));
+    CHECK(ss.str() == "three");
   }
 }
 
@@ -939,11 +937,11 @@ TEST_CASE("Int64", "[SequentialEnumTest]") {
 
 TEST_CASE("AsView", "[SequentialEnumTest]") {
   if (true) {
-    CHECK((enum_as_view(e0_3(0))) == ("a"));
-    CHECK((enum_as_view(e0_3(1))) == ("(unknown)"));
-    CHECK((enum_as_view(e0_3(2))) == ("c"));
-    CHECK((enum_as_view(e0_3(3))) == ("(unknown)"));
-    CHECK((enum_as_view(e0_3(4))) == ("(unknown)"));
+    CHECK(enum_as_view(e0_3(0)) == "a");
+    CHECK(enum_as_view(e0_3(1)) == "(unknown)");
+    CHECK(enum_as_view(e0_3(2)) == "c");
+    CHECK(enum_as_view(e0_3(3)) == "(unknown)");
+    CHECK(enum_as_view(e0_3(4)) == "(unknown)");
   }
 }
 

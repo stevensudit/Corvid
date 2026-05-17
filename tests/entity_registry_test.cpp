@@ -57,8 +57,8 @@ TEST_CASE("Basic", "[EntityRegistry]") {
   if (true) {
     using handle_t = reg_t::handle_t;
     handle_t h;
-    CHECK((h.id()) == (entity_id_t::invalid));
-    CHECK((h.gen()) == (*entity_id_t::invalid));
+    CHECK(h.id() == entity_id_t::invalid);
+    CHECK(h.gen() == *entity_id_t::invalid);
   }
 
   // handle_t copy construction and assignment.
@@ -66,10 +66,10 @@ TEST_CASE("Basic", "[EntityRegistry]") {
     using handle_t = reg_t::handle_t;
     handle_t h1;
     handle_t h2{h1};
-    CHECK((h1 == h2));
+    CHECK(h1 == h2);
     handle_t h3;
     h3 = h1;
-    CHECK((h1 == h3));
+    CHECK(h1 == h3);
   }
 
   // handle_t comparison operators.
@@ -77,25 +77,25 @@ TEST_CASE("Basic", "[EntityRegistry]") {
     using handle_t = reg_t::handle_t;
     handle_t h1;
     handle_t h2;
-    CHECK((h1 == h2));
-    CHECK_FALSE((h1 != h2));
-    CHECK_FALSE((h1 < h2));
-    CHECK((h1 <= h2));
-    CHECK_FALSE((h1 > h2));
-    CHECK((h1 >= h2));
+    CHECK(h1 == h2);
+    CHECK_FALSE(h1 != h2);
+    CHECK_FALSE(h1 < h2);
+    CHECK(h1 <= h2);
+    CHECK_FALSE(h1 > h2);
+    CHECK(h1 >= h2);
   }
 
   // Default construction: empty registry.
   if (true) {
     reg_t r;
-    CHECK((r.id_limit()) == (id_t::invalid));
-    CHECK_FALSE((r.is_valid(id_t{0})));
+    CHECK(r.id_limit() == id_t::invalid);
+    CHECK_FALSE(r.is_valid(id_t{0}));
   }
 
   // Allocator constructor.
   if (true) {
     reg_t r{std::allocator<int>{}};
-    CHECK_FALSE((r.is_valid(id_t{0})));
+    CHECK_FALSE(r.is_valid(id_t{0}));
   }
 
   // create returns sequential IDs.
@@ -104,19 +104,19 @@ TEST_CASE("Basic", "[EntityRegistry]") {
     auto id0 = r.create_id(loc0, 10);
     auto id1 = r.create_id(loc1, 20);
     auto id2 = r.create_id(loc2, 30);
-    CHECK((*id0) == (0U));
-    CHECK((*id1) == (1U));
-    CHECK((*id2) == (2U));
-    CHECK((r.is_valid(id0)));
-    CHECK((r.is_valid(id1)));
-    CHECK((r.is_valid(id2)));
+    CHECK(*id0 == 0U);
+    CHECK(*id1 == 1U);
+    CHECK(*id2 == 2U);
+    CHECK(r.is_valid(id0));
+    CHECK(r.is_valid(id1));
+    CHECK(r.is_valid(id2));
   }
 
   // create with defaulted store_id works.
   if (true) {
     reg_t r;
     auto id = r.create_id();
-    CHECK((id) != (id_t::invalid));
+    CHECK(id != id_t::invalid);
   }
 
   // create stores metadata.
@@ -124,8 +124,8 @@ TEST_CASE("Basic", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id(loc0, 42);
     auto id1 = r.create_id(loc1, 99);
-    CHECK((r[id0]) == (42));
-    CHECK((r[id1]) == (99));
+    CHECK(r[id0] == 42);
+    CHECK(r[id1] == 99);
   }
 
   // Mutable metadata access via operator[].
@@ -133,7 +133,7 @@ TEST_CASE("Basic", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id(loc0, 10);
     r[id0] = 777;
-    CHECK((r[id0]) == (777));
+    CHECK(r[id0] == 777);
   }
 
   // Const metadata access via operator[].
@@ -141,7 +141,7 @@ TEST_CASE("Basic", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id(loc0, 42);
     const auto& cr = r;
-    CHECK((cr[id0]) == (42));
+    CHECK(cr[id0] == 42);
   }
 
   // create stores location.
@@ -149,8 +149,8 @@ TEST_CASE("Basic", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id(loc_s1, 10);
     const auto& loc = r.get_location(id0);
-    CHECK((*loc.store_id) == (2U));
-    CHECK((loc.ndx) == (0U));
+    CHECK(*loc.store_id == 2U);
+    CHECK(loc.ndx == 0U);
   }
 
   // set_location by ID.
@@ -159,17 +159,17 @@ TEST_CASE("Basic", "[EntityRegistry]") {
     auto id0 = r.create_id(loc0, 10);
     r.set_location(id0, loc_s1);
     const auto& loc = r.get_location(id0);
-    CHECK((*loc.store_id) == (2U));
-    CHECK((loc.ndx) == (0U));
+    CHECK(*loc.store_id == 2U);
+    CHECK(loc.ndx == 0U);
   }
 
   // set_location to invalid erases the entity.
   if (true) {
     reg_t r;
     auto id0 = r.create_id(loc0, 10);
-    CHECK((r.is_valid(id0)));
+    CHECK(r.is_valid(id0));
     r.set_location(id0, loc_t{});
-    CHECK_FALSE((r.is_valid(id0)));
+    CHECK_FALSE(r.is_valid(id0));
   }
 
   // erase by ID.
@@ -177,18 +177,18 @@ TEST_CASE("Basic", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id(loc0, 10);
     auto id1 = r.create_id(loc1, 20);
-    CHECK((r.erase(id0)));
-    CHECK_FALSE((r.is_valid(id0)));
-    CHECK((r.is_valid(id1)));
+    CHECK(r.erase(id0));
+    CHECK_FALSE(r.is_valid(id0));
+    CHECK(r.is_valid(id1));
     // Double erase fails.
-    CHECK_FALSE((r.erase(id0)));
+    CHECK_FALSE(r.erase(id0));
   }
 
   // erase invalid ID returns false.
   if (true) {
     reg_t r;
-    CHECK_FALSE((r.erase(id_t{0})));
-    CHECK_FALSE((r.erase(id_t::invalid)));
+    CHECK_FALSE(r.erase(id_t{0}));
+    CHECK_FALSE(r.erase(id_t::invalid));
   }
 
   // erase_if removes matching entities.
@@ -198,19 +198,19 @@ TEST_CASE("Basic", "[EntityRegistry]") {
     (void)r.create_id(loc1, 15);
     (void)r.create_id(loc2, 25);
     auto cnt = r.erase_if([](auto, auto& rec) { return rec.metadata > 10; });
-    CHECK((cnt) == (2U));
-    CHECK((r.is_valid(id_t{0})));
-    CHECK_FALSE((r.is_valid(id_t{1})));
-    CHECK_FALSE((r.is_valid(id_t{2})));
+    CHECK(cnt == 2U);
+    CHECK(r.is_valid(id_t{0}));
+    CHECK_FALSE(r.is_valid(id_t{1}));
+    CHECK_FALSE(r.is_valid(id_t{2}));
   }
 
   // at(id_t) success.
   if (true) {
     reg_t r;
     auto id0 = r.create_id(loc0, 42);
-    CHECK((r.at(id0)) == (42));
+    CHECK(r.at(id0) == 42);
     r.at(id0) = 99;
-    CHECK((r.at(id0)) == (99));
+    CHECK(r.at(id0) == 99);
   }
 
   // at(id_t) const.
@@ -218,7 +218,7 @@ TEST_CASE("Basic", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id(loc0, 42);
     const auto& cr = r;
-    CHECK((cr.at(id0)) == (42));
+    CHECK(cr.at(id0) == 42);
   }
 
   // at(id_t) throws for invalid ID.
@@ -239,13 +239,13 @@ TEST_CASE("Basic", "[EntityRegistry]") {
   // size() tracks living entities.
   if (true) {
     reg_t r;
-    CHECK((r.size()) == (0U));
+    CHECK(r.size() == 0U);
     auto id0 = r.create_id(loc0, 10);
-    CHECK((r.size()) == (1U));
+    CHECK(r.size() == 1U);
     (void)r.create_id(loc1, 20);
-    CHECK((r.size()) == (2U));
+    CHECK(r.size() == 2U);
     r.erase(id0);
-    CHECK((r.size()) == (1U));
+    CHECK(r.size() == 1U);
   }
 
   // max_id() is the high-water mark.
@@ -254,9 +254,9 @@ TEST_CASE("Basic", "[EntityRegistry]") {
     (void)r.create_id(loc0, 10); // id 0
     (void)r.create_id(loc1, 20); // id 1
     (void)r.create_id(loc2, 30); // id 2
-    CHECK((r.max_id()) == (id_t{2}));
+    CHECK(r.max_id() == id_t{2});
     r.erase(id_t{2});
-    CHECK((r.max_id()) == (id_t{2})); // still 2, high-water mark
+    CHECK(r.max_id() == id_t{2}); // still 2, high-water mark
   }
 }
 
@@ -276,17 +276,17 @@ TEST_CASE("Handle", "[EntityRegistry]") {
   if (true) {
     reg_t r;
     auto h = r.create_handle(loc0, 42);
-    CHECK((r.is_valid(h)));
-    CHECK((h.id()) == (id_t{0}));
-    CHECK((h.gen()) == (0U));
+    CHECK(r.is_valid(h));
+    CHECK(h.id() == id_t{0});
+    CHECK(h.gen() == 0U);
   }
 
   // create_with_handle with defaulted store_id returns valid handle.
   if (true) {
     reg_t r;
     auto h = r.create_handle({}, 42);
-    CHECK((r.is_valid(h)));
-    CHECK((h.id()) != (id_t::invalid));
+    CHECK(r.is_valid(h));
+    CHECK(h.id() != id_t::invalid);
   }
 
   // get_handle for valid ID.
@@ -294,17 +294,17 @@ TEST_CASE("Handle", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id({}, 10);
     auto h = r.get_handle(id0);
-    CHECK((r.is_valid(h)));
-    CHECK((h.id()) == (id0));
-    CHECK((h.gen()) == (0U));
+    CHECK(r.is_valid(h));
+    CHECK(h.id() == id0);
+    CHECK(h.gen() == 0U);
   }
 
   // get_handle for invalid ID returns invalid handle.
   if (true) {
     reg_t r;
     auto h = r.get_handle(id_t{99});
-    CHECK_FALSE((r.is_valid(h)));
-    CHECK((h.id()) == (id_t::invalid));
+    CHECK_FALSE(r.is_valid(h));
+    CHECK(h.id() == id_t::invalid);
   }
 
   // Handle is invalidated after erase.
@@ -313,7 +313,7 @@ TEST_CASE("Handle", "[EntityRegistry]") {
     auto id0 = r.create_id({}, 10);
     auto h = r.get_handle(id0);
     r.erase(id0);
-    CHECK_FALSE((r.is_valid(h)));
+    CHECK_FALSE(r.is_valid(h));
   }
 
   // Stale handle is invalid even after ID reuse (gen mismatch).
@@ -321,13 +321,13 @@ TEST_CASE("Handle", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id({}, 10);
     auto h_old = r.get_handle(id0);
-    CHECK((h_old.gen()) == (0U));
+    CHECK(h_old.gen() == 0U);
     r.erase(id0);
     auto id0_reused = r.create_id({}, 99);
-    CHECK((id0_reused) == (id0));
-    CHECK_FALSE((r.is_valid(h_old)));
+    CHECK(id0_reused == id0);
+    CHECK_FALSE(r.is_valid(h_old));
     auto h_new = r.get_handle(id0_reused);
-    CHECK((r.is_valid(h_new)));
+    CHECK(r.is_valid(h_new));
     CHECK((h_new.gen()) > (h_old.gen()));
   }
 
@@ -335,21 +335,21 @@ TEST_CASE("Handle", "[EntityRegistry]") {
   if (true) {
     reg_t r;
     auto h = r.create_handle({}, 10);
-    CHECK((r.erase(h)));
-    CHECK_FALSE((r.is_valid(h)));
+    CHECK(r.erase(h));
+    CHECK_FALSE(r.is_valid(h));
     // Double erase by handle fails.
-    CHECK_FALSE((r.erase(h)));
+    CHECK_FALSE(r.erase(h));
   }
 
   // Metadata access by handle.
   if (true) {
     reg_t r;
     auto h = r.create_handle({}, 42);
-    CHECK((r.at(h)) == (42));
+    CHECK(r.at(h) == 42);
     r.at(h) = 100;
-    CHECK((r.at(h)) == (100));
+    CHECK(r.at(h) == 100);
     const auto& cr = r;
-    CHECK((cr.at(h)) == (100));
+    CHECK(cr.at(h) == 100);
   }
 
   // Metadata access by invalid handle throws.
@@ -365,8 +365,8 @@ TEST_CASE("Handle", "[EntityRegistry]") {
     reg_t r;
     auto h = r.create_handle({}, 10);
     const auto& loc = r.get_location(h);
-    CHECK((*loc.store_id) == (0U));
-    CHECK((loc.ndx) == (*id_t::invalid));
+    CHECK(*loc.store_id == 0U);
+    CHECK(loc.ndx == *id_t::invalid);
   }
 
   // set_location by handle.
@@ -376,8 +376,8 @@ TEST_CASE("Handle", "[EntityRegistry]") {
     auto h = r.create_handle({}, 10);
     r.set_location(h, loc_new);
     const auto& loc = r.get_location(h);
-    CHECK((*loc.store_id) == (2U));
-    CHECK((loc.ndx) == (5U));
+    CHECK(*loc.store_id == 2U);
+    CHECK(loc.ndx == 5U);
   }
 
   // set_location by invalid handle is a no-op.
@@ -393,8 +393,8 @@ TEST_CASE("Handle", "[EntityRegistry]") {
     reg_t r;
     auto h0 = r.create_handle(loc0, 10);
     auto h1 = r.create_handle(loc1, 20);
-    CHECK((h0 != h1));
-    CHECK((h0 < h1));
+    CHECK(h0 != h1);
+    CHECK(h0 < h1);
   }
 
   // Handle comparison: same ID, different gen compares unequal.
@@ -403,8 +403,8 @@ TEST_CASE("Handle", "[EntityRegistry]") {
     auto h_old = r.create_handle(loc0, 10);
     r.erase(h_old);
     auto h_new = r.create_handle(loc0, 20);
-    CHECK((h_old.id()) == (h_new.id()));
-    CHECK((h_old != h_new));
+    CHECK(h_old.id() == h_new.id());
+    CHECK(h_old != h_new);
   }
 
   // get_location by invalid handle returns invalid location.
@@ -413,17 +413,17 @@ TEST_CASE("Handle", "[EntityRegistry]") {
     auto h = r.create_handle(loc0, 10);
     r.erase(h);
     const auto& loc = r.get_location(h);
-    CHECK((loc.store_id) == (store_id_t::invalid));
+    CHECK(loc.store_id == store_id_t::invalid);
   }
 
   // set_location by handle to invalid erases the entity.
   if (true) {
     reg_t r;
     auto h = r.create_handle(loc0, 10);
-    CHECK((r.is_valid(h)));
+    CHECK(r.is_valid(h));
     r.set_location(h, loc_t{});
-    CHECK_FALSE((r.is_valid(h)));
-    CHECK((r.size()) == (0U));
+    CHECK_FALSE(r.is_valid(h));
+    CHECK(r.size() == 0U);
   }
 
   // at(handle_t) const.
@@ -431,7 +431,7 @@ TEST_CASE("Handle", "[EntityRegistry]") {
     reg_t r;
     auto h = r.create_handle(loc0, 42);
     const auto& cr = r;
-    CHECK((cr.at(h)) == (42));
+    CHECK(cr.at(h) == 42);
   }
 
   // at(handle_t) const throws for invalid handle.
@@ -447,13 +447,13 @@ TEST_CASE("Handle", "[EntityRegistry]") {
   if (true) {
     using handle_t = reg_t::handle_t;
     handle_t empty_h;
-    CHECK_FALSE((bool(empty_h))); // default-constructed: holds id_t::invalid
+    CHECK_FALSE(bool(empty_h)); // default-constructed: holds id_t::invalid
     reg_t r;
     auto h = r.create_handle(loc0, 10);
-    CHECK((bool(h))); // holds a live ID
+    CHECK(bool(h)); // holds a live ID
     r.erase(h);
-    CHECK((bool(h)));             // ID unchanged after erase; bool still true
-    CHECK_FALSE((r.is_valid(h))); // but entity is gone
+    CHECK(bool(h));             // ID unchanged after erase; bool still true
+    CHECK_FALSE(r.is_valid(h)); // but entity is gone
   }
 }
 
@@ -476,8 +476,8 @@ TEST_CASE("Fifo", "[EntityRegistry]") {
     r.erase(id0);              // free: [0]
     r.erase(id1);              // free: [0, 1]
     // FIFO: 0 was freed first, so it's reused first.
-    CHECK((r.create_id({}, 100)) == (id_t{0}));
-    CHECK((r.create_id({}, 200)) == (id_t{1}));
+    CHECK(r.create_id({}, 100) == id_t{0});
+    CHECK(r.create_id({}, 200) == id_t{1});
   }
 }
 
@@ -498,10 +498,10 @@ TEST_CASE("Clear", "[EntityRegistry]") {
     (void)r.create_id({}, 20); // id 1
     auto h0 = r.get_handle(id_t{0});
     r.clear();
-    CHECK_FALSE((r.is_valid(id_t{0})));
-    CHECK_FALSE((r.is_valid(h0)));
-    CHECK((r.create_id({}, 100)) == (id_t{0}));
-    CHECK((r.get_handle(id_t{0}).gen()) == (1U));
+    CHECK_FALSE(r.is_valid(id_t{0}));
+    CHECK_FALSE(r.is_valid(h0));
+    CHECK(r.create_id({}, 100) == id_t{0});
+    CHECK(r.get_handle(id_t{0}).gen() == 1U);
   }
 
   // clear(true) with shrink: fully resets storage and gens.
@@ -510,11 +510,11 @@ TEST_CASE("Clear", "[EntityRegistry]") {
     (void)r.create_id({}, 10); // id 0
     (void)r.create_id({}, 20); // id 1
     r.clear(deallocation_policy::release);
-    CHECK((r.size()) == (0U));
-    CHECK_FALSE((r.is_valid(id_t{0})));
+    CHECK(r.size() == 0U);
+    CHECK_FALSE(r.is_valid(id_t{0}));
     auto id0 = r.create_id({}, 100);
-    CHECK((*id0) == (0U));
-    CHECK((r.get_handle(id0).gen()) == (0U)); // gen reset
+    CHECK(*id0 == 0U);
+    CHECK(r.get_handle(id0).gen() == 0U); // gen reset
   }
 }
 
@@ -531,9 +531,9 @@ TEST_CASE("Reserve", "[EntityRegistry]") {
   if (true) {
     reg_t r;
     r.reserve(10);
-    CHECK_FALSE((r.is_valid(id_t{0})));
+    CHECK_FALSE(r.is_valid(id_t{0}));
     auto id0 = r.create_id({}, 42);
-    CHECK((*id0) == (0U));
+    CHECK(*id0 == 0U);
   }
 
   // reserve with prefill: pre-creates free slots.
@@ -541,22 +541,22 @@ TEST_CASE("Reserve", "[EntityRegistry]") {
     reg_t r;
     r.reserve(5, allocation_policy::eager);
     // Slots exist but are not valid (free).
-    CHECK_FALSE((r.is_valid(id_t{0})));
-    CHECK_FALSE((r.is_valid(id_t{4})));
+    CHECK_FALSE(r.is_valid(id_t{0}));
+    CHECK_FALSE(r.is_valid(id_t{4}));
     // create reuses prefilled slots in order.
-    CHECK((r.create_id({}, 10)) == (id_t{0}));
-    CHECK((r.create_id({}, 20)) == (id_t{1}));
-    CHECK((r.create_id({}, 30)) == (id_t{2}));
-    CHECK((r.create_id({}, 40)) == (id_t{3}));
-    CHECK((r.create_id({}, 50)) == (id_t{4}));
+    CHECK(r.create_id({}, 10) == id_t{0});
+    CHECK(r.create_id({}, 20) == id_t{1});
+    CHECK(r.create_id({}, 30) == id_t{2});
+    CHECK(r.create_id({}, 40) == id_t{3});
+    CHECK(r.create_id({}, 50) == id_t{4});
   }
 
   // Prefill constructor.
   if (true) {
     reg_t r{id_t{5}, allocation_policy::eager};
-    CHECK((r.id_limit()) == (id_t{5}));
-    CHECK((r.create_id({}, 10)) == (id_t{0}));
-    CHECK((r.create_id({}, 20)) == (id_t{1}));
+    CHECK(r.id_limit() == id_t{5});
+    CHECK(r.create_id({}, 10) == id_t{0});
+    CHECK(r.create_id({}, 20) == id_t{1});
   }
 
   // shrink_to_fit trims trailing dead records.
@@ -568,8 +568,8 @@ TEST_CASE("Reserve", "[EntityRegistry]") {
     (void)r.create_id({}, 30); // id 2
     r.erase(id_t{2});
     r.shrink_to_fit();
-    CHECK((r.is_valid(id_t{0})));
-    CHECK((r.is_valid(id_t{1})));
+    CHECK(r.is_valid(id_t{0}));
+    CHECK(r.is_valid(id_t{1}));
   }
 }
 
@@ -586,23 +586,23 @@ TEST_CASE("IdLimit", "[EntityRegistry]") {
   // Detailed id_limit behavior is tested in StableId_MaxId.
   if (true) {
     reg_t r{id_t{3}};
-    CHECK((r.id_limit()) == (id_t{3}));
-    CHECK((r.create_id({}, 10)) == (id_t{0}));
-    CHECK((r.create_id({}, 20)) == (id_t{1}));
-    CHECK((r.create_id({}, 30)) == (id_t{2}));
+    CHECK(r.id_limit() == id_t{3});
+    CHECK(r.create_id({}, 10) == id_t{0});
+    CHECK(r.create_id({}, 20) == id_t{1});
+    CHECK(r.create_id({}, 30) == id_t{2});
     // 4th creation fails.
-    CHECK((r.create_id({}, 40)) == (id_t::invalid));
+    CHECK(r.create_id({}, 40) == id_t::invalid);
   }
 
   // set_id_limit on empty registry.
   if (true) {
     reg_t r;
-    CHECK((r.id_limit()) == (id_t::invalid));
-    CHECK((r.set_id_limit(id_t{2})));
-    CHECK((r.id_limit()) == (id_t{2}));
+    CHECK(r.id_limit() == id_t::invalid);
+    CHECK(r.set_id_limit(id_t{2}));
+    CHECK(r.id_limit() == id_t{2});
     (void)r.create_id({}, 10);
     (void)r.create_id({}, 20);
-    CHECK((r.create_id({}, 30)) == (id_t::invalid));
+    CHECK(r.create_id({}, 30) == id_t::invalid);
   }
 }
 
@@ -630,36 +630,36 @@ TEST_CASE("NoGen", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id({}, 10);
     auto id1 = r.create_id({}, 20);
-    CHECK((*id0) == (0U));
-    CHECK((*id1) == (1U));
-    CHECK((r[id0]) == (10));
-    CHECK((r[id1]) == (20));
+    CHECK(*id0 == 0U);
+    CHECK(*id1 == 1U);
+    CHECK(r[id0] == 10);
+    CHECK(r[id1] == 20);
   }
 
   // create_with_handle and handle validity.
   if (true) {
     reg_t r;
     auto h = r.create_handle(loc0, 42);
-    CHECK((r.is_valid(h)));
-    CHECK((h.id()) == (id_t{0}));
-    CHECK((r.at(h)) == (42));
+    CHECK(r.is_valid(h));
+    CHECK(h.id() == id_t{0});
+    CHECK(r.at(h) == 42);
   }
 
   // create_with_handle with defaulted store_id returns valid handle.
   if (true) {
     reg_t r;
     auto h = r.create_handle({}, 42);
-    CHECK((r.is_valid(h)));
-    CHECK((h.id()) != (id_t::invalid));
+    CHECK(r.is_valid(h));
+    CHECK(h.id() != id_t::invalid);
   }
 
   // erase by handle.
   if (true) {
     reg_t r;
     auto h = r.create_handle(loc0, 10);
-    CHECK((r.erase(h)));
-    CHECK_FALSE((r.is_valid(h)));
-    CHECK_FALSE((r.erase(h))); // double erase
+    CHECK(r.erase(h));
+    CHECK_FALSE(r.is_valid(h));
+    CHECK_FALSE(r.erase(h)); // double erase
   }
 
   // get_location and set_location by handle.
@@ -667,10 +667,10 @@ TEST_CASE("NoGen", "[EntityRegistry]") {
     reg_t r;
     auto h = r.create_handle(loc0, 10);
     const auto& loc = r.get_location(h);
-    CHECK((*loc.store_id) == (0U));
-    CHECK((loc.ndx) == (0U));
+    CHECK(*loc.store_id == 0U);
+    CHECK(loc.ndx == 0U);
     r.set_location(h, loc1);
-    CHECK((r.get_location(h).ndx) == (1U));
+    CHECK(r.get_location(h).ndx == 1U);
   }
 
   // get_location by invalid handle returns invalid location.
@@ -679,7 +679,7 @@ TEST_CASE("NoGen", "[EntityRegistry]") {
     auto h = r.create_handle(loc0, 10);
     r.erase(h);
     const auto& loc = r.get_location(h);
-    CHECK((loc.store_id) == (store_id_t::invalid));
+    CHECK(loc.store_id == store_id_t::invalid);
   }
 
   // set_location by invalid handle is a no-op.
@@ -695,8 +695,8 @@ TEST_CASE("NoGen", "[EntityRegistry]") {
     reg_t r;
     auto h = r.create_handle(loc0, 10);
     r.set_location(h, loc_t{});
-    CHECK_FALSE((r.is_valid(h)));
-    CHECK((r.size()) == (0U));
+    CHECK_FALSE(r.is_valid(h));
+    CHECK(r.size() == 0U);
   }
 
   // Handle comparison.
@@ -704,9 +704,9 @@ TEST_CASE("NoGen", "[EntityRegistry]") {
     reg_t r;
     auto h0 = r.create_handle(loc0, 10);
     auto h1 = r.create_handle(loc1, 20);
-    CHECK((h0 != h1));
-    CHECK((h0 < h1));
-    CHECK((h0 == h0));
+    CHECK(h0 != h1);
+    CHECK(h0 < h1);
+    CHECK(h0 == h0);
   }
 
   // Without gen, stale handles are falsely valid after ID reuse.
@@ -715,27 +715,27 @@ TEST_CASE("NoGen", "[EntityRegistry]") {
     auto id0 = r.create_id({}, 10);
     auto h_old = r.get_handle(id0);
     r.erase(id0);
-    CHECK_FALSE((r.is_valid(h_old)));
+    CHECK_FALSE(r.is_valid(h_old));
     auto id0_reused = r.create_id({}, 99);
-    CHECK((id0_reused) == (id0));
+    CHECK(id0_reused == id0);
     // Without gen protection, old handle becomes valid again.
-    CHECK((r.is_valid(h_old)));
+    CHECK(r.is_valid(h_old));
   }
 
   // Handle default construction.
   if (true) {
     handle_t h;
-    CHECK((h.id()) == (id_t::invalid));
+    CHECK(h.id() == id_t::invalid);
   }
 
   // Handle copy construction and assignment.
   if (true) {
     handle_t h1;
     handle_t h2{h1};
-    CHECK((h1 == h2));
+    CHECK(h1 == h2);
     handle_t h3;
     h3 = h1;
-    CHECK((h1 == h3));
+    CHECK(h1 == h3);
   }
 
   // at(handle_t) throws for invalid handle.
@@ -751,7 +751,7 @@ TEST_CASE("NoGen", "[EntityRegistry]") {
     reg_t r;
     auto h = r.create_handle(loc0, 42);
     const auto& cr = r;
-    CHECK((cr.at(h)) == (42));
+    CHECK(cr.at(h) == 42);
   }
 }
 
@@ -772,10 +772,10 @@ TEST_CASE("VoidMeta", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id(loc0);
     auto id1 = r.create_id(loc1);
-    CHECK((*id0) == (0U));
-    CHECK((*id1) == (1U));
-    CHECK((r.is_valid(id0)));
-    CHECK((r.is_valid(id1)));
+    CHECK(*id0 == 0U);
+    CHECK(*id1 == 1U);
+    CHECK(r.is_valid(id0));
+    CHECK(r.is_valid(id1));
   }
 
   // Erase and FIFO reuse.
@@ -786,18 +786,18 @@ TEST_CASE("VoidMeta", "[EntityRegistry]") {
     (void)r.create_id(); // id 2
     r.erase(id_t{0});
     r.erase(id_t{1});
-    CHECK((r.create_id()) == (id_t{0}));
-    CHECK((r.create_id()) == (id_t{1}));
+    CHECK(r.create_id() == id_t{0});
+    CHECK(r.create_id() == id_t{1});
   }
 
   // Handles work with void metadata.
   if (true) {
     reg_t r;
     auto h = r.create_handle({});
-    CHECK((r.is_valid(h)));
-    CHECK((h.gen()) == (0U));
+    CHECK(r.is_valid(h));
+    CHECK(h.gen() == 0U);
     r.erase(h);
-    CHECK_FALSE((r.is_valid(h)));
+    CHECK_FALSE(r.is_valid(h));
   }
 
   // Location operations.
@@ -805,21 +805,21 @@ TEST_CASE("VoidMeta", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id();
     const auto& loc = r.get_location(id0);
-    CHECK((*loc.store_id) == (0U));
-    CHECK((loc.ndx) == (*id_t::invalid));
+    CHECK(*loc.store_id == 0U);
+    CHECK(loc.ndx == *id_t::invalid);
     r.set_location(id0, loc1);
     const auto& loc_after = r.get_location(id0);
-    CHECK((loc_after.ndx) == (1U));
+    CHECK(loc_after.ndx == 1U);
   }
 
   // clear and reserve with prefill.
   if (true) {
     reg_t r;
     r.reserve(5, allocation_policy::eager);
-    CHECK((r.create_id()) == (id_t{0}));
-    CHECK((r.create_id()) == (id_t{1}));
+    CHECK(r.create_id() == id_t{0});
+    CHECK(r.create_id() == id_t{1});
     r.clear();
-    CHECK((r.create_id()) == (id_t{0}));
+    CHECK(r.create_id() == id_t{0});
   }
 
   // erase_if with void metadata.
@@ -832,8 +832,8 @@ TEST_CASE("VoidMeta", "[EntityRegistry]") {
       return rec.location.ndx() == *id_t::invalid;
     });
     // All have ndx *id_t::invalid, so all erased.
-    CHECK((cnt) == (3U));
-    CHECK((r.size()) == (0U));
+    CHECK(cnt == 3U);
+    CHECK(r.size() == 0U);
   }
 
   // shrink_to_fit with void metadata.
@@ -844,9 +844,9 @@ TEST_CASE("VoidMeta", "[EntityRegistry]") {
     (void)r.create_id(); // id 2
     r.erase(id_t{2});
     r.shrink_to_fit();
-    CHECK((r.max_id()) == (id_t{1}));
-    CHECK((r.is_valid(id_t{0})));
-    CHECK((r.is_valid(id_t{1})));
+    CHECK(r.max_id() == id_t{1});
+    CHECK(r.is_valid(id_t{0}));
+    CHECK(r.is_valid(id_t{1}));
   }
 
   // set_id_limit with void metadata.
@@ -856,10 +856,10 @@ TEST_CASE("VoidMeta", "[EntityRegistry]") {
     (void)r.create_id(); // id 1
     (void)r.create_id(); // id 2
     r.erase(id_t{2});
-    CHECK((r.set_id_limit(id_t{2})));
+    CHECK(r.set_id_limit(id_t{2}));
     // id 2 was trimmed by set_id_limit, and limit prevents new id >= 2.
-    CHECK((r.id_limit()) == (id_t{2}));
-    CHECK((r.size()) == (2U));
+    CHECK(r.id_limit() == id_t{2});
+    CHECK(r.size() == 2U);
   }
 
   // Handle with generation tracking (void metadata).
@@ -867,14 +867,14 @@ TEST_CASE("VoidMeta", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id();
     auto h_old = r.get_handle(id0);
-    CHECK((h_old.gen()) == (0U));
+    CHECK(h_old.gen() == 0U);
     r.erase(id0);
     auto id0_reused = r.create_id();
-    CHECK((id0_reused) == (id0));
+    CHECK(id0_reused == id0);
     auto h_new = r.get_handle(id0_reused);
-    CHECK((h_new.gen()) == (1U));
-    CHECK_FALSE((r.is_valid(h_old)));
-    CHECK((r.is_valid(h_new)));
+    CHECK(h_new.gen() == 1U);
+    CHECK_FALSE(r.is_valid(h_old));
+    CHECK(r.is_valid(h_new));
   }
 }
 
@@ -898,18 +898,18 @@ TEST_CASE("VoidNoGen", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id();
     auto id1 = r.create_id();
-    CHECK((*id0) == (0U));
-    CHECK((*id1) == (1U));
-    CHECK((r.is_valid(id0)));
+    CHECK(*id0 == 0U);
+    CHECK(*id1 == 1U);
+    CHECK(r.is_valid(id0));
   }
 
   // Handle operations.
   if (true) {
     reg_t r;
     auto h = r.create_handle(loc0);
-    CHECK((r.is_valid(h)));
-    CHECK((r.erase(h)));
-    CHECK_FALSE((r.is_valid(h)));
+    CHECK(r.is_valid(h));
+    CHECK(r.erase(h));
+    CHECK_FALSE(r.is_valid(h));
   }
 
   // Erase and FIFO reuse.
@@ -919,8 +919,8 @@ TEST_CASE("VoidNoGen", "[EntityRegistry]") {
     (void)r.create_id(); // id 1
     r.erase(id_t{0});
     r.erase(id_t{1});
-    CHECK((r.create_id()) == (id_t{0}));
-    CHECK((r.create_id()) == (id_t{1}));
+    CHECK(r.create_id() == id_t{0});
+    CHECK(r.create_id() == id_t{1});
   }
 }
 
@@ -939,8 +939,8 @@ TEST_CASE("IdLimitAdvanced", "[EntityRegistry]") {
     (void)r.create_id({}, 10); // id 0
     (void)r.create_id({}, 20); // id 1
     (void)r.create_id({}, 30); // id 2
-    CHECK_FALSE((r.set_id_limit(id_t{2})));
-    CHECK((r.id_limit()) == (id_t::invalid)); // unchanged
+    CHECK_FALSE(r.set_id_limit(id_t{2}));
+    CHECK(r.id_limit() == id_t::invalid); // unchanged
   }
 
   // set_id_limit succeeds when only dead IDs exist past the limit; triggers
@@ -951,10 +951,10 @@ TEST_CASE("IdLimitAdvanced", "[EntityRegistry]") {
     (void)r.create_id({}, 20); // id 1
     (void)r.create_id({}, 30); // id 2
     r.erase(id_t{2});
-    CHECK((r.max_id()) == (id_t{2}));
-    CHECK((r.set_id_limit(id_t{2})));
-    CHECK((r.id_limit()) == (id_t{2}));
-    CHECK((r.max_id()) == (id_t{1})); // trimmed
+    CHECK(r.max_id() == id_t{2});
+    CHECK(r.set_id_limit(id_t{2}));
+    CHECK(r.id_limit() == id_t{2});
+    CHECK(r.max_id() == id_t{1}); // trimmed
   }
 
   // Raising the limit always succeeds.
@@ -963,10 +963,10 @@ TEST_CASE("IdLimitAdvanced", "[EntityRegistry]") {
     (void)r.create_id({}, 10);
     (void)r.create_id({}, 20);
     (void)r.create_id({}, 30);
-    CHECK((r.create_id({}, 40)) == (id_t::invalid)); // at limit
-    CHECK((r.set_id_limit(id_t{5})));
-    CHECK((r.id_limit()) == (id_t{5}));
-    CHECK((r.create_id({}, 40)) == (id_t{3})); // now succeeds
+    CHECK(r.create_id({}, 40) == id_t::invalid); // at limit
+    CHECK(r.set_id_limit(id_t{5}));
+    CHECK(r.id_limit() == id_t{5});
+    CHECK(r.create_id({}, 40) == id_t{3}); // now succeeds
   }
 
   // set_id_limit on empty registry with freed slots beyond limit.
@@ -976,12 +976,12 @@ TEST_CASE("IdLimitAdvanced", "[EntityRegistry]") {
     (void)r.create_id({}, 20); // id 1
     r.erase(id_t{0});
     r.erase(id_t{1});
-    CHECK((r.size()) == (0U));
-    CHECK((r.set_id_limit(id_t{1})));
-    CHECK((r.id_limit()) == (id_t{1}));
+    CHECK(r.size() == 0U);
+    CHECK(r.set_id_limit(id_t{1}));
+    CHECK(r.id_limit() == id_t{1});
     // Only id 0 should be available for reuse.
-    CHECK((r.create_id({}, 100)) == (id_t{0}));
-    CHECK((r.create_id({}, 200)) == (id_t::invalid)); // at limit
+    CHECK(r.create_id({}, 100) == id_t{0});
+    CHECK(r.create_id({}, 200) == id_t::invalid); // at limit
   }
 }
 
@@ -1003,14 +1003,14 @@ TEST_CASE("FifoAdvanced", "[EntityRegistry]") {
     r.erase(id_t{0});               // free: [0]
     r.erase(id_t{1});               // free: [0, 1]
     auto r0 = r.create_id({}, 100); // pops 0; free: [1]
-    CHECK((r0) == (id_t{0}));
+    CHECK(r0 == id_t{0});
     r.erase(id_t{2});               // free: [1, 2]
     auto r1 = r.create_id({}, 200); // pops 1; free: [2]
-    CHECK((r1) == (id_t{1}));
+    CHECK(r1 == id_t{1});
     auto r2 = r.create_id({}, 300); // pops 2; free: []
-    CHECK((r2) == (id_t{2}));
+    CHECK(r2 == id_t{2});
     // All live; next gets fresh ID.
-    CHECK((r.create_id({}, 400)) == (id_t{3}));
+    CHECK(r.create_id({}, 400) == id_t{3});
   }
 
   // FIFO reuse order matches erase order, not ID order.
@@ -1024,9 +1024,9 @@ TEST_CASE("FifoAdvanced", "[EntityRegistry]") {
     r.erase(id_t{2});
     r.erase(id_t{0});
     r.erase(id_t{3});
-    CHECK((r.create_id({}, 100)) == (id_t{2}));
-    CHECK((r.create_id({}, 200)) == (id_t{0}));
-    CHECK((r.create_id({}, 300)) == (id_t{3}));
+    CHECK(r.create_id({}, 100) == id_t{2});
+    CHECK(r.create_id({}, 200) == id_t{0});
+    CHECK(r.create_id({}, 300) == id_t{3});
   }
 
   // Free all then re-create: FIFO order matches erase order.
@@ -1038,10 +1038,10 @@ TEST_CASE("FifoAdvanced", "[EntityRegistry]") {
     r.erase(id_t{2});
     r.erase(id_t{1});
     r.erase(id_t{0});
-    CHECK((r.size() == 0U));
-    CHECK((r.create_id({}, 100)) == (id_t{2}));
-    CHECK((r.create_id({}, 200)) == (id_t{1}));
-    CHECK((r.create_id({}, 300)) == (id_t{0}));
+    CHECK(r.size() == 0U);
+    CHECK(r.create_id({}, 100) == id_t{2});
+    CHECK(r.create_id({}, 200) == id_t{1});
+    CHECK(r.create_id({}, 300) == id_t{0});
   }
 
   // FIFO order after clear() without shrink: rebuild scans in order.
@@ -1051,9 +1051,9 @@ TEST_CASE("FifoAdvanced", "[EntityRegistry]") {
     (void)r.create_id({}, 20); // id 1
     (void)r.create_id({}, 30); // id 2
     r.clear();
-    CHECK((r.create_id({}, 100)) == (id_t{0}));
-    CHECK((r.create_id({}, 200)) == (id_t{1}));
-    CHECK((r.create_id({}, 300)) == (id_t{2}));
+    CHECK(r.create_id({}, 100) == id_t{0});
+    CHECK(r.create_id({}, 200) == id_t{1});
+    CHECK(r.create_id({}, 300) == id_t{2});
   }
 }
 
@@ -1079,10 +1079,10 @@ TEST_CASE("LifoAdvanced", "[EntityRegistry]") {
     r.erase(id_t{0});          // stack: [0]
     r.erase(id_t{1});          // stack: [1, 0]
     // pops 1 (most recently freed), then 0
-    CHECK((r.create_id({}, 100)) == (id_t{1}));
-    CHECK((r.create_id({}, 200)) == (id_t{0}));
+    CHECK(r.create_id({}, 100) == id_t{1});
+    CHECK(r.create_id({}, 200) == id_t{0});
     // All live; next gets fresh ID.
-    CHECK((r.create_id({}, 300)) == (id_t{3}));
+    CHECK(r.create_id({}, 300) == id_t{3});
   }
 
   // LIFO erase order preserved across interleaving.
@@ -1097,9 +1097,9 @@ TEST_CASE("LifoAdvanced", "[EntityRegistry]") {
     r.erase(id_t{0});
     r.erase(id_t{3});
     // LIFO pops in reverse erase order: 3, 0, 2
-    CHECK((r.create_id({}, 100)) == (id_t{3}));
-    CHECK((r.create_id({}, 200)) == (id_t{0}));
-    CHECK((r.create_id({}, 300)) == (id_t{2}));
+    CHECK(r.create_id({}, 100) == id_t{3});
+    CHECK(r.create_id({}, 200) == id_t{0});
+    CHECK(r.create_id({}, 300) == id_t{2});
   }
 
   // After clear(), free list is rebuilt in LIFO-scan order (highest ID first).
@@ -1110,9 +1110,9 @@ TEST_CASE("LifoAdvanced", "[EntityRegistry]") {
     (void)r.create_id({}, 30); // id 2
     r.clear();
     // Scanning forward and pushing to head yields reverse order: 2, 1, 0.
-    CHECK((r.create_id({}, 100)) == (id_t{2}));
-    CHECK((r.create_id({}, 200)) == (id_t{1}));
-    CHECK((r.create_id({}, 300)) == (id_t{0}));
+    CHECK(r.create_id({}, 100) == id_t{2});
+    CHECK(r.create_id({}, 200) == id_t{1});
+    CHECK(r.create_id({}, 300) == id_t{0});
   }
 
   // shrink_to_fit triggers rebuild_free_list in LIFO mode: interior free IDs
@@ -1131,9 +1131,9 @@ TEST_CASE("LifoAdvanced", "[EntityRegistry]") {
     r.erase(id_t{5});
     r.shrink_to_fit(); // trims 4, 5; rebuilds free list from {1, 2}
     // LIFO scan: push(1) then push(2) -> stack top is 2.
-    CHECK((r.create_id({}, 100)) == (id_t{2}));
-    CHECK((r.create_id({}, 200)) == (id_t{1}));
-    CHECK((r.create_id({}, 300)) == (id_t{4})); // fresh expansion
+    CHECK(r.create_id({}, 100) == id_t{2});
+    CHECK(r.create_id({}, 200) == id_t{1});
+    CHECK(r.create_id({}, 300) == id_t{4}); // fresh expansion
   }
 
   // reserve with eager prefill: slots are pushed to head in order, so
@@ -1141,10 +1141,10 @@ TEST_CASE("LifoAdvanced", "[EntityRegistry]") {
   if (true) {
     reg_t r;
     r.reserve(4, allocation_policy::eager); // pushes 0, 1, 2, 3 -> top is 3
-    CHECK((r.create_id({}, 10)) == (id_t{3}));
-    CHECK((r.create_id({}, 20)) == (id_t{2}));
-    CHECK((r.create_id({}, 30)) == (id_t{1}));
-    CHECK((r.create_id({}, 40)) == (id_t{0}));
+    CHECK(r.create_id({}, 10) == id_t{3});
+    CHECK(r.create_id({}, 20) == id_t{2});
+    CHECK(r.create_id({}, 30) == id_t{1});
+    CHECK(r.create_id({}, 40) == id_t{0});
   }
 }
 
@@ -1161,8 +1161,8 @@ TEST_CASE("LocationRecord", "[EntityRegistry]") {
 
     // invalid_location contains store_id_t::invalid.
     if (true) {
-      CHECK((reg_t::invalid_location.contains(store_id_t::invalid)));
-      CHECK_FALSE((reg_t::invalid_location.contains(store_id_t{0})));
+      CHECK(reg_t::invalid_location.contains(store_id_t::invalid));
+      CHECK_FALSE(reg_t::invalid_location.contains(store_id_t{0}));
     }
 
     // get_store_id() returns the store_id stored in the location_record.
@@ -1174,7 +1174,7 @@ TEST_CASE("LocationRecord", "[EntityRegistry]") {
         found = rec.location.get_store_id();
         return false;
       });
-      CHECK((found) == (store_id_t{3}));
+      CHECK(found == store_id_t{3});
     }
 
     // contains() matches the current store_id; does not match others.
@@ -1188,9 +1188,9 @@ TEST_CASE("LocationRecord", "[EntityRegistry]") {
         has_invalid = rec.location.contains(store_id_t::invalid);
         return false;
       });
-      CHECK((has_2));
-      CHECK_FALSE((has_1));
-      CHECK_FALSE((has_invalid)); // live entity never contains invalid
+      CHECK(has_2);
+      CHECK_FALSE(has_1);
+      CHECK_FALSE(has_invalid); // live entity never contains invalid
     }
   }
 
@@ -1202,7 +1202,7 @@ TEST_CASE("LocationRecord", "[EntityRegistry]") {
     // invalid_location in component mode: store_ids_.none() -> contains
     // invalid.
     if (true) {
-      CHECK((creg_t::invalid_location.contains(store_id_t::invalid)));
+      CHECK(creg_t::invalid_location.contains(store_id_t::invalid));
     }
 
     // Staging entity has bit 0 set; contains() reflects that.
@@ -1215,8 +1215,8 @@ TEST_CASE("LocationRecord", "[EntityRegistry]") {
         has_1 = rec.location.contains(store_id_t{1});
         return false;
       });
-      CHECK((has_staging));
-      CHECK_FALSE((has_1));
+      CHECK(has_staging);
+      CHECK_FALSE(has_1);
     }
 
     // After add_location, contains() reflects the added store.
@@ -1230,8 +1230,8 @@ TEST_CASE("LocationRecord", "[EntityRegistry]") {
         has_0 = rec.location.contains(store_id_t{0}); // staging cleared
         return false;
       });
-      CHECK((has_5));
-      CHECK_FALSE((has_0));
+      CHECK(has_5);
+      CHECK_FALSE(has_0);
     }
   }
 }
@@ -1249,15 +1249,15 @@ TEST_CASE("EdgeCases", "[EntityRegistry]") {
   if (true) {
     reg_t r;
     // records_.size() is 0, so size()-1 underflows to max value = invalid.
-    CHECK((r.max_id()) == (id_t::invalid));
+    CHECK(r.max_id() == id_t::invalid);
   }
 
   // create with default metadata parameter.
   if (true) {
     reg_t r;
     auto id0 = r.create_id(); // uses default metadata_t{}
-    CHECK((r.is_valid(id0)));
-    CHECK((r[id0]) == (0)); // default-initialized int
+    CHECK(r.is_valid(id0));
+    CHECK(r[id0] == 0); // default-initialized int
   }
 
   // erase_if with no matches returns 0.
@@ -1266,15 +1266,15 @@ TEST_CASE("EdgeCases", "[EntityRegistry]") {
     (void)r.create_id({}, 5);
     (void)r.create_id({}, 10);
     auto cnt = r.erase_if([](auto, auto& rec) { return rec.metadata > 100; });
-    CHECK((cnt) == (0U));
-    CHECK((r.size()) == (2U));
+    CHECK(cnt == 0U);
+    CHECK(r.size() == 2U);
   }
 
   // erase_if on empty registry.
   if (true) {
     reg_t r;
     auto cnt = r.erase_if([](auto, auto&) { return true; });
-    CHECK((cnt) == (0U));
+    CHECK(cnt == 0U);
   }
 
   // shrink_to_fit with interior dead: only trims trailing dead.
@@ -1286,10 +1286,10 @@ TEST_CASE("EdgeCases", "[EntityRegistry]") {
     r.erase(id_t{1});          // interior dead
     r.shrink_to_fit();
     // id 2 is still live so no trimming happens.
-    CHECK((r.max_id()) == (id_t{2}));
-    CHECK((r.is_valid(id_t{0})));
-    CHECK_FALSE((r.is_valid(id_t{1})));
-    CHECK((r.is_valid(id_t{2})));
+    CHECK(r.max_id() == id_t{2});
+    CHECK(r.is_valid(id_t{0}));
+    CHECK_FALSE(r.is_valid(id_t{1}));
+    CHECK(r.is_valid(id_t{2}));
   }
 
   // shrink_to_fit trims multiple trailing dead records.
@@ -1302,9 +1302,9 @@ TEST_CASE("EdgeCases", "[EntityRegistry]") {
     r.erase(id_t{2});
     r.erase(id_t{3});
     r.shrink_to_fit();
-    CHECK((r.max_id()) == (id_t{1})); // trimmed to 2 records
-    CHECK((r.is_valid(id_t{0})));
-    CHECK((r.is_valid(id_t{1})));
+    CHECK(r.max_id() == id_t{1}); // trimmed to 2 records
+    CHECK(r.is_valid(id_t{0}));
+    CHECK(r.is_valid(id_t{1}));
   }
 
   // shrink_to_fit on empty registry.
@@ -1317,17 +1317,17 @@ TEST_CASE("EdgeCases", "[EntityRegistry]") {
   if (true) {
     reg_t r;
     r.reserve(100);
-    CHECK((r.size()) == (0U));
-    CHECK((r.create_id({}, 10)) == (id_t{0}));
-    CHECK((r.create_id({}, 20)) == (id_t{1}));
+    CHECK(r.size() == 0U);
+    CHECK(r.create_id({}, 10) == id_t{0});
+    CHECK(r.create_id({}, 20) == id_t{1});
   }
 
   // Prefill constructor with prefill=false: just sets limit, no slots.
   if (true) {
     reg_t r{id_t{5}, allocation_policy::lazy};
-    CHECK((r.id_limit()) == (id_t{5}));
-    CHECK((r.create_id({}, 10)) == (id_t{0}));
-    CHECK((r.create_id({}, 20)) == (id_t{1}));
+    CHECK(r.id_limit() == id_t{5});
+    CHECK(r.create_id({}, 10) == id_t{0});
+    CHECK(r.create_id({}, 20) == id_t{1});
   }
 
   // clear() bumps generation counters.
@@ -1335,14 +1335,14 @@ TEST_CASE("EdgeCases", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id({}, 10);
     auto h = r.get_handle(id0);
-    CHECK((h.gen()) == (0U));
+    CHECK(h.gen() == 0U);
     r.clear();
-    CHECK_FALSE((r.is_valid(h)));
+    CHECK_FALSE(r.is_valid(h));
     auto id0_new = r.create_id({}, 20);
-    CHECK((id0_new) == (id0));
+    CHECK(id0_new == id0);
     auto h_new = r.get_handle(id0_new);
-    CHECK((h_new.gen()) == (1U));
-    CHECK((h != h_new));
+    CHECK(h_new.gen() == 1U);
+    CHECK(h != h_new);
   }
 
   // Multiple erase/reuse cycles bump gen each time.
@@ -1350,20 +1350,20 @@ TEST_CASE("EdgeCases", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id({}, 10);
     auto h0 = r.get_handle(id0);
-    CHECK((h0.gen()) == (0U));
+    CHECK(h0.gen() == 0U);
     r.erase(id0);
     auto id0_r1 = r.create_id({}, 20);
-    CHECK((id0_r1) == (id0));
+    CHECK(id0_r1 == id0);
     auto h1 = r.get_handle(id0_r1);
-    CHECK((h1.gen()) == (1U));
+    CHECK(h1.gen() == 1U);
     r.erase(id0_r1);
     auto id0_r2 = r.create_id({}, 30);
-    CHECK((id0_r2) == (id0));
+    CHECK(id0_r2 == id0);
     auto h2 = r.get_handle(id0_r2);
-    CHECK((h2.gen()) == (2U));
-    CHECK_FALSE((r.is_valid(h0)));
-    CHECK_FALSE((r.is_valid(h1)));
-    CHECK((r.is_valid(h2)));
+    CHECK(h2.gen() == 2U);
+    CHECK_FALSE(r.is_valid(h0));
+    CHECK_FALSE(r.is_valid(h1));
+    CHECK(r.is_valid(h2));
   }
 
   // FIFO free-list rebuilt correctly after shrink_to_fit.
@@ -1381,67 +1381,67 @@ TEST_CASE("EdgeCases", "[EntityRegistry]") {
     r.shrink_to_fit();
     // After shrink: records 0..2; 3 and 4 trimmed.
     // Free list rebuilt: only id 0 is free.
-    CHECK((r.size()) == (2U));
-    CHECK((r.create_id({}, 100)) == (id_t{0}));
+    CHECK(r.size() == 2U);
+    CHECK(r.create_id({}, 100) == id_t{0});
     // No more free; next gets fresh id 3.
-    CHECK((r.create_id({}, 200)) == (id_t{3}));
+    CHECK(r.create_id({}, 200) == id_t{3});
   }
 
   // size() and is_valid consistency after mixed operations.
   if (true) {
     reg_t r;
-    CHECK((r.size()) == (0U));
+    CHECK(r.size() == 0U);
     auto id0 = r.create_id({}, 10);
     auto id1 = r.create_id({}, 20);
     auto id2 = r.create_id({}, 30);
-    CHECK((r.size()) == (3U));
+    CHECK(r.size() == 3U);
     r.erase(id1);
-    CHECK((r.size()) == (2U));
+    CHECK(r.size() == 2U);
     auto id3 = r.create_id({}, 40); // reuses id 1
-    CHECK((r.size()) == (3U));
-    CHECK((id3) == (id1));
+    CHECK(r.size() == 3U);
+    CHECK(id3 == id1);
     r.erase(id0);
     r.erase(id2);
     r.erase(id3);
-    CHECK((r.size()) == (0U));
+    CHECK(r.size() == 0U);
   }
 
   // Constructor with id_limit and custom allocator.
   if (true) {
     std::allocator<int> alloc;
     reg_t r{id_t{5}, allocation_policy::eager, alloc};
-    CHECK((r.id_limit()) == (id_t{5}));
-    CHECK((r.create_id({}, 10)) == (id_t{0}));
+    CHECK(r.id_limit() == id_t{5});
+    CHECK(r.create_id({}, 10) == id_t{0});
   }
 
   // Prefill constructor with prefill=false: just sets limit.
   if (true) {
     reg_t r{id_t::invalid, allocation_policy::lazy};
-    CHECK((r.id_limit()) == (id_t::invalid));
+    CHECK(r.id_limit() == id_t::invalid);
   }
 
   // Prefill constructor with id_limit{0}: early return, can't create.
   if (true) {
     reg_t r{id_t{0}};
-    CHECK((r.id_limit()) == (id_t{0}));
-    CHECK((r.create_id({}, 10)) == (id_t::invalid));
+    CHECK(r.id_limit() == id_t{0});
+    CHECK(r.create_id({}, 10) == id_t::invalid);
   }
 
   // set_id_limit to 0: no IDs allowed.
   if (true) {
     reg_t r;
-    CHECK((r.set_id_limit(id_t{0})));
-    CHECK((r.id_limit()) == (id_t{0}));
-    CHECK((r.create_id({}, 10)) == (id_t::invalid));
+    CHECK(r.set_id_limit(id_t{0}));
+    CHECK(r.id_limit() == id_t{0});
+    CHECK(r.create_id({}, 10) == id_t::invalid);
   }
 
   // set_id_limit to same value: no-op.
   if (true) {
     reg_t r{id_t{3}};
     (void)r.create_id({}, 10);
-    CHECK((r.set_id_limit(id_t{3})));
-    CHECK((r.id_limit()) == (id_t{3}));
-    CHECK((r.is_valid(id_t{0})));
+    CHECK(r.set_id_limit(id_t{3}));
+    CHECK(r.id_limit() == id_t{3});
+    CHECK(r.is_valid(id_t{0}));
   }
 
   // erase_if erases all when all match.
@@ -1451,8 +1451,8 @@ TEST_CASE("EdgeCases", "[EntityRegistry]") {
     (void)r.create_id({}, 10);
     (void)r.create_id({}, 15);
     auto cnt = r.erase_if([](auto, auto&) { return true; });
-    CHECK((cnt) == (3U));
-    CHECK((r.size()) == (0U));
+    CHECK(cnt == 3U);
+    CHECK(r.size() == 0U);
   }
 
   // shrink_to_fit on all-dead registry trims to empty.
@@ -1463,9 +1463,9 @@ TEST_CASE("EdgeCases", "[EntityRegistry]") {
     r.erase(id_t{0});
     r.erase(id_t{1});
     r.shrink_to_fit();
-    CHECK((r.size()) == (0U));
+    CHECK(r.size() == 0U);
     // After full trim, fresh IDs start from 0.
-    CHECK((r.create_id({}, 100)) == (id_t{0}));
+    CHECK(r.create_id({}, 100) == id_t{0});
   }
 }
 
@@ -1482,11 +1482,11 @@ TEST_CASE("MetadataCleanup", "[EntityRegistry]") {
   if (true) {
     reg_t r;
     auto id0 = r.create_id({}, 42);
-    CHECK((r[id0]) == (42));
+    CHECK(r[id0] == 42);
     r.erase(id0);
     auto id0_reused = r.create_id();
-    CHECK((id0_reused) == (id0));
-    CHECK((r[id0_reused]) == (0));
+    CHECK(id0_reused == id0);
+    CHECK(r[id0_reused] == 0);
   }
 
   // Metadata is cleared on erase even when re-created with explicit value.
@@ -1495,7 +1495,7 @@ TEST_CASE("MetadataCleanup", "[EntityRegistry]") {
     auto id0 = r.create_id({}, 999);
     r.erase(id0);
     auto id0_reused = r.create_id({}, 7);
-    CHECK((r[id0_reused]) == (7));
+    CHECK(r[id0_reused] == 7);
   }
 
   // Metadata is cleared on clear(false); re-creation with default gets 0.
@@ -1505,12 +1505,12 @@ TEST_CASE("MetadataCleanup", "[EntityRegistry]") {
     (void)r.create_id({}, 200);
     (void)r.create_id({}, 300);
     r.clear();
-    CHECK((r.create_id({}, 0)) == (id_t{0}));
-    CHECK((r[id_t{0}]) == (0));
-    CHECK((r.create_id({}, 0)) == (id_t{1}));
-    CHECK((r[id_t{1}]) == (0));
-    CHECK((r.create_id({}, 0)) == (id_t{2}));
-    CHECK((r[id_t{2}]) == (0));
+    CHECK(r.create_id({}, 0) == id_t{0});
+    CHECK(r[id_t{0}] == 0);
+    CHECK(r.create_id({}, 0) == id_t{1});
+    CHECK(r[id_t{1}] == 0);
+    CHECK(r.create_id({}, 0) == id_t{2});
+    CHECK(r[id_t{2}] == 0);
   }
 
   // Metadata is cleared on clear(true); re-creation with default gets 0.
@@ -1520,7 +1520,7 @@ TEST_CASE("MetadataCleanup", "[EntityRegistry]") {
     (void)r.create_id({}, 200);
     r.clear(deallocation_policy::release);
     auto id0 = r.create_id();
-    CHECK((r[id0]) == (0));
+    CHECK(r[id0] == 0);
   }
 }
 
@@ -1548,10 +1548,10 @@ TEST_CASE("EraseIfPredicate", "[EntityRegistry]") {
       ++call_count;
       return rec.metadata > 20;
     });
-    CHECK((call_count) == (2U)); // only live records
-    CHECK((cnt) == (1U));        // only id 2 (metadata 30) matches
-    CHECK((r.is_valid(id_t{0})));
-    CHECK_FALSE((r.is_valid(id_t{2})));
+    CHECK(call_count == 2U); // only live records
+    CHECK(cnt == 1U);        // only id 2 (metadata 30) matches
+    CHECK(r.is_valid(id_t{0}));
+    CHECK_FALSE(r.is_valid(id_t{2}));
   }
 }
 
@@ -1576,15 +1576,15 @@ TEST_CASE("IdLimitFreeList", "[EntityRegistry]") {
     r.erase(id_t{3});          // will be trimmed
     r.erase(id_t{4});          // will be trimmed
     // Live: 0, 2. Dead: 1, 3, 4. Trim to limit 3 removes 3 and 4.
-    CHECK((r.set_id_limit(id_t{3})));
-    CHECK((r.size()) == (2U));
-    CHECK((r.is_valid(id_t{0})));
-    CHECK_FALSE((r.is_valid(id_t{1})));
-    CHECK((r.is_valid(id_t{2})));
+    CHECK(r.set_id_limit(id_t{3}));
+    CHECK(r.size() == 2U);
+    CHECK(r.is_valid(id_t{0}));
+    CHECK_FALSE(r.is_valid(id_t{1}));
+    CHECK(r.is_valid(id_t{2}));
     // Free list should only contain id 1.
-    CHECK((r.create_id({}, 60)) == (id_t{1}));
+    CHECK(r.create_id({}, 60) == id_t{1});
     // At limit now: 3 live, limit is 3.
-    CHECK((r.create_id({}, 70)) == (id_t::invalid));
+    CHECK(r.create_id({}, 70) == id_t::invalid);
   }
 }
 
@@ -1602,19 +1602,19 @@ TEST_CASE("ReservePrefillExisting", "[EntityRegistry]") {
     reg_t r;
     auto id0 = r.create_id({}, 10); // id 0
     auto id1 = r.create_id({}, 20); // id 1
-    CHECK((r.size()) == (2U));
+    CHECK(r.size() == 2U);
     r.reserve(5, allocation_policy::eager); // adds free slots 2, 3, 4
     // Existing entities are undisturbed.
-    CHECK((r.is_valid(id0)));
-    CHECK((r.is_valid(id1)));
-    CHECK((r[id0]) == (10));
-    CHECK((r[id1]) == (20));
+    CHECK(r.is_valid(id0));
+    CHECK(r.is_valid(id1));
+    CHECK(r[id0] == 10);
+    CHECK(r[id1] == 20);
     // New creates should use the prefilled free slots.
-    CHECK((r.create_id({}, 30)) == (id_t{2}));
-    CHECK((r.create_id({}, 40)) == (id_t{3}));
-    CHECK((r.create_id({}, 50)) == (id_t{4}));
+    CHECK(r.create_id({}, 30) == id_t{2});
+    CHECK(r.create_id({}, 40) == id_t{3});
+    CHECK(r.create_id({}, 50) == id_t{4});
     // Next create expands.
-    CHECK((r.create_id({}, 60)) == (id_t{5}));
+    CHECK(r.create_id({}, 60) == id_t{5});
   }
 
   // reserve with prefill when some slots are already free.
@@ -1626,9 +1626,9 @@ TEST_CASE("ReservePrefillExisting", "[EntityRegistry]") {
     r.erase(id_t{1});                       // free: [1]
     r.reserve(5, allocation_policy::eager); // adds free slots 3, 4
     // Free list should be: 1 (existing), then 3, 4 (new).
-    CHECK((r.create_id({}, 40)) == (id_t{1}));
-    CHECK((r.create_id({}, 50)) == (id_t{3}));
-    CHECK((r.create_id({}, 60)) == (id_t{4}));
+    CHECK(r.create_id({}, 40) == id_t{1});
+    CHECK(r.create_id({}, 50) == id_t{3});
+    CHECK(r.create_id({}, 60) == id_t{4});
   }
 }
 
@@ -1647,8 +1647,8 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
   // Default-constructed owner holds no entity.
   if (true) {
     owner_t o;
-    CHECK_FALSE((bool(o)));
-    CHECK((o.id()) == (id_t::invalid));
+    CHECK_FALSE(bool(o));
+    CHECK(o.id() == id_t::invalid);
   }
 
   // Constructor from existing valid handle takes ownership.
@@ -1656,9 +1656,9 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     reg_t r;
     auto h = r.create_handle(staging, 42);
     owner_t o{r, h};
-    CHECK((bool(o)));
-    CHECK((o.id()) == (h.id()));
-    CHECK((o.handle() == h));
+    CHECK(bool(o));
+    CHECK(o.id() == h.id());
+    CHECK(o.handle() == h);
   }
 
   // Constructor from existing invalid handle: owner is empty.
@@ -1667,35 +1667,35 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     auto h = r.create_handle(staging, 42);
     r.erase(h);
     owner_t o{r, h};
-    CHECK_FALSE((bool(o)));
-    CHECK((o.id()) == (id_t::invalid));
+    CHECK_FALSE(bool(o));
+    CHECK(o.id() == id_t::invalid);
   }
 
   // Creating constructor: creates entity and takes ownership.
   if (true) {
     reg_t r;
     owner_t o{r, staging, 99};
-    CHECK((bool(o)));
-    CHECK((o.id()) != (id_t::invalid));
-    CHECK((r[o.id()]) == (99));
-    CHECK((r.is_valid(o.id())));
+    CHECK(bool(o));
+    CHECK(o.id() != id_t::invalid);
+    CHECK(r[o.id()] == 99);
+    CHECK(r.is_valid(o.id()));
   }
 
   // create_owner factory method.
   if (true) {
     reg_t r;
     auto o = r.create_owner(staging, 77);
-    CHECK((bool(o)));
-    CHECK((o.id()) != (id_t::invalid));
-    CHECK((r[o.id()]) == (77));
+    CHECK(bool(o));
+    CHECK(o.id() != id_t::invalid);
+    CHECK(r[o.id()] == 77);
   }
 
   // Creating constructor: failure (registry at limit) -> owner is empty.
   if (true) {
     reg_t r{id_t{0}};
     owner_t o{r, staging, 10};
-    CHECK_FALSE((bool(o)));
-    CHECK((o.id()) == (id_t::invalid));
+    CHECK_FALSE(bool(o));
+    CHECK(o.id() == id_t::invalid);
   }
 
   // Destructor erases entity when owner goes out of scope.
@@ -1705,9 +1705,9 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     {
       auto o = r.create_owner(staging, 10);
       saved_id = o.id();
-      CHECK((r.is_valid(saved_id)));
+      CHECK(r.is_valid(saved_id));
     }
-    CHECK_FALSE((r.is_valid(saved_id)));
+    CHECK_FALSE(r.is_valid(saved_id));
   }
 
   // Destructor on empty owner is a no-op.
@@ -1721,10 +1721,10 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     auto o = r.create_owner(staging, 10);
     auto id = o.id();
     auto h = o.release();
-    CHECK_FALSE((bool(o)));
-    CHECK((o.id()) == (id_t::invalid));
-    CHECK((h.id()) == (id));
-    CHECK((r.is_valid(h)));
+    CHECK_FALSE(bool(o));
+    CHECK(o.id() == id_t::invalid);
+    CHECK(h.id() == id);
+    CHECK(r.is_valid(h));
     r.erase(h); // manual cleanup
   }
 
@@ -1734,15 +1734,15 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     auto o = r.create_owner(staging, 10);
     auto id = o.id();
     o.reset();
-    CHECK_FALSE((bool(o)));
-    CHECK_FALSE((r.is_valid(id)));
+    CHECK_FALSE(bool(o));
+    CHECK_FALSE(r.is_valid(id));
   }
 
   // reset() on empty owner is a no-op.
   if (true) {
     owner_t o;
     o.reset();
-    CHECK_FALSE((bool(o)));
+    CHECK_FALSE(bool(o));
   }
 
   // Move constructor transfers ownership; source becomes empty.
@@ -1751,11 +1751,11 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     auto o1 = r.create_owner(staging, 10);
     auto id = o1.id();
     owner_t o2{std::move(o1)};
-    CHECK_FALSE((bool(o1)));
-    CHECK((o1.id()) == (id_t::invalid));
-    CHECK((bool(o2)));
-    CHECK((o2.id()) == (id));
-    CHECK((r.is_valid(id)));
+    CHECK_FALSE(bool(o1));
+    CHECK(o1.id() == id_t::invalid);
+    CHECK(bool(o2));
+    CHECK(o2.id() == id);
+    CHECK(r.is_valid(id));
   }
 
   // Move assignment: erases current entity, takes ownership of source.
@@ -1766,11 +1766,11 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     auto id1 = o1.id();
     auto id2 = o2.id();
     o2 = std::move(o1);
-    CHECK_FALSE((bool(o1)));
-    CHECK((bool(o2)));
-    CHECK((o2.id()) == (id1));
-    CHECK((r.is_valid(id1)));
-    CHECK_FALSE((r.is_valid(id2))); // erased by move assignment
+    CHECK_FALSE(bool(o1));
+    CHECK(bool(o2));
+    CHECK(o2.id() == id1);
+    CHECK(r.is_valid(id1));
+    CHECK_FALSE(r.is_valid(id2)); // erased by move assignment
   }
 
   // Move assignment into empty owner.
@@ -1780,9 +1780,9 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     auto id = o1.id();
     owner_t o2;
     o2 = std::move(o1);
-    CHECK_FALSE((bool(o1)));
-    CHECK((bool(o2)));
-    CHECK((o2.id()) == (id));
+    CHECK_FALSE(bool(o1));
+    CHECK(bool(o2));
+    CHECK(o2.id() == id);
   }
 
   // Move self-assignment is a no-op (entity stays intact).
@@ -1793,9 +1793,9 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     // Use pointer indirection to avoid -Wself-move.
     owner_t* p = &o;
     o = std::move(*p);
-    CHECK((bool(o)));
-    CHECK((o.id()) == (id));
-    CHECK((r.is_valid(id)));
+    CHECK(bool(o));
+    CHECK(o.id() == id);
+    CHECK(r.is_valid(id));
   }
 
   // handle() accessor returns the underlying handle.
@@ -1803,16 +1803,16 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     reg_t r;
     auto h = r.create_handle(staging, 10);
     owner_t o{r, h};
-    CHECK((o.handle() == h));
-    CHECK((o.handle().id()) == (h.id()));
-    CHECK((o.handle().gen()) == (h.gen()));
+    CHECK(o.handle() == h);
+    CHECK(o.handle().id() == h.id());
+    CHECK(o.handle().gen() == h.gen());
   }
 
   // registry() returns a reference to the associated registry.
   if (true) {
     reg_t r;
     auto o = r.create_owner(staging, 10);
-    CHECK((&o.registry() == &r));
+    CHECK(&o.registry() == &r);
   }
 
   // const registry() returns a const reference.
@@ -1820,7 +1820,7 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     reg_t r;
     const auto o = r.create_owner(staging, 10);
     const reg_t& cr = o.registry();
-    CHECK((&cr == &r));
+    CHECK(&cr == &r);
   }
 
   // RAII pattern: early return erases entity; success path releases it.
@@ -1837,11 +1837,11 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
       return true;
     };
 
-    CHECK_FALSE((do_work(false)));
-    CHECK_FALSE((r.is_valid(saved_id))); // erased on early return
+    CHECK_FALSE(do_work(false));
+    CHECK_FALSE(r.is_valid(saved_id)); // erased on early return
 
-    CHECK((do_work(true)));
-    CHECK((r.is_valid(saved_id))); // survived via release()
+    CHECK(do_work(true));
+    CHECK(r.is_valid(saved_id)); // survived via release()
     r.erase(saved_id);
   }
 
@@ -1851,11 +1851,11 @@ TEST_CASE("HandleOwner", "[EntityRegistry]") {
     const vreg_t::location_t vstaging{store_id_t{}};
     vreg_t r;
     auto o = r.create_owner(vstaging);
-    CHECK((bool(o)));
+    CHECK(bool(o));
     auto id = o.id();
-    CHECK((r.is_valid(id)));
+    CHECK(r.is_valid(id));
     o.reset();
-    CHECK_FALSE((r.is_valid(id)));
+    CHECK_FALSE(r.is_valid(id));
   }
 }
 
@@ -1872,7 +1872,7 @@ TEST_CASE("GetAllocator", "[EntityRegistry]") {
     auto alloc = r.get_allocator();
     static_assert(std::is_same_v<decltype(alloc), reg_t::allocator_type>);
     // Two calls return equal allocators.
-    CHECK((alloc == r.get_allocator()));
+    CHECK(alloc == r.get_allocator());
   }
 
   // Const-correct: callable on a const reference.
@@ -1904,9 +1904,9 @@ TEST_CASE("ComponentMode_Basic", "[EntityRegistry]") {
   // Default construction: empty registry.
   if (true) {
     creg_t r;
-    CHECK((r.id_limit()) == (id_t::invalid));
-    CHECK_FALSE((r.is_valid(id_t{0})));
-    CHECK((r.size()) == (0U));
+    CHECK(r.id_limit() == id_t::invalid);
+    CHECK_FALSE(r.is_valid(id_t{0}));
+    CHECK(r.size() == 0U);
   }
 
   // create_id returns sequential IDs.
@@ -1915,13 +1915,13 @@ TEST_CASE("ComponentMode_Basic", "[EntityRegistry]") {
     auto id0 = r.create_id({}, 10);
     auto id1 = r.create_id({}, 20);
     auto id2 = r.create_id({}, 30);
-    CHECK((*id0) == (0U));
-    CHECK((*id1) == (1U));
-    CHECK((*id2) == (2U));
-    CHECK((r.is_valid(id0)));
-    CHECK((r.is_valid(id1)));
-    CHECK((r.is_valid(id2)));
-    CHECK((r.size()) == (3U));
+    CHECK(*id0 == 0U);
+    CHECK(*id1 == 1U);
+    CHECK(*id2 == 2U);
+    CHECK(r.is_valid(id0));
+    CHECK(r.is_valid(id1));
+    CHECK(r.is_valid(id2));
+    CHECK(r.size() == 3U);
   }
 
   // Metadata is stored and retrieved.
@@ -1929,19 +1929,19 @@ TEST_CASE("ComponentMode_Basic", "[EntityRegistry]") {
     creg_t r;
     auto id0 = r.create_id({}, 42);
     auto id1 = r.create_id({}, 99);
-    CHECK((r[id0]) == (42));
-    CHECK((r[id1]) == (99));
+    CHECK(r[id0] == 42);
+    CHECK(r[id1] == 99);
     r[id0] = 777;
-    CHECK((r[id0]) == (777));
+    CHECK(r[id0] == 777);
   }
 
   // at() with valid and invalid IDs.
   if (true) {
     creg_t r;
     auto id0 = r.create_id({}, 42);
-    CHECK((r.at(id0)) == (42));
+    CHECK(r.at(id0) == 42);
     r.at(id0) = 99;
-    CHECK((r.at(id0)) == (99));
+    CHECK(r.at(id0) == 99);
     CHECK_THROWS_AS(r.at(id_t{99}), std::out_of_range);
     r.erase(id0);
     CHECK_THROWS_AS(r.at(id0), std::out_of_range);
@@ -1952,28 +1952,28 @@ TEST_CASE("ComponentMode_Basic", "[EntityRegistry]") {
     creg_t r;
     auto id0 = r.create_id({}, 10);
     auto id1 = r.create_id({}, 20);
-    CHECK((r.erase(id0)));
-    CHECK_FALSE((r.is_valid(id0)));
-    CHECK((r.is_valid(id1)));
-    CHECK_FALSE((r.erase(id0))); // double erase
-    CHECK((r.size()) == (1U));
+    CHECK(r.erase(id0));
+    CHECK_FALSE(r.is_valid(id0));
+    CHECK(r.is_valid(id1));
+    CHECK_FALSE(r.erase(id0)); // double erase
+    CHECK(r.size() == 1U);
   }
 
   // erase invalid ID returns false.
   if (true) {
     creg_t r;
-    CHECK_FALSE((r.erase(id_t{0})));
-    CHECK_FALSE((r.erase(id_t::invalid)));
+    CHECK_FALSE(r.erase(id_t{0}));
+    CHECK_FALSE(r.erase(id_t::invalid));
   }
 
   // create_handle and handle validity.
   if (true) {
     creg_t r;
     auto h = r.create_handle({store_id_t{}}, 42);
-    CHECK((r.is_valid(h)));
-    CHECK((h.id()) == (id_t{0}));
-    CHECK((h.gen()) == (0U));
-    CHECK((r.at(h)) == (42));
+    CHECK(r.is_valid(h));
+    CHECK(h.id() == id_t{0});
+    CHECK(h.gen() == 0U);
+    CHECK(r.at(h) == 42);
   }
 
   // get_handle for valid/invalid IDs.
@@ -1981,11 +1981,11 @@ TEST_CASE("ComponentMode_Basic", "[EntityRegistry]") {
     creg_t r;
     auto id0 = r.create_id({}, 10);
     auto h = r.get_handle(id0);
-    CHECK((r.is_valid(h)));
-    CHECK((h.id()) == (id0));
+    CHECK(r.is_valid(h));
+    CHECK(h.id() == id0);
     auto h_bad = r.get_handle(id_t{99});
-    CHECK_FALSE((r.is_valid(h_bad)));
-    CHECK((h_bad.id()) == (id_t::invalid));
+    CHECK_FALSE(r.is_valid(h_bad));
+    CHECK(h_bad.id() == id_t::invalid);
   }
 
   // Stale handle is invalid after erase + reuse.
@@ -1993,13 +1993,13 @@ TEST_CASE("ComponentMode_Basic", "[EntityRegistry]") {
     creg_t r;
     auto id0 = r.create_id({}, 10);
     auto h_old = r.get_handle(id0);
-    CHECK((h_old.gen()) == (0U));
+    CHECK(h_old.gen() == 0U);
     r.erase(id0);
     auto id0_reused = r.create_id({}, 99);
-    CHECK((id0_reused) == (id0));
-    CHECK_FALSE((r.is_valid(h_old)));
+    CHECK(id0_reused == id0);
+    CHECK_FALSE(r.is_valid(h_old));
     auto h_new = r.get_handle(id0_reused);
-    CHECK((r.is_valid(h_new)));
+    CHECK(r.is_valid(h_new));
     CHECK((h_new.gen()) > (h_old.gen()));
   }
 
@@ -2007,20 +2007,20 @@ TEST_CASE("ComponentMode_Basic", "[EntityRegistry]") {
   if (true) {
     creg_t r;
     auto h = r.create_handle({store_id_t{}}, 10);
-    CHECK((r.erase(h)));
-    CHECK_FALSE((r.is_valid(h)));
-    CHECK_FALSE((r.erase(h)));
+    CHECK(r.erase(h));
+    CHECK_FALSE(r.is_valid(h));
+    CHECK_FALSE(r.erase(h));
   }
 
   // size() and max_id().
   if (true) {
     creg_t r;
-    CHECK((r.size()) == (0U));
-    CHECK((r.max_id()) == (id_t::invalid));
+    CHECK(r.size() == 0U);
+    CHECK(r.max_id() == id_t::invalid);
     (void)r.create_id({}, 10);
     (void)r.create_id({}, 20);
-    CHECK((r.size()) == (2U));
-    CHECK((r.max_id()) == (id_t{1}));
+    CHECK(r.size() == 2U);
+    CHECK(r.max_id() == id_t{1});
   }
 
   // Metadata default value on reuse.
@@ -2029,16 +2029,16 @@ TEST_CASE("ComponentMode_Basic", "[EntityRegistry]") {
     auto id0 = r.create_id({}, 42);
     r.erase(id0);
     auto id0_reused = r.create_id(); // default metadata
-    CHECK((id0_reused) == (id0));
-    CHECK((r[id0_reused]) == (0));
+    CHECK(id0_reused == id0);
+    CHECK(r[id0_reused] == 0);
   }
 
   // id_limit enforcement.
   if (true) {
     creg_t r{id_t{2}};
-    CHECK((r.create_id({}, 10)) == (id_t{0}));
-    CHECK((r.create_id({}, 20)) == (id_t{1}));
-    CHECK((r.create_id({}, 30)) == (id_t::invalid));
+    CHECK(r.create_id({}, 10) == id_t{0});
+    CHECK(r.create_id({}, 20) == id_t{1});
+    CHECK(r.create_id({}, 30) == id_t::invalid);
   }
 }
 
@@ -2055,22 +2055,22 @@ TEST_CASE("ComponentMode_Bitmap", "[EntityRegistry]") {
     creg_t r;
     auto id0 = r.create_id({}, 10);
     const auto& bm = r.get_location(id0);
-    CHECK((bm.test(store_id_t{0})));
-    CHECK_FALSE((bm.test(store_id_t{1})));
+    CHECK(bm.test(store_id_t{0}));
+    CHECK_FALSE(bm.test(store_id_t{1}));
   }
 
   // add_location clears the staging bit; is_in_location reads presence.
   if (true) {
     creg_t r;
     auto id0 = r.create_id({}, 10);
-    CHECK((r.is_in_location(id0, store_id_t{0})));       // staging bit set
-    CHECK_FALSE((r.is_in_location(id0, store_id_t{1}))); // not in any storage
-    r.add_location(id0, store_id_t{1});                  // leaves staging
-    CHECK_FALSE((r.is_in_location(id0, store_id_t{0}))); // staging cleared
-    CHECK((r.is_in_location(id0, store_id_t{1})));
+    CHECK(r.is_in_location(id0, store_id_t{0}));       // staging bit set
+    CHECK_FALSE(r.is_in_location(id0, store_id_t{1})); // not in any storage
+    r.add_location(id0, store_id_t{1});                // leaves staging
+    CHECK_FALSE(r.is_in_location(id0, store_id_t{0})); // staging cleared
+    CHECK(r.is_in_location(id0, store_id_t{1}));
     r.add_location(id0, store_id_t{63});
-    CHECK((r.is_in_location(id0, store_id_t{63})));
-    CHECK_FALSE((r.is_in_location(id0, store_id_t{2})));
+    CHECK(r.is_in_location(id0, store_id_t{63}));
+    CHECK_FALSE(r.is_in_location(id0, store_id_t{2}));
   }
 
   // remove_location: preserving entity (back to staging), then erasing it.
@@ -2079,20 +2079,20 @@ TEST_CASE("ComponentMode_Bitmap", "[EntityRegistry]") {
     auto id0 = r.create_id({}, 10);
     r.add_location(id0, store_id_t{1}); // leaves staging
     r.add_location(id0, store_id_t{2});
-    CHECK((r.is_in_location(id0, store_id_t{1})));
-    CHECK((r.is_in_location(id0, store_id_t{2})));
+    CHECK(r.is_in_location(id0, store_id_t{1}));
+    CHECK(r.is_in_location(id0, store_id_t{2}));
     // Remove one; entity still alive via bit 2.
     r.remove_location(id0, store_id_t{1}, removal_mode::preserve);
-    CHECK_FALSE((r.is_in_location(id0, store_id_t{1})));
-    CHECK((r.is_in_location(id0, store_id_t{2})));
+    CHECK_FALSE(r.is_in_location(id0, store_id_t{1}));
+    CHECK(r.is_in_location(id0, store_id_t{2}));
     // Remove last; preserve puts entity back in staging.
     r.remove_location(id0, store_id_t{2}, removal_mode::preserve);
-    CHECK((r.is_valid(id0)));
-    CHECK((r.is_in_location(id0, store_id_t{0}))); // staging restored
+    CHECK(r.is_valid(id0));
+    CHECK(r.is_in_location(id0, store_id_t{0})); // staging restored
     // Add again, then remove with mode::remove to erase.
     r.add_location(id0, store_id_t{1});
     r.remove_location(id0, store_id_t{1}, removal_mode::remove);
-    CHECK_FALSE((r.is_valid(id0)));
+    CHECK_FALSE(r.is_valid(id0));
   }
 
   // add_location/remove_location round-trip via get_location (read-only).
@@ -2100,10 +2100,10 @@ TEST_CASE("ComponentMode_Bitmap", "[EntityRegistry]") {
     creg_t r;
     auto id0 = r.create_id({}, 10);
     r.add_location(id0, store_id_t{5});
-    CHECK((r.get_location(id0).test(store_id_t{5})));
+    CHECK(r.get_location(id0).test(store_id_t{5}));
     r.remove_location(id0, store_id_t{5}, removal_mode::preserve);
-    CHECK_FALSE((r.get_location(id0).test(store_id_t{5})));
-    CHECK((r.is_valid(id0))); // entity in staging, still alive
+    CHECK_FALSE(r.get_location(id0).test(store_id_t{5}));
+    CHECK(r.is_valid(id0)); // entity in staging, still alive
   }
 
   // Staging bit (bit 0) is restored when entity is reallocated.
@@ -2113,10 +2113,10 @@ TEST_CASE("ComponentMode_Bitmap", "[EntityRegistry]") {
     r.add_location(id0, store_id_t{2}); // leaves staging, sets bit 2
     r.erase(id0);
     auto id0_reused = r.create_id({}, 20);
-    CHECK((id0_reused) == (id0));
+    CHECK(id0_reused == id0);
     // Only staging bit is set; bit 2 from before is cleared.
-    CHECK((r.get_location(id0_reused).test(store_id_t{0})));
-    CHECK_FALSE((r.get_location(id0_reused).test(store_id_t{2})));
+    CHECK(r.get_location(id0_reused).test(store_id_t{0}));
+    CHECK_FALSE(r.get_location(id0_reused).test(store_id_t{2}));
   }
 
   // Multiple entities have independent bitmaps.
@@ -2126,10 +2126,10 @@ TEST_CASE("ComponentMode_Bitmap", "[EntityRegistry]") {
     auto id1 = r.create_id({}, 20);
     r.add_location(id0, store_id_t{1});
     r.add_location(id1, store_id_t{2});
-    CHECK((r.is_in_location(id0, store_id_t{1})));
-    CHECK_FALSE((r.is_in_location(id0, store_id_t{2})));
-    CHECK_FALSE((r.is_in_location(id1, store_id_t{1})));
-    CHECK((r.is_in_location(id1, store_id_t{2})));
+    CHECK(r.is_in_location(id0, store_id_t{1}));
+    CHECK_FALSE(r.is_in_location(id0, store_id_t{2}));
+    CHECK_FALSE(r.is_in_location(id1, store_id_t{1}));
+    CHECK(r.is_in_location(id1, store_id_t{2}));
   }
 
   // Const get_location is callable on const reference.
@@ -2138,7 +2138,7 @@ TEST_CASE("ComponentMode_Bitmap", "[EntityRegistry]") {
     auto id0 = r.create_id({}, 10);
     r.add_location(id0, store_id_t{5});
     const auto& cr = r;
-    CHECK((cr.get_location(id0).test(store_id_t{5}))); // bit 5
+    CHECK(cr.get_location(id0).test(store_id_t{5})); // bit 5
   }
 
   // erase_if can use bitmap to filter by storage bit.
@@ -2153,10 +2153,10 @@ TEST_CASE("ComponentMode_Bitmap", "[EntityRegistry]") {
     auto cnt = r.erase_if([](auto, auto& rec) {
       return rec.location.get_store_ids().test(store_id_t{1});
     });
-    CHECK((cnt) == (2U));
-    CHECK_FALSE((r.is_valid(id0)));
-    CHECK((r.is_valid(id1)));
-    CHECK_FALSE((r.is_valid(id2)));
+    CHECK(cnt == 2U);
+    CHECK_FALSE(r.is_valid(id0));
+    CHECK(r.is_valid(id1));
+    CHECK_FALSE(r.is_valid(id2));
   }
 }
 
@@ -2178,8 +2178,8 @@ TEST_CASE("ComponentMode_Fifo", "[EntityRegistry]") {
     (void)r.create_id({}, 30); // id 2
     r.erase(id0);              // free: [0]
     r.erase(id1);              // free: [0, 1]
-    CHECK((r.create_id({}, 100)) == (id_t{0}));
-    CHECK((r.create_id({}, 200)) == (id_t{1}));
+    CHECK(r.create_id({}, 100) == id_t{0});
+    CHECK(r.create_id({}, 200) == id_t{1});
   }
 
   // FIFO reuse order matches erase order, not ID order.
@@ -2193,9 +2193,9 @@ TEST_CASE("ComponentMode_Fifo", "[EntityRegistry]") {
     r.erase(id_t{2});
     r.erase(id_t{0});
     r.erase(id_t{3});
-    CHECK((r.create_id({}, 100)) == (id_t{2}));
-    CHECK((r.create_id({}, 200)) == (id_t{0}));
-    CHECK((r.create_id({}, 300)) == (id_t{3}));
+    CHECK(r.create_id({}, 100) == id_t{2});
+    CHECK(r.create_id({}, 200) == id_t{0});
+    CHECK(r.create_id({}, 300) == id_t{3});
   }
 
   // clear() resets and re-queues all IDs in order.
@@ -2205,10 +2205,10 @@ TEST_CASE("ComponentMode_Fifo", "[EntityRegistry]") {
     (void)r.create_id({}, 20); // id 1
     (void)r.create_id({}, 30); // id 2
     r.clear();
-    CHECK((r.size()) == (0U));
-    CHECK((r.create_id({}, 100)) == (id_t{0}));
-    CHECK((r.create_id({}, 200)) == (id_t{1}));
-    CHECK((r.create_id({}, 300)) == (id_t{2}));
+    CHECK(r.size() == 0U);
+    CHECK(r.create_id({}, 100) == id_t{0});
+    CHECK(r.create_id({}, 200) == id_t{1});
+    CHECK(r.create_id({}, 300) == id_t{2});
   }
 
   // shrink_to_fit trims trailing dead records.
@@ -2219,9 +2219,9 @@ TEST_CASE("ComponentMode_Fifo", "[EntityRegistry]") {
     (void)r.create_id({}, 30); // id 2
     r.erase(id_t{2});
     r.shrink_to_fit();
-    CHECK((r.is_valid(id_t{0})));
-    CHECK((r.is_valid(id_t{1})));
-    CHECK((r.max_id()) == (id_t{1}));
+    CHECK(r.is_valid(id_t{0}));
+    CHECK(r.is_valid(id_t{1}));
+    CHECK(r.max_id() == id_t{1});
   }
 }
 
@@ -2239,8 +2239,8 @@ TEST_CASE("ComponentMode_HandleOwner", "[EntityRegistry]") {
   // Default-constructed owner holds no entity.
   if (true) {
     owner_t o;
-    CHECK_FALSE((bool(o)));
-    CHECK((o.id()) == (id_t::invalid));
+    CHECK_FALSE(bool(o));
+    CHECK(o.id() == id_t::invalid);
   }
 
   // Constructor from existing valid handle.
@@ -2248,9 +2248,9 @@ TEST_CASE("ComponentMode_HandleOwner", "[EntityRegistry]") {
     creg_t r;
     auto h = r.create_handle({store_id_t{}}, 42);
     owner_t o{r, h};
-    CHECK((bool(o)));
-    CHECK((o.id()) == (h.id()));
-    CHECK((o.handle() == h));
+    CHECK(bool(o));
+    CHECK(o.id() == h.id());
+    CHECK(o.handle() == h);
   }
 
   // Constructor from existing invalid handle: owner is empty.
@@ -2259,16 +2259,16 @@ TEST_CASE("ComponentMode_HandleOwner", "[EntityRegistry]") {
     auto h = r.create_handle({store_id_t{}}, 42);
     r.erase(h);
     owner_t o{r, h};
-    CHECK_FALSE((bool(o)));
+    CHECK_FALSE(bool(o));
   }
 
   // create_owner creates and takes ownership.
   if (true) {
     creg_t r;
     auto o = r.create_owner(77);
-    CHECK((bool(o)));
-    CHECK((o.id()) != (id_t::invalid));
-    CHECK((r[o.id()]) == (77));
+    CHECK(bool(o));
+    CHECK(o.id() != id_t::invalid);
+    CHECK(r[o.id()] == 77);
   }
 
   // Destructor erases entity.
@@ -2278,9 +2278,9 @@ TEST_CASE("ComponentMode_HandleOwner", "[EntityRegistry]") {
     {
       auto o = r.create_owner(10);
       saved_id = o.id();
-      CHECK((r.is_valid(saved_id)));
+      CHECK(r.is_valid(saved_id));
     }
-    CHECK_FALSE((r.is_valid(saved_id)));
+    CHECK_FALSE(r.is_valid(saved_id));
   }
 
   // release() leaves entity alive.
@@ -2289,8 +2289,8 @@ TEST_CASE("ComponentMode_HandleOwner", "[EntityRegistry]") {
     auto o = r.create_owner(10);
     [[maybe_unused]] auto id = o.id();
     auto h = o.release();
-    CHECK_FALSE((bool(o)));
-    CHECK((r.is_valid(h)));
+    CHECK_FALSE(bool(o));
+    CHECK(r.is_valid(h));
     r.erase(h);
   }
 
@@ -2300,10 +2300,10 @@ TEST_CASE("ComponentMode_HandleOwner", "[EntityRegistry]") {
     auto o1 = r.create_owner(10);
     auto id = o1.id();
     owner_t o2{std::move(o1)};
-    CHECK_FALSE((bool(o1)));
-    CHECK((bool(o2)));
-    CHECK((o2.id()) == (id));
-    CHECK((r.is_valid(id)));
+    CHECK_FALSE(bool(o1));
+    CHECK(bool(o2));
+    CHECK(o2.id() == id);
+    CHECK(r.is_valid(id));
   }
 }
 
@@ -2326,11 +2326,11 @@ TEST_CASE("ComponentMode_NoGen", "[EntityRegistry]") {
     creg_t r;
     auto id0 = r.create_id({}, 10);
     auto id1 = r.create_id({}, 20);
-    CHECK((*id0) == (0U));
-    CHECK((*id1) == (1U));
-    CHECK((r[id0]) == (10));
-    CHECK((r.erase(id0)));
-    CHECK_FALSE((r.is_valid(id0)));
+    CHECK(*id0 == 0U);
+    CHECK(*id1 == 1U);
+    CHECK(r[id0] == 10);
+    CHECK(r.erase(id0));
+    CHECK_FALSE(r.is_valid(id0));
   }
 
   // Without gen, stale handles falsely valid after ID reuse.
@@ -2339,10 +2339,10 @@ TEST_CASE("ComponentMode_NoGen", "[EntityRegistry]") {
     auto id0 = r.create_id({}, 10);
     auto h_old = r.get_handle(id0);
     r.erase(id0);
-    CHECK_FALSE((r.is_valid(h_old)));
+    CHECK_FALSE(r.is_valid(h_old));
     auto id0_reused = r.create_id({}, 99);
-    CHECK((id0_reused) == (id0));
-    CHECK((r.is_valid(h_old))); // stale but valid w/o gen
+    CHECK(id0_reused == id0);
+    CHECK(r.is_valid(h_old)); // stale but valid w/o gen
   }
 
   // Location operations still work in unversioned mode.
@@ -2350,9 +2350,9 @@ TEST_CASE("ComponentMode_NoGen", "[EntityRegistry]") {
     creg_t r;
     auto id0 = r.create_id({}, 10);
     r.add_location(id0, store_id_t{1});
-    CHECK((r.is_in_location(id0, store_id_t{1})));
+    CHECK(r.is_in_location(id0, store_id_t{1}));
     r.remove_location(id0, store_id_t{1}, removal_mode::preserve);
-    CHECK_FALSE((r.is_in_location(id0, store_id_t{1})));
+    CHECK_FALSE(r.is_in_location(id0, store_id_t{1}));
   }
 }
 
@@ -2371,10 +2371,10 @@ TEST_CASE("ComponentMode_VoidMeta", "[EntityRegistry]") {
     creg_t r;
     auto id0 = r.create_id();
     auto id1 = r.create_id();
-    CHECK((*id0) == (0U));
-    CHECK((*id1) == (1U));
-    CHECK((r.is_valid(id0)));
-    CHECK((r.is_valid(id1)));
+    CHECK(*id0 == 0U);
+    CHECK(*id1 == 1U);
+    CHECK(r.is_valid(id0));
+    CHECK(r.is_valid(id1));
   }
 
   // Erase and FIFO reuse.
@@ -2385,30 +2385,30 @@ TEST_CASE("ComponentMode_VoidMeta", "[EntityRegistry]") {
     (void)r.create_id(); // id 2
     r.erase(id_t{0});
     r.erase(id_t{1});
-    CHECK((r.create_id()) == (id_t{0}));
-    CHECK((r.create_id()) == (id_t{1}));
+    CHECK(r.create_id() == id_t{0});
+    CHECK(r.create_id() == id_t{1});
   }
 
   // Handles and generation.
   if (true) {
     creg_t r;
     auto h = r.create_handle();
-    CHECK((r.is_valid(h)));
-    CHECK((h.gen()) == (0U));
+    CHECK(r.is_valid(h));
+    CHECK(h.gen() == 0U);
     r.erase(h);
-    CHECK_FALSE((r.is_valid(h)));
+    CHECK_FALSE(r.is_valid(h));
   }
 
   // Bitmap operations with void metadata.
   if (true) {
     creg_t r;
     auto id0 = r.create_id();
-    CHECK((r.is_in_location(id0, store_id_t{0}))); // staging bit set
+    CHECK(r.is_in_location(id0, store_id_t{0})); // staging bit set
     auto cnt = r.erase_if([](auto, auto& rec) {
       return rec.location.get_store_ids().test(store_id_t{0});
     });
-    CHECK((cnt) == (1U));
-    CHECK((r.size()) == (0U));
+    CHECK(cnt == 1U);
+    CHECK(r.size() == 0U);
   }
 }
 
@@ -2428,14 +2428,14 @@ TEST_CASE("ComponentMode_Lifo", "[EntityRegistry]") {
   // LIFO reuse in component mode: most recently freed is reallocated first.
   if (true) {
     creg_t r;
-    (void)r.create_id({}, 10);                  // id 0
-    (void)r.create_id({}, 20);                  // id 1
-    (void)r.create_id({}, 30);                  // id 2
-    r.erase(id_t{0});                           // stack: [0]
-    r.erase(id_t{1});                           // stack: [1, 0]
-    CHECK((r.create_id({}, 100)) == (id_t{1})); // most recently freed
-    CHECK((r.create_id({}, 200)) == (id_t{0}));
-    CHECK((r.create_id({}, 300)) == (id_t{3})); // fresh expansion
+    (void)r.create_id({}, 10);              // id 0
+    (void)r.create_id({}, 20);              // id 1
+    (void)r.create_id({}, 30);              // id 2
+    r.erase(id_t{0});                       // stack: [0]
+    r.erase(id_t{1});                       // stack: [1, 0]
+    CHECK(r.create_id({}, 100) == id_t{1}); // most recently freed
+    CHECK(r.create_id({}, 200) == id_t{0});
+    CHECK(r.create_id({}, 300) == id_t{3}); // fresh expansion
   }
 
   // clear() rebuilds free list in reverse scan order (highest ID first).
@@ -2445,9 +2445,9 @@ TEST_CASE("ComponentMode_Lifo", "[EntityRegistry]") {
     (void)r.create_id({}, 20); // id 1
     (void)r.create_id({}, 30); // id 2
     r.clear();
-    CHECK((r.create_id({}, 100)) == (id_t{2}));
-    CHECK((r.create_id({}, 200)) == (id_t{1}));
-    CHECK((r.create_id({}, 300)) == (id_t{0}));
+    CHECK(r.create_id({}, 100) == id_t{2});
+    CHECK(r.create_id({}, 200) == id_t{1});
+    CHECK(r.create_id({}, 300) == id_t{0});
   }
 }
 

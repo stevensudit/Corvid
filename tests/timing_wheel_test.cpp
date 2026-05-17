@@ -37,22 +37,22 @@ TEST_CASE("BasicFire", "[TimingWheel]") {
   timing_wheel wheel(600, dur{100}, T(0));
   int fired = 0;
 
-  CHECK((wheel.schedule(
+  CHECK(wheel.schedule(
             [&] {
               ++fired;
               return true;
             },
-            200ms)) == (true));
+            200ms) == true);
 
   wheel.tick(T(100));
-  CHECK((fired) == (0));
+  CHECK(fired == 0);
 
   wheel.tick(T(200));
-  CHECK((fired) == (1));
+  CHECK(fired == 1);
 
   // Should not fire again.
   wheel.tick(T(300));
-  CHECK((fired) == (1));
+  CHECK(fired == 1);
 }
 
 #pragma endregion
@@ -63,19 +63,19 @@ TEST_CASE("NotFiredEarly", "[TimingWheel]") {
   timing_wheel wheel(600, dur{100}, T(0));
   int fired = 0;
 
-  CHECK((wheel.schedule(
+  CHECK(wheel.schedule(
             [&] {
               ++fired;
               return true;
             },
-            300ms)) == (true));
+            300ms) == true);
 
   wheel.tick(T(100));
-  CHECK((fired) == (0));
+  CHECK(fired == 0);
   wheel.tick(T(200));
-  CHECK((fired) == (0));
+  CHECK(fired == 0);
   wheel.tick(T(300));
-  CHECK((fired) == (1));
+  CHECK(fired == 1);
 }
 
 #pragma endregion
@@ -86,31 +86,31 @@ TEST_CASE("MultiSlot", "[TimingWheel]") {
   timing_wheel wheel(600, dur{100}, T(0));
   int count = 0;
 
-  CHECK((wheel.schedule(
+  CHECK(wheel.schedule(
             [&] {
               ++count;
               return true;
             },
-            100ms)) == (true));
-  CHECK((wheel.schedule(
+            100ms) == true);
+  CHECK(wheel.schedule(
             [&] {
               ++count;
               return true;
             },
-            200ms)) == (true));
-  CHECK((wheel.schedule(
+            200ms) == true);
+  CHECK(wheel.schedule(
             [&] {
               ++count;
               return true;
             },
-            300ms)) == (true));
+            300ms) == true);
 
   wheel.tick(T(100));
-  CHECK((count) == (1));
+  CHECK(count == 1);
   wheel.tick(T(200));
-  CHECK((count) == (2));
+  CHECK(count == 2);
   wheel.tick(T(300));
-  CHECK((count) == (3));
+  CHECK(count == 3);
 }
 
 #pragma endregion
@@ -121,27 +121,27 @@ TEST_CASE("TickSkip", "[TimingWheel]") {
   timing_wheel wheel(600, dur{100}, T(0));
   int count = 0;
 
-  CHECK((wheel.schedule(
+  CHECK(wheel.schedule(
             [&] {
               ++count;
               return true;
             },
-            100ms)) == (true));
-  CHECK((wheel.schedule(
+            100ms) == true);
+  CHECK(wheel.schedule(
             [&] {
               ++count;
               return true;
             },
-            200ms)) == (true));
-  CHECK((wheel.schedule(
+            200ms) == true);
+  CHECK(wheel.schedule(
             [&] {
               ++count;
               return true;
             },
-            300ms)) == (true));
+            300ms) == true);
 
   wheel.tick(T(300));
-  CHECK((count) == (3));
+  CHECK(count == 3);
 }
 
 #pragma endregion
@@ -152,19 +152,19 @@ TEST_CASE("TickTooEarly", "[TimingWheel]") {
   timing_wheel wheel(600, dur{100}, T(0));
   int fired = 0;
 
-  CHECK((wheel.schedule(
+  CHECK(wheel.schedule(
             [&] {
               ++fired;
               return true;
             },
-            100ms)) == (true));
+            100ms) == true);
 
   wheel.tick(T(50));
-  CHECK((fired) == (0));
+  CHECK(fired == 0);
   wheel.tick(T(80));
-  CHECK((fired) == (0));
+  CHECK(fired == 0);
   wheel.tick(T(100));
-  CHECK((fired) == (1));
+  CHECK(fired == 1);
 }
 
 #pragma endregion
@@ -175,18 +175,18 @@ TEST_CASE("ZeroDelay", "[TimingWheel]") {
   timing_wheel wheel(600, dur{100}, T(0));
   int fired = 0;
 
-  CHECK((wheel.schedule(
+  CHECK(wheel.schedule(
             [&] {
               ++fired;
               return true;
             },
-            dur{0})) == (true));
+            dur{0}) == true);
 
   // Should not fire synchronously.
-  CHECK((fired) == (0));
+  CHECK(fired == 0);
 
   wheel.tick(T(100));
-  CHECK((fired) == (1));
+  CHECK(fired == 1);
 }
 
 #pragma endregion
@@ -199,24 +199,24 @@ TEST_CASE("OverflowFails", "[TimingWheel]") {
   int fired = 0;
 
   // 10 seconds far exceeds the 900ms maximum: schedule fails.
-  CHECK((wheel.schedule(
+  CHECK(wheel.schedule(
             [&] {
               ++fired;
               return true;
             },
-            10000ms)) == (false));
+            10000ms) == false);
 
   // Exact maximum is accepted.
-  CHECK((wheel.schedule(
+  CHECK(wheel.schedule(
             [&] {
               ++fired;
               return true;
             },
-            900ms)) == (true));
+            900ms) == true);
 
   // Advances to max slot; only the valid callback fires.
   wheel.tick(T(900));
-  CHECK((fired) == (1));
+  CHECK(fired == 1);
 }
 
 #pragma endregion
@@ -228,15 +228,15 @@ TEST_CASE("SameSlotMultiple", "[TimingWheel]") {
   int count = 0;
 
   for (int i = 0; i < 5; ++i)
-    CHECK((wheel.schedule(
+    CHECK(wheel.schedule(
               [&] {
                 ++count;
                 return true;
               },
-              300ms)) == (true));
+              300ms) == true);
 
   wheel.tick(T(300));
-  CHECK((count) == (5));
+  CHECK(count == 5);
 }
 
 #pragma endregion
@@ -252,18 +252,18 @@ TEST_CASE("RingWrap", "[TimingWheel]") {
   wheel.tick(T(800));
 
   // Schedule 200ms from now: ticks_ahead=2, target=(8+2)%10=0 (wraps).
-  CHECK((wheel.schedule(
+  CHECK(wheel.schedule(
             [&] {
               ++fired;
               return true;
             },
-            200ms)) == (true));
+            200ms) == true);
 
-  CHECK((fired) == (0));
+  CHECK(fired == 0);
 
   // Advance 2 more slots (9 and 0); callback fires when slot 0 is drained.
   wheel.tick(T(1000));
-  CHECK((fired) == (1));
+  CHECK(fired == 1);
 }
 
 #pragma endregion
@@ -275,7 +275,7 @@ TEST_CASE("ScheduleDuringTick", "[TimingWheel]") {
   int first = 0;
   int second = 0;
 
-  CHECK((wheel.schedule(
+  CHECK(wheel.schedule(
             [&] {
               ++first;
               // Schedule a follow-up 100ms later.
@@ -287,14 +287,14 @@ TEST_CASE("ScheduleDuringTick", "[TimingWheel]") {
                         100ms)) == (true));
               return true;
             },
-            100ms)) == (true));
+            100ms) == true);
 
   wheel.tick(T(100));
-  CHECK((first) == (1));
-  CHECK((second) == (0)); // Not yet fired.
+  CHECK(first == 1);
+  CHECK(second == 0); // Not yet fired.
 
   wheel.tick(T(200));
-  CHECK((second) == (1));
+  CHECK(second == 1);
 }
 
 #pragma endregion
@@ -309,34 +309,34 @@ TEST_CASE("CallbackOwnsMeta", "[TimingWheel]") {
   uint64_t received_id = 0;
 
   const uint64_t scheduled_id = active_id;
-  CHECK((wheel.schedule(
+  CHECK(wheel.schedule(
             [scheduled_id, &active_id, &received_id] {
               // Relevance check: stale if IDs don't match.
               if (active_id != scheduled_id) return false;
               received_id = scheduled_id;
               return true;
             },
-            100ms)) == (true));
+            100ms) == true);
 
   wheel.tick(T(100));
-  CHECK((received_id) == (42U));
+  CHECK(received_id == 42U);
 
   // Simulate a second schedule where the operation completed before the timer.
   uint64_t received_id2 = 0;
   const uint64_t scheduled_id2 = 43;
-  CHECK((wheel.schedule(
+  CHECK(wheel.schedule(
             [&active_id, &received_id2] {
               if (active_id != scheduled_id2) return false; // stale
               received_id2 = scheduled_id2;
               return true;
             },
-            100ms)) == (true));
+            100ms) == true);
 
   // Operation completed: "cancel" by advancing active_id.
   active_id = 0;
 
   wheel.tick(T(200));
-  CHECK((received_id2) == (0U)); // Callback fired but was stale.
+  CHECK(received_id2 == 0U); // Callback fired but was stale.
 }
 
 #pragma endregion
@@ -349,17 +349,17 @@ TEST_CASE("StopAbortsTick", "[TimingWheel]") {
 
   // Schedule five callbacks in the same slot; the first one calls stop().
   for (int i = 0; i < 5; ++i)
-    CHECK((wheel.schedule(
+    CHECK(wheel.schedule(
               [&] {
                 ++count;
                 return wheel.stop(); // kills the tombstone
               },
-              100ms)) == (true));
+              100ms) == true);
 
   wheel.tick(T(100));
 
   // Only the first callback fires before the tombstone is seen.
-  CHECK((count) == (1));
+  CHECK(count == 1);
 }
 
 #pragma endregion

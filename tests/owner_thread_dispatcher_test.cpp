@@ -49,12 +49,12 @@ public:
 TEST_CASE("IsLoopThread", "[OwnerThreadDispatcher]") {
   // Constructor thread is the loop thread; other threads are not.
   owner_thread_dispatcher<> dispatcher;
-  CHECK((dispatcher.is_loop_thread()));
+  CHECK(dispatcher.is_loop_thread());
 
   relaxed_atomic_bool other_is_loop{true};
   std::thread t{[&] { other_is_loop = dispatcher.is_loop_thread(); }};
   t.join();
-  CHECK_FALSE((other_is_loop));
+  CHECK_FALSE(other_is_loop);
 }
 #pragma endregion
 
@@ -64,21 +64,21 @@ TEST_CASE("PostAndExecute", "[OwnerThreadDispatcher]") {
   // `post` queues callbacks; `execute_post_queue` drains and returns count.
   OwnerThreadTestDispatcher dispatcher;
   int count{0};
-  CHECK((dispatcher.post([&count]() mutable -> bool {
+  CHECK(dispatcher.post([&count]() mutable -> bool {
     ++count;
     return true;
-  })));
-  CHECK((dispatcher.post([&count]() mutable -> bool {
+  }));
+  CHECK(dispatcher.post([&count]() mutable -> bool {
     ++count;
     return true;
-  })));
-  CHECK((dispatcher.post([&count]() mutable -> bool {
+  }));
+  CHECK(dispatcher.post([&count]() mutable -> bool {
     ++count;
     return true;
-  })));
+  }));
   auto executed = dispatcher.execute_post_queue();
-  CHECK((executed) == (3U));
-  CHECK((count) == (3));
+  CHECK(executed == 3U);
+  CHECK(count == 3);
 }
 #pragma endregion
 
@@ -87,7 +87,7 @@ TEST_CASE("PostAndExecute", "[OwnerThreadDispatcher]") {
 TEST_CASE("ExecutePostQueue_Empty", "[OwnerThreadDispatcher]") {
   // Empty queue returns 0 and does not crash.
   OwnerThreadTestDispatcher dispatcher;
-  CHECK((dispatcher.execute_post_queue()) == (0U));
+  CHECK(dispatcher.execute_post_queue() == 0U);
 }
 #pragma endregion
 
@@ -101,9 +101,9 @@ TEST_CASE("ExecuteOrPost_OnLoopThread", "[OwnerThreadDispatcher]") {
     ++count;
     return true;
   });
-  CHECK((ok));
-  CHECK((count) == (1));
-  CHECK((dispatcher.execute_post_queue()) == (0U));
+  CHECK(ok);
+  CHECK(count == 1);
+  CHECK(dispatcher.execute_post_queue() == 0U);
 }
 #pragma endregion
 
@@ -120,10 +120,10 @@ TEST_CASE("ExecuteOrPost_OffLoopThread", "[OwnerThreadDispatcher]") {
     });
   }};
   t.join();
-  CHECK((count) == (0)); // Not yet executed.
+  CHECK(count == 0); // Not yet executed.
   auto executed = dispatcher.execute_post_queue();
-  CHECK((executed) == (1U));
-  CHECK((count) == (1));
+  CHECK(executed == 1U);
+  CHECK(count == 1);
 }
 #pragma endregion
 
@@ -137,9 +137,9 @@ TEST_CASE("PostAndWait_OnLoopThread", "[OwnerThreadDispatcher]") {
     ++count;
     return true;
   });
-  CHECK((ok));
-  CHECK((count) == (1));
-  CHECK((dispatcher.execute_post_queue()) == (0U));
+  CHECK(ok);
+  CHECK(count == 1);
+  CHECK(dispatcher.execute_post_queue() == 0U);
 }
 #pragma endregion
 
@@ -166,9 +166,9 @@ TEST_CASE("PostAndWait_OffLoopThread", "[OwnerThreadDispatcher]") {
   auto executed = dispatcher.execute_post_queue();
   t.join();
 
-  CHECK((executed) == (1U));
-  CHECK((result));
-  CHECK((count.load()) == (1));
+  CHECK(executed == 1U);
+  CHECK(result);
+  CHECK(count.load() == 1);
 }
 #pragma endregion
 
@@ -177,11 +177,11 @@ TEST_CASE("PostAndWait_OffLoopThread", "[OwnerThreadDispatcher]") {
 TEST_CASE("QueueHighWatermark", "[OwnerThreadDispatcher]") {
   // `queue_high_watermark` reflects the maximum capacity seen.
   OwnerThreadTestDispatcher dispatcher{4};
-  CHECK((dispatcher.queue_high_watermark()) >= (4U));
+  CHECK(dispatcher.queue_high_watermark() >= 4U);
   for (int i{}; i < 8; ++i)
-    CHECK((dispatcher.post([]() -> bool { return true; })));
+    CHECK(dispatcher.post([]() -> bool { return true; }));
   (void)dispatcher.execute_post_queue();
-  CHECK((dispatcher.queue_high_watermark()) >= (8U));
+  CHECK(dispatcher.queue_high_watermark() >= 8U);
 }
 #pragma endregion
 
@@ -194,23 +194,23 @@ TEST_CASE("DoubleBuffer", "[OwnerThreadDispatcher]") {
   int first{0};
   int second{0};
 
-  CHECK((dispatcher.post([&]() mutable -> bool {
+  CHECK(dispatcher.post([&]() mutable -> bool {
     ++first;
     (void)dispatcher.post([&]() mutable -> bool {
       ++second;
       return true;
     });
     return true;
-  })));
+  }));
 
   auto count1 = dispatcher.execute_post_queue();
-  CHECK((count1) == (1U));
-  CHECK((first) == (1));
-  CHECK((second) == (0)); // Deferred to next drain.
+  CHECK(count1 == 1U);
+  CHECK(first == 1);
+  CHECK(second == 0); // Deferred to next drain.
 
   auto count2 = dispatcher.execute_post_queue();
-  CHECK((count2) == (1U));
-  CHECK((second) == (1));
+  CHECK(count2 == 1U);
+  CHECK(second == 1);
 }
 #pragma endregion
 
@@ -221,15 +221,15 @@ TEST_CASE("WakeFd", "[OwnerThreadDispatcher]") {
   OwnerThreadTestDispatcher dispatcher;
 
   // No signal before any post.
-  CHECK_FALSE((dispatcher.wake_fd().read().has_value()));
+  CHECK_FALSE(dispatcher.wake_fd().read().has_value());
 
   // First post to empty queue signals the fd.
-  CHECK((dispatcher.post([]() -> bool { return true; })));
-  CHECK((dispatcher.wake_fd().read().has_value()));
+  CHECK(dispatcher.post([]() -> bool { return true; }));
+  CHECK(dispatcher.wake_fd().read().has_value());
 
   // Second post to a non-empty queue does not re-signal.
-  CHECK((dispatcher.post([]() -> bool { return true; })));
-  CHECK_FALSE((dispatcher.wake_fd().read().has_value()));
+  CHECK(dispatcher.post([]() -> bool { return true; }));
+  CHECK_FALSE(dispatcher.wake_fd().read().has_value());
 
   (void)dispatcher.execute_post_queue();
 }
@@ -247,9 +247,9 @@ TEST_CASE("ExecuteOrPostWithRetry_Success", "[OwnerThreadDispatcher]") {
         return true;
       },
       2);
-  CHECK((ok));
-  CHECK((calls) == (1));
-  CHECK((dispatcher.execute_post_queue()) == (0U));
+  CHECK(ok);
+  CHECK(calls == 1);
+  CHECK(dispatcher.execute_post_queue() == 0U);
 }
 #pragma endregion
 
@@ -265,9 +265,9 @@ TEST_CASE("ExecuteOrPostWithRetry_ExhaustedRetry", "[OwnerThreadDispatcher]") {
         return false;
       },
       0);
-  CHECK_FALSE((ok));
-  CHECK((calls) == (1));
-  CHECK((dispatcher.execute_post_queue()) == (0U));
+  CHECK_FALSE(ok);
+  CHECK(calls == 1);
+  CHECK(dispatcher.execute_post_queue() == 0U);
 }
 #pragma endregion
 
@@ -283,11 +283,11 @@ TEST_CASE("ExecuteOrPostWithRetry_Retry", "[OwnerThreadDispatcher]") {
         return attempts >= 2;
       },
       2);
-  CHECK((ok));
-  CHECK((attempts) == (1)); // First call failed; retry was posted.
+  CHECK(ok);
+  CHECK(attempts == 1); // First call failed; retry was posted.
 
   (void)dispatcher.execute_post_queue();
-  CHECK((attempts) == (2)); // Retry succeeded.
+  CHECK(attempts == 2); // Retry succeeded.
 }
 #pragma endregion
 
@@ -304,9 +304,9 @@ TEST_CASE("ExecuteOrPostWithRetry_OffLoopThread", "[OwnerThreadDispatcher]") {
     });
   }};
   t.join();
-  CHECK((calls) == (0)); // Not yet executed.
+  CHECK(calls == 0); // Not yet executed.
   (void)dispatcher.execute_post_queue();
-  CHECK((calls) == (1));
+  CHECK(calls == 1);
 }
 #pragma endregion
 

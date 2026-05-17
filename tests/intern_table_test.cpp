@@ -72,7 +72,7 @@ TEST_CASE("Basic", "[InternTableTest]") {
     // small.
     as.resize(256);
     bool used_to_crash = as_abc > as;
-    CHECK((used_to_crash));
+    CHECK(used_to_crash);
   }
   if (true) {
     extensible_arena arena{4096};
@@ -99,16 +99,16 @@ TEST_CASE("Basic", "[InternTableTest]") {
     // interned or in the arena.
     auto abc = string_intern_test::make(abc_str);
     auto bcd = string_intern_test::make(bcd_str);
-    CHECK_FALSE((extensible_arena::contains(&abc.value())));
-    CHECK_FALSE((extensible_arena::contains(abc.value().data())));
-    CHECK_FALSE((extensible_arena::contains(&bcd.value())));
-    CHECK_FALSE((extensible_arena::contains(bcd.value().data())));
-    CHECK((abc) == (abc));
-    CHECK((abc) != (bcd));
-    CHECK((abc.value()) == ("abc"));
+    CHECK_FALSE(extensible_arena::contains(&abc.value()));
+    CHECK_FALSE(extensible_arena::contains(abc.value().data()));
+    CHECK_FALSE(extensible_arena::contains(&bcd.value()));
+    CHECK_FALSE(extensible_arena::contains(bcd.value().data()));
+    CHECK(abc == abc);
+    CHECK(abc != bcd);
+    CHECK(abc.value() == "abc");
     CHECK((abc) < (bcd));
-    CHECK((abc.value()) == (abc_str));
-    CHECK((bcd.value()) == (bcd_str));
+    CHECK(abc.value() == abc_str);
+    CHECK(bcd.value() == bcd_str);
   }
   if (true) {
     // Show that, when we do use arena-specialized types, the values we create
@@ -123,18 +123,18 @@ TEST_CASE("Basic", "[InternTableTest]") {
     // interned. The contents of `bcd` are in the arena, however.
     auto abc = arena_string_intern_test::make(abc_str);
     auto bcd = arena_string_intern_test::make(bcd_str);
-    CHECK_FALSE((extensible_arena::contains(&abc.value())));
-    CHECK_FALSE((extensible_arena::contains(abc.value().data())));
-    CHECK_FALSE((extensible_arena::contains(&bcd.value())));
+    CHECK_FALSE(extensible_arena::contains(&abc.value()));
+    CHECK_FALSE(extensible_arena::contains(abc.value().data()));
+    CHECK_FALSE(extensible_arena::contains(&bcd.value()));
     // Short-string optimization is why "abc" isn't in the arena.
-    CHECK_FALSE((extensible_arena::contains(abc.value().data())));
-    CHECK((extensible_arena::contains(bcd.value().data())));
-    CHECK((abc) == (abc));
-    CHECK((abc) != (bcd));
-    CHECK((abc.value()) == ("abc"sv));
+    CHECK_FALSE(extensible_arena::contains(abc.value().data()));
+    CHECK(extensible_arena::contains(bcd.value().data()));
+    CHECK(abc == abc);
+    CHECK(abc != bcd);
+    CHECK(abc.value() == "abc"sv);
     CHECK((abc) < (bcd));
-    CHECK((abc.value()) == (abc_str));
-    CHECK((bcd.value()) == (bcd_str));
+    CHECK(abc.value() == abc_str);
+    CHECK(bcd.value() == bcd_str);
   }
   if (true) {
     // Show that we can intern strings.
@@ -146,55 +146,55 @@ TEST_CASE("Basic", "[InternTableTest]") {
     using SIT = std::remove_reference_t<decltype(sit)>;
 
     auto iv = sit("abc"s);
-    CHECK_FALSE((iv));
+    CHECK_FALSE(iv);
     iv = sit.intern("abc");
-    CHECK((iv));
-    CHECK((iv.id()) == (string_id{1}));
-    CHECK((iv.value()) == ("abc"));
+    CHECK(iv);
+    CHECK(iv.id() == string_id{1});
+    CHECK(iv.value() == "abc");
     // Both the string and its contents are in the arena.
-    CHECK((extensible_arena::contains(&iv.value())));
-    CHECK((extensible_arena::contains(iv.value().data())));
+    CHECK(extensible_arena::contains(&iv.value()));
+    CHECK(extensible_arena::contains(iv.value().data()));
     iv = SIT::interned_value_t{};
-    CHECK_FALSE((iv));
+    CHECK_FALSE(iv);
     using C = SIT::lookup_by_value_t;
-    CHECK((KeyFindable<C>));
-    CHECK_FALSE((RangeWithoutFind<C>));
+    CHECK(KeyFindable<C>);
+    CHECK_FALSE(RangeWithoutFind<C>);
     iv = sit("abc");
-    CHECK((iv));
-    CHECK((iv.id()) == (string_id{1}));
-    CHECK((iv.value()) == ("abc"));
-    CHECK((extensible_arena::contains(&iv.value())));
-    CHECK((extensible_arena::contains(iv.value().data())));
+    CHECK(iv);
+    CHECK(iv.id() == string_id{1});
+    CHECK(iv.value() == "abc");
+    CHECK(extensible_arena::contains(&iv.value()));
+    CHECK(extensible_arena::contains(iv.value().data()));
 
     iv = sit("defghijklmnopqrstuvwxyz"sv);
-    CHECK_FALSE((iv));
+    CHECK_FALSE(iv);
     iv = sit.intern("defghijklmnopqrstuvwxyz"sv);
-    CHECK((iv));
-    CHECK((iv.id()) == (string_id{2}));
-    CHECK((iv.value()) == ("defghijklmnopqrstuvwxyz"sv));
+    CHECK(iv);
+    CHECK(iv.id() == string_id{2});
+    CHECK(iv.value() == "defghijklmnopqrstuvwxyz"sv);
     // Non-short strings are in the arena.
-    CHECK((extensible_arena::contains(&iv.value())));
-    CHECK((extensible_arena::contains(iv.value().data())));
+    CHECK(extensible_arena::contains(&iv.value()));
+    CHECK(extensible_arena::contains(iv.value().data()));
 
     iv = string_intern_table_value{csit, "ghi"s};
-    CHECK_FALSE((iv));
+    CHECK_FALSE(iv);
     iv = string_intern_table_value{sit, "ghi"s};
-    CHECK((iv));
-    CHECK((iv.id()) == (string_id{3}));
-    CHECK((iv.value()) == ("ghi"s));
+    CHECK(iv);
+    CHECK(iv.id() == string_id{3});
+    CHECK(iv.value() == "ghi"s);
 
     iv = sit("jkl");
-    CHECK_FALSE((iv));
+    CHECK_FALSE(iv);
     iv = sit.intern("jkl");
-    CHECK_FALSE((iv));
+    CHECK_FALSE(iv);
 
     iv = string_intern_table_value{csit, string_id{3}};
-    CHECK((iv.id()) == (string_id{3}));
-    CHECK((iv.value()) == ("ghi"s));
+    CHECK(iv.id() == string_id{3});
+    CHECK(iv.value() == "ghi"s);
 
     iv = string_intern_table_value{csit, "abc"};
-    CHECK((iv.id()) == (string_id{1}));
-    CHECK((iv.value()) == ("abc"));
+    CHECK(iv.id() == string_id{1});
+    CHECK(iv.value() == "abc");
   }
 }
 #pragma endregion

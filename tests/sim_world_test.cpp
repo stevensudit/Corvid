@@ -316,7 +316,7 @@ spawnDefenderShooter(SimWorld& w, Position spawn_pos) {
 
 TEST_CASE("SpawnAndSnapshot", "[SimWorld]") {
   SimWorld w;
-  CHECK((w.size()) == (0U));
+  CHECK(w.size() == 0U);
 
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{200.F, 0.F}}};
@@ -325,15 +325,15 @@ TEST_CASE("SpawnAndSnapshot", "[SimWorld]") {
   const auto invader = spawnInvaderAlpha(w, pid);
   const auto defender = spawnDefenderAoe(w, Position{30.F, 40.F});
 
-  CHECK((w.size()) == (2U));
+  CHECK(w.size() == 2U);
 
   const auto all = snapshot(w);
-  REQUIRE((all.size()) == (2U));
-  CHECK((filterSnapshot(all, std::vector<SimWorld::EntityId>{invader.id()})
-                .size()) == (1U));
-  CHECK((filterSnapshot(all,
+  REQUIRE(all.size() == 2U);
+  CHECK(filterSnapshot(all, std::vector<SimWorld::EntityId>{invader.id()})
+            .size() == 1U);
+  CHECK(filterSnapshot(all,
             std::vector<SimWorld::EntityId>{invader.id(), defender.id()})
-                .size()) == (2U));
+            .size() == 2U);
 }
 
 #pragma endregion
@@ -349,11 +349,11 @@ TEST_CASE("NextMovesInvaderAlpha", "[SimWorld]") {
   (void)w.next();
 
   const auto snaps = snapshot(w);
-  CHECK((*w.tick()) == (1U));
-  REQUIRE((snaps.size()) == (1U));
-  CHECK((snaps[0].id) == (invader.id()));
-  CHECK(std::abs((snaps[0].pos.x) - (50.0)) <= (1e-6));
-  CHECK(std::abs((snaps[0].pos.y) - (0.0)) <= (1e-6));
+  CHECK(*w.tick() == 1U);
+  REQUIRE(snaps.size() == 1U);
+  CHECK(snaps[0].id == invader.id());
+  CHECK(std::abs((snaps[0].pos.x) - (50.0)) <= 1e-6);
+  CHECK(std::abs((snaps[0].pos.y) - (0.0)) <= 1e-6);
 }
 
 #pragma endregion
@@ -372,17 +372,17 @@ TEST_CASE(
   (void)w.tick();
   const auto delta = extractWorldDelta(w);
 
-  CHECK((containsId(delta.upserts, invader.id())));
-  CHECK((delta.erased.empty()));
+  CHECK(containsId(delta.upserts, invader.id()));
+  CHECK(delta.erased.empty());
 
   const auto* pos = findPosition(delta.upserts, invader.id());
-  REQUIRE((pos != nullptr));
-  CHECK(std::abs((pos->x) - (50.0)) <= (1e-6));
-  CHECK(std::abs((pos->y) - (0.0)) <= (1e-6));
+  REQUIRE(pos != nullptr);
+  CHECK(std::abs((pos->x) - (50.0)) <= 1e-6);
+  CHECK(std::abs((pos->y) - (0.0)) <= 1e-6);
 
   const auto empty_delta = extractWorldDelta(w);
-  CHECK((empty_delta.upserts.empty()));
-  CHECK((empty_delta.erased.empty()));
+  CHECK(empty_delta.upserts.empty());
+  CHECK(empty_delta.erased.empty());
 }
 
 #pragma endregion
@@ -401,22 +401,22 @@ TEST_CASE("DefenderInRangeFlashesItselfAndInvader", "[SimWorld]") {
   (void)w.next();
 
   const auto delta = extractWorldDelta(w);
-  REQUIRE((delta.upserts.size()) == (2U));
-  CHECK((containsId(delta.upserts, defender.id())));
-  CHECK((containsId(delta.upserts, invader.id())));
+  REQUIRE(delta.upserts.size() == 2U);
+  CHECK(containsId(delta.upserts, defender.id()));
+  CHECK(containsId(delta.upserts, invader.id()));
 
   const auto defender_it =
       std::ranges::find(delta.upserts, defender.id(), &WorldDelta::Upsert::id);
-  REQUIRE((defender_it != delta.upserts.end()));
-  CHECK((defender_it->fx.flashColor) == (0xFFFFFFFFU));
-  CHECK((defender_it->fx.flashExpiry) == (WorldTick{6}));
+  REQUIRE(defender_it != delta.upserts.end());
+  CHECK(defender_it->fx.flashColor == 0xFFFFFFFFU);
+  CHECK(defender_it->fx.flashExpiry == WorldTick{6});
 
   const auto invader_it =
       std::ranges::find(delta.upserts, invader.id(), &WorldDelta::Upsert::id);
-  REQUIRE((invader_it != delta.upserts.end()));
-  CHECK((invader_it->fx.flashColor) == (0xFF7F7FFFU));
-  CHECK((invader_it->fx.flashExpiry) == (WorldTick{6}));
-  CHECK(std::abs((invader_it->pos.x) - (50.0)) <= (1e-6));
+  REQUIRE(invader_it != delta.upserts.end());
+  CHECK(invader_it->fx.flashColor == 0xFF7F7FFFU);
+  CHECK(invader_it->fx.flashExpiry == WorldTick{6});
+  CHECK(std::abs((invader_it->pos.x) - (50.0)) <= 1e-6);
 }
 
 #pragma endregion
@@ -435,18 +435,18 @@ TEST_CASE("DefenderAoeAttackEmitsPulseExplosion", "[SimWorld]") {
   (void)w.next();
 
   const auto explosions = extractTransientExplosions(w);
-  REQUIRE((explosions.size()) == (1U));
-  CHECK(std::abs((explosions[0].circle.x) - (0.0)) <= (1e-6));
-  CHECK(std::abs((explosions[0].circle.y) - (0.0)) <= (1e-6));
-  CHECK((explosions[0].expiry) == (WorldTick{2}));
-  CHECK((explosions[0].primaryColor) == (0xFFFF0030U));
-  CHECK((explosions[0].secondaryColor) == (0xFFFF0010U));
-  CHECK(std::abs((explosions[0].circle.radius) - (100.0)) <= (1e-6));
+  REQUIRE(explosions.size() == 1U);
+  CHECK(std::abs((explosions[0].circle.x) - (0.0)) <= 1e-6);
+  CHECK(std::abs((explosions[0].circle.y) - (0.0)) <= 1e-6);
+  CHECK(explosions[0].expiry == WorldTick{2});
+  CHECK(explosions[0].primaryColor == 0xFFFF0030U);
+  CHECK(explosions[0].secondaryColor == 0xFFFF0010U);
+  CHECK(std::abs((explosions[0].circle.radius) - (100.0)) <= 1e-6);
 
   const auto drained = extractTransientExplosions(w);
-  CHECK((drained.empty()));
+  CHECK(drained.empty());
 
-  CHECK((w.try_get_component<Position>(defender.id()) != nullptr));
+  CHECK(w.try_get_component<Position>(defender.id()) != nullptr);
 }
 
 #pragma endregion
@@ -464,16 +464,16 @@ TEST_CASE("DefenderShooterSpawnsVisibleBullet", "[SimWorld]") {
   (void)w.next();
 
   const auto delta = extractWorldDelta(w);
-  REQUIRE((delta.upserts.size()) == (1U));
+  REQUIRE(delta.upserts.size() == 1U);
   const auto bulletIt = std::ranges::find_if(delta.upserts,
       [&](const WorldDelta::Upsert& upsert) {
         return upsert.id != defender.id() && upsert.app.glyph == U'*';
       });
-  REQUIRE((bulletIt != delta.upserts.end()));
-  CHECK((bulletIt->app.glyph == U'*'));
-  CHECK(std::abs((bulletIt->app.radius) - (8.0)) <= (1e-6));
-  CHECK(std::abs((bulletIt->pos.x) - (0.0)) <= (1e-6));
-  CHECK(std::abs((bulletIt->pos.y) - (0.0)) <= (1e-6));
+  REQUIRE(bulletIt != delta.upserts.end());
+  CHECK(bulletIt->app.glyph == U'*');
+  CHECK(std::abs((bulletIt->app.radius) - (8.0)) <= 1e-6);
+  CHECK(std::abs((bulletIt->pos.x) - (0.0)) <= 1e-6);
+  CHECK(std::abs((bulletIt->pos.y) - (0.0)) <= 1e-6);
 }
 
 #pragma endregion
@@ -494,28 +494,28 @@ TEST_CASE("DefenderShooterBulletHitsInvaderOnNextStep", "[SimWorld]") {
       [&](const WorldDelta::Upsert& upsert) {
         return upsert.id != defender.id() && upsert.id != invader.id();
       });
-  REQUIRE((bulletIt != bulletSpawnDelta.upserts.end()));
+  REQUIRE(bulletIt != bulletSpawnDelta.upserts.end());
   const auto bulletId = bulletIt->id;
   (void)w.tick();
 
   (void)w.next();
 
   const auto delta = extractWorldDelta(w);
-  CHECK((containsId(delta.upserts, invader.id())));
-  CHECK((containsId(delta.erased, bulletId)));
+  CHECK(containsId(delta.upserts, invader.id()));
+  CHECK(containsId(delta.erased, bulletId));
 
   const auto* hp = w.try_get_component<Health>(invader.id());
-  REQUIRE((hp != nullptr));
-  CHECK(std::abs((hp->currentHealth) - (85.0)) <= (1e-6));
+  REQUIRE(hp != nullptr);
+  CHECK(std::abs((hp->currentHealth) - (85.0)) <= 1e-6);
 
   const auto* stats = w.try_get_component<DefenderStats>(defender.id());
-  REQUIRE((stats != nullptr));
-  CHECK(std::abs((stats->totalDamageDealt) - (15.0)) <= (1e-6));
+  REQUIRE(stats != nullptr);
+  CHECK(std::abs((stats->totalDamageDealt) - (15.0)) <= 1e-6);
 
   const auto explosions = extractTransientExplosions(w);
-  REQUIRE((explosions.size()) == (1U));
-  CHECK(std::abs((explosions[0].circle.x) - (100.0)) <= (1e-6));
-  CHECK(std::abs((explosions[0].circle.y) - (0.0)) <= (1e-6));
+  REQUIRE(explosions.size() == 1U);
+  CHECK(std::abs((explosions[0].circle.x) - (100.0)) <= 1e-6);
+  CHECK(std::abs((explosions[0].circle.y) - (0.0)) <= 1e-6);
 }
 
 #pragma endregion
@@ -539,14 +539,14 @@ TEST_CASE("DefenderShooterBulletHitsFirstInvaderAlongPath", "[SimWorld]") {
 
   const auto* nearHp = w.try_get_component<Health>(nearInvader.id());
   const auto* farHp = w.try_get_component<Health>(farInvader.id());
-  REQUIRE((nearHp != nullptr));
-  REQUIRE((farHp != nullptr));
-  CHECK(std::abs((nearHp->currentHealth) - (85.0)) <= (1e-6));
-  CHECK(std::abs((farHp->currentHealth) - (100.0)) <= (1e-6));
+  REQUIRE(nearHp != nullptr);
+  REQUIRE(farHp != nullptr);
+  CHECK(std::abs((nearHp->currentHealth) - (85.0)) <= 1e-6);
+  CHECK(std::abs((farHp->currentHealth) - (100.0)) <= 1e-6);
 
   const auto* stats = w.try_get_component<DefenderStats>(defender.id());
-  REQUIRE((stats != nullptr));
-  CHECK(std::abs((stats->totalDamageDealt) - (15.0)) <= (1e-6));
+  REQUIRE(stats != nullptr);
+  CHECK(std::abs((stats->totalDamageDealt) - (15.0)) <= 1e-6);
 }
 
 #pragma endregion
@@ -560,7 +560,7 @@ TEST_CASE("ExplosiveBulletDetonatesOnExpiry", "[SimWorld]") {
   const auto defender = spawnDefenderShooter(w, {0.F, 0.F});
   const auto invader = spawnInvaderAlpha(w, pid, 50.F);
   auto* shooter = w.try_get_component<DefenderShooter>(defender.id());
-  REQUIRE((shooter != nullptr));
+  REQUIRE(shooter != nullptr);
   shooter->bulletTemplate.splashRadius = 250.F;
   shooter->bulletTemplate.expiry = WorldTick{1};
 
@@ -571,27 +571,27 @@ TEST_CASE("ExplosiveBulletDetonatesOnExpiry", "[SimWorld]") {
       [&](const WorldDelta::Upsert& upsert) {
         return upsert.id != defender.id() && upsert.id != invader.id();
       });
-  REQUIRE((bulletIt != bulletSpawnDelta.upserts.end()));
+  REQUIRE(bulletIt != bulletSpawnDelta.upserts.end());
   const auto bulletId = bulletIt->id;
   (void)w.tick();
   (void)w.next();
 
   const auto delta = extractWorldDelta(w);
-  CHECK((containsId(delta.erased, bulletId)));
+  CHECK(containsId(delta.erased, bulletId));
 
   const auto* hp = w.try_get_component<Health>(invader.id());
-  REQUIRE((hp != nullptr));
-  CHECK(std::abs((hp->currentHealth) - (85.0)) <= (1e-6));
+  REQUIRE(hp != nullptr);
+  CHECK(std::abs((hp->currentHealth) - (85.0)) <= 1e-6);
 
   const auto* stats = w.try_get_component<DefenderStats>(defender.id());
-  REQUIRE((stats != nullptr));
-  CHECK(std::abs((stats->totalDamageDealt) - (15.0)) <= (1e-6));
+  REQUIRE(stats != nullptr);
+  CHECK(std::abs((stats->totalDamageDealt) - (15.0)) <= 1e-6);
 
   const auto explosions = extractTransientExplosions(w);
-  REQUIRE((explosions.size()) == (1U));
-  CHECK(std::abs((explosions[0].circle.x) - (200.0)) <= (1e-6));
-  CHECK(std::abs((explosions[0].circle.y) - (0.0)) <= (1e-6));
-  CHECK(std::abs((explosions[0].circle.radius) - (250.0)) <= (1e-6));
+  REQUIRE(explosions.size() == 1U);
+  CHECK(std::abs((explosions[0].circle.x) - (200.0)) <= 1e-6);
+  CHECK(std::abs((explosions[0].circle.y) - (0.0)) <= 1e-6);
+  CHECK(std::abs((explosions[0].circle.radius) - (250.0)) <= 1e-6);
 }
 
 #pragma endregion
@@ -607,11 +607,11 @@ TEST_CASE("SnapshotSinceTracksChanges", "[SimWorld]") {
 
   // Drain the spawn-time dirty list; both entities visible at tick_=0.
   const auto initial = extractWorldDelta(w);
-  CHECK((initial.upserts.size()) == (2U));
+  CHECK(initial.upserts.size() == 2U);
 
   const auto unchanged = extractWorldDelta(w);
-  CHECK((unchanged.upserts.empty()));
-  CHECK((unchanged.erased.empty()));
+  CHECK(unchanged.upserts.empty());
+  CHECK(unchanged.erased.empty());
 
   // Advance tick first so next() physics runs at a new tick value and can
   // re-mark the mover (last_updated=0 != tick_=1).
@@ -619,15 +619,15 @@ TEST_CASE("SnapshotSinceTracksChanges", "[SimWorld]") {
   (void)w.next();
 
   const auto moved = extractWorldDelta(w);
-  CHECK((moved.upserts.size()) == (1U));
-  CHECK((moved.erased.empty()));
-  CHECK((containsId(moved.upserts, invader.id())));
+  CHECK(moved.upserts.size() == 1U);
+  CHECK(moved.erased.empty());
+  CHECK(containsId(moved.upserts, invader.id()));
 
   (void)w.tick();
 
   const auto stable = extractWorldDelta(w);
-  CHECK((stable.upserts.empty()));
-  CHECK((stable.erased.empty()));
+  CHECK(stable.upserts.empty());
+  CHECK(stable.erased.empty());
 }
 
 #pragma endregion
@@ -638,20 +638,20 @@ TEST_CASE("DefenderDoesNotAppearAsChangedAfterTick", "[SimWorld]") {
   const auto defender = spawnDefenderAoe(w, Position{50.F, 60.F});
 
   const auto initial = extractWorldDelta(w);
-  REQUIRE((initial.upserts.size()) == (1U));
-  CHECK((containsId(initial.upserts, defender.id())));
+  REQUIRE(initial.upserts.size() == 1U);
+  CHECK(containsId(initial.upserts, defender.id()));
 
   (void)w.tick();
   (void)w.next();
 
   const auto snaps = snapshot(w);
-  REQUIRE((snaps.size()) == (1U));
-  CHECK(std::abs((snaps[0].pos.x) - (50.0)) <= (1e-6));
-  CHECK(std::abs((snaps[0].pos.y) - (60.0)) <= (1e-6));
+  REQUIRE(snaps.size() == 1U);
+  CHECK(std::abs((snaps[0].pos.x) - (50.0)) <= 1e-6);
+  CHECK(std::abs((snaps[0].pos.y) - (60.0)) <= 1e-6);
 
   const auto delta = extractWorldDelta(w);
-  CHECK((delta.upserts.empty()));
-  CHECK((delta.erased.empty()));
+  CHECK(delta.upserts.empty());
+  CHECK(delta.erased.empty());
 }
 
 #pragma endregion
@@ -663,10 +663,10 @@ TEST_CASE("TwoJoints", "[BakePath]") {
 
   const auto bp = SegmentedPath::fromJoints(p);
 
-  REQUIRE((bp.segments.size()) == (1U));
-  CHECK(std::abs((bp.segments[0].cumulativeStart) - (0.0)) <= (1e-6));
-  CHECK(std::abs((bp.segments[0].length) - (5.0)) <= (1e-6));
-  CHECK(std::abs((bp.totalLength) - (5.0)) <= (1e-6));
+  REQUIRE(bp.segments.size() == 1U);
+  CHECK(std::abs((bp.segments[0].cumulativeStart) - (0.0)) <= 1e-6);
+  CHECK(std::abs((bp.segments[0].length) - (5.0)) <= 1e-6);
+  CHECK(std::abs((bp.totalLength) - (5.0)) <= 1e-6);
 }
 
 #pragma endregion
@@ -678,12 +678,12 @@ TEST_CASE("ThreeJoints", "[BakePath]") {
 
   const auto bp = SegmentedPath::fromJoints(p);
 
-  REQUIRE((bp.segments.size()) == (2U));
-  CHECK(std::abs((bp.segments[0].cumulativeStart) - (0.0)) <= (1e-6));
-  CHECK(std::abs((bp.segments[0].length) - (5.0)) <= (1e-6));
-  CHECK(std::abs((bp.segments[1].cumulativeStart) - (5.0)) <= (1e-6));
-  CHECK(std::abs((bp.segments[1].length) - (5.0)) <= (1e-6));
-  CHECK(std::abs((bp.totalLength) - (10.0)) <= (1e-6));
+  REQUIRE(bp.segments.size() == 2U);
+  CHECK(std::abs((bp.segments[0].cumulativeStart) - (0.0)) <= 1e-6);
+  CHECK(std::abs((bp.segments[0].length) - (5.0)) <= 1e-6);
+  CHECK(std::abs((bp.segments[1].cumulativeStart) - (5.0)) <= 1e-6);
+  CHECK(std::abs((bp.segments[1].length) - (5.0)) <= 1e-6);
+  CHECK(std::abs((bp.totalLength) - (10.0)) <= 1e-6);
 }
 
 #pragma endregion
@@ -698,10 +698,10 @@ TEST_CASE("Endpoints", "[PathPosition]") {
   const auto end =
       bp.calculatePositionFromProgress(bp.totalLength, bp.totalLength);
 
-  CHECK(std::abs((start.x) - (0.0)) <= (1e-6));
-  CHECK(std::abs((start.y) - (0.0)) <= (1e-6));
-  CHECK(std::abs((end.x) - (10.0)) <= (1e-6));
-  CHECK(std::abs((end.y) - (0.0)) <= (1e-6));
+  CHECK(std::abs((start.x) - (0.0)) <= 1e-6);
+  CHECK(std::abs((start.y) - (0.0)) <= 1e-6);
+  CHECK(std::abs((end.x) - (10.0)) <= 1e-6);
+  CHECK(std::abs((end.y) - (0.0)) <= 1e-6);
 }
 
 #pragma endregion
@@ -714,8 +714,8 @@ TEST_CASE("Midpoint", "[PathPosition]") {
 
   const auto mid = bp.calculatePositionFromProgress(5.F, 5.F);
 
-  CHECK(std::abs((mid.x) - (5.0)) <= (1e-6));
-  CHECK(std::abs((mid.y) - (0.0)) <= (1e-6));
+  CHECK(std::abs((mid.x) - (5.0)) <= 1e-6);
+  CHECK(std::abs((mid.y) - (0.0)) <= 1e-6);
 }
 
 #pragma endregion
@@ -728,8 +728,8 @@ TEST_CASE("CrossingSegmentBoundaryEmitsJoint", "[PathPosition]") {
 
   const auto corner = bp.calculatePositionFromProgress(12.F, 8.F);
 
-  CHECK(std::abs((corner.x) - (10.0)) <= (1e-6));
-  CHECK(std::abs((corner.y) - (0.0)) <= (1e-6));
+  CHECK(std::abs((corner.x) - (10.0)) <= 1e-6);
+  CHECK(std::abs((corner.y) - (0.0)) <= 1e-6);
 }
 
 #pragma endregion
@@ -742,17 +742,17 @@ TEST_CASE("EnemyAdvancesOnTick", "[SimWorld]") {
   const auto pid = w.addPath(p);
   const auto enemy = spawnInvaderAlpha(w, pid);
 
-  CHECK((static_cast<bool>(enemy)));
-  CHECK((w.size()) == (1U));
+  CHECK(static_cast<bool>(enemy));
+  CHECK(w.size() == 1U);
 
   (void)w.next();
   (void)w.tick();
 
   const auto delta = extractWorldDelta(w);
-  CHECK((containsId(delta.upserts, enemy.id())));
-  REQUIRE((delta.upserts.size()) == (1U));
-  CHECK(std::abs((delta.upserts[0].pos.x) - (50.0)) <= (1e-5));
-  CHECK(std::abs((delta.upserts[0].pos.y) - (0.0)) <= (1e-5));
+  CHECK(containsId(delta.upserts, enemy.id()));
+  REQUIRE(delta.upserts.size() == 1U);
+  CHECK(std::abs((delta.upserts[0].pos.x) - (50.0)) <= 1e-5);
+  CHECK(std::abs((delta.upserts[0].pos.y) - (0.0)) <= 1e-5);
 }
 
 #pragma endregion
@@ -766,30 +766,30 @@ TEST_CASE("ResolveEscapeesVisitsEscapedEnemy", "[SimWorld]") {
   const auto enemy = spawnInvaderAlpha(w, pid, 8.F);
 
   (void)w.next();
-  CHECK((w.size()) == (1U));
+  CHECK(w.size() == 1U);
 
   size_t resolved = 0;
   (void)w.resolveEscapees(
       [&](SimWorld::EntityId id, const Position& pos, const Pathing& pf) {
         ++resolved;
-        CHECK((id) == (enemy.id()));
-        CHECK(std::abs((pos.x) - (8.0)) <= (1e-6));
-        CHECK(std::abs((pos.y) - (0.0)) <= (1e-6));
-        CHECK(std::abs((pf.progress) - (58.0)) <= (1e-6));
-        CHECK(std::abs((pf.speed) - (50.0)) <= (1e-6));
+        CHECK(id == enemy.id());
+        CHECK(std::abs((pos.x) - (8.0)) <= 1e-6);
+        CHECK(std::abs((pos.y) - (0.0)) <= 1e-6);
+        CHECK(std::abs((pf.progress) - (58.0)) <= 1e-6);
+        CHECK(std::abs((pf.speed) - (50.0)) <= 1e-6);
         return true;
       });
 
-  CHECK((resolved) == (1U));
-  CHECK((w.size()) == (0U));
+  CHECK(resolved == 1U);
+  CHECK(w.size() == 0U);
 
   const auto delta = extractWorldDelta(w);
-  CHECK((delta.upserts.empty()));
-  CHECK((delta.erased.size()) == (1U));
-  CHECK((delta.erased[0]) == (enemy.id()));
+  CHECK(delta.upserts.empty());
+  CHECK(delta.erased.size() == 1U);
+  CHECK(delta.erased[0] == enemy.id());
 
   const auto snaps = snapshot(w);
-  CHECK((snaps.empty()));
+  CHECK(snaps.empty());
   (void)w.tick();
 }
 
@@ -809,17 +809,17 @@ TEST_CASE("ResolveEscapeesCanLeaveEnemyAlive", "[SimWorld]") {
   (void)w.resolveEscapees(
       [&](SimWorld::EntityId id, const Position&, const Pathing&) {
         ++resolved;
-        CHECK((id) == (enemy.id()));
+        CHECK(id == enemy.id());
         return false;
       });
 
-  CHECK((resolved) == (1U));
-  CHECK((w.size()) == (1U));
+  CHECK(resolved == 1U);
+  CHECK(w.size() == 1U);
 
   const auto snaps = snapshot(w);
-  REQUIRE((snaps.size()) == (1U));
-  CHECK((snaps[0].id) == (enemy.id()));
-  CHECK(std::abs((snaps[0].pos.x) - (8.0)) <= (1e-6));
+  REQUIRE(snaps.size() == 1U);
+  CHECK(snaps[0].id == enemy.id());
+  CHECK(std::abs((snaps[0].pos.x) - (8.0)) <= 1e-6);
   (void)w.tick();
 }
 
@@ -828,14 +828,14 @@ TEST_CASE("ResolveEscapeesCanLeaveEnemyAlive", "[SimWorld]") {
 
 TEST_CASE("GetPathOutOfRange", "[SimWorld]") {
   SimWorld w;
-  CHECK((w.getPath(PathId{0}) == nullptr));
+  CHECK(w.getPath(PathId{0}) == nullptr);
 
   PathJoints p;
   p.joints = {{{0.F, 0.F}}, {{1.F, 0.F}}};
   (void)w.addPath(p);
 
-  CHECK((w.getPath(PathId{0}) != nullptr));
-  CHECK((w.getPath(PathId{1}) == nullptr));
+  CHECK(w.getPath(PathId{0}) != nullptr);
+  CHECK(w.getPath(PathId{1}) == nullptr);
 }
 
 #pragma endregion
@@ -855,13 +855,13 @@ TEST_CASE("ObtainPathIncludesTerminalJoint", "[SimWorld]") {
       },
       pid);
 
-  REQUIRE((points.size()) == (3U));
-  CHECK(std::abs((points[0].x) - (0.0)) <= (1e-6));
-  CHECK(std::abs((points[0].y) - (0.0)) <= (1e-6));
-  CHECK(std::abs((points[1].x) - (10.0)) <= (1e-6));
-  CHECK(std::abs((points[1].y) - (0.0)) <= (1e-6));
-  CHECK(std::abs((points[2].x) - (10.0)) <= (1e-6));
-  CHECK(std::abs((points[2].y) - (5.0)) <= (1e-6));
+  REQUIRE(points.size() == 3U);
+  CHECK(std::abs((points[0].x) - (0.0)) <= 1e-6);
+  CHECK(std::abs((points[0].y) - (0.0)) <= 1e-6);
+  CHECK(std::abs((points[1].x) - (10.0)) <= 1e-6);
+  CHECK(std::abs((points[1].y) - (0.0)) <= 1e-6);
+  CHECK(std::abs((points[2].x) - (10.0)) <= 1e-6);
+  CHECK(std::abs((points[2].y) - (5.0)) <= 1e-6);
 }
 
 #pragma endregion
@@ -872,20 +872,20 @@ TEST_CASE("LoadMapInitialSnapshotAndState", "[SimGame]") {
   (void)game.loadMap();
 
   const auto snap = snapshot(game);
-  REQUIRE((snap.entities.size()) == (0U));
-  REQUIRE((snap.path_points.size()) == (1U));
-  CHECK((snap.path_points[0].joints.front().pos.x) == (0.F));
-  CHECK((snap.path_points[0].joints.front().pos.y) == (0.F));
+  REQUIRE(snap.entities.size() == 0U);
+  REQUIRE(snap.path_points.size() == 1U);
+  CHECK(snap.path_points[0].joints.front().pos.x == 0.F);
+  CHECK(snap.path_points[0].joints.front().pos.y == 0.F);
   CHECK((snap.path_points[0].joints.size()) > (2U));
 
   const auto delta = extractGameDelta(game);
-  CHECK((delta.currentWave) == (0U));
-  CHECK((delta.waveTick) == (WaveTick{}));
-  CHECK((delta.lives) == (20));
-  CHECK((delta.resources) == (1000));
-  CHECK((delta.phase) == (std::string_view{"build"}));
-  CHECK((delta.upserts.empty()));
-  CHECK((delta.erased.empty()));
+  CHECK(delta.currentWave == 0U);
+  CHECK(delta.waveTick == WaveTick{});
+  CHECK(delta.lives == 20);
+  CHECK(delta.resources == 1000);
+  CHECK(delta.phase == std::string_view{"build"});
+  CHECK(delta.upserts.empty());
+  CHECK(delta.erased.empty());
 }
 
 #pragma endregion
@@ -899,13 +899,13 @@ TEST_CASE("HandleUiActionStartWaveTransitionsToWavePhase", "[SimGame]") {
       UiActionInput{.seq = 1, .action = "start_wave", .fields = {}});
 
   const auto before = extractGameDelta(game);
-  CHECK((before.phase) == (std::string_view{"build"}));
+  CHECK(before.phase == std::string_view{"build"});
 
   (void)game.next();
 
   const auto delta = extractGameDelta(game);
-  CHECK((delta.phase) == (std::string_view{"wave"}));
-  CHECK((delta.waveTick) == (WaveTick{1}));
+  CHECK(delta.phase == std::string_view{"wave"});
+  CHECK(delta.waveTick == WaveTick{1});
 }
 
 #pragma endregion
@@ -928,20 +928,20 @@ TEST_CASE("HandleUiCanvasSpawnsDefenderButKeepsBuildPhase", "[SimGame]") {
       .parameters = {"DefenderAoeBasic"}});
 
   const auto pending = extractGameDelta(game);
-  CHECK((pending.upserts.empty()));
-  CHECK_FALSE((pending.spawnAllowed.has_value()));
+  CHECK(pending.upserts.empty());
+  CHECK_FALSE(pending.spawnAllowed.has_value());
 
   (void)game.next();
 
   const auto after = extractGameDelta(game);
-  CHECK((before.phase) == (std::string_view{"build"}));
-  CHECK((after.phase) == (std::string_view{"build"}));
-  REQUIRE((after.spawnAllowed.has_value()));
-  CHECK((*after.spawnAllowed));
-  REQUIRE((after.upserts.size()) == (1U));
-  CHECK(std::abs((after.upserts[0].second.x) - (300.0)) <= (1e-6));
-  CHECK(std::abs((after.upserts[0].second.y) - (100.0)) <= (1e-6));
-  CHECK((after.erased.empty()));
+  CHECK(before.phase == std::string_view{"build"});
+  CHECK(after.phase == std::string_view{"build"});
+  REQUIRE(after.spawnAllowed.has_value());
+  CHECK(*after.spawnAllowed);
+  REQUIRE(after.upserts.size() == 1U);
+  CHECK(std::abs((after.upserts[0].second.x) - (300.0)) <= 1e-6);
+  CHECK(std::abs((after.upserts[0].second.y) - (100.0)) <= 1e-6);
+  CHECK(after.erased.empty());
 }
 
 #pragma endregion
@@ -963,18 +963,18 @@ TEST_CASE("HandleUiCanvasRightClickSpawnPlacesDefender", "[SimGame]") {
       .parameters = {"DefenderAoeBasic"}});
 
   const auto pending = extractGameDelta(game);
-  CHECK((pending.upserts.empty()));
+  CHECK(pending.upserts.empty());
 
   (void)game.next();
 
   const auto after = extractGameDelta(game);
-  CHECK((after.phase) == (std::string_view{"build"}));
-  REQUIRE((after.spawnAllowed.has_value()));
-  CHECK((*after.spawnAllowed));
-  REQUIRE((after.upserts.size()) == (1U));
-  CHECK(std::abs((after.upserts[0].second.x) - (300.0)) <= (1e-6));
-  CHECK(std::abs((after.upserts[0].second.y) - (100.0)) <= (1e-6));
-  CHECK((after.erased.empty()));
+  CHECK(after.phase == std::string_view{"build"});
+  REQUIRE(after.spawnAllowed.has_value());
+  CHECK(*after.spawnAllowed);
+  REQUIRE(after.upserts.size() == 1U);
+  CHECK(std::abs((after.upserts[0].second.x) - (300.0)) <= 1e-6);
+  CHECK(std::abs((after.upserts[0].second.y) - (100.0)) <= 1e-6);
+  CHECK(after.erased.empty());
 }
 
 #pragma endregion
@@ -1011,10 +1011,10 @@ TEST_CASE("HandleUiCanvasSelectingDefenderReportsSelectedPosition",
   (void)game.next();
 
   const auto delta = extractGameDelta(game);
-  REQUIRE((delta.selectedDefender.has_value()));
-  CHECK(std::abs((delta.selectedDefender->x) - (300.0)) <= (1e-6));
-  CHECK(std::abs((delta.selectedDefender->y) - (100.0)) <= (1e-6));
-  REQUIRE((delta.defenderSummary.has_value()));
+  REQUIRE(delta.selectedDefender.has_value());
+  CHECK(std::abs((delta.selectedDefender->x) - (300.0)) <= 1e-6);
+  CHECK(std::abs((delta.selectedDefender->y) - (100.0)) <= 1e-6);
+  REQUIRE(delta.defenderSummary.has_value());
 }
 
 #pragma endregion
@@ -1037,20 +1037,20 @@ TEST_CASE("HandleUiCanvasSpawnsShooterDefender", "[SimGame]") {
       .parameters = {"DefenderShooterPistol"}});
 
   const auto pending = extractGameDelta(game);
-  CHECK((pending.upserts.empty()));
-  CHECK_FALSE((pending.spawnAllowed.has_value()));
+  CHECK(pending.upserts.empty());
+  CHECK_FALSE(pending.spawnAllowed.has_value());
 
   (void)game.next();
 
   const auto after = extractGameDelta(game);
-  CHECK((before.phase) == (std::string_view{"build"}));
-  CHECK((after.phase) == (std::string_view{"build"}));
-  REQUIRE((after.spawnAllowed.has_value()));
-  CHECK((*after.spawnAllowed));
-  REQUIRE((after.upserts.size()) == (1U));
-  CHECK(std::abs((after.upserts[0].second.x) - (300.0)) <= (1e-6));
-  CHECK(std::abs((after.upserts[0].second.y) - (100.0)) <= (1e-6));
-  CHECK((after.erased.empty()));
+  CHECK(before.phase == std::string_view{"build"});
+  CHECK(after.phase == std::string_view{"build"});
+  REQUIRE(after.spawnAllowed.has_value());
+  CHECK(*after.spawnAllowed);
+  REQUIRE(after.upserts.size() == 1U);
+  CHECK(std::abs((after.upserts[0].second.x) - (300.0)) <= 1e-6);
+  CHECK(std::abs((after.upserts[0].second.y) - (100.0)) <= 1e-6);
+  CHECK(after.erased.empty());
 }
 
 #pragma endregion
@@ -1073,13 +1073,13 @@ TEST_CASE("HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick",
       .parameters = {"DefenderAoeBasic"}});
 
   const auto pending = extractGameDelta(game);
-  CHECK_FALSE((pending.placementAllowed.has_value()));
+  CHECK_FALSE(pending.placementAllowed.has_value());
 
   (void)game.next();
 
   const auto delta = extractGameDelta(game);
-  REQUIRE((delta.placementAllowed.has_value()));
-  CHECK_FALSE((*delta.placementAllowed));
+  REQUIRE(delta.placementAllowed.has_value());
+  CHECK_FALSE(*delta.placementAllowed);
 }
 
 #pragma endregion
@@ -1103,9 +1103,9 @@ TEST_CASE("HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick", "[SimGame]") {
   (void)game.next();
 
   const auto delta = extractGameDelta(game);
-  CHECK((delta.upserts.empty()));
-  REQUIRE((delta.spawnAllowed.has_value()));
-  CHECK_FALSE((*delta.spawnAllowed));
+  CHECK(delta.upserts.empty());
+  REQUIRE(delta.spawnAllowed.has_value());
+  CHECK_FALSE(*delta.spawnAllowed);
 }
 
 #pragma endregion
@@ -1119,19 +1119,19 @@ TEST_CASE("StartWaveSpawnsFirstEnemyOnFirstStep", "[SimGame]") {
   (void)game.next();
 
   const auto snap = snapshot(game);
-  CHECK((*game.tick()) == (1U));
-  REQUIRE((snap.entities.size()) == (1U));
-  CHECK(std::abs((snap.entities[0].pos.x) - (0.0)) <= (1e-6));
-  CHECK(std::abs((snap.entities[0].pos.y) - (0.0)) <= (1e-6));
+  CHECK(*game.tick() == 1U);
+  REQUIRE(snap.entities.size() == 1U);
+  CHECK(std::abs((snap.entities[0].pos.x) - (0.0)) <= 1e-6);
+  CHECK(std::abs((snap.entities[0].pos.y) - (0.0)) <= 1e-6);
 
   const auto delta = extractGameDelta(game);
-  CHECK((delta.currentWave) == (0U));
-  CHECK((delta.waveTick) == (WaveTick{1}));
-  CHECK((delta.lives) == (20));
-  CHECK((delta.resources) == (1000));
-  CHECK((delta.phase) == (std::string_view{"wave"}));
-  CHECK((delta.upserts.empty()));
-  CHECK((delta.erased.empty()));
+  CHECK(delta.currentWave == 0U);
+  CHECK(delta.waveTick == WaveTick{1});
+  CHECK(delta.lives == 20);
+  CHECK(delta.resources == 1000);
+  CHECK(delta.phase == std::string_view{"wave"});
+  CHECK(delta.upserts.empty());
+  CHECK(delta.erased.empty());
 }
 
 #pragma endregion
@@ -1148,20 +1148,20 @@ TEST_CASE("ExtractDeltaConsumesWorldUpdatesButNotState", "[SimGame]") {
   (void)game.tick();
 
   const auto delta = extractGameDelta(game);
-  CHECK((!delta.upserts.empty()));
-  CHECK((delta.erased.size()) == (0U));
-  CHECK((delta.waveTick) == (WaveTick{2}));
-  CHECK((delta.phase) == (std::string_view{"wave"}));
+  CHECK(!delta.upserts.empty());
+  CHECK(delta.erased.size() == 0U);
+  CHECK(delta.waveTick == WaveTick{2});
+  CHECK(delta.phase == std::string_view{"wave"});
 
   const auto* pos = findPosition(delta.upserts, delta.upserts.front().first);
-  REQUIRE((pos != nullptr));
+  REQUIRE(pos != nullptr);
   CHECK((pos->x) > (0.F));
 
   const auto empty_world_delta = extractGameDelta(game);
-  CHECK((empty_world_delta.upserts.empty()));
-  CHECK((empty_world_delta.erased.empty()));
-  CHECK((empty_world_delta.waveTick) == (WaveTick{2}));
-  CHECK((empty_world_delta.phase) == (std::string_view{"wave"}));
+  CHECK(empty_world_delta.upserts.empty());
+  CHECK(empty_world_delta.erased.empty());
+  CHECK(empty_world_delta.waveTick == WaveTick{2});
+  CHECK(empty_world_delta.phase == std::string_view{"wave"});
 }
 
 #pragma endregion
@@ -1178,13 +1178,13 @@ TEST_CASE("ReachesGameOverAsSoonAsLivesAreExhausted", "[SimGame]") {
     const auto delta = extractGameDelta(game);
     if (delta.lives <= 0) {
       sawZeroLives = true;
-      CHECK((delta.phase) == (std::string_view{"game_over"}));
+      CHECK(delta.phase == std::string_view{"game_over"});
       break;
     }
     (void)game.tick();
   }
 
-  CHECK((sawZeroLives));
+  CHECK(sawZeroLives);
 }
 
 #pragma endregion
@@ -1209,20 +1209,19 @@ TEST_CASE("GameOverFreezesRemainingInvaders", "[SimGame]") {
     (void)game.tick();
   }
 
-  REQUIRE((reachedGameOver));
+  REQUIRE(reachedGameOver);
 
   (void)game.tick();
   (void)game.next();
 
   const auto afterSnapshot = snapshot(game);
-  REQUIRE(
-      (afterSnapshot.entities.size()) == (terminalSnapshot.entities.size()));
+  REQUIRE(afterSnapshot.entities.size() == terminalSnapshot.entities.size());
   for (size_t i = 0; i < terminalSnapshot.entities.size(); ++i) {
-    CHECK((afterSnapshot.entities[i].id) == (terminalSnapshot.entities[i].id));
+    CHECK(afterSnapshot.entities[i].id == terminalSnapshot.entities[i].id);
     CHECK(std::abs((afterSnapshot.entities[i].pos.x) -
-                   (terminalSnapshot.entities[i].pos.x)) <= (1e-6));
+                   (terminalSnapshot.entities[i].pos.x)) <= 1e-6);
     CHECK(std::abs((afterSnapshot.entities[i].pos.y) -
-                   (terminalSnapshot.entities[i].pos.y)) <= (1e-6));
+                   (terminalSnapshot.entities[i].pos.y)) <= 1e-6);
   }
 }
 
@@ -1261,14 +1260,14 @@ TEST_CASE("ExtractFullIncludesPathsAndState", "[SimGame]") {
       });
 
   CHECK((path_points) > (0U));
-  CHECK((upserts) == (0U));
-  CHECK((erased) == (0U));
-  CHECK((currentWave) == (0U));
-  CHECK((waveTick) == (WaveTick{0}));
-  CHECK((lives) == (20));
-  CHECK((resources) == (1000));
-  CHECK((phase) == (std::string_view{"build"}));
-  CHECK_FALSE((uiState.selectedDefender.has_value()));
+  CHECK(upserts == 0U);
+  CHECK(erased == 0U);
+  CHECK(currentWave == 0U);
+  CHECK(waveTick == WaveTick{0});
+  CHECK(lives == 20);
+  CHECK(resources == 1000);
+  CHECK(phase == std::string_view{"build"});
+  CHECK_FALSE(uiState.selectedDefender.has_value());
 }
 
 #pragma endregion
@@ -1291,23 +1290,23 @@ TEST_CASE("ParseUiCanvasMessage", "[SimJson]") {
     "meta": false
   })");
 
-  REQUIRE((msg.has_value()));
-  CHECK((classifySimClientMessage(*msg)) == (SimClientMessageKind::ui_canvas));
+  REQUIRE(msg.has_value());
+  CHECK(classifySimClientMessage(*msg) == SimClientMessageKind::ui_canvas);
 
   const auto input = parseUiCanvasMessage(*msg);
-  REQUIRE((input.has_value()));
-  CHECK((input->seq) == (42U));
-  CHECK((input->event) == (UiCanvasEvent::dragmove));
-  CHECK((input->button) == (UiMouseButton::right));
-  CHECK((input->buttons) == (2U));
-  CHECK(std::abs((input->x) - (10.5)) <= (1e-6));
-  CHECK(std::abs((input->y) - (-3.25)) <= (1e-6));
-  CHECK(std::abs((input->canvasX) - (100.0)) <= (1e-6));
-  CHECK(std::abs((input->canvasY) - (200.5)) <= (1e-6));
-  CHECK((input->shift));
-  CHECK_FALSE((input->ctrl));
-  CHECK((input->alt));
-  CHECK_FALSE((input->meta));
+  REQUIRE(input.has_value());
+  CHECK(input->seq == 42U);
+  CHECK(input->event == UiCanvasEvent::dragmove);
+  CHECK(input->button == UiMouseButton::right);
+  CHECK(input->buttons == 2U);
+  CHECK(std::abs((input->x) - (10.5)) <= 1e-6);
+  CHECK(std::abs((input->y) - (-3.25)) <= 1e-6);
+  CHECK(std::abs((input->canvasX) - (100.0)) <= 1e-6);
+  CHECK(std::abs((input->canvasY) - (200.5)) <= 1e-6);
+  CHECK(input->shift);
+  CHECK_FALSE(input->ctrl);
+  CHECK(input->alt);
+  CHECK_FALSE(input->meta);
 }
 
 #pragma endregion
@@ -1317,19 +1316,19 @@ TEST_CASE("ParseUiActionMessageFields", "[SimJson]") {
   const auto input = parseUiActionMessage(
       R"({"type":"ui_action","seq":7,"action":"start_wave","fields":{"defender/kind":"ice","note":"line\nbreak"}})");
 
-  REQUIRE((input.has_value()));
-  CHECK((input->seq) == (7U));
-  CHECK((input->action) == ("start_wave"));
-  REQUIRE((input->fields.size()) == (2U));
+  REQUIRE(input.has_value());
+  CHECK(input->seq == 7U);
+  CHECK(input->action == "start_wave");
+  REQUIRE(input->fields.size() == 2U);
   const auto defender_kind =
       std::ranges::find(input->fields, "defender/kind", &UiActionField::key);
-  REQUIRE((defender_kind != input->fields.end()));
-  CHECK((defender_kind->value) == ("ice"));
+  REQUIRE(defender_kind != input->fields.end());
+  CHECK(defender_kind->value == "ice");
 
   const auto note =
       std::ranges::find(input->fields, "note", &UiActionField::key);
-  REQUIRE((note != input->fields.end()));
-  CHECK((note->value) == (std::string("line\nbreak")));
+  REQUIRE(note != input->fields.end());
+  CHECK(note->value == std::string("line\nbreak"));
 }
 
 #pragma endregion
@@ -1360,57 +1359,57 @@ TEST_CASE("BuildWorldDeltaJsonShapeAndFormatting", "[SimJson]") {
 
   SimGameStateJson state;
   (void)buildSimGameStateJson(state, game);
-  CHECK((state.body.contains(R"("x":300.0)")));
-  CHECK((state.body.contains(R"("radius":30.000)")));
-  CHECK((state.body.contains(R"("vfx")")));
-  CHECK((state.body.contains(R"("flashExpiryTick":5)")));
-  CHECK((state.body.contains(R"("uiState")")));
-  CHECK((state.body.contains(R"("spawnAllowed":true)")));
-  CHECK_FALSE((state.body.contains(R"("selectedDefender")")));
-  CHECK_FALSE((state.body.contains(R"("defenderSummary")")));
-  CHECK_FALSE((state.body.contains(R"("modified")")));
-  CHECK_FALSE((state.body.contains(R"("flash_expiry")")));
-  CHECK_FALSE((state.body.contains(R"("glow")")));
+  CHECK(state.body.contains(R"("x":300.0)"));
+  CHECK(state.body.contains(R"("radius":30.000)"));
+  CHECK(state.body.contains(R"("vfx")"));
+  CHECK(state.body.contains(R"("flashExpiryTick":5)"));
+  CHECK(state.body.contains(R"("uiState")"));
+  CHECK(state.body.contains(R"("spawnAllowed":true)"));
+  CHECK_FALSE(state.body.contains(R"("selectedDefender")"));
+  CHECK_FALSE(state.body.contains(R"("defenderSummary")"));
+  CHECK_FALSE(state.body.contains(R"("modified")"));
+  CHECK_FALSE(state.body.contains(R"("flash_expiry")"));
+  CHECK_FALSE(state.body.contains(R"("glow")"));
 
   json_value_view root;
-  REQUIRE((parse_json(state.body, root)));
+  REQUIRE(parse_json(state.body, root));
   const auto obj = root.as_object();
-  REQUIRE((obj));
+  REQUIRE(obj);
   const auto tick_value = obj.get_number<uint32_t>("tick");
   const auto phase_value = obj.get_string_view_if_plain("phase");
-  REQUIRE((tick_value.has_value()));
-  REQUIRE((phase_value.has_value()));
-  CHECK((*tick_value) == (0U));
-  CHECK((*phase_value) == (std::string_view{"build"}));
+  REQUIRE(tick_value.has_value());
+  REQUIRE(phase_value.has_value());
+  CHECK(*tick_value == 0U);
+  CHECK(*phase_value == std::string_view{"build"});
 
   const auto upserts = obj.get_array("upserts");
-  REQUIRE((upserts));
+  REQUIRE(upserts);
   size_t count = 0;
   for (const auto item : upserts) {
     const auto entry = item.as_object();
-    REQUIRE((entry));
+    REQUIRE(entry);
     const auto pos = entry.get_object("pos");
-    REQUIRE((pos));
+    REQUIRE(pos);
     const auto x = pos.get_number<float>("x");
-    REQUIRE((x.has_value()));
-    CHECK(std::abs((*x) - (300.0)) <= (1e-6));
+    REQUIRE(x.has_value());
+    CHECK(std::abs((*x) - (300.0)) <= 1e-6);
 
     const auto app = entry.get_object("app");
-    REQUIRE((app));
-    REQUIRE((app.get_number<uint32_t>("glyph").has_value()));
-    REQUIRE((app.get_number<float>("radius").has_value()));
-    REQUIRE((!app.get_number<uint32_t>("modified").has_value()));
+    REQUIRE(app);
+    REQUIRE(app.get_number<uint32_t>("glyph").has_value());
+    REQUIRE(app.get_number<float>("radius").has_value());
+    REQUIRE(!app.get_number<uint32_t>("modified").has_value());
 
     const auto vfx = entry.get_object("vfx");
-    REQUIRE((vfx));
-    REQUIRE((vfx.get_number<uint32_t>("selection").has_value()));
-    REQUIRE((vfx.get_number<float>("rangeRadius").has_value()));
-    REQUIRE((vfx.get_number<uint32_t>("range").has_value()));
-    REQUIRE((vfx.get_number<uint32_t>("flash").has_value()));
-    REQUIRE((vfx.get_number<uint32_t>("flashExpiryTick").has_value()));
+    REQUIRE(vfx);
+    REQUIRE(vfx.get_number<uint32_t>("selection").has_value());
+    REQUIRE(vfx.get_number<float>("rangeRadius").has_value());
+    REQUIRE(vfx.get_number<uint32_t>("range").has_value());
+    REQUIRE(vfx.get_number<uint32_t>("flash").has_value());
+    REQUIRE(vfx.get_number<uint32_t>("flashExpiryTick").has_value());
     ++count;
   }
-  CHECK((count) == (1U));
+  CHECK(count == 1U);
 }
 
 #pragma endregion
@@ -1451,33 +1450,33 @@ TEST_CASE("BuildWorldDeltaIncludesFlashVisualEffects", "[SimJson]") {
   (void)buildSimGameStateJson(state, game);
 
   json_value_view root;
-  REQUIRE((parse_json(state.body, root)));
+  REQUIRE(parse_json(state.body, root));
   const auto obj = root.as_object();
-  REQUIRE((obj));
+  REQUIRE(obj);
 
   const auto upserts = obj.get_array("upserts");
-  REQUIRE((upserts));
+  REQUIRE(upserts);
   size_t count = 0;
   for (const auto item : upserts) {
     const auto entry = item.as_object();
-    REQUIRE((entry));
+    REQUIRE(entry);
     const auto pos = entry.get_object("pos");
-    REQUIRE((pos));
+    REQUIRE(pos);
     const auto x = pos.get_number<float>("x");
-    REQUIRE((x.has_value()));
-    CHECK(std::abs((*x) - (300.0)) <= (1e-6));
+    REQUIRE(x.has_value());
+    CHECK(std::abs((*x) - (300.0)) <= 1e-6);
 
     const auto vfx = entry.get_object("vfx");
-    REQUIRE((vfx));
+    REQUIRE(vfx);
     const auto flash = vfx.get_number<uint32_t>("flash");
     const auto flash_expiry_tick = vfx.get_number<uint32_t>("flashExpiryTick");
-    REQUIRE((flash.has_value()));
-    REQUIRE((flash_expiry_tick.has_value()));
-    CHECK((*flash) == (0xFF7F7FFFU));
-    CHECK((*flash_expiry_tick) == (5U));
+    REQUIRE(flash.has_value());
+    REQUIRE(flash_expiry_tick.has_value());
+    CHECK(*flash == 0xFF7F7FFFU);
+    CHECK(*flash_expiry_tick == 5U);
     ++count;
   }
-  CHECK((count) == (1U));
+  CHECK(count == 1U);
 }
 
 #pragma endregion
@@ -1493,10 +1492,10 @@ TEST_CASE("FlashExpiryTickReturnsAbsoluteTick", "[SimJson]") {
       .flashExpiry = WorldTick{15},
   };
 
-  CHECK((flashExpiryTick(fx)) == (15U));
+  CHECK(flashExpiryTick(fx) == 15U);
 
   fx.flashColor = 0;
-  CHECK((flashExpiryTick(fx)) == (0U));
+  CHECK(flashExpiryTick(fx) == 0U);
 }
 
 #pragma endregion
@@ -1508,39 +1507,39 @@ TEST_CASE("BuildWorldSnapshotJsonShape", "[SimJson]") {
 
   SimGameStateJson state;
   (void)buildSimGameStateJson(state, game, update_strategy::full);
-  CHECK((state.body.contains(R"("type":"world_snapshot")")));
-  CHECK((state.body.contains(R"("x":0.0)")));
+  CHECK(state.body.contains(R"("type":"world_snapshot")"));
+  CHECK(state.body.contains(R"("x":0.0)"));
 
   json_value_view root;
-  REQUIRE((parse_json(state.body, root)));
+  REQUIRE(parse_json(state.body, root));
   const auto obj = root.as_object();
-  REQUIRE((obj));
+  REQUIRE(obj);
   const auto root_type = obj.get_string_view_if_plain("type");
-  REQUIRE((root_type.has_value()));
-  CHECK((*root_type) == (std::string_view{"world_snapshot"}));
+  REQUIRE(root_type.has_value());
+  CHECK(*root_type == std::string_view{"world_snapshot"});
 
   const auto map_design = obj.get_object("mapDesign");
-  REQUIRE((map_design));
+  REQUIRE(map_design);
   const auto paths = map_design.get_array("paths");
-  REQUIRE((paths));
+  REQUIRE(paths);
   size_t path_points = 0;
   for (const auto point : paths) {
     const auto entry = point.as_object();
-    REQUIRE((entry));
-    REQUIRE((entry.get_number<float>("x").has_value()));
-    REQUIRE((entry.get_number<float>("y").has_value()));
+    REQUIRE(entry);
+    REQUIRE(entry.get_number<float>("x").has_value());
+    REQUIRE(entry.get_number<float>("y").has_value());
     ++path_points;
   }
   CHECK((path_points) > (0U));
 
   const auto delta = obj.get_object("delta");
-  REQUIRE((delta));
+  REQUIRE(delta);
   const auto delta_type = delta.get_string_view_if_plain("type");
   const auto delta_phase = delta.get_string_view_if_plain("phase");
-  REQUIRE((delta_type.has_value()));
-  CHECK((*delta_type) == (std::string_view{"world_delta"}));
-  REQUIRE((delta_phase.has_value()));
-  CHECK((*delta_phase) == (std::string_view{"build"}));
+  REQUIRE(delta_type.has_value());
+  CHECK(*delta_type == std::string_view{"world_delta"});
+  REQUIRE(delta_phase.has_value());
+  CHECK(*delta_phase == std::string_view{"build"});
 }
 
 #pragma endregion
@@ -1548,18 +1547,17 @@ TEST_CASE("BuildWorldSnapshotJsonShape", "[SimJson]") {
 
 TEST_CASE("BuildCurrentMapEntityCsvReport", "[SimGame]") {
   SimGame game;
-  REQUIRE((game.loadMap()));
+  REQUIRE(game.loadMap());
 
   const auto csv = game.buildCurrentMapEntityCsvReport();
-  CHECK(
-      (csv.contains("entityName,Radius,Speed,Radius,Health,Regen,Bounty\n")));
-  CHECK((csv.contains("InvaderAlphaBasic,30,50,30,50,10,10\n")));
-  CHECK((csv.contains("InvaderBetaBasic,40,30,40,120,12,25\n")));
-  CHECK((csv.contains(
+  CHECK(csv.contains("entityName,Radius,Speed,Radius,Health,Regen,Bounty\n"));
+  CHECK(csv.contains("InvaderAlphaBasic,30,50,30,50,10,10\n"));
+  CHECK(csv.contains("InvaderBetaBasic,40,30,40,120,12,25\n"));
+  CHECK(csv.contains(
       "\nentityName,resourceCost,radius,attackRadius,"
-      "attackDamage,cooldown\n")));
-  CHECK((csv.contains("DefenderAoeBasic,50,30,100,6,20\n")));
-  CHECK((csv.contains("DefenderHitscanBasic,100,25,200,30,25\n")));
+      "attackDamage,cooldown\n"));
+  CHECK(csv.contains("DefenderAoeBasic,50,30,100,6,20\n"));
+  CHECK(csv.contains("DefenderHitscanBasic,100,25,200,30,25\n"));
 }
 
 #pragma endregion

@@ -63,21 +63,21 @@ TEST_CASE("Lifecycle", "[Epoll]") {
   // Default-constructed epoll handle is invalid.
   if (true) {
     epoll p;
-    CHECK_FALSE((p.is_open()));
-    CHECK_FALSE((static_cast<bool>(p)));
-    CHECK((p.handle()) == (epoll::invalid_handle));
-    CHECK_FALSE((p.close()));
+    CHECK_FALSE(p.is_open());
+    CHECK_FALSE(static_cast<bool>(p));
+    CHECK(p.handle() == epoll::invalid_handle);
+    CHECK_FALSE(p.close());
   }
 
   // A real epoll instance is open; closing it twice is idempotent.
   if (true) {
     epoll p{epoll::default_flags};
-    CHECK((p.is_open()));
-    CHECK((static_cast<bool>(p)));
-    CHECK((p.handle()) != (epoll::invalid_handle));
-    CHECK((p.close()));
-    CHECK_FALSE((p.is_open()));
-    CHECK_FALSE((p.close()));
+    CHECK(p.is_open());
+    CHECK(static_cast<bool>(p));
+    CHECK(p.handle() != epoll::invalid_handle);
+    CHECK(p.close());
+    CHECK_FALSE(p.is_open());
+    CHECK_FALSE(p.close());
   }
 
   // Destructor closes an open epoll fd (no crash or leak).
@@ -92,14 +92,14 @@ TEST_CASE("Create", "[Epoll]") {
   // Default create() produces an open, functional epoll instance.
   if (true) {
     auto p = epoll::create();
-    CHECK((p.is_open()));
-    CHECK((p.handle()) != (epoll::invalid_handle));
+    CHECK(p.is_open());
+    CHECK(p.handle() != epoll::invalid_handle);
   }
 
   // Explicit flags are forwarded correctly (flags=0 is also valid).
   if (true) {
     auto p = epoll::create(0);
-    CHECK((p.is_open()));
+    CHECK(p.is_open());
   }
 
   // A created instance is functional: it can register an eventfd and see
@@ -109,12 +109,12 @@ TEST_CASE("Create", "[Epoll]") {
     event_fd e{0};
 
     epoll_event ev{.events = EPOLLIN, .data = {.fd = e.handle()}};
-    CHECK((p.add(e.handle(), ev)));
-    CHECK((e.notify(1)));
+    CHECK(p.add(e.handle(), ev));
+    CHECK(e.notify(1));
 
     epoll_event ready[1]{};
-    REQUIRE((p.wait(ready, 0).value_or(-1)) == (1));
-    CHECK((ready[0].data.fd) == (e.handle()));
+    REQUIRE(p.wait(ready, 0).value_or(-1) == 1);
+    CHECK(ready[0].data.fd == e.handle());
     CHECK((ready[0].events & EPOLLIN));
   }
 }
@@ -129,9 +129,9 @@ TEST_CASE("Move", "[Epoll]") {
     epoll a{epoll::default_flags};
     const auto h = a.handle();
     epoll b{std::move(a)};
-    CHECK_FALSE((a.is_open()));
-    CHECK((b.is_open()));
-    CHECK((b.handle()) == (h));
+    CHECK_FALSE(a.is_open());
+    CHECK(b.is_open());
+    CHECK(b.handle() == h);
   }
 
   // Move assignment closes the destination and transfers the source.
@@ -140,9 +140,9 @@ TEST_CASE("Move", "[Epoll]") {
     epoll b{epoll::default_flags};
     const auto h = a.handle();
     b = std::move(a);
-    CHECK_FALSE((a.is_open()));
-    CHECK((b.is_open()));
-    CHECK((b.handle()) == (h));
+    CHECK_FALSE(a.is_open());
+    CHECK(b.is_open());
+    CHECK(b.handle() == h);
   }
 
   // Self-assignment is a no-op.
@@ -151,8 +151,8 @@ TEST_CASE("Move", "[Epoll]") {
     const auto h = a.handle();
     auto* p = &a;
     a = std::move(*p);
-    CHECK((a.is_open()));
-    CHECK((a.handle()) == (h));
+    CHECK(a.is_open());
+    CHECK(a.handle() == h);
   }
 }
 
@@ -165,8 +165,8 @@ TEST_CASE("Release", "[Epoll]") {
   if (true) {
     epoll p{epoll::default_flags};
     const auto h = p.release();
-    CHECK((h) != (epoll::invalid_handle));
-    CHECK_FALSE((p.is_open()));
+    CHECK(h != epoll::invalid_handle);
+    CHECK_FALSE(p.is_open());
     ::close(h);
   }
 }
@@ -181,24 +181,24 @@ TEST_CASE("ControlWait", "[Epoll]") {
 
   epoll_event add_ev{.events = EPOLLIN,
       .data = epoll_data_t{.fd = e.handle()}};
-  CHECK((p.add(e.handle(), add_ev)));
+  CHECK(p.add(e.handle(), add_ev));
 
-  CHECK((e.notify(3)));
+  CHECK(e.notify(3));
 
   epoll_event events[1]{};
-  REQUIRE((p.wait(events, 1, 0).value_or(-1)) == (1));
-  CHECK((events[0].data.fd) == (e.handle()));
+  REQUIRE(p.wait(events, 1, 0).value_or(-1) == 1);
+  CHECK(events[0].data.fd == e.handle());
   CHECK((events[0].events & EPOLLIN));
 
   auto value = e.read();
-  CHECK((value.has_value()));
-  CHECK((*value) == (3U));
+  CHECK(value.has_value());
+  CHECK(*value == 3U);
 
   epoll_event mod_ev{.events = EPOLLOUT,
       .data = epoll_data_t{.fd = e.handle()}};
-  CHECK((p.modify(e.handle(), mod_ev)));
-  CHECK((p.remove(e.handle())));
-  CHECK((p.wait(events, 1, 0).value_or(-1)) == (0));
+  CHECK(p.modify(e.handle(), mod_ev));
+  CHECK(p.remove(e.handle()));
+  CHECK(p.wait(events, 1, 0).value_or(-1) == 0);
 }
 
 #pragma endregion
@@ -211,21 +211,21 @@ TEST_CASE("WaitArray", "[Epoll]") {
 
   epoll_event add_ev{.events = EPOLLIN,
       .data = epoll_data_t{.fd = e.handle()}};
-  CHECK((p.add(e.handle(), add_ev)));
-  CHECK((e.notify(1)));
+  CHECK(p.add(e.handle(), add_ev));
+  CHECK(e.notify(1));
 
   // Array overload: no `maxevents` arg; the single-argument call unambiguously
   // selects the template, which deduces `maxevents=4` from the array. The
   // event is already ready so this returns without blocking.
   epoll_event events[4]{};
-  REQUIRE((p.wait(events, 1000).value_or(-1)) == (1));
-  CHECK((events[0].data.fd) == (e.handle()));
+  REQUIRE(p.wait(events, 1000).value_or(-1) == 1);
+  CHECK(events[0].data.fd == e.handle());
   CHECK((events[0].events & EPOLLIN));
   (void)e.read();
 
   // A second pending event also comes through the array overload correctly.
-  CHECK((e.notify(7)));
-  REQUIRE((p.wait(events, 1000).value_or(-1)) == (1));
+  CHECK(e.notify(7));
+  REQUIRE(p.wait(events, 1000).value_or(-1) == 1);
   CHECK((events[0].events & EPOLLIN));
   (void)e.read();
 }
@@ -238,21 +238,21 @@ TEST_CASE("Lifecycle", "[EventFd]") {
   // Default-constructed eventfd is invalid.
   if (true) {
     event_fd e;
-    CHECK_FALSE((e.is_open()));
-    CHECK_FALSE((static_cast<bool>(e)));
-    CHECK((e.handle()) == (event_fd::invalid_handle));
-    CHECK_FALSE((e.close()));
+    CHECK_FALSE(e.is_open());
+    CHECK_FALSE(static_cast<bool>(e));
+    CHECK(e.handle() == event_fd::invalid_handle);
+    CHECK_FALSE(e.close());
   }
 
   // A real eventfd is open; closing it twice is idempotent.
   if (true) {
     event_fd e{0};
-    CHECK((e.is_open()));
-    CHECK((static_cast<bool>(e)));
-    CHECK((e.handle()) != (event_fd::invalid_handle));
-    CHECK((e.close()));
-    CHECK_FALSE((e.is_open()));
-    CHECK_FALSE((e.close()));
+    CHECK(e.is_open());
+    CHECK(static_cast<bool>(e));
+    CHECK(e.handle() != event_fd::invalid_handle);
+    CHECK(e.close());
+    CHECK_FALSE(e.is_open());
+    CHECK_FALSE(e.close());
   }
 
   // Destructor closes an open eventfd (no crash or leak).
@@ -269,9 +269,9 @@ TEST_CASE("Move", "[EventFd]") {
     event_fd a{0};
     const auto h = a.handle();
     event_fd b{std::move(a)};
-    CHECK_FALSE((a.is_open()));
-    CHECK((b.is_open()));
-    CHECK((b.handle()) == (h));
+    CHECK_FALSE(a.is_open());
+    CHECK(b.is_open());
+    CHECK(b.handle() == h);
   }
 
   // Move assignment closes the destination and transfers the source.
@@ -280,9 +280,9 @@ TEST_CASE("Move", "[EventFd]") {
     event_fd b{0};
     const auto h = a.handle();
     b = std::move(a);
-    CHECK_FALSE((a.is_open()));
-    CHECK((b.is_open()));
-    CHECK((b.handle()) == (h));
+    CHECK_FALSE(a.is_open());
+    CHECK(b.is_open());
+    CHECK(b.handle() == h);
   }
 
   // Self-assignment is a no-op.
@@ -291,8 +291,8 @@ TEST_CASE("Move", "[EventFd]") {
     const auto h = a.handle();
     auto* p = &a;
     a = std::move(*p);
-    CHECK((a.is_open()));
-    CHECK((a.handle()) == (h));
+    CHECK(a.is_open());
+    CHECK(a.handle() == h);
   }
 }
 
@@ -305,8 +305,8 @@ TEST_CASE("Release", "[EventFd]") {
   if (true) {
     event_fd e{0};
     const auto h = e.release();
-    CHECK((h) != (event_fd::invalid_handle));
-    CHECK_FALSE((e.is_open()));
+    CHECK(h != event_fd::invalid_handle);
+    CHECK_FALSE(e.is_open());
     ::close(h);
   }
 }
@@ -319,20 +319,20 @@ TEST_CASE("NotifyRead", "[EventFd]") {
   // Writes accumulate and a read returns the total while resetting to zero.
   if (true) {
     event_fd e{0};
-    CHECK((e.notify()));
-    CHECK((e.notify(4)));
+    CHECK(e.notify());
+    CHECK(e.notify(4));
 
     auto value = e.read();
-    CHECK((value.has_value()));
-    CHECK((*value) == (5U));
+    CHECK(value.has_value());
+    CHECK(*value == 5U);
   }
 
   // The out-parameter overload returns the current counter value.
   if (true) {
     event_fd e{7};
     event_fd::counter_t value = 0;
-    CHECK((e.read(value)));
-    CHECK((value) == (7U));
+    CHECK(e.read(value));
+    CHECK(value == 7U);
   }
 }
 
@@ -346,29 +346,28 @@ TEST_CASE("Create", "[EventFd]") {
   // Default: non-blocking counter mode, initial value 0.
   if (true) {
     auto e = event_fd::create();
-    CHECK((e.is_open()));
-    CHECK(
-        (bitmask::has(e.get_flags().value_or(o_flags{}), o_flags::nonblock)));
+    CHECK(e.is_open());
+    CHECK(bitmask::has(e.get_flags().value_or(o_flags{}), o_flags::nonblock));
     // Counter starts at 0, so an immediate read returns nullopt (EAGAIN).
-    CHECK_FALSE((e.read().has_value()));
-    CHECK((errno) == (EAGAIN));
+    CHECK_FALSE(e.read().has_value());
+    CHECK(errno == EAGAIN);
   }
 
   // Non-zero initial value is readable immediately.
   if (true) {
     auto e = event_fd::create(5);
-    CHECK((e.is_open()));
+    CHECK(e.is_open());
     auto v = e.read();
-    CHECK((v.has_value()));
-    CHECK((*v) == (5U));
+    CHECK(v.has_value());
+    CHECK(*v == 5U);
   }
 
   // Blocking mode: O_NONBLOCK is absent.
   if (true) {
     auto e = event_fd::create(0, event_mode::counter, execution::blocking);
-    CHECK((e.is_open()));
+    CHECK(e.is_open());
     CHECK_FALSE(
-        (bitmask::has(e.get_flags().value_or(o_flags{}), o_flags::nonblock)));
+        bitmask::has(e.get_flags().value_or(o_flags{}), o_flags::nonblock));
   }
 }
 
@@ -382,39 +381,39 @@ TEST_CASE("SemaphoreMode", "[EventFd]") {
   // With initial value 3, each read consumes exactly 1 token and returns 1.
   if (true) {
     auto e = event_fd::create(3, event_mode::semaphore);
-    CHECK((e.is_open()));
+    CHECK(e.is_open());
 
     auto v = e.read();
-    CHECK((v.has_value()));
-    CHECK((*v) == (1U));
+    CHECK(v.has_value());
+    CHECK(*v == 1U);
 
     v = e.read();
-    CHECK((v.has_value()));
-    CHECK((*v) == (1U));
+    CHECK(v.has_value());
+    CHECK(*v == 1U);
 
     v = e.read();
-    CHECK((v.has_value()));
-    CHECK((*v) == (1U));
+    CHECK(v.has_value());
+    CHECK(*v == 1U);
 
     // Counter exhausted: next read would block (EAGAIN).
-    CHECK_FALSE((e.read().has_value()));
-    CHECK((errno) == (EAGAIN));
+    CHECK_FALSE(e.read().has_value());
+    CHECK(errno == EAGAIN);
   }
 
   // notify(n) posts n tokens; each read still consumes exactly 1.
   if (true) {
     auto e = event_fd::create(0, event_mode::semaphore);
-    CHECK((e.notify(2)));
+    CHECK(e.notify(2));
 
     event_fd::counter_t val = 0;
-    CHECK((e.read(val)));
-    CHECK((val) == (1U));
+    CHECK(e.read(val));
+    CHECK(val == 1U);
 
-    CHECK((e.read(val)));
-    CHECK((val) == (1U));
+    CHECK(e.read(val));
+    CHECK(val == 1U);
 
-    CHECK_FALSE((e.read(val)));
-    CHECK((errno) == (EAGAIN));
+    CHECK_FALSE(e.read(val));
+    CHECK(errno == EAGAIN);
   }
 }
 
@@ -427,8 +426,8 @@ TEST_CASE("NonblockingEmptyRead", "[EventFd]") {
   // nullopt.
   event_fd e{0};
   auto value = e.read();
-  CHECK_FALSE((value.has_value()));
-  CHECK((errno) == (EAGAIN));
+  CHECK_FALSE(value.has_value());
+  CHECK(errno == EAGAIN);
 }
 
 #pragma endregion

@@ -26,29 +26,29 @@ using namespace corvid;
 
 TEST_CASE("Basic", "[TombStone]") {
   tombstone t;
-  CHECK_FALSE((t.dead()));
-  CHECK_FALSE((t.get()));
-  CHECK_FALSE((*t));
+  CHECK_FALSE(t.dead());
+  CHECK_FALSE(t.get());
+  CHECK_FALSE(*t);
   if (t) {
-    CHECK_FALSE((true));
+    CHECK_FALSE(true);
   } else {
-    CHECK_FALSE((false));
+    CHECK_FALSE(false);
   }
   if (!t) {
-    CHECK((true));
+    CHECK(true);
   } else {
-    CHECK_FALSE((false));
+    CHECK_FALSE(false);
   }
   t.set(false);
-  CHECK_FALSE((t.dead()));
+  CHECK_FALSE(t.dead());
   t.set(true);
-  CHECK((t.dead()));
-  CHECK((t.get()));
-  CHECK((*t));
+  CHECK(t.dead());
+  CHECK(t.get());
+  CHECK(*t);
   t.set(false);
-  CHECK((t.dead()));
-  CHECK((t.get()));
-  CHECK((*t));
+  CHECK(t.dead());
+  CHECK(t.get());
+  CHECK(*t);
 }
 
 #pragma endregion
@@ -57,14 +57,14 @@ TEST_CASE("Basic", "[TombStone]") {
 TEST_CASE("TrySet", "[TombStone]") {
   tombstone t;
   // Returns false when value is already the target.
-  CHECK_FALSE((t.try_set(false)));
-  CHECK_FALSE((t.dead()));
+  CHECK_FALSE(t.try_set(false));
+  CHECK_FALSE(t.dead());
   // Returns true when value changes.
-  CHECK((t.try_set(true)));
-  CHECK((t.dead()));
+  CHECK(t.try_set(true));
+  CHECK(t.dead());
   // Returns false when dead (even for a different value).
-  CHECK_FALSE((t.try_set(false)));
-  CHECK((t.dead()));
+  CHECK_FALSE(t.try_set(false));
+  CHECK(t.dead());
 }
 
 #pragma endregion
@@ -73,11 +73,11 @@ TEST_CASE("TrySet", "[TombStone]") {
 TEST_CASE("Kill", "[TombStone]") {
   tombstone t;
   // First kill succeeds.
-  CHECK((t.kill()));
-  CHECK((t.dead()));
+  CHECK(t.kill());
+  CHECK(t.dead());
   // Second kill reports already dead.
-  CHECK_FALSE((t.kill()));
-  CHECK((t.dead()));
+  CHECK_FALSE(t.kill());
+  CHECK(t.dead());
 }
 
 #pragma endregion

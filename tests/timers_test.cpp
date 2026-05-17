@@ -55,34 +55,34 @@ TEST_CASE("OneShot", "[TimersTest]") {
     fired.push_back(i.scheduled_time);
     return {};
   });
-  CHECK_FALSE((ev->canceled));
+  CHECK_FALSE(ev->canceled);
 
   // Way too soon.
   size_t c{};
   c = t->tick();
-  CHECK((c) == (0U));
-  CHECK((fired.size()) == (0U));
+  CHECK(c == 0U);
+  CHECK(fired.size() == 0U);
 
   // Slightly too soon.
   now += 49ms;
   c = t->tick();
-  CHECK((c) == (0U));
-  CHECK((fired.size()) == (0U));
+  CHECK(c == 0U);
+  CHECK(fired.size() == 0U);
 
   // Right now.
   now += 1ms;
   c = t->tick();
-  CHECK((c) == (1U));
-  CHECK((fired.size()) == (1U));
-  CHECK((fired[0]) == (now));
+  CHECK(c == 1U);
+  CHECK(fired.size() == 1U);
+  CHECK(fired[0] == now);
 
   // No more events.
   now += 50ms;
   c = t->tick();
-  CHECK((c) == (0U));
-  CHECK((fired.size()) == (1U));
+  CHECK(c == 0U);
+  CHECK(fired.size() == 1U);
 
-  CHECK((ev->canceled));
+  CHECK(ev->canceled);
 
   // Reschedule self.
   size_t cnt{};
@@ -91,22 +91,22 @@ TEST_CASE("OneShot", "[TimersTest]") {
     return {};
   });
 
-  CHECK_FALSE((ev->canceled));
+  CHECK_FALSE(ev->canceled);
   c = t->tick();
-  CHECK((c) == (0U));
-  CHECK((cnt) == (0U));
+  CHECK(c == 0U);
+  CHECK(cnt == 0U);
 
   now += 50ms;
   c = t->tick();
-  CHECK((c) == (1U));
-  CHECK((cnt) == (1U));
-  CHECK_FALSE((ev->canceled));
+  CHECK(c == 1U);
+  CHECK(cnt == 1U);
+  CHECK_FALSE(ev->canceled);
 
   now += 50ms;
   c = t->tick();
-  CHECK((c) == (1U));
-  CHECK((cnt) == (2U));
-  CHECK((ev->canceled));
+  CHECK(c == 1U);
+  CHECK(cnt == 2U);
+  CHECK(ev->canceled);
 }
 
 #pragma endregion
@@ -129,21 +129,21 @@ TEST_CASE("Repeating", "[TimersTest]") {
 
   now += 10ms;
   t->tick();
-  CHECK((calls) == (1U));
+  CHECK(calls == 1U);
 
   now += 15ms;
   t->tick();
-  CHECK((calls) == (2U));
+  CHECK(calls == 2U);
 
   now += 15ms;
   t->tick();
-  CHECK((calls) == (3U));
+  CHECK(calls == 3U);
 
   // Cancel by setting tombstone.
   (void)ev->canceled.kill();
   now += 15ms;
   t->tick();
-  CHECK((calls) == (3U)); // cancelled
+  CHECK(calls == 3U); // cancelled
 }
 
 #pragma endregion
@@ -161,13 +161,13 @@ TEST_CASE("Cancel", "[TimersTest]") {
   });
 
   // Cancel before it fires.
-  CHECK_FALSE((ev->canceled));
+  CHECK_FALSE(ev->canceled);
   (void)ev->canceled.kill();
-  CHECK((ev->canceled));
+  CHECK(ev->canceled);
 
   now += 25ms;
   t->tick();
-  CHECK_FALSE((called));
+  CHECK_FALSE(called);
 }
 
 #pragma endregion
@@ -191,17 +191,17 @@ TEST_CASE("Reschedule", "[TimersTest]") {
 
   now += 10ms;
   t->tick();
-  CHECK((calls) == (1U));
-  CHECK_FALSE((ev->canceled));
+  CHECK(calls == 1U);
+  CHECK_FALSE(ev->canceled);
 
   now += 10ms;
   t->tick();
-  CHECK((calls) == (1U)); // not yet
+  CHECK(calls == 1U); // not yet
 
   now += 10ms;
   t->tick();
-  CHECK((calls) == (2U));
-  CHECK((ev->canceled));
+  CHECK(calls == 2U);
+  CHECK(ev->canceled);
 }
 
 #pragma endregion
@@ -218,36 +218,36 @@ TEST_CASE("General", "[TimersTest]") {
     fired_events.push_back(i.event);
     return {};
   });
-  CHECK((ev1->start_at) == (now + 30s));
+  CHECK(ev1->start_at == (now + 30s));
 
   auto ev2 = t->set(60s, [&](const timer_invocation& i) -> time_point_t {
     fired_events.push_back(i.event);
     return {};
   });
-  CHECK((ev2->start_at) == (now + 60s));
+  CHECK(ev2->start_at == (now + 60s));
 
   size_t count = 0;
   count = t->tick();
-  CHECK((count) == (0U));
+  CHECK(count == 0U);
 
   now += 29s;
   count = t->tick();
-  CHECK((count) == (0U));
+  CHECK(count == 0U);
 
   now += 1s;
   count = t->tick();
-  CHECK((count) == (1U));
-  CHECK((fired_events.size()) == (1U));
-  CHECK((fired_events[0]) == (ev1));
-  CHECK((ev1->canceled));
-  CHECK_FALSE((ev2->canceled));
+  CHECK(count == 1U);
+  CHECK(fired_events.size() == 1U);
+  CHECK(fired_events[0] == ev1);
+  CHECK(ev1->canceled);
+  CHECK_FALSE(ev2->canceled);
 
   now += 30s;
   count = t->tick();
-  CHECK((count) == (1U));
-  CHECK((fired_events.size()) == (2U));
-  CHECK((fired_events[1]) == (ev2));
-  CHECK((ev2->canceled));
+  CHECK(count == 1U);
+  CHECK(fired_events.size() == 2U);
+  CHECK(fired_events[1] == ev2);
+  CHECK(ev2->canceled);
 }
 
 #pragma endregion
@@ -272,21 +272,21 @@ TEST_CASE("Edge", "[TimersTest]") {
 
   now += 29s;
   count = t->tick();
-  CHECK((count) == (0U));
+  CHECK(count == 0U);
 
   now += 1s;
   count = t->tick();
-  CHECK((count) == (1U)); // Fires at 30s.
-  CHECK((calls) == (1U));
+  CHECK(count == 1U); // Fires at 30s.
+  CHECK(calls == 1U);
 
   now += 59s;
   count = t->tick();
-  CHECK((count) == (0U));
+  CHECK(count == 0U);
 
   now += 1s;
   count = t->tick();
-  CHECK((count) == (1U)); // Fires at 90s (30s + 60s).
-  CHECK((calls) == (2U));
+  CHECK(count == 1U); // Fires at 90s (30s + 60s).
+  CHECK(calls == 2U);
 
   // Cancel to clean up.
   (void)ev->canceled.kill();

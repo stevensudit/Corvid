@@ -70,51 +70,51 @@ enum class tires : std::uint8_t { none, one, two, three, four, five, six };
 
 TEST_CASE("Ops", "[BitMaskTest]") {
   if (true) {
-    CHECK((!rgb{}));
-    CHECK((valid_bits_v<rgb>) == (7));
-    CHECK((max_value<rgb>()) == (rgb::white));
-    CHECK_FALSE((bit_clip_v<rgb>));
-    CHECK((bits_length<rgb>()) == (3U));
+    CHECK(!rgb{});
+    CHECK(valid_bits_v<rgb> == 7);
+    CHECK(max_value<rgb>() == rgb::white);
+    CHECK_FALSE(bit_clip_v<rgb>);
+    CHECK(bits_length<rgb>() == 3U);
   }
   if (true) {
     // Does not compile.
     // * auto bad = *tires::none;
     // * auto worse = tires::none | tires::one;
 
-    CHECK((valid_bits_v<rgb>) == (7));
-    CHECK((max_value<rgb>()) == (rgb::white));
-    CHECK_FALSE((bit_clip_v<rgb>));
+    CHECK(valid_bits_v<rgb> == 7);
+    CHECK(max_value<rgb>() == rgb::white);
+    CHECK_FALSE(bit_clip_v<rgb>);
 
-    CHECK((valid_bits_v<safe_rgb>) == (7));
-    CHECK((max_value<safe_rgb>()) == (safe_rgb::white));
-    CHECK((bit_clip_v<safe_rgb>));
+    CHECK(valid_bits_v<safe_rgb> == 7);
+    CHECK(max_value<safe_rgb>() == safe_rgb::white);
+    CHECK(bit_clip_v<safe_rgb>);
 
     auto c = rgb::red;
-    CHECK((c) != (rgb::green));
+    CHECK(c != rgb::green);
 
-    CHECK((rgb::red | rgb::green) == (rgb::yellow));
-    CHECK((rgb::red | rgb::red) == (rgb::red));
-    CHECK((rgb::yellow & rgb::green) == (rgb::green));
-    CHECK((rgb::red & rgb::green) == (rgb::black));
-    CHECK((rgb::red ^ rgb::green) == (rgb::yellow));
-    CHECK((rgb::yellow ^ rgb::green) == (rgb::red));
-    CHECK((~rgb::white) != (rgb::black));
-    CHECK((~rgb::white & rgb::white) == (rgb::black));
-    CHECK((~rgb::black & rgb::white) == (rgb::white));
+    CHECK((rgb::red | rgb::green) == rgb::yellow);
+    CHECK((rgb::red | rgb::red) == rgb::red);
+    CHECK((rgb::yellow & rgb::green) == rgb::green);
+    CHECK((rgb::red & rgb::green) == rgb::black);
+    CHECK((rgb::red ^ rgb::green) == rgb::yellow);
+    CHECK((rgb::yellow ^ rgb::green) == rgb::red);
+    CHECK(~rgb::white != rgb::black);
+    CHECK((~rgb::white & rgb::white) == rgb::black);
+    CHECK((~rgb::black & rgb::white) == rgb::white);
 
     c = rgb::yellow;
-    CHECK((c &= rgb::green) == (rgb::green));
-    CHECK((c) == (rgb::green));
-    CHECK((c |= rgb::red) == (rgb::yellow));
-    CHECK((c) == (rgb::yellow));
-    CHECK((c ^= rgb::cyan) == (rgb::purple));
-    CHECK((c) == (rgb::purple));
+    CHECK((c &= rgb::green) == rgb::green);
+    CHECK(c == rgb::green);
+    CHECK((c |= rgb::red) == rgb::yellow);
+    CHECK(c == rgb::yellow);
+    CHECK((c ^= rgb::cyan) == rgb::purple);
+    CHECK(c == rgb::purple);
 
     c = rgb::red;
     c += rgb::green;
-    CHECK((c) == (rgb::yellow));
+    CHECK(c == rgb::yellow);
     c -= rgb::red;
-    CHECK((c) == (rgb::green));
+    CHECK(c == rgb::green);
   }
 }
 #pragma endregion
@@ -127,39 +127,39 @@ TEST_CASE("NamedFunctions", "[BitMaskTest]") {
     // * auto bad = make<int>(0);
     // * auto worse = set(tires::none, tires::one);
 
-    CHECK((make<rgb>(1)) == (rgb::blue));
-    CHECK((make<rgb>(-1)) != (rgb::white));
-    CHECK((make_safely<rgb>(-1)) == (rgb::white));
+    CHECK(make<rgb>(1) == rgb::blue);
+    CHECK(make<rgb>(-1) != rgb::white);
+    CHECK(make_safely<rgb>(-1) == rgb::white);
 
-    CHECK((set(rgb::red, rgb::blue)) == (rgb::purple));
-    CHECK((set_if(rgb::red, rgb::blue, true)) == (rgb::purple));
-    CHECK((set_if(rgb::red, rgb::blue, false)) == (rgb::red));
+    CHECK(set(rgb::red, rgb::blue) == rgb::purple);
+    CHECK(set_if(rgb::red, rgb::blue, true) == rgb::purple);
+    CHECK(set_if(rgb::red, rgb::blue, false) == rgb::red);
 
-    CHECK((clear(rgb::purple, rgb::blue)) == (rgb::red));
-    CHECK((clear_if(rgb::purple, rgb::blue, true)) == (rgb::red));
-    CHECK((clear_if(rgb::purple, rgb::blue, false)) == (rgb::purple));
+    CHECK(clear(rgb::purple, rgb::blue) == rgb::red);
+    CHECK(clear_if(rgb::purple, rgb::blue, true) == rgb::red);
+    CHECK(clear_if(rgb::purple, rgb::blue, false) == rgb::purple);
 
-    CHECK((flip(rgb::white)) == (rgb::black));
+    CHECK(flip(rgb::white) == rgb::black);
 
-    CHECK((has(rgb::purple, rgb::blue)));
-    CHECK((has(rgb::purple, rgb::white)));
-    CHECK_FALSE((has(rgb::purple, rgb::green)));
-    CHECK_FALSE((has(rgb::purple, rgb::black)));
+    CHECK(has(rgb::purple, rgb::blue));
+    CHECK(has(rgb::purple, rgb::white));
+    CHECK_FALSE(has(rgb::purple, rgb::green));
+    CHECK_FALSE(has(rgb::purple, rgb::black));
 
-    CHECK((has_all(rgb::purple, rgb::blue)));
-    CHECK_FALSE((has_all(rgb::purple, rgb::white)));
-    CHECK_FALSE((has_all(rgb::purple, rgb::green)));
-    CHECK((has_all(rgb::purple, rgb::black)));
+    CHECK(has_all(rgb::purple, rgb::blue));
+    CHECK_FALSE(has_all(rgb::purple, rgb::white));
+    CHECK_FALSE(has_all(rgb::purple, rgb::green));
+    CHECK(has_all(rgb::purple, rgb::black));
 
-    CHECK(((set_at(rgb::black, 1))) == (rgb::blue));
-    CHECK(((set_at(rgb::black, 2))) == (rgb::green));
-    CHECK(((set_at_if(rgb::black, 3, true))) == (rgb::red));
-    CHECK(((set_at_if(rgb::black, 3, false))) == (rgb::black));
-    CHECK(((clear_at(rgb::white, 1))) == (rgb::yellow));
-    CHECK(((clear_at_if(rgb::white, 1, true))) == (rgb::yellow));
-    CHECK(((clear_at_if(rgb::white, 2, false))) == (rgb::white));
-    CHECK(((set_at_to(rgb::black, 1, true))) == (rgb::blue));
-    CHECK(((set_at_to(rgb::white, 2, false))) == (rgb::purple));
+    CHECK(set_at(rgb::black, 1) == rgb::blue);
+    CHECK(set_at(rgb::black, 2) == rgb::green);
+    CHECK(set_at_if(rgb::black, 3, true) == rgb::red);
+    CHECK(set_at_if(rgb::black, 3, false) == rgb::black);
+    CHECK(clear_at(rgb::white, 1) == rgb::yellow);
+    CHECK(clear_at_if(rgb::white, 1, true) == rgb::yellow);
+    CHECK(clear_at_if(rgb::white, 2, false) == rgb::white);
+    CHECK(set_at_to(rgb::black, 1, true) == rgb::blue);
+    CHECK(set_at_to(rgb::white, 2, false) == rgb::purple);
 
     size_t c{};
     size_t s{};
@@ -167,21 +167,21 @@ TEST_CASE("NamedFunctions", "[BitMaskTest]") {
       ++c;
       s += *e;
     }
-    CHECK((c) == (8U));
-    CHECK((s) == (28U));
+    CHECK(c == 8U);
+    CHECK(s == 28U);
   }
   if (true) {
     using namespace strings;
-    CHECK((enum_as_string(rgb::red)) == ("red"));
-    CHECK((enum_as_string(rgb::green)) == ("green"));
-    CHECK((enum_as_string(rgb::blue)) == ("blue"));
-    CHECK((enum_as_string(rgb::black)) == ("0x00"));
-    CHECK((enum_as_string(rgb::yellow)) == ("red + green"));
-    CHECK((enum_as_string(rgb::purple)) == ("red + blue"));
-    CHECK((enum_as_string(rgb::cyan)) == ("green + blue"));
-    CHECK((enum_as_string(rgb::white)) == ("red + green + blue"));
-    CHECK((enum_as_string(rgb(0x40))) == ("0x40"));
-    CHECK((enum_as_string(rgb(7 + 0x40))) == ("red + green + blue + 0x40"));
+    CHECK(enum_as_string(rgb::red) == "red");
+    CHECK(enum_as_string(rgb::green) == "green");
+    CHECK(enum_as_string(rgb::blue) == "blue");
+    CHECK(enum_as_string(rgb::black) == "0x00");
+    CHECK(enum_as_string(rgb::yellow) == "red + green");
+    CHECK(enum_as_string(rgb::purple) == "red + blue");
+    CHECK(enum_as_string(rgb::cyan) == "green + blue");
+    CHECK(enum_as_string(rgb::white) == "red + green + blue");
+    CHECK(enum_as_string(rgb(0x40)) == "0x40");
+    CHECK(enum_as_string(rgb(7 + 0x40)) == "red + green + blue + 0x40");
   }
 }
 #pragma endregion
@@ -190,39 +190,39 @@ TEST_CASE("NamedFunctions", "[BitMaskTest]") {
 
 TEST_CASE("SafeOps", "[BitMaskTest]") {
   if (true) {
-    CHECK((valid_bits_v<safe_rgb>) == (7));
-    CHECK((max_value<safe_rgb>()) == (safe_rgb::white));
-    CHECK((bit_clip_v<safe_rgb>));
-    CHECK((bits_length<safe_rgb>()) == (3U));
+    CHECK(valid_bits_v<safe_rgb> == 7);
+    CHECK(max_value<safe_rgb>() == safe_rgb::white);
+    CHECK(bit_clip_v<safe_rgb>);
+    CHECK(bits_length<safe_rgb>() == 3U);
   }
   if (true) {
     auto c = safe_rgb::red;
-    CHECK((c) != (safe_rgb::green));
+    CHECK(c != safe_rgb::green);
 
-    CHECK((safe_rgb::red | safe_rgb::green) == (safe_rgb::yellow));
-    CHECK((safe_rgb::red | safe_rgb::red) == (safe_rgb::red));
-    CHECK((safe_rgb::yellow & safe_rgb::green) == (safe_rgb::green));
-    CHECK((safe_rgb::red & safe_rgb::green) == (safe_rgb::black));
-    CHECK((safe_rgb::red ^ safe_rgb::green) == (safe_rgb::yellow));
-    CHECK((safe_rgb::yellow ^ safe_rgb::green) == (safe_rgb::red));
-    CHECK((~safe_rgb::white) == (safe_rgb::black));
-    CHECK((~safe_rgb::white & safe_rgb::white) == (safe_rgb::black));
-    CHECK((~safe_rgb::black & safe_rgb::white) == (safe_rgb::white));
-    CHECK((~safe_rgb::black) == (safe_rgb::white));
+    CHECK((safe_rgb::red | safe_rgb::green) == safe_rgb::yellow);
+    CHECK((safe_rgb::red | safe_rgb::red) == safe_rgb::red);
+    CHECK((safe_rgb::yellow & safe_rgb::green) == safe_rgb::green);
+    CHECK((safe_rgb::red & safe_rgb::green) == safe_rgb::black);
+    CHECK((safe_rgb::red ^ safe_rgb::green) == safe_rgb::yellow);
+    CHECK((safe_rgb::yellow ^ safe_rgb::green) == safe_rgb::red);
+    CHECK(~safe_rgb::white == safe_rgb::black);
+    CHECK((~safe_rgb::white & safe_rgb::white) == safe_rgb::black);
+    CHECK((~safe_rgb::black & safe_rgb::white) == safe_rgb::white);
+    CHECK(~safe_rgb::black == safe_rgb::white);
 
     c = safe_rgb::yellow;
-    CHECK((c &= safe_rgb::green) == (safe_rgb::green));
-    CHECK((c) == (safe_rgb::green));
-    CHECK((c |= safe_rgb::red) == (safe_rgb::yellow));
-    CHECK((c) == (safe_rgb::yellow));
-    CHECK((c ^= safe_rgb::cyan) == (safe_rgb::purple));
-    CHECK((c) == (safe_rgb::purple));
+    CHECK((c &= safe_rgb::green) == safe_rgb::green);
+    CHECK(c == safe_rgb::green);
+    CHECK((c |= safe_rgb::red) == safe_rgb::yellow);
+    CHECK(c == safe_rgb::yellow);
+    CHECK((c ^= safe_rgb::cyan) == safe_rgb::purple);
+    CHECK(c == safe_rgb::purple);
 
     c = safe_rgb::red;
     c += safe_rgb::green;
-    CHECK((c) == (safe_rgb::yellow));
+    CHECK(c == safe_rgb::yellow);
     c -= safe_rgb::red;
-    CHECK((c) == (safe_rgb::green));
+    CHECK(c == safe_rgb::green);
   }
 }
 #pragma endregion
@@ -231,23 +231,23 @@ TEST_CASE("SafeOps", "[BitMaskTest]") {
 
 TEST_CASE("SafeNamedFunctions", "[BitMaskTest]") {
   if (true) {
-    CHECK((make<safe_rgb>(1)) == (safe_rgb::blue));
-    CHECK((make<safe_rgb>(-1)) == (safe_rgb::white));
-    CHECK((make_safely<safe_rgb>(-1)) == (safe_rgb::white));
+    CHECK(make<safe_rgb>(1) == safe_rgb::blue);
+    CHECK(make<safe_rgb>(-1) == safe_rgb::white);
+    CHECK(make_safely<safe_rgb>(-1) == safe_rgb::white);
 
-    CHECK((set(safe_rgb::red, safe_rgb::blue)) == (safe_rgb::purple));
-    CHECK((clear(safe_rgb::purple, safe_rgb::blue)) == (safe_rgb::red));
-    CHECK((flip(safe_rgb::white)) == (safe_rgb::black));
+    CHECK(set(safe_rgb::red, safe_rgb::blue) == safe_rgb::purple);
+    CHECK(clear(safe_rgb::purple, safe_rgb::blue) == safe_rgb::red);
+    CHECK(flip(safe_rgb::white) == safe_rgb::black);
 
-    CHECK((has(safe_rgb::purple, safe_rgb::blue)));
-    CHECK((has(safe_rgb::purple, safe_rgb::white)));
-    CHECK_FALSE((has(safe_rgb::purple, safe_rgb::green)));
-    CHECK_FALSE((has(safe_rgb::purple, safe_rgb::black)));
+    CHECK(has(safe_rgb::purple, safe_rgb::blue));
+    CHECK(has(safe_rgb::purple, safe_rgb::white));
+    CHECK_FALSE(has(safe_rgb::purple, safe_rgb::green));
+    CHECK_FALSE(has(safe_rgb::purple, safe_rgb::black));
 
-    CHECK((has_all(safe_rgb::purple, safe_rgb::blue)));
-    CHECK_FALSE((has_all(safe_rgb::purple, safe_rgb::white)));
-    CHECK_FALSE((has_all(safe_rgb::purple, safe_rgb::green)));
-    CHECK((has_all(safe_rgb::purple, safe_rgb::black)));
+    CHECK(has_all(safe_rgb::purple, safe_rgb::blue));
+    CHECK_FALSE(has_all(safe_rgb::purple, safe_rgb::white));
+    CHECK_FALSE(has_all(safe_rgb::purple, safe_rgb::green));
+    CHECK(has_all(safe_rgb::purple, safe_rgb::black));
 
     size_t c{};
     size_t s{};
@@ -255,21 +255,21 @@ TEST_CASE("SafeNamedFunctions", "[BitMaskTest]") {
       ++c;
       s += *e;
     }
-    CHECK((c) == (8U));
-    CHECK((s) == (28U));
+    CHECK(c == 8U);
+    CHECK(s == 28U);
   }
   if (true) {
     using namespace strings;
-    CHECK((enum_as_string(safe_rgb::black)) == ("black"));
-    CHECK((enum_as_string(safe_rgb::red)) == ("red"));
-    CHECK((enum_as_string(safe_rgb::green)) == ("green"));
-    CHECK((enum_as_string(safe_rgb::blue)) == ("blue"));
-    CHECK((enum_as_string(safe_rgb::yellow)) == ("yellow"));
-    CHECK((enum_as_string(safe_rgb::purple)) == ("purple"));
-    CHECK((enum_as_string(safe_rgb::cyan)) == ("cyan"));
-    CHECK((enum_as_string(safe_rgb::white)) == ("white"));
-    CHECK((enum_as_string(safe_rgb(0x40))) == ("black + 0x40"));
-    CHECK((enum_as_string(safe_rgb(7 + 0x40))) == ("white + 0x40"));
+    CHECK(enum_as_string(safe_rgb::black) == "black");
+    CHECK(enum_as_string(safe_rgb::red) == "red");
+    CHECK(enum_as_string(safe_rgb::green) == "green");
+    CHECK(enum_as_string(safe_rgb::blue) == "blue");
+    CHECK(enum_as_string(safe_rgb::yellow) == "yellow");
+    CHECK(enum_as_string(safe_rgb::purple) == "purple");
+    CHECK(enum_as_string(safe_rgb::cyan) == "cyan");
+    CHECK(enum_as_string(safe_rgb::white) == "white");
+    CHECK(enum_as_string(safe_rgb(0x40)) == "black + 0x40");
+    CHECK(enum_as_string(safe_rgb(7 + 0x40)) == "white + 0x40");
   }
 }
 #pragma endregion
@@ -310,40 +310,40 @@ constexpr auto registry::enum_spec_v<patchy_rgb> =
 TEST_CASE("MoreNamingTests", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
-    CHECK((valid_bits_v<rgb_unnamed>) == (7));
-    CHECK((max_value<rgb_unnamed>()) == (rgb_unnamed::white));
-    CHECK((bit_clip_v<rgb_unnamed>));
-    CHECK((bits_length<rgb_unnamed>()) == (3U));
+    CHECK(valid_bits_v<rgb_unnamed> == 7);
+    CHECK(max_value<rgb_unnamed>() == rgb_unnamed::white);
+    CHECK(bit_clip_v<rgb_unnamed>);
+    CHECK(bits_length<rgb_unnamed>() == 3U);
   }
   if (true) {
-    CHECK((enum_as_string(rgb_unnamed(0x00))) == ("0x00"));
-    CHECK((enum_as_string(rgb_unnamed(0x01))) == ("0x01"));
-    CHECK((enum_as_string(rgb_unnamed(0x02))) == ("0x02"));
-    CHECK((enum_as_string(rgb_unnamed(0x03))) == ("0x03"));
-    CHECK((enum_as_string(rgb_unnamed(0x04))) == ("0x04"));
-    CHECK((enum_as_string(rgb_unnamed(0x05))) == ("0x05"));
-    CHECK((enum_as_string(rgb_unnamed(0x06))) == ("0x06"));
-    CHECK((enum_as_string(rgb_unnamed(0x07))) == ("0x07"));
-    CHECK((enum_as_string(rgb_unnamed(0x40))) == ("0x40"));
-    CHECK((enum_as_string(rgb_unnamed(0x7 + 0x40))) == ("0x47"));
+    CHECK(enum_as_string(rgb_unnamed(0x00)) == "0x00");
+    CHECK(enum_as_string(rgb_unnamed(0x01)) == "0x01");
+    CHECK(enum_as_string(rgb_unnamed(0x02)) == "0x02");
+    CHECK(enum_as_string(rgb_unnamed(0x03)) == "0x03");
+    CHECK(enum_as_string(rgb_unnamed(0x04)) == "0x04");
+    CHECK(enum_as_string(rgb_unnamed(0x05)) == "0x05");
+    CHECK(enum_as_string(rgb_unnamed(0x06)) == "0x06");
+    CHECK(enum_as_string(rgb_unnamed(0x07)) == "0x07");
+    CHECK(enum_as_string(rgb_unnamed(0x40)) == "0x40");
+    CHECK(enum_as_string(rgb_unnamed(0x7 + 0x40)) == "0x47");
   }
   if (true) {
-    CHECK((valid_bits_v<patchy_rgb>) == (7));
-    CHECK((max_value<patchy_rgb>()) == (patchy_rgb::white));
-    CHECK_FALSE((bit_clip_v<patchy_rgb>));
-    CHECK((bits_length<patchy_rgb>()) == (3U));
+    CHECK(valid_bits_v<patchy_rgb> == 7);
+    CHECK(max_value<patchy_rgb>() == patchy_rgb::white);
+    CHECK_FALSE(bit_clip_v<patchy_rgb>);
+    CHECK(bits_length<patchy_rgb>() == 3U);
   }
   if (true) {
-    CHECK((enum_as_string(patchy_rgb::black)) == ("0x00"));
-    CHECK((enum_as_string(patchy_rgb::red)) == ("red"));
-    CHECK((enum_as_string(patchy_rgb::green)) == ("green"));
-    CHECK((enum_as_string(patchy_rgb::blue)) == ("blue"));
-    CHECK((enum_as_string(patchy_rgb::yellow)) == ("red + green"));
-    CHECK((enum_as_string(patchy_rgb::purple)) == ("purple"));
-    CHECK((enum_as_string(patchy_rgb::cyan)) == ("green + blue"));
-    CHECK((enum_as_string(patchy_rgb::white)) == ("white"));
-    CHECK((enum_as_string(patchy_rgb(0x40))) == ("0x40"));
-    CHECK((enum_as_string(patchy_rgb(7 + 0x40))) == ("white + 0x40"));
+    CHECK(enum_as_string(patchy_rgb::black) == "0x00");
+    CHECK(enum_as_string(patchy_rgb::red) == "red");
+    CHECK(enum_as_string(patchy_rgb::green) == "green");
+    CHECK(enum_as_string(patchy_rgb::blue) == "blue");
+    CHECK(enum_as_string(patchy_rgb::yellow) == "red + green");
+    CHECK(enum_as_string(patchy_rgb::purple) == "purple");
+    CHECK(enum_as_string(patchy_rgb::cyan) == "green + blue");
+    CHECK(enum_as_string(patchy_rgb::white) == "white");
+    CHECK(enum_as_string(patchy_rgb(0x40)) == "0x40");
+    CHECK(enum_as_string(patchy_rgb(7 + 0x40)) == "white + 0x40");
   }
 }
 #pragma endregion
@@ -351,17 +351,17 @@ TEST_CASE("MoreNamingTests", "[BitMaskTest]") {
 #pragma region StreamingOut
 
 TEST_CASE("StreamingOut", "[BitMaskTest]") {
-  CHECK((OStreamable<rgb>));
+  CHECK(OStreamable<rgb>);
   if (true) {
     std::stringstream ss;
     int i = *rgb::red;
     ss << i << std::flush;
-    CHECK((ss.str()) == ("4"));
+    CHECK(ss.str() == "4");
   }
   if (true) {
     std::stringstream ss;
     ss << rgb::red << std::flush;
-    CHECK((ss.str()) == ("red"));
+    CHECK(ss.str() == "red");
   }
 }
 #pragma endregion
@@ -383,22 +383,22 @@ constexpr auto registry::enum_spec_v<rb> =
 TEST_CASE("NoGreen", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
-    CHECK((valid_bits_v<rb>) == (5));
-    CHECK((max_value<rb>()) == (rb::purple));
-    CHECK_FALSE((bit_clip_v<rb>));
-    CHECK((bits_length<rb>()) == (3U));
+    CHECK(valid_bits_v<rb> == 5);
+    CHECK(max_value<rb>() == rb::purple);
+    CHECK_FALSE(bit_clip_v<rb>);
+    CHECK(bits_length<rb>() == 3U);
   }
   if (true) {
-    CHECK((enum_as_string(rb(0x00))) == ("0x00"));
-    CHECK((enum_as_string(rb(0x01))) == ("blue"));
-    CHECK((enum_as_string(rb(0x02))) == ("0x02"));
-    CHECK((enum_as_string(rb(0x03))) == ("blue + 0x02"));
-    CHECK((enum_as_string(rb(0x04))) == ("red"));
-    CHECK((enum_as_string(rb(0x05))) == ("red + blue"));
-    CHECK((enum_as_string(rb(0x06))) == ("red + 0x02"));
-    CHECK((enum_as_string(rb(0x07))) == ("red + blue + 0x02"));
-    CHECK((enum_as_string(rb(0x40))) == ("0x40"));
-    CHECK((enum_as_string(rb(0x7 + 0x40))) == ("red + blue + 0x42"));
+    CHECK(enum_as_string(rb(0x00)) == "0x00");
+    CHECK(enum_as_string(rb(0x01)) == "blue");
+    CHECK(enum_as_string(rb(0x02)) == "0x02");
+    CHECK(enum_as_string(rb(0x03)) == "blue + 0x02");
+    CHECK(enum_as_string(rb(0x04)) == "red");
+    CHECK(enum_as_string(rb(0x05)) == "red + blue");
+    CHECK(enum_as_string(rb(0x06)) == "red + 0x02");
+    CHECK(enum_as_string(rb(0x07)) == "red + blue + 0x02");
+    CHECK(enum_as_string(rb(0x40)) == "0x40");
+    CHECK(enum_as_string(rb(0x7 + 0x40)) == "red + blue + 0x42");
   }
 }
 #pragma endregion
@@ -420,22 +420,22 @@ constexpr auto registry::enum_spec_v<rg> =
 TEST_CASE("NoBlue", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
-    CHECK((valid_bits_v<rg>) == (6));
-    CHECK((max_value<rg>()) == (rg::yellow));
-    CHECK_FALSE((bit_clip_v<rg>));
-    CHECK((bits_length<rg>()) == (3U));
+    CHECK(valid_bits_v<rg> == 6);
+    CHECK(max_value<rg>() == rg::yellow);
+    CHECK_FALSE(bit_clip_v<rg>);
+    CHECK(bits_length<rg>() == 3U);
   }
   if (true) {
-    CHECK((enum_as_string(rg(0x00))) == ("0x00"));
-    CHECK((enum_as_string(rg(0x01))) == ("0x01"));
-    CHECK((enum_as_string(rg(0x02))) == ("green"));
-    CHECK((enum_as_string(rg(0x03))) == ("green + 0x01"));
-    CHECK((enum_as_string(rg(0x04))) == ("red"));
-    CHECK((enum_as_string(rg(0x05))) == ("red + 0x01"));
-    CHECK((enum_as_string(rg(0x06))) == ("red + green"));
-    CHECK((enum_as_string(rg(0x07))) == ("red + green + 0x01"));
-    CHECK((enum_as_string(rg(0x40))) == ("0x40"));
-    CHECK((enum_as_string(rg(0x7 + 0x40))) == ("red + green + 0x41"));
+    CHECK(enum_as_string(rg(0x00)) == "0x00");
+    CHECK(enum_as_string(rg(0x01)) == "0x01");
+    CHECK(enum_as_string(rg(0x02)) == "green");
+    CHECK(enum_as_string(rg(0x03)) == "green + 0x01");
+    CHECK(enum_as_string(rg(0x04)) == "red");
+    CHECK(enum_as_string(rg(0x05)) == "red + 0x01");
+    CHECK(enum_as_string(rg(0x06)) == "red + green");
+    CHECK(enum_as_string(rg(0x07)) == "red + green + 0x01");
+    CHECK(enum_as_string(rg(0x40)) == "0x40");
+    CHECK(enum_as_string(rg(0x7 + 0x40)) == "red + green + 0x41");
   }
 }
 #pragma endregion
@@ -460,22 +460,22 @@ constexpr auto registry::enum_spec_v<gb> =
 TEST_CASE("NoRed", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
-    CHECK((valid_bits_v<gb>) == (3));
-    CHECK((max_value<gb>()) == (gb::yellow));
-    CHECK_FALSE((bit_clip_v<gb>));
-    CHECK((bits_length<gb>()) == (2U));
+    CHECK(valid_bits_v<gb> == 3);
+    CHECK(max_value<gb>() == gb::yellow);
+    CHECK_FALSE(bit_clip_v<gb>);
+    CHECK(bits_length<gb>() == 2U);
   }
   if (true) {
-    CHECK((enum_as_string(gb(0x00))) == ("0x00"));
-    CHECK((enum_as_string(gb(0x01))) == ("blue"));
-    CHECK((enum_as_string(gb(0x02))) == ("green"));
-    CHECK((enum_as_string(gb(0x03))) == ("green + blue"));
-    CHECK((enum_as_string(gb(0x04))) == ("0x04"));
-    CHECK((enum_as_string(gb(0x05))) == ("blue + 0x04"));
-    CHECK((enum_as_string(gb(0x06))) == ("green + 0x04"));
-    CHECK((enum_as_string(gb(0x07))) == ("green + blue + 0x04"));
-    CHECK((enum_as_string(gb(0x40))) == ("0x40"));
-    CHECK((enum_as_string(gb(0x7 + 0x40))) == ("green + blue + 0x44"));
+    CHECK(enum_as_string(gb(0x00)) == "0x00");
+    CHECK(enum_as_string(gb(0x01)) == "blue");
+    CHECK(enum_as_string(gb(0x02)) == "green");
+    CHECK(enum_as_string(gb(0x03)) == "green + blue");
+    CHECK(enum_as_string(gb(0x04)) == "0x04");
+    CHECK(enum_as_string(gb(0x05)) == "blue + 0x04");
+    CHECK(enum_as_string(gb(0x06)) == "green + 0x04");
+    CHECK(enum_as_string(gb(0x07)) == "green + blue + 0x04");
+    CHECK(enum_as_string(gb(0x40)) == "0x40");
+    CHECK(enum_as_string(gb(0x7 + 0x40)) == "green + blue + 0x44");
   }
 }
 #pragma endregion
@@ -497,22 +497,22 @@ constexpr auto registry::enum_spec_v<safe_rb> = make_bitmask_enum_values_spec<
 TEST_CASE("SafeNoGreen", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
-    CHECK((valid_bits_v<safe_rb>) == (5));
-    CHECK((max_value<safe_rb>()) == (safe_rb::purple));
-    CHECK((bit_clip_v<safe_rb>));
-    CHECK((bits_length<safe_rb>()) == (3U));
+    CHECK(valid_bits_v<safe_rb> == 5);
+    CHECK(max_value<safe_rb>() == safe_rb::purple);
+    CHECK(bit_clip_v<safe_rb>);
+    CHECK(bits_length<safe_rb>() == 3U);
   }
   if (true) {
-    CHECK((enum_as_string(safe_rb(0x00))) == ("black"));
-    CHECK((enum_as_string(safe_rb(0x01))) == ("blue"));
-    CHECK((enum_as_string(safe_rb(0x02))) == ("black + 0x02"));
-    CHECK((enum_as_string(safe_rb(0x03))) == ("blue + 0x02"));
-    CHECK((enum_as_string(safe_rb(0x04))) == ("red"));
-    CHECK((enum_as_string(safe_rb(0x05))) == ("purple"));
-    CHECK((enum_as_string(safe_rb(0x06))) == ("red + 0x02"));
-    CHECK((enum_as_string(safe_rb(0x07))) == ("purple + 0x02"));
-    CHECK((enum_as_string(safe_rb(0x40))) == ("black + 0x40"));
-    CHECK((enum_as_string(safe_rb(0x7 + 0x40))) == ("purple + 0x42"));
+    CHECK(enum_as_string(safe_rb(0x00)) == "black");
+    CHECK(enum_as_string(safe_rb(0x01)) == "blue");
+    CHECK(enum_as_string(safe_rb(0x02)) == "black + 0x02");
+    CHECK(enum_as_string(safe_rb(0x03)) == "blue + 0x02");
+    CHECK(enum_as_string(safe_rb(0x04)) == "red");
+    CHECK(enum_as_string(safe_rb(0x05)) == "purple");
+    CHECK(enum_as_string(safe_rb(0x06)) == "red + 0x02");
+    CHECK(enum_as_string(safe_rb(0x07)) == "purple + 0x02");
+    CHECK(enum_as_string(safe_rb(0x40)) == "black + 0x40");
+    CHECK(enum_as_string(safe_rb(0x7 + 0x40)) == "purple + 0x42");
   }
 }
 #pragma endregion
@@ -534,22 +534,22 @@ constexpr auto registry::enum_spec_v<safe_rg> = make_bitmask_enum_values_spec<
 TEST_CASE("SafeNoBlue", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
-    CHECK((valid_bits_v<safe_rg>) == (6));
-    CHECK((max_value<safe_rg>()) == (safe_rg::yellow));
-    CHECK((bit_clip_v<safe_rg>));
-    CHECK((bits_length<safe_rg>()) == (3U));
+    CHECK(valid_bits_v<safe_rg> == 6);
+    CHECK(max_value<safe_rg>() == safe_rg::yellow);
+    CHECK(bit_clip_v<safe_rg>);
+    CHECK(bits_length<safe_rg>() == 3U);
   }
   if (true) {
-    CHECK((enum_as_string(safe_rg(0x00))) == ("black"));
-    CHECK((enum_as_string(safe_rg(0x01))) == ("black + 0x01"));
-    CHECK((enum_as_string(safe_rg(0x02))) == ("green"));
-    CHECK((enum_as_string(safe_rg(0x03))) == ("green + 0x01"));
-    CHECK((enum_as_string(safe_rg(0x04))) == ("red"));
-    CHECK((enum_as_string(safe_rg(0x05))) == ("red + 0x01"));
-    CHECK((enum_as_string(safe_rg(0x06))) == ("yellow"));
-    CHECK((enum_as_string(safe_rg(0x07))) == ("yellow + 0x01"));
-    CHECK((enum_as_string(safe_rg(0x40))) == ("black + 0x40"));
-    CHECK((enum_as_string(safe_rg(0x7 + 0x40))) == ("yellow + 0x41"));
+    CHECK(enum_as_string(safe_rg(0x00)) == "black");
+    CHECK(enum_as_string(safe_rg(0x01)) == "black + 0x01");
+    CHECK(enum_as_string(safe_rg(0x02)) == "green");
+    CHECK(enum_as_string(safe_rg(0x03)) == "green + 0x01");
+    CHECK(enum_as_string(safe_rg(0x04)) == "red");
+    CHECK(enum_as_string(safe_rg(0x05)) == "red + 0x01");
+    CHECK(enum_as_string(safe_rg(0x06)) == "yellow");
+    CHECK(enum_as_string(safe_rg(0x07)) == "yellow + 0x01");
+    CHECK(enum_as_string(safe_rg(0x40)) == "black + 0x40");
+    CHECK(enum_as_string(safe_rg(0x7 + 0x40)) == "yellow + 0x41");
   }
 }
 #pragma endregion
@@ -571,22 +571,22 @@ constexpr auto registry::enum_spec_v<safe_gb> = make_bitmask_enum_values_spec<
 TEST_CASE("SafeNoRed", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
-    CHECK((valid_bits_v<safe_gb>) == (3));
-    CHECK((max_value<safe_gb>()) == (safe_gb::cyan));
-    CHECK((bit_clip_v<safe_gb>));
-    CHECK((bits_length<safe_gb>()) == (2U));
+    CHECK(valid_bits_v<safe_gb> == 3);
+    CHECK(max_value<safe_gb>() == safe_gb::cyan);
+    CHECK(bit_clip_v<safe_gb>);
+    CHECK(bits_length<safe_gb>() == 2U);
   }
   if (true) {
-    CHECK((enum_as_string(safe_gb(0x00))) == ("black"));
-    CHECK((enum_as_string(safe_gb(0x01))) == ("blue"));
-    CHECK((enum_as_string(safe_gb(0x02))) == ("green"));
-    CHECK((enum_as_string(safe_gb(0x03))) == ("cyan"));
-    CHECK((enum_as_string(safe_gb(0x04))) == ("black + 0x04"));
-    CHECK((enum_as_string(safe_gb(0x05))) == ("blue + 0x04"));
-    CHECK((enum_as_string(safe_gb(0x06))) == ("green + 0x04"));
-    CHECK((enum_as_string(safe_gb(0x07))) == ("cyan + 0x04"));
-    CHECK((enum_as_string(safe_gb(0x40))) == ("black + 0x40"));
-    CHECK((enum_as_string(safe_gb(0x7 + 0x40))) == ("cyan + 0x44"));
+    CHECK(enum_as_string(safe_gb(0x00)) == "black");
+    CHECK(enum_as_string(safe_gb(0x01)) == "blue");
+    CHECK(enum_as_string(safe_gb(0x02)) == "green");
+    CHECK(enum_as_string(safe_gb(0x03)) == "cyan");
+    CHECK(enum_as_string(safe_gb(0x04)) == "black + 0x04");
+    CHECK(enum_as_string(safe_gb(0x05)) == "blue + 0x04");
+    CHECK(enum_as_string(safe_gb(0x06)) == "green + 0x04");
+    CHECK(enum_as_string(safe_gb(0x07)) == "cyan + 0x04");
+    CHECK(enum_as_string(safe_gb(0x40)) == "black + 0x40");
+    CHECK(enum_as_string(safe_gb(0x7 + 0x40)) == "cyan + 0x44");
   }
 }
 #pragma endregion
@@ -665,28 +665,28 @@ TEST_CASE("Placeholders", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
     // Question-mark placeholder in bit-name mode: bit is valid, unnamed.
-    CHECK((valid_bits_v<rqb>) == (7));
-    CHECK((enum_as_string(rqb(0x00))) == ("0x00"));
-    CHECK((enum_as_string(rqb(0x01))) == ("blue"));
-    CHECK((enum_as_string(rqb(0x02))) == ("0x02")); // unnamed green -> hex
-    CHECK((enum_as_string(rqb(0x03))) == ("blue + 0x02"));
-    CHECK((enum_as_string(rqb(0x04))) == ("red"));
-    CHECK((enum_as_string(rqb(0x05))) == ("red + blue"));
-    CHECK((enum_as_string(rqb(0x06))) == ("red + 0x02"));
-    CHECK((enum_as_string(rqb(0x07))) == ("red + blue + 0x02"));
+    CHECK(valid_bits_v<rqb> == 7);
+    CHECK(enum_as_string(rqb(0x00)) == "0x00");
+    CHECK(enum_as_string(rqb(0x01)) == "blue");
+    CHECK(enum_as_string(rqb(0x02)) == "0x02"); // unnamed green -> hex
+    CHECK(enum_as_string(rqb(0x03)) == "blue + 0x02");
+    CHECK(enum_as_string(rqb(0x04)) == "red");
+    CHECK(enum_as_string(rqb(0x05)) == "red + blue");
+    CHECK(enum_as_string(rqb(0x06)) == "red + 0x02");
+    CHECK(enum_as_string(rqb(0x07)) == "red + blue + 0x02");
   }
   if (true) {
     // Hyphen placeholder in value-name mode: value is invalid, unnamed.
-    CHECK((valid_bits_v<safe_rb_h>) == (5));
-    CHECK((enum_as_string(safe_rb_h(0x00))) == ("black"));
-    CHECK((enum_as_string(safe_rb_h(0x01))) == ("blue"));
+    CHECK(valid_bits_v<safe_rb_h> == 5);
+    CHECK(enum_as_string(safe_rb_h(0x00)) == "black");
+    CHECK(enum_as_string(safe_rb_h(0x01)) == "blue");
     CHECK((enum_as_string(safe_rb_h(0x02))) ==
           ("black + 0x02")); // invalid -> hex
-    CHECK((enum_as_string(safe_rb_h(0x03))) == ("blue + 0x02"));
-    CHECK((enum_as_string(safe_rb_h(0x04))) == ("red"));
-    CHECK((enum_as_string(safe_rb_h(0x05))) == ("purple"));
-    CHECK((enum_as_string(safe_rb_h(0x06))) == ("red + 0x02"));
-    CHECK((enum_as_string(safe_rb_h(0x07))) == ("purple + 0x02"));
+    CHECK(enum_as_string(safe_rb_h(0x03)) == "blue + 0x02");
+    CHECK(enum_as_string(safe_rb_h(0x04)) == "red");
+    CHECK(enum_as_string(safe_rb_h(0x05)) == "purple");
+    CHECK(enum_as_string(safe_rb_h(0x06)) == "red + 0x02");
+    CHECK(enum_as_string(safe_rb_h(0x07)) == "purple + 0x02");
   }
 }
 #pragma endregion
@@ -696,40 +696,40 @@ TEST_CASE("Placeholders", "[BitMaskTest]") {
 TEST_CASE("SkipBlue", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
-    CHECK((valid_bits_v<rskipb>) == (7));
-    CHECK((max_value<rskipb>()) == (rskipb::white));
-    CHECK_FALSE((bit_clip_v<rskipb>));
-    CHECK((bits_length<rskipb>()) == (3U));
+    CHECK(valid_bits_v<rskipb> == 7);
+    CHECK(max_value<rskipb>() == rskipb::white);
+    CHECK_FALSE(bit_clip_v<rskipb>);
+    CHECK(bits_length<rskipb>() == 3U);
   }
   if (true) {
-    CHECK((enum_as_string(rskipb(0x00))) == ("0x00"));
-    CHECK((enum_as_string(rskipb(0x01))) == ("blue"));
-    CHECK((enum_as_string(rskipb(0x02))) == ("0x02"));
-    CHECK((enum_as_string(rskipb(0x03))) == ("blue + 0x02"));
-    CHECK((enum_as_string(rskipb(0x04))) == ("red"));
-    CHECK((enum_as_string(rskipb(0x05))) == ("red + blue"));
-    CHECK((enum_as_string(rskipb(0x06))) == ("red + 0x02"));
-    CHECK((enum_as_string(rskipb(0x07))) == ("red + blue + 0x02"));
-    CHECK((enum_as_string(rskipb(0x40))) == ("0x40"));
-    CHECK((enum_as_string(rskipb(0x7 + 0x40))) == ("red + blue + 0x42"));
+    CHECK(enum_as_string(rskipb(0x00)) == "0x00");
+    CHECK(enum_as_string(rskipb(0x01)) == "blue");
+    CHECK(enum_as_string(rskipb(0x02)) == "0x02");
+    CHECK(enum_as_string(rskipb(0x03)) == "blue + 0x02");
+    CHECK(enum_as_string(rskipb(0x04)) == "red");
+    CHECK(enum_as_string(rskipb(0x05)) == "red + blue");
+    CHECK(enum_as_string(rskipb(0x06)) == "red + 0x02");
+    CHECK(enum_as_string(rskipb(0x07)) == "red + blue + 0x02");
+    CHECK(enum_as_string(rskipb(0x40)) == "0x40");
+    CHECK(enum_as_string(rskipb(0x7 + 0x40)) == "red + blue + 0x42");
   }
   if (true) {
-    CHECK((valid_bits_v<safe_rskipb>) == (7));
-    CHECK((max_value<safe_rskipb>()) == (safe_rskipb(0x07)));
-    CHECK((bit_clip_v<safe_rskipb>));
-    CHECK((bits_length<safe_rskipb>()) == (3U));
+    CHECK(valid_bits_v<safe_rskipb> == 7);
+    CHECK(max_value<safe_rskipb>() == safe_rskipb(0x07));
+    CHECK(bit_clip_v<safe_rskipb>);
+    CHECK(bits_length<safe_rskipb>() == 3U);
   }
   if (true) {
-    CHECK((enum_as_string(safe_rskipb(0x00))) == ("black"));
-    CHECK((enum_as_string(safe_rskipb(0x01))) == ("blue"));
-    CHECK((enum_as_string(safe_rskipb(0x02))) == ("black + 0x02"));
-    CHECK((enum_as_string(safe_rskipb(0x03))) == ("blue + 0x02"));
-    CHECK((enum_as_string(safe_rskipb(0x04))) == ("red"));
-    CHECK((enum_as_string(safe_rskipb(0x05))) == ("purple"));
-    CHECK((enum_as_string(safe_rskipb(0x06))) == ("red + 0x02"));
-    CHECK((enum_as_string(safe_rskipb(0x07))) == ("purple + 0x02"));
-    CHECK((enum_as_string(safe_rskipb(0x40))) == ("black + 0x40"));
-    CHECK((enum_as_string(safe_rskipb(0x7 + 0x40))) == ("purple + 0x42"));
+    CHECK(enum_as_string(safe_rskipb(0x00)) == "black");
+    CHECK(enum_as_string(safe_rskipb(0x01)) == "blue");
+    CHECK(enum_as_string(safe_rskipb(0x02)) == "black + 0x02");
+    CHECK(enum_as_string(safe_rskipb(0x03)) == "blue + 0x02");
+    CHECK(enum_as_string(safe_rskipb(0x04)) == "red");
+    CHECK(enum_as_string(safe_rskipb(0x05)) == "purple");
+    CHECK(enum_as_string(safe_rskipb(0x06)) == "red + 0x02");
+    CHECK(enum_as_string(safe_rskipb(0x07)) == "purple + 0x02");
+    CHECK(enum_as_string(safe_rskipb(0x40)) == "black + 0x40");
+    CHECK(enum_as_string(safe_rskipb(0x7 + 0x40)) == "purple + 0x42");
   }
 }
 #pragma endregion
@@ -748,22 +748,22 @@ constexpr auto registry::enum_spec_v<safe_bw> = make_bitmask_enum_values_spec<
 TEST_CASE("SafeBlackWhite", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
-    CHECK((valid_bits_v<safe_bw>) == (1));
-    CHECK((max_value<safe_bw>()) == (safe_bw::white));
-    CHECK((bit_clip_v<safe_bw>));
-    CHECK((bits_length<safe_bw>()) == (1U));
+    CHECK(valid_bits_v<safe_bw> == 1);
+    CHECK(max_value<safe_bw>() == safe_bw::white);
+    CHECK(bit_clip_v<safe_bw>);
+    CHECK(bits_length<safe_bw>() == 1U);
   }
   if (true) {
-    CHECK((enum_as_string(safe_bw(0x00))) == ("color::black"));
-    CHECK((enum_as_string(safe_bw(0x01))) == ("color::white"));
-    CHECK((enum_as_string(safe_bw(0x02))) == ("color::black + 0x02"));
-    CHECK((enum_as_string(safe_bw(0x03))) == ("color::white + 0x02"));
-    CHECK((enum_as_string(safe_bw(0x04))) == ("color::black + 0x04"));
-    CHECK((enum_as_string(safe_bw(0x05))) == ("color::white + 0x04"));
-    CHECK((enum_as_string(safe_bw(0x06))) == ("color::black + 0x06"));
-    CHECK((enum_as_string(safe_bw(0x07))) == ("color::white + 0x06"));
-    CHECK((enum_as_string(safe_bw(0x40))) == ("color::black + 0x40"));
-    CHECK((enum_as_string(safe_bw(0x7 + 0x40))) == ("color::white + 0x46"));
+    CHECK(enum_as_string(safe_bw(0x00)) == "color::black");
+    CHECK(enum_as_string(safe_bw(0x01)) == "color::white");
+    CHECK(enum_as_string(safe_bw(0x02)) == "color::black + 0x02");
+    CHECK(enum_as_string(safe_bw(0x03)) == "color::white + 0x02");
+    CHECK(enum_as_string(safe_bw(0x04)) == "color::black + 0x04");
+    CHECK(enum_as_string(safe_bw(0x05)) == "color::white + 0x04");
+    CHECK(enum_as_string(safe_bw(0x06)) == "color::black + 0x06");
+    CHECK(enum_as_string(safe_bw(0x07)) == "color::white + 0x06");
+    CHECK(enum_as_string(safe_bw(0x40)) == "color::black + 0x40");
+    CHECK(enum_as_string(safe_bw(0x7 + 0x40)) == "color::white + 0x46");
   }
 }
 #pragma endregion
@@ -780,22 +780,22 @@ constexpr auto registry::enum_spec_v<safe_w> =
 TEST_CASE("SafeWhite", "[BitMaskTest]") {
   using namespace strings;
   if (true) {
-    CHECK((valid_bits_v<safe_w>) == (1));
-    CHECK((max_value<safe_w>()) == (safe_w::white));
-    CHECK((bit_clip_v<safe_w>));
-    CHECK((bits_length<safe_w>()) == (1U));
+    CHECK(valid_bits_v<safe_w> == 1);
+    CHECK(max_value<safe_w>() == safe_w::white);
+    CHECK(bit_clip_v<safe_w>);
+    CHECK(bits_length<safe_w>() == 1U);
   }
   if (true) {
-    CHECK((enum_as_string(safe_w(0x00))) == ("0x00"));
-    CHECK((enum_as_string(safe_w(0x01))) == ("color::white"));
-    CHECK((enum_as_string(safe_w(0x02))) == ("0x02"));
-    CHECK((enum_as_string(safe_w(0x03))) == ("color::white + 0x02"));
-    CHECK((enum_as_string(safe_w(0x04))) == ("0x04"));
-    CHECK((enum_as_string(safe_w(0x05))) == ("color::white + 0x04"));
-    CHECK((enum_as_string(safe_w(0x06))) == ("0x06"));
-    CHECK((enum_as_string(safe_w(0x07))) == ("color::white + 0x06"));
-    CHECK((enum_as_string(safe_w(0x40))) == ("0x40"));
-    CHECK((enum_as_string(safe_w(0x7 + 0x40))) == ("color::white + 0x46"));
+    CHECK(enum_as_string(safe_w(0x00)) == "0x00");
+    CHECK(enum_as_string(safe_w(0x01)) == "color::white");
+    CHECK(enum_as_string(safe_w(0x02)) == "0x02");
+    CHECK(enum_as_string(safe_w(0x03)) == "color::white + 0x02");
+    CHECK(enum_as_string(safe_w(0x04)) == "0x04");
+    CHECK(enum_as_string(safe_w(0x05)) == "color::white + 0x04");
+    CHECK(enum_as_string(safe_w(0x06)) == "0x06");
+    CHECK(enum_as_string(safe_w(0x07)) == "color::white + 0x06");
+    CHECK(enum_as_string(safe_w(0x40)) == "0x40");
+    CHECK(enum_as_string(safe_w(0x7 + 0x40)) == "color::white + 0x46");
   }
 }
 #pragma endregion
@@ -856,52 +856,52 @@ TEST_CASE("ExtractEnum", "[BitMaskTest]") {
     std::string_view sv;
 
     sv = "0";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (rgb::black));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == rgb::black);
 
     sv = "red";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (rgb::red));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == rgb::red);
 
     sv = "green";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (rgb::green));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == rgb::green);
 
     sv = "blue";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (rgb::blue));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == rgb::blue);
 
     sv = "  blue  ";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (rgb::blue));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == rgb::blue);
 
     sv = "  blue ;xyz";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv) == ("xyz"));
-    CHECK((e) == (rgb::blue));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv == "xyz");
+    CHECK(e == rgb::blue);
 
     sv = " red   +  blue  ";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (rgb::red + rgb::blue));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == (rgb::red + rgb::blue));
     auto s = enum_as_string(e);
     sv = s;
-    CHECK((sv) == ("red + blue"));
+    CHECK(sv == "red + blue");
 
     sv = " 2 + red";
-    CHECK((extract_enum(e, sv)));
-    CHECK((sv.empty()));
-    CHECK((e) == (rgb::red + rgb::green));
+    CHECK(extract_enum(e, sv));
+    CHECK(sv.empty());
+    CHECK(e == (rgb::red + rgb::green));
 
     sv = "";
-    CHECK_FALSE((extract_enum(e, sv)));
+    CHECK_FALSE(extract_enum(e, sv));
     sv = " + ";
-    CHECK_FALSE((extract_enum(e, sv)));
+    CHECK_FALSE(extract_enum(e, sv));
   }
 }
 #pragma endregion
@@ -914,22 +914,22 @@ TEST_CASE("HoleyOps", "[BitMaskTest]") {
   if (true) {
     // op~ inverts all bits, including invalid ones.
     // For rb (no clipping), ~black sets all bits including invalid ones.
-    CHECK((~rb::black) != (rb::purple)); // Not equal because invalid bits set
-    CHECK(((~rb::black & rb::purple)) == (rb::purple)); // Valid bits all set
+    CHECK(~rb::black != rb::purple); // Not equal because invalid bits set
+    CHECK((~rb::black & rb::purple) == rb::purple); // Valid bits all set
   }
   if (true) {
     // flip only flips valid bits (rb::purple has valid_bits = 5 = 0b101).
-    CHECK((flip(rb::black)) == (rb::purple));
-    CHECK((flip(rb::red)) == (rb::blue));
-    CHECK((flip(rb::blue)) == (rb::red));
-    CHECK((flip(rb::purple)) == (rb::black));
+    CHECK(flip(rb::black) == rb::purple);
+    CHECK(flip(rb::red) == rb::blue);
+    CHECK(flip(rb::blue) == rb::red);
+    CHECK(flip(rb::purple) == rb::black);
   }
   if (true) {
     // For safe_rb (with wrapclip::limit), op~ behaves like flip.
-    CHECK((~safe_rb::black) == (safe_rb::purple));
-    CHECK((~safe_rb::red) == (safe_rb::blue));
-    CHECK((~safe_rb::blue) == (safe_rb::red));
-    CHECK((~safe_rb::purple) == (safe_rb::black));
+    CHECK(~safe_rb::black == safe_rb::purple);
+    CHECK(~safe_rb::red == safe_rb::blue);
+    CHECK(~safe_rb::blue == safe_rb::red);
+    CHECK(~safe_rb::purple == safe_rb::black);
   }
 }
 #pragma endregion
@@ -939,18 +939,18 @@ TEST_CASE("HoleyOps", "[BitMaskTest]") {
 TEST_CASE("MakeAt", "[BitMaskTest]") {
   // make_at uses 1-based indexing.
   if (true) {
-    CHECK((make_at<rgb>(1)) == (rgb::blue));  // bit 0 (lsb)
-    CHECK((make_at<rgb>(2)) == (rgb::green)); // bit 1
-    CHECK((make_at<rgb>(3)) == (rgb::red));   // bit 2
+    CHECK(make_at<rgb>(1) == rgb::blue);  // bit 0 (lsb)
+    CHECK(make_at<rgb>(2) == rgb::green); // bit 1
+    CHECK(make_at<rgb>(3) == rgb::red);   // bit 2
   }
   if (true) {
     // Verify set_at and clear_at use the same indexing.
-    CHECK((set_at(rgb::black, 1)) == (rgb::blue));
-    CHECK((set_at(rgb::black, 2)) == (rgb::green));
-    CHECK((set_at(rgb::black, 3)) == (rgb::red));
-    CHECK((clear_at(rgb::white, 1)) == (rgb::yellow));
-    CHECK((clear_at(rgb::white, 2)) == (rgb::purple));
-    CHECK((clear_at(rgb::white, 3)) == (rgb::cyan));
+    CHECK(set_at(rgb::black, 1) == rgb::blue);
+    CHECK(set_at(rgb::black, 2) == rgb::green);
+    CHECK(set_at(rgb::black, 3) == rgb::red);
+    CHECK(clear_at(rgb::white, 1) == rgb::yellow);
+    CHECK(clear_at(rgb::white, 2) == rgb::purple);
+    CHECK(clear_at(rgb::white, 3) == rgb::cyan);
   }
 }
 #pragma endregion

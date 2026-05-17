@@ -49,17 +49,17 @@ TEST_CASE("ParseHttp11", "[HttpHeaderBlock]") {
   request_head req;
   // The final crlf was parsed out by `terminated_text_parser`, as part of the
   // crlfcrlf sentinel.
-  REQUIRE((req.parse(
-      "GET /path HTTP/1.1\r\nHost: example.com\r\nAccept: text/html")));
-  CHECK((req.version) == (http_version::http_1_1));
-  CHECK((req.method) == (http_method::GET));
-  CHECK((req.target) == ("/path"));
+  REQUIRE(req.parse(
+      "GET /path HTTP/1.1\r\nHost: example.com\r\nAccept: text/html"));
+  CHECK(req.version == http_version::http_1_1);
+  CHECK(req.method == http_method::GET);
+  CHECK(req.target == "/path");
   const auto host = req.headers.get("Host");
-  REQUIRE((host));
-  CHECK((*host) == ("example.com"));
+  REQUIRE(host);
+  CHECK(*host == "example.com");
   const auto accept = req.headers.get("Accept");
-  REQUIRE((accept));
-  CHECK((*accept) == ("text/html"));
+  REQUIRE(accept);
+  CHECK(*accept == "text/html");
 }
 #pragma endregion
 #pragma region ParseHttp10
@@ -67,10 +67,10 @@ TEST_CASE("ParseHttp11", "[HttpHeaderBlock]") {
 // Verify that a well-formed HTTP/1.0 request is parsed correctly.
 TEST_CASE("ParseHttp10", "[HttpHeaderBlock]") {
   request_head req;
-  REQUIRE((req.parse("POST /submit HTTP/1.0\r\n")));
-  CHECK((req.version) == (http_version::http_1_0));
-  CHECK((req.method) == (http_method::POST));
-  CHECK((req.target) == ("/submit"));
+  REQUIRE(req.parse("POST /submit HTTP/1.0\r\n"));
+  CHECK(req.version == http_version::http_1_0);
+  CHECK(req.method == http_method::POST);
+  CHECK(req.target == "/submit");
 }
 #pragma endregion
 #pragma region UnknownMethod
@@ -78,7 +78,7 @@ TEST_CASE("ParseHttp10", "[HttpHeaderBlock]") {
 // Verify that an unrecognized method token causes `parse` to fail.
 TEST_CASE("UnknownMethod", "[HttpHeaderBlock]") {
   request_head req;
-  CHECK_FALSE((req.parse("BREW /coffee HTTP/1.1\r\n")));
+  CHECK_FALSE(req.parse("BREW /coffee HTTP/1.1\r\n"));
 }
 #pragma endregion
 #pragma region InvalidVersion
@@ -86,7 +86,7 @@ TEST_CASE("UnknownMethod", "[HttpHeaderBlock]") {
 // Verify that an unrecognized version token causes `parse` to fail.
 TEST_CASE("InvalidVersion", "[HttpHeaderBlock]") {
   request_head req;
-  CHECK_FALSE((req.parse("GET / HTTP/2.0\r\n")));
+  CHECK_FALSE(req.parse("GET / HTTP/2.0\r\n"));
 }
 #pragma endregion
 #pragma region Http09Style
@@ -95,9 +95,9 @@ TEST_CASE("InvalidVersion", "[HttpHeaderBlock]") {
 // `http_version::http_0_9`.
 TEST_CASE("Http09Style", "[HttpHeaderBlock]") {
   request_head req;
-  REQUIRE((req.parse("GET /\r\n")));
-  CHECK((req.version) == (http_version::http_0_9));
-  CHECK((req.target) == ("/"));
+  REQUIRE(req.parse("GET /\r\n"));
+  CHECK(req.version == http_version::http_0_9);
+  CHECK(req.target == "/");
 }
 #pragma endregion
 #pragma region NoSp
@@ -105,7 +105,7 @@ TEST_CASE("Http09Style", "[HttpHeaderBlock]") {
 // Verify that a request line with no SP at all returns false.
 TEST_CASE("NoSp", "[HttpHeaderBlock]") {
   request_head req;
-  CHECK_FALSE((req.parse("GETNOSPC\r\n")));
+  CHECK_FALSE(req.parse("GETNOSPC\r\n"));
 }
 #pragma endregion
 #pragma region HeaderLookupCanonical
@@ -116,11 +116,11 @@ TEST_CASE("NoSp", "[HttpHeaderBlock]") {
 TEST_CASE("HeaderLookupCanonical", "[HttpHeaderBlock]") {
   http_headers h;
   // Add with mixed-case input; stored under "Content-Type".
-  CHECK((h.add("content-TYPE", "text/plain")));
+  CHECK(h.add("content-TYPE", "text/plain"));
   // Exact canonical form finds the value.
   const auto content_type = h.get("Content-Type");
-  REQUIRE((content_type));
-  CHECK((*content_type) == ("text/plain"));
+  REQUIRE(content_type);
+  CHECK(*content_type == "text/plain");
 }
 #pragma endregion
 #pragma region HeaderGet
@@ -128,12 +128,12 @@ TEST_CASE("HeaderLookupCanonical", "[HttpHeaderBlock]") {
 // Verify that `get()` returns `nullopt` for absent or non-canonical names.
 TEST_CASE("HeaderGet", "[HttpHeaderBlock]") {
   http_headers h;
-  CHECK((h.add("Host", "localhost")));
+  CHECK(h.add("Host", "localhost"));
   const auto host = h.get("Host");
-  REQUIRE((host));
-  CHECK((*host) == ("localhost"));
-  CHECK_FALSE((h.get("Heist")));
-  CHECK_FALSE((h.get("Content-Type")));
+  REQUIRE(host);
+  CHECK(*host == "localhost");
+  CHECK_FALSE(h.get("Heist"));
+  CHECK_FALSE(h.get("Content-Type"));
 }
 #pragma endregion
 #pragma region HeaderGetEmptyValue
@@ -141,11 +141,11 @@ TEST_CASE("HeaderGet", "[HttpHeaderBlock]") {
 // Verify that `get()` distinguishes an empty stored value from a missing one.
 TEST_CASE("HeaderGetEmptyValue", "[HttpHeaderBlock]") {
   http_headers h;
-  CHECK((h.add_raw("X-Empty", "")));
+  CHECK(h.add_raw("X-Empty", ""));
   const auto empty_value = h.get("X-Empty");
-  REQUIRE((empty_value));
-  CHECK((empty_value->empty()));
-  CHECK_FALSE((h.get("Missing")));
+  REQUIRE(empty_value);
+  CHECK(empty_value->empty());
+  CHECK_FALSE(h.get("Missing"));
 }
 #pragma endregion
 #pragma region HeaderCombine
@@ -153,10 +153,10 @@ TEST_CASE("HeaderGetEmptyValue", "[HttpHeaderBlock]") {
 // Verify that `http_headers::get_combined()` joins multiple values with ", ".
 TEST_CASE("HeaderCombine", "[HttpHeaderBlock]") {
   http_headers h;
-  CHECK((h.add("Accept", "text/html")));
-  CHECK((h.add("Accept", "application/json")));
-  CHECK((h.get_combined("Accept")) == ("text/html, application/json"));
-  CHECK((h.get_combined("Missing")) == (""));
+  CHECK(h.add("Accept", "text/html"));
+  CHECK(h.add("Accept", "application/json"));
+  CHECK(h.get_combined("Accept") == "text/html, application/json");
+  CHECK(h.get_combined("Missing") == "");
 }
 #pragma endregion
 #pragma region KeepAlive
@@ -165,25 +165,23 @@ TEST_CASE("HeaderCombine", "[HttpHeaderBlock]") {
 TEST_CASE("KeepAlive", "[HttpHeaderBlock]") {
   {
     request_head req;
-    REQUIRE((req.parse("GET / HTTP/1.1\r\nHost: h\r\n")));
-    CHECK(
-        (req.options.keep_alive(req.version)) == (after_response::keep_alive));
+    REQUIRE(req.parse("GET / HTTP/1.1\r\nHost: h\r\n"));
+    CHECK(req.options.keep_alive(req.version) == after_response::keep_alive);
   }
   {
     request_head req;
-    REQUIRE((req.parse("GET / HTTP/1.0\r\n")));
-    CHECK((req.options.keep_alive(req.version)) == (after_response::close));
+    REQUIRE(req.parse("GET / HTTP/1.0\r\n"));
+    CHECK(req.options.keep_alive(req.version) == after_response::close);
   }
   {
     request_head req;
-    REQUIRE((req.parse("GET / HTTP/1.1\r\nHost: h\r\nConnection: close\r\n")));
-    CHECK((req.options.keep_alive(req.version)) == (after_response::close));
+    REQUIRE(req.parse("GET / HTTP/1.1\r\nHost: h\r\nConnection: close\r\n"));
+    CHECK(req.options.keep_alive(req.version) == after_response::close);
   }
   {
     request_head req;
-    REQUIRE((req.parse("GET / HTTP/1.0\r\nConnection: keep-alive\r\n")));
-    CHECK(
-        (req.options.keep_alive(req.version)) == (after_response::keep_alive));
+    REQUIRE(req.parse("GET / HTTP/1.0\r\nConnection: keep-alive\r\n"));
+    CHECK(req.options.keep_alive(req.version) == after_response::keep_alive);
   }
 }
 #pragma endregion
@@ -195,30 +193,29 @@ TEST_CASE("KeepAliveTokenList", "[HttpHeaderBlock]") {
   // Token list containing `"close"` among other tokens -> close.
   {
     request_head req;
-    REQUIRE((req.parse(
-        "GET / HTTP/1.1\r\nHost: h\r\nConnection: keep-alive, close\r\n")));
-    CHECK((req.options.keep_alive(req.version)) == (after_response::close));
+    REQUIRE(req.parse(
+        "GET / HTTP/1.1\r\nHost: h\r\nConnection: keep-alive, close\r\n"));
+    CHECK(req.options.keep_alive(req.version) == after_response::close);
   }
   // Token list with only `"close"` and an unrelated token -> close.
   {
     request_head req;
-    REQUIRE((req.parse(
-        "GET / HTTP/1.1\r\nHost: h\r\nConnection: close, upgrade\r\n")));
-    CHECK((req.options.keep_alive(req.version)) == (after_response::close));
+    REQUIRE(req.parse(
+        "GET / HTTP/1.1\r\nHost: h\r\nConnection: close, upgrade\r\n"));
+    CHECK(req.options.keep_alive(req.version) == after_response::close);
   }
   // Token list with `"keep-alive"` and an unrelated token -> keep-alive.
   {
     request_head req;
-    REQUIRE((req.parse(
-        "GET / HTTP/1.1\r\nHost: h\r\nConnection: keep-alive, upgrade\r\n")));
-    CHECK(
-        (req.options.keep_alive(req.version)) == (after_response::keep_alive));
+    REQUIRE(req.parse(
+        "GET / HTTP/1.1\r\nHost: h\r\nConnection: keep-alive, upgrade\r\n"));
+    CHECK(req.options.keep_alive(req.version) == after_response::keep_alive);
   }
   // Case-insensitive: `"Close"` -> close.
   {
     request_head req;
-    REQUIRE((req.parse("GET / HTTP/1.1\r\nHost: h\r\nConnection: Close\r\n")));
-    CHECK((req.options.keep_alive(req.version)) == (after_response::close));
+    REQUIRE(req.parse("GET / HTTP/1.1\r\nHost: h\r\nConnection: Close\r\n"));
+    CHECK(req.options.keep_alive(req.version) == after_response::close);
   }
 }
 #pragma endregion
@@ -231,16 +228,16 @@ TEST_CASE("ResponseSerialize", "[HttpHeaderBlock]") {
   resp.version = http_version::http_1_1;
   resp.status_code = http_status_code::OK;
   resp.reason = "OK";
-  CHECK((resp.headers.add_raw("Connection", "close")));
-  CHECK((resp.headers.add_raw("Content-Type", "text/plain")));
-  CHECK((resp.headers.add_raw("Content-Length", "5")));
+  CHECK(resp.headers.add_raw("Connection", "close"));
+  CHECK(resp.headers.add_raw("Content-Type", "text/plain"));
+  CHECK(resp.headers.add_raw("Content-Length", "5"));
   const auto wire = resp.serialize();
-  CHECK((wire.find("HTTP/1.1 200 OK\r\n")) != (std::string::npos));
-  CHECK((wire.find("Connection: close\r\n")) != (std::string::npos));
-  CHECK((wire.find("Content-Type: text/plain\r\n")) != (std::string::npos));
-  CHECK((wire.find("Content-Length: 5\r\n")) != (std::string::npos));
+  CHECK(wire.find("HTTP/1.1 200 OK\r\n") != std::string::npos);
+  CHECK(wire.find("Connection: close\r\n") != std::string::npos);
+  CHECK(wire.find("Content-Type: text/plain\r\n") != std::string::npos);
+  CHECK(wire.find("Content-Length: 5\r\n") != std::string::npos);
   // Wire format ends with the blank line; body is not included.
-  CHECK((wire.ends_with("\r\n\r\n")));
+  CHECK(wire.ends_with("\r\n\r\n"));
 }
 #pragma endregion
 #pragma region ExtractLeadingCrlf
@@ -250,19 +247,18 @@ TEST_CASE("ResponseSerialize", "[HttpHeaderBlock]") {
 TEST_CASE("ExtractLeadingCrlf", "[HttpHeaderBlock]") {
   {
     request_head req;
-    REQUIRE(
-        (req.parse("\r\n\r\nGET /path HTTP/1.1\r\nHost: example.com\r\n")));
-    CHECK((req.method) == (http_method::GET));
-    CHECK((req.target) == ("/path"));
-    CHECK((req.version) == (http_version::http_1_1));
+    REQUIRE(req.parse("\r\n\r\nGET /path HTTP/1.1\r\nHost: example.com\r\n"));
+    CHECK(req.method == http_method::GET);
+    CHECK(req.target == "/path");
+    CHECK(req.version == http_version::http_1_1);
     const auto host = req.headers.get("Host");
-    REQUIRE((host));
-    CHECK((*host) == ("example.com"));
+    REQUIRE(host);
+    CHECK(*host == "example.com");
   }
   {
     // Only CRLFs, no request line: fails.
     request_head req;
-    CHECK_FALSE((req.parse("\r\n\r\n")));
+    CHECK_FALSE(req.parse("\r\n\r\n"));
   }
 }
 #pragma endregion
@@ -274,23 +270,23 @@ TEST_CASE("ExtractHeaderErrors", "[HttpHeaderBlock]") {
     // Obs-fold with SP: rejected.
     request_head req;
     CHECK_FALSE(
-        (req.parse("GET / HTTP/1.1\r\nHost: example.com\r\n continued\r\n")));
+        req.parse("GET / HTTP/1.1\r\nHost: example.com\r\n continued\r\n"));
   }
   {
     // Obs-fold with HTAB: rejected.
     request_head req;
     CHECK_FALSE(
-        (req.parse("GET / HTTP/1.1\r\nHost: example.com\r\n\tcontinued\r\n")));
+        req.parse("GET / HTTP/1.1\r\nHost: example.com\r\n\tcontinued\r\n"));
   }
   {
     // Header line with no colon: rejected.
     request_head req;
-    CHECK_FALSE((req.parse("GET / HTTP/1.1\r\nBadHeader\r\n")));
+    CHECK_FALSE(req.parse("GET / HTTP/1.1\r\nBadHeader\r\n"));
   }
   {
     // Invalid character (space) in field name: rejected.
     request_head req;
-    CHECK_FALSE((req.parse("GET / HTTP/1.1\r\nBad Name: value\r\n")));
+    CHECK_FALSE(req.parse("GET / HTTP/1.1\r\nBad Name: value\r\n"));
   }
 }
 #pragma endregion
@@ -302,49 +298,49 @@ TEST_CASE("RequestSerialize", "[HttpHeaderBlock]") {
   {
     // HTTP/1.1 with headers.
     request_head req;
-    REQUIRE((req.parse(
-        "GET /path HTTP/1.1\r\nHost: example.com\r\nAccept: text/html\r\n")));
+    REQUIRE(req.parse(
+        "GET /path HTTP/1.1\r\nHost: example.com\r\nAccept: text/html\r\n"));
     const auto wire = req.serialize();
-    CHECK((wire.find("GET /path HTTP/1.1\r\n")) != (std::string::npos));
-    CHECK((wire.find("Host: example.com\r\n")) != (std::string::npos));
-    CHECK((wire.find("Accept: text/html\r\n")) != (std::string::npos));
-    CHECK((wire.ends_with("\r\n\r\n")));
+    CHECK(wire.find("GET /path HTTP/1.1\r\n") != std::string::npos);
+    CHECK(wire.find("Host: example.com\r\n") != std::string::npos);
+    CHECK(wire.find("Accept: text/html\r\n") != std::string::npos);
+    CHECK(wire.ends_with("\r\n\r\n"));
 
     // Round-trip: strip the terminal "\r\n" blank line before passing to
     // `parse` (which expects the block without the "\r\n\r\n" sentinel).
     request_head req2;
-    REQUIRE((req2.parse(std::string_view{wire}.substr(0, wire.size() - 2))));
-    CHECK((req2.version) == (http_version::http_1_1));
-    CHECK((req2.method) == (http_method::GET));
-    CHECK((req2.target) == ("/path"));
+    REQUIRE(req2.parse(std::string_view{wire}.substr(0, wire.size() - 2)));
+    CHECK(req2.version == http_version::http_1_1);
+    CHECK(req2.method == http_method::GET);
+    CHECK(req2.target == "/path");
     const auto host = req2.headers.get("Host");
-    REQUIRE((host));
-    CHECK((*host) == ("example.com"));
+    REQUIRE(host);
+    CHECK(*host == "example.com");
     const auto accept = req2.headers.get("Accept");
-    REQUIRE((accept));
-    CHECK((*accept) == ("text/html"));
+    REQUIRE(accept);
+    CHECK(*accept == "text/html");
   }
   {
     // HTTP/1.0, no headers.
     request_head req;
-    REQUIRE((req.parse("POST /submit HTTP/1.0\r\n")));
+    REQUIRE(req.parse("POST /submit HTTP/1.0\r\n"));
     const auto wire = req.serialize();
-    CHECK((wire.find("POST /submit HTTP/1.0\r\n")) != (std::string::npos));
-    CHECK((wire.ends_with("\r\n\r\n")));
+    CHECK(wire.find("POST /submit HTTP/1.0\r\n") != std::string::npos);
+    CHECK(wire.ends_with("\r\n\r\n"));
   }
   {
     // HTTP/0.9: no version token in the output.
     request_head req;
-    REQUIRE((req.parse("GET /\r\n")));
+    REQUIRE(req.parse("GET /\r\n"));
     const auto wire = req.serialize();
-    CHECK((wire.find("GET /\r\n")) != (std::string::npos));
-    CHECK((wire.find("HTTP/")) == (std::string::npos));
-    CHECK((wire.ends_with("\r\n\r\n")));
+    CHECK(wire.find("GET /\r\n") != std::string::npos);
+    CHECK(wire.find("HTTP/") == std::string::npos);
+    CHECK(wire.ends_with("\r\n\r\n"));
   }
   {
     // invalid version: returns empty.
     request_head req;
-    CHECK((req.serialize().empty()));
+    CHECK(req.serialize().empty());
   }
 }
 #pragma endregion
@@ -356,41 +352,41 @@ TEST_CASE("ResponseExtract", "[HttpHeaderBlock]") {
   {
     // HTTP/1.1 200 with headers.
     response_head resp;
-    REQUIRE((resp.parse(
+    REQUIRE(resp.parse(
         "HTTP/1.1 200 OK\r\nContent-Type: "
-        "text/html\r\nContent-Length: 42\r\n")));
-    CHECK((resp.version) == (http_version::http_1_1));
-    CHECK((resp.status_code) == (http_status_code{200}));
-    CHECK((resp.reason) == ("OK"));
+        "text/html\r\nContent-Length: 42\r\n"));
+    CHECK(resp.version == http_version::http_1_1);
+    CHECK(resp.status_code == http_status_code{200});
+    CHECK(resp.reason == "OK");
     const auto content_type = resp.headers.get("Content-Type");
-    REQUIRE((content_type));
-    CHECK((*content_type) == ("text/html"));
+    REQUIRE(content_type);
+    CHECK(*content_type == "text/html");
     const auto content_length = resp.headers.get("Content-Length");
-    REQUIRE((content_length));
-    CHECK((*content_length) == ("42"));
+    REQUIRE(content_length);
+    CHECK(*content_length == "42");
   }
   {
     // HTTP/1.0 with multi-word reason phrase.
     response_head resp;
-    REQUIRE((resp.parse("HTTP/1.0 404 Not Found\r\n")));
-    CHECK((resp.version) == (http_version::http_1_0));
-    CHECK((resp.status_code) == (http_status_code{404}));
-    CHECK((resp.reason) == ("Not Found"));
+    REQUIRE(resp.parse("HTTP/1.0 404 Not Found\r\n"));
+    CHECK(resp.version == http_version::http_1_0);
+    CHECK(resp.status_code == http_status_code{404});
+    CHECK(resp.reason == "Not Found");
   }
   {
     // Unknown version: false.
     response_head resp;
-    CHECK_FALSE((resp.parse("HTTP/2.0 200 OK\r\n")));
+    CHECK_FALSE(resp.parse("HTTP/2.0 200 OK\r\n"));
   }
   {
     // No SP after version: false.
     response_head resp;
-    CHECK_FALSE((resp.parse("HTTP/1.1\r\n")));
+    CHECK_FALSE(resp.parse("HTTP/1.1\r\n"));
   }
   {
     // Non-numeric status code: false.
     response_head resp;
-    CHECK_FALSE((resp.parse("HTTP/1.1 abc OK\r\n")));
+    CHECK_FALSE(resp.parse("HTTP/1.1 abc OK\r\n"));
   }
   {
     // Round-trip: build a response, serialize it, re-parse, check fields.
@@ -398,16 +394,16 @@ TEST_CASE("ResponseExtract", "[HttpHeaderBlock]") {
     resp.version = http_version::http_1_1;
     resp.status_code = http_status_code{201};
     resp.reason = "Created";
-    CHECK((resp.headers.add_raw("Location", "/new/resource")));
+    CHECK(resp.headers.add_raw("Location", "/new/resource"));
     const auto wire = resp.serialize();
     response_head resp2;
-    REQUIRE((resp2.parse(wire.substr(0, wire.size() - 2))));
-    CHECK((resp2.version) == (http_version::http_1_1));
-    CHECK((resp2.status_code) == (http_status_code{201}));
-    CHECK((resp2.reason) == ("Created"));
+    REQUIRE(resp2.parse(wire.substr(0, wire.size() - 2)));
+    CHECK(resp2.version == http_version::http_1_1);
+    CHECK(resp2.status_code == http_status_code{201});
+    CHECK(resp2.reason == "Created");
     const auto location = resp2.headers.get("Location");
-    REQUIRE((location));
-    CHECK((*location) == ("/new/resource"));
+    REQUIRE(location);
+    CHECK(*location == "/new/resource");
   }
 }
 #pragma endregion
@@ -474,38 +470,38 @@ TEST_CASE("NormalizeCasing", "[HttpHeaderBlock]") {
   for (const auto& [input, expected] : test_cases) {
     std::string actual = input;
     if (!http_headers::normalize(actual)) actual = "INVALID";
-    CHECK((actual) == (expected));
+    CHECK(actual == expected);
   }
 
   {
     // Lowercase input: changed, result is title case.
     std::string name{"content-type"};
-    CHECK((http_headers::normalize(name).value()));
-    CHECK((name) == ("Content-Type"));
+    CHECK(http_headers::normalize(name).value());
+    CHECK(name == "Content-Type");
   }
   {
     // All-caps input: changed, result is title case.
     std::string name{"ACCEPT-ENCODING"};
-    CHECK((http_headers::normalize(name).value()));
-    CHECK((name) == ("Accept-Encoding"));
+    CHECK(http_headers::normalize(name).value());
+    CHECK(name == "Accept-Encoding");
   }
   {
     // Mixed case: changed, result is title case.
     std::string name{"X-fOrWaRdEd-fOr"};
-    CHECK((http_headers::normalize(name).value()));
-    CHECK((name) == ("X-Forwarded-For"));
+    CHECK(http_headers::normalize(name).value());
+    CHECK(name == "X-Forwarded-For");
   }
   {
     // Already canonical: not changed, name unchanged.
     std::string name{"Content-Type"};
-    CHECK_FALSE((http_headers::normalize(name).value()));
-    CHECK((name) == ("Content-Type"));
+    CHECK_FALSE(http_headers::normalize(name).value());
+    CHECK(name == "Content-Type");
   }
   {
     // Multi-segment all-lowercase.
     std::string name{"x-forwarded-for"};
-    CHECK((http_headers::normalize(name).value()));
-    CHECK((name) == ("X-Forwarded-For"));
+    CHECK(http_headers::normalize(name).value());
+    CHECK(name == "X-Forwarded-For");
   }
 }
 #pragma endregion
@@ -517,27 +513,27 @@ TEST_CASE("NormalizeSpecialChars", "[HttpHeaderBlock]") {
   {
     // Underscore and dot are valid; alpha segments are title-cased.
     std::string name{"x-custom_header.v2"};
-    CHECK((http_headers::normalize(name).value()));
-    CHECK((name) == ("X-Custom_header.v2"));
+    CHECK(http_headers::normalize(name).value());
+    CHECK(name == "X-Custom_header.v2");
   }
   {
     // A name composed entirely of the special set "!#$%&'*+.^_`|~" is
     // valid; none are alpha so to_upper/to_lower are no-ops.
     std::string name{"!#$%&'*+.^_`|~"};
-    CHECK_FALSE((http_headers::normalize(name).value()));
-    CHECK((name) == ("!#$%&'*+.^_`|~"));
+    CHECK_FALSE(http_headers::normalize(name).value());
+    CHECK(name == "!#$%&'*+.^_`|~");
   }
   {
     // Hyphen triggers capitalization of the following character.
     std::string name{"a-b-c"};
-    CHECK((http_headers::normalize(name).value()));
-    CHECK((name) == ("A-B-C"));
+    CHECK(http_headers::normalize(name).value());
+    CHECK(name == "A-B-C");
   }
   {
     // Leading hyphen: valid, first alpha after it is uppercased.
     std::string name{"-foo"};
-    CHECK((http_headers::normalize(name).value()));
-    CHECK((name) == ("-Foo"));
+    CHECK(http_headers::normalize(name).value());
+    CHECK(name == "-Foo");
   }
 }
 #pragma endregion
@@ -553,17 +549,17 @@ TEST_CASE("NormalizeInvalidChars", "[HttpHeaderBlock]") {
     return !http_headers::normalize(name) && name == orig;
   };
 
-  CHECK((bad("Bad Name")));  // space
-  CHECK((bad("Bad:Name")));  // colon
-  CHECK((bad("bad@name")));  // at-sign
-  CHECK((bad("bad\\name"))); // backslash
-  CHECK((bad("bad\tname"))); // tab (control character)
-  CHECK((bad("bad/name")));  // slash
-  CHECK((bad("bad\"name"))); // double-quote
-  CHECK((bad("bad(name")));  // open paren
-  CHECK((bad("bad)name")));  // close paren
-  CHECK((bad("bad<name")));  // less-than
-  CHECK((bad("bad>name")));  // greater-than
+  CHECK(bad("Bad Name"));  // space
+  CHECK(bad("Bad:Name"));  // colon
+  CHECK(bad("bad@name"));  // at-sign
+  CHECK(bad("bad\\name")); // backslash
+  CHECK(bad("bad\tname")); // tab (control character)
+  CHECK(bad("bad/name"));  // slash
+  CHECK(bad("bad\"name")); // double-quote
+  CHECK(bad("bad(name"));  // open paren
+  CHECK(bad("bad)name"));  // close paren
+  CHECK(bad("bad<name"));  // less-than
+  CHECK(bad("bad>name"));  // greater-than
 }
 #pragma endregion
 #pragma region NormalizeEdgeCases
@@ -573,37 +569,37 @@ TEST_CASE("NormalizeEdgeCases", "[HttpHeaderBlock]") {
   {
     // Empty string: no invalid chars, no change, returns nullopt.
     std::string name;
-    CHECK_FALSE((http_headers::normalize(name)));
+    CHECK_FALSE(http_headers::normalize(name));
   }
   {
     // Single valid alpha: uppercased, returns true.
     std::string name{"a"};
-    CHECK((http_headers::normalize(name).value()));
-    CHECK((name) == ("A"));
+    CHECK(http_headers::normalize(name).value());
+    CHECK(name == "A");
   }
   {
     // Single valid alpha already uppercase: no change, returns false.
     std::string name{"A"};
-    CHECK_FALSE((http_headers::normalize(name).value()));
-    CHECK((name) == ("A"));
+    CHECK_FALSE(http_headers::normalize(name).value());
+    CHECK(name == "A");
   }
   {
     // Single digit: valid, no alpha casing, returns false.
     std::string name{"3"};
-    CHECK_FALSE((http_headers::normalize(name).value()));
-    CHECK((name) == ("3"));
+    CHECK_FALSE(http_headers::normalize(name).value());
+    CHECK(name == "3");
   }
   {
     // Single invalid char: returns nullopt, name unchanged.
     std::string name{" "};
-    CHECK_FALSE((http_headers::normalize(name)));
-    CHECK((name) == (" "));
+    CHECK_FALSE(http_headers::normalize(name));
+    CHECK(name == " ");
   }
   {
     // Invalid char mid-name: returns nullopt, name unchanged.
     std::string name{"Content Type"};
-    CHECK_FALSE((http_headers::normalize(name)));
-    CHECK((name) == ("Content Type"));
+    CHECK_FALSE(http_headers::normalize(name));
+    CHECK(name == "Content Type");
   }
 }
 #pragma endregion
@@ -612,22 +608,21 @@ TEST_CASE("NormalizeEdgeCases", "[HttpHeaderBlock]") {
 // Verify `is_valid_field_value`: empty and printable are accepted; control
 // characters and DEL are rejected; obs-text bytes (>= 0x80) are accepted.
 TEST_CASE("IsValidFieldValue", "[HttpHeaderBlock]") {
-  CHECK((http_headers::is_valid_field_value("")));
-  CHECK((http_headers::is_valid_field_value("text/html; charset=utf-8")));
-  CHECK((http_headers::is_valid_field_value(" padded value ")));
-  CHECK((http_headers::is_valid_field_value("value\twith\ttab")));
+  CHECK(http_headers::is_valid_field_value(""));
+  CHECK(http_headers::is_valid_field_value("text/html; charset=utf-8"));
+  CHECK(http_headers::is_valid_field_value(" padded value "));
+  CHECK(http_headers::is_valid_field_value("value\twith\ttab"));
   // obs-text (>= 0x80): valid per RFC 9110 field-value grammar.
-  CHECK((http_headers::is_valid_field_value("\x80\xff")));
+  CHECK(http_headers::is_valid_field_value("\x80\xff"));
   // Null byte: invalid.
-  CHECK_FALSE(
-      (http_headers::is_valid_field_value(std::string_view("a\0b", 3))));
+  CHECK_FALSE(http_headers::is_valid_field_value(std::string_view("a\0b", 3)));
   // CR and LF: invalid.
-  CHECK_FALSE((http_headers::is_valid_field_value("bad\rvalue")));
-  CHECK_FALSE((http_headers::is_valid_field_value("bad\nvalue")));
+  CHECK_FALSE(http_headers::is_valid_field_value("bad\rvalue"));
+  CHECK_FALSE(http_headers::is_valid_field_value("bad\nvalue"));
   // DEL (0x7F): invalid.
-  CHECK_FALSE((http_headers::is_valid_field_value("bad\x7fvalue")));
+  CHECK_FALSE(http_headers::is_valid_field_value("bad\x7fvalue"));
   // Other control chars (< 0x20, not HTAB): invalid.
-  CHECK_FALSE((http_headers::is_valid_field_value("bad\x01value")));
+  CHECK_FALSE(http_headers::is_valid_field_value("bad\x01value"));
 }
 #pragma endregion
 #pragma region ContentLength
@@ -637,35 +632,35 @@ TEST_CASE("IsValidFieldValue", "[HttpHeaderBlock]") {
 TEST_CASE("ContentLength", "[HttpHeaderBlock]") {
   {
     http_headers h;
-    CHECK((h.add_raw("Content-Length", "42")));
+    CHECK(h.add_raw("Content-Length", "42"));
     http_options opts;
     opts.extract(h);
-    REQUIRE((opts.content_length));
-    CHECK((*opts.content_length) == (42ULL));
+    REQUIRE(opts.content_length);
+    CHECK(*opts.content_length == 42ULL);
   }
   {
     // Absent: nullopt.
     http_headers h;
     http_options opts;
     opts.extract(h);
-    CHECK_FALSE((opts.content_length));
+    CHECK_FALSE(opts.content_length);
   }
   {
     // Non-numeric: nullopt.
     http_headers h;
-    CHECK((h.add_raw("Content-Length", "abc")));
+    CHECK(h.add_raw("Content-Length", "abc"));
     http_options opts;
     opts.extract(h);
-    CHECK_FALSE((opts.content_length));
+    CHECK_FALSE(opts.content_length);
   }
   {
     // Zero is a valid value.
     http_headers h;
-    CHECK((h.add_raw("Content-Length", "0")));
+    CHECK(h.add_raw("Content-Length", "0"));
     http_options opts;
     opts.extract(h);
-    REQUIRE((opts.content_length));
-    CHECK((*opts.content_length) == (0ULL));
+    REQUIRE(opts.content_length);
+    CHECK(*opts.content_length == 0ULL);
   }
 }
 #pragma endregion
@@ -677,63 +672,63 @@ TEST_CASE("ContentLength", "[HttpHeaderBlock]") {
 TEST_CASE("IsChunked", "[HttpHeaderBlock]") {
   {
     http_headers h;
-    CHECK((h.add_raw("Transfer-Encoding", "chunked")));
+    CHECK(h.add_raw("Transfer-Encoding", "chunked"));
     http_options opts;
     opts.extract(h);
-    REQUIRE((opts.transfer_encoding));
-    CHECK((*opts.transfer_encoding) == (transfer_encoding_value::chunked));
+    REQUIRE(opts.transfer_encoding);
+    CHECK(*opts.transfer_encoding == transfer_encoding_value::chunked);
   }
   {
     // Mixed case value still matches.
     http_headers h;
-    CHECK((h.add_raw("Transfer-Encoding", "Chunked")));
+    CHECK(h.add_raw("Transfer-Encoding", "Chunked"));
     http_options opts;
     opts.extract(h);
-    REQUIRE((opts.transfer_encoding));
-    CHECK((*opts.transfer_encoding) == (transfer_encoding_value::chunked));
+    REQUIRE(opts.transfer_encoding);
+    CHECK(*opts.transfer_encoding == transfer_encoding_value::chunked);
   }
   {
     // `chunked` works as the last.
     http_headers h;
-    CHECK((h.add_raw("Transfer-Encoding", "gzip,   chUnKed  ")));
+    CHECK(h.add_raw("Transfer-Encoding", "gzip,   chUnKed  "));
     http_options opts;
     opts.extract(h);
-    REQUIRE((opts.transfer_encoding));
-    CHECK((*opts.transfer_encoding) == (transfer_encoding_value::chunked));
+    REQUIRE(opts.transfer_encoding);
+    CHECK(*opts.transfer_encoding == transfer_encoding_value::chunked);
   }
   {
     // `chunked` does not work before other encodings.
     http_headers h;
-    CHECK((h.add_raw("Transfer-Encoding", "chunked, gzip")));
+    CHECK(h.add_raw("Transfer-Encoding", "chunked, gzip"));
     http_options opts;
     opts.extract(h);
-    CHECK_FALSE((opts.transfer_encoding));
+    CHECK_FALSE(opts.transfer_encoding);
   }
   {
     // Multiple fields: last token of last field is `chunked`.
     http_headers h;
-    CHECK((h.add_raw("Transfer-Encoding", "gzip")));
-    CHECK((h.add_raw("Transfer-Encoding", "chunked")));
+    CHECK(h.add_raw("Transfer-Encoding", "gzip"));
+    CHECK(h.add_raw("Transfer-Encoding", "chunked"));
     http_options opts;
     opts.extract(h);
-    REQUIRE((opts.transfer_encoding));
-    CHECK((*opts.transfer_encoding) == (transfer_encoding_value::chunked));
+    REQUIRE(opts.transfer_encoding);
+    CHECK(*opts.transfer_encoding == transfer_encoding_value::chunked);
   }
   {
     // Multiple fields: a later field appends after `chunked` -- not chunked.
     http_headers h;
-    CHECK((h.add_raw("Transfer-Encoding", "gzip, chunked")));
-    CHECK((h.add_raw("Transfer-Encoding", "deflate")));
+    CHECK(h.add_raw("Transfer-Encoding", "gzip, chunked"));
+    CHECK(h.add_raw("Transfer-Encoding", "deflate"));
     http_options opts;
     opts.extract(h);
-    CHECK_FALSE((opts.transfer_encoding));
+    CHECK_FALSE(opts.transfer_encoding);
   }
   {
     // Absent: nullopt.
     http_headers h;
     http_options opts;
     opts.extract(h);
-    CHECK_FALSE((opts.transfer_encoding));
+    CHECK_FALSE(opts.transfer_encoding);
   }
 }
 #pragma endregion
@@ -742,23 +737,23 @@ TEST_CASE("IsChunked", "[HttpHeaderBlock]") {
 // Verify `empty()`, `size()`, and ordered iteration.
 TEST_CASE("SizeAndEmpty", "[HttpHeaderBlock]") {
   http_headers h;
-  CHECK((h.empty()));
-  CHECK((h.size()) == (0ULL));
+  CHECK(h.empty());
+  CHECK(h.size() == 0ULL);
 
-  CHECK((h.add_raw("Host", "example.com")));
-  CHECK_FALSE((h.empty()));
-  CHECK((h.size()) == (1ULL));
+  CHECK(h.add_raw("Host", "example.com"));
+  CHECK_FALSE(h.empty());
+  CHECK(h.size() == 1ULL);
 
-  CHECK((h.add_raw("Accept", "text/html")));
-  CHECK((h.size()) == (2ULL));
+  CHECK(h.add_raw("Accept", "text/html"));
+  CHECK(h.size() == 2ULL);
 
   // Iteration visits fields in insertion order.
   auto it = h.begin();
-  CHECK((it->name) == ("Host"));
+  CHECK(it->name == "Host");
   ++it;
-  CHECK((it->name) == ("Accept"));
+  CHECK(it->name == "Accept");
   ++it;
-  CHECK((it == h.end()));
+  CHECK(it == h.end());
 }
 #pragma endregion
 #pragma region AddRawWithRawName
@@ -768,18 +763,18 @@ TEST_CASE("SizeAndEmpty", "[HttpHeaderBlock]") {
 TEST_CASE("AddRawWithRawName", "[HttpHeaderBlock]") {
   http_headers h;
   // Index key is canonical "Content-Type"; wire name is lowercase.
-  CHECK((h.add_raw("Content-Type", "text/html", "content-type")));
+  CHECK(h.add_raw("Content-Type", "text/html", "content-type"));
 
   // `get()` looks up via canonical index key.
   const auto ct = h.get("Content-Type");
-  REQUIRE((ct));
-  CHECK((*ct) == ("text/html"));
+  REQUIRE(ct);
+  CHECK(*ct == "text/html");
 
   // `serialize()` writes the raw (wire) name, not the canonical key.
   std::string out;
   h.serialize(out);
-  CHECK((out.find("content-type: text/html\r\n")) != (std::string::npos));
-  CHECK((out.find("Content-Type")) == (std::string::npos));
+  CHECK(out.find("content-type: text/html\r\n") != std::string::npos);
+  CHECK(out.find("Content-Type") == std::string::npos);
 }
 #pragma endregion
 #pragma region GetReturnsFirst
@@ -788,13 +783,13 @@ TEST_CASE("AddRawWithRawName", "[HttpHeaderBlock]") {
 // multiple times (use `get_combined()` for all values).
 TEST_CASE("GetReturnsFirst", "[HttpHeaderBlock]") {
   http_headers h;
-  CHECK((h.add("Accept", "text/html")));
-  CHECK((h.add("Accept", "application/json")));
-  CHECK((h.add("Accept", "image/webp")));
+  CHECK(h.add("Accept", "text/html"));
+  CHECK(h.add("Accept", "application/json"));
+  CHECK(h.add("Accept", "image/webp"));
 
   const auto first = h.get("Accept");
-  REQUIRE((first));
-  CHECK((*first) == ("text/html"));
+  REQUIRE(first);
+  CHECK(*first == "text/html");
 
   // `get_combined()` joins all three.
   CHECK((h.get_combined("Accept")) ==
@@ -810,14 +805,14 @@ TEST_CASE("KeepAliveHttp09", "[HttpHeaderBlock]") {
   http_headers h;
   http_options opts;
   opts.extract(h);
-  CHECK((opts.keep_alive(http_version::http_0_9)) == (after_response::close));
+  CHECK(opts.keep_alive(http_version::http_0_9) == after_response::close);
 
   // Even if a `Connection: keep-alive` header were somehow present,
   // HTTP/0.9 must still return `close`.
-  CHECK((h.add_raw("Connection", "keep-alive")));
+  CHECK(h.add_raw("Connection", "keep-alive"));
   opts = {};
   opts.extract(h);
-  CHECK((opts.keep_alive(http_version::http_0_9)) == (after_response::close));
+  CHECK(opts.keep_alive(http_version::http_0_9) == after_response::close);
 }
 #pragma endregion
 #pragma region Http09WithHeaders
@@ -826,7 +821,7 @@ TEST_CASE("KeepAliveHttp09", "[HttpHeaderBlock]") {
 // `request_head::parse` to fail (HTTP/0.9 does not allow headers).
 TEST_CASE("Http09WithHeaders", "[HttpHeaderBlock]") {
   request_head req;
-  CHECK_FALSE((req.parse("GET /\r\nHost: example.com\r\n")));
+  CHECK_FALSE(req.parse("GET /\r\nHost: example.com\r\n"));
 }
 #pragma endregion
 #pragma region TooManyLeadingCrlfs
@@ -837,13 +832,13 @@ TEST_CASE("TooManyLeadingCrlfs", "[HttpHeaderBlock]") {
   {
     // Exactly 5 leading CRLFs: should still parse successfully.
     request_head req;
-    CHECK((req.parse("\r\n\r\n\r\n\r\n\r\nGET / HTTP/1.1\r\n")));
-    CHECK((req.method) == (http_method::GET));
+    CHECK(req.parse("\r\n\r\n\r\n\r\n\r\nGET / HTTP/1.1\r\n"));
+    CHECK(req.method == http_method::GET);
   }
   {
     // Six leading CRLFs: parse fails.
     request_head req;
-    CHECK_FALSE((req.parse("\r\n\r\n\r\n\r\n\r\n\r\nGET / HTTP/1.1\r\n")));
+    CHECK_FALSE(req.parse("\r\n\r\n\r\n\r\n\r\n\r\nGET / HTTP/1.1\r\n"));
   }
 }
 #pragma endregion
@@ -854,12 +849,12 @@ TEST_CASE("TargetNotPath", "[HttpHeaderBlock]") {
   {
     // Absolute URI form (HTTP/1.1 proxies): not accepted by this parser.
     request_head req;
-    CHECK_FALSE((req.parse("GET http://example.com/ HTTP/1.1\r\n")));
+    CHECK_FALSE(req.parse("GET http://example.com/ HTTP/1.1\r\n"));
   }
   {
     // Authority form.
     request_head req;
-    CHECK_FALSE((req.parse("CONNECT example.com:443 HTTP/1.1\r\n")));
+    CHECK_FALSE(req.parse("CONNECT example.com:443 HTTP/1.1\r\n"));
   }
 }
 #pragma endregion
@@ -869,16 +864,16 @@ TEST_CASE("TargetNotPath", "[HttpHeaderBlock]") {
 // the object can be reused for a second request.
 TEST_CASE("ClearRequest", "[HttpHeaderBlock]") {
   request_head req;
-  REQUIRE((req.parse(
-      "GET /path HTTP/1.1\r\nHost: example.com\r\nAccept: text/html\r\n")));
-  CHECK((req.method) == (http_method::GET));
-  CHECK_FALSE((req.headers.empty()));
+  REQUIRE(req.parse(
+      "GET /path HTTP/1.1\r\nHost: example.com\r\nAccept: text/html\r\n"));
+  CHECK(req.method == http_method::GET);
+  CHECK_FALSE(req.headers.empty());
 
   req.clear();
-  CHECK((req.version) == (http_version{}));
-  CHECK((req.method) == (http_method{}));
-  CHECK((req.target.empty()));
-  CHECK((req.headers.empty()));
+  CHECK(req.version == http_version{});
+  CHECK(req.method == http_method{});
+  CHECK(req.target.empty());
+  CHECK(req.headers.empty());
 }
 #pragma endregion
 #pragma region ClearResponse
@@ -889,13 +884,13 @@ TEST_CASE("ClearResponse", "[HttpHeaderBlock]") {
   resp.version = http_version::http_1_1;
   resp.status_code = http_status_code::OK;
   resp.reason = "OK";
-  CHECK((resp.headers.add_raw("Content-Length", "0")));
+  CHECK(resp.headers.add_raw("Content-Length", "0"));
 
   resp.clear();
-  CHECK((resp.version) == (http_version{}));
-  CHECK((resp.status_code) == (http_status_code{}));
-  CHECK((resp.reason.empty()));
-  CHECK((resp.headers.empty()));
+  CHECK(resp.version == http_version{});
+  CHECK(resp.status_code == http_status_code{});
+  CHECK(resp.reason.empty());
+  CHECK(resp.headers.empty());
 }
 #pragma endregion
 #pragma region ResponseSerializeInvalid
@@ -905,13 +900,13 @@ TEST_CASE("ClearResponse", "[HttpHeaderBlock]") {
 TEST_CASE("ResponseSerializeInvalid", "[HttpHeaderBlock]") {
   response_head resp;
   // Default-constructed version is `invalid`.
-  CHECK((resp.serialize().empty()));
+  CHECK(resp.serialize().empty());
 
   // Explicitly set to invalid.
   resp.version = http_version::invalid;
   resp.status_code = http_status_code::OK;
   resp.reason = "OK";
-  CHECK((resp.serialize().empty()));
+  CHECK(resp.serialize().empty());
 }
 #pragma endregion
 #pragma region MakeErrorResponse
@@ -921,21 +916,21 @@ TEST_CASE("MakeErrorResponse", "[HttpHeaderBlock]") {
   {
     // Defaults: HTTP/1.1 400 Bad Request, Connection: close.
     const auto wire = response_head::make_error_response();
-    CHECK((wire.find("HTTP/1.1")) != (std::string::npos));
-    CHECK((wire.find("400")) != (std::string::npos));
-    CHECK((wire.find("Bad Request")) != (std::string::npos));
-    CHECK((wire.find("Connection: close")) != (std::string::npos));
-    CHECK((wire.ends_with("\r\n\r\n")));
+    CHECK(wire.find("HTTP/1.1") != std::string::npos);
+    CHECK(wire.find("400") != std::string::npos);
+    CHECK(wire.find("Bad Request") != std::string::npos);
+    CHECK(wire.find("Connection: close") != std::string::npos);
+    CHECK(wire.ends_with("\r\n\r\n"));
   }
   {
     // Custom: HTTP/1.0 405 Method Not Allowed, Connection: keep-alive.
     const auto wire = response_head::make_error_response(
         after_response::keep_alive, http_version::http_1_0,
         http_status_code::METHOD_NOT_ALLOWED, "Method Not Allowed");
-    CHECK((wire.find("HTTP/1.0")) != (std::string::npos));
-    CHECK((wire.find("405")) != (std::string::npos));
-    CHECK((wire.find("Method Not Allowed")) != (std::string::npos));
-    CHECK((wire.find("Connection: keep-alive")) != (std::string::npos));
+    CHECK(wire.find("HTTP/1.0") != std::string::npos);
+    CHECK(wire.find("405") != std::string::npos);
+    CHECK(wire.find("Method Not Allowed") != std::string::npos);
+    CHECK(wire.find("Connection: keep-alive") != std::string::npos);
   }
 }
 #pragma endregion
@@ -948,25 +943,25 @@ TEST_CASE("ResponseParseEdgeCases", "[HttpHeaderBlock]") {
   {
     // Empty reason: status line is "HTTP/1.1 204 ", reason is "".
     response_head resp;
-    REQUIRE((resp.parse("HTTP/1.1 204 ")));
-    CHECK((resp.version) == (http_version::http_1_1));
-    CHECK((resp.status_code) == (http_status_code::NO_CONTENT));
-    CHECK((resp.reason.empty()));
+    REQUIRE(resp.parse("HTTP/1.1 204 "));
+    CHECK(resp.version == http_version::http_1_1);
+    CHECK(resp.status_code == http_status_code::NO_CONTENT);
+    CHECK(resp.reason.empty());
   }
   {
     // No SP after status code: fails.
     response_head resp;
-    CHECK_FALSE((resp.parse("HTTP/1.1 200\r\n")));
+    CHECK_FALSE(resp.parse("HTTP/1.1 200\r\n"));
   }
   {
     // Status code below 100: fails.
     response_head resp;
-    CHECK_FALSE((resp.parse("HTTP/1.1 99 Too Low\r\n")));
+    CHECK_FALSE(resp.parse("HTTP/1.1 99 Too Low\r\n"));
   }
   {
     // Status code above 999: fails.
     response_head resp;
-    CHECK_FALSE((resp.parse("HTTP/1.1 1000 Too High\r\n")));
+    CHECK_FALSE(resp.parse("HTTP/1.1 1000 Too High\r\n"));
   }
 }
 #pragma endregion
@@ -978,85 +973,85 @@ TEST_CASE("HttpOptionsExtractApply", "[HttpHeaderBlock]") {
   // content_type: recognized media type, parameters stripped.
   {
     http_headers h;
-    CHECK((h.add_raw("Content-Type", "text/html; charset=utf-8")));
+    CHECK(h.add_raw("Content-Type", "text/html; charset=utf-8"));
     http_options opts;
     opts.extract(h);
-    REQUIRE((opts.content_type));
-    CHECK((*opts.content_type) == (content_type_value::text_html));
+    REQUIRE(opts.content_type);
+    CHECK(*opts.content_type == content_type_value::text_html);
   }
   // content_type: exact match without parameters.
   {
     http_headers h;
-    CHECK((h.add_raw("Content-Type", "application/json")));
+    CHECK(h.add_raw("Content-Type", "application/json"));
     http_options opts;
     opts.extract(h);
-    REQUIRE((opts.content_type));
-    CHECK((*opts.content_type) == (content_type_value::application_json));
+    REQUIRE(opts.content_type);
+    CHECK(*opts.content_type == content_type_value::application_json);
   }
   // content_type: unrecognized -> `unknown`.
   {
     http_headers h;
-    CHECK((h.add_raw("Content-Type", "application/octet-stream")));
+    CHECK(h.add_raw("Content-Type", "application/octet-stream"));
     http_options opts;
     opts.extract(h);
-    REQUIRE((opts.content_type));
-    CHECK((*opts.content_type) == (content_type_value::unknown));
+    REQUIRE(opts.content_type);
+    CHECK(*opts.content_type == content_type_value::unknown);
   }
   // content_type: absent -> nullopt.
   {
     http_headers h;
     http_options opts;
     opts.extract(h);
-    CHECK_FALSE((opts.content_type));
+    CHECK_FALSE(opts.content_type);
   }
   // upgrade: websocket recognized, only when Connection is Upgrade
   {
     http_headers h;
-    CHECK((h.add_raw("Connection", "Upgrade")));
-    CHECK((h.add_raw("Upgrade", "websocket")));
+    CHECK(h.add_raw("Connection", "Upgrade"));
+    CHECK(h.add_raw("Upgrade", "websocket"));
     http_options opts;
     opts.extract(h);
-    REQUIRE((opts.upgrade));
-    CHECK((*opts.upgrade) == (upgrade_value::websocket));
+    REQUIRE(opts.upgrade);
+    CHECK(*opts.upgrade == upgrade_value::websocket);
   }
   // upgrade: unrecognized token -> `unknown`.
   {
     http_headers h;
-    CHECK((h.add_raw("Connection", "Upgrade")));
-    CHECK((h.add_raw("Upgrade", "h2c")));
+    CHECK(h.add_raw("Connection", "Upgrade"));
+    CHECK(h.add_raw("Upgrade", "h2c"));
     http_options opts;
     opts.extract(h);
-    REQUIRE((opts.upgrade));
-    CHECK((*opts.upgrade) == (upgrade_value::unknown));
+    REQUIRE(opts.upgrade);
+    CHECK(*opts.upgrade == upgrade_value::unknown);
   }
   // upgrade: websocket wins in a token list.
   {
     http_headers h;
-    CHECK((h.add_raw("Connection", "Upgrade")));
-    CHECK((h.add_raw("Upgrade", "h2c, websocket")));
+    CHECK(h.add_raw("Connection", "Upgrade"));
+    CHECK(h.add_raw("Upgrade", "h2c, websocket"));
     http_options opts;
     opts.extract(h);
-    REQUIRE((opts.upgrade));
-    CHECK((*opts.upgrade) == (upgrade_value::websocket));
+    REQUIRE(opts.upgrade);
+    CHECK(*opts.upgrade == upgrade_value::websocket);
   }
   // apply: writes known values into headers, updating existing entries.
   {
     http_headers h;
-    CHECK((h.add_raw("Content-Length", "0")));
+    CHECK(h.add_raw("Content-Length", "0"));
     http_options opts;
     opts.content_length = 42;
     opts.content_type = content_type_value::text_plain;
     opts.connection = after_response::keep_alive;
     opts.apply(h);
     const auto cl = h.get("Content-Length");
-    REQUIRE((cl));
-    CHECK((*cl) == ("42"));
+    REQUIRE(cl);
+    CHECK(*cl == "42");
     const auto ct = h.get("Content-Type");
-    REQUIRE((ct));
-    CHECK((*ct) == ("text/plain"));
+    REQUIRE(ct);
+    CHECK(*ct == "text/plain");
     const auto conn = h.get("Connection");
-    REQUIRE((conn));
-    CHECK((*conn) == ("keep-alive"));
+    REQUIRE(conn);
+    CHECK(*conn == "keep-alive");
   }
   // apply: `unknown` enum values and nullopt are not written.
   {
@@ -1064,7 +1059,7 @@ TEST_CASE("HttpOptionsExtractApply", "[HttpHeaderBlock]") {
     http_options opts;
     opts.content_type = content_type_value::unknown;
     opts.apply(h);
-    CHECK_FALSE((h.get("Content-Type")));
+    CHECK_FALSE(h.get("Content-Type"));
   }
 }
 #pragma endregion
@@ -1077,49 +1072,49 @@ TEST_CASE("GetValues", "[HttpHeaderBlock]") {
   {
     http_headers h;
     const auto r = h.get_values("Accept");
-    CHECK((r.empty()));
-    CHECK((r.size()) == (0ULL));
-    CHECK((r.begin() == r.end()));
+    CHECK(r.empty());
+    CHECK(r.size() == 0ULL);
+    CHECK(r.begin() == r.end());
   }
   // Single entry: correct value and non-empty range.
   {
     http_headers h;
-    CHECK((h.add_raw("Accept", "text/html")));
+    CHECK(h.add_raw("Accept", "text/html"));
     const auto r = h.get_values("Accept");
-    CHECK_FALSE((r.empty()));
-    CHECK((r.size()) == (1ULL));
+    CHECK_FALSE(r.empty());
+    CHECK(r.size() == 1ULL);
     auto it = r.begin();
-    CHECK((*it) == ("text/html"));
+    CHECK(*it == "text/html");
     ++it;
-    CHECK((it == r.end()));
+    CHECK(it == r.end());
   }
   // Multiple entries for the same field: returned in insertion order.
   {
     http_headers h;
-    CHECK((h.add_raw("Accept", "text/html")));
-    CHECK((h.add_raw("Host", "example.com"))); // interleaved
-    CHECK((h.add_raw("Accept", "application/json")));
+    CHECK(h.add_raw("Accept", "text/html"));
+    CHECK(h.add_raw("Host", "example.com")); // interleaved
+    CHECK(h.add_raw("Accept", "application/json"));
     const auto r = h.get_values("Accept");
-    CHECK((r.size()) == (2ULL));
+    CHECK(r.size() == 2ULL);
     auto it = r.begin();
-    CHECK((*it) == ("text/html"));
+    CHECK(*it == "text/html");
     ++it;
-    CHECK((*it) == ("application/json"));
+    CHECK(*it == "application/json");
     ++it;
-    CHECK((it == r.end()));
+    CHECK(it == r.end());
   }
   // `iterator::set()` replaces the value in place.
   {
     http_headers h;
-    CHECK((h.add_raw("Accept", "text/html")));
-    CHECK((h.add_raw("Accept", "application/json")));
+    CHECK(h.add_raw("Accept", "text/html"));
+    CHECK(h.add_raw("Accept", "application/json"));
     auto r = h.get_values("Accept");
     for (auto it = r.begin(); it != r.end(); ++it)
       if (*it == "text/html") it.set("text/plain");
     auto it = r.begin();
-    CHECK((*it) == ("text/plain"));
+    CHECK(*it == "text/plain");
     ++it;
-    CHECK((*it) == ("application/json"));
+    CHECK(*it == "application/json");
   }
 }
 #pragma endregion
@@ -1132,96 +1127,96 @@ TEST_CASE("SetRawAndRemove", "[HttpHeaderBlock]") {
     http_headers h;
     (void)h.reset_raw("Connection", "close");
     const auto v = h.get("Connection");
-    REQUIRE((v));
-    CHECK((*v) == ("close"));
+    REQUIRE(v);
+    CHECK(*v == "close");
   }
   // reset_raw updates when one entry exists.
   {
     http_headers h;
-    CHECK((h.add_raw("Connection", "keep-alive")));
+    CHECK(h.add_raw("Connection", "keep-alive"));
     (void)h.reset_raw("Connection", "close");
     const auto v = h.get("Connection");
-    REQUIRE((v));
-    CHECK((*v) == ("close"));
+    REQUIRE(v);
+    CHECK(*v == "close");
   }
   // reset_raw reduces multiple entries to one.
   {
     http_headers h;
-    CHECK((h.add_raw("Accept", "text/html")));
-    CHECK((h.add_raw("Accept", "application/json")));
-    CHECK((h.get_values("Accept").size()) == (2ULL));
+    CHECK(h.add_raw("Accept", "text/html"));
+    CHECK(h.add_raw("Accept", "application/json"));
+    CHECK(h.get_values("Accept").size() == 2ULL);
     (void)h.reset_raw("Accept", "text/plain");
     const auto v = h.get("Accept");
-    REQUIRE((v));
-    CHECK((*v) == ("text/plain"));
-    CHECK((h.get_values("Accept").size()) == (1ULL));
+    REQUIRE(v);
+    CHECK(*v == "text/plain");
+    CHECK(h.get_values("Accept").size() == 1ULL);
   }
   // reset_raw does not affect other fields.
   {
     http_headers h;
-    CHECK((h.add_raw("Host", "example.com")));
-    CHECK((h.add_raw("Accept", "text/html")));
+    CHECK(h.add_raw("Host", "example.com"));
+    CHECK(h.add_raw("Accept", "text/html"));
     (void)h.reset_raw("Accept", "application/json");
     const auto host = h.get("Host");
-    REQUIRE((host));
-    CHECK((*host) == ("example.com"));
+    REQUIRE(host);
+    CHECK(*host == "example.com");
     const auto accept = h.get("Accept");
-    REQUIRE((accept));
-    CHECK((*accept) == ("application/json"));
+    REQUIRE(accept);
+    CHECK(*accept == "application/json");
   }
   // remove_entry: entry gone; other fields unaffected.
   {
     http_headers h;
-    CHECK((h.add_raw("Host", "example.com")));
-    CHECK((h.add_raw("Accept", "text/html")));
+    CHECK(h.add_raw("Host", "example.com"));
+    CHECK(h.add_raw("Accept", "text/html"));
     h.remove_key("Accept");
-    CHECK_FALSE((h.get("Accept")));
-    CHECK((h.get_values("Accept").empty()));
+    CHECK_FALSE(h.get("Accept"));
+    CHECK(h.get_values("Accept").empty());
     const auto host = h.get("Host");
-    REQUIRE((host));
-    CHECK((*host) == ("example.com"));
+    REQUIRE(host);
+    CHECK(*host == "example.com");
   }
   // remove_entry
   {
     http_headers h;
-    CHECK((h.add_raw("Accept", "text/html")));
-    CHECK((h.add_raw("Accept", "application/json")));
-    CHECK((h.add_raw("Accept", "image/webp")));
+    CHECK(h.add_raw("Accept", "text/html"));
+    CHECK(h.add_raw("Accept", "application/json"));
+    CHECK(h.add_raw("Accept", "image/webp"));
     const auto r = h.get_values("Accept");
     for (auto it = r.begin(); it != r.end(); ++it)
       if (*it == "application/json") it.tombstone();
     auto it = r.begin();
-    REQUIRE((it != r.end()));
-    CHECK((*it) == ("text/html"));
+    REQUIRE(it != r.end());
+    CHECK(*it == "text/html");
     ++it;
-    REQUIRE((it != r.end()));
-    CHECK((*it) == ("image/webp"));
+    REQUIRE(it != r.end());
+    CHECK(*it == "image/webp");
     ++it;
-    CHECK((it == r.end()));
+    CHECK(it == r.end());
     const auto accept = h.get_combined("Accept");
-    CHECK((accept) == ("text/html, image/webp"));
+    CHECK(accept == "text/html, image/webp");
   }
   // remove_key: all entries for field gone; other fields unaffected.
   {
     http_headers h;
-    CHECK((h.add_raw("Host", "example.com")));
-    CHECK((h.add_raw("Accept", "text/html")));
-    CHECK((h.add_raw("Accept", "application/json")));
+    CHECK(h.add_raw("Host", "example.com"));
+    CHECK(h.add_raw("Accept", "text/html"));
+    CHECK(h.add_raw("Accept", "application/json"));
     h.remove_key("Accept");
-    CHECK_FALSE((h.get("Accept")));
-    CHECK((h.get_values("Accept").empty()));
+    CHECK_FALSE(h.get("Accept"));
+    CHECK(h.get_values("Accept").empty());
     const auto host = h.get("Host");
-    REQUIRE((host));
-    CHECK((*host) == ("example.com"));
+    REQUIRE(host);
+    CHECK(*host == "example.com");
   }
   // remove_key on absent field is a no-op.
   {
     http_headers h;
-    CHECK((h.add_raw("Host", "example.com")));
+    CHECK(h.add_raw("Host", "example.com"));
     h.remove_key("Accept");
     const auto host = h.get("Host");
-    REQUIRE((host));
-    CHECK((*host) == ("example.com"));
+    REQUIRE(host);
+    CHECK(*host == "example.com");
   }
 }
 #pragma endregion

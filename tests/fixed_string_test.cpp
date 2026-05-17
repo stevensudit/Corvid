@@ -64,11 +64,11 @@ static_assert(!CanSplit<"">());
 TEST_CASE("General", "[FixedStringTest]") {
   std::string_view s;
   s = GetFixedString<"abc">();
-  CHECK((s) == ("abc"sv));
+  CHECK(s == "abc"sv);
   constinit static auto ceval = test_ceval();
-  CHECK((ceval) == ("abc"sv));
+  CHECK(ceval == "abc"sv);
   constinit static auto csplit = test_split();
-  CHECK((csplit) == ("def"sv));
+  CHECK(csplit == "def"sv);
 
   CHECK(((strings::fixed_split<"abc,def">())) ==
         ((std::array{"abc"sv, "def"sv})));
@@ -78,12 +78,13 @@ TEST_CASE("General", "[FixedStringTest]") {
         ((std::array{"abc"sv, "def"sv})));
   CHECK(((strings::fixed_split_trim<"   abc   ,    ,  def   ">())) ==
         ((std::array{"abc"sv, ""sv, "def"sv})));
-  CHECK(((strings::fixed_split_trim<"- -- abc  - ,  --  ,  def  -- ",
-            " -">())) == ((std::array{"abc"sv, ""sv, "def"sv})));
+  CHECK(
+      (strings::fixed_split_trim<"- -- abc  - ,  --  ,  def  -- ", " -">()) ==
+      std::array{"abc"sv, ""sv, "def"sv});
 
   auto cs = test_cstr();
-  CHECK((cs) == ("abc"sv));
-  CHECK((ceval) == ("abc"_csv));
+  CHECK(cs == "abc"sv);
+  CHECK(ceval == "abc"_csv);
 }
 
 #pragma endregion

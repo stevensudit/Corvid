@@ -41,14 +41,14 @@ static tp T(int ms) { return tp{} + std::chrono::milliseconds{ms}; }
 TEST_CASE("BasicFire", "[TimeoutSweeper]") {
   sweeper s;
   int fired{0};
-  CHECK((s.schedule(T(100), [&](tp) -> tp {
+  CHECK(s.schedule(T(100), [&](tp) -> tp {
     ++fired;
     return {};
-  })));
-  CHECK((s.size()) == (1U));
+  }));
+  CHECK(s.size() == 1U);
   s.tick(T(100));
-  CHECK((fired) == (1));
-  CHECK((s.empty()));
+  CHECK(fired == 1);
+  CHECK(s.empty());
 }
 
 #pragma endregion
@@ -64,10 +64,10 @@ TEST_CASE("NotFiredEarly", "[TimeoutSweeper]") {
     return {};
   });
   s.tick(T(50));
-  CHECK((fired) == (0));
-  CHECK((s.size()) == (1U));
+  CHECK(fired == 0);
+  CHECK(s.size() == 1U);
   s.tick(T(99));
-  CHECK((fired) == (0));
+  CHECK(fired == 0);
 }
 
 #pragma endregion
@@ -91,10 +91,10 @@ TEST_CASE("MinHeapOrder", "[TimeoutSweeper]") {
     return {};
   });
   s.tick(T(500));
-  REQUIRE((order.size()) == (3U));
-  CHECK((order[0]) == (1));
-  CHECK((order[1]) == (2));
-  CHECK((order[2]) == (3));
+  REQUIRE(order.size() == 3U);
+  CHECK(order[0] == 1);
+  CHECK(order[1] == 2);
+  CHECK(order[2] == 3);
 }
 
 #pragma endregion
@@ -124,16 +124,16 @@ TEST_CASE("RearmReturnsNewTime", "[TimeoutSweeper]") {
     return fired < 3 ? T(100 + (fired * 100)) : tp{};
   });
   s.tick(T(50));
-  CHECK((fired) == (0));
+  CHECK(fired == 0);
   s.tick(T(150)); // fire 1, rearm to T(200)
-  CHECK((fired) == (1));
-  CHECK((s.size()) == (1U));
+  CHECK(fired == 1);
+  CHECK(s.size() == 1U);
   s.tick(T(250)); // fire 2, rearm to T(300)
-  CHECK((fired) == (2));
-  CHECK((s.size()) == (1U));
+  CHECK(fired == 2);
+  CHECK(s.size() == 1U);
   s.tick(T(350)); // fire 3, returns zero -> drop
-  CHECK((fired) == (3));
-  CHECK((s.empty()));
+  CHECK(fired == 3);
+  CHECK(s.empty());
 }
 
 #pragma endregion
@@ -150,8 +150,8 @@ TEST_CASE("MultipleExpiredInOneTick", "[TimeoutSweeper]") {
       return {};
     });
   s.tick(T(50));
-  CHECK((count) == (5));
-  CHECK((s.empty()));
+  CHECK(count == 5);
+  CHECK(s.empty());
 }
 
 #pragma endregion
@@ -168,11 +168,11 @@ TEST_CASE("Clear", "[TimeoutSweeper]") {
     ++fired;
     return {};
   });
-  CHECK((s.size()) == (2U));
+  CHECK(s.size() == 2U);
   s.clear();
-  CHECK((s.empty()));
+  CHECK(s.empty());
   s.tick(T(500));
-  CHECK((fired) == (0));
+  CHECK(fired == 0);
 }
 
 #pragma endregion
@@ -180,14 +180,14 @@ TEST_CASE("Clear", "[TimeoutSweeper]") {
 
 TEST_CASE("SizeAndEmpty", "[TimeoutSweeper]") {
   sweeper s;
-  CHECK((s.empty()));
-  CHECK((s.size()) == (0U));
+  CHECK(s.empty());
+  CHECK(s.size() == 0U);
   s.schedule(T(100), [](tp) -> tp { return {}; });
-  CHECK_FALSE((s.empty()));
-  CHECK((s.size()) == (1U));
+  CHECK_FALSE(s.empty());
+  CHECK(s.size() == 1U);
   s.tick(T(150));
-  CHECK((s.empty()));
-  CHECK((s.size()) == (0U));
+  CHECK(s.empty());
+  CHECK(s.size() == 0U);
 }
 
 #pragma endregion
@@ -208,7 +208,7 @@ TEST_CASE("DestructorDrains", "[TimeoutSweeper]") {
       return {};
     });
   }
-  CHECK((fired) == (2));
+  CHECK(fired == 2);
 }
 
 #pragma endregion
@@ -225,7 +225,7 @@ TEST_CASE("DestructorShortCircuitsRearm", "[TimeoutSweeper]") {
       return T(200);
     });
   }
-  CHECK((fired) == (1));
+  CHECK(fired == 1);
 }
 
 #pragma endregion
@@ -242,7 +242,7 @@ TEST_CASE("DestructorBlocksFurtherSchedule", "[TimeoutSweeper]") {
       return {};
     });
   }
-  CHECK_FALSE((inner_accepted));
+  CHECK_FALSE(inner_accepted);
 }
 
 #pragma endregion
@@ -258,8 +258,8 @@ TEST_CASE("ScheduleAcceptsDuringNormalTick", "[TimeoutSweeper]") {
     return {};
   });
   s.tick(T(150));
-  CHECK((inner_accepted));
-  CHECK((s.size()) == (1U));
+  CHECK(inner_accepted);
+  CHECK(s.size() == 1U);
 }
 
 #pragma endregion
@@ -292,8 +292,8 @@ TEST_CASE("ConnPattern_CloseOnIdle", "[TimeoutSweeper]") {
   });
 
   s.tick(T(150));
-  CHECK((conn->close_count) == (1));
-  CHECK((s.empty()));
+  CHECK(conn->close_count == 1);
+  CHECK(s.empty());
 }
 
 #pragma endregion
@@ -320,13 +320,13 @@ TEST_CASE("ConnPattern_RearmOnExtended", "[TimeoutSweeper]") {
   // Activity: push the deadline forward.
   conn->read_expiration_ = T(300);
   s.tick(T(150));
-  CHECK((conn->close_count) == (0));
-  CHECK((s.size()) == (1U));
+  CHECK(conn->close_count == 0);
+  CHECK(s.size() == 1U);
 
   // No further activity. The rearmed entry now matches and should close.
   s.tick(T(350));
-  CHECK((conn->close_count) == (1));
-  CHECK((s.empty()));
+  CHECK(conn->close_count == 1);
+  CHECK(s.empty());
 }
 
 #pragma endregion
@@ -352,7 +352,7 @@ TEST_CASE("ConnPattern_WeakPtrExpiry", "[TimeoutSweeper]") {
 
   conn.reset(); // Conn dies.
   s.tick(T(150));
-  CHECK((s.empty()));
+  CHECK(s.empty());
 }
 
 #pragma endregion
@@ -381,18 +381,18 @@ TEST_CASE("PausedExpirationClip", "[TimeoutSweeper]") {
   // Pause.
   conn->read_expiration_ = sweeper::paused_expiration;
   s.tick(T(150));
-  CHECK((conn->close_count) == (0));
-  CHECK((s.size()) == (1U));
+  CHECK(conn->close_count == 0);
+  CHECK(s.size() == 1U);
 
   // Resume by writing a real deadline. Next fire picks it up.
   conn->read_expiration_ = T(1200);
   s.tick(
       T(1100)); // pops the entry rearmed to T(1000), sees mismatch -> T(1200)
-  CHECK((conn->close_count) == (0));
-  CHECK((s.size()) == (1U));
+  CHECK(conn->close_count == 0);
+  CHECK(s.size() == 1U);
 
   s.tick(T(1250));
-  CHECK((conn->close_count) == (1));
+  CHECK(conn->close_count == 1);
 }
 
 #pragma endregion
@@ -408,12 +408,12 @@ TEST_CASE("FixedFunctionSpecialization", "[TimeoutSweeper]") {
 
   small_sw s;
   int fired{0};
-  CHECK((s.schedule(T(100), [&fired](tp) -> tp {
+  CHECK(s.schedule(T(100), [&fired](tp) -> tp {
     ++fired;
     return {};
-  })));
+  }));
   s.tick(T(150));
-  CHECK((fired) == (1));
+  CHECK(fired == 1);
 }
 
 #pragma endregion

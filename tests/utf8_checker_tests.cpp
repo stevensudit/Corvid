@@ -48,10 +48,10 @@ bool is_codex() {
 // ASCII and fully contained multibyte sequences leave the validator complete.
 TEST_CASE("Complete", "[Utf8Checker]") {
   utf8_checker v;
-  CHECK((v.state()) == (utf8_checker::validation::complete));
-  CHECK((v.validate("hello")) == (utf8_checker::validation::complete));
-  CHECK((v.validate("\xE2\x82\xAC")) == (utf8_checker::validation::complete));
-  CHECK((v.is_complete()));
+  CHECK(v.state() == utf8_checker::validation::complete);
+  CHECK(v.validate("hello") == utf8_checker::validation::complete);
+  CHECK(v.validate("\xE2\x82\xAC") == utf8_checker::validation::complete);
+  CHECK(v.is_complete());
 }
 
 #pragma endregion
@@ -60,10 +60,10 @@ TEST_CASE("Complete", "[Utf8Checker]") {
 // A split multibyte sequence transitions to incomplete, then back to complete.
 TEST_CASE("IncompleteThenComplete", "[Utf8Checker]") {
   utf8_checker v;
-  CHECK((v.validate("\xF0\x9F")) == (utf8_checker::validation::incomplete));
-  CHECK((v.is_incomplete()));
-  CHECK((v.validate("\x98\x80")) == (utf8_checker::validation::complete));
-  CHECK((v.is_complete()));
+  CHECK(v.validate("\xF0\x9F") == utf8_checker::validation::incomplete);
+  CHECK(v.is_incomplete());
+  CHECK(v.validate("\x98\x80") == utf8_checker::validation::complete);
+  CHECK(v.is_complete());
 }
 
 #pragma endregion
@@ -72,10 +72,10 @@ TEST_CASE("IncompleteThenComplete", "[Utf8Checker]") {
 // Invalid leading and continuation bytes move the validator to sticky invalid.
 TEST_CASE("InvalidSticky", "[Utf8Checker]") {
   utf8_checker v;
-  CHECK((v.validate("\x80")) == (utf8_checker::validation::failed));
-  CHECK((v.is_failed()));
-  CHECK((v.validate("abc")) == (utf8_checker::validation::failed));
-  CHECK((v.is_failed()));
+  CHECK(v.validate("\x80") == utf8_checker::validation::failed);
+  CHECK(v.is_failed());
+  CHECK(v.validate("abc") == utf8_checker::validation::failed);
+  CHECK(v.is_failed());
 }
 
 #pragma endregion
@@ -84,14 +84,13 @@ TEST_CASE("InvalidSticky", "[Utf8Checker]") {
 // Reject overlongs, surrogate code points, and code points past U+10FFFF.
 TEST_CASE("RejectsInvalidSequences", "[Utf8Checker]") {
   utf8_checker v;
-  CHECK((v.validate("\xE0\x80\x80")) == (utf8_checker::validation::failed));
+  CHECK(v.validate("\xE0\x80\x80") == utf8_checker::validation::failed);
 
   v.reset();
-  CHECK((v.validate("\xED\xA0\x80")) == (utf8_checker::validation::failed));
+  CHECK(v.validate("\xED\xA0\x80") == utf8_checker::validation::failed);
 
   v.reset();
-  CHECK(
-      (v.validate("\xF4\x90\x80\x80")) == (utf8_checker::validation::failed));
+  CHECK(v.validate("\xF4\x90\x80\x80") == utf8_checker::validation::failed);
 }
 
 #pragma endregion

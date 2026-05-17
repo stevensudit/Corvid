@@ -118,19 +118,18 @@ TEST_CASE("SendRecvString", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_conn));
+    CHECK(recv_conn);
 
     // Adopt sock0 as sender.
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_conn));
+    CHECK(send_conn);
 
-    CHECK((send_conn->send(std::string{msg})));
-    CHECK(
-        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
-    CHECK((payload) == (msg));
+    CHECK(send_conn->send(std::string{msg}));
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(payload == msg);
   }
 }
 
@@ -163,19 +162,19 @@ TEST_CASE("MultipleStrings", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_conn));
+    CHECK(recv_conn);
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_conn));
+    CHECK(send_conn);
 
-    for (int i = 0; i < N; ++i) CHECK((send_conn->send(std::string{msg})));
+    for (int i = 0; i < N; ++i) CHECK(send_conn->send(std::string{msg}));
 
     const int expected = N * static_cast<int>(msg.size());
-    CHECK((WaitFor([&] { return recv_bytes >= expected; })));
-    CHECK((recv_bytes) == (expected));
+    CHECK(WaitFor([&] { return recv_bytes >= expected; }));
+    CHECK(recv_bytes == expected);
   }
 }
 
@@ -206,24 +205,23 @@ TEST_CASE("SendRecvBuffer", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_conn));
+    CHECK(recv_conn);
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_conn));
+    CHECK(send_conn);
 
     // Borrow a write buffer and fill it manually, then send.
     auto tok = runner->borrow_write_buffer();
-    CHECK((tok));
+    CHECK(tok);
     if (!tok) return;
-    CHECK((tok.append(msg)));
-    CHECK((send_conn->send(std::move(tok))));
+    CHECK(tok.append(msg));
+    CHECK(send_conn->send(std::move(tok)));
 
-    CHECK(
-        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
-    CHECK((payload) == (msg));
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(payload == msg);
   }
 }
 
@@ -255,18 +253,17 @@ TEST_CASE("BufferMoveOut", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_conn));
+    CHECK(recv_conn);
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_conn));
+    CHECK(send_conn);
 
-    CHECK((send_conn->send(std::string{msg})));
-    CHECK(
-        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
-    CHECK((payload) == (msg));
+    CHECK(send_conn->send(std::string{msg}));
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(payload == msg);
   }
 }
 
@@ -300,17 +297,17 @@ TEST_CASE("GracefulClose", "[IouStreamConn]") {
     auto conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid, shot_type::single, {}, {}, &state1)
                      .lock();
-    CHECK((conn0));
-    CHECK((conn1));
+    CHECK(conn0);
+    CHECK(conn1);
 
     // Give both connections time to arm their recv SQEs.
     std::this_thread::sleep_for(20ms);
 
     // TODO: This doesn't do the graceful close that's promised.
 
-    CHECK((conn0->close()));
-    CHECK((WaitFor([&] { return closed0.load(std::memory_order::acquire); })));
-    CHECK((closed0.load()));
+    CHECK(conn0->close());
+    CHECK(WaitFor([&] { return closed0.load(std::memory_order::acquire); }));
+    CHECK(closed0.load());
   }
 }
 
@@ -339,11 +336,11 @@ TEST_CASE("HangupClose", "[IouStreamConn]") {
     auto conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid)
                      .lock();
-    CHECK((conn0));
-    CHECK((conn1));
+    CHECK(conn0);
+    CHECK(conn1);
 
-    CHECK((conn0->hangup()));
-    CHECK((WaitFor([&] { return closed.load(std::memory_order::acquire); })));
+    CHECK(conn0->hangup());
+    CHECK(WaitFor([&] { return closed.load(std::memory_order::acquire); }));
   }
 }
 
@@ -363,7 +360,7 @@ TEST_CASE("OnDrain", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid)
             .lock();
-    CHECK((recv_conn));
+    CHECK(recv_conn);
 
     capture_protocol::state send_state;
     send_state.on_drain = [&] {
@@ -375,10 +372,10 @@ TEST_CASE("OnDrain", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid, shot_type::single, {}, {}, &send_state)
             .lock();
-    CHECK((send_conn));
+    CHECK(send_conn);
 
-    CHECK((send_conn->send(std::string{"ping"})));
-    CHECK((WaitFor([&] { return drained.load(std::memory_order::acquire); })));
+    CHECK(send_conn->send(std::string{"ping"}));
+    CHECK(WaitFor([&] { return drained.load(std::memory_order::acquire); }));
   }
 }
 
@@ -413,18 +410,17 @@ TEST_CASE("WithState", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_conn));
+    CHECK(recv_conn);
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_conn));
+    CHECK(send_conn);
 
-    CHECK((send_conn->send(std::string{"state-test"})));
-    CHECK(
-        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
-    CHECK((my_state.recv_count) == (1));
+    CHECK(send_conn->send(std::string{"state-test"}));
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(my_state.recv_count == 1);
   }
 }
 
@@ -461,18 +457,18 @@ TEST_CASE("FullBufferPartialConsume", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_conn));
+    CHECK(recv_conn);
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_conn));
+    CHECK(send_conn);
 
-    CHECK((send_conn->send(std::string(buf_size, 'x'))));
-    CHECK((send_conn->send(std::string(1, 'y'))));
-    CHECK((WaitFor([&] { return done.load(std::memory_order::acquire); })));
-    CHECK((total_consumed.load(std::memory_order::acquire)) >= (buf_size + 1));
+    CHECK(send_conn->send(std::string(buf_size, 'x')));
+    CHECK(send_conn->send(std::string(1, 'y')));
+    CHECK(WaitFor([&] { return done.load(std::memory_order::acquire); }));
+    CHECK(total_consumed.load(std::memory_order::acquire) >= (buf_size + 1));
   }
 }
 
@@ -503,18 +499,17 @@ TEST_CASE("MultishotRecv_Basic", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_conn));
+    CHECK(recv_conn);
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_conn));
+    CHECK(send_conn);
 
-    CHECK((send_conn->send(std::string{msg})));
-    CHECK(
-        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
-    CHECK((payload) == (msg));
+    CHECK(send_conn->send(std::string{msg}));
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(payload == msg);
   }
 }
 
@@ -547,20 +542,20 @@ TEST_CASE("MultishotRecv_MultipleMessages", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_conn));
+    CHECK(recv_conn);
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_conn));
+    CHECK(send_conn);
 
-    for (int i = 0; i < N; ++i) CHECK((send_conn->send(std::string{msg})));
+    for (int i = 0; i < N; ++i) CHECK(send_conn->send(std::string{msg}));
 
-    CHECK((WaitFor([&] {
+    CHECK(WaitFor([&] {
       return recv_bytes.load(std::memory_order::acquire) >= expected;
-    })));
-    CHECK((recv_bytes.load()) == (expected));
+    }));
+    CHECK(recv_bytes.load() == expected);
   }
 }
 
@@ -594,25 +589,25 @@ TEST_CASE("MultishotRecv_TakeBuffer", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_conn));
+    CHECK(recv_conn);
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_conn));
+    CHECK(send_conn);
 
-    CHECK((send_conn->send(std::string{msg})));
-    CHECK((WaitFor([&] {
+    CHECK(send_conn->send(std::string{msg}));
+    CHECK(WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 1;
-    })));
+    }));
 
     // After take(), send a second message; recv should still work.
     taken_buf = {}; // release the taken buffer back to the pool
-    CHECK((send_conn->send(std::string{msg})));
-    CHECK((WaitFor([&] {
+    CHECK(send_conn->send(std::string{msg}));
+    CHECK(WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 2;
-    })));
+    }));
   }
 }
 
@@ -657,34 +652,34 @@ TEST_CASE("MultishotRecv_StopAndResume", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_conn));
+    CHECK(recv_conn);
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_conn));
+    CHECK(send_conn);
 
     // First message: received, then reading stops.
-    CHECK((send_conn->send(std::string{msg})));
-    CHECK((WaitFor([&] {
+    CHECK(send_conn->send(std::string{msg}));
+    CHECK(WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 1;
-    })));
+    }));
 
     // Second message: sent while paused, should not be delivered yet.
-    CHECK((send_conn->send(std::string{msg})));
+    CHECK(send_conn->send(std::string{msg}));
     std::this_thread::sleep_for(50ms);
-    CHECK((recv_count.load(std::memory_order::acquire)) == (1));
+    CHECK(recv_count.load(std::memory_order::acquire) == 1);
 
     // Resume by invoking the callback.
     {
       std::scoped_lock lock{cb_mutex};
-      CHECK((resume_cb));
-      CHECK((resume_cb()));
+      CHECK(resume_cb);
+      CHECK(resume_cb());
     }
-    CHECK((WaitFor([&] {
+    CHECK(WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 2;
-    })));
+    }));
   }
 }
 
@@ -712,16 +707,15 @@ TEST_CASE("MultishotRecv_AcceptedConnsInheritMode", "[IouStreamConn]") {
     auto server = capture_conn::listen(*runner.loop(),
         net_endpoint::loopback_v4(0), shot_type::multi, {}, {}, &server_state)
                       .lock();
-    CHECK((server));
+    CHECK(server);
 
     const auto& listen_ep = server->local_endpoint();
     auto client = capture_conn::connect(*runner.loop(), listen_ep).lock();
-    CHECK((client));
+    CHECK(client);
 
-    CHECK((client->send(std::string{msg})));
-    CHECK(
-        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
-    CHECK((payload) == (msg));
+    CHECK(client->send(std::string{msg}));
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(payload == msg);
   }
 }
 
@@ -749,23 +743,23 @@ TEST_CASE("AccessorsLifecycle", "[IouStreamConn]") {
     auto conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid)
                      .lock();
-    CHECK((conn0));
-    CHECK((conn1));
+    CHECK(conn0);
+    CHECK(conn1);
 
-    CHECK((conn0->is_open()));
-    CHECK((conn0->writes_allowed()));
-    CHECK_FALSE((conn0->is_read_shut()));
-    CHECK_FALSE((conn0->is_write_shut()));
+    CHECK(conn0->is_open());
+    CHECK(conn0->writes_allowed());
+    CHECK_FALSE(conn0->is_read_shut());
+    CHECK_FALSE(conn0->is_write_shut());
 
-    CHECK((conn0->close()));
+    CHECK(conn0->close());
     // writes_allowed flips synchronously off `close_requested_`; is_open
     // follows once the actual close is processed.
-    CHECK_FALSE((conn0->writes_allowed()));
-    CHECK((WaitFor([&] { return closed.load(std::memory_order::acquire); })));
-    CHECK_FALSE((conn0->is_open()));
+    CHECK_FALSE(conn0->writes_allowed());
+    CHECK(WaitFor([&] { return closed.load(std::memory_order::acquire); }));
+    CHECK_FALSE(conn0->is_open());
 
     // Second `close` is a no-op.
-    CHECK_FALSE((conn0->close()));
+    CHECK_FALSE(conn0->close());
   }
 }
 
@@ -789,26 +783,25 @@ TEST_CASE("Endpoints", "[IouStreamConn]") {
     auto server = capture_conn::listen(*runner.loop(),
         net_endpoint::loopback_v4(0), shot_type::multi, {}, {}, &server_state)
                       .lock();
-    CHECK((server));
+    CHECK(server);
 
     const auto& listen_ep = server->local_endpoint();
-    CHECK_FALSE((listen_ep.empty()));
-    CHECK((listen_ep.port()) != (0));
+    CHECK_FALSE(listen_ep.empty());
+    CHECK(listen_ep.port() != 0);
 
     auto client = capture_conn::connect(*runner.loop(), listen_ep,
         shot_type::single, {}, {}, &client_state)
                       .lock();
-    CHECK((client));
-    CHECK(
-        (WaitFor([&] { return connected.load(std::memory_order::acquire); })));
+    CHECK(client);
+    CHECK(WaitFor([&] { return connected.load(std::memory_order::acquire); }));
 
     // After connect succeeds, both endpoints should be resolvable.
     const auto& cl_remote = client->remote_endpoint();
-    CHECK((cl_remote.port()) == (listen_ep.port()));
+    CHECK(cl_remote.port() == listen_ep.port());
 
     const auto& cl_local = client->local_endpoint();
-    CHECK_FALSE((cl_local.empty()));
-    CHECK((cl_local.port()) != (0));
+    CHECK_FALSE(cl_local.empty());
+    CHECK(cl_local.port() != 0);
   }
 }
 
@@ -827,15 +820,15 @@ TEST_CASE("BufSizeAccessors", "[IouStreamConn]") {
     auto conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
         net_endpoint::invalid)
                     .lock();
-    CHECK((conn));
+    CHECK(conn);
 
-    CHECK((conn->recv_buf_size()) == (block_size::kb004));
-    CHECK((conn->send_buf_size()) == (block_size::kb004));
+    CHECK(conn->recv_buf_size() == block_size::kb004);
+    CHECK(conn->send_buf_size() == block_size::kb004);
 
     conn->set_recv_buf_size(block_size::kb002);
     conn->set_send_buf_size(block_size::kb008);
-    CHECK((conn->recv_buf_size()) == (block_size::kb002));
-    CHECK((conn->send_buf_size()) == (block_size::kb008));
+    CHECK(conn->recv_buf_size() == block_size::kb002);
+    CHECK(conn->send_buf_size() == block_size::kb008);
 
     // Keep sock1 alive until conn teardown to avoid a stray RST during the
     // test (cleanup happens in the runner destructor).
@@ -883,28 +876,26 @@ TEST_CASE("PeerEofDeliversEmptyView", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_conn));
+    CHECK(recv_conn);
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_conn));
+    CHECK(send_conn);
 
-    CHECK((send_conn->send(std::string{msg})));
-    CHECK(
-        (WaitFor([&] { return got_data.load(std::memory_order::acquire); })));
-    CHECK((payload) == (msg));
+    CHECK(send_conn->send(std::string{msg}));
+    CHECK(WaitFor([&] { return got_data.load(std::memory_order::acquire); }));
+    CHECK(payload == msg);
 
-    CHECK((send_conn->close()));
-    CHECK((WaitFor([&] { return got_eof.load(std::memory_order::acquire); })));
-    CHECK((recv_conn->is_read_shut()));
+    CHECK(send_conn->close());
+    CHECK(WaitFor([&] { return got_eof.load(std::memory_order::acquire); }));
+    CHECK(recv_conn->is_read_shut());
 
     // Peer EOF does not auto-close locally; the recv side must close itself
     // to retire its on_close.
-    CHECK((recv_conn->close()));
-    CHECK(
-        (WaitFor([&] { return got_close.load(std::memory_order::acquire); })));
+    CHECK(recv_conn->close());
+    CHECK(WaitFor([&] { return got_close.load(std::memory_order::acquire); }));
   }
 }
 
@@ -946,41 +937,40 @@ TEST_CASE("ShutdownSend", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_raw));
+    CHECK(recv_raw);
     auto recv_conn = recv_raw->self();
 
     auto send_raw =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_raw));
+    CHECK(send_raw);
     auto send_conn = send_raw->self();
 
     // send + shutdown_send back-to-back: the send was authorized when
     // `writes_allowed()` first returned true, so the in-lambda guard
     // (which checks `closed_`, not `shutdown_send_requested_`) honors it
     // before `shutdown_send` tears down.
-    CHECK((send_conn->send(std::string{msg})));
-    CHECK((send_conn->shutdown_send()));
+    CHECK(send_conn->send(std::string{msg}));
+    CHECK(send_conn->shutdown_send());
 
-    CHECK(
-        (WaitFor([&] { return got_data.load(std::memory_order::acquire); })));
-    CHECK((payload) == (msg));
-    CHECK((WaitFor([&] { return got_eof.load(std::memory_order::acquire); })));
+    CHECK(WaitFor([&] { return got_data.load(std::memory_order::acquire); }));
+    CHECK(payload == msg);
+    CHECK(WaitFor([&] { return got_eof.load(std::memory_order::acquire); }));
 
     // Writes are now rejected.
-    CHECK_FALSE((send_conn->writes_allowed()));
-    CHECK_FALSE((send_conn->send(std::string{"nope"})));
+    CHECK_FALSE(send_conn->writes_allowed());
+    CHECK_FALSE(send_conn->send(std::string{"nope"}));
 
     // Idempotent.
-    CHECK_FALSE((send_conn->shutdown_send()));
+    CHECK_FALSE(send_conn->shutdown_send());
 
     // Local conn is still open for reads.
-    CHECK((send_conn->is_open()));
+    CHECK(send_conn->is_open());
 
     // Clean shutdown: explicit close on both sides before runner teardown.
-    CHECK((recv_conn->close()));
-    CHECK((send_conn->close()));
+    CHECK(recv_conn->close());
+    CHECK(send_conn->close());
   }
 }
 
@@ -1008,31 +998,31 @@ TEST_CASE("ShutdownRecv", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_raw));
+    CHECK(recv_raw);
     auto recv_conn = recv_raw->self();
 
     auto send_raw =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_raw));
+    CHECK(send_raw);
     auto send_conn = send_raw->self();
 
-    CHECK((send_conn->send(std::string{"first"})));
-    CHECK((WaitFor([&] {
+    CHECK(send_conn->send(std::string{"first"}));
+    CHECK(WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 1;
-    })));
+    }));
 
-    CHECK((recv_conn->shutdown_recv()));
-    CHECK((WaitFor([&] { return recv_conn->is_read_shut(); })));
+    CHECK(recv_conn->shutdown_recv());
+    CHECK(WaitFor([&] { return recv_conn->is_read_shut(); }));
 
     // Idempotent.
-    CHECK_FALSE((recv_conn->shutdown_recv()));
+    CHECK_FALSE(recv_conn->shutdown_recv());
 
     // New data does not surface as additional on_data calls.
-    CHECK((send_conn->send(std::string{"second"})));
+    CHECK(send_conn->send(std::string{"second"}));
     std::this_thread::sleep_for(50ms);
-    CHECK((recv_count.load(std::memory_order::acquire)) == (1));
+    CHECK(recv_count.load(std::memory_order::acquire) == 1);
   }
 }
 
@@ -1061,47 +1051,47 @@ TEST_CASE("StopAndResumeReceivingOnConn", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::multi, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_raw));
+    CHECK(recv_raw);
     auto recv_conn = recv_raw->self();
 
     auto send_raw =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_raw));
+    CHECK(send_raw);
     auto send_conn = send_raw->self();
 
-    CHECK((send_conn->send(std::string{"A"})));
-    CHECK((WaitFor([&] {
+    CHECK(send_conn->send(std::string{"A"}));
+    CHECK(WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 1;
-    })));
+    }));
 
     // Pause. The returned shared_ptr is what keeps the conn alive once the
     // recv loop ends; without holding it we'd race against the cancel CQE
     // releasing the last in-flight self-ref. (Our outer `recv_conn`
     // already serves that role, so we don't need to bind a separate var.)
     auto paused = recv_conn->stop_receiving();
-    CHECK((paused));
+    CHECK(paused);
     // Give the cancel time to take effect.
     std::this_thread::sleep_for(50ms);
 
     // Send while paused; should not reach on_data yet.
-    CHECK((send_conn->send(std::string{"B"})));
+    CHECK(send_conn->send(std::string{"B"}));
     std::this_thread::sleep_for(50ms);
-    CHECK((recv_count.load(std::memory_order::acquire)) == (1));
+    CHECK(recv_count.load(std::memory_order::acquire) == 1);
 
     // Resume.
-    CHECK((recv_conn->resume_receiving()));
-    CHECK((WaitFor([&] {
+    CHECK(recv_conn->resume_receiving());
+    CHECK(WaitFor([&] {
       return recv_count.load(std::memory_order::acquire) >= 2;
-    })));
-    CHECK((payload) == ("AB"));
+    }));
+    CHECK(payload == "AB");
 
     // Idempotent: a second resume_receiving with no prior pause is a no-op.
-    CHECK_FALSE((recv_conn->resume_receiving()));
+    CHECK_FALSE(recv_conn->resume_receiving());
 
-    CHECK((recv_conn->close()));
-    CHECK((send_conn->close()));
+    CHECK(recv_conn->close());
+    CHECK(send_conn->close());
   }
 }
 
@@ -1132,9 +1122,9 @@ TEST_CASE("ConnectFailure", "[IouStreamConn]") {
       auto probe =
           capture_conn::listen(*runner.loop(), net_endpoint::loopback_v4(0))
               .lock();
-      CHECK((probe));
+      CHECK(probe);
       unreachable = probe->local_endpoint();
-      CHECK((probe->hangup()));
+      CHECK(probe->hangup());
     }
     // Small pause so the listener's close completes before we connect.
     std::this_thread::sleep_for(20ms);
@@ -1142,10 +1132,10 @@ TEST_CASE("ConnectFailure", "[IouStreamConn]") {
     auto client = capture_conn::connect(*runner.loop(), unreachable,
         shot_type::single, {}, {}, &state)
                       .lock();
-    CHECK((client));
+    CHECK(client);
 
-    CHECK((WaitFor([&] { return closed.load(std::memory_order::acquire); })));
-    CHECK_FALSE((drained.load(std::memory_order::acquire)));
+    CHECK(WaitFor([&] { return closed.load(std::memory_order::acquire); }));
+    CHECK_FALSE(drained.load(std::memory_order::acquire));
   }
 }
 
@@ -1179,23 +1169,23 @@ TEST_CASE("ListenAcceptMultipleClients", "[IouStreamConn]") {
     auto server = capture_conn::listen(*runner.loop(),
         net_endpoint::loopback_v4(0), shot_type::multi, {}, {}, &server_state)
                       .lock();
-    CHECK((server));
+    CHECK(server);
     const auto& listen_ep = server->local_endpoint();
 
     std::vector<std::shared_ptr<capture_conn>> clients;
     clients.reserve(N);
     for (int i = 0; i < N; ++i) {
       auto c = capture_conn::connect(*runner.loop(), listen_ep).lock();
-      CHECK((c));
+      CHECK(c);
       clients.push_back(c);
     }
 
-    for (const auto& c : clients) CHECK((c->send(std::string{msg})));
+    for (const auto& c : clients) CHECK(c->send(std::string{msg}));
 
-    CHECK((WaitFor([&] {
+    CHECK(WaitFor([&] {
       return total_bytes.load(std::memory_order::acquire) >= expected;
-    })));
-    CHECK((total_bytes.load()) == (expected));
+    }));
+    CHECK(total_bytes.load() == expected);
   }
 }
 
@@ -1233,21 +1223,21 @@ TEST_CASE("CloseFlushesPendingSend", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_raw));
+    CHECK(recv_raw);
     auto recv_conn = recv_raw->self();
 
     auto send_raw =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_raw));
+    CHECK(send_raw);
     auto send_conn = send_raw->self();
 
-    CHECK((send_conn->send(std::string{msg})));
-    CHECK((send_conn->close()));
+    CHECK(send_conn->send(std::string{msg}));
+    CHECK(send_conn->close());
 
-    CHECK((WaitFor([&] { return got_eof.load(std::memory_order::acquire); })));
-    CHECK((payload) == (msg));
+    CHECK(WaitFor([&] { return got_eof.load(std::memory_order::acquire); }));
+    CHECK(payload == msg);
   }
 }
 
@@ -1275,13 +1265,13 @@ TEST_CASE("HangupIdempotent", "[IouStreamConn]") {
     auto conn1 = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid)
                      .lock();
-    CHECK((conn0));
-    CHECK((conn1));
+    CHECK(conn0);
+    CHECK(conn1);
 
-    CHECK((conn0->hangup()));
-    CHECK_FALSE((conn0->hangup()));
-    CHECK((WaitFor([&] { return closed.load(std::memory_order::acquire); })));
-    CHECK_FALSE((conn0->is_open()));
+    CHECK(conn0->hangup());
+    CHECK_FALSE(conn0->hangup());
+    CHECK(WaitFor([&] { return closed.load(std::memory_order::acquire); }));
+    CHECK_FALSE(conn0->is_open());
   }
 }
 
@@ -1310,19 +1300,19 @@ TEST_CASE("SelfSharedPtr", "[IouStreamConn]") {
       auto conn = capture_conn::adopt(*runner.loop(), std::move(sock0),
           net_endpoint::invalid, shot_type::single, {}, {}, &state)
                       .lock();
-      CHECK((conn));
+      CHECK(conn);
       held = conn->self();
     }
     // Other side absorbs the pair.
     auto peer = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid)
                     .lock();
-    CHECK((peer));
+    CHECK(peer);
 
-    CHECK((held->hangup()));
-    CHECK((WaitFor([&] { return closed.load(std::memory_order::acquire); })));
+    CHECK(held->hangup());
+    CHECK(WaitFor([&] { return closed.load(std::memory_order::acquire); }));
     // After hangup, our held ref is still valid (just not "open").
-    CHECK_FALSE((held->is_open()));
+    CHECK_FALSE(held->is_open());
   }
 }
 
@@ -1363,23 +1353,23 @@ TEST_CASE("SendStringBatchOverflow", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock1),
             net_endpoint::invalid, shot_type::single, {}, {}, &recv_state)
             .lock();
-    CHECK((recv_conn));
+    CHECK(recv_conn);
 
     auto send_conn =
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_conn));
+    CHECK(send_conn);
 
-    CHECK((send_conn->send(std::string{chunk_a})));
-    CHECK((send_conn->send(std::string{chunk_b})));
-    CHECK((send_conn->send(std::string{chunk_c})));
+    CHECK(send_conn->send(std::string{chunk_a}));
+    CHECK(send_conn->send(std::string{chunk_b}));
+    CHECK(send_conn->send(std::string{chunk_c}));
 
-    CHECK((WaitFor([&] {
+    CHECK(WaitFor([&] {
       return recv_bytes.load(std::memory_order::acquire) >= expected;
-    })));
-    CHECK((recv_bytes.load()) == (expected));
-    CHECK((payload) == (chunk_a + chunk_b + chunk_c));
+    }));
+    CHECK(recv_bytes.load() == expected);
+    CHECK(payload == (chunk_a + chunk_b + chunk_c));
   }
 }
 
@@ -1398,20 +1388,20 @@ TEST_CASE("SendStringTooBigRejected", "[IouStreamConn]") {
         capture_conn::adopt(*runner.loop(), std::move(sock0),
             net_endpoint::invalid)
             .lock();
-    CHECK((send_conn));
+    CHECK(send_conn);
     auto peer = capture_conn::adopt(*runner.loop(), std::move(sock1),
         net_endpoint::invalid)
                     .lock();
-    CHECK((peer));
+    CHECK(peer);
 
     // Default `send_buf_size` is 4 KB; anything strictly larger must be
     // rejected.
     const std::string too_big((4 * 1024ULL) + 1, 'X');
-    CHECK_FALSE((send_conn->send(std::string{too_big})));
+    CHECK_FALSE(send_conn->send(std::string{too_big}));
 
     // A string exactly equal to the buffer size still fits.
     const std::string just_fits(4 * 1024ULL, 'Y');
-    CHECK((send_conn->send(std::string{just_fits})));
+    CHECK(send_conn->send(std::string{just_fits}));
   }
 }
 

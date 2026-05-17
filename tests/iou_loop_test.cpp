@@ -67,9 +67,9 @@ TEST_CASE("NopCompletion", "[IouLoop]") {
           fired.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    CHECK((token.is_valid()));
-    CHECK((WaitFor([&] { return fired.load(std::memory_order::acquire); })));
-    CHECK((result.load()) == (0));
+    CHECK(token.is_valid());
+    CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
+    CHECK(result.load() == 0);
   }
 }
 #pragma endregion
@@ -90,10 +90,10 @@ TEST_CASE("MultipleNops", "[IouLoop]") {
             return slot_retention{};
           });
     }
-    CHECK((submitted));
-    CHECK((
-        WaitFor([&] { return count.load(std::memory_order::acquire) == 4; })));
-    CHECK((count.load()) == (4));
+    CHECK(submitted);
+    CHECK(
+        WaitFor([&] { return count.load(std::memory_order::acquire) == 4; }));
+    CHECK(count.load() == 4);
   }
 }
 #pragma endregion
@@ -111,7 +111,7 @@ TEST_CASE("StopFromThread", "[IouLoop]") {
     }};
     std::this_thread::sleep_for(20ms);
     t.join();
-    CHECK((stopped.load(std::memory_order::acquire)));
+    CHECK(stopped.load(std::memory_order::acquire));
   }
 }
 #pragma endregion
@@ -135,12 +135,12 @@ TEST_CASE("SelfDestroyOnLoopThread", "[IouLoop]") {
   iou_loop& loop = *runner;
   auto finished = runner->finished_signal();
 
-  REQUIRE((loop.post([r = std::move(runner)]() mutable {
+  REQUIRE(loop.post([r = std::move(runner)]() mutable {
     r.reset();
     return true;
-  })));
+  }));
 
-  REQUIRE((finished->wait_for_value(1s, true)));
+  REQUIRE(finished->wait_for_value(1s, true));
 }
 #pragma endregion
 
@@ -156,9 +156,9 @@ TEST_CASE("PostFromThread", "[IouLoop]") {
       fired.store(true, std::memory_order::release);
       return true;
     });
-    CHECK((ok));
+    CHECK(ok);
 
-    CHECK((WaitFor([&] { return fired.load(std::memory_order::acquire); })));
+    CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
   }
 }
 #pragma endregion
@@ -175,8 +175,8 @@ TEST_CASE("PostAndWait", "[IouLoop]") {
       ran.store(true, std::memory_order::relaxed);
       return true;
     });
-    CHECK((ok));
-    CHECK((ran.load()));
+    CHECK(ok);
+    CHECK(ran.load());
   }
 }
 #pragma endregion
@@ -214,14 +214,13 @@ TEST_CASE("RecvSend", "[IouLoop]") {
       if (!send_token.is_valid()) return false;
       return true;
     });
-    CHECK((ok));
-    CHECK(
-        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
+    CHECK(ok);
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
 
-    CHECK((recv_result.load()) == (static_cast<int32_t>(msg.size())));
-    CHECK((send_result.load()) == (static_cast<int32_t>(msg.size())));
-    CHECK((std::string_view(reinterpret_cast<const char*>(buf.data()),
-              msg.size())) == (msg));
+    CHECK(recv_result.load() == static_cast<int32_t>(msg.size()));
+    CHECK(send_result.load() == static_cast<int32_t>(msg.size()));
+    CHECK(std::string_view(reinterpret_cast<const char*>(buf.data()),
+              msg.size()) == msg);
   }
 }
 #pragma endregion
@@ -250,10 +249,10 @@ TEST_CASE("RecvWriteFixed", "[IouLoop]") {
           received.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    CHECK((recv_token.is_valid()));
+    CHECK(recv_token.is_valid());
 
     auto send_buf = loop->borrow_write_buffer();
-    CHECK((send_buf));
+    CHECK(send_buf);
     if (!send_buf) return;
     auto span = send_buf.tail_span();
     std::memcpy(span.data(), msg.data(), msg.size());
@@ -265,13 +264,12 @@ TEST_CASE("RecvWriteFixed", "[IouLoop]") {
           send_n.store(buf.result().value(), std::memory_order::relaxed);
           return slot_retention{};
         });
-    CHECK((send_token.is_valid()));
-    CHECK(
-        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
+    CHECK(send_token.is_valid());
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
 
-    CHECK((recv_n.load()) == (static_cast<int32_t>(msg.size())));
-    CHECK((send_n.load()) == (static_cast<int32_t>(msg.size())));
-    CHECK((payload) == (msg));
+    CHECK(recv_n.load() == static_cast<int32_t>(msg.size()));
+    CHECK(send_n.load() == static_cast<int32_t>(msg.size()));
+    CHECK(payload == msg);
   }
 }
 #pragma endregion
@@ -294,8 +292,8 @@ TEST_CASE("SendBuffer", "[IouLoop]") {
         message_style::datagram);
     auto send_sock = net_socket::create_for(send_ep, execution::nonblocking,
         message_style::datagram);
-    CHECK((recv_sock.bind(recv_ep)));
-    CHECK((send_sock.bind(send_ep)));
+    CHECK(recv_sock.bind(recv_ep));
+    CHECK(send_sock.bind(send_ep));
     net_endpoint recv_addr{recv_sock};
     const auto connect_ok = send_sock.connect(recv_addr);
     CHECK((connect_ok && *connect_ok));
@@ -316,10 +314,10 @@ TEST_CASE("SendBuffer", "[IouLoop]") {
           received.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    CHECK((recv_token.is_valid()));
+    CHECK(recv_token.is_valid());
 
     auto send_buf = loop->borrow_write_buffer();
-    CHECK((send_buf));
+    CHECK(send_buf);
     if (!send_buf) return;
     (void)send_buf.append(msg);
 
@@ -332,13 +330,12 @@ TEST_CASE("SendBuffer", "[IouLoop]") {
           send_n.store(buf.result().value(), std::memory_order::relaxed);
           return slot_retention::automatic;
         });
-    CHECK((send_token.is_valid()));
-    CHECK(
-        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
+    CHECK(send_token.is_valid());
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
 
-    CHECK((recv_n.load()) == (static_cast<int32_t>(msg.size())));
-    CHECK((send_n.load()) == (static_cast<int32_t>(msg.size())));
-    CHECK((payload) == (std::string{msg}));
+    CHECK(recv_n.load() == static_cast<int32_t>(msg.size()));
+    CHECK(send_n.load() == static_cast<int32_t>(msg.size()));
+    CHECK(payload == std::string{msg});
   }
 }
 #pragma endregion
@@ -349,15 +346,15 @@ TEST_CASE("IsLoopThread", "[IouLoop]") {
   // callback executing on the loop thread.
   if (true) {
     iou_loop_runner loop;
-    CHECK_FALSE((loop->is_loop_thread()));
+    CHECK_FALSE(loop->is_loop_thread());
 
     std::atomic_bool confirmed{false};
     const bool ok = loop->post_and_wait([&] {
       confirmed.store(loop->is_loop_thread(), std::memory_order::release);
       return true;
     });
-    CHECK((ok));
-    CHECK((confirmed.load(std::memory_order::acquire)));
+    CHECK(ok);
+    CHECK(confirmed.load(std::memory_order::acquire));
   }
 }
 #pragma endregion
@@ -374,9 +371,8 @@ TEST_CASE("ExecuteOrPost", "[IouLoop]") {
       executed.store(true, std::memory_order::release);
       return true;
     });
-    CHECK((ok));
-    CHECK(
-        (WaitFor([&] { return executed.load(std::memory_order::acquire); })));
+    CHECK(ok);
+    CHECK(WaitFor([&] { return executed.load(std::memory_order::acquire); }));
   }
 }
 #pragma endregion
@@ -397,12 +393,12 @@ TEST_CASE("NopTokenVariant", "[IouLoop]") {
           fired.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    CHECK((token.is_valid()));
+    CHECK(token.is_valid());
 
     const bool submitted = loop->submit_nop(token, slot_retention::automatic);
-    CHECK((submitted));
-    CHECK((WaitFor([&] { return fired.load(std::memory_order::acquire); })));
-    CHECK((result.load()) == (0));
+    CHECK(submitted);
+    CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
+    CHECK(result.load() == 0);
   }
 }
 #pragma endregion
@@ -417,15 +413,15 @@ TEST_CASE("TokenIsReleased", "[IouLoop]") {
         [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
           return slot_retention{};
         });
-    CHECK((token.is_valid()));
-    CHECK_FALSE((loop->is_released(token)));
+    CHECK(token.is_valid());
+    CHECK_FALSE(loop->is_released(token));
 
     const bool released = loop->release(std::move(token));
-    CHECK((released));
+    CHECK(released);
     // The slot's generation was bumped; `is_released` detects the mismatch and
     // nullifies the token.
-    CHECK((loop->is_released(token)));
-    CHECK_FALSE((token.is_valid()));
+    CHECK(loop->is_released(token));
+    CHECK_FALSE(token.is_valid());
   }
 }
 #pragma endregion
@@ -447,9 +443,9 @@ TEST_CASE("SubmitClose", "[IouLoop]") {
           fired.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    CHECK((token.is_valid()));
-    CHECK((WaitFor([&] { return fired.load(std::memory_order::acquire); })));
-    CHECK((result.load()) == (0));
+    CHECK(token.is_valid());
+    CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
+    CHECK(result.load() == 0);
   }
 }
 #pragma endregion
@@ -471,10 +467,10 @@ TEST_CASE("SubmitTimeout", "[IouLoop]") {
           fired.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    CHECK((token.is_valid()));
-    CHECK((WaitFor([&] { return fired.load(std::memory_order::acquire); },
-        500ms)));
-    CHECK((result.load()) == (-ETIME));
+    CHECK(token.is_valid());
+    CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); },
+        500ms));
+    CHECK(result.load() == -ETIME);
   }
 }
 #pragma endregion
@@ -497,10 +493,10 @@ TEST_CASE("SubmitTimeoutMultishot", "[IouLoop]") {
           return slot_retention::automatic;
         },
         3);
-    CHECK((token.is_valid()));
-    CHECK((WaitFor([&] { return count.load(std::memory_order::acquire) == 3; },
-        500ms)));
-    CHECK((count.load()) == (3));
+    CHECK(token.is_valid());
+    CHECK(WaitFor([&] { return count.load(std::memory_order::acquire) == 3; },
+        500ms));
+    CHECK(count.load() == 3);
   }
 }
 #pragma endregion
@@ -518,7 +514,7 @@ TEST_CASE("SubmitCancelFile", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    CHECK((loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       (void)loop->submit_recv_bytes(recv_sock, buf,
           [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
             recv_res.store(res.value(), std::memory_order::relaxed);
@@ -526,18 +522,17 @@ TEST_CASE("SubmitCancelFile", "[IouLoop]") {
             return slot_retention{};
           });
       return true;
-    })));
+    }));
 
-    CHECK((loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       (void)loop->submit_cancel(recv_sock,
           [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
             return slot_retention{};
           });
       return true;
-    })));
+    }));
 
-    CHECK(
-        (WaitFor([&] { return recv_done.load(std::memory_order::acquire); })));
+    CHECK(WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
     CHECK((recv_res.load()) < (0));
   }
 }
@@ -557,7 +552,7 @@ TEST_CASE("SubmitCancelToken", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    CHECK((loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       recv_token = loop->submit_recv_bytes(recv_sock, buf,
           [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
             recv_res.store(res.value(), std::memory_order::relaxed);
@@ -565,18 +560,17 @@ TEST_CASE("SubmitCancelToken", "[IouLoop]") {
             return slot_retention{};
           });
       return true;
-    })));
+    }));
 
-    CHECK((loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       (void)loop->submit_cancel(std::move(recv_token),
           [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
             return slot_retention{};
           });
       return true;
-    })));
+    }));
 
-    CHECK(
-        (WaitFor([&] { return recv_done.load(std::memory_order::acquire); })));
+    CHECK(WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
     CHECK((recv_res.load()) < (0));
   }
 }
@@ -589,10 +583,10 @@ TEST_CASE("AcceptConnect", "[IouLoop]") {
   // leaks.
   if (true) {
     auto listen_sock = net_socket::create_uds();
-    CHECK((listen_sock));
+    CHECK(listen_sock);
     net_endpoint ep{"@corvid_iouloop_acceptconnect"};
-    CHECK((listen_sock.bind(ep)));
-    CHECK((listen_sock.listen()));
+    CHECK(listen_sock.bind(ep));
+    CHECK(listen_sock.listen());
 
     std::atomic_bool accepted{false};
     std::atomic_int32_t accept_res{-1};
@@ -608,10 +602,10 @@ TEST_CASE("AcceptConnect", "[IouLoop]") {
           accepted.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    CHECK((accept_tok.is_valid()));
+    CHECK(accept_tok.is_valid());
 
     auto client_sock = net_socket::create_uds();
-    CHECK((client_sock));
+    CHECK(client_sock);
     bound_endpoint_with_timeout connect_ep{};
     connect_ep.sockaddr.sockaddr = ep;
     connect_ep.sockaddr.len = ep.sockaddr_size();
@@ -622,15 +616,13 @@ TEST_CASE("AcceptConnect", "[IouLoop]") {
           connected.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    CHECK((connect_tok.is_valid()));
+    CHECK(connect_tok.is_valid());
 
-    CHECK(
-        (WaitFor([&] { return accepted.load(std::memory_order::acquire); })));
-    CHECK(
-        (WaitFor([&] { return connected.load(std::memory_order::acquire); })));
+    CHECK(WaitFor([&] { return accepted.load(std::memory_order::acquire); }));
+    CHECK(WaitFor([&] { return connected.load(std::memory_order::acquire); }));
     // `accept_res` is the new socket fd (>= 0).
-    CHECK((accept_res.load()) >= (0));
-    CHECK((connect_res.load()) == (0));
+    CHECK(accept_res.load() >= 0);
+    CHECK(connect_res.load() == 0);
     if (accept_res.load() >= 0) ::close(accept_res.load());
   }
 }
@@ -648,8 +640,8 @@ TEST_CASE("RecvSendMsg", "[IouLoop]") {
         message_style::datagram);
     auto send_sock = net_socket::create_for(send_ep, execution::nonblocking,
         message_style::datagram);
-    CHECK((recv_sock.bind(recv_ep)));
-    CHECK((send_sock.bind(send_ep)));
+    CHECK(recv_sock.bind(recv_ep));
+    CHECK(send_sock.bind(send_ep));
     net_endpoint recv_addr{recv_sock};
 
     std::atomic_bool received{false};
@@ -687,12 +679,11 @@ TEST_CASE("RecvSendMsg", "[IouLoop]") {
       if (!stok.is_valid()) return false;
       return loop->immediate_submit();
     });
-    CHECK((ok));
-    CHECK(
-        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
-    CHECK((recv_n.load()) == (static_cast<int32_t>(payload.size())));
-    CHECK((send_n.load()) == (static_cast<int32_t>(payload.size())));
-    CHECK((recv_result) == (std::string{payload}));
+    CHECK(ok);
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(recv_n.load() == static_cast<int32_t>(payload.size()));
+    CHECK(send_n.load() == static_cast<int32_t>(payload.size()));
+    CHECK(recv_result == std::string{payload});
   }
 }
 #pragma endregion
@@ -708,17 +699,17 @@ TEST_CASE("BorrowBufferSizes", "[IouLoop]") {
       auto s = loop->borrow_read_buffer(block_size::kb004);
       auto m = loop->borrow_read_buffer(block_size::kb016);
       auto l = loop->borrow_read_buffer(block_size::kb032);
-      CHECK((s));
-      CHECK((m));
-      CHECK((l));
+      CHECK(s);
+      CHECK(m);
+      CHECK(l);
     }
     {
       auto s = loop->borrow_write_buffer(block_size::kb004);
       auto m = loop->borrow_write_buffer(block_size::kb016);
       auto l = loop->borrow_write_buffer(block_size::kb032);
-      CHECK((s));
-      CHECK((m));
-      CHECK((l));
+      CHECK(s);
+      CHECK(m);
+      CHECK(l);
     }
   }
 }
@@ -745,12 +736,12 @@ TEST_CASE("SlotRetentionRetain", "[IouLoop]") {
           }
           return slot_retention::automatic;
         });
-    CHECK((token.is_valid()));
+    CHECK(token.is_valid());
     const bool submitted = loop->submit_nop(token, slot_retention::automatic);
-    CHECK((submitted));
-    CHECK((
-        WaitFor([&] { return count.load(std::memory_order::acquire) == 2; })));
-    CHECK((count.load()) == (2));
+    CHECK(submitted);
+    CHECK(
+        WaitFor([&] { return count.load(std::memory_order::acquire) == 2; }));
+    CHECK(count.load() == 2);
   }
 }
 #pragma endregion
@@ -760,21 +751,21 @@ TEST_CASE("TimespecDurationRoundTrip", "[IouWrap]") {
   // Construct from durations and verify `as_duration()` recovers the original.
   if (true) {
     iou_timespec invalid;
-    CHECK((invalid.as_duration<std::chrono::nanoseconds>().count() < 0));
+    CHECK(invalid.as_duration<std::chrono::nanoseconds>().count() < 0);
   }
   if (true) {
     iou_timespec ts{50ms};
-    CHECK((ts.as_duration<std::chrono::milliseconds>() == 50ms));
+    CHECK(ts.as_duration<std::chrono::milliseconds>() == 50ms);
   }
   if (true) {
     // 1.5 s: verifies the seconds/nanoseconds split is lossless.
     iou_timespec ts{1s + 500ms};
-    CHECK((ts.as_duration<std::chrono::milliseconds>() == 1500ms));
+    CHECK(ts.as_duration<std::chrono::milliseconds>() == 1500ms);
   }
   if (true) {
     // Negative durations are clamped to zero by `from_duration`.
     iou_timespec ts{-10ms};
-    CHECK((ts.as_duration<std::chrono::nanoseconds>().count() == 0));
+    CHECK(ts.as_duration<std::chrono::nanoseconds>().count() == 0);
   }
 }
 #pragma endregion
@@ -789,7 +780,7 @@ TEST_CASE("TimespecTimePointRoundTrip", "[IouWrap]") {
     auto now = clk::now();
     iou_timespec ts{now};
     auto recovered = ts.as_time_point<clk, dur>();
-    CHECK((recovered == now));
+    CHECK(recovered == now);
   }
 }
 #pragma endregion
@@ -799,19 +790,18 @@ TEST_CASE("TimespecStaticHelpers", "[IouWrap]") {
   // `from_duration` splits seconds and nanosecond remainder correctly.
   if (true) {
     auto raw = iou_timespec::from_duration(750ms);
-    CHECK((raw.tv_sec == 0LL));
-    CHECK((raw.tv_nsec == 750'000'000LL));
+    CHECK(raw.tv_sec == 0LL);
+    CHECK(raw.tv_nsec == 750'000'000LL);
   }
   if (true) {
     auto raw = iou_timespec::from_duration(2s + 300ms);
-    CHECK((raw.tv_sec == 2LL));
-    CHECK((raw.tv_nsec == 300'000'000LL));
+    CHECK(raw.tv_sec == 2LL);
+    CHECK(raw.tv_nsec == 300'000'000LL);
   }
   // `to_duration` is the inverse of `from_duration`.
   if (true) {
     auto raw = iou_timespec::from_duration(750ms);
-    CHECK(
-        (iou_timespec::to_duration<std::chrono::milliseconds>(raw) == 750ms));
+    CHECK(iou_timespec::to_duration<std::chrono::milliseconds>(raw) == 750ms);
   }
   // `from_time_point` / `to_time_point` round-trip.
   if (true) {
@@ -820,7 +810,7 @@ TEST_CASE("TimespecStaticHelpers", "[IouWrap]") {
     auto now = clk::now();
     auto raw = iou_timespec::from_time_point(now);
     auto recovered = iou_timespec::to_time_point<clk, dur>(raw);
-    CHECK((recovered == now));
+    CHECK(recovered == now);
   }
 }
 #pragma endregion
@@ -829,16 +819,16 @@ TEST_CASE("TimespecStaticHelpers", "[IouWrap]") {
 TEST_CASE("TimespecAsPointer", "[IouWrap]") {
   // `as_pointer(nullptr)` is null; `as_pointer(&ts)` is non-null.
   if (true) {
-    CHECK((iou_timespec::to_pointer(static_cast<iou_timespec*>(nullptr)) ==
-           nullptr));
-    CHECK((iou_timespec::to_pointer(
-               static_cast<const iou_timespec*>(nullptr)) == nullptr));
+    CHECK(iou_timespec::to_pointer(static_cast<iou_timespec*>(nullptr)) ==
+          nullptr);
+    CHECK(iou_timespec::to_pointer(
+              static_cast<const iou_timespec*>(nullptr)) == nullptr);
   }
   if (true) {
     iou_timespec ts{50ms};
-    CHECK((iou_timespec::to_pointer(&ts) != nullptr));
+    CHECK(iou_timespec::to_pointer(&ts) != nullptr);
     const iou_timespec cts{50ms};
-    CHECK((iou_timespec::to_pointer(&cts) != nullptr));
+    CHECK(iou_timespec::to_pointer(&cts) != nullptr);
   }
 }
 #pragma endregion
@@ -849,17 +839,17 @@ TEST_CASE("ItimerspecConstruct", "[IouWrap]") {
   // correct interval and value.
   if (true) {
     iou_itimerspec its;
-    CHECK((its.it_interval().tv_sec == 0LL));
-    CHECK((its.it_interval().tv_nsec == 0LL));
-    CHECK((its.it_value().tv_sec == 0LL));
-    CHECK((its.it_value().tv_nsec == 0LL));
+    CHECK(its.it_interval().tv_sec == 0LL);
+    CHECK(its.it_interval().tv_nsec == 0LL);
+    CHECK(its.it_value().tv_sec == 0LL);
+    CHECK(its.it_value().tv_nsec == 0LL);
   }
   if (true) {
     iou_timespec interval{100ms};
     iou_timespec value{500ms};
     iou_itimerspec its{interval, value};
-    CHECK((its.it_interval().tv_nsec == 100'000'000LL));
-    CHECK((its.it_value().tv_nsec == 500'000'000LL));
+    CHECK(its.it_interval().tv_nsec == 100'000'000LL);
+    CHECK(its.it_value().tv_nsec == 500'000'000LL);
   }
 }
 #pragma endregion
@@ -869,32 +859,32 @@ TEST_CASE("ResStatus", "[IouWrap]") {
   // `ok()`, `bool`, and `!` reflect the sign of the raw result.
   if (true) {
     iou_res r{0};
-    CHECK((r.ok()));
-    CHECK((r));
-    CHECK((r.value() == 0));
+    CHECK(r.ok());
+    CHECK(r);
+    CHECK(r.value() == 0);
   }
   if (true) {
     iou_res r{42};
-    CHECK((r.ok()));
-    CHECK((r.value() == 42));
-    CHECK((r.bytes() == size_t{42}));
+    CHECK(r.ok());
+    CHECK(r.value() == 42);
+    CHECK(r.bytes() == size_t{42});
   }
   if (true) {
     iou_res r{-EINVAL};
-    CHECK_FALSE((r.ok()));
-    CHECK_FALSE((r));
-    CHECK((r.value() == -EINVAL));
+    CHECK_FALSE(r.ok());
+    CHECK_FALSE(r);
+    CHECK(r.value() == -EINVAL);
   }
   // `ok(n)` requires `res` >= n.
   if (true) {
     iou_res r{3};
-    CHECK((r.ok(3)));
-    CHECK_FALSE((r.ok(4)));
+    CHECK(r.ok(3));
+    CHECK_FALSE(r.ok(4));
   }
   // `ETIME` is a soft error; `EINVAL` is not.
   if (true) {
-    CHECK((iou_res{-ETIME}.is_soft_error()));
-    CHECK_FALSE((iou_res{-EINVAL}.is_soft_error()));
+    CHECK(iou_res{-ETIME}.is_soft_error());
+    CHECK_FALSE(iou_res{-EINVAL}.is_soft_error());
   }
 }
 #pragma endregion
@@ -905,22 +895,22 @@ TEST_CASE("CqeFlagsString", "[IouWrap]") {
   using namespace corvid::strings;
   using F = iou_cqe_flags;
   if (true) {
-    CHECK((enum_as_string(F::buffer)) == ("buffer"));
-    CHECK((enum_as_string(F::more)) == ("more"));
-    CHECK((enum_as_string(F::sock_nonempty)) == ("sock_nonempty"));
-    CHECK((enum_as_string(F::notif)) == ("notif"));
+    CHECK(enum_as_string(F::buffer) == "buffer");
+    CHECK(enum_as_string(F::more) == "more");
+    CHECK(enum_as_string(F::sock_nonempty) == "sock_nonempty");
+    CHECK(enum_as_string(F::notif) == "notif");
   }
   if (true) {
     // Higher bits print first.
-    CHECK((enum_as_string(F::more | F::buffer)) == ("more + buffer"));
+    CHECK(enum_as_string(F::more | F::buffer) == "more + buffer");
   }
   if (true) {
     constexpr F bad{0xff};
-    CHECK((parse_enum("buffer", bad)) == (F::buffer));
-    CHECK((parse_enum("more", bad)) == (F::more));
-    CHECK((parse_enum("sock_nonempty", bad)) == (F::sock_nonempty));
-    CHECK((parse_enum("notif", bad)) == (F::notif));
-    CHECK((parse_enum("more + buffer", bad)) == (F::more | F::buffer));
+    CHECK(parse_enum("buffer", bad) == F::buffer);
+    CHECK(parse_enum("more", bad) == F::more);
+    CHECK(parse_enum("sock_nonempty", bad) == F::sock_nonempty);
+    CHECK(parse_enum("notif", bad) == F::notif);
+    CHECK(parse_enum("more + buffer", bad) == (F::more | F::buffer));
   }
 }
 #pragma endregion
@@ -931,23 +921,23 @@ TEST_CASE("SqeFlagsString", "[IouWrap]") {
   using namespace corvid::strings;
   using F = iou_sqe_flags;
   if (true) {
-    CHECK((enum_as_string(F::fixed_file)) == ("fixed_file"));
-    CHECK((enum_as_string(F::io_drain)) == ("io_drain"));
-    CHECK((enum_as_string(F::io_link)) == ("io_link"));
-    CHECK((enum_as_string(F::io_hardlink)) == ("io_hardlink"));
-    CHECK((enum_as_string(F::async)) == ("async"));
-    CHECK((enum_as_string(F::buffer_select)) == ("buffer_select"));
-    CHECK((enum_as_string(F::cqe_skip_success)) == ("cqe_skip_success"));
+    CHECK(enum_as_string(F::fixed_file) == "fixed_file");
+    CHECK(enum_as_string(F::io_drain) == "io_drain");
+    CHECK(enum_as_string(F::io_link) == "io_link");
+    CHECK(enum_as_string(F::io_hardlink) == "io_hardlink");
+    CHECK(enum_as_string(F::async) == "async");
+    CHECK(enum_as_string(F::buffer_select) == "buffer_select");
+    CHECK(enum_as_string(F::cqe_skip_success) == "cqe_skip_success");
   }
   if (true) {
     // Higher bits print first.
-    CHECK((enum_as_string(F::async | F::io_link)) == ("async + io_link"));
+    CHECK(enum_as_string(F::async | F::io_link) == "async + io_link");
   }
   if (true) {
     constexpr F bad{0xff};
-    CHECK((parse_enum("fixed_file", bad)) == (F::fixed_file));
-    CHECK((parse_enum("cqe_skip_success", bad)) == (F::cqe_skip_success));
-    CHECK((parse_enum("async + io_link", bad)) == (F::async | F::io_link));
+    CHECK(parse_enum("fixed_file", bad) == F::fixed_file);
+    CHECK(parse_enum("cqe_skip_success", bad) == F::cqe_skip_success);
+    CHECK(parse_enum("async + io_link", bad) == (F::async | F::io_link));
   }
 }
 #pragma endregion
@@ -958,21 +948,21 @@ TEST_CASE("SetupFlagsString", "[IouWrap]") {
   using namespace corvid::strings;
   using F = iou_setup_flags;
   if (true) {
-    CHECK((enum_as_string(F::setup_iopoll)) == ("setup_iopoll"));
-    CHECK((enum_as_string(F::setup_sqpoll)) == ("setup_sqpoll"));
-    CHECK((enum_as_string(F::setup_sq_aff)) == ("setup_sq_aff"));
-    CHECK((enum_as_string(F::setup_cqsize)) == ("setup_cqsize"));
-    CHECK((enum_as_string(F::setup_clamp)) == ("setup_clamp"));
-    CHECK((enum_as_string(F::setup_attach_wq)) == ("setup_attach_wq"));
-    CHECK((enum_as_string(F::setup_r_disabled)) == ("setup_r_disabled"));
-    CHECK((enum_as_string(F::setup_submit_all)) == ("setup_submit_all"));
-    CHECK((enum_as_string(F::setup_coop_taskrun)) == ("setup_coop_taskrun"));
-    CHECK((enum_as_string(F::setup_taskrun_flag)) == ("setup_taskrun_flag"));
-    CHECK((enum_as_string(F::setup_sqe128)) == ("setup_sqe128"));
-    CHECK((enum_as_string(F::setup_cqe32)) == ("setup_cqe32"));
-    CHECK((enum_as_string(F::setup_single_issuer)) == ("setup_single_issuer"));
-    CHECK((enum_as_string(F::setup_defer_taskrun)) == ("setup_defer_taskrun"));
-    CHECK((enum_as_string(F::setup_no_mmap)) == ("setup_no_mmap"));
+    CHECK(enum_as_string(F::setup_iopoll) == "setup_iopoll");
+    CHECK(enum_as_string(F::setup_sqpoll) == "setup_sqpoll");
+    CHECK(enum_as_string(F::setup_sq_aff) == "setup_sq_aff");
+    CHECK(enum_as_string(F::setup_cqsize) == "setup_cqsize");
+    CHECK(enum_as_string(F::setup_clamp) == "setup_clamp");
+    CHECK(enum_as_string(F::setup_attach_wq) == "setup_attach_wq");
+    CHECK(enum_as_string(F::setup_r_disabled) == "setup_r_disabled");
+    CHECK(enum_as_string(F::setup_submit_all) == "setup_submit_all");
+    CHECK(enum_as_string(F::setup_coop_taskrun) == "setup_coop_taskrun");
+    CHECK(enum_as_string(F::setup_taskrun_flag) == "setup_taskrun_flag");
+    CHECK(enum_as_string(F::setup_sqe128) == "setup_sqe128");
+    CHECK(enum_as_string(F::setup_cqe32) == "setup_cqe32");
+    CHECK(enum_as_string(F::setup_single_issuer) == "setup_single_issuer");
+    CHECK(enum_as_string(F::setup_defer_taskrun) == "setup_defer_taskrun");
+    CHECK(enum_as_string(F::setup_no_mmap) == "setup_no_mmap");
     CHECK((enum_as_string(F::setup_registered_fd_only)) ==
           ("setup_registered_fd_only"));
   }
@@ -983,7 +973,7 @@ TEST_CASE("SetupFlagsString", "[IouWrap]") {
   }
   if (true) {
     constexpr F bad{0x80000000};
-    CHECK((parse_enum("setup_iopoll", bad)) == (F::setup_iopoll));
+    CHECK(parse_enum("setup_iopoll", bad) == F::setup_iopoll);
     CHECK((parse_enum("setup_registered_fd_only", bad)) ==
           (F::setup_registered_fd_only));
     CHECK((parse_enum("setup_sqpoll + setup_iopoll", bad)) ==
@@ -999,24 +989,24 @@ TEST_CASE("TimeoutFlagsString", "[IouWrap]") {
   using namespace corvid::strings;
   using F = iou_timeout_flags;
   if (true) {
-    CHECK((enum_as_string(F::rel)) == ("0x00000000"));
-    CHECK((enum_as_string(F::abs)) == ("abs"));
-    CHECK((enum_as_string(F::update)) == ("update"));
-    CHECK((enum_as_string(F::boot_time)) == ("boot_time"));
-    CHECK((enum_as_string(F::real_time)) == ("real_time"));
-    CHECK((enum_as_string(F::link_timeout_update)) == ("link_timeout_update"));
-    CHECK((enum_as_string(F::etime_success)) == ("etime_success"));
-    CHECK((enum_as_string(F::multishot)) == ("multishot"));
+    CHECK(enum_as_string(F::rel) == "0x00000000");
+    CHECK(enum_as_string(F::abs) == "abs");
+    CHECK(enum_as_string(F::update) == "update");
+    CHECK(enum_as_string(F::boot_time) == "boot_time");
+    CHECK(enum_as_string(F::real_time) == "real_time");
+    CHECK(enum_as_string(F::link_timeout_update) == "link_timeout_update");
+    CHECK(enum_as_string(F::etime_success) == "etime_success");
+    CHECK(enum_as_string(F::multishot) == "multishot");
   }
   if (true) {
     // Higher bits print first.
-    CHECK((enum_as_string(F::multishot | F::abs)) == ("multishot + abs"));
+    CHECK(enum_as_string(F::multishot | F::abs) == "multishot + abs");
   }
   if (true) {
     constexpr F bad{0x80000000};
-    CHECK((parse_enum("abs", bad)) == (F::abs));
-    CHECK((parse_enum("multishot", bad)) == (F::multishot));
-    CHECK((parse_enum("multishot + abs", bad)) == (F::multishot | F::abs));
+    CHECK(parse_enum("abs", bad) == F::abs);
+    CHECK(parse_enum("multishot", bad) == F::multishot);
+    CHECK(parse_enum("multishot + abs", bad) == (F::multishot | F::abs));
   }
 }
 #pragma endregion
@@ -1045,24 +1035,24 @@ TEST_CASE("RecvBufferMulti", "[IouLoop]") {
           count.fetch_add(1, std::memory_order::release);
           return slot_retention::automatic;
         });
-    CHECK((recv_token.is_valid()));
+    CHECK(recv_token.is_valid());
 
     constexpr std::array<std::string_view, 3> msgs{"alpha", "beta", "gamma"};
     for (auto msg : msgs) {
-      CHECK((loop->post_and_wait([&] {
+      CHECK(loop->post_and_wait([&] {
         return loop
             ->submit_send_bytes(send_sock, std::as_bytes(std::span{msg}),
                 [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
                   return slot_retention{};
                 })
             .is_valid();
-      })));
+      }));
     }
 
-    CHECK((
-        WaitFor([&] { return count.load(std::memory_order::acquire) >= 3; })));
-    CHECK((count.load()) == (3));
-    for (int i = 0; i < 3; ++i) CHECK((payloads[i]) == (std::string{msgs[i]}));
+    CHECK(
+        WaitFor([&] { return count.load(std::memory_order::acquire) >= 3; }));
+    CHECK(count.load() == 3);
+    for (int i = 0; i < 3; ++i) CHECK(payloads[i] == std::string{msgs[i]});
   }
 }
 #pragma endregion
@@ -1078,8 +1068,8 @@ TEST_CASE("RecvMsgBufferMulti", "[IouLoop]") {
         message_style::datagram);
     auto send_sock = net_socket::create_for(send_ep, execution::nonblocking,
         message_style::datagram);
-    CHECK((recv_sock.bind(recv_ep)));
-    CHECK((send_sock.bind(send_ep)));
+    CHECK(recv_sock.bind(recv_ep));
+    CHECK(send_sock.bind(send_ep));
     net_endpoint recv_addr{recv_sock};
 
     std::atomic<int> count{0};
@@ -1097,11 +1087,11 @@ TEST_CASE("RecvMsgBufferMulti", "[IouLoop]") {
           count.fetch_add(1, std::memory_order::release);
           return slot_retention::automatic;
         });
-    CHECK((recv_token.is_valid()));
+    CHECK(recv_token.is_valid());
 
     constexpr std::array<std::string_view, 3> msgs{"one", "two", "three"};
     for (auto msg : msgs) {
-      CHECK((loop->post_and_wait([&] {
+      CHECK(loop->post_and_wait([&] {
         auto send_buf = loop->borrow_write_buffer();
         if (!send_buf) return false;
         (void)send_buf.append(msg);
@@ -1112,13 +1102,13 @@ TEST_CASE("RecvMsgBufferMulti", "[IouLoop]") {
                   return slot_retention{};
                 })
             .is_valid();
-      })));
+      }));
     }
 
-    CHECK((
-        WaitFor([&] { return count.load(std::memory_order::acquire) >= 3; })));
-    CHECK((count.load()) == (3));
-    for (int i = 0; i < 3; ++i) CHECK((payloads[i]) == (std::string{msgs[i]}));
+    CHECK(
+        WaitFor([&] { return count.load(std::memory_order::acquire) >= 3; }));
+    CHECK(count.load() == 3);
+    for (int i = 0; i < 3; ++i) CHECK(payloads[i] == std::string{msgs[i]});
   }
 }
 #pragma endregion
@@ -1137,8 +1127,8 @@ TEST_CASE("RecvMsgBufferMultiTruncated", "[IouLoop]") {
         message_style::datagram);
     auto send_sock = net_socket::create_for(send_ep, execution::nonblocking,
         message_style::datagram);
-    CHECK((recv_sock.bind(recv_ep)));
-    CHECK((send_sock.bind(send_ep)));
+    CHECK(recv_sock.bind(recv_ep));
+    CHECK(send_sock.bind(send_ep));
     net_endpoint recv_addr{recv_sock};
 
     std::atomic_bool fired{false};
@@ -1156,11 +1146,11 @@ TEST_CASE("RecvMsgBufferMultiTruncated", "[IouLoop]") {
           fired.store(true, std::memory_order::release);
           return slot_retention::automatic;
         });
-    CHECK((recv_token.is_valid()));
+    CHECK(recv_token.is_valid());
 
     constexpr size_t datagram_size = 8192;
     const std::vector<std::byte> big(datagram_size, std::byte{'X'});
-    CHECK((loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       auto send_buf = loop->borrow_write_buffer(block_size::kb008);
       if (!send_buf) return false;
       if (!send_buf.append(std::as_bytes(std::span{big}))) return false;
@@ -1171,12 +1161,12 @@ TEST_CASE("RecvMsgBufferMultiTruncated", "[IouLoop]") {
                 return slot_retention{};
               })
           .is_valid();
-    })));
+    }));
 
-    CHECK((WaitFor([&] { return fired.load(std::memory_order::acquire); })));
-    CHECK((result) == (-EMSGSIZE));
-    CHECK((truncated));
-    CHECK((len) == (datagram_size));
+    CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
+    CHECK(result == -EMSGSIZE);
+    CHECK(truncated);
+    CHECK(len == datagram_size);
   }
 }
 #pragma endregion
@@ -1206,8 +1196,8 @@ TEST_CASE("RecvMsgBufferMultiStress", "[IouLoop]") {
         message_style::datagram);
     auto send_sock = net_socket::create_for(send_ep, execution::blocking,
         message_style::datagram);
-    CHECK((recv_sock.bind(recv_ep)));
-    CHECK((send_sock.bind(send_ep)));
+    CHECK(recv_sock.bind(recv_ep));
+    CHECK(send_sock.bind(send_ep));
     net_endpoint recv_addr{recv_sock};
     const auto connect_ok = send_sock.connect(recv_addr);
     CHECK((connect_ok && *connect_ok));
@@ -1254,25 +1244,25 @@ TEST_CASE("RecvMsgBufferMultiStress", "[IouLoop]") {
           ++overall;
           return slot_retention::automatic;
         });
-    CHECK((recv_token.is_valid()));
+    CHECK(recv_token.is_valid());
 
     // Wait for the multishot SQE to be submitted to the kernel before sending.
-    CHECK((loop->post_and_wait([] { return true; })));
+    CHECK(loop->post_and_wait([] { return true; }));
 
     constexpr int send_count = 4096;
     const char payload{'x'};
     for (int i = 0; i < send_count; ++i)
       (void)send_sock.send(&payload, sizeof(payload));
 
-    CHECK((WaitFor(
+    CHECK(WaitFor(
         [&] { return multishot_done.load(std::memory_order::acquire); },
-        5000ms)));
+        5000ms));
 
-    CHECK((enobufs_fired));
-    CHECK((overall) == (3072));
-    CHECK((a_count) == (1536));
-    CHECK((b_count) == (512));
-    CHECK((c_count) == (1024));
+    CHECK(enobufs_fired);
+    CHECK(overall == 3072);
+    CHECK(a_count == 1536);
+    CHECK(b_count == 512);
+    CHECK(c_count == 1024);
   }
 }
 #pragma endregion
@@ -1363,7 +1353,7 @@ TEST_CASE("CompletionFnSizeProbe", "[IouLoop]") {
 
   const size_t all[] = {sz_direct_fn, sz_raw_bt, sz_raw_bewt, sz_raw_buf};
   const size_t max_sz = *std::ranges::max_element(all);
-  CHECK((max_sz) == (400U));
+  CHECK(max_sz == 400U);
 // Sounds like SZ = 384 works.
 #if 0
   TEST_MSG("direct_fn=%zu raw+bt=%zu raw+bewt=%zu raw+buf=%zu  max=%zu",
@@ -1389,21 +1379,21 @@ TEST_CASE("SubmitPoll", "[IouLoop]") {
           fired.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    CHECK((poll_tok.is_valid()));
+    CHECK(poll_tok.is_valid());
 
     // Make the socket readable by sending data.
     constexpr std::string_view msg{"ping"};
-    CHECK((loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       return loop
           ->submit_send_bytes(send_sock, std::as_bytes(std::span{msg}),
               [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
                 return slot_retention{};
               })
           .is_valid();
-    })));
+    }));
 
-    CHECK((WaitFor([&] { return fired.load(std::memory_order::acquire); })));
-    CHECK((poll_res.load()) >= (0));
+    CHECK(WaitFor([&] { return fired.load(std::memory_order::acquire); }));
+    CHECK(poll_res.load() >= 0);
   }
 }
 #pragma endregion
@@ -1421,7 +1411,7 @@ TEST_CASE("SubmitShutdown", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    CHECK((loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       if (!loop
               ->submit_recv_bytes(recv_sock, buf,
                   [&](completion_id, iou_res res,
@@ -1441,15 +1431,14 @@ TEST_CASE("SubmitShutdown", "[IouLoop]") {
                 return slot_retention{};
               })
           .is_valid();
-    })));
+    }));
 
-    CHECK(
-        (WaitFor([&] { return recv_done.load(std::memory_order::acquire); })));
-    CHECK((WaitFor([&] {
+    CHECK(WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
+    CHECK(WaitFor([&] {
       return shutdown_done.load(std::memory_order::acquire);
-    })));
-    CHECK((recv_res.load()) == (0));     // EOF
-    CHECK((shutdown_res.load()) == (0)); // success
+    }));
+    CHECK(recv_res.load() == 0);     // EOF
+    CHECK(shutdown_res.load() == 0); // success
   }
 }
 #pragma endregion
@@ -1467,17 +1456,17 @@ TEST_CASE("SubmitTimeoutRemove", "[IouLoop]") {
     iou_loop::completion_token timeout_token;
     iou_loop_runner loop;
 
-    CHECK((loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       timeout_token = loop->submit_timeout(std::move(timeout),
           [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
             timeout_result.store(res.value(), std::memory_order::release);
             return slot_retention{};
           });
       return timeout_token.is_valid();
-    })));
+    }));
 
     const auto ok = loop->submit_timeout_remove(std::move(timeout_token));
-    CHECK((ok));
+    CHECK(ok);
   }
 }
 #pragma endregion
@@ -1495,13 +1484,13 @@ TEST_CASE("SubmitTimeoutRemoveExplicit", "[IouLoop]") {
     iou_loop::completion_token timeout_token;
     iou_loop_runner loop;
 
-    CHECK((loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       timeout_token = loop->submit_timeout(std::move(timeout),
           [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
             return slot_retention{};
           });
       return timeout_token.is_valid();
-    })));
+    }));
 
     const auto remove_cbtoken = loop->tokenize(
         [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
@@ -1509,16 +1498,15 @@ TEST_CASE("SubmitTimeoutRemoveExplicit", "[IouLoop]") {
           remove_done.store(true, std::memory_order::release);
           return slot_retention{};
         });
-    CHECK((remove_cbtoken.is_valid()));
+    CHECK(remove_cbtoken.is_valid());
 
     const bool ok = loop->submit_timeout_remove(std::move(timeout_token),
         remove_cbtoken, slot_retention::automatic);
-    CHECK((ok));
+    CHECK(ok);
 
-    CHECK((WaitFor([&] {
-      return remove_done.load(std::memory_order::acquire);
-    })));
-    CHECK((remove_res.load()) == (0));
+    CHECK(
+        WaitFor([&] { return remove_done.load(std::memory_order::acquire); }));
+    CHECK(remove_res.load() == 0);
   }
 }
 #pragma endregion
@@ -1534,7 +1522,7 @@ TEST_CASE("SubmitCancelTokenAutoRelease", "[IouLoop]") {
 
     iou_loop_runner loop;
 
-    CHECK((loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       recv_token = loop->submit_recv_bytes(recv_sock, buf,
           [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
             recv_res.store(res.value(), std::memory_order::relaxed);
@@ -1542,13 +1530,12 @@ TEST_CASE("SubmitCancelTokenAutoRelease", "[IouLoop]") {
             return slot_retention{};
           });
       return recv_token.is_valid();
-    })));
+    }));
 
     const bool cancel_ok = loop->submit_cancel(std::move(recv_token));
-    CHECK((cancel_ok));
+    CHECK(cancel_ok);
 
-    CHECK(
-        (WaitFor([&] { return recv_done.load(std::memory_order::acquire); })));
+    CHECK(WaitFor([&] { return recv_done.load(std::memory_order::acquire); }));
     CHECK((recv_res.load()) < (0));
   }
 }
@@ -1569,7 +1556,7 @@ TEST_CASE("SubmitTimeoutUpdate", "[IouLoop]") {
     iou_loop::completion_token timeout_token;
     iou_loop_runner loop;
 
-    CHECK((loop->post_and_wait([&] {
+    CHECK(loop->post_and_wait([&] {
       timeout_token = loop->submit_timeout(std::move(timeout),
           [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
             count.fetch_add(1, std::memory_order::relaxed);
@@ -1580,19 +1567,19 @@ TEST_CASE("SubmitTimeoutUpdate", "[IouLoop]") {
             return slot_retention::automatic;
           });
       return timeout_token.is_valid();
-    })));
+    }));
 
     bound_timeout new_timeout{
         .when = {.ts = iou_timespec{50ms}, .flags = iou_timeout_flags::rel}};
     const bool updated = loop->post_and_wait([&] {
       return loop->submit_timeout_update(timeout_token, new_timeout);
     });
-    CHECK((updated));
+    CHECK(updated);
 
     // Wait for both CQEs: the update completion then the expiry.
-    CHECK((WaitFor([&] { return count.load(std::memory_order::acquire) >= 2; },
-        500ms)));
-    CHECK((last_res.load(std::memory_order::acquire)) == (-ETIME));
+    CHECK(WaitFor([&] { return count.load(std::memory_order::acquire) >= 2; },
+        500ms));
+    CHECK(last_res.load(std::memory_order::acquire) == -ETIME);
   }
 }
 #pragma endregion

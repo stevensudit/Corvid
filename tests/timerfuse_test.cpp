@@ -38,11 +38,11 @@ struct FakeResource {
 TEST_CASE("Default", "[TimerFuse]") {
   // Default-constructed fuse is permanently unarmed.
   timer_fuse<FakeResource> fuse;
-  CHECK((fuse.get_if_armed()) == (nullptr));
+  CHECK(fuse.get_if_armed() == nullptr);
 
   // Copyability: a copy is also unarmed.
   auto copy = fuse;
-  CHECK((copy.get_if_armed()) == (nullptr));
+  CHECK(copy.get_if_armed() == nullptr);
   copy = fuse; // copy assignment
 }
 
@@ -64,10 +64,10 @@ TEST_CASE("ArmedFires", "[TimerFuse]") {
         saw_resource = (f.get_if_armed() != nullptr);
         return true;
       });
-  CHECK((ok));
+  CHECK(ok);
   wheel.tick(t0 + 4ms);
-  CHECK((fired));
-  CHECK((saw_resource));
+  CHECK(fired);
+  CHECK(saw_resource);
 }
 
 #pragma endregion
@@ -90,8 +90,8 @@ TEST_CASE("Disarm", "[TimerFuse]") {
       });
   timer_fuse<FakeResource>::disarm(resource->seq);
   wheel.tick(t0 + 4ms);
-  CHECK((fired));
-  CHECK((saw_null));
+  CHECK(fired);
+  CHECK(saw_null);
 }
 
 #pragma endregion
@@ -125,10 +125,10 @@ TEST_CASE("Rearm", "[TimerFuse]") {
       });
 
   wheel.tick(t0 + 6ms);
-  CHECK((first_fired));
-  CHECK_FALSE((first_saw_resource)); // fizzled
-  CHECK((second_fired));
-  CHECK((second_saw_resource)); // still armed
+  CHECK(first_fired);
+  CHECK_FALSE(first_saw_resource); // fizzled
+  CHECK(second_fired);
+  CHECK(second_saw_resource); // still armed
 }
 
 #pragma endregion
@@ -151,8 +151,8 @@ TEST_CASE("ResourceExpired", "[TimerFuse]") {
       });
   resource.reset();
   wheel.tick(t0 + 4ms);
-  CHECK((fired));
-  CHECK((saw_null));
+  CHECK(fired);
+  CHECK(saw_null);
 }
 
 #pragma endregion
@@ -167,7 +167,7 @@ TEST_CASE("ExceedMaxDelay", "[TimerFuse]") {
   auto ok = timer_fuse<FakeResource>::set_timeout(wheel, resource->seq,
       resource, 2ms,
       [](const timer_fuse<FakeResource>&) -> bool { return true; });
-  CHECK_FALSE((ok));
+  CHECK_FALSE(ok);
 }
 
 #pragma endregion

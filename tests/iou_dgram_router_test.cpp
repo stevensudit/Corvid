@@ -150,26 +150,25 @@ TEST_CASE("BasicSendRecv", "[IouDgramRouter]") {
 
     auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &recvA);
-    CHECK((routerA));
+    CHECK(routerA);
 
     capture_protocol::state stateB; // sender side: no auto-create needed
     stateB.auto_create = false;
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
-    CHECK((routerB));
+    CHECK(routerB);
 
     const auto destA = routerA->local_endpoint();
-    CHECK_FALSE((destA.empty()));
+    CHECK_FALSE(destA.empty());
 
     auto sessB =
         capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
-    CHECK((routerB->add_session(destA, sessB)));
+    CHECK(routerB->add_session(destA, sessB));
 
-    CHECK((sessB->send_to(destA, "buf-udp")));
+    CHECK(sessB->send_to(destA, "buf-udp"));
 
-    CHECK(
-        (WaitFor([&] { return received.load(std::memory_order::acquire); })));
-    CHECK((payload) == ("buf-udp"));
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));
+    CHECK(payload == "buf-udp");
   }
 }
 
@@ -186,7 +185,7 @@ TEST_CASE("OnSentReturnsBuffer", "[IouDgramRouter]") {
     capture_protocol::state stateA; // receiver: just accept
     auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateA);
-    CHECK((routerA));
+    CHECK(routerA);
 
     capture_protocol::state stateB;
     stateB.auto_create = false;
@@ -199,17 +198,17 @@ TEST_CASE("OnSentReturnsBuffer", "[IouDgramRouter]") {
 
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
-    CHECK((routerB));
+    CHECK(routerB);
 
     const auto destA = routerA->local_endpoint();
     auto sessB =
         capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
-    CHECK((routerB->add_session(destA, sessB)));
+    CHECK(routerB->add_session(destA, sessB));
 
-    CHECK((sessB->send_to(destA, "ping")));
-    CHECK((WaitFor([&] { return sent.load(std::memory_order::acquire); })));
-    CHECK((ok.load(std::memory_order::acquire)));
-    CHECK((sent_bytes.load(std::memory_order::acquire)) == (4));
+    CHECK(sessB->send_to(destA, "ping"));
+    CHECK(WaitFor([&] { return sent.load(std::memory_order::acquire); }));
+    CHECK(ok.load(std::memory_order::acquire));
+    CHECK(sent_bytes.load(std::memory_order::acquire) == 4);
   }
 }
 
@@ -231,31 +230,31 @@ TEST_CASE("LazySession", "[IouDgramRouter]") {
 
     auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateA);
-    CHECK((routerA));
+    CHECK(routerA);
 
     capture_protocol::state stateB;
     stateB.auto_create = false;
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
-    CHECK((routerB));
+    CHECK(routerB);
 
     const auto destA = routerA->local_endpoint();
     auto sessB =
         capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
-    CHECK((routerB->add_session(destA, sessB)));
+    CHECK(routerB->add_session(destA, sessB));
 
-    CHECK((sessB->send_to(destA, "p1")));
-    CHECK((WaitFor([&] {
+    CHECK(sessB->send_to(destA, "p1"));
+    CHECK(WaitFor([&] {
       return factory_calls.load(std::memory_order::acquire) >= 1;
-    })));
+    }));
 
-    CHECK((sessB->send_to(destA, "p2")));
-    CHECK((sessB->send_to(destA, "p3")));
-    CHECK((WaitFor([&] {
+    CHECK(sessB->send_to(destA, "p2"));
+    CHECK(sessB->send_to(destA, "p3"));
+    CHECK(WaitFor([&] {
       return data_calls.load(std::memory_order::acquire) >= 2;
-    })));
+    }));
 
-    CHECK((factory_calls.load(std::memory_order::acquire)) == (1));
+    CHECK(factory_calls.load(std::memory_order::acquire) == 1);
   }
 }
 
@@ -273,25 +272,25 @@ TEST_CASE("DropOnNullFactory", "[IouDgramRouter]") {
 
     auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateA);
-    CHECK((routerA));
+    CHECK(routerA);
 
     capture_protocol::state stateB;
     stateB.auto_create = false;
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
-    CHECK((routerB));
+    CHECK(routerB);
 
     const auto destA = routerA->local_endpoint();
     auto sessB =
         capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
-    CHECK((routerB->add_session(destA, sessB)));
+    CHECK(routerB->add_session(destA, sessB));
 
-    CHECK((sessB->send_to(destA, "drop1")));
-    CHECK((sessB->send_to(destA, "drop2")));
+    CHECK(sessB->send_to(destA, "drop1"));
+    CHECK(sessB->send_to(destA, "drop2"));
 
-    CHECK((WaitFor(
+    CHECK(WaitFor(
         [&] { return factory_calls.load(std::memory_order::acquire) >= 2; },
-        1s)));
+        1s));
   }
 }
 
@@ -387,18 +386,18 @@ TEST_CASE("CustomKey", "[IouDgramRouter]") {
     auto routerA = iou_dgram_router_handle<id_protocol::router_plugin>::bind(
         *runner.loop(), net_endpoint::loopback_v4(), shot_type::single,
         &stateA);
-    CHECK((routerA));
+    CHECK(routerA);
 
     capture_protocol::state stateB;
     stateB.auto_create = false;
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
-    CHECK((routerB));
+    CHECK(routerB);
 
     const auto destA = routerA->local_endpoint();
     auto sessB =
         capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
-    CHECK((routerB->add_session(destA, sessB)));
+    CHECK(routerB->add_session(destA, sessB));
 
     auto send_id = [&](std::uint32_t id, std::string_view tail) {
       std::string p(4 + tail.size(), '\0');
@@ -407,16 +406,16 @@ TEST_CASE("CustomKey", "[IouDgramRouter]") {
       return sessB->send_to(destA, p);
     };
 
-    CHECK((send_id(1, "a")));
-    CHECK((send_id(2, "b")));
-    CHECK((send_id(1, "c")));
-    CHECK((send_id(2, "d")));
-    CHECK((send_id(1, "e")));
+    CHECK(send_id(1, "a"));
+    CHECK(send_id(2, "b"));
+    CHECK(send_id(1, "c"));
+    CHECK(send_id(2, "d"));
+    CHECK(send_id(1, "e"));
 
-    CHECK((WaitFor([&] {
+    CHECK(WaitFor([&] {
       return sess1_data.load(std::memory_order::acquire) >= 2 &&
              sess2_data.load(std::memory_order::acquire) >= 1;
-    })));
+    }));
   }
 }
 
@@ -500,26 +499,26 @@ TEST_CASE("WithPluginState", "[IouDgramRouter]") {
         iou_dgram_router_handle<counting_protocol::router_plugin>::bind(
             *runner.loop(), net_endpoint::loopback_v4(), shot_type::single,
             &stateA);
-    CHECK((routerA));
+    CHECK(routerA);
 
     capture_protocol::state stateB;
     stateB.auto_create = false;
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
-    CHECK((routerB));
+    CHECK(routerB);
 
     const auto destA = routerA->local_endpoint();
     auto sessB =
         capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
-    CHECK((routerB->add_session(destA, sessB)));
+    CHECK(routerB->add_session(destA, sessB));
 
-    CHECK((sessB->send_to(destA, "p1"))); // create_session only
-    CHECK((sessB->send_to(destA, "p2"))); // handle_recv, count=1
-    CHECK((sessB->send_to(destA, "p3"))); // handle_recv, count=2
+    CHECK(sessB->send_to(destA, "p1")); // create_session only
+    CHECK(sessB->send_to(destA, "p2")); // handle_recv, count=1
+    CHECK(sessB->send_to(destA, "p3")); // handle_recv, count=2
 
-    CHECK((WaitFor([&] {
+    CHECK(WaitFor([&] {
       return stateA.observed.load(std::memory_order::acquire) >= 2;
-    })));
+    }));
   }
 }
 
@@ -539,25 +538,25 @@ TEST_CASE("Multishot", "[IouDgramRouter]") {
 
     auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::multi, &stateA);
-    CHECK((routerA));
+    CHECK(routerA);
 
     capture_protocol::state stateB;
     stateB.auto_create = false;
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
-    CHECK((routerB));
+    CHECK(routerB);
 
     const auto destA = routerA->local_endpoint();
     auto sessB =
         capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
-    CHECK((routerB->add_session(destA, sessB)));
+    CHECK(routerB->add_session(destA, sessB));
 
     constexpr int total = 16;
-    for (int i = 0; i < total; ++i) CHECK((sessB->send_to(destA, "burst")));
+    for (int i = 0; i < total; ++i) CHECK(sessB->send_to(destA, "burst"));
 
-    CHECK((WaitFor(
+    CHECK(WaitFor(
         [&] { return delivered.load(std::memory_order::acquire) >= total; },
-        2s)));
+        2s));
   }
 }
 
@@ -577,29 +576,29 @@ TEST_CASE("OnClose", "[IouDgramRouter]") {
 
     auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateA);
-    CHECK((routerA));
+    CHECK(routerA);
 
     const auto preset_key = net_endpoint::loopback_v4(/*port=*/12345);
     auto sess = capture_session::make_unregistered(*routerA.pointer(), &stateA,
         preset_key);
-    CHECK((routerA->add_session(preset_key, sess)));
+    CHECK(routerA->add_session(preset_key, sess));
 
     // `add_session` posts to the loop thread; `close()` flips `open_`
     // synchronously. Without a barrier, the queued add can run after that
     // flip, see `!is_open()`, and silently drop. Post a sentinel and wait:
     // FIFO guarantees the add ran first.
     std::atomic_bool synced{false};
-    CHECK((runner.loop()->execute_or_post([&] {
+    CHECK(runner.loop()->execute_or_post([&] {
       synced.store(true, std::memory_order::release);
       return true;
-    })));
-    CHECK((WaitFor([&] { return synced.load(std::memory_order::acquire); })));
+    }));
+    CHECK(WaitFor([&] { return synced.load(std::memory_order::acquire); }));
 
-    CHECK((routerA.close()));
-    CHECK((WaitFor([&] {
+    CHECK(routerA.close());
+    CHECK(WaitFor([&] {
       return session_closed.load(std::memory_order::acquire) >= 1;
-    })));
-    CHECK((session_closed.load(std::memory_order::acquire)) == (1));
+    }));
+    CHECK(session_closed.load(std::memory_order::acquire) == 1);
   }
 }
 
@@ -613,7 +612,7 @@ TEST_CASE("RoundTrip", "[IouDgramEchoProtocol]") {
 
     auto echoA = iou_dgram_echo_server::bind(*runner.loop(),
         net_endpoint::loopback_v4());
-    CHECK((echoA));
+    CHECK(echoA);
 
     capture_protocol::state stateB;
     stateB.auto_create = false;
@@ -625,18 +624,18 @@ TEST_CASE("RoundTrip", "[IouDgramEchoProtocol]") {
 
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
-    CHECK((routerB));
+    CHECK(routerB);
 
     const auto destA = echoA.local_endpoint();
     auto sessB =
         capture_session::make_unregistered(*routerB.pointer(), &stateB, destA);
-    CHECK((routerB->add_session(destA, sessB)));
+    CHECK(routerB->add_session(destA, sessB));
 
-    CHECK((sessB->send_to(destA, "hello-echo")));
+    CHECK(sessB->send_to(destA, "hello-echo"));
 
-    CHECK((WaitFor([&] { return received.load(std::memory_order::acquire); },
-        1s)));
-    CHECK((echoed) == ("hello-echo"));
+    CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); },
+        1s));
+    CHECK(echoed == "hello-echo");
   }
 }
 
