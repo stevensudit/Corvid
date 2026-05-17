@@ -190,10 +190,20 @@ public:
   // to be destroyed, so its destructor will skip the explicit unregister.
   void skip_unregister() noexcept { buf_ring_.skip_unregister(); }
 
-  // Disable future use of `dispatcher_`. Once disarmed, `return_buffer` is a
-  // no-op. Called from `~iou_basic_loop` so that buffers outliving the loop
-  // (held by external `iou_stream_conn` refs) can destruct without trying to
-  // post into a torn-down dispatcher.
+  // Begin pool shutdown: subsequent `return_buffer` calls become no-ops
+  // instead of trying to re-add the returned slot to the (now-disabled) ring.
+  //
+  // Called from `~iou_basic_loop`. The supported lifetime model is that the
+  // user destroys the loop on the loop thread after stopping active workers,
+  // so buffer destruction either happens before teardown (normal path) or
+  // strictly after it (e.g., a `shared_ptr<iou_stream_conn>` held by user
+  // code past `~iou_basic_loop`, dropped later on any thread). The
+  // store-release here pairs with the load-acquire in `return_buffer` to
+  // give that late call a clean `nullptr` to observe.
+  //
+  // Not a guard against concurrent buffer use during teardown: returning
+  // buffers from another thread while `~iou_basic_loop` is running is
+  // outside the supported model.
   void disarm() noexcept {
     dispatcher_.store(nullptr, std::memory_order::release);
   }
@@ -242,8 +252,9 @@ private:
   [[nodiscard]] std::byte* base() const noexcept override { return base_; }
 
   // Replenish the returned slot into the kernel ring. After `disarm` (called
-  // from `~iou_basic_loop`), this is a no-op so a buffer outliving the loop
-  // can destruct without touching the torn-down dispatcher.
+  // from `~iou_basic_loop`), the pool is shutting down and the ring must not
+  // be touched; this becomes a no-op so a buffer outliving the loop can
+  // destruct cleanly. See `disarm` for the lifetime model.
   [[nodiscard]] bool return_buffer(span_t s, block_type /*blockrw*/) override {
     if (!s.data()) return false;
     auto* d = dispatcher_.load(std::memory_order::acquire);
