@@ -403,6 +403,14 @@ public:
   // unversioned mode `token::borrow` has no staleness check at all (see the
   // caveat on `token::borrow`), so shutdown adds no protection beyond what
   // versioning itself does not provide.
+  //
+  // `return_cb` contract: `return_cb` is invoked outside the pool mutex by
+  // `return_slot` (to minimize lock hold time), and is also invoked under
+  // the lock by `shutdown` on every slot. A late `return_slot` racing with
+  // `shutdown` can therefore see `return_cb` fired twice on the same slot:
+  // once with the original value, once with the post-shutdown `T{}`. So
+  // `return_cb` must be idempotent and safe to invoke on a default-
+  // constructed `T`.
   [[nodiscard]] bool shutdown() noexcept {
     std::scoped_lock lock{mutex_};
     if (shut_down_) return false;

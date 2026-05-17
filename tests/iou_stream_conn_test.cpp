@@ -1414,11 +1414,11 @@ void IouStreamConn_SendStringTooBigRejected() {
 
     // Default `send_buf_size` is 4 KB; anything strictly larger must be
     // rejected.
-    const std::string too_big(4 * 1024 + 1, 'X');
+    const std::string too_big((4 * 1024ULL) + 1, 'X');
     EXPECT_FALSE(send_conn->send(std::string{too_big}));
 
     // A string exactly equal to the buffer size still fits.
-    const std::string just_fits(4 * 1024, 'Y');
+    const std::string just_fits(4 * 1024ULL, 'Y');
     EXPECT_TRUE(send_conn->send(std::string{just_fits}));
   }
 }

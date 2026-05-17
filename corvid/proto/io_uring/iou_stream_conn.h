@@ -458,6 +458,7 @@ public:
     if (read_shut_.exchange(true)) return false;
     return loop_.execute_or_post([this, _ = self()] {
       if (closed_) return false;
+      (void)read_idle_.stop();
       if (write_shut_) return do_close_now();
       if (recv_token_) (void)loop_.submit_cancel(std::move(recv_token_));
       const auto cbtoken = loop_.submit_shutdown(sock_, shutdown_how::rd,
@@ -804,7 +805,9 @@ private:
             (void)on_recv_complete(buf);
             if (continued) return slot_retention::retain;
             recv_token_ = {};
-            recv_paused_ = true;
+            // Multishot re-arm failed. Downgrade to singleshot permanently.
+            recv_intended_shot_ = shot_type::single;
+            if (!do_submit_single_recv()) (void)do_close_now();
             return slot_retention::release;
           }
 
