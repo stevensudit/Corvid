@@ -184,11 +184,14 @@ foreach(SOURCE_FILE ${SOURCES})
     # Get the base name (e.g., test1 from test1.cpp)
     get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
 
-    # Phase 1 of MSAN support: skip iou_* tests. io_uring completions involve
-    # kernel writes to user buffers, which MSAN can't observe, so those tests
-    # would flood with false positives. Phase 2 will annotate the io_uring
-    # plumbing with __msan_unpoison_* and re-enable them here.
-    if(SANITIZER STREQUAL "msan" AND "${EXECUTABLE_NAME}" MATCHES "^iou_")
+    # MSAN holdout: `iou_dgram_router_test` reports a use-of-uninitialized-value
+    # in `unregister_self` during loop teardown with `ORIGIN: invalid (0)` --
+    # MSAN cannot track where the poison originated. The other four `iou_*`
+    # tests pass with the `__msan_unpoison_kernel_write` annotations added to
+    # `iou_buffer::update`, so the kernel-write coverage itself is good; this
+    # one needs deeper investigation.
+    if(SANITIZER STREQUAL "msan" AND
+       "${EXECUTABLE_NAME}" STREQUAL "iou_dgram_router_test")
         continue()
     endif()
 
