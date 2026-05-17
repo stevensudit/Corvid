@@ -54,10 +54,11 @@ void IouLoop_NopCompletion() {
   // Verify that a submitted NOP fires its completion callback on the runner.
   if (true) {
     constexpr uint32_t max_32 = std::numeric_limits<uint32_t>::max();
-    iou_loop_runner loop;
     std::atomic_bool fired{false};
     std::atomic_int32_t result{-999};
     std::atomic<uint32_t> flags_int{max_32};
+
+    iou_loop_runner loop;
 
     const auto token =
         loop->submit_nop([&](completion_id, iou_res res, iou_cqe_flags flags) {
@@ -150,8 +151,9 @@ void IouLoop_SelfDestroyOnLoopThread() {
 void IouLoop_PostFromThread() {
   // Post a callback from an external thread; verify the loop executes it.
   if (true) {
-    iou_loop_runner loop;
     std::atomic_bool fired{false};
+
+    iou_loop_runner loop;
 
     const bool ok = loop->post([&] {
       fired.store(true, std::memory_order::release);
@@ -169,8 +171,9 @@ void IouLoop_PostFromThread() {
 void IouLoop_PostAndWait() {
   // `post_and_wait` blocks until the callback runs, then returns.
   if (true) {
-    iou_loop_runner loop;
     std::atomic_bool ran{false};
+
+    iou_loop_runner loop;
 
     const bool ok = loop->post_and_wait([&] {
       ran.store(true, std::memory_order::relaxed);
@@ -189,13 +192,14 @@ void IouLoop_RecvSend() {
   if (true) {
     auto [send_sock, recv_sock] = net_socket::create_pair();
 
-    iou_loop_runner loop;
     std::atomic_bool received{false};
     std::atomic_int32_t recv_result{-1};
     std::atomic_int32_t send_result{-1};
 
     constexpr std::string_view msg{"hello"};
     std::array<std::byte, 16> buf{};
+
+    iou_loop_runner loop;
 
     const bool ok = loop->post_and_wait([&] {
       const auto token = loop->submit_recv_bytes(recv_sock, buf,
@@ -234,13 +238,14 @@ void IouLoop_RecvWriteFixed() {
   if (true) {
     auto [send_sock, recv_sock] = net_socket::create_pair();
 
-    iou_loop_runner loop;
     std::atomic_bool received{false};
     std::atomic_int32_t recv_n{-1};
     std::atomic_int32_t send_n{-1};
     std::string payload;
 
     constexpr std::string_view msg{"hello-fixed"};
+
+    iou_loop_runner loop;
 
     const auto recv_token = loop->submit_read_buffer(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) {
@@ -300,13 +305,14 @@ void IouLoop_SendBuffer() {
     const auto connect_ok = send_sock.connect(recv_addr);
     EXPECT_TRUE(connect_ok && *connect_ok);
 
-    iou_loop_runner loop;
     std::atomic_bool received{false};
     std::atomic_int32_t recv_n{-1};
     std::atomic_int32_t send_n{-1};
     std::string payload;
 
     constexpr std::string_view msg{"hello-zc"};
+
+    iou_loop_runner loop;
 
     const auto recv_token = loop->submit_read_buffer(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) {
@@ -365,8 +371,9 @@ void IouLoop_IsLoopThread() {
 void IouLoop_ExecuteOrPost() {
   // `execute_or_post` from an off-thread posts; the callback still runs.
   if (true) {
-    iou_loop_runner loop;
     std::atomic_bool executed{false};
+
+    iou_loop_runner loop;
 
     const bool ok = loop->execute_or_post([&] {
       executed.store(true, std::memory_order::release);
@@ -384,9 +391,10 @@ void IouLoop_NopTokenVariant() {
   // `tokenize` + `submit_nop(token)` exercises the token-based submission
   // path.
   if (true) {
-    iou_loop_runner loop;
     std::atomic_bool fired{false};
     std::atomic_int32_t result{-999};
+
+    iou_loop_runner loop;
 
     const auto token = loop->tokenize(
         [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
@@ -434,9 +442,10 @@ void IouLoop_SubmitClose() {
   if (true) {
     auto [keep, to_close] = net_socket::create_pair();
 
-    iou_loop_runner loop;
     std::atomic_bool fired{false};
     std::atomic_int32_t result{-1};
+
+    iou_loop_runner loop;
 
     const auto token = loop->submit_close(std::move(to_close),
         [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
@@ -456,11 +465,12 @@ void IouLoop_SubmitClose() {
 void IouLoop_SubmitTimeout() {
   // A single-shot timeout fires with `-ETIME` after the specified duration.
   if (true) {
-    iou_loop_runner loop;
     bound_timeout timeout{
         .when = {.ts = iou_timespec{50ms}, .flags = iou_timeout_flags::rel}};
     std::atomic_bool fired{false};
     std::atomic_int32_t result{0};
+
+    iou_loop_runner loop;
 
     const auto token = loop->submit_timeout(std::move(timeout),
         [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
@@ -480,11 +490,12 @@ void IouLoop_SubmitTimeout() {
 void IouLoop_SubmitTimeoutMultishot() {
   // A multishot timeout with `cqe_count`=3 fires exactly 3 times then stops.
   if (true) {
-    iou_loop_runner loop;
     bound_timeout timeout{
         .when = {.ts = iou_timespec{20ms},
             .flags = iou_timeout_flags::rel | iou_timeout_flags::multishot}};
     std::atomic<int> count{0};
+
+    iou_loop_runner loop;
 
     const auto token = loop->submit_timeout(
         std::move(timeout),
@@ -508,10 +519,11 @@ void IouLoop_SubmitCancelFile() {
   if (true) {
     auto [send_sock, recv_sock] = net_socket::create_pair();
 
-    iou_loop_runner loop;
     std::atomic_bool recv_done{false};
     std::atomic_int32_t recv_res{0};
     std::array<std::byte, 16> buf{};
+
+    iou_loop_runner loop;
 
     EXPECT_TRUE(loop->post_and_wait([&] {
       (void)loop->submit_recv_bytes(recv_sock, buf,
@@ -545,11 +557,12 @@ void IouLoop_SubmitCancelToken() {
   if (true) {
     auto [send_sock, recv_sock] = net_socket::create_pair();
 
-    iou_loop_runner loop;
     std::atomic_bool recv_done{false};
     std::atomic_int32_t recv_res{0};
     std::array<std::byte, 16> buf{};
     iou_loop::completion_token recv_token;
+
+    iou_loop_runner loop;
 
     EXPECT_TRUE(loop->post_and_wait([&] {
       recv_token = loop->submit_recv_bytes(recv_sock, buf,
@@ -588,11 +601,12 @@ void IouLoop_AcceptConnect() {
     EXPECT_TRUE(listen_sock.bind(ep));
     EXPECT_TRUE(listen_sock.listen());
 
-    iou_loop_runner loop;
     std::atomic_bool accepted{false};
     std::atomic_int32_t accept_res{-1};
     std::atomic_bool connected{false};
     std::atomic_int32_t connect_res{-2};
+
+    iou_loop_runner loop;
 
     const auto accept_tok = loop->submit_accept(listen_sock,
         [&](completion_id, iou_res res, iou_cqe_flags,
@@ -645,13 +659,14 @@ void IouLoop_RecvSendMsg() {
     EXPECT_TRUE(send_sock.bind(send_ep));
     net_endpoint recv_addr{recv_sock};
 
-    iou_loop_runner loop;
     std::atomic_bool received{false};
     std::atomic_int32_t recv_n{-1};
     std::atomic_int32_t send_n{-1};
     std::string recv_result;
 
     constexpr std::string_view payload{"recvmsg-test"};
+
+    iou_loop_runner loop;
 
     const bool ok = loop->post_and_wait([&] {
       auto recv_buf = loop->borrow_read_buffer();
@@ -722,8 +737,9 @@ void IouLoop_SlotRetentionRetain() {
   // Re-submitting a NOP with the same token fires the callback a second time,
   // after which it releases normally.
   if (true) {
-    iou_loop_runner loop;
     std::atomic<int> count{0};
+
+    iou_loop_runner loop;
 
     const auto token = loop->tokenize(
         [&](completion_id id, iou_res, iou_cqe_flags) -> slot_retention {
@@ -1023,9 +1039,10 @@ void IouLoop_RecvBufferMulti() {
     auto [send_sock, recv_sock] =
         net_socket::create_pair(address_family::unix, socket_type::seqpacket);
 
-    iou_loop_runner loop;
     std::atomic<int> count{0};
     std::array<std::string, 3> payloads;
+
+    iou_loop_runner loop;
 
     const auto recv_token = loop->submit_recv_buffer_multi(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
@@ -1074,9 +1091,10 @@ void IouLoop_RecvMsgBufferMulti() {
     EXPECT_TRUE(send_sock.bind(send_ep));
     net_endpoint recv_addr{recv_sock};
 
-    iou_loop_runner loop;
     std::atomic<int> count{0};
     std::array<std::string, 3> payloads;
+
+    iou_loop_runner loop;
 
     const auto recv_token = loop->submit_recvmsg_buffer_multi(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
@@ -1132,11 +1150,12 @@ void IouLoop_RecvMsgBufferMultiTruncated() {
     EXPECT_TRUE(send_sock.bind(send_ep));
     net_endpoint recv_addr{recv_sock};
 
-    iou_loop_runner loop;
     std::atomic_bool fired{false};
     relaxed_atomic_int32_t result{0};
     relaxed_atomic_bool truncated{false};
     relaxed_atomic_size_t len{0};
+
+    iou_loop_runner loop;
 
     const auto recv_token = loop->submit_recvmsg_buffer_multi(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
@@ -1206,8 +1225,6 @@ void IouLoop_RecvMsgBufferMultiStress() {
     // `loop` must be declared before `held_bufs` so that `held_bufs` is
     // destroyed first (releasing its buffers back to the pool before the pool
     // itself is freed when `loop` is destroyed).
-    iou_loop_runner loop;
-
     // Loop-thread-only state (no synchronization needed between callbacks).
     int overall{};
     int a_count{};
@@ -1218,6 +1235,8 @@ void IouLoop_RecvMsgBufferMultiStress() {
     held_bufs.reserve(1024);
 
     std::atomic_bool multishot_done{false};
+
+    iou_loop_runner loop;
 
     const auto recv_token = loop->submit_recvmsg_buffer_multi(recv_sock,
         [&](completion_id, iou_loop::buffer& buf) -> slot_retention {
@@ -1366,9 +1385,10 @@ void IouLoop_SubmitPoll() {
   // readable; `res` contains the triggered events mask (POLLIN bit set).
   if (true) {
     auto [send_sock, recv_sock] = net_socket::create_pair();
-    iou_loop_runner loop;
     std::atomic_bool fired{false};
     std::atomic_int32_t poll_res{-1};
+
+    iou_loop_runner loop;
 
     const auto poll_tok = loop->submit_poll(recv_sock,
         [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
@@ -1401,12 +1421,13 @@ void IouLoop_SubmitShutdown() {
   // `submit_shutdown(SHUT_WR)` causes the peer recv to see EOF (0 bytes).
   if (true) {
     auto [send_sock, recv_sock] = net_socket::create_pair();
-    iou_loop_runner loop;
     std::atomic_bool recv_done{false};
     std::atomic_int32_t recv_res{-1};
     std::atomic_bool shutdown_done{false};
     std::atomic_int32_t shutdown_res{-1};
     std::array<std::byte, 16> buf{};
+
+    iou_loop_runner loop;
 
     EXPECT_TRUE(loop->post_and_wait([&] {
       if (!loop
@@ -1447,12 +1468,13 @@ void IouLoop_SubmitTimeoutRemove() {
   // cancels a pending timeout. The returned remove token is valid; its slot
   // is released once the cancel CQE is processed.
   if (true) {
-    iou_loop_runner loop;
     std::atomic<int32_t> timeout_result{1}; // non-negative sentinel
 
     bound_timeout timeout{
         .when = {.ts = iou_timespec{500ms}, .flags = iou_timeout_flags::rel}};
     iou_loop::completion_token timeout_token;
+    iou_loop_runner loop;
+
     EXPECT_TRUE(loop->post_and_wait([&] {
       timeout_token = loop->submit_timeout(std::move(timeout),
           [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {
@@ -1473,13 +1495,14 @@ void IouLoop_SubmitTimeoutRemoveExplicit() {
   // Two-arg `submit_timeout_remove` allows an explicit callback for the
   // remove operation itself; verify it fires with `res == 0`.
   if (true) {
-    iou_loop_runner loop;
     std::atomic_bool remove_done{false};
     std::atomic_int32_t remove_res{-1};
 
     bound_timeout timeout{
         .when = {.ts = iou_timespec{500ms}, .flags = iou_timeout_flags::rel}};
     iou_loop::completion_token timeout_token;
+    iou_loop_runner loop;
+
     EXPECT_TRUE(loop->post_and_wait([&] {
       timeout_token = loop->submit_timeout(std::move(timeout),
           [](completion_id, iou_res, iou_cqe_flags) -> slot_retention {
@@ -1511,11 +1534,12 @@ void IouLoop_SubmitTimeoutRemoveExplicit() {
 void IouLoop_SubmitCancelTokenAutoRelease() {
   if (true) {
     auto [send_sock, recv_sock] = net_socket::create_pair();
-    iou_loop_runner loop;
     std::atomic_bool recv_done{false};
     std::atomic_int32_t recv_res{0};
     std::array<std::byte, 16> buf{};
     iou_loop::completion_token recv_token;
+
+    iou_loop_runner loop;
 
     EXPECT_TRUE(loop->post_and_wait([&] {
       recv_token = loop->submit_recv_bytes(recv_sock, buf,
@@ -1544,13 +1568,14 @@ void IouLoop_SubmitTimeoutUpdate() {
   // the update completion (res=0) and the expiry (res=-ETIME). The callback
   // returns `retain` for the update so the slot stays live for the expiry.
   if (true) {
-    iou_loop_runner loop;
     std::atomic<int> count{0};
     std::atomic_int32_t last_res{1}; // non-negative sentinel
 
     bound_timeout timeout{
         .when = {.ts = iou_timespec{2000ms}, .flags = iou_timeout_flags::rel}};
     iou_loop::completion_token timeout_token;
+    iou_loop_runner loop;
+
     EXPECT_TRUE(loop->post_and_wait([&] {
       timeout_token = loop->submit_timeout(std::move(timeout),
           [&](completion_id, iou_res res, iou_cqe_flags) -> slot_retention {

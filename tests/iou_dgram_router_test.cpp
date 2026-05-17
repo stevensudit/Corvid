@@ -136,7 +136,6 @@ using capture_handle =
 void IouDgramRouter_BasicSendRecv() {
   // First packet hits create_session; payload arrives via the buffer.
   if (true) {
-    iou_loop_runner runner;
     std::atomic_bool received{false};
     std::string payload;
 
@@ -146,6 +145,8 @@ void IouDgramRouter_BasicSendRecv() {
       received.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &recvA);
@@ -176,10 +177,11 @@ void IouDgramRouter_OnSentReturnsBuffer() {
   // `handle_sent` fires with the buffer in success state after a send
   // completes.
   if (true) {
-    iou_loop_runner runner;
     std::atomic_bool sent{false};
     std::atomic_bool ok{false};
     std::atomic_int sent_bytes{0};
+
+    iou_loop_runner runner;
 
     capture_protocol::state stateA; // receiver: just accept
     auto routerA = capture_handle::bind(*runner.loop(),
@@ -216,7 +218,6 @@ void IouDgramRouter_LazySession() {
   // create_session fires once per unknown key; subsequent packets bypass it
   // and dispatch directly to handle_recv.
   if (true) {
-    iou_loop_runner runner;
     std::atomic_int factory_calls{0};
     std::atomic_int data_calls{0};
 
@@ -226,6 +227,8 @@ void IouDgramRouter_LazySession() {
       ++data_calls;
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateA);
@@ -261,12 +264,13 @@ void IouDgramRouter_DropOnNullFactory() {
   // `create_session` returns false (no session installed); every arriving
   // packet re-invokes it.
   if (true) {
-    iou_loop_runner runner;
     std::atomic_int factory_calls{0};
 
     capture_protocol::state stateA;
     stateA.auto_create = false;
     stateA.on_create = [&](const iou_loop::buffer&) { ++factory_calls; };
+
+    iou_loop_runner runner;
 
     auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateA);
@@ -369,7 +373,6 @@ void IouDgramRouter_CustomKey() {
     using my_router = iou_dgram_router<id_protocol::router_plugin>;
     static_assert(std::same_as<my_router::key_t, std::uint32_t>);
 
-    iou_loop_runner runner;
     std::atomic_int sess1_data{0};
     std::atomic_int sess2_data{0};
 
@@ -379,6 +382,8 @@ void IouDgramRouter_CustomKey() {
       if (key == 2U) ++sess2_data;
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto routerA = iou_dgram_router_handle<id_protocol::router_plugin>::bind(
         *runner.loop(), net_endpoint::loopback_v4(), shot_type::single,
@@ -488,8 +493,9 @@ public:
 void IouDgramRouter_WithPluginState() {
   // SessionPlugin is the per-session state container.
   if (true) {
-    iou_loop_runner runner;
     counting_protocol::state stateA;
+
+    iou_loop_runner runner;
 
     auto routerA =
         iou_dgram_router_handle<counting_protocol::router_plugin>::bind(
@@ -521,7 +527,6 @@ void IouDgramRouter_WithPluginState() {
 void IouDgramRouter_Multishot() {
   // Multishot recvmsg path: a burst of datagrams all arrive.
   if (true) {
-    iou_loop_runner runner;
     std::atomic_int delivered{0};
 
     capture_protocol::state stateA;
@@ -530,6 +535,8 @@ void IouDgramRouter_Multishot() {
       ++delivered;
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::multi, &stateA);
@@ -560,7 +567,6 @@ void IouDgramRouter_OnClose() {
   // Closing the router fires `unregister_self` on registered sessions
   // exactly once.
   if (true) {
-    iou_loop_runner runner;
     std::atomic_int session_closed{0};
 
     capture_protocol::state stateA;
@@ -568,6 +574,8 @@ void IouDgramRouter_OnClose() {
       ++session_closed;
       return true;
     };
+
+    iou_loop_runner runner;
 
     auto routerA = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateA);
@@ -601,9 +609,10 @@ void IouDgramRouter_OnClose() {
 void IouDgramEchoProtocol_RoundTrip() {
   // `iou_dgram_echo_server` bounces each datagram back to its sender.
   if (true) {
-    iou_loop_runner runner;
     std::atomic_bool received{false};
     std::string echoed;
+
+    iou_loop_runner runner;
 
     auto echoA = iou_dgram_echo_server::bind(*runner.loop(),
         net_endpoint::loopback_v4());
