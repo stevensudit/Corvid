@@ -145,6 +145,8 @@ TEST_CASE("BasicSendRecv", "[IouDgramRouter]") {
       received.store(true, std::memory_order::release);
       return true;
     };
+    capture_protocol::state stateB; // sender side: no auto-create needed
+    stateB.auto_create = false;
 
     iou_loop_runner runner;
 
@@ -152,8 +154,6 @@ TEST_CASE("BasicSendRecv", "[IouDgramRouter]") {
         net_endpoint::loopback_v4(), shot_type::single, &recvA);
     CHECK(routerA);
 
-    capture_protocol::state stateB; // sender side: no auto-create needed
-    stateB.auto_create = false;
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
     CHECK(routerB);
@@ -180,13 +180,9 @@ TEST_CASE("OnSentReturnsBuffer", "[IouDgramRouter]") {
     std::atomic_bool ok{false};
     std::atomic_int sent_bytes{0};
 
-    iou_loop_runner runner;
-
+    // State objects must outlive the runner: router/session close runs on the
+    // loop thread during runner.join, and unregister_self dereferences state.
     capture_protocol::state stateA; // receiver: just accept
-    auto routerA = capture_handle::bind(*runner.loop(),
-        net_endpoint::loopback_v4(), shot_type::single, &stateA);
-    CHECK(routerA);
-
     capture_protocol::state stateB;
     stateB.auto_create = false;
     stateB.on_sent = [&](iou_loop::buffer&& buf) {
@@ -195,6 +191,12 @@ TEST_CASE("OnSentReturnsBuffer", "[IouDgramRouter]") {
       sent.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
+
+    auto routerA = capture_handle::bind(*runner.loop(),
+        net_endpoint::loopback_v4(), shot_type::single, &stateA);
+    CHECK(routerA);
 
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
@@ -225,6 +227,8 @@ TEST_CASE("LazySession", "[IouDgramRouter]") {
       ++data_calls;
       return true;
     };
+    capture_protocol::state stateB;
+    stateB.auto_create = false;
 
     iou_loop_runner runner;
 
@@ -232,8 +236,6 @@ TEST_CASE("LazySession", "[IouDgramRouter]") {
         net_endpoint::loopback_v4(), shot_type::single, &stateA);
     CHECK(routerA);
 
-    capture_protocol::state stateB;
-    stateB.auto_create = false;
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
     CHECK(routerB);
@@ -267,6 +269,8 @@ TEST_CASE("DropOnNullFactory", "[IouDgramRouter]") {
     capture_protocol::state stateA;
     stateA.auto_create = false;
     stateA.on_create = [&](const iou_loop::buffer&) { ++factory_calls; };
+    capture_protocol::state stateB;
+    stateB.auto_create = false;
 
     iou_loop_runner runner;
 
@@ -274,8 +278,6 @@ TEST_CASE("DropOnNullFactory", "[IouDgramRouter]") {
         net_endpoint::loopback_v4(), shot_type::single, &stateA);
     CHECK(routerA);
 
-    capture_protocol::state stateB;
-    stateB.auto_create = false;
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
     CHECK(routerB);
@@ -380,6 +382,8 @@ TEST_CASE("CustomKey", "[IouDgramRouter]") {
       if (key == 2U) ++sess2_data;
       return true;
     };
+    capture_protocol::state stateB;
+    stateB.auto_create = false;
 
     iou_loop_runner runner;
 
@@ -388,8 +392,6 @@ TEST_CASE("CustomKey", "[IouDgramRouter]") {
         &stateA);
     CHECK(routerA);
 
-    capture_protocol::state stateB;
-    stateB.auto_create = false;
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
     CHECK(routerB);
@@ -492,6 +494,8 @@ TEST_CASE("WithPluginState", "[IouDgramRouter]") {
   // SessionPlugin is the per-session state container.
   if (true) {
     counting_protocol::state stateA;
+    capture_protocol::state stateB;
+    stateB.auto_create = false;
 
     iou_loop_runner runner;
 
@@ -501,8 +505,6 @@ TEST_CASE("WithPluginState", "[IouDgramRouter]") {
             &stateA);
     CHECK(routerA);
 
-    capture_protocol::state stateB;
-    stateB.auto_create = false;
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
     CHECK(routerB);
@@ -533,6 +535,8 @@ TEST_CASE("Multishot", "[IouDgramRouter]") {
       ++delivered;
       return true;
     };
+    capture_protocol::state stateB;
+    stateB.auto_create = false;
 
     iou_loop_runner runner;
 
@@ -540,8 +544,6 @@ TEST_CASE("Multishot", "[IouDgramRouter]") {
         net_endpoint::loopback_v4(), shot_type::multi, &stateA);
     CHECK(routerA);
 
-    capture_protocol::state stateB;
-    stateB.auto_create = false;
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
     CHECK(routerB);
@@ -608,12 +610,6 @@ TEST_CASE("RoundTrip", "[IouDgramEchoProtocol]") {
     std::atomic_bool received{false};
     std::string echoed;
 
-    iou_loop_runner runner;
-
-    auto echoA = iou_dgram_echo_server::bind(*runner.loop(),
-        net_endpoint::loopback_v4());
-    CHECK(echoA);
-
     capture_protocol::state stateB;
     stateB.auto_create = false;
     stateB.on_recv = [&](iou_loop::buffer&& b) {
@@ -621,6 +617,12 @@ TEST_CASE("RoundTrip", "[IouDgramEchoProtocol]") {
       received.store(true, std::memory_order::release);
       return true;
     };
+
+    iou_loop_runner runner;
+
+    auto echoA = iou_dgram_echo_server::bind(*runner.loop(),
+        net_endpoint::loopback_v4());
+    CHECK(echoA);
 
     auto routerB = capture_handle::bind(*runner.loop(),
         net_endpoint::loopback_v4(), shot_type::single, &stateB);
