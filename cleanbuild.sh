@@ -132,6 +132,7 @@ fi
 # every issue rather than bailing on the first one. Plain runs still bail
 # on the first failure to match the legacy behavior.
 sweep_failed=0
+failed_tests=()
 for file in "$buildDir"/*; do
   # Check if the file is an executable and a regular file (not a directory or symlink)
   if [[ -x "$file" && -f "$file" && "$file" != *"CMakeCXXCompilerId"* ]]; then
@@ -142,6 +143,7 @@ for file in "$buildDir"/*; do
       if ! "$file"; then
         echo "[FAIL] $base (sanitizer=$sanitizer, exit non-zero)"
         sweep_failed=$((sweep_failed + 1))
+        failed_tests+=("$base")
       fi
     else
       "$file"
@@ -152,6 +154,9 @@ done
 
 if [[ -n "$sanitizer" && "$sweep_failed" -gt 0 ]]; then
   echo ""
-  echo "$sweep_failed test executable(s) failed under $sanitizer."
+  echo "$sweep_failed test executable(s) failed under $sanitizer:"
+  for name in "${failed_tests[@]}"; do
+    echo "  - $name"
+  done
   exit 1
 fi

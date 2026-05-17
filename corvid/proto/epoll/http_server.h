@@ -308,6 +308,48 @@ public:
 
   http_server(allow) {};
 
+  // Drop our listener and route handlers before the implicit member
+  // destruction proceeds. Both capture `weak_ptr<http_server>`; if their
+  // destruction is left to run asynchronously on the loop thread, the
+  // worker's `~weak_ptr<http_server>` (which decs our control-block weak
+  // count) races with our own `~enable_shared_from_this` doing the same
+  // at the end of this destructor. Similarly, the timing wheel's buckets
+  // capture `weak_ptr<stream_conn>` callbacks; destroying the wheel
+  // while the epoll worker is still dropping `shared_ptr<stream_conn>`
+  // refs in `dispatch_event` would race on the connection's control
+  // block.
+  //
+  // Owned-loop case (`runner_` non-empty): stop the worker via
+  // `runner_.reset()`. The runner's worker performs a `use_count == 1`
+  // check on `state->loop` during shutdown and `std::terminate`s if any
+  // external ref remains, so we must drop `listener_`, `routes_`, and
+  // `loop_` first. The worker drains its post queue (and the conns it
+  // referenced) as part of shutdown, so the destruction happens on the
+  // worker thread, joined by `reset()` before we proceed.
+  //
+  // Shared-loop case (`runner_` empty): we can't stop the loop -- the
+  // caller owns it. Drop `listener_` (which posts a hangup carrying its
+  // conn ref) and `routes_`, then `post_and_wait` a no-op to drain the
+  // queue. The post queue is FIFO, so the no-op runs after the hangup;
+  // the hangup itself destroys the conn in-lambda once `do_hangup`
+  // unregisters from the loop. By the time `post_and_wait` returns, the
+  // conn's handlers (and their `weak_ptr<http_server>` captures) have
+  // been destroyed on the worker thread, sequenced before our own dec.
+  ~http_server() {
+    if (runner_) {
+      listener_ = {};
+      routes_.clear();
+      loop_.reset();
+      runner_.reset();
+      return;
+    }
+    if (loop_) {
+      listener_ = {};
+      routes_.clear();
+      (void)loop_->post_and_wait([] { return true; });
+    }
+  }
+
 private:
   // Actual payload for timeouts.
   [[nodiscard]] static bool timeout_hangup(const timer_fuse_t& fuse) {

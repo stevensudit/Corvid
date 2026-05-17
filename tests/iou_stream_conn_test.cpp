@@ -93,7 +93,7 @@ using capture_conn = iou_stream_conn<capture_protocol>;
 
 #pragma region SendRecvString
 
-TEST_CASE("IouStreamConn_SendRecvString", "[IouStreamConn]") {
+TEST_CASE("SendRecvString", "[IouStreamConn]") {
   // String send -> on_data fires, payload correct.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -137,7 +137,7 @@ TEST_CASE("IouStreamConn_SendRecvString", "[IouStreamConn]") {
 #pragma endregion
 #pragma region MultipleStrings
 
-TEST_CASE("IouStreamConn_MultipleStrings", "[IouStreamConn]") {
+TEST_CASE("MultipleStrings", "[IouStreamConn]") {
   // Multiple string sends -> all received and concatenated correctly.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -182,7 +182,7 @@ TEST_CASE("IouStreamConn_MultipleStrings", "[IouStreamConn]") {
 #pragma endregion
 #pragma region SendRecvBuffer
 
-TEST_CASE("IouStreamConn_SendRecvBuffer", "[IouStreamConn]") {
+TEST_CASE("SendRecvBuffer", "[IouStreamConn]") {
   // Direct buffer send -> on_data fires, payload correct.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -230,7 +230,7 @@ TEST_CASE("IouStreamConn_SendRecvBuffer", "[IouStreamConn]") {
 #pragma endregion
 #pragma region BufferMoveOut
 
-TEST_CASE("IouStreamConn_BufferMoveOut", "[IouStreamConn]") {
+TEST_CASE("BufferMoveOut", "[IouStreamConn]") {
   // `take()` in on_data -> fresh recv submitted, caller owns buffer.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -273,7 +273,7 @@ TEST_CASE("IouStreamConn_BufferMoveOut", "[IouStreamConn]") {
 #pragma endregion
 #pragma region GracefulClose
 
-TEST_CASE("IouStreamConn_GracefulClose", "[IouStreamConn]") {
+TEST_CASE("GracefulClose", "[IouStreamConn]") {
   // `close()` -> on_close fires on both sides.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -317,7 +317,7 @@ TEST_CASE("IouStreamConn_GracefulClose", "[IouStreamConn]") {
 #pragma endregion
 #pragma region HangupClose
 
-TEST_CASE("IouStreamConn_HangupClose", "[IouStreamConn]") {
+TEST_CASE("HangupClose", "[IouStreamConn]") {
   // `hangup()` -> socket closed immediately.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -350,7 +350,7 @@ TEST_CASE("IouStreamConn_HangupClose", "[IouStreamConn]") {
 #pragma endregion
 #pragma region OnDrain
 
-TEST_CASE("IouStreamConn_OnDrain", "[IouStreamConn]") {
+TEST_CASE("OnDrain", "[IouStreamConn]") {
   // `on_drain` fires after send completes and queue is empty.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -385,7 +385,7 @@ TEST_CASE("IouStreamConn_OnDrain", "[IouStreamConn]") {
 #pragma endregion
 #pragma region WithState
 
-TEST_CASE("IouStreamConn_WithState", "[IouStreamConn]") {
+TEST_CASE("WithState", "[IouStreamConn]") {
   // Per-connection state living in the plugin (replaces the old
   // `iou_stream_conn_with_state` pattern).
   if (true) {
@@ -431,7 +431,7 @@ TEST_CASE("IouStreamConn_WithState", "[IouStreamConn]") {
 #pragma endregion
 #pragma region FullBufferPartialConsume
 
-TEST_CASE("IouStreamConn_FullBufferPartialConsume", "[IouStreamConn]") {
+TEST_CASE("FullBufferPartialConsume", "[IouStreamConn]") {
   // Fills the recv buffer completely, then consumes part of it on the first
   // full-buffer delivery. The remaining bytes plus newly-received bytes are
   // delivered on a subsequent recv. Verifies that partial consume of a full
@@ -479,7 +479,7 @@ TEST_CASE("IouStreamConn_FullBufferPartialConsume", "[IouStreamConn]") {
 #pragma endregion
 #pragma region MultishotRecvBasic
 
-TEST_CASE("IouStreamConn_MultishotRecv_Basic", "[IouStreamConn]") {
+TEST_CASE("MultishotRecv_Basic", "[IouStreamConn]") {
   // multishot recv mode: data arrives and `on_data` fires.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -521,7 +521,7 @@ TEST_CASE("IouStreamConn_MultishotRecv_Basic", "[IouStreamConn]") {
 #pragma endregion
 #pragma region MultishotRecvMultipleMessages
 
-TEST_CASE("IouStreamConn_MultishotRecv_MultipleMessages", "[IouStreamConn]") {
+TEST_CASE("MultishotRecv_MultipleMessages", "[IouStreamConn]") {
   // multishot recv mode: multiple sends are all delivered (bytes counted since
   // the stream socket may coalesce messages into a single on_data call).
   if (true) {
@@ -567,7 +567,7 @@ TEST_CASE("IouStreamConn_MultishotRecv_MultipleMessages", "[IouStreamConn]") {
 #pragma endregion
 #pragma region MultishotRecvTakeBuffer
 
-TEST_CASE("IouStreamConn_MultishotRecv_TakeBuffer", "[IouStreamConn]") {
+TEST_CASE("MultishotRecv_TakeBuffer", "[IouStreamConn]") {
   // `take()` in multishot mode: multishot resubmits after the taken buffer is
   // released.
   if (true) {
@@ -619,7 +619,7 @@ TEST_CASE("IouStreamConn_MultishotRecv_TakeBuffer", "[IouStreamConn]") {
 #pragma endregion
 #pragma region MultishotRecvStopAndResume
 
-TEST_CASE("IouStreamConn_MultishotRecv_StopAndResume", "[IouStreamConn]") {
+TEST_CASE("MultishotRecv_StopAndResume", "[IouStreamConn]") {
   // `stop_receiving()` pauses recv and returns a resume callback; the
   // callback both keeps the conn alive and, when invoked, restarts the
   // recv loop.
@@ -691,8 +691,7 @@ TEST_CASE("IouStreamConn_MultishotRecv_StopAndResume", "[IouStreamConn]") {
 #pragma endregion
 #pragma region MultishotRecvAcceptedConnsInheritMode
 
-TEST_CASE("IouStreamConn_MultishotRecv_AcceptedConnsInheritMode",
-    "[IouStreamConn]") {
+TEST_CASE("MultishotRecv_AcceptedConnsInheritMode", "[IouStreamConn]") {
   // Accepted connections from a multishot-mode listener also use multishot.
   if (true) {
     std::atomic_bool received{false};
@@ -729,7 +728,7 @@ TEST_CASE("IouStreamConn_MultishotRecv_AcceptedConnsInheritMode",
 #pragma endregion
 #pragma region AccessorsLifecycle
 
-TEST_CASE("IouStreamConn_AccessorsLifecycle", "[IouStreamConn]") {
+TEST_CASE("AccessorsLifecycle", "[IouStreamConn]") {
   // is_open / writes_allowed / is_read_shut / is_write_shut transitions.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -773,7 +772,7 @@ TEST_CASE("IouStreamConn_AccessorsLifecycle", "[IouStreamConn]") {
 #pragma endregion
 #pragma region Endpoints
 
-TEST_CASE("IouStreamConn_Endpoints", "[IouStreamConn]") {
+TEST_CASE("Endpoints", "[IouStreamConn]") {
   // local_endpoint and remote_endpoint resolve after listen + connect.
   if (true) {
     std::atomic_bool connected{false};
@@ -816,7 +815,7 @@ TEST_CASE("IouStreamConn_Endpoints", "[IouStreamConn]") {
 #pragma endregion
 #pragma region BufSizeAccessors
 
-TEST_CASE("IouStreamConn_BufSizeAccessors", "[IouStreamConn]") {
+TEST_CASE("BufSizeAccessors", "[IouStreamConn]") {
   // set_recv_buf_size / set_send_buf_size round-trip through the relaxed
   // atomic storage. The conn keeps using the new sizes for subsequent
   // borrows; we don't try to observe that here, just the getter/setter.
@@ -848,7 +847,7 @@ TEST_CASE("IouStreamConn_BufSizeAccessors", "[IouStreamConn]") {
 #pragma endregion
 #pragma region PeerEofDeliversEmptyView
 
-TEST_CASE("IouStreamConn_PeerEofDeliversEmptyView", "[IouStreamConn]") {
+TEST_CASE("PeerEofDeliversEmptyView", "[IouStreamConn]") {
   // When the peer closes, this side gets a final on_data with an empty view
   // and is_read_shut transitions to true.
   if (true) {
@@ -912,7 +911,7 @@ TEST_CASE("IouStreamConn_PeerEofDeliversEmptyView", "[IouStreamConn]") {
 #pragma endregion
 #pragma region ShutdownSend
 
-TEST_CASE("IouStreamConn_ShutdownSend", "[IouStreamConn]") {
+TEST_CASE("ShutdownSend", "[IouStreamConn]") {
   // shutdown_send flushes the queue, then peer sees EOF on its read side.
   // Further sends are rejected on this side. Second call is a no-op.
   if (true) {
@@ -988,7 +987,7 @@ TEST_CASE("IouStreamConn_ShutdownSend", "[IouStreamConn]") {
 #pragma endregion
 #pragma region ShutdownRecv
 
-TEST_CASE("IouStreamConn_ShutdownRecv", "[IouStreamConn]") {
+TEST_CASE("ShutdownRecv", "[IouStreamConn]") {
   // shutdown_recv sets is_read_shut; further data from the peer no longer
   // reaches on_data. Idempotent.
   if (true) {
@@ -1040,7 +1039,7 @@ TEST_CASE("IouStreamConn_ShutdownRecv", "[IouStreamConn]") {
 #pragma endregion
 #pragma region StopAndResumeReceivingOnConn
 
-TEST_CASE("IouStreamConn_StopAndResumeReceivingOnConn", "[IouStreamConn]") {
+TEST_CASE("StopAndResumeReceivingOnConn", "[IouStreamConn]") {
   // conn->stop_receiving + resume_receiving in multishot mode.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -1109,7 +1108,7 @@ TEST_CASE("IouStreamConn_StopAndResumeReceivingOnConn", "[IouStreamConn]") {
 #pragma endregion
 #pragma region ConnectFailure
 
-TEST_CASE("IouStreamConn_ConnectFailure", "[IouStreamConn]") {
+TEST_CASE("ConnectFailure", "[IouStreamConn]") {
   // Async connect to an unbound loopback port fires on_close, not on_drain.
   if (true) {
     std::atomic_bool drained{false};
@@ -1153,7 +1152,7 @@ TEST_CASE("IouStreamConn_ConnectFailure", "[IouStreamConn]") {
 #pragma endregion
 #pragma region ListenAcceptMultipleClients
 
-TEST_CASE("IouStreamConn_ListenAcceptMultipleClients", "[IouStreamConn]") {
+TEST_CASE("ListenAcceptMultipleClients", "[IouStreamConn]") {
   // Multiple clients connect; the listener's plugin spawns a child plugin
   // per accept via make_child_plugin and each child receives its own data.
   if (true) {
@@ -1203,7 +1202,7 @@ TEST_CASE("IouStreamConn_ListenAcceptMultipleClients", "[IouStreamConn]") {
 #pragma endregion
 #pragma region CloseFlushesPendingSend
 
-TEST_CASE("IouStreamConn_CloseFlushesPendingSend", "[IouStreamConn]") {
+TEST_CASE("CloseFlushesPendingSend", "[IouStreamConn]") {
   // send + close back-to-back: the send was authorized when `writes_allowed`
   // first returned true, so the in-lambda guard (which checks `closed_`, not
   // `close_requested_`) honors it. `close` sees a non-empty queue (or a live
@@ -1255,7 +1254,7 @@ TEST_CASE("IouStreamConn_CloseFlushesPendingSend", "[IouStreamConn]") {
 #pragma endregion
 #pragma region HangupIdempotent
 
-TEST_CASE("IouStreamConn_HangupIdempotent", "[IouStreamConn]") {
+TEST_CASE("HangupIdempotent", "[IouStreamConn]") {
   // Second hangup is a no-op.
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
@@ -1289,7 +1288,7 @@ TEST_CASE("IouStreamConn_HangupIdempotent", "[IouStreamConn]") {
 #pragma endregion
 #pragma region SelfSharedPtr
 
-TEST_CASE("IouStreamConn_SelfSharedPtr", "[IouStreamConn]") {
+TEST_CASE("SelfSharedPtr", "[IouStreamConn]") {
   // self() promotes a conn reference to a shared_ptr. The factories return a
   // weak_ptr; the conn is kept alive by its in-flight callbacks. A user-held
   // shared_ptr must extend that lifetime past hangup.
@@ -1330,7 +1329,7 @@ TEST_CASE("IouStreamConn_SelfSharedPtr", "[IouStreamConn]") {
 #pragma endregion
 #pragma region SendStringBatchOverflow
 
-TEST_CASE("IouStreamConn_SendStringBatchOverflow", "[IouStreamConn]") {
+TEST_CASE("SendStringBatchOverflow", "[IouStreamConn]") {
   // Multiple queued strings whose total exceeds the JIT send buffer must
   // all arrive: the batching loop must send what fits and leave the
   // remainder for the next round. Default `send_buf_size` is 4 KB; queue
@@ -1338,7 +1337,7 @@ TEST_CASE("IouStreamConn_SendStringBatchOverflow", "[IouStreamConn]") {
   if (true) {
     auto [sock0, sock1] = net_socket::create_pair();
 
-    relaxed_atomic_int recv_bytes{0};
+    std::atomic<int> recv_bytes{0};
     std::string payload;
 
     constexpr int chunk_size = 1500;
@@ -1352,7 +1351,8 @@ TEST_CASE("IouStreamConn_SendStringBatchOverflow", "[IouStreamConn]") {
     recv_state.on_data = [&](iou_recv_view view) {
       auto sv = view.active_view();
       payload += sv;
-      recv_bytes += static_cast<int>(sv.size());
+      recv_bytes.fetch_add(static_cast<int>(sv.size()),
+          std::memory_order::release);
       view.consume(sv.size());
       return true;
     };
@@ -1375,8 +1375,10 @@ TEST_CASE("IouStreamConn_SendStringBatchOverflow", "[IouStreamConn]") {
     CHECK((send_conn->send(std::string{chunk_b})));
     CHECK((send_conn->send(std::string{chunk_c})));
 
-    CHECK((WaitFor([&] { return recv_bytes >= expected; })));
-    CHECK((recv_bytes) == (expected));
+    CHECK((WaitFor([&] {
+      return recv_bytes.load(std::memory_order::acquire) >= expected;
+    })));
+    CHECK((recv_bytes.load()) == (expected));
     CHECK((payload) == (chunk_a + chunk_b + chunk_c));
   }
 }
@@ -1384,7 +1386,7 @@ TEST_CASE("IouStreamConn_SendStringBatchOverflow", "[IouStreamConn]") {
 #pragma endregion
 #pragma region SendStringTooBigRejected
 
-TEST_CASE("IouStreamConn_SendStringTooBigRejected", "[IouStreamConn]") {
+TEST_CASE("SendStringTooBigRejected", "[IouStreamConn]") {
   // A string larger than `send_buf_size` is rejected at the `send` entry
   // point; the caller should chunk or use the `buffer` overload.
   if (true) {

@@ -122,27 +122,25 @@ TEST_CASE("IouLoop_StopFromThread", "[IouLoop]") {
 // the jthread and returns; the worker then unwinds out of `loop_t::run`
 // and finishes its cleanup. The worker keeps its own ref to `runner_state`,
 // so the post-`run` cleanup must not touch any state belonging to the
-// already-freed handle. Sanitizer-enabled builds catch a regression
-// deterministically; in plain builds the test mainly proves the dtor
-// returns cleanly.
+// already-freed handle.
+//
+// Synchronize with the detached worker via `finished_signal`, which the
+// worker notifies after `~loop_t` has run. This gives TSAN a real
+// happens-before edge with the worker's exit (no sleep), and also covers
+// the io_uring memory being unmapped before the next test re-mmaps it.
 TEST_CASE("IouLoop_SelfDestroyOnLoopThread", "[IouLoop]") {
   auto runner = std::make_unique<iou_loop_runner>();
   // Use a reference (no `shared_ptr` copy) so the worker's `use_count`
   // check sees `state->loop` as the sole owner during cleanup.
   iou_loop& loop = *runner;
+  auto finished = runner->finished_signal();
 
-  notifiable<std::atomic_bool> done{false};
-  REQUIRE((loop.post([r = std::move(runner), &done]() mutable {
+  REQUIRE((loop.post([r = std::move(runner)]() mutable {
     r.reset();
-    done.notify(true);
     return true;
   })));
 
-  REQUIRE((done.wait_for_value(1s, true)));
-  // Detached worker still needs to finish its cleanup; give it a brief
-  // settle so any access to the freed handle would be observed before
-  // the test scope exits.
-  std::this_thread::sleep_for(200ms);
+  REQUIRE((finished->wait_for_value(1s, true)));
 }
 #pragma endregion
 

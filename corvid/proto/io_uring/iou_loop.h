@@ -1829,6 +1829,16 @@ public:
   [[nodiscard]] operator loop_t&() noexcept { return *state_->loop; }
   [[nodiscard]] loop_t* operator->() noexcept { return state_->loop.get(); }
 
+  // Signal set when the worker thread has fully unwound, after `~loop_t` has
+  // run on the worker and the loop's `shared_ptr` has been released. Returned
+  // as an aliased `shared_ptr` that keeps the underlying `runner_state` alive,
+  // so callers can safely wait on it even after the handle is destroyed
+  // (e.g., the self-destroy-on-loop-thread path). Useful for tests.
+  [[nodiscard]] std::shared_ptr<notifiable<std::atomic_bool>>
+  finished_signal() const noexcept {
+    return {state_, &state_->finished};
+  }
+
 private:
   // Thread-private state shared between the handle and the worker.
   // Heap-allocated and held by `shared_ptr` so the worker outlives the
@@ -1849,6 +1859,7 @@ private:
     std::mutex startup_mutex;
     std::exception_ptr startup_error;
     notifiable<std::atomic_bool> started{false};
+    notifiable<std::atomic_bool> finished{false};
     std::shared_ptr<loop_t> loop;
   };
 
@@ -1910,6 +1921,11 @@ private:
         state->startup_error = std::current_exception();
       state->started.notify(true);
     }
+    // Signal `finished` last, after `~loop_t` has run and all io_uring memory
+    // is unmapped. Both worker and any waiter hold `state` via `shared_ptr`,
+    // so the notifiable's destructor synchronizes through the ref-count and
+    // cannot fire while `notify_all` is still in flight.
+    state->finished.notify(true);
   }
 
   std::shared_ptr<runner_state> state_;

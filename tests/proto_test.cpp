@@ -948,26 +948,23 @@ TEST_CASE("IoLoop_PreStartWorkIsQueued", "[IoLoop]") {
 // the jthread and returns; the worker then unwinds out of `epoll_loop::run`
 // and finishes its cleanup. The worker keeps its own ref to `runner_state`,
 // so the post-`run` cleanup must not touch any state belonging to the
-// already-freed handle. Sanitizer-enabled builds catch a regression
-// deterministically; in plain builds the test mainly proves the dtor
-// returns cleanly.
+// already-freed handle.
+//
+// Synchronize with the detached worker via `finished_signal`, which the
+// worker notifies after `~epoll_loop` has run. This gives TSAN a real
+// happens-before edge with the worker's exit (no sleep).
 TEST_CASE("IoLoop_SelfDestroyOnLoopThread", "[IoLoop]") {
   auto runner = std::make_unique<epoll_loop_runner>();
   auto* loop = runner->loop();
   REQUIRE((loop != nullptr));
+  auto finished = runner->finished_signal();
 
-  notifiable<std::atomic_bool> done{false};
-  REQUIRE((loop->post([r = std::move(runner), &done]() mutable {
+  REQUIRE((loop->post([r = std::move(runner)]() mutable {
     r.reset();
-    done.notify(true);
     return true;
   })));
 
-  REQUIRE((done.wait_for_value(1s, true)));
-  // Detached worker still needs to finish its cleanup; give it a brief
-  // settle so any access to the freed handle would be observed before
-  // the test scope exits.
-  std::this_thread::sleep_for(200ms);
+  REQUIRE((finished->wait_for_value(1s, true)));
 }
 
 #pragma endregion
@@ -2108,43 +2105,49 @@ TEST_CASE("StreamConn_ShutdownBothCloses", "[StreamConn]") {
 #pragma region AsyncCbWrite_DuplicateRejected
 
 TEST_CASE("StreamConn_AsyncCbWrite_DuplicateRejected", "[StreamConn]") {
-  epoll_loop_runner loop;
-  auto [a, b] = net_socket::create_pair();
-
-  constexpr int small_buf = 4096;
-  CHECK((a.set_send_buffer_size(small_buf)));
-
-  auto conn =
-      stream_conn_ptr::adopt(loop.loop()->self(), std::move(a), {}, {});
-  stream_async_cb cb{conn.pointer()};
-
-  const std::string payload(256ULL * 1024ULL, 'w');
+  // `completion` outlives the inner scope's `loop`, so its `~notifiable`
+  // runs after the loop's destructor has joined the worker. Otherwise the
+  // worker could still be inside `cv_.notify_one` (released the mutex,
+  // hasn't returned from the kernel) when `completion` is destroyed.
+  notifiable<bool> completion{false};
   std::atomic<int> accepted{0};
   std::atomic<int> rejected{0};
   std::atomic<int> completions{0};
-  notifiable<bool> completion{false};
+  {
+    epoll_loop_runner loop;
+    auto [a, b] = net_socket::create_pair();
 
-  auto try_register = [&] {
-    if (cb.write(std::string{payload}, [&](bool) {
-          ++completions;
-          completion.notify_one(true);
-          return true;
-        }))
-      ++accepted;
-    else
-      ++rejected;
-  };
+    constexpr int small_buf = 4096;
+    CHECK((a.set_send_buffer_size(small_buf)));
 
-  std::thread t1{try_register};
-  std::thread t2{try_register};
-  t1.join();
-  t2.join();
+    auto conn =
+        stream_conn_ptr::adopt(loop.loop()->self(), std::move(a), {}, {});
+    stream_async_cb cb{conn.pointer()};
 
-  CHECK((accepted) == (1));
-  CHECK((rejected) == (1));
+    const std::string payload(256ULL * 1024ULL, 'w');
 
-  (void)b.close();
-  REQUIRE((completion.wait_for_value(std::chrono::seconds{1}, true)));
+    auto try_register = [&] {
+      if (cb.write(std::string{payload}, [&](bool) {
+            ++completions;
+            completion.notify_one(true);
+            return true;
+          }))
+        ++accepted;
+      else
+        ++rejected;
+    };
+
+    std::thread t1{try_register};
+    std::thread t2{try_register};
+    t1.join();
+    t2.join();
+
+    CHECK((accepted) == (1));
+    CHECK((rejected) == (1));
+
+    (void)b.close();
+    REQUIRE((completion.wait_for_value(std::chrono::seconds{1}, true)));
+  }
 
   CHECK((completions) == (1));
 }

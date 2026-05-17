@@ -190,6 +190,13 @@ protected:
 //
 // At most one `read` and one `write` may be outstanding at a time.
 //
+// Thread-safe: `read` and `write` may be called from any thread, including
+// concurrently. An atomic gate per direction ensures that only one caller
+// wins the "claim the pending slot" race; the rest return false. Once a
+// caller wins, the cb fields are written before handing off to the loop
+// thread, and the loop thread is the only one that subsequently touches
+// them (in the posted lambda and in the persistent handlers).
+//
 // `EPOLLIN` is gated by `recv_buffer::reads_enabled`. `on_data` is set
 // persistently in the constructor; `read` calls `enable_reads()` to
 // arm `EPOLLIN`, and the delivery handler calls `enable_reads(false)` to
@@ -211,20 +218,20 @@ public:
     handlers_.on_data = [this](stream_conn& c, recv_buffer_view v) -> bool {
       if (!enable_reads(c, false)) return false;
       if (!read_cb_) return true;
-      return std::exchange(read_cb_, nullptr)(std::move(v));
+      return invoke_read_cb(std::move(v));
     };
     handlers_.on_drain = [this](stream_conn&) {
       if (!write_cb_) return false;
-      return std::exchange(write_cb_, nullptr)(true);
+      return invoke_write_cb(true);
     };
     handlers_.on_close = [this](stream_conn& c) {
       bool not_handled = false;
       if (read_cb_) {
         // Deliver an EOF view (`begin=end=0` over the real `recv_buf_`).
         auto v = make_cleared_view_for(c);
-        not_handled = !std::exchange(read_cb_, nullptr)(std::move(v));
+        not_handled = !invoke_read_cb(std::move(v));
       }
-      if (write_cb_) not_handled |= !std::exchange(write_cb_, nullptr)(false);
+      if (write_cb_) not_handled |= !invoke_write_cb(false);
       return c.close() && !not_handled;
     };
     install_handlers();
@@ -241,48 +248,93 @@ public:
   // running on the loop thread. If it has extended work to do, it should post
   // that work to a worker thread.
   //
-  // Returns false if the connection is closed, `cb` is null, or another read
-  // is already pending.
+  // Safe to call from any thread. Returns false if the connection is closed,
+  // `cb` is null, or another read is already pending.
   bool read(async_read_cb cb) {
-    if (!cb || !conn_->is_open() || !conn_->can_read() || read_cb_)
+    if (!cb || !conn_->is_open() || !conn_->can_read()) return false;
+    bool expected = false;
+    if (!read_pending_.compare_exchange_strong(expected, true,
+            std::memory_order::acquire, std::memory_order::relaxed))
       return false;
-    read_cb_ = std::move(cb);
     // Always post (never run inline) to guarantee ordering: the
     // `enable_reads(false)` task posted by `install_handlers` must run
-    // before `arm_read_cb` re-enables reads.
-    return post([this]() -> bool {
-      if (!conn_->is_open() || !conn_->can_read() || !read_cb_) return false;
+    // before `arm_read_cb` re-enables reads. The cb assignment is also
+    // deferred to the loop thread so the persistent handlers cannot race
+    // with us.
+    const bool posted = post([this, c = std::move(cb)]() mutable -> bool {
+      read_cb_ = std::move(c);
+      if (!conn_->is_open() || !conn_->can_read()) {
+        read_cb_ = nullptr;
+        read_pending_.store(false, std::memory_order::release);
+        return false;
+      }
       return arm_read_cb();
     });
+    if (!posted) read_pending_.store(false, std::memory_order::release);
+    return posted;
   }
 
   // Start sending the data in `buf`, invoking `cb` upon completion or failure.
   // `cb(true)` means the queue drained successfully; `cb(false)` means the
   // connection closed or failed before all bytes were sent.
   //
-  // Returns false immediately if the connection is closed, `buf` is empty,
-  // `cb` is null, or another write is already pending.
+  // Safe to call from any thread. Returns false immediately if the connection
+  // is closed, `buf` is empty, `cb` is null, or another write is already
+  // pending.
   bool write(std::string&& buf, async_write_cb cb) {
-    if (buf.empty() || !cb || !conn_->is_open() || !conn_->can_write() ||
-        write_cb_)
+    if (buf.empty() || !cb || !conn_->is_open() || !conn_->can_write())
       return false;
-    write_cb_ = std::move(cb);
-    return exec_on_loop([this, b = std::move(buf)]() mutable -> bool {
-      if (conn_->is_open() && conn_->can_write() && write_cb_) {
-        if (do_enqueue_send(std::move(b))) return true;
-      }
-      if (write_cb_) return std::exchange(write_cb_, nullptr)(false);
+    bool expected = false;
+    if (!write_pending_.compare_exchange_strong(expected, true,
+            std::memory_order::acquire, std::memory_order::relaxed))
       return false;
-    });
+    // Hand off the cb to the loop thread; `write_cb_` is only ever written
+    // there, so the persistent `on_drain` handler (which can fire before
+    // any user write, e.g., immediately after register on an empty queue)
+    // cannot race with us.
+    const bool posted = exec_on_loop(
+        [this, b = std::move(buf), c = std::move(cb)]() mutable -> bool {
+          write_cb_ = std::move(c);
+          if (conn_->is_open() && conn_->can_write() && write_cb_) {
+            if (do_enqueue_send(std::move(b))) return true;
+          }
+          if (write_cb_) return invoke_write_cb(false);
+          return false;
+        });
+    if (!posted) write_pending_.store(false, std::memory_order::release);
+    return posted;
   }
 
 private:
+  // `read_cb_` and `write_cb_` are only touched on the loop thread: the
+  // persistent handlers run there, and `read`/`write` post the cb
+  // assignment via `post` / `exec_on_loop`. The atomic `*_pending_` flag
+  // serializes entries from any thread, so at most one caller is in flight
+  // per direction.
   async_read_cb read_cb_;
   async_write_cb write_cb_;
+  std::atomic_bool read_pending_{false};
+  std::atomic_bool write_pending_{false};
 
   // Enable reads to arm `EPOLLIN` for the pending callback. Called on the loop
   // thread from the posted lambda in `read`.
   bool arm_read_cb() { return enable_reads(*conn_); }
+
+  // Invoke and clear the pending read cb, releasing the slot for the next
+  // caller. Called only on the loop thread.
+  bool invoke_read_cb(recv_buffer_view v) {
+    auto cb = std::exchange(read_cb_, nullptr);
+    read_pending_.store(false, std::memory_order::release);
+    return cb(std::move(v));
+  }
+
+  // Invoke and clear the pending write cb, releasing the slot for the next
+  // caller. Called only on the loop thread.
+  bool invoke_write_cb(bool ok) {
+    auto cb = std::exchange(write_cb_, nullptr);
+    write_pending_.store(false, std::memory_order::release);
+    return cb(ok);
+  }
 };
 
 // Facade for coroutine-based asynchronous I/O on a `stream_conn`. Provides
