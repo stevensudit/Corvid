@@ -39,9 +39,23 @@ fi
 # the reporter) to leak into libcxx via target dependencies, silently
 # disabling MSAN for libc++.so. Idempotent: only patches if not already done.
 LIBUNWIND_CMAKE="$SRC_DIR/libunwind/src/CMakeLists.txt"
-if grep -q 'PUBLIC "${LIBUNWIND_ADDITIONAL_COMPILE_FLAGS}"' "$LIBUNWIND_CMAKE"; then
+# Fixed-string matching (`grep -F`): the pattern contains `${...}` which some
+# grep implementations (notably `ugrep` masquerading as `grep`) interpret as
+# regex metacharacters. We want literal matching.
+if grep -qF 'PUBLIC "${LIBUNWIND_ADDITIONAL_COMPILE_FLAGS}"' "$LIBUNWIND_CMAKE"; then
     echo "Patching libunwind CMakeLists.txt: PUBLIC -> PRIVATE for ADDITIONAL flags"
     sed -i 's|PUBLIC "${LIBUNWIND_ADDITIONAL_COMPILE_FLAGS}"|PRIVATE "${LIBUNWIND_ADDITIONAL_COMPILE_FLAGS}"|g' "$LIBUNWIND_CMAKE"
+elif grep -qF 'PRIVATE "${LIBUNWIND_ADDITIONAL_COMPILE_FLAGS}"' "$LIBUNWIND_CMAKE"; then
+    echo "libunwind CMakeLists.txt already patched (PRIVATE); skipping"
+else
+    echo "ERROR: libunwind CMakeLists.txt patch pattern not found." >&2
+    echo "Expected either 'PUBLIC \"\${LIBUNWIND_ADDITIONAL_COMPILE_FLAGS}\"'" >&2
+    echo "(unpatched) or 'PRIVATE ...' (already patched) in:" >&2
+    echo "  $LIBUNWIND_CMAKE" >&2
+    echo "Upstream libunwind may have refactored. Without this patch, the" >&2
+    echo "-fno-sanitize=memory flag leaks PUBLIC into libcxx and silently" >&2
+    echo "disables MSAN. Inspect the file and update this script." >&2
+    exit 1
 fi
 
 # ccache speeds up repeat rebuilds. The ignorelist's path is on the command
