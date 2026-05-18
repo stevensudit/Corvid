@@ -218,6 +218,7 @@ TEST_CASE("SendRecvBuffer", "[IouStreamConn]") {
     CHECK(tok);
     if (!tok) return;
     CHECK(tok.append(msg));
+    // NOLINTNEXTLINE(bugprone-use-after-move): Catch2 decomposition
     CHECK(send_conn->send(std::move(tok)));
 
     CHECK(WaitFor([&] { return received.load(std::memory_order::acquire); }));

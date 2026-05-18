@@ -1,6 +1,10 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.18)
 
 project(Corvid VERSION 1.0 LANGUAGES CXX)
+
+# Register tests with CTest. cleanbuild.sh and tests/comprehensive.cmake both
+# drive `ctest` rather than looping over release_bin/* directly.
+enable_testing()
 
 # Allow selecting the standard library. Passing -DUSE_LIBSTDCPP=ON to cmake will
 # force libstdc++. Otherwise, the default is libc++ unless we're running on
@@ -190,6 +194,17 @@ foreach(SOURCE_FILE ${SOURCES})
     # servers/demos that opt out via filename convention).
     if(NOT ${EXECUTABLE_NAME} MATCHES "^notest_")
         target_link_libraries(${EXECUTABLE_NAME} PRIVATE Catch2::Catch2)
+        add_test(NAME ${EXECUTABLE_NAME} COMMAND ${EXECUTABLE_NAME})
+        # io_uring tests share the user's RLIMIT_MEMLOCK budget via
+        # `io_uring_register_buffers`; running several in parallel exceeds
+        # the limit and registrations fail with ENOMEM. Serialize them
+        # against each other with RESOURCE_LOCK (they can still run in
+        # parallel with non-iou tests). The label is for `ctest -L iou`.
+        if(${EXECUTABLE_NAME} MATCHES "^iou_")
+            set_tests_properties(${EXECUTABLE_NAME} PROPERTIES
+                LABELS "iou"
+                RESOURCE_LOCK "iou_memlock")
+        endif()
     endif()
 
     if(${EXECUTABLE_NAME} MATCHES "^iou_")

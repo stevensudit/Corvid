@@ -96,6 +96,7 @@ TEST_CASE("Move", "[OsFile]") {
     auto [reader, writer] = make_nb_pipe();
     const auto h = reader.handle();
     os_file moved{std::move(reader)};
+    // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
     CHECK_FALSE(reader.is_open());
     CHECK(moved.is_open());
     CHECK(moved.handle() == h);
@@ -107,6 +108,7 @@ TEST_CASE("Move", "[OsFile]") {
     auto [reader_b, writer_b] = make_nb_pipe();
     const auto h = reader_a.handle();
     reader_b = std::move(reader_a);
+    // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
     CHECK_FALSE(reader_a.is_open());
     CHECK(reader_b.is_open());
     CHECK(reader_b.handle() == h);

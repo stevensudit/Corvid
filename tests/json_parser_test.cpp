@@ -37,19 +37,19 @@ TEST_CASE("ParseScalarsAndKinds", "[JsonParser]") {
   REQUIRE(value.is_bool());
   const auto bool_value = value.as_bool();
   REQUIRE(bool_value.has_value());
-  CHECK(*bool_value);
+  CHECK(bool_value.value());
 
   REQUIRE(parse_json("-12.5e2", value));
   REQUIRE(value.is_number());
   const auto number_value = value.as_number<double>();
   REQUIRE(number_value.has_value());
-  CHECK(std::abs((*number_value) - (-1250.0)) <= 1e-6);
+  CHECK(std::abs((number_value.value()) - (-1250.0)) <= 1e-6);
 
   REQUIRE(parse_json(R"("plain")", value));
   REQUIRE(value.is_string());
   const auto plain_value = value.string_view_if_plain();
   REQUIRE(plain_value.has_value());
-  CHECK(*plain_value == std::string_view{"plain"});
+  CHECK(plain_value.value() == std::string_view{"plain"});
 }
 
 #pragma endregion
@@ -65,10 +65,10 @@ TEST_CASE("ParseNestedViewsAndLookup", "[JsonParser]") {
 
   const auto plain = obj.get_string_view_if_plain("plain");
   REQUIRE(plain.has_value());
-  CHECK(*plain == std::string_view{"value"});
+  CHECK(plain.value() == std::string_view{"value"});
   const auto count_value = obj.get_number<int>("count");
   REQUIRE(count_value.has_value());
-  CHECK(*count_value == 2);
+  CHECK(count_value.value() == 2);
 
   const auto arr = obj.get_array("a/b");
   REQUIRE(arr);
@@ -78,7 +78,7 @@ TEST_CASE("ParseNestedViewsAndLookup", "[JsonParser]") {
     if (count == 0) {
       const auto item_value = item.as_number<int>();
       REQUIRE(item_value.has_value());
-      CHECK(*item_value == 1);
+      CHECK(item_value.value() == 1);
     } else {
       const auto nested = item.as_object();
       REQUIRE(nested);
@@ -188,8 +188,8 @@ TEST_CASE("FormatsFloatsAndRoundTrips", "[JsonWriter]") {
   const auto scale = obj.get_number<float>("scale");
   REQUIRE(x.has_value());
   REQUIRE(scale.has_value());
-  CHECK(std::abs((*x) - (20.0)) <= 1e-6);
-  CHECK(std::abs((*scale) - (2.0)) <= 1e-6);
+  CHECK(std::abs((x.value()) - (20.0)) <= 1e-6);
+  CHECK(std::abs((scale.value()) - (2.0)) <= 1e-6);
 
   const auto items = obj.get_array("items");
   REQUIRE(items);
@@ -200,7 +200,7 @@ TEST_CASE("FormatsFloatsAndRoundTrips", "[JsonWriter]") {
       REQUIRE(nested);
       const auto ok = nested.get_bool("ok");
       REQUIRE(ok.has_value());
-      CHECK(*ok);
+      CHECK(ok.value());
     }
     ++count;
   }

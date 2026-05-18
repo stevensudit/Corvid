@@ -937,7 +937,7 @@ TEST_CASE("HandleUiCanvasSpawnsDefenderButKeepsBuildPhase", "[SimGame]") {
   CHECK(before.phase == std::string_view{"build"});
   CHECK(after.phase == std::string_view{"build"});
   REQUIRE(after.spawnAllowed.has_value());
-  CHECK(*after.spawnAllowed);
+  CHECK(after.spawnAllowed.value());
   REQUIRE(after.upserts.size() == 1U);
   CHECK(std::abs((after.upserts[0].second.x) - (300.0)) <= 1e-6);
   CHECK(std::abs((after.upserts[0].second.y) - (100.0)) <= 1e-6);
@@ -970,7 +970,7 @@ TEST_CASE("HandleUiCanvasRightClickSpawnPlacesDefender", "[SimGame]") {
   const auto after = extractGameDelta(game);
   CHECK(after.phase == std::string_view{"build"});
   REQUIRE(after.spawnAllowed.has_value());
-  CHECK(*after.spawnAllowed);
+  CHECK(after.spawnAllowed.value());
   REQUIRE(after.upserts.size() == 1U);
   CHECK(std::abs((after.upserts[0].second.x) - (300.0)) <= 1e-6);
   CHECK(std::abs((after.upserts[0].second.y) - (100.0)) <= 1e-6);
@@ -1012,8 +1012,8 @@ TEST_CASE("HandleUiCanvasSelectingDefenderReportsSelectedPosition",
 
   const auto delta = extractGameDelta(game);
   REQUIRE(delta.selectedDefender.has_value());
-  CHECK(std::abs((delta.selectedDefender->x) - (300.0)) <= 1e-6);
-  CHECK(std::abs((delta.selectedDefender->y) - (100.0)) <= 1e-6);
+  CHECK(std::abs((delta.selectedDefender.value().x) - (300.0)) <= 1e-6);
+  CHECK(std::abs((delta.selectedDefender.value().y) - (100.0)) <= 1e-6);
   REQUIRE(delta.defenderSummary.has_value());
 }
 
@@ -1046,7 +1046,7 @@ TEST_CASE("HandleUiCanvasSpawnsShooterDefender", "[SimGame]") {
   CHECK(before.phase == std::string_view{"build"});
   CHECK(after.phase == std::string_view{"build"});
   REQUIRE(after.spawnAllowed.has_value());
-  CHECK(*after.spawnAllowed);
+  CHECK(after.spawnAllowed.value());
   REQUIRE(after.upserts.size() == 1U);
   CHECK(std::abs((after.upserts[0].second.x) - (300.0)) <= 1e-6);
   CHECK(std::abs((after.upserts[0].second.y) - (100.0)) <= 1e-6);
@@ -1079,7 +1079,7 @@ TEST_CASE("HandleUiCanvasPlacingIntentRejectsPathOverlapOnNextTick",
 
   const auto delta = extractGameDelta(game);
   REQUIRE(delta.placementAllowed.has_value());
-  CHECK_FALSE(*delta.placementAllowed);
+  CHECK_FALSE(delta.placementAllowed.value());
 }
 
 #pragma endregion
@@ -1105,7 +1105,7 @@ TEST_CASE("HandleUiCanvasRejectsBlockedDefenderSpawnOnNextTick", "[SimGame]") {
   const auto delta = extractGameDelta(game);
   CHECK(delta.upserts.empty());
   REQUIRE(delta.spawnAllowed.has_value());
-  CHECK_FALSE(*delta.spawnAllowed);
+  CHECK_FALSE(delta.spawnAllowed.value());
 }
 
 #pragma endregion
@@ -1291,43 +1291,46 @@ TEST_CASE("ParseUiCanvasMessage", "[SimJson]") {
   })");
 
   REQUIRE(msg.has_value());
-  CHECK(classifySimClientMessage(*msg) == SimClientMessageKind::ui_canvas);
+  CHECK(classifySimClientMessage(msg.value()) ==
+        SimClientMessageKind::ui_canvas);
 
-  const auto input = parseUiCanvasMessage(*msg);
-  REQUIRE(input.has_value());
-  CHECK(input->seq == 42U);
-  CHECK(input->event == UiCanvasEvent::dragmove);
-  CHECK(input->button == UiMouseButton::right);
-  CHECK(input->buttons == 2U);
-  CHECK(std::abs((input->x) - (10.5)) <= 1e-6);
-  CHECK(std::abs((input->y) - (-3.25)) <= 1e-6);
-  CHECK(std::abs((input->canvasX) - (100.0)) <= 1e-6);
-  CHECK(std::abs((input->canvasY) - (200.5)) <= 1e-6);
-  CHECK(input->shift);
-  CHECK_FALSE(input->ctrl);
-  CHECK(input->alt);
-  CHECK_FALSE(input->meta);
+  const auto input_opt = parseUiCanvasMessage(msg.value());
+  REQUIRE(input_opt.has_value());
+  const auto& input = input_opt.value();
+  CHECK(input.seq == 42U);
+  CHECK(input.event == UiCanvasEvent::dragmove);
+  CHECK(input.button == UiMouseButton::right);
+  CHECK(input.buttons == 2U);
+  CHECK(std::abs((input.x) - (10.5)) <= 1e-6);
+  CHECK(std::abs((input.y) - (-3.25)) <= 1e-6);
+  CHECK(std::abs((input.canvasX) - (100.0)) <= 1e-6);
+  CHECK(std::abs((input.canvasY) - (200.5)) <= 1e-6);
+  CHECK(input.shift);
+  CHECK_FALSE(input.ctrl);
+  CHECK(input.alt);
+  CHECK_FALSE(input.meta);
 }
 
 #pragma endregion
 #pragma region Json_ParseUiActionMessageFields
 
 TEST_CASE("ParseUiActionMessageFields", "[SimJson]") {
-  const auto input = parseUiActionMessage(
+  const auto input_opt = parseUiActionMessage(
       R"({"type":"ui_action","seq":7,"action":"start_wave","fields":{"defender/kind":"ice","note":"line\nbreak"}})");
 
-  REQUIRE(input.has_value());
-  CHECK(input->seq == 7U);
-  CHECK(input->action == "start_wave");
-  REQUIRE(input->fields.size() == 2U);
+  REQUIRE(input_opt.has_value());
+  const auto& input = input_opt.value();
+  CHECK(input.seq == 7U);
+  CHECK(input.action == "start_wave");
+  REQUIRE(input.fields.size() == 2U);
   const auto defender_kind =
-      std::ranges::find(input->fields, "defender/kind", &UiActionField::key);
-  REQUIRE(defender_kind != input->fields.end());
+      std::ranges::find(input.fields, "defender/kind", &UiActionField::key);
+  REQUIRE(defender_kind != input.fields.end());
   CHECK(defender_kind->value == "ice");
 
   const auto note =
-      std::ranges::find(input->fields, "note", &UiActionField::key);
-  REQUIRE(note != input->fields.end());
+      std::ranges::find(input.fields, "note", &UiActionField::key);
+  REQUIRE(note != input.fields.end());
   CHECK(note->value == std::string("line\nbreak"));
 }
 
@@ -1379,8 +1382,8 @@ TEST_CASE("BuildWorldDeltaJsonShapeAndFormatting", "[SimJson]") {
   const auto phase_value = obj.get_string_view_if_plain("phase");
   REQUIRE(tick_value.has_value());
   REQUIRE(phase_value.has_value());
-  CHECK(*tick_value == 0U);
-  CHECK(*phase_value == std::string_view{"build"});
+  CHECK(tick_value.value() == 0U);
+  CHECK(phase_value.value() == std::string_view{"build"});
 
   const auto upserts = obj.get_array("upserts");
   REQUIRE(upserts);
@@ -1392,7 +1395,7 @@ TEST_CASE("BuildWorldDeltaJsonShapeAndFormatting", "[SimJson]") {
     REQUIRE(pos);
     const auto x = pos.get_number<float>("x");
     REQUIRE(x.has_value());
-    CHECK(std::abs((*x) - (300.0)) <= 1e-6);
+    CHECK(std::abs((x.value()) - (300.0)) <= 1e-6);
 
     const auto app = entry.get_object("app");
     REQUIRE(app);
@@ -1464,7 +1467,7 @@ TEST_CASE("BuildWorldDeltaIncludesFlashVisualEffects", "[SimJson]") {
     REQUIRE(pos);
     const auto x = pos.get_number<float>("x");
     REQUIRE(x.has_value());
-    CHECK(std::abs((*x) - (300.0)) <= 1e-6);
+    CHECK(std::abs((x.value()) - (300.0)) <= 1e-6);
 
     const auto vfx = entry.get_object("vfx");
     REQUIRE(vfx);
@@ -1472,8 +1475,8 @@ TEST_CASE("BuildWorldDeltaIncludesFlashVisualEffects", "[SimJson]") {
     const auto flash_expiry_tick = vfx.get_number<uint32_t>("flashExpiryTick");
     REQUIRE(flash.has_value());
     REQUIRE(flash_expiry_tick.has_value());
-    CHECK(*flash == 0xFF7F7FFFU);
-    CHECK(*flash_expiry_tick == 5U);
+    CHECK(flash.value() == 0xFF7F7FFFU);
+    CHECK(flash_expiry_tick.value() == 5U);
     ++count;
   }
   CHECK(count == 1U);
@@ -1516,7 +1519,7 @@ TEST_CASE("BuildWorldSnapshotJsonShape", "[SimJson]") {
   REQUIRE(obj);
   const auto root_type = obj.get_string_view_if_plain("type");
   REQUIRE(root_type.has_value());
-  CHECK(*root_type == std::string_view{"world_snapshot"});
+  CHECK(root_type.value() == std::string_view{"world_snapshot"});
 
   const auto map_design = obj.get_object("mapDesign");
   REQUIRE(map_design);
@@ -1537,9 +1540,9 @@ TEST_CASE("BuildWorldSnapshotJsonShape", "[SimJson]") {
   const auto delta_type = delta.get_string_view_if_plain("type");
   const auto delta_phase = delta.get_string_view_if_plain("phase");
   REQUIRE(delta_type.has_value());
-  CHECK(*delta_type == std::string_view{"world_delta"});
+  CHECK(delta_type.value() == std::string_view{"world_delta"});
   REQUIRE(delta_phase.has_value());
-  CHECK(*delta_phase == std::string_view{"build"});
+  CHECK(delta_phase.value() == std::string_view{"build"});
 }
 
 #pragma endregion

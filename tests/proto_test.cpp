@@ -2769,6 +2769,7 @@ TEST_CASE("Covariance", "[StreamConnPtr]") {
   // Implicit upcast.
   stream_conn_ptr base = std::move(typed);
   REQUIRE(base);
+  // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
   CHECK_FALSE(typed); // ownership transferred
 
   CHECK(loop->run_once(0) >= 0); // register_with_loop

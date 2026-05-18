@@ -9,6 +9,15 @@ set -e
 # build. Add a sanitizer mode ("asan" [which includes ubsan], "tsan", "ubsan",
 # or "msan") to instrument the build with the corresponding LLVM sanitizer.
 # The default is `libcxx`, no tidy, no sanitizer.
+#
+# This script builds and runs one configuration at a time. To exercise every
+# configuration (plain, asan, tsan, msan, tidy) in sequence, pass "all":
+#
+#   ./cleanbuild.sh all
+#
+# That dispatches to the CTest dashboard driver at tests/comprehensive.cmake.
+# Each config lands in its own tests/build/comprehensive/<name>/ dir, and
+# the run exits non-zero if any config fails configure, build, or test.
 
 choice=""
 use_tidy=false
@@ -16,7 +25,38 @@ sanitizer=""
 test_name=""
 target_name=""
 
-usage="Usage: $0 [testname.cpp] [libstdcpp|libcxx] [tidy] [asan|tsan|ubsan|msan]"
+usage="Usage: $0 [all | [testname.cpp] [libstdcpp|libcxx] [tidy] [asan|tsan|ubsan|msan]]"
+
+# "all" short-circuits to the comprehensive multi-config sweep and doesn't
+# compose with the per-config options.
+if [[ "${1:-}" == "all" ]]; then
+  if [[ $# -gt 1 ]]; then
+    echo "$0: 'all' takes no other arguments" >&2
+    echo "$usage" >&2
+    exit 1
+  fi
+  ctest -V -S tests/comprehensive.cmake || rv=$?
+  rv=${rv:-0}
+
+  # Auto-open any non-empty warnings.txt files (typically just tidy) in
+  # VSCode so the punch list is immediately at hand. Falls through with a
+  # paths-only message if `code` isn't on PATH.
+  warn_files=()
+  for f in tests/build/comprehensive/*/warnings.txt; do
+    [[ -s "$f" ]] && warn_files+=("$f")
+  done
+  if [[ ${#warn_files[@]} -gt 0 ]]; then
+    if command -v code >/dev/null 2>&1; then
+      echo "Opening in VSCode: ${warn_files[*]}"
+      code "${warn_files[@]}"
+    else
+      echo "Warnings written to:"
+      printf '  %s\n' "${warn_files[@]}"
+    fi
+  fi
+
+  exit "$rv"
+fi
 
 if [[ $# -gt 0 && "$1" != "libstdcpp" && "$1" != "libcxx" \
       && "$1" != "tidy" && "$1" != "--tidy" \
@@ -130,40 +170,20 @@ else
   fi
 fi
 
-# Loop through each file in the release directory. Sources prefixed with
-# `notest_` (e.g. `notest_corvid_sim.cpp`) are built like tests but skipped
-# here -- typically long-lived servers or demos that should only run when
-# invoked directly (F5).
+# Run the registered CTest suite. `notest_*` sources are built but not
+# registered, so ctest naturally skips them.
 #
 # In sanitizer modes we keep going past failures so the whole sweep reports
 # every issue rather than bailing on the first one. Plain runs still bail
-# on the first failure to match the legacy behavior.
-sweep_failed=0
-failed_tests=()
-for file in "$buildDir"/*; do
-  # Check if the file is an executable and a regular file (not a directory or symlink)
-  if [[ -x "$file" && -f "$file" && "$file" != *"CMakeCXXCompilerId"* ]]; then
-    base="${file##*/}"
-    if [[ "$base" == notest_* ]]; then continue; fi
-    echo "$file..."
-    if [[ -n "$sanitizer" ]]; then
-      if ! "$file"; then
-        echo "[FAIL] $base (sanitizer=$sanitizer, exit non-zero)"
-        sweep_failed=$((sweep_failed + 1))
-        failed_tests+=("$base")
-      fi
-    else
-      "$file"
-    fi
-    echo "."
-  fi
-done
-
-if [[ -n "$sanitizer" && "$sweep_failed" -gt 0 ]]; then
-  echo ""
-  echo "$sweep_failed test executable(s) failed under $sanitizer:"
-  for name in "${failed_tests[@]}"; do
-    echo "  - $name"
-  done
-  exit 1
+# on the first failure to match the legacy behavior. Tests are independent
+# (no fixed ports, no shared files), so we run in parallel by default; set
+# CTEST_PARALLEL_LEVEL to override.
+ctest_args=(--output-on-failure --test-dir "$buildRoot")
+if [[ -z "${CTEST_PARALLEL_LEVEL:-}" ]]; then
+  ctest_args+=(-j"$(nproc)")
 fi
+if [[ -z "$sanitizer" ]]; then
+  ctest_args+=(--stop-on-failure)
+fi
+
+ctest "${ctest_args[@]}"

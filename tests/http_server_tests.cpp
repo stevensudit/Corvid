@@ -142,7 +142,7 @@ TEST_CASE("Http09", "[HttpServer]") {
   REQUIRE(client);
   CHECK(client.send("GET /\r\n"));
   const auto response = client.recv_until("</html>");
-  CHECK(response.find("200") == std::string::npos);
+  CHECK_FALSE(response.contains("200"));
   // HTTP/0.9 never keep-alive; server should close after the response.
   CHECK(client.recv().empty());
 }
@@ -161,7 +161,7 @@ TEST_CASE("LeadingCrlf", "[HttpServer]") {
   REQUIRE(client);
   CHECK(client.send("\r\n\r\nGET / HTTP/1.1\r\nHost: localhost\r\n\r\n"));
   const auto response = client.recv_until("\r\n\r\n");
-  CHECK(response.find("200") != std::string::npos);
+  CHECK(response.contains("200"));
 }
 #pragma endregion
 #pragma region TooManyLeadingCrls
@@ -230,7 +230,7 @@ TEST_CASE("GetRoot", "[HttpServer]") {
   REQUIRE(client);
   CHECK(client.send("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"));
   const auto response = client.recv_until("\r\n\r\n");
-  CHECK(response.find("200") != std::string::npos);
+  CHECK(response.contains("200"));
 }
 #pragma endregion
 #pragma region GetPath
@@ -247,9 +247,9 @@ TEST_CASE("GetPath", "[HttpServer]") {
   REQUIRE(client);
   CHECK(client.send("GET /123 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
   const auto response = client.recv_until("\r\n\r\n");
-  CHECK(response.find("200") != std::string::npos);
+  CHECK(response.contains("200"));
   const auto body = client.recv_until("</html>");
-  CHECK(body.find("123") != std::string::npos);
+  CHECK(body.contains("123"));
 }
 #pragma endregion
 #pragma region RouteBasePath
@@ -284,7 +284,7 @@ TEST_CASE("InvalidRequest", "[HttpServer]") {
   REQUIRE(client);
   CHECK(client.send("POST /foo HTTP/1.1\r\nHost: localhost\r\n\r\n"));
   const auto response = client.recv_until("\r\n\r\n");
-  CHECK(response.find("405") != std::string::npos);
+  CHECK(response.contains("405"));
 }
 #pragma endregion
 #pragma region TooLongRequest
@@ -322,9 +322,9 @@ TEST_CASE("PartialRequest", "[HttpServer]") {
   CHECK(client.send("GET /42 HTTP/1.1\r\nHost: localhost"));
   CHECK(client.send("\r\n\r\n"));
   const auto response = client.recv_until("\r\n\r\n");
-  CHECK(response.find("200") != std::string::npos);
+  CHECK(response.contains("200"));
   const auto body = client.recv_until("</html>");
-  CHECK(body.find("42") != std::string::npos);
+  CHECK(body.contains("42"));
 }
 #pragma endregion
 #pragma region ANS
@@ -346,9 +346,9 @@ TEST_CASE("ANS", "[HttpServer]") {
   REQUIRE(client);
   CHECK(client.send("GET /42 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
   const auto response = client.recv_until("\r\n\r\n");
-  CHECK(response.find("200") != std::string::npos);
+  CHECK(response.contains("200"));
   const auto body = client.recv_until("</html>");
-  CHECK(body.find("42") != std::string::npos);
+  CHECK(body.contains("42"));
 }
 #pragma endregion
 #pragma region SharedWheel
@@ -378,7 +378,7 @@ TEST_CASE("RequestWithinTimeout", "[HttpServer]") {
   REQUIRE(client);
   CHECK(client.send("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"));
   const auto response = client.recv_until("\r\n\r\n");
-  CHECK(response.find("200") != std::string::npos);
+  CHECK(response.contains("200"));
 }
 #pragma endregion
 #pragma region IdleTimeout
@@ -486,7 +486,7 @@ TEST_CASE("MissingHost", "[HttpServer]") {
   REQUIRE(client);
   CHECK(client.send("GET / HTTP/1.1\r\n\r\n"));
   const auto response = client.recv_until("\r\n\r\n");
-  CHECK(response.find("400") != std::string::npos);
+  CHECK(response.contains("400"));
   // Server closes after the error response.
   CHECK(client.recv().empty());
 }
@@ -506,12 +506,12 @@ TEST_CASE("KeepAlive", "[HttpServer]") {
 
   CHECK(client.send("GET /10 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
   const auto r1 = client.recv_until("\r\n\r\n");
-  CHECK(r1.find("200") != std::string::npos);
+  CHECK(r1.contains("200"));
   (void)client.recv_until("</html>");
 
   CHECK(client.send("GET /20 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
   const auto r2 = client.recv_until("\r\n\r\n");
-  CHECK(r2.find("200") != std::string::npos);
+  CHECK(r2.contains("200"));
   (void)client.recv_until("</html>");
 }
 #pragma endregion
@@ -534,11 +534,11 @@ TEST_CASE("Pipeline", "[HttpServer]") {
       "HTTP/1.1\r\nHost: localhost\r\n\r\n"));
 
   const auto r1 = client.recv_until("\r\n\r\n");
-  CHECK(r1.find("200") != std::string::npos);
+  CHECK(r1.contains("200"));
   (void)client.recv_until("</html>");
 
   const auto r2 = client.recv_until("\r\n\r\n");
-  CHECK(r2.find("200") != std::string::npos);
+  CHECK(r2.contains("200"));
   (void)client.recv_until("</html>");
 }
 #pragma endregion
@@ -557,8 +557,8 @@ TEST_CASE("ConnectionClose", "[HttpServer]") {
   CHECK(client.send(
       "GET /5 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
   const auto response = client.recv_until("\r\n\r\n");
-  CHECK(response.find("200") != std::string::npos);
-  CHECK(response.find("Connection: close") != std::string::npos);
+  CHECK(response.contains("200"));
+  CHECK(response.contains("Connection: close"));
   (void)client.recv_until("</html>");
   // Server should close after the response.
   CHECK(client.recv().empty());
@@ -578,7 +578,7 @@ TEST_CASE("Http10NoKeepAlive", "[HttpServer]") {
   REQUIRE(client);
   CHECK(client.send("GET /5 HTTP/1.0\r\n\r\n"));
   const auto response = client.recv_until("\r\n\r\n");
-  CHECK(response.find("200") != std::string::npos);
+  CHECK(response.contains("200"));
   (void)client.recv_until("</html>");
   // HTTP/1.0 default is close; server should close after the response.
   CHECK(client.recv().empty());
@@ -599,7 +599,7 @@ TEST_CASE("BodyTooLarge", "[HttpServer]") {
   // 10 * 1024 * 1024 + 1 = 10485761, just over the 10 MB limit.
   CHECK(client.send("GET /10485761 HTTP/1.1\r\nHost: localhost\r\n\r\n"));
   const auto response = client.recv_until("\r\n\r\n");
-  CHECK(response.find("400") != std::string::npos);
+  CHECK(response.contains("400"));
 }
 #pragma endregion
 #pragma region TooLongHeaders
@@ -620,7 +620,7 @@ TEST_CASE("TooLongHeaders", "[HttpServer]") {
   const std::string long_header = "X-Pad: " + std::string(8192, 'a') + "\r\n";
   CHECK(client.send("GET / HTTP/1.1\r\n" + long_header + "\r\n"));
   const auto response = client.recv_until("\r\n\r\n");
-  CHECK(response.find("400") != std::string::npos);
+  CHECK(response.contains("400"));
   CHECK(client.recv().empty()); // server closes after error
 }
 #pragma endregion
@@ -639,7 +639,7 @@ TEST_CASE("MalformedRequestLine", "[HttpServer]") {
   REQUIRE(client);
   CHECK(client.send("BREW /coffee HTTP/1.1\r\n\r\n"));
   const auto response = client.recv_until("\r\n\r\n");
-  CHECK(response.find("400") != std::string::npos);
+  CHECK(response.contains("400"));
   CHECK(client.recv().empty()); // server closes after error
 }
 #pragma endregion
@@ -659,14 +659,14 @@ TEST_CASE("Http10KeepAlive", "[HttpServer]") {
 
   CHECK(client.send("GET /5 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"));
   const auto r1 = client.recv_until("\r\n\r\n");
-  CHECK(r1.find("200") != std::string::npos);
-  CHECK(r1.find("Connection: keep-alive") != std::string::npos);
+  CHECK(r1.contains("200"));
+  CHECK(r1.contains("Connection: keep-alive"));
   (void)client.recv_until("</html>");
 
   // Connection is still open; second request succeeds.
   CHECK(client.send("GET /10 HTTP/1.0\r\nConnection: keep-alive\r\n\r\n"));
   const auto r2 = client.recv_until("\r\n\r\n");
-  CHECK(r2.find("200") != std::string::npos);
+  CHECK(r2.contains("200"));
   (void)client.recv_until("</html>");
 }
 #pragma endregion

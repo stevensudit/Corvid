@@ -232,10 +232,10 @@ TEST_CASE("ResponseSerialize", "[HttpHeaderBlock]") {
   CHECK(resp.headers.add_raw("Content-Type", "text/plain"));
   CHECK(resp.headers.add_raw("Content-Length", "5"));
   const auto wire = resp.serialize();
-  CHECK(wire.find("HTTP/1.1 200 OK\r\n") != std::string::npos);
-  CHECK(wire.find("Connection: close\r\n") != std::string::npos);
-  CHECK(wire.find("Content-Type: text/plain\r\n") != std::string::npos);
-  CHECK(wire.find("Content-Length: 5\r\n") != std::string::npos);
+  CHECK(wire.contains("HTTP/1.1 200 OK\r\n"));
+  CHECK(wire.contains("Connection: close\r\n"));
+  CHECK(wire.contains("Content-Type: text/plain\r\n"));
+  CHECK(wire.contains("Content-Length: 5\r\n"));
   // Wire format ends with the blank line; body is not included.
   CHECK(wire.ends_with("\r\n\r\n"));
 }
@@ -301,9 +301,9 @@ TEST_CASE("RequestSerialize", "[HttpHeaderBlock]") {
     REQUIRE(req.parse(
         "GET /path HTTP/1.1\r\nHost: example.com\r\nAccept: text/html\r\n"));
     const auto wire = req.serialize();
-    CHECK(wire.find("GET /path HTTP/1.1\r\n") != std::string::npos);
-    CHECK(wire.find("Host: example.com\r\n") != std::string::npos);
-    CHECK(wire.find("Accept: text/html\r\n") != std::string::npos);
+    CHECK(wire.contains("GET /path HTTP/1.1\r\n"));
+    CHECK(wire.contains("Host: example.com\r\n"));
+    CHECK(wire.contains("Accept: text/html\r\n"));
     CHECK(wire.ends_with("\r\n\r\n"));
 
     // Round-trip: strip the terminal "\r\n" blank line before passing to
@@ -325,7 +325,7 @@ TEST_CASE("RequestSerialize", "[HttpHeaderBlock]") {
     request_head req;
     REQUIRE(req.parse("POST /submit HTTP/1.0\r\n"));
     const auto wire = req.serialize();
-    CHECK(wire.find("POST /submit HTTP/1.0\r\n") != std::string::npos);
+    CHECK(wire.contains("POST /submit HTTP/1.0\r\n"));
     CHECK(wire.ends_with("\r\n\r\n"));
   }
   {
@@ -333,8 +333,8 @@ TEST_CASE("RequestSerialize", "[HttpHeaderBlock]") {
     request_head req;
     REQUIRE(req.parse("GET /\r\n"));
     const auto wire = req.serialize();
-    CHECK(wire.find("GET /\r\n") != std::string::npos);
-    CHECK(wire.find("HTTP/") == std::string::npos);
+    CHECK(wire.contains("GET /\r\n"));
+    CHECK_FALSE(wire.contains("HTTP/"));
     CHECK(wire.ends_with("\r\n\r\n"));
   }
   {
@@ -773,8 +773,8 @@ TEST_CASE("AddRawWithRawName", "[HttpHeaderBlock]") {
   // `serialize()` writes the raw (wire) name, not the canonical key.
   std::string out;
   h.serialize(out);
-  CHECK(out.find("content-type: text/html\r\n") != std::string::npos);
-  CHECK(out.find("Content-Type") == std::string::npos);
+  CHECK(out.contains("content-type: text/html\r\n"));
+  CHECK_FALSE(out.contains("Content-Type"));
 }
 #pragma endregion
 #pragma region GetReturnsFirst
@@ -916,10 +916,10 @@ TEST_CASE("MakeErrorResponse", "[HttpHeaderBlock]") {
   {
     // Defaults: HTTP/1.1 400 Bad Request, Connection: close.
     const auto wire = response_head::make_error_response();
-    CHECK(wire.find("HTTP/1.1") != std::string::npos);
-    CHECK(wire.find("400") != std::string::npos);
-    CHECK(wire.find("Bad Request") != std::string::npos);
-    CHECK(wire.find("Connection: close") != std::string::npos);
+    CHECK(wire.contains("HTTP/1.1"));
+    CHECK(wire.contains("400"));
+    CHECK(wire.contains("Bad Request"));
+    CHECK(wire.contains("Connection: close"));
     CHECK(wire.ends_with("\r\n\r\n"));
   }
   {
@@ -927,10 +927,10 @@ TEST_CASE("MakeErrorResponse", "[HttpHeaderBlock]") {
     const auto wire = response_head::make_error_response(
         after_response::keep_alive, http_version::http_1_0,
         http_status_code::METHOD_NOT_ALLOWED, "Method Not Allowed");
-    CHECK(wire.find("HTTP/1.0") != std::string::npos);
-    CHECK(wire.find("405") != std::string::npos);
-    CHECK(wire.find("Method Not Allowed") != std::string::npos);
-    CHECK(wire.find("Connection: keep-alive") != std::string::npos);
+    CHECK(wire.contains("HTTP/1.0"));
+    CHECK(wire.contains("405"));
+    CHECK(wire.contains("Method Not Allowed"));
+    CHECK(wire.contains("Connection: keep-alive"));
   }
 }
 #pragma endregion

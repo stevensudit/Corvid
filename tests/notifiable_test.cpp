@@ -71,7 +71,7 @@ TEST_CASE("WaitFor", "[Notifiable]") {
     std::thread t{[&] { flag.notify(true); }};
     auto v = flag.wait_for(5s, std::identity{});
     CHECK(v);
-    CHECK(*v);
+    CHECK(v.value());
     t.join();
   }
   // `wait_for` timeout: predicate never met, returns nullopt.
@@ -103,7 +103,7 @@ TEST_CASE("WaitUntilChanged", "[Notifiable]") {
     std::thread t{[&] { n.notify(42); }};
     auto v = n.wait_for_changed(5s, old);
     CHECK(v);
-    CHECK(*v == 42);
+    CHECK(v.value() == 42);
     t.join();
   }
   // `wait_for_changed` timeout: value never changes, returns nullopt.
@@ -189,7 +189,7 @@ TEST_CASE("Atomic", "[Notifiable]") {
       return b.load();
     });
     CHECK(v);
-    CHECK(*v);
+    CHECK(v.value());
     t.join();
   }
   // `wait_for_value` satisfied before deadline.
@@ -211,7 +211,7 @@ TEST_CASE("Atomic", "[Notifiable]") {
     std::thread t{[&] { n.notify(99); }};
     auto v = n.wait_for_changed(5s, old);
     CHECK(v);
-    CHECK(*v == 99);
+    CHECK(v.value() == 99);
     t.join();
   }
   // `wait_for_changed` timeout: value never changes.
@@ -346,7 +346,7 @@ TEST_CASE("RelaxedAtomic", "[Notifiable]") {
       return b->load();
     });
     CHECK(v);
-    CHECK(*v);
+    CHECK(v.value());
     t.join();
   }
   // `wait_for_changed` satisfied before deadline.
@@ -356,7 +356,7 @@ TEST_CASE("RelaxedAtomic", "[Notifiable]") {
     std::thread t{[&] { n.notify(99); }};
     auto v = n.wait_for_changed(5s, old);
     CHECK(v);
-    CHECK(*v == 99);
+    CHECK(v.value() == 99);
     t.join();
   }
   // `wait_for_changed` timeout: value never changes.

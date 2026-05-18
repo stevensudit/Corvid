@@ -335,6 +335,8 @@ public:
   // unregisters from the loop. By the time `post_and_wait` returns, the
   // conn's handlers (and their `weak_ptr<http_server>` captures) have
   // been destroyed on the worker thread, sequenced before our own dec.
+  //
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   ~http_server() {
     if (runner_) {
       listener_ = {};

@@ -98,6 +98,7 @@ TEST_CASE("Move", "[NetSocket]") {
     net_socket a{address_family::inet, socket_type::stream, {}};
     const auto h = a.handle();
     net_socket b{std::move(a)};
+    // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
     CHECK_FALSE(a.is_open());
     CHECK(b.is_open());
     CHECK(b.handle() == h);
@@ -109,6 +110,7 @@ TEST_CASE("Move", "[NetSocket]") {
     net_socket b{address_family::inet, socket_type::stream, {}};
     const auto h = a.handle();
     b = std::move(a);
+    // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
     CHECK_FALSE(a.is_open());
     CHECK(b.is_open());
     CHECK(b.handle() == h);
