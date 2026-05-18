@@ -6,6 +6,11 @@ project(Corvid VERSION 1.0 LANGUAGES CXX)
 # drive `ctest` rather than looping over release_bin/* directly.
 enable_testing()
 
+# Emit compile_commands.json into the build dir. Required by the Clang Static
+# Analyzer (`./cleanbuild.sh scan` -> analyze-build); also consumed by clangd
+# and other tooling, so always-on.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Allow selecting the standard library. Passing -DUSE_LIBSTDCPP=ON to cmake will
 # force libstdc++. Otherwise, the default is libc++ unless we're running on
 # Codex, where libstdc++ is required.
@@ -70,6 +75,36 @@ find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
     message(STATUS "ccache enabled: ${CCACHE_PROGRAM}")
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+endif()
+
+# Optional coverage mode. Selected via -DCOVERAGE=ON (or `./cleanbuild.sh
+# coverage`). Builds with `-fprofile-instr-generate -fcoverage-mapping` so
+# every test binary writes raw profiles at runtime; cleanbuild.sh then merges
+# them with `llvm-profdata` and produces a report with `llvm-cov`.
+# Mutually exclusive with sanitizers (they instrument conflicting runtimes)
+# and with clang-tidy (build-time analyzer adds nothing here).
+option(COVERAGE "Build with source-based coverage instrumentation" OFF)
+if(COVERAGE)
+    if(SANITIZER)
+        message(FATAL_ERROR "COVERAGE=ON cannot be combined with SANITIZER=${SANITIZER}")
+    endif()
+    if(USE_CLANG_TIDY)
+        message(FATAL_ERROR "COVERAGE=ON cannot be combined with USE_CLANG_TIDY=ON")
+    endif()
+    if(USE_LIBSTDCPP)
+        message(FATAL_ERROR "COVERAGE=ON requires libc++ (USE_LIBSTDCPP=OFF) for matching llvm-cov tooling")
+    endif()
+    # Coverage needs a low-but-not-zero optimization level so the source-to-
+    # counter mapping stays close to source: aggressive inlining, unrolling,
+    # and dead-code elimination at -O3 silently merge or zero out counters
+    # for header-only template code. Strip the release flags and replace
+    # with -O1 -g. See the discussion in TODO item 2 for context.
+    string(REGEX REPLACE "-O3"            "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    string(REGEX REPLACE "-march=native"  "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    set(_cov_flags "-O1 -g -fprofile-instr-generate -fcoverage-mapping")
+    message(STATUS "Coverage enabled: ${_cov_flags}")
+    set(CMAKE_CXX_FLAGS        "${CMAKE_CXX_FLAGS} ${_cov_flags}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${_cov_flags}")
 endif()
 
 # Optional sanitizer mode. Selected via -DSANITIZER=asan|tsan|ubsan (or via

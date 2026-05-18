@@ -79,6 +79,10 @@ Corvid provides utilities that replace direct calls on std types. Search the lib
 
 Scan relevant headers first when writing new code to avoid reimplementing.
 
+## Refactoring
+
+`clang-query-22` is installed. Reach for it instead of grep when AST-level matching matters: telling overloaded methods apart, finding callers of a specific overload (not every method that shares the name), template-instantiation patterns, or `[[nodiscard]]` discard sites. For unique symbol search and plain renames, grep is still faster and worth trying first.
+
 ## Non-Obvious Locations
 
 - `npos` / base string position types: `corvid/strings/string_base.h`
