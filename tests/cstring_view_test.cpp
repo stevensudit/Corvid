@@ -332,7 +332,7 @@ TEST_CASE("Cast", "[CStringViewTest]") {
   // * accept_string_view_ref(csv);
   // NOLINTNEXTLINE(performance-move-const-arg)
   accept_string_view_rref(std::move(sv));
-  // NOLINTNEXTLINE(bugprone-use-after-move)
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK(sv == "changed");
   // Weird but correct, and invariant is maintained.
   accept_string_view_rref(csv);

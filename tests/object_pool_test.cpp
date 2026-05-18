@@ -124,7 +124,7 @@ TEST_CASE("MoveHandle", "[ObjectPool]") {
     CHECK(h);
 
     auto h2 = std::move(h);
-    // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(h);
     CHECK(h2);
   }
@@ -149,7 +149,7 @@ TEST_CASE("MoveHandle", "[ObjectPool]") {
     auto h = pool.borrow();
     object_pool<int, 4>::borrowed h2;
     h2 = std::move(h);
-    // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(h);
     CHECK(h2);
   }
@@ -282,7 +282,7 @@ TEST_CASE("DetachAndReattach", "[ObjectPool]") {
     int* item = h.get();
 
     auto detached = pool.detach(std::move(h));
-    // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(h);
     CHECK(detached == item);
     CHECK_FALSE(pool.borrow()); // detached slot is still out of the pool
@@ -362,7 +362,7 @@ TEST_CASE("TokenDetachAndBorrow", "[ObjectPool]") {
     auto b = pool.borrow();
     int* p = b.get();
     object_pool<int, 1>::token h{std::move(b)};
-    // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(b); // b was detached
     CHECK(h);
     CHECK_FALSE(pool.borrow());  // slot not in free list

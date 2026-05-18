@@ -388,6 +388,11 @@ public:
 
   // Queue a registered `buffer` for zero-copy sending.
   [[nodiscard]] bool send(buffer&& buf) {
+    // `buf` is an rvalue ref; the actual move into the lambda capture below
+    // is the only consumption. Analyzer flags the precondition checks as
+    // use-after-move because callers write `std::move(tok)`, but no move
+    // has happened yet.
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.Move)
     if (!writes_allowed() || !buf || buf.active_span().empty()) return false;
     return loop_.execute_or_post(
         [this, _ = self(), buf = std::move(buf)]() mutable -> bool {

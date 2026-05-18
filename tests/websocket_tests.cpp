@@ -1057,7 +1057,7 @@ TEST_CASE("Send_Frame_Prebuilt", "[WebSocket]") {
   }};
   std::string frame = ws_frame_lens::serialize_frame(
       ws_frame_control::fin | ws_frame_control::text, "pre");
-  // NOLINTNEXTLINE(bugprone-use-after-move): Catch2 decomposition
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK(ws.send_frame(std::move(frame)));
   ws_frame_view hdr{sent};
   REQUIRE(hdr.is_complete());

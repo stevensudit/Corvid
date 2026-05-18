@@ -372,11 +372,11 @@ TEST_CASE("Cast", "[OptStringViewTest]") {
   accept_string_view_ref(osv);
   // NOLINTNEXTLINE(performance-move-const-arg)
   accept_string_view_rref(std::move(sv));
-  // NOLINTNEXTLINE(bugprone-use-after-move)
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK(sv == "changed");
   // NOLINTNEXTLINE(performance-move-const-arg)
   accept_string_view_rref(std::move(osv));
-  // NOLINTNEXTLINE(bugprone-use-after-move)
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK(osv == "changed");
   // Same thing happens with `std::string`. If you want this not to happen, you
   // need to prevent conversion (by hiding behind `enable_if` or forcing a

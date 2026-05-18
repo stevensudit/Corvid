@@ -70,7 +70,7 @@ TEST_CASE("Construction", "[OptionalPtrTest]") {
     optional_ptr o{std::make_unique<std::string>(test)};
     // * optional_ptr qo{o};
     optional_ptr ro{std::move(o)};
-    // NOLINTNEXTLINE(bugprone-use-after-move)
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(o.has_value());
     CHECK(ro.has_value());
   }
@@ -107,6 +107,7 @@ TEST_CASE("Access", "[OptionalPtrTest]") {
     auto p = o.get();
     // * o.get()->resize(test.size());
     p++;
+    // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound): intentional UB
     (void)p[6];
     p = p + 1;
     (void)p;
@@ -170,7 +171,7 @@ TEST_CASE("Smart", "[OptionalPtrTest]") {
 
     // * auto qo{o};
     auto qo{std::move(o)};
-    // NOLINTNEXTLINE(bugprone-use-after-move)
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(o.has_value());
     CHECK(qo.has_value());
 

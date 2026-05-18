@@ -634,6 +634,11 @@ public:
         return {tokenize(completion_fn{std::move(cb)}), nullptr};
     }
     af_t* af_ptr{};
+    // Establish the forwarding link before the move below; the move ctor sees
+    // the link and updates `*af_ptr` to the new location. Analyzer flags this
+    // as use-after-move because the caller passes `std::move(...)`, but `af`
+    // is a forwarding reference; no move has happened until the next stmt.
+    // NOLINTNEXTLINE(clang-analyzer-cplusplus.Move)
     af.forwarding_address() = &af_ptr;
     const auto cbtoken =
         tokenize(wrap_completion_fn(std::move(cb), std::move(af)));

@@ -562,6 +562,7 @@ public:
   // Hard failure    false     resized to offset
   [[nodiscard]] bool
   recv_at(std::string& data, size_t offset, msg_flags flags = {}) const {
+    assert(is_open());
     if (offset >= data.size()) return true;
 
     const ssize_t n =

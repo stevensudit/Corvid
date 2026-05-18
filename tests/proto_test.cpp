@@ -959,6 +959,7 @@ TEST_CASE("SelfDestroyOnLoopThread", "[IoLoop]") {
   REQUIRE(loop != nullptr);
   auto finished = runner->finished_signal();
 
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   REQUIRE(loop->post([r = std::move(runner)]() mutable {
     r.reset();
     return true;
@@ -2769,7 +2770,7 @@ TEST_CASE("Covariance", "[StreamConnPtr]") {
   // Implicit upcast.
   stream_conn_ptr base = std::move(typed);
   REQUIRE(base);
-  // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK_FALSE(typed); // ownership transferred
 
   CHECK(loop->run_once(0) >= 0); // register_with_loop

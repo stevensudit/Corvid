@@ -480,7 +480,7 @@ TEST_CASE("Extended", "[StrongType]") {
     // Move ctor.
     FirstName fn_moved{std::move(fn_copy)};
     CHECK(fn_moved == "John");
-    // NOLINTNEXTLINE(bugprone-use-after-move)
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK(fn_copy == "");
     // Copy conversion from string.
     std::string name{"Jane"};
@@ -489,7 +489,7 @@ TEST_CASE("Extended", "[StrongType]") {
     // Move conversion from string.
     FirstName fn_move_from_string{std::move(name)};
     CHECK(fn_move_from_string == "Jane");
-    // NOLINTNEXTLINE(bugprone-use-after-move)
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK(name == "");
     // Conversion from char[].
     char name2[]{"Jim"};
@@ -508,7 +508,7 @@ TEST_CASE("Extended", "[StrongType]") {
     FirstName fn_move;
     fn_move = std::move(fn_copy);
     CHECK(fn_move == "Jane");
-    // NOLINTNEXTLINE(bugprone-use-after-move)
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK(fn_copy == "");
     // Copy from char[].
     char namearray[]{"John"};
@@ -522,7 +522,7 @@ TEST_CASE("Extended", "[StrongType]") {
     fn->clear();
     fn = std::move(name);
     CHECK(fn == "Jane");
-    // NOLINTNEXTLINE(bugprone-use-after-move)
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK(name == "");
   }
 

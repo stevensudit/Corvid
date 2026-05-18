@@ -135,6 +135,7 @@ TEST_CASE("SelfDestroyOnLoopThread", "[IouLoop]") {
   iou_loop& loop = *runner;
   auto finished = runner->finished_signal();
 
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   REQUIRE(loop.post([r = std::move(runner)]() mutable {
     r.reset();
     return true;

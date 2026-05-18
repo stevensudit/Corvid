@@ -129,7 +129,7 @@ TEST_CASE("Move", "[Epoll]") {
     epoll a{epoll::default_flags};
     const auto h = a.handle();
     epoll b{std::move(a)};
-    // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(a.is_open());
     CHECK(b.is_open());
     CHECK(b.handle() == h);
@@ -141,7 +141,7 @@ TEST_CASE("Move", "[Epoll]") {
     epoll b{epoll::default_flags};
     const auto h = a.handle();
     b = std::move(a);
-    // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(a.is_open());
     CHECK(b.is_open());
     CHECK(b.handle() == h);
@@ -271,7 +271,7 @@ TEST_CASE("Move", "[EventFd]") {
     event_fd a{0};
     const auto h = a.handle();
     event_fd b{std::move(a)};
-    // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(a.is_open());
     CHECK(b.is_open());
     CHECK(b.handle() == h);
@@ -283,7 +283,7 @@ TEST_CASE("Move", "[EventFd]") {
     event_fd b{0};
     const auto h = a.handle();
     b = std::move(a);
-    // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK_FALSE(a.is_open());
     CHECK(b.is_open());
     CHECK(b.handle() == h);

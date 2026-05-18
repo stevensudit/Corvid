@@ -57,7 +57,7 @@ TEST_CASE("Construction", "[CircularBufferTest]") {
     CHECK(cb.size() == 0U);
     cb.push_back(1);
     CB cb2{std::move(cb)};
-    // NOLINTNEXTLINE(bugprone-use-after-move)
+    // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
     CHECK(cb.empty());
     CHECK(cb0.capacity() == 0U);
     CHECK(cb0.size() == 0U);

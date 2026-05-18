@@ -810,9 +810,10 @@ TEST_CASE("SyntheticMove", "[IouBufPool]") {
   auto src = iou_buffer::make_synthetic(span);
   auto dst = std::move(src);
   REQUIRE(dst);
-  // NOLINTNEXTLINE(bugprone-use-after-move): verifying moved-from state
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK_FALSE(src);
   CHECK(dst.payload_view() == data);
+  // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move)
   CHECK(src.payload_span().size() == 0ULL);
 }
 #pragma endregion
