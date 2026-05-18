@@ -39,7 +39,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     std::string_view v;
     CHECK(v.empty());
     CHECK(v.data() == nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Default-constructed cstring_view.
   if (true) {
@@ -48,7 +48,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK(v.null());
     CHECK(v.data() == nullptr);
     CHECK(v.c_str() != nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on null pointer.
   if (true) {
@@ -68,7 +68,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK(v.null());
     CHECK(v.data() == nullptr);
     CHECK(v.c_str() != nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on nullptr.
   if (true) {
@@ -78,7 +78,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK(v.null());
     CHECK(v.data() == nullptr);
     CHECK(v.c_str() != nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on nullopt.
   if (true) {
@@ -88,7 +88,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK(v.null());
     CHECK(v.data() == nullptr);
     CHECK(v.c_str() != nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on null and 0.
   if (true) {
@@ -98,7 +98,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     std::string_view v{p, 0};
     CHECK(v.empty());
     CHECK(v.data() == nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on null and 0.
   if (true) {
@@ -109,7 +109,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK(v.null());
     CHECK(v.data() == nullptr);
     CHECK(v.c_str() != nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on empty.
   if (true) {
@@ -117,7 +117,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     std::string_view v{p};
     CHECK(v.empty());
     CHECK(v.data() != nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on empty.
   if (true) {
@@ -127,7 +127,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK_FALSE(v.null());
     CHECK(v.data() != nullptr);
     CHECK(v.c_str() != nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on empty and 0.
   if (true) {
@@ -136,7 +136,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     std::string_view v{p, 0};
     CHECK(v.empty());
     CHECK(v.data() != nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on empty and 0.
   if (true) {
@@ -147,7 +147,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK_FALSE(v.null());
     CHECK(v.data() != nullptr);
     CHECK(v.c_str() != nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on empty string.
   if (true) {
@@ -155,7 +155,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     std::string_view v{s};
     CHECK(v.empty());
     CHECK(v.data() != nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on empty string.
   if (true) {
@@ -165,7 +165,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK_FALSE(v.null());
     CHECK(v.data() != nullptr);
     CHECK(v.c_str() != nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on null string_view.
   if (true) {
@@ -174,7 +174,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     std::string_view v{sv};
     CHECK(v.empty());
     CHECK(v.data() == nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on null string_view.
   if (true) {
@@ -185,7 +185,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK(v.null());
     CHECK(v.data() == nullptr);
     CHECK(v.c_str() != nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on empty string_view.
   if (true) {
@@ -194,7 +194,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     std::string_view v{sv};
     CHECK(v.empty());
     CHECK(v.data() != nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct cstring_view on empty string_view.
   if (true) {
@@ -208,7 +208,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK_FALSE(v.null());
     CHECK(v.data() != nullptr);
     CHECK(v.c_str() != nullptr);
-    CHECK(&*v.begin() == &*v.end());
+    CHECK(v.data() == v.data() + v.size());
   }
   // Construct string_view on arbitrary string_view.
   if (true) {
@@ -216,7 +216,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     std::string_view v{sv};
     CHECK_FALSE(v.empty());
     CHECK(v.data() != nullptr);
-    CHECK(&*v.begin() != &*v.end());
+    CHECK(v.data() != v.data() + v.size());
   }
   // Construct cstring_view on arbitrary string_view.
   if (true) {
@@ -229,7 +229,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK_FALSE(v.null());
     CHECK(v.data() != nullptr);
     CHECK(v.c_str() != nullptr);
-    CHECK(&*v.begin() != &*v.end());
+    CHECK(v.data() != v.data() + v.size());
   }
   // Construct string_view on it/end.
   if (true) {
@@ -237,7 +237,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     std::string_view v{r.begin(), r.end()};
     CHECK_FALSE(v.empty());
     CHECK(v.data() != nullptr);
-    CHECK(&*v.begin() != &*v.end());
+    CHECK(v.data() != v.data() + v.size());
     CHECK(r.size() == 4U);
     CHECK(v.size() == 4U);
   }
@@ -249,7 +249,7 @@ TEST_CASE("Construction", "[CStringViewTest]") {
     CHECK_FALSE(v.null());
     CHECK(v.data() != nullptr);
     CHECK(v.c_str() != nullptr);
-    CHECK(&*v.begin() != &*v.end());
+    CHECK(v.data() != v.data() + v.size());
     CHECK(r.size() == 4U);
     CHECK(v.size() == 3U);
   }

@@ -192,10 +192,10 @@ protected:
 //
 // Thread-safe: `read` and `write` may be called from any thread, including
 // concurrently. An atomic gate per direction ensures that only one caller
-// wins the "claim the pending slot" race; the rest return false. Once a
-// caller wins, the cb fields are written before handing off to the loop
-// thread, and the loop thread is the only one that subsequently touches
-// them (in the posted lambda and in the persistent handlers).
+// wins the "claim the pending slot" race; the rest return false. The winner
+// posts a lambda to the loop thread that assigns the cb field there, so the
+// loop thread is the only one that ever touches the cb fields (in the
+// posted lambda and in the persistent handlers).
 //
 // `EPOLLIN` is gated by `recv_buffer::reads_enabled`. `on_data` is set
 // persistently in the constructor; `read` calls `enable_reads()` to

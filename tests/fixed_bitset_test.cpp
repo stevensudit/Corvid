@@ -1332,8 +1332,7 @@ TEST_CASE("PosParam", "[FixedBitset]") {
     std::vector<slot_t> got;
     for (auto p : b) got.push_back(p);
     CHECK(got.size() == 3U);
-    // Use EXPECT_TRUE for enum comparisons: EXPECT_EQ's error path can't
-    // print unprintable types.
+
     CHECK(got[0] == slot_t{3});
     CHECK(got[1] == slot_t{17});
     CHECK(got[2] == slot_t{63});

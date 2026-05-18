@@ -15,7 +15,9 @@ SRC_DIR="$REPO_ROOT/tests/.local/llvm-project-src"
 BUILD_DIR="$REPO_ROOT/tests/.local/llvm-msan-build"
 IGNORELIST="$REPO_ROOT/scripts/msan-libcxx-ignorelist.txt"
 
-if [[ -f "$INSTALL_PREFIX/lib/libc++.a" ]]; then
+if [[ -f "$INSTALL_PREFIX/lib/libc++.a" \
+   && -f "$INSTALL_PREFIX/lib/libc++abi.a" \
+   && -f "$INSTALL_PREFIX/lib/libunwind.a" ]]; then
     echo "MSAN libc++ already installed at $INSTALL_PREFIX"
     echo "Delete that directory to force a rebuild (required after editing"
     echo "$IGNORELIST since it affects libc++ instrumentation)."
