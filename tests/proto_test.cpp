@@ -2164,17 +2164,6 @@ TEST_CASE("FireAndForget", "[LoopTask]") {
 }
 
 #pragma endregion
-
-// Verify that `async_read` delivers data to a coroutine.
-
-// Verify that `async_read` returns an empty string when the peer closes
-// the connection before data arrives.
-
-// Verify that `async_send` delivers bytes to the peer and suspends until
-// the queue drains.
-
-// Verify that a client can connect to a local loopback listener and that the
-// server echoes back whatever it receives, using only persistent callbacks.
 #pragma region EchoServer
 
 TEST_CASE("EchoServer", "[StreamConn]") {
@@ -2318,8 +2307,9 @@ TEST_CASE("Listen", "[StreamConnWithState]") {
 
 #pragma endregion
 
-// Verify that a epoll_stream_conn_ptr_with<Derived> is implicitly convertible
-// to the untyped epoll_stream_conn_ptr and the resulting handle is usable.
+// Verify that an `epoll_stream_conn_ptr_with<Derived>` is implicitly
+// convertible to the untyped `epoll_stream_conn_ptr` and the resulting handle
+// is usable.
 #pragma region Covariance
 
 TEST_CASE("Covariance", "[StreamConnPtr]") {

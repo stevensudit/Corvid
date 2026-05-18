@@ -15,9 +15,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
+#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <utility>
 
 #include <netinet/in.h>
@@ -448,7 +451,7 @@ public:
   // Create a blocking socket and connect it to `addr`.
   //
   // As synchronous I/O is not scalable, this is a convenience factory for
-  // simple use cases, mean to work with other utility methods with "sync" in
+  // simple use cases, meant to work with other utility methods with "sync" in
   // their name.
   [[nodiscard]] static net_socket create_sync_connected(
       const sockaddr_storage& addr, std::chrono::milliseconds timeout = 1s) {
@@ -657,26 +660,26 @@ public:
 
   // Read synchronous socket until `delim` appears in the accumulated buffer.
   // Returns everything up to and including `delim`; trailing bytes stay in
-  // `buf` for a subsequent call. Returns empty on EOF, hard error, or timeout.
+  // `buf` for a subsequent call. Returns empty on EOF, hard error, timeout,
+  // or if `buf` would grow beyond `max_size` without finding the delimiter.
   //
   // This is a utility method, not optimized for performance.
-  [[nodiscard]] std::string
-  recv_sync_until(std::string& buf, std::string_view delim) const {
-    while (true) {
-      const auto pos = buf.find(delim);
-      if (pos != std::string::npos) {
+  [[nodiscard]] std::string recv_sync_until(std::string& buf,
+      std::string_view delim, size_t max_size = 4096 * 16ULL) const {
+    for (;;) {
+      if (const auto pos = buf.find(delim); pos != std::string::npos) {
         const auto end = pos + delim.size();
         std::string out = buf.substr(0, end);
         buf.erase(0, end);
         return out;
       }
       const size_t old_size = buf.size();
-      no_zero::resize_to(buf, old_size + 4096);
-      if (!recv(buf)) {
-        buf.clear();
-        return {};
-      }
+      if (old_size >= max_size) break;
+      no_zero::resize_to(buf, std::min(old_size + 4096, max_size));
+      if (!recv_at(buf, old_size)) break;
     }
+    buf.clear();
+    return {};
   }
 
   // Ensure `buf` contains pending bytes to process. If `buf` is non-empty,
